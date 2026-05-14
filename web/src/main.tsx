@@ -1,0 +1,22 @@
+import React from 'react'
+import ReactDOM from 'react-dom/client'
+import { BrowserRouter } from 'react-router-dom'
+import { Toaster } from 'react-hot-toast'
+
+import App from './App'
+import './index.css'
+
+// Application root: BrowserRouter + global toast container.
+ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
+  <React.StrictMode>
+    <BrowserRouter>
+      <App />
+      <Toaster
+        position="top-right"
+        toastOptions={{
+          className: '!bg-surface-800 !text-white !border !border-white/10',
+        }}
+      />
+    </BrowserRouter>
+  </React.StrictMode>,
+)

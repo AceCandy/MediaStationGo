@@ -1,0 +1,72 @@
+# ============================================================================
+# MediaStationGo configuration template.
+#
+# Loading priority (low -> high):
+#   1. Built-in defaults
+#   2. config.yaml (this file, copied to the working directory)
+#   3. config/*.yaml shard files (per-module)
+#   4. Environment variables prefixed with MEDIASTATION_, e.g.
+#      MEDIASTATION_APP_PORT=8080
+#      MEDIASTATION_SECRETS_JWT_SECRET=...
+#
+# Copy this file to `config.yaml` and edit the values you actually need.
+# ============================================================================
+
+app:
+  port: 8080
+  debug: false
+  env: production
+  data_dir: ./data
+  web_dir: ./web/dist
+  ffmpeg_path: ffmpeg
+  ffprobe_path: ffprobe
+  vaapi_device: /dev/dri/renderD128
+  cors_origins: []     # leave empty to allow * in dev; set strict allow-list in prod
+  server_url: ""       # public URL of the server (used for DLNA / casting)
+
+database:
+  db_path: ./data/mediastation.db
+  wal_mode: true
+  busy_timeout: 5000
+  cache_size: -20000   # KB (negative)
+  max_open_conns: 1
+  max_idle_conns: 1
+
+secrets:
+  # When empty, a 32-byte random secret is generated on first start and
+  # persisted to {data_dir}/.jwt_secret so existing sessions survive restarts.
+  jwt_secret: ""
+  tmdb_api_key: ""
+  bangumi_access_token: ""
+  thetvdb_api_key: ""
+  fanart_tv_api_key: ""
+
+logging:
+  level: info          # debug | info | warn | error
+  format: console      # console | json
+  output_path: ""      # empty = stdout
+  enable_rotation: false
+  max_size_mb: 100
+  max_age_days: 30
+  max_backups: 10
+
+cache:
+  cache_dir: ./cache
+  max_disk_usage_mb: 0     # 0 = unlimited
+  ttl_hours: 0
+  auto_cleanup: false
+  cleanup_interval_min: 60
+
+media:
+  movies_dir: ""
+  tv_dir: ""
+  anime_dir: ""
+
+ai:
+  enabled: false
+  provider: openai           # openai | deepseek | qwen | ollama
+  api_base: https://api.openai.com/v1
+  api_key: ""
+  model: gpt-4o-mini
+  timeout: 30
+  max_concurrent: 3

@@ -1,0 +1,47 @@
+# Binaries
+bin/
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Test binary, built with `go test -c`
+*.test
+*.out
+
+# Go workspace
+go.work
+
+# Dependency directories
+node_modules/
+
+# Build artifacts
+web/dist/
+web/.vite/
+web/coverage/
+web/tsconfig.tsbuildinfo
+
+# Data / runtime
+data/
+cache/
+logs/
+*.log
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+
+# Editor / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Env files
+.env
+.env.local
+.env.*.local
+
+# Local configs (keep examples)
+config/secrets.yaml
+config.yaml
