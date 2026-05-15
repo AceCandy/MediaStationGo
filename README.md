@@ -16,7 +16,7 @@
 
 The original MediaStation is a Python/FastAPI + Vue project. **MediaStationGo**
 is a from-scratch reimplementation that adopts the lighter, single-binary
-deployment model used by [`cropflre/nowen-video`](https://github.com/cropflre/nowen-video):
+deployment model used by [`ShukeBta/MediaStation`](https://github.com/ShukeBta/MediaStation):
 
 - **Backend**: Go 1.25 + Gin + GORM + SQLite (WAL).
 - **Frontend**: React 18 + Vite + Tailwind + Zustand.
