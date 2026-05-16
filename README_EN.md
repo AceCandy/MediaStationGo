@@ -192,7 +192,7 @@ cd MediaStationGo
 docker compose up -d
 ```
 
-> 🌐 Open <http://localhost:8080> and log in with `admin` / `admin123`.
+> 🌐 The server auto-detects your local IP on startup and logs the access URL (e.g. `http://192.168.x.x:8080`). Log in with `admin` / `admin123`.
 
 ### 💻 Bare Metal
 

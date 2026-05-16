@@ -14,6 +14,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -87,7 +88,11 @@ func main() {
 	}
 
 	go func() {
-		logger.Info("listening", zap.String("addr", srv.Addr))
+		localIP := getLocalIP()
+		logger.Info("server is ready",
+			zap.String("local", fmt.Sprintf("http://%s:%d", localIP, cfg.App.Port)),
+			zap.String("listen", srv.Addr),
+		)
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			logger.Fatal("listen failed", zap.Error(err))
 		}
@@ -147,4 +152,31 @@ func newLogger(cfg *config.Config) (*zap.Logger, error) {
 		return zap.NewDevelopment()
 	}
 	return zap.NewProduction()
+}
+
+// getLocalIP returns the first non-loopback IPv4 address of the machine.
+// Falls back to "localhost" if no suitable interface is found.
+func getLocalIP() string {
+	interfaces, err := net.Interfaces()
+	if err != nil {
+		return "localhost"
+	}
+	for _, iface := range interfaces {
+		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
+			continue
+		}
+		addrs, err := iface.Addrs()
+		if err != nil {
+			continue
+		}
+		for _, addr := range addrs {
+			switch v := addr.(type) {
+			case *net.IPNet:
+				if ip := v.IP.To4(); ip != nil {
+					return ip.String()
+				}
+			}
+		}
+	}
+	return "localhost"
 }
