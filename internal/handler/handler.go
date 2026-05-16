@@ -171,6 +171,90 @@ func Register(r *gin.Engine, cfg *config.Config, log *zap.Logger, svc *service.C
 			authed.POST("/play-profiles", createPlayProfileHandler(svc))
 			authed.PUT("/play-profiles/:id", updatePlayProfileHandler(svc))
 			authed.DELETE("/play-profiles/:id", deletePlayProfileHandler(svc))
+
+			// ── Auth extras ──
+			authed.POST("/auth/refresh", refreshHandler(svc))
+			authed.POST("/auth/logout", logoutHandler(svc))
+			authed.GET("/auth/me", meHandler(svc))
+			authed.PATCH("/auth/profile", updateProfileHandler(svc))
+			authed.POST("/auth/change-password", changePasswordHandler(svc))
+			authed.GET("/auth/permissions", myPermissionsHandler(svc))
+
+			// ── Search aliases ──
+			authed.GET("/search", searchUnifiedHandler(svc))
+			authed.GET("/search/advanced", searchAdvancedHandler(svc))
+			authed.GET("/search/tmdb", searchTMDbHandler(svc))
+			authed.GET("/search/sites", searchSitesHandler(svc))
+
+			// ── System extras ──
+			authed.GET("/system/config", listSystemConfigHandler(svc))
+			authed.GET("/settings/schema", schemaHandler(svc))
+			authed.GET("/system/events/ticket", systemEventsTicketHandler(svc))
+
+			// ── Per-user stats ──
+			authed.GET("/stats/user/:id", statsUserHandler(svc))
+			authed.GET("/stats/top-users", statsTopUsersHandler(svc))
+			authed.POST("/stats/play", statsPlayHandler(svc))
+
+			// ── Sites extras ──
+			authed.GET("/sites/:id/resource", siteResourceHandler(svc))
+			authed.GET("/sites/:id/userdata", siteUserdataHandler(svc))
+
+			// ── Subscription extras ──
+			authed.PUT("/subscriptions/:id", updateSubscriptionHandler(svc))
+			authed.POST("/subscriptions/:id/search", searchSubscriptionHandler(svc))
+
+			// ── Playlist extras ──
+			authed.POST("/playlists/:id/reorder", reorderPlaylistHandler(svc))
+			authed.DELETE("/playlists/:id/items/by-id/:item_id", deletePlaylistItemByIDHandler(svc))
+
+			// ── DLNA per-renderer control ──
+			authed.POST("/dlna/:uuid/play", dlnaPlayHandler(svc))
+			authed.POST("/dlna/:uuid/pause", dlnaPauseHandler(svc))
+			authed.POST("/dlna/:uuid/stop", dlnaStopHandler(svc))
+			authed.GET("/dlna/:uuid/status", dlnaStatusHandler(svc))
+
+			// ── Media favourite alias surface ──
+			authed.GET("/favorites", listFavoritesAliasHandler(svc))
+			authed.POST("/media/:id/favorite", addMediaFavoriteHandler(svc))
+			authed.DELETE("/media/:id/favorite", removeMediaFavoriteHandler(svc))
+			authed.GET("/media/:id/favorite/status", getMediaFavoriteStatusHandler(svc))
+			authed.POST("/media/:id/ai-scrape", aiScrapeMediaHandler(svc))
+			authed.POST("/media/scrape/test", scrapeTestHandler(svc))
+			authed.POST("/media/organize", middleware.AdminRequired(), organizeBulkHandler(svc))
+
+			// ── Playback metadata + external player handoff ──
+			authed.GET("/playback/:id/info", playbackInfoHandler(svc))
+			authed.POST("/playback/:id/progress", playbackProgressHandler(svc))
+			authed.GET("/playback/:id/external-players", externalPlayersHandler(svc))
+			authed.GET("/playback/:id/external-url", externalURLHandler(svc))
+			authed.GET("/playback/transcode/:job_id/status", transcodeStatusHandler(svc))
+
+			// ── Download task ops + sync triggers ──
+			authed.POST("/download/:id/pause", downloadPauseHandler(svc))
+			authed.POST("/download/:id/resume", downloadResumeHandler(svc))
+			authed.POST("/download/:id/organize", middleware.AdminRequired(), downloadOrganizeOneHandler(svc))
+			authed.POST("/download/organize", middleware.AdminRequired(), downloadOrganizeAllHandler(svc))
+			authed.POST("/download/sync", middleware.AdminRequired(), downloadSyncHandler(svc))
+			authed.POST("/download/start-auto-sync", middleware.AdminRequired(), downloadAutoSyncHandler(svc))
+			authed.GET("/download/tasks", downloadTasksAliasHandler(svc))
+			authed.POST("/download/add", addDownloadHandler(svc))
+
+			// ── License (anyone authenticated can activate / heartbeat) ──
+			authed.POST("/license/activate", licenseActivateHandler(svc))
+			authed.POST("/license/heartbeat", licenseHeartbeatHandler(svc))
+			authed.GET("/license/status", licenseStatusHandler(svc))
+			authed.GET("/license/heartbeat-status", licenseStatusHandler(svc))
+
+			// ── Assistant (multi-turn AI chat) ──
+			authed.GET("/admin/assistant/sessions", listAssistantSessionsHandler(svc))
+			authed.POST("/admin/assistant/sessions", createAssistantSessionHandler(svc))
+			authed.GET("/admin/assistant/session/:id", getAssistantSessionHandler(svc))
+			authed.DELETE("/admin/assistant/session/:id", deleteAssistantSessionHandler(svc))
+			authed.POST("/admin/assistant/chat", assistantChatHandler(svc))
+			authed.POST("/admin/assistant/execute", assistantExecuteHandler(svc))
+			authed.POST("/admin/assistant/undo/:op_id", assistantUndoHandler(svc))
+			authed.GET("/admin/assistant/history", assistantHistoryHandler(svc))
 		}
 
 		// Admin-only endpoints.
@@ -183,6 +267,35 @@ func Register(r *gin.Engine, cfg *config.Config, log *zap.Logger, svc *service.C
 			admin.GET("/settings", listSettingsHandler(svc))
 			admin.PUT("/settings", updateSettingHandler(svc))
 			admin.GET("/logs", recentLogsHandler(svc))
+
+			// Permissions admin.
+			admin.GET("/users/:id/permissions", getUserPermissionsHandler(svc))
+			admin.PUT("/users/:id/permissions", updateUserPermissionsHandler(svc))
+			admin.POST("/users/:id/permissions/reset", resetUserPermissionsHandler(svc))
+
+			// Storage configs (Alist / S3 / WebDAV).
+			admin.GET("/storage/status", listStorageConfigsHandler(svc))
+			admin.GET("/storage/:type", getStorageConfigHandler(svc))
+			admin.PUT("/storage/:type", saveStorageConfigHandler(svc))
+			admin.POST("/storage/:type/test", testStorageConfigHandler(svc))
+
+			// Download client CRUD.
+			admin.GET("/download/clients", listDownloadClientsHandler(svc))
+			admin.POST("/download/clients", createDownloadClientHandler(svc))
+			admin.PUT("/download/clients/:id", updateDownloadClientHandler(svc))
+			admin.DELETE("/download/clients/:id", deleteDownloadClientHandler(svc))
+			admin.POST("/download/clients/:id/test", testDownloadClientHandler(svc))
+			admin.GET("/download/aria2/stats", aria2StatsHandler(svc))
+
+			// License generation / revocation.
+			admin.POST("/license/generate", licenseGenerateHandler(svc))
+			admin.GET("/license/list", licenseListHandler(svc))
+			admin.GET("/license/:id/activations", licenseListActivationsHandler(svc))
+			admin.POST("/license/activation/:id/unbind", licenseUnbindHandler(svc))
+			admin.POST("/license/:id/revoke", licenseRevokeHandler(svc))
+
+			// System scheduler trigger alias.
+			admin.POST("/system/scheduler/:name/trigger", schedulerTriggerHandler(svc))
 
 			// Database backup.
 			admin.GET("/backups", listBackupsHandler(svc))

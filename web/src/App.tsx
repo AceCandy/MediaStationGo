@@ -93,6 +93,18 @@ const NotifyChannelsPage = lazy(() =>
 const SettingsPage = lazy(() =>
   import('./pages/SettingsPage').then((m) => ({ default: m.SettingsPage })),
 )
+const AssistantChatPage = lazy(() =>
+  import('./pages/AssistantChatPage').then((m) => ({ default: m.AssistantChatPage })),
+)
+const DownloadClientsPage = lazy(() =>
+  import('./pages/DownloadClientsPage').then((m) => ({ default: m.DownloadClientsPage })),
+)
+const LicensePage = lazy(() =>
+  import('./pages/LicensePage').then((m) => ({ default: m.LicensePage })),
+)
+const StorageConfigPage = lazy(() =>
+  import('./pages/StorageConfigPage').then((m) => ({ default: m.StorageConfigPage })),
+)
 
 const Loading = () => <p className="px-6 py-8 text-slate-500">加载中…</p>
 
@@ -213,6 +225,38 @@ export default function App() {
             element={
               <RequireAdmin>
                 <SettingsPage />
+              </RequireAdmin>
+            }
+          />
+          <Route
+            path="assistant"
+            element={
+              <RequireAdmin>
+                <AssistantChatPage />
+              </RequireAdmin>
+            }
+          />
+          <Route
+            path="download-clients"
+            element={
+              <RequireAdmin>
+                <DownloadClientsPage />
+              </RequireAdmin>
+            }
+          />
+          <Route
+            path="license"
+            element={
+              <RequireAdmin>
+                <LicensePage />
+              </RequireAdmin>
+            }
+          />
+          <Route
+            path="storage-config"
+            element={
+              <RequireAdmin>
+                <StorageConfigPage />
               </RequireAdmin>
             }
           />
