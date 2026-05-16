@@ -8,6 +8,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/ShukeBta/MediaStationGo/internal/middleware"
+	"github.com/ShukeBta/MediaStationGo/internal/model"
 	"github.com/ShukeBta/MediaStationGo/internal/service"
 )
 
@@ -38,7 +39,7 @@ func (h *PermissionHandler) GetUserPermissions(c *gin.Context) {
 		return
 	}
 
-	perms, err := h.svc.Permission.GetByUserID(c.Request.Context(), userID)
+	perms, err := h.svc.Permissions.Effective(c.Request.Context(), userID)
 	if err != nil {
 		h.log.Error("get user permissions failed", zap.Error(err))
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 50001, "message": "internal error", "data": nil})
@@ -64,15 +65,13 @@ func (h *PermissionHandler) UpdateUserPermissions(c *gin.Context) {
 		return
 	}
 
-	var req struct {
-		Permissions map[string]bool `json:"permissions"`
-	}
+	var req model.UserPermission
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 40001, "message": "invalid request", "data": nil})
 		return
 	}
 
-	if err := h.svc.Permission.Update(c.Request.Context(), userID, req.Permissions); err != nil {
+	if err := h.svc.Permissions.Save(c.Request.Context(), userID, &req); err != nil {
 		h.log.Error("update user permissions failed", zap.Error(err), zap.String("user_id", userID))
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 50001, "message": "internal error", "data": nil})
 		return
@@ -97,7 +96,7 @@ func (h *PermissionHandler) ResetUserPermissions(c *gin.Context) {
 		return
 	}
 
-	if err := h.svc.Permission.ResetToDefault(c.Request.Context(), userID); err != nil {
+	if _, err := h.svc.Permissions.Reset(c.Request.Context(), userID); err != nil {
 		h.log.Error("reset user permissions failed", zap.Error(err), zap.String("user_id", userID))
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 50001, "message": "internal error", "data": nil})
 		return
@@ -115,7 +114,7 @@ func (h *PermissionHandler) GetMyPermissions(c *gin.Context) {
 		return
 	}
 
-	perms, err := h.svc.Permission.GetPermissionMap(c.Request.Context(), currentUserID)
+	perms, err := h.svc.Permissions.Effective(c.Request.Context(), currentUserID)
 	if err != nil {
 		h.log.Error("get my permissions failed", zap.Error(err))
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 50001, "message": "internal error", "data": nil})
@@ -127,7 +126,7 @@ func (h *PermissionHandler) GetMyPermissions(c *gin.Context) {
 	tier := middleware.GetUserTier(c)
 
 	c.JSON(http.StatusOK, gin.H{
-		"code": 0,
+		"code":    0,
 		"message": "ok",
 		"data": gin.H{
 			"permissions": perms,

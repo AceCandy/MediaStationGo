@@ -40,7 +40,7 @@ func DefaultPermissions(userID string) *model.UserPermission {
 		CanManageSubscriptions: false,
 		CanManageSites:         false,
 		CanManageFiles:         false,
-		CanManageSTRM:          false,
+		CanManageStrm:          false,
 		CanUseAIAssistant:      false,
 		CanAccessSettings:      false,
 	}
@@ -59,7 +59,7 @@ func adminGrant(userID string) *model.UserPermission {
 		CanManageSubscriptions: true,
 		CanManageSites:         true,
 		CanManageFiles:         true,
-		CanManageSTRM:          true,
+		CanManageStrm:          true,
 		CanCast:                true,
 		CanUseAIAssistant:      true,
 		CanAccessSettings:      true,
@@ -79,7 +79,7 @@ func (s *PermissionService) Effective(ctx context.Context, userID string) (*mode
 	if u.Role == "admin" {
 		return adminGrant(userID), nil
 	}
-	row, err := s.repo.Permission.Get(ctx, userID)
+	row, err := s.repo.Permission.FindByUserID(ctx, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -89,7 +89,7 @@ func (s *PermissionService) Effective(ctx context.Context, userID string) (*mode
 	// Seed defaults on first read so subsequent updates have a row to
 	// patch.
 	def := DefaultPermissions(userID)
-	if err := s.repo.Permission.Save(ctx, def); err != nil {
+	if err := s.repo.Permission.Upsert(ctx, def); err != nil {
 		return nil, err
 	}
 	return def, nil
@@ -98,13 +98,30 @@ func (s *PermissionService) Effective(ctx context.Context, userID string) (*mode
 // Save persists the user permission patch (admin only — caller checks).
 func (s *PermissionService) Save(ctx context.Context, userID string, in *model.UserPermission) error {
 	in.UserID = userID
-	return s.repo.Permission.Save(ctx, in)
+	return s.repo.Permission.Upsert(ctx, in)
+}
+
+// EnsureForUser guarantees a permission row exists for the given user.
+// If one already exists it is a no-op; otherwise a default row is created.
+func (s *PermissionService) EnsureForUser(ctx context.Context, userID string) (*model.UserPermission, error) {
+	row, err := s.repo.Permission.FindByUserID(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	if row != nil {
+		return row, nil
+	}
+	def := DefaultPermissions(userID)
+	if err := s.repo.Permission.Upsert(ctx, def); err != nil {
+		return nil, err
+	}
+	return def, nil
 }
 
 // Reset reverts to the non-admin defaults.
 func (s *PermissionService) Reset(ctx context.Context, userID string) (*model.UserPermission, error) {
 	def := DefaultPermissions(userID)
-	if err := s.repo.Permission.Save(ctx, def); err != nil {
+	if err := s.repo.Permission.Upsert(ctx, def); err != nil {
 		return nil, err
 	}
 	return def, nil

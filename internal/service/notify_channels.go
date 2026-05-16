@@ -41,11 +41,11 @@ func NewNotifyChannelService(log *zap.Logger, repo *repository.Container) *Notif
 // ChannelInput is the shape accepted by Create / Update. Config is a
 // generic map; it gets serialised to JSON before being persisted.
 type ChannelInput struct {
-	Name        string         `json:"name" binding:"required"`
-	ChannelType string         `json:"channel_type" binding:"required"`
-	Config      map[string]any `json:"config"`
-	Events      []string       `json:"events"`
-	Enabled     *bool          `json:"enabled,omitempty"`
+	Name    string         `json:"name" binding:"required"`
+	Type    string         `json:"type" binding:"required"`
+	Config  map[string]any `json:"config"`
+	Events  []string       `json:"events"`
+	Enabled *bool          `json:"enabled,omitempty"`
 }
 
 // channelView is the public shape — Config is decoded back to a map so
@@ -96,7 +96,7 @@ func (s *NotifyChannelService) Create(ctx context.Context, in ChannelInput) (*ch
 	evBlob, _ := json.Marshal(in.Events)
 	n := &model.NotifyChannel{
 		Name:        strings.TrimSpace(in.Name),
-		ChannelType: in.ChannelType,
+		Type:   in.Type,
 		Config:      string(cfgBlob),
 		Events:      string(evBlob),
 		Enabled:     true,
@@ -119,15 +119,30 @@ func (s *NotifyChannelService) Update(ctx context.Context, id string, in Channel
 	cfgBlob, _ := json.Marshal(in.Config)
 	evBlob, _ := json.Marshal(in.Events)
 	patch := map[string]any{
-		"name":         strings.TrimSpace(in.Name),
-		"channel_type": in.ChannelType,
-		"config":       string(cfgBlob),
-		"events":       string(evBlob),
+		"name":    strings.TrimSpace(in.Name),
+		"type":    in.Type,
+		"config":  string(cfgBlob),
+		"events":  string(evBlob),
 	}
 	if in.Enabled != nil {
 		patch["enabled"] = *in.Enabled
 	}
-	if err := s.repo.NotifyChannel.Update(ctx, id, patch); err != nil {
+	// Fetch existing row, apply patch via repo Update
+	existing, err := s.repo.NotifyChannel.FindByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if existing == nil {
+		return nil, errors.New("channel not found")
+	}
+	existing.Name = patch["name"].(string)
+	existing.Type = patch["type"].(string)
+	existing.Config = patch["config"].(string)
+	existing.Events = patch["events"].(string)
+	if en, ok := patch["enabled"]; ok {
+		existing.Enabled = en.(bool)
+	}
+	if err := s.repo.NotifyChannel.Update(ctx, existing); err != nil {
 		return nil, err
 	}
 	row, err := s.repo.NotifyChannel.FindByID(ctx, id)
@@ -201,7 +216,7 @@ func (s *NotifyChannelService) dispatchOne(ctx context.Context, n model.NotifyCh
 	cfg := map[string]any{}
 	_ = json.Unmarshal([]byte(n.Config), &cfg)
 
-	switch n.ChannelType {
+	switch n.Type {
 	case "telegram":
 		token := str(cfg["bot_token"])
 		chat := str(cfg["chat_id"])
@@ -279,7 +294,7 @@ func (s *NotifyChannelService) dispatchOne(ctx context.Context, n model.NotifyCh
 		}
 		return s.do(req)
 	}
-	return fmt.Errorf("unknown channel type %q", n.ChannelType)
+	return fmt.Errorf("unknown channel type %q", n.Type)
 }
 
 func (s *NotifyChannelService) do(req *http.Request) error {
@@ -300,10 +315,10 @@ func validateChannel(in ChannelInput) error {
 	if strings.TrimSpace(in.Name) == "" {
 		return errors.New("name required")
 	}
-	switch in.ChannelType {
+	switch in.Type {
 	case "telegram", "wechat", "bark", "webhook":
 	default:
-		return fmt.Errorf("unsupported channel type %q", in.ChannelType)
+		return fmt.Errorf("unsupported channel type %q", in.Type)
 	}
 	return nil
 }

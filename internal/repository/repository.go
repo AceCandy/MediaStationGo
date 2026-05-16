@@ -38,6 +38,9 @@ type Container struct {
 	NotifyChannel   *NotifyChannelRepository
 	Site            *SiteRepository
 	STRM            *STRMRepository
+	PlayProfile     *PlayProfileRepository
+	StorageConfig   *StorageConfigRepository
+	Assistant       *AssistantRepository
 }
 
 // New 将每个 repository 连接到单个 *gorm.DB。
@@ -62,6 +65,9 @@ func New(db *gorm.DB) *Container {
 		NotifyChannel:  &NotifyChannelRepository{db: db},
 		Site:          &SiteRepository{db: db},
 		STRM:          &STRMRepository{db: db},
+		PlayProfile:   &PlayProfileRepository{db: db},
+		StorageConfig: &StorageConfigRepository{db: db},
+		Assistant:     &AssistantRepository{db: db},
 	}
 }
 

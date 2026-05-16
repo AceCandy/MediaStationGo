@@ -12,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/ShukeBta/MediaStationGo/internal/model"
 )
 
 // SiteConfig 站点配置（从 model.Site 解密后的纯文本）。
@@ -26,8 +28,8 @@ type SiteConfig struct {
 	Extra      map[string]string // JSON 扩展配置
 }
 
-// SearchResult 站点搜索结果。
-type SearchResult struct {
+// SiteSearchResult 站点搜索结果（按站点分组的批量搜索结果）。
+type SiteSearchResult struct {
 	SiteName string        `json:"site_name"`
 	Items    []TorrentItem `json:"items"`
 	Total    int           `json:"total"`
@@ -78,10 +80,10 @@ type SiteAdapter interface {
 	Authenticate(ctx context.Context, cfg SiteConfig) error
 
 	// Search 搜索种子。
-	Search(ctx context.Context, cfg SiteConfig, keyword string, page int) (*SearchResult, error)
+	Search(ctx context.Context, cfg SiteConfig, keyword string, page int) (*SiteSearchResult, error)
 
 	// Browse 浏览种子列表。
-	Browse(ctx context.Context, cfg SiteConfig, category string, page int) (*SearchResult, error)
+	Browse(ctx context.Context, cfg SiteConfig, category string, page int) (*SiteSearchResult, error)
 
 	// GetDetail 获取种子详情。
 	GetDetail(ctx context.Context, cfg SiteConfig, id string) (*TorrentDetail, error)
@@ -194,7 +196,7 @@ func (a *NexusPHPAdapter) Authenticate(ctx context.Context, cfg SiteConfig) erro
 	return nil
 }
 
-func (a *NexusPHPAdapter) Search(ctx context.Context, cfg SiteConfig, keyword string, page int) (*SearchResult, error) {
+func (a *NexusPHPAdapter) Search(ctx context.Context, cfg SiteConfig, keyword string, page int) (*SiteSearchResult, error) {
 	params := url.Values{}
 	params.Set("search", keyword)
 	params.Set("page", strconv.Itoa(page))
@@ -213,7 +215,7 @@ func (a *NexusPHPAdapter) Search(ctx context.Context, cfg SiteConfig, keyword st
 	return parseNexusPHPHTML(string(data), cfg.Name, cfg.URL)
 }
 
-func (a *NexusPHPAdapter) Browse(ctx context.Context, cfg SiteConfig, category string, page int) (*SearchResult, error) {
+func (a *NexusPHPAdapter) Browse(ctx context.Context, cfg SiteConfig, category string, page int) (*SiteSearchResult, error) {
 	params := url.Values{}
 	if category != "" {
 		params.Set("cat", category)
@@ -250,8 +252,8 @@ func (a *NexusPHPAdapter) GetDownloadURL(ctx context.Context, cfg SiteConfig, id
 }
 
 // parseNexusPHPHTML 解析 NexusPHP 种子列表 HTML。
-func parseNexusPHPHTML(html, siteName, baseURL string) (*SearchResult, error) {
-	result := &SearchResult{
+func parseNexusPHPHTML(html, siteName, baseURL string) (*SiteSearchResult, error) {
+	result := &SiteSearchResult{
 		SiteName: siteName,
 		Items:    []TorrentItem{},
 		Page:     1,
@@ -427,7 +429,7 @@ func (a *GazelleAdapter) Authenticate(ctx context.Context, cfg SiteConfig) error
 	return nil
 }
 
-func (a *GazelleAdapter) Search(ctx context.Context, cfg SiteConfig, keyword string, page int) (*SearchResult, error) {
+func (a *GazelleAdapter) Search(ctx context.Context, cfg SiteConfig, keyword string, page int) (*SiteSearchResult, error) {
 	params := url.Values{}
 	params.Set("action", "browse")
 	params.Set("searchstr", keyword)
@@ -445,7 +447,7 @@ func (a *GazelleAdapter) Search(ctx context.Context, cfg SiteConfig, keyword str
 	return parseGazelleJSON(data, cfg.Name, cfg.URL)
 }
 
-func (a *GazelleAdapter) Browse(ctx context.Context, cfg SiteConfig, category string, page int) (*SearchResult, error) {
+func (a *GazelleAdapter) Browse(ctx context.Context, cfg SiteConfig, category string, page int) (*SiteSearchResult, error) {
 	params := url.Values{}
 	params.Set("action", "browse")
 	if category != "" {
@@ -534,13 +536,13 @@ func (a *GazelleAdapter) GetDownloadURL(ctx context.Context, cfg SiteConfig, id 
 }
 
 // parseGazelleJSON 解析 Gazelle JSON 响应。
-func parseGazelleJSON(data []byte, siteName, baseURL string) (*SearchResult, error) {
+func parseGazelleJSON(data []byte, siteName, baseURL string) (*SiteSearchResult, error) {
 	var resp map[string]interface{}
 	if err := json.Unmarshal(data, &resp); err != nil {
 		return nil, fmt.Errorf("parse JSON: %w", err)
 	}
 
-	result := &SearchResult{
+	result := &SiteSearchResult{
 		SiteName: siteName,
 		Items:    []TorrentItem{},
 	}
@@ -644,7 +646,7 @@ func (a *UNIT3DAdapter) Authenticate(ctx context.Context, cfg SiteConfig) error 
 	return nil
 }
 
-func (a *UNIT3DAdapter) Search(ctx context.Context, cfg SiteConfig, keyword string, page int) (*SearchResult, error) {
+func (a *UNIT3DAdapter) Search(ctx context.Context, cfg SiteConfig, keyword string, page int) (*SiteSearchResult, error) {
 	params := url.Values{}
 	params.Set("search", keyword)
 	params.Set("page", strconv.Itoa(page))
@@ -661,7 +663,7 @@ func (a *UNIT3DAdapter) Search(ctx context.Context, cfg SiteConfig, keyword stri
 	return parseUNIT3DJSON(data, cfg.Name, cfg.URL)
 }
 
-func (a *UNIT3DAdapter) Browse(ctx context.Context, cfg SiteConfig, category string, page int) (*SearchResult, error) {
+func (a *UNIT3DAdapter) Browse(ctx context.Context, cfg SiteConfig, category string, page int) (*SiteSearchResult, error) {
 	params := url.Values{}
 	if category != "" {
 		params.Set("category", category)
@@ -734,7 +736,7 @@ func (a *UNIT3DAdapter) GetDownloadURL(ctx context.Context, cfg SiteConfig, id s
 }
 
 // parseUNIT3DJSON 解析 UNIT3D JSON 响应。
-func parseUNIT3DJSON(data []byte, siteName, baseURL string) (*SearchResult, error) {
+func parseUNIT3DJSON(data []byte, siteName, baseURL string) (*SiteSearchResult, error) {
 	var resp struct {
 		Data []map[string]interface{} `json:"data"`
 		Meta struct {
@@ -746,7 +748,7 @@ func parseUNIT3DJSON(data []byte, siteName, baseURL string) (*SearchResult, erro
 		return nil, fmt.Errorf("parse JSON: %w", err)
 	}
 
-	result := &SearchResult{
+	result := &SiteSearchResult{
 		SiteName: siteName,
 		Items:    []TorrentItem{},
 		Page:     resp.Meta.CurrentPage,
@@ -831,7 +833,7 @@ func (a *MTeamAdapter) Authenticate(ctx context.Context, cfg SiteConfig) error {
 	return nil
 }
 
-func (a *MTeamAdapter) Search(ctx context.Context, cfg SiteConfig, keyword string, page int) (*SearchResult, error) {
+func (a *MTeamAdapter) Search(ctx context.Context, cfg SiteConfig, keyword string, page int) (*SiteSearchResult, error) {
 	payload := map[string]interface{}{
 		"mode":     "search",
 		"keyword":  keyword,
@@ -852,7 +854,7 @@ func (a *MTeamAdapter) Search(ctx context.Context, cfg SiteConfig, keyword strin
 	return parseMTeamJSON(data, cfg.Name, cfg.URL)
 }
 
-func (a *MTeamAdapter) Browse(ctx context.Context, cfg SiteConfig, category string, page int) (*SearchResult, error) {
+func (a *MTeamAdapter) Browse(ctx context.Context, cfg SiteConfig, category string, page int) (*SiteSearchResult, error) {
 	payload := map[string]interface{}{
 		"mode":     "browse",
 		"category": category,
@@ -936,7 +938,7 @@ func (a *MTeamAdapter) GetDownloadURL(ctx context.Context, cfg SiteConfig, id st
 }
 
 // parseMTeamJSON 解析 MTeam JSON 响应。
-func parseMTeamJSON(data []byte, siteName, baseURL string) (*SearchResult, error) {
+func parseMTeamJSON(data []byte, siteName, baseURL string) (*SiteSearchResult, error) {
 	var resp struct {
 		Code int                    `json:"code"`
 		Data struct {
@@ -948,7 +950,7 @@ func parseMTeamJSON(data []byte, siteName, baseURL string) (*SearchResult, error
 		return nil, fmt.Errorf("parse JSON: %w", err)
 	}
 
-	result := &SearchResult{
+	result := &SiteSearchResult{
 		SiteName: siteName,
 		Items:    []TorrentItem{},
 		Total:    resp.Data.Total,
@@ -1033,7 +1035,7 @@ func (a *DiscuzAdapter) Authenticate(ctx context.Context, cfg SiteConfig) error 
 	return nil
 }
 
-func (a *DiscuzAdapter) Search(ctx context.Context, cfg SiteConfig, keyword string, page int) (*SearchResult, error) {
+func (a *DiscuzAdapter) Search(ctx context.Context, cfg SiteConfig, keyword string, page int) (*SiteSearchResult, error) {
 	params := url.Values{}
 	params.Set("mod", "forum")
 	params.Set("srchtxt", keyword)
@@ -1052,7 +1054,7 @@ func (a *DiscuzAdapter) Search(ctx context.Context, cfg SiteConfig, keyword stri
 	return parseDiscuzHTML(string(data), cfg.Name, cfg.URL)
 }
 
-func (a *DiscuzAdapter) Browse(ctx context.Context, cfg SiteConfig, category string, page int) (*SearchResult, error) {
+func (a *DiscuzAdapter) Browse(ctx context.Context, cfg SiteConfig, category string, page int) (*SiteSearchResult, error) {
 	params := url.Values{}
 	if category != "" {
 		params.Set("fid", category)
@@ -1117,8 +1119,8 @@ func (a *DiscuzAdapter) GetDownloadURL(ctx context.Context, cfg SiteConfig, id s
 }
 
 // parseDiscuzHTML 解析 Discuz HTML 响应。
-func parseDiscuzHTML(html, siteName, baseURL string) (*SearchResult, error) {
-	result := &SearchResult{
+func parseDiscuzHTML(html, siteName, baseURL string) (*SiteSearchResult, error) {
+	result := &SiteSearchResult{
 		SiteName: siteName,
 		Items:    []TorrentItem{},
 		Page:     1,
@@ -1183,7 +1185,7 @@ func (a *CustomRSSAdapter) Authenticate(ctx context.Context, cfg SiteConfig) err
 	return nil
 }
 
-func (a *CustomRSSAdapter) Search(ctx context.Context, cfg SiteConfig, keyword string, page int) (*SearchResult, error) {
+func (a *CustomRSSAdapter) Search(ctx context.Context, cfg SiteConfig, keyword string, page int) (*SiteSearchResult, error) {
 	searchURL := cfg.URL
 	// If extra has search URL template, use it
 	if searchTpl, ok := cfg.Extra["search_url"]; ok && searchTpl != "" {
@@ -1218,7 +1220,7 @@ func (a *CustomRSSAdapter) Search(ctx context.Context, cfg SiteConfig, keyword s
 	return result, nil
 }
 
-func (a *CustomRSSAdapter) Browse(ctx context.Context, cfg SiteConfig, category string, page int) (*SearchResult, error) {
+func (a *CustomRSSAdapter) Browse(ctx context.Context, cfg SiteConfig, category string, page int) (*SiteSearchResult, error) {
 	// RSS browse is essentially the same as search with empty keyword
 	return a.Search(ctx, cfg, "", page)
 }
@@ -1236,8 +1238,8 @@ func (a *CustomRSSAdapter) GetDownloadURL(ctx context.Context, cfg SiteConfig, i
 }
 
 // parseRSSXML 解析 RSS XML 内容。
-func parseRSSXML(data []byte, siteName, keyword string) (*SearchResult, error) {
-	result := &SearchResult{
+func parseRSSXML(data []byte, siteName, keyword string) (*SiteSearchResult, error) {
+	result := &SiteSearchResult{
 		SiteName: siteName,
 		Items:    []TorrentItem{},
 	}
@@ -1384,4 +1386,9 @@ func GetAdapterForType(siteType string) SiteAdapter {
 	default:
 		return NewNexusPHPAdapter()
 	}
+}
+
+// NewSiteAdapter 根据站点模型创建对应的适配器。
+func NewSiteAdapter(site *model.Site) SiteAdapter {
+	return GetAdapterForType(site.Type)
 }

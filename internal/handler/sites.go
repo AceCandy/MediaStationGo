@@ -2,6 +2,7 @@
 package handler
 
 import (
+	"encoding/json"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -66,21 +67,36 @@ func createSiteHandler(svc *service.Container) gin.HandlerFunc {
 		if req.Enabled != nil {
 			enabled = *req.Enabled
 		}
+		// Pack fields not in the core model into Extra JSON.
+		extraMap := map[string]any{}
+		if req.UserAgent != "" {
+			extraMap["user_agent"] = req.UserAgent
+		}
+		if req.RSSURL != "" {
+			extraMap["rss_url"] = req.RSSURL
+		}
+		if req.Timeout > 0 {
+			extraMap["timeout"] = req.Timeout
+		}
+		if req.Priority > 0 {
+			extraMap["priority"] = req.Priority
+		}
+		extraMap["use_proxy"] = req.UseProxy
+		if req.Downloader != "" {
+			extraMap["downloader"] = req.Downloader
+		}
+		extraJSON, _ := json.Marshal(extraMap)
+
 		site := &model.Site{
 			Name:       req.Name,
-			BaseURL:    req.BaseURL,
-			SiteType:   req.SiteType,
+			URL:        req.BaseURL,
+			Type:       req.SiteType,
 			AuthType:   req.AuthType,
 			Cookie:     req.Cookie,
 			APIKey:     req.APIKey,
 			AuthHeader: req.AuthHeader,
-			UserAgent:  req.UserAgent,
-			RSSURL:     req.RSSURL,
-			Timeout:    req.Timeout,
-			Priority:   req.Priority,
-			UseProxy:   req.UseProxy,
+			Extra:      string(extraJSON),
 			Enabled:    enabled,
-			Downloader: req.Downloader,
 		}
 		if err := svc.Site.Create(c.Request.Context(), site); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})

@@ -57,7 +57,6 @@ type Container struct {
 	PlayProfiles *PlayProfileService
 	Permissions  *PermissionService
 	StorageCfg   *StorageConfigService
-	License      *LicenseService
 	DownloadClients *DownloadClientService
 	Assistant    *AssistantService
 	Organizer    *OrganizerService
@@ -108,21 +107,18 @@ func New(cfg *config.Config, log *zap.Logger, repos *repository.Container) *Cont
 	playProfiles := NewPlayProfileService(log, repos)
 	permissions := NewPermissionService(log, repos)
 	storageCfg := NewStorageConfigService(log, repos, crypto)
-	licenseSvc := NewLicenseService(log, repos)
 	downloadClients := NewDownloadClientService(log, repos)
 	assistant := NewAssistantService(log, repos, ai)
 	organizer := NewOrganizerService(cfg, log, repos)
 	douban := NewDoubanProvider(cfg, log)
-	siteService := NewSiteService(log, repos)
 	scheduler := NewSchedulerService(log, repos, scanner, transcoder, hub, cfg.Cache.CacheDir)
 
 	// 初始化认证相关服务
 	tokenSvc := NewTokenService(cfg, log, repos)
-	permissionSvc := NewPermissionService(cfg, log, repos)
 	apiConfigSvc := NewApiConfigService(cfg, log, repos, crypto)
 	downloadMgr := NewDownloadManager(log, repos, crypto)
 	notifySvc := NewNotifyService(log, repos, crypto)
-	siteSvc := NewSiteService(log, repos, crypto)
+	siteSvc := NewSiteService(log, repos)
 
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -132,7 +128,7 @@ func New(cfg *config.Config, log *zap.Logger, repos *repository.Container) *Cont
 		Repo:         repos,
 		WSHub:        hub,
 		SSEHub:       sseHub,
-		Auth:         NewAuthService(cfg, log, repos, tokenSvc, permissionSvc),
+		Auth:         NewAuthService(cfg, log, repos, tokenSvc, permissions),
 		Media:        NewMediaService(cfg, log, repos),
 		Scan:         scanner,
 		Stream:       NewStreamService(cfg, log, repos, transcoder),
@@ -169,7 +165,6 @@ func New(cfg *config.Config, log *zap.Logger, repos *repository.Container) *Cont
 		PlayProfiles: playProfiles,
 		Permissions:  permissions,
 		StorageCfg:   storageCfg,
-		License:      licenseSvc,
 		DownloadClients: downloadClients,
 		Assistant:    assistant,
 		Organizer:    organizer,

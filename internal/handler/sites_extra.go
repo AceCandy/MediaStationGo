@@ -50,11 +50,17 @@ func siteUserdataHandler(svc *service.Container) gin.HandlerFunc {
 			c.JSON(http.StatusNotFound, gin.H{"error": "site not found"})
 			return
 		}
+		loginStatus := "unknown"
+		if s.LastError == "ok" {
+			loginStatus = "ok"
+		} else if s.LastError != "" {
+			loginStatus = "fail"
+		}
 		c.JSON(http.StatusOK, gin.H{
 			"site_id":      s.ID,
 			"name":         s.Name,
 			"cookie_set":   len(s.Cookie) > 0,
-			"login_status": s.LoginStatus,
+			"login_status": loginStatus,
 			"note":         "userdata parsing not implemented; stub",
 		})
 	}

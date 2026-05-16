@@ -15,7 +15,6 @@ import {
   Heart,
   Home,
   GalleryHorizontalEnd,
-  KeyRound,
   KeySquare,
   Link2,
   ListChecks,

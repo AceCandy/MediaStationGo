@@ -33,15 +33,15 @@ func (h *SiteHandler) ListSites(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "ok", "data": sites})
 }
 
-// GetSite 获取单个站点详情（解密敏感字段）。
+// GetSite 获取单个站点详情。
 func (h *SiteHandler) GetSite(c *gin.Context) {
-	site, err := h.svc.Site.GetByID(c.Request.Context(), c.Param("id"))
+	site, err := h.svc.Site.FindByID(c.Request.Context(), c.Param("id"))
 	if err != nil {
-		if err == service.ErrSiteNotFound {
-			c.JSON(http.StatusNotFound, gin.H{"code": 1, "message": "site not found"})
-			return
-		}
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 1, "message": err.Error()})
+		return
+	}
+	if site == nil {
+		c.JSON(http.StatusNotFound, gin.H{"code": 1, "message": "site not found"})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "ok", "data": site})
@@ -54,41 +54,30 @@ func (h *SiteHandler) CreateSite(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 1, "message": err.Error()})
 		return
 	}
-	created, err := h.svc.Site.Create(c.Request.Context(), &site)
-	if err != nil {
+	if err := h.svc.Site.Create(c.Request.Context(), &site); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 1, "message": err.Error()})
 		return
 	}
-	c.JSON(http.StatusCreated, gin.H{"code": 0, "message": "ok", "data": created})
+	c.JSON(http.StatusCreated, gin.H{"code": 0, "message": "ok", "data": site})
 }
 
 // UpdateSite 更新站点。
 func (h *SiteHandler) UpdateSite(c *gin.Context) {
-	var site model.Site
-	if err := c.ShouldBindJSON(&site); err != nil {
+	patch := make(map[string]any)
+	if err := c.ShouldBindJSON(&patch); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 1, "message": err.Error()})
 		return
 	}
-	site.ID = c.Param("id")
-	updated, err := h.svc.Site.Update(c.Request.Context(), &site)
-	if err != nil {
-		if err == service.ErrSiteNotFound {
-			c.JSON(http.StatusNotFound, gin.H{"code": 1, "message": "site not found"})
-			return
-		}
+	if err := h.svc.Site.Update(c.Request.Context(), c.Param("id"), patch); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 1, "message": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "ok", "data": updated})
+	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "ok"})
 }
 
 // DeleteSite 删除站点。
 func (h *SiteHandler) DeleteSite(c *gin.Context) {
 	if err := h.svc.Site.Delete(c.Request.Context(), c.Param("id")); err != nil {
-		if err == service.ErrSiteNotFound {
-			c.JSON(http.StatusNotFound, gin.H{"code": 1, "message": "site not found"})
-			return
-		}
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 1, "message": err.Error()})
 		return
 	}
@@ -97,11 +86,16 @@ func (h *SiteHandler) DeleteSite(c *gin.Context) {
 
 // TestSite 测试站点连通性。
 func (h *SiteHandler) TestSite(c *gin.Context) {
-	if err := h.svc.Site.Authenticate(c.Request.Context(), c.Param("id")); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 1, "message": err.Error()})
+	ok, msg, err := h.svc.Site.TestConnection(c.Request.Context(), c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 1, "message": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "ok"})
+	if !ok {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 1, "message": msg})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "message": msg})
 }
 
 // GetSiteTypes 返回支持的站点类型列表。

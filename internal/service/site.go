@@ -32,18 +32,15 @@ func NewSiteService(log *zap.Logger, repo *repository.Container) *SiteService {
 
 // Create persists a new site.
 func (s *SiteService) Create(ctx context.Context, site *model.Site) error {
-	if strings.TrimSpace(site.Name) == "" || strings.TrimSpace(site.BaseURL) == "" {
-		return errors.New("name and base_url required")
+	if strings.TrimSpace(site.Name) == "" || strings.TrimSpace(site.URL) == "" {
+		return errors.New("name and url required")
 	}
-	site.BaseURL = strings.TrimRight(site.BaseURL, "/")
-	if site.SiteType == "" {
-		site.SiteType = "nexusphp"
+	site.URL = strings.TrimRight(site.URL, "/")
+	if site.Type == "" {
+		site.Type = "nexusphp"
 	}
 	if site.AuthType == "" {
 		site.AuthType = "cookie"
-	}
-	if site.Timeout <= 0 {
-		site.Timeout = 15
 	}
 	return s.repo.DB.WithContext(ctx).Create(site).Error
 }
@@ -51,7 +48,7 @@ func (s *SiteService) Create(ctx context.Context, site *model.Site) error {
 // List returns every site ordered by priority (lower = higher priority).
 func (s *SiteService) List(ctx context.Context) ([]model.Site, error) {
 	var sites []model.Site
-	err := s.repo.DB.WithContext(ctx).Order("priority asc, created_at asc").Find(&sites).Error
+	err := s.repo.DB.WithContext(ctx).Order("created_at asc").Find(&sites).Error
 	return sites, err
 }
 
@@ -83,14 +80,14 @@ func (s *SiteService) TestConnection(ctx context.Context, id string) (bool, stri
 		return false, "site not found", err
 	}
 
-	client := &http.Client{Timeout: time.Duration(site.Timeout) * time.Second}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, site.BaseURL, nil)
+	client := &http.Client{Timeout: 15 * time.Second}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, site.URL, nil)
 	if err != nil {
 		return false, err.Error(), nil
 	}
 
 	// Apply auth headers.
-	req.Header.Set("User-Agent", effectiveUA(site))
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
 	switch site.AuthType {
 	case "cookie":
 		if site.Cookie != "" {
@@ -108,9 +105,9 @@ func (s *SiteService) TestConnection(ctx context.Context, id string) (bool, stri
 
 	resp, err := client.Do(req)
 	if err != nil {
-		status := "fail"
+		now := time.Now()
 		_ = s.repo.DB.WithContext(ctx).Model(&model.Site{}).Where("id = ?", id).
-			Update("login_status", status).Error
+			Updates(map[string]any{"last_error": err.Error(), "last_check_at": &now}).Error
 		return false, err.Error(), nil
 	}
 	defer resp.Body.Close()
@@ -132,8 +129,9 @@ func (s *SiteService) TestConnection(ctx context.Context, id string) (bool, stri
 	if !ok {
 		loginStatus = "fail"
 	}
+	now := time.Now()
 	_ = s.repo.DB.WithContext(ctx).Model(&model.Site{}).Where("id = ?", id).
-		Updates(map[string]any{"login_status": loginStatus, "last_check": time.Now()}).Error
+		Updates(map[string]any{"last_error": loginStatus, "last_check_at": &now}).Error
 	return ok, msg, nil
 }
 
@@ -170,18 +168,19 @@ func (s *SiteService) Search(ctx context.Context, keyword string) ([]SearchResul
 		if adapter == nil {
 			continue
 		}
-		items, err := adapter.Search(ctx, keyword)
+		cfg := siteModelToConfig(&sites[i])
+		result, err := adapter.Search(ctx, cfg, keyword, 1)
 		if err != nil {
 			s.log.Debug("site search failed",
 				zap.String("site", sites[i].Name), zap.Error(err))
 			continue
 		}
-		for _, item := range items {
+		for _, item := range result.Items {
 			results = append(results, SearchResult{
 				SiteName:    sites[i].Name,
 				SiteID:      sites[i].ID,
 				Title:       item.Title,
-				TorrentURL:  item.TorrentURL,
+				TorrentURL:  item.DetailURL,
 				DownloadURL: item.DownloadURL,
 				Size:        item.Size,
 				Seeders:     item.Seeders,
@@ -202,9 +201,15 @@ func (s *SiteService) Search(ctx context.Context, keyword string) ([]SearchResul
 	return results, nil
 }
 
-func effectiveUA(site *model.Site) string {
-	if site.UserAgent != "" {
-		return site.UserAgent
+// siteModelToConfig 将 model.Site 转换为适配器使用的 SiteConfig。
+func siteModelToConfig(s *model.Site) SiteConfig {
+	return SiteConfig{
+		Name:       s.Name,
+		Type:       s.Type,
+		URL:        s.URL,
+		AuthType:   s.AuthType,
+		Cookie:     s.Cookie,
+		APIKey:     s.APIKey,
+		AuthHeader: s.AuthHeader,
 	}
-	return "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
 }

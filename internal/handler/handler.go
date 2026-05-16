@@ -265,12 +265,6 @@ func Register(r *gin.Engine, cfg *config.Config, log *zap.Logger, svc *service.C
 		authed.GET("/download/tasks", downloadTasksAliasHandler(svc))
 		authed.POST("/download/add", addDownloadHandler(svc))
 
-		// ── License (anyone authenticated can activate / heartbeat) ──
-		authed.POST("/license/activate", licenseActivateHandler(svc))
-		authed.POST("/license/heartbeat", licenseHeartbeatHandler(svc))
-		authed.GET("/license/status", licenseStatusHandler(svc))
-		authed.GET("/license/heartbeat-status", licenseStatusHandler(svc))
-
 		// ── Assistant (multi-turn AI chat) ──
 		authed.GET("/admin/assistant/sessions", listAssistantSessionsHandler(svc))
 		authed.POST("/admin/assistant/sessions", createAssistantSessionHandler(svc))
@@ -312,13 +306,6 @@ func Register(r *gin.Engine, cfg *config.Config, log *zap.Logger, svc *service.C
 			admin.POST("/download/clients/:id/test", testDownloadClientHandler(svc))
 			admin.GET("/download/aria2/stats", aria2StatsHandler(svc))
 
-			// License generation / revocation.
-			admin.POST("/license/generate", licenseGenerateHandler(svc))
-			admin.GET("/license/list", licenseListHandler(svc))
-			admin.GET("/license/:id/activations", licenseListActivationsHandler(svc))
-			admin.POST("/license/activation/:id/unbind", licenseUnbindHandler(svc))
-			admin.POST("/license/:id/revoke", licenseRevokeHandler(svc))
-
 			// System scheduler trigger alias.
 			admin.POST("/system/scheduler/:name/trigger", schedulerTriggerHandler(svc))
 
@@ -352,10 +339,6 @@ func Register(r *gin.Engine, cfg *config.Config, log *zap.Logger, svc *service.C
 			admin.GET("/scheduler", schedulerStatusHandler(svc))
 			admin.POST("/scheduler/:name/run", schedulerRunHandler(svc))
 
-			// User permissions management.
-			admin.GET("/users/:id/permissions", getUserPermissionsHandler(svc))
-			admin.PUT("/users/:id/permissions", updateUserPermissionsHandler(svc))
-			admin.POST("/users/:id/permissions/reset", resetUserPermissionsHandler(svc))
 		}
 
 		// API Config management (admin only).
@@ -396,36 +379,9 @@ func versionInfo(c *gin.Context) {
 
 // ─── 权限 Handler 包装 ────────────────────────────────────────────────────────
 
-func getUserPermissionsHandler(svc *service.Container) gin.HandlerFunc {
-	h := NewPermissionHandler(svc, svc.Log)
-	return h.GetUserPermissions
-}
-
-func updateUserPermissionsHandler(svc *service.Container) gin.HandlerFunc {
-	h := NewPermissionHandler(svc, svc.Log)
-	return h.UpdateUserPermissions
-}
-
-func resetUserPermissionsHandler(svc *service.Container) gin.HandlerFunc {
-	h := NewPermissionHandler(svc, svc.Log)
-	return h.ResetUserPermissions
-}
-
 func getMyPermissionsHandler(svc *service.Container) gin.HandlerFunc {
 	h := NewPermissionHandler(svc, svc.Log)
 	return h.GetMyPermissions
-}
-
-// ─── 刷新 Handler 包装 ────────────────────────────────────────────────────────
-
-func refreshHandler(svc *service.Container) gin.HandlerFunc {
-	h := NewRefreshHandler(svc, svc.Log)
-	return h.RefreshToken
-}
-
-func logoutHandler(svc *service.Container) gin.HandlerFunc {
-	h := NewRefreshHandler(svc, svc.Log)
-	return h.Logout
 }
 
 // ─── API Config Handler 包装 ───────────────────────────────────────────────────
@@ -467,71 +423,21 @@ func testApiConfigHandler(svc *service.Container) gin.HandlerFunc {
 
 // ─── Download Client Handler 包装 ─────────────────────────────────────────────
 
-func listDownloadClientsHandler(svc *service.Container) gin.HandlerFunc {
-	h := NewDownloadClientHandler(svc, svc.Log)
-	return h.List
-}
-
-func createDownloadClientHandler(svc *service.Container) gin.HandlerFunc {
-	h := NewDownloadClientHandler(svc, svc.Log)
-	return h.Create
-}
-
 func getDownloadClientHandler(svc *service.Container) gin.HandlerFunc {
 	h := NewDownloadClientHandler(svc, svc.Log)
 	return h.Get
 }
 
-func updateDownloadClientHandler(svc *service.Container) gin.HandlerFunc {
-	h := NewDownloadClientHandler(svc, svc.Log)
-	return h.Update
-}
-
-func deleteDownloadClientHandler(svc *service.Container) gin.HandlerFunc {
-	h := NewDownloadClientHandler(svc, svc.Log)
-	return h.Delete
-}
-
-func testDownloadClientHandler(svc *service.Container) gin.HandlerFunc {
-	h := NewDownloadClientHandler(svc, svc.Log)
-	return h.Test
-}
-
 // ─── Notify Channel Handler 包装 ──────────────────────────────────────────────
-
-func listNotifyChannelsHandler(svc *service.Container) gin.HandlerFunc {
-	h := NewNotifyHandler(svc, svc.Log)
-	return h.List
-}
 
 func getNotifyChannelTypesHandler(svc *service.Container) gin.HandlerFunc {
 	h := NewNotifyHandler(svc, svc.Log)
 	return h.GetTypes
 }
 
-func createNotifyChannelHandler(svc *service.Container) gin.HandlerFunc {
-	h := NewNotifyHandler(svc, svc.Log)
-	return h.Create
-}
-
 func getNotifyChannelHandler(svc *service.Container) gin.HandlerFunc {
 	h := NewNotifyHandler(svc, svc.Log)
 	return h.Get
-}
-
-func updateNotifyChannelHandler(svc *service.Container) gin.HandlerFunc {
-	h := NewNotifyHandler(svc, svc.Log)
-	return h.Update
-}
-
-func deleteNotifyChannelHandler(svc *service.Container) gin.HandlerFunc {
-	h := NewNotifyHandler(svc, svc.Log)
-	return h.Delete
-}
-
-func testNotifyChannelHandler(svc *service.Container) gin.HandlerFunc {
-	h := NewNotifyHandler(svc, svc.Log)
-	return h.Test
 }
 
 // ─── Scheduler Handler 包装 ──────────────────────────────────────────────────

@@ -39,10 +39,9 @@ func NewDownloadClientService(log *zap.Logger, repo *repository.Container) *Down
 type DownloadClientInput struct {
 	Name      string `json:"name" binding:"required"`
 	Type      string `json:"type" binding:"required"`
-	URL       string `json:"url" binding:"required"`
+	Host      string `json:"host" binding:"required"`
 	Username  string `json:"username,omitempty"`
 	Password  string `json:"password,omitempty"`
-	SavePath  string `json:"save_path,omitempty"`
 	IsDefault bool   `json:"is_default"`
 	Enabled   bool   `json:"enabled"`
 }
@@ -60,10 +59,9 @@ func (s *DownloadClientService) Create(ctx context.Context, in DownloadClientInp
 	c := &model.DownloadClient{
 		Name:      strings.TrimSpace(in.Name),
 		Type:      in.Type,
-		URL:       strings.TrimSpace(in.URL),
+		Host:      strings.TrimSpace(in.Host),
 		Username:  in.Username,
 		Password:  in.Password,
-		SavePath:  in.SavePath,
 		IsDefault: in.IsDefault,
 		Enabled:   in.Enabled,
 	}
@@ -81,9 +79,8 @@ func (s *DownloadClientService) Update(ctx context.Context, id string, in Downlo
 	patch := map[string]any{
 		"name":       strings.TrimSpace(in.Name),
 		"type":       in.Type,
-		"url":        strings.TrimSpace(in.URL),
+		"host":       strings.TrimSpace(in.Host),
 		"username":   in.Username,
-		"save_path":  in.SavePath,
 		"is_default": in.IsDefault,
 		"enabled":    in.Enabled,
 	}
@@ -91,7 +88,24 @@ func (s *DownloadClientService) Update(ctx context.Context, id string, in Downlo
 	if in.Password != "" {
 		patch["password"] = in.Password
 	}
-	if err := s.repo.DownloadClient.Update(ctx, id, patch); err != nil {
+	// Fetch existing row, apply patch via Save
+	existing, err := s.repo.DownloadClient.FindByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if existing == nil {
+		return nil, errors.New("client not found")
+	}
+	existing.Name = patch["name"].(string)
+	existing.Type = patch["type"].(string)
+	existing.Host = patch["host"].(string)
+	existing.Username = patch["username"].(string)
+	existing.IsDefault = patch["is_default"].(bool)
+	existing.Enabled = patch["enabled"].(bool)
+	if pw, ok := patch["password"]; ok {
+		existing.Password = pw.(string)
+	}
+	if err := s.repo.DownloadClient.Update(ctx, existing); err != nil {
 		return nil, err
 	}
 	return s.repo.DownloadClient.FindByID(ctx, id)
@@ -120,7 +134,7 @@ func (s *DownloadClientService) Test(ctx context.Context, id string) error {
 		body.Set("password", c.Password)
 		req, _ := http.NewRequestWithContext(
 			ctx, http.MethodPost,
-			strings.TrimRight(c.URL, "/")+"/api/v2/auth/login",
+			strings.TrimRight(c.Host, "/")+"/api/v2/auth/login",
 			strings.NewReader(body.Encode()),
 		)
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -134,7 +148,7 @@ func (s *DownloadClientService) Test(ctx context.Context, id string) error {
 		}
 		return nil
 	case "aria2", "transmission":
-		req, _ := http.NewRequestWithContext(ctx, http.MethodGet, c.URL, nil)
+		req, _ := http.NewRequestWithContext(ctx, http.MethodGet, c.Host, nil)
 		resp, err := s.client.Do(req)
 		if err != nil {
 			return err
@@ -163,7 +177,7 @@ func (s *DownloadClientService) Aria2GlobalStats(ctx context.Context, clientID s
 		`{"jsonrpc":"2.0","id":"x","method":"aria2.getGlobalStat","params":["token:%s"]}`,
 		c.Password,
 	)
-	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, c.URL,
+	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, c.Host,
 		strings.NewReader(payload))
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := s.client.Do(req)
@@ -183,8 +197,8 @@ func validateClient(in DownloadClientInput) error {
 	if strings.TrimSpace(in.Name) == "" {
 		return errors.New("name required")
 	}
-	if strings.TrimSpace(in.URL) == "" {
-		return errors.New("url required")
+	if strings.TrimSpace(in.Host) == "" {
+		return errors.New("host required")
 	}
 	switch in.Type {
 	case "qbittorrent", "aria2", "transmission":

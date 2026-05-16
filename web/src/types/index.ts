@@ -258,8 +258,10 @@ export interface NotifyChannel {
   id: string
   name: string
   type: 'telegram' | 'wechat' | 'bark' | 'webhook' | 'email'
+  channel_type: 'telegram' | 'wechat' | 'bark' | 'webhook'
   enabled: boolean
   events: string
+  config: Record<string, string>
   created_at: string
   updated_at: string
 }

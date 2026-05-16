@@ -45,3 +45,9 @@ Thumbs.db
 # Local configs (keep examples)
 config/secrets.yaml
 config.yaml
+
+# WorkBuddy workspace (local AI assistant memory)
+.workbuddy/
+
+# Editor backups
+*~
