@@ -124,6 +124,9 @@ export interface Media {
   scrape_status: string
   tmdb_id: number
   bangumi_id: number
+  languages?: string
+  countries?: string
+  genres?: string
   nsfw: boolean
   created_at: string
   updated_at: string

@@ -30,6 +30,11 @@ function fmtSize(bytes: number): string {
   return `${v.toFixed(2)} ${units[i]}`
 }
 
+function parseCSV(s?: string): string[] {
+  if (!s) return []
+  return s.split(',').map(x => x.trim()).filter(Boolean)
+}
+
 // Detail screen for a single media item.
 //
 // Buttons:
@@ -151,6 +156,15 @@ export function MediaDetailPage() {
             <Badge>{fmtSize(media.size_bytes)}</Badge>
             {media.container && <Badge>{media.container.toUpperCase()}</Badge>}
             <Badge>{media.scrape_status}</Badge>
+            {parseCSV(media.languages).map(l => (
+              <Badge key={l} className="border-blue-400/30 text-blue-400 bg-blue-400/10">{l}</Badge>
+            ))}
+            {parseCSV(media.countries).map(c => (
+              <Badge key={c} className="border-green-400/30 text-green-400 bg-green-400/10">{c}</Badge>
+            ))}
+            {parseCSV(media.genres).map(g => (
+              <Badge key={g} className="border-purple-400/30 text-purple-400 bg-purple-400/10">{g}</Badge>
+            ))}
           </div>
 
           <div className="flex flex-wrap gap-2">
@@ -201,9 +215,10 @@ export function MediaDetailPage() {
   )
 }
 
-function Badge({ children }: { children: React.ReactNode }) {
+function Badge({ children, className = '' }: { children: React.ReactNode; className?: string }) {
+  const base = "rounded border border-white/10 bg-white/5 px-2 py-0.5"
   return (
-    <span className="rounded border border-white/10 bg-white/5 px-2 py-0.5">
+    <span className={`${base} ${className}`}>
       {children}
     </span>
   )

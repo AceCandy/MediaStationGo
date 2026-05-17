@@ -1,10 +1,11 @@
 import { FormEvent, useEffect, useState } from 'react'
-import { Bell, FolderCog, Loader2, Search, Wrench } from 'lucide-react'
+import { Bell, FolderCog, Info, Loader2, Search, Wrench } from 'lucide-react'
 import toast from 'react-hot-toast'
 
+import { adminAPI } from '../api/admin'
 import { libraryAPI, mediaAPI } from '../api/library'
 import { toolsAPI } from '../api/tools'
-import type { Library, Media } from '../types'
+import type { Library, Media, Setting } from '../types'
 
 // ToolsPage gathers admin-only one-off operations that don't belong on a
 // dedicated screen of their own:
@@ -44,8 +45,28 @@ function OrganizePanel() {
   const [results, setResults] = useState<Media[]>([])
   const [busyID, setBusyID] = useState<string | null>(null)
 
+  const [smartClassify, setSmartClassify] = useState(false)
+  const [loadingSettings, setLoadingSettings] = useState(true)
+
   useEffect(() => {
     libraryAPI.list().then(setLibraries).catch(() => undefined)
+  }, [])
+
+  useEffect(() => {
+    const loadSettings = async () => {
+      try {
+        const settings = await adminAPI.listSettings()
+        const setting = (settings as Setting[]).find(s => s.key === 'organizer.smart_classify')
+        if (setting) {
+          setSmartClassify(setting.value === 'true' || setting.value === '1' || setting.value === 'on')
+        }
+      } catch {
+        // ignore
+      } finally {
+        setLoadingSettings(false)
+      }
+    }
+    loadSettings()
   }, [])
 
   const onOrganizeLibrary = async (e: FormEvent) => {
@@ -104,6 +125,18 @@ function OrganizePanel() {
         将媒体文件按 <code className="rounded bg-white/5 px-1">媒体库/年份/标题 (年份)/标题.ext</code>{' '}
         的规范布局移动并重命名,确保已先完成刮削。
       </p>
+
+      {!loadingSettings && (
+        <div className="flex items-center gap-2 text-xs">
+          <Info size={14} className={smartClassify ? 'text-green-400' : 'text-slate-500'} />
+          <span className={smartClassify ? 'text-green-400' : 'text-slate-500'}>
+            智能分类：{smartClassify ? '已启用' : '未启用'}
+          </span>
+          {smartClassify && (
+            <span className="text-slate-500">（将根据元数据自动分类到子目录）</span>
+          )}
+        </div>
+      )}
 
       <form onSubmit={onOrganizeLibrary} className="flex flex-wrap gap-2">
         <select

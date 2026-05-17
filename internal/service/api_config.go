@@ -113,15 +113,25 @@ type Resolved struct {
 // API key. Callers can use Resolved.APIKey != "" as the "configured" check.
 func (s *APIConfigService) Resolve(ctx context.Context, provider string) (Resolved, error) {
 	row, err := s.findByProvider(ctx, provider)
-	if err != nil || row == nil {
+	if err != nil {
+		s.log.Warn("api_config.resolve: query failed", zap.String("provider", provider), zap.Error(err))
 		return Resolved{}, err
 	}
-	return Resolved{
+	if row == nil {
+		s.log.Warn("api_config.resolve: provider not found", zap.String("provider", provider))
+		return Resolved{}, nil
+	}
+	resolved := Resolved{
 		APIKey:  s.crypto.Decrypt(row.APIKey),
 		BaseURL: row.BaseURL,
 		Extra:   row.Extra,
 		Enabled: row.Enabled,
-	}, nil
+	}
+	s.log.Debug("api_config.resolve: success",
+		zap.String("provider", provider),
+		zap.Bool("has_key", resolved.APIKey != ""),
+		zap.Bool("enabled", resolved.Enabled))
+	return resolved, nil
 }
 
 // Update upserts a single provider's config. An empty patch.APIKey leaves
