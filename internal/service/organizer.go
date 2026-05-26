@@ -96,6 +96,17 @@ func (o *OrganizerService) OrganizeMedia(ctx context.Context, mediaID string) (s
 		return dst, nil
 	}
 
+	// Refuse to overwrite an existing different file. 当多个 release（如
+	// 不同字幕组、不同源）刮削后被统一改名，原本不重复的文件会被映射到
+	// 同一个目标路径，盲目 move 会导致后者覆盖前者，造成数据丢失。
+	if _, err := os.Stat(dst); err == nil {
+		o.log.Warn("organize skipped: destination already exists",
+			zap.String("media", m.ID),
+			zap.String("from", m.Path),
+			zap.String("to", dst))
+		return dst, nil
+	}
+
 	// Create directories.
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 		return "", err
@@ -149,7 +160,13 @@ func (o *OrganizerService) OrganizeLibrary(ctx context.Context, libraryID string
 
 // moveFile tries os.Rename first (instant on same fs), then falls back
 // to copy + remove for cross-device moves.
+//
+// 重要：如果 dst 已经存在，moveFile 会直接报错而不是覆盖。OrganizeMedia
+// 已经在调用前做过 stat 检查，这里是第二道防线。
 func moveFile(src, dst string) error {
+	if _, err := os.Stat(dst); err == nil {
+		return fmt.Errorf("destination already exists: %s", dst)
+	}
 	if err := os.Rename(src, dst); err == nil {
 		return nil
 	}
@@ -158,8 +175,18 @@ func moveFile(src, dst string) error {
 	if err != nil {
 		return err
 	}
-	if err := os.WriteFile(dst, data, 0o644); err != nil {
+	// O_EXCL 保证不会覆盖已存在的目标。
+	f, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	if err != nil {
 		return err
+	}
+	if _, werr := f.Write(data); werr != nil {
+		f.Close()
+		os.Remove(dst)
+		return werr
+	}
+	if cerr := f.Close(); cerr != nil {
+		return cerr
 	}
 	return os.Remove(src)
 }

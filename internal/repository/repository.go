@@ -182,9 +182,68 @@ func (r *LibraryRepository) Delete(ctx context.Context, id string) error {
 type MediaRepository struct{ db *gorm.DB }
 
 // Upsert inserts or updates a media row keyed by Path (unique index).
+//
+// 重要：当一条行已经存在时，scanner 重扫只应该刷新文件级元数据
+// （时长、宽高、编码、容器、大小），不能把刮削器维护的字段（标题改写、
+// 海报、TMDb/Bangumi ID、scrape_status 等）覆盖回零值。
+//
+// 之前用 Assign(*m).FirstOrCreate(m) 会把整张零值结构体写回，导致：
+//   1. scrape_status 从 'matched' / 'no_match' 被清空成 ''；
+//   2. 新建行使 GORM `default:pending` 也得不到应用（因为 zero value 被
+//      显式写入）。这两个问题都让 EnrichLibrary(WHERE scrape_status='pending')
+//      永远捞不到数据。
 func (r *MediaRepository) Upsert(ctx context.Context, m *model.Media) error {
-	return r.db.WithContext(ctx).Where("path = ?", m.Path).
-		Assign(*m).FirstOrCreate(m).Error
+	var existing model.Media
+	err := r.db.WithContext(ctx).Where("path = ?", m.Path).First(&existing).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		// 新行：保证 scrape_status 走 GORM default:pending（即留空让数据库填）。
+		if m.ScrapeStatus == "" {
+			m.ScrapeStatus = "pending"
+		}
+		return r.db.WithContext(ctx).Create(m).Error
+	}
+	if err != nil {
+		return err
+	}
+
+	// 已存在：仅刷新文件层面的字段。
+	updates := map[string]any{
+		"size_bytes":   m.SizeBytes,
+		"duration_sec": m.DurationSec,
+		"width":        m.Width,
+		"height":       m.Height,
+		"video_codec":  m.VideoCodec,
+		"audio_codec":  m.AudioCodec,
+		"container":    m.Container,
+	}
+	if m.Title != "" {
+		// scanner 给出的标题只是从路径推导，刮削后 title 已被替换为
+		// 真实剧名。仅在 existing 还停留在 'pending'/'' 时回填扫描标题，
+		// 避免覆盖刮削结果。
+		if existing.ScrapeStatus == "pending" || existing.ScrapeStatus == "" || existing.ScrapeStatus == "no_match" {
+			updates["title"] = m.Title
+			if m.Year > 0 {
+				updates["year"] = m.Year
+			}
+		}
+	}
+	if lib := m.LibraryID; lib != "" && lib != existing.LibraryID {
+		updates["library_id"] = m.LibraryID
+	}
+	if m.SeasonNum > 0 && existing.SeasonNum != m.SeasonNum {
+		updates["season_num"] = m.SeasonNum
+	}
+	if m.EpisodeNum > 0 && existing.EpisodeNum != m.EpisodeNum {
+		updates["episode_num"] = m.EpisodeNum
+	}
+
+	if err := r.db.WithContext(ctx).Model(&model.Media{}).
+		Where("id = ?", existing.ID).Updates(updates).Error; err != nil {
+		return err
+	}
+	// 回写 ID / 不可变字段，让 caller 拿到完整的现有行。
+	*m = existing
+	return nil
 }
 
 // FindByID returns the media row or (nil, nil).

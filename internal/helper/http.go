@@ -7,12 +7,41 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 	"go.uber.org/zap"
 )
+
+// NewSiteHTTPClient builds an http.Client honoring per-site policies:
+//   - timeout (seconds, defaults to 15)
+//   - proxy via HTTP(S)_PROXY environment variables when site.UseProxy is on
+//
+// When useProxy is false, the client is created without proxy plumbing so
+// the request goes out direct, matching the user's checkbox intent.
+func NewSiteHTTPClient(timeoutSeconds int, useProxy bool) *http.Client {
+	if timeoutSeconds <= 0 {
+		timeoutSeconds = 15
+	}
+	tr := &http.Transport{
+		MaxIdleConns:          16,
+		MaxIdleConnsPerHost:   4,
+		IdleConnTimeout:       60 * time.Second,
+		TLSHandshakeTimeout:   15 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
+	}
+	if useProxy {
+		tr.Proxy = func(r *http.Request) (*url.URL, error) {
+			return http.ProxyFromEnvironment(r)
+		}
+	}
+	return &http.Client{
+		Timeout:   time.Duration(timeoutSeconds) * time.Second,
+		Transport: tr,
+	}
+}
 
 // HTTPHeaderPresets returns a map of realistic browser HTTP headers.
 // These mimic a real Chrome browser to avoid WAF/bot detection.
@@ -193,11 +222,15 @@ func IsCloudflareChallenge(html string) bool {
 // ─── Site Connectivity Test ─────────────────────────────────────────────
 
 // TestSiteConnectivity performs a site connectivity test with browser-like headers.
-// If flareSolverrURL is non-empty, it will attempt to use FlareSolverr first.
+// If flareSolverrURL is non-empty AND the site has BrowserEmulation turned on,
+// it will attempt to use FlareSolverr first.
 // Returns (ok, message, error).
 func TestSiteConnectivity(site *model.Site, flareSolverrURL string, timeout int, log *zap.Logger) (bool, string, error) {
-	// Try FlareSolverr first if configured
-	if flareSolverrURL != "" {
+	// Try FlareSolverr first when (a) globally enabled and (b) the site
+	// asked for browser emulation. This matches the contract used by the
+	// search path (see service.SiteService.siteModelToConfig).
+	useFlare := flareSolverrURL != "" && site.BrowserEmulation
+	if useFlare {
 		log.Info("Trying FlareSolverr for site test", zap.String("url", site.URL))
 		body, err := FetchURLWithFlareSolverr(flareSolverrURL, site.URL, site.Cookie, timeout, "", log)
 		if err == nil {
@@ -211,15 +244,15 @@ func TestSiteConnectivity(site *model.Site, flareSolverrURL string, timeout int,
 		// Fall through to direct request
 	}
 
-	// Direct HTTP request with browser-like headers
-	client := &http.Client{
-		Timeout: time.Duration(timeout) * time.Second,
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			if len(via) >= 10 {
-				return fmt.Errorf("too many redirects")
-			}
-			return nil
-		},
+	// Direct HTTP request with browser-like headers. Honors HTTP(S)_PROXY
+	// when the site has UseProxy enabled — this makes the "use proxy"
+	// checkbox in the UI actually do something.
+	client := NewSiteHTTPClient(timeout, site.UseProxy)
+	client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		if len(via) >= 10 {
+			return fmt.Errorf("too many redirects")
+		}
+		return nil
 	}
 
 	req, err := http.NewRequest("GET", site.URL, nil)
@@ -253,7 +286,9 @@ func TestSiteConnectivity(site *model.Site, flareSolverrURL string, timeout int,
 		return false, "站点被 Cloudflare/WAF 拦截，请配置 FlareSolverr 或浏览器模拟", nil
 	}
 
-	// Evaluate status code (same logic as before)
+	// Evaluate status code (mirror the reference Python project's semantics:
+	// 200 → success, 3xx → success/redirect-to-self, 401/403 → failure with
+	// hint to check credentials, 4xx/5xx → failure with raw status text).
 	switch {
 	case resp.StatusCode >= 200 && resp.StatusCode < 300:
 		return true, fmt.Sprintf("连接成功 (%s)", resp.Status), nil
@@ -262,18 +297,18 @@ func TestSiteConnectivity(site *model.Site, flareSolverrURL string, timeout int,
 		if loc == "" {
 			loc = "(unknown)"
 		}
-		return true, fmt.Sprintf("站点可达，但返回重定向至 %s", loc), nil
+		// Most PT sites redirect logged-out users to login; treat as failure.
+		return false, fmt.Sprintf("未登录或 Cookie 失效（重定向至 %s）", loc), nil
 	case resp.StatusCode == 401:
-		return true, "站点可达，需要认证 (HTTP 401)", nil
+		return false, "未授权（HTTP 401），请检查 API Key / Cookie", nil
 	case resp.StatusCode == 403:
-		return true, "站点可达，但访问被拒绝 — 可能被 Cloudflare/WAF 拦截 (HTTP 403)", nil
+		return false, "认证失败（HTTP 403），请检查 Cookie / API Key 或站点是否需要浏览器模拟", nil
 	case resp.StatusCode == 429:
-		return true, "站点可达，但被限流 (HTTP 429)", nil
+		return false, "请求被限流（HTTP 429），请稍后再试", nil
 	case resp.StatusCode == 503:
-		return true, "站点可达，服务暂时不可用 (HTTP 503)", nil
+		return false, "服务暂时不可用（HTTP 503）", nil
 	default:
-		ok := resp.StatusCode >= 400 && resp.StatusCode < 500
-		return ok, resp.Status, nil
+		return false, resp.Status, nil
 	}
 }
 
@@ -303,9 +338,7 @@ func ApplySiteAuthHeaders(req *http.Request, site *model.Site) {
 // GetPageSource fetches a page with browser-like headers.
 // Returns (pageSource, cookies, error).
 func GetPageSource(url string, site *model.Site, timeout int, log *zap.Logger) (string, string, error) {
-	client := &http.Client{
-		Timeout: time.Duration(timeout) * time.Second,
-	}
+	client := NewSiteHTTPClient(timeout, site.UseProxy)
 
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {

@@ -118,9 +118,8 @@ export function DownloadClientsPage() {
                   )}
                 </div>
                 <div className="mt-1 truncate text-xs text-slate-400">
-                  {c.url}
+                  {c.host}
                   {c.username && ` · ${c.username}`}
-                  {c.save_path && ` · ${c.save_path}`}
                 </div>
               </div>
               <div className="flex shrink-0 gap-2">
@@ -177,10 +176,9 @@ function ClientFormModal({
   const [form, setForm] = useState<DownloadClientInput>(() => ({
     name: editing?.name ?? '',
     type: editing?.type ?? 'qbittorrent',
-    url: editing?.url ?? '',
+    host: editing?.host ?? '',
     username: editing?.username ?? '',
     password: '',
-    save_path: editing?.save_path ?? '',
     is_default: editing?.is_default ?? false,
     enabled: editing?.enabled ?? true,
   }))
@@ -246,8 +244,8 @@ function ClientFormModal({
               required
               className="input-base"
               placeholder={placeholder}
-              value={form.url}
-              onChange={(e) => update('url', e.target.value)}
+              value={form.host}
+              onChange={(e) => update('host', e.target.value)}
             />
           </Field>
           {form.type !== 'aria2' && (
@@ -279,13 +277,6 @@ function ClientFormModal({
               />
             </Field>
           )}
-          <Field label="默认保存路径">
-            <input
-              className="input-base"
-              value={form.save_path ?? ''}
-              onChange={(e) => update('save_path', e.target.value)}
-            />
-          </Field>
           <div className="flex flex-wrap gap-4">
             <label className="flex items-center gap-2 text-sm text-slate-300">
               <input

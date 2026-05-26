@@ -2,13 +2,14 @@ import { api } from './client'
 
 export type DownloadClientType = 'qbittorrent' | 'aria2' | 'transmission'
 
+// 与后端 model.DownloadClient 字段对齐（json:"host"）。
+// 之前前端用的 `url` / `save_path` 字段会被后端忽略并触发 400 binding 错误。
 export interface DownloadClient {
   id: string
   name: string
   type: DownloadClientType
-  url: string
+  host: string
   username?: string
-  save_path?: string
   is_default: boolean
   enabled: boolean
   created_at: string
@@ -18,10 +19,9 @@ export interface DownloadClient {
 export interface DownloadClientInput {
   name: string
   type: DownloadClientType
-  url: string
+  host: string
   username?: string
   password?: string
-  save_path?: string
   is_default: boolean
   enabled: boolean
 }

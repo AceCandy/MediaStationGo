@@ -84,7 +84,13 @@ export function DownloadsPage() {
       <section className="glass-panel">
         <h2 className="mb-3 font-display text-lg font-semibold text-white">实时状态</h2>
         {torrents === null && (
-          <p className="text-slate-500">尚未连接到 qBittorrent — 请在管理后台配置 qbittorrent.url / username / password。</p>
+          <p className="text-slate-500">
+            尚未连接到下载器 — 请到{' '}
+            <a href="/download-clients" className="text-primary-400 hover:underline">
+              下载器
+            </a>{' '}
+            页面添加并测试连接（qBittorrent / Aria2 / Transmission）。
+          </p>
         )}
         {torrents && torrents.length === 0 && <p className="text-slate-500">暂无运行中任务。</p>}
         {torrents && torrents.length > 0 && (

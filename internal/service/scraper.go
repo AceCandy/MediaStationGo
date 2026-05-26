@@ -60,12 +60,26 @@ var yearPattern = regexp.MustCompile(`(?:^|[^\d])(19\d{2}|20\d{2})(?:[^\d]|$)`)
 
 // noiseTokens are stripped before search.
 var noiseTokens = []string{
+	// 视频规格
 	"1080p", "2160p", "4k", "720p", "480p",
 	"hdrip", "bluray", "blu-ray", "webrip", "web-dl", "web",
 	"x264", "x265", "h264", "h265", "hevc", "avc",
 	"hdr", "sdr", "dts", "ddp", "atmos", "aac", "ac3", "flac",
 	"remux", "extended", "uncut", "directors-cut", "directors_cut",
 	"hkfree", "yify", "rarbg", "ettv", "fgt",
+
+	// 流媒体平台 / 字幕组 / 国家版本（动漫常见）
+	"netflix", "nf", "amzn", "hulu", "disney", "max", "hbo",
+	"linetv", "ourtv", "iqiyi", "youku", "bilibili", "qiyi", "krj",
+	"crunchyroll", "funimation", "anidb", "horriblesubs", "subsplease",
+	"erai-raws", "judas", "asw", "smcat", "leopard-raws", "ohys-raws",
+
+	// 中文字幕标记
+	"zm", "zw", "ch", "chs", "cht", "cn", "tc", "sc",
+	"中字", "繁字", "简中", "繁中", "国语", "粤语", "日语",
+
+	// 季数前缀残留 — ParseEpisode 已抽取过
+	"season",
 }
 
 // bracketedTag matches "[anything]" or "(anything)" segments.
@@ -94,12 +108,23 @@ func CleanQuery(raw string) (title string, year int) {
 	for _, t := range noiseTokens {
 		lower = strings.ReplaceAll(lower, t, " ")
 	}
-	for _, sep := range []string{".", "_", "-", "[", "]", "(", ")"} {
+	for _, sep := range []string{".", "_", "-", "[", "]", "(", ")", "×", "x"} {
 		lower = strings.ReplaceAll(lower, sep, " ")
 	}
-	fields := strings.Fields(lower)
-	title = strings.Join(fields, " ")
-	return strings.TrimSpace(title), year
+	// 拆分后丢掉过短（≤1）且全为 ASCII 数字 / 字母的"碎片"，避免
+	// 「2」「0」「v」之类残留干扰 TMDb 搜索。中文字符不算碎片。
+	out := make([]string, 0, 8)
+	for _, w := range strings.Fields(lower) {
+		if len(w) <= 1 {
+			r := []rune(w)
+			if len(r) == 1 && r[0] < 128 {
+				continue
+			}
+		}
+		out = append(out, w)
+	}
+	title = strings.TrimSpace(strings.Join(out, " "))
+	return title, year
 }
 
 // EnrichOne runs the provider chain for a single media row.
@@ -126,7 +151,6 @@ func (s *ScraperService) EnrichOne(ctx context.Context, m *model.Media) error {
 			Update("scrape_status", "no_match").Error
 		return nil
 	}
-
 	// Optional Fanart upgrade.
 	if s.fanart != nil && s.fanart.Enabled() && match.TMDbID > 0 {
 		if a, err := s.fanart.MovieArtwork(ctx, match.TMDbID); err == nil && a != nil {
@@ -197,6 +221,16 @@ func (s *ScraperService) EnrichOne(ctx context.Context, m *model.Media) error {
 
 // lookup runs the provider chain. When the library is missing we fall
 // back to TMDb only.
+//
+// 库类型决定首选 provider：
+//
+//	anime  -> Bangumi  -> TMDb /search/tv  -> TMDb /search/movie
+//	tv     -> TheTVDB  -> TMDb /search/tv  -> TMDb /search/movie
+//	movie  -> TMDb /search/movie
+//	(空)    -> TMDb /search/movie
+//
+// 任何 provider 错误都不会中止链式查询；只要返回 nil/err，就继续走下一个
+// provider。这避免了 Bangumi token 未配置时 anime 库整体失败的问题。
 func (s *ScraperService) lookup(ctx context.Context, lib *model.Library, query string, year int) *Match {
 	kind := ""
 	if lib != nil {
@@ -204,21 +238,35 @@ func (s *ScraperService) lookup(ctx context.Context, lib *model.Library, query s
 	}
 	switch kind {
 	case "anime":
-		if s.bangumi != nil {
+		if s.bangumi != nil && s.bangumi.Enabled() {
 			if m, err := s.bangumi.Search(ctx, query); err == nil && m != nil {
 				return m
+			} else if err != nil {
+				s.log.Debug("bangumi search failed", zap.String("query", query), zap.Error(err))
 			}
 		}
 	case "tv":
 		if s.thetvdb != nil && s.thetvdb.Enabled() {
 			if m, err := s.thetvdb.SearchSeries(ctx, query); err == nil && m != nil {
 				return m
+			} else if err != nil {
+				s.log.Debug("thetvdb search failed", zap.String("query", query), zap.Error(err))
 			}
 		}
 	}
 	if s.tmdb != nil && s.tmdb.Enabled() {
+		// anime / tv 先用 TMDb /search/tv（剧名通常是 TV 类目）。
+		if kind == "anime" || kind == "tv" {
+			if m, err := s.tmdb.SearchTV(ctx, query, year); err == nil && m != nil {
+				return m
+			} else if err != nil {
+				s.log.Debug("tmdb tv search failed", zap.String("query", query), zap.Error(err))
+			}
+		}
 		if m, err := s.tmdb.SearchMovie(ctx, query, year); err == nil && m != nil {
 			return m
+		} else if err != nil {
+			s.log.Debug("tmdb movie search failed", zap.String("query", query), zap.Error(err))
 		}
 	}
 	return nil
@@ -226,9 +274,13 @@ func (s *ScraperService) lookup(ctx context.Context, lib *model.Library, query s
 
 // EnrichLibrary runs the provider chain for every "pending" media in a
 // library. It throttles to 4 RPS and publishes a summary event when done.
+//
+// Pending status includes both the canonical "pending" string and the
+// empty / NULL values, because MediaRepository.Upsert can wipe the GORM
+// default when re-running a scan over an already-existing row.
 func (s *ScraperService) EnrichLibrary(ctx context.Context, libraryID string) (int, error) {
 	var rows []model.Media
-	q := s.repo.DB.Where("scrape_status = ?", "pending")
+	q := s.repo.DB.Where("scrape_status IS NULL OR scrape_status = '' OR scrape_status = ?", "pending")
 	if libraryID != "" {
 		q = q.Where("library_id = ?", libraryID)
 	}

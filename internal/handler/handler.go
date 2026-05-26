@@ -25,7 +25,11 @@ func Register(r *gin.Engine, cfg *config.Config, log *zap.Logger, svc *service.C
 		{
 			auth.POST("/login", loginHandler(svc))
 			auth.POST("/register", registerHandler(svc))
-			auth.POST("/refresh", refreshHandler(svc))
+			// /auth/refresh 用 RefreshHandler.RefreshToken：它从 body 读
+			// refresh_token 并签发新 access/refresh 对。旧的 refreshHandler
+			// 依赖 AuthRequired 中间件，永远 401，因此弃用。
+			refreshHd := NewRefreshHandler(svc, log)
+			auth.POST("/refresh", refreshHd.RefreshToken)
 		}
 
 		// Authenticated endpoints.
@@ -336,19 +340,11 @@ func Register(r *gin.Engine, cfg *config.Config, log *zap.Logger, svc *service.C
 			apiConfig.POST("/:provider/test", testApiConfigHandler(svc))
 		}
 
-		// Emby/Jellyfin compatibility shim (read-only).
-		// Mounted at /emby/* (NOT /api/*) to mirror the upstream surface.
+		// Emby/Jellyfin compatibility shim — routes mounted at /emby/* AND
+		// the root path so Infuse / Yamby / Hills / Senplayer 都能自动连接。
 	}
 
-	emby := r.Group("/emby")
-	emby.Use(middleware.AuthRequired(cfg.Secrets.JWTSecret))
-	{
-		emby.GET("/System/Info", embySystemInfoHandler(svc))
-		emby.GET("/Users", embyListUsersHandler(svc))
-		emby.GET("/Users/:userId/Views", embyViewsHandler(svc))
-		emby.GET("/Users/:userId/Items", embyItemsHandler(svc))
-		emby.GET("/Items/:id/PlaybackInfo", embyPlaybackInfoHandler(svc))
-	}
+	registerEmbyRoutes(r, cfg.Secrets.JWTSecret, svc)
 }
 
 func healthCheck(c *gin.Context) {

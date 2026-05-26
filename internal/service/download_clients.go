@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -129,23 +130,39 @@ func (s *DownloadClientService) Test(ctx context.Context, id string) error {
 	}
 	switch c.Type {
 	case "qbittorrent":
+		host := strings.TrimRight(c.Host, "/")
 		body := url.Values{}
 		body.Set("username", c.Username)
 		body.Set("password", c.Password)
 		req, _ := http.NewRequestWithContext(
 			ctx, http.MethodPost,
-			strings.TrimRight(c.Host, "/")+"/api/v2/auth/login",
+			host+"/api/v2/auth/login",
 			strings.NewReader(body.Encode()),
 		)
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		// qBittorrent v4.6+ 默认开启 "host header validation" 并要求
+		// Referer 与 Host 同源，否则即使账户正确也会拒绝登录。
+		req.Header.Set("Referer", host)
+		req.Header.Set("Origin", host)
+		req.Header.Set("User-Agent", "MediaStationGo/0.1")
 		resp, err := s.client.Do(req)
 		if err != nil {
 			return err
 		}
 		defer resp.Body.Close()
+		if resp.StatusCode == http.StatusForbidden {
+			return errors.New("qbittorrent: 403 — 用户名/密码错误，或 WebUI 启用了 IP 封禁")
+		}
 		if resp.StatusCode >= 400 {
 			return fmt.Errorf("qbittorrent returned %d", resp.StatusCode)
 		}
+		// 即使返回 200，body 内容仍可能是 "Fails." 表示登录失败。
+		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 256))
+		text := strings.TrimSpace(string(raw))
+		if text == "Fails." {
+			return errors.New("qbittorrent: 用户名/密码错误")
+		}
+		// 正确响应是 "Ok." — 但部分版本会重定向或返回空体，不强校验。
 		return nil
 	case "aria2", "transmission":
 		req, _ := http.NewRequestWithContext(ctx, http.MethodGet, c.Host, nil)

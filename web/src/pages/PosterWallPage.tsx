@@ -1,23 +1,27 @@
-import { useEffect, useState } from 'react'
-import { GalleryHorizontalEnd } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import { GalleryHorizontalEnd, Layers } from 'lucide-react'
 
 import { mediaAPI } from '../api/library'
 import { MediaCard } from '../components/MediaCard'
+import { groupSeries } from '../utils/groupSeries'
 import type { Media } from '../types'
 
-// PosterWallPage shows a dense poster grid of all media across every
-// library — a visual "poster wall" that matches the original MediaStation's
-// PosterWallView.vue. Loads the first 200 items sorted by rating.
+// PosterWallPage 把所有媒体的代表海报聚合到同一面墙，便于一目了然
+// 浏览整个站点的内容。所有 episode 行会按剧集折叠，避免同一海报刷屏。
 export function PosterWallPage() {
   const [items, setItems] = useState<Media[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
+    // 拉得多一点（500），折叠后才能凑够展示量；后端 page_size 上限可能
+    // 需要后续观察，暂以 500 试探。
     mediaAPI
-      .search('', 200)
+      .search('', 500)
       .then((d) => setItems(d.items))
       .finally(() => setLoading(false))
   }, [])
+
+  const cards = useMemo(() => groupSeries(items).slice(0, 240), [items])
 
   return (
     <div className="space-y-6">
@@ -26,18 +30,26 @@ export function PosterWallPage() {
         <div>
           <h1 className="font-display text-3xl font-bold text-white">海报墙</h1>
           <p className="text-sm text-slate-400">
-            全部媒体的海报展示(最多 200 项)。
+            按剧集聚合 · 共 {cards.length} 个条目
           </p>
         </div>
       </header>
 
       {loading && <p className="text-slate-500">加载中…</p>}
-      {!loading && items.length === 0 && (
+      {!loading && cards.length === 0 && (
         <p className="text-slate-400">暂无媒体。请先添加媒体库并扫描。</p>
       )}
-      <div className="grid grid-cols-3 gap-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8">
-        {items.map((m) => (
-          <MediaCard key={m.id} media={m} />
+      <div className="grid grid-cols-3 gap-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 xl:grid-cols-10">
+        {cards.map((s) => (
+          <div key={s.rep.id} className="relative">
+            <MediaCard media={s.rep} />
+            {s.count > 1 && (
+              <span className="pointer-events-none absolute right-1.5 top-1.5 inline-flex items-center gap-0.5 rounded-md bg-black/60 px-1.5 py-0.5 text-[10px] font-medium text-white backdrop-blur-sm">
+                <Layers size={10} />
+                {s.count}
+              </span>
+            )}
+          </div>
         ))}
       </div>
     </div>

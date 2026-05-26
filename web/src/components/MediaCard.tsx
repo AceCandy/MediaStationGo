@@ -4,7 +4,12 @@ import { Film, Play } from 'lucide-react'
 import { imageURL } from '../api/client'
 import type { Media } from '../types'
 
-/** Compact poster tile — used by library, search, favourites, poster wall, etc. */
+/**
+ * Compact poster tile — used by library, search, favourites, poster wall, etc.
+ *
+ * 视觉密度调小：之前字体偏大、卡片整体偏宽，导致每页只能塞下 5 个左右；
+ * 现在文字行 truncate + 字号缩到 12px，让 8 列网格不再"挤"。
+ */
 export function MediaCard({
   media,
   progress,
@@ -29,14 +34,14 @@ export function MediaCard({
           />
         ) : (
           <div className="flex h-full w-full items-center justify-center text-cream-900/30">
-            <Film size={48} />
+            <Film size={36} />
           </div>
         )}
 
         {/* Hover overlay */}
-        <div className="absolute inset-0 flex items-end bg-gradient-to-t from-black/60 via-transparent to-transparent p-3 opacity-0 transition-opacity group-hover:opacity-100">
-          <span className="flex items-center gap-1.5 text-xs text-white/90">
-            <Play size={12} />
+        <div className="absolute inset-0 flex items-end bg-gradient-to-t from-black/60 via-transparent to-transparent p-2 opacity-0 transition-opacity group-hover:opacity-100">
+          <span className="flex items-center gap-1 text-[11px] text-white/90">
+            <Play size={11} />
             播放
           </span>
         </div>
@@ -53,12 +58,12 @@ export function MediaCard({
       </div>
 
       {/* Info */}
-      <div className="px-3 py-2.5">
-        <p className="truncate text-sm font-medium text-cream-200 group-hover:text-cream-100">
+      <div className="px-2 py-2">
+        <p className="truncate text-xs font-medium text-cream-200 group-hover:text-cream-100">
           {media.title}
         </p>
         {media.year > 0 && (
-          <p className="mt-0.5 text-xs text-cream-500">{media.year}</p>
+          <p className="mt-0.5 text-[11px] text-cream-500">{media.year}</p>
         )}
       </div>
     </Link>

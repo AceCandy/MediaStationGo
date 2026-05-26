@@ -114,6 +114,10 @@ func (q *QBitClient) Login(ctx context.Context) error {
 }
 
 // AddTorrent submits a magnet URL or HTTP(S) URL to qBittorrent.
+//
+// qBittorrent 的 /api/v2/torrents/add 在很多失败场景下仍然返回 HTTP 200
+// 但 body 里写 "Fails."。我们把这些情况也识别为错误并返回，避免
+// "API 返回 200 → 我们告诉前端成功 → qb 中却没下载" 这种迷惑性失败。
 func (q *QBitClient) AddTorrent(ctx context.Context, magnetOrURL, savePath string) error {
 	q.mu.Lock()
 	defer q.mu.Unlock()
@@ -137,16 +141,26 @@ func (q *QBitClient) AddTorrent(ctx context.Context, magnetOrURL, savePath strin
 	}
 	req.Header.Set("Content-Type", w.FormDataContentType())
 	req.Header.Set("Referer", q.cfg.BaseURL)
+	req.Header.Set("Origin", q.cfg.BaseURL)
 
 	resp, err := q.client.Do(req)
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
+	raw, _ := io.ReadAll(resp.Body)
+	bodyText := strings.TrimSpace(string(raw))
 	if resp.StatusCode >= 400 {
-		raw, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("qbittorrent add: %d: %s", resp.StatusCode, strings.TrimSpace(string(raw)))
+		return fmt.Errorf("qbittorrent add: HTTP %d: %s", resp.StatusCode, bodyText)
 	}
+	// qb 的成功响应是 "Ok." 或空体；任何 "Fails." 视为失败。
+	if strings.EqualFold(bodyText, "Fails.") {
+		return fmt.Errorf("qbittorrent add: 拒绝任务 (检查 URL 是否需要认证或 savePath 是否可写)")
+	}
+	q.log.Info("qbittorrent: torrent added",
+		zap.String("url", magnetOrURL),
+		zap.String("save_path", savePath),
+		zap.String("body", bodyText))
 	return nil
 }
 

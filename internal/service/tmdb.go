@@ -58,7 +58,20 @@ func NewTMDbProvider(cfg *config.Config, log *zap.Logger, apiConfig *APIConfigSe
 		apiConfig: apiConfig,
 		base:      base,
 		imgCDN:    img,
-		client:    &http.Client{Timeout: 15 * time.Second},
+		// 默认 8s 超时：首页同时调 trending + popular，15s 太久会让用户感觉
+		// 卡死。如果 TMDb 真有问题，handler 层会快速降级返回空列表。
+		// 同时让 client 显式读 HTTP(S)_PROXY 环境变量——这是 GFW 内部署最低
+		// 成本能拉到 TMDb 的方式。
+		client: &http.Client{
+			Timeout: 8 * time.Second,
+			Transport: &http.Transport{
+				Proxy:                 http.ProxyFromEnvironment,
+				MaxIdleConns:          16,
+				IdleConnTimeout:       60 * time.Second,
+				TLSHandshakeTimeout:   8 * time.Second,
+				ExpectContinueTimeout: 1 * time.Second,
+			},
+		},
 	}
 }
 
@@ -193,6 +206,72 @@ func (t *TMDbProvider) SearchMovie(ctx context.Context, query string, year int) 
 	}
 	if len(r.ReleaseDate) >= 4 {
 		fmt.Sscanf(r.ReleaseDate[:4], "%d", &m.Year)
+	}
+	return m, nil
+}
+
+// SearchTV issues `/search/tv` and returns the best match. Used by anime /
+// tv libraries before falling back to SearchMovie.
+func (t *TMDbProvider) SearchTV(ctx context.Context, query string, year int) (*Match, error) {
+	if query == "" {
+		return nil, errors.New("empty query")
+	}
+
+	apiKey := t.resolveAPIKey(ctx)
+	if apiKey == "" {
+		return nil, nil
+	}
+	base := t.resolveBaseURL(ctx)
+
+	q := url.Values{}
+	q.Set("api_key", apiKey)
+	q.Set("query", query)
+	q.Set("language", "zh-CN")
+	q.Set("include_adult", "false")
+	if year > 0 {
+		q.Set("first_air_date_year", fmt.Sprintf("%d", year))
+	}
+	u := base + "/search/tv?" + q.Encode()
+
+	type result struct {
+		ID           int     `json:"id"`
+		Name         string  `json:"name"`
+		OriginalName string  `json:"original_name"`
+		Overview     string  `json:"overview"`
+		PosterPath   string  `json:"poster_path"`
+		BackdropPath string  `json:"backdrop_path"`
+		FirstAirDate string  `json:"first_air_date"`
+		VoteAverage  float32 `json:"vote_average"`
+	}
+	type page struct {
+		Results []result `json:"results"`
+	}
+
+	var p page
+	if err := t.getJSON(ctx, u, &p); err != nil {
+		return nil, err
+	}
+	if len(p.Results) == 0 {
+		return nil, nil
+	}
+	r := p.Results[0]
+	m := &Match{
+		TMDbID:   r.ID,
+		Title:    r.Name,
+		Overview: r.Overview,
+		Rating:   r.VoteAverage,
+	}
+	if m.Title == "" {
+		m.Title = r.OriginalName
+	}
+	if r.PosterPath != "" {
+		m.PosterURL = t.imgCDN + "/w500" + r.PosterPath
+	}
+	if r.BackdropPath != "" {
+		m.BackdropURL = t.imgCDN + "/w1280" + r.BackdropPath
+	}
+	if len(r.FirstAirDate) >= 4 {
+		fmt.Sscanf(r.FirstAirDate[:4], "%d", &m.Year)
 	}
 	return m, nil
 }

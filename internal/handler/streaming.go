@@ -45,7 +45,10 @@ func stopTranscodeHandler(svc *service.Container) gin.HandlerFunc {
 func imageProxyHandler(svc *service.Container) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		raw := c.Query("url")
-		if err := svc.ImageProxy.Serve(c.Request.Context(), c.Writer, raw); err != nil {
+		// Serve handles upstream errors internally by returning a 1×1 PNG
+		// placeholder, so the only error we can get back here is a malformed
+		// URL. In that case we still return 400 to make the misuse visible.
+		if err := svc.ImageProxy.Serve(c.Request.Context(), c.Writer, c.Request, raw); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}

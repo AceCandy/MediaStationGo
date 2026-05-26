@@ -118,7 +118,7 @@ export function LibraryPage() {
       {loading && <p className="text-slate-500">加载中…</p>}
 
       {!isSeries && (
-        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
+        <div className="grid grid-cols-3 gap-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-7 xl:grid-cols-8">
           {items.map((m) => (
             <MediaCard key={m.id} media={m} />
           ))}
@@ -131,7 +131,7 @@ export function LibraryPage() {
             <h2 className="font-display text-xl font-semibold text-white">
               {s.season > 0 ? `第 ${s.season} 季` : '未分季'} ({s.episodes.length})
             </h2>
-            <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
+            <div className="grid grid-cols-3 gap-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-7 xl:grid-cols-8">
               {s.episodes.map((e) => (
                 <div key={e.id} className="space-y-1">
                   <MediaCard media={e} />

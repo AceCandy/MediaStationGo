@@ -162,8 +162,20 @@ export function PlayerPage() {
             ref={ref}
             controls
             autoPlay
-            crossOrigin="use-credentials"
+            playsInline
             className="max-h-screen w-full max-w-[1600px] bg-black"
+            onError={() => {
+              // 浏览器对 <video src> 的错误描述非常有限，把详细原因
+              // 转给开发者控制台 + 一条 toast；常见原因是 codec 不支持。
+              if (mode === 'direct') {
+                toast.error('直接播放失败，切换到 HLS 转码')
+                setMode('hls')
+                params.set('mode', 'hls')
+                setParams(params, { replace: true })
+              } else {
+                toast.error('视频播放失败，请检查文件是否存在')
+              }
+            }}
           >
             {subs.map((t, i) => (
               <track

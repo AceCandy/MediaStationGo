@@ -37,6 +37,9 @@ func createDownloadClientHandler(svc *service.Container) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
+		// 让真正发起下载的 DownloadService 立刻读到新的 qb 配置，
+		// 避免保存后还要重启进程才能生效。
+		_ = svc.Downloads.ReloadConfig(c.Request.Context())
 		c.JSON(http.StatusOK, row)
 	}
 }
@@ -53,6 +56,7 @@ func updateDownloadClientHandler(svc *service.Container) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
+		_ = svc.Downloads.ReloadConfig(c.Request.Context())
 		c.JSON(http.StatusOK, row)
 	}
 }
@@ -63,6 +67,7 @@ func deleteDownloadClientHandler(svc *service.Container) gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
+		_ = svc.Downloads.ReloadConfig(c.Request.Context())
 		c.Status(http.StatusNoContent)
 	}
 }

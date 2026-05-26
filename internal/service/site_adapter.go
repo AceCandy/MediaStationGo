@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -30,6 +31,7 @@ type SiteConfig struct {
 	Timeout          time.Duration     // 请求超时
 	Extra            map[string]string // JSON 扩展配置
 	FlareSolverrURL  string            // FlareSolverr 服务地址（用于浏览器模拟绕过 Cloudflare/WAF）
+	UseProxy         bool              // 通过 HTTP(S)_PROXY 环境变量出站
 }
 
 // SiteSearchResult 站点搜索结果（按站点分组的批量搜索结果）。
@@ -97,8 +99,14 @@ type SiteAdapter interface {
 }
 
 // newHTTPClient 创建带有认证头的 HTTP 客户端。
+// 当 cfg.UseProxy 为 true 时，会读取 HTTP(S)_PROXY 环境变量；
+// 否则忽略环境变量直连。
 func newHTTPClient(cfg SiteConfig, timeout time.Duration) *http.Client {
-	return &http.Client{Timeout: timeout}
+	secs := int(timeout.Seconds())
+	if secs <= 0 {
+		secs = 30
+	}
+	return helper.NewSiteHTTPClient(secs, cfg.UseProxy)
 }
 
 // buildRequest 构建带认证的 HTTP 请求。
@@ -114,13 +122,11 @@ func buildRequest(ctx context.Context, method, rawURL string, cfg SiteConfig, bo
 			req.Header.Set("Cookie", cfg.Cookie)
 		}
 	case "api_key":
-		// MTeam 使用 Authorization: Bearer 格式
-		if cfg.Type == "mteam" {
-			if cfg.APIKey != "" {
-				req.Header.Set("Authorization", "Bearer "+cfg.APIKey)
-			}
-		} else if cfg.APIKey != "" {
-			req.Header.Set("X-API-Key", cfg.APIKey)
+		// 与参考项目（ShukeBta/MediaStation）的 ApplySiteAuthHeaders 对齐：
+		// M-Team / UNIT3D 等开放 API 的 PT 站点都使用 `x-api-key` 头部，
+		// 不要再为 mteam 单独走 Authorization: Bearer，否则服务端会 401。
+		if cfg.APIKey != "" {
+			req.Header.Set("x-api-key", cfg.APIKey)
 		}
 	case "auth_header":
 		if cfg.AuthHeader != "" {
@@ -169,7 +175,14 @@ func doRequest(ctx context.Context, client *http.Client, method, rawURL string, 
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	}
 
-	resp, err := client.Do(req)
+	// 当站点开启了「使用代理」开关时，使用本次请求专用的、读取 HTTP(S)_PROXY
+	// 的 client；否则沿用适配器持有的全局 client。这与前端勾选行为对齐。
+	httpClient := client
+	if cfg.UseProxy {
+		httpClient = newHTTPClient(cfg, cfg.Timeout)
+	}
+
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -197,33 +210,32 @@ func NewNexusPHPAdapter() *NexusPHPAdapter {
 }
 
 func (a *NexusPHPAdapter) Authenticate(ctx context.Context, cfg SiteConfig) error {
-	resp, err := buildRequest(ctx, "GET", cfg.URL+"/index.php", cfg, nil)
-	if err != nil {
-		return fmt.Errorf("build request: %w", err)
-	}
-	httpResp, err := a.client.Do(resp)
+	// 走 doRequest 以便复用代理 / FlareSolverr / 浏览器头。
+	data, status, err := doRequest(ctx, a.client, "GET", cfg.URL+"/index.php", cfg, nil)
 	if err != nil {
 		return fmt.Errorf("request failed: %w", err)
 	}
-	defer httpResp.Body.Close()
 
-	if httpResp.StatusCode == http.StatusFound {
+	if status == http.StatusFound {
 		return fmt.Errorf("authentication failed: redirected to login page")
 	}
-	if httpResp.StatusCode != http.StatusOK {
-		return fmt.Errorf("authentication failed: status %d", httpResp.StatusCode)
+	if status == http.StatusUnauthorized || status == http.StatusForbidden {
+		return fmt.Errorf("authentication failed: status %d", status)
+	}
+	if status >= 400 {
+		return fmt.Errorf("authentication failed: status %d", status)
 	}
 
-	body, _ := io.ReadAll(httpResp.Body)
-	bodyStr := string(body)
-	// NexusPHP 登录页面通常包含 logout 或 userdetails
-	if strings.Contains(bodyStr, "userdetails") || strings.Contains(bodyStr, "logout") {
+	body := string(data)
+	// NexusPHP 登录后页面通常包含 logout 或 userdetails；
+	// 仅当二者都不存在且明确显示登录表单时才判失败。
+	if strings.Contains(body, "userdetails") || strings.Contains(body, "logout") || strings.Contains(body, "退出") {
 		return nil
 	}
-	// Check for common login indicators
-	if strings.Contains(bodyStr, "login") && !strings.Contains(bodyStr, "userdetails") {
+	if strings.Contains(body, "takelogin.php") || strings.Contains(body, "id=\"loginform\"") {
 		return fmt.Errorf("authentication failed: not logged in")
 	}
+	// 状态码 OK 但页面不含明显标记时不再武断判失败。
 	return nil
 }
 
@@ -843,33 +855,68 @@ func NewMTeamAdapter() *MTeamAdapter {
 }
 
 func (a *MTeamAdapter) Authenticate(ctx context.Context, cfg SiteConfig) error {
+	// 与 ShukeBta/MediaStation 参考实现对齐：
+	// 用 camelCase 参数（pageNumber / pageSize），同时接受 code 为字符串 "0"
+	// 或数值 0；兼容 M-Team v3 API 不同版本的返回。
 	u := cfg.URL + "/api/torrent/search"
-	payload := `{"mode":"search","keyword":"","page":1,"pageSize":1}`
+	payload := `{"pageNumber":1,"pageSize":1,"keyword":"test"}`
 	data, status, err := doRequestJSON(ctx, a.client, "POST", u, cfg, []byte(payload))
+	// 调试开关：MEDIASTATION_DEBUG_MTEAM=1 时把请求/响应详情写入 stderr。
+	if os.Getenv("MEDIASTATION_DEBUG_MTEAM") == "1" {
+		preview := string(data)
+		if len(preview) > 800 {
+			preview = preview[:800] + "..."
+		}
+		fmt.Fprintf(os.Stderr,
+			"[DEBUG mteam.Authenticate] url=%s status=%d err=%v body=%s\n",
+			u, status, err, preview)
+	}
 	if err != nil {
 		return fmt.Errorf("authenticate: %w", err)
 	}
-	if status == http.StatusUnauthorized {
-		return fmt.Errorf("authentication failed: unauthorized")
+	preview := string(data)
+	if len(preview) > 400 {
+		preview = preview[:400] + "..."
+	}
+	if status == http.StatusUnauthorized || status == http.StatusForbidden {
+		return fmt.Errorf("authentication failed: status %d, body=%s", status, preview)
+	}
+	if status >= 300 && status < 400 {
+		return fmt.Errorf("authentication failed: HTTP %d (API Key 无效或未登录), body=%s", status, preview)
 	}
 	if status != http.StatusOK {
-		return fmt.Errorf("authenticate failed: status %d", status)
+		return fmt.Errorf("authenticate failed: status %d, body=%s", status, preview)
 	}
 	var resp map[string]interface{}
-	if err := json.Unmarshal(data, &resp); err == nil {
-		if code, ok := resp["code"].(float64); ok && code != 0 {
-			return fmt.Errorf("authentication failed: code %v", code)
-		}
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return fmt.Errorf("parse response: %w (body=%s)", err, preview)
 	}
-	return nil
+	codeStr := ""
+	switch v := resp["code"].(type) {
+	case string:
+		codeStr = v
+	case float64:
+		codeStr = strconv.Itoa(int(v))
+	}
+	if codeStr == "0" || codeStr == "200" {
+		return nil
+	}
+	msg, _ := resp["message"].(string)
+	if msg == "" {
+		msg = fmt.Sprintf("code=%s", codeStr)
+	}
+	return fmt.Errorf("authentication failed: %s (body=%s)", msg, preview)
 }
 
 func (a *MTeamAdapter) Search(ctx context.Context, cfg SiteConfig, keyword string, page int) (*SiteSearchResult, error) {
+	// 与参考项目对齐：使用 camelCase 字段名，page 从 1 开始。
+	if page <= 0 {
+		page = 1
+	}
 	payload := map[string]interface{}{
-		"mode":     "search",
-		"keyword":  keyword,
-		"page":     page,
-		"pageSize": 50,
+		"keyword":    keyword,
+		"pageNumber": page,
+		"pageSize":   50,
 	}
 	body, _ := json.Marshal(payload)
 
@@ -886,11 +933,16 @@ func (a *MTeamAdapter) Search(ctx context.Context, cfg SiteConfig, keyword strin
 }
 
 func (a *MTeamAdapter) Browse(ctx context.Context, cfg SiteConfig, category string, page int) (*SiteSearchResult, error) {
+	if page <= 0 {
+		page = 1
+	}
 	payload := map[string]interface{}{
-		"mode":     "browse",
-		"category": category,
-		"page":     page,
-		"pageSize": 50,
+		"keyword":    "",
+		"pageNumber": page,
+		"pageSize":   50,
+	}
+	if category != "" {
+		payload["categories"] = []string{category}
 	}
 	body, _ := json.Marshal(payload)
 
@@ -964,30 +1016,122 @@ func (a *MTeamAdapter) GetDetail(ctx context.Context, cfg SiteConfig, id string)
 	return detail, nil
 }
 
+// GetDownloadURL 解析 M-Team 种子的真实下载链接。
+//
+// M-Team v3 流程：
+//
+//	POST /api/torrent/genDlToken?id={tid}     (带 x-api-key)
+//	→ {"code":"0","data":"https://api.m-team.cc/api/rss/dlv2?sign=..."}
+//
+// 拿到的 sign URL 可被任何下载客户端无认证地直接 GET。这是参考项目
+// (ShukeBta/MediaStation) 的 _download_torrent_file 方法的子集。
 func (a *MTeamAdapter) GetDownloadURL(ctx context.Context, cfg SiteConfig, id string) (string, error) {
-	return cfg.URL + "/api/torrent/detail?id=" + id, nil
+	u := cfg.URL + "/api/torrent/genDlToken?id=" + id
+	// genDlToken 是 POST 但参数走 query string；body 留空。
+	data, status, err := doRequestJSON(ctx, a.client, "POST", u, cfg, []byte("{}"))
+	if err != nil {
+		return "", fmt.Errorf("genDlToken: %w", err)
+	}
+	if status >= 300 {
+		return "", fmt.Errorf("genDlToken: HTTP %d", status)
+	}
+	var resp map[string]interface{}
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return "", fmt.Errorf("genDlToken parse: %w", err)
+	}
+	codeStr := ""
+	switch v := resp["code"].(type) {
+	case string:
+		codeStr = v
+	case float64:
+		codeStr = strconv.Itoa(int(v))
+	}
+	if codeStr != "0" && codeStr != "200" {
+		msg, _ := resp["message"].(string)
+		if msg == "" {
+			msg = "unknown error"
+		}
+		return "", fmt.Errorf("genDlToken: %s", msg)
+	}
+	dl, _ := resp["data"].(string)
+	if dl == "" {
+		return "", fmt.Errorf("genDlToken: empty data field")
+	}
+	return dl, nil
 }
 
-// parseMTeamJSON 解析 MTeam JSON 响应。
+// parseMTeamJSON 解析 MTeam v3 JSON 响应。
+//
+// 响应结构（与 ShukeBta/MediaStation 参考项目一致）：
+//
+//	{
+//	  "code": "0",          // 字符串 "0" 表示成功
+//	  "message": "SUCCESS",
+//	  "data": {
+//	    "total": "123",
+//	    "data": [ ... ]    // 旧字段名 "lists" 已被替换为 "data"
+//	  }
+//	}
 func parseMTeamJSON(data []byte, siteName, baseURL string) (*SiteSearchResult, error) {
-	var resp struct {
-		Code int                    `json:"code"`
-		Data struct {
-			Total  int                     `json:"total"`
-			Lists  []map[string]interface{} `json:"lists"`
-		} `json:"data"`
-	}
-	if err := json.Unmarshal(data, &resp); err != nil {
+	// 用 map 反序列化以兼容 code/total 既可能是字符串又可能是数字。
+	var raw map[string]interface{}
+	if err := json.Unmarshal(data, &raw); err != nil {
 		return nil, fmt.Errorf("parse JSON: %w", err)
+	}
+
+	// code 兼容字符串与数字。
+	codeStr := ""
+	switch v := raw["code"].(type) {
+	case string:
+		codeStr = v
+	case float64:
+		codeStr = strconv.Itoa(int(v))
+	}
+	if codeStr != "" && codeStr != "0" && codeStr != "200" {
+		msg, _ := raw["message"].(string)
+		if msg == "" {
+			msg = fmt.Sprintf("code=%s", codeStr)
+		}
+		return nil, fmt.Errorf("mteam: %s", msg)
+	}
+
+	dataField, _ := raw["data"].(map[string]interface{})
+	if dataField == nil {
+		return &SiteSearchResult{SiteName: siteName, Items: []TorrentItem{}}, nil
+	}
+
+	// total 兼容字符串与数字。
+	total := 0
+	switch v := dataField["total"].(type) {
+	case string:
+		total, _ = strconv.Atoi(v)
+	case float64:
+		total = int(v)
+	}
+
+	// data.data（v3）优先；兜底兼容旧的 data.lists。
+	var rows []interface{}
+	switch v := dataField["data"].(type) {
+	case []interface{}:
+		rows = v
+	}
+	if rows == nil {
+		if v, ok := dataField["lists"].([]interface{}); ok {
+			rows = v
+		}
 	}
 
 	result := &SiteSearchResult{
 		SiteName: siteName,
 		Items:    []TorrentItem{},
-		Total:    resp.Data.Total,
+		Total:    total,
 	}
 
-	for _, t := range resp.Data.Lists {
+	for _, rawT := range rows {
+		t, ok := rawT.(map[string]interface{})
+		if !ok {
+			continue
+		}
 		item := TorrentItem{}
 		if v, ok := t["id"].(string); ok {
 			item.ID = v
@@ -1007,6 +1151,11 @@ func parseMTeamJSON(data []byte, siteName, baseURL string) (*SiteSearchResult, e
 		}
 		if v, ok := t["size"].(float64); ok {
 			item.Size = int64(v)
+		} else if v, ok := t["size"].(string); ok {
+			// v3 API 把 size 序列化成字符串。
+			if n, err := strconv.ParseInt(v, 10, 64); err == nil {
+				item.Size = n
+			}
 		}
 		if v, ok := t["status"].(map[string]interface{}); ok {
 			if seeders, ok := v["seeders"].(float64); ok {
@@ -1027,6 +1176,10 @@ func parseMTeamJSON(data []byte, siteName, baseURL string) (*SiteSearchResult, e
 		}
 
 		item.DetailURL = baseURL + "/detail/" + item.ID
+		// 标记 download_url 指向 genDlToken；真正的下载链接由 handler 层
+		// 在用户点"下载"时通过 MTeamAdapter.GetDownloadURL 解析。
+		// 这样前端 SiteSearchPage 才知道这一行有可用的下载入口。
+		item.DownloadURL = baseURL + "/api/torrent/genDlToken?id=" + item.ID
 		result.Items = append(result.Items, item)
 	}
 

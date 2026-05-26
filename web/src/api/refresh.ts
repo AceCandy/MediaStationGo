@@ -13,12 +13,22 @@ export interface RefreshTokenResponse {
   token_type: string
 }
 
-// 刷新访问令牌
+// 刷新访问令牌。
+//
+// 后端响应封装在 { code, message, data } 里，需解包 .data。
+// /auth/login 的响应是直接展开的（{tokens:..., user:...}），
+// /auth/refresh 的响应是包装过的 — 这里负责拉平成前端使用的 shape。
 export async function refreshToken(refreshToken: string): Promise<RefreshTokenResponse> {
-  const resp = await api.post<RefreshTokenResponse>('/auth/refresh', {
-    refresh_token: refreshToken,
-  })
-  return resp.data as unknown as RefreshTokenResponse
+  const resp = await api.post<{
+    code: number
+    message: string
+    data: RefreshTokenResponse
+  }>('/auth/refresh', { refresh_token: refreshToken })
+  const body = resp.data
+  if (!body || !body.data || !body.data.token) {
+    throw new Error(body?.message || 'refresh failed')
+  }
+  return body.data
 }
 
 // 登出

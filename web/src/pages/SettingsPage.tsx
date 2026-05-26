@@ -171,17 +171,9 @@ const GROUPS: SettingGroup[] = [
       },
     ],
   },
-  {
-    key: 'qbittorrent',
-    label: 'qBittorrent',
-    description: '默认下载器配置',
-    items: [
-      { key: 'qbittorrent.url', label: 'WebUI URL', type: 'text', placeholder: 'http://127.0.0.1:8080' },
-      { key: 'qbittorrent.username', label: '用户名', type: 'text' },
-      { key: 'qbittorrent.password', label: '密码', type: 'text' },
-      { key: 'qbittorrent.savepath', label: '默认保存目录', type: 'text' },
-    ],
-  },
+  // qBittorrent 配置已迁移到独立的「下载器」页面（侧边栏 → 下载器），
+  // 该页面支持多客户端 + 连接测试。这里不再重复暴露入口，避免与
+  // /api/admin/download/clients 写入的数据来源冲突。
 ]
 
 const ALL_KEYS = new Set(GROUPS.flatMap((g) => g.items.map((i) => i.key)))
