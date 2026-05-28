@@ -7,15 +7,17 @@
 //	movie: {Title} ({Year})/{Title} ({Year}).{Ext}
 //	tv:    {Title}/Season {Season:02d}/{Title} - S{Season:02d}E{Episode:02d}.{Ext}
 //
-// We do NOT delete the source after move — the operator can turn that on
-// via a config flag. This mirrors MediaStation's "organize after download"
-// workflow.
+// Organizing moves the source file. On the same filesystem this is an
+// os.Rename; across filesystems it falls back to streaming copy + source
+// removal, so operators should keep downloads and media on the same volume
+// when they want instant moves and no temporary duplicate disk usage.
 package service
 
 import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -79,10 +81,7 @@ func (o *OrganizerService) OrganizeMedia(ctx context.Context, mediaID string) (s
 		season := fmt.Sprintf("Season %02d", m.SeasonNum)
 		epTag := fmt.Sprintf("S%02dE%02d", m.SeasonNum, m.EpisodeNum)
 		root := o.organizeRoot(lib.Path, lib.Type, category)
-		dir := filepath.Join(root, category, title, season)
-		if category == "" {
-			dir = filepath.Join(root, title, season)
-		}
+		dir := filepath.Join(categoryRoot(root, category), title, season)
 		dst = filepath.Join(dir, fmt.Sprintf("%s - %s%s", title, epTag, ext))
 	} else {
 		// Movie: {lib.Path}/[分类]/{Title} ({Year})/{Title} ({Year}).ext
@@ -91,10 +90,7 @@ func (o *OrganizerService) OrganizeMedia(ctx context.Context, mediaID string) (s
 			folder = fmt.Sprintf("%s (%d)", title, m.Year)
 		}
 		root := o.organizeRoot(lib.Path, lib.Type, category)
-		dir := filepath.Join(root, category, folder)
-		if category == "" {
-			dir = filepath.Join(root, folder)
-		}
+		dir := filepath.Join(categoryRoot(root, category), folder)
 		dst = filepath.Join(dir, folder+ext)
 	}
 
@@ -219,17 +215,20 @@ func moveFile(src, dst string) error {
 	if err := os.Rename(src, dst); err == nil {
 		return nil
 	}
-	// Cross-device: read → write → remove.
-	data, err := os.ReadFile(src)
+	// Cross-device: stream copy → remove. This can temporarily consume the
+	// destination file size while copying, but the source is removed after the
+	// copy succeeds.
+	in, err := os.Open(src)
 	if err != nil {
 		return err
 	}
+	defer in.Close()
 	// O_EXCL 保证不会覆盖已存在的目标。
 	f, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
 	if err != nil {
 		return err
 	}
-	if _, werr := f.Write(data); werr != nil {
+	if _, werr := io.Copy(f, in); werr != nil {
 		f.Close()
 		os.Remove(dst)
 		return werr
@@ -282,6 +281,13 @@ func (o *OrganizerService) organizeRoot(libraryPath, mediaType, category string)
 		return filepath.Join(libraryPath, typeDir)
 	}
 	return libraryPath
+}
+
+func categoryRoot(root, category string) string {
+	if strings.TrimSpace(category) == "" || pathAlreadyEndsWith(root, category) {
+		return root
+	}
+	return filepath.Join(root, category)
 }
 
 func mediaTypeRootDir(mediaType string) string {
