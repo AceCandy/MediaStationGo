@@ -128,35 +128,50 @@ func historyContinueHandler(svc *service.Container) gin.HandlerFunc {
 
 // historyDeleteHandler removes one or all history rows for the caller.
 //
-//   DELETE /api/watch-history?media_id=xxx  → delete just that media's row
-//   DELETE /api/watch-history               → clear all rows for the user
+//	DELETE /api/watch-history?media_id=xxx  → delete just that media's row
+//	DELETE /api/watch-history?status=completed   → delete completed rows
+//	DELETE /api/watch-history?status=incomplete  → delete unfinished rows
+//	DELETE /api/watch-history               → clear all rows for the user
 func historyDeleteHandler(svc *service.Container) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		uid, _ := c.Get(middleware.CtxUserID)
 		userID := toString(uid)
 		mediaID := c.Query("media_id")
+		status := c.Query("status")
 
 		q := svc.Repo.DB.Where("user_id = ?", userID)
 		if mediaID != "" {
 			q = q.Where("media_id = ?", mediaID)
 		}
-		if err := q.Delete(&model.PlaybackHistory{}).Error; err != nil {
+		switch status {
+		case "completed", "watched":
+			q = q.Where("completed = ?", true)
+		case "incomplete", "unfinished", "unwatched":
+			q = q.Where("completed = ?", false)
+		case "":
+		default:
+			c.JSON(http.StatusBadRequest, gin.H{"error": "status must be completed or incomplete"})
+			return
+		}
+		res := q.Delete(&model.PlaybackHistory{})
+		if err := res.Error; err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		c.Status(http.StatusNoContent)
+		c.JSON(http.StatusOK, gin.H{"removed": res.RowsAffected})
 	}
 }
 
 func historyDeleteOneHandler(svc *service.Container) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		uid, _ := c.Get(middleware.CtxUserID)
-		if err := svc.Repo.DB.
+		res := svc.Repo.DB.
 			Where("user_id = ? AND id = ?", toString(uid), c.Param("id")).
-			Delete(&model.PlaybackHistory{}).Error; err != nil {
+			Delete(&model.PlaybackHistory{})
+		if err := res.Error; err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		c.Status(http.StatusNoContent)
+		c.JSON(http.StatusOK, gin.H{"removed": res.RowsAffected})
 	}
 }

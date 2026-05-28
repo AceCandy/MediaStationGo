@@ -19,10 +19,13 @@ export const historyAPI = {
       })
       .then((r) => r.data),
 
-  clear: (mediaID?: string) =>
+  clear: (mediaID?: string, status?: 'completed' | 'incomplete') =>
     api
       .delete('/watch-history', {
-        params: mediaID ? { media_id: mediaID } : {},
+        params: {
+          ...(mediaID ? { media_id: mediaID } : {}),
+          ...(status ? { status } : {}),
+        },
       })
       .then((r) => r.data),
 

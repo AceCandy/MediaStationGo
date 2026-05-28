@@ -48,17 +48,17 @@ func NewEmbyService(cfg *config.Config, log *zap.Logger, repo *repository.Contai
 // SystemInfo returns the full Emby identity payload.
 func (e *EmbyService) SystemInfo() map[string]any {
 	return map[string]any{
-		"Id":                    embyServerID,
-		"ServerId":              embyServerID,
-		"ServerName":            "MediaStationGo",
-		"Version":               "10.8.13",
-		"ProductName":           "Jellyfin Server",
-		"OperatingSystem":       "Windows",
-		"Architecture":          "X64",
-		"LocalAddress":          "",
-		"WanAddress":            "",
-		"HasPendingRestart":     false,
-		"IsShuttingDown":        false,
+		"Id":                     embyServerID,
+		"ServerId":               embyServerID,
+		"ServerName":             "MediaStationGo",
+		"Version":                "10.8.13",
+		"ProductName":            "Jellyfin Server",
+		"OperatingSystem":        "Windows",
+		"Architecture":           "X64",
+		"LocalAddress":           "",
+		"WanAddress":             "",
+		"HasPendingRestart":      false,
+		"IsShuttingDown":         false,
 		"SupportsLibraryMonitor": true,
 		"SupportsHttps":          false,
 		"SupportsAutoDiscovery":  true,
@@ -84,10 +84,10 @@ func (e *EmbyService) SystemInfoPublic() map[string]any {
 		"OperatingSystem":        "Windows",
 		"LocalAddress":           "",
 		"WanAddress":             "",
-		"HttpServerPortNumber":    e.cfg.App.Port,
-		"HttpsPortNumber":         0,
-		"SupportsHttps":           false,
-		"SupportsAutoDiscovery":   true,
+		"HttpServerPortNumber":   e.cfg.App.Port,
+		"HttpsPortNumber":        0,
+		"SupportsHttps":          false,
+		"SupportsAutoDiscovery":  true,
 		"StartupWizardCompleted": true,
 	}
 }
@@ -129,33 +129,33 @@ func (e *EmbyService) userPayload(u *model.User) map[string]any {
 		"LastLoginDate":             u.LastLoginAt,
 		"LastActivityDate":          u.UpdatedAt,
 		"Configuration": map[string]any{
-			"PlayDefaultAudioTrack":         true,
-			"DisplayCollectionsView":        true,
-			"DisplayMissingEpisodes":        false,
-			"SubtitleMode":                  "Default",
-			"EnableNextEpisodeAutoPlay":     true,
-			"AudioLanguagePreference":       "",
-			"SubtitleLanguagePreference":    "",
+			"PlayDefaultAudioTrack":      true,
+			"DisplayCollectionsView":     true,
+			"DisplayMissingEpisodes":     false,
+			"SubtitleMode":               "Default",
+			"EnableNextEpisodeAutoPlay":  true,
+			"AudioLanguagePreference":    "",
+			"SubtitleLanguagePreference": "",
 		},
 		"Policy": map[string]any{
-			"IsAdministrator":              u.Role == "admin",
-			"IsHidden":                     false,
-			"IsDisabled":                   !u.IsActive,
-			"EnableUserPreferenceAccess":   true,
-			"EnableRemoteAccess":           true,
-			"EnableMediaPlayback":          true,
+			"IsAdministrator":                u.Role == "admin",
+			"IsHidden":                       false,
+			"IsDisabled":                     !u.IsActive,
+			"EnableUserPreferenceAccess":     true,
+			"EnableRemoteAccess":             true,
+			"EnableMediaPlayback":            true,
 			"EnableAudioPlaybackTranscoding": true,
 			"EnableVideoPlaybackTranscoding": true,
-			"EnablePlaybackRemuxing":       true,
-			"EnableLiveTvAccess":           false,
-			"EnableContentDownloading":     true,
-			"EnableSyncTranscoding":        true,
-			"EnableMediaConversion":        true,
-			"EnableAllChannels":            true,
-			"EnableAllFolders":             true,
-			"EnableAllDevices":             true,
-			"AuthenticationProviderId":     "Emby.Server.Implementations.LocalAuthenticationProvider",
-			"PasswordResetProviderId":      "Emby.Server.Implementations.LocalPasswordResetProvider",
+			"EnablePlaybackRemuxing":         true,
+			"EnableLiveTvAccess":             false,
+			"EnableContentDownloading":       true,
+			"EnableSyncTranscoding":          true,
+			"EnableMediaConversion":          true,
+			"EnableAllChannels":              true,
+			"EnableAllFolders":               true,
+			"EnableAllDevices":               true,
+			"AuthenticationProviderId":       "Emby.Server.Implementations.LocalAuthenticationProvider",
+			"PasswordResetProviderId":        "Emby.Server.Implementations.LocalPasswordResetProvider",
 		},
 	}
 }
@@ -186,13 +186,13 @@ func (e *EmbyService) libraryAsView(l *model.Library) map[string]any {
 		collectionType = "music"
 	}
 	return map[string]any{
-		"Id":             l.ID,
-		"Name":           l.Name,
-		"CollectionType": collectionType,
-		"ServerId":       embyServerID,
-		"Type":           "CollectionFolder",
-		"IsFolder":       true,
-		"ImageTags":      map[string]string{},
+		"Id":                l.ID,
+		"Name":              l.Name,
+		"CollectionType":    collectionType,
+		"ServerId":          embyServerID,
+		"Type":              "CollectionFolder",
+		"IsFolder":          true,
+		"ImageTags":         map[string]string{},
 		"BackdropImageTags": []string{},
 		"UserData": map[string]any{
 			"PlaybackPositionTicks": 0,
@@ -208,16 +208,16 @@ func (e *EmbyService) libraryAsView(l *model.Library) map[string]any {
 
 // ItemsParams 是 /Items 与 /Users/{uid}/Items 共用的查询参数。
 type ItemsParams struct {
-	UserID            string
-	ParentID          string
-	IDs               []string
-	SearchTerm        string
-	IncludeItemTypes  []string
-	Recursive         bool
-	SortBy            string
-	SortOrder         string
-	Limit             int
-	StartIndex        int
+	UserID           string
+	ParentID         string
+	IDs              []string
+	SearchTerm       string
+	IncludeItemTypes []string
+	Recursive        bool
+	SortBy           string
+	SortOrder        string
+	Limit            int
+	StartIndex       int
 }
 
 // Items paginates media in Emby's flat shape.
@@ -507,15 +507,15 @@ func (e *EmbyService) mediaStreams(m *model.Media) []map[string]any {
 	streams := []map[string]any{}
 	if m.VideoCodec != "" || m.Width > 0 {
 		streams = append(streams, map[string]any{
-			"Codec":       m.VideoCodec,
-			"Type":        "Video",
-			"Index":       0,
-			"Width":       m.Width,
-			"Height":      m.Height,
-			"AspectRatio": "",
-			"IsDefault":   true,
-			"IsForced":    false,
-			"IsExternal":  false,
+			"Codec":        m.VideoCodec,
+			"Type":         "Video",
+			"Index":        0,
+			"Width":        m.Width,
+			"Height":       m.Height,
+			"AspectRatio":  "",
+			"IsDefault":    true,
+			"IsForced":     false,
+			"IsExternal":   false,
 			"DisplayTitle": fmt.Sprintf("%dx%d %s", m.Width, m.Height, m.VideoCodec),
 		})
 	}

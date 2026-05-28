@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Clock, Play } from 'lucide-react'
+import { Clock, Play, Trash2 } from 'lucide-react'
+import toast from 'react-hot-toast'
 
-import { playbackAPI, type HistoryItem } from '../api/playback'
+import { historyAPI } from '../api/history'
 import { imageURL } from '../api/client'
+import type { HistoryItem } from '../types'
 
 function fmtDuration(ms: number): string {
   if (!ms || ms <= 0) return '—'
@@ -18,19 +20,66 @@ function fmtDuration(ms: number): string {
 export function WatchHistoryPage() {
   const [items, setItems] = useState<HistoryItem[]>([])
   const [loading, setLoading] = useState(true)
+  const [busy, setBusy] = useState('')
 
-  useEffect(() => {
-    playbackAPI
-      .recentHistory()
+  const load = () => {
+    setLoading(true)
+    historyAPI
+      .list(200)
       .then(setItems)
       .finally(() => setLoading(false))
-  }, [])
+  }
+
+  useEffect(() => { load() }, [])
+
+  const removeOne = async (id: string) => {
+    if (!confirm('确定移除此条观看历史？不会删除媒体文件。')) return
+    setBusy(id)
+    try {
+      await historyAPI.remove(id)
+      setItems((prev) => prev.filter((item) => item.id !== id))
+      toast.success('已移除观看历史')
+    } finally {
+      setBusy('')
+    }
+  }
+
+  const clearByStatus = async (status: 'completed' | 'incomplete') => {
+    const label = status === 'completed' ? '已看完' : '未看完'
+    if (!confirm(`确定清除所有${label}的观看历史？不会删除媒体文件。`)) return
+    setBusy(status)
+    try {
+      await historyAPI.clear(undefined, status)
+      setItems((prev) => prev.filter((item) => status === 'completed' ? !item.completed : item.completed))
+      toast.success(`已清除${label}记录`)
+    } finally {
+      setBusy('')
+    }
+  }
 
   return (
     <div className="space-y-6">
-      <header className="flex items-center gap-3">
-        <Clock className="h-6 w-6 text-brand-500" />
-        <h1 className="font-display text-3xl font-bold text-ink-600">观看历史</h1>
+      <header className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <Clock className="h-6 w-6 text-brand-500" />
+          <h1 className="font-display text-3xl font-bold text-ink-600">观看历史</h1>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            onClick={() => clearByStatus('incomplete')}
+            disabled={busy !== '' || items.every((item) => item.completed)}
+            className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-600 shadow-sm transition hover:border-amber-300 hover:text-amber-600 disabled:cursor-not-allowed disabled:opacity-45"
+          >
+            清除未看完
+          </button>
+          <button
+            onClick={() => clearByStatus('completed')}
+            disabled={busy !== '' || items.every((item) => !item.completed)}
+            className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-600 shadow-sm transition hover:border-emerald-300 hover:text-emerald-600 disabled:cursor-not-allowed disabled:opacity-45"
+          >
+            清除已看完
+          </button>
+        </div>
       </header>
 
       {loading && <p className="text-sand-500">加载中…</p>}
@@ -82,12 +131,23 @@ export function WatchHistoryPage() {
                   />
                 </div>
               </div>
-              <Link
-                to={`/play/${m.id}`}
-                className="neon-button !px-3 !py-1 !text-xs"
-              >
-                <Play size={12} /> 继续
-              </Link>
+              <div className="flex shrink-0 items-center gap-2">
+                <Link
+                  to={`/play/${m.id}`}
+                  className="neon-button !px-3 !py-1 !text-xs"
+                >
+                  <Play size={12} /> 继续
+                </Link>
+                <button
+                  onClick={() => removeOne(h.id)}
+                  disabled={busy === h.id}
+                  className="inline-flex items-center gap-1 rounded-xl border border-gray-200 bg-white px-3 py-1.5 text-xs font-bold text-gray-500 transition hover:border-red-200 hover:bg-red-50 hover:text-red-500 disabled:opacity-50"
+                  title="移除此条观看历史"
+                >
+                  <Trash2 size={12} />
+                  移除
+                </button>
+              </div>
             </div>
           )
         })}

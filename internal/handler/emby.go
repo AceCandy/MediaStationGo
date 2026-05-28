@@ -79,6 +79,10 @@ func embyWithRequestAddress(c *gin.Context, payload map[string]any) map[string]a
 	if address := embyRequestBaseURL(c); address != "" {
 		out["LocalAddress"] = address
 		out["WanAddress"] = address
+		out["PublishedServerUrl"] = address
+	}
+	if strings.HasPrefix(strings.ToLower(c.Request.URL.Path), "/emby") {
+		out["ProductName"] = "Emby Server"
 	}
 	return out
 }
