@@ -20,6 +20,7 @@ web/dist/
 web/.vite/
 web/coverage/
 web/tsconfig.tsbuildinfo
+dist-release/
 
 # Data / runtime
 data/
