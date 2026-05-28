@@ -19,55 +19,55 @@ import (
 
 // Container 是所有 repositories 的注册表，注入到 services 中。
 type Container struct {
-	DB              *gorm.DB
-	User            *UserRepository
-	Library         *LibraryRepository
-	Media           *MediaRepository
-	Series          *SeriesRepository
-	History         *HistoryRepository
-	Favorite        *FavoriteRepository
-	Playlist        *PlaylistRepository
-	Download        *DownloadRepository
-	Subscription    *SubscriptionRepository
-	Setting         *SettingRepository
-	Log             *AccessLogRepository
-	Permission      *PermissionRepository
-	RefreshToken    *RefreshTokenRepository
-	ApiConfig       *ApiConfigRepository
-	DownloadClient  *DownloadClientRepository
-	NotifyChannel   *NotifyChannelRepository
-	Site            *SiteRepository
-	STRM            *STRMRepository
-	PlayProfile     *PlayProfileRepository
-	StorageConfig   *StorageConfigRepository
-	Assistant       *AssistantRepository
+	DB             *gorm.DB
+	User           *UserRepository
+	Library        *LibraryRepository
+	Media          *MediaRepository
+	Series         *SeriesRepository
+	History        *HistoryRepository
+	Favorite       *FavoriteRepository
+	Playlist       *PlaylistRepository
+	Download       *DownloadRepository
+	Subscription   *SubscriptionRepository
+	Setting        *SettingRepository
+	Log            *AccessLogRepository
+	Permission     *PermissionRepository
+	RefreshToken   *RefreshTokenRepository
+	ApiConfig      *ApiConfigRepository
+	DownloadClient *DownloadClientRepository
+	NotifyChannel  *NotifyChannelRepository
+	Site           *SiteRepository
+	STRM           *STRMRepository
+	PlayProfile    *PlayProfileRepository
+	StorageConfig  *StorageConfigRepository
+	Assistant      *AssistantRepository
 }
 
 // New 将每个 repository 连接到单个 *gorm.DB。
 func New(db *gorm.DB) *Container {
 	return &Container{
-		DB:           db,
-		User:         &UserRepository{db: db},
-		Library:      &LibraryRepository{db: db},
-		Media:        &MediaRepository{db: db},
-		Series:       &SeriesRepository{db: db},
-		History:      &HistoryRepository{db: db},
-		Favorite:     &FavoriteRepository{db: db},
-		Playlist:     &PlaylistRepository{db: db},
-		Download:     &DownloadRepository{db: db},
-		Subscription: &SubscriptionRepository{db: db},
-		Setting:      &SettingRepository{db: db},
-		Log:          &AccessLogRepository{db: db},
-		Permission:   &PermissionRepository{db: db},
-		RefreshToken: &RefreshTokenRepository{db: db},
-		ApiConfig:    &ApiConfigRepository{db: db},
+		DB:             db,
+		User:           &UserRepository{db: db},
+		Library:        &LibraryRepository{db: db},
+		Media:          &MediaRepository{db: db},
+		Series:         &SeriesRepository{db: db},
+		History:        &HistoryRepository{db: db},
+		Favorite:       &FavoriteRepository{db: db},
+		Playlist:       &PlaylistRepository{db: db},
+		Download:       &DownloadRepository{db: db},
+		Subscription:   &SubscriptionRepository{db: db},
+		Setting:        &SettingRepository{db: db},
+		Log:            &AccessLogRepository{db: db},
+		Permission:     &PermissionRepository{db: db},
+		RefreshToken:   &RefreshTokenRepository{db: db},
+		ApiConfig:      &ApiConfigRepository{db: db},
 		DownloadClient: &DownloadClientRepository{db: db},
 		NotifyChannel:  &NotifyChannelRepository{db: db},
-		Site:          &SiteRepository{db: db},
-		STRM:          &STRMRepository{db: db},
-		PlayProfile:   &PlayProfileRepository{db: db},
-		StorageConfig: &StorageConfigRepository{db: db},
-		Assistant:     &AssistantRepository{db: db},
+		Site:           &SiteRepository{db: db},
+		STRM:           &STRMRepository{db: db},
+		PlayProfile:    &PlayProfileRepository{db: db},
+		StorageConfig:  &StorageConfigRepository{db: db},
+		Assistant:      &AssistantRepository{db: db},
 	}
 }
 
@@ -188,13 +188,13 @@ type MediaRepository struct{ db *gorm.DB }
 // 海报、TMDb/Bangumi ID、scrape_status 等）覆盖回零值。
 //
 // 之前用 Assign(*m).FirstOrCreate(m) 会把整张零值结构体写回，导致：
-//   1. scrape_status 从 'matched' / 'no_match' 被清空成 ''；
-//   2. 新建行使 GORM `default:pending` 也得不到应用（因为 zero value 被
-//      显式写入）。这两个问题都让 EnrichLibrary(WHERE scrape_status='pending')
-//      永远捞不到数据。
+//  1. scrape_status 从 'matched' / 'no_match' 被清空成 ”；
+//  2. 新建行使 GORM `default:pending` 也得不到应用（因为 zero value 被
+//     显式写入）。这两个问题都让 EnrichLibrary(WHERE scrape_status='pending')
+//     永远捞不到数据。
 func (r *MediaRepository) Upsert(ctx context.Context, m *model.Media) error {
 	var existing model.Media
-	err := r.db.WithContext(ctx).Where("path = ?", m.Path).First(&existing).Error
+	err := r.db.WithContext(ctx).Unscoped().Where("path = ?", m.Path).First(&existing).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		// 新行：保证 scrape_status 走 GORM default:pending（即留空让数据库填）。
 		if m.ScrapeStatus == "" {
@@ -215,16 +215,56 @@ func (r *MediaRepository) Upsert(ctx context.Context, m *model.Media) error {
 		"video_codec":  m.VideoCodec,
 		"audio_codec":  m.AudioCodec,
 		"container":    m.Container,
+		"deleted_at":   nil,
 	}
 	if m.Title != "" {
 		// scanner 给出的标题只是从路径推导，刮削后 title 已被替换为
 		// 真实剧名。仅在 existing 还停留在 'pending'/'' 时回填扫描标题，
 		// 避免覆盖刮削结果。
-		if existing.ScrapeStatus == "pending" || existing.ScrapeStatus == "" || existing.ScrapeStatus == "no_match" {
+		if m.ScrapeStatus == "matched" || existing.ScrapeStatus == "pending" || existing.ScrapeStatus == "" || existing.ScrapeStatus == "no_match" {
 			updates["title"] = m.Title
 			if m.Year > 0 {
 				updates["year"] = m.Year
 			}
+		}
+	}
+	if m.ScrapeStatus == "matched" {
+		updates["scrape_status"] = m.ScrapeStatus
+		if m.OriginalName != "" {
+			updates["original_name"] = m.OriginalName
+		}
+		if m.PosterURL != "" {
+			updates["poster_url"] = m.PosterURL
+		}
+		if m.BackdropURL != "" {
+			updates["backdrop_url"] = m.BackdropURL
+		}
+		if m.Overview != "" {
+			updates["overview"] = m.Overview
+		}
+		if m.Rating > 0 {
+			updates["rating"] = m.Rating
+		}
+		if m.Year > 0 {
+			updates["year"] = m.Year
+		}
+		if m.TMDbID > 0 {
+			updates["tm_db_id"] = m.TMDbID
+		}
+		if m.BangumiID > 0 {
+			updates["bangumi_id"] = m.BangumiID
+		}
+		if m.Languages != "" {
+			updates["languages"] = m.Languages
+		}
+		if m.Countries != "" {
+			updates["countries"] = m.Countries
+		}
+		if m.Genres != "" {
+			updates["genres"] = m.Genres
+		}
+		if m.NSFW {
+			updates["nsfw"] = true
 		}
 	}
 	if lib := m.LibraryID; lib != "" && lib != existing.LibraryID {
@@ -237,7 +277,7 @@ func (r *MediaRepository) Upsert(ctx context.Context, m *model.Media) error {
 		updates["episode_num"] = m.EpisodeNum
 	}
 
-	if err := r.db.WithContext(ctx).Model(&model.Media{}).
+	if err := r.db.WithContext(ctx).Unscoped().Model(&model.Media{}).
 		Where("id = ?", existing.ID).Updates(updates).Error; err != nil {
 		return err
 	}
@@ -415,7 +455,7 @@ type SubscriptionRepository struct{ db *gorm.DB }
 
 // Create inserts a new subscription rule.
 func (r *SubscriptionRepository) Create(ctx context.Context, s *model.Subscription) error {
-	return r.db.WithContext(ctx).Create(s).Error
+	return r.db.WithContext(ctx).Select("*").Omit("DeletedAt").Create(s).Error
 }
 
 // List returns all subscription rules.
@@ -590,11 +630,11 @@ func (r *ApiConfigRepository) List(ctx context.Context) ([]model.ApiConfig, erro
 func (r *ApiConfigRepository) Upsert(ctx context.Context, c *model.ApiConfig) error {
 	return r.db.WithContext(ctx).Where("provider = ?", c.Provider).
 		Assign(model.ApiConfig{
-			APIKey:      c.APIKey,
-			BaseURL:    c.BaseURL,
-			Extra:      c.Extra,
-			Enabled:    c.Enabled,
-			UpdatedAt:  time.Now(),
+			Base:    model.Base{UpdatedAt: time.Now()},
+			APIKey:  c.APIKey,
+			BaseURL: c.BaseURL,
+			Extra:   c.Extra,
+			Enabled: c.Enabled,
 		}).FirstOrCreate(c).Error
 }
 
@@ -602,11 +642,11 @@ func (r *ApiConfigRepository) Upsert(ctx context.Context, c *model.ApiConfig) er
 func (r *ApiConfigRepository) Update(ctx context.Context, c *model.ApiConfig) error {
 	return r.db.WithContext(ctx).Model(&model.ApiConfig{}).
 		Where("provider = ?", c.Provider).Updates(map[string]any{
-		"api_key":        c.APIKey,
-		"base_url":       c.BaseURL,
-		"extra":          c.Extra,
-		"enabled":        c.Enabled,
-		"updated_at":     time.Now(),
+		"api_key":    c.APIKey,
+		"base_url":   c.BaseURL,
+		"extra":      c.Extra,
+		"enabled":    c.Enabled,
+		"updated_at": time.Now(),
 	}).Error
 }
 

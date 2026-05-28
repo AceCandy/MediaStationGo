@@ -5,10 +5,12 @@
 // and poster URLs. A valid Douban cookie is required to avoid IP bans.
 //
 // We use the search endpoint at:
-//   https://movie.douban.com/j/subject_suggest?q=...
+//
+//	https://movie.douban.com/j/subject_suggest?q=...
 //
 // And the detail endpoint at:
-//   https://movie.douban.com/j/subject_abstract?subject_id=...
+//
+//	https://movie.douban.com/j/subject_abstract?subject_id=...
 //
 // The provider is used as a supplemental source: after TMDb matches we
 // attempt a Douban lookup to grab a localized Chinese title + overview.
@@ -41,13 +43,15 @@ func NewDoubanProvider(cfg *config.Config, log *zap.Logger) *DoubanProvider {
 	return &DoubanProvider{
 		cfg:    cfg,
 		log:    log,
-		client: &http.Client{Timeout: 15 * time.Second},
+		client: NewExternalHTTPClient(15 * time.Second),
 	}
 }
 
-// Enabled reports whether a Douban cookie is configured.
+// Enabled reports whether Douban lookup is available. Public movie.douban.com
+// suggest endpoints work without an API key; a cookie is optional and only
+// helps when Douban applies stricter anti-scraping rules.
 func (d *DoubanProvider) Enabled() bool {
-	return strings.TrimSpace(d.cfg.Secrets.DoubanCookie) != ""
+	return true
 }
 
 // userAgents for anti-scraping randomization.
@@ -64,6 +68,7 @@ type DoubanMatch struct {
 	Year     string  `json:"year"`
 	Img      string  `json:"img"`
 	Rating   float32 `json:"rating"`
+	Type     string  `json:"type,omitempty"`
 }
 
 // Search runs a Douban subject_suggest query and returns the top match.
@@ -92,6 +97,7 @@ func (d *DoubanProvider) Search(ctx context.Context, query string) (*DoubanMatch
 		Title string `json:"title"`
 		Year  string `json:"year"`
 		Img   string `json:"img"`
+		Type  string `json:"type"`
 	}
 	var results []suggestion
 	if err := json.NewDecoder(resp.Body).Decode(&results); err != nil {
@@ -106,6 +112,7 @@ func (d *DoubanProvider) Search(ctx context.Context, query string) (*DoubanMatch
 		Title:    r.Title,
 		Year:     r.Year,
 		Img:      r.Img,
+		Type:     r.Type,
 	}, nil
 }
 

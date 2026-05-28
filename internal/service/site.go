@@ -9,6 +9,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
+	"mime"
+	"net/http"
+	"net/url"
+	"path"
 	"sort"
 	"strings"
 	"sync"
@@ -24,9 +30,147 @@ import (
 
 // SiteService manages PT/BT site configurations.
 type SiteService struct {
-	log            *zap.Logger
-	repo           *repository.Container
+	log             *zap.Logger
+	repo            *repository.Container
 	flareSolverrURL string
+}
+
+// ResolveDownloadURL converts tracker-specific search result URLs into a URL
+// that a downloader can fetch directly. M-Team, NexusPHP and similar sites
+// often expose a signed/detail endpoint in search results; qBittorrent cannot
+// call those APIs with the configured site credentials, so subscriptions need
+// the same resolution path as the manual download button.
+func (s *SiteService) ResolveDownloadURL(ctx context.Context, raw string) string {
+	if strings.TrimSpace(raw) == "" {
+		return raw
+	}
+	matched := s.matchSiteForURL(ctx, raw)
+	if matched == nil {
+		return raw
+	}
+
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" {
+		return raw
+	}
+	id := u.Query().Get("id")
+	if id == "" {
+		return raw
+	}
+	adapter := GetAdapterForType(matched.Type)
+	if adapter == nil {
+		return raw
+	}
+	cfg := s.siteModelToConfig(matched)
+	timeout := cfg.Timeout
+	if timeout <= 0 {
+		timeout = 15 * time.Second
+	}
+	resolveCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	resolved, err := adapter.GetDownloadURL(resolveCtx, cfg, id)
+	if err != nil || resolved == "" {
+		s.log.Warn("resolve PT download URL failed",
+			zap.String("site", matched.Name),
+			zap.String("raw", raw),
+			zap.Error(err))
+		return raw
+	}
+	return resolved
+}
+
+func (s *SiteService) FetchTorrentFile(ctx context.Context, raw string) ([]byte, string, error) {
+	matched := s.matchSiteForURL(ctx, raw)
+	if matched == nil {
+		return nil, "", errors.New("no matching PT site for torrent URL")
+	}
+	cfg := s.siteModelToConfig(matched)
+	timeout := cfg.Timeout
+	if timeout <= 0 {
+		timeout = 30 * time.Second
+	}
+	req, err := buildRequest(ctx, http.MethodGet, raw, cfg, nil)
+	if err != nil {
+		return nil, "", err
+	}
+	req.Header.Set("Accept", "application/x-bittorrent,application/octet-stream,*/*")
+	client := newHTTPClient(cfg, timeout)
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		return nil, "", fmt.Errorf("torrent fetch: HTTP %d", resp.StatusCode)
+	}
+	const maxTorrentSize = 32 << 20
+	data, err := io.ReadAll(io.LimitReader(resp.Body, maxTorrentSize+1))
+	if err != nil {
+		return nil, "", err
+	}
+	if len(data) == 0 {
+		return nil, "", errors.New("torrent fetch: empty body")
+	}
+	if len(data) > maxTorrentSize {
+		return nil, "", errors.New("torrent fetch: body too large")
+	}
+	if strings.Contains(strings.ToLower(resp.Header.Get("Content-Type")), "text/html") {
+		return nil, "", errors.New("torrent fetch: upstream returned HTML")
+	}
+	if torrentInfoHash(data) == "" {
+		return nil, "", errors.New("torrent fetch: upstream did not return a valid torrent")
+	}
+	return data, torrentFilename(raw, resp.Header.Get("Content-Disposition")), nil
+}
+
+func (s *SiteService) matchSiteForURL(ctx context.Context, raw string) *model.Site {
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" {
+		return nil
+	}
+	host := strings.ToLower(u.Host)
+
+	sites, err := s.List(ctx)
+	if err != nil || len(sites) == 0 {
+		return nil
+	}
+	for i := range sites {
+		if siteHostMatches(host, sites[i].URL) || siteHostMatches(host, sites[i].RSSURL) {
+			return &sites[i]
+		}
+	}
+	return nil
+}
+
+func siteHostMatches(host, raw string) bool {
+	if raw == "" {
+		return false
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" {
+		return false
+	}
+	siteHost := strings.ToLower(u.Host)
+	return strings.EqualFold(siteHost, host) || strings.HasSuffix(host, "."+siteHost)
+}
+
+func torrentFilename(rawURL, disposition string) string {
+	if disposition != "" {
+		if _, params, err := mime.ParseMediaType(disposition); err == nil {
+			if filename := strings.TrimSpace(params["filename"]); filename != "" {
+				return filename
+			}
+		}
+	}
+	if u, err := url.Parse(rawURL); err == nil {
+		if name := strings.TrimSpace(path.Base(u.Path)); name != "" && name != "." && name != "/" {
+			if !strings.HasSuffix(strings.ToLower(name), ".torrent") {
+				name += ".torrent"
+			}
+			return name
+		}
+	}
+	return "download.torrent"
 }
 
 // NewSiteService is the constructor.
@@ -164,6 +308,7 @@ type SearchResult struct {
 	Title       string `json:"title"`
 	TorrentURL  string `json:"torrent_url"`
 	DownloadURL string `json:"download_url"`
+	Category    string `json:"category,omitempty"`
 	Size        int64  `json:"size"`
 	Seeders     int    `json:"seeders"`
 	Leechers    int    `json:"leechers"`
@@ -235,6 +380,7 @@ func (s *SiteService) Search(ctx context.Context, keyword string) ([]SearchResul
 					Title:       item.Title,
 					TorrentURL:  item.DetailURL,
 					DownloadURL: item.DownloadURL,
+					Category:    item.Category,
 					Size:        item.Size,
 					Seeders:     item.Seeders,
 					Leechers:    item.Leechers,

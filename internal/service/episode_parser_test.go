@@ -4,8 +4,8 @@ import "testing"
 
 func TestParseEpisode(t *testing.T) {
 	cases := []struct {
-		in              string
-		wantS, wantE    int
+		in           string
+		wantS, wantE int
 	}{
 		{"Breaking.Bad.S01E02.1080p.mkv", 1, 2},
 		{"breaking.bad.s5e14.mkv", 5, 14},
@@ -13,8 +13,13 @@ func TestParseEpisode(t *testing.T) {
 		{"Friends 10x24 - The One Where.mkv", 10, 24},
 		{"Some Anime - EP05 [1080p].mkv", 1, 5},
 		{"Some Anime - E12.mkv", 1, 12},
+		{`Some Show/Season 02/Some Show - EP03.mkv`, 2, 3},
+		{`Some Show/S02/Some Show - E04.mkv`, 2, 4},
+		{`剧集/第2季/剧集 第05集.mkv`, 2, 5},
 		{"日剧 第03集.mkv", 1, 3},
 		{"日剧 第12话.mkv", 1, 12},
+		{"综艺 第4期下.mkv", 1, 4},
+		{`综艺/Season 06/综艺 第17期.mkv`, 6, 17},
 		{"Movie.2020.1080p.mkv", 0, 0},
 	}
 	for _, tc := range cases {

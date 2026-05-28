@@ -6,10 +6,10 @@
 //
 // Settings consumed (system Setting table):
 //
-//   qbittorrent.url       e.g. http://127.0.0.1:8080
-//   qbittorrent.username  qBittorrent WebUI user
-//   qbittorrent.password  qBittorrent WebUI password
-//   qbittorrent.savepath  optional default save dir
+//	qbittorrent.url       e.g. http://127.0.0.1:8080
+//	qbittorrent.username  qBittorrent WebUI user
+//	qbittorrent.password  qBittorrent WebUI password
+//	qbittorrent.savepath  optional default save dir
 //
 // Settings can be updated at runtime via the admin UI; ReloadConfig()
 // re-reads them and re-authenticates.
@@ -18,9 +18,11 @@ package service
 import (
 	"context"
 	"errors"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"go.uber.org/zap"
 
@@ -30,28 +32,36 @@ import (
 
 // DownloadService is the single download orchestrator.
 type DownloadService struct {
-	log          *zap.Logger
-	repo         *repository.Container
-	hub          *Hub
-	qb           *QBitClient
-	organizer    *OrganizerService
+	log       *zap.Logger
+	repo      *repository.Container
+	hub       *Hub
+	qb        *QBitClient
+	organizer *OrganizerService
+	site      *SiteService
 
-	mu           sync.Mutex
-	stopCh       chan struct{}
-	pollOnce     sync.Once
-	prevStates   map[string]bool // hash -> wasCompleted
+	mu         sync.Mutex
+	stopCh     chan struct{}
+	pollOnce   sync.Once
+	prevStates map[string]bool // hash -> wasCompleted
 }
 
+var torrentEpisodeToken = regexp.MustCompile(`(?i)e\d{1,3}`)
+
 // NewDownloadService is the constructor.
-func NewDownloadService(log *zap.Logger, repo *repository.Container, hub *Hub, organizer *OrganizerService) *DownloadService {
+func NewDownloadService(log *zap.Logger, repo *repository.Container, hub *Hub, organizer *OrganizerService, site ...*SiteService) *DownloadService {
+	var siteSvc *SiteService
+	if len(site) > 0 {
+		siteSvc = site[0]
+	}
 	return &DownloadService{
-		log:       log,
-		repo:      repo,
-		hub:       hub,
-		qb:        NewQBitClient(log, QBitConfig{}),
-		organizer: organizer,
+		log:        log,
+		repo:       repo,
+		hub:        hub,
+		qb:         NewQBitClient(log, QBitConfig{}),
+		organizer:  organizer,
+		site:       siteSvc,
 		prevStates: make(map[string]bool),
-		stopCh:    make(chan struct{}),
+		stopCh:     make(chan struct{}),
 	}
 }
 
@@ -115,9 +125,27 @@ func (d *DownloadService) AddDownload(ctx context.Context, userID, urlStr, saveP
 	if savePath == "" {
 		savePath, _ = d.repo.Setting.Get(ctx, "qbittorrent.savepath")
 	}
+	var siteFetchErr error
+	if d.site != nil {
+		if data, name, err := d.site.FetchTorrentFile(ctx, urlStr); err == nil {
+			if err := d.qb.AddTorrentFile(ctx, data, name, savePath); err != nil {
+				return nil, err
+			}
+			return d.createTask(ctx, userID, urlStr, savePath)
+		} else {
+			siteFetchErr = err
+		}
+	}
 	if err := d.qb.AddTorrent(ctx, urlStr, savePath); err != nil {
+		if siteFetchErr != nil && !strings.Contains(siteFetchErr.Error(), "no matching PT site") {
+			return nil, errors.Join(err, siteFetchErr)
+		}
 		return nil, err
 	}
+	return d.createTask(ctx, userID, urlStr, savePath)
+}
+
+func (d *DownloadService) createTask(ctx context.Context, userID, urlStr, savePath string) (*model.DownloadTask, error) {
 	t := &model.DownloadTask{
 		UserID:   userID,
 		Source:   "qbittorrent",
@@ -129,6 +157,38 @@ func (d *DownloadService) AddDownload(ctx context.Context, userID, urlStr, saveP
 		return nil, err
 	}
 	return t, nil
+}
+
+func (d *DownloadService) TorrentExistsByName(ctx context.Context, name string) bool {
+	query := normalizeTorrentName(name)
+	if query == "" {
+		return false
+	}
+	live, err := d.qb.List(ctx, "")
+	if err != nil {
+		return false
+	}
+	for _, torrent := range live {
+		current := normalizeTorrentName(torrent.Name)
+		if current == "" {
+			continue
+		}
+		if strings.Contains(current, query) || strings.Contains(query, current) {
+			return true
+		}
+	}
+	return false
+}
+
+func normalizeTorrentName(name string) string {
+	name = torrentEpisodeToken.ReplaceAllString(strings.ToLower(name), "")
+	var b strings.Builder
+	for _, r := range name {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
 }
 
 // List returns every persisted download task augmented with live data

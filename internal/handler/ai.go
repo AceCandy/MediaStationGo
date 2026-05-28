@@ -28,11 +28,21 @@ func smartSearchHandler(svc *service.Container) gin.HandlerFunc {
 			return
 		}
 		// Run the actual library search using the cleaned query so the
-		// caller can render results in one round-trip.
+		// caller can render local + external results in one round-trip.
 		items, _ := svc.Media.SearchMedia(c.Request.Context(), intent.Query, 60)
+		external := service.SearchExternalMedia(
+			c.Request.Context(),
+			intent.Query,
+			intent.Year,
+			intent.Type,
+			svc.TMDb,
+			svc.Douban,
+			svc.Bangumi,
+		)
 		c.JSON(http.StatusOK, gin.H{
-			"intent": intent,
-			"items":  items,
+			"intent":         intent,
+			"items":          items,
+			"external_items": external,
 		})
 	}
 }

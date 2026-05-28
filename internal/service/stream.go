@@ -19,6 +19,7 @@ package service
 import (
 	"context"
 	"errors"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -103,8 +104,40 @@ func (s *StreamService) ServeHLSPlaylist(w http.ResponseWriter, r *http.Request,
 	stat, _ := f.Stat()
 	w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
 	w.Header().Set("Cache-Control", "no-cache")
+	if r.URL.RawQuery != "" {
+		data, err := io.ReadAll(f)
+		if err != nil {
+			return err
+		}
+		playlist := appendQueryToHLSSegments(string(data), r.URL.RawQuery)
+		_, err = io.WriteString(w, playlist)
+		return err
+	}
 	http.ServeContent(w, r, stat.Name(), stat.ModTime(), f)
 	return nil
+}
+
+func appendQueryToHLSSegments(playlist, rawQuery string) string {
+	if strings.TrimSpace(rawQuery) == "" {
+		return playlist
+	}
+	lines := strings.SplitAfter(playlist, "\n")
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") || strings.Contains(trimmed, "?") {
+			continue
+		}
+		if strings.HasSuffix(strings.ToLower(trimmed), ".ts") {
+			lineEnding := ""
+			if strings.HasSuffix(line, "\r\n") {
+				lineEnding = "\r\n"
+			} else if strings.HasSuffix(line, "\n") {
+				lineEnding = "\n"
+			}
+			lines[i] = strings.TrimRight(line, "\r\n") + "?" + rawQuery + lineEnding
+		}
+	}
+	return strings.Join(lines, "")
 }
 
 // ServeHLSSegment writes a single .ts segment from the on-disk cache.

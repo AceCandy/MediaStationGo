@@ -65,8 +65,11 @@ func (s *MediaService) DeleteLibrary(ctx context.Context, id string) error {
 
 // ListMedia paginates media items inside a library.
 func (s *MediaService) ListMedia(ctx context.Context, libraryID string, page, pageSize int) ([]model.Media, int64, error) {
-	if pageSize <= 0 || pageSize > 200 {
+	if pageSize <= 0 {
 		pageSize = 50
+	}
+	if pageSize > 2000 {
+		pageSize = 2000
 	}
 	if page < 1 {
 		page = 1

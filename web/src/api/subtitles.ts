@@ -12,8 +12,8 @@ export interface SubtitleTrack {
 export const subtitlesAPI = {
   list: (mediaId: string) =>
     api
-      .get<{ tracks: SubtitleTrack[] }>(`/media/${mediaId}/subtitles`)
-      .then((r) => r.data.tracks),
+      .get<{ tracks: SubtitleTrack[] | null }>(`/media/${mediaId}/subtitles`)
+      .then((r) => r.data.tracks ?? []),
 
   url: (mediaId: string, path: string) => {
     const token = useAuthStore.getState().token ?? ''

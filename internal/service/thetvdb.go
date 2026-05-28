@@ -32,9 +32,9 @@ type TheTVDBProvider struct {
 	log    *zap.Logger
 	client *http.Client
 
-	mu        sync.Mutex
-	token     string
-	tokenExp  time.Time
+	mu       sync.Mutex
+	token    string
+	tokenExp time.Time
 }
 
 // NewTheTVDBProvider is the constructor.
@@ -42,7 +42,7 @@ func NewTheTVDBProvider(cfg *config.Config, log *zap.Logger) *TheTVDBProvider {
 	return &TheTVDBProvider{
 		cfg:    cfg,
 		log:    log,
-		client: &http.Client{Timeout: 15 * time.Second},
+		client: NewExternalHTTPClient(15 * time.Second),
 	}
 }
 
@@ -110,11 +110,11 @@ func (t *TheTVDBProvider) SearchSeries(ctx context.Context, query string) (*Matc
 	}
 
 	type entry struct {
-		ID         string `json:"id"`
-		Name       string `json:"name"`
-		Overview   string `json:"overview"`
-		Image      string `json:"image_url"`
-		Year       string `json:"year"`
+		ID       string `json:"id"`
+		Name     string `json:"name"`
+		Overview string `json:"overview"`
+		Image    string `json:"image_url"`
+		Year     string `json:"year"`
 	}
 	type page struct {
 		Data []entry `json:"data"`

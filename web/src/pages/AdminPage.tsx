@@ -6,6 +6,7 @@ import { adminAPI } from '../api/admin'
 import { libraryAPI } from '../api/library'
 import type { Library, User } from '../types'
 import { APIConfigsPanel } from '../components/APIConfigsPanel'
+import { ManagementShortcuts } from '../components/ManagementShortcuts'
 
 export function AdminPage() {
   const [tab, setTab] = useState<'library' | 'users' | 'api'>('library')
@@ -17,6 +18,16 @@ export function AdminPage() {
   return (
     <div className="space-y-6">
       <h1 className="font-display text-3xl font-bold text-ink-600">管理后台</h1>
+      <ManagementShortcuts
+        title="统一管理入口"
+        description="侧栏保持精简，完整管理能力统一从这里进入。"
+        items={[
+          { to: '/sites', title: '站点管理', description: '维护 PT 站点、认证方式和检索配置' },
+          { to: '/download-clients', title: '下载器管理', description: '配置 qBittorrent 等下载器连接', badge: '下载' },
+          { to: '/tools', title: '整理与维护', description: '媒体整理、任务维护和辅助工具' },
+          { to: '/storage', title: '存储与文件', description: '查看占用、清理重复项和管理文件' },
+        ]}
+      />
       <div className="flex flex-wrap gap-2 border-b border-gray-200">
         {tabs.map((k) => (
           <button
@@ -88,6 +99,7 @@ function LibraryPanel() {
         <select className="input-base" value={type} onChange={(e) => setType(e.target.value)}>
           <option value="movie">电影</option>
           <option value="tv">电视剧</option>
+          <option value="variety">综艺</option>
           <option value="anime">动漫</option>
           <option value="music">音乐</option>
         </select>
@@ -117,7 +129,7 @@ function LibraryPanel() {
                     className="rounded-lg border border-primary-400/40 px-2 py-1 text-xs text-brand-500 hover:bg-primary-400/10"
                     onClick={async () => {
                       const r = await libraryAPI.scan(l.id)
-                      toast.success(`扫描完成,新增 ${r.added}`)
+                      toast.success(`扫描完成，新增 ${r.added}，更新 ${r.updated ?? 0}`)
                     }}
                   >
                     扫描

@@ -14,10 +14,10 @@ func TestBuildFFmpegArgs(t *testing.T) {
 	base.App.VAAPIDevice = "/dev/dri/renderD128"
 
 	cases := []struct {
-		name           string
-		encoder        string
-		expectVCodec   string
-		expectInArgs   []string
+		name                   string
+		encoder                string
+		expectVCodec           string
+		expectInArgs           []string
 		expectNotPresetIfBlank bool
 	}{
 		{"software", "", "libx264", []string{"-preset", "veryfast", "-c:v", "libx264"}, false},
@@ -42,5 +42,29 @@ func TestBuildFFmpegArgs(t *testing.T) {
 				t.Errorf("vaapi should not include -preset, got: %s", joined)
 			}
 		})
+	}
+}
+
+func TestRequiredVideoEncoder(t *testing.T) {
+	cases := map[string]string{
+		"":      "libx264",
+		"nvenc": "h264_nvenc",
+		"qsv":   "h264_qsv",
+		"vaapi": "h264_vaapi",
+	}
+	for encoder, want := range cases {
+		if got := requiredVideoEncoder(encoder); got != want {
+			t.Fatalf("requiredVideoEncoder(%q) = %q, want %q", encoder, got, want)
+		}
+	}
+}
+
+func TestHasFFmpegListEntry(t *testing.T) {
+	out := " V..... libx264              libx264 H.264 / AVC\n A..... aac"
+	if !hasFFmpegListEntry(out, "libx264") {
+		t.Fatal("expected libx264 entry")
+	}
+	if hasFFmpegListEntry(out, "x264") {
+		t.Fatal("must match whole ffmpeg list entries only")
 	}
 }

@@ -15,9 +15,10 @@ import { groupSeries } from '../utils/groupSeries'
 type LibraryRow = { library: Library; cards: ReturnType<typeof groupSeries> }
 
 const TYPE_ICONS: Record<string, React.ReactNode> = {
-  movie: <Film size={18} />, tv: <Tv size={18} />, anime: <PlayCircle size={18} />, music: <Music size={18} />,
+  movie: <Film size={18} />, tv: <Tv size={18} />, variety: <Tv size={18} />, anime: <PlayCircle size={18} />, music: <Music size={18} />,
 }
-const TYPE_LABELS: Record<string, string> = { movie: '电影', tv: '电视剧', anime: '动漫', music: '音乐' }
+const TYPE_LABELS: Record<string, string> = { movie: '电影', tv: '电视剧', variety: '综艺', anime: '动漫', music: '音乐' }
+const hasArtwork = (media?: Media | null) => !!(media?.poster_url || media?.backdrop_url)
 
 export function HomePage() {
   const [libraries, setLibraries] = useState<Library[]>([])
@@ -58,19 +59,18 @@ export function HomePage() {
   }, [loading, libraries.length])
   const fallbackCards = useMemo(() => groupSeries(fallback).slice(0, 16), [fallback])
 
-  // Pick a featured movie/show for the premium editorial billboard
   const featuredItem = useMemo(() => {
-    if (history.length > 0 && history[0].media) {
-      return history[0].media;
-    }
-    if (rows.length > 0 && rows[0].cards.length > 0) {
-      return rows[0].cards[0].rep;
-    }
-    if (fallback.length > 0) {
-      return fallback[0];
-    }
-    return null;
-  }, [history, rows, fallback]);
+    const candidates = [
+      ...(history.map((h) => h.media).filter(Boolean) as Media[]),
+      ...rows.flatMap((row) => row.cards.map((card) => card.rep)),
+      ...fallbackCards.map((card) => card.rep),
+      ...fallback,
+    ]
+    return candidates.find(hasArtwork) ?? candidates[0] ?? null
+  }, [history, rows, fallbackCards, fallback])
+  const featuredVisual = featuredItem?.backdrop_url || featuredItem?.poster_url || ''
+  const featuredPoster = featuredItem?.poster_url || featuredItem?.backdrop_url || ''
+  const featuredMark = (featuredItem?.title || 'MS').trim().slice(0, 4).toUpperCase()
 
   const empty = !loading && history.length === 0 && rows.every((r) => r.cards.length === 0) && fallbackCards.length === 0
 
@@ -109,71 +109,104 @@ export function HomePage() {
     <div className="space-y-12">
       {/* ─── Premium Swiss-Editorial Billboard Hero ─── */}
       {featuredItem && (
-        <section className="relative overflow-hidden rounded-3xl bg-white border border-gray-200/90 shadow-[0_1px_3px_rgba(0,0,0,0.01),0_1px_2px_rgba(0,0,0,0.015)]">
-          {/* Background Poster Cover & Soft Faded Backdrop */}
+        <section className="relative overflow-hidden rounded-[2rem] bg-white border border-gray-200/90 shadow-[0_24px_80px_rgba(15,23,42,0.08)]">
+          {/* Background Artwork */}
           <div className="absolute inset-0 z-0">
-            {featuredItem.poster_url ? (
-              <img 
-                src={imageURL(featuredItem.poster_url)} 
-                alt="" 
-                className="w-full h-full object-cover object-top opacity-5 scale-105 blur-sm"
+            <div className="h-full w-full bg-[radial-gradient(circle_at_80%_20%,rgba(212,175,55,0.22),transparent_34%),linear-gradient(135deg,#fff7ed,#f8fafc_52%,#eef2ff)]" />
+            {featuredVisual && (
+              <img
+                src={imageURL(featuredVisual)}
+                alt=""
+                className="absolute inset-0 h-full w-full scale-105 object-cover object-center opacity-[0.34] blur-[1px]"
+                referrerPolicy="no-referrer"
+                onError={(event) => { event.currentTarget.style.display = 'none' }}
               />
-            ) : (
-              <div className="w-full h-full bg-gray-50" />
             )}
-            {/* Soft Bright Masking */}
-            <div className="absolute inset-0 bg-gradient-to-r from-white via-white/95 to-transparent" />
-            <div className="absolute inset-0 bg-gradient-to-t from-white via-transparent to-transparent" />
+            <div className="absolute inset-0 bg-[linear-gradient(90deg,#ffffff_0%,rgba(255,255,255,0.96)_37%,rgba(255,255,255,0.62)_68%,rgba(255,255,255,0.2)_100%)]" />
+            <div className="absolute inset-0 bg-[radial-gradient(circle_at_82%_50%,rgba(201,149,74,0.24),transparent_32%)]" />
+            <div className="absolute inset-x-0 bottom-0 h-32 bg-gradient-to-t from-white to-transparent" />
           </div>
 
           {/* Billboard Content */}
-          <div className="relative z-10 px-8 py-14 sm:px-12 md:py-16 lg:py-20 max-w-3xl space-y-5">
-            <div className="inline-flex items-center gap-2 rounded-full bg-brand-50 px-3.5 py-1.5 text-xs font-bold uppercase tracking-widest text-[#c9954a] border border-brand-100/40">
-              <Sparkles size={12} fill="currentColor" />
-              <span>本周力荐 / Featured</span>
+          <div className="relative z-10 grid gap-8 px-6 py-8 sm:px-8 md:grid-cols-[minmax(0,1fr)_280px] md:px-12 md:py-12 lg:grid-cols-[minmax(0,1fr)_340px] lg:px-14 lg:py-14">
+            <div className="flex min-w-0 flex-col justify-center space-y-5">
+              <div className="inline-flex w-fit items-center gap-2 rounded-full bg-white/82 px-3.5 py-1.5 text-xs font-bold uppercase tracking-widest text-[#a8732d] border border-[#ead6b6] shadow-sm backdrop-blur">
+                <Sparkles size={12} fill="currentColor" />
+                <span>本周力荐 / Featured</span>
+              </div>
+
+              <div className="space-y-3">
+                <div className="inline-flex max-w-full items-center gap-2 rounded-2xl bg-gray-950 px-3 py-2 text-white shadow-lg shadow-gray-950/10">
+                  <span className="h-2 w-2 rounded-full bg-[#d4af37]" />
+                  <span className="truncate text-xs font-black tracking-[0.26em]">{featuredMark}</span>
+                </div>
+                <h1 className="font-display text-3xl sm:text-4xl md:text-5xl font-extrabold tracking-tight leading-tight text-gray-950">
+                  {featuredItem.title}
+                </h1>
+              </div>
+
+              {featuredItem.overview ? (
+                <p className="max-w-2xl text-gray-600 text-sm sm:text-base leading-relaxed line-clamp-3 font-semibold">
+                  {featuredItem.overview}
+                </p>
+              ) : (
+                <p className="max-w-2xl text-gray-500 text-sm italic">
+                  家庭私人媒体中心收藏。极高视听品质，支持多端原生无损解码及HLS转码播放。
+                </p>
+              )}
+
+              {/* Metadata Badges */}
+              <div className="flex flex-wrap items-center gap-3 text-xs text-gray-500 font-bold">
+                {featuredItem.year > 0 && (
+                  <span className="bg-white/85 px-2.5 py-1 rounded-xl text-gray-900 border border-gray-200 shadow-sm">{featuredItem.year} 年</span>
+                )}
+                {featuredItem.video_codec && (
+                  <span className="rounded-lg bg-[#fff8e7] px-2 py-1 text-[#9a6a1e] border border-[#ead6b6] uppercase font-bold text-[10px]">
+                    {featuredItem.video_codec}
+                  </span>
+                )}
+                {featuredItem.container && (
+                  <span className="rounded-lg bg-white/80 px-2 py-1 text-gray-700 border border-gray-200 uppercase font-mono text-[10px]">
+                    {featuredItem.container}
+                  </span>
+                )}
+              </div>
+
+              {/* Buttons */}
+              <div className="flex flex-wrap items-center gap-4 pt-2">
+                <Link to={`/media/${featuredItem.id}`} className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#111827] px-6 py-3.5 text-sm font-bold text-white shadow-lg shadow-gray-900/15 hover:bg-[#1f2937] hover:-translate-y-0.5 transition-all">
+                  <Play size={16} fill="currentColor" />
+                  <span>立即播放</span>
+                </Link>
+                <Link to="/discover" className="btn-outline bg-white/80 px-5 py-3.5 text-sm font-bold text-gray-700 border border-gray-200 hover:border-gray-300">
+                  <span>发现更多精彩</span>
+                  <ArrowRight size={16} />
+                </Link>
+              </div>
             </div>
 
-            <h1 className="font-display text-3xl sm:text-4xl md:text-5xl font-extrabold tracking-tight leading-tight text-gray-900">
-              {featuredItem.title}
-            </h1>
-
-            {featuredItem.overview ? (
-              <p className="text-gray-500 text-sm sm:text-base leading-relaxed line-clamp-3 font-semibold">
-                {featuredItem.overview}
-              </p>
-            ) : (
-              <p className="text-gray-500 text-sm italic">
-                家庭私人媒体中心收藏。极高视听品质，支持多端原生无损解码及HLS转码播放。
-              </p>
-            )}
-
-            {/* Metadata Badges */}
-            <div className="flex flex-wrap items-center gap-3 text-xs text-gray-500 font-bold">
-              {featuredItem.year > 0 && (
-                <span className="bg-gray-100 px-2.5 py-1 rounded-xl text-gray-900 border border-gray-200">{featuredItem.year} 年</span>
-              )}
-              {featuredItem.video_codec && (
-                <span className="rounded-lg bg-brand-50 px-2 py-1 text-brand-700 border border-brand-100 uppercase font-bold text-[10px]">
-                  {featuredItem.video_codec}
-                </span>
-              )}
-              {featuredItem.container && (
-                <span className="rounded-lg bg-gray-100 px-2 py-1 text-gray-700 border border-gray-200 uppercase font-mono text-[10px]">
-                  {featuredItem.container}
-                </span>
-              )}
-            </div>
-
-            {/* Buttons */}
-            <div className="flex flex-wrap items-center gap-4 pt-4">
-              <Link to={`/media/${featuredItem.id}`} className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#111827] px-6 py-3.5 text-sm font-bold text-white shadow-sm hover:bg-[#1f2937] hover:-translate-y-0.5 transition-all">
-                <Play size={16} fill="currentColor" />
-                <span>立即播放</span>
-              </Link>
-              <Link to="/discover" className="btn-outline px-5 py-3.5 text-sm font-bold text-gray-700 border border-gray-200 hover:border-gray-300">
-                <span>发现更多精彩</span>
-                <ArrowRight size={16} />
-              </Link>
+            <div className="relative order-first mx-auto flex w-full max-w-[220px] items-center md:order-none md:max-w-[260px] lg:max-w-[310px]">
+              <div className="absolute -right-6 top-5 h-32 w-32 rounded-full bg-[#d4af37]/20 blur-3xl" />
+              <div className="absolute -left-5 bottom-8 h-28 w-28 rounded-full bg-brand-200/30 blur-3xl" />
+              <div className="relative aspect-[2/3] w-full overflow-hidden rounded-[1.7rem] border border-white/70 bg-white p-2 shadow-[0_32px_80px_rgba(15,23,42,0.20)]">
+                <div className="flex h-full w-full flex-col items-center justify-center rounded-[1.25rem] bg-[linear-gradient(135deg,#f9fafb,#fff7ed)] text-center">
+                  <Film className="mb-4 h-12 w-12 text-[#c9954a]" />
+                  <span className="px-6 font-display text-3xl font-black tracking-tight text-gray-950">{featuredItem.title}</span>
+                </div>
+                {featuredPoster && (
+                  <img
+                    src={imageURL(featuredPoster)}
+                    alt={featuredItem.title}
+                    className="absolute inset-2 h-[calc(100%-1rem)] w-[calc(100%-1rem)] rounded-[1.25rem] object-cover"
+                    referrerPolicy="no-referrer"
+                    onError={(event) => { event.currentTarget.style.display = 'none' }}
+                  />
+                )}
+                <div className="absolute inset-x-4 bottom-4 rounded-2xl bg-white/88 px-4 py-3 shadow-lg backdrop-blur">
+                  <p className="truncate text-xs font-black tracking-[0.22em] text-[#a8732d]">MEDIASTATION PICK</p>
+                  <p className="truncate text-sm font-extrabold text-gray-950">{featuredItem.title}</p>
+                </div>
+              </div>
             </div>
           </div>
         </section>

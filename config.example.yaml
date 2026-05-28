@@ -99,6 +99,7 @@ organizer:
   smart_classify: false           # 是否启用智能分类整理
   categories:
     chinese_movie: "华语电影"
+    animation_movie: "动画电影"
     foreign_movie: "外语电影"
     euus_movie: "欧美电影"
     jk_movie: "日韩电影"
@@ -107,3 +108,7 @@ organizer:
     jk_tv: "日韩剧"
     jp_anime: "日番"
     cn_anime: "国漫"
+    variety: "综艺"
+    documentary: "纪录片"
+    children: "儿童"
+    uncategorized_tv: "未分类"

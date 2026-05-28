@@ -1,0 +1,553 @@
+package service
+
+import (
+	"encoding/xml"
+	"errors"
+	"net/url"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
+)
+
+// LocalMetadata contains metadata read from Kodi/Jellyfin sidecar NFO files.
+type LocalMetadata struct {
+	Title        string
+	OriginalName string
+	AdultCode    string
+	Year         int
+	Overview     string
+	Rating       float32
+	PosterURL    string
+	BackdropURL  string
+	TMDbID       int
+	SeasonNum    int
+	EpisodeNum   int
+	Genres       string
+	Countries    string
+	Languages    string
+	NSFW         bool
+	HasNFO       bool
+	HasArtwork   bool
+}
+
+type nfoUniqueID struct {
+	Type  string `xml:"type,attr"`
+	Value string `xml:",chardata"`
+}
+
+type nfoFanart struct {
+	Value  string   `xml:",chardata"`
+	Thumbs []string `xml:"thumb"`
+}
+
+type nfoArt struct {
+	Poster     string `xml:"poster"`
+	Thumb      string `xml:"thumb"`
+	Fanart     string `xml:"fanart"`
+	Backdrop   string `xml:"backdrop"`
+	Background string `xml:"background"`
+	Banner     string `xml:"banner"`
+	Landscape  string `xml:"landscape"`
+}
+
+type nfoDocument struct {
+	XMLName       xml.Name      `xml:""`
+	Title         string        `xml:"title"`
+	ShowTitle     string        `xml:"showtitle"`
+	OriginalTitle string        `xml:"originaltitle"`
+	SortTitle     string        `xml:"sorttitle"`
+	Num           string        `xml:"num"`
+	Year          int           `xml:"year"`
+	Premiered     string        `xml:"premiered"`
+	ReleaseDate   string        `xml:"releasedate"`
+	Release       string        `xml:"release"`
+	Aired         string        `xml:"aired"`
+	Plot          string        `xml:"plot"`
+	Outline       string        `xml:"outline"`
+	OriginalPlot  string        `xml:"originalplot"`
+	Rating        float32       `xml:"rating"`
+	Poster        string        `xml:"poster"`
+	Thumbs        []string      `xml:"thumb"`
+	Fanart        nfoFanart     `xml:"fanart"`
+	Art           nfoArt        `xml:"art"`
+	TMDbID        int           `xml:"tmdbid"`
+	UniqueIDs     []nfoUniqueID `xml:"uniqueid"`
+	Season        int           `xml:"season"`
+	Episode       int           `xml:"episode"`
+	Genres        []string      `xml:"genre"`
+	Tags          []string      `xml:"tag"`
+	Countries     []string      `xml:"country"`
+	Languages     []string      `xml:"language"`
+	Studio        string        `xml:"studio"`
+	Maker         string        `xml:"maker"`
+	Publisher     string        `xml:"publisher"`
+	Label         string        `xml:"label"`
+	Directors     []string      `xml:"director"`
+	Actors        []nfoActor    `xml:"actor"`
+}
+
+type nfoActor struct {
+	Name string `xml:"name"`
+	Role string `xml:"role"`
+}
+
+// ReadLocalMetadata reads sidecar NFO files for a media path. For TV/anime it
+// merges show-level tvshow.nfo with episode-level sidecar metadata.
+func ReadLocalMetadata(mediaPath, libraryRoot string, seriesLike bool) (*LocalMetadata, error) {
+	if seriesLike {
+		return readSeriesMetadata(mediaPath, libraryRoot)
+	}
+	doc, path, err := findMovieNFO(mediaPath, libraryRoot)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return metadataFromArtwork(mediaPath, ""), nil
+		}
+		return nil, err
+	}
+	meta := metadataFromDoc(doc, filepath.Dir(path), false)
+	mergeArtworkMetadata(meta, mediaPath, filepath.Dir(path))
+	return meta, nil
+}
+
+func findMovieNFO(mediaPath, libraryRoot string) (*nfoDocument, string, error) {
+	mediaDir := filepath.Dir(mediaPath)
+	base := strings.TrimSuffix(filepath.Base(mediaPath), filepath.Ext(mediaPath))
+	adultCode := AdultCodeFromMediaPath(mediaPath)
+	names := []string{
+		base + ".nfo",
+		"movie.nfo",
+		filepath.Base(mediaDir) + ".nfo",
+	}
+	if adultCode != "" {
+		names = append([]string{adultCode + ".nfo", strings.ReplaceAll(adultCode, "-", "") + ".nfo"}, names...)
+	}
+	seen := map[string]struct{}{}
+	for _, name := range names {
+		if name == ".nfo" || name == "" {
+			continue
+		}
+		path := filepath.Join(mediaDir, name)
+		key := strings.ToLower(filepath.Clean(path))
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		if doc, _, err := readNFO(path); err == nil {
+			return doc, path, nil
+		} else if err != nil && !errors.Is(err, os.ErrNotExist) {
+			return nil, "", err
+		}
+	}
+	if libraryRoot == "" || !samePath(mediaDir, filepath.Clean(libraryRoot)) {
+		matches, _ := filepath.Glob(filepath.Join(mediaDir, "*.nfo"))
+		if adultCode != "" {
+			codeKey := strings.ToLower(strings.ReplaceAll(adultCode, "-", ""))
+			for _, match := range matches {
+				baseKey := strings.ToLower(strings.ReplaceAll(strings.TrimSuffix(filepath.Base(match), filepath.Ext(match)), "-", ""))
+				if strings.Contains(baseKey, codeKey) || strings.Contains(codeKey, baseKey) {
+					if doc, _, err := readNFO(match); err == nil {
+						return doc, match, nil
+					} else if err != nil && !errors.Is(err, os.ErrNotExist) {
+						return nil, "", err
+					}
+				}
+			}
+		}
+		if len(matches) == 1 {
+			if doc, _, err := readNFO(matches[0]); err == nil {
+				return doc, matches[0], nil
+			} else if err != nil && !errors.Is(err, os.ErrNotExist) {
+				return nil, "", err
+			}
+		}
+	}
+	return nil, "", os.ErrNotExist
+}
+
+func readSeriesMetadata(mediaPath, libraryRoot string) (*LocalMetadata, error) {
+	var meta *LocalMetadata
+	showBaseDir := ""
+	if showDoc, showPath, err := findShowNFO(mediaPath, libraryRoot); err == nil && showDoc != nil {
+		showBaseDir = filepath.Dir(showPath)
+		meta = metadataFromDoc(showDoc, showBaseDir, true)
+	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return nil, err
+	}
+
+	if episodeDoc, episodePath, err := readNFO(nfoPath(mediaPath)); err == nil {
+		episodeMeta := metadataFromDoc(episodeDoc, filepath.Dir(episodePath), true)
+		if meta == nil {
+			meta = &LocalMetadata{}
+		}
+		mergeEpisodeMetadata(meta, episodeMeta, episodeDoc)
+	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return nil, err
+	}
+	if meta == nil {
+		meta = metadataFromArtwork(mediaPath, showBaseDir)
+	} else {
+		mergeArtworkMetadata(meta, mediaPath, showBaseDir)
+	}
+	return meta, nil
+}
+
+func readNFO(path string) (*nfoDocument, string, error) {
+	body, err := os.ReadFile(path)
+	if err != nil {
+		return nil, "", err
+	}
+	var doc nfoDocument
+	if err := xml.Unmarshal(body, &doc); err != nil {
+		return nil, "", err
+	}
+	return &doc, path, nil
+}
+
+func findShowNFO(mediaPath, libraryRoot string) (*nfoDocument, string, error) {
+	dir := filepath.Dir(mediaPath)
+	root := filepath.Clean(libraryRoot)
+	for {
+		names := []string{"tvshow.nfo", "series.nfo"}
+		base := filepath.Base(dir)
+		if seasonFromDir(base) > 0 {
+			parentBase := filepath.Base(filepath.Dir(dir))
+			names = append(names, parentBase+".nfo")
+		}
+		names = append(names, base+".nfo")
+		for _, name := range names {
+			path := filepath.Join(dir, name)
+			if doc, _, err := readNFO(path); err == nil {
+				return doc, path, nil
+			} else if err != nil && !errors.Is(err, os.ErrNotExist) {
+				return nil, "", err
+			}
+		}
+		if samePath(dir, root) {
+			return nil, "", os.ErrNotExist
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return nil, "", os.ErrNotExist
+		}
+		dir = parent
+	}
+}
+
+func metadataFromDoc(doc *nfoDocument, baseDir string, seriesLike bool) *LocalMetadata {
+	if doc == nil {
+		return nil
+	}
+	meta := &LocalMetadata{
+		Title:        cleanXMLText(doc.Title),
+		OriginalName: cleanXMLText(doc.OriginalTitle),
+		AdultCode:    normalizeAdultCode(doc.Num),
+		Year:         doc.Year,
+		Overview:     firstText(doc.Plot, doc.Outline, doc.OriginalPlot),
+		Rating:       doc.Rating,
+		PosterURL:    firstRemoteURL(baseDir, append([]string{doc.Poster, doc.Art.Poster, doc.Art.Thumb}, doc.Thumbs...)...),
+		BackdropURL:  firstRemoteURL(baseDir, append([]string{doc.Fanart.Value, doc.Art.Fanart, doc.Art.Backdrop, doc.Art.Background, doc.Art.Banner, doc.Art.Landscape}, doc.Fanart.Thumbs...)...),
+		TMDbID:       doc.TMDbID,
+		SeasonNum:    doc.Season,
+		EpisodeNum:   doc.Episode,
+		Genres:       joinNFOValues(adultAwareGenres(doc)),
+		Countries:    joinNFOValues(doc.Countries),
+		Languages:    joinNFOValues(doc.Languages),
+		HasNFO:       true,
+	}
+	if meta.AdultCode == "" {
+		meta.AdultCode = normalizeAdultCode(firstText(doc.OriginalTitle, doc.SortTitle, doc.Title))
+	}
+	if meta.AdultCode != "" {
+		meta.NSFW = true
+		if meta.OriginalName == "" || strings.EqualFold(meta.OriginalName, meta.Title) {
+			meta.OriginalName = meta.AdultCode
+		}
+	}
+	if seriesLike && cleanXMLText(doc.ShowTitle) != "" {
+		meta.Title = cleanXMLText(doc.ShowTitle)
+		if cleanXMLText(doc.Title) != "" {
+			meta.OriginalName = cleanXMLText(doc.Title)
+		}
+	}
+	if meta.Year == 0 {
+		meta.Year = yearFromDate(firstText(doc.Premiered, doc.ReleaseDate, doc.Release, doc.Aired))
+	}
+	if meta.TMDbID == 0 {
+		meta.TMDbID = tmdbIDFromUniqueIDs(doc.UniqueIDs)
+	}
+	return meta
+}
+
+func adultAwareGenres(doc *nfoDocument) []string {
+	if doc == nil {
+		return nil
+	}
+	values := make([]string, 0, len(doc.Genres)+len(doc.Tags)+len(doc.Actors)+4)
+	values = append(values, doc.Genres...)
+	values = append(values, doc.Tags...)
+	for _, value := range []string{doc.Studio, doc.Maker, doc.Publisher, doc.Label} {
+		if cleanXMLText(value) != "" {
+			values = append(values, cleanXMLText(value))
+		}
+	}
+	for _, value := range doc.Directors {
+		if cleanXMLText(value) != "" {
+			values = append(values, cleanXMLText(value))
+		}
+	}
+	for _, actor := range doc.Actors {
+		if cleanXMLText(actor.Name) != "" {
+			values = append(values, cleanXMLText(actor.Name))
+		} else if cleanXMLText(actor.Role) != "" {
+			values = append(values, cleanXMLText(actor.Role))
+		}
+	}
+	return values
+}
+
+func metadataFromArtwork(mediaPath, showBaseDir string) *LocalMetadata {
+	meta := &LocalMetadata{}
+	mergeArtworkMetadata(meta, mediaPath, showBaseDir)
+	if meta.PosterURL == "" && meta.BackdropURL == "" {
+		return nil
+	}
+	return meta
+}
+
+func mergeArtworkMetadata(meta *LocalMetadata, mediaPath, showBaseDir string) {
+	if meta == nil {
+		return
+	}
+	mediaDir := filepath.Dir(mediaPath)
+	if meta.PosterURL == "" {
+		meta.PosterURL = firstExistingImage(mediaDir, localPosterCandidates(mediaPath)...)
+	}
+	if meta.BackdropURL == "" {
+		dirs := []string{mediaDir, showBaseDir}
+		for _, dir := range dirs {
+			if dir == "" {
+				continue
+			}
+			if img := firstExistingImage(dir, localBackdropCandidates(mediaPath)...); img != "" {
+				meta.BackdropURL = img
+				break
+			}
+		}
+	}
+	if meta.PosterURL != "" || meta.BackdropURL != "" {
+		meta.HasArtwork = true
+	}
+}
+
+func mergeEpisodeMetadata(dst, episode *LocalMetadata, doc *nfoDocument) {
+	showTitle := cleanXMLText(doc.ShowTitle)
+	episodeTitle := cleanXMLText(doc.Title)
+	if showTitle != "" {
+		dst.Title = showTitle
+		if episodeTitle != "" {
+			dst.OriginalName = episodeTitle
+		}
+	} else if dst.Title != "" && episodeTitle != "" && episodeTitle != dst.Title {
+		dst.OriginalName = episodeTitle
+	} else if dst.Title == "" && episodeTitle != "" {
+		dst.Title = episodeTitle
+	}
+	if dst.OriginalName == "" && episode.OriginalName != "" {
+		dst.OriginalName = episode.OriginalName
+	}
+	if episode.Year > 0 {
+		dst.Year = episode.Year
+	}
+	if episode.Overview != "" {
+		dst.Overview = episode.Overview
+	}
+	if episode.Rating > 0 {
+		dst.Rating = episode.Rating
+	}
+	if episode.PosterURL != "" {
+		dst.PosterURL = episode.PosterURL
+	}
+	if episode.BackdropURL != "" {
+		dst.BackdropURL = episode.BackdropURL
+	}
+	if episode.TMDbID > 0 {
+		dst.TMDbID = episode.TMDbID
+	}
+	if episode.SeasonNum > 0 {
+		dst.SeasonNum = episode.SeasonNum
+	}
+	if episode.EpisodeNum > 0 {
+		dst.EpisodeNum = episode.EpisodeNum
+	}
+	if episode.Genres != "" {
+		dst.Genres = episode.Genres
+	}
+	if episode.Countries != "" {
+		dst.Countries = episode.Countries
+	}
+	if episode.Languages != "" {
+		dst.Languages = episode.Languages
+	}
+}
+
+func tmdbIDFromUniqueIDs(ids []nfoUniqueID) int {
+	for _, id := range ids {
+		if strings.EqualFold(strings.TrimSpace(id.Type), "tmdb") {
+			v, _ := strconv.Atoi(strings.TrimSpace(id.Value))
+			return v
+		}
+	}
+	return 0
+}
+
+func firstRemoteURL(baseDir string, values ...string) string {
+	for _, value := range values {
+		value = cleanXMLText(value)
+		if value == "" {
+			continue
+		}
+		if isHTTPURL(value) {
+			return value
+		}
+		if filepath.IsAbs(value) && fileExists(value) {
+			return filepath.Clean(value)
+		}
+		if baseDir != "" {
+			local := filepath.Join(baseDir, filepath.FromSlash(value))
+			if fileExists(local) {
+				return filepath.Clean(local)
+			}
+		}
+	}
+	return ""
+}
+
+func localPosterCandidates(mediaPath string) []string {
+	base := strings.TrimSuffix(filepath.Base(mediaPath), filepath.Ext(mediaPath))
+	names := []string{
+		base,
+		base + "-thumb",
+		base + ".thumb",
+		base + "-cover",
+		base + ".cover",
+		base + "-poster",
+		base + ".poster",
+		"thumb",
+		"poster",
+		"folder",
+		"cover",
+		"movie",
+		"show",
+	}
+	return append(adultArtworkNameCandidates(mediaPath, "poster"), names...)
+}
+
+func localBackdropCandidates(mediaPath string) []string {
+	base := strings.TrimSuffix(filepath.Base(mediaPath), filepath.Ext(mediaPath))
+	names := []string{
+		base + "-fanart",
+		base + ".fanart",
+		base + "-backdrop",
+		base + ".backdrop",
+		base + "-background",
+		"fanart",
+		"backdrop",
+		"background",
+		"landscape",
+		"banner",
+		"clearart",
+	}
+	return append(adultArtworkNameCandidates(mediaPath, "backdrop"), names...)
+}
+
+func adultArtworkNameCandidates(mediaPath, kind string) []string {
+	code := AdultCodeFromMediaPath(mediaPath)
+	if code == "" {
+		return nil
+	}
+	compact := strings.ReplaceAll(code, "-", "")
+	bases := []string{code, compact}
+	out := make([]string, 0, len(bases)*6)
+	for _, base := range bases {
+		if kind == "poster" {
+			out = append(out, base, base+"-poster", base+".poster", base+"-cover", base+".cover", base+"-thumb", base+".thumb")
+		} else {
+			out = append(out, base+"-fanart", base+".fanart", base+"-backdrop", base+".backdrop", base+"-background", base+"-landscape")
+		}
+	}
+	return out
+}
+
+func firstExistingImage(dir string, names ...string) string {
+	if dir == "" {
+		return ""
+	}
+	for _, name := range names {
+		for _, ext := range []string{".jpg", ".jpeg", ".png", ".webp"} {
+			path := filepath.Join(dir, name+ext)
+			if fileExists(path) {
+				return filepath.Clean(path)
+			}
+		}
+	}
+	return ""
+}
+
+func fileExists(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && !info.IsDir()
+}
+
+func isHTTPURL(raw string) bool {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return false
+	}
+	return (u.Scheme == "http" || u.Scheme == "https") && u.Host != ""
+}
+
+func firstText(values ...string) string {
+	for _, value := range values {
+		if text := cleanXMLText(value); text != "" {
+			return text
+		}
+	}
+	return ""
+}
+
+func cleanXMLText(value string) string {
+	return strings.TrimSpace(value)
+}
+
+func joinNFOValues(values []string) string {
+	out := make([]string, 0, len(values))
+	seen := map[string]struct{}{}
+	for _, value := range values {
+		for _, part := range strings.Split(value, ",") {
+			part = cleanXMLText(part)
+			if part == "" {
+				continue
+			}
+			key := strings.ToLower(part)
+			if _, ok := seen[key]; ok {
+				continue
+			}
+			seen[key] = struct{}{}
+			out = append(out, part)
+		}
+	}
+	return strings.Join(out, ",")
+}
+
+func yearFromDate(value string) int {
+	if len(value) < 4 {
+		return 0
+	}
+	year, _ := strconv.Atoi(value[:4])
+	return year
+}
+
+func samePath(a, b string) bool {
+	return strings.EqualFold(filepath.Clean(a), filepath.Clean(b))
+}

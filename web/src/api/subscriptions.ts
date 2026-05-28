@@ -5,7 +5,15 @@ export const subscriptionsAPI = {
   list: () =>
     api.get<{ items: Subscription[] }>('/subscriptions').then((r) => r.data.items),
 
-  create: (input: { name: string; feed_url: string; filter?: string; enabled?: boolean }) =>
+  create: (input: {
+    name: string
+    feed_url: string
+    filter?: string
+    media_type?: string
+    media_category?: string
+    save_path?: string
+    enabled?: boolean
+  }) =>
     api.post<Subscription>('/subscriptions', input).then((r) => r.data),
 
   remove: (id: string) => api.delete(`/subscriptions/${id}`).then((r) => r.data),

@@ -12,10 +12,13 @@ import (
 )
 
 type subscriptionReq struct {
-	Name    string `json:"name" binding:"required"`
-	FeedURL string `json:"feed_url" binding:"required"`
-	Filter  string `json:"filter"`
-	Enabled *bool  `json:"enabled"`
+	Name          string `json:"name" binding:"required"`
+	FeedURL       string `json:"feed_url" binding:"required"`
+	Filter        string `json:"filter"`
+	MediaType     string `json:"media_type"`
+	MediaCategory string `json:"media_category"`
+	SavePath      string `json:"save_path"`
+	Enabled       *bool  `json:"enabled"`
 }
 
 func createSubscriptionHandler(svc *service.Container) gin.HandlerFunc {
@@ -31,11 +34,14 @@ func createSubscriptionHandler(svc *service.Container) gin.HandlerFunc {
 			enabled = *req.Enabled
 		}
 		s := &model.Subscription{
-			UserID:  uid.(string),
-			Name:    req.Name,
-			FeedURL: req.FeedURL,
-			Filter:  req.Filter,
-			Enabled: enabled,
+			UserID:        uid.(string),
+			Name:          req.Name,
+			FeedURL:       req.FeedURL,
+			Filter:        req.Filter,
+			MediaType:     req.MediaType,
+			MediaCategory: req.MediaCategory,
+			SavePath:      req.SavePath,
+			Enabled:       enabled,
 		}
 		if err := svc.Subscription.Create(c.Request.Context(), s); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})

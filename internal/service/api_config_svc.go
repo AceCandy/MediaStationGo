@@ -156,22 +156,21 @@ func (s *ApiConfigService) testTMDb(cfg *model.ApiConfig) (string, error) {
 		return "error", errors.New("API key is required")
 	}
 
-	testURL := "https://api.themoviedb.org/3/configuration?api_key=" + cfg.APIKey
-	resp, err := http.Get(testURL)
+	baseURL := strings.TrimRight(cfg.BaseURL, "/")
+	if baseURL == "" {
+		baseURL = strings.TrimRight(s.cfg.Secrets.TMDbAPIProxy, "/")
+	}
+	if baseURL == "" {
+		baseURL = "https://api.themoviedb.org/3"
+	}
+	testURL := baseURL + "/configuration?api_key=" + url.QueryEscape(cfg.APIKey)
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, testURL, nil)
 	if err != nil {
-		// 如果配置了代理，使用代理
-		if s.cfg.Secrets.TMDbAPIProxy != "" {
-			proxyURL := s.cfg.Secrets.TMDbAPIProxy + "?api_key=" + cfg.APIKey
-			resp, err = http.Get(proxyURL)
-			if err != nil {
-				return "error", fmt.Errorf("TMDb connection failed: %w", err)
-			}
-			defer resp.Body.Close()
-			if resp.StatusCode == 200 {
-				return "success", nil
-			}
-			return "error", fmt.Errorf("TMDb API returned status %d", resp.StatusCode)
-		}
+		return "error", err
+	}
+	client := NewExternalHTTPClient(10 * time.Second)
+	resp, err := client.Do(req)
+	if err != nil {
 		return "error", fmt.Errorf("TMDb connection failed: %w", err)
 	}
 	defer resp.Body.Close()

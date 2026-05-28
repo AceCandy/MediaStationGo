@@ -1,140 +1,152 @@
-import { useEffect, useState } from 'react'
-import { Sparkles, AlertTriangle, ExternalLink, Wifi } from 'lucide-react'
-import { Link } from 'react-router-dom'
+import { useEffect, useMemo, useState } from 'react'
+import { AlertTriangle, Sparkles } from 'lucide-react'
 
-import { discoverAPI, type DiscoverItem } from '../api/discover'
+import { discoverAPI, type DiscoverItem, type DiscoverSection } from '../api/discover'
 import { imageURL } from '../api/client'
 
-// 判断后端返回的错误是不是"未配置 API key"。其它（网络超时/被墙/上游 5xx）
-// 都归为"网络/上游故障"，避免误导用户去再配一次 key。
-function isMissingKey(err?: string): boolean {
-  if (!err) return false
-  const low = err.toLowerCase()
-  return low.includes('api key') || low.includes('apikey') || low.includes('not configured')
-}
+const defaultSections = [
+  'tmdb_trending_day',
+  'douban_hot_movie',
+  'douban_hot_tv',
+  'bangumi_calendar',
+]
 
-function isNetworkError(err?: string): boolean {
-  if (!err) return false
-  const low = err.toLowerCase()
-  return (
-    low.includes('deadline exceeded') ||
-    low.includes('timeout') ||
-    low.includes('no such host') ||
-    low.includes('connection refused') ||
-    low.includes('eof') ||
-    low.includes('tls') ||
-    low.includes('reset')
-  )
-}
+const storageKey = 'mediastation.discover.sections'
 
 export function DiscoverPage() {
-  const [trending, setTrending] = useState<DiscoverItem[]>([])
-  const [popular, setPopular] = useState<DiscoverItem[]>([])
-  const [trendingErr, setTrendingErr] = useState<string | undefined>()
-  const [popularErr, setPopularErr] = useState<string | undefined>()
+  const [sections, setSections] = useState<DiscoverSection[]>([])
+  const [selected, setSelected] = useState<string[]>(defaultSections)
+  const [rows, setRows] = useState<Record<string, DiscoverItem[]>>({})
+  const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    setLoading(true)
-    Promise.all([
-      discoverAPI.trending().catch((err) => ({
-        items: [] as DiscoverItem[],
-        error: err instanceof Error ? err.message : String(err),
-      })),
-      discoverAPI.popular().catch((err) => ({
-        items: [] as DiscoverItem[],
-        error: err instanceof Error ? err.message : String(err),
-      })),
-    ])
-      .then(([t, p]) => {
-        setTrending(t.items)
-        setTrendingErr(t.error)
-        setPopular(p.items)
-        setPopularErr(p.error)
+    discoverAPI
+      .sections()
+      .then((items) => {
+        setSections(items)
+        const saved = readSavedSections(items)
+        setSelected(saved.length > 0 ? saved : defaultSections)
       })
-      .finally(() => setLoading(false))
+      .catch(() => {
+        setSections(defaultSectionDefs)
+        setSelected(defaultSections)
+      })
   }, [])
 
-  const anyErr = trendingErr || popularErr
-  const missingKey = isMissingKey(anyErr)
-  const networkErr = !missingKey && isNetworkError(anyErr)
-  const otherErr = !missingKey && !networkErr && anyErr
+  useEffect(() => {
+    if (selected.length === 0) {
+      setRows({})
+      setLoading(false)
+      return
+    }
+    setLoading(true)
+    setError('')
+    window.localStorage.setItem(storageKey, JSON.stringify(selected))
+    discoverAPI
+      .feed(selected)
+      .then((feed) => {
+        const next: Record<string, DiscoverItem[]> = {}
+        for (const key of selected) {
+          next[key] = feed[key] ?? []
+        }
+        setRows(next)
+      })
+      .catch((err) => {
+        setRows({})
+        setError(err instanceof Error ? err.message : String(err))
+      })
+      .finally(() => setLoading(false))
+  }, [selected])
+
+  const sectionMap = useMemo(
+    () => new Map(sections.map((section) => [section.key, section])),
+    [sections],
+  )
+  const hasContent = selected.some((key) => (rows[key] ?? []).length > 0)
+
+  const toggleSection = (key: string) => {
+    setSelected((current) => {
+      if (current.includes(key)) {
+        return current.filter((item) => item !== key)
+      }
+      return [...current, key]
+    })
+  }
 
   return (
-    <div className="space-y-8 px-4 py-6 max-w-7xl mx-auto">
-      {/* Header */}
-      <header className="flex items-center gap-4 mb-8">
-        <div className="p-3 rounded-2xl bg-gradient-to-br from-primary-500/20 to-primary-600/10 border border-primary-500/20">
-          <Sparkles className="h-8 w-8 text-brand-500" />
+    <div className="mx-auto max-w-7xl space-y-8 px-4 py-6">
+      <header className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+        <div className="flex items-center gap-4">
+          <div className="rounded-2xl border border-primary-500/20 bg-gradient-to-br from-primary-500/20 to-primary-600/10 p-3">
+            <Sparkles className="h-8 w-8 text-brand-500" />
+          </div>
+          <div>
+            <h1 className="font-display text-4xl font-bold tracking-tight text-ink-600">
+              发现
+            </h1>
+            <p className="mt-1 text-base text-ink-50">
+              多源推荐：TMDb / 豆瓣 / Bangumi，可按需组合显示
+            </p>
+          </div>
         </div>
-        <div>
-          <h1 className="font-display text-4xl font-bold text-ink-600 tracking-tight">发现</h1>
-          <p className="mt-1 text-base text-ink-50">
-            来自 TMDb 的当日热门与流行榜单
-          </p>
+
+        <div className="flex flex-wrap gap-2">
+          {sections.map((section) => {
+            const active = selected.includes(section.key)
+            return (
+              <button
+                key={section.key}
+                type="button"
+                onClick={() => toggleSection(section.key)}
+                className={
+                  'rounded-full border px-3 py-1.5 text-xs font-semibold transition ' +
+                  (active
+                    ? 'border-primary-400 bg-primary-400/15 text-brand-500'
+                    : 'border-gray-200 bg-white text-gray-500 hover:border-primary-300 hover:text-ink-600')
+                }
+              >
+                {section.label}
+              </button>
+            )
+          })}
         </div>
       </header>
 
       {loading && <DiscoverSkeleton />}
 
-      {/* TMDb API Key 未配置 */}
-      {!loading && missingKey && (
-        <div className="rounded-2xl bg-amber-500/10 border border-amber-500/20 p-6 text-center space-y-4">
-          <div className="mx-auto w-16 h-16 rounded-full bg-amber-500/10 flex items-center justify-center">
-            <AlertTriangle className="h-8 w-8 text-amber-400" />
-          </div>
-          <h3 className="text-lg font-semibold text-ink-600">TMDb API Key 未配置</h3>
-          <p className="text-sm text-ink-50 max-w-md mx-auto">
-            您需要在管理后台填入 TMDb API Key 才能查看发现内容。
-          </p>
-          <Link
-            to="/admin"
-            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-primary-500/20 text-brand-500 hover:bg-primary-500/30 transition-colors font-medium"
-          >
-            前往管理后台
-            <ExternalLink className="h-4 w-4" />
-          </Link>
+      {!loading && error && (
+        <div className="flex items-center gap-3 rounded-2xl border border-red-500/20 bg-red-500/10 p-4">
+          <AlertTriangle className="h-5 w-5 flex-shrink-0 text-red-400" />
+          <p className="text-red-300">{error}</p>
         </div>
       )}
 
-      {/* 网络无法访问 TMDb */}
-      {!loading && networkErr && (
-        <div className="rounded-2xl bg-orange-500/10 border border-orange-500/20 p-6 text-center space-y-4">
-          <div className="mx-auto w-16 h-16 rounded-full bg-orange-500/10 flex items-center justify-center">
-            <Wifi className="h-8 w-8 text-orange-400" />
-          </div>
-          <h3 className="text-lg font-semibold text-ink-600">无法连接到 TMDb</h3>
-          <p className="text-sm text-ink-50 max-w-lg mx-auto">
-            服务器到 <code className="font-mono text-orange-300">api.themoviedb.org</code> 的连接超时。
-            通常是因为部署机器没有走代理。可以在系统环境变量里设置
-            <code className="font-mono text-orange-300 mx-1">HTTPS_PROXY</code>，
-            或在「外部 API」配置里填写自建反代地址（tmdb_api_proxy / tmdb_image_proxy）。
-          </p>
-          <details className="text-xs text-sand-500 max-w-lg mx-auto text-left">
-            <summary className="cursor-pointer hover:text-ink-50">查看原始错误</summary>
-            <pre className="mt-2 p-2 rounded bg-black/40 overflow-x-auto whitespace-pre-wrap">{anyErr}</pre>
-          </details>
+      {!loading && selected.length === 0 && (
+        <div className="rounded-2xl border border-gray-200 bg-white p-10 text-center text-sand-500">
+          至少选择一个推荐源，小宇宙才会开始转动。
         </div>
       )}
 
-      {/* 其它错误 */}
-      {!loading && otherErr && (
-        <div className="rounded-2xl bg-red-500/10 border border-red-500/20 p-4 flex items-center gap-3">
-          <AlertTriangle className="h-5 w-5 text-red-400 flex-shrink-0" />
-          <p className="text-red-300">{otherErr}</p>
-        </div>
-      )}
-
-      {/* Content Rows */}
-      {!loading && !missingKey && (
+      {!loading && !error && selected.length > 0 && (
         <div className="space-y-10">
-          {trending.length > 0 && <ContentRow title="今日趋势" items={trending} />}
-          {popular.length > 0 && <ContentRow title="热门电影" items={popular} />}
+          {selected.map((key) => {
+            const items = rows[key] ?? []
+            if (items.length === 0) return null
+            return (
+              <ContentRow
+                key={key}
+                title={sectionMap.get(key)?.label ?? key}
+                items={items}
+              />
+            )
+          })}
 
-          {/* TMDB 配置 OK 但本次没拿到任何条目（极少见） */}
-          {!networkErr && trending.length === 0 && popular.length === 0 && !otherErr && (
-            <div className="text-center py-12">
-              <p className="text-sand-500">暂无发现内容</p>
+          {!hasContent && (
+            <div className="rounded-2xl border border-gray-200 bg-white p-10 text-center">
+              <p className="text-sand-500">
+                当前选择的推荐源暂未返回内容，可切换豆瓣 / Bangumi 或检查网络代理。
+              </p>
             </div>
           )}
         </div>
@@ -146,10 +158,10 @@ export function DiscoverPage() {
 function ContentRow({ title, items }: { title: string; items: DiscoverItem[] }) {
   return (
     <section className="space-y-4">
-      <h2 className="font-display text-2xl font-semibold text-ink-600 pl-1">{title}</h2>
+      <h2 className="pl-1 font-display text-2xl font-semibold text-ink-600">{title}</h2>
       <div className="grid grid-cols-3 gap-4 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-7 xl:grid-cols-8">
-        {items.map((item) => (
-          <DiscoverCard key={item.tmdb_id} item={item} />
+        {items.map((item, index) => (
+          <DiscoverCard key={discoverKey(item, index)} item={item} />
         ))}
       </div>
     </section>
@@ -157,35 +169,39 @@ function ContentRow({ title, items }: { title: string; items: DiscoverItem[] }) 
 }
 
 function DiscoverCard({ item }: { item: DiscoverItem }) {
+  const source = item.source || (item.bangumi_id ? 'bangumi' : item.douban_id ? 'douban' : 'tmdb')
   return (
-    <div className="group relative overflow-hidden rounded-xl border border-gray-200 bg-gray-50 hover:border-primary-500/30 transition-all duration-300">
-      <div className="aspect-[2/3] w-full bg-surface-900 relative overflow-hidden">
+    <div className="group relative overflow-hidden rounded-xl border border-gray-200 bg-gray-50 transition-all duration-300 hover:border-primary-500/30">
+      <div className="relative aspect-[2/3] w-full overflow-hidden bg-surface-900">
         {item.poster_url ? (
           <img
             src={imageURL(item.poster_url)}
             alt={item.title}
             loading="lazy"
             referrerPolicy="no-referrer"
-            className="h-full w-full object-cover group-hover:scale-105 transition-transform duration-500"
+            className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
           />
         ) : (
-          <div className="flex h-full w-full items-center justify-center text-gray-500 text-xs">
+          <div className="flex h-full w-full items-center justify-center text-xs text-gray-500">
             无海报
           </div>
         )}
-        {item.rating > 0 && (
-          <div className="absolute top-1.5 right-1.5 rounded-xl bg-black/70 backdrop-blur-sm px-1.5 py-0.5 text-[11px] font-semibold text-yellow-400 border border-yellow-400/30">
-            ★ {item.rating.toFixed(1)}
+        <div className="absolute left-1.5 top-1.5 rounded-xl border border-white/20 bg-black/65 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-white backdrop-blur-sm">
+          {source}
+        </div>
+        {(item.rating ?? 0) > 0 && (
+          <div className="absolute right-1.5 top-1.5 rounded-xl border border-yellow-400/30 bg-black/70 px-1.5 py-0.5 text-[11px] font-semibold text-yellow-400 backdrop-blur-sm">
+            ★ {(item.rating ?? 0).toFixed(1)}
           </div>
         )}
       </div>
-      <div className="px-2.5 py-2 space-y-0.5">
-        <p className="text-xs font-medium text-ink-600 truncate group-hover:text-brand-500 transition-colors">
+      <div className="space-y-0.5 px-2.5 py-2">
+        <p className="truncate text-xs font-medium text-ink-600 transition-colors group-hover:text-brand-500">
           {item.title}
         </p>
-        {item.year > 0 && (
-          <p className="text-[11px] text-sand-500">{item.year}</p>
-        )}
+        <p className="text-[11px] text-sand-500">
+          {[item.media_type, item.year && item.year > 0 ? item.year : ''].filter(Boolean).join(' · ') || '推荐'}
+        </p>
       </div>
     </div>
   )
@@ -194,12 +210,12 @@ function DiscoverCard({ item }: { item: DiscoverItem }) {
 function DiscoverSkeleton() {
   return (
     <div className="space-y-8">
-      {[1, 2].map((section) => (
+      {[1, 2, 3].map((section) => (
         <section key={section} className="space-y-4">
-          <div className="h-8 w-48 rounded-xl bg-gray-100 animate-pulse" />
+          <div className="h-8 w-48 animate-pulse rounded-xl bg-gray-100" />
           <div className="grid grid-cols-3 gap-4 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-7 xl:grid-cols-8">
-            {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
-              <div key={i} className="aspect-[2/3] rounded-xl bg-gray-100 animate-pulse" />
+            {[1, 2, 3, 4, 5, 6, 7, 8].map((item) => (
+              <div key={item} className="aspect-[2/3] animate-pulse rounded-xl bg-gray-100" />
             ))}
           </div>
         </section>
@@ -207,3 +223,28 @@ function DiscoverSkeleton() {
     </div>
   )
 }
+
+function discoverKey(item: DiscoverItem, index: number): string {
+  return `${item.source || 'source'}:${item.tmdb_id || item.douban_id || item.bangumi_id || item.title}:${index}`
+}
+
+function readSavedSections(sections: DiscoverSection[]): string[] {
+  try {
+    const raw = window.localStorage.getItem(storageKey)
+    if (!raw) return []
+    const parsed = JSON.parse(raw)
+    if (!Array.isArray(parsed)) return []
+    const allowed = new Set(sections.map((section) => section.key))
+    return parsed.filter((key) => typeof key === 'string' && allowed.has(key))
+  } catch {
+    return []
+  }
+}
+
+const defaultSectionDefs: DiscoverSection[] = [
+  { key: 'tmdb_trending_day', label: 'TMDb 今日趋势', provider: 'tmdb' },
+  { key: 'tmdb_popular_movie', label: 'TMDb 热门电影', provider: 'tmdb' },
+  { key: 'douban_hot_movie', label: '豆瓣热门电影', provider: 'douban' },
+  { key: 'douban_hot_tv', label: '豆瓣热门剧集', provider: 'douban' },
+  { key: 'bangumi_calendar', label: 'Bangumi 每日放送', provider: 'bangumi' },
+]

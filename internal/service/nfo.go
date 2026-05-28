@@ -22,6 +22,7 @@ import (
 
 	"go.uber.org/zap"
 
+	"github.com/ShukeBta/MediaStationGo/internal/model"
 	"github.com/ShukeBta/MediaStationGo/internal/repository"
 )
 
@@ -47,6 +48,26 @@ type movieNFO struct {
 	Poster   string   `xml:"thumb,omitempty"`
 	Fanart   string   `xml:"fanart,omitempty"`
 	TMDb     int      `xml:"tmdbid,omitempty"`
+	Genre    []string `xml:"genre,omitempty"`
+	Country  []string `xml:"country,omitempty"`
+	Language []string `xml:"language,omitempty"`
+}
+
+type episodeNFO struct {
+	XMLName   xml.Name `xml:"episodedetails"`
+	Title     string   `xml:"title"`
+	ShowTitle string   `xml:"showtitle,omitempty"`
+	Season    int      `xml:"season,omitempty"`
+	Episode   int      `xml:"episode,omitempty"`
+	Year      int      `xml:"year,omitempty"`
+	Plot      string   `xml:"plot,omitempty"`
+	Rating    float32  `xml:"rating,omitempty"`
+	Poster    string   `xml:"thumb,omitempty"`
+	Fanart    string   `xml:"fanart,omitempty"`
+	TMDb      int      `xml:"tmdbid,omitempty"`
+	Genre     []string `xml:"genre,omitempty"`
+	Country   []string `xml:"country,omitempty"`
+	Language  []string `xml:"language,omitempty"`
 }
 
 // ExportOne writes a movie.nfo file next to the media file. Existing files
@@ -63,24 +84,8 @@ func (s *NFOService) ExportOne(ctx context.Context, mediaID string) (string, err
 		return "", errors.New("media has empty path")
 	}
 
-	doc := movieNFO{
-		Title:    m.Title,
-		Original: m.OriginalName,
-		Year:     m.Year,
-		Plot:     m.Overview,
-		Rating:   m.Rating,
-		Poster:   m.PosterURL,
-		Fanart:   m.BackdropURL,
-		TMDb:     m.TMDbID,
-	}
-	out, err := xml.MarshalIndent(doc, "", "  ")
+	dst, err := WriteMediaNFO(m)
 	if err != nil {
-		return "", err
-	}
-	body := []byte(xml.Header + string(out) + "\n")
-
-	dst := nfoPath(m.Path)
-	if err := os.WriteFile(dst, body, 0o644); err != nil {
 		return "", err
 	}
 	s.log.Info("nfo exported", zap.String("media_id", m.ID), zap.String("path", dst))
@@ -112,4 +117,71 @@ func nfoPath(media string) string {
 	dir := filepath.Dir(media)
 	base := strings.TrimSuffix(filepath.Base(media), filepath.Ext(media))
 	return filepath.Join(dir, fmt.Sprintf("%s.nfo", base))
+}
+
+func WriteMediaNFO(m *model.Media) (string, error) {
+	if m == nil {
+		return "", errors.New("media not found")
+	}
+	if m.Path == "" {
+		return "", errors.New("media has empty path")
+	}
+
+	var doc any
+	if m.SeasonNum > 0 || m.EpisodeNum > 0 {
+		title := m.OriginalName
+		if title == "" {
+			title = m.Title
+		}
+		doc = episodeNFO{
+			Title:     title,
+			ShowTitle: m.Title,
+			Season:    m.SeasonNum,
+			Episode:   m.EpisodeNum,
+			Year:      m.Year,
+			Plot:      m.Overview,
+			Rating:    m.Rating,
+			Poster:    m.PosterURL,
+			Fanart:    m.BackdropURL,
+			TMDb:      m.TMDbID,
+			Genre:     splitNFOList(m.Genres),
+			Country:   splitNFOList(m.Countries),
+			Language:  splitNFOList(m.Languages),
+		}
+	} else {
+		doc = movieNFO{
+			Title:    m.Title,
+			Original: m.OriginalName,
+			Year:     m.Year,
+			Plot:     m.Overview,
+			Rating:   m.Rating,
+			Poster:   m.PosterURL,
+			Fanart:   m.BackdropURL,
+			TMDb:     m.TMDbID,
+			Genre:    splitNFOList(m.Genres),
+			Country:  splitNFOList(m.Countries),
+			Language: splitNFOList(m.Languages),
+		}
+	}
+	out, err := xml.MarshalIndent(doc, "", "  ")
+	if err != nil {
+		return "", err
+	}
+	dst := nfoPath(m.Path)
+	if err := os.WriteFile(dst, []byte(xml.Header+string(out)+"\n"), 0o644); err != nil {
+		return "", err
+	}
+	return dst, nil
+}
+
+func splitNFOList(value string) []string {
+	parts := strings.Split(value, ",")
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part != "" {
+			out = append(out, part)
+		}
+	}
+	return out
 }

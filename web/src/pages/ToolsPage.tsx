@@ -6,6 +6,7 @@ import { adminAPI } from '../api/admin'
 import { libraryAPI, mediaAPI } from '../api/library'
 import { toolsAPI } from '../api/tools'
 import type { Library, Media, Setting } from '../types'
+import { ManagementShortcuts } from '../components/ManagementShortcuts'
 
 // ToolsPage gathers admin-only one-off operations that don't belong on a
 // dedicated screen of their own:
@@ -28,6 +29,18 @@ export function ToolsPage() {
           <p className="text-sm text-ink-50">整理媒体文件 · 测试通知渠道</p>
         </div>
       </div>
+
+      <ManagementShortcuts
+        title="运维与自动化入口"
+        description="把整理、任务、通知和高级辅助功能统一放回工具台。"
+        items={[
+          { to: '/strm', title: 'STRM 生成', description: '生成 STRM 文件供外部播放器或媒体服务使用' },
+          { to: '/scheduler', title: '定时任务', description: '查看和维护自动扫描、刮削与订阅任务' },
+          { to: '/tasks', title: '任务队列', description: '跟踪后台任务执行状态和失败原因' },
+          { to: '/notify-channels', title: '通知渠道', description: '配置并测试消息通知渠道' },
+          { to: '/assistant', title: 'AI 对话台', description: '进入管理员辅助诊断和问答界面' },
+        ]}
+      />
 
       <OrganizePanel />
       <NotifyPanel />

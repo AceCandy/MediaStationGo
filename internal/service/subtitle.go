@@ -77,7 +77,7 @@ func (s *SubtitleService) Discover(ctx context.Context, mediaID string) ([]Subti
 		candidates = append(candidates, filepath.Join(dir, sub))
 	}
 
-	var tracks []SubtitleTrack
+	tracks := make([]SubtitleTrack, 0)
 	for _, c := range candidates {
 		entries, err := os.ReadDir(c)
 		if err != nil {

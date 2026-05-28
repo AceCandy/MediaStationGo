@@ -15,58 +15,58 @@ import (
 
 // Container 持有在启动时初始化的每个服务。Handler 接收指向它的指针并选择相关字段。
 type Container struct {
-	Cfg          *config.Config
-	Log          *zap.Logger
-	Repo         *repository.Container
-	WSHub        *Hub
-	SSEHub       *SSEHub
-	Auth         *AuthService
-	Media        *MediaService
-	Scan         *ScannerService
-	Stream       *StreamService
-	Transcoder   *TranscoderService
-	FFprobe      *FFprobeService
-	TMDb         *TMDbProvider
-	Bangumi      *BangumiProvider
-	TheTVDB      *TheTVDBProvider
-	Fanart       *FanartProvider
-	Scraper      *ScraperService
-	Discover     *DiscoverService
-	Playback     *PlaybackService
-	ImageProxy   *ImageProxy
-	Watcher      *WatcherService
-	Downloads    *DownloadService
-	Subscription *SubscriptionService
-	Subtitle     *SubtitleService
-	Stats        *StatsService
-	Profile      *ProfileService
-	Audit        *AuditService
-	NFO          *NFOService
-	AI           *AIService
-	APIConfig    *APIConfigService
-	Crypto       *CryptoService
-	Duplicate    *DuplicateService
-	FileManager  *FileManagerService
-	DLNA         *DLNAService
-	Scheduler    *SchedulerService
-	Storage      *StorageService
-	Emby         *EmbyService
-	Backup       *BackupService
-	Notifier     *NotifierService
-	NotifyChannels *NotifyChannelService
-	TelegramBot  *TelegramBotService
-	PlayProfiles *PlayProfileService
-	Permissions  *PermissionService
-	StorageCfg   *StorageConfigService
+	Cfg             *config.Config
+	Log             *zap.Logger
+	Repo            *repository.Container
+	WSHub           *Hub
+	SSEHub          *SSEHub
+	Auth            *AuthService
+	Media           *MediaService
+	Scan            *ScannerService
+	Stream          *StreamService
+	Transcoder      *TranscoderService
+	FFprobe         *FFprobeService
+	TMDb            *TMDbProvider
+	Bangumi         *BangumiProvider
+	TheTVDB         *TheTVDBProvider
+	Fanart          *FanartProvider
+	Scraper         *ScraperService
+	Discover        *DiscoverService
+	Playback        *PlaybackService
+	ImageProxy      *ImageProxy
+	Watcher         *WatcherService
+	Downloads       *DownloadService
+	Subscription    *SubscriptionService
+	Subtitle        *SubtitleService
+	Stats           *StatsService
+	Profile         *ProfileService
+	Audit           *AuditService
+	NFO             *NFOService
+	AI              *AIService
+	APIConfig       *APIConfigService
+	Crypto          *CryptoService
+	Duplicate       *DuplicateService
+	FileManager     *FileManagerService
+	DLNA            *DLNAService
+	Scheduler       *SchedulerService
+	Storage         *StorageService
+	Emby            *EmbyService
+	Backup          *BackupService
+	Notifier        *NotifierService
+	NotifyChannels  *NotifyChannelService
+	TelegramBot     *TelegramBotService
+	PlayProfiles    *PlayProfileService
+	Permissions     *PermissionService
+	StorageCfg      *StorageConfigService
 	DownloadClients *DownloadClientService
-	Assistant    *AssistantService
-	Organizer    *OrganizerService
-	Douban       *DoubanProvider
-	Token        *TokenService
-	ApiConfig    *ApiConfigService
-	DownloadMgr  *DownloadManager
-	Notify       *NotifyService
-	Site         *SiteService
+	Assistant       *AssistantService
+	Organizer       *OrganizerService
+	Douban          *DoubanProvider
+	Token           *TokenService
+	ApiConfig       *ApiConfigService
+	DownloadMgr     *DownloadManager
+	Notify          *NotifyService
+	Site            *SiteService
 
 	stopCtx    context.Context
 	stopCancel context.CancelFunc
@@ -74,6 +74,8 @@ type Container struct {
 
 // New 构建服务容器。
 func New(cfg *config.Config, log *zap.Logger, repos *repository.Container) *Container {
+	ApplyRuntimeSettings(context.Background(), cfg, repos, log)
+
 	hub := NewHub(log)
 	go hub.Run()
 
@@ -88,13 +90,12 @@ func New(cfg *config.Config, log *zap.Logger, repos *repository.Container) *Cont
 	bangumi := NewBangumiProvider(cfg, log)
 	thetvdb := NewTheTVDBProvider(cfg, log)
 	fanart := NewFanartProvider(cfg, log)
-	scraper := NewScraperService(cfg, log, repos, tmdb, bangumi, thetvdb, fanart, hub)
+	adult := NewAdultProvider(log, apiConfig)
+	scraper := NewScraperService(cfg, log, repos, tmdb, bangumi, thetvdb, fanart, hub, adult)
 	organizer := NewOrganizerService(cfg, log, repos)
-	downloads := NewDownloadService(log, repos, hub, organizer)
 	discover := NewDiscoverService(log, tmdb)
 	transcoder := NewTranscoderService(cfg, log, repos, hub)
 	scanner := NewScannerService(cfg, log, repos, hub, probe, scraper)
-	subscription := NewSubscriptionService(log, repos, downloads, hub)
 	watcher := NewWatcherService(log, repos, scanner)
 	nfo := NewNFOService(log, repos)
 	ai := NewAIService(cfg, log)
@@ -120,71 +121,73 @@ func New(cfg *config.Config, log *zap.Logger, repos *repository.Container) *Cont
 	apiConfigSvc := NewApiConfigService(cfg, log, repos, crypto)
 	downloadMgr := NewDownloadManager(log, repos, crypto)
 	notifySvc := NewNotifyService(log, repos, crypto)
-	
+
 	// 构建 FlareSolverr URL（如果启用）
 	flareSolverrURL := ""
 	if cfg.FlareSolverr.Enabled && cfg.FlareSolverr.URL != "" {
 		flareSolverrURL = cfg.FlareSolverr.URL
 	}
 	siteSvc := NewSiteService(log, repos, flareSolverrURL)
+	downloads := NewDownloadService(log, repos, hub, organizer, siteSvc)
+	subscription := NewSubscriptionService(cfg, log, repos, downloads, siteSvc, hub)
 
 	ctx, cancel := context.WithCancel(context.Background())
 
 	return &Container{
-		Cfg:          cfg,
-		Log:          log,
-		Repo:         repos,
-		WSHub:        hub,
-		SSEHub:       sseHub,
-		Auth:         NewAuthService(cfg, log, repos, tokenSvc, permissions),
-		Media:        NewMediaService(cfg, log, repos),
-		Scan:         scanner,
-		Stream:       NewStreamService(cfg, log, repos, transcoder),
-		Transcoder:   transcoder,
-		FFprobe:      probe,
-		TMDb:         tmdb,
-		Bangumi:      bangumi,
-		TheTVDB:      thetvdb,
-		Fanart:       fanart,
-		Scraper:      scraper,
-		Discover:     discover,
-		Playback:     NewPlaybackService(log, repos),
-		ImageProxy:   NewImageProxy(cfg, log),
-		Watcher:      watcher,
-		Downloads:    downloads,
-		Subscription: subscription,
-		Subtitle:     NewSubtitleService(log, repos),
-		Stats:        NewStatsService(log, repos),
-		Profile:      NewProfileService(log, repos),
-		Audit:        NewAuditService(log, repos),
-		NFO:          nfo,
-		AI:           ai,
-		APIConfig:    apiConfig,
-		Crypto:       crypto,
-		Duplicate:    duplicate,
-		FileManager:  filemanager,
-		DLNA:         dlna,
-		Scheduler:    scheduler,
-		Storage:      storage,
-		Emby:         emby,
-		Backup:       backup,
-		Notifier:     notifier,
-		NotifyChannels: notifyChannels,
-		TelegramBot:  telegramBot,
-		PlayProfiles: playProfiles,
-		Permissions:  permissions,
-		StorageCfg:   storageCfg,
+		Cfg:             cfg,
+		Log:             log,
+		Repo:            repos,
+		WSHub:           hub,
+		SSEHub:          sseHub,
+		Auth:            NewAuthService(cfg, log, repos, tokenSvc, permissions),
+		Media:           NewMediaService(cfg, log, repos),
+		Scan:            scanner,
+		Stream:          NewStreamService(cfg, log, repos, transcoder),
+		Transcoder:      transcoder,
+		FFprobe:         probe,
+		TMDb:            tmdb,
+		Bangumi:         bangumi,
+		TheTVDB:         thetvdb,
+		Fanart:          fanart,
+		Scraper:         scraper,
+		Discover:        discover,
+		Playback:        NewPlaybackService(log, repos),
+		ImageProxy:      NewImageProxy(cfg, log),
+		Watcher:         watcher,
+		Downloads:       downloads,
+		Subscription:    subscription,
+		Subtitle:        NewSubtitleService(log, repos),
+		Stats:           NewStatsService(log, repos),
+		Profile:         NewProfileService(log, repos),
+		Audit:           NewAuditService(log, repos),
+		NFO:             nfo,
+		AI:              ai,
+		APIConfig:       apiConfig,
+		Crypto:          crypto,
+		Duplicate:       duplicate,
+		FileManager:     filemanager,
+		DLNA:            dlna,
+		Scheduler:       scheduler,
+		Storage:         storage,
+		Emby:            emby,
+		Backup:          backup,
+		Notifier:        notifier,
+		NotifyChannels:  notifyChannels,
+		TelegramBot:     telegramBot,
+		PlayProfiles:    playProfiles,
+		Permissions:     permissions,
+		StorageCfg:      storageCfg,
 		DownloadClients: downloadClients,
-		Assistant:    assistant,
-		Organizer:    organizer,
-		Douban:       douban,
-		Token:        tokenSvc,
-		ApiConfig:    apiConfigSvc,
-		DownloadMgr:  downloadMgr,
-		Notify:       notifySvc,
-		Site:         siteSvc,
-		stopCtx:      ctx,
-		stopCancel:   cancel,
+		Assistant:       assistant,
+		Organizer:       organizer,
+		Douban:          douban,
+		Token:           tokenSvc,
+		ApiConfig:       apiConfigSvc,
+		DownloadMgr:     downloadMgr,
+		Notify:          notifySvc,
+		Site:            siteSvc,
+		stopCtx:         ctx,
+		stopCancel:      cancel,
 	}
 }
 

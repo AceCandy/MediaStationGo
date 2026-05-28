@@ -1,9 +1,11 @@
 import { FormEvent, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Loader2, Search, Sparkles, Wand2 } from 'lucide-react'
+import { Loader2, Rss, Search, Sparkles, Wand2 } from 'lucide-react'
 import toast from 'react-hot-toast'
 
-import { aiAPI, type SearchIntent } from '../api/ai'
+import { aiAPI, type ExternalMediaResult, type SearchIntent } from '../api/ai'
+import { imageURL } from '../api/client'
+import { subscriptionsAPI } from '../api/subscriptions'
 import { MediaCard } from '../components/MediaCard'
 import type { Media } from '../types'
 
@@ -26,6 +28,8 @@ export function AIAssistantPage() {
   const [searching, setSearching] = useState(false)
   const [intent, setIntent] = useState<SearchIntent | null>(null)
   const [items, setItems] = useState<Media[]>([])
+  const [externalItems, setExternalItems] = useState<ExternalMediaResult[]>([])
+  const [subscribing, setSubscribing] = useState('')
 
   const [recs, setRecs] = useState<string[] | null>(null)
   const [recommending, setRecommending] = useState(false)
@@ -43,11 +47,13 @@ export function AIAssistantPage() {
     setSearching(true)
     setIntent(null)
     setItems([])
+    setExternalItems([])
     try {
       const r = await aiAPI.smartSearch(query.trim())
       setIntent(r.intent)
       setItems(r.items)
-      if (r.items.length === 0) toast('未找到匹配项')
+      setExternalItems(r.external_items ?? [])
+      if (r.items.length === 0 && (r.external_items ?? []).length === 0) toast('未找到匹配项')
     } catch (err: unknown) {
       const msg =
         (err as { response?: { data?: { error?: string } } })?.response?.data?.error ??
@@ -185,6 +191,74 @@ export function AIAssistantPage() {
             {items.map((m) => (
               <MediaCard key={m.id} media={m} />
             ))}
+          </div>
+        )}
+
+        {externalItems.length > 0 && (
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {externalItems.map((item) => {
+              const keyword = item.subscribe_keyword || item.title
+              const key = `${item.source}:${keyword}`
+              return (
+                <article key={key} className="rounded-2xl border border-gray-200 bg-gray-50 p-3">
+                  <div className="flex gap-3">
+                    <div className="h-24 w-16 shrink-0 overflow-hidden rounded-xl bg-white">
+                      {item.poster_url ? (
+                        <img
+                          src={imageURL(item.poster_url)}
+                          alt={item.title}
+                          className="h-full w-full object-cover"
+                        />
+                      ) : null}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="mb-1 flex flex-wrap gap-2 text-[10px] uppercase text-brand-500">
+                        <span>{item.source}</span>
+                        {item.media_type && <span>{item.media_type}</span>}
+                        {item.year ? <span>{item.year}</span> : null}
+                      </div>
+                      <h3 className="truncate font-semibold text-ink-600">{item.title}</h3>
+                      <p className="mt-1 line-clamp-2 text-xs text-ink-50">
+                        {item.overview || `订阅关键词：${keyword}`}
+                      </p>
+                      <button
+                        disabled={subscribing === key}
+                        onClick={async () => {
+                          setSubscribing(key)
+                          try {
+                            const feed = `site-search://search?keyword=${encodeURIComponent(keyword)}&source=${encodeURIComponent(item.source)}`
+                            const sub = await subscriptionsAPI.create({
+                              name: `${item.title} 自动订阅`,
+                              feed_url: feed,
+                              filter: keyword,
+                              media_type: item.media_type,
+                              enabled: true,
+                            })
+                            const run = await subscriptionsAPI.runNow(sub.id)
+                            toast.success(
+                              run.queued > 0
+                                ? `已订阅并加入 ${run.queued} 个下载`
+                                : '已订阅，暂未在 PT 站点找到可下载资源',
+                            )
+                          } catch (err: unknown) {
+                            const msg =
+                              (err as { response?: { data?: { error?: string } } })?.response?.data?.error ??
+                              '订阅失败'
+                            toast.error(msg)
+                          } finally {
+                            setSubscribing('')
+                          }
+                        }}
+                        className="mt-2 rounded-lg border border-primary-400/40 px-2 py-1 text-xs text-brand-500 hover:bg-primary-400/10 disabled:opacity-50"
+                      >
+                        <Rss size={12} className="mr-1 inline" />
+                        {subscribing === key ? '订阅中…' : '订阅并搜索 PT'}
+                      </button>
+                    </div>
+                  </div>
+                </article>
+              )
+            })}
           </div>
         )}
       </section>

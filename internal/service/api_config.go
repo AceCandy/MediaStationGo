@@ -41,6 +41,7 @@ func (s *APIConfigService) SeedDefaults(ctx context.Context) error {
 		{Provider: "thetvdb", BaseURL: "https://api4.thetvdb.com/v4", Description: "TheTVDB (tv)", Enabled: true},
 		{Provider: "fanart", BaseURL: "https://webservice.fanart.tv/v3", Description: "Fanart.tv (artwork)", Enabled: true},
 		{Provider: "douban", Description: "Douban cookie (zh metadata)", Enabled: true},
+		{Provider: "adult", BaseURL: "https://javdb.com", Extra: "https://www.javbus.com", Description: "Adult / 番号元数据（JavDB/JavBus）", Enabled: true},
 		{Provider: "openai", BaseURL: "https://api.openai.com/v1", Description: "OpenAI-compatible (smart search)", Enabled: true},
 	}
 	for i := range defaults {
@@ -64,16 +65,16 @@ func (s *APIConfigService) SeedDefaults(ctx context.Context) error {
 // PublicView is the safe-to-display projection of an API config row.
 // The plaintext key is never returned — only a mask.
 type PublicView struct {
-	ID          string         `json:"id"`
-	Provider    string         `json:"provider"`
-	BaseURL     string         `json:"base_url,omitempty"`
-	Extra       string         `json:"extra,omitempty"`
-	Enabled     bool           `json:"enabled"`
-	Description string         `json:"description,omitempty"`
-	HasKey      bool           `json:"has_key"`
-	MaskedKey   string         `json:"masked_key,omitempty"`
-	CreatedAt   time.Time      `json:"created_at"`
-	UpdatedAt   time.Time      `json:"updated_at"`
+	ID          string    `json:"id"`
+	Provider    string    `json:"provider"`
+	BaseURL     string    `json:"base_url,omitempty"`
+	Extra       string    `json:"extra,omitempty"`
+	Enabled     bool      `json:"enabled"`
+	Description string    `json:"description,omitempty"`
+	HasKey      bool      `json:"has_key"`
+	MaskedKey   string    `json:"masked_key,omitempty"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
 }
 
 // List returns every API config row (with masked keys).
@@ -103,10 +104,10 @@ func (s *APIConfigService) Get(ctx context.Context, provider string) (*PublicVie
 // client. Empty struct (with no error) when the provider is unknown or
 // the API key is empty.
 type Resolved struct {
-	APIKey      string
-	BaseURL     string
-	Extra       string
-	Enabled     bool
+	APIKey  string
+	BaseURL string
+	Extra   string
+	Enabled bool
 }
 
 // Resolve fetches the live configuration for a provider, decrypting the

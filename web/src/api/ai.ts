@@ -10,6 +10,21 @@ export interface SearchIntent {
   language?: string
 }
 
+export interface ExternalMediaResult {
+  source: string
+  media_type?: string
+  title: string
+  overview?: string
+  poster_url?: string
+  backdrop_url?: string
+  year?: number
+  rating?: number
+  tmdb_id?: number
+  bangumi_id?: number
+  douban_id?: string
+  subscribe_keyword: string
+}
+
 export const aiAPI = {
   status: () =>
     api
@@ -18,7 +33,10 @@ export const aiAPI = {
 
   smartSearch: (query: string) =>
     api
-      .post<{ intent: SearchIntent; items: Media[] }>('/ai/search', { query })
+      .post<{ intent: SearchIntent; items: Media[]; external_items: ExternalMediaResult[] }>(
+        '/ai/search',
+        { query },
+      )
       .then((r) => r.data),
 
   recommend: () => api.get<{ titles: string[] }>('/ai/recommend').then((r) => r.data.titles),

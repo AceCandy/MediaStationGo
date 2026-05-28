@@ -11,6 +11,9 @@ const HomePage = lazy(() => import('./pages/HomePage').then((m) => ({ default: m
 const LibraryPage = lazy(() =>
   import('./pages/LibraryPage').then((m) => ({ default: m.LibraryPage })),
 )
+const LibrariesPage = lazy(() =>
+  import('./pages/LibrariesPage').then((m) => ({ default: m.LibrariesPage })),
+)
 const SearchPage = lazy(() =>
   import('./pages/SearchPage').then((m) => ({ default: m.SearchPage })),
 )
@@ -116,6 +119,7 @@ export default function App() {
           }
         >
           <Route index element={<HomePage />} />
+          <Route path="libraries" element={<LibrariesPage />} />
           <Route path="library/:id" element={<LibraryPage />} />
           <Route path="discover" element={<DiscoverPage />} />
           <Route path="search" element={<SearchPage />} />

@@ -145,7 +145,10 @@ export interface ScanResult {
   library_id: string
   visited: number
   added: number
+  updated?: number
   probed: number
+  local_metadata?: number
+  removed?: number
 }
 
 export interface Setting {
@@ -170,6 +173,9 @@ export interface Subscription {
   name: string
   feed_url: string
   filter: string
+  media_type?: string
+  media_category?: string
+  save_path?: string
   enabled: boolean
   last_run_at?: string
   created_at: string

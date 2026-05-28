@@ -7,6 +7,7 @@
 package handler
 
 import (
+	"context"
 	"net/http"
 	"strings"
 
@@ -22,34 +23,33 @@ func discoverSectionsHandler(_ *service.Container) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{
 			"sections": []gin.H{
-				{"key": "trending_day", "label": "今日热门"},
-				{"key": "trending_week", "label": "本周热门"},
-				{"key": "popular_movie", "label": "热门电影"},
-				{"key": "popular_tv", "label": "热门剧集"},
-				{"key": "top_rated_movie", "label": "高分电影"},
-				{"key": "upcoming_movie", "label": "即将上映"},
+				{"key": "tmdb_trending_day", "label": "TMDb 今日趋势", "provider": "tmdb"},
+				{"key": "tmdb_trending_week", "label": "TMDb 本周热门", "provider": "tmdb"},
+				{"key": "tmdb_popular_movie", "label": "TMDb 热门电影", "provider": "tmdb"},
+				{"key": "tmdb_popular_tv", "label": "TMDb 热门剧集", "provider": "tmdb"},
+				{"key": "tmdb_top_rated_movie", "label": "TMDb 高分电影", "provider": "tmdb"},
+				{"key": "douban_hot_movie", "label": "豆瓣热门电影", "provider": "douban"},
+				{"key": "douban_hot_tv", "label": "豆瓣热门剧集", "provider": "douban"},
+				{"key": "douban_top_movie", "label": "豆瓣高分电影", "provider": "douban"},
+				{"key": "bangumi_calendar", "label": "Bangumi 每日放送", "provider": "bangumi"},
 			},
 		})
 	}
 }
 
 // discoverFeedHandler resolves one or more section keys (?sections=a,b)
-// to TMDb endpoint paths and returns the joined results keyed by
-// section name. Unknown keys are silently dropped so URL typos don't
-// break the page.
+// to TMDb / Douban / Bangumi rails and returns the joined results keyed by
+// section name. Unknown keys are silently dropped so URL typos don't break
+// the page.
 func discoverFeedHandler(svc *service.Container) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		keys := strings.Split(c.DefaultQuery("sections", "trending_day,popular_movie"), ",")
+		keys := strings.Split(c.DefaultQuery("sections", "tmdb_trending_day,tmdb_popular_movie,douban_hot_movie,bangumi_calendar"), ",")
 		out := gin.H{}
 		for _, raw := range keys {
 			k := strings.TrimSpace(raw)
-			path := sectionPath(k)
-			if path == "" {
-				continue
-			}
-			items, err := svc.Discover.Fetch(c.Request.Context(), path)
+			items, err := discoverSectionItems(c.Request.Context(), svc, k)
 			if err != nil {
-				svc.Log.Debug("discover fetch failed", )
+				svc.Log.Debug("discover fetch failed")
 				items = nil
 			}
 			out[k] = items
@@ -58,22 +58,22 @@ func discoverFeedHandler(svc *service.Container) gin.HandlerFunc {
 	}
 }
 
-// sectionPath maps the UI-facing key to the TMDb endpoint suffix.
-func sectionPath(k string) string {
+func discoverSectionItems(ctx context.Context, svc *service.Container, k string) ([]service.ExternalMediaResult, error) {
 	switch k {
-	case "trending_day":
-		return "/trending/movie/day"
-	case "trending_week":
-		return "/trending/movie/week"
-	case "popular_movie":
-		return "/movie/popular"
-	case "popular_tv":
-		return "/tv/popular"
-	case "top_rated_movie":
-		return "/movie/top_rated"
-	case "upcoming_movie":
-		return "/movie/upcoming"
+	case "tmdb_trending_day", "tmdb_trending_week", "tmdb_popular_movie", "tmdb_popular_tv", "tmdb_top_rated_movie",
+		"trending_day", "trending_week", "popular_movie", "popular_tv", "top_rated_movie", "upcoming_movie":
+		return svc.Discover.TMDbSection(ctx, k)
+	case "douban_hot_movie", "douban_hot_tv", "douban_top_movie":
+		if svc.Douban == nil {
+			return []service.ExternalMediaResult{}, nil
+		}
+		return svc.Douban.Discover(ctx, k)
+	case "bangumi_calendar":
+		if svc.Bangumi == nil {
+			return []service.ExternalMediaResult{}, nil
+		}
+		return svc.Bangumi.Calendar(ctx)
 	default:
-		return ""
+		return []service.ExternalMediaResult{}, nil
 	}
 }

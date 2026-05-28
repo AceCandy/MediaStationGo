@@ -11,16 +11,23 @@ export interface DuplicateReport {
   total_scanned: number
   groups_found: number
   items_marked: number
+  missing_removed?: number
   groups: DuplicateGroup[]
 }
 
 export const duplicatesAPI = {
+  list: (libraryID = '') =>
+    api
+      .get<DuplicateReport>('/duplicates', {
+        params: libraryID ? { library_id: libraryID } : undefined,
+      })
+      .then((r) => ({ ...r.data, groups: r.data.groups ?? [] })),
   scan: (libraryID = '') =>
     api
       .post<DuplicateReport>('/duplicates/scan', null, {
         params: libraryID ? { library_id: libraryID } : undefined,
       })
-      .then((r) => r.data),
+      .then((r) => ({ ...r.data, groups: r.data.groups ?? [] })),
   unmark: (libraryID = '') =>
     api
       .post<{ unmarked: number }>('/duplicates/unmark', null, {

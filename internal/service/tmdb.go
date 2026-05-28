@@ -7,8 +7,8 @@
 //
 // We only call the two endpoints the scrape pipeline actually needs:
 //
-//   GET /search/movie?query=...&year=...
-//   GET /movie/{id}?language=zh-CN
+//	GET /search/movie?query=...&year=...
+//	GET /movie/{id}?language=zh-CN
 //
 // TV / anime support follows the same pattern; for the bootstrap we expose
 // a single SearchMovie path so that the home page and library gallery can
@@ -60,18 +60,8 @@ func NewTMDbProvider(cfg *config.Config, log *zap.Logger, apiConfig *APIConfigSe
 		imgCDN:    img,
 		// 默认 8s 超时：首页同时调 trending + popular，15s 太久会让用户感觉
 		// 卡死。如果 TMDb 真有问题，handler 层会快速降级返回空列表。
-		// 同时让 client 显式读 HTTP(S)_PROXY 环境变量——这是 GFW 内部署最低
-		// 成本能拉到 TMDb 的方式。
-		client: &http.Client{
-			Timeout: 8 * time.Second,
-			Transport: &http.Transport{
-				Proxy:                 http.ProxyFromEnvironment,
-				MaxIdleConns:          16,
-				IdleConnTimeout:       60 * time.Second,
-				TLSHandshakeTimeout:   8 * time.Second,
-				ExpectContinueTimeout: 1 * time.Second,
-			},
-		},
+		// 同时让 client 读取 HTTP(S)_PROXY 与 Windows 本机系统代理。
+		client: NewExternalHTTPClient(8 * time.Second),
 	}
 }
 
@@ -134,17 +124,19 @@ func (t *TMDbProvider) resolveBaseURL(ctx context.Context) string {
 // across providers; provider-specific IDs sit side-by-side so the scraper
 // orchestrator can write them all into a single update.
 type Match struct {
-	TMDbID      int       `json:"tmdb_id"`
-	BangumiID   int       `json:"bangumi_id"`
-	Title       string    `json:"title"`
-	Overview    string    `json:"overview"`
-	PosterURL   string    `json:"poster_url"`
-	BackdropURL string    `json:"backdrop_url"`
-	Year        int       `json:"year"`
-	Rating      float32   `json:"rating"`
-	Languages   []string  `json:"languages,omitempty"`
-	Countries   []string  `json:"countries,omitempty"`
-	Genres     []string  `json:"genres,omitempty"`
+	TMDbID       int      `json:"tmdb_id"`
+	BangumiID    int      `json:"bangumi_id"`
+	Title        string   `json:"title"`
+	OriginalName string   `json:"original_name,omitempty"`
+	Overview     string   `json:"overview"`
+	PosterURL    string   `json:"poster_url"`
+	BackdropURL  string   `json:"backdrop_url"`
+	Year         int      `json:"year"`
+	Rating       float32  `json:"rating"`
+	Languages    []string `json:"languages,omitempty"`
+	Countries    []string `json:"countries,omitempty"`
+	Genres       []string `json:"genres,omitempty"`
+	NSFW         bool     `json:"nsfw,omitempty"`
 }
 
 // SearchMovie issues `/search/movie` and returns the best match, or nil
@@ -326,7 +318,7 @@ func (t *TMDbProvider) GetDetails(ctx context.Context, tmdbID int, mediaType str
 		Name string `json:"name"`
 	}
 	type movieResult struct {
-		OriginalLanguage  string   `json:"original_language"`
+		OriginalLanguage    string `json:"original_language"`
 		ProductionCountries []struct {
 			Iso3166_1 string `json:"iso_3166_1"`
 		} `json:"production_countries"`
@@ -336,7 +328,7 @@ func (t *TMDbProvider) GetDetails(ctx context.Context, tmdbID int, mediaType str
 		Genres []genre `json:"genres"`
 	}
 	type tvResult struct {
-		OriginCountry []string `json:"origin_country"`
+		OriginCountry   []string `json:"origin_country"`
 		SpokenLanguages []struct {
 			Iso639_1 string `json:"iso_639_1"`
 		} `json:"spoken_languages"`

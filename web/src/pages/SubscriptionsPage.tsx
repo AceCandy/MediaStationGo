@@ -10,6 +10,9 @@ export function SubscriptionsPage() {
   const [name, setName] = useState('')
   const [feed, setFeed] = useState('')
   const [filter, setFilter] = useState('')
+  const [mediaType, setMediaType] = useState('')
+  const [mediaCategory, setMediaCategory] = useState('')
+  const [savePath, setSavePath] = useState('')
   const [loading, setLoading] = useState(true)
 
   const refresh = () =>
@@ -25,11 +28,21 @@ export function SubscriptionsPage() {
   const onCreate = async (e: FormEvent) => {
     e.preventDefault()
     try {
-      await subscriptionsAPI.create({ name, feed_url: feed, filter })
+      await subscriptionsAPI.create({
+        name,
+        feed_url: feed,
+        filter,
+        media_type: mediaType || undefined,
+        media_category: mediaCategory || undefined,
+        save_path: savePath || undefined,
+      })
       toast.success('已创建订阅')
       setName('')
       setFeed('')
       setFilter('')
+      setMediaType('')
+      setMediaCategory('')
+      setSavePath('')
       await refresh()
     } catch (err: unknown) {
       const msg =
@@ -42,10 +55,10 @@ export function SubscriptionsPage() {
     <div className="space-y-6">
       <h1 className="font-display text-3xl font-bold text-ink-600">RSS 订阅</h1>
       <p className="text-sm text-ink-50">
-        定期轮询 RSS 源(每 10 分钟一次),将匹配过滤器的项目自动加入下载队列。
+        定期轮询 RSS 源(每 10 分钟一次),将匹配过滤器的项目自动加入下载队列；启用智能分类后会按媒体类型和二级分类写入下载目录。
       </p>
 
-      <form onSubmit={onCreate} className="glass-panel grid gap-3 md:grid-cols-[1fr_1fr_1fr_auto]">
+      <form onSubmit={onCreate} className="glass-panel grid gap-3 md:grid-cols-4">
         <input
           required
           className="input-base"
@@ -66,7 +79,26 @@ export function SubscriptionsPage() {
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
         />
-        <button type="submit" className="neon-button">
+        <select className="input-base" value={mediaType} onChange={(e) => setMediaType(e.target.value)}>
+          <option value="">自动识别类型</option>
+          <option value="movie">电影</option>
+          <option value="tv">电视剧</option>
+          <option value="anime">动漫</option>
+          <option value="variety">综艺</option>
+        </select>
+        <input
+          className="input-base"
+          placeholder="二级分类覆盖(如 综艺/日番,可选)"
+          value={mediaCategory}
+          onChange={(e) => setMediaCategory(e.target.value)}
+        />
+        <input
+          className="input-base md:col-span-2"
+          placeholder="下载根目录覆盖(可选,默认使用下载器保存路径)"
+          value={savePath}
+          onChange={(e) => setSavePath(e.target.value)}
+        />
+        <button type="submit" className="neon-button md:col-span-1">
           <Plus size={16} /> 添加
         </button>
       </form>
@@ -82,6 +114,7 @@ export function SubscriptionsPage() {
                 <th className="py-2">名称</th>
                 <th>RSS</th>
                 <th>过滤器</th>
+                <th>分类</th>
                 <th>最近运行</th>
                 <th className="text-right">操作</th>
               </tr>
@@ -94,6 +127,9 @@ export function SubscriptionsPage() {
                     {s.feed_url}
                   </td>
                   <td className="text-ink-100">{s.filter || '—'}</td>
+                  <td className="text-ink-100">
+                    {[s.media_type, s.media_category].filter(Boolean).join(' / ') || '自动'}
+                  </td>
                   <td className="text-sand-500">
                     {s.last_run_at ? new Date(s.last_run_at).toLocaleString() : '—'}
                   </td>

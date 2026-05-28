@@ -4,15 +4,11 @@ package handler
 import (
 	"context"
 	"net/http"
-	"net/url"
-	"strings"
-	"time"
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 
 	"github.com/ShukeBta/MediaStationGo/internal/middleware"
-	"github.com/ShukeBta/MediaStationGo/internal/model"
 	"github.com/ShukeBta/MediaStationGo/internal/service"
 )
 
@@ -38,72 +34,11 @@ func resolvePTDownloadURL(ctx context.Context, svc *service.Container, raw strin
 	if raw == "" || svc == nil || svc.Site == nil {
 		return raw
 	}
-	u, err := url.Parse(raw)
-	if err != nil || u.Host == "" {
-		return raw
-	}
-	host := strings.ToLower(u.Host)
-
-	// 找一个 host 匹配的已配置站点。
-	sites, err := svc.Site.List(ctx)
-	if err != nil || len(sites) == 0 {
-		return raw
-	}
-	var matched *model.Site
-	for i := range sites {
-		su, err := url.Parse(sites[i].URL)
-		if err != nil || su.Host == "" {
-			continue
-		}
-		if strings.EqualFold(su.Host, host) || strings.HasSuffix(host, "."+strings.ToLower(su.Host)) {
-			matched = &sites[i]
-			break
-		}
-	}
-	if matched == nil {
-		return raw
-	}
-
-	// 抽取 torrent id：?id=xxx 是 PT 站普遍写法。
-	id := u.Query().Get("id")
-	if id == "" {
-		return raw
-	}
-
-	adapter := service.GetAdapterForType(matched.Type)
-	if adapter == nil {
-		return raw
-	}
-
-	cfg := service.SiteConfig{
-		Name:       matched.Name,
-		Type:       matched.Type,
-		URL:        strings.TrimRight(matched.URL, "/"),
-		AuthType:   matched.AuthType,
-		Cookie:     matched.Cookie,
-		APIKey:     matched.APIKey,
-		AuthHeader: matched.AuthHeader,
-		UserAgent:  matched.UserAgent,
-		Timeout:    time.Duration(matched.Timeout) * time.Second,
-		UseProxy:   matched.UseProxy,
-	}
-	if cfg.Timeout <= 0 {
-		cfg.Timeout = 15 * time.Second
-	}
-
-	resolveCtx, cancel := context.WithTimeout(ctx, cfg.Timeout)
-	defer cancel()
-	resolved, err := adapter.GetDownloadURL(resolveCtx, cfg, id)
-	if err != nil || resolved == "" {
-		log.Warn("resolve PT download URL failed (using raw URL)",
-			zap.String("site", matched.Name),
-			zap.String("type", matched.Type),
-			zap.String("raw", raw),
-			zap.Error(err))
+	resolved := svc.Site.ResolveDownloadURL(ctx, raw)
+	if resolved == raw {
 		return raw
 	}
 	log.Info("resolved PT download URL",
-		zap.String("site", matched.Name),
 		zap.String("from", raw),
 		zap.String("to", resolved))
 	return resolved

@@ -9,9 +9,9 @@ import type { Media } from '../types'
  *
  * 折叠键优先级（命中第一个就分组）：
  *
- *   1. tmdb_id       （刮削匹配后最稳定）
- *   2. bangumi_id    （番剧）
- *   3. series_id     （后端某些场景下会预先聚合）
+ *   1. series_id     （后端某些场景下会预先聚合）
+ *   2. 有季/集信息时用 library_id + 节目名（综艺每集常有不同 TMDB episode id）
+ *   3. tmdb_id / bangumi_id（电影或无季集条目）
  *   4. library_id + title （fallback：同库同名视为同一剧）
  *
  * 同一组内取最早 created_at 的那条作为代表卡片，并带 count 表示集数。
@@ -19,10 +19,43 @@ import type { Media } from '../types'
 export type SeriesCard = { key: string; rep: Media; count: number }
 
 export function getSeriesKey(media: Media): string {
+  if (media.series_id) return `series:${media.series_id}`
+  if (isEpisodeLike(media)) {
+    return `lib:${media.library_id}|show:${normalizeTitle(seriesTitle(media))}`
+  }
   if (media.tmdb_id && media.tmdb_id > 0) return `tmdb:${media.tmdb_id}`
   if (media.bangumi_id && media.bangumi_id > 0) return `bgm:${media.bangumi_id}`
-  if (media.series_id) return `series:${media.series_id}`
-  return `lib:${media.library_id}|${(media.title ?? '').toLowerCase().trim()}`
+  return `lib:${media.library_id}|${normalizeTitle(media.title)}`
+}
+
+export function isEpisodeLike(media: Media): boolean {
+  return (media.season_num ?? 0) > 0 || (media.episode_num ?? 0) > 0
+}
+
+export function seriesTitle(media: Media): string {
+  const fromPath = seriesTitleFromPath(media.path)
+  return fromPath || media.title || media.original_name || '未命名节目'
+}
+
+function normalizeTitle(value?: string): string {
+  return (value ?? '')
+    .toLowerCase()
+    .replace(/\s*\((?:19|20)\d{2}\)\s*/g, ' ')
+    .replace(/\s*\[(?:tmdb|tmdbid)[=-]\d+\]\s*/g, ' ')
+    .replace(/[\s._-]+/g, ' ')
+    .trim()
+}
+
+function seriesTitleFromPath(path?: string): string {
+  if (!path) return ''
+  const parts = path.split(/[\\/]+/).filter(Boolean)
+  if (parts.length < 2) return ''
+  let dirIndex = parts.length - 2
+  if (/^(?:s\d{1,2}|season\s*\d{1,2}|第\s*\d{1,2}\s*季)$/i.test(parts[dirIndex])) {
+    dirIndex -= 1
+  }
+  if (dirIndex < 0) return ''
+  return normalizeTitle(parts[dirIndex])
 }
 
 export function groupSeries(items: Media[]): SeriesCard[] {

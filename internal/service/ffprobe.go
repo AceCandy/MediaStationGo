@@ -13,7 +13,9 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
+	"regexp"
 	"strconv"
+	"strings"
 	"time"
 
 	"go.uber.org/zap"
@@ -48,25 +50,41 @@ func (f *FFprobeService) Probe(ctx context.Context, path string) (*ProbeResult, 
 	if f == nil {
 		return nil, errors.New("ffprobe service nil")
 	}
-	bin := f.cfg.App.FFprobePath
-	if bin == "" {
-		bin = "ffprobe"
-	}
-	probeCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
+	if bin, err := resolveLocalExecutable(f.cfg.App.FFprobePath, "ffprobe"); err == nil {
+		f.cfg.App.FFprobePath = bin
+		probeCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
 
-	cmd := exec.CommandContext(probeCtx, bin,
-		"-v", "error",
-		"-print_format", "json",
-		"-show_format",
-		"-show_streams",
-		path,
-	)
-	out, err := cmd.Output()
-	if err != nil {
-		return nil, fmt.Errorf("ffprobe %s: %w", path, err)
+		cmd := exec.CommandContext(probeCtx, bin,
+			"-v", "error",
+			"-print_format", "json",
+			"-show_format",
+			"-show_streams",
+			path,
+		)
+		out, err := cmd.Output()
+		if err == nil {
+			return parseProbeJSON(out)
+		}
+		if f.log != nil {
+			f.log.Debug("ffprobe failed, trying ffmpeg fallback", zap.String("path", path), zap.Error(err))
+		}
 	}
-	return parseProbeJSON(out)
+	return f.probeWithFFmpeg(ctx, path)
+}
+
+func (f *FFprobeService) probeWithFFmpeg(ctx context.Context, path string) (*ProbeResult, error) {
+	bin, err := resolveLocalExecutable(f.cfg.App.FFmpegPath, "ffmpeg")
+	if err != nil {
+		return nil, fmt.Errorf("ffprobe/ffmpeg unavailable: %w", err)
+	}
+	f.cfg.App.FFmpegPath = bin
+	out, _ := commandOutput(ctx, 30*time.Second, bin, "-hide_banner", "-i", path)
+	res := parseFFmpegProbeText(string(out))
+	if res.VideoCodec == "" && res.AudioCodec == "" && res.DurationSec == 0 {
+		return nil, fmt.Errorf("ffmpeg probe %s: no stream metadata parsed", path)
+	}
+	return res, nil
 }
 
 // rawProbe mirrors the relevant fields of `ffprobe -show_format -show_streams`.
@@ -107,4 +125,39 @@ func parseProbeJSON(data []byte) (*ProbeResult, error) {
 		}
 	}
 	return res, nil
+}
+
+var (
+	ffmpegDurationRE = regexp.MustCompile(`Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)`)
+	ffmpegInputRE    = regexp.MustCompile(`Input #\d+,\s*(.+?),\s*from`)
+	ffmpegVideoRE    = regexp.MustCompile(`Video:\s*([^,\s]+).*?(\d{2,5})x(\d{2,5})`)
+	ffmpegAudioRE    = regexp.MustCompile(`Audio:\s*([^,\s]+)`)
+)
+
+func parseFFmpegProbeText(text string) *ProbeResult {
+	res := &ProbeResult{}
+	if match := ffmpegInputRE.FindStringSubmatch(text); len(match) == 2 {
+		res.Container = strings.TrimSpace(match[1])
+	}
+	if match := ffmpegDurationRE.FindStringSubmatch(text); len(match) == 4 {
+		hours, _ := strconv.Atoi(match[1])
+		minutes, _ := strconv.Atoi(match[2])
+		seconds, _ := strconv.ParseFloat(match[3], 64)
+		res.DurationSec = hours*3600 + minutes*60 + int(seconds)
+	}
+	for _, line := range strings.Split(text, "\n") {
+		if res.VideoCodec == "" {
+			if match := ffmpegVideoRE.FindStringSubmatch(line); len(match) == 4 {
+				res.VideoCodec = strings.TrimSpace(match[1])
+				res.Width, _ = strconv.Atoi(match[2])
+				res.Height, _ = strconv.Atoi(match[3])
+			}
+		}
+		if res.AudioCodec == "" {
+			if match := ffmpegAudioRE.FindStringSubmatch(line); len(match) == 2 {
+				res.AudioCodec = strings.TrimSpace(match[1])
+			}
+		}
+	}
+	return res
 }

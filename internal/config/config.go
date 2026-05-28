@@ -23,17 +23,17 @@ const EnvPrefix = "MEDIASTATION"
 
 // Config 是根配置聚合。
 type Config struct {
-	App        AppConfig        `mapstructure:"app"`
-	Database   DatabaseConfig   `mapstructure:"database"`
-	Secrets    SecretsConfig    `mapstructure:"secrets"`
-	Logging    LoggingConfig    `mapstructure:"logging"`
-	Cache      CacheConfig      `mapstructure:"cache"`
-	Media      MediaConfig      `mapstructure:"media"`
-	Transcoder TranscoderConfig `mapstructure:"transcoder"`
-	AI         AIConfig         `mapstructure:"ai"`
+	App          AppConfig          `mapstructure:"app"`
+	Database     DatabaseConfig     `mapstructure:"database"`
+	Secrets      SecretsConfig      `mapstructure:"secrets"`
+	Logging      LoggingConfig      `mapstructure:"logging"`
+	Cache        CacheConfig        `mapstructure:"cache"`
+	Media        MediaConfig        `mapstructure:"media"`
+	Transcoder   TranscoderConfig   `mapstructure:"transcoder"`
+	AI           AIConfig           `mapstructure:"ai"`
 	FlareSolverr FlareSolverrConfig `mapstructure:"flaresolverr"`
-	ApiConfig  ApiConfigConfig  `mapstructure:"api_config"`
-	Organizer  OrganizerConfig  `mapstructure:"organizer"`
+	ApiConfig    ApiConfigConfig    `mapstructure:"api_config"`
+	Organizer    OrganizerConfig    `mapstructure:"organizer"`
 }
 
 // ApiConfigConfig API 配置相关设置。
@@ -133,7 +133,7 @@ type AIConfig struct {
 
 // OrganizerConfig 配置媒体文件智能分类整理。
 type OrganizerConfig struct {
-	SmartClassify      bool              `mapstructure:"smart_classify"`
+	SmartClassify     bool              `mapstructure:"smart_classify"`
 	AutoAfterDownload bool              `mapstructure:"auto_after_download"`
 	Categories        map[string]string `mapstructure:"categories"`
 }
@@ -237,6 +237,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("organizer.smart_classify", false)
 	v.SetDefault("organizer.auto_after_download", false)
 	v.SetDefault("organizer.categories.chinese_movie", "华语电影")
+	v.SetDefault("organizer.categories.animation_movie", "动画电影")
 	v.SetDefault("organizer.categories.foreign_movie", "外语电影")
 	v.SetDefault("organizer.categories.euus_movie", "欧美电影")
 	v.SetDefault("organizer.categories.jk_movie", "日韩电影")
@@ -245,6 +246,10 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("organizer.categories.jk_tv", "日韩剧")
 	v.SetDefault("organizer.categories.jp_anime", "日番")
 	v.SetDefault("organizer.categories.cn_anime", "国漫")
+	v.SetDefault("organizer.categories.variety", "综艺")
+	v.SetDefault("organizer.categories.documentary", "纪录片")
+	v.SetDefault("organizer.categories.children", "儿童")
+	v.SetDefault("organizer.categories.uncategorized_tv", "未分类")
 
 	v.SetDefault("transcoder.encoder", "")
 	v.SetDefault("transcoder.preset", "veryfast")

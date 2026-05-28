@@ -9,7 +9,7 @@ import type { Library, Media } from '../types'
 import { MediaCard } from '../components/MediaCard'
 import { imageURL } from '../api/client'
 import { useAuthStore } from '../stores/auth'
-import { getSeriesKey, groupSeries, type SeriesCard } from '../utils/groupSeries'
+import { getSeriesKey, groupSeries, isEpisodeLike, seriesTitle, type SeriesCard } from '../utils/groupSeries'
 
 export function LibraryPage() {
   const { id = '' } = useParams()
@@ -25,8 +25,10 @@ export function LibraryPage() {
 
   // 剧集模式：选中某个剧集后展开详情
   const [selectedSeries, setSelectedSeries] = useState<SeriesCard | null>(null)
+  const [selectedSeason, setSelectedSeason] = useState<number | null>(null)
 
-  const isSeries = library?.type === 'tv' || library?.type === 'anime'
+  const hasEpisodicItems = useMemo(() => items.some(isEpisodeLike), [items])
+  const isSeries = library?.type === 'tv' || library?.type === 'anime' || library?.type === 'variety' || hasEpisodicItems
 
   // 折叠后的剧集卡片
   const seriesCards = useMemo(() => {
@@ -53,6 +55,11 @@ export function LibraryPage() {
       .map(([season, episodes]) => ({ season, episodes }))
   }, [selectedSeries, items])
 
+  const visibleEpisodes = useMemo(() => {
+    if (selectedSeason == null) return selectedEpisodes[0]?.episodes ?? []
+    return selectedEpisodes.find((s) => s.season === selectedSeason)?.episodes ?? []
+  }, [selectedEpisodes, selectedSeason])
+
   useEffect(() => {
     if (!id) return
     libraryAPI.list().then((all) => {
@@ -64,8 +71,8 @@ export function LibraryPage() {
   useEffect(() => {
     if (!id || !library) return
     setLoading(true)
-    // tv/anime 拉取较多集数以支持前端分组
-    const limit = library.type === 'tv' || library.type === 'anime' ? 1000 : 200
+    // 所有库都可能包含季集型内容（综艺/纪录片/课程等），统一拉取较大页数用于前端分组。
+    const limit = 2000
     libraryAPI
       .listMedia(id, 1, limit)
       .then((d) => {
@@ -76,8 +83,10 @@ export function LibraryPage() {
   }, [id, library])
 
   useEffect(() => {
+    if (loading) return
     if (!isSeries) {
       setSelectedSeries(null)
+      setSelectedSeason(null)
       return
     }
 
@@ -89,13 +98,23 @@ export function LibraryPage() {
 
     const next = seriesCards.find((card) => card.key === key)
     if (next) setSelectedSeries(next)
-  }, [isSeries, searchParams, seriesCards])
+  }, [isSeries, loading, searchParams, seriesCards])
+
+  useEffect(() => {
+    if (!selectedSeries || selectedEpisodes.length === 0) {
+      setSelectedSeason(null)
+      return
+    }
+    if (selectedSeason == null || !selectedEpisodes.some((s) => s.season === selectedSeason)) {
+      setSelectedSeason(selectedEpisodes[0].season)
+    }
+  }, [selectedSeries, selectedEpisodes, selectedSeason])
 
   const handleScan = async () => {
     setScanning(true)
     try {
       const r = await libraryAPI.scan(id)
-      toast.success(`扫描完成:新增 ${r.added} 项`)
+      toast.success(`扫描完成:新增 ${r.added} 项，更新 ${r.updated ?? 0} 项`)
       setLibrary((l) => (l ? { ...l } : l))
     } catch {
       toast.error('扫描失败')
@@ -121,6 +140,7 @@ export function LibraryPage() {
 
   const clearSelectedSeries = () => {
     setSelectedSeries(null)
+    setSelectedSeason(null)
     const next = new URLSearchParams(searchParams)
     next.delete('series')
     setSearchParams(next)
@@ -144,7 +164,7 @@ export function LibraryPage() {
         <div>
           <h1 className="font-display text-3xl font-bold text-ink-600">
             {library?.name ?? '媒体库'}
-            {!isSeries && <span className="text-sand-500"> ({total})</span>}
+            <span className="text-sand-500"> ({isSeries ? seriesCards.length : total})</span>
           </h1>
           {library && <p className="text-sm text-ink-50">{library.type} · {library.path}</p>}
         </div>
@@ -200,7 +220,7 @@ export function LibraryPage() {
                 返回列表
               </button>
               <h2 className="font-display text-2xl font-bold text-ink-600 truncate">
-                {selectedSeries.rep.title}
+                {seriesTitle(selectedSeries.rep)}
               </h2>
               <span className="text-sm text-sand-500">共 {selectedSeries.count} 集</span>
             </div>
@@ -221,12 +241,11 @@ export function LibraryPage() {
 
                 {/* 从第一集开始 */}
                 {(() => {
-                  const firstEps = selectedEpisodes
-                    .flatMap((s) => s.episodes)
-                    .sort((a, b) =>
-                      (a.season_num || 0) - (b.season_num || 0)
-                      || (a.episode_num || 0) - (b.episode_num || 0),
-                    )
+                  const firstEps = [...(visibleEpisodes.length > 0 ? visibleEpisodes : selectedEpisodes.flatMap((s) => s.episodes))]
+                  firstEps.sort((a, b) =>
+                    (a.season_num || 0) - (b.season_num || 0)
+                    || (a.episode_num || 0) - (b.episode_num || 0),
+                  )
                   const first = firstEps.length > 0 ? firstEps[0] : null
                   return first ? (
                     <Link to={`/play/${first.id}`} className="btn-primary inline-flex">
@@ -240,37 +259,52 @@ export function LibraryPage() {
 
             {/* 季 / 集列表 */}
             <div className="space-y-6">
-              {selectedEpisodes.map(({ season, episodes }) => (
-                <div key={season}>
-                  <h3 className="mb-3 font-display text-lg font-semibold text-ink-600">
+              <div className="flex flex-wrap items-center gap-2">
+                {selectedEpisodes.map(({ season, episodes }) => (
+                  <button
+                    key={season}
+                    onClick={() => setSelectedSeason(season)}
+                    className={
+                      'rounded-xl border px-4 py-2 text-sm font-semibold transition ' +
+                      (selectedSeason === season
+                        ? 'border-brand-300 bg-brand-50 text-brand-700'
+                        : 'border-sand-200 bg-white text-ink-100 hover:border-brand-200 hover:text-brand-600')
+                    }
+                  >
                     第 {season} 季 · {episodes.length} 集
-                  </h3>
-                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
-                    {episodes.map((ep) => (
-                      <Link
-                        key={ep.id}
-                        to={`/play/${ep.id}`}
-                        className="group flex items-center gap-3 rounded-xl border border-sand-200 bg-white p-3 shadow-card transition-all hover:border-brand-300 hover:shadow-card-hover"
-                      >
-                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-600 font-semibold text-sm">
-                          {ep.episode_num || '—'}
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-sm font-medium text-ink-600">
-                            {ep.episode_num > 0 ? `第 ${ep.episode_num} 集` : ep.title}
-                          </p>
-                          <p className="text-xs text-sand-500">
-                            {ep.duration_sec > 0
-                              ? `${Math.floor(ep.duration_sec / 60)} 分钟`
-                              : formatSize(ep.size_bytes)}
-                          </p>
-                        </div>
-                        <Play size={14} className="shrink-0 text-gray-500 opacity-0 transition-opacity group-hover:opacity-100 group-hover:text-brand-500" />
-                      </Link>
-                    ))}
-                  </div>
+                  </button>
+                ))}
+              </div>
+
+              <div>
+                <h3 className="mb-3 font-display text-lg font-semibold text-ink-600">
+                  第 {selectedSeason ?? selectedEpisodes[0]?.season ?? 1} 季
+                </h3>
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
+                  {visibleEpisodes.map((ep) => (
+                    <Link
+                      key={ep.id}
+                      to={`/play/${ep.id}`}
+                      className="group flex items-center gap-3 rounded-xl border border-sand-200 bg-white p-3 shadow-card transition-all hover:border-brand-300 hover:shadow-card-hover"
+                    >
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-600 font-semibold text-sm">
+                        {ep.episode_num || '—'}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium text-ink-600">
+                          {ep.original_name || (ep.episode_num > 0 ? `第 ${ep.episode_num} 集` : ep.title)}
+                        </p>
+                        <p className="text-xs text-sand-500">
+                          {ep.duration_sec > 0
+                            ? `${Math.floor(ep.duration_sec / 60)} 分钟`
+                            : formatSize(ep.size_bytes)}
+                        </p>
+                      </div>
+                      <Play size={14} className="shrink-0 text-gray-500 opacity-0 transition-opacity group-hover:opacity-100 group-hover:text-brand-500" />
+                    </Link>
+                  ))}
                 </div>
-              ))}
+              </div>
             </div>
           </motion.div>
         )}

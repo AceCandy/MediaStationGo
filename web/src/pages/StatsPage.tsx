@@ -4,6 +4,7 @@ import { Activity, Cpu, Database, Film, HardDrive, Users } from 'lucide-react'
 import { statsAPI } from '../api/stats'
 import { MediaCard } from '../components/MediaCard'
 import type { StatsSnapshot } from '../types'
+import { groupSeries } from '../utils/groupSeries'
 
 // fmtBytes is a tiny helper shared by the dashboard cards.
 function fmtBytes(n: number): string {
@@ -54,6 +55,7 @@ export function StatsPage() {
     snap.hardware.disk_total > 0
       ? (snap.hardware.disk_used / snap.hardware.disk_total) * 100
       : 0
+  const recentlyAddedCards = groupSeries(snap.recently_added)
 
   return (
     <div className="space-y-8">
@@ -91,12 +93,17 @@ export function StatsPage() {
         </div>
       </section>
 
-      {snap.recently_added.length > 0 && (
+      {recentlyAddedCards.length > 0 && (
         <section className="space-y-3">
           <h2 className="font-display text-xl font-semibold text-ink-600">最近入库</h2>
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
-            {snap.recently_added.map((m) => (
-              <MediaCard key={m.id} media={m} />
+            {recentlyAddedCards.map((s) => (
+              <MediaCard
+                key={s.key}
+                media={s.rep}
+                count={s.count}
+                linkTo={s.count > 1 ? `/library/${s.rep.library_id}?series=${encodeURIComponent(s.key)}` : undefined}
+              />
             ))}
           </div>
         </section>

@@ -13,30 +13,39 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strings"
 	"time"
 
 	"go.uber.org/zap"
 
+	"github.com/ShukeBta/MediaStationGo/internal/config"
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 	"github.com/ShukeBta/MediaStationGo/internal/repository"
 )
 
 // SubscriptionService runs the polling loop.
 type SubscriptionService struct {
+	cfg       *config.Config
 	log       *zap.Logger
 	repo      *repository.Container
 	downloads *DownloadService
+	site      *SiteService
 	hub       *Hub
 	stop      chan struct{}
 }
 
 // NewSubscriptionService is the constructor.
-func NewSubscriptionService(log *zap.Logger, repo *repository.Container, downloads *DownloadService, hub *Hub) *SubscriptionService {
+func NewSubscriptionService(cfg *config.Config, log *zap.Logger, repo *repository.Container, downloads *DownloadService, site *SiteService, hub *Hub) *SubscriptionService {
 	return &SubscriptionService{
-		log: log, repo: repo, downloads: downloads, hub: hub,
-		stop: make(chan struct{}),
+		cfg:       cfg,
+		log:       log,
+		repo:      repo,
+		downloads: downloads,
+		site:      site,
+		hub:       hub,
+		stop:      make(chan struct{}),
 	}
 }
 
@@ -69,7 +78,17 @@ func (s *SubscriptionService) Create(ctx context.Context, sub *model.Subscriptio
 	if sub.Name == "" || sub.FeedURL == "" {
 		return errors.New("name and feed_url required")
 	}
-	return s.repo.Subscription.Create(ctx, sub)
+	enabled := sub.Enabled
+	if err := s.repo.Subscription.Create(ctx, sub); err != nil {
+		return err
+	}
+	if !enabled {
+		if err := s.repo.DB.WithContext(ctx).Model(sub).Update("enabled", false).Error; err != nil {
+			return err
+		}
+		sub.Enabled = false
+	}
+	return nil
 }
 
 // List returns every subscription rule.
@@ -133,6 +152,10 @@ func (s *SubscriptionService) runAll(ctx context.Context) {
 }
 
 func (s *SubscriptionService) runOne(ctx context.Context, sub *model.Subscription) (int, error) {
+	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(sub.FeedURL)), "site-search://") {
+		return s.runSiteSearch(ctx, sub)
+	}
+
 	feed, err := s.fetch(ctx, sub.FeedURL)
 	if err != nil {
 		return 0, err
@@ -166,9 +189,15 @@ func (s *SubscriptionService) runOne(ctx context.Context, sub *model.Subscriptio
 		if download == "" {
 			continue
 		}
-		if _, err := s.downloads.AddDownload(ctx, sub.UserID, download, ""); err != nil {
+		mediaType, mediaCategory := s.classifySubscriptionItem(ctx, sub, item.Title, "")
+		savePath := s.resolveSubscriptionSavePath(ctx, sub, mediaType, mediaCategory)
+		if _, err := s.downloads.AddDownload(ctx, sub.UserID, download, savePath); err != nil {
 			s.log.Warn("subscription enqueue failed",
-				zap.String("title", item.Title), zap.Error(err))
+				zap.String("title", item.Title),
+				zap.String("media_type", mediaType),
+				zap.String("media_category", mediaCategory),
+				zap.String("save_path", savePath),
+				zap.Error(err))
 			continue
 		}
 		queued++
@@ -190,6 +219,119 @@ func (s *SubscriptionService) runOne(ctx context.Context, sub *model.Subscriptio
 		})
 	}
 	return queued, nil
+}
+
+func (s *SubscriptionService) runSiteSearch(ctx context.Context, sub *model.Subscription) (int, error) {
+	if s.site == nil {
+		return 0, errors.New("site search service unavailable")
+	}
+	keyword := siteSearchKeyword(sub)
+	if keyword == "" {
+		return 0, errors.New("site-search subscription keyword required")
+	}
+
+	results, err := s.site.Search(ctx, keyword)
+	if err != nil {
+		return 0, err
+	}
+	if len(results) == 0 {
+		now := time.Now()
+		_ = s.repo.DB.Model(sub).Updates(map[string]any{"last_run_at": &now}).Error
+		return 0, nil
+	}
+
+	guidKey := fmt.Sprintf("subscription.%s.seen", sub.ID)
+	seenRaw, _ := s.repo.Setting.Get(ctx, guidKey)
+	seen := splitNonEmpty(seenRaw)
+	seenSet := make(map[string]struct{}, len(seen))
+	for _, g := range seen {
+		seenSet[g] = struct{}{}
+	}
+
+	var lastEnqueueErr error
+	for _, item := range results {
+		download := strings.TrimSpace(item.DownloadURL)
+		if download == "" {
+			download = strings.TrimSpace(item.TorrentURL)
+		}
+		if download == "" {
+			continue
+		}
+		guid := download
+		if _, ok := seenSet[guid]; ok {
+			continue
+		}
+		if s.downloads != nil && s.downloads.TorrentExistsByName(ctx, item.Title) {
+			seen = append(seen, guid)
+			if len(seen) > 200 {
+				seen = seen[len(seen)-200:]
+			}
+			_ = s.repo.Setting.Set(ctx, guidKey, strings.Join(seen, "\n"))
+			now := time.Now()
+			_ = s.repo.DB.Model(sub).Updates(map[string]any{"last_run_at": &now}).Error
+			s.hub.Publish("subscription", map[string]any{
+				"id":       sub.ID,
+				"name":     sub.Name,
+				"queued":   0,
+				"keyword":  keyword,
+				"resource": item.Title,
+				"existing": true,
+			})
+			return 0, nil
+		}
+		realURL := s.site.ResolveDownloadURL(ctx, download)
+		mediaType, mediaCategory := s.classifySubscriptionItem(ctx, sub, item.Title, item.Category)
+		savePath := s.resolveSubscriptionSavePath(ctx, sub, mediaType, mediaCategory)
+		if _, err := s.downloads.AddDownload(ctx, sub.UserID, realURL, savePath); err != nil {
+			lastEnqueueErr = err
+			s.log.Warn("site-search subscription enqueue failed",
+				zap.String("subscription", sub.Name),
+				zap.String("title", item.Title),
+				zap.String("site_category", item.Category),
+				zap.String("media_type", mediaType),
+				zap.String("media_category", mediaCategory),
+				zap.String("save_path", savePath),
+				zap.Error(err))
+			continue
+		}
+		seen = append(seen, guid)
+		if len(seen) > 200 {
+			seen = seen[len(seen)-200:]
+		}
+		_ = s.repo.Setting.Set(ctx, guidKey, strings.Join(seen, "\n"))
+		now := time.Now()
+		_ = s.repo.DB.Model(sub).Updates(map[string]any{"last_run_at": &now}).Error
+		s.hub.Publish("subscription", map[string]any{
+			"id":       sub.ID,
+			"name":     sub.Name,
+			"queued":   1,
+			"keyword":  keyword,
+			"resource": item.Title,
+		})
+		return 1, nil
+	}
+
+	now := time.Now()
+	_ = s.repo.DB.Model(sub).Updates(map[string]any{"last_run_at": &now}).Error
+	if lastEnqueueErr != nil {
+		return 0, fmt.Errorf("找到 PT 资源但加入下载器失败: %w", lastEnqueueErr)
+	}
+	return 0, nil
+}
+
+func siteSearchKeyword(sub *model.Subscription) string {
+	if sub == nil {
+		return ""
+	}
+	if u, err := url.Parse(sub.FeedURL); err == nil {
+		if keyword := strings.TrimSpace(u.Query().Get("keyword")); keyword != "" {
+			return keyword
+		}
+	}
+	if keyword := strings.TrimSpace(sub.Filter); keyword != "" {
+		return keyword
+	}
+	return strings.TrimSpace(sub.Name)
 }
 
 func (s *SubscriptionService) fetch(ctx context.Context, feedURL string) (*rssFeed, error) {

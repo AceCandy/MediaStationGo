@@ -2,34 +2,26 @@
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
-  Activity, Bell, Cast, Clock, CloudDownload, Compass, Copy, Film,
-  FolderTree, Globe, HardDrive, Heart, Home, GalleryHorizontalEnd,
-  Link2, ListChecks, ListMusic, LogOut, MessageSquare, Rss, Search,
-  Server, Settings, Sliders, Sparkles, Cloud, Trash2, UserCog, Wrench,
+  Activity, Bell, Clock, CloudDownload, Compass, Film,
+  Cast, Globe, HardDrive, Heart, Home, Image,
+  ListMusic, LogOut, Rss, Search,
+  Settings, Sliders, Sparkles, UserCog, Wrench,
   Library as LibraryIcon, User as UserIcon, ChevronDown, Menu, X
 } from 'lucide-react'
 import clsx from 'clsx'
 import { AppFooter } from './AppFooter'
-import { libraryAPI } from '../api/library'
 import { useAuthStore } from '../stores/auth'
-import type { Library } from '../types'
 
 export function Layout() {
   const navigate = useNavigate()
   const location = useLocation()
   const user = useAuthStore((s) => s.user)
   const logout = useAuthStore((s) => s.logout)
-  const [libraries, setLibraries] = useState<Library[]>([])
   const [isSidebarOpen, setIsSidebarOpen] = useState(true)
   const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState(false)
   const [isProfileOpen, setIsProfileOpen] = useState(false)
   const [searchFocused, setSearchFocused] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
-
-  // Automatically fetch libraries
-  useEffect(() => {
-    libraryAPI.list().then(setLibraries).catch(() => undefined)
-  }, [])
 
   // Auto-collapse sidebar on smaller tablet screens, and auto-hide drawer on path change
   useEffect(() => {
@@ -99,76 +91,48 @@ export function Layout() {
           <SectionHeader label="影音中心" visible={isSidebarOpen || isMobileDrawerOpen} />
           <div className="space-y-1">
             <SidebarLink to="/" icon={<Home size={18} />} label="系统首页" end collapsed={!isSidebarOpen && !isMobileDrawerOpen} />
+            <SidebarLink to="/libraries" icon={<LibraryIcon size={18} />} label="媒体库" collapsed={!isSidebarOpen && !isMobileDrawerOpen} />
+            <SidebarLink to="/poster-wall" icon={<Image size={18} />} label="海报墙" collapsed={!isSidebarOpen && !isMobileDrawerOpen} />
             <SidebarLink to="/discover" icon={<Compass size={18} />} label="精彩发现" collapsed={!isSidebarOpen && !isMobileDrawerOpen} />
             <SidebarLink to="/search" icon={<Search size={18} />} label="智能搜索" collapsed={!isSidebarOpen && !isMobileDrawerOpen} />
-            <SidebarLink to="/favourites" icon={<Heart size={18} />} label="我的收藏" collapsed={!isSidebarOpen && !isMobileDrawerOpen} />
-            <SidebarLink to="/playlists" icon={<ListMusic size={18} />} label="播放列表" collapsed={!isSidebarOpen && !isMobileDrawerOpen} />
-            <SidebarLink to="/history" icon={<Clock size={18} />} label="观看历史" collapsed={!isSidebarOpen && !isMobileDrawerOpen} />
-            <SidebarLink to="/poster-wall" icon={<GalleryHorizontalEnd size={18} />} label="影音海报墙" collapsed={!isSidebarOpen && !isMobileDrawerOpen} />
-            <SidebarLink to="/ai" icon={<Sparkles size={18} />} label="AI 影视助理" collapsed={!isSidebarOpen && !isMobileDrawerOpen} />
+            <SidebarLink to="/dlna" icon={<Cast size={18} />} label="DLNA 投屏" collapsed={!isSidebarOpen && !isMobileDrawerOpen} />
+            <SidebarLink to="/ai" icon={<Sparkles size={18} />} label="AI 助理" collapsed={!isSidebarOpen && !isMobileDrawerOpen} />
           </div>
         </div>
 
-        {/* Navigation Group: Libraries */}
+        {/* Navigation Group: Personal */}
         <div>
-          <SectionHeader label="媒体片库" visible={isSidebarOpen || isMobileDrawerOpen} />
+          <SectionHeader label="个人空间" visible={isSidebarOpen || isMobileDrawerOpen} />
           <div className="space-y-1">
-            {libraries.length === 0 && (isSidebarOpen || isMobileDrawerOpen) && (
-              <div className="px-4 py-2 text-xs text-gray-500 italic">暂无媒体片库</div>
-            )}
-            {libraries.map((lib) => (
-              <SidebarLink 
-                key={lib.id} 
-                to={`/library/${lib.id}`} 
-                icon={<LibraryIcon size={18} />} 
-                label={lib.name} 
-                collapsed={!isSidebarOpen && !isMobileDrawerOpen} 
-              />
-            ))}
+            <SidebarLink to="/favourites" icon={<Heart size={18} />} label="我的收藏" collapsed={!isSidebarOpen && !isMobileDrawerOpen} />
+            <SidebarLink to="/playlists" icon={<ListMusic size={18} />} label="播放列表" collapsed={!isSidebarOpen && !isMobileDrawerOpen} />
+            <SidebarLink to="/history" icon={<Clock size={18} />} label="观看历史" collapsed={!isSidebarOpen && !isMobileDrawerOpen} />
+            <SidebarLink to="/profile" icon={<UserIcon size={18} />} label="账号信息" collapsed={!isSidebarOpen && !isMobileDrawerOpen} />
           </div>
         </div>
 
         {/* Navigation Group: Automation */}
         <div>
-          <SectionHeader label="自动化运维" visible={isSidebarOpen || isMobileDrawerOpen} />
+          <SectionHeader label="下载订阅" visible={isSidebarOpen || isMobileDrawerOpen} />
           <div className="space-y-1">
             <SidebarLink to="/downloads" icon={<CloudDownload size={18} />} label="下载中心" collapsed={!isSidebarOpen && !isMobileDrawerOpen} />
-            <SidebarLink to="/subscriptions" icon={<Rss size={18} />} label="RSS 订阅" collapsed={!isSidebarOpen && !isMobileDrawerOpen} />
-            <SidebarLink to="/dlna" icon={<Cast size={18} />} label="DLNA 串流" collapsed={!isSidebarOpen && !isMobileDrawerOpen} />
+            <SidebarLink to="/download-clients" icon={<Sliders size={18} />} label="下载器管理" collapsed={!isSidebarOpen && !isMobileDrawerOpen} />
+            <SidebarLink to="/subscriptions" icon={<Rss size={18} />} label="订阅管理" collapsed={!isSidebarOpen && !isMobileDrawerOpen} />
             <SidebarLink to="/site-search" icon={<Search size={18} />} label="站点检索" collapsed={!isSidebarOpen && !isMobileDrawerOpen} />
-          </div>
-        </div>
-
-        {/* Navigation Group: Account Profile */}
-        <div>
-          <SectionHeader label="个人资料" visible={isSidebarOpen || isMobileDrawerOpen} />
-          <div className="space-y-1">
-            <SidebarLink to="/profile" icon={<UserIcon size={18} />} label="账号信息" collapsed={!isSidebarOpen && !isMobileDrawerOpen} />
-            <SidebarLink to="/play-profiles" icon={<UserCog size={18} />} label="观影 Profile" collapsed={!isSidebarOpen && !isMobileDrawerOpen} />
           </div>
         </div>
 
         {/* Navigation Group: Admin Dashboard */}
         {user?.role === 'admin' && (
           <div>
-            <SectionHeader label="系统后台" visible={isSidebarOpen || isMobileDrawerOpen} />
+            <SectionHeader label="统一管理" visible={isSidebarOpen || isMobileDrawerOpen} />
             <div className="space-y-1">
-              <SidebarLink to="/admin" icon={<Settings size={18} />} label="后台主页" collapsed={!isSidebarOpen && !isMobileDrawerOpen} />
-              <SidebarLink to="/tasks" icon={<ListChecks size={18} />} label="实时任务" collapsed={!isSidebarOpen && !isMobileDrawerOpen} />
-              <SidebarLink to="/stats" icon={<Activity size={18} />} label="运行监控" collapsed={!isSidebarOpen && !isMobileDrawerOpen} />
-              <SidebarLink to="/sites" icon={<Globe size={18} />} label="站点管理" collapsed={!isSidebarOpen && !isMobileDrawerOpen} />
-              <SidebarLink to="/notify-channels" icon={<Bell size={18} />} label="通知配置" collapsed={!isSidebarOpen && !isMobileDrawerOpen} />
-              <SidebarLink to="/download-clients" icon={<Server size={18} />} label="下载客户端" collapsed={!isSidebarOpen && !isMobileDrawerOpen} />
-              <SidebarLink to="/scheduler" icon={<Clock size={18} />} label="定时机制" collapsed={!isSidebarOpen && !isMobileDrawerOpen} />
-              <SidebarLink to="/storage" icon={<HardDrive size={18} />} label="存储分析" collapsed={!isSidebarOpen && !isMobileDrawerOpen} />
-              <SidebarLink to="/storage-config" icon={<Cloud size={18} />} label="外部挂载" collapsed={!isSidebarOpen && !isMobileDrawerOpen} />
-              <SidebarLink to="/files" icon={<FolderTree size={18} />} label="文件管家" collapsed={!isSidebarOpen && !isMobileDrawerOpen} />
-              <SidebarLink to="/duplicates" icon={<Copy size={18} />} label="排重清理" collapsed={!isSidebarOpen && !isMobileDrawerOpen} />
-              <SidebarLink to="/strm" icon={<Link2 size={18} />} label="STRM 关联" collapsed={!isSidebarOpen && !isMobileDrawerOpen} />
-              <SidebarLink to="/tools" icon={<Wrench size={18} />} label="运维工具" collapsed={!isSidebarOpen && !isMobileDrawerOpen} />
-              <SidebarLink to="/assistant" icon={<MessageSquare size={18} />} label="AI 智能助教" collapsed={!isSidebarOpen && !isMobileDrawerOpen} />
-              <SidebarLink to="/settings" icon={<Sliders size={18} />} label="系统参数" collapsed={!isSidebarOpen && !isMobileDrawerOpen} />
-              <SidebarLink to="/recycle" icon={<Trash2 size={18} />} label="回收站" collapsed={!isSidebarOpen && !isMobileDrawerOpen} />
+              <SidebarLink to="/admin" icon={<Settings size={18} />} label="媒体与用户" collapsed={!isSidebarOpen && !isMobileDrawerOpen} />
+              <SidebarLink to="/sites" icon={<Globe size={18} />} label="站点与下载器" collapsed={!isSidebarOpen && !isMobileDrawerOpen} />
+              <SidebarLink to="/tools" icon={<Wrench size={18} />} label="整理与维护" collapsed={!isSidebarOpen && !isMobileDrawerOpen} />
+              <SidebarLink to="/storage" icon={<HardDrive size={18} />} label="存储与文件" collapsed={!isSidebarOpen && !isMobileDrawerOpen} />
+              <SidebarLink to="/stats" icon={<Activity size={18} />} label="运行状态" collapsed={!isSidebarOpen && !isMobileDrawerOpen} />
+              <SidebarLink to="/settings" icon={<Sliders size={18} />} label="系统设置" collapsed={!isSidebarOpen && !isMobileDrawerOpen} />
             </div>
           </div>
         )}
@@ -289,10 +253,15 @@ export function Layout() {
             </Link>
 
             {/* Notification alert bubble */}
-            <button className="relative rounded-xl border border-gray-200 p-2.5 text-gray-500 hover:bg-gray-100 hover:text-gray-900 transition-all">
+            <Link
+              to="/notify-channels"
+              title="通知配置"
+              aria-label="打开通知配置"
+              className="relative rounded-xl border border-gray-200 p-2.5 text-gray-500 hover:bg-gray-100 hover:text-gray-900 transition-all"
+            >
               <Bell size={18} />
               <span className="absolute top-1.5 right-1.5 h-2 w-2 rounded-full bg-brand-500 ring-2 ring-white animate-pulse" />
-            </button>
+            </Link>
 
             {/* Horizontal divider lines */}
             <span className="h-6 w-px bg-gray-200" />

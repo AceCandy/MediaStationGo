@@ -1,9 +1,11 @@
 import { ChangeEvent, FormEvent, useCallback, useEffect, useState } from 'react'
 import toast from 'react-hot-toast'
-import { Sparkles } from 'lucide-react'
+import { Rss, Sparkles } from 'lucide-react'
 
-import { aiAPI, type SearchIntent } from '../api/ai'
+import { aiAPI, type ExternalMediaResult, type SearchIntent } from '../api/ai'
+import { imageURL } from '../api/client'
 import { mediaAPI } from '../api/library'
+import { subscriptionsAPI } from '../api/subscriptions'
 import { MediaCard } from '../components/MediaCard'
 import type { Media } from '../types'
 
@@ -16,6 +18,8 @@ export function SearchPage() {
   const [aiAvailable, setAiAvailable] = useState(false)
   const [intent, setIntent] = useState<SearchIntent | null>(null)
   const [hasSearched, setHasSearched] = useState(false)
+  const [externalItems, setExternalItems] = useState<ExternalMediaResult[]>([])
+  const [subscribing, setSubscribing] = useState('')
 
   useEffect(() => {
     aiAPI
@@ -37,6 +41,7 @@ export function SearchPage() {
       .search(query, 60)
       .then((d) => {
         setItems(d.items ?? [])
+        setExternalItems([])
         setIntent(null)
       })
       .catch((err) => {
@@ -66,6 +71,7 @@ export function SearchPage() {
     try {
       const data = await aiAPI.smartSearch(q)
       setItems(data.items ?? [])
+      setExternalItems(data.external_items ?? [])
       setIntent(data.intent)
     } catch (err) {
       const msg =
@@ -86,15 +92,14 @@ export function SearchPage() {
       <header className="flex items-center justify-between">
         <h1 className="font-display text-3xl font-bold text-ink-600">搜索</h1>
         <button
-          disabled={!aiAvailable}
           className={
             'neon-button !px-3 !py-1 !text-xs ' +
             (aiOn ? '!border-accent-400 !bg-accent-400/20 !text-accent-400' : '')
           }
           onClick={() => setAiOn((on) => !on)}
-          title={aiAvailable ? '启用 AI 智能搜索' : '请先在 ai.* 中配置 API Key'}
+          title={aiAvailable ? '启用 AI 智能搜索' : '使用本地规则 + 外部数据源搜索'}
         >
-          <Sparkles size={12} /> {aiOn ? 'AI 已开启' : 'AI 智能搜索'}
+          <Sparkles size={12} /> {aiOn ? '智能搜索已开启' : '智能搜索'}
         </button>
       </header>
 
@@ -156,12 +161,112 @@ export function SearchPage() {
       )}
 
       {items.length > 0 && (
+        <>
+          <div className="text-sm font-semibold text-ink-100">本地媒体库</div>
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
           {items.map((m) => (
             <MediaCard key={m.id} media={m} />
           ))}
         </div>
+        </>
+      )}
+
+      {externalItems.length > 0 && (
+        <ExternalResults
+          items={externalItems}
+          busyKey={subscribing}
+          onSubscribe={async (item) => {
+            const keyword = item.subscribe_keyword || item.title
+            const key = `${item.source}:${keyword}`
+            setSubscribing(key)
+            try {
+              const feed = `site-search://search?keyword=${encodeURIComponent(keyword)}&source=${encodeURIComponent(item.source)}`
+              const sub = await subscriptionsAPI.create({
+                name: `${item.title} 自动订阅`,
+                feed_url: feed,
+                filter: keyword,
+                media_type: item.media_type,
+                enabled: true,
+              })
+              const run = await subscriptionsAPI.runNow(sub.id)
+              toast.success(
+                run.queued > 0
+                  ? `已订阅并加入 ${run.queued} 个下载`
+                  : '已订阅，暂未在 PT 站点找到可下载资源',
+              )
+            } catch (err) {
+              const msg =
+                (err as { response?: { data?: { error?: string } } })?.response?.data?.error ??
+                '订阅失败'
+              toast.error(msg)
+            } finally {
+              setSubscribing('')
+            }
+          }}
+        />
       )}
     </div>
+  )
+}
+
+function ExternalResults({
+  items,
+  busyKey,
+  onSubscribe,
+}: {
+  items: ExternalMediaResult[]
+  busyKey: string
+  onSubscribe: (item: ExternalMediaResult) => Promise<void>
+}) {
+  return (
+    <section className="space-y-3">
+      <div>
+        <h2 className="font-display text-xl font-semibold text-ink-600">外部数据源</h2>
+        <p className="text-xs text-ink-50">
+          来自 TMDb / 豆瓣 / Bangumi。订阅后会定期搜索已配置 PT 站点，并只入队最佳新资源。
+        </p>
+      </div>
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+        {items.map((item) => {
+          const keyword = item.subscribe_keyword || item.title
+          const key = `${item.source}:${keyword}`
+          return (
+            <article key={key} className="glass-panel flex gap-3 !p-3">
+              <div className="h-28 w-20 shrink-0 overflow-hidden rounded-xl bg-gray-100">
+                {item.poster_url ? (
+                  <img
+                    src={imageURL(item.poster_url)}
+                    alt={item.title}
+                    className="h-full w-full object-cover"
+                  />
+                ) : null}
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="mb-1 flex flex-wrap items-center gap-2">
+                  <span className="rounded-full bg-primary-400/10 px-2 py-0.5 text-[10px] uppercase text-brand-500">
+                    {item.source}
+                  </span>
+                  {item.media_type && <span className="text-xs text-sand-500">{item.media_type}</span>}
+                  {item.year ? <span className="text-xs text-sand-500">{item.year}</span> : null}
+                  {item.rating ? <span className="text-xs text-amber-500">★ {item.rating.toFixed(1)}</span> : null}
+                </div>
+                <h3 className="truncate font-semibold text-ink-600">{item.title}</h3>
+                <p className="mt-1 line-clamp-2 text-xs text-ink-50">
+                  {item.overview || `订阅关键词：${keyword}`}
+                </p>
+                <button
+                  onClick={() => onSubscribe(item)}
+                  disabled={busyKey === key}
+                  className="mt-3 rounded-lg border border-primary-400/40 px-2 py-1 text-xs text-brand-500 hover:bg-primary-400/10 disabled:opacity-50"
+                >
+                  <Rss size={12} className="mr-1 inline" />
+                  {busyKey === key ? '订阅中…' : '订阅并搜索 PT'}
+                </button>
+              </div>
+            </article>
+          )
+        })}
+      </div>
+    </section>
   )
 }

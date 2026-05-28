@@ -50,10 +50,11 @@ type Group struct {
 
 // Report is the summary the React UI displays.
 type Report struct {
-	TotalScanned int     `json:"total_scanned"`
-	GroupsFound  int     `json:"groups_found"`
-	ItemsMarked  int     `json:"items_marked"`
-	Groups       []Group `json:"groups"`
+	TotalScanned   int     `json:"total_scanned"`
+	GroupsFound    int     `json:"groups_found"`
+	ItemsMarked    int     `json:"items_marked"`
+	MissingRemoved int64   `json:"missing_removed"`
+	Groups         []Group `json:"groups"`
 }
 
 // Detect walks every media row in the given library (or all libraries
@@ -69,7 +70,9 @@ func (d *DuplicateService) Detect(ctx context.Context, libraryID string) (*Repor
 		return nil, err
 	}
 
-	rep := &Report{TotalScanned: len(rows)}
+	rep := &Report{Groups: []Group{}}
+	rows = d.removeMissingRows(ctx, rows, rep)
+	rep.TotalScanned = len(rows)
 	totalToHash := 0
 	for i := range rows {
 		if rows[i].FileHash == "" && rows[i].Path != "" {
@@ -156,6 +159,68 @@ func (d *DuplicateService) Detect(ctx context.Context, libraryID string) (*Repor
 		})
 	}
 	return rep, nil
+}
+
+// Current returns duplicate groups already marked in the database. It keeps
+// the UI useful after a prior scan and avoids requiring POST on page load.
+func (d *DuplicateService) Current(ctx context.Context, libraryID string) (*Report, error) {
+	var rows []model.Media
+	q := d.repo.DB.WithContext(ctx).Where("is_duplicate = ? OR duplicate_of <> ''", true)
+	if libraryID != "" {
+		q = q.Where("library_id = ?", libraryID)
+	}
+	if err := q.Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	rep := &Report{TotalScanned: len(rows), Groups: []Group{}}
+	byPrimary := make(map[string][]model.Media)
+	for _, row := range rows {
+		if row.DuplicateOf == "" {
+			continue
+		}
+		byPrimary[row.DuplicateOf] = append(byPrimary[row.DuplicateOf], row)
+	}
+	for primaryID, dupes := range byPrimary {
+		primary, err := d.repo.Media.FindByID(ctx, primaryID)
+		if err != nil || primary == nil {
+			continue
+		}
+		hash := primary.FileHash
+		if hash == "" && len(dupes) > 0 {
+			hash = dupes[0].FileHash
+		}
+		rep.Groups = append(rep.Groups, Group{
+			Hash:       hash,
+			Primary:    *primary,
+			Duplicates: dupes,
+		})
+	}
+	rep.GroupsFound = len(rep.Groups)
+	return rep, nil
+}
+
+func (d *DuplicateService) removeMissingRows(ctx context.Context, rows []model.Media, rep *Report) []model.Media {
+	kept := make([]model.Media, 0, len(rows))
+	for _, row := range rows {
+		if row.Path == "" {
+			kept = append(kept, row)
+			continue
+		}
+		if _, err := os.Stat(row.Path); err == nil {
+			kept = append(kept, row)
+			continue
+		} else if !os.IsNotExist(err) {
+			kept = append(kept, row)
+			continue
+		}
+		res := d.repo.DB.WithContext(ctx).Where("id = ?", row.ID).Delete(&model.Media{})
+		if res.Error != nil {
+			d.log.Warn("remove missing duplicate candidate failed", zap.String("media", row.ID), zap.Error(res.Error))
+			continue
+		}
+		rep.MissingRemoved += res.RowsAffected
+	}
+	return kept
 }
 
 // Unmark clears the is_duplicate flag for every row in the given library

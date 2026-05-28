@@ -3,38 +3,20 @@ package model
 
 import (
 	"time"
-
-	"github.com/google/uuid"
-	"gorm.io/gorm"
 )
 
 // ApiConfig 存储第三方 API 密钥和配置信息。
 // APIKey 字段在 JSON 序列化时隐藏（json:"-"），通过加密存储。
 type ApiConfig struct {
-	ID          string     `gorm:"primaryKey;size:36" json:"id"`
-	Provider    string     `gorm:"size:64;uniqueIndex;not null" json:"provider"`
-	APIKey      string     `gorm:"size:512" json:"-"`
-	BaseURL     string     `gorm:"size:512" json:"base_url,omitempty"`
-	Extra       string     `gorm:"type:text" json:"extra,omitempty"`
-	Enabled     bool       `gorm:"default:true" json:"enabled"`
-	Description string     `gorm:"size:255" json:"description,omitempty"`
+	Base
+	Provider     string     `gorm:"size:64;uniqueIndex;not null" json:"provider"`
+	APIKey       string     `gorm:"size:512" json:"-"`
+	BaseURL      string     `gorm:"size:512" json:"base_url,omitempty"`
+	Extra        string     `gorm:"type:text" json:"extra,omitempty"`
+	Enabled      bool       `gorm:"default:true" json:"enabled"`
+	Description  string     `gorm:"size:255" json:"description,omitempty"`
 	LastTestedAt *time.Time `json:"last_tested_at,omitempty"`
-	TestResult  string     `gorm:"size:32" json:"test_result,omitempty"`
-	UpdatedAt   time.Time  `json:"updated_at"`
-}
-
-// BeforeCreate 生成 UUID。
-func (c *ApiConfig) BeforeCreate(_ *gorm.DB) error {
-	if c.ID == "" {
-		c.ID = uuid.NewString()
-	}
-	return nil
-}
-
-// BeforeUpdate 更新时间戳。
-func (c *ApiConfig) BeforeUpdate(_ *gorm.DB) error {
-	c.UpdatedAt = time.Now()
-	return nil
+	TestResult   string     `gorm:"size:32" json:"test_result,omitempty"`
 }
 
 // ApiProvider 定义支持的 API 提供者列表。
@@ -57,6 +39,6 @@ func PredefinedProviders() []ApiProvider {
 		{ID: "openai", Name: "OpenAI", Description: "GPT 系列模型", HasAPIKey: true, HasBaseURL: true},
 		{ID: "deepseek", Name: "DeepSeek", Description: "DeepSeek 大模型", HasAPIKey: true, HasBaseURL: true},
 		{ID: "siliconflow", Name: "SiliconFlow", Description: "AI 模型聚合 API", HasAPIKey: true, HasBaseURL: true},
-		{ID: "adult", Name: "Adult API", Description: "Adult 内容元数据（需额外权限）", HasAPIKey: true, HasBaseURL: false},
+		{ID: "adult", Name: "Adult / 番号", Description: "JavDB/JavBus 成人内容元数据", HasAPIKey: false, HasBaseURL: true},
 	}
 }

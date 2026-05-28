@@ -16,6 +16,9 @@ func listSubtitlesHandler(svc *service.Container) gin.HandlerFunc {
 			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 			return
 		}
+		if tracks == nil {
+			tracks = []service.SubtitleTrack{}
+		}
 		c.JSON(http.StatusOK, gin.H{"tracks": tracks})
 	}
 }

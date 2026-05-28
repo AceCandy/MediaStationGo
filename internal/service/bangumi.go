@@ -40,7 +40,7 @@ func NewBangumiProvider(cfg *config.Config, log *zap.Logger) *BangumiProvider {
 		cfg:    cfg,
 		log:    log,
 		base:   "https://api.bgm.tv",
-		client: &http.Client{Timeout: 15 * time.Second},
+		client: NewExternalHTTPClient(15 * time.Second),
 	}
 }
 

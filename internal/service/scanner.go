@@ -5,14 +5,14 @@
 // ffprobe (when available) and queues a metadata lookup for newly added
 // rows.
 //
-// For TV / anime libraries we extract season + episode numbers from the
-// filename via ParseEpisode and store them on the Media row. A future
-// pass groups episodes into Series rows; the current scaffold lets the
-// frontend group by `series_id`.
+// When a filename exposes season + episode numbers we store them on the
+// Media row for every library type, so variety shows and other episodic
+// collections get the same grouping experience as TV/anime.
 package service
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -68,10 +68,13 @@ func NewScannerService(
 
 // ScanResult summarises a scan run.
 type ScanResult struct {
-	LibraryID string `json:"library_id"`
-	Visited   int    `json:"visited"`
-	Added     int    `json:"added"`
-	Probed    int    `json:"probed"`
+	LibraryID     string `json:"library_id"`
+	Visited       int    `json:"visited"`
+	Added         int    `json:"added"`
+	Updated       int    `json:"updated"`
+	Probed        int    `json:"probed"`
+	LocalMetadata int    `json:"local_metadata"`
+	Removed       int64  `json:"removed"`
 }
 
 // ScanLibrary walks the library root and persists discovered media files.
@@ -81,6 +84,7 @@ func (s *ScannerService) ScanLibrary(ctx context.Context, libraryID string) (*Sc
 		return nil, err
 	}
 	res := &ScanResult{LibraryID: lib.ID}
+	seen := make(map[string]struct{})
 
 	walkFn := func(path string, info walkInfo) error {
 		if info.isDir {
@@ -91,6 +95,8 @@ func (s *ScannerService) ScanLibrary(ctx context.Context, libraryID string) (*Sc
 			return nil
 		}
 		res.Visited++
+		seen[filepath.Clean(path)] = struct{}{}
+		isNewMedia := !s.mediaPathExists(ctx, path)
 
 		title, year := CleanQuery(path)
 		if title == "" {
@@ -106,11 +112,15 @@ func (s *ScannerService) ScanLibrary(ctx context.Context, libraryID string) (*Sc
 			Container: strings.TrimPrefix(ext, "."),
 		}
 
-		// Detect season/episode for TV / anime libraries.
-		if lib.Type == "tv" || lib.Type == "anime" {
-			s, e := ParseEpisode(path)
-			m.SeasonNum = s
-			m.EpisodeNum = e
+		parsedSeason, parsedEpisode := ParseEpisode(path)
+		m.SeasonNum = parsedSeason
+		m.EpisodeNum = parsedEpisode
+
+		if local, err := ReadLocalMetadata(path, lib.Path, librarySupportsSeasons(lib) || parsedSeason > 0 || parsedEpisode > 0); err == nil && local != nil {
+			applyLocalMetadata(m, local)
+			res.LocalMetadata++
+		} else if err != nil {
+			s.log.Warn("read local metadata failed", zap.String("path", path), zap.Error(err))
 		}
 
 		// Best-effort ffprobe; failure does not abort the file.
@@ -134,13 +144,19 @@ func (s *ScannerService) ScanLibrary(ctx context.Context, libraryID string) (*Sc
 			s.log.Warn("upsert media failed", zap.String("path", path), zap.Error(err))
 			return nil
 		}
-		res.Added++
+		if isNewMedia {
+			res.Added++
+		} else {
+			res.Updated++
+		}
 		s.hub.Publish("scan", map[string]any{
 			"library_id": lib.ID,
 			"path":       path,
 			"visited":    res.Visited,
 			"added":      res.Added,
+			"updated":    res.Updated,
 			"probed":     res.Probed,
+			"local_meta": res.LocalMetadata,
 		})
 		return nil
 	}
@@ -148,18 +164,27 @@ func (s *ScannerService) ScanLibrary(ctx context.Context, libraryID string) (*Sc
 	if err := walk(lib.Path, walkFn); err != nil {
 		return res, err
 	}
+	removed, err := s.pruneMissingMedia(ctx, lib.ID, seen)
+	if err != nil {
+		s.log.Warn("prune missing media failed", zap.String("library_id", lib.ID), zap.Error(err))
+	} else {
+		res.Removed = removed
+	}
 
 	s.hub.Publish("scan", map[string]any{
 		"library_id": lib.ID,
 		"finished":   true,
 		"visited":    res.Visited,
 		"added":      res.Added,
+		"updated":    res.Updated,
 		"probed":     res.Probed,
+		"local_meta": res.LocalMetadata,
+		"removed":    res.Removed,
 	})
 
-	// Fire-and-forget metadata enrichment when at least one provider is
-	// configured.
-	if s.scraper != nil && s.scraper.AnyEnabled() {
+	// Online enrichment is opt-in. Local NFO is always consumed first during
+	// the scan, and matched rows are excluded from EnrichLibrary's pending set.
+	if s.scraper != nil && s.scraper.AnyEnabled() && s.autoScrapeEnabled(ctx) {
 		go func(libID string) {
 			if _, err := s.scraper.EnrichLibrary(context.Background(), libID); err != nil {
 				s.log.Warn("scraper enrich failed", zap.Error(err))
@@ -167,4 +192,126 @@ func (s *ScannerService) ScanLibrary(ctx context.Context, libraryID string) (*Sc
 		}(lib.ID)
 	}
 	return res, nil
+}
+
+func (s *ScannerService) mediaPathExists(ctx context.Context, path string) bool {
+	var count int64
+	err := s.repo.DB.WithContext(ctx).Unscoped().Model(&model.Media{}).
+		Where("path = ?", path).Count(&count).Error
+	return err == nil && count > 0
+}
+
+func (s *ScannerService) pruneMissingMedia(ctx context.Context, libraryID string, seen map[string]struct{}) (int64, error) {
+	var rows []model.Media
+	if err := s.repo.DB.WithContext(ctx).
+		Where("library_id = ?", libraryID).
+		Find(&rows).Error; err != nil {
+		return 0, err
+	}
+	var removed int64
+	for _, row := range rows {
+		if row.Path == "" {
+			continue
+		}
+		if _, ok := seen[filepath.Clean(row.Path)]; ok {
+			continue
+		}
+		if _, err := os.Stat(row.Path); err == nil {
+			continue
+		} else if !os.IsNotExist(err) {
+			continue
+		}
+		res := s.repo.DB.WithContext(ctx).
+			Where("id = ?", row.ID).
+			Delete(&model.Media{})
+		if res.Error != nil {
+			return removed, res.Error
+		}
+		removed += res.RowsAffected
+	}
+	return removed, nil
+}
+
+func applyLocalMetadata(m *model.Media, local *LocalMetadata) {
+	if local.Title != "" {
+		m.Title = local.Title
+	}
+	if local.OriginalName != "" {
+		m.OriginalName = local.OriginalName
+	}
+	if local.AdultCode != "" {
+		m.OriginalName = local.AdultCode
+	}
+	if local.Year > 0 {
+		m.Year = local.Year
+	}
+	if local.Overview != "" {
+		m.Overview = local.Overview
+	}
+	if local.Rating > 0 {
+		m.Rating = local.Rating
+	}
+	if local.PosterURL != "" {
+		m.PosterURL = local.PosterURL
+	}
+	if local.BackdropURL != "" {
+		m.BackdropURL = local.BackdropURL
+	}
+	if local.TMDbID > 0 {
+		m.TMDbID = local.TMDbID
+	}
+	if local.SeasonNum > 0 {
+		m.SeasonNum = local.SeasonNum
+	}
+	if local.EpisodeNum > 0 {
+		m.EpisodeNum = local.EpisodeNum
+	}
+	if local.Genres != "" {
+		m.Genres = local.Genres
+	}
+	if local.Countries != "" {
+		m.Countries = local.Countries
+	}
+	if local.Languages != "" {
+		m.Languages = local.Languages
+	}
+	if local.NSFW {
+		m.NSFW = true
+	}
+	if local.HasNFO || localHasDescriptiveMetadata(local) {
+		m.ScrapeStatus = "matched"
+	}
+}
+
+func localHasDescriptiveMetadata(local *LocalMetadata) bool {
+	if local == nil {
+		return false
+	}
+	return local.Title != "" ||
+		local.OriginalName != "" ||
+		local.AdultCode != "" ||
+		local.Year > 0 ||
+		local.Overview != "" ||
+		local.Rating > 0 ||
+		local.TMDbID > 0 ||
+		local.Genres != "" ||
+		local.Countries != "" ||
+		local.Languages != ""
+}
+
+func (s *ScannerService) autoScrapeEnabled(ctx context.Context) bool {
+	if s.repo == nil || s.repo.Setting == nil {
+		return false
+	}
+	value, err := s.repo.Setting.Get(ctx, "scrape.auto_on_scan")
+	if err != nil {
+		s.log.Warn("read scrape.auto_on_scan failed", zap.Error(err))
+		return false
+	}
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "1", "true", "yes", "on", "enabled":
+		return true
+	default:
+		return false
+	}
 }

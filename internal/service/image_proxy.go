@@ -77,15 +77,9 @@ type ImageProxy struct {
 // NewImageProxy is the constructor.
 func NewImageProxy(cfg *config.Config, log *zap.Logger) *ImageProxy {
 	// Honor HTTP(S)_PROXY env vars so deployments behind GFW can pull
-	// from image.tmdb.org via their HTTP proxy without extra config.
-	transport := &http.Transport{
-		Proxy:                 http.ProxyFromEnvironment,
-		MaxIdleConns:          32,
-		MaxIdleConnsPerHost:   8,
-		IdleConnTimeout:       90 * time.Second,
-		TLSHandshakeTimeout:   15 * time.Second,
-		ExpectContinueTimeout: 1 * time.Second,
-	}
+	// from image.tmdb.org via their HTTP proxy without extra config. On
+	// Windows we also honor the current user's system proxy settings.
+	transport := NewExternalTransport()
 	return &ImageProxy{
 		cfg:      cfg,
 		log:      log,
@@ -112,6 +106,24 @@ func (p *ImageProxy) validateURL(raw string) (*url.URL, error) {
 	return u, nil
 }
 
+func isLocalImagePath(raw string) bool {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || isHTTPish(raw) {
+		return false
+	}
+	ext := strings.ToLower(filepath.Ext(raw))
+	switch ext {
+	case ".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp":
+		return true
+	default:
+		return false
+	}
+}
+
+func isHTTPish(raw string) bool {
+	return strings.HasPrefix(strings.ToLower(raw), "http://") || strings.HasPrefix(strings.ToLower(raw), "https://")
+}
+
 // detectContentType returns the MIME type of data using the first 512 bytes.
 func detectContentType(data []byte) string {
 	if len(data) > 512 {
@@ -132,6 +144,24 @@ func servePlaceholder(w http.ResponseWriter) {
 // Serve writes the requested image to w. Caller is expected to validate
 // the JWT before invoking it.
 func (p *ImageProxy) Serve(ctx context.Context, w http.ResponseWriter, r *http.Request, raw string) error {
+	if isLocalImagePath(raw) {
+		path := filepath.Clean(raw)
+		data, err := os.ReadFile(path)
+		if err != nil || len(data) == 0 {
+			servePlaceholder(w)
+			return nil
+		}
+		stat, _ := os.Stat(path)
+		modTime := time.Now()
+		if stat != nil {
+			modTime = stat.ModTime()
+		}
+		w.Header().Set("Content-Type", detectContentType(data))
+		w.Header().Set("Cache-Control", "public, max-age=604800")
+		http.ServeContent(w, r, filepath.Base(path), modTime, bytes.NewReader(data))
+		return nil
+	}
+
 	u, err := p.validateURL(raw)
 	if err != nil {
 		// Bad URL is the only request-side error; everything else falls
@@ -171,7 +201,11 @@ func (p *ImageProxy) Serve(ctx context.Context, w http.ResponseWriter, r *http.R
 		servePlaceholder(w)
 		return nil
 	}
-	req.Header.Set("User-Agent", "MediaStationGo/0.1")
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0 Safari/537.36")
+	req.Header.Set("Accept", "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8")
+	if strings.Contains(host, "doubanio.com") {
+		req.Header.Set("Referer", "https://movie.douban.com/")
+	}
 
 	resp, err := p.client.Do(req)
 	if err != nil {

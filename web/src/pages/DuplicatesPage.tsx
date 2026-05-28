@@ -28,12 +28,17 @@ export function DuplicatesPage() {
     libraryAPI.list().then(setLibs)
   }, [])
 
+  useEffect(() => {
+    duplicatesAPI.list(libID).then(setReport).catch(() => setReport(null))
+  }, [libID])
+
   const scan = async () => {
     setScanning(true)
     try {
       const r = await duplicatesAPI.scan(libID)
       setReport(r)
-      toast.success(`扫描完成: ${r.groups_found} 组重复, ${r.items_marked} 项标记`)
+      const cleaned = r.missing_removed ? `, 清理 ${r.missing_removed} 条失效记录` : ''
+      toast.success(`扫描完成: ${r.groups_found} 组重复, ${r.items_marked} 项标记${cleaned}`)
     } catch (err: unknown) {
       const msg =
         (err as { response?: { data?: { error?: string } } })?.response?.data?.error ??
@@ -89,7 +94,13 @@ export function DuplicatesPage() {
         <p className="text-ink-50">扫描了 {report.total_scanned} 项,未发现重复。</p>
       )}
 
-      {report && report.groups.map((g) => (
+      {report && report.missing_removed ? (
+        <p className="rounded-2xl border border-amber-300/50 bg-amber-50 px-4 py-3 text-sm text-amber-700">
+          已清理 {report.missing_removed} 条文件不存在的媒体记录，统计容量会在刷新后恢复正常。
+        </p>
+      ) : null}
+
+      {report && (report.groups ?? []).map((g) => (
         <section key={g.hash} className="glass-panel space-y-2">
           <div className="flex items-center justify-between">
             <p className="font-mono text-xs text-sand-500">{g.hash}</p>

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Database, HardDrive, PieChart } from 'lucide-react'
 
 import { storageAPI, type StorageBreakdown } from '../api/storage'
+import { ManagementShortcuts } from '../components/ManagementShortcuts'
 
 function fmtBytes(n: number): string {
   if (!n) return '0 B'
@@ -49,6 +50,17 @@ export function StoragePage() {
           </p>
         </div>
       </header>
+
+      <ManagementShortcuts
+        title="存储与文件入口"
+        description="存储统计只负责看数据，文件管理、排重、回收与配置入口集中放在这里。"
+        items={[
+          { to: '/files', title: '文件管理', description: '浏览服务器文件并执行基础文件操作' },
+          { to: '/storage-config', title: '存储配置', description: '维护媒体存储路径和容量策略' },
+          { to: '/duplicates', title: '重复清理', description: '扫描重复媒体并进行安全清理', badge: '清理' },
+          { to: '/recycle', title: '回收站', description: '查看已删除资源并执行恢复或释放空间' },
+        ]}
+      />
 
       <section className="grid gap-4 sm:grid-cols-3">
         <Tile icon={<Database size={20} />} label="总占用" value={fmtBytes(data.total_bytes)} />

@@ -20,24 +20,22 @@ import (
 
 // AutoInstallFFmpeg 在启动时检测并自动安装 ffmpeg/ffprobe
 func AutoInstallFFmpeg(log *zap.Logger, cfg *config.Config) (ffprobePath, ffmpegPath string) {
-	// 1. 检查配置中是否已指定路径
-	if cfg.App.FFprobePath != "" {
-		if _, err := os.Stat(cfg.App.FFprobePath); err == nil {
-			log.Info("使用配置的 ffprobe", zap.String("path", cfg.App.FFprobePath))
-			return cfg.App.FFprobePath, cfg.App.FFmpegPath
-		}
+	// 1. 优先使用配置 / PATH / 本机常见软件目录中的现有工具。
+	if path, err := resolveLocalExecutable(cfg.App.FFprobePath, "ffprobe"); err == nil {
+		ffprobePath = path
+		cfg.App.FFprobePath = path
+		log.Info("found local ffprobe", zap.String("path", path))
+	}
+	if path, err := resolveLocalExecutable(cfg.App.FFmpegPath, "ffmpeg"); err == nil {
+		ffmpegPath = path
+		cfg.App.FFmpegPath = path
+		log.Info("found local ffmpeg", zap.String("path", path))
+	}
+	if ffprobePath != "" || ffmpegPath != "" {
+		return ffprobePath, ffmpegPath
 	}
 
-	// 2. 检查系统 PATH
-	if path, err := exec.LookPath("ffprobe"); err == nil {
-		log.Info("在 PATH 中找到 ffprobe", zap.String("path", path))
-		if ffmpegPath, err := exec.LookPath("ffmpeg"); err == nil {
-			return path, ffmpegPath
-		}
-		return path, ""
-	}
-
-	// 3. 检查默认安装位置
+	// 2. 检查默认安装位置。
 	defaultDir := getDefaultInstallDir()
 	ffprobeDefault := filepath.Join(defaultDir, "bin", "ffprobe.exe")
 	ffmpegDefault := filepath.Join(defaultDir, "bin", "ffmpeg.exe")
@@ -47,7 +45,7 @@ func AutoInstallFFmpeg(log *zap.Logger, cfg *config.Config) (ffprobePath, ffmpeg
 		return ffprobeDefault, ffmpegDefault
 	}
 
-	// 4. 尝试自动安装
+	// 3. 尝试自动安装。
 	log.Warn("未找到 ffmpeg/ffprobe，尝试自动安装...")
 	installed, err := tryAutoInstall(log, defaultDir)
 	if err != nil {

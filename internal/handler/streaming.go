@@ -55,16 +55,12 @@ func imageProxyHandler(svc *service.Container) gin.HandlerFunc {
 	}
 }
 
-// scrapeOneHandler enriches a single media via TMDb. Admin-only.
+// scrapeOneHandler enriches a single media via the configured scraper chain.
 func scrapeOneHandler(svc *service.Container) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		m, err := svc.Repo.Media.FindByID(c.Request.Context(), c.Param("id"))
 		if err != nil || m == nil {
 			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
-			return
-		}
-		if !svc.TMDb.Enabled() {
-			c.JSON(http.StatusPreconditionFailed, gin.H{"error": "tmdb api key not configured"})
 			return
 		}
 		if err := svc.Scraper.EnrichOne(c.Request.Context(), m); err != nil {
@@ -76,17 +72,13 @@ func scrapeOneHandler(svc *service.Container) gin.HandlerFunc {
 	}
 }
 
-// scrapeLibraryHandler enriches every pending media in a library. Admin-only.
+// scrapeLibraryHandler retries every pending/no_match media in a library.
 func scrapeLibraryHandler(svc *service.Container) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if !svc.TMDb.Enabled() {
-			c.JSON(http.StatusPreconditionFailed, gin.H{"error": "tmdb api key not configured"})
-			return
-		}
 		// Run in the background so HTTP returns instantly; the WS hub
 		// pushes per-item progress on the "scrape" topic.
 		go func(libID string) {
-			_, _ = svc.Scraper.EnrichLibrary(context.Background(), libID)
+			_, _ = svc.Scraper.EnrichLibrary(context.Background(), libID, true)
 		}(c.Param("id"))
 		c.JSON(http.StatusAccepted, gin.H{"status": "scraping"})
 	}

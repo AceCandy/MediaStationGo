@@ -4,8 +4,8 @@
 // completion) and moves/renames it into the configured library directory
 // using a Jinja2-like template. The default templates:
 //
-//   movie: {Title} ({Year})/{Title} ({Year}).{Ext}
-//   tv:    {Title}/Season {Season:02d}/{Title} - S{Season:02d}E{Episode:02d}.{Ext}
+//	movie: {Title} ({Year})/{Title} ({Year}).{Ext}
+//	tv:    {Title}/Season {Season:02d}/{Title} - S{Season:02d}E{Episode:02d}.{Ext}
 //
 // We do NOT delete the source after move — the operator can turn that on
 // via a config flag. This mirrors MediaStation's "organize after download"
@@ -58,6 +58,11 @@ func (o *OrganizerService) OrganizeMedia(ctx context.Context, mediaID string) (s
 	lib, err := o.repo.Library.FindByID(ctx, m.LibraryID)
 	if err != nil || lib == nil {
 		return "", errors.New("library not found")
+	}
+	if lib.Type == "tv" || lib.Type == "anime" {
+		if err := o.refreshEpisodeIdentity(m, lib); err != nil {
+			return "", err
+		}
 	}
 	ext := filepath.Ext(m.Path)
 	title := sanitizeFilename(m.Title)
@@ -121,8 +126,19 @@ func (o *OrganizerService) OrganizeMedia(ctx context.Context, mediaID string) (s
 	if err := o.repo.DB.WithContext(ctx).
 		Model(&model.Media{}).
 		Where("id = ?", m.ID).
-		Update("path", dst).Error; err != nil {
+		Updates(map[string]any{
+			"path":        dst,
+			"season_num":  m.SeasonNum,
+			"episode_num": m.EpisodeNum,
+		}).Error; err != nil {
 		return dst, err
+	}
+	if err := moveSidecarNFO(m.Path, dst); err != nil {
+		o.log.Warn("organize sidecar nfo failed",
+			zap.String("media", m.ID),
+			zap.String("from", nfoPath(m.Path)),
+			zap.String("to", nfoPath(dst)),
+			zap.Error(err))
 	}
 	o.log.Info("organized",
 		zap.String("media", m.ID),
@@ -158,6 +174,37 @@ func (o *OrganizerService) OrganizeLibrary(ctx context.Context, libraryID string
 	return res, nil
 }
 
+func (o *OrganizerService) refreshEpisodeIdentity(m *model.Media, lib *model.Library) error {
+	season, episode := m.SeasonNum, m.EpisodeNum
+
+	if parsedSeason, parsedEpisode := ParseEpisode(m.Path); parsedSeason > 0 || parsedEpisode > 0 {
+		if parsedSeason > 0 {
+			season = parsedSeason
+		}
+		if parsedEpisode > 0 {
+			episode = parsedEpisode
+		}
+	}
+
+	if local, err := ReadLocalMetadata(m.Path, lib.Path, true); err == nil && local != nil {
+		if local.SeasonNum > 0 {
+			season = local.SeasonNum
+		}
+		if local.EpisodeNum > 0 {
+			episode = local.EpisodeNum
+		}
+	} else if err != nil {
+		o.log.Warn("organize read local metadata failed", zap.String("path", m.Path), zap.Error(err))
+	}
+
+	if season <= 0 || episode <= 0 {
+		return fmt.Errorf("cannot determine season/episode for %s", m.Path)
+	}
+	m.SeasonNum = season
+	m.EpisodeNum = episode
+	return nil
+}
+
 // moveFile tries os.Rename first (instant on same fs), then falls back
 // to copy + remove for cross-device moves.
 //
@@ -189,6 +236,27 @@ func moveFile(src, dst string) error {
 		return cerr
 	}
 	return os.Remove(src)
+}
+
+func moveSidecarNFO(srcMedia, dstMedia string) error {
+	src := nfoPath(srcMedia)
+	dst := nfoPath(dstMedia)
+	if src == dst {
+		return nil
+	}
+	if _, err := os.Stat(src); err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	if _, err := os.Stat(dst); err == nil {
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		return err
+	}
+	return moveFile(src, dst)
 }
 
 // sanitizeFilename removes characters not safe for filesystem names.
@@ -224,153 +292,12 @@ func (o *OrganizerService) SmartClassify(ctx context.Context, m *model.Media) st
 		return ""
 	}
 
-	// Fetch fresh metadata from DB (languages, countries, genres may have been updated by scraper)
-	if m.Languages == "" && m.Countries == "" && m.Genres == "" {
-		// Try to reload from DB
-		fresh, err := o.repo.Media.FindByID(ctx, m.ID)
-		if err == nil && fresh != nil {
-			m = fresh
-		}
-	}
-
-	// Parse metadata fields (comma-separated)
-	languages := parseCommaList(m.Languages)
-	countries := parseCommaList(m.Countries)
-	genres := parseCommaList(m.Genres)
-
 	// Determine media type from library
 	lib, err := o.repo.Library.FindByID(ctx, m.LibraryID)
 	if err != nil || lib == nil {
 		return ""
 	}
-
-	categories := o.cfg.Organizer.Categories
-	if categories == nil {
-		categories = make(map[string]string)
-	}
-
-	// Helper closures
-	isChinese := func() bool {
-		for _, lang := range languages {
-			if lang == "zh" || lang == "zh-CN" || lang == "zh-TW" {
-				return true
-			}
-		}
-		for _, c := range countries {
-			if c == "CN" || c == "TW" || c == "HK" {
-				return true
-			}
-		}
-		return false
-	}
-
-	isEastAsian := func() bool {
-		for _, c := range countries {
-			if c == "JP" || c == "KR" {
-				return true
-			}
-		}
-		for _, lang := range languages {
-			if lang == "ja" || lang == "ko" {
-				return true
-			}
-		}
-		return false
-	}
-
-	isWestern := func() bool {
-		westernCountries := []string{"US", "GB", "FR", "DE", "CA", "AU", "NZ", "IE", "NL", "SE", "NO", "DK", "FI", "ES", "IT", "PT", "AT", "CH", "BE"}
-		for _, c := range countries {
-			for _, wc := range westernCountries {
-				if c == wc {
-					return true
-				}
-			}
-		}
-		return false
-	}
-
-	// Classification logic
-	switch lib.Type {
-	case "movie":
-		// Use genres to help classify (e.g., Animation might be anime)
-		isAnimation := false
-		for _, g := range genres {
-			if g == "Animation" {
-				isAnimation = true
-				break
-			}
-		}
-
-		if isChinese() {
-			if name, ok := categories["chinese_movie"]; ok && name != "" {
-				return name
-			}
-			return "华语电影"
-		}
-		if isEastAsian() || (isAnimation && isEastAsian()) {
-			if name, ok := categories["jk_movie"]; ok && name != "" {
-				return name
-			}
-			return "日韩电影"
-		}
-		if isWestern() {
-			if name, ok := categories["euus_movie"]; ok && name != "" {
-				return name
-			}
-			return "欧美电影"
-		}
-		// Fallback: foreign movie
-		if name, ok := categories["foreign_movie"]; ok && name != "" {
-			return name
-		}
-		return "外语电影"
-
-	case "tv", "anime":
-		if lib.Type == "anime" || contains(genres, "Animation") {
-			// Anime classification
-			if isEastAsian() {
-				// Check if it's Japanese
-				for _, c := range countries {
-					if c == "JP" {
-						if name, ok := categories["jp_anime"]; ok && name != "" {
-							return name
-						}
-						return "日番"
-					}
-				}
-			}
-			// Chinese anime
-			if isChinese() {
-				if name, ok := categories["cn_anime"]; ok && name != "" {
-					return name
-				}
-				return "国漫"
-			}
-		}
-		// TV classification
-		if isChinese() {
-			if name, ok := categories["domestic_tv"]; ok && name != "" {
-				return name
-			}
-			return "国产剧"
-		}
-		if isEastAsian() {
-			if name, ok := categories["jk_tv"]; ok && name != "" {
-				return name
-			}
-			return "日韩剧"
-		}
-		if isWestern() {
-			if name, ok := categories["euus_tv"]; ok && name != "" {
-				return name
-			}
-			return "欧美剧"
-		}
-		return "剧集"
-	}
-
-	return ""
+	return o.classifyMedia(ctx, m, lib.Type)
 }
 
 // parseCommaList splits a comma-separated string into a slice of trimmed strings.

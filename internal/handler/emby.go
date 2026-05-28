@@ -6,6 +6,8 @@
 package handler
 
 import (
+	"errors"
+	"io"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -36,20 +38,55 @@ func embyUserID(c *gin.Context) string {
 
 func embySystemInfoHandler(svc *service.Container) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		c.JSON(http.StatusOK, svc.Emby.SystemInfo())
+		c.JSON(http.StatusOK, embyWithRequestAddress(c, svc.Emby.SystemInfo()))
 	}
 }
 
 func embySystemInfoPublicHandler(svc *service.Container) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		c.JSON(http.StatusOK, svc.Emby.SystemInfoPublic())
+		c.JSON(http.StatusOK, embyWithRequestAddress(c, svc.Emby.SystemInfoPublic()))
 	}
+}
+
+func embyRequestBaseURL(c *gin.Context) string {
+	proto := strings.TrimSpace(c.GetHeader("X-Forwarded-Proto"))
+	if proto == "" {
+		if c.Request != nil && c.Request.TLS != nil {
+			proto = "https"
+		} else {
+			proto = "http"
+		}
+	}
+	if comma := strings.Index(proto, ","); comma >= 0 {
+		proto = strings.TrimSpace(proto[:comma])
+	}
+
+	host := strings.TrimSpace(c.GetHeader("X-Forwarded-Host"))
+	if host == "" && c.Request != nil {
+		host = strings.TrimSpace(c.Request.Host)
+	}
+	if host == "" {
+		return ""
+	}
+	return strings.TrimRight(proto+"://"+host, "/")
+}
+
+func embyWithRequestAddress(c *gin.Context, payload map[string]any) map[string]any {
+	out := make(map[string]any, len(payload)+2)
+	for key, value := range payload {
+		out[key] = value
+	}
+	if address := embyRequestBaseURL(c); address != "" {
+		out["LocalAddress"] = address
+		out["WanAddress"] = address
+	}
+	return out
 }
 
 func embySystemEndpointHandler(_ *service.Container) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{
-			"IsLocal":  true,
+			"IsLocal":     true,
 			"IsInNetwork": true,
 		})
 	}
@@ -70,20 +107,95 @@ type embyAuthByNameReq struct {
 	Password string `json:"Password"`
 }
 
+func parseEmbyAuthByNameReq(c *gin.Context) (embyAuthByNameReq, error) {
+	req := embyAuthByNameReq{}
+	if strings.Contains(strings.ToLower(c.GetHeader("Content-Type")), "json") {
+		var body map[string]any
+		if err := c.ShouldBindJSON(&body); err != nil && !errors.Is(err, io.EOF) {
+			return req, err
+		}
+		req.Username = firstStringFromMap(body, "Username", "username", "Name", "name")
+		req.Pw = firstStringFromMap(body, "Pw", "pw")
+		req.Password = firstStringFromMap(body, "Password", "password")
+	}
+
+	if req.Username == "" || (req.Pw == "" && req.Password == "") {
+		_ = c.Request.ParseForm()
+		if req.Username == "" {
+			req.Username = firstFormValue(c, "Username", "username", "Name", "name")
+		}
+		if req.Pw == "" {
+			req.Pw = firstFormValue(c, "Pw", "pw")
+		}
+		if req.Password == "" {
+			req.Password = firstFormValue(c, "Password", "password")
+		}
+	}
+
+	if req.Username == "" {
+		req.Username = firstQueryValue(c, "Username", "username", "Name", "name")
+	}
+	if req.Pw == "" {
+		req.Pw = firstQueryValue(c, "Pw", "pw")
+	}
+	if req.Password == "" {
+		req.Password = firstQueryValue(c, "Password", "password")
+	}
+	return req, nil
+}
+
+func firstStringFromMap(body map[string]any, keys ...string) string {
+	if len(body) == 0 {
+		return ""
+	}
+	for _, key := range keys {
+		if value, ok := body[key]; ok {
+			if s, ok := value.(string); ok {
+				return strings.TrimSpace(s)
+			}
+		}
+	}
+	return ""
+}
+
+func firstFormValue(c *gin.Context, keys ...string) string {
+	for _, key := range keys {
+		if values, ok := c.Request.PostForm[key]; ok && len(values) > 0 {
+			if value := strings.TrimSpace(values[0]); value != "" {
+				return value
+			}
+		}
+	}
+	return ""
+}
+
+func firstQueryValue(c *gin.Context, keys ...string) string {
+	for _, key := range keys {
+		if value := strings.TrimSpace(c.Query(key)); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
 // embyAuthByNameHandler 处理 POST /Users/AuthenticateByName。
 //
 // 这是 Emby 客户端登录的唯一入口（Infuse / Yamby / Hills 等都走这里）。
 // 用户名+密码 → 调用我们已有的 AuthService.Login → 返回 AccessToken + User。
 func embyAuthByNameHandler(svc *service.Container) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		var req embyAuthByNameReq
-		if err := c.ShouldBindJSON(&req); err != nil {
+		req, err := parseEmbyAuthByNameReq(c)
+		if err != nil {
 			embyError(c, http.StatusBadRequest, "invalid body")
 			return
 		}
 		password := req.Pw
 		if password == "" {
 			password = req.Password
+		}
+		if strings.TrimSpace(req.Username) == "" || password == "" {
+			embyError(c, http.StatusBadRequest, "missing username or password")
+			return
 		}
 		resp, err := svc.Auth.Login(c.Request.Context(), req.Username, password)
 		if err != nil {
@@ -96,11 +208,11 @@ func embyAuthByNameHandler(svc *service.Container) gin.HandlerFunc {
 			"ServerId":    "mediastation-go-001",
 			"User":        userPayload,
 			"SessionInfo": gin.H{
-				"Id":       resp.User.ID,
-				"UserId":   resp.User.ID,
-				"UserName": resp.User.Username,
-				"Client":   c.GetHeader("X-Emby-Client"),
-				"DeviceId": c.GetHeader("X-Emby-Device-Id"),
+				"Id":         resp.User.ID,
+				"UserId":     resp.User.ID,
+				"UserName":   resp.User.Username,
+				"Client":     c.GetHeader("X-Emby-Client"),
+				"DeviceId":   c.GetHeader("X-Emby-Device-Id"),
 				"DeviceName": c.GetHeader("X-Emby-Device-Name"),
 			},
 		})
@@ -438,8 +550,8 @@ func embySessionsHandler(_ *service.Container) gin.HandlerFunc {
 func embyBrandingConfigHandler(_ *service.Container) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{
-			"LoginDisclaimer":   "",
-			"CustomCss":         "",
+			"LoginDisclaimer":     "",
+			"CustomCss":           "",
 			"SplashscreenEnabled": false,
 		})
 	}
@@ -460,14 +572,34 @@ func registerEmbyRoutes(r *gin.Engine, jwtSecret string, svc *service.Container)
 		grp := r.Group(prefix)
 
 		// 公开端点
-		grp.GET("/System/Info/Public", embySystemInfoPublicHandler(svc))
-		grp.GET("/System/Ping", embyPingHandler(svc))
-		grp.HEAD("/System/Ping", embyPingHandler(svc))
-		grp.POST("/System/Ping", embyPingHandler(svc))
-		grp.POST("/Users/AuthenticateByName", embyAuthByNameHandler(svc))
-		grp.GET("/Users/Public", embyPublicUsersHandler(svc))
-		grp.GET("/Branding/Configuration", embyBrandingConfigHandler(svc))
-		grp.GET("/Localization/Options", embyLocalizationOptionsHandler(svc))
+		for _, path := range []string{"/System/Info/Public", "/system/info/public"} {
+			grp.GET(path, embySystemInfoPublicHandler(svc))
+			grp.HEAD(path, embySystemInfoPublicHandler(svc))
+		}
+		for _, path := range []string{"/System/Info", "/system/info"} {
+			grp.GET(path, embySystemInfoHandler(svc))
+			grp.HEAD(path, embySystemInfoHandler(svc))
+		}
+		for _, path := range []string{"/System/Endpoint", "/system/endpoint"} {
+			grp.GET(path, embySystemEndpointHandler(svc))
+		}
+		for _, path := range []string{"/System/Ping", "/system/ping"} {
+			grp.GET(path, embyPingHandler(svc))
+			grp.HEAD(path, embyPingHandler(svc))
+			grp.POST(path, embyPingHandler(svc))
+		}
+		for _, path := range []string{"/Users/AuthenticateByName", "/users/authenticatebyname"} {
+			grp.POST(path, embyAuthByNameHandler(svc))
+		}
+		for _, path := range []string{"/Users/Public", "/users/public"} {
+			grp.GET(path, embyPublicUsersHandler(svc))
+		}
+		for _, path := range []string{"/Branding/Configuration", "/branding/configuration"} {
+			grp.GET(path, embyBrandingConfigHandler(svc))
+		}
+		for _, path := range []string{"/Localization/Options", "/localization/options"} {
+			grp.GET(path, embyLocalizationOptionsHandler(svc))
+		}
 
 		// 图片公开（Infuse 缓存 URL 时会丢 token）
 		grp.GET("/Items/:id/Images/:type", embyItemImageHandler(svc))
@@ -475,10 +607,7 @@ func registerEmbyRoutes(r *gin.Engine, jwtSecret string, svc *service.Container)
 		grp.HEAD("/Items/:id/Images/:type", embyItemImageHandler(svc))
 
 		// 鉴权后端点
-		auth := grp.Group("", middleware.AuthRequired(jwtSecret))
-		auth.GET("/System/Info", embySystemInfoHandler(svc))
-		auth.GET("/System/Endpoint", embySystemEndpointHandler(svc))
-
+		auth := grp.Group("", middleware.EmbyAuthRequired(jwtSecret))
 		auth.GET("/Users/Me", embyMeHandler(svc))
 		auth.GET("/Users", embyListUsersHandler(svc))
 		auth.GET("/Users/:userId", embyGetUserByIDHandler(svc))

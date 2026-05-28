@@ -6,13 +6,13 @@
 //
 // Encoder selection (read once at startup from the config):
 //
-//   transcoder.encoder = "" | "nvenc" | "qsv" | "vaapi"
+//	transcoder.encoder = "" | "nvenc" | "qsv" | "vaapi"
 //
-//   ""      software libx264 (default; runs anywhere)
-//   nvenc   h264_nvenc      (NVIDIA GPU, requires --gpus all on Docker)
-//   qsv     h264_qsv        (Intel iGPU, requires /dev/dri:/dev/dri)
-//   vaapi   h264_vaapi      (Mesa/Intel VAAPI, requires /dev/dri:/dev/dri
-//                            plus the kernel module loaded)
+//	""      software libx264 (default; runs anywhere)
+//	nvenc   h264_nvenc      (NVIDIA GPU, requires --gpus all on Docker)
+//	qsv     h264_qsv        (Intel iGPU, requires /dev/dri:/dev/dri)
+//	vaapi   h264_vaapi      (Mesa/Intel VAAPI, requires /dev/dri:/dev/dri
+//	                         plus the kernel module loaded)
 //
 // Concurrency model:
 //   - Each Media has at most one active ffmpeg job.
@@ -29,6 +29,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -40,8 +41,8 @@ import (
 
 // TranscoderService orchestrates background ffmpeg transcodes.
 type TranscoderService struct {
-	cfg *config.Config
-	log *zap.Logger
+	cfg  *config.Config
+	log  *zap.Logger
 	repo *repository.Container
 	hub  *Hub
 
@@ -93,6 +94,9 @@ func (t *TranscoderService) EnsureJob(ctx context.Context, mediaID string) (stri
 	}
 	if _, err := os.Stat(m.Path); err != nil {
 		return "", ErrMediaNotFound
+	}
+	if _, err := t.resolveFFmpegPath(); err != nil {
+		return "", err
 	}
 
 	t.mu.Lock()
@@ -191,9 +195,18 @@ func (t *TranscoderService) Active() []ActiveJob {
 }
 
 func (t *TranscoderService) runFFmpeg(ctx context.Context, job *hlsJob, source string) {
-	bin := t.cfg.App.FFmpegPath
-	if bin == "" {
-		bin = "ffmpeg"
+	bin, err := t.resolveFFmpegPath()
+	if err != nil {
+		t.log.Warn("ffmpeg unavailable", zap.String("media_id", job.mediaID), zap.Error(err))
+		t.mu.Lock()
+		delete(t.jobs, job.mediaID)
+		t.mu.Unlock()
+		t.hub.Publish("transcode", map[string]any{
+			"media_id": job.mediaID,
+			"status":   "error",
+			"error":    err.Error(),
+		})
+		return
 	}
 
 	playlist := filepath.Join(job.outputDir, "index.m3u8")
@@ -231,6 +244,70 @@ func (t *TranscoderService) runFFmpeg(ctx context.Context, job *hlsJob, source s
 		"status":   "stopped",
 		"duration": time.Since(job.startedAt).Seconds(),
 	})
+}
+
+func (t *TranscoderService) resolveFFmpegPath() (string, error) {
+	var lastErr error
+	for _, bin := range executableCandidates(strings.TrimSpace(t.cfg.App.FFmpegPath), "ffmpeg") {
+		if err := validateFFmpegForTranscode(context.Background(), bin, t.cfg.Transcoder.Encoder); err != nil {
+			lastErr = err
+			continue
+		}
+		t.cfg.App.FFmpegPath = bin
+		return bin, nil
+	}
+	if lastErr != nil {
+		return "", fmt.Errorf("no usable ffmpeg found for HLS transcode: %w", lastErr)
+	}
+	return "", fmt.Errorf("ffmpeg not found in PATH or common local app directories; configure app.ffmpeg_path to an existing local ffmpeg")
+}
+
+func validateFFmpegForTranscode(ctx context.Context, bin, encoder string) error {
+	required := requiredVideoEncoder(encoder)
+	out, err := commandOutput(ctx, 8*time.Second, bin, "-hide_banner", "-encoders")
+	if err != nil {
+		return fmt.Errorf("%s cannot list encoders: %w", bin, err)
+	}
+	if !hasFFmpegListEntry(string(out), required) {
+		return fmt.Errorf("%s does not provide required encoder %s", bin, required)
+	}
+
+	out, err = commandOutput(ctx, 8*time.Second, bin, "-hide_banner", "-muxers")
+	if err != nil || !hasFFmpegListEntry(string(out), "hls") {
+		out, err = commandOutput(ctx, 8*time.Second, bin, "-hide_banner", "-formats")
+		if err != nil {
+			return fmt.Errorf("%s cannot list muxers/formats: %w", bin, err)
+		}
+	}
+	if !hasFFmpegListEntry(string(out), "hls") {
+		return fmt.Errorf("%s does not provide hls muxer", bin)
+	}
+	return nil
+}
+
+func requiredVideoEncoder(encoder string) string {
+	switch encoder {
+	case "nvenc":
+		return "h264_nvenc"
+	case "qsv":
+		return "h264_qsv"
+	case "vaapi":
+		return "h264_vaapi"
+	default:
+		return "libx264"
+	}
+}
+
+func hasFFmpegListEntry(output, name string) bool {
+	for _, line := range strings.Split(output, "\n") {
+		fields := strings.Fields(line)
+		for _, field := range fields {
+			if field == name {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // buildFFmpegArgs assembles the ffmpeg command line for the configured
@@ -317,8 +394,6 @@ func buildFFmpegArgs(cfg *config.Config, source, playlist, segments string) []st
 		"-f", "hls",
 		"-hls_time", fmt.Sprintf("%d", segDur),
 		"-hls_list_size", "0",
-		"-hls_segment_type", "mpegts",
-		"-hls_flags", "independent_segments",
 		"-hls_segment_filename", segments,
 		playlist,
 	)

@@ -36,7 +36,7 @@ func NewFanartProvider(cfg *config.Config, log *zap.Logger) *FanartProvider {
 	return &FanartProvider{
 		cfg:    cfg,
 		log:    log,
-		client: &http.Client{Timeout: 15 * time.Second},
+		client: NewExternalHTTPClient(15 * time.Second),
 	}
 }
 
@@ -61,10 +61,10 @@ func (f *FanartProvider) MovieArtwork(ctx context.Context, tmdbID int) (*Artwork
 		Lang string `json:"lang"`
 	}
 	type page struct {
-		MoviePoster   []entry `json:"movieposter"`
-		MovieBackgr   []entry `json:"moviebackground"`
-		HDLogo        []entry `json:"hdmovielogo"`
-		MovieThumb    []entry `json:"moviethumb"`
+		MoviePoster []entry `json:"movieposter"`
+		MovieBackgr []entry `json:"moviebackground"`
+		HDLogo      []entry `json:"hdmovielogo"`
+		MovieThumb  []entry `json:"moviethumb"`
 	}
 	u := fmt.Sprintf("https://webservice.fanart.tv/v3/movies/%d?api_key=%s",
 		tmdbID, f.cfg.Secrets.FanartAPIKey)

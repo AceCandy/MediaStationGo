@@ -79,9 +79,9 @@ type Media struct {
 	ScrapeStatus string  `gorm:"size:16;default:pending" json:"scrape_status"`
 	TMDbID       int     `json:"tmdb_id"`
 	BangumiID    int     `json:"bangumi_id"`
-	Languages    string  `gorm:"size:64"  json:"languages,omitempty"`  // 逗号分隔的 ISO 639-1 代码，如 "zh,en"
-	Countries    string  `gorm:"size:128" json:"countries,omitempty"`  // 逗号分隔的 ISO 3166-1，如 "CN,US"
-	Genres       string  `gorm:"size:255" json:"genres,omitempty"`     // 逗号分隔的类型名，如 "Action,Animation"
+	Languages    string  `gorm:"size:64"  json:"languages,omitempty"` // 逗号分隔的 ISO 639-1 代码，如 "zh,en"
+	Countries    string  `gorm:"size:128" json:"countries,omitempty"` // 逗号分隔的 ISO 3166-1，如 "CN,US"
+	Genres       string  `gorm:"size:255" json:"genres,omitempty"`    // 逗号分隔的类型名，如 "Action,Animation"
 	NSFW         bool    `gorm:"default:false" json:"nsfw"`
 
 	// STRMURL is the indirection target for .strm files: when present the
@@ -113,7 +113,7 @@ type Media struct {
 type APIConfig struct {
 	Base
 	Provider    string `gorm:"uniqueIndex;size:32;not null" json:"provider"`
-	APIKey      string `gorm:"type:text" json:"-"`              // ciphertext (never serialised)
+	APIKey      string `gorm:"type:text" json:"-"` // ciphertext (never serialised)
 	BaseURL     string `gorm:"size:512" json:"base_url,omitempty"`
 	Extra       string `gorm:"type:text" json:"extra,omitempty"` // free-form JSON
 	Enabled     bool   `gorm:"default:true" json:"enabled"`
@@ -182,12 +182,15 @@ type DownloadTask struct {
 // Subscription 是自动化规则，轮询 RSS 源并将匹配种子排队到配置的下载客户端。
 type Subscription struct {
 	Base
-	UserID    string     `gorm:"index;size:36" json:"user_id"`
-	Name      string     `gorm:"size:128;not null" json:"name"`
-	FeedURL   string     `gorm:"size:2048;not null" json:"feed_url"`
-	Filter    string     `gorm:"size:512" json:"filter"`
-	Enabled   bool       `gorm:"default:true" json:"enabled"`
-	LastRunAt *time.Time `json:"last_run_at,omitempty"`
+	UserID        string     `gorm:"index;size:36" json:"user_id"`
+	Name          string     `gorm:"size:128;not null" json:"name"`
+	FeedURL       string     `gorm:"size:2048;not null" json:"feed_url"`
+	Filter        string     `gorm:"size:512" json:"filter"`
+	MediaType     string     `gorm:"size:16" json:"media_type,omitempty"`
+	MediaCategory string     `gorm:"size:128" json:"media_category,omitempty"`
+	SavePath      string     `gorm:"size:1024" json:"save_path,omitempty"`
+	Enabled       bool       `gorm:"default:true" json:"enabled"`
+	LastRunAt     *time.Time `json:"last_run_at,omitempty"`
 }
 
 // Setting 是单个键/值系统级偏好（供管理 UI 使用）。
@@ -216,19 +219,19 @@ type AccessLog struct {
 // AllowedLibraryIDs is a JSON array of library UUIDs (empty = all).
 type PlayProfile struct {
 	Base
-	UserID                string `gorm:"index;size:36;not null" json:"user_id"`
-	Name                  string `gorm:"size:64;not null" json:"name"`
-	IsDefault             bool   `gorm:"default:false" json:"is_default"`
-	ContentRatingLimit    string `gorm:"size:16" json:"content_rating_limit,omitempty"`
-	AllowAdult            bool   `gorm:"default:false" json:"allow_adult"`
-	RequirePIN            bool   `gorm:"default:false" json:"require_pin"`
-	PINHash               string `gorm:"size:128" json:"-"`
-	PreferredSubtitleLang string `gorm:"size:16" json:"preferred_subtitle_lang,omitempty"`
-	PreferredAudioLang    string `gorm:"size:16" json:"preferred_audio_lang,omitempty"`
-	AutoplayNext          bool   `gorm:"default:true" json:"autoplay_next"`
-	SkipIntro             bool   `gorm:"default:false" json:"skip_intro"`
-	AllowedLibraryIDs     string `gorm:"type:text;default:'[]'" json:"allowed_library_ids"`
-	TotalWatchTime        int64  `gorm:"default:0" json:"total_watch_time"`
+	UserID                string     `gorm:"index;size:36;not null" json:"user_id"`
+	Name                  string     `gorm:"size:64;not null" json:"name"`
+	IsDefault             bool       `gorm:"default:false" json:"is_default"`
+	ContentRatingLimit    string     `gorm:"size:16" json:"content_rating_limit,omitempty"`
+	AllowAdult            bool       `gorm:"default:false" json:"allow_adult"`
+	RequirePIN            bool       `gorm:"default:false" json:"require_pin"`
+	PINHash               string     `gorm:"size:128" json:"-"`
+	PreferredSubtitleLang string     `gorm:"size:16" json:"preferred_subtitle_lang,omitempty"`
+	PreferredAudioLang    string     `gorm:"size:16" json:"preferred_audio_lang,omitempty"`
+	AutoplayNext          bool       `gorm:"default:true" json:"autoplay_next"`
+	SkipIntro             bool       `gorm:"default:false" json:"skip_intro"`
+	AllowedLibraryIDs     string     `gorm:"type:text;default:'[]'" json:"allowed_library_ids"`
+	TotalWatchTime        int64      `gorm:"default:0" json:"total_watch_time"`
 	LastActiveAt          *time.Time `json:"last_active_at,omitempty"`
 }
 

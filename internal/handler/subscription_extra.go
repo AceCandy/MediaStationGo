@@ -22,10 +22,13 @@ func updateSubscriptionHandler(svc *service.Container) gin.HandlerFunc {
 			Model(&model.Subscription{}).
 			Where("id = ?", c.Param("id")).
 			Updates(map[string]any{
-				"name":     patch.Name,
-				"feed_url": patch.FeedURL,
-				"filter":   patch.Filter,
-				"enabled":  patch.Enabled,
+				"name":           patch.Name,
+				"feed_url":       patch.FeedURL,
+				"filter":         patch.Filter,
+				"media_type":     patch.MediaType,
+				"media_category": patch.MediaCategory,
+				"save_path":      patch.SavePath,
+				"enabled":        patch.Enabled,
 			}).Error; err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return

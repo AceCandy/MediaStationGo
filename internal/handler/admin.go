@@ -57,6 +57,7 @@ func updateSettingHandler(svc *service.Container) gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
+		service.ApplyRuntimeSetting(svc.Cfg, req.Key, req.Value)
 		c.Status(http.StatusNoContent)
 	}
 }

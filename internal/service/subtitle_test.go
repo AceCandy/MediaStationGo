@@ -1,36 +1,44 @@
 package service
 
 import (
-	"strings"
+	"path/filepath"
 	"testing"
+
+	"github.com/glebarez/sqlite"
+	"go.uber.org/zap"
+	"gorm.io/gorm"
+
+	"github.com/ShukeBta/MediaStationGo/internal/model"
+	"github.com/ShukeBta/MediaStationGo/internal/repository"
 )
 
-func TestSrtToVTT(t *testing.T) {
-	in := "1\n00:00:01,000 --> 00:00:02,500\nHello world\n\n"
-	out := srtToVTT(in)
-	if !strings.HasPrefix(out, "WEBVTT") {
-		t.Fatalf("missing WEBVTT prefix: %q", out)
+func TestSubtitleDiscoverNoTracksReturnsEmptySlice(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
 	}
-	if !strings.Contains(out, "00:00:01.000 --> 00:00:02.500") {
-		t.Fatalf("comma timecode not converted: %q", out)
+	if err := db.AutoMigrate(&model.Library{}, &model.Media{}); err != nil {
+		t.Fatal(err)
 	}
-	if !strings.Contains(out, "Hello world") {
-		t.Fatalf("dialogue lost: %q", out)
-	}
-}
 
-func TestStripASSTags(t *testing.T) {
-	cases := []struct {
-		in, want string
-	}{
-		{"{\\an8}hello", "hello"},
-		{"plain", "plain"},
-		{"a{\\fad(0,500)}b{\\b1}c", "abc"},
+	dir := t.TempDir()
+	media := model.Media{
+		Title: "No Subtitles",
+		Path:  filepath.Join(dir, "No Subtitles.mkv"),
 	}
-	for _, c := range cases {
-		got := stripASSTags(c.in)
-		if got != c.want {
-			t.Errorf("stripASSTags(%q) = %q, want %q", c.in, got, c.want)
-		}
+	if err := db.Create(&media).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	svc := NewSubtitleService(zap.NewNop(), repository.New(db))
+	tracks, err := svc.Discover(t.Context(), media.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tracks == nil {
+		t.Fatal("tracks is nil, want empty slice")
+	}
+	if len(tracks) != 0 {
+		t.Fatalf("len(tracks) = %d, want 0", len(tracks))
 	}
 }
