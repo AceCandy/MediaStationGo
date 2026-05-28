@@ -1,38 +1,92 @@
 # MediaStationGo
 
-> 轻量、漂亮、NAS 友好的私人媒体中心。Go 单二进制后端 + React 前端，覆盖媒体库管理、刮削、播放、订阅下载、Emby API 兼容、AI 搜索与推荐。
+<p align="center">
+  <img src="web/public/favicon.svg" width="96" height="96" alt="MediaStationGo Logo" />
+</p>
 
-[English](README_EN.md) · [Docker 部署](#docker-部署推荐) · [一键脚本](#一键脚本部署) · [开发构建](#开发与构建)
+<h3 align="center">轻量、漂亮、NAS 友好的私人媒体中心</h3>
 
-## 亮点
+<p align="center">
+  <strong>Go 单二进制后端 · React 现代化前端 · Docker 一键部署 · Emby API 兼容 · 多源刮削 · PT 订阅下载</strong>
+</p>
 
-- **现代 UI**：统一浅色高级视觉方案，首页聚焦「本周力荐 / 继续观看 / 最近入库」，媒体库页按电影、剧集、动漫、综艺等分类展示，并自动用库内海报生成文件夹封面。
-- **媒体库扫描与整理**：递归扫描、ffprobe 元数据、季/集识别、综艺按节目/季/集展示、重复扫描去重、本地 NFO/图片优先。
-- **多源刮削**：TMDb、TheTVDB、Bangumi、豆瓣、Fanart.tv、JavDB/JavBus 成人内容页面直爬补全；优先读取本地 NFO、poster、fanart、DMM/JAV 图片。
-- **播放体验**：直链播放、Range 拖动、HLS 转码、外挂字幕、播放历史、继续观看、外部播放器入口。
-- **外部客户端兼容**：提供 Emby/Jellyfin 风格 API，便于 Infuse、VidHub、SenPlayer 等客户端访问。
-- **PT 与下载**：站点管理、M-Team `x-api-key`、跨站搜索、订阅、qBittorrent 下载、下载后智能分类整理。
-- **AI 助手**：OpenAI 兼容接口，支持自然语言搜索、智能推荐；后台 API 配置实时生效。
-- **部署简单**：裸机一键脚本、Docker Compose、多架构镜像构建/推送脚本。
+<p align="center">
+  <a href="README_EN.md">English</a> ·
+  <a href="#quick-start">快速开始</a> ·
+  <a href="#docker-compose-deploy">Docker 部署</a> ·
+  <a href="#screenshots">界面预览</a> ·
+  <a href="https://mgo.3jzs.com">在线演示</a>
+</p>
 
-## 功能模块
+<p align="center">
+  <img alt="Go" src="https://img.shields.io/badge/Go-1.25+-00ADD8?style=flat-square&logo=go&logoColor=white" />
+  <img alt="React" src="https://img.shields.io/badge/React-18-61DAFB?style=flat-square&logo=react&logoColor=111827" />
+  <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-5-3178C6?style=flat-square&logo=typescript&logoColor=white" />
+  <img alt="Docker" src="https://img.shields.io/badge/Docker-ready-2496ED?style=flat-square&logo=docker&logoColor=white" />
+  <img alt="License" src="https://img.shields.io/badge/License-GPL--3.0-blue?style=flat-square" />
+  <img alt="Use" src="https://img.shields.io/badge/Use-Non--Commercial-orange?style=flat-square" />
+</p>
+
+---
+
+## ✨ 项目简介
+
+MediaStationGo 是一个面向个人、家庭 NAS 与影音爱好者的开源媒体中心。它把「媒体库管理、自动刮削、在线播放、外部客户端兼容、PT 站点检索、订阅下载、AI 推荐」放进一个轻量的 Go 服务里，配合 React 前端提供统一、简洁、漂亮的三端体验。
+
+它适合这些场景：
+
+- 家里有 NAS / Windows 主机 / Linux 小主机，希望统一管理电影、剧集、动漫、综艺、成人内容。
+- 想使用 TMDb、豆瓣、Bangumi、TheTVDB、Fanart、JavBus/JavDB 等多源元数据补全海报、简介、分季分集信息。
+- 想把 PT 站点搜索、订阅、下载器、下载后整理集中到一个 Web 面板中。
+- 想让 Infuse、VidHub、SenPlayer 等外部客户端通过 Emby 风格接口访问媒体库。
+- 想要一个部署简单、便于二次开发、不会把密钥和私有 Token 暴露到前端的开源项目。
+
+> 当前项目仍在快速迭代中，建议固定镜像版本部署，并定期备份 `/data` 目录。
+
+---
+
+## 🌱 开源承诺
+
+MediaStationGo 采用完全开源路线，核心媒体库、刮削、播放、订阅、下载、外部客户端兼容与运维能力均在本仓库持续迭代。项目参考了 MoviePilot 等优秀开源项目在「站点聚合、订阅下载、媒体整理、Emby/Jellyfin 客户端兼容」上的产品思路，但本项目会保持独立实现，不直接复制不兼容代码。
+
+本项目当前基础许可证为 `GPL-3.0`，欢迎基于 GPL-3.0 协议参与改造、适配站点、提交刮削规则与优化 UI。项目作者同时倡议：本项目面向个人学习、家庭 NAS、自建影音与非商业场景使用，未经作者明确书面许可，不得将本项目或其衍生版本用于商业售卖、商业托管、付费 SaaS、预装售卖设备、闭源二次分发或其他商业化牟利用途。
+
+> 说明：GPL-3.0 是自由软件许可证，其正式授权范围以仓库 [LICENSE](LICENSE) 文件为准；上方「非商用承诺」表达项目维护者的使用边界与商业合作要求。如需商业合作、企业部署或二次发行，请先联系作者获得额外授权。
+
+---
+
+## 🚀 在线演示
+
+- 演示站：[https://mgo.3jzs.com](https://mgo.3jzs.com)
+- 默认账号：`admin`
+- 默认密码：`admin123`
+
+> 演示环境仅用于功能体验，请勿上传真实隐私信息或配置私人 API Key。
+
+---
+
+## 🧭 功能总览
 
 | 模块 | 能力 |
 | --- | --- |
-| 媒体库 | 电影、电视剧、动漫、综艺、音乐、成人内容；自动封面、合集分季分集 |
-| 刮削 | 本地 NFO/图片优先，TMDb/TheTVDB/Bangumi/豆瓣/Fanart/JavBus/JavDB 补全 |
-| 播放 | 直链、HLS、字幕、续播、外部播放器、历史与收藏 |
-| 发现 | TMDb / 豆瓣 / Bangumi 推荐入口，多源发现与订阅 |
-| 下载 | qBittorrent、PT 站点、RSS/搜索订阅、自动整理 |
-| 兼容 | Emby API、DLNA、外部客户端与三端 UI |
-| 运维 | 任务、统计、存储、重复文件、回收站、NFO 导出 |
-| AI | OpenAI 兼容 Base URL/API Key，智能搜索与推荐 |
+| 媒体库 | 电影、电视剧、动漫、综艺、音乐、成人内容；支持文件夹封面、合集、季、集展示 |
+| 扫描识别 | 递归扫描、ffprobe 探测、文件名解析、季集识别、综艺节目识别、重复扫描去重 |
+| 本地元数据 | 优先读取 NFO、poster、fanart、season poster、episode image、本地成人影片图片 |
+| 在线刮削 | TMDb、TheTVDB、Bangumi、豆瓣、Fanart.tv、JavBus/JavDB 页面直爬补全 |
+| 播放体验 | 直链播放、HTTP Range 拖动、HLS 转码、外挂字幕、播放进度、继续观看、外部播放器 |
+| 发现与搜索 | TMDb / 豆瓣 / Bangumi 多源推荐，智能搜索，详情页订阅入口 |
+| PT 站点 | 站点管理、M-Team API Token、站点搜索、种子链接解析、下载器联动 |
+| 订阅下载 | RSS / 站点搜索订阅，分辨率/质量/特效/发布组/排除词规则，洗版开关与优先级 |
+| 下载中心 | qBittorrent 任务状态、速度、进度、上传下载体积、小卡片海报展示、私有 URL 脱敏 |
+| 外部兼容 | Emby/Jellyfin 风格 API，兼容 Infuse、VidHub、SenPlayer 等外部客户端 |
+| AI 能力 | OpenAI Compatible API 配置，AI 搜索、推荐、运维助手 |
+| 运维工具 | 运行状态、任务队列、重复文件、回收站、文件管理、存储配置、通知渠道 |
 
-**演示站**
+---
 
-[**Demo**](https://mgo.3jzs.com) 账号 ：admin 密码：admin123
+<a id="screenshots"></a>
 
-## 界面预览
+## 🖼️ 界面预览
 
 > 以下截图使用 Codex 内置浏览器从当前运行实例采集，并已对个人媒体内容、本地路径、账号信息、API Key/Token/密钥等敏感信息做图像级打码处理。
 
@@ -98,43 +152,174 @@
 
 </details>
 
-## Docker 部署（推荐）
+---
+
+## 🧱 技术栈
+
+| 层级 | 技术 | 说明 |
+| --- | --- | --- |
+| 后端语言 | Go 1.25+ | 单二进制部署，启动快，资源占用低 |
+| Web 框架 | Gin | REST API、鉴权中间件、静态资源托管 |
+| 数据库 | SQLite + GORM | 适合个人/NAS 场景，数据文件易备份 |
+| 前端框架 | React 18 + TypeScript | 组件化 UI，类型安全 |
+| 构建工具 | Vite | 前端快速开发与生产打包 |
+| 样式系统 | Tailwind CSS | 统一浅色高级视觉方案与响应式布局 |
+| 状态管理 | Zustand | 轻量全局状态与鉴权状态维护 |
+| 播放链路 | HTML5 Video / HLS / FFmpeg | 直链、Range、HLS 转码、字幕 |
+| 元数据 | TMDb / 豆瓣 / Bangumi / TheTVDB / Fanart / JavBus / JavDB | 多源补全海报、简介、评分、分季分集 |
+| 下载联动 | qBittorrent / PT Site Adapter | 站点搜索、订阅、下载任务展示与脱敏 |
+| 外部兼容 | Emby-style API / DLNA | 面向外部播放器与三端客户端 |
+| 部署 | Docker / Docker Compose / Shell / PowerShell | NAS、Linux、Windows 均可部署 |
+| CI/CD | GitHub Actions / GHCR | 多架构镜像与 Release 包自动发布 |
+
+---
+
+<a id="quick-start"></a>
+
+## 📦 快速开始
+
+<a id="docker-compose-deploy"></a>
+
+### Docker Compose 部署（推荐）
+
+Docker 是最稳定、最容易迁移的部署方式。默认会创建四类目录：
+
+| 宿主机目录 | 容器目录 | 作用 |
+| --- | --- | --- |
+| `./data` | `/data` | 数据库、JWT secret、运行时配置，必须备份 |
+| `./cache` | `/cache` | 海报、背景图、刮削缓存、转码缓存 |
+| `./media` | `/media` | 媒体库根目录，默认只读挂载 |
+| `./downloads` | `/downloads` | 订阅/站点下载保存目录 |
 
 ```bash
 git clone https://github.com/ShukeBta/MediaStationGo.git
 cd MediaStationGo
-cp config.example.yaml config.yaml
+
+docker compose pull
 docker compose up -d
 ```
 
-默认地址：`http://<服务器IP>:18080`
+启动后访问：
 
-默认账号：`admin` / `admin123`
-
-> 首次登录后请立即修改管理员密码，并在「媒体与用户」中添加媒体目录。
-
-### docker-compose 关键挂载
-
-```yaml
-volumes:
-  - ./data:/data
-  - ./cache:/cache
-  - ./media:/media:ro
+```text
+http://<服务器IP>:18080
 ```
 
-可通过环境变量覆盖默认路径和端口：
+默认账号：
+
+```text
+用户名：admin
+密码：admin123
+```
+
+> 首次登录后请立即修改管理员密码。
+
+### 固定版本部署
+
+建议生产环境固定版本，避免 `latest` 自动变化：
 
 ```bash
-MEDIASTATION_HTTP_PORT=18080 MEDIASTATION_MEDIA_DIR=/your/media/path docker compose up -d
+cat > .env <<'EOF'
+MEDIASTATION_IMAGE_TAG=MediaStationGo-v0.0.4
+MEDIASTATION_HTTP_PORT=18080
+MEDIASTATION_MEDIA_DIR=/mnt/nas/media
+MEDIASTATION_DOWNLOAD_DIR=/mnt/nas/downloads
+MEDIASTATION_DATA_DIR=./data
+MEDIASTATION_CACHE_DIR=./cache
+TZ=Asia/Shanghai
+EOF
+
+docker compose up -d
 ```
 
-### 硬件转码
+### 媒体库路径怎么填
 
-- Intel QSV/VAAPI：挂载 `/dev/dri:/dev/dri`
-- NVIDIA NVENC：宿主机安装 NVIDIA Container Toolkit，并启用 `gpus: all`
-- 软件转码：无需额外配置
+如果 compose 中这样挂载：
 
-## 一键脚本部署
+```yaml
+- /mnt/nas/media:/media:ro
+- /mnt/nas/downloads:/downloads
+```
+
+那么在 Web 管理页面中添加媒体库时应填写容器内路径，例如：
+
+| 类型 | 推荐路径 |
+| --- | --- |
+| 电影 | `/media/Movies` |
+| 剧集 | `/media/TV` |
+| 动漫 | `/media/Anime` |
+| 综艺 | `/media/Variety` |
+| 成人内容 | `/media/Adult` |
+| 下载入库 | `/downloads/Movies`、`/downloads/TV` 等 |
+
+### 下载器路径怎么填
+
+如果 qBittorrent 也运行在 Docker 中，必须让 qBittorrent 与 MediaStationGo 看到同一份下载目录。
+
+建议统一约定：
+
+```text
+宿主机：/mnt/nas/downloads
+MediaStationGo 容器：/downloads
+qBittorrent 容器：/downloads
+```
+
+订阅保存路径可填写：
+
+```text
+/downloads/Movies
+/downloads/TV
+/downloads/Anime
+/downloads/Variety
+```
+
+---
+
+## 🐳 Docker Compose 配置示例
+
+项目已内置详细注释版 `docker-compose.yml`，可直接使用。常用变量如下：
+
+| 变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `MEDIASTATION_IMAGE_TAG` | `latest` | 镜像标签，建议固定为 Release 版本 |
+| `MEDIASTATION_HTTP_PORT` | `18080` | 宿主机访问端口 |
+| `MEDIASTATION_DATA_DIR` | `./data` | 数据持久化目录 |
+| `MEDIASTATION_CACHE_DIR` | `./cache` | 图片和转码缓存目录 |
+| `MEDIASTATION_MEDIA_DIR` | `./media` | 媒体库宿主机目录 |
+| `MEDIASTATION_DOWNLOAD_DIR` | `./downloads` | 下载保存宿主机目录 |
+| `PUID` / `PGID` | `1000` / `1000` | Linux/NAS 文件权限映射 |
+| `TZ` | `Asia/Shanghai` | 容器时区 |
+
+查看日志：
+
+```bash
+docker logs -f mediastation-go
+```
+
+更新镜像：
+
+```bash
+docker compose pull
+docker compose up -d
+```
+
+停止服务：
+
+```bash
+docker compose down
+```
+
+备份数据：
+
+```bash
+tar -czf mediastationgo-data-backup.tgz ./data
+```
+
+---
+
+## 🖥️ 一键脚本部署
+
+如果不想使用 Docker，也可以裸机运行。脚本会自动构建前端、编译后端、启动服务并检查健康状态。
 
 ### Linux / macOS
 
@@ -153,78 +338,127 @@ cd MediaStationGo
 .\scripts\deploy.ps1 -Port 18080 -DataDir D:\MediaStationGo\data -CacheDir D:\MediaStationGo\cache
 ```
 
-脚本会自动：
+脚本执行内容：
 
 1. 安装前端依赖并构建 `web/dist`
 2. 编译 Go 服务端到 `bin/`
-3. 创建数据与缓存目录
+3. 创建数据目录和缓存目录
 4. 停止旧进程并启动新进程
-5. 调用 `/api/health` 做健康检查
+5. 请求 `/api/health` 验证服务状态
 
-## Docker 镜像打包与推送
+---
 
-默认推送到 `ghcr.io/shukebta/mediastation-go:latest`：
+## 🧩 Release 包部署
+
+每个 Release 会提供多平台压缩包：
+
+| 平台 | 包名示例 |
+| --- | --- |
+| Linux x86_64 | `MediaStationGo-v0.0.4-linux-amd64.tar.gz` |
+| Linux ARM64 | `MediaStationGo-v0.0.4-linux-arm64.tar.gz` |
+| Windows x86_64 | `MediaStationGo-v0.0.4-windows-amd64.zip` |
+| macOS Intel | `MediaStationGo-v0.0.4-darwin-amd64.tar.gz` |
+| macOS Apple Silicon | `MediaStationGo-v0.0.4-darwin-arm64.tar.gz` |
+
+部署步骤：
 
 ```bash
-docker login ghcr.io
-IMAGE=ghcr.io/shukebta/mediastation-go TAG=latest ./scripts/docker-build-push.sh
+# Linux 示例
+tar -xzf MediaStationGo-v0.0.4-linux-amd64.tar.gz
+cd MediaStationGo-v0.0.4-linux-amd64
+MEDIASTATION_APP_PORT=18080 ./mediastation-go
 ```
 
 Windows：
 
 ```powershell
-docker login ghcr.io
-.\scripts\docker-build-push.ps1 -Image ghcr.io/shukebta/mediastation-go -Tag latest
+Expand-Archive .\MediaStationGo-v0.0.4-windows-amd64.zip
+cd .\MediaStationGo-v0.0.4-windows-amd64
+$env:MEDIASTATION_APP_PORT = "18080"
+.\mediastation-go.exe
 ```
 
-仅本地构建不推送：
+> Release 二进制默认监听 `8080`，如果希望和 Docker 示例保持一致，请按上方设置 `MEDIASTATION_APP_PORT=18080`。
 
-```bash
-PUSH=0 TAG=dev ./scripts/docker-build-push.sh
-```
+---
 
-```powershell
-.\scripts\docker-build-push.ps1 -Tag dev -Load
-```
-
-## 开发与构建
+## 🛠️ 本地开发
 
 ### 环境要求
 
-| 组件 | 版本 |
-| --- | --- |
-| Go | 1.25+ |
-| Node.js | 20+ |
-| FFmpeg / ffprobe | 推荐安装 |
-| Docker | 可选 |
+| 组件 | 版本 | 用途 |
+| --- | --- | --- |
+| Go | 1.25+ | 后端编译与测试 |
+| Node.js | 20+ | 前端构建 |
+| FFmpeg / ffprobe | 推荐安装 | 媒体探测与转码 |
+| Docker | 可选 | 容器部署与多架构镜像 |
+| qBittorrent | 可选 | 下载器联动测试 |
 
 ### 本地构建
 
 ```bash
 cp config.example.yaml config.yaml
-cd web && npm ci && npm run build
+cd web
+npm ci
+npm run build
 cd ..
 go build -o bin/mediastation-go ./cmd/server
 ./bin/mediastation-go
+```
+
+Windows：
+
+```powershell
+Copy-Item config.example.yaml config.yaml
+Set-Location web
+npm ci
+npm run build
+Set-Location ..
+go build -o bin\mediastation-go.exe .\cmd\server
+.\bin\mediastation-go.exe
 ```
 
 ### 常用命令
 
 ```bash
 make build       # 构建前后端
-make test        # Go 测试
+make test        # 运行 Go 测试
+make smoke       # 冒烟测试
 make docker      # docker compose up -d
 make deploy      # Linux 一键部署
 make docker-push # buildx 多架构推送
 ```
 
-Windows 可直接使用：
+---
 
-```powershell
-.\scripts\deploy.ps1
+## 🏗️ 项目结构
+
+```text
+MediaStationGo/
+├── cmd/server/                 # 服务入口
+├── internal/
+│   ├── config/                  # 配置加载与默认值
+│   ├── database/                # SQLite 初始化与迁移
+│   ├── handler/                 # HTTP API / Emby API / 管理接口
+│   ├── middleware/              # 鉴权、权限、日志中间件
+│   ├── model/                   # GORM 数据模型
+│   ├── repository/              # 数据访问层
+│   └── service/                 # 扫描、刮削、播放、下载、订阅等业务逻辑
+├── web/
+│   ├── public/                  # favicon 等静态资源
+│   ├── src/                     # React 页面、组件、API、状态管理
+│   └── dist/                    # 前端构建产物，默认不入库
+├── scripts/                     # 部署、打包、Docker 构建脚本
+├── docs/                        # 设计文档、截图与架构说明
+├── docker-compose.yml           # 默认 Docker Compose 部署文件
+├── Dockerfile                   # 多阶段镜像构建
+├── config.example.yaml          # 配置模板
+└── README.md / README_EN.md     # 项目文档
 ```
 
-## 配置说明
+---
+
+## ⚙️ 配置说明
 
 配置优先级从低到高：
 
@@ -232,57 +466,311 @@ Windows 可直接使用：
 2. `config.yaml`
 3. `config/*.yaml`
 4. `MEDIASTATION_` 环境变量
-5. 后台数据库配置（API Key、站点、下载器等运行时配置）
+5. 后台数据库运行时配置
 
 常用环境变量：
 
 | 变量 | 默认值 | 说明 |
 | --- | --- | --- |
-| `MEDIASTATION_APP_PORT` | `8080` | Web 服务端口 |
-| `MEDIASTATION_APP_DATA_DIR` | `./data` | 数据目录 |
-| `MEDIASTATION_DATABASE_DB_PATH` | `./data/mediastation.db` | SQLite 数据库 |
-| `MEDIASTATION_APP_WEB_DIR` | `./web/dist` | 前端静态资源 |
-| `MEDIASTATION_CACHE_CACHE_DIR` | `./cache` | 图片/转码缓存 |
-| `MEDIASTATION_SECRETS_JWT_SECRET` | 自动生成 | JWT 与密钥加密种子 |
+| `MEDIASTATION_APP_HOST` | `0.0.0.0` | 服务监听地址 |
+| `MEDIASTATION_APP_PORT` | `8080` | 服务监听端口 |
+| `MEDIASTATION_APP_WEB_DIR` | `./web/dist` | 前端静态资源目录 |
+| `MEDIASTATION_APP_DATA_DIR` | `./data` | 程序数据目录 |
+| `MEDIASTATION_DATABASE_DB_PATH` | `./data/mediastation.db` | SQLite 数据库路径 |
+| `MEDIASTATION_CACHE_CACHE_DIR` | `./cache` | 图片/转码缓存目录 |
+| `MEDIASTATION_SECRETS_JWT_SECRET` | 自动生成 | JWT 和敏感配置加密种子 |
+| `MEDIASTATION_APP_CORS_ORIGINS` | 空 | 额外允许的跨域来源 |
 
-## API 与外部服务
+后台可运行时配置：
 
-在「外部 API 配置」中可配置：
+- API Key：TMDb、Bangumi、TheTVDB、Fanart、OpenAI Compatible 等。
+- 站点：M-Team、NexusPHP、Unit3D、自定义 RSS 等。
+- 下载器：qBittorrent、Transmission、Aria2。
+- 通知渠道：Telegram、Bark、Webhook、Email 等。
+- 播放配置、权限配置、调度任务、存储配置。
 
-- TMDb：影视元数据
-- Bangumi：番剧与动漫
-- TheTVDB：剧集补充
-- Fanart.tv：高清艺术图
-- OpenAI Compatible：AI 搜索/推荐
-- Adult/JAV：JavBus/JavDB 页面直爬，不需要 API
+---
 
-M-Team 站点请使用「控制台 → 实验室 → 存取令牌」生成 API Access Token，并通过 `x-api-key` 使用；不要使用 Cookie 调用开放 API。
+## 🔍 刮削与元数据策略
 
-## 隐私与仓库安全
+MediaStationGo 的刮削顺序尽量避免重复请求和错误覆盖：
 
-项目默认忽略以下个人/运行数据：
+1. 优先读取本地 NFO、poster、fanart、season poster、episode image。
+2. 根据文件名识别电影、剧集、动漫、综艺、成人内容。
+3. 使用 TMDb / TheTVDB / Bangumi / 豆瓣补全缺失元数据。
+4. 使用 Fanart.tv 补充更高清的艺术图。
+5. 成人内容优先读取本地 NFO 与图片，再通过 JavBus/JavDB 等公开页面补全。
+6. 已有本地元数据不会被无意义重复刮削覆盖。
+
+推荐目录结构：
+
+```text
+/media/Movies/Inception (2010)/Inception (2010).mkv
+/media/TV/Some Show/Season 01/Some Show S01E01.mkv
+/media/Anime/Anime Title/Season 01/Anime Title S01E01.mkv
+/media/Variety/Show Name/Season 2026/Show Name S2026E01.mkv
+/media/Adult/ABCD-123/ABCD-123.mp4
+```
+
+本地图片常见命名：
+
+```text
+poster.jpg
+fanart.jpg
+folder.jpg
+season01-poster.jpg
+S01E01-thumb.jpg
+movie.nfo
+tvshow.nfo
+episode.nfo
+```
+
+---
+
+## 🔎 发现、搜索与订阅下载
+
+### 多源发现
+
+精彩发现支持：
+
+- TMDb：趋势、热门电影、热门剧集、高分电影。
+- 豆瓣：热门电影、高分电影、热门剧集。
+- Bangumi：每日放送、动漫条目。
+
+### 智能搜索
+
+智能搜索会同时考虑：
+
+- 本地媒体库已有内容。
+- TMDb / 豆瓣 / Bangumi 等在线结果。
+- 可订阅关键词与媒体类型。
+
+### 订阅规则
+
+订阅支持以下规则：
+
+| 规则 | 说明 |
+| --- | --- |
+| 媒体类型 | 电影、剧集、动漫、综艺，支持自动识别 |
+| 搜索模式 | 标题关键词或 IMDB ID |
+| 分辨率 | 自动择优、2160p、1080p、720p |
+| 质量 | REMUX、BluRay、WEB-DL、HDTV 等 |
+| 特效 | HDR、Dolby Vision、Atmos 等 |
+| 发布组 | 白名单发布组 |
+| 排除词 | 排除 CAM、TS、枪版等低质资源 |
+| 洗版 | 默认关闭，可按分辨率、质量、特效、做种数优先 |
+
+下载与订阅卡片只展示安全标题、海报、进度、速度、体积等信息，不展示原始种子 URL，避免多用户场景泄露私人 Tracker Token。
+
+---
+
+## 🔌 外部客户端与 Emby 兼容
+
+项目提供 Emby/Jellyfin 风格 API，用于外部客户端连接：
+
+```text
+http://<服务器IP>:18080
+```
+
+可尝试的客户端：
+
+- Infuse
+- VidHub
+- SenPlayer
+- 其他支持 Emby/Jellyfin 服务器的播放器
+
+建议检查：
+
+1. Docker 端口是否映射为 `18080:8080`。
+2. 防火墙是否允许局域网访问 `18080`。
+3. 账号密码是否正确。
+4. 反向代理是否正确转发 `/api`、视频流和 Range 请求。
+
+### 与 MoviePilot 的功能参考关系
+
+MediaStationGo 在外部客户端兼容与媒体生态联动上参考了 MoviePilot 的成熟产品路径：通过统一媒体库、订阅下载、下载后整理和 Emby/Jellyfin 兼容接口，把 Web 管理端与 Infuse、VidHub、SenPlayer 等客户端串起来。本项目的目标不是替代 Emby/Jellyfin，而是在轻量 Go 服务中提供足够常用的媒体浏览、播放、海报墙、剧集分季分集、播放进度和外部客户端访问能力。
+
+当前兼容重点：
+
+- 媒体库、合集、季、集的层级输出。
+- 海报、背景图、简介、年份、评分等基础元数据输出。
+- 视频流地址、HTTP Range、播放进度与继续观看。
+- 外部客户端登录、媒体浏览和播放所需的 Emby/Jellyfin 风格接口。
+
+仍在持续补齐：
+
+- 更完整的 Emby/Jellyfin 设备能力协商。
+- 更细的转码 Profile 与字幕能力声明。
+- 多用户权限、媒体库过滤与播放历史同步。
+- 与订阅下载、自动整理、洗版规则之间的闭环联动。
+
+> MoviePilot 项目使用 GPL-3.0 许可，本项目只参考其公开产品思路与交互路径，不复制私有数据、密钥、站点账号或不兼容实现。
+
+---
+
+## 🧠 AI 与外部服务配置
+
+在后台「外部 API 配置」中可配置：
+
+| 服务 | 作用 |
+| --- | --- |
+| TMDb | 电影、剧集、海报、背景图、简介 |
+| Bangumi | 动漫、番剧、中文条目 |
+| TheTVDB | 剧集季集补充 |
+| Fanart.tv | 高清 Logo、背景图、艺术图 |
+| 豆瓣 | 中文影视搜索与推荐补充 |
+| OpenAI Compatible | AI 搜索、推荐、运维助手 |
+
+M-Team 建议使用 API Access Token：
+
+```text
+控制台 → 实验室 → 存取令牌
+HTTP Header: x-api-key
+```
+
+不建议使用 Cookie 调用开放 API，避免账号风险。
+
+---
+
+## 🧪 构建、打包与发布
+
+### Docker 镜像
+
+默认镜像：
+
+```text
+ghcr.io/shukebta/mediastation-go:latest
+ghcr.io/shukebta/mediastation-go:MediaStationGo-v0.0.4
+```
+
+Linux/macOS 推送：
+
+```bash
+docker login ghcr.io
+IMAGE=ghcr.io/shukebta/mediastation-go TAG=MediaStationGo-v0.0.4 ./scripts/docker-build-push.sh
+```
+
+Windows 推送：
+
+```powershell
+docker login ghcr.io
+.\scripts\docker-build-push.ps1 -Image ghcr.io/shukebta/mediastation-go -Tag MediaStationGo-v0.0.4
+```
+
+仅本地构建：
+
+```powershell
+.\scripts\docker-build-push.ps1 -Tag dev -Load
+```
+
+### Release 包
+
+```bash
+VERSION=MediaStationGo-v0.0.4 ./scripts/package-release.sh
+```
+
+GitHub Actions 会在推送 `MediaStationGo-v*` 标签时自动生成 Release 包和 SHA256 校验文件。
+
+> 如果 Release 开启 immutable，不应覆盖同名资产；工作流已设置 `overwrite_files: false`，避免重跑时删除旧资产失败。
+
+---
+
+## 🔐 隐私与安全
+
+默认不会提交以下数据：
 
 - `data/`、`cache/`、`logs/`
 - `.tmp-deploy-data/`、`.tmp-deploy-server.*`
+- `.mediastation.pid`
 - `config.yaml`、`.env*`
 - `*.db`、`*.db-wal`、`*.log`
 - `web/dist/`、`node_modules/`、`bin/`
+- API Key、Cookie、Token、密码、证书等敏感文件
 
-推送代码前建议执行：
+提交前建议检查：
 
 ```bash
 git status --short
-git ls-files | grep -E 'data/|cache/|\\.db|\\.log|jwt_secret|config.yaml|\\.env' || true
+git ls-files | grep -E 'data/|cache/|\.db|\.log|jwt_secret|config.yaml|\.env|token|apikey|password' || true
 ```
-## 开发群组
 
-# TG https://t.me/MediaStationGo 
-## 赞赏
-<img width="200" height="200" alt="微信图片_20260528191337_3_983" src="https://github.com/user-attachments/assets/d6077de5-8305-400d-8b82-470ef05d926e" />
+---
 
-  请作者吃桶泡面
+## ❓ 常见问题
 
-## Star History
+### Q: Docker 部署后浏览器打不开？
+
+检查容器状态和端口：
+
+```bash
+docker ps
+docker logs -f mediastation-go
+```
+
+确认访问的是宿主机端口，例如 `http://192.168.1.4:18080`。
+
+### Q: 外部客户端提示服务器未响应？
+
+优先检查防火墙、Docker 端口映射、反向代理和局域网 IP。容器内监听 `8080`，宿主机默认映射为 `18080`。
+
+### Q: 媒体库没有海报？
+
+请确认：
+
+1. 本地是否有 `poster.jpg`、`fanart.jpg`、NFO。
+2. TMDb / Bangumi / 豆瓣是否可连接。
+3. 代理是否正确配置。
+4. 媒体文件名是否包含清晰标题、年份、季集信息。
+
+### Q: 下载任务为什么不显示原始链接？
+
+PT 下载 URL 常包含私有 Token。下载中心和订阅管理会主动隐藏原始 URL，只显示安全标题、海报、速度、进度、体积等信息。
+
+### Q: 可以只保留哪个 Docker 包？
+
+保留 `ghcr.io/shukebta/mediastation-go` 即可；旧的 `mediastationgo` 包可以删除，避免用户拉错镜像。
+
+---
+
+## 🗺️ 路线图
+
+- 更完整的 Emby/Jellyfin 客户端兼容。
+- 更强的成人内容本地元数据和公开页面补全。
+- 更细粒度的订阅洗版和下载后整理规则。
+- 更完善的移动端/电视端交互。
+- 插件化站点适配器和通知渠道。
+- 更完整的端到端测试与截图自动化。
+
+---
+
+## 🤝 贡献
+
+欢迎提交 Issue、Pull Request、站点适配、刮削规则、UI 改进与文档修正。
+
+建议贡献前先运行：
+
+```bash
+go test ./...
+cd web && npm run build
+```
+
+---
+
+## 👥 开发群组
+
+- Telegram：<https://t.me/MediaStationGo>
+
+---
+
+## 🍜 赞赏
+
+如果这个项目节省了你的时间，欢迎请作者吃桶泡面。
+
+<img width="200" height="200" alt="微信赞赏码" src="https://github.com/user-attachments/assets/d6077de5-8305-400d-8b82-470ef05d926e" />
+
+---
+
+## ⭐ Star History
 
 <a href="https://www.star-history.com/?repos=ShukeBta%2FMediaStationGo&type=date&legend=top-left">
  <picture>
@@ -292,6 +780,17 @@ git ls-files | grep -E 'data/|cache/|\\.db|\\.log|jwt_secret|config.yaml|\\.env'
  </picture>
 </a>
 
-## 许可证
+---
 
-本项目遵循 `GPL-3.0` 许可证。详见 [LICENSE](LICENSE)。
+## 📄 许可证与非商用声明
+
+本项目基础许可证遵循 `GPL-3.0`，详见 [LICENSE](LICENSE)。项目维护者同时声明并倡议：
+
+- 本项目主要面向个人学习、家庭 NAS、自建影音、非商业研究与社区共建场景。
+- 未经作者明确书面许可，不得将本项目或衍生版本用于商业售卖、商业托管、付费 SaaS、预装售卖设备、闭源二次分发或其他商业化牟利用途。
+- 如需商业合作、企业内部部署、定制开发、集成发行或商业授权，请先联系作者确认授权边界。
+- 若 README 的非商用声明与 `GPL-3.0` 正式许可文本存在解释差异，代码授权以 [LICENSE](LICENSE) 文件为准，商业使用请额外取得作者许可。
+
+---
+
+<p align="center">Made with ❤️ by ShukeBta</p>
