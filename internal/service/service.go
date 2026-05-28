@@ -98,7 +98,7 @@ func New(cfg *config.Config, log *zap.Logger, repos *repository.Container) *Cont
 	scanner := NewScannerService(cfg, log, repos, hub, probe, scraper)
 	watcher := NewWatcherService(log, repos, scanner)
 	nfo := NewNFOService(log, repos)
-	ai := NewAIService(cfg, log)
+	ai := NewAIService(cfg, log, apiConfig)
 	duplicate := NewDuplicateService(log, repos, hub)
 	filemanager := NewFileManagerService(cfg, log, repos)
 	dlna := NewDLNAService(log)

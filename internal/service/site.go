@@ -215,6 +215,17 @@ func (s *SiteService) FindByID(ctx context.Context, id string) (*model.Site, err
 
 // Update applies a partial patch to an existing site.
 func (s *SiteService) Update(ctx context.Context, id string, updates map[string]any) error {
+	if id == "" {
+		return errors.New("site id required")
+	}
+	if raw, ok := updates["url"].(string); ok {
+		updates["url"] = strings.TrimRight(strings.TrimSpace(raw), "/")
+	}
+	for _, key := range []string{"api_key", "cookie", "auth_header"} {
+		if raw, ok := updates[key].(string); ok && strings.TrimSpace(raw) == "" {
+			delete(updates, key)
+		}
+	}
 	return s.repo.DB.WithContext(ctx).Model(&model.Site{}).Where("id = ?", id).Updates(updates).Error
 }
 
@@ -264,6 +275,20 @@ func (s *SiteService) TestConnection(ctx context.Context, id string) (bool, stri
 				}).Error
 			return true, "连接成功", nil
 		} else {
+			if site.Type == "mteam" {
+				s.log.Warn("site adapter authenticate failed",
+					zap.String("site", site.Name),
+					zap.String("type", site.Type),
+					zap.Error(authErr))
+				now := time.Now()
+				_ = s.repo.DB.WithContext(ctx).Model(&model.Site{}).Where("id = ?", id).
+					Updates(map[string]any{
+						"login_status":  "fail",
+						"last_error":    authErr.Error(),
+						"last_check_at": &now,
+					}).Error
+				return false, authErr.Error(), nil
+			}
 			s.log.Warn("site adapter authenticate failed, falling back to generic test",
 				zap.String("site", site.Name),
 				zap.String("type", site.Type),

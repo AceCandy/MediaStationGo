@@ -8,8 +8,14 @@ docs/
 data/
 cache/
 logs/
+.tmp_*
+.tmp-deploy-*
+.tmp-deploy-data/
+.mediastation.pid
 *.db
 *.db-journal
+*.db-shm
+*.db-wal
 *.log
 .env
 .env.*

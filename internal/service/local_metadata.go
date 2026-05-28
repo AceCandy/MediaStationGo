@@ -320,19 +320,27 @@ func mergeArtworkMetadata(meta *LocalMetadata, mediaPath, showBaseDir string) {
 		return
 	}
 	mediaDir := filepath.Dir(mediaPath)
-	if meta.PosterURL == "" {
-		meta.PosterURL = firstExistingImage(mediaDir, localPosterCandidates(mediaPath)...)
+	if localPoster := firstExistingImage(mediaDir, localPosterCandidates(mediaPath)...); localPoster != "" {
+		meta.PosterURL = localPoster
+	} else if meta.PosterURL == "" {
+		meta.PosterURL = firstAdultLooseImage(mediaDir, "poster")
 	}
-	if meta.BackdropURL == "" {
-		dirs := []string{mediaDir, showBaseDir}
-		for _, dir := range dirs {
-			if dir == "" {
-				continue
-			}
-			if img := firstExistingImage(dir, localBackdropCandidates(mediaPath)...); img != "" {
-				meta.BackdropURL = img
-				break
-			}
+	dirs := []string{mediaDir, showBaseDir}
+	for _, dir := range dirs {
+		if dir == "" {
+			continue
+		}
+		if img := firstExistingImage(dir, localBackdropCandidates(mediaPath)...); img != "" {
+			meta.BackdropURL = img
+			break
+		}
+		if meta.BackdropURL == "" {
+			meta.BackdropURL = firstAdultLooseImage(dir, "backdrop")
+		}
+	}
+	if !isLocalPath(meta.PosterURL) {
+		if dmmPoster := adultDMMPosterFromSampleURL(meta.BackdropURL); dmmPoster != "" {
+			meta.PosterURL = dmmPoster
 		}
 	}
 	if meta.PosterURL != "" || meta.BackdropURL != "" {
@@ -468,15 +476,36 @@ func adultArtworkNameCandidates(mediaPath, kind string) []string {
 	}
 	compact := strings.ReplaceAll(code, "-", "")
 	bases := []string{code, compact}
+	bases = append(bases, adultDMMNameCandidates(code)...)
 	out := make([]string, 0, len(bases)*6)
 	for _, base := range bases {
+		if base == "" {
+			continue
+		}
 		if kind == "poster" {
-			out = append(out, base, base+"-poster", base+".poster", base+"-cover", base+".cover", base+"-thumb", base+".thumb")
+			out = append(out, base, base+"-poster", base+".poster", base+"-cover", base+".cover", base+"-thumb", base+".thumb", base+"pl", base+"-pl")
 		} else {
-			out = append(out, base+"-fanart", base+".fanart", base+"-backdrop", base+".backdrop", base+"-background", base+"-landscape")
+			out = append(out, base+"-fanart", base+".fanart", base+"-backdrop", base+".backdrop", base+"-background", base+"-landscape", base+"jp", base+"jp-1")
 		}
 	}
 	return out
+}
+
+func adultDMMNameCandidates(code string) []string {
+	parts := adultStandardPattern.FindStringSubmatch(code)
+	if len(parts) < 3 {
+		return nil
+	}
+	prefix := strings.ToLower(parts[1])
+	num := strings.TrimLeft(parts[2], "0")
+	if num == "" {
+		num = "0"
+	}
+	padded := num
+	for len(padded) < 5 {
+		padded = "0" + padded
+	}
+	return []string{prefix + padded}
 }
 
 func firstExistingImage(dir string, names ...string) string {
@@ -494,6 +523,37 @@ func firstExistingImage(dir string, names ...string) string {
 	return ""
 }
 
+func firstAdultLooseImage(dir, kind string) string {
+	if dir == "" {
+		return ""
+	}
+	matches, _ := filepath.Glob(filepath.Join(dir, "*"))
+	preferred := []string{}
+	fallback := []string{}
+	for _, path := range matches {
+		ext := strings.ToLower(filepath.Ext(path))
+		if ext != ".jpg" && ext != ".jpeg" && ext != ".png" && ext != ".webp" {
+			continue
+		}
+		name := strings.ToLower(strings.TrimSuffix(filepath.Base(path), ext))
+		if kind == "poster" {
+			if strings.Contains(name, "poster") || strings.Contains(name, "cover") || strings.Contains(name, "thumb") || strings.HasSuffix(name, "pl") {
+				preferred = append(preferred, path)
+			}
+		} else if strings.Contains(name, "fanart") || strings.Contains(name, "backdrop") || strings.Contains(name, "background") || strings.Contains(name, "landscape") || strings.Contains(name, "jp") {
+			preferred = append(preferred, path)
+		}
+		fallback = append(fallback, path)
+	}
+	if len(preferred) > 0 {
+		return filepath.Clean(preferred[0])
+	}
+	if kind == "poster" && len(fallback) == 1 {
+		return filepath.Clean(fallback[0])
+	}
+	return ""
+}
+
 func fileExists(path string) bool {
 	info, err := os.Stat(path)
 	return err == nil && !info.IsDir()
@@ -505,6 +565,11 @@ func isHTTPURL(raw string) bool {
 		return false
 	}
 	return (u.Scheme == "http" || u.Scheme == "https") && u.Host != ""
+}
+
+func isLocalPath(raw string) bool {
+	raw = strings.TrimSpace(raw)
+	return raw != "" && !isHTTPURL(raw)
 }
 
 func firstText(values ...string) string {

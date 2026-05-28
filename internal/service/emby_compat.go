@@ -187,6 +187,8 @@ func (e *EmbyService) libraryAsView(l *model.Library) map[string]any {
 		collectionType = "tvshows"
 	case "anime":
 		collectionType = "tvshows" // Emby 没有专门的 anime CollectionType
+	case "variety":
+		collectionType = "tvshows"
 	case "music":
 		collectionType = "music"
 	}
@@ -284,6 +286,10 @@ func (e *EmbyService) Items(ctx context.Context, p ItemsParams) (map[string]any,
 			}
 		}
 		return map[string]any{"Items": items, "TotalRecordCount": len(items), "StartIndex": 0}, nil
+	}
+
+	if p.ParentID == "" && p.SearchTerm == "" && !p.Recursive && len(p.IncludeItemTypes) == 0 {
+		return e.Views(ctx)
 	}
 
 	if season, ok, err := e.findSeasonGroup(ctx, p.ParentID); err != nil {

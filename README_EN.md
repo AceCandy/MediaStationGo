@@ -1,345 +1,204 @@
-<p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://img.shields.io/badge/MediaStationGo-Your_Private_Media_Center-111827?style=for-the-badge&logo=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHBhdGggZmlsbD0id2hpdGUiIGQ9Ik0xMiAyQzYuNDggMiAyIDYuNDggMiAxMnM0LjQ4IDEwIDEwIDEwIDEwLTQuNDggMTAtMTBTMTcuNTIgMiAxMiAyem0tMiAxNWwtNS01IDEuNDEtMS40MUwxMCAxNC4xN2w3LjU5LTcuNTlMMTkgOGwtOSA5eiIvPjwvc3ZnPg=="/>
-    <img src="https://img.shields.io/badge/MediaStationGo-Your_Private_Media_Center-1F2937?style=for-the-badge&logo=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHBhdGggZmlsbD0id2hpdGUiIGQ9Ik0xMiAyQzYuNDggMiAyIDYuNDggMiAxMnM0LjQ4IDEwIDEwIDEwIDEwLTQuNDggMTAtMTBTMTcuNTIgMiAxMiAyem0tMiAxNWwtNS01IDEuNDEtMS40MUwxMCAxNC4xN2w3LjU5LTcuNTlMMTkgOGwtOSA5eiIvPjwvc3ZnPg=="/>
-  </picture>
-</p>
+# MediaStationGo
 
-<h3 align="center"><samp>A Go rewrite of <a href="https://github.com/ShukeBta/MediaStation">MediaStation</a></samp></h3>
-<h6 align="center"><samp>Lightweight · Fast · Single Binary · NAS Ready</samp></h6>
+> A lightweight, polished, NAS-friendly private media center. Go single-binary backend + React frontend for library management, scraping, playback, subscriptions, downloads, Emby-compatible APIs, AI search, and recommendations.
 
-<p align="center">
-  <a href="README.md"><img src="https://img.shields.io/badge/中文-README-blue?style=flat-square" alt="Chinese"></a>
-</p>
+[中文](README.md) · [Docker Deploy](#docker-deploy-recommended) · [One-Click Scripts](#one-click-deploy-scripts) · [Development](#development-and-build)
 
-<p align="center">
-  <img src="https://img.shields.io/badge/Go-1.25-00ADD8?style=for-the-badge&logo=go&logoColor=white" alt="Go">
-  <img src="https://img.shields.io/badge/React-18-61DAFB?style=for-the-badge&logo=react&logoColor=black" alt="React">
-  <img src="https://img.shields.io/badge/TypeScript-5-3178C6?style=for-the-badge&logo=typescript&logoColor=white" alt="TypeScript">
-  <img src="https://img.shields.io/badge/SQLite-WAL-003B57?style=for-the-badge&logo=sqlite&logoColor=white" alt="SQLite">
-  <img src="https://img.shields.io/badge/Docker-Alpine-2496ED?style=for-the-badge&logo=docker&logoColor=white" alt="Docker">
-  <img src="https://img.shields.io/badge/License-GPLv3-8B5CF6?style=for-the-badge&logo=gnu&logoColor=white" alt="GPL v3">
-</p>
+## Highlights
 
----
+- **Modern UI**: A unified bright premium visual system. The home page focuses on Featured, Continue Watching, and Recently Added. The library page groups movies, series, anime, variety shows, and music with automatically generated cover-folder cards.
+- **Library scanning and organization**: Recursive scanning, ffprobe metadata, season/episode recognition, variety-show grouping by show/season/episode, duplicate prevention, and local NFO/image-first metadata.
+- **Multi-source scraping**: TMDb, TheTVDB, Bangumi, Douban, Fanart.tv, and adult metadata enrichment from JavDB/JavBus pages. Local NFO, poster, fanart, DMM/JAV images are always preferred.
+- **Playback experience**: Direct streaming, HTTP Range seeking, HLS transcoding, external subtitles, watch history, Continue Watching, and external-player entry points.
+- **External client compatibility**: Emby/Jellyfin-style APIs for Infuse, VidHub, SenPlayer, and other third-party clients.
+- **PT and downloads**: Site management, M-Team `x-api-key`, cross-site search, subscriptions, qBittorrent downloads, and intelligent post-download organization.
+- **AI assistant**: OpenAI-compatible endpoint configuration for natural-language search and recommendations. Admin-side API settings take effect at runtime.
+- **Simple deployment**: Bare-metal one-click scripts, Docker Compose, and multi-architecture Docker image build/push scripts.
 
-<p align="center">
-  <b>📖 <a href="#-why-mediastationgo">Why</a></b>
-  &nbsp;·&nbsp;
-  <b>🚀 <a href="#-quick-start">Quick Start</a></b>
-  &nbsp;·&nbsp;
-  <b>✨ <a href="#-features">Features</a></b>
-  &nbsp;·&nbsp;
-  <b>🏗️ <a href="#-project-layout">Layout</a></b>
-  &nbsp;·&nbsp;
-  <b>⚙️ <a href="#-configuration">Config</a></b>
-  &nbsp;·&nbsp;
-  <b>🗺️ <a href="#-roadmap">Roadmap</a></b>
-</p>
+## Feature Modules
 
----
+| Module | Capabilities |
+| --- | --- |
+| Libraries | Movies, TV, anime, variety, music, adult content; automatic covers and season/episode grouping |
+| Scraping | Local NFO/images first, then TMDb/TheTVDB/Bangumi/Douban/Fanart/JavBus/JavDB enrichment |
+| Playback | Direct play, HLS, subtitles, resume, external players, history, favorites |
+| Discovery | TMDb / Douban / Bangumi recommendation sources and subscription entry points |
+| Downloads | qBittorrent, PT sites, RSS/search subscriptions, automatic organization |
+| Compatibility | Emby API, DLNA-ready structure, external clients, responsive three-end UI |
+| Operations | Tasks, statistics, storage, duplicate files, recycle bin, NFO export |
+| AI | OpenAI-compatible Base URL/API Key, smart search, recommendations |
 
-## 🤔 Why MediaStationGo?
-
-> MediaStationGo is a from-scratch Go rewrite of [MediaStation](https://github.com/ShukeBta/MediaStation) — same full-featured media center experience, radically simpler deployment.
-
-<table>
-<tr>
-<td width="50%">
-
-### Original MediaStation
-- 🐍 Python / FastAPI + Vue
-- 📦 Requires Python runtime & virtualenv
-- 🐳 Docker mandatory or complex Python setup
-- 📊 Deployment footprint > 500 MB
-- 🔧 pip + npm dual build chains
-
-</td>
-<td width="50%">
-
-### MediaStationGo ✨
-- 🚀 Go 1.25 + React 18
-- 📦 **Single static binary** (~30 MB)
-- 🐳 Docker optional — runs natively bare-metal
-- 🔥 Zero external dependencies (CGO off)
-- ⚡ One-command build: `go build`
-
-</td>
-</tr>
-</table>
-
-| Metric | Original | MediaStationGo |
-|--------|:---:|:---:|
-| Binary size | — | ≈ 30 MB |
-| Memory (idle) | ~200 MB | ~30 MB |
-| Cold start | ~3s | ~0.3s |
-| Deploy steps | 5+ | 1 |
-| Frontend (gzip) | ~250 KB | ~83 KB |
-
----
-
-## ✨ Features
-
-<details open>
-<summary><b>🔐 Authentication & Users</b></summary>
-<br>
-
-| Feature | Description |
-|---------|-------------|
-| JWT dual-role auth | admin / user with refresh token support |
-| One-click admin bootstrap | Auto-seeded `admin` / `admin123` on first run |
-| Profile management | Email, avatar, password change |
-| User admin panel | Role promotion / demotion, enable / disable |
-| Audit log | Login, library ops, downloads — all tracked |
-
-</details>
-
-<details open>
-<summary><b>📚 Library Management</b></summary>
-<br>
-
-| Feature | Description |
-|---------|-------------|
-| Library CRUD | movie / tv / anime / music types supported |
-| Recursive scanning | Filesystem walk + ffprobe metadata extraction |
-| Smart filename parsing | Year + season/episode auto-detection |
-| Multi-source scraping | TMDb → TheTVDB → Bangumi chain |
-| HD poster upgrade | Optional Fanart.tv high-res fallback |
-| Image proxy | TMDb / Bangumi / Douban / Fanart with disk cache |
-| TV grouping | Season grouping with episode listing |
-| Live fs watching | fsnotify-powered, 5-second coalesced debounce |
-
-</details>
-
-<details open>
-<summary><b>🎬 Playback</b></summary>
-<br>
-
-| Feature | Description |
-|---------|-------------|
-| Direct streaming | HTTP Range support for instant seeking |
-| HLS on-demand | Per-media ffmpeg job with HW acceleration |
-| External subtitles | .srt / .vtt / .ass / .ssa → real-time WebVTT |
-| Resume playback | Auto-saved every 10s + Continue Watching on home |
-| Favorites & playlists | One-tap toggle / ordered playlists (CRUD) |
-
-</details>
-
-<details open>
-<summary><b>🌐 PT Site Management</b></summary>
-<br>
-
-| Feature | Description |
-|---------|-------------|
-| 6 site types | nexusphp · gazelle · unit3d · mteam · discuz · custom_rss |
-| 3 auth methods | Cookie / API Key / Auth Header |
-| Site config | Full CRUD + connection test + enable toggle |
-| Cross-site search | One-click search across all configured trackers |
-| Extended config | Extra JSON: UA / RSS URL / timeout / priority / proxy / downloader |
-
-</details>
-
-<details open>
-<summary><b>🤖 Automation</b></summary>
-<br>
-
-| Feature | Description |
-|---------|-------------|
-| Download client | qBittorrent Web UI API (add / list / delete) |
-| RSS subscriptions | Regex filter + GUID dedup + 10-min polling |
-| File organizer | Auto-categorize downloads: move / copy / hardlink / symlink |
-
-</details>
-
-<details open>
-<summary><b>📊 Operations & Monitoring</b></summary>
-<br>
-
-| Feature | Description |
-|---------|-------------|
-| Live events | WebSocket push for scan / scrape / transcode / download / subscribe |
-| Dashboard | CPU / Memory / Disk / Library counts / Goroutines |
-| Task panel | Real-time ffmpeg jobs + qBittorrent torrents |
-| NFO export | Kodi / Jellyfin compatible — single media or whole library |
-| HW acceleration | Software / NVENC / Intel QSV / VAAPI encoder profiles |
-| CI/CD | GitHub Actions + multi-arch GHCR release |
-
-</details>
-
-<details open>
-<summary><b>🧠 AI & Discovery</b></summary>
-<br>
-
-| Feature | Description |
-|---------|-------------|
-| TMDb Discover | Trending / popular rails on homepage |
-| AI smart search | OpenAI-compatible → natural language → structured query |
-| AI recommendations | Personalized picks from your watch history |
-
-</details>
-
----
-
-## 🚀 Quick Start
-
-### 🐳 Docker (Recommended)
+## Docker Deploy (Recommended)
 
 ```bash
 git clone https://github.com/ShukeBta/MediaStationGo.git
 cd MediaStationGo
-
-# Edit docker-compose.yml to mount your media at /media
+cp config.example.yaml config.yaml
 docker compose up -d
 ```
 
-> 🌐 The server auto-detects both your **local network IP** and **public IP** on startup (NAS / VPS supported):
-> ```json
-> {"msg":"server is ready","local":"http://192.168.1.4:8080","public":"http://1.2.3.4:8080"}
-> ```
-> Log in with `admin` / `admin123`.
+Default URL: `http://<server-ip>:8080`
 
-### 💻 Bare Metal
+Default account: `admin` / `admin123`
 
-| Prerequisite | Version |
-|-------------|---------|
-| Go | ≥ 1.25 |
-| Node.js | ≥ 20 |
-| FFmpeg | Any |
+> Change the administrator password immediately after the first login, then add media folders from the admin UI.
+
+### Key docker-compose Mounts
+
+```yaml
+volumes:
+  - ./data:/data
+  - ./cache:/cache
+  - /your/media/path:/media:ro
+```
+
+### Hardware Transcoding
+
+- Intel QSV/VAAPI: mount `/dev/dri:/dev/dri`
+- NVIDIA NVENC: install NVIDIA Container Toolkit on the host and enable `gpus: all`
+- Software transcoding: no additional setup required
+
+## One-Click Deploy Scripts
+
+### Linux / macOS
 
 ```bash
 git clone https://github.com/ShukeBta/MediaStationGo.git
 cd MediaStationGo
+chmod +x scripts/deploy.sh
+PORT=18080 DATA_DIR=/opt/mediastation/data CACHE_DIR=/opt/mediastation/cache ./scripts/deploy.sh
+```
 
-# Build backend + frontend
-make build
+### Windows PowerShell
 
-# Start the server
+```powershell
+git clone https://github.com/ShukeBta/MediaStationGo.git
+cd MediaStationGo
+.\scripts\deploy.ps1 -Port 18080 -DataDir D:\MediaStationGo\data -CacheDir D:\MediaStationGo\cache
+```
+
+The scripts automatically:
+
+1. Install frontend dependencies and build `web/dist`
+2. Compile the Go server into `bin/`
+3. Create data and cache directories
+4. Stop any previously started process
+5. Start the service and verify `/api/health`
+
+## Docker Image Build and Push
+
+The default image is `ghcr.io/shukebta/mediastation-go:latest`:
+
+```bash
+docker login ghcr.io
+IMAGE=ghcr.io/shukebta/mediastation-go TAG=latest ./scripts/docker-build-push.sh
+```
+
+Windows:
+
+```powershell
+docker login ghcr.io
+.\scripts\docker-build-push.ps1 -Image ghcr.io/shukebta/mediastation-go -Tag latest
+```
+
+Build locally without pushing:
+
+```bash
+PUSH=0 TAG=dev ./scripts/docker-build-push.sh
+```
+
+```powershell
+.\scripts\docker-build-push.ps1 -Tag dev -Load
+```
+
+## Development and Build
+
+### Requirements
+
+| Component | Version |
+| --- | --- |
+| Go | 1.25+ |
+| Node.js | 20+ |
+| FFmpeg / ffprobe | Recommended |
+| Docker | Optional |
+
+### Local Build
+
+```bash
+cp config.example.yaml config.yaml
+cd web && npm ci && npm run build
+cd ..
+go build -o bin/mediastation-go ./cmd/server
 ./bin/mediastation-go
 ```
 
-### 🛠️ Local Development
+### Common Commands
 
 ```bash
-# Terminal 1: Go backend (port 8080, DEBUG mode)
-make dev
-
-# Terminal 2: Vite frontend (port 3000, proxies API calls)
-make dev-web
+make build       # Build frontend and backend
+make test        # Run Go tests
+make docker      # docker compose up --build -d
+make deploy      # Linux one-click deploy
+make docker-push # Multi-arch buildx push
 ```
 
----
+Windows users can run:
 
-## ⚙️ Configuration
-
-Config precedence: **defaults** < `config.yaml` < `config/*.yaml` < **env vars** (prefix `MEDIASTATION_`)
-
-### Key Environment Variables
-
-| Variable | Default | Purpose |
-|----------|---------|---------|
-| `MEDIASTATION_APP_PORT` | `8080` | HTTP listen port |
-| `MEDIASTATION_APP_DATA_DIR` | `./data` | Data root (DB / cache / JWT) |
-| `MEDIASTATION_APP_WEB_DIR` | `./web/dist` | SPA bundle directory |
-| `MEDIASTATION_DATABASE_DB_PATH` | `./data/mediastation.db` | SQLite file path |
-| `MEDIASTATION_SECRETS_JWT_SECRET` | *(auto)* | JWT signing key |
-| `MEDIASTATION_SECRETS_TMDB_API_KEY` | *(empty)* | TMDb scraping (required) |
-| `MEDIASTATION_SECRETS_BANGUMI_ACCESS_TOKEN` | *(empty)* | Bangumi rate limit boost |
-| `MEDIASTATION_APP_CORS_ORIGINS` | *(empty)* | Allow-list (JSON array) |
-| `ADMIN_INITIAL_PASSWORD` | `admin123` | Initial admin password |
-
-### Runtime Settings
-
-Admin panel → Settings tab, stored in the `settings` table:
-
-| Key | Purpose |
-|-----|---------|
-| `qbittorrent.url` | qBittorrent Web UI URL |
-| `qbittorrent.username` | Username |
-| `qbittorrent.password` | Password |
-| `qbittorrent.savepath` | Default save path (optional) |
-
-> 💡 After editing, hit **Downloads → Reload Config** or `POST /api/downloads/reload`.
-
-📖 Full config template: [`config.example.yaml`](config.example.yaml)
-
----
-
-## 🏗️ Project Layout
-
-```
-MediaStationGo/
-├── cmd/server/main.go          ← Entry point
-├── internal/
-│   ├── config/                 ← Viper configuration layer
-│   ├── database/               ← GORM + SQLite (WAL) bootstrap
-│   ├── model/                  ← Data models + AutoMigrate registry
-│   ├── repository/             ← Data access layer
-│   ├── service/                ← Business logic (core)
-│   │   ├── auth.go             login / register / JWT
-│   │   ├── media.go            library + media CRUD
-│   │   ├── scanner.go          filesystem walker + ffprobe
-│   │   ├── scraper.go          scrape orchestrator + filename cleaner
-│   │   ├── tmdb.go / bangumi.go  third-party providers
-│   │   ├── site.go             site CRUD + cross-site search
-│   │   ├── site_adapter.go     6 PT site adapters
-│   │   ├── stream.go           direct play + HLS
-│   │   ├── transcoder.go       per-media ffmpeg job manager
-│   │   ├── subtitle.go         external subs → WebVTT
-│   │   ├── image_proxy.go      cached image proxy
-│   │   ├── playback.go         history / favorites / playlists
-│   │   ├── watcher.go          fsnotify debouncer
-│   │   ├── qbittorrent.go      qBittorrent v2 API client
-│   │   ├── downloads.go        download orchestrator
-│   │   ├── subscription.go     RSS poller
-│   │   ├── organizer.go        media file organizer
-│   │   ├── stats.go            dashboard snapshot
-│   │   ├── profile.go          user profile mutations
-│   │   ├── audit.go            audit log writer
-│   │   └── ws_hub.go           WebSocket pub/sub broker
-│   ├── middleware/             ← JWT / CORS / admin middleware
-│   └── handler/                ← HTTP route definitions (by concern)
-├── web/                        ← React 18 + Vite + Tailwind CSS
-│   ├── src/api/                axios service wrappers
-│   ├── src/components/         Card / Layout / APIConfigsPanel / etc.
-│   ├── src/hooks/              useWebSocket & friends
-│   ├── src/pages/              Home · Library · Search · Player · Downloads · Admin · Sites
-│   ├── src/stores/             Zustand (auth)
-│   └── src/types/              TypeScript domain types
-├── Dockerfile                  ← Multi-stage, multi-arch build
-├── docker-compose.yml          ← NAS-friendly one-command deploy
-├── Makefile                    ← build / dev / docker / test
-├── config.example.yaml         ← Full configuration reference
-└── .github/workflows/          ← CI + GHCR publish
+```powershell
+.\scripts\deploy.ps1
 ```
 
----
+## Configuration
 
-## 🗺️ Roadmap
+Configuration precedence, from low to high:
 
-| Feature | Status |
-|---------|:---:|
-| Jellyfin / Emby compatibility layer | 🔨 In Progress |
-| DLNA / Chromecast casting | 📋 Planned |
-| Online subtitle search providers | 📋 Planned |
-| Multi-bitrate ABR transcode | 📋 Planned |
-| STRM direct streaming (WebDAV / Alist / S3) | ✅ Complete |
+1. Built-in defaults
+2. `config.yaml`
+3. `config/*.yaml`
+4. `MEDIASTATION_` environment variables
+5. Runtime settings stored in the database, such as API keys, sites, and download clients
 
----
+Common environment variables:
 
-## 🤝 Contributing
+| Variable | Default | Description |
+| --- | --- | --- |
+| `MEDIASTATION_APP_PORT` | `8080` | Web service port |
+| `MEDIASTATION_APP_DATA_DIR` | `./data` | Data directory |
+| `MEDIASTATION_DATABASE_DB_PATH` | `./data/mediastation.db` | SQLite database path |
+| `MEDIASTATION_APP_WEB_DIR` | `./web/dist` | Frontend static bundle |
+| `MEDIASTATION_CACHE_CACHE_DIR` | `./cache` | Image/transcode cache |
+| `MEDIASTATION_SECRETS_JWT_SECRET` | Auto-generated | JWT and encryption seed |
 
-Issues and PRs are welcome! Please read the [Contribution Guidelines](CONTRIBUTING.md) before submitting.
+## APIs and External Services
 
----
+Configure external services from the admin UI:
 
-## 📄 License
+- TMDb: movie and TV metadata
+- Bangumi: anime and series metadata
+- TheTVDB: additional TV metadata
+- Fanart.tv: high-resolution artwork
+- OpenAI Compatible: AI search and recommendations
+- Adult/JAV: JavBus/JavDB page scraping, no API key required
 
-[GNU General Public License v3.0](LICENSE)
+For M-Team, generate an API Access Token from `Control Panel → Lab → Access Token` and send it as `x-api-key`. Do not use cookies for the open API.
 
-> ⚠️ License activation/validation is handled by a separate server: [MediaStationLicenseServer](https://github.com/ShukeBta/MediaStationLicenseServer). This project contains no license generation or validation logic.
+## Privacy and Repository Safety
 
----
+The project ignores personal and runtime data by default:
 
-<p align="center">
-  <sub>Made with ❤️ by MediaStationGo Team</sub>
-</p>
+- `data/`, `cache/`, `logs/`
+- `.tmp-deploy-data/`, `.tmp-deploy-server.*`, `.mediastation.pid`
+- `config.yaml`, `.env*`
+- `*.db`, `*.db-wal`, `*.log`
+- `web/dist/`, `node_modules/`, `bin/`
+
+Before pushing code, run:
+
+```bash
+git status --short
+git ls-files | grep -E 'data/|cache/|\\.db|\\.log|jwt_secret|config.yaml|\\.env' || true
+```
+
+## License
+
+This project is licensed under `GPL-3.0`. See [LICENSE](LICENSE) for details.

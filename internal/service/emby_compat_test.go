@@ -100,6 +100,33 @@ func TestEmbyItemsExposeSeriesSeasonEpisodeHierarchy(t *testing.T) {
 	}
 }
 
+func TestEmbyRootItemsExposeLibraries(t *testing.T) {
+	svc := newTestEmbyService(t)
+	for _, lib := range []model.Library{
+		{Name: "电影", Path: `F:\downloads\电影`, Type: "movie", Enabled: true},
+		{Name: "综艺", Path: `F:\downloads\综艺`, Type: "variety", Enabled: true},
+	} {
+		if err := svc.repo.Library.Create(t.Context(), &lib); err != nil {
+			t.Fatalf("create library: %v", err)
+		}
+	}
+
+	root, err := svc.Items(t.Context(), ItemsParams{Limit: 50})
+	if err != nil {
+		t.Fatalf("root items: %v", err)
+	}
+	items := root["Items"].([]map[string]any)
+	if len(items) != 2 {
+		t.Fatalf("expected root items to expose libraries, got %#v", items)
+	}
+	if items[0]["Type"] != "CollectionFolder" || items[1]["Type"] != "CollectionFolder" {
+		t.Fatalf("root should return collection folders: %#v", items)
+	}
+	if items[1]["CollectionType"] != "tvshows" {
+		t.Fatalf("variety libraries should use tvshows collection type: %#v", items[1])
+	}
+}
+
 func newTestEmbyService(t *testing.T) *EmbyService {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})

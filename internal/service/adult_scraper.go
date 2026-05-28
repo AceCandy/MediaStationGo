@@ -37,6 +37,15 @@ var adultExcludedPrefixes = map[string]struct{}{
 	"WEB": {}, "X264": {}, "X265": {},
 }
 
+var defaultAdultBases = []string{
+	"https://javdb.com",
+	"https://javbus.sbs",
+	"https://www.javbus.com",
+	"https://www.cdnbus.cyou",
+	"https://www.javsee.cyou",
+	"https://www.busjav.cyou",
+}
+
 type AdultProvider struct {
 	log       *zap.Logger
 	client    *http.Client
@@ -69,7 +78,7 @@ func (p *AdultProvider) Search(ctx context.Context, code string) (*Match, error)
 		base = strings.TrimRight(base, "/")
 		var match *Match
 		var err error
-		if strings.Contains(base, "javbus") {
+		if adultSourceKind(base) == "javbus" {
 			match, err = p.scrapeJavBus(ctx, base, code)
 		} else {
 			match, err = p.scrapeJavDB(ctx, base, code)
@@ -91,7 +100,7 @@ func (p *AdultProvider) Search(ctx context.Context, code string) (*Match, error)
 }
 
 func (p *AdultProvider) resolveBases(ctx context.Context) []string {
-	out := []string{"https://javdb.com", "https://www.javbus.com"}
+	out := append([]string{}, defaultAdultBases...)
 	if p.apiConfig == nil {
 		return out
 	}
@@ -102,18 +111,42 @@ func (p *AdultProvider) resolveBases(ctx context.Context) []string {
 	if !resolved.Enabled && (resolved.BaseURL != "" || resolved.Extra != "" || resolved.APIKey != "") {
 		return nil
 	}
+	configured := []string{}
 	if resolved.BaseURL != "" {
-		out = []string{resolved.BaseURL}
+		configured = append(configured, resolved.BaseURL)
 	}
 	if resolved.Extra != "" {
 		for _, part := range strings.Split(resolved.Extra, ",") {
 			part = strings.TrimSpace(part)
 			if strings.HasPrefix(part, "http://") || strings.HasPrefix(part, "https://") {
-				out = append(out, part)
+				configured = append(configured, part)
 			}
 		}
 	}
+	if len(configured) > 0 {
+		out = append(configured, out...)
+	}
 	return dedupeStrings(out)
+}
+
+func adultSourceKind(base string) string {
+	u, err := url.Parse(strings.TrimSpace(base))
+	host := ""
+	if err == nil {
+		host = strings.ToLower(u.Hostname())
+	}
+	if host == "" {
+		host = strings.ToLower(base)
+	}
+	if strings.Contains(host, "javdb") {
+		return "javdb"
+	}
+	for _, needle := range []string{"javbus", "cdnbus", "javsee", "busjav"} {
+		if strings.Contains(host, needle) {
+			return "javbus"
+		}
+	}
+	return "javdb"
 }
 
 func (p *AdultProvider) scrapeJavDB(ctx context.Context, base, code string) (*Match, error) {
@@ -199,6 +232,9 @@ func parseAdultDetailHTML(body, code, source, detailURL string) *Match {
 	}
 	if m := adultSamplePattern.FindStringSubmatch(body); len(m) > 1 {
 		match.BackdropURL = absolutizeURL(detailURL, m[1])
+	}
+	if dmmPoster := adultDMMPosterFromSampleURL(match.BackdropURL); dmmPoster != "" {
+		match.PosterURL = dmmPoster
 	}
 	match.Year = firstYearInText(body)
 	match.Rating = firstRatingInText(body)
@@ -287,6 +323,21 @@ func firstAdultImage(body string, classNeedles ...string) string {
 					return attrs["data-src"]
 				}
 			}
+		}
+	}
+	return ""
+}
+
+func adultDMMPosterFromSampleURL(raw string) string {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || u.Host == "" || !strings.Contains(strings.ToLower(u.Host), "dmm.co.jp") {
+		return ""
+	}
+	lowerPath := strings.ToLower(u.Path)
+	for _, suffix := range []string{"jp-1.jpg", "jp.jpg"} {
+		if strings.HasSuffix(lowerPath, suffix) {
+			u.Path = u.Path[:len(u.Path)-len(suffix)] + "pl.jpg"
+			return u.String()
 		}
 	}
 	return ""

@@ -25,6 +25,9 @@ web/tsconfig.tsbuildinfo
 data/
 cache/
 logs/
+.tmp-deploy-data/
+.tmp-deploy-server.*
+.mediastation.pid
 *.log
 *.db
 *.db-journal

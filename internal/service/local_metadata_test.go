@@ -253,6 +253,69 @@ func TestReadAdultNFOByCodeForStackedFile(t *testing.T) {
 	}
 }
 
+func TestReadAdultMetadataPrefersLocalDMMPosterOverRemoteNFO(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "IPX-641-C")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	mediaPath := filepath.Join(dir, "ipx-641-C.mp4")
+	if err := os.WriteFile(mediaPath, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(nfoPath(mediaPath), []byte(`<movie>
+  <title>本地标题</title>
+  <originaltitle>IPX-641</originaltitle>
+  <thumb>https://www.javbus.com/pics/cover/remote.jpg</thumb>
+  <fanart>https://pics.dmm.co.jp/digital/video/ipx00641/ipx00641jp-1.jpg</fanart>
+</movie>`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	poster := filepath.Join(dir, "ipx00641pl.jpg")
+	if err := os.WriteFile(poster, []byte("jpg"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := ReadLocalMetadata(mediaPath, root, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got == nil || got.PosterURL != poster {
+		t.Fatalf("poster_url = %q, want local %q", got.PosterURL, poster)
+	}
+	if got.BackdropURL != "https://pics.dmm.co.jp/digital/video/ipx00641/ipx00641jp-1.jpg" {
+		t.Fatalf("backdrop should keep remote NFO fallback, got %q", got.BackdropURL)
+	}
+}
+
+func TestReadAdultMetadataDerivesDMMPosterFromRemoteFanart(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "NACR-833")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	mediaPath := filepath.Join(dir, "NACR-833.mp4")
+	if err := os.WriteFile(mediaPath, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(nfoPath(mediaPath), []byte(`<movie>
+  <title>本地标题</title>
+  <originaltitle>NACR-833</originaltitle>
+  <thumb>https://www.javbus.com/pics/cover/an5p_b.jpg</thumb>
+  <fanart>https://pics.dmm.co.jp/digital/video/h_237nacr00833/h_237nacr00833jp-1.jpg</fanart>
+</movie>`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := ReadLocalMetadata(mediaPath, root, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got == nil || got.PosterURL != "https://pics.dmm.co.jp/digital/video/h_237nacr00833/h_237nacr00833pl.jpg" {
+		t.Fatalf("unexpected metadata: %+v", got)
+	}
+}
+
 func TestReadAdultArtworkByCodeWithoutNFO(t *testing.T) {
 	root := t.TempDir()
 	mediaPath := filepath.Join(root, "SSIS-001-CD1.mp4")

@@ -8,7 +8,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -27,11 +26,11 @@ type SiteConfig struct {
 	Cookie          string
 	APIKey          string
 	AuthHeader      string
-	UserAgent        string            // 自定义 User-Agent
-	Timeout          time.Duration     // 请求超时
-	Extra            map[string]string // JSON 扩展配置
-	FlareSolverrURL  string            // FlareSolverr 服务地址（用于浏览器模拟绕过 Cloudflare/WAF）
-	UseProxy         bool              // 通过 HTTP(S)_PROXY 环境变量出站
+	UserAgent       string            // 自定义 User-Agent
+	Timeout         time.Duration     // 请求超时
+	Extra           map[string]string // JSON 扩展配置
+	FlareSolverrURL string            // FlareSolverr 服务地址（用于浏览器模拟绕过 Cloudflare/WAF）
+	UseProxy        bool              // 通过 HTTP(S)_PROXY 环境变量出站
 }
 
 // SiteSearchResult 站点搜索结果（按站点分组的批量搜索结果）。
@@ -855,22 +854,15 @@ func NewMTeamAdapter() *MTeamAdapter {
 }
 
 func (a *MTeamAdapter) Authenticate(ctx context.Context, cfg SiteConfig) error {
+	if strings.TrimSpace(cfg.APIKey) == "" {
+		return fmt.Errorf("M-Team 需要填写 API Access Token（控制台 → 实验室 → 存取令牌），不能使用 Cookie 访问开放 API")
+	}
 	// 与 ShukeBta/MediaStation 参考实现对齐：
 	// 用 camelCase 参数（pageNumber / pageSize），同时接受 code 为字符串 "0"
 	// 或数值 0；兼容 M-Team v3 API 不同版本的返回。
 	u := cfg.URL + "/api/torrent/search"
-	payload := `{"pageNumber":1,"pageSize":1,"keyword":"test"}`
+	payload := `{"pageNumber":1,"pageSize":1,"mode":"all"}`
 	data, status, err := doRequestJSON(ctx, a.client, "POST", u, cfg, []byte(payload))
-	// 调试开关：MEDIASTATION_DEBUG_MTEAM=1 时把请求/响应详情写入 stderr。
-	if os.Getenv("MEDIASTATION_DEBUG_MTEAM") == "1" {
-		preview := string(data)
-		if len(preview) > 800 {
-			preview = preview[:800] + "..."
-		}
-		fmt.Fprintf(os.Stderr,
-			"[DEBUG mteam.Authenticate] url=%s status=%d err=%v body=%s\n",
-			u, status, err, preview)
-	}
 	if err != nil {
 		return fmt.Errorf("authenticate: %w", err)
 	}
@@ -891,19 +883,12 @@ func (a *MTeamAdapter) Authenticate(ctx context.Context, cfg SiteConfig) error {
 	if err := json.Unmarshal(data, &resp); err != nil {
 		return fmt.Errorf("parse response: %w (body=%s)", err, preview)
 	}
-	codeStr := ""
-	switch v := resp["code"].(type) {
-	case string:
-		codeStr = v
-	case float64:
-		codeStr = strconv.Itoa(int(v))
-	}
-	if codeStr == "0" || codeStr == "200" {
+	if mteamCodeOK(resp["code"]) {
 		return nil
 	}
 	msg, _ := resp["message"].(string)
 	if msg == "" {
-		msg = fmt.Sprintf("code=%s", codeStr)
+		msg = fmt.Sprintf("code=%s", mteamCodeString(resp["code"]))
 	}
 	return fmt.Errorf("authentication failed: %s (body=%s)", msg, preview)
 }
@@ -959,8 +944,8 @@ func (a *MTeamAdapter) Browse(ctx context.Context, cfg SiteConfig, category stri
 }
 
 func (a *MTeamAdapter) GetDetail(ctx context.Context, cfg SiteConfig, id string) (*TorrentDetail, error) {
-	u := cfg.URL + "/api/torrent/detail?id=" + id
-	data, status, err := doRequest(ctx, a.client, "GET", u, cfg, nil)
+	u := cfg.URL + "/api/torrent/detail?id=" + url.QueryEscape(id)
+	data, status, err := doRequestJSON(ctx, a.client, "POST", u, cfg, nil)
 	if err != nil {
 		return nil, fmt.Errorf("detail: %w", err)
 	}
@@ -1513,7 +1498,11 @@ func doRequestJSON(ctx context.Context, client *http.Client, method, rawURL stri
 		req.ContentLength = int64(len(body))
 	}
 
-	resp, err := client.Do(req)
+	httpClient := client
+	if cfg.UseProxy {
+		httpClient = newHTTPClient(cfg, cfg.Timeout)
+	}
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -1524,6 +1513,24 @@ func doRequestJSON(ctx context.Context, client *http.Client, method, rawURL stri
 		return nil, resp.StatusCode, err
 	}
 	return data, resp.StatusCode, nil
+}
+
+func mteamCodeOK(code any) bool {
+	codeStr := mteamCodeString(code)
+	return codeStr == "0" || codeStr == "200"
+}
+
+func mteamCodeString(code any) string {
+	switch v := code.(type) {
+	case string:
+		return strings.TrimSpace(v)
+	case float64:
+		return strconv.Itoa(int(v))
+	case int:
+		return strconv.Itoa(v)
+	default:
+		return ""
+	}
 }
 
 // parseSizeString 将带单位的字符串转换为字节数。

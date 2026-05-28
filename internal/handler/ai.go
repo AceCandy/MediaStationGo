@@ -72,10 +72,6 @@ func aiRecommendHandler(svc *service.Container) gin.HandlerFunc {
 
 func aiStatusHandler(svc *service.Container) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{
-			"enabled":  svc.AI.Enabled(),
-			"provider": svc.Cfg.AI.Provider,
-			"model":    svc.Cfg.AI.Model,
-		})
+		c.JSON(http.StatusOK, svc.AI.Status(c.Request.Context()))
 	}
 }

@@ -143,9 +143,6 @@ export function SitesPage() {
       url: form.url.trim(),
       type: form.type,
       auth_type: form.auth_type,
-      cookie: form.cookie || '',
-      api_key: form.api_key || '',
-      auth_header: form.auth_header || '',
       enabled: form.enabled,
       is_default: form.is_default,
       extra: form.extra || '',
@@ -158,6 +155,9 @@ export function SitesPage() {
       browser_emulation: !!form.browser_emulation,
       downloader: form.downloader || '',
     }
+    if (!editingId || form.cookie.trim()) payload.cookie = form.cookie.trim()
+    if (!editingId || form.api_key.trim()) payload.api_key = form.api_key.trim()
+    if (!editingId || form.auth_header.trim()) payload.auth_header = form.auth_header.trim()
     try {
       if (editingId) {
         await sitesAPI.update(editingId, payload)
@@ -465,8 +465,9 @@ export function SitesPage() {
                 <div className="p-3 rounded-xl border border-green-500/30 bg-green-500/5">
                   <div className="text-sm font-medium text-green-400 mb-1">馒头站点配置指南</div>
                   <div className="text-xs text-ink-50 space-y-1">
-                    <div><b>站点地址：</b><code className="text-green-300">https://api2.m-team.cc</code></div>
-                    <div><b>认证方式：</b>推荐使用「API Key / Passkey」</div>
+                    <div><b>正式站地址：</b><code className="text-green-300">https://api.m-team.cc</code></div>
+                    <div><b>测试站地址：</b><code className="text-green-300">https://test2.m-team.cc</code>（开发测试环境）</div>
+                    <div><b>认证方式：</b>必须使用「API Access Token」，不要使用 Cookie</div>
                     <div className="pl-3 text-sand-500">
                       1. 登录馒头站 → 控制台 → 实验室 → 存取令牌<br />
                       2. 点击「创建令牌」，复制生成的 Token<br />
@@ -520,13 +521,13 @@ export function SitesPage() {
                     <input
                       type="password"
                       className="input-base w-full font-mono text-sm"
-                      placeholder="输入 API Key 或 Passkey"
+                      placeholder={editingId ? '留空则保留原令牌，输入新值则替换' : '输入 API Access Token'}
                       value={form.api_key}
                       onChange={(e) => setForm((f) => ({ ...f, api_key: e.target.value }))}
                     />
                     <p className="text-xs text-sand-500 mt-1">
                       {form.type === 'mteam'
-                        ? '馒头：控制台 → 实验室 → 存取令牌'
+                        ? '馒头：控制台 → 实验室 → 存取令牌；第三方工具通过 x-api-key 请求头访问'
                         : '站点的访问 API Key'}
                     </p>
                   </div>

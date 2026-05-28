@@ -41,7 +41,7 @@ func (s *APIConfigService) SeedDefaults(ctx context.Context) error {
 		{Provider: "thetvdb", BaseURL: "https://api4.thetvdb.com/v4", Description: "TheTVDB (tv)", Enabled: true},
 		{Provider: "fanart", BaseURL: "https://webservice.fanart.tv/v3", Description: "Fanart.tv (artwork)", Enabled: true},
 		{Provider: "douban", Description: "Douban cookie (zh metadata)", Enabled: true},
-		{Provider: "adult", BaseURL: "https://javdb.com", Extra: "https://www.javbus.com", Description: "Adult / 番号元数据（JavDB/JavBus）", Enabled: true},
+		{Provider: "adult", BaseURL: "https://javdb.com", Extra: "https://javbus.sbs,https://www.javbus.com,https://www.cdnbus.cyou,https://www.javsee.cyou,https://www.busjav.cyou", Description: "Adult / 番号元数据（JavDB/JavBus）", Enabled: true},
 		{Provider: "openai", BaseURL: "https://api.openai.com/v1", Description: "OpenAI-compatible (smart search)", Enabled: true},
 	}
 	for i := range defaults {

@@ -34,7 +34,7 @@ func NewSiteHTTPClient(timeoutSeconds int, useProxy bool) *http.Client {
 	}
 	if useProxy {
 		tr.Proxy = func(r *http.Request) (*url.URL, error) {
-			return http.ProxyFromEnvironment(r)
+			return ProxyFromEnvironmentOrSystem(r)
 		}
 	}
 	return &http.Client{
@@ -47,17 +47,17 @@ func NewSiteHTTPClient(timeoutSeconds int, useProxy bool) *http.Client {
 // These mimic a real Chrome browser to avoid WAF/bot detection.
 func HTTPHeaderPresets() map[string]string {
 	return map[string]string{
-		"User-Agent":      model.DefaultUserAgent,
-		"Accept":          "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
-		"Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
-		"Accept-Encoding": "gzip, deflate, br",
-		"Connection":      "keep-alive",
+		"User-Agent":                model.DefaultUserAgent,
+		"Accept":                    "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+		"Accept-Language":           "zh-CN,zh;q=0.9,en;q=0.8",
+		"Accept-Encoding":           "gzip, deflate, br",
+		"Connection":                "keep-alive",
 		"Upgrade-Insecure-Requests": "1",
-		"Sec-Fetch-Dest":          "document",
-		"Sec-Fetch-Mode":          "navigate",
-		"Sec-Fetch-Site":          "none",
-		"Sec-Fetch-User":          "?1",
-		"Cache-Control":            "max-age=0",
+		"Sec-Fetch-Dest":            "document",
+		"Sec-Fetch-Mode":            "navigate",
+		"Sec-Fetch-Site":            "none",
+		"Sec-Fetch-User":            "?1",
+		"Cache-Control":             "max-age=0",
 	}
 }
 
@@ -65,12 +65,12 @@ func HTTPHeaderPresets() map[string]string {
 
 // FlareSolverrRequest represents a request to FlareSolverr.
 type FlareSolverrRequest struct {
-	Cmd       string                `json:"cmd"`
-	URL       string                `json:"url"`
-	Session   string                `json:"session,omitempty"`
-	MaxTimeout int                   `json:"maxTimeout,omitempty"`
-	Proxy     *FlareSolverrProxy  `json:"proxy,omitempty"`
-	Cookies   []FlareSolverrCookie `json:"cookies,omitempty"`
+	Cmd        string               `json:"cmd"`
+	URL        string               `json:"url"`
+	Session    string               `json:"session,omitempty"`
+	MaxTimeout int                  `json:"maxTimeout,omitempty"`
+	Proxy      *FlareSolverrProxy   `json:"proxy,omitempty"`
+	Cookies    []FlareSolverrCookie `json:"cookies,omitempty"`
 }
 
 // FlareSolverrProxy represents proxy config for FlareSolverr.
@@ -90,19 +90,19 @@ type FlareSolverrCookie struct {
 
 // FlareSolverrResponse represents FlareSolverr's response.
 type FlareSolverrResponse struct {
-	Status   string                 `json:"status"`
-	Message  string                 `json:"message"`
+	Status   string                `json:"status"`
+	Message  string                `json:"message"`
 	Solution *FlareSolverrSolution `json:"solution,omitempty"`
 }
 
 // FlareSolverrSolution contains the solved challenge result.
 type FlareSolverrSolution struct {
-	URL       string                `json:"url"`
-	Status    int                   `json:"status"`
-	Headers   map[string]string     `json:"headers"`
+	URL       string               `json:"url"`
+	Status    int                  `json:"status"`
+	Headers   map[string]string    `json:"headers"`
 	Cookies   []FlareSolverrCookie `json:"cookies"`
-	UserAgent string                `json:"userAgent"`
-	Response  string                `json:"response"`
+	UserAgent string               `json:"userAgent"`
+	Response  string               `json:"response"`
 }
 
 // FetchURLWithFlareSolverr uses FlareSolverr to fetch a URL,
@@ -123,10 +123,10 @@ func FetchURLWithFlareSolverr(flareSolverrURL string, targetURL string, cookieSt
 
 	// Build request
 	reqBody := FlareSolverrRequest{
-		Cmd:       "request.get",
-		URL:       targetURL,
+		Cmd:        "request.get",
+		URL:        targetURL,
 		MaxTimeout: timeout * 1000,
-		Cookies:   cookies,
+		Cookies:    cookies,
 	}
 	if proxyURL != "" {
 		reqBody.Proxy = &FlareSolverrProxy{URL: proxyURL}

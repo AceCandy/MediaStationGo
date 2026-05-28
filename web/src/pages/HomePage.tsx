@@ -1,10 +1,8 @@
-﻿import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import {
-  ArrowRight, Play, Clock, Film, Sparkles,
-  Library as LibraryIcon, Tv, Music, PlayCircle, ChevronRight
-} from 'lucide-react'
+import { ArrowRight, Clock, Film, Play, Sparkles } from 'lucide-react'
+
 import { libraryAPI, mediaAPI } from '../api/library'
 import { playbackAPI, type HistoryItem } from '../api/playback'
 import { imageURL } from '../api/client'
@@ -12,17 +10,11 @@ import { MediaCard } from '../components/MediaCard'
 import type { Library, Media } from '../types'
 import { groupSeries } from '../utils/groupSeries'
 
-type LibraryRow = { library: Library; cards: ReturnType<typeof groupSeries> }
-
-const TYPE_ICONS: Record<string, React.ReactNode> = {
-  movie: <Film size={18} />, tv: <Tv size={18} />, variety: <Tv size={18} />, anime: <PlayCircle size={18} />, music: <Music size={18} />,
-}
-const TYPE_LABELS: Record<string, string> = { movie: '电影', tv: '电视剧', variety: '综艺', anime: '动漫', music: '音乐' }
 const hasArtwork = (media?: Media | null) => !!(media?.poster_url || media?.backdrop_url)
 
 export function HomePage() {
   const [libraries, setLibraries] = useState<Library[]>([])
-  const [rows, setRows] = useState<LibraryRow[]>([])
+  const [recent, setRecent] = useState<Media[]>([])
   const [history, setHistory] = useState<HistoryItem[]>([])
   const [loading, setLoading] = useState(true)
 
@@ -31,48 +23,36 @@ export function HomePage() {
     async function load() {
       setLoading(true)
       try {
-        const [libs, hist] = await Promise.all([
+        const [libs, recentItems, hist] = await Promise.all([
           libraryAPI.list().catch(() => [] as Library[]),
+          mediaAPI.search('', 120).then((d) => d.items).catch(() => [] as Media[]),
           playbackAPI.recentHistory().catch(() => [] as HistoryItem[]),
         ])
         if (cancelled) return
         setLibraries(libs)
+        setRecent(recentItems)
         setHistory(hist.filter((h) => !h.completed && !!h.media))
-        const perLib = await Promise.all(libs.map(async (lib) => {
-          try {
-            const page = await libraryAPI.listMedia(lib.id, 1, 60)
-            return { library: lib, cards: groupSeries(page.items).slice(0, 14) } as LibraryRow
-          } catch { return { library: lib, cards: [] } as LibraryRow }
-        }))
-        if (cancelled) return
-        setRows(perLib)
-      } finally { if (!cancelled) setLoading(false) }
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
     }
     load()
     return () => { cancelled = true }
   }, [])
 
-  const [fallback, setFallback] = useState<Media[]>([])
-  useEffect(() => {
-    if (loading || libraries.length > 0) return
-    mediaAPI.search('', 60).then((d) => setFallback(d.items)).catch(() => undefined)
-  }, [loading, libraries.length])
-  const fallbackCards = useMemo(() => groupSeries(fallback).slice(0, 16), [fallback])
-
+  const recentCards = useMemo(() => groupSeries(recent).slice(0, 24), [recent])
   const featuredItem = useMemo(() => {
     const candidates = [
       ...(history.map((h) => h.media).filter(Boolean) as Media[]),
-      ...rows.flatMap((row) => row.cards.map((card) => card.rep)),
-      ...fallbackCards.map((card) => card.rep),
-      ...fallback,
+      ...recentCards.map((card) => card.rep),
+      ...recent,
     ]
     return candidates.find(hasArtwork) ?? candidates[0] ?? null
-  }, [history, rows, fallbackCards, fallback])
+  }, [history, recentCards, recent])
   const featuredVisual = featuredItem?.backdrop_url || featuredItem?.poster_url || ''
   const featuredPoster = featuredItem?.poster_url || featuredItem?.backdrop_url || ''
   const featuredMark = (featuredItem?.title || 'MS').trim().slice(0, 4).toUpperCase()
-
-  const empty = !loading && history.length === 0 && rows.every((r) => r.cards.length === 0) && fallbackCards.length === 0
+  const empty = !loading && libraries.length === 0 && recentCards.length === 0 && history.length === 0
 
   if (loading) {
     return (
@@ -82,7 +62,7 @@ export function HomePage() {
             <div className="h-10 w-10 rounded-full border-2 border-gray-100 border-t-gray-900 animate-spin" />
             <Film className="absolute h-4 w-4 text-brand-500" />
           </div>
-          <span className="text-sm font-semibold tracking-widest text-gray-500 uppercase">站点舱准备中…</span>
+          <span className="text-sm font-semibold tracking-widest text-gray-500 uppercase">首页内容准备中…</span>
         </motion.div>
       </div>
     )
@@ -96,7 +76,7 @@ export function HomePage() {
         </div>
         <p className="text-xl font-bold text-gray-900">您的家庭影视站暂无内容</p>
         <p className="mt-2 text-sm text-gray-500 leading-relaxed">
-          立即前往管理后台配置您的第一个媒体库，添加影视目录并触发后台刮削扫描任务。
+          前往管理后台添加媒体目录，扫描后首页将展示本周力荐、继续观看和最近入库。
         </p>
         <Link to="/admin" className="mt-8 btn-primary">
           前往管理后台
@@ -107,10 +87,8 @@ export function HomePage() {
 
   return (
     <div className="space-y-12">
-      {/* ─── Premium Swiss-Editorial Billboard Hero ─── */}
       {featuredItem && (
         <section className="relative overflow-hidden rounded-[2rem] bg-white border border-gray-200/90 shadow-[0_24px_80px_rgba(15,23,42,0.08)]">
-          {/* Background Artwork */}
           <div className="absolute inset-0 z-0">
             <div className="h-full w-full bg-[radial-gradient(circle_at_80%_20%,rgba(212,175,55,0.22),transparent_34%),linear-gradient(135deg,#fff7ed,#f8fafc_52%,#eef2ff)]" />
             {featuredVisual && (
@@ -123,11 +101,9 @@ export function HomePage() {
               />
             )}
             <div className="absolute inset-0 bg-[linear-gradient(90deg,#ffffff_0%,rgba(255,255,255,0.96)_37%,rgba(255,255,255,0.62)_68%,rgba(255,255,255,0.2)_100%)]" />
-            <div className="absolute inset-0 bg-[radial-gradient(circle_at_82%_50%,rgba(201,149,74,0.24),transparent_32%)]" />
             <div className="absolute inset-x-0 bottom-0 h-32 bg-gradient-to-t from-white to-transparent" />
           </div>
 
-          {/* Billboard Content */}
           <div className="relative z-10 grid gap-8 px-6 py-8 sm:px-8 md:grid-cols-[minmax(0,1fr)_280px] md:px-12 md:py-12 lg:grid-cols-[minmax(0,1fr)_340px] lg:px-14 lg:py-14">
             <div className="flex min-w-0 flex-col justify-center space-y-5">
               <div className="inline-flex w-fit items-center gap-2 rounded-full bg-white/82 px-3.5 py-1.5 text-xs font-bold uppercase tracking-widest text-[#a8732d] border border-[#ead6b6] shadow-sm backdrop-blur">
@@ -145,17 +121,10 @@ export function HomePage() {
                 </h1>
               </div>
 
-              {featuredItem.overview ? (
-                <p className="max-w-2xl text-gray-600 text-sm sm:text-base leading-relaxed line-clamp-3 font-semibold">
-                  {featuredItem.overview}
-                </p>
-              ) : (
-                <p className="max-w-2xl text-gray-500 text-sm italic">
-                  家庭私人媒体中心收藏。极高视听品质，支持多端原生无损解码及HLS转码播放。
-                </p>
-              )}
+              <p className="max-w-2xl text-gray-600 text-sm sm:text-base leading-relaxed line-clamp-3 font-semibold">
+                {featuredItem.overview || '家庭私人媒体中心收藏。支持多端播放、外部播放器、智能刮削与订阅下载。'}
+              </p>
 
-              {/* Metadata Badges */}
               <div className="flex flex-wrap items-center gap-3 text-xs text-gray-500 font-bold">
                 {featuredItem.year > 0 && (
                   <span className="bg-white/85 px-2.5 py-1 rounded-xl text-gray-900 border border-gray-200 shadow-sm">{featuredItem.year} 年</span>
@@ -172,7 +141,6 @@ export function HomePage() {
                 )}
               </div>
 
-              {/* Buttons */}
               <div className="flex flex-wrap items-center gap-4 pt-2">
                 <Link to={`/media/${featuredItem.id}`} className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#111827] px-6 py-3.5 text-sm font-bold text-white shadow-lg shadow-gray-900/15 hover:bg-[#1f2937] hover:-translate-y-0.5 transition-all">
                   <Play size={16} fill="currentColor" />
@@ -187,7 +155,6 @@ export function HomePage() {
 
             <div className="relative order-first mx-auto flex w-full max-w-[220px] items-center md:order-none md:max-w-[260px] lg:max-w-[310px]">
               <div className="absolute -right-6 top-5 h-32 w-32 rounded-full bg-[#d4af37]/20 blur-3xl" />
-              <div className="absolute -left-5 bottom-8 h-28 w-28 rounded-full bg-brand-200/30 blur-3xl" />
               <div className="relative aspect-[2/3] w-full overflow-hidden rounded-[1.7rem] border border-white/70 bg-white p-2 shadow-[0_32px_80px_rgba(15,23,42,0.20)]">
                 <div className="flex h-full w-full flex-col items-center justify-center rounded-[1.25rem] bg-[linear-gradient(135deg,#f9fafb,#fff7ed)] text-center">
                   <Film className="mb-4 h-12 w-12 text-[#c9954a]" />
@@ -202,17 +169,12 @@ export function HomePage() {
                     onError={(event) => { event.currentTarget.style.display = 'none' }}
                   />
                 )}
-                <div className="absolute inset-x-4 bottom-4 rounded-2xl bg-white/88 px-4 py-3 shadow-lg backdrop-blur">
-                  <p className="truncate text-xs font-black tracking-[0.22em] text-[#a8732d]">MEDIASTATION PICK</p>
-                  <p className="truncate text-sm font-extrabold text-gray-950">{featuredItem.title}</p>
-                </div>
               </div>
             </div>
           </div>
         </section>
       )}
 
-      {/* ─── Continue Watching Section ─── */}
       {history.length > 0 && (
         <section className="space-y-5">
           <div className="flex items-center gap-2.5">
@@ -225,69 +187,44 @@ export function HomePage() {
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
             {history.slice(0, 8).map((h) => {
-              const m = h.media!
-              const pct = h.duration_ms > 0 ? h.position_ms / h.duration_ms : 0
-              return <ContinueCard key={h.id} media={m} progress={pct} />
+              const media = h.media!
+              const progress = h.duration_ms > 0 ? h.position_ms / h.duration_ms : 0
+              return <ContinueCard key={h.id} media={media} progress={progress} />
             })}
           </div>
         </section>
       )}
 
-      {/* ─── Media Libraries Grid Sections ─── */}
-      <div className="space-y-12">
-        {rows.filter((r) => r.cards.length > 0).map((row) => (
-          <section key={row.library.id} className="space-y-5">
-            <div className="flex items-center justify-between border-b border-gray-200/80 pb-3">
-              <div className="flex items-center gap-2.5">
-                <span className="p-1.5 rounded-xl bg-gray-100 text-gray-900 border border-gray-200/50">
-                  {TYPE_ICONS[row.library.type] ?? <LibraryIcon size={18} />}
-                </span>
-                <h2 className="font-display text-xl font-extrabold tracking-tight text-gray-900">
-                  {row.library.name}
-                </h2>
-                <span className="rounded-full bg-gray-100 border border-gray-200/80 px-2 py-0.5 text-[10px] font-bold text-gray-500 uppercase tracking-wider">
-                  {TYPE_LABELS[row.library.type] ?? row.library.type}
-                </span>
-              </div>
-              <Link to={`/library/${row.library.id}`} className="group inline-flex items-center gap-1 text-xs font-bold text-gray-600 hover:text-brand-600 transition-colors">
-                <span>浏览全部</span>
-                <ChevronRight size={14} className="transition-transform group-hover:translate-x-0.5" />
-              </Link>
-            </div>
-
-            <div className="grid grid-cols-2 gap-5 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7">
-              {row.cards.map((s) => (
-                <MediaCard
-                  key={s.rep.id}
-                  media={s.rep}
-                  count={s.count}
-                  linkTo={s.count > 1 ? `/library/${row.library.id}?series=${encodeURIComponent(s.key)}` : undefined}
-                />
-              ))}
-            </div>
-          </section>
-        ))}
-
-        {/* ─── Fallback Recents Section ─── */}
-        {libraries.length === 0 && fallbackCards.length > 0 && (
-          <section className="space-y-5">
-            <div className="flex items-center justify-between border-b border-gray-200/80 pb-3">
-              <div className="flex items-center gap-2.5">
-                <span className="p-1.5 rounded-xl bg-gray-100 text-gray-900 border border-gray-200/50">
-                  <Clock size={18} />
-                </span>
-                <h2 className="font-display text-xl font-extrabold tracking-tight text-gray-900">最近添加</h2>
+      {recentCards.length > 0 && (
+        <section className="space-y-5">
+          <div className="flex items-center justify-between border-b border-gray-200/80 pb-3">
+            <div className="flex items-center gap-2.5">
+              <span className="p-1.5 rounded-xl bg-gray-100 text-gray-900 border border-gray-200/50">
+                <Clock size={18} />
+              </span>
+              <div>
+                <h2 className="font-display text-xl font-extrabold tracking-tight text-gray-900">最近入库</h2>
+                <p className="text-xs text-gray-500">按整部电影、剧集、番剧和综艺合集展示新增内容。</p>
               </div>
             </div>
+            <Link to="/poster-wall" className="group inline-flex items-center gap-1 text-xs font-bold text-gray-600 hover:text-brand-600 transition-colors">
+              <span>海报墙</span>
+              <ArrowRight size={14} className="transition-transform group-hover:translate-x-0.5" />
+            </Link>
+          </div>
 
-            <div className="grid grid-cols-2 gap-5 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7">
-              {fallbackCards.map((s) => (
-                <MediaCard key={s.rep.id} media={s.rep} count={s.count} />
-              ))}
-            </div>
-          </section>
-        )}
-      </div>
+          <div className="grid grid-cols-2 gap-5 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7">
+            {recentCards.map((card) => (
+              <MediaCard
+                key={card.key}
+                media={card.rep}
+                count={card.count}
+                linkTo={card.count > 1 ? `/library/${card.rep.library_id}?series=${encodeURIComponent(card.key)}` : undefined}
+              />
+            ))}
+          </div>
+        </section>
+      )}
     </div>
   )
 }
@@ -297,12 +234,12 @@ function ContinueCard({ media, progress }: { media: Media; progress: number }) {
     <Link to={`/media/${media.id}`} className="group flex items-center gap-4 rounded-2xl bg-white p-3.5 border border-gray-200/80 shadow-[0_1px_3px_rgba(0,0,0,0.01)] transition-all duration-300 hover:shadow-md hover:border-brand-500/30">
       <div className="relative h-18 w-12 shrink-0 overflow-hidden rounded-xl bg-gray-50 border border-gray-100">
         {media.poster_url ? (
-          <img 
-            src={imageURL(media.poster_url)} 
-            alt="" 
-            loading="lazy" 
-            className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105" 
-            referrerPolicy="no-referrer" 
+          <img
+            src={imageURL(media.poster_url)}
+            alt=""
+            loading="lazy"
+            className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
+            referrerPolicy="no-referrer"
           />
         ) : (
           <div className="flex h-full items-center justify-center text-gray-500 bg-gray-50">

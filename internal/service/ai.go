@@ -31,27 +31,99 @@ import (
 
 // AIService talks to an OpenAI-compatible chat-completions endpoint.
 type AIService struct {
-	cfg    *config.Config
-	log    *zap.Logger
-	client *http.Client
+	cfg       *config.Config
+	log       *zap.Logger
+	client    *http.Client
+	apiConfig *APIConfigService
 }
 
 // NewAIService is the constructor.
-func NewAIService(cfg *config.Config, log *zap.Logger) *AIService {
+func NewAIService(cfg *config.Config, log *zap.Logger, apiConfig *APIConfigService) *AIService {
 	timeout := time.Duration(cfg.AI.Timeout) * time.Second
 	if timeout <= 0 {
 		timeout = 30 * time.Second
 	}
 	return &AIService{
-		cfg:    cfg,
-		log:    log,
-		client: &http.Client{Timeout: timeout},
+		cfg:       cfg,
+		log:       log,
+		apiConfig: apiConfig,
+		client:    NewExternalHTTPClient(timeout),
 	}
 }
 
 // Enabled reports whether the AI integration is configured.
 func (a *AIService) Enabled() bool {
 	return a.cfg.AI.Enabled && strings.TrimSpace(a.cfg.AI.APIKey) != ""
+}
+
+// EnabledFor reports whether the AI integration is configured for a request.
+func (a *AIService) EnabledFor(ctx context.Context) bool {
+	return a.resolveRuntimeConfig(ctx).Enabled
+}
+
+// AIStatus is returned to the UI for connection-state display.
+type AIStatus struct {
+	Enabled  bool   `json:"enabled"`
+	Provider string `json:"provider"`
+	Model    string `json:"model"`
+}
+
+// Status resolves live database-backed AI config for the UI.
+func (a *AIService) Status(ctx context.Context) AIStatus {
+	cfg := a.resolveRuntimeConfig(ctx)
+	return AIStatus{Enabled: cfg.Enabled, Provider: cfg.Provider, Model: cfg.Model}
+}
+
+type aiRuntimeConfig struct {
+	Enabled  bool
+	Provider string
+	APIBase  string
+	APIKey   string
+	Model    string
+}
+
+func (a *AIService) resolveRuntimeConfig(ctx context.Context) aiRuntimeConfig {
+	out := aiRuntimeConfig{
+		Enabled:  a.cfg.AI.Enabled && strings.TrimSpace(a.cfg.AI.APIKey) != "",
+		Provider: strings.TrimSpace(a.cfg.AI.Provider),
+		APIBase:  strings.TrimSpace(a.cfg.AI.APIBase),
+		APIKey:   strings.TrimSpace(a.cfg.AI.APIKey),
+		Model:    strings.TrimSpace(a.cfg.AI.Model),
+	}
+	if out.Provider == "" {
+		out.Provider = "openai"
+	}
+	if out.APIBase == "" {
+		out.APIBase = "https://api.openai.com/v1"
+	}
+	if out.Model == "" {
+		out.Model = "gpt-4o-mini"
+	}
+
+	if a.apiConfig != nil {
+		resolved, err := a.apiConfig.Resolve(ctx, "openai")
+		if err != nil {
+			if a.log != nil {
+				a.log.Warn("ai: failed to resolve openai api config", zap.Error(err))
+			}
+			return out
+		}
+		if resolved.BaseURL != "" {
+			out.APIBase = strings.TrimSpace(resolved.BaseURL)
+		}
+		if resolved.APIKey != "" {
+			out.APIKey = strings.TrimSpace(resolved.APIKey)
+		}
+		if resolved.Enabled && out.APIKey != "" {
+			out.Enabled = true
+			out.Provider = "openai"
+			return out
+		}
+		if !resolved.Enabled && (resolved.APIKey != "" || resolved.BaseURL != "" || resolved.Extra != "") {
+			out.Enabled = false
+		}
+	}
+	return out
 }
 
 // SearchIntent is the structured output the smart search endpoint returns.
@@ -67,7 +139,8 @@ type SearchIntent struct {
 // SmartSearch turns a natural-language query into a structured intent.
 // Returns a best-effort intent on parse failure (raw query passes through).
 func (a *AIService) SmartSearch(ctx context.Context, raw string) (*SearchIntent, error) {
-	if !a.Enabled() {
+	runtime := a.resolveRuntimeConfig(ctx)
+	if !runtime.Enabled {
 		return &SearchIntent{Query: raw}, nil
 	}
 	const sys = "You are a media-library search assistant. Read the user's query and " +
@@ -75,7 +148,7 @@ func (a *AIService) SmartSearch(ctx context.Context, raw string) (*SearchIntent,
 		"genre (string, optional), type (movie|tv|anime|music, optional), sort " +
 		"(recent|rating|random, optional), language (zh|en, optional). Respond with " +
 		"JSON only, no commentary."
-	out, err := a.complete(ctx, sys, raw)
+	out, err := a.complete(ctx, runtime, sys, raw)
 	if err != nil {
 		return &SearchIntent{Query: raw}, err
 	}
@@ -95,7 +168,8 @@ func (a *AIService) SmartSearch(ctx context.Context, raw string) (*SearchIntent,
 // history. The first call is intentionally best-effort: a future iteration
 // may chain media DB lookups onto each suggestion.
 func (a *AIService) Recommend(ctx context.Context, history []string, max int) ([]string, error) {
-	if !a.Enabled() || len(history) == 0 {
+	runtime := a.resolveRuntimeConfig(ctx)
+	if !runtime.Enabled || len(history) == 0 {
 		return nil, nil
 	}
 	if max <= 0 || max > 20 {
@@ -104,7 +178,7 @@ func (a *AIService) Recommend(ctx context.Context, history []string, max int) ([
 	sys := fmt.Sprintf("You are a film / TV recommendation assistant. Reply with %d "+
 		"comma-separated titles only, no commentary, in the same language as the input.", max)
 	usr := "I recently watched: " + strings.Join(history, "; ")
-	out, err := a.complete(ctx, sys, usr)
+	out, err := a.complete(ctx, runtime, sys, usr)
 	if err != nil {
 		return nil, err
 	}
@@ -121,9 +195,9 @@ func (a *AIService) Recommend(ctx context.Context, history []string, max int) ([
 }
 
 // complete is the shared helper — POST /v1/chat/completions.
-func (a *AIService) complete(ctx context.Context, system, user string) (string, error) {
+func (a *AIService) complete(ctx context.Context, runtime aiRuntimeConfig, system, user string) (string, error) {
 	payload := map[string]any{
-		"model":       a.cfg.AI.Model,
+		"model":       runtime.Model,
 		"temperature": 0.2,
 		"messages": []map[string]string{
 			{"role": "system", "content": system},
@@ -131,13 +205,13 @@ func (a *AIService) complete(ctx context.Context, system, user string) (string, 
 		},
 	}
 	body, _ := json.Marshal(payload)
-	endpoint := strings.TrimRight(a.cfg.AI.APIBase, "/") + "/chat/completions"
+	endpoint := strings.TrimRight(runtime.APIBase, "/") + "/chat/completions"
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
 	if err != nil {
 		return "", err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+a.cfg.AI.APIKey)
+	req.Header.Set("Authorization", "Bearer "+runtime.APIKey)
 	resp, err := a.client.Do(req)
 	if err != nil {
 		return "", err
@@ -165,7 +239,6 @@ func (a *AIService) complete(ctx context.Context, system, user string) (string, 
 	return strings.TrimSpace(out.Choices[0].Message.Content), nil
 }
 
-
 // ChatTurn is one message in a multi-turn assistant transcript.
 type ChatTurn struct {
 	Role    string `json:"role"`
@@ -176,7 +249,8 @@ type ChatTurn struct {
 // we return a deterministic offline reply so the assistant UI still
 // has something to render.
 func (a *AIService) Chat(ctx context.Context, history []ChatTurn) (string, error) {
-	if !a.Enabled() || len(history) == 0 {
+	runtime := a.resolveRuntimeConfig(ctx)
+	if !runtime.Enabled || len(history) == 0 {
 		return offlineReply(history), nil
 	}
 	// Build a chat/completions payload preserving the history order.
@@ -191,18 +265,18 @@ func (a *AIService) Chat(ctx context.Context, history []ChatTurn) (string, error
 		msgs = append(msgs, map[string]string{"role": t.Role, "content": t.Content})
 	}
 	payload := map[string]any{
-		"model":       a.cfg.AI.Model,
+		"model":       runtime.Model,
 		"temperature": 0.4,
 		"messages":    msgs,
 	}
 	body, _ := json.Marshal(payload)
-	endpoint := strings.TrimRight(a.cfg.AI.APIBase, "/") + "/chat/completions"
+	endpoint := strings.TrimRight(runtime.APIBase, "/") + "/chat/completions"
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
 	if err != nil {
 		return "", err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+a.cfg.AI.APIKey)
+	req.Header.Set("Authorization", "Bearer "+runtime.APIKey)
 	resp, err := a.client.Do(req)
 	if err != nil {
 		return "", err

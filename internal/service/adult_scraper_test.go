@@ -1,6 +1,9 @@
 package service
 
-import "testing"
+import (
+	"context"
+	"testing"
+)
 
 func TestNormalizeAdultCode(t *testing.T) {
 	cases := map[string]string{
@@ -38,5 +41,59 @@ func TestParseAdultDetailHTML(t *testing.T) {
 	}
 	if got.Year != 2024 {
 		t.Fatalf("year = %d, want 2024", got.Year)
+	}
+}
+
+func TestParseAdultDetailHTMLDerivesDMMPoster(t *testing.T) {
+	html := `<html>
+<h3>NACR-833 测试标题</h3>
+<a class="sample-box" href="https://pics.dmm.co.jp/digital/video/h_237nacr00833/h_237nacr00833jp-1.jpg"></a>
+</html>`
+
+	got := parseAdultDetailHTML(html, "NACR-833", "javbus", "https://www.javbus.com/NACR-833")
+	if got == nil {
+		t.Fatal("parseAdultDetailHTML returned nil")
+	}
+	if got.PosterURL != "https://pics.dmm.co.jp/digital/video/h_237nacr00833/h_237nacr00833pl.jpg" {
+		t.Fatalf("PosterURL = %q", got.PosterURL)
+	}
+}
+
+func TestAdultSourceKindRecognizesJavBusMirrors(t *testing.T) {
+	cases := map[string]string{
+		"https://javdb.com":       "javdb",
+		"https://javbus.sbs":      "javbus",
+		"https://www.javbus.com":  "javbus",
+		"https://www.cdnbus.cyou": "javbus",
+		"https://www.javsee.cyou": "javbus",
+		"https://www.busjav.cyou": "javbus",
+		"www.cdnbus.cyou":         "javbus",
+		"https://example.invalid": "javdb",
+	}
+	for in, want := range cases {
+		if got := adultSourceKind(in); got != want {
+			t.Fatalf("adultSourceKind(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestAdultProviderDefaultBases(t *testing.T) {
+	provider := &AdultProvider{}
+	got := provider.resolveBases(context.Background())
+	want := []string{
+		"https://javdb.com",
+		"https://javbus.sbs",
+		"https://www.javbus.com",
+		"https://www.cdnbus.cyou",
+		"https://www.javsee.cyou",
+		"https://www.busjav.cyou",
+	}
+	if len(got) != len(want) {
+		t.Fatalf("resolveBases len = %d, want %d: %v", len(got), len(want), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("resolveBases[%d] = %q, want %q", i, got[i], want[i])
+		}
 	}
 }
