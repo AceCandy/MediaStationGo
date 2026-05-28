@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-IMAGE="${IMAGE:-shukbet/mediastationgo}"
+IMAGE="${IMAGE:-ghcr.io/shukebta/mediastation-go}"
 TAG="${TAG:-latest}"
 PLATFORMS="${PLATFORMS:-linux/amd64,linux/arm64}"
 PUSH="${PUSH:-1}"

@@ -170,7 +170,7 @@ The current base license is `GPL-3.0`, and contributions are welcome under that 
 | Downloads | qBittorrent / PT site adapters | Search, subscriptions, task cards, private URL redaction |
 | Compatibility | Emby-style API / DLNA | External clients and player integrations |
 | Deployment | Docker / Docker Compose / Shell / PowerShell | NAS, Linux, Windows, and macOS friendly |
-| CI/CD | GitHub Actions / Docker Hub | Multi-arch Docker images and release packages only on version tags |
+| CI/CD | GitHub Actions / GHCR | Multi-arch Docker images and release packages only on version tags |
 
 ---
 
@@ -780,7 +780,7 @@ PT download URLs often include private tokens. Download and subscription views i
 
 ### Which Docker package should be kept?
 
-Use `shukbet/mediastationgo` on Docker Hub. The old `ghcr.io/shukebta/mediastation-go` / `mediastationgo` packages can be removed or archived to avoid users pulling the wrong image.
+Keep `ghcr.io/shukebta/mediastation-go`. The old `mediastationgo` package can be removed to avoid users pulling the wrong image.
 
 ---
 

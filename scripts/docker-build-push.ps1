@@ -1,5 +1,5 @@
 param(
-    [string]$Image = "shukbet/mediastationgo",
+    [string]$Image = "ghcr.io/shukebta/mediastation-go",
     [string]$Tag = "latest",
     [string]$Platforms = "linux/amd64,linux/arm64",
     [switch]$Load

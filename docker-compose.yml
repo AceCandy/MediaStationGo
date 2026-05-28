@@ -35,7 +35,7 @@
 
 services:
   mediastation-go:
-    image: shukbet/mediastationgo:${MEDIASTATION_IMAGE_TAG:-latest}
+    image: ghcr.io/shukebta/mediastation-go:${MEDIASTATION_IMAGE_TAG:-latest}
     pull_policy: always
     container_name: mediastation-go
     restart: unless-stopped
