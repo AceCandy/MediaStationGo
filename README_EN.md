@@ -629,49 +629,6 @@ Avoid using cookies for open API calls to reduce account risk.
 
 ---
 
-## 🧪 Build, Package and Publish
-
-### Docker image
-
-Default images:
-
-```text
-ghcr.io/shukebta/mediastation-go:latest
-ghcr.io/shukebta/mediastation-go:MediaStationGo-v0.0.4
-```
-
-> GitHub Actions publishes Docker images only when a `v*` or `MediaStationGo-v*` version tag is pushed. README, screenshot, documentation, and normal `main` branch commits do not trigger image packaging. Automated publishing now emits only `latest` and the version tag, not `main` or short SHA tags.
-
-Linux/macOS push:
-
-```bash
-docker login ghcr.io
-IMAGE=ghcr.io/shukebta/mediastation-go TAG=MediaStationGo-v0.0.4 ./scripts/docker-build-push.sh
-```
-
-Windows push:
-
-```powershell
-docker login ghcr.io
-.\scripts\docker-build-push.ps1 -Image ghcr.io/shukebta/mediastation-go -Tag MediaStationGo-v0.0.4
-```
-
-Local build only:
-
-```powershell
-.\scripts\docker-build-push.ps1 -Tag dev -Load
-```
-
-### Release packages
-
-```bash
-VERSION=MediaStationGo-v0.0.4 ./scripts/package-release.sh
-```
-
-GitHub Actions automatically builds release packages and SHA256 checksums when a `v*` or `MediaStationGo-v*` version tag is pushed. Normal code or documentation commits do not create release packages.
-
-> If immutable releases are enabled, same-name assets should not be overwritten. The workflow uses `overwrite_files: false` to avoid deleting immutable assets on reruns.
-
 ---
 
 ## 🔐 Privacy and Safety
