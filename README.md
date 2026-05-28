@@ -857,51 +857,6 @@ HTTP Header: x-api-key
 
 ---
 
-## 🧪 构建、打包与发布
-
-### Docker 镜像
-
-默认镜像：
-
-```text
-ghcr.io/shukebta/mediastation-go:latest
-ghcr.io/shukebta/mediastation-go:MediaStationGo-v0.0.4
-```
-
-> GitHub Actions 仅在推送 `v*` 或 `MediaStationGo-v*` 版本标签时发布 Docker 镜像，不会因 README、截图、文档或普通 `main` 分支提交重复打包。自动发布只生成 `latest` 与版本标签，不再发布 `main` 或短 SHA 标签。
-
-Linux/macOS 推送：
-
-```bash
-docker login ghcr.io
-IMAGE=ghcr.io/shukebta/mediastation-go TAG=MediaStationGo-v0.0.4 ./scripts/docker-build-push.sh
-```
-
-Windows 推送：
-
-```powershell
-docker login ghcr.io
-.\scripts\docker-build-push.ps1 -Image ghcr.io/shukebta/mediastation-go -Tag MediaStationGo-v0.0.4
-```
-
-仅本地构建：
-
-```powershell
-.\scripts\docker-build-push.ps1 -Tag dev -Load
-```
-
-### Release 包
-
-```bash
-VERSION=MediaStationGo-v0.0.4 ./scripts/package-release.sh
-```
-
-GitHub Actions 会在推送 `v*` 或 `MediaStationGo-v*` 版本标签时自动生成 Release 包和 SHA256 校验文件；普通代码或文档提交不会创建 Release 包。
-
-> 如果 Release 开启 immutable，不应覆盖同名资产；工作流已设置 `overwrite_files: false`，避免重跑时删除旧资产失败。
-
----
-
 ## 🔐 隐私与安全
 
 默认不会提交以下数据：
