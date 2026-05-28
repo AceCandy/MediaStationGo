@@ -2,9 +2,7 @@ name: Publish Docker image
 
 on:
   push:
-    branches: [main]
     tags: ['v*', 'MediaStationGo-v*']
-  workflow_dispatch:
 
 permissions:
   contents: read
@@ -32,10 +30,8 @@ jobs:
         with:
           images: ghcr.io/shukebta/mediastation-go
           tags: |
-            type=raw,value=latest,enable={{is_default_branch}}
-            type=ref,event=branch
+            type=raw,value=latest
             type=ref,event=tag
-            type=sha,prefix=
 
       - name: Build & push
         uses: docker/build-push-action@v6

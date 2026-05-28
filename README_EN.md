@@ -170,7 +170,7 @@ The current base license is `GPL-3.0`, and contributions are welcome under that 
 | Downloads | qBittorrent / PT site adapters | Search, subscriptions, task cards, private URL redaction |
 | Compatibility | Emby-style API / DLNA | External clients and player integrations |
 | Deployment | Docker / Docker Compose / Shell / PowerShell | NAS, Linux, Windows, and macOS friendly |
-| CI/CD | GitHub Actions / GHCR | Multi-arch Docker images and release packages |
+| CI/CD | GitHub Actions / GHCR | Multi-arch Docker images and release packages only on version tags |
 
 ---
 
@@ -640,6 +640,8 @@ ghcr.io/shukebta/mediastation-go:latest
 ghcr.io/shukebta/mediastation-go:MediaStationGo-v0.0.4
 ```
 
+> GitHub Actions publishes Docker images only when a `v*` or `MediaStationGo-v*` version tag is pushed. README, screenshot, documentation, and normal `main` branch commits do not trigger image packaging. Automated publishing now emits only `latest` and the version tag, not `main` or short SHA tags.
+
 Linux/macOS push:
 
 ```bash
@@ -666,7 +668,7 @@ Local build only:
 VERSION=MediaStationGo-v0.0.4 ./scripts/package-release.sh
 ```
 
-GitHub Actions automatically builds release packages and SHA256 checksums when a `MediaStationGo-v*` tag is pushed.
+GitHub Actions automatically builds release packages and SHA256 checksums when a `v*` or `MediaStationGo-v*` version tag is pushed. Normal code or documentation commits do not create release packages.
 
 > If immutable releases are enabled, same-name assets should not be overwritten. The workflow uses `overwrite_files: false` to avoid deleting immutable assets on reruns.
 
