@@ -113,7 +113,7 @@ export function AIAssistantPage() {
       {/* Smart search */}
       <section className="glass-panel space-y-4">
         <h2 className="font-display text-lg font-semibold text-ink-600">智能搜索</h2>
-        <form onSubmit={onSearch} className="flex gap-2">
+        <form onSubmit={onSearch} className="flex flex-wrap gap-2">
           <input
             className="input-base flex-1"
             placeholder="试试: 2023 年的高分动作片"
@@ -137,7 +137,7 @@ export function AIAssistantPage() {
               onClick={() => {
                 setQuery(h)
               }}
-              className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-ink-100 hover:border-primary-400/40 hover:text-brand-500"
+              className="rounded-full border border-gray-200 bg-gray-50 px-3 py-1 text-xs text-ink-100 hover:border-primary-400/40 hover:text-brand-500"
             >
               {h}
             </button>
@@ -145,7 +145,7 @@ export function AIAssistantPage() {
         </div>
 
         {intent && (
-          <div className="rounded-lg border border-white/5 bg-white/5 p-3 text-xs text-ink-100">
+          <div className="rounded-xl border border-gray-200 bg-gray-50 p-3 text-xs text-ink-100">
             <div className="mb-1 font-semibold text-ink-200">解析结果</div>
             <div className="flex flex-wrap gap-x-6 gap-y-1">
               <span>
@@ -212,7 +212,7 @@ export function AIAssistantPage() {
               <li key={i}>
                 <Link
                   to={`/search?q=${encodeURIComponent(t)}`}
-                  className="flex items-center justify-between rounded-lg border border-white/5 bg-white/5 px-3 py-2 text-sm text-ink-200 hover:border-primary-400/40 hover:text-brand-500"
+                  className="flex items-center justify-between rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-ink-200 hover:border-primary-400/40 hover:text-brand-500"
                 >
                   <span className="truncate">{t}</span>
                   <Search size={14} className="shrink-0 opacity-60" />

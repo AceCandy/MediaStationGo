@@ -16,7 +16,7 @@ export function AppFooter({ className = '' }: { className?: string }) {
             href={link.href}
             target="_blank"
             rel="noopener noreferrer"
-            className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-xs text-sand-500 transition-colors hover:bg-sand-200 hover:text-ink-50"
+            className="flex items-center gap-1.5 rounded-xl px-2 py-1.5 text-xs text-sand-500 transition-colors hover:bg-sand-200 hover:text-ink-50"
             title={link.label}
           >
             <link.icon size={14} />

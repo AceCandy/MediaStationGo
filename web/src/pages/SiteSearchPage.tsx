@@ -75,7 +75,7 @@ export function SiteSearchPage() {
         </div>
       </header>
 
-      <form onSubmit={onSubmit} className="flex gap-2">
+      <form onSubmit={onSubmit} className="flex flex-wrap gap-2">
         <input
           autoFocus
           className="input-base flex-1"
@@ -114,7 +114,7 @@ export function SiteSearchPage() {
             </thead>
             <tbody>
               {results.map((item, idx) => (
-                <tr key={idx} className="border-t border-white/5 align-top">
+                <tr key={idx} className="border-t border-gray-200 align-top">
                   <td className="py-2 text-brand-500">{item.site_name}</td>
                   <td className="max-w-md py-2">
                     <a
@@ -136,7 +136,7 @@ export function SiteSearchPage() {
                   <td className="text-red-400">{item.leechers || '—'}</td>
                   <td>
                     {item.free && (
-                      <span className="rounded border border-emerald-400/40 px-1.5 py-0.5 text-xs text-emerald-400">
+                      <span className="rounded-lg border border-emerald-400/40 px-1.5 py-0.5 text-xs text-emerald-400">
                         Free
                       </span>
                     )}
@@ -144,7 +144,7 @@ export function SiteSearchPage() {
                   <td className="py-2 text-right">
                     <button
                       onClick={() => downloadTorrent(item)}
-                      className="rounded border border-primary-400/40 px-2 py-1 text-xs text-brand-500 hover:bg-primary-400/10"
+                      className="rounded-lg border border-primary-400/40 px-2 py-1 text-xs text-brand-500 hover:bg-primary-400/10"
                       title="加入下载"
                     >
                       <Download size={12} className="inline" />

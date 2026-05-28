@@ -90,12 +90,12 @@ export function LoginPage() {
                 用户名
               </label>
               <div className="relative">
-                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400">
+                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500">
                   <User size={16} />
                 </span>
                 <input
                   type="text"
-                  className="w-full rounded-xl border border-gray-200 bg-gray-50/50 px-11 py-3.5 text-sm text-gray-900 placeholder-gray-400 outline-none transition-all duration-300 focus:border-brand-500 focus:bg-white focus:ring-4 focus:ring-brand-100/50"
+                  className="w-full rounded-xl border border-gray-200 bg-gray-50/50 px-11 py-3.5 text-sm text-gray-900 placeholder-gray-500 outline-none transition-all duration-300 focus:border-brand-500 focus:bg-white focus:ring-4 focus:ring-brand-100/50"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
                   autoComplete="username"
@@ -116,12 +116,12 @@ export function LoginPage() {
                 安全密码
               </label>
               <div className="relative">
-                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400">
+                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500">
                   <Lock size={16} />
                 </span>
                 <input
                   type={showPw ? 'text' : 'password'}
-                  className="w-full rounded-xl border border-gray-200 bg-gray-50/50 px-11 py-3.5 text-sm text-gray-900 placeholder-gray-400 outline-none transition-all duration-300 focus:border-brand-500 focus:bg-white focus:ring-4 focus:ring-brand-100/50 pr-12"
+                  className="w-full rounded-xl border border-gray-200 bg-gray-50/50 px-11 py-3.5 text-sm text-gray-900 placeholder-gray-500 outline-none transition-all duration-300 focus:border-brand-500 focus:bg-white focus:ring-4 focus:ring-brand-100/50 pr-12"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   autoComplete="current-password"
@@ -131,7 +131,7 @@ export function LoginPage() {
                 <button
                   type="button"
                   onClick={() => setShowPw(!showPw)}
-                  className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 transition-colors hover:text-gray-900"
+                  className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-500 transition-colors hover:text-gray-900"
                   tabIndex={-1}
                 >
                   {showPw ? <EyeOff size={16} /> : <Eye size={16} />}
@@ -176,7 +176,7 @@ export function LoginPage() {
             >
               <ShieldCheck size={14} className="text-brand-500" />
               <span>默认访问凭证: </span>
-              <code className="rounded bg-gray-200/50 px-1.5 py-0.5 font-mono text-[#111827] font-semibold">
+              <code className="rounded-lg bg-gray-200/50 px-1.5 py-0.5 font-mono text-[#111827] font-semibold">
                 admin / admin123
               </code>
             </motion.div>
@@ -189,7 +189,7 @@ export function LoginPage() {
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ delay: 0.6 }}
-        className="relative z-10 mt-10 text-gray-400 hover:text-gray-600 transition-colors"
+        className="relative z-10 mt-10 text-gray-500 hover:text-gray-600 transition-colors"
       >
         <AppFooter />
       </motion.div>

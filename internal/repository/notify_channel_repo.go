@@ -56,6 +56,13 @@ func (r *NotifyChannelRepository) ListByEvent(ctx context.Context, eventType str
 	return rows, err
 }
 
+// ListByType returns all channels of a given type (telegram/wechat/bark/webhook/email).
+func (r *NotifyChannelRepository) ListByType(ctx context.Context, channelType string) ([]model.NotifyChannel, error) {
+	var rows []model.NotifyChannel
+	err := r.db.WithContext(ctx).Where("type = ?", channelType).Find(&rows).Error
+	return rows, err
+}
+
 // Update persists changes to a notification channel.
 func (r *NotifyChannelRepository) Update(ctx context.Context, c *model.NotifyChannel) error {
 	return r.db.WithContext(ctx).Save(c).Error

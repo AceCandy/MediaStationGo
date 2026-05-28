@@ -72,7 +72,7 @@ export function FileManagerPage() {
           </button>
         )}
         {data?.path && (
-          <span className="rounded border border-white/10 bg-white/5 px-2 py-1 font-mono text-xs text-ink-100">
+          <span className="rounded-lg border border-gray-200 bg-gray-50 px-2 py-1 font-mono text-xs text-ink-100">
             {data.path}
           </span>
         )}
@@ -113,7 +113,7 @@ export function FileManagerPage() {
               {data.entries.map((e) => (
                 <tr
                   key={e.path}
-                  className="cursor-pointer border-t border-white/5 transition hover:bg-white/5"
+                  className="cursor-pointer border-t border-gray-200 transition hover:bg-gray-50"
                   onClick={() => enter(e)}
                   title={e.path}
                 >

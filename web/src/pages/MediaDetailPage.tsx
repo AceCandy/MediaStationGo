@@ -161,7 +161,7 @@ export function MediaDetailPage() {
                 referrerPolicy="no-referrer"
               />
             ) : (
-              <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-gray-400 bg-gray-50">
+              <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-gray-500 bg-gray-50">
                 <FileText size={40} className="stroke-[1]" />
                 <span className="text-xs uppercase tracking-wider font-bold">无海报</span>
               </div>
@@ -188,24 +188,24 @@ export function MediaDetailPage() {
             </h1>
             <div className="flex flex-wrap items-center gap-2.5 text-xs text-gray-500 font-bold tracking-wide uppercase">
               {media.year > 0 && (
-                <span className="inline-flex items-center gap-1 bg-gray-100 border border-gray-200/50 px-2.5 py-1 rounded-lg text-gray-700">
+                <span className="inline-flex items-center gap-1 bg-gray-100 border border-gray-200/50 px-2.5 py-1 rounded-xl text-gray-700">
                   <Calendar size={13} className="text-brand-500" />
                   <span>{media.year} 年</span>
                 </span>
               )}
               {media.width > 0 && (
-                <span className="inline-flex items-center gap-1 bg-brand-50 text-brand-700 border border-brand-100/50 px-2.5 py-1 rounded-lg">
+                <span className="inline-flex items-center gap-1 bg-brand-50 text-brand-700 border border-brand-100/50 px-2.5 py-1 rounded-xl">
                   <span>{media.width} × {media.height}</span>
                 </span>
               )}
-              <span className="bg-gray-100 border border-gray-200/50 px-2.5 py-1 rounded-lg text-gray-700">
+              <span className="bg-gray-100 border border-gray-200/50 px-2.5 py-1 rounded-xl text-gray-700">
                 {fmtSize(media.size_bytes)}
               </span>
-              <span className="bg-gray-100 border border-gray-200/50 px-2.5 py-1 rounded-lg text-gray-700">
+              <span className="bg-gray-100 border border-gray-200/50 px-2.5 py-1 rounded-xl text-gray-700">
                 {fmtDuration(media.duration_sec)}
               </span>
               {media.container && (
-                <span className="bg-gray-100 border border-gray-200/50 px-2.5 py-1 rounded-lg text-gray-700 font-mono">
+                <span className="bg-gray-100 border border-gray-200/50 px-2.5 py-1 rounded-xl text-gray-700 font-mono">
                   {media.container}
                 </span>
               )}
@@ -227,7 +227,7 @@ export function MediaDetailPage() {
             {/* Genres */}
             {parseCSV(media.genres).length > 0 && (
               <div className="flex flex-wrap items-center gap-3">
-                <span className="text-xs font-bold text-gray-400 w-16 uppercase tracking-wider">类型流派</span>
+                <span className="text-xs font-bold text-gray-500 w-16 uppercase tracking-wider">类型流派</span>
                 <div className="flex flex-wrap gap-2">
                   {parseCSV(media.genres).map((g) => (
                     <span key={g} className="rounded-full bg-brand-50 text-brand-700 border border-brand-100/30 px-3 py-1 text-2xs font-bold uppercase tracking-wider">
@@ -241,10 +241,10 @@ export function MediaDetailPage() {
             {/* Languages */}
             {parseCSV(media.languages).length > 0 && (
               <div className="flex flex-wrap items-center gap-3">
-                <span className="text-xs font-bold text-gray-400 w-16 uppercase tracking-wider">语言</span>
+                <span className="text-xs font-bold text-gray-500 w-16 uppercase tracking-wider">语言</span>
                 <div className="flex flex-wrap gap-2">
                   {parseCSV(media.languages).map((l) => (
-                    <span key={l} className="rounded-lg bg-gray-100 text-gray-600 border border-gray-200/40 px-2.5 py-1 text-2xs font-semibold">
+                    <span key={l} className="rounded-xl bg-gray-100 text-gray-600 border border-gray-200/40 px-2.5 py-1 text-2xs font-semibold">
                       {l}
                     </span>
                   ))}
@@ -255,10 +255,10 @@ export function MediaDetailPage() {
             {/* Countries */}
             {parseCSV(media.countries).length > 0 && (
               <div className="flex flex-wrap items-center gap-3">
-                <span className="text-xs font-bold text-gray-400 w-16 uppercase tracking-wider">国家/地区</span>
+                <span className="text-xs font-bold text-gray-500 w-16 uppercase tracking-wider">国家/地区</span>
                 <div className="flex flex-wrap gap-2">
                   {parseCSV(media.countries).map((c) => (
-                    <span key={c} className="rounded-lg bg-gray-100 text-gray-600 border border-gray-200/40 px-2.5 py-1 text-2xs font-semibold">
+                    <span key={c} className="rounded-xl bg-gray-100 text-gray-600 border border-gray-200/40 px-2.5 py-1 text-2xs font-semibold">
                       {c}
                     </span>
                   ))}

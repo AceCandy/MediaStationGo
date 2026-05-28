@@ -126,7 +126,7 @@ function ProviderCard({ item, onUpdated }: { item: APIConfig; onUpdated: () => v
           />
           启用
         </label>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <button type="submit" disabled={saving} className="neon-button !text-xs">
             <Save size={12} /> 保存
           </button>

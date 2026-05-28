@@ -40,7 +40,7 @@ export function APIConfigsPanel() {
       {!loading && (
         <div className="glass-panel overflow-hidden">
           <table className="w-full text-left text-sm">
-            <thead className="border-b border-white/5 text-xs uppercase tracking-wider text-sand-500">
+            <thead className="border-b border-gray-200 text-xs uppercase tracking-wider text-sand-500">
               <tr>
                 <th className="px-4 py-3">服务</th>
                 <th className="px-4 py-3">密钥</th>
@@ -63,7 +63,7 @@ export function APIConfigsPanel() {
                 ) : (
                   <tr
                     key={item.id}
-                    className="border-t border-white/5 transition hover:bg-white/[0.02]"
+                    className="border-t border-gray-200 transition hover:bg-gray-50"
                   >
                     <td className="px-4 py-3">
                       <p className="font-medium text-ink-600">{item.provider}</p>
@@ -75,7 +75,7 @@ export function APIConfigsPanel() {
                       {item.has_key ? (
                         <span className="text-brand-500">{item.masked_key}</span>
                       ) : (
-                        <span className="text-sand-400">未配置</span>
+                        <span className="text-gray-500">未配置</span>
                       )}
                     </td>
                     <td className="px-4 py-3">
@@ -93,7 +93,7 @@ export function APIConfigsPanel() {
                       <div className="flex items-center justify-end gap-1">
                         <button
                           onClick={() => setEditing(item.provider)}
-                          className="rounded p-1.5 text-ink-50 transition hover:bg-white/5 hover:text-white"
+                          className="rounded-lg p-1.5 text-ink-50 transition hover:bg-gray-50 hover:text-white"
                           title="编辑"
                         >
                           <Save size={14} />
@@ -104,7 +104,7 @@ export function APIConfigsPanel() {
                               `已配置 ${item.has_key ? '✓' : '✗'} 密钥 (在线测试请用对应功能页面)`,
                             )
                           }}
-                          className="rounded p-1.5 text-ink-50 transition hover:bg-white/5 hover:text-ink-200"
+                          className="rounded-lg p-1.5 text-ink-50 transition hover:bg-gray-50 hover:text-ink-200"
                           title="查看状态"
                         >
                           <Eye size={14} />
@@ -117,7 +117,7 @@ export function APIConfigsPanel() {
                               toast.success('已清除')
                               refresh()
                             }}
-                            className="rounded p-1.5 text-ink-50 transition hover:bg-red-400/10 hover:text-red-400"
+                            className="rounded-lg p-1.5 text-ink-50 transition hover:bg-red-400/10 hover:text-red-400"
                             title="清除密钥"
                           >
                             <Trash2 size={14} />
@@ -170,7 +170,7 @@ function EditingRow({
   }
 
   return (
-    <tr className="border-t border-white/5 bg-primary-400/5">
+    <tr className="border-t border-gray-200 bg-primary-400/5">
       <td colSpan={4} className="px-4 py-3">
         <form onSubmit={submit} className="flex flex-wrap items-end gap-3">
           <span className="text-sm font-medium text-ink-600">{item.provider}</span>
@@ -207,7 +207,7 @@ function EditingRow({
           <button
             type="button"
             onClick={onCancel}
-            className="rounded border border-sand-400/30 px-2 py-1.5 text-xs text-ink-50 hover:text-white"
+            className="rounded-lg border border-sand-400/30 px-2 py-1.5 text-xs text-ink-50 hover:text-white"
           >
             <X size={12} />
           </button>

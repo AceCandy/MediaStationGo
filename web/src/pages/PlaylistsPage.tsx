@@ -67,7 +67,7 @@ export function PlaylistsPage() {
             >
               {p.name}
               {p.is_public && (
-                <span className="ml-2 rounded border border-primary-400/40 px-1.5 py-0.5 text-xs text-brand-500">
+                <span className="ml-2 rounded-lg border border-primary-400/40 px-1.5 py-0.5 text-xs text-brand-500">
                   public
                 </span>
               )}
@@ -79,7 +79,7 @@ export function PlaylistsPage() {
                 toast.success('已删除')
                 await refresh()
               }}
-              className="rounded border border-red-400/40 px-2 py-1 text-xs text-red-400 hover:bg-red-400/10"
+              className="rounded-lg border border-red-400/40 px-2 py-1 text-xs text-red-400 hover:bg-red-400/10"
             >
               <Trash2 size={12} />
             </button>

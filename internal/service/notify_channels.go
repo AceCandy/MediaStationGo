@@ -316,7 +316,7 @@ func validateChannel(in ChannelInput) error {
 		return errors.New("name required")
 	}
 	switch in.Type {
-	case "telegram", "wechat", "bark", "webhook":
+	case "telegram", "wechat", "bark", "webhook", "email":
 	default:
 		return fmt.Errorf("unsupported channel type %q", in.Type)
 	}

@@ -78,7 +78,7 @@ export function Layout() {
         {/* Toggle Collapse Button for Large Screen */}
         <button 
           onClick={() => setIsSidebarOpen(!isSidebarOpen)} 
-          className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-900 transition-colors hidden lg:block"
+          className="rounded-xl p-1.5 text-gray-500 hover:bg-gray-100 hover:text-gray-900 transition-colors hidden lg:block"
         >
           <Menu size={18} />
         </button>
@@ -86,7 +86,7 @@ export function Layout() {
         {/* Mobile Drawer Close Button */}
         <button 
           onClick={() => setIsMobileDrawerOpen(false)} 
-          className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-900 transition-colors block lg:hidden"
+          className="rounded-xl p-1.5 text-gray-500 hover:bg-gray-100 hover:text-gray-900 transition-colors block lg:hidden"
         >
           <X size={18} />
         </button>
@@ -114,7 +114,7 @@ export function Layout() {
           <SectionHeader label="媒体片库" visible={isSidebarOpen || isMobileDrawerOpen} />
           <div className="space-y-1">
             {libraries.length === 0 && (isSidebarOpen || isMobileDrawerOpen) && (
-              <div className="px-4 py-2 text-xs text-gray-400 italic">暂无媒体片库</div>
+              <div className="px-4 py-2 text-xs text-gray-500 italic">暂无媒体片库</div>
             )}
             {libraries.map((lib) => (
               <SidebarLink 
@@ -180,7 +180,7 @@ export function Layout() {
           onClick={() => { logout(); navigate('/login') }}
           className={clsx(
             "flex items-center gap-3.5 rounded-xl px-4 py-3 text-sm font-semibold transition-all duration-300 w-full group/logout",
-            (isSidebarOpen || isMobileDrawerOpen) ? "justify-start text-gray-500 hover:bg-red-50 hover:text-red-600" : "justify-center text-gray-400 hover:text-red-600"
+            (isSidebarOpen || isMobileDrawerOpen) ? "justify-start text-gray-500 hover:bg-red-50 hover:text-red-600" : "justify-center text-gray-500 hover:text-red-600"
           )}
           title={`安全登出 (${user?.username})`}
         >
@@ -248,7 +248,7 @@ export function Layout() {
             <form onSubmit={handleSearchSubmit} className="relative w-full hidden sm:block">
               <span className={clsx(
                 "absolute left-4 top-1/2 -translate-y-1/2 transition-colors duration-200",
-                searchFocused ? "text-brand-600" : "text-gray-400"
+                searchFocused ? "text-brand-600" : "text-gray-500"
               )}>
                 <Search size={16} />
               </span>
@@ -259,10 +259,10 @@ export function Layout() {
                 onFocus={() => setSearchFocused(true)}
                 onBlur={() => setSearchFocused(false)}
                 placeholder="搜索电影、电视剧、演员、种子站点..."
-                className="w-full rounded-full border border-gray-200 bg-gray-50/50 py-2.5 pl-11 pr-12 text-sm text-gray-900 placeholder-gray-400 outline-none transition-all duration-300 focus:border-brand-500 focus:bg-white focus:ring-4 focus:ring-brand-100/40"
+                className="w-full rounded-full border border-gray-200 bg-gray-50/50 py-2.5 pl-11 pr-12 text-sm text-gray-900 placeholder-gray-500 outline-none transition-all duration-300 focus:border-brand-500 focus:bg-white focus:ring-4 focus:ring-brand-100/40"
               />
               <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none">
-                <span className="rounded-md border border-gray-200 bg-white px-1.5 py-0.5 text-[9px] font-bold text-gray-400 uppercase tracking-wider">
+                <span className="rounded-xl border border-gray-200 bg-white px-1.5 py-0.5 text-[9px] font-bold text-gray-500 uppercase tracking-wider">
                   Enter
                 </span>
               </div>
@@ -274,7 +274,7 @@ export function Layout() {
             {/* Quick search button shown ONLY on Mobile screens */}
             <Link 
               to="/search" 
-              className="rounded-xl border border-gray-200 p-2.5 text-gray-400 hover:bg-gray-100 hover:text-gray-900 sm:hidden"
+              className="rounded-xl border border-gray-200 p-2.5 text-gray-500 hover:bg-gray-100 hover:text-gray-900 sm:hidden"
             >
               <Search size={18} />
             </Link>
@@ -289,7 +289,7 @@ export function Layout() {
             </Link>
 
             {/* Notification alert bubble */}
-            <button className="relative rounded-xl border border-gray-200 p-2.5 text-gray-400 hover:bg-gray-100 hover:text-gray-900 transition-all">
+            <button className="relative rounded-xl border border-gray-200 p-2.5 text-gray-500 hover:bg-gray-100 hover:text-gray-900 transition-all">
               <Bell size={18} />
               <span className="absolute top-1.5 right-1.5 h-2 w-2 rounded-full bg-brand-500 ring-2 ring-white animate-pulse" />
             </button>
@@ -310,7 +310,7 @@ export function Layout() {
                   <p className="text-xs font-bold text-gray-900 leading-none">{user?.username}</p>
                   <p className="text-[9px] text-gray-500 font-bold uppercase tracking-wider mt-0.5 leading-none">{user?.role}</p>
                 </div>
-                <ChevronDown size={14} className="text-gray-400" />
+                <ChevronDown size={14} className="text-gray-500" />
               </button>
 
               <AnimatePresence>
@@ -389,7 +389,7 @@ export function Layout() {
         </main>
         
         {/* Absolute Footer Frame */}
-        <AppFooter className="border-t border-gray-200/50 bg-white py-5 text-center text-xs text-gray-400" />
+        <AppFooter className="border-t border-gray-200/50 bg-white py-5 text-center text-xs text-gray-500" />
       </div>
     </div>
   )
@@ -399,7 +399,7 @@ function SectionHeader({ label, visible }: { label: string; visible: boolean }) 
   if (!visible) return <div className="h-5" />;
   return (
     <div className="px-4 mb-2 mt-4">
-      <span className="text-[10px] font-bold uppercase tracking-[0.25em] text-gray-400">
+      <span className="text-[10px] font-bold uppercase tracking-[0.25em] text-gray-500">
         {label}
       </span>
     </div>
@@ -432,7 +432,7 @@ function SidebarLink({ to, icon, label, end, collapsed }: SidebarLinkProps) {
         <>
           <span className={clsx(
             "flex shrink-0 items-center justify-center w-5 h-5 transition-transform duration-300 group-hover:scale-110",
-            isActive ? "text-[#c9954a]" : "text-gray-400 group-hover:text-gray-700"
+            isActive ? "text-[#c9954a]" : "text-gray-500 group-hover:text-gray-700"
           )}>
             {icon}
           </span>
@@ -446,7 +446,7 @@ function SidebarLink({ to, icon, label, end, collapsed }: SidebarLinkProps) {
             </motion.span>
           )}
           {collapsed && (
-            <div className="absolute left-full ml-3 px-2.5 py-1.5 rounded-lg bg-gray-900 text-white text-xs font-semibold opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity shadow-lg z-50 whitespace-nowrap">
+            <div className="absolute left-full ml-3 px-2.5 py-1.5 rounded-xl bg-gray-900 text-white text-xs font-semibold opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity shadow-lg z-50 whitespace-nowrap">
               {label}
             </div>
           )}

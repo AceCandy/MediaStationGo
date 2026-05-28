@@ -173,7 +173,7 @@ export function StrmPage() {
       {/* Attach / detach STRM URL on existing media. */}
       <section className="glass-panel space-y-4">
         <h2 className="font-display text-lg font-semibold text-ink-600">附加 STRM URL 到已有媒体</h2>
-        <form onSubmit={doSearch} className="flex gap-2">
+        <form onSubmit={doSearch} className="flex flex-wrap gap-2">
           <input
             className="input-base flex-1"
             placeholder="搜索媒体标题…"
@@ -192,7 +192,7 @@ export function StrmPage() {
               return (
                 <div
                   key={m.id}
-                  className="rounded-xl border border-white/5 bg-white/5 p-4 space-y-3"
+                  className="rounded-xl border border-gray-200 bg-gray-50 p-4 space-y-3"
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
@@ -202,7 +202,7 @@ export function StrmPage() {
                         {m.container || '本地文件'}
                       </div>
                       {isStrm && (
-                        <div className="mt-1 break-all rounded bg-emerald-400/10 px-2 py-0.5 text-xs text-emerald-300">
+                        <div className="mt-1 break-all rounded-lg bg-emerald-400/10 px-2 py-0.5 text-xs text-emerald-300">
                           已设置 STRM
                         </div>
                       )}
@@ -210,13 +210,13 @@ export function StrmPage() {
                     {isStrm && (
                       <button
                         onClick={() => onDetach(m)}
-                        className="rounded border border-red-400/40 px-2 py-1 text-xs text-red-400 hover:bg-red-400/10"
+                        className="rounded-lg border border-red-400/40 px-2 py-1 text-xs text-red-400 hover:bg-red-400/10"
                       >
                         <Trash2 size={12} className="inline" /> 清除
                       </button>
                     )}
                   </div>
-                  <div className="flex gap-2">
+                  <div className="flex flex-wrap gap-2">
                     <input
                       className="input-base flex-1"
                       placeholder="https://example.com/stream.m3u8"

@@ -49,7 +49,7 @@ export function WatchHistoryPage() {
               key={h.id}
               className="glass-panel flex items-center gap-4 !p-3"
             >
-              <div className="h-16 w-12 shrink-0 overflow-hidden rounded bg-surface-900">
+              <div className="h-16 w-12 shrink-0 overflow-hidden rounded-lg bg-surface-900">
                 {m.poster_url ? (
                   <img
                     src={imageURL(m.poster_url)}
@@ -70,12 +70,12 @@ export function WatchHistoryPage() {
                   <span>{fmtDuration(h.position_ms)} / {fmtDuration(h.duration_ms)}</span>
                   <span>{new Date(h.watched_at).toLocaleString()}</span>
                   {h.completed && (
-                    <span className="rounded border border-emerald-400/40 px-1.5 py-0.5 text-emerald-400">
+                    <span className="rounded-lg border border-emerald-400/40 px-1.5 py-0.5 text-emerald-400">
                       已看完
                     </span>
                   )}
                 </div>
-                <div className="h-1 w-full overflow-hidden rounded bg-white/10">
+                <div className="h-1 w-full overflow-hidden rounded-lg bg-gray-200">
                   <div
                     className="h-full bg-primary-400"
                     style={{ width: `${Math.round(progress * 100)}%` }}

@@ -116,7 +116,7 @@ function Tile({
 }) {
   return (
     <div className="glass-panel flex items-center gap-3 !p-4">
-      <div className="rounded-lg border border-primary-400/40 bg-primary-400/10 p-2 text-brand-500">
+      <div className="rounded-xl border border-primary-400/40 bg-primary-400/10 p-2 text-brand-500">
         {icon}
       </div>
       <div>
@@ -129,7 +129,7 @@ function Tile({
 
 function Row({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex items-center justify-between border-b border-white/5 pb-1 text-sm last:border-0">
+    <div className="flex items-center justify-between border-b border-gray-200 pb-1 text-sm last:border-0">
       <span className="text-ink-50">{label}</span>
       <span className="font-mono text-ink-600">{value}</span>
     </div>

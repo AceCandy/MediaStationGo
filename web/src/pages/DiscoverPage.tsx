@@ -158,7 +158,7 @@ function ContentRow({ title, items }: { title: string; items: DiscoverItem[] }) 
 
 function DiscoverCard({ item }: { item: DiscoverItem }) {
   return (
-    <div className="group relative overflow-hidden rounded-xl border border-white/5 bg-surface-800/60 hover:border-primary-500/30 transition-all duration-300">
+    <div className="group relative overflow-hidden rounded-xl border border-gray-200 bg-gray-50 hover:border-primary-500/30 transition-all duration-300">
       <div className="aspect-[2/3] w-full bg-surface-900 relative overflow-hidden">
         {item.poster_url ? (
           <img
@@ -169,12 +169,12 @@ function DiscoverCard({ item }: { item: DiscoverItem }) {
             className="h-full w-full object-cover group-hover:scale-105 transition-transform duration-500"
           />
         ) : (
-          <div className="flex h-full w-full items-center justify-center text-sand-400 text-xs">
+          <div className="flex h-full w-full items-center justify-center text-gray-500 text-xs">
             无海报
           </div>
         )}
         {item.rating > 0 && (
-          <div className="absolute top-1.5 right-1.5 rounded-md bg-black/70 backdrop-blur-sm px-1.5 py-0.5 text-[11px] font-semibold text-yellow-400 border border-yellow-400/30">
+          <div className="absolute top-1.5 right-1.5 rounded-xl bg-black/70 backdrop-blur-sm px-1.5 py-0.5 text-[11px] font-semibold text-yellow-400 border border-yellow-400/30">
             ★ {item.rating.toFixed(1)}
           </div>
         )}
@@ -196,10 +196,10 @@ function DiscoverSkeleton() {
     <div className="space-y-8">
       {[1, 2].map((section) => (
         <section key={section} className="space-y-4">
-          <div className="h-8 w-48 rounded-lg bg-surface-800 animate-pulse" />
+          <div className="h-8 w-48 rounded-xl bg-gray-100 animate-pulse" />
           <div className="grid grid-cols-3 gap-4 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-7 xl:grid-cols-8">
             {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
-              <div key={i} className="aspect-[2/3] rounded-xl bg-surface-800 animate-pulse" />
+              <div key={i} className="aspect-[2/3] rounded-xl bg-gray-100 animate-pulse" />
             ))}
           </div>
         </section>

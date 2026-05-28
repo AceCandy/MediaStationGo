@@ -160,17 +160,17 @@ function ProfileCard({
           <div className="flex flex-wrap items-center gap-2">
             <span className="font-semibold text-ink-600">{profile.name}</span>
             {profile.is_default && (
-              <span className="rounded bg-primary-400/20 px-2 py-0.5 text-xs text-brand-500">
+              <span className="rounded-lg bg-primary-400/20 px-2 py-0.5 text-xs text-brand-500">
                 默认
               </span>
             )}
             {profile.allow_adult && (
-              <span className="rounded bg-red-400/20 px-2 py-0.5 text-xs text-red-400">
+              <span className="rounded-lg bg-red-400/20 px-2 py-0.5 text-xs text-red-400">
                 成人内容
               </span>
             )}
             {profile.require_pin && (
-              <span className="rounded bg-amber-400/20 px-2 py-0.5 text-xs text-amber-400">
+              <span className="rounded-lg bg-amber-400/20 px-2 py-0.5 text-xs text-amber-400">
                 🔒 PIN
               </span>
             )}
@@ -189,13 +189,13 @@ function ProfileCard({
       <div className="flex shrink-0 gap-2">
         <button
           onClick={onEdit}
-          className="rounded border border-white/10 px-2 py-1 text-xs text-ink-100 hover:border-primary-400/40 hover:text-brand-500"
+          className="rounded-lg border border-gray-200 px-2 py-1 text-xs text-ink-100 hover:border-primary-400/40 hover:text-brand-500"
         >
           <Pencil size={12} className="inline" /> 编辑
         </button>
         <button
           onClick={onDelete}
-          className="rounded border border-red-400/40 px-2 py-1 text-xs text-red-400 hover:bg-red-400/10"
+          className="rounded-lg border border-red-400/40 px-2 py-1 text-xs text-red-400 hover:bg-red-400/10"
         >
           <Trash2 size={12} className="inline" /> 删除
         </button>
@@ -389,7 +389,7 @@ function ProfileFormModal({
                     'rounded-full border px-3 py-1 text-xs ' +
                     (form.allowed_library_ids.includes(l.id)
                       ? 'border-primary-400/60 bg-primary-400/10 text-brand-500'
-                      : 'border-white/10 text-ink-50 hover:text-white')
+                      : 'border-gray-200 text-ink-50 hover:text-white')
                   }
                 >
                   {l.name}
@@ -405,7 +405,7 @@ function ProfileFormModal({
             <button
               type="button"
               onClick={onClose}
-              className="rounded border border-white/10 px-4 py-2 text-sm text-ink-100 hover:bg-white/5"
+              className="rounded-lg border border-gray-200 px-4 py-2 text-sm text-ink-100 hover:bg-gray-50"
             >
               取消
             </button>
@@ -441,7 +441,7 @@ function Toggle({
   onChange: (v: boolean) => void
 }) {
   return (
-    <label className="flex cursor-pointer items-center justify-between gap-3 rounded-lg border border-white/5 bg-white/5 px-3 py-2">
+    <label className="flex cursor-pointer items-center justify-between gap-3 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2">
       <div>
         <div className="text-sm text-ink-600">{label}</div>
         {hint && <div className="text-xs text-ink-50">{hint}</div>}

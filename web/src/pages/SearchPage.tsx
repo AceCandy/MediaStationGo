@@ -99,7 +99,7 @@ export function SearchPage() {
       </header>
 
       {aiOn ? (
-        <form onSubmit={onAISubmit} className="flex gap-2">
+        <form onSubmit={onAISubmit} className="flex flex-wrap gap-2">
           <input
             autoFocus
             className="input-base"

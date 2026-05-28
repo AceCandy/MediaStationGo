@@ -23,7 +23,7 @@ export function StorageConfigPage() {
         </div>
       </div>
 
-      <div className="flex gap-2 border-b border-white/10">
+      <div className="flex gap-2 border-b border-gray-200">
         {(['alist', 'webdav', 's3'] as StorageType[]).map((t) => (
           <button
             key={t}
@@ -147,7 +147,7 @@ function StorageForm({ type }: { type: StorageType }) {
         <label key={f.key} className="block">
           <span className="mb-1 block text-sm text-ink-100">
             {f.label}
-            <span className="ml-2 font-mono text-[10px] text-sand-400">{f.key}</span>
+            <span className="ml-2 font-mono text-[10px] text-gray-500">{f.key}</span>
           </span>
           <input
             type={f.secret ? 'password' : 'text'}
@@ -172,7 +172,7 @@ function StorageForm({ type }: { type: StorageType }) {
           type="button"
           onClick={onTest}
           disabled={testing}
-          className="rounded border border-white/10 px-4 py-2 text-sm text-ink-100 hover:bg-white/5"
+          className="rounded-lg border border-gray-200 px-4 py-2 text-sm text-ink-100 hover:bg-gray-50"
         >
           {testing ? <Loader2 size={14} className="inline animate-spin" /> : <Send size={14} className="inline" />}
           {' '}测试

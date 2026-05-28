@@ -102,6 +102,8 @@ func main() {
 				zap.String("listen", srv.Addr),
 			)
 		}
+		// 自动启动 Telegram 长轮询（无需公网 Webhook）
+		services.TelegramBot.StartPolling(context.Background())
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			logger.Fatal("listen failed", zap.Error(err))
 		}

@@ -20,6 +20,9 @@ func Register(r *gin.Engine, cfg *config.Config, log *zap.Logger, svc *service.C
 		api.GET("/health", healthCheck)
 		api.GET("/version", versionInfo)
 
+		// Telegram Bot webhook — called by Telegram servers, no auth.
+		api.POST("/telegram/webhook", telegramWebhookHandler(svc))
+
 		// Public auth.
 		auth := api.Group("/auth")
 		{
@@ -310,6 +313,12 @@ func Register(r *gin.Engine, cfg *config.Config, log *zap.Logger, svc *service.C
 			admin.PUT("/notify/channels/:id", updateNotifyChannelHandler(svc))
 			admin.DELETE("/notify/channels/:id", deleteNotifyChannelHandler(svc))
 			admin.POST("/notify/channels/:id/test", testNotifyChannelHandler(svc))
+
+			// Telegram Bot webhook management.
+			admin.GET("/telegram/webhook", telegramGetWebhookHandler(svc))
+			admin.POST("/telegram/webhook", telegramSetWebhookHandler(svc))
+			admin.POST("/telegram/polling/start", telegramStartPollingHandler(svc))
+			admin.POST("/telegram/polling/stop", telegramStopPollingHandler(svc))
 
 			// File organizer.
 			admin.POST("/media/:id/organize", organizeMediaHandler(svc))

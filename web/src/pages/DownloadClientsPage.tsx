@@ -103,16 +103,16 @@ export function DownloadClientsPage() {
               <div className="min-w-0">
                 <div className="flex items-center gap-2">
                   <span className="font-medium text-ink-600">{c.name}</span>
-                  <span className="rounded border border-white/10 bg-white/5 px-2 py-0.5 text-xs text-ink-50">
+                  <span className="rounded-lg border border-gray-200 bg-gray-50 px-2 py-0.5 text-xs text-ink-50">
                     {c.type}
                   </span>
                   {c.is_default && (
-                    <span className="rounded bg-primary-400/20 px-2 py-0.5 text-xs text-brand-500">
+                    <span className="rounded-lg bg-primary-400/20 px-2 py-0.5 text-xs text-brand-500">
                       默认
                     </span>
                   )}
                   {!c.enabled && (
-                    <span className="rounded bg-sand-500/30 px-2 py-0.5 text-xs text-ink-100">
+                    <span className="rounded-lg bg-sand-500/30 px-2 py-0.5 text-xs text-ink-100">
                       已禁用
                     </span>
                   )}
@@ -125,7 +125,7 @@ export function DownloadClientsPage() {
               <div className="flex shrink-0 gap-2">
                 <button
                   onClick={() => onTest(c.id)}
-                  className="rounded border border-white/10 px-2 py-1 text-xs text-ink-100 hover:border-primary-400/40 hover:text-brand-500"
+                  className="rounded-lg border border-gray-200 px-2 py-1 text-xs text-ink-100 hover:border-primary-400/40 hover:text-brand-500"
                 >
                   <Send size={12} className="inline" /> 测试
                 </button>
@@ -134,13 +134,13 @@ export function DownloadClientsPage() {
                     setEditing(c)
                     setShowForm(true)
                   }}
-                  className="rounded border border-white/10 px-2 py-1 text-xs text-ink-100 hover:border-primary-400/40 hover:text-brand-500"
+                  className="rounded-lg border border-gray-200 px-2 py-1 text-xs text-ink-100 hover:border-primary-400/40 hover:text-brand-500"
                 >
                   <Pencil size={12} className="inline" /> 编辑
                 </button>
                 <button
                   onClick={() => onDelete(c)}
-                  className="rounded border border-red-400/40 px-2 py-1 text-xs text-red-400 hover:bg-red-400/10"
+                  className="rounded-lg border border-red-400/40 px-2 py-1 text-xs text-red-400 hover:bg-red-400/10"
                 >
                   <Trash2 size={12} className="inline" /> 删除
                 </button>
@@ -301,7 +301,7 @@ function ClientFormModal({
             <button
               type="button"
               onClick={onClose}
-              className="rounded border border-white/10 px-4 py-2 text-sm text-ink-100 hover:bg-white/5"
+              className="rounded-lg border border-gray-200 px-4 py-2 text-sm text-ink-100 hover:bg-gray-50"
             >
               取消
             </button>

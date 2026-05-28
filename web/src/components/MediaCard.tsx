@@ -32,7 +32,7 @@ export const MediaCard = ({
               referrerPolicy="no-referrer"
             />
           ) : (
-            <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-gray-400 bg-gray-50">
+            <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-gray-500 bg-gray-50">
               <Film size={28} className="stroke-[1.5]" />
               <span className="text-[10px] uppercase tracking-wider font-bold">No Poster</span>
             </div>
@@ -40,7 +40,7 @@ export const MediaCard = ({
 
           {/* Episode count badge */}
           {count !== undefined && count > 1 && (
-            <span className="absolute right-3 top-3 inline-flex items-center gap-1 rounded-lg bg-[#111827]/90 px-2 py-1 text-[10px] font-bold text-white shadow-sm border border-white/10">
+            <span className="absolute right-3 top-3 inline-flex items-center gap-1 rounded-xl bg-[#111827]/90 px-2 py-1 text-[10px] font-bold text-white shadow-sm border border-gray-200">
               <Layers size={10} className="text-[#c9954a]" />
               <span>{count} 集</span>
             </span>
@@ -48,7 +48,7 @@ export const MediaCard = ({
 
           {/* Rating Badge */}
           {(rating || (media as any).rating) && (
-            <span className="absolute left-3 top-3 inline-flex items-center gap-0.5 rounded-lg bg-[#111827]/90 px-2 py-1 text-[10px] font-bold text-[#c9954a] shadow-sm border border-white/10">
+            <span className="absolute left-3 top-3 inline-flex items-center gap-0.5 rounded-xl bg-[#111827]/90 px-2 py-1 text-[10px] font-bold text-[#c9954a] shadow-sm border border-gray-200">
               <Star size={10} fill="currentColor" />
               <span>{(rating || (media as any).rating).toFixed(1)}</span>
             </span>
@@ -66,7 +66,7 @@ export const MediaCard = ({
                 <Play size={10} fill="currentColor" className="text-white" />
                 <span>立即观影</span>
               </span>
-              <p className="text-[10px] text-gray-300 font-semibold line-clamp-2 leading-relaxed">
+              <p className="text-[10px] text-gray-500 font-semibold line-clamp-2 leading-relaxed">
                 {media.overview || "暂无简介内容"}
               </p>
             </motion.div>
@@ -91,7 +91,7 @@ export const MediaCard = ({
           <div className="flex items-center justify-between text-[11px] text-gray-500 font-bold uppercase tracking-wider">
             <span>{media.year > 0 ? media.year : "未知年份"}</span>
             {media.video_codec && (
-              <span className="px-1.5 py-0.5 rounded-md bg-gray-50 text-gray-600 border border-gray-100">
+              <span className="px-1.5 py-0.5 rounded-xl bg-gray-50 text-gray-600 border border-gray-100">
                 {media.video_codec}
               </span>
             )}

@@ -122,7 +122,7 @@ function OrganizePanel() {
         <h2 className="font-display text-lg font-semibold text-ink-600">整理 &amp; 重命名</h2>
       </div>
       <p className="text-xs text-sand-500">
-        将媒体文件按 <code className="rounded bg-white/5 px-1">媒体库/年份/标题 (年份)/标题.ext</code>{' '}
+        将媒体文件按 <code className="rounded-lg bg-gray-50 px-1">媒体库/年份/标题 (年份)/标题.ext</code>{' '}
         的规范布局移动并重命名,确保已先完成刮削。
       </p>
 
@@ -160,8 +160,8 @@ function OrganizePanel() {
         </button>
       </form>
 
-      <div className="border-t border-white/5 pt-4">
-        <form onSubmit={doSearch} className="flex gap-2">
+      <div className="border-t border-gray-200 pt-4">
+        <form onSubmit={doSearch} className="flex flex-wrap gap-2">
           <input
             className="input-base flex-1"
             placeholder="或搜索单个媒体进行整理…"
@@ -178,7 +178,7 @@ function OrganizePanel() {
             {results.map((m) => (
               <li
                 key={m.id}
-                className="flex items-center justify-between gap-3 rounded-lg border border-white/5 bg-white/5 px-3 py-2"
+                className="flex items-center justify-between gap-3 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2"
               >
                 <div className="min-w-0">
                   <div className="truncate text-sm text-ink-600">{m.title}</div>

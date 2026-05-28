@@ -107,14 +107,14 @@ export function DownloadsPage() {
             </thead>
             <tbody>
               {torrents.map((t) => (
-                <tr key={t.hash} className="border-t border-white/5 align-top">
+                <tr key={t.hash} className="border-t border-gray-200 align-top">
                   <td className="max-w-md truncate py-2 text-ink-600" title={t.name}>
                     {t.name}
                   </td>
                   <td className="text-ink-100">{t.state}</td>
                   <td className="text-ink-100">
                     <div className="flex items-center gap-2">
-                      <div className="h-1 w-24 overflow-hidden rounded bg-white/10">
+                      <div className="h-1 w-24 overflow-hidden rounded-lg bg-gray-200">
                         <div
                           className="h-full bg-primary-400"
                           style={{ width: `${Math.round(t.progress * 100)}%` }}
@@ -130,7 +130,7 @@ export function DownloadsPage() {
                   {role === 'admin' && (
                     <td className="py-2 text-right">
                       <button
-                        className="rounded border border-red-400/40 px-2 py-1 text-xs text-red-400 hover:bg-red-400/10"
+                        className="rounded-lg border border-red-400/40 px-2 py-1 text-xs text-red-400 hover:bg-red-400/10"
                         onClick={async () => {
                           if (!confirm(`删除「${t.name}」?`)) return
                           await downloadsAPI.remove(t.hash, false)
@@ -163,7 +163,7 @@ export function DownloadsPage() {
             </thead>
             <tbody>
               {tasks.map((t) => (
-                <tr key={t.id} className="border-t border-white/5">
+                <tr key={t.id} className="border-t border-gray-200">
                   <td className="py-2 text-ink-100">{t.source}</td>
                   <td className="max-w-md truncate text-ink-100" title={t.url}>
                     {t.url}

@@ -73,14 +73,14 @@ export function StoragePage() {
               {data.by_library.map((l) => {
                 const pct = (l.total_bytes / totalBytes) * 100
                 return (
-                  <tr key={l.library_id} className="border-t border-white/5">
+                  <tr key={l.library_id} className="border-t border-gray-200">
                     <td className="py-2 text-ink-600">{l.name}</td>
                     <td className="text-ink-100">{l.type}</td>
                     <td className="text-ink-100">{l.media_count}</td>
                     <td className="text-ink-100">{fmtBytes(l.total_bytes)}</td>
                     <td>
                       <div className="flex items-center gap-2">
-                        <div className="h-1 w-24 overflow-hidden rounded bg-white/10">
+                        <div className="h-1 w-24 overflow-hidden rounded bg-gray-200">
                           <div
                             className="h-full bg-primary-400"
                             style={{ width: `${pct.toFixed(1)}%` }}
@@ -129,7 +129,7 @@ function Tile({
 }) {
   return (
     <div className="glass-panel flex items-center gap-3 !p-4">
-      <div className="rounded-lg border border-primary-400/40 bg-primary-400/10 p-2 text-brand-500">
+      <div className="rounded-xl border border-primary-400/40 bg-primary-400/10 p-2 text-brand-500">
         {icon}
       </div>
       <div>

@@ -120,7 +120,7 @@ export function NotifyChannelsPage() {
   )
 }
 
-const TYPE_LABELS: Record<NotifyChannel['channel_type'], string> = {
+const TYPE_LABELS: Record<NotifyChannel['type'], string> = {
   telegram: 'Telegram',
   wechat: '企业微信',
   bark: 'Bark',
@@ -145,11 +145,11 @@ function ChannelCard({
       <div className="min-w-0">
         <div className="flex items-center gap-2">
           <span className="font-medium text-ink-600">{channel.name}</span>
-          <span className="rounded border border-white/10 bg-white/5 px-2 py-0.5 text-xs text-ink-50">
-            {TYPE_LABELS[channel.channel_type] ?? channel.channel_type}
+          <span className="rounded-lg border border-gray-200 bg-gray-50 px-2 py-0.5 text-xs text-ink-50">
+            {TYPE_LABELS[channel.type] ?? channel.type}
           </span>
           {!channel.enabled && (
-            <span className="rounded bg-sand-500/30 px-2 py-0.5 text-xs text-ink-100">已禁用</span>
+            <span className="rounded-lg bg-sand-500/30 px-2 py-0.5 text-xs text-ink-100">已禁用</span>
           )}
         </div>
         <div className="mt-1 truncate text-xs text-ink-50">{summary}</div>
@@ -157,19 +157,19 @@ function ChannelCard({
       <div className="flex shrink-0 gap-2">
         <button
           onClick={onTest}
-          className="rounded border border-white/10 px-2 py-1 text-xs text-ink-100 hover:border-primary-400/40 hover:text-brand-500"
+          className="rounded-lg border border-gray-200 px-2 py-1 text-xs text-ink-100 hover:border-primary-400/40 hover:text-brand-500"
         >
           <Send size={12} className="inline" /> 测试
         </button>
         <button
           onClick={onEdit}
-          className="rounded border border-white/10 px-2 py-1 text-xs text-ink-100 hover:border-primary-400/40 hover:text-brand-500"
+          className="rounded-lg border border-gray-200 px-2 py-1 text-xs text-ink-100 hover:border-primary-400/40 hover:text-brand-500"
         >
           <Pencil size={12} className="inline" /> 编辑
         </button>
         <button
           onClick={onDelete}
-          className="rounded border border-red-400/40 px-2 py-1 text-xs text-red-400 hover:bg-red-400/10"
+          className="rounded-lg border border-red-400/40 px-2 py-1 text-xs text-red-400 hover:bg-red-400/10"
         >
           <Trash2 size={12} className="inline" /> 删除
         </button>
@@ -180,7 +180,7 @@ function ChannelCard({
 
 function channelSummary(ch: NotifyChannel): string {
   const cfg = ch.config ?? {}
-  switch (ch.channel_type) {
+  switch (ch.type) {
     case 'telegram':
       return `Bot ${String(cfg.bot_token ?? '').slice(0, 10)}… → chat ${cfg.chat_id ?? '-'}`
     case 'wechat':
@@ -198,7 +198,7 @@ function channelSummary(ch: NotifyChannel): string {
 
 // ─── Form Modal ─────────────────────────────────────────────────────────────
 
-const EMPTY_CONFIG: Record<NotifyChannel['channel_type'], Record<string, string>> = {
+const EMPTY_CONFIG: Record<NotifyChannel['type'], Record<string, string>> = {
   telegram: { bot_token: '', chat_id: '' },
   wechat: { sendkey: '' },
   bark: { device_key: '', server: '' },
@@ -216,8 +216,8 @@ function ChannelFormModal({
   onSaved: () => void | Promise<void>
 }) {
   const [name, setName] = useState(editing?.name ?? '')
-  const [type, setType] = useState<NotifyChannel['channel_type']>(
-    editing?.channel_type ?? 'telegram',
+  const [type, setType] = useState<NotifyChannel['type']>(
+    editing?.type ?? 'telegram',
   )
   const [config, setConfig] = useState<Record<string, string>>(
     editing?.config ?? EMPTY_CONFIG.telegram,
@@ -225,7 +225,7 @@ function ChannelFormModal({
   const [enabled, setEnabled] = useState(editing?.enabled ?? true)
   const [saving, setSaving] = useState(false)
 
-  const onTypeChange = (t: NotifyChannel['channel_type']) => {
+  const onTypeChange = (t: NotifyChannel['type']) => {
     setType(t)
     setConfig({ ...EMPTY_CONFIG[t] })
   }
@@ -236,7 +236,7 @@ function ChannelFormModal({
     try {
       const input: NotifyChannelInput = {
         name: name.trim(),
-        channel_type: type,
+        type: type,
         config,
         enabled,
       }
@@ -280,7 +280,7 @@ function ChannelFormModal({
             <select
               className="input-base"
               value={type}
-              onChange={(e) => onTypeChange(e.target.value as NotifyChannel['channel_type'])}
+              onChange={(e) => onTypeChange(e.target.value as NotifyChannel['type'])}
             >
               <option value="telegram">Telegram</option>
               <option value="wechat">企业微信 / Server酱</option>
@@ -474,7 +474,7 @@ function ChannelFormModal({
             <button
               type="button"
               onClick={onClose}
-              className="rounded border border-white/10 px-4 py-2 text-sm text-ink-100 hover:bg-white/5"
+              className="rounded-lg border border-gray-200 px-4 py-2 text-sm text-ink-100 hover:bg-gray-50"
             >
               取消
             </button>

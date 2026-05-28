@@ -56,7 +56,7 @@ export function SchedulerPage() {
           </thead>
           <tbody>
             {jobs.map((j) => (
-              <tr key={j.name} className="border-t border-white/5">
+              <tr key={j.name} className="border-t border-gray-200">
                 <td className="py-2 font-mono text-ink-600">{j.name}</td>
                 <td className="text-ink-100">{j.interval}</td>
                 <td className="text-ink-50">
@@ -69,7 +69,7 @@ export function SchedulerPage() {
                   <button
                     onClick={() => runNow(j.name)}
                     disabled={running === j.name}
-                    className="rounded border border-primary-400/40 px-2 py-1 text-xs text-brand-500 hover:bg-primary-400/10"
+                    className="rounded-lg border border-primary-400/40 px-2 py-1 text-xs text-brand-500 hover:bg-primary-400/10"
                   >
                     <Play size={12} className="inline" /> 立即运行
                   </button>

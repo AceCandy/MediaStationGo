@@ -133,7 +133,7 @@ export function AssistantChatPage() {
                 'group flex items-center gap-2 rounded px-2 py-2 text-sm cursor-pointer ' +
                 (active?.session.id === s.id
                   ? 'bg-primary-400/10 text-brand-500'
-                  : 'text-ink-100 hover:bg-white/5 hover:text-white')
+                  : 'text-ink-100 hover:bg-gray-50 hover:text-white')
               }
               onClick={() => onSelect(s.id)}
             >
@@ -166,7 +166,7 @@ export function AssistantChatPage() {
         )}
         {active && (
           <>
-            <div className="mb-3 border-b border-white/5 pb-2">
+            <div className="mb-3 border-b border-gray-200 pb-2">
               <h2 className="font-display text-base font-semibold text-ink-600">
                 {active.session.title || '未命名'}
               </h2>
@@ -180,7 +180,7 @@ export function AssistantChatPage() {
               ))}
               <div ref={messagesEndRef} />
             </div>
-            <form onSubmit={onSend} className="mt-3 flex gap-2 border-t border-white/5 pt-3">
+            <form onSubmit={onSend} className="mt-3 flex gap-2 border-t border-gray-200 pt-3">
               <input
                 className="input-base flex-1"
                 placeholder="发送消息…"
@@ -211,7 +211,7 @@ function Bubble({ message }: { message: AssistantMessage }) {
             ? 'bg-primary-400/20 text-primary-100'
             : message.role === 'system'
               ? 'border border-amber-400/30 bg-amber-400/5 text-amber-200'
-              : 'bg-white/5 text-ink-200')
+              : 'bg-gray-50 text-ink-200')
         }
       >
         {message.content}

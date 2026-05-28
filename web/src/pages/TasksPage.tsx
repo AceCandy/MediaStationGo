@@ -60,17 +60,17 @@ export function TasksPage() {
             </thead>
             <tbody>
               {snap.transcodes.map((t) => (
-                <tr key={t.media_id} className="border-t border-white/5">
+                <tr key={t.media_id} className="border-t border-gray-200">
                   <td className="py-2 font-mono text-xs text-ink-600">{t.media_id}</td>
                   <td className="text-ink-100">{t.encoder || 'libx264'}</td>
                   <td className="text-ink-100">{new Date(t.started_at).toLocaleTimeString()}</td>
                   <td>
                     {t.playlist_ok ? (
-                      <span className="rounded border border-emerald-400/40 px-1.5 py-0.5 text-xs text-emerald-400">
+                      <span className="rounded-lg border border-emerald-400/40 px-1.5 py-0.5 text-xs text-emerald-400">
                         ready
                       </span>
                     ) : (
-                      <span className="rounded border border-yellow-400/40 px-1.5 py-0.5 text-xs text-yellow-400">
+                      <span className="rounded-lg border border-yellow-400/40 px-1.5 py-0.5 text-xs text-yellow-400">
                         starting
                       </span>
                     )}
@@ -97,14 +97,14 @@ export function TasksPage() {
             </thead>
             <tbody>
               {torrents.map((t) => (
-                <tr key={t.hash} className="border-t border-white/5 align-top">
+                <tr key={t.hash} className="border-t border-gray-200 align-top">
                   <td className="max-w-md truncate py-2 text-ink-600" title={t.name}>
                     {t.name}
                   </td>
                   <td className="text-ink-100">{t.state}</td>
                   <td className="text-ink-100">
                     <div className="flex items-center gap-2">
-                      <div className="h-1 w-24 overflow-hidden rounded bg-white/10">
+                      <div className="h-1 w-24 overflow-hidden rounded-lg bg-gray-200">
                         <div
                           className="h-full bg-primary-400"
                           style={{ width: `${Math.round(t.progress * 100)}%` }}

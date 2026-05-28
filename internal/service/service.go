@@ -54,6 +54,7 @@ type Container struct {
 	Backup       *BackupService
 	Notifier     *NotifierService
 	NotifyChannels *NotifyChannelService
+	TelegramBot  *TelegramBotService
 	PlayProfiles *PlayProfileService
 	Permissions  *PermissionService
 	StorageCfg   *StorageConfigService
@@ -105,6 +106,7 @@ func New(cfg *config.Config, log *zap.Logger, repos *repository.Container) *Cont
 	backup := NewBackupService(cfg, log, repos.DB)
 	notifier := NewNotifierService(log, repos)
 	notifyChannels := NewNotifyChannelService(log, repos)
+	telegramBot := NewTelegramBotService(log, repos, crypto)
 	playProfiles := NewPlayProfileService(log, repos)
 	permissions := NewPermissionService(log, repos)
 	storageCfg := NewStorageConfigService(log, repos, crypto)
@@ -168,6 +170,7 @@ func New(cfg *config.Config, log *zap.Logger, repos *repository.Container) *Cont
 		Backup:       backup,
 		Notifier:     notifier,
 		NotifyChannels: notifyChannels,
+		TelegramBot:  telegramBot,
 		PlayProfiles: playProfiles,
 		Permissions:  permissions,
 		StorageCfg:   storageCfg,

@@ -147,10 +147,10 @@ export function LicensePage() {
               )}
               <h2 className="font-display text-lg font-semibold text-ink-600">当前状态</h2>
             </div>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               <button
                 onClick={refreshStatus}
-                className="rounded border border-white/10 p-2 text-ink-50 hover:bg-white/5 hover:text-white"
+                className="rounded-lg border border-gray-200 p-2 text-ink-50 hover:bg-gray-50 hover:text-white"
                 title="刷新状态"
               >
                 <RefreshCw size={14} />
@@ -158,7 +158,7 @@ export function LicensePage() {
               {active && (
                 <button
                   onClick={onHeartbeat}
-                  className="rounded border border-primary-400/30 px-3 py-1.5 text-xs text-brand-500 hover:bg-primary-400/10"
+                  className="rounded-lg border border-primary-400/30 px-3 py-1.5 text-xs text-brand-500 hover:bg-primary-400/10"
                 >
                   心跳上报
                 </button>
@@ -167,7 +167,7 @@ export function LicensePage() {
           </div>
 
           {!active && (
-            <div className="space-y-3 rounded-lg border border-white/5 bg-white/[0.02] p-4 text-center">
+            <div className="space-y-3 rounded-xl border border-gray-200 bg-gray-50 p-4 text-center">
               <p className="text-ink-50">
                 尚未绑定许可证。请在上方输入密钥完成激活。
               </p>
@@ -202,7 +202,7 @@ export function LicensePage() {
           )}
 
           {isExpired && (
-            <div className="rounded-lg border border-red-400/20 bg-red-400/5 px-4 py-3 text-sm text-red-400">
+            <div className="rounded-xl border border-red-400/20 bg-red-400/5 px-4 py-3 text-sm text-red-400">
               此许可证已过期，部分功能可能受限。请获取新的许可证密钥。
             </div>
           )}
@@ -211,11 +211,11 @@ export function LicensePage() {
 
       {/* ── Pro tip ── */}
       {!active && !loadingStatus && (
-        <div className="rounded-xl border border-white/5 bg-white/[0.02] p-5 text-center">
+        <div className="rounded-xl border border-gray-200 bg-gray-50 p-5 text-center">
           <p className="text-sm text-sand-500">
             需要获取许可证？请联系管理员获取 MediaStationGo 授权密钥。
           </p>
-          <p className="mt-1 text-xs text-sand-400">
+          <p className="mt-1 text-xs text-gray-500">
             授权服务器地址可在系统设置中配置
           </p>
         </div>
@@ -238,7 +238,7 @@ function StatusBadge({
   className?: string
 }) {
   return (
-    <div className="rounded-lg border border-white/5 bg-white/[0.02] p-3">
+    <div className="rounded-xl border border-gray-200 bg-gray-50 p-3">
       <p className="mb-0.5 text-xs text-sand-500">{label}</p>
       <p className={`text-sm text-ink-600 ${mono ? 'font-mono' : ''} ${className ?? ''}`}>
         {value}

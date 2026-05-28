@@ -251,7 +251,7 @@ export function SitesPage() {
             {/* 头部 */}
             <div className="flex items-start justify-between">
               <div className="flex items-center gap-2 min-w-0">
-                <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold shrink-0 ${SITE_TYPE_COLORS[site.type] || 'bg-sand-500/15 text-ink-50'}`}>
+                <div className={`w-8 h-8 rounded-xl flex items-center justify-center text-xs font-bold shrink-0 ${SITE_TYPE_COLORS[site.type] || 'bg-sand-500/15 text-ink-50'}`}>
                   {SITE_TYPE_ABBR[site.type] || '?'}
                 </div>
                 <div className="min-w-0">
@@ -276,23 +276,23 @@ export function SitesPage() {
 
             {/* 标签 */}
             <div className="flex flex-wrap gap-1.5">
-              <span className="text-xs px-1.5 py-0.5 rounded bg-white/5 text-ink-50">
+              <span className="text-xs px-1.5 py-0.5 rounded-lg bg-gray-50 text-ink-50">
                 {SITE_TYPE_LABELS[site.type] || site.type}
               </span>
-              <span className="text-xs px-1.5 py-0.5 rounded bg-white/5 text-ink-50">
+              <span className="text-xs px-1.5 py-0.5 rounded-lg bg-gray-50 text-ink-50">
                 {AUTH_TYPE_LABELS[site.auth_type] || site.auth_type}
               </span>
               {site.is_default && (
-                <span className="text-xs px-1.5 py-0.5 rounded bg-primary-400/15 text-brand-500">默认</span>
+                <span className="text-xs px-1.5 py-0.5 rounded-lg bg-primary-400/15 text-brand-500">默认</span>
               )}
               {site.use_proxy && (
-                <span className="text-xs px-1.5 py-0.5 rounded bg-blue-500/15 text-blue-400">代理</span>
+                <span className="text-xs px-1.5 py-0.5 rounded-lg bg-blue-500/15 text-blue-400">代理</span>
               )}
               {site.rate_limit && (
-                <span className="text-xs px-1.5 py-0.5 rounded bg-yellow-500/15 text-yellow-400">限流</span>
+                <span className="text-xs px-1.5 py-0.5 rounded-lg bg-yellow-500/15 text-yellow-400">限流</span>
               )}
               {site.browser_emulation && (
-                <span className="text-xs px-1.5 py-0.5 rounded bg-purple-500/15 text-purple-400">浏览器</span>
+                <span className="text-xs px-1.5 py-0.5 rounded-lg bg-purple-500/15 text-purple-400">浏览器</span>
               )}
             </div>
 
@@ -319,7 +319,7 @@ export function SitesPage() {
               <button
                 onClick={() => handleTest(site.id)}
                 disabled={testingId === site.id}
-                className="flex-1 rounded border border-white/10 px-2 py-1.5 text-xs text-ink-100 hover:bg-white/5 disabled:opacity-50 flex items-center justify-center gap-1 transition"
+                className="flex-1 rounded-lg border border-gray-200 px-2 py-1.5 text-xs text-ink-100 hover:bg-gray-50 disabled:opacity-50 flex items-center justify-center gap-1 transition"
               >
                 {testingId === site.id ? (
                   <>
@@ -335,14 +335,14 @@ export function SitesPage() {
               </button>
               <button
                 onClick={() => openEdit(site.id)}
-                className="rounded border border-white/10 p-1.5 text-ink-50 hover:text-white hover:bg-white/5 transition"
+                className="rounded-lg border border-gray-200 p-1.5 text-ink-50 hover:text-white hover:bg-gray-50 transition"
                 title="编辑"
               >
                 <Edit3 size={14} />
               </button>
               <button
                 onClick={() => handleDelete(site)}
-                className="rounded border border-white/10 p-1.5 text-ink-50 hover:text-red-400 hover:bg-red-400/10 transition"
+                className="rounded-lg border border-gray-200 p-1.5 text-ink-50 hover:text-red-400 hover:bg-red-400/10 transition"
                 title="删除"
               >
                 <Trash2 size={14} />
@@ -354,7 +354,7 @@ export function SitesPage() {
         {/* 空状态 */}
         {!loading && sites.length === 0 && (
           <div className="col-span-full py-12 text-center text-ink-50">
-            <Globe size={40} className="mx-auto mb-3 text-sand-400" />
+            <Globe size={40} className="mx-auto mb-3 text-gray-500" />
             <p>暂无站点</p>
             <p className="text-sm mt-1 text-sand-500">点击「添加站点」添加 PT/BT 站点</p>
           </div>
@@ -435,7 +435,7 @@ export function SitesPage() {
                     <button
                       type="button"
                       onClick={() => setForm((f) => ({ ...f, enabled: !f.enabled }))}
-                      className={`relative inline-flex h-5 w-9 shrink-0 rounded-full transition-colors cursor-pointer ${form.enabled ? 'bg-primary-500' : 'bg-white/10'}`}
+                      className={`relative inline-flex h-5 w-9 shrink-0 rounded-full transition-colors cursor-pointer ${form.enabled ? 'bg-primary-500' : 'bg-gray-200'}`}
                     >
                       <span
                         className={`pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow transform transition-transform mt-0.5 ${form.enabled ? 'translate-x-4' : 'translate-x-0.5'}`}
@@ -450,7 +450,7 @@ export function SitesPage() {
 
               {/* 馒头提示 */}
               {form.type === 'mteam' && (
-                <div className="p-3 rounded-lg border border-green-500/30 bg-green-500/5">
+                <div className="p-3 rounded-xl border border-green-500/30 bg-green-500/5">
                   <div className="text-sm font-medium text-green-400 mb-1">馒头站点配置指南</div>
                   <div className="text-xs text-ink-50 space-y-1">
                     <div><b>站点地址：</b><code className="text-green-300">https://api2.m-team.cc</code></div>
@@ -477,10 +477,10 @@ export function SitesPage() {
                       key={opt.value}
                       type="button"
                       onClick={() => setForm((f) => ({ ...f, auth_type: opt.value }))}
-                      className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition ${
+                      className={`px-3 py-1.5 rounded-xl text-xs font-medium border transition ${
                         form.auth_type === opt.value
                           ? 'bg-primary-500 text-ink-600 border-primary-500'
-                          : 'border-white/10 text-ink-50 hover:border-primary-500/50'
+                          : 'border-gray-200 text-ink-50 hover:border-primary-500/50'
                       }`}
                     >
                       {opt.label}
@@ -555,7 +555,7 @@ export function SitesPage() {
                   {advancedOpen ? '▾' : '▸'} 高级选项
                 </button>
                 {advancedOpen && (
-                  <div className="mt-3 pl-4 space-y-3 border-l border-white/10">
+                  <div className="mt-3 pl-4 space-y-3 border-l border-gray-200">
                     {/* 新增高级字段 */}
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                       <div>
@@ -646,7 +646,7 @@ export function SitesPage() {
                       <button
                         type="button"
                         onClick={() => setForm((f) => ({ ...f, is_default: !f.is_default }))}
-                        className={`relative inline-flex h-5 w-9 shrink-0 rounded-full transition-colors cursor-pointer ${form.is_default ? 'bg-primary-500' : 'bg-white/10'}`}
+                        className={`relative inline-flex h-5 w-9 shrink-0 rounded-full transition-colors cursor-pointer ${form.is_default ? 'bg-primary-500' : 'bg-gray-200'}`}
                       >
                         <span
                           className={`pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow transform transition-transform mt-0.5 ${form.is_default ? 'translate-x-4' : 'translate-x-0.5'}`}
@@ -660,7 +660,7 @@ export function SitesPage() {
 
               {/* 按钮 */}
               <div className="flex justify-end gap-2 pt-2">
-                <button type="button" onClick={closeModal} className="rounded border border-white/10 px-4 py-2 text-sm text-ink-100 hover:bg-white/5 transition">
+                <button type="button" onClick={closeModal} className="rounded-lg border border-gray-200 px-4 py-2 text-sm text-ink-100 hover:bg-gray-50 transition">
                   取消
                 </button>
                 <button

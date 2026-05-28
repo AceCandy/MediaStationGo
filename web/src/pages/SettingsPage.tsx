@@ -250,7 +250,7 @@ export function SettingsPage() {
         </div>
       </div>
 
-      <div className="flex gap-2 overflow-x-auto border-b border-white/10">
+      <div className="flex gap-2 overflow-x-auto border-b border-gray-200">
         {GROUPS.map((g) => (
           <button
             key={g.key}
@@ -318,7 +318,7 @@ export function SettingsPage() {
             </thead>
             <tbody>
               {libraries.map((lib) => (
-                <tr key={lib.id} className="border-t border-white/5">
+                <tr key={lib.id} className="border-t border-gray-200">
                   <td className="py-2 font-medium text-ink-600">{lib.name}</td>
                   <td className="text-ink-50">
                     {lib.type === 'movie' ? '电影' : lib.type === 'tv' ? '电视剧' : lib.type === 'anime' ? '动漫' : '音乐'}
@@ -355,7 +355,7 @@ function SettingRow({
       <label className="text-sm text-ink-100">
         <div className="font-medium">{def.label}</div>
         {def.hint && <div className="mt-0.5 text-xs text-sand-500">{def.hint}</div>}
-        <div className="mt-0.5 font-mono text-[10px] text-sand-400">{def.key}</div>
+        <div className="mt-0.5 font-mono text-[10px] text-gray-500">{def.key}</div>
       </label>
       <div>
         {def.type === 'text' && (

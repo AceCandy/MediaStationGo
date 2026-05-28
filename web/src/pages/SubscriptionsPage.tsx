@@ -88,7 +88,7 @@ export function SubscriptionsPage() {
             </thead>
             <tbody>
               {items.map((s) => (
-                <tr key={s.id} className="border-t border-white/5">
+                <tr key={s.id} className="border-t border-gray-200">
                   <td className="py-2 text-ink-600">{s.name}</td>
                   <td className="max-w-md truncate text-ink-100" title={s.feed_url}>
                     {s.feed_url}
@@ -99,7 +99,7 @@ export function SubscriptionsPage() {
                   </td>
                   <td className="space-x-2 py-2 text-right">
                     <button
-                      className="rounded border border-primary-400/40 px-2 py-1 text-xs text-brand-500 hover:bg-primary-400/10"
+                      className="rounded-lg border border-primary-400/40 px-2 py-1 text-xs text-brand-500 hover:bg-primary-400/10"
                       onClick={async () => {
                         const r = await subscriptionsAPI.runNow(s.id)
                         toast.success(`已加入 ${r.queued} 项`)
@@ -108,7 +108,7 @@ export function SubscriptionsPage() {
                       <Play size={12} />
                     </button>
                     <button
-                      className="rounded border border-red-400/40 px-2 py-1 text-xs text-red-400 hover:bg-red-400/10"
+                      className="rounded-lg border border-red-400/40 px-2 py-1 text-xs text-red-400 hover:bg-red-400/10"
                       onClick={async () => {
                         if (!confirm(`删除订阅「${s.name}」?`)) return
                         await subscriptionsAPI.remove(s.id)

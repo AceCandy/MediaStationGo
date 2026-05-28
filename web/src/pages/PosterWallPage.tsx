@@ -44,7 +44,7 @@ export function PosterWallPage() {
           <div key={s.rep.id} className="relative">
             <MediaCard media={s.rep} />
             {s.count > 1 && (
-              <span className="pointer-events-none absolute right-1.5 top-1.5 inline-flex items-center gap-0.5 rounded-md bg-black/60 px-1.5 py-0.5 text-[10px] font-medium text-ink-600 backdrop-blur-sm">
+              <span className="pointer-events-none absolute right-1.5 top-1.5 inline-flex items-center gap-0.5 rounded-xl bg-black/60 px-1.5 py-0.5 text-[10px] font-medium text-ink-600 backdrop-blur-sm">
                 <Layers size={10} />
                 {s.count}
               </span>

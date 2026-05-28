@@ -126,7 +126,7 @@ export function LibraryPage() {
           {library && <p className="text-sm text-ink-50">{library.type} · {library.path}</p>}
         </div>
         {role === 'admin' && (
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <button onClick={handleScan} disabled={scanning} className="btn-outline">{scanning ? '扫描中…' : '立即扫描'}</button>
             <button onClick={handleScrape} disabled={scraping} className="btn-outline">{scraping ? '刮削中…' : '刮削元数据'}</button>
           </div>
@@ -144,7 +144,7 @@ export function LibraryPage() {
 
       {!isSeries && items.length === 0 && (
         <div className="flex flex-col items-center justify-center py-24 text-center">
-          <Film className="h-12 w-12 text-sand-400 mb-4" />
+          <Film className="h-12 w-12 text-gray-500 mb-4" />
           <p className="text-ink-50">该媒体库暂无内容，触发一次扫描后再来看看</p>
         </div>
       )}
@@ -190,7 +190,7 @@ export function LibraryPage() {
                 {selectedSeries.rep.poster_url ? (
                   <img src={imageURL(selectedSeries.rep.poster_url)} alt={selectedSeries.rep.title} className="w-full aspect-[2/3] object-cover" referrerPolicy="no-referrer" />
                 ) : (
-                  <div className="flex items-center justify-center aspect-[2/3] text-sand-400"><Film size={40} /></div>
+                  <div className="flex items-center justify-center aspect-[2/3] text-gray-500"><Film size={40} /></div>
                 )}
               </div>
               <div className="flex-1 space-y-3">
@@ -226,7 +226,7 @@ export function LibraryPage() {
                         to={`/play/${ep.id}`}
                         className="group flex items-center gap-3 rounded-xl border border-sand-200 bg-white p-3 shadow-card transition-all hover:border-brand-300 hover:shadow-card-hover"
                       >
-                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-brand-50 text-brand-600 font-semibold text-sm">
+                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-600 font-semibold text-sm">
                           {ep.episode_num || '—'}
                         </div>
                         <div className="min-w-0 flex-1">
@@ -239,7 +239,7 @@ export function LibraryPage() {
                               : formatSize(ep.size_bytes)}
                           </p>
                         </div>
-                        <Play size={14} className="shrink-0 text-sand-400 opacity-0 transition-opacity group-hover:opacity-100 group-hover:text-brand-500" />
+                        <Play size={14} className="shrink-0 text-gray-500 opacity-0 transition-opacity group-hover:opacity-100 group-hover:text-brand-500" />
                       </Link>
                     ))}
                   </div>
@@ -253,7 +253,7 @@ export function LibraryPage() {
       {/* 剧集为空 */}
       {isSeries && seriesCards.length === 0 && !loading && (
         <div className="flex flex-col items-center justify-center py-24 text-center">
-          <Film className="h-12 w-12 text-sand-400 mb-4" />
+          <Film className="h-12 w-12 text-gray-500 mb-4" />
           <p className="text-ink-50">该库尚未发现任何剧集，触发一次扫描后再来看看</p>
         </div>
       )}

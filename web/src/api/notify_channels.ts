@@ -4,7 +4,7 @@ import type { NotifyChannel } from '../types'
 // Payload accepted by create / update. `events` and `enabled` are optional.
 export interface NotifyChannelInput {
   name: string
-  channel_type: NotifyChannel['channel_type']
+  type: NotifyChannel['type']
   config: Record<string, string>
   events?: string[]
   enabled?: boolean

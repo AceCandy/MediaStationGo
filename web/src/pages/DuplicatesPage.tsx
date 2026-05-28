@@ -93,7 +93,7 @@ export function DuplicatesPage() {
         <section key={g.hash} className="glass-panel space-y-2">
           <div className="flex items-center justify-between">
             <p className="font-mono text-xs text-sand-500">{g.hash}</p>
-            <span className="rounded border border-emerald-400/40 px-2 py-0.5 text-xs text-emerald-400">
+            <span className="rounded-lg border border-emerald-400/40 px-2 py-0.5 text-xs text-emerald-400">
               主条目
             </span>
           </div>
@@ -101,7 +101,7 @@ export function DuplicatesPage() {
           <p className="font-mono text-xs text-ink-50">
             {g.primary.path} · {fmtBytes(g.primary.size_bytes)}
           </p>
-          <div className="space-y-1 border-t border-white/5 pt-2">
+          <div className="space-y-1 border-t border-gray-200 pt-2">
             <p className="text-xs uppercase tracking-wider text-red-400">
               重复 ({g.duplicates.length})
             </p>
