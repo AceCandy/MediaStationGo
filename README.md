@@ -28,6 +28,73 @@
 | 运维 | 任务、统计、存储、重复文件、回收站、NFO 导出 |
 | AI | OpenAI 兼容 Base URL/API Key，智能搜索与推荐 |
 
+
+## 界面预览
+
+> 以下截图使用 Codex 内置浏览器从当前运行实例采集，并已对个人媒体内容、本地路径、账号信息、API Key/Token/密钥等敏感信息做图像级打码处理。
+
+<details open>
+<summary><strong>核心体验</strong></summary>
+
+| 登录与首页 | 媒体库总览 |
+| --- | --- |
+| <img src="docs/screenshots/00-login.jpg" alt="登录界面" width="100%"> | <img src="docs/screenshots/01-home.jpg" alt="系统首页" width="100%"> |
+| 媒体库总览 | 媒体库详情 |
+| <img src="docs/screenshots/02-libraries.jpg" alt="媒体库总览" width="100%"> | <img src="docs/screenshots/03-library-detail.jpg" alt="媒体库详情" width="100%"> |
+| 海报墙 | 媒体详情 |
+| <img src="docs/screenshots/04-poster-wall.jpg" alt="海报墙" width="100%"> | <img src="docs/screenshots/05-media-detail.jpg" alt="媒体详情" width="100%"> |
+| 播放器 | 精彩发现 |
+| <img src="docs/screenshots/06-player.jpg" alt="播放器" width="100%"> | <img src="docs/screenshots/07-discover.jpg" alt="精彩发现" width="100%"> |
+| 智能搜索 | DLNA 投屏 |
+| <img src="docs/screenshots/08-search.jpg" alt="智能搜索" width="100%"> | <img src="docs/screenshots/09-dlna.jpg" alt="DLNA 投屏" width="100%"> |
+
+</details>
+
+<details>
+<summary><strong>个人空间与播放管理</strong></summary>
+
+| AI 助理 | 我的收藏 |
+| --- | --- |
+| <img src="docs/screenshots/10-ai.jpg" alt="AI 助理" width="100%"> | <img src="docs/screenshots/11-favourites.jpg" alt="我的收藏" width="100%"> |
+| 播放列表 | 观看历史 |
+| <img src="docs/screenshots/12-playlists.jpg" alt="播放列表" width="100%"> | <img src="docs/screenshots/13-history.jpg" alt="观看历史" width="100%"> |
+| 账号信息 | 下载中心 |
+| <img src="docs/screenshots/14-profile.jpg" alt="账号信息" width="100%"> | <img src="docs/screenshots/15-downloads.jpg" alt="下载中心" width="100%"> |
+
+</details>
+
+<details>
+<summary><strong>下载订阅与站点</strong></summary>
+
+| 下载器管理 | 订阅管理 |
+| --- | --- |
+| <img src="docs/screenshots/16-download-clients.jpg" alt="下载器管理" width="100%"> | <img src="docs/screenshots/17-subscriptions.jpg" alt="订阅管理" width="100%"> |
+| 站点检索 | 站点与下载器 |
+| <img src="docs/screenshots/18-site-search.jpg" alt="站点检索" width="100%"> | <img src="docs/screenshots/20-sites.jpg" alt="站点与下载器" width="100%"> |
+
+</details>
+
+<details>
+<summary><strong>管理与运维</strong></summary>
+
+| 媒体与用户 | 整理与维护 |
+| --- | --- |
+| <img src="docs/screenshots/19-admin.jpg" alt="媒体与用户" width="100%"> | <img src="docs/screenshots/21-tools.jpg" alt="整理与维护" width="100%"> |
+| 存储与文件 | 运行状态 |
+| <img src="docs/screenshots/22-storage.jpg" alt="存储与文件" width="100%"> | <img src="docs/screenshots/23-stats.jpg" alt="运行状态" width="100%"> |
+| 系统设置 | 任务队列 |
+| <img src="docs/screenshots/24-settings.jpg" alt="系统设置" width="100%"> | <img src="docs/screenshots/25-tasks.jpg" alt="任务队列" width="100%"> |
+| 重复文件 | 回收站 |
+| <img src="docs/screenshots/26-duplicates.jpg" alt="重复文件" width="100%"> | <img src="docs/screenshots/27-recycle.jpg" alt="回收站" width="100%"> |
+| 调度任务 | 文件管理 |
+| <img src="docs/screenshots/28-scheduler.jpg" alt="调度任务" width="100%"> | <img src="docs/screenshots/29-files.jpg" alt="文件管理" width="100%"> |
+| STRM 管理 | 存储配置 |
+| <img src="docs/screenshots/30-strm.jpg" alt="STRM 管理" width="100%"> | <img src="docs/screenshots/31-storage-config.jpg" alt="存储配置" width="100%"> |
+| 通知渠道 | AI 运维助手 |
+| <img src="docs/screenshots/32-notify-channels.jpg" alt="通知渠道" width="100%"> | <img src="docs/screenshots/33-assistant.jpg" alt="AI 运维助手" width="100%"> |
+
+</details>
+
 ## Docker 部署（推荐）
 
 ```bash
