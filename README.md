@@ -231,7 +231,7 @@ mkdir -p data cache media downloads
 ```bash
 cat > .env <<'EOF'
 # 固定版本；需要升级时改成新的 MediaStationGo-vX.Y.Z 后执行 docker compose pull && docker compose up -d
-MEDIASTATION_IMAGE_TAG=MediaStationGo-v0.0.8
+MEDIASTATION_IMAGE_TAG=MediaStationGo-v0.0.9
 MEDIASTATION_HTTP_PORT=18080
 
 # 程序数据和缓存建议放在 MediaStationGo 部署目录下，便于备份和迁移。
@@ -298,7 +298,7 @@ vim docker-compose.yml
 #
 # 镜像版本：
 #   默认拉取 latest；如需固定版本，创建 .env 并写入：
-#     MEDIASTATION_IMAGE_TAG=MediaStationGo-v0.0.8
+#     MEDIASTATION_IMAGE_TAG=MediaStationGo-v0.0.9
 #
 # 路径映射总览：
 #   /data      程序数据目录。保存 SQLite 数据库、JWT secret、系统配置等，必须持久化。
@@ -485,7 +485,7 @@ docker compose up -d
 
 ```bash
 cat > .env <<'EOF'
-MEDIASTATION_IMAGE_TAG=MediaStationGo-v0.0.8
+MEDIASTATION_IMAGE_TAG=MediaStationGo-v0.0.9
 MEDIASTATION_HTTP_PORT=18080
 MEDIASTATION_DATA_DIR=./data
 MEDIASTATION_CACHE_DIR=./cache
@@ -586,6 +586,35 @@ MEDIASTATION_DOWNLOAD_DIR=/vol1/1000/qBittorrent/downloads
 ```
 
 容器内媒体库建议添加 `/media/电影` 和 `/media/电视剧` 两个根目录；整理后会自动进入 `/media/电影/动画电影`、`/media/电视剧/国产剧` 等分类目录。下载器保存根目录填写 `/downloads`，订阅下载会自动落到 `/downloads/动画电影`、`/downloads/国产剧` 等分类目录。
+
+### qBittorrent 连接怎么填
+
+如果 qBittorrent 运行在同一台 NAS/宿主机上，MediaStationGo 容器里不要优先填 `127.0.0.1`；`127.0.0.1` 代表 MediaStationGo 容器自己。推荐在「下载器管理」中填写：
+
+```text
+http://host.docker.internal:8085
+```
+
+仓库默认 `docker-compose.yml` 已配置：
+
+```yaml
+extra_hosts:
+  - "host.docker.internal:host-gateway"
+```
+
+如果你填写 `http://192.168.1.125:8085` 超时，但 `http://172.17.0.1:8085` 返回 403，通常表示：
+
+- Docker 容器到局域网 IP 存在防火墙、路由或 hairpin 限制，建议改用 `host.docker.internal`。
+- qBittorrent WebUI 已经能被容器访问，但登录被拒绝。请检查用户名/密码、IP 封禁、CSRF/Host Header 校验。
+- qBittorrent WebUI 设置里建议确认：监听地址为 `0.0.0.0` 或所有地址；端口为 `8085`；解除/关闭连续失败后的 IP 封禁；必要时把 `host.docker.internal`、`172.17.0.1`、NAS 局域网 IP 加入允许域名/白名单，或关闭 Host Header 校验。
+
+可在 NAS 上用下面命令快速验证 qBittorrent 登录：
+
+```bash
+docker exec -it mediastation-go sh -lc 'wget -S -O- --post-data="username=你的用户名&password=你的密码" http://host.docker.internal:8085/api/v2/auth/login'
+```
+
+返回 `Ok.` 才表示账号和 qBittorrent WebUI 配置都正常。返回 `Forbidden` / `403` 时先去 qBittorrent WebUI 解除封禁和检查安全设置。
 
 ### 下载器路径怎么填
 
@@ -702,26 +731,26 @@ cd MediaStationGo
 
 | 平台 | 包名示例 |
 | --- | --- |
-| Linux x86_64 | `MediaStationGo-v0.0.8-linux-amd64.tar.gz` |
-| Linux ARM64 | `MediaStationGo-v0.0.8-linux-arm64.tar.gz` |
-| Windows x86_64 | `MediaStationGo-v0.0.8-windows-amd64.zip` |
-| macOS Intel | `MediaStationGo-v0.0.8-darwin-amd64.tar.gz` |
-| macOS Apple Silicon | `MediaStationGo-v0.0.8-darwin-arm64.tar.gz` |
+| Linux x86_64 | `MediaStationGo-v0.0.9-linux-amd64.tar.gz` |
+| Linux ARM64 | `MediaStationGo-v0.0.9-linux-arm64.tar.gz` |
+| Windows x86_64 | `MediaStationGo-v0.0.9-windows-amd64.zip` |
+| macOS Intel | `MediaStationGo-v0.0.9-darwin-amd64.tar.gz` |
+| macOS Apple Silicon | `MediaStationGo-v0.0.9-darwin-arm64.tar.gz` |
 
 部署步骤：
 
 ```bash
 # Linux 示例
-tar -xzf MediaStationGo-v0.0.8-linux-amd64.tar.gz
-cd MediaStationGo-v0.0.8-linux-amd64
+tar -xzf MediaStationGo-v0.0.9-linux-amd64.tar.gz
+cd MediaStationGo-v0.0.9-linux-amd64
 MEDIASTATION_APP_PORT=18080 ./mediastation-go
 ```
 
 Windows：
 
 ```powershell
-Expand-Archive .\MediaStationGo-v0.0.8-windows-amd64.zip
-cd .\MediaStationGo-v0.0.8-windows-amd64
+Expand-Archive .\MediaStationGo-v0.0.9-windows-amd64.zip
+cd .\MediaStationGo-v0.0.9-windows-amd64
 $env:MEDIASTATION_APP_PORT = "18080"
 .\mediastation-go.exe
 ```

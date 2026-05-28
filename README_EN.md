@@ -228,7 +228,7 @@ mkdir -p data cache media downloads
 
 ```bash
 cat > .env <<'EOF'
-MEDIASTATION_IMAGE_TAG=MediaStationGo-v0.0.8
+MEDIASTATION_IMAGE_TAG=MediaStationGo-v0.0.9
 MEDIASTATION_HTTP_PORT=18080
 MEDIASTATION_DATA_DIR=./data
 MEDIASTATION_CACHE_DIR=./cache
@@ -322,7 +322,7 @@ For production, pin a specific release tag instead of using `latest`. Recommende
 
 ```bash
 cat > .env <<'EOF'
-MEDIASTATION_IMAGE_TAG=MediaStationGo-v0.0.8
+MEDIASTATION_IMAGE_TAG=MediaStationGo-v0.0.9
 MEDIASTATION_HTTP_PORT=18080
 MEDIASTATION_DATA_DIR=./data
 MEDIASTATION_CACHE_DIR=./cache
@@ -413,6 +413,31 @@ MEDIASTATION_DOWNLOAD_DIR=/vol1/1000/qBittorrent/downloads
 ```
 
 Inside MediaStationGo, add `/media/电影` and `/media/电视剧` as media library roots. Organized files will land in category folders such as `/media/电影/动画电影` and `/media/电视剧/国产剧`. Use `/downloads` as the download root; subscriptions will save to folders such as `/downloads/动画电影` and `/downloads/国产剧`.
+
+### qBittorrent Connection
+
+If qBittorrent runs on the same NAS/host, do not use `127.0.0.1` from MediaStationGo; inside the container it means the MediaStationGo container itself. In Download Clients, use:
+
+```text
+http://host.docker.internal:8085
+```
+
+The default `docker-compose.yml` includes:
+
+```yaml
+extra_hosts:
+  - "host.docker.internal:host-gateway"
+```
+
+If `http://192.168.1.125:8085` times out but `http://172.17.0.1:8085` returns 403, the container can reach qBittorrent but the WebUI rejects login. Check username/password, IP bans, CSRF/Host Header validation, and allowed subnets/domains.
+
+Quick test from the MediaStationGo container:
+
+```bash
+docker exec -it mediastation-go sh -lc 'wget -S -O- --post-data="username=YOUR_USER&password=YOUR_PASS" http://host.docker.internal:8085/api/v2/auth/login'
+```
+
+`Ok.` means the connection is healthy. `Forbidden` / `403` means qBittorrent WebUI security settings or credentials still need adjustment.
 
 ### Download Client Paths
 
@@ -529,25 +554,25 @@ Each release provides multi-platform archives:
 
 | Platform | Package example |
 | --- | --- |
-| Linux x86_64 | `MediaStationGo-v0.0.8-linux-amd64.tar.gz` |
-| Linux ARM64 | `MediaStationGo-v0.0.8-linux-arm64.tar.gz` |
-| Windows x86_64 | `MediaStationGo-v0.0.8-windows-amd64.zip` |
-| macOS Intel | `MediaStationGo-v0.0.8-darwin-amd64.tar.gz` |
-| macOS Apple Silicon | `MediaStationGo-v0.0.8-darwin-arm64.tar.gz` |
+| Linux x86_64 | `MediaStationGo-v0.0.9-linux-amd64.tar.gz` |
+| Linux ARM64 | `MediaStationGo-v0.0.9-linux-arm64.tar.gz` |
+| Windows x86_64 | `MediaStationGo-v0.0.9-windows-amd64.zip` |
+| macOS Intel | `MediaStationGo-v0.0.9-darwin-amd64.tar.gz` |
+| macOS Apple Silicon | `MediaStationGo-v0.0.9-darwin-arm64.tar.gz` |
 
 Linux example:
 
 ```bash
-tar -xzf MediaStationGo-v0.0.8-linux-amd64.tar.gz
-cd MediaStationGo-v0.0.8-linux-amd64
+tar -xzf MediaStationGo-v0.0.9-linux-amd64.tar.gz
+cd MediaStationGo-v0.0.9-linux-amd64
 MEDIASTATION_APP_PORT=18080 ./mediastation-go
 ```
 
 Windows example:
 
 ```powershell
-Expand-Archive .\MediaStationGo-v0.0.8-windows-amd64.zip
-cd .\MediaStationGo-v0.0.8-windows-amd64
+Expand-Archive .\MediaStationGo-v0.0.9-windows-amd64.zip
+cd .\MediaStationGo-v0.0.9-windows-amd64
 $env:MEDIASTATION_APP_PORT = "18080"
 .\mediastation-go.exe
 ```

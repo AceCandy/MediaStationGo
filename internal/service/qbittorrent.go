@@ -107,7 +107,10 @@ func (q *QBitClient) Login(ctx context.Context) error {
 		return err
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("Referer", q.cfg.BaseURL)
+	baseURL := strings.TrimRight(q.cfg.BaseURL, "/")
+	req.Header.Set("Referer", baseURL)
+	req.Header.Set("Origin", baseURL)
+	req.Header.Set("User-Agent", "MediaStationGo/0.1")
 
 	resp, err := q.client.Do(req)
 	if err != nil {
@@ -115,8 +118,12 @@ func (q *QBitClient) Login(ctx context.Context) error {
 	}
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode >= 400 || strings.TrimSpace(string(body)) != "Ok." {
-		return fmt.Errorf("qbittorrent login failed: %s", strings.TrimSpace(string(body)))
+	text := strings.TrimSpace(string(body))
+	if resp.StatusCode == http.StatusForbidden {
+		return errors.New("qbittorrent login forbidden: check username/password, WebUI IP ban, CSRF/Host header validation, and allowed subnets")
+	}
+	if resp.StatusCode >= 400 || text != "Ok." {
+		return fmt.Errorf("qbittorrent login failed: status=%d body=%s", resp.StatusCode, text)
 	}
 	return nil
 }

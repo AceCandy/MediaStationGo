@@ -12,7 +12,7 @@
 #
 # 镜像版本：
 #   默认拉取 latest；如需固定版本，创建 .env 并写入：
-#     MEDIASTATION_IMAGE_TAG=MediaStationGo-v0.0.8
+#     MEDIASTATION_IMAGE_TAG=MediaStationGo-v0.0.9
 #
 # 路径映射总览：
 #   /data      程序数据目录。保存 SQLite 数据库、JWT secret、系统配置等，必须持久化。
@@ -62,6 +62,12 @@ services:
     ports:
       # 宿主机端口:容器端口。默认访问 http://<服务器IP>:18080
       - "${MEDIASTATION_HTTP_PORT:-18080}:8080"
+
+    extra_hosts:
+      # Linux / NAS Docker 中访问宿主机服务的固定别名。
+      # qBittorrent 如果运行在 NAS 宿主机上，下载器地址建议填：
+      #   http://host.docker.internal:8085
+      - "host.docker.internal:host-gateway"
 
     volumes:
       # 程序持久化数据：数据库、JWT secret、运行时配置。
