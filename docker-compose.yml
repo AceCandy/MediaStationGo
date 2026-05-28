@@ -12,7 +12,7 @@
 #
 # 镜像版本：
 #   默认拉取 latest；如需固定版本，创建 .env 并写入：
-#     MEDIASTATION_IMAGE_TAG=MediaStationGo-v0.0.4
+#     MEDIASTATION_IMAGE_TAG=MediaStationGo-v0.0.5
 #
 # 路径映射总览：
 #   /data      程序数据目录。保存 SQLite 数据库、JWT secret、系统配置等，必须持久化。
@@ -25,6 +25,11 @@
 #   MEDIASTATION_CACHE_DIR=./cache
 #   MEDIASTATION_MEDIA_DIR=/mnt/nas/media
 #   MEDIASTATION_DOWNLOAD_DIR=/mnt/nas/downloads
+#
+# NAS / 飞牛路径必须使用绝对路径，例如：
+#   MEDIASTATION_MEDIA_DIR=/vol1/1000/Docker/moviepilot-v2/media
+#   MEDIASTATION_DOWNLOAD_DIR=/vol1/1000/qBittorrent/downloads
+# 不要写成 ./vol1/...；./vol1 会被 Docker Compose 解析为当前部署目录下的相对路径。
 #
 # 注意：
 #   1. 如果 qBittorrent/Transmission/Aria2 不在本 compose 内，请确保它们能访问同一份
@@ -59,6 +64,9 @@ services:
       #   动漫：/media/Anime
       #   综艺：/media/Variety
       # 如宿主机目录不同，请在 .env 中设置 MEDIASTATION_MEDIA_DIR。
+      # NAS / 飞牛等系统请写绝对路径，例如：
+      #   MEDIASTATION_MEDIA_DIR=/vol1/1000/Docker/moviepilot-v2/media
+      # 不要写 ./vol1/...，否则会变成当前部署目录下的 vol1 子目录。
       - ${MEDIASTATION_MEDIA_DIR:-./media}:/media:ro
 
       # 下载保存目录。订阅/站点下载的保存路径建议使用：
@@ -67,6 +75,9 @@ services:
       #   /downloads/Anime
       #   /downloads/Variety
       # 如果外部下载器也运行在 Docker 中，请给下载器挂载同一个宿主机目录。
+      # NAS / 飞牛等系统请写绝对路径，例如：
+      #   MEDIASTATION_DOWNLOAD_DIR=/vol1/1000/qBittorrent/downloads
+      # 不要写 ./vol1/...，否则下载目录会被映射到当前部署目录下面。
       - ${MEDIASTATION_DOWNLOAD_DIR:-./downloads}:/downloads
 
     environment:

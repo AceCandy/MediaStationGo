@@ -232,6 +232,8 @@ MEDIASTATION_IMAGE_TAG=latest
 MEDIASTATION_HTTP_PORT=18080
 MEDIASTATION_DATA_DIR=./data
 MEDIASTATION_CACHE_DIR=./cache
+# Keep the following two lines only if you want to use media/downloads under the deploy directory.
+# For existing NAS folders, use absolute paths such as /vol1/..., /volume1/..., or /mnt/....
 MEDIASTATION_MEDIA_DIR=./media
 MEDIASTATION_DOWNLOAD_DIR=./downloads
 TZ=Asia/Shanghai
@@ -240,12 +242,14 @@ PGID=1000
 EOF
 ```
 
-For an existing NAS media folder, use paths like:
+For an existing NAS media folder, use absolute host paths, for example:
 
 ```env
-MEDIASTATION_MEDIA_DIR=/mnt/nas/media
-MEDIASTATION_DOWNLOAD_DIR=/mnt/nas/downloads
+MEDIASTATION_MEDIA_DIR=/vol1/1000/Docker/moviepilot-v2/media
+MEDIASTATION_DOWNLOAD_DIR=/vol1/1000/qBittorrent/downloads
 ```
+
+> Important: do not write `./vol1/1000/...`. `./vol1` means a `vol1` subdirectory under the current compose project, which can become a wrong path such as `/vol1/1000/Docker/MediaStationGo/vol1/...`. Correct NAS paths must start with `/vol1/...`.
 
 5. Download the default compose file:
 
@@ -316,7 +320,7 @@ For production, pin a specific release tag instead of using `latest`:
 
 ```bash
 cat > .env <<'EOF'
-MEDIASTATION_IMAGE_TAG=MediaStationGo-v0.0.4
+MEDIASTATION_IMAGE_TAG=MediaStationGo-v0.0.5
 MEDIASTATION_HTTP_PORT=18080
 MEDIASTATION_MEDIA_DIR=/mnt/nas/media
 MEDIASTATION_DOWNLOAD_DIR=/mnt/nas/downloads
@@ -329,6 +333,18 @@ docker compose up -d
 ```
 
 ### Media Library Paths
+
+#### Host Paths vs Container Paths
+
+The left side of a Docker Compose volume is the real host directory, and the right side is the path inside the container. Absolute NAS host paths are read directly; they are not copied into the deployment folder and will not be nested under `MediaStationGo/vol1`.
+
+```yaml
+# Real host path                         # Container path
+- /vol1/1000/Docker/moviepilot-v2/media:/media:ro
+- /vol1/1000/qBittorrent/downloads:/downloads
+```
+
+Inside the app, use only `/media` and `/downloads`. If you see `/vol1/1000/Docker/MediaStationGo/vol1/...`, your `.env` or compose file probably uses `./vol1/...`; remove the dot and use `/vol1/...`.
 
 If your compose mounts are:
 
@@ -413,8 +429,8 @@ The repository includes a heavily commented `docker-compose.yml`. Common variabl
 | `MEDIASTATION_HTTP_PORT` | `18080` | Host access port |
 | `MEDIASTATION_DATA_DIR` | `./data` | Persistent data directory |
 | `MEDIASTATION_CACHE_DIR` | `./cache` | Image and transcoding cache |
-| `MEDIASTATION_MEDIA_DIR` | `./media` | Host media library root |
-| `MEDIASTATION_DOWNLOAD_DIR` | `./downloads` | Host download target |
+| `MEDIASTATION_MEDIA_DIR` | `./media` | Host media library root; on NAS use an absolute path such as `/vol1/1000/Docker/moviepilot-v2/media` |
+| `MEDIASTATION_DOWNLOAD_DIR` | `./downloads` | Host download target; on NAS use an absolute path such as `/vol1/1000/qBittorrent/downloads` |
 | `PUID` / `PGID` | `1000` / `1000` | Linux/NAS file permission mapping |
 | `TZ` | `Asia/Shanghai` | Container timezone |
 
@@ -482,25 +498,25 @@ Each release provides multi-platform archives:
 
 | Platform | Package example |
 | --- | --- |
-| Linux x86_64 | `MediaStationGo-v0.0.4-linux-amd64.tar.gz` |
-| Linux ARM64 | `MediaStationGo-v0.0.4-linux-arm64.tar.gz` |
-| Windows x86_64 | `MediaStationGo-v0.0.4-windows-amd64.zip` |
-| macOS Intel | `MediaStationGo-v0.0.4-darwin-amd64.tar.gz` |
-| macOS Apple Silicon | `MediaStationGo-v0.0.4-darwin-arm64.tar.gz` |
+| Linux x86_64 | `MediaStationGo-v0.0.5-linux-amd64.tar.gz` |
+| Linux ARM64 | `MediaStationGo-v0.0.5-linux-arm64.tar.gz` |
+| Windows x86_64 | `MediaStationGo-v0.0.5-windows-amd64.zip` |
+| macOS Intel | `MediaStationGo-v0.0.5-darwin-amd64.tar.gz` |
+| macOS Apple Silicon | `MediaStationGo-v0.0.5-darwin-arm64.tar.gz` |
 
 Linux example:
 
 ```bash
-tar -xzf MediaStationGo-v0.0.4-linux-amd64.tar.gz
-cd MediaStationGo-v0.0.4-linux-amd64
+tar -xzf MediaStationGo-v0.0.5-linux-amd64.tar.gz
+cd MediaStationGo-v0.0.5-linux-amd64
 MEDIASTATION_APP_PORT=18080 ./mediastation-go
 ```
 
 Windows example:
 
 ```powershell
-Expand-Archive .\MediaStationGo-v0.0.4-windows-amd64.zip
-cd .\MediaStationGo-v0.0.4-windows-amd64
+Expand-Archive .\MediaStationGo-v0.0.5-windows-amd64.zip
+cd .\MediaStationGo-v0.0.5-windows-amd64
 $env:MEDIASTATION_APP_PORT = "18080"
 .\mediastation-go.exe
 ```

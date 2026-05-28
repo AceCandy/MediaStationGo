@@ -234,6 +234,8 @@ MEDIASTATION_IMAGE_TAG=latest
 MEDIASTATION_HTTP_PORT=18080
 MEDIASTATION_DATA_DIR=./data
 MEDIASTATION_CACHE_DIR=./cache
+# 如果只想使用部署目录下的 media/downloads 子目录，可以保留下面两行。
+# 如果媒体和下载目录已经在 NAS 绝对路径中，请改成 /vol1/...、/volume1/... 或 /mnt/...。
 MEDIASTATION_MEDIA_DIR=./media
 MEDIASTATION_DOWNLOAD_DIR=./downloads
 TZ=Asia/Shanghai
@@ -242,12 +244,14 @@ PGID=1000
 EOF
 ```
 
-如果你的媒体文件已经在 NAS 路径中，建议改成类似：
+如果你的媒体文件已经在 NAS 路径中，必须改成宿主机绝对路径，例如：
 
 ```env
-MEDIASTATION_MEDIA_DIR=/mnt/nas/media
-MEDIASTATION_DOWNLOAD_DIR=/mnt/nas/downloads
+MEDIASTATION_MEDIA_DIR=/vol1/1000/Docker/moviepilot-v2/media
+MEDIASTATION_DOWNLOAD_DIR=/vol1/1000/qBittorrent/downloads
 ```
+
+> 重点：不要写 `./vol1/1000/...`。`./vol1` 代表当前部署目录下的 `vol1` 子目录，最终会变成类似 `/vol1/1000/Docker/MediaStationGo/vol1/...` 这种错误路径。正确写法必须以 `/vol1/...` 开头。
 
 5. 下载默认 `docker-compose.yml`：
 
@@ -283,7 +287,7 @@ vim docker-compose.yml
 #
 # 镜像版本：
 #   默认拉取 latest；如需固定版本，创建 .env 并写入：
-#     MEDIASTATION_IMAGE_TAG=MediaStationGo-v0.0.4
+#     MEDIASTATION_IMAGE_TAG=MediaStationGo-v0.0.5
 #
 # 路径映射总览：
 #   /data      程序数据目录。保存 SQLite 数据库、JWT secret、系统配置等，必须持久化。
@@ -296,6 +300,11 @@ vim docker-compose.yml
 #   MEDIASTATION_CACHE_DIR=./cache
 #   MEDIASTATION_MEDIA_DIR=/mnt/nas/media
 #   MEDIASTATION_DOWNLOAD_DIR=/mnt/nas/downloads
+#
+# NAS / 飞牛路径必须使用绝对路径，例如：
+#   MEDIASTATION_MEDIA_DIR=/vol1/1000/Docker/moviepilot-v2/media
+#   MEDIASTATION_DOWNLOAD_DIR=/vol1/1000/qBittorrent/downloads
+# 不要写成 ./vol1/...；./vol1 会被 Docker Compose 解析为当前部署目录下的相对路径。
 #
 # 注意：
 #   1. 如果 qBittorrent/Transmission/Aria2 不在本 compose 内，请确保它们能访问同一份
@@ -330,6 +339,9 @@ services:
       #   动漫：/media/Anime
       #   综艺：/media/Variety
       # 如宿主机目录不同，请在 .env 中设置 MEDIASTATION_MEDIA_DIR。
+      # NAS / 飞牛等系统请写绝对路径，例如：
+      #   MEDIASTATION_MEDIA_DIR=/vol1/1000/Docker/moviepilot-v2/media
+      # 不要写 ./vol1/...，否则会变成当前部署目录下的 vol1 子目录。
       - ${MEDIASTATION_MEDIA_DIR:-./media}:/media:ro
 
       # 下载保存目录。订阅/站点下载的保存路径建议使用：
@@ -338,6 +350,9 @@ services:
       #   /downloads/Anime
       #   /downloads/Variety
       # 如果外部下载器也运行在 Docker 中，请给下载器挂载同一个宿主机目录。
+      # NAS / 飞牛等系统请写绝对路径，例如：
+      #   MEDIASTATION_DOWNLOAD_DIR=/vol1/1000/qBittorrent/downloads
+      # 不要写 ./vol1/...，否则下载目录会被映射到当前部署目录下面。
       - ${MEDIASTATION_DOWNLOAD_DIR:-./downloads}:/downloads
 
     environment:
@@ -447,7 +462,7 @@ docker compose up -d
 
 ```bash
 cat > .env <<'EOF'
-MEDIASTATION_IMAGE_TAG=MediaStationGo-v0.0.4
+MEDIASTATION_IMAGE_TAG=MediaStationGo-v0.0.5
 MEDIASTATION_HTTP_PORT=18080
 MEDIASTATION_MEDIA_DIR=/mnt/nas/media
 MEDIASTATION_DOWNLOAD_DIR=/mnt/nas/downloads
@@ -460,6 +475,18 @@ docker compose up -d
 ```
 
 ### 媒体库路径怎么填
+
+#### 宿主机路径与容器路径的关系
+
+Docker Compose 左侧是宿主机真实目录，右侧是容器内目录。宿主机绝对路径会直接读取 NAS 原目录，不会复制到部署目录，也不会多套一层 `MediaStationGo/vol1`。
+
+```yaml
+# 宿主机真实路径                     # 容器内路径
+- /vol1/1000/Docker/moviepilot-v2/media:/media:ro
+- /vol1/1000/qBittorrent/downloads:/downloads
+```
+
+容器内只需要使用 `/media` 和 `/downloads`。如果你看到 `/vol1/1000/Docker/MediaStationGo/vol1/...`，说明 `.env` 或 compose 里把路径写成了 `./vol1/...`，需要去掉前面的点，改为 `/vol1/...`。
 
 如果 compose 中这样挂载：
 
@@ -544,8 +571,8 @@ qBittorrent 容器：/downloads
 | `MEDIASTATION_HTTP_PORT` | `18080` | 宿主机访问端口 |
 | `MEDIASTATION_DATA_DIR` | `./data` | 数据持久化目录 |
 | `MEDIASTATION_CACHE_DIR` | `./cache` | 图片和转码缓存目录 |
-| `MEDIASTATION_MEDIA_DIR` | `./media` | 媒体库宿主机目录 |
-| `MEDIASTATION_DOWNLOAD_DIR` | `./downloads` | 下载保存宿主机目录 |
+| `MEDIASTATION_MEDIA_DIR` | `./media` | 媒体库宿主机目录；NAS 建议写 `/vol1/1000/Docker/moviepilot-v2/media` 这种绝对路径 |
+| `MEDIASTATION_DOWNLOAD_DIR` | `./downloads` | 下载保存宿主机目录；NAS 建议写 `/vol1/1000/qBittorrent/downloads` 这种绝对路径 |
 | `PUID` / `PGID` | `1000` / `1000` | Linux/NAS 文件权限映射 |
 | `TZ` | `Asia/Shanghai` | 容器时区 |
 
@@ -613,26 +640,26 @@ cd MediaStationGo
 
 | 平台 | 包名示例 |
 | --- | --- |
-| Linux x86_64 | `MediaStationGo-v0.0.4-linux-amd64.tar.gz` |
-| Linux ARM64 | `MediaStationGo-v0.0.4-linux-arm64.tar.gz` |
-| Windows x86_64 | `MediaStationGo-v0.0.4-windows-amd64.zip` |
-| macOS Intel | `MediaStationGo-v0.0.4-darwin-amd64.tar.gz` |
-| macOS Apple Silicon | `MediaStationGo-v0.0.4-darwin-arm64.tar.gz` |
+| Linux x86_64 | `MediaStationGo-v0.0.5-linux-amd64.tar.gz` |
+| Linux ARM64 | `MediaStationGo-v0.0.5-linux-arm64.tar.gz` |
+| Windows x86_64 | `MediaStationGo-v0.0.5-windows-amd64.zip` |
+| macOS Intel | `MediaStationGo-v0.0.5-darwin-amd64.tar.gz` |
+| macOS Apple Silicon | `MediaStationGo-v0.0.5-darwin-arm64.tar.gz` |
 
 部署步骤：
 
 ```bash
 # Linux 示例
-tar -xzf MediaStationGo-v0.0.4-linux-amd64.tar.gz
-cd MediaStationGo-v0.0.4-linux-amd64
+tar -xzf MediaStationGo-v0.0.5-linux-amd64.tar.gz
+cd MediaStationGo-v0.0.5-linux-amd64
 MEDIASTATION_APP_PORT=18080 ./mediastation-go
 ```
 
 Windows：
 
 ```powershell
-Expand-Archive .\MediaStationGo-v0.0.4-windows-amd64.zip
-cd .\MediaStationGo-v0.0.4-windows-amd64
+Expand-Archive .\MediaStationGo-v0.0.5-windows-amd64.zip
+cd .\MediaStationGo-v0.0.5-windows-amd64
 $env:MEDIASTATION_APP_PORT = "18080"
 .\mediastation-go.exe
 ```
