@@ -320,7 +320,7 @@ For production, pin a specific release tag instead of using `latest`:
 
 ```bash
 cat > .env <<'EOF'
-MEDIASTATION_IMAGE_TAG=MediaStationGo-v0.0.5
+MEDIASTATION_IMAGE_TAG=MediaStationGo-v0.0.6
 MEDIASTATION_HTTP_PORT=18080
 MEDIASTATION_MEDIA_DIR=/mnt/nas/media
 MEDIASTATION_DOWNLOAD_DIR=/mnt/nas/downloads
@@ -500,25 +500,25 @@ Each release provides multi-platform archives:
 
 | Platform | Package example |
 | --- | --- |
-| Linux x86_64 | `MediaStationGo-v0.0.5-linux-amd64.tar.gz` |
-| Linux ARM64 | `MediaStationGo-v0.0.5-linux-arm64.tar.gz` |
-| Windows x86_64 | `MediaStationGo-v0.0.5-windows-amd64.zip` |
-| macOS Intel | `MediaStationGo-v0.0.5-darwin-amd64.tar.gz` |
-| macOS Apple Silicon | `MediaStationGo-v0.0.5-darwin-arm64.tar.gz` |
+| Linux x86_64 | `MediaStationGo-v0.0.6-linux-amd64.tar.gz` |
+| Linux ARM64 | `MediaStationGo-v0.0.6-linux-arm64.tar.gz` |
+| Windows x86_64 | `MediaStationGo-v0.0.6-windows-amd64.zip` |
+| macOS Intel | `MediaStationGo-v0.0.6-darwin-amd64.tar.gz` |
+| macOS Apple Silicon | `MediaStationGo-v0.0.6-darwin-arm64.tar.gz` |
 
 Linux example:
 
 ```bash
-tar -xzf MediaStationGo-v0.0.5-linux-amd64.tar.gz
-cd MediaStationGo-v0.0.5-linux-amd64
+tar -xzf MediaStationGo-v0.0.6-linux-amd64.tar.gz
+cd MediaStationGo-v0.0.6-linux-amd64
 MEDIASTATION_APP_PORT=18080 ./mediastation-go
 ```
 
 Windows example:
 
 ```powershell
-Expand-Archive .\MediaStationGo-v0.0.5-windows-amd64.zip
-cd .\MediaStationGo-v0.0.5-windows-amd64
+Expand-Archive .\MediaStationGo-v0.0.6-windows-amd64.zip
+cd .\MediaStationGo-v0.0.6-windows-amd64
 $env:MEDIASTATION_APP_PORT = "18080"
 .\mediastation-go.exe
 ```

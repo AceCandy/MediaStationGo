@@ -287,7 +287,7 @@ vim docker-compose.yml
 #
 # 镜像版本：
 #   默认拉取 latest；如需固定版本，创建 .env 并写入：
-#     MEDIASTATION_IMAGE_TAG=MediaStationGo-v0.0.5
+#     MEDIASTATION_IMAGE_TAG=MediaStationGo-v0.0.6
 #
 # 路径映射总览：
 #   /data      程序数据目录。保存 SQLite 数据库、JWT secret、系统配置等，必须持久化。
@@ -470,7 +470,7 @@ docker compose up -d
 
 ```bash
 cat > .env <<'EOF'
-MEDIASTATION_IMAGE_TAG=MediaStationGo-v0.0.5
+MEDIASTATION_IMAGE_TAG=MediaStationGo-v0.0.6
 MEDIASTATION_HTTP_PORT=18080
 MEDIASTATION_MEDIA_DIR=/mnt/nas/media
 MEDIASTATION_DOWNLOAD_DIR=/mnt/nas/downloads
@@ -650,26 +650,26 @@ cd MediaStationGo
 
 | 平台 | 包名示例 |
 | --- | --- |
-| Linux x86_64 | `MediaStationGo-v0.0.5-linux-amd64.tar.gz` |
-| Linux ARM64 | `MediaStationGo-v0.0.5-linux-arm64.tar.gz` |
-| Windows x86_64 | `MediaStationGo-v0.0.5-windows-amd64.zip` |
-| macOS Intel | `MediaStationGo-v0.0.5-darwin-amd64.tar.gz` |
-| macOS Apple Silicon | `MediaStationGo-v0.0.5-darwin-arm64.tar.gz` |
+| Linux x86_64 | `MediaStationGo-v0.0.6-linux-amd64.tar.gz` |
+| Linux ARM64 | `MediaStationGo-v0.0.6-linux-arm64.tar.gz` |
+| Windows x86_64 | `MediaStationGo-v0.0.6-windows-amd64.zip` |
+| macOS Intel | `MediaStationGo-v0.0.6-darwin-amd64.tar.gz` |
+| macOS Apple Silicon | `MediaStationGo-v0.0.6-darwin-arm64.tar.gz` |
 
 部署步骤：
 
 ```bash
 # Linux 示例
-tar -xzf MediaStationGo-v0.0.5-linux-amd64.tar.gz
-cd MediaStationGo-v0.0.5-linux-amd64
+tar -xzf MediaStationGo-v0.0.6-linux-amd64.tar.gz
+cd MediaStationGo-v0.0.6-linux-amd64
 MEDIASTATION_APP_PORT=18080 ./mediastation-go
 ```
 
 Windows：
 
 ```powershell
-Expand-Archive .\MediaStationGo-v0.0.5-windows-amd64.zip
-cd .\MediaStationGo-v0.0.5-windows-amd64
+Expand-Archive .\MediaStationGo-v0.0.6-windows-amd64.zip
+cd .\MediaStationGo-v0.0.6-windows-amd64
 $env:MEDIASTATION_APP_PORT = "18080"
 .\mediastation-go.exe
 ```
