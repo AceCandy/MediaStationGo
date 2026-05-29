@@ -267,6 +267,12 @@ func (r *MediaRepository) Upsert(ctx context.Context, m *model.Media) error {
 			updates["nsfw"] = true
 		}
 	}
+	if m.PosterURL != "" {
+		updates["poster_url"] = m.PosterURL
+	}
+	if m.BackdropURL != "" {
+		updates["backdrop_url"] = m.BackdropURL
+	}
 	if lib := m.LibraryID; lib != "" && lib != existing.LibraryID {
 		updates["library_id"] = m.LibraryID
 	}

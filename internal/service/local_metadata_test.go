@@ -491,6 +491,55 @@ func TestScanLibraryDoesNotMarkArtworkOnlyAsMatched(t *testing.T) {
 	}
 }
 
+func TestScanLibraryRefreshesArtworkOnlyMetadata(t *testing.T) {
+	root := t.TempDir()
+	mediaPath := filepath.Join(root, "Movie.mkv")
+	if err := os.WriteFile(mediaPath, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	oldPoster := filepath.Join(root, "Movie-thumb.jpg")
+	if err := os.WriteFile(oldPoster, []byte("jpg"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(&model.Library{}, &model.Media{}, &model.Setting{}); err != nil {
+		t.Fatal(err)
+	}
+	repos := repository.New(db)
+	lib := model.Library{Name: "Movies", Path: root, Type: "movie", Enabled: true}
+	if err := repos.Library.Create(t.Context(), &lib); err != nil {
+		t.Fatal(err)
+	}
+
+	scanner := NewScannerService(&config.Config{}, zap.NewNop(), repos, NewHub(zap.NewNop()), nil, nil)
+	if _, err := scanner.ScanLibrary(t.Context(), lib.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	newPoster := filepath.Join(root, "poster.jpg")
+	if err := os.WriteFile(newPoster, []byte("jpg"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := scanner.ScanLibrary(t.Context(), lib.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	var media model.Media
+	if err := db.First(&media, "path = ?", mediaPath).Error; err != nil {
+		t.Fatal(err)
+	}
+	if media.PosterURL != newPoster {
+		t.Fatalf("poster_url = %q, want refreshed local poster %q", media.PosterURL, newPoster)
+	}
+	if media.ScrapeStatus == "matched" {
+		t.Fatalf("artwork-only refresh should keep media enrichable, got %q", media.ScrapeStatus)
+	}
+}
+
 func TestScanLibraryParsesEpisodesForMovieTypedLibrary(t *testing.T) {
 	root := t.TempDir()
 	seasonDir := filepath.Join(root, "哈哈哈哈哈 (2020)", "Season 06")

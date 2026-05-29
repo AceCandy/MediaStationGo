@@ -68,11 +68,11 @@ export function groupSeries(items: Media[]): SeriesCard[] {
       groups.set(key, { key, rep: m, count: 1 })
     } else {
       g.count += 1
-      const repHasPoster = !!g.rep.poster_url
-      const curHasPoster = !!m.poster_url
-      if (!repHasPoster && curHasPoster) {
+      const currentArtwork = artworkScore(m)
+      const representativeArtwork = artworkScore(g.rep)
+      if (currentArtwork > representativeArtwork) {
         g.rep = m
-      } else if (repHasPoster === curHasPoster) {
+      } else if (currentArtwork === representativeArtwork) {
         const cur = (m.season_num ?? 0) * 10000 + (m.episode_num ?? 0)
         const rep = (g.rep.season_num ?? 0) * 10000 + (g.rep.episode_num ?? 0)
         if (cur > 0 && (rep === 0 || cur < rep)) g.rep = m
@@ -80,4 +80,16 @@ export function groupSeries(items: Media[]): SeriesCard[] {
     }
   }
   return Array.from(groups.values())
+}
+
+export function artworkScore(media: Media): number {
+  const poster = (media.poster_url ?? '').toLowerCase()
+  const backdrop = (media.backdrop_url ?? '').toLowerCase()
+  if (poster) {
+    if (/(poster|folder|cover|movie|show|pl)(?:[._-]|\.[a-z0-9]+$|$)/.test(poster)) return 40
+    if (/(actor|actress|cast|avatar|sample|screenshot|screen|still|scene|fanart|backdrop|background|landscape|banner|logo|disc)/.test(poster)) return 10
+    if (/(thumb)/.test(poster)) return 20
+    return 30
+  }
+  return backdrop ? 5 : 0
 }
