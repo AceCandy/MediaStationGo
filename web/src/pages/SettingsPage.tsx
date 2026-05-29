@@ -249,7 +249,7 @@ export function SettingsPage() {
     try {
       const [all, libs] = await Promise.all([
         adminAPI.listSettings(),
-        libraryAPI.list().catch(() => [] as Library[]),
+        libraryAPI.list({ includeHidden: true }).catch(() => [] as Library[]),
       ])
       const idx: Record<string, string> = {}
       for (const s of all as Setting[]) {

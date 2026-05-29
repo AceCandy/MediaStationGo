@@ -60,7 +60,7 @@ function LibraryPanel() {
   const [path, setPath] = useState('')
   const [type, setType] = useState('movie')
 
-  const refresh = () => libraryAPI.list().then(setLibs)
+  const refresh = () => libraryAPI.list({ includeHidden: true }).then(setLibs)
   useEffect(() => {
     refresh().catch(() => undefined)
   }, [])

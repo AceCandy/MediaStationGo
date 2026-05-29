@@ -1,0 +1,64 @@
+package handler
+
+import (
+	"net/http/httptest"
+	"testing"
+
+	"github.com/gin-gonic/gin"
+	"github.com/glebarez/sqlite"
+	"gorm.io/gorm"
+
+	"github.com/ShukeBta/MediaStationGo/internal/middleware"
+	"github.com/ShukeBta/MediaStationGo/internal/model"
+	"github.com/ShukeBta/MediaStationGo/internal/repository"
+	"github.com/ShukeBta/MediaStationGo/internal/service"
+)
+
+func TestStatsSnapshotHidesAdultRecentlyAddedForUser(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(&model.User{}, &model.Library{}, &model.Media{}, &model.Setting{}, &model.PlayProfile{}); err != nil {
+		t.Fatal(err)
+	}
+	repos := repository.New(db)
+	viewer := &model.User{Username: "viewer", PasswordHash: "hash", Role: "user", HideAdult: true}
+	if err := repos.User.Create(t.Context(), viewer); err != nil {
+		t.Fatal(err)
+	}
+	safe := model.Library{Name: "电影", Path: "/media/movie", Type: "movie", Enabled: true}
+	adult := model.Library{Name: "9KG", Path: "/media/9KG", Type: "movie", Enabled: true}
+	if err := repos.Library.Create(t.Context(), &safe); err != nil {
+		t.Fatal(err)
+	}
+	if err := repos.Library.Create(t.Context(), &adult); err != nil {
+		t.Fatal(err)
+	}
+	if err := repos.Setting.Set(t.Context(), service.AdultLibraryIDsSettingKey, `["`+adult.ID+`"]`); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&model.Media{LibraryID: safe.ID, Title: "普通电影", Path: "/media/movie/a.mkv", SizeBytes: 100, DurationSec: 10}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&model.Media{LibraryID: adult.ID, Title: "成人影片", Path: "/media/9KG/a.mkv", SizeBytes: 200, DurationSec: 20}).Error; err != nil {
+		t.Fatal(err)
+	}
+	svc := &service.Container{Repo: repos}
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Set(middleware.CtxUserID, viewer.ID)
+	c.Request = httptest.NewRequest("GET", "/api/stats", nil)
+
+	snap := &service.Snapshot{}
+	if err := applyStatsVisibility(c, svc, snap); err != nil {
+		t.Fatalf("applyStatsVisibility: %v", err)
+	}
+	if snap.MediaCount != 1 || snap.TotalSizeBytes != 100 || snap.TotalSeconds != 10 {
+		t.Fatalf("stats should only include visible media, got count=%d size=%d seconds=%d", snap.MediaCount, snap.TotalSizeBytes, snap.TotalSeconds)
+	}
+	if len(snap.RecentlyAdded) != 1 || snap.RecentlyAdded[0].LibraryID != safe.ID {
+		t.Fatalf("recently added should hide adult library, got %#v", snap.RecentlyAdded)
+	}
+}

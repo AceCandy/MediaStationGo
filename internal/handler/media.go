@@ -27,7 +27,8 @@ func listLibrariesHandler(svc *service.Container) gin.HandlerFunc {
 			return
 		}
 		role, _ := c.Get(middleware.CtxUserRole)
-		if role != "admin" {
+		includeHidden := role == "admin" && (c.Query("include_hidden") == "1" || c.Query("all") == "1")
+		if !includeHidden {
 			visibility := mediaVisibilityForRequest(c, svc)
 			filtered := libs[:0]
 			for _, lib := range libs {

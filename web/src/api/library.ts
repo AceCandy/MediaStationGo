@@ -9,7 +9,12 @@ export interface MediaPage {
 }
 
 export const libraryAPI = {
-  list: () => api.get<Library[]>('/libraries').then((r) => r.data),
+  list: (options?: { includeHidden?: boolean }) =>
+    api
+      .get<Library[]>('/libraries', {
+        params: options?.includeHidden ? { include_hidden: 1 } : undefined,
+      })
+      .then((r) => r.data),
 
   create: (name: string, path: string, type: string) =>
     api.post<Library>('/libraries', { name, path, type }).then((r) => r.data),

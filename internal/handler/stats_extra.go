@@ -3,11 +3,11 @@
 // /api/stats already returns the basic snapshot. The Vue admin
 // dashboard also uses:
 //
-//   /api/stats/overview      — counts + total size + total seconds
-//   /api/stats/trend         — daily play count over last N days
-//   /api/stats/top-content   — top played media (by play count)
-//   /api/stats/libraries     — per-library item count + size
-//   /api/stats/monitor       — live CPU/mem/disk
+//	/api/stats/overview      — counts + total size + total seconds
+//	/api/stats/trend         — daily play count over last N days
+//	/api/stats/top-content   — top played media (by play count)
+//	/api/stats/libraries     — per-library item count + size
+//	/api/stats/monitor       — live CPU/mem/disk
 package handler
 
 import (
@@ -25,6 +25,10 @@ func statsOverviewHandler(svc *service.Container) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		snap, err := svc.Stats.Compute(c.Request.Context(), svc.Cfg.App.DataDir)
 		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		if err := applyStatsVisibility(c, svc, snap); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
@@ -78,8 +82,8 @@ func statsTopContentHandler(svc *service.Container) gin.HandlerFunc {
 			limit = 10
 		}
 		type row struct {
-			MediaID    string `json:"media_id"`
-			PlayCount  int64  `json:"play_count"`
+			MediaID    string    `json:"media_id"`
+			PlayCount  int64     `json:"play_count"`
 			LastPlayed time.Time `json:"last_played"`
 		}
 		var rows []row
@@ -98,14 +102,22 @@ func statsTopContentHandler(svc *service.Container) gin.HandlerFunc {
 		if len(ids) > 0 {
 			var media []model.Media
 			_ = svc.Repo.DB.Where("id IN ?", ids).Find(&media).Error
+			visibility := mediaVisibilityForRequest(c, svc)
 			for _, m := range media {
+				if !visibility.Allows(&m) {
+					continue
+				}
 				mIdx[m.ID] = m
 			}
 		}
 		out := make([]gin.H, 0, len(rows))
 		for _, r := range rows {
+			media, ok := mIdx[r.MediaID]
+			if !ok {
+				continue
+			}
 			out = append(out, gin.H{
-				"media":       mIdx[r.MediaID],
+				"media":       media,
 				"play_count":  r.PlayCount,
 				"last_played": r.LastPlayed,
 			})
@@ -123,12 +135,17 @@ func statsLibrariesHandler(svc *service.Container) gin.HandlerFunc {
 			return
 		}
 		out := make([]gin.H, 0, len(libs))
+		visibility := mediaVisibilityForRequest(c, svc)
 		for _, l := range libs {
+			if !service.LibraryVisibleForUser(c.Request.Context(), svc.Repo, l, visibility) {
+				continue
+			}
 			var count int64
 			var size int64
-			_ = svc.Repo.DB.Model(&model.Media{}).
-				Where("library_id = ?", l.ID).Count(&count).Error
-			_ = svc.Repo.DB.Model(&model.Media{}).
+			_ = applyMediaVisibilityQuery(svc.Repo.DB.Model(&model.Media{}), visibility).
+				Where("library_id = ?", l.ID).
+				Count(&count).Error
+			_ = applyMediaVisibilityQuery(svc.Repo.DB.Model(&model.Media{}), visibility).
 				Where("library_id = ?", l.ID).
 				Select("COALESCE(SUM(size_bytes),0)").Row().Scan(&size)
 			out = append(out, gin.H{
