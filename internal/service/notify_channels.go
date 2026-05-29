@@ -346,11 +346,15 @@ func normalizeChannelInput(in *ChannelInput) {
 		in.Config = map[string]any{}
 	}
 	chatID := str(in.Config["chat_id"])
-	if chatID == "" || !strings.HasPrefix(chatID, "-") {
+	if chatID == "" {
 		return
 	}
-	if str(in.Config["group_chat_id"]) == "" && str(in.Config["channel_chat_id"]) == "" && str(in.Config["command_chat_id"]) == "" {
+	if strings.HasPrefix(chatID, "-") && str(in.Config["group_chat_id"]) == "" && str(in.Config["channel_chat_id"]) == "" && str(in.Config["command_chat_id"]) == "" {
 		in.Config["group_chat_id"] = chatID
+		return
+	}
+	if !strings.HasPrefix(chatID, "-") && str(in.Config["admin_user_ids"]) == "" {
+		in.Config["admin_user_ids"] = chatID
 	}
 }
 
@@ -368,6 +372,8 @@ func telegramTargetChatIDs(cfg map[string]string) []string {
 	if len(targets) == 0 {
 		chatID := strings.TrimSpace(cfg["chat_id"])
 		if strings.HasPrefix(chatID, "-") {
+			targets = append(targets, chatID)
+		} else if chatID != "" && strings.TrimSpace(cfg["admin_user_ids"]) == "" {
 			targets = append(targets, chatID)
 		}
 	}

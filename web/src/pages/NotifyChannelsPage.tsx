@@ -222,6 +222,9 @@ function normalizeInitialConfig(type: NotifyChannel['type'], raw: Record<string,
   if (type === 'telegram' && !base.group_chat_id && !base.channel_chat_id && base.chat_id?.startsWith('-')) {
     base.group_chat_id = base.chat_id
   }
+  if (type === 'telegram' && !base.admin_user_ids && base.chat_id && !base.chat_id.startsWith('-')) {
+    base.admin_user_ids = base.chat_id
+  }
   delete base.chat_id
   return base
 }

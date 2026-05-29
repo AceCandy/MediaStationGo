@@ -7,6 +7,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -501,7 +502,7 @@ func (s *TelegramBotService) pollLoop(ctx context.Context, cfg map[string]string
 		s.log.Warn("telegram polling config invalid", zap.Error(err))
 		return
 	}
-	client := telegramHTTPClient(45*time.Second, cfg)
+	clients := telegramHTTPClients(45*time.Second, cfg)
 
 	for {
 		select {
@@ -514,21 +515,12 @@ func (s *TelegramBotService) pollLoop(ctx context.Context, cfg map[string]string
 			"offset":  offset,
 			"timeout": 30,
 		})
-		req, err := http.NewRequestWithContext(ctx, http.MethodPost, pollURL, strings.NewReader(string(reqBody)))
+		respBody, err := telegramPollingRequest(ctx, clients, pollURL, string(reqBody))
 		if err != nil {
+			s.log.Debug("telegram polling failed", zap.Error(err))
 			time.Sleep(5 * time.Second)
 			continue
 		}
-		req.Header.Set("Content-Type", "application/json")
-
-		resp, err := client.Do(req)
-		if err != nil {
-			s.log.Debug("telegram polling failed", zap.Error(sanitizeTelegramError(err)))
-			time.Sleep(5 * time.Second)
-			continue
-		}
-		respBody, _ := io.ReadAll(resp.Body)
-		resp.Body.Close()
 
 		var result struct {
 			OK     bool             `json:"ok"`
@@ -552,6 +544,33 @@ func (s *TelegramBotService) pollLoop(ctx context.Context, cfg map[string]string
 			}(upd)
 		}
 	}
+}
+
+func telegramPollingRequest(ctx context.Context, clients []*http.Client, pollURL, body string) ([]byte, error) {
+	var lastErr error
+	for _, client := range clients {
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, pollURL, strings.NewReader(body))
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := client.Do(req)
+		if err != nil {
+			lastErr = sanitizeTelegramError(err)
+			continue
+		}
+		respBody, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if resp.StatusCode >= 400 {
+			lastErr = fmt.Errorf("telegram api error %d: %s", resp.StatusCode, sanitizeTelegramText(string(respBody)))
+			continue
+		}
+		return respBody, nil
+	}
+	if lastErr != nil {
+		return nil, lastErr
+	}
+	return nil, errors.New("telegram polling failed")
 }
 
 // ── Message Sending ──
@@ -651,11 +670,14 @@ func (s *TelegramBotService) handleCallback(ctx context.Context, cb *TelegramCal
 	if cb == nil || cb.Message == nil {
 		return nil
 	}
-	channel := s.findChannelByChatID(ctx, cb.Message.Chat.ID)
+	msg := *cb.Message
+	msg.From = cb.From
+	channel := s.findChannelForMessage(ctx, &msg)
+	if channel == nil {
+		channel = s.findChannelByChatID(ctx, cb.Message.Chat.ID)
+	}
 	switch strings.TrimSpace(cb.Data) {
 	case "adult_toggle":
-		msg := *cb.Message
-		msg.From = cb.From
 		reply := s.cmdHideAdult(ctx, &msg, nil)
 		if reply.Text != "" {
 			return s.reply(ctx, channel, cb.Message.Chat.ID, reply)
@@ -745,29 +767,17 @@ func (s *TelegramBotService) telegramUserIsChatMember(ctx context.Context, chann
 		"chat_id": chatID,
 		"user_id": telegramUserID,
 	}
-	apiURL, err := telegramMethodURL(cfg, cfg["bot_token"], "getChatMember")
-	if err != nil {
-		return false
-	}
-	body, _ := json.Marshal(payload)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiURL, strings.NewReader(string(body)))
-	if err != nil {
-		return false
-	}
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := telegramHTTPClient(8*time.Second, cfg).Do(req)
-	if err != nil {
-		s.log.Warn("telegram getChatMember failed", zap.String("chat_id", chatID), zap.Int("telegram_user_id", telegramUserID), zap.Error(sanitizeTelegramError(err)))
-		return false
-	}
-	defer resp.Body.Close()
 	var result struct {
 		OK     bool `json:"ok"`
 		Result struct {
 			Status string `json:"status"`
 		} `json:"result"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil || !result.OK {
+	if err := telegramPostJSONDecode(ctx, cfg, "getChatMember", payload, 8*time.Second, &result); err != nil {
+		s.log.Warn("telegram getChatMember failed", zap.String("chat_id", chatID), zap.Int("telegram_user_id", telegramUserID), zap.Error(sanitizeTelegramError(err)))
+		return false
+	}
+	if !result.OK {
 		return false
 	}
 	switch strings.ToLower(result.Result.Status) {
@@ -784,12 +794,13 @@ func (s *TelegramBotService) telegramUserIDConfigured(channel *model.NotifyChann
 	}
 	cfg := s.telegramChannelConfig(channel)
 	target := strconv.Itoa(telegramUserID)
-	for _, value := range strings.FieldsFunc(cfg["admin_user_ids"], func(r rune) bool {
-		return r == ',' || r == ';' || r == '，' || r == ' ' || r == '\n' || r == '\t'
-	}) {
-		if strings.TrimSpace(value) == target {
+	for _, value := range telegramConfiguredUserIDs(cfg["admin_user_ids"]) {
+		if value == target {
 			return true
 		}
+	}
+	if strings.TrimSpace(cfg["admin_user_ids"]) == "" && strings.TrimSpace(cfg["chat_id"]) == target {
+		return true
 	}
 	return false
 }
@@ -810,7 +821,27 @@ func telegramConfigFromChannel(crypto *CryptoService, channel *model.NotifyChann
 	if err := json.Unmarshal([]byte(configStr), &cfg); err != nil || cfg == nil {
 		return map[string]string{}
 	}
+	normalizeTelegramConfig(cfg)
 	return cfg
+}
+
+func normalizeTelegramConfig(cfg map[string]string) {
+	if cfg == nil {
+		return
+	}
+	chatID := strings.TrimSpace(cfg["chat_id"])
+	if chatID == "" {
+		return
+	}
+	if strings.HasPrefix(chatID, "-") {
+		if strings.TrimSpace(cfg["group_chat_id"]) == "" && strings.TrimSpace(cfg["channel_chat_id"]) == "" && strings.TrimSpace(cfg["command_chat_id"]) == "" {
+			cfg["group_chat_id"] = chatID
+		}
+		return
+	}
+	if strings.TrimSpace(cfg["admin_user_ids"]) == "" {
+		cfg["admin_user_ids"] = chatID
+	}
 }
 
 func (s *TelegramBotService) upsertTelegramBinding(ctx context.Context, msg *TelegramMessage, userID string) error {

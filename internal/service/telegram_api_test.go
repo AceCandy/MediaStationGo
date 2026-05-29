@@ -69,3 +69,30 @@ func TestNormalizeTelegramChannelMigratesLegacyChatID(t *testing.T) {
 		t.Fatalf("group_chat_id = %q, want -10001", got)
 	}
 }
+
+func TestNormalizeTelegramChannelMigratesLegacyPrivateChatIDToAdmin(t *testing.T) {
+	cfg := map[string]string{"chat_id": "5812333517"}
+	normalizeTelegramConfig(cfg)
+	if got := cfg["admin_user_ids"]; got != "5812333517" {
+		t.Fatalf("admin_user_ids = %q, want legacy chat_id", got)
+	}
+}
+
+func TestTelegramTargetChatIDsUsesLegacyPrivateChatID(t *testing.T) {
+	got := telegramTargetChatIDs(map[string]string{
+		"chat_id": "5812333517",
+	})
+	if len(got) != 1 || got[0] != "5812333517" {
+		t.Fatalf("got %#v, want legacy private chat target", got)
+	}
+}
+
+func TestTelegramProxyCandidatesDefaultLocalFallbacks(t *testing.T) {
+	got := telegramProxyCandidates(map[string]string{})
+	joined := strings.Join(got, ",")
+	for _, want := range []string{"127.0.0.1:10808", "172.17.0.1:7890"} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("default proxy candidates %q missing %q", joined, want)
+		}
+	}
+}

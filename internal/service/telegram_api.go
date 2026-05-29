@@ -46,17 +46,58 @@ func telegramMethodURL(cfg map[string]string, botToken, method string) (string, 
 }
 
 func telegramHTTPClient(timeout time.Duration, cfg map[string]string) *http.Client {
-	transport := NewExternalTransport()
-	proxyRaw := strings.TrimSpace(cfg["proxy_url"])
-	if proxyRaw == "" {
-		proxyRaw = strings.TrimSpace(os.Getenv("MEDIASTATION_TELEGRAM_PROXY_URL"))
+	clients := telegramHTTPClients(timeout, cfg)
+	return clients[0]
+}
+
+func telegramHTTPClients(timeout time.Duration, cfg map[string]string) []*http.Client {
+	clients := []*http.Client{}
+	seen := map[string]bool{}
+	for _, proxyRaw := range telegramProxyCandidates(cfg) {
+		proxyURL, err := normalizeProxyURL(proxyRaw, "http")
+		if err != nil || proxyURL == nil {
+			continue
+		}
+		key := proxyURL.String()
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		transport := NewExternalTransport()
+		transport.Proxy = http.ProxyURL(proxyURL)
+		clients = append(clients, &http.Client{Timeout: timeout, Transport: transport})
 	}
-	if proxyRaw != "" {
-		if proxyURL, err := normalizeProxyURL(proxyRaw, "http"); err == nil {
-			transport.Proxy = http.ProxyURL(proxyURL)
+	transport := NewExternalTransport()
+	clients = append(clients, &http.Client{Timeout: timeout, Transport: transport})
+	return clients
+}
+
+func telegramProxyCandidates(cfg map[string]string) []string {
+	out := []string{}
+	for _, value := range []string{
+		cfg["proxy_url"],
+		os.Getenv("MEDIASTATION_TELEGRAM_PROXY_URL"),
+	} {
+		if strings.TrimSpace(value) != "" {
+			out = append(out, value)
 		}
 	}
-	return &http.Client{Timeout: timeout, Transport: transport}
+	if len(out) > 0 {
+		return out
+	}
+	for _, value := range []string{
+		"http://127.0.0.1:10808",
+		"http://127.0.0.1:10809",
+		"http://127.0.0.1:7890",
+		"http://127.0.0.1:7891",
+		"http://host.docker.internal:7890",
+		"http://host.docker.internal:10808",
+		"http://172.17.0.1:7890",
+		"http://172.17.0.1:10808",
+	} {
+		out = append(out, value)
+	}
+	return out
 }
 
 func telegramPostForm(ctx context.Context, cfg map[string]string, method string, form url.Values, timeout time.Duration) error {
@@ -64,12 +105,7 @@ func telegramPostForm(ctx context.Context, cfg map[string]string, method string,
 	if err != nil {
 		return err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiURL, strings.NewReader(form.Encode()))
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	return telegramDo(telegramHTTPClient(timeout, cfg), req)
+	return telegramDoWithFallback(ctx, cfg, http.MethodPost, apiURL, form.Encode(), "application/x-www-form-urlencoded", timeout)
 }
 
 func telegramPostJSON(ctx context.Context, cfg map[string]string, method string, payload any, timeout time.Duration) error {
@@ -81,12 +117,7 @@ func telegramPostJSON(ctx context.Context, cfg map[string]string, method string,
 	if err != nil {
 		return err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiURL, strings.NewReader(string(body)))
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	return telegramDo(telegramHTTPClient(timeout, cfg), req)
+	return telegramDoWithFallback(ctx, cfg, http.MethodPost, apiURL, string(body), "application/json", timeout)
 }
 
 func telegramDo(client *http.Client, req *http.Request) error {
@@ -102,11 +133,72 @@ func telegramDo(client *http.Client, req *http.Request) error {
 	return nil
 }
 
+func telegramDoWithFallback(ctx context.Context, cfg map[string]string, method, apiURL, body, contentType string, timeout time.Duration) error {
+	var lastErr error
+	for _, client := range telegramHTTPClients(timeout, cfg) {
+		req, err := http.NewRequestWithContext(ctx, method, apiURL, strings.NewReader(body))
+		if err != nil {
+			return err
+		}
+		if contentType != "" {
+			req.Header.Set("Content-Type", contentType)
+		}
+		if err := telegramDo(client, req); err != nil {
+			lastErr = err
+			continue
+		}
+		return nil
+	}
+	if lastErr != nil {
+		return lastErr
+	}
+	return errors.New("telegram request failed")
+}
+
+func telegramPostJSONDecode(ctx context.Context, cfg map[string]string, method string, payload any, timeout time.Duration, out any) error {
+	apiURL, err := telegramMethodURL(cfg, cfg["bot_token"], method)
+	if err != nil {
+		return err
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	var lastErr error
+	for _, client := range telegramHTTPClients(timeout, cfg) {
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiURL, strings.NewReader(string(body)))
+		if err != nil {
+			return err
+		}
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := client.Do(req)
+		if err != nil {
+			lastErr = sanitizeTelegramError(err)
+			continue
+		}
+		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		resp.Body.Close()
+		if resp.StatusCode >= 400 {
+			lastErr = fmt.Errorf("telegram api error %d: %s", resp.StatusCode, sanitizeTelegramText(string(respBody)))
+			continue
+		}
+		if out != nil {
+			return json.Unmarshal(respBody, out)
+		}
+		return nil
+	}
+	if lastErr != nil {
+		return lastErr
+	}
+	return errors.New("telegram request failed")
+}
+
 func telegramStringConfigFromAny(cfg map[string]any) map[string]string {
 	out := make(map[string]string, len(cfg))
 	for key, value := range cfg {
 		out[key] = str(value)
 	}
+	normalizeTelegramConfig(out)
 	return out
 }
 
