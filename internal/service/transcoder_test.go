@@ -11,6 +11,8 @@ func TestBuildFFmpegArgs(t *testing.T) {
 	base := &config.Config{}
 	base.Transcoder.MaxHeight = 720
 	base.Transcoder.SegmentSeconds = 4
+	base.Transcoder.Realtime = true
+	base.Transcoder.Threads = 2
 	base.App.VAAPIDevice = "/dev/dri/renderD128"
 
 	cases := []struct {
@@ -20,7 +22,7 @@ func TestBuildFFmpegArgs(t *testing.T) {
 		expectInArgs           []string
 		expectNotPresetIfBlank bool
 	}{
-		{"software", "", "libx264", []string{"-preset", "veryfast", "-c:v", "libx264"}, false},
+		{"software", "", "libx264", []string{"-re", "-preset", "veryfast", "-c:v", "libx264", "-threads", "2"}, false},
 		{"nvenc", "nvenc", "h264_nvenc", []string{"-hwaccel", "cuda", "-c:v", "h264_nvenc", "-preset", "p4"}, false},
 		{"qsv", "qsv", "h264_qsv", []string{"-hwaccel", "qsv", "-c:v", "h264_qsv"}, false},
 		{"vaapi", "vaapi", "h264_vaapi", []string{"-hwaccel", "vaapi", "-vaapi_device", "/dev/dri/renderD128", "-c:v", "h264_vaapi"}, true},
@@ -30,6 +32,7 @@ func TestBuildFFmpegArgs(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			cfg := *base
 			cfg.Transcoder.Encoder = tc.encoder
+			cfg.Transcoder.HardwareAccel = tc.encoder != ""
 			args := buildFFmpegArgs(&cfg, "/x.mkv", "/o/x.m3u8", "/o/seg_%05d.ts")
 			joined := strings.Join(args, " ")
 			for _, frag := range tc.expectInArgs {
@@ -42,6 +45,42 @@ func TestBuildFFmpegArgs(t *testing.T) {
 				t.Errorf("vaapi should not include -preset, got: %s", joined)
 			}
 		})
+	}
+}
+
+func TestBuildFFmpegArgsIgnoresEncoderWhenHardwareAccelDisabled(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Transcoder.Encoder = "nvenc"
+	cfg.Transcoder.HardwareAccel = false
+	cfg.Transcoder.MaxHeight = 720
+	cfg.Transcoder.SegmentSeconds = 4
+	cfg.Transcoder.Realtime = true
+	cfg.Transcoder.Threads = 2
+
+	args := buildFFmpegArgs(cfg, "/x.mkv", "/o/x.m3u8", "/o/seg_%05d.ts")
+	joined := strings.Join(args, " ")
+	if strings.Contains(joined, "h264_nvenc") {
+		t.Fatalf("hardware disabled should not use nvenc, got: %s", joined)
+	}
+	if !strings.Contains(joined, "libx264") {
+		t.Fatalf("hardware disabled should fall back to libx264, got: %s", joined)
+	}
+}
+
+func TestBuildFFmpegArgsCanDisableRealtimeAndThreadCap(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Transcoder.MaxHeight = 720
+	cfg.Transcoder.SegmentSeconds = 4
+	cfg.Transcoder.Realtime = false
+	cfg.Transcoder.Threads = 0
+
+	args := buildFFmpegArgs(cfg, "/x.mkv", "/o/x.m3u8", "/o/seg_%05d.ts")
+	joined := " " + strings.Join(args, " ") + " "
+	if strings.Contains(joined, " -re ") {
+		t.Fatalf("realtime=false should not include -re, got: %s", joined)
+	}
+	if strings.Contains(joined, " -threads ") {
+		t.Fatalf("threads=0 should not include -threads, got: %s", joined)
 	}
 }
 

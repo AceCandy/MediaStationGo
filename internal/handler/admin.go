@@ -187,6 +187,12 @@ func updateSettingHandler(svc *service.Container) gin.HandlerFunc {
 			return
 		}
 		service.ApplyRuntimeSetting(svc.Cfg, req.Key, req.Value)
+		if req.Key == "transcode.enabled" && !svc.Cfg.Transcoder.Enabled {
+			svc.Transcoder.StopAll()
+		}
+		if req.Key == "transcode.hw_enabled" || req.Key == "transcode.hw_accel" || req.Key == "transcoder.hardware_accel" || req.Key == "transcoder.encoder" {
+			svc.Transcoder.StopAll()
+		}
 		c.Status(http.StatusNoContent)
 	}
 }

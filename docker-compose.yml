@@ -17,7 +17,7 @@
 #
 # 镜像版本：
 #   默认拉取 latest；如需固定版本，创建 .env 并写入：
-#     MEDIASTATION_IMAGE_TAG=MediaStationGo-v0.0.15
+#     MEDIASTATION_IMAGE_TAG=MediaStationGo-v0.0.16
 #
 # 路径映射总览：
 #   /data      程序数据目录。保存 SQLite 数据库、JWT secret、系统配置等，必须持久化。
@@ -128,8 +128,15 @@ services:
       MEDIASTATION_LOGGING_LEVEL: ${MEDIASTATION_LOGGING_LEVEL:-info}
 
       # 转码配置。留空表示自动/软件转码；硬件加速见下方 Intel/NVIDIA 示例。
+      MEDIASTATION_TRANSCODER_ENABLED: ${MEDIASTATION_TRANSCODER_ENABLED:-true}
+      MEDIASTATION_TRANSCODER_HARDWARE_ACCEL: ${MEDIASTATION_TRANSCODER_HARDWARE_ACCEL:-false}
       MEDIASTATION_TRANSCODER_ENCODER: ${MEDIASTATION_TRANSCODER_ENCODER:-}
       MEDIASTATION_TRANSCODER_MAX_HEIGHT: ${MEDIASTATION_TRANSCODER_MAX_HEIGHT:-1080}
+      # NAS 低负载保护：HLS 按播放速度转码、限制软件编码线程、限制并发、空闲自动停止。
+      MEDIASTATION_TRANSCODER_REALTIME: ${MEDIASTATION_TRANSCODER_REALTIME:-true}
+      MEDIASTATION_TRANSCODER_THREADS: ${MEDIASTATION_TRANSCODER_THREADS:-2}
+      MEDIASTATION_TRANSCODER_MAX_CONCURRENT: ${MEDIASTATION_TRANSCODER_MAX_CONCURRENT:-1}
+      MEDIASTATION_TRANSCODER_IDLE_TIMEOUT_SECONDS: ${MEDIASTATION_TRANSCODER_IDLE_TIMEOUT_SECONDS:-120}
 
       # 跨域来源。通常无需设置；反向代理或三端客户端异常时再按需填写。
       MEDIASTATION_APP_CORS_ORIGINS: ${MEDIASTATION_APP_CORS_ORIGINS:-}
@@ -141,7 +148,8 @@ services:
 
     # Intel QSV / VAAPI 硬件加速示例：
     #   1. Linux/NAS 宿主机存在 /dev/dri。
-    #   2. 在 .env 中设置 MEDIASTATION_TRANSCODER_ENCODER=vaapi。
+    #   2. 在 .env 中设置 MEDIASTATION_TRANSCODER_HARDWARE_ACCEL=true
+    #      和 MEDIASTATION_TRANSCODER_ENCODER=vaapi。
     #   3. 取消下方 devices/group_add 注释。
     # devices:
     #   - /dev/dri:/dev/dri
@@ -150,7 +158,8 @@ services:
 
     # NVIDIA NVENC 硬件加速示例：
     #   1. 宿主机安装 NVIDIA Container Toolkit。
-    #   2. 在 .env 中设置 MEDIASTATION_TRANSCODER_ENCODER=nvenc。
+    #   2. 在 .env 中设置 MEDIASTATION_TRANSCODER_HARDWARE_ACCEL=true
+    #      和 MEDIASTATION_TRANSCODER_ENCODER=nvenc。
     #   3. 取消下方 gpus 注释。
     # gpus: all
 

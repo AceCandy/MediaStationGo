@@ -29,6 +29,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -56,9 +57,18 @@ type hlsJob struct {
 	outputDir  string
 	cancel     context.CancelFunc
 	startedAt  time.Time
+	lastAccess time.Time
 	playlistOK bool
 	encoder    string
 }
+
+var (
+	// ErrTranscodeDisabled is returned when HLS transcoding is globally disabled.
+	ErrTranscodeDisabled = errors.New("transcode disabled")
+	// ErrTranscodeBusy is returned when the server has reached its configured
+	// ffmpeg concurrency limit.
+	ErrTranscodeBusy = errors.New("transcode concurrency limit reached")
+)
 
 // NewTranscoderService is the constructor.
 func NewTranscoderService(cfg *config.Config, log *zap.Logger, repo *repository.Container, hub *Hub) *TranscoderService {
@@ -85,6 +95,9 @@ func (t *TranscoderService) PlaylistPath(mediaID string) string {
 // non-blocking: it returns the playlist path immediately. The caller is
 // expected to poll until WaitReady reports true.
 func (t *TranscoderService) EnsureJob(ctx context.Context, mediaID string) (string, error) {
+	if !t.cfg.Transcoder.Enabled {
+		return "", ErrTranscodeDisabled
+	}
 	m, err := t.repo.Media.FindByID(ctx, mediaID)
 	if err != nil {
 		return "", err
@@ -101,8 +114,13 @@ func (t *TranscoderService) EnsureJob(ctx context.Context, mediaID string) (stri
 
 	t.mu.Lock()
 	if _, ok := t.jobs[mediaID]; ok {
+		t.touchJobLocked(mediaID)
 		t.mu.Unlock()
 		return t.PlaylistPath(mediaID), nil
+	}
+	if max := t.maxConcurrent(); max > 0 && len(t.jobs) >= max {
+		t.mu.Unlock()
+		return "", ErrTranscodeBusy
 	}
 
 	outDir := t.HLSDir(mediaID)
@@ -113,15 +131,17 @@ func (t *TranscoderService) EnsureJob(ctx context.Context, mediaID string) (stri
 
 	jobCtx, cancel := context.WithCancel(context.Background())
 	job := &hlsJob{
-		mediaID:   mediaID,
-		outputDir: outDir,
-		cancel:    cancel,
-		startedAt: time.Now(),
-		encoder:   t.cfg.Transcoder.Encoder,
+		mediaID:    mediaID,
+		outputDir:  outDir,
+		cancel:     cancel,
+		startedAt:  time.Now(),
+		lastAccess: time.Now(),
+		encoder:    t.effectiveEncoder(),
 	}
 	t.jobs[mediaID] = job
 	t.mu.Unlock()
 
+	go t.monitorIdle(jobCtx, job)
 	go t.runFFmpeg(jobCtx, job, m.Path)
 	return t.PlaylistPath(mediaID), nil
 }
@@ -160,6 +180,21 @@ func (t *TranscoderService) StopJob(mediaID string) {
 	}
 }
 
+// TouchJob records client activity for the HLS playlist or segment. The idle
+// watchdog uses it to stop ffmpeg soon after the player is closed or switches
+// back to direct play.
+func (t *TranscoderService) TouchJob(mediaID string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.touchJobLocked(mediaID)
+}
+
+func (t *TranscoderService) touchJobLocked(mediaID string) {
+	if j, ok := t.jobs[mediaID]; ok {
+		j.lastAccess = time.Now()
+	}
+}
+
 // StopAll terminates every running transcode (called on graceful shutdown).
 func (t *TranscoderService) StopAll() {
 	t.mu.Lock()
@@ -192,6 +227,51 @@ func (t *TranscoderService) Active() []ActiveJob {
 		})
 	}
 	return out
+}
+
+func (t *TranscoderService) maxConcurrent() int {
+	if t.cfg.Transcoder.MaxConcurrent <= 0 {
+		return 1
+	}
+	return t.cfg.Transcoder.MaxConcurrent
+}
+
+func (t *TranscoderService) idleTimeout() time.Duration {
+	if t.cfg.Transcoder.IdleTimeoutSeconds <= 0 {
+		return 120 * time.Second
+	}
+	return time.Duration(t.cfg.Transcoder.IdleTimeoutSeconds) * time.Second
+}
+
+func (t *TranscoderService) monitorIdle(ctx context.Context, job *hlsJob) {
+	timeout := t.idleTimeout()
+	ticker := time.NewTicker(15 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			t.mu.Lock()
+			current, ok := t.jobs[job.mediaID]
+			if !ok {
+				t.mu.Unlock()
+				return
+			}
+			idleFor := time.Since(current.lastAccess)
+			t.mu.Unlock()
+			if idleFor >= timeout {
+				t.log.Info("transcode idle timeout",
+					zap.String("media_id", job.mediaID),
+					zap.Duration("idle_for", idleFor),
+					zap.Duration("timeout", timeout),
+				)
+				t.StopJob(job.mediaID)
+				return
+			}
+		}
+	}
 }
 
 func (t *TranscoderService) runFFmpeg(ctx context.Context, job *hlsJob, source string) {
@@ -249,7 +329,7 @@ func (t *TranscoderService) runFFmpeg(ctx context.Context, job *hlsJob, source s
 func (t *TranscoderService) resolveFFmpegPath() (string, error) {
 	var lastErr error
 	for _, bin := range executableCandidates(strings.TrimSpace(t.cfg.App.FFmpegPath), "ffmpeg") {
-		if err := validateFFmpegForTranscode(context.Background(), bin, t.cfg.Transcoder.Encoder); err != nil {
+		if err := validateFFmpegForTranscode(context.Background(), bin, t.effectiveEncoder()); err != nil {
 			lastErr = err
 			continue
 		}
@@ -260,6 +340,22 @@ func (t *TranscoderService) resolveFFmpegPath() (string, error) {
 		return "", fmt.Errorf("no usable ffmpeg found for HLS transcode: %w", lastErr)
 	}
 	return "", fmt.Errorf("ffmpeg not found in PATH or common local app directories; configure app.ffmpeg_path to an existing local ffmpeg")
+}
+
+func (t *TranscoderService) effectiveEncoder() string {
+	if !t.cfg.Transcoder.HardwareAccel {
+		return ""
+	}
+	return normalizedHardwareEncoder(t.cfg.Transcoder.Encoder)
+}
+
+func normalizedHardwareEncoder(encoder string) string {
+	switch strings.ToLower(strings.TrimSpace(encoder)) {
+	case "nvenc", "qsv", "vaapi":
+		return strings.ToLower(strings.TrimSpace(encoder))
+	default:
+		return ""
+	}
 }
 
 func validateFFmpegForTranscode(ctx context.Context, bin, encoder string) error {
@@ -314,7 +410,10 @@ func hasFFmpegListEntry(output, name string) bool {
 // encoder. The function is package-level so the unit test can pin its
 // behaviour without spawning a real ffmpeg process.
 func buildFFmpegArgs(cfg *config.Config, source, playlist, segments string) []string {
-	enc := cfg.Transcoder.Encoder
+	enc := ""
+	if cfg.Transcoder.HardwareAccel {
+		enc = normalizedHardwareEncoder(cfg.Transcoder.Encoder)
+	}
 	bitrate := cfg.Transcoder.VideoBitrate
 	if bitrate == "" {
 		bitrate = "1500k"
@@ -373,11 +472,17 @@ func buildFFmpegArgs(cfg *config.Config, source, playlist, segments string) []st
 		vpreset = preset
 	}
 
-	args := []string{"-y", "-fflags", "+genpts"}
+	args := []string{"-y", "-hide_banner", "-nostdin", "-fflags", "+genpts"}
 	for _, p := range splitNonEmptyArgs(pre) {
 		args = append(args, p)
 	}
+	if cfg.Transcoder.Realtime {
+		args = append(args, "-re")
+	}
 	args = append(args, "-i", source, "-map", "0:v:0?", "-map", "0:a:0?", "-vf", vf, "-c:v", vcodec)
+	if cfg.Transcoder.Threads > 0 && vcodec == "libx264" {
+		args = append(args, "-threads", strconv.Itoa(cfg.Transcoder.Threads))
+	}
 	if vpreset != "" {
 		args = append(args, "-preset", vpreset)
 	}

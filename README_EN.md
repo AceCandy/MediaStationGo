@@ -235,7 +235,7 @@ mkdir -p data cache media downloads
 
 ```bash
 cat > .env <<'EOF'
-MEDIASTATION_IMAGE_TAG=MediaStationGo-v0.0.15
+MEDIASTATION_IMAGE_TAG=MediaStationGo-v0.0.16
 MEDIASTATION_HTTP_PORT=18080
 MEDIASTATION_DATA_DIR=./data
 MEDIASTATION_CACHE_DIR=./cache
@@ -344,7 +344,7 @@ For production, pin a specific release tag instead of using `latest`. Recommende
 
 ```bash
 cat > .env <<'EOF'
-MEDIASTATION_IMAGE_TAG=MediaStationGo-v0.0.15
+MEDIASTATION_IMAGE_TAG=MediaStationGo-v0.0.16
 MEDIASTATION_HTTP_PORT=18080
 MEDIASTATION_DATA_DIR=./data
 MEDIASTATION_CACHE_DIR=./cache
@@ -593,25 +593,25 @@ Each release provides multi-platform archives:
 
 | Platform | Package example |
 | --- | --- |
-| Linux x86_64 | `MediaStationGo-v0.0.15-linux-amd64.tar.gz` |
-| Linux ARM64 | `MediaStationGo-v0.0.15-linux-arm64.tar.gz` |
-| Windows x86_64 | `MediaStationGo-v0.0.15-windows-amd64.zip` |
-| macOS Intel | `MediaStationGo-v0.0.15-darwin-amd64.tar.gz` |
-| macOS Apple Silicon | `MediaStationGo-v0.0.15-darwin-arm64.tar.gz` |
+| Linux x86_64 | `MediaStationGo-v0.0.16-linux-amd64.tar.gz` |
+| Linux ARM64 | `MediaStationGo-v0.0.16-linux-arm64.tar.gz` |
+| Windows x86_64 | `MediaStationGo-v0.0.16-windows-amd64.zip` |
+| macOS Intel | `MediaStationGo-v0.0.16-darwin-amd64.tar.gz` |
+| macOS Apple Silicon | `MediaStationGo-v0.0.16-darwin-arm64.tar.gz` |
 
 Linux example:
 
 ```bash
-tar -xzf MediaStationGo-v0.0.15-linux-amd64.tar.gz
-cd MediaStationGo-v0.0.15-linux-amd64
+tar -xzf MediaStationGo-v0.0.16-linux-amd64.tar.gz
+cd MediaStationGo-v0.0.16-linux-amd64
 MEDIASTATION_APP_PORT=18080 ./mediastation-go
 ```
 
 Windows example:
 
 ```powershell
-Expand-Archive .\MediaStationGo-v0.0.15-windows-amd64.zip
-cd .\MediaStationGo-v0.0.15-windows-amd64
+Expand-Archive .\MediaStationGo-v0.0.16-windows-amd64.zip
+cd .\MediaStationGo-v0.0.16-windows-amd64
 $env:MEDIASTATION_APP_PORT = "18080"
 .\mediastation-go.exe
 ```
@@ -767,6 +767,8 @@ MediaStationGo does not keep `ffmpeg` or `ffprobe` running as resident daemons. 
 - Admin tool-status checks or manual tool installation may briefly execute version checks/install logic.
 
 When playback stops, a transcode job is cancelled, or the service shuts down, the corresponding transcoding process is stopped. If there is no scanning, probing, or transcoding, `ffmpeg/ffprobe` should not continuously consume CPU.
+
+The default HLS profile is NAS-friendly: `MEDIASTATION_TRANSCODER_ENABLED=true` is the global switch, and disabling it prevents ffmpeg transcode jobs from starting; `MEDIASTATION_TRANSCODER_HARDWARE_ACCEL=false` is the hardware acceleration switch, and hardware encoders are used only when it is enabled together with `MEDIASTATION_TRANSCODER_ENCODER=nvenc/qsv/vaapi`; `MEDIASTATION_TRANSCODER_REALTIME=true` throttles input to playback speed, `MEDIASTATION_TRANSCODER_THREADS=2` caps software encoding threads, `MEDIASTATION_TRANSCODER_MAX_CONCURRENT=1` limits simultaneous transcodes, and `MEDIASTATION_TRANSCODER_IDLE_TIMEOUT_SECONDS=120` stops ffmpeg after the player stops requesting segments.
 
 ---
 

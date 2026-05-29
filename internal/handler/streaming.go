@@ -18,6 +18,14 @@ func hlsPlaylistHandler(svc *service.Container) gin.HandlerFunc {
 			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
 			return
 		}
+		if errors.Is(err, service.ErrTranscodeDisabled) {
+			c.JSON(http.StatusConflict, gin.H{"error": "transcode disabled"})
+			return
+		}
+		if errors.Is(err, service.ErrTranscodeBusy) {
+			c.JSON(http.StatusTooManyRequests, gin.H{"error": "transcode busy"})
+			return
+		}
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return

@@ -64,8 +64,12 @@ func schemaHandler(_ *service.Container) gin.HandlerFunc {
 					"items": []gin.H{
 						{"key": "tmdb.language", "type": "select", "label": "TMDb 元数据语言"},
 						{"key": "transcode.enabled", "type": "toggle", "label": "启用转码"},
-						{"key": "transcode.hw_accel", "type": "select", "label": "硬件加速"},
+						{"key": "transcode.hw_accel", "type": "select", "label": "硬件编码器"},
+						{"key": "transcode.hw_enabled", "type": "toggle", "label": "启用硬件加速"},
 						{"key": "transcode.max_jobs", "type": "number", "label": "最大并发"},
+						{"key": "transcode.realtime", "type": "toggle", "label": "按播放速度转码"},
+						{"key": "transcode.threads", "type": "number", "label": "软件转码线程数"},
+						{"key": "transcode.idle_timeout_seconds", "type": "number", "label": "转码空闲停止秒数"},
 						{"key": "ffmpeg.path", "type": "text", "label": "FFmpeg 路径"},
 						{"key": "ffprobe.path", "type": "text", "label": "FFprobe 路径"},
 					},

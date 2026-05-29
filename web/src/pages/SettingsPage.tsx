@@ -18,6 +18,7 @@ interface SettingDef {
   label: string
   type: 'text' | 'select' | 'toggle' | 'number' | 'textarea'
   hint?: string
+  defaultValue?: string
   options?: { value: string; label: string }[]
   placeholder?: string
 }
@@ -51,25 +52,55 @@ const GROUPS: SettingGroup[] = [
         label: '启用转码',
         type: 'toggle',
         hint: '关闭后所有视频直连播放',
+        defaultValue: 'true',
       },
       {
         key: 'transcode.hw_accel',
-        label: '硬件加速',
+        label: '硬件编码器',
         type: 'select',
+        hint: '只有开启下方「启用硬件加速」后才会使用；未开启时强制软件转码',
+        defaultValue: 'none',
         options: [
-          { value: 'auto', label: '自动检测' },
           { value: 'none', label: '软件转码' },
           { value: 'nvenc', label: 'NVIDIA NVENC' },
           { value: 'qsv', label: 'Intel QSV' },
           { value: 'vaapi', label: 'VAAPI (Linux)' },
-          { value: 'videotoolbox', label: 'VideoToolbox (macOS)' },
         ],
+      },
+      {
+        key: 'transcode.hw_enabled',
+        label: '启用硬件加速',
+        type: 'toggle',
+        hint: '关闭时即使选择了 NVENC/QSV/VAAPI，也不会调用硬件编码参数',
+        defaultValue: 'false',
       },
       {
         key: 'transcode.max_jobs',
         label: '最大并发转码任务',
         type: 'number',
-        hint: '建议 1-4',
+        hint: 'NAS 建议 1',
+        defaultValue: '1',
+      },
+      {
+        key: 'transcode.realtime',
+        label: '按播放速度转码',
+        type: 'toggle',
+        hint: '开启后 ffmpeg 不会抢跑压完整片，可显著降低 CPU 峰值',
+        defaultValue: 'true',
+      },
+      {
+        key: 'transcode.threads',
+        label: '软件转码线程数',
+        type: 'number',
+        hint: 'NAS 建议 1-2；仅软件转码生效',
+        defaultValue: '2',
+      },
+      {
+        key: 'transcode.idle_timeout_seconds',
+        label: '转码空闲停止秒数',
+        type: 'number',
+        hint: '播放器关闭或停止请求分片后自动结束 ffmpeg',
+        defaultValue: '120',
       },
       {
         key: 'ffmpeg.path',
@@ -299,7 +330,7 @@ export function SettingsPage() {
             <SettingRow
               key={it.key}
               def={it}
-              value={values[it.key] ?? ''}
+              value={values[it.key] ?? it.defaultValue ?? ''}
               onChange={(v) => onChange(it.key, v)}
             />
           ))}
@@ -369,6 +400,7 @@ function SettingRow({
   value: string
   onChange: (v: string) => void
 }) {
+  const toggleOn = value === 'true' || value === '1' || value === 'on'
   return (
     <div className="grid items-start gap-2 md:grid-cols-[280px_1fr]">
       <label className="text-sm text-ink-100">
@@ -418,10 +450,10 @@ function SettingRow({
             <input
               type="checkbox"
               className="h-4 w-4 accent-primary-400"
-              checked={value === 'true' || value === '1' || value === 'on'}
+              checked={toggleOn}
               onChange={(e) => onChange(e.target.checked ? 'true' : 'false')}
             />
-            <span className="text-sm text-ink-100">{value === 'true' ? '已启用' : '已关闭'}</span>
+            <span className="text-sm text-ink-100">{toggleOn ? '已启用' : '已关闭'}</span>
           </label>
         )}
       </div>

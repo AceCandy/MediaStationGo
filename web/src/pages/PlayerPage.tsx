@@ -5,7 +5,7 @@ import { ArrowLeft, RefreshCw, Sparkles } from 'lucide-react'
 import toast from 'react-hot-toast'
 
 import { mediaAPI } from '../api/library'
-import { hlsURL, streamURL } from '../api/client'
+import { api, hlsURL, streamURL } from '../api/client'
 import { playbackAPI } from '../api/playback'
 import { subtitlesAPI, type SubtitleTrack } from '../api/subtitles'
 import type { Media } from '../types'
@@ -99,7 +99,7 @@ export function PlayerPage() {
       }
       void video.play().catch(() => undefined)
     }
-    return teardownHls
+    return () => teardownHls(media.id, mode === 'hls')
   }, [hlsUnavailable, media, mode, params, setParams])
 
   // Persist resume position every 10 seconds while playing.
@@ -136,10 +136,13 @@ export function PlayerPage() {
     return () => window.removeEventListener('keydown', onKey)
   }, [id, media?.id, navigate])
 
-  const teardownHls = () => {
+  const teardownHls = (mediaId?: string, stopServer = false) => {
     if (hlsRef.current) {
       hlsRef.current.destroy()
       hlsRef.current = null
+    }
+    if (stopServer && mediaId) {
+      api.delete(`/hls/${encodeURIComponent(mediaId)}`).catch(() => undefined)
     }
   }
 

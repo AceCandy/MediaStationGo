@@ -47,13 +47,19 @@ type ApiConfigConfig struct {
 
 // TranscoderConfig 控制 HLS / ffmpeg 后端。
 type TranscoderConfig struct {
-	Encoder        string `mapstructure:"encoder"` // "" / nvenc / qsv / vaapi
-	Preset         string `mapstructure:"preset"`
-	VideoBitrate   string `mapstructure:"video_bitrate"`
-	MaxRate        string `mapstructure:"max_rate"`
-	BufSize        string `mapstructure:"buf_size"`
-	MaxHeight      int    `mapstructure:"max_height"`
-	SegmentSeconds int    `mapstructure:"segment_seconds"`
+	Encoder            string `mapstructure:"encoder"` // "" / nvenc / qsv / vaapi
+	Enabled            bool   `mapstructure:"enabled"`
+	HardwareAccel      bool   `mapstructure:"hardware_accel"`
+	Preset             string `mapstructure:"preset"`
+	VideoBitrate       string `mapstructure:"video_bitrate"`
+	MaxRate            string `mapstructure:"max_rate"`
+	BufSize            string `mapstructure:"buf_size"`
+	MaxHeight          int    `mapstructure:"max_height"`
+	SegmentSeconds     int    `mapstructure:"segment_seconds"`
+	Realtime           bool   `mapstructure:"realtime"`
+	Threads            int    `mapstructure:"threads"`
+	MaxConcurrent      int    `mapstructure:"max_concurrent"`
+	IdleTimeoutSeconds int    `mapstructure:"idle_timeout_seconds"`
 }
 
 // AppConfig 保存运行时应用参数。
@@ -259,12 +265,18 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("organizer.categories.uncategorized_tv", "未分类")
 
 	v.SetDefault("transcoder.encoder", "")
+	v.SetDefault("transcoder.enabled", true)
+	v.SetDefault("transcoder.hardware_accel", false)
 	v.SetDefault("transcoder.preset", "veryfast")
 	v.SetDefault("transcoder.video_bitrate", "1500k")
 	v.SetDefault("transcoder.max_rate", "1800k")
 	v.SetDefault("transcoder.buf_size", "3000k")
 	v.SetDefault("transcoder.max_height", 720)
 	v.SetDefault("transcoder.segment_seconds", 4)
+	v.SetDefault("transcoder.realtime", true)
+	v.SetDefault("transcoder.threads", 2)
+	v.SetDefault("transcoder.max_concurrent", 1)
+	v.SetDefault("transcoder.idle_timeout_seconds", 120)
 
 	// API Config 默认设置
 	v.SetDefault("api_config.auto_encrypt", true)

@@ -70,6 +70,8 @@ transcoder:
   #   nvenc     h264_nvenc      (NVIDIA GPU, requires --gpus all)
   #   qsv       h264_qsv        (Intel iGPU, requires /dev/dri)
   #   vaapi     h264_vaapi      (Intel/AMD VAAPI, requires /dev/dri)
+  enabled: true               # global HLS transcode switch; false = direct play only and no ffmpeg transcode jobs
+  hardware_accel: false       # must be true before encoder below is used
   encoder: ""
   preset: veryfast
   video_bitrate: 1500k
@@ -77,6 +79,10 @@ transcoder:
   buf_size: 3000k
   max_height: 720
   segment_seconds: 4
+  realtime: true              # throttle ffmpeg input to playback speed instead of transcoding the whole file at full speed
+  threads: 2                  # software libx264 thread cap; set 0 to let ffmpeg decide
+  max_concurrent: 1           # maximum simultaneous HLS transcodes
+  idle_timeout_seconds: 120   # stop ffmpeg when the player stops requesting HLS segments
 
 ai:
   enabled: false

@@ -94,6 +94,7 @@ func (s *StreamService) ServeHLSPlaylist(w http.ResponseWriter, r *http.Request,
 	if _, err := s.transcoder.EnsureJob(r.Context(), mediaID); err != nil {
 		return err
 	}
+	s.transcoder.TouchJob(mediaID)
 	if !s.transcoder.WaitReady(r.Context(), mediaID, 30*time.Second) {
 		return errors.New("hls playlist not ready")
 	}
@@ -145,6 +146,7 @@ func appendQueryToHLSSegments(playlist, rawQuery string) string {
 
 // ServeHLSSegment writes a single .ts segment from the on-disk cache.
 func (s *StreamService) ServeHLSSegment(w http.ResponseWriter, r *http.Request, mediaID, segment string) error {
+	s.transcoder.TouchJob(mediaID)
 	// Only allow segments that look like seg_NNNNN.ts so we cannot be tricked
 	// into reading arbitrary files via path traversal.
 	if !strings.HasPrefix(segment, "seg_") || !strings.HasSuffix(segment, ".ts") {
