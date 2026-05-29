@@ -18,8 +18,8 @@ func recentMediaHandler(svc *service.Container) gin.HandlerFunc {
 		if limit <= 0 || limit > 100 {
 			limit = 12
 		}
-		var items []model.Media
-		if err := svc.Repo.DB.Order("created_at desc").Limit(limit).Find(&items).Error; err != nil {
+		items, err := svc.Media.SearchMediaVisible(c.Request.Context(), "", limit, mediaVisibilityForRequest(c, svc))
+		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}

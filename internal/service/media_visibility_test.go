@@ -17,7 +17,7 @@ func TestMediaVisibilityFiltersNSFWAndLibraries(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&model.Library{}, &model.Media{}); err != nil {
+	if err := db.AutoMigrate(&model.Library{}, &model.Media{}, &model.Setting{}); err != nil {
 		t.Fatal(err)
 	}
 	repos := repository.New(db)
@@ -31,6 +31,9 @@ func TestMediaVisibilityFiltersNSFWAndLibraries(t *testing.T) {
 	if err := db.Create(&libB).Error; err != nil {
 		t.Fatal(err)
 	}
+	if err := repos.Setting.Set(t.Context(), AdultLibraryIDsSettingKey, `["`+libB.ID+`"]`); err != nil {
+		t.Fatal(err)
+	}
 	rows := []model.Media{
 		{LibraryID: libA.ID, Title: "普通电影", Path: "/media/movies/a.mkv"},
 		{LibraryID: libA.ID, Title: "成人电影", Path: "/media/movies/b.mkv", NSFW: true},
@@ -40,11 +43,15 @@ func TestMediaVisibilityFiltersNSFWAndLibraries(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	items, err := svc.SearchMediaVisible(t.Context(), "电影", 20, MediaVisibility{IncludeNSFW: false})
+	hiddenAdultLibraries := AdultLibraryIDs(t.Context(), repos)
+	items, err := svc.SearchMediaVisible(t.Context(), "电影", 20, MediaVisibility{
+		IncludeNSFW:      false,
+		HiddenLibraryIDs: hiddenAdultLibraries,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := sortedMediaTitles(items); !slices.Equal(got, []string{"普通电影", "限制媒体库电影"}) {
+	if got := sortedMediaTitles(items); !slices.Equal(got, []string{"普通电影"}) {
 		t.Fatalf("NSFW-filtered search = %#v", got)
 	}
 
@@ -59,12 +66,26 @@ func TestMediaVisibilityFiltersNSFWAndLibraries(t *testing.T) {
 		t.Fatalf("library-filtered search = %#v", got)
 	}
 
-	listed, total, err := svc.ListMediaVisible(t.Context(), libA.ID, 1, 20, MediaVisibility{IncludeNSFW: false})
+	listed, total, err := svc.ListMediaVisible(t.Context(), libA.ID, 1, 20, MediaVisibility{
+		IncludeNSFW:      false,
+		HiddenLibraryIDs: hiddenAdultLibraries,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if total != 1 || len(listed) != 1 || listed[0].Title != "普通电影" {
 		t.Fatalf("NSFW-filtered list total=%d rows=%#v", total, sortedMediaTitles(listed))
+	}
+
+	listed, total, err = svc.ListMediaVisible(t.Context(), libB.ID, 1, 20, MediaVisibility{
+		IncludeNSFW:      false,
+		HiddenLibraryIDs: hiddenAdultLibraries,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if total != 0 || len(listed) != 0 {
+		t.Fatalf("adult library should be hidden total=%d rows=%#v", total, sortedMediaTitles(listed))
 	}
 }
 

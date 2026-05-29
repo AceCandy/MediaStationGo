@@ -212,11 +212,15 @@ type MediaRepository struct{ db *gorm.DB }
 type MediaQueryFilter struct {
 	IncludeNSFW       bool
 	AllowedLibraryIDs []string
+	HiddenLibraryIDs  []string
 }
 
 func applyMediaQueryFilter(q *gorm.DB, filter MediaQueryFilter) *gorm.DB {
 	if !filter.IncludeNSFW {
 		q = q.Where("nsfw = ?", false)
+	}
+	if len(filter.HiddenLibraryIDs) > 0 {
+		q = q.Where("library_id NOT IN ?", filter.HiddenLibraryIDs)
 	}
 	if len(filter.AllowedLibraryIDs) > 0 {
 		q = q.Where("library_id IN ?", filter.AllowedLibraryIDs)

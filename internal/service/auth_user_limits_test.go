@@ -55,6 +55,17 @@ func TestRegisterRejectsMoreThanTwentyUsers(t *testing.T) {
 	}
 }
 
+func TestRegisterDefaultsAdultLibrariesHidden(t *testing.T) {
+	_, auth, _, _ := newAuthTestServices(t)
+	user, _, err := auth.Register(context.Background(), "viewer", "password")
+	if err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	if !user.HideAdult {
+		t.Fatal("new users should hide adult libraries by default")
+	}
+}
+
 func TestDefaultPermissionsAreViewerOnly(t *testing.T) {
 	perms := DefaultPermissions("user-1")
 	if !perms.CanViewDashboard || !perms.CanPlayMedia || !perms.CanExternalPlayer {

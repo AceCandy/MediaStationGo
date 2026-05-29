@@ -9,6 +9,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/ShukeBta/MediaStationGo/internal/middleware"
 	"github.com/ShukeBta/MediaStationGo/internal/service"
 )
 
@@ -24,6 +25,17 @@ func listLibrariesHandler(svc *service.Container) gin.HandlerFunc {
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
+		}
+		role, _ := c.Get(middleware.CtxUserRole)
+		if role != "admin" {
+			visibility := mediaVisibilityForRequest(c, svc)
+			filtered := libs[:0]
+			for _, lib := range libs {
+				if service.LibraryVisibleForUser(c.Request.Context(), svc.Repo, lib, visibility) {
+					filtered = append(filtered, lib)
+				}
+			}
+			libs = filtered
 		}
 		c.JSON(http.StatusOK, libs)
 	}

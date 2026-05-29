@@ -175,6 +175,9 @@ func TestEmbyHidesAdultLibrariesForUserLock(t *testing.T) {
 	if err := svc.repo.Library.Create(t.Context(), &adult); err != nil {
 		t.Fatalf("create adult library: %v", err)
 	}
+	if err := svc.repo.Setting.Set(t.Context(), AdultLibraryIDsSettingKey, `["`+adult.ID+`"]`); err != nil {
+		t.Fatalf("set adult libraries: %v", err)
+	}
 	if err := svc.repo.DB.Create(&model.Media{LibraryID: safe.ID, Title: "安全电影", Path: `/media/movies/a.mkv`}).Error; err != nil {
 		t.Fatalf("create safe media: %v", err)
 	}
@@ -205,7 +208,7 @@ func newTestEmbyService(t *testing.T) *EmbyService {
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
-	if err := db.AutoMigrate(&model.Library{}, &model.Series{}, &model.Media{}, &model.Favorite{}, &model.PlaybackHistory{}, &model.User{}); err != nil {
+	if err := db.AutoMigrate(&model.Library{}, &model.Series{}, &model.Media{}, &model.Favorite{}, &model.PlaybackHistory{}, &model.User{}, &model.Setting{}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 	repos := repository.New(db)

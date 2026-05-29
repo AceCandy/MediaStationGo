@@ -68,6 +68,7 @@ func (s *AuthService) SeedAdmin(ctx context.Context) error {
 		PasswordHash:       hash,
 		Role:               "admin",
 		Tier:               "plus",
+		HideAdult:          true,
 		ForcePasswordReset: pwd == "admin123",
 	}
 	if err := s.repo.User.Create(ctx, user); err != nil {
@@ -112,6 +113,7 @@ func (s *AuthService) Register(ctx context.Context, username, password string) (
 		PasswordHash: hash,
 		Role:         role,
 		Tier:         "free",
+		HideAdult:    true,
 	}
 	if err := s.repo.User.Create(ctx, u); err != nil {
 		return nil, nil, err

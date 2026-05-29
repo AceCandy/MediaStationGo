@@ -9,20 +9,24 @@ import (
 	"github.com/ShukeBta/MediaStationGo/internal/repository"
 )
 
+const AdultLibraryIDsSettingKey = "adult.library_ids"
+
 // AdultContentEnabled reads the global Adult / NSFW switch.
 func AdultContentEnabled(ctx context.Context, repo *repository.Container) bool {
 	if repo == nil || repo.Setting == nil {
-		return false
+		return true
 	}
 	value, err := repo.Setting.Get(ctx, "adult.enabled")
 	if err != nil {
-		return false
+		return true
 	}
 	switch strings.ToLower(strings.TrimSpace(value)) {
 	case "1", "true", "yes", "on", "enabled", "启用", "开启":
 		return true
-	default:
+	case "0", "false", "no", "off", "disabled", "禁用", "关闭":
 		return false
+	default:
+		return true
 	}
 }
 
@@ -45,6 +49,7 @@ func UserDefaultMediaVisibility(ctx context.Context, repo *repository.Container,
 	if UserHidesAdult(ctx, repo, userID) {
 		visibility.IncludeNSFW = false
 	}
+	visibility.HiddenLibraryIDs = hiddenAdultLibraryIDs(ctx, repo, visibility.IncludeNSFW)
 	if userID == "" || repo.PlayProfile == nil {
 		return visibility
 	}
@@ -58,6 +63,7 @@ func UserDefaultMediaVisibility(ctx context.Context, repo *repository.Container,
 		}
 		visibility.IncludeNSFW = visibility.IncludeNSFW && row.AllowAdult
 		visibility.AllowedLibraryIDs = DecodeAllowedLibraryIDs(row.AllowedLibraryIDs)
+		visibility.HiddenLibraryIDs = hiddenAdultLibraryIDs(ctx, repo, visibility.IncludeNSFW)
 		break
 	}
 	return visibility
@@ -99,6 +105,11 @@ func LibraryVisibleForUser(ctx context.Context, repo *repository.Container, lib 
 	if visibility.IncludeNSFW {
 		return true
 	}
+	for _, id := range visibility.HiddenLibraryIDs {
+		if id == lib.ID {
+			return false
+		}
+	}
 	if LibraryLooksAdult(lib) {
 		return false
 	}
@@ -126,4 +137,22 @@ func LibraryLooksAdult(lib model.Library) bool {
 		}
 	}
 	return false
+}
+
+func AdultLibraryIDs(ctx context.Context, repo *repository.Container) []string {
+	if repo == nil || repo.Setting == nil {
+		return nil
+	}
+	raw, err := repo.Setting.Get(ctx, AdultLibraryIDsSettingKey)
+	if err != nil {
+		return nil
+	}
+	return DecodeAllowedLibraryIDs(raw)
+}
+
+func hiddenAdultLibraryIDs(ctx context.Context, repo *repository.Container, includeNSFW bool) []string {
+	if includeNSFW {
+		return nil
+	}
+	return AdultLibraryIDs(ctx, repo)
 }

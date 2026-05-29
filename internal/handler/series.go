@@ -25,6 +25,12 @@ type seasonGroup struct {
 func listSeasonsHandler(svc *service.Container) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		libID := c.Param("id")
+		if lib, err := svc.Repo.Library.FindByID(c.Request.Context(), libID); err == nil && lib != nil {
+			if !service.LibraryVisibleForUser(c.Request.Context(), svc.Repo, *lib, mediaVisibilityForRequest(c, svc)) {
+				c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+				return
+			}
+		}
 		var rows []model.Media
 		err := svc.Repo.DB.Where(&model.Media{LibraryID: libID}).
 			Order("season_num asc, episode_num asc").
@@ -33,8 +39,12 @@ func listSeasonsHandler(svc *service.Container) gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
+		visibility := mediaVisibilityForRequest(c, svc)
 		buckets := make(map[int][]model.Media)
 		for _, r := range rows {
+			if !visibility.Allows(&r) {
+				continue
+			}
 			buckets[r.SeasonNum] = append(buckets[r.SeasonNum], r)
 		}
 		out := make([]seasonGroup, 0, len(buckets))

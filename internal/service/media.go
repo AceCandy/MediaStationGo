@@ -26,6 +26,7 @@ type MediaService struct {
 type MediaVisibility struct {
 	IncludeNSFW       bool
 	AllowedLibraryIDs []string
+	HiddenLibraryIDs  []string
 }
 
 func (v MediaVisibility) Allows(media *model.Media) bool {
@@ -34,6 +35,11 @@ func (v MediaVisibility) Allows(media *model.Media) bool {
 	}
 	if !v.IncludeNSFW && media.NSFW {
 		return false
+	}
+	for _, id := range v.HiddenLibraryIDs {
+		if id == media.LibraryID {
+			return false
+		}
 	}
 	if len(v.AllowedLibraryIDs) == 0 {
 		return true
@@ -182,6 +188,7 @@ func (s *MediaService) ListMediaVisible(ctx context.Context, libraryID string, p
 	return s.repo.Media.ListByLibraryFiltered(ctx, libraryID, (page-1)*pageSize, pageSize, repository.MediaQueryFilter{
 		IncludeNSFW:       visibility.IncludeNSFW,
 		AllowedLibraryIDs: visibility.AllowedLibraryIDs,
+		HiddenLibraryIDs:  visibility.HiddenLibraryIDs,
 	})
 }
 
@@ -197,6 +204,7 @@ func (s *MediaService) SearchMediaVisible(ctx context.Context, query string, lim
 	return s.repo.Media.SearchFiltered(ctx, query, limit, repository.MediaQueryFilter{
 		IncludeNSFW:       visibility.IncludeNSFW,
 		AllowedLibraryIDs: visibility.AllowedLibraryIDs,
+		HiddenLibraryIDs:  visibility.HiddenLibraryIDs,
 	})
 }
 

@@ -16,7 +16,7 @@ import type { Library, Setting } from '../types'
 interface SettingDef {
   key: string
   label: string
-  type: 'text' | 'select' | 'toggle' | 'number' | 'textarea'
+  type: 'text' | 'select' | 'toggle' | 'number' | 'textarea' | 'library-multiselect'
   hint?: string
   defaultValue?: string
   options?: { value: string; label: string }[]
@@ -206,7 +206,15 @@ const GROUPS: SettingGroup[] = [
         key: 'adult.enabled',
         label: '启用成人内容',
         type: 'toggle',
-        hint: '关闭后 NSFW 媒体不会出现在列表中',
+        hint: '全局开关。关闭后所有人都无法显示成人库；开启后用户仍默认隐藏，可在个人资料或 Bot 中自行显示。',
+        defaultValue: 'true',
+      },
+      {
+        key: 'adult.library_ids',
+        label: '指定成人媒体库',
+        type: 'library-multiselect',
+        hint: '管理员指定哪些媒体库目录属于成人影视库。指定后网页、搜索和第三方客户端都会统一隐藏。',
+        defaultValue: '[]',
       },
       {
         key: 'adult.require_pin',
@@ -332,6 +340,7 @@ export function SettingsPage() {
               def={it}
               value={values[it.key] ?? it.defaultValue ?? ''}
               onChange={(v) => onChange(it.key, v)}
+              libraries={libraries}
             />
           ))}
           <div className="flex items-center justify-between pt-2">
@@ -395,12 +404,21 @@ function SettingRow({
   def,
   value,
   onChange,
+  libraries = [],
 }: {
   def: SettingDef
   value: string
   onChange: (v: string) => void
+  libraries?: Library[]
 }) {
   const toggleOn = value === 'true' || value === '1' || value === 'on'
+  const selectedLibraryIDs = parseLibraryIDs(value)
+  const toggleLibrary = (id: string, checked: boolean) => {
+    const next = checked
+      ? Array.from(new Set([...selectedLibraryIDs, id]))
+      : selectedLibraryIDs.filter((item) => item !== id)
+    onChange(JSON.stringify(next))
+  }
   return (
     <div className="grid items-start gap-2 md:grid-cols-[280px_1fr]">
       <label className="text-sm text-ink-100">
@@ -456,7 +474,46 @@ function SettingRow({
             <span className="text-sm text-ink-100">{toggleOn ? '已启用' : '已关闭'}</span>
           </label>
         )}
+        {def.type === 'library-multiselect' && (
+          <div className="space-y-2 rounded-2xl border border-gray-200 bg-white/70 p-3">
+            {libraries.length === 0 && (
+              <div className="text-sm text-ink-50">暂无媒体库，请先到「媒体与用户 → 媒体库」添加。</div>
+            )}
+            {libraries.map((lib) => (
+              <label key={lib.id} className="flex cursor-pointer items-start gap-3 rounded-xl px-2 py-2 hover:bg-sand-100/50">
+                <input
+                  type="checkbox"
+                  className="mt-1 h-4 w-4 accent-primary-400"
+                  checked={selectedLibraryIDs.includes(lib.id)}
+                  onChange={(e) => toggleLibrary(lib.id, e.target.checked)}
+                />
+                <span className="min-w-0">
+                  <span className="block text-sm font-medium text-ink-600">{lib.name}</span>
+                  <span className="block truncate font-mono text-xs text-ink-50">{lib.path}</span>
+                </span>
+              </label>
+            ))}
+            <div className="text-xs text-sand-500">
+              已选择 {selectedLibraryIDs.length} 个成人媒体库；新用户默认隐藏，用户可在个人资料或 Bot 中显示/隐藏。
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )
+}
+
+function parseLibraryIDs(raw: string): string[] {
+  try {
+    const parsed = JSON.parse(raw || '[]')
+    if (Array.isArray(parsed)) {
+      return parsed.map((item) => String(item).trim()).filter(Boolean)
+    }
+  } catch {
+    return raw
+      .split(/[,\n;，]/)
+      .map((item) => item.trim())
+      .filter(Boolean)
+  }
+  return []
 }
