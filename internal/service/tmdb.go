@@ -399,6 +399,28 @@ func (t *TMDbProvider) GetDetails(ctx context.Context, tmdbID int, mediaType str
 	}, nil
 }
 
+func (t *TMDbProvider) GetTVEpisodeCount(ctx context.Context, tmdbID int) (int, error) {
+	if tmdbID <= 0 {
+		return 0, nil
+	}
+	apiKey := t.resolveAPIKey(ctx)
+	if apiKey == "" {
+		return 0, nil
+	}
+	base := t.resolveBaseURL(ctx)
+	q := url.Values{}
+	q.Set("api_key", apiKey)
+	q.Set("language", "zh-CN")
+	u := base + "/tv/" + fmt.Sprint(tmdbID) + "?" + q.Encode()
+	var r struct {
+		NumberOfEpisodes int `json:"number_of_episodes"`
+	}
+	if err := t.getJSON(ctx, u, &r); err != nil {
+		return 0, err
+	}
+	return r.NumberOfEpisodes, nil
+}
+
 // deduplicate removes duplicates from a string slice.
 func deduplicate(s []string) []string {
 	if len(s) == 0 {

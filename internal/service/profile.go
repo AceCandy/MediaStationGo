@@ -59,8 +59,16 @@ func (p *ProfileService) AdminUpdateRole(ctx context.Context, userID, role strin
 	if role != "admin" && role != "user" {
 		return nil, errors.New("role must be admin or user")
 	}
-	if err := p.repo.DB.Model(&model.User{}).Where("id = ?", userID).
-		Update("role", role).Error; err != nil {
+	if firstAdmin, err := p.repo.User.FirstAdmin(ctx); err != nil {
+		return nil, err
+	} else if firstAdmin != nil && firstAdmin.ID == userID && role != "admin" {
+		return nil, errors.New("default admin must keep admin role")
+	}
+	updates := map[string]any{"role": role}
+	if role == "admin" {
+		updates["tier"] = "plus"
+	}
+	if err := p.repo.User.UpdateFields(ctx, userID, updates); err != nil {
 		return nil, err
 	}
 	return p.repo.User.FindByID(ctx, userID)

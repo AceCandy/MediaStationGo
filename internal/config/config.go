@@ -34,6 +34,7 @@ type Config struct {
 	FlareSolverr FlareSolverrConfig `mapstructure:"flaresolverr"`
 	ApiConfig    ApiConfigConfig    `mapstructure:"api_config"`
 	Organizer    OrganizerConfig    `mapstructure:"organizer"`
+	License      LicenseConfig      `mapstructure:"license"`
 }
 
 // ApiConfigConfig API 配置相关设置。
@@ -129,6 +130,12 @@ type AIConfig struct {
 	Model         string `mapstructure:"model"`
 	Timeout       int    `mapstructure:"timeout"`
 	MaxConcurrent int    `mapstructure:"max_concurrent"`
+}
+
+// LicenseConfig configures the optional MediaStationLicenseServer bridge.
+type LicenseConfig struct {
+	ServerURL  string `mapstructure:"server_url"`
+	HMACSecret string `mapstructure:"hmac_secret"`
 }
 
 // OrganizerConfig 配置媒体文件智能分类整理。
@@ -262,6 +269,9 @@ func setDefaults(v *viper.Viper) {
 	// API Config 默认设置
 	v.SetDefault("api_config.auto_encrypt", true)
 	v.SetDefault("api_config.default_timeout", 30)
+
+	v.SetDefault("license.server_url", "")
+	v.SetDefault("license.hmac_secret", "")
 }
 
 // normalize 填充派生默认值并自愈空的关键字段。

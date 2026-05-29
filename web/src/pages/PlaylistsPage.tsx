@@ -4,6 +4,7 @@ import { ListPlus, Trash2 } from 'lucide-react'
 import toast from 'react-hot-toast'
 
 import { playbackAPI } from '../api/playback'
+import { confirmAction } from '../components/ConfirmDialog'
 import type { Playlist } from '../types'
 
 // Landing page for playlists. Lists every playlist owned by the current
@@ -74,7 +75,7 @@ export function PlaylistsPage() {
             </Link>
             <button
               onClick={async () => {
-                if (!confirm(`删除「${p.name}」?`)) return
+                if (!(await confirmAction({ title: '删除播放列表', message: `删除「${p.name}」?`, confirmText: '删除' }))) return
                 await playbackAPI.deletePlaylist(p.id)
                 toast.success('已删除')
                 await refresh()

@@ -1,0 +1,189 @@
+package service
+
+import (
+	"context"
+	"fmt"
+	"regexp"
+	"sort"
+	"strings"
+
+	"github.com/ShukeBta/MediaStationGo/internal/model"
+	"github.com/ShukeBta/MediaStationGo/internal/repository"
+)
+
+var availabilityNoiseRE = regexp.MustCompile(`(?i)(自动订阅|订阅|全集|合集|complete|batch|season\s*\d+|s\d{1,2}|s\d{1,2}e\d{1,3}|第\s*\d+\s*季|第\s*\d+\s*[集话話期]|\(\d{4}\)|\b\d{4}\b|2160p|1080p|720p|4k|uhd|bluray|blu-ray|web-?dl|hdtv|remux|x26[45]|h\.?26[45]|hevc|avc|hdr10?\+?|dovi|dv|atmos|aac|ddp?5\.1|truehd|flac)`)
+
+type LocalAvailability struct {
+	DownloadedEpisodes  int
+	TotalEpisodes       int
+	LocalMediaCount     int
+	MissingEpisodes     []int
+	InLibrary           bool
+	ExistingEpisodeKeys map[string]struct{}
+	MissingEpisodeKeys  map[string]struct{}
+}
+
+func EnrichExternalMediaAvailability(ctx context.Context, repo *repository.Container, items []ExternalMediaResult) {
+	for i := range items {
+		availability := LookupLocalAvailability(ctx, repo, items[i].Title, items[i].SubscribeKeyword, items[i].MediaType, items[i].TotalEpisodes)
+		items[i].DownloadedEpisodes = availability.DownloadedEpisodes
+		items[i].LocalMediaCount = availability.LocalMediaCount
+		items[i].MissingEpisodes = availability.MissingEpisodes
+		items[i].InLibrary = availability.InLibrary
+		if items[i].TotalEpisodes == 0 {
+			items[i].TotalEpisodes = availability.TotalEpisodes
+		}
+	}
+}
+
+func EnrichSubscriptionProgress(ctx context.Context, repo *repository.Container, items []model.Subscription) {
+	for i := range items {
+		availability := SubscriptionLocalAvailability(ctx, repo, &items[i])
+		items[i].DownloadedEpisodes = availability.DownloadedEpisodes
+		items[i].LocalMediaCount = availability.LocalMediaCount
+		items[i].MissingEpisodes = availability.MissingEpisodes
+		items[i].InLibrary = availability.InLibrary
+		if items[i].TotalEpisodes == 0 {
+			items[i].TotalEpisodes = availability.TotalEpisodes
+		}
+	}
+}
+
+func SubscriptionLocalAvailability(ctx context.Context, repo *repository.Container, sub *model.Subscription) LocalAvailability {
+	if sub == nil {
+		return LocalAvailability{}
+	}
+	expected := sub.TotalEpisodes
+	return LookupLocalAvailability(ctx, repo, sub.Name, sub.Filter, sub.MediaType, expected)
+}
+
+func LookupLocalAvailability(ctx context.Context, repo *repository.Container, title, keyword, mediaType string, expectedTotal int) LocalAvailability {
+	out := LocalAvailability{
+		TotalEpisodes:       expectedTotal,
+		ExistingEpisodeKeys: map[string]struct{}{},
+		MissingEpisodeKeys:  map[string]struct{}{},
+	}
+	if repo == nil || repo.DB == nil {
+		return out
+	}
+	query := availabilityQuery(title, keyword)
+	if query == "" {
+		return out
+	}
+	like := "%" + query + "%"
+	var rows []model.Media
+	if err := repo.DB.WithContext(ctx).
+		Where("title LIKE ? OR original_name LIKE ?", like, like).
+		Order("season_num asc, episode_num asc, created_at desc").
+		Limit(2000).
+		Find(&rows).Error; err != nil {
+		return out
+	}
+	out.LocalMediaCount = len(rows)
+	out.InLibrary = len(rows) > 0
+	if len(rows) == 0 {
+		return out
+	}
+
+	seriesLike := isSubscriptionSeriesType(mediaType)
+	for _, row := range rows {
+		if row.EpisodeNum <= 0 {
+			continue
+		}
+		season := row.SeasonNum
+		if season <= 0 {
+			season = 1
+		}
+		key := episodeKey(season, row.EpisodeNum)
+		out.ExistingEpisodeKeys[key] = struct{}{}
+	}
+	if seriesLike || len(out.ExistingEpisodeKeys) > 0 {
+		out.DownloadedEpisodes = len(out.ExistingEpisodeKeys)
+		out.MissingEpisodes = missingEpisodes(out.ExistingEpisodeKeys, out.TotalEpisodes)
+		for _, episode := range out.MissingEpisodes {
+			out.MissingEpisodeKeys[episodeKey(1, episode)] = struct{}{}
+		}
+		return out
+	}
+	out.DownloadedEpisodes = 1
+	if out.TotalEpisodes == 0 {
+		out.TotalEpisodes = 1
+	}
+	return out
+}
+
+func missingEpisodes(existing map[string]struct{}, total int) []int {
+	if total <= 0 {
+		return nil
+	}
+	missing := make([]int, 0)
+	for episode := 1; episode <= total; episode++ {
+		if _, ok := existing[episodeKey(1, episode)]; ok {
+			continue
+		}
+		missing = append(missing, episode)
+	}
+	return missing
+}
+
+func availabilityQuery(title, keyword string) string {
+	for _, candidate := range []string{keyword, title} {
+		cleaned := cleanAvailabilityTitle(candidate)
+		if cleaned != "" {
+			return cleaned
+		}
+	}
+	return ""
+}
+
+func cleanAvailabilityTitle(value string) string {
+	value = availabilityNoiseRE.ReplaceAllString(value, " ")
+	value = strings.TrimSpace(strings.Join(strings.Fields(value), " "))
+	value = strings.TrimSuffix(value, "-")
+	value = strings.TrimSpace(value)
+	return value
+}
+
+func episodeKey(season, episode int) string {
+	if season <= 0 {
+		season = 1
+	}
+	return fmt.Sprintf("%02dE%03d", season, episode)
+}
+
+func missingEpisodeSet(availability LocalAvailability) map[int]struct{} {
+	out := make(map[int]struct{}, len(availability.MissingEpisodes))
+	for _, episode := range availability.MissingEpisodes {
+		out[episode] = struct{}{}
+	}
+	return out
+}
+
+func sortedEpisodeCandidates(candidates []siteSearchCandidate) []siteSearchCandidate {
+	byEpisode := make(map[string]siteSearchCandidate)
+	order := make([]string, 0, len(candidates))
+	for _, candidate := range candidates {
+		if candidate.Episode <= 0 {
+			continue
+		}
+		season := candidate.Season
+		if season <= 0 {
+			season = 1
+		}
+		key := episodeKey(season, candidate.Episode)
+		if current, ok := byEpisode[key]; ok {
+			if current.Score < candidate.Score {
+				byEpisode[key] = candidate
+			}
+			continue
+		}
+		byEpisode[key] = candidate
+		order = append(order, key)
+	}
+	sort.Strings(order)
+	selected := make([]siteSearchCandidate, 0, len(order))
+	for _, key := range order {
+		selected = append(selected, byEpisode[key])
+	}
+	return selected
+}

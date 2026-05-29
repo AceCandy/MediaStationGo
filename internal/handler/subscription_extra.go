@@ -30,6 +30,7 @@ type subscriptionPatchReq struct {
 	ExcludeWords  *string `json:"exclude_words"`
 	WashEnabled   *bool   `json:"wash_enabled"`
 	WashPriority  *string `json:"wash_priority"`
+	TotalEpisodes *int    `json:"total_episodes"`
 	Priority      *int    `json:"priority"`
 	Enabled       *bool   `json:"enabled"`
 }
@@ -116,6 +117,9 @@ func subscriptionPatchUpdates(patch subscriptionPatchReq) map[string]any {
 	}
 	if patch.WashPriority != nil {
 		updates["wash_priority"] = *patch.WashPriority
+	}
+	if patch.TotalEpisodes != nil {
+		updates["total_episodes"] = *patch.TotalEpisodes
 	}
 	if patch.Priority != nil {
 		updates["priority"] = *patch.Priority

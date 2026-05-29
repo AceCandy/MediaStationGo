@@ -103,6 +103,14 @@ func schemaHandler(_ *service.Container) gin.HandlerFunc {
 						{"key": "qbittorrent.savepath", "type": "text"},
 					},
 				},
+				{
+					"key":   "license",
+					"label": "授权服务",
+					"items": []gin.H{
+						{"key": "license.server_url", "type": "text", "label": "License Server 地址"},
+						{"key": "license.hmac_secret", "type": "text", "label": "HMAC 签名密钥"},
+					},
+				},
 			},
 		})
 	}

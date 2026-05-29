@@ -3,7 +3,7 @@ import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-do
 import { AnimatePresence, motion } from 'framer-motion'
 import {
   Activity, Bell, Clock, CloudDownload, Compass, Film,
-  Cast, Globe, HardDrive, Heart, Home, Image,
+  Cast, Globe, HardDrive, Heart, Home, Image, KeySquare,
   ListMusic, LogOut, Rss, Search,
   Settings, Sliders, Sparkles, UserCog, Wrench,
   Library as LibraryIcon, User as UserIcon, ChevronDown, Menu, X
@@ -11,12 +11,17 @@ import {
 import clsx from 'clsx'
 import { AppFooter } from './AppFooter'
 import { useAuthStore } from '../stores/auth'
+import { usePermissionStore } from '../stores/permissions'
 
 export function Layout() {
   const navigate = useNavigate()
   const location = useLocation()
   const user = useAuthStore((s) => s.user)
   const logout = useAuthStore((s) => s.logout)
+  const permissions = usePermissionStore((s) => s.permissions)
+  const isSuper = usePermissionStore((s) => s.isSuper)
+  const isPermissionLoading = usePermissionStore((s) => s.isLoading)
+  const fetchPermissions = usePermissionStore((s) => s.fetchPermissions)
   const [isSidebarOpen, setIsSidebarOpen] = useState(true)
   const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState(false)
   const [isProfileOpen, setIsProfileOpen] = useState(false)
@@ -40,6 +45,15 @@ export function Layout() {
   useEffect(() => {
     setIsMobileDrawerOpen(false)
   }, [location.pathname])
+
+  useEffect(() => {
+    if (user && !isPermissionLoading && Object.keys(permissions).length === 0) {
+      fetchPermissions().catch(() => undefined)
+    }
+  }, [fetchPermissions, isPermissionLoading, permissions, user])
+
+  const isAdmin = user?.role === 'admin'
+  const can = (key: string) => isAdmin || isSuper || permissions[key] === true
 
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -93,10 +107,10 @@ export function Layout() {
             <SidebarLink to="/" icon={<Home size={18} />} label="系统首页" end collapsed={!isSidebarOpen && !isMobileDrawerOpen} />
             <SidebarLink to="/libraries" icon={<LibraryIcon size={18} />} label="媒体库" collapsed={!isSidebarOpen && !isMobileDrawerOpen} />
             <SidebarLink to="/poster-wall" icon={<Image size={18} />} label="海报墙" collapsed={!isSidebarOpen && !isMobileDrawerOpen} />
-            <SidebarLink to="/discover" icon={<Compass size={18} />} label="精彩发现" collapsed={!isSidebarOpen && !isMobileDrawerOpen} />
-            <SidebarLink to="/search" icon={<Search size={18} />} label="智能搜索" collapsed={!isSidebarOpen && !isMobileDrawerOpen} />
-            <SidebarLink to="/dlna" icon={<Cast size={18} />} label="DLNA 投屏" collapsed={!isSidebarOpen && !isMobileDrawerOpen} />
-            <SidebarLink to="/ai" icon={<Sparkles size={18} />} label="AI 助理" collapsed={!isSidebarOpen && !isMobileDrawerOpen} />
+            {can('can_view_discover') && <SidebarLink to="/discover" icon={<Compass size={18} />} label="精彩发现" collapsed={!isSidebarOpen && !isMobileDrawerOpen} />}
+            {can('can_use_ai') && <SidebarLink to="/search" icon={<Search size={18} />} label="智能搜索" collapsed={!isSidebarOpen && !isMobileDrawerOpen} />}
+            {can('can_cast') && <SidebarLink to="/dlna" icon={<Cast size={18} />} label="DLNA 投屏" collapsed={!isSidebarOpen && !isMobileDrawerOpen} />}
+            {can('can_use_ai_assistant') && <SidebarLink to="/ai" icon={<Sparkles size={18} />} label="AI 助理" collapsed={!isSidebarOpen && !isMobileDrawerOpen} />}
           </div>
         </div>
 
@@ -112,18 +126,18 @@ export function Layout() {
         </div>
 
         {/* Navigation Group: Automation */}
-        <div>
+        {(can('can_manage_downloads') || can('can_manage_subscriptions') || can('can_manage_sites')) && <div>
           <SectionHeader label="下载订阅" visible={isSidebarOpen || isMobileDrawerOpen} />
           <div className="space-y-1">
-            <SidebarLink to="/downloads" icon={<CloudDownload size={18} />} label="下载中心" collapsed={!isSidebarOpen && !isMobileDrawerOpen} />
-            <SidebarLink to="/download-clients" icon={<Sliders size={18} />} label="下载器管理" collapsed={!isSidebarOpen && !isMobileDrawerOpen} />
-            <SidebarLink to="/subscriptions" icon={<Rss size={18} />} label="订阅管理" collapsed={!isSidebarOpen && !isMobileDrawerOpen} />
-            <SidebarLink to="/site-search" icon={<Search size={18} />} label="站点检索" collapsed={!isSidebarOpen && !isMobileDrawerOpen} />
+            {can('can_manage_downloads') && <SidebarLink to="/downloads" icon={<CloudDownload size={18} />} label="下载中心" collapsed={!isSidebarOpen && !isMobileDrawerOpen} />}
+            {isAdmin && <SidebarLink to="/download-clients" icon={<Sliders size={18} />} label="下载器管理" collapsed={!isSidebarOpen && !isMobileDrawerOpen} />}
+            {can('can_manage_subscriptions') && <SidebarLink to="/subscriptions" icon={<Rss size={18} />} label="订阅管理" collapsed={!isSidebarOpen && !isMobileDrawerOpen} />}
+            {can('can_manage_sites') && <SidebarLink to="/site-search" icon={<Search size={18} />} label="站点检索" collapsed={!isSidebarOpen && !isMobileDrawerOpen} />}
           </div>
-        </div>
+        </div>}
 
         {/* Navigation Group: Admin Dashboard */}
-        {user?.role === 'admin' && (
+        {isAdmin && (
           <div>
             <SectionHeader label="统一管理" visible={isSidebarOpen || isMobileDrawerOpen} />
             <div className="space-y-1">
@@ -132,6 +146,7 @@ export function Layout() {
               <SidebarLink to="/tools" icon={<Wrench size={18} />} label="整理与维护" collapsed={!isSidebarOpen && !isMobileDrawerOpen} />
               <SidebarLink to="/storage" icon={<HardDrive size={18} />} label="存储与文件" collapsed={!isSidebarOpen && !isMobileDrawerOpen} />
               <SidebarLink to="/stats" icon={<Activity size={18} />} label="运行状态" collapsed={!isSidebarOpen && !isMobileDrawerOpen} />
+              <SidebarLink to="/license" icon={<KeySquare size={18} />} label="授权许可" collapsed={!isSidebarOpen && !isMobileDrawerOpen} />
               <SidebarLink to="/settings" icon={<Sliders size={18} />} label="系统设置" collapsed={!isSidebarOpen && !isMobileDrawerOpen} />
             </div>
           </div>

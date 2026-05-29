@@ -5,6 +5,7 @@ import { Globe, Plus, Trash2, Wifi, RefreshCw, X, Edit3, CheckCircle, XCircle, H
 import { sitesAPI } from '../api/sites'
 import type { Site } from '../types'
 import { ManagementShortcuts } from '../components/ManagementShortcuts'
+import { confirmAction } from '../components/ConfirmDialog'
 
 // ── 站点类型映射 ──
 const SITE_TYPE_LABELS: Record<string, string> = {
@@ -215,7 +216,7 @@ export function SitesPage() {
 
   // ── 删除 ──
   const handleDelete = async (site: Site) => {
-    if (!confirm(`确定要删除站点「${site.name}」吗？此操作不可撤销。`)) return
+    if (!(await confirmAction({ title: '删除站点', message: `确定要删除站点「${site.name}」吗？此操作不可撤销。`, confirmText: '删除' }))) return
     try {
       await sitesAPI.remove(site.id)
       toast.success('站点已删除')

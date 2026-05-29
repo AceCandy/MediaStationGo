@@ -10,6 +10,8 @@ export interface User {
   avatar_url?: string
   force_password_reset: boolean
   is_active: boolean
+  is_default_admin?: boolean
+  is_protected?: boolean
   last_login_at?: string
   created_at: string
   updated_at: string
@@ -189,6 +191,11 @@ export interface Subscription {
   exclude_words?: string
   wash_enabled?: boolean
   wash_priority?: string
+  total_episodes?: number
+  downloaded_episodes?: number
+  local_media_count?: number
+  missing_episodes?: number[]
+  in_library?: boolean
   priority?: number
   enabled: boolean
   last_run_at?: string

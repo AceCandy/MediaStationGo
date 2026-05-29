@@ -248,6 +248,7 @@ export function AIAssistantPage() {
                               poster_url: item.poster_url,
                               backdrop_url: item.backdrop_url,
                               overview: item.overview,
+                              total_episodes: item.total_episodes,
                               enabled: true,
                             })
                             const run = await subscriptionsAPI.runNow(sub.id)

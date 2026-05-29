@@ -39,6 +39,7 @@ func smartSearchHandler(svc *service.Container) gin.HandlerFunc {
 			svc.Douban,
 			svc.Bangumi,
 		)
+		service.EnrichExternalMediaAvailability(c.Request.Context(), svc.Repo, external)
 		c.JSON(http.StatusOK, gin.H{
 			"intent":         intent,
 			"items":          items,

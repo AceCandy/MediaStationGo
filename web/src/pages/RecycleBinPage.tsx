@@ -3,6 +3,7 @@ import toast from 'react-hot-toast'
 import { RotateCcw, Trash2 } from 'lucide-react'
 
 import { recycleAPI } from '../api/recycle'
+import { confirmAction } from '../components/ConfirmDialog'
 import type { Media } from '../types'
 
 export function RecycleBinPage() {
@@ -60,7 +61,7 @@ export function RecycleBinPage() {
                     <button
                       className="rounded-lg border border-red-400/40 px-2 py-1 text-xs text-red-400 hover:bg-red-400/10"
                       onClick={async () => {
-                        if (!confirm(`彻底删除「${m.title}」? (磁盘文件保留)`)) return
+                        if (!(await confirmAction({ title: '彻底删除记录', message: `彻底删除「${m.title}」? (磁盘文件保留)`, confirmText: '彻底删除' }))) return
                         await recycleAPI.purge(m.id)
                         toast.success('已彻底删除')
                         await refresh()

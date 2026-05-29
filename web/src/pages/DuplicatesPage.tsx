@@ -4,6 +4,7 @@ import { Copy, Trash2 } from 'lucide-react'
 
 import { duplicatesAPI, type DuplicateReport } from '../api/duplicates'
 import { libraryAPI } from '../api/library'
+import { confirmAction } from '../components/ConfirmDialog'
 import type { Library } from '../types'
 
 function fmtBytes(n: number): string {
@@ -50,7 +51,7 @@ export function DuplicatesPage() {
   }
 
   const unmark = async () => {
-    if (!confirm('清除所有重复标记?(磁盘文件不会被删除)')) return
+    if (!(await confirmAction({ title: '清除重复标记', message: '清除所有重复标记?(磁盘文件不会被删除)', confirmText: '清除' }))) return
     const r = await duplicatesAPI.unmark(libID)
     toast.success(`已清除 ${r.unmarked} 项`)
     setReport(null)

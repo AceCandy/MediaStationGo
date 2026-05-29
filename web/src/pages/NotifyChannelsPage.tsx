@@ -6,6 +6,7 @@ import {
   notifyChannelsAPI,
   type NotifyChannelInput,
 } from '../api/notify_channels'
+import { confirmAction } from '../components/ConfirmDialog'
 import type { NotifyChannel } from '../types'
 
 // NotifyChannelsPage replaces the Vue NotifyTab. Operators can register
@@ -42,7 +43,7 @@ export function NotifyChannelsPage() {
   }
 
   const onDelete = async (ch: NotifyChannel) => {
-    if (!confirm(`确定删除「${ch.name}」?`)) return
+    if (!(await confirmAction({ title: '删除通知渠道', message: `确定删除「${ch.name}」?`, confirmText: '删除' }))) return
     try {
       await notifyChannelsAPI.remove(ch.id)
       toast.success('已删除')

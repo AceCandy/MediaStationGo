@@ -5,6 +5,7 @@ import { ArrowDown, ArrowUp, Download, Film, HardDrive, Rss, ShieldCheck, Trash2
 import { imageURL } from '../api/client'
 import { downloadsAPI } from '../api/downloads'
 import { useAuthStore } from '../stores/auth'
+import { confirmAction } from '../components/ConfirmDialog'
 import type { DownloadTask, QBitTorrent } from '../types'
 
 type DownloadCardItem = {
@@ -297,7 +298,7 @@ export function DownloadsPage() {
                 item={toLiveCard(torrent)}
                 removable={role === 'admin'}
                 onRemove={async () => {
-                  if (!confirm(`删除「${torrent.title || torrent.name}」?`)) return
+                  if (!(await confirmAction({ title: '删除下载任务', message: `删除「${torrent.title || torrent.name}」?`, confirmText: '删除' }))) return
                   await downloadsAPI.remove(torrent.hash, false)
                   toast.success('已删除任务')
                   await refresh()

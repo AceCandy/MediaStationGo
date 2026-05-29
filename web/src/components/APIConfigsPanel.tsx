@@ -3,6 +3,7 @@ import toast from 'react-hot-toast'
 import { Eye, KeyRound, Save, Trash2, X } from 'lucide-react'
 
 import { apiConfigsAPI, type APIConfig } from '../api/api_configs'
+import { confirmAction } from './ConfirmDialog'
 
 // Compact inline-editable provider table for use inside AdminPage's "外部API" tab.
 export function APIConfigsPanel() {
@@ -112,7 +113,7 @@ export function APIConfigsPanel() {
                         {item.has_key && (
                           <button
                             onClick={async () => {
-                              if (!confirm(`确定清除 ${item.provider} 的 API Key?`)) return
+                              if (!(await confirmAction({ title: '清除 API Key', message: `确定清除 ${item.provider} 的 API Key?`, confirmText: '清除' }))) return
                               await apiConfigsAPI.remove(item.provider)
                               toast.success('已清除')
                               refresh()

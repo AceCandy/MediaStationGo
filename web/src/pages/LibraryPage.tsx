@@ -7,6 +7,7 @@ import { ArrowLeft, Play, Film } from 'lucide-react'
 import { libraryAPI } from '../api/library'
 import type { Library, Media } from '../types'
 import { MediaCard } from '../components/MediaCard'
+import { ExternalPlayerButton } from '../components/ExternalPlayerButton'
 import { imageURL } from '../api/client'
 import { useAuthStore } from '../stores/auth'
 import { getSeriesKey, groupSeries, isEpisodeLike, seriesTitle, type SeriesCard } from '../utils/groupSeries'
@@ -248,10 +249,13 @@ export function LibraryPage() {
                   )
                   const first = firstEps.length > 0 ? firstEps[0] : null
                   return first ? (
-                    <Link to={`/play/${first.id}`} className="btn-primary inline-flex">
-                      <Play size={16} fill="currentColor" />
-                      从第一集开始播放
-                    </Link>
+                    <div className="flex flex-wrap gap-2">
+                      <Link to={`/play/${first.id}`} className="btn-primary inline-flex">
+                        <Play size={16} fill="currentColor" />
+                        从第一集开始播放
+                      </Link>
+                      <ExternalPlayerButton mediaId={first.id} label="外部播放器播放" />
+                    </div>
                   ) : null
                 })()}
               </div>
@@ -282,26 +286,28 @@ export function LibraryPage() {
                 </h3>
                 <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
                   {visibleEpisodes.map((ep) => (
-                    <Link
+                    <div
                       key={ep.id}
-                      to={`/play/${ep.id}`}
                       className="group flex items-center gap-3 rounded-xl border border-sand-200 bg-white p-3 shadow-card transition-all hover:border-brand-300 hover:shadow-card-hover"
                     >
-                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-600 font-semibold text-sm">
-                        {ep.episode_num || '—'}
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-medium text-ink-600">
-                          {ep.original_name || (ep.episode_num > 0 ? `第 ${ep.episode_num} 集` : ep.title)}
-                        </p>
-                        <p className="text-xs text-sand-500">
-                          {ep.duration_sec > 0
-                            ? `${Math.floor(ep.duration_sec / 60)} 分钟`
-                            : formatSize(ep.size_bytes)}
-                        </p>
-                      </div>
-                      <Play size={14} className="shrink-0 text-gray-500 opacity-0 transition-opacity group-hover:opacity-100 group-hover:text-brand-500" />
-                    </Link>
+                      <Link to={`/play/${ep.id}`} className="flex min-w-0 flex-1 items-center gap-3">
+                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-600 font-semibold text-sm">
+                          {ep.episode_num || '—'}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-medium text-ink-600">
+                            {ep.original_name || (ep.episode_num > 0 ? `第 ${ep.episode_num} 集` : ep.title)}
+                          </p>
+                          <p className="text-xs text-sand-500">
+                            {ep.duration_sec > 0
+                              ? `${Math.floor(ep.duration_sec / 60)} 分钟`
+                              : formatSize(ep.size_bytes)}
+                          </p>
+                        </div>
+                        <Play size={14} className="shrink-0 text-gray-500 opacity-0 transition-opacity group-hover:opacity-100 group-hover:text-brand-500" />
+                      </Link>
+                      <ExternalPlayerButton mediaId={ep.id} label="外部" compact />
+                    </div>
                   ))}
                 </div>
               </div>

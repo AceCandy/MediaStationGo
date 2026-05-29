@@ -1,12 +1,13 @@
 import { FormEvent, useEffect, useState } from 'react'
 import toast from 'react-hot-toast'
-import { Trash2 } from 'lucide-react'
+import { Pencil, Plus, ShieldCheck, Trash2, X } from 'lucide-react'
 
 import { adminAPI } from '../api/admin'
 import { libraryAPI } from '../api/library'
 import type { Library, User } from '../types'
 import { APIConfigsPanel } from '../components/APIConfigsPanel'
 import { ManagementShortcuts } from '../components/ManagementShortcuts'
+import { confirmAction } from '../components/ConfirmDialog'
 
 export function AdminPage() {
   const [tab, setTab] = useState<'library' | 'users' | 'api'>('library')
@@ -141,7 +142,7 @@ function LibraryPanel() {
                   <button
                     className="rounded-lg border border-red-400/40 px-2 py-1 text-xs text-red-400 hover:bg-red-400/10"
                     onClick={async () => {
-                      if (!confirm(`确定删除「${l.name}」?`)) return
+                      if (!(await confirmAction({ title: '删除媒体库', message: `确定删除「${l.name}」?`, confirmText: '删除' }))) return
                       await libraryAPI.remove(l.id)
                       toast.success('已删除')
                       await refresh()
@@ -161,47 +162,167 @@ function LibraryPanel() {
 
 function UsersPanel() {
   const [users, setUsers] = useState<User[]>([])
+  const [username, setUsername] = useState('')
+  const [password, setPassword] = useState('')
+  const [editingID, setEditingID] = useState<string | null>(null)
+  const [editingUsername, setEditingUsername] = useState('')
   const refresh = () => adminAPI.listUsers().then(setUsers)
   useEffect(() => {
     refresh().catch(() => undefined)
   }, [])
 
+  const handleCreate = async (e: FormEvent) => {
+    e.preventDefault()
+    try {
+      await adminAPI.createUser({ username, password })
+      toast.success('用户已添加，默认仅允许浏览与播放媒体')
+      setUsername('')
+      setPassword('')
+      await refresh()
+    } catch (err: unknown) {
+      const msg =
+        (err as { response?: { data?: { error?: string } } })?.response?.data?.error ??
+        '添加用户失败'
+      toast.error(msg)
+    }
+  }
+
+  const startEdit = (u: User) => {
+    setEditingID(u.id)
+    setEditingUsername(u.username)
+  }
+
+  const saveEdit = async (id: string) => {
+    try {
+      await adminAPI.updateUser(id, { username: editingUsername })
+      toast.success('用户名已更新')
+      setEditingID(null)
+      await refresh()
+    } catch (err: unknown) {
+      const msg =
+        (err as { response?: { data?: { error?: string } } })?.response?.data?.error ??
+        '更新失败'
+      toast.error(msg)
+    }
+  }
+
   return (
-    <div className="glass-panel">
-      <table className="w-full text-left text-sm">
-        <thead className="text-xs uppercase tracking-wider text-sand-500">
-          <tr>
-            <th className="py-2">用户名</th>
-            <th>角色</th>
-            <th>最近登录</th>
-            <th className="text-right">操作</th>
-          </tr>
-        </thead>
-        <tbody>
-          {users.map((u) => (
-            <tr key={u.id} className="border-t border-gray-200">
-              <td className="py-2 text-ink-600">{u.username}</td>
-              <td className="text-ink-100">{u.role}</td>
-              <td className="text-ink-50">
-                {u.last_login_at ? new Date(u.last_login_at).toLocaleString() : '从未登录'}
-              </td>
-              <td className="py-2 text-right">
-                <button
-                  className="rounded-lg border border-red-400/40 px-2 py-1 text-xs text-red-400 hover:bg-red-400/10"
-                  onClick={async () => {
-                    if (!confirm(`确定删除「${u.username}」?`)) return
-                    await adminAPI.deleteUser(u.id)
-                    toast.success('已删除')
-                    await refresh()
-                  }}
-                >
-                  <Trash2 size={12} />
-                </button>
-              </td>
+    <div className="space-y-6">
+      <form onSubmit={handleCreate} className="glass-panel grid gap-3 md:grid-cols-[1fr_1fr_auto]">
+        <div className="md:col-span-3 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="font-display text-lg font-semibold text-ink-600">用户管理</h2>
+            <p className="text-xs text-sand-500">
+              已创建 {users.length}/20 个用户；新增用户默认只有媒体库浏览、播放、外部播放器与第三方客户端观看权限。
+            </p>
+          </div>
+          <span className="rounded-full border border-primary-400/30 px-3 py-1 text-xs text-brand-500">
+            默认管理员不可删除 · 最高权限
+          </span>
+        </div>
+        <input
+          required
+          className="input-base"
+          placeholder="用户名"
+          value={username}
+          onChange={(e) => setUsername(e.target.value)}
+          disabled={users.length >= 20}
+        />
+        <input
+          required
+          minLength={6}
+          className="input-base"
+          placeholder="初始密码（至少 6 位）"
+          type="password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          disabled={users.length >= 20}
+        />
+        <button type="submit" className="neon-button inline-flex items-center justify-center gap-2" disabled={users.length >= 20}>
+          <Plus size={16} />
+          添加用户
+        </button>
+      </form>
+
+      <div className="glass-panel overflow-x-auto">
+        <table className="w-full text-left text-sm">
+          <thead className="text-xs uppercase tracking-wider text-sand-500">
+            <tr>
+              <th className="py-2">用户名</th>
+              <th>角色</th>
+              <th>权限说明</th>
+              <th>最近登录</th>
+              <th className="text-right">操作</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {users.map((u) => (
+              <tr key={u.id} className="border-t border-gray-200">
+                <td className="py-2 text-ink-600">
+                  {editingID === u.id ? (
+                    <input
+                      className="input-base h-9 max-w-48"
+                      value={editingUsername}
+                      onChange={(e) => setEditingUsername(e.target.value)}
+                    />
+                  ) : (
+                    <span className="inline-flex items-center gap-2">
+                      {u.username}
+                      {u.is_default_admin && <ShieldCheck size={15} className="text-brand-500" />}
+                    </span>
+                  )}
+                </td>
+                <td className="text-ink-100">{u.role === 'admin' ? '管理员' : '观看用户'}</td>
+                <td className="text-ink-50">
+                  {u.role === 'admin' ? '全部管理权限' : '仅浏览/播放/外部播放器，无下载与文件操作'}
+                </td>
+                <td className="text-ink-50">
+                  {u.last_login_at ? new Date(u.last_login_at).toLocaleString() : '从未登录'}
+                </td>
+                <td className="space-x-2 py-2 text-right">
+                  {editingID === u.id ? (
+                    <>
+                      <button
+                        className="rounded-lg border border-primary-400/40 px-2 py-1 text-xs text-brand-500 hover:bg-primary-400/10"
+                        onClick={() => saveEdit(u.id)}
+                      >
+                        保存
+                      </button>
+                      <button
+                        className="rounded-lg border border-gray-300 px-2 py-1 text-xs text-ink-100 hover:bg-gray-100"
+                        onClick={() => setEditingID(null)}
+                      >
+                        <X size={12} />
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      className="rounded-lg border border-primary-400/40 px-2 py-1 text-xs text-brand-500 hover:bg-primary-400/10"
+                      onClick={() => startEdit(u)}
+                    >
+                      <Pencil size={12} />
+                    </button>
+                  )}
+                  <button
+                    className="rounded-lg border border-red-400/40 px-2 py-1 text-xs text-red-400 hover:bg-red-400/10 disabled:cursor-not-allowed disabled:opacity-40"
+                    disabled={u.is_protected}
+                    title={u.is_protected ? '默认管理员禁止删除' : '删除用户'}
+                    onClick={async () => {
+                      if (u.is_protected) return
+                      if (!(await confirmAction({ title: '删除用户', message: `确定删除「${u.username}」?`, confirmText: '删除' }))) return
+                      await adminAPI.deleteUser(u.id)
+                      toast.success('已删除')
+                      await refresh()
+                    }}
+                  >
+                    <Trash2 size={12} />
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   )
 }

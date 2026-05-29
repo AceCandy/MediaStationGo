@@ -43,6 +43,8 @@ type User struct {
 	ForcePasswordReset bool       `gorm:"default:false" json:"force_password_reset"`
 	IsActive           bool       `gorm:"default:true" json:"is_active"`
 	LastLoginAt        *time.Time `json:"last_login_at,omitempty"`
+	IsDefaultAdmin     bool       `gorm:"-" json:"is_default_admin,omitempty"`
+	IsProtected        bool       `gorm:"-" json:"is_protected,omitempty"`
 }
 
 // Library 表示用户定义的媒体根目录。
@@ -206,9 +208,15 @@ type Subscription struct {
 	ExcludeWords  string     `gorm:"size:255" json:"exclude_words,omitempty"`  // comma separated
 	WashEnabled   bool       `gorm:"default:false" json:"wash_enabled"`
 	WashPriority  string     `gorm:"size:32" json:"wash_priority,omitempty"` // balanced / resolution / quality / effects / seeders
-	Priority      int        `gorm:"default:50" json:"priority,omitempty"`   // lower is earlier when schedulers sort later
+	TotalEpisodes int        `gorm:"default:0" json:"total_episodes,omitempty"`
+	Priority      int        `gorm:"default:50" json:"priority,omitempty"` // lower is earlier when schedulers sort later
 	Enabled       bool       `gorm:"default:true" json:"enabled"`
 	LastRunAt     *time.Time `json:"last_run_at,omitempty"`
+
+	DownloadedEpisodes int   `gorm:"-" json:"downloaded_episodes,omitempty"`
+	LocalMediaCount    int   `gorm:"-" json:"local_media_count,omitempty"`
+	MissingEpisodes    []int `gorm:"-" json:"missing_episodes,omitempty"`
+	InLibrary          bool  `gorm:"-" json:"in_library"`
 }
 
 // Setting 是单个键/值系统级偏好（供管理 UI 使用）。

@@ -87,6 +87,12 @@ ai:
   timeout: 30
   max_concurrent: 3
 
+license:
+  # Optional private MediaStationLicenseServer bridge.
+  # Open-source mode works without this and is limited to 20 users.
+  server_url: ""        # e.g. http://127.0.0.1:8001
+  hmac_secret: ""       # must match LICENSE_HMAC_SECRET on the license server
+
 # FlareSolverr 配置（用于绕过 Cloudflare/WAF 保护）
 flaresolverr:
   enabled: false

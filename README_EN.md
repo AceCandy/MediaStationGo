@@ -53,6 +53,13 @@ The current base license is `GPL-3.0`, and contributions are welcome under that 
 
 > Note: GPL-3.0 is a free software license, and the formal grant is defined by the repository [LICENSE](LICENSE) file. The non-commercial commitment above expresses the maintainer's intended usage boundary and commercial cooperation requirements. For commercial cooperation, enterprise deployment, or redistribution, contact the author for additional authorization first.
 
+### Source Availability and Docker Support Boundary
+
+- The public repository currently uses `GPL-3.0` as its base license. If a component is GPL-derived, distributing it only as a Docker image does not remove the corresponding source-distribution obligations.
+- The project can still define its official support scope as **Docker-first / Docker-only support**: Docker Compose, GHCR images, and container deployment docs are maintained as the supported path, while bare-metal binaries can be community/best-effort.
+- If some future functionality needs to be closed-source, keep it as a separate plugin, private service, or independently implemented module whose license boundary is clean. GPL-covered code should remain available under GPL terms.
+- The README non-commercial statement describes the maintainer's intended usage boundary and commercial authorization requirement; the formal code license remains governed by [LICENSE](LICENSE).
+
 ---
 
 ## 🚀 Live Demo
@@ -228,7 +235,7 @@ mkdir -p data cache media downloads
 
 ```bash
 cat > .env <<'EOF'
-MEDIASTATION_IMAGE_TAG=MediaStationGo-v0.0.11
+MEDIASTATION_IMAGE_TAG=MediaStationGo-v0.0.15
 MEDIASTATION_HTTP_PORT=18080
 MEDIASTATION_DATA_DIR=./data
 MEDIASTATION_CACHE_DIR=./cache
@@ -337,7 +344,7 @@ For production, pin a specific release tag instead of using `latest`. Recommende
 
 ```bash
 cat > .env <<'EOF'
-MEDIASTATION_IMAGE_TAG=MediaStationGo-v0.0.11
+MEDIASTATION_IMAGE_TAG=MediaStationGo-v0.0.15
 MEDIASTATION_HTTP_PORT=18080
 MEDIASTATION_DATA_DIR=./data
 MEDIASTATION_CACHE_DIR=./cache
@@ -586,25 +593,25 @@ Each release provides multi-platform archives:
 
 | Platform | Package example |
 | --- | --- |
-| Linux x86_64 | `MediaStationGo-v0.0.11-linux-amd64.tar.gz` |
-| Linux ARM64 | `MediaStationGo-v0.0.11-linux-arm64.tar.gz` |
-| Windows x86_64 | `MediaStationGo-v0.0.11-windows-amd64.zip` |
-| macOS Intel | `MediaStationGo-v0.0.11-darwin-amd64.tar.gz` |
-| macOS Apple Silicon | `MediaStationGo-v0.0.11-darwin-arm64.tar.gz` |
+| Linux x86_64 | `MediaStationGo-v0.0.15-linux-amd64.tar.gz` |
+| Linux ARM64 | `MediaStationGo-v0.0.15-linux-arm64.tar.gz` |
+| Windows x86_64 | `MediaStationGo-v0.0.15-windows-amd64.zip` |
+| macOS Intel | `MediaStationGo-v0.0.15-darwin-amd64.tar.gz` |
+| macOS Apple Silicon | `MediaStationGo-v0.0.15-darwin-arm64.tar.gz` |
 
 Linux example:
 
 ```bash
-tar -xzf MediaStationGo-v0.0.11-linux-amd64.tar.gz
-cd MediaStationGo-v0.0.11-linux-amd64
+tar -xzf MediaStationGo-v0.0.15-linux-amd64.tar.gz
+cd MediaStationGo-v0.0.15-linux-amd64
 MEDIASTATION_APP_PORT=18080 ./mediastation-go
 ```
 
 Windows example:
 
 ```powershell
-Expand-Archive .\MediaStationGo-v0.0.11-windows-amd64.zip
-cd .\MediaStationGo-v0.0.11-windows-amd64
+Expand-Archive .\MediaStationGo-v0.0.15-windows-amd64.zip
+cd .\MediaStationGo-v0.0.15-windows-amd64
 $env:MEDIASTATION_APP_PORT = "18080"
 .\mediastation-go.exe
 ```
@@ -719,6 +726,47 @@ Runtime settings from the admin UI:
 - Download clients: qBittorrent, Transmission, Aria2.
 - Notifications: Telegram, Bark, Webhook, Email.
 - Playback profiles, permissions, scheduler tasks, storage settings.
+
+---
+
+## 👥 Users and Permissions
+
+- The default administrator is created on first startup as `admin / admin123`. This account can be renamed, but it cannot be deleted or demoted and always keeps the highest privileges.
+- The open-source edition allows up to 20 users by default to reduce abuse on home NAS or public test instances. Binding a private license server can raise the quota according to the activated license policy.
+- Users created from the admin panel are “viewer users” by default: they can log in through the Web UI and Emby-compatible clients, browse libraries, play media, use external players, favorite items, and keep watch history.
+- Viewer users cannot scan libraries, rescrape metadata, delete media, probe media tracks, export NFO files, manage files, manage STRM links, manage download clients, create download tasks, or create/run subscriptions.
+- Because playback necessarily streams media data to the client, MediaStationGo can block download-management features and torrent/download tasks, but it cannot fully prevent an authorized browser or external player from saving an already authorized stream at the protocol level.
+
+---
+
+## 🔐 Private License Server
+
+MediaStationGo includes a server-side bridge for the private standalone `MediaStationLicenseServer`:
+
+- License server: `ShukeBta/MediaStationLicenseServer`; a local backup may live at `C:\Users\Administrator\WorkBuddy\license_server_backup`.
+- MediaStationGo exposes `/api/license/activate`, `/api/license/status`, and `/api/license/heartbeat`; these backend routes proxy the License Server and do not expose the HMAC secret to browsers.
+- License Server public endpoints are `/api/v1/activate`, `/api/v1/status/:fingerprint`, and `/api/v1/heartbeat`.
+- Configure `license.server_url` and `license.hmac_secret` under Settings → License Server, then bind a key on the License page.
+- Without a valid license, MediaStationGo stays in open-source mode. With a valid license, the current implementation raises the user quota to the licensed tier.
+
+Example environment variables:
+
+```bash
+MEDIASTATION_LICENSE_SERVER_URL=http://127.0.0.1:8001
+MEDIASTATION_LICENSE_HMAC_SECRET=must-match-LICENSE_HMAC_SECRET
+```
+
+---
+
+## 🎞️ On-Demand FFmpeg / ffprobe
+
+MediaStationGo does not keep `ffmpeg` or `ffprobe` running as resident daemons. They are launched only when needed:
+
+- `ffprobe` runs during library scanning or manual media-track probing.
+- `ffmpeg` runs when browser direct play is not suitable and HLS transcoding is required.
+- Admin tool-status checks or manual tool installation may briefly execute version checks/install logic.
+
+When playback stops, a transcode job is cancelled, or the service shuts down, the corresponding transcoding process is stopped. If there is no scanning, probing, or transcoding, `ffmpeg/ffprobe` should not continuously consume CPU.
 
 ---
 

@@ -18,7 +18,8 @@ import (
 	"github.com/ShukeBta/MediaStationGo/internal/config"
 )
 
-// AutoInstallFFmpeg 在启动时检测并自动安装 ffmpeg/ffprobe
+// AutoInstallFFmpeg is only called by the admin tool-install endpoint. The
+// server must not auto-download or keep ffmpeg/ffprobe running during startup.
 func AutoInstallFFmpeg(log *zap.Logger, cfg *config.Config) (ffprobePath, ffmpegPath string) {
 	// 1. 优先使用配置 / PATH / 本机常见软件目录中的现有工具。
 	if path, err := resolveLocalExecutable(cfg.App.FFprobePath, "ffprobe"); err == nil {

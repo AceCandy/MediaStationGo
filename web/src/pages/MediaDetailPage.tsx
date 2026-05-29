@@ -11,6 +11,8 @@ import { imageURL } from '../api/client'
 import { useAuthStore } from '../stores/auth'
 import { api } from '../api/client'
 import type { Media } from '../types'
+import { confirmAction } from '../components/ConfirmDialog'
+import { ExternalPlayerButton } from '../components/ExternalPlayerButton'
 
 function fmtDuration(sec: number): string {
   if (!sec || sec <= 0) return '—'
@@ -107,7 +109,7 @@ export function MediaDetailPage() {
 
   const softDelete = async () => {
     if (!media) return
-    if (!confirm(`将「${media.title}」移至回收站? (磁盘文件保留)`)) return
+    if (!(await confirmAction({ title: '移入回收站', message: `将「${media.title}」移至回收站? (磁盘文件保留)`, confirmText: '移入回收站' }))) return
     await recycleAPI.softDelete(media.id)
     toast.success('已移至回收站')
     navigate(-1)
@@ -286,6 +288,8 @@ export function MediaDetailPage() {
                 <RefreshCw size={14} className="animate-spin-slow" />
                 <span>HLS 兼容转码播放</span>
               </Link>
+
+              <ExternalPlayerButton mediaId={media.id} />
 
               {/* Toggle Favourites */}
               <button

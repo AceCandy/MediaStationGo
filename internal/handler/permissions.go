@@ -16,6 +16,32 @@ import (
 	"github.com/ShukeBta/MediaStationGo/internal/service"
 )
 
+func requirePermission(svc *service.Container, key string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		role, _ := c.Get(middleware.CtxUserRole)
+		if role == "admin" {
+			c.Next()
+			return
+		}
+		uid, _ := c.Get(middleware.CtxUserID)
+		userID, _ := uid.(string)
+		if userID == "" {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
+			return
+		}
+		row, err := svc.Permissions.Effective(c.Request.Context(), userID)
+		if err != nil {
+			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		if row == nil || !row.PermissionMap()[key] {
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "permission denied"})
+			return
+		}
+		c.Next()
+	}
+}
+
 func myPermissionsHandler(svc *service.Container) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		uid, _ := c.Get(middleware.CtxUserID)

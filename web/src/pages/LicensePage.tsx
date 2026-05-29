@@ -198,6 +198,7 @@ export function LicensePage() {
               />
               <StatusBadge label="最近心跳" value={fmtDateTime(activation.heartbeat_at)} />
               <StatusBadge label="客户端 IP" value={activation.ip ?? '—'} />
+              <StatusBadge label="用户额度" value={`${status?.max_users ?? 20} 人`} />
             </div>
           )}
 

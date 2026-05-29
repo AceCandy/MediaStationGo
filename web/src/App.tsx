@@ -102,6 +102,9 @@ const DownloadClientsPage = lazy(() =>
 const StorageConfigPage = lazy(() =>
   import('./pages/StorageConfigPage').then((m) => ({ default: m.StorageConfigPage })),
 )
+const LicensePage = lazy(() =>
+  import('./pages/LicensePage').then((m) => ({ default: m.LicensePage })),
+)
 
 const Loading = () => <p className="px-6 py-8 text-sand-500">加载中…</p>
 
@@ -247,7 +250,11 @@ export default function App() {
           />
           <Route
             path="license"
-            element={<Navigate to="/admin" replace />}
+            element={
+              <RequireAdmin>
+                <LicensePage />
+              </RequireAdmin>
+            }
           />
           <Route
             path="storage-config"

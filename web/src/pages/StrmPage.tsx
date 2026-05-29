@@ -4,6 +4,7 @@ import toast from 'react-hot-toast'
 
 import { libraryAPI, mediaAPI } from '../api/library'
 import { strmAPI } from '../api/strm'
+import { confirmAction } from '../components/ConfirmDialog'
 import type { Library, Media } from '../types'
 
 // StrmPage exposes the URL-as-file admin tooling backed by the Go server:
@@ -97,7 +98,7 @@ export function StrmPage() {
   }
 
   const onDetach = async (m: Media) => {
-    if (!confirm(`清除「${m.title}」的 STRM URL?`)) return
+    if (!(await confirmAction({ title: '清除 STRM URL', message: `清除「${m.title}」的 STRM URL?`, confirmText: '清除' }))) return
     try {
       await strmAPI.clear(m.id)
       toast.success('已清除')

@@ -107,6 +107,13 @@ func (r *UserRepository) FindByID(ctx context.Context, id string) (*model.User, 
 	return &u, nil
 }
 
+// Count returns the total number of non-deleted users.
+func (r *UserRepository) Count(ctx context.Context) (int64, error) {
+	var n int64
+	err := r.db.WithContext(ctx).Model(&model.User{}).Count(&n).Error
+	return n, err
+}
+
 // CountAdmins returns the number of users that hold the admin role.
 func (r *UserRepository) CountAdmins(ctx context.Context) (int64, error) {
 	var n int64
@@ -115,11 +122,30 @@ func (r *UserRepository) CountAdmins(ctx context.Context) (int64, error) {
 	return n, err
 }
 
+// FirstAdmin returns the earliest admin user. This row represents the protected
+// built-in/default administrator even if its username is later changed.
+func (r *UserRepository) FirstAdmin(ctx context.Context) (*model.User, error) {
+	var u model.User
+	err := r.db.WithContext(ctx).Where("role = ?", "admin").Order("created_at asc").First(&u).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &u, nil
+}
+
 // List returns all users ordered by creation time desc.
 func (r *UserRepository) List(ctx context.Context) ([]model.User, error) {
 	var users []model.User
 	err := r.db.WithContext(ctx).Order("created_at desc").Find(&users).Error
 	return users, err
+}
+
+// UpdateFields applies a narrow set of user field updates.
+func (r *UserRepository) UpdateFields(ctx context.Context, id string, updates map[string]any) error {
+	return r.db.WithContext(ctx).Model(&model.User{}).Where("id = ?", id).Updates(updates).Error
 }
 
 // UpdatePassword sets a new password hash and clears ForcePasswordReset.

@@ -285,7 +285,8 @@ func (s *SubscriptionService) runSiteSearch(ctx context.Context, sub *model.Subs
 		seenSet[g] = struct{}{}
 	}
 
-	candidates := selectSiteSearchCandidates(results, sub, seenSet)
+	availability := SubscriptionLocalAvailability(ctx, s.repo, sub)
+	candidates := selectSiteSearchCandidates(results, sub, seenSet, availability)
 	var lastEnqueueErr error
 	queued := 0
 	var resources []string
@@ -343,7 +344,7 @@ func (s *SubscriptionService) runSiteSearch(ctx context.Context, sub *model.Subs
 	return 0, nil
 }
 
-func selectSiteSearchCandidates(results []SearchResult, sub *model.Subscription, seenSet map[string]struct{}) []siteSearchCandidate {
+func selectSiteSearchCandidates(results []SearchResult, sub *model.Subscription, seenSet map[string]struct{}, availability ...LocalAvailability) []siteSearchCandidate {
 	candidates := make([]siteSearchCandidate, 0, len(results))
 	for _, item := range results {
 		if !matchesSubscriptionRules(sub, item.Title) {
@@ -390,40 +391,46 @@ func selectSiteSearchCandidates(results []SearchResult, sub *model.Subscription,
 		return candidates[:1]
 	}
 
+	var local LocalAvailability
+	if len(availability) > 0 {
+		local = availability[0]
+	}
+	if local.LocalMediaCount > 0 {
+		if local.TotalEpisodes > 0 && len(local.MissingEpisodes) == 0 {
+			return nil
+		}
+		missingSet := missingEpisodeSet(local)
+		onlyMissing := make([]siteSearchCandidate, 0, len(candidates))
+		for _, candidate := range candidates {
+			if candidate.Episode <= 0 {
+				continue
+			}
+			season := candidate.Season
+			if season <= 0 {
+				season = 1
+			}
+			if _, exists := local.ExistingEpisodeKeys[episodeKey(season, candidate.Episode)]; exists {
+				continue
+			}
+			if local.TotalEpisodes > 0 {
+				if _, missing := missingSet[candidate.Episode]; !missing {
+					continue
+				}
+			}
+			onlyMissing = append(onlyMissing, candidate)
+		}
+		return sortedEpisodeCandidates(onlyMissing)
+	}
+
 	for _, candidate := range candidates {
 		if candidate.Pack {
 			return []siteSearchCandidate{candidate}
 		}
 	}
 
-	byEpisode := make(map[string]siteSearchCandidate)
-	order := make([]string, 0, len(candidates))
-	for _, candidate := range candidates {
-		if candidate.Episode <= 0 {
-			continue
-		}
-		season := candidate.Season
-		if season <= 0 {
-			season = 1
-		}
-		key := fmt.Sprintf("%02dE%03d", season, candidate.Episode)
-		if current, ok := byEpisode[key]; ok {
-			if current.Score < candidate.Score {
-				byEpisode[key] = candidate
-			}
-			continue
-		}
-		byEpisode[key] = candidate
-		order = append(order, key)
-	}
-	if len(order) == 0 {
+	selected := sortedEpisodeCandidates(candidates)
+	if len(selected) == 0 {
 		return candidates[:1]
-	}
-
-	selected := make([]siteSearchCandidate, 0, len(order))
-	sort.Strings(order)
-	for _, key := range order {
-		selected = append(selected, byEpisode[key])
 	}
 	return selected
 }

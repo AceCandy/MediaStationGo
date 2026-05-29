@@ -47,6 +47,11 @@ func Register(r *gin.Engine, cfg *config.Config, log *zap.Logger, svc *service.C
 			// Permissions.
 			authed.GET("/auth/permissions", getMyPermissionsHandler(svc))
 
+			// License activation bridge (admin only; talks to MediaStationLicenseServer).
+			authed.GET("/license/status", middleware.AdminRequired(), licenseStatusHandler(svc))
+			authed.POST("/license/activate", middleware.AdminRequired(), licenseActivateHandler(svc))
+			authed.POST("/license/heartbeat", middleware.AdminRequired(), licenseHeartbeatHandler(svc))
+
 			// Libraries.
 			authed.GET("/libraries", listLibrariesHandler(svc))
 			authed.POST("/libraries", middleware.AdminRequired(), createLibraryHandler(svc))
@@ -95,35 +100,35 @@ func Register(r *gin.Engine, cfg *config.Config, log *zap.Logger, svc *service.C
 			authed.DELETE("/playlists/:id", deletePlaylistHandler(svc))
 
 			// Downloads.
-			authed.GET("/downloads", listDownloadsHandler(svc))
-			authed.POST("/downloads", addDownloadHandler(svc))
-			authed.DELETE("/downloads/:hash", middleware.AdminRequired(), deleteDownloadHandler(svc))
-			authed.POST("/downloads/reload", middleware.AdminRequired(), reloadDownloadConfigHandler(svc))
+			authed.GET("/downloads", requirePermission(svc, "can_manage_downloads"), listDownloadsHandler(svc))
+			authed.POST("/downloads", requirePermission(svc, "can_manage_downloads"), addDownloadHandler(svc))
+			authed.DELETE("/downloads/:hash", requirePermission(svc, "can_manage_downloads"), deleteDownloadHandler(svc))
+			authed.POST("/downloads/reload", requirePermission(svc, "can_manage_downloads"), reloadDownloadConfigHandler(svc))
 
 			// Subscriptions.
-			authed.GET("/subscriptions", listSubscriptionsHandler(svc))
-			authed.POST("/subscriptions", createSubscriptionHandler(svc))
-			authed.DELETE("/subscriptions/:id", deleteSubscriptionHandler(svc))
-			authed.POST("/subscriptions/:id/run", runSubscriptionHandler(svc))
+			authed.GET("/subscriptions", requirePermission(svc, "can_manage_subscriptions"), listSubscriptionsHandler(svc))
+			authed.POST("/subscriptions", requirePermission(svc, "can_manage_subscriptions"), createSubscriptionHandler(svc))
+			authed.DELETE("/subscriptions/:id", requirePermission(svc, "can_manage_subscriptions"), deleteSubscriptionHandler(svc))
+			authed.POST("/subscriptions/:id/run", requirePermission(svc, "can_manage_subscriptions"), runSubscriptionHandler(svc))
 
 			// Stats / dashboard.
 			authed.GET("/stats", statsHandler(svc))
-			authed.GET("/tasks", tasksHandler(svc))
+			authed.GET("/tasks", middleware.AdminRequired(), tasksHandler(svc))
 
 			// Discover (TMDb trending / popular).
-			authed.GET("/discover/trending", trendingHandler(svc))
-			authed.GET("/discover/popular", popularHandler(svc))
+			authed.GET("/discover/trending", requirePermission(svc, "can_view_discover"), trendingHandler(svc))
+			authed.GET("/discover/popular", requirePermission(svc, "can_view_discover"), popularHandler(svc))
 
 			// AI.
-			authed.GET("/ai/status", aiStatusHandler(svc))
-			authed.POST("/ai/search", smartSearchHandler(svc))
-			authed.GET("/ai/recommend", aiRecommendHandler(svc))
+			authed.GET("/ai/status", requirePermission(svc, "can_use_ai"), aiStatusHandler(svc))
+			authed.POST("/ai/search", requirePermission(svc, "can_use_ai"), smartSearchHandler(svc))
+			authed.GET("/ai/recommend", requirePermission(svc, "can_use_ai"), aiRecommendHandler(svc))
 
 			// File browser (used by the library-path picker).
-			authed.GET("/files", browseFilesHandler(svc))
+			authed.GET("/files", middleware.AdminRequired(), browseFilesHandler(svc))
 
 			// Disk usage breakdown.
-			authed.GET("/storage", storageHandler(svc))
+			authed.GET("/storage", middleware.AdminRequired(), storageHandler(svc))
 
 			// DLNA discovery + cast.
 			authed.GET("/dlna/devices", dlnaListHandler(svc))
@@ -141,15 +146,15 @@ func Register(r *gin.Engine, cfg *config.Config, log *zap.Logger, svc *service.C
 
 			// Site management + cross-site torrent search (via SiteHandler).
 			siteHandler := NewSiteHandler(svc)
-			authed.GET("/sites", siteHandler.ListSites)
-			authed.GET("/sites/types", siteHandler.GetSiteTypes)
-			authed.GET("/sites/auth-types", siteHandler.GetAuthTypes)
-			authed.POST("/sites", middleware.AdminRequired(), siteHandler.CreateSite)
-			authed.GET("/sites/:id", siteHandler.GetSite)
-			authed.PUT("/sites/:id", middleware.AdminRequired(), siteHandler.UpdateSite)
-			authed.DELETE("/sites/:id", middleware.AdminRequired(), siteHandler.DeleteSite)
-			authed.POST("/sites/:id/test", middleware.AdminRequired(), siteHandler.TestSite)
-			authed.GET("/sites/search", siteSearchHandler(svc))
+			authed.GET("/sites", requirePermission(svc, "can_manage_sites"), siteHandler.ListSites)
+			authed.GET("/sites/types", requirePermission(svc, "can_manage_sites"), siteHandler.GetSiteTypes)
+			authed.GET("/sites/auth-types", requirePermission(svc, "can_manage_sites"), siteHandler.GetAuthTypes)
+			authed.POST("/sites", requirePermission(svc, "can_manage_sites"), siteHandler.CreateSite)
+			authed.GET("/sites/:id", requirePermission(svc, "can_manage_sites"), siteHandler.GetSite)
+			authed.PUT("/sites/:id", requirePermission(svc, "can_manage_sites"), siteHandler.UpdateSite)
+			authed.DELETE("/sites/:id", requirePermission(svc, "can_manage_sites"), siteHandler.DeleteSite)
+			authed.POST("/sites/:id/test", requirePermission(svc, "can_manage_sites"), siteHandler.TestSite)
+			authed.GET("/sites/search", requirePermission(svc, "can_manage_sites"), siteSearchHandler(svc))
 
 			// Recycle bin.
 			authed.GET("/recycle", middleware.AdminRequired(), listRecycleHandler(svc))
@@ -176,8 +181,8 @@ func Register(r *gin.Engine, cfg *config.Config, log *zap.Logger, svc *service.C
 			authed.DELETE("/watch-history/:id", historyDeleteOneHandler(svc))
 
 			// Multi-section TMDb feed used by DiscoverPage.
-			authed.GET("/discover/sections", discoverSectionsHandler(svc))
-			authed.GET("/discover/feed", discoverFeedHandler(svc))
+			authed.GET("/discover/sections", requirePermission(svc, "can_view_discover"), discoverSectionsHandler(svc))
+			authed.GET("/discover/feed", requirePermission(svc, "can_view_discover"), discoverFeedHandler(svc))
 
 			// System metadata + read-only scheduler view.
 			authed.GET("/system/info", systemInfoHandler(svc))
@@ -214,12 +219,12 @@ func Register(r *gin.Engine, cfg *config.Config, log *zap.Logger, svc *service.C
 			authed.POST("/stats/play", statsPlayHandler(svc))
 
 			// ── Sites extras ──
-			authed.GET("/sites/:id/resource", siteResourceHandler(svc))
-			authed.GET("/sites/:id/userdata", siteUserdataHandler(svc))
+			authed.GET("/sites/:id/resource", requirePermission(svc, "can_manage_sites"), siteResourceHandler(svc))
+			authed.GET("/sites/:id/userdata", requirePermission(svc, "can_manage_sites"), siteUserdataHandler(svc))
 
 			// ── Subscription extras ──
-			authed.PUT("/subscriptions/:id", updateSubscriptionHandler(svc))
-			authed.POST("/subscriptions/:id/search", searchSubscriptionHandler(svc))
+			authed.PUT("/subscriptions/:id", requirePermission(svc, "can_manage_subscriptions"), updateSubscriptionHandler(svc))
+			authed.POST("/subscriptions/:id/search", requirePermission(svc, "can_manage_subscriptions"), searchSubscriptionHandler(svc))
 
 			// ── Playlist extras ──
 			authed.POST("/playlists/:id/reorder", reorderPlaylistHandler(svc))
@@ -236,9 +241,9 @@ func Register(r *gin.Engine, cfg *config.Config, log *zap.Logger, svc *service.C
 			authed.POST("/media/:id/favorite", addMediaFavoriteHandler(svc))
 			authed.DELETE("/media/:id/favorite", removeMediaFavoriteHandler(svc))
 			authed.GET("/media/:id/favorite/status", getMediaFavoriteStatusHandler(svc))
-			authed.POST("/media/:id/ai-scrape", aiScrapeMediaHandler(svc))
-			authed.POST("/media/scrape/test", scrapeTestHandler(svc))
-			authed.POST("/media/organize", middleware.AdminRequired(), organizeBulkHandler(svc))
+			authed.POST("/media/:id/ai-scrape", requirePermission(svc, "can_rescrape"), aiScrapeMediaHandler(svc))
+			authed.POST("/media/scrape/test", requirePermission(svc, "can_rescrape"), scrapeTestHandler(svc))
+			authed.POST("/media/organize", requirePermission(svc, "can_manage_files"), organizeBulkHandler(svc))
 
 			// ── Playback metadata + external player handoff ──
 			authed.GET("/playback/:id/info", playbackInfoHandler(svc))
@@ -248,13 +253,13 @@ func Register(r *gin.Engine, cfg *config.Config, log *zap.Logger, svc *service.C
 			authed.GET("/playback/transcode/:job_id/status", transcodeStatusHandler(svc))
 
 			// ── Download task ops + sync triggers ──
-			authed.POST("/download/:id/pause", downloadPauseHandler(svc))
-			authed.POST("/download/:id/resume", downloadResumeHandler(svc))
-			authed.POST("/download/:id/organize", middleware.AdminRequired(), downloadOrganizeOneHandler(svc))
-			authed.POST("/download/organize", middleware.AdminRequired(), downloadOrganizeAllHandler(svc))
-			authed.POST("/download/sync", middleware.AdminRequired(), downloadSyncHandler(svc))
-			authed.POST("/download/start-auto-sync", middleware.AdminRequired(), downloadAutoSyncHandler(svc))
-			authed.GET("/download/tasks", downloadTasksAliasHandler(svc))
+			authed.POST("/download/:id/pause", requirePermission(svc, "can_manage_downloads"), downloadPauseHandler(svc))
+			authed.POST("/download/:id/resume", requirePermission(svc, "can_manage_downloads"), downloadResumeHandler(svc))
+			authed.POST("/download/:id/organize", requirePermission(svc, "can_manage_files"), downloadOrganizeOneHandler(svc))
+			authed.POST("/download/organize", requirePermission(svc, "can_manage_files"), downloadOrganizeAllHandler(svc))
+			authed.POST("/download/sync", requirePermission(svc, "can_manage_downloads"), downloadSyncHandler(svc))
+			authed.POST("/download/start-auto-sync", requirePermission(svc, "can_manage_downloads"), downloadAutoSyncHandler(svc))
+			authed.GET("/download/tasks", requirePermission(svc, "can_manage_downloads"), downloadTasksAliasHandler(svc))
 
 			// ── Assistant (multi-turn AI chat) ──
 			authed.GET("/admin/assistant/sessions", listAssistantSessionsHandler(svc))
@@ -272,6 +277,8 @@ func Register(r *gin.Engine, cfg *config.Config, log *zap.Logger, svc *service.C
 		admin.Use(middleware.AuthRequired(cfg.Secrets.JWTSecret), middleware.AdminRequired())
 		{
 			admin.GET("/users", listUsersHandler(svc))
+			admin.POST("/users", createUserHandler(svc))
+			admin.PATCH("/users/:id", updateUserHandler(svc))
 			admin.PATCH("/users/:id/role", adminUpdateRoleHandler(svc))
 			admin.DELETE("/users/:id", deleteUserHandler(svc))
 			admin.GET("/settings", listSettingsHandler(svc))

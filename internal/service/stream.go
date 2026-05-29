@@ -11,9 +11,9 @@
 //
 // The HTTP layer decides which mode to use based on the request path:
 //
-//   GET /api/stream/:id              → direct play
-//   GET /api/hls/:id/index.m3u8      → HLS playlist
-//   GET /api/hls/:id/seg_NNNNN.ts    → HLS segment
+//	GET /api/stream/:id              → direct play
+//	GET /api/hls/:id/index.m3u8      → HLS playlist
+//	GET /api/hls/:id/seg_NNNNN.ts    → HLS segment
 package service
 
 import (
@@ -82,6 +82,8 @@ func (s *StreamService) ServeFile(w http.ResponseWriter, r *http.Request, mediaI
 		return err
 	}
 	w.Header().Set("Accept-Ranges", "bytes")
+	w.Header().Set("Content-Disposition", "inline")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
 	http.ServeContent(w, r, stat.Name(), stat.ModTime(), f)
 	return nil
 }
@@ -104,6 +106,7 @@ func (s *StreamService) ServeHLSPlaylist(w http.ResponseWriter, r *http.Request,
 	stat, _ := f.Stat()
 	w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
 	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Content-Disposition", "inline")
 	if r.URL.RawQuery != "" {
 		data, err := io.ReadAll(f)
 		if err != nil {
@@ -164,6 +167,7 @@ func (s *StreamService) ServeHLSSegment(w http.ResponseWriter, r *http.Request, 
 	stat, _ := f.Stat()
 	w.Header().Set("Content-Type", "video/mp2t")
 	w.Header().Set("Cache-Control", "public, max-age=3600")
+	w.Header().Set("Content-Disposition", "inline")
 	http.ServeContent(w, r, stat.Name(), stat.ModTime(), f)
 	return nil
 }

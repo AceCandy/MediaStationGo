@@ -5,6 +5,7 @@ import toast from 'react-hot-toast'
 
 import { historyAPI } from '../api/history'
 import { imageURL } from '../api/client'
+import { confirmAction } from '../components/ConfirmDialog'
 import type { HistoryItem } from '../types'
 
 function fmtDuration(ms: number): string {
@@ -33,7 +34,7 @@ export function WatchHistoryPage() {
   useEffect(() => { load() }, [])
 
   const removeOne = async (id: string) => {
-    if (!confirm('确定移除此条观看历史？不会删除媒体文件。')) return
+    if (!(await confirmAction({ title: '移除观看历史', message: '确定移除此条观看历史？不会删除媒体文件。', confirmText: '移除' }))) return
     setBusy(id)
     try {
       await historyAPI.remove(id)
@@ -46,7 +47,7 @@ export function WatchHistoryPage() {
 
   const clearByStatus = async (status: 'completed' | 'incomplete') => {
     const label = status === 'completed' ? '已看完' : '未看完'
-    if (!confirm(`确定清除所有${label}的观看历史？不会删除媒体文件。`)) return
+    if (!(await confirmAction({ title: '清除观看历史', message: `确定清除所有${label}的观看历史？不会删除媒体文件。`, confirmText: '清除' }))) return
     setBusy(status)
     try {
       await historyAPI.clear(undefined, status)

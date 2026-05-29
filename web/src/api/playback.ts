@@ -21,6 +21,12 @@ export interface PlaylistDetail {
   items: Media[]
 }
 
+export interface ExternalPlayer {
+  name: string
+  scheme: string
+  url: string
+}
+
 export const playbackAPI = {
   recordProgress: (mediaId: string, positionMs: number, durationMs: number) =>
     api
@@ -61,4 +67,12 @@ export const playbackAPI = {
 
   deletePlaylist: (id: string) =>
     api.delete(`/playlists/${id}`).then((r) => r.data),
+
+  externalPlayers: (mediaId: string) =>
+    api
+      .get<{ players: ExternalPlayer[]; url?: string }>(`/playback/${mediaId}/external-players`)
+      .then((r) => r.data),
+
+  externalURL: (mediaId: string) =>
+    api.get<{ url: string; token: string }>(`/playback/${mediaId}/external-url`).then((r) => r.data),
 }

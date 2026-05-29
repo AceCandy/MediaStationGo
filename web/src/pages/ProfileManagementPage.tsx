@@ -5,6 +5,7 @@ import toast from 'react-hot-toast'
 import { libraryAPI } from '../api/library'
 import { playProfilesAPI, type PlayProfileInput } from '../api/play_profiles'
 import { useAuthStore } from '../stores/auth'
+import { confirmAction } from '../components/ConfirmDialog'
 import type { Library, PlayProfile } from '../types'
 
 // ProfileManagementPage replicates the Vue ProfileManagementView. It
@@ -42,7 +43,7 @@ export function ProfileManagementPage() {
   }, [isAdmin])
 
   const onDelete = async (p: PlayProfile) => {
-    if (!confirm(`确定删除 Profile「${p.name}」?`)) return
+    if (!(await confirmAction({ title: '删除播放档案', message: `确定删除 Profile「${p.name}」?`, confirmText: '删除' }))) return
     try {
       await playProfilesAPI.remove(p.id)
       toast.success('已删除')

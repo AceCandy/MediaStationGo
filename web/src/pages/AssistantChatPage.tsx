@@ -8,6 +8,7 @@ import {
   type AssistantSession,
   type SessionView,
 } from '../api/assistant'
+import { confirmAction } from '../components/ConfirmDialog'
 
 // AssistantChatPage is the multi-turn chat surface backed by the Go
 // AssistantService. It complements the older AIAssistantPage which is
@@ -63,7 +64,7 @@ export function AssistantChatPage() {
   }
 
   const onDelete = async (id: string) => {
-    if (!confirm('删除此会话?')) return
+    if (!(await confirmAction({ title: '删除会话', message: '删除此会话?', confirmText: '删除' }))) return
     try {
       await assistantAPI.deleteSession(id)
       if (active?.session.id === id) setActive(null)

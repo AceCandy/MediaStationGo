@@ -25,6 +25,7 @@ export interface LicenseStatus {
   /** Whether a license is currently active */
   active: boolean
   activation?: LicenseActivation
+  max_users?: number
   /** Error or status message */
   message?: string
 }

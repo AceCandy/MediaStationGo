@@ -86,6 +86,25 @@ const GROUPS: SettingGroup[] = [
     ],
   },
   {
+    key: 'license',
+    label: '授权服务',
+    description: '连接私有 MediaStationLicenseServer；开源版默认最多 20 个用户，激活后按授权策略提升额度。',
+    items: [
+      {
+        key: 'license.server_url',
+        label: 'License Server 地址',
+        type: 'text',
+        placeholder: 'http://127.0.0.1:8001',
+      },
+      {
+        key: 'license.hmac_secret',
+        label: 'HMAC 签名密钥',
+        type: 'text',
+        hint: '必须与 License Server 的 LICENSE_HMAC_SECRET 保持一致；留空则跳过响应签名校验。',
+      },
+    ],
+  },
+  {
     key: 'organize',
     label: '整理 & 刮削',
     description: '媒体文件命名 + 自动刮削 + 整理目标',

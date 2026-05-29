@@ -9,6 +9,8 @@ package handler
 
 import (
 	"net/http"
+	"net/url"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 
@@ -27,9 +29,9 @@ func playbackInfoHandler(svc *service.Container) gin.HandlerFunc {
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{
-			"media":       m,
-			"stream_url":  "/api/stream/" + m.ID,
-			"hls_url":     "/api/hls/" + m.ID + "/index.m3u8",
+			"media":      m,
+			"stream_url": "/api/stream/" + m.ID,
+			"hls_url":    "/api/hls/" + m.ID + "/index.m3u8",
 		})
 	}
 }
@@ -69,13 +71,16 @@ func externalPlayersHandler(svc *service.Container) gin.HandlerFunc {
 			c.JSON(http.StatusNotFound, gin.H{"error": "media not found"})
 			return
 		}
-		streamURL := "/api/stream/" + m.ID
+		token := externalPlaybackToken(c, svc)
+		streamURL := absoluteRequestURL(c, "/api/stream/"+m.ID+"?token="+url.QueryEscape(token))
+		escapedStream := url.QueryEscape(streamURL)
 		c.JSON(http.StatusOK, gin.H{
+			"url": streamURL,
 			"players": []gin.H{
 				{"name": "VLC", "scheme": "vlc://", "url": "vlc://" + streamURL},
 				{"name": "PotPlayer", "scheme": "potplayer://", "url": "potplayer://" + streamURL},
 				{"name": "MX Player", "scheme": "intent://", "url": "intent://" + streamURL + "#Intent;package=com.mxtech.videoplayer.ad;end"},
-				{"name": "IINA", "scheme": "iina://", "url": "iina://weblink?url=" + streamURL},
+				{"name": "IINA", "scheme": "iina://", "url": "iina://weblink?url=" + escapedStream},
 				{"name": "nPlayer", "scheme": "nplayer-", "url": "nplayer-" + streamURL},
 			},
 		})
@@ -91,23 +96,46 @@ func externalURLHandler(svc *service.Container) gin.HandlerFunc {
 			c.JSON(http.StatusNotFound, gin.H{"error": "media not found"})
 			return
 		}
-		// Re-issue a short-lived token for this stream.
-		uid, _ := c.Get(middleware.CtxUserID)
-		u, err := svc.Repo.User.FindByID(c.Request.Context(), toString(uid))
-		if err != nil || u == nil {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "user not found"})
-			return
-		}
-		token, err := svc.Auth.IssueToken(u)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
+		token := externalPlaybackToken(c, svc)
 		c.JSON(http.StatusOK, gin.H{
-			"url":   "/api/stream/" + m.ID + "?token=" + token,
+			"url":   absoluteRequestURL(c, "/api/stream/"+m.ID+"?token="+url.QueryEscape(token)),
 			"token": token,
 		})
 	}
+}
+
+func externalPlaybackToken(c *gin.Context, svc *service.Container) string {
+	uid, _ := c.Get(middleware.CtxUserID)
+	u, err := svc.Repo.User.FindByID(c.Request.Context(), toString(uid))
+	if err != nil || u == nil {
+		return ""
+	}
+	token, err := svc.Auth.IssueToken(u)
+	if err != nil {
+		return ""
+	}
+	return token
+}
+
+func absoluteRequestURL(c *gin.Context, path string) string {
+	if strings.HasPrefix(path, "http://") || strings.HasPrefix(path, "https://") {
+		return path
+	}
+	scheme := strings.TrimSpace(c.GetHeader("X-Forwarded-Proto"))
+	if scheme == "" {
+		scheme = "http"
+		if c.Request.TLS != nil {
+			scheme = "https"
+		}
+	}
+	host := strings.TrimSpace(c.GetHeader("X-Forwarded-Host"))
+	if host == "" {
+		host = c.Request.Host
+	}
+	if !strings.HasPrefix(path, "/") {
+		path = "/" + path
+	}
+	return scheme + "://" + host + path
 }
 
 // transcodeStatusHandler reports the live status of one transcode job.

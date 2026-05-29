@@ -11,18 +11,23 @@ import (
 // intentionally separate from model.Media because the item may not exist in
 // the local library yet.
 type ExternalMediaResult struct {
-	Source           string  `json:"source"`
-	MediaType        string  `json:"media_type,omitempty"`
-	Title            string  `json:"title"`
-	Overview         string  `json:"overview,omitempty"`
-	PosterURL        string  `json:"poster_url,omitempty"`
-	BackdropURL      string  `json:"backdrop_url,omitempty"`
-	Year             int     `json:"year,omitempty"`
-	Rating           float32 `json:"rating,omitempty"`
-	TMDbID           int     `json:"tmdb_id,omitempty"`
-	BangumiID        int     `json:"bangumi_id,omitempty"`
-	DoubanID         string  `json:"douban_id,omitempty"`
-	SubscribeKeyword string  `json:"subscribe_keyword"`
+	Source             string  `json:"source"`
+	MediaType          string  `json:"media_type,omitempty"`
+	Title              string  `json:"title"`
+	Overview           string  `json:"overview,omitempty"`
+	PosterURL          string  `json:"poster_url,omitempty"`
+	BackdropURL        string  `json:"backdrop_url,omitempty"`
+	Year               int     `json:"year,omitempty"`
+	Rating             float32 `json:"rating,omitempty"`
+	TMDbID             int     `json:"tmdb_id,omitempty"`
+	BangumiID          int     `json:"bangumi_id,omitempty"`
+	DoubanID           string  `json:"douban_id,omitempty"`
+	SubscribeKeyword   string  `json:"subscribe_keyword"`
+	TotalEpisodes      int     `json:"total_episodes,omitempty"`
+	DownloadedEpisodes int     `json:"downloaded_episodes,omitempty"`
+	LocalMediaCount    int     `json:"local_media_count,omitempty"`
+	MissingEpisodes    []int   `json:"missing_episodes,omitempty"`
+	InLibrary          bool    `json:"in_library"`
 }
 
 // SearchExternalMedia fans out one normalized search intent to TMDb, Douban
@@ -39,6 +44,10 @@ func SearchExternalMedia(ctx context.Context, query string, year int, mediaType 
 		if m == nil || strings.TrimSpace(m.Title) == "" {
 			return
 		}
+		totalEpisodes := 0
+		if source == "tmdb" && typ == "tv" && m.TMDbID > 0 && tmdb != nil {
+			totalEpisodes, _ = tmdb.GetTVEpisodeCount(ctx, m.TMDbID)
+		}
 		results = append(results, ExternalMediaResult{
 			Source:           source,
 			MediaType:        typ,
@@ -51,6 +60,7 @@ func SearchExternalMedia(ctx context.Context, query string, year int, mediaType 
 			TMDbID:           m.TMDbID,
 			BangumiID:        m.BangumiID,
 			SubscribeKeyword: buildSubscribeKeyword(m.Title, m.Year),
+			TotalEpisodes:    totalEpisodes,
 		})
 	}
 

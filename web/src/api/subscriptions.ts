@@ -25,6 +25,7 @@ export const subscriptionsAPI = {
     exclude_words?: string
     wash_enabled?: boolean
     wash_priority?: string
+    total_episodes?: number
     priority?: number
     enabled?: boolean
   }) =>

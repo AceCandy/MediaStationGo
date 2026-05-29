@@ -8,6 +8,7 @@ import {
   type DownloadClientInput,
   type DownloadClientType,
 } from '../api/download_clients'
+import { confirmAction } from '../components/ConfirmDialog'
 
 // DownloadClientsPage manages multiple downloader integrations.
 // Replaces the Vue UI's DownloadView "clients" tab with a typed CRUD
@@ -45,7 +46,7 @@ export function DownloadClientsPage() {
   }
 
   const onDelete = async (c: DownloadClient) => {
-    if (!confirm(`确定删除「${c.name}」?`)) return
+    if (!(await confirmAction({ title: '删除下载器', message: `确定删除「${c.name}」?`, confirmText: '删除' }))) return
     try {
       await downloadClientsAPI.remove(c.id)
       toast.success('已删除')

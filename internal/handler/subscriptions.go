@@ -31,6 +31,7 @@ type subscriptionReq struct {
 	ExcludeWords  string `json:"exclude_words"`
 	WashEnabled   bool   `json:"wash_enabled"`
 	WashPriority  string `json:"wash_priority"`
+	TotalEpisodes int    `json:"total_episodes"`
 	Priority      int    `json:"priority"`
 	Enabled       *bool  `json:"enabled"`
 }
@@ -68,6 +69,7 @@ func createSubscriptionHandler(svc *service.Container) gin.HandlerFunc {
 			ExcludeWords:  req.ExcludeWords,
 			WashEnabled:   req.WashEnabled,
 			WashPriority:  req.WashPriority,
+			TotalEpisodes: req.TotalEpisodes,
 			Priority:      req.Priority,
 			Enabled:       enabled,
 		}
@@ -76,6 +78,9 @@ func createSubscriptionHandler(svc *service.Container) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
+		enriched := []model.Subscription{*s}
+		service.EnrichSubscriptionProgress(c.Request.Context(), svc.Repo, enriched)
+		*s = enriched[0]
 		c.JSON(http.StatusOK, s)
 	}
 }
@@ -88,6 +93,7 @@ func listSubscriptionsHandler(svc *service.Container) gin.HandlerFunc {
 			return
 		}
 		enrichAndPersistSubscriptions(c.Request.Context(), svc, items)
+		service.EnrichSubscriptionProgress(c.Request.Context(), svc.Repo, items)
 		c.JSON(http.StatusOK, gin.H{"items": items})
 	}
 }

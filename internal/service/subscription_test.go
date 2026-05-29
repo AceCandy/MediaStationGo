@@ -98,3 +98,43 @@ func TestSiteSearchKeywordCanUseIMDB(t *testing.T) {
 		t.Fatalf("keyword = %q, want imdb id", got)
 	}
 }
+
+func TestSelectSiteSearchCandidatesOnlyQueuesMissingLocalEpisodes(t *testing.T) {
+	sub := &model.Subscription{Name: "间谍过家家 自动订阅", Filter: "间谍过家家", MediaType: "tv", TotalEpisodes: 3}
+	results := []SearchResult{
+		{Title: "间谍过家家 S01 Complete 1080p", DownloadURL: "https://pt/download/pack", Seeders: 100},
+		{Title: "间谍过家家 S01E01 1080p", DownloadURL: "https://pt/download/1", Seeders: 90},
+		{Title: "间谍过家家 S01E02 1080p", DownloadURL: "https://pt/download/2", Seeders: 80},
+		{Title: "间谍过家家 S01E03 1080p", DownloadURL: "https://pt/download/3", Seeders: 70},
+	}
+	availability := LocalAvailability{
+		TotalEpisodes:       3,
+		LocalMediaCount:     2,
+		MissingEpisodes:     []int{3},
+		ExistingEpisodeKeys: map[string]struct{}{episodeKey(1, 1): {}, episodeKey(1, 2): {}},
+	}
+
+	got := selectSiteSearchCandidates(results, sub, map[string]struct{}{}, availability)
+	if len(got) != 1 || got[0].Episode != 3 {
+		t.Fatalf("selected %#v, want only missing episode 3", got)
+	}
+}
+
+func TestSelectSiteSearchCandidatesWithUnknownTotalSkipsExistingEpisodes(t *testing.T) {
+	sub := &model.Subscription{Name: "葬送的芙莉莲 自动订阅", Filter: "葬送的芙莉莲", MediaType: "anime"}
+	results := []SearchResult{
+		{Title: "葬送的芙莉莲 S01 Complete 1080p", DownloadURL: "https://pt/download/pack", Seeders: 100},
+		{Title: "葬送的芙莉莲 S01E01 1080p", DownloadURL: "https://pt/download/1", Seeders: 90},
+		{Title: "葬送的芙莉莲 S01E02 1080p", DownloadURL: "https://pt/download/2", Seeders: 80},
+		{Title: "葬送的芙莉莲 S01E03 1080p", DownloadURL: "https://pt/download/3", Seeders: 70},
+	}
+	availability := LocalAvailability{
+		LocalMediaCount:     2,
+		ExistingEpisodeKeys: map[string]struct{}{episodeKey(1, 1): {}, episodeKey(1, 2): {}},
+	}
+
+	got := selectSiteSearchCandidates(results, sub, map[string]struct{}{}, availability)
+	if len(got) != 1 || got[0].Episode != 3 {
+		t.Fatalf("selected %#v, want only not-yet-local episode 3", got)
+	}
+}

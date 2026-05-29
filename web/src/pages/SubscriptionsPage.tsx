@@ -1,9 +1,10 @@
 import { FormEvent, useEffect, useState } from 'react'
 import toast from 'react-hot-toast'
-import { CalendarClock, Film, Pencil, Play, Plus, Save, ShieldCheck, Trash2 } from 'lucide-react'
+import { CalendarClock, CheckCircle2, Film, Pencil, Play, Plus, Save, ShieldCheck, Trash2 } from 'lucide-react'
 
 import { subscriptionsAPI } from '../api/subscriptions'
 import { imageURL } from '../api/client'
+import { confirmAction } from '../components/ConfirmDialog'
 import type { Subscription } from '../types'
 
 export function SubscriptionsPage() {
@@ -258,6 +259,10 @@ export function SubscriptionsPage() {
                       <CalendarClock size={13} className="text-brand-500" />
                       <span>{subscription.last_run_at ? new Date(subscription.last_run_at).toLocaleString() : '尚未运行'}</span>
                     </div>
+                    <div className="flex items-center gap-1.5">
+                      <CheckCircle2 size={13} className="text-brand-500" />
+                      <span>{subscriptionProgressLabel(subscription)}</span>
+                    </div>
                   </div>
 
                   <div className="flex flex-wrap gap-1.5">
@@ -291,7 +296,7 @@ export function SubscriptionsPage() {
                 <button
                   className="rounded-xl border border-red-400/40 bg-white px-3 py-1.5 text-xs font-semibold text-red-400 hover:bg-red-400/10"
                   onClick={async () => {
-                    if (!confirm(`删除订阅「${subscription.name}」?`)) return
+                    if (!(await confirmAction({ title: '删除订阅', message: `删除订阅「${subscription.name}」?`, confirmText: '删除' }))) return
                     await subscriptionsAPI.remove(subscription.id)
                     toast.success('已删除')
                     await refresh()
@@ -319,6 +324,20 @@ function subscriptionRuleBadges(subscription: Subscription): string[] {
     subscription.wash_enabled ? `洗版 ${washPriorityLabel(subscription.wash_priority)}` : '未启用洗版',
   ]
   return labels.filter(Boolean)
+}
+
+function subscriptionProgressLabel(subscription: Subscription): string {
+  const isSeries = ['tv', 'anime', 'variety'].includes((subscription.media_type || '').toLowerCase())
+  if (!isSeries) {
+    return subscription.in_library ? '本地已入库' : '本地未入库'
+  }
+  const downloaded = subscription.downloaded_episodes || 0
+  const total = subscription.total_episodes || 0
+  if (total > 0) {
+    const missing = subscription.missing_episodes?.length || 0
+    return missing > 0 ? `已下载 ${downloaded}/${total} 集，缺 ${missing} 集` : `已下载 ${downloaded}/${total} 集`
+  }
+  return `已下载 ${downloaded}/未知 集`
 }
 
 function washPriorityLabel(priority?: string): string {
