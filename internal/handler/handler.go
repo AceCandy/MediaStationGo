@@ -280,6 +280,7 @@ func Register(r *gin.Engine, cfg *config.Config, log *zap.Logger, svc *service.C
 			admin.GET("/users", listUsersHandler(svc))
 			admin.POST("/users", createUserHandler(svc))
 			admin.PATCH("/users/:id", updateUserHandler(svc))
+			admin.PATCH("/users/:id/password", resetUserPasswordHandler(svc))
 			admin.PATCH("/users/:id/role", adminUpdateRoleHandler(svc))
 			admin.DELETE("/users/:id", deleteUserHandler(svc))
 			admin.GET("/settings", listSettingsHandler(svc))

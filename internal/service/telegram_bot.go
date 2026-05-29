@@ -231,14 +231,18 @@ func (s *TelegramBotService) cmdStart(ctx context.Context, msg *TelegramMessage,
 	if len(args) == 0 {
 		if binding := s.telegramBinding(ctx, msg.From.ID); binding != nil {
 			user, _ := s.repo.User.FindByID(ctx, binding.UserID)
+			if user == nil {
+				_ = s.repo.DB.WithContext(ctx).Unscoped().Delete(&model.TelegramBinding{}, "id = ?", binding.ID).Error
+				return telegramCommandReply{Text: "之前绑定的媒体中心账号已不存在，请重新绑定：\n<code>/start 用户名 密码</code>"}
+			}
 			status := "未隐藏"
-			if user != nil && user.HideAdult {
+			if user.HideAdult {
 				status = "已隐藏"
 			}
 			return telegramCommandReply{
 				Text: fmt.Sprintf("<b>MediaStationGo 已绑定</b>\n\n你好 %s，当前账号：<b>%s</b>\n成人目录：<b>%s</b>", name, userNameOrFallback(user), status),
 				Buttons: [][]telegramInlineButton{{{
-					Text: map[bool]string{true: "显示成人目录", false: "隐藏成人目录"}[user != nil && user.HideAdult],
+					Text: map[bool]string{true: "显示成人目录", false: "隐藏成人目录"}[user.HideAdult],
 					Data: "adult_toggle",
 				}}},
 			}
@@ -893,6 +897,9 @@ func (s *TelegramBotService) upsertTelegramBinding(ctx context.Context, msg *Tel
 		}).Error
 	}
 	if err != nil && err != gorm.ErrRecordNotFound {
+		return err
+	}
+	if err := s.repo.DB.WithContext(ctx).Unscoped().Where("telegram_user_id = ?", int64(msg.From.ID)).Delete(&model.TelegramBinding{}).Error; err != nil {
 		return err
 	}
 	return s.repo.DB.WithContext(ctx).Create(&model.TelegramBinding{

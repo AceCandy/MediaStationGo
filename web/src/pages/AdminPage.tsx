@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useState } from 'react'
 import toast from 'react-hot-toast'
-import { Pencil, Plus, ShieldCheck, Trash2, X } from 'lucide-react'
+import { KeyRound, Pencil, Plus, ShieldCheck, Trash2, X } from 'lucide-react'
 
 import { adminAPI } from '../api/admin'
 import { libraryAPI } from '../api/library'
@@ -8,6 +8,7 @@ import type { Library, User } from '../types'
 import { APIConfigsPanel } from '../components/APIConfigsPanel'
 import { ManagementShortcuts } from '../components/ManagementShortcuts'
 import { confirmAction } from '../components/ConfirmDialog'
+import { requestPassword } from '../components/PasswordDialog'
 
 export function AdminPage() {
   const [tab, setTab] = useState<'library' | 'users' | 'api'>('library')
@@ -206,6 +207,28 @@ function UsersPanel() {
     }
   }
 
+  const resetPassword = async (u: User) => {
+    const nextPassword = await requestPassword({
+      title: `重置 ${u.username} 的密码`,
+      message: '请输入新的临时密码，至少 6 位。保存后该用户可立即使用新密码登录 Web、Bot 与第三方客户端。',
+      confirmText: '重置密码',
+    })
+    if (!nextPassword) return
+    if (nextPassword.length < 6) {
+      toast.error('新密码至少 6 位')
+      return
+    }
+    try {
+      await adminAPI.resetUserPassword(u.id, nextPassword)
+      toast.success('密码已重置')
+    } catch (err: unknown) {
+      const msg =
+        (err as { response?: { data?: { error?: string } } })?.response?.data?.error ??
+        '重置密码失败'
+      toast.error(msg)
+    }
+  }
+
   return (
     <div className="space-y-6">
       <form onSubmit={handleCreate} className="glass-panel grid gap-3 md:grid-cols-[1fr_1fr_auto]">
@@ -303,6 +326,13 @@ function UsersPanel() {
                       <Pencil size={12} />
                     </button>
                   )}
+                  <button
+                    className="rounded-lg border border-amber-400/40 px-2 py-1 text-xs text-amber-500 hover:bg-amber-400/10"
+                    title="重置密码"
+                    onClick={() => resetPassword(u)}
+                  >
+                    <KeyRound size={12} />
+                  </button>
                   <button
                     className="rounded-lg border border-red-400/40 px-2 py-1 text-xs text-red-400 hover:bg-red-400/10 disabled:cursor-not-allowed disabled:opacity-40"
                     disabled={u.is_protected}

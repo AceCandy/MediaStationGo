@@ -95,6 +95,9 @@ func (s *AuthService) Register(ctx context.Context, username, password string) (
 	} else if existing != nil {
 		return nil, nil, ErrUsernameTaken
 	}
+	if err := s.repo.User.ReleaseDeletedUsername(ctx, username); err != nil {
+		return nil, nil, err
+	}
 	if n, err := s.repo.User.Count(ctx); err != nil {
 		return nil, nil, err
 	} else if n >= LicensedMaxUsers(ctx, s.repo) {
@@ -173,6 +176,29 @@ func (s *AuthService) ChangePassword(ctx context.Context, userID, oldPwd, newPwd
 	}
 	if err := bcrypt.CompareHashAndPassword([]byte(u.PasswordHash), []byte(oldPwd)); err != nil {
 		return ErrInvalidCredentials
+	}
+	hash, err := hashPassword(newPwd)
+	if err != nil {
+		return err
+	}
+	return s.repo.User.UpdatePassword(ctx, userID, hash)
+}
+
+// ResetPassword lets an administrator set a new password without knowing the
+// user's old password.
+func (s *AuthService) ResetPassword(ctx context.Context, userID, newPwd string) error {
+	if strings.TrimSpace(userID) == "" {
+		return errors.New("missing user id")
+	}
+	if strings.TrimSpace(newPwd) == "" || len(newPwd) < 6 {
+		return errors.New("new password must be at least 6 characters")
+	}
+	u, err := s.repo.User.FindByID(ctx, userID)
+	if err != nil {
+		return err
+	}
+	if u == nil {
+		return errors.New("user not found")
 	}
 	hash, err := hashPassword(newPwd)
 	if err != nil {

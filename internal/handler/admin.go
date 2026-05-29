@@ -63,6 +63,10 @@ type adminUpdateUserReq struct {
 	Username string `json:"username" binding:"required"`
 }
 
+type adminResetPasswordReq struct {
+	Password string `json:"password" binding:"required,min=6"`
+}
+
 func updateUserHandler(svc *service.Container) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req adminUpdateUserReq
@@ -129,6 +133,21 @@ func deleteUserHandler(svc *service.Container) gin.HandlerFunc {
 			return
 		}
 		c.Status(http.StatusNoContent)
+	}
+}
+
+func resetUserPasswordHandler(svc *service.Container) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req adminResetPasswordReq
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		if err := svc.Auth.ResetPassword(c.Request.Context(), c.Param("id"), req.Password); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"ok": true})
 	}
 }
 

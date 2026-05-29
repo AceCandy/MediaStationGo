@@ -21,7 +21,7 @@ func newAuthTestServices(t *testing.T) (*repository.Container, *AuthService, *Pr
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&model.User{}, &model.UserPermission{}, &model.RefreshToken{}); err != nil {
+	if err := db.AutoMigrate(&model.User{}, &model.UserPermission{}, &model.RefreshToken{}, &model.TelegramBinding{}); err != nil {
 		t.Fatal(err)
 	}
 	repos := repository.New(db)
@@ -63,6 +63,87 @@ func TestRegisterDefaultsAdultLibrariesHidden(t *testing.T) {
 	}
 	if !user.HideAdult {
 		t.Fatal("new users should hide adult libraries by default")
+	}
+}
+
+func TestDeletedUserCanBeRecreatedWithSameUsername(t *testing.T) {
+	ctx := context.Background()
+	repos, auth, _, _ := newAuthTestServices(t)
+	user, _, err := auth.Register(ctx, "viewer", "old-password")
+	if err != nil {
+		t.Fatalf("register old user: %v", err)
+	}
+	if err := repos.DB.Create(&model.TelegramBinding{
+		TelegramUserID: 10001,
+		TelegramName:   "@viewer",
+		ChatID:         10001,
+		UserID:         user.ID,
+	}).Error; err != nil {
+		t.Fatalf("create telegram binding: %v", err)
+	}
+	if err := repos.User.Delete(ctx, user.ID); err != nil {
+		t.Fatalf("delete user: %v", err)
+	}
+
+	next, _, err := auth.Register(ctx, "viewer", "new-password")
+	if err != nil {
+		t.Fatalf("register same username after delete: %v", err)
+	}
+	if next.ID == user.ID {
+		t.Fatal("recreated user should be a new account row")
+	}
+	if _, err := auth.Login(ctx, "viewer", "new-password"); err != nil {
+		t.Fatalf("login recreated user: %v", err)
+	}
+	var bindings int64
+	if err := repos.DB.Model(&model.TelegramBinding{}).Where("telegram_user_id = ?", 10001).Count(&bindings).Error; err != nil {
+		t.Fatalf("count bindings: %v", err)
+	}
+	if bindings != 0 {
+		t.Fatalf("deleted user telegram bindings should be removed, got %d", bindings)
+	}
+}
+
+func TestRegisterReleasesLegacySoftDeletedUsername(t *testing.T) {
+	ctx := context.Background()
+	repos, auth, _, _ := newAuthTestServices(t)
+	if err := repos.User.Create(ctx, &model.User{
+		Username:     "legacy",
+		PasswordHash: "hash",
+		Role:         "user",
+		Tier:         "free",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	legacy, err := repos.User.FindByUsername(ctx, "legacy")
+	if err != nil || legacy == nil {
+		t.Fatalf("find legacy user: %v", err)
+	}
+	if err := repos.DB.Delete(&model.User{}, "id = ?", legacy.ID).Error; err != nil {
+		t.Fatalf("legacy soft delete: %v", err)
+	}
+
+	if _, _, err := auth.Register(ctx, "legacy", "new-password"); err != nil {
+		t.Fatalf("register should release old soft-deleted username: %v", err)
+	}
+}
+
+func TestAdminResetPasswordAllowsLoginWithNewPassword(t *testing.T) {
+	ctx := context.Background()
+	_, auth, _, _ := newAuthTestServices(t)
+	user, _, err := auth.Register(ctx, "viewer", "old-password")
+	if err != nil {
+		t.Fatalf("register: %v", err)
+	}
+
+	if err := auth.ResetPassword(ctx, user.ID, "new-password"); err != nil {
+		t.Fatalf("reset password: %v", err)
+	}
+	if _, err := auth.Login(ctx, "viewer", "old-password"); !errors.Is(err, ErrInvalidCredentials) {
+		t.Fatalf("old password should fail, got %v", err)
+	}
+	if _, err := auth.Login(ctx, "viewer", "new-password"); err != nil {
+		t.Fatalf("new password should login: %v", err)
 	}
 }
 

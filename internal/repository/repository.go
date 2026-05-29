@@ -81,6 +81,27 @@ func (r *UserRepository) Create(ctx context.Context, u *model.User) error {
 	return r.db.WithContext(ctx).Create(u).Error
 }
 
+// ReleaseDeletedUsername renames soft-deleted rows that still hold a unique
+// username so the same account name can be created again.
+func (r *UserRepository) ReleaseDeletedUsername(ctx context.Context, username string) error {
+	if username == "" {
+		return nil
+	}
+	released := username + "__deleted__" + time.Now().Format("20060102150405.000000000")
+	if len(released) > 64 {
+		sum := sha256.Sum256([]byte(released))
+		released = username
+		if len(released) > 43 {
+			released = released[:43]
+		}
+		released += "__deleted__" + hex.EncodeToString(sum[:])[:10]
+	}
+	return r.db.WithContext(ctx).Unscoped().
+		Model(&model.User{}).
+		Where("username = ? AND deleted_at IS NOT NULL", username).
+		Update("username", released).Error
+}
+
 // FindByUsername returns the user matching username, or (nil, nil) when absent.
 func (r *UserRepository) FindByUsername(ctx context.Context, username string) (*model.User, error) {
 	var u model.User
@@ -161,9 +182,31 @@ func (r *UserRepository) TouchLogin(ctx context.Context, id string) error {
 		Update("last_login_at", &now).Error
 }
 
-// Delete removes a user (soft-delete via gorm.DeletedAt).
+// Delete removes a user (soft-delete via gorm.DeletedAt), releases the unique
+// username, and drops Telegram bindings so future re-created users bind cleanly.
 func (r *UserRepository) Delete(ctx context.Context, id string) error {
-	return r.db.WithContext(ctx).Delete(&model.User{}, "id = ?", id).Error
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var user model.User
+		if err := tx.Where("id = ?", id).First(&user).Error; err != nil {
+			return err
+		}
+		if err := tx.Unscoped().Where("user_id = ?", id).Delete(&model.TelegramBinding{}).Error; err != nil {
+			return err
+		}
+		released := user.Username + "__deleted__" + time.Now().Format("20060102150405.000000000")
+		if len(released) > 64 {
+			sum := sha256.Sum256([]byte(user.ID + user.Username))
+			base := user.Username
+			if len(base) > 43 {
+				base = base[:43]
+			}
+			released = base + "__deleted__" + hex.EncodeToString(sum[:])[:10]
+		}
+		if err := tx.Model(&model.User{}).Where("id = ?", id).Update("username", released).Error; err != nil {
+			return err
+		}
+		return tx.Delete(&model.User{}, "id = ?", id).Error
+	})
 }
 
 // ─── Library ─────────────────────────────────────────────────────────────────

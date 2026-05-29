@@ -10,6 +10,9 @@ export const adminAPI = {
   updateUser: (id: string, payload: { username: string }) =>
     api.patch<User>(`/admin/users/${id}`, payload).then((r) => r.data),
 
+  resetUserPassword: (id: string, password: string) =>
+    api.patch(`/admin/users/${id}/password`, { password }).then((r) => r.data),
+
   deleteUser: (id: string) => api.delete(`/admin/users/${id}`).then((r) => r.data),
 
   listSettings: () => api.get<Setting[]>('/admin/settings').then((r) => r.data),
