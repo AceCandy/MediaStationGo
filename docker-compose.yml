@@ -6,13 +6,18 @@
 #   3. docker compose up -d
 #   4. 浏览器打开 http://<服务器IP>:18080
 #
+# 推荐更新命令（会清理本项目旧镜像，避免 NAS 磁盘堆满）：
+#   curl -fsSL https://cdn.jsdelivr.net/gh/ShukeBta/MediaStationGo@main/scripts/docker-compose-update.sh -o docker-compose-update.sh
+#   chmod +x docker-compose-update.sh
+#   ./docker-compose-update.sh
+#
 # 默认账号：
 #   admin / admin123
 #   首次部署后请立即到「个人资料/用户管理」修改密码。
 #
 # 镜像版本：
 #   默认拉取 latest；如需固定版本，创建 .env 并写入：
-#     MEDIASTATION_IMAGE_TAG=MediaStationGo-v0.0.10
+#     MEDIASTATION_IMAGE_TAG=MediaStationGo-v0.0.11
 #
 # 路径映射总览：
 #   /data      程序数据目录。保存 SQLite 数据库、JWT secret、系统配置等，必须持久化。
@@ -54,7 +59,7 @@ services:
   mediastation-go:
     image: ghcr.io/shukebta/mediastation-go:${MEDIASTATION_IMAGE_TAG:-latest}
     # 默认只在本地没有镜像时拉取，避免每次重启都访问 GHCR。
-    # 需要升级时手动执行：docker compose pull && docker compose up -d
+    # 需要升级时建议执行 ./docker-compose-update.sh，更新后会清理本项目旧镜像。
     pull_policy: missing
     container_name: mediastation-go
     restart: unless-stopped

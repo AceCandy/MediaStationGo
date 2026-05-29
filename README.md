@@ -231,7 +231,7 @@ mkdir -p data cache media downloads
 ```bash
 cat > .env <<'EOF'
 # 固定版本；需要升级时改成新的 MediaStationGo-vX.Y.Z 后执行 docker compose pull && docker compose up -d
-MEDIASTATION_IMAGE_TAG=MediaStationGo-v0.0.10
+MEDIASTATION_IMAGE_TAG=MediaStationGo-v0.0.11
 MEDIASTATION_HTTP_PORT=18080
 
 # 程序数据和缓存建议放在 MediaStationGo 部署目录下，便于备份和迁移。
@@ -300,7 +300,7 @@ vim docker-compose.yml
 #
 # 镜像版本：
 #   默认拉取 latest；如需固定版本，创建 .env 并写入：
-#     MEDIASTATION_IMAGE_TAG=MediaStationGo-v0.0.10
+#     MEDIASTATION_IMAGE_TAG=MediaStationGo-v0.0.11
 #
 # 路径映射总览：
 #   /data      程序数据目录。保存 SQLite 数据库、JWT secret、系统配置等，必须持久化。
@@ -443,6 +443,14 @@ docker compose up -d
 # docker-compose up -d
 ```
 
+如果是升级已有部署，建议使用仓库提供的更新脚本。它会先拉取并重建容器，再只清理 `ghcr.io/shukebta/mediastation-go` 的旧镜像和 dangling 层，避免 NAS 磁盘被历史镜像占满：
+
+```bash
+curl -fsSL https://cdn.jsdelivr.net/gh/ShukeBta/MediaStationGo@main/scripts/docker-compose-update.sh -o docker-compose-update.sh
+chmod +x docker-compose-update.sh
+./docker-compose-update.sh
+```
+
 7. 查看状态与日志：
 
 ```bash
@@ -481,13 +489,19 @@ docker compose pull
 docker compose up -d
 ```
 
+后续升级建议在部署目录执行：
+
+```bash
+./docker-compose-update.sh
+```
+
 ### 固定版本部署
 
 建议生产环境固定版本，避免 `latest` 自动变化。NAS 直读推荐 `.env`：
 
 ```bash
 cat > .env <<'EOF'
-MEDIASTATION_IMAGE_TAG=MediaStationGo-v0.0.10
+MEDIASTATION_IMAGE_TAG=MediaStationGo-v0.0.11
 MEDIASTATION_HTTP_PORT=18080
 MEDIASTATION_DATA_DIR=./data
 MEDIASTATION_CACHE_DIR=./cache
@@ -692,9 +706,12 @@ docker logs -f mediastation-go
 更新镜像：
 
 ```bash
-docker compose pull
-docker compose up -d
+curl -fsSL https://cdn.jsdelivr.net/gh/ShukeBta/MediaStationGo@main/scripts/docker-compose-update.sh -o docker-compose-update.sh
+chmod +x docker-compose-update.sh
+./docker-compose-update.sh
 ```
+
+说明：普通 `docker compose pull && docker compose up -d` 只会切换到新镜像，不会自动删除旧镜像；上面的脚本会保留当前正在运行的 MediaStationGo 镜像，删除同仓库未使用的旧镜像，并执行 `docker image prune -f` 清理 dangling 层。如需进一步清理所有未使用镜像，可临时执行 `PRUNE_ALL_UNUSED=1 ./docker-compose-update.sh`。
 
 停止服务：
 
@@ -747,26 +764,26 @@ cd MediaStationGo
 
 | 平台 | 包名示例 |
 | --- | --- |
-| Linux x86_64 | `MediaStationGo-v0.0.10-linux-amd64.tar.gz` |
-| Linux ARM64 | `MediaStationGo-v0.0.10-linux-arm64.tar.gz` |
-| Windows x86_64 | `MediaStationGo-v0.0.10-windows-amd64.zip` |
-| macOS Intel | `MediaStationGo-v0.0.10-darwin-amd64.tar.gz` |
-| macOS Apple Silicon | `MediaStationGo-v0.0.10-darwin-arm64.tar.gz` |
+| Linux x86_64 | `MediaStationGo-v0.0.11-linux-amd64.tar.gz` |
+| Linux ARM64 | `MediaStationGo-v0.0.11-linux-arm64.tar.gz` |
+| Windows x86_64 | `MediaStationGo-v0.0.11-windows-amd64.zip` |
+| macOS Intel | `MediaStationGo-v0.0.11-darwin-amd64.tar.gz` |
+| macOS Apple Silicon | `MediaStationGo-v0.0.11-darwin-arm64.tar.gz` |
 
 部署步骤：
 
 ```bash
 # Linux 示例
-tar -xzf MediaStationGo-v0.0.10-linux-amd64.tar.gz
-cd MediaStationGo-v0.0.10-linux-amd64
+tar -xzf MediaStationGo-v0.0.11-linux-amd64.tar.gz
+cd MediaStationGo-v0.0.11-linux-amd64
 MEDIASTATION_APP_PORT=18080 ./mediastation-go
 ```
 
 Windows：
 
 ```powershell
-Expand-Archive .\MediaStationGo-v0.0.10-windows-amd64.zip
-cd .\MediaStationGo-v0.0.10-windows-amd64
+Expand-Archive .\MediaStationGo-v0.0.11-windows-amd64.zip
+cd .\MediaStationGo-v0.0.11-windows-amd64
 $env:MEDIASTATION_APP_PORT = "18080"
 .\mediastation-go.exe
 ```

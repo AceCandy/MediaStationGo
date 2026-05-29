@@ -228,7 +228,7 @@ mkdir -p data cache media downloads
 
 ```bash
 cat > .env <<'EOF'
-MEDIASTATION_IMAGE_TAG=MediaStationGo-v0.0.10
+MEDIASTATION_IMAGE_TAG=MediaStationGo-v0.0.11
 MEDIASTATION_HTTP_PORT=18080
 MEDIASTATION_DATA_DIR=./data
 MEDIASTATION_CACHE_DIR=./cache
@@ -279,6 +279,14 @@ docker compose up -d
 # docker-compose up -d
 ```
 
+For existing deployments, use the update helper. It pulls and recreates the service, then removes old unused `ghcr.io/shukebta/mediastation-go` images and dangling layers so NAS disks do not fill up with historical images:
+
+```bash
+curl -fsSL https://cdn.jsdelivr.net/gh/ShukeBta/MediaStationGo@main/scripts/docker-compose-update.sh -o docker-compose-update.sh
+chmod +x docker-compose-update.sh
+./docker-compose-update.sh
+```
+
 7. Check status and logs:
 
 ```bash
@@ -317,13 +325,19 @@ docker compose pull
 docker compose up -d
 ```
 
+For later upgrades, run this from the deployment directory:
+
+```bash
+./docker-compose-update.sh
+```
+
 ### Pin a Release Version
 
 For production, pin a specific release tag instead of using `latest`. Recommended NAS `.env`:
 
 ```bash
 cat > .env <<'EOF'
-MEDIASTATION_IMAGE_TAG=MediaStationGo-v0.0.10
+MEDIASTATION_IMAGE_TAG=MediaStationGo-v0.0.11
 MEDIASTATION_HTTP_PORT=18080
 MEDIASTATION_DATA_DIR=./data
 MEDIASTATION_CACHE_DIR=./cache
@@ -514,9 +528,12 @@ docker logs -f mediastation-go
 Update:
 
 ```bash
-docker compose pull
-docker compose up -d
+curl -fsSL https://cdn.jsdelivr.net/gh/ShukeBta/MediaStationGo@main/scripts/docker-compose-update.sh -o docker-compose-update.sh
+chmod +x docker-compose-update.sh
+./docker-compose-update.sh
 ```
+
+Note: plain `docker compose pull && docker compose up -d` switches to the new image but does not remove old images. The helper keeps the currently running MediaStationGo image, removes unused older images from the same repository, and runs `docker image prune -f` for dangling layers. To aggressively remove all unused images, run `PRUNE_ALL_UNUSED=1 ./docker-compose-update.sh`.
 
 Stop:
 
@@ -569,25 +586,25 @@ Each release provides multi-platform archives:
 
 | Platform | Package example |
 | --- | --- |
-| Linux x86_64 | `MediaStationGo-v0.0.10-linux-amd64.tar.gz` |
-| Linux ARM64 | `MediaStationGo-v0.0.10-linux-arm64.tar.gz` |
-| Windows x86_64 | `MediaStationGo-v0.0.10-windows-amd64.zip` |
-| macOS Intel | `MediaStationGo-v0.0.10-darwin-amd64.tar.gz` |
-| macOS Apple Silicon | `MediaStationGo-v0.0.10-darwin-arm64.tar.gz` |
+| Linux x86_64 | `MediaStationGo-v0.0.11-linux-amd64.tar.gz` |
+| Linux ARM64 | `MediaStationGo-v0.0.11-linux-arm64.tar.gz` |
+| Windows x86_64 | `MediaStationGo-v0.0.11-windows-amd64.zip` |
+| macOS Intel | `MediaStationGo-v0.0.11-darwin-amd64.tar.gz` |
+| macOS Apple Silicon | `MediaStationGo-v0.0.11-darwin-arm64.tar.gz` |
 
 Linux example:
 
 ```bash
-tar -xzf MediaStationGo-v0.0.10-linux-amd64.tar.gz
-cd MediaStationGo-v0.0.10-linux-amd64
+tar -xzf MediaStationGo-v0.0.11-linux-amd64.tar.gz
+cd MediaStationGo-v0.0.11-linux-amd64
 MEDIASTATION_APP_PORT=18080 ./mediastation-go
 ```
 
 Windows example:
 
 ```powershell
-Expand-Archive .\MediaStationGo-v0.0.10-windows-amd64.zip
-cd .\MediaStationGo-v0.0.10-windows-amd64
+Expand-Archive .\MediaStationGo-v0.0.11-windows-amd64.zip
+cd .\MediaStationGo-v0.0.11-windows-amd64
 $env:MEDIASTATION_APP_PORT = "18080"
 .\mediastation-go.exe
 ```

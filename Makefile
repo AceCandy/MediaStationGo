@@ -1,4 +1,4 @@
-.PHONY: all build build-server build-web dev dev-web run deploy docker docker-stop docker-push clean install-web tidy test vet smoke
+.PHONY: all build build-server build-web dev dev-web run deploy docker docker-update docker-stop docker-push clean install-web tidy test vet smoke
 
 # ---- 默认目标 ----
 all: build
@@ -32,6 +32,9 @@ deploy:
 # ---- Docker ----
 docker:
 	docker compose up -d
+
+docker-update:
+	./scripts/docker-compose-update.sh
 
 docker-stop:
 	docker compose down
