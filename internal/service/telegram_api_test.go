@@ -96,3 +96,18 @@ func TestTelegramProxyCandidatesDefaultLocalFallbacks(t *testing.T) {
 		}
 	}
 }
+
+func TestTelegramCommandFiltering(t *testing.T) {
+	if telegramIsCommandText("今天看什么") {
+		t.Fatal("plain chat message should not be treated as command")
+	}
+	if !telegramIsCommandText("/start user pass") {
+		t.Fatal("/start should be treated as command")
+	}
+	if got := telegramCommandName("/hideadult@MediaStationGoBot on"); got != "/hideadult" {
+		t.Fatalf("telegramCommandName = %q, want /hideadult", got)
+	}
+	if telegramSupportedCommand("/签到") {
+		t.Fatal("unrelated group bot command should not be handled")
+	}
+}

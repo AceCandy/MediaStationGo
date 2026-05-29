@@ -107,6 +107,12 @@ func (s *TelegramBotService) HandleWebhook(ctx context.Context, body []byte) err
 
 	msg := update.Message
 	text := strings.TrimSpace(msg.Text)
+	if !telegramIsCommandText(text) {
+		return nil
+	}
+	if msg.Chat.Type != "" && msg.Chat.Type != "private" && !telegramSupportedCommand(telegramCommandName(text)) {
+		return nil
+	}
 
 	s.log.Info("telegram command received",
 		zap.Int("chat_id", msg.Chat.ID),
@@ -150,7 +156,7 @@ func (s *TelegramBotService) executeCommand(ctx context.Context, channel *model.
 		return telegramCommandReply{}, nil
 	}
 
-	cmd := strings.ToLower(parts[0])
+	cmd := telegramCommandName(parts[0])
 	args := parts[1:]
 	if msg.Chat.Type != "" && msg.Chat.Type != "private" && !s.telegramChatAllowed(channel, msg.Chat.ID) {
 		return telegramCommandReply{Text: "此群组/频道未绑定到 Bot 管理入口，请在通知渠道里填写「绑定群组 ID」或「绑定频道 ID」。"}, nil
@@ -185,6 +191,34 @@ func (s *TelegramBotService) executeCommand(ctx context.Context, channel *model.
 		return s.cmdStats(ctx)
 	default:
 		return telegramCommandReply{Text: fmt.Sprintf("未知命令: %s\n\n输入 /help 查看可用命令列表。", cmd)}, nil
+	}
+}
+
+func telegramIsCommandText(text string) bool {
+	return strings.HasPrefix(strings.TrimSpace(text), "/") && telegramCommandName(text) != ""
+}
+
+func telegramCommandName(text string) string {
+	parts := strings.Fields(strings.TrimSpace(text))
+	if len(parts) == 0 {
+		return ""
+	}
+	cmd := strings.ToLower(strings.TrimSpace(parts[0]))
+	if !strings.HasPrefix(cmd, "/") {
+		return ""
+	}
+	if at := strings.Index(cmd, "@"); at > 0 {
+		cmd = cmd[:at]
+	}
+	return cmd
+}
+
+func telegramSupportedCommand(cmd string) bool {
+	switch cmd {
+	case "/start", "/help", "/hideadult", "/hide_adult", "/adult", "/status", "/search", "/downloads", "/stats":
+		return true
+	default:
+		return false
 	}
 }
 
