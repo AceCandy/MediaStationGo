@@ -1,6 +1,7 @@
 import axios, { AxiosError, type InternalAxiosRequestConfig } from 'axios'
 
 import { useAuthStore } from '../stores/auth'
+import { getActivePlayProfileId, getActivePlayProfilePinToken } from '../stores/playProfile'
 
 // Single axios instance used by every API helper. Adds the JWT to outgoing
 // requests and routes 401s back to the login page.
@@ -30,6 +31,15 @@ api.interceptors.request.use((config) => {
   if (token) {
     config.headers = config.headers ?? {}
     config.headers.Authorization = `Bearer ${token}`
+  }
+  const activeProfileId = getActivePlayProfileId()
+  if (activeProfileId) {
+    config.headers = config.headers ?? {}
+    config.headers['X-Play-Profile-ID'] = activeProfileId
+    const pinToken = getActivePlayProfilePinToken()
+    if (pinToken) {
+      config.headers['X-Play-Profile-PIN-Token'] = pinToken
+    }
   }
   return config
 })
@@ -91,16 +101,25 @@ const tokenQuery = () => {
   return `token=${encodeURIComponent(t)}`
 }
 
+const profileQuery = () => {
+  const id = getActivePlayProfileId()
+  if (!id) return ''
+  const pinToken = getActivePlayProfilePinToken()
+  return `&profile_id=${encodeURIComponent(id)}${
+    pinToken ? `&profile_pin_token=${encodeURIComponent(pinToken)}` : ''
+  }`
+}
+
 // streamURL returns a direct-play URL for <video src>. The JWT is added as
 // a query parameter because <video> elements cannot send Authorization
 // headers.
 export function streamURL(mediaId: string): string {
-  return `/api/stream/${encodeURIComponent(mediaId)}?${tokenQuery()}`
+  return `/api/stream/${encodeURIComponent(mediaId)}?${tokenQuery()}${profileQuery()}`
 }
 
 // hlsURL returns the m3u8 playlist URL fed into hls.js.
 export function hlsURL(mediaId: string): string {
-  return `/api/hls/${encodeURIComponent(mediaId)}/index.m3u8?${tokenQuery()}`
+  return `/api/hls/${encodeURIComponent(mediaId)}/index.m3u8?${tokenQuery()}${profileQuery()}`
 }
 
 // imageURL converts a remote poster URL into a same-origin proxy URL so it

@@ -3,11 +3,11 @@
 // The base /history GET / POST routes already exist; these add the three
 // auxiliary surfaces the React WatchHistoryPage needs:
 //
-//   GET  /api/watch-history          paginated list (admin sees every user)
-//   GET  /api/watch-history/stats    aggregate watch time + completion
-//   GET  /api/watch-history/continue resume rail (incomplete only)
-//   DELETE /api/watch-history        clear (?media_item_id= optional)
-//   DELETE /api/watch-history/:id    remove one row
+//	GET  /api/watch-history          paginated list (admin sees every user)
+//	GET  /api/watch-history/stats    aggregate watch time + completion
+//	GET  /api/watch-history/continue resume rail (incomplete only)
+//	DELETE /api/watch-history        clear (?media_item_id= optional)
+//	DELETE /api/watch-history/:id    remove one row
 package handler
 
 import (
@@ -36,7 +36,14 @@ func historyListHandler(svc *service.Container) gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		c.JSON(http.StatusOK, items)
+		visibility := mediaVisibilityForRequest(c, svc)
+		filtered := make([]service.HistoryItem, 0, len(items))
+		for _, item := range items {
+			if item.Media == nil || visibility.Allows(item.Media) {
+				filtered = append(filtered, item)
+			}
+		}
+		c.JSON(http.StatusOK, filtered)
 	}
 }
 
@@ -109,6 +116,9 @@ func historyContinueHandler(svc *service.Container) gin.HandlerFunc {
 		}
 		mIdx := make(map[string]model.Media, len(media))
 		for _, m := range media {
+			if !mediaVisibleForRequest(c, svc, &m) {
+				continue
+			}
 			mIdx[m.ID] = m
 		}
 		out := make([]gin.H, 0, len(rows))

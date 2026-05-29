@@ -44,7 +44,14 @@ func recentHistoryHandler(svc *service.Container) gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"items": items})
+		visibility := mediaVisibilityForRequest(c, svc)
+		filtered := make([]service.HistoryItem, 0, len(items))
+		for _, item := range items {
+			if item.Media == nil || visibility.Allows(item.Media) {
+				filtered = append(filtered, item)
+			}
+		}
+		c.JSON(http.StatusOK, gin.H{"items": filtered})
 	}
 }
 
@@ -72,7 +79,14 @@ func listFavouritesHandler(svc *service.Container) gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"items": items})
+		visibility := mediaVisibilityForRequest(c, svc)
+		filtered := make([]any, 0, len(items))
+		for i := range items {
+			if visibility.Allows(&items[i]) {
+				filtered = append(filtered, items[i])
+			}
+		}
+		c.JSON(http.StatusOK, gin.H{"items": filtered})
 	}
 }
 
@@ -127,6 +141,14 @@ func getPlaylistHandler(svc *service.Container) gin.HandlerFunc {
 			c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
 			return
 		}
+		visibility := mediaVisibilityForRequest(c, svc)
+		filtered := detail.Items[:0]
+		for i := range detail.Items {
+			if visibility.Allows(&detail.Items[i]) {
+				filtered = append(filtered, detail.Items[i])
+			}
+		}
+		detail.Items = filtered
 		c.JSON(http.StatusOK, detail)
 	}
 }

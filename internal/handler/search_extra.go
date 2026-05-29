@@ -21,7 +21,7 @@ func searchUnifiedHandler(svc *service.Container) gin.HandlerFunc {
 		if limit <= 0 || limit > 200 {
 			limit = 30
 		}
-		items, err := svc.Media.SearchMedia(c.Request.Context(), q, limit)
+		items, err := svc.Media.SearchMediaVisible(c.Request.Context(), q, limit, mediaVisibilityForRequest(c, svc))
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
@@ -41,13 +41,13 @@ func searchAdvancedHandler(svc *service.Container) gin.HandlerFunc {
 		if limit <= 0 || limit > 200 {
 			limit = 30
 		}
-		items, err := svc.Media.SearchMedia(c.Request.Context(), q, limit)
+		items, err := svc.Media.SearchMediaVisible(c.Request.Context(), q, limit, mediaVisibilityForRequest(c, svc))
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{
-			"items":   items,
+			"items": items,
 			"filters": gin.H{
 				"year":       c.Query("year"),
 				"type":       c.Query("type"),

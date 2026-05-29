@@ -17,6 +17,12 @@ export interface PlayProfileInput {
   allowed_library_ids: string[]
 }
 
+export interface PlayProfilePINVerifyResponse {
+  profile: PlayProfile
+  token: string
+  expires_at: string
+}
+
 // playProfilesAPI wraps /play-profiles. The admin variant adds ?all=true.
 export const playProfilesAPI = {
   list: (all = false) =>
@@ -29,6 +35,11 @@ export const playProfilesAPI = {
 
   update: (id: string, input: PlayProfileInput) =>
     api.put<PlayProfile>(`/play-profiles/${id}`, input).then((r) => r.data),
+
+  verifyPin: (id: string, pin: string) =>
+    api
+      .post<PlayProfilePINVerifyResponse>(`/play-profiles/${id}/verify-pin`, { pin })
+      .then((r) => r.data),
 
   remove: (id: string) =>
     api.delete(`/play-profiles/${id}`).then((r) => r.data),

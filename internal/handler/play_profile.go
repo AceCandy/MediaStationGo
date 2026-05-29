@@ -5,13 +5,19 @@
 package handler
 
 import (
+	"errors"
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
 	"github.com/ShukeBta/MediaStationGo/internal/middleware"
 	"github.com/ShukeBta/MediaStationGo/internal/service"
 )
+
+type verifyPlayProfilePINReq struct {
+	PIN string `json:"pin"`
+}
 
 // listPlayProfilesHandler returns the caller's profiles, or every
 // profile when the caller is an admin AND ?all=true is set.
@@ -82,5 +88,37 @@ func deletePlayProfileHandler(svc *service.Container) gin.HandlerFunc {
 			return
 		}
 		c.Status(http.StatusNoContent)
+	}
+}
+
+func verifyPlayProfilePINHandler(svc *service.Container) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req verifyPlayProfilePINReq
+		_ = c.ShouldBindJSON(&req)
+		uid, _ := c.Get(middleware.CtxUserID)
+		profile, err := svc.PlayProfiles.VerifyPIN(c.Request.Context(), c.Param("id"), toString(uid), req.PIN)
+		if errors.Is(err, service.ErrPlayProfileNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "profile not found"})
+			return
+		}
+		if errors.Is(err, service.ErrPlayProfileForbidden) {
+			c.JSON(http.StatusForbidden, gin.H{"error": "profile forbidden"})
+			return
+		}
+		if errors.Is(err, service.ErrPlayProfilePINInvalid) {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "PIN 错误"})
+			return
+		}
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		expiresAt := time.Now().Add(12 * time.Hour)
+		token := signPlayProfilePINToken(svc, toString(uid), profile.ID, expiresAt)
+		c.JSON(http.StatusOK, gin.H{
+			"profile":    profile,
+			"token":      token,
+			"expires_at": expiresAt.Format(time.RFC3339),
+		})
 	}
 }

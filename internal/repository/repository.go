@@ -207,6 +207,23 @@ func (r *LibraryRepository) Delete(ctx context.Context, id string) error {
 // MediaRepository persists model.Media records.
 type MediaRepository struct{ db *gorm.DB }
 
+// MediaQueryFilter is applied to user-facing media queries so NSFW items and
+// profile-restricted libraries are filtered in SQL instead of only in React.
+type MediaQueryFilter struct {
+	IncludeNSFW       bool
+	AllowedLibraryIDs []string
+}
+
+func applyMediaQueryFilter(q *gorm.DB, filter MediaQueryFilter) *gorm.DB {
+	if !filter.IncludeNSFW {
+		q = q.Where("nsfw = ?", false)
+	}
+	if len(filter.AllowedLibraryIDs) > 0 {
+		q = q.Where("library_id IN ?", filter.AllowedLibraryIDs)
+	}
+	return q
+}
+
 // Upsert inserts or updates a media row keyed by Path (unique index).
 //
 // 重要：当一条行已经存在时，scanner 重扫只应该刷新文件级元数据
@@ -336,9 +353,14 @@ func (r *MediaRepository) FindByID(ctx context.Context, id string) (*model.Media
 
 // ListByLibrary returns paginated media items for a library.
 func (r *MediaRepository) ListByLibrary(ctx context.Context, libraryID string, offset, limit int) ([]model.Media, int64, error) {
+	return r.ListByLibraryFiltered(ctx, libraryID, offset, limit, MediaQueryFilter{IncludeNSFW: true})
+}
+
+func (r *MediaRepository) ListByLibraryFiltered(ctx context.Context, libraryID string, offset, limit int, filter MediaQueryFilter) ([]model.Media, int64, error) {
 	var items []model.Media
 	var total int64
 	q := r.db.WithContext(ctx).Model(&model.Media{}).Where("library_id = ?", libraryID)
+	q = applyMediaQueryFilter(q, filter)
 	if err := q.Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
@@ -349,8 +371,13 @@ func (r *MediaRepository) ListByLibrary(ctx context.Context, libraryID string, o
 // Search runs a LIKE search against the title field. Empty query returns the
 // most recently added items.
 func (r *MediaRepository) Search(ctx context.Context, query string, limit int) ([]model.Media, error) {
+	return r.SearchFiltered(ctx, query, limit, MediaQueryFilter{IncludeNSFW: true})
+}
+
+func (r *MediaRepository) SearchFiltered(ctx context.Context, query string, limit int, filter MediaQueryFilter) ([]model.Media, error) {
 	var items []model.Media
 	q := r.db.WithContext(ctx).Model(&model.Media{}).Limit(limit)
+	q = applyMediaQueryFilter(q, filter)
 	if query != "" {
 		like := "%" + query + "%"
 		q = q.Where("title LIKE ? OR original_name LIKE ?", like, like)

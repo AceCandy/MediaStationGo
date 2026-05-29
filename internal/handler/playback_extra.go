@@ -24,14 +24,16 @@ import (
 func playbackInfoHandler(svc *service.Container) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		m, err := svc.Repo.Media.FindByID(c.Request.Context(), c.Param("id"))
-		if err != nil || m == nil {
+		if err != nil || m == nil || !mediaVisibleForRequest(c, svc, m) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "media not found"})
 			return
 		}
+		token := externalPlaybackToken(c, svc)
+		profileQuery := externalProfileQuery(c)
 		c.JSON(http.StatusOK, gin.H{
 			"media":      m,
-			"stream_url": "/api/stream/" + m.ID,
-			"hls_url":    "/api/hls/" + m.ID + "/index.m3u8",
+			"stream_url": "/api/stream/" + m.ID + "?token=" + url.QueryEscape(token) + profileQuery,
+			"hls_url":    "/api/hls/" + m.ID + "/index.m3u8?token=" + url.QueryEscape(token) + profileQuery,
 		})
 	}
 }
@@ -67,12 +69,12 @@ func playbackProgressHandler(svc *service.Container) gin.HandlerFunc {
 func externalPlayersHandler(svc *service.Container) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		m, err := svc.Repo.Media.FindByID(c.Request.Context(), c.Param("id"))
-		if err != nil || m == nil {
+		if err != nil || m == nil || !mediaVisibleForRequest(c, svc, m) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "media not found"})
 			return
 		}
 		token := externalPlaybackToken(c, svc)
-		streamURL := absoluteRequestURL(c, "/api/stream/"+m.ID+"?token="+url.QueryEscape(token))
+		streamURL := absoluteRequestURL(c, "/api/stream/"+m.ID+"?token="+url.QueryEscape(token)+externalProfileQuery(c))
 		escapedStream := url.QueryEscape(streamURL)
 		c.JSON(http.StatusOK, gin.H{
 			"url": streamURL,
@@ -92,16 +94,35 @@ func externalPlayersHandler(svc *service.Container) gin.HandlerFunc {
 func externalURLHandler(svc *service.Container) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		m, err := svc.Repo.Media.FindByID(c.Request.Context(), c.Param("id"))
-		if err != nil || m == nil {
+		if err != nil || m == nil || !mediaVisibleForRequest(c, svc, m) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "media not found"})
 			return
 		}
 		token := externalPlaybackToken(c, svc)
 		c.JSON(http.StatusOK, gin.H{
-			"url":   absoluteRequestURL(c, "/api/stream/"+m.ID+"?token="+url.QueryEscape(token)),
+			"url":   absoluteRequestURL(c, "/api/stream/"+m.ID+"?token="+url.QueryEscape(token)+externalProfileQuery(c)),
 			"token": token,
 		})
 	}
+}
+
+func externalProfileQuery(c *gin.Context) string {
+	profileID := strings.TrimSpace(c.GetHeader("X-Play-Profile-ID"))
+	if profileID == "" {
+		profileID = strings.TrimSpace(c.Query("profile_id"))
+	}
+	if profileID == "" {
+		return ""
+	}
+	query := "&profile_id=" + url.QueryEscape(profileID)
+	pinToken := strings.TrimSpace(c.GetHeader("X-Play-Profile-PIN-Token"))
+	if pinToken == "" {
+		pinToken = strings.TrimSpace(c.Query("profile_pin_token"))
+	}
+	if pinToken != "" {
+		query += "&profile_pin_token=" + url.QueryEscape(pinToken)
+	}
+	return query
 }
 
 func externalPlaybackToken(c *gin.Context, svc *service.Container) string {

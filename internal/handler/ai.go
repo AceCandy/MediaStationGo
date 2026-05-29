@@ -29,7 +29,7 @@ func smartSearchHandler(svc *service.Container) gin.HandlerFunc {
 		}
 		// Run the actual library search using the cleaned query so the
 		// caller can render local + external results in one round-trip.
-		items, _ := svc.Media.SearchMedia(c.Request.Context(), intent.Query, 60)
+		items, _ := svc.Media.SearchMediaVisible(c.Request.Context(), intent.Query, 60, mediaVisibilityForRequest(c, svc))
 		external := service.SearchExternalMedia(
 			c.Request.Context(),
 			intent.Query,
@@ -57,8 +57,9 @@ func aiRecommendHandler(svc *service.Container) gin.HandlerFunc {
 			return
 		}
 		titles := make([]string, 0, len(hist))
+		visibility := mediaVisibilityForRequest(c, svc)
 		for _, h := range hist {
-			if h.Media != nil && strings.TrimSpace(h.Media.Title) != "" {
+			if h.Media != nil && visibility.Allows(h.Media) && strings.TrimSpace(h.Media.Title) != "" {
 				titles = append(titles, h.Media.Title)
 			}
 		}

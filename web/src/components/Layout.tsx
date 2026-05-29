@@ -1,6 +1,7 @@
 ﻿import { useEffect, useState } from 'react'
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
+import toast from 'react-hot-toast'
 import {
   Activity, Bell, Clock, CloudDownload, Compass, Film,
   Cast, Globe, HardDrive, Heart, Home, Image, KeySquare,
@@ -12,6 +13,10 @@ import clsx from 'clsx'
 import { AppFooter } from './AppFooter'
 import { useAuthStore } from '../stores/auth'
 import { usePermissionStore } from '../stores/permissions'
+import { usePlayProfileStore } from '../stores/playProfile'
+import { playProfilesAPI } from '../api/play_profiles'
+import { requestPIN } from './PinDialog'
+import type { PlayProfile } from '../types'
 
 export function Layout() {
   const navigate = useNavigate()
@@ -22,9 +27,12 @@ export function Layout() {
   const isSuper = usePermissionStore((s) => s.isSuper)
   const isPermissionLoading = usePermissionStore((s) => s.isLoading)
   const fetchPermissions = usePermissionStore((s) => s.fetchPermissions)
+  const activeProfileId = usePlayProfileStore((s) => s.activeProfileId)
+  const setActiveProfile = usePlayProfileStore((s) => s.setActiveProfile)
   const [isSidebarOpen, setIsSidebarOpen] = useState(true)
   const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState(false)
   const [isProfileOpen, setIsProfileOpen] = useState(false)
+  const [profiles, setProfiles] = useState<PlayProfile[]>([])
   const [searchFocused, setSearchFocused] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
 
@@ -52,13 +60,56 @@ export function Layout() {
     }
   }, [fetchPermissions, isPermissionLoading, permissions, user])
 
+  useEffect(() => {
+    if (!user) {
+      setProfiles([])
+      setActiveProfile(null)
+      return
+    }
+    playProfilesAPI
+      .list(false)
+      .then((rows) => {
+        setProfiles(rows)
+        const active = rows.find((p) => p.id === activeProfileId)
+        if (!active) {
+          const defaultProfile = rows.find((p) => p.is_default && !p.require_pin)
+          setActiveProfile(defaultProfile?.id ?? null)
+        }
+      })
+      .catch(() => undefined)
+  }, [activeProfileId, setActiveProfile, user])
+
   const isAdmin = user?.role === 'admin'
   const can = (key: string) => isAdmin || isSuper || (permissions ?? {})[key] === true
+  const activeProfile = profiles.find((p) => p.id === activeProfileId) ?? null
 
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     if (searchQuery.trim()) {
       navigate(`/search?q=${encodeURIComponent(searchQuery.trim())}`)
+    }
+  }
+
+  const handleProfileSwitch = async (profile: PlayProfile) => {
+    if (activeProfileId === profile.id) {
+      setIsProfileOpen(false)
+      return
+    }
+    try {
+      let pinToken: string | null = null
+      if (profile.require_pin) {
+        const pin = await requestPIN({ profileName: profile.name })
+        if (!pin) return
+        const verified = await playProfilesAPI.verifyPin(profile.id, pin)
+        pinToken = verified.token
+      }
+      setActiveProfile(profile.id, pinToken)
+      setIsProfileOpen(false)
+      toast.success(`已切换到「${profile.name}」`)
+    } catch (err: unknown) {
+      const msg =
+        (err as { response?: { data?: { error?: string } } })?.response?.data?.error ?? 'PIN 验证失败'
+      toast.error(msg)
     }
   }
 
@@ -292,7 +343,9 @@ export function Layout() {
                 </div>
                 <div className="text-left hidden md:block">
                   <p className="text-xs font-bold text-gray-900 leading-none">{user?.username}</p>
-                  <p className="text-[9px] text-gray-500 font-bold uppercase tracking-wider mt-0.5 leading-none">{user?.role}</p>
+                  <p className="text-[9px] text-gray-500 font-bold uppercase tracking-wider mt-0.5 leading-none">
+                    {activeProfile ? `Profile: ${activeProfile.name}` : user?.role}
+                  </p>
                 </div>
                 <ChevronDown size={14} className="text-gray-500" />
               </button>
@@ -317,14 +370,6 @@ export function Layout() {
                         <UserIcon size={16} />
                         <span>个人基本信息</span>
                       </Link>
-                      <Link
-                        to="/play-profiles"
-                        onClick={() => setIsProfileOpen(false)}
-                        className="flex items-center gap-3 rounded-xl px-3 py-2 text-sm text-gray-600 hover:bg-gray-50 hover:text-gray-950 transition-colors"
-                      >
-                        <UserCog size={16} />
-                        <span>观影 Profile 切换</span>
-                      </Link>
                       {user?.role === 'admin' && (
                         <Link
                           to="/admin"
@@ -335,6 +380,48 @@ export function Layout() {
                           <span>管理主控制台</span>
                         </Link>
                       )}
+                      <div className="my-1.5 border-t border-gray-100" />
+                      <div className="px-3 py-2">
+                        <p className="mb-2 text-[10px] font-bold uppercase tracking-wider text-gray-500">
+                          当前观影 Profile
+                        </p>
+                        <div className="space-y-1">
+                          <button
+                            onClick={() => {
+                              setActiveProfile(null)
+                              setIsProfileOpen(false)
+                            }}
+                            className={clsx(
+                              'flex w-full items-center justify-between rounded-xl px-2.5 py-2 text-left text-xs transition-colors',
+                              !activeProfileId ? 'bg-gray-950 text-white' : 'text-gray-600 hover:bg-gray-50',
+                            )}
+                          >
+                            <span>账号默认</span>
+                            <span>{!activeProfileId ? '使用中' : ''}</span>
+                          </button>
+                          {profiles.map((profile) => (
+                            <button
+                              key={profile.id}
+                              onClick={() => handleProfileSwitch(profile)}
+                              className={clsx(
+                                'flex w-full items-center justify-between rounded-xl px-2.5 py-2 text-left text-xs transition-colors',
+                                activeProfileId === profile.id ? 'bg-gray-950 text-white' : 'text-gray-600 hover:bg-gray-50',
+                              )}
+                            >
+                              <span className="truncate">{profile.name}</span>
+                              <span className="ml-2 shrink-0">{profile.allow_adult ? '成人' : '安全'}</span>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      <Link
+                        to="/play-profiles"
+                        onClick={() => setIsProfileOpen(false)}
+                        className="flex items-center gap-3 rounded-xl px-3 py-2 text-sm text-gray-600 hover:bg-gray-50 hover:text-gray-950 transition-colors"
+                      >
+                        <UserCog size={16} />
+                        <span>管理观影 Profile</span>
+                      </Link>
                       <div className="my-1.5 border-t border-gray-100" />
                       <button
                         onClick={() => {

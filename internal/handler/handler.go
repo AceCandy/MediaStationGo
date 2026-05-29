@@ -200,6 +200,7 @@ func Register(r *gin.Engine, cfg *config.Config, log *zap.Logger, svc *service.C
 			authed.GET("/play-profiles", listPlayProfilesHandler(svc))
 			authed.POST("/play-profiles", createPlayProfileHandler(svc))
 			authed.PUT("/play-profiles/:id", updatePlayProfileHandler(svc))
+			authed.POST("/play-profiles/:id/verify-pin", verifyPlayProfilePINHandler(svc))
 			authed.DELETE("/play-profiles/:id", deletePlayProfileHandler(svc))
 
 			// ── Search aliases ──

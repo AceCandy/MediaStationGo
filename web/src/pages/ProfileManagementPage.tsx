@@ -5,7 +5,9 @@ import toast from 'react-hot-toast'
 import { libraryAPI } from '../api/library'
 import { playProfilesAPI, type PlayProfileInput } from '../api/play_profiles'
 import { useAuthStore } from '../stores/auth'
+import { usePlayProfileStore } from '../stores/playProfile'
 import { confirmAction } from '../components/ConfirmDialog'
+import { requestPIN } from '../components/PinDialog'
 import type { Library, PlayProfile } from '../types'
 
 // ProfileManagementPage replicates the Vue ProfileManagementView. It
@@ -17,6 +19,8 @@ import type { Library, PlayProfile } from '../types'
 export function ProfileManagementPage() {
   const isAdmin = useAuthStore((s) => s.user?.role === 'admin')
   const userID = useAuthStore((s) => s.user?.id ?? '')
+  const activeProfileId = usePlayProfileStore((s) => s.activeProfileId)
+  const setActiveProfile = usePlayProfileStore((s) => s.setActiveProfile)
 
   const [profiles, setProfiles] = useState<PlayProfile[]>([])
   const [libraries, setLibraries] = useState<Library[]>([])
@@ -65,6 +69,28 @@ export function ProfileManagementPage() {
     setShowForm(true)
   }
 
+  const selectProfile = async (profile: PlayProfile) => {
+    if (profile.user_id !== userID) {
+      toast.error('只能切换当前账号自己的 Profile')
+      return
+    }
+    try {
+      let pinToken: string | null = null
+      if (profile.require_pin) {
+        const pin = await requestPIN({ profileName: profile.name })
+        if (!pin) return
+        const verified = await playProfilesAPI.verifyPin(profile.id, pin)
+        pinToken = verified.token
+      }
+      setActiveProfile(profile.id, pinToken)
+      toast.success(`已切换到「${profile.name}」`)
+    } catch (err: unknown) {
+      const msg =
+        (err as { response?: { data?: { error?: string } } })?.response?.data?.error ?? 'PIN 验证失败'
+      toast.error(msg)
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -105,6 +131,8 @@ export function ProfileManagementPage() {
               key={p.id}
               profile={p}
               libraries={libraries}
+              active={activeProfileId === p.id || (!activeProfileId && p.is_default)}
+              onSelect={() => selectProfile(p)}
               onEdit={() => openEdit(p)}
               onDelete={() => onDelete(p)}
             />
@@ -132,11 +160,15 @@ export function ProfileManagementPage() {
 function ProfileCard({
   profile,
   libraries,
+  active,
+  onSelect,
   onEdit,
   onDelete,
 }: {
   profile: PlayProfile
   libraries: Library[]
+  active: boolean
+  onSelect: () => void
   onEdit: () => void
   onDelete: () => void
 }) {
@@ -165,6 +197,11 @@ function ProfileCard({
                 默认
               </span>
             )}
+            {active && (
+              <span className="rounded-lg bg-gray-950 px-2 py-0.5 text-xs text-white">
+                当前使用
+              </span>
+            )}
             {profile.allow_adult && (
               <span className="rounded-lg bg-red-400/20 px-2 py-0.5 text-xs text-red-400">
                 成人内容
@@ -188,6 +225,12 @@ function ProfileCard({
         </div>
       </div>
       <div className="flex shrink-0 gap-2">
+        <button
+          onClick={onSelect}
+          className="rounded-lg border border-primary-400/40 px-2 py-1 text-xs text-brand-500 hover:bg-primary-400/10"
+        >
+          设为当前
+        </button>
         <button
           onClick={onEdit}
           className="rounded-lg border border-gray-200 px-2 py-1 text-xs text-ink-100 hover:border-primary-400/40 hover:text-brand-500"

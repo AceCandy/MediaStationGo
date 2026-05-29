@@ -83,7 +83,7 @@ func listMediaHandler(svc *service.Container) gin.HandlerFunc {
 		id := c.Param("id")
 		page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 		size, _ := strconv.Atoi(c.DefaultQuery("page_size", "50"))
-		items, total, err := svc.Media.ListMedia(c.Request.Context(), id, page, size)
+		items, total, err := svc.Media.ListMediaVisible(c.Request.Context(), id, page, size, mediaVisibilityForRequest(c, svc))
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
@@ -108,6 +108,10 @@ func getMediaHandler(svc *service.Container) gin.HandlerFunc {
 			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
 			return
 		}
+		if !mediaVisibleForRequest(c, svc, m) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+			return
+		}
 		c.JSON(http.StatusOK, m)
 	}
 }
@@ -116,7 +120,7 @@ func searchMediaHandler(svc *service.Container) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		q := c.Query("q")
 		limit, _ := strconv.Atoi(c.DefaultQuery("limit", "50"))
-		items, err := svc.Media.SearchMedia(c.Request.Context(), q, limit)
+		items, err := svc.Media.SearchMediaVisible(c.Request.Context(), q, limit, mediaVisibilityForRequest(c, svc))
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
@@ -127,7 +131,12 @@ func searchMediaHandler(svc *service.Container) gin.HandlerFunc {
 
 func streamHandler(svc *service.Container) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		err := svc.Stream.ServeFile(c.Writer, c.Request, c.Param("id"))
+		m, err := svc.Media.GetMedia(c.Request.Context(), c.Param("id"))
+		if err != nil || m == nil || !mediaVisibleForRequest(c, svc, m) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+			return
+		}
+		err = svc.Stream.ServeFile(c.Writer, c.Request, c.Param("id"))
 		if errors.Is(err, service.ErrMediaNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
 			return

@@ -29,6 +29,12 @@ type PlayProfileService struct {
 	repo *repository.Container
 }
 
+var (
+	ErrPlayProfileNotFound   = errors.New("profile not found")
+	ErrPlayProfileForbidden  = errors.New("profile forbidden")
+	ErrPlayProfilePINInvalid = errors.New("pin invalid")
+)
+
 // NewPlayProfileService is the constructor.
 func NewPlayProfileService(log *zap.Logger, repo *repository.Container) *PlayProfileService {
 	return &PlayProfileService{log: log, repo: repo}
@@ -138,7 +144,7 @@ func (s *PlayProfileService) Update(ctx context.Context, id string, in PlayProfi
 		return nil, err
 	}
 	if row == nil {
-		return nil, errors.New("profile not found")
+		return nil, ErrPlayProfileNotFound
 	}
 	if err := validateProfileInput(in, false); err != nil {
 		return nil, err
@@ -158,6 +164,8 @@ func (s *PlayProfileService) Update(ctx context.Context, id string, in PlayProfi
 	}
 	if in.RequirePIN && in.PIN != "" {
 		patch["pin_hash"] = hashPIN(in.PIN)
+	} else if in.RequirePIN && row.PINHash == "" {
+		return nil, errors.New("pin required")
 	}
 	if !in.RequirePIN {
 		patch["pin_hash"] = ""
@@ -183,6 +191,27 @@ func (s *PlayProfileService) Delete(ctx context.Context, id string) error {
 	return s.repo.PlayProfile.Delete(ctx, id)
 }
 
+// VerifyPIN validates that the caller can switch to a PIN-protected profile.
+func (s *PlayProfileService) VerifyPIN(ctx context.Context, id, userID, pin string) (*ProfileView, error) {
+	row, err := s.repo.PlayProfile.FindByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if row == nil {
+		return nil, ErrPlayProfileNotFound
+	}
+	if row.UserID != userID {
+		return nil, ErrPlayProfileForbidden
+	}
+	if row.RequirePIN {
+		if row.PINHash == "" || hashPIN(pin) != row.PINHash {
+			return nil, ErrPlayProfilePINInvalid
+		}
+	}
+	view := toProfileView(*row)
+	return &view, nil
+}
+
 // TouchActive bumps the LastActiveAt timestamp; called by the player
 // when a profile is selected.
 func (s *PlayProfileService) TouchActive(ctx context.Context, id string) error {
@@ -200,6 +229,9 @@ func validateProfileInput(in PlayProfileInput, requireUser bool) error {
 	}
 	if requireUser && strings.TrimSpace(in.UserID) == "" {
 		return errors.New("user_id required")
+	}
+	if requireUser && in.RequirePIN && strings.TrimSpace(in.PIN) == "" {
+		return errors.New("pin required")
 	}
 	if in.RequirePIN && in.PIN != "" {
 		if len(in.PIN) < 4 || len(in.PIN) > 8 {

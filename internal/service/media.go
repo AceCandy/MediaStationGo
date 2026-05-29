@@ -23,6 +23,29 @@ type MediaService struct {
 	repo *repository.Container
 }
 
+type MediaVisibility struct {
+	IncludeNSFW       bool
+	AllowedLibraryIDs []string
+}
+
+func (v MediaVisibility) Allows(media *model.Media) bool {
+	if media == nil {
+		return false
+	}
+	if !v.IncludeNSFW && media.NSFW {
+		return false
+	}
+	if len(v.AllowedLibraryIDs) == 0 {
+		return true
+	}
+	for _, id := range v.AllowedLibraryIDs {
+		if id == media.LibraryID {
+			return true
+		}
+	}
+	return false
+}
+
 // NewMediaService is the constructor.
 func NewMediaService(cfg *config.Config, log *zap.Logger, repo *repository.Container) *MediaService {
 	return &MediaService{cfg: cfg, log: log, repo: repo}
@@ -143,6 +166,10 @@ func (s *MediaService) DeleteLibrary(ctx context.Context, id string) error {
 
 // ListMedia paginates media items inside a library.
 func (s *MediaService) ListMedia(ctx context.Context, libraryID string, page, pageSize int) ([]model.Media, int64, error) {
+	return s.ListMediaVisible(ctx, libraryID, page, pageSize, MediaVisibility{IncludeNSFW: true})
+}
+
+func (s *MediaService) ListMediaVisible(ctx context.Context, libraryID string, page, pageSize int, visibility MediaVisibility) ([]model.Media, int64, error) {
 	if pageSize <= 0 {
 		pageSize = 50
 	}
@@ -152,15 +179,25 @@ func (s *MediaService) ListMedia(ctx context.Context, libraryID string, page, pa
 	if page < 1 {
 		page = 1
 	}
-	return s.repo.Media.ListByLibrary(ctx, libraryID, (page-1)*pageSize, pageSize)
+	return s.repo.Media.ListByLibraryFiltered(ctx, libraryID, (page-1)*pageSize, pageSize, repository.MediaQueryFilter{
+		IncludeNSFW:       visibility.IncludeNSFW,
+		AllowedLibraryIDs: visibility.AllowedLibraryIDs,
+	})
 }
 
 // SearchMedia performs a simple LIKE search across titles.
 func (s *MediaService) SearchMedia(ctx context.Context, query string, limit int) ([]model.Media, error) {
+	return s.SearchMediaVisible(ctx, query, limit, MediaVisibility{IncludeNSFW: true})
+}
+
+func (s *MediaService) SearchMediaVisible(ctx context.Context, query string, limit int, visibility MediaVisibility) ([]model.Media, error) {
 	if limit <= 0 || limit > 200 {
 		limit = 50
 	}
-	return s.repo.Media.Search(ctx, query, limit)
+	return s.repo.Media.SearchFiltered(ctx, query, limit, repository.MediaQueryFilter{
+		IncludeNSFW:       visibility.IncludeNSFW,
+		AllowedLibraryIDs: visibility.AllowedLibraryIDs,
+	})
 }
 
 // GetMedia returns a single media row.
