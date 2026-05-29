@@ -13,13 +13,7 @@ type LibraryPreview = {
   library: Library
   items: Media[]
   total: number
-}
-
-type CategorySummary = {
-  type: string
-  libraries: number
-  total: number
-  items: Media[]
+  cards: SeriesCard[]
 }
 
 const TYPE_ICONS: Record<string, ReactNode> = {
@@ -38,18 +32,9 @@ const TYPE_LABELS: Record<string, string> = {
   music: '音乐',
 }
 
-const TYPE_DESCRIPTIONS: Record<string, string> = {
-  movie: '电影 / 动画电影 / 纪录片',
-  tv: '国产剧 / 欧美剧 / 日韩剧',
-  anime: '国漫 / 日番 / OVA',
-  variety: '综艺 / 真人秀 / 晚会',
-  music: '音乐 / MV / 演唱会',
-}
-
 export function LibrariesPage() {
   const [previews, setPreviews] = useState<LibraryPreview[]>([])
   const [loading, setLoading] = useState(true)
-  const [activeType, setActiveType] = useState('all')
 
   useEffect(() => {
     let cancelled = false
@@ -59,10 +44,11 @@ export function LibrariesPage() {
         const libs = await libraryAPI.list()
         const rows = await Promise.all(libs.map(async (library) => {
           try {
-            const page = await libraryAPI.listMedia(library.id, 1, 120)
-            return { library, items: page.items, total: page.total } satisfies LibraryPreview
+            const page = await libraryAPI.listMedia(library.id, 1, 160)
+            const cards = latestCards(page.items)
+            return { library, items: page.items, total: page.total, cards } satisfies LibraryPreview
           } catch {
-            return { library, items: [], total: 0 } satisfies LibraryPreview
+            return { library, items: [], total: 0, cards: [] } satisfies LibraryPreview
           }
         }))
         if (!cancelled) setPreviews(rows)
@@ -74,33 +60,7 @@ export function LibrariesPage() {
     return () => { cancelled = true }
   }, [])
 
-  const categories = useMemo(() => {
-    const map = new Map<string, CategorySummary>()
-    for (const preview of previews) {
-      const type = preview.library.type || 'other'
-      const current = map.get(type) ?? { type, libraries: 0, total: 0, items: [] }
-      current.libraries += 1
-      current.total += preview.total
-      current.items.push(...preview.items)
-      map.set(type, current)
-    }
-    return Array.from(map.values()).sort((a, b) => b.total - a.total)
-  }, [previews])
-
-  const filtered = activeType === 'all'
-    ? previews
-    : previews.filter((preview) => preview.library.type === activeType)
-
-  const activeItems = useMemo(() => filtered.flatMap((preview) => preview.items), [filtered])
-  const latestCards = useMemo(() => {
-    return groupSeries(activeItems)
-      .sort((a, b) => mediaTime(b.rep) - mediaTime(a.rep))
-      .slice(0, 9)
-  }, [activeItems])
-
-  const activeLabel = activeType === 'all'
-    ? '全部媒体'
-    : TYPE_LABELS[activeType] ?? activeType
+  const total = useMemo(() => previews.reduce((sum, preview) => sum + preview.total, 0), [previews])
 
   if (loading) {
     return <p className="px-2 py-8 text-sm text-sand-500">媒体库加载中…</p>
@@ -111,7 +71,9 @@ export function LibrariesPage() {
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="font-display text-3xl font-bold text-ink-600">媒体库</h1>
-          <p className="mt-1 text-sm text-ink-50">先看每类最新入库，再通过目录入口进入完整文件夹。</p>
+          <p className="mt-1 text-sm text-ink-50">
+            共 {previews.length} 个目录 · {total.toLocaleString()} 个条目。每个目录直接展示最新入库内容。
+          </p>
         </div>
         <Link to="/admin" className="btn-outline">
           管理媒体库
@@ -126,81 +88,36 @@ export function LibrariesPage() {
         </div>
       ) : (
         <>
-          <section className="overflow-x-auto pb-2">
-            <div className="flex min-w-full gap-3">
-              <CategoryCard
-                active={activeType === 'all'}
-                icon={<LibraryIcon size={18} />}
-                label="全部媒体"
-                description="统一浏览"
-                total={previews.reduce((sum, preview) => sum + preview.total, 0)}
-                libraries={previews.length}
-                onClick={() => setActiveType('all')}
-              />
-              {categories.map((category) => (
-                <CategoryCard
-                  key={category.type}
-                  active={activeType === category.type}
-                  icon={TYPE_ICONS[category.type] ?? <LibraryIcon size={18} />}
-                  label={TYPE_LABELS[category.type] ?? category.type}
-                  description={TYPE_DESCRIPTIONS[category.type] ?? '自定义分类'}
-                  total={category.total}
-                  libraries={category.libraries}
-                  onClick={() => setActiveType(category.type)}
-                />
-              ))}
-            </div>
-          </section>
-
-          <section className="space-y-4">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <h2 className="font-display text-2xl font-bold text-ink-600">{activeLabel} · 最近更新</h2>
-                <p className="text-sm text-ink-50">显示前 9 部最新入库或更新的影片 / 剧集合集。</p>
-              </div>
-              {filtered.length === 1 && (
-                <Link to={`/library/${filtered[0].library.id}`} className="btn-outline shrink-0">
-                  浏览全部
-                  <ArrowRight size={14} />
-                </Link>
-              )}
-            </div>
-
-            {latestCards.length > 0 ? (
-              <div className="grid grid-cols-3 gap-4 sm:grid-cols-4 lg:grid-cols-6 2xl:grid-cols-9">
-                {latestCards.map((card) => (
-                  <MediaCard
-                    key={card.key}
-                    media={card.rep}
-                    count={card.count}
-                    linkTo={mediaCardLink(card)}
-                  />
-                ))}
-              </div>
-            ) : (
-              <div className="rounded-3xl border border-dashed border-sand-200 bg-white px-6 py-12 text-center text-sm text-ink-50">
-                当前分类还没有入库内容，扫描媒体库后会显示在这里。
-              </div>
-            )}
-          </section>
-
           <section className="space-y-4">
             <div>
-              <h2 className="font-display text-2xl font-bold text-ink-600">目录入口</h2>
-              <p className="text-sm text-ink-50">按你添加的媒体库文件夹进入，适合继续按文件分类查找。</p>
+              <h2 className="font-display text-2xl font-bold text-ink-600">媒体库入口</h2>
+              <p className="text-sm text-ink-50">按目录进入完整媒体库；下方每个目录也会直接展示最新内容。</p>
             </div>
             <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-              {filtered.map((preview, index) => (
+              {previews.map((preview, index) => (
                 <motion.div
                   key={preview.library.id}
                   initial={{ opacity: 0, y: 12 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: index * 0.03 }}
                 >
-                  <LibraryFolderCard preview={preview} />
+                  <LibraryEntryCard preview={preview} />
                 </motion.div>
               ))}
             </div>
+          </section>
+
+          <section className="space-y-6">
+            {previews.map((preview, index) => (
+              <motion.div
+                key={preview.library.id}
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: index * 0.03 }}
+              >
+                <LibraryShelf preview={preview} />
+              </motion.div>
+            ))}
           </section>
         </>
       )}
@@ -208,52 +125,9 @@ export function LibrariesPage() {
   )
 }
 
-function CategoryCard({
-  active,
-  icon,
-  label,
-  description,
-  total,
-  libraries,
-  onClick,
-}: {
-  active: boolean
-  icon: ReactNode
-  label: string
-  description: string
-  total: number
-  libraries: number
-  onClick: () => void
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={
-        'min-w-[9.5rem] shrink-0 rounded-2xl border p-3 text-left transition-all lg:w-[calc((100%-3.75rem)/6)] ' +
-        (active
-          ? 'border-brand-300 bg-brand-50 shadow-card'
-          : 'border-sand-200 bg-white hover:-translate-y-0.5 hover:border-brand-200 hover:shadow-card')
-      }
-    >
-      <div className="mb-3 flex items-center justify-between">
-        <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-white text-brand-600 shadow-sm">
-          {icon}
-        </span>
-        <span className="rounded-full bg-white px-2 py-0.5 text-[10px] font-bold text-sand-600">
-          {libraries} 库
-        </span>
-      </div>
-      <h2 className="font-display text-base font-bold text-ink-600">{label}</h2>
-      <p className="mt-0.5 truncate text-[11px] text-ink-50">{description}</p>
-      <p className="mt-2 text-xs font-bold text-brand-600">{total.toLocaleString()} 项</p>
-    </button>
-  )
-}
-
-function LibraryFolderCard({ preview }: { preview: LibraryPreview }) {
+function LibraryEntryCard({ preview }: { preview: LibraryPreview }) {
   const library = preview.library
-  const artwork = groupSeries(preview.items)
+  const artwork = preview.cards
     .sort((a, b) => artworkScore(b.rep) - artworkScore(a.rep) || mediaTime(b.rep) - mediaTime(a.rep))
     .map((card) => card.rep.poster_url || card.rep.backdrop_url)
     .filter(Boolean)
@@ -295,11 +169,61 @@ function LibraryFolderCard({ preview }: { preview: LibraryPreview }) {
         </div>
         <div className="flex items-center justify-between text-xs font-bold">
           <span className="text-sand-600">{preview.total.toLocaleString()} 个条目</span>
-          <span className="text-brand-600">进入文件夹</span>
+          <span className="text-brand-600">浏览全部</span>
         </div>
       </div>
     </Link>
   )
+}
+
+function LibraryShelf({ preview }: { preview: LibraryPreview }) {
+  const library = preview.library
+  const cards = preview.cards.slice(0, 10)
+
+  return (
+    <section className="rounded-[1.7rem] border border-sand-200 bg-white/75 p-4 shadow-card">
+      <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
+        <div className="min-w-0">
+          <div className="mb-1 inline-flex items-center gap-2 rounded-full bg-brand-50 px-2.5 py-1 text-[11px] font-bold text-brand-700">
+            {TYPE_ICONS[library.type] ?? <LibraryIcon size={14} />}
+            {TYPE_LABELS[library.type] ?? library.type}
+          </div>
+          <h2 className="truncate font-display text-2xl font-black text-ink-600">{library.name}</h2>
+          <p className="mt-1 line-clamp-1 break-all text-xs text-ink-50">
+            {library.path} · {preview.total.toLocaleString()} 个条目 · 最新 {cards.length} 部
+          </p>
+        </div>
+        <Link to={`/library/${library.id}`} className="btn-outline shrink-0">
+          浏览全部
+          <ArrowRight size={14} />
+        </Link>
+      </div>
+
+      {cards.length > 0 ? (
+        <div className="flex gap-4 overflow-x-auto pb-2 pr-1">
+          {cards.map((card) => (
+            <div key={card.key} className="w-[9.5rem] shrink-0 lg:w-[10rem] 2xl:w-[10.5rem]">
+              <MediaCard
+                media={card.rep}
+                count={card.count}
+                linkTo={mediaCardLink(card)}
+              />
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="rounded-2xl border border-dashed border-sand-200 bg-white px-6 py-10 text-center text-sm text-ink-50">
+          该目录暂无可展示内容，扫描媒体库后会出现在这里。
+        </div>
+      )}
+    </section>
+  )
+}
+
+function latestCards(items: Media[]): SeriesCard[] {
+  return groupSeries(items)
+    .sort((a, b) => mediaTime(b.rep) - mediaTime(a.rep) || artworkScore(b.rep) - artworkScore(a.rep))
+    .slice(0, 10)
 }
 
 function mediaCardLink(card: SeriesCard): string {
