@@ -2,6 +2,37 @@
 import { api } from './client'
 import type { UserPermission } from '../types'
 
+type PermissionPayload = {
+  permissions: Record<string, boolean>
+  role: string
+  tier: string
+  is_super: boolean
+}
+
+type ApiEnvelope<T> = {
+  code?: number
+  message?: string
+  data?: T
+}
+
+function unwrapPermissionsPayload(raw: unknown): PermissionPayload {
+  const payload = (
+    raw &&
+    typeof raw === 'object' &&
+    'data' in raw &&
+    (raw as ApiEnvelope<PermissionPayload>).data
+      ? (raw as ApiEnvelope<PermissionPayload>).data
+      : raw
+  ) as Partial<PermissionPayload> | null
+
+  return {
+    permissions: payload?.permissions ?? {},
+    role: payload?.role ?? '',
+    tier: payload?.tier ?? 'free',
+    is_super: payload?.is_super ?? false,
+  }
+}
+
 // 获取用户权限
 export async function getUserPermissions(userId: string): Promise<UserPermission> {
   const resp = await api.get<UserPermission>(`/admin/users/${userId}/permissions`)
@@ -29,10 +60,5 @@ export async function getMyPermissions(): Promise<{
   is_super: boolean
 }> {
   const resp = await api.get('/auth/permissions')
-  return resp.data as unknown as {
-    permissions: Record<string, boolean>
-    role: string
-    tier: string
-    is_super: boolean
-  }
+  return unwrapPermissionsPayload(resp.data)
 }

@@ -47,13 +47,13 @@ export function Layout() {
   }, [location.pathname])
 
   useEffect(() => {
-    if (user && !isPermissionLoading && Object.keys(permissions).length === 0) {
+    if (user && !isPermissionLoading && Object.keys(permissions ?? {}).length === 0) {
       fetchPermissions().catch(() => undefined)
     }
   }, [fetchPermissions, isPermissionLoading, permissions, user])
 
   const isAdmin = user?.role === 'admin'
-  const can = (key: string) => isAdmin || isSuper || permissions[key] === true
+  const can = (key: string) => isAdmin || isSuper || (permissions ?? {})[key] === true
 
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault()

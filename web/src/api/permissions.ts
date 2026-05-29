@@ -18,21 +18,36 @@ export interface UserPermission {
   updated_at: string
 }
 
+type ApiEnvelope<T> = {
+  code?: number
+  message?: string
+  data?: T
+}
+
+function unwrap<T>(raw: T | ApiEnvelope<T>): T {
+  if (raw && typeof raw === 'object' && 'data' in raw && (raw as ApiEnvelope<T>).data !== undefined) {
+    return (raw as ApiEnvelope<T>).data as T
+  }
+  return raw as T
+}
+
 export const permissionsAPI = {
   // Caller's effective permissions; admins always get the all-true set.
-  mine: () => api.get<UserPermission>('/auth/permissions').then((r) => r.data),
+  mine: () => api.get<UserPermission | ApiEnvelope<UserPermission>>('/auth/permissions').then((r) => unwrap(r.data)),
 
   // Admin endpoints
   get: (userID: string) =>
-    api.get<UserPermission>(`/admin/users/${userID}/permissions`).then((r) => r.data),
+    api
+      .get<UserPermission | ApiEnvelope<UserPermission>>(`/admin/users/${userID}/permissions`)
+      .then((r) => unwrap(r.data)),
 
   save: (userID: string, p: UserPermission) =>
     api
-      .put<UserPermission>(`/admin/users/${userID}/permissions`, p)
-      .then((r) => r.data),
+      .put<UserPermission | ApiEnvelope<UserPermission>>(`/admin/users/${userID}/permissions`, p)
+      .then((r) => unwrap(r.data)),
 
   reset: (userID: string) =>
     api
-      .post<UserPermission>(`/admin/users/${userID}/permissions/reset`)
-      .then((r) => r.data),
+      .post<UserPermission | ApiEnvelope<UserPermission>>(`/admin/users/${userID}/permissions/reset`)
+      .then((r) => unwrap(r.data)),
 }

@@ -27,10 +27,10 @@ export const usePermissionStore = create<PermissionState>((set, get) => ({
     try {
       const result = await getMyPermissions()
       set({
-        permissions: result.permissions,
-        role: result.role,
-        tier: result.tier,
-        isSuper: result.is_super,
+        permissions: result.permissions ?? {},
+        role: result.role ?? '',
+        tier: result.tier ?? 'free',
+        isSuper: result.is_super ?? false,
         isLoading: false,
       })
     } catch (err) {
@@ -47,7 +47,7 @@ export const usePermissionStore = create<PermissionState>((set, get) => ({
     if (state.isSuper) {
       return true
     }
-    return state.permissions[key] === true
+    return (state.permissions ?? {})[key] === true
   },
 
   clearPermissions: () => {
