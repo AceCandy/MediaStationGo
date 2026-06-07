@@ -25,6 +25,7 @@ var (
 	patNxE          = regexp.MustCompile(`(\d{1,2})x(\d{1,3})`)
 	patEP           = regexp.MustCompile(`(?i)(?:^|[^a-z])(?:e|ep)\.?\s*(\d{1,3})(?:[^0-9]|$)`)
 	patCN           = regexp.MustCompile(`第\s*(\d{1,3})\s*[集话話期]`)
+	patDashEpisode  = regexp.MustCompile(`[\s._-][-–—]\s*(\d{1,3})(?:\s*(?:v\d+)?)?(?:\s*[\[\(._-]|$)`)
 	patSeasonFolder = regexp.MustCompile(`(?i)(?:^|[^a-z])(?:s|season)\.?\s*(\d{1,2})(?:[^0-9]|$)|第\s*(\d{1,2})\s*季`)
 	// patCNSeason 匹配中文季/部标记，支持阿拉伯数字与中文数字（如「第二季」「第2部」）。
 	patCNSeason = regexp.MustCompile(`第\s*[0-9一二三四五六七八九十百零两]+\s*[季部]`)
@@ -54,6 +55,14 @@ func ParseEpisode(path string) (season, episode int) {
 		return
 	}
 	if m := patCN.FindStringSubmatch(name); len(m) >= 2 {
+		season = seasonFromParents(path)
+		if season == 0 {
+			season = 1
+		}
+		episode = mustAtoi(m[1])
+		return
+	}
+	if m := patDashEpisode.FindStringSubmatch(name); len(m) >= 2 {
 		season = seasonFromParents(path)
 		if season == 0 {
 			season = 1

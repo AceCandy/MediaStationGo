@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -52,6 +53,65 @@ func TestParseEmbyAuthByNameReqAcceptsFormBody(t *testing.T) {
 	}
 	if req.Username != "bob" || req.Pw != "secret" {
 		t.Fatalf("unexpected request: %#v", req)
+	}
+}
+
+func TestParseEmbyAuthByNameReqAcceptsJSONWithoutContentType(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, "/emby/users/authenticatebyname", strings.NewReader(`{"UserName":"carol","PW":"secret"}`))
+
+	req, err := parseEmbyAuthByNameReq(c)
+	if err != nil {
+		t.Fatalf("parseEmbyAuthByNameReq returned error: %v", err)
+	}
+	if req.Username != "carol" || req.Pw != "secret" {
+		t.Fatalf("unexpected request: %#v", req)
+	}
+}
+
+func TestEmbyAuthenticateByNameAcceptsCaseVariantUsernameAndPath(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	if err := db.AutoMigrate(&model.User{}, &model.UserPermission{}, &model.RefreshToken{}, &model.Setting{}); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	repos := repository.New(db)
+	cfg := &config.Config{}
+	cfg.Secrets.JWTSecret = "test-secret"
+	log := zap.NewNop()
+	permissions := service.NewPermissionService(log, repos)
+	auth := service.NewAuthService(cfg, log, repos, service.NewTokenService(cfg, log, repos), permissions)
+	if _, _, err := auth.Register(context.Background(), "viewer", "secret-pass"); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+
+	router := gin.New()
+	registerEmbyRoutes(router, cfg.Secrets.JWTSecret, &service.Container{
+		Repo:  repos,
+		Auth:  auth,
+		Emby:  service.NewEmbyService(cfg, log, repos),
+		Audit: service.NewAuditService(log, repos),
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/emby/users/authenticatebyname", strings.NewReader(`{"Username":"Viewer","Pw":"secret-pass"}`))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("unexpected status: %d body=%s", w.Code, w.Body.String())
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if payload["AccessToken"] == "" {
+		t.Fatalf("missing AccessToken: %#v", payload)
 	}
 }
 

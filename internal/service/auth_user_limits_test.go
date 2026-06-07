@@ -188,6 +188,17 @@ func TestAdminResetPasswordAllowsLoginWithNewPassword(t *testing.T) {
 	}
 }
 
+func TestLoginAcceptsUsernameCaseVariant(t *testing.T) {
+	ctx := context.Background()
+	_, auth, _, _ := newAuthTestServices(t)
+	if _, _, err := auth.Register(ctx, "viewer", "password"); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	if _, err := auth.Login(ctx, "Viewer", "password"); err != nil {
+		t.Fatalf("case variant username should login: %v", err)
+	}
+}
+
 func TestLoginKeepsOnlyConfiguredActiveRefreshTokens(t *testing.T) {
 	ctx := context.Background()
 	repos, auth, _, _ := newAuthTestServices(t)

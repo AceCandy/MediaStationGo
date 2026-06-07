@@ -51,6 +51,24 @@ func TestPublicDownloadTitleUsesMagnetDisplayName(t *testing.T) {
 	}
 }
 
+func configureTestDefaultQB(t *testing.T, repos *repository.Container, baseURL string) {
+	t.Helper()
+	if err := repos.DownloadClient.Create(t.Context(), &model.DownloadClient{
+		Name:      "qB test",
+		Type:      "qbittorrent",
+		Host:      baseURL,
+		Username:  "admin",
+		Password:  "admin",
+		IsDefault: true,
+		Enabled:   true,
+	}); err != nil {
+		t.Fatalf("create default qB client: %v", err)
+	}
+	if err := repos.Setting.Set(t.Context(), settingDownloadClientsManaged, "true"); err != nil {
+		t.Fatalf("mark download clients managed: %v", err)
+	}
+}
+
 func TestAddDownloadWithMetaSkipsExistingTaskBeforeQBAdd(t *testing.T) {
 	var addCalls int32
 	qb := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -293,5 +311,121 @@ func TestReloadConfigDoesNotFallbackToLegacyAfterClientDisabled(t *testing.T) {
 	}
 	if got := atomic.LoadInt32(&addCalls); got != 0 {
 		t.Fatalf("qb add calls = %d, want 0", got)
+	}
+}
+
+func TestAddDownloadWithMetaFailsClosedWhenNoDownloaderConfigured(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(&model.DownloadClient{}, &model.DownloadTask{}, &model.Setting{}); err != nil {
+		t.Fatal(err)
+	}
+	repos := repository.New(db)
+	svc := NewDownloadService(zap.NewNop(), repos, NewHub(zap.NewNop()), nil)
+
+	task, err := svc.AddDownloadWithMeta(t.Context(), "u1", "magnet:?xt=urn:btih:cccccccccccccccccccccccccccccccccccccccc&dn=Movie+2026+1080p", "/downloads", DownloadTaskMeta{
+		Title: "Movie 2026 1080p",
+	})
+	if err == nil {
+		t.Fatal("expected no downloader configured error")
+	}
+	if task != nil {
+		t.Fatalf("task = %#v, want nil", task)
+	}
+	rows, err := repos.Download.List(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 0 {
+		t.Fatalf("download rows = %d, want 0", len(rows))
+	}
+}
+
+func TestReloadConfigManagedModeDoesNotFallbackToLegacyWithoutRows(t *testing.T) {
+	var addCalls int32
+	qb := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v2/auth/login":
+			_, _ = w.Write([]byte("Ok."))
+		case "/api/v2/torrents/info":
+			_, _ = w.Write([]byte(`[]`))
+		case "/api/v2/torrents/add":
+			atomic.AddInt32(&addCalls, 1)
+			_, _ = w.Write([]byte("Ok."))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer qb.Close()
+
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(&model.DownloadClient{}, &model.DownloadTask{}, &model.Setting{}); err != nil {
+		t.Fatal(err)
+	}
+	repos := repository.New(db)
+	if err := repos.Setting.Set(t.Context(), "qbittorrent.url", qb.URL); err != nil {
+		t.Fatal(err)
+	}
+	if err := repos.Setting.Set(t.Context(), "qbittorrent.username", "admin"); err != nil {
+		t.Fatal(err)
+	}
+	if err := repos.Setting.Set(t.Context(), "qbittorrent.password", "admin"); err != nil {
+		t.Fatal(err)
+	}
+	if err := repos.Setting.Set(t.Context(), settingDownloadClientsManaged, "true"); err != nil {
+		t.Fatal(err)
+	}
+
+	svc := NewDownloadService(zap.NewNop(), repos, NewHub(zap.NewNop()), nil)
+	_, err = svc.AddDownloadWithMeta(t.Context(), "u1", "magnet:?xt=urn:btih:dddddddddddddddddddddddddddddddddddddddd&dn=Movie+2026+1080p", "/downloads", DownloadTaskMeta{
+		Title: "Movie 2026 1080p",
+	})
+	if err == nil {
+		t.Fatal("expected managed mode to reject missing default downloader")
+	}
+	if got := atomic.LoadInt32(&addCalls); got != 0 {
+		t.Fatalf("qb add calls = %d, want 0", got)
+	}
+}
+
+func TestAddDownloadWithMetaSkipsExistingLocalEpisodeWithReleaseGroup(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(&model.Media{}, &model.DownloadTask{}, &model.Setting{}, &model.DownloadClient{}); err != nil {
+		t.Fatal(err)
+	}
+	repos := repository.New(db)
+	if err := db.Create(&model.Media{
+		Title:      "凡人修仙传",
+		Path:       "/media/动漫/国漫/凡人修仙传/Season 01/凡人修仙传 - S01E146.mkv",
+		SeasonNum:  1,
+		EpisodeNum: 146,
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	svc := NewDownloadService(zap.NewNop(), repos, NewHub(zap.NewNop()), nil)
+	task, err := svc.AddDownloadWithMeta(t.Context(), "u1", "magnet:?xt=urn:btih:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee&dn=%5BMagicStar%5D+%E5%87%A1%E4%BA%BA%E4%BF%AE%E4%BB%99%E4%BC%A0+%E5%B9%B4%E7%95%AA+-+146+%5B1080p%5D", "/downloads", DownloadTaskMeta{
+		Title: "[MagicStar] 凡人修仙传 年番 - 146 [1080p][WEB-DL]",
+	})
+	if !errors.Is(err, ErrMediaAlreadyInLibrary) {
+		t.Fatalf("err = %v, want ErrMediaAlreadyInLibrary", err)
+	}
+	if task != nil {
+		t.Fatalf("task = %#v, want nil", task)
+	}
+	rows, err := repos.Download.List(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 0 {
+		t.Fatalf("download rows = %d, want 0", len(rows))
 	}
 }

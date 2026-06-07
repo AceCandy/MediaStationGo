@@ -2,6 +2,7 @@ package service
 
 import (
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
@@ -204,6 +205,142 @@ func TestTelegramStartRejectsAccountAlreadyBoundToAnotherTelegram(t *testing.T) 
 	}
 	if binding := bot.telegramBinding(ctx, 20002); binding != nil {
 		t.Fatal("second telegram account must not be bound")
+	}
+}
+
+func TestTelegramStartUnbindsWhenBoundPasswordChanged(t *testing.T) {
+	ctx := t.Context()
+	repos, auth, _, _ := newAuthTestServices(t)
+	user, _, err := auth.Register(ctx, "viewer", "old-password")
+	if err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	if err := repos.DB.Create(&model.TelegramBinding{
+		TelegramUserID: 20003,
+		TelegramName:   "@viewer",
+		ChatID:         20003,
+		UserID:         user.ID,
+	}).Error; err != nil {
+		t.Fatalf("create binding: %v", err)
+	}
+	if err := auth.ResetPassword(ctx, user.ID, "new-password"); err != nil {
+		t.Fatalf("reset password: %v", err)
+	}
+	if err := repos.DB.AutoMigrate(&model.NotifyChannel{}); err != nil {
+		t.Fatalf("migrate notify channel: %v", err)
+	}
+	cfgJSON, _ := json.Marshal(map[string]string{"admin_user_ids": "20003"})
+	if err := repos.DB.Create(&model.NotifyChannel{Name: "Telegram", Type: "telegram", Enabled: true, Config: string(cfgJSON)}).Error; err != nil {
+		t.Fatalf("create notify channel: %v", err)
+	}
+
+	bot := NewTelegramBotService(zap.NewNop(), repos, nil, auth)
+	msg := &TelegramMessage{
+		From: TelegramUser{ID: 20003, Username: "viewer", FirstName: "Viewer"},
+		Chat: TelegramChat{ID: 20003, Type: "private"},
+	}
+	reply := bot.cmdStart(ctx, msg, []string{"viewer", "old-password"})
+
+	if !strings.Contains(reply.Text, "已自动解绑") {
+		t.Fatalf("expected auto unbind reply, got %q", reply.Text)
+	}
+	if binding := bot.telegramBinding(ctx, 20003); binding != nil {
+		t.Fatal("stale binding should be removed after password mismatch")
+	}
+}
+
+func TestTelegramSelfSetNameRequiresCurrentPassword(t *testing.T) {
+	ctx := t.Context()
+	repos, auth, _, _ := newAuthTestServices(t)
+	user, _, err := auth.Register(ctx, "viewer", "old-password")
+	if err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	if err := repos.DB.Create(&model.TelegramBinding{
+		TelegramUserID: 20004,
+		TelegramName:   "@viewer",
+		ChatID:         20004,
+		UserID:         user.ID,
+	}).Error; err != nil {
+		t.Fatalf("create binding: %v", err)
+	}
+
+	bot := NewTelegramBotService(zap.NewNop(), repos, nil, auth)
+	msg := &TelegramMessage{From: TelegramUser{ID: 20004, Username: "viewer"}, Chat: TelegramChat{ID: 20004, Type: "private"}}
+	if reply := bot.selfSetName(ctx, msg, "renamed"); !strings.Contains(reply.Text, "当前密码 新用户名") {
+		t.Fatalf("expected usage reply, got %q", reply.Text)
+	}
+	if reply := bot.selfSetName(ctx, msg, "old-password renamed"); !strings.Contains(reply.Text, "用户名已修改") {
+		t.Fatalf("expected rename success, got %q", reply.Text)
+	}
+	updated, _ := repos.User.FindByID(ctx, user.ID)
+	if updated == nil || updated.Username != "renamed" {
+		t.Fatalf("username not updated: %#v", updated)
+	}
+}
+
+func TestTelegramSelfSetPassWrongCurrentPasswordUnbinds(t *testing.T) {
+	ctx := t.Context()
+	repos, auth, _, _ := newAuthTestServices(t)
+	user, _, err := auth.Register(ctx, "viewer", "old-password")
+	if err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	if err := repos.DB.Create(&model.TelegramBinding{
+		TelegramUserID: 20005,
+		TelegramName:   "@viewer",
+		ChatID:         20005,
+		UserID:         user.ID,
+	}).Error; err != nil {
+		t.Fatalf("create binding: %v", err)
+	}
+
+	bot := NewTelegramBotService(zap.NewNop(), repos, nil, auth)
+	msg := &TelegramMessage{From: TelegramUser{ID: 20005, Username: "viewer"}, Chat: TelegramChat{ID: 20005, Type: "private"}}
+	reply := bot.selfSetPass(ctx, msg, "wrong-password new-password")
+
+	if !strings.Contains(reply.Text, "已自动解绑") {
+		t.Fatalf("expected auto unbind reply, got %q", reply.Text)
+	}
+	if binding := bot.telegramBinding(ctx, 20005); binding != nil {
+		t.Fatal("binding should be removed after wrong current password")
+	}
+	if _, err := auth.Login(ctx, "viewer", "old-password"); err != nil {
+		t.Fatalf("old password should remain valid after failed change: %v", err)
+	}
+}
+
+func TestTelegramSelfSetPassChangesPasswordWithCurrentPassword(t *testing.T) {
+	ctx := t.Context()
+	repos, auth, _, _ := newAuthTestServices(t)
+	user, _, err := auth.Register(ctx, "viewer", "old-password")
+	if err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	if err := repos.DB.Create(&model.TelegramBinding{
+		TelegramUserID: 20006,
+		TelegramName:   "@viewer",
+		ChatID:         20006,
+		UserID:         user.ID,
+	}).Error; err != nil {
+		t.Fatalf("create binding: %v", err)
+	}
+
+	bot := NewTelegramBotService(zap.NewNop(), repos, nil, auth)
+	msg := &TelegramMessage{From: TelegramUser{ID: 20006, Username: "viewer"}, Chat: TelegramChat{ID: 20006, Type: "private"}}
+	reply := bot.selfSetPass(ctx, msg, "old-password new-password")
+
+	if !strings.Contains(reply.Text, "密码已修改") {
+		t.Fatalf("expected password change success, got %q", reply.Text)
+	}
+	if _, err := auth.Login(ctx, "viewer", "old-password"); !errors.Is(err, ErrInvalidCredentials) {
+		t.Fatalf("old password should fail, got %v", err)
+	}
+	if _, err := auth.Login(ctx, "viewer", "new-password"); err != nil {
+		t.Fatalf("new password should login: %v", err)
+	}
+	if binding := bot.telegramBinding(ctx, 20006); binding == nil {
+		t.Fatal("successful password change should keep telegram binding")
 	}
 }
 

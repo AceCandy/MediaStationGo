@@ -72,7 +72,46 @@ func buildDSN(cfg *config.Config) string {
 
 // AutoMigrate creates tables for every model registered in the model package.
 func AutoMigrate(db *gorm.DB) error {
-	return db.AutoMigrate(model.AllModels()...)
+	if err := db.AutoMigrate(model.AllModels()...); err != nil {
+		return err
+	}
+	return enforceTelegramBindingOneToOne(db)
+}
+
+func enforceTelegramBindingOneToOne(db *gorm.DB) error {
+	if !db.Migrator().HasTable(&model.TelegramBinding{}) {
+		return nil
+	}
+	return db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Exec(`
+DELETE FROM telegram_bindings
+WHERE deleted_at IS NULL
+  AND user_id IN (
+    SELECT user_id
+    FROM telegram_bindings
+    WHERE deleted_at IS NULL
+    GROUP BY user_id
+    HAVING COUNT(*) > 1
+  )
+  AND id NOT IN (
+    SELECT id
+    FROM (
+      SELECT id,
+             ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY created_at ASC, id ASC) AS rn
+      FROM telegram_bindings
+      WHERE deleted_at IS NULL
+    )
+    WHERE rn = 1
+  )
+`).Error; err != nil {
+			return err
+		}
+		return tx.Exec(`
+CREATE UNIQUE INDEX IF NOT EXISTS idx_telegram_bindings_user_id_active
+ON telegram_bindings(user_id)
+WHERE deleted_at IS NULL
+`).Error
+	})
 }
 
 // zapStdLogger adapts a *zap.Logger to GORM's tiny logger interface.

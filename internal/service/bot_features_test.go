@@ -467,6 +467,44 @@ func TestBotRedeemRegisterRequiresAllowedTelegramUser(t *testing.T) {
 	}
 }
 
+func TestBotRedeemRegisterCodeCreatesOnlyOneAccount(t *testing.T) {
+	ctx := context.Background()
+	repos, bot := newBotTestService(t)
+	code, err := bot.generateCode(ctx, model.RegistrationCodeRegister, 30, 0, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	channel := &model.NotifyChannel{Name: "Telegram", Type: "telegram", Enabled: true, Config: `{"admin_user_ids":"9201,9202"}`}
+
+	first := &TelegramMessage{From: TelegramUser{ID: 9201, Username: "first"}, Chat: TelegramChat{ID: 9201, Type: "private"}}
+	reply, err := bot.executeCommand(ctx, channel, first, "/redeem_register "+code.Code)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(reply.Text, "兑换成功") {
+		t.Fatalf("first redeem should succeed, got %q", reply.Text)
+	}
+
+	second := &TelegramMessage{From: TelegramUser{ID: 9202, Username: "second"}, Chat: TelegramChat{ID: 9202, Type: "private"}}
+	reply, err = bot.executeCommand(ctx, channel, second, "/redeem_register "+code.Code)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(reply.Text, "兑换码已被使用") && !strings.Contains(reply.Text, "兑换码刚刚被使用") {
+		t.Fatalf("second redeem should be rejected as used, got %q", reply.Text)
+	}
+	var users int64
+	if err := repos.DB.Model(&model.User{}).Count(&users).Error; err != nil {
+		t.Fatal(err)
+	}
+	if users != 1 {
+		t.Fatalf("one register code must create exactly one user, got %d", users)
+	}
+	if binding := bot.telegramBinding(ctx, 9202); binding != nil {
+		t.Fatal("second telegram user must not be bound by an already-used register code")
+	}
+}
+
 func TestBotAdminCodeAndUserCommands(t *testing.T) {
 	ctx := context.Background()
 	repos, bot := newBotTestService(t)

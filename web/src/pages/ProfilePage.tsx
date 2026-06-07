@@ -1,6 +1,6 @@
 import { FormEvent, useState } from 'react'
 import toast from 'react-hot-toast'
-import { EyeOff, KeyRound, Save } from 'lucide-react'
+import { EyeOff, KeyRound, Loader2, Save } from 'lucide-react'
 
 import { authAPI } from '../api/auth'
 import { profileAPI } from '../api/profile'
@@ -18,16 +18,23 @@ export function ProfilePage() {
   const [hideAdult, setHideAdult] = useState(Boolean(user?.hide_adult))
   const [oldPwd, setOldPwd] = useState('')
   const [newPwd, setNewPwd] = useState('')
+  const [savingProfile, setSavingProfile] = useState(false)
+  const [savingPassword, setSavingPassword] = useState(false)
 
   const onProfile = async (e: FormEvent) => {
     e.preventDefault()
+    if (savingProfile) return
+    setSavingProfile(true)
     try {
       let password: string | undefined
       const hideAdultChanged = hideAdult !== Boolean(user?.hide_adult)
-      if (hideAdultChanged) {
+      const usernameChanged = username.trim() !== (user?.username ?? '')
+      if (hideAdultChanged || usernameChanged) {
         const input = await requestPassword({
-          title: hideAdult ? '隐藏成人目录' : '取消隐藏成人目录',
-          message: '此设置会同步影响 Web 与 Emby/Jellyfin/Infuse 等第三方客户端，请输入当前账号密码确认。',
+          title: usernameChanged ? '修改用户名' : hideAdult ? '隐藏成人目录' : '取消隐藏成人目录',
+          message: usernameChanged
+            ? '修改用户名后需要使用新用户名登录，请输入当前账号密码确认。'
+            : '此设置会同步影响 Web 与 Emby/Jellyfin/Infuse 等第三方客户端，请输入当前账号密码确认。',
           confirmText: '保存设置',
         })
         if (!input) return
@@ -50,11 +57,15 @@ export function ProfilePage() {
       const msg =
         (err as { response?: { data?: { error?: string } } })?.response?.data?.error ?? '保存失败'
       toast.error(msg)
+    } finally {
+      setSavingProfile(false)
     }
   }
 
   const onPwd = async (e: FormEvent) => {
     e.preventDefault()
+    if (savingPassword) return
+    setSavingPassword(true)
     try {
       await authAPI.changePassword(oldPwd, newPwd)
       toast.success('密码已更新')
@@ -65,6 +76,8 @@ export function ProfilePage() {
         (err as { response?: { data?: { error?: string } } })?.response?.data?.error ??
         '密码更新失败'
       toast.error(msg)
+    } finally {
+      setSavingPassword(false)
     }
   }
 
@@ -124,8 +137,9 @@ export function ProfilePage() {
             onChange={(e) => setHideAdult(e.target.checked)}
           />
         </label>
-        <button type="submit" className="neon-button">
-          <Save size={16} /> 保存
+        <button type="submit" disabled={savingProfile} className="neon-button">
+          {savingProfile ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
+          保存
         </button>
       </form>
 
@@ -152,8 +166,9 @@ export function ProfilePage() {
             autoComplete="new-password"
           />
         </Field>
-        <button type="submit" className="neon-button">
-          <KeyRound size={16} /> 更新密码
+        <button type="submit" disabled={savingPassword} className="neon-button">
+          {savingPassword ? <Loader2 size={16} className="animate-spin" /> : <KeyRound size={16} />}
+          更新密码
         </button>
       </form>
     </div>

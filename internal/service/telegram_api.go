@@ -78,12 +78,14 @@ func telegramHTTPClients(timeout time.Duration, cfg map[string]string) []*http.C
 	if proxyURL, err := telegramAutoProxyURL(cfg); err == nil {
 		addProxy(proxyURL)
 	}
-	for _, proxyRaw := range telegramFallbackProxyCandidates() {
-		proxyURL, err := normalizeProxyURL(proxyRaw, "http")
-		if err != nil || proxyURL == nil {
-			continue
+	if telegramAPIBaseURL(cfg) == defaultTelegramAPIBaseURL {
+		for _, proxyRaw := range telegramFallbackProxyCandidates() {
+			proxyURL, err := normalizeProxyURL(proxyRaw, "http")
+			if err != nil || proxyURL == nil {
+				continue
+			}
+			addProxy(proxyURL)
 		}
-		addProxy(proxyURL)
 	}
 	transport := NewExternalTransport()
 	transport.Proxy = nil

@@ -50,6 +50,8 @@ type DownloadService struct {
 
 var torrentEpisodeToken = regexp.MustCompile(`(?i)e\d{1,3}`)
 
+const settingDownloadClientsManaged = "download_clients.managed"
+
 // ErrDownloadAlreadyExists tells callers that the requested resource is already
 // tracked locally or present in qBittorrent. Subscriptions treat this as a
 // successful dedup hit, not as a retryable enqueue failure.
@@ -160,6 +162,7 @@ func (d *DownloadService) Stop() {
 func (d *DownloadService) ReloadConfig(ctx context.Context) error {
 	cfg := QBitConfig{}
 	hasConfiguredClients := false
+	managedByDownloadClients := false
 
 	// Path 1: download_clients 表
 	if d.repo.DownloadClient != nil {
@@ -170,12 +173,16 @@ func (d *DownloadService) ReloadConfig(ctx context.Context) error {
 			cfg.Password = c.Password
 		}
 	}
+	if d.repo.Setting != nil {
+		managedRaw, _ := d.repo.Setting.Get(ctx, settingDownloadClientsManaged)
+		managedByDownloadClients = strings.EqualFold(strings.TrimSpace(managedRaw), "true")
+	}
 
 	// Path 2: legacy Setting 表。
 	// 仅在旧部署“从未使用过 download_clients 表”时回退。只要操作员曾经
 	// 配置过下载器，删除/禁用全部下载器就表示应停止投递，不能再偷偷用
 	// qbittorrent.* 旧设置继续往下载器添加任务。
-	if cfg.BaseURL == "" && !hasConfiguredClients {
+	if cfg.BaseURL == "" && !hasConfiguredClients && !managedByDownloadClients {
 		get := func(k string) string {
 			v, _ := d.repo.Setting.Get(ctx, k)
 			return v
@@ -211,6 +218,10 @@ func (d *DownloadService) AddDownloadWithMeta(ctx context.Context, userID, urlSt
 	}
 	if existing, ok := d.findExistingDownloadTask(ctx, title); ok {
 		return existing, ErrDownloadAlreadyExists
+	}
+	_ = d.ReloadConfig(ctx)
+	if !d.qb.IsConfigured() {
+		return nil, errors.New("no default downloader configured")
 	}
 	if d.torrentExistsByIdentity(ctx, title) {
 		task, err := d.createTask(ctx, userID, urlStr, savePath, meta)
@@ -249,14 +260,22 @@ func (d *DownloadService) localMediaAlreadyExists(ctx context.Context, title str
 	if !d.repo.DB.Migrator().HasTable(&model.Media{}) {
 		return false
 	}
-	query := availabilityQuery(title, "")
-	if query == "" {
+	queries := localAvailabilityTitleCandidates(title)
+	if len(queries) == 0 {
 		return false
 	}
-	like := "%" + query + "%"
 	var rows []model.Media
-	if err := d.repo.DB.WithContext(ctx).
-		Where("title LIKE ? OR original_name LIKE ? OR path LIKE ?", like, like, like).
+	db := d.repo.DB.WithContext(ctx).Model(&model.Media{})
+	for i, query := range queries {
+		like := "%" + query + "%"
+		clause := "title LIKE ? OR original_name LIKE ? OR path LIKE ?"
+		if i == 0 {
+			db = db.Where(clause, like, like, like)
+		} else {
+			db = db.Or(clause, like, like, like)
+		}
+	}
+	if err := db.
 		Order("season_num asc, episode_num asc, created_at desc").
 		Limit(200).
 		Find(&rows).Error; err != nil || len(rows) == 0 {
@@ -293,6 +312,36 @@ func (d *DownloadService) localMediaAlreadyExists(ctx context.Context, title str
 		}
 	}
 	return false
+}
+
+func localAvailabilityTitleCandidates(title string) []string {
+	seen := map[string]struct{}{}
+	out := make([]string, 0, 6)
+	add := func(value string) {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			return
+		}
+		if _, ok := seen[value]; ok {
+			return
+		}
+		seen[value] = struct{}{}
+		out = append(out, value)
+	}
+	add(availabilityQuery(title, ""))
+	if cleaned, _ := CleanQuery(title); cleaned != "" {
+		for _, candidate := range titleCandidates(cleaned) {
+			add(candidate)
+			fields := strings.Fields(candidate)
+			for i := len(fields) - 1; i >= 1; i-- {
+				prefix := strings.Join(fields[:i], " ")
+				if containsCJK(prefix) {
+					add(prefix)
+				}
+			}
+		}
+	}
+	return out
 }
 
 func (d *DownloadService) findExistingDownloadTask(ctx context.Context, title string) (*model.DownloadTask, bool) {

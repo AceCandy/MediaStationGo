@@ -3,16 +3,23 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/ShukeBta/MediaStationGo/internal/model"
+	"gorm.io/gorm"
 )
 
 // pendingTTL bounds how long a button-initiated text prompt stays valid.
 const pendingTTL = 5 * time.Minute
+
+var (
+	errRegistrationCodeAlreadyUsed = errors.New("registration code already used")
+	errRegistrationCodeExpired     = errors.New("registration code expired")
+)
 
 func (s *TelegramBotService) setPending(userID int64, kind string) {
 	s.pendingMu.Lock()
@@ -130,10 +137,10 @@ func (s *TelegramBotService) handleMenuCallback(ctx context.Context, channel *mo
 		return s.replyDevices(ctx, msg), true
 	case data == "act_setname":
 		s.setPending(int64(msg.From.ID), "setname")
-		return telegramCommandReply{Text: "请发送新的<b>用户名</b>。"}, true
+		return telegramCommandReply{Text: "请发送：<code>当前密码 新用户名</code>。"}, true
 	case data == "act_setpass":
 		s.setPending(int64(msg.From.ID), "setpass")
-		return telegramCommandReply{Text: "请发送新的<b>密码</b>（至少 6 位）。"}, true
+		return telegramCommandReply{Text: "请发送：<code>当前密码 新密码</code>（新密码至少 6 位）。"}, true
 	case strings.HasPrefix(data, "kick:"):
 		return s.replyKick(ctx, msg, strings.TrimPrefix(data, "kick:")), true
 	}
@@ -261,15 +268,15 @@ func (s *TelegramBotService) cmdKick(ctx context.Context, msg *TelegramMessage, 
 }
 
 func (s *TelegramBotService) cmdSetName(ctx context.Context, msg *TelegramMessage, args []string) telegramCommandReply {
-	if len(args) == 0 {
-		return telegramCommandReply{Text: "请发送：<code>/setname 新用户名</code>"}
+	if len(args) < 2 {
+		return telegramCommandReply{Text: "请发送：<code>/setname 当前密码 新用户名</code>"}
 	}
 	return s.selfSetName(ctx, msg, strings.Join(args, " "))
 }
 
 func (s *TelegramBotService) cmdSetPass(ctx context.Context, msg *TelegramMessage, args []string) telegramCommandReply {
-	if len(args) == 0 {
-		return telegramCommandReply{Text: "请发送：<code>/setpass 新密码</code>"}
+	if len(args) < 2 {
+		return telegramCommandReply{Text: "请发送：<code>/setpass 当前密码 新密码</code>"}
 	}
 	return s.selfSetPass(ctx, msg, strings.Join(args, " "))
 }
@@ -373,14 +380,21 @@ func (s *TelegramBotService) replyKick(ctx context.Context, msg *TelegramMessage
 	return s.replyDevices(ctx, msg)
 }
 
-func (s *TelegramBotService) selfSetName(ctx context.Context, msg *TelegramMessage, newName string) telegramCommandReply {
+func (s *TelegramBotService) selfSetName(ctx context.Context, msg *TelegramMessage, input string) telegramCommandReply {
 	user := s.boundUser(ctx, msg.From.ID)
 	if user == nil {
 		return telegramCommandReply{Text: "请先绑定账号。"}
 	}
+	currentPassword, newName := splitCurrentPasswordAndValue(input)
+	if currentPassword == "" || newName == "" {
+		return telegramCommandReply{Text: "请发送：<code>当前密码 新用户名</code>。"}
+	}
 	newName = strings.TrimSpace(newName)
 	if len(newName) < 2 || strings.ContainsAny(newName, " \t\n") {
 		return telegramCommandReply{Text: "用户名至少 2 位且不能含空格，请重试。"}
+	}
+	if reply, ok := s.verifyTelegramSelfPassword(ctx, msg, user, currentPassword); !ok {
+		return reply
 	}
 	if existing, _ := s.repo.User.FindByUsername(ctx, newName); existing != nil && existing.ID != user.ID {
 		return telegramCommandReply{Text: "该用户名已被占用，请换一个。"}
@@ -391,22 +405,52 @@ func (s *TelegramBotService) selfSetName(ctx context.Context, msg *TelegramMessa
 	return telegramCommandReply{Text: fmt.Sprintf("用户名已修改为 <b>%s</b>。请用新用户名登录。", newName)}
 }
 
-func (s *TelegramBotService) selfSetPass(ctx context.Context, msg *TelegramMessage, newPass string) telegramCommandReply {
+func (s *TelegramBotService) selfSetPass(ctx context.Context, msg *TelegramMessage, input string) telegramCommandReply {
 	user := s.boundUser(ctx, msg.From.ID)
 	if user == nil {
 		return telegramCommandReply{Text: "请先绑定账号。"}
+	}
+	currentPassword, newPass := splitCurrentPasswordAndValue(input)
+	if currentPassword == "" || newPass == "" {
+		return telegramCommandReply{Text: "请发送：<code>当前密码 新密码</code>。"}
 	}
 	newPass = strings.TrimSpace(newPass)
 	if s.auth == nil {
 		return telegramCommandReply{Text: "服务暂不可用。"}
 	}
-	if err := s.auth.ResetPassword(ctx, user.ID, newPass); err != nil {
+	if err := s.auth.ChangePassword(ctx, user.ID, currentPassword, newPass); err != nil {
+		if errors.Is(err, ErrInvalidCredentials) {
+			_ = s.unbindTelegramUser(ctx, msg.From.ID)
+			return telegramCommandReply{Text: "当前密码验证失败，绑定已自动解绑。请用新密码重新绑定账号。"}
+		}
 		return telegramCommandReply{Text: "修改失败：" + err.Error()}
 	}
 	if s.device != nil {
 		_ = s.device.KickAllDevices(ctx, user.ID)
 	}
 	return telegramCommandReply{Text: "密码已修改，请用新密码重新登录第三方客户端。"}
+}
+
+func splitCurrentPasswordAndValue(input string) (string, string) {
+	fields := strings.Fields(strings.TrimSpace(input))
+	if len(fields) < 2 {
+		return "", ""
+	}
+	return fields[0], strings.TrimSpace(strings.Join(fields[1:], " "))
+}
+
+func (s *TelegramBotService) verifyTelegramSelfPassword(ctx context.Context, msg *TelegramMessage, user *model.User, currentPassword string) (telegramCommandReply, bool) {
+	if s.auth == nil {
+		return telegramCommandReply{Text: "服务暂不可用。"}, false
+	}
+	if err := s.auth.VerifyPassword(ctx, user.ID, currentPassword); err != nil {
+		if errors.Is(err, ErrInvalidCredentials) {
+			_ = s.unbindTelegramUser(ctx, msg.From.ID)
+			return telegramCommandReply{Text: "当前密码验证失败，绑定已自动解绑。请用新密码重新绑定账号。"}, false
+		}
+		return telegramCommandReply{Text: "验证失败：" + err.Error()}, false
+	}
+	return telegramCommandReply{}, true
 }
 
 // ── 兑换码流程 ───────────────────────────────────────────────────────────────
@@ -430,28 +474,96 @@ func (s *TelegramBotService) redeemRegisterFlow(ctx context.Context, channel *mo
 			return telegramCommandReply{Text: fmt.Sprintf("当前 Telegram 已绑定账号 <b>%s</b>，无需再用注册码。", u.Username)}
 		}
 	}
-	// Generate a memorable default account from the code; users can rename via
-	//「改用户名/改密码」afterwards. We avoid asking for two more text turns here.
-	username := "u" + strings.ToLower(rc.Code[:8])
-	password := randomCode(10)
-	user, _, err := s.auth.Register(ctx, username, password)
+	user, password, claimedCode, err := s.createUserFromRegistrationCode(ctx, rc.Code)
 	if err != nil {
+		if errors.Is(err, errRegistrationCodeAlreadyUsed) {
+			return telegramCommandReply{Text: "兑换码刚刚被使用，请换一个。"}
+		}
+		if errors.Is(err, errRegistrationCodeExpired) {
+			return telegramCommandReply{Text: "兑换码已过期。"}
+		}
+		if errors.Is(err, ErrUserLimitReached) {
+			return telegramCommandReply{Text: "注册失败：用户数量已达授权上限。"}
+		}
 		return telegramCommandReply{Text: "注册失败：" + err.Error()}
 	}
-	if err := s.repo.RegCode.MarkUsed(ctx, rc.ID, user.ID); err != nil {
-		// Code was raced; roll back the just-created account to avoid free signups.
-		_ = s.repo.User.Delete(ctx, user.ID)
+	if claimedCode == nil {
 		return telegramCommandReply{Text: "兑换码刚刚被使用，请换一个。"}
-	}
-	if rc.DurationDays > 0 {
-		_ = s.applyRenewal(ctx, user.ID, rc.DurationDays)
 	}
 	_ = s.upsertTelegramBinding(ctx, msg, user.ID)
 	return telegramCommandReply{
 		Text: fmt.Sprintf("兑换成功并已创建账号：\n用户名：<b>%s</b>\n密码：<b>%s</b>\n到期：<b>%s</b>\n\n请尽快用「改用户名/改密码」修改为你自己的凭据。",
-			username, password, formatExpiry(s.userExpiry(ctx, user.ID))),
+			user.Username, password, formatExpiry(s.userExpiry(ctx, user.ID))),
 		Buttons: [][]telegramInlineButton{{{Text: "⬅️ 返回菜单", Data: "menu_main"}}},
 	}
+}
+
+func (s *TelegramBotService) createUserFromRegistrationCode(ctx context.Context, rawCode string) (*model.User, string, *model.RegistrationCode, error) {
+	code := strings.TrimSpace(rawCode)
+	if code == "" {
+		return nil, "", nil, errRegistrationCodeAlreadyUsed
+	}
+	password := randomCode(10)
+	var created model.User
+	var claimed model.RegistrationCode
+	err := s.repo.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("code = ? AND kind = ? AND used_at IS NULL", code, model.RegistrationCodeRegister).
+			First(&claimed).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return errRegistrationCodeAlreadyUsed
+			}
+			return err
+		}
+		if claimed.IsExpired() {
+			return errRegistrationCodeExpired
+		}
+		var count int64
+		if err := tx.Model(&model.User{}).Count(&count).Error; err != nil {
+			return err
+		}
+		if count >= LicensedMaxUsers(ctx, s.repo) {
+			return ErrUserLimitReached
+		}
+		hash, err := hashPassword(password)
+		if err != nil {
+			return err
+		}
+		codePrefix := strings.ToLower(claimed.Code)
+		if len(codePrefix) > 8 {
+			codePrefix = codePrefix[:8]
+		}
+		created = model.User{
+			Username:     "u" + codePrefix,
+			PasswordHash: hash,
+			Role:         "user",
+			Tier:         "free",
+			HideAdult:    true,
+			ExpiredAt:    renewExpiry(nil, claimed.DurationDays),
+		}
+		if err := tx.Create(&created).Error; err != nil {
+			return err
+		}
+		if err := tx.Create(DefaultPermissions(created.ID)).Error; err != nil {
+			return err
+		}
+		now := time.Now()
+		res := tx.Model(&model.RegistrationCode{}).
+			Where("id = ? AND used_at IS NULL", claimed.ID).
+			Updates(map[string]any{"used_by_user_id": created.ID, "used_at": &now})
+		if res.Error != nil {
+			return res.Error
+		}
+		if res.RowsAffected == 0 {
+			return errRegistrationCodeAlreadyUsed
+		}
+		claimed.UsedByUserID = created.ID
+		claimed.UsedAt = &now
+		return nil
+	})
+	if err != nil {
+		return nil, "", nil, err
+	}
+	return &created, password, &claimed, nil
 }
 
 func (s *TelegramBotService) redeemRenewFlow(ctx context.Context, msg *TelegramMessage, raw string) telegramCommandReply {

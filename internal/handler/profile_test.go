@@ -44,3 +44,37 @@ func TestProfileHideAdultRequiresPasswordOnlyWhenChanged(t *testing.T) {
 		t.Fatal("changed hide_adult value should require password")
 	}
 }
+
+func TestProfileUsernameChangeRequiresPasswordOnlyWhenChanged(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(&model.User{}); err != nil {
+		t.Fatal(err)
+	}
+	repos := repository.New(db)
+	user := &model.User{Username: "viewer", PasswordHash: "hash", Role: "user", HideAdult: true}
+	if err := repos.User.Create(t.Context(), user); err != nil {
+		t.Fatal(err)
+	}
+	svc := &service.Container{Repo: repos}
+
+	same := " viewer "
+	changed, err := profileUsernameChanged(t.Context(), svc, user.ID, service.ProfileUpdate{Username: &same})
+	if err != nil {
+		t.Fatalf("same username returned error: %v", err)
+	}
+	if changed {
+		t.Fatal("same username after trimming should not require password")
+	}
+
+	next := "renamed"
+	changed, err = profileUsernameChanged(t.Context(), svc, user.ID, service.ProfileUpdate{Username: &next})
+	if err != nil {
+		t.Fatalf("changed username returned error: %v", err)
+	}
+	if !changed {
+		t.Fatal("changed username should require password")
+	}
+}

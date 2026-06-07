@@ -18,6 +18,7 @@ export function DownloadClientsPage() {
   const [loading, setLoading] = useState(true)
   const [editing, setEditing] = useState<DownloadClient | null>(null)
   const [showForm, setShowForm] = useState(false)
+  const [testing, setTesting] = useState<Record<string, boolean>>({})
 
   const refresh = async () => {
     setLoading(true)
@@ -33,15 +34,17 @@ export function DownloadClientsPage() {
   }, [])
 
   const onTest = async (id: string) => {
+    if (testing[id]) return
+    setTesting((current) => ({ ...current, [id]: true }))
     try {
       const r = await downloadClientsAPI.test(id)
       if (r.ok) toast.success('连接成功')
       else toast.error(r.error ?? '连接失败')
     } catch (err: unknown) {
-      const msg =
-        (err as { response?: { data?: { error?: string } } })?.response?.data?.error ??
-        '测试失败'
+      const msg = apiErrorMessage(err, '测试失败')
       toast.error(msg)
+    } finally {
+      setTesting((current) => ({ ...current, [id]: false }))
     }
   }
 
@@ -52,9 +55,7 @@ export function DownloadClientsPage() {
       toast.success('已删除')
       await refresh()
     } catch (err: unknown) {
-      const msg =
-        (err as { response?: { data?: { error?: string } } })?.response?.data?.error ??
-        '删除失败'
+      const msg = apiErrorMessage(err, '删除失败')
       toast.error(msg)
     }
   }
@@ -126,9 +127,15 @@ export function DownloadClientsPage() {
               <div className="flex shrink-0 gap-2">
                 <button
                   onClick={() => onTest(c.id)}
+                  disabled={testing[c.id]}
                   className="rounded-lg border border-gray-200 px-2 py-1 text-xs text-ink-100 hover:border-primary-400/40 hover:text-brand-500"
                 >
-                  <Send size={12} className="inline" /> 测试
+                  {testing[c.id] ? (
+                    <Loader2 size={12} className="inline animate-spin" />
+                  ) : (
+                    <Send size={12} className="inline" />
+                  )}{' '}
+                  测试
                 </button>
                 <button
                   onClick={() => {
@@ -157,7 +164,7 @@ export function DownloadClientsPage() {
           onClose={() => setShowForm(false)}
           onSaved={async () => {
             setShowForm(false)
-            await refresh()
+            refresh().catch((err: unknown) => toast.error(apiErrorMessage(err, '刷新下载器列表失败')))
           }}
         />
       )}
@@ -187,18 +194,17 @@ function ClientFormModal({
 
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault()
+    if (saving) return
     setSaving(true)
     try {
       if (editing) await downloadClientsAPI.update(editing.id, form)
       else await downloadClientsAPI.create(form)
       toast.success('已保存')
-      await onSaved()
+      setSaving(false)
+      onSaved()
     } catch (err: unknown) {
-      const msg =
-        (err as { response?: { data?: { error?: string } } })?.response?.data?.error ??
-        '保存失败'
+      const msg = apiErrorMessage(err, '保存失败')
       toast.error(msg)
-    } finally {
       setSaving(false)
     }
   }
@@ -314,6 +320,14 @@ function ClientFormModal({
       </div>
     </div>
   )
+}
+
+function apiErrorMessage(err: unknown, fallback: string): string {
+  const data = (err as { response?: { data?: { error?: string; message?: string } } })?.response?.data
+  if (data?.error) return data.error
+  if (data?.message) return data.message
+  if ((err as { code?: string })?.code === 'ECONNABORTED') return '请求超时，请检查服务或网络'
+  return fallback
 }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {

@@ -6,6 +6,8 @@
 package handler
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -104,9 +106,11 @@ func embyPingHandler(_ *service.Container) gin.HandlerFunc {
 // ─── Users / Auth ────────────────────────────────────────────────────────────
 
 type embyAuthByNameReq struct {
-	Username string `json:"Username"`
-	Pw       string `json:"Pw"`
-	Password string `json:"Password"`
+	Username     string `json:"Username"`
+	Pw           string `json:"Pw"`
+	Password     string `json:"Password"`
+	PasswordMd5  string `json:"PasswordMd5"`
+	PasswordSha1 string `json:"PasswordSha1"`
 }
 
 func parseEmbyAuthByNameReq(c *gin.Context) (embyAuthByNameReq, error) {
@@ -116,12 +120,10 @@ func parseEmbyAuthByNameReq(c *gin.Context) (embyAuthByNameReq, error) {
 		if err := c.ShouldBindJSON(&body); err != nil && !errors.Is(err, io.EOF) {
 			return req, err
 		}
-		req.Username = firstStringFromMap(body, "Username", "username", "Name", "name")
-		req.Pw = firstStringFromMap(body, "Pw", "pw")
-		req.Password = firstStringFromMap(body, "Password", "password")
+		fillEmbyAuthFromMap(&req, body)
 	}
 
-	if req.Username == "" || (req.Pw == "" && req.Password == "") {
+	if req.Username == "" || (req.Pw == "" && req.Password == "" && req.PasswordMd5 == "" && req.PasswordSha1 == "") {
 		_ = c.Request.ParseForm()
 		if req.Username == "" {
 			req.Username = firstFormValue(c, "Username", "username", "Name", "name")
@@ -131,6 +133,12 @@ func parseEmbyAuthByNameReq(c *gin.Context) (embyAuthByNameReq, error) {
 		}
 		if req.Password == "" {
 			req.Password = firstFormValue(c, "Password", "password")
+		}
+		if req.PasswordMd5 == "" {
+			req.PasswordMd5 = firstFormValue(c, "PasswordMd5", "passwordMd5", "password_md5")
+		}
+		if req.PasswordSha1 == "" {
+			req.PasswordSha1 = firstFormValue(c, "PasswordSha1", "passwordSha1", "password_sha1")
 		}
 	}
 
@@ -143,7 +151,86 @@ func parseEmbyAuthByNameReq(c *gin.Context) (embyAuthByNameReq, error) {
 	if req.Password == "" {
 		req.Password = firstQueryValue(c, "Password", "password")
 	}
+	if req.PasswordMd5 == "" {
+		req.PasswordMd5 = firstQueryValue(c, "PasswordMd5", "passwordMd5", "password_md5")
+	}
+	if req.PasswordSha1 == "" {
+		req.PasswordSha1 = firstQueryValue(c, "PasswordSha1", "passwordSha1", "password_sha1")
+	}
+	if req.Username == "" || (req.Pw == "" && req.Password == "" && req.PasswordMd5 == "" && req.PasswordSha1 == "") {
+		fillEmbyAuthFromRawBody(c, &req)
+	}
 	return req, nil
+}
+
+func fillEmbyAuthFromMap(req *embyAuthByNameReq, body map[string]any) {
+	if req.Username == "" {
+		req.Username = firstStringFromMap(body, "Username", "username", "UserName", "userName", "Name", "name", "LoginName", "loginName")
+	}
+	if req.Pw == "" {
+		req.Pw = firstStringFromMap(body, "Pw", "pw", "PW")
+	}
+	if req.Password == "" {
+		req.Password = firstStringFromMap(body, "Password", "password", "Pass", "pass", "Pwd", "pwd")
+	}
+	if req.PasswordMd5 == "" {
+		req.PasswordMd5 = firstStringFromMap(body, "PasswordMd5", "passwordMd5", "password_md5")
+	}
+	if req.PasswordSha1 == "" {
+		req.PasswordSha1 = firstStringFromMap(body, "PasswordSha1", "passwordSha1", "password_sha1")
+	}
+}
+
+func fillEmbyAuthFromRawBody(c *gin.Context, req *embyAuthByNameReq) {
+	if c.Request == nil || c.Request.Body == nil {
+		return
+	}
+	raw, err := io.ReadAll(io.LimitReader(c.Request.Body, 1<<20))
+	if err != nil {
+		return
+	}
+	c.Request.Body = io.NopCloser(bytes.NewReader(raw))
+	raw = bytes.TrimSpace(raw)
+	if len(raw) == 0 {
+		return
+	}
+	if bytes.HasPrefix(raw, []byte("{")) {
+		var body map[string]any
+		if err := json.Unmarshal(raw, &body); err == nil {
+			fillEmbyAuthFromMap(req, body)
+		}
+		return
+	}
+	if values, err := url.ParseQuery(string(raw)); err == nil {
+		fillEmbyAuthFromValues(req, values)
+	}
+}
+
+func fillEmbyAuthFromValues(req *embyAuthByNameReq, values url.Values) {
+	if req.Username == "" {
+		req.Username = firstValue(values, "Username", "username", "UserName", "userName", "Name", "name", "LoginName", "loginName")
+	}
+	if req.Pw == "" {
+		req.Pw = firstValue(values, "Pw", "pw", "PW")
+	}
+	if req.Password == "" {
+		req.Password = firstValue(values, "Password", "password", "Pass", "pass", "Pwd", "pwd")
+	}
+	if req.PasswordMd5 == "" {
+		req.PasswordMd5 = firstValue(values, "PasswordMd5", "passwordMd5", "password_md5")
+	}
+	if req.PasswordSha1 == "" {
+		req.PasswordSha1 = firstValue(values, "PasswordSha1", "passwordSha1", "password_sha1")
+	}
+}
+
+func firstValue(values url.Values, keys ...string) string {
+	for _, key := range keys {
+		if value := strings.TrimSpace(values.Get(key)); value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func firstStringFromMap(body map[string]any, keys ...string) string {
@@ -196,6 +283,10 @@ func embyAuthByNameHandler(svc *service.Container) gin.HandlerFunc {
 			password = req.Password
 		}
 		if strings.TrimSpace(req.Username) == "" || password == "" {
+			if req.PasswordMd5 != "" || req.PasswordSha1 != "" {
+				embyError(c, http.StatusBadRequest, "plain password required")
+				return
+			}
 			embyError(c, http.StatusBadRequest, "missing username or password")
 			return
 		}
@@ -909,7 +1000,7 @@ func registerEmbyRoutes(r *gin.Engine, jwtSecret string, svc *service.Container)
 		// 30/min per IP: many Emby clients sit behind a single NAT/reverse-proxy
 		// IP, so a low limit would throttle legitimate logins into 429s.
 		embyLoginLimiter := middleware.NewRateLimiter(30, 1*time.Minute)
-		for _, path := range []string{"/Users/AuthenticateByName", "/users/authenticatebyname"} {
+		for _, path := range []string{"/Users/AuthenticateByName", "/Users/authenticatebyname", "/users/AuthenticateByName", "/users/authenticatebyname"} {
 			grp.POST(path, middleware.RateLimit(embyLoginLimiter), embyAuthByNameHandler(svc))
 		}
 		for _, path := range []string{"/Users/Public", "/users/public"} {

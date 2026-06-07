@@ -69,11 +69,11 @@ var (
 	qbitAddVerifyInterval = 800 * time.Millisecond
 )
 
-// NewQBitClient builds a fresh client, applying default URL if blank.
+// NewQBitClient builds a fresh client. A blank URL intentionally stays blank:
+// an unconfigured downloader must fail closed instead of silently trying a
+// localhost qBittorrent instance.
 func NewQBitClient(log *zap.Logger, cfg QBitConfig) *QBitClient {
-	if cfg.BaseURL == "" {
-		cfg.BaseURL = "http://localhost:8080"
-	}
+	cfg.BaseURL = strings.TrimRight(strings.TrimSpace(cfg.BaseURL), "/")
 	jar, _ := cookiejar.New(nil)
 	return &QBitClient{
 		log:    log,
@@ -86,9 +86,16 @@ func NewQBitClient(log *zap.Logger, cfg QBitConfig) *QBitClient {
 func (q *QBitClient) Configure(cfg QBitConfig) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
+	cfg.BaseURL = strings.TrimRight(strings.TrimSpace(cfg.BaseURL), "/")
 	q.cfg = cfg
 	jar, _ := cookiejar.New(nil)
 	q.client.Jar = jar
+}
+
+func (q *QBitClient) IsConfigured() bool {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	return strings.TrimSpace(q.cfg.BaseURL) != ""
 }
 
 // Login performs POST /api/v2/auth/login.
@@ -505,6 +512,9 @@ func (q *QBitClient) SetLocation(ctx context.Context, hash, location string) err
 // ensureAuth makes sure we have a valid SID cookie. Cheap on the happy
 // path; logs in transparently otherwise.
 func (q *QBitClient) ensureAuth(ctx context.Context) error {
+	if strings.TrimSpace(q.cfg.BaseURL) == "" {
+		return errors.New("qbittorrent base url not configured")
+	}
 	u, err := url.Parse(q.cfg.BaseURL)
 	if err != nil {
 		return err

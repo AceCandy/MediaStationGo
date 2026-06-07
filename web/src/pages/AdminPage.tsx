@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import toast from 'react-hot-toast'
-import { KeyRound, Pencil, Plus, ShieldCheck, Trash2, UserCheck, UserX, X } from 'lucide-react'
+import { KeyRound, Loader2, Pencil, Plus, ShieldCheck, Trash2, UserCheck, UserX, X } from 'lucide-react'
 
 import { adminAPI } from '../api/admin'
 import { libraryAPI } from '../api/library'
@@ -188,6 +188,7 @@ function UsersPanel() {
   const [password, setPassword] = useState('')
   const [editingID, setEditingID] = useState<string | null>(null)
   const [editingUsername, setEditingUsername] = useState('')
+  const [resettingPasswordID, setResettingPasswordID] = useState<string | null>(null)
   const refresh = async () => {
     const [nextUsers, nextLicense] = await Promise.all([
       adminAPI.listUsers(),
@@ -243,6 +244,7 @@ function UsersPanel() {
   }
 
   const resetPassword = async (u: User) => {
+    if (resettingPasswordID) return
     const nextPassword = await requestPassword({
       title: `重置 ${u.username} 的密码`,
       message: '请输入新的临时密码，至少 6 位。保存后该用户可立即使用新密码登录 Web、Bot 与第三方客户端。',
@@ -253,6 +255,7 @@ function UsersPanel() {
       toast.error('新密码至少 6 位')
       return
     }
+    setResettingPasswordID(u.id)
     try {
       await adminAPI.resetUserPassword(u.id, nextPassword)
       toast.success('密码已重置')
@@ -261,6 +264,8 @@ function UsersPanel() {
         (err as { response?: { data?: { error?: string } } })?.response?.data?.error ??
         '重置密码失败'
       toast.error(msg)
+    } finally {
+      setResettingPasswordID(null)
     }
   }
 
@@ -396,9 +401,10 @@ function UsersPanel() {
                   <button
                     className="rounded-lg border border-amber-400/40 px-2 py-1 text-xs text-amber-500 hover:bg-amber-400/10"
                     title="重置密码"
+                    disabled={resettingPasswordID === u.id}
                     onClick={() => resetPassword(u)}
                   >
-                    <KeyRound size={12} />
+                    {resettingPasswordID === u.id ? <Loader2 size={12} className="animate-spin" /> : <KeyRound size={12} />}
                   </button>
                   <button
                     className={

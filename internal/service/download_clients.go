@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -52,17 +53,22 @@ func (s *DownloadClientService) List(ctx context.Context) ([]model.DownloadClien
 
 // Create inserts a new client.
 func (s *DownloadClientService) Create(ctx context.Context, in DownloadClientInput) (*model.DownloadClient, error) {
-	if err := validateClient(in); err != nil {
+	normalized, err := normalizeDownloadClientInput(in)
+	if err != nil {
 		return nil, err
 	}
+	s.markManaged(ctx)
 	c := &model.DownloadClient{
-		Name:      strings.TrimSpace(in.Name),
-		Type:      in.Type,
-		Host:      strings.TrimSpace(in.Host),
-		Username:  in.Username,
-		Password:  in.Password,
-		IsDefault: in.IsDefault,
-		Enabled:   in.Enabled,
+		Name:      normalized.Name,
+		Type:      normalized.Type,
+		Host:      normalized.Host,
+		Username:  normalized.Username,
+		Password:  normalized.Password,
+		IsDefault: normalized.IsDefault,
+		Enabled:   normalized.Enabled,
+	}
+	if normalized.IsDefault {
+		_ = s.repo.DownloadClient.ClearDefault(ctx)
 	}
 	if err := s.repo.DownloadClient.Create(ctx, c); err != nil {
 		return nil, err
@@ -72,20 +78,22 @@ func (s *DownloadClientService) Create(ctx context.Context, in DownloadClientInp
 
 // Update applies a patch.
 func (s *DownloadClientService) Update(ctx context.Context, id string, in DownloadClientInput) (*model.DownloadClient, error) {
-	if err := validateClient(in); err != nil {
+	normalized, err := normalizeDownloadClientInput(in)
+	if err != nil {
 		return nil, err
 	}
+	s.markManaged(ctx)
 	patch := map[string]any{
-		"name":       strings.TrimSpace(in.Name),
-		"type":       in.Type,
-		"host":       strings.TrimSpace(in.Host),
-		"username":   in.Username,
-		"is_default": in.IsDefault,
-		"enabled":    in.Enabled,
+		"name":       normalized.Name,
+		"type":       normalized.Type,
+		"host":       normalized.Host,
+		"username":   normalized.Username,
+		"is_default": normalized.IsDefault,
+		"enabled":    normalized.Enabled,
 	}
 	// Only overwrite the password when the caller actually sent one.
-	if in.Password != "" {
-		patch["password"] = in.Password
+	if normalized.Password != "" {
+		patch["password"] = normalized.Password
 	}
 	// Fetch existing row, apply patch via Save
 	existing, err := s.repo.DownloadClient.FindByID(ctx, id)
@@ -94,6 +102,9 @@ func (s *DownloadClientService) Update(ctx context.Context, id string, in Downlo
 	}
 	if existing == nil {
 		return nil, errors.New("client not found")
+	}
+	if normalized.IsDefault {
+		_ = s.repo.DownloadClient.ClearDefault(ctx)
 	}
 	existing.Name = patch["name"].(string)
 	existing.Type = patch["type"].(string)
@@ -112,6 +123,7 @@ func (s *DownloadClientService) Update(ctx context.Context, id string, in Downlo
 
 // Delete removes one client.
 func (s *DownloadClientService) Delete(ctx context.Context, id string) error {
+	s.markManaged(ctx)
 	return s.repo.DownloadClient.Delete(ctx, id)
 }
 
@@ -119,6 +131,9 @@ func (s *DownloadClientService) Delete(ctx context.Context, id string) error {
 // /api/v2/auth/login for qBittorrent, /jsonrpc for Aria2, and the
 // Transmission RPC URL otherwise.
 func (s *DownloadClientService) Test(ctx context.Context, id string) error {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
 	c, err := s.repo.DownloadClient.FindByID(ctx, id)
 	if err != nil {
 		return err
@@ -188,4 +203,33 @@ func validateClient(in DownloadClientInput) error {
 		return fmt.Errorf("unsupported client type %q", in.Type)
 	}
 	return nil
+}
+
+func normalizeDownloadClientInput(in DownloadClientInput) (DownloadClientInput, error) {
+	in.Name = strings.TrimSpace(in.Name)
+	in.Type = strings.TrimSpace(in.Type)
+	in.Host = strings.TrimSpace(in.Host)
+	in.Username = strings.TrimSpace(in.Username)
+	if err := validateClient(in); err != nil {
+		return in, err
+	}
+	if !strings.Contains(in.Host, "://") {
+		in.Host = "http://" + in.Host
+	}
+	parsed, err := url.Parse(in.Host)
+	if err != nil || parsed.Host == "" {
+		return in, errors.New("host must be a valid http(s) URL")
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return in, errors.New("host only supports http or https")
+	}
+	in.Host = strings.TrimRight(parsed.String(), "/")
+	return in, nil
+}
+
+func (s *DownloadClientService) markManaged(ctx context.Context) {
+	if s == nil || s.repo == nil || s.repo.Setting == nil {
+		return
+	}
+	_ = s.repo.Setting.Set(ctx, settingDownloadClientsManaged, "true")
 }

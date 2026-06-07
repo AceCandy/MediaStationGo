@@ -184,6 +184,7 @@ func (s *TelegramBotService) HandleWebhook(ctx context.Context, body []byte) err
 							s.log.Error("reply failed", zap.Error(err))
 						}
 					}
+					s.deleteTelegramSourceMessage(channel, msg.Chat.ID, msg.MessageID)
 					return nil
 				}
 			}
@@ -217,6 +218,7 @@ func (s *TelegramBotService) HandleWebhook(ctx context.Context, body []byte) err
 	if err != nil {
 		s.log.Error("command failed", zap.Error(err))
 		_ = s.reply(ctx, channel, msg.Chat.ID, telegramCommandReply{Text: "命令执行失败: " + err.Error()})
+		s.deleteTelegramSourceMessage(channel, msg.Chat.ID, msg.MessageID)
 		return nil
 	}
 
@@ -224,6 +226,7 @@ func (s *TelegramBotService) HandleWebhook(ctx context.Context, body []byte) err
 		if err := s.reply(ctx, channel, msg.Chat.ID, reply); err != nil {
 			s.log.Error("reply failed", zap.Error(err))
 		}
+		s.deleteTelegramSourceMessage(channel, msg.Chat.ID, msg.MessageID)
 	}
 
 	return nil
@@ -287,14 +290,23 @@ func (s *TelegramBotService) cmdStart(ctx context.Context, msg *TelegramMessage,
 	if username == "" || password == "" {
 		return telegramCommandReply{Text: "绑定格式不正确，请使用：\n<code>/start 用户名 密码</code>\n或：<code>/start 用户名-密码</code>"}
 	}
+	existingBinding := s.telegramBinding(ctx, msg.From.ID)
 	user, err := s.repo.User.FindByUsername(ctx, username)
 	if err != nil || user == nil {
+		if existingBinding != nil {
+			_ = s.unbindTelegramUser(ctx, msg.From.ID)
+			return telegramCommandReply{Text: "当前绑定的媒体账号信息已失效，已自动解绑。请使用新的用户名和密码重新绑定。"}
+		}
 		return telegramCommandReply{Text: "未找到此用户，请联系管理员注册。"}
 	}
 	if !user.IsActive {
 		return telegramCommandReply{Text: "此账号已被禁用，请联系管理员。"}
 	}
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)); err != nil {
+		if existingBinding != nil && existingBinding.UserID == user.ID {
+			_ = s.unbindTelegramUser(ctx, msg.From.ID)
+			return telegramCommandReply{Text: "当前绑定账号的密码已失效，已自动解绑。请使用新密码重新绑定。"}
+		}
 		return telegramCommandReply{Text: "账号或密码错误。"}
 	}
 	if err := s.upsertTelegramBinding(ctx, msg, user.ID); err != nil {
@@ -774,16 +786,18 @@ func telegramPollingRequest(ctx context.Context, clients []*http.Client, pollURL
 
 // ── Message Sending ──
 
+const defaultTelegramMessageDeleteDelay = 120 * time.Second
+
+type telegramSendMessageResponse struct {
+	OK     bool `json:"ok"`
+	Result struct {
+		MessageID int `json:"message_id"`
+	} `json:"result"`
+}
+
 // reply 通过 Telegram Bot API 发送回复消息。
 func (s *TelegramBotService) reply(ctx context.Context, channel *model.NotifyChannel, chatID int, reply telegramCommandReply) error {
-	cfg := map[string]string{}
-	if channel != nil {
-		configStr := channel.Config
-		if s.crypto != nil && configStr != "" {
-			configStr = s.crypto.Decrypt(configStr)
-		}
-		_ = json.Unmarshal([]byte(configStr), &cfg)
-	}
+	cfg := s.telegramChannelConfig(channel)
 	if strings.TrimSpace(cfg["bot_token"]) == "" {
 		return fmt.Errorf("bot_token not configured")
 	}
@@ -807,7 +821,73 @@ func (s *TelegramBotService) reply(ctx context.Context, channel *model.NotifyCha
 		}
 		payload["reply_markup"] = map[string]interface{}{"inline_keyboard": keyboard}
 	}
-	return telegramPostJSON(ctx, cfg, "sendMessage", payload, 15*time.Second)
+	var sent telegramSendMessageResponse
+	if err := telegramPostJSONDecode(ctx, cfg, "sendMessage", payload, 15*time.Second, &sent); err != nil {
+		return err
+	}
+	if sent.Result.MessageID > 0 {
+		s.scheduleTelegramMessageDelete(cfg, chatID, sent.Result.MessageID)
+	}
+	return nil
+}
+
+func (s *TelegramBotService) deleteTelegramSourceMessage(channel *model.NotifyChannel, chatID, messageID int) {
+	if messageID <= 0 {
+		return
+	}
+	s.scheduleTelegramMessageDelete(s.telegramChannelConfig(channel), chatID, messageID)
+}
+
+func (s *TelegramBotService) scheduleTelegramMessageDelete(cfg map[string]string, chatID, messageID int) {
+	if chatID == 0 || messageID <= 0 || strings.TrimSpace(cfg["bot_token"]) == "" {
+		return
+	}
+	delay := telegramMessageDeleteDelay(cfg)
+	if delay < 0 {
+		return
+	}
+	cfgCopy := make(map[string]string, len(cfg))
+	for k, v := range cfg {
+		cfgCopy[k] = v
+	}
+	go func() {
+		if delay > 0 {
+			timer := time.NewTimer(delay)
+			defer timer.Stop()
+			<-timer.C
+		}
+		deleteCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		err := telegramPostJSON(deleteCtx, cfgCopy, "deleteMessage", map[string]interface{}{
+			"chat_id":    strconv.Itoa(chatID),
+			"message_id": messageID,
+		}, 10*time.Second)
+		if err != nil && s.log != nil {
+			s.log.Debug("telegram deleteMessage failed",
+				zap.Int("chat_id", chatID),
+				zap.Int("message_id", messageID),
+				zap.Error(sanitizeTelegramError(err)),
+			)
+		}
+	}()
+}
+
+func telegramMessageDeleteDelay(cfg map[string]string) time.Duration {
+	for _, key := range []string{"auto_delete_seconds", "message_delete_seconds", "delete_after_seconds"} {
+		raw := strings.TrimSpace(cfg[key])
+		if raw == "" {
+			continue
+		}
+		seconds, err := strconv.Atoi(raw)
+		if err != nil {
+			continue
+		}
+		if seconds < 0 {
+			return -1
+		}
+		return time.Duration(seconds) * time.Second
+	}
+	return defaultTelegramMessageDeleteDelay
 }
 
 // findChannelByChatID 根据 chat_id 查找已配置的通知渠道。
@@ -881,13 +961,17 @@ func (s *TelegramBotService) handleCallback(ctx context.Context, cb *TelegramCal
 	if data == "adult_toggle" {
 		reply := s.cmdHideAdult(ctx, &msg, nil)
 		if reply.Text != "" {
-			return s.reply(ctx, channel, cb.Message.Chat.ID, reply)
+			err := s.reply(ctx, channel, cb.Message.Chat.ID, reply)
+			s.deleteTelegramSourceMessage(channel, cb.Message.Chat.ID, cb.Message.MessageID)
+			return err
 		}
 		return nil
 	}
 	if reply, handled := s.handleMenuCallback(ctx, channel, &msg, data); handled {
 		if reply.Text != "" {
-			return s.reply(ctx, channel, cb.Message.Chat.ID, reply)
+			err := s.reply(ctx, channel, cb.Message.Chat.ID, reply)
+			s.deleteTelegramSourceMessage(channel, cb.Message.Chat.ID, cb.Message.MessageID)
+			return err
 		}
 	}
 	return nil
@@ -919,6 +1003,15 @@ func (s *TelegramBotService) telegramBinding(ctx context.Context, telegramUserID
 		return nil
 	}
 	return &binding
+}
+
+func (s *TelegramBotService) unbindTelegramUser(ctx context.Context, telegramUserID int) error {
+	if s == nil || s.repo == nil || s.repo.DB == nil || telegramUserID == 0 {
+		return nil
+	}
+	return s.repo.DB.WithContext(ctx).Unscoped().
+		Where("telegram_user_id = ?", int64(telegramUserID)).
+		Delete(&model.TelegramBinding{}).Error
 }
 
 func (s *TelegramBotService) telegramUserIsAdmin(ctx context.Context, channel *model.NotifyChannel, telegramUserID int) bool {
@@ -1072,35 +1165,47 @@ func (s *TelegramBotService) upsertTelegramBinding(ctx context.Context, msg *Tel
 	if msg.From.Username != "" {
 		name = "@" + strings.TrimSpace(msg.From.Username)
 	}
-	var existing model.TelegramBinding
-	err := s.repo.DB.WithContext(ctx).Where("telegram_user_id = ?", int64(msg.From.ID)).First(&existing).Error
-	if err == nil {
-		if existing.UserID != userID {
-			if err := s.ensureTelegramAccountBindingAvailable(ctx, userID, int64(msg.From.ID)); err != nil {
+	telegramUserID := int64(msg.From.ID)
+	return s.repo.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var existing model.TelegramBinding
+		err := tx.Where("telegram_user_id = ?", telegramUserID).First(&existing).Error
+		if err == nil {
+			if existing.UserID != userID {
+				if err := s.ensureTelegramAccountBindingAvailableTx(ctx, tx, userID, telegramUserID); err != nil {
+					return err
+				}
+			}
+			if err := tx.Model(&existing).Updates(map[string]any{
+				"telegram_name": name,
+				"chat_id":       telegramBindingChatIDForMessage(msg, &existing),
+				"user_id":       userID,
+			}).Error; telegramBindingUniqueErr(err) {
+				return errTelegramAccountAlreadyBound
+			} else if err != nil {
 				return err
 			}
+			return nil
 		}
-		return s.repo.DB.WithContext(ctx).Model(&existing).Updates(map[string]any{
-			"telegram_name": name,
-			"chat_id":       telegramBindingChatIDForMessage(msg, &existing),
-			"user_id":       userID,
+		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			return err
+		}
+		if err := tx.Unscoped().Where("telegram_user_id = ?", telegramUserID).Delete(&model.TelegramBinding{}).Error; err != nil {
+			return err
+		}
+		if err := s.ensureTelegramAccountBindingAvailableTx(ctx, tx, userID, telegramUserID); err != nil {
+			return err
+		}
+		err = tx.Create(&model.TelegramBinding{
+			TelegramUserID: telegramUserID,
+			TelegramName:   name,
+			ChatID:         telegramBindingChatIDForMessage(msg, nil),
+			UserID:         userID,
 		}).Error
-	}
-	if err != nil && err != gorm.ErrRecordNotFound {
+		if telegramBindingUniqueErr(err) {
+			return errTelegramAccountAlreadyBound
+		}
 		return err
-	}
-	if err := s.repo.DB.WithContext(ctx).Unscoped().Where("telegram_user_id = ?", int64(msg.From.ID)).Delete(&model.TelegramBinding{}).Error; err != nil {
-		return err
-	}
-	if err := s.ensureTelegramAccountBindingAvailable(ctx, userID, int64(msg.From.ID)); err != nil {
-		return err
-	}
-	return s.repo.DB.WithContext(ctx).Create(&model.TelegramBinding{
-		TelegramUserID: int64(msg.From.ID),
-		TelegramName:   name,
-		ChatID:         telegramBindingChatIDForMessage(msg, nil),
-		UserID:         userID,
-	}).Error
+	})
 }
 
 func telegramBindingChatIDForMessage(msg *TelegramMessage, existing *model.TelegramBinding) int64 {
@@ -1127,8 +1232,12 @@ func telegramPrivateChatIDFromBinding(binding model.TelegramBinding) int64 {
 }
 
 func (s *TelegramBotService) ensureTelegramAccountBindingAvailable(ctx context.Context, userID string, telegramUserID int64) error {
+	return s.ensureTelegramAccountBindingAvailableTx(ctx, s.repo.DB.WithContext(ctx), userID, telegramUserID)
+}
+
+func (s *TelegramBotService) ensureTelegramAccountBindingAvailableTx(ctx context.Context, tx *gorm.DB, userID string, telegramUserID int64) error {
 	var bound model.TelegramBinding
-	err := s.repo.DB.WithContext(ctx).
+	err := tx.WithContext(ctx).
 		Where("user_id = ? AND telegram_user_id <> ?", userID, telegramUserID).
 		First(&bound).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -1137,11 +1246,24 @@ func (s *TelegramBotService) ensureTelegramAccountBindingAvailable(ctx context.C
 	if err != nil {
 		return err
 	}
-	if user, _ := s.repo.User.FindByID(ctx, bound.UserID); user == nil {
-		_ = s.repo.DB.WithContext(ctx).Unscoped().Delete(&model.TelegramBinding{}, "id = ?", bound.ID).Error
+	var user model.User
+	if err := tx.WithContext(ctx).Where("id = ?", bound.UserID).First(&user).Error; errors.Is(err, gorm.ErrRecordNotFound) {
+		_ = tx.WithContext(ctx).Unscoped().Delete(&model.TelegramBinding{}, "id = ?", bound.ID).Error
 		return nil
+	} else if err != nil {
+		return err
 	}
 	return errTelegramAccountAlreadyBound
+}
+
+func telegramBindingUniqueErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "idx_telegram_bindings_user_id_active") ||
+		strings.Contains(msg, "telegram_bindings.user_id") ||
+		(strings.Contains(msg, "unique") && strings.Contains(msg, "telegram_bindings"))
 }
 
 func parseStartCredentials(args []string) (string, string) {

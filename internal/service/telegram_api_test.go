@@ -1,11 +1,16 @@
 package service
 
 import (
+	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/ShukeBta/MediaStationGo/internal/model"
 )
 
 func TestTelegramMethodURLUsesCustomAPIBase(t *testing.T) {
@@ -129,6 +134,53 @@ func telegramClientProxyString(t *testing.T, client *http.Client) string {
 		return ""
 	}
 	return proxyURL.String()
+}
+
+func TestTelegramReplyAutoDeletesSentMessage(t *testing.T) {
+	requests := make(chan string, 4)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/sendMessage"):
+			requests <- "sendMessage"
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"ok":true,"result":{"message_id":777}}`))
+		case strings.HasSuffix(r.URL.Path, "/deleteMessage"):
+			requests <- "deleteMessage"
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"ok":true,"result":true}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	cfg, _ := json.Marshal(map[string]string{
+		"bot_token":           "123456:ABC-def",
+		"api_base_url":        server.URL,
+		"auto_delete_seconds": "0",
+	})
+	_, bot := newBotTestService(t)
+	channel := &model.NotifyChannel{Name: "Telegram", Type: "telegram", Enabled: true, Config: string(cfg)}
+	if err := bot.reply(context.Background(), channel, 42, telegramCommandReply{Text: "hello"}); err != nil {
+		t.Fatalf("reply: %v", err)
+	}
+	waitForTelegramMethod(t, requests, "sendMessage")
+	waitForTelegramMethod(t, requests, "deleteMessage")
+}
+
+func waitForTelegramMethod(t *testing.T, requests <-chan string, want string) {
+	t.Helper()
+	deadline := time.After(2 * time.Second)
+	for {
+		select {
+		case got := <-requests:
+			if got == want {
+				return
+			}
+		case <-deadline:
+			t.Fatalf("timed out waiting for telegram %s", want)
+		}
+	}
 }
 
 func TestTelegramCommandFiltering(t *testing.T) {

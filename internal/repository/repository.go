@@ -112,6 +112,9 @@ func (r *UserRepository) ReleaseDeletedUsername(ctx context.Context, username st
 func (r *UserRepository) FindByUsername(ctx context.Context, username string) (*model.User, error) {
 	var u model.User
 	err := r.db.WithContext(ctx).Where("username = ?", username).First(&u).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) && username != "" {
+		err = r.db.WithContext(ctx).Where("LOWER(username) = LOWER(?)", username).First(&u).Error
+	}
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, nil
 	}
