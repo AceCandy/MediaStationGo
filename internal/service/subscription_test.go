@@ -1,12 +1,20 @@
 package service
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 
+	"github.com/glebarez/sqlite"
+	"go.uber.org/zap"
+	"gorm.io/gorm"
+
 	"github.com/ShukeBta/MediaStationGo/internal/model"
+	"github.com/ShukeBta/MediaStationGo/internal/repository"
 )
 
 func TestSelectSiteSearchCandidatesPrefersSeriesPack(t *testing.T) {
@@ -208,6 +216,86 @@ func TestSubscriptionPendingDownloadAvailabilitySkipsUnorganizedEpisodes(t *test
 	}
 	if svc.downloadPathHasCandidate(t.Context(), sub, "间谍过家家 S01E03 1080p", root) {
 		t.Fatal("did not expect missing E03 to be detected")
+	}
+}
+
+func TestSubscriptionRunOneDeduplicatesDuplicateRSSGUIDInSameFeed(t *testing.T) {
+	rss := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/rss+xml")
+		_, _ = w.Write([]byte(`<?xml version="1.0"?>
+<rss><channel>
+  <item>
+    <title>Some Show S01E01 1080p</title>
+    <guid>episode-1</guid>
+    <link>magnet:?xt=urn:btih:1111111111111111111111111111111111111111&amp;dn=Some+Show+S01E01</link>
+  </item>
+  <item>
+    <title>Some Show S01E01 1080p</title>
+    <guid>episode-1</guid>
+    <link>magnet:?xt=urn:btih:1111111111111111111111111111111111111111&amp;dn=Some+Show+S01E01</link>
+  </item>
+</channel></rss>`))
+	}))
+	defer rss.Close()
+
+	var addCalls int32
+	qb := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v2/auth/login":
+			_, _ = w.Write([]byte("Ok."))
+		case "/api/v2/torrents/info":
+			if atomic.LoadInt32(&addCalls) > 0 {
+				_, _ = w.Write([]byte(`[{"hash":"abc123","name":"Some Show S01E01 1080p","state":"downloading","progress":0.1}]`))
+				return
+			}
+			_, _ = w.Write([]byte(`[]`))
+		case "/api/v2/torrents/add":
+			atomic.AddInt32(&addCalls, 1)
+			_, _ = w.Write([]byte("Ok."))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer qb.Close()
+
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(&model.Subscription{}, &model.Setting{}, &model.DownloadTask{}, &model.Media{}); err != nil {
+		t.Fatal(err)
+	}
+	repos := repository.New(db)
+	downloads := NewDownloadService(zap.NewNop(), repos, NewHub(zap.NewNop()), nil)
+	downloads.qb.Configure(QBitConfig{BaseURL: qb.URL, Username: "admin", Password: "admin"})
+	svc := NewSubscriptionService(nil, zap.NewNop(), repos, downloads, nil, NewHub(zap.NewNop()))
+
+	sub := &model.Subscription{
+		Name:      "Some Show 自动订阅",
+		FeedURL:   rss.URL,
+		Filter:    "Some Show",
+		MediaType: "tv",
+		SavePath:  "/downloads/tv",
+	}
+	if err := repos.Subscription.Create(t.Context(), sub); err != nil {
+		t.Fatal(err)
+	}
+	queued, err := svc.runOne(t.Context(), sub)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if queued != 1 {
+		t.Fatalf("queued = %d, want 1", queued)
+	}
+	if got := atomic.LoadInt32(&addCalls); got != 1 {
+		t.Fatalf("qb add calls = %d, want 1", got)
+	}
+	rows, err := repos.Download.List(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("download rows = %d, want 1", len(rows))
 	}
 }
 

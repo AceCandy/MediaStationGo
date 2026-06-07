@@ -324,7 +324,7 @@ export function AIAssistantPage() {
       {!status?.enabled && (
         <p className="text-xs text-sand-500">
           提示: 当前未配置外部 AI Provider,系统将使用本地规则引擎解析查询。
-          管理员可在 <Link to="/api-configs" className="text-brand-500">API 配置</Link>{' '}
+          管理员可在 <Link to="/admin?tab=api" className="text-brand-500">API 配置</Link>{' '}
           中接入 OpenAI / DeepSeek 等服务以获得更好效果。
         </p>
       )}

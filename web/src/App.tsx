@@ -182,7 +182,7 @@ export default function App() {
           />
           <Route
             path="api-configs"
-            element={<Navigate to="/admin" replace />}
+            element={<Navigate to="/admin?tab=api" replace />}
           />
           <Route
             path="tasks"

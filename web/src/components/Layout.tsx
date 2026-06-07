@@ -310,24 +310,28 @@ export function Layout() {
             </Link>
 
             {/* Quick Discover shortcut button */}
-            <Link 
-              to="/discover" 
-              className="hidden md:flex items-center gap-2 rounded-xl border border-gray-200 px-4 py-2.5 text-xs font-bold text-gray-500 hover:bg-gray-50 hover:text-gray-900 transition-all"
-            >
-              <Sparkles size={14} className="text-brand-500" />
-              <span>发现新片</span>
-            </Link>
+            {can('can_view_discover') && (
+              <Link
+                to="/discover"
+                className="hidden md:flex items-center gap-2 rounded-xl border border-gray-200 px-4 py-2.5 text-xs font-bold text-gray-500 hover:bg-gray-50 hover:text-gray-900 transition-all"
+              >
+                <Sparkles size={14} className="text-brand-500" />
+                <span>发现新片</span>
+              </Link>
+            )}
 
             {/* Notification alert bubble */}
-            <Link
-              to="/notify-channels"
-              title="通知配置"
-              aria-label="打开通知配置"
-              className="relative rounded-xl border border-gray-200 p-2.5 text-gray-500 hover:bg-gray-100 hover:text-gray-900 transition-all"
-            >
-              <Bell size={18} />
-              <span className="absolute top-1.5 right-1.5 h-2 w-2 rounded-full bg-brand-500 ring-2 ring-white animate-pulse" />
-            </Link>
+            {isAdmin && (
+              <Link
+                to="/notify-channels"
+                title="通知配置"
+                aria-label="打开通知配置"
+                className="relative rounded-xl border border-gray-200 p-2.5 text-gray-500 hover:bg-gray-100 hover:text-gray-900 transition-all"
+              >
+                <Bell size={18} />
+                <span className="absolute top-1.5 right-1.5 h-2 w-2 rounded-full bg-brand-500 ring-2 ring-white animate-pulse" />
+              </Link>
+            )}
 
             {/* Horizontal divider lines */}
             <span className="h-6 w-px bg-gray-200" />

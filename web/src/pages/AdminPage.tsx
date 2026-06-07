@@ -1,4 +1,5 @@
 import { FormEvent, useEffect, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import toast from 'react-hot-toast'
 import { KeyRound, Pencil, Plus, ShieldCheck, Trash2, UserCheck, UserX, X } from 'lucide-react'
 
@@ -11,13 +12,31 @@ import { ManagementShortcuts } from '../components/ManagementShortcuts'
 import { confirmAction } from '../components/ConfirmDialog'
 import { requestPassword } from '../components/PasswordDialog'
 
+type AdminTab = 'library' | 'users' | 'api'
+
+function parseAdminTab(value: string | null): AdminTab {
+  if (value === 'users' || value === 'api') return value
+  return 'library'
+}
+
 export function AdminPage() {
-  const [tab, setTab] = useState<'library' | 'users' | 'api'>('library')
+  const [searchParams, setSearchParams] = useSearchParams()
+  const [tab, setTab] = useState<AdminTab>(() => parseAdminTab(searchParams.get('tab')))
   const tabs = [
     { key: 'library' as const, label: '媒体库' },
     { key: 'users' as const, label: '用户' },
     { key: 'api' as const, label: '外部API' },
   ]
+
+  useEffect(() => {
+    setTab(parseAdminTab(searchParams.get('tab')))
+  }, [searchParams])
+
+  const selectTab = (next: AdminTab) => {
+    setTab(next)
+    setSearchParams(next === 'library' ? {} : { tab: next })
+  }
+
   return (
     <div className="space-y-6">
       <h1 className="font-display text-3xl font-bold text-ink-600">管理后台</h1>
@@ -35,7 +54,7 @@ export function AdminPage() {
         {tabs.map((k) => (
           <button
             key={k.key}
-            onClick={() => setTab(k.key)}
+            onClick={() => selectTab(k.key)}
             className={
               'border-b-2 px-4 py-2 text-sm transition ' +
               (tab === k.key

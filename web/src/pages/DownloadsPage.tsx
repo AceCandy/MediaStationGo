@@ -1,4 +1,5 @@
 import { FormEvent, useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import toast from 'react-hot-toast'
 import { ArrowDown, ArrowUp, Download, Film, HardDrive, Rss, ShieldCheck, Trash2 } from 'lucide-react'
 
@@ -280,11 +281,18 @@ export function DownloadsPage() {
         </div>
         {torrents === null && (
           <div className="glass-panel text-sand-500">
-            尚未连接到下载器 — 请到{' '}
-            <a href="/download-clients" className="text-brand-500 hover:underline">
-              下载器
-            </a>{' '}
-            页面添加并测试连接。
+            尚未连接到下载器 —{' '}
+            {role === 'admin' ? (
+              <>
+                请到{' '}
+                <Link to="/download-clients" className="text-brand-500 hover:underline">
+                  下载器
+                </Link>{' '}
+                页面添加并测试连接。
+              </>
+            ) : (
+              '请联系管理员添加并测试下载器连接。'
+            )}
           </div>
         )}
         {torrents && torrents.length === 0 && (

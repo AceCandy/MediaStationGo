@@ -265,6 +265,7 @@ func (s *SubscriptionService) runOne(ctx context.Context, sub *model.Subscriptio
 		}
 		queued++
 		seen = append(seen, guid)
+		seenSet[guid] = struct{}{}
 	}
 	// Remember the last 200 GUIDs so the seen set doesn't grow forever.
 	if len(seen) > 200 {
