@@ -55,6 +55,9 @@ func (s *TelegramBotService) telegramCommandDefinitions(ctx context.Context, cha
 		{Aliases: []string{"/gencode"}, AdminOnly: true, AdminOnlyText: adminOnly, Handle: func(args []string) (telegramCommandReply, error) { return s.cmdGenCode(ctx, msg, args), nil }},
 		{Aliases: []string{"/renew_user"}, AdminOnly: true, AdminOnlyText: adminOnly, Handle: func(args []string) (telegramCommandReply, error) { return s.cmdUserRenew(ctx, args), nil }},
 		{Aliases: []string{"/delete_user"}, AdminOnly: true, AdminOnlyText: adminOnly, Handle: func(args []string) (telegramCommandReply, error) { return s.cmdUserDelete(ctx, args), nil }},
+		{Aliases: []string{"/unbind"}, AdminOnly: true, AdminOnlyText: adminOnly, Handle: func(args []string) (telegramCommandReply, error) { return s.cmdUnbind(ctx, args), nil }},
+		{Aliases: []string{"/unbind_duplicates"}, AdminOnly: true, AdminOnlyText: adminOnly, Handle: func(args []string) (telegramCommandReply, error) { return s.cmdUnbindDuplicates(ctx), nil }},
+		{Aliases: []string{"/unbind_inactive"}, AdminOnly: true, AdminOnlyText: adminOnly, Handle: func(args []string) (telegramCommandReply, error) { return s.cmdUnbindInactive(ctx, args), nil }},
 		{Aliases: []string{"/devicepolicy", "/policy"}, AdminOnly: true, AdminOnlyText: adminOnly, Handle: func(args []string) (telegramCommandReply, error) { return s.cmdDevicePolicy(ctx, args), nil }},
 		{Aliases: []string{"/antishare"}, AdminOnly: true, AdminOnlyText: adminOnly, Handle: func(args []string) (telegramCommandReply, error) { return s.cmdAntiShare(ctx, args), nil }},
 		{Aliases: []string{"/cleanup"}, AdminOnly: true, AdminOnlyText: adminOnly, Handle: func(args []string) (telegramCommandReply, error) { return s.cmdCleanup(ctx, args), nil }},
@@ -118,7 +121,7 @@ var telegramSupportedCommandSet = map[string]struct{}{
 	"/account": {}, "/me": {}, "/signin": {}, "/checkin": {}, "/devices": {}, "/kick": {}, "/setname": {}, "/rename": {}, "/setpass": {}, "/passwd": {}, "/password": {},
 	"/redeem": {}, "/redeem_register": {}, "/redeem_renew": {},
 	"/register": {}, "/reg": {}, "/signup": {}, "/registration": {}, "/reg_switch": {}, "/openreg": {},
-	"/capacity": {}, "/users": {}, "/gencode": {}, "/renew_user": {}, "/delete_user": {},
+	"/capacity": {}, "/users": {}, "/gencode": {}, "/renew_user": {}, "/delete_user": {}, "/unbind": {}, "/unbind_duplicates": {}, "/unbind_inactive": {},
 	"/devicepolicy": {}, "/policy": {}, "/antishare": {}, "/cleanup": {}, "/cleanup_mode": {}, "/cleanup_rule": {},
 	"/ban": {}, "/unban": {}, "/status": {}, "/search": {}, "/downloads": {}, "/stats": {},
 }

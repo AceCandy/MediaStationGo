@@ -449,6 +449,8 @@ func (s *TelegramBotService) cmdHelp(ctx context.Context, msg *TelegramMessage) 
 		"<b>/capacity</b> / <b>/users</b> — 容量与用户管理（管理员）\n" +
 		"<b>/gencode register|renew 天数 [有效天数]</b> — 生成兑换码（管理员）\n" +
 		"<b>/renew_user 用户名 天数</b> / <b>/delete_user 用户名 confirm</b> — 续期/删除用户（管理员）\n" +
+		"<b>/unbind 用户1 用户2</b> — 批量解绑 Telegram 绑定（管理员）\n" +
+		"<b>/unbind_duplicates</b> / <b>/unbind_inactive 天数</b> — 清理重复/无效绑定或久未登录绑定（管理员）\n" +
 		"<b>/antishare on play=3 login=3 warn=2</b> — 防共享策略（管理员）\n" +
 		"<b>/cleanup on|off|run</b> — 删号规则开关/巡检（管理员）\n" +
 		"<b>/cleanup_mode any|all|count 2</b> — 保号模式（管理员）\n" +
