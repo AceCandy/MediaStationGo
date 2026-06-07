@@ -7,69 +7,14 @@ import type { Site } from '../types'
 import { ManagementShortcuts } from '../components/ManagementShortcuts'
 import { confirmAction } from '../components/ConfirmDialog'
 
-// ── 站点类型映射 ──
-const SITE_TYPE_LABELS: Record<string, string> = {
-  nexusphp: 'NexusPHP',
-  gazelle: 'Gazelle',
-  unit3d: 'UNIT3D',
-  mteam: 'M-Team',
-  discuz: 'Discuz',
-  custom_rss: '自定义 RSS',
-}
-
-const SITE_TYPE_ABBR: Record<string, string> = {
-  nexusphp: 'NP',
-  gazelle: 'GZ',
-  unit3d: 'U3',
-  mteam: 'MT',
-  discuz: 'DZ',
-  custom_rss: 'RS',
-}
-
-const SITE_TYPE_COLORS: Record<string, string> = {
-  nexusphp: 'bg-blue-500/15 text-blue-400',
-  gazelle: 'bg-purple-500/15 text-purple-400',
-  unit3d: 'bg-orange-500/15 text-orange-400',
-  mteam: 'bg-green-500/15 text-green-400',
-  discuz: 'bg-yellow-500/15 text-yellow-400',
-  custom_rss: 'bg-sand-500/15 text-ink-50',
-}
-
-const AUTH_TYPE_LABELS: Record<string, string> = {
-  cookie: 'Cookie',
-  api_key: 'API Key',
-  auth_header: 'Auth Header',
-}
-
-// ── 默认表单 ──
-const defaultForm = () => ({
-  name: '',
-  url: '',
-  type: 'nexusphp',
-  auth_type: 'cookie',
-  cookie: '',
-  api_key: '',
-  auth_header: '',
-  enabled: true,
-  is_default: false,
-  extra: '',
-  // 高级设置
-  user_agent: '',
-  rss_url: '',
-  timeout: 15,
-  priority: 50,
-  use_proxy: false,
-  rate_limit: false,
-  browser_emulation: false,
-  downloader: '',
-})
+import { AUTH_TYPE_LABELS, defaultSiteForm, siteFormToPayload, siteToForm, SITE_TYPE_ABBR, SITE_TYPE_COLORS, SITE_TYPE_LABELS } from './sitesPageModel'
 
 export function SitesPage() {
   const [sites, setSites] = useState<Site[]>([])
   const [loading, setLoading] = useState(true)
   const [showModal, setShowModal] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
-  const [form, setForm] = useState(defaultForm())
+  const [form, setForm] = useState(defaultSiteForm())
   const [saving, setSaving] = useState(false)
   const [testingId, setTestingId] = useState<string | null>(null)
   const [advancedOpen, setAdvancedOpen] = useState(false)
@@ -93,7 +38,7 @@ export function SitesPage() {
   // ── 弹窗操作 ──
   const openCreate = () => {
     setEditingId(null)
-    setForm(defaultForm())
+    setForm(defaultSiteForm())
     setAdvancedOpen(false)
     setShowModal(true)
   }
@@ -103,27 +48,7 @@ export function SitesPage() {
       const res = await sitesAPI.get(id)
       const s = res.data as Site
       setEditingId(id)
-      setForm({
-        name: s.name || '',
-        url: s.url || '',
-        type: s.type || 'nexusphp',
-        auth_type: s.auth_type || 'cookie',
-        cookie: s.cookie || '',
-        api_key: s.api_key || '',
-        auth_header: s.auth_header || '',
-        enabled: s.enabled !== false,
-        is_default: s.is_default || false,
-        extra: s.extra || '',
-        // 高级设置
-        user_agent: s.user_agent || '',
-        rss_url: s.rss_url || '',
-        timeout: s.timeout ?? 15,
-        priority: s.priority ?? 50,
-        use_proxy: s.use_proxy || false,
-        rate_limit: s.rate_limit || false,
-        browser_emulation: s.browser_emulation || false,
-        downloader: s.downloader || '',
-      })
+      setForm(siteToForm(s))
       setAdvancedOpen(false)
       setShowModal(true)
     } catch {
@@ -139,26 +64,7 @@ export function SitesPage() {
   // ── 保存（支持静默模式）──
   const silentSave = async (): Promise<boolean> => {
     if (!form.name.trim() || !form.url.trim()) return false
-    const payload: Record<string, unknown> = {
-      name: form.name.trim(),
-      url: form.url.trim(),
-      type: form.type,
-      auth_type: form.auth_type,
-      enabled: form.enabled,
-      is_default: form.is_default,
-      extra: form.extra || '',
-      user_agent: form.user_agent || '',
-      rss_url: form.rss_url || '',
-      timeout: Number(form.timeout) || 15,
-      priority: Number(form.priority) || 50,
-      use_proxy: !!form.use_proxy,
-      rate_limit: !!form.rate_limit,
-      browser_emulation: !!form.browser_emulation,
-      downloader: form.downloader || '',
-    }
-    if (!editingId || form.cookie.trim()) payload.cookie = form.cookie.trim()
-    if (!editingId || form.api_key.trim()) payload.api_key = form.api_key.trim()
-    if (!editingId || form.auth_header.trim()) payload.auth_header = form.auth_header.trim()
+    const payload = siteFormToPayload(form, !editingId)
     try {
       if (editingId) {
         await sitesAPI.update(editingId, payload)
