@@ -1,6 +1,7 @@
 package service
 
 import (
+	"fmt"
 	"slices"
 	"testing"
 
@@ -137,6 +138,41 @@ func TestConfiguredAdultLibrariesDoNotHideSafeLibraryWithNSFWItems(t *testing.T)
 	}
 	if got := sortedMediaTitles(items); !slices.Equal(got, []string{"普通电影"}) {
 		t.Fatalf("safe library should stay visible while NSFW media is filtered, got %#v", got)
+	}
+}
+
+func TestSearchMediaVisibleHonorsLargePosterWallLimit(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(&model.Library{}, &model.Media{}); err != nil {
+		t.Fatal(err)
+	}
+	repos := repository.New(db)
+	lib := model.Library{Name: "海报墙", Path: "/media/all", Type: "tv", Enabled: true}
+	if err := repos.Library.Create(t.Context(), &lib); err != nil {
+		t.Fatal(err)
+	}
+	rows := make([]model.Media, 260)
+	for i := range rows {
+		rows[i] = model.Media{
+			LibraryID: lib.ID,
+			Title:     fmt.Sprintf("节目 %03d", i),
+			Path:      fmt.Sprintf("/media/all/show-%03d.mkv", i),
+		}
+	}
+	if err := db.Create(&rows).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	items, err := NewMediaService(&config.Config{}, zap.NewNop(), repos).
+		SearchMediaVisible(t.Context(), "", 240, MediaVisibility{IncludeNSFW: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 240 {
+		t.Fatalf("large poster wall search returned %d rows, want 240", len(items))
 	}
 }
 

@@ -198,8 +198,10 @@ func (s *MediaService) SearchMedia(ctx context.Context, query string, limit int)
 }
 
 func (s *MediaService) SearchMediaVisible(ctx context.Context, query string, limit int, visibility MediaVisibility) ([]model.Media, error) {
-	if limit <= 0 || limit > 200 {
+	if limit <= 0 {
 		limit = 50
+	} else if limit > 2000 {
+		limit = 2000
 	}
 	return s.repo.Media.SearchFiltered(ctx, query, limit, repository.MediaQueryFilter{
 		IncludeNSFW:       visibility.IncludeNSFW,
