@@ -67,6 +67,10 @@ type adminResetPasswordReq struct {
 	Password string `json:"password" binding:"required,min=6"`
 }
 
+type adminUpdateUserStatusReq struct {
+	IsActive bool `json:"is_active"`
+}
+
 func updateUserHandler(svc *service.Container) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req adminUpdateUserReq
@@ -148,6 +152,46 @@ func resetUserPasswordHandler(svc *service.Container) gin.HandlerFunc {
 			return
 		}
 		c.Status(http.StatusNoContent)
+	}
+}
+
+func updateUserStatusHandler(svc *service.Container) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req adminUpdateUserStatusReq
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		userID := c.Param("id")
+		if !req.IsActive {
+			if firstAdmin, err := svc.Repo.User.FirstAdmin(c.Request.Context()); err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+				return
+			} else if firstAdmin != nil && firstAdmin.ID == userID {
+				c.JSON(http.StatusForbidden, gin.H{"error": "default admin cannot be disabled"})
+				return
+			}
+		}
+		updates := map[string]any{"is_active": req.IsActive}
+		if req.IsActive {
+			updates["share_warnings"] = 0
+			updates["last_share_warn_at"] = nil
+		}
+		if err := svc.Repo.User.UpdateFields(c.Request.Context(), userID, updates); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		if req.IsActive {
+			_ = svc.Repo.UserDevice.SetKickedByUser(c.Request.Context(), userID, false)
+		} else {
+			_ = svc.Repo.UserDevice.SetKickedByUser(c.Request.Context(), userID, true)
+		}
+		updated, err := svc.Repo.User.FindByID(c.Request.Context(), userID)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, updated)
 	}
 }
 

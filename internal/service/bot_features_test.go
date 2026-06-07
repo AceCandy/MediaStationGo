@@ -247,13 +247,16 @@ func TestProtectedAdminNeverViolated(t *testing.T) {
 	}
 	_ = repos.Setting.Set(ctx, SettingAntiShareEnabled, "true")
 	cfg := loadBotConfig(ctx, repos)
-	// 多次违规也不应删除/警告管理员
+	// 多次违规也不应删除/警告/禁用管理员
 	for i := 0; i < 5; i++ {
-		dev.registerViolation(ctx, admin.ID, "test", cfg)
+		dev.registerFingerprintWarning(ctx, admin.ID, "test", cfg)
 	}
 	got, _ := repos.User.FindByID(ctx, admin.ID)
 	if got == nil {
 		t.Fatal("admin must never be auto-deleted")
+	}
+	if !got.IsActive {
+		t.Fatal("admin must never be auto-disabled")
 	}
 	if got.ShareWarnings != 0 {
 		t.Fatalf("admin should accrue no warnings, got %d", got.ShareWarnings)

@@ -13,6 +13,9 @@ export const adminAPI = {
   resetUserPassword: (id: string, password: string) =>
     api.patch(`/admin/users/${id}/password`, { password }).then((r) => r.data),
 
+  setUserStatus: (id: string, isActive: boolean) =>
+    api.patch<User>(`/admin/users/${id}/status`, { is_active: isActive }).then((r) => r.data),
+
   deleteUser: (id: string) => api.delete(`/admin/users/${id}`).then((r) => r.data),
 
   listSettings: () => api.get<Setting[]>('/admin/settings').then((r) => r.data),

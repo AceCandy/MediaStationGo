@@ -2,7 +2,9 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"strconv"
+	"strings"
 
 	"github.com/ShukeBta/MediaStationGo/internal/repository"
 )
@@ -29,6 +31,13 @@ const (
 	SettingInactiveWindowMin = "device.inactive_window_days_min" // 随机窗口下限（天）
 	SettingInactiveWindowMax = "device.inactive_window_days_max" // 随机窗口上限（天）
 	SettingInactiveGraceDays = "device.inactive_grace_days"      // 新号宽限期（天）
+
+	// 自定义删号/保号规则。规则默认关闭；开启后按 KeepMode 计算用户
+	// 是否满足足够的保号条件，未满足才会删号。
+	SettingAccountCleanupEnabled       = "device.account_cleanup_enabled"
+	SettingAccountCleanupKeepMode      = "device.account_cleanup_keep_mode"      // any / all / count
+	SettingAccountCleanupRequiredCount = "device.account_cleanup_required_count" // keep_mode=count 时需要满足几条
+	SettingAccountCleanupRules         = "device.account_cleanup_rules"          // JSON []accountCleanupRule
 )
 
 // botConfig 是设备管控的已解析配置（含默认值）。
@@ -45,6 +54,31 @@ type botConfig struct {
 	InactiveWindowMin int
 	InactiveWindowMax int
 	InactiveGraceDays int
+
+	AccountCleanupEnabled       bool
+	AccountCleanupKeepMode      string
+	AccountCleanupRequiredCount int
+	AccountCleanupRules         []accountCleanupRule
+}
+
+// accountCleanupRule is one admin-defined "保号" condition. A user is deleted
+// only when the cleanup policy is enabled and the user does not satisfy the
+// configured combination of enabled keep rules.
+//
+// Supported types:
+//   - watch_hours: watched hours in a random [min,max] day window >= MinHours
+//   - recent_login: LastLoginAt is within WindowDaysMax days
+//   - signin_streak: current sign-in streak >= MinCount
+//   - account_age_grace: account age <= MinCount days (new-user grace)
+type accountCleanupRule struct {
+	ID            string  `json:"id"`
+	Name          string  `json:"name"`
+	Type          string  `json:"type"`
+	Enabled       bool    `json:"enabled"`
+	WindowDaysMin int     `json:"window_days_min,omitempty"`
+	WindowDaysMax int     `json:"window_days_max,omitempty"`
+	MinHours      float64 `json:"min_hours,omitempty"`
+	MinCount      int     `json:"min_count,omitempty"`
 }
 
 // defaultBotConfig returns the safe defaults requested by the operator.
@@ -62,6 +96,21 @@ func defaultBotConfig() botConfig {
 		InactiveWindowMin: 3,
 		InactiveWindowMax: 5,
 		InactiveGraceDays: 7,
+
+		AccountCleanupEnabled:       false,
+		AccountCleanupKeepMode:      "any",
+		AccountCleanupRequiredCount: 1,
+		AccountCleanupRules: []accountCleanupRule{
+			{
+				ID:            "watch_3_5d_6h",
+				Name:          "3~5 天观看满 6 小时",
+				Type:          "watch_hours",
+				Enabled:       true,
+				WindowDaysMin: 3,
+				WindowDaysMax: 5,
+				MinHours:      6,
+			},
+		},
 	}
 }
 
@@ -87,8 +136,20 @@ func loadBotConfig(ctx context.Context, repo *repository.Container) botConfig {
 	cfg.InactiveWindowMin = parseIntSettingDefault(get(SettingInactiveWindowMin), cfg.InactiveWindowMin)
 	cfg.InactiveWindowMax = parseIntSettingDefault(get(SettingInactiveWindowMax), cfg.InactiveWindowMax)
 	cfg.InactiveGraceDays = parseIntSettingDefault(get(SettingInactiveGraceDays), cfg.InactiveGraceDays)
+	cfg.AccountCleanupEnabled = parseBoolSetting(get(SettingAccountCleanupEnabled), cfg.AccountCleanupEnabled)
+	cfg.AccountCleanupKeepMode = normalizeCleanupKeepMode(get(SettingAccountCleanupKeepMode), cfg.AccountCleanupKeepMode)
+	cfg.AccountCleanupRequiredCount = parseIntSettingDefault(get(SettingAccountCleanupRequiredCount), cfg.AccountCleanupRequiredCount)
+	if raw := strings.TrimSpace(get(SettingAccountCleanupRules)); raw != "" {
+		var rules []accountCleanupRule
+		if err := json.Unmarshal([]byte(raw), &rules); err == nil && len(rules) > 0 {
+			cfg.AccountCleanupRules = normalizeCleanupRules(rules)
+		}
+	}
 	if cfg.InactiveWindowMax < cfg.InactiveWindowMin {
 		cfg.InactiveWindowMax = cfg.InactiveWindowMin
+	}
+	if cfg.AccountCleanupRequiredCount < 1 {
+		cfg.AccountCleanupRequiredCount = 1
 	}
 	return cfg
 }
@@ -100,4 +161,48 @@ func parseIntSettingDefault(value string, fallback int) int {
 		return fallback
 	}
 	return n
+}
+
+func normalizeCleanupKeepMode(value, fallback string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "any", "all", "count":
+		return strings.ToLower(strings.TrimSpace(value))
+	default:
+		if fallback == "" {
+			return "any"
+		}
+		return fallback
+	}
+}
+
+func normalizeCleanupRules(rules []accountCleanupRule) []accountCleanupRule {
+	out := make([]accountCleanupRule, 0, len(rules))
+	for _, r := range rules {
+		r.Type = strings.ToLower(strings.TrimSpace(r.Type))
+		r.ID = strings.TrimSpace(r.ID)
+		r.Name = strings.TrimSpace(r.Name)
+		if r.ID == "" {
+			r.ID = r.Type
+		}
+		if r.Name == "" {
+			r.Name = r.ID
+		}
+		if r.WindowDaysMin < 1 {
+			r.WindowDaysMin = 1
+		}
+		if r.WindowDaysMax < r.WindowDaysMin {
+			r.WindowDaysMax = r.WindowDaysMin
+		}
+		if r.MinCount < 0 {
+			r.MinCount = 0
+		}
+		if r.MinHours < 0 {
+			r.MinHours = 0
+		}
+		switch r.Type {
+		case "watch_hours", "recent_login", "signin_streak", "account_age_grace":
+			out = append(out, r)
+		}
+	}
+	return out
 }

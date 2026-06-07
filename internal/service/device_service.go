@@ -18,16 +18,15 @@ import (
 // DeviceService implements device/session tracking and the two decoupled
 // enforcement policies requested by the operator:
 //
-//	① 防共享 (anti-sharing, warning-based): too many concurrent playbacks,
-//	   too many logged-in clients, or a device-fingerprint mismatch each emit a
-//	   warning. After the configured number of warnings, a re-offence deletes
-//	   the account. These three sub-rules share one per-user warning counter.
-//	② 不活跃清理 (inactivity cleanup, independent toggle): watching less than
-//	   the configured hours over a random 3–5 day window deletes the account.
+//	① 防共享: too many concurrent playbacks / logged-in clients disables the
+//	   account immediately; fingerprint mismatch is warning-based and disables
+//	   the account after the configured warning threshold.
+//	② 自定义删号/保号规则: admins define one or more keep rules; a sweep deletes
+//	   accounts that do not satisfy the configured any/all/count rule set.
 //
-// Safeguards (always enforced): admin / protected accounts are never auto
-// disabled or deleted; a Telegram notification is sent before any destructive
-// action; every threshold is configurable and both policies default to OFF.
+// Safeguards: admin / protected accounts are never auto disabled or deleted;
+// a Telegram notification is sent before a destructive action; every policy
+// defaults to OFF.
 type DeviceService struct {
 	log  *zap.Logger
 	repo *repository.Container
@@ -116,12 +115,12 @@ func (s *DeviceService) RecordLogin(ctx context.Context, userID, deviceID, devic
 	}
 
 	if mismatch {
-		s.registerViolation(ctx, userID, fmt.Sprintf("设备指纹变更（设备：%s）", deviceLabel(deviceName, client)), cfg)
+		s.registerFingerprintWarning(ctx, userID, fmt.Sprintf("设备指纹变更（设备：%s）", deviceLabel(deviceName, client)), cfg)
 		return
 	}
 	since := now.Add(-time.Duration(cfg.ClientActiveDays) * 24 * time.Hour)
 	if n, err := s.repo.UserDevice.CountActiveClients(ctx, userID, since); err == nil && int(n) > cfg.MaxLoggedClients {
-		s.registerViolation(ctx, userID, fmt.Sprintf("同时登录客户端 %d 台，超过上限 %d 台", n, cfg.MaxLoggedClients), cfg)
+		s.disableForPolicy(ctx, userID, fmt.Sprintf("同时登录客户端 %d 台，超过上限 %d 台", n, cfg.MaxLoggedClients))
 	}
 }
 
@@ -160,15 +159,14 @@ func (s *DeviceService) RecordPlayback(ctx context.Context, userID, deviceID, de
 	}
 	since := now.Add(-time.Duration(cfg.PlayWindowSeconds) * time.Second)
 	if n, err := s.repo.UserDevice.CountConcurrentPlaying(ctx, userID, since); err == nil && int(n) > cfg.MaxConcurrentPlay {
-		s.registerViolation(ctx, userID, fmt.Sprintf("同时播放 %d 台，超过上限 %d 台", n, cfg.MaxConcurrentPlay), cfg)
+		s.disableForPolicy(ctx, userID, fmt.Sprintf("同时播放设备 %d 台，超过上限 %d 台", n, cfg.MaxConcurrentPlay))
 	}
 }
 
-// registerViolation increments the shared anti-share warning counter for a
-// user, notifies them, and deletes the account once warnings exceed the
-// threshold. Protected accounts are never auto-deleted. Violations are
-// debounced so a single burst counts at most once per minute.
-func (s *DeviceService) registerViolation(ctx context.Context, userID, reason string, cfg botConfig) {
+// registerFingerprintWarning increments the fingerprint warning counter for a
+// user and disables the account once warnings exceed the threshold. Violations
+// are debounced so a single burst counts at most once per minute.
+func (s *DeviceService) registerFingerprintWarning(ctx context.Context, userID, reason string, cfg botConfig) {
 	u, err := s.repo.User.FindByID(ctx, userID)
 	if err != nil || u == nil {
 		return
@@ -184,12 +182,9 @@ func (s *DeviceService) registerViolation(ctx context.Context, userID, reason st
 
 	warnings := u.ShareWarnings + 1
 	if warnings > cfg.WarnThreshold {
-		// Exhausted warnings → delete (notify first).
-		s.notify(ctx, userID, fmt.Sprintf("⛔️ 账号 <b>%s</b> 因多次触发防共享规则（%s）已被删除。如有疑问请联系管理员。", u.Username, reason))
-		s.log.Warn("anti-share: deleting account after warnings",
+		s.disableForPolicy(ctx, userID, fmt.Sprintf("多次设备指纹异常：%s", reason))
+		s.log.Warn("anti-share: disabling account after fingerprint warnings",
 			zap.String("user", u.Username), zap.Int("warnings", u.ShareWarnings), zap.String("reason", reason))
-		_ = s.repo.UserDevice.DeleteByUser(ctx, userID)
-		_ = s.repo.User.Delete(ctx, userID)
 		return
 	}
 	_ = s.repo.User.UpdateFields(ctx, userID, map[string]any{
@@ -197,24 +192,43 @@ func (s *DeviceService) registerViolation(ctx context.Context, userID, reason st
 		"last_share_warn_at": &now,
 	})
 	left := cfg.WarnThreshold + 1 - warnings
-	s.notify(ctx, userID, fmt.Sprintf("⚠️ 账号 <b>%s</b> 触发防共享规则：%s\n这是第 <b>%d</b> 次警告，再违规 <b>%d</b> 次将删除账号。请使用 Bot 的「我的设备」一键踢下线多余设备。", u.Username, reason, warnings, left))
+	s.notify(ctx, userID, fmt.Sprintf("⚠️ 账号 <b>%s</b> 触发设备指纹警告：%s\n这是第 <b>%d</b> 次警告，再异常 <b>%d</b> 次将禁用账号。请使用 Bot 的「我的设备」踢下线异常设备。", u.Username, reason, warnings, left))
 	s.log.Info("anti-share: warning issued", zap.String("user", u.Username), zap.Int("warnings", warnings), zap.String("reason", reason))
 }
 
-// SweepInactiveUsers runs the inactivity cleanup policy once. It picks a random
-// window in [min,max] days, then deletes non-protected users (past their grace
-// period) who watched less than the configured hours in that window. Returns
-// the number of accounts removed. No-op when the policy is disabled.
+func (s *DeviceService) disableForPolicy(ctx context.Context, userID, reason string) {
+	u, err := s.repo.User.FindByID(ctx, userID)
+	if err != nil || u == nil || !u.IsActive {
+		return
+	}
+	if s.isProtected(ctx, u) {
+		s.log.Info("device policy: skipping protected account", zap.String("user", u.Username), zap.String("reason", reason))
+		return
+	}
+	now := time.Now()
+	_ = s.repo.User.UpdateFields(ctx, userID, map[string]any{
+		"is_active":          false,
+		"last_share_warn_at": &now,
+	})
+	_ = s.repo.UserDevice.SetKickedByUser(ctx, userID, true)
+	s.notify(ctx, userID, fmt.Sprintf("⛔️ 账号 <b>%s</b> 因触发设备规则已被禁用：%s\n请联系管理员解除禁用，或通过「我的设备」踢下线多余设备后再申请恢复。", u.Username, reason))
+	s.log.Warn("device policy: disabled account", zap.String("user", u.Username), zap.String("reason", reason))
+}
+
+// SweepInactiveUsers is kept for compatibility with the existing scheduler; it
+// now delegates to the custom account-cleanup policy.
 func (s *DeviceService) SweepInactiveUsers(ctx context.Context) (int, error) {
+	return s.SweepAccountCleanup(ctx)
+}
+
+// SweepAccountCleanup runs the admin-defined account cleanup policy once.
+// Users are kept when they satisfy enough enabled keep rules according to
+// keep_mode: any / all / count. Users that do not meet the policy are deleted.
+func (s *DeviceService) SweepAccountCleanup(ctx context.Context) (int, error) {
 	cfg := loadBotConfig(ctx, s.repo)
-	if !cfg.InactiveEnabled {
+	if !cfg.AccountCleanupEnabled {
 		return 0, nil
 	}
-	windowDays := randomWindowDays(cfg.InactiveWindowMin, cfg.InactiveWindowMax)
-	since := time.Now().Add(-time.Duration(windowDays) * 24 * time.Hour)
-	graceCutoff := time.Now().Add(-time.Duration(cfg.InactiveGraceDays) * 24 * time.Hour)
-	minMs := int64(cfg.InactiveMinHours) * 3600 * 1000
-
 	users, err := s.repo.User.List(ctx)
 	if err != nil {
 		return 0, err
@@ -225,19 +239,12 @@ func (s *DeviceService) SweepInactiveUsers(ctx context.Context) (int, error) {
 		if s.isProtected(ctx, u) || !u.IsActive {
 			continue
 		}
-		if u.CreatedAt.After(graceCutoff) {
-			continue // still within new-account grace period
-		}
-		watched, err := s.repo.UserDevice.WatchedMillisSince(ctx, u.ID, since)
-		if err != nil {
+		keep, details := s.userMatchesCleanupPolicy(ctx, u, cfg)
+		if keep {
 			continue
 		}
-		if watched >= minMs {
-			continue // active enough → keep
-		}
-		s.notify(ctx, u.ID, fmt.Sprintf("⛔️ 账号 <b>%s</b> 因近 %d 天观看时长不足 %d 小时（不活跃）已被清理。如需恢复请联系管理员。", u.Username, windowDays, cfg.InactiveMinHours))
-		s.log.Warn("inactivity: deleting inactive account",
-			zap.String("user", u.Username), zap.Int("window_days", windowDays), zap.Int64("watched_ms", watched))
+		s.notify(ctx, u.ID, fmt.Sprintf("⛔️ 账号 <b>%s</b> 未满足保号规则，已被清理。\n规则结果：%s\n如需恢复请联系管理员。", u.Username, details))
+		s.log.Warn("account cleanup: deleting account", zap.String("user", u.Username), zap.String("details", details))
 		_ = s.repo.UserDevice.DeleteByUser(ctx, u.ID)
 		if err := s.repo.User.Delete(ctx, u.ID); err == nil {
 			removed++
@@ -257,6 +264,11 @@ func (s *DeviceService) KickDevice(ctx context.Context, userID, deviceID string)
 		return fmt.Errorf("device not found")
 	}
 	return s.repo.UserDevice.SetKicked(ctx, d.ID, true)
+}
+
+// KickAllDevices marks all devices for a user as kicked.
+func (s *DeviceService) KickAllDevices(ctx context.Context, userID string) error {
+	return s.repo.UserDevice.SetKickedByUser(ctx, userID, true)
 }
 
 // ListDevices returns the device sessions for a user.
@@ -293,6 +305,76 @@ func randomWindowDays(min, max int) int {
 		return min
 	}
 	return min + rand.Intn(max-min+1)
+}
+
+func (s *DeviceService) userMatchesCleanupPolicy(ctx context.Context, u *model.User, cfg botConfig) (bool, string) {
+	rules := make([]accountCleanupRule, 0, len(cfg.AccountCleanupRules))
+	for _, r := range cfg.AccountCleanupRules {
+		if r.Enabled {
+			rules = append(rules, r)
+		}
+	}
+	if len(rules) == 0 {
+		return true, "无启用规则，跳过"
+	}
+	matches := 0
+	parts := make([]string, 0, len(rules))
+	for _, r := range rules {
+		ok, detail := s.userMatchesCleanupRule(ctx, u, r)
+		if ok {
+			matches++
+			parts = append(parts, "✅ "+detail)
+		} else {
+			parts = append(parts, "❌ "+detail)
+		}
+	}
+	required := 1
+	switch cfg.AccountCleanupKeepMode {
+	case "all":
+		required = len(rules)
+	case "count":
+		required = cfg.AccountCleanupRequiredCount
+		if required > len(rules) {
+			required = len(rules)
+		}
+	default:
+		required = 1
+	}
+	return matches >= required, fmt.Sprintf("满足 %d/%d 条，需要 %d 条；%s", matches, len(rules), required, strings.Join(parts, "；"))
+}
+
+func (s *DeviceService) userMatchesCleanupRule(ctx context.Context, u *model.User, r accountCleanupRule) (bool, string) {
+	switch r.Type {
+	case "watch_hours":
+		windowDays := randomWindowDays(r.WindowDaysMin, r.WindowDaysMax)
+		since := time.Now().Add(-time.Duration(windowDays) * 24 * time.Hour)
+		watched, _ := s.repo.UserDevice.WatchedMillisSince(ctx, u.ID, since)
+		hours := float64(watched) / 3600000
+		return hours >= r.MinHours, fmt.Sprintf("%s：近 %d 天观看 %.1f/%.1f 小时", r.Name, windowDays, hours, r.MinHours)
+	case "recent_login":
+		days := r.WindowDaysMax
+		if days < 1 {
+			days = r.WindowDaysMin
+		}
+		ok := u.LastLoginAt != nil && u.LastLoginAt.After(time.Now().Add(-time.Duration(days)*24*time.Hour))
+		return ok, fmt.Sprintf("%s：%d 天内登录", r.Name, days)
+	case "signin_streak":
+		rec, _ := s.repo.SignIn.Get(ctx, u.ID)
+		streak := 0
+		if rec != nil {
+			streak = rec.StreakDays
+		}
+		return streak >= r.MinCount, fmt.Sprintf("%s：连续签到 %d/%d 天", r.Name, streak, r.MinCount)
+	case "account_age_grace":
+		days := r.MinCount
+		if days < 1 {
+			days = r.WindowDaysMax
+		}
+		ok := u.CreatedAt.After(time.Now().Add(-time.Duration(days) * 24 * time.Hour))
+		return ok, fmt.Sprintf("%s：新账号 %d 天宽限", r.Name, days)
+	default:
+		return false, r.Name + "：未知规则"
+	}
 }
 
 func deviceLabel(name, client string) string {

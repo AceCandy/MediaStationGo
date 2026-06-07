@@ -3,6 +3,7 @@ package handler
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/url"
 	"strings"
@@ -73,6 +74,10 @@ func addDownloadHandler(svc *service.Container) gin.HandlerFunc {
 		}, fallbackTitle, "")
 		t, err := svc.Downloads.AddDownloadWithMeta(c.Request.Context(), uid.(string), realURL, req.SavePath, meta)
 		if err != nil {
+			if errors.Is(err, service.ErrDownloadAlreadyExists) {
+				c.JSON(http.StatusOK, t)
+				return
+			}
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}

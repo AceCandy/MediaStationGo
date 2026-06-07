@@ -50,6 +50,11 @@ type DownloadService struct {
 
 var torrentEpisodeToken = regexp.MustCompile(`(?i)e\d{1,3}`)
 
+// ErrDownloadAlreadyExists tells callers that the requested resource is already
+// tracked locally or present in qBittorrent. Subscriptions treat this as a
+// successful dedup hit, not as a retryable enqueue failure.
+var ErrDownloadAlreadyExists = errors.New("download already exists")
+
 // DownloadTaskMeta carries public display metadata for a download. It is
 // deliberately separate from the private torrent URL so API responses never
 // need to expose tracker tokens.
@@ -181,6 +186,21 @@ func (d *DownloadService) AddDownloadWithMeta(ctx context.Context, userID, urlSt
 	if savePath == "" {
 		savePath, _ = d.repo.Setting.Get(ctx, "qbittorrent.savepath")
 	}
+	title := strings.TrimSpace(meta.Title)
+	if title == "" {
+		title = publicDownloadTitle(urlStr)
+		meta.Title = title
+	}
+	if existing, ok := d.findExistingDownloadTask(ctx, title); ok {
+		return existing, ErrDownloadAlreadyExists
+	}
+	if d.torrentExistsByIdentity(ctx, title) {
+		task, err := d.createTask(ctx, userID, urlStr, savePath, meta)
+		if err != nil {
+			return nil, err
+		}
+		return task, ErrDownloadAlreadyExists
+	}
 	var siteFetchErr error
 	if d.site != nil {
 		if data, name, err := d.site.FetchTorrentFile(ctx, urlStr); err == nil {
@@ -202,6 +222,70 @@ func (d *DownloadService) AddDownloadWithMeta(ctx context.Context, userID, urlSt
 		return nil, err
 	}
 	return d.createTask(ctx, userID, urlStr, savePath, meta)
+}
+
+func (d *DownloadService) findExistingDownloadTask(ctx context.Context, title string) (*model.DownloadTask, bool) {
+	key := downloadTaskIdentityKey(title)
+	if key == "" || d == nil || d.repo == nil || d.repo.Download == nil {
+		return nil, false
+	}
+	rows, err := d.repo.Download.List(ctx)
+	if err != nil {
+		return nil, false
+	}
+	for i := range rows {
+		if !downloadTaskBlocksReadd(rows[i].Status) {
+			continue
+		}
+		if downloadTaskIdentityKey(rows[i].Title) == key {
+			return &rows[i], true
+		}
+	}
+	return nil, false
+}
+
+func downloadTaskBlocksReadd(status string) bool {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "failed", "error", "deleted", "removed", "canceled", "cancelled":
+		return false
+	default:
+		return true
+	}
+}
+
+func (d *DownloadService) torrentExistsByIdentity(ctx context.Context, title string) bool {
+	query := downloadTaskIdentityKey(title)
+	if query == "" {
+		return false
+	}
+	live, err := d.qb.List(ctx, "")
+	if err != nil {
+		return false
+	}
+	for _, torrent := range live {
+		current := downloadTaskIdentityKey(torrent.Name)
+		if current == "" {
+			continue
+		}
+		if current == query || strings.Contains(current, query) || strings.Contains(query, current) {
+			return true
+		}
+	}
+	return false
+}
+
+func downloadTaskIdentityKey(name string) string {
+	name = strings.ToLower(strings.TrimSpace(name))
+	if name == "" {
+		return ""
+	}
+	var b strings.Builder
+	for _, r := range name {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
 }
 
 func (d *DownloadService) createTask(ctx context.Context, userID, urlStr, savePath string, meta DownloadTaskMeta) (*model.DownloadTask, error) {
@@ -484,10 +568,13 @@ func (d *DownloadService) poll(ctx context.Context) {
 		if err != nil {
 			continue
 		}
+		rows, _ := d.repo.Download.List(ctx)
+		taskByKey := tasksByIdentity(rows)
 		// Detect completed downloads and trigger organize
 		for _, t := range live {
 			hash := t.Hash
 			complete := t.Progress >= 1.0
+			d.syncDownloadTaskProgress(ctx, t, taskByKey)
 			if complete && !d.prevStates[hash] {
 				// Just completed: trigger organize
 				go d.onTorrentComplete(ctx, hash, t.SavePath)
@@ -496,6 +583,55 @@ func (d *DownloadService) poll(ctx context.Context) {
 		}
 		d.hub.Publish("download", map[string]any{"torrents": live})
 	}
+}
+
+func (d *DownloadService) syncDownloadTaskProgress(ctx context.Context, torrent QBitTorrent, taskByKey map[string]model.DownloadTask) {
+	if d == nil || d.repo == nil || d.repo.DB == nil || strings.TrimSpace(torrent.Name) == "" {
+		return
+	}
+	matched, ok := findMatchingTaskByIdentity(torrent.Name, taskByKey)
+	if !ok {
+		return
+	}
+	status := torrent.State
+	if torrent.Progress >= 1 {
+		status = "completed"
+	}
+	if strings.TrimSpace(status) == "" {
+		status = matched.Status
+	}
+	updates := map[string]any{"progress": torrent.Progress}
+	if status != "" {
+		updates["status"] = status
+	}
+	_ = d.repo.DB.WithContext(ctx).Model(&model.DownloadTask{}).Where("id = ?", matched.ID).Updates(updates).Error
+}
+
+func tasksByIdentity(rows []model.DownloadTask) map[string]model.DownloadTask {
+	out := make(map[string]model.DownloadTask, len(rows))
+	for _, row := range rows {
+		key := downloadTaskIdentityKey(row.Title)
+		if key != "" {
+			out[key] = row
+		}
+	}
+	return out
+}
+
+func findMatchingTaskByIdentity(title string, taskByKey map[string]model.DownloadTask) (model.DownloadTask, bool) {
+	key := downloadTaskIdentityKey(title)
+	if key == "" {
+		return model.DownloadTask{}, false
+	}
+	if row, ok := taskByKey[key]; ok {
+		return row, true
+	}
+	for currentKey, row := range taskByKey {
+		if strings.Contains(key, currentKey) || strings.Contains(currentKey, key) {
+			return row, true
+		}
+	}
+	return model.DownloadTask{}, false
 }
 
 // onTorrentComplete handles a torrent that just finished downloading.

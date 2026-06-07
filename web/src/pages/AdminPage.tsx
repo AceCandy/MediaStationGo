@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useState } from 'react'
 import toast from 'react-hot-toast'
-import { KeyRound, Pencil, Plus, ShieldCheck, Trash2, X } from 'lucide-react'
+import { KeyRound, Pencil, Plus, ShieldCheck, Trash2, UserCheck, UserX, X } from 'lucide-react'
 
 import { adminAPI } from '../api/admin'
 import { libraryAPI } from '../api/library'
@@ -245,6 +245,34 @@ function UsersPanel() {
     }
   }
 
+  const toggleStatus = async (u: User) => {
+    const next = !u.is_active
+    if (!next && u.is_protected) {
+      toast.error('受保护管理员不可禁用')
+      return
+    }
+    if (
+      !next &&
+      !(await confirmAction({
+        title: '禁用用户',
+        message: `禁用「${u.username}」后，Web 与第三方客户端已有登录也会失效。`,
+        confirmText: '禁用',
+      }))
+    ) {
+      return
+    }
+    try {
+      await adminAPI.setUserStatus(u.id, next)
+      toast.success(next ? '用户已解禁' : '用户已禁用')
+      await refresh()
+    } catch (err: unknown) {
+      const msg =
+        (err as { response?: { data?: { error?: string } } })?.response?.data?.error ??
+        '操作失败'
+      toast.error(msg)
+    }
+  }
+
   return (
     <div className="space-y-6">
       <form onSubmit={handleCreate} className="glass-panel grid gap-3 md:grid-cols-[1fr_1fr_auto]">
@@ -289,6 +317,7 @@ function UsersPanel() {
             <tr>
               <th className="py-2">用户名</th>
               <th>角色</th>
+              <th>状态</th>
               <th>权限说明</th>
               <th>最近登录</th>
               <th className="text-right">操作</th>
@@ -312,6 +341,9 @@ function UsersPanel() {
                   )}
                 </td>
                 <td className="text-ink-100">{u.role === 'admin' ? '管理员' : '观看用户'}</td>
+                <td className={u.is_active ? 'text-green-500' : 'text-red-400'}>
+                  {u.is_active ? '正常' : '已禁用'}
+                </td>
                 <td className="text-ink-50">
                   {u.role === 'admin' ? '全部管理权限' : '仅浏览/播放/外部播放器，无下载与文件操作'}
                 </td>
@@ -348,6 +380,19 @@ function UsersPanel() {
                     onClick={() => resetPassword(u)}
                   >
                     <KeyRound size={12} />
+                  </button>
+                  <button
+                    className={
+                      'rounded-lg border px-2 py-1 text-xs disabled:cursor-not-allowed disabled:opacity-40 ' +
+                      (u.is_active
+                        ? 'border-orange-400/40 text-orange-500 hover:bg-orange-400/10'
+                        : 'border-green-400/40 text-green-500 hover:bg-green-400/10')
+                    }
+                    disabled={u.is_protected && u.is_active}
+                    title={u.is_active ? '禁用用户' : '解禁用户'}
+                    onClick={() => toggleStatus(u)}
+                  >
+                    {u.is_active ? <UserX size={12} /> : <UserCheck size={12} />}
                   </button>
                   <button
                     className="rounded-lg border border-red-400/40 px-2 py-1 text-xs text-red-400 hover:bg-red-400/10 disabled:cursor-not-allowed disabled:opacity-40"

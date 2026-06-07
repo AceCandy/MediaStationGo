@@ -50,6 +50,7 @@ func Register(r *gin.Engine, cfg *config.Config, log *zap.Logger, svc *service.C
 		// Authenticated endpoints.
 		authed := api.Group("/")
 		authed.Use(middleware.AuthRequired(cfg.Secrets.JWTSecret))
+		authed.Use(activeUserRequired(svc))
 		{
 			authed.GET("/me", meHandler(svc))
 			authed.PATCH("/me", updateProfileHandler(svc))
@@ -298,6 +299,7 @@ func Register(r *gin.Engine, cfg *config.Config, log *zap.Logger, svc *service.C
 			admin.POST("/users", createUserHandler(svc))
 			admin.PATCH("/users/:id", updateUserHandler(svc))
 			admin.PATCH("/users/:id/password", resetUserPasswordHandler(svc))
+			admin.PATCH("/users/:id/status", updateUserStatusHandler(svc))
 			admin.PATCH("/users/:id/role", adminUpdateRoleHandler(svc))
 			admin.DELETE("/users/:id", deleteUserHandler(svc))
 			admin.GET("/settings", listSettingsHandler(svc))

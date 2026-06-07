@@ -779,7 +779,7 @@ func registerEmbyRoutes(r *gin.Engine, jwtSecret string, svc *service.Container)
 		grp.HEAD("/Items/:id/Images/:type", embyItemImageHandler(svc))
 
 		// 鉴权后端点
-		auth := grp.Group("", middleware.EmbyAuthRequired(jwtSecret))
+		auth := grp.Group("", middleware.EmbyAuthRequired(jwtSecret), activeEmbyUserRequired(svc))
 		auth.GET("/Users/Me", embyMeHandler(svc))
 		auth.GET("/Users", embyListUsersHandler(svc))
 		auth.GET("/Users/:userId", embyGetUserByIDHandler(svc))

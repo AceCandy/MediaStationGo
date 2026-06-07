@@ -239,16 +239,15 @@ func (c *Container) Boot() {
 	// 启动调度器定时任务
 	c.Scheduler.Start(c.stopCtx)
 
-	// 不活跃清理巡检：随机 3~5 天窗口、默认关闭，由管理员在 Bot 设备策略开启。
-	// 每天触发一次评估（窗口天数随机，不固定）。
+	// 账号删号/保号规则巡检：默认关闭，由管理员在 Bot 或运维工具开启。
+	// 每天触发一次评估；规则里的窗口可随机，不固定。
 	if c.Device != nil {
 		go c.runInactivitySweeper(c.stopCtx)
 	}
 }
 
-// runInactivitySweeper periodically runs the inactivity-cleanup policy. The
-// policy itself is a no-op unless an admin enabled it; this just provides the
-// daily trigger with a non-fixed random window (handled inside the sweep).
+// runInactivitySweeper periodically runs the account-cleanup policy. Kept with
+// the historical name to avoid churn in callers.
 func (c *Container) runInactivitySweeper(ctx context.Context) {
 	ticker := time.NewTicker(24 * time.Hour)
 	defer ticker.Stop()
@@ -257,10 +256,10 @@ func (c *Container) runInactivitySweeper(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			if n, err := c.Device.SweepInactiveUsers(ctx); err != nil {
-				c.Log.Warn("inactivity sweep failed", zap.Error(err))
+			if n, err := c.Device.SweepAccountCleanup(ctx); err != nil {
+				c.Log.Warn("account cleanup sweep failed", zap.Error(err))
 			} else if n > 0 {
-				c.Log.Info("inactivity sweep removed accounts", zap.Int("count", n))
+				c.Log.Info("account cleanup sweep removed accounts", zap.Int("count", n))
 			}
 		}
 	}

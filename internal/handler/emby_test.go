@@ -92,10 +92,20 @@ func TestEmbyVirtualFoldersRouteReturnsJSON(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
-	if err := db.AutoMigrate(&model.Library{}); err != nil {
+	if err := db.AutoMigrate(&model.User{}, &model.Library{}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 	repos := repository.New(db)
+	if err := repos.User.Create(t.Context(), &model.User{
+		Base:         model.Base{ID: "user-1"},
+		Username:     "tester",
+		PasswordHash: "x",
+		Role:         "admin",
+		Tier:         "plus",
+		IsActive:     true,
+	}); err != nil {
+		t.Fatalf("create user: %v", err)
+	}
 	for _, lib := range []model.Library{
 		{Name: "电影", Path: "D:\\media\\movies", Type: "movie", Enabled: true},
 		{Name: "剧集", Path: "D:\\media\\tv", Type: "tv", Enabled: true},
@@ -201,10 +211,20 @@ func TestEmbyUserItemByIDRouteReturnsJSON(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
-	if err := db.AutoMigrate(&model.Library{}, &model.Media{}, &model.Favorite{}, &model.PlaybackHistory{}); err != nil {
+	if err := db.AutoMigrate(&model.User{}, &model.Library{}, &model.Media{}, &model.Favorite{}, &model.PlaybackHistory{}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 	repos := repository.New(db)
+	if err := repos.User.Create(t.Context(), &model.User{
+		Base:         model.Base{ID: "user-1"},
+		Username:     "tester",
+		PasswordHash: "x",
+		Role:         "admin",
+		Tier:         "plus",
+		IsActive:     true,
+	}); err != nil {
+		t.Fatalf("create user: %v", err)
+	}
 	lib := model.Library{Name: "剧集", Path: "D:\\media\\tv", Type: "tv", Enabled: true}
 	if err := repos.Library.Create(t.Context(), &lib); err != nil {
 		t.Fatalf("create library: %v", err)

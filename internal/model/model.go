@@ -48,9 +48,9 @@ type User struct {
 	// expires. When set and in the past, the account is treated as expired
 	// (login blocked) until an admin or a redemption code renews it.
 	ExpiredAt *time.Time `json:"expired_at,omitempty"`
-	// ShareWarnings counts anti-account-sharing warnings (too many concurrent
-	// playbacks / logged-in clients / device-fingerprint mismatches). Once it
-	// exceeds the configured threshold a re-offence deletes the account.
+	// ShareWarnings counts anti-account-sharing warnings, mainly device
+	// fingerprint mismatches. Once it exceeds the configured threshold a
+	// re-offence disables the account until an admin re-enables it.
 	ShareWarnings   int        `gorm:"default:0" json:"share_warnings"`
 	LastShareWarnAt *time.Time `json:"last_share_warn_at,omitempty"`
 	IsDefaultAdmin  bool       `gorm:"-" json:"is_default_admin,omitempty"`

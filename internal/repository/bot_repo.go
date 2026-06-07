@@ -164,6 +164,12 @@ func (r *UserDeviceRepository) SetKicked(ctx context.Context, id string, kicked 
 		Update("kicked", kicked).Error
 }
 
+// SetKickedByUser marks every device for a user as kicked/un-kicked.
+func (r *UserDeviceRepository) SetKickedByUser(ctx context.Context, userID string, kicked bool) error {
+	return r.db.WithContext(ctx).Model(&model.UserDevice{}).Where("user_id = ?", userID).
+		Update("kicked", kicked).Error
+}
+
 // WatchedMillisSince approximates the total watched milliseconds for a user
 // since `since`, using the last known playback position per media. Playback
 // history keeps one row per (user, media), so this is an activity proxy rather

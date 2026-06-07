@@ -56,8 +56,8 @@ type TokenPair struct {
 // TokenService 错误定义。
 var (
 	ErrInvalidRefreshToken = errors.New("invalid refresh token")
-	ErrTokenExpired       = errors.New("token expired")
-	ErrTokenRevoked       = errors.New("token revoked")
+	ErrTokenExpired        = errors.New("token expired")
+	ErrTokenRevoked        = errors.New("token revoked")
 )
 
 // IssuePair 为用户签发新的令牌对。
@@ -149,6 +149,12 @@ func (s *TokenService) Refresh(ctx context.Context, refreshToken string) (*Token
 	}
 	if user == nil {
 		return nil, ErrInvalidRefreshToken
+	}
+	if !user.IsActive {
+		return nil, ErrUserInactive
+	}
+	if user.ExpiredAt != nil && time.Now().After(*user.ExpiredAt) {
+		return nil, ErrUserExpired
 	}
 
 	// 撤销旧的 Refresh Token

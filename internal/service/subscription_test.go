@@ -3,6 +3,7 @@ package service
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/ShukeBta/MediaStationGo/internal/model"
@@ -98,6 +99,23 @@ func TestSiteSearchKeywordCanUseIMDB(t *testing.T) {
 	sub := &model.Subscription{Name: "沙丘 自动订阅", Filter: "Dune 2021", SearchMode: "imdb", IMDBID: "tt1160419"}
 	if got := siteSearchKeyword(sub); got != "tt1160419" {
 		t.Fatalf("keyword = %q, want imdb id", got)
+	}
+}
+
+func TestStableSiteSearchGUIDIgnoresPrivateTokenChanges(t *testing.T) {
+	item := SearchResult{
+		SiteID:   "mteam",
+		Title:    "Some Show S01E01 1080p",
+		Category: "TV",
+		Size:     1024,
+	}
+	first := stableSiteSearchGUID(item, "https://pt.example/download?id=123&passkey=old")
+	second := stableSiteSearchGUID(item, "https://pt.example/download?id=123&passkey=new")
+	if first != second {
+		t.Fatalf("stableSiteSearchGUID changed with token: %q != %q", first, second)
+	}
+	if strings.Contains(first, "passkey") || strings.Contains(first, "old") || strings.Contains(first, "new") {
+		t.Fatalf("stableSiteSearchGUID leaked private token: %q", first)
 	}
 }
 

@@ -47,6 +47,10 @@ func (h *RefreshHandler) RefreshToken(c *gin.Context) {
 			c.JSON(http.StatusUnauthorized, gin.H{"code": 40102, "message": "refresh token expired", "data": nil})
 		case service.ErrTokenRevoked:
 			c.JSON(http.StatusUnauthorized, gin.H{"code": 40103, "message": "refresh token revoked", "data": nil})
+		case service.ErrUserInactive:
+			c.JSON(http.StatusForbidden, gin.H{"code": 40302, "message": "user account is disabled", "data": nil})
+		case service.ErrUserExpired:
+			c.JSON(http.StatusForbidden, gin.H{"code": 40303, "message": "user account has expired", "data": nil})
 		default:
 			c.JSON(http.StatusInternalServerError, gin.H{"code": 50001, "message": "internal error", "data": nil})
 		}
@@ -54,7 +58,7 @@ func (h *RefreshHandler) RefreshToken(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"code": 0,
+		"code":    0,
 		"message": "ok",
 		"data": gin.H{
 			"token":         tokens.AccessToken,

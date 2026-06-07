@@ -320,6 +320,9 @@ func (s *TelegramBotService) selfSetPass(ctx context.Context, msg *TelegramMessa
 	if err := s.auth.ResetPassword(ctx, user.ID, newPass); err != nil {
 		return telegramCommandReply{Text: "修改失败：" + err.Error()}
 	}
+	if s.device != nil {
+		_ = s.device.KickAllDevices(ctx, user.ID)
+	}
 	return telegramCommandReply{Text: "密码已修改，请用新密码重新登录第三方客户端。"}
 }
 
@@ -519,8 +522,16 @@ func (s *TelegramBotService) replyUserBan(ctx context.Context, userID string, un
 			return telegramCommandReply{Text: reason}
 		}
 	}
-	if err := s.repo.User.UpdateFields(ctx, userID, map[string]any{"is_active": unban}); err != nil {
+	updates := map[string]any{"is_active": unban}
+	if unban {
+		updates["share_warnings"] = 0
+		updates["last_share_warn_at"] = nil
+	}
+	if err := s.repo.User.UpdateFields(ctx, userID, updates); err != nil {
 		return telegramCommandReply{Text: "操作失败：" + err.Error()}
+	}
+	if unban {
+		_ = s.repo.UserDevice.SetKickedByUser(ctx, userID, false)
 	}
 	return s.replyUserActions(ctx, userID)
 }
@@ -572,14 +583,14 @@ func (s *TelegramBotService) protectReason(ctx context.Context, userID string) s
 func (s *TelegramBotService) replyDevicePolicy(ctx context.Context) telegramCommandReply {
 	cfg := loadBotConfig(ctx, s.repo)
 	text := fmt.Sprintf(
-		"<b>设备策略</b>\n\n① 防共享（警告制）：<b>%s</b>\n   并发播放上限 %d / 登录客户端上限 %d / 警告 %d 次后删号\n\n② 不活跃清理：<b>%s</b>\n   随机 %d~%d 天窗口观看 < %d 小时则删号（新号 %d 天宽限）\n\n两套策略默认关闭、互不干扰；删号前会先通过 Bot 通知用户；管理员/受保护账号永不自动处理。",
+		"<b>设备策略</b>\n\n① 防共享：<b>%s</b>\n   并发播放上限 %d / 登录客户端上限 %d；超限会禁用账号，管理员可解禁。\n   设备指纹异常警告 %d 次后禁用账号。\n\n② 自定义删号规则：<b>%s</b>\n   保号模式：%s；需要满足 %d 条；启用规则 %d 条。\n\n策略默认关闭；删号前会先通过 Bot 通知用户；管理员/受保护账号永不自动处理。",
 		onOff(cfg.AntiShareEnabled), cfg.MaxConcurrentPlay, cfg.MaxLoggedClients, cfg.WarnThreshold,
-		onOff(cfg.InactiveEnabled), cfg.InactiveWindowMin, cfg.InactiveWindowMax, cfg.InactiveMinHours, cfg.InactiveGraceDays)
+		onOff(cfg.AccountCleanupEnabled), cleanupModeLabel(cfg.AccountCleanupKeepMode), cfg.AccountCleanupRequiredCount, countEnabledCleanupRules(cfg.AccountCleanupRules))
 	return telegramCommandReply{
 		Text: text,
 		Buttons: [][]telegramInlineButton{
 			{{Text: toggleLabel("防共享", cfg.AntiShareEnabled), Data: "dp_toggle:antishare"}},
-			{{Text: toggleLabel("不活跃清理", cfg.InactiveEnabled), Data: "dp_toggle:inactive"}},
+			{{Text: toggleLabel("删号规则", cfg.AccountCleanupEnabled), Data: "dp_toggle:cleanup"}},
 			{{Text: "⬅️ 返回菜单", Data: "menu_main"}},
 		},
 	}
@@ -590,8 +601,8 @@ func (s *TelegramBotService) replyDevicePolicyToggle(ctx context.Context, which 
 	switch which {
 	case "antishare":
 		_ = s.repo.Setting.Set(ctx, SettingAntiShareEnabled, strconv.FormatBool(!cfg.AntiShareEnabled))
-	case "inactive":
-		_ = s.repo.Setting.Set(ctx, SettingInactiveEnabled, strconv.FormatBool(!cfg.InactiveEnabled))
+	case "cleanup":
+		_ = s.repo.Setting.Set(ctx, SettingAccountCleanupEnabled, strconv.FormatBool(!cfg.AccountCleanupEnabled))
 	}
 	return s.replyDevicePolicy(ctx)
 }
@@ -605,4 +616,25 @@ func toggleLabel(name string, enabled bool) string {
 		return "关闭" + name
 	}
 	return "开启" + name
+}
+
+func cleanupModeLabel(mode string) string {
+	switch mode {
+	case "all":
+		return "满足全部规则"
+	case "count":
+		return "满足指定数量"
+	default:
+		return "满足任意一条"
+	}
+}
+
+func countEnabledCleanupRules(rules []accountCleanupRule) int {
+	n := 0
+	for _, r := range rules {
+		if r.Enabled {
+			n++
+		}
+	}
+	return n
 }
