@@ -107,6 +107,10 @@ func (s *TelegramBotService) NotifyUserByID(ctx context.Context, userID, text st
 	if err := s.repo.DB.WithContext(ctx).Where("user_id = ?", userID).First(&binding).Error; err != nil {
 		return
 	}
+	targetChatID := telegramPrivateChatIDFromBinding(binding)
+	if targetChatID == 0 {
+		return
+	}
 	channel := s.findChannelByChatID(ctx, int(binding.ChatID))
 	if channel == nil {
 		channels, err := s.repo.NotifyChannel.ListByType(ctx, "telegram")
@@ -115,7 +119,7 @@ func (s *TelegramBotService) NotifyUserByID(ctx context.Context, userID, text st
 		}
 		channel = &channels[0]
 	}
-	_ = s.reply(ctx, channel, int(binding.ChatID), telegramCommandReply{Text: text})
+	_ = s.reply(ctx, channel, int(targetChatID), telegramCommandReply{Text: text})
 }
 
 // NewTelegramBotService 创建 Telegram Bot 服务。
@@ -1078,7 +1082,7 @@ func (s *TelegramBotService) upsertTelegramBinding(ctx context.Context, msg *Tel
 		}
 		return s.repo.DB.WithContext(ctx).Model(&existing).Updates(map[string]any{
 			"telegram_name": name,
-			"chat_id":       int64(msg.Chat.ID),
+			"chat_id":       telegramBindingChatIDForMessage(msg, &existing),
 			"user_id":       userID,
 		}).Error
 	}
@@ -1094,9 +1098,32 @@ func (s *TelegramBotService) upsertTelegramBinding(ctx context.Context, msg *Tel
 	return s.repo.DB.WithContext(ctx).Create(&model.TelegramBinding{
 		TelegramUserID: int64(msg.From.ID),
 		TelegramName:   name,
-		ChatID:         int64(msg.Chat.ID),
+		ChatID:         telegramBindingChatIDForMessage(msg, nil),
 		UserID:         userID,
 	}).Error
+}
+
+func telegramBindingChatIDForMessage(msg *TelegramMessage, existing *model.TelegramBinding) int64 {
+	if msg == nil {
+		if existing != nil {
+			return existing.ChatID
+		}
+		return 0
+	}
+	if msg.Chat.Type == "" || msg.Chat.Type == "private" {
+		return int64(msg.Chat.ID)
+	}
+	if existing != nil && existing.ChatID > 0 {
+		return existing.ChatID
+	}
+	return int64(msg.From.ID)
+}
+
+func telegramPrivateChatIDFromBinding(binding model.TelegramBinding) int64 {
+	if binding.ChatID > 0 {
+		return binding.ChatID
+	}
+	return binding.TelegramUserID
 }
 
 func (s *TelegramBotService) ensureTelegramAccountBindingAvailable(ctx context.Context, userID string, telegramUserID int64) error {

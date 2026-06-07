@@ -149,9 +149,11 @@ func (d *DownloadService) Stop() {
 // 默认 qb，但实际下载链路读的还是 Setting 表，导致一直连不上。
 func (d *DownloadService) ReloadConfig(ctx context.Context) error {
 	cfg := QBitConfig{}
+	hasConfiguredClients := false
 
 	// Path 1: download_clients 表
 	if d.repo.DownloadClient != nil {
+		hasConfiguredClients, _ = d.repo.DownloadClient.HasAnyIncludingDeleted(ctx)
 		if c, err := d.repo.DownloadClient.FindDefault(ctx); err == nil && c != nil && c.Type == "qbittorrent" {
 			cfg.BaseURL = strings.TrimRight(c.Host, "/")
 			cfg.Username = c.Username
@@ -159,8 +161,11 @@ func (d *DownloadService) ReloadConfig(ctx context.Context) error {
 		}
 	}
 
-	// Path 2: legacy Setting 表（仅在 client 表未配置时回退）
-	if cfg.BaseURL == "" {
+	// Path 2: legacy Setting 表。
+	// 仅在旧部署“从未使用过 download_clients 表”时回退。只要操作员曾经
+	// 配置过下载器，删除/禁用全部下载器就表示应停止投递，不能再偷偷用
+	// qbittorrent.* 旧设置继续往下载器添加任务。
+	if cfg.BaseURL == "" && !hasConfiguredClients {
 		get := func(k string) string {
 			v, _ := d.repo.Setting.Get(ctx, k)
 			return v

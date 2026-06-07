@@ -59,6 +59,16 @@ func (r *DownloadClientRepository) ListEnabled(ctx context.Context) ([]model.Dow
 	return rows, err
 }
 
+// HasAnyIncludingDeleted reports whether the operator has ever configured a
+// download client. This distinguishes legacy-only installations from systems
+// where deleting/disabling all clients is an intentional "stop downloads"
+// action, even though rows are soft-deleted.
+func (r *DownloadClientRepository) HasAnyIncludingDeleted(ctx context.Context) (bool, error) {
+	var n int64
+	err := r.db.WithContext(ctx).Unscoped().Model(&model.DownloadClient{}).Count(&n).Error
+	return n > 0, err
+}
+
 // Update persists changes to a download client.
 func (r *DownloadClientRepository) Update(ctx context.Context, c *model.DownloadClient) error {
 	return r.db.WithContext(ctx).Save(c).Error

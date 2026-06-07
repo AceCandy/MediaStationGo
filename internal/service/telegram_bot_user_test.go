@@ -206,3 +206,71 @@ func TestTelegramStartRejectsAccountAlreadyBoundToAnotherTelegram(t *testing.T) 
 		t.Fatal("second telegram account must not be bound")
 	}
 }
+
+func TestTelegramBindingFromGroupStoresPrivateUserChatID(t *testing.T) {
+	ctx := t.Context()
+	repos, auth, _, _ := newAuthTestServices(t)
+	user, _, err := auth.Register(ctx, "viewer", "secret-pass")
+	if err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	bot := NewTelegramBotService(zap.NewNop(), repos, nil, auth)
+	msg := &TelegramMessage{
+		From: TelegramUser{ID: 21001, Username: "viewer", FirstName: "Viewer"},
+		Chat: TelegramChat{ID: -100123456, Type: "group"},
+	}
+
+	if err := bot.upsertTelegramBinding(ctx, msg, user.ID); err != nil {
+		t.Fatalf("upsert binding: %v", err)
+	}
+	binding := bot.telegramBinding(ctx, 21001)
+	if binding == nil {
+		t.Fatal("binding should be created")
+	}
+	if binding.ChatID != 21001 {
+		t.Fatalf("group binding must store private user chat id, got %d", binding.ChatID)
+	}
+}
+
+func TestTelegramBindingFromGroupPreservesExistingPrivateChatID(t *testing.T) {
+	ctx := t.Context()
+	repos, auth, _, _ := newAuthTestServices(t)
+	user, _, err := auth.Register(ctx, "viewer", "secret-pass")
+	if err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	if err := repos.DB.Create(&model.TelegramBinding{
+		TelegramUserID: 21002,
+		TelegramName:   "@viewer",
+		ChatID:         987654,
+		UserID:         user.ID,
+	}).Error; err != nil {
+		t.Fatalf("seed binding: %v", err)
+	}
+	bot := NewTelegramBotService(zap.NewNop(), repos, nil, auth)
+	msg := &TelegramMessage{
+		From: TelegramUser{ID: 21002, Username: "viewer", FirstName: "Viewer"},
+		Chat: TelegramChat{ID: -100123456, Type: "supergroup"},
+	}
+
+	if err := bot.upsertTelegramBinding(ctx, msg, user.ID); err != nil {
+		t.Fatalf("upsert binding: %v", err)
+	}
+	binding := bot.telegramBinding(ctx, 21002)
+	if binding == nil {
+		t.Fatal("binding should exist")
+	}
+	if binding.ChatID != 987654 {
+		t.Fatalf("group command must not overwrite existing private chat id, got %d", binding.ChatID)
+	}
+}
+
+func TestTelegramPrivateNotifyChatIDFallsBackFromLegacyGroupBinding(t *testing.T) {
+	binding := model.TelegramBinding{
+		TelegramUserID: 21003,
+		ChatID:         -100123456,
+	}
+	if got := telegramPrivateChatIDFromBinding(binding); got != 21003 {
+		t.Fatalf("legacy group binding should notify private user chat, got %d", got)
+	}
+}
