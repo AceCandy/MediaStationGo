@@ -32,9 +32,17 @@ export function usePermission(
   const tier = useAuthStore((state) => state.tier)
   const role = useAuthStore((state) => state.user?.role)
   const isAuthenticated = useAuthStore((state) => state.token !== null)
+  const hasSuperAccess = isSuper || tier === 'plus' || role === 'admin'
+
+  // 权限未加载时自动获取
+  useEffect(() => {
+    if (!hasSuperAccess && isAuthenticated && autoFetch && Object.keys(permissions).length === 0 && !isLoading) {
+      fetchPermissions()
+    }
+  }, [autoFetch, fetchPermissions, hasSuperAccess, isAuthenticated, isLoading, permissions])
 
   // 超级用户有所有权限
-  if (isSuper || tier === 'plus' || role === 'admin') {
+  if (hasSuperAccess) {
     return true
   }
 
@@ -42,13 +50,6 @@ export function usePermission(
   if (!isAuthenticated) {
     return false
   }
-
-  // 权限未加载时自动获取
-  useEffect(() => {
-    if (autoFetch && Object.keys(permissions).length === 0 && !isLoading) {
-      fetchPermissions()
-    }
-  }, [autoFetch, permissions, isLoading, fetchPermissions])
 
   return hasPermission(key)
 }
