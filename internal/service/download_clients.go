@@ -118,13 +118,18 @@ func (s *DownloadClientService) Update(ctx context.Context, id string, in Downlo
 	if err := s.repo.DownloadClient.Update(ctx, existing); err != nil {
 		return nil, err
 	}
+	s.clearLegacyQBitConnectionIfNoDefault(ctx)
 	return s.repo.DownloadClient.FindByID(ctx, id)
 }
 
 // Delete removes one client.
 func (s *DownloadClientService) Delete(ctx context.Context, id string) error {
 	s.markManaged(ctx)
-	return s.repo.DownloadClient.Delete(ctx, id)
+	if err := s.repo.DownloadClient.Delete(ctx, id); err != nil {
+		return err
+	}
+	s.clearLegacyQBitConnectionIfNoDefault(ctx)
+	return nil
 }
 
 // Test verifies that the client's WebUI is reachable. We use
@@ -232,4 +237,17 @@ func (s *DownloadClientService) markManaged(ctx context.Context) {
 		return
 	}
 	_ = s.repo.Setting.Set(ctx, settingDownloadClientsManaged, "true")
+}
+
+func (s *DownloadClientService) clearLegacyQBitConnectionIfNoDefault(ctx context.Context) {
+	if s == nil || s.repo == nil || s.repo.DownloadClient == nil || s.repo.Setting == nil {
+		return
+	}
+	defaultClient, err := s.repo.DownloadClient.FindDefault(ctx)
+	if err != nil || defaultClient != nil {
+		return
+	}
+	_ = s.repo.Setting.Set(ctx, "qbittorrent.url", "")
+	_ = s.repo.Setting.Set(ctx, "qbittorrent.username", "")
+	_ = s.repo.Setting.Set(ctx, "qbittorrent.password", "")
 }

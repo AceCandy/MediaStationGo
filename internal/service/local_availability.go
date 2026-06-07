@@ -74,7 +74,7 @@ func LookupLocalAvailability(ctx context.Context, repo *repository.Container, ti
 	like := "%" + query + "%"
 	var rows []model.Media
 	if err := repo.DB.WithContext(ctx).
-		Where("title LIKE ? OR original_name LIKE ?", like, like).
+		Where("title LIKE ? OR original_name LIKE ? OR path LIKE ?", like, like, like).
 		Order("season_num asc, episode_num asc, created_at desc").
 		Limit(2000).
 		Find(&rows).Error; err != nil {

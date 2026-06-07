@@ -123,6 +123,128 @@ func TestAddDownloadWithMetaSkipsExistingTaskBeforeQBAdd(t *testing.T) {
 	}
 }
 
+func TestAddDownloadWithMetaSkipsUserDeletedTaskBeforeQBAdd(t *testing.T) {
+	var addCalls int32
+	qb := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v2/auth/login":
+			_, _ = w.Write([]byte("Ok."))
+		case "/api/v2/torrents/info":
+			_, _ = w.Write([]byte(`[]`))
+		case "/api/v2/torrents/add":
+			atomic.AddInt32(&addCalls, 1)
+			_, _ = w.Write([]byte("Ok."))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer qb.Close()
+
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(&model.DownloadTask{}, &model.Media{}, &model.Setting{}); err != nil {
+		t.Fatal(err)
+	}
+	repos := repository.New(db)
+	if err := repos.Setting.Set(t.Context(), "qbittorrent.url", qb.URL); err != nil {
+		t.Fatal(err)
+	}
+	if err := repos.Setting.Set(t.Context(), "qbittorrent.username", "admin"); err != nil {
+		t.Fatal(err)
+	}
+	if err := repos.Setting.Set(t.Context(), "qbittorrent.password", "admin"); err != nil {
+		t.Fatal(err)
+	}
+	existing := &model.DownloadTask{
+		UserID:   "u1",
+		Source:   "qbittorrent",
+		URL:      "https://pt.example/download?id=old&passkey=old",
+		Title:    "User Deleted Show S01E01 1080p",
+		SavePath: "/downloads/tv",
+		Status:   "deleted",
+	}
+	if err := repos.Download.Create(t.Context(), existing); err != nil {
+		t.Fatal(err)
+	}
+
+	svc := NewDownloadService(zap.NewNop(), repos, NewHub(zap.NewNop()), nil)
+	task, err := svc.AddDownloadWithMeta(t.Context(), "u1", "https://pt.example/download?id=new&passkey=new", "/downloads/tv", DownloadTaskMeta{
+		Title: "User Deleted Show S01E01 1080p WEB-DL",
+	})
+	if !errors.Is(err, ErrDownloadAlreadyExists) {
+		t.Fatalf("err = %v, want ErrDownloadAlreadyExists", err)
+	}
+	if task == nil || task.ID != existing.ID {
+		t.Fatalf("task = %#v, want existing task %#v", task, existing)
+	}
+	if got := atomic.LoadInt32(&addCalls); got != 0 {
+		t.Fatalf("qb add calls = %d, want 0", got)
+	}
+}
+
+func TestDeleteMarksMatchingDownloadTaskDeleted(t *testing.T) {
+	const hash = "abc123"
+	const title = "Delete Marker Show S01E01 1080p"
+	var deleteCalls int32
+	qb := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v2/auth/login":
+			_, _ = w.Write([]byte("Ok."))
+		case "/api/v2/torrents/info":
+			_, _ = w.Write([]byte(`[{"hash":"abc123","name":"Delete Marker Show S01E01 1080p","state":"downloading","progress":0.5}]`))
+		case "/api/v2/torrents/delete":
+			atomic.AddInt32(&deleteCalls, 1)
+			_, _ = w.Write([]byte("Ok."))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer qb.Close()
+
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(&model.DownloadTask{}, &model.DownloadClient{}, &model.Setting{}); err != nil {
+		t.Fatal(err)
+	}
+	repos := repository.New(db)
+	configureTestDefaultQB(t, repos, qb.URL)
+	task := &model.DownloadTask{
+		UserID:   "u1",
+		Source:   "qbittorrent",
+		URL:      "https://pt.example/download?id=1",
+		Title:    title,
+		SavePath: "/downloads/tv",
+		Status:   "downloading",
+		Progress: 0.5,
+	}
+	if err := repos.Download.Create(t.Context(), task); err != nil {
+		t.Fatal(err)
+	}
+
+	svc := NewDownloadService(zap.NewNop(), repos, NewHub(zap.NewNop()), nil)
+	if err := svc.ReloadConfig(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.Delete(t.Context(), hash, false); err != nil {
+		t.Fatal(err)
+	}
+	if got := atomic.LoadInt32(&deleteCalls); got != 1 {
+		t.Fatalf("delete calls = %d, want 1", got)
+	}
+
+	var updated model.DownloadTask
+	if err := db.Where("id = ?", task.ID).First(&updated).Error; err != nil {
+		t.Fatal(err)
+	}
+	if updated.Status != "deleted" {
+		t.Fatalf("status = %q, want deleted", updated.Status)
+	}
+}
+
 func TestAddDownloadWithMetaSkipsExistingLocalMovieBeforeQBAdd(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	if err != nil {

@@ -2,6 +2,7 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 
@@ -55,6 +56,7 @@ func (h *DownloadClientHandler) Create(c *gin.Context) {
 	}
 
 	ctx := c.Request.Context()
+	_ = h.svc.Repo.Setting.Set(ctx, "download_clients.managed", "true")
 
 	// 加密密码
 	password := req.Password
@@ -99,6 +101,7 @@ func (h *DownloadClientHandler) Create(c *gin.Context) {
 			h.log.Warn("failed to hot-add download client", zap.Error(initErr))
 		}
 	}()
+	_ = h.svc.Downloads.ReloadConfig(ctx)
 
 	Success(c, client)
 }
@@ -182,6 +185,7 @@ func (h *DownloadClientHandler) Update(c *gin.Context) {
 		Error(c, http.StatusInternalServerError, ErrInternal, "更新失败")
 		return
 	}
+	clearLegacyQBitSettingsIfNoDefault(c.Request.Context(), h.svc)
 
 	// 热更新适配器
 	go func() {
@@ -189,6 +193,7 @@ func (h *DownloadClientHandler) Update(c *gin.Context) {
 			h.log.Warn("failed to hot-update download client", zap.Error(updateErr))
 		}
 	}()
+	_ = h.svc.Downloads.ReloadConfig(ctx)
 
 	Success(c, client)
 }
@@ -197,6 +202,7 @@ func (h *DownloadClientHandler) Update(c *gin.Context) {
 func (h *DownloadClientHandler) Delete(c *gin.Context) {
 	id := c.Param("id")
 	ctx := c.Request.Context()
+	_ = h.svc.Repo.Setting.Set(ctx, "download_clients.managed", "true")
 
 	_, err := h.svc.Repo.DownloadClient.FindByID(ctx, id)
 	if err != nil {
@@ -211,8 +217,23 @@ func (h *DownloadClientHandler) Delete(c *gin.Context) {
 
 	// 热移除
 	h.svc.DownloadMgr.RemoveClient(id)
+	clearLegacyQBitSettingsIfNoDefault(c.Request.Context(), h.svc)
+	_ = h.svc.Downloads.ReloadConfig(ctx)
 
 	SuccessWithMessage(c, "已删除", nil)
+}
+
+func clearLegacyQBitSettingsIfNoDefault(ctx context.Context, svc *service.Container) {
+	if svc == nil || svc.Repo == nil || svc.Repo.DownloadClient == nil || svc.Repo.Setting == nil {
+		return
+	}
+	defaultClient, err := svc.Repo.DownloadClient.FindDefault(ctx)
+	if err != nil || defaultClient != nil {
+		return
+	}
+	_ = svc.Repo.Setting.Set(ctx, "qbittorrent.url", "")
+	_ = svc.Repo.Setting.Set(ctx, "qbittorrent.username", "")
+	_ = svc.Repo.Setting.Set(ctx, "qbittorrent.password", "")
 }
 
 // Test 测试下载客户端连接。

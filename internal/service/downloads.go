@@ -357,7 +357,8 @@ func (d *DownloadService) findExistingDownloadTask(ctx context.Context, title st
 		if !downloadTaskBlocksReadd(rows[i].Status) {
 			continue
 		}
-		if downloadTaskIdentityKey(rows[i].Title) == key {
+		current := downloadTaskIdentityKey(rows[i].Title)
+		if current == key || strings.Contains(current, key) || strings.Contains(key, current) {
 			return &rows[i], true
 		}
 	}
@@ -366,7 +367,7 @@ func (d *DownloadService) findExistingDownloadTask(ctx context.Context, title st
 
 func downloadTaskBlocksReadd(status string) bool {
 	switch strings.ToLower(strings.TrimSpace(status)) {
-	case "failed", "error", "deleted", "removed", "canceled", "cancelled":
+	case "failed", "error":
 		return false
 	default:
 		return true
@@ -651,7 +652,46 @@ func firstNonEmpty(values ...string) string {
 
 // Delete removes a torrent (and optionally its files) from qBittorrent.
 func (d *DownloadService) Delete(ctx context.Context, hash string, withFiles bool) error {
-	return d.qb.Delete(ctx, hash, withFiles)
+	hash = strings.TrimSpace(hash)
+	if hash == "" {
+		return errors.New("hash is required")
+	}
+	var torrentName string
+	if live, err := d.qb.List(ctx, ""); err == nil {
+		for _, torrent := range live {
+			if strings.EqualFold(torrent.Hash, hash) || len(live) == 1 {
+				torrentName = torrent.Name
+				break
+			}
+		}
+	}
+	if err := d.qb.Delete(ctx, hash, withFiles); err != nil {
+		return err
+	}
+	d.markDownloadTaskDeleted(ctx, torrentName)
+	delete(d.prevStates, hash)
+	return nil
+}
+
+func (d *DownloadService) markDownloadTaskDeleted(ctx context.Context, torrentName string) {
+	if d == nil || d.repo == nil || d.repo.DB == nil || strings.TrimSpace(torrentName) == "" {
+		return
+	}
+	rows, err := d.repo.Download.List(ctx)
+	if err != nil {
+		return
+	}
+	taskByKey := tasksByIdentity(rows)
+	matched, ok := findMatchingTaskByIdentity(torrentName, taskByKey)
+	if !ok {
+		return
+	}
+	_ = d.repo.DB.WithContext(ctx).Model(&model.DownloadTask{}).
+		Where("id = ?", matched.ID).
+		Updates(map[string]any{
+			"status":   "deleted",
+			"progress": matched.Progress,
+		}).Error
 }
 
 // RelocateTorrent moves a torrent's data to a new save directory while keeping
