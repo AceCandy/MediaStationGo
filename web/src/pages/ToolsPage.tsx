@@ -7,6 +7,7 @@ import { libraryAPI, mediaAPI } from '../api/library'
 import { toolsAPI, type OrganizeSource } from '../api/tools'
 import type { Library, Media, Setting } from '../types'
 import { ManagementShortcuts } from '../components/ManagementShortcuts'
+import { confirmAction } from '../components/ConfirmDialog'
 
 // ToolsPage gathers admin-only one-off operations that don't belong on a
 // dedicated screen of their own:
@@ -94,6 +95,7 @@ function OrganizePanel() {
   const [sources, setSources] = useState<OrganizeSource[]>([])
   const [sourceDir, setSourceDir] = useState('')
   const [organizingDir, setOrganizingDir] = useState(false)
+  const [ingestingDir, setIngestingDir] = useState(false)
 
   const overrides = () => {
     const o: { source_path?: string; dest_path?: string; transfer_mode?: string } = {}
@@ -104,7 +106,7 @@ function OrganizePanel() {
   }
 
   useEffect(() => {
-    libraryAPI.list().then(setLibraries).catch(() => undefined)
+    libraryAPI.list({ includeHidden: true }).then(setLibraries).catch(() => undefined)
     toolsAPI
       .organizeSources()
       .then((s) => {
@@ -169,14 +171,24 @@ function OrganizePanel() {
     }
   }
 
-  const onOrganizeDir = async (e: FormEvent) => {
-    e.preventDefault()
+  const runOrganizeDir = async (scanAfter: boolean) => {
     const src = (sourceDir || sourcePath).trim()
     if (!src) {
       toast.error('请选择或填写整理来源目录')
       return
     }
-    setOrganizingDir(true)
+    const ok = await confirmAction({
+      title: scanAfter ? '确认整理并入库' : '确认整理来源目录',
+      message: scanAfter
+        ? '将从来源目录整理/重命名媒体文件到目的地目录，然后扫描媒体库把新文件入库。若开启洗版，高分辨率来源可能会替换低分辨率旧版本。'
+        : '将从来源目录整理/重命名媒体文件到目的地目录，并执行去重与洗版判断。此操作不会自动扫描入库。',
+      confirmText: scanAfter ? '开始整理入库' : '确认整理',
+      danger: false,
+    })
+    if (!ok) return
+
+    if (scanAfter) setIngestingDir(true)
+    else setOrganizingDir(true)
     try {
       const r = await toolsAPI.organizeDirectory({
         source_path: src,
@@ -184,8 +196,12 @@ function OrganizePanel() {
         transfer_mode: transferMode || undefined,
       })
       const replaced = r.replaced ?? 0
+      let scanSummary = ''
+      if (scanAfter) {
+        scanSummary = await scanLibrariesForIngest()
+      }
       toast.success(
-        `整理完成：新增 ${r.organized} · 替换(洗版) ${replaced} · 去重跳过 ${r.skipped}`,
+        `整理完成：新增 ${r.organized} · 替换(洗版) ${replaced} · 去重跳过 ${r.skipped}${scanSummary}`,
       )
     } catch (err: unknown) {
       const msg =
@@ -194,7 +210,45 @@ function OrganizePanel() {
       toast.error(msg)
     } finally {
       setOrganizingDir(false)
+      setIngestingDir(false)
     }
+  }
+
+  const onOrganizeDir = async (e: FormEvent) => {
+    e.preventDefault()
+    await runOrganizeDir(false)
+  }
+
+  const scanLibrariesForIngest = async (): Promise<string> => {
+    let availableLibraries = libraries
+    if (availableLibraries.length === 0) {
+      availableLibraries = await libraryAPI.list({ includeHidden: true }).catch(() => [])
+      if (availableLibraries.length > 0) setLibraries(availableLibraries)
+    }
+    const targets = (libraryID
+      ? availableLibraries.filter((l) => l.id === libraryID)
+      : availableLibraries.filter((l) => l.enabled !== false)
+    )
+    if (targets.length === 0) return ' · 未找到可扫描媒体库'
+
+    let added = 0
+    let updated = 0
+    let visited = 0
+    const failed: string[] = []
+    for (const lib of targets) {
+      try {
+        const res = await libraryAPI.scan(lib.id)
+        added += res.added ?? 0
+        updated += res.updated ?? 0
+        visited += res.visited ?? 0
+      } catch {
+        failed.push(lib.name)
+      }
+    }
+    if (failed.length > 0) {
+      toast.error(`部分媒体库扫描失败：${failed.join('、')}`)
+    }
+    return ` · 入库扫描 ${targets.length - failed.length}/${targets.length} 个库 · 新入库 ${added} · 更新 ${updated} · 访问 ${visited}`
   }
 
   const doSearch = async (e?: FormEvent) => {
@@ -407,7 +461,7 @@ function OrganizePanel() {
 
       <div className="space-y-2 rounded-xl border border-brand-200 bg-brand-50/40 p-3">
         <p className="text-xs text-ink-50">
-          <b>整理来源目录</b>：直接整理整个目录（如下载目录 <code className="rounded bg-gray-100 px-1">/downloads</code>），无需是已登记的媒体库。已存在于目的地的媒体会<b>自动去重跳过</b>，来源<b>分辨率更高</b>时会<b>替换（洗版）</b>旧版本。目的地留空则使用「整理目的地目录」设置或媒体目录。
+          <b>整理来源目录</b>：直接整理整个目录（如下载目录 <code className="rounded bg-gray-100 px-1">/downloads</code>），无需是已登记的媒体库。已存在于目的地的媒体会<b>自动去重跳过</b>，来源<b>分辨率更高</b>时会<b>替换（洗版）</b>旧版本。点击「开始整理入库」会在整理完成后自动扫描媒体库。
         </p>
         <form onSubmit={onOrganizeDir} className="flex flex-wrap gap-2">
           <select
@@ -426,17 +480,33 @@ function OrganizePanel() {
           </select>
           <button
             type="submit"
-            disabled={organizingDir || !(sourceDir || sourcePath).trim()}
-            className="neon-button"
+            disabled={organizingDir || ingestingDir || !(sourceDir || sourcePath).trim()}
+            className="neon-button !border-sand-400/40 !text-ink-100"
           >
             {organizingDir ? (
               <Loader2 size={16} className="animate-spin" />
             ) : (
               <FolderCog size={16} />
             )}
-            整理来源目录（去重+洗版）
+            确认整理（仅重命名/洗版）
+          </button>
+          <button
+            type="button"
+            disabled={organizingDir || ingestingDir || !(sourceDir || sourcePath).trim()}
+            onClick={() => runOrganizeDir(true)}
+            className="neon-button"
+          >
+            {ingestingDir ? (
+              <Loader2 size={16} className="animate-spin" />
+            ) : (
+              <FolderCog size={16} />
+            )}
+            开始整理入库
           </button>
         </form>
+        <p className="text-[11px] text-sand-500">
+          入库扫描范围：如果下方已选择媒体库，则只扫描该库；未选择时扫描全部已启用媒体库。
+        </p>
       </div>
 
       <form onSubmit={onOrganizeLibrary} className="flex flex-wrap gap-2">
