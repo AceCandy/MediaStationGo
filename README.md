@@ -20,7 +20,7 @@
 
 # 支持友链
 
-# [NodeSeek](https://www.nodeseek.com/)
+# NodeSeek：[NodeSeek](https://www.nodeseek.com/)
 # LINUX DO：[LINUX DO](https://linux.do/)
 
 <p align="center">
