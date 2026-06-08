@@ -1309,30 +1309,32 @@ func parseCleanupRuleCommand(args []string) (accountCleanupRule, error) {
 	rule := accountCleanupRule{
 		Type:          strings.ToLower(strings.TrimSpace(args[0])),
 		ID:            strings.TrimSpace(args[1]),
-		Name:          strings.TrimSpace(args[1]),
 		Enabled:       true,
 		WindowDaysMin: 3,
 		WindowDaysMax: 5,
 		MinHours:      6,
 		MinCount:      1,
 	}
-	if len(args) > 2 {
-		rule.Name = strings.TrimSpace(args[2])
-	}
 	switch rule.Type {
 	case "watch_hours":
-		if len(args) >= 6 {
-			rule.WindowDaysMin, _ = strconv.Atoi(args[3])
-			rule.WindowDaysMax, _ = strconv.Atoi(args[4])
-			rule.MinHours, _ = strconv.ParseFloat(args[5], 64)
+		name, values := cleanupRuleNameAndValues(args[2:], 3)
+		rule.Name = name
+		if len(values) >= 3 {
+			rule.WindowDaysMin, _ = strconv.Atoi(values[0])
+			rule.WindowDaysMax, _ = strconv.Atoi(values[1])
+			rule.MinHours, _ = strconv.ParseFloat(values[2], 64)
 		}
 	case "recent_login":
-		if len(args) >= 4 {
-			rule.WindowDaysMax, _ = strconv.Atoi(args[3])
+		name, values := cleanupRuleNameAndValues(args[2:], 1)
+		rule.Name = name
+		if len(values) >= 1 {
+			rule.WindowDaysMax, _ = strconv.Atoi(values[0])
 		}
 	case "signin_streak", "account_age_grace":
-		if len(args) >= 4 {
-			rule.MinCount, _ = strconv.Atoi(args[3])
+		name, values := cleanupRuleNameAndValues(args[2:], 1)
+		rule.Name = name
+		if len(values) >= 1 {
+			rule.MinCount, _ = strconv.Atoi(values[0])
 		}
 	default:
 		return accountCleanupRule{}, fmt.Errorf("不支持的规则类型：%s", rule.Type)
@@ -1344,6 +1346,25 @@ func parseCleanupRuleCommand(args []string) (accountCleanupRule, error) {
 	return normalized[0], nil
 }
 
+func cleanupRuleNameAndValues(args []string, numericCount int) (string, []string) {
+	if len(args) == 0 {
+		return "", nil
+	}
+	if len(args) >= numericCount && cleanupRuleValuesAreNumeric(args[:numericCount]) {
+		return "", args
+	}
+	return strings.TrimSpace(args[0]), args[1:]
+}
+
+func cleanupRuleValuesAreNumeric(values []string) bool {
+	for _, value := range values {
+		if _, err := strconv.ParseFloat(strings.TrimSpace(value), 64); err != nil {
+			return false
+		}
+	}
+	return true
+}
+
 func formatCleanupRules(rules []accountCleanupRule) string {
 	if len(rules) == 0 {
 		return "<b>保号规则</b>\n\n暂无规则。"
@@ -1352,19 +1373,53 @@ func formatCleanupRules(rules []accountCleanupRule) string {
 	sb.WriteString("<b>保号规则</b>\n")
 	for i, r := range rules {
 		state := map[bool]string{true: "启用", false: "停用"}[r.Enabled]
-		sb.WriteString(fmt.Sprintf("\n%d. <code>%s</code> · %s · %s · %s", i+1, r.ID, r.Name, cleanupRuleTypeLabel(r.Type), state))
-		switch r.Type {
-		case "watch_hours":
-			sb.WriteString(fmt.Sprintf(" · %d~%d 天 %.1f 小时", r.WindowDaysMin, r.WindowDaysMax, r.MinHours))
-		case "recent_login":
-			sb.WriteString(fmt.Sprintf(" · %d 天内登录", r.WindowDaysMax))
-		case "signin_streak":
-			sb.WriteString(fmt.Sprintf(" · 连续签到 %d 天", r.MinCount))
-		case "account_age_grace":
-			sb.WriteString(fmt.Sprintf(" · 新号宽限 %d 天", r.MinCount))
+		detail := cleanupRuleDetail(r)
+		parts := []string{
+			fmt.Sprintf("\n%d. <code>%s</code>", i+1, r.ID),
 		}
+		if shouldShowCleanupRuleName(r, detail) {
+			parts = append(parts, r.Name)
+		}
+		parts = append(parts, cleanupRuleTypeLabel(r.Type), state)
+		if detail != "" {
+			parts = append(parts, detail)
+		}
+		sb.WriteString(strings.Join(parts, " · "))
 	}
 	return sb.String()
+}
+
+func shouldShowCleanupRuleName(r accountCleanupRule, detail string) bool {
+	name := strings.TrimSpace(r.Name)
+	if name == "" || strings.EqualFold(name, r.ID) {
+		return false
+	}
+	if detail != "" && strings.EqualFold(name, detail) {
+		return false
+	}
+	return true
+}
+
+func cleanupRuleDetail(r accountCleanupRule) string {
+	switch r.Type {
+	case "watch_hours":
+		return fmt.Sprintf("%d~%d 天 %s 小时", r.WindowDaysMin, r.WindowDaysMax, formatRuleHours(r.MinHours))
+	case "recent_login":
+		return fmt.Sprintf("%d 天内登录", r.WindowDaysMax)
+	case "signin_streak":
+		return fmt.Sprintf("连续签到 %d 天", r.MinCount)
+	case "account_age_grace":
+		return fmt.Sprintf("新号宽限 %d 天", r.MinCount)
+	default:
+		return ""
+	}
+}
+
+func formatRuleHours(hours float64) string {
+	if hours == float64(int(hours)) {
+		return strconv.Itoa(int(hours))
+	}
+	return fmt.Sprintf("%.1f", hours)
 }
 
 func cleanupRuleTypeLabel(t string) string {

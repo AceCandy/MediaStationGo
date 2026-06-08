@@ -317,6 +317,21 @@ func TestBotAdminCommandsManageDevicePolicy(t *testing.T) {
 	if !found {
 		t.Fatalf("cleanup rule not added; reply=%q rules=%+v", reply.Text, cfg.AccountCleanupRules)
 	}
+
+	reply, err = bot.executeCommand(ctx, channel, msg, "/cleanup_rule add account_age_grace new_7d 7")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg = loadBotConfig(ctx, repos)
+	found = false
+	for _, rule := range cfg.AccountCleanupRules {
+		if rule.ID == "new_7d" && rule.Type == "account_age_grace" && rule.MinCount == 7 {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("cleanup shorthand rule not added; reply=%q rules=%+v", reply.Text, cfg.AccountCleanupRules)
+	}
 }
 
 func TestBotCleanupRulesCanBeDeletedUntilEmpty(t *testing.T) {
@@ -344,6 +359,38 @@ func TestBotCleanupRulesCanBeDeletedUntilEmpty(t *testing.T) {
 	}
 	if !strings.Contains(reply.Text, "暂无规则") {
 		t.Fatalf("expected empty rule list, got %q", reply.Text)
+	}
+}
+
+func TestBotCleanupRuleListInfersDaysAndHidesDuplicateNames(t *testing.T) {
+	ctx := context.Background()
+	repos, bot := newBotTestService(t)
+	admin := &model.User{Username: "root", PasswordHash: "x", Role: "admin", IsActive: true}
+	if err := repos.User.Create(ctx, admin); err != nil {
+		t.Fatal(err)
+	}
+	if err := repos.Setting.Set(ctx, SettingAccountCleanupRules, `[
+		{"id":"login_7d","name":"login_7d","type":"recent_login","enabled":true,"window_days_min":1,"window_days_max":5,"min_count":1},
+		{"id":"new_7d","name":"new_7d","type":"account_age_grace","enabled":true,"window_days_min":1,"window_days_max":1,"min_count":1}
+	]`); err != nil {
+		t.Fatal(err)
+	}
+	channel := &model.NotifyChannel{Name: "Telegram", Type: "telegram", Enabled: true, Config: `{"admin_user_ids":"9001"}`}
+	msg := &TelegramMessage{From: TelegramUser{ID: 9001, Username: "root"}, Chat: TelegramChat{ID: 9001, Type: "private"}}
+
+	reply, err := bot.executeCommand(ctx, channel, msg, "/cleanup_rule list")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, bad := range []string{"login_7d</code> · login_7d", "new_7d</code> · new_7d", "5 天内登录", "新号宽限 1 天"} {
+		if strings.Contains(reply.Text, bad) {
+			t.Fatalf("rule list still contains bad fragment %q: %s", bad, reply.Text)
+		}
+	}
+	for _, want := range []string{"login_7d", "7 天内登录", "new_7d", "新号宽限 7 天"} {
+		if !strings.Contains(reply.Text, want) {
+			t.Fatalf("rule list missing %q: %s", want, reply.Text)
+		}
 	}
 }
 
