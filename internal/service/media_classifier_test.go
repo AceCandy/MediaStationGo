@@ -57,6 +57,38 @@ func TestClassifyMediaCategoryMatchesMoviePilotStyleRules(t *testing.T) {
 			},
 			want: "纪录片",
 		},
+		{
+			name: "chinese movie title without metadata",
+			input: mediaClassifyInput{
+				MediaType: "movie",
+				Title:     "流浪地球2 2023 2160p",
+			},
+			want: "华语电影",
+		},
+		{
+			name: "latin movie title without metadata",
+			input: mediaClassifyInput{
+				MediaType: "movie",
+				Title:     "Dune 2021 2160p",
+			},
+			want: "外语电影",
+		},
+		{
+			name: "chinese tv title without metadata",
+			input: mediaClassifyInput{
+				MediaType: "tv",
+				Title:     "狂飙 S01E01 1080p",
+			},
+			want: "国产剧",
+		},
+		{
+			name: "latin tv title without metadata",
+			input: mediaClassifyInput{
+				MediaType: "tv",
+				Title:     "The Last of Us S01E01 1080p",
+			},
+			want: "欧美剧",
+		},
 	}
 
 	for _, tt := range tests {

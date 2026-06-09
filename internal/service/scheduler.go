@@ -255,7 +255,7 @@ func (s *SchedulerService) jobOrganizeSource(ctx context.Context) error {
 		return err
 	}
 	if s.scanner != nil && res != nil && strings.TrimSpace(res.DestPath) != "" {
-		res.Scans = s.scanner.ScanLibrariesForPath(ctx, res.DestPath, "")
+		res.Scans, res.Scrapes = s.scanner.ScanAndScrapeLibrariesForPath(ctx, res.DestPath, "", OrganizeScrapeAfterEnabled(ctx, s.repo))
 	}
 	if s.log != nil && res != nil {
 		s.log.Info("scheduled source organize finished",
@@ -264,6 +264,7 @@ func (s *SchedulerService) jobOrganizeSource(ctx context.Context) error {
 			zap.Int("organized", res.Organized),
 			zap.Int("replaced", res.Replaced),
 			zap.Int("skipped", res.Skipped),
+			zap.Int("scrapes", len(res.Scrapes)),
 			zap.Int("errors", len(res.Errors)),
 		)
 	}

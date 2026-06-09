@@ -21,6 +21,7 @@ type organizeReq struct {
 	TransferMode string `json:"transfer_mode"`
 	MediaType    string `json:"media_type"`
 	ScanAfter    bool   `json:"scan_after"`
+	ScrapeAfter  *bool  `json:"scrape_after"`
 	LibraryID    string `json:"library_id"`
 	DryRun       bool   `json:"dry_run"`
 }
@@ -52,23 +53,36 @@ func organizeOptionsFromReq(req organizeReq) service.OrganizeOptions {
 
 func organizeMediaHandler(svc *service.Container) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		opts := bindOrganizeOptions(c)
+		var req organizeReq
+		_ = c.ShouldBindJSON(&req)
+		opts := organizeOptionsFromReq(req)
 		dst, err := svc.Organizer.OrganizeMediaWithOptions(c.Request.Context(), c.Param("id"), opts)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"path": dst})
+		payload := gin.H{"path": dst}
+		if req.ScanAfter && !req.DryRun && svc.Scan != nil {
+			scans, scrapes := scanAndScrapeAfterOrganize(c, svc, dst, strings.TrimSpace(req.LibraryID), req.ScrapeAfter)
+			payload["scans"] = scans
+			payload["scrapes"] = scrapes
+		}
+		c.JSON(http.StatusOK, payload)
 	}
 }
 
 func organizeLibraryHandler(svc *service.Container) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		opts := bindOrganizeOptions(c)
+		var req organizeReq
+		_ = c.ShouldBindJSON(&req)
+		opts := organizeOptionsFromReq(req)
 		res, err := svc.Organizer.OrganizeLibraryWithOptions(c.Request.Context(), c.Param("id"), opts)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
+		}
+		if req.ScanAfter && !req.DryRun && svc.Scan != nil {
+			res.Scans, res.Scrapes = scanAndScrapeAfterOrganize(c, svc, res.DestPath, c.Param("id"), req.ScrapeAfter)
 		}
 		c.JSON(http.StatusOK, res)
 	}
@@ -95,8 +109,16 @@ func organizeDirectoryHandler(svc *service.Container) gin.HandlerFunc {
 			return
 		}
 		if req.ScanAfter && !req.DryRun && svc.Scan != nil {
-			res.Scans = svc.Scan.ScanLibrariesForPath(c.Request.Context(), res.DestPath, strings.TrimSpace(req.LibraryID))
+			res.Scans, res.Scrapes = scanAndScrapeAfterOrganize(c, svc, res.DestPath, strings.TrimSpace(req.LibraryID), req.ScrapeAfter)
 		}
 		c.JSON(http.StatusOK, res)
 	}
+}
+
+func scanAndScrapeAfterOrganize(c *gin.Context, svc *service.Container, destRoot, preferredLibraryID string, scrapeOverride *bool) ([]service.OrganizeScanSummary, []service.OrganizeScrapeSummary) {
+	scrapeAfter := service.OrganizeScrapeAfterEnabled(c.Request.Context(), svc.Repo)
+	if scrapeOverride != nil {
+		scrapeAfter = *scrapeOverride
+	}
+	return svc.Scan.ScanAndScrapeLibrariesForPath(c.Request.Context(), destRoot, preferredLibraryID, scrapeAfter)
 }

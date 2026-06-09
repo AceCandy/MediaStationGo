@@ -201,6 +201,9 @@ func (o *OrganizerService) organizeSourceFile(ctx context.Context, src, sourceRo
 	if layout.MediaType == "" {
 		layout.MediaType = o.inferMediaTypeForSourceFile(src, title, season, episode)
 	}
+	if layout.Category == "" {
+		layout.Category = o.smartClassifySourceFile(ctx, src, sourceRoot, layout.MediaType, title, parsedTitle)
+	}
 	layoutRoot := destRoot
 	if layout.MediaType != "" {
 		layoutRoot = o.organizeRoot(destRoot, layout.MediaType, layout.Category)
@@ -336,6 +339,28 @@ func (o *OrganizerService) inferMediaTypeForSourceFile(src, title string, season
 		return "tv"
 	}
 	return normalizeMediaType("", title, src)
+}
+
+func (o *OrganizerService) smartClassifySourceFile(ctx context.Context, src, sourceRoot, mediaType, title, parsedTitle string) string {
+	if o == nil || !o.isSmartClassifyEnabled(ctx) {
+		return ""
+	}
+	seriesLike := isSeriesLibraryType(mediaType)
+	input := mediaClassifyInput{
+		MediaType: mediaType,
+		Title:     strings.Join([]string{title, parsedTitle, filepath.Base(src)}, " "),
+		Category:  strings.Join(organizeDirectoryCategoryCandidates(src, sourceRoot), " "),
+	}
+	if meta, err := ReadLocalMetadata(src, sourceRoot, seriesLike); err == nil && meta != nil && meta.HasNFO {
+		input.Title = strings.Join([]string{meta.Title, meta.OriginalName, title, parsedTitle, filepath.Base(src)}, " ")
+		input.Languages = parseCommaList(meta.Languages)
+		input.Countries = parseCommaList(meta.Countries)
+		input.Genres = parseCommaList(meta.Genres)
+		if meta.NSFW {
+			input.MediaType = "adult"
+		}
+	}
+	return sanitizeFilename(classifyMediaCategory(input, o.categoryMap()))
 }
 
 func (o *OrganizerService) inferOrganizeDirectoryLayout(src, sourceRoot string) organizeDirectoryLayout {

@@ -881,7 +881,7 @@ func (d *DownloadService) onTorrentComplete(ctx context.Context, torrent QBitTor
 		return
 	}
 	if d.scanner != nil && res != nil && strings.TrimSpace(res.DestPath) != "" {
-		res.Scans = d.scanner.ScanLibrariesForPath(ctx, res.DestPath, "")
+		res.Scans, res.Scrapes = d.scanner.ScanAndScrapeLibrariesForPath(ctx, res.DestPath, "", OrganizeScrapeAfterEnabled(ctx, d.repo))
 	}
 	d.log.Info("auto organize completed torrent finished",
 		zap.String("hash", torrent.Hash),
@@ -890,6 +890,7 @@ func (d *DownloadService) onTorrentComplete(ctx context.Context, torrent QBitTor
 		zap.Int("organized", res.Organized),
 		zap.Int("replaced", res.Replaced),
 		zap.Int("skipped", res.Skipped),
+		zap.Int("scrapes", len(res.Scrapes)),
 		zap.Int("errors", len(res.Errors)))
 }
 

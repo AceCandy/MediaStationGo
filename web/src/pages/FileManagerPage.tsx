@@ -45,9 +45,19 @@ function formatScanSummary(scans: Array<{ name: string; added: number; updated: 
   return ` · 扫描 ${ok.length}/${scans.length} 个库 · 新入库 ${added} · 更新 ${updated} · 访问 ${visited}`
 }
 
+function formatScrapeSummary(scrapes: Array<{ name: string; matched: number; skipped?: boolean; reason?: string; error?: string }>): string {
+  if (scrapes.length === 0) return ''
+  const ok = scrapes.filter((scrape) => !scrape.error && !scrape.skipped)
+  const skipped = scrapes.filter((scrape) => scrape.skipped).length
+  const matched = ok.reduce((sum, scrape) => sum + (scrape.matched ?? 0), 0)
+  if (ok.length === 0 && skipped > 0) return ` · 刮削跳过 ${skipped} 个库`
+  return ` · 刮削 ${ok.length}/${scrapes.length} 个库 · 匹配 ${matched}${skipped ? ` · 跳过 ${skipped}` : ''}`
+}
+
 type AutoOrganizeConfig = {
   enabled: string
   afterDownload: string
+  scrapeAfter: string
   sourceDir: string
   targetDir: string
   transferMode: string
@@ -57,6 +67,7 @@ type AutoOrganizeConfig = {
 const AUTO_ORGANIZE_DEFAULTS: AutoOrganizeConfig = {
   enabled: 'false',
   afterDownload: 'false',
+  scrapeAfter: 'false',
   sourceDir: '',
   targetDir: '',
   transferMode: 'hardlink',
@@ -66,6 +77,7 @@ const AUTO_ORGANIZE_DEFAULTS: AutoOrganizeConfig = {
 const AUTO_ORGANIZE_KEYS: Record<keyof AutoOrganizeConfig, string> = {
   enabled: 'organize.auto',
   afterDownload: 'organizer.auto_after_download',
+  scrapeAfter: 'organize.scrape_after',
   sourceDir: 'organize.source_dir',
   targetDir: 'organize.target_dir',
   transferMode: 'organize.transfer_mode',
@@ -83,6 +95,7 @@ function mergeAutoOrganizeSettings(rows: Setting[]): AutoOrganizeConfig {
   return {
     enabled: idx[AUTO_ORGANIZE_KEYS.enabled] ?? AUTO_ORGANIZE_DEFAULTS.enabled,
     afterDownload: idx[AUTO_ORGANIZE_KEYS.afterDownload] ?? AUTO_ORGANIZE_DEFAULTS.afterDownload,
+    scrapeAfter: idx[AUTO_ORGANIZE_KEYS.scrapeAfter] ?? AUTO_ORGANIZE_DEFAULTS.scrapeAfter,
     sourceDir: idx[AUTO_ORGANIZE_KEYS.sourceDir] ?? AUTO_ORGANIZE_DEFAULTS.sourceDir,
     targetDir: idx[AUTO_ORGANIZE_KEYS.targetDir] ?? AUTO_ORGANIZE_DEFAULTS.targetDir,
     transferMode: idx[AUTO_ORGANIZE_KEYS.transferMode] ?? AUTO_ORGANIZE_DEFAULTS.transferMode,
@@ -114,6 +127,7 @@ export function FileManagerPage() {
   const [organizeTransferMode, setOrganizeTransferMode] = useState('hardlink')
   const [organizeMediaType, setOrganizeMediaType] = useState('auto')
   const [scanAfter, setScanAfter] = useState(true)
+  const [scrapeAfter, setScrapeAfter] = useState(false)
   const [organizeBusy, setOrganizeBusy] = useState('')
   const [previewItems, setPreviewItems] = useState<Array<{
     source: string
@@ -160,7 +174,9 @@ export function FileManagerPage() {
     adminAPI
       .listSettings()
       .then((rows) => {
-        setAutoConfig(mergeAutoOrganizeSettings(rows))
+        const nextConfig = mergeAutoOrganizeSettings(rows)
+        setAutoConfig(nextConfig)
+        setScrapeAfter(settingOn(nextConfig.scrapeAfter))
         setAutoDirty(false)
       })
       .catch(() => undefined)
@@ -309,7 +325,7 @@ export function FileManagerPage() {
     if (!dryRun) {
       const ok = await confirmAction({
         title: '确认整理入库',
-        message: `来源：${organizeSource}\n目标：${organizeDestPath}\n方式：${organizeTransferMode}${scanAfter ? '\n整理完成后会扫描入库。' : ''}`,
+        message: `来源：${organizeSource}\n目标：${organizeDestPath}\n方式：${organizeTransferMode}${scanAfter ? '\n整理完成后会扫描入库。' : ''}${scanAfter && scrapeAfter ? '\n扫描后会自动刮削。' : ''}`,
         confirmText: '开始整理',
       })
       if (!ok) return
@@ -322,6 +338,7 @@ export function FileManagerPage() {
         transfer_mode: organizeTransferMode,
         media_type: organizeMediaType === 'auto' ? undefined : organizeMediaType,
         scan_after: !dryRun && scanAfter,
+        scrape_after: !dryRun && scanAfter && scrapeAfter,
         library_id: !dryRun && scanAfter && organizeLibraryID ? organizeLibraryID : undefined,
         dry_run: dryRun,
       })
@@ -340,7 +357,8 @@ export function FileManagerPage() {
         return
       }
       const scanText = scanAfter ? formatScanSummary(result.scans ?? []) : ''
-      toast.success(`整理完成：新增 ${result.organized} · 替换 ${replaced} · 跳过 ${result.skipped}${scanText}`)
+      const scrapeText = scanAfter && scrapeAfter ? formatScrapeSummary(result.scrapes ?? []) : ''
+      toast.success(`整理完成：新增 ${result.organized} · 替换 ${replaced} · 跳过 ${result.skipped}${scanText}${scrapeText}`)
       refresh()
     } catch (err: unknown) {
       toast.error((err as { response?: { data?: { error?: string } } })?.response?.data?.error ?? '整理失败')
@@ -498,6 +516,14 @@ export function FileManagerPage() {
             />
             qB 下载完成后自动整理
           </label>
+          <label className="flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-2 py-1 text-xs text-ink-100">
+            <input
+              type="checkbox"
+              checked={settingOn(autoConfig.scrapeAfter)}
+              onChange={(event) => changeAutoConfig('scrapeAfter', event.target.checked ? 'true' : 'false')}
+            />
+            整理后自动刮削
+          </label>
           <span className="text-xs text-sand-500">
             {autoDirty ? '有未保存设置' : '设置已同步'} · 定时任务名：organize_source
           </span>
@@ -567,6 +593,15 @@ export function FileManagerPage() {
             <label className="flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-2 py-1 text-xs text-ink-100">
               <input type="checkbox" checked={scanAfter} onChange={(event) => setScanAfter(event.target.checked)} />
               整理后扫描入库
+            </label>
+            <label className="flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-2 py-1 text-xs text-ink-100">
+              <input
+                type="checkbox"
+                checked={scanAfter && scrapeAfter}
+                disabled={!scanAfter}
+                onChange={(event) => setScrapeAfter(event.target.checked)}
+              />
+              整理后自动刮削
             </label>
             <button
               type="button"

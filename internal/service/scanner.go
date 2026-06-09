@@ -80,6 +80,10 @@ type ScanResult struct {
 
 // ScanLibrary walks the library root and persists discovered media files.
 func (s *ScannerService) ScanLibrary(ctx context.Context, libraryID string) (*ScanResult, error) {
+	return s.scanLibrary(ctx, libraryID, true)
+}
+
+func (s *ScannerService) scanLibrary(ctx context.Context, libraryID string, autoScrape bool) (*ScanResult, error) {
 	lib, err := s.repo.Library.FindByID(ctx, libraryID)
 	if err != nil || lib == nil {
 		return nil, err
@@ -124,7 +128,7 @@ func (s *ScannerService) ScanLibrary(ctx context.Context, libraryID string) (*Sc
 
 	// Online enrichment is opt-in. Local NFO is always consumed first during
 	// the scan, and matched rows are excluded from EnrichLibrary's pending set.
-	if s.scraper != nil && s.scraper.AnyEnabled() && s.autoScrapeEnabled(ctx) {
+	if autoScrape && s.scraper != nil && s.scraper.AnyEnabled() && s.autoScrapeEnabled(ctx) {
 		go func(libID string) {
 			if _, err := s.scraper.EnrichLibrary(context.Background(), libID); err != nil {
 				s.log.Warn("scraper enrich failed", zap.Error(err))

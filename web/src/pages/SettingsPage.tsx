@@ -161,6 +161,13 @@ const GROUPS: SettingGroup[] = [
         hint: '开启后 qB 下载完成时，系统会优先使用种子的 content_path 整理该文件/目录，并在整理完成后扫描目标媒体库。',
       },
       {
+        key: 'organize.scrape_after',
+        label: '整理后自动刮削',
+        type: 'toggle',
+        hint: '开启后，手动/自动整理完成并扫描入库后，会立即触发 TMDb/豆瓣/Bangumi/JavBus/JavDB 等元数据刮削。需要先配置可用刮削源。',
+        defaultValue: 'false',
+      },
+      {
         key: 'downloads.smart_classify',
         label: '下载器智能分类',
         type: 'toggle',

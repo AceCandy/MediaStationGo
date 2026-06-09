@@ -427,6 +427,78 @@ func TestOrganizeDirectoryUsesDownloadCategoryLayout(t *testing.T) {
 	}
 }
 
+func TestOrganizeDirectorySmartClassifiesUncategorizedSources(t *testing.T) {
+	root := t.TempDir()
+	src := filepath.Join(root, "downloads")
+	dest := filepath.Join(root, "media")
+	writeOrgFile(t, filepath.Join(src, "流浪地球2.2023.2160p.WEB-DL.mkv"), "cn-movie")
+	writeOrgFile(t, filepath.Join(src, "Dune.2021.2160p.WEB-DL.mkv"), "foreign-movie")
+	writeOrgFile(t, filepath.Join(src, "狂飙.S01E01.2023.1080p.WEB-DL.mkv"), "cn-tv")
+	writeOrgFile(t, filepath.Join(src, "The.Last.of.Us.S01E01.2023.1080p.WEB-DL.mkv"), "western-tv")
+
+	repos := newOrganizerTestRepo(t)
+	if err := repos.Setting.Set(t.Context(), "organizer.smart_classify", "true"); err != nil {
+		t.Fatal(err)
+	}
+	org := NewOrganizerService(&config.Config{}, zap.NewNop(), repos)
+	res, err := org.OrganizeDirectory(t.Context(), OrganizeOptions{
+		SourcePath:   src,
+		DestPath:     dest,
+		TransferMode: TransferCopy,
+	})
+	if err != nil {
+		t.Fatalf("organize directory: %v", err)
+	}
+	if res.Organized != 4 {
+		t.Fatalf("organized = %d, want 4; result=%+v", res.Organized, res)
+	}
+
+	for _, want := range []string{
+		filepath.Join(dest, "电影", "华语电影", "流浪地球2 (2023)", "流浪地球2 (2023).mkv"),
+		filepath.Join(dest, "电影", "外语电影", "Dune (2021)", "Dune (2021).mkv"),
+		filepath.Join(dest, "电视剧", "国产剧", "狂飙", "Season 01", "狂飙 - S01E01.mkv"),
+		filepath.Join(dest, "电视剧", "欧美剧", "The Last Of Us", "Season 01", "The Last Of Us - S01E01.mkv"),
+	} {
+		if _, err := os.Stat(want); err != nil {
+			t.Fatalf("expected smart classified file at %q: %v; items=%+v", want, err, res.Items)
+		}
+	}
+}
+
+func TestOrganizeDirectorySmartClassifiesWithLocalNFO(t *testing.T) {
+	root := t.TempDir()
+	src := filepath.Join(root, "downloads")
+	dest := filepath.Join(root, "media")
+	writeOrgFile(t, filepath.Join(src, "Some.Show.S01E01.2024.1080p.mkv"), "jp-anime")
+	writeOrgFile(t, filepath.Join(src, "tvshow.nfo"), `<tvshow>
+  <title>Some Show</title>
+  <genre>Animation</genre>
+  <country>JP</country>
+  <language>ja</language>
+</tvshow>`)
+
+	repos := newOrganizerTestRepo(t)
+	if err := repos.Setting.Set(t.Context(), "organizer.smart_classify", "true"); err != nil {
+		t.Fatal(err)
+	}
+	org := NewOrganizerService(&config.Config{}, zap.NewNop(), repos)
+	res, err := org.OrganizeDirectory(t.Context(), OrganizeOptions{
+		SourcePath:   src,
+		DestPath:     dest,
+		TransferMode: TransferCopy,
+	})
+	if err != nil {
+		t.Fatalf("organize directory: %v", err)
+	}
+	if res.Organized != 1 {
+		t.Fatalf("organized = %d, want 1", res.Organized)
+	}
+	want := filepath.Join(dest, "电视剧", "日番", "Some Show", "Season 01", "Some Show - S01E01.mkv")
+	if _, err := os.Stat(want); err != nil {
+		t.Fatalf("expected NFO classified episode at %q: %v", want, err)
+	}
+}
+
 func TestOrganizeDirectoryScanAfterRecursesNestedDownloadFolders(t *testing.T) {
 	root := t.TempDir()
 	src := filepath.Join(root, "downloads")

@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/ShukeBta/MediaStationGo/internal/model"
+	"github.com/ShukeBta/MediaStationGo/internal/repository"
 )
 
 // OrganizeScanSummary reports a library scan triggered after directory
@@ -20,18 +21,53 @@ type OrganizeScanSummary struct {
 	Error     string `json:"error,omitempty"`
 }
 
+// OrganizeScrapeSummary reports metadata enrichment triggered after organize.
+type OrganizeScrapeSummary struct {
+	LibraryID string `json:"library_id"`
+	Name      string `json:"name"`
+	Path      string `json:"path"`
+	Matched   int    `json:"matched"`
+	Skipped   bool   `json:"skipped,omitempty"`
+	Reason    string `json:"reason,omitempty"`
+	Error     string `json:"error,omitempty"`
+}
+
+// OrganizeScrapeAfterEnabled decides whether organize workflows should run
+// metadata scraping after scanning organized files into libraries.
+func OrganizeScrapeAfterEnabled(ctx context.Context, repo *repository.Container) bool {
+	if repo == nil || repo.Setting == nil {
+		return false
+	}
+	if value, err := repo.Setting.Get(ctx, "organize.scrape_after"); err == nil && strings.TrimSpace(value) != "" {
+		return parseBoolSetting(value, false)
+	}
+	if value, err := repo.Setting.Get(ctx, "scrape.auto_on_scan"); err == nil && strings.TrimSpace(value) != "" {
+		return parseBoolSetting(value, false)
+	}
+	return false
+}
+
 // ScanLibrariesForPath recursively scans libraries affected by an organize
 // destination. If preferredLibraryID is set, only that library is scanned.
 // Otherwise every enabled library whose path intersects destRoot is scanned;
 // if no path can be matched, we fall back to all enabled libraries to preserve
 // the old "scan all after ingest" UI behavior.
 func (s *ScannerService) ScanLibrariesForPath(ctx context.Context, destRoot, preferredLibraryID string) []OrganizeScanSummary {
+	scans, _ := s.ScanAndScrapeLibrariesForPath(ctx, destRoot, preferredLibraryID, false)
+	return scans
+}
+
+// ScanAndScrapeLibrariesForPath scans the affected organize target libraries,
+// then optionally runs the scraper synchronously so manual/automatic organize
+// can provide deterministic "整理 + 入库 + 刮削" behavior instead of relying on
+// a background scan hook that may or may not be enabled.
+func (s *ScannerService) ScanAndScrapeLibrariesForPath(ctx context.Context, destRoot, preferredLibraryID string, scrapeAfter bool) ([]OrganizeScanSummary, []OrganizeScrapeSummary) {
 	if s == nil || s.repo == nil || s.repo.Library == nil {
-		return nil
+		return nil, nil
 	}
 	libraries, err := s.repo.Library.List(ctx)
 	if err != nil {
-		return []OrganizeScanSummary{{Error: err.Error()}}
+		return []OrganizeScanSummary{{Error: err.Error()}}, nil
 	}
 	targets := selectOrganizeScanTargets(libraries, destRoot, preferredLibraryID)
 	out := make([]OrganizeScanSummary, 0, len(targets))
@@ -41,7 +77,7 @@ func (s *ScannerService) ScanLibrariesForPath(ctx context.Context, destRoot, pre
 			Name:      lib.Name,
 			Path:      lib.Path,
 		}
-		res, err := s.ScanLibrary(ctx, lib.ID)
+		res, err := s.scanLibrary(ctx, lib.ID, !scrapeAfter)
 		if err != nil {
 			summary.Error = err.Error()
 			out = append(out, summary)
@@ -51,6 +87,52 @@ func (s *ScannerService) ScanLibrariesForPath(ctx context.Context, destRoot, pre
 		summary.Added = res.Added
 		summary.Updated = res.Updated
 		summary.Removed = res.Removed
+		out = append(out, summary)
+	}
+	return out, s.scrapeOrganizeTargets(ctx, targets, scrapeAfter)
+}
+
+func (s *ScannerService) scrapeOrganizeTargets(ctx context.Context, targets []model.Library, scrapeAfter bool) []OrganizeScrapeSummary {
+	if len(targets) == 0 || !scrapeAfter {
+		return nil
+	}
+	out := make([]OrganizeScrapeSummary, 0, len(targets))
+	if s.scraper == nil {
+		for _, lib := range targets {
+			out = append(out, OrganizeScrapeSummary{
+				LibraryID: lib.ID,
+				Name:      lib.Name,
+				Path:      lib.Path,
+				Skipped:   true,
+				Reason:    "scraper unavailable",
+			})
+		}
+		return out
+	}
+	if !s.scraper.AnyEnabled() {
+		for _, lib := range targets {
+			out = append(out, OrganizeScrapeSummary{
+				LibraryID: lib.ID,
+				Name:      lib.Name,
+				Path:      lib.Path,
+				Skipped:   true,
+				Reason:    "no scraper provider enabled",
+			})
+		}
+		return out
+	}
+	for _, lib := range targets {
+		summary := OrganizeScrapeSummary{
+			LibraryID: lib.ID,
+			Name:      lib.Name,
+			Path:      lib.Path,
+		}
+		matched, err := s.scraper.EnrichLibrary(ctx, lib.ID)
+		if err != nil {
+			summary.Error = err.Error()
+		} else {
+			summary.Matched = matched
+		}
 		out = append(out, summary)
 	}
 	return out

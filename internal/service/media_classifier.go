@@ -31,20 +31,30 @@ func classifyMediaCategory(input mediaClassifyInput, categories map[string]strin
 	genres := normalizeTokens(input.Genres...)
 	countries := normalizeTokens(input.Countries...)
 	languages := normalizeTokens(input.Languages...)
-	text := strings.ToLower(input.Title + " " + input.Category + " " + strings.Join(input.Genres, " "))
+	rawText := input.Title + " " + input.Category + " " + strings.Join(input.Genres, " ")
+	text := strings.ToLower(rawText)
 
-	isChinese := hasAny(languages, "ZH", "ZH-CN", "ZH-TW", "CN") || hasAny(countries, "CN", "TW", "HK", "MO")
-	isJapanese := hasAny(languages, "JA", "JP") || hasAny(countries, "JP") || strings.Contains(text, "日番")
-	isKorean := hasAny(languages, "KO", "KR") || hasAny(countries, "KR", "KP")
+	isChinese := hasAny(languages, "ZH", "ZH-CN", "ZH-TW", "CN") || hasAny(countries, "CN", "TW", "HK", "MO") || containsHan(rawText) || containsAnyText(text, "华语", "国产", "国剧", "国漫")
+	isJapanese := hasAny(languages, "JA", "JP") || hasAny(countries, "JP") || containsJapaneseKana(rawText) || strings.Contains(text, "日番")
+	isKorean := hasAny(languages, "KO", "KR") || hasAny(countries, "KR", "KP") || containsKoreanHangul(rawText)
 	isEastAsian := isJapanese || isKorean || hasAny(countries, "TH", "IN", "SG")
-	isWestern := hasAny(countries,
+	isWesternByMetadata := hasAny(countries,
 		"US", "GB", "UK", "FR", "DE", "CA", "AU", "NZ", "IE", "NL", "SE", "NO", "DK",
 		"FI", "ES", "IT", "PT", "AT", "CH", "BE", "RU",
 	)
+	isLatinFallback := containsLatin(rawText) && !containsHan(rawText) && !containsJapaneseKana(rawText) && !containsKoreanHangul(rawText)
+	isWestern := isWesternByMetadata || (mediaType == "tv" && isLatinFallback)
+	hasAnimeText := containsAnyText(text, "动画", "动漫", "番剧", "年番", "国漫", "日番", "bangumi", "anime")
 
 	hasGenre := func(values ...string) bool {
 		for _, value := range values {
-			if hasAny(genres, strings.ToUpper(value)) || strings.Contains(text, strings.ToLower(value)) {
+			if hasAny(genres, strings.ToUpper(value)) {
+				return true
+			}
+			if isDigits(value) {
+				continue
+			}
+			if strings.Contains(text, strings.ToLower(value)) {
 				return true
 			}
 		}
@@ -62,7 +72,7 @@ func classifyMediaCategory(input mediaClassifyInput, categories map[string]strin
 		if isEastAsian {
 			return categoryName(categories, "jk_movie", "日韩电影")
 		}
-		if isWestern {
+		if isWesternByMetadata {
 			return categoryName(categories, "euus_movie", "欧美电影")
 		}
 		return categoryName(categories, "foreign_movie", "外语电影")
@@ -83,7 +93,7 @@ func classifyMediaCategory(input mediaClassifyInput, categories map[string]strin
 		if hasGenre("10762", "KIDS", "儿童") {
 			return categoryName(categories, "children", "儿童")
 		}
-		if hasGenre("16", "ANIMATION", "动画", "动漫") {
+		if hasGenre("16", "ANIMATION", "动画", "动漫") || hasAnimeText {
 			if isChinese {
 				return categoryName(categories, "cn_anime", "国漫")
 			}
@@ -99,6 +109,8 @@ func classifyMediaCategory(input mediaClassifyInput, categories map[string]strin
 			return categoryName(categories, "euus_tv", "欧美剧")
 		}
 		return categoryName(categories, "uncategorized_tv", "未分类")
+	case "adult":
+		return categoryName(categories, "adult", "成人")
 	}
 	return ""
 }
@@ -156,6 +168,63 @@ func hasAny(values map[string]struct{}, needles ...string) bool {
 		}
 	}
 	return false
+}
+
+func containsAnyText(text string, needles ...string) bool {
+	for _, needle := range needles {
+		if strings.Contains(text, strings.ToLower(needle)) {
+			return true
+		}
+	}
+	return false
+}
+
+func containsHan(text string) bool {
+	for _, r := range text {
+		if r >= '\u4e00' && r <= '\u9fff' {
+			return true
+		}
+	}
+	return false
+}
+
+func containsJapaneseKana(text string) bool {
+	for _, r := range text {
+		if (r >= '\u3040' && r <= '\u30ff') || (r >= '\u31f0' && r <= '\u31ff') {
+			return true
+		}
+	}
+	return false
+}
+
+func containsKoreanHangul(text string) bool {
+	for _, r := range text {
+		if (r >= '\uac00' && r <= '\ud7af') || (r >= '\u1100' && r <= '\u11ff') || (r >= '\u3130' && r <= '\u318f') {
+			return true
+		}
+	}
+	return false
+}
+
+func containsLatin(text string) bool {
+	for _, r := range text {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') {
+			return true
+		}
+	}
+	return false
+}
+
+func isDigits(text string) bool {
+	if text == "" {
+		return false
+	}
+	for _, r := range text {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 func categoryName(categories map[string]string, key, fallback string) string {

@@ -134,6 +134,9 @@ func organizeBulkHandler(svc *service.Container) gin.HandlerFunc {
 				out = append(out, gin.H{"library": l.Name, "error": err.Error()})
 				continue
 			}
+			if svc.Scan != nil && res != nil && !res.DryRun {
+				res.Scans, res.Scrapes = scanAndScrapeAfterOrganize(c, svc, res.DestPath, l.ID, nil)
+			}
 			out = append(out, gin.H{"library": l.Name, "result": res})
 		}
 		c.JSON(http.StatusOK, gin.H{"results": out})

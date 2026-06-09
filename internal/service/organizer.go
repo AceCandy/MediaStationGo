@@ -49,15 +49,16 @@ func (o *OrganizerService) SetProbe(p *FFprobeService) { o.probe = p }
 
 // OrganizeResult reports what happened.
 type OrganizeResult struct {
-	Organized  int                   `json:"organized"`
-	Skipped    int                   `json:"skipped"`
-	Replaced   int                   `json:"replaced,omitempty"`
-	Errors     []string              `json:"errors,omitempty"`
-	SourcePath string                `json:"source_path,omitempty"`
-	DestPath   string                `json:"dest_path,omitempty"`
-	DryRun     bool                  `json:"dry_run,omitempty"`
-	Items      []OrganizePreviewItem `json:"items,omitempty"`
-	Scans      []OrganizeScanSummary `json:"scans,omitempty"`
+	Organized  int                     `json:"organized"`
+	Skipped    int                     `json:"skipped"`
+	Replaced   int                     `json:"replaced,omitempty"`
+	Errors     []string                `json:"errors,omitempty"`
+	SourcePath string                  `json:"source_path,omitempty"`
+	DestPath   string                  `json:"dest_path,omitempty"`
+	DryRun     bool                    `json:"dry_run,omitempty"`
+	Items      []OrganizePreviewItem   `json:"items,omitempty"`
+	Scans      []OrganizeScanSummary   `json:"scans,omitempty"`
+	Scrapes    []OrganizeScrapeSummary `json:"scrapes,omitempty"`
 }
 
 type OrganizePreviewItem struct {
@@ -288,7 +289,7 @@ func (o *OrganizerService) OrganizeLibraryWithOptions(ctx context.Context, libra
 	sourceRoot := o.resolveSourceRoot(ctx, lib, opts.SourcePath)
 	// 目的地目录：已位于该根下的文件视为已整理；受 dest_path 覆盖与设置影响。
 	baseRoot := o.resolveBaseRoot(ctx, lib, opts.DestPath)
-	res := &OrganizeResult{}
+	res := &OrganizeResult{SourcePath: sourceRoot, DestPath: baseRoot, DryRun: opts.DryRun}
 	for i := range rows {
 		// 不在源目录内的文件跳过（不属于本次「从源目录整理」的范围）。
 		if !pathWithin(rows[i].Path, sourceRoot) {

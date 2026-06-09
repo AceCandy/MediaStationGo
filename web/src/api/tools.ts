@@ -12,6 +12,7 @@ export interface OrganizeOverrides {
   transfer_mode?: string
   media_type?: string
   scan_after?: boolean
+  scrape_after?: boolean
   library_id?: string
   dry_run?: boolean
 }
@@ -74,6 +75,15 @@ export const toolsAPI = {
           added: number
           updated: number
           removed: number
+          error?: string
+        }>
+        scrapes?: Array<{
+          library_id: string
+          name: string
+          path: string
+          matched: number
+          skipped?: boolean
+          reason?: string
           error?: string
         }>
       }>(

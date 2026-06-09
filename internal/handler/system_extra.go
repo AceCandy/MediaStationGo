@@ -80,6 +80,7 @@ func schemaHandler(_ *service.Container) gin.HandlerFunc {
 					"items": []gin.H{
 						{"key": "organize.auto", "type": "toggle", "label": "整理源目录定时自动整理"},
 						{"key": "organizer.auto_after_download", "type": "toggle"},
+						{"key": "organize.scrape_after", "type": "toggle", "label": "整理后自动刮削"},
 						{"key": "downloads.smart_classify", "type": "toggle"},
 						{"key": "organizer.smart_classify", "type": "toggle"},
 						{"key": "organize.source_dir", "type": "text", "label": "整理源目录"},
