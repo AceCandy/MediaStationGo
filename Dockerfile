@@ -16,9 +16,10 @@
 
 # ---- Stage 1: frontend (always build on the host architecture) -------------
 FROM --platform=$BUILDPLATFORM node:20-alpine AS frontend
+ARG NPM_CONFIG_REGISTRY=https://registry.npmjs.org/
 WORKDIR /app/web
 COPY web/package*.json ./
-RUN npm ci
+RUN npm ci --registry="${NPM_CONFIG_REGISTRY}"
 COPY web/ .
 RUN npm run build
 
@@ -26,6 +27,8 @@ RUN npm run build
 FROM --platform=$BUILDPLATFORM golang:1.25-alpine AS backend
 ARG TARGETOS
 ARG TARGETARCH
+ARG GOPROXY=https://proxy.golang.org,direct
+ENV GOPROXY=${GOPROXY}
 WORKDIR /app
 COPY go.mod go.sum ./
 RUN go mod download
