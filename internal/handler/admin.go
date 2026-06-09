@@ -260,6 +260,9 @@ func updateSettingHandler(svc *service.Container) gin.HandlerFunc {
 			_ = svc.Repo.DB.WithContext(c.Request.Context()).Model(&model.User{}).Where("hide_adult = ?", false).Update("hide_adult", true).Error
 		}
 		service.ApplyRuntimeSetting(svc.Cfg, req.Key, req.Value)
+		if svc.FFprobe != nil && (req.Key == "ffprobe.max_concurrent" || req.Key == "app.ffprobe_max_concurrent") {
+			svc.FFprobe.SetMaxConcurrent(svc.Cfg.App.FFprobeMaxConcurrent)
+		}
 		if req.Key == "transcode.enabled" && !svc.Cfg.Transcoder.Enabled {
 			svc.Transcoder.StopAll()
 		}

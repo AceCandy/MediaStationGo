@@ -37,6 +37,16 @@ func ApplyRuntimeSetting(cfg *config.Config, key, value string) {
 		cfg.App.FFmpegPath = value
 	case "ffprobe.path", "app.ffprobe_path":
 		cfg.App.FFprobePath = value
+	case "ffprobe.max_concurrent", "app.ffprobe_max_concurrent":
+		if n, err := strconv.Atoi(value); err == nil {
+			if n < 1 {
+				n = 1
+			}
+			if n > 8 {
+				n = 8
+			}
+			cfg.App.FFprobeMaxConcurrent = n
+		}
 	case "transcode.enabled", "transcoder.enabled":
 		cfg.Transcoder.Enabled = parseBoolSetting(value, true)
 	case "transcode.hw_enabled", "transcoder.hardware_accel":

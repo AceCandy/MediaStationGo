@@ -16,6 +16,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"go.uber.org/zap"
@@ -25,13 +26,35 @@ import (
 
 // FFprobeService wraps the external ffprobe binary.
 type FFprobeService struct {
-	cfg *config.Config
-	log *zap.Logger
+	cfg     *config.Config
+	log     *zap.Logger
+	mu      sync.RWMutex
+	limiter chan struct{}
 }
 
 // NewFFprobeService is the constructor.
 func NewFFprobeService(cfg *config.Config, log *zap.Logger) *FFprobeService {
-	return &FFprobeService{cfg: cfg, log: log}
+	maxConcurrent := normalizeFFprobeMaxConcurrent(cfg.App.FFprobeMaxConcurrent)
+	return &FFprobeService{cfg: cfg, log: log, limiter: make(chan struct{}, maxConcurrent)}
+}
+
+func normalizeFFprobeMaxConcurrent(n int) int {
+	if n <= 0 {
+		return 1
+	}
+	if n > 8 {
+		return 8
+	}
+	return n
+}
+
+func (f *FFprobeService) SetMaxConcurrent(n int) {
+	if f == nil {
+		return
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.limiter = make(chan struct{}, normalizeFFprobeMaxConcurrent(n))
 }
 
 // ProbeResult is the subset of ffprobe output consumed by the scanner.
@@ -50,6 +73,11 @@ func (f *FFprobeService) Probe(ctx context.Context, path string) (*ProbeResult, 
 	if f == nil {
 		return nil, errors.New("ffprobe service nil")
 	}
+	token, err := f.acquire(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer f.release(token)
 	if bin, err := resolveLocalExecutable(f.cfg.App.FFprobePath, "ffprobe"); err == nil {
 		f.cfg.App.FFprobePath = bin
 		probeCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
@@ -71,6 +99,31 @@ func (f *FFprobeService) Probe(ctx context.Context, path string) (*ProbeResult, 
 		}
 	}
 	return f.probeWithFFmpeg(ctx, path)
+}
+
+func (f *FFprobeService) acquire(ctx context.Context) (chan struct{}, error) {
+	f.mu.RLock()
+	limiter := f.limiter
+	f.mu.RUnlock()
+	if limiter == nil {
+		return nil, nil
+	}
+	select {
+	case limiter <- struct{}{}:
+		return limiter, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+func (f *FFprobeService) release(limiter chan struct{}) {
+	if limiter == nil {
+		return
+	}
+	select {
+	case <-limiter:
+	default:
+	}
 }
 
 func (f *FFprobeService) probeWithFFmpeg(ctx context.Context, path string) (*ProbeResult, error) {

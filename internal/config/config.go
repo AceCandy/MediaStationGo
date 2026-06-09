@@ -64,16 +64,20 @@ type TranscoderConfig struct {
 
 // AppConfig 保存运行时应用参数。
 type AppConfig struct {
-	Port        int      `mapstructure:"port"`
-	Debug       bool     `mapstructure:"debug"`
-	Env         string   `mapstructure:"env"`
-	DataDir     string   `mapstructure:"data_dir"`
-	WebDir      string   `mapstructure:"web_dir"`
-	FFmpegPath  string   `mapstructure:"ffmpeg_path"`
-	FFprobePath string   `mapstructure:"ffprobe_path"`
-	VAAPIDevice string   `mapstructure:"vaapi_device"`
-	CORSOrigins []string `mapstructure:"cors_origins"`
-	ServerURL   string   `mapstructure:"server_url"`
+	Port        int    `mapstructure:"port"`
+	Debug       bool   `mapstructure:"debug"`
+	Env         string `mapstructure:"env"`
+	DataDir     string `mapstructure:"data_dir"`
+	WebDir      string `mapstructure:"web_dir"`
+	FFmpegPath  string `mapstructure:"ffmpeg_path"`
+	FFprobePath string `mapstructure:"ffprobe_path"`
+	// FFprobeMaxConcurrent limits concurrent ffprobe/ffmpeg metadata probes.
+	// NAS devices can become unresponsive when a scan starts many probe
+	// processes at once, so the default is deliberately conservative.
+	FFprobeMaxConcurrent int      `mapstructure:"ffprobe_max_concurrent"`
+	VAAPIDevice          string   `mapstructure:"vaapi_device"`
+	CORSOrigins          []string `mapstructure:"cors_origins"`
+	ServerURL            string   `mapstructure:"server_url"`
 }
 
 // DatabaseConfig 配置 GORM + SQLite。
@@ -213,6 +217,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("app.web_dir", "./web/dist")
 	v.SetDefault("app.ffmpeg_path", "ffmpeg")
 	v.SetDefault("app.ffprobe_path", "ffprobe")
+	v.SetDefault("app.ffprobe_max_concurrent", 1)
 	v.SetDefault("app.vaapi_device", "/dev/dri/renderD128")
 	v.SetDefault("app.cors_origins", []string{})
 	v.SetDefault("app.server_url", "")

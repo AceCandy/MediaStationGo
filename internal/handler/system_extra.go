@@ -72,6 +72,7 @@ func schemaHandler(_ *service.Container) gin.HandlerFunc {
 						{"key": "transcode.idle_timeout_seconds", "type": "number", "label": "转码空闲停止秒数"},
 						{"key": "ffmpeg.path", "type": "text", "label": "FFmpeg 路径"},
 						{"key": "ffprobe.path", "type": "text", "label": "FFprobe 路径"},
+						{"key": "ffprobe.max_concurrent", "type": "number", "label": "FFprobe 最大并发"},
 					},
 				},
 				{

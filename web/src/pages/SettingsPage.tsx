@@ -121,6 +121,13 @@ const GROUPS: SettingGroup[] = [
         type: 'text',
         placeholder: 'ffprobe',
       },
+      {
+        key: 'ffprobe.max_concurrent',
+        label: 'FFprobe 最大并发',
+        type: 'number',
+        hint: 'NAS 建议 1；用于扫描、整理洗版和手动探测，避免同时启动多个 ffprobe 进程',
+        defaultValue: '1',
+      },
     ],
   },
   {
