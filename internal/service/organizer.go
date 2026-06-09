@@ -49,10 +49,25 @@ func (o *OrganizerService) SetProbe(p *FFprobeService) { o.probe = p }
 
 // OrganizeResult reports what happened.
 type OrganizeResult struct {
-	Organized int      `json:"organized"`
-	Skipped   int      `json:"skipped"`
-	Replaced  int      `json:"replaced,omitempty"`
-	Errors    []string `json:"errors,omitempty"`
+	Organized  int                   `json:"organized"`
+	Skipped    int                   `json:"skipped"`
+	Replaced   int                   `json:"replaced,omitempty"`
+	Errors     []string              `json:"errors,omitempty"`
+	SourcePath string                `json:"source_path,omitempty"`
+	DestPath   string                `json:"dest_path,omitempty"`
+	DryRun     bool                  `json:"dry_run,omitempty"`
+	Items      []OrganizePreviewItem `json:"items,omitempty"`
+	Scans      []OrganizeScanSummary `json:"scans,omitempty"`
+}
+
+type OrganizePreviewItem struct {
+	Source    string `json:"source"`
+	Target    string `json:"target,omitempty"`
+	Action    string `json:"action"` // organize / skip / replace / error
+	Reason    string `json:"reason,omitempty"`
+	MediaType string `json:"media_type,omitempty"`
+	Category  string `json:"category,omitempty"`
+	Title     string `json:"title,omitempty"`
 }
 
 // OrganizeOptions carries per-request overrides for an organize operation.
@@ -69,6 +84,10 @@ type OrganizeOptions struct {
 	DestPath string
 	// TransferMode 本次整理的转移方式，覆盖 organize.transfer_mode 设置。
 	TransferMode TransferMode
+	// MediaType 手动整理时由 UI 指定的媒体类型。空值时按文件名/目录推断。
+	MediaType string
+	// DryRun 仅生成整理预览，不实际移动/复制/硬链接文件。
+	DryRun bool
 }
 
 // OrganizeMedia moves a single media file into the target library directory.
@@ -394,9 +413,6 @@ func sanitizeFilename(s string) string {
 }
 
 func (o *OrganizerService) organizeRoot(libraryPath, mediaType, category string) string {
-	if strings.TrimSpace(category) == "" {
-		return libraryPath
-	}
 	typeDir := mediaTypeRootDir(mediaType)
 	if typeDir == "" || pathAlreadyEndsWith(libraryPath, typeDir) {
 		return libraryPath
@@ -433,6 +449,8 @@ func mediaTypeRootDir(mediaType string) string {
 		return "电影"
 	case "tv", "anime", "variety":
 		return "电视剧"
+	case "adult":
+		return "成人"
 	default:
 		return ""
 	}

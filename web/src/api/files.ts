@@ -6,6 +6,7 @@ export interface FileEntry {
   is_dir: boolean
   size: number
   modified: number
+  ext?: string
 }
 
 export interface FileListing {
@@ -16,8 +17,26 @@ export interface FileListing {
 }
 
 export const filesAPI = {
-  list: (path = '', max = 1000) =>
+  list: (path = '', max = 1000, recursive = false) =>
     api
-      .get<FileListing>('/files', { params: { path, max } })
+      .get<FileListing>('/files', { params: { path, max, recursive } })
+      .then((r) => r.data),
+
+  createFolder: (path: string, name: string) =>
+    api.post<{ path: string }>('/files/folders', { path, name }).then((r) => r.data),
+
+  rename: (path: string, name: string) =>
+    api.put<{ path: string }>('/files/rename', { path, name }).then((r) => r.data),
+
+  remove: (path: string) =>
+    api.delete<{ removed: boolean }>('/files', { params: { path } }).then((r) => r.data),
+
+  transfer: (sourcePath: string, destPath: string, transferMode = 'copy') =>
+    api
+      .post<{ path: string }>('/files/transfer', {
+        source_path: sourcePath,
+        dest_path: destPath,
+        transfer_mode: transferMode,
+      })
       .then((r) => r.data),
 }

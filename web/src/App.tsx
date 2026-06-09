@@ -81,9 +81,6 @@ const AIAssistantPage = lazy(() =>
 const StrmPage = lazy(() =>
   import('./pages/StrmPage').then((m) => ({ default: m.StrmPage })),
 )
-const ToolsPage = lazy(() =>
-  import('./pages/ToolsPage').then((m) => ({ default: m.ToolsPage })),
-)
 const ProfileManagementPage = lazy(() =>
   import('./pages/ProfileManagementPage').then((m) => ({ default: m.ProfileManagementPage })),
 )
@@ -210,11 +207,7 @@ export default function App() {
           />
           <Route
             path="tools"
-            element={
-              <RequireAdmin>
-                <ToolsPage />
-              </RequireAdmin>
-            }
+            element={<Navigate to="/storage" replace />}
           />
           <Route
             path="notify-channels"

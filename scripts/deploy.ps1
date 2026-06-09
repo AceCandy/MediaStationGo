@@ -11,6 +11,9 @@ $ErrorActionPreference = "Stop"
 $Root = Resolve-Path (Join-Path $PSScriptRoot "..")
 if (-not $DataDir) { $DataDir = Join-Path $Root "data" }
 if (-not $CacheDir) { $CacheDir = Join-Path $Root "cache" }
+$PreviewRoot = Split-Path -Parent $DataDir
+$DefaultDownloadDir = Join-Path $PreviewRoot "downloads"
+$DefaultMediaDir = Join-Path $PreviewRoot "media"
 $WebDir = Join-Path $Root "web\dist"
 $BinDir = Join-Path $Root "bin"
 $Exe = Join-Path $BinDir "mediastation-go.exe"
@@ -20,6 +23,12 @@ $OutLog = Join-Path $LogDir "mediastation.out.log"
 $ErrLog = Join-Path $LogDir "mediastation.err.log"
 
 New-Item -ItemType Directory -Force -Path $DataDir, $CacheDir, $BinDir, $LogDir | Out-Null
+if (-not $env:MEDIASTATION_DOWNLOAD_CONTAINER_DIR) {
+    New-Item -ItemType Directory -Force -Path $DefaultDownloadDir | Out-Null
+}
+if (-not $env:MEDIASTATION_MEDIA_CONTAINER_DIR) {
+    New-Item -ItemType Directory -Force -Path $DefaultMediaDir | Out-Null
+}
 
 if (-not $SkipBuild) {
     Write-Host "[1/3] Building frontend"
@@ -56,6 +65,12 @@ $env:MEDIASTATION_APP_DATA_DIR = $DataDir
 $env:MEDIASTATION_APP_WEB_DIR = $WebDir
 $env:MEDIASTATION_DATABASE_DB_PATH = (Join-Path $DataDir "mediastation.db")
 $env:MEDIASTATION_CACHE_CACHE_DIR = $CacheDir
+if (-not $env:MEDIASTATION_DOWNLOAD_CONTAINER_DIR) {
+    $env:MEDIASTATION_DOWNLOAD_CONTAINER_DIR = $DefaultDownloadDir
+}
+if (-not $env:MEDIASTATION_MEDIA_CONTAINER_DIR) {
+    $env:MEDIASTATION_MEDIA_CONTAINER_DIR = $DefaultMediaDir
+}
 
 Write-Host "[3/3] Starting MediaStationGo on http://$HostAddress`:$Port"
 if ($Foreground) {

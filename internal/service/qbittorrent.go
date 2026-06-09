@@ -54,6 +54,11 @@ type QBitTorrent struct {
 	NumLeech int     `json:"num_leechs"`
 	Size     int64   `json:"size"`
 	SavePath string  `json:"save_path"`
+	// ContentPath is qBittorrent's resolved payload path. For single-file
+	// torrents it points at the file; for multi-file torrents it points at the
+	// root folder. Prefer it for automatic organize so we do not scan the whole
+	// download category.
+	ContentPath string `json:"content_path"`
 }
 
 // QBitClient is a thread-safe qBittorrent v2 API client.

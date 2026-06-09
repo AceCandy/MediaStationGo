@@ -148,9 +148,17 @@ const GROUPS: SettingGroup[] = [
     description: '媒体文件命名 + 自动刮削 + 整理目标',
     items: [
       {
-        key: 'organizer.auto_after_download',
-        label: '入库时自动整理',
+        key: 'organize.auto',
+        label: '整理源目录定时自动整理',
         type: 'toggle',
+        hint: '开启后后台会按下方间隔递归扫描「整理源目录」，自动整理到「整理目的地目录」并扫描入库。默认关闭，避免无意中频繁读盘。',
+        defaultValue: 'false',
+      },
+      {
+        key: 'organizer.auto_after_download',
+        label: '下载完成后自动整理入库',
+        type: 'toggle',
+        hint: '开启后 qB 下载完成时，系统会优先使用种子的 content_path 整理该文件/目录，并在整理完成后扫描目标媒体库。',
       },
       {
         key: 'downloads.smart_classify',
@@ -192,10 +200,18 @@ const GROUPS: SettingGroup[] = [
         ],
       },
       {
+        key: 'organize.interval_seconds',
+        label: '自动整理间隔秒数',
+        type: 'number',
+        hint: '仅在「整理源目录定时自动整理」开启后生效；最小 60 秒，建议 300 秒或更高。',
+        defaultValue: '300',
+        placeholder: '300',
+      },
+      {
         key: 'organize.keep_seeding',
         label: '保种（整理后继续做种上传）',
         type: 'toggle',
-        hint: '开启后即使选择「移动」也会自动改用硬链接（跨盘退化为复制）保留源文件，确保 qBittorrent 转移后继续做种上传。',
+        hint: '开启后即使选择「移动」也会自动改用硬链接保留源文件，确保 qBittorrent 继续做种。硬链接要求源和目标在同一文件系统；失败时会提示，不再静默复制占用双倍空间。',
       },
       {
         key: 'organize.movie_format',

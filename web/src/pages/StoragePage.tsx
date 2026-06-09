@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { Database, HardDrive, PieChart } from 'lucide-react'
 
 import { storageAPI, type StorageBreakdown } from '../api/storage'
@@ -44,23 +45,36 @@ export function StoragePage() {
       <header className="flex items-center gap-3">
         <HardDrive className="h-6 w-6 text-brand-500" />
         <div>
-          <h1 className="font-display text-3xl font-bold text-ink-600">存储</h1>
+          <h1 className="font-display text-3xl font-bold text-ink-600">存储与文件</h1>
           <p className="text-sm text-ink-50">
-            按媒体库和容器格式统计的磁盘占用,数据来自数据库快照(无须实时扫描磁盘)。
+            文件浏览、整理入库、排重与存储统计统一在这里，避免入口重复。
           </p>
         </div>
       </header>
 
       <ManagementShortcuts
-        title="存储与文件入口"
-        description="存储统计只负责看数据，文件管理、排重、回收与配置入口集中放在这里。"
+        title="核心操作"
+        description="保留常用入口：先整理/入库，再按需进入文件或清理功能。"
         items={[
-          { to: '/files', title: '文件管理', description: '浏览服务器文件并执行基础文件操作' },
-          { to: '/storage-config', title: '存储配置', description: '维护媒体存储路径和容量策略' },
+          { to: '/files', title: '文件管理', description: '浏览服务器文件，做少量安全文件操作' },
           { to: '/duplicates', title: '重复清理', description: '扫描重复媒体并进行安全清理', badge: '清理' },
           { to: '/recycle', title: '回收站', description: '查看已删除资源并执行恢复或释放空间' },
+          { to: '/storage-config', title: '存储配置', description: '维护媒体存储路径和容量策略' },
         ]}
       />
+
+      <details className="glass-panel group">
+        <summary className="cursor-pointer list-none font-display text-lg font-semibold text-ink-600">
+          低频维护入口 <span className="text-xs font-normal text-sand-500">（点击展开）</span>
+        </summary>
+        <div className="mt-3 grid gap-2 text-sm sm:grid-cols-2 lg:grid-cols-5">
+          <MaintenanceLink to="/strm" title="STRM 生成" />
+          <MaintenanceLink to="/scheduler" title="定时任务" />
+          <MaintenanceLink to="/tasks" title="任务队列" />
+          <MaintenanceLink to="/notify-channels" title="通知渠道" />
+          <MaintenanceLink to="/assistant" title="AI 对话台" />
+        </div>
+      </details>
 
       <section className="grid gap-4 sm:grid-cols-3">
         <Tile icon={<Database size={20} />} label="总占用" value={fmtBytes(data.total_bytes)} />
@@ -149,5 +163,16 @@ function Tile({
         <p className="font-display text-lg font-semibold text-ink-600">{value}</p>
       </div>
     </div>
+  )
+}
+
+function MaintenanceLink({ to, title }: { to: string; title: string }) {
+  return (
+    <Link
+      to={to}
+      className="rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-ink-100 transition hover:border-primary-400/40 hover:text-brand-500"
+    >
+      {title}
+    </Link>
   )
 }

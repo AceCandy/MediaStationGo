@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
@@ -14,6 +15,7 @@ import (
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 
+	"github.com/ShukeBta/MediaStationGo/internal/config"
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 	"github.com/ShukeBta/MediaStationGo/internal/repository"
 )
@@ -42,6 +44,46 @@ func TestDownloadViewsDoNotExposePrivateURL(t *testing.T) {
 	}
 	if !strings.Contains(body, "测试影片") {
 		t.Fatalf("download views should keep public title: %s", body)
+	}
+}
+
+func TestDownloadCompleteAutoOrganizesContentPath(t *testing.T) {
+	root := t.TempDir()
+	src := filepath.Join(root, "downloads", "国产剧", "狂飙.S01E01.2023.1080p.mkv")
+	dest := filepath.Join(root, "media")
+	if err := os.MkdirAll(filepath.Dir(src), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(src, []byte("episode"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	repos := newOrganizerTestRepo(t)
+	for key, value := range map[string]string{
+		"organizer.auto_after_download": "true",
+		"organize.target_dir":           dest,
+		"organize.transfer_mode":        "copy",
+	} {
+		if err := repos.Setting.Set(t.Context(), key, value); err != nil {
+			t.Fatal(err)
+		}
+	}
+	org := NewOrganizerService(&config.Config{}, zap.NewNop(), repos)
+	svc := NewDownloadService(zap.NewNop(), repos, NewHub(zap.NewNop()), org)
+	svc.onTorrentComplete(t.Context(), QBitTorrent{
+		Hash:        "done123",
+		Name:        "狂飙.S01E01.2023.1080p",
+		Progress:    1,
+		SavePath:    filepath.Join(root, "downloads", "国产剧"),
+		ContentPath: src,
+	})
+
+	want := filepath.Join(dest, "电视剧", "国产剧", "狂飙", "Season 01", "狂飙 - S01E01.mkv")
+	if _, err := os.Stat(want); err != nil {
+		t.Fatalf("auto organized file missing at %q: %v", want, err)
+	}
+	if _, err := os.Stat(src); err != nil {
+		t.Fatalf("copy mode should keep source: %v", err)
 	}
 }
 

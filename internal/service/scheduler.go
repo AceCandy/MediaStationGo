@@ -25,6 +25,7 @@ package service
 
 import (
 	"context"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -42,6 +43,7 @@ type SchedulerService struct {
 	repo       *repository.Container
 	scanner    *ScannerService
 	transcoder *TranscoderService
+	organizer  *OrganizerService
 	hub        *Hub
 	cacheDir   string
 
@@ -59,12 +61,15 @@ type scheduledJob struct {
 	lastErr  string
 }
 
+type schedulerManualRunKey struct{}
+
 // NewSchedulerService is the constructor.
 func NewSchedulerService(
 	log *zap.Logger,
 	repo *repository.Container,
 	scanner *ScannerService,
 	transcoder *TranscoderService,
+	organizer *OrganizerService,
 	hub *Hub,
 	cacheDir string,
 ) *SchedulerService {
@@ -73,6 +78,7 @@ func NewSchedulerService(
 		repo:       repo,
 		scanner:    scanner,
 		transcoder: transcoder,
+		organizer:  organizer,
 		hub:        hub,
 		cacheDir:   cacheDir,
 		stopCh:     make(chan struct{}),
@@ -86,6 +92,11 @@ func (s *SchedulerService) Start(ctx context.Context) {
 			name:     "library_scan",
 			interval: 60 * time.Minute,
 			run:      s.jobScanLibraries,
+		},
+		{
+			name:     "organize_source",
+			interval: s.organizeSourceInterval(ctx),
+			run:      s.jobOrganizeSource,
 		},
 		{
 			name:     "transcode_cleanup",
@@ -143,7 +154,7 @@ func (s *SchedulerService) Status() []JobStatus {
 func (s *SchedulerService) RunNow(ctx context.Context, name string) error {
 	for _, j := range s.jobs {
 		if j.name == name {
-			return s.runOnce(ctx, j)
+			return s.runOnce(context.WithValue(ctx, schedulerManualRunKey{}, true), j)
 		}
 	}
 	return nil
@@ -227,12 +238,66 @@ func (s *SchedulerService) periodicScanEnabled(ctx context.Context) bool {
 	if err != nil {
 		return false
 	}
-	switch strings.ToLower(strings.TrimSpace(v)) {
-	case "1", "true", "yes", "on", "enabled":
-		return true
-	default:
+	return parseBoolSetting(v, false)
+}
+
+// jobOrganizeSource periodically organizes the configured staging/download
+// source directory into the configured media destination. It is intentionally
+// opt-in: manual file management remains available, but background disk walking
+// only starts after the operator enables organize.auto.
+func (s *SchedulerService) jobOrganizeSource(ctx context.Context) error {
+	manual, _ := ctx.Value(schedulerManualRunKey{}).(bool)
+	if s.organizer == nil || (!manual && !s.autoOrganizeSourceEnabled(ctx)) {
+		return nil
+	}
+	res, err := s.organizer.OrganizeDirectory(ctx, OrganizeOptions{})
+	if err != nil {
+		return err
+	}
+	if s.scanner != nil && res != nil && strings.TrimSpace(res.DestPath) != "" {
+		res.Scans = s.scanner.ScanLibrariesForPath(ctx, res.DestPath, "")
+	}
+	if s.log != nil && res != nil {
+		s.log.Info("scheduled source organize finished",
+			zap.String("source", res.SourcePath),
+			zap.String("dest", res.DestPath),
+			zap.Int("organized", res.Organized),
+			zap.Int("replaced", res.Replaced),
+			zap.Int("skipped", res.Skipped),
+			zap.Int("errors", len(res.Errors)),
+		)
+	}
+	return nil
+}
+
+func (s *SchedulerService) autoOrganizeSourceEnabled(ctx context.Context) bool {
+	if s.repo == nil || s.repo.Setting == nil {
 		return false
 	}
+	v, err := s.repo.Setting.Get(ctx, "organize.auto")
+	if err != nil {
+		return false
+	}
+	return parseBoolSetting(v, false)
+}
+
+func (s *SchedulerService) organizeSourceInterval(ctx context.Context) time.Duration {
+	const fallback = 5 * time.Minute
+	if s.repo == nil || s.repo.Setting == nil {
+		return fallback
+	}
+	v, err := s.repo.Setting.Get(ctx, "organize.interval_seconds")
+	if err != nil {
+		return fallback
+	}
+	seconds, err := strconv.Atoi(strings.TrimSpace(v))
+	if err != nil || seconds <= 0 {
+		return fallback
+	}
+	if seconds < 60 {
+		seconds = 60
+	}
+	return time.Duration(seconds) * time.Second
 }
 
 // jobCleanTranscodeCache deletes HLS artefacts older than 24h.

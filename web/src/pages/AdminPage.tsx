@@ -46,7 +46,7 @@ export function AdminPage() {
         items={[
           { to: '/sites', title: '站点管理', description: '维护 PT 站点、认证方式和检索配置' },
           { to: '/download-clients', title: '下载器管理', description: '配置 qBittorrent 等下载器连接', badge: '下载' },
-          { to: '/tools', title: '整理与维护', description: '媒体整理、任务维护和辅助工具' },
+          { to: '/files', title: '手动整理', description: '从下载目录选择文件夹并整理入库' },
           { to: '/storage', title: '存储与文件', description: '查看占用、清理重复项和管理文件' },
         ]}
       />

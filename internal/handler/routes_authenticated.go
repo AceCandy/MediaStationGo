@@ -107,6 +107,10 @@ func registerAuthenticatedRoutes(api *gin.RouterGroup, cfg *config.Config, svc *
 
 		// File browser (used by the library-path picker).
 		authed.GET("/files", middleware.AdminRequired(), browseFilesHandler(svc))
+		authed.POST("/files/folders", middleware.AdminRequired(), createFolderHandler(svc))
+		authed.PUT("/files/rename", middleware.AdminRequired(), renameFileHandler(svc))
+		authed.DELETE("/files", middleware.AdminRequired(), deleteFileHandler(svc))
+		authed.POST("/files/transfer", middleware.AdminRequired(), transferFileHandler(svc))
 
 		// Disk usage breakdown.
 		authed.GET("/storage", middleware.AdminRequired(), storageHandler(svc))

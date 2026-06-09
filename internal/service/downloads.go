@@ -20,7 +20,9 @@ import (
 	"errors"
 	"math"
 	"net/url"
+	"os"
 	"path"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
@@ -40,12 +42,17 @@ type DownloadService struct {
 	hub       *Hub
 	qb        *QBitClient
 	organizer *OrganizerService
+	scanner   *ScannerService
 	site      *SiteService
 
 	mu         sync.Mutex
 	stopCh     chan struct{}
 	pollOnce   sync.Once
 	prevStates map[string]bool // hash -> wasCompleted
+}
+
+func (d *DownloadService) SetScanner(scanner *ScannerService) {
+	d.scanner = scanner
 }
 
 var torrentEpisodeToken = regexp.MustCompile(`(?i)e\d{1,3}`)
@@ -771,7 +778,7 @@ func (d *DownloadService) poll(ctx context.Context) {
 			d.syncDownloadTaskProgress(ctx, t, taskByKey)
 			if complete && !d.prevStates[hash] {
 				// Just completed: trigger organize
-				go d.onTorrentComplete(ctx, hash, t.SavePath)
+				go d.onTorrentComplete(ctx, t)
 			}
 			d.prevStates[hash] = complete
 		}
@@ -829,9 +836,11 @@ func findMatchingTaskByIdentity(title string, taskByKey map[string]model.Downloa
 }
 
 // onTorrentComplete handles a torrent that just finished downloading.
-// It tries to find the associated Media record and trigger organize.
-func (d *DownloadService) onTorrentComplete(ctx context.Context, hash string, savePath string) {
-	if d.organizer == nil || savePath == "" {
+// It organizes the completed torrent payload directly. Relying on existing
+// Media rows is too late for freshly-downloaded files: they usually have not
+// been scanned into the library yet.
+func (d *DownloadService) onTorrentComplete(ctx context.Context, torrent QBitTorrent) {
+	if d.organizer == nil {
 		return
 	}
 	// 仅当显式开启 organizer.auto_after_download / organize.auto 时才在下载完成后整理。
@@ -847,19 +856,57 @@ func (d *DownloadService) onTorrentComplete(ctx context.Context, hash string, sa
 		}
 	}
 	if !autoOrganize {
-		d.log.Info("download completed, auto-organize disabled", zap.String("hash", hash))
+		d.log.Info("download completed, auto-organize disabled", zap.String("hash", torrent.Hash))
 		return
 	}
-	d.log.Info("download completed, triggering organize", zap.String("hash", hash), zap.String("save_path", savePath))
-	// Find Media record by path prefix
-	var medias []model.Media
-	if err := d.repo.DB.WithContext(ctx).Where("path LIKE ?", savePath+"%").Find(&medias).Error; err != nil {
-		d.log.Error("find media by path", zap.Error(err))
+	source := d.completedTorrentSource(torrent)
+	if source == "" {
+		d.log.Warn("download completed but payload path is not accessible",
+			zap.String("hash", torrent.Hash),
+			zap.String("name", torrent.Name),
+			zap.String("save_path", torrent.SavePath),
+			zap.String("content_path", torrent.ContentPath))
 		return
 	}
-	for i := range medias {
-		if _, err := d.organizer.OrganizeMedia(ctx, medias[i].ID); err != nil {
-			d.log.Error("organize media", zap.String("media_id", medias[i].ID), zap.Error(err))
+	d.log.Info("download completed, triggering directory organize",
+		zap.String("hash", torrent.Hash),
+		zap.String("name", torrent.Name),
+		zap.String("source", source))
+	res, err := d.organizer.OrganizeDirectory(ctx, OrganizeOptions{SourcePath: source})
+	if err != nil {
+		d.log.Error("auto organize completed torrent failed",
+			zap.String("hash", torrent.Hash),
+			zap.String("source", source),
+			zap.Error(err))
+		return
+	}
+	if d.scanner != nil && res != nil && strings.TrimSpace(res.DestPath) != "" {
+		res.Scans = d.scanner.ScanLibrariesForPath(ctx, res.DestPath, "")
+	}
+	d.log.Info("auto organize completed torrent finished",
+		zap.String("hash", torrent.Hash),
+		zap.String("source", source),
+		zap.String("dest", firstNonEmpty(res.DestPath, "")),
+		zap.Int("organized", res.Organized),
+		zap.Int("replaced", res.Replaced),
+		zap.Int("skipped", res.Skipped),
+		zap.Int("errors", len(res.Errors)))
+}
+
+func (d *DownloadService) completedTorrentSource(torrent QBitTorrent) string {
+	for _, candidate := range []string{
+		torrent.ContentPath,
+		filepath.Join(torrent.SavePath, torrent.Name),
+		torrent.SavePath,
+	} {
+		clean := strings.TrimSpace(candidate)
+		if clean == "" || clean == "." {
+			continue
+		}
+		clean = filepath.Clean(clean)
+		if _, err := os.Stat(clean); err == nil {
+			return clean
 		}
 	}
+	return ""
 }

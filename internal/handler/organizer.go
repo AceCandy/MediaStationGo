@@ -19,6 +19,10 @@ type organizeReq struct {
 	DestPath     string `json:"dest_path"`
 	TargetPath   string `json:"target_path"` // deprecated alias for dest_path
 	TransferMode string `json:"transfer_mode"`
+	MediaType    string `json:"media_type"`
+	ScanAfter    bool   `json:"scan_after"`
+	LibraryID    string `json:"library_id"`
+	DryRun       bool   `json:"dry_run"`
 }
 
 // bindOrganizeOptions parses the optional JSON body into OrganizeOptions.
@@ -26,6 +30,10 @@ type organizeReq struct {
 func bindOrganizeOptions(c *gin.Context) service.OrganizeOptions {
 	var req organizeReq
 	_ = c.ShouldBindJSON(&req)
+	return organizeOptionsFromReq(req)
+}
+
+func organizeOptionsFromReq(req organizeReq) service.OrganizeOptions {
 	dest := strings.TrimSpace(req.DestPath)
 	if dest == "" {
 		dest = strings.TrimSpace(req.TargetPath)
@@ -33,6 +41,8 @@ func bindOrganizeOptions(c *gin.Context) service.OrganizeOptions {
 	opts := service.OrganizeOptions{
 		SourcePath: strings.TrimSpace(req.SourcePath),
 		DestPath:   dest,
+		MediaType:  strings.TrimSpace(req.MediaType),
+		DryRun:     req.DryRun,
 	}
 	if m := strings.TrimSpace(req.TransferMode); m != "" {
 		opts.TransferMode = service.TransferMode(m)
@@ -68,7 +78,7 @@ func organizeLibraryHandler(svc *service.Container) gin.HandlerFunc {
 // dir + media dir) so the UI can offer them alongside registered libraries.
 func organizeSourcesHandler(svc *service.Container) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{"sources": svc.Organizer.OrganizeSourceCandidates()})
+		c.JSON(http.StatusOK, gin.H{"sources": svc.Organizer.OrganizeSourceCandidates(c.Request.Context())})
 	}
 }
 
@@ -76,11 +86,16 @@ func organizeSourcesHandler(svc *service.Container) gin.HandlerFunc {
 // download directory) into the destination with dedup + 洗版.
 func organizeDirectoryHandler(svc *service.Container) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		opts := bindOrganizeOptions(c)
+		var req organizeReq
+		_ = c.ShouldBindJSON(&req)
+		opts := organizeOptionsFromReq(req)
 		res, err := svc.Organizer.OrganizeDirectory(c.Request.Context(), opts)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
+		}
+		if req.ScanAfter && !req.DryRun && svc.Scan != nil {
+			res.Scans = svc.Scan.ScanLibrariesForPath(c.Request.Context(), res.DestPath, strings.TrimSpace(req.LibraryID))
 		}
 		c.JSON(http.StatusOK, res)
 	}

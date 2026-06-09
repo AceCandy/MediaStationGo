@@ -40,7 +40,7 @@ type OrganizeSourceCandidate struct {
 // OrganizeSourceCandidates returns the configured directories that are valid
 // organize sources (download dir + media dir). It uses the container-visible
 // paths; in NAS direct-read mode those equal the host paths the operator sees.
-func (o *OrganizerService) OrganizeSourceCandidates() []OrganizeSourceCandidate {
+func (o *OrganizerService) OrganizeSourceCandidates(ctx context.Context) []OrganizeSourceCandidate {
 	out := []OrganizeSourceCandidate{}
 	seen := map[string]struct{}{}
 	add := func(label, path, kind string) {
@@ -49,15 +49,46 @@ func (o *OrganizerService) OrganizeSourceCandidates() []OrganizeSourceCandidate 
 			return
 		}
 		clean := filepath.Clean(path)
+		if !isAccessibleDir(clean) {
+			return
+		}
 		if _, ok := seen[clean]; ok {
 			return
 		}
 		seen[clean] = struct{}{}
 		out = append(out, OrganizeSourceCandidate{Label: label, Path: clean, Kind: kind})
 	}
+	add("默认整理源", o.settingValue(ctx, "organize.source_dir"), "source")
+	add("下载器保存目录", o.settingValue(ctx, "qbittorrent.savepath"), "download")
 	add("下载目录", envOrDefault("MEDIASTATION_DOWNLOAD_CONTAINER_DIR", "/downloads"), "download")
 	add("媒体目录", envOrDefault("MEDIASTATION_MEDIA_CONTAINER_DIR", "/media"), "media")
 	return out
+}
+
+func (o *OrganizerService) settingValue(ctx context.Context, key string) string {
+	if o.repo == nil || o.repo.Setting == nil {
+		return ""
+	}
+	if v, err := o.repo.Setting.Get(ctx, key); err == nil {
+		return strings.TrimSpace(v)
+	}
+	return ""
+}
+
+// defaultSourceRoot resolves the source root for a directory organize:
+// explicit override → organize.source_dir setting → qB default save path →
+// download container dir.
+func (o *OrganizerService) defaultSourceRoot(ctx context.Context, override string) string {
+	if r := strings.TrimSpace(override); r != "" {
+		return r
+	}
+	if v := o.settingValue(ctx, "organize.source_dir"); v != "" {
+		return v
+	}
+	if v := o.settingValue(ctx, "qbittorrent.savepath"); v != "" {
+		return v
+	}
+	return envOrDefault("MEDIASTATION_DOWNLOAD_CONTAINER_DIR", "/downloads")
 }
 
 // defaultDestRoot resolves the destination root for a directory organize:
@@ -77,12 +108,13 @@ func (o *OrganizerService) defaultDestRoot(ctx context.Context, override string)
 // OrganizeDirectory organizes every video file found under opts.SourcePath into
 // the destination root, applying dedup + 洗版 (resolution replacement).
 func (o *OrganizerService) OrganizeDirectory(ctx context.Context, opts OrganizeOptions) (*OrganizeResult, error) {
-	source := strings.TrimSpace(opts.SourcePath)
+	source := strings.TrimSpace(o.defaultSourceRoot(ctx, opts.SourcePath))
 	if source == "" {
 		return nil, errors.New("source path required")
 	}
 	source = filepath.Clean(source)
-	if info, err := os.Stat(source); err != nil || !info.IsDir() {
+	info, statErr := os.Stat(source)
+	if statErr != nil {
 		return nil, fmt.Errorf("source directory not accessible: %s", source)
 	}
 	dest := filepath.Clean(o.defaultDestRoot(ctx, opts.DestPath))
@@ -90,7 +122,26 @@ func (o *OrganizerService) OrganizeDirectory(ctx context.Context, opts OrganizeO
 		return nil, errors.New("destination path required")
 	}
 	mode := o.resolveTransferMode(ctx, opts.TransferMode)
-	res := &OrganizeResult{}
+	res := &OrganizeResult{SourcePath: source, DestPath: dest, DryRun: opts.DryRun}
+	if !info.IsDir() {
+		ext := strings.ToLower(filepath.Ext(source))
+		if _, ok := videoExtensions[ext]; !ok {
+			return nil, fmt.Errorf("source is not a supported video file: %s", source)
+		}
+		if err := o.organizeSourceFile(ctx, source, filepath.Dir(source), dest, mode, opts.MediaType, opts.DryRun, res); err != nil {
+			res.Errors = append(res.Errors, fmt.Sprintf("%s: %s", filepath.Base(source), err.Error()))
+			res.Items = append(res.Items, OrganizePreviewItem{Source: source, Action: "error", Reason: err.Error()})
+		}
+		o.log.Info("organize file finished",
+			zap.String("source", source),
+			zap.String("dest", dest),
+			zap.String("mode", string(mode)),
+			zap.Int("organized", res.Organized),
+			zap.Int("replaced", res.Replaced),
+			zap.Int("skipped", res.Skipped),
+		)
+		return res, nil
+	}
 	walkErr := walk(source, func(path string, wi walkInfo) error {
 		if wi.isDir {
 			return nil
@@ -99,8 +150,9 @@ func (o *OrganizerService) OrganizeDirectory(ctx context.Context, opts OrganizeO
 		if _, ok := videoExtensions[ext]; !ok {
 			return nil
 		}
-		if err := o.organizeSourceFile(ctx, path, source, dest, mode, res); err != nil {
+		if err := o.organizeSourceFile(ctx, path, source, dest, mode, opts.MediaType, opts.DryRun, res); err != nil {
 			res.Errors = append(res.Errors, fmt.Sprintf("%s: %s", filepath.Base(path), err.Error()))
+			res.Items = append(res.Items, OrganizePreviewItem{Source: path, Action: "error", Reason: err.Error()})
 		}
 		return nil
 	})
@@ -125,7 +177,7 @@ type organizeDirectoryLayout struct {
 
 // organizeSourceFile organizes a single video file from the source directory
 // into destRoot, applying dedup + 洗版.
-func (o *OrganizerService) organizeSourceFile(ctx context.Context, src, sourceRoot, destRoot string, mode TransferMode, res *OrganizeResult) error {
+func (o *OrganizerService) organizeSourceFile(ctx context.Context, src, sourceRoot, destRoot string, mode TransferMode, mediaTypeOverride string, dryRun bool, res *OrganizeResult) error {
 	ext := filepath.Ext(src)
 	title, year := CleanQuery(src)
 	if title == "" {
@@ -140,14 +192,29 @@ func (o *OrganizerService) organizeSourceFile(ctx context.Context, src, sourceRo
 	}
 	season, episode := ParseEpisode(src)
 	layout := o.inferOrganizeDirectoryLayout(src, sourceRoot)
+	if forced := normalizeOrganizeMediaType(mediaTypeOverride); forced != "" {
+		if layout.Category != "" && layout.MediaType != "" && layout.MediaType != forced {
+			layout.Category = ""
+		}
+		layout.MediaType = forced
+	}
+	if layout.MediaType == "" {
+		layout.MediaType = o.inferMediaTypeForSourceFile(src, title, season, episode)
+	}
 	layoutRoot := destRoot
+	if layout.MediaType != "" {
+		layoutRoot = o.organizeRoot(destRoot, layout.MediaType, layout.Category)
+	}
 	if layout.Category != "" {
-		root := o.organizeRoot(destRoot, layout.MediaType, layout.Category)
-		layoutRoot = categoryRoot(root, sanitizeFilename(layout.Category))
+		layoutRoot = categoryRoot(layoutRoot, sanitizeFilename(layout.Category))
 	}
 
 	var destDir, dst, episodeTag string
-	if season > 0 || episode > 0 {
+	isSeries := season > 0 || episode > 0
+	if layout.MediaType != "" {
+		isSeries = isSeriesLibraryType(layout.MediaType) && (season > 0 || episode > 0)
+	}
+	if isSeries {
 		// TV/动漫/综艺等剧集：{destRoot}/{Title}/Season XX/{Title} - SxxExx.ext
 		episodeTag = fmt.Sprintf("S%02dE%02d", season, episode)
 		destDir = filepath.Join(layoutRoot, title, fmt.Sprintf("Season %02d", season))
@@ -165,6 +232,10 @@ func (o *OrganizerService) organizeSourceFile(ctx context.Context, src, sourceRo
 	// 源文件已经位于目标位置：无需处理。
 	if filepath.Clean(src) == filepath.Clean(dst) {
 		res.Skipped++
+		res.Items = append(res.Items, OrganizePreviewItem{
+			Source: src, Target: dst, Action: "skip", Reason: "already organized",
+			MediaType: layout.MediaType, Category: layout.Category, Title: title,
+		})
 		return nil
 	}
 
@@ -182,6 +253,14 @@ func (o *OrganizerService) organizeSourceFile(ctx context.Context, src, sourceRo
 		// 洗版：仅当来源与已存在版本的分辨率都可判定、且来源更高时才替换；
 		// 任一方分辨率未知时保守跳过，绝不删除无法判定的已存在文件。
 		if srcArea > 0 && bestArea > 0 && srcArea > bestArea {
+			res.Items = append(res.Items, OrganizePreviewItem{
+				Source: src, Target: dst, Action: "replace", Reason: "higher resolution",
+				MediaType: layout.MediaType, Category: layout.Category, Title: title,
+			})
+			if dryRun {
+				res.Replaced++
+				return nil
+			}
 			if err := o.replaceVersions(ctx, src, existing, dst, mode); err != nil {
 				return err
 			}
@@ -198,14 +277,30 @@ func (o *OrganizerService) organizeSourceFile(ctx context.Context, src, sourceRo
 		o.log.Debug("organize skip duplicate",
 			zap.String("src", src), zap.String("dest_dir", destDir))
 		res.Skipped++
+		res.Items = append(res.Items, OrganizePreviewItem{
+			Source: src, Target: dst, Action: "skip", Reason: "duplicate exists",
+			MediaType: layout.MediaType, Category: layout.Category, Title: title,
+		})
 		return nil
 	}
 
+	res.Items = append(res.Items, OrganizePreviewItem{
+		Source: src, Target: dst, Action: "organize",
+		MediaType: layout.MediaType, Category: layout.Category, Title: title,
+	})
+	if dryRun {
+		res.Organized++
+		return nil
+	}
 	if err := os.MkdirAll(destDir, 0o755); err != nil {
 		return err
 	}
 	if _, err := os.Stat(dst); err == nil {
 		res.Skipped++
+		if len(res.Items) > 0 {
+			res.Items[len(res.Items)-1].Action = "skip"
+			res.Items[len(res.Items)-1].Reason = "target exists"
+		}
 		return nil
 	}
 	if err := transferFile(src, dst, mode); err != nil {
@@ -217,6 +312,30 @@ func (o *OrganizerService) organizeSourceFile(ctx context.Context, src, sourceRo
 	}
 	res.Organized++
 	return nil
+}
+
+func normalizeOrganizeMediaType(mediaType string) string {
+	switch strings.ToLower(strings.TrimSpace(mediaType)) {
+	case "movie", "film":
+		return "movie"
+	case "tv", "series", "show", "drama":
+		return "tv"
+	case "anime", "animation":
+		return "anime"
+	case "variety":
+		return "variety"
+	case "adult", "nsfw":
+		return "adult"
+	default:
+		return ""
+	}
+}
+
+func (o *OrganizerService) inferMediaTypeForSourceFile(src, title string, season, episode int) string {
+	if season > 0 || episode > 0 {
+		return "tv"
+	}
+	return normalizeMediaType("", title, src)
 }
 
 func (o *OrganizerService) inferOrganizeDirectoryLayout(src, sourceRoot string) organizeDirectoryLayout {
@@ -302,6 +421,9 @@ func (o *OrganizerService) directoryCategoryTypes() map[string]organizeDirectory
 	addConfigured("documentary", "纪录片", "tv")
 	addConfigured("children", "儿童", "tv")
 	addConfigured("uncategorized_tv", "未分类", "tv")
+	addConfigured("adult", "成人", "adult")
+	addConfigured("adult_9kg", "9KG", "adult")
+	addConfigured("adult_jav", "番号", "adult")
 	return out
 }
 

@@ -116,7 +116,7 @@ func New(cfg *config.Config, log *zap.Logger, repos *repository.Container) *Cont
 	downloadClients := NewDownloadClientService(log, repos)
 	assistant := NewAssistantService(log, repos, ai)
 	douban := NewDoubanProvider(cfg, log)
-	scheduler := NewSchedulerService(log, repos, scanner, transcoder, hub, cfg.Cache.CacheDir)
+	scheduler := NewSchedulerService(log, repos, scanner, transcoder, organizer, hub, cfg.Cache.CacheDir)
 
 	// 初始化认证相关服务
 	tokenSvc := NewTokenService(cfg, log, repos)
@@ -138,6 +138,7 @@ func New(cfg *config.Config, log *zap.Logger, repos *repository.Container) *Cont
 	}
 	siteSvc := NewSiteService(log, repos, flareSolverrURL)
 	downloads := NewDownloadService(log, repos, hub, organizer, siteSvc)
+	downloads.SetScanner(scanner)
 	subscription := NewSubscriptionService(cfg, log, repos, downloads, siteSvc, hub)
 
 	// 让图片代理把媒体库根目录视为可读的本地图片位置：海报/封面等

@@ -1,22 +1,15 @@
-// Package service — server-side file browser.
+// Package service — server-side file browser and safe local file operations.
 //
 // FileManagerService exposes a strict, allow-listed view of the server's
-// filesystem so the React Library / Storage tabs can let the operator
-// pick library roots without typing absolute paths from memory.
-//
-// Allow-list rules:
-//
-//   - Roots: every Library.Path + the configured app.data_dir +
-//     app.cache_dir, plus the operator-supplied app.media.* defaults.
-//   - Children must resolve under one of the roots after symlink-free
-//     filepath.Abs(). Anything else returns ErrPathOutOfBounds.
-//
-// We never write to the filesystem here; this is read-only browsing.
+// filesystem. The design follows MoviePilot's StorageChain boundary: callers
+// work with file-item-like records, while this service owns path validation,
+// local storage operations, and mutation safety.
 package service
 
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -28,7 +21,7 @@ import (
 	"github.com/ShukeBta/MediaStationGo/internal/repository"
 )
 
-// FileManagerService browses the server-side filesystem.
+// FileManagerService browses and mutates the server-side filesystem.
 type FileManagerService struct {
 	cfg  *config.Config
 	log  *zap.Logger
@@ -42,11 +35,12 @@ func NewFileManagerService(cfg *config.Config, log *zap.Logger, repo *repository
 
 // Entry is one file or directory shown in the browser.
 type Entry struct {
-	Name    string `json:"name"`
-	Path    string `json:"path"`
-	IsDir   bool   `json:"is_dir"`
-	Size    int64  `json:"size"`
-	Modified int64 `json:"modified"`
+	Name     string `json:"name"`
+	Path     string `json:"path"`
+	IsDir    bool   `json:"is_dir"`
+	Size     int64  `json:"size"`
+	Modified int64  `json:"modified"`
+	Ext      string `json:"ext,omitempty"`
 }
 
 // Listing describes the contents of a directory plus navigation hints.
@@ -63,18 +57,234 @@ type Root struct {
 	Path  string `json:"path"`
 }
 
+type FileOperationResult struct {
+	Path string `json:"path"`
+}
+
 // ErrPathOutOfBounds is returned when path falls outside every allowed root.
 var ErrPathOutOfBounds = errors.New("path is outside the allowed roots")
 
-// List enumerates a directory under one of the allowed roots, returning
-// up to maxEntries items sorted by (dir-first, alphabetical).
-func (s *FileManagerService) List(path string, maxEntries int) (*Listing, error) {
+// ErrRootMutation protects configured roots such as /media and /downloads.
+var ErrRootMutation = errors.New("refusing to mutate an allowed root")
+
+// List enumerates a directory under one of the allowed roots, returning up to
+// maxEntries items sorted by (dir-first, path). Recursive listing is capped by
+// maxEntries to avoid accidentally walking huge NAS trees from the UI.
+func (s *FileManagerService) List(path string, maxEntries int, recursive ...bool) (*Listing, error) {
 	if maxEntries <= 0 || maxEntries > 5000 {
 		maxEntries = 1000
 	}
-	roots, err := s.allowedRoots()
+	roots, rootList, err := s.allowedRootList()
 	if err != nil {
 		return nil, err
+	}
+	if strings.TrimSpace(path) == "" {
+		return &Listing{Path: "", Roots: rootList}, nil
+	}
+
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return nil, err
+	}
+	if !s.withinAllowed(abs, roots) {
+		return nil, ErrPathOutOfBounds
+	}
+	info, err := os.Stat(abs)
+	if err != nil {
+		return nil, err
+	}
+	if !info.IsDir() {
+		return &Listing{Path: abs, Roots: rootList, Entries: []Entry{s.entryFromInfo(abs, info)}}, nil
+	}
+
+	out := &Listing{Path: abs, Roots: rootList, Entries: []Entry{}}
+	parent := filepath.Dir(abs)
+	if parent != abs && s.withinAllowed(parent, roots) {
+		out.Parent = parent
+	}
+	if len(recursive) > 0 && recursive[0] {
+		if err := s.walkEntries(abs, maxEntries, out); err != nil {
+			return nil, err
+		}
+		sortFileEntries(out.Entries)
+		return out, nil
+	}
+
+	entries, err := os.ReadDir(abs)
+	if err != nil {
+		return nil, err
+	}
+	for _, e := range entries {
+		if len(out.Entries) >= maxEntries {
+			break
+		}
+		if strings.HasPrefix(e.Name(), ".") {
+			continue
+		}
+		full := filepath.Join(abs, e.Name())
+		info, err := e.Info()
+		if err != nil {
+			continue
+		}
+		out.Entries = append(out.Entries, s.entryFromInfo(full, info))
+	}
+	sortFileEntries(out.Entries)
+	return out, nil
+}
+
+func (s *FileManagerService) CreateFolder(parent, name string) (*FileOperationResult, error) {
+	parentPath, roots, err := s.requireAllowedPath(parent, false)
+	if err != nil {
+		return nil, err
+	}
+	cleanName := sanitizeFilename(name)
+	if strings.TrimSpace(name) == "" || cleanName == "" || strings.ContainsAny(name, `/\`) {
+		return nil, errors.New("invalid folder name")
+	}
+	dst := filepath.Join(parentPath, cleanName)
+	if !s.withinAllowed(dst, roots) {
+		return nil, ErrPathOutOfBounds
+	}
+	if err := os.MkdirAll(dst, 0o755); err != nil {
+		return nil, err
+	}
+	return &FileOperationResult{Path: dst}, nil
+}
+
+func (s *FileManagerService) Rename(path, name string) (*FileOperationResult, error) {
+	src, roots, err := s.requireAllowedPath(path, true)
+	if err != nil {
+		return nil, err
+	}
+	cleanName := sanitizeFilename(name)
+	if strings.TrimSpace(name) == "" || cleanName == "" || strings.ContainsAny(name, `/\`) {
+		return nil, errors.New("invalid name")
+	}
+	dst := filepath.Join(filepath.Dir(src), cleanName)
+	if !s.withinAllowed(dst, roots) {
+		return nil, ErrPathOutOfBounds
+	}
+	if _, err := os.Stat(dst); err == nil {
+		return nil, fmt.Errorf("target already exists: %s", dst)
+	}
+	if err := os.Rename(src, dst); err != nil {
+		return nil, err
+	}
+	return &FileOperationResult{Path: dst}, nil
+}
+
+func (s *FileManagerService) Delete(path string) error {
+	target, _, err := s.requireAllowedPath(path, true)
+	if err != nil {
+		return err
+	}
+	return os.RemoveAll(target)
+}
+
+func (s *FileManagerService) Transfer(sourcePath, destDir string, mode TransferMode) (*FileOperationResult, error) {
+	src, roots, err := s.requireAllowedPath(sourcePath, true)
+	if err != nil {
+		return nil, err
+	}
+	dstDir, _, err := s.requireAllowedPath(destDir, false)
+	if err != nil {
+		return nil, err
+	}
+	info, err := os.Stat(src)
+	if err != nil {
+		return nil, err
+	}
+	if info.IsDir() {
+		return nil, errors.New("directory transfer is not supported yet")
+	}
+	dst := filepath.Join(dstDir, filepath.Base(src))
+	if !s.withinAllowed(dst, roots) {
+		return nil, ErrPathOutOfBounds
+	}
+	if _, err := os.Stat(dst); err == nil {
+		return nil, fmt.Errorf("target already exists: %s", dst)
+	}
+	if mode == "" {
+		mode = TransferCopy
+	}
+	if err := transferFile(src, dst, mode); err != nil {
+		return nil, err
+	}
+	return &FileOperationResult{Path: dst}, nil
+}
+
+func (s *FileManagerService) walkEntries(root string, maxEntries int, out *Listing) error {
+	count := 0
+	return filepath.WalkDir(root, func(full string, d os.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if full == root {
+			return nil
+		}
+		if strings.HasPrefix(d.Name(), ".") {
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if count >= maxEntries {
+			return filepath.SkipAll
+		}
+		info, err := d.Info()
+		if err != nil {
+			return nil
+		}
+		out.Entries = append(out.Entries, s.entryFromInfo(full, info))
+		count++
+		return nil
+	})
+}
+
+func (s *FileManagerService) requireAllowedPath(path string, forbidRoot bool) (string, map[string]string, error) {
+	roots, _, err := s.allowedRootList()
+	if err != nil {
+		return "", nil, err
+	}
+	abs, err := filepath.Abs(strings.TrimSpace(path))
+	if err != nil {
+		return "", nil, err
+	}
+	if !s.withinAllowed(abs, roots) {
+		return "", nil, ErrPathOutOfBounds
+	}
+	if forbidRoot && s.isAllowedRoot(abs, roots) {
+		return "", nil, ErrRootMutation
+	}
+	return abs, roots, nil
+}
+
+func (s *FileManagerService) entryFromInfo(path string, info os.FileInfo) Entry {
+	return Entry{
+		Name:     filepath.Base(path),
+		Path:     path,
+		IsDir:    info.IsDir(),
+		Size:     info.Size(),
+		Modified: info.ModTime().Unix(),
+		Ext:      strings.TrimPrefix(strings.ToLower(filepath.Ext(path)), "."),
+	}
+}
+
+func sortFileEntries(entries []Entry) {
+	sort.Slice(entries, func(i, j int) bool {
+		if entries[i].IsDir != entries[j].IsDir {
+			return entries[i].IsDir
+		}
+		return strings.ToLower(entries[i].Path) < strings.ToLower(entries[j].Path)
+	})
+}
+
+// allowedRootList returns the union of configured storage roots as
+// label → absolute-path plus a sorted UI list.
+func (s *FileManagerService) allowedRootList() (map[string]string, []Root, error) {
+	roots, err := s.allowedRoots()
+	if err != nil {
+		return nil, nil, err
 	}
 	rootList := make([]Root, 0, len(roots))
 	seen := map[string]struct{}{}
@@ -86,62 +296,9 @@ func (s *FileManagerService) List(path string, maxEntries int) (*Listing, error)
 		rootList = append(rootList, Root{Label: label, Path: p})
 	}
 	sort.Slice(rootList, func(i, j int) bool { return rootList[i].Label < rootList[j].Label })
-
-	if path == "" {
-		// Listing the (virtual) root: just hand back the labels.
-		return &Listing{Path: "", Roots: rootList}, nil
-	}
-
-	abs, err := filepath.Abs(path)
-	if err != nil {
-		return nil, err
-	}
-	if !s.withinAllowed(abs, roots) {
-		return nil, ErrPathOutOfBounds
-	}
-
-	entries, err := os.ReadDir(abs)
-	if err != nil {
-		return nil, err
-	}
-	out := &Listing{Path: abs, Roots: rootList}
-	parent := filepath.Dir(abs)
-	if parent != abs && s.withinAllowed(parent, roots) {
-		out.Parent = parent
-	}
-
-	for i, e := range entries {
-		if i >= maxEntries {
-			break
-		}
-		name := e.Name()
-		if strings.HasPrefix(name, ".") {
-			continue
-		}
-		full := filepath.Join(abs, name)
-		info, err := e.Info()
-		if err != nil {
-			continue
-		}
-		out.Entries = append(out.Entries, Entry{
-			Name:     name,
-			Path:     full,
-			IsDir:    e.IsDir(),
-			Size:     info.Size(),
-			Modified: info.ModTime().Unix(),
-		})
-	}
-	sort.Slice(out.Entries, func(i, j int) bool {
-		if out.Entries[i].IsDir != out.Entries[j].IsDir {
-			return out.Entries[i].IsDir
-		}
-		return strings.ToLower(out.Entries[i].Name) < strings.ToLower(out.Entries[j].Name)
-	})
-	return out, nil
+	return roots, rootList, nil
 }
 
-// allowedRoots returns the union of {libraries, data_dir, cache_dir,
-// media.movies/tv/anime} as label → absolute-path.
 func (s *FileManagerService) allowedRoots() (map[string]string, error) {
 	roots := map[string]string{}
 	add := func(label, p string) {
@@ -162,23 +319,42 @@ func (s *FileManagerService) allowedRoots() (map[string]string, error) {
 	add("movies", s.cfg.Media.MoviesDir)
 	add("tv", s.cfg.Media.TVDir)
 	add("anime", s.cfg.Media.AnimeDir)
-	libs, err := s.repo.Library.List(context.Background()) // librarian list is fast; ctx not propagated from request
-	if err == nil {
-		for _, l := range libs {
-			add("library:"+l.Name, l.Path)
+	add("downloads", envOrDefault("MEDIASTATION_DOWNLOAD_CONTAINER_DIR", "/downloads"))
+	add("media", envOrDefault("MEDIASTATION_MEDIA_CONTAINER_DIR", "/media"))
+	if s.repo != nil && s.repo.Setting != nil {
+		addSetting := func(label, key string) {
+			if value, err := s.repo.Setting.Get(context.Background(), key); err == nil {
+				add(label, strings.TrimSpace(value))
+			}
+		}
+		addSetting("organize-source", "organize.source_dir")
+		addSetting("organize-target", "organize.target_dir")
+		addSetting("qb-savepath", "qbittorrent.savepath")
+	}
+	if s.repo != nil && s.repo.Library != nil {
+		libs, err := s.repo.Library.List(context.Background())
+		if err == nil {
+			for _, l := range libs {
+				add("library:"+l.Name, l.Path)
+			}
 		}
 	}
 	return roots, nil
 }
 
-// withinAllowed reports whether path lives under any allowed root.
 func (s *FileManagerService) withinAllowed(path string, roots map[string]string) bool {
-	for _, r := range roots {
-		rel, err := filepath.Rel(r, path)
-		if err != nil {
-			continue
+	for _, root := range roots {
+		if pathWithin(path, root) {
+			return true
 		}
-		if !strings.HasPrefix(rel, "..") && !filepath.IsAbs(rel) {
+	}
+	return false
+}
+
+func (s *FileManagerService) isAllowedRoot(path string, roots map[string]string) bool {
+	path = filepath.Clean(path)
+	for _, root := range roots {
+		if strings.EqualFold(path, filepath.Clean(root)) {
 			return true
 		}
 	}

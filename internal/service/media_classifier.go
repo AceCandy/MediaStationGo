@@ -114,9 +114,13 @@ func normalizeMediaType(mediaType, title, category string) string {
 		return "anime"
 	case "variety":
 		return "variety"
+	case "adult", "nsfw":
+		return "adult"
 	}
 	text := strings.ToLower(title + " " + category)
 	switch {
+	case strings.Contains(text, "adult") || strings.Contains(text, "nsfw") || strings.Contains(text, "成人") || strings.Contains(text, "番号") || strings.Contains(text, "jav") || strings.Contains(text, "9kg"):
+		return "adult"
 	case strings.Contains(text, "movie") || strings.Contains(text, "电影"):
 		return "movie"
 	case strings.Contains(text, "anime") || strings.Contains(text, "bangumi") || strings.Contains(text, "动漫") || strings.Contains(text, "动画"):

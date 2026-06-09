@@ -63,8 +63,7 @@ func transferFile(src, dst string, mode TransferMode) error {
 		return copyFile(src, dst)
 	case TransferHardlink:
 		if err := os.Link(src, dst); err != nil {
-			// 跨文件系统无法硬链接，退化为复制，仍保留源文件以便继续做种。
-			return copyFile(src, dst)
+			return fmt.Errorf("hardlink failed: %w; source and target must be on the same filesystem, choose copy if you want to duplicate data", err)
 		}
 		return nil
 	case TransferSymlink:

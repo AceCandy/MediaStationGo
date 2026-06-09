@@ -10,6 +10,10 @@ export interface OrganizeOverrides {
   source_path?: string
   dest_path?: string
   transfer_mode?: string
+  media_type?: string
+  scan_after?: boolean
+  library_id?: string
+  dry_run?: boolean
 }
 
 // OrganizeSource is a selectable organize source directory (e.g. the download
@@ -45,7 +49,34 @@ export const toolsAPI = {
   // into the destination with dedup + 洗版 (resolution replacement).
   organizeDirectory: (opts: OrganizeOverrides) =>
     api
-      .post<{ organized: number; skipped: number; replaced?: number; errors?: string[] }>(
+      .post<{
+        organized: number
+        skipped: number
+        replaced?: number
+        source_path?: string
+        dest_path?: string
+        errors?: string[]
+        dry_run?: boolean
+        items?: Array<{
+          source: string
+          target?: string
+          action: string
+          reason?: string
+          media_type?: string
+          category?: string
+          title?: string
+        }>
+        scans?: Array<{
+          library_id: string
+          name: string
+          path: string
+          visited: number
+          added: number
+          updated: number
+          removed: number
+          error?: string
+        }>
+      }>(
         '/admin/organize/source',
         opts,
       )

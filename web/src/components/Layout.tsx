@@ -6,7 +6,7 @@ import {
   Activity, Bell, Clock, CloudDownload, Compass, Film,
   Cast, Globe, HardDrive, Heart, Home, Image, KeySquare,
   ListMusic, LogOut, Rss, Search,
-  Settings, Sliders, Sparkles, UserCog, Wrench,
+  Settings, Sliders, Sparkles, UserCog,
   Library as LibraryIcon, User as UserIcon, ChevronDown, Menu, X
 } from 'lucide-react'
 import clsx from 'clsx'
@@ -194,7 +194,6 @@ export function Layout() {
             <div className="space-y-1">
               <SidebarLink to="/admin" icon={<Settings size={18} />} label="媒体与用户" collapsed={!isSidebarOpen && !isMobileDrawerOpen} />
               <SidebarLink to="/sites" icon={<Globe size={18} />} label="站点与下载器" collapsed={!isSidebarOpen && !isMobileDrawerOpen} />
-              <SidebarLink to="/tools" icon={<Wrench size={18} />} label="整理与维护" collapsed={!isSidebarOpen && !isMobileDrawerOpen} />
               <SidebarLink to="/storage" icon={<HardDrive size={18} />} label="存储与文件" collapsed={!isSidebarOpen && !isMobileDrawerOpen} />
               <SidebarLink to="/stats" icon={<Activity size={18} />} label="运行状态" collapsed={!isSidebarOpen && !isMobileDrawerOpen} />
               <SidebarLink to="/license" icon={<KeySquare size={18} />} label="授权许可" collapsed={!isSidebarOpen && !isMobileDrawerOpen} />
