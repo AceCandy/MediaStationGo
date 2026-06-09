@@ -80,8 +80,8 @@ func cloudMountHandler(svc *service.Container) gin.HandlerFunc {
 			name = cloudMountLibraryName(typ, strings.TrimSpace(in.Dir))
 		}
 		mediaType := strings.TrimSpace(in.MediaType)
-		if mediaType == "" {
-			mediaType = "movie"
+		if mediaType == "" || strings.EqualFold(mediaType, "auto") {
+			mediaType = cloudMountMediaType(strings.TrimSpace(in.Dir), name)
 		}
 		libs, err := svc.Repo.Library.List(c.Request.Context())
 		if err != nil {
@@ -124,11 +124,29 @@ func cloudMountLibraryName(typ, dir string) string {
 		base = "115 网盘"
 	case cloud.TypeCloudDrive2:
 		base = "CloudDrive2"
+	case cloud.TypeOpenList:
+		base = "OpenList"
 	}
 	if dir == "" || dir == "0" {
 		return base
 	}
 	return base + " · " + dir
+}
+
+func cloudMountMediaType(dir, name string) string {
+	text := strings.ToLower(dir + " " + name)
+	switch {
+	case strings.Contains(text, "成人") || strings.Contains(text, "adult") || strings.Contains(text, "jav") || strings.Contains(text, "9kg"):
+		return "adult"
+	case strings.Contains(text, "动漫") || strings.Contains(text, "动画") || strings.Contains(text, "国漫") || strings.Contains(text, "日番") || strings.Contains(text, "anime"):
+		return "anime"
+	case strings.Contains(text, "综艺") || strings.Contains(text, "variety") || strings.Contains(text, "show"):
+		return "variety"
+	case strings.Contains(text, "剧") || strings.Contains(text, "series") || strings.Contains(text, "tv"):
+		return "tv"
+	default:
+		return "movie"
+	}
 }
 
 // cloud115QRStartHandler begins a 115 QR-code login and returns the session +

@@ -380,18 +380,26 @@ http://host.docker.internal:8085
 
 启用智能分类后，下载会自动进入 `/downloads/动画电影`、`/downloads/国产剧`、`/downloads/综艺` 等分类目录。
 
-### 网盘与 CloudDrive2
+### 网盘、OpenList 与 CloudDrive2
 
-MediaStationGo 内置 Alist、WebDAV、115、夸克和 CloudDrive2 外部存储配置。推荐新手优先使用 CloudDrive2 或 Alist 作为桥接层：CloudDrive2 已经对接 115、123、阿里、夸克等多种网盘，项目通过它的 WebDAV 入口即可完成浏览、挂载媒体库、本地媒体转存和反代播放。
+MediaStationGo 内置 OpenList、Alist、WebDAV、115、夸克和 CloudDrive2 外部存储配置。推荐新手优先使用 OpenList、CloudDrive2 或 Alist 作为桥接层：它们可以对接 115、123、阿里、夸克等多种网盘，项目通过 OpenList/Alist API 或 WebDAV 入口即可完成浏览、挂载媒体库、本地媒体转存和反代播放。
 
-使用方式：
+OpenList 推荐用法：
+
+1. 在 OpenList 中挂载你的 115 / 123 / 阿里 / 夸克等网盘。
+2. 在 MediaStationGo 的「外部存储」中选择 `OpenList`。
+3. `OpenList Server URL` 填管理/API 地址，例如 `http://NAS-IP:5244`。
+4. `WebDAV URL` 填 WebDAV 地址，例如 `http://NAS-IP:5244/dav/`。
+5. 如果 OpenList 没有配置 HTTPS 反向代理，不要填写 `https://`。`Propfind "https://...": http: server gave HTTP response to HTTPS client` 表示你把 HTTP 服务误填成了 HTTPS。
+
+CloudDrive2 推荐用法：
 
 1. 在 CloudDrive2 中挂载你的 115 / 123 / 阿里 / 夸克等网盘。
 2. 在 MediaStationGo 的「外部存储」中选择 `CloudDrive2`。
 3. 填写 CloudDrive2 WebDAV 地址，例如 `http://host.docker.internal:19798/dav` 或 `http://NAS-IP:19798/dav`。
 4. 保存后可直接浏览网盘目录，或挂载为媒体库进行扫描播放。
 
-115 原生接口保留 Cookie / 扫码登录、目录浏览和 302 播放能力；本地文件上传建议优先走 CloudDrive2 / Alist 桥接，避免在项目内维护各网盘私有分片上传协议。
+115 原生接口保留 Cookie / 扫码登录、目录浏览和 302 播放能力；本地文件上传建议优先走 OpenList / CloudDrive2 / Alist 桥接，避免在项目内维护各网盘私有分片上传协议。
 
 ---
 

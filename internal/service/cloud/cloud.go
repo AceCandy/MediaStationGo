@@ -30,6 +30,7 @@ const (
 	TypeQuark       = "quark"       // 夸克网盘
 	Type115         = "cloud115"    // 115 网盘
 	TypeCloudDrive2 = "clouddrive2" // CloudDrive2 桥接网盘
+	TypeOpenList    = "openlist"    // OpenList / AList-compatible bridge
 )
 
 // ErrUnsupported is returned for an unknown provider type.
@@ -84,6 +85,8 @@ func New(typ string, cfg map[string]any, client *http.Client) (Provider, error) 
 		return new115(cfg, client), nil
 	case TypeCloudDrive2:
 		return newCloudDrive2(cfg, client), nil
+	case TypeOpenList:
+		return newOpenList(cfg, client), nil
 	default:
 		return nil, ErrUnsupported
 	}
@@ -91,7 +94,7 @@ func New(typ string, cfg map[string]any, client *http.Client) (Provider, error) 
 
 // IsCloudType reports whether typ is a cloud-disk provider.
 func IsCloudType(typ string) bool {
-	return typ == TypeQuark || typ == Type115 || typ == TypeCloudDrive2
+	return typ == TypeQuark || typ == Type115 || typ == TypeCloudDrive2 || typ == TypeOpenList
 }
 
 // str coerces a config value to a trimmed string.

@@ -10,10 +10,11 @@ import {
   type StorageType,
 } from '../api/storage_config'
 
-const CLOUD_TYPES: StorageType[] = ['cloud115', 'quark', 'clouddrive2']
+const CLOUD_TYPES: StorageType[] = ['cloud115', 'quark', 'clouddrive2', 'openlist']
 const isCloud = (t: StorageType) => CLOUD_TYPES.includes(t)
 const TYPE_LABEL: Record<string, string> = {
   alist: 'ALIST',
+  openlist: 'OpenList',
   webdav: 'WEBDAV',
   s3: 'S3',
   cloud115: '115网盘',
@@ -25,7 +26,7 @@ const TYPE_LABEL: Record<string, string> = {
 // the import / playback / STRM subsystems. Mirrors the Vue UI's
 // `admin/storage/*` tabs in a tabbed React surface.
 export function StorageConfigPage() {
-  const [active, setActive] = useState<StorageType>('alist')
+  const [active, setActive] = useState<StorageType>('openlist')
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-3">
@@ -35,13 +36,13 @@ export function StorageConfigPage() {
         <div>
           <h1 className="font-display text-3xl font-bold text-ink-600">外部存储</h1>
           <p className="text-sm text-ink-50">
-            配置 Alist / S3 / WebDAV / CloudDrive2 / 网盘(115 / 夸克)后端，支持本地转存、网盘挂载和 302/反代播放
+            配置 OpenList / Alist / S3 / WebDAV / CloudDrive2 / 网盘(115 / 夸克)后端，支持本地转存、网盘挂载和 302/反代播放
           </p>
         </div>
       </div>
 
       <div className="flex gap-2 border-b border-gray-200">
-        {(['alist', 'webdav', 'clouddrive2', 's3', 'cloud115', 'quark'] as StorageType[]).map((t) => (
+        {(['openlist', 'alist', 'webdav', 'clouddrive2', 's3', 'cloud115', 'quark'] as StorageType[]).map((t) => (
           <button
             key={t}
             onClick={() => setActive(t)}
@@ -66,6 +67,14 @@ const FIELD_DEFS: Record<StorageType, { key: string; label: string; secret?: boo
   alist: [
     { key: 'server', label: 'Server URL', placeholder: 'https://alist.example.com' },
     { key: 'token', label: 'Token', secret: true },
+  ],
+  openlist: [
+    { key: 'server', label: 'OpenList Server URL(API / 转存)', placeholder: 'http://NAS-IP:5244' },
+    { key: 'token', label: 'OpenList Token(API 转存可选)', secret: true },
+    { key: 'url', label: 'WebDAV URL(浏览/挂载)', placeholder: 'http://NAS-IP:5244/dav/' },
+    { key: 'username', label: 'WebDAV 用户名' },
+    { key: 'password', label: 'WebDAV 密码', secret: true },
+    { key: 'force_302', label: '强制 302 直链(true/false,默认反代)' },
   ],
   webdav: [
     { key: 'url', label: 'URL', placeholder: 'https://example.com/dav/' },
@@ -234,11 +243,11 @@ function StorageUploadPanel({ type }: { type: StorageType }) {
   const [overwrite, setOverwrite] = useState(false)
   const [busy, setBusy] = useState(false)
 
-  const supported = type === 'alist' || type === 'webdav' || type === 'clouddrive2'
+  const supported = type === 'alist' || type === 'openlist' || type === 'webdav' || type === 'clouddrive2'
 
   const submit = async () => {
     if (!supported) {
-      toast.error('本地直传目前支持 Alist / WebDAV / CloudDrive2。115/123/夸克建议通过 CloudDrive2 或 Alist 桥接后转存。')
+      toast.error('本地直传目前支持 OpenList / Alist / WebDAV / CloudDrive2。115/123/夸克建议通过 OpenList、CloudDrive2 或 Alist 桥接后转存。')
       return
     }
     if (!sourcePath.trim()) {
@@ -282,7 +291,12 @@ function StorageUploadPanel({ type }: { type: StorageType }) {
       </div>
       {!supported && (
         <p className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-          115 / 夸克原生上传需要私有分片上传协议。推荐把 115、123、夸克等挂载到 CloudDrive2 或 Alist 后，在这里选择 CloudDrive2 / Alist 转存。
+          115 / 夸克原生上传需要私有分片上传协议。推荐把 115、123、夸克等挂载到 OpenList、CloudDrive2 或 Alist 后，在这里选择 OpenList / CloudDrive2 / Alist 转存。
+        </p>
+      )}
+      {type === 'openlist' && (
+        <p className="mb-3 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-800">
+          OpenList 默认端口常见为 5244，WebDAV 地址通常是 http://host:5244/dav/。如果未配置 HTTPS 反代，请不要填写 https://，否则会出现 “server gave HTTP response to HTTPS client”。
         </p>
       )}
       {type === 'clouddrive2' && (
@@ -421,7 +435,8 @@ function CloudBrowser({ type }: { type: StorageType }) {
   const [items, setItems] = useState<CloudEntry[]>([])
   const [loading, setLoading] = useState(false)
   const [mounting, setMounting] = useState(false)
-  const [mountMediaType, setMountMediaType] = useState('movie')
+  const [batchMounting, setBatchMounting] = useState(false)
+  const [mountMediaType, setMountMediaType] = useState('auto')
   const [error, setError] = useState('')
 
   const cur = stack[stack.length - 1]
@@ -473,6 +488,32 @@ function CloudBrowser({ type }: { type: StorageType }) {
     }
   }
 
+  const mountVisibleDirectories = async () => {
+    const dirs = items.filter((item) => item.is_dir)
+    if (dirs.length === 0) {
+      toast.error('当前目录下没有可挂载的子目录')
+      return
+    }
+    setBatchMounting(true)
+    let ok = 0
+    let failed = 0
+    const label = TYPE_LABEL[type] ?? type
+    for (const dir of dirs) {
+      try {
+        await cloudAPI.mount(type, dir.id, `${label} · ${dir.name}`, 'auto')
+        ok += 1
+      } catch {
+        failed += 1
+      }
+    }
+    if (failed > 0) {
+      toast.error(`已挂载 ${ok} 个目录，失败 ${failed} 个；请查看日志或逐个挂载定位`)
+    } else {
+      toast.success(`已挂载 ${ok} 个目录为媒体库，后台会自动生成 302/STRM 播放入口`)
+    }
+    setBatchMounting(false)
+  }
+
   return (
     <div className="mt-2 rounded-lg border border-gray-200 p-3" onClick={(e) => e.preventDefault()}>
       <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
@@ -493,6 +534,7 @@ function CloudBrowser({ type }: { type: StorageType }) {
             value={mountMediaType}
             onChange={(event) => setMountMediaType(event.target.value)}
           >
+            <option value="auto">自动识别</option>
             <option value="movie">电影</option>
             <option value="tv">剧集</option>
             <option value="anime">动漫</option>
@@ -502,10 +544,18 @@ function CloudBrowser({ type }: { type: StorageType }) {
           <button
             type="button"
             className="rounded border border-brand-400/40 px-2 py-0.5 text-xs text-brand-500 hover:bg-brand-400/10"
-            disabled={mounting || loading}
+            disabled={mounting || batchMounting || loading}
             onClick={mountCurrent}
           >
             {mounting ? '挂载扫描中…' : '挂载当前目录为媒体库'}
+          </button>
+          <button
+            type="button"
+            className="rounded border border-blue-300 px-2 py-0.5 text-xs text-blue-600 hover:bg-blue-50"
+            disabled={mounting || batchMounting || loading || items.every((item) => !item.is_dir)}
+            onClick={mountVisibleDirectories}
+          >
+            {batchMounting ? '批量挂载中…' : '一键挂载当前目录下文件夹'}
           </button>
         </div>
       </div>
@@ -514,7 +564,7 @@ function CloudBrowser({ type }: { type: StorageType }) {
           <Loader2 className="animate-spin" size={16} />
         </div>
       ) : error ? (
-        <p className="py-2 text-sm text-red-400">{error}(请先填写有效 Cookie 并保存)</p>
+        <p className="py-2 text-sm text-red-400">{error}</p>
       ) : items.length === 0 ? (
         <p className="py-2 text-sm text-ink-50">该目录为空</p>
       ) : (

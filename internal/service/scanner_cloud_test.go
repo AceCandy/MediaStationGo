@@ -115,3 +115,78 @@ func TestCloudLibraryPathParsing(t *testing.T) {
 		t.Fatalf("115 ref = %q, want pick", ref)
 	}
 }
+
+func TestScanCloudLibraryReadsRemoteSTRMTarget(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case "PROPFIND":
+			if r.URL.Path != "/dav/Links" {
+				t.Fatalf("unexpected propfind path %s", r.URL.Path)
+			}
+			w.Header().Set("Content-Type", "application/xml")
+			w.WriteHeader(http.StatusMultiStatus)
+			_, _ = w.Write([]byte(`<?xml version="1.0" encoding="utf-8"?>
+<d:multistatus xmlns:d="DAV:">
+  <d:response>
+    <d:href>/dav/Links/</d:href>
+    <d:propstat><d:prop><d:resourcetype><d:collection/></d:resourcetype></d:prop></d:propstat>
+  </d:response>
+  <d:response>
+    <d:href>/dav/Links/Movie.strm</d:href>
+    <d:propstat><d:prop><d:displayname>Movie.strm</d:displayname><d:getcontentlength>32</d:getcontentlength><d:resourcetype/></d:prop></d:propstat>
+  </d:response>
+</d:multistatus>`))
+		case http.MethodGet:
+			if r.URL.Path != "/dav/Links/Movie.strm" {
+				t.Fatalf("unexpected get path %s", r.URL.Path)
+			}
+			_, _ = w.Write([]byte("https://cdn.example.com/Movie.mkv\n"))
+		default:
+			t.Fatalf("unexpected method %s", r.Method)
+		}
+	}))
+	defer upstream.Close()
+
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(&model.Library{}, &model.Media{}, &model.Setting{}, &model.StorageConfig{}); err != nil {
+		t.Fatal(err)
+	}
+	repos := repository.New(db)
+	log := zap.NewNop()
+	storage := NewStorageConfigService(log, repos, NewCryptoService("", log))
+	if _, err := storage.Save(t.Context(), StorageInput{
+		Type: "openlist",
+		Config: map[string]any{
+			"url": upstream.URL,
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	lib := model.Library{Name: "OpenList · Links", Path: "cloud://openlist/Links", Type: "movie", Enabled: true}
+	if err := repos.Library.Create(t.Context(), &lib); err != nil {
+		t.Fatal(err)
+	}
+	scanner := NewScannerService(&config.Config{}, log, repos, NewHub(log), nil, nil)
+	scanner.SetStorageConfig(storage)
+
+	res, err := scanner.ScanLibrary(t.Context(), lib.ID)
+	if err != nil {
+		t.Fatalf("scan cloud: %v", err)
+	}
+	if res.Added != 1 {
+		t.Fatalf("scan result = %#v, want added=1", res)
+	}
+	var media model.Media
+	if err := repos.DB.First(&media).Error; err != nil {
+		t.Fatal(err)
+	}
+	if media.Path != "cloud://openlist/Links/Movie.strm" {
+		t.Fatalf("path = %q", media.Path)
+	}
+	if media.STRMURL != "https://cdn.example.com/Movie.mkv" {
+		t.Fatalf("strm target = %q", media.STRMURL)
+	}
+}

@@ -372,6 +372,104 @@ func TestCloudDrive2WebDAVListAndResolve(t *testing.T) {
 	}
 }
 
+func TestOpenListWebDAVListAndResolve(t *testing.T) {
+	var gotPath, gotDepth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		gotDepth = r.Header.Get("Depth")
+		if r.Method != "PROPFIND" {
+			t.Fatalf("unexpected method %s", r.Method)
+		}
+		w.Header().Set("Content-Type", "application/xml")
+		w.WriteHeader(http.StatusMultiStatus)
+		_, _ = w.Write([]byte(`<?xml version="1.0" encoding="utf-8"?>
+<d:multistatus xmlns:d="DAV:">
+  <d:response>
+    <d:href>/dav/</d:href>
+    <d:propstat><d:prop><d:resourcetype><d:collection/></d:resourcetype></d:prop></d:propstat>
+  </d:response>
+  <d:response>
+    <d:href>/dav/Cloud/Movie.mkv</d:href>
+    <d:propstat><d:prop><d:displayname>Movie.mkv</d:displayname><d:getcontentlength>1024</d:getcontentlength><d:resourcetype/></d:prop></d:propstat>
+  </d:response>
+</d:multistatus>`))
+	}))
+	defer srv.Close()
+
+	p, err := New(TypeOpenList, map[string]any{"server": srv.URL, "username": "u", "password": "p"}, srv.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.Type() != TypeOpenList {
+		t.Fatalf("type = %q, want %q", p.Type(), TypeOpenList)
+	}
+	entries, err := p.List(context.Background(), "")
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if gotPath != "/dav" {
+		t.Fatalf("path = %q, want /dav", gotPath)
+	}
+	if gotDepth != "1" {
+		t.Fatalf("Depth = %q, want 1", gotDepth)
+	}
+	if len(entries) != 1 || entries[0].ID != "/Cloud/Movie.mkv" || entries[0].Size != 1024 {
+		t.Fatalf("entries = %#v", entries)
+	}
+	link, err := p.Resolve(context.Background(), entries[0].ID)
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	if link.URL != srv.URL+"/dav/Cloud/Movie.mkv" {
+		t.Fatalf("bad url: %s", link.URL)
+	}
+	if !link.Proxy {
+		t.Fatalf("openlist should default to proxy mode")
+	}
+}
+
+func TestOpenListRootURLDefaultsToDAV(t *testing.T) {
+	var gotPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		w.Header().Set("Content-Type", "application/xml")
+		w.WriteHeader(http.StatusMultiStatus)
+		_, _ = w.Write([]byte(`<?xml version="1.0" encoding="utf-8"?><d:multistatus xmlns:d="DAV:"><d:response><d:href>/dav/</d:href><d:propstat><d:prop><d:resourcetype><d:collection/></d:resourcetype></d:prop></d:propstat></d:response></d:multistatus>`))
+	}))
+	defer srv.Close()
+
+	p, err := New(TypeOpenList, map[string]any{"url": srv.URL + "/"}, srv.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.List(context.Background(), ""); err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if gotPath != "/dav" {
+		t.Fatalf("path = %q, want /dav", gotPath)
+	}
+}
+
+func TestOpenListDAVStatusErrorIncludesBodyHint(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		_, _ = w.Write([]byte("请先填写有效Cookie并保存"))
+	}))
+	defer srv.Close()
+
+	p, err := New(TypeOpenList, map[string]any{"url": srv.URL + "/dav"}, srv.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = p.List(context.Background(), "")
+	if err == nil {
+		t.Fatal("want error")
+	}
+	if !strings.Contains(err.Error(), "请先填写有效Cookie并保存") || !strings.Contains(err.Error(), "WebDAV 地址") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestUnsupportedProvider(t *testing.T) {
 	if _, err := New("dropbox", nil, nil); err != ErrUnsupported {
 		t.Fatalf("want ErrUnsupported, got %v", err)

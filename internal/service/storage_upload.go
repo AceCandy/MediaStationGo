@@ -24,7 +24,7 @@ const (
 	CloudUploadSidecarsKey         = "cloud.upload_sidecars"
 	CloudUploadOverwriteKey        = "cloud.upload_overwrite"
 	CloudUploadIntervalSecondsKey  = "cloud.upload_interval_seconds"
-	CloudUploadUnsupportedProvider = "本地文件直传目前支持 Alist / WebDAV / CloudDrive2；115/夸克原生上传需要各自的分片上传私有接口，建议先用 CloudDrive2 或 Alist 桥接后转存。"
+	CloudUploadUnsupportedProvider = "本地文件直传目前支持 Alist / OpenList / WebDAV / CloudDrive2；115/夸克原生上传需要各自的分片上传私有接口，建议先用 CloudDrive2、OpenList 或 Alist 桥接后转存。"
 )
 
 type CloudUploadInput struct {
@@ -129,6 +129,11 @@ func (s *StorageConfigService) uploader(ctx context.Context, typ string) (storag
 	switch typ {
 	case "alist":
 		return newAlistUploader(view.Config), nil
+	case "openlist":
+		if strings.TrimSpace(strr(view.Config["server"])) != "" {
+			return newNamedAlistUploader("openlist", view.Config), nil
+		}
+		return newWebDAVUploader(view.Config), nil
 	case "webdav":
 		return newWebDAVUploader(view.Config), nil
 	case "clouddrive2":
@@ -222,13 +227,19 @@ func joinRemotePath(base, rel string) string {
 }
 
 type alistUploader struct {
+	name   string
 	server string
 	token  string
 	client *http.Client
 }
 
 func newAlistUploader(cfg map[string]any) *alistUploader {
+	return newNamedAlistUploader("alist", cfg)
+}
+
+func newNamedAlistUploader(name string, cfg map[string]any) *alistUploader {
 	return &alistUploader{
+		name:   name,
 		server: strings.TrimRight(strr(cfg["server"]), "/"),
 		token:  strr(cfg["token"]),
 		client: &http.Client{},
@@ -237,7 +248,7 @@ func newAlistUploader(cfg map[string]any) *alistUploader {
 
 func (a *alistUploader) ensureDir(ctx context.Context, remoteDir string) error {
 	if a.server == "" {
-		return errors.New("alist missing server")
+		return fmt.Errorf("%s missing server", a.name)
 	}
 	remoteDir = normalizeRemotePath(remoteDir)
 	if remoteDir == "/" {
@@ -255,7 +266,7 @@ func (a *alistUploader) ensureDir(ctx context.Context, remoteDir string) error {
 		req.Header.Set("Content-Type", "application/json")
 		resp, err := a.client.Do(req)
 		if err != nil {
-			return err
+			return decorateStorageTransportError(a.name, a.server, err)
 		}
 		err = a.checkJSON(resp, "alist mkdir")
 		if err != nil && !isAlreadyExistsMessage(err.Error()) {
@@ -275,7 +286,7 @@ func (a *alistUploader) exists(ctx context.Context, remotePath string) (bool, er
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := a.client.Do(req)
 	if err != nil {
-		return false, err
+		return false, decorateStorageTransportError(a.name, a.server, err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode == http.StatusNotFound {
@@ -305,7 +316,7 @@ func (a *alistUploader) upload(ctx context.Context, localPath, remotePath string
 	req.Header.Set("File-Path", url.PathEscape(normalizeRemotePath(remotePath)))
 	resp, err := a.client.Do(req)
 	if err != nil {
-		return err
+		return decorateStorageTransportError(a.name, a.server, err)
 	}
 	return a.checkJSON(resp, "alist upload")
 }
@@ -373,7 +384,7 @@ func (w *webDAVUploader) ensureDir(ctx context.Context, remoteDir string) error 
 		w.auth(req)
 		resp, err := w.client.Do(req)
 		if err != nil {
-			return err
+			return decorateStorageTransportError("webdav", w.urlFor(current), err)
 		}
 		_, _ = io.Copy(io.Discard, resp.Body)
 		_ = resp.Body.Close()
@@ -396,7 +407,7 @@ func (w *webDAVUploader) exists(ctx context.Context, remotePath string) (bool, e
 	w.auth(req)
 	resp, err := w.client.Do(req)
 	if err != nil {
-		return false, err
+		return false, decorateStorageTransportError("webdav", w.urlFor(remotePath), err)
 	}
 	_, _ = io.Copy(io.Discard, resp.Body)
 	_ = resp.Body.Close()
@@ -420,7 +431,7 @@ func (w *webDAVUploader) upload(ctx context.Context, localPath, remotePath strin
 	req.ContentLength = size
 	resp, err := w.client.Do(req)
 	if err != nil {
-		return err
+		return decorateStorageTransportError("webdav", w.urlFor(remotePath), err)
 	}
 	_, _ = io.Copy(io.Discard, resp.Body)
 	_ = resp.Body.Close()

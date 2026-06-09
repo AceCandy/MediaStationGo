@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -147,6 +148,35 @@ func (s *StorageConfigService) Test(ctx context.Context, in StorageInput) error 
 			return fmt.Errorf("alist returned %d", resp.StatusCode)
 		}
 		return nil
+	case cloud.TypeOpenList:
+		if hasWebDAVProbeConfig(cfg) {
+			p, err := cloud.New(in.Type, cfg, s.client)
+			if err != nil {
+				return err
+			}
+			return p.Ping(ctx)
+		}
+		server := strings.TrimRight(strr(cfg["server"]), "/")
+		if server != "" {
+			req, _ := http.NewRequestWithContext(ctx, http.MethodGet, server+"/api/me", nil)
+			if tok := strr(cfg["token"]); tok != "" {
+				req.Header.Set("Authorization", tok)
+			}
+			resp, err := s.client.Do(req)
+			if err != nil {
+				return decorateStorageTransportError("openlist", server, err)
+			}
+			defer resp.Body.Close()
+			if resp.StatusCode >= 500 {
+				return fmt.Errorf("openlist returned %d", resp.StatusCode)
+			}
+			return nil
+		}
+		p, err := cloud.New(in.Type, cfg, s.client)
+		if err != nil {
+			return err
+		}
+		return p.Ping(ctx)
 	case "webdav":
 		u := strr(cfg["url"])
 		if u == "" {
@@ -159,7 +189,7 @@ func (s *StorageConfigService) Test(ctx context.Context, in StorageInput) error 
 		req.Header.Set("Depth", "0")
 		resp, err := s.client.Do(req)
 		if err != nil {
-			return err
+			return decorateStorageTransportError("webdav", u, err)
 		}
 		defer resp.Body.Close()
 		if resp.StatusCode >= 400 && resp.StatusCode != http.StatusUnauthorized {
@@ -235,6 +265,42 @@ func (s *StorageConfigService) CloudResolve(ctx context.Context, typ, fileRef, c
 	return p.Resolve(ctx, fileRef)
 }
 
+// CloudReadText resolves a small cloud file and returns its text payload. It is
+// used for cloud-hosted .strm files: the scanner reads the STRM target once and
+// stores the real playback URL, while the media bytes still stay in the cloud.
+func (s *StorageConfigService) CloudReadText(ctx context.Context, typ, fileRef string, limit int64) (string, error) {
+	if limit <= 0 {
+		limit = 64 << 10
+	}
+	link, err := s.CloudResolve(ctx, typ, fileRef, "")
+	if err != nil {
+		return "", err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, link.URL, nil)
+	if err != nil {
+		return "", err
+	}
+	for k, v := range link.Headers {
+		req.Header.Set(k, v)
+	}
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return "", fmt.Errorf("%s: read strm returned http %d", typ, resp.StatusCode)
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, limit+1))
+	if err != nil {
+		return "", err
+	}
+	if int64(len(body)) > limit {
+		return "", fmt.Errorf("%s: strm file is too large", typ)
+	}
+	return strings.TrimSpace(strings.TrimPrefix(string(body), "\ufeff")), nil
+}
+
 // cloudProviderWithUA builds a provider, overriding the request UA when a
 // non-empty clientUA is supplied.
 func (s *StorageConfigService) cloudProviderWithUA(ctx context.Context, typ, clientUA string) (cloud.Provider, error) {
@@ -270,6 +336,8 @@ func cloudLibraryName(typ string) string {
 		return "115 网盘"
 	case cloud.TypeCloudDrive2:
 		return "CloudDrive2"
+	case cloud.TypeOpenList:
+		return "OpenList"
 	default:
 		return typ
 	}
@@ -335,10 +403,31 @@ func (s *StorageConfigService) CloudImport(ctx context.Context, typ, fileRef, na
 
 func validStorageType(t string) bool {
 	switch t {
-	case "alist", "s3", "webdav", cloud.TypeQuark, cloud.Type115, cloud.TypeCloudDrive2:
+	case "alist", "s3", "webdav", cloud.TypeQuark, cloud.Type115, cloud.TypeCloudDrive2, cloud.TypeOpenList:
 		return true
 	}
 	return false
+}
+
+func hasWebDAVProbeConfig(cfg map[string]any) bool {
+	return strr(cfg["url"]) != "" ||
+		strr(cfg["webdav_url"]) != "" ||
+		strr(cfg["username"]) != "" ||
+		strr(cfg["password"]) != ""
+}
+
+func decorateStorageTransportError(name, target string, err error) error {
+	if err == nil {
+		return nil
+	}
+	message := err.Error()
+	if strings.Contains(message, "server gave HTTP response to HTTPS client") {
+		return fmt.Errorf("%s: %w；当前地址使用 https://，但服务端返回 HTTP。请改用 http:// 地址；OpenList 默认 WebDAV 通常是 http://host:5244/dav/，管理页面/API 地址通常是 http://host:5244", name, err)
+	}
+	if strings.Contains(message, "first record does not look like a TLS handshake") {
+		return fmt.Errorf("%s: %w；疑似把 HTTP 服务配置成了 https://，请检查 %s 的协议头", name, err, target)
+	}
+	return err
 }
 
 // strr is a tiny helper to avoid importing fmt.Sprint just to coerce

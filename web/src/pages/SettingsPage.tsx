@@ -291,8 +291,22 @@ const GROUPS: SettingGroup[] = [
   {
     key: 'cloud-upload',
     label: '网盘转存',
-    description: '把本地媒体复制上传到外部存储。推荐：将 115、123、夸克等挂载到 CloudDrive2 或 Alist 后，使用桥接目标转存。',
+    description: '把本地媒体复制上传到外部存储。推荐：将 115、123、夸克等挂载到 OpenList、CloudDrive2 或 Alist 后，使用桥接目标转存。',
     items: [
+      {
+        key: 'cloud.auto_sync_enabled',
+        label: '自动同步网盘媒体库',
+        type: 'toggle',
+        hint: '开启后后台会按间隔刷新已挂载的 cloud:// 媒体库，自动生成或更新 302/STRM 播放入口；不会下载网盘文件到本地。',
+        defaultValue: 'true',
+      },
+      {
+        key: 'cloud.sync_interval_seconds',
+        label: '网盘媒体库同步间隔秒数',
+        type: 'number',
+        hint: '最小 300 秒，建议 1800 秒或更高；手动可在任务调度中运行 cloud_sync。',
+        defaultValue: '1800',
+      },
       {
         key: 'cloud.upload_auto_enabled',
         label: '启用自动转存',
@@ -306,6 +320,7 @@ const GROUPS: SettingGroup[] = [
         type: 'select',
         defaultValue: 'alist',
         options: [
+          { value: 'openlist', label: 'OpenList（推荐，可桥接 115/123/阿里/夸克）' },
           { value: 'clouddrive2', label: 'CloudDrive2（推荐，可桥接 115/123/阿里/夸克）' },
           { value: 'alist', label: 'Alist（可桥接多网盘）' },
           { value: 'webdav', label: 'WebDAV' },

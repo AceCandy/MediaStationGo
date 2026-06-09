@@ -270,6 +270,13 @@ func (s *ScannerService) ingestCloudFile(ctx context.Context, lib *model.Library
 		STRMURL:      "/api/cloud/play/" + typ + "?ref=" + url.QueryEscape(ref),
 		ScrapeStatus: "pending",
 	}
+	if ext == ".strm" {
+		if targetURL, err := s.resolveCloudSTRMTarget(ctx, typ, ref); err == nil && targetURL != "" {
+			m.STRMURL = targetURL
+		} else if err != nil {
+			s.log.Debug("read cloud strm failed", zap.String("ref", ref), zap.Error(err))
+		}
+	}
 	parsedSeason, parsedEpisode := ParseEpisode(name)
 	m.SeasonNum = parsedSeason
 	m.EpisodeNum = parsedEpisode
@@ -511,7 +518,32 @@ func cloudEntryRef(typ, id, pickCode string) string {
 }
 
 func cloudMediaPath(typ, ref string) string {
-	return "cloud://" + strings.TrimSpace(typ) + "/" + strings.TrimSpace(ref)
+	return "cloud://" + strings.TrimSpace(typ) + "/" + strings.TrimLeft(strings.TrimSpace(ref), "/")
+}
+
+func (s *ScannerService) resolveCloudSTRMTarget(ctx context.Context, typ, ref string) (string, error) {
+	if s.storage == nil {
+		return "", nil
+	}
+	content, err := s.storage.CloudReadText(ctx, typ, ref, 64<<10)
+	if err != nil {
+		return "", err
+	}
+	for _, line := range strings.Split(content, "\n") {
+		candidate := strings.TrimSpace(strings.TrimPrefix(line, "\ufeff"))
+		if candidate == "" || strings.HasPrefix(candidate, "#") {
+			continue
+		}
+		u, err := url.Parse(candidate)
+		if err != nil {
+			continue
+		}
+		switch strings.ToLower(u.Scheme) {
+		case "http", "https", "webdav", "davs", "alist", "alists", "openlist", "openlists":
+			return candidate, nil
+		}
+	}
+	return "", nil
 }
 
 func applyLocalMetadata(m *model.Media, local *LocalMetadata) {

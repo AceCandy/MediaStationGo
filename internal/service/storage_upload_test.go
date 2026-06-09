@@ -93,6 +93,81 @@ func TestStorageConfigUploadLocalToAlist(t *testing.T) {
 	}
 }
 
+func TestStorageConfigUploadLocalToOpenListAPI(t *testing.T) {
+	var uploaded []string
+	openlist := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/fs/mkdir":
+			_, _ = w.Write([]byte(`{"code":200,"message":"success"}`))
+		case "/api/fs/get":
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`{"code":404,"message":"not found"}`))
+		case "/api/fs/put":
+			if r.Header.Get("Authorization") != "openlist-token" {
+				t.Fatalf("authorization = %q", r.Header.Get("Authorization"))
+			}
+			decoded, err := url.PathUnescape(r.Header.Get("File-Path"))
+			if err != nil {
+				t.Fatalf("decode file path: %v", err)
+			}
+			uploaded = append(uploaded, decoded)
+			_, _ = w.Write([]byte(`{"code":200,"message":"success"}`))
+		default:
+			t.Fatalf("unexpected openlist path %s", r.URL.Path)
+		}
+	}))
+	defer openlist.Close()
+
+	_, storage := newStorageUploadTestService(t)
+	if _, err := storage.Save(t.Context(), StorageInput{
+		Type: "openlist",
+		Config: map[string]any{
+			"server": openlist.URL,
+			"token":  "openlist-token",
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	source := t.TempDir()
+	if err := os.WriteFile(filepath.Join(source, "Movie.2026.mkv"), []byte("movie"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := storage.UploadLocal(t.Context(), CloudUploadInput{
+		Type:       "openlist",
+		SourcePath: source,
+		DestPath:   "/OpenList",
+		Recursive:  true,
+	})
+	if err != nil {
+		t.Fatalf("upload local: %v", err)
+	}
+	if res.Uploaded != 1 || len(uploaded) != 1 || uploaded[0] != "/OpenList/Movie.2026.mkv" {
+		t.Fatalf("result = %+v uploaded=%#v", res, uploaded)
+	}
+}
+
+func TestStorageConfigOpenListHTTPSAgainstHTTPHint(t *testing.T) {
+	openlist := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"code":200}`))
+	}))
+	defer openlist.Close()
+
+	_, storage := newStorageUploadTestService(t)
+	badHTTPS := "https://" + strings.TrimPrefix(openlist.URL, "http://")
+	err := storage.Test(t.Context(), StorageInput{
+		Type: "openlist",
+		Config: map[string]any{
+			"server": badHTTPS,
+		},
+	})
+	if err == nil {
+		t.Fatal("want protocol mismatch error")
+	}
+	if !strings.Contains(err.Error(), "请改用 http://") || !strings.Contains(err.Error(), "server gave HTTP response to HTTPS client") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestSchedulerCloudUploadUsesConfiguredLocalSource(t *testing.T) {
 	var uploaded []string
 	alist := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

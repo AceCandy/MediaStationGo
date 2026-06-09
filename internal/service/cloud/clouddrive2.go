@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/xml"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -21,6 +20,8 @@ import (
 // browse, mount and upload to those disks without carrying every provider's
 // private chunk-upload protocol in this project.
 type cloudDrive2Provider struct {
+	typ      string
+	name     string
 	base     *url.URL
 	username string
 	password string
@@ -31,10 +32,15 @@ type cloudDrive2Provider struct {
 }
 
 func newCloudDrive2(cfg map[string]any, client *http.Client) *cloudDrive2Provider {
-	rawURL := str(cfg["url"])
-	if rawURL == "" {
-		rawURL = str(cfg["server"])
-	}
+	return newCloudDAVProvider(TypeCloudDrive2, "clouddrive2", cfg, client, "/dav")
+}
+
+func newOpenList(cfg map[string]any, client *http.Client) *cloudDrive2Provider {
+	return newCloudDAVProvider(TypeOpenList, "openlist", cfg, client, "/dav")
+}
+
+func newCloudDAVProvider(typ, name string, cfg map[string]any, client *http.Client, defaultDAVPath string) *cloudDrive2Provider {
+	rawURL := webDAVURLFromConfig(cfg, defaultDAVPath)
 	u, _ := url.Parse(strings.TrimRight(rawURL, "/"))
 	ua := str(cfg["ua"])
 	if ua == "" {
@@ -45,6 +51,8 @@ func newCloudDrive2(cfg map[string]any, client *http.Client) *cloudDrive2Provide
 		proxy = false
 	}
 	return &cloudDrive2Provider{
+		typ:      typ,
+		name:     name,
 		base:     u,
 		username: str(cfg["username"]),
 		password: str(cfg["password"]),
@@ -55,7 +63,7 @@ func newCloudDrive2(cfg map[string]any, client *http.Client) *cloudDrive2Provide
 	}
 }
 
-func (p *cloudDrive2Provider) Type() string { return TypeCloudDrive2 }
+func (p *cloudDrive2Provider) Type() string { return p.typ }
 
 func (p *cloudDrive2Provider) Ping(ctx context.Context) error {
 	_, err := p.List(ctx, "")
@@ -77,16 +85,16 @@ func (p *cloudDrive2Provider) List(ctx context.Context, dir string) ([]FileEntry
 	req.Header.Set("Accept", "application/xml,text/xml,*/*")
 	resp, err := p.client.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, decorateDAVTransportError(p.name, p.urlFor(target), err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("clouddrive2: list %s returned http %d", target, resp.StatusCode)
+		return nil, p.decorateDAVStatusError(resp, target)
 	}
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
 	var multi cloudDAVMultiStatus
 	if err := xml.Unmarshal(body, &multi); err != nil {
-		return nil, fmt.Errorf("clouddrive2: decode webdav: %w", err)
+		return nil, fmt.Errorf("%s: decode webdav: %w", p.name, err)
 	}
 	basePath := strings.TrimRight(p.base.EscapedPath(), "/")
 	currentID := normalizeCloudDAVPath(target)
@@ -119,7 +127,7 @@ func (p *cloudDrive2Provider) Resolve(ctx context.Context, fileRef string) (*Dir
 	}
 	ref := normalizeCloudDAVPath(fileRef)
 	if ref == "/" {
-		return nil, errors.New("clouddrive2: file reference required")
+		return nil, fmt.Errorf("%s: file reference required", p.name)
 	}
 	headers := map[string]string{
 		"User-Agent": p.ua,
@@ -134,7 +142,7 @@ func (p *cloudDrive2Provider) Resolve(ctx context.Context, fileRef string) (*Dir
 
 func (p *cloudDrive2Provider) validate() error {
 	if p.base == nil || p.base.Scheme == "" || p.base.Host == "" {
-		return errors.New("clouddrive2: missing WebDAV URL")
+		return fmt.Errorf("%s: missing WebDAV URL", p.name)
 	}
 	return nil
 }
@@ -148,6 +156,97 @@ func (p *cloudDrive2Provider) auth(req *http.Request) {
 	if p.username != "" {
 		req.SetBasicAuth(p.username, p.password)
 	}
+}
+
+func webDAVURLFromConfig(cfg map[string]any, defaultDAVPath string) string {
+	rawURL := str(cfg["url"])
+	if rawURL == "" {
+		rawURL = str(cfg["webdav_url"])
+	}
+	if rawURL != "" {
+		return ensureDefaultDAVPath(rawURL, defaultDAVPath)
+	}
+	return defaultWebDAVURL(str(cfg["server"]), defaultDAVPath)
+}
+
+func defaultWebDAVURL(server, defaultDAVPath string) string {
+	server = strings.TrimRight(strings.TrimSpace(server), "/")
+	if server == "" {
+		return ""
+	}
+	davPath := strings.TrimSpace(defaultDAVPath)
+	if davPath == "" {
+		return server
+	}
+	if !strings.HasPrefix(davPath, "/") {
+		davPath = "/" + davPath
+	}
+	return server + davPath
+}
+
+func ensureDefaultDAVPath(rawURL, defaultDAVPath string) string {
+	rawURL = strings.TrimRight(strings.TrimSpace(rawURL), "/")
+	if rawURL == "" {
+		return ""
+	}
+	u, err := url.Parse(rawURL)
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return rawURL
+	}
+	if strings.TrimSpace(defaultDAVPath) == "" {
+		return rawURL
+	}
+	if u.Path == "" || u.Path == "/" {
+		davPath := strings.TrimSpace(defaultDAVPath)
+		if !strings.HasPrefix(davPath, "/") {
+			davPath = "/" + davPath
+		}
+		u.Path = davPath
+		u.RawPath = ""
+		return strings.TrimRight(u.String(), "/")
+	}
+	return rawURL
+}
+
+func (p *cloudDrive2Provider) decorateDAVStatusError(resp *http.Response, target string) error {
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	detail := compactDAVErrorBody(string(body))
+	if detail == "" {
+		return fmt.Errorf("%s: list %s returned http %d", p.name, target, resp.StatusCode)
+	}
+	if resp.StatusCode == http.StatusMethodNotAllowed {
+		return fmt.Errorf("%s: list %s returned http %d：%s；请确认填写的是 WebDAV 地址（通常以 /dav 结尾），并且桥接网盘已在 OpenList/CloudDrive2 内完成登录或 Cookie 保存", p.name, target, resp.StatusCode, detail)
+	}
+	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+		return fmt.Errorf("%s: list %s returned http %d：%s；请检查 WebDAV 用户名/密码、Authorization Token，或先在 OpenList/CloudDrive2 中保存对应网盘 Cookie", p.name, target, resp.StatusCode, detail)
+	}
+	return fmt.Errorf("%s: list %s returned http %d：%s", p.name, target, resp.StatusCode, detail)
+}
+
+func compactDAVErrorBody(raw string) string {
+	raw = strings.TrimSpace(strings.ReplaceAll(raw, "\x00", ""))
+	if raw == "" {
+		return ""
+	}
+	raw = strings.Join(strings.Fields(raw), " ")
+	if len([]rune(raw)) > 180 {
+		return string([]rune(raw)[:180]) + "…"
+	}
+	return raw
+}
+
+func decorateDAVTransportError(name, target string, err error) error {
+	if err == nil {
+		return nil
+	}
+	message := err.Error()
+	if strings.Contains(message, "server gave HTTP response to HTTPS client") {
+		return fmt.Errorf("%s: %w；当前地址使用 https://，但服务端返回 HTTP。请改用 http:// 地址，例如 OpenList 默认 WebDAV 通常是 http://host:5244/dav/；如果必须使用 https，请在 OpenList 前配置反向代理和证书", name, err)
+	}
+	if strings.Contains(message, "first record does not look like a TLS handshake") {
+		return fmt.Errorf("%s: %w；疑似把 HTTP 服务配置成了 https://，请检查 %s 的协议头", name, err, target)
+	}
+	return err
 }
 
 func (p *cloudDrive2Provider) urlFor(remotePath string) string {
