@@ -7,6 +7,10 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -31,9 +35,268 @@ type STRMService struct {
 	cfg  *config.Config
 }
 
+type GenerateSTRMOptions struct {
+	LibraryID    string `json:"library_id"`
+	OutputDir    string `json:"output_dir"`
+	BaseURL      string `json:"base_url,omitempty"`
+	Enabled      bool   `json:"enabled"`
+	Overwrite    bool   `json:"overwrite"`
+	IncludeLocal bool   `json:"include_local"`
+}
+
+type GenerateSTRMResult struct {
+	LibraryID string             `json:"library_id"`
+	OutputDir string             `json:"output_dir"`
+	Generated int                `json:"generated"`
+	Updated   int                `json:"updated"`
+	Skipped   int                `json:"skipped"`
+	Errors    []string           `json:"errors,omitempty"`
+	Items     []GenerateSTRMItem `json:"items,omitempty"`
+}
+
+type GenerateSTRMItem struct {
+	MediaID  string `json:"media_id"`
+	Title    string `json:"title"`
+	FilePath string `json:"file_path"`
+	URL      string `json:"url,omitempty"`
+	Action   string `json:"action"`
+	Reason   string `json:"reason,omitempty"`
+}
+
 // NewSTRMService 创建 STRM 服务。
 func NewSTRMService(log *zap.Logger, repo *repository.Container, cfg *config.Config) *STRMService {
 	return &STRMService{log: log, repo: repo, cfg: cfg}
+}
+
+func (s *STRMService) GenerateForLibrary(ctx context.Context, opts GenerateSTRMOptions) (*GenerateSTRMResult, error) {
+	if s == nil || s.repo == nil || s.repo.DB == nil {
+		return nil, errors.New("strm service unavailable")
+	}
+	libraryID := strings.TrimSpace(opts.LibraryID)
+	if libraryID == "" {
+		return nil, errors.New("library_id required")
+	}
+	lib, err := s.repo.Library.FindByID(ctx, libraryID)
+	if err != nil {
+		return nil, err
+	}
+	if lib == nil {
+		return nil, errors.New("library not found")
+	}
+	outputDir := resolveMappedDestinationPath(strings.TrimSpace(opts.OutputDir))
+	if (outputDir == "" || outputDir == ".") && s.repo.Setting != nil {
+		if saved, err := s.repo.Setting.Get(ctx, "strm.output_dir"); err == nil {
+			outputDir = resolveMappedDestinationPath(strings.TrimSpace(saved))
+		}
+	}
+	if outputDir == "" || outputDir == "." {
+		outputDir = s.defaultOutputDir(lib)
+	}
+	if outputDir == "" || outputDir == "." {
+		return nil, errors.New("output_dir required")
+	}
+	if strings.TrimSpace(opts.BaseURL) != "" && s.repo.Setting != nil {
+		_ = s.repo.Setting.Set(ctx, "app.server_url", strings.TrimRight(strings.TrimSpace(opts.BaseURL), "/"))
+	}
+	if s.repo.Setting != nil {
+		_ = s.repo.Setting.Set(ctx, "strm.auto_generate_enabled", strconv.FormatBool(opts.Enabled))
+		_ = s.repo.Setting.Set(ctx, "strm.output_dir", outputDir)
+	}
+	if err := os.MkdirAll(outputDir, 0o755); err != nil {
+		return nil, err
+	}
+
+	var rows []model.Media
+	if err := s.repo.DB.WithContext(ctx).
+		Where("library_id = ?", libraryID).
+		Order("title asc, season_num asc, episode_num asc, created_at asc").
+		Find(&rows).Error; err != nil {
+		return nil, err
+	}
+
+	res := &GenerateSTRMResult{LibraryID: libraryID, OutputDir: outputDir}
+	for _, media := range rows {
+		select {
+		case <-ctx.Done():
+			return res, ctx.Err()
+		default:
+		}
+		item := s.generateOne(ctx, *lib, media, outputDir, opts)
+		res.Items = append(res.Items, item)
+		switch item.Action {
+		case "generated":
+			res.Generated++
+		case "updated":
+			res.Updated++
+		case "skipped":
+			res.Skipped++
+		case "error":
+			res.Errors = append(res.Errors, fmt.Sprintf("%s: %s", item.Title, item.Reason))
+		}
+	}
+	return res, nil
+}
+
+func (s *STRMService) defaultOutputDir(lib *model.Library) string {
+	if s != nil && s.cfg != nil && strings.TrimSpace(s.cfg.App.DataDir) != "" {
+		return filepath.Join(s.cfg.App.DataDir, "strm", sanitizeFilename(lib.Name))
+	}
+	return filepath.Join("data", "strm", sanitizeFilename(lib.Name))
+}
+
+func (s *STRMService) generateOne(ctx context.Context, lib model.Library, media model.Media, outputDir string, opts GenerateSTRMOptions) GenerateSTRMItem {
+	item := GenerateSTRMItem{MediaID: media.ID, Title: media.Title}
+	playURL := s.strmPlaybackURL(ctx, media, opts.BaseURL)
+	if playURL == "" {
+		item.Action = "skipped"
+		item.Reason = "no playable strm target"
+		return item
+	}
+	if strings.TrimSpace(media.STRMURL) == "" && !opts.IncludeLocal {
+		item.Action = "skipped"
+		item.Reason = "local media skipped"
+		return item
+	}
+	rel := s.strmRelativePath(lib, media)
+	if rel == "" {
+		item.Action = "skipped"
+		item.Reason = "cannot build file name"
+		return item
+	}
+	filePath := filepath.Join(outputDir, rel)
+	item.FilePath = filePath
+	item.URL = playURL
+	if _, err := os.Stat(filePath); err == nil && !opts.Overwrite {
+		item.Action = "skipped"
+		item.Reason = "target exists"
+		return item
+	}
+	action := "generated"
+	if _, err := os.Stat(filePath); err == nil {
+		action = "updated"
+	}
+	if err := os.MkdirAll(filepath.Dir(filePath), 0o755); err != nil {
+		item.Action = "error"
+		item.Reason = err.Error()
+		return item
+	}
+	if err := os.WriteFile(filePath, []byte(playURL+"\n"), 0o644); err != nil {
+		item.Action = "error"
+		item.Reason = err.Error()
+		return item
+	}
+	_ = s.upsertGeneratedRecord(ctx, media, filePath, playURL, lib.Type)
+	item.Action = action
+	return item
+}
+
+func (s *STRMService) strmPlaybackURL(ctx context.Context, media model.Media, baseURL string) string {
+	if raw := strings.TrimSpace(media.STRMURL); raw != "" {
+		return absolutizeSTRMURL(raw, firstNonEmpty(baseURL, PublicServerURL(ctx, s.repo, s.cfg)))
+	}
+	if media.ID == "" {
+		return ""
+	}
+	return buildAbsoluteSTRMAPIURL(firstNonEmpty(baseURL, PublicServerURL(ctx, s.repo, s.cfg)), "/api/stream/"+url.PathEscape(media.ID), nil)
+}
+
+func (s *STRMService) strmRelativePath(lib model.Library, media model.Media) string {
+	title := strings.TrimSpace(media.Title)
+	if title == "" {
+		title = strings.TrimSuffix(filepath.Base(media.Path), filepath.Ext(media.Path))
+	}
+	if title == "" {
+		return ""
+	}
+	seriesLike := isSeriesLibraryType(lib.Type) || media.SeasonNum > 0 || media.EpisodeNum > 0
+	if seriesLike {
+		show := inferSeriesNameFromPath(media.Path)
+		if show == "" {
+			show = title
+		}
+		season := media.SeasonNum
+		if season <= 0 {
+			season = 1
+		}
+		name := title
+		if media.EpisodeNum > 0 {
+			name = fmt.Sprintf("%s - S%02dE%02d", show, season, media.EpisodeNum)
+		}
+		return filepath.Join(sanitizeFilename(show), fmt.Sprintf("Season %02d", season), sanitizeFilename(name)+".strm")
+	}
+	folder := title
+	if media.Year > 0 && !strings.Contains(folder, strconv.Itoa(media.Year)) {
+		folder = fmt.Sprintf("%s (%d)", folder, media.Year)
+	}
+	safe := sanitizeFilename(folder)
+	return filepath.Join(safe, safe+".strm")
+}
+
+func (s *STRMService) upsertGeneratedRecord(ctx context.Context, media model.Media, filePath, playURL, mediaType string) error {
+	protocol := ""
+	if u, err := url.Parse(playURL); err == nil {
+		protocol = strings.ToLower(u.Scheme)
+	}
+	if protocol == "" {
+		protocol = "http"
+	}
+	record := model.STRMRecord{
+		Title:      media.Title,
+		URL:        playURL,
+		FilePath:   filePath,
+		Protocol:   protocol,
+		MediaID:    media.ID,
+		MediaType:  mediaType,
+		SeasonNum:  media.SeasonNum,
+		EpisodeNum: media.EpisodeNum,
+	}
+	var existing model.STRMRecord
+	err := s.repo.DB.WithContext(ctx).Where("media_id = ? AND file_path = ?", media.ID, filePath).First(&existing).Error
+	if err == nil {
+		existing.Title = record.Title
+		existing.URL = record.URL
+		existing.Protocol = record.Protocol
+		existing.MediaType = record.MediaType
+		existing.SeasonNum = record.SeasonNum
+		existing.EpisodeNum = record.EpisodeNum
+		return s.repo.DB.WithContext(ctx).Save(&existing).Error
+	}
+	return s.repo.DB.WithContext(ctx).Create(&record).Error
+}
+
+func absolutizeSTRMURL(raw, baseURL string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || strings.HasPrefix(raw, "//") {
+		return raw
+	}
+	u, err := url.Parse(raw)
+	if err == nil && u.IsAbs() {
+		return raw
+	}
+	return buildAbsoluteSTRMAPIURL(baseURL, raw, nil)
+}
+
+func buildAbsoluteSTRMAPIURL(baseURL, apiPath string, query url.Values) string {
+	apiPath = "/" + strings.TrimLeft(strings.TrimSpace(apiPath), "/")
+	if query != nil && len(query) > 0 {
+		apiPath += "?" + query.Encode()
+	}
+	baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	if baseURL == "" {
+		return apiPath
+	}
+	base, err := url.Parse(baseURL)
+	if err != nil || base.Scheme == "" || base.Host == "" {
+		return apiPath
+	}
+	target, err := url.Parse(apiPath)
+	if err != nil {
+		return apiPath
+	}
+	base.Path = strings.TrimRight(base.Path, "/") + "/" + strings.TrimLeft(target.Path, "/")
+	base.RawQuery = target.RawQuery
+	base.Fragment = ""
+	return base.String()
 }
 
 // Create 创建 STRM 记录。

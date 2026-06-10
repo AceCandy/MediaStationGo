@@ -68,6 +68,33 @@ func TestIngestPathAddsSingleFile(t *testing.T) {
 	}
 }
 
+func TestScanLibraryReadsLocalSTRMTarget(t *testing.T) {
+	sc, repos := newScannerTestEnv(t)
+	root := t.TempDir()
+	lib := model.Library{Name: "STRM", Path: root, Type: "movie", Enabled: true}
+	if err := repos.Library.Create(t.Context(), &lib); err != nil {
+		t.Fatal(err)
+	}
+	strmPath := filepath.Join(root, "Cloud Movie.strm")
+	if err := os.WriteFile(strmPath, []byte("https://cdn.example.com/movie.mkv\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := sc.ScanLibrary(t.Context(), lib.ID)
+	if err != nil {
+		t.Fatalf("scan: %v", err)
+	}
+	if res.Added != 1 {
+		t.Fatalf("scan result = %#v, want added=1", res)
+	}
+	var media model.Media
+	if err := repos.DB.First(&media).Error; err != nil {
+		t.Fatal(err)
+	}
+	if media.Container != "strm" || media.STRMURL != "https://cdn.example.com/movie.mkv" {
+		t.Fatalf("strm media not parsed: %#v", media)
+	}
+}
+
 func TestRemovePathDeletesVanishedMedia(t *testing.T) {
 	sc, repos := newScannerTestEnv(t)
 	root := t.TempDir()

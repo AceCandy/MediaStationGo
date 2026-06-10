@@ -123,6 +123,7 @@ func registerAuthenticatedRoutes(api *gin.RouterGroup, cfg *config.Config, svc *
 		authed.PUT("/media/:id/strm", middleware.AdminRequired(), setSTRMHandler(svc))
 		authed.DELETE("/media/:id/strm", middleware.AdminRequired(), clearSTRMHandler(svc))
 		authed.POST("/strm/import", middleware.AdminRequired(), importSTRMHandler(svc))
+		authed.POST("/strm/generate", middleware.AdminRequired(), generateSTRMHandler(svc))
 
 		// Duplicate finder.
 		authed.GET("/duplicates", middleware.AdminRequired(), listDuplicatesHandler(svc))

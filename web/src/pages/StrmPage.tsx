@@ -1,9 +1,10 @@
 import { FormEvent, useEffect, useState } from 'react'
-import { Link as LinkIcon, Plus, Search, Trash2 } from 'lucide-react'
+import { Link as LinkIcon, Loader2, Plus, Search, Trash2, Wand2 } from 'lucide-react'
 import toast from 'react-hot-toast'
 
+import { adminAPI } from '../api/admin'
 import { libraryAPI, mediaAPI } from '../api/library'
-import { strmAPI } from '../api/strm'
+import { strmAPI, type GenerateSTRMResult } from '../api/strm'
 import { confirmAction } from '../components/ConfirmDialog'
 import type { Library, Media } from '../types'
 
@@ -15,6 +16,14 @@ import type { Library, Media } from '../types'
 //     local file.
 export function StrmPage() {
   const [libraries, setLibraries] = useState<Library[]>([])
+
+  // Auto-generate state
+  const [generateLibraryID, setGenerateLibraryID] = useState('')
+  const [baseURL, setBaseURL] = useState('')
+  const [outputDir, setOutputDir] = useState('')
+  const [overwrite, setOverwrite] = useState(false)
+  const [generating, setGenerating] = useState(false)
+  const [generateResult, setGenerateResult] = useState<GenerateSTRMResult | null>(null)
 
   // Import form state
   const [libraryID, setLibraryID] = useState('')
@@ -30,12 +39,51 @@ export function StrmPage() {
 
   useEffect(() => {
     libraryAPI.list().then(setLibraries).catch(() => undefined)
+    adminAPI
+      .listSettings()
+      .then((rows) => {
+        const settings = Object.fromEntries(rows.map((row) => [row.key, row.value]))
+        setBaseURL(settings['app.server_url'] || settings['strm.base_url'] || '')
+        setOutputDir(settings['strm.output_dir'] || '')
+      })
+      .catch(() => undefined)
   }, [])
 
   // Default the import library to the first available one once loaded.
   useEffect(() => {
     if (!libraryID && libraries[0]) setLibraryID(libraries[0].id)
-  }, [libraries, libraryID])
+    if (!generateLibraryID && libraries[0]) setGenerateLibraryID(libraries[0].id)
+  }, [libraries, libraryID, generateLibraryID])
+
+  const onGenerate = async (e: FormEvent) => {
+    e.preventDefault()
+    if (!generateLibraryID || !baseURL.trim()) return
+    if (!/^https?:\/\//i.test(baseURL.trim())) {
+      toast.error('域名必须以 http:// 或 https:// 开头')
+      return
+    }
+    setGenerating(true)
+    try {
+      const result = await strmAPI.generate({
+        library_id: generateLibraryID,
+        base_url: baseURL.trim().replace(/\/+$/, ''),
+        output_dir: outputDir.trim(),
+        overwrite,
+        enabled: true,
+        include_local: true,
+      })
+      setGenerateResult(result)
+      setOutputDir(result.output_dir || outputDir)
+      toast.success(`生成完成：新增 ${result.generated} · 更新 ${result.updated} · 跳过 ${result.skipped}`)
+    } catch (err: unknown) {
+      const msg =
+        (err as { response?: { data?: { error?: string } } })?.response?.data?.error ??
+        '生成失败'
+      toast.error(msg)
+    } finally {
+      setGenerating(false)
+    }
+  }
 
   const onImport = async (e: FormEvent) => {
     e.preventDefault()
@@ -128,6 +176,80 @@ export function StrmPage() {
           </p>
         </div>
       </div>
+
+      <section className="glass-panel space-y-4">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h2 className="font-display text-lg font-semibold text-ink-600">自动生成 STRM 文件</h2>
+            <p className="text-sm text-ink-50">
+              只需要填写自己的访问域名，系统会按媒体库内每个媒体批量生成可播放的 .strm 文件。
+            </p>
+          </div>
+          <span className="rounded-full border border-emerald-300/40 bg-emerald-400/10 px-3 py-1 text-xs font-semibold text-emerald-500">
+            开启后可 STRM 播放
+          </span>
+        </div>
+        <form onSubmit={onGenerate} className="grid gap-3 md:grid-cols-4">
+          <select
+            required
+            className="input-base"
+            value={generateLibraryID}
+            onChange={(e) => setGenerateLibraryID(e.target.value)}
+          >
+            <option value="" disabled>
+              选择媒体库
+            </option>
+            {libraries.map((l) => (
+              <option key={l.id} value={l.id}>
+                {l.name} ({l.type})
+              </option>
+            ))}
+          </select>
+          <input
+            required
+            className="input-base md:col-span-2"
+            placeholder="http://NAS-IP:18080 或 https://media.example.com"
+            value={baseURL}
+            onChange={(e) => setBaseURL(e.target.value)}
+          />
+          <label className="flex items-center gap-2 rounded-2xl border border-gray-200 bg-white/70 px-3 py-2 text-sm text-ink-50">
+            <input
+              type="checkbox"
+              checked={overwrite}
+              onChange={(e) => setOverwrite(e.target.checked)}
+            />
+            覆盖已存在
+          </label>
+          <input
+            className="input-base md:col-span-3"
+            placeholder="输出目录可留空，默认写入 data/strm/媒体库名"
+            value={outputDir}
+            onChange={(e) => setOutputDir(e.target.value)}
+          />
+          <button type="submit" disabled={generating || !generateLibraryID || !baseURL.trim()} className="neon-button">
+            {generating ? <Loader2 size={16} className="animate-spin" /> : <Wand2 size={16} />}
+            {generating ? '生成中…' : '批量生成 STRM'}
+          </button>
+        </form>
+        <p className="text-xs text-sand-500">
+          生成内容为 <code>域名 + /api/stream/媒体ID</code> 或网盘 302 播放入口；域名会同步保存到系统设置中的「公开访问域名 / STRM 域名」。
+        </p>
+        {generateResult && (
+          <div className="rounded-2xl border border-gray-200 bg-gray-50 p-4 text-sm text-ink-50">
+            <div className="font-semibold text-ink-600">
+              输出目录：{generateResult.output_dir}
+            </div>
+            <div className="mt-1">
+              新增 {generateResult.generated} · 更新 {generateResult.updated} · 跳过 {generateResult.skipped}
+            </div>
+            {generateResult.errors && generateResult.errors.length > 0 && (
+              <div className="mt-2 text-red-500">
+                失败 {generateResult.errors.length} 条：{generateResult.errors.slice(0, 3).join('；')}
+              </div>
+            )}
+          </div>
+        )}
+      </section>
 
       {/* Import a new STRM-only entry. */}
       <section className="glass-panel space-y-4">

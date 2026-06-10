@@ -464,6 +464,7 @@ func (s *ScannerService) scanLibrary(ctx context.Context, libraryID string, auto
 		"local_meta": res.LocalMetadata,
 		"removed":    res.Removed,
 	})
+	s.maybeGenerateSTRMAfterScan(lib.ID)
 
 	// Online enrichment is opt-in. Local NFO is always consumed first during
 	// the scan, and matched rows are excluded from EnrichLibrary's pending set.
@@ -666,6 +667,7 @@ func (s *ScannerService) scanCloudLibrary(ctx context.Context, lib *model.Librar
 		"elapsed_seconds": int(time.Since(startedAt).Seconds()),
 		"cloud":           true,
 	})
+	s.maybeGenerateSTRMAfterScan(lib.ID)
 	if autoScrape && s.scraper != nil && s.scraper.AnyEnabled() && s.autoScrapeEnabled(ctx) {
 		go func(libID string) {
 			if _, err := s.scraper.EnrichLibrary(context.Background(), libID); err != nil {
@@ -843,6 +845,14 @@ func (s *ScannerService) ingestFile(ctx context.Context, lib *model.Library, pat
 		SizeBytes: size,
 		Container: strings.TrimPrefix(ext, "."),
 		FileID:    fileID,
+	}
+	if ext == ".strm" {
+		m.Container = "strm"
+		if targetURL, err := readLocalSTRMTarget(path); err == nil && targetURL != "" {
+			m.STRMURL = targetURL
+		} else if err != nil {
+			s.log.Debug("read local strm failed", zap.String("path", path), zap.Error(err))
+		}
 	}
 
 	parsedSeason, parsedEpisode := ParseEpisode(path)
@@ -1055,6 +1065,31 @@ func (s *ScannerService) resolveCloudSTRMTarget(ctx context.Context, typ, ref st
 	return "", nil
 }
 
+func readLocalSTRMTarget(path string) (string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		candidate := strings.TrimSpace(strings.TrimPrefix(line, "\ufeff"))
+		if candidate == "" || strings.HasPrefix(candidate, "#") {
+			continue
+		}
+		if strings.HasPrefix(candidate, "/api/") || strings.HasPrefix(candidate, "/Videos/") || strings.HasPrefix(candidate, "/videos/") {
+			return candidate, nil
+		}
+		u, err := url.Parse(candidate)
+		if err != nil {
+			continue
+		}
+		switch strings.ToLower(u.Scheme) {
+		case "http", "https", "webdav", "davs", "alist", "alists", "openlist", "openlists":
+			return candidate, nil
+		}
+	}
+	return "", nil
+}
+
 func applyLocalMetadata(m *model.Media, local *LocalMetadata) {
 	if local.Title != "" {
 		m.Title = local.Title
@@ -1137,4 +1172,24 @@ func (s *ScannerService) autoScrapeEnabled(ctx context.Context) bool {
 	default:
 		return false
 	}
+}
+
+func (s *ScannerService) maybeGenerateSTRMAfterScan(libraryID string) {
+	if s == nil || s.repo == nil || s.repo.Setting == nil {
+		return
+	}
+	value, err := s.repo.Setting.Get(context.Background(), "strm.auto_generate_enabled")
+	if err != nil || !parseBoolSetting(value, false) {
+		return
+	}
+	go func() {
+		strmSvc := NewSTRMService(s.log, s.repo, s.cfg)
+		if _, err := strmSvc.GenerateForLibrary(context.Background(), GenerateSTRMOptions{
+			LibraryID:    libraryID,
+			Enabled:      true,
+			IncludeLocal: true,
+		}); err != nil && s.log != nil {
+			s.log.Warn("auto generate strm failed", zap.String("library_id", libraryID), zap.Error(err))
+		}
+	}()
 }

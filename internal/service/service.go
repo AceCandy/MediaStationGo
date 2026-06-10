@@ -60,6 +60,7 @@ type Container struct {
 	PlayProfiles    *PlayProfileService
 	Permissions     *PermissionService
 	StorageCfg      *StorageConfigService
+	STRM            *STRMService
 	DownloadClients *DownloadClientService
 	Assistant       *AssistantService
 	Organizer       *OrganizerService
@@ -114,6 +115,7 @@ func New(cfg *config.Config, log *zap.Logger, repos *repository.Container) *Cont
 	playProfiles := NewPlayProfileService(log, repos)
 	permissions := NewPermissionService(log, repos)
 	storageCfg := NewStorageConfigService(log, repos, crypto)
+	strmSvc := NewSTRMService(log, repos, cfg)
 	scanner.SetStorageConfig(storageCfg)
 	downloadClients := NewDownloadClientService(log, repos)
 	assistant := NewAssistantService(log, repos, ai)
@@ -207,6 +209,7 @@ func New(cfg *config.Config, log *zap.Logger, repos *repository.Container) *Cont
 		PlayProfiles:    playProfiles,
 		Permissions:     permissions,
 		StorageCfg:      storageCfg,
+		STRM:            strmSvc,
 		DownloadClients: downloadClients,
 		Assistant:       assistant,
 		Organizer:       organizer,

@@ -96,3 +96,39 @@ func importSTRMHandler(svc *service.Container) gin.HandlerFunc {
 		c.JSON(http.StatusCreated, m)
 	}
 }
+
+type generateSTRMReq struct {
+	LibraryID    string `json:"library_id" binding:"required"`
+	OutputDir    string `json:"output_dir"`
+	BaseURL      string `json:"base_url"`
+	Enabled      bool   `json:"enabled"`
+	Overwrite    bool   `json:"overwrite"`
+	IncludeLocal bool   `json:"include_local"`
+}
+
+func generateSTRMHandler(svc *service.Container) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req generateSTRMReq
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		strmSvc := svc.STRM
+		if strmSvc == nil {
+			strmSvc = service.NewSTRMService(svc.Log, svc.Repo, svc.Cfg)
+		}
+		res, err := strmSvc.GenerateForLibrary(c.Request.Context(), service.GenerateSTRMOptions{
+			LibraryID:    req.LibraryID,
+			OutputDir:    req.OutputDir,
+			BaseURL:      req.BaseURL,
+			Enabled:      req.Enabled,
+			Overwrite:    req.Overwrite,
+			IncludeLocal: true,
+		})
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, res)
+	}
+}
