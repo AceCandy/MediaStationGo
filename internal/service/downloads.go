@@ -20,7 +20,6 @@ import (
 	"errors"
 	"math"
 	"net/url"
-	"os"
 	"path"
 	"path/filepath"
 	"regexp"
@@ -895,6 +894,12 @@ func (d *DownloadService) onTorrentComplete(ctx context.Context, torrent QBitTor
 }
 
 func (d *DownloadService) completedTorrentSource(torrent QBitTorrent) string {
+	// 常见路径映射：qBittorrent容器路径 -> MediaStationGo容器路径
+	mappings := map[string]string{
+		"/var/apps/qBittorrent/shares/qBittorrent/Download": "/downloads",
+		"/data/qBittorrent/downloads":                       "/downloads",
+		"/downloads/qBittorrent":                            "/downloads",
+	}
 	for _, candidate := range []string{
 		torrent.ContentPath,
 		filepath.Join(torrent.SavePath, torrent.Name),
@@ -904,10 +909,12 @@ func (d *DownloadService) completedTorrentSource(torrent QBitTorrent) string {
 		if clean == "" || clean == "." {
 			continue
 		}
-		clean = filepath.Clean(clean)
-		if _, err := os.Stat(clean); err == nil {
-			return clean
+		// 尝试直接访问或路径映射
+		if translated := translateClientPath(clean, mappings); translated != "" {
+			return translated
 		}
 	}
 	return ""
 }
+
+
