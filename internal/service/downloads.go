@@ -946,9 +946,15 @@ func (d *DownloadService) syncDownloadTaskProgress(ctx context.Context, torrent 
 	if strings.TrimSpace(status) == "" {
 		status = matched.Status
 	}
-	updates := map[string]any{"progress": torrent.Progress}
-	if status != "" {
+	updates := map[string]any{}
+	if math.Abs(float64(matched.Progress-torrent.Progress)) > 0.0001 {
+		updates["progress"] = torrent.Progress
+	}
+	if status != "" && status != matched.Status {
 		updates["status"] = status
+	}
+	if len(updates) == 0 {
+		return
 	}
 	_ = d.repo.DB.WithContext(ctx).Model(&model.DownloadTask{}).Where("id = ?", matched.ID).Updates(updates).Error
 }

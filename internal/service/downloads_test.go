@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/glebarez/sqlite"
 	"go.uber.org/zap"
@@ -44,6 +45,46 @@ func TestDownloadViewsDoNotExposePrivateURL(t *testing.T) {
 	}
 	if !strings.Contains(body, "测试影片") {
 		t.Fatalf("download views should keep public title: %s", body)
+	}
+}
+
+func TestSyncDownloadTaskProgressSkipsUnchangedCompletedTask(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(&model.DownloadTask{}); err != nil {
+		t.Fatal(err)
+	}
+	repos := repository.New(db)
+	task := &model.DownloadTask{
+		Source:   "qbittorrent",
+		URL:      "magnet:?xt=urn:btih:test",
+		Title:    "Already.Done.S01E01",
+		SavePath: "/downloads",
+		Status:   "completed",
+		Progress: 1,
+	}
+	if err := repos.Download.Create(t.Context(), task); err != nil {
+		t.Fatal(err)
+	}
+	var before model.DownloadTask
+	if err := db.First(&before, "id = ?", task.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(10 * time.Millisecond)
+	svc := NewDownloadService(zap.NewNop(), repos, NewHub(zap.NewNop()), nil)
+	svc.syncDownloadTaskProgress(t.Context(), QBitTorrent{
+		Name:     task.Title,
+		Progress: 1,
+		State:    "completed",
+	}, tasksByIdentity([]model.DownloadTask{before}))
+	var after model.DownloadTask
+	if err := db.First(&after, "id = ?", task.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if !after.UpdatedAt.Equal(before.UpdatedAt) {
+		t.Fatalf("unchanged completed torrent touched updated_at: before=%s after=%s", before.UpdatedAt, after.UpdatedAt)
 	}
 }
 

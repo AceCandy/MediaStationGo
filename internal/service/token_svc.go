@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"sync"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -37,14 +38,16 @@ type Claims struct {
 
 // TokenService 处理双令牌认证（Access Token + Refresh Token）。
 type TokenService struct {
-	cfg  *config.Config
-	log  *zap.Logger
-	repo *repository.Container
+	cfg            *config.Config
+	log            *zap.Logger
+	repo           *repository.Container
+	delayedStoreMu sync.Mutex
+	delayedStores  map[string]struct{}
 }
 
 // NewTokenService 创建令牌服务实例。
 func NewTokenService(cfg *config.Config, log *zap.Logger, repo *repository.Container) *TokenService {
-	return &TokenService{cfg: cfg, log: log, repo: repo}
+	return &TokenService{cfg: cfg, log: log, repo: repo, delayedStores: make(map[string]struct{})}
 }
 
 // TokenPair 包含访问令牌和刷新令牌。
@@ -110,7 +113,9 @@ func (s *TokenService) issuePair(ctx context.Context, userID, role, tier string,
 				zap.String("user_id", userID),
 				zap.Error(err))
 		}
-		go s.storeRefreshTokenEventually(userID, tokenHash, rt.ExpiresAt)
+		if s.trackDelayedStore(userID, tokenHash) {
+			go s.storeRefreshTokenEventually(userID, tokenHash, rt.ExpiresAt)
+		}
 	}
 
 	return &TokenPair{
@@ -132,9 +137,12 @@ func (s *TokenService) storeRefreshToken(ctx context.Context, rt *model.RefreshT
 }
 
 func (s *TokenService) storeRefreshTokenEventually(userID, tokenHash string, expiresAt time.Time) {
-	delay := 500 * time.Millisecond
-	for attempt := 1; attempt <= 30; attempt++ {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer s.untrackDelayedStore(userID, tokenHash)
+	delay := 5 * time.Second
+	for attempt := 1; attempt <= 8; attempt++ {
+		timer := time.NewTimer(delay)
+		<-timer.C
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		err := s.storeRefreshToken(ctx, &model.RefreshToken{
 			UserID:    userID,
 			TokenHash: tokenHash,
@@ -150,21 +158,46 @@ func (s *TokenService) storeRefreshTokenEventually(userID, tokenHash string, exp
 			}
 			return
 		}
-		if s.log != nil && (attempt == 1 || attempt%10 == 0) {
+		if s.log != nil && (attempt == 1 || attempt == 4 || attempt == 8) {
 			s.log.Warn("refresh token delayed store still waiting",
 				zap.String("user_id", userID),
 				zap.Int("attempt", attempt),
 				zap.Error(err))
 		}
-		timer := time.NewTimer(delay)
-		<-timer.C
-		if delay < 10*time.Second {
+		if delay < 60*time.Second {
 			delay *= 2
 		}
 	}
 	if s.log != nil {
 		s.log.Warn("refresh token delayed store gave up", zap.String("user_id", userID))
 	}
+}
+
+func (s *TokenService) trackDelayedStore(userID, tokenHash string) bool {
+	if s == nil {
+		return false
+	}
+	key := userID + "\x00" + tokenHash
+	s.delayedStoreMu.Lock()
+	defer s.delayedStoreMu.Unlock()
+	if s.delayedStores == nil {
+		s.delayedStores = make(map[string]struct{})
+	}
+	if _, ok := s.delayedStores[key]; ok {
+		return false
+	}
+	s.delayedStores[key] = struct{}{}
+	return true
+}
+
+func (s *TokenService) untrackDelayedStore(userID, tokenHash string) {
+	if s == nil {
+		return
+	}
+	key := userID + "\x00" + tokenHash
+	s.delayedStoreMu.Lock()
+	delete(s.delayedStores, key)
+	s.delayedStoreMu.Unlock()
 }
 
 func (s *TokenService) maxActiveRefreshTokens(ctx context.Context) int {

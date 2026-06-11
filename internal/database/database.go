@@ -5,6 +5,7 @@ package database
 import (
 	"fmt"
 	"path/filepath"
+	"sync"
 
 	"github.com/glebarez/sqlite"
 	"go.uber.org/zap"
@@ -38,6 +39,7 @@ func Open(cfg *config.Config, log *zap.Logger) (*gorm.DB, error) {
 	if err != nil {
 		return nil, fmt.Errorf("gorm open: %w", err)
 	}
+	installSQLiteWriteGate(db)
 	sqlDB, err := db.DB()
 	if err != nil {
 		return nil, fmt.Errorf("gorm sqldb: %w", err)
@@ -49,6 +51,39 @@ func Open(cfg *config.Config, log *zap.Logger) (*gorm.DB, error) {
 		sqlDB.SetMaxIdleConns(cfg.Database.MaxIdleConns)
 	}
 	return db, nil
+}
+
+func installSQLiteWriteGate(db *gorm.DB) {
+	if db == nil {
+		return
+	}
+	gate := &sqliteWriteGate{}
+	lock := func(tx *gorm.DB) {
+		gate.Lock()
+	}
+	unlock := func(tx *gorm.DB) {
+		gate.Unlock()
+	}
+	_ = db.Callback().Create().Before("gorm:create").Register("mediastation:sqlite_write_lock", lock)
+	_ = db.Callback().Create().After("gorm:create").Register("mediastation:sqlite_write_unlock", unlock)
+	_ = db.Callback().Update().Before("gorm:update").Register("mediastation:sqlite_write_lock", lock)
+	_ = db.Callback().Update().After("gorm:update").Register("mediastation:sqlite_write_unlock", unlock)
+	_ = db.Callback().Delete().Before("gorm:delete").Register("mediastation:sqlite_write_lock", lock)
+	_ = db.Callback().Delete().After("gorm:delete").Register("mediastation:sqlite_write_unlock", unlock)
+	_ = db.Callback().Raw().Before("gorm:raw").Register("mediastation:sqlite_write_lock", lock)
+	_ = db.Callback().Raw().After("gorm:raw").Register("mediastation:sqlite_write_unlock", unlock)
+}
+
+type sqliteWriteGate struct {
+	mu sync.Mutex
+}
+
+func (g *sqliteWriteGate) Lock() {
+	g.mu.Lock()
+}
+
+func (g *sqliteWriteGate) Unlock() {
+	g.mu.Unlock()
 }
 
 func buildDSN(cfg *config.Config) string {

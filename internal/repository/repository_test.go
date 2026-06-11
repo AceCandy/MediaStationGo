@@ -2,6 +2,7 @@ package repository
 
 import (
 	"testing"
+	"time"
 
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
@@ -9,6 +10,65 @@ import (
 	"github.com/ShukeBta/MediaStationGo/internal/database"
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 )
+
+func TestMediaUpsertSkipsUnchangedExistingRow(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := database.AutoMigrate(db); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	repos := New(db)
+	lib := model.Library{Name: "电影", Path: "/media/movie", Type: "movie", Enabled: true}
+	if err := repos.Library.Create(t.Context(), &lib); err != nil {
+		t.Fatal(err)
+	}
+	media := model.Media{
+		LibraryID:    lib.ID,
+		Title:        "已有影片",
+		Path:         "/media/movie/existing.mkv",
+		SizeBytes:    1024,
+		DurationSec:  60,
+		Width:        1920,
+		Height:       1080,
+		VideoCodec:   "h264",
+		AudioCodec:   "aac",
+		Container:    "matroska,webm",
+		ScrapeStatus: "pending",
+	}
+	if err := repos.Media.Upsert(t.Context(), &media); err != nil {
+		t.Fatal(err)
+	}
+	var before model.Media
+	if err := repos.DB.Where("path = ?", media.Path).First(&before).Error; err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(10 * time.Millisecond)
+	again := model.Media{
+		LibraryID:    lib.ID,
+		Title:        before.Title,
+		Path:         before.Path,
+		SizeBytes:    before.SizeBytes,
+		DurationSec:  before.DurationSec,
+		Width:        before.Width,
+		Height:       before.Height,
+		VideoCodec:   before.VideoCodec,
+		AudioCodec:   before.AudioCodec,
+		Container:    before.Container,
+		ScrapeStatus: before.ScrapeStatus,
+	}
+	if err := repos.Media.Upsert(t.Context(), &again); err != nil {
+		t.Fatal(err)
+	}
+	var after model.Media
+	if err := repos.DB.Where("path = ?", media.Path).First(&after).Error; err != nil {
+		t.Fatal(err)
+	}
+	if !after.UpdatedAt.Equal(before.UpdatedAt) {
+		t.Fatalf("unchanged upsert touched updated_at: before=%s after=%s", before.UpdatedAt, after.UpdatedAt)
+	}
+}
 
 func TestMediaSearchFilteredSupportsChineseFuzzyTerms(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})

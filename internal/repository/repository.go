@@ -309,6 +309,12 @@ func applyMediaQueryFilter(q *gorm.DB, filter MediaQueryFilter) *gorm.DB {
 //     显式写入）。这两个问题都让 EnrichLibrary(WHERE scrape_status='pending')
 //     永远捞不到数据。
 func (r *MediaRepository) Upsert(ctx context.Context, m *model.Media) error {
+	return withSQLiteBusyRetry(ctx, func() error {
+		return r.upsert(ctx, m)
+	})
+}
+
+func (r *MediaRepository) upsert(ctx context.Context, m *model.Media) error {
 	var existing model.Media
 	err := r.db.WithContext(ctx).Unscoped().Where("path = ?", m.Path).First(&existing).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -328,15 +334,16 @@ func (r *MediaRepository) Upsert(ctx context.Context, m *model.Media) error {
 	}
 
 	// 已存在：仅刷新文件层面的字段。
-	updates := map[string]any{
-		"size_bytes":   m.SizeBytes,
-		"duration_sec": m.DurationSec,
-		"width":        m.Width,
-		"height":       m.Height,
-		"video_codec":  m.VideoCodec,
-		"audio_codec":  m.AudioCodec,
-		"container":    m.Container,
-		"deleted_at":   nil,
+	updates := map[string]any{}
+	setIfChanged(updates, "size_bytes", existing.SizeBytes, m.SizeBytes)
+	setIfChanged(updates, "duration_sec", existing.DurationSec, m.DurationSec)
+	setIfChanged(updates, "width", existing.Width, m.Width)
+	setIfChanged(updates, "height", existing.Height, m.Height)
+	setIfChanged(updates, "video_codec", existing.VideoCodec, m.VideoCodec)
+	setIfChanged(updates, "audio_codec", existing.AudioCodec, m.AudioCodec)
+	setIfChanged(updates, "container", existing.Container, m.Container)
+	if existing.DeletedAt.Valid {
+		updates["deleted_at"] = nil
 	}
 	// 回填硬链接身份标识，便于后续扫描去重（避免重复识别/多倍占用）。
 	if m.FileID != "" && m.FileID != existing.FileID {
@@ -347,56 +354,56 @@ func (r *MediaRepository) Upsert(ctx context.Context, m *model.Media) error {
 		// 真实剧名。仅在 existing 还停留在 'pending'/'' 时回填扫描标题，
 		// 避免覆盖刮削结果。
 		if m.ScrapeStatus == "matched" || existing.ScrapeStatus == "pending" || existing.ScrapeStatus == "" || existing.ScrapeStatus == "no_match" {
-			updates["title"] = m.Title
+			setIfChanged(updates, "title", existing.Title, m.Title)
 			if m.Year > 0 {
-				updates["year"] = m.Year
+				setIfChanged(updates, "year", existing.Year, m.Year)
 			}
 		}
 	}
 	if m.ScrapeStatus == "matched" {
-		updates["scrape_status"] = m.ScrapeStatus
+		setIfChanged(updates, "scrape_status", existing.ScrapeStatus, m.ScrapeStatus)
 		if m.OriginalName != "" {
-			updates["original_name"] = m.OriginalName
+			setIfChanged(updates, "original_name", existing.OriginalName, m.OriginalName)
 		}
 		if m.PosterURL != "" {
-			updates["poster_url"] = m.PosterURL
+			setIfChanged(updates, "poster_url", existing.PosterURL, m.PosterURL)
 		}
 		if m.BackdropURL != "" {
-			updates["backdrop_url"] = m.BackdropURL
+			setIfChanged(updates, "backdrop_url", existing.BackdropURL, m.BackdropURL)
 		}
 		if m.Overview != "" {
-			updates["overview"] = m.Overview
+			setIfChanged(updates, "overview", existing.Overview, m.Overview)
 		}
 		if m.Rating > 0 {
-			updates["rating"] = m.Rating
+			setIfChanged(updates, "rating", existing.Rating, m.Rating)
 		}
 		if m.Year > 0 {
-			updates["year"] = m.Year
+			setIfChanged(updates, "year", existing.Year, m.Year)
 		}
 		if m.TMDbID > 0 {
-			updates["tm_db_id"] = m.TMDbID
+			setIfChanged(updates, "tm_db_id", existing.TMDbID, m.TMDbID)
 		}
 		if m.BangumiID > 0 {
-			updates["bangumi_id"] = m.BangumiID
+			setIfChanged(updates, "bangumi_id", existing.BangumiID, m.BangumiID)
 		}
 		if m.Languages != "" {
-			updates["languages"] = m.Languages
+			setIfChanged(updates, "languages", existing.Languages, m.Languages)
 		}
 		if m.Countries != "" {
-			updates["countries"] = m.Countries
+			setIfChanged(updates, "countries", existing.Countries, m.Countries)
 		}
 		if m.Genres != "" {
-			updates["genres"] = m.Genres
+			setIfChanged(updates, "genres", existing.Genres, m.Genres)
 		}
-		if m.NSFW {
+		if m.NSFW && !existing.NSFW {
 			updates["nsfw"] = true
 		}
 	}
 	if m.PosterURL != "" {
-		updates["poster_url"] = m.PosterURL
+		setIfChanged(updates, "poster_url", existing.PosterURL, m.PosterURL)
 	}
 	if m.BackdropURL != "" {
-		updates["backdrop_url"] = m.BackdropURL
+		setIfChanged(updates, "backdrop_url", existing.BackdropURL, m.BackdropURL)
 	}
 	if lib := m.LibraryID; lib != "" && lib != existing.LibraryID {
 		updates["library_id"] = m.LibraryID
@@ -408,9 +415,13 @@ func (r *MediaRepository) Upsert(ctx context.Context, m *model.Media) error {
 		updates["episode_num"] = m.EpisodeNum
 	}
 	if m.STRMURL != "" {
-		updates["strm_url"] = m.STRMURL
+		setIfChanged(updates, "strm_url", existing.STRMURL, m.STRMURL)
 	}
 
+	if len(updates) == 0 {
+		*m = existing
+		return nil
+	}
 	if err := r.db.WithContext(ctx).Unscoped().Model(&model.Media{}).
 		Where("id = ?", existing.ID).Updates(updates).Error; err != nil {
 		return err
@@ -419,6 +430,12 @@ func (r *MediaRepository) Upsert(ctx context.Context, m *model.Media) error {
 	// 回写 ID / 不可变字段，让 caller 拿到完整的现有行。
 	*m = existing
 	return nil
+}
+
+func setIfChanged[T comparable](updates map[string]any, key string, current, next T) {
+	if current != next {
+		updates[key] = next
+	}
 }
 
 // FindByID returns the media row or (nil, nil).
