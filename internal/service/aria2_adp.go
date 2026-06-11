@@ -57,6 +57,11 @@ func NewAria2Adapter() *Aria2Adapter {
 func (a *Aria2Adapter) Initialize(ctx context.Context, cfg DownloadClientConfig) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	endpoint, err := normalizeDownloadClientEndpoint("aria2", cfg.Host)
+	if err != nil {
+		return err
+	}
+	cfg.Host = endpoint
 	a.cfg = cfg
 	a.idSeq = 0
 	return a.getVersionLocked(ctx)
@@ -71,9 +76,9 @@ func (a *Aria2Adapter) Ping(ctx context.Context) error {
 
 // getVersionLocked 内部版本检查（调用者必须持有锁）。
 func (a *Aria2Adapter) getVersionLocked(ctx context.Context) error {
-	rpcURL := a.cfg.Host
-	if !strings.HasSuffix(rpcURL, "/jsonrpc") {
-		rpcURL = strings.TrimRight(rpcURL, "/") + "/jsonrpc"
+	rpcURL, err := downloadClientRPCURL("aria2", a.cfg.Host)
+	if err != nil {
+		return err
 	}
 
 	req := &aria2Request{
@@ -88,7 +93,7 @@ func (a *Aria2Adapter) getVersionLocked(ctx context.Context) error {
 		return err
 	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, rpcURL, bytes.NewReader(body))
+	httpReq, err := newDownloadClientHTTPRequest(ctx, http.MethodPost, rpcURL, bytes.NewReader(body))
 	if err != nil {
 		return err
 	}
@@ -110,9 +115,9 @@ func (a *Aria2Adapter) getVersionLocked(ctx context.Context) error {
 
 // rpcLocked 发送 JSON-RPC 请求（调用者必须持有锁）。
 func (a *Aria2Adapter) rpcLocked(ctx context.Context, method string, params []interface{}) (json.RawMessage, error) {
-	rpcURL := a.cfg.Host
-	if !strings.HasSuffix(rpcURL, "/jsonrpc") {
-		rpcURL = strings.TrimRight(rpcURL, "/") + "/jsonrpc"
+	rpcURL, err := downloadClientRPCURL("aria2", a.cfg.Host)
+	if err != nil {
+		return nil, err
 	}
 
 	if params == nil {
@@ -145,7 +150,7 @@ func (a *Aria2Adapter) rpcLocked(ctx context.Context, method string, params []in
 		return nil, err
 	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, rpcURL, bytes.NewReader(body))
+	httpReq, err := newDownloadClientHTTPRequest(ctx, http.MethodPost, rpcURL, bytes.NewReader(body))
 	if err != nil {
 		return nil, err
 	}

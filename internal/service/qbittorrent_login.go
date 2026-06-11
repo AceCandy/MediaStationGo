@@ -18,9 +18,14 @@ type qbitLoginVariant struct {
 }
 
 func qbitLogin(ctx context.Context, client *http.Client, baseURL, username, password string) error {
-	baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	baseURL = strings.TrimSpace(baseURL)
 	if baseURL == "" {
 		return errors.New("qbittorrent host not configured")
+	}
+	var err error
+	baseURL, err = normalizeDownloadClientEndpoint("qbittorrent", baseURL)
+	if err != nil {
+		return err
 	}
 	var lastErr error
 	for _, variant := range []qbitLoginVariant{
@@ -46,7 +51,7 @@ func qbitLoginOnce(ctx context.Context, client *http.Client, baseURL, username, 
 	form := url.Values{}
 	form.Set("username", username)
 	form.Set("password", password)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+	req, err := newDownloadClientHTTPRequest(ctx, http.MethodPost,
 		baseURL+"/api/v2/auth/login", strings.NewReader(form.Encode()))
 	if err != nil {
 		return err

@@ -1,6 +1,8 @@
 package service
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/glebarez/sqlite"
@@ -78,6 +80,95 @@ func TestDownloadClientRejectsUnsupportedHostScheme(t *testing.T) {
 		Enabled: true,
 	}); err == nil {
 		t.Fatal("expected unsupported scheme error")
+	}
+}
+
+func TestDownloadClientRejectsUnsafeEndpointParts(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(&model.DownloadClient{}, &model.Setting{}); err != nil {
+		t.Fatal(err)
+	}
+	svc := NewDownloadClientService(zap.NewNop(), repository.New(db))
+
+	for _, host := range []string{
+		"http://user:pass@127.0.0.1:6800",
+		"http://127.0.0.1:6800/jsonrpc?target=http://169.254.169.254",
+		"http://127.0.0.1:6800/jsonrpc#fragment",
+		"http://127.0.0.1:70000",
+		"file:///etc/passwd",
+	} {
+		if _, err := svc.Create(t.Context(), DownloadClientInput{
+			Name:    "bad",
+			Type:    "aria2",
+			Host:    host,
+			Enabled: true,
+		}); err == nil {
+			t.Fatalf("Create allowed unsafe host %q", host)
+		}
+	}
+}
+
+func TestDownloadClientRPCURLAppendsExpectedPath(t *testing.T) {
+	cases := []struct {
+		clientType string
+		host       string
+		want       string
+	}{
+		{"aria2", "127.0.0.1:6800", "http://127.0.0.1:6800/jsonrpc"},
+		{"aria2", "http://nas.local:6800/rpc", "http://nas.local:6800/rpc/jsonrpc"},
+		{"transmission", "http://nas.local:9091", "http://nas.local:9091/transmission/rpc"},
+		{"transmission", "http://nas.local:9091/transmission/rpc", "http://nas.local:9091/transmission/rpc"},
+	}
+	for _, tc := range cases {
+		got, err := downloadClientRPCURL(tc.clientType, tc.host)
+		if err != nil {
+			t.Fatalf("downloadClientRPCURL(%q, %q) error: %v", tc.clientType, tc.host, err)
+		}
+		if got != tc.want {
+			t.Fatalf("downloadClientRPCURL(%q, %q) = %q, want %q", tc.clientType, tc.host, got, tc.want)
+		}
+	}
+}
+
+func TestAria2AdapterRejectsUnsafeHostBeforeHTTPRequest(t *testing.T) {
+	adapter := NewAria2Adapter()
+	called := false
+	adapter.client = &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		called = true
+		return &http.Response{StatusCode: http.StatusOK, Body: http.NoBody}, nil
+	})}
+
+	if err := adapter.Initialize(t.Context(), DownloadClientConfig{
+		Host:     "http://user:pass@127.0.0.1:6800",
+		Password: "secret",
+	}); err == nil {
+		t.Fatal("expected unsafe host error")
+	}
+	if called {
+		t.Fatal("unsafe aria2 host should be rejected before any HTTP request")
+	}
+}
+
+func TestAria2AdapterUsesNormalizedRPCURL(t *testing.T) {
+	var gotPath string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	adapter := NewAria2Adapter()
+	if err := adapter.Initialize(t.Context(), DownloadClientConfig{
+		Host:     server.URL,
+		Password: "secret",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if gotPath != "/jsonrpc" {
+		t.Fatalf("aria2 request path = %q, want /jsonrpc", gotPath)
 	}
 }
 

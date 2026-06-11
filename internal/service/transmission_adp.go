@@ -51,6 +51,11 @@ func NewTransmissionAdapter() *TransmissionAdapter {
 func (a *TransmissionAdapter) Initialize(ctx context.Context, cfg DownloadClientConfig) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	endpoint, err := normalizeDownloadClientEndpoint("transmission", cfg.Host)
+	if err != nil {
+		return err
+	}
+	cfg.Host = endpoint
 	a.cfg = cfg
 	a.sessionID = ""
 	a.tag = 0
@@ -66,13 +71,11 @@ func (a *TransmissionAdapter) Ping(ctx context.Context) error {
 
 // pingLocked 内部 ping 实现（调用者必须持有锁）。
 func (a *TransmissionAdapter) pingLocked(ctx context.Context) error {
-	rpcURL := a.cfg.Host
-	if !strings.HasSuffix(rpcURL, "/rpc") && !strings.HasSuffix(rpcURL, "/transmission/rpc") {
-		if !strings.Contains(rpcURL, "/rpc") {
-			rpcURL = strings.TrimRight(rpcURL, "/") + "/transmission/rpc"
-		}
+	rpcURL, err := downloadClientRPCURL("transmission", a.cfg.Host)
+	if err != nil {
+		return err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rpcURL, nil)
+	req, err := newDownloadClientHTTPRequest(ctx, http.MethodGet, rpcURL, nil)
 	if err != nil {
 		return err
 	}
@@ -98,9 +101,9 @@ func (a *TransmissionAdapter) pingLocked(ctx context.Context) error {
 
 // rpcLocked 发送 RPC 请求（调用者必须持有锁）。
 func (a *TransmissionAdapter) rpcLocked(ctx context.Context, method string, args map[string]interface{}) (*transmissionRPCResponse, error) {
-	rpcURL := a.cfg.Host
-	if !strings.Contains(rpcURL, "/rpc") {
-		rpcURL = strings.TrimRight(rpcURL, "/") + "/transmission/rpc"
+	rpcURL, err := downloadClientRPCURL("transmission", a.cfg.Host)
+	if err != nil {
+		return nil, err
 	}
 
 	a.tag++
@@ -114,7 +117,7 @@ func (a *TransmissionAdapter) rpcLocked(ctx context.Context, method string, args
 	}
 
 	for attempt := 0; attempt < 2; attempt++ {
-		req, err := http.NewRequestWithContext(ctx, http.MethodPost, rpcURL, bytes.NewReader(body))
+		req, err := newDownloadClientHTTPRequest(ctx, http.MethodPost, rpcURL, bytes.NewReader(body))
 		if err != nil {
 			return nil, err
 		}

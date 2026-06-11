@@ -57,6 +57,11 @@ func (h *DownloadClientHandler) Create(c *gin.Context) {
 
 	ctx := c.Request.Context()
 	_ = h.svc.Repo.Setting.Set(ctx, "download_clients.managed", "true")
+	normalizedHost, err := service.NormalizeDownloadClientHost(req.Type, req.Host)
+	if err != nil {
+		Error(c, http.StatusBadRequest, ErrInvalidParams, err.Error())
+		return
+	}
 
 	// 加密密码
 	password := req.Password
@@ -82,7 +87,7 @@ func (h *DownloadClientHandler) Create(c *gin.Context) {
 	client := &model.DownloadClient{
 		Name:      req.Name,
 		Type:      req.Type,
-		Host:      req.Host,
+		Host:      normalizedHost,
 		Username:  req.Username,
 		Password:  password,
 		IsDefault: req.IsDefault,
@@ -152,7 +157,16 @@ func (h *DownloadClientHandler) Update(c *gin.Context) {
 		client.Type = req.Type
 	}
 	if req.Host != "" {
-		client.Host = req.Host
+		clientType := client.Type
+		if req.Type != "" {
+			clientType = req.Type
+		}
+		normalizedHost, err := service.NormalizeDownloadClientHost(clientType, req.Host)
+		if err != nil {
+			Error(c, http.StatusBadRequest, ErrInvalidParams, err.Error())
+			return
+		}
+		client.Host = normalizedHost
 	}
 	if req.Username != "" {
 		client.Username = req.Username
@@ -180,6 +194,12 @@ func (h *DownloadClientHandler) Update(c *gin.Context) {
 			client.Extra = extraStr
 		}
 	}
+	normalizedHost, err := service.NormalizeDownloadClientHost(client.Type, client.Host)
+	if err != nil {
+		Error(c, http.StatusBadRequest, ErrInvalidParams, err.Error())
+		return
+	}
+	client.Host = normalizedHost
 
 	if err := h.svc.Repo.DownloadClient.Update(ctx, client); err != nil {
 		Error(c, http.StatusInternalServerError, ErrInternal, "更新失败")

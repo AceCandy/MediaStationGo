@@ -42,6 +42,11 @@ func NewQBitAdapter() *QBitAdapter {
 func (a *QBitAdapter) Initialize(ctx context.Context, cfg DownloadClientConfig) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	endpoint, err := normalizeDownloadClientEndpoint("qbittorrent", cfg.Host)
+	if err != nil {
+		return err
+	}
+	cfg.Host = endpoint
 	a.cfg = cfg
 	a.LoggedIn = false
 	jar, _ := cookiejar.New(nil)
@@ -73,7 +78,7 @@ func (a *QBitAdapter) AddTorrent(ctx context.Context, torrentURL, savePath strin
 	_ = w.Close()
 
 	baseURL := strings.TrimRight(a.cfg.Host, "/")
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+	req, err := newDownloadClientHTTPRequest(ctx, http.MethodPost,
 		baseURL+"/api/v2/torrents/add", body)
 	if err != nil {
 		return "", err
@@ -108,7 +113,7 @@ func (a *QBitAdapter) Pause(ctx context.Context, hash string) error {
 	baseURL := strings.TrimRight(a.cfg.Host, "/")
 	form := url.Values{}
 	form.Set("hashes", hash)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+	req, err := newDownloadClientHTTPRequest(ctx, http.MethodPost,
 		baseURL+"/api/v2/torrents/pause", strings.NewReader(form.Encode()))
 	if err != nil {
 		return err
@@ -136,7 +141,7 @@ func (a *QBitAdapter) Resume(ctx context.Context, hash string) error {
 	baseURL := strings.TrimRight(a.cfg.Host, "/")
 	form := url.Values{}
 	form.Set("hashes", hash)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+	req, err := newDownloadClientHTTPRequest(ctx, http.MethodPost,
 		baseURL+"/api/v2/torrents/resume", strings.NewReader(form.Encode()))
 	if err != nil {
 		return err
@@ -169,7 +174,7 @@ func (a *QBitAdapter) Remove(ctx context.Context, hash string, deleteFiles bool)
 	} else {
 		form.Set("deleteFiles", "false")
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+	req, err := newDownloadClientHTTPRequest(ctx, http.MethodPost,
 		baseURL+"/api/v2/torrents/delete", strings.NewReader(form.Encode()))
 	if err != nil {
 		return err
@@ -196,12 +201,14 @@ func (a *QBitAdapter) List(ctx context.Context, filter string) ([]TorrentInfo, e
 	}
 	baseURL := strings.TrimRight(a.cfg.Host, "/")
 	u := baseURL + "/api/v2/torrents/info"
-	if filter != "" {
-		u += "?filter=" + url.QueryEscape(filter)
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	req, err := newDownloadClientHTTPRequest(ctx, http.MethodGet, u, nil)
 	if err != nil {
 		return nil, err
+	}
+	if filter != "" {
+		query := req.URL.Query()
+		query.Set("filter", filter)
+		req.URL.RawQuery = query.Encode()
 	}
 	req.Header.Set("Referer", baseURL)
 	resp, err := a.client.Do(req)

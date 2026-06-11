@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"net/url"
 	"strings"
 	"time"
 
@@ -150,7 +149,14 @@ func (s *DownloadClientService) Test(ctx context.Context, id string) error {
 	case "qbittorrent":
 		return qbitLogin(ctx, s.client, c.Host, c.Username, c.Password)
 	case "aria2", "transmission":
-		req, _ := http.NewRequestWithContext(ctx, http.MethodGet, c.Host, nil)
+		endpoint, err := downloadClientRPCURL(c.Type, c.Host)
+		if err != nil {
+			return err
+		}
+		req, err := newDownloadClientHTTPRequest(ctx, http.MethodGet, endpoint, nil)
+		if err != nil {
+			return err
+		}
 		resp, err := s.client.Do(req)
 		if err != nil {
 			return err
@@ -175,12 +181,19 @@ func (s *DownloadClientService) Aria2GlobalStats(ctx context.Context, clientID s
 	if c == nil || c.Type != "aria2" {
 		return nil, errors.New("aria2 client not found")
 	}
+	endpoint, err := downloadClientRPCURL("aria2", c.Host)
+	if err != nil {
+		return nil, err
+	}
 	payload := fmt.Sprintf(
 		`{"jsonrpc":"2.0","id":"x","method":"aria2.getGlobalStat","params":["token:%s"]}`,
 		c.Password,
 	)
-	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, c.Host,
+	req, err := newDownloadClientHTTPRequest(ctx, http.MethodPost, endpoint,
 		strings.NewReader(payload))
+	if err != nil {
+		return nil, err
+	}
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := s.client.Do(req)
 	if err != nil {
@@ -221,14 +234,11 @@ func normalizeDownloadClientInput(in DownloadClientInput) (DownloadClientInput, 
 	if !strings.Contains(in.Host, "://") {
 		in.Host = "http://" + in.Host
 	}
-	parsed, err := url.Parse(in.Host)
-	if err != nil || parsed.Host == "" {
-		return in, errors.New("host must be a valid http(s) URL")
+	normalized, err := normalizeDownloadClientEndpoint(in.Type, in.Host)
+	if err != nil {
+		return in, err
 	}
-	if parsed.Scheme != "http" && parsed.Scheme != "https" {
-		return in, errors.New("host only supports http or https")
-	}
-	in.Host = strings.TrimRight(parsed.String(), "/")
+	in.Host = normalized
 	return in, nil
 }
 

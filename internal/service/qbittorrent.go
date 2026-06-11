@@ -78,7 +78,7 @@ var (
 // an unconfigured downloader must fail closed instead of silently trying a
 // localhost qBittorrent instance.
 func NewQBitClient(log *zap.Logger, cfg QBitConfig) *QBitClient {
-	cfg.BaseURL = strings.TrimRight(strings.TrimSpace(cfg.BaseURL), "/")
+	cfg.BaseURL = normalizeQBitBaseURL(cfg.BaseURL)
 	jar, _ := cookiejar.New(nil)
 	client := NewInternalHTTPClient(20 * time.Second)
 	client.Jar = jar
@@ -93,7 +93,7 @@ func NewQBitClient(log *zap.Logger, cfg QBitConfig) *QBitClient {
 func (q *QBitClient) Configure(cfg QBitConfig) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
-	cfg.BaseURL = strings.TrimRight(strings.TrimSpace(cfg.BaseURL), "/")
+	cfg.BaseURL = normalizeQBitBaseURL(cfg.BaseURL)
 	q.cfg = cfg
 	jar, _ := cookiejar.New(nil)
 	q.client.Jar = jar
@@ -103,6 +103,18 @@ func (q *QBitClient) IsConfigured() bool {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	return strings.TrimSpace(q.cfg.BaseURL) != ""
+}
+
+func normalizeQBitBaseURL(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	normalized, err := normalizeDownloadClientEndpoint("qbittorrent", raw)
+	if err != nil {
+		return strings.TrimRight(raw, "/")
+	}
+	return normalized
 }
 
 // Login performs POST /api/v2/auth/login.
@@ -193,9 +205,8 @@ func (q *QBitClient) addTorrentLocked(ctx context.Context, magnetOrURL string, t
 	}
 	_ = w.Close()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
-		strings.TrimRight(q.cfg.BaseURL, "/")+"/api/v2/torrents/add", body,
-	)
+	req, err := newDownloadClientHTTPRequest(ctx, http.MethodPost,
+		strings.TrimRight(q.cfg.BaseURL, "/")+"/api/v2/torrents/add", body)
 	if err != nil {
 		return err
 	}
@@ -427,12 +438,14 @@ func (q *QBitClient) List(ctx context.Context, filter string) ([]QBitTorrent, er
 
 func (q *QBitClient) listLocked(ctx context.Context, filter string) ([]QBitTorrent, error) {
 	u := strings.TrimRight(q.cfg.BaseURL, "/") + "/api/v2/torrents/info"
-	if filter != "" {
-		u += "?filter=" + url.QueryEscape(filter)
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	req, err := newDownloadClientHTTPRequest(ctx, http.MethodGet, u, nil)
 	if err != nil {
 		return nil, err
+	}
+	if filter != "" {
+		query := req.URL.Query()
+		query.Set("filter", filter)
+		req.URL.RawQuery = query.Encode()
 	}
 	req.Header.Set("Referer", q.cfg.BaseURL)
 	resp, err := q.client.Do(req)
@@ -464,10 +477,9 @@ func (q *QBitClient) Delete(ctx context.Context, hash string, deleteFiles bool) 
 	} else {
 		form.Set("deleteFiles", "false")
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+	req, err := newDownloadClientHTTPRequest(ctx, http.MethodPost,
 		strings.TrimRight(q.cfg.BaseURL, "/")+"/api/v2/torrents/delete",
-		strings.NewReader(form.Encode()),
-	)
+		strings.NewReader(form.Encode()))
 	if err != nil {
 		return err
 	}
@@ -504,10 +516,9 @@ func (q *QBitClient) SetLocation(ctx context.Context, hash, location string) err
 	form := url.Values{}
 	form.Set("hashes", hash)
 	form.Set("location", location)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+	req, err := newDownloadClientHTTPRequest(ctx, http.MethodPost,
 		strings.TrimRight(q.cfg.BaseURL, "/")+"/api/v2/torrents/setLocation",
-		strings.NewReader(form.Encode()),
-	)
+		strings.NewReader(form.Encode()))
 	if err != nil {
 		return err
 	}

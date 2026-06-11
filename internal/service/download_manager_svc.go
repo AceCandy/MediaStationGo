@@ -22,9 +22,9 @@ type DownloadManager struct {
 	repo   *repository.Container
 	crypto *CryptoService
 
-	mu       sync.RWMutex
-	clients  map[string]DownloadAdapter // clientID -> adapter
-	configs  map[string]DownloadClientConfig
+	mu      sync.RWMutex
+	clients map[string]DownloadAdapter // clientID -> adapter
+	configs map[string]DownloadClientConfig
 }
 
 // NewDownloadManager 创建新的下载管理器。
@@ -230,9 +230,13 @@ func (m *DownloadManager) buildConfig(dc *model.DownloadClient) (DownloadClientC
 	if m.crypto != nil && password != "" {
 		password = m.crypto.Decrypt(password)
 	}
+	host, err := normalizeDownloadClientEndpoint(dc.Type, dc.Host)
+	if err != nil {
+		return DownloadClientConfig{}, err
+	}
 
 	cfg := DownloadClientConfig{
-		Host:     dc.Host,
+		Host:     host,
 		Username: dc.Username,
 		Password: password,
 	}
