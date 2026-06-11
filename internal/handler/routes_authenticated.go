@@ -72,6 +72,9 @@ func registerAuthenticatedRoutes(api *gin.RouterGroup, cfg *config.Config, svc *
 		authed.GET("/favourites", listFavouritesHandler(svc))
 		authed.POST("/favourites/:id", toggleFavouriteHandler(svc))
 
+		// Storage breakdown.
+		authed.GET("/storage", storageBreakdownHandler(svc))
+
 		authed.GET("/playlists", listPlaylistsHandler(svc))
 		authed.POST("/playlists", createPlaylistHandler(svc))
 		authed.GET("/playlists/:id", getPlaylistHandler(svc))
@@ -111,8 +114,6 @@ func registerAuthenticatedRoutes(api *gin.RouterGroup, cfg *config.Config, svc *
 		authed.PUT("/files/rename", middleware.AdminRequired(), renameFileHandler(svc))
 		authed.DELETE("/files", middleware.AdminRequired(), deleteFileHandler(svc))
 		authed.POST("/files/transfer", middleware.AdminRequired(), transferFileHandler(svc))
-
-// 		// Disk usage breakdown.
 
 		// DLNA discovery + cast.
 		authed.GET("/dlna/devices", dlnaListHandler(svc))
