@@ -278,11 +278,26 @@ func isFrontendLibraryRoute(path string) bool {
 	return true
 }
 
+// newLogger 根据 cfg.Logging 构建 Zap。此前 logging.level / logging.format
+// 配置完全没有生效（固定 NewProduction），用户无法在生产环境降低日志量；
+// 配合每请求一条 INFO 访问日志，几小时即可产生几十 MB 日志，在 Docker
+// json-file 驱动下持续消耗磁盘 IO。
 func newLogger(cfg *config.Config) (*zap.Logger, error) {
 	if cfg.App.Debug {
 		return zap.NewDevelopment()
 	}
-	return zap.NewProduction()
+	zapCfg := zap.NewProductionConfig()
+	if level, err := zap.ParseAtomicLevel(strings.TrimSpace(cfg.Logging.Level)); err == nil && cfg.Logging.Level != "" {
+		zapCfg.Level = level
+	}
+	if strings.EqualFold(strings.TrimSpace(cfg.Logging.Format), "console") {
+		zapCfg.Encoding = "console"
+	}
+	if out := strings.TrimSpace(cfg.Logging.OutputPath); out != "" {
+		zapCfg.OutputPaths = append(zapCfg.OutputPaths, out)
+		zapCfg.ErrorOutputPaths = append(zapCfg.ErrorOutputPaths, out)
+	}
+	return zapCfg.Build()
 }
 
 // getLocalIP returns the first non-loopback IPv4 address of the machine.

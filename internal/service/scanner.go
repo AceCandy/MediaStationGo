@@ -71,6 +71,8 @@ type ScannerService struct {
 	cloudMediaProbeMu       sync.Mutex
 	cloudMediaProbing       map[string]struct{}
 	cloudMediaProbeBackoff  map[string]time.Time
+	cloudMediaProbeWarnMu   sync.Mutex
+	cloudMediaProbeLastWarn time.Time
 }
 
 // NewScannerService is the constructor.
@@ -269,6 +271,10 @@ const maxCloudMediaProbeQueuePerScan = 32
 
 const cloudMediaProbeFailureBackoff = 6 * time.Hour
 
+// cloudMediaProbeQueueFullBackoff 是探测队列饱和时给单个文件挂的短退避，
+// 防止后续扫描轮次对同一批文件反复尝试入队。
+const cloudMediaProbeQueueFullBackoff = 30 * time.Minute
+
 // CloudScanStatus is the operator-facing state for long-running cloud scans.
 type CloudScanStatus struct {
 	LibraryID      string    `json:"library_id"`
@@ -359,9 +365,29 @@ func (s *ScannerService) queueCloudMediaProbe(typ, ref, path string) bool {
 	default:
 		s.cloudMediaProbeMu.Lock()
 		delete(s.cloudMediaProbing, path)
+		// 队列满说明探测工人已饱和；给该文件挂一个短退避，避免下一轮
+		// 扫描立刻重复尝试同一批文件。
+		if s.cloudMediaProbeBackoff == nil {
+			s.cloudMediaProbeBackoff = make(map[string]time.Time)
+		}
+		s.cloudMediaProbeBackoff[path] = time.Now().Add(cloudMediaProbeQueueFullBackoff)
 		s.cloudMediaProbeMu.Unlock()
 		if s.log != nil {
-			s.log.Warn("cloud media probe queue full", zap.String("provider", typ), zap.String("path", path))
+			// 限速告警：队列满在大库扫描中是常态而非异常，逐条 WARN 会
+			// 在几小时内产生数万行日志（真实环境出现过 41165 条）。
+			now := time.Now()
+			s.cloudMediaProbeWarnMu.Lock()
+			shouldWarn := now.Sub(s.cloudMediaProbeLastWarn) >= time.Minute
+			if shouldWarn {
+				s.cloudMediaProbeLastWarn = now
+			}
+			s.cloudMediaProbeWarnMu.Unlock()
+			if shouldWarn {
+				s.log.Warn("cloud media probe queue full; deferring remaining probes (logged at most once per minute)",
+					zap.String("provider", typ), zap.String("path", path))
+			} else {
+				s.log.Debug("cloud media probe queue full", zap.String("provider", typ), zap.String("path", path))
+			}
 		}
 		return false
 	}
@@ -372,14 +398,13 @@ func (s *ScannerService) queueCloudMediaProbeWithBudget(typ, ref, path string, b
 		if *budget <= 0 {
 			return false
 		}
-	}
-	if !s.queueCloudMediaProbe(typ, ref, path) {
-		return false
-	}
-	if budget != nil {
+		// 预算按「尝试」扣减而不是按「成功入队」扣减。否则当探测队列被
+		// 其他扫描填满时，本次扫描会对剩下的每一个文件都尝试入队并各打
+		// 一条日志——真实环境里曾因此产生过 4 万多条 "queue full" WARN，
+		// 这本身就是一笔可观的 CPU/磁盘开销。
 		*budget--
 	}
-	return true
+	return s.queueCloudMediaProbe(typ, ref, path)
 }
 
 func (s *ScannerService) beginCloudScan(ctx context.Context, lib *model.Library, mount CloudMountInfo) (context.Context, func(*ScanResult, error), error) {
@@ -917,7 +942,13 @@ func (s *ScannerService) scanCloudLibrary(ctx context.Context, lib *model.Librar
 			displayPath := joinCloudDisplayPath(displayDir, entry.Name)
 			path := cloudMediaPath(typ, displayPath)
 			localMeta := s.cloudFileMetadata(ctx, typ, displayPath, entry.Name, sidecars, dirMeta, librarySupportsSeasons(lib))
-			s.cacheCloudMetadataArtworkNow(ctx, localMeta)
+			// 每个文件的海报/背景图改走后台预取队列。此前这里是同步
+			// CloudResolve+下载（每张最多 20s 超时），几千个文件的云盘库
+			// 扫描会变成持续数小时的串行下载，把 CPU/带宽长期吃满。
+			if localMeta != nil {
+				s.queueCloudArtworkPrefetch(localMeta.PosterURL)
+				s.queueCloudArtworkPrefetch(localMeta.BackdropURL)
+			}
 			candidate := cloudCandidate{
 				ref:       ref,
 				name:      entry.Name,

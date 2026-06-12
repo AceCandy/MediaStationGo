@@ -59,6 +59,10 @@ type QBitTorrent struct {
 	// root folder. Prefer it for automatic organize so we do not scan the whole
 	// download category.
 	ContentPath string `json:"content_path"`
+	// CompletionOn 是 qBittorrent 报告的完成时间（Unix 秒，未完成为 0 或负值）。
+	// 用于应用重启后的「补整理」判断：只补最近完成的种子，避免每次启动
+	// 都重新触发全部历史种子的整理。
+	CompletionOn int64 `json:"completion_on"`
 }
 
 // QBitClient is a thread-safe qBittorrent v2 API client.

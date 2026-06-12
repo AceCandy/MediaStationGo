@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/glebarez/sqlite"
 	"go.uber.org/zap"
@@ -405,9 +406,25 @@ func TestEmbyPlaybackInfoProbesMissingCloudTrackMetadata(t *testing.T) {
 	}
 	svc.SetCloudProbe(resolver, prober)
 
-	pb, err := svc.PlaybackInfo(t.Context(), "cloud-probe-1", "user-1")
-	if err != nil {
+	if _, err := svc.PlaybackInfo(t.Context(), "cloud-probe-1", "user-1"); err != nil {
 		t.Fatalf("playback info: %v", err)
+	}
+
+	// 探测现在是异步的（同步探测曾把起播拖慢最多 8 秒并放大云盘流量）。
+	// 轮询等待后台探测结果落库。
+	var persisted model.Media
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		if err := svc.repo.DB.First(&persisted, "id = ?", "cloud-probe-1").Error; err != nil {
+			t.Fatalf("reload media: %v", err)
+		}
+		if persisted.DurationSec > 0 || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if persisted.DurationSec != 3661 || persisted.Width != 3840 || persisted.Height != 2160 || persisted.VideoCodec != "hevc" || persisted.AudioCodec != "eac3" {
+		t.Fatalf("probe metadata not persisted: %#v", persisted)
 	}
 	if resolver.typ != "openlist" || resolver.ref != "/Movies/Movie.mkv" {
 		t.Fatalf("resolver called with typ=%q ref=%q", resolver.typ, resolver.ref)
@@ -415,20 +432,19 @@ func TestEmbyPlaybackInfoProbesMissingCloudTrackMetadata(t *testing.T) {
 	if prober.rawURL != "http://cdn.example.test/Movie.mkv" || prober.headers["Authorization"] != "Bearer probe-token" {
 		t.Fatalf("probe called with url=%q headers=%#v", prober.rawURL, prober.headers)
 	}
+
+	// 落库之后，再次请求 PlaybackInfo 应当带上完整轨道元数据。
+	pb, err := svc.PlaybackInfo(t.Context(), "cloud-probe-1", "user-1")
+	if err != nil {
+		t.Fatalf("playback info (second): %v", err)
+	}
 	src := pb["MediaSources"].([]map[string]any)[0]
 	if src["RunTimeTicks"] != int64(3661)*10_000_000 {
-		t.Fatalf("runtime ticks not filled from probe: %#v", src)
+		t.Fatalf("runtime ticks not filled after async probe: %#v", src)
 	}
 	streams := src["MediaStreams"].([]map[string]any)
 	if len(streams) != 2 || streams[0]["Codec"] != "hevc" || streams[1]["Codec"] != "eac3" {
-		t.Fatalf("media streams not filled from probe: %#v", streams)
-	}
-	var persisted model.Media
-	if err := svc.repo.DB.First(&persisted, "id = ?", "cloud-probe-1").Error; err != nil {
-		t.Fatalf("reload media: %v", err)
-	}
-	if persisted.DurationSec != 3661 || persisted.Width != 3840 || persisted.Height != 2160 || persisted.VideoCodec != "hevc" || persisted.AudioCodec != "eac3" {
-		t.Fatalf("probe metadata not persisted: %#v", persisted)
+		t.Fatalf("media streams not filled after async probe: %#v", streams)
 	}
 }
 
@@ -437,6 +453,11 @@ func newTestEmbyService(t *testing.T) *EmbyService {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("open db: %v", err)
+	}
+	// 内存库 + 异步探测协程：限制为单连接，避免连接池新建连接时
+	// 拿到一个空白的 :memory: 实例（no such table）。
+	if sqlDB, err := db.DB(); err == nil {
+		sqlDB.SetMaxOpenConns(1)
 	}
 	if err := db.AutoMigrate(&model.Library{}, &model.Series{}, &model.Media{}, &model.Favorite{}, &model.PlaybackHistory{}, &model.User{}, &model.Setting{}); err != nil {
 		t.Fatalf("migrate: %v", err)

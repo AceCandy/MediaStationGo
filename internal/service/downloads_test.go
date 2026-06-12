@@ -136,7 +136,7 @@ func TestCompletedTorrentSourceDoesNotFallbackToSavePath(t *testing.T) {
 	}
 	svc := NewDownloadService(zap.NewNop(), newOrganizerTestRepo(t), NewHub(zap.NewNop()), nil)
 
-	got := svc.completedTorrentSource(QBitTorrent{
+	got := svc.completedTorrentSource(t.Context(), QBitTorrent{
 		Hash:        "done123",
 		Name:        "Missing.Payload.S01",
 		SavePath:    savePath,
@@ -187,6 +187,60 @@ func TestDownloadPollBaselinesAlreadyCompletedTorrents(t *testing.T) {
 
 	if got := len(svc.organizeQueue); got != 1 {
 		t.Fatalf("completion transition queued %d organize jobs, want 1", got)
+	}
+}
+
+func TestDownloadPollCatchesUpRecentlyCompletedTorrents(t *testing.T) {
+	repos := newOrganizerTestRepo(t)
+	svc := NewDownloadService(zap.NewNop(), repos, NewHub(zap.NewNop()), nil)
+
+	svc.processDownloadSnapshot(t.Context(), []QBitTorrent{
+		{Hash: "fresh-complete", Name: "Fresh Complete S01E01", Progress: 1, CompletionOn: time.Now().Add(-time.Hour).Unix()},
+		{Hash: "stale-complete", Name: "Stale Complete S01E01", Progress: 1, CompletionOn: time.Now().Add(-48 * time.Hour).Unix()},
+		{Hash: "no-timestamp", Name: "No Timestamp S01E01", Progress: 1},
+	}, nil)
+
+	// 只有补整理时间窗内完成的种子会被补整理；无 completion_on 的保守跳过。
+	if got := len(svc.organizeQueue); got != 1 {
+		t.Fatalf("first poll queued %d organize jobs, want 1 (recent completion only)", got)
+	}
+}
+
+func TestCompletedTorrentSourceUsesConfiguredMapping(t *testing.T) {
+	root := t.TempDir()
+	localRoot := filepath.Join(root, "localdl")
+	payload := filepath.Join(localRoot, "Show.S01")
+	if err := os.MkdirAll(payload, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	repos := newOrganizerTestRepo(t)
+	if err := repos.Setting.Set(t.Context(), DownloadPathMappingsSettingKey, "/qb/downloads="+localRoot); err != nil {
+		t.Fatal(err)
+	}
+	svc := NewDownloadService(zap.NewNop(), repos, NewHub(zap.NewNop()), nil)
+
+	got := svc.completedTorrentSource(t.Context(), QBitTorrent{ContentPath: "/qb/downloads/Show.S01"})
+	if got != payload {
+		t.Fatalf("completedTorrentSource = %q, want %q", got, payload)
+	}
+}
+
+func TestUserPathMappingsParsing(t *testing.T) {
+	repos := newOrganizerTestRepo(t)
+	raw := "# comment\n/a=/b\n/c => /d\n/e:/f\nbad-line\n"
+	if err := repos.Setting.Set(t.Context(), DownloadPathMappingsSettingKey, raw); err != nil {
+		t.Fatal(err)
+	}
+	svc := NewDownloadService(zap.NewNop(), repos, NewHub(zap.NewNop()), nil)
+	got := svc.userPathMappings(t.Context())
+	want := map[string]string{"/a": "/b", "/c": "/d", "/e": "/f"}
+	if len(got) != len(want) {
+		t.Fatalf("userPathMappings = %v, want %v", got, want)
+	}
+	for k, v := range want {
+		if got[k] != v {
+			t.Fatalf("mapping %q = %q, want %q", k, got[k], v)
+		}
 	}
 }
 

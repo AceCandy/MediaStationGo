@@ -103,7 +103,9 @@ func TestServeFileHonorsSTRMPlaybackDisabled(t *testing.T) {
 	w := httptest.NewRecorder()
 
 	err := svc.ServeFile(w, req, "cloud-1")
-	if err != ErrMediaNotFound {
+	// 云盘媒体在 STRM 播放关闭时返回明确的「云盘播放不可用」错误，
+	// 而不是和「媒体不存在」混在一起（后者会让播放器显示 404）。
+	if err != ErrCloudPlaybackUnavailable {
 		t.Fatalf("disabled STRM should not redirect cloud media, err=%v status=%d location=%q", err, w.Code, w.Header().Get("Location"))
 	}
 	if loc := w.Header().Get("Location"); loc != "" {

@@ -57,6 +57,32 @@ func NewStreamService(cfg *config.Config, log *zap.Logger, repo *repository.Cont
 // ErrMediaNotFound is returned when the media row or its file is missing.
 var ErrMediaNotFound = errors.New("media not found")
 
+// ErrCloudPlaybackUnavailable 表示媒体行存在但属于云盘媒体、且当前无法
+// 构造可用的播放重定向（例如 STRM 播放被关闭或 STRMURL 缺失）。调用方
+// 应把它与「媒体不存在」区分开，避免把配置类故障当成 404 返回给播放器。
+var ErrCloudPlaybackUnavailable = errors.New("cloud media playback unavailable: strm playback disabled or media missing play url; re-scan the library or enable strm playback")
+
+// normalizeCloudPlayTarget 把存库的云盘播放 URL 规范化为相对路径。
+//
+// STRMURL 是扫描时根据当时的 server_url/请求地址生成并固化进数据库的。
+// 在 Windows 开发机上扫描、再部署到 Docker（或更换了内网 IP/域名）后，
+// 这些绝对 URL 会指向已失效的旧地址，第三方播放器跟随 302 就会拿到
+// 连接失败/404。这里只要能从 URL 中解析出 provider+ref，就重建为相对
+// /api/cloud/play 路径，由 absoluteInternalRedirect 基于「当前请求」补全
+// host，从而对历史脏数据免疫。
+func normalizeCloudPlayTarget(raw string) string {
+	typ, ref, ok := parseCloudMediaPlaybackURL(raw)
+	if !ok {
+		return raw
+	}
+	return BuildRelativeCloudPlayURL(typ, ref)
+}
+
+// BuildRelativeCloudPlayURL 构造相对的云盘播放 API 路径。
+func BuildRelativeCloudPlayURL(typ, ref string) string {
+	return "/api/cloud/play/" + url.PathEscape(strings.TrimSpace(typ)) + "?" + url.Values{"ref": []string{ref}}.Encode()
+}
+
 // directPlayOnly reports whether the admin enabled「客户端直连解码」mode,
 // in which the host never transcodes (HLS is refused) and all playback is
 // handled by the client (direct play / 302 redirect).
@@ -209,9 +235,17 @@ func (s *StreamService) ServeFile(w http.ResponseWriter, r *http.Request, mediaI
 		return ErrMediaNotFound
 	}
 	if strings.TrimSpace(m.STRMURL) != "" && STRMPlaybackEnabled(r.Context(), s.repo) {
-		target := withAuthTokenForInternalRedirect(m.STRMURL, r, PublicServerURL(r.Context(), s.repo, s.cfg))
+		// 云盘播放 URL 先规范化为相对路径，免疫扫描时固化的旧 host。
+		target := normalizeCloudPlayTarget(m.STRMURL)
+		target = withAuthTokenForInternalRedirect(target, r, PublicServerURL(r.Context(), s.repo, s.cfg))
 		http.Redirect(w, r, absoluteInternalRedirect(target, r), http.StatusFound)
 		return nil
+	}
+	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(m.Path)), "cloud://") {
+		// 云盘媒体没有本地文件可回退；走到这里说明 STRM 播放被关闭或
+		// STRMURL 缺失。返回明确错误而不是笼统的「文件不存在」，
+		// 处理器据此回 502 + 原因，方便用户在播放器/日志里定位。
+		return ErrCloudPlaybackUnavailable
 	}
 	f, err := os.Open(m.Path)
 	if err != nil {

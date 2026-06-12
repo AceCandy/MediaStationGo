@@ -42,12 +42,22 @@ type TokenService struct {
 	log            *zap.Logger
 	repo           *repository.Container
 	delayedStoreMu sync.Mutex
-	delayedStores  map[string]struct{}
+	// delayedStores 记录「已发给客户端但还没写进库」的 refresh token。
+	// 键是 token 哈希；值携带签发信息，让 Refresh 在落库完成前也能识别
+	// 这些令牌——否则用户登录成功、一小时后 access token 过期，刷新时
+	// 因为 refresh token 从未落库而被判定无效，被强制踢回登录页，
+	// 表现就是「经常登录报错」。
+	delayedStores map[string]pendingRefreshToken
+}
+
+type pendingRefreshToken struct {
+	UserID    string
+	ExpiresAt time.Time
 }
 
 // NewTokenService 创建令牌服务实例。
 func NewTokenService(cfg *config.Config, log *zap.Logger, repo *repository.Container) *TokenService {
-	return &TokenService{cfg: cfg, log: log, repo: repo, delayedStores: make(map[string]struct{})}
+	return &TokenService{cfg: cfg, log: log, repo: repo, delayedStores: make(map[string]pendingRefreshToken)}
 }
 
 // TokenPair 包含访问令牌和刷新令牌。
@@ -113,7 +123,7 @@ func (s *TokenService) issuePair(ctx context.Context, userID, role, tier string,
 				zap.String("user_id", userID),
 				zap.Error(err))
 		}
-		if s.trackDelayedStore(userID, tokenHash) {
+		if s.trackDelayedStore(userID, tokenHash, rt.ExpiresAt) {
 			go s.storeRefreshTokenEventually(userID, tokenHash, rt.ExpiresAt)
 		}
 	}
@@ -142,6 +152,11 @@ func (s *TokenService) storeRefreshTokenEventually(userID, tokenHash string, exp
 	for attempt := 1; attempt <= 8; attempt++ {
 		timer := time.NewTimer(delay)
 		<-timer.C
+		// 令牌可能已在等待期间被轮换/登出（从 pending 表移除），
+		// 此时绝不能再写库，否则会复活一个已被替换的旧令牌。
+		if _, stillPending := s.pendingDelayedStore(tokenHash); !stillPending {
+			return
+		}
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		err := s.storeRefreshToken(ctx, &model.RefreshToken{
 			UserID:    userID,
@@ -173,20 +188,19 @@ func (s *TokenService) storeRefreshTokenEventually(userID, tokenHash string, exp
 	}
 }
 
-func (s *TokenService) trackDelayedStore(userID, tokenHash string) bool {
+func (s *TokenService) trackDelayedStore(userID, tokenHash string, expiresAt time.Time) bool {
 	if s == nil {
 		return false
 	}
-	key := userID + "\x00" + tokenHash
 	s.delayedStoreMu.Lock()
 	defer s.delayedStoreMu.Unlock()
 	if s.delayedStores == nil {
-		s.delayedStores = make(map[string]struct{})
+		s.delayedStores = make(map[string]pendingRefreshToken)
 	}
-	if _, ok := s.delayedStores[key]; ok {
+	if _, ok := s.delayedStores[tokenHash]; ok {
 		return false
 	}
-	s.delayedStores[key] = struct{}{}
+	s.delayedStores[tokenHash] = pendingRefreshToken{UserID: userID, ExpiresAt: expiresAt}
 	return true
 }
 
@@ -194,10 +208,20 @@ func (s *TokenService) untrackDelayedStore(userID, tokenHash string) {
 	if s == nil {
 		return
 	}
-	key := userID + "\x00" + tokenHash
 	s.delayedStoreMu.Lock()
-	delete(s.delayedStores, key)
+	delete(s.delayedStores, tokenHash)
 	s.delayedStoreMu.Unlock()
+}
+
+// pendingDelayedStore 返回尚未落库的 refresh token 信息（如果存在）。
+func (s *TokenService) pendingDelayedStore(tokenHash string) (pendingRefreshToken, bool) {
+	if s == nil {
+		return pendingRefreshToken{}, false
+	}
+	s.delayedStoreMu.Lock()
+	defer s.delayedStoreMu.Unlock()
+	pending, ok := s.delayedStores[tokenHash]
+	return pending, ok
 }
 
 func (s *TokenService) maxActiveRefreshTokens(ctx context.Context) int {
@@ -244,7 +268,17 @@ func (s *TokenService) Refresh(ctx context.Context, refreshToken string) (*Token
 		return nil, err
 	}
 	if rt == nil {
-		return nil, ErrInvalidRefreshToken
+		// 登录高峰/扫描写压力下，refresh token 可能还在后台补写队列里
+		// 没来得及落库。此时令牌对客户端而言是合法的，不能判无效。
+		pending, ok := s.pendingDelayedStore(tokenHash)
+		if !ok || time.Now().After(pending.ExpiresAt) {
+			return nil, ErrInvalidRefreshToken
+		}
+		rt = &model.RefreshToken{
+			UserID:    pending.UserID,
+			TokenHash: tokenHash,
+			ExpiresAt: pending.ExpiresAt,
+		}
 	}
 
 	// 检查是否已撤销
@@ -272,10 +306,11 @@ func (s *TokenService) Refresh(ctx context.Context, refreshToken string) (*Token
 		return nil, ErrUserExpired
 	}
 
-	// 撤销旧的 Refresh Token
+	// 撤销旧的 Refresh Token（包括可能仍在后台补写队列里的副本）。
 	if err := s.repo.RefreshToken.Revoke(ctx, tokenHash); err != nil {
 		s.log.Warn("failed to revoke old refresh token", zap.Error(err))
 	}
+	s.untrackDelayedStore(rt.UserID, tokenHash)
 
 	// 签发新的令牌对
 	return s.IssuePair(ctx, user.ID, user.Role, user.Tier)

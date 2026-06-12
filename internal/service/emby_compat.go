@@ -69,6 +69,9 @@ type EmbyService struct {
 
 	visibilityMu    sync.RWMutex
 	visibilityCache map[string]embyVisibilityCacheEntry
+
+	cloudProbeMu       sync.Mutex
+	cloudProbeInFlight map[string]struct{}
 }
 
 type cloudPlaybackResolver interface {
@@ -1476,6 +1479,13 @@ func (e *EmbyService) PlaybackInfo(ctx context.Context, mediaID, userID string) 
 	}, nil
 }
 
+// ensureCloudTrackMetadata 在后台补齐云盘媒体的轨道元数据。
+//
+// 注意必须是异步的：此前这里在 PlaybackInfo 请求路径上同步执行
+// CloudResolve + ffprobe(HTTP)（最长 8 秒），既把第三方播放器的起播时间
+// 拖长到秒级，又让每一次点开详情/起播都可能触发一次云盘数据下载，是
+// Docker 部署下 CPU/带宽长期居高的来源之一。探测结果落库后，下一次
+// 请求自然能读到完整元数据。
 func (e *EmbyService) ensureCloudTrackMetadata(ctx context.Context, m *model.Media) {
 	if e == nil || m == nil || e.storage == nil || e.probe == nil || !mediaTrackMetadataMissing(m) {
 		return
@@ -1484,30 +1494,48 @@ func (e *EmbyService) ensureCloudTrackMetadata(ctx context.Context, m *model.Med
 	if !ok {
 		return
 	}
-	probeCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
-	defer cancel()
-	link, err := e.storage.CloudResolve(probeCtx, typ, ref, "")
-	if err != nil {
-		if e.log != nil {
-			e.log.Debug("resolve cloud media for playback probe failed", zap.String("media_id", m.ID), zap.Error(err))
+	mediaID := m.ID
+	e.cloudProbeMu.Lock()
+	if e.cloudProbeInFlight == nil {
+		e.cloudProbeInFlight = make(map[string]struct{})
+	}
+	if _, busy := e.cloudProbeInFlight[mediaID]; busy {
+		e.cloudProbeMu.Unlock()
+		return
+	}
+	e.cloudProbeInFlight[mediaID] = struct{}{}
+	e.cloudProbeMu.Unlock()
+
+	go func() {
+		defer func() {
+			e.cloudProbeMu.Lock()
+			delete(e.cloudProbeInFlight, mediaID)
+			e.cloudProbeMu.Unlock()
+		}()
+		probeCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		link, err := e.storage.CloudResolve(probeCtx, typ, ref, "")
+		if err != nil {
+			if e.log != nil {
+				e.log.Debug("resolve cloud media for playback probe failed", zap.String("media_id", mediaID), zap.Error(err))
+			}
+			return
 		}
-		return
-	}
-	probe, err := e.probe.ProbeHTTP(probeCtx, link.URL, link.Headers)
-	if err != nil {
-		if e.log != nil {
-			e.log.Debug("playback cloud ffprobe failed", zap.String("media_id", m.ID), zap.Error(err))
+		probe, err := e.probe.ProbeHTTP(probeCtx, link.URL, link.Headers)
+		if err != nil {
+			if e.log != nil {
+				e.log.Debug("playback cloud ffprobe failed", zap.String("media_id", mediaID), zap.Error(err))
+			}
+			return
 		}
-		return
-	}
-	updates := probeResultUpdates(probe)
-	if len(updates) == 0 {
-		return
-	}
-	if err := e.repo.DB.WithContext(ctx).Model(&model.Media{}).Where("id = ?", m.ID).Updates(updates).Error; err != nil && e.log != nil {
-		e.log.Debug("persist playback cloud probe failed", zap.String("media_id", m.ID), zap.Error(err))
-	}
-	applyProbeResultToMediaValue(m, probe)
+		updates := probeResultUpdates(probe)
+		if len(updates) == 0 {
+			return
+		}
+		if err := e.repo.DB.WithContext(probeCtx).Model(&model.Media{}).Where("id = ?", mediaID).Updates(updates).Error; err != nil && e.log != nil {
+			e.log.Debug("persist playback cloud probe failed", zap.String("media_id", mediaID), zap.Error(err))
+		}
+	}()
 }
 
 func mediaTrackMetadataMissing(m *model.Media) bool {
@@ -1630,11 +1658,16 @@ func (e *EmbyService) mediaSource(m *model.Media, asEmbedded, directOnly bool) m
 		"RequiresClosing":       false,
 		"ReadAtNativeFramerate": false,
 		"SupportsTranscoding":   !directOnly,
-		"SupportsDirectStream":  true,
-		"SupportsDirectPlay":    true,
-		"SupportsProbing":       true,
-		"RunTimeTicks":          int64(m.DurationSec) * 10_000_000,
-		"MediaStreams":          e.mediaStreams(m),
+		// 云盘媒体禁用 DirectPlay：DirectPlay 语义是「客户端直接访问
+		// Path」，而云盘媒体的 Path 是不带鉴权 token 的内部 /api/cloud/play
+		// 路径，Infuse/VidHub 等播放器直接请求会得到 401/404。强制它们走
+		// DirectStream（/Videos/{id}/stream?api_key=...），由服务端校验后
+		// 302 到云盘直链。
+		"SupportsDirectStream": true,
+		"SupportsDirectPlay":   !isCloud,
+		"SupportsProbing":      true,
+		"RunTimeTicks":         int64(m.DurationSec) * 10_000_000,
+		"MediaStreams":         e.mediaStreams(m),
 	}
 	if !asEmbedded {
 		src["DirectStreamUrl"] = embyDirectStreamURL(m.ID, container)

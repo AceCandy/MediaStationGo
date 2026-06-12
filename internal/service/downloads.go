@@ -19,6 +19,7 @@ import (
 	"context"
 	"errors"
 	"math"
+	"os"
 	"net/url"
 	"path"
 	"path/filepath"
@@ -814,7 +815,15 @@ func (d *DownloadService) processDownloadSnapshot(ctx context.Context, live []QB
 		wasComplete, wasSeen := d.prevStates[stateKey]
 		switch {
 		case complete && (firstSnapshot || !wasSeen):
+			// 首次快照里已完成的种子：此前一律标记「已见过」并跳过整理，
+			// 导致「下载完成时应用恰好不在线/正在重启」的种子永远不会被
+			// 自动整理入库。现在对最近完成的种子补一次整理
+			// （onTorrentComplete 内部仍受 organize.auto 开关约束，且
+			// 整理对已存在的目标文件幂等跳过）。
 			d.prevStates[stateKey] = true
+			if recentlyCompletedTorrent(torrent, time.Now()) {
+				shouldQueue = true
+			}
 		case complete && !wasComplete:
 			shouldQueue = true
 		case complete:
@@ -915,6 +924,20 @@ func (d *DownloadService) markCompletedTorrentOrganizeDone(torrent QBitTorrent) 
 	d.mu.Unlock()
 }
 
+// completedTorrentCatchupWindow 限定重启补整理只覆盖最近完成的种子，
+// 防止每次启动都把全部历史种子重新过一遍整理流程。
+const completedTorrentCatchupWindow = 24 * time.Hour
+
+// recentlyCompletedTorrent 报告该种子是否在补整理时间窗内完成。
+// qBittorrent 未提供 completion_on 时保守地返回 false。
+func recentlyCompletedTorrent(torrent QBitTorrent, now time.Time) bool {
+	if torrent.CompletionOn <= 0 {
+		return false
+	}
+	completed := time.Unix(torrent.CompletionOn, 0)
+	return now.Sub(completed) <= completedTorrentCatchupWindow
+}
+
 func completedTorrentQueueKey(torrent QBitTorrent) string {
 	hash := strings.ToLower(strings.TrimSpace(torrent.Hash))
 	if hash != "" {
@@ -1010,7 +1033,7 @@ func (d *DownloadService) onTorrentComplete(ctx context.Context, torrent QBitTor
 		d.log.Info("download completed, auto-organize disabled", zap.String("hash", torrent.Hash))
 		return
 	}
-	source := d.completedTorrentSource(torrent)
+	source := d.completedTorrentSource(ctx, torrent)
 	if source == "" {
 		d.log.Warn("download completed but payload path is not accessible",
 			zap.String("hash", torrent.Hash),
@@ -1045,12 +1068,22 @@ func (d *DownloadService) onTorrentComplete(ctx context.Context, torrent QBitTor
 		zap.Int("errors", len(res.Errors)))
 }
 
-func (d *DownloadService) completedTorrentSource(torrent QBitTorrent) string {
+// DownloadPathMappingsSettingKey 允许用户自定义「下载器路径 → 本程序路径」
+// 映射，每行一条，格式 `客户端路径=本地路径`（也接受 `=>` 或单个 `:` 分隔）。
+// qBittorrent 与本程序常在不同容器/主机里，对同一份数据看到的路径不同；
+// 此前映射表是写死的三条猜测，对不上时整理静默失败。
+const DownloadPathMappingsSettingKey = "download.path_mappings"
+
+func (d *DownloadService) completedTorrentSource(ctx context.Context, torrent QBitTorrent) string {
 	// 常见路径映射：qBittorrent容器路径 -> MediaStationGo容器路径
 	mappings := map[string]string{
 		"/var/apps/qBittorrent/shares/qBittorrent/Download": "/downloads",
 		"/data/qBittorrent/downloads":                       "/downloads",
 		"/downloads/qBittorrent":                            "/downloads",
+	}
+	// 用户自定义映射优先（可覆盖内置猜测）。
+	for clientPrefix, localPrefix := range d.userPathMappings(ctx) {
+		mappings[clientPrefix] = localPrefix
 	}
 	for _, candidate := range []string{
 		torrent.ContentPath,
@@ -1064,6 +1097,55 @@ func (d *DownloadService) completedTorrentSource(torrent QBitTorrent) string {
 		if translated := translateClientPath(clean, mappings); translated != "" {
 			return translated
 		}
+		// 复用 compose 注入的 MEDIASTATION_DOWNLOAD_DIR/MEDIA_DIR 宿主机↔容器
+		// 映射（与媒体库路径换算同一套规则），覆盖「qB 跑在宿主机、
+		// 本程序在容器里」的最常见部署形态。
+		for _, mapped := range mappedPathCandidates(clean) {
+			if mapped == clean {
+				continue
+			}
+			if _, err := os.Stat(mapped); err == nil {
+				return mapped
+			}
+		}
 	}
 	return ""
+}
+
+// userPathMappings 解析用户配置的下载器路径映射。
+func (d *DownloadService) userPathMappings(ctx context.Context) map[string]string {
+	out := map[string]string{}
+	if d == nil || d.repo == nil || d.repo.Setting == nil {
+		return out
+	}
+	raw, err := d.repo.Setting.Get(ctx, DownloadPathMappingsSettingKey)
+	if err != nil {
+		return out
+	}
+	for _, line := range strings.Split(raw, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		var from, to string
+		switch {
+		case strings.Contains(line, "=>"):
+			parts := strings.SplitN(line, "=>", 2)
+			from, to = parts[0], parts[1]
+		case strings.Contains(line, "="):
+			parts := strings.SplitN(line, "=", 2)
+			from, to = parts[0], parts[1]
+		case strings.Count(line, ":") == 1:
+			parts := strings.SplitN(line, ":", 2)
+			from, to = parts[0], parts[1]
+		default:
+			continue
+		}
+		from = strings.TrimSpace(from)
+		to = strings.TrimSpace(to)
+		if from != "" && to != "" {
+			out[from] = to
+		}
+	}
+	return out
 }

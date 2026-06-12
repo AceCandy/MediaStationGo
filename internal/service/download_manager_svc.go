@@ -73,17 +73,20 @@ func (m *DownloadManager) LoadAll(ctx context.Context) error {
 		}
 
 		if initErr := adapter.Initialize(ctx, cfg); initErr != nil {
-			m.log.Warn("failed to initialize download client",
+			// 初始化失败通常是 Docker 启动顺序问题（qBittorrent 还没就绪）。
+			// 适配器内部支持按需重新登录（403/未登录时透明重试），所以
+			// 这里仍然注册适配器，等下载器上线后自动恢复；此前直接 continue
+			// 会让该客户端在应用重启前永久不可用，下载完成也无法整理入库。
+			m.log.Warn("download client init failed; registered for lazy reconnect",
 				zap.String("id", dc.ID),
 				zap.String("name", dc.Name),
 				zap.Error(initErr),
 			)
-			continue
 		}
 
 		m.clients[dc.ID] = adapter
 		m.configs[dc.ID] = cfg
-		m.log.Info("download client initialized",
+		m.log.Info("download client registered",
 			zap.String("id", dc.ID),
 			zap.String("name", dc.Name),
 			zap.String("type", dc.Type),

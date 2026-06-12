@@ -840,14 +840,27 @@ func embyVideoStreamHandler(svc *service.Container) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		uid := embyUserID(c)
 		item, err := svc.Emby.Item(c.Request.Context(), c.Param("id"), uid)
-		if err != nil || item == nil {
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		if item == nil {
 			c.Status(http.StatusNotFound)
 			return
 		}
-		// 直接调用 Stream service 写入 response
+		// 直接调用 Stream service 写入 response。
+		// 此前这里把所有错误一律吞成 404：云盘 Cookie 过期、直链解析失败、
+		// STRM 播放被关闭……在第三方播放器上全部表现为「404 不存在」，
+		// 无法排查。现在区分：行不存在→404；云盘播放不可用/上游故障→502+原因。
 		err = svc.Stream.ServeFile(c.Writer, c.Request, c.Param("id"))
-		if err != nil {
+		switch {
+		case err == nil:
+		case errors.Is(err, service.ErrMediaNotFound):
 			c.Status(http.StatusNotFound)
+		default:
+			if !c.Writer.Written() {
+				c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+			}
 		}
 	}
 }
