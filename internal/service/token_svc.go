@@ -107,25 +107,17 @@ func (s *TokenService) issuePair(ctx context.Context, userID, role, tier string,
 		TokenHash: tokenHash,
 		ExpiresAt: time.Now().Add(RefreshTokenDuration),
 	}
-	storeCtx := ctx
-	cancel := func() {}
 	if bestEffort {
-		storeCtx, cancel = context.WithTimeout(context.Background(), loginRefreshTokenStoreTimeout)
+		s.storeRefreshTokenBestEffort(userID, tokenHash, rt.ExpiresAt)
+		return &TokenPair{
+			AccessToken:  accessToken,
+			RefreshToken: refreshToken,
+			ExpiresIn:    int64(AccessTokenDuration.Seconds()),
+			TokenType:    "Bearer",
+		}, nil
 	}
-	err = s.storeRefreshToken(storeCtx, rt)
-	cancel()
-	if err != nil {
-		if !bestEffort {
-			return nil, err
-		}
-		if s.log != nil {
-			s.log.Warn("refresh token store delayed; login will continue",
-				zap.String("user_id", userID),
-				zap.Error(err))
-		}
-		if s.trackDelayedStore(userID, tokenHash, rt.ExpiresAt) {
-			go s.storeRefreshTokenEventually(userID, tokenHash, rt.ExpiresAt)
-		}
+	if err := s.storeRefreshToken(ctx, rt); err != nil {
+		return nil, err
 	}
 
 	return &TokenPair{
@@ -134,6 +126,56 @@ func (s *TokenService) issuePair(ctx context.Context, userID, role, tier string,
 		ExpiresIn:    int64(AccessTokenDuration.Seconds()),
 		TokenType:    "Bearer",
 	}, nil
+}
+
+func (s *TokenService) storeRefreshTokenBestEffort(userID, tokenHash string, expiresAt time.Time) {
+	if !s.trackDelayedStore(userID, tokenHash, expiresAt) {
+		return
+	}
+	done := make(chan error, 1)
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		done <- s.storeRefreshToken(ctx, &model.RefreshToken{
+			UserID:    userID,
+			TokenHash: tokenHash,
+			ExpiresAt: expiresAt,
+		})
+	}()
+	select {
+	case err := <-done:
+		s.finishBestEffortRefreshTokenStore(userID, tokenHash, expiresAt, err)
+	case <-time.After(loginRefreshTokenStoreTimeout):
+		if s.log != nil {
+			s.log.Warn("refresh token store delayed; login will continue",
+				zap.String("user_id", userID),
+				zap.Error(context.DeadlineExceeded))
+		}
+		go func() {
+			err := <-done
+			s.finishBestEffortRefreshTokenStore(userID, tokenHash, expiresAt, err)
+		}()
+	}
+}
+
+func (s *TokenService) finishBestEffortRefreshTokenStore(userID, tokenHash string, expiresAt time.Time, err error) {
+	if err == nil {
+		s.untrackDelayedStore(userID, tokenHash)
+		return
+	}
+	if repository.IsSQLiteBusyError(err) || errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+		if s.log != nil {
+			s.log.Warn("refresh token store delayed; login will continue",
+				zap.String("user_id", userID),
+				zap.Error(err))
+		}
+		s.storeRefreshTokenEventually(userID, tokenHash, expiresAt)
+		return
+	}
+	s.untrackDelayedStore(userID, tokenHash)
+	if s.log != nil {
+		s.log.Warn("refresh token delayed store failed permanently", zap.String("user_id", userID), zap.Error(err))
+	}
 }
 
 func (s *TokenService) storeRefreshToken(ctx context.Context, rt *model.RefreshToken) error {
@@ -148,7 +190,7 @@ func (s *TokenService) storeRefreshToken(ctx context.Context, rt *model.RefreshT
 
 func (s *TokenService) storeRefreshTokenEventually(userID, tokenHash string, expiresAt time.Time) {
 	defer s.untrackDelayedStore(userID, tokenHash)
-	delay := 5 * time.Second
+	delay := time.Second
 	for attempt := 1; attempt <= 8; attempt++ {
 		timer := time.NewTimer(delay)
 		<-timer.C
@@ -313,7 +355,7 @@ func (s *TokenService) Refresh(ctx context.Context, refreshToken string) (*Token
 	s.untrackDelayedStore(rt.UserID, tokenHash)
 
 	// 签发新的令牌对
-	return s.IssuePair(ctx, user.ID, user.Role, user.Tier)
+	return s.IssuePairBestEffort(ctx, user.ID, user.Role, user.Tier)
 }
 
 // RevokeAll 撤销用户的所有 Refresh Token（用于登出）。

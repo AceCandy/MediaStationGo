@@ -163,8 +163,21 @@ func (s *AuthService) Login(ctx context.Context, username, password string) (*Lo
 	if err != nil {
 		return nil, err
 	}
-	_ = s.repo.User.TouchLogin(ctx, u.ID)
+	s.touchLoginBestEffort(u.ID)
 	return &LoginResponse{User: u, Tokens: tokens}, nil
+}
+
+func (s *AuthService) touchLoginBestEffort(userID string) {
+	if s == nil || s.repo == nil || s.repo.User == nil || strings.TrimSpace(userID) == "" {
+		return
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		if err := s.repo.User.TouchLogin(ctx, userID); err != nil && s.log != nil {
+			s.log.Debug("touch login delayed", zap.String("user_id", userID), zap.Error(err))
+		}
+	}()
 }
 
 // ChangePassword updates the user password if the old one matches.

@@ -135,10 +135,10 @@ func (s *SchedulerService) Start(ctx context.Context) {
 	}
 	for _, j := range s.jobs {
 		initialDelay := 15 * time.Second
-		if j.name == "library_scan" {
-			// 重启后不立即整库重扫：更新/重启窗口恰是登录高峰，启动
-			// 15 秒即全量扫描曾把 CPU/磁盘打满导致无法登录。首轮等满
-			// 一个完整周期再跑，平时的每小时节奏不变。
+		if j.name == "library_scan" || j.name == "organize_source" {
+			// 重启后不立即整库重扫/整理下载目录：更新窗口恰是登录高峰，
+			// 15 秒即全量 walk + ffprobe 曾把 CPU/磁盘打满导致无法登录。
+			// 首轮等满一个完整周期再跑，平时节奏不变。
 			initialDelay = j.interval
 		}
 		go s.loopWithInitialDelay(ctx, j, initialDelay)
@@ -483,8 +483,16 @@ func (s *SchedulerService) jobOrganizeSource(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if s.scanner != nil && res != nil && strings.TrimSpace(res.DestPath) != "" {
+	if s.scanner != nil && res != nil && strings.TrimSpace(res.DestPath) != "" && OrganizeResultHasChanges(res) {
 		res.Scans, res.Scrapes = s.scanner.ScanAndScrapeLibrariesForPath(ctx, res.DestPath, "", OrganizeScrapeAfterEnabled(ctx, s.repo))
+	} else if s.log != nil && res != nil && !OrganizeResultHasChanges(res) {
+		s.log.Info("scheduled source organize skipped scan; no destination changes",
+			zap.String("source", res.SourcePath),
+			zap.String("dest", res.DestPath),
+			zap.Int("organized", res.Organized),
+			zap.Int("replaced", res.Replaced),
+			zap.Int("skipped", res.Skipped),
+		)
 	}
 	if s.log != nil && res != nil {
 		s.log.Info("scheduled source organize finished",

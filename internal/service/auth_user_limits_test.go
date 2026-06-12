@@ -30,6 +30,11 @@ func newAuthTestServices(t *testing.T) (*repository.Container, *AuthService, *Pr
 	if err := db.AutoMigrate(&model.User{}, &model.UserPermission{}, &model.RefreshToken{}, &model.TelegramBinding{}, &model.Setting{}); err != nil {
 		t.Fatal(err)
 	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	sqlDB.SetMaxOpenConns(1)
 	repos := repository.New(db)
 	cfg := &config.Config{}
 	cfg.Secrets.JWTSecret = "test-secret"

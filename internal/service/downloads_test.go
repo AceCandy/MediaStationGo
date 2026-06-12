@@ -206,6 +206,75 @@ func TestDownloadPollCatchesUpRecentlyCompletedTorrents(t *testing.T) {
 	}
 }
 
+func TestDownloadPollSkipsRecordedCompletedTorrentCatchup(t *testing.T) {
+	repos := newOrganizerTestRepo(t)
+	torrent := QBitTorrent{
+		Hash:         "fresh-complete",
+		Name:         "Fresh Complete S01E01",
+		Progress:     1,
+		CompletionOn: time.Now().Add(-time.Hour).Unix(),
+	}
+	if err := repos.Setting.Set(t.Context(), completedTorrentCatchupSettingKey(torrent), "true"); err != nil {
+		t.Fatal(err)
+	}
+	svc := NewDownloadService(zap.NewNop(), repos, NewHub(zap.NewNop()), nil)
+
+	svc.processDownloadSnapshot(t.Context(), []QBitTorrent{torrent}, nil)
+
+	if got := len(svc.organizeQueue); got != 0 {
+		t.Fatalf("recorded completed torrent queued %d organize jobs, want 0", got)
+	}
+}
+
+func TestAutoOrganizeSkipsScanWhenNoFilesChanged(t *testing.T) {
+	root := t.TempDir()
+	src := filepath.Join(root, "downloads", "国产剧", "狂飙.S01E01.2023.1080p.mkv")
+	dest := filepath.Join(root, "media")
+	writeOrgFile(t, src, "episode")
+
+	repos := newOrganizerTestRepo(t)
+	for key, value := range map[string]string{
+		"organizer.auto_after_download": "true",
+		"organize.target_dir":           dest,
+		"organize.transfer_mode":        "copy",
+	} {
+		if err := repos.Setting.Set(t.Context(), key, value); err != nil {
+			t.Fatal(err)
+		}
+	}
+	lib := model.Library{Name: "国产剧", Path: filepath.Join(dest, "电视剧", "国产剧"), Type: "tv", Enabled: true}
+	if err := repos.Library.Create(t.Context(), &lib); err != nil {
+		t.Fatal(err)
+	}
+	org := NewOrganizerService(&config.Config{}, zap.NewNop(), repos)
+	if _, err := org.OrganizeDirectory(t.Context(), OrganizeOptions{
+		SourcePath:   src,
+		DestPath:     dest,
+		TransferMode: TransferCopy,
+	}); err != nil {
+		t.Fatalf("seed organized destination: %v", err)
+	}
+	scanner := NewScannerService(&config.Config{}, zap.NewNop(), repos, NewHub(zap.NewNop()), nil, nil)
+	svc := NewDownloadService(zap.NewNop(), repos, NewHub(zap.NewNop()), org)
+	svc.SetScanner(scanner)
+
+	svc.onTorrentComplete(t.Context(), QBitTorrent{
+		Hash:        "done123",
+		Name:        "狂飙.S01E01.2023.1080p",
+		Progress:    1,
+		SavePath:    filepath.Dir(src),
+		ContentPath: src,
+	})
+
+	var count int64
+	if err := repos.DB.Model(&model.Media{}).Count(&count).Error; err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Fatalf("no-op auto organize triggered scan and created %d media rows, want 0", count)
+	}
+}
+
 func TestCompletedTorrentSourceUsesConfiguredMapping(t *testing.T) {
 	root := t.TempDir()
 	localRoot := filepath.Join(root, "localdl")

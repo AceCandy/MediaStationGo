@@ -18,9 +18,16 @@ func translateClientPath(clientPath string, mappings map[string]string) string {
 		return clean
 	}
 	// 尝试路径映射
+	cleanForMatch := filepath.ToSlash(clean)
 	for clientPrefix, localPrefix := range mappings {
-		if strings.HasPrefix(clean, clientPrefix) {
-			translated := filepath.Join(localPrefix, strings.TrimPrefix(clean, clientPrefix))
+		prefix := strings.TrimRight(filepath.ToSlash(filepath.Clean(clientPrefix)), "/")
+		if prefix == "" || prefix == "." {
+			continue
+		}
+		if cleanForMatch == prefix || strings.HasPrefix(cleanForMatch, prefix+"/") {
+			rel := strings.TrimPrefix(cleanForMatch, prefix)
+			rel = strings.TrimPrefix(rel, "/")
+			translated := filepath.Join(localPrefix, filepath.FromSlash(rel))
 			if _, err := os.Stat(translated); err == nil {
 				return translated
 			}

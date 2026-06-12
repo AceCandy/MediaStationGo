@@ -8,6 +8,7 @@ package service
 
 import (
 	"context"
+	"time"
 
 	"go.uber.org/zap"
 
@@ -38,4 +39,17 @@ func (a *AuditService) Record(ctx context.Context, userID, action, target, ip, d
 	if err := a.repo.Log.Create(ctx, row); err != nil {
 		a.log.Debug("audit write failed", zap.Error(err))
 	}
+}
+
+// RecordBestEffort writes an audit row off the request path. Login must not be
+// held open by SQLite write pressure from scans or background maintenance.
+func (a *AuditService) RecordBestEffort(userID, action, target, ip, detail string) {
+	if a == nil || a.repo == nil || a.repo.Log == nil {
+		return
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		a.Record(ctx, userID, action, target, ip, detail)
+	}()
 }

@@ -47,6 +47,14 @@ func OrganizeScrapeAfterEnabled(ctx context.Context, repo *repository.Container)
 	return false
 }
 
+// OrganizeResultHasChanges reports whether an organize run actually changed
+// files in the destination library. Skipped duplicates are intentionally not a
+// change: scanning after a no-op organize can turn a harmless restart into a
+// full library ffprobe sweep.
+func OrganizeResultHasChanges(res *OrganizeResult) bool {
+	return res != nil && (res.Organized > 0 || res.Replaced > 0)
+}
+
 // ScanLibrariesForPath recursively scans libraries affected by an organize
 // destination. If preferredLibraryID is set, only that library is scanned.
 // Otherwise every enabled library whose path intersects destRoot is scanned;

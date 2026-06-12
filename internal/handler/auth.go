@@ -45,7 +45,7 @@ func loginHandler(svc *service.Container) gin.HandlerFunc {
 			"user":   resp.User,
 			"tokens": resp.Tokens,
 		})
-		svc.Audit.Record(c.Request.Context(), resp.User.ID, "auth.login", resp.User.Username, c.ClientIP(), "")
+		svc.Audit.RecordBestEffort(resp.User.ID, "auth.login", resp.User.Username, c.ClientIP(), "")
 	}
 }
 

@@ -17,10 +17,12 @@ package service
 
 import (
 	"context"
+	"crypto/sha1"
 	"errors"
+	"fmt"
 	"math"
-	"os"
 	"net/url"
+	"os"
 	"path"
 	"path/filepath"
 	"regexp"
@@ -821,7 +823,7 @@ func (d *DownloadService) processDownloadSnapshot(ctx context.Context, live []QB
 			// （onTorrentComplete 内部仍受 organize.auto 开关约束，且
 			// 整理对已存在的目标文件幂等跳过）。
 			d.prevStates[stateKey] = true
-			if recentlyCompletedTorrent(torrent, time.Now()) {
+			if recentlyCompletedTorrent(torrent, time.Now()) && !d.completedTorrentCatchupRecorded(ctx, torrent) {
 				shouldQueue = true
 			}
 		case complete && !wasComplete:
@@ -928,6 +930,8 @@ func (d *DownloadService) markCompletedTorrentOrganizeDone(torrent QBitTorrent) 
 // 防止每次启动都把全部历史种子重新过一遍整理流程。
 const completedTorrentCatchupWindow = 24 * time.Hour
 
+const completedTorrentCatchupSettingPrefix = "download.auto_organized."
+
 // recentlyCompletedTorrent 报告该种子是否在补整理时间窗内完成。
 // qBittorrent 未提供 completion_on 时保守地返回 false。
 func recentlyCompletedTorrent(torrent QBitTorrent, now time.Time) bool {
@@ -936,6 +940,46 @@ func recentlyCompletedTorrent(torrent QBitTorrent, now time.Time) bool {
 	}
 	completed := time.Unix(torrent.CompletionOn, 0)
 	return now.Sub(completed) <= completedTorrentCatchupWindow
+}
+
+func (d *DownloadService) completedTorrentCatchupRecorded(ctx context.Context, torrent QBitTorrent) bool {
+	if d == nil || d.repo == nil || d.repo.Setting == nil {
+		return false
+	}
+	key := completedTorrentCatchupSettingKey(torrent)
+	if key == "" {
+		return false
+	}
+	value, err := d.repo.Setting.Get(ctx, key)
+	if err != nil {
+		return false
+	}
+	return parseBoolSetting(value, false)
+}
+
+func (d *DownloadService) markCompletedTorrentCatchupRecorded(ctx context.Context, torrent QBitTorrent) {
+	if d == nil || d.repo == nil || d.repo.Setting == nil {
+		return
+	}
+	key := completedTorrentCatchupSettingKey(torrent)
+	if key == "" {
+		return
+	}
+	if err := d.repo.Setting.Set(ctx, key, "true"); err != nil && d.log != nil {
+		d.log.Debug("mark completed torrent catchup failed",
+			zap.String("hash", torrent.Hash),
+			zap.String("name", torrent.Name),
+			zap.Error(err))
+	}
+}
+
+func completedTorrentCatchupSettingKey(torrent QBitTorrent) string {
+	key := completedTorrentQueueKey(torrent)
+	if key == "" {
+		return ""
+	}
+	sum := sha1.Sum([]byte(key))
+	return completedTorrentCatchupSettingPrefix + fmt.Sprintf("%x", sum[:])
 }
 
 func completedTorrentQueueKey(torrent QBitTorrent) string {
@@ -1054,9 +1098,17 @@ func (d *DownloadService) onTorrentComplete(ctx context.Context, torrent QBitTor
 			zap.Error(err))
 		return
 	}
-	if d.scanner != nil && res != nil && strings.TrimSpace(res.DestPath) != "" {
+	if d.scanner != nil && res != nil && strings.TrimSpace(res.DestPath) != "" && OrganizeResultHasChanges(res) {
 		res.Scans, res.Scrapes = d.scanner.ScanAndScrapeLibrariesForPath(ctx, res.DestPath, "", OrganizeScrapeAfterEnabled(ctx, d.repo))
+	} else if d.log != nil && res != nil && !OrganizeResultHasChanges(res) {
+		d.log.Info("auto organize completed torrent skipped scan; no destination changes",
+			zap.String("hash", torrent.Hash),
+			zap.String("source", source),
+			zap.Int("organized", res.Organized),
+			zap.Int("replaced", res.Replaced),
+			zap.Int("skipped", res.Skipped))
 	}
+	d.markCompletedTorrentCatchupRecorded(context.Background(), torrent)
 	d.log.Info("auto organize completed torrent finished",
 		zap.String("hash", torrent.Hash),
 		zap.String("source", source),
