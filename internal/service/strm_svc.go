@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/golang-jwt/jwt/v5"
 	"go.uber.org/zap"
 
 	"github.com/ShukeBta/MediaStationGo/internal/config"
@@ -36,12 +37,13 @@ type STRMService struct {
 }
 
 type GenerateSTRMOptions struct {
-	LibraryID    string `json:"library_id"`
-	OutputDir    string `json:"output_dir"`
-	BaseURL      string `json:"base_url,omitempty"`
-	Enabled      bool   `json:"enabled"`
-	Overwrite    bool   `json:"overwrite"`
-	IncludeLocal bool   `json:"include_local"`
+	LibraryID     string `json:"library_id"`
+	OutputDir     string `json:"output_dir"`
+	BaseURL       string `json:"base_url,omitempty"`
+	Enabled       bool   `json:"enabled"`
+	Overwrite     bool   `json:"overwrite"`
+	IncludeLocal  bool   `json:"include_local"`
+	PlaybackToken string `json:"-"`
 }
 
 type GenerateSTRMResult struct {
@@ -146,7 +148,7 @@ func (s *STRMService) defaultOutputDir(lib *model.Library) string {
 
 func (s *STRMService) generateOne(ctx context.Context, lib model.Library, media model.Media, outputDir string, opts GenerateSTRMOptions) GenerateSTRMItem {
 	item := GenerateSTRMItem{MediaID: media.ID, Title: media.Title}
-	playURL := s.strmPlaybackURL(ctx, media, opts.BaseURL)
+	playURL := s.strmPlaybackURL(ctx, media, opts.BaseURL, opts.PlaybackToken)
 	if playURL == "" {
 		item.Action = "skipped"
 		item.Reason = "no playable strm target"
@@ -185,19 +187,68 @@ func (s *STRMService) generateOne(ctx context.Context, lib model.Library, media 
 		item.Reason = err.Error()
 		return item
 	}
-	_ = s.upsertGeneratedRecord(ctx, media, filePath, playURL, lib.Type)
+	if err := s.upsertGeneratedRecord(ctx, media, filePath, playURL, lib.Type); err != nil {
+		item.Action = "error"
+		item.Reason = err.Error()
+		return item
+	}
 	item.Action = action
 	return item
 }
 
-func (s *STRMService) strmPlaybackURL(ctx context.Context, media model.Media, baseURL string) string {
-	if raw := strings.TrimSpace(media.STRMURL); raw != "" {
-		return absolutizeSTRMURL(raw, firstNonEmpty(baseURL, PublicServerURL(ctx, s.repo, s.cfg)))
-	}
+func (s *STRMService) strmPlaybackURL(ctx context.Context, media model.Media, baseURL, playbackToken string) string {
 	if media.ID == "" {
 		return ""
 	}
-	return buildAbsoluteSTRMAPIURL(firstNonEmpty(baseURL, PublicServerURL(ctx, s.repo, s.cfg)), "/api/stream/"+url.PathEscape(media.ID), nil)
+	query := url.Values{}
+	token := strings.TrimSpace(playbackToken)
+	if token == "" {
+		token = s.defaultSTRMPlaybackToken(ctx)
+	}
+	if token != "" {
+		query.Set("token", token)
+	}
+	return buildAbsoluteSTRMAPIURL(firstNonEmpty(baseURL, PublicServerURL(ctx, s.repo, s.cfg)), "/api/stream/"+url.PathEscape(media.ID), query)
+}
+
+func (s *STRMService) defaultSTRMPlaybackToken(ctx context.Context) string {
+	if s == nil || s.repo == nil || s.repo.User == nil || s.cfg == nil || strings.TrimSpace(s.cfg.Secrets.JWTSecret) == "" {
+		return ""
+	}
+	admin, err := s.repo.User.FirstAdmin(ctx)
+	if err != nil || admin == nil {
+		if err != nil && s.log != nil {
+			s.log.Warn("generate strm playback token failed", zap.Error(err))
+		}
+		return ""
+	}
+	token, err := signSTRMPlaybackToken(admin, s.cfg.Secrets.JWTSecret)
+	if err != nil {
+		if s.log != nil {
+			s.log.Warn("sign strm playback token failed", zap.Error(err))
+		}
+		return ""
+	}
+	return token
+}
+
+func signSTRMPlaybackToken(u *model.User, secret string) (string, error) {
+	if u == nil || strings.TrimSpace(u.ID) == "" || strings.TrimSpace(secret) == "" {
+		return "", ErrSTRMURLInvalid
+	}
+	claims := Claims{
+		UserID: u.ID,
+		Role:   u.Role,
+		Tier:   u.Tier,
+		RegisteredClaims: jwt.RegisteredClaims{
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(EmbyTokenDuration)),
+			Issuer:    "mediastationgo",
+			Subject:   u.ID,
+		},
+	}
+	t := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	return t.SignedString([]byte(secret))
 }
 
 func (s *STRMService) strmRelativePath(lib model.Library, media model.Media) string {

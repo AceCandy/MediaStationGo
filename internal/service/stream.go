@@ -58,9 +58,9 @@ func NewStreamService(cfg *config.Config, log *zap.Logger, repo *repository.Cont
 var ErrMediaNotFound = errors.New("media not found")
 
 // ErrCloudPlaybackUnavailable 表示媒体行存在但属于云盘媒体、且当前无法
-// 构造可用的播放重定向（例如 STRM 播放被关闭或 STRMURL 缺失）。调用方
-// 应把它与「媒体不存在」区分开，避免把配置类故障当成 404 返回给播放器。
-var ErrCloudPlaybackUnavailable = errors.New("cloud media playback unavailable: strm playback disabled or media missing play url; re-scan the library or enable strm playback")
+// 构造可用的播放重定向（通常是 STRMURL 缺失，需要重新扫描媒体库）。
+// 调用方应把它与「媒体不存在」区分开，避免把配置类故障当成 404 返回给播放器。
+var ErrCloudPlaybackUnavailable = errors.New("cloud media playback unavailable: media missing play url; re-scan the library")
 
 // normalizeCloudPlayTarget 把存库的云盘播放 URL 规范化为相对路径。
 //
@@ -234,9 +234,9 @@ func (s *StreamService) ServeFile(w http.ResponseWriter, r *http.Request, mediaI
 	if m == nil {
 		return ErrMediaNotFound
 	}
-	if strings.TrimSpace(m.STRMURL) != "" && STRMPlaybackEnabled(r.Context(), s.repo) {
+	if strmURL := strings.TrimSpace(m.STRMURL); strmURL != "" && (isCloudPlaybackTarget(strmURL) || STRMPlaybackEnabled(r.Context(), s.repo)) {
 		// 云盘播放 URL 先规范化为相对路径，免疫扫描时固化的旧 host。
-		target := normalizeCloudPlayTarget(m.STRMURL)
+		target := normalizeCloudPlayTarget(strmURL)
 		target = withAuthTokenForInternalRedirect(target, r, PublicServerURL(r.Context(), s.repo, s.cfg))
 		http.Redirect(w, r, absoluteInternalRedirect(target, r), http.StatusFound)
 		return nil
@@ -261,6 +261,11 @@ func (s *StreamService) ServeFile(w http.ResponseWriter, r *http.Request, mediaI
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	http.ServeContent(w, r, stat.Name(), stat.ModTime(), f)
 	return nil
+}
+
+func isCloudPlaybackTarget(raw string) bool {
+	_, _, ok := parseCloudMediaPlaybackURL(raw)
+	return ok
 }
 
 // ServeHLSPlaylist makes sure a transcode is running and writes the m3u8.

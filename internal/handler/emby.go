@@ -757,7 +757,7 @@ func embyAttachRequestTokenToPlaybackInfo(c *gin.Context, out map[string]any) {
 		return
 	}
 	for _, source := range sources {
-		for _, key := range []string{"DirectStreamUrl", "TranscodingUrl"} {
+		for _, key := range []string{"DirectStreamUrl", "TranscodingUrl", "Path"} {
 			raw, ok := source[key].(string)
 			if !ok {
 				continue

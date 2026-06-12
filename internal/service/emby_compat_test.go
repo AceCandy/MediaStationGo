@@ -363,8 +363,8 @@ func TestEmbyPlaybackInfoKeepsSTRMBehindStreamEndpoint(t *testing.T) {
 	if src["DirectStreamUrl"] != "/Videos/cloud-1/stream" {
 		t.Fatalf("strm playback must stay behind token-aware stream endpoint: %#v", src)
 	}
-	if src["Path"] != "/api/cloud/play/quark?ref=f1" {
-		t.Fatalf("path should expose the strm target for diagnostics: %#v", src)
+	if src["Path"] != "/Videos/cloud-1/stream" {
+		t.Fatalf("path should use token-aware stream endpoint: %#v", src)
 	}
 	streams := src["MediaStreams"].([]map[string]any)
 	if len(streams) == 0 || streams[0]["Type"] != "Video" {

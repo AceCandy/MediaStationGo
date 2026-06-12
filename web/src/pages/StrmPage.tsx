@@ -289,7 +289,7 @@ export function StrmPage() {
           </button>
         </form>
         <p className="text-xs text-sand-500">
-          生成内容为 <code>域名 + /api/stream/媒体ID</code> 或网盘 302 播放入口；域名会同步保存到系统设置中的「公开访问域名 / STRM 域名」。
+          生成内容为 <code>域名 + /api/stream/媒体ID?token=...</code>；本地文件与网盘 302 播放都由服务端统一处理。域名会同步保存到系统设置中的「公开访问域名 / STRM 域名」。
         </p>
         {generateResult && (
           <div className="rounded-2xl border border-gray-200 bg-gray-50 p-4 text-sm text-ink-50">

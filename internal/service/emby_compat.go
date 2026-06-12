@@ -1670,7 +1670,8 @@ func (e *EmbyService) mediaSource(m *model.Media, asEmbedded, directOnly bool) m
 		"MediaStreams":         e.mediaStreams(m),
 	}
 	if !asEmbedded {
-		src["DirectStreamUrl"] = embyDirectStreamURL(m.ID, container)
+		streamURL := embyDirectStreamURL(m.ID, container)
+		src["DirectStreamUrl"] = streamURL
 		// 直连解码模式下不下发 TranscodingUrl，迫使客户端本地解码直连，
 		// 宿主机不参与转码。
 		if !directOnly {
@@ -1678,13 +1679,12 @@ func (e *EmbyService) mediaSource(m *model.Media, asEmbedded, directOnly bool) m
 		}
 	}
 	if strings.TrimSpace(m.STRMURL) != "" {
-		// STRM / cloud:// media still plays through /Videos/{id}/stream.
-		// That route delegates to StreamService, which appends the caller's
-		// token to internal /api/cloud/play redirects and only then 302s to the
-		// provider/CDN. Returning m.STRMURL directly here would make Emby/Yamby
-		// clients hit /api/cloud/play without an auth token and fail with 401.
+		// STRM / cloud:// media plays through /Videos/{id}/stream. Some
+		// third-party Emby clients still prefer MediaSource.Path even when
+		// SupportsDirectPlay=false; pointing Path at the token-aware stream
+		// endpoint keeps those clients away from naked /api/cloud/play URLs.
 		src["IsRemote"] = true
-		src["Path"] = m.STRMURL
+		src["Path"] = embyDirectStreamURL(m.ID, container)
 	}
 	return src
 }

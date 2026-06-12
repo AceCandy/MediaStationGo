@@ -5,8 +5,10 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/glebarez/sqlite"
+	"github.com/golang-jwt/jwt/v5"
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 
@@ -41,10 +43,11 @@ func TestGenerateSTRMForLibraryWritesFilesAndRecords(t *testing.T) {
 	svc := NewSTRMService(zap.NewNop(), repos, &config.Config{})
 
 	res, err := svc.GenerateForLibrary(t.Context(), GenerateSTRMOptions{
-		LibraryID:    lib.ID,
-		OutputDir:    outDir,
-		BaseURL:      "http://nas.example:18080",
-		IncludeLocal: true,
+		LibraryID:     lib.ID,
+		OutputDir:     outDir,
+		BaseURL:       "http://nas.example:18080",
+		IncludeLocal:  true,
+		PlaybackToken: "strm-token",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -54,8 +57,8 @@ func TestGenerateSTRMForLibraryWritesFilesAndRecords(t *testing.T) {
 	}
 	cloudSTRM := filepath.Join(outDir, "云盘电影 (2026)", "云盘电影 (2026).strm")
 	localSTRM := filepath.Join(outDir, "本地电影 (2025)", "本地电影 (2025).strm")
-	assertFileContains(t, cloudSTRM, "http://nas.example:18080/api/cloud/play/openlist?ref=movie")
-	assertFileContains(t, localSTRM, "http://nas.example:18080/api/stream/local-media")
+	assertFileContains(t, cloudSTRM, "http://nas.example:18080/api/stream/cloud-media?token=strm-token")
+	assertFileContains(t, localSTRM, "http://nas.example:18080/api/stream/local-media?token=strm-token")
 
 	var count int64
 	if err := repos.DB.Model(&model.STRMRecord{}).Count(&count).Error; err != nil {
@@ -66,10 +69,11 @@ func TestGenerateSTRMForLibraryWritesFilesAndRecords(t *testing.T) {
 	}
 
 	res, err = svc.GenerateForLibrary(t.Context(), GenerateSTRMOptions{
-		LibraryID:    lib.ID,
-		OutputDir:    outDir,
-		BaseURL:      "http://nas.example:18080",
-		IncludeLocal: true,
+		LibraryID:     lib.ID,
+		OutputDir:     outDir,
+		BaseURL:       "http://nas.example:18080",
+		IncludeLocal:  true,
+		PlaybackToken: "strm-token",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -79,13 +83,76 @@ func TestGenerateSTRMForLibraryWritesFilesAndRecords(t *testing.T) {
 	}
 }
 
+func TestGenerateSTRMForLibrarySignsDefaultPlaybackToken(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(&model.Library{}, &model.Media{}, &model.STRMRecord{}, &model.Setting{}, &model.User{}); err != nil {
+		t.Fatal(err)
+	}
+	repos := repository.New(db)
+	admin := model.User{Username: "admin", PasswordHash: "x", Role: "admin", Tier: "plus", IsActive: true}
+	if err := repos.User.Create(t.Context(), &admin); err != nil {
+		t.Fatal(err)
+	}
+	lib := model.Library{Name: "电影", Path: "cloud://openlist/电影", Type: "movie", Enabled: true}
+	if err := repos.Library.Create(t.Context(), &lib); err != nil {
+		t.Fatal(err)
+	}
+	media := model.Media{Base: model.Base{ID: "cloud-media"}, LibraryID: lib.ID, Title: "云盘电影", Year: 2026, Path: "cloud://openlist/电影/云盘电影.mkv", STRMURL: "/api/cloud/play/openlist?ref=movie"}
+	if err := repos.DB.Create(&media).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	outDir := filepath.Join(t.TempDir(), "strm")
+	const secret = "test-secret"
+	svc := NewSTRMService(zap.NewNop(), repos, &config.Config{Secrets: config.SecretsConfig{JWTSecret: secret}})
+	res, err := svc.GenerateForLibrary(t.Context(), GenerateSTRMOptions{
+		LibraryID:    lib.ID,
+		OutputDir:    outDir,
+		BaseURL:      "http://nas.example:18080",
+		IncludeLocal: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Generated != 1 || len(res.Errors) != 0 {
+		t.Fatalf("result = %#v, want generated=1 with no errors", res)
+	}
+	cloudSTRM := filepath.Join(outDir, "云盘电影 (2026)", "云盘电影 (2026).strm")
+	got := readSTRM(t, cloudSTRM)
+	if !strings.HasPrefix(got, "http://nas.example:18080/api/stream/cloud-media?token=") {
+		t.Fatalf("generated url = %q, want tokenized /api/stream url", got)
+	}
+	token := strings.TrimPrefix(got, "http://nas.example:18080/api/stream/cloud-media?token=")
+	claims := &Claims{}
+	parsed, err := jwt.ParseWithClaims(token, claims, func(t *jwt.Token) (interface{}, error) {
+		return []byte(secret), nil
+	})
+	if err != nil || !parsed.Valid {
+		t.Fatalf("generated token did not validate: %v", err)
+	}
+	if claims.UserID != admin.ID || claims.Role != "admin" || claims.Tier != "plus" {
+		t.Fatalf("claims = %#v, want admin identity", claims)
+	}
+	if ttl := time.Until(claims.ExpiresAt.Time); ttl < EmbyTokenDuration-time.Minute {
+		t.Fatalf("token ttl = %v, want close to %v", ttl, EmbyTokenDuration)
+	}
+}
+
 func assertFileContains(t *testing.T, path, want string) {
+	t.Helper()
+	if got := readSTRM(t, path); got != want {
+		t.Fatalf("%s = %q, want %q", path, got, want)
+	}
+}
+
+func readSTRM(t *testing.T, path string) string {
 	t.Helper()
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := strings.TrimSpace(string(data)); got != want {
-		t.Fatalf("%s = %q, want %q", path, got, want)
-	}
+	return strings.TrimSpace(string(data))
 }

@@ -22,8 +22,8 @@ import (
 const EnvPrefix = "MEDIASTATION"
 
 const (
-	defaultDatabaseMaxOpenConns = 4
-	defaultDatabaseMaxIdleConns = 2
+	defaultDatabaseMaxOpenConns = 1
+	defaultDatabaseMaxIdleConns = 1
 )
 
 // Config 是根配置聚合。
@@ -316,7 +316,7 @@ func (c *Config) normalize() error {
 	if c.App.MaxCPUThreads > 8 {
 		c.App.MaxCPUThreads = 8
 	}
-	if c.Database.MaxOpenConns <= 1 {
+	if c.Database.MaxOpenConns <= 0 {
 		c.Database.MaxOpenConns = defaultDatabaseMaxOpenConns
 	}
 	if c.Database.MaxIdleConns <= 0 || c.Database.MaxIdleConns > c.Database.MaxOpenConns {

@@ -12,6 +12,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/ShukeBta/MediaStationGo/internal/middleware"
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 	"github.com/ShukeBta/MediaStationGo/internal/service"
 )
@@ -118,12 +119,13 @@ func generateSTRMHandler(svc *service.Container) gin.HandlerFunc {
 			strmSvc = service.NewSTRMService(svc.Log, svc.Repo, svc.Cfg)
 		}
 		res, err := strmSvc.GenerateForLibrary(c.Request.Context(), service.GenerateSTRMOptions{
-			LibraryID:    req.LibraryID,
-			OutputDir:    req.OutputDir,
-			BaseURL:      req.BaseURL,
-			Enabled:      req.Enabled,
-			Overwrite:    req.Overwrite,
-			IncludeLocal: true,
+			LibraryID:     req.LibraryID,
+			OutputDir:     req.OutputDir,
+			BaseURL:       req.BaseURL,
+			Enabled:       req.Enabled,
+			Overwrite:     req.Overwrite,
+			IncludeLocal:  true,
+			PlaybackToken: strmPlaybackTokenForRequest(c, svc),
 		})
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -131,4 +133,23 @@ func generateSTRMHandler(svc *service.Container) gin.HandlerFunc {
 		}
 		c.JSON(http.StatusOK, res)
 	}
+}
+
+func strmPlaybackTokenForRequest(c *gin.Context, svc *service.Container) string {
+	if svc == nil || svc.Auth == nil || svc.Repo == nil || svc.Repo.User == nil {
+		return ""
+	}
+	uid := middleware.GetUserID(c)
+	if uid == "" {
+		return ""
+	}
+	u, err := svc.Repo.User.FindByID(c.Request.Context(), uid)
+	if err != nil || u == nil {
+		return ""
+	}
+	token, err := svc.Auth.IssueEmbyToken(u)
+	if err != nil {
+		return ""
+	}
+	return token
 }

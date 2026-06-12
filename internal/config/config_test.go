@@ -72,7 +72,7 @@ func TestEnvOverride(t *testing.T) {
 	}
 }
 
-func TestLoadHealsHistoricalSingleConnectionDatabaseConfig(t *testing.T) {
+func TestLoadAllowsSingleConnectionDatabaseConfig(t *testing.T) {
 	dir := t.TempDir()
 	wd, _ := os.Getwd()
 	defer func() { _ = os.Chdir(wd) }()
@@ -88,6 +88,6 @@ func TestLoadHealsHistoricalSingleConnectionDatabaseConfig(t *testing.T) {
 		t.Fatalf("Load() error: %v", err)
 	}
 	if cfg.Database.MaxOpenConns != defaultDatabaseMaxOpenConns {
-		t.Fatalf("expected historical MaxOpenConns=1 to heal to %d, got %d", defaultDatabaseMaxOpenConns, cfg.Database.MaxOpenConns)
+		t.Fatalf("expected MaxOpenConns=1 to remain at safe default %d, got %d", defaultDatabaseMaxOpenConns, cfg.Database.MaxOpenConns)
 	}
 }

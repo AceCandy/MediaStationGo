@@ -85,7 +85,37 @@ func TestServeFileRedirectsInternalSTRMAsAbsoluteURLWithToken(t *testing.T) {
 	}
 }
 
-func TestServeFileHonorsSTRMPlaybackDisabled(t *testing.T) {
+func TestServeFileRedirectUsesForwardedTunnelHost(t *testing.T) {
+	repos := newStreamTestRepo(t)
+	if err := repos.DB.Create(&model.Media{
+		Base:    model.Base{ID: "cloud-1"},
+		Title:   "Cloud",
+		Path:    "cloud://openlist/Movie.mkv",
+		STRMURL: "/api/cloud/play/openlist?ref=movie",
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	svc := NewStreamService(&config.Config{}, zap.NewNop(), repos, nil)
+	req := httptest.NewRequest(http.MethodGet, "http://127.0.0.1:8080/api/stream/cloud-1?api_key=jwt123", nil)
+	req.Header.Set("X-Forwarded-Host", "media.example.com")
+	req.Header.Set("X-Forwarded-Proto", "https")
+	w := httptest.NewRecorder()
+
+	if err := svc.ServeFile(w, req, "cloud-1"); err != nil {
+		t.Fatal(err)
+	}
+	if w.Code != http.StatusFound {
+		t.Fatalf("status = %d, want 302", w.Code)
+	}
+	loc := w.Header().Get("Location")
+	if !strings.HasPrefix(loc, "https://media.example.com/api/cloud/play/openlist?") ||
+		!strings.Contains(loc, "ref=movie") ||
+		!strings.Contains(loc, "token=jwt123") {
+		t.Fatalf("redirect Location should use forwarded tunnel host and token, got %q", loc)
+	}
+}
+
+func TestServeFileRedirectsCloudMediaWhenSTRMPlaybackDisabled(t *testing.T) {
 	repos := newStreamTestRepo(t)
 	if err := repos.Setting.Set(t.Context(), STRMEnabledSettingKey, "false"); err != nil {
 		t.Fatal(err)
@@ -103,13 +133,15 @@ func TestServeFileHonorsSTRMPlaybackDisabled(t *testing.T) {
 	w := httptest.NewRecorder()
 
 	err := svc.ServeFile(w, req, "cloud-1")
-	// 云盘媒体在 STRM 播放关闭时返回明确的「云盘播放不可用」错误，
-	// 而不是和「媒体不存在」混在一起（后者会让播放器显示 404）。
-	if err != ErrCloudPlaybackUnavailable {
-		t.Fatalf("disabled STRM should not redirect cloud media, err=%v status=%d location=%q", err, w.Code, w.Header().Get("Location"))
+	if err != nil {
+		t.Fatalf("cloud playback should ignore local STRM toggle: %v", err)
 	}
-	if loc := w.Header().Get("Location"); loc != "" {
-		t.Fatalf("disabled STRM leaked redirect Location %q", loc)
+	if w.Code != http.StatusFound {
+		t.Fatalf("status = %d, want 302", w.Code)
+	}
+	loc := w.Header().Get("Location")
+	if !strings.Contains(loc, "/api/cloud/play/openlist?") || !strings.Contains(loc, "token=jwt123") {
+		t.Fatalf("redirect Location should target tokenized cloud play endpoint, got %q", loc)
 	}
 }
 
