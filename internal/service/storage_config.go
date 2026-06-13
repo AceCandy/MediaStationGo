@@ -147,6 +147,52 @@ func (s *StorageConfigService) Save(ctx context.Context, in StorageInput) (*Stor
 	return s.Get(ctx, in.Type)
 }
 
+// Logout clears saved cloud login credentials and disables the storage backend.
+// It intentionally keeps non-secret connection hints such as server / WebDAV
+// URL / timeout so the admin can log in again without rebuilding the form.
+func (s *StorageConfigService) Logout(ctx context.Context, typ string) (*StorageView, error) {
+	if !validStorageType(typ) {
+		return nil, fmt.Errorf("unsupported storage type %q", typ)
+	}
+	if !cloud.IsCloudType(typ) {
+		return nil, fmt.Errorf("not a cloud provider: %q", typ)
+	}
+	view, err := s.Get(ctx, typ)
+	if err != nil {
+		return nil, err
+	}
+	if view == nil {
+		return nil, fmt.Errorf("%s storage not configured", typ)
+	}
+	cfg := make(map[string]any, len(view.Config))
+	for k, v := range view.Config {
+		if isStorageLoginSecretKey(k) || isDeprecatedStoragePlaybackKey(k) {
+			continue
+		}
+		cfg[k] = v
+	}
+	enabled := false
+	return s.Save(ctx, StorageInput{Type: typ, Config: cfg, Enabled: &enabled})
+}
+
+func isStorageLoginSecretKey(key string) bool {
+	switch strings.ToLower(strings.TrimSpace(key)) {
+	case "cookie", "token", "username", "password", "access_key", "secret_key":
+		return true
+	default:
+		return false
+	}
+}
+
+func isDeprecatedStoragePlaybackKey(key string) bool {
+	switch strings.ToLower(strings.TrimSpace(key)) {
+	case "force_302", "force_proxy":
+		return true
+	default:
+		return false
+	}
+}
+
 // Test runs a connection probe against the supplied (un-saved) config.
 // The implementation is best-effort: it issues a single HEAD/PROPFIND
 // to verify reachability, not full functionality.

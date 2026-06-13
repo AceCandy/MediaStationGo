@@ -14,6 +14,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/gorilla/websocket"
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 
@@ -112,6 +113,75 @@ func TestEmbyAuthenticateByNameAcceptsCaseVariantUsernameAndPath(t *testing.T) {
 	}
 	if payload["AccessToken"] == "" {
 		t.Fatalf("missing AccessToken: %#v", payload)
+	}
+}
+
+func TestEmbyCompatSessionAllowsSameClientRequestsWithoutToken(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatalf("get sql db: %v", err)
+	}
+	sqlDB.SetMaxOpenConns(1)
+	if err := db.AutoMigrate(model.AllModels()...); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	repos := repository.New(db)
+	cfg := &config.Config{}
+	cfg.Secrets.JWTSecret = "test-secret"
+	log := zap.NewNop()
+	permissions := service.NewPermissionService(log, repos)
+	auth := service.NewAuthService(cfg, log, repos, service.NewTokenService(cfg, log, repos), permissions)
+	user, _, err := auth.Register(context.Background(), "viewer", "secret-pass")
+	if err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	if err := repos.Library.Create(t.Context(), &model.Library{Name: "Movies", Path: "D:\\media", Type: "movie", Enabled: true}); err != nil {
+		t.Fatalf("create library: %v", err)
+	}
+
+	embyCompatSessions.Lock()
+	embyCompatSessions.items = map[string]embyCompatSession{}
+	embyCompatSessions.Unlock()
+
+	router := gin.New()
+	registerEmbyRoutes(router, cfg.Secrets.JWTSecret, &service.Container{
+		Repo:  repos,
+		Auth:  auth,
+		Emby:  service.NewEmbyService(cfg, log, repos),
+		Audit: service.NewAuditService(log, repos),
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/emby/Users/authenticatebyname", strings.NewReader(`{"Username":"viewer","Pw":"secret-pass"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", "Emby Theater")
+	req.Header.Set("X-Emby-Device-Id", "pc-device")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("login status: %d body=%s", w.Code, w.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/emby/Users/"+user.ID+"/Views", nil)
+	req.Header.Set("User-Agent", "Emby Theater")
+	req.Header.Set("X-Emby-Device-Id", "pc-device")
+	w = httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("views status: %d body=%s", w.Code, w.Body.String())
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode views: %v", err)
+	}
+	if _, ok := payload["Items"]; !ok {
+		t.Fatalf("missing Items: %#v", payload)
 	}
 }
 
@@ -226,6 +296,75 @@ func TestEmbyMobileCompatibilityRoutesAvoidPlaybackBlocking404s(t *testing.T) {
 		if w.Code != tc.wantCode {
 			t.Fatalf("%s status = %d body=%s", tc.path, w.Code, w.Body.String())
 		}
+	}
+}
+
+func TestEmbyOfficialClientProbeRoutesAvoidHomepageBlocking404s(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	if err := db.AutoMigrate(model.AllModels()...); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	repos := repository.New(db)
+	if err := repos.User.Create(t.Context(), &model.User{
+		Base:         model.Base{ID: "user-1"},
+		Username:     "tester",
+		PasswordHash: "x",
+		Role:         "admin",
+		Tier:         "plus",
+		IsActive:     true,
+	}); err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+
+	const secret = "test-secret"
+	router := gin.New()
+	registerEmbyRoutes(router, secret, &service.Container{
+		Repo: repos,
+		Emby: service.NewEmbyService(&config.Config{}, zap.NewNop(), repos),
+	})
+	token := signedTestToken(t, secret)
+	tests := []struct {
+		method string
+		path   string
+		auth   bool
+	}{
+		{method: http.MethodGet, path: "/emby/CustomCssJS/Scripts"},
+		{method: http.MethodGet, path: "/emby/Localization/cultures"},
+		{method: http.MethodPost, path: "/emby/Sessions/Logout"},
+		{method: http.MethodGet, path: "/emby/System/WakeOnLanInfo", auth: true},
+		{method: http.MethodGet, path: "/emby/ScheduledTasks", auth: true},
+		{method: http.MethodGet, path: "/emby/LiveTv/Recordings", auth: true},
+		{method: http.MethodGet, path: "/emby/System/ActivityLog/Entries", auth: true},
+		{method: http.MethodGet, path: "/emby/web/configurationpages", auth: true},
+		{method: http.MethodPost, path: "/emby/Users/user-1/Configuration", auth: true},
+		{method: http.MethodGet, path: "/emby/Items/Latest?UserId=user-1", auth: true},
+		{method: http.MethodGet, path: "/emby/Items/Resume?UserId=user-1", auth: true},
+		{method: http.MethodGet, path: "/emby/Genres", auth: true},
+		{method: http.MethodGet, path: "/emby/Shows/Upcoming", auth: true},
+		{method: http.MethodGet, path: "/emby/Items/item-1/ThumbnailSet", auth: true},
+		{method: http.MethodGet, path: "/emby/Items/item-1/ThemeMedia", auth: true},
+		{method: http.MethodGet, path: "/emby/Users/user-1/Items/item-1/SpecialFeatures", auth: true},
+		{method: http.MethodGet, path: "/emby/Users/user-1/Items/item-1/Intros", auth: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.method+" "+tt.path, func(t *testing.T) {
+			req := httptest.NewRequest(tt.method, tt.path, nil)
+			if tt.auth {
+				req.Header.Set("X-Emby-Token", token)
+			}
+			w := httptest.NewRecorder()
+			router.ServeHTTP(w, req)
+			if w.Code == http.StatusNotFound {
+				t.Fatalf("route returned 404 body=%s", w.Body.String())
+			}
+			if w.Code >= 500 {
+				t.Fatalf("route returned %d body=%s", w.Code, w.Body.String())
+			}
+		})
 	}
 }
 
@@ -443,6 +582,64 @@ func TestEmbyItemsCountsRouteReturnsJSON(t *testing.T) {
 	}
 }
 
+func TestEmbyDisplayPreferencesAllowsAnonymousCompatibility(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	registerEmbyRoutes(router, "secret", &service.Container{})
+
+	req := httptest.NewRequest(http.MethodGet, "/emby/DisplayPreferences/usersettings", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("unexpected GET status: %d body=%s", w.Code, w.Body.String())
+	}
+	var body map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode display preferences: %v", err)
+	}
+	if body["Id"] != "usersettings" {
+		t.Fatalf("unexpected preferences payload: %#v", body)
+	}
+	customPrefs, ok := body["CustomPrefs"].(map[string]any)
+	if !ok {
+		t.Fatalf("missing CustomPrefs: %#v", body)
+	}
+	if customPrefs["homesection0"] != "smalllibrarytiles" || customPrefs["homesection2"] != "latestmedia" {
+		t.Fatalf("homepage sections should expose library tiles and latest media: %#v", customPrefs)
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/emby/displaypreferences/usersettings", strings.NewReader(`{}`))
+	w = httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("unexpected POST status: %d body=%s", w.Code, w.Body.String())
+	}
+}
+
+func TestEmbyWebSocketRouteUpgradesForOfficialClients(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	registerEmbyRoutes(router, "secret", &service.Container{})
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/embywebsocket?api_key=test-token&deviceId=device-1"
+	conn, resp, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		status := 0
+		if resp != nil {
+			status = resp.StatusCode
+		}
+		t.Fatalf("websocket dial failed status=%d err=%v", status, err)
+	}
+	defer conn.Close()
+	if resp == nil || resp.StatusCode != http.StatusSwitchingProtocols {
+		t.Fatalf("expected websocket upgrade, got resp=%#v", resp)
+	}
+}
+
 func TestEmbyItemImageServesWithoutAPIAuth(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
@@ -498,6 +695,39 @@ func TestEmbyItemImageServesWithoutAPIAuth(t *testing.T) {
 	}
 	if contentType := w.Header().Get("Content-Type"); !strings.Contains(contentType, "image/png") {
 		t.Fatalf("expected png content type, got %q", contentType)
+	}
+}
+
+func TestEmbyMissingItemImageReturnsTransparentPlaceholder(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	if err := db.AutoMigrate(model.AllModels()...); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	repos := repository.New(db)
+	cfg := &config.Config{Cache: config.CacheConfig{CacheDir: t.TempDir()}}
+	router := gin.New()
+	registerEmbyRoutes(router, "test-secret", &service.Container{
+		Repo:       repos,
+		Emby:       service.NewEmbyService(cfg, zap.NewNop(), repos),
+		ImageProxy: service.NewImageProxy(cfg, zap.NewNop()),
+	})
+
+	req := httptest.NewRequest(http.MethodHead, "/Items/missing/Images/Primary", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected placeholder status 200, got %d body=%s", w.Code, w.Body.String())
+	}
+	if contentType := w.Header().Get("Content-Type"); !strings.Contains(contentType, "image/png") {
+		t.Fatalf("expected png content type, got %q", contentType)
+	}
+	if length := w.Header().Get("Content-Length"); length == "" || length == "0" {
+		t.Fatalf("expected placeholder content length, got %q", length)
 	}
 }
 
@@ -562,6 +792,55 @@ func TestEmbyUserItemByIDRouteReturnsJSON(t *testing.T) {
 	}
 	if item["Id"] != "episode-1" || item["Type"] != "Episode" {
 		t.Fatalf("unexpected item payload: %#v", item)
+	}
+}
+
+func TestEmbyUserItemByIDRouteReturnsLibraryView(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	if err := db.AutoMigrate(model.AllModels()...); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	repos := repository.New(db)
+	if err := repos.User.Create(t.Context(), &model.User{
+		Base:         model.Base{ID: "user-1"},
+		Username:     "tester",
+		PasswordHash: "x",
+		Role:         "admin",
+		Tier:         "plus",
+		IsActive:     true,
+	}); err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	lib := model.Library{Base: model.Base{ID: "lib-tv"}, Name: "剧集", Path: "D:\\media\\tv", Type: "tv", Enabled: true}
+	if err := repos.Library.Create(t.Context(), &lib); err != nil {
+		t.Fatalf("create library: %v", err)
+	}
+
+	const secret = "test-secret"
+	router := gin.New()
+	registerEmbyRoutes(router, secret, &service.Container{
+		Repo: repos,
+		Emby: service.NewEmbyService(&config.Config{}, zap.NewNop(), repos),
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/Users/user-1/Items/lib-tv", nil)
+	req.Header.Set("X-Emby-Token", signedTestToken(t, secret))
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("unexpected status: %d body=%s", w.Code, w.Body.String())
+	}
+	var item map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &item); err != nil {
+		t.Fatalf("decode item: %v", err)
+	}
+	if item["Id"] != "lib-tv" || item["Type"] != "CollectionFolder" || item["CollectionType"] != "tvshows" {
+		t.Fatalf("unexpected library payload: %#v", item)
 	}
 }
 
@@ -649,6 +928,9 @@ func TestEmbyPlaybackInfoTokenizesCloudPath(t *testing.T) {
 		t.Fatalf("migrate: %v", err)
 	}
 	repos := repository.New(db)
+	if err := repos.Setting.Set(t.Context(), service.CloudPlaybackModeSettingKey, service.CloudPlaybackModeSTRM); err != nil {
+		t.Fatalf("set cloud playback mode: %v", err)
+	}
 	if err := repos.User.Create(t.Context(), &model.User{
 		Base:         model.Base{ID: "user-1"},
 		Username:     "tester",
@@ -704,6 +986,80 @@ func TestEmbyPlaybackInfoTokenizesCloudPath(t *testing.T) {
 	directURL, _ := source["DirectStreamUrl"].(string)
 	if !strings.HasPrefix(directURL, "/api/stream/cloud-1") || !strings.Contains(directURL, "api_key=") {
 		t.Fatalf("DirectStreamUrl should stay tokenized: %#v", source)
+	}
+	if source["SupportsDirectPlay"] != true {
+		t.Fatalf("cloud media should advertise DirectPlay when tokenized Path is playable: %#v", source)
+	}
+	if source["SupportsTranscoding"] != false {
+		t.Fatalf("cloud media should not advertise host transcoding: %#v", source)
+	}
+}
+
+func TestEmbyItemsTokenizesEmbeddedCloudMediaSources(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	if err := db.AutoMigrate(model.AllModels()...); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	repos := repository.New(db)
+	if err := repos.Setting.Set(t.Context(), service.CloudPlaybackModeSettingKey, service.CloudPlaybackModeSTRM); err != nil {
+		t.Fatalf("set cloud playback mode: %v", err)
+	}
+	if err := repos.User.Create(t.Context(), &model.User{
+		Base:         model.Base{ID: "user-1"},
+		Username:     "tester",
+		PasswordHash: "x",
+		Role:         "admin",
+		Tier:         "plus",
+		IsActive:     true,
+	}); err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	lib := model.Library{Name: "OpenList", Path: "cloud://openlist/Movies", Type: "movie", Enabled: true}
+	if err := repos.Library.Create(t.Context(), &lib); err != nil {
+		t.Fatalf("create library: %v", err)
+	}
+	if err := db.Create(&model.Media{
+		Base:      model.Base{ID: "cloud-1"},
+		LibraryID: lib.ID,
+		Title:     "Cloud Movie",
+		Path:      "cloud://openlist/Movies/Movie.mkv",
+		STRMURL:   "/api/cloud/play/openlist?ref=%2FMovies%2FMovie.mkv",
+		Container: "mkv",
+	}).Error; err != nil {
+		t.Fatalf("create media: %v", err)
+	}
+
+	const secret = "test-secret"
+	token := signedTestToken(t, secret)
+	router := gin.New()
+	registerEmbyRoutes(router, secret, &service.Container{
+		Repo: repos,
+		Emby: service.NewEmbyService(&config.Config{}, zap.NewNop(), repos),
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/emby/Users/user-1/Items?IncludeItemTypes=Movie&Recursive=true&Limit=5&X-Emby-Token="+token, nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("unexpected status: %d body=%s", w.Code, w.Body.String())
+	}
+	var body map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode items: %v", err)
+	}
+	items := body["Items"].([]any)
+	if len(items) != 1 {
+		t.Fatalf("unexpected items: %#v", body["Items"])
+	}
+	source := items[0].(map[string]any)["MediaSources"].([]any)[0].(map[string]any)
+	pathURL, _ := source["Path"].(string)
+	if !strings.HasPrefix(pathURL, "/api/stream/cloud-1") || !strings.Contains(pathURL, "api_key=") {
+		t.Fatalf("embedded cloud Path should be tokenized stream URL, got %#v", source)
 	}
 }
 
@@ -763,6 +1119,123 @@ func TestEmbyLowercaseVideoStreamRouteServesMedia(t *testing.T) {
 	}
 	if got := w.Body.String(); got != "fake-video-bytes" {
 		t.Fatalf("unexpected stream body: %q", got)
+	}
+}
+
+func TestEmbyPrefixedAPIStreamRouteServesMedia(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	if err := db.AutoMigrate(model.AllModels()...); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	repos := repository.New(db)
+	if err := repos.User.Create(t.Context(), &model.User{
+		Base:         model.Base{ID: "user-1"},
+		Username:     "tester",
+		PasswordHash: "x",
+		Role:         "admin",
+		Tier:         "plus",
+		IsActive:     true,
+	}); err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	dir := t.TempDir()
+	mediaPath := filepath.Join(dir, "sample.mp4")
+	if err := os.WriteFile(mediaPath, []byte("fake-video-bytes"), 0o644); err != nil {
+		t.Fatalf("write media: %v", err)
+	}
+	lib := model.Library{Name: "电影", Path: dir, Type: "movie", Enabled: true}
+	if err := repos.Library.Create(t.Context(), &lib); err != nil {
+		t.Fatalf("create library: %v", err)
+	}
+	if err := db.Create(&model.Media{
+		Base:      model.Base{ID: "media-1"},
+		LibraryID: lib.ID,
+		Title:     "Prefixed API Stream",
+		Path:      mediaPath,
+		Container: "mp4",
+	}).Error; err != nil {
+		t.Fatalf("create media: %v", err)
+	}
+
+	const secret = "test-secret"
+	router := gin.New()
+	registerEmbyRoutes(router, secret, &service.Container{
+		Repo:   repos,
+		Emby:   service.NewEmbyService(&config.Config{}, zap.NewNop(), repos),
+		Stream: service.NewStreamService(&config.Config{}, zap.NewNop(), repos, nil),
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/emby/api/stream/media-1?api_key="+signedTestToken(t, secret), nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("unexpected status: %d body=%s", w.Code, w.Body.String())
+	}
+	if got := w.Body.String(); got != "fake-video-bytes" {
+		t.Fatalf("unexpected stream body: %q", got)
+	}
+}
+
+func TestEmbyVideoStreamRedirectKeepsMediaBrowserAuthorizationToken(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	if err := db.AutoMigrate(model.AllModels()...); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	repos := repository.New(db)
+	if err := repos.User.Create(t.Context(), &model.User{
+		Base:         model.Base{ID: "user-1"},
+		Username:     "tester",
+		PasswordHash: "x",
+		Role:         "admin",
+		Tier:         "plus",
+		IsActive:     true,
+	}); err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	lib := model.Library{Name: "OpenList", Path: "cloud://openlist/Movies", Type: "movie", Enabled: true}
+	if err := repos.Library.Create(t.Context(), &lib); err != nil {
+		t.Fatalf("create library: %v", err)
+	}
+	if err := db.Create(&model.Media{
+		Base:      model.Base{ID: "cloud-1"},
+		LibraryID: lib.ID,
+		Title:     "Cloud Movie",
+		Path:      "cloud://openlist/Movies/Movie.mkv",
+		STRMURL:   "/api/cloud/play/openlist?ref=%2FMovies%2FMovie.mkv",
+		Container: "mkv",
+	}).Error; err != nil {
+		t.Fatalf("create media: %v", err)
+	}
+
+	const secret = "test-secret"
+	router := gin.New()
+	registerEmbyRoutes(router, secret, &service.Container{
+		Repo:   repos,
+		Emby:   service.NewEmbyService(&config.Config{}, zap.NewNop(), repos),
+		Stream: service.NewStreamService(&config.Config{}, zap.NewNop(), repos, nil),
+	})
+
+	token := signedTestToken(t, secret)
+	req := httptest.NewRequest(http.MethodGet, "/videos/cloud-1/stream", nil)
+	req.Header.Set("X-MediaBrowser-Authorization", `MediaBrowser Client="Infuse", Device="PC", Token="`+token+`"`)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusFound {
+		t.Fatalf("unexpected status: %d body=%s", w.Code, w.Body.String())
+	}
+	loc := w.Header().Get("Location")
+	if !strings.Contains(loc, "/api/cloud/play/openlist?") || !strings.Contains(loc, "token=") {
+		t.Fatalf("redirect Location should target tokenized cloud play endpoint, got %q", loc)
 	}
 }
 

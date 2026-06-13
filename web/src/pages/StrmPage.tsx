@@ -8,6 +8,8 @@ import { strmAPI, type GenerateSTRMResult } from '../api/strm'
 import { confirmAction } from '../components/ConfirmDialog'
 import type { Library, Media } from '../types'
 
+type CloudPlaybackMode = 'strm' | 'redirect_proxy'
+
 // StrmPage exposes the URL-as-file admin tooling backed by the Go server:
 //   - import a brand-new media row directly from a (library, title, url)
 //     tuple — useful for streaming-only entries with no on-disk file.
@@ -21,7 +23,9 @@ export function StrmPage() {
   const [generateLibraryID, setGenerateLibraryID] = useState('')
   const [baseURL, setBaseURL] = useState('')
   const [outputDir, setOutputDir] = useState('')
-  const [strmEnabled, setStrmEnabled] = useState(true)
+  const [cloudPlaybackMode, setCloudPlaybackMode] = useState<CloudPlaybackMode>('redirect_proxy')
+  const [strmPlaybackEnabled, setStrmPlaybackEnabled] = useState(false)
+  const [redirectProxyEnabled, setRedirectProxyEnabled] = useState(true)
   const [autoGenerate, setAutoGenerate] = useState(false)
   const [savingSettings, setSavingSettings] = useState(false)
   const [overwrite, setOverwrite] = useState(false)
@@ -48,7 +52,20 @@ export function StrmPage() {
         const settings = Object.fromEntries(rows.map((row) => [row.key, row.value]))
         setBaseURL(settings['app.server_url'] || settings['strm.base_url'] || '')
         setOutputDir(settings['strm.output_dir'] || '')
-        setStrmEnabled(settings['strm.enabled'] !== 'false')
+        const mode = settings['cloud.playback_mode']
+        const nextMode =
+          mode === 'strm' || mode === 'redirect_proxy'
+            ? mode
+            : settings['strm.enabled'] === 'true'
+              ? 'strm'
+              : 'redirect_proxy'
+        setCloudPlaybackMode(nextMode)
+        setStrmPlaybackEnabled(
+          settings['cloud.playback_strm_enabled'] != null
+            ? settings['cloud.playback_strm_enabled'] === 'true'
+            : settings['strm.enabled'] === 'true' || nextMode === 'strm',
+        )
+        setRedirectProxyEnabled(settings['cloud.playback_redirect_proxy_enabled'] !== 'false')
         setAutoGenerate(settings['strm.auto_generate_enabled'] === 'true')
       })
       .catch(() => undefined)
@@ -93,11 +110,25 @@ export function StrmPage() {
   const saveSTRMSettings = async () => {
     setSavingSettings(true)
     try {
+      const effectiveMode: CloudPlaybackMode =
+        strmPlaybackEnabled && !redirectProxyEnabled
+          ? 'strm'
+          : !strmPlaybackEnabled && redirectProxyEnabled
+            ? 'redirect_proxy'
+            : cloudPlaybackMode
       await Promise.all([
-        adminAPI.updateSetting('strm.enabled', String(strmEnabled)),
+        adminAPI.updateSetting('cloud.playback_mode', effectiveMode),
+        adminAPI.updateSetting('cloud.playback_strm_enabled', String(strmPlaybackEnabled)),
+        adminAPI.updateSetting('cloud.playback_redirect_proxy_enabled', String(redirectProxyEnabled)),
+        adminAPI.updateSetting('strm.enabled', String(strmPlaybackEnabled)),
         adminAPI.updateSetting('strm.auto_generate_enabled', String(autoGenerate)),
       ])
-      toast.success(strmEnabled ? 'STRM 播放已启用' : 'STRM 播放已关闭')
+      setCloudPlaybackMode(effectiveMode)
+      toast.success(
+        strmPlaybackEnabled || redirectProxyEnabled
+          ? `播放设置已保存：优先 ${effectiveMode === 'strm' ? 'STRMURL' : '302/反代'}`
+          : '播放设置已保存：云盘第三方播放已关闭',
+      )
     } catch (err: unknown) {
       const msg =
         (err as { response?: { data?: { error?: string } } })?.response?.data?.error ??
@@ -186,6 +217,15 @@ export function StrmPage() {
     }
   }
 
+  const playbackStatus =
+    strmPlaybackEnabled && redirectProxyEnabled
+      ? `两者开启 · 优先${cloudPlaybackMode === 'strm' ? 'STRMURL' : '302/反代'}`
+      : strmPlaybackEnabled
+        ? '仅 STRMURL'
+        : redirectProxyEnabled
+          ? '仅 302/反代'
+          : '云盘第三方播放关闭'
+
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-3">
@@ -209,25 +249,52 @@ export function StrmPage() {
             </p>
           </div>
           <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${
-            strmEnabled
+            strmPlaybackEnabled || redirectProxyEnabled
               ? 'border-emerald-300/40 bg-emerald-400/10 text-emerald-500'
               : 'border-red-300/40 bg-red-400/10 text-red-500'
           }`}>
-            {strmEnabled ? 'STRM 播放已启用' : 'STRM 播放已关闭'}
+            {playbackStatus}
           </span>
         </div>
-        <div className="grid gap-3 rounded-2xl border border-gray-200 bg-white/70 p-4 md:grid-cols-[1fr_1fr_auto]">
+        <div className="grid gap-3 rounded-2xl border border-gray-200 bg-white/70 p-4 md:grid-cols-2">
           <label className="flex items-start gap-3 text-sm text-ink-100">
             <input
               type="checkbox"
               className="mt-1 h-4 w-4 accent-primary-400"
-              checked={strmEnabled}
-              onChange={(e) => setStrmEnabled(e.target.checked)}
+              checked={strmPlaybackEnabled}
+              onChange={(e) => setStrmPlaybackEnabled(e.target.checked)}
             />
             <span>
-              <span className="block font-medium text-ink-600">启用 STRM 播放</span>
-              <span className="text-xs text-ink-50">开启后第三方播放优先走 STRM 入口；关闭后使用 302/反代播放入口。</span>
+              <span className="block font-medium text-ink-600">启用 STRMURL 播放</span>
+              <span className="text-xs text-ink-50">第三方客户端可拿到 /api/stream/媒体ID 入口，适合 STRM 管理和自动生成方案。</span>
             </span>
+          </label>
+          <label className="flex items-start gap-3 text-sm text-ink-100">
+            <input
+              type="checkbox"
+              className="mt-1 h-4 w-4 accent-primary-400"
+              checked={redirectProxyEnabled}
+              onChange={(e) => setRedirectProxyEnabled(e.target.checked)}
+            />
+            <span>
+              <span className="block font-medium text-ink-600">启用 302/反代播放</span>
+              <span className="text-xs text-ink-50">第三方客户端可拿到 /Videos/媒体ID/stream 入口，由服务端解析后 302 或必要时反代。</span>
+            </span>
+          </label>
+        </div>
+        <div className="grid gap-3 rounded-2xl border border-gray-200 bg-white/70 p-4 md:grid-cols-[1fr_1fr_auto]">
+          <label className="text-sm text-ink-100">
+            <span className="mb-1 block font-medium text-ink-600">两者都开启时优先</span>
+            <select
+              className="input-base"
+              value={cloudPlaybackMode}
+              onChange={(e) => setCloudPlaybackMode(e.target.value as CloudPlaybackMode)}
+              disabled={!strmPlaybackEnabled || !redirectProxyEnabled}
+            >
+              <option value="strm">优先 STRMURL</option>
+              <option value="redirect_proxy">优先 302/反代</option>
+            </select>
+            <span className="mt-1 block text-xs text-ink-50">只开启一个时自动使用已开启的播放方式；两个都关闭时云盘媒体不向第三方提供播放。</span>
           </label>
           <label className="flex items-start gap-3 text-sm text-ink-100">
             <input
@@ -289,7 +356,7 @@ export function StrmPage() {
           </button>
         </form>
         <p className="text-xs text-sand-500">
-          生成内容为 <code>域名 + /api/stream/媒体ID?token=...</code>；开启 STRM 播放时第三方客户端优先使用该入口，关闭后回到 302/反代播放。域名会同步保存到系统设置中的「公开访问域名 / STRM 域名」。
+          生成内容为 <code>域名 + /api/stream/媒体ID?token=...</code>；第三方客户端播放优先方式由上方「STRMURL / 302反代」模式决定。域名会同步保存到系统设置中的「公开访问域名 / STRM 域名」。
         </p>
         {generateResult && (
           <div className="rounded-2xl border border-gray-200 bg-gray-50 p-4 text-sm text-ink-50">

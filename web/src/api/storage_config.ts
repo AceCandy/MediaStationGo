@@ -80,6 +80,11 @@ export const storageAPI = {
       .put<StorageConfig>(`/admin/storage/${type}`, { type, config, enabled })
       .then((r) => r.data),
 
+  logout: (type: StorageType) =>
+    api
+      .post<StorageConfig>(`/admin/storage/${type}/logout`)
+      .then((r) => r.data),
+
   test: (type: StorageType, config: Record<string, string>) =>
     api
       .post<{ ok: boolean; error?: string }>(`/admin/storage/${type}/test`, {

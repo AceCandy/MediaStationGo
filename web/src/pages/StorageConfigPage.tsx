@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react'
-import { Cloud, FileVideo, Folder, Loader2, PauseCircle, QrCode, RefreshCw, Save, Send, Trash2, Upload } from 'lucide-react'
+import { Cloud, FileVideo, Folder, Loader2, LogOut, PauseCircle, QrCode, RefreshCw, Save, Send, Trash2, Upload } from 'lucide-react'
 import toast from 'react-hot-toast'
 
 import { libraryAPI } from '../api/library'
@@ -119,7 +119,6 @@ const FIELD_DEFS: Record<StorageType, { key: string; label: string; secret?: boo
     { key: 'username', label: 'WebDAV 用户名' },
     { key: 'password', label: 'WebDAV 密码', secret: true },
     { key: 'timeout_seconds', label: '请求超时秒数', placeholder: '120' },
-    { key: 'force_302', label: '强制 302 直链(true/false,默认自动优先直链)' },
   ],
   webdav: [
     { key: 'url', label: 'URL', placeholder: 'https://example.com/dav/' },
@@ -137,11 +136,9 @@ const FIELD_DEFS: Record<StorageType, { key: string; label: string; secret?: boo
   ],
   cloud115: [
     { key: 'cookie', label: 'Cookie(UID / CID / SEID,或扫码登录自动填充)', secret: true, placeholder: 'UID=...; CID=...; SEID=...' },
-    { key: 'force_proxy', label: '强制反代(true/false,默认 302 直链)' },
   ],
   quark: [
     { key: 'cookie', label: 'Cookie(从 pan.quark.cn 复制整段)', secret: true, placeholder: '__pus=...; __kp=...; kps=...' },
-    { key: 'force_302', label: '强制 302 直链(true/false,默认反代)' },
   ],
   clouddrive2: [
     { key: 'url', label: 'CloudDrive2 WebDAV URL', placeholder: 'http://host.docker.internal:19798/dav 或 http://NAS-IP:19798/dav' },
@@ -149,7 +146,6 @@ const FIELD_DEFS: Record<StorageType, { key: string; label: string; secret?: boo
     { key: 'password', label: '密码 / Token', secret: true },
     { key: 'token', label: 'Authorization Token(可选)', secret: true, placeholder: 'Bearer ... 或 Basic ...' },
     { key: 'timeout_seconds', label: '请求超时秒数', placeholder: '120' },
-    { key: 'force_302', label: '强制 302 直链(true/false,默认反代)' },
   ],
 }
 
@@ -160,6 +156,7 @@ function StorageForm({ type }: { type: StorageType }) {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [testing, setTesting] = useState(false)
+  const [loggingOut, setLoggingOut] = useState(false)
 
   const refresh = async () => {
     setLoading(true)
@@ -221,6 +218,28 @@ function StorageForm({ type }: { type: StorageType }) {
     }
   }
 
+  const onLogout = async () => {
+    const ok = await confirmAction({
+      title: '退出云盘登录',
+      message: `将清空「${TYPE_LABEL[type] ?? type}」保存的 Cookie / Token / 密码并停用该外部存储；不会删除网盘文件，也不会删除已挂载媒体库。`,
+      confirmText: '退出登录',
+    })
+    if (!ok) return
+    setLoggingOut(true)
+    try {
+      await storageAPI.logout(type)
+      toast.success('已退出云盘登录并停用该存储')
+      await refresh()
+    } catch (err: unknown) {
+      const msg =
+        (err as { response?: { data?: { error?: string } } })?.response?.data?.error ??
+        '退出登录失败'
+      toast.error(msg)
+    } finally {
+      setLoggingOut(false)
+    }
+  }
+
   if (loading) {
     return (
       <div className="flex justify-center py-12 text-ink-50">
@@ -262,6 +281,17 @@ function StorageForm({ type }: { type: StorageType }) {
         启用
       </label>
       <div className="flex justify-end gap-2 pt-2">
+        {isCloud(type) && (
+          <button
+            type="button"
+            onClick={onLogout}
+            disabled={loggingOut}
+            className="rounded-lg border border-red-200 px-4 py-2 text-sm text-red-500 hover:bg-red-50 disabled:opacity-50"
+          >
+            {loggingOut ? <Loader2 size={14} className="inline animate-spin" /> : <LogOut size={14} className="inline" />}
+            {' '}退出登录
+          </button>
+        )}
         <button
           type="button"
           onClick={onTest}
@@ -647,7 +677,7 @@ function CloudBrowser({ type }: { type: StorageType }) {
   }
 
   return (
-    <div className="mt-2 rounded-lg border border-gray-200 p-3" onClick={(e) => e.preventDefault()}>
+    <div className="mt-2 rounded-lg border border-gray-200 p-3">
       <div className="mb-3 rounded border border-emerald-100 bg-emerald-50/60 p-2">
         <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
           <div>

@@ -1,6 +1,7 @@
 package service
 
 import (
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -117,7 +118,7 @@ func TestServeFileRedirectUsesForwardedTunnelHost(t *testing.T) {
 
 func TestServeFileRedirectsCloudMediaForVideoStreamMode(t *testing.T) {
 	repos := newStreamTestRepo(t)
-	if err := repos.Setting.Set(t.Context(), STRMEnabledSettingKey, "false"); err != nil {
+	if err := repos.Setting.Set(t.Context(), CloudPlaybackModeSettingKey, CloudPlaybackModeRedirectProxy); err != nil {
 		t.Fatal(err)
 	}
 	if err := repos.DB.Create(&model.Media{
@@ -145,6 +146,66 @@ func TestServeFileRedirectsCloudMediaForVideoStreamMode(t *testing.T) {
 	}
 }
 
+func TestCloudPlaybackModeUsesExplicitModeBeforeLegacySTRMFlag(t *testing.T) {
+	repos := newStreamTestRepo(t)
+	if got := CloudPlaybackMode(t.Context(), repos); got != CloudPlaybackModeRedirectProxy {
+		t.Fatalf("default mode = %q, want %q", got, CloudPlaybackModeRedirectProxy)
+	}
+	if err := repos.Setting.Set(t.Context(), STRMEnabledSettingKey, "true"); err != nil {
+		t.Fatal(err)
+	}
+	if got := CloudPlaybackMode(t.Context(), repos); got != CloudPlaybackModeSTRM {
+		t.Fatalf("legacy strm.enabled=true mode = %q, want %q", got, CloudPlaybackModeSTRM)
+	}
+	if err := repos.Setting.Set(t.Context(), CloudPlaybackModeSettingKey, CloudPlaybackModeRedirectProxy); err != nil {
+		t.Fatal(err)
+	}
+	if got := CloudPlaybackMode(t.Context(), repos); got != CloudPlaybackModeRedirectProxy {
+		t.Fatalf("explicit mode should override legacy flag, got %q", got)
+	}
+	if err := repos.Setting.Set(t.Context(), CloudPlaybackModeSettingKey, CloudPlaybackModeSTRM); err != nil {
+		t.Fatal(err)
+	}
+	if got := CloudPlaybackMode(t.Context(), repos); got != CloudPlaybackModeSTRM {
+		t.Fatalf("explicit strm mode = %q, want %q", got, CloudPlaybackModeSTRM)
+	}
+	if err := repos.Setting.Set(t.Context(), CloudPlaybackSTRMEnabledSettingKey, "false"); err != nil {
+		t.Fatal(err)
+	}
+	if err := repos.Setting.Set(t.Context(), CloudPlaybackRedirectEnabledSettingKey, "false"); err != nil {
+		t.Fatal(err)
+	}
+	if got := CloudPlaybackMode(t.Context(), repos); got != "" {
+		t.Fatalf("both disabled mode = %q, want empty", got)
+	}
+}
+
+func TestServeFileRejectsCloudMediaWhenSelectedModeDisabled(t *testing.T) {
+	repos := newStreamTestRepo(t)
+	if err := repos.Setting.Set(t.Context(), CloudPlaybackSTRMEnabledSettingKey, "false"); err != nil {
+		t.Fatal(err)
+	}
+	if err := repos.Setting.Set(t.Context(), CloudPlaybackRedirectEnabledSettingKey, "false"); err != nil {
+		t.Fatal(err)
+	}
+	if err := repos.DB.Create(&model.Media{
+		Base:    model.Base{ID: "cloud-1"},
+		Title:   "Cloud",
+		Path:    "cloud://openlist/Movie.mkv",
+		STRMURL: "/api/cloud/play/openlist?ref=movie",
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	svc := NewStreamService(&config.Config{}, zap.NewNop(), repos, nil)
+	req := httptest.NewRequest(http.MethodGet, "http://nas.local:18080/api/stream/cloud-1?api_key=jwt123", nil)
+	w := httptest.NewRecorder()
+
+	err := svc.ServeFileWithCloudMode(w, req, "cloud-1", CloudPlaybackModeSTRM)
+	if !errors.Is(err, ErrCloudPlaybackDisabled) {
+		t.Fatalf("error = %v, want ErrCloudPlaybackDisabled", err)
+	}
+}
+
 func newStreamTestRepo(t *testing.T) *repository.Container {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
@@ -163,6 +224,15 @@ func TestRequestTokenFromBearerHeader(t *testing.T) {
 	r := &http.Request{Header: h, URL: &url.URL{}}
 	if got := requestToken(r); got != "hdrtok" {
 		t.Fatalf("bearer token not extracted: %q", got)
+	}
+}
+
+func TestRequestTokenFromMediaBrowserAuthorizationHeader(t *testing.T) {
+	h := http.Header{}
+	h.Set("X-MediaBrowser-Authorization", `MediaBrowser Client="Infuse", Device="PC", Token="mbtok"`)
+	r := &http.Request{Header: h, URL: &url.URL{}}
+	if got := requestToken(r); got != "mbtok" {
+		t.Fatalf("MediaBrowser token not extracted: %q", got)
 	}
 }
 

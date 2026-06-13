@@ -102,7 +102,15 @@ func (w *WatcherService) Refresh(ctx context.Context) error {
 		if _, _, ok := parseCloudLibraryPath(l.Path); ok {
 			continue
 		}
-		for _, dir := range listDirsForWatch(l.Path) {
+		watchRoot, info, err := resolveAccessibleMappedPath(l.Path)
+		if err != nil || !info.IsDir() {
+			w.log.Warn("watch path inaccessible",
+				zap.String("path", l.Path),
+				zap.String("library_id", l.ID),
+				zap.Error(err))
+			continue
+		}
+		for _, dir := range listDirsForWatch(watchRoot) {
 			current[dir] = l.ID
 		}
 	}

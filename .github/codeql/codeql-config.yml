@@ -1,0 +1,4 @@
+name: MediaStationGo CodeQL
+
+paths-ignore:
+  - internal/service/fileid_other.go

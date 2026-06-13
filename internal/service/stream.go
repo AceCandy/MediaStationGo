@@ -33,7 +33,21 @@ import (
 	"github.com/ShukeBta/MediaStationGo/internal/repository"
 )
 
-const STRMEnabledSettingKey = "strm.enabled"
+const (
+	STRMEnabledSettingKey                  = "strm.enabled"
+	CloudPlaybackModeSettingKey            = "cloud.playback_mode"
+	CloudPlaybackSTRMEnabledSettingKey     = "cloud.playback_strm_enabled"
+	CloudPlaybackRedirectEnabledSettingKey = "cloud.playback_redirect_proxy_enabled"
+
+	CloudPlaybackModeSTRM          = "strm"
+	CloudPlaybackModeRedirectProxy = "redirect_proxy"
+)
+
+type CloudPlaybackOptions struct {
+	STRMEnabled          bool
+	RedirectProxyEnabled bool
+	PreferredMode        string
+}
 
 // StreamService serves media files with proper Range support so browsers can
 // seek into the stream.
@@ -61,6 +75,8 @@ var ErrMediaNotFound = errors.New("media not found")
 // 构造可用的播放重定向（通常是 STRMURL 缺失，需要重新扫描媒体库）。
 // 调用方应把它与「媒体不存在」区分开，避免把配置类故障当成 404 返回给播放器。
 var ErrCloudPlaybackUnavailable = errors.New("cloud media playback unavailable: media missing play url; re-scan the library")
+
+var ErrCloudPlaybackDisabled = errors.New("cloud media playback disabled by admin settings")
 
 // normalizeCloudPlayTarget 把存库的云盘播放 URL 规范化为相对路径。
 //
@@ -201,6 +217,14 @@ func requestToken(r *http.Request) string {
 			return v
 		}
 	}
+	for _, hk := range []string{"X-Emby-Authorization", "X-MediaBrowser-Authorization"} {
+		if token := streamTokenFromAuthHeader(r.Header.Get(hk)); token != "" {
+			return token
+		}
+	}
+	if token := streamTokenFromAuthHeader(r.Header.Get("Authorization")); token != "" {
+		return token
+	}
 	for _, k := range []string{"token", "api_key", "apiKey", "ApiKey"} {
 		if v := strings.TrimSpace(r.URL.Query().Get(k)); v != "" {
 			return v
@@ -209,15 +233,126 @@ func requestToken(r *http.Request) string {
 	return ""
 }
 
-func STRMPlaybackEnabled(ctx context.Context, repo *repository.Container) bool {
+func streamTokenFromAuthHeader(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	for _, prefix := range []string{"Bearer ", "Emby "} {
+		if strings.HasPrefix(value, prefix) {
+			return strings.TrimSpace(strings.TrimPrefix(value, prefix))
+		}
+	}
+	if strings.HasPrefix(value, "MediaBrowser ") || strings.Contains(value, "Token=") {
+		for _, part := range strings.Split(value, ",") {
+			part = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(part), "MediaBrowser "))
+			if !strings.HasPrefix(part, "Token=") {
+				continue
+			}
+			token := strings.TrimSpace(strings.TrimPrefix(part, "Token="))
+			return strings.Trim(token, `"`)
+		}
+		return ""
+	}
+	return value
+}
+
+func CloudPlaybackSettings(ctx context.Context, repo *repository.Container) CloudPlaybackOptions {
+	opts := CloudPlaybackOptions{
+		STRMEnabled:          false,
+		RedirectProxyEnabled: true,
+		PreferredMode:        CloudPlaybackModeRedirectProxy,
+	}
 	if repo == nil || repo.Setting == nil {
-		return true
+		return opts
 	}
-	v, err := repo.Setting.Get(ctx, STRMEnabledSettingKey)
+	modeRaw, hasMode := settingValue(ctx, repo, CloudPlaybackModeSettingKey)
+	if mode := normalizeCloudPlaybackMode(modeRaw); mode != "" {
+		opts.PreferredMode = mode
+	}
+	legacySTRM, hasLegacySTRM := settingValue(ctx, repo, STRMEnabledSettingKey)
+	legacySTRMEnabled := hasLegacySTRM && parseBoolSetting(legacySTRM, false)
+	if !hasMode && legacySTRMEnabled {
+		opts.PreferredMode = CloudPlaybackModeSTRM
+	}
+	if raw, ok := settingValue(ctx, repo, CloudPlaybackSTRMEnabledSettingKey); ok {
+		opts.STRMEnabled = parseBoolSetting(raw, false)
+	} else if hasLegacySTRM {
+		opts.STRMEnabled = legacySTRMEnabled
+	} else if hasMode && opts.PreferredMode == CloudPlaybackModeSTRM {
+		opts.STRMEnabled = true
+	}
+	if raw, ok := settingValue(ctx, repo, CloudPlaybackRedirectEnabledSettingKey); ok {
+		opts.RedirectProxyEnabled = parseBoolSetting(raw, true)
+	} else if hasMode && opts.PreferredMode == CloudPlaybackModeRedirectProxy {
+		opts.RedirectProxyEnabled = true
+	}
+	if opts.PreferredMode == CloudPlaybackModeSTRM && !opts.STRMEnabled && opts.RedirectProxyEnabled {
+		opts.PreferredMode = CloudPlaybackModeRedirectProxy
+	}
+	if opts.PreferredMode == CloudPlaybackModeRedirectProxy && !opts.RedirectProxyEnabled && opts.STRMEnabled {
+		opts.PreferredMode = CloudPlaybackModeSTRM
+	}
+	return opts
+}
+
+func CloudPlaybackMode(ctx context.Context, repo *repository.Container) string {
+	opts := CloudPlaybackSettings(ctx, repo)
+	switch opts.PreferredMode {
+	case CloudPlaybackModeSTRM:
+		if opts.STRMEnabled {
+			return CloudPlaybackModeSTRM
+		}
+		if opts.RedirectProxyEnabled {
+			return CloudPlaybackModeRedirectProxy
+		}
+	case CloudPlaybackModeRedirectProxy:
+		if opts.RedirectProxyEnabled {
+			return CloudPlaybackModeRedirectProxy
+		}
+		if opts.STRMEnabled {
+			return CloudPlaybackModeSTRM
+		}
+	}
+	return ""
+}
+
+func STRMPlaybackEnabled(ctx context.Context, repo *repository.Container) bool {
+	return CloudPlaybackSettings(ctx, repo).STRMEnabled
+}
+
+func cloudPlaybackModeEnabled(ctx context.Context, repo *repository.Container, mode string) bool {
+	opts := CloudPlaybackSettings(ctx, repo)
+	switch normalizeCloudPlaybackMode(mode) {
+	case CloudPlaybackModeSTRM:
+		return opts.STRMEnabled
+	case CloudPlaybackModeRedirectProxy:
+		return opts.RedirectProxyEnabled
+	default:
+		return opts.STRMEnabled || opts.RedirectProxyEnabled
+	}
+}
+
+func settingValue(ctx context.Context, repo *repository.Container, key string) (string, bool) {
+	if repo == nil || repo.Setting == nil {
+		return "", false
+	}
+	v, err := repo.Setting.Get(ctx, key)
 	if err != nil || strings.TrimSpace(v) == "" {
-		return true
+		return "", false
 	}
-	return parseBoolSetting(v, true)
+	return v, true
+}
+
+func normalizeCloudPlaybackMode(raw string) string {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "strm", "strmurl", "strm_url", "api_stream", "api-stream":
+		return CloudPlaybackModeSTRM
+	case "302", "proxy", "reverse_proxy", "redirect", "redirect_proxy", "302_proxy", "302-proxy", "cloud":
+		return CloudPlaybackModeRedirectProxy
+	default:
+		return ""
+	}
 }
 
 // ServeFile streams the file backing the given media ID using
@@ -227,6 +362,10 @@ func STRMPlaybackEnabled(ctx context.Context, repo *repository.Container) bool {
 // instead of opening a local file. This lets WebDAV / Alist / S3 / HTTP
 // direct links flow through the rest of the player UI unchanged.
 func (s *StreamService) ServeFile(w http.ResponseWriter, r *http.Request, mediaID string) error {
+	return s.ServeFileWithCloudMode(w, r, mediaID, "")
+}
+
+func (s *StreamService) ServeFileWithCloudMode(w http.ResponseWriter, r *http.Request, mediaID, cloudMode string) error {
 	m, err := s.repo.Media.FindByID(r.Context(), mediaID)
 	if err != nil {
 		return err
@@ -235,6 +374,9 @@ func (s *StreamService) ServeFile(w http.ResponseWriter, r *http.Request, mediaI
 		return ErrMediaNotFound
 	}
 	if strmURL := strings.TrimSpace(m.STRMURL); strmURL != "" && (isCloudPlaybackTarget(strmURL) || STRMPlaybackEnabled(r.Context(), s.repo)) {
+		if !cloudPlaybackModeEnabled(r.Context(), s.repo, cloudMode) {
+			return ErrCloudPlaybackDisabled
+		}
 		// 云盘播放 URL 先规范化为相对路径，免疫扫描时固化的旧 host。
 		target := normalizeCloudPlayTarget(strmURL)
 		target = withAuthTokenForInternalRedirect(target, r, PublicServerURL(r.Context(), s.repo, s.cfg))

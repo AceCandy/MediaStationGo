@@ -36,11 +36,10 @@ func newQuark(cfg map[string]any, client *http.Client) *quarkProvider {
 		ua = defaultUA
 	}
 	// Quark download links require the session cookie + UA, so the host must
-	// reverse-proxy unless the admin explicitly opts into raw 302.
+	// reverse-proxy. The global cloud playback setting decides whether clients
+	// receive a STRMURL entry or a /Videos stream entry; this provider only
+	// reports whether the resolved upstream URL itself is safe for raw 302.
 	proxy := true
-	if _, ok := cfg["force_302"]; ok && boolish(cfg["force_302"]) {
-		proxy = false
-	}
 	return &quarkProvider{
 		cookie: str(cfg["cookie"]),
 		ua:     ua,

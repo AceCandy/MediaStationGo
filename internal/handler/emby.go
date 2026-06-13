@@ -15,9 +15,11 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/gorilla/websocket"
 
 	"github.com/ShukeBta/MediaStationGo/internal/middleware"
 	"github.com/ShukeBta/MediaStationGo/internal/service"
@@ -33,6 +35,104 @@ func embyUserID(c *gin.Context) string {
 	if uid, ok := c.Get(middleware.CtxUserID); ok {
 		if s, ok := uid.(string); ok {
 			return s
+		}
+	}
+	return ""
+}
+
+const embyCompatSessionTTL = 30 * time.Minute
+
+type embyCompatSession struct {
+	token     string
+	expiresAt time.Time
+}
+
+var embyCompatSessions = struct {
+	sync.RWMutex
+	items map[string]embyCompatSession
+}{items: map[string]embyCompatSession{}}
+
+func embyAuthRequiredWithSessionFallback(secret string) gin.HandlerFunc {
+	required := middleware.EmbyAuthRequired(secret)
+	return func(c *gin.Context) {
+		if embyRequestToken(c) == "" {
+			if token := embyCompatSessionToken(c); token != "" {
+				c.Request.Header.Set("X-Emby-Token", token)
+			}
+		}
+		required(c)
+	}
+}
+
+func embyRememberCompatSession(c *gin.Context, token string) {
+	token = strings.TrimSpace(token)
+	if token == "" {
+		return
+	}
+	keys := embyCompatSessionKeys(c)
+	if len(keys) == 0 {
+		return
+	}
+	expiresAt := time.Now().Add(embyCompatSessionTTL)
+	embyCompatSessions.Lock()
+	defer embyCompatSessions.Unlock()
+	if len(embyCompatSessions.items) > 1000 {
+		now := time.Now()
+		for key, session := range embyCompatSessions.items {
+			if now.After(session.expiresAt) {
+				delete(embyCompatSessions.items, key)
+			}
+		}
+		if len(embyCompatSessions.items) > 1000 {
+			embyCompatSessions.items = map[string]embyCompatSession{}
+		}
+	}
+	for _, key := range keys {
+		embyCompatSessions.items[key] = embyCompatSession{token: token, expiresAt: expiresAt}
+	}
+}
+
+func embyCompatSessionToken(c *gin.Context) string {
+	keys := embyCompatSessionKeys(c)
+	if len(keys) == 0 {
+		return ""
+	}
+	now := time.Now()
+	embyCompatSessions.RLock()
+	defer embyCompatSessions.RUnlock()
+	for _, key := range keys {
+		session, ok := embyCompatSessions.items[key]
+		if ok && now.Before(session.expiresAt) {
+			return session.token
+		}
+	}
+	return ""
+}
+
+func embyCompatSessionKeys(c *gin.Context) []string {
+	if c == nil {
+		return nil
+	}
+	ip := strings.TrimSpace(c.ClientIP())
+	if ip == "" {
+		return nil
+	}
+	keys := []string{}
+	add := func(kind, value string) {
+		value = strings.TrimSpace(value)
+		if value != "" {
+			keys = append(keys, ip+"\x00"+kind+"\x00"+value)
+		}
+	}
+	add("device", firstHeaderValue(c, "X-Emby-Device-Id", "X-Emby-DeviceId", "X-MediaBrowser-Device-Id", "X-MediaBrowser-DeviceId"))
+	add("ua", c.GetHeader("User-Agent"))
+	return keys
+}
+
+func firstHeaderValue(c *gin.Context, names ...string) string {
+	for _, name := range names {
+		if value := strings.TrimSpace(c.GetHeader(name)); value != "" {
+			return value
 		}
 	}
 	return ""
@@ -337,6 +437,7 @@ func embyAuthByNameHandler(svc *service.Container) gin.HandlerFunc {
 		if longLived, err := svc.Auth.IssueEmbyToken(resp.User); err == nil && longLived != "" {
 			accessToken = longLived
 		}
+		embyRememberCompatSession(c, accessToken)
 		c.JSON(http.StatusOK, gin.H{
 			"AccessToken": accessToken,
 			"ServerId":    "mediastation-go-001",
@@ -458,6 +559,7 @@ func embyViewsHandler(svc *service.Container) gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
+		embyAttachRequestTokenToMediaSources(c, out)
 		c.JSON(http.StatusOK, out)
 	}
 }
@@ -507,6 +609,9 @@ func parseEmbyItemsParams(c *gin.Context) service.ItemsParams {
 	offset, _ := strconv.Atoi(embyFirstNonEmptyString(firstQueryValue(c, "StartIndex", "startIndex", "startindex"), "0"))
 	uid := c.Param("userId")
 	if uid == "" {
+		uid = firstQueryValue(c, "UserId", "userId", "userid")
+	}
+	if uid == "" {
 		uid = embyUserID(c)
 	}
 	splitOpt := func(s string) []string {
@@ -529,6 +634,7 @@ func parseEmbyItemsParams(c *gin.Context) service.ItemsParams {
 		IDs:              splitOpt(firstQueryValue(c, "Ids", "ids")),
 		SearchTerm:       firstQueryValue(c, "SearchTerm", "searchTerm", "searchterm"),
 		IncludeItemTypes: splitOpt(firstQueryValue(c, "IncludeItemTypes", "includeItemTypes", "includeitemtypes")),
+		Filters:          splitOpt(firstQueryValue(c, "Filters", "filters")),
 		Recursive:        strings.EqualFold(firstQueryValue(c, "Recursive", "recursive"), "true"),
 		SortBy:           firstQueryValue(c, "SortBy", "sortBy", "sortby"),
 		SortOrder:        firstQueryValue(c, "SortOrder", "sortOrder", "sortorder"),
@@ -553,6 +659,7 @@ func embyItemsHandler(svc *service.Container) gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
+		embyAttachRequestTokenToMediaSources(c, out)
 		c.JSON(http.StatusOK, out)
 	}
 }
@@ -573,7 +680,7 @@ func embyItemByIDHandler(svc *service.Container) gin.HandlerFunc {
 			embyError(c, http.StatusNotFound, "item not found")
 			return
 		}
-		embyAttachRequestTokenToPlaybackInfo(c, out)
+		embyAttachRequestTokenToMediaSources(c, out)
 		c.JSON(http.StatusOK, out)
 	}
 }
@@ -595,14 +702,18 @@ func embyLatestItemsHandler(svc *service.Container) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		uid := c.Param("userId")
 		if uid == "" {
+			uid = firstQueryValue(c, "UserId", "userId", "userid")
+		}
+		if uid == "" {
 			uid = embyUserID(c)
 		}
-		limit, _ := strconv.Atoi(c.DefaultQuery("Limit", "20"))
-		out, err := svc.Emby.LatestItems(c.Request.Context(), uid, c.Query("ParentId"), limit)
+		limit, _ := strconv.Atoi(embyFirstNonEmptyString(firstQueryValue(c, "Limit", "limit"), "20"))
+		out, err := svc.Emby.LatestItems(c.Request.Context(), uid, firstQueryValue(c, "ParentId", "parentId", "parentid"), limit)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
+		embyAttachRequestTokenToMediaSources(c, out)
 		c.JSON(http.StatusOK, out)
 	}
 }
@@ -611,14 +722,18 @@ func embyResumeItemsHandler(svc *service.Container) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		uid := c.Param("userId")
 		if uid == "" {
+			uid = firstQueryValue(c, "UserId", "userId", "userid")
+		}
+		if uid == "" {
 			uid = embyUserID(c)
 		}
-		limit, _ := strconv.Atoi(c.DefaultQuery("Limit", "20"))
+		limit, _ := strconv.Atoi(embyFirstNonEmptyString(firstQueryValue(c, "Limit", "limit"), "20"))
 		out, err := svc.Emby.ResumeItems(c.Request.Context(), uid, limit)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
+		embyAttachRequestTokenToMediaSources(c, out)
 		c.JSON(http.StatusOK, out)
 	}
 }
@@ -634,7 +749,54 @@ func embyItemsCountsHandler(_ *service.Container) gin.HandlerFunc {
 	}
 }
 
+func embyDisplayPreferencesHandler(_ *service.Container) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{
+			"Id":                 c.Param("id"),
+			"ViewType":           "Poster",
+			"SortBy":             "SortName",
+			"SortOrder":          "Ascending",
+			"IndexBy":            "SortName",
+			"RememberIndexing":   false,
+			"PrimaryImageHeight": 250,
+			"PrimaryImageWidth":  250,
+			"ScrollDirection":    "Horizontal",
+			"ShowSidebar":        true,
+			"CustomPrefs": gin.H{
+				"homeexploresection": "1",
+				"homesection0":       "smalllibrarytiles",
+				"homesection1":       "resume",
+				"homesection2":       "latestmedia",
+				"homesection3":       "nextup",
+				"homesection4":       "none",
+				"homesection5":       "none",
+				"homesection6":       "none",
+				"latestItems":        "true",
+				"landing-livetv":     "false",
+			},
+		})
+	}
+}
+
+func embySaveDisplayPreferencesHandler(_ *service.Container) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		c.Status(http.StatusNoContent)
+	}
+}
+
 // ─── Images ──────────────────────────────────────────────────────────────────
+
+var embyTransparentPNG = []byte{
+	0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+	0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
+	0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
+	0x08, 0x06, 0x00, 0x00, 0x00, 0x1f, 0x15, 0xc4,
+	0x89, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x44, 0x41,
+	0x54, 0x78, 0x9c, 0x63, 0x00, 0x01, 0x00, 0x00,
+	0x05, 0x00, 0x01, 0x0d, 0x0a, 0x2d, 0xb4, 0x00,
+	0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae,
+	0x42, 0x60, 0x82,
+}
 
 // embyItemImageHandler 把 /Items/{id}/Images/Primary 等请求直接输出为图片。
 // Emby 客户端缓存图片 URL 时经常不会继续携带 token；如果重定向到受保护的
@@ -648,7 +810,7 @@ func embyItemImageHandler(svc *service.Container) gin.HandlerFunc {
 		imgType := strings.ToLower(c.Param("type"))
 		raw, err := svc.Emby.ImageURL(ctx, id, imgType)
 		if err != nil || raw == "" {
-			c.Status(http.StatusNotFound)
+			embyServeTransparentImage(c)
 			return
 		}
 		if typ, ref, ok := parseCloudPlayImageURL(raw); ok {
@@ -657,13 +819,24 @@ func embyItemImageHandler(svc *service.Container) gin.HandlerFunc {
 			return
 		}
 		if svc.ImageProxy == nil {
-			c.Status(http.StatusNotFound)
+			embyServeTransparentImage(c)
 			return
 		}
 		if err := svc.ImageProxy.Serve(ctx, c.Writer, req, raw); err != nil {
-			c.Status(http.StatusNotFound)
+			embyServeTransparentImage(c)
 		}
 	}
+}
+
+func embyServeTransparentImage(c *gin.Context) {
+	c.Header("Content-Type", "image/png")
+	c.Header("Cache-Control", "public, max-age=3600")
+	c.Header("Content-Length", strconv.Itoa(len(embyTransparentPNG)))
+	if c.Request.Method == http.MethodHead {
+		c.Status(http.StatusOK)
+		return
+	}
+	c.Data(http.StatusOK, "image/png", embyTransparentPNG)
 }
 
 func parseCloudPlayImageURL(raw string) (string, string, bool) {
@@ -700,6 +873,7 @@ func embyShowSeasonsHandler(svc *service.Container) gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
+		embyAttachRequestTokenToMediaSources(c, out)
 		c.JSON(http.StatusOK, out)
 	}
 }
@@ -722,6 +896,7 @@ func embyShowEpisodesHandler(svc *service.Container) gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
+		embyAttachRequestTokenToMediaSources(c, out)
 		c.JSON(http.StatusOK, out)
 	}
 }
@@ -743,20 +918,55 @@ func embyPlaybackInfoHandler(svc *service.Container) gin.HandlerFunc {
 			embyError(c, http.StatusNotFound, "not found")
 			return
 		}
-		embyAttachRequestTokenToPlaybackInfo(c, out)
+		embyAttachRequestTokenToMediaSources(c, out)
 		c.JSON(http.StatusOK, out)
 	}
 }
 
-func embyAttachRequestTokenToPlaybackInfo(c *gin.Context, out map[string]any) {
+func embyAttachRequestTokenToMediaSources(c *gin.Context, out any) {
 	token := embyRequestToken(c)
 	if token == "" || out == nil {
 		return
 	}
-	sources, ok := out["MediaSources"].([]map[string]any)
-	if !ok {
+	embyAttachTokenToMediaSourcesValue(out, token)
+}
+
+func embyAttachTokenToMediaSourcesValue(value any, token string) {
+	switch typed := value.(type) {
+	case map[string]any:
+		embyAttachTokenToMediaSourcesMap(typed, token)
+	case gin.H:
+		embyAttachTokenToMediaSourcesMap(map[string]any(typed), token)
+	case []map[string]any:
+		for _, item := range typed {
+			embyAttachTokenToMediaSourcesMap(item, token)
+		}
+	case []any:
+		for _, item := range typed {
+			embyAttachTokenToMediaSourcesValue(item, token)
+		}
+	}
+}
+
+func embyAttachTokenToMediaSourcesMap(out map[string]any, token string) {
+	if out == nil {
 		return
 	}
+	if sources, ok := out["MediaSources"].([]map[string]any); ok {
+		embyAttachTokenToMediaSources(sources, token)
+	} else if sources, ok := out["MediaSources"].([]any); ok {
+		for _, source := range sources {
+			if sourceMap, ok := source.(map[string]any); ok {
+				embyAttachTokenToMediaSources([]map[string]any{sourceMap}, token)
+			}
+		}
+	}
+	if items, ok := out["Items"]; ok {
+		embyAttachTokenToMediaSourcesValue(items, token)
+	}
+}
+
+func embyAttachTokenToMediaSources(sources []map[string]any, token string) {
 	for _, source := range sources {
 		for _, key := range []string{"DirectStreamUrl", "TranscodingUrl", "Path"} {
 			raw, ok := source[key].(string)
@@ -772,7 +982,7 @@ func embyRequestToken(c *gin.Context) string {
 	if c == nil {
 		return ""
 	}
-	for _, key := range []string{"api_key", "apiKey", "ApiKey", "token"} {
+	for _, key := range []string{"api_key", "apiKey", "ApiKey", "token", "X-Emby-Token", "X-MediaBrowser-Token"} {
 		if value := strings.TrimSpace(c.Query(key)); value != "" {
 			return value
 		}
@@ -782,7 +992,7 @@ func embyRequestToken(c *gin.Context) string {
 			return value
 		}
 	}
-	for _, header := range []string{"Authorization", "X-Emby-Authorization"} {
+	for _, header := range []string{"Authorization", "X-Emby-Authorization", "X-MediaBrowser-Authorization"} {
 		if token := embyTokenFromAuthHeader(c.GetHeader(header)); token != "" {
 			return token
 		}
@@ -837,7 +1047,7 @@ func embyAppendAPIKey(raw, token string) string {
 
 // embyVideoStreamHandler 是 GET /Videos/{id}/stream 的入口，
 // 直接代理到我们的 /api/stream/{id}（同一个 ServeFile）。
-func embyVideoStreamHandler(svc *service.Container) gin.HandlerFunc {
+func embyVideoStreamHandler(svc *service.Container, cloudMode string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		uid := embyUserID(c)
 		item, err := svc.Emby.Item(c.Request.Context(), c.Param("id"), uid)
@@ -853,11 +1063,15 @@ func embyVideoStreamHandler(svc *service.Container) gin.HandlerFunc {
 		// 此前这里把所有错误一律吞成 404：云盘 Cookie 过期、直链解析失败、
 		// STRM 播放被关闭……在第三方播放器上全部表现为「404 不存在」，
 		// 无法排查。现在区分：行不存在→404；云盘播放不可用/上游故障→502+原因。
-		err = svc.Stream.ServeFile(c.Writer, c.Request, c.Param("id"))
+		err = svc.Stream.ServeFileWithCloudMode(c.Writer, c.Request, c.Param("id"), cloudMode)
 		switch {
 		case err == nil:
 		case errors.Is(err, service.ErrMediaNotFound):
 			c.Status(http.StatusNotFound)
+		case errors.Is(err, service.ErrCloudPlaybackDisabled):
+			if !c.Writer.Written() {
+				c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+			}
 		default:
 			if !c.Writer.Written() {
 				c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
@@ -1014,6 +1228,44 @@ func embyNoContentHandler(_ *service.Container) gin.HandlerFunc {
 	}
 }
 
+func embyWebSocketHandler(_ *service.Container) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if !websocket.IsWebSocketUpgrade(c.Request) {
+			c.Status(http.StatusNoContent)
+			return
+		}
+		conn, err := wsUpgrader.Upgrade(c.Writer, c.Request, nil)
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			for {
+				if _, _, err := conn.NextReader(); err != nil {
+					return
+				}
+			}
+		}()
+
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-done:
+				return
+			case <-ticker.C:
+				_ = conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+				if err := conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+					return
+				}
+			}
+		}
+	}
+}
+
 func embyServerConfigurationHandler(_ *service.Container) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{
@@ -1062,6 +1314,52 @@ func embyQuickConnectEnabledHandler(_ *service.Container) gin.HandlerFunc {
 func embyEmptyItemsHandler(_ *service.Container) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"Items": []any{}, "TotalRecordCount": 0})
+	}
+}
+
+func embyEmptyArrayHandler(_ *service.Container) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		c.JSON(http.StatusOK, []any{})
+	}
+}
+
+func embyCustomCSSJSScriptsHandler(_ *service.Container) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		c.Data(http.StatusOK, "application/javascript; charset=utf-8", nil)
+	}
+}
+
+func embyLocalizationCulturesHandler(_ *service.Container) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		c.JSON(http.StatusOK, []gin.H{
+			{
+				"DisplayName":                 "简体中文",
+				"Name":                        "zh-CN",
+				"ThreeLetterISOLanguageName":  "zho",
+				"TwoLetterISOLanguageName":    "zh",
+				"ThreeLetterISOLanguageNames": []string{"zho", "chi"},
+				"IsRightToLeft":               false,
+			},
+			{
+				"DisplayName":                 "English",
+				"Name":                        "en-US",
+				"ThreeLetterISOLanguageName":  "eng",
+				"TwoLetterISOLanguageName":    "en",
+				"ThreeLetterISOLanguageNames": []string{"eng"},
+				"IsRightToLeft":               false,
+			},
+		})
+	}
+}
+
+func embyThemeMediaHandler(_ *service.Container) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		empty := gin.H{"Items": []any{}, "TotalRecordCount": 0}
+		c.JSON(http.StatusOK, gin.H{
+			"ThemeVideosResult":     empty,
+			"ThemeSongsResult":      empty,
+			"SoundtrackSongsResult": empty,
+		})
 	}
 }
 
@@ -1178,6 +1476,24 @@ func registerEmbyRoutes(r *gin.Engine, jwtSecret string, svc *service.Container)
 		for _, path := range []string{"/Localization/Options", "/localization/options"} {
 			grp.GET(path, embyLocalizationOptionsHandler(svc))
 		}
+		for _, path := range []string{"/Localization/Cultures", "/Localization/cultures", "/localization/cultures"} {
+			grp.GET(path, embyLocalizationCulturesHandler(svc))
+		}
+		for _, path := range []string{"/CustomCssJS/Scripts", "/customcssjs/scripts"} {
+			grp.GET(path, embyCustomCSSJSScriptsHandler(svc))
+			grp.HEAD(path, embyCustomCSSJSScriptsHandler(svc))
+		}
+		for _, path := range []string{"/embywebsocket", "/EmbyWebSocket"} {
+			grp.GET(path, embyWebSocketHandler(svc))
+			grp.HEAD(path, embyNoContentHandler(svc))
+		}
+		for _, path := range []string{"/Sessions/Logout", "/sessions/logout"} {
+			grp.POST(path, embyNoContentHandler(svc))
+		}
+		grp.GET("/DisplayPreferences/:id", embyDisplayPreferencesHandler(svc))
+		grp.POST("/DisplayPreferences/:id", embySaveDisplayPreferencesHandler(svc))
+		grp.GET("/displaypreferences/:id", embyDisplayPreferencesHandler(svc))
+		grp.POST("/displaypreferences/:id", embySaveDisplayPreferencesHandler(svc))
 
 		// 图片公开（Infuse 缓存 URL 时会丢 token）
 		grp.GET("/Items/:id/Images/:type", embyItemImageHandler(svc))
@@ -1188,7 +1504,7 @@ func registerEmbyRoutes(r *gin.Engine, jwtSecret string, svc *service.Container)
 		grp.HEAD("/items/:id/images/:type", embyItemImageHandler(svc))
 
 		// 鉴权后端点
-		auth := grp.Group("", middleware.EmbyAuthRequired(jwtSecret), activeEmbyUserRequired(svc))
+		auth := grp.Group("", embyAuthRequiredWithSessionFallback(jwtSecret), activeEmbyUserRequired(svc))
 		auth.GET("/Users/Me", embyMeHandler(svc))
 		auth.GET("/Users", embyListUsersHandler(svc))
 		auth.GET("/Users/:userId", embyGetUserByIDHandler(svc))
@@ -1201,6 +1517,8 @@ func registerEmbyRoutes(r *gin.Engine, jwtSecret string, svc *service.Container)
 		auth.GET("/Users/:userId/Items", embyItemsHandler(svc))
 		auth.GET("/Items/Counts", embyItemsCountsHandler(svc))
 		auth.GET("/Users/:userId/Items/Counts", embyItemsCountsHandler(svc))
+		auth.GET("/Items/Latest", embyLatestItemsHandler(svc))
+		auth.GET("/Items/Resume", embyResumeItemsHandler(svc))
 		auth.GET("/Items/:id", embyItemByIDHandler(svc))
 		auth.GET("/Users/:userId/Items/:id", embyUserItemByIDHandler(svc))
 		auth.GET("/Shows/:id/Seasons", embyShowSeasonsHandler(svc))
@@ -1210,7 +1528,18 @@ func registerEmbyRoutes(r *gin.Engine, jwtSecret string, svc *service.Container)
 		auth.GET("/Shows/NextUp", embyEmptyItemsHandler(svc))
 		auth.GET("/Users/:userId/Shows/NextUp", embyEmptyItemsHandler(svc))
 		auth.GET("/MediaSegments/:id", embyEmptyItemsHandler(svc))
+		auth.GET("/Artists", embyEmptyItemsHandler(svc))
+		auth.GET("/Persons", embyEmptyItemsHandler(svc))
+		auth.GET("/Genres", embyEmptyItemsHandler(svc))
+		auth.GET("/Shows/Upcoming", embyEmptyItemsHandler(svc))
+		auth.GET("/Users/:userId/Shows/Upcoming", embyEmptyItemsHandler(svc))
 		auth.GET("/Items/:id/Similar", embyEmptyItemsHandler(svc))
+		auth.GET("/Items/:id/ThumbnailSet", embyEmptyItemsHandler(svc))
+		auth.GET("/Items/:id/ThemeMedia", embyThemeMediaHandler(svc))
+		auth.GET("/Users/:userId/Items/:id/SpecialFeatures", embyEmptyItemsHandler(svc))
+		auth.GET("/Users/:userId/Items/:id/Intros", embyEmptyItemsHandler(svc))
+		auth.GET("/Items/:id/SpecialFeatures", embyEmptyItemsHandler(svc))
+		auth.GET("/Items/:id/Intros", embyEmptyItemsHandler(svc))
 		auth.GET("/api/danmu/:id/raw", embyDanmuRawHandler(svc))
 
 		auth.GET("/Items/:id/PlaybackInfo", embyPlaybackInfoHandler(svc))
@@ -1218,14 +1547,18 @@ func registerEmbyRoutes(r *gin.Engine, jwtSecret string, svc *service.Container)
 		auth.GET("/Users/:userId/Items/:id/PlaybackInfo", embyPlaybackInfoHandler(svc))
 		auth.POST("/Users/:userId/Items/:id/PlaybackInfo", embyPlaybackInfoHandler(svc))
 
-		auth.GET("/Videos/:id/stream", embyVideoStreamHandler(svc))
-		auth.HEAD("/Videos/:id/stream", embyVideoStreamHandler(svc))
-		auth.GET("/Videos/:id/stream.:container", embyVideoStreamHandler(svc))
-		auth.HEAD("/Videos/:id/stream.:container", embyVideoStreamHandler(svc))
-		auth.GET("/Videos/:id/original", embyVideoStreamHandler(svc))
-		auth.HEAD("/Videos/:id/original", embyVideoStreamHandler(svc))
-		auth.GET("/Videos/:id/original.:container", embyVideoStreamHandler(svc))
-		auth.HEAD("/Videos/:id/original.:container", embyVideoStreamHandler(svc))
+		auth.GET("/Videos/:id/stream", embyVideoStreamHandler(svc, service.CloudPlaybackModeRedirectProxy))
+		auth.HEAD("/Videos/:id/stream", embyVideoStreamHandler(svc, service.CloudPlaybackModeRedirectProxy))
+		auth.GET("/Videos/:id/stream.:container", embyVideoStreamHandler(svc, service.CloudPlaybackModeRedirectProxy))
+		auth.HEAD("/Videos/:id/stream.:container", embyVideoStreamHandler(svc, service.CloudPlaybackModeRedirectProxy))
+		auth.GET("/Videos/:id/original", embyVideoStreamHandler(svc, service.CloudPlaybackModeRedirectProxy))
+		auth.HEAD("/Videos/:id/original", embyVideoStreamHandler(svc, service.CloudPlaybackModeRedirectProxy))
+		auth.GET("/Videos/:id/original.:container", embyVideoStreamHandler(svc, service.CloudPlaybackModeRedirectProxy))
+		auth.HEAD("/Videos/:id/original.:container", embyVideoStreamHandler(svc, service.CloudPlaybackModeRedirectProxy))
+		if prefix == "/emby" {
+			auth.GET("/api/stream/:id", embyVideoStreamHandler(svc, service.CloudPlaybackModeSTRM))
+			auth.HEAD("/api/stream/:id", embyVideoStreamHandler(svc, service.CloudPlaybackModeSTRM))
+		}
 		auth.GET("/Videos/:id/master.m3u8", embyVideoHLSPlaylistHandler(svc))
 		auth.HEAD("/Videos/:id/master.m3u8", embyVideoHLSPlaylistHandler(svc))
 		auth.GET("/Videos/:id/main.m3u8", embyVideoHLSPlaylistHandler(svc))
@@ -1243,12 +1576,12 @@ func registerEmbyRoutes(r *gin.Engine, jwtSecret string, svc *service.Container)
 
 		auth.GET("/Sessions", embySessionsHandler(svc))
 		auth.GET("/System/Configuration", embyServerConfigurationHandler(svc))
-		auth.GET("/DisplayPreferences/:id", func(c *gin.Context) {
-			c.JSON(http.StatusOK, gin.H{"Id": c.Param("id"), "CustomPrefs": gin.H{}})
-		})
-		auth.POST("/DisplayPreferences/:id", func(c *gin.Context) {
-			c.Status(http.StatusNoContent)
-		})
+		auth.GET("/System/WakeOnLanInfo", embyEmptyArrayHandler(svc))
+		auth.GET("/ScheduledTasks", embyEmptyArrayHandler(svc))
+		auth.GET("/LiveTv/Recordings", embyEmptyItemsHandler(svc))
+		auth.GET("/System/ActivityLog/Entries", embyEmptyItemsHandler(svc))
+		auth.GET("/Web/ConfigurationPages", embyEmptyArrayHandler(svc))
+		auth.POST("/Users/:userId/Configuration", embyNoContentHandler(svc))
 
 		registerLowercaseEmbyAuthRoutes(auth, svc)
 	}
@@ -1267,6 +1600,8 @@ func registerLowercaseEmbyAuthRoutes(auth *gin.RouterGroup, svc *service.Contain
 	auth.GET("/users/:userId/items", embyItemsHandler(svc))
 	auth.GET("/items/counts", embyItemsCountsHandler(svc))
 	auth.GET("/users/:userId/items/counts", embyItemsCountsHandler(svc))
+	auth.GET("/items/latest", embyLatestItemsHandler(svc))
+	auth.GET("/items/resume", embyResumeItemsHandler(svc))
 	auth.GET("/items/:id", embyItemByIDHandler(svc))
 	auth.GET("/users/:userId/items/:id", embyUserItemByIDHandler(svc))
 	auth.GET("/shows/:id/seasons", embyShowSeasonsHandler(svc))
@@ -1276,21 +1611,32 @@ func registerLowercaseEmbyAuthRoutes(auth *gin.RouterGroup, svc *service.Contain
 	auth.GET("/shows/nextup", embyEmptyItemsHandler(svc))
 	auth.GET("/users/:userId/shows/nextup", embyEmptyItemsHandler(svc))
 	auth.GET("/mediasegments/:id", embyEmptyItemsHandler(svc))
+	auth.GET("/artists", embyEmptyItemsHandler(svc))
+	auth.GET("/persons", embyEmptyItemsHandler(svc))
+	auth.GET("/genres", embyEmptyItemsHandler(svc))
+	auth.GET("/shows/upcoming", embyEmptyItemsHandler(svc))
+	auth.GET("/users/:userId/shows/upcoming", embyEmptyItemsHandler(svc))
 	auth.GET("/items/:id/similar", embyEmptyItemsHandler(svc))
+	auth.GET("/items/:id/thumbnailset", embyEmptyItemsHandler(svc))
+	auth.GET("/items/:id/thememedia", embyThemeMediaHandler(svc))
+	auth.GET("/users/:userId/items/:id/specialfeatures", embyEmptyItemsHandler(svc))
+	auth.GET("/users/:userId/items/:id/intros", embyEmptyItemsHandler(svc))
+	auth.GET("/items/:id/specialfeatures", embyEmptyItemsHandler(svc))
+	auth.GET("/items/:id/intros", embyEmptyItemsHandler(svc))
 
 	auth.GET("/items/:id/playbackinfo", embyPlaybackInfoHandler(svc))
 	auth.POST("/items/:id/playbackinfo", embyPlaybackInfoHandler(svc))
 	auth.GET("/users/:userId/items/:id/playbackinfo", embyPlaybackInfoHandler(svc))
 	auth.POST("/users/:userId/items/:id/playbackinfo", embyPlaybackInfoHandler(svc))
 
-	auth.GET("/videos/:id/stream", embyVideoStreamHandler(svc))
-	auth.HEAD("/videos/:id/stream", embyVideoStreamHandler(svc))
-	auth.GET("/videos/:id/stream.:container", embyVideoStreamHandler(svc))
-	auth.HEAD("/videos/:id/stream.:container", embyVideoStreamHandler(svc))
-	auth.GET("/videos/:id/original", embyVideoStreamHandler(svc))
-	auth.HEAD("/videos/:id/original", embyVideoStreamHandler(svc))
-	auth.GET("/videos/:id/original.:container", embyVideoStreamHandler(svc))
-	auth.HEAD("/videos/:id/original.:container", embyVideoStreamHandler(svc))
+	auth.GET("/videos/:id/stream", embyVideoStreamHandler(svc, service.CloudPlaybackModeRedirectProxy))
+	auth.HEAD("/videos/:id/stream", embyVideoStreamHandler(svc, service.CloudPlaybackModeRedirectProxy))
+	auth.GET("/videos/:id/stream.:container", embyVideoStreamHandler(svc, service.CloudPlaybackModeRedirectProxy))
+	auth.HEAD("/videos/:id/stream.:container", embyVideoStreamHandler(svc, service.CloudPlaybackModeRedirectProxy))
+	auth.GET("/videos/:id/original", embyVideoStreamHandler(svc, service.CloudPlaybackModeRedirectProxy))
+	auth.HEAD("/videos/:id/original", embyVideoStreamHandler(svc, service.CloudPlaybackModeRedirectProxy))
+	auth.GET("/videos/:id/original.:container", embyVideoStreamHandler(svc, service.CloudPlaybackModeRedirectProxy))
+	auth.HEAD("/videos/:id/original.:container", embyVideoStreamHandler(svc, service.CloudPlaybackModeRedirectProxy))
 	auth.GET("/videos/:id/master.m3u8", embyVideoHLSPlaylistHandler(svc))
 	auth.HEAD("/videos/:id/master.m3u8", embyVideoHLSPlaylistHandler(svc))
 	auth.GET("/videos/:id/main.m3u8", embyVideoHLSPlaylistHandler(svc))
@@ -1308,10 +1654,10 @@ func registerLowercaseEmbyAuthRoutes(auth *gin.RouterGroup, svc *service.Contain
 
 	auth.GET("/sessions", embySessionsHandler(svc))
 	auth.GET("/system/configuration", embyServerConfigurationHandler(svc))
-	auth.GET("/displaypreferences/:id", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{"Id": c.Param("id"), "CustomPrefs": gin.H{}})
-	})
-	auth.POST("/displaypreferences/:id", func(c *gin.Context) {
-		c.Status(http.StatusNoContent)
-	})
+	auth.GET("/system/wakeonlaninfo", embyEmptyArrayHandler(svc))
+	auth.GET("/scheduledtasks", embyEmptyArrayHandler(svc))
+	auth.GET("/livetv/recordings", embyEmptyItemsHandler(svc))
+	auth.GET("/system/activitylog/entries", embyEmptyItemsHandler(svc))
+	auth.GET("/web/configurationpages", embyEmptyArrayHandler(svc))
+	auth.POST("/users/:userId/configuration", embyNoContentHandler(svc))
 }

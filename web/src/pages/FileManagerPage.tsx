@@ -107,7 +107,7 @@ function settingOn(value: string): boolean {
   return ['1', 'true', 'yes', 'on', 'enabled', '启用', '开启'].includes(value.trim().toLowerCase())
 }
 
-// FileManagerPage mirrors MoviePilot's local Storage view at a smaller scope:
+// FileManagerPage provides a focused local storage view:
 // browse allowed roots, optionally recurse, and perform safe local operations.
 export function FileManagerPage() {
   const [libraries, setLibraries] = useState<Library[]>([])
@@ -372,7 +372,7 @@ export function FileManagerPage() {
       <header>
         <h1 className="font-display text-3xl font-bold text-ink-600">文件管理</h1>
         <p className="text-sm text-ink-50">
-          像 MoviePilot 一样：在下载目录中选择文件夹或视频，直接设置目标并整理入库。
+          在下载目录中选择文件夹或视频，直接设置目标并整理入库。
         </p>
       </header>
 

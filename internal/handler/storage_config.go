@@ -77,6 +77,21 @@ func testStorageConfigHandler(svc *service.Container) gin.HandlerFunc {
 	}
 }
 
+func logoutStorageConfigHandler(svc *service.Container) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		typ := c.Param("type")
+		row, err := svc.StorageCfg.Logout(c.Request.Context(), typ)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		if svc.Scan != nil {
+			_ = svc.Scan.CancelCloudScansForProvider(typ)
+		}
+		c.JSON(http.StatusOK, row)
+	}
+}
+
 func storageUploadLocalHandler(svc *service.Container) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req service.CloudUploadInput

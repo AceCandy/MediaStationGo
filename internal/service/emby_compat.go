@@ -232,7 +232,7 @@ func (e *EmbyService) Views(ctx context.Context, userID string) (map[string]any,
 		}
 		items = append(items, e.libraryAsView(&l))
 	}
-	return map[string]any{"Items": items, "TotalRecordCount": len(items)}, nil
+	return map[string]any{"Items": items, "TotalRecordCount": len(items), "StartIndex": 0}, nil
 }
 
 func (e *EmbyService) libraryAsView(l *model.Library) map[string]any {
@@ -248,14 +248,31 @@ func (e *EmbyService) libraryAsView(l *model.Library) map[string]any {
 		collectionType = "music"
 	}
 	return map[string]any{
-		"Id":                l.ID,
-		"Name":              l.Name,
-		"CollectionType":    collectionType,
-		"ServerId":          embyServerID,
-		"Type":              "CollectionFolder",
-		"IsFolder":          true,
-		"ImageTags":         map[string]string{},
-		"BackdropImageTags": []string{},
+		"Id":                       l.ID,
+		"Name":                     l.Name,
+		"CollectionType":           collectionType,
+		"ServerId":                 embyServerID,
+		"Type":                     "CollectionFolder",
+		"IsFolder":                 true,
+		"Path":                     l.Path,
+		"SortName":                 strings.ToLower(l.Name),
+		"DateCreated":              l.CreatedAt.UTC().Format(time.RFC3339),
+		"CanDelete":                false,
+		"CanDownload":              false,
+		"DisplayPreferencesId":     l.ID,
+		"PrimaryImageItemId":       l.ID,
+		"PrimaryImageAspectRatio":  1.7777777777777777,
+		"RecursiveItemCount":       0,
+		"ChildCount":               0,
+		"SpecialFeatureCount":      0,
+		"EnableMediaSourceDisplay": true,
+		"PlayAccess":               "Full",
+		"ExternalUrls":             []any{},
+		"ProviderIds":              map[string]string{},
+		"Genres":                   []string{},
+		"Tags":                     []string{},
+		"ImageTags":                map[string]string{},
+		"BackdropImageTags":        []string{},
 		"UserData": map[string]any{
 			"PlaybackPositionTicks": 0,
 			"PlayCount":             0,
@@ -275,6 +292,7 @@ type ItemsParams struct {
 	IDs              []string
 	SearchTerm       string
 	IncludeItemTypes []string
+	Filters          []string
 	Recursive        bool
 	SortBy           string
 	SortOrder        string
@@ -352,6 +370,9 @@ func (e *EmbyService) Items(ctx context.Context, p ItemsParams) (map[string]any,
 	if p.StartIndex < 0 {
 		p.StartIndex = 0
 	}
+	if len(p.IncludeItemTypes) > 0 && !containsSupportedEmbyItemType(p.IncludeItemTypes) {
+		return emptyItemsEnvelope(p.StartIndex), nil
+	}
 
 	if len(p.IDs) > 0 {
 		items := make([]map[string]any, 0, len(p.IDs))
@@ -367,7 +388,19 @@ func (e *EmbyService) Items(ctx context.Context, p ItemsParams) (map[string]any,
 		return map[string]any{"Items": items, "TotalRecordCount": len(items), "StartIndex": 0}, nil
 	}
 
-	if p.ParentID == "" && p.SearchTerm == "" && !p.Recursive && len(p.IncludeItemTypes) == 0 {
+	if containsOnlyFolderItemTypes(p.IncludeItemTypes) {
+		if p.ParentID == "" {
+			return e.Views(ctx, p.UserID)
+		}
+		if episodic, err := e.libraryIsEpisodic(ctx, p.ParentID); err != nil {
+			return nil, err
+		} else if episodic {
+			return e.seriesItemsForLibrary(ctx, p.ParentID, p)
+		}
+		return map[string]any{"Items": []map[string]any{}, "TotalRecordCount": 0, "StartIndex": p.StartIndex}, nil
+	}
+
+	if p.ParentID == "" && p.SearchTerm == "" && !p.Recursive && len(p.IncludeItemTypes) == 0 && len(p.Filters) == 0 {
 		return e.Views(ctx, p.UserID)
 	}
 
@@ -414,6 +447,24 @@ func (e *EmbyService) mediaItems(ctx context.Context, p ItemsParams) (map[string
 	if p.SearchTerm != "" {
 		q = q.Where("title LIKE ? OR original_name LIKE ?", "%"+p.SearchTerm+"%", "%"+p.SearchTerm+"%")
 	}
+	if containsEmbyFilter(p.Filters, "IsFavorite") {
+		if strings.TrimSpace(p.UserID) == "" {
+			return map[string]any{"Items": []map[string]any{}, "TotalRecordCount": int64(0), "StartIndex": p.StartIndex}, nil
+		}
+		q = q.Joins("JOIN favorites ON favorites.media_id = media.id AND favorites.user_id = ? AND favorites.deleted_at IS NULL", p.UserID)
+	}
+	resumeFilter := containsEmbyFilter(p.Filters, "IsResumable")
+	if resumeFilter {
+		if strings.TrimSpace(p.UserID) == "" {
+			return map[string]any{"Items": []map[string]any{}, "TotalRecordCount": int64(0), "StartIndex": p.StartIndex}, nil
+		}
+		q = q.Joins(`JOIN (
+			SELECT media_id, MAX(watched_at) AS watched_at
+			FROM playback_histories
+			WHERE user_id = ? AND completed = ? AND position_ms > 0
+			GROUP BY media_id
+		) AS resume ON resume.media_id = media.id`, p.UserID, false)
+	}
 	if containsItemType(p.IncludeItemTypes, "Movie") && !containsItemType(p.IncludeItemTypes, "Episode") {
 		q = q.Where("season_num = 0 AND episode_num = 0")
 	}
@@ -425,18 +476,20 @@ func (e *EmbyService) mediaItems(ctx context.Context, p ItemsParams) (map[string
 	if err := q.Count(&total).Error; err != nil {
 		return nil, err
 	}
-	order := "created_at desc"
-	switch strings.ToLower(p.SortBy) {
+	order := "media.created_at desc"
+	switch primarySupportedEmbySort(p.SortBy, resumeFilter) {
 	case "sortname", "name":
-		order = "title"
+		order = "media.title"
 	case "premieredate", "productionyear":
-		order = "year"
+		order = "media.year"
 	case "datecreated":
-		order = "created_at"
+		order = "media.created_at"
+	case "dateplayed":
+		order = "resume.watched_at"
 	case "communityrating":
-		order = "rating"
+		order = "media.rating"
 	}
-	if strings.EqualFold(p.SortOrder, "Descending") {
+	if strings.EqualFold(firstCSVValue(p.SortOrder), "Descending") {
 		if !strings.HasSuffix(order, " desc") {
 			order = order + " desc"
 		}
@@ -518,6 +571,19 @@ func (e *EmbyService) payloadsForMedia(ctx context.Context, rows []model.Media, 
 
 // Item 单条目详情。
 func (e *EmbyService) Item(ctx context.Context, mediaID, userID string) (map[string]any, error) {
+	if lib, err := e.repo.Library.FindByID(ctx, mediaID); err != nil {
+		return nil, err
+	} else if lib != nil {
+		libs := FilterDisplayCloudLibraries(ctx, e.repo, []model.Library{*lib})
+		if len(libs) == 0 {
+			return nil, nil
+		}
+		visibility := e.mediaVisibility(ctx, userID)
+		if !e.libraryVisibleFromCachedVisibility(libs[0], visibility) {
+			return nil, nil
+		}
+		return e.libraryAsView(&libs[0]), nil
+	}
 	if strings.HasPrefix(mediaID, embyVirtualSeasonPrefix) {
 		if season, ok, err := e.findSeasonGroup(ctx, mediaID, userID); err != nil {
 			return nil, err
@@ -579,7 +645,7 @@ func (e *EmbyService) LatestItems(ctx context.Context, userID, parentID string, 
 		q = q.Where("library_id = ?", parentID)
 	}
 	var rows []model.Media
-	if err := q.Order("created_at desc").Limit(limit).Find(&rows).Error; err != nil {
+	if err := q.Order("media.created_at desc").Limit(limit).Find(&rows).Error; err != nil {
 		return nil, err
 	}
 	favs := map[string]bool{}
@@ -621,7 +687,7 @@ func (e *EmbyService) latestSeriesItemsForLibrary(ctx context.Context, userID, l
 		Where("library_id IN ? AND (season_num > 0 OR episode_num > 0)", e.mergedLibraryIDs(ctx, libraryID))
 	q = e.applyUserMediaVisibility(ctx, q, userID)
 	var rows []model.Media
-	if err := q.Order("created_at desc").Limit(rowLimit).Find(&rows).Error; err != nil {
+	if err := q.Order("media.created_at desc").Limit(rowLimit).Find(&rows).Error; err != nil {
 		return nil, err
 	}
 	groups := e.seriesGroupsFromMedia(rows)
@@ -769,6 +835,12 @@ func (e *EmbyService) seriesItemsForLibrary(ctx context.Context, libraryID strin
 	if p.SearchTerm != "" {
 		q = q.Where("title LIKE ? OR original_name LIKE ?", "%"+p.SearchTerm+"%", "%"+p.SearchTerm+"%")
 	}
+	if containsEmbyFilter(p.Filters, "IsFavorite") {
+		if strings.TrimSpace(p.UserID) == "" {
+			return map[string]any{"Items": []map[string]any{}, "TotalRecordCount": 0, "StartIndex": p.StartIndex}, nil
+		}
+		q = q.Joins("JOIN favorites ON favorites.media_id = media.id AND favorites.user_id = ? AND favorites.deleted_at IS NULL", p.UserID)
+	}
 	rowLimit := p.StartIndex + maxInt(p.Limit*40, 1000)
 	if rowLimit < p.Limit {
 		rowLimit = p.Limit
@@ -777,7 +849,7 @@ func (e *EmbyService) seriesItemsForLibrary(ctx context.Context, libraryID strin
 		rowLimit = embySeriesGroupingLimit
 	}
 	var rows []model.Media
-	if err := q.Order("created_at desc").Limit(rowLimit).Find(&rows).Error; err != nil {
+	if err := q.Order("media.created_at desc").Limit(rowLimit).Find(&rows).Error; err != nil {
 		return nil, err
 	}
 	groups := e.seriesGroupsFromMedia(rows)
@@ -939,7 +1011,7 @@ func (e *EmbyService) findSeriesGroup(ctx context.Context, id, userID string) (e
 	if !strings.HasPrefix(id, embyVirtualSeriesPrefix) {
 		q = q.Where("series_id = ?", id)
 	}
-	if err := q.Order("season_num asc, episode_num asc, created_at asc").Limit(embySeriesGroupingLimit).Find(&rows).Error; err != nil {
+	if err := q.Order("media.season_num asc, media.episode_num asc, media.created_at asc").Limit(embySeriesGroupingLimit).Find(&rows).Error; err != nil {
 		return embySeriesGroup{}, false, err
 	}
 	for _, group := range e.seriesGroupsFromMedia(rows) {
@@ -982,7 +1054,7 @@ func (e *EmbyService) findSeasonGroup(ctx context.Context, id, userID string) (e
 		Where("season_num > 0 OR episode_num > 0")
 	q = e.applyUserMediaVisibility(ctx, q, userID)
 	if err := q.
-		Order("season_num asc, episode_num asc, created_at asc").
+		Order("media.season_num asc, media.episode_num asc, media.created_at asc").
 		Limit(embySeriesGroupingLimit).
 		Find(&rows).Error; err != nil {
 		return embySeasonGroup{}, false, err
@@ -1282,6 +1354,69 @@ func containsItemType(types []string, want string) bool {
 		}
 	}
 	return false
+}
+
+func containsSupportedEmbyItemType(types []string) bool {
+	for _, itemType := range types {
+		switch strings.ToLower(strings.TrimSpace(itemType)) {
+		case "movie", "series", "season", "episode", "video", "folder", "collectionfolder":
+			return true
+		}
+	}
+	return false
+}
+
+func containsOnlyFolderItemTypes(types []string) bool {
+	if len(types) == 0 {
+		return false
+	}
+	for _, itemType := range types {
+		switch strings.ToLower(strings.TrimSpace(itemType)) {
+		case "folder", "collectionfolder":
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+func emptyItemsEnvelope(startIndex int) map[string]any {
+	return map[string]any{
+		"Items":            []map[string]any{},
+		"TotalRecordCount": int64(0),
+		"StartIndex":       startIndex,
+	}
+}
+
+func containsEmbyFilter(filters []string, want string) bool {
+	for _, filter := range filters {
+		if strings.EqualFold(strings.TrimSpace(filter), want) {
+			return true
+		}
+	}
+	return false
+}
+
+func firstCSVValue(value string) string {
+	if i := strings.Index(value, ","); i >= 0 {
+		value = value[:i]
+	}
+	return strings.TrimSpace(value)
+}
+
+func primarySupportedEmbySort(sortBy string, resumeFilter bool) string {
+	for _, part := range strings.Split(sortBy, ",") {
+		key := strings.ToLower(strings.TrimSpace(part))
+		switch key {
+		case "sortname", "name", "premieredate", "productionyear", "datecreated", "communityrating":
+			return key
+		case "dateplayed":
+			if resumeFilter {
+				return key
+			}
+		}
+	}
+	return strings.ToLower(strings.TrimSpace(firstCSVValue(sortBy)))
 }
 
 func pageSlice[T any](items []T, start, limit int) []T {
@@ -1639,8 +1774,15 @@ func (e *EmbyService) mediaSource(ctx context.Context, m *model.Media, asEmbedde
 	}
 	isCloud := strings.TrimSpace(m.STRMURL) != ""
 	playURL := embyDirectStreamURL(m.ID, container)
-	if isCloud && STRMPlaybackEnabled(ctx, e.repo) {
-		playURL = embySTRMStreamURL(m.ID)
+	if isCloud {
+		switch CloudPlaybackMode(ctx, e.repo) {
+		case CloudPlaybackModeSTRM:
+			playURL = embySTRMStreamURL(m.ID)
+		case CloudPlaybackModeRedirectProxy:
+			playURL = embyDirectStreamURL(m.ID, container)
+		default:
+			playURL = ""
+		}
 	}
 	if isCloud {
 		// Cloud/WebDAV media is already a direct/proxy stream. Advertising HLS
@@ -1662,18 +1804,17 @@ func (e *EmbyService) mediaSource(ctx context.Context, m *model.Media, asEmbedde
 		"RequiresClosing":       false,
 		"ReadAtNativeFramerate": false,
 		"SupportsTranscoding":   !directOnly,
-		// 云盘媒体禁用 DirectPlay：DirectPlay 语义是「客户端直接访问
-		// Path」，而云盘媒体的 Path 是不带鉴权 token 的内部 /api/cloud/play
-		// 路径，Infuse/VidHub 等播放器直接请求会得到 401/404。强制它们走
-		// DirectStream（/Videos/{id}/stream?api_key=...），由服务端校验后
-		// 302 到云盘直链。
-		"SupportsDirectStream": true,
-		"SupportsDirectPlay":   !isCloud,
+		// 云盘媒体的 Path 在 PlaybackInfo 阶段会被补上 api_key，且最终
+		// 302 到云盘直链。Infuse/Emby 官方客户端会优先挑选 DirectPlay
+		// 源；如果这里标 false，即使 DirectStreamUrl 可用，也可能被判定
+		// 为“没有可播放媒体源”。
+		"SupportsDirectStream": !isCloud || playURL != "",
+		"SupportsDirectPlay":   !isCloud || playURL != "",
 		"SupportsProbing":      true,
 		"RunTimeTicks":         int64(m.DurationSec) * 10_000_000,
 		"MediaStreams":         e.mediaStreams(m),
 	}
-	if !asEmbedded {
+	if !asEmbedded && playURL != "" {
 		src["DirectStreamUrl"] = playURL
 		// 直连解码模式下不下发 TranscodingUrl，迫使客户端本地解码直连，
 		// 宿主机不参与转码。
@@ -1681,7 +1822,7 @@ func (e *EmbyService) mediaSource(ctx context.Context, m *model.Media, asEmbedde
 			src["TranscodingUrl"] = "/Videos/" + m.ID + "/master.m3u8"
 		}
 	}
-	if strings.TrimSpace(m.STRMURL) != "" {
+	if strings.TrimSpace(m.STRMURL) != "" && playURL != "" {
 		// STRM / cloud:// media must stay behind a token-aware endpoint. When
 		// STRM playback is enabled we expose /api/stream so third-party clients
 		// follow the same STRM entry as generated .strm files; when disabled we

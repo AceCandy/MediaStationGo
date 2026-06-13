@@ -18,8 +18,8 @@ const EmbyCtxUserID = "emby_user_id"
 // 按优先级尝试以下认证方式：
 // 1. X-Emby-Token / X-MediaBrowser-Token 请求头
 // 2. Authorization: Bearer <token> / MediaBrowser Token="<token>" 请求头
-// 3. X-Emby-Authorization: MediaBrowser Token="<token>"
-// 4. ?token= / ?api_key= / ?apiKey= URL 参数
+// 3. X-Emby-Authorization / X-MediaBrowser-Authorization: MediaBrowser Token="<token>"
+// 4. ?token= / ?api_key= / ?apiKey= / ?X-Emby-Token= URL 参数
 func EmbyAuthRequired(secret string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		token := extractEmbyToken(c)
@@ -66,7 +66,7 @@ func extractEmbyToken(c *gin.Context) string {
 		}
 	}
 
-	for _, header := range []string{"Authorization", "X-Emby-Authorization"} {
+	for _, header := range []string{"Authorization", "X-Emby-Authorization", "X-MediaBrowser-Authorization"} {
 		if value := strings.TrimSpace(c.GetHeader(header)); value != "" {
 			if token := tokenFromAuthHeader(value); token != "" {
 				return token
@@ -74,7 +74,7 @@ func extractEmbyToken(c *gin.Context) string {
 		}
 	}
 
-	for _, key := range []string{"token", "api_key", "apiKey", "ApiKey"} {
+	for _, key := range []string{"token", "api_key", "apiKey", "ApiKey", "X-Emby-Token", "X-MediaBrowser-Token"} {
 		if value := strings.TrimSpace(c.Query(key)); value != "" {
 			return value
 		}

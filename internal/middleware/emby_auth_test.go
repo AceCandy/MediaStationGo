@@ -25,7 +25,10 @@ func TestEmbyAuthRequiredAcceptsEmbyClientTokenFormats(t *testing.T) {
 		{name: "x mediabrowser token", headerKey: "X-MediaBrowser-Token", headerVal: token},
 		{name: "authorization mediabrowser token", headerKey: "Authorization", headerVal: `MediaBrowser Client="Infuse", Token="` + token + `"`},
 		{name: "x emby authorization", headerKey: "X-Emby-Authorization", headerVal: `MediaBrowser Client="VidHub", Token="` + token + `"`},
+		{name: "x mediabrowser authorization", headerKey: "X-MediaBrowser-Authorization", headerVal: `MediaBrowser Client="Emby Theater", Token="` + token + `"`},
 		{name: "query api key", query: "?api_key=" + token},
+		{name: "query x emby token", query: "?X-Emby-Token=" + token},
+		{name: "query x mediabrowser token", query: "?X-MediaBrowser-Token=" + token},
 	}
 
 	for _, tt := range tests {

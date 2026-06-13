@@ -49,6 +49,21 @@ func TestResolveAccessibleLibraryPathKeepsAccessibleContainerPath(t *testing.T) 
 	}
 }
 
+func TestMappedPathCandidatesMapWindowsDriveDownloadMarker(t *testing.T) {
+	root := t.TempDir()
+	containerDownloads := filepath.Join(root, "container", "downloads")
+	containerLibrary := filepath.Join(containerDownloads, "国产剧")
+	t.Setenv("MEDIASTATION_DOWNLOAD_CONTAINER_DIR", containerDownloads)
+
+	want := filepath.Clean(containerLibrary)
+	for _, got := range mappedPathCandidates(`F:\downloads\国产剧`) {
+		if got == want {
+			return
+		}
+	}
+	t.Fatalf("mappedPathCandidates() missing %q", want)
+}
+
 func TestDeleteCloudLibraryPurgesMountWithoutRecycleBin(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	if err != nil {

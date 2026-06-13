@@ -45,11 +45,9 @@ func new115(cfg map[string]any, client *http.Client) *pan115Provider {
 		ua = defaultUA
 	}
 	// 115 CDN download URLs work with a plain 302 (Alist's recommended mode),
-	// so offload by default; admin can force proxy mode if their network needs it.
+	// so offload by default. The global cloud playback setting decides whether
+	// clients receive a STRMURL entry or a /Videos stream entry.
 	proxy := false
-	if _, ok := cfg["force_proxy"]; ok && boolish(cfg["force_proxy"]) {
-		proxy = true
-	}
 	pro := str(cfg["pro_base"])
 	if pro == "" {
 		pro = pan115ProBase

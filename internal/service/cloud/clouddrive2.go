@@ -54,9 +54,6 @@ func newCloudDAVProvider(typ, name string, cfg map[string]any, client *http.Clie
 		ua = defaultUA
 	}
 	proxy := true
-	if _, ok := cfg["force_302"]; ok && boolish(cfg["force_302"]) {
-		proxy = false
-	}
 	return &cloudDrive2Provider{
 		typ:      typ,
 		name:     name,
@@ -82,7 +79,7 @@ func (p *cloudDrive2Provider) List(ctx context.Context, dir string) ([]FileEntry
 	if err := p.validate(); err != nil {
 		return nil, err
 	}
-	if p.typ == TypeOpenList && p.apiBase != nil && strings.TrimSpace(p.token) != "" {
+	if p.typ == TypeOpenList && p.apiBase != nil && p.hasOpenListAPICredentials() {
 		if entries, err := p.listOpenListAPI(ctx, dir); err == nil {
 			return entries, nil
 		}
@@ -135,6 +132,10 @@ func (p *cloudDrive2Provider) List(ctx context.Context, dir string) ([]FileEntry
 }
 
 func (p *cloudDrive2Provider) listOpenListAPI(ctx context.Context, dir string) ([]FileEntry, error) {
+	token, err := p.openListAPIToken(ctx)
+	if err != nil {
+		return nil, err
+	}
 	const pageSize = 500
 	target := normalizeCloudDAVPath(dir)
 	out := make([]FileEntry, 0, pageSize)
@@ -154,8 +155,8 @@ func (p *cloudDrive2Provider) listOpenListAPI(ctx context.Context, dir string) (
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Accept", "application/json")
 		req.Header.Set("User-Agent", p.ua)
-		if p.token != "" {
-			req.Header.Set("Authorization", p.token)
+		if token != "" {
+			req.Header.Set("Authorization", token)
 		}
 		resp, err := p.client.Do(req)
 		if err != nil {
@@ -228,6 +229,10 @@ func (p *cloudDrive2Provider) Resolve(ctx context.Context, fileRef string) (*Dir
 }
 
 func (p *cloudDrive2Provider) resolveOpenListAPIDirect(ctx context.Context, fileRef string) (*DirectLink, error) {
+	token, err := p.openListAPIToken(ctx)
+	if err != nil {
+		return nil, err
+	}
 	payload, _ := json.Marshal(map[string]string{"path": normalizeCloudDAVPath(fileRef), "password": ""})
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.openListAPIURL("/api/fs/get"), bytes.NewReader(payload))
 	if err != nil {
@@ -236,8 +241,8 @@ func (p *cloudDrive2Provider) resolveOpenListAPIDirect(ctx context.Context, file
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("User-Agent", p.ua)
-	if p.token != "" {
-		req.Header.Set("Authorization", p.token)
+	if token != "" {
+		req.Header.Set("Authorization", token)
 	}
 	resp, err := p.client.Do(req)
 	if err != nil {
@@ -272,6 +277,55 @@ func (p *cloudDrive2Provider) resolveOpenListAPIDirect(ctx context.Context, file
 		headers = nil
 	}
 	return &DirectLink{URL: resolved, Headers: headers, Proxy: proxy}, nil
+}
+
+func (p *cloudDrive2Provider) hasOpenListAPICredentials() bool {
+	return strings.TrimSpace(p.token) != "" || (strings.TrimSpace(p.username) != "" && p.password != "")
+}
+
+func (p *cloudDrive2Provider) openListAPIToken(ctx context.Context) (string, error) {
+	if token := strings.TrimSpace(p.token); token != "" {
+		return token, nil
+	}
+	if strings.TrimSpace(p.username) == "" || p.password == "" {
+		return "", nil
+	}
+	payload, _ := json.Marshal(map[string]string{
+		"username": p.username,
+		"password": p.password,
+	})
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.openListAPIURL("/api/auth/login"), bytes.NewReader(payload))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("User-Agent", p.ua)
+	resp, err := p.client.Do(req)
+	if err != nil {
+		return "", decorateDAVTransportError(p.name, p.openListAPIURL("/api/auth/login"), err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return "", fmt.Errorf("%s: api login returned http %d", p.name, resp.StatusCode)
+	}
+	var decoded openListLoginResponse
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 4<<20)).Decode(&decoded); err != nil {
+		return "", fmt.Errorf("%s: decode api login: %w", p.name, err)
+	}
+	if decoded.Code != 0 && decoded.Code != 200 {
+		msg := strings.TrimSpace(decoded.Message)
+		if msg == "" {
+			msg = fmt.Sprintf("code %d", decoded.Code)
+		}
+		return "", fmt.Errorf("%s: api login failed: %s", p.name, msg)
+	}
+	token := strings.TrimSpace(decoded.Data.Token)
+	if token == "" {
+		return "", fmt.Errorf("%s: api login returned empty token", p.name)
+	}
+	p.token = token
+	return token, nil
 }
 
 func (p *cloudDrive2Provider) resolveOpenListPlaybackURL(raw string) (string, error) {
@@ -600,6 +654,14 @@ type openListGetResponse struct {
 		RawURL string          `json:"raw_url"`
 		URL    string          `json:"url"`
 		Header json.RawMessage `json:"header"`
+	} `json:"data"`
+}
+
+type openListLoginResponse struct {
+	Code    int    `json:"code"`
+	Message string `json:"message"`
+	Data    struct {
+		Token string `json:"token"`
 	} `json:"data"`
 }
 

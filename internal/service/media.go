@@ -147,6 +147,9 @@ func mappedPathCandidates(input string) []string {
 	}
 	clean := filepath.Clean(input)
 	add(clean)
+	if slashClean := cleanPathForVolumeMapping(input); slashClean != "" {
+		add(slashClean)
+	}
 	for _, candidate := range dockerVolumePathCandidates(clean) {
 		add(candidate)
 	}
@@ -165,7 +168,7 @@ func isAccessibleDir(path string) bool {
 }
 
 func dockerVolumePathCandidates(path string) []string {
-	normalized := filepath.ToSlash(filepath.Clean(path))
+	normalized := cleanPathForVolumeMapping(path)
 	var candidates []string
 	addCandidate := func(candidate string) {
 		candidate = filepath.Clean(filepath.FromSlash(candidate))
@@ -184,7 +187,7 @@ func dockerVolumePathCandidates(path string) []string {
 		{env: "MEDIASTATION_MEDIA_DIR", container: envOrDefault("MEDIASTATION_MEDIA_CONTAINER_DIR", "/media")},
 		{env: "MEDIASTATION_DOWNLOAD_DIR", container: envOrDefault("MEDIASTATION_DOWNLOAD_CONTAINER_DIR", "/downloads")},
 	} {
-		host := filepath.ToSlash(filepath.Clean(os.Getenv(mapping.env)))
+		host := cleanPathForVolumeMapping(os.Getenv(mapping.env))
 		if host == "." || host == "" || strings.HasPrefix(host, ".") {
 			continue
 		}
@@ -201,15 +204,42 @@ func dockerVolumePathCandidates(path string) []string {
 		part      string
 		container string
 	}{
-		{part: "/media/", container: "/media/"},
-		{part: "/downloads/", container: "/downloads/"},
+		{part: "/media", container: envOrDefault("MEDIASTATION_MEDIA_CONTAINER_DIR", "/media")},
+		{part: "/downloads", container: envOrDefault("MEDIASTATION_DOWNLOAD_CONTAINER_DIR", "/downloads")},
 	} {
-		if idx := strings.Index(normalized, marker.part); idx >= 0 {
-			addCandidate(marker.container + strings.TrimPrefix(normalized[idx+len(marker.part):], "/"))
+		part := strings.TrimRight(marker.part, "/")
+		container := strings.TrimRight(filepath.ToSlash(marker.container), "/")
+		markerPath := pathAfterWindowsDrivePrefix(normalized)
+		if markerPath == part {
+			addCandidate(container)
+			continue
+		}
+		if strings.HasPrefix(markerPath, part+"/") {
+			addCandidate(container + strings.TrimPrefix(markerPath, part))
 		}
 	}
 
 	return candidates
+}
+
+func cleanPathForVolumeMapping(path string) string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return ""
+	}
+	path = strings.ReplaceAll(path, "\\", "/")
+	return filepath.ToSlash(filepath.Clean(filepath.FromSlash(path)))
+}
+
+func pathAfterWindowsDrivePrefix(path string) string {
+	if len(path) >= 3 && path[1] == ':' && path[2] == '/' && isASCIIAlpha(path[0]) {
+		return path[2:]
+	}
+	return path
+}
+
+func isASCIIAlpha(ch byte) bool {
+	return (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z')
 }
 
 func sameLibraryPath(a, b string) bool {

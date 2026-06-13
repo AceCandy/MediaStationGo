@@ -213,6 +213,155 @@ func TestEmbyRootItemsExposeLibraries(t *testing.T) {
 	}
 }
 
+func TestEmbyFolderItemQueryExposesLibrariesForHome(t *testing.T) {
+	svc := newTestEmbyService(t)
+	lib := model.Library{Name: "电影", Path: `/media/movies`, Type: "movie", Enabled: true}
+	if err := svc.repo.Library.Create(t.Context(), &lib); err != nil {
+		t.Fatalf("create library: %v", err)
+	}
+	if err := svc.repo.DB.Create(&model.Media{Base: model.Base{ID: "movie-1"}, LibraryID: lib.ID, Title: "不应出现在文件夹查询", Path: `/media/movies/a.mkv`}).Error; err != nil {
+		t.Fatalf("create media: %v", err)
+	}
+
+	out, err := svc.Items(t.Context(), ItemsParams{
+		IncludeItemTypes: []string{"Folder", "CollectionFolder"},
+		Limit:            50,
+	})
+	if err != nil {
+		t.Fatalf("folder items: %v", err)
+	}
+	items := out["Items"].([]map[string]any)
+	if len(items) != 1 {
+		t.Fatalf("expected one library folder, got %#v", items)
+	}
+	if items[0]["Type"] != "CollectionFolder" || items[0]["IsFolder"] != true {
+		t.Fatalf("folder query should return collection folders, got %#v", items[0])
+	}
+}
+
+func TestEmbyUnsupportedItemTypesDoNotLeakAllMedia(t *testing.T) {
+	svc := newTestEmbyService(t)
+	lib := model.Library{Name: "电影", Path: `/media/movies`, Type: "movie", Enabled: true}
+	if err := svc.repo.Library.Create(t.Context(), &lib); err != nil {
+		t.Fatalf("create library: %v", err)
+	}
+	if err := svc.repo.DB.Create(&model.Media{Base: model.Base{ID: "movie-1"}, LibraryID: lib.ID, Title: "普通电影", Path: `/media/movies/a.mkv`}).Error; err != nil {
+		t.Fatalf("create media: %v", err)
+	}
+
+	for _, includeType := range []string{"BoxSet", "Game", "Book", "Audio", "MusicAlbum", "Playlist", "TvChannel"} {
+		out, err := svc.Items(t.Context(), ItemsParams{
+			IncludeItemTypes: []string{includeType},
+			Recursive:        true,
+			Limit:            50,
+		})
+		if err != nil {
+			t.Fatalf("%s items: %v", includeType, err)
+		}
+		if out["TotalRecordCount"] != int64(0) {
+			t.Fatalf("%s should not return media rows, got %#v", includeType, out)
+		}
+		items := out["Items"].([]map[string]any)
+		if len(items) != 0 {
+			t.Fatalf("%s should return an empty list, got %#v", includeType, items)
+		}
+	}
+}
+
+func TestEmbyItemsFiltersFavorites(t *testing.T) {
+	svc := newTestEmbyService(t)
+	viewer := &model.User{Base: model.Base{ID: "user-1"}, Username: "viewer", Role: "user", Tier: "free", IsActive: true}
+	if err := svc.repo.User.Create(t.Context(), viewer); err != nil {
+		t.Fatalf("create viewer: %v", err)
+	}
+	lib := model.Library{Name: "电影", Path: `/media/movies`, Type: "movie", Enabled: true}
+	if err := svc.repo.Library.Create(t.Context(), &lib); err != nil {
+		t.Fatalf("create library: %v", err)
+	}
+	favorite := model.Media{Base: model.Base{ID: "fav-1"}, LibraryID: lib.ID, Title: "收藏电影", Path: `/media/movies/fav.mkv`}
+	normal := model.Media{Base: model.Base{ID: "normal-1"}, LibraryID: lib.ID, Title: "普通电影", Path: `/media/movies/normal.mkv`}
+	if err := svc.repo.DB.Create(&favorite).Error; err != nil {
+		t.Fatalf("create favorite media: %v", err)
+	}
+	if err := svc.repo.DB.Create(&normal).Error; err != nil {
+		t.Fatalf("create normal media: %v", err)
+	}
+	if err := svc.repo.DB.Create(&model.Favorite{UserID: viewer.ID, MediaID: favorite.ID}).Error; err != nil {
+		t.Fatalf("create favorite: %v", err)
+	}
+
+	out, err := svc.Items(t.Context(), ItemsParams{
+		UserID:    viewer.ID,
+		Filters:   []string{"IsFavorite"},
+		Recursive: true,
+		Limit:     50,
+	})
+	if err != nil {
+		t.Fatalf("favorite items: %v", err)
+	}
+	if out["TotalRecordCount"] != int64(1) {
+		t.Fatalf("expected one favorite, got %#v", out)
+	}
+	items := out["Items"].([]map[string]any)
+	if len(items) != 1 || items[0]["Id"] != favorite.ID {
+		t.Fatalf("favorite filter returned wrong items: %#v", items)
+	}
+	userData := items[0]["UserData"].(map[string]any)
+	if userData["IsFavorite"] != true {
+		t.Fatalf("favorite payload should carry IsFavorite=true: %#v", userData)
+	}
+}
+
+func TestEmbyItemsFiltersResumableForHome(t *testing.T) {
+	svc := newTestEmbyService(t)
+	viewer := &model.User{Base: model.Base{ID: "user-1"}, Username: "viewer", Role: "user", Tier: "free", IsActive: true}
+	if err := svc.repo.User.Create(t.Context(), viewer); err != nil {
+		t.Fatalf("create viewer: %v", err)
+	}
+	lib := model.Library{Name: "电影", Path: `/media/movies`, Type: "movie", Enabled: true}
+	if err := svc.repo.Library.Create(t.Context(), &lib); err != nil {
+		t.Fatalf("create library: %v", err)
+	}
+	resumable := model.Media{Base: model.Base{ID: "resume-1"}, LibraryID: lib.ID, Title: "继续观看", Path: `/media/movies/resume.mkv`, DurationSec: 120}
+	normal := model.Media{Base: model.Base{ID: "normal-1"}, LibraryID: lib.ID, Title: "普通电影", Path: `/media/movies/normal.mkv`, DurationSec: 120}
+	if err := svc.repo.DB.Create(&resumable).Error; err != nil {
+		t.Fatalf("create resumable media: %v", err)
+	}
+	if err := svc.repo.DB.Create(&normal).Error; err != nil {
+		t.Fatalf("create normal media: %v", err)
+	}
+	if err := svc.repo.DB.Create(&model.PlaybackHistory{
+		UserID:     viewer.ID,
+		MediaID:    resumable.ID,
+		PositionMs: 30_000,
+		DurationMs: 120_000,
+		WatchedAt:  time.Now(),
+		Completed:  false,
+	}).Error; err != nil {
+		t.Fatalf("create playback history: %v", err)
+	}
+
+	out, err := svc.Items(t.Context(), ItemsParams{
+		UserID:     viewer.ID,
+		Filters:    []string{"IsResumable"},
+		Recursive:  true,
+		SortBy:     "DatePlayed",
+		SortOrder:  "Descending",
+		Limit:      50,
+		StartIndex: 0,
+	})
+	if err != nil {
+		t.Fatalf("resumable items: %v", err)
+	}
+	if out["TotalRecordCount"] != int64(1) {
+		t.Fatalf("expected one resumable item, got %#v", out)
+	}
+	items := out["Items"].([]map[string]any)
+	if len(items) != 1 || items[0]["Id"] != resumable.ID {
+		t.Fatalf("resumable filter returned wrong items: %#v", items)
+	}
+}
+
 func TestEmbyUserPolicyDisablesDownloadsForViewers(t *testing.T) {
 	svc := newTestEmbyService(t)
 	viewer := &model.User{Username: "viewer", Role: "user", Tier: "free", IsActive: true}
@@ -337,6 +486,9 @@ func TestEmbyPlaybackInfoRespectsDirectPlayOnly(t *testing.T) {
 
 func TestEmbyPlaybackInfoKeepsSTRMBehindStreamEndpoint(t *testing.T) {
 	svc := newTestEmbyService(t)
+	if err := svc.repo.Setting.Set(t.Context(), CloudPlaybackModeSettingKey, CloudPlaybackModeSTRM); err != nil {
+		t.Fatalf("set cloud playback mode: %v", err)
+	}
 	lib := model.Library{Name: "夸克网盘", Path: `cloud://quark/0`, Type: "movie", Enabled: true}
 	if err := svc.repo.Library.Create(t.Context(), &lib); err != nil {
 		t.Fatalf("create library: %v", err)
@@ -374,8 +526,8 @@ func TestEmbyPlaybackInfoKeepsSTRMBehindStreamEndpoint(t *testing.T) {
 
 func TestEmbyPlaybackInfoUsesVideoStreamWhenSTRMDisabled(t *testing.T) {
 	svc := newTestEmbyService(t)
-	if err := svc.repo.Setting.Set(t.Context(), STRMEnabledSettingKey, "false"); err != nil {
-		t.Fatalf("set strm disabled: %v", err)
+	if err := svc.repo.Setting.Set(t.Context(), CloudPlaybackModeSettingKey, CloudPlaybackModeRedirectProxy); err != nil {
+		t.Fatalf("set cloud playback mode: %v", err)
 	}
 	lib := model.Library{Name: "OpenList", Path: `cloud://openlist/Movies`, Type: "movie", Enabled: true}
 	if err := svc.repo.Library.Create(t.Context(), &lib); err != nil {
