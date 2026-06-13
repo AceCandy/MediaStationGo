@@ -4,1005 +4,368 @@
   <img src="web/public/favicon.svg" width="96" height="96" alt="MediaStationGo Logo" />
 </p>
 
-<h3 align="center">轻量、漂亮、NAS 友好的私人媒体中心</h3>
+<h3 align="center">轻量、好看、适合 NAS 的私人媒体中心</h3>
 
 <p align="center">
-  <strong>Go 单二进制后端 · React 现代化前端 · Docker 一键部署 · Emby API 兼容 · 多源刮削 · PT 订阅下载</strong>
+  <strong>Docker 一键部署 · 媒体库 · 刮削 · 播放 · 下载整理 · Emby 客户端兼容 · 网盘播放</strong>
 </p>
 
 <p align="center">
   <a href="README_EN.md">English</a> ·
-  <a href="#quick-start">快速开始</a> ·
-  <a href="#docker-compose-deploy">Docker 部署</a> ·
-  <a href="#screenshots">界面预览</a> ·
+  <a href="#快速开始">快速开始</a> ·
+  <a href="#docker-compose-推荐部署">Docker 部署</a> ·
+  <a href="#常见问题">常见问题</a> ·
   <a href="https://mgo.3jzs.com">在线演示</a>
 </p>
-
-## 支持友链
-
-## NodeSeek：[NodeSeek](https://www.nodeseek.com/)
-## LINUX DO：[LINUX DO](https://linux.do/)
 
 <p align="center">
   <img alt="Go" src="https://img.shields.io/badge/Go-1.25+-00ADD8?style=flat-square&logo=go&logoColor=white" />
   <img alt="React" src="https://img.shields.io/badge/React-18-61DAFB?style=flat-square&logo=react&logoColor=111827" />
-  <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-5-3178C6?style=flat-square&logo=typescript&logoColor=white" />
   <img alt="Docker" src="https://img.shields.io/badge/Docker-ready-2496ED?style=flat-square&logo=docker&logoColor=white" />
   <img alt="License" src="https://img.shields.io/badge/License-GPL--3.0-blue?style=flat-square" />
-  <img alt="Use" src="https://img.shields.io/badge/Use-Non--Commercial-orange?style=flat-square" />
 </p>
 
 ---
 
-## ✨ 项目简介
+## 一句话介绍
 
-MediaStationGo 是一个面向个人、家庭 NAS 与影音爱好者的开源媒体中心。它把「媒体库管理、自动刮削、在线播放、外部客户端兼容、PT 站点检索、订阅下载、AI 推荐」放进一个轻量的 Go 服务里，配合 React 前端提供统一、简洁、漂亮的三端体验。
+MediaStationGo 是一个给个人、家庭 NAS、影音爱好者使用的媒体管理系统。
 
-它适合这些场景：
+你可以用它做这些事：
 
-- 家里有 NAS / Windows 主机 / Linux 小主机，希望统一管理电影、剧集、动漫、综艺、成人内容。
-- 想使用 TMDb、豆瓣、Bangumi、TheTVDB、Fanart、JavBus/JavDB 等多源元数据补全海报、简介、分季分集信息。
-- 想把 PT 站点搜索、订阅、下载器、下载后整理集中到一个 Web 面板中。
-- 想让 Infuse、VidHub、SenPlayer 等外部客户端通过 Emby 风格接口访问媒体库。
-- 想要一个部署简单、便于二次开发、不会把密钥和私有 Token 暴露到前端的开源项目。
+- 把电影、电视剧、动漫、综艺、音乐整理成漂亮的媒体库。
+- 自动识别文件、补全海报、简介、年份、季集信息。
+- 在网页里播放，也可以用 Infuse、VidHub、SenPlayer、Emby 客户端等第三方播放器看。
+- 连接 qBittorrent，做搜索、订阅、下载、整理入库。
+- 接入 OpenList / CloudDrive2 / WebDAV 等外部存储，支持 STRMURL 与 302 反代播放。
+- 在 NAS、小主机、VPS、Windows Docker Desktop 上用 Docker Compose 快速运行。
 
-> 当前项目仍在快速迭代中，建议固定镜像版本部署，并定期备份 `/data` 目录。
-
----
-
-## 🌱 开源承诺
-
-MediaStationGo 采用完全开源路线，核心媒体库、刮削、播放、订阅、下载、外部客户端兼容与运维能力均在本仓库持续迭代。项目参考了 MoviePilot 等优秀开源项目在「站点聚合、订阅下载、媒体整理、Emby/Jellyfin 客户端兼容」上的产品思路，但本项目会保持独立实现，不直接复制不兼容代码。
-
-本项目当前基础许可证为 `GPL-3.0`，欢迎基于 GPL-3.0 协议参与改造、适配站点、提交刮削规则与优化 UI。项目作者同时倡议：本项目面向个人学习、家庭 NAS、自建影音与非商业场景使用，未经作者明确书面许可，不得将本项目或其衍生版本用于商业售卖、商业托管、付费 SaaS、预装售卖设备、闭源二次分发或其他商业化牟利用途。
-
-> 说明：GPL-3.0 是自由软件许可证，其正式授权范围以仓库 [LICENSE](LICENSE) 文件为准；上方「非商用承诺」表达项目维护者的使用边界与商业合作要求。如需商业合作、企业部署或二次发行，请先联系作者获得额外授权。
-
-### 源码开放与 Docker 部署边界
-
-- 当前公开仓库继续以 `GPL-3.0` 作为基础许可证；如果代码包含 GPL 派生实现，不能通过“只发布 Docker 镜像”规避对应源码提供义务。
-- 可以把官方部署策略收敛为 **Docker-first / Docker-only support**：即项目只承诺维护 Docker Compose、GHCR 镜像和容器部署文档，裸机运行与二进制包可作为社区自助能力。
-- 若未来需要部分闭源，可能将闭源能力拆成独立插件、独立服务或私有模块，并确保该部分为作者自有或兼容许可证的干净实现；GPL 覆盖代码仍应按 GPL 公开。
-- README 中的非商用声明是维护者的使用边界与商业授权要求；正式代码授权仍以 [LICENSE](LICENSE) 为准。
+> 项目还在快速迭代。重要数据都在 `data` 目录，升级前建议先备份。
 
 ---
 
-## 🚀 在线演示
+## 适合谁
 
-- 演示站：[https://mgo.3jzs.com](https://mgo.3jzs.com)
-- 默认账号：`admin`
-- 默认密码：`admin123`
-
-> 演示环境仅用于功能体验，请勿上传真实隐私信息或配置私人 API Key。
-
----
-
-## 🧭 功能总览
-
-| 模块 | 能力 |
-| --- | --- |
-| 媒体库 | 电影、电视剧、动漫、综艺、音乐、成人内容；支持文件夹封面、合集、季、集展示 |
-| 扫描识别 | 递归扫描、ffprobe 探测、文件名解析、季集识别、综艺节目识别、重复扫描去重 |
-| 本地元数据 | 优先读取 NFO、poster、fanart、season poster、episode image、本地成人影片图片 |
-| 在线刮削 | TMDb、TheTVDB、Bangumi、豆瓣、Fanart.tv、JavBus/JavDB 页面直爬补全 |
-| 播放体验 | 直链播放、HTTP Range 拖动、HLS 转码、外挂字幕、播放进度、继续观看、外部播放器 |
-| 发现与搜索 | TMDb / 豆瓣 / Bangumi 多源推荐，智能搜索，详情页订阅入口 |
-| PT 站点 | 站点管理、M-Team API Token、站点搜索、种子链接解析、下载器联动 |
-| 订阅下载 | RSS / 站点搜索订阅，分辨率/质量/特效/发布组/排除词规则，洗版开关与优先级 |
-| 下载中心 | qBittorrent 任务状态、速度、进度、上传下载体积、小卡片海报展示、私有 URL 脱敏 |
-| 外部兼容 | Emby/Jellyfin 风格 API，兼容 Infuse、VidHub、SenPlayer 等外部客户端 |
-| AI 能力 | OpenAI Compatible API 配置，AI 搜索、推荐、运维助手 |
-| 运维工具 | 运行状态、任务队列、重复文件、回收站、文件管理、存储配置、通知渠道 |
+- **新手用户**：只想复制一份 `docker-compose.yml`，改几个路径就跑起来。
+- **NAS 用户**：想用低资源占用的媒体中心管理本地硬盘和网盘资源。
+- **PT / 下载用户**：想把下载、整理、刮削、播放放到一个后台。
+- **外部播放器用户**：想让第三方 APP 通过 Emby 风格接口读取媒体库。
+- **开发者**：想研究 Go + React 的自托管媒体项目。
 
 ---
 
-<a id="screenshots"></a>
+## 在线演示
 
-## 🖼️ 界面预览
+- 地址：[https://mgo.3jzs.com](https://mgo.3jzs.com)
+- 账号：`admin`
+- 密码：`admin123`
 
-> 以下截图使用 Codex 内置浏览器从当前运行实例采集，并已对个人媒体内容、本地路径、账号信息、API Key/Token/密钥等敏感信息做图像级打码处理。
-
-<details open>
-<summary><strong>核心体验</strong></summary>
-
-| 登录与首页 | 媒体库总览 |
-| --- | --- |
-| <img src="docs/screenshots/00-login.jpg" alt="登录界面" width="100%"> | <img src="docs/screenshots/01-home.jpg" alt="系统首页" width="100%"> |
-| 媒体库总览 | 媒体库详情 |
-| <img src="docs/screenshots/02-libraries.jpg" alt="媒体库总览" width="100%"> | <img src="docs/screenshots/03-library-detail.jpg" alt="媒体库详情" width="100%"> |
-| 海报墙 | 媒体详情 |
-| <img src="docs/screenshots/04-poster-wall.jpg" alt="海报墙" width="100%"> | <img src="docs/screenshots/05-media-detail.jpg" alt="媒体详情" width="100%"> |
-| 播放器 | 精彩发现 |
-| <img src="docs/screenshots/06-player.jpg" alt="播放器" width="100%"> | <img src="docs/screenshots/07-discover.jpg" alt="精彩发现" width="100%"> |
-| 智能搜索 | DLNA 投屏 |
-| <img src="docs/screenshots/08-search.jpg" alt="智能搜索" width="100%"> | <img src="docs/screenshots/09-dlna.jpg" alt="DLNA 投屏" width="100%"> |
-
-</details>
-
-<details>
-<summary><strong>个人空间与播放管理</strong></summary>
-
-| AI 助理 | 我的收藏 |
-| --- | --- |
-| <img src="docs/screenshots/10-ai.jpg" alt="AI 助理" width="100%"> | <img src="docs/screenshots/11-favourites.jpg" alt="我的收藏" width="100%"> |
-| 播放列表 | 观看历史 |
-| <img src="docs/screenshots/12-playlists.jpg" alt="播放列表" width="100%"> | <img src="docs/screenshots/13-history.jpg" alt="观看历史" width="100%"> |
-| 账号信息 | 下载中心 |
-| <img src="docs/screenshots/14-profile.jpg" alt="账号信息" width="100%"> | <img src="docs/screenshots/15-downloads.jpg" alt="下载中心" width="100%"> |
-
-</details>
-
-<details>
-<summary><strong>下载订阅与站点</strong></summary>
-
-| 下载器管理 | 订阅管理 |
-| --- | --- |
-| <img src="docs/screenshots/16-download-clients.jpg" alt="下载器管理" width="100%"> | <img src="docs/screenshots/17-subscriptions.jpg" alt="订阅管理" width="100%"> |
-| 站点检索 | 站点与下载器 |
-| <img src="docs/screenshots/18-site-search.jpg" alt="站点检索" width="100%"> | <img src="docs/screenshots/20-sites.jpg" alt="站点与下载器" width="100%"> |
-
-</details>
-
-<details>
-<summary><strong>管理与运维</strong></summary>
-
-| 媒体与用户 | 整理与维护 |
-| --- | --- |
-| <img src="docs/screenshots/19-admin.jpg" alt="媒体与用户" width="100%"> | <img src="docs/screenshots/21-tools.jpg" alt="整理与维护" width="100%"> |
-| 存储与文件 | 运行状态 |
-| <img src="docs/screenshots/22-storage.jpg" alt="存储与文件" width="100%"> | <img src="docs/screenshots/23-stats.jpg" alt="运行状态" width="100%"> |
-| 系统设置 | 任务队列 |
-| <img src="docs/screenshots/24-settings.jpg" alt="系统设置" width="100%"> | <img src="docs/screenshots/25-tasks.jpg" alt="任务队列" width="100%"> |
-| 重复文件 | 回收站 |
-| <img src="docs/screenshots/26-duplicates.jpg" alt="重复文件" width="100%"> | <img src="docs/screenshots/27-recycle.jpg" alt="回收站" width="100%"> |
-| 调度任务 | 文件管理 |
-| <img src="docs/screenshots/28-scheduler.jpg" alt="调度任务" width="100%"> | <img src="docs/screenshots/29-files.jpg" alt="文件管理" width="100%"> |
-| STRM 管理 | 存储配置 |
-| <img src="docs/screenshots/30-strm.jpg" alt="STRM 管理" width="100%"> | <img src="docs/screenshots/31-storage-config.jpg" alt="存储配置" width="100%"> |
-| 通知渠道 | AI 运维助手 |
-| <img src="docs/screenshots/32-notify-channels.jpg" alt="通知渠道" width="100%"> | <img src="docs/screenshots/33-assistant.jpg" alt="AI 运维助手" width="100%"> |
-
-</details>
+> 演示站只用于看功能，请不要填写私人 API Key、站点 Cookie 或真实隐私信息。
 
 ---
 
-## 🧱 技术栈
+## 快速开始
 
-| 层级 | 技术 | 说明 |
-| --- | --- | --- |
-| 后端语言 | Go 1.25+ | 单二进制部署，启动快，资源占用低 |
-| Web 框架 | Gin | REST API、鉴权中间件、静态资源托管 |
-| 数据库 | SQLite + GORM | 适合个人/NAS 场景，数据文件易备份 |
-| 前端框架 | React 18 + TypeScript | 组件化 UI，类型安全 |
-| 构建工具 | Vite | 前端快速开发与生产打包 |
-| 样式系统 | Tailwind CSS | 统一浅色高级视觉方案与响应式布局 |
-| 状态管理 | Zustand | 轻量全局状态与鉴权状态维护 |
-| 播放链路 | HTML5 Video / HLS / FFmpeg | 直链、Range、HLS 转码、字幕 |
-| 元数据 | TMDb / 豆瓣 / Bangumi / TheTVDB / Fanart / JavBus / JavDB | 多源补全海报、简介、评分、分季分集 |
-| 下载联动 | qBittorrent / PT Site Adapter | 站点搜索、订阅、下载任务展示与脱敏 |
-| 外部兼容 | Emby-style API / DLNA | 面向外部播放器与三端客户端 |
-| 部署 | Docker / Docker Compose / Shell / PowerShell | NAS、Linux、Windows 均可部署 |
-| CI/CD | GitHub Actions / GHCR | 版本标签或手动 Actions 自动发布多架构镜像与 Release 包 |
-
----
-
-<a id="quick-start"></a>
-
-## 📦 快速开始
-
-<a id="docker-compose-deploy"></a>
-
-### Docker Compose 部署（推荐）
-
-默认部署主线改为**直接编辑 `docker-compose.yml`**：把 NAS/服务器真实目录写进 compose 文件里，路径最直观，也最适合刚接触 NAS、VPS 或 Docker 的用户。
-
-#### 1. 创建部署目录
+最推荐新手使用 Docker Compose。不要一开始就折腾 `.env`、裸机运行、源码编译。
 
 ```bash
-mkdir -p ~/MediaStationGo
-cd ~/MediaStationGo
-mkdir -p data cache media downloads
-```
-
-#### 2. 下载 compose 文件
-
-```bash
+mkdir -p MediaStationGo
+cd MediaStationGo
 curl -fsSL https://raw.githubusercontent.com/ShukeBta/MediaStationGo/main/docker-compose.yml -o docker-compose.yml
 ```
 
-如果 GitHub Raw 访问慢，可以手动创建 `docker-compose.yml`，内容以仓库根目录的 `docker-compose.yml` 为准。
-
-#### 3. 编辑真实路径
-
-打开 compose：
+编辑 `docker-compose.yml`：
 
 ```bash
 vi docker-compose.yml
 ```
 
-先找到 `volumes` 里的媒体库和下载目录，把左边改成你的 NAS/服务器真实路径，例如：
-
-```yaml
-    volumes:
-      - ./data:/data
-      - ./cache:/cache
-      - /vol1/1000/Docker/moviepilot-v2/media:/media:ro
-      - /vol1/1000/qBittorrent/downloads:/downloads
-```
-
-再找到 `environment` 里的路径提示，把同样的真实路径写进去：
-
-```yaml
-    environment:
-      MEDIASTATION_MEDIA_DIR: /vol1/1000/Docker/moviepilot-v2/media
-      MEDIASTATION_MEDIA_CONTAINER_DIR: /media
-      MEDIASTATION_DOWNLOAD_DIR: /vol1/1000/qBittorrent/downloads
-      MEDIASTATION_DOWNLOAD_CONTAINER_DIR: /downloads
-```
-
-路径怎么理解：
-
-| 位置 | 填什么 |
-| --- | --- |
-| `volumes` 左侧媒体路径 | NAS/服务器上的真实媒体目录，例如 `/volume1/media`、`/mnt/media`、`/vol1/1000/Docker/moviepilot-v2/media` |
-| `volumes` 左侧下载路径 | NAS/服务器上的真实下载目录，例如 `/volume1/downloads`、`/mnt/downloads`、`/vol1/1000/qBittorrent/downloads` |
-| `MEDIASTATION_MEDIA_DIR` | 和媒体库 `volumes` 左侧保持一致 |
-| `MEDIASTATION_DOWNLOAD_DIR` | 和下载目录 `volumes` 左侧保持一致 |
-
-> 不要写成 `./vol1/...`。带 `./` 是相对路径，会变成当前部署目录下面的文件夹。
-
-#### 4. 启动
+然后启动：
 
 ```bash
-docker compose pull
 docker compose up -d
 ```
 
-如果你的系统只有旧版命令：
-
-```bash
-docker-compose pull
-docker-compose up -d
-```
-
-#### 5. 访问
+浏览器打开：
 
 ```text
-http://<服务器IP>:18080
+http://服务器IP:18080
 ```
 
-默认账号：
+默认登录：
 
 ```text
-admin / admin123
+账号：admin
+密码：admin123
 ```
-
-首次登录后请立即修改管理员密码。
-
-#### 6. 页面里路径怎么填
-
-默认 compose 会把你的宿主机目录映射为容器路径：
-
-| 宿主机真实目录 | 容器内路径 | 页面里建议填写 |
-| --- | --- | --- |
-| `MEDIASTATION_MEDIA_DIR` | `/media` | `/media/电影`、`/media/电视剧`、`/media/电视剧/国产剧` |
-| `MEDIASTATION_DOWNLOAD_DIR` | `/downloads` | 下载器保存根目录填 `/downloads` |
-
-这只是 Docker 绑定挂载，不会复制文件，不会占用双倍空间。MediaStationGo 读取的是原目录内容，只是在容器里显示成 `/media` 和 `/downloads`。
-
-#### 7. 更新镜像
-
-推荐使用仓库脚本，它会更新容器并清理本项目旧镜像，避免 NAS 磁盘被旧镜像占满：
-
-```bash
-curl -fsSL https://cdn.jsdelivr.net/gh/ShukeBta/MediaStationGo@main/scripts/docker-compose-update.sh -o docker-compose-update.sh
-chmod +x docker-compose-update.sh
-./docker-compose-update.sh
-```
-
-#### 8. 查看状态和日志
-
-```bash
-docker compose ps
-docker compose logs -f mediastation-go
-```
-
-#### 高级配置
-
-默认文件只保留新手必需项。需要让容器内也显示宿主机原始路径、Telegram 代理、硬件加速、更多转码环境变量时，参考仓库中的高级示例：
-
-```text
-docker-compose.advanced.yml
-```
-
-### 可选：使用 `.env` 管理路径
-
-如果你已经熟悉 Docker Compose，或者同一份 compose 要在多台机器复用，也可以把路径写进 `.env`。这是可选玩法，不是新手主线：
-
-```bash
-cat > .env <<'EOF'
-MEDIASTATION_MEDIA_DIR=/vol1/1000/Docker/moviepilot-v2/media
-MEDIASTATION_DOWNLOAD_DIR=/vol1/1000/qBittorrent/downloads
-MEDIASTATION_HTTP_PORT=18080
-TZ=Asia/Shanghai
-PUID=1000
-PGID=1000
-EOF
-```
-
-使用 `.env` 时，`docker-compose.yml` 中保持默认变量写法即可：
-
-```yaml
-- ${MEDIASTATION_MEDIA_DIR:-./media}:/media:ro
-- ${MEDIASTATION_DOWNLOAD_DIR:-./downloads}:/downloads
-```
-
-### 固定版本部署
-
-生产环境可以固定镜像版本，避免 `latest` 自动变化。不使用 `.env` 时，直接把 compose 里的镜像改成固定版本：
-
-```yaml
-image: ghcr.io/shukebta/mediastation-go:MediaStationGo-v0.0.32
-```
-
-如果使用 `.env`，也可以写：
-
-```env
-MEDIASTATION_IMAGE_TAG=MediaStationGo-v0.0.32
-```
-
-然后执行：
-
-```bash
-docker compose pull
-docker compose up -d
-```
-
-### 外网访问与 v2rayA 说明
-
-如果 NAS 已经开启 v2rayA 的 `redirect` / 透明代理，并使用大陆白名单分流，MediaStationGo 通常不需要额外配置 `HTTP_PROXY` / `HTTPS_PROXY`。
-
-不建议在 `docker-compose.yml` 或 `.env` 中重复配置代理环境变量，因为这会让容器网络和 Docker 拉镜像路径叠加代理，反而可能导致 GHCR、M-Team、TMDB 等访问异常。
-
-### qBittorrent 连接怎么填
-
-如果 qBittorrent 运行在同一台 NAS/宿主机上，MediaStationGo 容器里不要填 `127.0.0.1`；推荐在「下载器管理」中填写：
-
-```text
-http://host.docker.internal:8085
-```
-
-如果 qBittorrent 也运行在 Docker 中，建议让 qBittorrent 和 MediaStationGo 都把同一个宿主机下载目录映射为 `/downloads`。订阅保存根目录填写：
-
-```text
-/downloads
-```
-
-启用智能分类后，下载会自动进入 `/downloads/动画电影`、`/downloads/国产剧`、`/downloads/综艺` 等分类目录。
-
-### 网盘、OpenList 与 CloudDrive2
-
-MediaStationGo 内置 OpenList、Alist、WebDAV、115、夸克和 CloudDrive2 外部存储配置。推荐新手优先使用 OpenList、CloudDrive2 或 Alist 作为桥接层：它们可以对接 115、123、阿里、夸克等多种网盘，项目通过 OpenList/Alist API 或 WebDAV 入口即可完成浏览、挂载媒体库、本地媒体转存和反代播放。
-
-OpenList 推荐用法：
-
-1. 在 OpenList 中挂载你的 115 / 123 / 阿里 / 夸克等网盘。
-2. 在 MediaStationGo 的「外部存储」中选择 `OpenList`。
-3. `OpenList Server URL` 填管理/API 地址，例如 `http://NAS-IP:5244`。
-4. `WebDAV URL` 填 WebDAV 地址，例如 `http://NAS-IP:5244/dav/`。
-5. 如果 OpenList 没有配置 HTTPS 反向代理，不要填写 `https://`。`Propfind "https://...": http: server gave HTTP response to HTTPS client` 表示你把 HTTP 服务误填成了 HTTPS。
-
-CloudDrive2 推荐用法：
-
-1. 在 CloudDrive2 中挂载你的 115 / 123 / 阿里 / 夸克等网盘。
-2. 在 MediaStationGo 的「外部存储」中选择 `CloudDrive2`。
-3. 填写 CloudDrive2 WebDAV 地址，例如 `http://host.docker.internal:19798/dav` 或 `http://NAS-IP:19798/dav`。
-4. 保存后可直接浏览网盘目录，或挂载为媒体库进行扫描播放。
-
-115 原生接口保留 Cookie / 扫码登录、目录浏览和 302 播放能力；本地文件上传建议优先走 OpenList / CloudDrive2 / Alist 桥接，避免在项目内维护各网盘私有分片上传协议。
 
 ---
 
-## 🐳 Docker Compose 配置示例
+## Docker Compose 推荐部署
 
-项目默认内置极简 `docker-compose.yml`。新手推荐直接在 `volumes` 左侧写真实路径，并让 `MEDIASTATION_MEDIA_DIR`、`MEDIASTATION_DOWNLOAD_DIR` 与左侧路径保持一致；`.env` 变量适合进阶用户复用配置：
+仓库里的 `docker-compose.yml` 已经是最简单模板：默认不用 `.env`。
 
-| 变量 | 默认值 | 说明 |
+你只需要重点看 `volumes` 这一段：
+
+```yaml
+volumes:
+  - ./data:/data
+  - ./cache:/cache
+  - ./media:/media:ro
+  - ./downloads:/downloads
+```
+
+含义很简单：
+
+| 左边 | 右边 | 说明 |
 | --- | --- | --- |
-| `MEDIASTATION_IMAGE_TAG` | `latest` | 镜像标签，建议固定为 Release 版本 |
-| `MEDIASTATION_HTTP_PORT` | `18080` | 宿主机访问端口 |
-| `MEDIASTATION_DATA_DIR` | `./data` | 数据持久化目录 |
-| `MEDIASTATION_CACHE_DIR` | `./cache` | 图片和转码缓存目录 |
-| `MEDIASTATION_MEDIA_DIR` | `./media` | 媒体库宿主机目录；NAS 建议写 `/your-nas/media` 这种绝对路径 |
-| `MEDIASTATION_DOWNLOAD_DIR` | `./downloads` | 下载保存宿主机目录；NAS 建议写 `/your-nas/downloads` 这种绝对路径 |
-| `PUID` / `PGID` | `1000` / `1000` | Linux/NAS 文件权限映射 |
-| `TZ` | `Asia/Shanghai` | 容器时区 |
+| `./data` | `/data` | 程序数据库、配置、账号信息；一定要备份 |
+| `./cache` | `/cache` | 缓存目录；可清理 |
+| `./media` | `/media` | 媒体库目录；网页里添加媒体库时填 `/media/...` |
+| `./downloads` | `/downloads` | 下载目录；文件管理和自动整理会用 |
 
-查看日志：
+如果你的媒体在 NAS 真实目录，例如：
+
+```text
+/vol1/1000/Media
+/vol1/1000/Downloads
+```
+
+就把 compose 改成：
+
+```yaml
+volumes:
+  - ./data:/data
+  - ./cache:/cache
+  - /vol1/1000/Media:/media:ro
+  - /vol1/1000/Downloads:/downloads
+
+environment:
+  MEDIASTATION_MEDIA_DIR: /vol1/1000/Media
+  MEDIASTATION_DOWNLOAD_DIR: /vol1/1000/Downloads
+```
+
+注意：
+
+- `volumes` 左边是宿主机 / NAS 的真实路径。
+- `volumes` 右边是容器里的路径，建议固定用 `/media` 和 `/downloads`。
+- 在网页里新建媒体库时，填容器路径，例如 `/media/电影`、`/media/电视剧`。
+- 不要把 NAS 绝对路径写成 `./vol1/...`，`./` 表示当前部署目录下面的相对路径。
+- Windows Docker Desktop 可以写成 `D:/Media:/media:ro`、`D:/Downloads:/downloads`。
+
+### 最简单 compose 示例
+
+仓库根目录的 `docker-compose.yml` 就是这个思路。你也可以手动创建：
+
+```yaml
+services:
+  mediastation-go:
+    image: ghcr.io/shukebta/mediastation-go:latest
+    container_name: mediastation-go
+    restart: unless-stopped
+    init: true
+
+    # 访问端口：浏览器打开 http://服务器IP:18080
+    ports:
+      - "18080:8080"
+
+    # 让容器可以访问宿主机上的 qBittorrent：
+    # qB 地址可填 http://host.docker.internal:8085
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+    volumes:
+      # 程序数据，升级前备份这个目录。
+      - ./data:/data
+      - ./cache:/cache
+
+      # 新手先用当前目录下的 media/downloads。
+      # NAS 用户把左边改成真实绝对路径。
+      - ./media:/media:ro
+      - ./downloads:/downloads
+
+    environment:
+      TZ: Asia/Shanghai
+      PUID: "1000"
+      PGID: "1000"
+
+      MEDIASTATION_APP_HOST: 0.0.0.0
+      MEDIASTATION_APP_PORT: 8080
+      MEDIASTATION_APP_WEB_DIR: /app/web/dist
+      MEDIASTATION_APP_DATA_DIR: /data
+      MEDIASTATION_DATABASE_DB_PATH: /data/mediastation.db
+      MEDIASTATION_CACHE_CACHE_DIR: /cache
+
+      # 如果上面的 ./media / ./downloads 改成 NAS 真实路径，
+      # 这里也改成同样的宿主机真实路径。
+      MEDIASTATION_MEDIA_DIR: ./media
+      MEDIASTATION_MEDIA_CONTAINER_DIR: /media
+      MEDIASTATION_DOWNLOAD_DIR: ./downloads
+      MEDIASTATION_DOWNLOAD_CONTAINER_DIR: /downloads
+```
+
+---
+
+## 首次进入后怎么配置
+
+1. **新建媒体库**
+   - 进入「媒体库」页面。
+   - 路径填容器路径，例如 `/media/电影`。
+   - 点扫描。
+
+2. **配置下载器**
+   - 进入「下载器管理」。
+   - 如果 qBittorrent 在宿主机上，地址通常填 `http://host.docker.internal:8085`。
+
+3. **配置刮削源**
+   - 进入「系统设置 / 外部 API」。
+   - 按需填写 TMDb、Bangumi、TheTVDB、Fanart、豆瓣等配置。
+
+4. **配置外部播放器**
+   - 第三方客户端按 Emby/Jellyfin 方式添加服务器。
+   - 地址填 `http://服务器IP:18080`。
+   - 使用 MediaStationGo 的账号密码登录。
+
+5. **配置网盘播放**
+   - 进入「外部存储」配置 OpenList、CloudDrive2、WebDAV 等。
+   - 后台播放策略可以选择 STRMURL 或 302 反代。
+   - 开启哪个，就优先走哪个；都关闭时走普通服务端播放链路。
+
+---
+
+## 更新、备份、日志
+
+### 更新
+
+```bash
+docker compose pull
+docker compose up -d
+```
+
+### 查看日志
 
 ```bash
 docker logs -f mediastation-go
 ```
 
-更新镜像：
+### 备份
 
-```bash
-curl -fsSL https://cdn.jsdelivr.net/gh/ShukeBta/MediaStationGo@main/scripts/docker-compose-update.sh -o docker-compose-update.sh
-chmod +x docker-compose-update.sh
-./docker-compose-update.sh
+重点备份：
+
+```text
+data/
 ```
 
-说明：普通 `docker compose pull && docker compose up -d` 只会切换到新镜像，不会自动删除旧镜像；上面的脚本会保留当前正在运行的 MediaStationGo 镜像，删除同仓库未使用的旧镜像，并执行 `docker image prune -f` 清理 dangling 层。如需进一步清理所有未使用镜像，可临时执行 `PRUNE_ALL_UNUSED=1 ./docker-compose-update.sh`。
+这里面有数据库、用户、设置、部分运行状态。`cache/` 通常不用备份。
 
-停止服务：
+### 停止
 
 ```bash
 docker compose down
 ```
 
-备份数据：
-
-```bash
-tar -czf mediastationgo-data-backup.tgz ./data
-```
-
 ---
 
-## 🖥️ 一键脚本部署
+## 常见问题
 
-如果不想使用 Docker，也可以裸机运行。脚本会自动构建前端、编译后端、启动服务并检查健康状态。
+### 1. 页面打不开？
 
-### Linux / macOS
-
-```bash
-git clone https://github.com/ShukeBta/MediaStationGo.git
-cd MediaStationGo
-chmod +x scripts/deploy.sh
-PORT=18080 DATA_DIR=/opt/mediastation/data CACHE_DIR=/opt/mediastation/cache ./scripts/deploy.sh
-```
-
-### Windows PowerShell
-
-```powershell
-git clone https://github.com/ShukeBta/MediaStationGo.git
-cd MediaStationGo
-.\scripts\deploy.ps1 -Port 18080 -DataDir D:\MediaStationGo\data -CacheDir D:\MediaStationGo\cache
-```
-
-脚本执行内容：
-
-1. 安装前端依赖并构建 `web/dist`
-2. 编译 Go 服务端到 `bin/`
-3. 创建数据目录和缓存目录
-4. 停止旧进程并启动新进程
-5. 请求 `/api/health` 验证服务状态
-
----
-
-## 🧩 Release 包部署
-
-每个 Release 会提供多平台压缩包：
-
-| 平台 | 包名示例 |
-| --- | --- |
-| Linux x86_64 | `MediaStationGo-v0.0.32-linux-amd64.tar.gz` |
-| Linux ARM64 | `MediaStationGo-v0.0.32-linux-arm64.tar.gz` |
-| Windows x86_64 | `MediaStationGo-v0.0.32-windows-amd64.zip` |
-| macOS Intel | `MediaStationGo-v0.0.32-darwin-amd64.tar.gz` |
-| macOS Apple Silicon | `MediaStationGo-v0.0.32-darwin-arm64.tar.gz` |
-
-部署步骤：
-
-```bash
-# Linux 示例
-tar -xzf MediaStationGo-v0.0.32-linux-amd64.tar.gz
-cd MediaStationGo-v0.0.32-linux-amd64
-MEDIASTATION_APP_PORT=18080 ./mediastation-go
-```
-
-Windows：
-
-```powershell
-Expand-Archive .\MediaStationGo-v0.0.32-windows-amd64.zip
-cd .\MediaStationGo-v0.0.32-windows-amd64
-$env:MEDIASTATION_APP_PORT = "18080"
-.\mediastation-go.exe
-```
-
-> Release 二进制默认监听 `8080`，如果希望和 Docker 示例保持一致，请按上方设置 `MEDIASTATION_APP_PORT=18080`。
-
----
-
-## 🛠️ 本地开发
-
-### 环境要求
-
-| 组件 | 版本 | 用途 |
-| --- | --- | --- |
-| Go | 1.25+ | 后端编译与测试 |
-| Node.js | 20+ | 前端构建 |
-| FFmpeg / ffprobe | 推荐安装 | 媒体探测与转码 |
-| Docker | 可选 | 容器部署与多架构镜像 |
-| qBittorrent | 可选 | 下载器联动测试 |
-
-### 本地构建
-
-```bash
-cp config.example.yaml config.yaml
-cd web
-npm ci
-npm run build
-cd ..
-go build -o bin/mediastation-go ./cmd/server
-./bin/mediastation-go
-```
-
-Windows：
-
-```powershell
-Copy-Item config.example.yaml config.yaml
-Set-Location web
-npm ci
-npm run build
-Set-Location ..
-go build -o bin\mediastation-go.exe .\cmd\server
-.\bin\mediastation-go.exe
-```
-
-### 常用命令
-
-```bash
-make build       # 构建前后端
-make test        # 运行 Go 测试
-make smoke       # 冒烟测试
-make docker      # docker compose up -d
-make deploy      # Linux 一键部署
-make docker-push # buildx 多架构推送
-```
-
----
-
-## 🏗️ 项目结构
-
-```text
-MediaStationGo/
-├── cmd/server/                 # 服务入口
-├── internal/
-│   ├── config/                  # 配置加载与默认值
-│   ├── database/                # SQLite 初始化与迁移
-│   ├── handler/                 # HTTP API / Emby API / 管理接口
-│   ├── middleware/              # 鉴权、权限、日志中间件
-│   ├── model/                   # GORM 数据模型
-│   ├── repository/              # 数据访问层
-│   └── service/                 # 扫描、刮削、播放、下载、订阅等业务逻辑
-├── web/
-│   ├── public/                  # favicon 等静态资源
-│   ├── src/                     # React 页面、组件、API、状态管理
-│   └── dist/                    # 前端构建产物，默认不入库
-├── scripts/                     # 部署、打包、Docker 构建脚本
-├── docs/                        # 设计文档、截图与架构说明
-├── docker-compose.yml           # 默认 Docker Compose 部署文件
-├── Dockerfile                   # 多阶段镜像构建
-├── config.example.yaml          # 配置模板
-└── README.md / README_EN.md     # 项目文档
-```
-
----
-
-## ⚙️ 配置说明
-
-配置优先级从低到高：
-
-1. 内置默认值
-2. `config.yaml`
-3. `config/*.yaml`
-4. `MEDIASTATION_` 环境变量
-5. 后台数据库运行时配置
-
-常用环境变量：
-
-| 变量 | 默认值 | 说明 |
-| --- | --- | --- |
-| `MEDIASTATION_APP_HOST` | `0.0.0.0` | 服务监听地址 |
-| `MEDIASTATION_APP_PORT` | `8080` | 服务监听端口 |
-| `MEDIASTATION_APP_WEB_DIR` | `./web/dist` | 前端静态资源目录 |
-| `MEDIASTATION_APP_DATA_DIR` | `./data` | 程序数据目录 |
-| `MEDIASTATION_DATABASE_DB_PATH` | `./data/mediastation.db` | SQLite 数据库路径 |
-| `MEDIASTATION_CACHE_CACHE_DIR` | `./cache` | 图片/转码缓存目录 |
-| `MEDIASTATION_SECRETS_JWT_SECRET` | 自动生成 | JWT 和敏感配置加密种子 |
-| `MEDIASTATION_APP_CORS_ORIGINS` | 空 | 额外允许的跨域来源 |
-| `MEDIASTATION_TELEGRAM_API_BASE_URL` | `https://api.telegram.org` | Telegram Bot API 地址；网络受限时可填写反代地址 |
-| `MEDIASTATION_TELEGRAM_PROXY_URL` | 空 | Telegram 出站代理，例如 `http://172.17.0.1:7890` 或 `socks5://172.17.0.1:1080` |
-
-后台可运行时配置：
-
-- API Key：TMDb、Bangumi、TheTVDB、Fanart、OpenAI Compatible 等。
-- 站点：M-Team、NexusPHP、Unit3D、自定义 RSS 等。
-- 下载器：qBittorrent、Transmission、Aria2。
-- 通知渠道：Telegram、Bark、Webhook、Email 等。Telegram 渠道支持单独配置 API 反代与代理地址，测试通知失败时错误信息会自动隐藏 Bot Token。
-- 播放配置、权限配置、调度任务、存储配置。
-
----
-
-## 👥 用户与权限策略
-
-- 默认管理员由系统首次启动创建，默认账号为 `admin / admin123`；该默认管理员可以改用户名，但不能删除，也不能降级，始终拥有最高权限。
-- 开源版默认最多允许 20 个用户，避免家庭 NAS 或公开测试环境被滥用；绑定私有授权服务后可按授权策略提升用户额度。
-- 管理后台新增用户默认为“观看用户”：允许登录 Web 与 Emby 兼容客户端、浏览媒体库、播放媒体、使用外部播放器、收藏与记录观看历史。
-- 普通观看用户默认不能扫描媒体库、重新刮削、删除媒体、探测媒体轨、写出 NFO、管理文件、管理 STRM、管理下载器、创建下载任务或订阅下载。
-- 由于视频流播放本身需要向客户端传输媒体数据，系统可以禁止“下载任务”和管理型下载入口，但无法从协议层完全阻止外部播放器或浏览器保存已授权播放的数据流。
-
----
-
-## 🔐 私有授权服务
-
-MediaStationGo 已预留并接入私有独立的 `MediaStationLicenseServer`：
-
-- 授权服务器：`ShukeBta/MediaStationLicenseServer`，本地备份路径示例为 `C:\Users\Administrator\WorkBuddy\license_server_backup`。
-- 主项目后端提供 `/api/license/activate`、`/api/license/status`、`/api/license/heartbeat`，由服务端代理调用 License Server，不在浏览器暴露 HMAC 密钥。
-- License Server 公共接口使用 `/api/v1/activate`、`/api/v1/status/:fingerprint`、`/api/v1/heartbeat`。
-- 在「系统设置 → 授权服务」填写 `license.server_url` 与 `license.hmac_secret`，然后在「授权许可」页面绑定授权码。
-- 未绑定或授权失效时保持开源版能力；授权有效时当前实现将用户额度提升到授权版额度。
-
-环境变量示例：
-
-```bash
-MEDIASTATION_LICENSE_SERVER_URL=http://127.0.0.1:8001
-MEDIASTATION_LICENSE_HMAC_SECRET=与 License Server 的 LICENSE_HMAC_SECRET 一致
-```
-
----
-
-## 🎞️ FFmpeg / ffprobe 按需运行
-
-MediaStationGo 不会把 `ffmpeg` 或 `ffprobe` 作为常驻守护进程启动。它们只在以下场景被临时调用：
-
-- 扫描或手动探测媒体轨时调用 `ffprobe`。
-- 浏览器无法直放、需要 HLS 转码时调用 `ffmpeg`。
-- 管理后台手动检测工具状态或手动安装工具时短暂调用版本检测/安装逻辑。
-
-播放停止、转码任务取消或服务退出时，后台会结束对应转码任务。空闲状态下如果没有扫描、探测或转码，`ffmpeg/ffprobe` 不应持续占用 CPU。
-
-默认 HLS 转码使用 NAS 友好的低负载策略：`MEDIASTATION_TRANSCODER_ENABLED=true` 是总开关，关闭后不会启动 ffmpeg 转码；`MEDIASTATION_TRANSCODER_HARDWARE_ACCEL=false` 是硬件加速总开关，只有开启后才会使用 `MEDIASTATION_TRANSCODER_ENCODER=nvenc/qsv/vaapi`；`MEDIASTATION_TRANSCODER_REALTIME=true` 按播放速度处理输入，`MEDIASTATION_TRANSCODER_THREADS=2` 限制软件编码线程，`MEDIASTATION_TRANSCODER_MAX_CONCURRENT=1` 限制同时转码数量，`MEDIASTATION_TRANSCODER_IDLE_TIMEOUT_SECONDS=120` 在播放器停止请求分片后自动结束 ffmpeg。
-
-默认 Docker 镜像使用精简运行层，不再内置 Intel VAAPI / mesa 驱动依赖，以降低 Docker Hub 漏洞扫描暴露面。需要自构建 Intel VAAPI/QSV 镜像时，可使用 `docker buildx build --build-arg WITH_VAAPI=true ...`；NVIDIA NVENC 仍主要依赖宿主机安装 NVIDIA Container Toolkit 并在运行容器时启用 GPU。
-
----
-
-## 🔍 刮削与元数据策略
-
-MediaStationGo 的刮削顺序尽量避免重复请求和错误覆盖：
-
-1. 优先读取本地 NFO、poster、fanart、season poster、episode image。
-2. 根据文件名识别电影、剧集、动漫、综艺、成人内容。
-3. 使用 TMDb / TheTVDB / Bangumi / 豆瓣补全缺失元数据。
-4. 使用 Fanart.tv 补充更高清的艺术图。
-5. 成人内容优先读取本地 NFO 与图片，再通过 JavBus/JavDB 等公开页面补全。
-6. 已有本地元数据不会被无意义重复刮削覆盖。
-
-推荐目录结构：
-
-```text
-/media/Movies/Inception (2010)/Inception (2010).mkv
-/media/TV/Some Show/Season 01/Some Show S01E01.mkv
-/media/Anime/Anime Title/Season 01/Anime Title S01E01.mkv
-/media/Variety/Show Name/Season 2026/Show Name S2026E01.mkv
-/media/Adult/ABCD-123/ABCD-123.mp4
-```
-
-本地图片常见命名：
-
-```text
-poster.jpg
-fanart.jpg
-folder.jpg
-season01-poster.jpg
-S01E01-thumb.jpg
-movie.nfo
-tvshow.nfo
-episode.nfo
-```
-
-### 智能分类目录规则
-
-MediaStationGo 的智能分类分为两个阶段：
-
-1. 下载阶段：根据订阅类型、搜索结果分类和标题特征，把任务保存到下载器根目录下的分类子目录。
-2. 整理阶段：用户可选择手动整理，或开启自动整理；整理时先进入媒体库一级目录，再进入二级分类目录。
-
-推荐宿主机目录：
-
-```text
-/your-nas/downloads
-/your-nas/media/电影
-/your-nas/media/电视剧
-```
-
-对应容器内目录：
-
-```text
-/downloads
-/media/电影
-/media/电视剧
-```
-
-下载器智能分类示例：
-
-```text
-/downloads/动画电影
-/downloads/国产剧
-/downloads/国漫
-/downloads/华语电影
-/downloads/日番
-/downloads/外语电影
-/downloads/综艺
-```
-
-整理后媒体库示例：
-
-```text
-/media/电视剧/国产剧/剧名 (2026)/Season 01/剧名 - S01E01 - 第 1 集.mkv
-/media/电视剧/国漫/动画名 (2026)/Season 01/动画名 - S01E01 - 第 1 集.mkv
-/media/电视剧/欧美剧/剧名 (2026)/Season 01/剧名 - S01E01 - 第 1 集.mkv
-/media/电视剧/日番/番剧名 (2026)/Season 01/番剧名 - S01E01 - 第 1 集.mkv
-/media/电视剧/日韩剧/剧名 (2026)/Season 01/剧名 - S01E01 - 第 1 集.mkv
-/media/电视剧/综艺/综艺名 (2026)/Season 2026/综艺名 - S2026E01 - 第 1 集.mp4
-/media/电影/动画电影/电影名 (2026)/电影名 (2026) - 1080p.mkv
-/media/电影/华语电影/电影名 (2026)/电影名 (2026) - 1080p.mkv
-/media/电影/外语电影/电影名 (2026)/电影名 (2026) - 1080p.mkv
-```
-
-如果媒体库根目录直接设置为 `/media`，整理器会在启用智能分类时自动补上 `电影/` 或 `电视剧/` 一级目录；如果你已经把媒体库设置为 `/media/电影` 或 `/media/电视剧`，则不会重复追加一级目录。
-
-自动整理与手动整理是两件事：
-
-- `downloads.smart_classify`：控制订阅下载 / 站点搜索下载是否自动按媒体分类写入下载目录和 qB 分类，默认开启。
-- `organizer.smart_classify`：只控制是否使用智能分类目录。
-- `organizer.auto_after_download` / `organize.auto`：控制下载完成后是否自动整理。
-- 未开启自动整理时，可以在「整理与维护」页面手动整理媒体库或单个媒体。
-
-### 整理与刮削命名模板
-
-整理规则建议按媒体类型拆分。剧集、动漫、综艺都属于连续剧集类，应保留剧名、年份、季目录、季集号和分集标题；电影类则保留片名、年份、分段和视频规格。
-
-剧集 / 动漫 / 综艺推荐模板（参考MPV2模板）：
-
-```jinja
-{{title}}{% if year %} ({{year}}){% endif %}/Season {{season}}/{{title}} - {{season_episode}}{% if part %}-{{part}}{% endif %}{% if episode %} - 第 {{episode}} 集{% endif %}{{fileExt}}
-```
-
-输出示例：
-
-```text
-孤独的美食家 (2024)/Season 01/孤独的美食家 - S01E01 - 第 1 集.mkv
-某动画 (2025)/Season 02/某动画 - S02E03 - 第 3 集.mkv
-某综艺 (2026)/Season 2026/某综艺 - S2026E01 - 第 1 集.mp4
-```
-
-电影推荐模板：
-
-```jinja
-{{title}}{% if year %} ({{year}}){% endif %}/{{title}}{% if year %} ({{year}}){% endif %}{% if part %}-{{part}}{% endif %}{% if videoFormat %} - {{videoFormat}}{% endif %}{{fileExt}}
-```
-
-输出示例：
-
-```text
-盗梦空间 (2010)/盗梦空间 (2010) - 1080p.mkv
-沙丘 (2021)/沙丘 (2021)-CD1 - 2160p.mkv
-```
-
-常用变量说明：
-
-| 变量 | 说明 |
-| --- | --- |
-| `title` | 媒体标题，优先使用本地 NFO / 在线元数据识别后的标题 |
-| `year` | 年份，存在时追加到目录和文件名中 |
-| `season` | 季号，剧集/动漫/综艺用于生成 `Season 01` 等目录 |
-| `season_episode` | 季集号，例如 `S01E01`、`S2026E01` |
-| `episode` | 分集序号，用于中文分集标题 |
-| `part` | 分段标记，例如 `CD1`、`Part1` |
-| `videoFormat` | 视频规格，例如 `1080p`、`2160p`、`WEB-DL` |
-| `fileExt` | 原始文件扩展名，例如 `.mkv`、`.mp4` |
-
----
-
-## 🔎 发现、搜索与订阅下载
-
-### 多源发现
-
-精彩发现支持：
-
-- TMDb：趋势、热门电影、热门剧集、高分电影。
-- 豆瓣：热门电影、高分电影、热门剧集。
-- Bangumi：每日放送、动漫条目。
-
-### 智能搜索
-
-智能搜索会同时考虑：
-
-- 本地媒体库已有内容。
-- TMDb / 豆瓣 / Bangumi 等在线结果。
-- 可订阅关键词与媒体类型。
-
-### 订阅规则
-
-订阅支持以下规则：
-
-| 规则 | 说明 |
-| --- | --- |
-| 媒体类型 | 电影、剧集、动漫、综艺，支持自动识别 |
-| 搜索模式 | 标题关键词或 IMDB ID |
-| 分辨率 | 自动择优、2160p、1080p、720p |
-| 质量 | REMUX、BluRay、WEB-DL、HDTV 等 |
-| 特效 | HDR、Dolby Vision、Atmos 等 |
-| 发布组 | 白名单发布组 |
-| 排除词 | 排除 CAM、TS、枪版等低质资源 |
-| 洗版 | 默认关闭，可按分辨率、质量、特效、做种数优先 |
-
-下载与订阅卡片只展示安全标题、海报、进度、速度、体积等信息，不展示原始种子 URL，避免多用户场景泄露私人 Tracker Token。
-
----
-
-## 🔌 外部客户端与 Emby 兼容
-
-项目提供 Emby/Jellyfin 风格 API，用于外部客户端连接：
-
-```text
-http://<服务器IP>:18080
-```
-
-可尝试的客户端：
-
-- Infuse
-- VidHub
-- SenPlayer
-- 其他支持 Emby/Jellyfin 服务器的播放器
-
-建议检查：
-
-1. Docker 端口是否映射为 `18080:8080`。
-2. 防火墙是否允许局域网访问 `18080`。
-3. 账号密码是否正确。
-4. 反向代理是否正确转发 `/api`、视频流和 Range 请求。
-
-### 与 MoviePilot 的功能参考关系
-
-MediaStationGo 在外部客户端兼容与媒体生态联动上参考了 MoviePilot 的成熟产品路径：通过统一媒体库、订阅下载、下载后整理和 Emby/Jellyfin 兼容接口，把 Web 管理端与 Infuse、VidHub、SenPlayer 等客户端串起来。本项目的目标不是替代 Emby/Jellyfin，而是在最极少的资源占用的轻量 Go 服务中提供足够常用的媒体浏览、播放、海报墙、剧集分季分集、播放进度和外部客户端访问能力。
-
-当前兼容重点：
-
-- 媒体库、合集、季、集的层级输出。
-- 海报、背景图、简介、年份、评分等基础元数据输出。
-- 视频流地址、HTTP Range、播放进度与继续观看。
-- 外部客户端登录、媒体浏览和播放所需的 Emby/Jellyfin 风格接口。
-
-仍在持续补齐：
-
-- 更完整的 Emby/Jellyfin 设备能力协商。
-- 更细的转码 Profile 与字幕能力声明。
-- 多用户权限、媒体库过滤与播放历史同步。
-- 与订阅下载、自动整理、洗版规则之间的闭环联动。
-
-> MoviePilot 项目使用 GPL-3.0 许可，本项目只参考其公开产品思路与交互路径，不复制私有数据、密钥、站点账号或不兼容实现。
-
----
-
-## 🧠 AI 与外部服务配置
-
-在后台「外部 API 配置」中可配置：
-
-| 服务 | 作用 |
-| --- | --- |
-| TMDb | 电影、剧集、海报、背景图、简介 |
-| Bangumi | 动漫、番剧、中文条目 |
-| TheTVDB | 剧集季集补充 |
-| Fanart.tv | 高清 Logo、背景图、艺术图 |
-| 豆瓣 | 中文影视搜索与推荐补充 |
-| OpenAI Compatible | AI 搜索、推荐、运维助手 |
-
-M-Team 建议使用 API Access Token：
-
-```text
-控制台 → 实验室 → 存取令牌
-HTTP Header: x-api-key
-```
-
-不建议使用 Cookie 调用开放 API，避免账号风险。
-
----
-
-## 🔐 隐私与安全
-
-默认不会提交以下数据：
-
-- `data/`、`cache/`、`logs/`
-- `.tmp-deploy-data/`、`.tmp-deploy-server.*`
-- `.mediastation.pid`
-- `config.yaml`、`.env*`
-- `*.db`、`*.db-wal`、`*.log`
-- `web/dist/`、`node_modules/`、`bin/`
-- API Key、Cookie、Token、密码、证书等敏感文件
-
-提交前建议检查：
-
-```bash
-git status --short
-git ls-files | grep -E 'data/|cache/|\.db|\.log|jwt_secret|config.yaml|\.env|token|apikey|password' || true
-```
-
----
-
-## ❓ 常见问题
-
-### Q: 拉取 GHCR 镜像时出现 `EOF` 怎么办？
-
-`EOF` 通常表示服务器到 GHCR 的网络连接中途断开，不是 compose 文件语法错误。建议按顺序处理：
-
-```bash
-# 1. 清理可能异常的 GHCR 登录状态
-docker logout ghcr.io || true
-
-# 2. 单独拉取镜像，确认是网络/ registry 问题还是 compose 问题
-docker pull ghcr.io/shukebta/mediastation-go:latest
-
-# 3. 如果是 x86_64/AMD64 主机，也可以显式指定平台重试
-docker pull --platform linux/amd64 ghcr.io/shukebta/mediastation-go:latest
-
-# 4. 拉取成功后再启动
-docker compose up -d
-```
-
-如果服务器在国内网络或 NAS 网络环境中，建议为 Docker daemon 配置可访问 GHCR 的代理；仅设置终端代理通常不一定会被 Docker 服务进程继承。默认 compose 已使用 `pull_policy: missing`，避免容器重启时反复访问 GHCR。
-
-另外，你示例中的路径如果是 NAS 绝对路径，建议写成 `/your-nas/...`，不要写 `./your-nas/...`；前者是系统根目录路径，后者是当前 compose 目录下面的相对路径。
-
-### Q: Docker 部署后浏览器打不开？
-
-检查容器状态和端口：
+先看容器是否启动：
 
 ```bash
 docker ps
-docker logs -f mediastation-go
+docker logs --tail=100 mediastation-go
 ```
 
-确认访问的是宿主机端口，例如 `http://你的IP:18080`。
+确认浏览器访问的是：
 
-### Q: 外部客户端提示服务器未响应？
+```text
+http://服务器IP:18080
+```
 
-优先检查防火墙、Docker 端口映射、反向代理和局域网 IP。容器内监听 `8080`，宿主机默认映射为 `18080`。
+### 2. 媒体库扫描不到文件？
 
-### Q: 媒体库没有海报？
+最常见原因是路径写错。
 
-请确认：
+- Docker `volumes` 右边是 `/media`。
+- 网页媒体库路径就应该填 `/media/电影`，不要填 NAS 原始路径。
+- 如果 qB 下载目录是 `/downloads`，自动整理源目录也优先填 `/downloads`。
 
-1. 本地是否有 `poster.jpg`、`fanart.jpg`、NFO。
-2. TMDb / Bangumi / 豆瓣是否可连接。
-3. 代理是否正确配置。
-4. 媒体文件名是否包含清晰标题、年份、季集信息。
+### 3. qBittorrent 连不上？
 
-### Q: 下载任务为什么不显示原始链接？
+如果 qB 在宿主机上，地址试试：
 
-PT 下载 URL 常包含私有 Token。下载中心和订阅管理会主动隐藏原始 URL，只显示安全标题、海报、速度、进度、体积等信息。
+```text
+http://host.docker.internal:8085
+```
 
+如果 qB 在另一台机器上，填那台机器的局域网 IP。
 
+### 4. NAS CPU 占用高？
 
-## 🗺️ 路线图
+建议先在系统设置里确认：
 
-- 更完整的 Emby/Jellyfin 客户端兼容。
-- 更强的成人内容本地元数据和公开页面补全。
-- 更细粒度的订阅洗版和下载后整理规则。
-- 更完善的移动端/电视端交互。
-- 插件化站点适配器和通知渠道。
-- 更完整的端到端测试与截图自动化。
+- `ffprobe.max_concurrent` 设为 `1`。
+- 自动整理、扫描后刮削、启动后扫描网盘按需开启。
+- 大媒体库不要频繁全量扫描，优先手动扫描或夜间同步。
+
+### 5. 要不要用 `.env`？
+
+新手不建议。直接改 `docker-compose.yml` 最直观。
+
+`.env` 适合进阶用户在多台机器复用同一份 compose。仓库保留 `docker-compose.simple.env.example`，但它不是推荐主线。
 
 ---
 
-## 🤝 贡献
+## 功能概览
 
-欢迎提交 Issue、Pull Request、站点适配、刮削规则、UI 改进与文档修正。
+| 分类 | 功能 |
+| --- | --- |
+| 媒体库 | 电影、电视剧、动漫、综艺、音乐、成人内容 |
+| 元数据 | NFO、本地图片、TMDb、TheTVDB、Bangumi、豆瓣、Fanart、JavBus/JavDB |
+| 播放 | Web 播放、Range 拖动、HLS 转码、直链、STRMURL、302 反代 |
+| 外部客户端 | Emby 风格 API，支持多种第三方播放器接入 |
+| 下载 | qBittorrent、站点搜索、订阅、下载完成后整理 |
+| 文件管理 | 浏览、整理、复制、移动、硬链接、软链接 |
+| 运维 | 任务队列、回收站、重复文件、通知渠道、运行日志 |
+| AI | OpenAI Compatible API、AI 搜索、推荐、助手 |
 
-建议贡献前先运行：
+---
+
+## 截图
+
+<details open>
+<summary><strong>界面预览</strong></summary>
+
+| 登录 | 首页 |
+| --- | --- |
+| <img src="docs/screenshots/00-login.jpg" alt="登录" width="100%"> | <img src="docs/screenshots/01-home.jpg" alt="首页" width="100%"> |
+
+| 媒体库 | 播放器 |
+| --- | --- |
+| <img src="docs/screenshots/02-libraries.jpg" alt="媒体库" width="100%"> | <img src="docs/screenshots/06-player.jpg" alt="播放器" width="100%"> |
+
+</details>
+
+---
+
+## 开发者运行
+
+普通用户请优先使用 Docker。开发者可以这样运行：
+
+```bash
+go run ./cmd/server
+```
+
+前端：
+
+```bash
+cd web
+npm install
+npm run dev
+```
+
+测试：
 
 ```bash
 go test ./...
@@ -1011,13 +374,15 @@ cd web && npm run build
 
 ---
 
-## 👥 开发群组
+## 社区与友链
 
-- Telegram：<https://t.me/MediaStationGo>
+- Telegram 群组：<https://t.me/MediaStationGo>
+- NodeSeek：[https://www.nodeseek.com/](https://www.nodeseek.com/)
+- LINUX DO：[https://linux.do/](https://linux.do/)
 
 ---
 
-## 🍜 赞赏
+## 赞赏
 
 如果这个项目节省了你的时间，欢迎请作者吃桶泡面。
 
@@ -1025,7 +390,7 @@ cd web && npm run build
 
 ---
 
-## ⭐ Star History
+## Star History
 
 <a href="https://www.star-history.com/?repos=ShukeBta%2FMediaStationGo&type=date&legend=top-left">
  <picture>
@@ -1037,9 +402,11 @@ cd web && npm run build
 
 ---
 
-## 📄 许可证与非商用声明
+## 许可证与非商用声明
 
-本项目基础许可证遵循 `GPL-3.0`，详见 [LICENSE](LICENSE)。项目维护者同时声明并倡议：
+本项目基础许可证遵循 `GPL-3.0`，详见 [LICENSE](LICENSE)。
+
+项目维护者同时声明并倡议：
 
 - 本项目主要面向个人学习、家庭 NAS、自建影音、非商业研究与社区共建场景。
 - 未经作者明确书面许可，不得将本项目或衍生版本用于商业售卖、商业托管、付费 SaaS、预装售卖设备、闭源二次分发或其他商业化牟利用途。

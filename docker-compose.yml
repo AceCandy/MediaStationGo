@@ -1,53 +1,68 @@
-# MediaStationGo 极简 Docker Compose 部署文件
+# MediaStationGo 最简单 Docker Compose 部署文件
 #
-# 新手推荐：直接在本文件里填写 NAS/服务器真实路径，不必先创建 .env。
-# 需要改两组位置：
-#   1. volumes 里媒体库和下载目录左侧的宿主机路径。
-#   2. environment 里 MEDIASTATION_MEDIA_DIR / MEDIASTATION_DOWNLOAD_DIR 的同名真实路径。
+# 新手建议：
+#   1. 不用 .env。
+#   2. 直接改本文件。
+#   3. 第一次可以不改路径，先用当前目录下的 ./media 和 ./downloads 体验。
 #
-# 示例：
-#   - /vol1/1000/Docker/moviepilot-v2/media:/media:ro
-#   - /vol1/1000/qBittorrent/downloads:/downloads
-#   MEDIASTATION_MEDIA_DIR: /vol1/1000/Docker/moviepilot-v2/media
-#   MEDIASTATION_DOWNLOAD_DIR: /vol1/1000/qBittorrent/downloads
+# 启动：
+#   docker compose up -d
 #
-# .env 是可选高级写法，适合多环境复用；README 后半部分有说明。
+# 访问：
+#   http://服务器IP:18080
 #
-# 启动：docker compose up -d
-# 访问：http://<服务器IP>:18080
-# 默认账号：admin / admin123
+# 默认账号：
+#   admin / admin123
 
 services:
   mediastation-go:
-    image: ghcr.io/shukebta/mediastation-go:${MEDIASTATION_IMAGE_TAG:-latest}
+    image: ghcr.io/shukebta/mediastation-go:latest
     container_name: mediastation-go
     restart: unless-stopped
     init: true
-    pull_policy: missing
 
+    # 浏览器访问端口。
+    # 如果 18080 被占用，可以改成 "19011:8080" 之类。
     ports:
-      - "${MEDIASTATION_HTTP_PORT:-18080}:8080"
+      - "18080:8080"
 
-    # 让容器可以用 http://host.docker.internal:端口 访问宿主机上的 qBittorrent 等服务。
+    # 让容器可以访问宿主机上的 qBittorrent。
+    # qB 地址通常可填：http://host.docker.internal:8085
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
     volumes:
-      # 程序数据与缓存：放在部署目录下，方便备份。
-      - ${MEDIASTATION_DATA_DIR:-./data}:/data
-      - ${MEDIASTATION_CACHE_DIR:-./cache}:/cache
+      # 程序数据：数据库、账号、设置都在这里。升级前主要备份它。
+      - ./data:/data
 
-      # 媒体库与下载目录：左边是宿主机/NAS真实路径，右边是容器内路径。
-      # 新手部署时推荐直接把左边改成真实绝对路径，不要写 ./vol1/...。
-      # Web 页面里添加媒体库请填写 /media/电影、/media/电视剧 等容器路径。
-      - ${MEDIASTATION_MEDIA_DIR:-./media}:/media:ro
-      - ${MEDIASTATION_DOWNLOAD_DIR:-./downloads}:/downloads
+      # 缓存目录：海报缓存、临时文件等。通常不用备份。
+      - ./cache:/cache
+
+      # 媒体库目录。
+      # 新手可先把影片放到当前目录的 ./media。
+      # NAS 用户把左边改成真实路径，例如：
+      #   - /vol1/1000/Media:/media:ro
+      # Windows Docker Desktop 示例：
+      #   - D:/Media:/media:ro
+      - ./media:/media:ro
+
+      # 下载目录。
+      # qB 下载目录、手动整理、自动整理会经常用到。
+      # NAS 示例：
+      #   - /vol1/1000/Downloads:/downloads
+      # Windows Docker Desktop 示例：
+      #   - D:/Downloads:/downloads
+      - ./downloads:/downloads
 
     environment:
-      TZ: ${TZ:-Asia/Shanghai}
-      PUID: ${PUID:-1000}
-      PGID: ${PGID:-1000}
+      TZ: Asia/Shanghai
 
+      # Linux/NAS 用户权限。一般 1000 就可以。
+      # 如果写入文件权限不对，再改成宿主机实际用户的 uid/gid。
+      PUID: "1000"
+      PGID: "1000"
+
+      # 程序基础配置，通常不用改。
       MEDIASTATION_APP_HOST: 0.0.0.0
       MEDIASTATION_APP_PORT: 8080
       MEDIASTATION_APP_WEB_DIR: /app/web/dist
@@ -55,20 +70,24 @@ services:
       MEDIASTATION_DATABASE_DB_PATH: /data/mediastation.db
       MEDIASTATION_CACHE_CACHE_DIR: /cache
 
-      # 路径提示：这里要和 volumes 左侧真实路径保持一致。
-      # 用于把宿主机路径自动换算成容器路径，避免误填 NAS 原始路径时报不可访问。
-      MEDIASTATION_MEDIA_DIR: ${MEDIASTATION_MEDIA_DIR:-./media}
+      # 路径换算配置。
+      # 如果上面 volumes 的 ./media 改成 /vol1/1000/Media，
+      # 这里也要改成同一个宿主机真实路径。
+      MEDIASTATION_MEDIA_DIR: ./media
       MEDIASTATION_MEDIA_CONTAINER_DIR: /media
-      MEDIASTATION_DOWNLOAD_DIR: ${MEDIASTATION_DOWNLOAD_DIR:-./downloads}
+
+      # 如果上面 volumes 的 ./downloads 改成 /vol1/1000/Downloads，
+      # 这里也要改成同一个宿主机真实路径。
+      MEDIASTATION_DOWNLOAD_DIR: ./downloads
       MEDIASTATION_DOWNLOAD_CONTAINER_DIR: /downloads
 
-      # NAS 友好的低负载转码默认值；可在系统设置里继续调整。
-      MEDIASTATION_TRANSCODER_ENABLED: ${MEDIASTATION_TRANSCODER_ENABLED:-true}
-      MEDIASTATION_TRANSCODER_HARDWARE_ACCEL: ${MEDIASTATION_TRANSCODER_HARDWARE_ACCEL:-false}
-      MEDIASTATION_TRANSCODER_REALTIME: ${MEDIASTATION_TRANSCODER_REALTIME:-true}
-      MEDIASTATION_TRANSCODER_THREADS: ${MEDIASTATION_TRANSCODER_THREADS:-2}
-      MEDIASTATION_TRANSCODER_MAX_CONCURRENT: ${MEDIASTATION_TRANSCODER_MAX_CONCURRENT:-1}
-      MEDIASTATION_TRANSCODER_IDLE_TIMEOUT_SECONDS: ${MEDIASTATION_TRANSCODER_IDLE_TIMEOUT_SECONDS:-120}
+      # NAS 友好的低负载默认值。
+      MEDIASTATION_TRANSCODER_ENABLED: "true"
+      MEDIASTATION_TRANSCODER_HARDWARE_ACCEL: "false"
+      MEDIASTATION_TRANSCODER_REALTIME: "true"
+      MEDIASTATION_TRANSCODER_THREADS: "2"
+      MEDIASTATION_TRANSCODER_MAX_CONCURRENT: "1"
+      MEDIASTATION_TRANSCODER_IDLE_TIMEOUT_SECONDS: "120"
 
     healthcheck:
       test: ["CMD-SHELL", "busybox wget -qO- http://127.0.0.1:8080/api/health || exit 1"]
@@ -77,8 +96,7 @@ services:
       retries: 5
       start_period: 30s
 
-    # 限制容器日志体积：默认 json-file 驱动不设上限，
-    # 长期运行会持续吃宿主机磁盘与 IO。
+    # 限制 Docker 日志大小，避免长期运行把磁盘写满。
     logging:
       driver: json-file
       options:

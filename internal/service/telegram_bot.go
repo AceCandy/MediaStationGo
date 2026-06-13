@@ -251,11 +251,30 @@ func telegramCommandName(text string) string {
 	return cmd
 }
 
+func telegramIsGroupChat(chatType string) bool {
+	return chatType != "" && chatType != "private"
+}
+
+func telegramGroupPrivateAdminHint() string {
+	return "管理命令请私聊 Bot 使用 <code>/menu</code> 或对应管理员命令，避免在群组公开管理面板。"
+}
+
+func telegramGroupPrivateUserHint(action string) string {
+	action = strings.TrimSpace(action)
+	if action == "" {
+		action = "此操作"
+	}
+	return action + "包含账号凭据或敏感信息，请私聊 Bot 操作；群组内仅开放账号状态、签到、设备与成人目录开关。"
+}
+
 // cmdStart 处理 /start 命令。
 func (s *TelegramBotService) cmdStart(ctx context.Context, msg *TelegramMessage, args []string) telegramCommandReply {
 	name := msg.From.FirstName
 	if msg.From.Username != "" {
 		name = "@" + msg.From.Username
+	}
+	if telegramIsGroupChat(msg.Chat.Type) && len(args) > 0 {
+		return telegramCommandReply{Text: telegramGroupPrivateUserHint("绑定账号")}
 	}
 	if len(args) == 0 {
 		if binding := s.telegramBinding(ctx, msg.From.ID); binding != nil {
@@ -420,6 +439,21 @@ func (s *TelegramBotService) cmdRegistrationToggle(ctx context.Context, args []s
 // cmdHelp 处理 /help 命令。
 func (s *TelegramBotService) cmdHelp(ctx context.Context, msg *TelegramMessage) string {
 	channel := s.findChannelForMessage(ctx, msg)
+	if telegramIsGroupChat(msg.Chat.Type) {
+		adminHint := ""
+		if s.telegramUserIsAdmin(ctx, channel, msg.From.ID) {
+			adminHint = "\n\n管理员命令和管理面板请私聊 Bot 使用，避免在群组公开。"
+		}
+		return "<b>MediaStationGo 群组可用命令</b>\n\n" +
+			"<b>/menu</b> — 打开群组自助菜单\n" +
+			"<b>/account</b> — 查看账号状态\n" +
+			"<b>/signin</b> — 签到\n" +
+			"<b>/devices</b> — 查看登录设备\n" +
+			"<b>/kick all|编号</b> — 踢下线设备\n" +
+			"<b>/hideadult on|off</b> — 隐藏或显示成人目录\n\n" +
+			"绑定、注册、兑换、改名、改密等包含敏感信息的操作请私聊 Bot。" +
+			adminHint
+	}
 	if !s.telegramUserIsAdmin(ctx, channel, msg.From.ID) {
 		register := ""
 		if s.openRegEnabled(ctx) {

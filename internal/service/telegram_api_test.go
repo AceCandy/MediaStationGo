@@ -96,14 +96,20 @@ func TestTelegramTargetChatIDsUsesLegacyPrivateChatID(t *testing.T) {
 
 func TestRegisterTelegramBotCommands(t *testing.T) {
 	var gotPath string
-	var payload struct {
+	var payloads []struct {
 		Commands []telegramBotCommand `json:"commands"`
+		Scope    map[string]any       `json:"scope"`
 	}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotPath = r.URL.Path
+		var payload struct {
+			Commands []telegramBotCommand `json:"commands"`
+			Scope    map[string]any       `json:"scope"`
+		}
 		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 			t.Fatalf("decode payload: %v", err)
 		}
+		payloads = append(payloads, payload)
 		_, _ = w.Write([]byte(`{"ok":true}`))
 	}))
 	defer server.Close()
@@ -118,9 +124,55 @@ func TestRegisterTelegramBotCommands(t *testing.T) {
 	if gotPath != "/bot123456:ABC/setMyCommands" {
 		t.Fatalf("path = %q", gotPath)
 	}
-	if len(payload.Commands) == 0 || payload.Commands[0].Command != "start" {
-		t.Fatalf("commands not registered: %#v", payload.Commands)
+	if len(payloads) < 3 {
+		t.Fatalf("expected default/private/group command registrations, got %d", len(payloads))
 	}
+	if len(payloads[0].Commands) == 0 || payloads[0].Commands[0].Command != "start" {
+		t.Fatalf("commands not registered: %#v", payloads[0].Commands)
+	}
+	var groupCommands []telegramBotCommand
+	for _, payload := range payloads {
+		if payload.Scope["type"] == "all_group_chats" {
+			groupCommands = payload.Commands
+			break
+		}
+	}
+	if len(groupCommands) == 0 {
+		t.Fatal("group command scope was not registered")
+	}
+	for _, command := range groupCommands {
+		if command.Command == "users" || command.Command == "status" || command.Command == "cleanup" || command.Command == "register" || command.Command == "redeem" {
+			t.Fatalf("group commands must not expose private/admin command %q", command.Command)
+		}
+	}
+}
+
+func TestTelegramCommandMenusSeparateGroupAndAdminCommands(t *testing.T) {
+	groupNames := telegramCommandNames(telegramGroupBotCommandMenu())
+	for _, forbidden := range []string{"status", "search", "downloads", "stats", "users", "cleanup", "cleanup_rule", "register", "redeem"} {
+		if groupNames[forbidden] {
+			t.Fatalf("group menu should not expose %s", forbidden)
+		}
+	}
+	for _, required := range []string{"start", "menu", "help", "account", "signin", "devices", "kick", "hideadult"} {
+		if !groupNames[required] {
+			t.Fatalf("group menu should include %s", required)
+		}
+	}
+	adminNames := telegramCommandNames(telegramAdminBotCommandMenu())
+	for _, required := range []string{"users", "status", "cleanup_rule"} {
+		if !adminNames[required] {
+			t.Fatalf("admin menu should include %s", required)
+		}
+	}
+}
+
+func telegramCommandNames(commands []telegramBotCommand) map[string]bool {
+	names := make(map[string]bool, len(commands))
+	for _, command := range commands {
+		names[command.Command] = true
+	}
+	return names
 }
 
 func TestTelegramProxyCandidatesDefaultLocalFallbacks(t *testing.T) {

@@ -55,10 +55,35 @@ func (s *TelegramBotService) boundUser(ctx context.Context, telegramUserID int) 
 // extra management section.
 func (s *TelegramBotService) mainMenu(ctx context.Context, channel *model.NotifyChannel, msg *TelegramMessage) telegramCommandReply {
 	isAdmin := s.telegramUserIsAdmin(ctx, channel, msg.From.ID)
+	isGroup := telegramIsGroupChat(msg.Chat.Type)
 	user := s.boundUser(ctx, msg.From.ID)
 
 	var rows [][]telegramInlineButton
 	var header string
+
+	if isGroup {
+		if user == nil {
+			header = "<b>MediaStationGo 群组自助菜单</b>\n\n你还没有绑定媒体中心账号。绑定、注册、兑换等包含敏感信息的操作请私聊 Bot。"
+		} else {
+			adult := map[bool]string{true: "已隐藏", false: "已显示"}[user.HideAdult]
+			header = fmt.Sprintf("<b>MediaStationGo 群组自助菜单</b>\n\n账号：<b>%s</b>\n到期：<b>%s</b>\n成人目录：<b>%s</b>",
+				user.Username, formatExpiry(user.ExpiredAt), adult)
+			rows = append(rows,
+				[]telegramInlineButton{
+					{Text: "👤 我的账号", Data: "act_account"},
+					{Text: "📅 签到", Data: "act_signin"},
+				},
+				[]telegramInlineButton{
+					{Text: "📱 我的设备", Data: "act_devices"},
+					{Text: map[bool]string{true: "🔞 显示成人目录", false: "🔞 隐藏成人目录"}[user.HideAdult], Data: "adult_toggle"},
+				},
+			)
+		}
+		if isAdmin {
+			header += "\n\n" + telegramGroupPrivateAdminHint()
+		}
+		return telegramCommandReply{Text: header, Buttons: rows}
+	}
 
 	if user == nil {
 		header = "<b>MediaStationGo</b>\n\n你还没有绑定媒体中心账号。"
@@ -109,6 +134,7 @@ func (s *TelegramBotService) mainMenu(ctx context.Context, channel *model.Notify
 // handleMenuCallback routes inline-button taps. Returns (reply, handled).
 func (s *TelegramBotService) handleMenuCallback(ctx context.Context, channel *model.NotifyChannel, msg *TelegramMessage, data string) (telegramCommandReply, bool) {
 	isAdmin := s.telegramUserIsAdmin(ctx, channel, msg.From.ID)
+	isGroup := telegramIsGroupChat(msg.Chat.Type)
 
 	switch {
 	case data == "noop":
@@ -116,17 +142,29 @@ func (s *TelegramBotService) handleMenuCallback(ctx context.Context, channel *mo
 	case data == "menu_main":
 		return s.mainMenu(ctx, channel, msg), true
 	case data == "act_bind":
+		if isGroup {
+			return telegramCommandReply{Text: telegramGroupPrivateUserHint("绑定账号")}, true
+		}
 		return telegramCommandReply{Text: "请发送：<code>/start 用户名 密码</code> 绑定已有账号。"}, true
 	case data == "act_register":
+		if isGroup {
+			return telegramCommandReply{Text: telegramGroupPrivateUserHint("注册账号")}, true
+		}
 		if !s.openRegEnabled(ctx) {
 			return telegramCommandReply{Text: "注册功能未开放，请联系管理员。"}, true
 		}
 		s.setPending(int64(msg.From.ID), "register")
 		return telegramCommandReply{Text: "请发送新账号的 <b>用户名 密码</b>（空格分隔），例如：<code>alice mypass123</code>"}, true
 	case data == "act_redeem_register":
+		if isGroup {
+			return telegramCommandReply{Text: telegramGroupPrivateUserHint("兑换码注册")}, true
+		}
 		s.setPending(int64(msg.From.ID), "redeem_register")
 		return telegramCommandReply{Text: "请发送你的<b>注册兑换码</b>，例如：<code>ABCD2345EFGH</code>\n（兑换后会要求设置用户名密码）"}, true
 	case data == "act_redeem_renew":
+		if isGroup {
+			return telegramCommandReply{Text: telegramGroupPrivateUserHint("兑换码续期")}, true
+		}
 		s.setPending(int64(msg.From.ID), "redeem_renew")
 		return telegramCommandReply{Text: "请发送你的<b>续期兑换码</b>，将为当前绑定账号续期。"}, true
 	case data == "act_account":
@@ -136,9 +174,15 @@ func (s *TelegramBotService) handleMenuCallback(ctx context.Context, channel *mo
 	case data == "act_devices":
 		return s.replyDevices(ctx, msg), true
 	case data == "act_setname":
+		if isGroup {
+			return telegramCommandReply{Text: telegramGroupPrivateUserHint("修改用户名")}, true
+		}
 		s.setPending(int64(msg.From.ID), "setname")
 		return telegramCommandReply{Text: "请发送：<code>当前密码 新用户名</code>。"}, true
 	case data == "act_setpass":
+		if isGroup {
+			return telegramCommandReply{Text: telegramGroupPrivateUserHint("修改密码")}, true
+		}
 		s.setPending(int64(msg.From.ID), "setpass")
 		return telegramCommandReply{Text: "请发送：<code>当前密码 新密码</code>（新密码至少 6 位）。"}, true
 	case strings.HasPrefix(data, "kick:"):
@@ -146,6 +190,12 @@ func (s *TelegramBotService) handleMenuCallback(ctx context.Context, channel *mo
 	}
 
 	// ── 管理员专属 ──
+	if isGroup {
+		if isAdmin {
+			return telegramCommandReply{Text: telegramGroupPrivateAdminHint()}, true
+		}
+		return telegramCommandReply{}, true
+	}
 	if !isAdmin {
 		return telegramCommandReply{Text: "此功能仅管理员可用。"}, true
 	}
