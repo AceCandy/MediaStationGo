@@ -69,6 +69,39 @@ func TestOrganizeDirectoryScanAndScrapeAfter(t *testing.T) {
 	}
 }
 
+func TestOrganizeDirectoryUsesScraperMatchBeforeRename(t *testing.T) {
+	scraper, repos, closeServer := newTestScraper(t)
+	defer closeServer()
+
+	root := t.TempDir()
+	src := filepath.Join(root, "downloads")
+	dest := filepath.Join(root, "media")
+	sourceFile := filepath.Join(src, "Spy.x.Family.S01E01.2022.1080p.mkv")
+	writeOrgFile(t, sourceFile, "episode")
+
+	organizer := NewOrganizerService(&config.Config{}, zap.NewNop(), repos)
+	organizer.SetScraper(scraper)
+	res, err := organizer.OrganizeDirectory(t.Context(), OrganizeOptions{
+		SourcePath:   src,
+		DestPath:     dest,
+		TransferMode: TransferCopy,
+		MediaType:    "tv",
+	})
+	if err != nil {
+		t.Fatalf("organize directory: %v", err)
+	}
+	if res.Organized != 1 {
+		t.Fatalf("organized = %d, want 1", res.Organized)
+	}
+	want := filepath.Join(dest, "电视剧", "间谍过家家", "Season 01", "间谍过家家 - S01E01.mkv")
+	if _, err := os.Stat(want); err != nil {
+		t.Fatalf("organized file should use matched metadata path %q: %v; items=%#v", want, err, res.Items)
+	}
+	if len(res.Items) != 1 || res.Items[0].Target != want || res.Items[0].Title != "间谍过家家" {
+		t.Fatalf("organize preview did not use scraper metadata: %#v", res.Items)
+	}
+}
+
 func TestOrganizeScanAndScrapeRetriesNoMatchRows(t *testing.T) {
 	scraper, repos, closeServer := newTestScraper(t)
 	defer closeServer()

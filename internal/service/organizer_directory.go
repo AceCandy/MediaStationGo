@@ -138,6 +138,7 @@ func (o *OrganizerService) OrganizeDirectory(ctx context.Context, opts OrganizeO
 	}
 	mode := o.resolveTransferMode(ctx, opts.TransferMode)
 	res := &OrganizeResult{SourcePath: source, DestPath: dest, DryRun: opts.DryRun}
+	metadataCache := map[string]*Match{}
 	if !info.IsDir() {
 		ext := strings.ToLower(filepath.Ext(source))
 		if _, ok := videoExtensions[ext]; !ok {
@@ -157,7 +158,7 @@ func (o *OrganizerService) OrganizeDirectory(ctx context.Context, opts OrganizeO
 			)
 			return res, nil
 		}
-		if err := o.organizeSourceFile(ctx, source, filepath.Dir(source), dest, mode, opts.MediaType, opts.MediaCategory, opts.DryRun, opts.AllowReplaceExisting, res); err != nil {
+		if err := o.organizeSourceFile(ctx, source, filepath.Dir(source), dest, mode, opts.MediaType, opts.MediaCategory, opts.DryRun, opts.AllowReplaceExisting, metadataCache, res); err != nil {
 			res.Errors = append(res.Errors, fmt.Sprintf("%s: %s", filepath.Base(source), err.Error()))
 			res.Items = append(res.Items, OrganizePreviewItem{Source: source, Action: "error", Reason: err.Error()})
 		}
@@ -185,7 +186,7 @@ func (o *OrganizerService) OrganizeDirectory(ctx context.Context, opts OrganizeO
 			res.Items = append(res.Items, OrganizePreviewItem{Source: path, Action: "skip", Reason: reason})
 			return nil
 		}
-		if err := o.organizeSourceFile(ctx, path, source, dest, mode, opts.MediaType, opts.MediaCategory, opts.DryRun, opts.AllowReplaceExisting, res); err != nil {
+		if err := o.organizeSourceFile(ctx, path, source, dest, mode, opts.MediaType, opts.MediaCategory, opts.DryRun, opts.AllowReplaceExisting, metadataCache, res); err != nil {
 			res.Errors = append(res.Errors, fmt.Sprintf("%s: %s", filepath.Base(path), err.Error()))
 			res.Items = append(res.Items, OrganizePreviewItem{Source: path, Action: "error", Reason: err.Error()})
 		}
@@ -239,7 +240,7 @@ type organizeDirectoryLayout struct {
 
 // organizeSourceFile organizes a single video file from the source directory
 // into destRoot, applying dedup + 洗版.
-func (o *OrganizerService) organizeSourceFile(ctx context.Context, src, sourceRoot, destRoot string, mode TransferMode, mediaTypeOverride, mediaCategoryOverride string, dryRun bool, allowReplaceExisting bool, res *OrganizeResult) error {
+func (o *OrganizerService) organizeSourceFile(ctx context.Context, src, sourceRoot, destRoot string, mode TransferMode, mediaTypeOverride, mediaCategoryOverride string, dryRun bool, allowReplaceExisting bool, metadataCache map[string]*Match, res *OrganizeResult) error {
 	ext := filepath.Ext(src)
 	title, year := CleanQuery(src)
 	if title == "" {
@@ -262,6 +263,15 @@ func (o *OrganizerService) organizeSourceFile(ctx context.Context, src, sourceRo
 	}
 	if layout.MediaType == "" {
 		layout.MediaType = o.inferMediaTypeForSourceFile(src, title, season, episode)
+	}
+	if match := o.lookupOrganizeMetadata(ctx, src, sourceRoot, layout.MediaType, title, year, season, episode, metadataCache); match != nil {
+		if matchedTitle := sanitizeFilename(strings.TrimSpace(match.Title)); matchedTitle != "" {
+			title = matchedTitle
+			parsedTitle = strings.TrimSpace(match.Title)
+		}
+		if match.Year > 0 {
+			year = match.Year
+		}
 	}
 	if category := strings.TrimSpace(mediaCategoryOverride); category != "" {
 		layout.Category = sanitizeFilename(category)
@@ -443,6 +453,91 @@ func (o *OrganizerService) inferMediaTypeForSourceFile(src, title string, season
 		return "tv"
 	}
 	return normalizeMediaType("", title, src)
+}
+
+func (o *OrganizerService) lookupOrganizeMetadata(ctx context.Context, src, sourceRoot, mediaType, title string, year, season, episode int, cache map[string]*Match) *Match {
+	seriesLike := isSeriesLibraryType(mediaType) || season > 0 || episode > 0
+	if local, err := ReadLocalMetadata(src, sourceRoot, seriesLike); err == nil && local != nil {
+		if match := organizeMatchFromLocalMetadata(local); match != nil {
+			return match
+		}
+	} else if err != nil && o.log != nil {
+		o.log.Debug("organize read local metadata before rename failed", zap.String("path", src), zap.Error(err))
+	}
+	if o == nil || o.scraper == nil || !o.scraper.AnyEnabled() {
+		return nil
+	}
+	libType := normalizeOrganizeMediaType(mediaType)
+	if libType == "" {
+		libType = organizeLibraryModelType(mediaType)
+	}
+	lib := &model.Library{Path: sourceRoot, Type: libType, Enabled: true}
+	media := &model.Media{
+		Title:      title,
+		Year:       year,
+		Path:       src,
+		SeasonNum:  season,
+		EpisodeNum: episode,
+	}
+	for _, candidate := range scrapeQueryCandidates(media, lib) {
+		key := organizeMetadataCacheKey(lib.Type, candidate, year)
+		if cache != nil {
+			if cached, ok := cache[key]; ok {
+				if cached != nil {
+					return cached
+				}
+				continue
+			}
+		}
+		match := o.scraper.lookup(ctx, lib, candidate, year)
+		if cache != nil {
+			cache[key] = match
+		}
+		if match != nil && strings.TrimSpace(match.Title) != "" {
+			if o.log != nil {
+				o.log.Info("organize metadata matched before rename",
+					zap.String("source", src),
+					zap.String("query", candidate),
+					zap.String("title", match.Title),
+					zap.Int("year", match.Year),
+					zap.Int("tmdb_id", match.TMDbID),
+					zap.Int("bangumi_id", match.BangumiID))
+			}
+			return match
+		}
+	}
+	return nil
+}
+
+func organizeMatchFromLocalMetadata(local *LocalMetadata) *Match {
+	if local == nil || strings.TrimSpace(local.Title) == "" {
+		return nil
+	}
+	match := &Match{
+		Title:        strings.TrimSpace(local.Title),
+		OriginalName: strings.TrimSpace(local.OriginalName),
+		Overview:     local.Overview,
+		PosterURL:    local.PosterURL,
+		BackdropURL:  local.BackdropURL,
+		Year:         local.Year,
+		Rating:       local.Rating,
+		TMDbID:       local.TMDbID,
+		NSFW:         local.NSFW,
+	}
+	if local.Genres != "" {
+		match.Genres = splitNFOList(local.Genres)
+	}
+	if local.Countries != "" {
+		match.Countries = splitNFOList(local.Countries)
+	}
+	if local.Languages != "" {
+		match.Languages = splitNFOList(local.Languages)
+	}
+	return match
+}
+
+func organizeMetadataCacheKey(mediaType, query string, year int) string {
+	return strings.ToLower(strings.TrimSpace(mediaType)) + "|" + fmt.Sprint(year) + "|" + strings.ToLower(strings.TrimSpace(query))
 }
 
 func (o *OrganizerService) smartClassifySourceFile(ctx context.Context, src, sourceRoot, mediaType, title, parsedTitle string) string {

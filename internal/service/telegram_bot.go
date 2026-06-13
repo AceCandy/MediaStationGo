@@ -217,13 +217,13 @@ func (s *TelegramBotService) HandleWebhook(ctx context.Context, body []byte) err
 	reply, err := s.executeCommand(ctx, channel, msg, text)
 	if err != nil {
 		s.log.Error("command failed", zap.Error(err))
-		_ = s.reply(ctx, channel, msg.Chat.ID, telegramCommandReply{Text: "命令执行失败: " + err.Error()})
+		_ = s.replyForMessage(ctx, channel, msg, telegramCommandReply{Text: "命令执行失败: " + err.Error()})
 		s.deleteTelegramSourceMessage(channel, msg.Chat.ID, msg.MessageID)
 		return nil
 	}
 
 	if reply.Text != "" {
-		if err := s.reply(ctx, channel, msg.Chat.ID, reply); err != nil {
+		if err := s.replyForMessage(ctx, channel, msg, reply); err != nil {
 			s.log.Error("reply failed", zap.Error(err))
 		}
 		s.deleteTelegramSourceMessage(channel, msg.Chat.ID, msg.MessageID)
@@ -255,6 +255,15 @@ func telegramIsGroupChat(chatType string) bool {
 	return chatType != "" && chatType != "private"
 }
 
+func telegramPrivateMessageForUser(msg *TelegramMessage) *TelegramMessage {
+	if msg == nil || !telegramIsGroupChat(msg.Chat.Type) {
+		return msg
+	}
+	copied := *msg
+	copied.Chat = TelegramChat{ID: msg.From.ID, Type: "private"}
+	return &copied
+}
+
 func telegramGroupPrivateAdminHint() string {
 	return "管理命令请私聊 Bot 使用 <code>/menu</code> 或对应管理员命令，避免在群组公开管理面板。"
 }
@@ -265,6 +274,14 @@ func telegramGroupPrivateUserHint(action string) string {
 		action = "此操作"
 	}
 	return action + "包含账号凭据或敏感信息，请私聊 Bot 操作；群组内仅开放账号状态、签到、设备与成人目录开关。"
+}
+
+func telegramGroupPrivateDeliverySentHint() string {
+	return "已把你的 Bot 面板/执行结果私聊发送给你。若没收到，请先私聊 Bot 发送 <code>/start</code>。"
+}
+
+func telegramGroupPrivateDeliveryFailedHint() string {
+	return "无法私聊发送给你。请先打开 Bot 私聊窗口发送 <code>/start</code>，再回群里使用命令。"
 }
 
 // cmdStart 处理 /start 命令。
@@ -930,6 +947,29 @@ func (s *TelegramBotService) reply(ctx context.Context, channel *model.NotifyCha
 	return nil
 }
 
+func (s *TelegramBotService) replyForMessage(ctx context.Context, channel *model.NotifyChannel, msg *TelegramMessage, reply telegramCommandReply) error {
+	if msg == nil {
+		return nil
+	}
+	if strings.TrimSpace(reply.Text) == "" {
+		return nil
+	}
+	if !telegramIsGroupChat(msg.Chat.Type) {
+		return s.reply(ctx, channel, msg.Chat.ID, reply)
+	}
+	if err := s.reply(ctx, channel, msg.From.ID, reply); err != nil {
+		if s.log != nil {
+			s.log.Warn("telegram private reply from group failed",
+				zap.Int("group_chat_id", msg.Chat.ID),
+				zap.Int("telegram_user_id", msg.From.ID),
+				zap.Error(sanitizeTelegramError(err)),
+			)
+		}
+		return s.reply(ctx, channel, msg.Chat.ID, telegramCommandReply{Text: telegramGroupPrivateDeliveryFailedHint()})
+	}
+	return s.reply(ctx, channel, msg.Chat.ID, telegramCommandReply{Text: telegramGroupPrivateDeliverySentHint()})
+}
+
 func (s *TelegramBotService) deleteTelegramSourceMessage(channel *model.NotifyChannel, chatID, messageID int) {
 	if messageID <= 0 {
 		return
@@ -1057,6 +1097,15 @@ func (s *TelegramBotService) handleCallback(ctx context.Context, cb *TelegramCal
 		channel = s.findChannelByChatID(ctx, cb.Message.Chat.ID)
 	}
 	// 立即应答回调，关闭按钮上的加载状态，避免客户端长时间转圈。
+	if telegramIsGroupChat(cb.Message.Chat.Type) {
+		s.answerCallbackWithText(ctx, channel, cb.ID, "为了隐私，群组内按钮面板已禁用。请私聊 Bot 或在群里发送 /menu，我会把面板私聊给你。", true)
+		s.deleteTelegramSourceMessage(channel, cb.Message.Chat.ID, cb.Message.MessageID)
+		return nil
+	}
+	if cb.Message.Chat.Type == "private" && cb.Message.Chat.ID != cb.From.ID {
+		s.answerCallbackWithText(ctx, channel, cb.ID, "这个面板不属于你，请发送 /menu 打开自己的面板。", true)
+		return nil
+	}
 	s.answerCallback(ctx, channel, cb.ID)
 	data := strings.TrimSpace(cb.Data)
 	if data == "adult_toggle" {
@@ -1080,6 +1129,10 @@ func (s *TelegramBotService) handleCallback(ctx context.Context, cb *TelegramCal
 
 // answerCallback 应答 Telegram 回调查询，关闭按钮上的加载提示。
 func (s *TelegramBotService) answerCallback(ctx context.Context, channel *model.NotifyChannel, callbackID string) {
+	s.answerCallbackWithText(ctx, channel, callbackID, "", false)
+}
+
+func (s *TelegramBotService) answerCallbackWithText(ctx context.Context, channel *model.NotifyChannel, callbackID, text string, showAlert bool) {
 	if channel == nil || strings.TrimSpace(callbackID) == "" {
 		return
 	}
@@ -1087,9 +1140,14 @@ func (s *TelegramBotService) answerCallback(ctx context.Context, channel *model.
 	if strings.TrimSpace(cfg["bot_token"]) == "" {
 		return
 	}
-	if err := telegramPostJSON(ctx, cfg, "answerCallbackQuery", map[string]interface{}{
+	payload := map[string]interface{}{
 		"callback_query_id": callbackID,
-	}, 8*time.Second); err != nil {
+	}
+	if strings.TrimSpace(text) != "" {
+		payload["text"] = text
+		payload["show_alert"] = showAlert
+	}
+	if err := telegramPostJSON(ctx, cfg, "answerCallbackQuery", payload, 8*time.Second); err != nil {
 		s.log.Debug("telegram answerCallbackQuery failed", zap.Error(sanitizeTelegramError(err)))
 	}
 }

@@ -31,10 +31,11 @@ import (
 
 // OrganizerService moves/renames files into library structures.
 type OrganizerService struct {
-	cfg   *config.Config
-	log   *zap.Logger
-	repo  *repository.Container
-	probe *FFprobeService // optional; used for 洗版 resolution comparison
+	cfg     *config.Config
+	log     *zap.Logger
+	repo    *repository.Container
+	probe   *FFprobeService // optional; used for 洗版 resolution comparison
+	scraper *ScraperService // optional; used to identify metadata before rename
 }
 
 // NewOrganizerService is the constructor.
@@ -46,6 +47,10 @@ func NewOrganizerService(cfg *config.Config, log *zap.Logger, repo *repository.C
 // pixel dimensions when deciding whether to 洗版 (replace by higher resolution).
 // Optional: when nil the organizer falls back to filename resolution tokens.
 func (o *OrganizerService) SetProbe(p *FFprobeService) { o.probe = p }
+
+// SetScraper wires the scraper so directory organize can resolve TMDb/Bangumi
+// metadata before it decides the final folder and filename.
+func (o *OrganizerService) SetScraper(s *ScraperService) { o.scraper = s }
 
 // OrganizeResult reports what happened.
 type OrganizeResult struct {

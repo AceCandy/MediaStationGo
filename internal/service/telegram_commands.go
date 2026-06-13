@@ -25,11 +25,13 @@ func (s *TelegramBotService) telegramCommandDefinitions(ctx context.Context, cha
 	return []telegramCommandDefinition{
 		{Aliases: []string{"/start"}, GroupAllowed: true, Handle: func(args []string) (telegramCommandReply, error) {
 			if len(args) == 0 {
-				return s.mainMenu(ctx, channel, msg), nil
+				return s.mainMenu(ctx, channel, telegramPrivateMessageForUser(msg)), nil
 			}
 			return s.cmdStart(ctx, msg, args), nil
 		}},
-		{Aliases: []string{"/menu"}, GroupAllowed: true, Handle: func(args []string) (telegramCommandReply, error) { return s.mainMenu(ctx, channel, msg), nil }},
+		{Aliases: []string{"/menu"}, GroupAllowed: true, Handle: func(args []string) (telegramCommandReply, error) {
+			return s.mainMenu(ctx, channel, telegramPrivateMessageForUser(msg)), nil
+		}},
 		{Aliases: []string{"/cancel"}, GroupAllowed: true, Handle: func(args []string) (telegramCommandReply, error) {
 			s.takePending(int64(msg.From.ID))
 			return telegramCommandReply{Text: "已取消当前操作。"}, nil
