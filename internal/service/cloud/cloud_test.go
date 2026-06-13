@@ -448,7 +448,7 @@ func TestOpenListWebDAVListAndResolve(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p, err := New(TypeOpenList, map[string]any{"server": srv.URL, "username": "u", "password": "p"}, srv.Client())
+	p, err := New(TypeOpenList, map[string]any{"url": srv.URL + "/dav"}, srv.Client())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -471,6 +471,84 @@ func TestOpenListWebDAVListAndResolve(t *testing.T) {
 	_, err = p.Resolve(context.Background(), entries[0].ID)
 	if err == nil || !strings.Contains(err.Error(), "pure 302 playback requires OpenList raw_url") {
 		t.Fatalf("openlist video resolve should require raw_url instead of WebDAV proxy fallback, err=%v", err)
+	}
+}
+
+func TestOpenListListUsesAPIUsernamePasswordWithoutWebDAVFallback(t *testing.T) {
+	var loginSeen, listSeen, davSeen bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/auth/login":
+			loginSeen = true
+			var body map[string]string
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatalf("decode login body: %v", err)
+			}
+			if body["username"] != "alice" || body["password"] != "secret" {
+				t.Fatalf("login body = %#v", body)
+			}
+			_, _ = w.Write([]byte(`{"code":200,"data":{"token":"api-token"}}`))
+		case "/api/fs/list":
+			listSeen = true
+			if r.Header.Get("Authorization") != "api-token" {
+				t.Fatalf("Authorization = %q, want api-token", r.Header.Get("Authorization"))
+			}
+			_, _ = w.Write([]byte(`{"code":200,"data":{"content":[{"name":"Movies","is_dir":true,"size":0},{"name":"Movie.mkv","is_dir":false,"size":1024}],"total":2}}`))
+		case "/dav":
+			davSeen = true
+			w.WriteHeader(http.StatusMultiStatus)
+		default:
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+
+	p, err := New(TypeOpenList, map[string]any{"server": srv.URL, "username": "alice", "password": "secret"}, srv.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	entries, err := p.List(context.Background(), "")
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if !loginSeen || !listSeen {
+		t.Fatalf("expected api login/list, login=%v list=%v", loginSeen, listSeen)
+	}
+	if davSeen {
+		t.Fatal("openlist API credentials should not fall back to WebDAV")
+	}
+	if len(entries) != 2 || entries[0].ID != "/Movies" || !entries[0].IsDir || entries[1].ID != "/Movie.mkv" || entries[1].Size != 1024 {
+		t.Fatalf("entries = %#v", entries)
+	}
+}
+
+func TestOpenListListAPIFailureDoesNotFallbackToWebDAV(t *testing.T) {
+	var davSeen bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/auth/login":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"code":500,"message":"bad password"}`))
+		case "/dav":
+			davSeen = true
+			w.WriteHeader(http.StatusMultiStatus)
+		default:
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+
+	p, err := New(TypeOpenList, map[string]any{"server": srv.URL, "username": "alice", "password": "bad"}, srv.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = p.List(context.Background(), "")
+	if err == nil || !strings.Contains(err.Error(), "api login failed") || !strings.Contains(err.Error(), "bad password") {
+		t.Fatalf("list error = %v, want api login failure", err)
+	}
+	if davSeen {
+		t.Fatal("openlist API failure fell back to WebDAV")
 	}
 }
 

@@ -113,11 +113,11 @@ const FIELD_DEFS: Record<StorageType, { key: string; label: string; secret?: boo
     { key: 'token', label: 'Token', secret: true },
   ],
   openlist: [
-    { key: 'server', label: 'OpenList Server URL(API / 转存)', placeholder: 'http://NAS-IP:5244' },
-    { key: 'token', label: 'OpenList Token(API 转存可选)', secret: true },
-    { key: 'url', label: 'WebDAV URL(浏览/挂载)', placeholder: 'http://NAS-IP:5244/dav/' },
-    { key: 'username', label: 'WebDAV 用户名' },
-    { key: 'password', label: 'WebDAV 密码', secret: true },
+    { key: 'server', label: 'OpenList 服务地址(API / 浏览 / 挂载 / 转存)', placeholder: 'http://NAS-IP:5244' },
+    { key: 'username', label: 'OpenList 用户名' },
+    { key: 'password', label: 'OpenList 密码', secret: true },
+    { key: 'token', label: 'OpenList Token(可选,优先于用户名密码)', secret: true },
+    { key: 'url', label: 'WebDAV URL(可选兼容备用)', placeholder: '通常不用填；需要备用时填 http://NAS-IP:5244/dav/' },
     { key: 'timeout_seconds', label: '请求超时秒数', placeholder: '120' },
   ],
   webdav: [
@@ -373,7 +373,7 @@ function StorageUploadPanel({ type }: { type: StorageType }) {
       )}
       {type === 'openlist' && (
         <p className="mb-3 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-800">
-          OpenList 默认端口常见为 5244，WebDAV 地址通常是 http://host:5244/dav/。如果未配置 HTTPS 反代，请不要填写 https://，否则会出现 “server gave HTTP response to HTTPS client”。
+          OpenList 优先使用服务地址 + 用户名密码/Token 调用 API 进行浏览、挂载、转存和获取播放直链；WebDAV URL 只是兼容备用。默认端口常见为 5244，未配置 HTTPS 反代时请填写 http://。
         </p>
       )}
       {type === 'clouddrive2' && (

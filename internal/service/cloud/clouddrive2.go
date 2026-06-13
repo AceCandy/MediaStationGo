@@ -81,9 +81,7 @@ func (p *cloudDrive2Provider) List(ctx context.Context, dir string) ([]FileEntry
 		return nil, err
 	}
 	if p.typ == TypeOpenList && p.apiBase != nil && p.hasOpenListAPICredentials() {
-		if entries, err := p.listOpenListAPI(ctx, dir); err == nil {
-			return entries, nil
-		}
+		return p.listOpenListAPI(ctx, dir)
 	}
 	target := normalizeCloudDAVPath(dir)
 	req, err := http.NewRequestWithContext(ctx, "PROPFIND", p.urlFor(target), strings.NewReader(cloudDAVPropfindBody))
