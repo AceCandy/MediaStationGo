@@ -1125,7 +1125,7 @@ func (s *TelegramBotService) protectReason(ctx context.Context, userID string) s
 func (s *TelegramBotService) replyDevicePolicy(ctx context.Context) telegramCommandReply {
 	cfg := loadBotConfig(ctx, s.repo)
 	text := fmt.Sprintf(
-		"<b>设备策略</b>\n\n① 防共享：<b>%s</b>\n   并发播放上限 %d / 登录客户端上限 %d；超限会禁用账号，管理员可解禁。\n   设备指纹异常警告 %d 次后禁用账号。\n\n② Sakura 保号规则：<b>%s</b>\n   保号模式：%s；需要满足 %d 条；启用规则 %d 条。\n\n<b>命令：</b>\n<code>/antishare on play=3 login=3 warn=2</code>\n<code>/cleanup on|off|run</code>\n<code>/cleanup_mode any|all|count 2</code>\n<code>/cleanup_rule list|add|edit|del|enable|disable</code>\n\n策略默认关闭；清理前会先通过 Bot 通知用户；管理员/受保护账号永不自动处理。",
+		"<b>设备策略</b>\n\n① 防共享：<b>%s</b>\n   并发播放上限 %d / 登录客户端上限 %d；超限会禁用账号，管理员可解禁。\n   设备指纹异常警告 %d 次后禁用账号。\n\n② Sakura 保号规则：<b>%s</b>\n   保号模式：%s；需要满足 %d 条；启用规则 %d 条。\n\n<b>命令：</b>\n<code>/antishare on play=3 login=3 warn=2</code>\n<code>/cleanup on|off|run</code>\n<code>/cleanup_mode any|all|count 2</code>\n<code>/cleanup_rule list|add|edit|修改|del|enable|disable</code>\n\n策略默认关闭；清理前会先通过 Bot 通知用户；管理员/受保护账号永不自动处理。",
 		onOff(cfg.AntiShareEnabled), cfg.MaxConcurrentPlay, cfg.MaxLoggedClients, cfg.WarnThreshold,
 		onOff(cfg.AccountCleanupEnabled), cleanupModeLabel(cfg.AccountCleanupKeepMode), cfg.AccountCleanupRequiredCount, countEnabledCleanupRules(cfg.AccountCleanupRules))
 	return telegramCommandReply{
@@ -1280,7 +1280,7 @@ func (s *TelegramBotService) cmdCleanupRule(ctx context.Context, args []string) 
 			return telegramCommandReply{Text: "保存失败：" + err.Error()}
 		}
 		return telegramCommandReply{Text: "已更新规则状态。\n\n" + formatCleanupRules(rules)}
-	case "add", "set", "edit", "update":
+	case "add", "set", "edit", "update", "修改", "更新", "改":
 		rule, err := parseCleanupRuleCommand(args[1:])
 		if err != nil {
 			return telegramCommandReply{Text: err.Error() + "\n\n" + cleanupRuleHelp()}
@@ -1518,6 +1518,7 @@ func cleanupRuleHelp() string {
 		"<code>/cleanup_rule add signin_streak sign_3 连续签到3天 3</code>\n" +
 		"<code>/cleanup_rule add account_age_grace new_7d 新号宽限7天 7</code>\n" +
 		"<code>/cleanup_rule edit 规则类型 规则ID 名称 参数...</code> — 修改同 ID 规则\n" +
+		"<code>/cleanup_rule 修改 规则类型 规则ID 名称 参数...</code> — 中文修改入口\n" +
 		"<code>/cleanup_rule enable 规则ID</code> / <code>disable 规则ID</code>\n" +
 		"<code>/cleanup_rule del 规则ID</code>\n\n" +
 		"保号模式：<code>/cleanup_mode any|all|count 2</code>"

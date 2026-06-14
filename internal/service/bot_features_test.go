@@ -340,6 +340,27 @@ func TestBotAdminCommandsManageDevicePolicy(t *testing.T) {
 		t.Fatalf("cleanup rule update should not create duplicates, got %d rules=%+v", matches, cfg.AccountCleanupRules)
 	}
 
+	reply, err = bot.executeCommand(ctx, channel, msg, "/cleanup_rule 修改 recent_login login_7d 二十一天内登录 21")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(reply.Text, "已更新规则") {
+		t.Fatalf("expected Chinese cleanup rule update reply, got %q", reply.Text)
+	}
+	cfg = loadBotConfig(ctx, repos)
+	matches = 0
+	for _, rule := range cfg.AccountCleanupRules {
+		if rule.ID == "login_7d" {
+			matches++
+			if rule.WindowDaysMax != 21 || rule.Name != "二十一天内登录" {
+				t.Fatalf("Chinese cleanup rule update should update values, got %+v", rule)
+			}
+		}
+	}
+	if matches != 1 {
+		t.Fatalf("Chinese cleanup rule update should not create duplicates, got %d rules=%+v", matches, cfg.AccountCleanupRules)
+	}
+
 	reply, err = bot.executeCommand(ctx, channel, msg, "/cleanup_rule add account_age_grace new_7d 7")
 	if err != nil {
 		t.Fatal(err)
