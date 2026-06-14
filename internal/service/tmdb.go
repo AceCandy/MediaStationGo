@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
 	"go.uber.org/zap"
@@ -166,13 +167,16 @@ func (t *TMDbProvider) SearchMovie(ctx context.Context, query string, year int) 
 	u := base + "/search/movie?" + q.Encode()
 
 	type result struct {
-		ID           int     `json:"id"`
-		Title        string  `json:"title"`
-		Overview     string  `json:"overview"`
-		PosterPath   string  `json:"poster_path"`
-		BackdropPath string  `json:"backdrop_path"`
-		ReleaseDate  string  `json:"release_date"`
-		VoteAverage  float32 `json:"vote_average"`
+		ID               int     `json:"id"`
+		Title            string  `json:"title"`
+		OriginalTitle    string  `json:"original_title"`
+		OriginalLanguage string  `json:"original_language"`
+		Overview         string  `json:"overview"`
+		PosterPath       string  `json:"poster_path"`
+		BackdropPath     string  `json:"backdrop_path"`
+		ReleaseDate      string  `json:"release_date"`
+		VoteAverage      float32 `json:"vote_average"`
+		GenreIDs         []int   `json:"genre_ids"`
 	}
 	type page struct {
 		Results []result `json:"results"`
@@ -187,10 +191,13 @@ func (t *TMDbProvider) SearchMovie(ctx context.Context, query string, year int) 
 	}
 	r := p.Results[0]
 	m := &Match{
-		TMDbID:   r.ID,
-		Title:    r.Title,
-		Overview: r.Overview,
-		Rating:   r.VoteAverage,
+		TMDbID:       r.ID,
+		Title:        r.Title,
+		OriginalName: r.OriginalTitle,
+		Overview:     r.Overview,
+		Rating:       r.VoteAverage,
+		Languages:    nonEmptyStrings(r.OriginalLanguage),
+		Genres:       genreIDStrings(r.GenreIDs),
 	}
 	if r.PosterPath != "" {
 		m.PosterURL = t.imgCDN + "/w500" + r.PosterPath
@@ -228,14 +235,17 @@ func (t *TMDbProvider) SearchTV(ctx context.Context, query string, year int) (*M
 	u := base + "/search/tv?" + q.Encode()
 
 	type result struct {
-		ID           int     `json:"id"`
-		Name         string  `json:"name"`
-		OriginalName string  `json:"original_name"`
-		Overview     string  `json:"overview"`
-		PosterPath   string  `json:"poster_path"`
-		BackdropPath string  `json:"backdrop_path"`
-		FirstAirDate string  `json:"first_air_date"`
-		VoteAverage  float32 `json:"vote_average"`
+		ID               int      `json:"id"`
+		Name             string   `json:"name"`
+		OriginalName     string   `json:"original_name"`
+		OriginalLanguage string   `json:"original_language"`
+		OriginCountry    []string `json:"origin_country"`
+		Overview         string   `json:"overview"`
+		PosterPath       string   `json:"poster_path"`
+		BackdropPath     string   `json:"backdrop_path"`
+		FirstAirDate     string   `json:"first_air_date"`
+		VoteAverage      float32  `json:"vote_average"`
+		GenreIDs         []int    `json:"genre_ids"`
 	}
 	type page struct {
 		Results []result `json:"results"`
@@ -250,10 +260,14 @@ func (t *TMDbProvider) SearchTV(ctx context.Context, query string, year int) (*M
 	}
 	r := p.Results[0]
 	m := &Match{
-		TMDbID:   r.ID,
-		Title:    r.Name,
-		Overview: r.Overview,
-		Rating:   r.VoteAverage,
+		TMDbID:       r.ID,
+		Title:        r.Name,
+		OriginalName: r.OriginalName,
+		Overview:     r.Overview,
+		Rating:       r.VoteAverage,
+		Languages:    nonEmptyStrings(r.OriginalLanguage),
+		Countries:    deduplicate(r.OriginCountry),
+		Genres:       genreIDStrings(r.GenreIDs),
 	}
 	if m.Title == "" {
 		m.Title = r.OriginalName
@@ -434,6 +448,30 @@ func deduplicate(s []string) []string {
 		if !seen[v] {
 			seen[v] = true
 			out = append(out, v)
+		}
+	}
+	return out
+}
+
+func nonEmptyStrings(values ...string) []string {
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value != "" {
+			out = append(out, value)
+		}
+	}
+	return out
+}
+
+func genreIDStrings(ids []int) []string {
+	if len(ids) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(ids))
+	for _, id := range ids {
+		if id > 0 {
+			out = append(out, fmt.Sprint(id))
 		}
 	}
 	return out

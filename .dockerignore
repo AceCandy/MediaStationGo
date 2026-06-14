@@ -9,6 +9,11 @@ docs/
 data/
 cache/
 logs/
+verify-data/
+verify-cache/
+verify-media/
+verify-downloads/
+.codex-*
 .tmp_*
 .tmp-deploy-*
 .tmp-deploy-data/

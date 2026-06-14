@@ -105,6 +105,17 @@ var noiseTokenSet = func() map[string]struct{} {
 	return set
 }()
 
+var releaseBoundaryTokenSet = map[string]struct{}{
+	"1080p": {}, "2160p": {}, "4k": {}, "720p": {}, "480p": {}, "uhd": {}, "fhd": {},
+	"bd": {}, "bdrip": {}, "brrip": {}, "dvd": {}, "dvdrip": {}, "hdtv": {}, "pdtv": {},
+	"webdl": {}, "hdrip": {}, "bluray": {}, "webrip": {}, "web": {}, "remux": {},
+	"x264": {}, "x265": {}, "h264": {}, "h265": {}, "hevc": {}, "avc": {},
+}
+var strictSeasonFolderPatterns = []*regexp.Regexp{
+	regexp.MustCompile(`(?i)^(?:s|season)\.?\s*(\d{1,2})$`),
+	regexp.MustCompile(`^第\s*([0-9一二三四五六七八九十百零两]+)\s*季$`),
+}
+
 // bracketedTag matches "[anything]", "(anything)" or "{anything}" segments.
 var bracketedTag = regexp.MustCompile(`[\[\(\{][^\]\)\}]*[\]\)\}]`)
 var multiWordNoise = []*regexp.Regexp{
@@ -142,6 +153,7 @@ func CleanQuery(raw string) (title string, year int) {
 	lower = patCN.ReplaceAllString(lower, " ")
 	// 去掉中文季/部标记（如「第二季」「第2部」），避免残留在标题里既污染
 	// 搜索查询又导致整理后的目录名重复季信息。
+	lower = patSeasonOnly.ReplaceAllString(lower, " ")
 	lower = patCNSeason.ReplaceAllString(lower, " ")
 
 	for _, pat := range multiWordNoise {
@@ -153,8 +165,15 @@ func CleanQuery(raw string) (title string, year int) {
 	// 拆分后丢掉过短（≤1）且全为 ASCII 数字 / 字母的"碎片"，避免
 	// 「2」「0」「v」之类残留干扰 TMDb 搜索。中文字符不算碎片。
 	out := make([]string, 0, 8)
+	seenReleaseBoundary := false
 	for _, w := range strings.Fields(lower) {
 		if _, ok := noiseTokenSet[w]; ok {
+			if _, boundary := releaseBoundaryTokenSet[w]; boundary {
+				seenReleaseBoundary = true
+			}
+			continue
+		}
+		if seenReleaseBoundary && isASCIIWord(w) {
 			continue
 		}
 		if len(w) <= 1 {
@@ -167,6 +186,22 @@ func CleanQuery(raw string) (title string, year int) {
 	}
 	title = strings.TrimSpace(strings.Join(out, " "))
 	return title, year
+}
+
+func isASCIIWord(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if r >= 128 {
+			return false
+		}
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 // EnrichOne runs the provider chain for a single media row.
@@ -188,10 +223,7 @@ func (s *ScraperService) EnrichOne(ctx context.Context, m *model.Media) error {
 		}
 	}
 
-	year := m.Year
-	if year == 0 {
-		_, year = CleanQuery(filepath.Base(m.Path))
-	}
+	year := mediaYearHint(m)
 
 	if s.adult != nil && s.adult.Enabled() {
 		if code := firstText(localAdultCode(local), AdultCodeFromMediaPath(m.Path), normalizeAdultCode(m.OriginalName), normalizeAdultCode(m.Title)); code != "" {
@@ -208,8 +240,25 @@ func (s *ScraperService) EnrichOne(ctx context.Context, m *model.Media) error {
 	var query string
 	match := (*Match)(nil)
 	for _, candidate := range candidates {
-		match = s.lookup(ctx, lib, candidate, year)
 		query = candidate
+		candidateMatch := s.lookup(ctx, lib, candidate, year)
+		if candidateMatch == nil {
+			continue
+		}
+		if !organizeMetadataMatchTrusted(candidate, year, candidateMatch) {
+			s.log.Warn("metadata scrape match rejected",
+				zap.String("media_id", m.ID),
+				zap.String("query", candidate),
+				zap.String("title", candidateMatch.Title),
+				zap.Int("source_year", year),
+				zap.Int("match_year", candidateMatch.Year),
+				zap.Int("tmdb_id", candidateMatch.TMDbID),
+				zap.Int("bangumi_id", candidateMatch.BangumiID),
+				zap.String("douban_id", candidateMatch.DoubanID),
+				zap.String("thetvdb_id", candidateMatch.TheTVDBID))
+			continue
+		}
+		match = candidateMatch
 		if match != nil {
 			break
 		}
@@ -240,6 +289,31 @@ func (s *ScraperService) EnrichOne(ctx context.Context, m *model.Media) error {
 	mergeLocalMetadataIntoMatch(match, local)
 
 	return s.applyProviderMatch(ctx, m, lib, match)
+}
+
+func mediaYearHint(m *model.Media) int {
+	if m == nil {
+		return 0
+	}
+	if m.Year > 0 {
+		return m.Year
+	}
+	if _, year := CleanQuery(filepath.Base(m.Path)); year > 0 {
+		return year
+	}
+	return yearFromText(m.Path)
+}
+
+func yearFromText(raw string) int {
+	if raw == "" {
+		return 0
+	}
+	matches := yearPattern.FindStringSubmatch(strings.ToLower(raw))
+	if len(matches) < 2 {
+		return 0
+	}
+	year, _ := strconv.Atoi(matches[1])
+	return year
 }
 
 func localAdultCode(local *LocalMetadata) string {
@@ -489,7 +563,7 @@ func scrapeQueryCandidates(m *model.Media, lib *model.Library) []string {
 
 func seriesFolderTitle(mediaPath, libraryRoot string) string {
 	dir := filepath.Dir(mediaPath)
-	if seasonFromDir(filepath.Base(dir)) > 0 {
+	if strictSeasonFolder(filepath.Base(dir)) > 0 {
 		dir = filepath.Dir(dir)
 	}
 	if libraryRoot != "" && samePath(dir, filepath.Clean(libraryRoot)) {
@@ -499,7 +573,49 @@ func seriesFolderTitle(mediaPath, libraryRoot string) string {
 	if base == "." || base == string(filepath.Separator) {
 		return ""
 	}
+	if isGenericMediaCategoryFolder(base) {
+		return ""
+	}
 	return base
+}
+
+func isGenericMediaCategoryFolder(name string) bool {
+	key := strings.ToLower(strings.TrimSpace(name))
+	key = strings.Trim(key, `\/`)
+	switch key {
+	case "",
+		"电影", "movies", "movie",
+		"电视剧", "剧集", "tv", "shows", "series",
+		"动漫", "动画", "anime", "bangumi",
+		"国产剧", "国剧", "大陆剧", "国产电视剧",
+		"欧美剧", "欧美电视剧",
+		"日韩剧", "日剧", "韩剧",
+		"华语电影", "国产电影", "大陆电影",
+		"外语电影", "欧美电影", "日韩电影",
+		"动画电影", "动漫电影",
+		"国漫", "国产动漫", "日番", "日漫", "日本动漫", "日本动画",
+		"综艺", "真人秀",
+		"纪录片", "纪录",
+		"儿童", "少儿",
+		"成人", "番号", "9kg",
+		"未分类", "uncategorized":
+		return true
+	default:
+		return false
+	}
+}
+
+func strictSeasonFolder(name string) int {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return 0
+	}
+	for _, pattern := range strictSeasonFolderPatterns {
+		if m := pattern.FindStringSubmatch(name); len(m) == 2 {
+			return mustAtoi(m[1])
+		}
+	}
+	return 0
 }
 
 func seasonFromDir(name string) int {

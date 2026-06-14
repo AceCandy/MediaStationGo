@@ -30,6 +30,37 @@ func TestClassifyMediaCategoryMatchesMoviePilotStyleRules(t *testing.T) {
 			want: "动画电影",
 		},
 		{
+			name: "translated tmdb animation title uses genre before title script",
+			input: mediaClassifyInput{
+				MediaType: "movie",
+				Title:     "寻龙记",
+				Languages: []string{"en"},
+				Countries: []string{"NL"},
+				Genres:    []string{"16"},
+			},
+			want: "动画电影",
+		},
+		{
+			name: "translated western movie title does not become chinese movie",
+			input: mediaClassifyInput{
+				MediaType: "movie",
+				Title:     "大雄兔",
+				Languages: []string{"en"},
+				Countries: []string{"NL"},
+				Genres:    []string{"Comedy"},
+			},
+			want: "外语电影",
+		},
+		{
+			name: "movie animation source category fallback",
+			input: mediaClassifyInput{
+				MediaType: "movie",
+				Title:     "Sintel 2010 1080p",
+				Category:  "动画电影",
+			},
+			want: "动画电影",
+		},
+		{
 			name: "tv variety by genre",
 			input: mediaClassifyInput{
 				MediaType: "tv",
@@ -82,26 +113,27 @@ func TestClassifyMediaCategoryMatchesMoviePilotStyleRules(t *testing.T) {
 			want: "国产剧",
 		},
 		{
-			name: "latin tv title without metadata",
+			name: "latin tv title without metadata stays uncategorized",
 			input: mediaClassifyInput{
 				MediaType: "tv",
 				Title:     "The Last of Us S01E01 1080p",
 			},
-			want: "欧美剧",
+			want: "未分类",
 		},
 		{
-			name: "iqiyi romanized chinese drama",
+			name: "platform token alone does not classify romanized drama",
 			input: mediaClassifyInput{
 				MediaType: "tv",
 				Title:     "Motherhood.of.Taihang.S01E01.2026.1080p.iQIYI.WEB-DL",
 			},
-			want: "国产剧",
+			want: "未分类",
 		},
 		{
-			name: "youku romanized chinese drama",
+			name: "metadata classifies romanized chinese drama",
 			input: mediaClassifyInput{
 				MediaType: "tv",
 				Title:     "Ashes.to.Crown.S01E15.2160p.YOUKU.WEB-DL",
+				Countries: []string{"CN"},
 			},
 			want: "国产剧",
 		},

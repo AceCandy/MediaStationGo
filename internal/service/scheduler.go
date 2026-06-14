@@ -40,16 +40,17 @@ import (
 
 // SchedulerService runs the periodic jobs.
 type SchedulerService struct {
-	log        *zap.Logger
-	repo       *repository.Container
-	scanner    *ScannerService
-	transcoder *TranscoderService
-	organizer  *OrganizerService
-	storageCfg *StorageConfigService
-	hub        *Hub
-	tasks      *TaskTrackerService
-	cacheDir   string
-	now        func() time.Time
+	log              *zap.Logger
+	repo             *repository.Container
+	scanner          *ScannerService
+	transcoder       *TranscoderService
+	organizer        *OrganizerService
+	organizePipeline *OrganizePipelineService
+	storageCfg       *StorageConfigService
+	hub              *Hub
+	tasks            *TaskTrackerService
+	cacheDir         string
+	now              func() time.Time
 
 	mu     sync.Mutex
 	stopCh chan struct{}
@@ -63,6 +64,10 @@ var (
 
 func (s *SchedulerService) SetTaskTracker(tasks *TaskTrackerService) {
 	s.tasks = tasks
+}
+
+func (s *SchedulerService) SetOrganizePipeline(pipeline *OrganizePipelineService) {
+	s.organizePipeline = pipeline
 }
 
 // scheduledJob is one recurring task.
@@ -552,53 +557,21 @@ func (s *SchedulerService) jobOrganizeSource(ctx context.Context) error {
 	if s.organizer == nil || (!manual && !s.autoOrganizeSourceEnabled(ctx)) {
 		return nil
 	}
-	task := s.startScheduledOrganizeTask(ctx, manual)
-	res, err := s.organizer.OrganizeDirectory(ctx, OrganizeOptions{})
+	taskName := "自动整理重命名刮削入库"
+	if manual {
+		taskName = "手动触发自动整理重命名刮削入库"
+	}
+	resWrap, err := s.ensureOrganizePipeline().Run(ctx, OrganizePipelineRequest{
+		Scope:    OrganizeScopeDirectory,
+		Trigger:  OrganizeTriggerScheduled,
+		TaskName: taskName,
+	})
 	if err != nil {
-		if task != nil {
-			task.Finish(err, TaskUpdate{
-				Stage:   "organize",
-				Message: "自动整理入库失败",
-			})
-		}
 		return err
 	}
-	if task != nil && res != nil {
-		task.Update(TaskUpdate{
-			Stage:      "organize",
-			SourcePath: res.SourcePath,
-			DestPath:   res.DestPath,
-			Message:    "自动整理完成，准备扫描入库",
-			Metrics:    OrganizeTaskMetrics(res),
-			Details:    OrganizeTaskDetails(res, 8),
-		})
-	}
-	if s.scanner != nil && res != nil && strings.TrimSpace(res.DestPath) != "" && OrganizeResultNeedsVisibilitySync(res) {
-		if task != nil {
-			task.Update(TaskUpdate{
-				Stage:   "scan_scrape",
-				Message: "正在扫描入库并按设置刮削",
-				Metrics: OrganizeTaskMetrics(res),
-				Details: OrganizeTaskDetails(res, 8),
-			})
-		}
-		res.Scans, res.Scrapes = s.scanner.ScanAndScrapeLibrariesForPath(ctx, res.DestPath, "", OrganizeScrapeAfterEnabled(ctx, s.repo))
-	} else if s.log != nil && res != nil && !OrganizeResultNeedsVisibilitySync(res) {
-		s.log.Info("scheduled source organize skipped scan; no destination changes",
-			zap.String("source", res.SourcePath),
-			zap.String("dest", res.DestPath),
-			zap.Int("organized", res.Organized),
-			zap.Int("replaced", res.Replaced),
-			zap.Int("skipped", res.Skipped),
-		)
-	}
-	if task != nil {
-		task.Finish(nil, TaskUpdate{
-			Stage:   "completed",
-			Message: "自动整理入库结束",
-			Metrics: OrganizeTaskMetrics(res),
-			Details: OrganizeTaskDetails(res, 8),
-		})
+	res := resWrap.Result
+	if res == nil {
+		res = &OrganizeResult{}
 	}
 	if s.log != nil && res != nil {
 		s.log.Info("scheduled source organize finished",
@@ -612,6 +585,13 @@ func (s *SchedulerService) jobOrganizeSource(ctx context.Context) error {
 		)
 	}
 	return nil
+}
+
+func (s *SchedulerService) ensureOrganizePipeline() *OrganizePipelineService {
+	if s.organizePipeline != nil {
+		return s.organizePipeline
+	}
+	return NewOrganizePipelineService(s.log, s.repo, s.organizer, s.scanner, s.tasks)
 }
 
 func (s *SchedulerService) startScheduledOrganizeTask(ctx context.Context, manual bool) *TaskHandle {

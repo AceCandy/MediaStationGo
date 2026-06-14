@@ -5,6 +5,9 @@ export const subscriptionsAPI = {
   list: () =>
     api.get<{ items: Subscription[] }>('/subscriptions').then((r) => r.data.items),
 
+  history: () =>
+    api.get<{ items: Subscription[] }>('/subscriptions/history').then((r) => r.data.items),
+
   create: (input: {
     name: string
     feed_url: string

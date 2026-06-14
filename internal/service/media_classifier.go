@@ -8,6 +8,7 @@ import (
 
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 	"github.com/ShukeBta/MediaStationGo/internal/repository"
+	"go.uber.org/zap"
 )
 
 var (
@@ -34,12 +35,11 @@ func classifyMediaCategory(input mediaClassifyInput, categories map[string]strin
 	languages := normalizeTokens(input.Languages...)
 	rawText := input.Title + " " + input.Category + " " + strings.Join(input.Genres, " ")
 	text := strings.ToLower(rawText)
+	hasMetadata := len(genres) > 0 || len(countries) > 0 || len(languages) > 0
 
-	isChinesePlatform := containsAnyText(text,
-		"iqiyi", "qiyi", "youku", "tencent", "wetv", "mgtv", "mango", "hunantv", "cctv",
-		"bilibili", "bili", "芒果tv", "腾讯视频", "优酷", "爱奇艺",
-	)
-	isChinese := hasAny(languages, "ZH", "ZH-CN", "ZH-TW", "CN") || hasAny(countries, "CN", "TW", "HK", "MO") || containsHan(rawText) || containsAnyText(text, "华语", "国产", "国剧", "国漫") || isChinesePlatform
+	isChineseByMetadata := hasAny(languages, "ZH", "ZH-CN", "ZH-TW", "CN", "BO", "ZA") || hasAny(countries, "CN", "TW", "HK", "MO")
+	isChineseByText := containsHan(rawText) || containsAnyText(text, "华语", "国产", "国剧", "国漫")
+	isChinese := isChineseByMetadata || (!hasMetadata && isChineseByText)
 	isJapanese := hasAny(languages, "JA", "JP") || hasAny(countries, "JP") || containsJapaneseKana(rawText) || strings.Contains(text, "日番")
 	isKorean := hasAny(languages, "KO", "KR") || hasAny(countries, "KR", "KP") || containsKoreanHangul(rawText)
 	isEastAsian := isJapanese || isKorean || hasAny(countries, "TH", "IN", "SG")
@@ -47,8 +47,7 @@ func classifyMediaCategory(input mediaClassifyInput, categories map[string]strin
 		"US", "GB", "UK", "FR", "DE", "CA", "AU", "NZ", "IE", "NL", "SE", "NO", "DK",
 		"FI", "ES", "IT", "PT", "AT", "CH", "BE", "RU",
 	)
-	isLatinFallback := containsLatin(rawText) && !containsHan(rawText) && !containsJapaneseKana(rawText) && !containsKoreanHangul(rawText)
-	isWestern := isWesternByMetadata || (mediaType == "tv" && isLatinFallback)
+	isWestern := isWesternByMetadata
 	hasAnimeText := containsAnyText(text, "动画", "动漫", "番剧", "年番", "国漫", "日番", "bangumi", "anime", "b-global", "ani-one", "crunchyroll")
 	hasVarietyText := containsAnyText(text, "综艺", "真人秀", "脱口秀", "晚会", "春晚", "gala", "festival gala", "reality", "talk show")
 	hasDocumentaryText := containsAnyText(text, "纪录", "纪录片", "documentary", "docu", "national geographic", "natgeo")
@@ -74,17 +73,11 @@ func classifyMediaCategory(input mediaClassifyInput, categories map[string]strin
 		if isAdultText {
 			return categoryName(categories, "adult", "成人")
 		}
-		if hasGenre("16", "ANIMATION", "动画", "动漫") {
+		if hasGenre("16", "ANIMATION", "动画", "动漫") || hasAnimeText {
 			return categoryName(categories, "animation_movie", "动画电影")
 		}
 		if isChinese {
 			return categoryName(categories, "chinese_movie", "华语电影")
-		}
-		if isEastAsian {
-			return categoryName(categories, "jk_movie", "日韩电影")
-		}
-		if isWesternByMetadata {
-			return categoryName(categories, "euus_movie", "欧美电影")
 		}
 		return categoryName(categories, "foreign_movie", "外语电影")
 	case "anime":
@@ -281,6 +274,29 @@ func (s *SubscriptionService) classifySubscriptionItem(ctx context.Context, sub 
 	mediaType := normalizeMediaType(sub.MediaType, title+" "+sub.Name+" "+sub.Filter, sourceCategory)
 	category := strings.TrimSpace(sub.MediaCategory)
 	if category == "" {
+		if match := s.lookupSubscriptionMetadata(ctx, mediaType, title, sub); match != nil {
+			category = classifyMediaCategory(mediaClassifyInput{
+				MediaType: mediaType,
+				Title:     match.Title + " " + match.OriginalName,
+				Languages: match.Languages,
+				Countries: match.Countries,
+				Genres:    match.Genres,
+				Category:  sourceCategory,
+			}, s.categoryMap())
+			if s != nil && s.log != nil && category != "" {
+				s.log.Info("subscription metadata classified",
+					zap.String("title", title),
+					zap.String("matched_title", match.Title),
+					zap.String("media_type", mediaType),
+					zap.String("media_category", category),
+					zap.Int("tmdb_id", match.TMDbID),
+					zap.Int("bangumi_id", match.BangumiID),
+					zap.String("douban_id", match.DoubanID),
+					zap.String("thetvdb_id", match.TheTVDBID))
+			}
+		}
+	}
+	if category == "" {
 		category = classifyMediaCategory(mediaClassifyInput{
 			MediaType: mediaType,
 			Title:     title + " " + sub.Name + " " + sub.Filter,
@@ -288,6 +304,78 @@ func (s *SubscriptionService) classifySubscriptionItem(ctx context.Context, sub 
 		}, s.categoryMap())
 	}
 	return mediaType, category
+}
+
+func (s *SubscriptionService) lookupSubscriptionMetadata(ctx context.Context, mediaType, title string, sub *model.Subscription) *Match {
+	if s == nil || s.scraper == nil || !s.scraper.AnyEnabled() {
+		return nil
+	}
+	queries := subscriptionMetadataQueries(title, sub)
+	if len(queries) == 0 {
+		return nil
+	}
+	for _, libType := range subscriptionMetadataLibraryTypes(mediaType, title) {
+		lib := &model.Library{Type: libType, Enabled: true}
+		for _, query := range queries {
+			cleaned, year := CleanQuery(query)
+			if cleaned == "" {
+				cleaned = strings.TrimSpace(query)
+			}
+			for _, candidate := range titleCandidates(cleaned) {
+				if candidate == "" {
+					continue
+				}
+				match := s.scraper.lookup(ctx, lib, candidate, year)
+				if match == nil || strings.TrimSpace(match.Title) == "" {
+					continue
+				}
+				if !organizeMetadataMatchTrusted(candidate, year, match) {
+					continue
+				}
+				return match
+			}
+		}
+	}
+	return nil
+}
+
+func subscriptionMetadataQueries(title string, sub *model.Subscription) []string {
+	seen := map[string]struct{}{}
+	out := make([]string, 0, 3)
+	add := func(value string) {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			return
+		}
+		key := strings.ToLower(value)
+		if _, ok := seen[key]; ok {
+			return
+		}
+		seen[key] = struct{}{}
+		out = append(out, value)
+	}
+	add(title)
+	if sub != nil {
+		add(sub.Filter)
+		add(sub.Name)
+	}
+	return out
+}
+
+func subscriptionMetadataLibraryTypes(mediaType, title string) []string {
+	switch normalizeMediaType(mediaType, title, "") {
+	case "movie":
+		return []string{"movie"}
+	case "anime":
+		return []string{"anime", "tv"}
+	case "tv", "variety":
+		return []string{"tv", "anime"}
+	default:
+		if classifierEpisodeRE.MatchString(title) || classifierSeasonRE.MatchString(title) {
+			return []string{"tv", "anime"}
+		}
+		return []string{"movie", "tv", "anime"}
+	}
 }
 
 func (s *SubscriptionService) categoryMap() map[string]string {
@@ -311,7 +399,7 @@ func (s *SubscriptionService) resolveSubscriptionSavePath(ctx context.Context, s
 	if !s.isSmartClassifyEnabled(ctx) || category == "" {
 		return base
 	}
-	return categoryRoot(base, sanitizeFilename(category))
+	return downloadSavePathCategoryRoot(base, sanitizeFilename(category))
 }
 
 func (s *SubscriptionService) isSmartClassifyEnabled(ctx context.Context) bool {
@@ -367,4 +455,40 @@ func downloadCategoryMap(organizer *OrganizerService) map[string]string {
 		return nil
 	}
 	return organizer.categoryMap()
+}
+
+func downloadSavePathCategoryRoot(root, category string) string {
+	root = strings.TrimSpace(root)
+	category = strings.TrimSpace(category)
+	if root == "" || category == "" {
+		return root
+	}
+	if isWindowsStyleClientPath(root) {
+		cleanRoot := strings.ReplaceAll(root, "/", `\`)
+		cleanRoot = strings.TrimRight(cleanRoot, `\`)
+		if windowsPathBaseEqual(cleanRoot, category) {
+			return cleanRoot
+		}
+		return cleanRoot + `\` + category
+	}
+	return categoryRoot(root, category)
+}
+
+func isWindowsStyleClientPath(path string) bool {
+	path = strings.TrimSpace(path)
+	return (len(path) >= 2 && isASCIIAlpha(path[0]) && path[1] == ':') ||
+		strings.HasPrefix(path, `\\`)
+}
+
+func windowsPathBaseEqual(path, base string) bool {
+	path = strings.TrimRight(strings.ReplaceAll(strings.TrimSpace(path), "/", `\`), `\`)
+	base = strings.Trim(strings.TrimSpace(base), `\/`)
+	if path == "" || base == "" {
+		return false
+	}
+	idx := strings.LastIndex(path, `\`)
+	if idx >= 0 {
+		path = path[idx+1:]
+	}
+	return strings.EqualFold(path, base)
 }

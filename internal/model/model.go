@@ -238,6 +238,8 @@ type Subscription struct {
 	Priority      int        `gorm:"default:50" json:"priority,omitempty"` // lower is earlier when schedulers sort later
 	Enabled       bool       `gorm:"default:true" json:"enabled"`
 	LastRunAt     *time.Time `json:"last_run_at,omitempty"`
+	ArchivedAt    *time.Time `gorm:"index" json:"archived_at,omitempty"`
+	ArchiveReason string     `gorm:"size:255" json:"archive_reason,omitempty"`
 
 	DownloadedEpisodes int   `gorm:"-" json:"downloaded_episodes,omitempty"`
 	LocalMediaCount    int   `gorm:"-" json:"local_media_count,omitempty"`

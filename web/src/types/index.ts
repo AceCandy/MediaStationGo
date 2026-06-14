@@ -206,6 +206,8 @@ export interface Subscription {
   priority?: number
   enabled: boolean
   last_run_at?: string
+  archived_at?: string
+  archive_reason?: string
   created_at: string
   updated_at: string
 }

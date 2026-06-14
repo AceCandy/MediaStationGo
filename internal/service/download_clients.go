@@ -66,6 +66,13 @@ func (s *DownloadClientService) Create(ctx context.Context, in DownloadClientInp
 		IsDefault: normalized.IsDefault,
 		Enabled:   normalized.Enabled,
 	}
+	if !c.IsDefault && c.Enabled {
+		if currentDefault, err := s.repo.DownloadClient.FindDefault(ctx); err == nil && currentDefault == nil {
+			if enabled, err := s.repo.DownloadClient.ListEnabled(ctx); err == nil && len(enabled) == 0 {
+				c.IsDefault = true
+			}
+		}
+	}
 	if normalized.IsDefault {
 		_ = s.repo.DownloadClient.ClearDefault(ctx)
 	}

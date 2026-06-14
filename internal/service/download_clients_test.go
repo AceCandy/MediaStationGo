@@ -63,6 +63,31 @@ func TestDownloadClientCreateNormalizesHostAndClearsDefault(t *testing.T) {
 	}
 }
 
+func TestDownloadClientCreateMakesFirstEnabledClientDefault(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(&model.DownloadClient{}, &model.Setting{}); err != nil {
+		t.Fatal(err)
+	}
+	repos := repository.New(db)
+	svc := NewDownloadClientService(zap.NewNop(), repos)
+
+	client, err := svc.Create(t.Context(), DownloadClientInput{
+		Name:    "qB",
+		Type:    "qbittorrent",
+		Host:    "127.0.0.1:8080",
+		Enabled: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !client.IsDefault {
+		t.Fatalf("first enabled client should become default: %#v", client)
+	}
+}
+
 func TestDownloadClientRejectsUnsupportedHostScheme(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	if err != nil {

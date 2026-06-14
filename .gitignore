@@ -64,6 +64,7 @@ config.yaml
 # Runtime / local-only artifacts (清理补充)
 .tmp-live-backups/
 .tmp-*
+.codex-*
 downloads/
 media/
 *.pid

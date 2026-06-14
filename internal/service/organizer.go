@@ -149,21 +149,36 @@ func (o *OrganizerService) OrganizeMediaWithOptions(ctx context.Context, mediaID
 
 	var dst string
 	if isSeriesLibraryType(lib.Type) {
-		// TV: {baseRoot}/[分类]/{Title}/Season XX/{Title} - SxxExx.ext
-		season := fmt.Sprintf("Season %02d", m.SeasonNum)
-		epTag := fmt.Sprintf("S%02dE%02d", m.SeasonNum, m.EpisodeNum)
 		root := o.organizeRoot(baseRoot, lib.Type, category)
-		dir := filepath.Join(categoryRoot(root, category), title, season)
-		dst = filepath.Join(dir, fmt.Sprintf("%s - %s%s", title, epTag, ext))
-	} else {
-		// Movie: {baseRoot}/[分类]/{Title} ({Year})/{Title} ({Year}).ext
-		folder := title
-		if m.Year > 0 {
-			folder = fmt.Sprintf("%s (%d)", title, m.Year)
+		target, err := o.buildOrganizeTargetPath(ctx, organizeTargetInput{
+			Root:      categoryRoot(root, category),
+			MediaType: lib.Type,
+			Category:  category,
+			Title:     title,
+			Ext:       ext,
+			Year:      m.Year,
+			Season:    m.SeasonNum,
+			Episode:   m.EpisodeNum,
+			Series:    true,
+		})
+		if err != nil {
+			return "", err
 		}
+		dst = target.Path
+	} else {
 		root := o.organizeRoot(baseRoot, lib.Type, category)
-		dir := filepath.Join(categoryRoot(root, category), folder)
-		dst = filepath.Join(dir, folder+ext)
+		target, err := o.buildOrganizeTargetPath(ctx, organizeTargetInput{
+			Root:      categoryRoot(root, category),
+			MediaType: lib.Type,
+			Category:  category,
+			Title:     title,
+			Ext:       ext,
+			Year:      m.Year,
+		})
+		if err != nil {
+			return "", err
+		}
+		dst = target.Path
 	}
 
 	// Skip if already in place.

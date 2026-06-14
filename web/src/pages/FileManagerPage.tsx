@@ -58,31 +58,66 @@ type AutoOrganizeConfig = {
   enabled: string
   afterDownload: string
   scrapeAfter: string
+  downloadSmartClassify: string
+  smartClassify: string
   sourceDir: string
   targetDir: string
   transferMode: string
   intervalSeconds: string
+  keepSeeding: string
+  movieFormat: string
+  tvFormat: string
+  animeFormat: string
+  scrapeAutoOnScan: string
+  scrapeProviders: string
+  scrapeLanguage: string
+  scrapeDelayMinMs: string
+  scrapeDelayMaxMs: string
 }
 
 const AUTO_ORGANIZE_DEFAULTS: AutoOrganizeConfig = {
   enabled: 'false',
   afterDownload: 'false',
   scrapeAfter: 'true',
+  downloadSmartClassify: 'true',
+  smartClassify: 'true',
   sourceDir: '',
   targetDir: '',
   transferMode: 'hardlink',
   intervalSeconds: '300',
+  keepSeeding: 'true',
+  movieFormat: '{title} ({year})/{title} ({year})',
+  tvFormat: '{title} ({year})/Season {season:02}/{title} S{season:02}E{episode:02}',
+  animeFormat: '{title}/Season {season:02}/{title} S{season:02}E{episode:02}',
+  scrapeAutoOnScan: 'false',
+  scrapeProviders: 'tmdb,douban,bangumi,thetvdb,fanart',
+  scrapeLanguage: 'zh-CN',
+  scrapeDelayMinMs: '250',
+  scrapeDelayMaxMs: '500',
 }
 
 const AUTO_ORGANIZE_KEYS: Record<keyof AutoOrganizeConfig, string> = {
   enabled: 'organize.auto',
   afterDownload: 'organizer.auto_after_download',
   scrapeAfter: 'organize.scrape_after',
+  downloadSmartClassify: 'downloads.smart_classify',
+  smartClassify: 'organizer.smart_classify',
   sourceDir: 'organize.source_dir',
   targetDir: 'organize.target_dir',
   transferMode: 'organize.transfer_mode',
   intervalSeconds: 'organize.interval_seconds',
+  keepSeeding: 'organize.keep_seeding',
+  movieFormat: 'organize.movie_format',
+  tvFormat: 'organize.tv_format',
+  animeFormat: 'organize.anime_format',
+  scrapeAutoOnScan: 'scrape.auto_on_scan',
+  scrapeProviders: 'scrape.providers',
+  scrapeLanguage: 'scrape.language',
+  scrapeDelayMinMs: 'scrape.delay_min_ms',
+  scrapeDelayMaxMs: 'scrape.delay_max_ms',
 }
+
+type AutoOrganizeTab = 'basic' | 'naming' | 'scrape'
 
 function settingIndex(rows: Setting[]): Record<string, string> {
   const out: Record<string, string> = {}
@@ -96,10 +131,21 @@ function mergeAutoOrganizeSettings(rows: Setting[]): AutoOrganizeConfig {
     enabled: idx[AUTO_ORGANIZE_KEYS.enabled] ?? AUTO_ORGANIZE_DEFAULTS.enabled,
     afterDownload: idx[AUTO_ORGANIZE_KEYS.afterDownload] ?? AUTO_ORGANIZE_DEFAULTS.afterDownload,
     scrapeAfter: idx[AUTO_ORGANIZE_KEYS.scrapeAfter] ?? AUTO_ORGANIZE_DEFAULTS.scrapeAfter,
+    downloadSmartClassify: idx[AUTO_ORGANIZE_KEYS.downloadSmartClassify] ?? AUTO_ORGANIZE_DEFAULTS.downloadSmartClassify,
+    smartClassify: idx[AUTO_ORGANIZE_KEYS.smartClassify] ?? AUTO_ORGANIZE_DEFAULTS.smartClassify,
     sourceDir: idx[AUTO_ORGANIZE_KEYS.sourceDir] ?? AUTO_ORGANIZE_DEFAULTS.sourceDir,
     targetDir: idx[AUTO_ORGANIZE_KEYS.targetDir] ?? AUTO_ORGANIZE_DEFAULTS.targetDir,
     transferMode: idx[AUTO_ORGANIZE_KEYS.transferMode] ?? AUTO_ORGANIZE_DEFAULTS.transferMode,
     intervalSeconds: idx[AUTO_ORGANIZE_KEYS.intervalSeconds] ?? AUTO_ORGANIZE_DEFAULTS.intervalSeconds,
+    keepSeeding: idx[AUTO_ORGANIZE_KEYS.keepSeeding] ?? AUTO_ORGANIZE_DEFAULTS.keepSeeding,
+    movieFormat: idx[AUTO_ORGANIZE_KEYS.movieFormat] ?? AUTO_ORGANIZE_DEFAULTS.movieFormat,
+    tvFormat: idx[AUTO_ORGANIZE_KEYS.tvFormat] ?? AUTO_ORGANIZE_DEFAULTS.tvFormat,
+    animeFormat: idx[AUTO_ORGANIZE_KEYS.animeFormat] ?? AUTO_ORGANIZE_DEFAULTS.animeFormat,
+    scrapeAutoOnScan: idx[AUTO_ORGANIZE_KEYS.scrapeAutoOnScan] ?? AUTO_ORGANIZE_DEFAULTS.scrapeAutoOnScan,
+    scrapeProviders: idx[AUTO_ORGANIZE_KEYS.scrapeProviders] ?? AUTO_ORGANIZE_DEFAULTS.scrapeProviders,
+    scrapeLanguage: idx[AUTO_ORGANIZE_KEYS.scrapeLanguage] ?? AUTO_ORGANIZE_DEFAULTS.scrapeLanguage,
+    scrapeDelayMinMs: idx[AUTO_ORGANIZE_KEYS.scrapeDelayMinMs] ?? AUTO_ORGANIZE_DEFAULTS.scrapeDelayMinMs,
+    scrapeDelayMaxMs: idx[AUTO_ORGANIZE_KEYS.scrapeDelayMaxMs] ?? AUTO_ORGANIZE_DEFAULTS.scrapeDelayMaxMs,
   }
 }
 
@@ -144,6 +190,7 @@ export function FileManagerPage() {
   const [autoSaving, setAutoSaving] = useState(false)
   const [autoRunning, setAutoRunning] = useState(false)
   const [autoLoading, setAutoLoading] = useState(true)
+  const [autoTab, setAutoTab] = useState<AutoOrganizeTab>('basic')
 
   const currentDir = useMemo(() => {
     if (data?.path) return data.path
@@ -213,6 +260,7 @@ export function FileManagerPage() {
 
   const changeAutoConfig = (key: keyof AutoOrganizeConfig, value: string) => {
     setAutoConfig((current) => ({ ...current, [key]: value }))
+    if (key === 'scrapeAfter') setScrapeAfter(settingOn(value))
     setAutoDirty(true)
   }
 
@@ -223,10 +271,10 @@ export function FileManagerPage() {
         await adminAPI.updateSetting(AUTO_ORGANIZE_KEYS[key], autoConfig[key] ?? '')
       }
       setAutoDirty(false)
-      toast.success('自动整理设置已保存')
+      toast.success('整理入库设置已保存')
       return true
     } catch (err: unknown) {
-      toast.error((err as { response?: { data?: { error?: string } } })?.response?.data?.error ?? '保存自动整理设置失败')
+      toast.error((err as { response?: { data?: { error?: string } } })?.response?.data?.error ?? '保存整理入库设置失败')
       return false
     } finally {
       setAutoSaving(false)
@@ -447,99 +495,234 @@ export function FileManagerPage() {
           </div>
         </div>
 
-        <div className="grid gap-3 lg:grid-cols-[1fr_1fr_150px_140px]">
-          <label className="space-y-1">
-            <span className="text-xs text-ink-50">整理源目录（待整理 / 下载目录）</span>
-            <div className="flex gap-2">
-              <input
-                className="input-base w-full"
-                placeholder="例如 F:\\downloads 或 /downloads"
-                value={autoConfig.sourceDir}
-                onChange={(event) => changeAutoConfig('sourceDir', event.target.value)}
-              />
-              <button
-                type="button"
-                className="rounded-xl border border-gray-200 px-3 text-xs text-ink-100 hover:border-primary-400/40"
-                disabled={!currentDir}
-                onClick={() => changeAutoConfig('sourceDir', currentDir)}
-              >
-                当前
-              </button>
-            </div>
-          </label>
-          <label className="space-y-1">
-            <span className="text-xs text-ink-50">整理目的地目录（媒体库根目录）</span>
-            <div className="flex gap-2">
-              <input
-                className="input-base w-full"
-                placeholder="例如 F:\\media 或 /media"
-                value={autoConfig.targetDir}
-                onChange={(event) => changeAutoConfig('targetDir', event.target.value)}
-              />
-              <button
-                type="button"
-                className="rounded-xl border border-gray-200 px-3 text-xs text-ink-100 hover:border-primary-400/40"
-                disabled={!currentDir}
-                onClick={() => changeAutoConfig('targetDir', currentDir)}
-              >
-                当前
-              </button>
-            </div>
-          </label>
-          <label className="space-y-1">
-            <span className="text-xs text-ink-50">默认整理方式</span>
-            <select
-              className="input-base w-full"
-              value={autoConfig.transferMode}
-              onChange={(event) => changeAutoConfig('transferMode', event.target.value)}
+        <div className="flex flex-wrap gap-2 rounded-2xl border border-gray-200 bg-gray-50 p-1">
+          {[
+            ['basic', '基础设置'],
+            ['naming', '命名规则'],
+            ['scrape', '刮削联动'],
+          ].map(([key, label]) => (
+            <button
+              key={key}
+              type="button"
+              className={
+                autoTab === key
+                  ? 'rounded-xl bg-white px-3 py-1.5 text-xs font-semibold text-brand-500 shadow-sm'
+                  : 'rounded-xl px-3 py-1.5 text-xs text-ink-100 hover:bg-white/70'
+              }
+              onClick={() => setAutoTab(key as AutoOrganizeTab)}
             >
-              <option value="hardlink">硬链接</option>
-              <option value="move">移动</option>
-              <option value="copy">复制</option>
-              <option value="symlink">软链接</option>
-            </select>
-          </label>
-          <label className="space-y-1">
-            <span className="text-xs text-ink-50">检查间隔（秒）</span>
-            <input
-              type="number"
-              min={60}
-              className="input-base w-full"
-              value={autoConfig.intervalSeconds}
-              onChange={(event) => changeAutoConfig('intervalSeconds', event.target.value)}
-            />
-          </label>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-3">
-          <label className="flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-2 py-1 text-xs text-ink-100">
-            <input
-              type="checkbox"
-              checked={settingOn(autoConfig.enabled)}
-              onChange={(event) => changeAutoConfig('enabled', event.target.checked ? 'true' : 'false')}
-            />
-            整理源目录定时自动整理
-          </label>
-          <label className="flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-2 py-1 text-xs text-ink-100">
-            <input
-              type="checkbox"
-              checked={settingOn(autoConfig.afterDownload)}
-              onChange={(event) => changeAutoConfig('afterDownload', event.target.checked ? 'true' : 'false')}
-            />
-            qB 下载完成后自动整理
-          </label>
-          <label className="flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-2 py-1 text-xs text-ink-100">
-            <input
-              type="checkbox"
-              checked={settingOn(autoConfig.scrapeAfter)}
-              onChange={(event) => changeAutoConfig('scrapeAfter', event.target.checked ? 'true' : 'false')}
-            />
-            整理后自动刮削
-          </label>
-          <span className="text-xs text-sand-500">
+              {label}
+            </button>
+          ))}
+          <span className="ml-auto self-center px-2 text-xs text-sand-500">
             {autoDirty ? '有未保存设置' : '设置已同步'} · 定时任务名：organize_source
           </span>
         </div>
+
+        {autoTab === 'basic' && (
+          <>
+            <div className="grid gap-3 lg:grid-cols-[1fr_1fr_150px_140px]">
+              <label className="space-y-1">
+                <span className="text-xs text-ink-50">整理源目录（待整理 / 下载目录）</span>
+                <div className="flex gap-2">
+                  <input
+                    className="input-base w-full"
+                    placeholder="例如 F:\\downloads 或 /downloads"
+                    value={autoConfig.sourceDir}
+                    onChange={(event) => changeAutoConfig('sourceDir', event.target.value)}
+                  />
+                  <button
+                    type="button"
+                    className="rounded-xl border border-gray-200 px-3 text-xs text-ink-100 hover:border-primary-400/40"
+                    disabled={!currentDir}
+                    onClick={() => changeAutoConfig('sourceDir', currentDir)}
+                  >
+                    当前
+                  </button>
+                </div>
+              </label>
+              <label className="space-y-1">
+                <span className="text-xs text-ink-50">整理目的地目录（媒体库根目录）</span>
+                <div className="flex gap-2">
+                  <input
+                    className="input-base w-full"
+                    placeholder="例如 F:\\media 或 /media"
+                    value={autoConfig.targetDir}
+                    onChange={(event) => changeAutoConfig('targetDir', event.target.value)}
+                  />
+                  <button
+                    type="button"
+                    className="rounded-xl border border-gray-200 px-3 text-xs text-ink-100 hover:border-primary-400/40"
+                    disabled={!currentDir}
+                    onClick={() => changeAutoConfig('targetDir', currentDir)}
+                  >
+                    当前
+                  </button>
+                </div>
+              </label>
+              <label className="space-y-1">
+                <span className="text-xs text-ink-50">默认整理方式</span>
+                <select
+                  className="input-base w-full"
+                  value={autoConfig.transferMode}
+                  onChange={(event) => changeAutoConfig('transferMode', event.target.value)}
+                >
+                  <option value="hardlink">硬链接</option>
+                  <option value="move">移动</option>
+                  <option value="copy">复制</option>
+                  <option value="symlink">软链接</option>
+                </select>
+              </label>
+              <label className="space-y-1">
+                <span className="text-xs text-ink-50">检查间隔（秒）</span>
+                <input
+                  type="number"
+                  min={60}
+                  className="input-base w-full"
+                  value={autoConfig.intervalSeconds}
+                  onChange={(event) => changeAutoConfig('intervalSeconds', event.target.value)}
+                />
+              </label>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-3">
+              <label className="flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-2 py-1 text-xs text-ink-100">
+                <input
+                  type="checkbox"
+                  checked={settingOn(autoConfig.enabled)}
+                  onChange={(event) => changeAutoConfig('enabled', event.target.checked ? 'true' : 'false')}
+                />
+                整理源目录定时自动整理
+              </label>
+              <label className="flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-2 py-1 text-xs text-ink-100">
+                <input
+                  type="checkbox"
+                  checked={settingOn(autoConfig.afterDownload)}
+                  onChange={(event) => changeAutoConfig('afterDownload', event.target.checked ? 'true' : 'false')}
+                />
+                qB 下载完成后自动整理
+              </label>
+              <label className="flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-2 py-1 text-xs text-ink-100">
+                <input
+                  type="checkbox"
+                  checked={settingOn(autoConfig.downloadSmartClassify)}
+                  onChange={(event) => changeAutoConfig('downloadSmartClassify', event.target.checked ? 'true' : 'false')}
+                />
+                下载器智能分类
+              </label>
+              <label className="flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-2 py-1 text-xs text-ink-100">
+                <input
+                  type="checkbox"
+                  checked={settingOn(autoConfig.smartClassify)}
+                  onChange={(event) => changeAutoConfig('smartClassify', event.target.checked ? 'true' : 'false')}
+                />
+                智能分类到子库
+              </label>
+              <label className="flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-2 py-1 text-xs text-ink-100">
+                <input
+                  type="checkbox"
+                  checked={settingOn(autoConfig.keepSeeding)}
+                  onChange={(event) => changeAutoConfig('keepSeeding', event.target.checked ? 'true' : 'false')}
+                />
+                保种
+              </label>
+            </div>
+          </>
+        )}
+
+        {autoTab === 'naming' && (
+          <div className="grid gap-3">
+            <label className="space-y-1">
+              <span className="text-xs text-ink-50">电影命名格式</span>
+              <input
+                className="input-base w-full font-mono text-xs"
+                value={autoConfig.movieFormat}
+                onChange={(event) => changeAutoConfig('movieFormat', event.target.value)}
+              />
+            </label>
+            <label className="space-y-1">
+              <span className="text-xs text-ink-50">剧集命名格式</span>
+              <input
+                className="input-base w-full font-mono text-xs"
+                value={autoConfig.tvFormat}
+                onChange={(event) => changeAutoConfig('tvFormat', event.target.value)}
+              />
+            </label>
+            <label className="space-y-1">
+              <span className="text-xs text-ink-50">动漫命名格式</span>
+              <input
+                className="input-base w-full font-mono text-xs"
+                value={autoConfig.animeFormat}
+                onChange={(event) => changeAutoConfig('animeFormat', event.target.value)}
+              />
+            </label>
+            <p className="text-xs text-sand-500">
+              可用占位符：{'{title}'} {'{year}'} {'{season}'} {'{season:02}'} {'{episode}'} {'{episode:02}'} {'{category}'}。扩展名会自动补齐。
+            </p>
+          </div>
+        )}
+
+        {autoTab === 'scrape' && (
+          <>
+            <div className="flex flex-wrap items-center gap-3">
+              <label className="flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-2 py-1 text-xs text-ink-100">
+                <input
+                  type="checkbox"
+                  checked={settingOn(autoConfig.scrapeAfter)}
+                  onChange={(event) => changeAutoConfig('scrapeAfter', event.target.checked ? 'true' : 'false')}
+                />
+                整理后自动刮削
+              </label>
+              <label className="flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-2 py-1 text-xs text-ink-100">
+                <input
+                  type="checkbox"
+                  checked={settingOn(autoConfig.scrapeAutoOnScan)}
+                  onChange={(event) => changeAutoConfig('scrapeAutoOnScan', event.target.checked ? 'true' : 'false')}
+                />
+                扫描后自动刮削
+              </label>
+            </div>
+            <div className="grid gap-3 lg:grid-cols-[1fr_160px_160px_160px]">
+              <label className="space-y-1">
+                <span className="text-xs text-ink-50">刮削源优先级</span>
+                <input
+                  className="input-base w-full"
+                  placeholder="tmdb,douban,bangumi,thetvdb,fanart"
+                  value={autoConfig.scrapeProviders}
+                  onChange={(event) => changeAutoConfig('scrapeProviders', event.target.value)}
+                />
+              </label>
+              <label className="space-y-1">
+                <span className="text-xs text-ink-50">首选语言</span>
+                <input
+                  className="input-base w-full"
+                  value={autoConfig.scrapeLanguage}
+                  onChange={(event) => changeAutoConfig('scrapeLanguage', event.target.value)}
+                />
+              </label>
+              <label className="space-y-1">
+                <span className="text-xs text-ink-50">最小间隔 ms</span>
+                <input
+                  type="number"
+                  min={0}
+                  className="input-base w-full"
+                  value={autoConfig.scrapeDelayMinMs}
+                  onChange={(event) => changeAutoConfig('scrapeDelayMinMs', event.target.value)}
+                />
+              </label>
+              <label className="space-y-1">
+                <span className="text-xs text-ink-50">最大间隔 ms</span>
+                <input
+                  type="number"
+                  min={0}
+                  className="input-base w-full"
+                  value={autoConfig.scrapeDelayMaxMs}
+                  onChange={(event) => changeAutoConfig('scrapeDelayMaxMs', event.target.value)}
+                />
+              </label>
+            </div>
+          </>
+        )}
       </section>
 
       {data?.path && (

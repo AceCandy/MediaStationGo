@@ -98,6 +98,18 @@ func listSubscriptionsHandler(svc *service.Container) gin.HandlerFunc {
 	}
 }
 
+func listSubscriptionHistoryHandler(svc *service.Container) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		items, err := svc.Subscription.History(c.Request.Context())
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		service.EnrichSubscriptionProgress(c.Request.Context(), svc.Repo, items)
+		c.JSON(http.StatusOK, gin.H{"items": items})
+	}
+}
+
 func deleteSubscriptionHandler(svc *service.Container) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if err := svc.Subscription.Delete(c.Request.Context(), c.Param("id")); err != nil {

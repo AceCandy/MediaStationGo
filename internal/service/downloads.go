@@ -39,14 +39,15 @@ import (
 
 // DownloadService is the single download orchestrator.
 type DownloadService struct {
-	log       *zap.Logger
-	repo      *repository.Container
-	hub       *Hub
-	qb        *QBitClient
-	organizer *OrganizerService
-	scanner   *ScannerService
-	site      *SiteService
-	tasks     *TaskTrackerService
+	log              *zap.Logger
+	repo             *repository.Container
+	hub              *Hub
+	qb               *QBitClient
+	organizer        *OrganizerService
+	organizePipeline *OrganizePipelineService
+	scanner          *ScannerService
+	site             *SiteService
+	tasks            *TaskTrackerService
 
 	mu              sync.Mutex
 	stopCh          chan struct{}
@@ -60,6 +61,10 @@ type DownloadService struct {
 
 func (d *DownloadService) SetScanner(scanner *ScannerService) {
 	d.scanner = scanner
+}
+
+func (d *DownloadService) SetOrganizePipeline(pipeline *OrganizePipelineService) {
+	d.organizePipeline = pipeline
 }
 
 func (d *DownloadService) SetTaskTracker(tasks *TaskTrackerService) {
@@ -203,6 +208,10 @@ func (d *DownloadService) ReloadConfig(ctx context.Context) error {
 			cfg.BaseURL = strings.TrimRight(c.Host, "/")
 			cfg.Username = c.Username
 			cfg.Password = c.Password
+		} else if c, err := d.soleEnabledQBitClient(ctx); err == nil && c != nil {
+			cfg.BaseURL = strings.TrimRight(c.Host, "/")
+			cfg.Username = c.Username
+			cfg.Password = c.Password
 		}
 	}
 	if d.repo.Setting != nil {
@@ -226,6 +235,28 @@ func (d *DownloadService) ReloadConfig(ctx context.Context) error {
 
 	d.qb.Configure(cfg)
 	return nil
+}
+
+func (d *DownloadService) soleEnabledQBitClient(ctx context.Context) (*model.DownloadClient, error) {
+	if d == nil || d.repo == nil || d.repo.DownloadClient == nil {
+		return nil, nil
+	}
+	rows, err := d.repo.DownloadClient.ListEnabled(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var selected *model.DownloadClient
+	for i := range rows {
+		if rows[i].Type != "qbittorrent" {
+			continue
+		}
+		if selected != nil {
+			return nil, nil
+		}
+		row := rows[i]
+		selected = &row
+	}
+	return selected, nil
 }
 
 // AddDownload accepts a magnet URL / HTTP URL and persists a tracking row.
@@ -313,7 +344,7 @@ func (d *DownloadService) resolveDownloadSavePath(ctx context.Context, explicitS
 	if !autoClassify || category == "" {
 		return base, ""
 	}
-	return categoryRoot(base, sanitizeFilename(category)), category
+	return downloadSavePathCategoryRoot(base, sanitizeFilename(category)), category
 }
 
 func (d *DownloadService) localMediaAlreadyExists(ctx context.Context, title string) bool {
@@ -738,7 +769,7 @@ func (d *DownloadService) Delete(ctx context.Context, hash string, withFiles boo
 	if err := d.qb.Delete(ctx, hash, withFiles); err != nil {
 		return err
 	}
-	d.markDownloadTaskDeleted(ctx, torrentName)
+	d.markDownloadTaskDeleted(ctx, hash, torrentName)
 	stateKey := strings.ToLower(hash)
 	d.mu.Lock()
 	delete(d.prevStates, stateKey)
@@ -747,16 +778,28 @@ func (d *DownloadService) Delete(ctx context.Context, hash string, withFiles boo
 	return nil
 }
 
-func (d *DownloadService) markDownloadTaskDeleted(ctx context.Context, torrentName string) {
-	if d == nil || d.repo == nil || d.repo.DB == nil || strings.TrimSpace(torrentName) == "" {
+func (d *DownloadService) markDownloadTaskDeleted(ctx context.Context, hash, torrentName string) {
+	if d == nil || d.repo == nil || d.repo.DB == nil {
 		return
 	}
 	rows, err := d.repo.Download.List(ctx)
 	if err != nil {
 		return
 	}
-	taskByKey := tasksByIdentity(rows)
-	matched, ok := findMatchingTaskByIdentity(torrentName, taskByKey)
+	if matched, ok := findDownloadTaskByHash(rows, hash); ok {
+		_ = d.repo.DB.WithContext(ctx).Model(&model.DownloadTask{}).
+			Where("id = ?", matched.ID).
+			Updates(map[string]any{
+				"status":   "deleted",
+				"progress": matched.Progress,
+			}).Error
+		return
+	}
+	if strings.TrimSpace(torrentName) == "" {
+		return
+	}
+	taskByKey := tasksByTorrentIdentity(rows)
+	matched, ok := findMatchingTaskByTorrentIdentity(torrentName, taskByKey)
 	if !ok {
 		return
 	}
@@ -766,6 +809,19 @@ func (d *DownloadService) markDownloadTaskDeleted(ctx context.Context, torrentNa
 			"status":   "deleted",
 			"progress": matched.Progress,
 		}).Error
+}
+
+func findDownloadTaskByHash(rows []model.DownloadTask, hash string) (model.DownloadTask, bool) {
+	hash = strings.ToLower(strings.TrimSpace(hash))
+	if hash == "" {
+		return model.DownloadTask{}, false
+	}
+	for _, row := range rows {
+		if strings.Contains(strings.ToLower(row.URL), hash) {
+			return row, true
+		}
+	}
+	return model.DownloadTask{}, false
 }
 
 // RelocateTorrent moves a torrent's data to a new save directory while keeping
@@ -803,7 +859,7 @@ func (d *DownloadService) poll(ctx context.Context) {
 			continue
 		}
 		rows, _ := d.repo.Download.List(ctx)
-		taskByKey := tasksByIdentity(rows)
+		taskByKey := tasksByTorrentIdentity(rows)
 		d.processDownloadSnapshot(ctx, live, taskByKey)
 		d.hub.Publish("download", map[string]any{"torrents": live})
 	}
@@ -823,6 +879,10 @@ func (d *DownloadService) processDownloadSnapshot(ctx context.Context, live []QB
 	for _, torrent := range live {
 		stateKey := completedTorrentQueueKey(torrent)
 		complete := torrent.Progress >= 1.0
+		matchedTask, hasTask := findMatchingTaskByTorrentIdentity(torrent.Name, taskByKey)
+		catchupRecorded := hasTask && d.completedTorrentCatchupRecorded(ctx, torrent)
+		taskNeedsOrganize := hasTask && !catchupRecorded &&
+			(downloadTaskNeedsCompletion(matchedTask) || recentlyCompletedTorrent(torrent, time.Now()))
 		d.syncDownloadTaskProgress(ctx, torrent, taskByKey)
 		if stateKey == "" {
 			continue
@@ -839,10 +899,12 @@ func (d *DownloadService) processDownloadSnapshot(ctx context.Context, live []QB
 			// （onTorrentComplete 内部仍受 organize.auto 开关约束，且
 			// 整理对已存在的目标文件幂等跳过）。
 			d.prevStates[stateKey] = true
-			if recentlyCompletedTorrent(torrent, time.Now()) && !d.completedTorrentCatchupRecorded(ctx, torrent) {
+			if taskNeedsOrganize {
 				shouldQueue = true
 			}
 		case complete && !wasComplete:
+			shouldQueue = true
+		case complete && taskNeedsOrganize:
 			shouldQueue = true
 		case complete:
 			d.prevStates[stateKey] = true
@@ -1018,7 +1080,7 @@ func (d *DownloadService) syncDownloadTaskProgress(ctx context.Context, torrent 
 	if d == nil || d.repo == nil || d.repo.DB == nil || strings.TrimSpace(torrent.Name) == "" {
 		return
 	}
-	matched, ok := findMatchingTaskByIdentity(torrent.Name, taskByKey)
+	matched, ok := findMatchingTaskByTorrentIdentity(torrent.Name, taskByKey)
 	if !ok {
 		return
 	}
@@ -1053,6 +1115,17 @@ func tasksByIdentity(rows []model.DownloadTask) map[string]model.DownloadTask {
 	return out
 }
 
+func tasksByTorrentIdentity(rows []model.DownloadTask) map[string]model.DownloadTask {
+	out := make(map[string]model.DownloadTask, len(rows))
+	for _, row := range rows {
+		key := normalizeTorrentName(row.Title)
+		if key != "" {
+			out[key] = row
+		}
+	}
+	return out
+}
+
 func findMatchingTaskByIdentity(title string, taskByKey map[string]model.DownloadTask) (model.DownloadTask, bool) {
 	key := downloadTaskIdentityKey(title)
 	if key == "" {
@@ -1067,6 +1140,29 @@ func findMatchingTaskByIdentity(title string, taskByKey map[string]model.Downloa
 		}
 	}
 	return model.DownloadTask{}, false
+}
+
+func findMatchingTaskByTorrentIdentity(title string, taskByKey map[string]model.DownloadTask) (model.DownloadTask, bool) {
+	key := normalizeTorrentName(title)
+	if key == "" {
+		return model.DownloadTask{}, false
+	}
+	if row, ok := taskByKey[key]; ok {
+		return row, true
+	}
+	for currentKey, row := range taskByKey {
+		if strings.Contains(key, currentKey) || strings.Contains(currentKey, key) {
+			return row, true
+		}
+	}
+	return model.DownloadTask{}, false
+}
+
+func downloadTaskNeedsCompletion(task model.DownloadTask) bool {
+	if task.Progress < 1 {
+		return true
+	}
+	return strings.ToLower(strings.TrimSpace(task.Status)) != "completed"
 }
 
 // onTorrentComplete handles a torrent that just finished downloading.
@@ -1109,61 +1205,25 @@ func (d *DownloadService) onTorrentComplete(ctx context.Context, torrent QBitTor
 		zap.String("name", torrent.Name),
 		zap.String("source", source),
 		zap.Bool("allow_replace_existing", allowReplace))
-	taskHandle := d.startDownloadOrganizeTask(torrent, source, allowReplace)
-	res, err := d.organizer.OrganizeDirectory(ctx, OrganizeOptions{
-		SourcePath:           source,
-		MediaType:            downloadTaskMediaType(taskRow),
-		MediaCategory:        firstNonEmpty(downloadTaskMediaCategory(taskRow), torrent.Category),
-		AllowReplaceExisting: allowReplace,
+	resWrap, err := d.ensureOrganizePipeline().Run(ctx, OrganizePipelineRequest{
+		Scope:         OrganizeScopeDirectory,
+		Trigger:       OrganizeTriggerDownload,
+		TaskName:      d.downloadOrganizeTaskName(torrent, allowReplace),
+		SourcePath:    source,
+		MediaType:     downloadTaskMediaType(taskRow),
+		MediaCategory: firstNonEmpty(downloadTaskMediaCategory(taskRow), torrent.Category),
+		AllowReplace:  allowReplace,
 	})
 	if err != nil {
-		if taskHandle != nil {
-			taskHandle.Finish(err, TaskUpdate{
-				Stage:   "organize",
-				Message: "下载完成自动整理失败",
-			})
-		}
 		d.log.Error("auto organize completed torrent failed",
 			zap.String("hash", torrent.Hash),
 			zap.String("source", source),
 			zap.Error(err))
 		return
 	}
-	if taskHandle != nil && res != nil {
-		taskHandle.Update(TaskUpdate{
-			Stage:      "organize",
-			SourcePath: res.SourcePath,
-			DestPath:   res.DestPath,
-			Message:    "下载完成整理已完成，准备扫描入库",
-			Metrics:    OrganizeTaskMetrics(res),
-			Details:    OrganizeTaskDetails(res, 8),
-		})
-	}
-	if d.scanner != nil && res != nil && strings.TrimSpace(res.DestPath) != "" && OrganizeResultNeedsVisibilitySync(res) {
-		if taskHandle != nil {
-			taskHandle.Update(TaskUpdate{
-				Stage:   "scan_scrape",
-				Message: "正在扫描入库并按设置刮削",
-				Metrics: OrganizeTaskMetrics(res),
-				Details: OrganizeTaskDetails(res, 8),
-			})
-		}
-		res.Scans, res.Scrapes = d.scanner.ScanAndScrapeLibrariesForPath(ctx, res.DestPath, "", OrganizeScrapeAfterEnabled(ctx, d.repo))
-	} else if d.log != nil && res != nil && !OrganizeResultNeedsVisibilitySync(res) {
-		d.log.Info("auto organize completed torrent skipped scan; no destination changes",
-			zap.String("hash", torrent.Hash),
-			zap.String("source", source),
-			zap.Int("organized", res.Organized),
-			zap.Int("replaced", res.Replaced),
-			zap.Int("skipped", res.Skipped))
-	}
-	if taskHandle != nil {
-		taskHandle.Finish(nil, TaskUpdate{
-			Stage:   "completed",
-			Message: "下载完成自动整理入库结束",
-			Metrics: OrganizeTaskMetrics(res),
-			Details: OrganizeTaskDetails(res, 8),
-		})
+	res := resWrap.Result
+	if res == nil {
+		res = &OrganizeResult{}
 	}
 	d.markCompletedTorrentCatchupRecorded(context.Background(), torrent)
 	d.log.Info("auto organize completed torrent finished",
@@ -1177,23 +1237,22 @@ func (d *DownloadService) onTorrentComplete(ctx context.Context, torrent QBitTor
 		zap.Int("errors", len(res.Errors)))
 }
 
-func (d *DownloadService) startDownloadOrganizeTask(torrent QBitTorrent, source string, allowReplace bool) *TaskHandle {
-	if d == nil || d.tasks == nil {
-		return nil
-	}
-	message := "下载完成后自动整理/重命名/入库"
-	if allowReplace {
-		message = "下载完成后自动整理/重命名/入库（允许洗版替换）"
-	}
+func (d *DownloadService) downloadOrganizeTaskName(torrent QBitTorrent, allowReplace bool) string {
 	name := strings.TrimSpace(torrent.Name)
 	if name == "" {
 		name = "下载完成自动整理"
 	}
-	return d.tasks.Start(TaskKindOrganize, name, TaskUpdate{
-		Stage:      "organize",
-		SourcePath: source,
-		Message:    message,
-	})
+	if allowReplace {
+		name += "（允许洗版）"
+	}
+	return name
+}
+
+func (d *DownloadService) ensureOrganizePipeline() *OrganizePipelineService {
+	if d.organizePipeline != nil {
+		return d.organizePipeline
+	}
+	return NewOrganizePipelineService(d.log, d.repo, d.organizer, d.scanner, d.tasks)
 }
 
 func (d *DownloadService) completedTorrentTask(ctx context.Context, torrent QBitTorrent) (*model.DownloadTask, bool) {
@@ -1204,12 +1263,12 @@ func (d *DownloadService) completedTorrentTask(ctx context.Context, torrent QBit
 	if err != nil || len(rows) == 0 {
 		return nil, false
 	}
-	taskByKey := tasksByIdentity(rows)
-	if task, ok := findMatchingTaskByIdentity(torrent.Name, taskByKey); ok {
+	taskByKey := tasksByTorrentIdentity(rows)
+	if task, ok := findMatchingTaskByTorrentIdentity(torrent.Name, taskByKey); ok {
 		return &task, true
 	}
 	if strings.TrimSpace(torrent.ContentPath) != "" {
-		if task, ok := findMatchingTaskByIdentity(filepath.Base(torrent.ContentPath), taskByKey); ok {
+		if task, ok := findMatchingTaskByTorrentIdentity(filepath.Base(torrent.ContentPath), taskByKey); ok {
 			return &task, true
 		}
 	}

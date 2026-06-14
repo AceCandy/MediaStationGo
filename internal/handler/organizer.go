@@ -57,22 +57,18 @@ func organizeMediaHandler(svc *service.Container) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req organizeReq
 		_ = c.ShouldBindJSON(&req)
-		opts := organizeOptionsFromReq(req)
-		task := startOrganizeHTTPTask(svc, "手动整理媒体", opts)
-		dst, err := svc.Organizer.OrganizeMediaWithOptions(c.Request.Context(), c.Param("id"), opts)
+		runReq := organizePipelineRequestFromReq(req, service.OrganizeScopeMedia, "手动整理媒体")
+		runReq.MediaID = c.Param("id")
+		resp, err := organizePipeline(svc).Run(c.Request.Context(), runReq)
 		if err != nil {
-			finishHTTPTask(task, err, "organize", "手动整理媒体失败", nil, nil)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		payload := gin.H{"path": dst}
-		if organizeScanAfter(req.ScanAfter) && !req.DryRun && svc.Scan != nil {
-			updateHTTPTask(task, "scan_scrape", "正在扫描入库并按设置刮削", nil, nil)
-			scans, scrapes := scanAndScrapeAfterOrganize(c, svc, dst, strings.TrimSpace(req.LibraryID), req.ScrapeAfter)
-			payload["scans"] = scans
-			payload["scrapes"] = scrapes
+		payload := gin.H{"path": resp.Path}
+		if resp.Result != nil {
+			payload["scans"] = resp.Result.Scans
+			payload["scrapes"] = resp.Result.Scrapes
 		}
-		finishHTTPTask(task, nil, "completed", "手动整理媒体结束", nil, nil)
 		c.JSON(http.StatusOK, payload)
 	}
 }
@@ -81,21 +77,14 @@ func organizeLibraryHandler(svc *service.Container) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req organizeReq
 		_ = c.ShouldBindJSON(&req)
-		opts := organizeOptionsFromReq(req)
-		task := startOrganizeHTTPTask(svc, "手动整理媒体库", opts)
-		res, err := svc.Organizer.OrganizeLibraryWithOptions(c.Request.Context(), c.Param("id"), opts)
+		runReq := organizePipelineRequestFromReq(req, service.OrganizeScopeLibrary, "手动整理媒体库")
+		runReq.LibraryID = c.Param("id")
+		resp, err := organizePipeline(svc).Run(c.Request.Context(), runReq)
 		if err != nil {
-			finishHTTPTask(task, err, "organize", "手动整理媒体库失败", nil, nil)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		details := service.OrganizeTaskDetails(res, 8)
-		if organizeScanAfter(req.ScanAfter) && !req.DryRun && svc.Scan != nil {
-			updateHTTPTask(task, "scan_scrape", "正在扫描入库并按设置刮削", service.OrganizeTaskMetrics(res), details)
-			res.Scans, res.Scrapes = scanAndScrapeAfterOrganize(c, svc, res.DestPath, c.Param("id"), req.ScrapeAfter)
-		}
-		finishHTTPTask(task, nil, "completed", "手动整理媒体库结束", service.OrganizeTaskMetrics(res), details)
-		c.JSON(http.StatusOK, res)
+		c.JSON(http.StatusOK, resp.Result)
 	}
 }
 
@@ -113,63 +102,40 @@ func organizeDirectoryHandler(svc *service.Container) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req organizeReq
 		_ = c.ShouldBindJSON(&req)
-		opts := organizeOptionsFromReq(req)
-		task := startOrganizeHTTPTask(svc, "手动整理入库", opts)
-		res, err := svc.Organizer.OrganizeDirectory(c.Request.Context(), opts)
+		runReq := organizePipelineRequestFromReq(req, service.OrganizeScopeDirectory, "手动整理入库")
+		runReq.PreferredLibraryID = strings.TrimSpace(req.LibraryID)
+		resp, err := organizePipeline(svc).Run(c.Request.Context(), runReq)
 		if err != nil {
-			finishHTTPTask(task, err, "organize", "手动整理入库失败", nil, nil)
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
-		details := service.OrganizeTaskDetails(res, 8)
-		updateHTTPTask(task, "organize", "手动整理完成，准备扫描入库", service.OrganizeTaskMetrics(res), details)
-		if organizeScanAfter(req.ScanAfter) && !req.DryRun && svc.Scan != nil {
-			updateHTTPTask(task, "scan_scrape", "正在扫描入库并按设置刮削", service.OrganizeTaskMetrics(res), details)
-			res.Scans, res.Scrapes = scanAndScrapeAfterOrganize(c, svc, res.DestPath, strings.TrimSpace(req.LibraryID), req.ScrapeAfter)
-		}
-		finishHTTPTask(task, nil, "completed", "手动整理入库结束", service.OrganizeTaskMetrics(res), details)
-		c.JSON(http.StatusOK, res)
+		c.JSON(http.StatusOK, resp.Result)
 	}
 }
 
-func startOrganizeHTTPTask(svc *service.Container, name string, opts service.OrganizeOptions) *service.TaskHandle {
-	if svc == nil || svc.Tasks == nil {
-		return nil
+func organizePipelineRequestFromReq(req organizeReq, scope service.OrganizeScope, taskName string) service.OrganizePipelineRequest {
+	dest := strings.TrimSpace(req.DestPath)
+	if dest == "" {
+		dest = strings.TrimSpace(req.TargetPath)
 	}
-	message := "正在整理/重命名/入库"
-	if opts.DryRun {
-		message = "正在预览整理/重命名"
+	return service.OrganizePipelineRequest{
+		Scope:         scope,
+		Trigger:       service.OrganizeTriggerManual,
+		TaskName:      taskName,
+		SourcePath:    strings.TrimSpace(req.SourcePath),
+		DestPath:      dest,
+		TransferMode:  strings.TrimSpace(req.TransferMode),
+		MediaType:     strings.TrimSpace(req.MediaType),
+		MediaCategory: strings.TrimSpace(req.MediaCategory),
+		ScanAfter:     req.ScanAfter,
+		ScrapeAfter:   req.ScrapeAfter,
+		DryRun:        req.DryRun,
 	}
-	return svc.Tasks.Start(service.TaskKindOrganize, name, service.TaskUpdate{
-		Stage:      "organize",
-		SourcePath: opts.SourcePath,
-		DestPath:   opts.DestPath,
-		Message:    message,
-	})
 }
 
-func updateHTTPTask(task *service.TaskHandle, stage, message string, metrics map[string]int64, details []string) {
-	if task == nil {
-		return
+func organizePipeline(svc *service.Container) *service.OrganizePipelineService {
+	if svc.OrganizePipeline != nil {
+		return svc.OrganizePipeline
 	}
-	task.Update(service.TaskUpdate{Stage: stage, Message: message, Metrics: metrics, Details: details})
-}
-
-func finishHTTPTask(task *service.TaskHandle, err error, stage, message string, metrics map[string]int64, details []string) {
-	if task == nil {
-		return
-	}
-	task.Finish(err, service.TaskUpdate{Stage: stage, Message: message, Metrics: metrics, Details: details})
-}
-
-func scanAndScrapeAfterOrganize(c *gin.Context, svc *service.Container, destRoot, preferredLibraryID string, scrapeOverride *bool) ([]service.OrganizeScanSummary, []service.OrganizeScrapeSummary) {
-	scrapeAfter := service.OrganizeScrapeAfterEnabled(c.Request.Context(), svc.Repo)
-	if scrapeOverride != nil {
-		scrapeAfter = *scrapeOverride
-	}
-	return svc.Scan.ScanAndScrapeLibrariesForPath(c.Request.Context(), destRoot, preferredLibraryID, scrapeAfter)
-}
-
-func organizeScanAfter(value *bool) bool {
-	return value == nil || *value
+	return service.NewOrganizePipelineService(svc.Log, svc.Repo, svc.Organizer, svc.Scan, svc.Tasks)
 }

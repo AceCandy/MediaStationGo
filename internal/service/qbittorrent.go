@@ -181,7 +181,7 @@ func (q *QBitClient) addTorrentLocked(ctx context.Context, magnetOrURL string, t
 		if hash := torrentInfoHash(torrentData); hash != "" {
 			if _, ok := beforeHashes[hash]; ok {
 				q.log.Info("qbittorrent: torrent already exists", zap.String("hash", hash), zap.String("name", torrentName))
-				return nil
+				return ErrDownloadAlreadyExists
 			}
 		}
 	}

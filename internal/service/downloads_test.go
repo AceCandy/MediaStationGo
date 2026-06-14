@@ -88,6 +88,101 @@ func TestSyncDownloadTaskProgressSkipsUnchangedCompletedTask(t *testing.T) {
 	}
 }
 
+func TestSyncDownloadTaskProgressMatchesSeasonFolderTorrentName(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(&model.DownloadTask{}); err != nil {
+		t.Fatal(err)
+	}
+	repos := repository.New(db)
+	task := &model.DownloadTask{
+		Source:   "qbittorrent",
+		URL:      "magnet:?xt=urn:btih:test",
+		Title:    "The First Jasmine S01E01 1080p TX WEB-DL AAC2.0 H.264-MWeb",
+		SavePath: "/downloads/未分类",
+		Status:   "queued",
+		Progress: 0.5,
+	}
+	if err := repos.Download.Create(t.Context(), task); err != nil {
+		t.Fatal(err)
+	}
+
+	svc := NewDownloadService(zap.NewNop(), repos, NewHub(zap.NewNop()), nil)
+	svc.syncDownloadTaskProgress(t.Context(), QBitTorrent{
+		Name:     "The.First.Jasmine.S01.1080p.TX.WEB-DL.AAC2.0.H.264-MWeb",
+		Progress: 1,
+		State:    "stalledUP",
+	}, tasksByTorrentIdentity([]model.DownloadTask{*task}))
+
+	var after model.DownloadTask
+	if err := db.First(&after, "id = ?", task.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if after.Status != "completed" || after.Progress != 1 {
+		t.Fatalf("task completion = %s/%v, want completed/1", after.Status, after.Progress)
+	}
+}
+
+func TestProcessDownloadSnapshotQueuesCompletedPendingTaskOnFirstSnapshot(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(&model.DownloadTask{}, &model.Setting{}); err != nil {
+		t.Fatal(err)
+	}
+	repos := repository.New(db)
+	task := &model.DownloadTask{
+		Source:   "qbittorrent",
+		URL:      "magnet:?xt=urn:btih:test",
+		Title:    "Blades of the Guardians S02E01 1080p TX WEB-DL AAC2.0 H.264-MWeb",
+		SavePath: "/downloads/未分类",
+		Status:   "queued",
+		Progress: 0,
+	}
+	if err := repos.Download.Create(t.Context(), task); err != nil {
+		t.Fatal(err)
+	}
+
+	svc := NewDownloadService(zap.NewNop(), repos, NewHub(zap.NewNop()), nil)
+	svc.processDownloadSnapshot(t.Context(), []QBitTorrent{{
+		Hash:     "quickdone",
+		Name:     "Blades.of.the.Guardians.S02.1080p.TX.WEB-DL.AAC2.0.H.264-MWeb",
+		Progress: 1,
+		State:    "stalledUP",
+	}}, tasksByTorrentIdentity([]model.DownloadTask{*task}))
+
+	if got := len(svc.organizeQueue); got != 1 {
+		t.Fatalf("queued completed organize jobs = %d, want 1", got)
+	}
+}
+
+func TestProcessDownloadSnapshotSkipsUntrackedCompletedTorrentOnFirstSnapshot(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(&model.DownloadTask{}, &model.Setting{}); err != nil {
+		t.Fatal(err)
+	}
+	repos := repository.New(db)
+	svc := NewDownloadService(zap.NewNop(), repos, NewHub(zap.NewNop()), nil)
+
+	svc.processDownloadSnapshot(t.Context(), []QBitTorrent{{
+		Hash:         "historydone",
+		Name:         "Large.History.Pack.2026.1080p",
+		Progress:     1,
+		State:        "stalledUP",
+		CompletionOn: time.Now().Unix(),
+	}}, tasksByTorrentIdentity(nil))
+
+	if got := len(svc.organizeQueue); got != 0 {
+		t.Fatalf("queued untracked historical torrents = %d, want 0", got)
+	}
+}
+
 func TestDownloadCompleteAutoOrganizesContentPath(t *testing.T) {
 	root := t.TempDir()
 	src := filepath.Join(root, "downloads", "国产剧", "狂飙.S01E01.2023.1080p.mkv")
@@ -335,17 +430,31 @@ func TestDownloadPollBaselinesAlreadyCompletedTorrents(t *testing.T) {
 
 func TestDownloadPollCatchesUpRecentlyCompletedTorrents(t *testing.T) {
 	repos := newOrganizerTestRepo(t)
+	if err := repos.DB.AutoMigrate(&model.DownloadTask{}); err != nil {
+		t.Fatal(err)
+	}
+	task := &model.DownloadTask{
+		Source:   "qbittorrent",
+		URL:      "magnet:?xt=urn:btih:fresh",
+		Title:    "Fresh Complete S01E01",
+		SavePath: "/downloads",
+		Status:   "queued",
+		Progress: 0,
+	}
+	if err := repos.Download.Create(t.Context(), task); err != nil {
+		t.Fatal(err)
+	}
 	svc := NewDownloadService(zap.NewNop(), repos, NewHub(zap.NewNop()), nil)
 
 	svc.processDownloadSnapshot(t.Context(), []QBitTorrent{
 		{Hash: "fresh-complete", Name: "Fresh Complete S01E01", Progress: 1, CompletionOn: time.Now().Add(-time.Hour).Unix()},
 		{Hash: "stale-complete", Name: "Stale Complete S01E01", Progress: 1, CompletionOn: time.Now().Add(-48 * time.Hour).Unix()},
 		{Hash: "no-timestamp", Name: "No Timestamp S01E01", Progress: 1},
-	}, nil)
+	}, tasksByTorrentIdentity([]model.DownloadTask{*task}))
 
-	// 只有补整理时间窗内完成的种子会被补整理；无 completion_on 的保守跳过。
+	// 只有补整理时间窗内、且存在本地追踪任务的种子会被补整理；无 completion_on 的保守跳过。
 	if got := len(svc.organizeQueue); got != 1 {
-		t.Fatalf("first poll queued %d organize jobs, want 1 (recent completion only)", got)
+		t.Fatalf("first poll queued %d organize jobs, want 1 (recent tracked completion only)", got)
 	}
 }
 
@@ -657,6 +766,65 @@ func TestDeleteMarksMatchingDownloadTaskDeleted(t *testing.T) {
 	}
 }
 
+func TestDeleteMarksMagnetTaskDeletedWhenLiveTorrentNameMissing(t *testing.T) {
+	const hash = "0123456789abcdef0123456789abcdef0123c0de"
+	var deleteCalls int32
+	qb := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v2/auth/login":
+			_, _ = w.Write([]byte("Ok."))
+		case "/api/v2/torrents/info":
+			_, _ = w.Write([]byte(`[]`))
+		case "/api/v2/torrents/delete":
+			atomic.AddInt32(&deleteCalls, 1)
+			_, _ = w.Write([]byte("Ok."))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer qb.Close()
+
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(&model.DownloadTask{}, &model.DownloadClient{}, &model.Setting{}); err != nil {
+		t.Fatal(err)
+	}
+	repos := repository.New(db)
+	configureTestDefaultQB(t, repos, qb.URL)
+	task := &model.DownloadTask{
+		UserID:   "u1",
+		Source:   "qbittorrent",
+		URL:      "magnet:?xt=urn:btih:" + hash + "&dn=Codex.Path.Verify.S01E01.2026",
+		Title:    "Codex Path Verify S01E01 2026",
+		SavePath: "/downloads/tv",
+		Status:   "queued",
+	}
+	if err := repos.Download.Create(t.Context(), task); err != nil {
+		t.Fatal(err)
+	}
+
+	svc := NewDownloadService(zap.NewNop(), repos, NewHub(zap.NewNop()), nil)
+	if err := svc.ReloadConfig(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.Delete(t.Context(), hash, false); err != nil {
+		t.Fatal(err)
+	}
+	if got := atomic.LoadInt32(&deleteCalls); got != 1 {
+		t.Fatalf("delete calls = %d, want 1", got)
+	}
+
+	var updated model.DownloadTask
+	if err := db.Where("id = ?", task.ID).First(&updated).Error; err != nil {
+		t.Fatal(err)
+	}
+	if updated.Status != "deleted" {
+		t.Fatalf("status = %q, want deleted", updated.Status)
+	}
+}
+
 func TestAddDownloadWithMetaSkipsExistingLocalMovieBeforeQBAdd(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	if err != nil {
@@ -852,6 +1020,37 @@ func TestAddDownloadWithMetaAutoClassifiesSavePathAndQBitCategory(t *testing.T) 
 	}
 }
 
+func TestDownloadSavePathCategoryRootKeepsWindowsClientSeparators(t *testing.T) {
+	if got := downloadSavePathCategoryRoot(`F:\downloads`, "国产剧"); got != `F:\downloads\国产剧` {
+		t.Fatalf("downloadSavePathCategoryRoot() = %q, want Windows qB path", got)
+	}
+	if got := downloadSavePathCategoryRoot(`F:\downloads\国产剧`, "国产剧"); got != `F:\downloads\国产剧` {
+		t.Fatalf("downloadSavePathCategoryRoot() duplicated category: %q", got)
+	}
+	if got := downloadSavePathCategoryRoot(`/downloads`, "国产剧"); got != filepath.Join(`/downloads`, "国产剧") {
+		t.Fatalf("downloadSavePathCategoryRoot() = %q, want local path", got)
+	}
+}
+
+func TestTranslateClientPathMapsWindowsQBitPathToContainerDownloadPath(t *testing.T) {
+	root := t.TempDir()
+	containerDownloads := filepath.Join(root, "downloads")
+	want := filepath.Join(containerDownloads, "国产剧", "Show.S01E01.mkv")
+	if err := os.MkdirAll(filepath.Dir(want), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(want, []byte("episode"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	got := translateClientPath(`F:\downloads\国产剧\Show.S01E01.mkv`, map[string]string{
+		`F:\downloads`: containerDownloads,
+	})
+	if got != want {
+		t.Fatalf("translateClientPath() = %q, want %q", got, want)
+	}
+}
+
 func TestAddDownloadWithMetaCanDisableAutoClassifiedSavePath(t *testing.T) {
 	var addCalls int32
 	var gotSavePath string
@@ -971,6 +1170,58 @@ func TestReloadConfigDoesNotFallbackToLegacyAfterClientDisabled(t *testing.T) {
 	}
 	if got := atomic.LoadInt32(&addCalls); got != 0 {
 		t.Fatalf("qb add calls = %d, want 0", got)
+	}
+}
+
+func TestReloadConfigUsesSoleEnabledQBitWhenNoExplicitDefault(t *testing.T) {
+	var addCalls int32
+	qb := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v2/auth/login":
+			_, _ = w.Write([]byte("Ok."))
+		case "/api/v2/torrents/info":
+			if atomic.LoadInt32(&addCalls) > 0 {
+				_, _ = w.Write([]byte(`[{"hash":"sole123","name":"Movie 2026 1080p","state":"downloading","progress":0.1}]`))
+				return
+			}
+			_, _ = w.Write([]byte(`[]`))
+		case "/api/v2/torrents/add":
+			atomic.AddInt32(&addCalls, 1)
+			_, _ = w.Write([]byte("Ok."))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer qb.Close()
+
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(&model.DownloadClient{}, &model.DownloadTask{}, &model.Setting{}); err != nil {
+		t.Fatal(err)
+	}
+	repos := repository.New(db)
+	if err := repos.Setting.Set(t.Context(), settingDownloadClientsManaged, "true"); err != nil {
+		t.Fatal(err)
+	}
+	client := &model.DownloadClient{Name: "qB", Type: "qbittorrent", Host: qb.URL, Username: "admin", Password: "admin", IsDefault: false, Enabled: true}
+	if err := repos.DownloadClient.Create(t.Context(), client); err != nil {
+		t.Fatal(err)
+	}
+
+	svc := NewDownloadService(zap.NewNop(), repos, NewHub(zap.NewNop()), nil)
+	task, err := svc.AddDownloadWithMeta(t.Context(), "u1", "magnet:?xt=urn:btih:abababababababababababababababababababab&dn=Movie+2026+1080p", "/downloads", DownloadTaskMeta{
+		Title: "Movie 2026 1080p",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task == nil {
+		t.Fatal("expected task")
+	}
+	if got := atomic.LoadInt32(&addCalls); got != 1 {
+		t.Fatalf("qb add calls = %d, want 1", got)
 	}
 }
 

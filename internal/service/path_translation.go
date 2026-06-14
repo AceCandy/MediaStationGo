@@ -17,10 +17,17 @@ func translateClientPath(clientPath string, mappings map[string]string) string {
 	if _, err := os.Stat(clean); err == nil {
 		return clean
 	}
+	normalizedClean := cleanPathForVolumeMapping(clientPath)
+	if normalizedClean != "" && normalizedClean != "." {
+		direct := filepath.Clean(filepath.FromSlash(normalizedClean))
+		if _, err := os.Stat(direct); err == nil {
+			return direct
+		}
+	}
 	// 尝试路径映射
-	cleanForMatch := filepath.ToSlash(clean)
+	cleanForMatch := strings.TrimRight(normalizedClean, "/")
 	for clientPrefix, localPrefix := range mappings {
-		prefix := strings.TrimRight(filepath.ToSlash(filepath.Clean(clientPrefix)), "/")
+		prefix := strings.TrimRight(cleanPathForVolumeMapping(clientPrefix), "/")
 		if prefix == "" || prefix == "." {
 			continue
 		}

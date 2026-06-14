@@ -32,6 +32,7 @@ type SubscriptionService struct {
 	repo      *repository.Container
 	downloads *DownloadService
 	site      *SiteService
+	scraper   *ScraperService
 	hub       *Hub
 	stop      chan struct{}
 }
@@ -47,6 +48,10 @@ func NewSubscriptionService(cfg *config.Config, log *zap.Logger, repo *repositor
 		hub:       hub,
 		stop:      make(chan struct{}),
 	}
+}
+
+func (s *SubscriptionService) SetScraper(scraper *ScraperService) {
+	s.scraper = scraper
 }
 
 // Start runs the polling loop in the background.
@@ -114,6 +119,11 @@ func (s *SubscriptionService) List(ctx context.Context) ([]model.Subscription, e
 	return s.repo.Subscription.List(ctx)
 }
 
+// History returns completed/archived subscription rules.
+func (s *SubscriptionService) History(ctx context.Context) ([]model.Subscription, error) {
+	return s.repo.Subscription.History(ctx)
+}
+
 // Delete removes a subscription.
 func (s *SubscriptionService) Delete(ctx context.Context, id string) error {
 	return s.repo.DB.Where("id = ?", id).Delete(&model.Subscription{}).Error
@@ -125,6 +135,9 @@ func (s *SubscriptionService) RunNow(ctx context.Context, id string) (int, error
 	var sub model.Subscription
 	if err := s.repo.DB.Where("id = ?", id).First(&sub).Error; err != nil {
 		return 0, err
+	}
+	if sub.ArchivedAt != nil {
+		return 0, nil
 	}
 	return s.runOne(ctx, &sub)
 }
@@ -243,6 +256,7 @@ func (s *SubscriptionService) runOne(ctx context.Context, sub *model.Subscriptio
 		seen = append(seen, guid)
 		seenSet[guid] = struct{}{}
 	}
+	avail = s.finalizePendingAvailability(sub, avail)
 	// Remember the last 200 GUIDs so the seen set doesn't grow forever.
 	if len(seen) > 200 {
 		seen = seen[len(seen)-200:]
@@ -251,6 +265,7 @@ func (s *SubscriptionService) runOne(ctx context.Context, sub *model.Subscriptio
 
 	now := time.Now()
 	_ = s.repo.DB.Model(sub).Updates(map[string]any{"last_run_at": &now}).Error
+	_ = s.archiveCompletedSubscription(ctx, sub, avail)
 	if queued > 0 {
 		s.hub.Publish("subscription", map[string]any{
 			"id":     sub.ID,
@@ -300,6 +315,7 @@ func (s *SubscriptionService) runSiteSearch(ctx context.Context, sub *model.Subs
 		item := candidate.Item
 		mediaType, mediaCategory := s.classifySubscriptionItem(ctx, sub, item.Title, item.Category)
 		if s.shouldSkipExistingTorrent(ctx, mediaType, candidate) {
+			addAvailabilityTitle(item.Title, availabilityQuery(subscriptionName(sub), subscriptionFilter(sub)), &availability)
 			seen = append(seen, candidate.GUID)
 			seenSet[candidate.GUID] = struct{}{}
 			continue
@@ -307,6 +323,7 @@ func (s *SubscriptionService) runSiteSearch(ctx context.Context, sub *model.Subs
 		realURL := s.site.ResolveDownloadURL(ctx, candidate.Download)
 		savePath := s.resolveSubscriptionSavePath(ctx, sub, mediaType, mediaCategory)
 		if s.downloadPathHasCandidate(ctx, sub, candidate.Item.Title, savePath) {
+			addAvailabilityTitle(item.Title, availabilityQuery(subscriptionName(sub), subscriptionFilter(sub)), &availability)
 			seen = append(seen, candidate.GUID)
 			seenSet[candidate.GUID] = struct{}{}
 			continue
@@ -322,6 +339,7 @@ func (s *SubscriptionService) runSiteSearch(ctx context.Context, sub *model.Subs
 			AllowExistingLibrary: sub.WashEnabled,
 		}); err != nil {
 			if IsDownloadDedupError(err) {
+				addAvailabilityTitle(item.Title, availabilityQuery(subscriptionName(sub), subscriptionFilter(sub)), &availability)
 				seen = append(seen, candidate.GUID)
 				seenSet[candidate.GUID] = struct{}{}
 				continue
@@ -338,16 +356,19 @@ func (s *SubscriptionService) runSiteSearch(ctx context.Context, sub *model.Subs
 			continue
 		}
 		queued++
+		addAvailabilityTitle(item.Title, availabilityQuery(subscriptionName(sub), subscriptionFilter(sub)), &availability)
 		resources = append(resources, item.Title)
 		seen = append(seen, candidate.GUID)
 		seenSet[candidate.GUID] = struct{}{}
 	}
+	availability = s.finalizePendingAvailability(sub, availability)
 	if len(seen) > 200 {
 		seen = seen[len(seen)-200:]
 	}
 	_ = s.repo.Setting.Set(ctx, guidKey, strings.Join(seen, "\n"))
 	now := time.Now()
 	_ = s.repo.DB.Model(sub).Updates(map[string]any{"last_run_at": &now}).Error
+	_ = s.archiveCompletedSubscription(ctx, sub, availability)
 	if queued > 0 {
 		s.hub.Publish("subscription", map[string]any{
 			"id":        sub.ID,
@@ -362,6 +383,88 @@ func (s *SubscriptionService) runSiteSearch(ctx context.Context, sub *model.Subs
 		return 0, fmt.Errorf("找到 PT 资源但加入下载器失败: %w", lastEnqueueErr)
 	}
 	return 0, nil
+}
+
+func (s *SubscriptionService) archiveCompletedSubscription(ctx context.Context, sub *model.Subscription, availability LocalAvailability) error {
+	if s == nil || s.repo == nil || s.repo.Subscription == nil || sub == nil {
+		return nil
+	}
+	if !subscriptionShouldArchive(sub, availability) {
+		return nil
+	}
+	now := time.Now()
+	reason := subscriptionArchiveReason(sub, availability)
+	if err := s.repo.Subscription.Archive(ctx, sub.ID, reason, now); err != nil {
+		return err
+	}
+	sub.Enabled = false
+	sub.ArchivedAt = &now
+	sub.ArchiveReason = reason
+	if s.log != nil {
+		s.log.Info("subscription completed, moved to history",
+			zap.String("id", sub.ID),
+			zap.String("name", sub.Name),
+			zap.String("reason", reason))
+	}
+	if s.hub != nil {
+		s.hub.Publish("subscription", map[string]any{
+			"id":       sub.ID,
+			"name":     sub.Name,
+			"archived": true,
+			"reason":   reason,
+		})
+	}
+	return nil
+}
+
+func subscriptionShouldArchive(sub *model.Subscription, availability LocalAvailability) bool {
+	if sub == nil || sub.WashEnabled || sub.ArchivedAt != nil {
+		return false
+	}
+	mediaType := strings.ToLower(strings.TrimSpace(sub.MediaType))
+	if !isSubscriptionSeriesType(mediaType) {
+		return availability.InLibrary || availability.LocalMediaCount > 0 || availability.DownloadedEpisodes > 0
+	}
+	if availability.HasSeriesPack {
+		return true
+	}
+	total := sub.TotalEpisodes
+	if total <= 0 {
+		total = availability.TotalEpisodes
+	}
+	if total > 0 {
+		return availability.DownloadedEpisodes >= total && len(availability.MissingEpisodes) == 0
+	}
+	return subscriptionLooksSingleEpisode(sub) && availability.DownloadedEpisodes > 0
+}
+
+func subscriptionArchiveReason(sub *model.Subscription, availability LocalAvailability) string {
+	if sub != nil && sub.WashEnabled {
+		return ""
+	}
+	if availability.HasSeriesPack {
+		return "整季资源已加入下载/入库"
+	}
+	if availability.TotalEpisodes > 0 {
+		return fmt.Sprintf("订阅完成：%d/%d", availability.DownloadedEpisodes, availability.TotalEpisodes)
+	}
+	if availability.DownloadedEpisodes > 0 {
+		return "单集订阅已加入下载/入库"
+	}
+	return "订阅媒体已加入下载/入库"
+}
+
+func subscriptionLooksSingleEpisode(sub *model.Subscription) bool {
+	if sub == nil {
+		return false
+	}
+	for _, value := range []string{sub.Name, sub.Filter} {
+		_, episode := ParseEpisode(value)
+		if episode > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *SubscriptionService) shouldSkipExistingTorrent(ctx context.Context, mediaType string, candidate siteSearchCandidate) bool {

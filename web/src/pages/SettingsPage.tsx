@@ -1,13 +1,13 @@
 import { FormEvent, useEffect, useState } from 'react'
-import { FolderOpen, Loader2, Save, SettingsIcon } from 'lucide-react'
+import { Loader2, Save, SettingsIcon } from 'lucide-react'
 import toast from 'react-hot-toast'
 
 import { adminAPI } from '../api/admin'
 import { libraryAPI } from '../api/library'
 import type { Library, Setting } from '../types'
 
-// SettingsPage replaces the Vue SettingsView's General / Organize /
-// Scrape / Adult tabs. The Go backend stores settings as a single
+// SettingsPage replaces the Vue SettingsView's curated runtime settings.
+// The Go backend stores settings as a single
 // key/value table; we group the most useful keys client-side and let
 // the operator edit them with typed widgets (select / toggle / input).
 //
@@ -153,145 +153,6 @@ const GROUPS: SettingGroup[] = [
         label: 'HMAC 签名密钥',
         type: 'text',
         hint: '必须与 License Server 的 LICENSE_HMAC_SECRET 保持一致；留空则跳过响应签名校验。',
-      },
-    ],
-  },
-  {
-    key: 'organize',
-    label: '整理 & 刮削',
-    description: '媒体文件命名 + 自动刮削 + 整理目标',
-    items: [
-      {
-        key: 'organize.auto',
-        label: '整理源目录定时自动整理',
-        type: 'toggle',
-        hint: '开启后后台会按下方间隔递归扫描「整理源目录」，自动整理到「整理目的地目录」并扫描入库。默认关闭，避免无意中频繁读盘。',
-        defaultValue: 'false',
-      },
-      {
-        key: 'organizer.auto_after_download',
-        label: '下载完成后自动整理入库',
-        type: 'toggle',
-        hint: '开启后 qB 下载完成时，系统会优先使用种子的 content_path 整理该文件/目录，并在整理完成后扫描目标媒体库。',
-      },
-      {
-        key: 'organize.scrape_after',
-        label: '整理后自动刮削',
-        type: 'toggle',
-        hint: '开启后，手动/自动整理完成并扫描入库后，会立即触发 TMDb/豆瓣/Bangumi/JavBus/JavDB 等元数据刮削。需要先配置可用刮削源。',
-        defaultValue: 'false',
-      },
-      {
-        key: 'downloads.smart_classify',
-        label: '下载器智能分类',
-        type: 'toggle',
-        hint: '订阅下载和站点搜索下载未指定保存路径时，自动按媒体类型/分类写入 qB 保存目录与 qB 分类（如：/downloads/国产剧、/downloads/综艺）。',
-        defaultValue: 'true',
-      },
-      {
-        key: 'organizer.smart_classify',
-        label: '启用智能分类',
-        type: 'toggle',
-        hint: '整理/入库时根据元数据（语言/国家/类型）自动分类到媒体库子目录（如：华语电影、欧美剧、日番）',
-      },
-      {
-        key: 'organize.source_dir',
-        label: '整理源目录（待整理）',
-        type: 'text',
-        hint: '从该目录读取待整理文件；留空则默认整理整个媒体库（媒体库路径）。',
-        placeholder: '/mnt/downloads',
-      },
-      {
-        key: 'organize.target_dir',
-        label: '整理目的地目录',
-        type: 'text',
-        hint: '整理后输出到该目录；留空则默认整理到各媒体库对应路径（见下方参考）。与「源目录」相互独立。',
-        placeholder: '/mnt/media/organized',
-      },
-      {
-        key: 'organize.transfer_mode',
-        label: '默认转移方式',
-        type: 'select',
-        hint: '移动会删除源文件；复制/硬链接/软链接保留源文件，PT 做种不中断。硬链接同盘零额外占用。',
-        options: [
-          { value: 'move', label: '移动（删除源文件）' },
-          { value: 'copy', label: '复制（保留源文件）' },
-          { value: 'hardlink', label: '硬链接（保留源，做种不中断，不占双倍空间）' },
-          { value: 'symlink', label: '软链接（符号链接，保留源）' },
-        ],
-      },
-      {
-        key: 'organize.interval_seconds',
-        label: '自动整理间隔秒数',
-        type: 'number',
-        hint: '仅在「整理源目录定时自动整理」开启后生效；最小 60 秒，建议 300 秒或更高。',
-        defaultValue: '300',
-        placeholder: '300',
-      },
-      {
-        key: 'organize.keep_seeding',
-        label: '保种（整理后继续做种上传）',
-        type: 'toggle',
-        hint: '开启后即使选择「移动」也会自动改用硬链接保留源文件，确保 qBittorrent 继续做种。硬链接要求源和目标在同一文件系统；失败时会提示，不再静默复制占用双倍空间。',
-      },
-      {
-        key: 'organize.movie_format',
-        label: '电影命名格式',
-        type: 'text',
-        hint: '例: {title} ({year})/{title} ({year})',
-        placeholder: '{title} ({year})/{title} ({year})',
-      },
-      {
-        key: 'organize.tv_format',
-        label: '剧集命名格式',
-        type: 'text',
-        placeholder: '{title} ({year})/Season {season}/{title} S{season:02}E{episode:02}',
-      },
-      {
-        key: 'organize.anime_format',
-        label: '动漫命名格式',
-        type: 'text',
-        placeholder: '{title}/Season {season}/{title} S{season:02}E{episode:02}',
-      },
-      {
-        key: 'scrape.auto_on_scan',
-        label: '扫描后自动刮削',
-        type: 'toggle',
-      },
-      {
-        key: 'scrape.providers',
-        label: '刮削源优先级',
-        type: 'text',
-        hint: '逗号分隔: tmdb,bangumi,thetvdb,fanart',
-        placeholder: 'tmdb,bangumi,thetvdb,fanart',
-      },
-      {
-        key: 'scrape.language',
-        label: '刮削首选语言',
-        type: 'text',
-        placeholder: 'zh-CN',
-      },
-      {
-        key: 'scrape.delay_min_ms',
-        label: '刮削最小间隔毫秒',
-        type: 'number',
-        hint: '参考 nowen-video 的随机节流策略。批量刮削时两条媒体之间会随机等待，避免 TMDb / Bangumi / JavBus / JavDB 等源请求过快。',
-        defaultValue: '250',
-        placeholder: '250',
-      },
-      {
-        key: 'scrape.delay_max_ms',
-        label: '刮削最大间隔毫秒',
-        type: 'number',
-        hint: '如遇到站点限速、超时或 403，可提高到 2000-5000；填 0 可关闭批量刮削间隔。',
-        defaultValue: '500',
-        placeholder: '500',
-      },
-      {
-        key: 'scan.periodic_enabled',
-        label: '周期性整库重扫',
-        type: 'toggle',
-        hint: '默认关闭。文件新增/变更由实时监听增量入库，无需定时全量重扫。开启会每 60 分钟重扫整库，频繁读盘会损伤硬盘，一般无需开启。',
       },
     ],
   },
@@ -499,7 +360,7 @@ export function SettingsPage() {
         <div>
           <h1 className="font-display text-3xl font-bold text-ink-600">系统设置</h1>
           <p className="text-sm text-ink-50">
-            按分组编辑转码 / 整理 / 刮削 / 下载器等关键配置
+            按分组编辑转码 / 网盘转存 / Adult 等关键配置
           </p>
         </div>
       </div>
@@ -553,44 +414,6 @@ export function SettingsPage() {
             </button>
           </div>
         </form>
-      )}
-
-      {/* 整理 tab 时显示各媒体库默认路径 */}
-      {!loading && activeGroup === 'organize' && libraries.length > 0 && (
-        <div className="glass-panel">
-          <div className="mb-3 flex items-center gap-2 text-sm text-ink-100">
-            <FolderOpen size={16} className="text-brand-500" />
-            <span>默认整理路径参考（未设目的地目录时按媒体库归类）</span>
-          </div>
-          <table className="w-full text-left text-sm">
-            <thead className="text-xs uppercase tracking-wider text-sand-500">
-              <tr>
-                <th className="py-2">媒体库</th>
-                <th>类型</th>
-                <th>路径</th>
-                <th>整理后示例</th>
-              </tr>
-            </thead>
-            <tbody>
-              {libraries.map((lib) => (
-                <tr key={lib.id} className="border-t border-gray-200">
-                  <td className="py-2 font-medium text-ink-600">{lib.name}</td>
-                  <td className="text-ink-50">
-                    {lib.type === 'movie' ? '电影' : lib.type === 'tv' ? '电视剧' : lib.type === 'anime' ? '动漫' : '音乐'}
-                  </td>
-                  <td className="font-mono text-xs text-ink-50">{lib.path}</td>
-                  <td className="font-mono text-[11px] text-sand-500">
-                    {lib.type === 'movie'
-                      ? `${lib.path}/片名 (2024)/片名 (2024).mkv`
-                      : lib.type === 'tv' || lib.type === 'anime'
-                        ? `${lib.path}/剧名/Season 01/剧名 - S01E01.mkv`
-                        : lib.path}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
       )}
     </div>
   )

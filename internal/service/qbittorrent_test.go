@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -187,7 +188,7 @@ func TestQBitAddTorrentUploadsFetchedTorrentFile(t *testing.T) {
 	}
 }
 
-func TestQBitAddTorrentFileTreatsExistingInfoHashAsSuccess(t *testing.T) {
+func TestQBitAddTorrentFileReturnsDedupForExistingInfoHash(t *testing.T) {
 	torrentData := []byte("d4:infod4:name7:fixtureee")
 	hash := torrentInfoHash(torrentData)
 	if hash == "" {
@@ -215,8 +216,8 @@ func TestQBitAddTorrentFileTreatsExistingInfoHashAsSuccess(t *testing.T) {
 		Password: "adminadmin",
 	})
 
-	if err := client.AddTorrentFile(context.Background(), torrentData, "fixture.torrent", ""); err != nil {
-		t.Fatalf("expected existing torrent to be accepted: %v", err)
+	if err := client.AddTorrentFile(context.Background(), torrentData, "fixture.torrent", ""); !errors.Is(err, ErrDownloadAlreadyExists) {
+		t.Fatalf("err = %v, want ErrDownloadAlreadyExists", err)
 	}
 	if addCalled.Load() {
 		t.Fatal("expected qbit add to be skipped for existing infohash")

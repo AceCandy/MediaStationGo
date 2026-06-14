@@ -71,6 +71,30 @@ func TestScrapeQueryCandidatesPreferSeriesFolderAndCJKTitle(t *testing.T) {
 	}
 }
 
+func TestScrapeQueryCandidatesSkipCategoryFolderAsSeriesTitle(t *testing.T) {
+	lib := &model.Library{
+		Path: `/downloads`,
+		Type: "tv",
+	}
+	media := &model.Media{
+		Title:      "Ashes To Crown",
+		Path:       `/downloads/国产剧/Ashes.to.Crown.S01E06.1080p.WEB-DL.mkv`,
+		SeasonNum:  1,
+		EpisodeNum: 6,
+	}
+
+	got := scrapeQueryCandidates(media, lib)
+	if len(got) == 0 {
+		t.Fatal("scrapeQueryCandidates returned no candidates")
+	}
+	if got[0] == "国产剧" {
+		t.Fatalf("first query candidate = %q, category folders must not be used as title candidates: %#v", got[0], got)
+	}
+	if !strings.EqualFold(got[0], "Ashes To Crown") {
+		t.Fatalf("first query candidate = %q, want release title; all candidates=%#v", got[0], got)
+	}
+}
+
 func TestEnrichOneWritesTMDbIDColumn(t *testing.T) {
 	scraper, repos, closeServer := newTestScraper(t)
 	defer closeServer()
@@ -105,6 +129,69 @@ func TestEnrichOneWritesTMDbIDColumn(t *testing.T) {
 	}
 	if got.ScrapeStatus != "matched" || got.TMDbID != 12345 {
 		t.Fatalf("unexpected scraped media: status=%q tmdb=%d", got.ScrapeStatus, got.TMDbID)
+	}
+}
+
+func TestEnrichOneRejectsWrongYearMatchFromSeriesFolder(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/search/tv":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"results": []map[string]any{{
+					"id":             999,
+					"name":           "Parade of Stars Auto Show",
+					"first_air_date": "1952-01-01",
+				}},
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer upstream.Close()
+
+	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(&model.Library{}, &model.Series{}, &model.Media{}); err != nil {
+		t.Fatal(err)
+	}
+	repos := repository.New(db)
+	cfg := &config.Config{}
+	cfg.Secrets.TMDbAPIKey = "test-key"
+	cfg.Secrets.TMDbAPIProxy = upstream.URL
+	log := zap.NewNop()
+	scraper := NewScraperService(cfg, log, repos, NewTMDbProvider(cfg, log, nil), nil, nil, nil, NewHub(log))
+
+	root := t.TempDir()
+	mediaPath := filepath.Join(root, "Auto Show (2026)", "Season 1", "Auto Show - S01E03 - 第 3 集.mkv")
+	lib := model.Library{Name: "剧集", Path: root, Type: "tv", Enabled: true}
+	if err := repos.DB.Create(&lib).Error; err != nil {
+		t.Fatal(err)
+	}
+	media := model.Media{
+		LibraryID:    lib.ID,
+		Title:        "auto show",
+		Path:         mediaPath,
+		SeasonNum:    1,
+		EpisodeNum:   3,
+		ScrapeStatus: "pending",
+	}
+	if err := repos.DB.Create(&media).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	if err := scraper.EnrichOne(t.Context(), &media); err != nil {
+		t.Fatal(err)
+	}
+
+	var got model.Media
+	if err := repos.DB.First(&got, "id = ?", media.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if got.ScrapeStatus != "no_match" || got.Title != "auto show" || got.Year != 0 || got.TMDbID != 0 {
+		t.Fatalf("wrong-year scrape should be rejected, got status=%q title=%q year=%d tmdb=%d", got.ScrapeStatus, got.Title, got.Year, got.TMDbID)
 	}
 }
 

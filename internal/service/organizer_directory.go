@@ -254,15 +254,23 @@ func (o *OrganizerService) organizeSourceFile(ctx context.Context, src, sourceRo
 		title = "Unknown"
 	}
 	season, episode := ParseEpisode(src)
-	layout := o.inferOrganizeDirectoryLayout(src, sourceRoot)
-	if forced := normalizeOrganizeMediaType(mediaTypeOverride); forced != "" {
-		if layout.Category != "" && layout.MediaType != "" && layout.MediaType != forced {
+	pathLayout := o.inferOrganizeDirectoryLayout(src, sourceRoot)
+	layout := pathLayout
+	forcedType := normalizeOrganizeMediaType(mediaTypeOverride)
+	inferredType := o.inferMediaTypeForSourceFile(src, title, season, episode)
+	if forcedType != "" {
+		if layout.Category != "" && layout.MediaType != "" && layout.MediaType != forcedType {
 			layout.Category = ""
 		}
-		layout.MediaType = forced
-	}
-	if layout.MediaType == "" {
-		layout.MediaType = o.inferMediaTypeForSourceFile(src, title, season, episode)
+		layout.MediaType = forcedType
+	} else if inferredType != "" {
+		if inferredType == "tv" && layout.MediaType == "movie" {
+			// 文件名中明确有季/集信息时，目录名只能作为弱提示；否则
+			// 下载到错误的“电影/外语电影”等目录会把剧集按电影入库。
+			layout = organizeDirectoryLayout{MediaType: inferredType}
+		} else if layout.MediaType == "" {
+			layout.MediaType = inferredType
+		}
 	}
 	var metadataMatch *Match
 	if match := o.lookupOrganizeMetadata(ctx, src, sourceRoot, layout.MediaType, title, year, season, episode, metadataCache); match != nil {
@@ -277,8 +285,19 @@ func (o *OrganizerService) organizeSourceFile(ctx context.Context, src, sourceRo
 	}
 	if category := strings.TrimSpace(mediaCategoryOverride); category != "" {
 		layout.Category = sanitizeFilename(category)
-	} else if layout.Category == "" {
-		layout.Category = o.smartClassifySourceFile(ctx, src, sourceRoot, layout.MediaType, title, parsedTitle)
+	} else if category := o.smartClassifySourceFile(ctx, src, sourceRoot, layout.MediaType, title, parsedTitle, metadataMatch); category != "" {
+		// MoviePilot 的分类策略以识别后的元数据为主，下载/源目录只作为
+		// 兜底提示。这里即使源目录已有二级分类，也允许 TMDb/Bangumi/NFO
+		// 识别结果修正到真正的分类，避免错误目录导致错误入库。
+		layout.Category = category
+	}
+	if forcedType == "" {
+		if impliedType, normalizedCategory := o.mediaTypeForDirectoryCategory(layout.Category); impliedType != "" {
+			layout.Category = normalizedCategory
+			if layout.MediaType == "" || layout.MediaType == "tv" || layout.MediaType == "anime" || pathLayout.Category != layout.Category {
+				layout.MediaType = impliedType
+			}
+		}
 	}
 	layoutRoot, matchedLibrary := o.organizeLibraryRootForLayout(ctx, destRoot, layout.MediaType, layout.Category)
 	if !matchedLibrary && layout.MediaType != "" {
@@ -296,20 +315,23 @@ func (o *OrganizerService) organizeSourceFile(ctx context.Context, src, sourceRo
 	if layout.MediaType != "" {
 		isSeries = isSeriesLibraryType(layout.MediaType) && (season > 0 || episode > 0)
 	}
-	if isSeries {
-		// TV/动漫/综艺等剧集：{destRoot}/{Title}/Season XX/{Title} - SxxExx.ext
-		episodeTag = fmt.Sprintf("S%02dE%02d", season, episode)
-		destDir = filepath.Join(layoutRoot, title, fmt.Sprintf("Season %02d", season))
-		dst = filepath.Join(destDir, fmt.Sprintf("%s - %s%s", title, episodeTag, ext))
-	} else {
-		// 电影：{destRoot}/{Title} ({Year})/{Title} ({Year}).ext
-		folder := title
-		if year > 0 {
-			folder = fmt.Sprintf("%s (%d)", title, year)
-		}
-		destDir = filepath.Join(layoutRoot, folder)
-		dst = filepath.Join(destDir, folder+ext)
+	target, err := o.buildOrganizeTargetPath(ctx, organizeTargetInput{
+		Root:      layoutRoot,
+		MediaType: layout.MediaType,
+		Category:  layout.Category,
+		Title:     title,
+		Ext:       ext,
+		Year:      year,
+		Season:    season,
+		Episode:   episode,
+		Series:    isSeries,
+	})
+	if err != nil {
+		return err
 	}
+	destDir = target.Dir
+	dst = target.Path
+	episodeTag = target.EpisodeTag
 
 	// 源文件已经位于目标位置：无需处理。
 	if filepath.Clean(src) == filepath.Clean(dst) {
@@ -493,10 +515,28 @@ func (o *OrganizerService) lookupOrganizeMetadata(ctx context.Context, src, sour
 			}
 		}
 		match := o.scraper.lookup(ctx, lib, candidate, year)
-		if cache != nil {
-			cache[key] = match
-		}
 		if match != nil && strings.TrimSpace(match.Title) != "" {
+			if !organizeMetadataMatchTrusted(candidate, year, match) {
+				if cache != nil {
+					cache[key] = nil
+				}
+				if o.log != nil {
+					o.log.Warn("organize metadata match rejected before rename",
+						zap.String("source", src),
+						zap.String("query", candidate),
+						zap.String("title", match.Title),
+						zap.Int("source_year", year),
+						zap.Int("match_year", match.Year),
+						zap.Int("tmdb_id", match.TMDbID),
+						zap.Int("bangumi_id", match.BangumiID),
+						zap.String("douban_id", match.DoubanID),
+						zap.String("thetvdb_id", match.TheTVDBID))
+				}
+				continue
+			}
+			if cache != nil {
+				cache[key] = match
+			}
 			if o.log != nil {
 				o.log.Info("organize metadata matched before rename",
 					zap.String("source", src),
@@ -510,8 +550,27 @@ func (o *OrganizerService) lookupOrganizeMetadata(ctx context.Context, src, sour
 			}
 			return match
 		}
+		if cache != nil {
+			cache[key] = nil
+		}
 	}
 	return nil
+}
+
+func organizeMetadataMatchTrusted(query string, sourceYear int, match *Match) bool {
+	if match == nil || strings.TrimSpace(match.Title) == "" {
+		return false
+	}
+	if sourceYear > 0 && match.Year > 0 {
+		diff := sourceYear - match.Year
+		if diff < 0 {
+			diff = -diff
+		}
+		if diff > 1 {
+			return false
+		}
+	}
+	return true
 }
 
 func organizeMatchFromLocalMetadata(local *LocalMetadata) *Match {
@@ -547,7 +606,7 @@ func organizeMetadataCacheKey(mediaType, query string, year int) string {
 	return strings.ToLower(strings.TrimSpace(mediaType)) + "|" + fmt.Sprint(year) + "|" + strings.ToLower(strings.TrimSpace(query))
 }
 
-func (o *OrganizerService) smartClassifySourceFile(ctx context.Context, src, sourceRoot, mediaType, title, parsedTitle string) string {
+func (o *OrganizerService) smartClassifySourceFile(ctx context.Context, src, sourceRoot, mediaType, title, parsedTitle string, metadataMatch *Match) string {
 	if o == nil || !o.isSmartClassifyEnabled(ctx) {
 		return ""
 	}
@@ -556,6 +615,20 @@ func (o *OrganizerService) smartClassifySourceFile(ctx context.Context, src, sou
 		MediaType: mediaType,
 		Title:     strings.Join([]string{title, parsedTitle, filepath.Base(src)}, " "),
 		Category:  strings.Join(organizeDirectoryCategoryCandidates(src, sourceRoot), " "),
+	}
+	if metadataMatch != nil {
+		input.Title = strings.Join([]string{
+			metadataMatch.OriginalName,
+			title,
+			parsedTitle,
+			filepath.Base(src),
+		}, " ")
+		input.Languages = metadataMatch.Languages
+		input.Countries = metadataMatch.Countries
+		input.Genres = metadataMatch.Genres
+		if metadataMatch.NSFW {
+			input.MediaType = "adult"
+		}
 	}
 	if meta, err := ReadLocalMetadata(src, sourceRoot, seriesLike); err == nil && meta != nil && meta.HasNFO {
 		input.Title = strings.Join([]string{meta.Title, meta.OriginalName, title, parsedTitle, filepath.Base(src)}, " ")
@@ -595,7 +668,9 @@ func organizeDirectoryCategoryCandidates(src, sourceRoot string) []string {
 	}
 
 	cleanSourceRoot := filepath.Clean(sourceRoot)
-	add(filepath.Base(cleanSourceRoot))
+	for _, part := range organizePathNameParts(cleanSourceRoot) {
+		add(part)
+	}
 	rel, err := filepath.Rel(cleanSourceRoot, filepath.Clean(src))
 	if err != nil || rel == "." || strings.HasPrefix(rel, "..") {
 		return out
@@ -606,6 +681,34 @@ func organizeDirectoryCategoryCandidates(src, sourceRoot string) []string {
 	}
 	for _, part := range strings.Split(dir, string(os.PathSeparator)) {
 		add(part)
+	}
+	return out
+}
+
+func organizePathNameParts(path string) []string {
+	clean := filepath.Clean(strings.TrimSpace(path))
+	if clean == "" || clean == "." {
+		return nil
+	}
+	volume := filepath.VolumeName(clean)
+	if volume != "" {
+		clean = strings.TrimPrefix(clean, volume)
+	}
+	clean = strings.Trim(clean, string(os.PathSeparator))
+	if clean == "" {
+		base := filepath.Base(filepath.Clean(path))
+		if base == "." || base == string(os.PathSeparator) {
+			return nil
+		}
+		return []string{base}
+	}
+	parts := strings.Split(clean, string(os.PathSeparator))
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part != "" && part != "." {
+			out = append(out, part)
+		}
 	}
 	return out
 }

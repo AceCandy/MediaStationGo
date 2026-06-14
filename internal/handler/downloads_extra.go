@@ -71,8 +71,8 @@ func downloadOrganizeOneHandler(svc *service.Container) gin.HandlerFunc {
 // existing OrganizerService for each library that contains those files.
 func downloadOrganizeAllHandler(svc *service.Container) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// Walk each library and re-organize. The OrganizerService is
-		// idempotent so this is safe to run repeatedly.
+		// Walk each library through the unified organize pipeline so rename,
+		// scan, scrape and task reporting stay identical to manual organize.
 		libs, err := svc.Repo.Library.List(c.Request.Context())
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -80,15 +80,17 @@ func downloadOrganizeAllHandler(svc *service.Container) gin.HandlerFunc {
 		}
 		results := make([]any, 0, len(libs))
 		for _, l := range libs {
-			res, err := svc.Organizer.OrganizeLibrary(c.Request.Context(), l.ID)
+			resp, err := organizePipeline(svc).Run(c.Request.Context(), service.OrganizePipelineRequest{
+				Scope:     service.OrganizeScopeLibrary,
+				Trigger:   service.OrganizeTriggerManual,
+				TaskName:  "批量整理媒体库：" + l.Name,
+				LibraryID: l.ID,
+			})
 			if err != nil {
 				results = append(results, gin.H{"library": l.Name, "error": err.Error()})
 				continue
 			}
-			if svc.Scan != nil && res != nil && !res.DryRun {
-				res.Scans, res.Scrapes = scanAndScrapeAfterOrganize(c, svc, res.DestPath, l.ID, nil)
-			}
-			results = append(results, gin.H{"library": l.Name, "result": res})
+			results = append(results, gin.H{"library": l.Name, "result": resp.Result})
 		}
 		c.JSON(http.StatusOK, gin.H{"results": results})
 	}

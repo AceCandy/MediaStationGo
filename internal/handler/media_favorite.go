@@ -129,15 +129,17 @@ func organizeBulkHandler(svc *service.Container) gin.HandlerFunc {
 		}
 		out := make([]any, 0, len(libs))
 		for _, l := range libs {
-			res, err := svc.Organizer.OrganizeLibrary(c.Request.Context(), l.ID)
+			resp, err := organizePipeline(svc).Run(c.Request.Context(), service.OrganizePipelineRequest{
+				Scope:     service.OrganizeScopeLibrary,
+				Trigger:   service.OrganizeTriggerManual,
+				TaskName:  "批量整理媒体库：" + l.Name,
+				LibraryID: l.ID,
+			})
 			if err != nil {
 				out = append(out, gin.H{"library": l.Name, "error": err.Error()})
 				continue
 			}
-			if svc.Scan != nil && res != nil && !res.DryRun {
-				res.Scans, res.Scrapes = scanAndScrapeAfterOrganize(c, svc, res.DestPath, l.ID, nil)
-			}
-			out = append(out, gin.H{"library": l.Name, "result": res})
+			out = append(out, gin.H{"library": l.Name, "result": resp.Result})
 		}
 		c.JSON(http.StatusOK, gin.H{"results": out})
 	}
