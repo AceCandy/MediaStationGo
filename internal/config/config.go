@@ -22,8 +22,8 @@ import (
 const EnvPrefix = "MEDIASTATION"
 
 const (
-	defaultDatabaseMaxOpenConns = 1
-	defaultDatabaseMaxIdleConns = 1
+	defaultDatabaseMaxOpenConns = 4
+	defaultDatabaseMaxIdleConns = 2
 )
 
 // Config 是根配置聚合。

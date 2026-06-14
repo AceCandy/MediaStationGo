@@ -160,9 +160,12 @@ func (s *TelegramBotService) HandleWebhook(ctx context.Context, body []byte) err
 	if err := json.Unmarshal(body, &update); err != nil {
 		return fmt.Errorf("invalid update: %w", err)
 	}
+	return s.handleTelegramUpdate(ctx, update, nil)
+}
 
+func (s *TelegramBotService) handleTelegramUpdate(ctx context.Context, update TelegramUpdate, channelHint *model.NotifyChannel) error {
 	if update.CallbackQuery != nil {
-		return s.handleCallback(ctx, update.CallbackQuery)
+		return s.handleCallback(ctx, update.CallbackQuery, channelHint)
 	}
 
 	if update.Message == nil || update.Message.Text == "" {
@@ -177,8 +180,18 @@ func (s *TelegramBotService) HandleWebhook(ctx context.Context, body []byte) err
 	// command gate so the button-driven menu can collect free-form input.
 	if !telegramIsCommandText(text) {
 		if msg.Chat.Type == "" || msg.Chat.Type == "private" {
-			if channel := s.findChannelForMessage(ctx, msg); channel != nil {
+			if channel := s.channelForMessage(ctx, msg, channelHint); channel != nil {
 				if reply, handled := s.handlePendingText(ctx, channel, msg, text); handled {
+					if reply.Text != "" {
+						if err := s.reply(ctx, channel, msg.Chat.ID, reply); err != nil {
+							s.log.Error("reply failed", zap.Error(err))
+						}
+					}
+					s.deleteTelegramSourceMessage(channel, msg.Chat.ID, msg.MessageID)
+					return nil
+				}
+				if looksLikeRedemptionCode(text) {
+					reply := s.cmdRedeem(ctx, channel, msg, []string{text})
 					if reply.Text != "" {
 						if err := s.reply(ctx, channel, msg.Chat.ID, reply); err != nil {
 							s.log.Error("reply failed", zap.Error(err))
@@ -203,7 +216,7 @@ func (s *TelegramBotService) HandleWebhook(ctx context.Context, body []byte) err
 
 	// 获取该消息可使用的 Telegram 通知渠道配置。群组/频道消息必须来自
 	// 已配置的群组/频道；私聊消息会选择一个可验证该用户成员身份的 Bot。
-	channel := s.findChannelForMessage(ctx, msg)
+	channel := s.channelForMessage(ctx, msg, channelHint)
 	if channel == nil {
 		s.log.Warn("telegram channel not allowed or not configured",
 			zap.Int("chat_id", msg.Chat.ID),
@@ -360,6 +373,9 @@ func (s *TelegramBotService) cmdStart(ctx context.Context, msg *TelegramMessage,
 // cmdRegister 处理 /register 命令：在管理员开启注册后，普通用户可通过 Bot
 // 注册一个新的媒体中心账号，并自动绑定到当前 Telegram 账号。
 func (s *TelegramBotService) cmdRegister(ctx context.Context, channel *model.NotifyChannel, msg *TelegramMessage, args []string) telegramCommandReply {
+	if len(args) == 1 && looksLikeRedemptionCode(args[0]) {
+		return s.redeemRegisterFlow(ctx, channel, msg, args[0])
+	}
 	if !s.openRegEnabled(ctx) {
 		return telegramCommandReply{Text: "注册功能未开放，请联系管理员开启后再试。"}
 	}
@@ -793,7 +809,8 @@ func (s *TelegramBotService) StartPolling(ctx context.Context) {
 		s.pollingCancel[botToken] = cancel
 		s.pollingMu.Unlock()
 
-		go s.pollLoop(pollCtx, cfg)
+		channel := ch
+		go s.pollLoop(pollCtx, cfg, &channel)
 		s.log.Info("started telegram polling", zap.String("channel", ch.Name))
 	}
 }
@@ -810,7 +827,7 @@ func (s *TelegramBotService) StopPolling() {
 }
 
 // pollLoop 对单个 Bot Token 执行长轮询。
-func (s *TelegramBotService) pollLoop(ctx context.Context, cfg map[string]string) {
+func (s *TelegramBotService) pollLoop(ctx context.Context, cfg map[string]string, channel *model.NotifyChannel) {
 	var offset int64 = 0
 	pollURL, err := telegramMethodURL(cfg, cfg["bot_token"], "getUpdates")
 	if err != nil {
@@ -856,8 +873,7 @@ func (s *TelegramBotService) pollLoop(ctx context.Context, cfg map[string]string
 			go func(u TelegramUpdate) {
 				handlerCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 				defer cancel()
-				raw, _ := json.Marshal(u)
-				_ = s.HandleWebhook(handlerCtx, raw)
+				_ = s.handleTelegramUpdate(handlerCtx, u, channel)
 			}(upd)
 		}
 	}
@@ -1086,13 +1102,26 @@ func (s *TelegramBotService) findChannelForMessage(ctx context.Context, msg *Tel
 	return first
 }
 
-func (s *TelegramBotService) handleCallback(ctx context.Context, cb *TelegramCallbackQuery) error {
+func (s *TelegramBotService) channelForMessage(ctx context.Context, msg *TelegramMessage, hint *model.NotifyChannel) *model.NotifyChannel {
+	if hint == nil {
+		return s.findChannelForMessage(ctx, msg)
+	}
+	if msg == nil {
+		return hint
+	}
+	if msg.Chat.Type != "" && msg.Chat.Type != "private" && !s.telegramChatAllowed(hint, msg.Chat.ID) {
+		return nil
+	}
+	return hint
+}
+
+func (s *TelegramBotService) handleCallback(ctx context.Context, cb *TelegramCallbackQuery, channelHint *model.NotifyChannel) error {
 	if cb == nil || cb.Message == nil {
 		return nil
 	}
 	msg := *cb.Message
 	msg.From = cb.From
-	channel := s.findChannelForMessage(ctx, &msg)
+	channel := s.channelForMessage(ctx, &msg, channelHint)
 	if channel == nil {
 		channel = s.findChannelByChatID(ctx, cb.Message.Chat.ID)
 	}

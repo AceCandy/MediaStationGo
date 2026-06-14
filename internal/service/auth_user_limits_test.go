@@ -296,6 +296,59 @@ func TestLoginRetriesTransientSQLiteBusy(t *testing.T) {
 	}
 }
 
+func TestLoginSurvivesOneReservedSQLiteConnectionWithWALPool(t *testing.T) {
+	ctx := context.Background()
+	cfg := &config.Config{}
+	cfg.App.DataDir = t.TempDir()
+	cfg.Database.DBPath = filepath.Join(cfg.App.DataDir, "reserved-connection-login.db")
+	cfg.Database.WALMode = true
+	cfg.Database.BusyTimeout = 20
+	cfg.Database.MaxOpenConns = 4
+	cfg.Database.MaxIdleConns = 2
+	cfg.Secrets.JWTSecret = "test-secret"
+	log := zap.NewNop()
+	db, err := database.Open(cfg, log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = sqlDB.Close() }()
+	if err := database.AutoMigrate(db); err != nil {
+		t.Fatal(err)
+	}
+	repos := repository.New(db)
+	permissions := NewPermissionService(log, repos)
+	auth := NewAuthService(cfg, log, repos, NewTokenService(cfg, log, repos), permissions)
+	hash, err := bcrypt.GenerateFromPassword([]byte("password"), bcrypt.MinCost)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repos.User.Create(ctx, &model.User{
+		Username:     "viewer",
+		PasswordHash: string(hash),
+		Role:         "user",
+		Tier:         "free",
+		IsActive:     true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	reserved, err := sqlDB.Conn(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = reserved.Close() }()
+
+	loginCtx, cancel := context.WithTimeout(ctx, time.Second)
+	defer cancel()
+	if _, err := auth.Login(loginCtx, "viewer", "password"); err != nil {
+		t.Fatalf("login should not be blocked by one reserved sqlite connection: %v", err)
+	}
+}
+
 func TestLoginReturnsTokensWhenSQLiteWriteLockPersists(t *testing.T) {
 	ctx := context.Background()
 	cfg := &config.Config{}
