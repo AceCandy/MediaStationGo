@@ -136,7 +136,7 @@ func (s *TelegramBotService) generateCode(ctx context.Context, kind string, dura
 // used only after the dependent action (account create / renew) succeeds, so a
 // failed action never burns a code.
 func (s *TelegramBotService) lookupRedeemableCode(ctx context.Context, raw, wantKind string) (*model.RegistrationCode, string) {
-	code := strings.TrimSpace(raw)
+	code := normalizeRedemptionCode(raw)
 	if code == "" {
 		return nil, "请提供兑换码。"
 	}
@@ -159,6 +159,25 @@ func (s *TelegramBotService) lookupRedeemableCode(ctx context.Context, raw, want
 		}
 	}
 	return rc, ""
+}
+
+func normalizeRedemptionCode(raw string) string {
+	code := strings.ToUpper(strings.TrimSpace(raw))
+	code = strings.NewReplacer(" ", "", "-", "", "_", "").Replace(code)
+	return code
+}
+
+func looksLikeRedemptionCode(raw string) bool {
+	code := normalizeRedemptionCode(raw)
+	if len(code) < 8 || len(code) > 32 {
+		return false
+	}
+	for _, ch := range code {
+		if !strings.ContainsRune(codeAlphabet, ch) {
+			return false
+		}
+	}
+	return true
 }
 
 // ── 续期 ────────────────────────────────────────────────────────────────────

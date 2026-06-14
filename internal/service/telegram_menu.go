@@ -549,7 +549,7 @@ func (s *TelegramBotService) redeemRegisterFlow(ctx context.Context, channel *mo
 }
 
 func (s *TelegramBotService) createUserFromRegistrationCode(ctx context.Context, rawCode string) (*model.User, string, *model.RegistrationCode, error) {
-	code := strings.TrimSpace(rawCode)
+	code := normalizeRedemptionCode(rawCode)
 	if code == "" {
 		return nil, "", nil, errRegistrationCodeAlreadyUsed
 	}

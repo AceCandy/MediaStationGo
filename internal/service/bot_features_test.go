@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -549,6 +550,68 @@ func TestBotRedeemRegisterCodeCreatesOnlyOneAccount(t *testing.T) {
 	}
 	if binding := bot.telegramBinding(ctx, 9202); binding != nil {
 		t.Fatal("second telegram user must not be bound by an already-used register code")
+	}
+}
+
+func TestBotRegisterCommandAcceptsRegistrationCode(t *testing.T) {
+	ctx := context.Background()
+	_, bot := newBotTestService(t)
+	code, err := bot.generateCode(ctx, model.RegistrationCodeRegister, 30, 0, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	channel := &model.NotifyChannel{Name: "Telegram", Type: "telegram", Enabled: true, Config: `{"admin_user_ids":"9301"}`}
+	msg := &TelegramMessage{From: TelegramUser{ID: 9301, Username: "codeuser"}, Chat: TelegramChat{ID: 9301, Type: "private"}}
+
+	reply, err := bot.executeCommand(ctx, channel, msg, "/register "+strings.ToLower(code.Code[:4])+"-"+strings.ToLower(code.Code[4:]))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(reply.Text, "兑换成功") {
+		t.Fatalf("/register CODE should redeem registration code, got %q", reply.Text)
+	}
+	if binding := bot.telegramBinding(ctx, 9301); binding == nil {
+		t.Fatal("register code should bind the newly created account")
+	}
+}
+
+func TestBotPlainRegistrationCodeMessageRedeems(t *testing.T) {
+	ctx := context.Background()
+	repos, bot := newBotTestService(t)
+	code, err := bot.generateCode(ctx, model.RegistrationCodeRegister, 30, 0, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repos.DB.Create(&model.NotifyChannel{
+		Name:    "Telegram",
+		Type:    "telegram",
+		Enabled: true,
+		Config:  `{"admin_user_ids":"9302"}`,
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	update, _ := json.Marshal(TelegramUpdate{
+		UpdateID: 1,
+		Message: &TelegramMessage{
+			MessageID: 12,
+			Text:      strings.ToLower(code.Code),
+			From:      TelegramUser{ID: 9302, Username: "plaincode"},
+			Chat:      TelegramChat{ID: 9302, Type: "private"},
+		},
+	})
+
+	if err := bot.HandleWebhook(ctx, update); err != nil {
+		t.Fatal(err)
+	}
+	if binding := bot.telegramBinding(ctx, 9302); binding == nil {
+		t.Fatal("plain code private message should redeem and bind account")
+	}
+	var used model.RegistrationCode
+	if err := repos.DB.Where("code = ?", code.Code).First(&used).Error; err != nil {
+		t.Fatal(err)
+	}
+	if used.UsedAt == nil || used.UsedByUserID == "" {
+		t.Fatal("plain code message should mark registration code as used")
 	}
 }
 

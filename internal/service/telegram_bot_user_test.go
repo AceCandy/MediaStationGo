@@ -191,6 +191,62 @@ func TestTelegramGroupAdminMenuDoesNotExposeButtonsInGroup(t *testing.T) {
 	}
 }
 
+func TestTelegramPollingChannelHintWinsForPrivateMessages(t *testing.T) {
+	ctx := t.Context()
+	repos, bot := newBotTestService(t)
+	msg := &TelegramMessage{
+		From: TelegramUser{ID: 9101, Username: "viewer", FirstName: "Viewer"},
+		Chat: TelegramChat{ID: 9101, Type: "private"},
+	}
+	bad := model.NotifyChannel{Name: "BadToken", Type: "telegram", Enabled: true, Config: `{"bot_token":"bad","admin_user_ids":"9101"}`}
+	good := model.NotifyChannel{Name: "GoodToken", Type: "telegram", Enabled: true, Config: `{"bot_token":"good","admin_user_ids":"9101"}`}
+	if err := repos.DB.Create(&bad).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := repos.DB.Create(&good).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	if first := bot.findChannelForMessage(ctx, msg); first == nil || first.ID != bad.ID {
+		t.Fatalf("setup expected normal private lookup to pick first channel, got %#v", first)
+	}
+	if hinted := bot.channelForMessage(ctx, msg, &good); hinted == nil || hinted.ID != good.ID {
+		t.Fatalf("polling channel hint should route replies through the token that received the update, got %#v", hinted)
+	}
+}
+
+func TestTelegramSakuraCompatibleUserCommands(t *testing.T) {
+	ctx := t.Context()
+	repos, bot := newBotTestService(t)
+	user := &model.User{Username: "viewer", PasswordHash: "hash", Role: "user", IsActive: true}
+	if err := repos.User.Create(ctx, user); err != nil {
+		t.Fatal(err)
+	}
+	if err := repos.DB.Create(&model.TelegramBinding{TelegramUserID: 9102, ChatID: 9102, UserID: user.ID}).Error; err != nil {
+		t.Fatal(err)
+	}
+	channel := &model.NotifyChannel{Name: "Telegram", Type: "telegram", Enabled: true, Config: `{"admin_user_ids":"9102"}`}
+	msg := &TelegramMessage{
+		From: TelegramUser{ID: 9102, Username: "viewer", FirstName: "Viewer"},
+		Chat: TelegramChat{ID: 9102, Type: "private"},
+	}
+
+	info, err := bot.executeCommand(ctx, channel, msg, "/myinfo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(info.Text, "我的账号") {
+		t.Fatalf("/myinfo should show account info, got %q", info.Text)
+	}
+	count, err := bot.executeCommand(ctx, channel, msg, "/count")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(count.Text, "媒体库统计") {
+		t.Fatalf("/count should show library counts, got %q", count.Text)
+	}
+}
+
 func telegramReplyHasButtonPrefix(reply telegramCommandReply, prefix string) bool {
 	for _, row := range reply.Buttons {
 		for _, button := range row {

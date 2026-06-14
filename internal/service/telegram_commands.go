@@ -40,7 +40,8 @@ func (s *TelegramBotService) telegramCommandDefinitions(ctx context.Context, cha
 			return telegramCommandReply{Text: s.cmdHelp(ctx, msg)}, nil
 		}},
 		{Aliases: []string{"/hideadult", "/hide_adult", "/adult"}, GroupAllowed: true, Handle: func(args []string) (telegramCommandReply, error) { return s.cmdHideAdult(ctx, msg, args), nil }},
-		{Aliases: []string{"/account", "/me"}, GroupAllowed: true, Handle: func(args []string) (telegramCommandReply, error) { return s.replyAccount(ctx, msg), nil }},
+		{Aliases: []string{"/account", "/me", "/myinfo"}, GroupAllowed: true, Handle: func(args []string) (telegramCommandReply, error) { return s.replyAccount(ctx, msg), nil }},
+		{Aliases: []string{"/count"}, GroupAllowed: true, Handle: func(args []string) (telegramCommandReply, error) { return s.cmdStats(ctx) }},
 		{Aliases: []string{"/signin", "/checkin"}, GroupAllowed: true, Handle: func(args []string) (telegramCommandReply, error) { return s.replySignIn(ctx, msg), nil }},
 		{Aliases: []string{"/devices"}, GroupAllowed: true, Handle: func(args []string) (telegramCommandReply, error) { return s.replyDevices(ctx, msg), nil }},
 		{Aliases: []string{"/kick"}, GroupAllowed: true, Handle: func(args []string) (telegramCommandReply, error) { return s.cmdKick(ctx, msg, args), nil }},
@@ -128,7 +129,7 @@ func telegramSupportedCommand(cmd string) bool {
 
 var telegramSupportedCommandSet = map[string]struct{}{
 	"/start": {}, "/menu": {}, "/cancel": {}, "/help": {}, "/hideadult": {}, "/hide_adult": {}, "/adult": {},
-	"/account": {}, "/me": {}, "/signin": {}, "/checkin": {}, "/devices": {}, "/kick": {}, "/setname": {}, "/rename": {}, "/setpass": {}, "/passwd": {}, "/password": {},
+	"/account": {}, "/me": {}, "/myinfo": {}, "/count": {}, "/signin": {}, "/checkin": {}, "/devices": {}, "/kick": {}, "/setname": {}, "/rename": {}, "/setpass": {}, "/passwd": {}, "/password": {},
 	"/redeem": {}, "/redeem_register": {}, "/redeem_renew": {},
 	"/register": {}, "/reg": {}, "/signup": {}, "/registration": {}, "/reg_switch": {}, "/openreg": {},
 	"/capacity": {}, "/users": {}, "/gencode": {}, "/renew_user": {}, "/delete_user": {}, "/unbind": {}, "/unbind_duplicates": {}, "/unbind_inactive": {},
@@ -151,6 +152,8 @@ func telegramPrivateBotCommandMenu() []telegramBotCommand {
 		{Command: "menu", Description: "打开功能菜单"},
 		{Command: "help", Description: "查看命令帮助"},
 		{Command: "account", Description: "查看账号状态"},
+		{Command: "myinfo", Description: "查看账号状态"},
+		{Command: "count", Description: "查看媒体库数量"},
 		{Command: "signin", Description: "签到"},
 		{Command: "devices", Description: "查看登录设备"},
 		{Command: "kick", Description: "踢下线设备"},
