@@ -116,7 +116,19 @@ Password: admin123
 
 ## Docker Compose Recommended
 
-The repository `docker-compose.yml` is intentionally simple and does not require `.env`.
+The repository `docker-compose.yml` is the lightweight recommended template: no `.env` required, and by default it only starts `MediaStationGo + PostgreSQL`. This is the best starting point for most NAS users.
+
+If you already have an older `./data/mediastation.db`, the first start with the new compose file automatically imports it into PostgreSQL. Keep `./data`; it still stores the JWT secret, runtime data, and the old SQLite migration source.
+
+### Three deployment modes
+
+| Mode | Command | Best for |
+| --- | --- | --- |
+| Lightweight: PG only | `docker compose up -d` | Most NAS devices, lowest resource use |
+| Standard: PG + Redis | `docker compose -f docker-compose.yml -f docker-compose.standard.yml up -d` | Multi-user use and frequent Emby client refreshes |
+| Search enhanced: PG + Redis + OpenSearch | `docker compose -f docker-compose.yml -f docker-compose.standard.yml -f docker-compose.search.yml up -d` | Huge libraries and future standalone search indexing |
+
+Start with the lightweight mode. Redis and OpenSearch are enhancement layers, not source databases. Do not enable OpenSearch by default on low-memory NAS devices.
 
 ### Choose an image source
 
@@ -161,10 +173,13 @@ Meaning:
 
 | Host path | Container path | Purpose |
 | --- | --- | --- |
-| `./data` | `/data` | Database, users, settings; back this up |
-| `./cache` | `/cache` | Cache; safe to clean when needed |
+| `./data` | app `/data` | Settings, JWT secret, old SQLite migration source; back this up |
+| `./cache` | app `/cache` | Cache; safe to clean when needed |
 | `./media` | `/media` | Media libraries; use `/media/...` in the web UI |
 | `./downloads` | `/downloads` | Download directory and organization source |
+| `./postgres` | PostgreSQL `/var/lib/postgresql/data` | New default primary database; back this up |
+| `./redis` | Redis `/data` | Used only in standard mode; hot cache, rebuildable |
+| `./opensearch` | OpenSearch `/usr/share/opensearch/data` | Used only in search-enhanced mode; higher memory use |
 
 If your NAS paths are:
 
@@ -212,6 +227,9 @@ services:
     container_name: mediastation-go
     restart: unless-stopped
     init: true
+    depends_on:
+      postgres:
+        condition: service_healthy
 
     # Browser: http://SERVER_IP:18080
     ports:
@@ -241,6 +259,11 @@ services:
       MEDIASTATION_APP_PORT: 8080
       MEDIASTATION_APP_WEB_DIR: /app/web/dist
       MEDIASTATION_APP_DATA_DIR: /data
+
+      # Lightweight mode uses PostgreSQL by default.
+      # Old SQLite data migrates from this path on first start.
+      MEDIASTATION_DATABASE_TYPE: postgres
+      MEDIASTATION_DATABASE_DSN: postgres://mediastation:mediastation@postgres:5432/mediastation?sslmode=disable
       MEDIASTATION_DATABASE_DB_PATH: /data/mediastation.db
       MEDIASTATION_CACHE_CACHE_DIR: /cache
 
@@ -250,7 +273,26 @@ services:
       MEDIASTATION_MEDIA_CONTAINER_DIR: /media
       MEDIASTATION_DOWNLOAD_DIR: ./downloads
       MEDIASTATION_DOWNLOAD_CONTAINER_DIR: /downloads
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: mediastation-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: mediastation
+      POSTGRES_USER: mediastation
+      POSTGRES_PASSWORD: mediastation
+    volumes:
+      - ./postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mediastation -d mediastation"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
 ```
+
+> Note: PostgreSQL is the primary database. Lightweight mode still has short in-process caching. Redis is a cross-process hot cache, and OpenSearch is a search enhancement layer; neither is a source database.
 
 ---
 

@@ -2,7 +2,12 @@
 package handler
 
 import (
+	"crypto/sha1"
+	"encoding/hex"
 	"net/http"
+	"sort"
+	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -45,6 +50,18 @@ func applyStatsVisibility(c *gin.Context, svc *service.Container, snap *service.
 		}
 	}
 	snap.Libraries = visibleLibraries
+	cacheKey := visibleStatsCacheKey(visibility, activeLibraryIDs)
+	if svc.Cache != nil {
+		var cached visibleStatsCacheValue
+		if svc.Cache.GetJSON(c.Request.Context(), cacheKey, &cached) {
+			snap.Libraries = cached.Libraries
+			snap.MediaCount = cached.MediaCount
+			snap.TotalSizeBytes = cached.TotalSizeBytes
+			snap.TotalSeconds = cached.TotalSeconds
+			snap.RecentlyAdded = cached.RecentlyAdded
+			return nil
+		}
+	}
 
 	q := applyMediaVisibilityQuery(svc.Repo.DB.WithContext(c.Request.Context()).Model(&model.Media{}), visibility)
 	q = applyActiveLibraryQuery(q, activeLibraryIDs)
@@ -72,7 +89,48 @@ func applyStatsVisibility(c *gin.Context, svc *service.Container, snap *service.
 		return err
 	}
 	snap.RecentlyAdded = recent
+	if svc.Cache != nil {
+		svc.Cache.SetJSON(c.Request.Context(), cacheKey, visibleStatsCacheValue{
+			Libraries:      snap.Libraries,
+			MediaCount:     snap.MediaCount,
+			TotalSizeBytes: snap.TotalSizeBytes,
+			TotalSeconds:   snap.TotalSeconds,
+			RecentlyAdded:  snap.RecentlyAdded,
+		}, 10*time.Second)
+	}
 	return nil
+}
+
+type visibleStatsCacheValue struct {
+	Libraries      int64         `json:"libraries"`
+	MediaCount     int64         `json:"media_count"`
+	TotalSizeBytes int64         `json:"total_size_bytes"`
+	TotalSeconds   int64         `json:"total_seconds"`
+	RecentlyAdded  []model.Media `json:"recently_added"`
+}
+
+func visibleStatsCacheKey(visibility service.MediaVisibility, activeLibraryIDs []string) string {
+	allowed := append([]string(nil), visibility.AllowedLibraryIDs...)
+	hidden := append([]string(nil), visibility.HiddenLibraryIDs...)
+	active := append([]string(nil), activeLibraryIDs...)
+	sort.Strings(allowed)
+	sort.Strings(hidden)
+	sort.Strings(active)
+	sum := sha1.Sum([]byte(strings.Join([]string{
+		"visible",
+		strings.Join(active, ","),
+		strings.Join(allowed, ","),
+		strings.Join(hidden, ","),
+		boolString(visibility.IncludeNSFW),
+	}, "|")))
+	return "stats:visible:" + hex.EncodeToString(sum[:])
+}
+
+func boolString(value bool) string {
+	if value {
+		return "1"
+	}
+	return "0"
 }
 
 func applyMediaVisibilityQuery(q *gorm.DB, visibility service.MediaVisibility) *gorm.DB {

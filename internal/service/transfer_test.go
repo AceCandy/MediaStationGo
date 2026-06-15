@@ -1,8 +1,10 @@
 package service
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -71,6 +73,34 @@ func TestTransferFileHardlinkSharesInodeAndKeepsSource(t *testing.T) {
 	}
 	if !os.SameFile(si, di) {
 		t.Fatal("hardlink dst should share inode with source")
+	}
+}
+
+func TestTransferFileHardlinkDoesNotFallBackToCopy(t *testing.T) {
+	dir := t.TempDir()
+	src := writeTemp(t, dir, "src.mkv", "payload")
+	dst := filepath.Join(dir, "dst.mkv")
+
+	origLinkFile := linkFile
+	linkFile = func(_, _ string) error {
+		return errors.New("simulated cross-device link")
+	}
+	t.Cleanup(func() {
+		linkFile = origLinkFile
+	})
+
+	err := transferFile(src, dst, TransferHardlink)
+	if err == nil {
+		t.Fatal("hardlink failure should be reported instead of falling back to copy")
+	}
+	if !strings.Contains(err.Error(), "hardlink failed") {
+		t.Fatalf("hardlink error = %q, want hardlink failure context", err.Error())
+	}
+	if _, statErr := os.Stat(dst); !os.IsNotExist(statErr) {
+		t.Fatalf("hardlink failure should not create copied dst, stat err = %v", statErr)
+	}
+	if b, readErr := os.ReadFile(src); readErr != nil || string(b) != "payload" {
+		t.Fatalf("hardlink failure should keep source unchanged, content=%q err=%v", b, readErr)
 	}
 }
 

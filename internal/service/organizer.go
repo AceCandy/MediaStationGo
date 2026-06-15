@@ -283,7 +283,8 @@ func (o *OrganizerService) resolveTransferMode(ctx context.Context, override Tra
 	}
 	if mode == TransferMove && o.keepSeedingEnabled(ctx) {
 		// 移动会删除源文件导致 qBittorrent 停止做种；保种开启时改用硬链接
-		//（跨盘自动退化为复制），既规范命名又保留源文件继续做种上传。
+		// 既规范命名又保留源文件继续做种上传。硬链接失败时会报错，避免静默
+		// 退化复制后占用双份磁盘空间。
 		return TransferHardlink
 	}
 	return mode

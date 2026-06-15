@@ -73,3 +73,45 @@ func TestEnsurePerformanceIndexesCreatesHotPathIndexes(t *testing.T) {
 		}
 	}
 }
+
+func TestCopyModelTablesMigratesExistingSQLiteRows(t *testing.T) {
+	src, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dst, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, db := range []*gorm.DB{src, dst} {
+		if err := db.AutoMigrate(&model.User{}, &model.Library{}, &model.Setting{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	user := model.User{Username: "admin", PasswordHash: "hash", Role: "admin", IsActive: true}
+	if err := src.Create(&user).Error; err != nil {
+		t.Fatal(err)
+	}
+	lib := model.Library{Name: "Movies", Path: "/media/movies", Type: "movie", Enabled: true}
+	if err := src.Create(&lib).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := src.Create(&model.Setting{Key: "organize.auto", Value: "false"}).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	copied, err := copyModelTables(src, dst, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if copied != 3 {
+		t.Fatalf("copied rows = %d, want 3", copied)
+	}
+	var got model.User
+	if err := dst.First(&got, "username = ?", "admin").Error; err != nil {
+		t.Fatal(err)
+	}
+	if got.ID != user.ID || got.Role != "admin" {
+		t.Fatalf("user not preserved: %#v", got)
+	}
+}

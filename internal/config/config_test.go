@@ -31,8 +31,20 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.Database.DBPath == "" {
 		t.Fatalf("expected non-empty DBPath")
 	}
+	if cfg.Database.Type != "auto" {
+		t.Fatalf("expected default database type auto, got %q", cfg.Database.Type)
+	}
 	if cfg.Database.MaxOpenConns != defaultDatabaseMaxOpenConns {
 		t.Fatalf("expected default MaxOpenConns %d, got %d", defaultDatabaseMaxOpenConns, cfg.Database.MaxOpenConns)
+	}
+	if cfg.Cache.RedisPrefix != "mediastationgo" {
+		t.Fatalf("expected default redis prefix, got %q", cfg.Cache.RedisPrefix)
+	}
+	if cfg.Cache.MediaTTLSeconds != 15 {
+		t.Fatalf("expected default media cache ttl 15, got %d", cfg.Cache.MediaTTLSeconds)
+	}
+	if cfg.Search.Index != "mediastation_media" {
+		t.Fatalf("expected default search index, got %q", cfg.Search.Index)
 	}
 	if cfg.Database.MaxIdleConns != defaultDatabaseMaxIdleConns {
 		t.Fatalf("expected default MaxIdleConns %d, got %d", defaultDatabaseMaxIdleConns, cfg.Database.MaxIdleConns)
@@ -66,12 +78,27 @@ func TestEnvOverride(t *testing.T) {
 	}
 
 	t.Setenv("MEDIASTATION_APP_PORT", "9090")
+	t.Setenv("MEDIASTATION_DATABASE_TYPE", "postgres")
+	t.Setenv("MEDIASTATION_DATABASE_DSN", "postgres://msgo:secret@postgres:5432/msgo?sslmode=disable")
+	t.Setenv("MEDIASTATION_CACHE_REDIS_URL", "redis://redis:6379/0")
+	t.Setenv("MEDIASTATION_CACHE_MEDIA_TTL_SECONDS", "30")
+	t.Setenv("MEDIASTATION_SEARCH_BACKEND", "opensearch")
+	t.Setenv("MEDIASTATION_SEARCH_OPENSEARCH_URL", "http://opensearch:9200")
 	cfg, err := Load()
 	if err != nil {
 		t.Fatalf("Load() error: %v", err)
 	}
 	if cfg.App.Port != 9090 {
 		t.Fatalf("expected port 9090 from env, got %d", cfg.App.Port)
+	}
+	if cfg.Database.Type != "postgres" || cfg.Database.DSN == "" {
+		t.Fatalf("expected postgres database config from env, got type=%q dsn=%q", cfg.Database.Type, cfg.Database.DSN)
+	}
+	if cfg.Cache.RedisURL != "redis://redis:6379/0" || cfg.Cache.MediaTTLSeconds != 30 {
+		t.Fatalf("expected redis cache config from env, got url=%q ttl=%d", cfg.Cache.RedisURL, cfg.Cache.MediaTTLSeconds)
+	}
+	if cfg.Search.Backend != "opensearch" || cfg.Search.OpenSearchURL != "http://opensearch:9200" {
+		t.Fatalf("expected opensearch config from env, got backend=%q url=%q", cfg.Search.Backend, cfg.Search.OpenSearchURL)
 	}
 }
 

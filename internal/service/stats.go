@@ -23,13 +23,21 @@ import (
 
 // StatsService computes aggregate stats.
 type StatsService struct {
-	log  *zap.Logger
-	repo *repository.Container
+	log   *zap.Logger
+	repo  *repository.Container
+	cache *RuntimeCacheService
 }
 
 // NewStatsService is the constructor.
 func NewStatsService(log *zap.Logger, repo *repository.Container) *StatsService {
 	return &StatsService{log: log, repo: repo}
+}
+
+func (s *StatsService) SetRuntimeCache(cache *RuntimeCacheService) *StatsService {
+	if s != nil {
+		s.cache = cache
+	}
+	return s
 }
 
 // Snapshot is the JSON returned by /api/stats.
@@ -57,6 +65,15 @@ type Hardware struct {
 
 // Compute builds a fresh snapshot.
 func (s *StatsService) Compute(ctx context.Context, dataDir string) (*Snapshot, error) {
+	const cacheKey = "stats:snapshot:base"
+	if s.cache != nil {
+		var cached Snapshot
+		if s.cache.GetJSON(ctx, cacheKey, &cached) {
+			cached.GeneratedAt = time.Now()
+			cached.Hardware = readHardware(dataDir)
+			return &cached, nil
+		}
+	}
 	snap := &Snapshot{GeneratedAt: time.Now()}
 	libs, err := s.repo.Library.List(ctx)
 	if err != nil {
@@ -114,6 +131,11 @@ func (s *StatsService) Compute(ctx context.Context, dataDir string) (*Snapshot, 
 		return nil, err
 	}
 
+	if s.cache != nil {
+		cacheCopy := *snap
+		cacheCopy.Hardware = Hardware{}
+		s.cache.SetJSON(ctx, cacheKey, cacheCopy, 10*time.Second)
+	}
 	snap.Hardware = readHardware(dataDir)
 	return snap, nil
 }

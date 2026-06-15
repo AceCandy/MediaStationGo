@@ -1,6 +1,8 @@
 package repository
 
 import (
+	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -67,6 +69,58 @@ func TestMediaUpsertSkipsUnchangedExistingRow(t *testing.T) {
 	}
 	if !after.UpdatedAt.Equal(before.UpdatedAt) {
 		t.Fatalf("unchanged upsert touched updated_at: before=%s after=%s", before.UpdatedAt, after.UpdatedAt)
+	}
+}
+
+type fakeMediaSearchBackend struct {
+	ids []string
+	err error
+}
+
+func (f fakeMediaSearchBackend) SearchMediaIDs(context.Context, string, int, int, MediaQueryFilter) ([]string, int64, error) {
+	if f.err != nil {
+		return nil, 0, f.err
+	}
+	return append([]string(nil), f.ids...), int64(len(f.ids)), nil
+}
+
+func TestMediaSearchUsesExternalBackendAndFallsBack(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := database.AutoMigrate(db); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	repos := New(db)
+	lib := model.Library{Name: "Movies", Path: "/media/movie", Type: "movie", Enabled: true}
+	if err := repos.Library.Create(t.Context(), &lib); err != nil {
+		t.Fatal(err)
+	}
+	for _, row := range []model.Media{
+		{Base: model.Base{ID: "m-1"}, LibraryID: lib.ID, Title: "Alpha", Path: "/media/a.mkv"},
+		{Base: model.Base{ID: "m-2"}, LibraryID: lib.ID, Title: "Beta", Path: "/media/b.mkv"},
+	} {
+		if err := repos.DB.Create(&row).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	repos.Media.SetSearchBackend(fakeMediaSearchBackend{ids: []string{"m-2", "m-1"}})
+	items, total, err := repos.Media.SearchFilteredPage(t.Context(), "anything", 0, 10, MediaQueryFilter{IncludeNSFW: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if total != 2 || len(items) != 2 || items[0].ID != "m-2" || items[1].ID != "m-1" {
+		t.Fatalf("external search result total=%d items=%#v", total, items)
+	}
+
+	repos.Media.SetSearchBackend(fakeMediaSearchBackend{err: errors.New("opensearch down")})
+	items, total, err = repos.Media.SearchFilteredPage(t.Context(), "Alpha", 0, 10, MediaQueryFilter{IncludeNSFW: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if total != 1 || len(items) != 1 || items[0].ID != "m-1" {
+		t.Fatalf("fallback result total=%d items=%#v", total, items)
 	}
 }
 

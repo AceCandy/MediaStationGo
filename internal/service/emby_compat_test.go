@@ -103,6 +103,46 @@ func TestEmbyItemsExposeSeriesSeasonEpisodeHierarchy(t *testing.T) {
 	}
 }
 
+func TestEmbyLatestItemsIncludesMergedCloudMovieLibrary(t *testing.T) {
+	svc := newTestEmbyService(t)
+	local := model.Library{Name: "国产电影", Path: `/media/国产电影`, Type: "movie", Enabled: true}
+	cloud := model.Library{Name: "OpenList · 国产电影", Path: BuildCloudLibraryPath("openlist", "/国产电影", "/国产电影"), Type: "movie", Enabled: true}
+	for _, lib := range []*model.Library{&local, &cloud} {
+		if err := svc.repo.Library.Create(t.Context(), lib); err != nil {
+			t.Fatalf("create library: %v", err)
+		}
+	}
+	for _, media := range []model.Media{
+		{
+			Base:      model.Base{ID: "local-movie", CreatedAt: time.Now().Add(-time.Minute)},
+			LibraryID: local.ID,
+			Title:     "本地版本",
+			Path:      `/media/国产电影/local.mkv`,
+		},
+		{
+			Base:      model.Base{ID: "cloud-movie", CreatedAt: time.Now()},
+			LibraryID: cloud.ID,
+			Title:     "云盘版本",
+			Path:      `cloud://openlist/国产电影/cloud.mkv`,
+		},
+	} {
+		if err := svc.repo.DB.Create(&media).Error; err != nil {
+			t.Fatalf("create media: %v", err)
+		}
+	}
+
+	latest, err := svc.LatestItems(t.Context(), "user-1", local.ID, 10)
+	if err != nil {
+		t.Fatalf("latest items: %v", err)
+	}
+	if len(latest) != 2 {
+		t.Fatalf("latest items = %#v, want local and merged cloud media", latest)
+	}
+	if latest[0]["Id"] != "cloud-movie" || latest[1]["Id"] != "local-movie" {
+		t.Fatalf("latest order/items = %#v, want cloud then local", latest)
+	}
+}
+
 func TestEmbyVirtualSeriesArtworkUsesListCache(t *testing.T) {
 	svc := newTestEmbyService(t)
 	lib := model.Library{Name: "番剧", Path: `/media/anime`, Type: "anime", Enabled: true}

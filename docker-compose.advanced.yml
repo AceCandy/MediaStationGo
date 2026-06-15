@@ -63,6 +63,9 @@ services:
     pull_policy: missing
     container_name: mediastation-go
     restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
 
     ports:
       # 宿主机端口:容器端口。默认访问 http://<服务器IP>:18080
@@ -113,6 +116,8 @@ services:
 
       # 数据与缓存目录。需与 volumes 中的容器路径一致。
       MEDIASTATION_APP_DATA_DIR: /data
+      MEDIASTATION_DATABASE_TYPE: ${MEDIASTATION_DATABASE_TYPE:-postgres}
+      MEDIASTATION_DATABASE_DSN: ${MEDIASTATION_DATABASE_DSN:-postgres://mediastation:mediastation@postgres:5432/mediastation?sslmode=disable}
       MEDIASTATION_DATABASE_DB_PATH: /data/mediastation.db
       MEDIASTATION_CACHE_CACHE_DIR: /cache
 
@@ -185,3 +190,20 @@ services:
       timeout: 10s
       retries: 5
       start_period: 30s
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: mediastation-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${MEDIASTATION_POSTGRES_DB:-mediastation}
+      POSTGRES_USER: ${MEDIASTATION_POSTGRES_USER:-mediastation}
+      POSTGRES_PASSWORD: ${MEDIASTATION_POSTGRES_PASSWORD:-mediastation}
+      TZ: ${TZ:-Asia/Shanghai}
+    volumes:
+      - ${MEDIASTATION_POSTGRES_DIR:-./postgres}:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${MEDIASTATION_POSTGRES_USER:-mediastation} -d ${MEDIASTATION_POSTGRES_DB:-mediastation}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10

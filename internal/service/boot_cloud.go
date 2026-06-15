@@ -51,7 +51,7 @@ func (c *Container) runBootCloudLibraryScanQueue(cloudLibs []model.Library) {
 	for _, lib := range cloudLibs {
 		libID := lib.ID
 		libName := lib.Name
-		scanCtx, cancel := context.WithTimeout(context.Background(), 2*time.Hour)
+		scanCtx, cancel := cloudScanContext(context.Background(), cloudScanTimeout(context.Background(), c.Repo, 24*time.Hour))
 		c.Log.Info("boot: scanning cloud library", zap.String("id", libID), zap.String("name", libName))
 		if _, err := c.Scan.ScanLibraryWithoutAutoScrape(scanCtx, libID); err != nil {
 			c.Log.Warn("boot: cloud library scan failed", zap.String("id", libID), zap.String("name", libName), zap.Error(err))

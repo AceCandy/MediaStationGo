@@ -19,6 +19,8 @@ import (
 	"strings"
 )
 
+var linkFile = os.Link
+
 // TransferMode 表示整理时文件的转移方式。
 type TransferMode string
 
@@ -62,14 +64,11 @@ func transferFile(src, dst string, mode TransferMode) error {
 	case TransferCopy:
 		return copyFile(src, dst)
 	case TransferHardlink:
-		if err := os.Link(src, dst); err != nil {
+		if err := linkFile(src, dst); err != nil {
 			// Docker 部署里下载目录和媒体目录往往是两个独立的 bind mount，
 			// 即使在宿主机上同属一块盘，容器内 os.Link 也会因跨文件系统
-			// (EXDEV) 失败。此前直接报错导致 PT 下载完成后整理静默中断；
-			// 现在自动降级为复制（保留源文件继续做种，语义一致）。
-			if copyErr := copyFile(src, dst); copyErr == nil {
-				return nil
-			}
+			// (EXDEV) 失败。hardlink 模式必须保持零额外数据占用语义，不能
+			// 自动降级为复制；需要复制时请显式选择 copy。
 			return fmt.Errorf("hardlink failed: %w; source and target must be on the same filesystem, choose copy if you want to duplicate data", err)
 		}
 		return nil

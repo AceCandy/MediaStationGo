@@ -144,13 +144,17 @@ func statsLibrariesHandler(svc *service.Container) gin.HandlerFunc {
 			if !service.LibraryVisibleForUser(c.Request.Context(), svc.Repo, l, visibility) {
 				continue
 			}
+			libraryIDs, err := service.MergedLibraryIDsForLibrary(c.Request.Context(), svc.Repo, l.ID)
+			if err != nil || len(libraryIDs) == 0 {
+				libraryIDs = []string{l.ID}
+			}
 			var count int64
 			var size int64
 			_ = applyMediaVisibilityQuery(svc.Repo.DB.Model(&model.Media{}), visibility).
-				Where("library_id = ?", l.ID).
+				Where("library_id IN ?", libraryIDs).
 				Count(&count).Error
 			_ = applyMediaVisibilityQuery(svc.Repo.DB.Model(&model.Media{}), visibility).
-				Where("library_id = ?", l.ID).
+				Where("library_id IN ?", libraryIDs).
 				Select("COALESCE(SUM(size_bytes),0)").Row().Scan(&size)
 			out = append(out, gin.H{
 				"library":    l,

@@ -74,6 +74,7 @@ type Container struct {
 	Notify           *NotifyService
 	Site             *SiteService
 	Device           *DeviceService
+	Cache            *RuntimeCacheService
 
 	stopCtx    context.Context
 	stopCancel context.CancelFunc
@@ -92,6 +93,13 @@ func New(cfg *config.Config, log *zap.Logger, repos *repository.Container) *Cont
 	go sseHub.Run()
 
 	probe := NewFFprobeService(cfg, log)
+	runtimeCache := NewRuntimeCacheService(cfg, log)
+	if searchBackend := repository.NewOpenSearchMediaBackend(cfg.Search); searchBackend != nil && repos != nil && repos.Media != nil {
+		repos.Media.SetSearchBackend(searchBackend)
+		if log != nil {
+			log.Info("opensearch media search enabled", zap.String("index", cfg.Search.Index), zap.String("url", cfg.Search.OpenSearchURL))
+		}
+	}
 	crypto := NewCryptoService(cfg.Secrets.JWTSecret, log)
 	apiConfig := NewAPIConfigService(log, repos, crypto)
 	tmdb := NewTMDbProvider(cfg, log, apiConfig)
@@ -108,6 +116,7 @@ func New(cfg *config.Config, log *zap.Logger, repos *repository.Container) *Cont
 	discover := NewDiscoverService(log, tmdb)
 	transcoder := NewTranscoderService(cfg, log, repos, hub)
 	scanner := NewScannerService(cfg, log, repos, hub, probe, scraper)
+	scanner.SetRuntimeCache(runtimeCache)
 	organizePipeline := NewOrganizePipelineService(log, repos, organizer, scanner, tasks)
 	watcher := NewWatcherService(log, repos, scanner)
 	nfo := NewNFOService(log, repos)
@@ -125,6 +134,7 @@ func New(cfg *config.Config, log *zap.Logger, repos *repository.Container) *Cont
 	storageCfg := NewStorageConfigService(log, repos, crypto)
 	strmSvc := NewSTRMService(log, repos, cfg)
 	scanner.SetStorageConfig(storageCfg)
+	emby.SetRuntimeCache(runtimeCache)
 	emby.SetCloudProbe(storageCfg, probe)
 	downloadClients := NewDownloadClientService(log, repos)
 	assistant := NewAssistantService(log, repos, ai)
@@ -188,7 +198,7 @@ func New(cfg *config.Config, log *zap.Logger, repos *repository.Container) *Cont
 		SSEHub:           sseHub,
 		Tasks:            tasks,
 		Auth:             authSvc,
-		Media:            NewMediaService(cfg, log, repos),
+		Media:            NewMediaService(cfg, log, repos).SetRuntimeCache(runtimeCache),
 		Scan:             scanner,
 		Stream:           NewStreamService(cfg, log, repos, transcoder),
 		Transcoder:       transcoder,
@@ -205,7 +215,7 @@ func New(cfg *config.Config, log *zap.Logger, repos *repository.Container) *Cont
 		Downloads:        downloads,
 		Subscription:     subscription,
 		Subtitle:         NewSubtitleService(log, repos),
-		Stats:            NewStatsService(log, repos),
+		Stats:            NewStatsService(log, repos).SetRuntimeCache(runtimeCache),
 		Profile:          NewProfileService(log, repos),
 		Audit:            NewAuditService(log, repos),
 		NFO:              nfo,
@@ -237,6 +247,7 @@ func New(cfg *config.Config, log *zap.Logger, repos *repository.Container) *Cont
 		Notify:           notifySvc,
 		Site:             siteSvc,
 		Device:           deviceSvc,
+		Cache:            runtimeCache,
 		stopCtx:          ctx,
 		stopCancel:       cancel,
 	}
@@ -443,6 +454,9 @@ func (c *Container) Close() {
 	}
 	if c.Transcoder != nil {
 		c.Transcoder.StopAll()
+	}
+	if c.Cache != nil {
+		_ = c.Cache.Close()
 	}
 	if c.WSHub != nil {
 		c.WSHub.Stop()

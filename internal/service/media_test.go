@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/glebarez/sqlite"
 	"go.uber.org/zap"
@@ -262,5 +263,41 @@ func TestSoftDeleteCloudMediaPurgesRecordWithoutRecycleBin(t *testing.T) {
 	}
 	if len(recycle) != 0 {
 		t.Fatalf("cloud media removal must not populate recycle bin: %#v", recycle)
+	}
+}
+
+func TestSoftDeleteInvalidatesMediaAndStatsCache(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(&model.Media{}); err != nil {
+		t.Fatal(err)
+	}
+	repos := repository.New(db)
+	media := model.Media{
+		Base:  model.Base{ID: "local-media"},
+		Title: "Cached Movie",
+		Path:  filepath.Join(t.TempDir(), "Cached Movie.mkv"),
+	}
+	if err := repos.DB.Create(&media).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	cache := NewRuntimeCacheService(&config.Config{}, zap.NewNop())
+	cache.SetJSON(t.Context(), "media:list:test", map[string]string{"state": "stale"}, time.Minute)
+	cache.SetJSON(t.Context(), "stats:snapshot:base", map[string]int{"media": 1}, time.Minute)
+	svc := NewMediaService(&config.Config{}, zap.NewNop(), repos).SetRuntimeCache(cache)
+	if err := svc.SoftDelete(t.Context(), media.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	var mediaCache map[string]string
+	if cache.GetJSON(t.Context(), "media:list:test", &mediaCache) {
+		t.Fatal("soft delete should invalidate media cache")
+	}
+	var statsCache map[string]int
+	if cache.GetJSON(t.Context(), "stats:snapshot:base", &statsCache) {
+		t.Fatal("soft delete should invalidate stats cache")
 	}
 }

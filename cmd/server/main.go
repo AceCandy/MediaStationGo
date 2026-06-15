@@ -3,7 +3,7 @@
 // MediaStationGo is a Go rewrite of the original Python MediaStation project,
 // adopting the same tech stack as cropflre/nowen-video:
 //
-//	Backend:  Go 1.25 + Gin + GORM + SQLite (WAL) + Viper + Zap + JWT
+//	Backend:  Go 1.25 + Gin + GORM + PostgreSQL/SQLite + Viper + Zap + JWT
 //	Frontend: React 18 + Vite + Tailwind + Zustand + HLS.js
 //
 // The binary embeds the SPA build artifacts at /app/web/dist and serves them
@@ -71,6 +71,9 @@ func main() {
 	}
 	if err := database.AutoMigrate(db); err != nil {
 		logger.Fatal("auto-migrate failed", zap.Error(err))
+	}
+	if err := database.MigrateSQLiteToCurrentIfNeeded(cfg, db, logger); err != nil {
+		logger.Fatal("sqlite to postgres migration failed", zap.Error(err))
 	}
 
 	repos := repository.New(db)

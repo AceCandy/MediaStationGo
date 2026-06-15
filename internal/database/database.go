@@ -1,26 +1,32 @@
-// Package database wires up GORM against SQLite (WAL mode) and exposes the
-// auto-migration entry point used at startup.
+// Package database wires up GORM against the configured database and exposes
+// startup migration helpers.
 package database
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
+	"reflect"
+	"strings"
+	"time"
 
 	"github.com/glebarez/sqlite"
 	"go.uber.org/zap"
+	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 	"gorm.io/gorm/logger"
 
 	"github.com/ShukeBta/MediaStationGo/internal/config"
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 )
 
-// Open initialises the SQLite database file applying WAL pragmas for
-// better concurrent read performance — same defaults as nowen-video.
+// Open initialises the configured GORM database. database.type=auto chooses
+// PostgreSQL when database.dsn is present (the Docker Compose default) and
+// otherwise falls back to SQLite for old/bare-metal installs.
 func Open(cfg *config.Config, log *zap.Logger) (*gorm.DB, error) {
-	dsn := buildDSN(cfg)
-
 	gormLogger := logger.New(
 		zapStdLogger{log: log},
 		logger.Config{
@@ -31,7 +37,15 @@ func Open(cfg *config.Config, log *zap.Logger) (*gorm.DB, error) {
 		},
 	)
 
-	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{
+	dialect := normalizeDatabaseType(cfg.Database.Type)
+	if dialect == "auto" {
+		dialect = effectiveAutoDatabaseType(cfg)
+	}
+	dialector, err := databaseDialector(cfg, dialect)
+	if err != nil {
+		return nil, err
+	}
+	db, err := gorm.Open(dialector, &gorm.Config{
 		Logger:                                   gormLogger,
 		PrepareStmt:                              true,
 		DisableForeignKeyConstraintWhenMigrating: false,
@@ -39,7 +53,9 @@ func Open(cfg *config.Config, log *zap.Logger) (*gorm.DB, error) {
 	if err != nil {
 		return nil, fmt.Errorf("gorm open: %w", err)
 	}
-	installSQLiteWriteGate(db)
+	if dialect == "sqlite" {
+		installSQLiteWriteGate(db)
+	}
 	sqlDB, err := db.DB()
 	if err != nil {
 		return nil, fmt.Errorf("gorm sqldb: %w", err)
@@ -51,6 +67,185 @@ func Open(cfg *config.Config, log *zap.Logger) (*gorm.DB, error) {
 		sqlDB.SetMaxIdleConns(cfg.Database.MaxIdleConns)
 	}
 	return db, nil
+}
+
+func normalizeDatabaseType(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "", "auto":
+		return "auto"
+	case "sqlite", "sqlite3":
+		return "sqlite"
+	case "postgres", "postgresql", "pg":
+		return "postgres"
+	default:
+		return strings.ToLower(strings.TrimSpace(value))
+	}
+}
+
+func effectiveAutoDatabaseType(cfg *config.Config) string {
+	if cfg != nil && strings.TrimSpace(cfg.Database.DSN) != "" {
+		return "postgres"
+	}
+	return "sqlite"
+}
+
+func databaseDialector(cfg *config.Config, dialect string) (gorm.Dialector, error) {
+	switch dialect {
+	case "sqlite":
+		return sqlite.Open(buildSQLiteDSN(cfg)), nil
+	case "postgres":
+		dsn := strings.TrimSpace(cfg.Database.DSN)
+		if dsn == "" {
+			return nil, fmt.Errorf("database.dsn is required when database.type=postgres")
+		}
+		return postgres.Open(dsn), nil
+	default:
+		return nil, fmt.Errorf("unsupported database.type %q (supported: sqlite, postgres)", cfg.Database.Type)
+	}
+}
+
+// MigrateSQLiteToCurrentIfNeeded copies an existing SQLite database into a new
+// PostgreSQL database once. It is intentionally conservative: it only runs when
+// the current DB is PostgreSQL, the configured SQLite file exists, and the
+// target business tables are empty. Redis is not migrated because it is a
+// rebuildable cache, not a source of truth.
+func MigrateSQLiteToCurrentIfNeeded(cfg *config.Config, target *gorm.DB, log *zap.Logger) error {
+	if cfg == nil || target == nil || target.Dialector == nil || target.Dialector.Name() != "postgres" {
+		return nil
+	}
+	sqlitePath := strings.TrimSpace(cfg.Database.DBPath)
+	if sqlitePath == "" {
+		return nil
+	}
+	if _, err := os.Stat(sqlitePath); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return fmt.Errorf("stat sqlite migration source: %w", err)
+	}
+	if empty, err := targetBusinessTablesEmpty(target); err != nil {
+		return err
+	} else if !empty {
+		if log != nil {
+			log.Info("skip sqlite to postgres migration: target database already has data")
+		}
+		return nil
+	}
+
+	srcCfg := *cfg
+	srcCfg.Database.Type = "sqlite"
+	src, err := gorm.Open(sqlite.Open(buildSQLiteDSN(&srcCfg)), &gorm.Config{
+		Logger: logger.Default.LogMode(logger.Silent),
+	})
+	if err != nil {
+		return fmt.Errorf("open sqlite migration source: %w", err)
+	}
+	sqlDB, err := src.DB()
+	if err == nil {
+		defer sqlDB.Close()
+	}
+
+	started := time.Now()
+	copied, err := copyModelTables(src, target, 500)
+	if err != nil {
+		return err
+	}
+	if copied > 0 && log != nil {
+		log.Info("sqlite data migrated to postgres",
+			zap.String("source", sqlitePath),
+			zap.Int64("rows", copied),
+			zap.Duration("duration", time.Since(started)))
+	}
+	return nil
+}
+
+func targetBusinessTablesEmpty(db *gorm.DB) (bool, error) {
+	for _, m := range model.AllModels() {
+		table, err := modelTableName(db, m)
+		if err != nil {
+			return false, err
+		}
+		var count int64
+		if err := db.Raw("SELECT COUNT(1) FROM " + quoteIdent(table)).Scan(&count).Error; err != nil {
+			return false, fmt.Errorf("count target table %s: %w", table, err)
+		}
+		if count > 0 {
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
+func copyModelTables(src, target *gorm.DB, batchSize int) (int64, error) {
+	if batchSize <= 0 {
+		batchSize = 500
+	}
+	var copied int64
+	for _, m := range model.AllModels() {
+		table, err := modelTableName(src, m)
+		if err != nil {
+			return copied, err
+		}
+		exists, err := sqliteTableExists(src, table)
+		if err != nil {
+			return copied, err
+		}
+		if !exists {
+			continue
+		}
+		var sourceCount int64
+		if err := src.Raw("SELECT COUNT(1) FROM " + quoteIdent(table)).Scan(&sourceCount).Error; err != nil {
+			return copied, fmt.Errorf("count sqlite table %s: %w", table, err)
+		}
+		if sourceCount == 0 {
+			continue
+		}
+		var targetCount int64
+		if err := target.Raw("SELECT COUNT(1) FROM " + quoteIdent(table)).Scan(&targetCount).Error; err != nil {
+			return copied, fmt.Errorf("count target table %s: %w", table, err)
+		}
+		if targetCount > 0 {
+			continue
+		}
+
+		modelType := reflect.TypeOf(m)
+		if modelType.Kind() != reflect.Ptr {
+			return copied, fmt.Errorf("model %T is not a pointer", m)
+		}
+		sliceType := reflect.SliceOf(modelType.Elem())
+		slicePtr := reflect.New(sliceType)
+		if err := src.Unscoped().Find(slicePtr.Interface()).Error; err != nil {
+			return copied, fmt.Errorf("read sqlite table %s: %w", table, err)
+		}
+		if slicePtr.Elem().Len() == 0 {
+			continue
+		}
+		if err := target.Clauses(clause.OnConflict{DoNothing: true}).CreateInBatches(slicePtr.Interface(), batchSize).Error; err != nil {
+			return copied, fmt.Errorf("copy sqlite table %s: %w", table, err)
+		}
+		copied += int64(slicePtr.Elem().Len())
+	}
+	return copied, nil
+}
+
+func sqliteTableExists(db *gorm.DB, table string) (bool, error) {
+	var count int64
+	if err := db.Raw(`SELECT COUNT(1) FROM sqlite_master WHERE type = 'table' AND name = ?`, table).Scan(&count).Error; err != nil {
+		return false, fmt.Errorf("inspect sqlite table %s: %w", table, err)
+	}
+	return count > 0, nil
+}
+
+func modelTableName(db *gorm.DB, m any) (string, error) {
+	stmt := &gorm.Statement{DB: db}
+	if err := stmt.Parse(m); err != nil {
+		return "", err
+	}
+	return stmt.Schema.Table, nil
+}
+
+func quoteIdent(value string) string {
+	return `"` + strings.ReplaceAll(value, `"`, `""`) + `"`
 }
 
 func installSQLiteWriteGate(db *gorm.DB) {
@@ -122,7 +317,7 @@ func (g *sqliteWriteGate) Unlock() {
 	}
 }
 
-func buildDSN(cfg *config.Config) string {
+func buildSQLiteDSN(cfg *config.Config) string {
 	dbPath := cfg.Database.DBPath
 	if !filepath.IsAbs(dbPath) {
 		// keep as-is to respect user-provided relative paths.
@@ -152,7 +347,10 @@ func AutoMigrate(db *gorm.DB) error {
 	if err := ensurePerformanceIndexes(db); err != nil {
 		return err
 	}
-	return ensureMediaSearchIndex(db)
+	if isSQLite(db) {
+		return ensureMediaSearchIndex(db)
+	}
+	return nil
 }
 
 func ensurePerformanceIndexes(db *gorm.DB) error {
@@ -160,12 +358,21 @@ func ensurePerformanceIndexes(db *gorm.DB) error {
 		`CREATE INDEX IF NOT EXISTS idx_media_library_created_active ON media(library_id, created_at DESC) WHERE deleted_at IS NULL`,
 		`CREATE INDEX IF NOT EXISTS idx_media_library_episode_active ON media(library_id, season_num, episode_num, created_at DESC) WHERE deleted_at IS NULL`,
 		`CREATE INDEX IF NOT EXISTS idx_media_series_active ON media(series_id, season_num, episode_num) WHERE deleted_at IS NULL`,
-		`CREATE INDEX IF NOT EXISTS idx_media_title_active ON media(title COLLATE NOCASE) WHERE deleted_at IS NULL`,
-		`CREATE INDEX IF NOT EXISTS idx_media_original_name_active ON media(original_name COLLATE NOCASE) WHERE deleted_at IS NULL`,
 		`CREATE INDEX IF NOT EXISTS idx_favorites_user_media_active ON favorites(user_id, media_id) WHERE deleted_at IS NULL`,
 		`CREATE INDEX IF NOT EXISTS idx_playback_histories_user_media_active ON playback_histories(user_id, media_id, watched_at DESC) WHERE deleted_at IS NULL`,
 		`CREATE INDEX IF NOT EXISTS idx_playback_histories_resume_active ON playback_histories(user_id, completed, watched_at DESC) WHERE deleted_at IS NULL`,
 		`CREATE INDEX IF NOT EXISTS idx_play_profiles_user_created_active ON play_profiles(user_id, created_at DESC) WHERE deleted_at IS NULL`,
+	}
+	if isSQLite(db) {
+		statements = append(statements,
+			`CREATE INDEX IF NOT EXISTS idx_media_title_active ON media(title COLLATE NOCASE) WHERE deleted_at IS NULL`,
+			`CREATE INDEX IF NOT EXISTS idx_media_original_name_active ON media(original_name COLLATE NOCASE) WHERE deleted_at IS NULL`,
+		)
+	} else {
+		statements = append(statements,
+			`CREATE INDEX IF NOT EXISTS idx_media_title_active ON media(title) WHERE deleted_at IS NULL`,
+			`CREATE INDEX IF NOT EXISTS idx_media_original_name_active ON media(original_name) WHERE deleted_at IS NULL`,
+		)
 	}
 	for _, stmt := range statements {
 		if err := db.Exec(stmt).Error; err != nil {
@@ -173,6 +380,10 @@ func ensurePerformanceIndexes(db *gorm.DB) error {
 		}
 	}
 	return nil
+}
+
+func isSQLite(db *gorm.DB) bool {
+	return db != nil && db.Dialector != nil && db.Dialector.Name() == "sqlite"
 }
 
 // mediaSearchIndexSchemaVersion 标识 FTS 索引的物理布局版本。
@@ -262,7 +473,7 @@ WHERE deleted_at IS NULL
              ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY created_at ASC, id ASC) AS rn
       FROM telegram_bindings
       WHERE deleted_at IS NULL
-    )
+    ) AS ranked_bindings
     WHERE rn = 1
   )
 `).Error; err != nil {

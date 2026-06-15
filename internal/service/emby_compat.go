@@ -61,6 +61,7 @@ type EmbyService struct {
 	repo    *repository.Container
 	storage cloudPlaybackResolver
 	probe   cloudPlaybackProber
+	cache   *RuntimeCacheService
 
 	virtualMu      sync.RWMutex
 	virtualSeries  map[string]embySeriesCacheEntry
@@ -85,6 +86,13 @@ type cloudPlaybackProber interface {
 // NewEmbyService is the constructor.
 func NewEmbyService(cfg *config.Config, log *zap.Logger, repo *repository.Container) *EmbyService {
 	return &EmbyService{cfg: cfg, log: log, repo: repo}
+}
+
+func (e *EmbyService) SetRuntimeCache(cache *RuntimeCacheService) *EmbyService {
+	if e != nil {
+		e.cache = cache
+	}
+	return e
 }
 
 func (e *EmbyService) SetCloudProbe(storage cloudPlaybackResolver, probe cloudPlaybackProber) {
@@ -439,6 +447,11 @@ func (e *EmbyService) Items(ctx context.Context, p ItemsParams) (map[string]any,
 }
 
 func (e *EmbyService) mediaItems(ctx context.Context, p ItemsParams) (map[string]any, error) {
+	cacheKey := e.embyItemsCacheKey("items", p)
+	var cached embyItemsCacheValue
+	if e.cache != nil && e.cache.GetJSON(ctx, cacheKey, &cached) {
+		return map[string]any{"Items": cached.Items, "TotalRecordCount": cached.TotalRecordCount, "StartIndex": cached.StartIndex}, nil
+	}
 	q := e.repo.DB.WithContext(ctx).Model(&model.Media{})
 	q = e.applyUserMediaVisibility(ctx, q, p.UserID)
 	if p.ParentID != "" {
@@ -503,7 +516,57 @@ func (e *EmbyService) mediaItems(ctx context.Context, p ItemsParams) (map[string
 	if err != nil {
 		return nil, err
 	}
-	return map[string]any{"Items": items, "TotalRecordCount": total, "StartIndex": p.StartIndex}, nil
+	out := map[string]any{"Items": items, "TotalRecordCount": total, "StartIndex": p.StartIndex}
+	if e.cache != nil {
+		e.cache.SetJSON(ctx, cacheKey, embyItemsCacheValue{Items: items, TotalRecordCount: total, StartIndex: p.StartIndex}, time.Duration(e.mediaCacheTTLSeconds())*time.Second)
+	}
+	return out, nil
+}
+
+type embyItemsCacheValue struct {
+	Items            []map[string]any `json:"items"`
+	TotalRecordCount int64            `json:"total_record_count"`
+	StartIndex       int              `json:"start_index"`
+}
+
+type embyLatestCacheValue struct {
+	Items []map[string]any `json:"items"`
+}
+
+func (e *EmbyService) embyItemsCacheKey(kind string, p ItemsParams) string {
+	includeTypes := append([]string(nil), p.IncludeItemTypes...)
+	filters := append([]string(nil), p.Filters...)
+	ids := append([]string(nil), p.IDs...)
+	sort.Strings(includeTypes)
+	sort.Strings(filters)
+	sort.Strings(ids)
+	sum := sha256.Sum256([]byte(strings.Join([]string{
+		kind,
+		p.UserID,
+		p.ParentID,
+		strings.Join(ids, ","),
+		p.SearchTerm,
+		strings.Join(includeTypes, ","),
+		strings.Join(filters, ","),
+		strconv.FormatBool(p.Recursive),
+		p.SortBy,
+		p.SortOrder,
+		strconv.Itoa(p.StartIndex),
+		strconv.Itoa(p.Limit),
+	}, "|")))
+	return "media:emby:" + hex.EncodeToString(sum[:])
+}
+
+func (e *EmbyService) embyLatestCacheKey(userID, parentID string, limit int) string {
+	sum := sha256.Sum256([]byte(strings.Join([]string{"latest", userID, parentID, strconv.Itoa(limit)}, "|")))
+	return "media:emby:" + hex.EncodeToString(sum[:])
+}
+
+func (e *EmbyService) mediaCacheTTLSeconds() int {
+	if e == nil || e.cfg == nil || e.cfg.Cache.MediaTTLSeconds < 1 {
+		return 15
+	}
+	return e.cfg.Cache.MediaTTLSeconds
 }
 
 func (e *EmbyService) episodeItems(ctx context.Context, rows []model.Media, p ItemsParams) (map[string]any, error) {
@@ -636,13 +699,22 @@ func (e *EmbyService) LatestItems(ctx context.Context, userID, parentID string, 
 	if limit <= 0 || limit > 100 {
 		limit = 20
 	}
+	cacheKey := e.embyLatestCacheKey(userID, parentID, limit)
+	var cached embyLatestCacheValue
+	if e.cache != nil && e.cache.GetJSON(ctx, cacheKey, &cached) {
+		return cached.Items, nil
+	}
 	q := e.repo.DB.WithContext(ctx).Model(&model.Media{}).Where("deleted_at IS NULL")
 	q = e.applyUserMediaVisibility(ctx, q, userID)
 	if parentID != "" {
 		if episodic, err := e.libraryIsEpisodic(ctx, parentID); err == nil && episodic {
-			return e.latestSeriesItemsForLibrary(ctx, userID, parentID, limit)
+			out, err := e.latestSeriesItemsForLibrary(ctx, userID, parentID, limit)
+			if err == nil && e.cache != nil {
+				e.cache.SetJSON(ctx, cacheKey, embyLatestCacheValue{Items: out}, time.Duration(e.mediaCacheTTLSeconds())*time.Second)
+			}
+			return out, err
 		}
-		q = q.Where("library_id = ?", parentID)
+		q = q.Where("library_id IN ?", e.mergedLibraryIDs(ctx, parentID))
 	}
 	var rows []model.Media
 	if err := q.Order("media.created_at desc").Limit(limit).Find(&rows).Error; err != nil {
@@ -668,6 +740,9 @@ func (e *EmbyService) LatestItems(ctx context.Context, userID, parentID string, 
 	out := make([]map[string]any, 0, len(rows))
 	for _, m := range rows {
 		out = append(out, e.itemPayload(ctx, &m, favs[m.ID], 0))
+	}
+	if e.cache != nil {
+		e.cache.SetJSON(ctx, cacheKey, embyLatestCacheValue{Items: out}, time.Duration(e.mediaCacheTTLSeconds())*time.Second)
 	}
 	return out, nil
 }

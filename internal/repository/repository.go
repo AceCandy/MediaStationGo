@@ -274,6 +274,23 @@ type MediaRepository struct {
 
 	searchIndexOnce      sync.Once
 	searchIndexAvailable bool
+	searchBackend        MediaSearchBackend
+}
+
+type MediaSearchBackend interface {
+	SearchMediaIDs(ctx context.Context, query string, offset, limit int, filter MediaQueryFilter) ([]string, int64, error)
+}
+
+type MediaSearchSyncBackend interface {
+	MediaSearchBackend
+	EnsureIndex(ctx context.Context) error
+	IndexMedia(ctx context.Context, rows []model.Media) error
+}
+
+func (r *MediaRepository) SetSearchBackend(backend MediaSearchBackend) {
+	if r != nil {
+		r.searchBackend = backend
+	}
 }
 
 // MediaQueryFilter is applied to user-facing media queries so NSFW items and
@@ -323,6 +340,7 @@ func (r *MediaRepository) upsert(ctx context.Context, m *model.Media) error {
 			m.ScrapeStatus = "pending"
 		}
 		if createErr := r.db.WithContext(ctx).Create(m).Error; createErr == nil {
+			r.indexMediaBestEffort(ctx, *m)
 			return nil
 		} else if retryErr := r.db.WithContext(ctx).Unscoped().Where("path = ?", m.Path).First(&existing).Error; retryErr != nil {
 			return createErr
@@ -433,7 +451,18 @@ func (r *MediaRepository) upsert(ctx context.Context, m *model.Media) error {
 	}
 	// 回写 ID / 不可变字段，让 caller 拿到完整的现有行。
 	*m = existing
+	if fresh, err := r.FindByID(ctx, existing.ID); err == nil && fresh != nil {
+		r.indexMediaBestEffort(ctx, *fresh)
+	}
 	return nil
+}
+
+func (r *MediaRepository) indexMediaBestEffort(ctx context.Context, media model.Media) {
+	backend, ok := r.searchBackend.(MediaSearchSyncBackend)
+	if !ok {
+		return
+	}
+	_ = backend.IndexMedia(ctx, []model.Media{media})
 }
 
 func setIfChanged[T comparable](updates map[string]any, key string, current, next T) {
@@ -500,6 +529,11 @@ func (r *MediaRepository) SearchFilteredPage(ctx context.Context, query string, 
 	if limit <= 0 {
 		limit = 50
 	}
+	if query != "" && r.searchBackend != nil {
+		if items, total, ok := r.searchFilteredBackend(ctx, query, offset, limit, filter); ok {
+			return items, total, nil
+		}
+	}
 	if query != "" {
 		if items, total, ok := r.searchFilteredFTS(ctx, query, offset, limit, filter); ok {
 			if total > 0 {
@@ -508,6 +542,36 @@ func (r *MediaRepository) SearchFilteredPage(ctx context.Context, query string, 
 		}
 	}
 	return r.searchFilteredLIKE(ctx, query, offset, limit, filter)
+}
+
+func (r *MediaRepository) searchFilteredBackend(ctx context.Context, query string, offset, limit int, filter MediaQueryFilter) ([]model.Media, int64, bool) {
+	ids, total, err := r.searchBackend.SearchMediaIDs(ctx, query, offset, limit, filter)
+	if err != nil {
+		return nil, 0, false
+	}
+	if len(ids) == 0 {
+		return []model.Media{}, total, true
+	}
+	var rows []model.Media
+	q := r.db.WithContext(ctx).Model(&model.Media{}).Where("id IN ?", ids)
+	q = applyMediaQueryFilter(q, filter)
+	if err := q.Find(&rows).Error; err != nil {
+		return nil, 0, false
+	}
+	byID := make(map[string]model.Media, len(rows))
+	for _, row := range rows {
+		byID[row.ID] = row
+	}
+	items := make([]model.Media, 0, len(ids))
+	for _, id := range ids {
+		if row, ok := byID[id]; ok {
+			items = append(items, row)
+		}
+	}
+	if len(items) == 0 && total > 0 {
+		return nil, 0, false
+	}
+	return items, total, true
 }
 
 func (r *MediaRepository) searchFilteredFTS(ctx context.Context, query string, offset, limit int, filter MediaQueryFilter) ([]model.Media, int64, bool) {
@@ -630,6 +694,9 @@ func escapeLike(value string) string {
 }
 
 func (r *MediaRepository) BackfillSearchIndex(ctx context.Context, batchLimit int) (int64, error) {
+	if backend, ok := r.searchBackend.(MediaSearchSyncBackend); ok {
+		return r.backfillExternalSearchIndex(ctx, backend, batchLimit)
+	}
 	if batchLimit <= 0 {
 		batchLimit = 1000
 	}
@@ -654,8 +721,43 @@ LIMIT ?
 	return res.RowsAffected, res.Error
 }
 
+func (r *MediaRepository) backfillExternalSearchIndex(ctx context.Context, backend MediaSearchSyncBackend, batchLimit int) (int64, error) {
+	if batchLimit <= 0 {
+		batchLimit = 1000
+	}
+	if err := backend.EnsureIndex(ctx); err != nil {
+		return 0, err
+	}
+	var lastID string
+	for {
+		var rows []model.Media
+		q := r.db.WithContext(ctx).
+			Model(&model.Media{}).
+			Where("deleted_at IS NULL")
+		if lastID != "" {
+			q = q.Where("id > ?", lastID)
+		}
+		if err := q.Order("id ASC").Limit(batchLimit).Find(&rows).Error; err != nil {
+			return 0, err
+		}
+		if len(rows) == 0 {
+			return 0, nil
+		}
+		if err := backend.IndexMedia(ctx, rows); err != nil {
+			return 0, err
+		}
+		lastID = rows[len(rows)-1].ID
+		if len(rows) < batchLimit {
+			return 0, nil
+		}
+	}
+}
+
 func (r *MediaRepository) searchIndexEnabled(ctx context.Context) bool {
 	if r == nil || r.db == nil {
+		return false
+	}
+	if r.db.Dialector == nil || r.db.Dialector.Name() != "sqlite" {
 		return false
 	}
 	r.searchIndexOnce.Do(func() {

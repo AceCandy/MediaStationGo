@@ -116,7 +116,19 @@ http://服务器IP:18080
 
 ## Docker Compose 推荐部署
 
-仓库里的 `docker-compose.yml` 已经是最简单模板：默认不用 `.env`。
+仓库里的 `docker-compose.yml` 已经是轻量推荐模板：默认不用 `.env`，默认只启动 `MediaStationGo + PostgreSQL`，适合大多数 NAS。
+
+旧版本如果已经有 `./data/mediastation.db`，首次使用新版 compose 启动时会自动导入到 PostgreSQL；`./data` 仍然要保留，用来保存 JWT 密钥、旧库迁移源和运行数据。
+
+### 三种部署模式
+
+| 模式 | 命令 | 适合场景 |
+| --- | --- | --- |
+| 轻量模式：PG only | `docker compose up -d` | 大多数 NAS，资源占用最低 |
+| 标准模式：PG + Redis | `docker compose -f docker-compose.yml -f docker-compose.standard.yml up -d` | 多用户、Emby 客户端频繁刷新 |
+| 搜索增强：PG + Redis + OpenSearch | `docker compose -f docker-compose.yml -f docker-compose.standard.yml -f docker-compose.search.yml up -d` | 超大库、后续独立搜索索引 |
+
+建议从轻量模式开始。Redis 和 OpenSearch 都是增强层，不是源数据库；低配 NAS 不要默认开启 OpenSearch。
 
 ### 镜像地址怎么选
 
@@ -161,10 +173,13 @@ volumes:
 
 | 左边 | 右边 | 说明 |
 | --- | --- | --- |
-| `./data` | `/data` | 程序数据库、配置、账号信息；一定要备份 |
-| `./cache` | `/cache` | 缓存目录；可清理 |
+| `./data` | 主程序 `/data` | 程序配置、JWT 密钥、旧 SQLite 迁移源；一定要备份 |
+| `./cache` | 主程序 `/cache` | 缓存目录；可清理 |
 | `./media` | `/media` | 媒体库目录；自动整理入库需要可写，网页里添加媒体库时填 `/media/...` |
 | `./downloads` | `/downloads` | 下载目录；文件管理和自动整理会用 |
+| `./postgres` | PostgreSQL `/var/lib/postgresql/data` | 新版默认主数据库；一定要备份 |
+| `./redis` | Redis `/data` | 标准模式才会使用；热缓存，丢失可重建 |
+| `./opensearch` | OpenSearch `/usr/share/opensearch/data` | 搜索增强模式才会使用；占用内存较高 |
 
 如果你的媒体在 NAS 真实目录，例如：
 
@@ -212,6 +227,9 @@ services:
     container_name: mediastation-go
     restart: unless-stopped
     init: true
+    depends_on:
+      postgres:
+        condition: service_healthy
 
     # 访问端口：浏览器打开 http://服务器IP:18080
     ports:
@@ -241,6 +259,10 @@ services:
       MEDIASTATION_APP_PORT: 8080
       MEDIASTATION_APP_WEB_DIR: /app/web/dist
       MEDIASTATION_APP_DATA_DIR: /data
+
+      # 轻量模式默认 PostgreSQL；旧 SQLite 会从这个路径自动迁移。
+      MEDIASTATION_DATABASE_TYPE: postgres
+      MEDIASTATION_DATABASE_DSN: postgres://mediastation:mediastation@postgres:5432/mediastation?sslmode=disable
       MEDIASTATION_DATABASE_DB_PATH: /data/mediastation.db
       MEDIASTATION_CACHE_CACHE_DIR: /cache
 
@@ -250,7 +272,26 @@ services:
       MEDIASTATION_MEDIA_CONTAINER_DIR: /media
       MEDIASTATION_DOWNLOAD_DIR: ./downloads
       MEDIASTATION_DOWNLOAD_CONTAINER_DIR: /downloads
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: mediastation-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: mediastation
+      POSTGRES_USER: mediastation
+      POSTGRES_PASSWORD: mediastation
+    volumes:
+      - ./postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mediastation -d mediastation"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
 ```
+
+> 说明：PostgreSQL 是主数据库；轻量模式也有进程内短缓存。Redis 是跨进程热缓存，OpenSearch 是搜索增强层，都不是源数据库。
 
 ---
 

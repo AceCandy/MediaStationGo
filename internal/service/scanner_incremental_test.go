@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/glebarez/sqlite"
 	"go.uber.org/zap"
@@ -95,6 +96,62 @@ func TestScanLibraryReadsLocalSTRMTarget(t *testing.T) {
 	}
 }
 
+func TestScanLibrarySkipsUnchangedExistingLocalMedia(t *testing.T) {
+	sc, repos := newScannerTestEnv(t)
+	root := t.TempDir()
+	lib := model.Library{Name: "Movies", Path: root, Type: "movie", Enabled: true}
+	if err := repos.Library.Create(t.Context(), &lib); err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(root, "Already In Library (2024).mkv")
+	if err := os.WriteFile(file, []byte("same-size"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	first, err := sc.ScanLibrary(t.Context(), lib.ID)
+	if err != nil {
+		t.Fatalf("first scan: %v", err)
+	}
+	if first.Added != 1 || first.Skipped != 0 {
+		t.Fatalf("first scan = %#v, want added=1 skipped=0", first)
+	}
+	second, err := sc.ScanLibrary(t.Context(), lib.ID)
+	if err != nil {
+		t.Fatalf("second scan: %v", err)
+	}
+	if second.Added != 0 || second.Updated != 0 || second.Skipped != 1 {
+		t.Fatalf("second scan = %#v, want unchanged file skipped", second)
+	}
+	if got := countMedia(t, repos); got != 1 {
+		t.Fatalf("media count = %d, want 1", got)
+	}
+}
+
+func TestScanLibraryReportsPerFileUpsertErrors(t *testing.T) {
+	sc, repos := newScannerTestEnv(t)
+	root := t.TempDir()
+	lib := model.Library{Name: "Broken DB", Path: root, Type: "movie", Enabled: true}
+	if err := repos.Library.Create(t.Context(), &lib); err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(root, "Cannot Insert (2024).mkv")
+	if err := os.WriteFile(file, []byte("data"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := repos.DB.Exec("DROP TABLE media").Error; err != nil {
+		t.Fatal(err)
+	}
+	res, err := sc.ScanLibrary(t.Context(), lib.ID)
+	if err != nil {
+		t.Fatalf("scan should continue and report file errors, got top-level error: %v", err)
+	}
+	if res.ErrorCount != 1 || len(res.Errors) != 1 {
+		t.Fatalf("scan errors = count %d details %#v, want one detailed error", res.ErrorCount, res.Errors)
+	}
+	if res.Visited != 1 {
+		t.Fatalf("visited = %d, want 1", res.Visited)
+	}
+}
+
 func TestScanLibraryMapsPersistedHostLibraryPath(t *testing.T) {
 	sc, repos := newScannerTestEnv(t)
 	root := t.TempDir()
@@ -132,6 +189,8 @@ func TestScanLibraryMapsPersistedHostLibraryPath(t *testing.T) {
 
 func TestRemovePathDeletesVanishedMedia(t *testing.T) {
 	sc, repos := newScannerTestEnv(t)
+	cache := NewRuntimeCacheService(&config.Config{}, zap.NewNop())
+	sc.SetRuntimeCache(cache)
 	root := t.TempDir()
 	lib := model.Library{Name: "Movies", Path: root, Type: "movie", Enabled: true}
 	if err := repos.Library.Create(t.Context(), &lib); err != nil {
@@ -147,9 +206,17 @@ func TestRemovePathDeletesVanishedMedia(t *testing.T) {
 	if countMedia(t, repos) != 1 {
 		t.Fatal("expected 1 media before removal")
 	}
+	cache.SetJSON(t.Context(), "media:list:test", map[string]string{"state": "stale"}, time.Minute)
+	var cached map[string]string
+	if !cache.GetJSON(t.Context(), "media:list:test", &cached) {
+		t.Fatal("expected media cache to be primed")
+	}
 	// A still-present file is not removed.
 	if removed, _ := sc.RemovePath(t.Context(), file); removed != 0 {
 		t.Fatalf("present file should not be removed, got %d", removed)
+	}
+	if !cache.GetJSON(t.Context(), "media:list:test", &cached) {
+		t.Fatal("present file should not invalidate media cache")
 	}
 	if err := os.Remove(file); err != nil {
 		t.Fatal(err)
@@ -163,6 +230,9 @@ func TestRemovePathDeletesVanishedMedia(t *testing.T) {
 	}
 	if countMedia(t, repos) != 0 {
 		t.Fatal("expected 0 media after removal")
+	}
+	if cache.GetJSON(t.Context(), "media:list:test", &cached) {
+		t.Fatal("vanished media removal should invalidate media cache")
 	}
 }
 

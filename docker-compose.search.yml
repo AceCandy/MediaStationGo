@@ -1,0 +1,45 @@
+# 搜索增强模式叠加文件：PostgreSQL + Redis + OpenSearch
+#
+# 使用方式：
+#   docker compose -f docker-compose.yml -f docker-compose.standard.yml -f docker-compose.search.yml up -d
+#
+# 适合：
+#   超大媒体库、复杂全文搜索、后续需要独立搜索索引的部署。
+#
+# 注意：
+#   OpenSearch 常驻内存明显高于 Redis/PG。低配 NAS 不建议开启。
+
+services:
+  mediastation-go:
+    depends_on:
+      opensearch:
+        condition: service_healthy
+    environment:
+      # 预留搜索索引入口；主数据仍以 PostgreSQL 为准。
+      MEDIASTATION_SEARCH_BACKEND: opensearch
+      MEDIASTATION_SEARCH_OPENSEARCH_URL: http://opensearch:9200
+      MEDIASTATION_SEARCH_INDEX: mediastation_media
+
+  opensearch:
+    image: opensearchproject/opensearch:2
+    container_name: mediastation-opensearch
+    restart: unless-stopped
+    environment:
+      discovery.type: single-node
+      plugins.security.disabled: "true"
+      OPENSEARCH_JAVA_OPTS: "-Xms512m -Xmx512m"
+      DISABLE_INSTALL_DEMO_CONFIG: "true"
+      bootstrap.memory_lock: "false"
+    volumes:
+      - ./opensearch:/usr/share/opensearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:9200 >/dev/null || exit 1"]
+      interval: 20s
+      timeout: 10s
+      retries: 15
+      start_period: 60s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

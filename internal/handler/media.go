@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 
@@ -130,7 +131,7 @@ func scanLibraryHandler(svc *service.Container) gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		finishHTTPTask(task, nil, "completed", "手动扫描入库结束", scanTaskMetrics(res), nil)
+		finishHTTPTask(task, nil, "completed", "手动扫描入库结束", scanTaskMetrics(res), scanTaskDetails(res, 20))
 		c.JSON(http.StatusOK, res)
 	}
 }
@@ -161,7 +162,26 @@ func scanTaskMetrics(res *service.ScanResult) map[string]int64 {
 		"probed":         int64(res.Probed),
 		"local_metadata": int64(res.LocalMetadata),
 		"removed":        res.Removed,
+		"errors":         int64(res.ErrorCount),
 	}
+}
+
+func scanTaskDetails(res *service.ScanResult, limit int) []string {
+	if res == nil || limit <= 0 {
+		return nil
+	}
+	out := make([]string, 0, limit)
+	for _, line := range res.Errors {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		out = append(out, "错误: "+line)
+		if len(out) >= limit {
+			return out
+		}
+	}
+	return out
 }
 
 func listMediaHandler(svc *service.Container) gin.HandlerFunc {
@@ -169,7 +189,22 @@ func listMediaHandler(svc *service.Container) gin.HandlerFunc {
 		id := c.Param("id")
 		page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 		size, _ := strconv.Atoi(c.DefaultQuery("page_size", "50"))
-		items, total, err := svc.Media.ListMediaVisible(c.Request.Context(), id, page, size, mediaVisibilityForRequest(c, svc))
+		groupVersions := c.DefaultQuery("group_versions", "1") != "0"
+		if !groupVersions {
+			items, total, err := svc.Media.ListMediaVisible(c.Request.Context(), id, page, size, mediaVisibilityForRequest(c, svc))
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+				return
+			}
+			c.JSON(http.StatusOK, gin.H{
+				"items":     items,
+				"total":     total,
+				"page":      page,
+				"page_size": size,
+			})
+			return
+		}
+		items, total, err := svc.Media.ListMediaVisibleGrouped(c.Request.Context(), id, page, size, mediaVisibilityForRequest(c, svc))
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
@@ -205,10 +240,25 @@ func getMediaHandler(svc *service.Container) gin.HandlerFunc {
 func searchMediaHandler(svc *service.Container) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		q := c.Query("q")
+		groupVersions := c.DefaultQuery("group_versions", "1") != "0"
 		if c.Query("page") != "" || c.Query("page_size") != "" {
 			page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 			size, _ := strconv.Atoi(c.DefaultQuery("page_size", "50"))
-			items, total, err := svc.Media.SearchMediaVisiblePage(c.Request.Context(), q, page, size, mediaVisibilityForRequest(c, svc))
+			if !groupVersions {
+				items, total, err := svc.Media.SearchMediaVisiblePage(c.Request.Context(), q, page, size, mediaVisibilityForRequest(c, svc))
+				if err != nil {
+					c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+					return
+				}
+				c.JSON(http.StatusOK, gin.H{
+					"items":     items,
+					"total":     total,
+					"page":      page,
+					"page_size": size,
+				})
+				return
+			}
+			items, total, err := svc.Media.SearchMediaVisiblePageGrouped(c.Request.Context(), q, page, size, mediaVisibilityForRequest(c, svc))
 			if err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 				return
@@ -222,7 +272,16 @@ func searchMediaHandler(svc *service.Container) gin.HandlerFunc {
 			return
 		}
 		limit, _ := strconv.Atoi(c.DefaultQuery("limit", "50"))
-		items, err := svc.Media.SearchMediaVisible(c.Request.Context(), q, limit, mediaVisibilityForRequest(c, svc))
+		if !groupVersions {
+			items, err := svc.Media.SearchMediaVisible(c.Request.Context(), q, limit, mediaVisibilityForRequest(c, svc))
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+				return
+			}
+			c.JSON(http.StatusOK, gin.H{"items": items})
+			return
+		}
+		items, err := svc.Media.SearchMediaVisibleGrouped(c.Request.Context(), q, limit, mediaVisibilityForRequest(c, svc))
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return

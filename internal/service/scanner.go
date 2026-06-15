@@ -56,6 +56,7 @@ type ScannerService struct {
 	probe   *FFprobeService
 	scraper *ScraperService
 	storage *StorageConfigService
+	cache   *RuntimeCacheService
 
 	imageProxy *ImageProxy
 
@@ -110,6 +111,12 @@ func (s *ScannerService) SetStorageConfig(storage *StorageConfigService) {
 				go s.cloudMediaProbeWorker()
 			}
 		})
+	}
+}
+
+func (s *ScannerService) SetRuntimeCache(cache *RuntimeCacheService) {
+	if s != nil {
+		s.cache = cache
 	}
 }
 
@@ -255,17 +262,37 @@ func isCloudArtworkRef(ref string) bool {
 
 // ScanResult summarises a scan run.
 type ScanResult struct {
-	LibraryID     string `json:"library_id"`
-	Visited       int    `json:"visited"`
-	Added         int    `json:"added"`
-	Updated       int    `json:"updated"`
-	Skipped       int    `json:"skipped"`
-	Probed        int    `json:"probed"`
-	LocalMetadata int    `json:"local_metadata"`
-	Removed       int64  `json:"removed"`
+	LibraryID     string   `json:"library_id"`
+	Visited       int      `json:"visited"`
+	Added         int      `json:"added"`
+	Updated       int      `json:"updated"`
+	Skipped       int      `json:"skipped"`
+	Probed        int      `json:"probed"`
+	LocalMetadata int      `json:"local_metadata"`
+	Removed       int64    `json:"removed"`
+	ErrorCount    int      `json:"error_count,omitempty"`
+	Errors        []string `json:"errors,omitempty"`
 }
 
 var ErrCloudScanAlreadyRunning = errors.New("cloud scan already running")
+
+const maxScanErrorDetails = 20
+
+func addScanError(res *ScanResult, path string, err error) {
+	if res == nil || err == nil {
+		return
+	}
+	res.ErrorCount++
+	if len(res.Errors) >= maxScanErrorDetails {
+		return
+	}
+	path = strings.TrimSpace(path)
+	msg := strings.TrimSpace(err.Error())
+	if path != "" {
+		msg = path + ": " + msg
+	}
+	res.Errors = append(res.Errors, msg)
+}
 
 const maxCloudMediaProbeQueuePerScan = 32
 
@@ -291,6 +318,8 @@ type CloudScanStatus struct {
 	Updated        int       `json:"updated"`
 	Skipped        int       `json:"skipped"`
 	Removed        int64     `json:"removed"`
+	ErrorCount     int       `json:"error_count,omitempty"`
+	Errors         []string  `json:"errors,omitempty"`
 	Error          string    `json:"error,omitempty"`
 	ResumeHint     string    `json:"resume_hint,omitempty"`
 	Estimate       string    `json:"estimate_message,omitempty"`
@@ -324,6 +353,17 @@ type existingCloudMedia struct {
 	Container   string
 	PosterURL   string
 	BackdropURL string
+	STRMURL     string
+}
+
+type existingLocalMedia struct {
+	SizeBytes   int64
+	DurationSec int
+	Width       int
+	Height      int
+	VideoCodec  string
+	AudioCodec  string
+	Container   string
 	STRMURL     string
 }
 
@@ -451,6 +491,8 @@ func (s *ScannerService) beginCloudScan(ctx context.Context, lib *model.Library,
 			current.status.Updated = res.Updated
 			current.status.Skipped = res.Skipped
 			current.status.Removed = res.Removed
+			current.status.ErrorCount = res.ErrorCount
+			current.status.Errors = append([]string(nil), res.Errors...)
 		}
 		current.status.UpdatedAt = now
 		current.status.FinishedAt = now
@@ -471,22 +513,28 @@ func (s *ScannerService) beginCloudScan(ctx context.Context, lib *model.Library,
 		default:
 			current.status.State = "finished"
 			current.status.Stage = "finished"
-			current.status.Error = ""
+			if current.status.ErrorCount > 0 {
+				current.status.Error = fmt.Sprintf("部分文件入库失败：%d 个，详情见 errors", current.status.ErrorCount)
+			} else {
+				current.status.Error = ""
+			}
 		}
 		if s.hub != nil {
 			s.hub.Publish("scan", map[string]any{
-				"library_id": lib.ID,
-				"provider":   mount.Provider,
-				"cloud":      true,
-				"finished":   true,
-				"state":      current.status.State,
-				"stage":      current.status.Stage,
-				"error":      current.status.Error,
-				"visited":    current.status.Visited,
-				"added":      current.status.Added,
-				"updated":    current.status.Updated,
-				"skipped":    current.status.Skipped,
-				"removed":    current.status.Removed,
+				"library_id":  lib.ID,
+				"provider":    mount.Provider,
+				"cloud":       true,
+				"finished":    true,
+				"state":       current.status.State,
+				"stage":       current.status.Stage,
+				"error":       current.status.Error,
+				"visited":     current.status.Visited,
+				"added":       current.status.Added,
+				"updated":     current.status.Updated,
+				"skipped":     current.status.Skipped,
+				"removed":     current.status.Removed,
+				"error_count": current.status.ErrorCount,
+				"errors":      current.status.Errors,
 			})
 		}
 	}
@@ -643,7 +691,7 @@ func (s *ScannerService) StartCloudLibraryScan(libraryID string, autoScrape bool
 	s.cloudScanMu.Unlock()
 
 	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 6*time.Hour)
+		ctx, cancel := cloudScanContext(context.Background(), cloudScanTimeout(context.Background(), s.repo, 24*time.Hour))
 		defer cancel()
 		if autoScrape {
 			_, err = s.ScanLibrary(ctx, libraryID)
@@ -665,6 +713,28 @@ func (s *ScannerService) StartCloudLibraryScan(libraryID string, autoScrape bool
 		Estimate:   "小目录通常几十秒；几万文件的大目录可能需要数分钟到数小时，取决于网盘接口速度。",
 	}
 	return status, true, nil
+}
+
+func cloudScanContext(parent context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
+	if timeout <= 0 {
+		return context.WithCancel(parent)
+	}
+	return context.WithTimeout(parent, timeout)
+}
+
+func cloudScanTimeout(ctx context.Context, repo *repository.Container, fallback time.Duration) time.Duration {
+	if repo == nil || repo.Setting == nil {
+		return fallback
+	}
+	value, err := repo.Setting.Get(ctx, "cloud.scan_timeout_hours")
+	if err != nil || strings.TrimSpace(value) == "" {
+		return fallback
+	}
+	hours := parseIntSettingDefault(strings.TrimSpace(value), int(fallback/time.Hour))
+	if hours <= 0 {
+		return 0
+	}
+	return time.Duration(hours) * time.Hour
 }
 
 func (s *ScannerService) StartAllCloudLibraryScans() ([]CloudScanStatus, error) {
@@ -754,8 +824,19 @@ func (s *ScannerService) scanLibrary(ctx context.Context, libraryID string, auto
 	res := &ScanResult{LibraryID: lib.ID}
 	seen := make(map[string]struct{})
 	seenInodes := make(map[string]string)
+	writeBatch := newLocalMediaWriteBatch(s, ctx, res, 100)
+	existingMedia, err := s.existingLocalMediaSnapshot(ctx, lib.ID)
+	if err != nil {
+		s.log.Warn("load existing local media snapshot failed", zap.String("library_id", lib.ID), zap.Error(err))
+		existingMedia = nil
+	}
 
 	walkFn := func(path string, info walkInfo) error {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
 		if info.isDir {
 			return nil
 		}
@@ -764,12 +845,18 @@ func (s *ScannerService) scanLibrary(ctx context.Context, libraryID string, auto
 			return nil
 		}
 		seen[filepath.Clean(path)] = struct{}{}
-		s.ingestFile(ctx, lib, path, info.size, seenInodes, res)
+		s.ingestFile(ctx, lib, path, info.size, seenInodes, existingMedia, writeBatch, res)
 		return nil
 	}
 
-	if err := walk(lib.Path, walkFn); err != nil {
-		return res, err
+	walkErr := walk(lib.Path, walkFn)
+	writeBatch.Flush()
+	if walkErr != nil {
+		addScanError(res, lib.Path, walkErr)
+		if res.Added+res.Updated > 0 {
+			s.invalidateMediaCache(ctx)
+		}
+		return res, walkErr
 	}
 	removed, err := s.pruneMissingMedia(ctx, lib.ID, seen)
 	if err != nil {
@@ -779,15 +866,18 @@ func (s *ScannerService) scanLibrary(ctx context.Context, libraryID string, auto
 	}
 
 	s.hub.Publish("scan", map[string]any{
-		"library_id": lib.ID,
-		"finished":   true,
-		"visited":    res.Visited,
-		"added":      res.Added,
-		"updated":    res.Updated,
-		"probed":     res.Probed,
-		"local_meta": res.LocalMetadata,
-		"removed":    res.Removed,
+		"library_id":  lib.ID,
+		"finished":    true,
+		"visited":     res.Visited,
+		"added":       res.Added,
+		"updated":     res.Updated,
+		"probed":      res.Probed,
+		"local_meta":  res.LocalMetadata,
+		"removed":     res.Removed,
+		"error_count": res.ErrorCount,
+		"errors":      res.Errors,
 	})
+	s.invalidateMediaCache(ctx)
 	s.maybeGenerateSTRMAfterScan(lib.ID)
 
 	// Online enrichment is opt-in. Local NFO is always consumed first during
@@ -820,7 +910,10 @@ func (s *ScannerService) IngestPath(ctx context.Context, libraryID, path string)
 		return false, nil
 	}
 	res := &ScanResult{LibraryID: lib.ID}
-	s.ingestFile(ctx, lib, path, fi.Size(), make(map[string]string), res)
+	s.ingestFile(ctx, lib, path, fi.Size(), make(map[string]string), nil, nil, res)
+	if res.Added+res.Updated > 0 {
+		s.invalidateMediaCache(ctx)
+	}
 	return res.Added+res.Updated > 0, nil
 }
 
@@ -1054,17 +1147,28 @@ func (s *ScannerService) scanCloudLibrary(ctx context.Context, lib *model.Librar
 		"visited":         res.Visited,
 		"added":           res.Added,
 		"updated":         res.Updated,
+		"skipped":         res.Skipped,
 		"removed":         res.Removed,
+		"error_count":     res.ErrorCount,
+		"errors":          res.Errors,
 		"discovered":      filesDiscovered,
 		"dirs":            dirsVisited,
 		"elapsed_seconds": int(time.Since(startedAt).Seconds()),
 		"cloud":           true,
 	})
+	s.invalidateMediaCache(ctx)
 	s.maybeGenerateSTRMAfterScan(lib.ID)
 	if autoScrape && s.scraper != nil && s.scraper.AnyEnabled() && s.autoScrapeEnabled(ctx) {
 		s.startAutoScrape(ctx, lib.ID)
 	}
 	return res, nil
+}
+
+func (s *ScannerService) invalidateMediaCache(ctx context.Context) {
+	if s != nil && s.cache != nil {
+		s.cache.DeletePrefix(ctx, "media:")
+		s.cache.DeletePrefix(ctx, "stats:")
+	}
 }
 
 func (s *ScannerService) startAutoScrape(ctx context.Context, libraryID string) {
@@ -1111,6 +1215,43 @@ func (s *ScannerService) existingCloudMediaSnapshot(ctx context.Context, library
 				Container:   row.Container,
 				PosterURL:   row.PosterURL,
 				BackdropURL: row.BackdropURL,
+				STRMURL:     row.STRMURL,
+			}
+		}
+	}
+	return out, nil
+}
+
+func (s *ScannerService) existingLocalMediaSnapshot(ctx context.Context, libraryID string) (map[string]existingLocalMedia, error) {
+	var rows []struct {
+		Path        string
+		SizeBytes   int64
+		DurationSec int
+		Width       int
+		Height      int
+		VideoCodec  string
+		AudioCodec  string
+		Container   string
+		STRMURL     string
+	}
+	if err := s.repo.DB.WithContext(ctx).
+		Model(&model.Media{}).
+		Select("path, size_bytes, duration_sec, width, height, video_codec, audio_codec, container, strm_url").
+		Where("library_id = ? AND path NOT LIKE ?", libraryID, "cloud://%").
+		Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	out := make(map[string]existingLocalMedia, len(rows))
+	for _, row := range rows {
+		if row.Path != "" {
+			out[filepath.Clean(row.Path)] = existingLocalMedia{
+				SizeBytes:   row.SizeBytes,
+				DurationSec: row.DurationSec,
+				Width:       row.Width,
+				Height:      row.Height,
+				VideoCodec:  row.VideoCodec,
+				AudioCodec:  row.AudioCodec,
+				Container:   row.Container,
 				STRMURL:     row.STRMURL,
 			}
 		}
@@ -1213,6 +1354,7 @@ func (s *ScannerService) ingestCloudFile(ctx context.Context, lib *model.Library
 		s.queueCloudArtworkPrefetch(localMeta.BackdropURL)
 	}
 	if err := s.repo.Media.Upsert(ctx, m); err != nil {
+		addScanError(res, path, err)
 		s.log.Warn("upsert cloud media failed", zap.String("path", path), zap.Error(err))
 		return
 	}
@@ -1343,6 +1485,18 @@ func cloudTrackMetadataMissing(existing existingCloudMedia) bool {
 		strings.TrimSpace(existing.AudioCodec) == ""
 }
 
+func localTrackMetadataMissing(existing existingLocalMedia) bool {
+	return existing.DurationSec <= 0 ||
+		existing.Width <= 0 ||
+		existing.Height <= 0 ||
+		strings.TrimSpace(existing.VideoCodec) == "" ||
+		strings.TrimSpace(existing.AudioCodec) == ""
+}
+
+func localMetadataNeedsRefresh(local *LocalMetadata) bool {
+	return local != nil && (local.HasNFO || local.HasArtwork || localHasDescriptiveMetadata(local))
+}
+
 func cloudSeriesTitleFromMediaPath(mediaPath string) (string, int) {
 	displayPath := strings.TrimSpace(mediaPath)
 	if strings.HasPrefix(strings.ToLower(displayPath), "cloud://") {
@@ -1394,12 +1548,15 @@ func (s *ScannerService) RemovePath(ctx context.Context, path string) (int64, er
 	res := s.repo.DB.WithContext(ctx).
 		Where("path = ?", path).
 		Delete(&model.Media{})
+	if res.Error == nil && res.RowsAffected > 0 {
+		s.invalidateMediaCache(ctx)
+	}
 	return res.RowsAffected, res.Error
 }
 
 // ingestFile upserts a single media file. seenInodes dedups hardlinks within a
 // single scan; pass a fresh map for one-off ingests. It mutates res counters.
-func (s *ScannerService) ingestFile(ctx context.Context, lib *model.Library, path string, size int64, seenInodes map[string]string, res *ScanResult) {
+func (s *ScannerService) ingestFile(ctx context.Context, lib *model.Library, path string, size int64, seenInodes map[string]string, existingMedia map[string]existingLocalMedia, writeBatch *localMediaWriteBatch, res *ScanResult) {
 	res.Visited++
 	ext := strings.ToLower(filepath.Ext(path))
 
@@ -1424,7 +1581,27 @@ func (s *ScannerService) ingestFile(ctx context.Context, lib *model.Library, pat
 		seenInodes[fileID] = path
 	}
 
-	isNewMedia := !s.mediaPathExists(ctx, path)
+	cleanPath := filepath.Clean(path)
+	parsedSeason, parsedEpisode := ParseEpisode(path)
+	localMeta, localMetaErr := ReadLocalMetadata(path, lib.Path, librarySupportsSeasons(lib) || parsedSeason > 0 || parsedEpisode > 0)
+	if localMetaErr != nil {
+		s.log.Warn("read local metadata failed", zap.String("path", path), zap.Error(localMetaErr))
+	}
+	isNewMedia := false
+	if existingMedia != nil {
+		existing, exists := existingMedia[cleanPath]
+		isNewMedia = !exists
+		if exists &&
+			ext != ".strm" &&
+			existing.SizeBytes == size &&
+			(s.probe == nil || !localTrackMetadataMissing(existing)) &&
+			!localMetadataNeedsRefresh(localMeta) {
+			res.Skipped++
+			return
+		}
+	} else {
+		isNewMedia = !s.mediaPathExists(ctx, path)
+	}
 
 	title, year := CleanQuery(path)
 	if title == "" {
@@ -1449,15 +1626,12 @@ func (s *ScannerService) ingestFile(ctx context.Context, lib *model.Library, pat
 		}
 	}
 
-	parsedSeason, parsedEpisode := ParseEpisode(path)
 	m.SeasonNum = parsedSeason
 	m.EpisodeNum = parsedEpisode
 
-	if local, err := ReadLocalMetadata(path, lib.Path, librarySupportsSeasons(lib) || parsedSeason > 0 || parsedEpisode > 0); err == nil && local != nil {
-		applyLocalMetadata(m, local)
+	if localMeta != nil {
+		applyLocalMetadata(m, localMeta)
 		res.LocalMetadata++
-	} else if err != nil {
-		s.log.Warn("read local metadata failed", zap.String("path", path), zap.Error(err))
 	}
 
 	// Best-effort ffprobe; failure does not abort the file.
@@ -1477,7 +1651,12 @@ func (s *ScannerService) ingestFile(ctx context.Context, lib *model.Library, pat
 		}
 	}
 
+	if isNewMedia && writeBatch != nil {
+		writeBatch.Add(path, m)
+		return
+	}
 	if err := s.repo.Media.Upsert(ctx, m); err != nil {
+		addScanError(res, path, err)
 		s.log.Warn("upsert media failed", zap.String("path", path), zap.Error(err))
 		return
 	}
@@ -1494,6 +1673,88 @@ func (s *ScannerService) ingestFile(ctx context.Context, lib *model.Library, pat
 		"updated":    res.Updated,
 		"probed":     res.Probed,
 		"local_meta": res.LocalMetadata,
+	})
+}
+
+type localMediaWriteBatch struct {
+	scanner *ScannerService
+	ctx     context.Context
+	res     *ScanResult
+	limit   int
+	items   []localMediaWriteItem
+}
+
+type localMediaWriteItem struct {
+	path  string
+	media *model.Media
+}
+
+func newLocalMediaWriteBatch(scanner *ScannerService, ctx context.Context, res *ScanResult, limit int) *localMediaWriteBatch {
+	if limit <= 0 {
+		limit = 100
+	}
+	return &localMediaWriteBatch{scanner: scanner, ctx: ctx, res: res, limit: limit}
+}
+
+func (b *localMediaWriteBatch) Add(path string, media *model.Media) {
+	if b == nil || b.scanner == nil || media == nil {
+		return
+	}
+	if media.ScrapeStatus == "" {
+		media.ScrapeStatus = "pending"
+	}
+	b.items = append(b.items, localMediaWriteItem{path: path, media: media})
+	if len(b.items) >= b.limit {
+		b.Flush()
+	}
+}
+
+func (b *localMediaWriteBatch) Flush() {
+	if b == nil || len(b.items) == 0 || b.scanner == nil || b.scanner.repo == nil || b.scanner.repo.DB == nil {
+		return
+	}
+	items := b.items
+	b.items = nil
+	media := make([]model.Media, 0, len(items))
+	for _, item := range items {
+		if item.media != nil {
+			media = append(media, *item.media)
+		}
+	}
+	if len(media) == 0 {
+		return
+	}
+	if err := b.scanner.repo.DB.WithContext(b.ctx).CreateInBatches(&media, b.limit).Error; err == nil {
+		b.res.Added += len(media)
+		b.publish()
+		return
+	}
+	for _, item := range items {
+		if item.media == nil {
+			continue
+		}
+		if err := b.scanner.repo.Media.Upsert(b.ctx, item.media); err != nil {
+			addScanError(b.res, item.path, err)
+			b.scanner.log.Warn("upsert media failed", zap.String("path", item.path), zap.Error(err))
+			continue
+		}
+		b.res.Added++
+	}
+	b.publish()
+}
+
+func (b *localMediaWriteBatch) publish() {
+	if b == nil || b.scanner == nil || b.scanner.hub == nil || b.res == nil {
+		return
+	}
+	b.scanner.hub.Publish("scan", map[string]any{
+		"library_id": b.res.LibraryID,
+		"visited":    b.res.Visited,
+		"added":      b.res.Added,
+		"updated":    b.res.Updated,
+		"probed":     b.res.Probed,
+		"local_meta": b.res.LocalMetadata,
+		"batched":    true,
 	})
 }
 

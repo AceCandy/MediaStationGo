@@ -33,6 +33,7 @@ type Config struct {
 	Secrets      SecretsConfig      `mapstructure:"secrets"`
 	Logging      LoggingConfig      `mapstructure:"logging"`
 	Cache        CacheConfig        `mapstructure:"cache"`
+	Search       SearchConfig       `mapstructure:"search"`
 	Media        MediaConfig        `mapstructure:"media"`
 	Transcoder   TranscoderConfig   `mapstructure:"transcoder"`
 	AI           AIConfig           `mapstructure:"ai"`
@@ -86,9 +87,12 @@ type AppConfig struct {
 	ServerURL            string   `mapstructure:"server_url"`
 }
 
-// DatabaseConfig 配置 GORM + SQLite。
+// DatabaseConfig 配置 GORM 数据库。默认 auto：
+// Docker Compose 主线会注入 PostgreSQL DSN；裸机/旧部署没有 DSN 时回退 SQLite。
 type DatabaseConfig struct {
+	Type         string `mapstructure:"type"`
 	DBPath       string `mapstructure:"db_path"`
+	DSN          string `mapstructure:"dsn"`
 	WALMode      bool   `mapstructure:"wal_mode"`
 	BusyTimeout  int    `mapstructure:"busy_timeout"`
 	CacheSize    int    `mapstructure:"cache_size"`
@@ -128,6 +132,17 @@ type CacheConfig struct {
 	TTLHours           int    `mapstructure:"ttl_hours"`
 	AutoCleanup        bool   `mapstructure:"auto_cleanup"`
 	CleanupIntervalMin int    `mapstructure:"cleanup_interval_min"`
+	RedisURL           string `mapstructure:"redis_url"`
+	RedisPrefix        string `mapstructure:"redis_prefix"`
+	MediaTTLSeconds    int    `mapstructure:"media_ttl_seconds"`
+}
+
+type SearchConfig struct {
+	Backend       string `mapstructure:"backend"`
+	OpenSearchURL string `mapstructure:"opensearch_url"`
+	Index         string `mapstructure:"index"`
+	Username      string `mapstructure:"username"`
+	Password      string `mapstructure:"password"`
 }
 
 // MediaConfig 保存默认库位置（用于引导库）。
@@ -229,7 +244,9 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("app.cors_origins", []string{})
 	v.SetDefault("app.server_url", "")
 
+	v.SetDefault("database.type", "auto")
 	v.SetDefault("database.db_path", "./data/mediastation.db")
+	v.SetDefault("database.dsn", "")
 	v.SetDefault("database.wal_mode", true)
 	v.SetDefault("database.busy_timeout", 5000)
 	v.SetDefault("database.cache_size", -20000)
@@ -246,6 +263,15 @@ func setDefaults(v *viper.Viper) {
 
 	v.SetDefault("cache.cache_dir", "./cache")
 	v.SetDefault("cache.cleanup_interval_min", 60)
+	v.SetDefault("cache.redis_url", "")
+	v.SetDefault("cache.redis_prefix", "mediastationgo")
+	v.SetDefault("cache.media_ttl_seconds", 15)
+
+	v.SetDefault("search.backend", "")
+	v.SetDefault("search.opensearch_url", "")
+	v.SetDefault("search.index", "mediastation_media")
+	v.SetDefault("search.username", "")
+	v.SetDefault("search.password", "")
 
 	v.SetDefault("ai.enabled", false)
 	v.SetDefault("ai.provider", "openai")
@@ -310,6 +336,9 @@ func (c *Config) normalize() error {
 	if c.Database.DBPath == "" {
 		c.Database.DBPath = filepath.Join(c.App.DataDir, "mediastation.db")
 	}
+	if c.Database.Type == "" {
+		c.Database.Type = "auto"
+	}
 	if c.App.MaxCPUThreads < 1 {
 		c.App.MaxCPUThreads = 1
 	}
@@ -327,6 +356,16 @@ func (c *Config) normalize() error {
 	}
 	if c.Cache.CacheDir == "" {
 		c.Cache.CacheDir = filepath.Join(c.App.DataDir, "cache")
+	}
+	if c.Cache.RedisPrefix == "" {
+		c.Cache.RedisPrefix = "mediastationgo"
+	}
+	if c.Cache.MediaTTLSeconds < 1 {
+		c.Cache.MediaTTLSeconds = 15
+	}
+	c.Search.Backend = strings.ToLower(strings.TrimSpace(c.Search.Backend))
+	if c.Search.Index == "" {
+		c.Search.Index = "mediastation_media"
 	}
 	if c.Secrets.JWTSecret == "" {
 		// 持久化自动生成的密钥以在操作员忘记配置时保持会话稳定。

@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
@@ -90,6 +91,66 @@ func TestListLibrariesIncludeHiddenNormalizesCloudDisplayNames(t *testing.T) {
 	}
 }
 
+func TestListMediaGroupsMultipleVersionsByDefault(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(&model.User{}, &model.Library{}, &model.Media{}, &model.Setting{}, &model.PlayProfile{}); err != nil {
+		t.Fatal(err)
+	}
+	repos := repository.New(db)
+	lib := model.Library{Name: "Movies", Path: "/media/movies", Type: "movie", Enabled: true}
+	if err := repos.Library.Create(t.Context(), &lib); err != nil {
+		t.Fatal(err)
+	}
+	if err := repos.DB.Create(&[]model.Media{
+		{
+			Base:      model.Base{ID: "movie-1080", CreatedAt: time.Now().Add(-time.Minute)},
+			LibraryID: lib.ID,
+			Title:     "流浪地球",
+			Path:      "/media/movies/The.Wandering.Earth.2019.1080p.mkv",
+			Year:      2019,
+			Width:     1920,
+			Height:    1080,
+			SizeBytes: 100,
+		},
+		{
+			Base:      model.Base{ID: "movie-2160", CreatedAt: time.Now()},
+			LibraryID: lib.ID,
+			Title:     "流浪地球",
+			Path:      "cloud://openlist/Movies/The.Wandering.Earth.2019.2160p.mkv",
+			Year:      2019,
+			Width:     3840,
+			Height:    2160,
+			SizeBytes: 200,
+		},
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	svc := &service.Container{
+		Repo:  repos,
+		Media: service.NewMediaService(&config.Config{}, zap.NewNop(), repos),
+	}
+
+	grouped := requestMediaList(t, svc, "/api/libraries/"+lib.ID+"/media", lib.ID)
+	if grouped.Total != 1 || len(grouped.Items) != 1 {
+		t.Fatalf("grouped response total=%d len=%d body=%#v", grouped.Total, len(grouped.Items), grouped)
+	}
+	if grouped.Items[0].ID != "movie-2160" {
+		t.Fatalf("primary id = %q, want highest quality version", grouped.Items[0].ID)
+	}
+	if len(grouped.Items[0].Versions) != 2 {
+		t.Fatalf("versions = %#v, want both versions", grouped.Items[0].Versions)
+	}
+
+	raw := requestMediaList(t, svc, "/api/libraries/"+lib.ID+"/media?group_versions=0", lib.ID)
+	if raw.Total != 2 || len(raw.Items) != 2 {
+		t.Fatalf("raw response total=%d len=%d body=%#v", raw.Total, len(raw.Items), raw)
+	}
+}
+
 func requestLibraries(t *testing.T, svc *service.Container, userID, role, path string) []model.Library {
 	t.Helper()
 	w := httptest.NewRecorder()
@@ -106,4 +167,28 @@ func requestLibraries(t *testing.T, svc *service.Container, userID, role, path s
 		t.Fatalf("decode libraries: %v", err)
 	}
 	return libs
+}
+
+type mediaListResponse struct {
+	Items []service.MediaItem `json:"items"`
+	Total int64               `json:"total"`
+}
+
+func requestMediaList(t *testing.T, svc *service.Container, path, libraryID string) mediaListResponse {
+	t.Helper()
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Set(middleware.CtxUserID, "user-1")
+	c.Set(middleware.CtxUserRole, "user")
+	c.Params = gin.Params{{Key: "id", Value: libraryID}}
+	c.Request = httptest.NewRequest(http.MethodGet, path, nil)
+	listMediaHandler(svc)(c)
+	if w.Code != http.StatusOK {
+		t.Fatalf("GET %s status = %d body=%s", path, w.Code, w.Body.String())
+	}
+	var payload mediaListResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode media list: %v", err)
+	}
+	return payload
 }

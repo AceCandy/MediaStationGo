@@ -26,6 +26,10 @@ app:
   server_url: ""       # public URL of the server (used for DLNA / casting)
 
 database:
+  # auto: Docker Compose 注入 PostgreSQL DSN 时用 PG；没有 DSN 时回退 SQLite。
+  # postgres: 强制使用 dsn；sqlite: 强制使用 db_path。
+  type: auto
+  dsn: ""                 # e.g. postgres://mediastation:mediastation@postgres:5432/mediastation?sslmode=disable
   db_path: ./data/mediastation.db
   wal_mode: true
   busy_timeout: 5000
@@ -55,10 +59,20 @@ logging:
 
 cache:
   cache_dir: ./cache
+  redis_url: ""             # e.g. redis://redis:6379/0；为空则只使用进程内/磁盘缓存
+  redis_prefix: mediastationgo
+  media_ttl_seconds: 15
   max_disk_usage_mb: 0     # 0 = unlimited
   ttl_hours: 0
   auto_cleanup: false
   cleanup_interval_min: 60
+
+search:
+  backend: ""               # "" = DB/SQLite FTS；opensearch = OpenSearch 加速搜索
+  opensearch_url: ""        # e.g. http://opensearch:9200
+  index: mediastation_media
+  username: ""
+  password: ""
 
 media:
   movies_dir: ""
