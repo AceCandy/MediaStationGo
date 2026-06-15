@@ -30,6 +30,11 @@ PASS=0
 FAIL=0
 
 cleanup() {
+  status=$?
+  if [ "$status" -ne 0 ] && [ -f "$LOG" ]; then
+    printf "\n\033[1;31m==> Server log tail after failure\033[0m\n" >&2
+    tail -200 "$LOG" >&2 || true
+  fi
   if [ -n "${PID:-}" ]; then
     kill -TERM "$PID" 2>/dev/null || true
     wait "$PID" 2>/dev/null || true
@@ -276,7 +281,7 @@ curl -s -o /dev/null -w "%{http_code}" -H "$H" "http://127.0.0.1:$PORT/api/files
 
 # DLNA discovery (no devices on container — must return empty array)
 curl -s -H "$H" "http://127.0.0.1:$PORT/api/dlna/devices" \
-  | python3 -c 'import json,sys;assert json.load(sys.stdin)["devices"] == [] or isinstance(json.load(sys.stdin)["devices"], list)' \
+  | python3 -c 'import json,sys;d=json.load(sys.stdin);assert isinstance(d["devices"], list)' \
   && ok "dlna devices endpoint" || fail "dlna devices"
 
 # Scheduler status
