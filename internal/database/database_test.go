@@ -302,3 +302,67 @@ func TestSQLiteMigrationFallsBackToDataDirDefaultPath(t *testing.T) {
 		t.Fatalf("library count = %d, want 1", libCount)
 	}
 }
+
+func TestOpenSQLiteMigrationSourceUsesFallbackSourcePath(t *testing.T) {
+	dir := t.TempDir()
+	sqlitePath := filepath.Join(dir, "mediastation.db")
+	src, err := gorm.Open(sqlite.Open(sqlitePath), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := src.AutoMigrate(&model.User{}, &model.Library{}, &model.Setting{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := src.Create(&model.User{Username: "real-admin", PasswordHash: "hash", Role: "admin", IsActive: true}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := src.Create(&model.Library{Name: "Movies", Path: "/media/movies", Type: "movie", Enabled: true}).Error; err != nil {
+		t.Fatal(err)
+	}
+	sqlDB, _ := src.DB()
+	_ = sqlDB.Close()
+
+	dst, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := dst.AutoMigrate(&model.User{}, &model.Library{}, &model.Setting{}); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := &config.Config{}
+	cfg.App.DataDir = dir
+	cfg.Database.DBPath = filepath.Join(dir, "disabled-sqlite-migration.db")
+	sourcePath, err := sqliteMigrationSourcePath(cfg, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sourcePath != sqlitePath {
+		t.Fatalf("source path = %q, want %q", sourcePath, sqlitePath)
+	}
+
+	src2, err := openSQLiteMigrationSource(cfg, sourcePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sqlDB2, _ := src2.DB()
+	defer func() {
+		if sqlDB2 != nil {
+			_ = sqlDB2.Close()
+		}
+	}()
+	copied, err := copyModelTables(src2, dst, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if copied != 2 {
+		t.Fatalf("copied rows = %d, want 2", copied)
+	}
+	var userCount int64
+	if err := dst.Model(&model.User{}).Where("username = ?", "real-admin").Count(&userCount).Error; err != nil {
+		t.Fatal(err)
+	}
+	if userCount != 1 {
+		t.Fatalf("migrated user count = %d, want 1", userCount)
+	}
+}

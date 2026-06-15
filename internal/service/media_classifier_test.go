@@ -1,7 +1,6 @@
 package service
 
 import (
-	"path/filepath"
 	"testing"
 
 	"github.com/glebarez/sqlite"
@@ -176,7 +175,7 @@ func TestSubscriptionResolveClassifiedSavePath(t *testing.T) {
 	if err := repos.Setting.Set(t.Context(), "organizer.smart_classify", "true"); err != nil {
 		t.Fatal(err)
 	}
-	if err := repos.Setting.Set(t.Context(), "qbittorrent.savepath", filepath.Join("D:", "Downloads")); err != nil {
+	if err := repos.Setting.Set(t.Context(), "qbittorrent.savepath", `D:\Downloads`); err != nil {
 		t.Fatal(err)
 	}
 	svc := NewSubscriptionService(&config.Config{}, zap.NewNop(), repos, nil, nil, nil)
@@ -187,7 +186,7 @@ func TestSubscriptionResolveClassifiedSavePath(t *testing.T) {
 		t.Fatalf("classification = %q/%q, want tv/综艺", mediaType, category)
 	}
 	got := svc.resolveSubscriptionSavePath(t.Context(), sub, mediaType, category)
-	want := filepath.Join("D:", "Downloads", "综艺")
+	want := `D:\Downloads\综艺`
 	if got != want {
 		t.Fatalf("save path = %q, want %q", got, want)
 	}

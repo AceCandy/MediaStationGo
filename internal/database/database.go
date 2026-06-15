@@ -131,11 +131,7 @@ func MigrateSQLiteToCurrentIfNeeded(cfg *config.Config, target *gorm.DB, log *za
 		return nil
 	}
 
-	srcCfg := *cfg
-	srcCfg.Database.Type = "sqlite"
-	src, err := gorm.Open(sqlite.Open(buildSQLiteDSN(&srcCfg)), &gorm.Config{
-		Logger: logger.Default.LogMode(logger.Silent),
-	})
+	src, err := openSQLiteMigrationSource(cfg, sqlitePath)
 	if err != nil {
 		return fmt.Errorf("open sqlite migration source: %w", err)
 	}
@@ -162,6 +158,15 @@ func MigrateSQLiteToCurrentIfNeeded(cfg *config.Config, target *gorm.DB, log *za
 			zap.Duration("duration", time.Since(started)))
 	}
 	return nil
+}
+
+func openSQLiteMigrationSource(cfg *config.Config, sqlitePath string) (*gorm.DB, error) {
+	srcCfg := *cfg
+	srcCfg.Database.Type = "sqlite"
+	srcCfg.Database.DBPath = sqlitePath
+	return gorm.Open(sqlite.Open(buildSQLiteDSN(&srcCfg)), &gorm.Config{
+		Logger: logger.Default.LogMode(logger.Silent),
+	})
 }
 
 func sqliteMigrationSourcePath(cfg *config.Config, log *zap.Logger) (string, error) {
