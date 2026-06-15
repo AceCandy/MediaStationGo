@@ -160,6 +160,8 @@ docker compose logs -f mediastation-go
 
 如果你确认以后不再使用 SQLite，也不希望应用再把旧 SQLite 当迁移源，可以这样做：
 
+> 只有在网页确认用户、媒体库、设置、媒体条目都已经出现在 PostgreSQL 后，才做下面这一步。
+
 ```yaml
 environment:
   MEDIASTATION_DATABASE_TYPE: postgres

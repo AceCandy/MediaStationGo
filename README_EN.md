@@ -160,6 +160,8 @@ After you see `sqlite data migrated to postgres`, or after the web UI shows your
 
 To make the deployment PostgreSQL-only after migration, keep PostgreSQL selected and point the old SQLite migration path at a non-existent file:
 
+> Only do this after the web UI confirms that users, libraries, settings, and media rows are already present in PostgreSQL.
+
 ```yaml
 environment:
   MEDIASTATION_DATABASE_TYPE: postgres

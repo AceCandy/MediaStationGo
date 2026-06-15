@@ -115,15 +115,12 @@ func MigrateSQLiteToCurrentIfNeeded(cfg *config.Config, target *gorm.DB, log *za
 	if cfg == nil || target == nil || target.Dialector == nil || target.Dialector.Name() != "postgres" {
 		return nil
 	}
-	sqlitePath := strings.TrimSpace(cfg.Database.DBPath)
+	sqlitePath, err := sqliteMigrationSourcePath(cfg, log)
+	if err != nil {
+		return err
+	}
 	if sqlitePath == "" {
 		return nil
-	}
-	if _, err := os.Stat(sqlitePath); err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return nil
-		}
-		return fmt.Errorf("stat sqlite migration source: %w", err)
 	}
 	if complete, err := sqliteMigrationMarkedComplete(target); err != nil {
 		return err
@@ -148,6 +145,9 @@ func MigrateSQLiteToCurrentIfNeeded(cfg *config.Config, target *gorm.DB, log *za
 	}
 
 	started := time.Now()
+	if err := resetBootstrapTargetBeforeSQLiteMigrationIfSafe(src, target, log); err != nil {
+		return err
+	}
 	copied, err := copyModelTables(src, target, 500)
 	if err != nil {
 		return err
@@ -162,6 +162,149 @@ func MigrateSQLiteToCurrentIfNeeded(cfg *config.Config, target *gorm.DB, log *za
 			zap.Duration("duration", time.Since(started)))
 	}
 	return nil
+}
+
+func sqliteMigrationSourcePath(cfg *config.Config, log *zap.Logger) (string, error) {
+	configured := strings.TrimSpace(cfg.Database.DBPath)
+	if configured != "" {
+		exists, err := regularFileExists(configured)
+		if err != nil {
+			return "", fmt.Errorf("stat sqlite migration source: %w", err)
+		}
+		if exists {
+			return configured, nil
+		}
+	}
+
+	fallback := filepath.Join(strings.TrimSpace(cfg.App.DataDir), "mediastation.db")
+	if fallback == "" || sameCleanPath(configured, fallback) {
+		return "", nil
+	}
+	exists, err := regularFileExists(fallback)
+	if err != nil {
+		return "", fmt.Errorf("stat default sqlite migration source: %w", err)
+	}
+	if !exists {
+		return "", nil
+	}
+	if log != nil && configured != "" {
+		log.Warn("configured sqlite migration source not found; using data-dir default",
+			zap.String("configured", configured),
+			zap.String("fallback", fallback))
+	}
+	return fallback, nil
+}
+
+func regularFileExists(path string) (bool, error) {
+	if strings.TrimSpace(path) == "" {
+		return false, nil
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return false, nil
+		}
+		return false, err
+	}
+	return !info.IsDir(), nil
+}
+
+func sameCleanPath(a, b string) bool {
+	if a == "" || b == "" {
+		return false
+	}
+	return filepath.Clean(a) == filepath.Clean(b)
+}
+
+func resetBootstrapTargetBeforeSQLiteMigrationIfSafe(src, target *gorm.DB, log *zap.Logger) error {
+	hasRows, err := sqliteSourceHasMigratableRows(src)
+	if err != nil {
+		return err
+	}
+	if !hasRows {
+		return nil
+	}
+	bootstrapOnly, err := targetLooksLikeBootstrapOnly(target)
+	if err != nil || !bootstrapOnly {
+		return err
+	}
+	for i := len(model.AllModels()) - 1; i >= 0; i-- {
+		m := model.AllModels()[i]
+		if !target.Migrator().HasTable(m) {
+			continue
+		}
+		if err := target.Session(&gorm.Session{AllowGlobalUpdate: true}).Unscoped().Delete(m).Error; err != nil {
+			return fmt.Errorf("clear bootstrap target table %T: %w", m, err)
+		}
+	}
+	if log != nil {
+		log.Warn("cleared bootstrap postgres rows before sqlite migration")
+	}
+	return nil
+}
+
+func sqliteSourceHasMigratableRows(src *gorm.DB) (bool, error) {
+	for _, table := range []string{"users", "libraries", "media", "settings"} {
+		exists, err := sqliteTableExists(src, table)
+		if err != nil {
+			return false, err
+		}
+		if !exists {
+			continue
+		}
+		var count int64
+		if err := src.Raw("SELECT COUNT(1) FROM " + quoteIdent(table)).Scan(&count).Error; err != nil {
+			return false, fmt.Errorf("count sqlite table %s: %w", table, err)
+		}
+		if count > 0 {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func targetLooksLikeBootstrapOnly(target *gorm.DB) (bool, error) {
+	for _, m := range []any{
+		&model.Library{},
+		&model.Series{},
+		&model.Media{},
+		&model.PlaybackHistory{},
+		&model.Favorite{},
+		&model.Playlist{},
+		&model.PlaylistItem{},
+		&model.DownloadTask{},
+		&model.Subscription{},
+	} {
+		if !target.Migrator().HasTable(m) {
+			continue
+		}
+		var count int64
+		if err := target.Unscoped().Model(m).Count(&count).Error; err != nil {
+			return false, err
+		}
+		if count > 0 {
+			return false, nil
+		}
+	}
+
+	var userCount int64
+	if !target.Migrator().HasTable(&model.User{}) {
+		return true, nil
+	}
+	if err := target.Model(&model.User{}).Count(&userCount).Error; err != nil {
+		return false, err
+	}
+	if userCount == 0 {
+		return true, nil
+	}
+	if userCount != 1 {
+		return false, nil
+	}
+	var user model.User
+	if err := target.Unscoped().Where("username = ?", "admin").First(&user).Error; err != nil {
+		return false, nil
+	}
+	return user.Role == "admin", nil
 }
 
 func sqliteMigrationMarkedComplete(db *gorm.DB) (bool, error) {
@@ -513,6 +656,7 @@ func ensurePostgresColumnCompatibility(db *gorm.DB) error {
 	}
 	statements := []string{
 		`ALTER TABLE media ALTER COLUMN container TYPE varchar(128)`,
+		`ALTER TABLE media ALTER COLUMN genres TYPE text`,
 	}
 	for _, stmt := range statements {
 		if err := db.Exec(stmt).Error; err != nil {

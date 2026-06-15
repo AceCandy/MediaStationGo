@@ -1,12 +1,14 @@
 package database
 
 import (
+	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 
+	"github.com/ShukeBta/MediaStationGo/internal/config"
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 )
 
@@ -149,6 +151,7 @@ func TestCopyModelTablesResumesPartialSQLiteMigration(t *testing.T) {
 		VideoCodec:   "hevc",
 		AudioCodec:   "eac3",
 		DurationSec:  120,
+		Genres:       "家庭,动画,冒险,喜剧,奇幻,Peter Del Vecho,Jeff Draheim,詹妮弗·李,克里斯·巴克,伊迪娜·门泽尔,克里斯汀·贝尔,乔什·盖德,乔纳森·格罗夫,埃文·蕾切尔·伍德,斯特林·K·布朗",
 		SizeBytes:    1024,
 		Width:        3840,
 		Height:       2160,
@@ -175,6 +178,9 @@ func TestCopyModelTablesResumesPartialSQLiteMigration(t *testing.T) {
 	}
 	if got.Container != media.Container {
 		t.Fatalf("container = %q, want %q", got.Container, media.Container)
+	}
+	if got.Genres != media.Genres {
+		t.Fatalf("genres = %q, want %q", got.Genres, media.Genres)
 	}
 
 	copied, err = copyModelTables(src, dst, 2)
@@ -210,5 +216,89 @@ func TestSQLiteMigrationCompleteMarker(t *testing.T) {
 	}
 	if !complete {
 		t.Fatal("database should be marked migrated")
+	}
+}
+
+func TestSQLiteMigrationFallsBackToDataDirDefaultPath(t *testing.T) {
+	dir := t.TempDir()
+	sqlitePath := filepath.Join(dir, "mediastation.db")
+	src, err := gorm.Open(sqlite.Open(sqlitePath), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := src.AutoMigrate(&model.User{}, &model.Library{}); err != nil {
+		t.Fatal(err)
+	}
+	user := model.User{Username: "real-admin", PasswordHash: "hash", Role: "admin", IsActive: true}
+	if err := src.Create(&user).Error; err != nil {
+		t.Fatal(err)
+	}
+	lib := model.Library{Name: "Movies", Path: "/media/movies", Type: "movie", Enabled: true}
+	if err := src.Create(&lib).Error; err != nil {
+		t.Fatal(err)
+	}
+	sqlDB, _ := src.DB()
+	_ = sqlDB.Close()
+
+	dst, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := dst.AutoMigrate(&model.User{}, &model.Library{}, &model.Setting{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := dst.Create(&model.User{Username: "admin", PasswordHash: "bootstrap", Role: "admin", IsActive: true}).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := &config.Config{}
+	cfg.App.DataDir = dir
+	cfg.Database.DBPath = filepath.Join(dir, "disabled-sqlite-migration.db")
+	sourcePath, err := sqliteMigrationSourcePath(cfg, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sourcePath != sqlitePath {
+		t.Fatalf("source path = %q, want fallback %q", sourcePath, sqlitePath)
+	}
+
+	src2, err := gorm.Open(sqlite.Open(sourcePath), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sqlDB2, _ := src2.DB()
+	defer func() {
+		if sqlDB2 != nil {
+			_ = sqlDB2.Close()
+		}
+	}()
+	if err := resetBootstrapTargetBeforeSQLiteMigrationIfSafe(src2, dst, nil); err != nil {
+		t.Fatal(err)
+	}
+	copied, err := copyModelTables(src2, dst, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if copied != 2 {
+		t.Fatalf("copied rows = %d, want 2", copied)
+	}
+
+	var userCount int64
+	if err := dst.Model(&model.User{}).Count(&userCount).Error; err != nil {
+		t.Fatal(err)
+	}
+	if userCount != 1 {
+		t.Fatalf("user count = %d, want migrated source only", userCount)
+	}
+	var got model.User
+	if err := dst.First(&got, "username = ?", "real-admin").Error; err != nil {
+		t.Fatal(err)
+	}
+	var libCount int64
+	if err := dst.Model(&model.Library{}).Where("path = ?", "/media/movies").Count(&libCount).Error; err != nil {
+		t.Fatal(err)
+	}
+	if libCount != 1 {
+		t.Fatalf("library count = %d, want 1", libCount)
 	}
 }
