@@ -79,7 +79,7 @@ func createSubscriptionHandler(svc *service.Container) gin.HandlerFunc {
 			return
 		}
 		enriched := []model.Subscription{*s}
-		service.EnrichSubscriptionProgress(c.Request.Context(), svc.Repo, enriched)
+		svc.Subscription.EnrichProgress(c.Request.Context(), enriched)
 		*s = enriched[0]
 		c.JSON(http.StatusCreated, s)
 	}
@@ -93,7 +93,7 @@ func listSubscriptionsHandler(svc *service.Container) gin.HandlerFunc {
 			return
 		}
 		enrichAndPersistSubscriptions(c.Request.Context(), svc, items)
-		service.EnrichSubscriptionProgress(c.Request.Context(), svc.Repo, items)
+		svc.Subscription.EnrichProgress(c.Request.Context(), items)
 		c.JSON(http.StatusOK, gin.H{"items": items})
 	}
 }
@@ -105,7 +105,7 @@ func listSubscriptionHistoryHandler(svc *service.Container) gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		service.EnrichSubscriptionProgress(c.Request.Context(), svc.Repo, items)
+		svc.Subscription.EnrichProgress(c.Request.Context(), items)
 		c.JSON(http.StatusOK, gin.H{"items": items})
 	}
 }

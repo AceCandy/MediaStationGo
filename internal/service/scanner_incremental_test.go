@@ -126,6 +126,35 @@ func TestScanLibrarySkipsUnchangedExistingLocalMedia(t *testing.T) {
 	}
 }
 
+func TestScanLibrarySkipsUnchangedExistingLocalMediaWithMissingTrackMetadata(t *testing.T) {
+	sc, repos := newScannerTestEnv(t)
+	root := t.TempDir()
+	lib := model.Library{Name: "Movies", Path: root, Type: "movie", Enabled: true}
+	if err := repos.Library.Create(t.Context(), &lib); err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(root, "Already In Library Missing Tracks (2024).mkv")
+	if err := os.WriteFile(file, []byte("same-size"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	first, err := sc.ScanLibrary(t.Context(), lib.ID)
+	if err != nil {
+		t.Fatalf("first scan: %v", err)
+	}
+	if first.Added != 1 {
+		t.Fatalf("first scan = %#v, want added=1", first)
+	}
+
+	sc.probe = NewFFprobeService(&config.Config{}, zap.NewNop())
+	second, err := sc.ScanLibrary(t.Context(), lib.ID)
+	if err != nil {
+		t.Fatalf("second scan: %v", err)
+	}
+	if second.Added != 0 || second.Updated != 0 || second.Skipped != 1 || second.Probed != 0 {
+		t.Fatalf("second scan = %#v, want unchanged file skipped without synchronous track probe", second)
+	}
+}
+
 func TestScanLibraryReportsPerFileUpsertErrors(t *testing.T) {
 	sc, repos := newScannerTestEnv(t)
 	root := t.TempDir()

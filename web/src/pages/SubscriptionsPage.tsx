@@ -370,7 +370,8 @@ function subscriptionRuleBadges(subscription: Subscription): string[] {
 function subscriptionProgressLabel(subscription: Subscription): string {
   const isSeries = ['tv', 'anime', 'variety'].includes((subscription.media_type || '').toLowerCase())
   if (!isSeries) {
-    return subscription.in_library ? '本地已入库' : '本地未入库'
+    if (subscription.in_library) return '本地已入库'
+    return (subscription.downloaded_episodes || subscription.local_media_count || 0) > 0 ? '已下载未入库' : '本地未入库'
   }
   const downloaded = subscription.downloaded_episodes || 0
   const total = subscription.total_episodes || 0

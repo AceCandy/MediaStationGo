@@ -365,6 +365,7 @@ type existingLocalMedia struct {
 	AudioCodec  string
 	Container   string
 	STRMURL     string
+	FileID      string
 }
 
 func (s *ScannerService) cloudMediaProbeWorker() {
@@ -829,6 +830,12 @@ func (s *ScannerService) scanLibrary(ctx context.Context, libraryID string, auto
 	if err != nil {
 		s.log.Warn("load existing local media snapshot failed", zap.String("library_id", lib.ID), zap.Error(err))
 		existingMedia = nil
+	} else {
+		for path, existing := range existingMedia {
+			if existing.FileID != "" {
+				seenInodes[existing.FileID] = path
+			}
+		}
 	}
 
 	walkFn := func(path string, info walkInfo) error {
@@ -1124,6 +1131,7 @@ func (s *ScannerService) scanCloudLibrary(ctx context.Context, lib *model.Librar
 			return priority(candidates[i]) < priority(candidates[j])
 		})
 	}
+	writeBatch := newLocalMediaWriteBatch(s, ctx, res, 100)
 	probeBudget := maxCloudMediaProbeQueuePerScan
 	for _, candidate := range candidates {
 		select {
@@ -1132,9 +1140,10 @@ func (s *ScannerService) scanCloudLibrary(ctx context.Context, lib *model.Librar
 		default:
 		}
 		seen[candidate.path] = struct{}{}
-		s.ingestCloudFile(ctx, lib, typ, candidate.ref, candidate.path, candidate.name, candidate.size, candidate.localMeta, existingMedia, &probeBudget, res)
+		s.ingestCloudFile(ctx, lib, typ, candidate.ref, candidate.path, candidate.name, candidate.size, candidate.localMeta, existingMedia, writeBatch, &probeBudget, res)
 		publishProgress("importing", res.Visited == 1 || res.Visited%100 == 0)
 	}
+	writeBatch.Flush()
 	removed, err := s.pruneMissingCloudMedia(ctx, lib.ID, seen)
 	if err != nil {
 		s.log.Warn("prune missing cloud media failed", zap.String("library_id", lib.ID), zap.Error(err))
@@ -1233,10 +1242,11 @@ func (s *ScannerService) existingLocalMediaSnapshot(ctx context.Context, library
 		AudioCodec  string
 		Container   string
 		STRMURL     string
+		FileID      string
 	}
 	if err := s.repo.DB.WithContext(ctx).
 		Model(&model.Media{}).
-		Select("path, size_bytes, duration_sec, width, height, video_codec, audio_codec, container, strm_url").
+		Select("path, size_bytes, duration_sec, width, height, video_codec, audio_codec, container, strm_url, file_id").
 		Where("library_id = ? AND path NOT LIKE ?", libraryID, "cloud://%").
 		Find(&rows).Error; err != nil {
 		return nil, err
@@ -1253,6 +1263,7 @@ func (s *ScannerService) existingLocalMediaSnapshot(ctx context.Context, library
 				AudioCodec:  row.AudioCodec,
 				Container:   row.Container,
 				STRMURL:     row.STRMURL,
+				FileID:      row.FileID,
 			}
 		}
 	}
@@ -1292,7 +1303,7 @@ func (s *ScannerService) shadowedCloudLibrary(ctx context.Context, lib *model.Li
 	return CloudLibraryShadowed(libs, *lib)
 }
 
-func (s *ScannerService) ingestCloudFile(ctx context.Context, lib *model.Library, typ, ref, path, name string, size int64, localMeta *LocalMetadata, existingMedia map[string]existingCloudMedia, probeBudget *int, res *ScanResult) {
+func (s *ScannerService) ingestCloudFile(ctx context.Context, lib *model.Library, typ, ref, path, name string, size int64, localMeta *LocalMetadata, existingMedia map[string]existingCloudMedia, writeBatch *localMediaWriteBatch, probeBudget *int, res *ScanResult) {
 	res.Visited++
 	ext := strings.ToLower(filepath.Ext(name))
 	title, year := CleanQuery(name)
@@ -1352,6 +1363,16 @@ func (s *ScannerService) ingestCloudFile(ctx context.Context, lib *model.Library
 		res.LocalMetadata++
 		s.queueCloudArtworkPrefetch(localMeta.PosterURL)
 		s.queueCloudArtworkPrefetch(localMeta.BackdropURL)
+	}
+	if isNewMedia && writeBatch != nil {
+		var after func()
+		if needsTrackProbe && ext != ".strm" {
+			after = func() {
+				s.queueCloudMediaProbeWithBudget(typ, ref, path, probeBudget)
+			}
+		}
+		writeBatch.AddWithAfter(path, m, after)
+		return
 	}
 	if err := s.repo.Media.Upsert(ctx, m); err != nil {
 		addScanError(res, path, err)
@@ -1485,14 +1506,6 @@ func cloudTrackMetadataMissing(existing existingCloudMedia) bool {
 		strings.TrimSpace(existing.AudioCodec) == ""
 }
 
-func localTrackMetadataMissing(existing existingLocalMedia) bool {
-	return existing.DurationSec <= 0 ||
-		existing.Width <= 0 ||
-		existing.Height <= 0 ||
-		strings.TrimSpace(existing.VideoCodec) == "" ||
-		strings.TrimSpace(existing.AudioCodec) == ""
-}
-
 func localMetadataNeedsRefresh(local *LocalMetadata) bool {
 	return local != nil && (local.HasNFO || local.HasArtwork || localHasDescriptiveMetadata(local))
 }
@@ -1559,6 +1572,7 @@ func (s *ScannerService) RemovePath(ctx context.Context, path string) (int64, er
 func (s *ScannerService) ingestFile(ctx context.Context, lib *model.Library, path string, size int64, seenInodes map[string]string, existingMedia map[string]existingLocalMedia, writeBatch *localMediaWriteBatch, res *ScanResult) {
 	res.Visited++
 	ext := strings.ToLower(filepath.Ext(path))
+	cleanPath := filepath.Clean(path)
 
 	// Hardlink dedup: a seeding source kept by keep_seeding shares its inode
 	// with the organized hardlink. Importing both would create duplicate rows
@@ -1572,16 +1586,17 @@ func (s *ScannerService) ingestFile(ctx context.Context, lib *model.Library, pat
 				zap.String("path", path), zap.String("primary", first))
 			return
 		}
-		if other, ok := s.duplicateByFileID(ctx, fileID, path); ok {
-			res.Skipped++
-			s.log.Debug("scan skip hardlink duplicate (existing)",
-				zap.String("path", path), zap.String("primary", other))
-			return
+		if existingMedia == nil {
+			if other, ok := s.duplicateByFileID(ctx, fileID, path); ok {
+				res.Skipped++
+				s.log.Debug("scan skip hardlink duplicate (existing)",
+					zap.String("path", path), zap.String("primary", other))
+				return
+			}
 		}
 		seenInodes[fileID] = path
 	}
 
-	cleanPath := filepath.Clean(path)
 	parsedSeason, parsedEpisode := ParseEpisode(path)
 	localMeta, localMetaErr := ReadLocalMetadata(path, lib.Path, librarySupportsSeasons(lib) || parsedSeason > 0 || parsedEpisode > 0)
 	if localMetaErr != nil {
@@ -1594,7 +1609,6 @@ func (s *ScannerService) ingestFile(ctx context.Context, lib *model.Library, pat
 		if exists &&
 			ext != ".strm" &&
 			existing.SizeBytes == size &&
-			(s.probe == nil || !localTrackMetadataMissing(existing)) &&
 			!localMetadataNeedsRefresh(localMeta) {
 			res.Skipped++
 			return
@@ -1687,6 +1701,7 @@ type localMediaWriteBatch struct {
 type localMediaWriteItem struct {
 	path  string
 	media *model.Media
+	after func()
 }
 
 func newLocalMediaWriteBatch(scanner *ScannerService, ctx context.Context, res *ScanResult, limit int) *localMediaWriteBatch {
@@ -1697,13 +1712,17 @@ func newLocalMediaWriteBatch(scanner *ScannerService, ctx context.Context, res *
 }
 
 func (b *localMediaWriteBatch) Add(path string, media *model.Media) {
+	b.AddWithAfter(path, media, nil)
+}
+
+func (b *localMediaWriteBatch) AddWithAfter(path string, media *model.Media, after func()) {
 	if b == nil || b.scanner == nil || media == nil {
 		return
 	}
 	if media.ScrapeStatus == "" {
 		media.ScrapeStatus = "pending"
 	}
-	b.items = append(b.items, localMediaWriteItem{path: path, media: media})
+	b.items = append(b.items, localMediaWriteItem{path: path, media: media, after: after})
 	if len(b.items) >= b.limit {
 		b.Flush()
 	}
@@ -1726,6 +1745,11 @@ func (b *localMediaWriteBatch) Flush() {
 	}
 	if err := b.scanner.repo.DB.WithContext(b.ctx).CreateInBatches(&media, b.limit).Error; err == nil {
 		b.res.Added += len(media)
+		for _, item := range items {
+			if item.after != nil {
+				item.after()
+			}
+		}
 		b.publish()
 		return
 	}
@@ -1739,6 +1763,9 @@ func (b *localMediaWriteBatch) Flush() {
 			continue
 		}
 		b.res.Added++
+		if item.after != nil {
+			item.after()
+		}
 	}
 	b.publish()
 }

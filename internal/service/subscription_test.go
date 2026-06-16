@@ -300,6 +300,9 @@ func TestSubscriptionPendingDownloadAvailabilityIncludesQueuedTasks(t *testing.T
 	if availability.DownloadedEpisodes != 1 {
 		t.Fatalf("downloaded episodes = %d, want 1", availability.DownloadedEpisodes)
 	}
+	if availability.InLibrary {
+		t.Fatal("queued download should not be reported as already in library")
+	}
 	if _, ok := availability.ExistingEpisodeKeys[episodeKey(1, 2)]; !ok {
 		t.Fatalf("missing queued E02 key: %#v", availability.ExistingEpisodeKeys)
 	}
@@ -311,6 +314,42 @@ func TestSubscriptionPendingDownloadAvailabilityIncludesQueuedTasks(t *testing.T
 	got := selectSiteSearchCandidates(results, sub, map[string]struct{}{}, availability)
 	if len(got) != 1 || got[0].Episode != 3 {
 		t.Fatalf("selected %#v, want only not-yet-downloaded episode 3", got)
+	}
+}
+
+func TestSubscriptionEnrichProgressIncludesPendingDownloads(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(&model.DownloadTask{}, &model.Media{}); err != nil {
+		t.Fatal(err)
+	}
+	repos := repository.New(db)
+	if err := repos.Download.Create(t.Context(), &model.DownloadTask{
+		Source:   "qbittorrent",
+		URL:      "magnet:?xt=urn:btih:4444444444444444444444444444444444444444",
+		Title:    "Inception 2010 1080p",
+		SavePath: "/downloads/movies",
+		Status:   "completed",
+		Progress: 1,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	svc := NewSubscriptionService(nil, nil, repos, nil, nil, nil)
+	items := []model.Subscription{{
+		Name:      "Inception 2010",
+		Filter:    "Inception 2010",
+		MediaType: "movie",
+		SavePath:  "/downloads/movies",
+	}}
+
+	svc.EnrichProgress(t.Context(), items)
+	if items[0].InLibrary {
+		t.Fatal("pending download should not be reported as in-library media")
+	}
+	if items[0].DownloadedEpisodes != 1 || items[0].LocalMediaCount != 1 || items[0].TotalEpisodes != 1 {
+		t.Fatalf("unexpected enriched progress: %+v", items[0])
 	}
 }
 

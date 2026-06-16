@@ -490,10 +490,41 @@ func (d *DownloadService) torrentExistsByIdentity(ctx context.Context, title str
 }
 
 func downloadTaskIdentityKey(name string) string {
+	if key := downloadMediaIdentityKey(name); key != "" {
+		return key
+	}
+	return normalizedDownloadTitleKey(name)
+}
+
+func downloadMediaIdentityKey(name string) string {
 	name = strings.ToLower(strings.TrimSpace(name))
 	if name == "" {
 		return ""
 	}
+	title, year := CleanQuery(name)
+	titleKey := normalizeAvailabilityComparable(title)
+	if titleKey == "" {
+		titleKey = normalizeAvailabilityComparable(availabilityQuery(name, ""))
+	}
+	if titleKey == "" {
+		return ""
+	}
+	season, episode := ParseEpisode(name)
+	parts := []string{titleKey}
+	if year > 0 {
+		parts = append(parts, fmt.Sprintf("y%d", year))
+	}
+	if episode > 0 {
+		if season <= 0 {
+			season = 1
+		}
+		parts = append(parts, fmt.Sprintf("s%02de%03d", season, episode))
+	}
+	return strings.Join(parts, "|")
+}
+
+func normalizedDownloadTitleKey(name string) string {
+	name = strings.ToLower(strings.TrimSpace(name))
 	var b strings.Builder
 	for _, r := range name {
 		if unicode.IsLetter(r) || unicode.IsDigit(r) {

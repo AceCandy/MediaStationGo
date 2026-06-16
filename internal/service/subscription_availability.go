@@ -27,7 +27,6 @@ func (s *SubscriptionService) pendingDownloadAvailability(ctx context.Context, s
 	if root != "" {
 		_ = scanDownloadPath(ctx, root, query, func(_ string, season, episode int) bool {
 			out.LocalMediaCount++
-			out.InLibrary = true
 			if episode > 0 {
 				out.ExistingEpisodeKeys[episodeKey(season, episode)] = struct{}{}
 			}
@@ -37,6 +36,22 @@ func (s *SubscriptionService) pendingDownloadAvailability(ctx context.Context, s
 	s.addDownloadTaskAvailability(ctx, sub, query, &out)
 	s.addLiveTorrentAvailability(ctx, query, &out)
 	return s.finalizePendingAvailability(sub, out)
+}
+
+func (s *SubscriptionService) EnrichProgress(ctx context.Context, items []model.Subscription) {
+	for i := range items {
+		availability := mergeLocalAvailability(
+			SubscriptionLocalAvailability(ctx, s.repo, &items[i]),
+			s.pendingDownloadAvailability(ctx, &items[i]),
+		)
+		items[i].DownloadedEpisodes = availability.DownloadedEpisodes
+		items[i].LocalMediaCount = availability.LocalMediaCount
+		items[i].MissingEpisodes = availability.MissingEpisodes
+		items[i].InLibrary = availability.InLibrary
+		if items[i].TotalEpisodes == 0 {
+			items[i].TotalEpisodes = availability.TotalEpisodes
+		}
+	}
 }
 
 func (s *SubscriptionService) addDownloadTaskAvailability(ctx context.Context, sub *model.Subscription, query string, out *LocalAvailability) {
@@ -80,7 +95,6 @@ func addAvailabilityTitle(title, query string, out *LocalAvailability) {
 		return
 	}
 	out.LocalMediaCount++
-	out.InLibrary = true
 	season, episode := ParseEpisode(title)
 	if episode > 0 {
 		out.ExistingEpisodeKeys[episodeKey(season, episode)] = struct{}{}

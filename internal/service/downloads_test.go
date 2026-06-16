@@ -631,7 +631,7 @@ func TestAddDownloadWithMetaSkipsExistingTaskBeforeQBAdd(t *testing.T) {
 	svc := NewDownloadService(zap.NewNop(), repos, NewHub(zap.NewNop()), nil)
 	svc.qb.Configure(QBitConfig{BaseURL: qb.URL, Username: "admin", Password: "admin"})
 	task, err := svc.AddDownloadWithMeta(t.Context(), "u1", "https://pt.example/download?id=new&passkey=new", "/downloads/tv", DownloadTaskMeta{
-		Title: "Some Show S01E01 1080p",
+		Title: "Some Show S01E01 2160p WEB-DL",
 	})
 	if !errors.Is(err, ErrDownloadAlreadyExists) {
 		t.Fatalf("err = %v, want ErrDownloadAlreadyExists", err)
