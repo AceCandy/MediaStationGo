@@ -34,6 +34,9 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.Database.Type != "auto" {
 		t.Fatalf("expected default database type auto, got %q", cfg.Database.Type)
 	}
+	if cfg.Logging.Level != "warn" || !cfg.Logging.EnableRotation || cfg.Logging.MaxSizeMB != 20 {
+		t.Fatalf("expected warn rotating logs by default, got level=%q rotation=%v max=%d", cfg.Logging.Level, cfg.Logging.EnableRotation, cfg.Logging.MaxSizeMB)
+	}
 	if cfg.Database.MaxOpenConns != defaultDatabaseMaxOpenConns {
 		t.Fatalf("expected default MaxOpenConns %d, got %d", defaultDatabaseMaxOpenConns, cfg.Database.MaxOpenConns)
 	}

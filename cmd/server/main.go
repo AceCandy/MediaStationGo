@@ -27,6 +27,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 
 	"github.com/ShukeBta/MediaStationGo/internal/config"
 	"github.com/ShukeBta/MediaStationGo/internal/database"
@@ -315,18 +316,68 @@ func newLogger(cfg *config.Config) (*zap.Logger, error) {
 	if cfg.App.Debug {
 		return zap.NewDevelopment()
 	}
-	zapCfg := zap.NewProductionConfig()
-	if level, err := zap.ParseAtomicLevel(strings.TrimSpace(cfg.Logging.Level)); err == nil && cfg.Logging.Level != "" {
-		zapCfg.Level = level
-	}
+	level := productionLogLevel(cfg.Logging.Level)
+	encoderCfg := zap.NewProductionEncoderConfig()
+	encoderCfg.EncodeTime = zapcore.ISO8601TimeEncoder
+	var encoder zapcore.Encoder
 	if strings.EqualFold(strings.TrimSpace(cfg.Logging.Format), "console") {
-		zapCfg.Encoding = "console"
+		encoder = zapcore.NewConsoleEncoder(encoderCfg)
+	} else {
+		encoder = zapcore.NewJSONEncoder(encoderCfg)
 	}
-	if out := strings.TrimSpace(cfg.Logging.OutputPath); out != "" {
-		zapCfg.OutputPaths = append(zapCfg.OutputPaths, out)
-		zapCfg.ErrorOutputPaths = append(zapCfg.ErrorOutputPaths, out)
+	cores := []zapcore.Core{
+		zapcore.NewCore(encoder, zapcore.Lock(os.Stdout), level),
 	}
-	return zapCfg.Build()
+	warnPath, errorPath := logFilePaths(cfg)
+	if warnPath != "" {
+		warnWriter, err := newRotatingFileWriter(warnPath, cfg.Logging)
+		if err != nil {
+			return nil, err
+		}
+		cores = append(cores, zapcore.NewCore(encoder, warnWriter, zap.LevelEnablerFunc(func(lvl zapcore.Level) bool {
+			return lvl == zapcore.WarnLevel && level.Enabled(lvl)
+		})))
+	}
+	if errorPath != "" {
+		errorWriter, err := newRotatingFileWriter(errorPath, cfg.Logging)
+		if err != nil {
+			return nil, err
+		}
+		cores = append(cores, zapcore.NewCore(encoder, errorWriter, zap.LevelEnablerFunc(func(lvl zapcore.Level) bool {
+			return lvl >= zapcore.ErrorLevel && level.Enabled(lvl)
+		})))
+	}
+	return zap.New(zapcore.NewTee(cores...), zap.AddCaller(), zap.AddStacktrace(zapcore.ErrorLevel), zap.ErrorOutput(zapcore.Lock(os.Stderr))), nil
+}
+
+func productionLogLevel(raw string) zapcore.Level {
+	level := zapcore.WarnLevel
+	raw = strings.TrimSpace(raw)
+	if raw != "" {
+		var parsed zapcore.Level
+		if err := parsed.UnmarshalText([]byte(raw)); err == nil {
+			level = parsed
+		}
+	}
+	if level < zapcore.WarnLevel {
+		return zapcore.WarnLevel
+	}
+	return level
+}
+
+func logFilePaths(cfg *config.Config) (string, string) {
+	out := strings.TrimSpace(cfg.Logging.OutputPath)
+	if strings.EqualFold(out, "stdout") || strings.EqualFold(out, "stderr") {
+		return "", ""
+	}
+	if out == "" {
+		out = filepath.Join(cfg.App.DataDir, "logs")
+	}
+	if ext := filepath.Ext(out); ext != "" {
+		base := strings.TrimSuffix(out, ext)
+		return base + ".warn" + ext, base + ".error" + ext
+	}
+	return filepath.Join(out, "warn.log"), filepath.Join(out, "error.log")
 }
 
 // getLocalIP returns the first non-loopback IPv4 address of the machine.

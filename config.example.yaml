@@ -49,11 +49,11 @@ secrets:
   fanart_tv_api_key: ""
 
 logging:
-  level: info          # debug | info | warn | error
+  level: warn          # production clamps file/stdout logs to warn or above
   format: console      # console | json
-  output_path: ""      # empty = stdout
-  enable_rotation: false
-  max_size_mb: 100
+  output_path: ""      # empty = {data_dir}/logs; use stdout/stderr to disable file logs
+  enable_rotation: true
+  max_size_mb: 20
   max_age_days: 30
   max_backups: 10
 
