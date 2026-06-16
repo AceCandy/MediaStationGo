@@ -72,6 +72,8 @@ export function LicensePage() {
       setStatus({
         active: true,
         activation,
+        max_users: activation.max_users,
+        unlimited_users: activation.unlimited_users,
         message: '已激活',
       })
     } catch (err: unknown) {

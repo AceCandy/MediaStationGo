@@ -51,6 +51,7 @@ type licenseServerStatusResp struct {
 	Valid          bool    `json:"valid"`
 	LicenseType    *string `json:"license_type"`
 	ExpiryDate     *string `json:"expiry_date"`
+	MaxDevices     int     `json:"max_devices"`
 	MaxUsers       *int    `json:"max_users"`
 	UnlimitedUsers bool    `json:"unlimited_users"`
 	DaysRemaining  *int    `json:"days_remaining"`
@@ -114,21 +115,7 @@ func licenseStatusHandler(svc *service.Container) gin.HandlerFunc {
 			if idErr == nil {
 				var upstream licenseServerStatusResp
 				if getErr := client.get(c.Request.Context(), "/api/v1/status/"+url.PathEscape(deviceID), &upstream); getErr == nil && upstream.Valid {
-					state.Valid = upstream.Valid
-					if upstream.LicenseType != nil {
-						state.LicenseType = *upstream.LicenseType
-					}
-					if upstream.ExpiryDate != nil {
-						state.ExpiryDate = *upstream.ExpiryDate
-					}
-					state.MaxUsers = upstream.MaxUsers
-					state.UnlimitedUsers = upstream.UnlimitedUsers
-					state.DaysRemaining = upstream.DaysRemaining
-					if upstream.DeviceName != "" {
-						state.DeviceName = upstream.DeviceName
-					}
-					state.DeviceID = deviceID
-					state.UpdatedAt = time.Now().Format(time.RFC3339)
+					applyLicenseStatus(&state, upstream, deviceID)
 					_ = persistLicenseState(c.Request.Context(), svc, state)
 				} else if getErr == nil && !upstream.Valid {
 					state.Valid = false
@@ -378,6 +365,29 @@ func licenseStatusMaxUsers(state service.LicenseActivationState) any {
 		return service.LicensedUserLimit
 	}
 	return service.OpenSourceUserLimit
+}
+
+func applyLicenseStatus(state *service.LicenseActivationState, upstream licenseServerStatusResp, deviceID string) {
+	state.Valid = upstream.Valid
+	if upstream.LicenseType != nil {
+		state.LicenseType = *upstream.LicenseType
+	}
+	if upstream.ExpiryDate != nil {
+		state.ExpiryDate = *upstream.ExpiryDate
+	} else {
+		state.ExpiryDate = ""
+	}
+	if upstream.MaxDevices > 0 {
+		state.MaxDevices = upstream.MaxDevices
+	}
+	state.MaxUsers = upstream.MaxUsers
+	state.UnlimitedUsers = upstream.UnlimitedUsers
+	state.DaysRemaining = upstream.DaysRemaining
+	if upstream.DeviceName != "" {
+		state.DeviceName = upstream.DeviceName
+	}
+	state.DeviceID = deviceID
+	state.UpdatedAt = time.Now().Format(time.RFC3339)
 }
 
 func persistLicenseState(ctx context.Context, svc *service.Container, state service.LicenseActivationState) error {
