@@ -122,6 +122,9 @@ func TestEmbyAuthenticateRecordsMediaBrowserClientInfo(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
+	if sqlDB, err := db.DB(); err == nil {
+		sqlDB.SetMaxOpenConns(1)
+	}
 	if err := db.AutoMigrate(model.AllModels()...); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
@@ -175,6 +178,9 @@ func TestEmbyMarkPlayedRefreshesPlaybackDevice(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("open db: %v", err)
+	}
+	if sqlDB, err := db.DB(); err == nil {
+		sqlDB.SetMaxOpenConns(1)
 	}
 	if err := db.AutoMigrate(model.AllModels()...); err != nil {
 		t.Fatalf("migrate: %v", err)
