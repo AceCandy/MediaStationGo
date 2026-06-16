@@ -490,6 +490,7 @@ func (q *QBitClient) Delete(ctx context.Context, hash string, deleteFiles bool) 
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Referer", q.cfg.BaseURL)
+	req.Header.Set("Origin", q.cfg.BaseURL)
 	resp, err := q.client.Do(req)
 	if err != nil {
 		return err
@@ -529,6 +530,7 @@ func (q *QBitClient) SetLocation(ctx context.Context, hash, location string) err
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Referer", q.cfg.BaseURL)
+	req.Header.Set("Origin", q.cfg.BaseURL)
 	resp, err := q.client.Do(req)
 	if err != nil {
 		return err

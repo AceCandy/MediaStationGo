@@ -85,15 +85,19 @@ func (a *QBitAdapter) AddTorrent(ctx context.Context, torrentURL, savePath strin
 	}
 	req.Header.Set("Content-Type", w.FormDataContentType())
 	req.Header.Set("Referer", baseURL)
+	req.Header.Set("Origin", baseURL)
 
 	resp, err := a.client.Do(req)
 	if err != nil {
 		return "", err
 	}
 	defer resp.Body.Close()
+	raw, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode >= 400 {
-		raw, _ := io.ReadAll(resp.Body)
 		return "", fmt.Errorf("qbittorrent add torrent: %d: %s", resp.StatusCode, strings.TrimSpace(string(raw)))
+	}
+	if strings.EqualFold(strings.TrimSpace(string(raw)), "Fails.") {
+		return "", fmt.Errorf("qbittorrent add torrent: rejected by downloader")
 	}
 	return "", nil
 }
@@ -110,25 +114,7 @@ func (a *QBitAdapter) Pause(ctx context.Context, hash string) error {
 	if err := a.ensureAuthLocked(ctx); err != nil {
 		return err
 	}
-	baseURL := strings.TrimRight(a.cfg.Host, "/")
-	form := url.Values{}
-	form.Set("hashes", hash)
-	req, err := newDownloadClientHTTPRequest(ctx, http.MethodPost,
-		baseURL+"/api/v2/torrents/pause", strings.NewReader(form.Encode()))
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("Referer", baseURL)
-	resp, err := a.client.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode >= 400 {
-		return fmt.Errorf("qbittorrent pause: %d", resp.StatusCode)
-	}
-	return nil
+	return a.postTorrentActionLocked(ctx, hash, "pause", "stop")
 }
 
 // Resume 恢复种子。
@@ -138,25 +124,41 @@ func (a *QBitAdapter) Resume(ctx context.Context, hash string) error {
 	if err := a.ensureAuthLocked(ctx); err != nil {
 		return err
 	}
+	return a.postTorrentActionLocked(ctx, hash, "resume", "start")
+}
+
+func (a *QBitAdapter) postTorrentActionLocked(ctx context.Context, hash string, primary, fallback string) error {
 	baseURL := strings.TrimRight(a.cfg.Host, "/")
 	form := url.Values{}
 	form.Set("hashes", hash)
-	req, err := newDownloadClientHTTPRequest(ctx, http.MethodPost,
-		baseURL+"/api/v2/torrents/resume", strings.NewReader(form.Encode()))
-	if err != nil {
-		return err
+	var lastErr error
+	for _, action := range []string{primary, fallback} {
+		if action == "" {
+			continue
+		}
+		req, err := newDownloadClientHTTPRequest(ctx, http.MethodPost,
+			baseURL+"/api/v2/torrents/"+action, strings.NewReader(form.Encode()))
+		if err != nil {
+			return err
+		}
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req.Header.Set("Referer", baseURL)
+		req.Header.Set("Origin", baseURL)
+		resp, err := a.client.Do(req)
+		if err != nil {
+			return err
+		}
+		body, _ := io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+		if resp.StatusCode < 400 {
+			return nil
+		}
+		lastErr = fmt.Errorf("qbittorrent %s: %d: %s", action, resp.StatusCode, strings.TrimSpace(string(body)))
+		if resp.StatusCode != http.StatusNotFound && resp.StatusCode != http.StatusMethodNotAllowed {
+			break
+		}
 	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("Referer", baseURL)
-	resp, err := a.client.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode >= 400 {
-		return fmt.Errorf("qbittorrent resume: %d", resp.StatusCode)
-	}
-	return nil
+	return lastErr
 }
 
 // Remove 删除种子。
@@ -181,6 +183,7 @@ func (a *QBitAdapter) Remove(ctx context.Context, hash string, deleteFiles bool)
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Referer", baseURL)
+	req.Header.Set("Origin", baseURL)
 	resp, err := a.client.Do(req)
 	if err != nil {
 		return err

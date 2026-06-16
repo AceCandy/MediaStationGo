@@ -478,10 +478,21 @@ func (e *EmbyService) mediaItems(ctx context.Context, p ItemsParams) (map[string
 			GROUP BY media_id
 		) AS resume ON resume.media_id = media.id`, p.UserID, false)
 	}
-	if containsItemType(p.IncludeItemTypes, "Movie") && !containsItemType(p.IncludeItemTypes, "Episode") {
+	filterBySeasonNumbers := true
+	parentKnownNonEpisodic := false
+	if p.ParentID != "" {
+		if episodic, err := e.libraryIsEpisodic(ctx, p.ParentID); err == nil && !episodic {
+			filterBySeasonNumbers = false
+			parentKnownNonEpisodic = true
+		}
+	}
+	if parentKnownNonEpisodic && containsItemType(p.IncludeItemTypes, "Episode") && !containsItemType(p.IncludeItemTypes, "Movie") {
+		return emptyItemsEnvelope(p.StartIndex), nil
+	}
+	if filterBySeasonNumbers && containsItemType(p.IncludeItemTypes, "Movie") && !containsItemType(p.IncludeItemTypes, "Episode") {
 		q = q.Where("season_num = 0 AND episode_num = 0")
 	}
-	if containsItemType(p.IncludeItemTypes, "Episode") && !containsItemType(p.IncludeItemTypes, "Movie") {
+	if filterBySeasonNumbers && containsItemType(p.IncludeItemTypes, "Episode") && !containsItemType(p.IncludeItemTypes, "Movie") {
 		q = q.Where("season_num > 0 OR episode_num > 0")
 	}
 
@@ -829,7 +840,7 @@ func (e *EmbyService) itemPayload(ctx context.Context, m *model.Media, fav bool,
 	seriesID := m.SeriesID
 	seriesName := ""
 	seasonID := ""
-	if m.SeasonNum > 0 || m.EpisodeNum > 0 {
+	if e.mediaBelongsToEpisodicLibrary(ctx, m) && (m.SeasonNum > 0 || m.EpisodeNum > 0) {
 		itemType = "Episode"
 		seriesID = e.seriesIDForMedia(m)
 		seriesName = e.seriesNameForMedia(m)
@@ -944,16 +955,33 @@ func (e *EmbyService) libraryIsEpisodic(ctx context.Context, libraryID string) (
 	if lib, err := e.repo.Library.FindByID(ctx, libraryID); err != nil {
 		return false, err
 	} else if lib != nil {
-		switch lib.Type {
-		case "tv", "anime", "variety":
-			return true, nil
-		}
+		return embyLibraryTypeIsEpisodic(lib.Type), nil
 	}
 	var count int64
 	err := e.repo.DB.WithContext(ctx).Model(&model.Media{}).
 		Where("library_id IN ? AND (season_num > 0 OR episode_num > 0)", e.mergedLibraryIDs(ctx, libraryID)).
 		Count(&count).Error
 	return count > 0, err
+}
+
+func (e *EmbyService) mediaBelongsToEpisodicLibrary(ctx context.Context, m *model.Media) bool {
+	if e == nil || m == nil || strings.TrimSpace(m.LibraryID) == "" {
+		return false
+	}
+	lib, err := e.repo.Library.FindByID(ctx, m.LibraryID)
+	if err != nil || lib == nil {
+		return false
+	}
+	return embyLibraryTypeIsEpisodic(lib.Type)
+}
+
+func embyLibraryTypeIsEpisodic(typ string) bool {
+	switch strings.ToLower(strings.TrimSpace(typ)) {
+	case "tv", "anime", "variety":
+		return true
+	default:
+		return false
+	}
 }
 
 func (e *EmbyService) rememberSeriesGroup(group embySeriesGroup) {

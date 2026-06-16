@@ -226,6 +226,58 @@ func TestEmbyCloudAnimeUsesSeriesNameFromChineseSeasonFolder(t *testing.T) {
 	}
 }
 
+func TestEmbyMovieLibrarySeasonNumbersStayMovies(t *testing.T) {
+	svc := newTestEmbyService(t)
+	lib := model.Library{Name: "动画电影", Path: `/media/movies/animation`, Type: "movie", Enabled: true}
+	if err := svc.repo.Library.Create(t.Context(), &lib); err != nil {
+		t.Fatalf("create library: %v", err)
+	}
+	media := model.Media{
+		Base:       model.Base{ID: "movie-with-episode-numbers"},
+		LibraryID:  lib.ID,
+		Title:      "Movie Mistaken S01E01",
+		Path:       `/media/movies/animation/Movie.Mistaken.S01E01.mkv`,
+		PosterURL:  `/poster.jpg`,
+		SeasonNum:  1,
+		EpisodeNum: 1,
+	}
+	if err := svc.repo.DB.Create(&media).Error; err != nil {
+		t.Fatalf("create media: %v", err)
+	}
+
+	out, err := svc.Items(t.Context(), ItemsParams{ParentID: lib.ID, IncludeItemTypes: []string{"Movie"}, Limit: 50})
+	if err != nil {
+		t.Fatalf("items: %v", err)
+	}
+	items := out["Items"].([]map[string]any)
+	if len(items) != 1 {
+		t.Fatalf("movie library item filtered out by season numbers: %#v", out)
+	}
+	if items[0]["Type"] != "Movie" || items[0]["ParentId"] != lib.ID {
+		t.Fatalf("movie library item should stay Movie, got %#v", items[0])
+	}
+	tags := items[0]["ImageTags"].(map[string]string)
+	if tags["Primary"] == "" {
+		t.Fatalf("movie poster should expose Primary image tag: %#v", items[0])
+	}
+
+	episodes, err := svc.Items(t.Context(), ItemsParams{ParentID: lib.ID, IncludeItemTypes: []string{"Episode"}, Limit: 50})
+	if err != nil {
+		t.Fatalf("episode query: %v", err)
+	}
+	if len(episodes["Items"].([]map[string]any)) != 0 {
+		t.Fatalf("movie library should not expose movies as episodes, got %#v", episodes)
+	}
+
+	item, err := svc.Item(t.Context(), media.ID, "user-1")
+	if err != nil {
+		t.Fatalf("item: %v", err)
+	}
+	if item["Type"] != "Movie" || item["ParentId"] != lib.ID {
+		t.Fatalf("direct item should stay Movie, got %#v", item)
+	}
+}
+
 func TestEmbyRootItemsExposeLibraries(t *testing.T) {
 	svc := newTestEmbyService(t)
 	for _, lib := range []model.Library{

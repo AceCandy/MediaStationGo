@@ -138,6 +138,123 @@ func firstHeaderValue(c *gin.Context, names ...string) string {
 	return ""
 }
 
+type embyClientInfo struct {
+	DeviceID   string
+	DeviceName string
+	Client     string
+}
+
+func embyClientInfoFromRequest(c *gin.Context) embyClientInfo {
+	auth := parseMediaBrowserAuthorization(firstHeaderValue(c,
+		"X-Emby-Authorization",
+		"X-MediaBrowser-Authorization",
+		"Authorization",
+	))
+	info := embyClientInfo{
+		DeviceID: firstNonEmptyHeaderString(
+			firstHeaderValue(c, "X-Emby-Device-Id", "X-Emby-DeviceId", "X-MediaBrowser-Device-Id", "X-MediaBrowser-DeviceId"),
+			auth["DeviceId"],
+			auth["DeviceID"],
+		),
+		DeviceName: firstNonEmptyHeaderString(
+			firstHeaderValue(c, "X-Emby-Device-Name", "X-Emby-DeviceName", "X-MediaBrowser-Device-Name", "X-MediaBrowser-DeviceName"),
+			auth["Device"],
+		),
+		Client: firstNonEmptyHeaderString(
+			firstHeaderValue(c, "X-Emby-Client", "X-MediaBrowser-Client"),
+			auth["Client"],
+		),
+	}
+	ua := strings.TrimSpace(c.GetHeader("User-Agent"))
+	if info.Client == "" {
+		info.Client = embyClientFromUserAgent(ua)
+	}
+	if info.DeviceName == "" {
+		info.DeviceName = embyDeviceFromUserAgent(ua)
+	}
+	return info
+}
+
+func parseMediaBrowserAuthorization(raw string) map[string]string {
+	out := map[string]string{}
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return out
+	}
+	for _, prefix := range []string{"MediaBrowser ", "Emby "} {
+		if strings.HasPrefix(raw, prefix) {
+			raw = strings.TrimSpace(strings.TrimPrefix(raw, prefix))
+			break
+		}
+	}
+	for _, part := range strings.Split(raw, ",") {
+		key, value, ok := strings.Cut(strings.TrimSpace(part), "=")
+		if !ok {
+			continue
+		}
+		key = strings.TrimSpace(key)
+		value = strings.Trim(strings.TrimSpace(value), `"`)
+		if key != "" && value != "" {
+			out[key] = value
+		}
+	}
+	return out
+}
+
+func firstNonEmptyHeaderString(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
+}
+
+func embyClientFromUserAgent(ua string) string {
+	ua = strings.TrimSpace(ua)
+	lower := strings.ToLower(ua)
+	switch {
+	case strings.Contains(lower, "infuse"):
+		return "Infuse"
+	case strings.Contains(lower, "emby"):
+		return "Emby"
+	case strings.Contains(lower, "jellyfin"):
+		return "Jellyfin"
+	case strings.Contains(lower, "yamby"):
+		return "Yamby"
+	case strings.Contains(lower, "vidhub"):
+		return "VidHub"
+	case strings.Contains(lower, "hills"):
+		return "Hills"
+	default:
+		return ua
+	}
+}
+
+func embyDeviceFromUserAgent(ua string) string {
+	lower := strings.ToLower(strings.TrimSpace(ua))
+	switch {
+	case strings.Contains(lower, "android"):
+		return "Android"
+	case strings.Contains(lower, "iphone"):
+		return "iPhone"
+	case strings.Contains(lower, "ipad"):
+		return "iPad"
+	case strings.Contains(lower, "ios"):
+		return "iOS"
+	case strings.Contains(lower, "windows"):
+		return "Windows PC"
+	case strings.Contains(lower, "macintosh") || strings.Contains(lower, "mac os"):
+		return "Mac"
+	case strings.Contains(lower, "linux"):
+		return "Linux PC"
+	case strings.Contains(lower, "appletv") || strings.Contains(lower, "apple tv"):
+		return "Apple TV"
+	default:
+		return ""
+	}
+}
+
 // ─── System ──────────────────────────────────────────────────────────────────
 
 func embySystemInfoHandler(svc *service.Container) gin.HandlerFunc {
@@ -421,11 +538,12 @@ func embyAuthByNameHandler(svc *service.Container) gin.HandlerFunc {
 			return
 		}
 		// 记录登录设备会话并执行防共享检测（登录客户端数 / 设备指纹）。
+		clientInfo := embyClientInfoFromRequest(c)
 		if svc.Device != nil {
 			svc.Device.RecordLogin(c.Request.Context(), resp.User.ID,
-				c.GetHeader("X-Emby-Device-Id"),
-				c.GetHeader("X-Emby-Device-Name"),
-				c.GetHeader("X-Emby-Client"),
+				clientInfo.DeviceID,
+				clientInfo.DeviceName,
+				clientInfo.Client,
 				c.ClientIP())
 		}
 		userPayload, _ := svc.Emby.FindUser(c.Request.Context(), resp.User.ID)
@@ -446,9 +564,9 @@ func embyAuthByNameHandler(svc *service.Container) gin.HandlerFunc {
 				"Id":         resp.User.ID,
 				"UserId":     resp.User.ID,
 				"UserName":   resp.User.Username,
-				"Client":     c.GetHeader("X-Emby-Client"),
-				"DeviceId":   c.GetHeader("X-Emby-Device-Id"),
-				"DeviceName": c.GetHeader("X-Emby-Device-Name"),
+				"Client":     clientInfo.Client,
+				"DeviceId":   clientInfo.DeviceID,
+				"DeviceName": clientInfo.DeviceName,
 			},
 		})
 	}
@@ -786,16 +904,16 @@ func embySaveDisplayPreferencesHandler(_ *service.Container) gin.HandlerFunc {
 
 // ─── Images ──────────────────────────────────────────────────────────────────
 
-var embyTransparentPNG = []byte{
+var embyPlaceholderPNG = []byte{
 	0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
 	0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
 	0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
 	0x08, 0x06, 0x00, 0x00, 0x00, 0x1f, 0x15, 0xc4,
 	0x89, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x44, 0x41,
-	0x54, 0x78, 0x9c, 0x63, 0x00, 0x01, 0x00, 0x00,
-	0x05, 0x00, 0x01, 0x0d, 0x0a, 0x2d, 0xb4, 0x00,
-	0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae,
-	0x42, 0x60, 0x82,
+	0x54, 0x78, 0x9c, 0x63, 0x50, 0xd1, 0x30, 0xf8,
+	0x0f, 0x00, 0x02, 0x6c, 0x01, 0x7c, 0x30, 0xed,
+	0x6e, 0x0a, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45,
+	0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
 }
 
 // embyItemImageHandler 把 /Items/{id}/Images/Primary 等请求直接输出为图片。
@@ -810,7 +928,7 @@ func embyItemImageHandler(svc *service.Container) gin.HandlerFunc {
 		imgType := strings.ToLower(c.Param("type"))
 		raw, err := svc.Emby.ImageURL(ctx, id, imgType)
 		if err != nil || raw == "" {
-			embyServeTransparentImage(c)
+			embyServePlaceholderImage(c)
 			return
 		}
 		if typ, ref, ok := parseCloudPlayImageURL(raw); ok {
@@ -819,24 +937,24 @@ func embyItemImageHandler(svc *service.Container) gin.HandlerFunc {
 			return
 		}
 		if svc.ImageProxy == nil {
-			embyServeTransparentImage(c)
+			embyServePlaceholderImage(c)
 			return
 		}
 		if err := svc.ImageProxy.Serve(ctx, c.Writer, req, raw); err != nil {
-			embyServeTransparentImage(c)
+			embyServePlaceholderImage(c)
 		}
 	}
 }
 
-func embyServeTransparentImage(c *gin.Context) {
+func embyServePlaceholderImage(c *gin.Context) {
 	c.Header("Content-Type", "image/png")
 	c.Header("Cache-Control", "public, max-age=3600")
-	c.Header("Content-Length", strconv.Itoa(len(embyTransparentPNG)))
+	c.Header("Content-Length", strconv.Itoa(len(embyPlaceholderPNG)))
 	if c.Request.Method == http.MethodHead {
 		c.Status(http.StatusOK)
 		return
 	}
-	c.Data(http.StatusOK, "image/png", embyTransparentPNG)
+	c.Data(http.StatusOK, "image/png", embyPlaceholderPNG)
 }
 
 func parseCloudPlayImageURL(raw string) (string, string, bool) {
@@ -1195,7 +1313,8 @@ func embyPlayingProgressHandler(svc *service.Container) gin.HandlerFunc {
 			return
 		}
 		// 被「一键踢下线」的设备拒绝继续播放，直到重新登录。
-		if svc.Device != nil && svc.Device.IsDeviceKicked(c.Request.Context(), uid, c.GetHeader("X-Emby-Device-Id")) {
+		clientInfo := embyClientInfoFromRequest(c)
+		if svc.Device != nil && svc.Device.IsDeviceKicked(c.Request.Context(), uid, clientInfo.DeviceID) {
 			c.Status(http.StatusUnauthorized)
 			return
 		}
@@ -1203,9 +1322,9 @@ func embyPlayingProgressHandler(svc *service.Container) gin.HandlerFunc {
 		// 标记该设备正在播放并执行并发播放防共享检测。
 		if svc.Device != nil {
 			svc.Device.RecordPlayback(c.Request.Context(), uid,
-				c.GetHeader("X-Emby-Device-Id"),
-				c.GetHeader("X-Emby-Device-Name"),
-				c.GetHeader("X-Emby-Client"))
+				clientInfo.DeviceID,
+				clientInfo.DeviceName,
+				clientInfo.Client)
 		}
 		c.Status(http.StatusNoContent)
 	}
@@ -1250,6 +1369,10 @@ func embyMarkPlayedHandler(svc *service.Container, played bool) gin.HandlerFunc 
 		if err := svc.Emby.MarkPlayed(c.Request.Context(), uid, mid, played); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
+		}
+		if played && svc.Device != nil {
+			clientInfo := embyClientInfoFromRequest(c)
+			svc.Device.RecordPlayback(c.Request.Context(), uid, clientInfo.DeviceID, clientInfo.DeviceName, clientInfo.Client)
 		}
 		out, _ := svc.Emby.Item(c.Request.Context(), mid, uid)
 		if out != nil {

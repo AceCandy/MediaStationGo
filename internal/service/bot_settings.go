@@ -35,11 +35,11 @@ const (
 	SettingPlayWindowSeconds = "device.play_window_seconds" // 并发播放判定窗口（秒）
 	SettingClientActiveDays  = "device.client_active_days"  // 登录设备活跃天数窗口
 
-	// Mgo 保号规则。规则默认关闭；开启后按 KeepMode 计算用户
-	// 是否满足足够的保号条件，未满足才会被清理。
+	// Mgo 保号规则。规则默认关闭；开启后满足任意一条保号规则即保留，
+	// 所有启用规则都不满足才会进入清理候选。
 	SettingAccountCleanupEnabled       = "device.account_cleanup_enabled"
-	SettingAccountCleanupKeepMode      = "device.account_cleanup_keep_mode"      // any / all / count
-	SettingAccountCleanupRequiredCount = "device.account_cleanup_required_count" // keep_mode=count 时需要满足几条
+	SettingAccountCleanupKeepMode      = "device.account_cleanup_keep_mode"      // legacy; normalized to any
+	SettingAccountCleanupRequiredCount = "device.account_cleanup_required_count" // legacy; normalized to 1
 	SettingAccountCleanupRules         = "device.account_cleanup_rules"          // JSON []accountCleanupRule
 	SettingProtectedUserIDs            = "device.protected_user_ids"             // comma separated user IDs; Mgo /prouser
 )
@@ -60,8 +60,8 @@ type botConfig struct {
 }
 
 // accountCleanupRule is one admin-defined "保号" condition. A user is deleted
-// only when the cleanup policy is enabled and the user does not satisfy the
-// configured combination of enabled keep rules.
+// only when the cleanup policy is enabled and the user does not satisfy any
+// enabled keep rule.
 //
 // Supported types:
 //   - watch_hours: watched hours in a random [min,max] day window >= MinHours
@@ -114,8 +114,10 @@ func loadBotConfig(ctx context.Context, repo *repository.Container) botConfig {
 	cfg.PlayWindowSeconds = parseIntSettingDefault(get(SettingPlayWindowSeconds), cfg.PlayWindowSeconds)
 	cfg.ClientActiveDays = parseIntSettingDefault(get(SettingClientActiveDays), cfg.ClientActiveDays)
 	cfg.AccountCleanupEnabled = parseBoolSetting(get(SettingAccountCleanupEnabled), cfg.AccountCleanupEnabled)
-	cfg.AccountCleanupKeepMode = normalizeCleanupKeepMode(get(SettingAccountCleanupKeepMode), cfg.AccountCleanupKeepMode)
-	cfg.AccountCleanupRequiredCount = parseIntSettingDefault(get(SettingAccountCleanupRequiredCount), cfg.AccountCleanupRequiredCount)
+	// Historical builds allowed all/count modes, but the Mgo policy is now
+	// explicitly "any": matching one keep rule is enough to avoid deletion.
+	cfg.AccountCleanupKeepMode = "any"
+	cfg.AccountCleanupRequiredCount = 1
 	if raw := strings.TrimSpace(get(SettingAccountCleanupRules)); raw != "" {
 		var rules []accountCleanupRule
 		if err := json.Unmarshal([]byte(raw), &rules); err == nil {

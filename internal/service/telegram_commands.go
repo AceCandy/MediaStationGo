@@ -253,7 +253,7 @@ func telegramAdminBotCommandMenu() []telegramBotCommand {
 		telegramBotCommand{Command: "stats", Description: "媒体库统计(管理员)"},
 		telegramBotCommand{Command: "users", Description: "用户管理(管理员)"},
 		telegramBotCommand{Command: "cleanup", Description: "保号清理预览/确认(管理员)"},
-		telegramBotCommand{Command: "cleanup_mode", Description: "设置保号规则匹配模式(管理员)"},
+		telegramBotCommand{Command: "cleanup_mode", Description: "查看固定保号模式(管理员)"},
 		telegramBotCommand{Command: "cleanup_rule", Description: "Mgo保号规则管理(管理员)"},
 	)
 	return commands

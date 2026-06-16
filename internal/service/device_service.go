@@ -21,7 +21,7 @@ import (
 //	   account immediately; fingerprint mismatch is warning-based and disables
 //	   the account after the configured warning threshold.
 //	② Mgo 保号规则: admins define one or more keep rules; a sweep deletes
-//	   accounts that do not satisfy the configured any/all/count rule set.
+//	   accounts only when none of the enabled keep rules match.
 //
 // Safeguards: admin / protected accounts are never auto disabled or deleted;
 // a Telegram notification is sent before a destructive action; every policy
@@ -212,8 +212,8 @@ func (s *DeviceService) SweepInactiveUsers(ctx context.Context) (int, error) {
 }
 
 // SweepAccountCleanup runs the admin-defined account cleanup policy once.
-// Users are kept when they satisfy enough enabled keep rules according to
-// keep_mode: any / all / count. Users that do not meet the policy are deleted.
+// Users are kept when they satisfy any enabled keep rule. Users that do not
+// meet any enabled rule are deleted.
 func (s *DeviceService) SweepAccountCleanup(ctx context.Context) (int, error) {
 	cfg := loadBotConfig(ctx, s.repo)
 	if !cfg.AccountCleanupEnabled {
@@ -349,17 +349,6 @@ func (s *DeviceService) userMatchesCleanupPolicy(ctx context.Context, u *model.U
 		}
 	}
 	required := 1
-	switch cfg.AccountCleanupKeepMode {
-	case "all":
-		required = len(rules)
-	case "count":
-		required = cfg.AccountCleanupRequiredCount
-		if required > len(rules) {
-			required = len(rules)
-		}
-	default:
-		required = 1
-	}
 	return matches >= required, fmt.Sprintf("满足 %d/%d 条，需要 %d 条；%s", matches, len(rules), required, strings.Join(parts, "；"))
 }
 

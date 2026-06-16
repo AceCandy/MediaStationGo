@@ -116,6 +116,122 @@ func TestEmbyAuthenticateByNameAcceptsCaseVariantUsernameAndPath(t *testing.T) {
 	}
 }
 
+func TestEmbyAuthenticateRecordsMediaBrowserClientInfo(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	if err := db.AutoMigrate(model.AllModels()...); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	repos := repository.New(db)
+	cfg := &config.Config{}
+	cfg.Secrets.JWTSecret = "test-secret"
+	log := zap.NewNop()
+	permissions := service.NewPermissionService(log, repos)
+	auth := service.NewAuthService(cfg, log, repos, service.NewTokenService(cfg, log, repos), permissions)
+	if _, _, err := auth.Register(context.Background(), "viewer", "secret-pass"); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+
+	router := gin.New()
+	registerEmbyRoutes(router, cfg.Secrets.JWTSecret, &service.Container{
+		Repo:        repos,
+		Auth:        auth,
+		Emby:        service.NewEmbyService(cfg, log, repos),
+		Device:      service.NewDeviceService(log, repos),
+		Audit:       service.NewAuditService(log, repos),
+		Permissions: permissions,
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/emby/Users/AuthenticateByName", strings.NewReader(`{"Username":"viewer","Pw":"secret-pass"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-MediaBrowser-Authorization", `MediaBrowser Client="Infuse", Device="PC", DeviceId="device-42"`)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("unexpected status: %d body=%s", w.Code, w.Body.String())
+	}
+	user, err := repos.User.FindByUsername(context.Background(), "viewer")
+	if err != nil {
+		t.Fatalf("find user: %v", err)
+	}
+	devices, err := repos.UserDevice.ListByUser(context.Background(), user.ID)
+	if err != nil {
+		t.Fatalf("list devices: %v", err)
+	}
+	if len(devices) != 1 {
+		t.Fatalf("devices = %#v, want one recorded device", devices)
+	}
+	if devices[0].DeviceID != "device-42" || devices[0].DeviceName != "PC" || devices[0].Client != "Infuse" {
+		t.Fatalf("device info not parsed from MediaBrowser header: %#v", devices[0])
+	}
+}
+
+func TestEmbyMarkPlayedRefreshesPlaybackDevice(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	if err := db.AutoMigrate(model.AllModels()...); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	repos := repository.New(db)
+	if err := repos.User.Create(t.Context(), &model.User{
+		Base:         model.Base{ID: "user-1"},
+		Username:     "tester",
+		PasswordHash: "x",
+		Role:         "admin",
+		Tier:         "plus",
+		IsActive:     true,
+	}); err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	lib := model.Library{Name: "电影", Path: `/media/movies`, Type: "movie", Enabled: true}
+	if err := repos.Library.Create(t.Context(), &lib); err != nil {
+		t.Fatalf("create library: %v", err)
+	}
+	if err := repos.DB.Create(&model.Media{
+		Base:      model.Base{ID: "media-1"},
+		LibraryID: lib.ID,
+		Title:     "Watched Movie",
+		Path:      `/media/movies/Watched Movie.mkv`,
+	}).Error; err != nil {
+		t.Fatalf("create media: %v", err)
+	}
+
+	const secret = "test-secret"
+	router := gin.New()
+	registerEmbyRoutes(router, secret, &service.Container{
+		Repo:   repos,
+		Emby:   service.NewEmbyService(&config.Config{}, zap.NewNop(), repos),
+		Device: service.NewDeviceService(zap.NewNop(), repos),
+	})
+
+	token := signedTestToken(t, secret)
+	req := httptest.NewRequest(http.MethodPost, "/emby/Users/user-1/PlayedItems/media-1", nil)
+	req.Header.Set("X-MediaBrowser-Authorization", `MediaBrowser Client="Infuse", Device="iPhone", DeviceId="played-device", Token="`+token+`"`)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("unexpected status: %d body=%s", w.Code, w.Body.String())
+	}
+	devices, err := repos.UserDevice.ListByUser(context.Background(), "user-1")
+	if err != nil {
+		t.Fatalf("list devices: %v", err)
+	}
+	if len(devices) != 1 || devices[0].LastPlayAt == nil {
+		t.Fatalf("mark played should refresh playback device, got %#v", devices)
+	}
+	if devices[0].DeviceID != "played-device" || devices[0].DeviceName != "iPhone" || devices[0].Client != "Infuse" {
+		t.Fatalf("playback device info not parsed: %#v", devices[0])
+	}
+}
+
 func TestEmbyCompatSessionAllowsSameClientRequestsWithoutToken(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})

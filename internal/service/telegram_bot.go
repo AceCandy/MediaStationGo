@@ -526,7 +526,6 @@ func (s *TelegramBotService) cmdHelp(ctx context.Context, msg *TelegramMessage) 
 		"<b>/cleanup run</b> — 预览保号清理候选（管理员）\n" +
 		"<b>/cleanup run confirm</b> — 确认清理候选账号（管理员）\n" +
 		"<b>/cleanup on|off</b> — 保号规则开关（管理员）\n" +
-		"<b>/cleanup_mode any|all|count 2</b> — 保号模式（管理员）\n" +
 		"<b>/cleanup_rule list|add|edit|修改|del|enable|disable</b> — Mgo 保号规则（管理员）\n" +
 		"<b>/ban 用户名</b> / <b>/unban 用户名</b> — 禁用/解禁用户（管理员）\n" +
 		"<b>/hideadult on|off</b> — 隐藏/显示当前绑定账号的成人目录\n" +

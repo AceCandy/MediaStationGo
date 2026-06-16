@@ -300,8 +300,11 @@ func TestBotAdminCommandsManageDevicePolicy(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg = loadBotConfig(ctx, repos)
-	if cfg.AccountCleanupKeepMode != "count" || cfg.AccountCleanupRequiredCount != 2 {
+	if cfg.AccountCleanupKeepMode != "any" || cfg.AccountCleanupRequiredCount != 1 {
 		t.Fatalf("unexpected cleanup mode: %+v; reply=%q", cfg, reply.Text)
+	}
+	if !strings.Contains(reply.Text, "满足任意一条") {
+		t.Fatalf("cleanup mode should explain fixed any-rule policy, got %q", reply.Text)
 	}
 
 	reply, err = bot.executeCommand(ctx, channel, msg, "/cleanup_rule add recent_login login_7d 七天内登录 7")
@@ -491,6 +494,67 @@ func TestBotCleanupRunPreviewsBeforeConfirm(t *testing.T) {
 		if got, _ := repos.User.FindByID(ctx, user.ID); got == nil {
 			t.Fatalf("%s should be kept by保号 rules/protection", user.Username)
 		}
+	}
+}
+
+func TestBotCleanupLegacyCountModeStillKeepsSingleMatchedRule(t *testing.T) {
+	ctx := context.Background()
+	repos, bot := newBotTestService(t)
+	admin := &model.User{Username: "root", PasswordHash: "x", Role: "admin", IsActive: true}
+	if err := repos.User.Create(ctx, admin); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	old := now.Add(-30 * 24 * time.Hour)
+	recent := &model.User{Username: "recent", PasswordHash: "x", Role: "user", IsActive: true}
+	recent.CreatedAt = old
+	recent.LastLoginAt = &now
+	stale := &model.User{Username: "stale", PasswordHash: "x", Role: "user", IsActive: true}
+	stale.CreatedAt = old
+	stale.LastLoginAt = &old
+	for _, user := range []*model.User{recent, stale} {
+		if err := repos.User.Create(ctx, user); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := repos.Setting.Set(ctx, SettingAccountCleanupEnabled, "true"); err != nil {
+		t.Fatal(err)
+	}
+	if err := repos.Setting.Set(ctx, SettingAccountCleanupKeepMode, "count"); err != nil {
+		t.Fatal(err)
+	}
+	if err := repos.Setting.Set(ctx, SettingAccountCleanupRequiredCount, "2"); err != nil {
+		t.Fatal(err)
+	}
+	if err := repos.Setting.Set(ctx, SettingAccountCleanupRules, `[
+		{"id":"login_7d","name":"最近登录","type":"recent_login","enabled":true,"window_days_max":7},
+		{"id":"new_7d","name":"新号宽限","type":"account_age_grace","enabled":true,"min_count":7}
+	]`); err != nil {
+		t.Fatal(err)
+	}
+	channel := &model.NotifyChannel{Name: "Telegram", Type: "telegram", Enabled: true, Config: `{"admin_user_ids":"9001"}`}
+	msg := &TelegramMessage{From: TelegramUser{ID: 9001, Username: "root"}, Chat: TelegramChat{ID: 9001, Type: "private"}}
+
+	reply, err := bot.executeCommand(ctx, channel, msg, "/cleanup run")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(reply.Text, "recent") {
+		t.Fatalf("user matching one keep rule must not be a cleanup candidate, got %q", reply.Text)
+	}
+	if !strings.Contains(reply.Text, "stale") {
+		t.Fatalf("user matching no keep rules should be a candidate, got %q", reply.Text)
+	}
+
+	reply, err = bot.executeCommand(ctx, channel, msg, "/cleanup run confirm")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := repos.User.FindByID(ctx, recent.ID); got == nil {
+		t.Fatal("legacy count mode must not delete a user matching one keep rule")
+	}
+	if got, _ := repos.User.FindByID(ctx, stale.ID); got != nil {
+		t.Fatalf("stale user should be deleted after confirm, reply=%q", reply.Text)
 	}
 }
 

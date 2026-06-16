@@ -301,3 +301,84 @@ func TestQBitSetLocationSurfacesConflict(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
+func TestQBitAdapterPauseResumeFallsBackToQBit52Actions(t *testing.T) {
+	var pauseCalled, stopCalled, resumeCalled, startCalled atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v2/auth/login":
+			_, _ = w.Write([]byte("Ok."))
+		case "/api/v2/torrents/pause":
+			pauseCalled.Add(1)
+			http.NotFound(w, r)
+		case "/api/v2/torrents/stop":
+			stopCalled.Add(1)
+			if r.Header.Get("Origin") != serverOrigin(r) {
+				t.Errorf("stop Origin = %q, want %q", r.Header.Get("Origin"), serverOrigin(r))
+			}
+			_, _ = w.Write([]byte("Ok."))
+		case "/api/v2/torrents/resume":
+			resumeCalled.Add(1)
+			http.NotFound(w, r)
+		case "/api/v2/torrents/start":
+			startCalled.Add(1)
+			if r.Header.Get("Origin") != serverOrigin(r) {
+				t.Errorf("start Origin = %q, want %q", r.Header.Get("Origin"), serverOrigin(r))
+			}
+			_, _ = w.Write([]byte("Ok."))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	adapter := NewQBitAdapter()
+	if err := adapter.Initialize(context.Background(), DownloadClientConfig{Host: server.URL, Username: "admin", Password: "adminadmin"}); err != nil {
+		t.Fatalf("initialize: %v", err)
+	}
+	if err := adapter.Pause(context.Background(), "abc123"); err != nil {
+		t.Fatalf("pause: %v", err)
+	}
+	if err := adapter.Resume(context.Background(), "abc123"); err != nil {
+		t.Fatalf("resume: %v", err)
+	}
+	if pauseCalled.Load() != 1 || stopCalled.Load() != 1 || resumeCalled.Load() != 1 || startCalled.Load() != 1 {
+		t.Fatalf("calls pause=%d stop=%d resume=%d start=%d, want all 1",
+			pauseCalled.Load(), stopCalled.Load(), resumeCalled.Load(), startCalled.Load())
+	}
+}
+
+func TestQBitAdapterAddTorrentSendsOriginAndRejectsFailsBody(t *testing.T) {
+	var addCalled atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v2/auth/login":
+			_, _ = w.Write([]byte("Ok."))
+		case "/api/v2/torrents/add":
+			addCalled.Add(1)
+			if r.Header.Get("Origin") != serverOrigin(r) {
+				t.Errorf("Origin = %q, want %q", r.Header.Get("Origin"), serverOrigin(r))
+			}
+			_, _ = w.Write([]byte("Fails."))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	adapter := NewQBitAdapter()
+	if err := adapter.Initialize(context.Background(), DownloadClientConfig{Host: server.URL, Username: "admin", Password: "adminadmin"}); err != nil {
+		t.Fatalf("initialize: %v", err)
+	}
+	_, err := adapter.AddTorrent(context.Background(), "magnet:?xt=urn:btih:abc", "/downloads")
+	if err == nil || !strings.Contains(err.Error(), "rejected") {
+		t.Fatalf("expected rejected add error, got %v", err)
+	}
+	if addCalled.Load() != 1 {
+		t.Fatalf("add calls = %d, want 1", addCalled.Load())
+	}
+}
+
+func serverOrigin(r *http.Request) string {
+	return "http://" + r.Host
+}
