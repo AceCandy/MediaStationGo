@@ -49,6 +49,16 @@ func ApplyRuntimeSetting(cfg *config.Config, key, value string) {
 			}
 			cfg.App.FFprobeMaxConcurrent = n
 		}
+	case "cloud.scan_max_concurrent", "cloud.scan_list_concurrency", "app.cloud_scan_max_concurrent":
+		if n, err := strconv.Atoi(value); err == nil {
+			if n < 1 {
+				n = 1
+			}
+			if n > 16 {
+				n = 16
+			}
+			cfg.App.CloudScanMaxConcurrent = n
+		}
 	case "app.max_cpu_threads", "runtime.max_cpu_threads":
 		if n, err := strconv.Atoi(value); err == nil {
 			if n < 1 {

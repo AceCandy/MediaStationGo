@@ -5,6 +5,7 @@ import toast from 'react-hot-toast'
 import { ArrowLeft, Play, Film } from 'lucide-react'
 
 import { libraryAPI } from '../api/library'
+import { storageAPI, type CloudScanStatus } from '../api/storage_config'
 import type { Library, Media } from '../types'
 import { MediaCard } from '../components/MediaCard'
 import { ExternalPlayerButton } from '../components/ExternalPlayerButton'
@@ -146,6 +147,51 @@ export function LibraryPage() {
   }, [id, reloadCurrentLibrary, role])
 
   useWebSocket(onRealtimeEvent)
+
+  useEffect(() => {
+    if (role !== 'admin' || !id) return
+    let cancelled = false
+    let terminal = false
+    let timer: number | undefined
+    const restoreCloudScanStatus = async () => {
+      const r = await storageAPI.cloudScanStatus()
+      if (cancelled) return
+      const status = (r.items ?? []).find((item) => item.library_id === id)
+      if (!status) return
+      if (status.state === 'running' || status.state === 'queued' || status.state === 'canceling') {
+        setScanning(true)
+        setScanProgress(formatCloudScanStatus(status))
+        return
+      }
+      if (status.state === 'finished') {
+        setScanning(false)
+        setScanProgress(formatCloudScanStatus(status))
+        reloadCurrentLibrary()
+        terminal = true
+        if (timer) window.clearInterval(timer)
+        return
+      }
+      if (status.state === 'error' && status.error) {
+        setScanning(false)
+        setScanProgress(`扫描失败：${status.error}`)
+        terminal = true
+        if (timer) window.clearInterval(timer)
+      }
+    }
+    restoreCloudScanStatus()
+      .catch(() => undefined)
+      .finally(() => {
+        if (!cancelled && !terminal) {
+          timer = window.setInterval(() => {
+            restoreCloudScanStatus().catch(() => undefined)
+          }, 5000)
+        }
+      })
+    return () => {
+      cancelled = true
+      if (timer) window.clearInterval(timer)
+    }
+  }, [id, reloadCurrentLibrary, role])
 
   useEffect(() => {
     if (loading) return
@@ -417,6 +463,20 @@ function formatDuration(seconds: number): string {
   if (minutes < 60) return `${minutes}分${rest}秒`
   const hours = Math.floor(minutes / 60)
   return `${hours}小时${minutes % 60}分`
+}
+
+function formatCloudScanStatus(status: CloudScanStatus): string {
+  const stage =
+    status.state === 'queued' ? '扫描已排队'
+      : status.state === 'canceling' ? '正在中断扫描'
+        : status.state === 'finished' ? '扫描完成'
+          : status.stage === 'importing' ? '正在入库'
+            : '正在遍历目录'
+  const speed = Number(status.files_per_second ?? 0)
+  const speedText = speed > 0 && status.state !== 'finished'
+    ? ` · ${speed.toFixed(speed >= 10 ? 0 : 1)} 个/秒`
+    : ''
+  return `${stage}：目录 ${status.dirs ?? 0} · 已发现 ${status.discovered ?? 0} · 已入库 ${status.visited ?? 0} · 新增 ${status.added ?? 0} · 更新 ${status.updated ?? 0}${speedText}`
 }
 
 function formatSize(bytes: number): string {

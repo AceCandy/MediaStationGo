@@ -80,11 +80,14 @@ type AppConfig struct {
 	// FFprobeMaxConcurrent limits concurrent ffprobe/ffmpeg metadata probes.
 	// NAS devices can become unresponsive when a scan starts many probe
 	// processes at once, so the default is deliberately conservative.
-	FFprobeMaxConcurrent int      `mapstructure:"ffprobe_max_concurrent"`
-	MaxCPUThreads        int      `mapstructure:"max_cpu_threads"`
-	VAAPIDevice          string   `mapstructure:"vaapi_device"`
-	CORSOrigins          []string `mapstructure:"cors_origins"`
-	ServerURL            string   `mapstructure:"server_url"`
+	FFprobeMaxConcurrent int `mapstructure:"ffprobe_max_concurrent"`
+	// CloudScanMaxConcurrent limits concurrent cloud directory list requests
+	// inside one mounted cloud library scan.
+	CloudScanMaxConcurrent int      `mapstructure:"cloud_scan_max_concurrent"`
+	MaxCPUThreads          int      `mapstructure:"max_cpu_threads"`
+	VAAPIDevice            string   `mapstructure:"vaapi_device"`
+	CORSOrigins            []string `mapstructure:"cors_origins"`
+	ServerURL              string   `mapstructure:"server_url"`
 }
 
 // DatabaseConfig 配置 GORM 数据库。默认 auto：
@@ -239,6 +242,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("app.ffmpeg_path", "ffmpeg")
 	v.SetDefault("app.ffprobe_path", "ffprobe")
 	v.SetDefault("app.ffprobe_max_concurrent", 1)
+	v.SetDefault("app.cloud_scan_max_concurrent", 4)
 	v.SetDefault("app.max_cpu_threads", 2)
 	v.SetDefault("app.vaapi_device", "/dev/dri/renderD128")
 	v.SetDefault("app.cors_origins", []string{})
@@ -345,6 +349,12 @@ func (c *Config) normalize() error {
 	}
 	if c.App.MaxCPUThreads > 8 {
 		c.App.MaxCPUThreads = 8
+	}
+	if c.App.CloudScanMaxConcurrent < 1 {
+		c.App.CloudScanMaxConcurrent = 1
+	}
+	if c.App.CloudScanMaxConcurrent > 16 {
+		c.App.CloudScanMaxConcurrent = 16
 	}
 	if c.Database.MaxOpenConns <= 0 {
 		c.Database.MaxOpenConns = defaultDatabaseMaxOpenConns

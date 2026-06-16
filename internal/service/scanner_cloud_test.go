@@ -1,12 +1,16 @@
 package service
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/glebarez/sqlite"
 	"go.uber.org/zap"
@@ -119,6 +123,93 @@ func TestScanCloudLibraryImportsRecursivePlayableMedia(t *testing.T) {
 	}
 	if allRows != 0 {
 		t.Fatalf("unscoped media count after cloud prune = %d, want 0", allRows)
+	}
+}
+
+func TestScanCloudLibraryListsChildDirectoriesConcurrently(t *testing.T) {
+	var active int32
+	var maxActive int32
+	var releaseOnce sync.Once
+	release := make(chan struct{})
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/file/sort" {
+			t.Errorf("unexpected path %s", r.URL.Path)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Query().Get("pdir_fid") {
+		case "0":
+			_, _ = w.Write([]byte(`{"status":200,"code":0,"data":{"list":[
+				{"fid":"d1","file_name":"A","dir":true,"size":0},
+				{"fid":"d2","file_name":"B","dir":true,"size":0}
+			]}}`))
+		case "d1", "d2":
+			cur := atomic.AddInt32(&active, 1)
+			defer atomic.AddInt32(&active, -1)
+			for {
+				prev := atomic.LoadInt32(&maxActive)
+				if cur <= prev || atomic.CompareAndSwapInt32(&maxActive, prev, cur) {
+					break
+				}
+			}
+			if cur >= 2 {
+				releaseOnce.Do(func() { close(release) })
+			}
+			select {
+			case <-release:
+			case <-r.Context().Done():
+				return
+			case <-time.After(1500 * time.Millisecond):
+				t.Errorf("child directory requests were not concurrent")
+				return
+			}
+			id := r.URL.Query().Get("pdir_fid")
+			_, _ = fmt.Fprintf(w, `{"status":200,"code":0,"data":{"list":[{"fid":"f-%s","file_name":"Movie.%s.mkv","dir":false,"size":123}]}}`, id, id)
+		default:
+			t.Errorf("unexpected pdir_fid %q", r.URL.Query().Get("pdir_fid"))
+		}
+	}))
+	defer upstream.Close()
+
+	db, err := gorm.Open(sqlite.Open("file:cloud_scan_concurrent?mode=memory&cache=shared"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(&model.Library{}, &model.Media{}, &model.Setting{}, &model.StorageConfig{}); err != nil {
+		t.Fatal(err)
+	}
+	repos := repository.New(db)
+	log := zap.NewNop()
+	storage := NewStorageConfigService(log, repos, NewCryptoService("", log))
+	if _, err := storage.Save(t.Context(), StorageInput{
+		Type: "quark",
+		Config: map[string]any{
+			"cookie": "kps=test",
+			"base":   upstream.URL,
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	lib := model.Library{Name: "夸克网盘", Path: "cloud://quark/0", Type: "movie", Enabled: true}
+	if err := repos.Library.Create(t.Context(), &lib); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &config.Config{}
+	cfg.App.CloudScanMaxConcurrent = 2
+	scanner := NewScannerService(cfg, log, repos, NewHub(log), nil, nil)
+	scanner.SetStorageConfig(storage)
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+	defer cancel()
+
+	res, err := scanner.ScanLibrary(ctx, lib.ID)
+	if err != nil {
+		t.Fatalf("scan cloud: %v", err)
+	}
+	if got := atomic.LoadInt32(&maxActive); got < 2 {
+		t.Fatalf("max concurrent child lists = %d, want >= 2", got)
+	}
+	if res.Visited != 2 || res.Added != 2 {
+		t.Fatalf("scan result = %#v, want visited=2 added=2", res)
 	}
 }
 

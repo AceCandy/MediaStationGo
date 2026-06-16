@@ -1044,50 +1044,90 @@ func (s *ScannerService) scanCloudLibrary(ctx context.Context, lib *model.Librar
 	lastProgress := time.Time{}
 	dirsVisited := 0
 	filesDiscovered := 0
+	var stateMu sync.Mutex
 	publishProgress := func(stage string, force bool) {
 		if s.hub == nil {
 			return
 		}
+		stateMu.Lock()
 		if !force && time.Since(lastProgress) < 2*time.Second {
+			stateMu.Unlock()
 			return
 		}
 		lastProgress = time.Now()
+		dirs := dirsVisited
+		discovered := filesDiscovered
+		visited := res.Visited
+		added := res.Added
+		updated := res.Updated
+		skipped := res.Skipped
+		removed := res.Removed
+		stateMu.Unlock()
 		elapsed := time.Since(startedAt)
 		filesPerSecond := 0.0
-		processed := filesDiscovered
-		if res.Visited > processed {
-			processed = res.Visited
+		processed := discovered
+		if visited > processed {
+			processed = visited
 		}
 		if elapsed.Seconds() > 0 {
 			filesPerSecond = float64(processed) / elapsed.Seconds()
 		}
-		s.updateCloudScanProgress(lib.ID, stage, dirsVisited, filesDiscovered, res.Visited, res.Added, res.Updated, res.Skipped, res.Removed, filesPerSecond)
+		s.updateCloudScanProgress(lib.ID, stage, dirs, discovered, visited, added, updated, skipped, removed, filesPerSecond)
 		s.hub.Publish("scan", map[string]any{
 			"library_id":       lib.ID,
 			"cloud":            true,
 			"stage":            stage,
-			"dirs":             dirsVisited,
-			"discovered":       filesDiscovered,
-			"visited":          res.Visited,
-			"added":            res.Added,
-			"updated":          res.Updated,
-			"skipped":          res.Skipped,
+			"dirs":             dirs,
+			"discovered":       discovered,
+			"visited":          visited,
+			"added":            added,
+			"updated":          updated,
+			"skipped":          skipped,
 			"elapsed_seconds":  int(elapsed.Seconds()),
 			"files_per_second": filesPerSecond,
 			"estimate_message": "云盘接口不提供总文件数，剩余时间会随目录大小和网盘响应速度变化",
 		})
 	}
 	publishProgress("listing", true)
+	var walkWG sync.WaitGroup
+	var walkErr error
+	var walkErrOnce sync.Once
+	setWalkErr := func(err error) {
+		if err != nil {
+			walkErrOnce.Do(func() {
+				walkErr = err
+			})
+		}
+	}
+	listSlots := make(chan struct{}, s.cloudScanWorkerCount())
 	var walkCloud func(dirID, displayDir string, inheritedMeta *LocalMetadata) error
 	walkCloud = func(dirID, displayDir string, inheritedMeta *LocalMetadata) error {
+		defer walkWG.Done()
+		if err := ctx.Err(); err != nil {
+			setWalkErr(err)
+			return err
+		}
+		stateMu.Lock()
 		if _, ok := visitedDirs[dirID]; ok {
+			stateMu.Unlock()
 			return nil
 		}
 		visitedDirs[dirID] = struct{}{}
+		stateMu.Unlock()
+
+		select {
+		case listSlots <- struct{}{}:
+			defer func() { <-listSlots }()
+		case <-ctx.Done():
+			setWalkErr(ctx.Err())
+			return ctx.Err()
+		}
 		entries, err := s.storage.CloudList(ctx, typ, dirID)
 		if err != nil {
 			if dirID != rootDir {
+				stateMu.Lock()
 				res.Skipped++
+				stateMu.Unlock()
 				s.log.Warn("skip inaccessible cloud directory",
 					zap.String("library_id", lib.ID),
 					zap.String("provider", typ),
@@ -1095,24 +1135,30 @@ func (s *ScannerService) scanCloudLibrary(ctx context.Context, lib *model.Librar
 					zap.Error(err))
 				return nil
 			}
+			setWalkErr(err)
 			return err
 		}
+		stateMu.Lock()
 		dirsVisited++
-		publishProgress("listing", dirsVisited == 1 || dirsVisited%20 == 0)
+		dirProgress := dirsVisited == 1 || dirsVisited%20 == 0
+		stateMu.Unlock()
+		publishProgress("listing", dirProgress)
 		sidecars := newCloudSidecarSet(typ, entries)
 		dirMeta := s.cloudDirectoryMetadata(ctx, typ, displayDir, sidecars, inheritedMeta)
 		s.cacheCloudMetadataArtworkNow(ctx, dirMeta)
 		for _, entry := range entries {
 			select {
 			case <-ctx.Done():
+				setWalkErr(ctx.Err())
 				return ctx.Err()
 			default:
 			}
 			if entry.IsDir {
 				if strings.TrimSpace(entry.ID) != "" {
-					if err := walkCloud(entry.ID, joinCloudDisplayPath(displayDir, entry.Name), dirMeta); err != nil {
-						return err
-					}
+					walkWG.Add(1)
+					go func(childID, childDisplay string, childMeta *LocalMetadata) {
+						_ = walkCloud(childID, childDisplay, childMeta)
+					}(entry.ID, joinCloudDisplayPath(displayDir, entry.Name), dirMeta)
 				}
 				continue
 			}
@@ -1122,16 +1168,22 @@ func (s *ScannerService) scanCloudLibrary(ctx context.Context, lib *model.Librar
 			}
 			ref := cloudEntryRef(typ, entry.ID, entry.PickCode)
 			if ref == "" {
+				stateMu.Lock()
 				res.Skipped++
+				stateMu.Unlock()
 				continue
 			}
+			stateMu.Lock()
 			if _, ok := seenRefs[ref]; ok {
 				res.Skipped++
+				stateMu.Unlock()
 				continue
 			}
 			seenRefs[ref] = struct{}{}
 			filesDiscovered++
-			publishProgress("listing", filesDiscovered%100 == 0)
+			fileProgress := filesDiscovered%100 == 0
+			stateMu.Unlock()
+			publishProgress("listing", fileProgress)
 			displayPath := joinCloudDisplayPath(displayDir, entry.Name)
 			path := cloudMediaPath(typ, displayPath)
 			localMeta := s.cloudFileMetadata(ctx, typ, displayPath, entry.Name, sidecars, dirMeta, librarySupportsSeasons(lib))
@@ -1150,21 +1202,32 @@ func (s *ScannerService) scanCloudLibrary(ctx context.Context, lib *model.Librar
 				localMeta: localMeta,
 			}
 			key := cloudMediaDedupeKey(lib, displayDir, entry.Name, entry.Size)
+			stateMu.Lock()
 			if key != "" {
 				if prevIndex, ok := candidateByKey[key]; ok {
 					res.Skipped++
 					if candidate.size > candidates[prevIndex].size {
 						candidates[prevIndex] = candidate
 					}
+					stateMu.Unlock()
 					continue
 				}
 				candidateByKey[key] = len(candidates)
 			}
 			candidates = append(candidates, candidate)
+			stateMu.Unlock()
 		}
 		return nil
 	}
-	if err := walkCloud(rootDir, rootDisplayDir, nil); err != nil {
+	walkWG.Add(1)
+	go func() {
+		_ = walkCloud(rootDir, rootDisplayDir, nil)
+	}()
+	walkWG.Wait()
+	if walkErr != nil {
+		return res, walkErr
+	}
+	if err := ctx.Err(); err != nil {
 		return res, err
 	}
 	existingMedia, err := s.existingCloudMediaSnapshot(ctx, lib.ID)
@@ -1551,6 +1614,23 @@ func (s *ScannerService) ffprobeWorkerCount() int {
 		return 1
 	}
 	return normalizeFFprobeMaxConcurrent(s.cfg.App.FFprobeMaxConcurrent)
+}
+
+func (s *ScannerService) cloudScanWorkerCount() int {
+	if s == nil || s.cfg == nil {
+		return 4
+	}
+	return normalizeCloudScanMaxConcurrent(s.cfg.App.CloudScanMaxConcurrent)
+}
+
+func normalizeCloudScanMaxConcurrent(n int) int {
+	if n <= 0 {
+		return 1
+	}
+	if n > 16 {
+		return 16
+	}
+	return n
 }
 
 func (s *ScannerService) probeCloudFileMetadata(ctx context.Context, typ, ref string) (*ProbeResult, error) {
