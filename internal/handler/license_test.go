@@ -1,6 +1,8 @@
 package handler
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -76,6 +78,43 @@ func TestApplyLicenseStatusReflectsUnlimitedUsers(t *testing.T) {
 
 	if state.MaxUsers != nil || !state.UnlimitedUsers {
 		t.Fatalf("unlimited status should clear previous finite user limit: %+v", state)
+	}
+}
+
+func TestRefreshLicenseServerStatusReflectsEditedLimitAndHeartbeatRequest(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/status/device-1" {
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"valid": true,
+			"license_type": "subscription",
+			"max_devices": 5,
+			"max_users": 60,
+			"unlimited_users": false,
+			"device_name": "NAS",
+			"heartbeat_requested": true,
+			"is_active": true
+		}`))
+	}))
+	defer upstream.Close()
+
+	state := service.LicenseActivationState{Valid: true, UnlimitedUsers: true}
+	client := &licenseClient{baseURL: upstream.URL, httpClient: upstream.Client()}
+
+	refreshed, ok, requested, err := refreshLicenseServerStatus(t.Context(), client, state, "device-1")
+	if err != nil {
+		t.Fatalf("refresh status: %v", err)
+	}
+	if !ok || !requested {
+		t.Fatalf("expected valid status with requested heartbeat, ok=%v requested=%v", ok, requested)
+	}
+	if refreshed.MaxUsers == nil || *refreshed.MaxUsers != 60 || refreshed.UnlimitedUsers {
+		t.Fatalf("edited user limit was not reflected: %+v", refreshed)
+	}
+	if refreshed.MaxDevices != 5 || refreshed.DeviceName != "NAS" {
+		t.Fatalf("server status fields were not applied: %+v", refreshed)
 	}
 }
 

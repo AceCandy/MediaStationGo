@@ -682,13 +682,19 @@ func (s *ScannerService) CancelCloudScan(libraryID string) bool {
 	s.cloudScanMu.Lock()
 	defer s.cloudScanMu.Unlock()
 	entry := s.cloudScans[libraryID]
-	if entry == nil || entry.cancel == nil || (entry.status.State != "running" && entry.status.State != "canceling") {
+	if entry == nil || (entry.status.State != "running" && entry.status.State != "queued" && entry.status.State != "canceling") {
 		return false
 	}
 	entry.status.State = "canceling"
 	entry.status.Stage = "canceling"
 	entry.status.UpdatedAt = time.Now()
-	entry.cancel()
+	if entry.cancel != nil {
+		entry.cancel()
+	} else {
+		entry.status.State = "canceled"
+		entry.status.Stage = "canceled"
+		entry.status.FinishedAt = time.Now()
+	}
 	return true
 }
 
@@ -700,13 +706,19 @@ func (s *ScannerService) CancelAllCloudScans() int {
 	defer s.cloudScanMu.Unlock()
 	cancelled := 0
 	for _, entry := range s.cloudScans {
-		if entry == nil || entry.cancel == nil || (entry.status.State != "running" && entry.status.State != "canceling") {
+		if entry == nil || (entry.status.State != "running" && entry.status.State != "queued" && entry.status.State != "canceling") {
 			continue
 		}
 		entry.status.State = "canceling"
 		entry.status.Stage = "canceling"
 		entry.status.UpdatedAt = time.Now()
-		entry.cancel()
+		if entry.cancel != nil {
+			entry.cancel()
+		} else {
+			entry.status.State = "canceled"
+			entry.status.Stage = "canceled"
+			entry.status.FinishedAt = time.Now()
+		}
 		cancelled++
 	}
 	return cancelled
@@ -724,13 +736,19 @@ func (s *ScannerService) CancelCloudScansForProvider(provider string) int {
 	defer s.cloudScanMu.Unlock()
 	cancelled := 0
 	for _, entry := range s.cloudScans {
-		if entry == nil || entry.status.Provider != provider || entry.cancel == nil || (entry.status.State != "running" && entry.status.State != "canceling") {
+		if entry == nil || entry.status.Provider != provider || (entry.status.State != "running" && entry.status.State != "queued" && entry.status.State != "canceling") {
 			continue
 		}
 		entry.status.State = "canceling"
 		entry.status.Stage = "canceling"
 		entry.status.UpdatedAt = time.Now()
-		entry.cancel()
+		if entry.cancel != nil {
+			entry.cancel()
+		} else {
+			entry.status.State = "canceled"
+			entry.status.Stage = "canceled"
+			entry.status.FinishedAt = time.Now()
+		}
 		cancelled++
 	}
 	return cancelled
@@ -816,20 +834,75 @@ func (s *ScannerService) StartAllCloudLibraryScans() ([]CloudScanStatus, error) 
 	}
 	libs = FilterScannableCloudLibraries(context.Background(), s.repo, libs)
 	statuses := make([]CloudScanStatus, 0, len(libs))
+	queue := make([]string, 0, len(libs))
 	for _, lib := range libs {
 		if !lib.Enabled {
 			continue
 		}
-		if _, ok := ParseCloudLibraryMount(lib.Path); !ok {
+		mount, ok := ParseCloudLibraryMount(lib.Path)
+		if !ok {
 			continue
 		}
-		status, _, err := s.StartCloudLibraryScan(lib.ID, false)
-		if err != nil {
-			status = CloudScanStatus{LibraryID: lib.ID, State: "error", Error: err.Error(), UpdatedAt: time.Now()}
+		status, queued := s.queueCloudLibraryScan(lib, mount)
+		if queued {
+			queue = append(queue, lib.ID)
 		}
 		statuses = append(statuses, status)
 	}
+	if len(queue) > 0 {
+		go s.runQueuedCloudLibraryScans(queue)
+	}
 	return statuses, nil
+}
+
+func (s *ScannerService) queueCloudLibraryScan(lib model.Library, mount CloudMountInfo) (CloudScanStatus, bool) {
+	now := time.Now()
+	status := CloudScanStatus{
+		LibraryID:  lib.ID,
+		Provider:   mount.Provider,
+		Stage:      "queued",
+		State:      "queued",
+		StartedAt:  now,
+		UpdatedAt:  now,
+		ResumeHint: "中断后再次点击扫描会从头遍历，但已入库媒体会去重更新，只补齐缺失项。",
+		Estimate:   "小目录通常几十秒；几万文件的大目录可能需要数分钟到数小时，取决于网盘接口速度。",
+	}
+	s.cloudScanMu.Lock()
+	defer s.cloudScanMu.Unlock()
+	if s.cloudScans == nil {
+		s.cloudScans = make(map[string]*cloudScanEntry)
+	}
+	if entry := s.cloudScans[lib.ID]; entry != nil {
+		switch entry.status.State {
+		case "running", "queued", "canceling":
+			return entry.status, false
+		}
+	}
+	s.cloudScans[lib.ID] = &cloudScanEntry{status: status}
+	return status, true
+}
+
+func (s *ScannerService) runQueuedCloudLibraryScans(libraryIDs []string) {
+	ctx, cancel := cloudScanContext(context.Background(), cloudScanTimeout(context.Background(), s.repo, 24*time.Hour))
+	defer cancel()
+	for _, libraryID := range libraryIDs {
+		if ctx.Err() != nil {
+			return
+		}
+		if s.cloudScanWasCanceled(libraryID) {
+			continue
+		}
+		if _, err := s.ScanLibraryWithoutAutoScrape(ctx, libraryID); err != nil && !errors.Is(err, ErrCloudScanAlreadyRunning) && !errors.Is(err, context.Canceled) && s.log != nil {
+			s.log.Warn("cloud library queued scan failed", zap.String("library_id", libraryID), zap.Error(err))
+		}
+	}
+}
+
+func (s *ScannerService) cloudScanWasCanceled(libraryID string) bool {
+	s.cloudScanMu.Lock()
+	defer s.cloudScanMu.Unlock()
+	entry := s.cloudScans[libraryID]
+	return entry != nil && entry.status.State == "canceled"
 }
 
 // ScanLibrary walks the library root and persists discovered media files.

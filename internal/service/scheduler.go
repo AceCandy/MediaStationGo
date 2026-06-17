@@ -87,8 +87,8 @@ const (
 	cloudAutoSyncEnabledKey        = "cloud.auto_sync_enabled"
 	cloudSyncIntervalSecondsKey    = "cloud.sync_interval_seconds"
 	cloudLastAutoSyncDateKey       = "cloud.last_auto_sync_date"
-	cloudAutoSyncWindowStartHour   = 19
-	cloudAutoSyncWindowEndHour     = 21
+	cloudAutoSyncWindowStartHour   = 23
+	cloudAutoSyncWindowEndHour     = 5
 	cloudAutoSyncCompletedDateForm = "2006-01-02"
 )
 
@@ -498,19 +498,33 @@ func (s *SchedulerService) autoCloudSyncDue(ctx context.Context, now time.Time) 
 	if err != nil {
 		return true
 	}
-	return strings.TrimSpace(last) != now.Format(cloudAutoSyncCompletedDateForm)
+	return strings.TrimSpace(last) != cloudAutoSyncWindowDate(now)
 }
 
 func cloudAutoSyncInWindow(now time.Time) bool {
 	hour := now.In(time.Local).Hour()
-	return hour >= cloudAutoSyncWindowStartHour && hour < cloudAutoSyncWindowEndHour
+	if cloudAutoSyncWindowStartHour == cloudAutoSyncWindowEndHour {
+		return true
+	}
+	if cloudAutoSyncWindowStartHour < cloudAutoSyncWindowEndHour {
+		return hour >= cloudAutoSyncWindowStartHour && hour < cloudAutoSyncWindowEndHour
+	}
+	return hour >= cloudAutoSyncWindowStartHour || hour < cloudAutoSyncWindowEndHour
+}
+
+func cloudAutoSyncWindowDate(now time.Time) string {
+	local := now.In(time.Local)
+	if cloudAutoSyncWindowStartHour > cloudAutoSyncWindowEndHour && local.Hour() < cloudAutoSyncWindowEndHour {
+		local = local.AddDate(0, 0, -1)
+	}
+	return local.Format(cloudAutoSyncCompletedDateForm)
 }
 
 func (s *SchedulerService) markCloudAutoSyncCompleted(ctx context.Context, now time.Time) error {
 	if s.repo == nil || s.repo.Setting == nil {
 		return nil
 	}
-	return s.repo.Setting.Set(ctx, cloudLastAutoSyncDateKey, now.Format(cloudAutoSyncCompletedDateForm))
+	return s.repo.Setting.Set(ctx, cloudLastAutoSyncDateKey, cloudAutoSyncWindowDate(now))
 }
 
 func (s *SchedulerService) cloudSyncInterval(ctx context.Context) time.Duration {

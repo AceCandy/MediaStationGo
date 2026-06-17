@@ -332,7 +332,7 @@ func TestSchedulerCloudSyncRunsOnlyOnceInsideNightlyWindow(t *testing.T) {
 	scheduler := NewSchedulerService(log, repos, scanner, nil, nil, storage, NewHub(log), "")
 
 	scheduler.now = func() time.Time {
-		return time.Date(2026, 6, 11, 18, 30, 0, 0, time.Local)
+		return time.Date(2026, 6, 11, 22, 30, 0, 0, time.Local)
 	}
 	if err := scheduler.jobSyncCloudLibraries(t.Context()); err != nil {
 		t.Fatalf("cloud sync outside window: %v", err)
@@ -353,13 +353,26 @@ func TestSchedulerCloudSyncRunsOnlyOnceInsideNightlyWindow(t *testing.T) {
 	}
 
 	scheduler.now = func() time.Time {
-		return time.Date(2026, 6, 11, 20, 15, 0, 0, time.Local)
+		return time.Date(2026, 6, 12, 4, 15, 0, 0, time.Local)
+	}
+	if !cloudAutoSyncInWindow(scheduler.now()) {
+		t.Fatalf("04:15 should still be inside overnight cloud sync window")
+	}
+	if got := cloudAutoSyncWindowDate(scheduler.now()); got != "2026-06-11" {
+		t.Fatalf("04:15 should belong to previous nightly window, got %s", got)
 	}
 	if err := scheduler.jobSyncCloudLibraries(t.Context()); err != nil {
-		t.Fatalf("second cloud sync same day: %v", err)
+		t.Fatalf("second cloud sync same overnight window: %v", err)
 	}
 	if got := requests.Load(); got != 1 {
-		t.Fatalf("same-day auto sync should not rerun, requests = %d", got)
+		t.Fatalf("same overnight auto sync should not rerun, requests = %d", got)
+	}
+
+	scheduler.now = func() time.Time {
+		return time.Date(2026, 6, 12, 5, 0, 0, 0, time.Local)
+	}
+	if cloudAutoSyncInWindow(scheduler.now()) {
+		t.Fatalf("05:00 should be outside overnight cloud sync window")
 	}
 }
 
@@ -465,7 +478,7 @@ func TestSchedulerCloudSyncDisabledByDefault(t *testing.T) {
 }
 
 func fixedNightlySyncTime() time.Time {
-	return time.Date(2026, 6, 11, 19, 30, 0, 0, time.Local)
+	return time.Date(2026, 6, 11, 23, 30, 0, 0, time.Local)
 }
 
 func TestSchedulerLoopWaitsIntervalAfterSlowRun(t *testing.T) {

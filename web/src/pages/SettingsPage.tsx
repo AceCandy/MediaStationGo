@@ -165,14 +165,14 @@ const GROUPS: SettingGroup[] = [
         key: 'cloud.auto_sync_enabled',
         label: '夜间自动同步网盘媒体库',
         type: 'toggle',
-        hint: '默认关闭。开启后仅在每天 19:00-21:00 自动补齐缺失媒体并扫描新增；手动扫描仍可随时执行。',
+        hint: '默认关闭。开启后仅在每天 23:00-05:00 按检查间隔触发；每次完整扫描所有启用网盘库一次后自动停止。手动扫描仍可随时执行。',
         defaultValue: 'false',
       },
       {
         key: 'cloud.sync_interval_seconds',
         label: '夜间窗口检查间隔秒数',
         type: 'number',
-        hint: '最小 300 秒，建议 1800 秒；同一天成功同步后不会重复全量扫，避免大型网盘反复递归。',
+        hint: '最小 300 秒，建议 1800 秒；同一个夜间窗口成功同步后不会重复全量扫，避免大型网盘反复递归。',
         defaultValue: '1800',
       },
       {

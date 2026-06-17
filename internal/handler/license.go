@@ -53,15 +53,16 @@ type licenseServerSignedResp struct {
 }
 
 type licenseServerStatusResp struct {
-	Valid          bool    `json:"valid"`
-	LicenseType    *string `json:"license_type"`
-	ExpiryDate     *string `json:"expiry_date"`
-	MaxDevices     int     `json:"max_devices"`
-	MaxUsers       *int    `json:"max_users"`
-	UnlimitedUsers bool    `json:"unlimited_users"`
-	DaysRemaining  *int    `json:"days_remaining"`
-	DeviceName     string  `json:"device_name"`
-	IsActive       bool    `json:"is_active"`
+	Valid              bool    `json:"valid"`
+	LicenseType        *string `json:"license_type"`
+	ExpiryDate         *string `json:"expiry_date"`
+	MaxDevices         int     `json:"max_devices"`
+	MaxUsers           *int    `json:"max_users"`
+	UnlimitedUsers     bool    `json:"unlimited_users"`
+	DaysRemaining      *int    `json:"days_remaining"`
+	DeviceName         string  `json:"device_name"`
+	IsActive           bool    `json:"is_active"`
+	HeartbeatRequested bool    `json:"heartbeat_requested"`
 }
 
 func licenseActivateHandler(svc *service.Container) gin.HandlerFunc {
@@ -129,13 +130,16 @@ func licenseStatusHandler(svc *service.Container) gin.HandlerFunc {
 					nextState := licenseStateFromSigned(signed, deviceID, deviceName)
 					nextState.LicenseKey = state.LicenseKey
 					state = nextState
+					if refreshed, ok, _, refreshErr := refreshLicenseServerStatus(c.Request.Context(), client, state, deviceID); refreshErr == nil && ok {
+						refreshed.LicenseKey = state.LicenseKey
+						state = refreshed
+					}
 					_ = persistLicenseState(c.Request.Context(), svc, state)
 				} else {
-					var upstream licenseServerStatusResp
-					if getErr := client.get(c.Request.Context(), "/api/v1/status/"+url.PathEscape(deviceID), &upstream); getErr == nil && upstream.Valid {
-						applyLicenseStatus(&state, upstream, deviceID)
+					if refreshed, ok, _, getErr := refreshLicenseServerStatus(c.Request.Context(), client, state, deviceID); getErr == nil && ok {
+						state = refreshed
 						_ = persistLicenseState(c.Request.Context(), svc, state)
-					} else if getErr == nil && !upstream.Valid {
+					} else if getErr == nil {
 						state.Valid = false
 						_ = persistLicenseState(c.Request.Context(), svc, state)
 					}
@@ -210,8 +214,26 @@ func maybeSendLicenseHeartbeat(ctx context.Context, svc *service.Container, inte
 	if err != nil {
 		return state, false, nil
 	}
-	if !licenseHeartbeatEligible(state) || !licenseHeartbeatDue(state, interval) {
+	if !licenseHeartbeatEligible(state) {
 		return state, false, nil
+	}
+	if !licenseHeartbeatDue(state, interval) {
+		client, clientErr := newLicenseClient(ctx, svc)
+		if clientErr != nil {
+			return state, false, nil
+		}
+		deviceID, idErr := ensureLicenseDeviceID(ctx, svc, state.DeviceID)
+		if idErr != nil {
+			return state, false, idErr
+		}
+		refreshed, ok, requested, refreshErr := refreshLicenseServerStatus(ctx, client, state, deviceID)
+		if refreshErr == nil && ok {
+			state = refreshed
+			_ = persistLicenseState(ctx, svc, state)
+		}
+		if !requested {
+			return state, false, nil
+		}
 	}
 	next, err := sendLicenseHeartbeat(ctx, svc)
 	if err != nil {
@@ -264,10 +286,28 @@ func sendLicenseHeartbeat(ctx context.Context, svc *service.Container) (service.
 	}
 	state := licenseStateFromSigned(upstream, deviceID, deviceName)
 	state.LicenseKey = oldState.LicenseKey
+	if refreshed, ok, _, refreshErr := refreshLicenseServerStatus(ctx, client, state, deviceID); refreshErr == nil && ok {
+		refreshed.LicenseKey = state.LicenseKey
+		state = refreshed
+	}
 	if err := persistLicenseState(ctx, svc, state); err != nil {
 		return service.LicenseActivationState{}, err
 	}
 	return state, nil
+}
+
+func refreshLicenseServerStatus(ctx context.Context, client *licenseClient, state service.LicenseActivationState, deviceID string) (service.LicenseActivationState, bool, bool, error) {
+	var upstream licenseServerStatusResp
+	if err := client.get(ctx, "/api/v1/status/"+url.PathEscape(deviceID), &upstream); err != nil {
+		return state, false, false, err
+	}
+	if !upstream.Valid {
+		state.Valid = false
+		state.UpdatedAt = time.Now().Format(time.RFC3339)
+		return state, false, upstream.HeartbeatRequested, nil
+	}
+	applyLicenseStatus(&state, upstream, deviceID)
+	return state, true, upstream.HeartbeatRequested, nil
 }
 
 type licenseClient struct {
