@@ -45,6 +45,8 @@ password.*
 .idea/
 .vscode/
 .workbuddy/
+.dev-cache/
+.dev-data/
 node_modules/
 **/node_modules/
 web/dist/

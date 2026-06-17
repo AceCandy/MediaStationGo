@@ -19,7 +19,8 @@ FROM --platform=$BUILDPLATFORM node:20-alpine AS frontend
 ARG NPM_CONFIG_REGISTRY=https://registry.npmjs.org/
 WORKDIR /app/web
 COPY web/package*.json ./
-RUN npm ci --registry="${NPM_CONFIG_REGISTRY}"
+RUN --mount=type=cache,target=/root/.npm \
+    npm ci --registry="${NPM_CONFIG_REGISTRY}"
 COPY web/ .
 RUN npm run build
 
@@ -31,10 +32,12 @@ ARG GOPROXY=https://proxy.golang.org,direct
 ENV GOPROXY=${GOPROXY}
 WORKDIR /app
 COPY go.mod go.sum ./
-RUN go mod download
+RUN --mount=type=cache,target=/go/pkg/mod \
+    go mod download
 COPY . .
 COPY --from=frontend /app/web/dist ./web/dist
-RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
+RUN --mount=type=cache,target=/go/pkg/mod \
+    CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
     go build -trimpath -ldflags="-s -w" -o mediastation-go ./cmd/server
 
 # ---- Stage 3: runtime ------------------------------------------------------
