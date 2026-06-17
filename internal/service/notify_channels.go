@@ -192,16 +192,27 @@ const (
 // NotifyEventNone sentinel means the channel stays enabled but receives no
 // event push.
 func (s *NotifyChannelService) Broadcast(ctx context.Context, title, body, event string) {
+	s.BroadcastEvent(ctx, NotifyEvent{
+		Type:    event,
+		Title:   title,
+		Message: body,
+	})
+}
+
+// BroadcastEvent sends one structured event to every subscribed enabled
+// channel. Rich channels such as Telegram can use Data fields for artwork and
+// cleaner formatting while simpler channels keep receiving title/body text.
+func (s *NotifyChannelService) BroadcastEvent(ctx context.Context, event NotifyEvent) {
 	rows, err := s.repo.NotifyChannel.ListEnabled(ctx)
 	if err != nil {
 		s.log.Warn("notify list failed", zap.Error(err))
 		return
 	}
 	for _, r := range rows {
-		if !channelSubscribes(r, event) {
+		if !channelSubscribes(r, event.Type) {
 			continue
 		}
-		if err := s.dispatchOne(ctx, r, title, body); err != nil {
+		if err := s.dispatchOneEvent(ctx, r, event); err != nil {
 			s.log.Warn("notify dispatch failed", zap.String("channel", r.Name), zap.Error(err))
 		}
 	}
@@ -237,8 +248,14 @@ func channelSubscribes(n model.NotifyChannel, event string) bool {
 // dispatchOne is the inner dispatcher; the channel type drives which
 // HTTP request gets built.
 func (s *NotifyChannelService) dispatchOne(ctx context.Context, n model.NotifyChannel, title, body string) error {
+	return s.dispatchOneEvent(ctx, n, NotifyEvent{Title: title, Message: body})
+}
+
+func (s *NotifyChannelService) dispatchOneEvent(ctx context.Context, n model.NotifyChannel, event NotifyEvent) error {
 	cfg := map[string]any{}
 	_ = json.Unmarshal([]byte(n.Config), &cfg)
+	title := event.Title
+	body := event.Message
 
 	switch n.Type {
 	case "telegram":
@@ -248,9 +265,22 @@ func (s *NotifyChannelService) dispatchOne(ctx context.Context, n model.NotifyCh
 		if token == "" || len(chats) == 0 {
 			return errors.New("telegram missing bot_token / group_chat_id / channel_chat_id")
 		}
-		text := fmt.Sprintf("<b>%s</b>\n\n%s", escapeHTML(title), escapeHTML(body))
+		text := formatTelegramNotification(event)
+		photoURL := telegramEventPhotoURL(event)
 		var firstErr error
 		for _, chat := range chats {
+			if photoURL != "" && len(text) <= 1024 {
+				form := url.Values{}
+				form.Set("chat_id", chat)
+				form.Set("photo", photoURL)
+				form.Set("caption", text)
+				form.Set("parse_mode", "HTML")
+				if err := telegramPostForm(ctx, telegramCfg, "sendPhoto", form, 15*time.Second); err == nil {
+					continue
+				} else if firstErr == nil {
+					firstErr = err
+				}
+			}
 			form := url.Values{}
 			form.Set("chat_id", chat)
 			form.Set("text", text)

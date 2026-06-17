@@ -421,7 +421,25 @@ func (s *SubscriptionService) notifySubscriptionHit(sub *model.Subscription, que
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		s.notify.Broadcast(ctx, "MediaStationGo 订阅命中新资源", body, EventSubscriptionHit)
+		data := map[string]interface{}{}
+		if strings.TrimSpace(sub.PosterURL) != "" {
+			data["poster_url"] = sub.PosterURL
+		}
+		if strings.TrimSpace(sub.BackdropURL) != "" {
+			data["backdrop_url"] = sub.BackdropURL
+		}
+		if strings.TrimSpace(sub.MediaType) != "" {
+			data["media_type"] = sub.MediaType
+		}
+		if strings.TrimSpace(sub.MediaCategory) != "" {
+			data["media_category"] = sub.MediaCategory
+		}
+		s.notify.BroadcastEvent(ctx, NotifyEvent{
+			Type:    EventSubscriptionHit,
+			Title:   "MediaStationGo 订阅命中新资源",
+			Message: body,
+			Data:    data,
+		})
 	}()
 }
 

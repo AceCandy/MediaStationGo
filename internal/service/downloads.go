@@ -931,8 +931,10 @@ func (d *DownloadService) processDownloadSnapshot(ctx context.Context, live []QB
 		stateKey := completedTorrentQueueKey(torrent)
 		complete := torrent.Progress >= 1.0
 		matchedTask, hasTask := findMatchingTaskByTorrentIdentity(torrent.Name, taskByKey)
+		autoOrganize := d.downloadAutoOrganizeEnabled(ctx)
 		catchupRecorded := hasTask && d.completedTorrentCatchupRecorded(ctx, torrent)
 		taskNeedsOrganize := hasTask && !catchupRecorded &&
+			autoOrganize &&
 			(downloadTaskNeedsCompletion(matchedTask) || recentlyCompletedTorrent(torrent, time.Now()))
 		d.syncDownloadTaskProgress(ctx, torrent, taskByKey)
 		if stateKey == "" {
@@ -1060,6 +1062,20 @@ func (d *DownloadService) markCompletedTorrentOrganizeDone(torrent QBitTorrent) 
 const completedTorrentCatchupWindow = 24 * time.Hour
 
 const completedTorrentCatchupSettingPrefix = "download.auto_organized."
+const completedTorrentNotifySettingPrefix = "download.completed_notified."
+
+func (d *DownloadService) downloadAutoOrganizeEnabled(ctx context.Context) bool {
+	if d == nil || d.repo == nil || d.repo.Setting == nil {
+		return false
+	}
+	if v, err := d.repo.Setting.Get(ctx, "organizer.auto_after_download"); err == nil && parseBoolSetting(v, false) {
+		return true
+	}
+	if v, err := d.repo.Setting.Get(ctx, "organize.auto"); err == nil && parseBoolSetting(v, false) {
+		return true
+	}
+	return false
+}
 
 // recentlyCompletedTorrent 报告该种子是否在补整理时间窗内完成。
 // qBittorrent 未提供 completion_on 时保守地返回 false。
@@ -1109,6 +1125,46 @@ func completedTorrentCatchupSettingKey(torrent QBitTorrent) string {
 	}
 	sum := sha1.Sum([]byte(key))
 	return completedTorrentCatchupSettingPrefix + fmt.Sprintf("%x", sum[:])
+}
+
+func (d *DownloadService) completedTorrentNotified(ctx context.Context, torrent QBitTorrent) bool {
+	if d == nil || d.repo == nil || d.repo.Setting == nil {
+		return false
+	}
+	key := completedTorrentNotifySettingKey(torrent)
+	if key == "" {
+		return false
+	}
+	value, err := d.repo.Setting.Get(ctx, key)
+	if err != nil {
+		return false
+	}
+	return parseBoolSetting(value, false)
+}
+
+func (d *DownloadService) markCompletedTorrentNotified(ctx context.Context, torrent QBitTorrent) {
+	if d == nil || d.repo == nil || d.repo.Setting == nil {
+		return
+	}
+	key := completedTorrentNotifySettingKey(torrent)
+	if key == "" {
+		return
+	}
+	if err := d.repo.Setting.Set(ctx, key, "true"); err != nil && d.log != nil {
+		d.log.Debug("mark completed torrent notification failed",
+			zap.String("hash", torrent.Hash),
+			zap.String("name", torrent.Name),
+			zap.Error(err))
+	}
+}
+
+func completedTorrentNotifySettingKey(torrent QBitTorrent) string {
+	key := completedTorrentQueueKey(torrent)
+	if key == "" {
+		return ""
+	}
+	sum := sha1.Sum([]byte(key))
+	return completedTorrentNotifySettingPrefix + fmt.Sprintf("%x", sum[:])
 }
 
 func completedTorrentQueueKey(torrent QBitTorrent) string {
@@ -1221,22 +1277,15 @@ func downloadTaskNeedsCompletion(task model.DownloadTask) bool {
 // Media rows is too late for freshly-downloaded files: they usually have not
 // been scanned into the library yet.
 func (d *DownloadService) onTorrentComplete(ctx context.Context, torrent QBitTorrent) {
-	d.notifyDownloadComplete(torrent)
+	taskRow, hasTask := d.completedTorrentTask(ctx, torrent)
+	d.notifyDownloadComplete(ctx, torrent, taskRow)
 	if d.organizer == nil {
 		return
 	}
 	// 仅当显式开启 organizer.auto_after_download / organize.auto 时才在下载完成后整理。
 	// 之前的代码错误地把 organizer.smart_classify 也当成"自动整理"开关，
 	// 让操作员只想启用"分类子目录"就被动触发了文件 move。
-	autoOrganize := false
-	if v, err := d.repo.Setting.Get(ctx, "organizer.auto_after_download"); err == nil {
-		autoOrganize = v == "true" || v == "1" || v == "on"
-	}
-	if !autoOrganize {
-		if v, err := d.repo.Setting.Get(ctx, "organize.auto"); err == nil {
-			autoOrganize = v == "true" || v == "1" || v == "on"
-		}
-	}
+	autoOrganize := d.downloadAutoOrganizeEnabled(ctx)
 	if !autoOrganize {
 		d.log.Info("download completed, auto-organize disabled", zap.String("hash", torrent.Hash))
 		return
@@ -1250,7 +1299,6 @@ func (d *DownloadService) onTorrentComplete(ctx context.Context, torrent QBitTor
 			zap.String("content_path", torrent.ContentPath))
 		return
 	}
-	taskRow, hasTask := d.completedTorrentTask(ctx, torrent)
 	allowReplace := hasTask && taskRow.AllowExistingLibrary
 	d.log.Info("download completed, triggering directory organize",
 		zap.String("hash", torrent.Hash),
@@ -1289,22 +1337,49 @@ func (d *DownloadService) onTorrentComplete(ctx context.Context, torrent QBitTor
 		zap.Int("errors", len(res.Errors)))
 }
 
-func (d *DownloadService) notifyDownloadComplete(torrent QBitTorrent) {
+func (d *DownloadService) notifyDownloadComplete(ctx context.Context, torrent QBitTorrent, task *model.DownloadTask) {
 	if d == nil || d.notify == nil {
 		return
 	}
+	if d.completedTorrentNotified(ctx, torrent) {
+		return
+	}
+	d.markCompletedTorrentNotified(ctx, torrent)
 	name := strings.TrimSpace(torrent.Name)
 	if name == "" {
 		name = strings.TrimSpace(filepath.Base(torrent.ContentPath))
+	}
+	if task != nil && strings.TrimSpace(task.Title) != "" {
+		name = strings.TrimSpace(task.Title)
 	}
 	if name == "" {
 		name = "下载任务"
 	}
 	body := fmt.Sprintf("任务：%s\n保存路径：%s\nHash：%s", name, firstNonEmpty(torrent.ContentPath, torrent.SavePath), torrent.Hash)
+	data := map[string]interface{}{}
+	if task != nil {
+		if strings.TrimSpace(task.PosterURL) != "" {
+			data["poster_url"] = task.PosterURL
+		}
+		if strings.TrimSpace(task.BackdropURL) != "" {
+			data["backdrop_url"] = task.BackdropURL
+		}
+		if strings.TrimSpace(task.MediaType) != "" {
+			data["media_type"] = task.MediaType
+		}
+		if strings.TrimSpace(task.MediaCategory) != "" {
+			data["media_category"] = task.MediaCategory
+		}
+	}
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		d.notify.Broadcast(ctx, "MediaStationGo 下载完成", body, EventDownloadComplete)
+		d.notify.BroadcastEvent(ctx, NotifyEvent{
+			Type:    EventDownloadComplete,
+			Title:   "MediaStationGo 下载完成",
+			Message: body,
+			Data:    data,
+		})
 	}()
 }
 
