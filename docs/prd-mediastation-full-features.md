@@ -1,6 +1,6 @@
-# 旧版完整功能迁移清单
+# MediaStation 原版完整功能迁移清单
 
-> 基于旧版 Python/FastAPI + Vue 3 源代码分析，供 MediaStationGo（Go/Gin + React）重写参考。
+> 基于 `MediaStation-py`（Python/FastAPI + Vue 3）源代码分析，供 MediaStationGo（Go/Gin + React）重写参考。
 >
 > 分析日期：2025-07-09
 
@@ -42,7 +42,7 @@
 - **部署**: Docker / Nginx 反向代理 / Helm Chart
 
 ### 核心定位
-MediaStationGo 是一个轻量级家庭媒体服务器，融合 **媒体播放 + 自动化订阅下载 + 多平台资源聚合**。
+MediaStation 是一个轻量级家庭媒体服务器，融合 **媒体播放 + 自动化订阅下载 + 多平台资源聚合**。
 
 ---
 
@@ -593,7 +593,7 @@ MediaStationGo 是一个轻量级家庭媒体服务器，融合 **媒体播放 +
 
 > 源文件：`backend/app/emby_api.py`（~1800 行，完整的 Emby Server API v3 兼容）
 
-提供 Emby API 子集，让 **Infuse、Kodi、Fileball** 等客户端可以直接连接 MediaStationGo。
+提供 Emby API 子集，让 **Infuse、Kodi、Fileball** 等客户端可以直接连接 MediaStation。
 
 **核心 Emby 端点**（仅列出关键部分，实际约 50+ 端点）：
 
@@ -902,7 +902,7 @@ MediaStationGo 是一个轻量级家庭媒体服务器，融合 **媒体播放 +
 
 | 分类 | 变量 | 默认值 | 说明 |
 |------|------|--------|------|
-| **应用** | APP_NAME | MediaStationGo | 应用名 |
+| **应用** | APP_NAME | MediaStation | 应用名 |
 | | APP_PORT | 3001 | 端口 |
 | | APP_DEBUG | false | 调试模式 |
 | | APP_SECRET_KEY | AUTO_GENERATE | JWT 密钥（自动生成警告） |
@@ -995,4 +995,4 @@ MediaStationGo 是一个轻量级家庭媒体服务器，融合 **媒体播放 +
 
 ---
 
-> **文档版本**: v1.0 | **分析范围**: 旧版 Python 全量源代码
+> **文档版本**: v1.0 | **分析范围**: `MediaStation-py` 全量源代码
