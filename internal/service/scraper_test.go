@@ -61,6 +61,79 @@ func TestManualRequestMatchFallsBackToCandidatePayload(t *testing.T) {
 	}
 }
 
+func TestApplyManualMatchSavesSelectedCloudMatchWhenDetailsSlow(t *testing.T) {
+	oldTimeout := tmdbDetailsTimeout
+	tmdbDetailsTimeout = 20 * time.Millisecond
+	defer func() { tmdbDetailsTimeout = oldTimeout }()
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/movie/77" {
+			http.NotFound(w, r)
+			return
+		}
+		select {
+		case <-r.Context().Done():
+			return
+		case <-time.After(time.Second):
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"id":    77,
+				"title": "Slow Details",
+			})
+		}
+	}))
+	defer upstream.Close()
+
+	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(&model.Library{}, &model.Series{}, &model.Media{}); err != nil {
+		t.Fatal(err)
+	}
+	repos := repository.New(db)
+	cfg := &config.Config{}
+	cfg.Secrets.TMDbAPIKey = "test-key"
+	cfg.Secrets.TMDbAPIProxy = upstream.URL
+	log := zap.NewNop()
+	scraper := NewScraperService(cfg, log, repos, NewTMDbProvider(cfg, log, nil), nil, nil, nil, NewHub(log))
+
+	lib := model.Library{Name: "OpenList · Movies", Path: "cloud://openlist/Movies", Type: "movie", Enabled: true}
+	if err := repos.DB.Create(&lib).Error; err != nil {
+		t.Fatal(err)
+	}
+	media := model.Media{
+		LibraryID:    lib.ID,
+		Title:        "bad cloud title",
+		Path:         "cloud://openlist/Movies/Bad.Title.2026.mkv",
+		ScrapeStatus: "pending",
+	}
+	if err := repos.DB.Create(&media).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	start := time.Now()
+	if _, err := scraper.ApplyManualMatch(t.Context(), media.ID, ManualScrapeRequest{
+		Source:    "manual",
+		MediaType: "movie",
+		Title:     "Correct Cloud Movie",
+		TMDbID:    77,
+		Year:      2026,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if elapsed := time.Since(start); elapsed > 500*time.Millisecond {
+		t.Fatalf("manual apply waited for optional details: %s", elapsed)
+	}
+
+	var got model.Media
+	if err := repos.DB.First(&got, "id = ?", media.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if got.Title != "Correct Cloud Movie" || got.ScrapeStatus != "matched" || got.TMDbID != 77 {
+		t.Fatalf("manual cloud match was not saved: title=%q status=%q tmdb=%d", got.Title, got.ScrapeStatus, got.TMDbID)
+	}
+}
+
 func TestScrapeQueryCandidatesPreferSeriesFolderAndCJKTitle(t *testing.T) {
 	lib := &model.Library{
 		Path: `F:\downloads\国产剧`,

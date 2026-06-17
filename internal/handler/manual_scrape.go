@@ -1,8 +1,10 @@
 package handler
 
 import (
+	"context"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -13,6 +15,8 @@ type manualScrapeApplyReq struct {
 	MediaIDs []string                    `json:"media_ids"`
 	Match    service.ManualScrapeRequest `json:"match"`
 }
+
+const manualScrapeApplyTimeout = 5 * time.Minute
 
 func manualScrapeSearchHandler(svc *service.Container) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -43,7 +47,9 @@ func manualScrapeApplyOneHandler(svc *service.Container) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
-		media, err := svc.Scraper.ApplyManualMatch(c.Request.Context(), c.Param("id"), req)
+		applyCtx, cancel := manualScrapeApplyContext(c)
+		defer cancel()
+		media, err := svc.Scraper.ApplyManualMatch(applyCtx, c.Param("id"), req)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
@@ -64,10 +70,12 @@ func manualScrapeApplyBatchHandler(svc *service.Container) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "media_ids required"})
 			return
 		}
+		applyCtx, cancel := manualScrapeApplyContext(c)
+		defer cancel()
 		applied := 0
 		errorsOut := make([]string, 0)
 		for _, id := range ids {
-			if _, err := svc.Scraper.ApplyManualMatch(c.Request.Context(), id, req.Match); err != nil {
+			if _, err := svc.Scraper.ApplyManualMatch(applyCtx, id, req.Match); err != nil {
 				errorsOut = append(errorsOut, id+": "+err.Error())
 				continue
 			}
@@ -79,6 +87,10 @@ func manualScrapeApplyBatchHandler(svc *service.Container) gin.HandlerFunc {
 		}
 		c.JSON(http.StatusOK, gin.H{"applied": applied, "errors": errorsOut})
 	}
+}
+
+func manualScrapeApplyContext(c *gin.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(c.Request.Context()), manualScrapeApplyTimeout)
 }
 
 func compactManualScrapeIDs(values []string) []string {

@@ -81,8 +81,10 @@ export const mediaAPI = {
       .then((r) => r.data.items),
 
   applyManualScrape: (id: string, match: ManualScrapeCandidate) =>
-    api.post<Media>(`/media/${id}/scrape/apply`, match).then((r) => r.data),
+    api.post<Media>(`/media/${id}/scrape/apply`, match, { timeout: LONG_REQUEST_TIMEOUT }).then((r) => r.data),
 
   applyManualScrapeBatch: (mediaIDs: string[], match: ManualScrapeCandidate) =>
-    api.post<{ applied: number; errors?: string[] }>('/media/scrape/apply', { media_ids: mediaIDs, match }).then((r) => r.data),
+    api
+      .post<{ applied: number; errors?: string[] }>('/media/scrape/apply', { media_ids: mediaIDs, match }, { timeout: BATCH_REQUEST_TIMEOUT })
+      .then((r) => r.data),
 }

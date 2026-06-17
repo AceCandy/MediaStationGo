@@ -70,6 +70,8 @@ func (s *ScraperService) SetNotifyChannels(notify *NotifyChannelService) {
 // yearPattern extracts a 4-digit year (1900-2099).
 var yearPattern = regexp.MustCompile(`(?:^|[^\d])(19\d{2}|20\d{2})(?:[^\d]|$)`)
 
+var tmdbDetailsTimeout = 8 * time.Second
+
 // noiseTokens are stripped before search.
 var noiseTokens = []string{
 	// 视频规格
@@ -429,24 +431,43 @@ func (s *ScraperService) applyProviderMatch(ctx context.Context, m *model.Media,
 		updates["languages"] = strings.Join(match.Languages, ",")
 	}
 
-	// Fetch extended metadata (languages, countries, genres) from TMDb
+	if err := s.repo.DB.Model(&model.Media{}).Where("id = ?", m.ID).
+		Updates(updates).Error; err != nil {
+		return err
+	}
+
+	// Fetch extended metadata after the selected match is already saved.
+	// Manual cloud/batch applies must not fail just because an optional provider
+	// details request is slow or unavailable.
 	if match.TMDbID > 0 && s.tmdb != nil && s.tmdb.Enabled() {
 		mediaType := s.determineMediaType(lib, match)
-		details, err := s.tmdb.GetDetails(ctx, match.TMDbID, mediaType)
+		detailCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), tmdbDetailsTimeout)
+		details, err := s.tmdb.GetDetails(detailCtx, match.TMDbID, mediaType)
+		cancel()
 		if err != nil {
 			s.log.Warn("failed to get details from tmdb",
 				zap.Int("tmdb_id", match.TMDbID),
 				zap.String("type", mediaType),
 				zap.Error(err))
 		} else if details != nil {
+			detailUpdates := map[string]any{}
 			if len(details.Languages) > 0 {
-				updates["languages"] = strings.Join(details.Languages, ",")
+				detailUpdates["languages"] = strings.Join(details.Languages, ",")
 			}
 			if len(details.Countries) > 0 {
-				updates["countries"] = strings.Join(details.Countries, ",")
+				detailUpdates["countries"] = strings.Join(details.Countries, ",")
 			}
 			if len(details.Genres) > 0 {
-				updates["genres"] = strings.Join(details.Genres, ",")
+				detailUpdates["genres"] = strings.Join(details.Genres, ",")
+			}
+			if len(detailUpdates) > 0 {
+				if err := s.repo.DB.Model(&model.Media{}).Where("id = ?", m.ID).
+					Updates(detailUpdates).Error; err != nil {
+					s.log.Warn("failed to save tmdb extended metadata",
+						zap.String("media_id", m.ID),
+						zap.Int("tmdb_id", match.TMDbID),
+						zap.Error(err))
+				}
 			}
 			s.log.Debug("enrich: saved extended metadata",
 				zap.String("media_id", m.ID),
@@ -454,11 +475,6 @@ func (s *ScraperService) applyProviderMatch(ctx context.Context, m *model.Media,
 				zap.Strings("countries", details.Countries),
 				zap.Strings("genres", details.Genres))
 		}
-	}
-
-	if err := s.repo.DB.Model(&model.Media{}).Where("id = ?", m.ID).
-		Updates(updates).Error; err != nil {
-		return err
 	}
 	cloudMedia := isCloudMediaPath(m.Path) || (lib != nil && isCloudMediaPath(lib.Path))
 	if !cloudMedia {
