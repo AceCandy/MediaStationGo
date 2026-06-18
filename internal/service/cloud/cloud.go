@@ -2,7 +2,7 @@
 // external-storage subsystem to expose remote files as playable media via
 // HTTP 302 redirects.
 //
-// The design mirrors how Alist / MoviePilot offload playback: instead of the
+// The design offloads playback to the cloud provider: instead of the
 // host downloading and re-streaming bytes, a provider resolves a file to a
 // short-lived direct download URL and the player is 302-redirected straight to
 // the cloud CDN. The host only performs a tiny redirect, freeing its CPU and

@@ -293,7 +293,7 @@ func (o *OrganizerService) organizeSourceFile(ctx context.Context, src, sourceRo
 	if category := strings.TrimSpace(mediaCategoryOverride); category != "" {
 		layout.Category = sanitizeFilename(category)
 	} else if category := o.smartClassifySourceFile(ctx, src, sourceRoot, layout.MediaType, title, parsedTitle, metadataMatch); category != "" {
-		// MoviePilot 的分类策略以识别后的元数据为主，下载/源目录只作为
+		// 智能分类以识别后的元数据为主，下载/源目录只作为
 		// 兜底提示。这里即使源目录已有二级分类，也允许 TMDb/Bangumi/NFO
 		// 识别结果修正到真正的分类，避免错误目录导致错误入库。
 		layout.Category = category

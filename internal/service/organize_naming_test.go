@@ -133,7 +133,7 @@ func TestOrganizeDirectoryHonorsConfiguredNamingFormats(t *testing.T) {
 	}
 }
 
-func TestOrganizeDirectoryHonorsMoviePilotStyleNamingFormat(t *testing.T) {
+func TestOrganizeDirectoryHonorsTemplateNamingFormat(t *testing.T) {
 	root := t.TempDir()
 	dest := filepath.Join(root, "media")
 	repos := newOrganizerTestRepo(t)
@@ -156,7 +156,7 @@ func TestOrganizeDirectoryHonorsMoviePilotStyleNamingFormat(t *testing.T) {
 
 	want := filepath.Join(dest, "电视剧", "Verify Show (2026)", "Season 1", "Verify Show - S01E02 - 第 2 集.mkv")
 	if _, err := os.Stat(want); err != nil {
-		t.Fatalf("MoviePilot-style naming format not honored, want %q: %v", want, err)
+		t.Fatalf("template naming format not honored, want %q: %v", want, err)
 	}
 }
 

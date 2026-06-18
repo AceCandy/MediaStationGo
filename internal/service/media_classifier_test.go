@@ -12,7 +12,7 @@ import (
 	"github.com/ShukeBta/MediaStationGo/internal/repository"
 )
 
-func TestClassifyMediaCategoryMatchesMoviePilotStyleRules(t *testing.T) {
+func TestClassifyMediaCategoryMatchesSmartRules(t *testing.T) {
 	tests := []struct {
 		name  string
 		input mediaClassifyInput

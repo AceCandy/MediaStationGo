@@ -141,7 +141,7 @@ func selectPreparedSubscriptionCandidates(candidates []siteSearchCandidate, sub 
 
 	mediaType := normalizeMediaType(sub.MediaType, sub.Name+" "+sub.Filter, "")
 	if !isSubscriptionSeriesType(mediaType) {
-		// 对齐 MoviePilot：非洗版订阅成功下载一次即满足，媒体库/下载中已存在则不再重复下载。
+		// 非洗版订阅成功下载一次即满足，媒体库/下载中已存在则不再重复下载。
 		if (sub == nil || !sub.WashEnabled) && local.LocalMediaCount > 0 {
 			return nil
 		}
@@ -253,7 +253,7 @@ func stableDownloadURLKey(raw string) string {
 	return base
 }
 
-// defaultExcludeWords 是参考 MoviePilot 默认过滤的「垃圾版本」排除清单，对所有订阅生效，
+// defaultExcludeWords 是默认过滤的「垃圾版本」排除清单，对所有订阅生效，
 // 与用户自定义排除词合并。拉丁词在 containsAnyExcludeToken 里按词边界匹配以避免子串误伤。
 const defaultExcludeWords = "cam,ts,tc,telesync,telecine,hdcam,hdts,枪版,抢先,抢鲜,预告,trailer,sample"
 

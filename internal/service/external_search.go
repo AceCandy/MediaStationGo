@@ -37,7 +37,7 @@ type ExternalMediaResult struct {
 }
 
 // SearchExternalMedia fans out one normalized search intent to TMDb, Douban
-// and Bangumi. This mirrors MoviePilot's separation of "metadata discovery"
+// and Bangumi. This keeps a clean separation of "metadata discovery"
 // from later tracker searching/downloading, but keeps our Go service small.
 func SearchExternalMedia(ctx context.Context, query string, year int, mediaType string, tmdb *TMDbProvider, douban *DoubanProvider, bangumi *BangumiProvider) []ExternalMediaResult {
 	query = strings.TrimSpace(query)

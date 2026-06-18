@@ -122,7 +122,7 @@ func TestOrganizeMediaUsesEpisodeNFOSeason(t *testing.T) {
 	}
 }
 
-func TestOrganizeMediaAddsMoviePilotStyleTypeRootForGenericMediaRoot(t *testing.T) {
+func TestOrganizeMediaAddsTypeRootForGenericMediaRoot(t *testing.T) {
 	root := t.TempDir()
 	mediaRoot := filepath.Join(root, "media")
 	sourceDir := filepath.Join(root, "downloads", "国产剧")

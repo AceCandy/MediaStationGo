@@ -1,7 +1,7 @@
 // Package service — server-side file browser and safe local file operations.
 //
 // FileManagerService exposes a strict, allow-listed view of the server's
-// filesystem. The design follows MoviePilot's StorageChain boundary: callers
+// filesystem. The design follows a StorageChain boundary: callers
 // work with file-item-like records, while this service owns path validation,
 // local storage operations, and mutation safety.
 package service
