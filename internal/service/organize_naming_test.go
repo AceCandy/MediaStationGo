@@ -127,7 +127,7 @@ func TestOrganizeDirectoryHonorsConfiguredNamingFormats(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("organize anime: %v", err)
 	}
-	animeWant := filepath.Join(dest, "电视剧", "日番", "Bangumi", "Frieren", "Season 01", "Frieren - 001.mkv")
+	animeWant := filepath.Join(dest, "动漫", "日番", "Bangumi", "Frieren", "Season 01", "Frieren - 001.mkv")
 	if _, err := os.Stat(animeWant); err != nil {
 		t.Fatalf("anime naming format not honored, want %q: %v", animeWant, err)
 	}
@@ -185,7 +185,7 @@ func TestOrganizeDirectoryUsesSeriesFolderWhenFileTitleIsOnlyReleaseTags(t *test
 		t.Fatalf("organize anime: %v", err)
 	}
 
-	want := filepath.Join(dest, "电视剧", "日番", "链锯人 总集篇 (2025)", "Season 1", "链锯人 总集篇 - S01E01 - 2160p.120fps.WEB-DL.H265.10bit.DTS5.1.mkv")
+	want := filepath.Join(dest, "动漫", "日番", "链锯人 总集篇 (2025)", "Season 1", "链锯人 总集篇 - S01E01 - 2160p.120fps.WEB-DL.H265.10bit.DTS5.1.mkv")
 	if _, err := os.Stat(want); err != nil {
 		t.Fatalf("organize should use series folder title and keep video_format, want %q: %v", want, err)
 	}

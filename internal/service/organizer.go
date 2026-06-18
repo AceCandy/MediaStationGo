@@ -123,7 +123,7 @@ func (o *OrganizerService) OrganizeMediaWithOptions(ctx context.Context, mediaID
 	if _, ok := ParseCloudLibraryMount(lib.Path); ok {
 		return "", errors.New("local organize cannot use cloud libraries directly; use external storage scan/mount for cloud media or enable cloud transfer to write to cloud")
 	}
-	baseRoot := o.resolveBaseRoot(ctx, lib, opts.DestPath)
+	baseRoot := redirectOrganizeStagingRoot(o.resolveBaseRoot(ctx, lib, opts.DestPath))
 	if _, ok := ParseCloudLibraryMount(baseRoot); ok {
 		return "", errors.New("organize destination must be a local writable media directory; enable cloud transfer in external storage when writing to cloud")
 	}
@@ -333,7 +333,7 @@ func (o *OrganizerService) OrganizeLibraryWithOptions(ctx context.Context, libra
 		return nil, errors.New("organize source must be a local directory; cloud libraries should be managed from external storage scan/mount")
 	}
 	// 目的地目录：已位于该根下的文件视为已整理；受 dest_path 覆盖与设置影响。
-	baseRoot := o.resolveBaseRoot(ctx, lib, opts.DestPath)
+	baseRoot := redirectOrganizeStagingRoot(o.resolveBaseRoot(ctx, lib, opts.DestPath))
 	if _, ok := ParseCloudLibraryMount(baseRoot); ok {
 		return nil, errors.New("organize destination must be a local writable media directory; enable cloud transfer in external storage when writing to cloud")
 	}
@@ -371,16 +371,14 @@ func (o *OrganizerService) refreshEpisodeIdentity(m *model.Media, lib *model.Lib
 	season, episode := m.SeasonNum, m.EpisodeNum
 
 	if parsedSeason, parsedEpisode := ParseEpisode(m.Path); parsedSeason > 0 || parsedEpisode > 0 {
-		if parsedSeason > 0 {
-			season = parsedSeason
-		}
+		season = parsedSeason
 		if parsedEpisode > 0 {
 			episode = parsedEpisode
 		}
 	}
 
 	if local, err := ReadLocalMetadata(m.Path, lib.Path, true); err == nil && local != nil {
-		if local.SeasonNum > 0 {
+		if local.SeasonNum > 0 || local.EpisodeNum > 0 {
 			season = local.SeasonNum
 		}
 		if local.EpisodeNum > 0 {
@@ -390,7 +388,7 @@ func (o *OrganizerService) refreshEpisodeIdentity(m *model.Media, lib *model.Lib
 		o.log.Warn("organize read local metadata failed", zap.String("path", m.Path), zap.Error(err))
 	}
 
-	if season <= 0 || episode <= 0 {
+	if season < 0 || episode <= 0 {
 		return fmt.Errorf("cannot determine season/episode for %s", m.Path)
 	}
 	m.SeasonNum = season
@@ -467,7 +465,7 @@ func sanitizeFilename(s string) string {
 }
 
 func (o *OrganizerService) organizeRoot(libraryPath, mediaType, category string) string {
-	typeDir := mediaTypeRootDir(mediaType)
+	typeDir := o.mediaTypeRootDirForCategory(mediaType, category)
 	if typeDir == "" || pathAlreadyEndsWith(libraryPath, typeDir) {
 		return libraryPath
 	}
@@ -475,6 +473,61 @@ func (o *OrganizerService) organizeRoot(libraryPath, mediaType, category string)
 		return filepath.Join(libraryPath, typeDir)
 	}
 	return libraryPath
+}
+
+func (o *OrganizerService) mediaTypeRootDirForCategory(mediaType, category string) string {
+	if root := o.categoryPhysicalRootDir(category); root != "" {
+		return root
+	}
+	return mediaTypeRootDir(mediaType)
+}
+
+func (o *OrganizerService) categoryPhysicalRootDir(category string) string {
+	key := normalizeOrganizeCategoryKey(category)
+	if key == "" {
+		return ""
+	}
+	categories := o.categoryMap()
+	match := func(values ...string) bool {
+		for _, value := range values {
+			if key == normalizeOrganizeCategoryKey(value) {
+				return true
+			}
+		}
+		return false
+	}
+	switch {
+	case match(
+		categoryName(categories, "cn_anime", "国漫"),
+		categoryName(categories, "jp_anime", "日番"),
+		categoryName(categories, "children", "儿童"),
+		"国漫", "国产动漫", "日番", "番剧", "日漫", "日本动漫", "日本动画", "儿童", "少儿",
+	):
+		return "动漫"
+	case match(
+		categoryName(categories, "domestic_tv", "国产剧"),
+		categoryName(categories, "euus_tv", "欧美剧"),
+		categoryName(categories, "jk_tv", "日韩剧"),
+		categoryName(categories, "variety", "综艺"),
+		categoryName(categories, "documentary", "纪录片"),
+		categoryName(categories, "uncategorized_tv", "未分类"),
+		"国产剧", "欧美剧", "日韩剧", "日剧", "韩剧", "综艺", "真人秀", "纪录片", "纪录", "未分类",
+	):
+		return "电视剧"
+	case match(
+		categoryName(categories, "animation_movie", "动画电影"),
+		categoryName(categories, "chinese_movie", "华语电影"),
+		categoryName(categories, "foreign_movie", "外语电影"),
+		categoryName(categories, "euus_movie", "欧美电影"),
+		categoryName(categories, "jk_movie", "日韩电影"),
+		"动画电影", "动漫电影", "华语电影", "国产电影", "外语电影", "欧美电影", "日韩电影",
+	):
+		return "电影"
+	case match(categoryName(categories, "adult", "成人"), categoryName(categories, "adult_9kg", "9KG"), categoryName(categories, "adult_jav", "番号"), "成人", "9kg", "番号", "jav"):
+		return "成人"
+	default:
+		return ""
+	}
 }
 
 func categoryRoot(root, category string) string {
@@ -501,7 +554,9 @@ func mediaTypeRootDir(mediaType string) string {
 	switch normalizeMediaType(mediaType, "", "") {
 	case "movie":
 		return "电影"
-	case "tv", "anime", "variety":
+	case "anime":
+		return "动漫"
+	case "tv", "variety":
 		return "电视剧"
 	case "adult":
 		return "成人"
@@ -518,6 +573,44 @@ func isGenericMediaRoot(path string) bool {
 	default:
 		return false
 	}
+}
+
+// organizeStagingFolderNames 列出"手动整理"类暂存目录名。这些目录只是修正错误
+// 入库时的中转工作区,不能作为一级分类目录留存。整理时若目标根落在这类目录
+// 内,应重定向到其父级媒体根,让媒体真正归入 电影/电视剧/动漫/成人 的二级分类
+// 目录中(如 媒体/电影/华语电影/片名),而不是停留在暂存目录下。
+func organizeStagingFolderNames() map[string]struct{} {
+	return map[string]struct{}{
+		"手动整理": {}, "手动整理入库": {}, "待整理": {}, "待分类": {},
+		"manual": {}, "manual_organize": {}, "manualorganize": {}, "staging": {}, "inbox": {},
+	}
+}
+
+func isOrganizeStagingDir(path string) bool {
+	base := strings.ToLower(strings.TrimSpace(filepath.Base(filepath.Clean(path))))
+	if base == "" {
+		return false
+	}
+	_, ok := organizeStagingFolderNames()[base]
+	return ok
+}
+
+// redirectOrganizeStagingRoot 把"手动整理"类暂存目录的目标根重定向到父级媒体根。
+// 连续多层暂存目录(如 .../media/手动整理/待整理)会被逐层上提到真正的媒体根,
+// 随后分类逻辑会补上 电影/电视剧/动漫/成人 等顶层与二级分类。
+func redirectOrganizeStagingRoot(root string) string {
+	cleaned := filepath.Clean(strings.TrimSpace(root))
+	if cleaned == "" || cleaned == "." {
+		return root
+	}
+	for isOrganizeStagingDir(cleaned) {
+		parent := filepath.Dir(cleaned)
+		if parent == cleaned || parent == "." || parent == string(filepath.Separator) {
+			break
+		}
+		cleaned = parent
+	}
+	return cleaned
 }
 
 func pathAlreadyEndsWith(path, suffix string) bool {

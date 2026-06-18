@@ -205,6 +205,36 @@ func TestOrganizeDirectoryHonorsManualMediaType(t *testing.T) {
 	}
 }
 
+func TestOrganizeDirectoryRedirectsManualStagingDest(t *testing.T) {
+	root := t.TempDir()
+	src := filepath.Join(root, "downloads")
+	// 目标指向"手动整理"暂存目录:媒体应归入父级媒体根的分类目录,
+	// 而不是停留在 手动整理/ 下,也不是作为分类目录的兄弟目录。
+	dest := filepath.Join(root, "media", "手动整理")
+	writeOrgFile(t, filepath.Join(src, "Some Movie 2024 1080p.mkv"), "movie")
+
+	org := NewOrganizerService(&config.Config{}, zap.NewNop(), newOrganizerTestRepo(t))
+	res, err := org.OrganizeDirectory(t.Context(), OrganizeOptions{
+		SourcePath:   filepath.Join(src, "Some Movie 2024 1080p.mkv"),
+		DestPath:     dest,
+		MediaType:    "movie",
+		TransferMode: TransferCopy,
+	})
+	if err != nil {
+		t.Fatalf("organize into staging dest: %v", err)
+	}
+	if res.Organized != 1 {
+		t.Fatalf("result = %+v, want organized=1", res)
+	}
+	want := filepath.Join(root, "media", "电影", "Some Movie (2024)", "Some Movie (2024).mkv")
+	if _, err := os.Stat(want); err != nil {
+		t.Fatalf("expected organized movie at %q: %v; items=%+v", want, err, res.Items)
+	}
+	if _, err := os.Stat(filepath.Join(dest, "电影")); err == nil {
+		t.Fatalf("media must not be nested under the 手动整理 staging dir")
+	}
+}
+
 func TestOrganizeDirectoryHonorsAdultMediaTypeRoot(t *testing.T) {
 	root := t.TempDir()
 	src := filepath.Join(root, "downloads", "ABP-123.mkv")
@@ -730,7 +760,7 @@ func TestOrganizeDirectorySmartClassifiesWithLocalNFO(t *testing.T) {
 	if res.Organized != 1 {
 		t.Fatalf("organized = %d, want 1", res.Organized)
 	}
-	want := filepath.Join(dest, "电视剧", "日番", "Some Show", "Season 01", "Some Show - S01E01.mkv")
+	want := filepath.Join(dest, "动漫", "日番", "Some Show", "Season 01", "Some Show - S01E01.mkv")
 	if _, err := os.Stat(want); err != nil {
 		t.Fatalf("expected NFO classified episode at %q: %v", want, err)
 	}

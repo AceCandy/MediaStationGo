@@ -45,7 +45,7 @@ func (o *OrganizerService) buildOrganizeTargetPath(ctx context.Context, in organ
 	episodeTag := ""
 	if in.Series {
 		season := in.Season
-		if season <= 0 {
+		if season < 0 {
 			season = 1
 		}
 		episode := in.Episode
@@ -110,7 +110,7 @@ func (o *OrganizerService) organizeNamingFormat(ctx context.Context, mediaType s
 
 func defaultOrganizeRelativePath(title, ext string, year, season, episode int, series bool) string {
 	if series {
-		if season <= 0 {
+		if season < 0 {
 			season = 1
 		}
 		if episode <= 0 {
@@ -196,7 +196,7 @@ func organizeTemplateTruthy(name string, data organizeNamingData) bool {
 	case "year":
 		return data.Year > 0
 	case "season":
-		return data.Season > 0
+		return data.Season >= 0 && data.Episode > 0
 	case "episode", "ep":
 		return data.Episode > 0
 	case "ext", "extension":
@@ -228,7 +228,7 @@ func organizeTemplateValue(name, format string, data organizeNamingData, fallbac
 		}
 		return strconv.Itoa(data.Year)
 	case "season":
-		return formatOrganizeNumber(data.Season, format, 1)
+		return formatOrganizeNumberAllowZero(data.Season, format, 1)
 	case "episode", "ep":
 		return formatOrganizeNumber(data.Episode, format, 1)
 	case "ext", "extension":
@@ -289,6 +289,20 @@ func extractOrganizeReleaseTag(source string) string {
 
 func formatOrganizeNumber(value int, format string, fallback int) string {
 	if value <= 0 {
+		value = fallback
+	}
+	format = strings.TrimSpace(strings.TrimSuffix(format, "d"))
+	if strings.HasPrefix(format, "0") {
+		width, err := strconv.Atoi(strings.TrimPrefix(format, "0"))
+		if err == nil && width > 0 {
+			return fmt.Sprintf("%0*d", width, value)
+		}
+	}
+	return strconv.Itoa(value)
+}
+
+func formatOrganizeNumberAllowZero(value int, format string, fallback int) string {
+	if value < 0 {
 		value = fallback
 	}
 	format = strings.TrimSpace(strings.TrimSuffix(format, "d"))

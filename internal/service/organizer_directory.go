@@ -127,7 +127,7 @@ func (o *OrganizerService) OrganizeDirectory(ctx context.Context, opts OrganizeO
 	if _, ok := ParseCloudLibraryMount(requestedDest); ok {
 		return nil, errors.New("organize destination must be a local writable media directory; enable cloud transfer in external storage when writing to cloud")
 	}
-	dest := resolveMappedDestinationPath(requestedDest)
+	dest := redirectOrganizeStagingRoot(resolveMappedDestinationPath(requestedDest))
 	if dest == "" || dest == "." {
 		return nil, errors.New("destination path required")
 	}
@@ -537,6 +537,9 @@ func (o *OrganizerService) lookupOrganizeMetadata(ctx context.Context, src, sour
 	} else if err != nil && o.log != nil {
 		o.log.Debug("organize read local metadata before rename failed", zap.String("path", src), zap.Error(err))
 	}
+	if match := o.lookupOrganizeAdultMetadata(ctx, src, mediaType, title); match != nil {
+		return match
+	}
 	if o == nil || o.scraper == nil || !o.scraper.AnyEnabled() {
 		return nil
 	}
@@ -600,6 +603,49 @@ func (o *OrganizerService) lookupOrganizeMetadata(ctx context.Context, src, sour
 		}
 		if cache != nil {
 			cache[key] = nil
+		}
+	}
+	return nil
+}
+
+func (o *OrganizerService) lookupOrganizeAdultMetadata(ctx context.Context, src, mediaType, title string) *Match {
+	if o == nil || o.scraper == nil || o.scraper.adult == nil || !o.scraper.adult.Enabled() {
+		return nil
+	}
+	isAdult := normalizeOrganizeMediaType(mediaType) == "adult"
+	candidates := []string{src, filepath.Base(src), title}
+	outCodes := make([]string, 0, len(candidates))
+	seen := map[string]struct{}{}
+	for _, candidate := range candidates {
+		code := normalizeAdultCode(candidate)
+		if code == "" {
+			continue
+		}
+		if _, ok := seen[code]; ok {
+			continue
+		}
+		seen[code] = struct{}{}
+		outCodes = append(outCodes, code)
+	}
+	if !isAdult && len(outCodes) == 0 {
+		return nil
+	}
+	for _, code := range outCodes {
+		match, err := o.scraper.adult.Search(ctx, code)
+		if err != nil {
+			if o.log != nil {
+				o.log.Debug("organize adult metadata search failed", zap.String("source", src), zap.String("code", code), zap.Error(err))
+			}
+			continue
+		}
+		if match != nil && strings.TrimSpace(match.Title) != "" {
+			if o.log != nil {
+				o.log.Info("organize adult metadata matched before rename",
+					zap.String("source", src),
+					zap.String("code", code),
+					zap.String("title", match.Title))
+			}
+			return match
 		}
 	}
 	return nil
@@ -832,6 +878,10 @@ func (o *OrganizerService) organizeLibraryRootForLayout(ctx context.Context, des
 			continue
 		}
 		if _, ok := ParseCloudLibraryMount(lib.Path); ok {
+			continue
+		}
+		if isOrganizeStagingDir(lib.Path) {
+			// "手动整理"等暂存库不作为入库目标,避免把媒体留在暂存目录里。
 			continue
 		}
 		if destRoot != "" && destRoot != "." && !pathWithin(lib.Path, destRoot) && !pathWithin(destRoot, lib.Path) {
