@@ -72,7 +72,22 @@ func TestTelegramDispatchUsesPhotoAndFormattedCaption(t *testing.T) {
 		Title:   "MediaStationGo 下载完成",
 		Message: "任务：示例影片\n保存路径：/downloads/movie\nHash：abcdef",
 		Data: map[string]interface{}{
-			"poster_url": server.URL + "/poster.jpg",
+			"poster_url":        server.URL + "/poster.jpg",
+			"media_type":        "tv",
+			"media_category":    "纪录片剧集",
+			"title":             "美国甜心：达拉斯牛仔啦啦队",
+			"original_title":    "AMERICA'S SWEETHEARTS: Dallas Cowboys Cheerleaders",
+			"original_language": "en",
+			"year":              2024,
+			"season_episode":    "S03E07",
+			"size":              "3.0GB / 5.7Mbps",
+			"version":           "H264.NF.FHD-HHWEB",
+			"rating":            8.2,
+			"genres":            "纪录",
+			"overview":          "从试镜到训练营再到 NFL 赛季，一路跟随达拉斯牛仔队啦啦队队员们追逐梦想。",
+			"tmdb_url":          server.URL + "/tmdb",
+			"imdb_url":          server.URL + "/imdb",
+			"douban_url":        server.URL + "/douban",
 		},
 	})
 	if err != nil {
@@ -85,9 +100,30 @@ func TestTelegramDispatchUsesPhotoAndFormattedCaption(t *testing.T) {
 		t.Fatalf("telegram form = %#v", gotForm)
 	}
 	caption := gotForm["caption"]
-	for _, want := range []string{"<b>MediaStationGo</b>", "<b>下载完成</b>", "<b>任务</b>: 示例影片", "<code>/downloads/movie</code>", "<code>abcdef</code>"} {
+	for _, want := range []string{
+		"🐈‍⬛🐈‍⬛ MediaStationGo 更新啦 🐈‍⬛🐈‍⬛",
+		"--------------------------------",
+		"#剧集",
+		"📺 中文片名：美国甜心：达拉斯牛仔啦啦队",
+		"🧿 原始片名：AMERICA'S SWEETHEARTS: Dallas Cowboys Cheerleaders",
+		"🌐 原始语言：英语",
+		"📅 发行年份：2024",
+		"🐈‍⬛ 类别：纪录片剧集",
+		"🫧 季集：S03E07",
+		"🔎 大小：3.0GB / 5.7Mbps",
+		"📁 版本：H264.NF.FHD-HHWEB",
+		"⭐️ 评分：8.2",
+		"💎 类型：纪录",
+		"🪬 简介：",
+		`🔗 外链：<a href="` + server.URL + `/tmdb">TMDB</a> / <a href="` + server.URL + `/imdb">IMDB</a> / <a href="` + server.URL + `/douban">豆瓣</a>`,
+	} {
 		if !strings.Contains(caption, want) {
 			t.Fatalf("caption missing %q: %s", want, caption)
+		}
+	}
+	for _, unwanted := range []string{"✅ <b>下载完成</b>", "🎯 订阅命中新资源", "保存路径", "abcdef"} {
+		if strings.Contains(caption, unwanted) {
+			t.Fatalf("caption should not include %q: %s", unwanted, caption)
 		}
 	}
 }
