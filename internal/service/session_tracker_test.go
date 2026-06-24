@@ -1,6 +1,7 @@
 package service
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -53,6 +54,56 @@ func TestDeviceListMergesRealtimeSessions(t *testing.T) {
 	}
 	if rows[0].DeviceName != "Apple TV" || rows[0].Client != "Yamby" || !rows[0].LastSeenAt.Equal(now) {
 		t.Fatalf("device row = %#v", rows[0])
+	}
+}
+
+func TestActivityRefreshKeepsPlaybackState(t *testing.T) {
+	tracker := NewSessionTrackerService(zap.NewNop())
+	now := time.Date(2026, 6, 21, 11, 30, 0, 0, time.UTC)
+	tracker.now = func() time.Time { return now }
+	tracker.RecordPlayback(t.Context(), "u1", "viewer", "dev-1", "Apple TV", "Yamby", "10.0.0.8", "media-1", 123, 456, false)
+	now = now.Add(time.Minute)
+	tracker.RecordActivity(t.Context(), "u1", "viewer", "dev-1", "Apple TV", "Yamby", "10.0.0.8")
+
+	sessions := tracker.List(t.Context())
+	if len(sessions) != 1 {
+		t.Fatalf("sessions = %#v, want one", sessions)
+	}
+	if !sessions[0].IsPlaying || sessions[0].ItemID != "media-1" || sessions[0].PositionTicks != 123 || sessions[0].RuntimeTicks != 456 {
+		t.Fatalf("activity refresh should keep playback state, got %#v", sessions[0])
+	}
+	if !sessions[0].LastActivityAt.Equal(now) {
+		t.Fatalf("last activity = %v, want %v", sessions[0].LastActivityAt, now)
+	}
+}
+
+func TestBotDevicesIncludesRealtimeSessionOnlyDevices(t *testing.T) {
+	repos, bot := newBotTestService(t)
+	user := model.User{Base: model.Base{ID: "u1"}, Username: "viewer", PasswordHash: "x", Role: "user", IsActive: true}
+	if err := repos.User.Create(t.Context(), &user); err != nil {
+		t.Fatal(err)
+	}
+	if err := repos.DB.Create(&model.TelegramBinding{TelegramUserID: 9103, ChatID: 9103, UserID: user.ID}).Error; err != nil {
+		t.Fatal(err)
+	}
+	tracker := NewSessionTrackerService(zap.NewNop())
+	now := time.Date(2026, 6, 21, 11, 0, 0, 0, time.UTC)
+	tracker.now = func() time.Time { return now }
+	tracker.RecordActivity(t.Context(), user.ID, user.Username, "dev-1", "Apple TV", "Yamby", "10.0.0.8")
+	device := NewDeviceService(zap.NewNop(), repos)
+	device.SetSessionTracker(tracker)
+	bot.SetDeviceService(device)
+
+	reply := bot.replyDevices(t.Context(), &TelegramMessage{
+		From: TelegramUser{ID: 9103, Username: "viewer"},
+		Chat: TelegramChat{ID: 9103, Type: "private"},
+	})
+
+	if !strings.Contains(reply.Text, "Apple TV / Yamby") || !strings.Contains(reply.Text, "在线") {
+		t.Fatalf("reply should include realtime online device, got %q", reply.Text)
+	}
+	if !strings.Contains(reply.Text, "06-21 11:00") {
+		t.Fatalf("reply should use realtime last seen time, got %q", reply.Text)
 	}
 }
 

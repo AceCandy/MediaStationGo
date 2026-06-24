@@ -53,6 +53,7 @@ type realtimeSessionInput struct {
 	RuntimeTicks   int64
 	IsPlaying      bool
 	IsPaused       bool
+	PlaybackUpdate bool
 }
 
 type userRealtimeActivity struct {
@@ -81,6 +82,10 @@ func NewSessionTrackerService(log *zap.Logger) *SessionTrackerService {
 }
 
 func (s *SessionTrackerService) RecordLogin(ctx context.Context, userID, userName, deviceID, deviceName, client, remoteEndPoint string) {
+	s.RecordActivity(ctx, userID, userName, deviceID, deviceName, client, remoteEndPoint)
+}
+
+func (s *SessionTrackerService) RecordActivity(ctx context.Context, userID, userName, deviceID, deviceName, client, remoteEndPoint string) {
 	if s == nil {
 		return
 	}
@@ -109,6 +114,7 @@ func (s *SessionTrackerService) RecordPlayback(ctx context.Context, userID, user
 		PositionTicks:  positionTicks,
 		RuntimeTicks:   runtimeTicks,
 		IsPlaying:      !stopped,
+		PlaybackUpdate: true,
 	})
 }
 
@@ -242,7 +248,7 @@ func (s *SessionTrackerService) upsert(ctx context.Context, in realtimeSessionIn
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.pruneLocked(now)
-	existing := s.sessions[key]
+	existing, existed := s.sessions[key]
 	if strings.TrimSpace(in.UserName) == "" {
 		in.UserName = existing.UserName
 	}
@@ -256,7 +262,23 @@ func (s *SessionTrackerService) upsert(ctx context.Context, in realtimeSessionIn
 		in.RemoteEndPoint = existing.RemoteEndPoint
 	}
 	lastPlaybackAt := existing.LastPlaybackAt
-	if in.ItemID != "" || in.IsPlaying {
+	itemID := existing.ItemID
+	positionTicks := existing.PositionTicks
+	runtimeTicks := existing.RuntimeTicks
+	isPlaying := existing.IsPlaying
+	isPaused := existing.IsPaused
+	if in.PlaybackUpdate {
+		itemID = firstNonEmptyString(in.ItemID, existing.ItemID)
+		if in.ItemID != "" || in.PositionTicks != 0 {
+			positionTicks = in.PositionTicks
+		}
+		if in.ItemID != "" || in.RuntimeTicks != 0 {
+			runtimeTicks = in.RuntimeTicks
+		}
+		isPlaying = in.IsPlaying
+		isPaused = in.IsPaused
+	}
+	if in.PlaybackUpdate && (in.ItemID != "" || in.IsPlaying) {
 		t := now
 		lastPlaybackAt = &t
 	}
@@ -269,12 +291,20 @@ func (s *SessionTrackerService) upsert(ctx context.Context, in realtimeSessionIn
 		Client:         in.Client,
 		RemoteEndPoint: in.RemoteEndPoint,
 		LastActivityAt: now,
-		ItemID:         firstNonEmptyString(in.ItemID, existing.ItemID),
-		PositionTicks:  in.PositionTicks,
-		RuntimeTicks:   in.RuntimeTicks,
-		IsPlaying:      in.IsPlaying,
-		IsPaused:       in.IsPaused,
+		ItemID:         itemID,
+		PositionTicks:  positionTicks,
+		RuntimeTicks:   runtimeTicks,
+		IsPlaying:      isPlaying,
+		IsPaused:       isPaused,
 		LastPlaybackAt: lastPlaybackAt,
+	}
+	if !existed && s.log != nil {
+		s.log.Debug("realtime session started",
+			zap.String("user_id", userID),
+			zap.String("device_id", in.DeviceID),
+			zap.String("client", in.Client),
+			zap.String("remote", in.RemoteEndPoint),
+		)
 	}
 }
 

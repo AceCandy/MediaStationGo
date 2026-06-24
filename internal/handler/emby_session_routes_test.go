@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
@@ -150,6 +151,80 @@ func TestEmbyCompatSessionAllowsSameClientRequestsWithoutToken(t *testing.T) {
 	}
 	if _, ok := payload["Items"]; !ok {
 		t.Fatalf("missing Items: %#v", payload)
+	}
+}
+
+func TestEmbyAuthenticatedRequestRefreshesRealtimeUserActivity(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	if sqlDB, err := db.DB(); err == nil {
+		sqlDB.SetMaxOpenConns(1)
+	}
+	if err := db.AutoMigrate(model.AllModels()...); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	repos := repository.New(db)
+	oldLogin := time.Now().Add(-6 * time.Hour)
+	if err := repos.User.Create(t.Context(), &model.User{
+		Base:        model.Base{ID: "user-1"},
+		Username:    "viewer",
+		Role:        "admin",
+		Tier:        "plus",
+		IsActive:    true,
+		LastLoginAt: &oldLogin,
+	}); err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+
+	const secret = "test-secret"
+	log := zap.NewNop()
+	tracker := service.NewSessionTrackerService(log)
+	svc := &service.Container{
+		Repo:     repos,
+		Emby:     service.NewEmbyService(&config.Config{}, log, repos),
+		Sessions: tracker,
+	}
+	router := gin.New()
+	registerEmbyRoutes(router, secret, svc)
+	router.GET("/admin/users", listUsersHandler(svc))
+
+	req := httptest.NewRequest(http.MethodGet, "/emby/Users/Me", nil)
+	req.Header.Set("X-MediaBrowser-Authorization", `MediaBrowser Client="Infuse", Device="iPhone", DeviceId="phone-1", Token="`+signedTestToken(t, secret)+`"`)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("me status: %d body=%s", w.Code, w.Body.String())
+	}
+
+	sessions := tracker.List(t.Context())
+	if len(sessions) != 1 {
+		t.Fatalf("sessions = %#v, want one realtime session", sessions)
+	}
+	if sessions[0].UserID != "user-1" || sessions[0].DeviceID != "phone-1" || sessions[0].Client != "Infuse" {
+		t.Fatalf("session did not capture client info: %#v", sessions[0])
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/admin/users", nil)
+	w = httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("admin users status: %d body=%s", w.Code, w.Body.String())
+	}
+	var users []model.User
+	if err := json.Unmarshal(w.Body.Bytes(), &users); err != nil {
+		t.Fatalf("decode users: %v", err)
+	}
+	if len(users) != 1 {
+		t.Fatalf("users = %#v", users)
+	}
+	if users[0].LastLoginAt == nil || !users[0].LastLoginAt.After(oldLogin) {
+		t.Fatalf("last_login_at = %v, want realtime value after %v", users[0].LastLoginAt, oldLogin)
+	}
+	if !users[0].RealtimeOnline || users[0].RealtimeDeviceCount != 1 {
+		t.Fatalf("realtime flags online=%v devices=%d", users[0].RealtimeOnline, users[0].RealtimeDeviceCount)
 	}
 }
 

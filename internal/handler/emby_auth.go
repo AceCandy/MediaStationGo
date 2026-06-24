@@ -8,6 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/ShukeBta/MediaStationGo/internal/middleware"
+	"github.com/ShukeBta/MediaStationGo/internal/service"
 )
 
 // embyError 返回 Emby 风格的错误（顶层 Code/Message）。
@@ -47,6 +48,34 @@ func embyAuthRequiredWithSessionFallback(secret string) gin.HandlerFunc {
 		}
 		required(c)
 	}
+}
+
+func embyRealtimeSessionActivity(svc *service.Container) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if svc != nil && svc.Sessions != nil {
+			if uid := embyUserID(c); uid != "" {
+				clientInfo := embyClientInfoFromRequest(c)
+				svc.Sessions.RecordActivity(c.Request.Context(), uid, embyContextUserName(c),
+					clientInfo.DeviceID,
+					clientInfo.DeviceName,
+					clientInfo.Client,
+					c.ClientIP())
+			}
+		}
+		c.Next()
+	}
+}
+
+func embyContextUserName(c *gin.Context) string {
+	if c == nil {
+		return ""
+	}
+	if value, ok := c.Get(embyCtxUserName); ok {
+		if username, ok := value.(string); ok {
+			return strings.TrimSpace(username)
+		}
+	}
+	return ""
 }
 
 func embyRememberCompatSession(c *gin.Context, token string) {
