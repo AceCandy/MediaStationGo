@@ -29,7 +29,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -404,131 +403,6 @@ func hasFFmpegListEntry(output, name string) bool {
 		}
 	}
 	return false
-}
-
-// buildFFmpegArgs assembles the ffmpeg command line for the configured
-// encoder. The function is package-level so the unit test can pin its
-// behaviour without spawning a real ffmpeg process.
-func buildFFmpegArgs(cfg *config.Config, source, playlist, segments string) []string {
-	enc := ""
-	if cfg.Transcoder.HardwareAccel {
-		enc = normalizedHardwareEncoder(cfg.Transcoder.Encoder)
-	}
-	bitrate := cfg.Transcoder.VideoBitrate
-	if bitrate == "" {
-		bitrate = "1500k"
-	}
-	maxrate := cfg.Transcoder.MaxRate
-	if maxrate == "" {
-		maxrate = "1800k"
-	}
-	bufsize := cfg.Transcoder.BufSize
-	if bufsize == "" {
-		bufsize = "3000k"
-	}
-	preset := cfg.Transcoder.Preset
-	if preset == "" {
-		preset = "veryfast"
-	}
-	height := cfg.Transcoder.MaxHeight
-	if height <= 0 {
-		height = 720
-	}
-	segDur := cfg.Transcoder.SegmentSeconds
-	if segDur <= 0 {
-		segDur = 4
-	}
-
-	// Hardware-accel arguments differ in three places:
-	//   - Optional input flags (-hwaccel + device init)
-	//   - Optional input pixel-format upload filter
-	//   - The actual -c:v encoder name + preset/quality flag
-	var pre, vf, vcodec, vpreset string
-	switch enc {
-	case "nvenc":
-		pre = "-hwaccel cuda -hwaccel_output_format cuda"
-		vf = fmt.Sprintf("scale_cuda=-2:min(%d\\,ih)", height)
-		vcodec = "h264_nvenc"
-		vpreset = "p4"
-	case "qsv":
-		pre = "-hwaccel qsv -hwaccel_output_format qsv"
-		vf = fmt.Sprintf("scale_qsv=-1:min(%d\\,ih)", height)
-		vcodec = "h264_qsv"
-		vpreset = preset
-	case "vaapi":
-		device := cfg.App.VAAPIDevice
-		if device == "" {
-			device = "/dev/dri/renderD128"
-		}
-		pre = fmt.Sprintf("-hwaccel vaapi -vaapi_device %s -hwaccel_output_format vaapi", device)
-		vf = fmt.Sprintf("scale_vaapi=-2:min(%d\\,ih),format=nv12|vaapi,hwupload", height)
-		vcodec = "h264_vaapi"
-		vpreset = ""
-	default:
-		// software
-		pre = ""
-		vf = fmt.Sprintf("scale=-2:min(%d\\,ih)", height)
-		vcodec = "libx264"
-		vpreset = preset
-	}
-
-	args := []string{"-y", "-hide_banner", "-nostdin", "-fflags", "+genpts"}
-	for _, p := range splitNonEmptyArgs(pre) {
-		args = append(args, p)
-	}
-	if cfg.Transcoder.Realtime {
-		args = append(args, "-re")
-	}
-	args = append(args, "-i", source, "-map", "0:v:0?", "-map", "0:a:0?", "-vf", vf, "-c:v", vcodec)
-	if cfg.Transcoder.Threads > 0 && vcodec == "libx264" {
-		args = append(args, "-threads", strconv.Itoa(cfg.Transcoder.Threads))
-	}
-	if vpreset != "" {
-		args = append(args, "-preset", vpreset)
-	}
-	args = append(args,
-		"-pix_fmt", "yuv420p",
-		"-b:v", bitrate,
-		"-maxrate", maxrate,
-		"-bufsize", bufsize,
-		"-c:a", "aac",
-		"-ar", "48000",
-		"-b:a", "128k",
-		"-ac", "2",
-		"-force_key_frames", fmt.Sprintf("expr:gte(t,n_forced*%d)", segDur),
-		"-f", "hls",
-		"-hls_time", fmt.Sprintf("%d", segDur),
-		"-hls_list_size", "0",
-		"-hls_segment_filename", segments,
-		playlist,
-	)
-	return args
-}
-
-// splitNonEmptyArgs is a tiny helper that mirrors strings.Fields for the
-// pre-input flag string without dragging the strings import into the hot
-// path of every call to buildFFmpegArgs.
-func splitNonEmptyArgs(s string) []string {
-	if s == "" {
-		return nil
-	}
-	out := make([]string, 0, 4)
-	field := make([]rune, 0, 16)
-	flush := func() {
-		if len(field) > 0 {
-			out = append(out, string(field))
-			field = field[:0]
-		}
-	}
-	for _, r := range s {
-		if r == ' ' || r == '\t' {
-			flush()
-			continue
-		}
-		field = append(field, r)
-	}
-	flush()
-	return out
 }
 
 // HumanFFmpegProfile is exposed for the admin UI / settings view.
