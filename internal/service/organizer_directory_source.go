@@ -7,6 +7,8 @@ import (
 	"strings"
 
 	"go.uber.org/zap"
+
+	"github.com/ShukeBta/MediaStationGo/internal/model"
 )
 
 type organizeDirectoryLayout struct {
@@ -27,9 +29,75 @@ type organizeSourceFileRequest struct {
 	Result                *OrganizeResult
 }
 
+type organizeSourceIdentity struct {
+	Ext         string
+	Title       string
+	ParsedTitle string
+	Year        int
+	Season      int
+	Episode     int
+	SourceMedia *model.Media
+}
+
+type organizeSourceFilePlan struct {
+	Identity        organizeSourceIdentity
+	Layout          organizeDirectoryLayout
+	LayoutRoot      string
+	TargetLibraryID string
+	MetadataMatch   *Match
+	Target          organizeTargetPath
+}
+
+type organizeExistingSourceVersions struct {
+	External []string
+	Identity []string
+	Folder   []string
+	All      []string
+}
+
 // organizeSourceFile organizes a single video file from the source directory
 // into destRoot, applying dedup + 洗版.
 func (o *OrganizerService) organizeSourceFile(ctx context.Context, req organizeSourceFileRequest) error {
+	plan, err := o.buildOrganizeSourceFilePlan(ctx, req)
+	if err != nil {
+		return err
+	}
+	if filepath.Clean(req.Source) == filepath.Clean(plan.Target.Path) {
+		skipAlreadyOrganizedSource(req, plan)
+		return nil
+	}
+	existing := o.collectExistingSourceVersions(ctx, req, plan)
+	if len(existing.All) > 0 {
+		return o.handleExistingSourceVersions(ctx, req, plan, existing)
+	}
+	return o.writeOrganizedSourceFile(ctx, req, plan)
+}
+
+func (o *OrganizerService) buildOrganizeSourceFilePlan(ctx context.Context, req organizeSourceFileRequest) (organizeSourceFilePlan, error) {
+	identity := o.resolveOrganizeSourceIdentity(ctx, req)
+	pathLayout := o.inferOrganizeDirectoryLayout(req.Source, req.SourceRoot)
+	layout := pathLayout
+	forcedType := normalizeOrganizeMediaType(req.MediaTypeOverride)
+	inferredType := o.inferMediaTypeForSourceFile(req.Source, identity.Title, identity.Season, identity.Episode)
+	layout = applyOrganizeSourceMediaType(layout, forcedType, inferredType)
+	metadataMatch := o.lookupOrganizeSourceMetadata(ctx, req, layout.MediaType, &identity)
+	layout = o.applyOrganizeSourceCategory(ctx, req, pathLayout, layout, forcedType, identity, metadataMatch)
+	layoutRoot, targetLibraryID := o.resolveOrganizeSourceLayoutRoot(ctx, req, layout)
+	target, err := o.buildOrganizeSourceTarget(ctx, req, layout, layoutRoot, identity)
+	if err != nil {
+		return organizeSourceFilePlan{}, err
+	}
+	return organizeSourceFilePlan{
+		Identity:        identity,
+		Layout:          layout,
+		LayoutRoot:      layoutRoot,
+		TargetLibraryID: targetLibraryID,
+		MetadataMatch:   metadataMatch,
+		Target:          target,
+	}, nil
+}
+
+func (o *OrganizerService) resolveOrganizeSourceIdentity(ctx context.Context, req organizeSourceFileRequest) organizeSourceIdentity {
 	src := req.Source
 	ext := filepath.Ext(src)
 	season, episode := ParseEpisode(src)
@@ -65,33 +133,59 @@ func (o *OrganizerService) organizeSourceFile(ctx context.Context, req organizeS
 	if title == "" {
 		title = "Unknown"
 	}
-	pathLayout := o.inferOrganizeDirectoryLayout(src, req.SourceRoot)
-	layout := pathLayout
-	forcedType := normalizeOrganizeMediaType(req.MediaTypeOverride)
-	inferredType := o.inferMediaTypeForSourceFile(src, title, season, episode)
+	return organizeSourceIdentity{
+		Ext:         ext,
+		Title:       title,
+		ParsedTitle: parsedTitle,
+		Year:        year,
+		Season:      season,
+		Episode:     episode,
+		SourceMedia: sourceMedia,
+	}
+}
+
+func applyOrganizeSourceMediaType(layout organizeDirectoryLayout, forcedType, inferredType string) organizeDirectoryLayout {
 	if forcedType != "" {
 		if layout.Category != "" && layout.MediaType != "" && layout.MediaType != forcedType {
 			layout.Category = ""
 		}
 		layout.MediaType = forcedType
-	} else if inferredType != "" {
-		if inferredType == "tv" && layout.MediaType == "movie" {
-			layout = organizeDirectoryLayout{MediaType: inferredType}
-		} else if layout.MediaType == "" {
-			layout.MediaType = inferredType
-		}
+		return layout
 	}
-	var metadataMatch *Match
-	if match := o.lookupOrganizeMetadata(ctx, src, req.SourceRoot, layout.MediaType, title, year, season, episode, req.MetadataCache); match != nil {
-		metadataMatch = match
-		applyOrganizeMetadataMatch(metadataMatch, &title, &parsedTitle, &year)
-	} else if sourceMedia != nil {
-		metadataMatch = organizeMatchFromMedia(sourceMedia)
-		applyOrganizeMetadataMatch(metadataMatch, &title, &parsedTitle, &year)
+	if inferredType == "" {
+		return layout
 	}
+	if inferredType == "tv" && layout.MediaType == "movie" {
+		return organizeDirectoryLayout{MediaType: inferredType}
+	}
+	if layout.MediaType == "" {
+		layout.MediaType = inferredType
+	}
+	return layout
+}
+
+func (o *OrganizerService) lookupOrganizeSourceMetadata(ctx context.Context, req organizeSourceFileRequest, mediaType string, identity *organizeSourceIdentity) *Match {
+	match := o.lookupOrganizeMetadata(ctx, req.Source, req.SourceRoot, mediaType, identity.Title, identity.Year, identity.Season, identity.Episode, req.MetadataCache)
+	if match == nil && identity.SourceMedia != nil {
+		match = organizeMatchFromMedia(identity.SourceMedia)
+	}
+	if match != nil {
+		applyOrganizeMetadataMatch(match, &identity.Title, &identity.ParsedTitle, &identity.Year)
+	}
+	return match
+}
+
+func (o *OrganizerService) applyOrganizeSourceCategory(
+	ctx context.Context,
+	req organizeSourceFileRequest,
+	pathLayout, layout organizeDirectoryLayout,
+	forcedType string,
+	identity organizeSourceIdentity,
+	metadataMatch *Match,
+) organizeDirectoryLayout {
 	if category := strings.TrimSpace(req.MediaCategoryOverride); category != "" {
 		layout.Category = sanitizeFilename(category)
-	} else if category := o.smartClassifySourceFile(ctx, src, req.SourceRoot, layout.MediaType, title, parsedTitle, metadataMatch); category != "" {
+	} else if category := o.smartClassifySourceFile(ctx, req.Source, req.SourceRoot, layout.MediaType, identity.Title, identity.ParsedTitle, metadataMatch); category != "" {
 		layout.Category = category
 	}
 	if forcedType == "" {
@@ -102,6 +196,10 @@ func (o *OrganizerService) organizeSourceFile(ctx context.Context, req organizeS
 			}
 		}
 	}
+	return layout
+}
+
+func (o *OrganizerService) resolveOrganizeSourceLayoutRoot(ctx context.Context, req organizeSourceFileRequest, layout organizeDirectoryLayout) (string, string) {
 	targetLibrary, matchedLibrary := o.organizeLibraryForLayout(ctx, req.DestRoot, layout.MediaType, layout.Category)
 	layoutRoot := targetLibrary.Path
 	targetLibraryID := targetLibrary.ID
@@ -114,116 +212,139 @@ func (o *OrganizerService) organizeSourceFile(ctx context.Context, req organizeS
 	if !matchedLibrary && !req.DryRun {
 		o.ensureOrganizeLibraryForRoot(ctx, layoutRoot, layout.MediaType, layout.Category)
 	}
+	return layoutRoot, targetLibraryID
+}
 
-	isSeries := season > 0 || episode > 0
+func (o *OrganizerService) buildOrganizeSourceTarget(
+	ctx context.Context,
+	req organizeSourceFileRequest,
+	layout organizeDirectoryLayout,
+	layoutRoot string,
+	identity organizeSourceIdentity,
+) (organizeTargetPath, error) {
+	isSeries := identity.Season > 0 || identity.Episode > 0
 	if layout.MediaType != "" {
-		isSeries = isSeriesLibraryType(layout.MediaType) && (season > 0 || episode > 0)
+		isSeries = isSeriesLibraryType(layout.MediaType) && isSeries
 	}
-	target, err := o.buildOrganizeTargetPath(ctx, organizeTargetInput{
+	return o.buildOrganizeTargetPath(ctx, organizeTargetInput{
 		Root:      layoutRoot,
 		MediaType: layout.MediaType,
 		Category:  layout.Category,
-		Title:     title,
-		Source:    src,
-		Ext:       ext,
-		Year:      year,
-		Season:    season,
-		Episode:   episode,
+		Title:     identity.Title,
+		Source:    req.Source,
+		Ext:       identity.Ext,
+		Year:      identity.Year,
+		Season:    identity.Season,
+		Episode:   identity.Episode,
 		Series:    isSeries,
 	})
-	if err != nil {
+}
+
+func skipAlreadyOrganizedSource(req organizeSourceFileRequest, plan organizeSourceFilePlan) {
+	req.Result.Skipped++
+	req.Result.Items = append(req.Result.Items, OrganizePreviewItem{
+		Source: req.Source, Target: plan.Target.Path, Action: "skip", Reason: organizeSkipAlreadyOrganized,
+		MediaType: plan.Layout.MediaType, Category: plan.Layout.Category, Title: plan.Identity.Title,
+	})
+}
+
+func (o *OrganizerService) collectExistingSourceVersions(ctx context.Context, req organizeSourceFileRequest, plan organizeSourceFilePlan) organizeExistingSourceVersions {
+	externalExisting := o.existingByExternalIdentity(ctx, req.DestRoot, plan.MetadataMatch, plan.Identity.Season, plan.Identity.Episode)
+	identityExisting := o.existingByIdentity(ctx, req.DestRoot, plan.Identity.ParsedTitle, plan.Identity.Year, plan.Identity.Season, plan.Identity.Episode)
+	folderExisting := o.existingByFolder(plan.Target.Dir, plan.Target.EpisodeTag)
+	return organizeExistingSourceVersions{
+		External: externalExisting,
+		Identity: identityExisting,
+		Folder:   folderExisting,
+		All:      mergeExistingVersionPaths(externalExisting, identityExisting, folderExisting),
+	}
+}
+
+func (o *OrganizerService) handleExistingSourceVersions(ctx context.Context, req organizeSourceFileRequest, plan organizeSourceFilePlan, existing organizeExistingSourceVersions) error {
+	reclassified, err := o.reclassifyExistingMedia(ctx, organizeExistingReclassifyRequest{
+		Source:          req.Source,
+		Target:          plan.Target.Path,
+		DestRoot:        req.DestRoot,
+		TargetLibraryID: plan.TargetLibraryID,
+		Existing:        existing.All,
+		DryRun:          req.DryRun,
+		MediaType:       plan.Layout.MediaType,
+		Category:        plan.Layout.Category,
+		Title:           plan.Identity.Title,
+		Year:            plan.Identity.Year,
+		Season:          plan.Identity.Season,
+		Episode:         plan.Identity.Episode,
+		Result:          req.Result,
+	})
+	if err != nil || reclassified {
 		return err
 	}
-	destDir, dst, episodeTag := target.Dir, target.Path, target.EpisodeTag
-	if filepath.Clean(src) == filepath.Clean(dst) {
-		req.Result.Skipped++
-		req.Result.Items = append(req.Result.Items, OrganizePreviewItem{
-			Source: src, Target: dst, Action: "skip", Reason: organizeSkipAlreadyOrganized,
-			MediaType: layout.MediaType, Category: layout.Category, Title: title,
-		})
-		return nil
+	if replaced, err := o.replaceSourceWithBetterVersion(ctx, req, plan, existing.All); replaced || err != nil {
+		return err
 	}
+	o.skipExistingSourceDuplicate(ctx, req, plan, existing)
+	return nil
+}
 
-	externalExisting := o.existingByExternalIdentity(ctx, req.DestRoot, metadataMatch, season, episode)
-	identityExisting := o.existingByIdentity(ctx, req.DestRoot, parsedTitle, year, season, episode)
-	folderExisting := o.existingByFolder(destDir, episodeTag)
-	existing := mergeExistingVersionPaths(externalExisting, identityExisting, folderExisting)
-	if len(existing) > 0 {
-		reclassified, err := o.reclassifyExistingMedia(ctx, organizeExistingReclassifyRequest{
-			Source:          src,
-			Target:          dst,
-			DestRoot:        req.DestRoot,
-			TargetLibraryID: targetLibraryID,
-			Existing:        existing,
-			DryRun:          req.DryRun,
-			MediaType:       layout.MediaType,
-			Category:        layout.Category,
-			Title:           title,
-			Year:            year,
-			Season:          season,
-			Episode:         episode,
-			Result:          req.Result,
-		})
-		if err != nil {
-			return err
+func (o *OrganizerService) replaceSourceWithBetterVersion(ctx context.Context, req organizeSourceFileRequest, plan organizeSourceFilePlan, existing []string) (bool, error) {
+	srcArea := o.resolutionArea(ctx, req.Source)
+	bestArea := 0
+	for _, e := range existing {
+		if a := o.resolutionArea(ctx, e); a > bestArea {
+			bestArea = a
 		}
-		if reclassified {
-			return nil
-		}
-		srcArea := o.resolutionArea(ctx, src)
-		bestArea := 0
-		for _, e := range existing {
-			if a := o.resolutionArea(ctx, e); a > bestArea {
-				bestArea = a
-			}
-		}
-		if req.AllowReplaceExisting && srcArea > 0 && bestArea > 0 && srcArea > bestArea {
-			req.Result.Items = append(req.Result.Items, OrganizePreviewItem{
-				Source: src, Target: dst, Action: "replace", Reason: "higher resolution",
-				MediaType: layout.MediaType, Category: layout.Category, Title: title,
-			})
-			if req.DryRun {
-				req.Result.Replaced++
-				return nil
-			}
-			if err := o.replaceVersions(ctx, src, existing, dst, req.Mode); err != nil {
-				return err
-			}
-			o.log.Info("organize replaced lower-resolution media",
-				zap.String("from", src),
-				zap.String("to", dst),
-				zap.Int("src_area", srcArea),
-				zap.Int("existing_area", bestArea),
-			)
-			req.Result.Replaced++
-			return nil
-		}
-		reason := organizeSkipTargetExists
-		if len(externalExisting) > 0 || len(identityExisting) > 0 || o.allExistingPathsInDB(ctx, existing) {
-			reason = organizeSkipDuplicateLibrary
-		}
-		o.log.Debug("organize skip duplicate",
-			zap.String("src", src), zap.String("dest_dir", destDir), zap.String("reason", reason))
-		req.Result.Skipped++
-		req.Result.Items = append(req.Result.Items, OrganizePreviewItem{
-			Source: src, Target: dst, Action: "skip", Reason: reason,
-			MediaType: layout.MediaType, Category: layout.Category, Title: title,
-		})
-		return nil
 	}
-
+	if !req.AllowReplaceExisting || srcArea <= 0 || bestArea <= 0 || srcArea <= bestArea {
+		return false, nil
+	}
 	req.Result.Items = append(req.Result.Items, OrganizePreviewItem{
-		Source: src, Target: dst, Action: "organize",
-		MediaType: layout.MediaType, Category: layout.Category, Title: title,
+		Source: req.Source, Target: plan.Target.Path, Action: "replace", Reason: "higher resolution",
+		MediaType: plan.Layout.MediaType, Category: plan.Layout.Category, Title: plan.Identity.Title,
+	})
+	if req.DryRun {
+		req.Result.Replaced++
+		return true, nil
+	}
+	if err := o.replaceVersions(ctx, req.Source, existing, plan.Target.Path, req.Mode); err != nil {
+		return true, err
+	}
+	o.log.Info("organize replaced lower-resolution media",
+		zap.String("from", req.Source),
+		zap.String("to", plan.Target.Path),
+		zap.Int("src_area", srcArea),
+		zap.Int("existing_area", bestArea),
+	)
+	req.Result.Replaced++
+	return true, nil
+}
+
+func (o *OrganizerService) skipExistingSourceDuplicate(ctx context.Context, req organizeSourceFileRequest, plan organizeSourceFilePlan, existing organizeExistingSourceVersions) {
+	reason := organizeSkipTargetExists
+	if len(existing.External) > 0 || len(existing.Identity) > 0 || o.allExistingPathsInDB(ctx, existing.All) {
+		reason = organizeSkipDuplicateLibrary
+	}
+	o.log.Debug("organize skip duplicate",
+		zap.String("src", req.Source), zap.String("dest_dir", plan.Target.Dir), zap.String("reason", reason))
+	req.Result.Skipped++
+	req.Result.Items = append(req.Result.Items, OrganizePreviewItem{
+		Source: req.Source, Target: plan.Target.Path, Action: "skip", Reason: reason,
+		MediaType: plan.Layout.MediaType, Category: plan.Layout.Category, Title: plan.Identity.Title,
+	})
+}
+
+func (o *OrganizerService) writeOrganizedSourceFile(ctx context.Context, req organizeSourceFileRequest, plan organizeSourceFilePlan) error {
+	req.Result.Items = append(req.Result.Items, OrganizePreviewItem{
+		Source: req.Source, Target: plan.Target.Path, Action: "organize",
+		MediaType: plan.Layout.MediaType, Category: plan.Layout.Category, Title: plan.Identity.Title,
 	})
 	if req.DryRun {
 		req.Result.Organized++
 		return nil
 	}
-	if err := os.MkdirAll(destDir, 0o755); err != nil { // #nosec G301 -- organized media directories must remain readable by NAS/player users.
+	if err := os.MkdirAll(plan.Target.Dir, 0o755); err != nil { // #nosec G301 -- organized media directories must remain readable by NAS/player users.
 		return err
 	}
-	if _, err := os.Stat(dst); err == nil {
+	if _, err := os.Stat(plan.Target.Path); err == nil {
 		req.Result.Skipped++
 		if len(req.Result.Items) > 0 {
 			req.Result.Items[len(req.Result.Items)-1].Action = "skip"
@@ -231,12 +352,12 @@ func (o *OrganizerService) organizeSourceFile(ctx context.Context, req organizeS
 		}
 		return nil
 	}
-	if err := transferFile(src, dst, req.Mode); err != nil {
+	if err := transferFile(req.Source, plan.Target.Path, req.Mode); err != nil {
 		return err
 	}
-	if err := transferSidecarNFO(src, dst, req.Mode); err != nil {
+	if err := transferSidecarNFO(req.Source, plan.Target.Path, req.Mode); err != nil {
 		o.log.Warn("organize sidecar nfo failed",
-			zap.String("from", src), zap.String("to", dst), zap.Error(err))
+			zap.String("from", req.Source), zap.String("to", plan.Target.Path), zap.Error(err))
 	}
 	req.Result.Organized++
 	return nil
