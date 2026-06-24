@@ -75,6 +75,20 @@ func (r *MediaRepository) Upsert(ctx context.Context, m *model.Media) error {
 }
 
 func (r *MediaRepository) upsert(ctx context.Context, m *model.Media) error {
+	existing, created, err := r.findOrCreateMediaByPath(ctx, m)
+	if err != nil {
+		return err
+	}
+	if created {
+		r.indexMediaBestEffort(ctx, *m)
+		return nil
+	}
+
+	updates := mediaUpsertUpdates(existing, *m)
+	return r.applyMediaUpsertUpdates(ctx, m, existing, updates)
+}
+
+func (r *MediaRepository) findOrCreateMediaByPath(ctx context.Context, m *model.Media) (model.Media, bool, error) {
 	var existing model.Media
 	err := r.db.WithContext(ctx).Unscoped().Where("path = ?", m.Path).First(&existing).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -83,144 +97,169 @@ func (r *MediaRepository) upsert(ctx context.Context, m *model.Media) error {
 			m.ScrapeStatus = "pending"
 		}
 		if createErr := r.db.WithContext(ctx).Create(m).Error; createErr == nil {
-			r.indexMediaBestEffort(ctx, *m)
-			return nil
+			return *m, true, nil
 		} else if retryErr := r.db.WithContext(ctx).Unscoped().Where("path = ?", m.Path).First(&existing).Error; retryErr != nil {
-			return createErr
+			return model.Media{}, false, createErr
 		}
 	}
 	if err != nil {
-		return err
+		return model.Media{}, false, err
 	}
+	return existing, false, nil
+}
 
-	// 已存在：仅刷新文件层面的字段。
+func mediaUpsertUpdates(existing, incoming model.Media) map[string]any {
 	updates := map[string]any{}
-	setIfChanged(updates, "size_bytes", existing.SizeBytes, m.SizeBytes)
-	setIfChanged(updates, "duration_sec", existing.DurationSec, m.DurationSec)
-	setIfChanged(updates, "width", existing.Width, m.Width)
-	setIfChanged(updates, "height", existing.Height, m.Height)
-	setIfChanged(updates, "video_codec", existing.VideoCodec, m.VideoCodec)
-	setIfChanged(updates, "audio_codec", existing.AudioCodec, m.AudioCodec)
-	setIfChanged(updates, "container", existing.Container, m.Container)
+	addMediaFileScanUpdates(updates, existing, incoming)
+	addMediaTitleUpdates(updates, existing, incoming)
+	addMediaExternalIDUpdates(updates, existing, incoming)
+	addMatchedMediaMetadataUpdates(updates, existing, incoming)
+	addMediaArtworkUpdates(updates, existing, incoming)
+	addMediaPlacementUpdates(updates, existing, incoming)
+	addMediaSTRMUpdate(updates, existing, incoming)
+	return updates
+}
+
+func addMediaFileScanUpdates(updates map[string]any, existing, incoming model.Media) {
+	// 已存在：仅刷新文件层面的字段。
+	setIfChanged(updates, "size_bytes", existing.SizeBytes, incoming.SizeBytes)
+	setIfChanged(updates, "duration_sec", existing.DurationSec, incoming.DurationSec)
+	setIfChanged(updates, "width", existing.Width, incoming.Width)
+	setIfChanged(updates, "height", existing.Height, incoming.Height)
+	setIfChanged(updates, "video_codec", existing.VideoCodec, incoming.VideoCodec)
+	setIfChanged(updates, "audio_codec", existing.AudioCodec, incoming.AudioCodec)
+	setIfChanged(updates, "container", existing.Container, incoming.Container)
 	if existing.DeletedAt.Valid {
 		updates["deleted_at"] = nil
 	}
 	// 回填硬链接身份标识，便于后续扫描去重（避免重复识别/多倍占用）。
-	if m.FileID != "" && m.FileID != existing.FileID {
-		updates["file_id"] = m.FileID
+	if incoming.FileID != "" && incoming.FileID != existing.FileID {
+		updates["file_id"] = incoming.FileID
 	}
-	if m.Title != "" {
+}
+
+func addMediaTitleUpdates(updates map[string]any, existing, incoming model.Media) {
+	if incoming.Title != "" {
 		// scanner 给出的标题只是从路径推导，刮削后 title 已被替换为
 		// 真实剧名。仅在 existing 还停留在 'pending'/'' 时回填扫描标题，
 		// 避免覆盖刮削结果。
-		if m.ScrapeStatus == "matched" || existing.ScrapeStatus == "pending" || existing.ScrapeStatus == "" || existing.ScrapeStatus == "no_match" {
-			setIfChanged(updates, "title", existing.Title, m.Title)
-			if m.Year > 0 {
-				setIfChanged(updates, "year", existing.Year, m.Year)
+		if incoming.ScrapeStatus == "matched" || existing.ScrapeStatus == "pending" || existing.ScrapeStatus == "" || existing.ScrapeStatus == "no_match" {
+			setIfChanged(updates, "title", existing.Title, incoming.Title)
+			if incoming.Year > 0 {
+				setIfChanged(updates, "year", existing.Year, incoming.Year)
 			}
 		}
 	}
+}
+
+func addMediaExternalIDUpdates(updates map[string]any, existing, incoming model.Media) {
 	status := strings.TrimSpace(existing.ScrapeStatus)
-	canRefreshExternalIDs := status == "pending" || status == "" || status == "no_match" ||
-		m.ScrapeStatus == "matched" || strings.HasPrefix(strings.ToLower(strings.TrimSpace(m.Path)), "cloud://")
-	if canRefreshExternalIDs {
-		changedExternalID := false
-		if m.TMDbID > 0 && existing.TMDbID != m.TMDbID {
-			updates["tm_db_id"] = m.TMDbID
-			changedExternalID = true
-		}
-		if m.BangumiID > 0 && existing.BangumiID != m.BangumiID {
-			updates["bangumi_id"] = m.BangumiID
-			changedExternalID = true
-		}
-		if m.DoubanID != "" && strings.TrimSpace(existing.DoubanID) != strings.TrimSpace(m.DoubanID) {
-			updates["douban_id"] = m.DoubanID
-			changedExternalID = true
-		}
-		if m.TheTVDBID != "" && strings.TrimSpace(existing.TheTVDBID) != strings.TrimSpace(m.TheTVDBID) {
-			updates["thetvdb_id"] = m.TheTVDBID
-			changedExternalID = true
-		}
-		if m.Year > 0 && existing.Year <= 0 {
-			updates["year"] = m.Year
-		}
-		if changedExternalID && (status == "no_match" || status == "matched") && m.ScrapeStatus != "matched" {
-			updates["scrape_status"] = "pending"
-		}
+	if !mediaCanRefreshExternalIDs(status, incoming) {
+		return
 	}
-	if m.ScrapeStatus == "matched" {
-		setIfChanged(updates, "scrape_status", existing.ScrapeStatus, m.ScrapeStatus)
-		if m.OriginalName != "" {
-			setIfChanged(updates, "original_name", existing.OriginalName, m.OriginalName)
-		}
-		if m.EpisodeTitle != "" {
-			setIfChanged(updates, "episode_title", existing.EpisodeTitle, m.EpisodeTitle)
-		}
-		if m.PosterURL != "" {
-			setIfChanged(updates, "poster_url", existing.PosterURL, m.PosterURL)
-		}
-		if m.BackdropURL != "" {
-			setIfChanged(updates, "backdrop_url", existing.BackdropURL, m.BackdropURL)
-		}
-		if m.Overview != "" {
-			setIfChanged(updates, "overview", existing.Overview, m.Overview)
-		}
-		if m.Rating > 0 {
-			setIfChanged(updates, "rating", existing.Rating, m.Rating)
-		}
-		if m.Year > 0 {
-			setIfChanged(updates, "year", existing.Year, m.Year)
-		}
-		if m.TMDbID > 0 {
-			setIfChanged(updates, "tm_db_id", existing.TMDbID, m.TMDbID)
-		}
-		if m.BangumiID > 0 {
-			setIfChanged(updates, "bangumi_id", existing.BangumiID, m.BangumiID)
-		}
-		if m.DoubanID != "" {
-			setIfChanged(updates, "douban_id", existing.DoubanID, m.DoubanID)
-		}
-		if m.TheTVDBID != "" {
-			setIfChanged(updates, "thetvdb_id", existing.TheTVDBID, m.TheTVDBID)
-		}
-		if m.Languages != "" {
-			setIfChanged(updates, "languages", existing.Languages, m.Languages)
-		}
-		if m.Countries != "" {
-			setIfChanged(updates, "countries", existing.Countries, m.Countries)
-		}
-		if m.Genres != "" {
-			setIfChanged(updates, "genres", existing.Genres, m.Genres)
-		}
-		if m.NSFW && !existing.NSFW {
-			updates["nsfw"] = true
-		}
+	changedExternalID := addIncomingMediaProviderIDs(updates, existing, incoming)
+	if incoming.Year > 0 && existing.Year <= 0 {
+		updates["year"] = incoming.Year
 	}
-	if m.PosterURL != "" {
-		setIfChanged(updates, "poster_url", existing.PosterURL, m.PosterURL)
+	if changedExternalID && (status == "no_match" || status == "matched") && incoming.ScrapeStatus != "matched" {
+		updates["scrape_status"] = "pending"
 	}
-	if m.BackdropURL != "" {
-		setIfChanged(updates, "backdrop_url", existing.BackdropURL, m.BackdropURL)
+}
+
+func mediaCanRefreshExternalIDs(existingStatus string, incoming model.Media) bool {
+	return existingStatus == "pending" || existingStatus == "" || existingStatus == "no_match" ||
+		incoming.ScrapeStatus == "matched" || strings.HasPrefix(strings.ToLower(strings.TrimSpace(incoming.Path)), "cloud://")
+}
+
+func addMatchedMediaMetadataUpdates(updates map[string]any, existing, incoming model.Media) {
+	if incoming.ScrapeStatus == "matched" {
+		setIfChanged(updates, "scrape_status", existing.ScrapeStatus, incoming.ScrapeStatus)
+		addMatchedMediaDetailUpdates(updates, existing, incoming)
+		addIncomingMediaProviderIDs(updates, existing, incoming)
 	}
+}
+
+func addMatchedMediaDetailUpdates(updates map[string]any, existing, incoming model.Media) {
+	setNonEmptyMediaString(updates, "original_name", existing.OriginalName, incoming.OriginalName)
+	setNonEmptyMediaString(updates, "episode_title", existing.EpisodeTitle, incoming.EpisodeTitle)
+	setNonEmptyMediaString(updates, "poster_url", existing.PosterURL, incoming.PosterURL)
+	setNonEmptyMediaString(updates, "backdrop_url", existing.BackdropURL, incoming.BackdropURL)
+	setNonEmptyMediaString(updates, "overview", existing.Overview, incoming.Overview)
+	setNonEmptyMediaString(updates, "languages", existing.Languages, incoming.Languages)
+	setNonEmptyMediaString(updates, "countries", existing.Countries, incoming.Countries)
+	setNonEmptyMediaString(updates, "genres", existing.Genres, incoming.Genres)
+	if incoming.Rating > 0 {
+		setIfChanged(updates, "rating", existing.Rating, incoming.Rating)
+	}
+	if incoming.Year > 0 {
+		setIfChanged(updates, "year", existing.Year, incoming.Year)
+	}
+	if incoming.NSFW && !existing.NSFW {
+		updates["nsfw"] = true
+	}
+}
+
+func addMediaArtworkUpdates(updates map[string]any, existing, incoming model.Media) {
+	if incoming.PosterURL != "" {
+		setIfChanged(updates, "poster_url", existing.PosterURL, incoming.PosterURL)
+	}
+	if incoming.BackdropURL != "" {
+		setIfChanged(updates, "backdrop_url", existing.BackdropURL, incoming.BackdropURL)
+	}
+}
+
+func addMediaPlacementUpdates(updates map[string]any, existing, incoming model.Media) {
 	// 云盘媒体：同一 cloud:// 文件可能先被父目录库扫描入库，之后用户按二级
 	// 分类重新挂载/扫描到更精确的分类库。此时让 library_id 迁移到当前扫描库，
 	// 否则媒体被钉死在旧库、新分类库里看不到(表现为"媒体部分消失")。
 	// 本地媒体物理位置固定：仅在原 library_id 为空时回填，不迁移。
-	if isCloudMediaPath := strings.HasPrefix(strings.ToLower(strings.TrimSpace(m.Path)), "cloud://"); m.LibraryID != "" && m.LibraryID != existing.LibraryID {
+	if isCloudMediaPath := strings.HasPrefix(strings.ToLower(strings.TrimSpace(incoming.Path)), "cloud://"); incoming.LibraryID != "" && incoming.LibraryID != existing.LibraryID {
 		if isCloudMediaPath || existing.LibraryID == "" {
-			updates["library_id"] = m.LibraryID
+			updates["library_id"] = incoming.LibraryID
 		}
 	}
-	if (m.SeasonNum > 0 || m.EpisodeNum > 0) && existing.SeasonNum != m.SeasonNum {
-		updates["season_num"] = m.SeasonNum
+	if (incoming.SeasonNum > 0 || incoming.EpisodeNum > 0) && existing.SeasonNum != incoming.SeasonNum {
+		updates["season_num"] = incoming.SeasonNum
 	}
-	if m.EpisodeNum > 0 && existing.EpisodeNum != m.EpisodeNum {
-		updates["episode_num"] = m.EpisodeNum
+	if incoming.EpisodeNum > 0 && existing.EpisodeNum != incoming.EpisodeNum {
+		updates["episode_num"] = incoming.EpisodeNum
 	}
-	if m.STRMURL != "" {
-		setIfChanged(updates, "strm_url", existing.STRMURL, m.STRMURL)
-	}
+}
 
+func addMediaSTRMUpdate(updates map[string]any, existing, incoming model.Media) {
+	if incoming.STRMURL != "" {
+		setIfChanged(updates, "strm_url", existing.STRMURL, incoming.STRMURL)
+	}
+}
+
+func addIncomingMediaProviderIDs(updates map[string]any, existing, incoming model.Media) bool {
+	changed := false
+	if incoming.TMDbID > 0 && existing.TMDbID != incoming.TMDbID {
+		updates["tm_db_id"] = incoming.TMDbID
+		changed = true
+	}
+	if incoming.BangumiID > 0 && existing.BangumiID != incoming.BangumiID {
+		updates["bangumi_id"] = incoming.BangumiID
+		changed = true
+	}
+	if incoming.DoubanID != "" && strings.TrimSpace(existing.DoubanID) != strings.TrimSpace(incoming.DoubanID) {
+		updates["douban_id"] = incoming.DoubanID
+		changed = true
+	}
+	if incoming.TheTVDBID != "" && strings.TrimSpace(existing.TheTVDBID) != strings.TrimSpace(incoming.TheTVDBID) {
+		updates["thetvdb_id"] = incoming.TheTVDBID
+		changed = true
+	}
+	return changed
+}
+
+func setNonEmptyMediaString(updates map[string]any, key, current, next string) {
+	if next != "" {
+		setIfChanged(updates, key, current, next)
+	}
+}
+
+func (r *MediaRepository) applyMediaUpsertUpdates(ctx context.Context, m *model.Media, existing model.Media, updates map[string]any) error {
 	if len(updates) == 0 {
 		*m = existing
 		return nil

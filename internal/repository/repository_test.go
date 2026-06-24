@@ -118,6 +118,74 @@ func TestMediaUpsertRefreshesCloudExternalIDFromPathHint(t *testing.T) {
 	}
 }
 
+func TestMediaUpsertMatchedIncomingRefreshesScrapedMetadata(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := database.AutoMigrate(db); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	repos := New(db)
+	lib := model.Library{Name: "剧集", Path: "/media/tv", Type: "tv", Enabled: true}
+	if err := repos.Library.Create(t.Context(), &lib); err != nil {
+		t.Fatal(err)
+	}
+	path := "/media/tv/show/S01E01.mkv"
+	existing := model.Media{
+		LibraryID:    lib.ID,
+		Title:        "扫描标题",
+		Path:         path,
+		ScrapeStatus: "no_match",
+		PosterURL:    "/old-poster.jpg",
+	}
+	if err := repos.Media.Upsert(t.Context(), &existing); err != nil {
+		t.Fatal(err)
+	}
+	incoming := model.Media{
+		LibraryID:    lib.ID,
+		Title:        "中文剧名",
+		OriginalName: "Original Show",
+		EpisodeTitle: "第一集",
+		Path:         path,
+		PosterURL:    "/poster.jpg",
+		BackdropURL:  "/backdrop.jpg",
+		Overview:     "剧情简介",
+		Rating:       8.6,
+		Year:         2026,
+		SeasonNum:    1,
+		EpisodeNum:   1,
+		ScrapeStatus: "matched",
+		TMDbID:       123,
+		BangumiID:    456,
+		DoubanID:     "db-1",
+		TheTVDBID:    "tvdb-1",
+		Languages:    "zh,en",
+		Countries:    "CN",
+		Genres:       "剧情,悬疑",
+		NSFW:         true,
+	}
+	if err := repos.Media.Upsert(t.Context(), &incoming); err != nil {
+		t.Fatal(err)
+	}
+	var got model.Media
+	if err := repos.DB.Where("path = ?", path).First(&got).Error; err != nil {
+		t.Fatal(err)
+	}
+	if got.Title != "中文剧名" || got.OriginalName != "Original Show" || got.EpisodeTitle != "第一集" {
+		t.Fatalf("matched names not refreshed: %#v", got)
+	}
+	if got.PosterURL != "/poster.jpg" || got.BackdropURL != "/backdrop.jpg" || got.Overview != "剧情简介" {
+		t.Fatalf("matched artwork/overview not refreshed: %#v", got)
+	}
+	if got.ScrapeStatus != "matched" || got.TMDbID != 123 || got.BangumiID != 456 || got.DoubanID != "db-1" || got.TheTVDBID != "tvdb-1" {
+		t.Fatalf("matched provider metadata not refreshed: %#v", got)
+	}
+	if got.Year != 2026 || got.SeasonNum != 1 || got.EpisodeNum != 1 || got.Rating != 8.6 || got.Languages != "zh,en" || got.Countries != "CN" || got.Genres != "剧情,悬疑" || !got.NSFW {
+		t.Fatalf("matched detail metadata not refreshed: %#v", got)
+	}
+}
+
 // TestMediaUpsertMigratesCloudLibraryIDOnRescan 复现"一键挂载子目录后媒体消失"的
 // 回归：同一 cloud:// 文件先被父目录库扫描入库，之后用户按二级分类重新挂载到更
 // 精确的分类库并扫描，library_id 必须迁移到新分类库，否则媒体被钉死在旧库、新库
