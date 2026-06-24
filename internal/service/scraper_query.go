@@ -92,6 +92,7 @@ func CleanQuery(raw string) (title string, year int) {
 	lower = bracketedTag.ReplaceAllString(lower, " ")
 
 	lower = patSEnE.ReplaceAllString(lower, " ")
+	lower = patDanglingSE.ReplaceAllString(lower, " ")
 	lower = patNxE.ReplaceAllString(lower, " ")
 	lower = patEP.ReplaceAllString(lower, " ")
 	lower = patCN.ReplaceAllString(lower, " ")

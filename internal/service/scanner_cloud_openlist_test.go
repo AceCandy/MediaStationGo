@@ -268,3 +268,71 @@ func TestScanCloudLibraryQueuesMissingExistingTrackMetadataBeforeNewFiles(t *tes
 		}
 	}
 }
+
+func TestScanCloudLibraryRefreshesStaleNoMatchDerivedMetadata(t *testing.T) {
+	const showDir = "Hntv Spring Festival Gala S01e (2026)"
+	const seasonDir = "Season 1"
+	const name = "Hntv Spring Festival Gala S01e - S01E202-DD5.QHstudIo.6.4K - 第 202 集.ts"
+	upstream := newOpenListAPIServer(t, func(path string, page, perPage int) ([]openListTestEntry, int) {
+		switch path {
+		case "/":
+			return []openListTestEntry{{Name: showDir, IsDir: true}}, 1
+		case "/" + showDir:
+			return []openListTestEntry{{Name: seasonDir, IsDir: true}}, 1
+		case "/" + showDir + "/" + seasonDir:
+			return []openListTestEntry{{Name: name, Size: 1}}, 1
+		default:
+			t.Fatalf("unexpected openlist path %q", path)
+			return nil, 0
+		}
+	})
+	defer upstream.Close()
+
+	db := newServiceTestDB(t, &model.Library{}, &model.Media{}, &model.Setting{}, &model.StorageConfig{})
+	repos := repository.New(db)
+	log := zap.NewNop()
+	storage := NewStorageConfigService(log, repos, NewCryptoService("", log))
+	if _, err := storage.Save(t.Context(), StorageInput{
+		Type: "openlist",
+		Config: map[string]any{
+			"server": upstream.URL,
+			"token":  "openlist-token",
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	lib := model.Library{Name: "OpenList · 综艺", Path: "cloud://openlist", Type: "tv", Enabled: true}
+	if err := repos.Library.Create(t.Context(), &lib); err != nil {
+		t.Fatal(err)
+	}
+	ref := "/" + showDir + "/" + seasonDir + "/" + name
+	path := "cloud://openlist/" + showDir + "/" + seasonDir + "/" + name
+	if err := repos.DB.Create(&model.Media{
+		LibraryID:    lib.ID,
+		Title:        "hntv spring festival gala s01e",
+		Path:         path,
+		SizeBytes:    1,
+		Container:    "ts",
+		STRMURL:      BuildRelativeCloudPlayURL("openlist", ref),
+		ScrapeStatus: "no_match",
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	scanner := NewScannerService(&config.Config{}, log, repos, NewHub(log), nil, nil)
+	scanner.SetStorageConfig(storage)
+
+	res, err := scanner.ScanLibrary(t.Context(), lib.ID)
+	if err != nil {
+		t.Fatalf("scan cloud: %v", err)
+	}
+	if res.Updated != 1 || res.Skipped != 0 {
+		t.Fatalf("scan result updated=%d skipped=%d, want 1/0: %#v", res.Updated, res.Skipped, res)
+	}
+	var media model.Media
+	if err := repos.DB.First(&media, "path = ?", path).Error; err != nil {
+		t.Fatal(err)
+	}
+	if media.Title != "hntv spring festival gala" || media.SeasonNum != 1 || media.EpisodeNum != 202 || media.ScrapeStatus != "pending" {
+		t.Fatalf("stale cloud row was not refreshed: title=%q s=%d e=%d status=%q", media.Title, media.SeasonNum, media.EpisodeNum, media.ScrapeStatus)
+	}
+}

@@ -263,6 +263,7 @@ func extractOrganizeReleaseTag(source string) string {
 	}
 	value := strings.Trim(matches[1], " ._-[]()")
 	value = patSEnE.ReplaceAllString(value, " ")
+	value = patDanglingSE.ReplaceAllString(value, " ")
 	value = patNxE.ReplaceAllString(value, " ")
 	value = patEP.ReplaceAllString(value, " ")
 	value = patCN.ReplaceAllString(value, " ")

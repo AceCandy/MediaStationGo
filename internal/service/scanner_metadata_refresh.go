@@ -1,6 +1,22 @@
 package service
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/ShukeBta/MediaStationGo/internal/model"
+)
+
+type scanDerivedMetadata struct {
+	Title        string
+	ScrapeStatus string
+	Year         int
+	TMDbID       int
+	BangumiID    int
+	DoubanID     string
+	TheTVDBID    string
+	SeasonNum    int
+	EpisodeNum   int
+}
 
 func cloudMetadataNeedsRefresh(existing existingCloudMedia, localMeta *LocalMetadata) bool {
 	if localMeta == nil {
@@ -155,6 +171,67 @@ func localMetadataNeedsRefresh(existing existingLocalMedia, local *LocalMetadata
 		return true
 	}
 	return local.NSFW && !existing.NSFW
+}
+
+func cloudDerivedMetadataNeedsRefresh(existing existingCloudMedia, incoming *model.Media) bool {
+	if incoming == nil {
+		return false
+	}
+	return scanDerivedMetadataNeedsRefresh(scanDerivedMetadata{
+		Title:        existing.Title,
+		ScrapeStatus: existing.ScrapeStatus,
+		Year:         existing.Year,
+		TMDbID:       existing.TMDbID,
+		BangumiID:    existing.BangumiID,
+		DoubanID:     existing.DoubanID,
+		TheTVDBID:    existing.TheTVDBID,
+		SeasonNum:    existing.SeasonNum,
+		EpisodeNum:   existing.EpisodeNum,
+	}, incoming)
+}
+
+func localDerivedMetadataNeedsRefresh(existing existingLocalMedia, incoming *model.Media) bool {
+	if incoming == nil {
+		return false
+	}
+	return scanDerivedMetadataNeedsRefresh(scanDerivedMetadata{
+		Title:        existing.Title,
+		ScrapeStatus: existing.ScrapeStatus,
+		Year:         existing.Year,
+		TMDbID:       existing.TMDbID,
+		BangumiID:    existing.BangumiID,
+		DoubanID:     existing.DoubanID,
+		TheTVDBID:    existing.TheTVDBID,
+		SeasonNum:    existing.SeasonNum,
+		EpisodeNum:   existing.EpisodeNum,
+	}, incoming)
+}
+
+func scanDerivedMetadataNeedsRefresh(existing scanDerivedMetadata, incoming *model.Media) bool {
+	status := strings.TrimSpace(existing.ScrapeStatus)
+	enrichable := status == "" || status == "pending" || status == "no_match"
+	if enrichable && strings.TrimSpace(incoming.Title) != "" && !strings.EqualFold(strings.TrimSpace(existing.Title), strings.TrimSpace(incoming.Title)) {
+		return true
+	}
+	if enrichable && incoming.Year > 0 && existing.Year != incoming.Year {
+		return true
+	}
+	if (incoming.SeasonNum > 0 || incoming.EpisodeNum > 0) && existing.SeasonNum != incoming.SeasonNum {
+		return true
+	}
+	if incoming.EpisodeNum > 0 && existing.EpisodeNum != incoming.EpisodeNum {
+		return true
+	}
+	if incoming.TMDbID > 0 && existing.TMDbID != incoming.TMDbID {
+		return true
+	}
+	if incoming.BangumiID > 0 && existing.BangumiID != incoming.BangumiID {
+		return true
+	}
+	if strings.TrimSpace(incoming.DoubanID) != "" && strings.TrimSpace(existing.DoubanID) != strings.TrimSpace(incoming.DoubanID) {
+		return true
+	}
+	return strings.TrimSpace(incoming.TheTVDBID) != "" && strings.TrimSpace(existing.TheTVDBID) != strings.TrimSpace(incoming.TheTVDBID)
 }
 
 func cloudSeriesTitleFromMediaPath(mediaPath string) (string, int) {

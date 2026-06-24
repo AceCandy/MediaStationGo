@@ -30,22 +30,6 @@ func (s *ScannerService) ingestCloudFile(ctx context.Context, lib *model.Library
 		}
 	}
 	expectedSTRMURL := BuildRelativeCloudPlayURL(typ, ref)
-	isNewMedia := false
-	needsTrackProbe := true
-	if existingMedia != nil {
-		existing, exists := existingMedia[path]
-		isNewMedia = !exists
-		needsTrackProbe = !exists || cloudTrackMetadataMissing(existing)
-		if exists && existing.LibraryID == lib.ID && existing.SizeBytes == size && existing.STRMURL == expectedSTRMURL && !cloudMetadataNeedsRefresh(existing, localMeta) {
-			if needsTrackProbe && ext != ".strm" {
-				s.queueCloudMediaProbeWithBudget(typ, ref, path, probeBudget)
-			}
-			res.Skipped++
-			return
-		}
-	} else {
-		isNewMedia = !s.mediaPathExists(ctx, path)
-	}
 	m := &model.Media{
 		LibraryID:    lib.ID,
 		Title:        title,
@@ -55,6 +39,8 @@ func (s *ScannerService) ingestCloudFile(ctx context.Context, lib *model.Library
 		Container:    strings.TrimPrefix(ext, "."),
 		STRMURL:      expectedSTRMURL,
 		ScrapeStatus: "pending",
+		SeasonNum:    parsedSeason,
+		EpisodeNum:   parsedEpisode,
 	}
 	if ext == ".strm" {
 		if targetURL, err := s.resolveCloudSTRMTarget(ctx, typ, ref); err == nil && targetURL != "" {
@@ -63,11 +49,8 @@ func (s *ScannerService) ingestCloudFile(ctx context.Context, lib *model.Library
 			s.log.Debug("read cloud strm failed", zap.String("ref", ref), zap.Error(err))
 		}
 	}
-	m.SeasonNum = parsedSeason
-	m.EpisodeNum = parsedEpisode
 	if localMeta != nil {
 		applyLocalMetadata(m, localMeta)
-		res.LocalMetadata++
 		s.queueCloudArtworkPrefetch(localMeta.PosterURL)
 		s.queueCloudArtworkPrefetch(localMeta.BackdropURL)
 	}
@@ -84,6 +67,25 @@ func (s *ScannerService) ingestCloudFile(ctx context.Context, lib *model.Library
 		if strings.TrimSpace(hints.TheTVDBID) != "" && strings.TrimSpace(m.TheTVDBID) == "" {
 			m.TheTVDBID = strings.TrimSpace(hints.TheTVDBID)
 		}
+	}
+	isNewMedia := false
+	needsTrackProbe := true
+	if existingMedia != nil {
+		existing, exists := existingMedia[path]
+		isNewMedia = !exists
+		needsTrackProbe = !exists || cloudTrackMetadataMissing(existing)
+		if exists && existing.LibraryID == lib.ID && existing.SizeBytes == size && existing.STRMURL == expectedSTRMURL && !cloudMetadataNeedsRefresh(existing, localMeta) && !cloudDerivedMetadataNeedsRefresh(existing, m) {
+			if needsTrackProbe && ext != ".strm" {
+				s.queueCloudMediaProbeWithBudget(typ, ref, path, probeBudget)
+			}
+			res.Skipped++
+			return
+		}
+	} else {
+		isNewMedia = !s.mediaPathExists(ctx, path)
+	}
+	if localMeta != nil {
+		res.LocalMetadata++
 	}
 	if isNewMedia && writeBatch != nil {
 		var after func()

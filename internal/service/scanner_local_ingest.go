@@ -25,20 +25,6 @@ func (s *ScannerService) ingestFile(ctx context.Context, lib *model.Library, pat
 
 	parsedSeason, parsedEpisode := ParseEpisode(path)
 	localMeta := s.readLocalScanMetadata(lib, path, parsedSeason, parsedEpisode)
-	isNewMedia, skipUnchanged := s.localMediaScanState(localMediaScanStateInput{
-		ctx:           ctx,
-		path:          path,
-		cleanPath:     cleanPath,
-		ext:           ext,
-		size:          size,
-		localMeta:     localMeta,
-		existingMedia: existingMedia,
-	})
-	if skipUnchanged {
-		res.Skipped++
-		return
-	}
-
 	media := s.buildLocalScanMedia(localScanMediaInput{
 		lib:           lib,
 		path:          path,
@@ -48,8 +34,25 @@ func (s *ScannerService) ingestFile(ctx context.Context, lib *model.Library, pat
 		parsedSeason:  parsedSeason,
 		parsedEpisode: parsedEpisode,
 		localMeta:     localMeta,
-		res:           res,
 	})
+	isNewMedia, skipUnchanged := s.localMediaScanState(localMediaScanStateInput{
+		ctx:           ctx,
+		path:          path,
+		cleanPath:     cleanPath,
+		ext:           ext,
+		size:          size,
+		localMeta:     localMeta,
+		incoming:      media,
+		existingMedia: existingMedia,
+	})
+	if skipUnchanged {
+		res.Skipped++
+		return
+	}
+	if localMeta != nil {
+		res.LocalMetadata++
+	}
+
 	s.writeLocalScanMedia(localScanWriteInput{
 		ctx:        ctx,
 		path:       path,
@@ -99,6 +102,7 @@ type localMediaScanStateInput struct {
 	ext           string
 	size          int64
 	localMeta     *LocalMetadata
+	incoming      *model.Media
 	existingMedia map[string]existingLocalMedia
 }
 
@@ -108,7 +112,7 @@ func (s *ScannerService) localMediaScanState(in localMediaScanStateInput) (bool,
 	}
 	existing, exists := in.existingMedia[in.cleanPath]
 	isNewMedia := !exists
-	if exists && in.ext != ".strm" && existing.SizeBytes == in.size && !localMetadataNeedsRefresh(existing, in.localMeta) {
+	if exists && in.ext != ".strm" && existing.SizeBytes == in.size && !localMetadataNeedsRefresh(existing, in.localMeta) && !localDerivedMetadataNeedsRefresh(existing, in.incoming) {
 		return isNewMedia, true
 	}
 	return isNewMedia, false
@@ -123,7 +127,6 @@ type localScanMediaInput struct {
 	parsedSeason  int
 	parsedEpisode int
 	localMeta     *LocalMetadata
-	res           *ScanResult
 }
 
 func (s *ScannerService) buildLocalScanMedia(in localScanMediaInput) *model.Media {
@@ -153,7 +156,6 @@ func (s *ScannerService) buildLocalScanMedia(in localScanMediaInput) *model.Medi
 	}
 	if in.localMeta != nil {
 		applyLocalMetadata(media, in.localMeta)
-		in.res.LocalMetadata++
 	}
 	return media
 }

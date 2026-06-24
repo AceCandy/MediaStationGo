@@ -32,6 +32,7 @@ func TestCleanQuery(t *testing.T) {
 		{"紫川.2024.S02E24.第24集.2160p.WEB-DL.H.265-ColorTV.mkv", "紫川", 2024},
 		{"紫川 (2024) {tmdb-247590}", "紫川", 2024},
 		{"HNTV.Spring.Festival.Gala.FPS.HLG-QHStudio.S01E202-DD5.QHstudIo.6.4K.ts", "hntv spring festival gala", 0},
+		{"Hntv Spring Festival Gala S01e (2026)", "hntv spring festival gala", 2026},
 	}
 	for _, tc := range cases {
 		t.Run(tc.in, func(t *testing.T) {

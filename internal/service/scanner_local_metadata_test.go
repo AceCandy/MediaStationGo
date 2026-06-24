@@ -181,6 +181,50 @@ func TestScanLibraryParsesEpisodesForMovieTypedLibrary(t *testing.T) {
 	}
 }
 
+func TestScanLibraryRefreshesStaleNoMatchDerivedMetadata(t *testing.T) {
+	root := t.TempDir()
+	seasonDir := filepath.Join(root, "Hntv Spring Festival Gala S01e (2026)", "Season 1")
+	if err := os.MkdirAll(seasonDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	mediaPath := filepath.Join(seasonDir, "Hntv Spring Festival Gala S01e - S01E202-DD5.QHstudIo.6.4K - 第 202 集.ts")
+	if err := os.WriteFile(mediaPath, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	db := newServiceTestDB(t, &model.Library{}, &model.Media{}, &model.Setting{})
+	repos := repository.New(db)
+	lib := model.Library{Name: "综艺", Path: root, Type: "tv", Enabled: true}
+	if err := repos.Library.Create(t.Context(), &lib); err != nil {
+		t.Fatal(err)
+	}
+	if err := repos.DB.Create(&model.Media{
+		LibraryID:    lib.ID,
+		Title:        "hntv spring festival gala s01e",
+		Path:         mediaPath,
+		SizeBytes:    1,
+		ScrapeStatus: "no_match",
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	scanner := NewScannerService(&config.Config{}, zap.NewNop(), repos, NewHub(zap.NewNop()), nil, nil)
+	res, err := scanner.ScanLibrary(t.Context(), lib.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Updated != 1 || res.Skipped != 0 {
+		t.Fatalf("scan counts updated=%d skipped=%d, want 1/0", res.Updated, res.Skipped)
+	}
+	var media model.Media
+	if err := db.First(&media, "path = ?", mediaPath).Error; err != nil {
+		t.Fatal(err)
+	}
+	if media.Title != "hntv spring festival gala" || media.SeasonNum != 1 || media.EpisodeNum != 202 || media.ScrapeStatus != "pending" {
+		t.Fatalf("stale no_match row was not refreshed: title=%q s=%d e=%d status=%q", media.Title, media.SeasonNum, media.EpisodeNum, media.ScrapeStatus)
+	}
+}
+
 func TestScanLibraryPrunesMissingMedia(t *testing.T) {
 	root := t.TempDir()
 	mediaPath := filepath.Join(root, "Show.S02E03.mkv")

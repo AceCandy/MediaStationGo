@@ -23,6 +23,7 @@ import (
 
 var (
 	patSEnE          = regexp.MustCompile(`(?i)s(\d{1,2})e(\d{1,3})`)
+	patDanglingSE    = regexp.MustCompile(`(?i)(?:^|[\s._-])s\d{1,2}e(?:[\s._-]|$)`)
 	patNxE           = regexp.MustCompile(`(\d{1,2})x(\d{1,3})`)
 	patEP            = regexp.MustCompile(`(?i)(?:^|[^a-z])(?:e|ep)\.?\s*(\d{1,3})(?:[^0-9]|$)`)
 	patCN            = regexp.MustCompile(`第\s*([0-9一二三四五六七八九十百零两]+)\s*[集话話期]`)

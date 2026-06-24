@@ -144,9 +144,14 @@ func addMediaTitleUpdates(updates map[string]any, existing, incoming model.Media
 		// 真实剧名。仅在 existing 还停留在 'pending'/'' 时回填扫描标题，
 		// 避免覆盖刮削结果。
 		if incoming.ScrapeStatus == "matched" || existing.ScrapeStatus == "pending" || existing.ScrapeStatus == "" || existing.ScrapeStatus == "no_match" {
+			titleChanged := !strings.EqualFold(strings.TrimSpace(existing.Title), strings.TrimSpace(incoming.Title))
+			yearChanged := incoming.Year > 0 && existing.Year != incoming.Year
 			setIfChanged(updates, "title", existing.Title, incoming.Title)
 			if incoming.Year > 0 {
 				setIfChanged(updates, "year", existing.Year, incoming.Year)
+			}
+			if strings.TrimSpace(existing.ScrapeStatus) == "no_match" && incoming.ScrapeStatus != "matched" && (titleChanged || yearChanged) {
+				updates["scrape_status"] = "pending"
 			}
 		}
 	}
@@ -218,11 +223,16 @@ func addMediaPlacementUpdates(updates map[string]any, existing, incoming model.M
 			updates["library_id"] = incoming.LibraryID
 		}
 	}
-	if (incoming.SeasonNum > 0 || incoming.EpisodeNum > 0) && existing.SeasonNum != incoming.SeasonNum {
+	seasonChanged := (incoming.SeasonNum > 0 || incoming.EpisodeNum > 0) && existing.SeasonNum != incoming.SeasonNum
+	episodeChanged := incoming.EpisodeNum > 0 && existing.EpisodeNum != incoming.EpisodeNum
+	if seasonChanged {
 		updates["season_num"] = incoming.SeasonNum
 	}
-	if incoming.EpisodeNum > 0 && existing.EpisodeNum != incoming.EpisodeNum {
+	if episodeChanged {
 		updates["episode_num"] = incoming.EpisodeNum
+	}
+	if strings.TrimSpace(existing.ScrapeStatus) == "no_match" && incoming.ScrapeStatus != "matched" && (seasonChanged || episodeChanged) {
+		updates["scrape_status"] = "pending"
 	}
 }
 
