@@ -106,7 +106,7 @@ function artworkIdentity(url) {
     return `${url.origin}${url.pathname}?url=${url.searchParams.get('url') || ''}`
   }
   if (url.pathname.startsWith('/api/cloud/play/')) {
-    return `${url.origin}${url.pathname}`
+    return `${url.origin}${url.pathname}?ref=${url.searchParams.get('ref') || ''}`
   }
   return ''
 }

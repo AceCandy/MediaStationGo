@@ -109,9 +109,6 @@ func proxyCloudResolvedLink(playback cloudPlaybackRequest) {
 		clientMethod = http.MethodGet
 	}
 	upstreamMethod := clientMethod
-	if upstreamMethod == http.MethodHead {
-		upstreamMethod = http.MethodGet
-	}
 	req, err := http.NewRequestWithContext(c.Request.Context(), upstreamMethod, playback.link.URL, nil)
 	if err != nil {
 		c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
@@ -122,8 +119,6 @@ func proxyCloudResolvedLink(playback cloudPlaybackRequest) {
 	}
 	if rng := c.GetHeader("Range"); rng != "" {
 		req.Header.Set("Range", rng)
-	} else if clientMethod == http.MethodHead {
-		req.Header.Set("Range", "bytes=0-0")
 	}
 	if accept := c.GetHeader("Accept"); accept != "" {
 		req.Header.Set("Accept", accept)

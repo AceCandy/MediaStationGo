@@ -38,9 +38,9 @@ func EvaluateFFmpegSecurity(versionLine string) FFmpegSecurityStatus {
 		FixedVersion:  ffmpegPixelSmashFixedVersion,
 		ParsedVersion: fmt.Sprintf("%d.%d.%d", major, minor, patch),
 	}
-	if major == 8 && minor == 1 && patch < 2 {
+	if major == 8 && ffmpegVersionLess(major, minor, patch, 8, 1, 2) {
 		status.Status = "vulnerable"
-		status.Message = "当前 FFmpeg 8.1.x 版本低于 8.1.2，可能受 PixelSmash 解码漏洞影响；请升级 ffmpeg/ffprobe"
+		status.Message = "当前 FFmpeg 8.x 版本低于 8.1.2，可能受 PixelSmash 解码漏洞影响；请升级 ffmpeg/ffprobe"
 		return status
 	}
 	if major < 8 {
@@ -48,6 +48,16 @@ func EvaluateFFmpegSecurity(versionLine string) FFmpegSecurityStatus {
 		status.Message = "当前 FFmpeg 主版本低于 8；请按发行版安全公告确认是否已回补 PixelSmash 修复"
 	}
 	return status
+}
+
+func ffmpegVersionLess(major, minor, patch, fixedMajor, fixedMinor, fixedPatch int) bool {
+	if major != fixedMajor {
+		return major < fixedMajor
+	}
+	if minor != fixedMinor {
+		return minor < fixedMinor
+	}
+	return patch < fixedPatch
 }
 
 func parseFFmpegVersionLine(versionLine string) (major, minor, patch int, ok bool) {
