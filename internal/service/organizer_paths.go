@@ -50,8 +50,9 @@ func (o *OrganizerService) categoryPhysicalRootDir(category string) string {
 	case match(
 		categoryName(categories, "cn_anime", "国漫"),
 		categoryName(categories, "jp_anime", "日番"),
+		categoryName(categories, "euus_anime", "欧美动漫"),
 		categoryName(categories, "children", "儿童"),
-		"国漫", "国产动漫", "日番", "番剧", "日漫", "日本动漫", "日本动画", "儿童", "少儿",
+		"国漫", "国产动漫", "日番", "番剧", "日漫", "日本动漫", "日本动画", "欧美动漫", "欧美动画", "西方动画", "儿童", "少儿",
 	):
 		return "动漫"
 	case match(

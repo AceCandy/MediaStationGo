@@ -28,15 +28,17 @@ var noiseTokens = []string{
 	// 流媒体平台 / 字幕组 / 国家版本（动漫常见）
 	"netflix", "nf", "amzn", "hulu", "disney", "max", "hbo",
 	"linetv", "ourtv", "iqiyi", "youku", "bilibili", "qiyi", "krj",
+	"atvp", "appletv", "apple-tv", "tx", "txweb",
 	"crunchyroll", "funimation", "anidb", "horriblesubs", "subsplease",
 	"erai-raws", "judas", "asw", "smcat", "leopard-raws", "ohys-raws", "colortv",
+	"mweb", "ubweb", "hhweb", "adweb", "chdweb", "kurosawa", "qhstudio",
 
 	// 中文字幕标记
 	"zm", "zw", "ch", "chs", "cht", "cn", "tc", "sc",
 	"中字", "繁字", "简中", "繁中", "国语", "粤语", "日语",
 
 	// 季数前缀残留 — ParseEpisode 已抽取过
-	"season", "264", "265",
+	"season", "264", "265", "aac2", "aac5",
 }
 
 var noiseTokenSet = func() map[string]struct{} {
@@ -317,7 +319,7 @@ func isGenericMediaCategoryFolder(name string) bool {
 		"华语电影", "国产电影", "大陆电影",
 		"外语电影", "欧美电影", "日韩电影",
 		"动画电影", "动漫电影",
-		"国漫", "国产动漫", "日番", "日漫", "日本动漫", "日本动画",
+		"国漫", "国产动漫", "日番", "日漫", "日本动漫", "日本动画", "欧美动漫", "欧美动画", "西方动画",
 		"综艺", "真人秀",
 		"纪录片", "纪录",
 		"儿童", "少儿",

@@ -170,3 +170,37 @@ func TestMediaSeriesKeyCollapsesNumberedSpecialSuffixes(t *testing.T) {
 		}
 	}
 }
+
+func TestMediaSeriesKeyCleansReleaseNoiseFolders(t *testing.T) {
+	clean := model.Media{
+		LibraryID:  "lib-variety",
+		Path:       `F:\media\电视剧\综艺\Hntv Spring Festival Gala S01e (2026)\Season 1\Hntv Spring Festival Gala S01e - S01E202.ts`,
+		SeasonNum:  1,
+		EpisodeNum: 202,
+	}
+	dirty := model.Media{
+		LibraryID:  "lib-variety",
+		Path:       `F:\media\电视剧\综艺\Hntv Spring Festival Gala Fps Hlg Qhstudio S01e (2026)\Season 1\Hntv Spring Festival Gala Fps Hlg Qhstudio S01e - S01E202.ts`,
+		SeasonNum:  1,
+		EpisodeNum: 202,
+	}
+	if got, want := mediaSeriesKey(dirty), mediaSeriesKey(clean); got != want {
+		t.Fatalf("dirty folder key=%q, want clean folder key=%q", got, want)
+	}
+
+	noisyRelease := model.Media{
+		LibraryID:  "lib-tv",
+		Path:       `F:\media\电视剧\欧美剧\Motherhood Of Taihang Aac2 Mweb\Season 1\Motherhood Of Taihang Aac2 Mweb - S01E01-Aac2.Mweb.mkv`,
+		SeasonNum:  1,
+		EpisodeNum: 1,
+	}
+	cleanRelease := model.Media{
+		LibraryID:  "lib-tv",
+		Path:       `F:\media\电视剧\欧美剧\Motherhood Of Taihang\Season 1\Motherhood Of Taihang - S01E01.mkv`,
+		SeasonNum:  1,
+		EpisodeNum: 1,
+	}
+	if got, want := mediaSeriesKey(noisyRelease), mediaSeriesKey(cleanRelease); got != want {
+		t.Fatalf("release-noise folder key=%q, want clean key=%q", got, want)
+	}
+}

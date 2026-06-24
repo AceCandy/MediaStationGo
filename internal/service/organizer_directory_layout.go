@@ -116,6 +116,7 @@ func (o *OrganizerService) directoryCategoryTypes() map[string]organizeDirectory
 	addConfigured("jk_tv", "日韩剧", "tv")
 	addConfigured("cn_anime", "国漫", "anime")
 	addConfigured("jp_anime", "日番", "anime")
+	addConfigured("euus_anime", "欧美动漫", "anime")
 	addConfigured("variety", "综艺", "variety")
 	addConfigured("documentary", "纪录片", "tv")
 	addConfigured("children", "儿童", "tv")

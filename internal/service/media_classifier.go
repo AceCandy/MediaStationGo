@@ -100,6 +100,9 @@ func classifyMediaCategory(input mediaClassifyInput, categories map[string]strin
 		if isChineseAnime {
 			return categoryName(categories, "cn_anime", "国漫")
 		}
+		if isWesternByMetadata || (!hasMetadata && containsAnyText(categoryText, "欧美动漫", "欧美动画", "西方动画")) {
+			return categoryName(categories, "euus_anime", "欧美动漫")
+		}
 		return categoryName(categories, "jp_anime", "日番")
 	case "variety":
 		return categoryName(categories, "variety", "综艺")
@@ -119,6 +122,9 @@ func classifyMediaCategory(input mediaClassifyInput, categories map[string]strin
 		if hasGenre("16", "ANIMATION", "动画", "动漫") || hasAnimeText {
 			if isChineseAnime {
 				return categoryName(categories, "cn_anime", "国漫")
+			}
+			if isWesternByMetadata || (!hasMetadata && containsAnyText(categoryText, "欧美动漫", "欧美动画", "西方动画")) {
+				return categoryName(categories, "euus_anime", "欧美动漫")
 			}
 			return categoryName(categories, "jp_anime", "日番")
 		}
@@ -293,6 +299,7 @@ var sourceCategoryHints = []sourceCategoryHintDef{
 	{Key: "jk_tv", Fallback: "日韩剧", MediaType: "tv"},
 	{Key: "cn_anime", Fallback: "国漫", MediaType: "anime"},
 	{Key: "jp_anime", Fallback: "日番", MediaType: "anime"},
+	{Key: "euus_anime", Fallback: "欧美动漫", MediaType: "anime"},
 	{Key: "variety", Fallback: "综艺", MediaType: "variety"},
 	{Key: "documentary", Fallback: "纪录片", MediaType: "tv"},
 	{Key: "children", Fallback: "儿童", MediaType: "tv"},

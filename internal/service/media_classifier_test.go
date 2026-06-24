@@ -197,6 +197,36 @@ func TestClassifyMediaCategoryMatchesSmartRules(t *testing.T) {
 			want: "日番",
 		},
 		{
+			name: "western anime metadata uses western anime category",
+			input: mediaClassifyInput{
+				MediaType: "anime",
+				Title:     "Family Guy",
+				Countries: []string{"US"},
+				Genres:    []string{"16"},
+				Category:  "日番",
+			},
+			want: "欧美动漫",
+		},
+		{
+			name: "tv animation with western metadata uses western anime category",
+			input: mediaClassifyInput{
+				MediaType: "tv",
+				Title:     "The Simpsons",
+				Countries: []string{"US"},
+				Genres:    []string{"Animation"},
+			},
+			want: "欧美动漫",
+		},
+		{
+			name: "western anime source category is preserved without metadata",
+			input: mediaClassifyInput{
+				MediaType: "anime",
+				Title:     "The Simpsons S01E01 1080p",
+				Category:  "downloads 欧美动漫",
+			},
+			want: "欧美动漫",
+		},
+		{
 			name: "anime with CN country metadata is cn",
 			input: mediaClassifyInput{
 				MediaType: "anime",

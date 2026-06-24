@@ -107,7 +107,7 @@ func groupMediaSeriesCards(items []model.Media) []SeriesCard {
 	return cards
 }
 
-var episodicPathRE = regexp.MustCompile(`(?i)[\\/](?:电视剧|剧集|国产剧|欧美剧|日韩剧|日剧|韩剧|综艺|纪录片|动漫|番剧|国漫|日番|儿童|tv|series|shows?|season[\s._-]*\d|s\d{1,2}(?:[\s._-]|[\\/])|special[\s._-]*episodes?|specials?|sp|ovas?|oads?|extras?|bonus(?:es)?|omake|特别篇|特別篇|番外篇?|特典|外传|外傳|总集篇|總集篇)[\\/]`)
+var episodicPathRE = regexp.MustCompile(`(?i)[\\/](?:电视剧|剧集|国产剧|欧美剧|日韩剧|日剧|韩剧|综艺|纪录片|动漫|番剧|国漫|日番|欧美动漫|欧美动画|儿童|tv|series|shows?|season[\s._-]*\d|s\d{1,2}(?:[\s._-]|[\\/])|special[\s._-]*episodes?|specials?|sp|ovas?|oads?|extras?|bonus(?:es)?|omake|特别篇|特別篇|番外篇?|特典|外传|外傳|总集篇|總集篇)[\\/]`)
 
 func mediaSeriesKey(media model.Media) string {
 	return compactSeriesKey(mediaSeriesRawKey(media))
@@ -188,7 +188,12 @@ func normalizeSeriesTitle(value string) string {
 }
 
 func normalizeSeriesPathTitle(value string) string {
-	title := normalizeSeriesTitle(value)
+	title, _ := CleanQuery(value)
+	if title == "" {
+		title = normalizeSeriesTitle(value)
+	} else {
+		title = normalizeSeriesTitle(title)
+	}
 	stripped := stripSeriesSpecialSuffix(title)
 	if stripped != "" {
 		return stripped

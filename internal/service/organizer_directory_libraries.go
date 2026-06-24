@@ -264,6 +264,8 @@ func (o *OrganizerService) organizeCategoryAliases(mediaType, category string) m
 		add("日番", "日漫", "日本动漫", "日本动画")
 	case normalizeOrganizeCategoryKey(categoryName(categories, "cn_anime", "国漫")), "国漫", "国产动漫", "國漫":
 		add("国漫", "国产动漫")
+	case normalizeOrganizeCategoryKey(categoryName(categories, "euus_anime", "欧美动漫")), "欧美动漫", "欧美动画", "西方动画":
+		add("欧美动漫", "欧美动画", "西方动画")
 	case normalizeOrganizeCategoryKey(categoryName(categories, "domestic_tv", "国产剧")), "国产剧", "国剧", "大陆剧", "国产电视剧":
 		add("国产剧", "国剧", "大陆剧", "国产电视剧")
 	case normalizeOrganizeCategoryKey(categoryName(categories, "euus_tv", "欧美剧")), "欧美剧", "欧美电视剧":

@@ -306,6 +306,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("organizer.categories.jk_tv", "日韩剧")
 	v.SetDefault("organizer.categories.jp_anime", "日番")
 	v.SetDefault("organizer.categories.cn_anime", "国漫")
+	v.SetDefault("organizer.categories.euus_anime", "欧美动漫")
 	v.SetDefault("organizer.categories.variety", "综艺")
 	v.SetDefault("organizer.categories.documentary", "纪录片")
 	v.SetDefault("organizer.categories.children", "儿童")

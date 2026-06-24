@@ -124,7 +124,7 @@ function categoryRootFor(part: string) {
   const key = part.trim().toLowerCase()
   if (['动画电影', '动漫电影', '华语电影', '国产电影', '外语电影', '欧美电影', '日韩电影'].includes(key)) return '电影'
   if (['国产剧', '欧美剧', '日韩剧', '日剧', '韩剧', '综艺', '真人秀', '纪录片', '纪录', '未分类'].includes(key)) return '电视剧'
-  if (['国漫', '国产动漫', '日番', '番剧', '日漫', '日本动漫', '日本动画', '儿童', '少儿'].includes(key)) return '动漫'
+  if (['国漫', '国产动漫', '日番', '番剧', '日漫', '日本动漫', '日本动画', '欧美动漫', '欧美动画', '西方动画', '儿童', '少儿'].includes(key)) return '动漫'
   if (key === '番号') return '成人'
   return ''
 }

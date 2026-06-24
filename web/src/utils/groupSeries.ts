@@ -78,7 +78,7 @@ export function isEpisodeLike(media: Media): boolean {
 // 剧集类目录名(电视剧/动漫及其二级分类)。媒体路径落在这些目录下时, 即便
 // 季集号未识别出来, 也应按剧集对待, 跳转到 /library 分类视图而非 /media 单页。
 const EPISODIC_PATH_RE =
-  /[\\/](?:电视剧|剧集|国产剧|欧美剧|日韩剧|日剧|韩剧|综艺|纪录片|动漫|番剧|国漫|日番|儿童|tv|series|shows?|season[\s._-]*\d|s\d{1,2}(?:[\s._-]|[\\/])|special[\s._-]*episodes?|specials?|sp|ovas?|oads?|extras?|bonus(?:es)?|omake|特别篇|特別篇|番外篇?|特典|外传|外傳|总集篇|總集篇)[\\/]/i
+  /[\\/](?:电视剧|剧集|国产剧|欧美剧|日韩剧|日剧|韩剧|综艺|纪录片|动漫|番剧|国漫|日番|欧美动漫|欧美动画|儿童|tv|series|shows?|season[\s._-]*\d|s\d{1,2}(?:[\s._-]|[\\/])|special[\s._-]*episodes?|specials?|sp|ovas?|oads?|extras?|bonus(?:es)?|omake|特别篇|特別篇|番外篇?|特典|外传|外傳|总集篇|總集篇)[\\/]/i
 
 const SEASON_FOLDER_RE =
   /^(?:s\d{1,2}|season[\s._-]*\d{1,2}|第\s*[0-9一二三四五六七八九十百零两]+\s*季|special[\s._-]*episodes?|specials?|sp|ovas?|oads?|extras?|bonus(?:es)?|omake|特别篇|特別篇|番外篇?|特典|外传|外傳|总集篇|總集篇)$/i
@@ -122,7 +122,7 @@ const SERIES_SPECIAL_CJK_RE =
 function normalizePathSeriesTitle(value?: string): string {
   const title = normalizeTitle(value)
   const stripped = stripSeriesSpecialSuffix(title)
-  const normalized = stripped || title
+  const normalized = cleanSeriesReleaseNoise(stripped || title)
   return unsafeEpisodeTitle(normalized) ? '' : normalized
 }
 
@@ -132,6 +132,62 @@ function stripSeriesSpecialSuffix(title: string): string {
     if (stripped && stripped !== title) return stripped
   }
   return title
+}
+
+const SERIES_RELEASE_NOISE = new Set([
+  '1080p', '2160p', '4k', '720p', '480p', 'uhd', 'ds4k', 'fhd',
+  'bd', 'bdrip', 'brrip', 'dvd', 'dvdrip', 'hdtv', 'pdtv', 'webdl',
+  'hdrip', 'bluray', 'blu ray', 'webrip', 'web', 'web dl',
+  'x264', 'x265', 'h264', 'h265', 'hevc', 'avc', '10bit', '8bit', 'hi10p', 'hi10',
+  'hdr', 'hdr10', 'sdr', 'dts', 'ddp', 'ddp5', 'dd5', 'dd2', 'eac3', 'truehd',
+  'dovi', 'atmos', 'aac', 'aac2', 'aac5', 'ac3', 'flac', 'fps', 'hlg', 'dv',
+  'remux', 'extended', 'uncut', 'remastered', 'repack', 'proper', 'internal',
+  'limited', 'imax',
+  'netflix', 'nf', 'amzn', 'hulu', 'disney', 'max', 'hbo', 'linetv', 'ourtv',
+  'iqiyi', 'youku', 'bilibili', 'qiyi', 'krj', 'atvp', 'appletv', 'tx', 'txweb',
+  'crunchyroll', 'funimation', 'anidb', 'horriblesubs', 'subsplease',
+  'erai', 'raws', 'judas', 'asw', 'smcat', 'leopard', 'ohys', 'colortv',
+  'mweb', 'ubweb', 'hhweb', 'adweb', 'chdweb', 'kurosawa', 'qhstudio',
+  'zm', 'zw', 'ch', 'chs', 'cht', 'cn', 'tc', 'sc',
+  '中字', '繁字', '简中', '繁中', '国语', '粤语', '日语',
+  'season', '264', '265',
+])
+
+const SERIES_RELEASE_BOUNDARY = new Set([
+  '1080p', '2160p', '4k', '720p', '480p', 'uhd', 'fhd',
+  'bd', 'bdrip', 'brrip', 'dvd', 'dvdrip', 'hdtv', 'pdtv',
+  'webdl', 'hdrip', 'bluray', 'webrip', 'web', 'remux',
+  'x264', 'x265', 'h264', 'h265', 'hevc', 'avc',
+])
+
+const SERIES_DANGLING_SE_RE = /^s\d{1,2}e$/i
+const SERIES_MULTI_WORD_NOISE = [
+  /\bweb\s+dl\b/g,
+  /\bblu\s+ray\b/g,
+  /\bdirectors\s+cut\b/g,
+  /\berai\s+raws\b/g,
+  /\bohys\s+raws\b/g,
+  /\bleopard\s+raws\b/g,
+]
+
+function cleanSeriesReleaseNoise(title: string): string {
+  for (const pattern of SERIES_MULTI_WORD_NOISE) {
+    title = title.replace(pattern, ' ')
+  }
+  const fields = title.split(/\s+/).filter(Boolean)
+  const out: string[] = []
+  let seenReleaseBoundary = false
+  for (const field of fields) {
+    if (SERIES_DANGLING_SE_RE.test(field)) continue
+    if (SERIES_RELEASE_NOISE.has(field)) {
+      if (SERIES_RELEASE_BOUNDARY.has(field)) seenReleaseBoundary = true
+      continue
+    }
+    if (seenReleaseBoundary && /^[a-z0-9]+$/.test(field)) continue
+    if (field.length <= 1 && /^[a-z0-9]$/.test(field)) continue
+    out.push(field)
+  }
+  return out.join(' ').trim()
 }
 
 const EPISODE_ONLY_TITLE_RE =

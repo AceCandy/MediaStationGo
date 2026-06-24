@@ -108,6 +108,78 @@ func TestOrganizeDirectoryReclassifiesExistingWrongCategoryMedia(t *testing.T) {
 	}
 }
 
+func TestOrganizeDirectoryCleansReleaseNoiseBeforeMetadataClassify(t *testing.T) {
+	var queries []string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path != "/search/tv" {
+			http.NotFound(w, r)
+			return
+		}
+		query := r.URL.Query().Get("query")
+		queries = append(queries, query)
+		if query != "motherhood of taihang" {
+			_ = json.NewEncoder(w).Encode(map[string]any{"results": []any{}})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"results": []map[string]any{{
+				"id":                219630,
+				"name":              "太行之脊",
+				"original_name":     "Motherhood of Taihang",
+				"original_language": "zh",
+				"origin_country":    []string{"CN"},
+				"genre_ids":         []int{18},
+				"first_air_date":    "2020-08-26",
+			}},
+		})
+	}))
+	defer upstream.Close()
+
+	repos := newOrganizerTestRepo(t)
+	cfg := &config.Config{}
+	cfg.Organizer.SmartClassify = true
+	cfg.Secrets.TMDbAPIKey = "test-key"
+	cfg.Secrets.TMDbAPIProxy = upstream.URL
+	scraper := NewScraperService(cfg, zap.NewNop(), repos, NewTMDbProvider(cfg, zap.NewNop(), nil), nil, nil, nil, NewHub(zap.NewNop()))
+
+	root := t.TempDir()
+	srcRoot := filepath.Join(root, "downloads")
+	dest := filepath.Join(root, "media")
+	sourceFile := filepath.Join(srcRoot, "Motherhood Of Taihang Aac2 Mweb", "Motherhood Of Taihang Aac2 Mweb - S01E01-Aac2.Mweb - 第 1 集.mkv")
+	writeOrgFile(t, sourceFile, "episode")
+
+	euusLib := model.Library{Name: "欧美剧", Path: filepath.Join(dest, "电视剧", "欧美剧"), Type: "tv", Enabled: true}
+	domesticLib := model.Library{Name: "国产剧", Path: filepath.Join(dest, "电视剧", "国产剧"), Type: "tv", Enabled: true}
+	if err := repos.Library.Create(t.Context(), &euusLib); err != nil {
+		t.Fatal(err)
+	}
+	if err := repos.Library.Create(t.Context(), &domesticLib); err != nil {
+		t.Fatal(err)
+	}
+
+	organizer := NewOrganizerService(cfg, zap.NewNop(), repos)
+	organizer.SetScraper(scraper)
+	res, err := organizer.OrganizeDirectory(t.Context(), OrganizeOptions{
+		SourcePath:   srcRoot,
+		DestPath:     euusLib.Path,
+		TransferMode: TransferCopy,
+	})
+	if err != nil {
+		t.Fatalf("organize directory: %v", err)
+	}
+	want := filepath.Join(domesticLib.Path, "太行之脊", "Season 01", "太行之脊 - S01E01.mkv")
+	if res.Organized != 1 || res.Reclassified != 0 {
+		t.Fatalf("result = %+v, want organized=1 only; queries=%v", res, queries)
+	}
+	if _, err := os.Stat(want); err != nil {
+		t.Fatalf("organized media missing at %q: %v; items=%#v queries=%v", want, err, res.Items, queries)
+	}
+	if len(queries) == 0 || queries[0] != "motherhood of taihang" {
+		t.Fatalf("first metadata query = %q, want cleaned title; all queries=%v", firstQuery(queries), queries)
+	}
+}
+
 func TestOrganizeDirectoryReclassifiesScannedAnimeUsingDBMetadata(t *testing.T) {
 	repos := newOrganizerTestRepo(t)
 	cfg := &config.Config{}
@@ -222,6 +294,60 @@ func TestReclassifyMisclassifiedMediaMovesScannedAnimeToPhysicalAnimeLibrary(t *
 	}
 	if got.LibraryID != animeLib.ID {
 		t.Fatalf("library_id = %q, want anime library %q", got.LibraryID, animeLib.ID)
+	}
+}
+
+func TestReclassifyMisclassifiedMediaMovesWesternAnimationToWesternAnimeLibrary(t *testing.T) {
+	repos := newOrganizerTestRepo(t)
+	cfg := &config.Config{}
+	cfg.Organizer.SmartClassify = true
+
+	root := t.TempDir()
+	dest := filepath.Join(root, "media")
+	jpAnimeLib := model.Library{Name: "日番", Path: filepath.Join(dest, "动漫", "日番"), Type: "anime", Enabled: true}
+	westernAnimeLib := model.Library{Name: "欧美动漫", Path: filepath.Join(dest, "动漫", "欧美动漫"), Type: "anime", Enabled: true}
+	for _, lib := range []*model.Library{&jpAnimeLib, &westernAnimeLib} {
+		if err := repos.Library.Create(t.Context(), lib); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	wrongPath := filepath.Join(jpAnimeLib.Path, "Family Guy", "Season 10", "Family Guy - S10E15.mkv")
+	writeOrgFile(t, wrongPath, "episode")
+	if err := repos.DB.Create(&model.Media{
+		LibraryID:    jpAnimeLib.ID,
+		Title:        "恶搞之家",
+		OriginalName: "Family Guy",
+		Path:         wrongPath,
+		SeasonNum:    10,
+		EpisodeNum:   15,
+		TMDbID:       1434,
+		Languages:    "en",
+		Countries:    "US",
+		Genres:       "动画,喜剧",
+		ScrapeStatus: "matched",
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	organizer := NewOrganizerService(cfg, zap.NewNop(), repos)
+	res, err := organizer.ReclassifyMisclassifiedMedia(t.Context(), MediaCategoryReclassifyOptions{})
+	if err != nil {
+		t.Fatalf("reclassify media: %v", err)
+	}
+	want := filepath.Join(westernAnimeLib.Path, "恶搞之家", "Season 10", "恶搞之家 - S10E15.mkv")
+	if res.Reclassified != 1 {
+		t.Fatalf("reclassified = %d, want 1; items=%#v errors=%#v", res.Reclassified, res.Items, res.Errors)
+	}
+	if _, err := os.Stat(want); err != nil {
+		t.Fatalf("western animation target missing at %q: %v", want, err)
+	}
+	var got model.Media
+	if err := repos.DB.First(&got, "path = ?", want).Error; err != nil {
+		t.Fatal(err)
+	}
+	if got.LibraryID != westernAnimeLib.ID {
+		t.Fatalf("library_id = %q, want western anime library %q", got.LibraryID, westernAnimeLib.ID)
 	}
 }
 

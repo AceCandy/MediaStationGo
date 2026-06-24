@@ -33,6 +33,9 @@ func TestCleanQuery(t *testing.T) {
 		{"紫川 (2024) {tmdb-247590}", "紫川", 2024},
 		{"HNTV.Spring.Festival.Gala.FPS.HLG-QHStudio.S01E202-DD5.QHstudIo.6.4K.ts", "hntv spring festival gala", 0},
 		{"Hntv Spring Festival Gala S01e (2026)", "hntv spring festival gala", 2026},
+		{"Motherhood Of Taihang Aac2 Mweb - S01E01-Aac2.Mweb.mkv", "motherhood of taihang", 0},
+		{"For All Mankind Atvp Hhweb - S05E06-DDP5.HHWEB.4K.mkv", "for all mankind", 0},
+		{"Hntv Spring Festival Gala Fps Hlg Qhstudio S01e (2026)", "hntv spring festival gala", 2026},
 	}
 	for _, tc := range cases {
 		t.Run(tc.in, func(t *testing.T) {
@@ -42,6 +45,33 @@ func TestCleanQuery(t *testing.T) {
 					tc.in, gotTitle, gotYear, tc.wantTitle, tc.wantYear)
 			}
 		})
+	}
+}
+
+func TestScrapeQueryCandidatesCleanDirtySeriesFolder(t *testing.T) {
+	lib := &model.Library{
+		Path: `F:\media\电视剧\欧美剧`,
+		Type: "tv",
+	}
+	media := &model.Media{
+		Title:      "motherhood of taihang aac2 mweb aac2 mweb",
+		Path:       `F:\media\电视剧\欧美剧\Motherhood Of Taihang Aac2 Mweb\Season 1\Motherhood Of Taihang Aac2 Mweb - S01E01-Aac2.Mweb - 第 1 集.mkv`,
+		SeasonNum:  1,
+		EpisodeNum: 1,
+	}
+
+	got := scrapeQueryCandidates(media, lib)
+	if len(got) == 0 {
+		t.Fatal("scrapeQueryCandidates returned no candidates")
+	}
+	if got[0] != "motherhood of taihang" {
+		t.Fatalf("first query candidate = %q, want cleaned series title; all candidates=%#v", got[0], got)
+	}
+	for _, candidate := range got {
+		lower := strings.ToLower(candidate)
+		if strings.Contains(lower, "mweb") || strings.Contains(lower, "aac2") {
+			t.Fatalf("query candidate kept release noise %q: %#v", candidate, got)
+		}
 	}
 }
 
