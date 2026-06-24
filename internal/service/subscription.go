@@ -34,6 +34,14 @@ type SubscriptionService struct {
 	stop      chan struct{}
 }
 
+type rssSubscriptionRunState struct {
+	seen              []string
+	seenSet           map[string]struct{}
+	availability      LocalAvailability
+	availabilityQuery string
+	washOff           bool
+}
+
 // NewSubscriptionService is the constructor.
 func NewSubscriptionService(cfg *config.Config, log *zap.Logger, repo *repository.Container, downloads *DownloadService, site *SiteService, hub *Hub) *SubscriptionService {
 	return &SubscriptionService{
@@ -192,73 +200,79 @@ func (s *SubscriptionService) runOne(ctx context.Context, sub *model.Subscriptio
 		seenSet[g] = struct{}{}
 	}
 
-	washOff := !sub.WashEnabled
 	s.updateSubscriptionTotalEpisodes(ctx, sub, s.resolveSubscriptionTotalEpisodes(ctx, sub, inferRSSTotalEpisodes(feed.Channel.Items, sub, filter)))
-	availQuery := availabilityQuery(subscriptionName(sub), subscriptionFilter(sub))
 	// RSS 和站点搜索统一使用候选规划：先按订阅规则过滤，再按洗版优先级/集数去重择优。
 	// 非洗版订阅成功下载一次即满足，媒体库与下载中任务会作为可用性输入避免重复下载。
-	avail := mergeLocalAvailability(
-		SubscriptionLocalAvailability(ctx, s.repo, sub),
-		s.pendingDownloadAvailability(ctx, sub),
-	)
-	candidates := selectRSSSubscriptionCandidates(feed.Channel.Items, sub, filter, seenSet, avail)
+	runState := &rssSubscriptionRunState{
+		seen:              seen,
+		seenSet:           seenSet,
+		availability:      mergeLocalAvailability(SubscriptionLocalAvailability(ctx, s.repo, sub), s.pendingDownloadAvailability(ctx, sub)),
+		availabilityQuery: availabilityQuery(subscriptionName(sub), subscriptionFilter(sub)),
+		washOff:           !sub.WashEnabled,
+	}
+	candidates := selectRSSSubscriptionCandidates(feed.Channel.Items, sub, filter, runState.seenSet, runState.availability)
+	queued := s.enqueueRSSSubscriptionCandidates(ctx, sub, candidates, runState)
+	s.finishRSSSubscriptionRun(ctx, sub, guidKey, runState, queued)
+	return queued, nil
+}
 
+func (s *SubscriptionService) enqueueRSSSubscriptionCandidates(ctx context.Context, sub *model.Subscription, candidates []siteSearchCandidate, state *rssSubscriptionRunState) int {
 	queued := 0
 	for _, candidate := range candidates {
-		item := candidate.Item
-		guid := candidate.GUID
-		download := candidate.Download
-		mediaType, mediaCategory := s.classifySubscriptionItem(ctx, sub, item.Title, "")
-		savePath := s.resolveSubscriptionSavePath(ctx, sub, mediaType, mediaCategory)
-		if s.downloadPathHasCandidate(ctx, sub, item.Title, savePath) {
-			if washOff {
-				addAvailabilityTitle(item.Title, availQuery, &avail)
-			}
-			continue
+		if s.enqueueRSSSubscriptionCandidate(ctx, sub, candidate, state) {
+			queued++
 		}
-		if _, err := s.downloads.AddDownloadWithMeta(ctx, sub.UserID, download, savePath, DownloadTaskMeta{
-			SubscriptionID:       sub.ID,
-			Title:                firstNonEmpty(item.Title, sub.Name),
-			PosterURL:            sub.PosterURL,
-			BackdropURL:          sub.BackdropURL,
-			Overview:             sub.Overview,
-			MediaType:            mediaType,
-			MediaCategory:        mediaCategory,
-			AllowExistingLibrary: sub.WashEnabled,
-		}); err != nil {
-			if IsDownloadDedupError(err) {
-				if washOff {
-					addAvailabilityTitle(item.Title, availQuery, &avail)
-				}
-				seen = append(seen, guid)
-				seenSet[guid] = struct{}{}
-				continue
-			}
-			s.log.Warn("subscription enqueue failed",
-				zap.String("title", item.Title),
-				zap.String("media_type", mediaType),
-				zap.String("media_category", mediaCategory),
-				zap.String("save_path", savePath),
-				zap.Error(err))
-			continue
-		}
-		if washOff {
-			addAvailabilityTitle(item.Title, availQuery, &avail)
-		}
-		queued++
-		seen = append(seen, guid)
-		seenSet[guid] = struct{}{}
 	}
-	avail = s.finalizePendingAvailability(sub, avail)
+	return queued
+}
+
+func (s *SubscriptionService) enqueueRSSSubscriptionCandidate(ctx context.Context, sub *model.Subscription, candidate siteSearchCandidate, state *rssSubscriptionRunState) bool {
+	item := candidate.Item
+	mediaType, mediaCategory := s.classifySubscriptionItem(ctx, sub, item.Title, "")
+	savePath := s.resolveSubscriptionSavePath(ctx, sub, mediaType, mediaCategory)
+	if s.downloadPathHasCandidate(ctx, sub, item.Title, savePath) {
+		state.markTitleAvailable(item.Title)
+		return false
+	}
+	if _, err := s.downloads.AddDownloadWithMeta(ctx, sub.UserID, candidate.Download, savePath, DownloadTaskMeta{
+		SubscriptionID:       sub.ID,
+		Title:                firstNonEmpty(item.Title, sub.Name),
+		PosterURL:            sub.PosterURL,
+		BackdropURL:          sub.BackdropURL,
+		Overview:             sub.Overview,
+		MediaType:            mediaType,
+		MediaCategory:        mediaCategory,
+		AllowExistingLibrary: sub.WashEnabled,
+	}); err != nil {
+		if IsDownloadDedupError(err) {
+			state.markTitleAvailable(item.Title)
+			state.markSeen(candidate.GUID)
+			return false
+		}
+		s.log.Warn("subscription enqueue failed",
+			zap.String("title", item.Title),
+			zap.String("media_type", mediaType),
+			zap.String("media_category", mediaCategory),
+			zap.String("save_path", savePath),
+			zap.Error(err))
+		return false
+	}
+	state.markTitleAvailable(item.Title)
+	state.markSeen(candidate.GUID)
+	return true
+}
+
+func (s *SubscriptionService) finishRSSSubscriptionRun(ctx context.Context, sub *model.Subscription, guidKey string, state *rssSubscriptionRunState, queued int) {
+	state.availability = s.finalizePendingAvailability(sub, state.availability)
 	// Remember the last 200 GUIDs so the seen set doesn't grow forever.
-	if len(seen) > 200 {
-		seen = seen[len(seen)-200:]
+	if len(state.seen) > 200 {
+		state.seen = state.seen[len(state.seen)-200:]
 	}
-	_ = s.repo.Setting.Set(ctx, guidKey, strings.Join(seen, "\n"))
+	_ = s.repo.Setting.Set(ctx, guidKey, strings.Join(state.seen, "\n"))
 
 	now := time.Now()
 	_ = s.repo.DB.Model(sub).Updates(map[string]any{"last_run_at": &now}).Error
-	_ = s.archiveCompletedSubscription(ctx, sub, avail)
+	_ = s.archiveCompletedSubscription(ctx, sub, state.availability)
 	if queued > 0 {
 		s.hub.Publish("subscription", map[string]any{
 			"id":     sub.ID,
@@ -267,5 +281,17 @@ func (s *SubscriptionService) runOne(ctx context.Context, sub *model.Subscriptio
 		})
 		s.notifySubscriptionHit(sub, queued, nil)
 	}
-	return queued, nil
+}
+
+func (state *rssSubscriptionRunState) markTitleAvailable(title string) {
+	if state.washOff {
+		addAvailabilityTitle(title, state.availabilityQuery, &state.availability)
+	}
+}
+
+func (state *rssSubscriptionRunState) markSeen(guid string) {
+	state.seen = append(state.seen, guid)
+	if state.seenSet != nil {
+		state.seenSet[guid] = struct{}{}
+	}
 }
