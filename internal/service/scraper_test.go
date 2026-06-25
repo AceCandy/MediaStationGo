@@ -111,6 +111,38 @@ func TestEnrichOneTreatsEpisodicMediaInMovieLibraryAsTV(t *testing.T) {
 	}
 }
 
+func TestDetermineMediaTypeForMediaHonorsExplicitMatchType(t *testing.T) {
+	scraper := &ScraperService{}
+	lib := &model.Library{Name: "欧美剧", Type: "tv"}
+	media := &model.Media{
+		Title:      "错误识别的电影",
+		Path:       filepath.Join("library", "欧美剧", "错误识别的电影 (2024)", "错误识别的电影.S01E202.mkv"),
+		SeasonNum:  1,
+		EpisodeNum: 202,
+	}
+
+	tests := []struct {
+		name  string
+		match *Match
+		want  string
+	}{
+		{name: "movie match overrides stale episode hints", match: &Match{MediaType: "movie"}, want: "movie"},
+		{name: "tv match stays tv", match: &Match{MediaType: "tv"}, want: "tv"},
+		{name: "anime match uses tmdb tv endpoint", match: &Match{MediaType: "anime"}, want: "tv"},
+		{name: "variety match uses tmdb tv endpoint", match: &Match{MediaType: "variety"}, want: "tv"},
+		{name: "adult match uses tmdb movie endpoint", match: &Match{MediaType: "adult"}, want: "movie"},
+		{name: "unknown match falls back to episodic hints", match: &Match{}, want: "tv"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := scraper.determineMediaTypeForMedia(lib, media, tt.match); got != tt.want {
+				t.Fatalf("determineMediaTypeForMedia() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestEnrichOneWritesTMDbEpisodeMetadata(t *testing.T) {
 	scraper, repos, closeServer := newTestScraper(t)
 	defer closeServer()

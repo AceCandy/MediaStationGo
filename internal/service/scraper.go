@@ -662,13 +662,16 @@ func (s *ScraperService) determineMediaType(lib *model.Library, match *Match) st
 }
 
 func (s *ScraperService) determineMediaTypeForMedia(lib *model.Library, media *model.Media, match *Match) string {
+	if match != nil {
+		switch normalizeOrganizeMediaType(match.MediaType) {
+		case "tv", "anime", "variety":
+			return "tv"
+		case "movie", "adult":
+			return "movie"
+		}
+	}
 	if media != nil && mediaIsEpisodic(media, lib) {
 		return "tv"
-	}
-	if match != nil {
-		if mediaType := normalizeOrganizeMediaType(match.MediaType); mediaType != "" {
-			return mediaType
-		}
 	}
 	if lib != nil {
 		switch lib.Type {
