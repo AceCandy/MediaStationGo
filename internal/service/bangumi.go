@@ -94,6 +94,7 @@ func (b *BangumiProvider) Search(ctx context.Context, query string) (*Match, err
 	}
 	m := &Match{
 		BangumiID:    r.ID,
+		MediaType:    "anime",
 		Title:        title,
 		OriginalName: r.Name,
 		Overview:     r.Summary,
@@ -139,6 +140,7 @@ func (b *BangumiProvider) GetSubject(ctx context.Context, bangumiID int) (*Match
 	}
 	m := &Match{
 		BangumiID:    r.ID,
+		MediaType:    "anime",
 		Title:        title,
 		OriginalName: r.Name,
 		Overview:     r.Summary,

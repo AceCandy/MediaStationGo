@@ -281,6 +281,25 @@ func TestNormalizeMediaTypeAcceptsChineseLibraryTypes(t *testing.T) {
 	}
 }
 
+func TestNormalizeMediaTypeDoesNotTreatReleaseTokensAsTV(t *testing.T) {
+	tests := []string{
+		"They Will Kill You 2026 1080p HDTV x264",
+		"Some Movie 2026 2160p AppleTV WEB-DL",
+		"Some Movie 2026 2160p ATVP WEB-DL",
+	}
+	for _, input := range tests {
+		t.Run(input, func(t *testing.T) {
+			if got := normalizeMediaType("", input, ""); got != "movie" {
+				t.Fatalf("normalizeMediaType(%q) = %q, want movie", input, got)
+			}
+		})
+	}
+
+	if got := normalizeMediaType("", "The Last of Us", `F:\media\tv\The Last of Us`); got != "tv" {
+		t.Fatalf("standalone tv path token = %q, want tv", got)
+	}
+}
+
 func TestSubscriptionResolveClassifiedSavePath(t *testing.T) {
 	db := newServiceTestDB(t, &model.Setting{})
 	repos := repository.New(db)

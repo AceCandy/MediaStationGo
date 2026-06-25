@@ -89,6 +89,7 @@ func (t *TMDbProvider) SearchMovieCandidates(ctx context.Context, query string, 
 func (t *TMDbProvider) movieSearchResultToMatch(r tmdbMovieSearchResult) *Match {
 	m := &Match{
 		TMDbID:       r.ID,
+		MediaType:    "movie",
 		Title:        r.Title,
 		OriginalName: r.OriginalTitle,
 		Overview:     r.Overview,
@@ -161,6 +162,7 @@ func (t *TMDbProvider) SearchTVCandidates(ctx context.Context, query string, yea
 func (t *TMDbProvider) tvSearchResultToMatch(r tmdbTVSearchResult) *Match {
 	m := &Match{
 		TMDbID:       r.ID,
+		MediaType:    "tv",
 		Title:        r.Name,
 		OriginalName: r.OriginalName,
 		Overview:     r.Overview,

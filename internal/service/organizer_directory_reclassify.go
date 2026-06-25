@@ -210,10 +210,15 @@ func (o *OrganizerService) updateReclassifiedMediaRow(ctx context.Context, oldPa
 	if req.Year > 0 {
 		updates["year"] = req.Year
 	}
-	if req.Season > 0 {
+	if normalizeOrganizeMediaType(req.MediaType) == "movie" {
+		updates["season_num"] = 0
+		updates["episode_num"] = 0
+	} else if req.Season > 0 {
 		updates["season_num"] = req.Season
-	}
-	if req.Episode > 0 {
+		if req.Episode > 0 {
+			updates["episode_num"] = req.Episode
+		}
+	} else if req.Episode > 0 {
 		updates["episode_num"] = req.Episode
 	}
 	return o.repo.DB.WithContext(ctx).Model(&model.Media{}).Where("path = ?", oldPath).Updates(updates).Error

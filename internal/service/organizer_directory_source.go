@@ -80,7 +80,27 @@ func (o *OrganizerService) buildOrganizeSourceFilePlan(ctx context.Context, req 
 	forcedType := normalizeOrganizeMediaType(req.MediaTypeOverride)
 	inferredType := o.inferMediaTypeForSourceFile(req.Source, identity.Title, identity.Season, identity.Episode)
 	layout = applyOrganizeSourceMediaType(layout, forcedType, inferredType)
-	metadataMatch := o.lookupOrganizeSourceMetadata(ctx, req, layout.MediaType, &identity)
+	lookupType := organizeSourceMetadataLookupType(req.Source, pathLayout, layout, forcedType, inferredType, identity)
+	metadataMatch := o.lookupOrganizeSourceMetadata(ctx, req, lookupType, &identity)
+	if metadataMatch == nil && lookupType != layout.MediaType {
+		metadataMatch = o.lookupOrganizeSourceMetadata(ctx, req, layout.MediaType, &identity)
+	}
+	if forcedType == "" && metadataMatch != nil {
+		if matchType := normalizeOrganizeMediaType(metadataMatch.MediaType); matchType != "" && matchType != layout.MediaType {
+			if categoryType, _ := o.mediaTypeForDirectoryCategory(layout.Category); categoryType != "" && !sourceCategoryCompatible(matchType, categoryType) {
+				layout.Category = ""
+			}
+			if o.log != nil {
+				o.log.Info("organize media type corrected by metadata",
+					zap.String("source", req.Source),
+					zap.String("from", layout.MediaType),
+					zap.String("to", matchType),
+					zap.String("title", metadataMatch.Title),
+					zap.Int("tmdb_id", metadataMatch.TMDbID))
+			}
+			layout.MediaType = matchType
+		}
+	}
 	layout = o.applyOrganizeSourceCategory(ctx, req, pathLayout, layout, forcedType, identity, metadataMatch)
 	layoutRoot, targetLibraryID := o.resolveOrganizeSourceLayoutRoot(ctx, req, layout)
 	target, err := o.buildOrganizeSourceTarget(ctx, req, layout, layoutRoot, identity)
@@ -162,6 +182,47 @@ func applyOrganizeSourceMediaType(layout organizeDirectoryLayout, forcedType, in
 		layout.MediaType = inferredType
 	}
 	return layout
+}
+
+func organizeSourceMetadataLookupType(src string, pathLayout, layout organizeDirectoryLayout, forcedType, inferredType string, identity organizeSourceIdentity) string {
+	if forcedType != "" {
+		return layout.MediaType
+	}
+	if pathLayout.MediaType != "" && pathLayout.MediaType != "movie" && organizeStandaloneMovieSourceHint(src, identity) {
+		return "movie"
+	}
+	return layout.MediaType
+}
+
+func organizeStandaloneMovieSourceHint(src string, identity organizeSourceIdentity) bool {
+	if identity.Season > 0 || identity.Episode > 0 {
+		return organizeEpisodeLooksSourcedFromMovieYear(src, identity)
+	}
+	_, year := CleanQuery(filepath.Base(src))
+	if year <= 0 {
+		year = identity.Year
+	}
+	if year <= 0 {
+		return false
+	}
+	text := strings.ToLower(strings.Join([]string{filepath.Base(src), identity.Title, identity.ParsedTitle}, " "))
+	return !classifierEpisodeRE.MatchString(text) && !classifierSeasonRE.MatchString(text)
+}
+
+func organizeEpisodeLooksSourcedFromMovieYear(src string, identity organizeSourceIdentity) bool {
+	year := identity.Year
+	if identity.SourceMedia != nil && identity.SourceMedia.Year > 0 {
+		year = identity.SourceMedia.Year
+	}
+	if year < 1900 || year > 2099 || identity.Season != 1 || identity.Episode != year/10 {
+		return false
+	}
+	showDir := showDirFromEpisodePath(src)
+	if showDir == "" {
+		return false
+	}
+	_, folderYear := CleanQuery(filepath.Base(showDir))
+	return folderYear == year
 }
 
 func (o *OrganizerService) lookupOrganizeSourceMetadata(ctx context.Context, req organizeSourceFileRequest, mediaType string, identity *organizeSourceIdentity) *Match {

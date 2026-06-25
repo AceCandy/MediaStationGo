@@ -128,6 +128,7 @@ type Match struct {
 	BangumiID    int      `json:"bangumi_id"`
 	DoubanID     string   `json:"douban_id,omitempty"`
 	TheTVDBID    string   `json:"thetvdb_id,omitempty"`
+	MediaType    string   `json:"media_type,omitempty"`
 	Title        string   `json:"title"`
 	OriginalName string   `json:"original_name,omitempty"`
 	Overview     string   `json:"overview"`
@@ -195,6 +196,7 @@ func (t *TMDbProvider) GetMovieMatch(ctx context.Context, tmdbID int) (*Match, e
 	}
 	m := &Match{
 		TMDbID:       r.ID,
+		MediaType:    "movie",
 		Title:        r.Title,
 		OriginalName: r.OriginalTitle,
 		Overview:     r.Overview,
@@ -264,6 +266,7 @@ func (t *TMDbProvider) GetTVMatch(ctx context.Context, tmdbID int) (*Match, erro
 	}
 	m := &Match{
 		TMDbID:       r.ID,
+		MediaType:    "tv",
 		Title:        r.Name,
 		OriginalName: r.OriginalName,
 		Overview:     r.Overview,

@@ -12,6 +12,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/ShukeBta/MediaStationGo/internal/config"
+	"github.com/ShukeBta/MediaStationGo/internal/model"
 )
 
 func TestOrganizeDirectoryClassifiesScraperMatchBeforeRename(t *testing.T) {
@@ -127,6 +128,174 @@ func TestOrganizeDirectoryMetadataCategoryOverridesDownloadFolder(t *testing.T) 
 	}
 	if len(res.Items) != 1 || res.Items[0].Category != "日番" || res.Items[0].MediaType != "anime" {
 		t.Fatalf("organize metadata category/type = %#v, want 日番/anime", res.Items)
+	}
+}
+
+func TestOrganizeDirectoryMovieMetadataOverridesWrongTVFolder(t *testing.T) {
+	var paths []string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		paths = append(paths, r.URL.Path)
+		switch {
+		case r.URL.Path == "/search/movie":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"results": []map[string]any{{
+					"id":                1292695,
+					"title":             "杀的就是你",
+					"original_title":    "They Will Kill You",
+					"original_language": "en",
+					"genre_ids":         []int{27, 53},
+					"release_date":      "2026-01-16",
+					"vote_average":      6.3,
+				}},
+			})
+		case r.URL.Path == "/search/tv":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"results": []map[string]any{{
+					"id":                1198994,
+					"name":              "请求救援",
+					"original_name":     "They Will Kill You",
+					"original_language": "en",
+					"origin_country":    []string{"US"},
+					"genre_ids":         []int{18},
+					"first_air_date":    "2026-01-01",
+				}},
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer upstream.Close()
+
+	repos := newOrganizerTestRepo(t)
+	cfg := &config.Config{}
+	cfg.Organizer.SmartClassify = true
+	cfg.Secrets.TMDbAPIKey = "test-key"
+	cfg.Secrets.TMDbAPIProxy = upstream.URL
+	scraper := NewScraperService(cfg, zap.NewNop(), repos, NewTMDbProvider(cfg, zap.NewNop(), nil), nil, nil, nil, NewHub(zap.NewNop()))
+
+	root := t.TempDir()
+	srcRoot := filepath.Join(root, "downloads")
+	dest := filepath.Join(root, "media")
+	sourceFile := filepath.Join(srcRoot, "欧美剧", "They.Will.Kill.You.2026.1080p.HDTV.x264-HiDt.mkv")
+	writeOrgFile(t, sourceFile, "movie")
+
+	organizer := NewOrganizerService(cfg, zap.NewNop(), repos)
+	organizer.SetScraper(scraper)
+	res, err := organizer.OrganizeDirectory(t.Context(), OrganizeOptions{
+		SourcePath:   srcRoot,
+		DestPath:     dest,
+		TransferMode: TransferCopy,
+	})
+	if err != nil {
+		t.Fatalf("organize directory: %v", err)
+	}
+	want := filepath.Join(dest, "电影", "外语电影", "杀的就是你 (2026)", "杀的就是你 (2026).mkv")
+	if res.Organized != 1 || res.Reclassified != 0 {
+		t.Fatalf("result = %+v, want organized movie only; paths=%v", res, paths)
+	}
+	if _, err := os.Stat(want); err != nil {
+		t.Fatalf("movie in wrong TV folder should organize as movie at %q: %v; items=%#v paths=%v", want, err, res.Items, paths)
+	}
+	if len(paths) == 0 || paths[0] != "/search/movie" {
+		t.Fatalf("first metadata search path = %q, want /search/movie; all=%v", firstQuery(paths), paths)
+	}
+	if len(res.Items) != 1 || res.Items[0].MediaType != "movie" || res.Items[0].Category != "外语电影" {
+		t.Fatalf("organize item = %#v, want movie/外语电影", res.Items)
+	}
+}
+
+func TestOrganizeDirectoryReclassifiesMovieFromDirtyGeneratedEpisodePath(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.URL.Path == "/search/movie":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"results": []map[string]any{{
+					"id":                1198994,
+					"title":             "请求救援",
+					"original_title":    "Request Rescue",
+					"original_language": "en",
+					"genre_ids":         []int{28, 53},
+					"release_date":      "2026-02-01",
+				}},
+			})
+		case r.URL.Path == "/search/tv":
+			_ = json.NewEncoder(w).Encode(map[string]any{"results": []any{}})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer upstream.Close()
+
+	repos := newOrganizerTestRepo(t)
+	cfg := &config.Config{}
+	cfg.Organizer.SmartClassify = true
+	cfg.Secrets.TMDbAPIKey = "test-key"
+	cfg.Secrets.TMDbAPIProxy = upstream.URL
+	scraper := NewScraperService(cfg, zap.NewNop(), repos, NewTMDbProvider(cfg, zap.NewNop(), nil), nil, nil, nil, NewHub(zap.NewNop()))
+
+	root := t.TempDir()
+	dest := filepath.Join(root, "media")
+	euusLib := model.Library{Name: "欧美剧", Path: filepath.Join(dest, "电视剧", "欧美剧"), Type: "tv", Enabled: true}
+	foreignMovieLib := model.Library{Name: "外语电影", Path: filepath.Join(dest, "电影", "外语电影"), Type: "movie", Enabled: true}
+	if err := repos.Library.Create(t.Context(), &euusLib); err != nil {
+		t.Fatal(err)
+	}
+	if err := repos.Library.Create(t.Context(), &foreignMovieLib); err != nil {
+		t.Fatal(err)
+	}
+
+	wrongPath := filepath.Join(euusLib.Path, "请求救援 (2026)", "Season 1", "请求救援 - S01E202-1080p - 第 202 集.mkv")
+	writeOrgFile(t, wrongPath, "movie")
+	if err := repos.DB.Create(&model.Media{
+		LibraryID:    euusLib.ID,
+		Title:        "请求救援",
+		OriginalName: "请求救援",
+		Path:         wrongPath,
+		SeasonNum:    1,
+		EpisodeNum:   202,
+		TMDbID:       1198994,
+		Year:         2026,
+		PosterURL:    "https://image.tmdb.org/t/p/w500/poster.jpg",
+		BackdropURL:  "https://image.tmdb.org/t/p/w1280/backdrop.jpg",
+		Overview:     "movie overview",
+		ScrapeStatus: "matched",
+		Container:    "mkv",
+		SizeBytes:    int64(len("movie")),
+		DurationSec:  7200,
+		VideoCodec:   "h264",
+		AudioCodec:   "aac",
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	organizer := NewOrganizerService(cfg, zap.NewNop(), repos)
+	organizer.SetScraper(scraper)
+	res, err := organizer.OrganizeDirectory(t.Context(), OrganizeOptions{
+		SourcePath:   filepath.Dir(filepath.Dir(wrongPath)),
+		DestPath:     euusLib.Path,
+		TransferMode: TransferCopy,
+	})
+	if err != nil {
+		t.Fatalf("organize dirty generated path: %v", err)
+	}
+	want := filepath.Join(foreignMovieLib.Path, "请求救援 (2026)", "请求救援 (2026).mkv")
+	if res.Reclassified != 1 || res.Organized != 0 {
+		t.Fatalf("result = %+v, want one reclassified movie", res)
+	}
+	if _, err := os.Stat(wrongPath); !os.IsNotExist(err) {
+		t.Fatalf("wrong generated episode path should be moved away, stat err=%v", err)
+	}
+	if _, err := os.Stat(want); err != nil {
+		t.Fatalf("movie target missing at %q: %v; items=%#v", want, err, res.Items)
+	}
+	var got model.Media
+	if err := repos.DB.First(&got, "path = ?", want).Error; err != nil {
+		t.Fatal(err)
+	}
+	if got.LibraryID != foreignMovieLib.ID || got.SeasonNum != 0 || got.EpisodeNum != 0 {
+		t.Fatalf("row after reclassify = library %q S%dE%d, want movie lib with cleared episode numbers", got.LibraryID, got.SeasonNum, got.EpisodeNum)
 	}
 }
 

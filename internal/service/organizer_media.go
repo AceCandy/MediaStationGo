@@ -145,9 +145,14 @@ func (o *OrganizerService) applyOrganizeMedia(ctx context.Context, req organizeM
 	}
 
 	updates := map[string]any{
-		"path":        dst.path,
-		"season_num":  m.SeasonNum,
-		"episode_num": m.EpisodeNum,
+		"path": dst.path,
+	}
+	if normalizeOrganizeMediaType(dst.mediaType) == "movie" {
+		updates["season_num"] = 0
+		updates["episode_num"] = 0
+	} else {
+		updates["season_num"] = m.SeasonNum
+		updates["episode_num"] = m.EpisodeNum
 	}
 	if strings.TrimSpace(dst.libraryID) != "" {
 		updates["library_id"] = strings.TrimSpace(dst.libraryID)

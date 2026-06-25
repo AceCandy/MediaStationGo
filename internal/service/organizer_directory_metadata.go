@@ -12,7 +12,12 @@ import (
 )
 
 func (o *OrganizerService) lookupOrganizeMetadata(ctx context.Context, src, sourceRoot, mediaType, title string, year, season, episode int, cache map[string]*Match) *Match {
-	seriesLike := isSeriesLibraryType(mediaType) || season > 0 || episode > 0
+	normalizedType := normalizeOrganizeMediaType(mediaType)
+	lookupSeason, lookupEpisode := season, episode
+	if normalizedType == "movie" {
+		lookupSeason, lookupEpisode = 0, 0
+	}
+	seriesLike := isSeriesLibraryType(mediaType) || (normalizedType != "movie" && (season > 0 || episode > 0))
 	if local, err := ReadLocalMetadata(src, sourceRoot, seriesLike); err == nil && local != nil {
 		if match := organizeMatchFromLocalMetadata(local); match != nil {
 			return match
@@ -35,8 +40,8 @@ func (o *OrganizerService) lookupOrganizeMetadata(ctx context.Context, src, sour
 		Title:      title,
 		Year:       year,
 		Path:       src,
-		SeasonNum:  season,
-		EpisodeNum: episode,
+		SeasonNum:  lookupSeason,
+		EpisodeNum: lookupEpisode,
 	}
 	for _, candidate := range scrapeQueryCandidates(media, lib) {
 		key := organizeMetadataCacheKey(lib.Type, candidate, year)
@@ -59,6 +64,7 @@ func (o *OrganizerService) lookupOrganizeMetadata(ctx context.Context, src, sour
 						zap.String("source", src),
 						zap.String("query", candidate),
 						zap.String("title", match.Title),
+						zap.String("media_type", match.MediaType),
 						zap.Int("source_year", year),
 						zap.Int("match_year", match.Year),
 						zap.Int("tmdb_id", match.TMDbID),
@@ -76,6 +82,7 @@ func (o *OrganizerService) lookupOrganizeMetadata(ctx context.Context, src, sour
 					zap.String("source", src),
 					zap.String("query", candidate),
 					zap.String("title", match.Title),
+					zap.String("media_type", match.MediaType),
 					zap.Int("year", match.Year),
 					zap.Int("tmdb_id", match.TMDbID),
 					zap.Int("bangumi_id", match.BangumiID),

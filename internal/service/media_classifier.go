@@ -15,6 +15,9 @@ var (
 	classifierEpisodeRE = regexp.MustCompile(`(?i)\bS\d{1,2}E\d{1,3}\b|第\s*\d+\s*[集期]|(?:^|[\s._-])E\d{1,3}(?:[\s._-]|$)`)
 	classifierSeasonRE  = regexp.MustCompile(`(?i)\bS\d{1,2}\b|第\s*\d+\s*季`)
 	classifierJAVCodeRE = regexp.MustCompile(`(?:^|[\s._\-/\[\]()])[A-Z]{2,6}[-_]?\d{3,5}(?:[\s._\-/\[\]()]|$)`)
+	classifierMovieRE   = regexp.MustCompile(`(?i)(?:^|[^a-z0-9])(?:movies?|films?)(?:[^a-z0-9]|$)`)
+	classifierTVRE      = regexp.MustCompile(`(?i)(?:^|[^a-z0-9])(?:tv|series|shows?|dramas?)(?:[^a-z0-9]|$)`)
+	classifierAnimeRE   = regexp.MustCompile(`(?i)(?:^|[^a-z0-9])(?:anime|bangumi)(?:[^a-z0-9]|$)`)
 )
 
 const DownloadSmartClassifySettingKey = "downloads.smart_classify"
@@ -166,11 +169,11 @@ func normalizeMediaType(mediaType, title, category string) string {
 		return "adult"
 	case containsAnyText(raw, "综艺", "真人秀"):
 		return "variety"
-	case containsAnyText(raw, "国漫", "日漫", "日番", "动漫", "动画", "anime", "bangumi") && !containsAnyText(raw, "动画电影"):
+	case (containsAnyText(raw, "国漫", "日漫", "日番", "动漫", "动画") || classifierAnimeRE.MatchString(raw)) && !containsAnyText(raw, "动画电影"):
 		return "anime"
-	case containsAnyText(raw, "电视剧", "国产剧", "欧美剧", "日韩剧", "日剧", "韩剧", "剧集", "tv", "series"):
+	case containsAnyText(raw, "电视剧", "国产剧", "欧美剧", "日韩剧", "日剧", "韩剧", "剧集") || classifierTVRE.MatchString(raw):
 		return "tv"
-	case containsAnyText(raw, "电影", "movie", "film"):
+	case containsAnyText(raw, "电影") || classifierMovieRE.MatchString(raw):
 		return "movie"
 	}
 	text := strings.ToLower(title + " " + category)
@@ -179,13 +182,13 @@ func normalizeMediaType(mediaType, title, category string) string {
 		return "adult"
 	case containsAnyText(text, "综艺", "真人秀", "脱口秀", "晚会", "春晚", "gala", "festival gala", "reality", "talk show"):
 		return "variety"
-	case strings.Contains(text, "movie") || strings.Contains(text, "电影"):
+	case strings.Contains(text, "电影") || classifierMovieRE.MatchString(text):
 		return "movie"
-	case strings.Contains(text, "anime") || strings.Contains(text, "bangumi") || strings.Contains(text, "动漫") || strings.Contains(text, "动画"):
+	case classifierAnimeRE.MatchString(text) || strings.Contains(text, "动漫") || strings.Contains(text, "动画"):
 		return "anime"
 	case strings.Contains(text, "variety") || strings.Contains(text, "综艺") || strings.Contains(text, "真人秀"):
 		return "variety"
-	case classifierEpisodeRE.MatchString(text) || classifierSeasonRE.MatchString(text) || strings.Contains(text, "tv") || strings.Contains(text, "剧集") || strings.Contains(text, "电视剧"):
+	case classifierEpisodeRE.MatchString(text) || classifierSeasonRE.MatchString(text) || classifierTVRE.MatchString(text) || strings.Contains(text, "剧集") || strings.Contains(text, "电视剧"):
 		return "tv"
 	default:
 		return "movie"

@@ -120,8 +120,13 @@ func (d *DoubanProvider) SearchMatch(ctx context.Context, query string) (*Match,
 	if err != nil || got == nil {
 		return nil, err
 	}
+	mediaType := ""
+	if strings.TrimSpace(got.Type) != "" {
+		mediaType = normalizeMediaType(got.Type, got.Title, "")
+	}
 	match := &Match{
 		DoubanID:  got.DoubanID,
+		MediaType: mediaType,
 		Title:     got.Title,
 		PosterURL: got.Img,
 		Rating:    got.Rating,

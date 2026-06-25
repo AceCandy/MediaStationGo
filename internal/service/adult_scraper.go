@@ -228,6 +228,7 @@ func (p *AdultProvider) fetchText(ctx context.Context, targetURL, referer string
 func parseAdultDetailHTML(body, code, source, detailURL string) *Match {
 	match := &Match{
 		OriginalName: code,
+		MediaType:    "adult",
 		NSFW:         true,
 		Genres:       []string{"Adult", source},
 	}
