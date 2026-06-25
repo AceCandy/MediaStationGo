@@ -1,16 +1,14 @@
 import { useState } from 'react'
 import { useLocation, useParams, useSearchParams } from 'react-router-dom'
-import { motion, AnimatePresence } from 'framer-motion'
+import { motion } from 'framer-motion'
 
 import type { Media } from '../types'
 import { useAuthStore } from '../stores/auth'
-import { seriesTitle, type SeriesCard } from '../utils/groupSeries'
-import { ManualScrapeDialog } from '../components/ManualScrapeDialog'
-import { MetadataEditDialog } from '../components/MetadataEditDialog'
-import { LibrarySeriesEpisodes } from './LibrarySeriesEpisodes'
-import { LibrarySeriesDetailHeader } from './LibrarySeriesDetailHeader'
+import type { SeriesCard } from '../utils/groupSeries'
+import { LibraryPageDialogs } from './LibraryPageDialogs'
 import { LibraryPageHeader } from './LibraryPageHeader'
 import { LibraryMediaSections } from './LibraryMediaSections'
+import { LibrarySeriesDetailSection } from './LibrarySeriesDetailSection'
 import { useLibraryData } from './useLibraryData'
 import { useLibraryScanStatus } from './useLibraryScanStatus'
 import { useLibrarySeriesSelection } from './useLibrarySeriesSelection'
@@ -141,84 +139,40 @@ export function LibraryPage() {
         onSeriesClick={handleSeriesClick}
       />
 
-      {/* 剧集详情：季/集选择器 */}
-      <AnimatePresence mode="wait">
-        {selectedSeries && (
-          <motion.div
-            initial={{ opacity: 0, y: 16 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0 }}
-            className="space-y-6"
-          >
-            <LibrarySeriesDetailHeader
-              series={selectedSeries}
-              visibleEpisodes={visibleEpisodes}
-              allEpisodes={selectedSeriesEpisodes}
-              playbackFrom={`${location.pathname}${location.search}`}
-              isAdmin={role === 'admin'}
-              seriesToolBusy={seriesToolBusy}
-              onBack={clearSelectedSeries}
-              onSmartScrape={handleSeriesSmartScrape}
-              onManualScrape={() => setManualSeriesScrapeOpen(true)}
-              onMetadataEdit={() => setSeriesMetadataEditOpen(true)}
-              onProbe={handleSeriesProbe}
-              onNFO={handleSeriesNFO}
-              onOrganize={handleSeriesOrganize}
-              onSoftDelete={handleSeriesSoftDelete}
-            />
-
-            {/* 季 / 集列表 */}
-            <div className="space-y-6">
-              <LibrarySeriesEpisodes
-                loading={loadingSeriesEpisodes}
-                selectedEpisodes={selectedEpisodes}
-                selectedSeason={selectedSeason}
-                visibleEpisodes={visibleEpisodes}
-                playbackFrom={`${location.pathname}${location.search}`}
-                onSeasonChange={setSelectedSeason}
-              />
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      <ManualScrapeDialog
-        open={manualSeriesScrapeOpen}
-        media={selectedSeries?.rep ?? null}
-        mediaIds={selectedSeriesMediaIDs}
-        defaultQuery={selectedSeries ? seriesTitle(selectedSeries.rep) : ''}
-        mediaType={selectedSeries ? scrapeMediaType(library?.type, selectedSeries.rep) : 'tv'}
-        scopeLabel={selectedSeries ? seriesTitle(selectedSeries.rep) : '当前剧集'}
-        episodeArtwork={scrapeEpisodeArtwork}
-        onClose={() => setManualSeriesScrapeOpen(false)}
-        onApplied={reloadCurrentLibrary}
+      <LibrarySeriesDetailSection
+        selectedSeries={selectedSeries}
+        selectedEpisodes={selectedEpisodes}
+        selectedSeason={selectedSeason}
+        visibleEpisodes={visibleEpisodes}
+        allEpisodes={selectedSeriesEpisodes}
+        loadingEpisodes={loadingSeriesEpisodes}
+        playbackFrom={`${location.pathname}${location.search}`}
+        isAdmin={role === 'admin'}
+        seriesToolBusy={seriesToolBusy}
+        onBack={clearSelectedSeries}
+        onSmartScrape={handleSeriesSmartScrape}
+        onManualScrape={() => setManualSeriesScrapeOpen(true)}
+        onMetadataEdit={() => setSeriesMetadataEditOpen(true)}
+        onProbe={handleSeriesProbe}
+        onNFO={handleSeriesNFO}
+        onOrganize={handleSeriesOrganize}
+        onSoftDelete={handleSeriesSoftDelete}
+        onSeasonChange={setSelectedSeason}
       />
-      <MetadataEditDialog
-        open={seriesMetadataEditOpen}
-        media={selectedSeries?.rep ?? null}
-        mediaIds={selectedSeriesMediaIDs}
-        mode="series"
-        scopeLabel={selectedSeries ? seriesTitle(selectedSeries.rep) : '当前剧集'}
-        onClose={() => setSeriesMetadataEditOpen(false)}
-        onSaved={reloadCurrentLibrary}
-      />
-      <ManualScrapeDialog
-        open={!!manualMovie}
-        media={manualMovie}
-        defaultQuery={manualMovie?.title ?? ''}
-        mediaType={manualMovie ? scrapeMediaType(library?.type, manualMovie) : library?.type || 'movie'}
-        scopeLabel={manualMovie?.title ?? '当前电影'}
-        episodeArtwork={scrapeEpisodeArtwork}
-        onClose={() => setManualMovie(null)}
+
+      <LibraryPageDialogs
+        manualSeriesScrapeOpen={manualSeriesScrapeOpen}
+        seriesMetadataEditOpen={seriesMetadataEditOpen}
+        manualMovie={manualMovie}
+        selectedSeries={selectedSeries}
+        selectedSeriesMediaIDs={selectedSeriesMediaIDs}
+        libraryType={library?.type}
+        scrapeEpisodeArtwork={scrapeEpisodeArtwork}
+        onCloseManualSeriesScrape={() => setManualSeriesScrapeOpen(false)}
+        onCloseSeriesMetadataEdit={() => setSeriesMetadataEditOpen(false)}
+        onCloseManualMovie={() => setManualMovie(null)}
         onApplied={reloadCurrentLibrary}
       />
     </div>
   )
-}
-
-function scrapeMediaType(libraryType: string | undefined, media: Media): string {
-  if ((media.season_num ?? 0) > 0 || (media.episode_num ?? 0) > 0) {
-    return 'tv'
-  }
-  return libraryType || 'movie'
 }
