@@ -112,7 +112,8 @@ license:
   # Built-in MediaStationGo license server bridge.
   # Open-source mode works without this and is limited to 20 users.
   server_url: "https://mgosever.3jzs.com"
-  hmac_secret: "ms-shared-hmac-secret-key-Mgo-testing"       # must match LICENSE_HMAC_SECRET on the license server
+  public_key: "MCowBQYDK2VwAyEABRXnXy+urjrbKit6Yu/HiezWgP0NdsZW3tsegJWRrtI="  # Ed25519 public key for protected license responses
+  hmac_secret: ""       # legacy fallback only; prefer Ed25519 public_key
 
 # FlareSolverr 配置（用于绕过 Cloudflare/WAF 保护）
 flaresolverr:

@@ -1,4 +1,4 @@
-.PHONY: all build build-server build-web dev dev-web run deploy docker docker-update docker-stop docker-push clean install-web tidy test vet smoke
+.PHONY: all build build-server build-protected build-protected-garble build-web dev dev-web run deploy docker docker-update docker-stop docker-push clean install-web tidy test vet smoke
 
 # ---- 默认目标 ----
 all: build
@@ -10,6 +10,12 @@ build: build-web build-server
 # 使用纯 Go SQLite,可以 CGO_ENABLED=0 直接交叉编译。
 build-server:
 	CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o bin/mediastation-go ./cmd/server
+
+build-protected:
+	CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags="-s -w -buildid=" -o bin/mediastation-go-protected ./cmd/server
+
+build-protected-garble:
+	CGO_ENABLED=0 garble -literals -tiny build -trimpath -ldflags="-s -w -buildid=" -o bin/mediastation-go-protected ./cmd/server
 
 # ---- 前端构建 ----
 build-web:

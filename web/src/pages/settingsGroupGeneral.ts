@@ -119,10 +119,17 @@ export const licenseSettingsGroup: SettingGroup = {
       placeholder: 'https://mgosever.3jzs.com',
     },
     {
-      key: 'license.hmac_secret',
-      label: 'HMAC 签名密钥',
+      key: 'license.public_key',
+      label: 'Ed25519 验签公钥',
       type: 'text',
-      hint: '必须与 License Server 的 LICENSE_HMAC_SECRET 保持一致；用于校验多用户授权响应签名。',
+      hint: '优先使用。客户端只保存公钥，无法伪造授权服务响应；自建 MgoSever 时填写私钥对应的公钥。',
+      placeholder: 'MCowBQYDK2VwAyEA...',
+    },
+    {
+      key: 'license.hmac_secret',
+      label: 'HMAC 签名密钥（旧版兼容）',
+      type: 'text',
+      hint: '仅兼容旧版授权服务。新版本应使用 Ed25519 公钥，避免把共享密钥编译进客户端。',
     },
   ],
 }

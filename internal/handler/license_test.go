@@ -1,8 +1,11 @@
 package handler
 
 import (
+	"crypto/ed25519"
 	"crypto/hmac"
+	"crypto/rand"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"net/http"
@@ -139,6 +142,46 @@ func TestLicenseHeartbeatPayloadIncludesStoredLicenseKey(t *testing.T) {
 	}
 	if payload["key"] != "MS-ABCD-EFGH-JKLM-NPQR" {
 		t.Fatalf("heartbeat should include stored license key for server-side backfill: %#v", payload)
+	}
+}
+
+func TestLicenseClientVerifiesEd25519Signature(t *testing.T) {
+	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp := licenseServerSignedResp{
+		Valid:         true,
+		LicenseType:   "subscription",
+		MaxDevices:    2,
+		NextHeartbeat: time.Now().Add(time.Hour).Format(time.RFC3339),
+		SignatureAlg:  "ed25519",
+	}
+	resp.Signature = signLicenseTestPayloadEd25519(privateKey, resp)
+
+	client := &licenseClient{ed25519PublicKey: publicKey}
+	if err := client.verifySigned(&resp); err != nil {
+		t.Fatalf("verify ed25519 signature: %v", err)
+	}
+}
+
+func TestLicenseClientRejectsEd25519WithoutPublicKey(t *testing.T) {
+	_, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp := licenseServerSignedResp{
+		Valid:         true,
+		LicenseType:   "subscription",
+		MaxDevices:    2,
+		NextHeartbeat: time.Now().Add(time.Hour).Format(time.RFC3339),
+		SignatureAlg:  "ed25519",
+	}
+	resp.Signature = signLicenseTestPayloadEd25519(privateKey, resp)
+
+	client := &licenseClient{}
+	if err := client.verifySigned(&resp); err == nil || !strings.Contains(err.Error(), "public key") {
+		t.Fatalf("expected missing public key error, got %v", err)
 	}
 }
 
@@ -347,13 +390,13 @@ func TestLicenseActivateBindsServerInstanceNotBrowserFingerprint(t *testing.T) {
 	}
 }
 
-func TestNewLicenseClientRequiresHMACSecret(t *testing.T) {
+func TestNewLicenseClientRequiresSignatureVerifier(t *testing.T) {
 	svc := newLicenseHandlerTestService(t)
 	if err := svc.Repo.Setting.Set(t.Context(), licenseServerURLSetting, "http://127.0.0.1:8001"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := newLicenseClient(t.Context(), svc); err == nil || !strings.Contains(err.Error(), "hmac secret") {
-		t.Fatalf("expected missing hmac secret error, got %v", err)
+	if _, err := newLicenseClient(t.Context(), svc); err == nil || !strings.Contains(err.Error(), "public key or hmac secret") {
+		t.Fatalf("expected missing signature verifier error, got %v", err)
 	}
 }
 
@@ -394,4 +437,9 @@ func signLicenseTestPayload(secret string, resp licenseServerSignedResp) string 
 	mac := hmac.New(sha256.New, []byte(secret))
 	_, _ = mac.Write(payload)
 	return hex.EncodeToString(mac.Sum(nil))
+}
+
+func signLicenseTestPayloadEd25519(privateKey ed25519.PrivateKey, resp licenseServerSignedResp) string {
+	payload, _ := json.Marshal(licenseSignedPayload(resp))
+	return base64.StdEncoding.EncodeToString(ed25519.Sign(privateKey, payload))
 }

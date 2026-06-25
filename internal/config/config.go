@@ -25,7 +25,7 @@ const (
 	defaultDatabaseMaxOpenConns = 4
 	defaultDatabaseMaxIdleConns = 2
 	defaultLicenseServerURL     = "https://mgosever.3jzs.com"
-	defaultLicenseHMACSecret    = "ms-shared-hmac-secret-key-Mgo-testing" // #nosec G101 -- shared response-signature key for the bundled license bridge.
+	defaultLicensePublicKey     = "MCowBQYDK2VwAyEABRXnXy+urjrbKit6Yu/HiezWgP0NdsZW3tsegJWRrtI="
 )
 
 // Config 是根配置聚合。
@@ -172,6 +172,7 @@ type AIConfig struct {
 type LicenseConfig struct {
 	ServerURL  string `mapstructure:"server_url"`
 	HMACSecret string `mapstructure:"hmac_secret"`
+	PublicKey  string `mapstructure:"public_key"`
 }
 
 // OrganizerConfig 配置媒体文件智能分类整理。
@@ -333,7 +334,8 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("api_config.default_timeout", 30)
 
 	v.SetDefault("license.server_url", defaultLicenseServerURL)
-	v.SetDefault("license.hmac_secret", defaultLicenseHMACSecret)
+	v.SetDefault("license.hmac_secret", "")
+	v.SetDefault("license.public_key", defaultLicensePublicKey)
 }
 
 // normalize 填充派生默认值并自愈空的关键字段。

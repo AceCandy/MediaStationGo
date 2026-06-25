@@ -46,6 +46,7 @@ type licenseServerSignedResp struct {
 	DaysRemaining   *int    `json:"days_remaining"`
 	NextHeartbeat   string  `json:"next_heartbeat"`
 	Signature       string  `json:"signature"`
+	SignatureAlg    string  `json:"signature_alg"`
 	LegacySignature bool    `json:"-"`
 }
 
