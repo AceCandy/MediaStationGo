@@ -157,6 +157,51 @@ func TestAddDownloadWithMetaDoesNotDedupSubscriptionRangeAgainstCompletePackTask
 	}
 }
 
+func TestAddDownloadWithMetaTracksExistingQBTorrentForSubscription(t *testing.T) {
+	torrentData := []byte("d4:infod4:name7:fixtureee")
+	hash := torrentInfoHash(torrentData)
+	if hash == "" {
+		t.Fatal("expected fixture info hash")
+	}
+	var addCalls int32
+	qb := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/fixture.torrent":
+			w.Header().Set("Content-Type", "application/x-bittorrent")
+			_, _ = w.Write(torrentData)
+		case "/api/v2/auth/login":
+			_, _ = w.Write([]byte("Ok."))
+		case "/api/v2/torrents/info":
+			_, _ = w.Write([]byte(`[{"hash":"` + hash + `","name":"Archives The Nanyang Mystery 2026 S01E07-S01E08 2160p WEB-DL","save_path":"/downloads/tv"}]`))
+		case "/api/v2/torrents/add":
+			atomic.AddInt32(&addCalls, 1)
+			_, _ = w.Write([]byte("Ok."))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer qb.Close()
+
+	db := newServiceTestDB(t, &model.DownloadTask{}, &model.DownloadClient{}, &model.Setting{})
+	repos := repository.New(db)
+	configureTestDefaultQB(t, repos, qb.URL)
+
+	svc := NewDownloadService(zap.NewNop(), repos, NewHub(zap.NewNop()), nil)
+	task, err := svc.AddDownloadWithMeta(t.Context(), "u1", qb.URL+"/fixture.torrent", "/downloads/tv", DownloadTaskMeta{
+		SubscriptionID: "sub-nanyang",
+		Title:          "Archives The Nanyang Mystery 2026 S01E07-S01E08 2160p WEB-DL",
+	})
+	if err != nil {
+		t.Fatalf("AddDownloadWithMeta returned %v, want tracking task for existing qB torrent", err)
+	}
+	if task == nil || task.SubscriptionID != "sub-nanyang" {
+		t.Fatalf("task = %#v, want subscription tracking task", task)
+	}
+	if got := atomic.LoadInt32(&addCalls); got != 0 {
+		t.Fatalf("qb add calls = %d, want 0 because infohash already exists", got)
+	}
+}
+
 func TestDownloadTitleCoversRequestKeepsCompletePackDedup(t *testing.T) {
 	if !downloadTitleCoversRequest("Archives The Nanyang Mystery 2026 S01 Complete 2160p WEB-DL", "Archives The Nanyang Mystery 2026 S01E09-E10 2160p WEB-DL") {
 		t.Fatal("complete pack should cover requested episode range")

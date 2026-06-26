@@ -62,9 +62,15 @@ func (d *DownloadService) AddDownloadWithMeta(ctx context.Context, userID, urlSt
 		if err != nil {
 			return nil, err
 		}
+		if strings.TrimSpace(req.meta.SubscriptionID) != "" {
+			return task, nil
+		}
 		return task, ErrDownloadAlreadyExists
 	}
 	if err := d.addPreparedDownloadToClient(ctx, urlStr, &req); err != nil {
+		if errors.Is(err, ErrDownloadAlreadyExists) && strings.TrimSpace(req.meta.SubscriptionID) != "" {
+			return d.createTask(ctx, userID, urlStr, req.savePath, req.meta)
+		}
 		return nil, err
 	}
 	return d.createTask(ctx, userID, urlStr, req.savePath, req.meta)
