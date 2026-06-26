@@ -56,7 +56,7 @@ func (d *DownloadService) AddDownloadWithMeta(ctx context.Context, userID, urlSt
 	if !d.qb.IsConfigured() {
 		return nil, errors.New("no default downloader configured")
 	}
-	if d.torrentExistsByIdentity(ctx, req.title) {
+	if d.torrentExistsByIdentity(ctx, req) {
 		task, err := d.createTask(ctx, userID, urlStr, req.savePath, req.meta)
 		if err != nil {
 			return nil, err
@@ -250,11 +250,49 @@ func (d *DownloadService) findExistingDownloadTask(ctx context.Context, req down
 			continue
 		}
 		current := downloadTaskIdentityKey(rows[i].Title)
-		if downloadTitleCoversRequest(rows[i].Title, req.title) || current == key {
+		if downloadTaskCoversAddRequest(rows[i].Title, req) || current == key {
 			return &rows[i], true
 		}
 	}
 	return nil, false
+}
+
+func downloadTaskCoversAddRequest(existing string, req downloadAddRequest) bool {
+	if subscriptionRequestHasExplicitEpisodes(req) {
+		return downloadExplicitEpisodesCoverRequest(existing, req.title)
+	}
+	return downloadTitleCoversRequest(existing, req.title)
+}
+
+func subscriptionRequestHasExplicitEpisodes(req downloadAddRequest) bool {
+	return strings.TrimSpace(req.meta.SubscriptionID) != "" && len(episodeRefsFromTitle(req.title)) > 0
+}
+
+func downloadExplicitEpisodesCoverRequest(existing, requested string) bool {
+	current := parseDownloadMediaIdentity(existing)
+	want := parseDownloadMediaIdentity(requested)
+	if current.TitleKey == "" || want.TitleKey == "" {
+		return false
+	}
+	if current.TitleKey != want.TitleKey {
+		return false
+	}
+	if current.Year > 0 && want.Year > 0 && current.Year != want.Year {
+		return false
+	}
+	if len(current.Episodes) == 0 || len(want.Episodes) == 0 {
+		return false
+	}
+	currentEpisodes := map[string]struct{}{}
+	for _, ref := range current.Episodes {
+		currentEpisodes[episodeKey(ref.Season, ref.Episode)] = struct{}{}
+	}
+	for _, ref := range want.Episodes {
+		if _, ok := currentEpisodes[episodeKey(ref.Season, ref.Episode)]; !ok {
+			return false
+		}
+	}
+	return true
 }
 
 func downloadTaskInSubscriptionScope(row model.DownloadTask, req downloadAddRequest) bool {
@@ -274,8 +312,8 @@ func downloadTaskInSubscriptionScope(row model.DownloadTask, req downloadAddRequ
 	return sameOrChildPath(rowSavePath, requestSavePath) || sameOrChildPath(requestSavePath, rowSavePath)
 }
 
-func (d *DownloadService) torrentExistsByIdentity(ctx context.Context, title string) bool {
-	query := downloadTaskIdentityKey(title)
+func (d *DownloadService) torrentExistsByIdentity(ctx context.Context, req downloadAddRequest) bool {
+	query := downloadTaskIdentityKey(req.title)
 	if query == "" {
 		return false
 	}
@@ -284,7 +322,10 @@ func (d *DownloadService) torrentExistsByIdentity(ctx context.Context, title str
 		return false
 	}
 	for _, torrent := range live {
-		if downloadTitleCoversRequest(torrent.Name, title) {
+		if !torrentInDownloadRequestScope(torrent, req) {
+			continue
+		}
+		if downloadTaskCoversAddRequest(torrent.Name, req) {
 			return true
 		}
 		current := downloadTaskIdentityKey(torrent.Name)
@@ -296,6 +337,18 @@ func (d *DownloadService) torrentExistsByIdentity(ctx context.Context, title str
 		}
 	}
 	return false
+}
+
+func torrentInDownloadRequestScope(torrent QBitTorrent, req downloadAddRequest) bool {
+	if strings.TrimSpace(req.meta.SubscriptionID) == "" {
+		return true
+	}
+	requestSavePath := strings.TrimSpace(req.savePath)
+	torrentSavePath := strings.TrimSpace(torrent.SavePath)
+	if requestSavePath == "" || torrentSavePath == "" {
+		return false
+	}
+	return sameOrChildPath(torrentSavePath, requestSavePath) || sameOrChildPath(requestSavePath, torrentSavePath)
 }
 
 func (d *DownloadService) createTask(ctx context.Context, userID, urlStr, savePath string, meta DownloadTaskMeta) (*model.DownloadTask, error) {

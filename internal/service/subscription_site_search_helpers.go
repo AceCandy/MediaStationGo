@@ -82,7 +82,7 @@ func (s *SubscriptionService) shouldSkipExistingTorrent(ctx context.Context, med
 	if s == nil || s.downloads == nil {
 		return false
 	}
-	if isSubscriptionSeriesType(mediaType) && !candidate.Pack && candidate.Episode > 0 {
+	if isSubscriptionSeriesType(mediaType) && candidate.Episode > 0 {
 		return false
 	}
 	return s.downloads.TorrentExistsByName(ctx, candidate.Item.Title)

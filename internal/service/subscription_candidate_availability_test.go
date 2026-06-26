@@ -264,6 +264,24 @@ func TestAddSiteSearchCandidateAvailabilityTracksEpisodeRange(t *testing.T) {
 	}
 }
 
+func TestShouldSkipExistingTorrentKeepsSeriesRangeCandidate(t *testing.T) {
+	svc := &SubscriptionService{downloads: &DownloadService{}}
+	candidate := siteSearchCandidate{
+		Item: SearchResult{
+			Title:       "Archives The Nanyang Mystery 2026 S01E29-E33 2160p WEB-DL",
+			DownloadURL: "https://pt/download/29-33",
+		},
+		Season:   1,
+		Episode:  29,
+		Episodes: []int{29, 30, 31, 32, 33},
+		Pack:     true,
+	}
+
+	if svc.shouldSkipExistingTorrent(t.Context(), "tv", candidate) {
+		t.Fatal("series range candidate should not be skipped by global torrent-name precheck")
+	}
+}
+
 func TestSelectSiteSearchCandidatesDoesNotRelaxQueryForMovies(t *testing.T) {
 	sub := &model.Subscription{Name: "玩具总动员 5 自动订阅", Filter: "玩具总动员 5 2026", MediaType: "movie"}
 	results := []SearchResult{
