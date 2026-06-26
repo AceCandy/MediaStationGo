@@ -13,13 +13,14 @@ import (
 )
 
 type GenerateSTRMOptions struct {
-	LibraryID     string `json:"library_id"`
-	OutputDir     string `json:"output_dir"`
-	BaseURL       string `json:"base_url,omitempty"`
-	Enabled       bool   `json:"enabled"`
-	Overwrite     bool   `json:"overwrite"`
-	IncludeLocal  bool   `json:"include_local"`
-	PlaybackToken string `json:"-"`
+	LibraryID        string `json:"library_id"`
+	OutputDir        string `json:"output_dir"`
+	BaseURL          string `json:"base_url,omitempty"`
+	Enabled          bool   `json:"enabled"`
+	Overwrite        bool   `json:"overwrite"`
+	IncludeLocal     bool   `json:"include_local"`
+	PlaybackToken    string `json:"-"`
+	SkipSettingsSave bool   `json:"-"`
 }
 
 type GenerateSTRMResult struct {
@@ -112,6 +113,7 @@ func (s *STRMService) GenerateForAllLibraries(ctx context.Context, opts Generate
 		}
 		next := opts
 		next.LibraryID = lib.ID
+		next.SkipSettingsSave = true
 		if baseOutputDir != "" && baseOutputDir != "." {
 			next.OutputDir = filepath.Join(baseOutputDir, strmLibraryOutputSubdir(lib))
 		}
@@ -140,10 +142,13 @@ func (s *STRMService) resolveSTRMOutputDir(ctx context.Context, lib *model.Libra
 	if outputDir == "" || outputDir == "." {
 		outputDir = s.defaultOutputDir(lib)
 	}
-	return outputDir
+	return strmLibrarySpecificOutputDir(outputDir, lib)
 }
 
 func (s *STRMService) saveSTRMGenerationSettings(ctx context.Context, outputDir string, opts GenerateSTRMOptions) {
+	if opts.SkipSettingsSave {
+		return
+	}
 	if strings.TrimSpace(opts.BaseURL) != "" && s.repo.Setting != nil {
 		baseURL := strings.TrimRight(strings.TrimSpace(opts.BaseURL), "/")
 		_ = s.repo.Setting.Set(ctx, "app.server_url", baseURL)

@@ -27,11 +27,12 @@ import (
 
 // OrganizerService moves/renames files into library structures.
 type OrganizerService struct {
-	cfg     *config.Config
-	log     *zap.Logger
-	repo    *repository.Container
-	probe   *FFprobeService // optional; used for 洗版 resolution comparison
-	scraper *ScraperService // optional; used to identify metadata before rename
+	cfg                 *config.Config
+	log                 *zap.Logger
+	repo                *repository.Container
+	probe               *FFprobeService // optional; used for 洗版 resolution comparison
+	scraper             *ScraperService // optional; used to identify metadata before rename
+	activeDownloadPaths func(context.Context) []string
 }
 
 // NewOrganizerService is the constructor.
@@ -47,6 +48,23 @@ func (o *OrganizerService) SetProbe(p *FFprobeService) { o.probe = p }
 // SetScraper wires the scraper so directory organize can resolve TMDb/Bangumi
 // metadata before it decides the final folder and filename.
 func (o *OrganizerService) SetScraper(s *ScraperService) { o.scraper = s }
+
+// SetActiveDownloadPathProvider wires a live downloader snapshot. Directory
+// organize must never move/copy files that still belong to an unfinished
+// torrent, regardless of which UI switch triggered the organize operation.
+func (o *OrganizerService) SetActiveDownloadPathProvider(provider func(context.Context) []string) {
+	o.activeDownloadPaths = provider
+}
+
+func (o *OrganizerService) SetActiveDownloadProvider(provider func(context.Context) []QBitTorrent) {
+	if provider == nil {
+		o.activeDownloadPaths = nil
+		return
+	}
+	o.activeDownloadPaths = func(ctx context.Context) []string {
+		return activeDownloadPathCandidates(provider(ctx), nil)
+	}
+}
 
 // OrganizeMedia moves a single media file into the target library directory.
 // It auto-detects whether the media is a movie or TV episode based on the

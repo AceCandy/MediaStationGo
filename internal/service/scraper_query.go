@@ -18,7 +18,7 @@ var noiseTokens = []string{
 	"1080p", "2160p", "4k", "720p", "480p", "uhd", "ds4k", "fhd",
 	"bd", "bdrip", "brrip", "dvd", "dvdrip", "hdtv", "pdtv", "webdl",
 	"hdrip", "bluray", "blu-ray", "webrip", "web-dl", "web",
-	"x264", "x265", "h264", "h265", "hevc", "avc", "10bit", "8bit", "hi10p", "hi10",
+	"x264", "x265", "h264", "h265", "h266", "hevc", "avc", "av1", "vvc", "10bit", "8bit", "hi10p", "hi10",
 	"hdr", "hdr10", "sdr", "dts", "ddp", "ddp5", "dd5", "dd2", "eac3", "truehd",
 	"dovi", "atmos", "aac", "ac3", "flac", "fps", "hlg", "dv",
 	"remux", "extended", "uncut", "remastered", "repack", "proper", "internal",
@@ -54,7 +54,7 @@ var releaseBoundaryTokenSet = map[string]struct{}{
 	"1080p": {}, "2160p": {}, "4k": {}, "720p": {}, "480p": {}, "uhd": {}, "fhd": {},
 	"bd": {}, "bdrip": {}, "brrip": {}, "dvd": {}, "dvdrip": {}, "hdtv": {}, "pdtv": {},
 	"webdl": {}, "hdrip": {}, "bluray": {}, "webrip": {}, "web": {}, "remux": {},
-	"x264": {}, "x265": {}, "h264": {}, "h265": {}, "hevc": {}, "avc": {},
+	"x264": {}, "x265": {}, "h264": {}, "h265": {}, "h266": {}, "hevc": {}, "avc": {}, "av1": {}, "vvc": {},
 }
 
 var (

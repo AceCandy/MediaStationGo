@@ -10,7 +10,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"go.uber.org/zap"
@@ -31,8 +33,16 @@ type SubscriptionService struct {
 	scraper   *ScraperService
 	hub       *Hub
 	notify    *NotifyChannelService
+	mu        sync.Mutex
 	stop      chan struct{}
+	running   bool
 }
+
+const (
+	defaultSubscriptionPollInterval = 3 * time.Hour
+	minSubscriptionPollInterval     = 3 * time.Hour
+	subscriptionStartupDelay        = defaultSubscriptionPollInterval
+)
 
 type rssSubscriptionRunState struct {
 	seen              []string
@@ -51,7 +61,6 @@ func NewSubscriptionService(cfg *config.Config, log *zap.Logger, repo *repositor
 		downloads: downloads,
 		site:      site,
 		hub:       hub,
-		stop:      make(chan struct{}),
 	}
 }
 
@@ -65,11 +74,31 @@ func (s *SubscriptionService) SetNotifyChannels(notify *NotifyChannelService) {
 
 // Start runs the polling loop in the background.
 func (s *SubscriptionService) Start(ctx context.Context) {
-	go s.loop(ctx)
+	s.mu.Lock()
+	if s.running {
+		s.mu.Unlock()
+		return
+	}
+	stop := make(chan struct{})
+	s.stop = stop
+	s.running = true
+	s.mu.Unlock()
+	go s.loop(ctx, stop)
 }
 
 // Stop shuts the loop down.
-func (s *SubscriptionService) Stop() { close(s.stop) }
+func (s *SubscriptionService) Stop() {
+	s.mu.Lock()
+	if !s.running {
+		s.mu.Unlock()
+		return
+	}
+	stop := s.stop
+	s.stop = nil
+	s.running = false
+	s.mu.Unlock()
+	close(stop)
+}
 
 // Create persists a new subscription.
 func (s *SubscriptionService) Create(ctx context.Context, sub *model.Subscription) error {
@@ -141,24 +170,59 @@ func (s *SubscriptionService) RunNow(ctx context.Context, id string) (int, error
 	return s.runOne(ctx, &sub)
 }
 
-// loop polls every 10 minutes.
-func (s *SubscriptionService) loop(ctx context.Context) {
-	t := time.NewTicker(10 * time.Minute)
-	defer t.Stop()
-	// First run shortly after startup.
-	first := time.NewTimer(30 * time.Second)
-	defer first.Stop()
+// loop polls subscription feeds and site-search subscriptions at a conservative
+// cadence so tracker APIs are not hammered by every alias keyword.
+func (s *SubscriptionService) loop(ctx context.Context, stop <-chan struct{}) {
+	defer s.markLoopStopped(stop)
+	interval := s.pollInterval(ctx)
+	delay := subscriptionStartupDelay
+	if interval < delay {
+		delay = interval
+	}
 	for {
+		timer := time.NewTimer(delay)
 		select {
 		case <-ctx.Done():
+			timer.Stop()
 			return
-		case <-s.stop:
+		case <-stop:
+			timer.Stop()
 			return
-		case <-first.C:
-		case <-t.C:
+		case <-timer.C:
 		}
 		s.runAll(ctx)
+		// Re-read after every run so changes from the settings page take effect
+		// without restarting the service.
+		delay = s.pollInterval(ctx)
 	}
+}
+
+func (s *SubscriptionService) markLoopStopped(stop <-chan struct{}) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.stop == stop {
+		s.stop = nil
+		s.running = false
+	}
+}
+
+func (s *SubscriptionService) pollInterval(ctx context.Context) time.Duration {
+	if s == nil || s.repo == nil || s.repo.Setting == nil {
+		return defaultSubscriptionPollInterval
+	}
+	raw, err := s.repo.Setting.Get(ctx, "subscription.interval_seconds")
+	if err != nil {
+		return defaultSubscriptionPollInterval
+	}
+	seconds, err := strconv.Atoi(strings.TrimSpace(raw))
+	if err != nil || seconds <= 0 {
+		return defaultSubscriptionPollInterval
+	}
+	interval := time.Duration(seconds) * time.Second
+	if interval < minSubscriptionPollInterval {
+		return minSubscriptionPollInterval
+	}
+	return interval
 }
 
 func (s *SubscriptionService) runAll(ctx context.Context) {
@@ -174,6 +238,11 @@ func (s *SubscriptionService) runAll(ctx context.Context) {
 		if n, err := s.runOne(ctx, &subs[i]); err != nil {
 			s.log.Warn("subscription run failed",
 				zap.String("name", subs[i].Name), zap.Error(err))
+			if subscriptionSiteSearchShouldStopOnError(err) {
+				s.log.Warn("subscription sweep stopped after upstream failure",
+					zap.String("name", subs[i].Name), zap.Error(err))
+				return
+			}
 		} else if n > 0 {
 			s.log.Info("subscription queued items",
 				zap.String("name", subs[i].Name), zap.Int("count", n))
@@ -182,6 +251,7 @@ func (s *SubscriptionService) runAll(ctx context.Context) {
 }
 
 func (s *SubscriptionService) runOne(ctx context.Context, sub *model.Subscription) (int, error) {
+	s.prepareSubscriptionForRun(ctx, sub)
 	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(sub.FeedURL)), "site-search://") {
 		return s.runSiteSearch(ctx, sub)
 	}

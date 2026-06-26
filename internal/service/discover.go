@@ -48,12 +48,12 @@ func (d *DiscoverService) Popular(ctx context.Context) ([]Match, error) {
 
 // TMDbSection returns one TMDb rail converted to the common external
 // discovery shape used by the multi-source Discover page.
-func (d *DiscoverService) TMDbSection(ctx context.Context, key string) ([]ExternalMediaResult, error) {
+func (d *DiscoverService) TMDbSection(ctx context.Context, key string, pages ...int) ([]ExternalMediaResult, error) {
 	path := tmdbDiscoverPath(key)
 	if path == "" {
 		return []ExternalMediaResult{}, nil
 	}
-	matches, err := d.Fetch(ctx, path)
+	matches, err := d.Fetch(ctx, path, pages...)
 	if err != nil {
 		return nil, err
 	}
@@ -90,7 +90,7 @@ func (d *DiscoverService) fetch(ctx context.Context, path string) ([]Match, erro
 // Fetch is the public entry point used by the multi-section handler.
 // It paginates page=1 only — that's all the home page needs and it
 // keeps us under TMDb's 50 rps limit.
-func (d *DiscoverService) Fetch(ctx context.Context, path string) ([]Match, error) {
+func (d *DiscoverService) Fetch(ctx context.Context, path string, pages ...int) ([]Match, error) {
 	if d.tmdb == nil {
 		return nil, nil
 	}
@@ -105,7 +105,11 @@ func (d *DiscoverService) Fetch(ctx context.Context, path string) ([]Match, erro
 	q := url.Values{}
 	q.Set("api_key", apiKey)
 	q.Set("language", "zh-CN")
-	q.Set("page", "1")
+	pageNumber := 1
+	if len(pages) > 0 && pages[0] > 0 {
+		pageNumber = pages[0]
+	}
+	q.Set("page", strconv.Itoa(pageNumber))
 	u := base + path + "?" + q.Encode()
 
 	type result struct {
@@ -197,7 +201,7 @@ func tmdbDiscoverPath(key string) string {
 
 // Discover returns public Douban movie/TV rails. Douban does not require a
 // formal API key here; these are the same public web endpoints the site uses.
-func (d *DoubanProvider) Discover(ctx context.Context, key string) ([]ExternalMediaResult, error) {
+func (d *DoubanProvider) Discover(ctx context.Context, key string, pages ...int) ([]ExternalMediaResult, error) {
 	doubanType := "movie"
 	tag := "热门"
 	switch key {
@@ -218,7 +222,11 @@ func (d *DoubanProvider) Discover(ctx context.Context, key string) ([]ExternalMe
 	q.Set("tag", tag)
 	q.Set("sort", "recommend")
 	q.Set("page_limit", "24")
-	q.Set("page_start", "0")
+	pageNumber := 1
+	if len(pages) > 0 && pages[0] > 0 {
+		pageNumber = pages[0]
+	}
+	q.Set("page_start", strconv.Itoa((pageNumber-1)*24))
 	u := "https://movie.douban.com/j/search_subjects?" + q.Encode()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {

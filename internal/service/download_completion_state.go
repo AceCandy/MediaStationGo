@@ -43,6 +43,19 @@ func recentlyCompletedTorrent(torrent QBitTorrent, now time.Time) bool {
 	return now.Sub(completed) <= completedTorrentCatchupWindow
 }
 
+func qbitTorrentCompleted(torrent QBitTorrent) bool {
+	if torrent.Progress < 1 {
+		return false
+	}
+	state := strings.ToLower(strings.TrimSpace(torrent.State))
+	switch state {
+	case "completed", "uploading", "stalledup", "pausedup", "queuedup", "forcedup":
+		return true
+	default:
+		return false
+	}
+}
+
 func (d *DownloadService) completedTorrentCatchupRecorded(ctx context.Context, torrent QBitTorrent) bool {
 	if d == nil || d.repo == nil || d.repo.Setting == nil {
 		return false
@@ -148,7 +161,7 @@ func (d *DownloadService) syncDownloadTaskProgress(ctx context.Context, torrent 
 		return
 	}
 	status := torrent.State
-	if torrent.Progress >= 1 {
+	if qbitTorrentCompleted(torrent) {
 		status = "completed"
 	}
 	if strings.TrimSpace(status) == "" {

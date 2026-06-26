@@ -1,17 +1,13 @@
 // Package service — periodic scheduled jobs.
 //
-// SchedulerService runs five recurring background jobs that keep the
+// SchedulerService runs recurring background jobs that keep the
 // library up-to-date without operator intervention:
 //
 //	library_scan      every 24 h  — optional full re-scan for local libraries;
 //	                                  filesystem watchers handle normal changes.
-//	subscription_pull every 30 min — re-poll RSS feeds (in addition to
-//	                                  the existing SubscriptionService
-//	                                  internal timer).
-//	download_sync     every 30 s   — refresh the qBittorrent torrent
-//	                                  list (already covered by the
-//	                                  download poller, kept here as a
-//	                                  watchdog).
+//	cloud_sync        low frequency — optional cloud library sync.
+//	cloud_upload      low frequency — optional local-to-cloud metadata upload.
+//	organize_source   opt-in        — organize the configured staging folder.
 //	transcode_cleanup every 24 h   — purge HLS transcode artefacts
 //	                                  older than 24 h.
 //	recycle_purge     every 24 h   — empty the recycle bin of rows

@@ -214,6 +214,120 @@ func TestProcessDownloadSnapshotQueuesCompletedPendingTaskOnFirstSnapshot(t *tes
 	}
 }
 
+func TestProcessDownloadSnapshotDoesNotQueueActiveDownloadAtFullProgress(t *testing.T) {
+	db := newServiceTestDB(t, &model.DownloadTask{}, &model.Setting{})
+	repos := repository.New(db)
+	task := &model.DownloadTask{
+		Source:   "qbittorrent",
+		URL:      "magnet:?xt=urn:btih:test",
+		Title:    "Still Downloading S01E01",
+		SavePath: "/downloads/未分类",
+		Status:   "downloading",
+		Progress: 0.99,
+	}
+	if err := repos.Download.Create(t.Context(), task); err != nil {
+		t.Fatal(err)
+	}
+	if err := repos.Setting.Set(t.Context(), "organizer.auto_after_download", "true"); err != nil {
+		t.Fatal(err)
+	}
+
+	svc := NewDownloadService(zap.NewNop(), repos, NewHub(zap.NewNop()), nil)
+	svc.processDownloadSnapshot(t.Context(), []QBitTorrent{{
+		Hash:     "notdone",
+		Name:     "Still.Downloading.S01E01",
+		Progress: 1,
+		State:    "downloading",
+	}}, tasksByTorrentIdentity([]model.DownloadTask{*task}))
+
+	if got := len(svc.organizeQueue); got != 0 {
+		t.Fatalf("queued active download organize jobs = %d, want 0", got)
+	}
+	var after model.DownloadTask
+	if err := db.First(&after, "id = ?", task.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if after.Status == "completed" {
+		t.Fatalf("active download status = %q, should not be completed", after.Status)
+	}
+}
+
+func TestProcessDownloadSnapshotDoesNotQueueFullProgressWithoutQBitState(t *testing.T) {
+	db := newServiceTestDB(t, &model.DownloadTask{}, &model.Setting{})
+	repos := repository.New(db)
+	task := &model.DownloadTask{
+		Source:   "qbittorrent",
+		URL:      "magnet:?xt=urn:btih:test",
+		Title:    "Missing State S01E01",
+		SavePath: "/downloads/未分类",
+		Status:   "downloading",
+		Progress: 0.99,
+	}
+	if err := repos.Download.Create(t.Context(), task); err != nil {
+		t.Fatal(err)
+	}
+	if err := repos.Setting.Set(t.Context(), "organizer.auto_after_download", "true"); err != nil {
+		t.Fatal(err)
+	}
+
+	svc := NewDownloadService(zap.NewNop(), repos, NewHub(zap.NewNop()), nil)
+	svc.processDownloadSnapshot(t.Context(), []QBitTorrent{{
+		Hash:     "missing-state",
+		Name:     "Missing.State.S01E01",
+		Progress: 1,
+	}}, tasksByTorrentIdentity([]model.DownloadTask{*task}))
+
+	if got := len(svc.organizeQueue); got != 0 {
+		t.Fatalf("queued full-progress torrent without state = %d, want 0", got)
+	}
+	var after model.DownloadTask
+	if err := db.First(&after, "id = ?", task.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if after.Status == "completed" {
+		t.Fatalf("missing-state torrent status = %q, should not be completed", after.Status)
+	}
+}
+
+func TestProcessDownloadSnapshotDoesNotTrustCompletionOnForActiveDownload(t *testing.T) {
+	db := newServiceTestDB(t, &model.DownloadTask{}, &model.Setting{})
+	repos := repository.New(db)
+	task := &model.DownloadTask{
+		Source:   "qbittorrent",
+		URL:      "magnet:?xt=urn:btih:test",
+		Title:    "Still Downloading With Completion Timestamp S01E01",
+		SavePath: "/downloads/未分类",
+		Status:   "downloading",
+		Progress: 0.5,
+	}
+	if err := repos.Download.Create(t.Context(), task); err != nil {
+		t.Fatal(err)
+	}
+	if err := repos.Setting.Set(t.Context(), "organizer.auto_after_download", "true"); err != nil {
+		t.Fatal(err)
+	}
+
+	svc := NewDownloadService(zap.NewNop(), repos, NewHub(zap.NewNop()), nil)
+	svc.processDownloadSnapshot(t.Context(), []QBitTorrent{{
+		Hash:         "notdone-completion-on",
+		Name:         "Still.Downloading.With.Completion.Timestamp.S01E01",
+		Progress:     0.5,
+		State:        "downloading",
+		CompletionOn: time.Now().Unix(),
+	}}, tasksByTorrentIdentity([]model.DownloadTask{*task}))
+
+	if got := len(svc.organizeQueue); got != 0 {
+		t.Fatalf("queued active download organize jobs = %d, want 0", got)
+	}
+	var after model.DownloadTask
+	if err := db.First(&after, "id = ?", task.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if after.Status == "completed" || after.Progress >= 1 {
+		t.Fatalf("active download mutated to completed state: status=%q progress=%v", after.Status, after.Progress)
+	}
+}
+
 func TestProcessDownloadSnapshotSkipsUntrackedCompletedTorrentOnFirstSnapshot(t *testing.T) {
 	db := newServiceTestDB(t, &model.DownloadTask{}, &model.Setting{})
 	repos := repository.New(db)
@@ -260,6 +374,7 @@ func TestDownloadPollBaselinesAlreadyCompletedTorrents(t *testing.T) {
 		Hash:     "already-complete",
 		Name:     "Already Complete S01E01",
 		Progress: 1,
+		State:    "stalledUP",
 	}}, nil)
 
 	if got := len(svc.organizeQueue); got != 0 {
@@ -273,6 +388,7 @@ func TestDownloadPollBaselinesAlreadyCompletedTorrents(t *testing.T) {
 		Hash:     "late-complete",
 		Name:     "Late Complete S01E01",
 		Progress: 1,
+		State:    "stalledUP",
 	}}, nil)
 	if got := len(svc.organizeQueue); got != 0 {
 		t.Fatalf("newly discovered completed torrent queued %d organize jobs, want 0", got)
@@ -287,6 +403,7 @@ func TestDownloadPollBaselinesAlreadyCompletedTorrents(t *testing.T) {
 		Hash:     "new-download",
 		Name:     "New Download S01E01",
 		Progress: 1,
+		State:    "stalledUP",
 	}}, nil)
 
 	if got := len(svc.organizeQueue); got != 1 {
@@ -316,9 +433,9 @@ func TestDownloadPollCatchesUpRecentlyCompletedTorrents(t *testing.T) {
 	svc := NewDownloadService(zap.NewNop(), repos, NewHub(zap.NewNop()), nil)
 
 	svc.processDownloadSnapshot(t.Context(), []QBitTorrent{
-		{Hash: "fresh-complete", Name: "Fresh Complete S01E01", Progress: 1, CompletionOn: time.Now().Add(-time.Hour).Unix()},
-		{Hash: "stale-complete", Name: "Stale Complete S01E01", Progress: 1, CompletionOn: time.Now().Add(-48 * time.Hour).Unix()},
-		{Hash: "no-timestamp", Name: "No Timestamp S01E01", Progress: 1},
+		{Hash: "fresh-complete", Name: "Fresh Complete S01E01", Progress: 1, State: "stalledUP", CompletionOn: time.Now().Add(-time.Hour).Unix()},
+		{Hash: "stale-complete", Name: "Stale Complete S01E01", Progress: 1, State: "stalledUP", CompletionOn: time.Now().Add(-48 * time.Hour).Unix()},
+		{Hash: "no-timestamp", Name: "No Timestamp S01E01", Progress: 1, State: "stalledUP"},
 	}, tasksByTorrentIdentity([]model.DownloadTask{*task}))
 
 	// 只有补整理时间窗内、且存在本地追踪任务的种子会被补整理；无 completion_on 的保守跳过。
@@ -348,6 +465,7 @@ func TestDownloadPollDoesNotCatchUpWhenAutoOrganizeDisabled(t *testing.T) {
 		Hash:         "fresh-complete",
 		Name:         "Fresh Complete S01E01",
 		Progress:     1,
+		State:        "stalledUP",
 		CompletionOn: time.Now().Add(-time.Hour).Unix(),
 	}
 
@@ -365,6 +483,7 @@ func TestDownloadPollSkipsRecordedCompletedTorrentCatchup(t *testing.T) {
 		Hash:         "fresh-complete",
 		Name:         "Fresh Complete S01E01",
 		Progress:     1,
+		State:        "stalledUP",
 		CompletionOn: time.Now().Add(-time.Hour).Unix(),
 	}
 	if err := repos.Setting.Set(t.Context(), completedTorrentCatchupSettingKey(torrent), "true"); err != nil {

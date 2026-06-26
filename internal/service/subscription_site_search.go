@@ -117,15 +117,66 @@ func (s *SubscriptionService) searchSubscriptionSites(ctx context.Context, sub *
 				fields = append(fields, zap.Error(err))
 				s.log.Warn("site-search subscription search failed", fields...)
 			}
+			if subscriptionSiteSearchShouldStopOnError(err) {
+				return nil, err
+			}
 			continue
 		}
 		results = append(results, found...)
+		if hasUsableSubscriptionSearchResult(found, sub) {
+			break
+		}
 	}
 	results = dedupeSiteSearchResults(results)
 	if len(results) == 0 && lastSearchErr != nil && searchErrors == len(keywords) {
 		return nil, lastSearchErr
 	}
 	return results, nil
+}
+
+func subscriptionSiteSearchShouldStopOnError(err error) bool {
+	if err == nil {
+		return false
+	}
+	var limited *siteAPIRateLimitError
+	if errors.As(err, &limited) {
+		return true
+	}
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+		return true
+	}
+	var timeout interface{ Timeout() bool }
+	if errors.As(err, &timeout) && timeout.Timeout() {
+		return true
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "rate limit") ||
+		strings.Contains(msg, "quota") ||
+		strings.Contains(msg, "too many requests") ||
+		strings.Contains(msg, "status 429") ||
+		strings.Contains(msg, "context deadline exceeded") ||
+		strings.Contains(msg, "tls handshake timeout") ||
+		strings.Contains(msg, "i/o timeout") ||
+		strings.Contains(msg, "unexpected eof") ||
+		strings.Contains(msg, "connection reset") ||
+		strings.Contains(msg, "connection refused") ||
+		strings.Contains(msg, "no such host") ||
+		strings.Contains(msg, "temporary failure")
+}
+
+func hasUsableSubscriptionSearchResult(results []SearchResult, sub *model.Subscription) bool {
+	for _, item := range results {
+		if !subscriptionSearchResultMatchesQuery(sub, item) {
+			continue
+		}
+		if !matchesSubscriptionRules(sub, subscriptionSearchResultText(item)) {
+			continue
+		}
+		if strings.TrimSpace(firstNonEmpty(item.DownloadURL, item.TorrentURL)) != "" {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *SubscriptionService) finishSiteSearchNoResults(sub *model.Subscription, keyword string) (int, error) {

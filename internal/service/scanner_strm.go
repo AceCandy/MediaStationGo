@@ -72,10 +72,11 @@ func (s *ScannerService) maybeGenerateSTRMAfterScan(libraryID string) {
 		ctx := context.Background()
 		strmSvc := NewSTRMService(s.log, s.repo, s.cfg)
 		opts := GenerateSTRMOptions{
-			LibraryID:    libraryID,
-			Enabled:      true,
-			IncludeLocal: true,
-			Overwrite:    true,
+			LibraryID:        libraryID,
+			Enabled:          true,
+			IncludeLocal:     true,
+			Overwrite:        true,
+			SkipSettingsSave: true,
 		}
 		if outDir, scope := s.autoSTRMOutputDir(ctx); outDir != "" {
 			opts.OutputDir = outDir

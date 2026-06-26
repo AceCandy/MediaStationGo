@@ -43,15 +43,16 @@ var videoExtensions = map[string]struct{}{
 
 // ScannerService walks libraries on disk and upserts model.Media rows.
 type ScannerService struct {
-	cfg     *config.Config
-	log     *zap.Logger
-	repo    *repository.Container
-	hub     *Hub
-	probe   *FFprobeService
-	scraper *ScraperService
-	storage *StorageConfigService
-	cache   *RuntimeCacheService
-	notify  *NotifyChannelService
+	cfg       *config.Config
+	log       *zap.Logger
+	repo      *repository.Container
+	hub       *Hub
+	probe     *FFprobeService
+	scraper   *ScraperService
+	organizer *OrganizerService
+	storage   *StorageConfigService
+	cache     *RuntimeCacheService
+	notify    *NotifyChannelService
 
 	imageProxy *ImageProxy
 
@@ -115,6 +116,12 @@ func (s *ScannerService) SetStorageConfig(storage *StorageConfigService) {
 				go s.cloudMediaProbeWorker()
 			}
 		})
+	}
+}
+
+func (s *ScannerService) SetOrganizer(organizer *OrganizerService) {
+	if s != nil {
+		s.organizer = organizer
 	}
 }
 

@@ -89,22 +89,40 @@ func (o *OrganizerService) organizeLibraryTargetScopeScore(libPath, destRoot, me
 	if libPath == "" || libPath == "." {
 		return 0, false
 	}
+	collectionRoot := organizeMediaCollectionRoot(destRoot)
+	if collectionRoot != "" && pathWithin(libPath, collectionRoot) && !o.organizeLibraryMatchesExpectedPhysicalRoot(libPath, collectionRoot, mediaType, category) {
+		return 0, false
+	}
 	if pathWithin(libPath, destRoot) || pathWithin(destRoot, libPath) {
 		return 8, true
 	}
 	if _, destCategory := o.mediaTypeForDirectoryCategory(filepath.Base(destRoot)); destCategory == "" {
-		if root := organizeMediaCollectionRoot(destRoot); root != "" && pathWithin(libPath, root) {
-			return o.organizeLibraryPhysicalRootScore(libPath, root, mediaType, category), true
+		if collectionRoot != "" && pathWithin(libPath, collectionRoot) {
+			return o.organizeLibraryPhysicalRootScore(libPath, collectionRoot, mediaType, category), true
 		}
 		return 0, false
 	}
 	if strings.EqualFold(filepath.Dir(libPath), filepath.Dir(destRoot)) {
 		return 4, true
 	}
-	if root := organizeMediaCollectionRoot(destRoot); root != "" && pathWithin(libPath, root) {
-		return o.organizeLibraryPhysicalRootScore(libPath, root, mediaType, category), true
+	if collectionRoot != "" && pathWithin(libPath, collectionRoot) {
+		return o.organizeLibraryPhysicalRootScore(libPath, collectionRoot, mediaType, category), true
 	}
 	return 0, false
+}
+
+func (o *OrganizerService) organizeLibraryMatchesExpectedPhysicalRoot(libPath, collectionRoot, mediaType, category string) bool {
+	if strings.TrimSpace(category) == "" {
+		return true
+	}
+	physicalRoot := o.categoryPhysicalRootDir(category)
+	if physicalRoot == "" {
+		physicalRoot = mediaTypeRootDir(mediaType)
+	}
+	if physicalRoot == "" {
+		return true
+	}
+	return pathHasDirectChild(libPath, collectionRoot, physicalRoot)
 }
 
 func (o *OrganizerService) organizeLibraryPhysicalRootScore(libPath, collectionRoot, mediaType, category string) int {

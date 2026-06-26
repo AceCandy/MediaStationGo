@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -24,6 +25,7 @@ type organizeExistingReclassifyRequest struct {
 	Year            int
 	Season          int
 	Episode         int
+	MetadataMatch   *Match
 	Result          *OrganizeResult
 }
 
@@ -116,10 +118,12 @@ func (o *OrganizerService) cleanupReclassifiedDuplicates(ctx context.Context, re
 	cleaned := 0
 	for _, oldPath := range candidates {
 		if !safeToRemoveReclassifiedDuplicate(oldPath, target) {
-			if o != nil && o.log != nil {
-				o.log.Warn("organize kept duplicate with different size during reclassify",
-					zap.String("path", oldPath),
-					zap.String("target", target))
+			moved, err := o.moveReclassifiedConflict(ctx, req, oldPath, target)
+			if err != nil {
+				return cleaned, err
+			}
+			if moved {
+				cleaned++
 			}
 			continue
 		}
@@ -148,6 +152,69 @@ func (o *OrganizerService) cleanupReclassifiedDuplicates(ctx context.Context, re
 	}
 	req.Result.Reclassified += cleaned
 	return cleaned, nil
+}
+
+func (o *OrganizerService) moveReclassifiedConflict(ctx context.Context, req organizeExistingReclassifyRequest, oldPath, target string) (bool, error) {
+	conflictTarget := o.nextReclassifyConflictTarget(ctx, target)
+	if conflictTarget == "" {
+		if o != nil && o.log != nil {
+			o.log.Warn("organize kept duplicate with different size during reclassify",
+				zap.String("path", oldPath),
+				zap.String("target", target))
+		}
+		return false, nil
+	}
+	req.Result.Items = append(req.Result.Items, OrganizePreviewItem{
+		Source: oldPath, Target: conflictTarget, Action: "reclassify",
+		MediaType: req.MediaType, Category: req.Category, Title: req.Title,
+		Reason: "metadata category changed; target occupied by different file",
+	})
+	if req.DryRun {
+		return true, nil
+	}
+	if err := os.MkdirAll(filepath.Dir(conflictTarget), 0o755); err != nil { // #nosec G301 -- organized media directories must remain readable by NAS/player users.
+		return false, err
+	}
+	if err := moveFile(oldPath, conflictTarget); err != nil {
+		return false, err
+	}
+	if err := moveSidecarNFO(oldPath, conflictTarget); err != nil && o != nil && o.log != nil {
+		o.log.Warn("organize reclassify conflict sidecar nfo failed",
+			zap.String("from", nfoPath(oldPath)),
+			zap.String("to", nfoPath(conflictTarget)),
+			zap.Error(err))
+	}
+	if err := o.updateReclassifiedMediaRow(ctx, oldPath, conflictTarget, req); err != nil {
+		return false, err
+	}
+	cleanupEmptyMediaDirs(filepath.Dir(oldPath), req.DestRoot)
+	if o != nil && o.log != nil {
+		o.log.Info("organize moved conflicting duplicate to correct category",
+			zap.String("from", oldPath),
+			zap.String("to", conflictTarget),
+			zap.String("occupied_target", target),
+			zap.String("category", req.Category),
+			zap.String("media_type", req.MediaType))
+	}
+	return true, nil
+}
+
+func (o *OrganizerService) nextReclassifyConflictTarget(ctx context.Context, target string) string {
+	target = filepath.Clean(strings.TrimSpace(target))
+	if target == "" || target == "." {
+		return ""
+	}
+	dir := filepath.Dir(target)
+	ext := filepath.Ext(target)
+	base := strings.TrimSuffix(filepath.Base(target), ext)
+	for i := 2; i <= 999; i++ {
+		candidate := filepath.Join(dir, fmt.Sprintf("%s (%d)%s", base, i, ext))
+		if organizeFileExists(candidate) || o.mediaPathExists(ctx, candidate) {
+			continue
+		}
+		return candidate
+	}
+	return ""
 }
 
 func safeToRemoveReclassifiedDuplicate(path, target string) bool {
@@ -221,7 +288,60 @@ func (o *OrganizerService) updateReclassifiedMediaRow(ctx context.Context, oldPa
 	} else if req.Episode > 0 {
 		updates["episode_num"] = req.Episode
 	}
+	applyReclassifyMatchUpdates(updates, req.MetadataMatch)
 	return o.repo.DB.WithContext(ctx).Model(&model.Media{}).Where("path = ?", oldPath).Updates(updates).Error
+}
+
+func applyReclassifyMatchUpdates(updates map[string]any, match *Match) {
+	if updates == nil || match == nil {
+		return
+	}
+	if value := strings.TrimSpace(match.Title); value != "" {
+		updates["title"] = value
+	}
+	if value := strings.TrimSpace(match.OriginalName); value != "" {
+		updates["original_name"] = value
+	}
+	if value := strings.TrimSpace(match.Overview); value != "" {
+		updates["overview"] = value
+	}
+	if value := strings.TrimSpace(match.PosterURL); value != "" {
+		updates["poster_url"] = value
+	}
+	if value := strings.TrimSpace(match.BackdropURL); value != "" {
+		updates["backdrop_url"] = value
+	}
+	if match.Rating > 0 {
+		updates["rating"] = match.Rating
+	}
+	if match.Year > 0 {
+		updates["year"] = match.Year
+	}
+	if match.TMDbID > 0 {
+		updates["tm_db_id"] = match.TMDbID
+	}
+	if match.BangumiID > 0 {
+		updates["bangumi_id"] = match.BangumiID
+	}
+	if value := strings.TrimSpace(match.DoubanID); value != "" {
+		updates["douban_id"] = value
+	}
+	if value := strings.TrimSpace(match.TheTVDBID); value != "" {
+		updates["thetvdb_id"] = value
+	}
+	if len(match.Genres) > 0 {
+		updates["genres"] = strings.Join(match.Genres, ",")
+	}
+	if len(match.Countries) > 0 {
+		updates["countries"] = strings.Join(match.Countries, ",")
+	}
+	if len(match.Languages) > 0 {
+		updates["languages"] = strings.Join(match.Languages, ",")
+	}
+	if match.NSFW {
+		updates["nsfw"] = true
+	}
+	updates["scrape_status"] = "matched"
 }
 
 func (o *OrganizerService) deleteMediaRowForPath(ctx context.Context, path string) {

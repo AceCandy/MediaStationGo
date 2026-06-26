@@ -47,8 +47,6 @@ export function SearchPage() {
       {search.externalItems.length > 0 && (
         <ExternalResults
           items={search.externalItems}
-          busyKey={search.subscribing}
-          onSubscribe={search.onSubscribe}
         />
       )}
     </div>

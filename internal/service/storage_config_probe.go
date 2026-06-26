@@ -36,34 +36,8 @@ func (s *StorageConfigService) Test(ctx context.Context, in StorageInput) error 
 			return err
 		}
 		defer resp.Body.Close()
-		if resp.StatusCode >= 500 {
-			return fmt.Errorf("alist returned %d", resp.StatusCode)
-		}
-		return nil
+		return validateStorageProbeStatus("alist", resp.StatusCode)
 	case cloud.TypeOpenList:
-		if hasWebDAVProbeConfig(cfg) {
-			p, err := cloud.New(in.Type, cfg, client)
-			if err != nil {
-				return err
-			}
-			return p.Ping(ctx)
-		}
-		server := strings.TrimRight(strr(cfg["server"]), "/")
-		if server != "" {
-			req, _ := http.NewRequestWithContext(ctx, http.MethodGet, server+"/api/me", nil)
-			if tok := strr(cfg["token"]); tok != "" {
-				req.Header.Set("Authorization", tok)
-			}
-			resp, err := client.Do(req)
-			if err != nil {
-				return decorateStorageTransportError("openlist", server, err)
-			}
-			defer resp.Body.Close()
-			if resp.StatusCode >= 500 {
-				return fmt.Errorf("openlist returned %d", resp.StatusCode)
-			}
-			return nil
-		}
 		p, err := cloud.New(in.Type, cfg, client)
 		if err != nil {
 			return err
@@ -162,11 +136,17 @@ func storageTimeoutFromConfig(cfg map[string]any, fallback time.Duration) time.D
 	return time.Duration(seconds) * time.Second
 }
 
-func hasWebDAVProbeConfig(cfg map[string]any) bool {
-	return strr(cfg["url"]) != "" ||
-		strr(cfg["webdav_url"]) != "" ||
-		strr(cfg["username"]) != "" ||
-		strr(cfg["password"]) != ""
+func validateStorageProbeStatus(name string, status int) error {
+	if status >= 200 && status < 300 {
+		return nil
+	}
+	if status == http.StatusUnauthorized || status == http.StatusForbidden {
+		return fmt.Errorf("%s authentication failed: http %d；请检查 Token / 用户名密码", name, status)
+	}
+	if status >= 300 {
+		return fmt.Errorf("%s returned %d", name, status)
+	}
+	return nil
 }
 
 func decorateStorageTransportError(name, target string, err error) error {

@@ -58,21 +58,25 @@ export function ManualScrapeSearchControls({
   onEpisodeArtworkChange,
 }: ManualScrapeSearchControlsProps) {
   return (
-    <div className="flex flex-col gap-3 border-b border-sand-200 p-5 lg:flex-row">
-      <ProviderSelector selectedProviders={selectedProviders} onProviderChange={onProviderChange} />
+    <div className="grid gap-4 border-b border-sand-200 bg-sand-50/40 p-5">
       <ManualScrapeQueryBar
         query={query}
         searching={searching}
         onQueryChange={onQueryChange}
         onSearch={onSearch}
       />
-      {showEpisodeArtworkToggle && (
-        <EpisodeArtworkToggle
-          checked={includeEpisodeArtwork}
-          onChange={onEpisodeArtworkChange}
-          title="关闭后仍写入每集简介、评分和时长，只跳过每集图片"
-        />
-      )}
+      <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-end">
+        <ProviderSelector selectedProviders={selectedProviders} onProviderChange={onProviderChange} />
+        {showEpisodeArtworkToggle && (
+          <div className="flex justify-start xl:justify-end">
+            <EpisodeArtworkToggle
+              checked={includeEpisodeArtwork}
+              onChange={onEpisodeArtworkChange}
+              title="关闭后仍写入每集简介、评分和时长，只跳过每集图片"
+            />
+          </div>
+        )}
+      </div>
     </div>
   )
 }
@@ -85,11 +89,12 @@ function ProviderSelector({
   onProviderChange: (value: string[] | ((current: string[]) => string[])) => void
 }) {
   return (
-    <div className="flex min-w-0 flex-col gap-2 lg:max-w-md">
+    <div className="flex min-w-0 flex-col gap-2">
       <span className="text-xs font-bold text-sand-500">刮削源</span>
-      <div className="flex flex-wrap gap-2">
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:flex lg:flex-wrap">
         <button
           type="button"
+          aria-pressed={selectedProviders.length === 0}
           onClick={() => onProviderChange([])}
           className={providerButtonClass(selectedProviders.length === 0)}
         >
@@ -102,6 +107,7 @@ function ProviderSelector({
             <button
               key={item.value}
               type="button"
+              aria-pressed={active}
               onClick={() => onProviderChange((current) => toggleProvider(current, item.value))}
               className={providerButtonClass(active)}
             >
@@ -127,22 +133,22 @@ function ManualScrapeQueryBar({
   onSearch: () => void
 }) {
   return (
-    <>
-      <div className="relative flex-1">
+    <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_7.5rem]">
+      <div className="relative min-w-0">
         <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-sand-500" />
         <input
           value={query}
           onChange={(event) => onQueryChange(event.target.value)}
           onKeyDown={(event) => { if (event.key === 'Enter') onSearch() }}
-          className="h-11 w-full rounded-xl border border-sand-200 bg-white pl-9 pr-3 text-sm font-semibold text-ink-600 outline-none focus:border-brand-300"
+          className="h-11 w-full rounded-xl border border-sand-200 bg-white pl-9 pr-3 text-sm font-semibold text-ink-600 outline-none transition focus:border-brand-300 focus:ring-2 focus:ring-brand-100"
           placeholder="输入标题或 TMDb / 豆瓣 / Bangumi / TheTVDB ID"
         />
       </div>
-      <button onClick={onSearch} disabled={searching} className="btn-primary h-11 px-5">
+      <button type="button" onClick={onSearch} disabled={searching} className="btn-primary h-11 justify-center px-5">
         {searching ? <LoaderCircle size={16} className="animate-spin" /> : <Sparkles size={16} />}
         搜索
       </button>
-    </>
+    </div>
   )
 }
 
@@ -193,7 +199,7 @@ function ManualScrapeCandidateRow({
   onApply: (item: ManualScrapeCandidate) => void
 }) {
   return (
-    <div className="flex gap-4 rounded-xl border border-sand-200 bg-white p-3 shadow-sm">
+    <div className="flex flex-col gap-4 rounded-xl border border-sand-200 bg-white p-3 shadow-sm sm:flex-row">
       <div className="h-28 w-20 shrink-0 overflow-hidden rounded-lg bg-sand-100">
         {item.poster_url ? (
           <img src={imageURL(item.poster_url)} alt={item.title} className="h-full w-full object-cover" referrerPolicy="no-referrer" />
@@ -211,7 +217,7 @@ function ManualScrapeCandidateRow({
         <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-ink-50">{item.overview || '暂无简介'}</p>
         <p className="mt-2 text-[11px] font-semibold text-sand-500">{candidateIDText(item)}</p>
       </div>
-      <button onClick={() => onApply(item)} disabled={disabled} className="btn-outline h-10 shrink-0 self-center px-3 text-xs">
+      <button onClick={() => onApply(item)} disabled={disabled} className="btn-outline h-10 w-full shrink-0 justify-center px-3 text-xs sm:w-auto sm:self-center">
         {applying ? <LoaderCircle size={14} className="animate-spin" /> : <Check size={14} />}
         应用匹配
       </button>
@@ -221,7 +227,7 @@ function ManualScrapeCandidateRow({
 
 function providerButtonClass(active: boolean): string {
   return (
-    'inline-flex h-11 items-center gap-1.5 rounded-xl border px-3 text-xs font-bold transition ' +
+    'inline-flex h-9 min-w-0 shrink-0 items-center justify-center gap-1.5 rounded-lg border px-3 text-xs font-bold transition ' +
     (active
       ? 'border-brand-300 bg-brand-50 text-brand-700'
       : 'border-sand-200 bg-white text-sand-600 hover:border-brand-200 hover:text-brand-600')

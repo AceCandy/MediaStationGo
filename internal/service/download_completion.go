@@ -148,16 +148,7 @@ func downloadTaskMediaCategory(task *model.DownloadTask) string {
 const DownloadPathMappingsSettingKey = "download.path_mappings"
 
 func (d *DownloadService) completedTorrentSource(ctx context.Context, torrent QBitTorrent) string {
-	// 常见路径映射：qBittorrent容器路径 -> MediaStationGo容器路径
-	mappings := map[string]string{
-		"/var/apps/qBittorrent/shares/qBittorrent/Download": "/downloads",
-		"/data/qBittorrent/downloads":                       "/downloads",
-		"/downloads/qBittorrent":                            "/downloads",
-	}
-	// 用户自定义映射优先（可覆盖内置猜测）。
-	for clientPrefix, localPrefix := range d.userPathMappings(ctx) {
-		mappings[clientPrefix] = localPrefix
-	}
+	mappings := d.downloadPathMappings(ctx)
 	for _, candidate := range []string{
 		torrent.ContentPath,
 		filepath.Join(torrent.SavePath, torrent.Name),

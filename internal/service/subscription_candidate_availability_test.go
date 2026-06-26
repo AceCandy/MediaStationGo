@@ -87,6 +87,56 @@ func TestSelectSiteSearchCandidatesFullPackUsedAsFallbackWhenLibraryPartiallyExi
 	}
 }
 
+func TestSelectSiteSearchCandidatesPartialSeriesPackDoesNotSatisfySubscription(t *testing.T) {
+	sub := &model.Subscription{Name: "问心2 自动订阅", Filter: "问心2", MediaType: "tv", TotalEpisodes: 33}
+	results := []SearchResult{
+		{Title: "问心2 S01E07 2160p WEB-DL", DownloadURL: "https://pt/download/7", Seeders: 100},
+	}
+	availability := LocalAvailability{
+		TotalEpisodes:       33,
+		LocalMediaCount:     7,
+		HasSeriesPack:       true,
+		MissingEpisodes:     []int{7},
+		ExistingEpisodeKeys: map[string]struct{}{},
+	}
+	for episode := 1; episode <= 6; episode++ {
+		availability.ExistingEpisodeKeys[episodeKey(1, episode)] = struct{}{}
+	}
+
+	got, stats := selectSiteSearchCandidatesWithStats(results, sub, map[string]struct{}{}, availability)
+	if len(got) != 1 || got[0].Episode != 7 {
+		t.Fatalf("selected %#v, want missing episode 7 despite local pack marker", got)
+	}
+	if stats.LocalSeriesPackPresent {
+		t.Fatalf("LocalSeriesPackPresent = true, want false for partial series availability")
+	}
+}
+
+func TestSelectSiteSearchCandidatesIgnoresUnderestimatedLocalTotal(t *testing.T) {
+	sub := &model.Subscription{Name: "南部档案 自动订阅", Filter: "南部档案", MediaType: "tv"}
+	results := []SearchResult{
+		{Title: "Archives The Nanyang Mystery 2026 S01E29-E33 2160p WEB-DL", SearchKeyword: "南部档案 2026", DownloadURL: "https://pt/download/29-33", Seeders: 100},
+	}
+	existing := map[string]struct{}{}
+	for episode := 1; episode <= 6; episode++ {
+		existing[episodeKey(1, episode)] = struct{}{}
+	}
+	availability := LocalAvailability{
+		TotalEpisodes:       1,
+		LocalMediaCount:     7,
+		HasSeriesPack:       true,
+		ExistingEpisodeKeys: existing,
+	}
+
+	got, stats := selectSiteSearchCandidatesWithStats(results, sub, map[string]struct{}{}, availability)
+	if len(got) != 1 || got[0].Download != "https://pt/download/29-33" {
+		t.Fatalf("selected %#v, want high-episode candidate despite underestimated local total", got)
+	}
+	if stats.SeriesComplete || stats.NotMissingEpisodeSkipped != 0 {
+		t.Fatalf("stats = %#v, underestimated total must not mark series complete or skip high episodes", stats)
+	}
+}
+
 func TestSelectSiteSearchCandidatesMissingEpisodeCanMatchSubtitleAlias(t *testing.T) {
 	sub := &model.Subscription{Name: "躲在超市后门抽烟的两人 自动订阅", Filter: "躲在超市后门抽烟的两人", MediaType: "tv", TotalEpisodes: 12}
 	results := []SearchResult{

@@ -47,8 +47,12 @@ func TestGenerateSTRMForLibraryWritesFilesAndRecords(t *testing.T) {
 	if res.Generated != 2 || res.Skipped != 0 {
 		t.Fatalf("result = %#v, want generated=2 skipped=0", res)
 	}
-	cloudSTRM := filepath.Join(outDir, "云盘电影 (2026)", "云盘电影 (2026).strm")
-	localSTRM := filepath.Join(outDir, "本地电影 (2025)", "本地电影 (2025).strm")
+	libraryOutDir := filepath.Join(outDir, "电影")
+	if res.OutputDir != libraryOutDir {
+		t.Fatalf("output dir = %q, want %q", res.OutputDir, libraryOutDir)
+	}
+	cloudSTRM := filepath.Join(libraryOutDir, "云盘电影 (2026)", "云盘电影 (2026).strm")
+	localSTRM := filepath.Join(libraryOutDir, "本地电影 (2025)", "本地电影 (2025).strm")
 	assertFileContains(t, cloudSTRM, "http://nas.example:18080/api/stream/cloud-media?token=strm-token")
 	assertFileContains(t, localSTRM, "http://nas.example:18080/api/stream/local-media?token=strm-token")
 	if got, err := repos.Setting.Get(t.Context(), "app.server_url"); err != nil || got != "http://nas.example:18080" {
@@ -112,7 +116,7 @@ func TestGenerateSTRMForLibrarySignsDefaultPlaybackToken(t *testing.T) {
 	if res.Generated != 1 || len(res.Errors) != 0 {
 		t.Fatalf("result = %#v, want generated=1 with no errors", res)
 	}
-	cloudSTRM := filepath.Join(outDir, "云盘电影 (2026)", "云盘电影 (2026).strm")
+	cloudSTRM := filepath.Join(outDir, "电影", "云盘电影 (2026)", "云盘电影 (2026).strm")
 	got := readSTRM(t, cloudSTRM)
 	if !strings.HasPrefix(got, "http://nas.example:18080/api/stream/cloud-media?token=") {
 		t.Fatalf("generated url = %q, want tokenized /api/stream url", got)
@@ -145,7 +149,8 @@ func TestGenerateSTRMForLibraryCleanupStaleFilesAndRecords(t *testing.T) {
 		t.Fatal(err)
 	}
 	outDir := filepath.Join(t.TempDir(), "strm")
-	stalePath := filepath.Join(outDir, "旧电影", "旧电影.strm")
+	libraryOutDir := filepath.Join(outDir, "电影")
+	stalePath := filepath.Join(libraryOutDir, "旧电影", "旧电影.strm")
 	if err := os.MkdirAll(filepath.Dir(stalePath), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -182,6 +187,13 @@ func TestGenerateSTRMForLibraryCleanupStaleFilesAndRecords(t *testing.T) {
 	if count != 0 {
 		t.Fatalf("stale strm record count = %d, want 0", count)
 	}
+	if err := repos.DB.Model(&model.STRMRecord{}).Where("media_id = ?", media.ID).Count(&count).Error; err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Fatalf("current strm record count = %d, want 1", count)
+	}
+	assertFileContains(t, filepath.Join(libraryOutDir, "云盘电影 (2026)", "云盘电影 (2026).strm"), "http://nas.example:18080/api/stream/cloud-media?token=strm-token")
 }
 
 func TestSTRMLibraryOutputSubdirUsesLibraryCategoryPath(t *testing.T) {
@@ -250,6 +262,43 @@ func TestGenerateSTRMForLibraryUsesCategoryDefaultOutputDir(t *testing.T) {
 	assertFileContains(t, filepath.Join(wantDir, "Show", "Season 01", "Show - S01E01.strm"), "http://nas.example:18080/api/stream/show-1?token=strm-token")
 }
 
+func TestGenerateSTRMForLibraryUsesPathEpisodeFallback(t *testing.T) {
+	db := newServiceTestDB(t, &model.Library{}, &model.Media{}, &model.STRMRecord{}, &model.Setting{})
+	repos := repository.New(db)
+	lib := model.Library{Name: "OpenList · 国产剧", Path: BuildCloudLibraryPath("openlist", "/电视剧/国产剧", "/电视剧/国产剧"), Type: "tv", Enabled: true}
+	if err := repos.Library.Create(t.Context(), &lib); err != nil {
+		t.Fatal(err)
+	}
+	rows := []model.Media{
+		{Base: model.Base{ID: "ep-1"}, LibraryID: lib.ID, Title: "南部档案", Path: "cloud://openlist/电视剧/国产剧/南部档案/Season 01/Archives.The.Nanyang.Mystery.S01E01.mkv", STRMURL: "/api/cloud/play/openlist?ref=ep1"},
+		{Base: model.Base{ID: "ep-2"}, LibraryID: lib.ID, Title: "南部档案", Path: "cloud://openlist/电视剧/国产剧/南部档案/Season 01/Archives.The.Nanyang.Mystery.S01E02.mkv", STRMURL: "/api/cloud/play/openlist?ref=ep2"},
+	}
+	for i := range rows {
+		if err := repos.DB.Create(&rows[i]).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	outDir := filepath.Join(t.TempDir(), "strm")
+	svc := NewSTRMService(zap.NewNop(), repos, &config.Config{})
+	res, err := svc.GenerateForLibrary(t.Context(), GenerateSTRMOptions{
+		LibraryID:     lib.ID,
+		OutputDir:     outDir,
+		BaseURL:       "http://nas.example:18080",
+		IncludeLocal:  true,
+		PlaybackToken: "strm-token",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Generated != 2 || res.Skipped != 0 {
+		t.Fatalf("result = %#v, want generated=2 skipped=0", res)
+	}
+	libraryOutDir := filepath.Join(outDir, "电视剧", "国产剧")
+	assertFileContains(t, filepath.Join(libraryOutDir, "南部档案", "Season 01", "南部档案 - S01E01.strm"), "http://nas.example:18080/api/stream/ep-1?token=strm-token")
+	assertFileContains(t, filepath.Join(libraryOutDir, "南部档案", "Season 01", "南部档案 - S01E02.strm"), "http://nas.example:18080/api/stream/ep-2?token=strm-token")
+}
+
 func TestGenerateSTRMForAllLibrariesWritesPerLibraryFolders(t *testing.T) {
 	db := newServiceTestDB(t, &model.Library{}, &model.Media{}, &model.STRMRecord{}, &model.Setting{})
 	repos := repository.New(db)
@@ -277,6 +326,7 @@ func TestGenerateSTRMForAllLibrariesWritesPerLibraryFolders(t *testing.T) {
 		OutputDir:     outDir,
 		BaseURL:       "http://nas.example:18080",
 		IncludeLocal:  true,
+		Overwrite:     true,
 		PlaybackToken: "strm-token",
 	})
 	if err != nil {
@@ -287,6 +337,13 @@ func TestGenerateSTRMForAllLibrariesWritesPerLibraryFolders(t *testing.T) {
 	}
 	assertFileContains(t, filepath.Join(outDir, "电影", "云盘电影 (2026)", "云盘电影 (2026).strm"), "http://nas.example:18080/api/stream/movie-1?token=strm-token")
 	assertFileContains(t, filepath.Join(outDir, "电视剧", "欧美剧", "Show", "Season 01", "Show - S01E01.strm"), "http://nas.example:18080/api/stream/show-1?token=strm-token")
+	var count int64
+	if err := repos.DB.Model(&model.STRMRecord{}).Count(&count).Error; err != nil {
+		t.Fatal(err)
+	}
+	if count != 2 {
+		t.Fatalf("active strm record count = %d, want 2", count)
+	}
 }
 
 func assertFileContains(t *testing.T, path, want string) {

@@ -9,6 +9,7 @@ package handler
 import (
 	"context"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -60,8 +61,13 @@ func discoverFeedHandler(svc *service.Container) gin.HandlerFunc {
 		if strings.TrimSpace(rawSections) == "" {
 			rawSections = strings.Join(defaultDiscoverSectionKeys(c.Request.Context(), svc), ",")
 		}
+		page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+		if page < 1 {
+			page = 1
+		}
 		keys := strings.Split(rawSections, ",")
 		out := gin.H{}
+		meta := gin.H{}
 		artworkItems := []service.ExternalMediaResult{}
 		for _, raw := range keys {
 			k := strings.TrimSpace(raw)
@@ -70,16 +76,19 @@ func discoverFeedHandler(svc *service.Container) gin.HandlerFunc {
 			}
 			if provider := discoverSectionProvider(k); provider != "" && !discoverProviderEnabled(c.Request.Context(), svc, provider) {
 				out[k] = []service.ExternalMediaResult{}
+				meta[k] = gin.H{"page": page, "has_next": false}
 				continue
 			}
-			items, err := discoverSectionItems(c.Request.Context(), svc, k)
+			items, err := discoverSectionItems(c.Request.Context(), svc, k, page)
 			if err != nil {
 				svc.Log.Debug("discover fetch failed")
 				items = nil
 			}
 			artworkItems = append(artworkItems, items...)
 			out[k] = items
+			meta[k] = gin.H{"page": page, "has_next": discoverSectionHasNext(k, len(items))}
 		}
+		out["_meta"] = meta
 		svc.Discover.WarmExternalArtwork(artworkItems)
 		c.JSON(http.StatusOK, out)
 	}
@@ -145,22 +154,39 @@ func discoverProviderEnabled(ctx context.Context, svc *service.Container, provid
 	return cfg.Enabled
 }
 
-func discoverSectionItems(ctx context.Context, svc *service.Container, k string) ([]service.ExternalMediaResult, error) {
+func discoverSectionItems(ctx context.Context, svc *service.Container, k string, page int) ([]service.ExternalMediaResult, error) {
 	switch k {
 	case "tmdb_trending_day", "tmdb_trending_week", "tmdb_latest_movie", "tmdb_latest_tv", "tmdb_popular_movie", "tmdb_popular_tv", "tmdb_top_rated_movie", "tmdb_upcoming_movie",
 		"trending_day", "trending_week", "latest_movie", "latest_tv", "popular_movie", "popular_tv", "top_rated_movie", "upcoming_movie":
-		return svc.Discover.TMDbSection(ctx, k)
+		return svc.Discover.TMDbSection(ctx, k, page)
 	case "douban_hot_movie", "douban_hot_tv", "douban_top_movie":
 		if svc.Douban == nil {
 			return []service.ExternalMediaResult{}, nil
 		}
-		return svc.Douban.Discover(ctx, k)
+		return svc.Douban.Discover(ctx, k, page)
 	case "bangumi_calendar":
 		if svc.Bangumi == nil {
+			return []service.ExternalMediaResult{}, nil
+		}
+		if page > 1 {
 			return []service.ExternalMediaResult{}, nil
 		}
 		return svc.Bangumi.Calendar(ctx)
 	default:
 		return []service.ExternalMediaResult{}, nil
+	}
+}
+
+func discoverSectionHasNext(key string, itemCount int) bool {
+	if itemCount <= 0 {
+		return false
+	}
+	switch discoverSectionProvider(key) {
+	case "tmdb":
+		return itemCount >= 20
+	case "douban":
+		return itemCount >= 24
+	default:
+		return false
 	}
 }

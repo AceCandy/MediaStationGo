@@ -4,7 +4,6 @@ import toast from 'react-hot-toast'
 
 import { aiAPI, type ExternalMediaResult, type SearchIntent } from '../api/ai'
 import { mediaAPI } from '../api/library'
-import { buildSiteSearchFeedURL, buildSubscriptionAliases, subscriptionsAPI } from '../api/subscriptions'
 import type { Media } from '../types'
 import { groupSeries } from '../utils/groupSeries'
 
@@ -26,7 +25,6 @@ export function useSearchPage() {
   const [intent, setIntent] = useState<SearchIntent | null>(null)
   const [hasSearched, setHasSearched] = useState(false)
   const [externalItems, setExternalItems] = useState<ExternalMediaResult[]>([])
-  const [subscribing, setSubscribing] = useState('')
   const [searchTotal, setSearchTotal] = useState(0)
   const searchSeq = useRef(0)
   const localCards = useMemo(() => groupSeries(items), [items])
@@ -58,7 +56,7 @@ export function useSearchPage() {
       let page = 1
       let collected: Media[] = []
       for (;;) {
-        const data = await mediaAPI.searchPage(query, page, LOCAL_SEARCH_PAGE_SIZE, { groupVersions: false })
+        const data = await mediaAPI.searchPage(query, page, LOCAL_SEARCH_PAGE_SIZE)
         if (seq !== searchSeq.current) return
         const pageItems = data.items ?? []
         collected = collected.concat(pageItems)
@@ -115,39 +113,6 @@ export function useSearchPage() {
     }
   }
 
-  const onSubscribe = async (item: ExternalMediaResult) => {
-    const keyword = item.subscribe_keyword || item.title
-    const key = `${item.source}:${keyword}`
-    setSubscribing(key)
-    try {
-      const feed = buildSiteSearchFeedURL(keyword, item.source, buildSubscriptionAliases(item))
-      const subscription = await subscriptionsAPI.create({
-        name: `${item.title} 自动订阅`,
-        feed_url: feed,
-        filter: keyword,
-        media_type: item.media_type,
-        source: item.source,
-        poster_url: item.poster_url,
-        backdrop_url: item.backdrop_url,
-        overview: item.overview,
-        original_name: item.original_name,
-        year: item.year,
-        total_episodes: item.total_episodes,
-        enabled: true,
-      })
-      const run = await subscriptionsAPI.runNow(subscription.id)
-      toast.success(
-        run.queued > 0
-          ? `已订阅并加入 ${run.queued} 个下载`
-          : '已订阅，暂未在 PT 站点找到可下载资源',
-      )
-    } catch (err) {
-      toast.error(apiErrorMessage(err, '订阅失败'))
-    } finally {
-      setSubscribing('')
-    }
-  }
-
   return {
     aiAvailable,
     aiOn,
@@ -158,13 +123,11 @@ export function useSearchPage() {
     loading,
     localCards,
     onAISubmit,
-    onSubscribe,
     q,
     searchTotal,
     setAiOn,
     setQ,
     showEmpty: !loading && !error && hasSearched && localCards.length === 0,
     showIdle: !loading && !error && !hasSearched,
-    subscribing,
   }
 }

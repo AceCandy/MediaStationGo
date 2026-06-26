@@ -84,6 +84,23 @@ func TestExternalURLUsesMediaScopedPlaybackToken(t *testing.T) {
 	}
 }
 
+func TestStreamCloudMediaWithoutSTRMURLReturnsBadGateway(t *testing.T) {
+	router, _, secret := newPlaybackScopeTestRouter(t)
+	loginToken := signedTestToken(t, secret)
+
+	req := httptest.NewRequest(http.MethodGet, "http://nas.local/api/stream/media-missing-strm", nil)
+	req.Header.Set("Authorization", "Bearer "+loginToken)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadGateway {
+		t.Fatalf("status = %d body=%s, want 502", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), service.ErrCloudPlaybackUnavailable.Error()) {
+		t.Fatalf("body = %q, want cloud playback unavailable error", w.Body.String())
+	}
+}
+
 func TestExternalURLPrefersBrowserPublicOriginOverForwardedSource(t *testing.T) {
 	router, _, secret := newPlaybackScopeTestRouter(t)
 	loginToken := signedTestToken(t, secret)
@@ -215,6 +232,29 @@ func TestExternalURLPrefersConfiguredPublicServerURLOverLocalBrowserOrigin(t *te
 	}
 }
 
+func TestAPIStreamAllowsRedirectPlaybackWhenSTRMModeDisabled(t *testing.T) {
+	router, svc, secret := newPlaybackScopeTestRouter(t)
+	if err := svc.Repo.Setting.Set(t.Context(), service.CloudPlaybackSTRMEnabledSettingKey, "false"); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.Repo.Setting.Set(t.Context(), service.CloudPlaybackRedirectEnabledSettingKey, "true"); err != nil {
+		t.Fatal(err)
+	}
+	loginToken := signedTestToken(t, secret)
+
+	req := httptest.NewRequest(http.MethodGet, "http://nas.local/api/stream/media-1?api_key="+url.QueryEscape(loginToken), nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusFound {
+		t.Fatalf("status = %d body=%s, want 302", w.Code, w.Body.String())
+	}
+	loc := w.Header().Get("Location")
+	if !strings.Contains(loc, "/api/cloud/play/openlist?") || !strings.Contains(loc, "token="+url.QueryEscape(loginToken)) {
+		t.Fatalf("redirect Location should target tokenized cloud play endpoint, got %q", loc)
+	}
+}
+
 func TestScopedPlaybackTokenCannotStreamAnotherMedia(t *testing.T) {
 	router, svc, _ := newPlaybackScopeTestRouter(t)
 	user, err := svc.Repo.User.FindByID(t.Context(), "user-1")
@@ -232,6 +272,43 @@ func TestScopedPlaybackTokenCannotStreamAnotherMedia(t *testing.T) {
 
 	if w.Code != http.StatusForbidden {
 		t.Fatalf("status = %d body=%s", w.Code, w.Body.String())
+	}
+}
+
+func TestScopedPlaybackTokenCanFollowCloudRedirectForSameMedia(t *testing.T) {
+	router, svc, _ := newPlaybackScopeTestRouter(t)
+	user, err := svc.Repo.User.FindByID(t.Context(), "user-1")
+	if err != nil || user == nil {
+		t.Fatalf("find user: %v", err)
+	}
+	playToken, err := svc.Auth.IssueExternalPlaybackToken(user, "media-1", 2*60*60)
+	if err != nil {
+		t.Fatalf("issue playback token: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "http://nas.local/api/stream/media-1?token="+url.QueryEscape(playToken), nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusFound {
+		t.Fatalf("stream status = %d body=%s, want 302", w.Code, w.Body.String())
+	}
+	loc := w.Header().Get("Location")
+	if !strings.Contains(loc, "/api/cloud/play/openlist?") ||
+		!strings.Contains(loc, "media_id=media-1") ||
+		!strings.Contains(loc, "token="+url.QueryEscape(playToken)) {
+		t.Fatalf("redirect Location should carry scoped token and media_id, got %q", loc)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, loc, nil)
+	w = httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code == http.StatusForbidden || w.Code == http.StatusUnauthorized {
+		t.Fatalf("cloud redirect rejected scoped token: status=%d body=%s", w.Code, w.Body.String())
+	}
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("cloud redirect status = %d body=%s, want storage service fallback 503", w.Code, w.Body.String())
 	}
 }
 
@@ -369,6 +446,12 @@ func newPlaybackScopeTestRouter(t *testing.T) (*gin.Engine, *service.Container, 
 			Title:     "Cloud 2",
 			Path:      "cloud://openlist/Movies/Other.mkv",
 			STRMURL:   "/api/cloud/play/openlist?ref=/Movies/Other.mkv",
+		},
+		{
+			Base:      model.Base{ID: "media-missing-strm"},
+			LibraryID: lib.ID,
+			Title:     "Cloud missing STRM",
+			Path:      "cloud://openlist/Movies/Missing.mkv",
 		},
 	}
 	if err := repos.DB.Create(&rows).Error; err != nil {

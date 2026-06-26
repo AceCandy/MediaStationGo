@@ -299,7 +299,7 @@ func TestOrganizeDirectoryReclassifiesMovieFromDirtyGeneratedEpisodePath(t *test
 	}
 }
 
-func TestOrganizeDirectoryRejectedMetadataKeepsExplicitWesternSourceCategory(t *testing.T) {
+func TestOrganizeDirectoryChineseAliasMetadataOverridesWrongWesternSourceCategory(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		if r.URL.Path != "/search/tv" {
@@ -344,19 +344,19 @@ func TestOrganizeDirectoryRejectedMetadataKeepsExplicitWesternSourceCategory(t *
 	if err != nil {
 		t.Fatalf("organize directory: %v", err)
 	}
-	want := filepath.Join(dest, "电视剧", "欧美剧", "Blades Of The Guardians", "Season 02", "Blades Of The Guardians - S02E01.mkv")
+	want := filepath.Join(dest, "动漫", "国漫", "镖人", "Season 02", "镖人 - S02E01.mkv")
 	if res.Organized != 1 {
 		t.Fatalf("organized = %d, want 1; items=%#v errors=%#v", res.Organized, res.Items, res.Errors)
 	}
 	if _, err := os.Stat(want); err != nil {
-		t.Fatalf("rejected metadata should fall back to explicit source category at %q: %v; items=%#v", want, err, res.Items)
+		t.Fatalf("Chinese alias metadata should override wrong western source category at %q: %v; items=%#v", want, err, res.Items)
 	}
-	wrong := filepath.Join(dest, "电视剧", "国产剧", "Blades Of The Guardians")
+	wrong := filepath.Join(dest, "电视剧", "欧美剧", "Blades Of The Guardians")
 	if _, err := os.Stat(wrong); !os.IsNotExist(err) {
-		t.Fatalf("rejected metadata must not fall back to domestic category %q, err=%v", wrong, err)
+		t.Fatalf("wrong western category should not remain at %q, err=%v", wrong, err)
 	}
-	if len(res.Items) != 1 || res.Items[0].Category != "欧美剧" || res.Items[0].MediaType != "tv" || res.Items[0].Title != "Blades Of The Guardians" {
-		t.Fatalf("organize item = %#v, want Blades Of The Guardians in 欧美剧/tv", res.Items)
+	if len(res.Items) != 1 || res.Items[0].Category != "国漫" || res.Items[0].MediaType != "anime" || res.Items[0].Title != "镖人" {
+		t.Fatalf("organize item = %#v, want 镖人 in 国漫/anime", res.Items)
 	}
 }
 

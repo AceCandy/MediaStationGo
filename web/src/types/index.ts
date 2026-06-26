@@ -141,6 +141,12 @@ export interface Media {
   countries?: string
   genres?: string
   nsfw: boolean
+  strm_url?: string
+  file_hash?: string
+  file_id?: string
+  is_duplicate?: boolean
+  duplicate_of?: string
+  versions?: Media[]
   created_at: string
   updated_at: string
 }

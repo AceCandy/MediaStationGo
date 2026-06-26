@@ -271,7 +271,7 @@ func (s *SessionTrackerService) upsert(ctx context.Context, in realtimeSessionIn
 	if in.DeviceID == "" {
 		in.DeviceID = fallbackSessionDeviceID(in.DeviceName, in.Client, in.RemoteEndPoint)
 	}
-	key := userID + "\x00" + in.DeviceID
+	key := userID + "\x00" + realtimeSessionTerminalKey(in.DeviceID, in.DeviceName, in.Client, in.RemoteEndPoint)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.pruneLocked(now)
@@ -363,10 +363,19 @@ func fallbackSessionDeviceID(deviceName, client, remoteEndPoint string) string {
 }
 
 func sessionDeviceKey(sess RealtimeSession) string {
-	if strings.TrimSpace(sess.DeviceID) != "" {
-		return strings.TrimSpace(sess.DeviceID)
+	return realtimeSessionTerminalKey(sess.DeviceID, sess.DeviceName, sess.Client, sess.RemoteEndPoint)
+}
+
+func realtimeSessionTerminalKey(deviceID, deviceName, client, remoteEndPoint string) string {
+	deviceName = strings.TrimSpace(deviceName)
+	if deviceName != "" {
+		return "fp-" + fingerprint(client, deviceName)
 	}
-	return fallbackSessionDeviceID(sess.DeviceName, sess.Client, sess.RemoteEndPoint)
+	deviceID = strings.TrimSpace(deviceID)
+	if deviceID != "" {
+		return deviceID
+	}
+	return fallbackSessionDeviceID(deviceName, client, remoteEndPoint)
 }
 
 func firstNonEmptyString(values ...string) string {

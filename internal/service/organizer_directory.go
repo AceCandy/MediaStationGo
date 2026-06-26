@@ -28,6 +28,7 @@ var ErrUnsupportedOrganizeSource = errors.New("source is not a supported video f
 
 const (
 	organizeSkipAlreadyOrganized = "already organized"
+	organizeSkipActiveDownload   = "active download"
 	organizeSkipDuplicateLibrary = "duplicate in library"
 	organizeSkipTargetExists     = "target file exists"
 	organizeSkipSampleClip       = "sample/trailer clip"
@@ -60,10 +61,17 @@ func (o *OrganizerService) OrganizeDirectory(ctx context.Context, opts OrganizeO
 	mode := o.resolveTransferMode(ctx, opts.TransferMode)
 	res := &OrganizeResult{SourcePath: source, DestPath: dest, DryRun: opts.DryRun}
 	metadataCache := map[string]*Match{}
+	activeDownloads := o.newActiveDownloadGuard(ctx)
 	if !info.IsDir() {
 		ext := strings.ToLower(filepath.Ext(source))
 		if _, ok := videoExtensions[ext]; !ok {
 			return nil, fmt.Errorf("%w: %s", ErrUnsupportedOrganizeSource, source)
+		}
+		if activeDownloads.contains(source) {
+			res.Skipped++
+			res.Items = append(res.Items, OrganizePreviewItem{Source: source, Action: "skip", Reason: organizeSkipActiveDownload})
+			o.logOrganizeDirectoryResult("organize file finished", res, mode)
+			return res, nil
 		}
 		if skipped, reason := shouldSkipOrganizeSourceVideo(source, filepath.Dir(source)); skipped {
 			res.Skipped++
@@ -95,6 +103,11 @@ func (o *OrganizerService) OrganizeDirectory(ctx context.Context, opts OrganizeO
 		}
 		ext := strings.ToLower(filepath.Ext(path))
 		if _, ok := videoExtensions[ext]; !ok {
+			return nil
+		}
+		if activeDownloads.contains(path) {
+			res.Skipped++
+			res.Items = append(res.Items, OrganizePreviewItem{Source: path, Action: "skip", Reason: organizeSkipActiveDownload})
 			return nil
 		}
 		if skipped, reason := shouldSkipOrganizeSourceVideo(path, source); skipped {

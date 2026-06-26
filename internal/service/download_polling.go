@@ -69,7 +69,7 @@ func (d *DownloadService) processTorrentSnapshot(ctx context.Context, torrent QB
 	if stateKey == "" {
 		return
 	}
-	if d.completedTorrentShouldQueue(stateKey, torrent.Progress >= 1.0, firstSnapshot, taskNeedsOrganize) &&
+	if d.completedTorrentShouldQueue(stateKey, qbitTorrentCompleted(torrent), firstSnapshot, taskNeedsOrganize) &&
 		d.enqueueCompletedTorrent(torrent) {
 		d.markCompletedTorrentState(stateKey)
 	}

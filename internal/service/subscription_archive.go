@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
 
 	"go.uber.org/zap"
@@ -87,21 +86,47 @@ func subscriptionShouldArchive(sub *model.Subscription, availability LocalAvaila
 	if sub == nil || sub.WashEnabled || sub.ArchivedAt != nil {
 		return false
 	}
-	mediaType := strings.ToLower(strings.TrimSpace(sub.MediaType))
-	if !isSubscriptionSeriesType(mediaType) {
+	mediaType := normalizeMediaType(sub.MediaType, sub.Name+" "+sub.Filter, "")
+	seriesLike := isSubscriptionSeriesType(mediaType) || len(availability.ExistingEpisodeKeys) > 0 || len(availability.MissingEpisodeKeys) > 0
+	if !seriesLike {
 		return availability.InLibrary || availability.LocalMediaCount > 0 || availability.DownloadedEpisodes > 0
 	}
+	total := trustedSeriesArchiveTotal(sub, availability)
 	if availability.HasSeriesPack {
-		return true
-	}
-	total := sub.TotalEpisodes
-	if total <= 0 {
-		total = availability.TotalEpisodes
+		if len(availability.ExistingEpisodeKeys) == 0 {
+			return true
+		}
+		return total > 0 && availability.DownloadedEpisodes >= total && len(availability.MissingEpisodes) == 0
 	}
 	if total > 0 {
 		return availability.DownloadedEpisodes >= total && len(availability.MissingEpisodes) == 0
 	}
 	return subscriptionLooksSingleEpisode(sub) && availability.DownloadedEpisodes > 0
+}
+
+func trustedSeriesArchiveTotal(sub *model.Subscription, availability LocalAvailability) int {
+	total := 0
+	if sub != nil {
+		total = sub.TotalEpisodes
+	}
+	if total <= 0 {
+		total = availability.TotalEpisodes
+	}
+	if maxEpisode := maxAvailabilityEpisode(availability.ExistingEpisodeKeys); total > 0 && maxEpisode > total {
+		return 0
+	}
+	return total
+}
+
+func maxAvailabilityEpisode(keys map[string]struct{}) int {
+	maxEpisode := 0
+	for key := range keys {
+		var season, episode int
+		if _, err := fmt.Sscanf(key, "%02dE%03d", &season, &episode); err == nil && episode > maxEpisode {
+			maxEpisode = episode
+		}
+	}
+	return maxEpisode
 }
 
 func subscriptionArchiveReason(sub *model.Subscription, availability LocalAvailability) string {

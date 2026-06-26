@@ -337,6 +337,7 @@ func (o *OrganizerService) handleExistingSourceVersions(ctx context.Context, req
 		Year:            plan.Identity.Year,
 		Season:          plan.Identity.Season,
 		Episode:         plan.Identity.Episode,
+		MetadataMatch:   plan.MetadataMatch,
 		Result:          req.Result,
 	})
 	if err != nil || reclassified {

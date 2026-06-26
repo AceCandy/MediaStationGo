@@ -17,12 +17,27 @@ export interface DiscoverItem extends Partial<Media> {
   rating?: number
   subscribe_keyword?: string
   subscribe_aliases?: string[]
+  total_episodes?: number
+  downloaded_episodes?: number
+  local_media_count?: number
+  missing_episodes?: number[]
+  in_library?: boolean
 }
 
 export interface DiscoverSection {
   key: string
   label: string
   provider?: string
+}
+
+export interface DiscoverFeedMeta {
+  page: number
+  has_next: boolean
+}
+
+export interface DiscoverFeedResult {
+  items: Record<string, DiscoverItem[]>
+  meta: Record<string, DiscoverFeedMeta>
 }
 
 // 后端在 TMDb 不可达 / API key 缺失时统一返回 { items: [], error: "..." }
@@ -46,10 +61,19 @@ export const discoverAPI = {
     })),
   sections: () =>
     api.get<{ sections: DiscoverSection[] }>('/discover/sections').then((r) => r.data.sections),
-  feed: (sectionKeys: string[]) =>
+  feed: (sectionKeys: string[], page = 1): Promise<DiscoverFeedResult> =>
     api
-      .get<Record<string, DiscoverItem[] | null>>('/discover/feed', {
-        params: { sections: sectionKeys.join(',') },
+      .get<Record<string, DiscoverItem[] | DiscoverFeedMeta | Record<string, DiscoverFeedMeta> | null>>('/discover/feed', {
+        params: { sections: sectionKeys.join(','), page },
       })
-      .then((r) => r.data),
+      .then((r) => {
+        const raw = r.data
+        const meta = ((raw._meta as Record<string, DiscoverFeedMeta> | undefined) ?? {})
+        const items: Record<string, DiscoverItem[]> = {}
+        for (const key of sectionKeys) {
+          const row = raw[key]
+          items[key] = Array.isArray(row) ? row : []
+        }
+        return { items, meta }
+      }),
 }

@@ -171,12 +171,13 @@ func (s *MediaService) ListMediaVisible(ctx context.Context, libraryID string, p
 }
 
 func (s *MediaService) ListMediaVisibleGrouped(ctx context.Context, libraryID string, page, pageSize int, visibility MediaVisibility) ([]MediaItem, int64, error) {
-	items, _, err := s.ListMediaVisible(ctx, libraryID, page, pageSize, visibility)
+	page, pageSize = normalizeGroupedMediaPage(page, pageSize)
+	items, err := s.listMediaVisibleForGrouping(ctx, libraryID, visibility)
 	if err != nil {
 		return nil, 0, err
 	}
 	grouped := groupMediaVersions(items)
-	return grouped, int64(len(grouped)), nil
+	return paginateMediaItems(grouped, page, pageSize), int64(len(grouped)), nil
 }
 
 type mediaListCacheValue struct {
@@ -213,6 +214,85 @@ func (s *MediaService) invalidateMediaCache(ctx context.Context) {
 		s.cache.DeletePrefix(ctx, "media:")
 		s.cache.DeletePrefix(ctx, "stats:")
 	}
+}
+
+func (s *MediaService) listMediaVisibleForGrouping(ctx context.Context, libraryID string, visibility MediaVisibility) ([]model.Media, error) {
+	visibility = ExpandMediaVisibilityForMergedCloudLibraries(ctx, s.repo, visibility)
+	libraryIDs, err := MergedLibraryIDsForLibrary(ctx, s.repo, libraryID)
+	if err != nil {
+		return nil, err
+	}
+	filter := repository.MediaQueryFilter{
+		IncludeNSFW:       visibility.IncludeNSFW,
+		AllowedLibraryIDs: visibility.AllowedLibraryIDs,
+		HiddenLibraryIDs:  visibility.HiddenLibraryIDs,
+	}
+	cacheKey := s.mediaListCacheKey(libraryID, libraryIDs, 0, maxMediaSearchLimit, filter) + ":group-source"
+	var cached mediaListCacheValue
+	if s.cache != nil && s.cache.GetJSON(ctx, cacheKey, &cached) {
+		s.attachLibraryMetadata(ctx, cached.Items)
+		return cached.Items, nil
+	}
+	items, total, err := s.repo.Media.ListByLibrariesFiltered(ctx, libraryIDs, 0, maxMediaSearchLimit, filter)
+	if err != nil {
+		return nil, err
+	}
+	if total > int64(len(items)) && s.log != nil {
+		s.log.Warn("media version grouping truncated by safety limit",
+			zap.String("library_id", libraryID),
+			zap.Int64("total", total),
+			zap.Int("limit", maxMediaSearchLimit))
+	}
+	s.attachLibraryMetadata(ctx, items)
+	if s.cache != nil {
+		s.cache.SetJSON(ctx, cacheKey, mediaListCacheValue{Items: items, Total: total}, time.Duration(s.mediaCacheTTLSeconds())*time.Second)
+	}
+	return items, nil
+}
+
+func normalizeGroupedMediaPage(page, pageSize int) (int, int) {
+	if page < 1 {
+		page = 1
+	}
+	if pageSize <= 0 {
+		pageSize = 50
+	}
+	if pageSize > maxMediaSearchPageSize {
+		pageSize = maxMediaSearchPageSize
+	}
+	return page, pageSize
+}
+
+func paginateMediaItems(items []MediaItem, page, pageSize int) []MediaItem {
+	page, pageSize = normalizeGroupedMediaPage(page, pageSize)
+	if len(items) == 0 {
+		return nil
+	}
+	start := (page - 1) * pageSize
+	if start >= len(items) {
+		return []MediaItem{}
+	}
+	end := start + pageSize
+	if end > len(items) {
+		end = len(items)
+	}
+	return items[start:end]
+}
+
+func firstMediaItems(items []MediaItem, limit int) []MediaItem {
+	if len(items) == 0 {
+		return nil
+	}
+	if limit <= 0 {
+		limit = 50
+	}
+	if limit > maxMediaSearchLimit {
+		limit = maxMediaSearchLimit
+	}
+	if limit > len(items) {
+		limit = len(items)
+	}
+	return items[:limit]
 }
 
 func groupMediaVersions(items []model.Media) []MediaItem {
@@ -275,7 +355,7 @@ func mediaVersionGroupKey(m model.Media) string {
 		if title == "" {
 			title, _ = CleanQuery(m.Path)
 		}
-		title = normalizeMediaVersionText(title)
+		title, _ = mediaVersionTitleKey(title)
 		if title == "" {
 			return ""
 		}
@@ -297,18 +377,31 @@ func mediaVersionGroupKey(m model.Media) string {
 		return "thetvdb:" + strings.ToLower(strings.TrimSpace(m.TheTVDBID))
 	}
 	title := firstNonEmpty(m.OriginalName, m.Title)
+	titleYear := 0
 	if title == "" {
 		title, _ = CleanQuery(m.Path)
+	} else {
+		title, titleYear = mediaVersionTitleKey(title)
 	}
-	title = normalizeMediaVersionText(title)
 	if title == "" {
 		return ""
 	}
 	year := m.Year
 	if year <= 0 {
+		year = titleYear
+	}
+	if year <= 0 {
 		_, year = CleanQuery(m.Path)
 	}
 	return fmt.Sprintf("movie:%s:%d", title, year)
+}
+
+func mediaVersionTitleKey(value string) (string, int) {
+	cleaned, year := CleanQuery(value)
+	if strings.TrimSpace(cleaned) == "" {
+		cleaned = value
+	}
+	return normalizeMediaVersionText(cleaned), year
 }
 
 func normalizeMediaVersionText(value string) string {
@@ -385,11 +478,16 @@ func (s *MediaService) SearchMediaVisible(ctx context.Context, query string, lim
 }
 
 func (s *MediaService) SearchMediaVisibleGrouped(ctx context.Context, query string, limit int, visibility MediaVisibility) ([]MediaItem, error) {
-	items, err := s.SearchMediaVisible(ctx, query, limit, visibility)
+	if limit <= 0 {
+		limit = 50
+	} else if limit > maxMediaSearchLimit {
+		limit = maxMediaSearchLimit
+	}
+	items, err := s.SearchMediaVisible(ctx, query, maxMediaSearchLimit, visibility)
 	if err != nil {
 		return nil, err
 	}
-	return groupMediaVersions(items), nil
+	return firstMediaItems(groupMediaVersions(items), limit), nil
 }
 
 func (s *MediaService) SearchMediaVisiblePage(ctx context.Context, query string, page, pageSize int, visibility MediaVisibility) ([]model.Media, int64, error) {
@@ -416,12 +514,13 @@ func (s *MediaService) SearchMediaVisiblePage(ctx context.Context, query string,
 }
 
 func (s *MediaService) SearchMediaVisiblePageGrouped(ctx context.Context, query string, page, pageSize int, visibility MediaVisibility) ([]MediaItem, int64, error) {
-	items, _, err := s.SearchMediaVisiblePage(ctx, query, page, pageSize, visibility)
+	page, pageSize = normalizeGroupedMediaPage(page, pageSize)
+	items, err := s.SearchMediaVisible(ctx, query, maxMediaSearchLimit, visibility)
 	if err != nil {
 		return nil, 0, err
 	}
 	grouped := groupMediaVersions(items)
-	return grouped, int64(len(grouped)), nil
+	return paginateMediaItems(grouped, page, pageSize), int64(len(grouped)), nil
 }
 
 // GetMedia returns a single media row.

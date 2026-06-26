@@ -6,8 +6,8 @@ import { CloudScanPanel } from './CloudScanPanel'
 import { useCloudBrowser } from './useCloudBrowser'
 
 // Lists cloud directories and imports a file as a 302-backed media.
-export function CloudBrowser({ type }: { type: StorageType }) {
-  const browser = useCloudBrowser(type)
+export function CloudBrowser({ type, enabled = true }: { type: StorageType; enabled?: boolean }) {
+  const browser = useCloudBrowser(type, enabled)
 
   return (
     <div className="mt-2 rounded-lg border border-[var(--app-border)] bg-[var(--app-panel)] p-3">

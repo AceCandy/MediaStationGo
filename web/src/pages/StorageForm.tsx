@@ -28,6 +28,7 @@ export function StorageForm({ type }: { type: StorageType }) {
   const [saving, setSaving] = useState(false)
   const [testing, setTesting] = useState(false)
   const [loggingOut, setLoggingOut] = useState(false)
+  const [browserVersion, setBrowserVersion] = useState(0)
 
   const refresh = async () => {
     setLoading(true)
@@ -66,6 +67,7 @@ export function StorageForm({ type }: { type: StorageType }) {
       await storageAPI.save(type, config, enabled)
       toast.success('已保存')
       await refresh()
+      setBrowserVersion((version) => version + 1)
     } catch (err: unknown) {
       const msg =
         (err as { response?: { data?: { error?: string } } })?.response?.data?.error ??
@@ -80,8 +82,19 @@ export function StorageForm({ type }: { type: StorageType }) {
     setTesting(true)
     try {
       const r = await storageAPI.test(type, config)
-      if (r.ok) toast.success('连接成功')
-      else toast.error(r.error ?? '连接失败')
+      if (!r.ok) {
+        toast.error(r.error ?? '连接失败')
+        return
+      }
+      if (isCloud(type)) {
+        await storageAPI.save(type, config, true)
+        setEnabled(true)
+        toast.success('连接成功，已保存并启用')
+        await refresh()
+        setBrowserVersion((version) => version + 1)
+        return
+      }
+      toast.success('连接成功')
     } catch (err: unknown) {
       const msg =
         (err as { response?: { data?: { error?: string } } })?.response?.data?.error ??
@@ -104,6 +117,7 @@ export function StorageForm({ type }: { type: StorageType }) {
       await storageAPI.logout(type)
       toast.success('已退出云盘登录、停用该存储并清理本项目挂载')
       await refresh()
+      setBrowserVersion((version) => version + 1)
     } catch (err: unknown) {
       const msg =
         (err as { response?: { data?: { error?: string } } })?.response?.data?.error ??
@@ -182,7 +196,7 @@ export function StorageForm({ type }: { type: StorageType }) {
         transferEnabled={transferEnabled}
         transferMode={transferMode}
       />
-      {isCloud(type) && <CloudBrowser type={type} />}
+      {isCloud(type) && <CloudBrowser key={`${type}-${browserVersion}-${enabled ? 'on' : 'off'}`} type={type} enabled={enabled} />}
     </form>
   )
 }

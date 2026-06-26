@@ -75,6 +75,7 @@ export function buildDiscoverSubscriptionInput(
     overview: item.overview || undefined,
     original_name: item.original_name || undefined,
     year: item.year || undefined,
+    total_episodes: item.total_episodes || undefined,
     resolution: form.resolution === 'best' ? 'best' : form.resolution,
     quality: form.quality || undefined,
     effects: form.effects || undefined,

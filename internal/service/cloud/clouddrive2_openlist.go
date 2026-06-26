@@ -48,7 +48,7 @@ func (p *cloudDrive2Provider) listOpenListAPI(ctx context.Context, dir string) (
 		decodeErr := json.NewDecoder(io.LimitReader(resp.Body, 32<<20)).Decode(&decoded)
 		resp.Body.Close()
 		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-			return nil, fmt.Errorf("%s: api list %s returned http %d", p.name, target, resp.StatusCode)
+			return nil, p.openListAPIStatusError("list", target, resp.StatusCode)
 		}
 		if decodeErr != nil {
 			return nil, fmt.Errorf("%s: decode api list: %w", p.name, decodeErr)
@@ -108,7 +108,7 @@ func (p *cloudDrive2Provider) resolveOpenListAPIDirect(ctx context.Context, file
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("%s: api get %s returned http %d", p.name, fileRef, resp.StatusCode)
+		return nil, p.openListAPIStatusError("get", fileRef, resp.StatusCode)
 	}
 	var decoded openListGetResponse
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 4<<20)).Decode(&decoded); err != nil {
@@ -152,6 +152,13 @@ func (p *cloudDrive2Provider) resolveOpenListCDNRedirect(ctx context.Context, fi
 		return location, nil
 	}
 	return "", fmt.Errorf("%s: api get %s returned an OpenList-hosted raw_url with http %d and no CDN Location; refusing OpenList/WebDAV proxy fallback for pure 302 playback", p.name, fileRef, status)
+}
+
+func (p *cloudDrive2Provider) openListAPIStatusError(action, target string, status int) error {
+	if status == http.StatusUnauthorized || status == http.StatusForbidden {
+		return fmt.Errorf("%s: api %s %s returned http %d；请检查 OpenList Token 或用户名密码，并确认填写的是 OpenList 服务地址而不是 /dav 地址", p.name, action, target, status)
+	}
+	return fmt.Errorf("%s: api %s %s returned http %d", p.name, action, target, status)
 }
 
 func sortedHeaderNames(headers map[string]string) []string {

@@ -84,22 +84,28 @@ export function DiscoverResults({
   rows,
   rowLoading,
   rowErrors,
+  rowPages,
+  rowCanNext,
   loading,
   hasContent,
   imageVersion,
   refreshImageVersion,
   sectionLabel,
+  onPageChange,
   onSelect,
 }: {
   selected: string[]
   rows: Record<string, DiscoverItem[]>
   rowLoading: Record<string, boolean>
   rowErrors: Record<string, string>
+  rowPages: Record<string, number>
+  rowCanNext: Record<string, boolean>
   loading: boolean
   hasContent: boolean
   imageVersion: string
   refreshImageVersion?: string
   sectionLabel: SectionLabel
+  onPageChange: (key: string, delta: number) => void
   onSelect: (item: DiscoverItem) => void
 }) {
   const hasRowErrors = Object.keys(rowErrors).length > 0
@@ -119,8 +125,11 @@ export function DiscoverResults({
             key={key}
             title={sectionLabel(key)}
             items={items}
+            page={rowPages[key] ?? 1}
+            canNext={Boolean(rowCanNext[key])}
             imageVersion={imageVersion}
             refreshImageVersion={refreshImageVersion}
+            onPageChange={(delta) => onPageChange(key, delta)}
             onSelect={onSelect}
           />
         )

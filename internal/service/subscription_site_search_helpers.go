@@ -179,7 +179,7 @@ func dedupeSiteSearchResults(results []SearchResult) []SearchResult {
 	if len(results) < 2 {
 		return results
 	}
-	seen := make(map[string]struct{}, len(results))
+	seen := make(map[string]int, len(results))
 	out := make([]SearchResult, 0, len(results))
 	for _, item := range results {
 		download := strings.TrimSpace(item.DownloadURL)
@@ -187,11 +187,17 @@ func dedupeSiteSearchResults(results []SearchResult) []SearchResult {
 			download = strings.TrimSpace(item.TorrentURL)
 		}
 		key := stableSiteSearchGUID(item, download)
-		if _, ok := seen[key]; ok {
+		if idx, ok := seen[key]; ok {
+			out[idx].SearchKeyword = mergeSearchResultTextHints(out[idx].SearchKeyword, item.SearchKeyword)
+			out[idx].Subtitle = mergeSearchResultTextHints(out[idx].Subtitle, item.Subtitle)
 			continue
 		}
-		seen[key] = struct{}{}
+		seen[key] = len(out)
 		out = append(out, item)
 	}
 	return out
+}
+
+func mergeSearchResultTextHints(current, next string) string {
+	return strings.Join(compactUniqueStrings(current, next), "\n")
 }

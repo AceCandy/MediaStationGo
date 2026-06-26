@@ -204,7 +204,7 @@ func mergeLocalAvailability(values ...LocalAvailability) LocalAvailability {
 		MissingEpisodeKeys:  map[string]struct{}{},
 	}
 	for _, value := range values {
-		if out.TotalEpisodes == 0 {
+		if value.TotalEpisodes > out.TotalEpisodes {
 			out.TotalEpisodes = value.TotalEpisodes
 		}
 		out.LocalMediaCount += value.LocalMediaCount

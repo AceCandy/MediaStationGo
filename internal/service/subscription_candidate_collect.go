@@ -11,7 +11,7 @@ func collectSiteSearchCandidates(results []SearchResult, sub *model.Subscription
 	candidates := make([]siteSearchCandidate, 0, len(results))
 	for _, item := range results {
 		matchText := subscriptionSearchResultText(item)
-		if !subscriptionTitleMatchesQuery(sub, matchText) {
+		if !subscriptionSearchResultMatchesQuery(sub, item) {
 			if allowQueryMismatch {
 				stats.RelaxedQueryMatch++
 			} else {

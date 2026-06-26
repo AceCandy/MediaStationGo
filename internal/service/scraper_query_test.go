@@ -476,6 +476,61 @@ func TestOrganizeMetadataTrustsCleanedBroadcastReleaseQuery(t *testing.T) {
 	}
 }
 
+func TestOrganizeMetadataTrustsChineseReleaseAliasWithoutOriginalName(t *testing.T) {
+	match := &Match{
+		Title:     "莫离",
+		Languages: []string{"zh"},
+		Countries: []string{"CN"},
+		Year:      2026,
+		TMDbID:    292696,
+	}
+	if !organizeMetadataMatchTrusted("the first jasmine", 2026, match) {
+		t.Fatal("multi-word English release alias should be trusted for Chinese-origin metadata")
+	}
+}
+
+func TestOrganizeMetadataTrustsLocalizedSearchKeyword(t *testing.T) {
+	match := &Match{
+		Title:         "Monarch: Legacy of Monsters",
+		OriginalName:  "Monarch: Legacy of Monsters",
+		Year:          2023,
+		TMDbID:        202411,
+		SearchKeyword: "帝王计划：怪兽遗产",
+	}
+	if !organizeMetadataMatchTrusted("帝王计划：怪兽遗产", 2023, match) {
+		t.Fatal("localized TMDb search keyword should be trusted even when returned title is not localized")
+	}
+	preferLocalizedSearchTitle("帝王计划：怪兽遗产", match)
+	if match.Title != "帝王计划：怪兽遗产" || match.OriginalName != "Monarch: Legacy of Monsters" {
+		t.Fatalf("localized title not preserved: title=%q original=%q", match.Title, match.OriginalName)
+	}
+}
+
+func TestOrganizeMetadataRejectsShortLocalizedSearchKeyword(t *testing.T) {
+	match := &Match{
+		Title:         "Hello, Saturday",
+		OriginalName:  "Hello, Saturday",
+		TMDbID:        123456,
+		SearchKeyword: "你好",
+	}
+	if organizeMetadataMatchTrusted("你好", 0, match) {
+		t.Fatal("short generic localized search keyword must not be trusted")
+	}
+}
+
+func TestOrganizeMetadataRejectsSingleTokenChineseAlias(t *testing.T) {
+	match := &Match{
+		Title:     "莫离",
+		Languages: []string{"zh"},
+		Countries: []string{"CN"},
+		Year:      2026,
+		TMDbID:    292696,
+	}
+	if organizeMetadataMatchTrusted("jasmine", 2026, match) {
+		t.Fatal("single token alias should stay too weak for automatic matching")
+	}
+}
+
 func TestOrganizeMetadataRejectsLooseSingleTokenQuery(t *testing.T) {
 	match := &Match{Title: "步步惊心泰版", OriginalName: "Scarlet Heart Thailand", Year: 2025, TMDbID: 252886}
 	if organizeMetadataMatchTrusted("thailand", 0, match) {

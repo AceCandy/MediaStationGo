@@ -74,6 +74,7 @@ func (o *OrganizerService) lookupOrganizeMetadata(ctx context.Context, src, sour
 				}
 				continue
 			}
+			preferLocalizedSearchTitle(candidate, match)
 			if cache != nil {
 				cache[key] = match
 			}

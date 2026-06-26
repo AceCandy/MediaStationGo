@@ -386,17 +386,18 @@ func (s *SiteService) TestConnection(ctx context.Context, id string) (bool, stri
 
 // SearchResult is one torrent returned by a site adapter search.
 type SearchResult struct {
-	SiteName    string `json:"site_name"`
-	SiteID      string `json:"site_id"`
-	Title       string `json:"title"`
-	Subtitle    string `json:"subtitle,omitempty"`
-	TorrentURL  string `json:"torrent_url"`
-	DownloadURL string `json:"download_url"`
-	Category    string `json:"category,omitempty"`
-	Size        int64  `json:"size"`
-	Seeders     int    `json:"seeders"`
-	Leechers    int    `json:"leechers"`
-	Free        bool   `json:"free"`
+	SiteName      string `json:"site_name"`
+	SiteID        string `json:"site_id"`
+	Title         string `json:"title"`
+	Subtitle      string `json:"subtitle,omitempty"`
+	TorrentURL    string `json:"torrent_url"`
+	DownloadURL   string `json:"download_url"`
+	Category      string `json:"category,omitempty"`
+	SearchKeyword string `json:"search_keyword,omitempty"`
+	Size          int64  `json:"size"`
+	Seeders       int    `json:"seeders"`
+	Leechers      int    `json:"leechers"`
+	Free          bool   `json:"free"`
 }
 
 // Search fans out a keyword query to every enabled site and returns
@@ -416,6 +417,8 @@ func (s *SiteService) Search(ctx context.Context, keyword string) ([]SearchResul
 		wg           sync.WaitGroup
 		enabledCount int
 		failedCount  int
+		failureErrs  []error
+		failures     []string
 		results      []SearchResult
 	)
 
@@ -430,6 +433,12 @@ func (s *SiteService) Search(ctx context.Context, keyword string) ([]SearchResul
 
 			adapter := NewSiteAdapter(&site)
 			if adapter == nil {
+				mu.Lock()
+				failedCount++
+				err := fmt.Errorf("%s: unsupported site type %s", site.Name, site.Type)
+				failureErrs = append(failureErrs, err)
+				failures = append(failures, err.Error())
+				mu.Unlock()
 				return
 			}
 
@@ -447,6 +456,9 @@ func (s *SiteService) Search(ctx context.Context, keyword string) ([]SearchResul
 			if err != nil {
 				mu.Lock()
 				failedCount++
+				failureErr := fmt.Errorf("%s: %w", site.Name, err)
+				failureErrs = append(failureErrs, failureErr)
+				failures = append(failures, failureErr.Error())
 				mu.Unlock()
 				s.log.Warn("site search failed",
 					zap.String("site", site.Name),
@@ -467,17 +479,18 @@ func (s *SiteService) Search(ctx context.Context, keyword string) ([]SearchResul
 			for _, item := range items {
 				mu.Lock()
 				results = append(results, SearchResult{
-					SiteName:    site.Name,
-					SiteID:      site.ID,
-					Title:       item.Title,
-					Subtitle:    item.Subtitle,
-					TorrentURL:  item.DetailURL,
-					DownloadURL: item.DownloadURL,
-					Category:    item.Category,
-					Size:        item.Size,
-					Seeders:     item.Seeders,
-					Leechers:    item.Leechers,
-					Free:        item.Free,
+					SiteName:      site.Name,
+					SiteID:        site.ID,
+					Title:         item.Title,
+					Subtitle:      item.Subtitle,
+					TorrentURL:    item.DetailURL,
+					DownloadURL:   item.DownloadURL,
+					Category:      item.Category,
+					SearchKeyword: keyword,
+					Size:          item.Size,
+					Seeders:       item.Seeders,
+					Leechers:      item.Leechers,
+					Free:          item.Free,
 				})
 				mu.Unlock()
 			}
@@ -500,6 +513,12 @@ func (s *SiteService) Search(ctx context.Context, keyword string) ([]SearchResul
 			zap.Int("enabled_sites", enabledCount),
 			zap.Int("failed_sites", failedCount),
 			zap.Int("results_count", len(results)))
+	}
+	if enabledCount > 0 && failedCount >= enabledCount && len(results) == 0 {
+		if len(failureErrs) > 0 {
+			return results, fmt.Errorf("all enabled sites failed while searching %q: %w", keyword, errors.Join(failureErrs...))
+		}
+		return results, fmt.Errorf("all enabled sites failed while searching %q: %s", keyword, strings.Join(failures, "; "))
 	}
 	return results, nil
 }

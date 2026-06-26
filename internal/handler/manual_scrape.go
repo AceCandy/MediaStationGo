@@ -61,10 +61,15 @@ func manualScrapeApplyOneHandler(svc *service.Container) gin.HandlerFunc {
 		}
 		applyCtx, cancel := manualScrapeApplyContext(c)
 		defer cancel()
-		media, err := svc.Scraper.ApplyManualMatch(applyCtx, c.Param("id"), req)
+		mediaID := c.Param("id")
+		media, err := svc.Scraper.ApplyManualMatch(applyCtx, mediaID, req)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
+		}
+		reclassifyMediaAfterScrape(applyCtx, svc, mediaID)
+		if refreshed, _ := svc.Repo.Media.FindByID(applyCtx, mediaID); refreshed != nil {
+			media = refreshed
 		}
 		c.JSON(http.StatusOK, media)
 	}
@@ -92,6 +97,7 @@ func manualScrapeApplyBatchHandler(svc *service.Container) gin.HandlerFunc {
 				errorsOut = append(errorsOut, id+": "+err.Error())
 				continue
 			}
+			reclassifyMediaAfterScrape(applyCtx, svc, id)
 			applied++
 		}
 		if applied == 0 && len(errorsOut) > 0 {

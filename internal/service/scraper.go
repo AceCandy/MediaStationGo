@@ -175,6 +175,7 @@ func (s *ScraperService) EnrichOneWithOptions(ctx context.Context, m *model.Medi
 				zap.String("thetvdb_id", candidateMatch.TheTVDBID))
 			continue
 		}
+		preferLocalizedSearchTitle(candidate, candidateMatch)
 		match = candidateMatch
 		if match != nil {
 			break

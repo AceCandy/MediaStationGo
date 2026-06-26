@@ -1,17 +1,22 @@
 import { useState } from 'react'
 import { CheckCircle2, Info, Rss } from 'lucide-react'
+import toast from 'react-hot-toast'
 
+import type { DiscoverItem } from '../api/discover'
 import type { ExternalMediaResult } from '../api/ai'
 import { imageURL } from '../api/client'
+import { subscriptionsAPI } from '../api/subscriptions'
+import { DiscoverSubscriptionRules } from './DiscoverDetailModalSections'
+import {
+  apiErrorMessage,
+  buildDiscoverSubscriptionInput,
+  initialDiscoverSubscriptionForm,
+} from './discoverDetailModalModel'
 
 export function ExternalResults({
   items,
-  busyKey,
-  onSubscribe,
 }: {
   items: ExternalMediaResult[]
-  busyKey: string
-  onSubscribe: (item: ExternalMediaResult) => Promise<void>
 }) {
   const [detail, setDetail] = useState<ExternalMediaResult | null>(null)
   return (
@@ -72,13 +77,12 @@ export function ExternalResults({
                 <button
                   onClick={(event) => {
                     event.stopPropagation()
-                    onSubscribe(item)
+                    setDetail(item)
                   }}
-                  disabled={busyKey === key}
                   className="mt-3 rounded-lg border border-primary-400/40 px-2 py-1 text-xs text-brand-500 hover:bg-primary-400/10 disabled:opacity-50"
                 >
                   <Rss size={12} className="mr-1 inline" />
-                  {busyKey === key ? '订阅中…' : '订阅并搜索 PT'}
+                  订阅规则
                 </button>
               </div>
             </article>
@@ -88,9 +92,7 @@ export function ExternalResults({
       {detail && (
         <ExternalDetailModal
           item={detail}
-          busy={busyKey === `${detail.source}:${detail.subscribe_keyword || detail.title}`}
           onClose={() => setDetail(null)}
-          onSubscribe={onSubscribe}
         />
       )}
     </section>
@@ -99,19 +101,37 @@ export function ExternalResults({
 
 function ExternalDetailModal({
   item,
-  busy,
   onClose,
-  onSubscribe,
 }: {
   item: ExternalMediaResult
-  busy: boolean
   onClose: () => void
-  onSubscribe: (item: ExternalMediaResult) => Promise<void>
 }) {
   const missing = item.missing_episodes ?? []
+  const discoverItem = item as unknown as DiscoverItem
+  const [form, setForm] = useState(() => initialDiscoverSubscriptionForm(discoverItem))
+  const [formBusy, setFormBusy] = useState(false)
+  const submit = async () => {
+    setFormBusy(true)
+    try {
+      const sub = await subscriptionsAPI.create(
+        buildDiscoverSubscriptionInput(discoverItem, form, item.source || 'tmdb'),
+      )
+      if (form.run_now) {
+        const run = await subscriptionsAPI.runNow(sub.id)
+        toast.success(run.queued > 0 ? `已订阅并加入 ${run.queued} 个下载` : '已订阅，暂未命中可下载资源')
+      } else {
+        toast.success('已创建订阅')
+      }
+      onClose()
+    } catch (err) {
+      toast.error(apiErrorMessage(err, '订阅失败'))
+    } finally {
+      setFormBusy(false)
+    }
+  }
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/35 p-4 backdrop-blur-sm" onClick={onClose}>
-      <div className="max-h-[88vh] w-full max-w-3xl overflow-hidden rounded-3xl bg-white shadow-2xl" onClick={(event) => event.stopPropagation()}>
+      <div className="max-h-[88vh] w-full max-w-3xl overflow-y-auto rounded-3xl bg-white shadow-2xl" onClick={(event) => event.stopPropagation()}>
         <div className="grid gap-0 md:grid-cols-[220px,1fr]">
           <div className="min-h-72 bg-gray-100">
             {item.poster_url ? (
@@ -158,18 +178,15 @@ function ExternalDetailModal({
               </div>
             )}
 
-            <div className="flex justify-end gap-2 pt-2">
+            <DiscoverSubscriptionRules
+              form={form}
+              busy={formBusy}
+              onChange={(patch) => setForm((current) => ({ ...current, ...patch }))}
+              onSubmit={submit}
+            />
+
+            <div className="flex justify-end pt-2">
               <button onClick={onClose} className="rounded-xl border border-gray-200 px-4 py-2 text-sm text-ink-100 hover:bg-gray-50">关闭</button>
-              <button
-                disabled={busy}
-                onClick={async () => {
-                  await onSubscribe(item)
-                  onClose()
-                }}
-                className="neon-button"
-              >
-                <Rss size={14} /> {busy ? '订阅中…' : item.in_library ? '补全缺失集' : '订阅全集'}
-              </button>
             </div>
           </div>
         </div>

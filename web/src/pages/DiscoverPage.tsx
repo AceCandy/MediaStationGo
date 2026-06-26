@@ -15,6 +15,8 @@ export function DiscoverPage() {
   const [sections, setSections] = useState<DiscoverSection[]>([])
   const [selected, setSelected] = useState<string[]>([])
   const [rows, setRows] = useState<Record<string, DiscoverItem[]>>({})
+  const [rowPages, setRowPages] = useState<Record<string, number>>({})
+  const [rowCanNext, setRowCanNext] = useState<Record<string, boolean>>({})
   const [rowLoading, setRowLoading] = useState<Record<string, boolean>>({})
   const [rowErrors, setRowErrors] = useState<Record<string, string>>({})
   const [sectionsReady, setSectionsReady] = useState(false)
@@ -35,7 +37,9 @@ export function DiscoverPage() {
         const saved = readSavedSections(items)
         const available = new Set(items.map((item) => item.key))
         const fallback = defaultSections.filter((key) => available.has(key))
-        setSelected(saved.length > 0 ? saved : fallback)
+        const nextSelected = saved.length > 0 ? saved : fallback
+        setSelected(nextSelected)
+        setRowPages(Object.fromEntries(nextSelected.map((key) => [key, 1])))
         setSectionsReady(true)
       })
       .catch(() => {
@@ -60,6 +64,7 @@ export function DiscoverPage() {
     if (selected.length === 0) {
       setRows({})
       setRowLoading({})
+      setRowCanNext({})
       setRowErrors({})
       setLoading(false)
       return
@@ -83,16 +88,19 @@ export function DiscoverPage() {
       if (!cancelled && pending <= 0) setLoading(false)
     }
     for (const key of selected) {
+      const page = rowPages[key] ?? 1
       discoverAPI
-        .feed([key])
+        .feed([key], page)
         .then((feed) => {
           if (cancelled) return
-          setRows((current) => ({ ...current, [key]: feed[key] ?? [] }))
+          setRows((current) => ({ ...current, [key]: feed.items[key] ?? [] }))
+          setRowCanNext((current) => ({ ...current, [key]: Boolean(feed.meta[key]?.has_next) }))
         })
         .catch((err) => {
           if (cancelled) return
           const message = err instanceof Error ? err.message : String(err)
           setRows((current) => ({ ...current, [key]: [] }))
+          setRowCanNext((current) => ({ ...current, [key]: false }))
           setRowErrors((current) => ({ ...current, [key]: message }))
         })
         .finally(() => {
@@ -105,7 +113,7 @@ export function DiscoverPage() {
     return () => {
       cancelled = true
     }
-  }, [sections, sectionsReady, selected, reloadSeq])
+  }, [sections, sectionsReady, selected, rowPages, reloadSeq])
 
   const sectionMap = useMemo(
     () => new Map(sections.map((section) => [section.key, section])),
@@ -120,6 +128,15 @@ export function DiscoverPage() {
         return current.filter((item) => item !== key)
       }
       return [...current, key]
+    })
+    setRowPages((current) => ({ ...current, [key]: current[key] ?? 1 }))
+  }
+
+  const changeDiscoverPage = (key: string, delta: number) => {
+    setRowPages((current) => {
+      const nextPage = Math.max(1, (current[key] ?? 1) + delta)
+      if (nextPage === (current[key] ?? 1)) return current
+      return { ...current, [key]: nextPage }
     })
   }
 
@@ -153,11 +170,14 @@ export function DiscoverPage() {
           rows={rows}
           rowLoading={rowLoading}
           rowErrors={rowErrors}
+          rowPages={rowPages}
+          rowCanNext={rowCanNext}
           loading={loading}
           hasContent={hasContent}
           imageVersion={imageVersion}
           refreshImageVersion={refreshImageVersion}
           sectionLabel={sectionLabel}
+          onPageChange={changeDiscoverPage}
           onSelect={setActiveItem}
         />
       )}

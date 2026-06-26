@@ -94,6 +94,7 @@ func aiScrapeMediaHandler(svc *service.Container) gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
+		reclassifyMediaAfterScrape(c.Request.Context(), svc, m.ID)
 		refreshed, _ := svc.Repo.Media.FindByID(c.Request.Context(), m.ID)
 		c.JSON(http.StatusOK, refreshed)
 	}

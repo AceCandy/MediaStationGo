@@ -16,6 +16,7 @@ import (
 // Empty LibraryIDs means all enabled local libraries.
 type MediaCategoryReclassifyOptions struct {
 	LibraryIDs []string
+	MediaIDs   []string
 	DryRun     bool
 }
 
@@ -31,6 +32,7 @@ func (o *OrganizerService) ReclassifyMisclassifiedMedia(ctx context.Context, opt
 		return res, err
 	}
 	filterIDs := compactLibraryIDs(opts.LibraryIDs...)
+	mediaIDs := compactLibraryIDs(opts.MediaIDs...)
 	filter := map[string]struct{}{}
 	for _, id := range filterIDs {
 		filter[id] = struct{}{}
@@ -54,6 +56,9 @@ func (o *OrganizerService) ReclassifyMisclassifiedMedia(ctx context.Context, opt
 	query := o.repo.DB.WithContext(ctx).Model(&model.Media{}).Where("deleted_at IS NULL")
 	if len(filter) > 0 {
 		query = query.Where("library_id IN ?", filterIDs)
+	}
+	if len(mediaIDs) > 0 {
+		query = query.Where("id IN ?", mediaIDs)
 	}
 	var rows []model.Media
 	err = query.FindInBatches(&rows, 500, func(_ *gorm.DB, _ int) error {
@@ -88,14 +93,25 @@ func (o *OrganizerService) reclassifyScannedMedia(ctx context.Context, media mod
 	if res == nil || !lib.Enabled || strings.TrimSpace(media.Path) == "" {
 		return false, nil
 	}
-	if _, ok := ParseCloudLibraryMount(lib.Path); ok {
-		return false, nil
+	if mount, ok := ParseCloudLibraryMount(lib.Path); ok {
+		return o.reclassifyCloudScannedMedia(ctx, media, lib, mount, dryRun, res)
 	}
-	if !organizeFileExists(media.Path) || !mediaHasReliableCategoryMetadata(media) {
+	if !organizeFileExists(media.Path) {
 		return false, nil
 	}
 
 	mediaType := normalizeOrganizeMediaType(lib.Type)
+	metadataMatch := organizeMatchFromMedia(&media)
+	if !mediaHasReliableCategoryMetadata(media) {
+		metadataMatch = o.lookupReclassifyMetadata(ctx, media, lib, mediaType)
+		if metadataMatch == nil {
+			return false, nil
+		}
+		media = mediaWithReclassifyMatch(media, metadataMatch)
+	}
+	if matchType := normalizeOrganizeMediaType(metadataMatchMediaType(metadataMatch)); matchType != "" {
+		mediaType = matchType
+	}
 	category := o.classifyMedia(ctx, &media, mediaType)
 	if category == "" {
 		return false, nil
@@ -127,7 +143,7 @@ func (o *OrganizerService) reclassifyScannedMedia(ctx context.Context, media mod
 		return false, nil
 	}
 	if pathWithin(media.Path, targetLibrary.Path) {
-		return o.reclassifyScannedMediaLibraryOnly(ctx, media, lib, targetLibrary, category, mediaType, dryRun, res)
+		return o.reclassifyScannedMediaLibraryOnly(ctx, media, lib, targetLibrary, category, mediaType, dryRun, res, metadataMatch)
 	}
 
 	title := sanitizeFilename(strings.TrimSpace(media.Title))
@@ -162,11 +178,177 @@ func (o *OrganizerService) reclassifyScannedMedia(ctx context.Context, media mod
 		Year:            media.Year,
 		Season:          media.SeasonNum,
 		Episode:         media.EpisodeNum,
+		MetadataMatch:   metadataMatch,
 		Result:          res,
 	})
 }
 
-func (o *OrganizerService) reclassifyScannedMediaLibraryOnly(ctx context.Context, media model.Media, oldLib, targetLib model.Library, category, mediaType string, dryRun bool, res *OrganizeResult) (bool, error) {
+func (o *OrganizerService) reclassifyCloudScannedMedia(ctx context.Context, media model.Media, lib model.Library, mount CloudMountInfo, dryRun bool, res *OrganizeResult) (bool, error) {
+	mediaType := normalizeOrganizeMediaType(lib.Type)
+	metadataMatch := organizeMatchFromMedia(&media)
+	if !mediaHasReliableCategoryMetadata(media) {
+		metadataMatch = o.lookupReclassifyMetadata(ctx, media, lib, mediaType)
+		if metadataMatch == nil {
+			return false, nil
+		}
+		media = mediaWithReclassifyMatch(media, metadataMatch)
+	}
+	if matchType := normalizeOrganizeMediaType(metadataMatchMediaType(metadataMatch)); matchType != "" {
+		mediaType = matchType
+	}
+	category := o.classifyMedia(ctx, &media, mediaType)
+	if category == "" {
+		return false, nil
+	}
+	if impliedType, normalizedCategory := o.mediaTypeForDirectoryCategory(category); impliedType != "" {
+		mediaType = impliedType
+		category = normalizedCategory
+	}
+	if mediaType == "" {
+		mediaType = normalizeOrganizeMediaType(lib.Type)
+	}
+	displayDir := o.cloudReclassifyCategoryDisplayDir(mediaType, category)
+	if displayDir == "" {
+		return false, nil
+	}
+	if normalizeCloudMountDir(mount.Provider, mount.DisplayDir) == normalizeCloudMountDir(mount.Provider, displayDir) {
+		return false, nil
+	}
+	targetLibrary, ok, err := o.ensureCloudReclassifyLibrary(ctx, mount.Provider, displayDir, mediaType, dryRun)
+	if err != nil || !ok {
+		return false, err
+	}
+	if strings.TrimSpace(targetLibrary.ID) != "" && targetLibrary.ID == lib.ID {
+		return false, nil
+	}
+	title := sanitizeFilename(strings.TrimSpace(media.Title))
+	if title == "" {
+		title = "Unknown"
+	}
+	res.Items = append(res.Items, OrganizePreviewItem{
+		Source:    media.Path,
+		Target:    targetLibrary.Path,
+		Action:    "reclassify",
+		Reason:    "cloud metadata category library changed",
+		MediaType: mediaType,
+		Category:  category,
+		Title:     title,
+	})
+	if dryRun {
+		res.Reclassified++
+		return true, nil
+	}
+	updates := map[string]any{
+		"library_id": targetLibrary.ID,
+		"series_id":  "",
+	}
+	applyReclassifyMatchUpdates(updates, metadataMatch)
+	if err := o.repo.DB.WithContext(ctx).Model(&model.Media{}).Where("id = ?", media.ID).Updates(updates).Error; err != nil {
+		return false, err
+	}
+	if o.log != nil {
+		o.log.Info("cloud media library reclassified by metadata",
+			zap.String("media", media.ID),
+			zap.String("path", media.Path),
+			zap.String("from_library", lib.ID),
+			zap.String("to_library", targetLibrary.ID),
+			zap.String("category", category),
+			zap.String("media_type", mediaType),
+			zap.String("display_dir", displayDir))
+	}
+	res.Reclassified++
+	return true, nil
+}
+
+func (o *OrganizerService) cloudReclassifyCategoryDisplayDir(mediaType, category string) string {
+	category = sanitizeFilename(strings.TrimSpace(category))
+	if category == "" {
+		return ""
+	}
+	root := o.mediaTypeRootDirForCategory(mediaType, category)
+	if root == "" {
+		return ""
+	}
+	return strings.Join([]string{root, category}, "/")
+}
+
+func (o *OrganizerService) ensureCloudReclassifyLibrary(ctx context.Context, provider, displayDir, mediaType string, dryRun bool) (model.Library, bool, error) {
+	if o == nil || o.repo == nil || o.repo.Library == nil {
+		return model.Library{}, false, nil
+	}
+	provider = strings.TrimSpace(provider)
+	displayDir = normalizeCloudMountDir(provider, displayDir)
+	if provider == "" || displayDir == "" {
+		return model.Library{}, false, nil
+	}
+	if existing := o.findCloudReclassifyLibrary(ctx, provider, displayDir); existing != nil {
+		return *existing, true, nil
+	}
+	path := BuildCloudAutoCategoryLibraryPath(provider, displayDir)
+	if path == "" {
+		return model.Library{}, false, nil
+	}
+	name := cloudMountDirBase(displayDir)
+	if name == "" {
+		name = displayDir
+	}
+	libType := InferCloudMountMediaType(displayDir, name)
+	if normalizeOrganizeMediaType(libType) == "" {
+		libType = organizeLibraryModelType(mediaType)
+	}
+	lib := model.Library{
+		Name:    name,
+		Path:    path,
+		Type:    libType,
+		Enabled: true,
+	}
+	if dryRun {
+		return lib, true, nil
+	}
+	if err := o.repo.Library.Create(ctx, &lib); err != nil {
+		if existing := o.findCloudReclassifyLibrary(ctx, provider, displayDir); existing != nil {
+			return *existing, true, nil
+		}
+		return model.Library{}, false, err
+	}
+	if o.log != nil {
+		o.log.Info("created cloud metadata reclassify library",
+			zap.String("library_id", lib.ID),
+			zap.String("provider", provider),
+			zap.String("display_dir", displayDir),
+			zap.String("type", lib.Type))
+	}
+	return lib, true, nil
+}
+
+func (o *OrganizerService) findCloudReclassifyLibrary(ctx context.Context, provider, displayDir string) *model.Library {
+	if o == nil || o.repo == nil || o.repo.Library == nil {
+		return nil
+	}
+	libs, err := o.repo.Library.List(ctx)
+	if err != nil {
+		if o.log != nil {
+			o.log.Warn("list cloud libraries for metadata reclassify failed", zap.Error(err))
+		}
+		return nil
+	}
+	displayDir = normalizeCloudMountDir(provider, displayDir)
+	for _, lib := range libs {
+		if !lib.Enabled {
+			continue
+		}
+		info, ok := ParseCloudLibraryMount(lib.Path)
+		if !ok || info.Provider != provider {
+			continue
+		}
+		if normalizeCloudMountDir(provider, info.DisplayDir) == displayDir {
+			return &lib
+		}
+	}
+	return nil
+}
+
+func (o *OrganizerService) reclassifyScannedMediaLibraryOnly(ctx context.Context, media model.Media, oldLib, targetLib model.Library, category, mediaType string, dryRun bool, res *OrganizeResult, metadataMatch *Match) (bool, error) {
 	res.Items = append(res.Items, OrganizePreviewItem{
 		Source:    media.Path,
 		Target:    media.Path,
@@ -180,10 +362,12 @@ func (o *OrganizerService) reclassifyScannedMediaLibraryOnly(ctx context.Context
 		res.Reclassified++
 		return true, nil
 	}
+	updates := map[string]any{"library_id": targetLib.ID, "series_id": ""}
+	applyReclassifyMatchUpdates(updates, metadataMatch)
 	if err := o.repo.DB.WithContext(ctx).
 		Model(&model.Media{}).
 		Where("id = ?", media.ID).
-		Update("library_id", targetLib.ID).Error; err != nil {
+		Updates(updates).Error; err != nil {
 		return false, err
 	}
 	if o.log != nil {
@@ -197,6 +381,118 @@ func (o *OrganizerService) reclassifyScannedMediaLibraryOnly(ctx context.Context
 	}
 	res.Reclassified++
 	return true, nil
+}
+
+func (o *OrganizerService) lookupReclassifyMetadata(ctx context.Context, media model.Media, lib model.Library, mediaType string) *Match {
+	if o == nil || o.scraper == nil || !o.scraper.AnyEnabled() {
+		return nil
+	}
+	title := strings.TrimSpace(media.Title)
+	if title == "" {
+		title, _ = CleanQuery(media.Path)
+	}
+	for _, typ := range reclassifyMetadataLookupTypes(mediaType, media) {
+		if match := o.lookupOrganizeMetadata(ctx, media.Path, lib.Path, typ, title, media.Year, media.SeasonNum, media.EpisodeNum, nil); match != nil {
+			if o.log != nil {
+				o.log.Info("metadata category reclassify filled missing metadata",
+					zap.String("media", media.ID),
+					zap.String("path", media.Path),
+					zap.String("title", match.Title),
+					zap.String("media_type", typ),
+					zap.Int("tmdb_id", match.TMDbID),
+					zap.Int("bangumi_id", match.BangumiID),
+					zap.String("douban_id", match.DoubanID),
+					zap.String("thetvdb_id", match.TheTVDBID))
+			}
+			return match
+		}
+	}
+	return nil
+}
+
+func reclassifyMetadataLookupTypes(mediaType string, media model.Media) []string {
+	seen := map[string]struct{}{}
+	out := make([]string, 0, 3)
+	add := func(value string) {
+		value = normalizeOrganizeMediaType(value)
+		if value == "" {
+			return
+		}
+		if _, ok := seen[value]; ok {
+			return
+		}
+		seen[value] = struct{}{}
+		out = append(out, value)
+	}
+	add(mediaType)
+	if media.SeasonNum > 0 || media.EpisodeNum > 0 {
+		add("tv")
+		add("anime")
+	}
+	switch normalizeOrganizeMediaType(mediaType) {
+	case "tv":
+		add("anime")
+		add("movie")
+	case "anime":
+		add("tv")
+		add("movie")
+	case "movie", "":
+		add("tv")
+		add("anime")
+		add("movie")
+	default:
+		add("tv")
+		add("movie")
+	}
+	return out
+}
+
+func mediaWithReclassifyMatch(media model.Media, match *Match) model.Media {
+	if match == nil {
+		return media
+	}
+	if value := strings.TrimSpace(match.Title); value != "" {
+		media.Title = value
+	}
+	if value := strings.TrimSpace(match.OriginalName); value != "" {
+		media.OriginalName = value
+	}
+	if match.Year > 0 {
+		media.Year = match.Year
+	}
+	if match.TMDbID > 0 {
+		media.TMDbID = match.TMDbID
+	}
+	if match.BangumiID > 0 {
+		media.BangumiID = match.BangumiID
+	}
+	if value := strings.TrimSpace(match.DoubanID); value != "" {
+		media.DoubanID = value
+	}
+	if value := strings.TrimSpace(match.TheTVDBID); value != "" {
+		media.TheTVDBID = value
+	}
+	if len(match.Languages) > 0 {
+		media.Languages = strings.Join(match.Languages, ",")
+	}
+	if len(match.Countries) > 0 {
+		media.Countries = strings.Join(match.Countries, ",")
+	}
+	if len(match.Genres) > 0 {
+		media.Genres = strings.Join(match.Genres, ",")
+	}
+	if match.NSFW {
+		media.NSFW = true
+	}
+	media.ScrapeStatus = "matched"
+	return media
+}
+
+func metadataMatchMediaType(match *Match) string {
+	if match == nil {
+		return ""
+	}
+	return match.MediaType
 }
 
 func mediaHasReliableCategoryMetadata(media model.Media) bool {

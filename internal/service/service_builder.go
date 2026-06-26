@@ -91,6 +91,7 @@ func (b *serviceContainerBuilder) initContentServices() {
 	b.c.Discover = NewDiscoverService(b.log, b.c.TMDb)
 	b.c.Transcoder = NewTranscoderService(b.cfg, b.log, b.repos, b.c.WSHub)
 	b.c.Scan = NewScannerService(b.cfg, b.log, b.repos, b.c.WSHub, b.c.FFprobe, b.c.Scraper)
+	b.c.Scan.SetOrganizer(b.c.Organizer)
 	b.c.Scan.SetRuntimeCache(b.c.Cache)
 	b.c.OrganizePipeline = NewOrganizePipelineService(b.log, b.repos, b.c.Organizer, b.c.Scan, b.c.Tasks)
 	b.c.Watcher = NewWatcherService(b.log, b.repos, b.c.Scan)
@@ -153,6 +154,7 @@ func (b *serviceContainerBuilder) initIdentityServices() {
 func (b *serviceContainerBuilder) initSiteDownloadServices() {
 	b.c.Site = NewSiteService(b.log, b.repos, b.flareSolverrURL())
 	b.c.Downloads = NewDownloadService(b.log, b.repos, b.c.WSHub, b.c.Organizer, b.c.Site)
+	b.c.Organizer.SetActiveDownloadPathProvider(b.c.Downloads.ActiveDownloadPaths)
 	b.c.Downloads.SetScanner(b.c.Scan)
 	b.c.Downloads.SetTaskTracker(b.c.Tasks)
 	b.c.Downloads.SetOrganizePipeline(b.c.OrganizePipeline)

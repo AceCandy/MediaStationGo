@@ -30,6 +30,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/ShukeBta/MediaStationGo/internal/config"
+	"github.com/ShukeBta/MediaStationGo/internal/model"
 	"github.com/ShukeBta/MediaStationGo/internal/repository"
 )
 
@@ -403,7 +404,7 @@ func (s *StreamService) ServeFileWithCloudMode(w http.ResponseWriter, r *http.Re
 	if m == nil {
 		return ErrMediaNotFound
 	}
-	if strmURL := strings.TrimSpace(m.STRMURL); strmURL != "" && (isCloudPlaybackTarget(strmURL) || STRMPlaybackEnabled(r.Context(), s.repo)) {
+	if strmURL := strings.TrimSpace(m.STRMURL); strmURL != "" && playableSTRMTarget(r.Context(), s.repo, strmURL, m) {
 		if !cloudPlaybackModeEnabled(r.Context(), s.repo, cloudMode) {
 			return ErrCloudPlaybackDisabled
 		}
@@ -448,6 +449,25 @@ func setCloudRedirectNoStore(w http.ResponseWriter) {
 func isCloudPlaybackTarget(raw string) bool {
 	_, _, ok := parseCloudMediaPlaybackURL(raw)
 	return ok
+}
+
+func playableSTRMTarget(ctx context.Context, repo *repository.Container, raw string, m *model.Media) bool {
+	if isCloudPlaybackTarget(raw) || isHTTPPlaybackTarget(raw) {
+		return true
+	}
+	if m != nil && strings.EqualFold(strings.TrimSpace(m.Container), "strm") {
+		return true
+	}
+	return STRMPlaybackEnabled(ctx, repo)
+}
+
+func isHTTPPlaybackTarget(raw string) bool {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || u == nil || !u.IsAbs() {
+		return false
+	}
+	scheme := strings.ToLower(strings.TrimSpace(u.Scheme))
+	return scheme == "http" || scheme == "https"
 }
 
 // ServeHLSPlaylist makes sure a transcode is running and writes the m3u8.

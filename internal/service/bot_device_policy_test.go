@@ -60,6 +60,10 @@ func TestTerminalDeviceLimitDeduplicatesAppsOnSameDevice(t *testing.T) {
 	ctx := context.Background()
 	repos, _ := newBotTestService(t)
 	dev := NewDeviceService(zap.NewNop(), repos)
+	now := time.Date(2026, 6, 25, 21, 30, 0, 0, time.UTC)
+	tracker := NewSessionTrackerService(zap.NewNop())
+	tracker.now = func() time.Time { return now }
+	dev.SetSessionTracker(tracker)
 	u := &model.User{Username: "device-user", PasswordHash: "x", Role: "user", IsActive: true}
 	if err := repos.User.Create(ctx, u); err != nil {
 		t.Fatal(err)
@@ -81,6 +85,7 @@ func TestTerminalDeviceLimitDeduplicatesAppsOnSameDevice(t *testing.T) {
 		{id: "phone-jellyfin", name: "IPHONE", client: "Jellyfin"},
 	} {
 		dev.RecordLogin(ctx, u.ID, login.id, login.name, login.client, "1.2.3.4")
+		now = now.Add(time.Second)
 	}
 	count, err := repos.UserDevice.CountActiveClients(ctx, u.ID, time.Now().Add(-24*time.Hour))
 	if err != nil {
@@ -88,6 +93,23 @@ func TestTerminalDeviceLimitDeduplicatesAppsOnSameDevice(t *testing.T) {
 	}
 	if count != 1 {
 		t.Fatalf("same terminal through multiple apps should count as 1, got %d", count)
+	}
+	devices, err := dev.ListDevices(ctx, u.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(devices) != 1 {
+		t.Fatalf("same terminal should show as one device row, got %#v", devices)
+	}
+	rawRows, err := repos.UserDevice.ListByUser(ctx, u.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rawRows) != 1 {
+		t.Fatalf("same terminal should be persisted as one canonical row, got %#v", rawRows)
+	}
+	if devices[0].DeviceID != "phone-jellyfin" || devices[0].Client != "Jellyfin" {
+		t.Fatalf("merged device row should keep latest login channel, got %#v", devices[0])
 	}
 	got, _ := repos.User.FindByID(ctx, u.ID)
 	if !got.IsActive {
@@ -112,6 +134,68 @@ func TestTerminalDeviceLimitDeduplicatesAppsOnSameDevice(t *testing.T) {
 	got, _ = repos.User.FindByID(ctx, u.ID)
 	if got.IsActive {
 		t.Fatal("fourth distinct terminal should disable the account")
+	}
+}
+
+func TestDeviceKickAppliesToMergedTerminal(t *testing.T) {
+	ctx := context.Background()
+	repos, _ := newBotTestService(t)
+	dev := NewDeviceService(zap.NewNop(), repos)
+	u := &model.User{Username: "kick-merged", PasswordHash: "x", Role: "user", IsActive: true}
+	if err := repos.User.Create(ctx, u); err != nil {
+		t.Fatal(err)
+	}
+
+	dev.RecordLogin(ctx, u.ID, "phone-infuse", "iPhone", "Infuse", "1.2.3.4")
+	dev.RecordLogin(ctx, u.ID, "phone-emby", " iPhone ", "Emby", "1.2.3.4")
+	if err := dev.KickDevice(ctx, u.ID, "phone-emby"); err != nil {
+		t.Fatal(err)
+	}
+	if !dev.IsTerminalKicked(ctx, u.ID, "phone-jellyfin", "IPHONE", "Jellyfin") {
+		t.Fatal("same terminal with a new app/device id should still be kicked")
+	}
+
+	dev.RecordLogin(ctx, u.ID, "phone-jellyfin", "IPHONE", "Jellyfin", "1.2.3.4")
+	if dev.IsTerminalKicked(ctx, u.ID, "phone-jellyfin", "IPHONE", "Jellyfin") {
+		t.Fatal("re-login should clear kicked state for the merged terminal")
+	}
+	rawRows, err := repos.UserDevice.ListByUser(ctx, u.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rawRows) != 1 || rawRows[0].DeviceID != "phone-jellyfin" {
+		t.Fatalf("merged terminal should keep one latest row, got %#v", rawRows)
+	}
+}
+
+func TestRecordPlaybackMergesChangingDeviceIDOnSameTerminal(t *testing.T) {
+	ctx := context.Background()
+	repos, _ := newBotTestService(t)
+	dev := NewDeviceService(zap.NewNop(), repos)
+	u := &model.User{Username: "play-merged", PasswordHash: "x", Role: "user", IsActive: true}
+	if err := repos.User.Create(ctx, u); err != nil {
+		t.Fatal(err)
+	}
+
+	dev.RecordPlayback(ctx, u.ID, "tv-emby", "Living Room TV", "Emby")
+	dev.RecordPlayback(ctx, u.ID, "tv-infuse", " living room tv ", "Infuse")
+
+	rawRows, err := repos.UserDevice.ListByUser(ctx, u.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rawRows) != 1 {
+		t.Fatalf("same playback terminal should persist one row, got %#v", rawRows)
+	}
+	if rawRows[0].DeviceID != "tv-infuse" || rawRows[0].Client != "Infuse" || rawRows[0].LastPlayAt == nil {
+		t.Fatalf("merged playback row should keep latest playback channel, got %#v", rawRows[0])
+	}
+	count, err := repos.UserDevice.CountConcurrentPlaying(ctx, u.ID, time.Now().Add(-time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Fatalf("same terminal playback should count once, got %d", count)
 	}
 }
 

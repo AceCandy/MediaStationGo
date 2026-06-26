@@ -24,6 +24,30 @@ func strmLibraryOutputSubdir(lib model.Library) string {
 	return filepath.Join(clean...)
 }
 
+func strmLibrarySpecificOutputDir(base string, lib *model.Library) string {
+	outputDir := filepath.Clean(strings.TrimSpace(base))
+	if outputDir == "" || outputDir == "." || lib == nil {
+		return outputDir
+	}
+	subdir := strmLibraryOutputSubdir(*lib)
+	if subdir == "" || strmPathHasSuffix(outputDir, subdir) || pathAlreadyEndsWith(outputDir, filepath.Base(subdir)) {
+		return outputDir
+	}
+	return filepath.Join(outputDir, subdir)
+}
+
+func strmPathHasSuffix(pathValue, suffix string) bool {
+	pathValue = strings.Trim(filepath.ToSlash(filepath.Clean(strings.TrimSpace(pathValue))), "/")
+	suffix = strings.Trim(filepath.ToSlash(filepath.Clean(strings.TrimSpace(suffix))), "/")
+	if pathValue == "" || suffix == "" || suffix == "." {
+		return false
+	}
+	if strings.EqualFold(pathValue, suffix) {
+		return true
+	}
+	return strings.HasSuffix(strings.ToLower(pathValue), "/"+strings.ToLower(suffix))
+}
+
 func strmLibraryCategoryParts(lib model.Library) []string {
 	if parts := strmCategoryPartsFromPath(strmLibraryPathParts(lib.Path)); len(parts) > 0 {
 		return parts

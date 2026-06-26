@@ -123,6 +123,50 @@ func TestOrganizeDirectoryTreatsCategoryDestAsCollectionRoot(t *testing.T) {
 	}
 }
 
+func TestOrganizeDirectoryCreatesAnimeCategoryUnderPhysicalAnimeRoot(t *testing.T) {
+	root := t.TempDir()
+	src := filepath.Join(root, "downloads", "Blades.of.the.Guardians.S02E01.2026.1080p.mkv")
+	dest := filepath.Join(root, "media")
+	writeOrgFile(t, src, "episode")
+
+	repos := newOrganizerTestRepo(t)
+	oldWrongLib := model.Library{Name: "国漫", Path: filepath.Join(dest, "电视剧", "国漫"), Type: "tv", Enabled: true}
+	if err := repos.Library.Create(t.Context(), &oldWrongLib); err != nil {
+		t.Fatal(err)
+	}
+
+	org := NewOrganizerService(&config.Config{}, zap.NewNop(), repos)
+	res, err := org.OrganizeDirectory(t.Context(), OrganizeOptions{
+		SourcePath:    src,
+		DestPath:      oldWrongLib.Path,
+		MediaType:     "anime",
+		MediaCategory: "国漫",
+		TransferMode:  TransferCopy,
+	})
+	if err != nil {
+		t.Fatalf("organize anime category: %v", err)
+	}
+	wantRoot := filepath.Join(dest, "动漫", "国漫")
+	want := filepath.Join(wantRoot, "Blades Of The Guardians", "Season 02", "Blades Of The Guardians - S02E01.mkv")
+	if res.Organized != 1 || len(res.Items) != 1 {
+		t.Fatalf("result = %+v, want one organized anime item", res)
+	}
+	if _, err := os.Stat(want); err != nil {
+		t.Fatalf("anime category should be created under physical anime root %q: %v; items=%#v", want, err, res.Items)
+	}
+	wrong := filepath.Join(oldWrongLib.Path, "Blades Of The Guardians", "Season 02", "Blades Of The Guardians - S02E01.mkv")
+	if _, err := os.Stat(wrong); !os.IsNotExist(err) {
+		t.Fatalf("must not keep anime category under old TV root %q, stat err=%v", wrong, err)
+	}
+	var created model.Library
+	if err := repos.DB.Where("path = ?", wantRoot).First(&created).Error; err != nil {
+		t.Fatalf("missing physical anime category library: %v", err)
+	}
+	if created.Type != "tv" || created.Name != "国漫" {
+		t.Fatalf("created library = %+v, want visible tv-compatible 国漫 library", created)
+	}
+}
+
 func TestOrganizeDirectoryCreatesMissingCategoryLibraryForVisibility(t *testing.T) {
 	root := t.TempDir()
 	srcRoot := filepath.Join(root, "downloads")

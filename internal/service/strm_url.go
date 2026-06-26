@@ -85,12 +85,24 @@ func (s *STRMService) strmRelativePath(lib model.Library, media model.Media) str
 			show = title
 		}
 		season := media.SeasonNum
+		episode := media.EpisodeNum
+		if season <= 0 || episode <= 0 {
+			parsedSeason, parsedEpisode := ParseEpisode(media.Path)
+			if season <= 0 {
+				season = parsedSeason
+			}
+			if episode <= 0 {
+				episode = parsedEpisode
+			}
+		}
 		if season <= 0 {
 			season = 1
 		}
-		name := title
-		if media.EpisodeNum > 0 {
-			name = fmt.Sprintf("%s - S%02dE%02d", show, season, media.EpisodeNum)
+		name := strings.TrimSuffix(filepath.Base(media.Path), filepath.Ext(media.Path))
+		if episode > 0 {
+			name = fmt.Sprintf("%s - S%02dE%02d", show, season, episode)
+		} else if strings.TrimSpace(name) == "" {
+			name = title
 		}
 		return filepath.Join(sanitizeFilename(show), fmt.Sprintf("Season %02d", season), sanitizeFilename(name)+".strm")
 	}

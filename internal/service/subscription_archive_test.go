@@ -151,6 +151,31 @@ func TestSubscriptionArchiveKeepsGenericUnknownTotalSeriesActive(t *testing.T) {
 	}
 }
 
+func TestSubscriptionArchiveKeepsPartialSeriesWithParentRowActive(t *testing.T) {
+	sub := &model.Subscription{
+		Name:   "南部档案 自动订阅",
+		Filter: "南部档案",
+	}
+	availability := LocalAvailability{
+		DownloadedEpisodes: 6,
+		TotalEpisodes:      1,
+		LocalMediaCount:    7,
+		InLibrary:          true,
+		HasSeriesPack:      true,
+		ExistingEpisodeKeys: map[string]struct{}{
+			episodeKey(1, 1): {},
+			episodeKey(1, 2): {},
+			episodeKey(1, 3): {},
+			episodeKey(1, 4): {},
+			episodeKey(1, 5): {},
+			episodeKey(1, 6): {},
+		},
+	}
+	if subscriptionShouldArchive(sub, availability) {
+		t.Fatal("partial series with a parent/collection row should stay active")
+	}
+}
+
 func TestSubscriptionArchiveKeepsWashSubscriptionActive(t *testing.T) {
 	db := newServiceTestDB(t, &model.Subscription{})
 	repos := repository.New(db)

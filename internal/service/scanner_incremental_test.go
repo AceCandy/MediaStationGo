@@ -118,6 +118,41 @@ func TestScanLibrarySkipsUnchangedExistingLocalMedia(t *testing.T) {
 	}
 }
 
+func TestScanLibraryUpdatesExistingPathFromOverlappingLibrary(t *testing.T) {
+	sc, repos := newScannerTestEnv(t)
+	root := t.TempDir()
+	file := filepath.Join(root, "Shared Movie (2026).mkv")
+	if err := os.WriteFile(file, []byte("same-file"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	firstLib := model.Library{Name: "Movies A", Path: root, Type: "movie", Enabled: true}
+	secondLib := model.Library{Name: "Movies B", Path: root, Type: "movie", Enabled: true}
+	if err := repos.Library.Create(t.Context(), &firstLib); err != nil {
+		t.Fatal(err)
+	}
+	if err := repos.Library.Create(t.Context(), &secondLib); err != nil {
+		t.Fatal(err)
+	}
+
+	first, err := sc.ScanLibrary(t.Context(), firstLib.ID)
+	if err != nil {
+		t.Fatalf("first scan: %v", err)
+	}
+	if first.Added != 1 {
+		t.Fatalf("first scan = %#v, want added=1", first)
+	}
+	second, err := sc.ScanLibrary(t.Context(), secondLib.ID)
+	if err != nil {
+		t.Fatalf("second scan: %v", err)
+	}
+	if second.Added != 0 || second.Updated != 1 || second.ErrorCount != 0 {
+		t.Fatalf("second scan = %#v, want existing global path updated without duplicate insert errors", second)
+	}
+	if got := countMedia(t, repos); got != 1 {
+		t.Fatalf("media count = %d, want one row for overlapping libraries", got)
+	}
+}
+
 func TestScanLibrarySkipsUnchangedLocalMetadata(t *testing.T) {
 	sc, repos := newScannerTestEnv(t)
 	root := t.TempDir()

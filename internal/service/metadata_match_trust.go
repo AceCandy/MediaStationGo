@@ -24,6 +24,12 @@ func automaticMetadataTitleTrusted(query string, match *Match) bool {
 			return true
 		}
 	}
+	if metadataTrustChineseReleaseAlias(queryKey, match) {
+		return true
+	}
+	if metadataTrustLocalizedSearchKeyword(queryKey, match) {
+		return true
+	}
 	return false
 }
 
@@ -81,6 +87,84 @@ func metadataTrustTokenOverlap(queryKey, titleKey string) bool {
 	queryCoverage := float64(overlap) / float64(len(queryTokens))
 	titleCoverage := float64(overlap) / float64(len(titleTokens))
 	return queryCoverage >= 0.80 && titleCoverage >= 0.50
+}
+
+func metadataTrustChineseReleaseAlias(queryKey string, match *Match) bool {
+	if match == nil || !metadataMatchHasChineseOrigin(match) {
+		return false
+	}
+	tokens := metadataTrustSignificantTokens(queryKey)
+	if len(tokens) < 2 {
+		return false
+	}
+	latinTokens := 0
+	for _, token := range tokens {
+		if containsLatin(token) {
+			latinTokens++
+		}
+	}
+	return latinTokens >= 2
+}
+
+func metadataTrustLocalizedSearchKeyword(queryKey string, match *Match) bool {
+	if match == nil || !metadataMatchHasExternalID(match) {
+		return false
+	}
+	searchKey := metadataTrustKey(match.SearchKeyword)
+	return searchKey != "" && searchKey == queryKey && metadataTrustStrongCJKQuery(queryKey)
+}
+
+func preferLocalizedSearchTitle(query string, match *Match) {
+	if match == nil || containsCJK(match.Title) {
+		return
+	}
+	if !metadataTrustLocalizedSearchKeyword(metadataTrustKey(query), match) {
+		return
+	}
+	localized := strings.TrimSpace(match.SearchKeyword)
+	if localized == "" {
+		localized = strings.TrimSpace(query)
+	}
+	if localized == "" {
+		return
+	}
+	if strings.TrimSpace(match.OriginalName) == "" {
+		match.OriginalName = strings.TrimSpace(match.Title)
+	}
+	match.Title = localized
+}
+
+func metadataTrustStrongCJKQuery(queryKey string) bool {
+	cjk := 0
+	for _, r := range queryKey {
+		switch {
+		case r >= '\u3400' && r <= '\u4dbf':
+			cjk++
+		case r >= '\u4e00' && r <= '\u9fff':
+			cjk++
+		case r >= '\uf900' && r <= '\ufaff':
+			cjk++
+		}
+	}
+	return cjk >= 4
+}
+
+func metadataMatchHasExternalID(match *Match) bool {
+	return match != nil &&
+		(match.TMDbID > 0 ||
+			match.BangumiID > 0 ||
+			strings.TrimSpace(match.DoubanID) != "" ||
+			strings.TrimSpace(match.TheTVDBID) != "")
+}
+
+func metadataMatchHasChineseOrigin(match *Match) bool {
+	if match == nil {
+		return false
+	}
+	languages := normalizeTokens(match.Languages...)
+	countries := normalizeTokens(match.Countries...)
+	return hasAny(languages, "ZH", "ZH-CN", "ZH-TW", "CN") ||
+		hasAny(countries, "CN", "TW", "HK", "MO")
 }
 
 func metadataTrustSignificantTokens(key string) []string {

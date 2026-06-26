@@ -90,7 +90,7 @@ func (s *DeviceService) RecordLogin(ctx context.Context, userID, deviceID, devic
 	fp := fingerprint(client, deviceName)
 	now := s.now()
 
-	existing, _ := s.repo.UserDevice.Find(ctx, userID, deviceID)
+	existing, _ := s.findTerminalDevice(ctx, userID, deviceID, fp)
 	mismatch := false
 	if existing == nil {
 		_ = s.repo.UserDevice.Create(ctx, &model.UserDevice{
@@ -107,6 +107,7 @@ func (s *DeviceService) RecordLogin(ctx context.Context, userID, deviceID, devic
 		if existing.Fingerprint != "" && existing.Fingerprint != fp {
 			mismatch = true
 		}
+		existing.DeviceID = deviceID
 		existing.DeviceName = deviceName
 		existing.Client = client
 		existing.Fingerprint = fp
@@ -114,6 +115,7 @@ func (s *DeviceService) RecordLogin(ctx context.Context, userID, deviceID, devic
 		existing.LastSeenAt = now
 		existing.Kicked = false
 		_ = s.repo.UserDevice.Save(ctx, existing)
+		s.deleteStaleTerminalDeviceRows(ctx, userID, fp, existing.ID)
 	}
 
 	cfg := loadBotConfig(ctx, s.repo)
@@ -148,26 +150,29 @@ func (s *DeviceService) RecordPlayback(ctx context.Context, userID, deviceID, de
 		s.sessions.RecordPlayback(ctx, userID, username, deviceID, deviceName, client, "", "", 0, 0, false)
 	}
 	now := s.now()
-	existing, _ := s.repo.UserDevice.Find(ctx, userID, deviceID)
+	fp := fingerprint(client, deviceName)
+	existing, _ := s.findTerminalDevice(ctx, userID, deviceID, fp)
 	if existing == nil {
 		existing = &model.UserDevice{
 			UserID:      userID,
 			DeviceID:    deviceID,
 			DeviceName:  deviceName,
 			Client:      client,
-			Fingerprint: fingerprint(client, deviceName),
+			Fingerprint: fp,
 			FirstSeenAt: now,
 			LastSeenAt:  now,
 		}
 		existing.LastPlayAt = &now
 		_ = s.repo.UserDevice.Create(ctx, existing)
 	} else {
+		existing.DeviceID = deviceID
 		existing.DeviceName = deviceName
 		existing.Client = client
-		existing.Fingerprint = fingerprint(client, deviceName)
+		existing.Fingerprint = fp
 		existing.LastSeenAt = now
 		existing.LastPlayAt = &now
 		_ = s.repo.UserDevice.Save(ctx, existing)
+		s.deleteStaleTerminalDeviceRows(ctx, userID, fp, existing.ID)
 	}
 
 	cfg := loadBotConfig(ctx, s.repo)
@@ -177,6 +182,29 @@ func (s *DeviceService) RecordPlayback(ctx context.Context, userID, deviceID, de
 	since := now.Add(-time.Duration(cfg.PlayWindowSeconds) * time.Second)
 	if n, err := s.repo.UserDevice.CountConcurrentPlaying(ctx, userID, since); err == nil && int(n) > cfg.MaxConcurrentPlay {
 		s.disableForPolicy(ctx, userID, fmt.Sprintf("同时播放终端设备 %d 台，超过上限 %d 台", n, cfg.MaxConcurrentPlay))
+	}
+}
+
+func (s *DeviceService) findTerminalDevice(ctx context.Context, userID, deviceID, fp string) (*model.UserDevice, error) {
+	existing, err := s.repo.UserDevice.Find(ctx, userID, deviceID)
+	if err != nil || existing != nil {
+		return existing, err
+	}
+	if strings.TrimSpace(fp) == "" {
+		return nil, nil
+	}
+	return s.repo.UserDevice.FindByFingerprint(ctx, userID, fp)
+}
+
+func (s *DeviceService) deleteStaleTerminalDeviceRows(ctx context.Context, userID, fp, keepID string) {
+	if strings.TrimSpace(fp) == "" || strings.TrimSpace(keepID) == "" {
+		return
+	}
+	if err := s.repo.UserDevice.DeleteByFingerprintExcept(ctx, userID, fp, keepID); err != nil && s.log != nil {
+		s.log.Warn("device terminal cleanup failed",
+			zap.String("user_id", userID),
+			zap.String("fingerprint", fp),
+			zap.Error(err))
 	}
 }
 
@@ -310,6 +338,9 @@ func (s *DeviceService) KickDevice(ctx context.Context, userID, deviceID string)
 	if d == nil {
 		return fmt.Errorf("device not found")
 	}
+	if fp := strings.TrimSpace(d.Fingerprint); fp != "" {
+		return s.repo.UserDevice.SetKickedByFingerprint(ctx, userID, fp, true)
+	}
 	return s.repo.UserDevice.SetKicked(ctx, d.ID, true)
 }
 
@@ -324,17 +355,24 @@ func (s *DeviceService) ListDevices(ctx context.Context, userID string) ([]model
 	if err != nil {
 		return nil, err
 	}
+	rows = collapseUserDeviceRows(rows)
 	if s.sessions == nil {
 		return rows, nil
 	}
 	now := s.sessions.now()
 	byDevice := make(map[string]int, len(rows))
+	byTerminal := make(map[string]int, len(rows))
 	for i := range rows {
 		byDevice[rows[i].DeviceID] = i
+		byTerminal[userDeviceTerminalKey(rows[i])] = i
 	}
 	for _, sess := range s.sessions.ListByUser(ctx, userID) {
 		online := sess.LastActivityAt.After(now.Add(-realtimeSessionOnlineTTL))
-		if idx, ok := byDevice[sess.DeviceID]; ok {
+		idx, ok := byDevice[sess.DeviceID]
+		if !ok {
+			idx, ok = byTerminal[sessionDeviceKey(sess)]
+		}
+		if ok {
 			if sess.LastActivityAt.After(rows[idx].LastSeenAt) {
 				rows[idx].LastSeenAt = sess.LastActivityAt
 			}
@@ -371,6 +409,8 @@ func (s *DeviceService) ListDevices(ctx context.Context, userID string) ([]model
 		}
 		row.ID = "rt:" + sess.ID
 		rows = append(rows, row)
+		byDevice[row.DeviceID] = len(rows) - 1
+		byTerminal[userDeviceTerminalKey(row)] = len(rows) - 1
 	}
 	sort.SliceStable(rows, func(i, j int) bool {
 		return rows[i].LastSeenAt.After(rows[j].LastSeenAt)
@@ -378,13 +418,99 @@ func (s *DeviceService) ListDevices(ctx context.Context, userID string) ([]model
 	return rows, nil
 }
 
+func collapseUserDeviceRows(rows []model.UserDevice) []model.UserDevice {
+	if len(rows) < 2 {
+		return rows
+	}
+	out := make([]model.UserDevice, 0, len(rows))
+	byTerminal := map[string]int{}
+	for _, row := range rows {
+		key := userDeviceTerminalKey(row)
+		if idx, ok := byTerminal[key]; ok {
+			out[idx] = mergeUserDeviceRows(out[idx], row)
+			continue
+		}
+		byTerminal[key] = len(out)
+		out = append(out, row)
+	}
+	return out
+}
+
+func mergeUserDeviceRows(a, b model.UserDevice) model.UserDevice {
+	if b.LastSeenAt.After(a.LastSeenAt) {
+		a.ID = b.ID
+		a.DeviceID = b.DeviceID
+		a.DeviceName = b.DeviceName
+		a.Client = b.Client
+		a.LastIP = b.LastIP
+		a.FirstSeenAt = earlierTime(a.FirstSeenAt, b.FirstSeenAt)
+		a.LastSeenAt = b.LastSeenAt
+		a.LastPlayAt = latestOptionalTime(a.LastPlayAt, b.LastPlayAt)
+		a.Fingerprint = firstNonEmptyString(b.Fingerprint, a.Fingerprint)
+		a.Kicked = b.Kicked
+		return a
+	}
+	a.FirstSeenAt = earlierTime(a.FirstSeenAt, b.FirstSeenAt)
+	a.LastPlayAt = latestOptionalTime(a.LastPlayAt, b.LastPlayAt)
+	a.Fingerprint = firstNonEmptyString(a.Fingerprint, b.Fingerprint)
+	return a
+}
+
+func userDeviceTerminalKey(row model.UserDevice) string {
+	if key := strings.TrimSpace(row.Fingerprint); key != "" {
+		return key
+	}
+	if strings.TrimSpace(row.DeviceName) != "" {
+		return "fp-" + fingerprint(row.Client, row.DeviceName)
+	}
+	if id := strings.TrimSpace(row.DeviceID); id != "" {
+		return id
+	}
+	return "unknown"
+}
+
+func earlierTime(a, b time.Time) time.Time {
+	if a.IsZero() || (!b.IsZero() && b.Before(a)) {
+		return b
+	}
+	return a
+}
+
+func latestOptionalTime(a, b *time.Time) *time.Time {
+	if a == nil {
+		return b
+	}
+	if b != nil && b.After(*a) {
+		return b
+	}
+	return a
+}
+
 // IsDeviceKicked reports whether a (user, device) pair was kicked and should be
 // forced to re-authenticate.
 func (s *DeviceService) IsDeviceKicked(ctx context.Context, userID, deviceID string) bool {
-	if userID == "" || deviceID == "" {
+	return s.IsTerminalKicked(ctx, userID, deviceID, "", "")
+}
+
+// IsTerminalKicked reports whether a request belongs to a kicked terminal.
+func (s *DeviceService) IsTerminalKicked(ctx context.Context, userID, deviceID, deviceName, client string) bool {
+	if userID == "" {
 		return false
 	}
-	d, err := s.repo.UserDevice.Find(ctx, userID, deviceID)
+	if strings.TrimSpace(deviceID) != "" {
+		d, err := s.repo.UserDevice.Find(ctx, userID, deviceID)
+		if err == nil && d != nil {
+			return d.Kicked
+		}
+	}
+	fp := ""
+	if strings.TrimSpace(deviceName) != "" {
+		fp = fingerprint(client, deviceName)
+	}
+	if fp == "" {
+		return false
+	}
+	d, err := s.repo.UserDevice.FindByFingerprint(ctx, userID, fp)
 	return err == nil && d != nil && d.Kicked
 }
 

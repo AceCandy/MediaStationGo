@@ -47,7 +47,15 @@ func (s *TelegramBotService) cmdKick(ctx context.Context, msg *TelegramMessage, 
 	if chosen == nil {
 		return telegramCommandReply{Text: "未找到该设备。请用 <code>/devices</code> 查看设备编号后重试。"}
 	}
-	if err := s.repo.UserDevice.SetKicked(ctx, chosen.ID, true); err != nil {
+	if s.device != nil {
+		if err := s.device.KickDevice(ctx, user.ID, chosen.DeviceID); err != nil {
+			return telegramCommandReply{Text: "踢下线失败：" + err.Error()}
+		}
+	} else if fp := strings.TrimSpace(chosen.Fingerprint); fp != "" {
+		if err := s.repo.UserDevice.SetKickedByFingerprint(ctx, user.ID, fp, true); err != nil {
+			return telegramCommandReply{Text: "踢下线失败：" + err.Error()}
+		}
+	} else if err := s.repo.UserDevice.SetKicked(ctx, chosen.ID, true); err != nil {
 		return telegramCommandReply{Text: "踢下线失败：" + err.Error()}
 	}
 	return telegramCommandReply{Text: fmt.Sprintf("已踢下线：<b>%s</b>。", deviceLabel(chosen.DeviceName, chosen.Client))}
@@ -138,7 +146,15 @@ func (s *TelegramBotService) replyKick(ctx context.Context, msg *TelegramMessage
 	if err := s.repo.DB.WithContext(ctx).Where("id = ? AND user_id = ?", deviceRowID, user.ID).First(&d).Error; err != nil {
 		return telegramCommandReply{Text: "未找到该设备。"}
 	}
-	if err := s.repo.UserDevice.SetKicked(ctx, d.ID, true); err != nil {
+	if s.device != nil {
+		if err := s.device.KickDevice(ctx, user.ID, d.DeviceID); err != nil {
+			return telegramCommandReply{Text: "操作失败：" + err.Error()}
+		}
+	} else if fp := strings.TrimSpace(d.Fingerprint); fp != "" {
+		if err := s.repo.UserDevice.SetKickedByFingerprint(ctx, user.ID, fp, true); err != nil {
+			return telegramCommandReply{Text: "操作失败：" + err.Error()}
+		}
+	} else if err := s.repo.UserDevice.SetKicked(ctx, d.ID, true); err != nil {
 		return telegramCommandReply{Text: "操作失败：" + err.Error()}
 	}
 	return s.replyDevices(ctx, msg)

@@ -85,6 +85,17 @@ func testStorageConfigHandler(svc *service.Container) gin.HandlerFunc {
 			c.JSON(http.StatusOK, gin.H{"ok": false, "error": err.Error()})
 			return
 		}
+		if service.IsAdminCloudConfigurable(in.Type) {
+			enabled := true
+			if _, err := svc.StorageCfg.Save(c.Request.Context(), service.StorageInput{
+				Type:    in.Type,
+				Config:  in.Config,
+				Enabled: &enabled,
+			}); err != nil {
+				c.JSON(http.StatusOK, gin.H{"ok": false, "error": err.Error()})
+				return
+			}
+		}
 		c.JSON(http.StatusOK, gin.H{"ok": true})
 	}
 }

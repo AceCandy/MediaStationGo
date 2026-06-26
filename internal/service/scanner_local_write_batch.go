@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"path/filepath"
 
 	"go.uber.org/zap"
 
@@ -61,9 +62,27 @@ func (b *localMediaWriteBatch) Flush() {
 	if len(media) == 0 {
 		return
 	}
-	if err := b.scanner.repo.DB.WithContext(b.ctx).CreateInBatches(&media, b.limit).Error; err == nil {
-		b.res.Added += len(media)
-		for _, item := range items {
+	existingPaths := b.existingPaths(items)
+	createItems := make([]localMediaWriteItem, 0, len(items))
+	createMedia := make([]model.Media, 0, len(items))
+	for _, item := range items {
+		if item.media == nil {
+			continue
+		}
+		if existingPaths[filepath.Clean(item.media.Path)] {
+			b.upsertExistingItem(item)
+			continue
+		}
+		createItems = append(createItems, item)
+		createMedia = append(createMedia, *item.media)
+	}
+	if len(createMedia) == 0 {
+		b.publish()
+		return
+	}
+	if err := b.scanner.repo.DB.WithContext(b.ctx).CreateInBatches(&createMedia, b.limit).Error; err == nil {
+		b.res.Added += len(createMedia)
+		for _, item := range createItems {
 			if item.after != nil {
 				item.after()
 			}
@@ -71,21 +90,84 @@ func (b *localMediaWriteBatch) Flush() {
 		b.publish()
 		return
 	}
-	for _, item := range items {
+	for _, item := range createItems {
 		if item.media == nil {
 			continue
 		}
+		wasExisting := b.mediaPathExists(item.media.Path)
 		if err := b.scanner.repo.Media.Upsert(b.ctx, item.media); err != nil {
 			addScanError(b.res, item.path, err)
 			b.scanner.log.Warn("upsert media failed", zap.String("path", item.path), zap.Error(err))
 			continue
 		}
-		b.res.Added++
+		if wasExisting {
+			b.res.Updated++
+		} else {
+			b.res.Added++
+		}
 		if item.after != nil {
 			item.after()
 		}
 	}
 	b.publish()
+}
+
+func (b *localMediaWriteBatch) existingPaths(items []localMediaWriteItem) map[string]bool {
+	out := map[string]bool{}
+	if b == nil || b.scanner == nil || b.scanner.repo == nil || b.scanner.repo.DB == nil || len(items) == 0 {
+		return out
+	}
+	paths := make([]string, 0, len(items))
+	for _, item := range items {
+		if item.media == nil || item.media.Path == "" {
+			continue
+		}
+		paths = append(paths, item.media.Path)
+	}
+	if len(paths) == 0 {
+		return out
+	}
+	var rows []string
+	if err := b.scanner.repo.DB.WithContext(b.ctx).
+		Unscoped().
+		Model(&model.Media{}).
+		Where("path IN ?", paths).
+		Pluck("path", &rows).Error; err != nil {
+		b.scanner.log.Debug("load existing media paths for scan batch failed", zap.Error(err))
+		return out
+	}
+	for _, path := range rows {
+		out[filepath.Clean(path)] = true
+	}
+	return out
+}
+
+func (b *localMediaWriteBatch) upsertExistingItem(item localMediaWriteItem) {
+	if item.media == nil {
+		return
+	}
+	if err := b.scanner.repo.Media.Upsert(b.ctx, item.media); err != nil {
+		addScanError(b.res, item.path, err)
+		b.scanner.log.Warn("upsert media failed", zap.String("path", item.path), zap.Error(err))
+		return
+	}
+	b.res.Updated++
+	if item.after != nil {
+		item.after()
+	}
+}
+
+func (b *localMediaWriteBatch) mediaPathExists(path string) bool {
+	if b == nil || b.scanner == nil || b.scanner.repo == nil || b.scanner.repo.DB == nil || path == "" {
+		return false
+	}
+	var count int64
+	err := b.scanner.repo.DB.WithContext(b.ctx).
+		Unscoped().
+		Model(&model.Media{}).
+		Where("path = ?", path).
+		Count(&count).Error
+	return err == nil && count > 0
 }
 
 func (b *localMediaWriteBatch) publish() {

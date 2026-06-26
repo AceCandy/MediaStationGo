@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -187,6 +188,20 @@ func TestSchedulerRunNowAsyncRejectsDuplicateRun(t *testing.T) {
 		t.Fatalf("duplicate run error = %v, want %v", err, ErrSchedulerJobAlreadyRunning)
 	}
 	close(release)
+}
+
+func TestSchedulerStartDoesNotRegisterSubscriptionPullJob(t *testing.T) {
+	scheduler := NewSchedulerService(zap.NewNop(), nil, nil, nil, nil, nil, nil, "")
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	scheduler.Start(ctx)
+	defer scheduler.Stop()
+
+	for _, status := range scheduler.Status() {
+		if strings.Contains(status.Name, "subscription") {
+			t.Fatalf("scheduler registered subscription job %q; subscriptions must be owned by SubscriptionService only", status.Name)
+		}
+	}
 }
 
 func TestSchedulerOrganizeSourceSyncsVisibilityWhenTargetAlreadyExists(t *testing.T) {

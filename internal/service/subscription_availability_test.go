@@ -1,9 +1,11 @@
 package service
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"go.uber.org/zap"
 
@@ -38,6 +40,88 @@ func TestSubscriptionEnrichProgressIncludesPendingDownloads(t *testing.T) {
 	}
 	if items[0].DownloadedEpisodes != 1 || items[0].LocalMediaCount != 1 || items[0].TotalEpisodes != 1 {
 		t.Fatalf("unexpected enriched progress: %+v", items[0])
+	}
+}
+
+func TestSubscriptionPollIntervalDefaultsAndClampsMinimum(t *testing.T) {
+	if subscriptionStartupDelay != defaultSubscriptionPollInterval {
+		t.Fatalf("startup delay = %v, want default poll interval %v", subscriptionStartupDelay, defaultSubscriptionPollInterval)
+	}
+
+	db := newServiceTestDB(t, &model.Setting{})
+	repos := repository.New(db)
+	svc := NewSubscriptionService(nil, nil, repos, nil, nil, nil)
+	if got := svc.pollInterval(t.Context()); got != defaultSubscriptionPollInterval {
+		t.Fatalf("default poll interval = %v, want %v", got, defaultSubscriptionPollInterval)
+	}
+
+	if err := repos.Setting.Set(t.Context(), "subscription.interval_seconds", "1800"); err != nil {
+		t.Fatal(err)
+	}
+	if got := svc.pollInterval(t.Context()); got != minSubscriptionPollInterval {
+		t.Fatalf("clamped poll interval = %v, want %v", got, minSubscriptionPollInterval)
+	}
+
+	if err := repos.Setting.Set(t.Context(), "subscription.interval_seconds", "14400"); err != nil {
+		t.Fatal(err)
+	}
+	if got := svc.pollInterval(t.Context()); got != 4*time.Hour {
+		t.Fatalf("configured poll interval = %v, want 4h", got)
+	}
+}
+
+func TestSubscriptionServiceStartIsSingleLoopAndRestartable(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	svc := NewSubscriptionService(nil, zap.NewNop(), nil, nil, nil, nil)
+
+	svc.Start(ctx)
+	firstStop := subscriptionStopChannel(svc)
+	if firstStop == nil {
+		t.Fatal("first Start did not create a stop channel")
+	}
+	svc.Start(ctx)
+	if got := subscriptionStopChannel(svc); got != firstStop {
+		t.Fatal("second Start should reuse the running loop instead of starting another")
+	}
+
+	svc.Stop()
+	svc.Stop()
+	svc.Start(ctx)
+	secondStop := subscriptionStopChannel(svc)
+	if secondStop == nil {
+		t.Fatal("restart did not create a stop channel")
+	}
+	if secondStop == firstStop {
+		t.Fatal("restart should create a fresh loop after Stop")
+	}
+	svc.Stop()
+}
+
+func subscriptionStopChannel(svc *SubscriptionService) chan struct{} {
+	svc.mu.Lock()
+	defer svc.mu.Unlock()
+	return svc.stop
+}
+
+func TestMergeLocalAvailabilityKeepsLargerSeriesTotal(t *testing.T) {
+	existing := map[string]struct{}{}
+	for episode := 1; episode <= 6; episode++ {
+		existing[episodeKey(1, episode)] = struct{}{}
+	}
+
+	got := mergeLocalAvailability(
+		LocalAvailability{TotalEpisodes: 1, LocalMediaCount: 1},
+		LocalAvailability{TotalEpisodes: 33, LocalMediaCount: 6, ExistingEpisodeKeys: existing},
+	)
+	if got.TotalEpisodes != 33 {
+		t.Fatalf("TotalEpisodes = %d, want 33", got.TotalEpisodes)
+	}
+	if got.DownloadedEpisodes != 6 {
+		t.Fatalf("DownloadedEpisodes = %d, want 6", got.DownloadedEpisodes)
+	}
+	if len(got.MissingEpisodes) != 27 {
+		t.Fatalf("missing episodes = %d, want 27", len(got.MissingEpisodes))
 	}
 }
 

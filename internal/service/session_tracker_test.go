@@ -29,6 +29,44 @@ func TestSessionTrackerAppliesRealtimeActivityToUsers(t *testing.T) {
 	}
 }
 
+func TestSessionTrackerDeduplicatesAppsOnSameTerminal(t *testing.T) {
+	tracker := NewSessionTrackerService(zap.NewNop())
+	now := time.Date(2026, 6, 21, 10, 30, 0, 0, time.UTC)
+	tracker.now = func() time.Time { return now }
+	users := []model.User{{Base: model.Base{ID: "u1"}, Username: "viewer"}}
+
+	tracker.RecordActivity(t.Context(), "u1", "viewer", "infuse-device", "iPhone", "Infuse", "10.0.0.8")
+	now = now.Add(time.Minute)
+	tracker.RecordActivity(t.Context(), "u1", "viewer", "emby-device", " IPHONE ", "Emby", "10.0.0.8")
+
+	sessions := tracker.List(t.Context())
+	if len(sessions) != 1 {
+		t.Fatalf("sessions = %#v, want one merged terminal", sessions)
+	}
+	if sessions[0].DeviceID != "emby-device" || sessions[0].Client != "Emby" {
+		t.Fatalf("merged session should keep latest client details, got %#v", sessions[0])
+	}
+	tracker.ApplyToUsers(t.Context(), users)
+	if !users[0].RealtimeOnline || users[0].RealtimeDeviceCount != 1 {
+		t.Fatalf("same terminal should count as one online device, online=%v devices=%d", users[0].RealtimeOnline, users[0].RealtimeDeviceCount)
+	}
+}
+
+func TestSessionTrackerLogoutUsesLatestMergedDeviceID(t *testing.T) {
+	tracker := NewSessionTrackerService(zap.NewNop())
+	now := time.Date(2026, 6, 21, 10, 45, 0, 0, time.UTC)
+	tracker.now = func() time.Time { return now }
+
+	tracker.RecordActivity(t.Context(), "u1", "viewer", "infuse-device", "iPhone", "Infuse", "10.0.0.8")
+	now = now.Add(time.Minute)
+	tracker.RecordActivity(t.Context(), "u1", "viewer", "emby-device", "iPhone", "Emby", "10.0.0.8")
+	tracker.Logout(t.Context(), "u1", "emby-device", "10.0.0.8")
+
+	if sessions := tracker.List(t.Context()); len(sessions) != 0 {
+		t.Fatalf("merged terminal should logout by latest device id, got %#v", sessions)
+	}
+}
+
 func TestDeviceListMergesRealtimeSessions(t *testing.T) {
 	repos := newSessionTrackerTestRepos(t)
 	user := model.User{Base: model.Base{ID: "u1"}, Username: "viewer", PasswordHash: "x", Role: "user", IsActive: true}

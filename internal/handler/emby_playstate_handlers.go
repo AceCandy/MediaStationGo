@@ -39,7 +39,7 @@ func embyPlayingProgressHandler(svc *service.Container) gin.HandlerFunc {
 			return
 		}
 		clientInfo := embyClientInfoFromRequest(c)
-		if svc.Device != nil && svc.Device.IsDeviceKicked(c.Request.Context(), uid, clientInfo.DeviceID) {
+		if svc.Device != nil && svc.Device.IsTerminalKicked(c.Request.Context(), uid, clientInfo.DeviceID, clientInfo.DeviceName, clientInfo.Client) {
 			c.Status(http.StatusUnauthorized)
 			return
 		}

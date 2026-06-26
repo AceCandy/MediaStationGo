@@ -1,10 +1,18 @@
 package service
 
 import (
+	"errors"
+	"net/http"
+	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
+
+	"go.uber.org/zap"
 
 	"github.com/ShukeBta/MediaStationGo/internal/model"
+	"github.com/ShukeBta/MediaStationGo/internal/repository"
 )
 
 func TestSelectSiteSearchCandidatesPrefersSeriesPack(t *testing.T) {
@@ -116,6 +124,214 @@ func TestSelectSiteSearchCandidatesMatchesSubscriptionOriginalNameAlias(t *testi
 	got := selectSiteSearchCandidates(results, sub, map[string]struct{}{})
 	if len(got) != 1 || got[0].Download != "https://pt/download/right" {
 		t.Fatalf("selected %#v, want original-name alias match", got)
+	}
+}
+
+func TestSelectSiteSearchCandidatesTrustsMatchedSearchKeyword(t *testing.T) {
+	sub := &model.Subscription{
+		Name:          "南部档案 自动订阅",
+		Filter:        "南部档案",
+		MediaType:     "tv",
+		TotalEpisodes: 33,
+	}
+	results := []SearchResult{{
+		Title:         "Archives The Nanyang Mystery 2026 S01E29-E33 2160p WEB-DL",
+		DownloadURL:   "https://pt/download/nanyang-29-33",
+		SearchKeyword: "南部档案 2026",
+		Seeders:       90,
+	}}
+	availability := LocalAvailability{
+		TotalEpisodes: 33,
+		ExistingEpisodeKeys: map[string]struct{}{
+			episodeKey(1, 1): {},
+		},
+		MissingEpisodes: []int{2, 3, 4, 5},
+	}
+
+	got, stats := selectSiteSearchCandidatesWithStats(results, sub, map[string]struct{}{}, availability)
+	if len(got) != 1 || got[0].Download != "https://pt/download/nanyang-29-33" || !got[0].Pack {
+		t.Fatalf("selected %#v, want English pack matched by Chinese search keyword", got)
+	}
+	if stats.QueryMismatch != 0 || stats.Prepared != 1 || stats.Selected != 1 {
+		t.Fatalf("stats = %#v, want keyword-origin match without query mismatch", stats)
+	}
+}
+
+func TestDedupeSiteSearchResultsKeepsMatchedSearchKeyword(t *testing.T) {
+	sub := &model.Subscription{
+		Name:          "南部档案 自动订阅",
+		Filter:        "南部档案",
+		MediaType:     "tv",
+		TotalEpisodes: 33,
+	}
+	results := dedupeSiteSearchResults([]SearchResult{
+		{
+			SiteID:        "mteam",
+			Title:         "Archives The Nanyang Mystery 2026 S01E29-E33 2160p WEB-DL",
+			DownloadURL:   "https://pt/download/nanyang-29-33",
+			SearchKeyword: "Archives The Nanyang Mystery",
+			Seeders:       80,
+			Size:          1024,
+		},
+		{
+			SiteID:        "mteam",
+			Title:         "Archives The Nanyang Mystery 2026 S01E29-E33 2160p WEB-DL",
+			DownloadURL:   "https://pt/download/nanyang-29-33",
+			SearchKeyword: "南部档案 2026",
+			Seeders:       80,
+			Size:          1024,
+		},
+	})
+	if len(results) != 1 {
+		t.Fatalf("deduped results = %#v, want one merged result", results)
+	}
+	if !strings.Contains(results[0].SearchKeyword, "南部档案 2026") {
+		t.Fatalf("merged search keyword = %q, missing Chinese keyword", results[0].SearchKeyword)
+	}
+	availability := LocalAvailability{TotalEpisodes: 33, MissingEpisodes: []int{29, 30, 31, 32, 33}, ExistingEpisodeKeys: map[string]struct{}{episodeKey(1, 1): {}}}
+	got, stats := selectSiteSearchCandidatesWithStats(results, sub, map[string]struct{}{}, availability)
+	if len(got) != 1 || got[0].Download != "https://pt/download/nanyang-29-33" {
+		t.Fatalf("selected %#v, want merged keyword candidate", got)
+	}
+	if stats.QueryMismatch != 0 || stats.Prepared != 1 {
+		t.Fatalf("stats = %#v, want merged keyword to avoid query mismatch", stats)
+	}
+}
+
+func TestSearchSubscriptionSitesStopsAfterRateLimit(t *testing.T) {
+	var requests atomic.Int32
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"code":"0","message":"SUCCESS","data":{"total":"0","data":[]}}`))
+	}))
+	defer upstream.Close()
+
+	db := newServiceTestDB(t, &model.Site{}, &model.Setting{})
+	repos := repository.New(db)
+	siteSvc := NewSiteService(zap.NewNop(), repos, "")
+	limiter := &staticSiteAPIRateLimiter{err: &siteAPIRateLimitError{
+		Bucket:     "torrent_search_24h",
+		Limit:      1500,
+		Window:     24 * time.Hour,
+		RetryAfter: time.Hour,
+	}}
+	siteSvc.apiRateLimiter = limiter
+	if err := siteSvc.Create(t.Context(), &model.Site{
+		Name:     "馒头",
+		Type:     "mteam",
+		URL:      upstream.URL,
+		AuthType: "api_key",
+		APIKey:   "token-123",
+		Enabled:  true,
+		Timeout:  5,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	svc := NewSubscriptionService(nil, zap.NewNop(), repos, nil, siteSvc, NewHub(zap.NewNop()))
+	sub := &model.Subscription{Name: "问心2 自动订阅", Filter: "问心2", MediaType: "tv"}
+
+	_, err := svc.searchSubscriptionSites(t.Context(), sub, []string{"问心2", "问心", "问心2 2023"})
+	var limited *siteAPIRateLimitError
+	if !errors.As(err, &limited) {
+		t.Fatalf("searchSubscriptionSites error = %v, want siteAPIRateLimitError", err)
+	}
+	if limiter.calls != 1 {
+		t.Fatalf("rate limiter calls = %d, want 1 keyword attempt", limiter.calls)
+	}
+	if got := requests.Load(); got != 0 {
+		t.Fatalf("HTTP requests = %d, want 0 after local rate limit", got)
+	}
+}
+
+func TestSubscriptionRunAllStopsSweepAfterRateLimit(t *testing.T) {
+	var requests atomic.Int32
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"code":"0","message":"SUCCESS","data":{"total":"0","data":[]}}`))
+	}))
+	defer upstream.Close()
+
+	db := newServiceTestDB(t, &model.Site{}, &model.Setting{}, &model.Subscription{})
+	repos := repository.New(db)
+	siteSvc := NewSiteService(zap.NewNop(), repos, "")
+	limiter := &staticSiteAPIRateLimiter{err: &siteAPIRateLimitError{
+		Bucket:     "torrent_search_24h",
+		Limit:      1500,
+		Window:     24 * time.Hour,
+		RetryAfter: time.Hour,
+	}}
+	siteSvc.apiRateLimiter = limiter
+	if err := siteSvc.Create(t.Context(), &model.Site{
+		Name:     "馒头",
+		Type:     "mteam",
+		URL:      upstream.URL,
+		AuthType: "api_key",
+		APIKey:   "token-123",
+		Enabled:  true,
+		Timeout:  5,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"问心2 自动订阅", "南部档案 自动订阅"} {
+		sub := &model.Subscription{
+			Name:    name,
+			FeedURL: "site-search://search?keyword=" + name,
+			Filter:  name,
+			Enabled: true,
+		}
+		if err := repos.Subscription.Create(t.Context(), sub); err != nil {
+			t.Fatal(err)
+		}
+	}
+	svc := NewSubscriptionService(nil, zap.NewNop(), repos, nil, siteSvc, NewHub(zap.NewNop()))
+
+	svc.runAll(t.Context())
+	if limiter.calls != 1 {
+		t.Fatalf("rate limiter calls = %d, want sweep to stop after first quota failure", limiter.calls)
+	}
+	if got := requests.Load(); got != 0 {
+		t.Fatalf("HTTP requests = %d, want 0 after local rate limit", got)
+	}
+}
+
+func TestSubscriptionSiteSearchStopsAfterTransientSiteErrors(t *testing.T) {
+	for _, errText := range []string{
+		`search: Post "https://api.m-team.cc/api/torrent/search": context deadline exceeded`,
+		`search: Post "https://api.m-team.cc/api/torrent/search": net/http: TLS handshake timeout`,
+		`search: Post "https://api.m-team.cc/api/torrent/search": unexpected EOF`,
+		`search: Post "https://api.m-team.cc/api/torrent/search": read tcp 127.0.0.1: connection reset by peer`,
+	} {
+		if !subscriptionSiteSearchShouldStopOnError(errors.New(errText)) {
+			t.Fatalf("subscriptionSiteSearchShouldStopOnError(%q) = false, want true", errText)
+		}
+	}
+	if subscriptionSiteSearchShouldStopOnError(errors.New("temporary parser warning: no matching torrent rows")) {
+		t.Fatal("non-upstream-failure errors should not stop alias search")
+	}
+}
+
+func TestSelectSiteSearchCandidatesRejectsKeywordOriginWithConflictingYear(t *testing.T) {
+	sub := &model.Subscription{
+		Name:      "玩具总动员 5 自动订阅",
+		Filter:    "玩具总动员 5 2026",
+		MediaType: "movie",
+		Year:      2026,
+	}
+	results := []SearchResult{{
+		Title:         "Toy Story 4 2019 2160p DSNP WEB-DL",
+		DownloadURL:   "https://pt/download/toy-story-4",
+		SearchKeyword: "玩具总动员 5",
+		Seeders:       90,
+	}}
+
+	got, stats := selectSiteSearchCandidatesWithStats(results, sub, map[string]struct{}{}, LocalAvailability{})
+	if len(got) != 0 {
+		t.Fatalf("selected %#v, want conflicting-year keyword-origin result rejected", got)
+	}
+	if stats.QueryMismatch != 1 || stats.Prepared != 0 {
+		t.Fatalf("stats = %#v, want query mismatch for conflicting year", stats)
 	}
 }
 

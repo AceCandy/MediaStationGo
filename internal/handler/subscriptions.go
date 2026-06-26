@@ -2,6 +2,7 @@
 package handler
 
 import (
+	"context"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -96,8 +97,8 @@ func listSubscriptionsHandler(svc *service.Container) gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		enrichAndPersistSubscriptions(c.Request.Context(), svc, items)
 		svc.Subscription.EnrichProgress(c.Request.Context(), items)
+		go enrichAndPersistSubscriptions(context.Background(), svc, append([]model.Subscription(nil), items...))
 		c.JSON(http.StatusOK, gin.H{"items": items})
 	}
 }

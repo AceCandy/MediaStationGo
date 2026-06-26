@@ -11,28 +11,32 @@ import (
 )
 
 type subscriptionPatchReq struct {
-	Name          *string `json:"name"`
-	FeedURL       *string `json:"feed_url"`
-	Filter        *string `json:"filter"`
-	MediaType     *string `json:"media_type"`
-	MediaCategory *string `json:"media_category"`
-	SavePath      *string `json:"save_path"`
-	SearchMode    *string `json:"search_mode"`
-	IMDBID        *string `json:"imdb_id"`
-	Source        *string `json:"source"`
-	PosterURL     *string `json:"poster_url"`
-	BackdropURL   *string `json:"backdrop_url"`
-	Overview      *string `json:"overview"`
-	Resolution    *string `json:"resolution"`
-	Quality       *string `json:"quality"`
-	Effects       *string `json:"effects"`
-	ReleaseGroups *string `json:"release_groups"`
-	ExcludeWords  *string `json:"exclude_words"`
-	WashEnabled   *bool   `json:"wash_enabled"`
-	WashPriority  *string `json:"wash_priority"`
-	TotalEpisodes *int    `json:"total_episodes"`
-	Priority      *int    `json:"priority"`
-	Enabled       *bool   `json:"enabled"`
+	Name          *string  `json:"name"`
+	FeedURL       *string  `json:"feed_url"`
+	Filter        *string  `json:"filter"`
+	MediaType     *string  `json:"media_type"`
+	MediaCategory *string  `json:"media_category"`
+	SavePath      *string  `json:"save_path"`
+	SearchMode    *string  `json:"search_mode"`
+	IMDBID        *string  `json:"imdb_id"`
+	Source        *string  `json:"source"`
+	PosterURL     *string  `json:"poster_url"`
+	BackdropURL   *string  `json:"backdrop_url"`
+	Overview      *string  `json:"overview"`
+	OriginalName  *string  `json:"original_name"`
+	Year          *int     `json:"year"`
+	Rating        *float32 `json:"rating"`
+	Genres        *string  `json:"genres"`
+	Resolution    *string  `json:"resolution"`
+	Quality       *string  `json:"quality"`
+	Effects       *string  `json:"effects"`
+	ReleaseGroups *string  `json:"release_groups"`
+	ExcludeWords  *string  `json:"exclude_words"`
+	WashEnabled   *bool    `json:"wash_enabled"`
+	WashPriority  *string  `json:"wash_priority"`
+	TotalEpisodes *int     `json:"total_episodes"`
+	Priority      *int     `json:"priority"`
+	Enabled       *bool    `json:"enabled"`
 }
 
 // updateSubscriptionHandler patches a subscription row.
@@ -96,6 +100,18 @@ func subscriptionPatchUpdates(patch subscriptionPatchReq) map[string]any {
 	}
 	if patch.Overview != nil {
 		updates["overview"] = *patch.Overview
+	}
+	if patch.OriginalName != nil {
+		updates["original_name"] = *patch.OriginalName
+	}
+	if patch.Year != nil {
+		updates["year"] = *patch.Year
+	}
+	if patch.Rating != nil {
+		updates["rating"] = *patch.Rating
+	}
+	if patch.Genres != nil {
+		updates["genres"] = *patch.Genres
 	}
 	if patch.Resolution != nil {
 		updates["resolution"] = *patch.Resolution

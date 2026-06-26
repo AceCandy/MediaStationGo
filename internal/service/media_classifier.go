@@ -477,6 +477,19 @@ func subscriptionMetadataQueries(title string, sub *model.Subscription) []string
 }
 
 func subscriptionMetadataLibraryTypes(mediaType, title string) []string {
+	if strings.TrimSpace(mediaType) == "" {
+		text := strings.ToLower(title)
+		switch {
+		case classifierEpisodeRE.MatchString(text) || classifierSeasonRE.MatchString(text):
+			return []string{"tv", "anime", "movie"}
+		case containsAnyText(text, "动漫", "动画", "anime", "bangumi"):
+			return []string{"anime", "tv", "movie"}
+		case containsAnyText(text, "电影", "movie", "film"):
+			return []string{"movie", "tv", "anime"}
+		default:
+			return []string{"tv", "movie", "anime"}
+		}
+	}
 	switch normalizeMediaType(mediaType, title, "") {
 	case "movie":
 		return []string{"movie"}

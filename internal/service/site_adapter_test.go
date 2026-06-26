@@ -180,10 +180,10 @@ func TestBuildRequestAPIKeyHeaderBySite(t *testing.T) {
 	}
 }
 
-func TestMTeamPublishedAPIRateLimits(t *testing.T) {
+func TestMTeamAPIRateLimits(t *testing.T) {
 	search := mteamAPIRateLimits(mteamAPIEndpointSearch)
-	if len(search) != 1 || search[0].Limit != 1000 || search[0].Window != 24*time.Hour {
-		t.Fatalf("search limits = %#v, want 1000/24h", search)
+	if len(search) != 1 || search[0].Limit != 1500 || search[0].Window != 24*time.Hour {
+		t.Fatalf("search limits = %#v, want 1500/24h", search)
 	}
 	detail := mteamAPIRateLimits(mteamAPIEndpointDetail)
 	if len(detail) != 1 || detail[0].Limit != 100 || detail[0].Window != time.Hour {

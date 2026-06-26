@@ -81,7 +81,9 @@ func (t *TMDbProvider) SearchMovieCandidates(ctx context.Context, query string, 
 	}
 	out := make([]*Match, 0, len(p.Results))
 	for _, r := range p.Results {
-		out = append(out, t.movieSearchResultToMatch(r))
+		match := t.movieSearchResultToMatch(r)
+		match.SearchKeyword = query
+		out = append(out, match)
 	}
 	return out, nil
 }
@@ -154,7 +156,9 @@ func (t *TMDbProvider) SearchTVCandidates(ctx context.Context, query string, yea
 	}
 	out := make([]*Match, 0, len(p.Results))
 	for _, r := range p.Results {
-		out = append(out, t.tvSearchResultToMatch(r))
+		match := t.tvSearchResultToMatch(r)
+		match.SearchKeyword = query
+		out = append(out, match)
 	}
 	return out, nil
 }

@@ -176,6 +176,12 @@ func (p *cloudDrive2Provider) decorateDAVStatusError(resp *http.Response, target
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 	detail := compactDAVErrorBody(string(body))
 	if detail == "" {
+		if resp.StatusCode == http.StatusMethodNotAllowed {
+			return fmt.Errorf("%s: list %s returned http %d；请确认填写的是 WebDAV 地址（通常以 /dav 结尾），并且桥接网盘已在 OpenList/CloudDrive2 内完成登录或 Cookie 保存", p.name, target, resp.StatusCode)
+		}
+		if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+			return fmt.Errorf("%s: list %s returned http %d；请填写 OpenList/CloudDrive2 的 Token 或用户名密码，或确认 WebDAV 凭据可用", p.name, target, resp.StatusCode)
+		}
 		return fmt.Errorf("%s: list %s returned http %d", p.name, target, resp.StatusCode)
 	}
 	if resp.StatusCode == http.StatusMethodNotAllowed {

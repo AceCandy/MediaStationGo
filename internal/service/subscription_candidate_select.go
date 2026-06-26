@@ -38,14 +38,15 @@ func selectPreparedSubscriptionCandidatesWithStats(candidates []siteSearchCandid
 		return recordPreparedSelection(candidates[:1], stats)
 	}
 
-	if local.HasSeriesPack {
+	if localSeriesPackSatisfiesSubscription(local) {
 		if stats != nil {
 			stats.LocalSeriesPackPresent = true
 		}
 		return recordPreparedSelection(nil, stats)
 	}
 	if local.LocalMediaCount > 0 {
-		if local.TotalEpisodes > 0 && len(local.MissingEpisodes) == 0 {
+		trustedTotal := trustedAvailabilityTotal(local)
+		if trustedTotal > 0 && len(local.MissingEpisodes) == 0 {
 			if stats != nil {
 				stats.SeriesComplete = true
 			}
@@ -81,7 +82,7 @@ func selectPreparedSubscriptionCandidatesWithStats(candidates []siteSearchCandid
 				}
 				continue
 			}
-			if local.TotalEpisodes > 0 {
+			if trustedTotal > 0 {
 				if _, missing := missingSet[candidate.Episode]; !missing {
 					if stats != nil {
 						stats.NotMissingEpisodeSkipped++
@@ -121,4 +122,29 @@ func recordPreparedSelection(candidates []siteSearchCandidate, stats *siteSearch
 		stats.Selected = len(candidates)
 	}
 	return candidates
+}
+
+func localSeriesPackSatisfiesSubscription(local LocalAvailability) bool {
+	if !local.HasSeriesPack {
+		return false
+	}
+	total := trustedAvailabilityTotal(local)
+	if total <= 0 {
+		return len(local.ExistingEpisodeKeys) == 0
+	}
+	if len(local.MissingEpisodes) > 0 {
+		return false
+	}
+	return len(local.ExistingEpisodeKeys) >= total
+}
+
+func trustedAvailabilityTotal(local LocalAvailability) int {
+	total := local.TotalEpisodes
+	if total <= 0 {
+		return 0
+	}
+	if maxEpisode := maxAvailabilityEpisode(local.ExistingEpisodeKeys); maxEpisode > total {
+		return 0
+	}
+	return total
 }

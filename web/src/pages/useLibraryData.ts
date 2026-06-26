@@ -156,7 +156,7 @@ async function loadAllMedia(
   let page = 1
   let collected: Media[] = []
   for (;;) {
-    const data = await libraryAPI.listMedia(libraryID, page, pageSize, { groupVersions: false })
+    const data = await libraryAPI.listMedia(libraryID, page, pageSize)
     collected = collected.concat(data.items)
     onPage({ items: collected, total: data.total, firstPage: page === 1 })
     if (collected.length >= data.total || data.items.length < pageSize) break

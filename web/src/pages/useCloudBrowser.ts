@@ -13,7 +13,7 @@ import { useCloudBrowserFileActions } from './useCloudBrowserFileActions'
 import { useCloudBrowserMounts } from './useCloudBrowserMounts'
 import { useCloudBrowserScan } from './useCloudBrowserScan'
 
-export function useCloudBrowser(type: StorageType) {
+export function useCloudBrowser(type: StorageType, enabled = true) {
   const [stack, setStack] = useState<{ id: string; name: string }[]>([{ id: '', name: '根目录' }])
   const [items, setItems] = useState<CloudEntry[]>([])
   const [mounts, setMounts] = useState<Library[]>([])
@@ -23,6 +23,12 @@ export function useCloudBrowser(type: StorageType) {
 
   const cur = stack[stack.length - 1]
   const load = useCallback(async (dir: string) => {
+    if (!enabled) {
+      setItems([])
+      setError('该外部存储未启用，勾选启用并保存后再刷新资源')
+      setLoading(false)
+      return
+    }
     setLoading(true)
     setError('')
     try {
@@ -35,7 +41,7 @@ export function useCloudBrowser(type: StorageType) {
     } finally {
       setLoading(false)
     }
-  }, [type])
+  }, [enabled, type])
 
   const loadMounts = useCallback(async () => {
     const libs = await libraryAPI.list({ includeHidden: true })
