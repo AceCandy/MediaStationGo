@@ -16,13 +16,22 @@ export function SubscriptionsPage() {
   const [editingId, setEditingId] = useState('')
   const [loading, setLoading] = useState(true)
 
-  const refresh = () =>
-    Promise.all([subscriptionsAPI.list(), subscriptionsAPI.history()])
-      .then(([active, history]) => {
-        setItems(active)
-        setHistoryItems(history)
-      })
-      .finally(() => setLoading(false))
+  const refresh = async () => {
+    setLoading(true)
+    void subscriptionsAPI
+      .history()
+      .then(setHistoryItems)
+      .catch(() => toast.error('订阅历史加载失败'))
+
+    try {
+      const active = await subscriptionsAPI.list()
+      setItems(active)
+    } catch {
+      toast.error('订阅列表加载失败')
+    } finally {
+      setLoading(false)
+    }
+  }
 
   useEffect(() => {
     refresh().catch(() => undefined)

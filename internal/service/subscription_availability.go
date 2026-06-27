@@ -45,22 +45,68 @@ func (s *SubscriptionService) EnrichProgress(ctx context.Context, items []model.
 			SubscriptionLocalAvailability(ctx, s.repo, &items[i]),
 			s.pendingDownloadAvailability(ctx, &items[i]),
 		)
-		items[i].DownloadedEpisodes = availability.DownloadedEpisodes
-		items[i].LocalMediaCount = availability.LocalMediaCount
-		items[i].MissingEpisodes = availability.MissingEpisodes
-		items[i].InLibrary = availability.InLibrary
-		if items[i].TotalEpisodes == 0 {
-			items[i].TotalEpisodes = availability.TotalEpisodes
-		}
+		applySubscriptionAvailability(&items[i], availability)
 	}
 }
 
-func (s *SubscriptionService) addDownloadTaskAvailability(ctx context.Context, sub *model.Subscription, queries []string, out *LocalAvailability) {
-	if s == nil || s.repo == nil || s.repo.Download == nil || out == nil {
+func (s *SubscriptionService) EnrichManagementProgress(ctx context.Context, items []model.Subscription) {
+	rows := s.downloadTaskRowsForAvailability(ctx)
+	for i := range items {
+		availability := mergeLocalAvailability(
+			SubscriptionLocalAvailability(ctx, s.repo, &items[i]),
+			s.pendingDownloadTaskAvailability(ctx, &items[i], rows, false),
+		)
+		applySubscriptionAvailability(&items[i], availability)
+	}
+}
+
+func applySubscriptionAvailability(sub *model.Subscription, availability LocalAvailability) {
+	if sub == nil {
 		return
+	}
+	sub.DownloadedEpisodes = availability.DownloadedEpisodes
+	sub.LocalMediaCount = availability.LocalMediaCount
+	sub.MissingEpisodes = availability.MissingEpisodes
+	sub.InLibrary = availability.InLibrary
+	if sub.TotalEpisodes == 0 {
+		sub.TotalEpisodes = availability.TotalEpisodes
+	}
+}
+
+func (s *SubscriptionService) downloadTaskRowsForAvailability(ctx context.Context) []model.DownloadTask {
+	if s == nil || s.repo == nil || s.repo.Download == nil {
+		return nil
 	}
 	rows, err := s.repo.Download.List(ctx)
 	if err != nil {
+		return nil
+	}
+	return rows
+}
+
+func (s *SubscriptionService) addDownloadTaskAvailability(ctx context.Context, sub *model.Subscription, queries []string, out *LocalAvailability) {
+	rows := s.downloadTaskRowsForAvailability(ctx)
+	s.addDownloadTaskRowsAvailability(ctx, sub, queries, rows, true, out)
+}
+
+func (s *SubscriptionService) pendingDownloadTaskAvailability(ctx context.Context, sub *model.Subscription, rows []model.DownloadTask, verifyLive bool) LocalAvailability {
+	out := LocalAvailability{
+		ExistingEpisodeKeys: map[string]struct{}{},
+		MissingEpisodeKeys:  map[string]struct{}{},
+	}
+	if sub != nil {
+		out.TotalEpisodes = sub.TotalEpisodes
+	}
+	queries := subscriptionAvailabilityQueries(sub)
+	if len(queries) == 0 {
+		return s.finalizePendingAvailability(sub, out)
+	}
+	s.addDownloadTaskRowsAvailability(ctx, sub, queries, rows, verifyLive, &out)
+	return s.finalizePendingAvailability(sub, out)
+}
+
+func (s *SubscriptionService) addDownloadTaskRowsAvailability(ctx context.Context, sub *model.Subscription, queries []string, rows []model.DownloadTask, verifyLive bool, out *LocalAvailability) {
+	if out == nil {
 		return
 	}
 	baseSavePath := s.subscriptionBaseSavePath(ctx, sub)
@@ -68,7 +114,7 @@ func (s *SubscriptionService) addDownloadTaskAvailability(ctx context.Context, s
 		if !downloadTaskBlocksReadd(row.Status) {
 			continue
 		}
-		if !s.downloadTaskCountsAsPending(ctx, row) {
+		if verifyLive && !s.downloadTaskCountsAsPending(ctx, row) {
 			continue
 		}
 		linkedToSubscription := sub != nil && strings.TrimSpace(row.SubscriptionID) != "" && row.SubscriptionID == sub.ID

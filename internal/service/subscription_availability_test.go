@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -40,6 +41,49 @@ func TestSubscriptionEnrichProgressIncludesPendingDownloads(t *testing.T) {
 	}
 	if items[0].DownloadedEpisodes != 1 || items[0].LocalMediaCount != 1 || items[0].TotalEpisodes != 1 {
 		t.Fatalf("unexpected enriched progress: %+v", items[0])
+	}
+}
+
+func TestSubscriptionEnrichManagementProgressSkipsLiveQB(t *testing.T) {
+	var qbCalls int32
+	qb := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&qbCalls, 1)
+		http.Error(w, "management enrichment should not call qb", http.StatusInternalServerError)
+	}))
+	defer qb.Close()
+
+	db := newServiceTestDB(t, &model.DownloadTask{}, &model.Media{})
+	repos := repository.New(db)
+	sub := model.Subscription{
+		Base:          model.Base{ID: "sub-spy-family"},
+		Name:          "间谍过家家 自动订阅",
+		Filter:        "间谍过家家",
+		MediaType:     "tv",
+		SavePath:      "/downloads/tv",
+		TotalEpisodes: 2,
+	}
+	if err := repos.Download.Create(t.Context(), &model.DownloadTask{
+		SubscriptionID: sub.ID,
+		Source:         "qbittorrent",
+		URL:            "magnet:?xt=urn:btih:5555555555555555555555555555555555555555",
+		Title:          "间谍过家家 S01E01 1080p",
+		SavePath:       "/downloads/tv",
+		Status:         "downloading",
+		Progress:       0.4,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	downloads := NewDownloadService(zap.NewNop(), repos, NewHub(zap.NewNop()), nil)
+	downloads.qb.Configure(QBitConfig{BaseURL: qb.URL, Username: "admin", Password: "admin"})
+	svc := NewSubscriptionService(nil, nil, repos, downloads, nil, nil)
+	items := []model.Subscription{sub}
+
+	svc.EnrichManagementProgress(t.Context(), items)
+	if got := atomic.LoadInt32(&qbCalls); got != 0 {
+		t.Fatalf("management progress called qb %d times, want 0", got)
+	}
+	if items[0].DownloadedEpisodes != 1 || items[0].LocalMediaCount != 1 {
+		t.Fatalf("unexpected management progress: %+v", items[0])
 	}
 }
 
