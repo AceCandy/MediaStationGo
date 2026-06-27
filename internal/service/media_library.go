@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/ShukeBta/MediaStationGo/internal/model"
+	"gorm.io/gorm"
 )
 
 // ListLibraries returns every library configured on the server.
@@ -20,24 +21,39 @@ func (s *MediaService) DeleteLibrary(ctx context.Context, id string) error {
 	}
 	if lib != nil {
 		if _, ok := ParseCloudLibraryMount(lib.Path); ok {
-			if err := s.repo.Media.PurgeByLibrary(ctx, id); err != nil {
-				return err
-			}
-			_ = s.repo.DB.WithContext(ctx).Where("library_id = ?", id).Delete(&model.LibraryRoot{}).Error
-			err := s.repo.DB.WithContext(ctx).Unscoped().Where("id = ?", id).Delete(&model.Library{}).Error
+			err := s.repo.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+				if err := tx.Unscoped().Where("library_id = ?", id).Delete(&model.Media{}).Error; err != nil {
+					return err
+				}
+				if err := hardDeleteLibraryRoots(ctx, tx, id); err != nil {
+					return err
+				}
+				return tx.Unscoped().Where("id = ?", id).Delete(&model.Library{}).Error
+			})
 			if err == nil {
 				s.invalidateMediaCache(ctx)
 			}
 			return err
 		}
 	}
-	_ = s.repo.DB.WithContext(ctx).Where("library_id = ?", id).Delete(&model.LibraryRoot{}).Error
-	if err := s.repo.Media.DeleteByLibrary(ctx, id); err != nil {
-		return err
-	}
-	err = s.repo.Library.Delete(ctx, id)
+	err = s.repo.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("library_id = ?", id).Delete(&model.Media{}).Error; err != nil {
+			return err
+		}
+		if err := hardDeleteLibraryRoots(ctx, tx, id); err != nil {
+			return err
+		}
+		return tx.Delete(&model.Library{}, "id = ?", id).Error
+	})
 	if err == nil {
 		s.invalidateMediaCache(ctx)
 	}
 	return err
+}
+
+func hardDeleteLibraryRoots(ctx context.Context, tx *gorm.DB, libraryID string) error {
+	if tx == nil || !tx.Migrator().HasTable(&model.LibraryRoot{}) {
+		return nil
+	}
+	return tx.WithContext(ctx).Unscoped().Where("library_id = ?", libraryID).Delete(&model.LibraryRoot{}).Error
 }

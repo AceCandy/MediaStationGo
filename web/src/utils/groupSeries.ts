@@ -99,8 +99,9 @@ export function isSeriesCard(card: SeriesCard): boolean {
 }
 
 export function seriesTitle(media: Media): string {
+  const title = media.title?.trim()
   const fromPath = seriesTitleFromPath(media.path)
-  return fromPath || media.title || media.original_name || '未命名节目'
+  return (title && !unsafeEpisodeTitle(title) ? title : '') || fromPath || media.original_name || title || '未命名节目'
 }
 
 function normalizeTitle(value?: string): string {

@@ -1,6 +1,7 @@
 package service
 
 import (
+	"path/filepath"
 	"testing"
 
 	"go.uber.org/zap"
@@ -10,11 +11,61 @@ import (
 	"github.com/ShukeBta/MediaStationGo/internal/repository"
 )
 
+func TestDeleteLibraryHardDeletesLibraryRoots(t *testing.T) {
+	db := newServiceTestDB(t, &model.Library{}, &model.LibraryRoot{}, &model.Media{})
+	repos := repository.New(db)
+	rootA := filepath.Join(t.TempDir(), "movies-a")
+	rootB := filepath.Join(t.TempDir(), "movies-b")
+	lib := &model.Library{Name: "电影", Path: rootA, Type: "movie", Enabled: true}
+	if err := repos.Library.CreateWithRoots(t.Context(), lib, []model.LibraryRoot{
+		{Path: rootA, Enabled: true, SortOrder: 0},
+		{Path: rootB, Enabled: true, SortOrder: 1},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := repos.Media.Upsert(t.Context(), &model.Media{
+		LibraryID:     lib.ID,
+		LibraryRootID: lib.Roots[0].ID,
+		Title:         "测试电影",
+		Path:          filepath.Join(rootA, "movie.mkv"),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	svc := NewMediaService(&config.Config{}, zap.NewNop(), repos)
+	if err := svc.DeleteLibrary(t.Context(), lib.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	var rootCount int64
+	if err := db.Unscoped().Model(&model.LibraryRoot{}).Where("library_id = ?", lib.ID).Count(&rootCount).Error; err != nil {
+		t.Fatal(err)
+	}
+	if rootCount != 0 {
+		t.Fatalf("library roots should be hard deleted, count=%d", rootCount)
+	}
+	var visibleLibraryCount int64
+	if err := db.Model(&model.Library{}).Where("id = ?", lib.ID).Count(&visibleLibraryCount).Error; err != nil {
+		t.Fatal(err)
+	}
+	if visibleLibraryCount != 0 {
+		t.Fatalf("deleted library should not remain visible, count=%d", visibleLibraryCount)
+	}
+}
+
 func TestDeleteCloudLibraryPurgesMountWithoutRecycleBin(t *testing.T) {
-	db := newServiceTestDB(t, &model.Library{}, &model.Media{})
+	db := newServiceTestDB(t, &model.Library{}, &model.LibraryRoot{}, &model.Media{})
 	repos := repository.New(db)
 	lib := model.Library{Name: "OpenList · 剑来", Path: "cloud://openlist/Anime/JianLai", Type: "anime", Enabled: true}
 	if err := repos.Library.Create(t.Context(), &lib); err != nil {
+		t.Fatal(err)
+	}
+	if err := repos.DB.Create(&model.LibraryRoot{
+		LibraryID: lib.ID,
+		Name:      "JianLai",
+		Path:      lib.Path,
+		Enabled:   true,
+	}).Error; err != nil {
 		t.Fatal(err)
 	}
 	if err := repos.Media.Upsert(t.Context(), &model.Media{
@@ -51,6 +102,13 @@ func TestDeleteCloudLibraryPurgesMountWithoutRecycleBin(t *testing.T) {
 	}
 	if libCount != 0 {
 		t.Fatalf("cloud mount library should be purged, count=%d", libCount)
+	}
+	var rootCount int64
+	if err := db.Unscoped().Model(&model.LibraryRoot{}).Where("library_id = ?", lib.ID).Count(&rootCount).Error; err != nil {
+		t.Fatal(err)
+	}
+	if rootCount != 0 {
+		t.Fatalf("cloud mount roots should be purged, count=%d", rootCount)
 	}
 }
 

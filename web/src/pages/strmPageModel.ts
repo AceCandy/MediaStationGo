@@ -58,6 +58,8 @@ export function inferSTRMOutputRoot(saved: string, libraries: Library[]) {
     }
     if (slashSaved === toSlash(subdir).toLowerCase()) return ''
   }
+  const inferredBySTRMRoot = stripLibraryCategoryAfterSTRMRoot(normalized)
+  if (inferredBySTRMRoot) return inferredBySTRMRoot
   return normalized
 }
 
@@ -131,6 +133,20 @@ function categoryRootFor(part: string) {
 
 function splitPath(raw: string) {
   return raw.split('/').map((part) => part.trim()).filter((part) => part && part !== '.')
+}
+
+function stripLibraryCategoryAfterSTRMRoot(raw: string) {
+  const normalized = toSlash(raw)
+  const parts = normalized.split('/')
+  let strmIndex = -1
+  for (let index = 0; index < parts.length; index += 1) {
+    if (parts[index].trim().toLowerCase() === 'strm') strmIndex = index
+  }
+  if (strmIndex < 0 || strmIndex >= parts.length - 1) return ''
+  const tail = parts.slice(strmIndex + 1).filter((part) => part.trim())
+  const categoryParts = categoryPartsFromPath(tail)
+  if (!categoryParts?.length) return ''
+  return trimPath(parts.slice(0, strmIndex + 1).join('/'))
 }
 
 function joinPath(root: string, ...parts: string[]) {
