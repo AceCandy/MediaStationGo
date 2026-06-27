@@ -247,6 +247,24 @@ func TestParseNexusPHPHTMLModernRows(t *testing.T) {
 	}
 }
 
+func TestParseNexusPHPHTMLIgnoresUserDetailsLinks(t *testing.T) {
+	page := `
+<table>
+  <tr><td><a href="userdetails.php?id=31044">shukBeta</a></td><td>15.5 GiB</td></tr>
+  <tr><td><a href="/details.php?id=789" title="问心 S01 1080p">问心</a><a href="/download.php?id=789">下载</a></td><td>1.5 GiB</td></tr>
+</table>`
+	result, err := parseNexusPHPHTML(page, "Nexus", "https://pt.example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Items) != 1 {
+		t.Fatalf("items = %#v, want only real torrent details row", result.Items)
+	}
+	if result.Items[0].ID != "789" || result.Items[0].Title != "问心 S01 1080p" {
+		t.Fatalf("parsed item = %#v", result.Items[0])
+	}
+}
+
 func TestMTeamAPIRateLimits(t *testing.T) {
 	search := mteamAPIRateLimits(mteamAPIEndpointSearch)
 	if len(search) != 1 || search[0].Limit != 1500 || search[0].Window != 24*time.Hour {

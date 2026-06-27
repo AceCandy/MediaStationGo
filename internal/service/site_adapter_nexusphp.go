@@ -217,14 +217,14 @@ func nexusPHPTorrentRows(pageHTML string) []string {
 }
 
 func firstNexusPHPLink(row, path string) *nexusPHPLink {
-	pattern := regexp.MustCompile(`(?is)<a\b([^>]*href\s*=\s*["']([^"']*` + regexp.QuoteMeta(path) + `[^"']*)["'][^>]*)>(.*?)</a>`)
+	pattern := regexp.MustCompile(`(?is)<a\b([^>]*href\s*=\s*["']([^"']*)["'][^>]*)>(.*?)</a>`)
 	for _, match := range pattern.FindAllStringSubmatch(row, -1) {
 		if len(match) < 4 {
 			continue
 		}
 		href := html.UnescapeString(strings.TrimSpace(match[2]))
 		parsed, err := url.Parse(href)
-		if err != nil {
+		if err != nil || !nexusPHPLinkPathMatches(parsed, path) {
 			continue
 		}
 		return &nexusPHPLink{
@@ -235,6 +235,22 @@ func firstNexusPHPLink(row, path string) *nexusPHPLink {
 		}
 	}
 	return nil
+}
+
+func nexusPHPLinkPathMatches(parsed *url.URL, want string) bool {
+	if parsed == nil {
+		return false
+	}
+	path := strings.TrimSpace(parsed.Path)
+	if path == "" {
+		path = strings.TrimSpace(parsed.Opaque)
+	}
+	path = strings.Trim(strings.ToLower(path), "/")
+	want = strings.Trim(strings.ToLower(strings.TrimSpace(want)), "/")
+	if path == "" || want == "" {
+		return false
+	}
+	return path == want || strings.HasSuffix(path, "/"+want)
 }
 
 func nexusPHPTitleFromLink(link nexusPHPLink) string {

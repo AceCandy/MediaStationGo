@@ -1,5 +1,6 @@
 import type { Library } from '../types'
 import { EpisodeArtworkToggle } from '../components/EpisodeArtworkToggle'
+import { libraryDisplayPath } from './libraryDisplayModel'
 
 type LibraryPageHeaderProps = {
   library: Library | null
@@ -32,6 +33,8 @@ export function LibraryPageHeader({
   onScrape,
   onRepairRescrape,
 }: LibraryPageHeaderProps) {
+  const displayPath = library ? libraryDisplayPath(library.path) : ''
+
   return (
     <div className="flex flex-wrap items-center justify-between gap-3">
       <div>
@@ -39,7 +42,7 @@ export function LibraryPageHeader({
           {library?.name ?? '媒体库'}
           <span className="text-sand-500"> ({itemCount})</span>
         </h1>
-        {library && <p className="text-sm text-ink-50">{library.type} · {library.path}</p>}
+        {library && <p className="text-sm text-ink-50" title={library.path}>{library.type} · {displayPath}</p>}
         {loadingAllText && <p className="mt-1 text-xs text-sand-500">{loadingAllText}</p>}
         {scanProgress && <p className="mt-1 text-xs text-brand-500">{scanProgress}</p>}
       </div>

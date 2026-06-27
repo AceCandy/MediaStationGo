@@ -7,6 +7,7 @@ import { imageURL } from '../api/client'
 import { EpisodeArtworkToggle } from '../components/EpisodeArtworkToggle'
 import { MediaCard } from '../components/MediaCard'
 import { artworkScore, seriesCardLink, type SeriesCard } from '../utils/groupSeries'
+import { libraryDisplayPath } from './libraryDisplayModel'
 import { mediaTime, type LibraryPreview } from './librariesPageModel'
 
 const TYPE_ICONS: Record<string, ReactNode> = {
@@ -127,6 +128,7 @@ export function LibrariesContent({ previews }: { previews: LibraryPreview[] }) {
 function LibraryEntryCard({ preview }: { preview: LibraryPreview }) {
   const library = preview.library
   const artwork = libraryArtworkItems(preview.cards)
+  const displayPath = libraryDisplayPath(library.path)
 
   return (
     <Link
@@ -160,7 +162,9 @@ function LibraryEntryCard({ preview }: { preview: LibraryPreview }) {
           <h2 className="truncate font-display text-xl font-black text-ink-600 group-hover:text-brand-600">
             {library.name}
           </h2>
-          <p className="mt-1 line-clamp-1 break-all text-xs text-ink-50">{library.path}</p>
+          <p className="mt-1 line-clamp-1 break-all text-xs text-ink-50" title={library.path}>
+            {displayPath}
+          </p>
         </div>
         <div className="flex items-center justify-between text-xs font-bold">
           <span className="text-sand-600">{preview.total.toLocaleString()} 个条目</span>
@@ -174,6 +178,7 @@ function LibraryEntryCard({ preview }: { preview: LibraryPreview }) {
 function LibraryShelf({ preview }: { preview: LibraryPreview }) {
   const library = preview.library
   const cards = preview.cards.slice(0, 10)
+  const displayPath = libraryDisplayPath(library.path)
 
   return (
     <section className="rounded-[1.7rem] border border-sand-200 bg-white/75 p-4 shadow-card">
@@ -185,7 +190,7 @@ function LibraryShelf({ preview }: { preview: LibraryPreview }) {
           </div>
           <h2 className="truncate font-display text-2xl font-black text-ink-600">{library.name}</h2>
           <p className="mt-1 line-clamp-1 break-all text-xs text-ink-50">
-            {library.path} · {preview.total.toLocaleString()} 个条目 · 最新 {cards.length} 部
+            <span title={library.path}>{displayPath}</span> · {preview.total.toLocaleString()} 个条目 · 最新 {cards.length} 部
           </p>
         </div>
         <Link to={`/library/${library.id}`} className="btn-outline shrink-0">
