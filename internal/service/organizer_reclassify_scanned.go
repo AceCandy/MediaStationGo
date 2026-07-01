@@ -167,7 +167,7 @@ func (o *OrganizerService) reclassifyScannedMedia(ctx context.Context, media mod
 		return false, nil
 	}
 
-	baseRoot := normalizeOrganizeDestinationRoot(requestedBaseRoot)
+	baseRoot := normalizeMappedOrganizeDestinationRoot(requestedBaseRoot)
 	targetLibrary, matched := o.organizeLibraryForLayout(ctx, baseRoot, mediaType, category)
 	if !matched || strings.TrimSpace(targetLibrary.ID) == "" || strings.TrimSpace(targetLibrary.Path) == "" {
 		targetRoot := categoryRoot(o.organizeRoot(baseRoot, mediaType, category), category)

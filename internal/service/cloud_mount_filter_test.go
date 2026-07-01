@@ -1,6 +1,7 @@
 package service
 
 import (
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -349,6 +350,44 @@ func TestListMediaVisibleUsesSpecificCloudChildLibraryAsDisplayTarget(t *testing
 	}
 	if items[0].DisplayLibraryPath != child.Path {
 		t.Fatalf("display library path = %q, want %q", items[0].DisplayLibraryPath, child.Path)
+	}
+}
+
+func TestGetMediaUsesMappedLocalCategoryLibraryAsDisplayTarget(t *testing.T) {
+	containerRoot := filepath.Join(t.TempDir(), "media")
+	t.Setenv("MEDIASTATION_MEDIA_CONTAINER_DIR", containerRoot)
+
+	db := newServiceTestDB(t, &model.Library{}, &model.Media{})
+	repos := repository.New(db)
+	parent := model.Library{Name: "电视剧", Path: containerRoot, Type: "tv", Enabled: true}
+	child := model.Library{Name: "国产剧", Path: filepath.Join("media", "电视剧", "国产剧"), Type: "tv", Enabled: true}
+	for _, lib := range []*model.Library{&parent, &child} {
+		if err := repos.Library.Create(t.Context(), lib); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mediaPath := filepath.Join(containerRoot, "电视剧", "国产剧", "剧集", "Season 01", "剧集 - S01E01.mkv")
+	if err := repos.DB.Create(&model.Media{
+		Base:       model.Base{ID: "media-1"},
+		LibraryID:  parent.ID,
+		Title:      "剧集",
+		Path:       mediaPath,
+		SeasonNum:  1,
+		EpisodeNum: 1,
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	svc := NewMediaService(&config.Config{}, zap.NewNop(), repos)
+
+	got, err := svc.GetMedia(t.Context(), "media-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.DisplayLibraryID != child.ID {
+		t.Fatalf("display library = %q, want mapped child library %q", got.DisplayLibraryID, child.ID)
+	}
+	if got.DisplayLibraryPath != filepath.Clean(filepath.Join(containerRoot, "电视剧", "国产剧")) {
+		t.Fatalf("display library path = %q, want mapped child path", got.DisplayLibraryPath)
 	}
 }
 

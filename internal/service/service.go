@@ -88,6 +88,12 @@ func New(cfg *config.Config, log *zap.Logger, repos *repository.Container) *Cont
 // Boot 启动后台工作进程（watcher, downloads poller, subscription scheduler）。
 // 在 AutoMigrate 后调用一次。
 func (c *Container) Boot() {
+	if err := c.NormalizeLocalLibraryPaths(c.stopCtx); err != nil {
+		c.Log.Warn("normalize local library paths failed", zap.Error(err))
+	}
+	if err := c.NormalizeCloudLibraryTypes(c.stopCtx); err != nil {
+		c.Log.Warn("normalize cloud library types failed", zap.Error(err))
+	}
 	if err := c.Watcher.Start(c.stopCtx); err != nil {
 		c.Log.Warn("watcher start failed", zap.Error(err))
 	}
@@ -95,9 +101,6 @@ func (c *Container) Boot() {
 	c.Subscription.Start(c.stopCtx)
 	if err := c.APIConfig.SeedDefaults(c.stopCtx); err != nil {
 		c.Log.Warn("api config seed failed", zap.Error(err))
-	}
-	if err := c.NormalizeCloudLibraryTypes(c.stopCtx); err != nil {
-		c.Log.Warn("normalize cloud library types failed", zap.Error(err))
 	}
 	go c.warmMediaSearchIndex(c.stopCtx)
 

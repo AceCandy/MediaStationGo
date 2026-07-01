@@ -30,7 +30,7 @@ func (o *OrganizerService) organizeLibraryForLayout(ctx context.Context, destRoo
 		}
 		return model.Library{}, false
 	}
-	destRoot = filepath.Clean(strings.TrimSpace(destRoot))
+	destRoot = normalizeMappedOrganizeDestinationRoot(destRoot)
 	mediaType = normalizeOrganizeMediaType(mediaType)
 	aliases := o.organizeCategoryAliases(mediaType, category)
 
@@ -48,6 +48,7 @@ func (o *OrganizerService) organizeLibraryForLayout(ctx context.Context, destRoo
 			// "手动整理"等暂存库不作为入库目标,避免把媒体留在暂存目录里。
 			continue
 		}
+		lib.Path = resolveMappedDestinationPath(lib.Path)
 		scopeScore, inScope := o.organizeLibraryTargetScopeScore(lib.Path, destRoot, mediaType, category)
 		if !inScope {
 			continue
@@ -183,7 +184,7 @@ func (o *OrganizerService) ensureOrganizeLibraryForRoot(ctx context.Context, roo
 	if o == nil || o.repo == nil || o.repo.Library == nil {
 		return model.Library{}, false
 	}
-	root = filepath.Clean(strings.TrimSpace(root))
+	root = resolveMappedDestinationPath(root)
 	if root == "" || root == "." {
 		return model.Library{}, false
 	}
@@ -206,7 +207,7 @@ func (o *OrganizerService) ensureOrganizeLibraryForRoot(ctx context.Context, roo
 		if _, ok := ParseCloudLibraryMount(lib.Path); ok {
 			continue
 		}
-		lib.Path = filepath.Clean(lib.Path)
+		lib.Path = resolveMappedDestinationPath(lib.Path)
 		if strings.EqualFold(lib.Path, root) {
 			return lib, true
 		}

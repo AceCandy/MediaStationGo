@@ -130,7 +130,7 @@ func (o *OrganizerService) OrganizeLibraryWithOptions(ctx context.Context, libra
 		return nil, errors.New("organize source must be a local directory; cloud libraries should be managed from external storage scan/mount")
 	}
 	// 目的地目录：已位于该根下的文件视为已整理；受 dest_path 覆盖与设置影响。
-	baseRoot := normalizeOrganizeDestinationRoot(o.resolveBaseRoot(ctx, lib, opts.DestPath))
+	baseRoot := normalizeMappedOrganizeDestinationRoot(o.resolveBaseRoot(ctx, lib, opts.DestPath))
 	if _, ok := ParseCloudLibraryMount(baseRoot); ok {
 		return nil, errors.New("organize destination must be a local writable media directory; enable cloud transfer in external storage when writing to cloud")
 	}

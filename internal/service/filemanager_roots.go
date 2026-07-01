@@ -92,11 +92,11 @@ func (s *FileManagerService) allowedRoots() (map[string]string, error) {
 						if label == "" {
 							label = fmt.Sprintf("路径%d", i+1)
 						}
-						add("library:"+l.Name+":"+label, root.Path)
+						add("library:"+l.Name+":"+label, resolveMappedDestinationPath(root.Path))
 					}
 					continue
 				}
-				add("library:"+l.Name, l.Path)
+				add("library:"+l.Name, resolveMappedDestinationPath(l.Path))
 			}
 		}
 	}

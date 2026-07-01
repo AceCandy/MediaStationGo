@@ -70,7 +70,7 @@ func resolveMappedDestinationPath(path string) string {
 		return ""
 	}
 	clean := filepath.Clean(path)
-	if _, err := os.Stat(clean); err == nil {
+	if _, err := os.Stat(clean); err == nil && !isRelativeVolumeMarkerPath(clean) {
 		return clean
 	}
 	for _, candidate := range mappedPathCandidates(clean) {
@@ -97,6 +97,11 @@ func mappedPathCandidates(input string) []string {
 		candidates = append(candidates, candidate)
 	}
 	clean := filepath.Clean(input)
+	if isRelativeVolumeMarkerPath(clean) {
+		for _, candidate := range dockerVolumePathCandidates(clean) {
+			add(candidate)
+		}
+	}
 	add(clean)
 	for _, candidate := range dockerVolumePathCandidates(input) {
 		add(candidate)
@@ -141,6 +146,22 @@ func dockerVolumePathCandidates(path string) []string {
 		{env: "MEDIASTATION_MEDIA_DIR", container: envOrDefault("MEDIASTATION_MEDIA_CONTAINER_DIR", "/media")},
 		{env: "MEDIASTATION_DOWNLOAD_DIR", container: envOrDefault("MEDIASTATION_DOWNLOAD_CONTAINER_DIR", "/downloads")},
 	} {
+		container := cleanPathForVolumeMapping(mapping.container)
+		if container == "." || container == "" || strings.HasPrefix(container, ".") {
+			continue
+		}
+		relativeMarker := strings.TrimPrefix(normalized, "./")
+		if !strings.HasPrefix(relativeMarker, "/") {
+			containerBase := strings.TrimSpace(filepath.Base(container))
+			if relativeMarker == containerBase {
+				addCandidate(container)
+				continue
+			}
+			if strings.HasPrefix(relativeMarker, containerBase+"/") {
+				addCandidate(container + strings.TrimPrefix(relativeMarker, containerBase))
+				continue
+			}
+		}
 		host := cleanPathForVolumeMapping(os.Getenv(mapping.env))
 		if host == "." || host == "" || strings.HasPrefix(host, ".") {
 			continue
@@ -151,10 +172,6 @@ func dockerVolumePathCandidates(path string) []string {
 		}
 		if strings.HasPrefix(normalized, host+"/") {
 			addCandidate(mapping.container + strings.TrimPrefix(normalized, host))
-		}
-		container := cleanPathForVolumeMapping(mapping.container)
-		if container == "." || container == "" || strings.HasPrefix(container, ".") {
-			continue
 		}
 		if normalized == container {
 			addCandidate(host)
@@ -185,6 +202,20 @@ func dockerVolumePathCandidates(path string) []string {
 	}
 
 	return candidates
+}
+
+func isRelativeVolumeMarkerPath(path string) bool {
+	normalized := cleanPathForVolumeMapping(path)
+	normalized = strings.TrimPrefix(normalized, "./")
+	if normalized == "" || strings.HasPrefix(normalized, "/") || filepath.IsAbs(path) {
+		return false
+	}
+	for _, marker := range []string{"media", "downloads"} {
+		if normalized == marker || strings.HasPrefix(normalized, marker+"/") {
+			return true
+		}
+	}
+	return false
 }
 
 func cleanPathForVolumeMapping(path string) string {

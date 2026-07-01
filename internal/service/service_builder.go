@@ -186,12 +186,12 @@ func (b *serviceContainerBuilder) libraryRoots() []string {
 				if !root.Enabled || strings.TrimSpace(root.Path) == "" {
 					continue
 				}
-				roots = append(roots, root.Path)
+				roots = append(roots, resolveMappedDestinationPath(root.Path))
 			}
 			continue
 		}
 		if strings.TrimSpace(l.Path) != "" {
-			roots = append(roots, l.Path)
+			roots = append(roots, resolveMappedDestinationPath(l.Path))
 		}
 	}
 	return roots

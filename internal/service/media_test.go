@@ -88,6 +88,24 @@ func TestResolveAccessibleLibraryPathKeepsAccessibleContainerPath(t *testing.T) 
 	}
 }
 
+func TestResolveAccessibleLibraryPathMapsRelativeDockerMediaMarker(t *testing.T) {
+	root := t.TempDir()
+	containerRoot := filepath.Join(root, "container", "media")
+	containerLibrary := filepath.Join(containerRoot, "电视剧", "国产剧")
+	if err := os.MkdirAll(containerLibrary, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("MEDIASTATION_MEDIA_CONTAINER_DIR", containerRoot)
+
+	got, err := resolveAccessibleLibraryPath(filepath.Join("media", "电视剧", "国产剧"))
+	if err != nil {
+		t.Fatalf("resolveAccessibleLibraryPath() error = %v", err)
+	}
+	if got != filepath.Clean(containerLibrary) {
+		t.Fatalf("resolveAccessibleLibraryPath() = %q, want %q", got, filepath.Clean(containerLibrary))
+	}
+}
+
 func TestInferLibraryKindFromCategoryPathOverridesMovieDefault(t *testing.T) {
 	for _, tc := range []struct {
 		name string
@@ -139,6 +157,26 @@ func TestResolveMappedDestinationPathPrefersConfiguredContainerMapping(t *testin
 				t.Fatalf("resolveMappedDestinationPath() = %q, want %q", got, filepath.Clean(containerMedia))
 			}
 		})
+	}
+}
+
+func TestResolveMappedDestinationPathPrefersContainerForRelativeMediaMarker(t *testing.T) {
+	root := t.TempDir()
+	workDir := filepath.Join(root, "work")
+	containerMedia := filepath.Join(root, "container", "media")
+	if err := os.MkdirAll(filepath.Join(workDir, "media", "电视剧", "国产剧"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(containerMedia, "电视剧", "国产剧"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(workDir)
+	t.Setenv("MEDIASTATION_MEDIA_CONTAINER_DIR", containerMedia)
+
+	got := resolveMappedDestinationPath(filepath.Join("media", "电视剧", "国产剧"))
+	want := filepath.Join(containerMedia, "电视剧", "国产剧")
+	if got != filepath.Clean(want) {
+		t.Fatalf("resolveMappedDestinationPath() = %q, want %q", got, filepath.Clean(want))
 	}
 }
 

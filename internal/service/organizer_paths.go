@@ -235,6 +235,10 @@ func normalizeOrganizeDestinationRoot(root string) string {
 	return cleaned
 }
 
+func normalizeMappedOrganizeDestinationRoot(root string) string {
+	return normalizeOrganizeDestinationRoot(resolveMappedDestinationPath(root))
+}
+
 func pathAlreadyEndsWith(path, suffix string) bool {
 	base := strings.TrimSpace(filepath.Base(filepath.Clean(path)))
 	return strings.EqualFold(base, suffix)

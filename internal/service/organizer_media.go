@@ -43,7 +43,7 @@ func (o *OrganizerService) resolveOrganizeMediaRequest(ctx context.Context, medi
 	}
 	requestedBaseRoot := o.resolveBaseRoot(ctx, lib, opts.DestPath)
 	mediaType, mediaCategory := o.effectiveOrganizeOverrides(opts, requestedBaseRoot)
-	baseRoot := normalizeOrganizeDestinationRoot(requestedBaseRoot)
+	baseRoot := normalizeMappedOrganizeDestinationRoot(requestedBaseRoot)
 	if _, ok := ParseCloudLibraryMount(baseRoot); ok {
 		return organizeMediaRequest{}, errors.New("organize destination must be a local writable media directory; enable cloud transfer in external storage when writing to cloud")
 	}

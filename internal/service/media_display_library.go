@@ -17,7 +17,9 @@ func (s *MediaService) attachLibraryMetadata(ctx context.Context, items []model.
 		return
 	}
 	byID := make(map[string]model.Library, len(libs))
-	for _, lib := range libs {
+	for i := range libs {
+		libs[i] = normalizeLocalLibraryPathForDisplay(libs[i])
+		lib := libs[i]
 		byID[lib.ID] = lib
 	}
 	resolver := newMediaDisplayLibraryResolver(ctx, s.repo, libs)
@@ -58,7 +60,8 @@ func newMediaDisplayLibraryResolver(ctx context.Context, repo *repository.Contai
 		displayLibraries:  displayLibraries,
 	}
 	for _, lib := range libs {
-		resolver.byID[lib.ID] = lib
+		normalized := normalizeLocalLibraryPathForDisplay(lib)
+		resolver.byID[normalized.ID] = normalized
 	}
 	for _, lib := range displayLibraries {
 		resolver.displayByID[lib.ID] = lib
@@ -146,13 +149,16 @@ func (r mediaDisplayLibraryResolver) bestPathDisplayLibrary(media model.Media) (
 	}
 
 	mediaPath := cleanPathForVolumeMapping(media.Path)
+	if isRelativeVolumeMarkerPath(media.Path) {
+		mediaPath = cleanPathForVolumeMapping(resolveMappedDestinationPath(media.Path))
+	}
 	var best model.Library
 	bestLen := 0
 	for _, lib := range r.displayLibraries {
 		if _, ok := ParseCloudLibraryMount(lib.Path); ok || !lib.Enabled {
 			continue
 		}
-		libPath := cleanPathForVolumeMapping(lib.Path)
+		libPath := cleanPathForVolumeMapping(resolveMappedDestinationPath(lib.Path))
 		if libPath == "" || libPath == "." {
 			continue
 		}
@@ -168,4 +174,18 @@ func (r mediaDisplayLibraryResolver) bestPathDisplayLibrary(media model.Media) (
 		return best, true
 	}
 	return model.Library{}, false
+}
+
+func normalizeLocalLibraryPathForDisplay(lib model.Library) model.Library {
+	if _, ok := ParseCloudLibraryMount(lib.Path); ok {
+		return lib
+	}
+	lib.Path = resolveMappedDestinationPath(lib.Path)
+	for i := range lib.Roots {
+		if _, ok := ParseCloudLibraryMount(lib.Roots[i].Path); ok {
+			continue
+		}
+		lib.Roots[i].Path = resolveMappedDestinationPath(lib.Roots[i].Path)
+	}
+	return lib
 }
