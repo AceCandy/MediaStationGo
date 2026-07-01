@@ -470,7 +470,7 @@ Suggested settings:
 
 Beginners should not. Editing `docker-compose.yml` directly is easier to understand.
 
-`.env` is useful only for advanced users who reuse the same compose file on multiple machines. The repository keeps `docker-compose.simple.env.example`, but it is not the main path.
+`.env` is not required by the provided deployment templates. For the single-image template, edit `docker-compose.simple.yml` directly and only adjust the port, volume paths, and optional hardware device mapping.
 
 ---
 
