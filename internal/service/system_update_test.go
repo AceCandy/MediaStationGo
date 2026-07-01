@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -150,5 +151,23 @@ func TestSystemUpdateOutputDetailsKeepsTail(t *testing.T) {
 	got := systemUpdateOutputDetails(strings.Join(lines, "\n"))
 	if len(got) != 12 {
 		t.Fatalf("details length = %d, want 12", len(got))
+	}
+}
+
+func TestSystemUpdateStatusIncludesCurrentVersion(t *testing.T) {
+	svc := NewSystemUpdateService(nil, nil, nil, nil, "MediaStationGo-v0.0.99")
+
+	status := svc.Status(context.Background())
+	if status.CurrentVersion != "MediaStationGo-v0.0.99" {
+		t.Fatalf("current_version = %q, want MediaStationGo-v0.0.99", status.CurrentVersion)
+	}
+}
+
+func TestSystemUpdateStatusDefaultsCurrentVersion(t *testing.T) {
+	svc := NewSystemUpdateService(nil, nil, nil, nil, "")
+
+	status := svc.Status(context.Background())
+	if status.CurrentVersion != "dev" {
+		t.Fatalf("current_version = %q, want dev", status.CurrentVersion)
 	}
 }

@@ -11,19 +11,21 @@ import (
 )
 
 type serviceContainerBuilder struct {
-	cfg   *config.Config
-	log   *zap.Logger
-	repos *repository.Container
-	c     *Container
+	cfg     *config.Config
+	log     *zap.Logger
+	repos   *repository.Container
+	version string
+	c       *Container
 }
 
-func newServiceContainer(cfg *config.Config, log *zap.Logger, repos *repository.Container) *Container {
+func newServiceContainer(cfg *config.Config, log *zap.Logger, repos *repository.Container, version string) *Container {
 	ApplyRuntimeSettings(context.Background(), cfg, repos, log)
 
 	builder := &serviceContainerBuilder{
-		cfg:   cfg,
-		log:   log,
-		repos: repos,
+		cfg:     cfg,
+		log:     log,
+		repos:   repos,
+		version: normalizeSystemUpdateVersion(version),
 		c: &Container{
 			Cfg:  cfg,
 			Log:  log,
@@ -45,7 +47,7 @@ func (b *serviceContainerBuilder) startRealtimeServices() {
 	b.c.WSHub = NewHub(b.log)
 	go b.c.WSHub.Run()
 	b.c.Tasks = NewTaskTrackerService(b.log, b.c.WSHub)
-	b.c.SystemUpdate = NewSystemUpdateService(b.cfg, b.log, b.repos, b.c.Tasks)
+	b.c.SystemUpdate = NewSystemUpdateService(b.cfg, b.log, b.repos, b.c.Tasks, b.version)
 
 	b.c.SSEHub = NewSSEHub(b.log)
 	go b.c.SSEHub.Run()

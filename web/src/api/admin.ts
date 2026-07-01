@@ -3,6 +3,7 @@ import type { AccessLog, Setting, User } from '../types'
 
 export interface SystemUpdateStatus {
   image: string
+  current_version?: string
   watchtower_image?: string
   update_mode?: string
   compose_dir?: string

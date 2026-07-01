@@ -77,7 +77,7 @@ func main() {
 	repos := repository.New(db)
 	service.ApplyRuntimeSettings(context.Background(), cfg, repos, logger)
 	applyCPUThreadLimit(cfg, logger)
-	services := service.New(cfg, logger, repos)
+	services := service.NewWithVersion(cfg, logger, repos, version)
 
 	if repaired, err := services.RepairCloudPathMetadata(context.Background()); err != nil {
 		logger.Warn("cloud path metadata repair failed", zap.Error(err))

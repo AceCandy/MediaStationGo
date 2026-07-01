@@ -82,7 +82,12 @@ type Container struct {
 
 // New 构建服务容器。
 func New(cfg *config.Config, log *zap.Logger, repos *repository.Container) *Container {
-	return newServiceContainer(cfg, log, repos)
+	return NewWithVersion(cfg, log, repos, "dev")
+}
+
+// NewWithVersion 构建带应用版本信息的服务容器。
+func NewWithVersion(cfg *config.Config, log *zap.Logger, repos *repository.Container, version string) *Container {
+	return newServiceContainer(cfg, log, repos, version)
 }
 
 // Boot 启动后台工作进程（watcher, downloads poller, subscription scheduler）。

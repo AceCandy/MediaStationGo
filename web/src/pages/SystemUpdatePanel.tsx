@@ -139,7 +139,8 @@ export function SystemUpdatePanel() {
         </div>
       </div>
 
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+        <UpdateFact label="当前版本" value={status?.current_version || 'dev'} mono />
         <UpdateFact icon={Server} label="更新方式" value={status?.update_mode === 'compose' ? 'Docker Compose' : '自定义命令'} />
         <UpdateFact label="Compose 目录" value={status?.compose_dir || '自动识别'} mono />
         <UpdateFact label="应用镜像" value={status?.image || '-'} mono />

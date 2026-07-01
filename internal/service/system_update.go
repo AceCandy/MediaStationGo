@@ -33,6 +33,7 @@ var ErrSystemUpdateRunning = errors.New("system update already running")
 
 type SystemUpdateStatus struct {
 	Image           string  `json:"image"`
+	CurrentVersion  string  `json:"current_version,omitempty"`
 	WatchtowerImage string  `json:"watchtower_image,omitempty"`
 	UpdateMode      string  `json:"update_mode,omitempty"`
 	ComposeDir      string  `json:"compose_dir,omitempty"`
@@ -55,18 +56,19 @@ type SystemUpdateStatus struct {
 }
 
 type SystemUpdateService struct {
-	cfg   *config.Config
-	log   *zap.Logger
-	repo  *repository.Container
-	tasks *TaskTrackerService
+	cfg     *config.Config
+	log     *zap.Logger
+	repo    *repository.Container
+	tasks   *TaskTrackerService
+	version string
 
 	mu      sync.Mutex
 	running bool
 	last    *SystemUpdateStatus
 }
 
-func NewSystemUpdateService(cfg *config.Config, log *zap.Logger, repo *repository.Container, tasks *TaskTrackerService) *SystemUpdateService {
-	return &SystemUpdateService{cfg: cfg, log: log, repo: repo, tasks: tasks}
+func NewSystemUpdateService(cfg *config.Config, log *zap.Logger, repo *repository.Container, tasks *TaskTrackerService, version string) *SystemUpdateService {
+	return &SystemUpdateService{cfg: cfg, log: log, repo: repo, tasks: tasks, version: normalizeSystemUpdateVersion(version)}
 }
 
 func (s *SystemUpdateService) Status(ctx context.Context) SystemUpdateStatus {
@@ -98,12 +100,15 @@ func (s *SystemUpdateService) Check(ctx context.Context) SystemUpdateStatus {
 func (s *SystemUpdateService) Apply(ctx context.Context) (SystemUpdateStatus, error) {
 	s.mu.Lock()
 	if s.running {
-		status := SystemUpdateStatus{}
 		if s.last != nil {
-			status = cloneSystemUpdateStatus(*s.last)
+			status := cloneSystemUpdateStatus(*s.last)
+			status.Running = true
+			s.mu.Unlock()
+			return status, ErrSystemUpdateRunning
 		}
-		status.Running = true
 		s.mu.Unlock()
+		status := s.baseStatus(ctx)
+		status.Running = true
 		return status, ErrSystemUpdateRunning
 	}
 	s.running = true
@@ -203,10 +208,19 @@ func (s *SystemUpdateService) baseStatus(ctx context.Context) SystemUpdateStatus
 	}
 	return SystemUpdateStatus{
 		Image:           image,
+		CurrentVersion:  s.version,
 		WatchtowerImage: watchtowerImage,
 		UpdateMode:      "compose",
 		ContainerID:     currentContainerID(),
 	}
+}
+
+func normalizeSystemUpdateVersion(version string) string {
+	version = strings.TrimSpace(version)
+	if version == "" {
+		return "dev"
+	}
+	return version
 }
 
 func (s *SystemUpdateService) setting(ctx context.Context, key, fallback string) string {
