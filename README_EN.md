@@ -493,25 +493,6 @@ Beginners should not. Editing `docker-compose.yml` directly is easier to underst
 | Operations | Task queue, recycle bin, duplicate files, notifications, logs |
 | AI | OpenAI-compatible API, AI search, recommendations, assistant |
 
----
-
-## Screenshots
-
-<details open>
-<summary><strong>Preview</strong></summary>
-
-| Login | Home |
-| --- | --- |
-| <img src="docs/screenshots/00-login.jpg" alt="Login" width="100%"> | <img src="docs/screenshots/01-home.jpg" alt="Home" width="100%"> |
-
-| Libraries | Player |
-| --- | --- |
-| <img src="docs/screenshots/02-libraries.jpg" alt="Libraries" width="100%"> | <img src="docs/screenshots/06-player.jpg" alt="Player" width="100%"> |
-
-</details>
-
----
-
 ## Development
 
 Regular users should use Docker. Developers can run:
