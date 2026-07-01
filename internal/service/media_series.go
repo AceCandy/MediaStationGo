@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 )
@@ -14,6 +15,11 @@ type SeriesCard struct {
 	Rep       model.Media `json:"rep"`
 	LinkMedia model.Media `json:"linkMedia"`
 	Count     int         `json:"count"`
+}
+
+type seriesCardGroup struct {
+	card   SeriesCard
+	latest time.Time
 }
 
 func (s *MediaService) ListLibrarySeriesCards(ctx context.Context, libraryID string, visibility MediaVisibility) ([]SeriesCard, int64, error) {
@@ -73,7 +79,7 @@ func groupMediaSeriesCards(items []model.Media) []SeriesCard {
 	if len(items) == 0 {
 		return nil
 	}
-	cards := make([]SeriesCard, 0)
+	groups := make([]seriesCardGroup, 0)
 	byKey := make(map[string]int, len(items))
 	for _, item := range items {
 		key := mediaSeriesKey(item)
@@ -81,7 +87,11 @@ func groupMediaSeriesCards(items []model.Media) []SeriesCard {
 			continue
 		}
 		if idx, ok := byKey[key]; ok {
-			card := &cards[idx]
+			group := &groups[idx]
+			if latest := seriesMediaTime(item); latest.After(group.latest) {
+				group.latest = latest
+			}
+			card := &group.card
 			card.Count++
 			if betterSeriesLinkMedia(item, card.LinkMedia) {
 				card.LinkMedia = item
@@ -99,10 +109,27 @@ func groupMediaSeriesCards(items []model.Media) []SeriesCard {
 			}
 			continue
 		}
-		byKey[key] = len(cards)
-		cards = append(cards, SeriesCard{Key: key, Rep: item, LinkMedia: item, Count: 1})
+		byKey[key] = len(groups)
+		groups = append(groups, seriesCardGroup{
+			card:   SeriesCard{Key: key, Rep: item, LinkMedia: item, Count: 1},
+			latest: seriesMediaTime(item),
+		})
+	}
+	sort.SliceStable(groups, func(i, j int) bool {
+		return groups[i].latest.After(groups[j].latest)
+	})
+	cards := make([]SeriesCard, 0, len(groups))
+	for _, group := range groups {
+		cards = append(cards, group.card)
 	}
 	return cards
+}
+
+func seriesMediaTime(media model.Media) time.Time {
+	if media.UpdatedAt.After(media.CreatedAt) {
+		return media.UpdatedAt
+	}
+	return media.CreatedAt
 }
 
 func betterSeriesLinkMedia(candidate, current model.Media) bool {

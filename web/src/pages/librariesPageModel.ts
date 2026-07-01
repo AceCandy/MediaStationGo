@@ -8,6 +8,10 @@ export type LibraryPreview = {
   cards: SeriesCard[]
 }
 
+export function isSeriesLibraryType(type?: string) {
+  return type === 'tv' || type === 'anime' || type === 'variety'
+}
+
 export function latestLibraryCards(items: Media[]): SeriesCard[] {
   return groupSeries(items)
     .sort((a, b) => mediaTime(b.rep) - mediaTime(a.rep) || artworkScore(b.rep) - artworkScore(a.rep))

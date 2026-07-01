@@ -7,7 +7,7 @@ import {
   LibrariesEmptyState,
   LibrariesHeader,
 } from './LibrariesPageSections'
-import { latestLibraryCards, type LibraryPreview } from './librariesPageModel'
+import { isSeriesLibraryType, latestLibraryCards, type LibraryPreview } from './librariesPageModel'
 
 export function LibrariesPage() {
   const [previews, setPreviews] = useState<LibraryPreview[]>([])
@@ -38,6 +38,13 @@ export function LibrariesPage() {
         const libs = await libraryAPI.list()
         const rows = await Promise.all(libs.map(async (library) => {
           try {
+            if (isSeriesLibraryType(library.type)) {
+              const [seriesPage, mediaPage] = await Promise.all([
+                libraryAPI.listSeries(library.id, 1, 10),
+                libraryAPI.listMedia(library.id, 1, 1, { groupVersions: false }),
+              ])
+              return { library, items: [], total: mediaPage.total, cards: seriesPage.items ?? [] } satisfies LibraryPreview
+            }
             const page = await libraryAPI.listMedia(library.id, 1, 160, { groupVersions: false })
             const cards = latestLibraryCards(page.items)
             return { library, items: page.items, total: page.total, cards } satisfies LibraryPreview

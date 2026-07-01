@@ -2,6 +2,7 @@ package service
 
 import (
 	"testing"
+	"time"
 
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 )
@@ -25,6 +26,45 @@ func TestMediaSeriesKeyCollapsesNestedSpecialFolders(t *testing.T) {
 	cards := groupMediaSeriesCards([]model.Media{main, special})
 	if len(cards) != 1 || cards[0].Count != 2 {
 		t.Fatalf("cards=%#v, want one merged series card with two items", cards)
+	}
+}
+
+func TestGroupMediaSeriesCardsSortsByLatestEpisodeTime(t *testing.T) {
+	now := time.Date(2026, 7, 2, 12, 0, 0, 0, time.UTC)
+	newerFirstEpisode := model.Media{
+		Base:       model.Base{CreatedAt: now.Add(-72 * time.Hour), UpdatedAt: now.Add(-72 * time.Hour)},
+		LibraryID:  "lib-tv",
+		Title:      "更新合集",
+		Path:       `F:\media\电视剧\国产剧\更新合集\Season 01\更新合集.S01E01.mkv`,
+		SeasonNum:  1,
+		EpisodeNum: 1,
+	}
+	newerLatestEpisode := model.Media{
+		Base:       model.Base{CreatedAt: now, UpdatedAt: now},
+		LibraryID:  "lib-tv",
+		Title:      "更新合集",
+		Path:       `F:\media\电视剧\国产剧\更新合集\Season 01\更新合集.S01E02.mkv`,
+		SeasonNum:  1,
+		EpisodeNum: 2,
+	}
+	olderSeries := model.Media{
+		Base:       model.Base{CreatedAt: now.Add(-24 * time.Hour), UpdatedAt: now.Add(-24 * time.Hour)},
+		LibraryID:  "lib-tv",
+		Title:      "较早合集",
+		Path:       `F:\media\电视剧\国产剧\较早合集\Season 01\较早合集.S01E01.mkv`,
+		SeasonNum:  1,
+		EpisodeNum: 1,
+	}
+
+	cards := groupMediaSeriesCards([]model.Media{olderSeries, newerFirstEpisode, newerLatestEpisode})
+	if len(cards) != 2 {
+		t.Fatalf("cards=%#v, want two series cards", cards)
+	}
+	if cards[0].Key != mediaSeriesKey(newerFirstEpisode) {
+		t.Fatalf("first card key=%q, want latest series key=%q", cards[0].Key, mediaSeriesKey(newerFirstEpisode))
+	}
+	if cards[0].Count != 2 {
+		t.Fatalf("latest series count=%d, want 2", cards[0].Count)
 	}
 }
 
