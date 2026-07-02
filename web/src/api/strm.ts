@@ -20,8 +20,10 @@ export type GenerateSTRMResult = {
   total?: number
   remaining?: number
   batch_limited?: boolean
+  ignored?: number
   previewed?: number
   errors?: string[]
+  ignored_items?: string[]
   items?: Array<{
     media_id: string
     title: string

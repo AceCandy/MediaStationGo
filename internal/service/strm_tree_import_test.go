@@ -3,6 +3,7 @@ package service
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -79,6 +80,65 @@ func TestGenerateSTRMFromTreeSupportsCommonVideoExtensions(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(outDir, "Movies", "Disc.Image.2026.strm")); !os.IsNotExist(err) {
 		t.Fatalf("iso source should stay ignored by tree generator, stat err=%v", err)
+	}
+}
+
+func TestGenerateSTRMFromTreeReportsIgnoredFileLikeRows(t *testing.T) {
+	outDir := filepath.Join(t.TempDir(), "strm")
+	svc := NewSTRMService(zap.NewNop(), nil, nil)
+
+	res, err := svc.GenerateFromTree(t.Context(), GenerateSTRMTreeOptions{
+		Provider: "openlist",
+		Paths: []string{
+			"/Movies/A.mkv",
+			"/Movies/poster.jpg",
+			"/Movies/fanart.jpg (cover image)",
+			"/Movies/Disc.Image.2026.iso",
+			"/Movies/Existing.strm",
+		},
+		TreeText: strings.Join([]string{
+			"电视剧",
+			"└── Show.Name.2026",
+			"    ├── Show.S01E01.mp4",
+			"    └── Show.S01E01.nfo",
+			"    └── Show.S01E01.srt 72 KB",
+		}, "\n"),
+		OutputDir: outDir,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Generated != 2 || res.Ignored != 6 || len(res.IgnoredItems) != 6 {
+		t.Fatalf("result = %#v, want two generated videos and six ignored sidecars", res)
+	}
+	for _, item := range res.IgnoredItems {
+		if item == "Show.Name.2026" || item == "电视剧/Show.Name.2026" {
+			t.Fatalf("directory-like dotted title should not be reported as ignored: %#v", res.IgnoredItems)
+		}
+	}
+	if !strings.Contains(strings.Join(res.IgnoredItems, "\n"), "Show.S01E01.nfo") {
+		t.Fatalf("directory-like dotted title should not be reported as ignored: %#v", res.IgnoredItems)
+	}
+}
+
+func TestGenerateSTRMFromTreeLimitsIgnoredItemSamples(t *testing.T) {
+	outDir := filepath.Join(t.TempDir(), "strm")
+	paths := make([]string, 0, 25)
+	for i := 0; i < 25; i++ {
+		paths = append(paths, filepath.ToSlash(filepath.Join("/Movies", "sidecar-"+strconv.Itoa(i)+".nfo")))
+	}
+	svc := NewSTRMService(zap.NewNop(), nil, nil)
+
+	res, err := svc.GenerateFromTree(t.Context(), GenerateSTRMTreeOptions{
+		Provider:  "openlist",
+		Paths:     paths,
+		OutputDir: outDir,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Ignored != 25 || len(res.IgnoredItems) != strmTreeIgnoredItemSampleLimit {
+		t.Fatalf("ignored = %d samples = %d, want 25/%d", res.Ignored, len(res.IgnoredItems), strmTreeIgnoredItemSampleLimit)
 	}
 }
 

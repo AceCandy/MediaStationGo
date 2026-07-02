@@ -11,6 +11,26 @@ var strmTreeListPrefixRE = regexp.MustCompile(`^\s*(?:[-*+•·]\s+|\d{1,4}[\.)�
 
 var strmTreeURLPathQueryKeys = []string{"path", "ref", "file", "filepath", "filename", "name"}
 
+var strmTreeKnownNonVideoExtensions = map[string]struct{}{
+	".ass":  {},
+	".bmp":  {},
+	".gif":  {},
+	".idx":  {},
+	".iso":  {},
+	".jpeg": {},
+	".jpg":  {},
+	".nfo":  {},
+	".png":  {},
+	".srt":  {},
+	".ssa":  {},
+	".strm": {},
+	".sub":  {},
+	".txt":  {},
+	".url":  {},
+	".vtt":  {},
+	".webp": {},
+}
+
 func normalizeSTRMTreeProvider(raw string) string {
 	switch strings.ToLower(strings.TrimSpace(raw)) {
 	case "115", "115pan", "pan115", "cloud115":
@@ -199,6 +219,28 @@ func strmTreeSourceIsVideo(source string) bool {
 	return ok
 }
 
+func strmTreeIgnoredFileLikeSource(raw string) (string, bool) {
+	source := normalizeSTRMTreeSource(raw)
+	if source == "" {
+		return "", false
+	}
+	source = trimSTRMTreeKnownFileMetadata(cleanSTRMTreeItemName(source))
+	ext := strings.ToLower(path.Ext(source))
+	if ext == "" {
+		return "", false
+	}
+	if ext == ".strm" {
+		return source, true
+	}
+	if _, ok := videoExtensions[ext]; ok {
+		return "", false
+	}
+	if _, ok := strmTreeKnownNonVideoExtensions[ext]; ok {
+		return source, true
+	}
+	return "", false
+}
+
 func cleanSTRMTreePathDecorations(value string) string {
 	if value == "" {
 		return ""
@@ -243,24 +285,34 @@ func cleanSTRMTreeItemName(value string) string {
 }
 
 func trimSTRMTreeMediaMetadata(value string) string {
+	return trimSTRMTreeMetadataByExtensions(value, videoExtensions)
+}
+
+func trimSTRMTreeKnownFileMetadata(value string) string {
+	return trimSTRMTreeMetadataByExtensions(value, videoExtensions, strmTreeKnownNonVideoExtensions)
+}
+
+func trimSTRMTreeMetadataByExtensions(value string, extensionSets ...map[string]struct{}) string {
 	value = strings.TrimSpace(value)
 	lower := strings.ToLower(value)
 	bestEnd := -1
-	for ext := range videoExtensions {
-		from := 0
-		for {
-			idx := strings.Index(lower[from:], ext)
-			if idx < 0 {
-				break
-			}
-			idx += from
-			end := idx + len(ext)
-			if strmTreeMediaExtBoundary(value, end) && end > bestEnd {
-				bestEnd = end
-			}
-			from = idx + 1
-			if from >= len(lower) {
-				break
+	for _, extensions := range extensionSets {
+		for ext := range extensions {
+			from := 0
+			for {
+				idx := strings.Index(lower[from:], ext)
+				if idx < 0 {
+					break
+				}
+				idx += from
+				end := idx + len(ext)
+				if strmTreeMediaExtBoundary(value, end) && end > bestEnd {
+					bestEnd = end
+				}
+				from = idx + 1
+				if from >= len(lower) {
+					break
+				}
 			}
 		}
 	}

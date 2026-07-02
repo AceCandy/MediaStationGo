@@ -24,6 +24,8 @@ type GenerateSTRMOptions struct {
 	SkipSettingsSave bool   `json:"-"`
 }
 
+const strmTreeIgnoredItemSampleLimit = 20
+
 type GenerateSTRMResult struct {
 	LibraryID    string             `json:"library_id"`
 	OutputDir    string             `json:"output_dir"`
@@ -34,8 +36,10 @@ type GenerateSTRMResult struct {
 	Total        int                `json:"total,omitempty"`
 	Remaining    int                `json:"remaining,omitempty"`
 	BatchLimited bool               `json:"batch_limited,omitempty"`
+	Ignored      int                `json:"ignored,omitempty"`
 	Previewed    int                `json:"previewed,omitempty"`
 	Errors       []string           `json:"errors,omitempty"`
+	IgnoredItems []string           `json:"ignored_items,omitempty"`
 	Items        []GenerateSTRMItem `json:"items,omitempty"`
 }
 
@@ -292,6 +296,13 @@ func (r *GenerateSTRMResult) merge(part *GenerateSTRMResult) {
 	r.Skipped += part.Skipped
 	r.Cleaned += part.Cleaned
 	r.Previewed += part.Previewed
+	r.Ignored += part.Ignored
 	r.Errors = append(r.Errors, part.Errors...)
+	for _, item := range part.IgnoredItems {
+		if len(r.IgnoredItems) >= strmTreeIgnoredItemSampleLimit {
+			break
+		}
+		r.IgnoredItems = append(r.IgnoredItems, item)
+	}
 	r.Items = append(r.Items, part.Items...)
 }

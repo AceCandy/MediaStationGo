@@ -273,10 +273,16 @@ export function StrmGenerateResultPanel({ result }: { result: GenerateSTRMResult
       <div className="mt-1">
         {result.previewed ? `预检 ${result.previewed} · ` : ''}
         {result.total ? `共 ${result.total} · ` : ''}
-        新增 {result.generated} · 更新 {result.updated} · 跳过 {result.skipped} · 清理 {result.cleaned || 0}
+        新增 {result.generated} · 更新 {result.updated} · 跳过 {result.skipped}
+        {result.ignored ? ` · 忽略 ${result.ignored}` : ''} · 清理 {result.cleaned || 0}
       </div>
       {result.batch_limited && (
         <div className="mt-1 text-amber-600">本批已达到上限，剩余 {result.remaining || 0} 个可继续运行。</div>
+      )}
+      {result.ignored_items && result.ignored_items.length > 0 && (
+        <div className="mt-1 text-amber-600">
+          已忽略 {result.ignored || result.ignored_items.length} 个非视频/sidecar：{result.ignored_items.slice(0, 3).join('；')}
+        </div>
       )}
       {result.errors && result.errors.length > 0 && (
         <div className="mt-2 text-red-500">

@@ -29,6 +29,12 @@ type strmTreeSource struct {
 	RefPath  string
 }
 
+type strmTreeSourceCollection struct {
+	sources      []strmTreeSource
+	ignored      []string
+	ignoredCount int
+}
+
 func (s *STRMService) GenerateFromTree(ctx context.Context, opts GenerateSTRMTreeOptions) (*GenerateSTRMResult, error) {
 	provider := normalizeSTRMTreeProvider(opts.Provider)
 	if provider == "" {
@@ -44,8 +50,11 @@ func (s *STRMService) GenerateFromTree(ctx context.Context, opts GenerateSTRMTre
 		}
 	}
 	result := &GenerateSTRMResult{LibraryID: provider, OutputDir: outputDir}
-	sources := collectSTRMTreeSources(opts)
+	collection := collectSTRMTreeSources(opts)
+	sources := collection.sources
 	result.Total = len(sources)
+	result.Ignored = collection.ignoredCount
+	result.IgnoredItems = collection.ignored
 	expectedFiles := make(map[string]struct{})
 	for i, source := range sources {
 		select {
@@ -131,13 +140,30 @@ func generateTreeSTRMItem(outputDir string, source strmTreeSource, opts Generate
 	return item
 }
 
-func collectSTRMTreeSources(opts GenerateSTRMTreeOptions) []strmTreeSource {
+func collectSTRMTreeSources(opts GenerateSTRMTreeOptions) strmTreeSourceCollection {
 	fallbackProvider := normalizeSTRMTreeProvider(opts.Provider)
 	out := make([]strmTreeSource, 0, len(opts.Paths))
 	seen := map[string]struct{}{}
+	ignored := make([]string, 0)
+	ignoredCount := 0
+	seenIgnored := map[string]struct{}{}
+	addIgnored := func(value string) {
+		if ignoredPath, ok := strmTreeIgnoredFileLikeSource(value); ok {
+			key := strings.ToLower(ignoredPath)
+			if _, exists := seenIgnored[key]; exists {
+				return
+			}
+			seenIgnored[key] = struct{}{}
+			ignoredCount++
+			if len(ignored) < strmTreeIgnoredItemSampleLimit {
+				ignored = append(ignored, ignoredPath)
+			}
+		}
+	}
 	add := func(value string) {
 		source := normalizeSTRMTreeSourceWithProvider(value, fallbackProvider)
 		if source.Provider == "" || source.Path == "" || !strmTreeSourceIsVideo(source.Path) {
+			addIgnored(value)
 			return
 		}
 		key := strings.ToLower(source.Provider) + "\x00" + strings.ToLower(source.Path) + "\x00" + strings.ToLower(source.cloudRefPath())
@@ -150,10 +176,14 @@ func collectSTRMTreeSources(opts GenerateSTRMTreeOptions) []strmTreeSource {
 	for _, value := range opts.Paths {
 		add(value)
 	}
-	for _, value := range parseSTRMTreeText(opts.TreeText) {
+	treeSources, treeIgnored := parseSTRMTreeTextWithIgnored(opts.TreeText)
+	for _, value := range treeSources {
 		add(value)
 	}
-	return out
+	for _, value := range treeIgnored {
+		addIgnored(value)
+	}
+	return strmTreeSourceCollection{sources: out, ignored: ignored, ignoredCount: ignoredCount}
 }
 
 func (s strmTreeSource) cloudRefPath() string {

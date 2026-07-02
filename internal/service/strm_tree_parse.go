@@ -6,7 +6,13 @@ import (
 )
 
 func parseSTRMTreeText(raw string) []string {
+	out, _ := parseSTRMTreeTextWithIgnored(raw)
+	return out
+}
+
+func parseSTRMTreeTextWithIgnored(raw string) ([]string, []string) {
 	var out []string
+	var ignored []string
 	stack := make([]string, 0, 8)
 	plainIndents := make([]int, 0, 8)
 	rootOffset := 0
@@ -23,6 +29,10 @@ func parseSTRMTreeText(raw string) []string {
 				out = append(out, strmTreeJoinedSource(stack, item))
 				continue
 			}
+			if strmTreeItemIsIgnoredFileSource(item) {
+				ignored = append(ignored, strmTreeJoinedSource(stack, item))
+				continue
+			}
 			stack = append(stack, item)
 			continue
 		}
@@ -30,7 +40,11 @@ func parseSTRMTreeText(raw string) []string {
 			plainIndents = plainIndents[:0]
 			level += rootOffset
 			stack = stack[:min(level, len(stack))]
-			out = append(out, path.Join(append(append([]string{}, stack...), item)...))
+			if strmTreeItemIsVideoSource(item) {
+				out = append(out, path.Join(append(append([]string{}, stack...), item)...))
+			} else if strmTreeItemIsIgnoredFileSource(item) {
+				ignored = append(ignored, path.Join(append(append([]string{}, stack...), item)...))
+			}
 			continue
 		}
 		item := cleanSTRMTreeItemName(line)
@@ -44,20 +58,32 @@ func parseSTRMTreeText(raw string) []string {
 				out = append(out, strmTreeJoinedSource(stack, item))
 				continue
 			}
+			if strmTreeItemIsIgnoredFileSource(item) {
+				ignored = append(ignored, strmTreeJoinedSource(stack, item))
+				continue
+			}
 			stack = append(stack, item)
 			plainIndents = append(plainIndents, indent)
 			continue
 		}
 		if strmTreeItemIsVideoSource(item) || strings.ContainsAny(item, `/\`) {
 			plainIndents = plainIndents[:0]
-			out = append(out, item)
+			if strmTreeItemIsVideoSource(item) {
+				out = append(out, item)
+			} else if strmTreeItemIsIgnoredFileSource(item) {
+				ignored = append(ignored, item)
+			}
+			continue
+		}
+		if strmTreeItemIsIgnoredFileSource(item) {
+			ignored = append(ignored, item)
 			continue
 		}
 		stack = []string{item}
 		plainIndents = plainIndents[:0]
 		rootOffset = 1
 	}
-	return out
+	return out, ignored
 }
 
 func parseSTRMTreeLine(line string) (string, int, bool) {
@@ -97,7 +123,7 @@ func parseSTRMTreeContinuationLine(line string, plainTreeActive bool) (string, i
 				return "", 0, false
 			}
 			item := cleanSTRMTreeItemName(line[prefixLen:])
-			if item == "" || !strmTreeItemIsVideoSource(item) {
+			if item == "" || (!strmTreeItemIsVideoSource(item) && !strmTreeItemIsIgnoredFileSource(item)) {
 				return "", 0, false
 			}
 			return item, strmTreeIndentLevel(line[:prefixLen]), true
@@ -150,6 +176,11 @@ func strmTreeItemIsVideoSource(item string) bool {
 	}
 	source := normalizeSTRMTreeSourceWithProvider(item, "openlist")
 	return source.Path != "" && strmTreeSourceIsVideo(source.Path)
+}
+
+func strmTreeItemIsIgnoredFileSource(item string) bool {
+	_, ok := strmTreeIgnoredFileLikeSource(item)
+	return ok
 }
 
 func strmTreeJoinedSource(stack []string, item string) string {
