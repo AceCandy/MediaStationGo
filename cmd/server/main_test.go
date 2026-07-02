@@ -11,6 +11,30 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+func TestEffectiveVersionPrefersBuildVersion(t *testing.T) {
+	t.Setenv("MEDIASTATION_VERSION", "MediaStationGo-v0.1.15")
+
+	if got := effectiveVersion("MediaStationGo-v0.1.16"); got != "MediaStationGo-v0.1.16" {
+		t.Fatalf("effectiveVersion = %q, want MediaStationGo-v0.1.16", got)
+	}
+}
+
+func TestEffectiveVersionUsesEnvWhenBuildVersionIsDev(t *testing.T) {
+	t.Setenv("MEDIASTATION_VERSION", " MediaStationGo-v0.1.16 ")
+
+	if got := effectiveVersion("dev"); got != "MediaStationGo-v0.1.16" {
+		t.Fatalf("effectiveVersion = %q, want MediaStationGo-v0.1.16", got)
+	}
+}
+
+func TestEffectiveVersionDefaultsToDev(t *testing.T) {
+	t.Setenv("MEDIASTATION_VERSION", "")
+
+	if got := effectiveVersion(""); got != "dev" {
+		t.Fatalf("effectiveVersion = %q, want dev", got)
+	}
+}
+
 func TestServeSPANoCachesIndexAndServesRoutes(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	webDir := t.TempDir()

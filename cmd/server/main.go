@@ -18,6 +18,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -33,6 +34,20 @@ import (
 // version is overwritten at build time via -ldflags="-X main.version=...".
 var version = "dev"
 
+func effectiveVersion(buildVersion string) string {
+	buildVersion = strings.TrimSpace(buildVersion)
+	if buildVersion != "" && buildVersion != "dev" {
+		return buildVersion
+	}
+	if envVersion := strings.TrimSpace(os.Getenv("MEDIASTATION_VERSION")); envVersion != "" {
+		return envVersion
+	}
+	if buildVersion == "" {
+		return "dev"
+	}
+	return buildVersion
+}
+
 func main() {
 	cfg, err := config.Load()
 	if err != nil {
@@ -47,8 +62,9 @@ func main() {
 	}
 	defer func() { _ = logger.Sync() }()
 
+	appVersion := effectiveVersion(version)
 	logger.Info("starting MediaStationGo",
-		zap.String("version", version),
+		zap.String("version", appVersion),
 		zap.Int("port", cfg.App.Port),
 		zap.String("data_dir", cfg.App.DataDir),
 	)
@@ -77,7 +93,7 @@ func main() {
 	repos := repository.New(db)
 	service.ApplyRuntimeSettings(context.Background(), cfg, repos, logger)
 	applyCPUThreadLimit(cfg, logger)
-	services := service.NewWithVersion(cfg, logger, repos, version)
+	services := service.NewWithVersion(cfg, logger, repos, appVersion)
 
 	if repaired, err := services.RepairCloudPathMetadata(context.Background()); err != nil {
 		logger.Warn("cloud path metadata repair failed", zap.Error(err))

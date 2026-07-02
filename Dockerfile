@@ -8,7 +8,7 @@
 #
 # Build:
 #   docker buildx build --platform linux/amd64,linux/arm64 \
-#     -t mediastation-go:latest --push .
+#     --build-arg VERSION=MediaStationGo-v0.1.16 -t mediastation-go:latest --push .
 #
 # Optional Intel VAAPI/QSV runtime packages:
 #   docker buildx build --build-arg WITH_VAAPI=true ...
@@ -29,6 +29,7 @@ FROM --platform=$BUILDPLATFORM golang:1.25-alpine AS backend
 ARG TARGETOS
 ARG TARGETARCH
 ARG GOPROXY=https://proxy.golang.org,direct
+ARG VERSION=dev
 ENV GOPROXY=${GOPROXY}
 WORKDIR /app
 COPY go.mod go.sum ./
@@ -38,7 +39,7 @@ COPY . .
 COPY --from=frontend /app/web/dist ./web/dist
 RUN --mount=type=cache,target=/go/pkg/mod \
     CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
-    go build -trimpath -ldflags="-s -w" -o mediastation-go ./cmd/server
+    go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" -o mediastation-go ./cmd/server
 
 # ---- Stage 3: runtime ------------------------------------------------------
 FROM alpine:3.23
