@@ -137,3 +137,65 @@ func TestGenerateSTRMFromTreeDryRunDoesNotCreateOutputDir(t *testing.T) {
 		t.Fatalf("dry run should not create output dir, stat err=%v", err)
 	}
 }
+
+func TestGenerateSTRMFromTreeBatchLimitContinuesAfterExistingFiles(t *testing.T) {
+	outDir := filepath.Join(t.TempDir(), "strm")
+	svc := NewSTRMService(zap.NewNop(), nil, nil)
+	opts := GenerateSTRMTreeOptions{
+		Provider:   "openlist",
+		Paths:      []string{"/Movies/A.mkv", "/Movies/B.mkv", "/Movies/C.mkv"},
+		OutputDir:  outDir,
+		BatchLimit: 2,
+	}
+
+	first, err := svc.GenerateFromTree(t.Context(), opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Generated != 2 || first.Skipped != 0 {
+		t.Fatalf("first batch = %#v, want two generated", first)
+	}
+	if _, err := os.Stat(filepath.Join(outDir, "Movies", "C.strm")); !os.IsNotExist(err) {
+		t.Fatalf("first batch should not write third item, stat err=%v", err)
+	}
+
+	second, err := svc.GenerateFromTree(t.Context(), opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.Generated != 1 || second.Skipped != 2 {
+		t.Fatalf("second batch = %#v, want two existing skips then next generated", second)
+	}
+	if got := readSTRM(t, filepath.Join(outDir, "Movies", "C.strm")); !strings.Contains(got, "C.mkv") {
+		t.Fatalf("second batch C.strm = %q, want generated third item", got)
+	}
+}
+
+func TestGenerateSTRMFromTreeBatchLimitSkipsCleanup(t *testing.T) {
+	outDir := filepath.Join(t.TempDir(), "strm")
+	stale := filepath.Join(outDir, "Movies", "stale.strm")
+	if err := os.MkdirAll(filepath.Dir(stale), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(stale, []byte("keep\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	svc := NewSTRMService(zap.NewNop(), nil, nil)
+
+	res, err := svc.GenerateFromTree(t.Context(), GenerateSTRMTreeOptions{
+		Provider:   "openlist",
+		Paths:      []string{"/Movies/A.mkv", "/Movies/B.mkv"},
+		OutputDir:  outDir,
+		BatchLimit: 1,
+		Cleanup:    true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Generated != 1 || res.Cleaned != 0 {
+		t.Fatalf("batch result = %#v, want one generated and no cleanup", res)
+	}
+	if got := readSTRM(t, stale); got != "keep" {
+		t.Fatalf("batch cleanup should not touch stale file: %q", got)
+	}
+}

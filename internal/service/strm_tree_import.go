@@ -20,6 +20,7 @@ type GenerateSTRMTreeOptions struct {
 	Overwrite    bool     `json:"overwrite"`
 	Cleanup      bool     `json:"cleanup"`
 	DryRun       bool     `json:"dry_run"`
+	BatchLimit   int      `json:"batch_limit,omitempty"`
 }
 
 type strmTreeSource struct {
@@ -55,8 +56,11 @@ func (s *STRMService) GenerateFromTree(ctx context.Context, opts GenerateSTRMTre
 			expectedFiles[filepath.Clean(item.FilePath)] = struct{}{}
 		}
 		result.addItem(item)
+		if strmTreeBatchLimitReached(result, opts.BatchLimit) {
+			break
+		}
 	}
-	if opts.Cleanup && !opts.DryRun && len(expectedFiles) > 0 {
+	if opts.Cleanup && !opts.DryRun && opts.BatchLimit <= 0 && len(expectedFiles) > 0 {
 		cleanupDir := outputDir
 		if prefix, err := strmTreeOutputPrefixPath(opts.OutputPrefix); err == nil && prefix != "" {
 			cleanupDir = filepath.Join(outputDir, prefix)
@@ -68,6 +72,13 @@ func (s *STRMService) GenerateFromTree(ctx context.Context, opts GenerateSTRMTre
 		}
 	}
 	return result, nil
+}
+
+func strmTreeBatchLimitReached(result *GenerateSTRMResult, limit int) bool {
+	if result == nil || limit <= 0 {
+		return false
+	}
+	return result.Generated+result.Updated+result.Previewed >= limit
 }
 
 func generateTreeSTRMItem(outputDir string, source strmTreeSource, opts GenerateSTRMTreeOptions) GenerateSTRMItem {

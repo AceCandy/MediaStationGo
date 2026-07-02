@@ -40,6 +40,7 @@ export type GenerateSTRMTreeInput = {
   overwrite?: boolean
   cleanup?: boolean
   dry_run?: boolean
+  batch_limit?: number
 }
 
 export const strmAPI = {

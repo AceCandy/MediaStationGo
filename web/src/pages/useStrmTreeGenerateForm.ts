@@ -12,6 +12,7 @@ export function useStrmTreeGenerateForm() {
   const [outputPrefix, setOutputPrefix] = useState('')
   const [baseURL, setBaseURL] = useState(currentOrigin())
   const [outputDir, setOutputDir] = useState('data/strm/tree')
+  const [batchLimit, setBatchLimit] = useState('')
   const [treeText, setTreeText] = useState('')
   const [pathsText, setPathsText] = useState('')
   const [overwrite, setOverwrite] = useState(false)
@@ -49,6 +50,11 @@ export function useStrmTreeGenerateForm() {
       toast.error('域名必须以 http:// 或 https:// 开头')
       return
     }
+    const parsedBatchLimit = parseBatchLimit(batchLimit)
+    if (parsedBatchLimit === null) {
+      toast.error('每批数量必须为非负整数')
+      return
+    }
     setRunningMode(dryRun ? 'preview' : 'generate')
     try {
       const next = await strmAPI.generateFromTree({
@@ -60,8 +66,9 @@ export function useStrmTreeGenerateForm() {
         tree_text: treeText.trim() || undefined,
         paths: paths.length > 0 ? paths : undefined,
         overwrite,
-        cleanup,
+        cleanup: parsedBatchLimit > 0 ? false : cleanup,
         dry_run: dryRun,
+        batch_limit: parsedBatchLimit || undefined,
       })
       setResult(next)
       if (dryRun) {
@@ -87,6 +94,7 @@ export function useStrmTreeGenerateForm() {
 
   return {
     baseURL,
+    batchLimit,
     cleanup,
     generating: runningMode !== null,
     onImportTreeFile,
@@ -100,6 +108,7 @@ export function useStrmTreeGenerateForm() {
     result,
     runningMode,
     setBaseURL,
+    setBatchLimit,
     setCleanup,
     setOutputDir,
     setOutputPrefix,
@@ -127,4 +136,13 @@ function parsePathList(raw: string): string[] {
       out.push(line)
     })
   return out
+}
+
+function parseBatchLimit(raw: string): number | null {
+  const value = raw.trim()
+  if (value === '') return 0
+  if (!/^\d+$/.test(value)) return null
+  const parsed = Number.parseInt(value, 10)
+  if (!Number.isSafeInteger(parsed)) return null
+  return parsed
 }

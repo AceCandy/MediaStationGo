@@ -119,6 +119,7 @@ type generateSTRMTreeReq struct {
 	Overwrite    bool     `json:"overwrite"`
 	Cleanup      bool     `json:"cleanup"`
 	DryRun       bool     `json:"dry_run"`
+	BatchLimit   int      `json:"batch_limit"`
 }
 
 func generateSTRMHandler(svc *service.Container) gin.HandlerFunc {
@@ -191,6 +192,7 @@ func generateSTRMFromTreeHandler(svc *service.Container) gin.HandlerFunc {
 			Overwrite:    req.Overwrite,
 			Cleanup:      req.Cleanup,
 			DryRun:       req.DryRun,
+			BatchLimit:   req.BatchLimit,
 		})
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})

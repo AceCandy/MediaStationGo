@@ -29,6 +29,7 @@ const outputPrefixPresets = [
 
 export function StrmTreeGenerateSection({
   baseURL,
+  batchLimit,
   cleanup,
   generating,
   onGenerate,
@@ -42,6 +43,7 @@ export function StrmTreeGenerateSection({
   result,
   runningMode,
   setBaseURL,
+  setBatchLimit,
   setCleanup,
   setOutputDir,
   setOutputPrefix,
@@ -53,6 +55,8 @@ export function StrmTreeGenerateSection({
   sourceRoot,
   treeText,
 }: StrmTreeGenerateSectionProps) {
+  const batchLimitEnabled = Number.parseInt(batchLimit, 10) > 0
+
   return (
     <section className="glass-panel space-y-4">
       <div>
@@ -112,10 +116,20 @@ export function StrmTreeGenerateSection({
           <option value="成人">成人</option>
         </select>
         <input
-          className="input-base md:col-span-2"
+          className="input-base"
           placeholder="输出分类，如 电影/欧美电影"
           value={outputPrefix}
           onChange={(e) => setOutputPrefix(e.target.value)}
+        />
+        <input
+          className="input-base"
+          inputMode="numeric"
+          min={0}
+          placeholder="每批数量"
+          step={1}
+          type="number"
+          value={batchLimit}
+          onChange={(e) => setBatchLimit(e.target.value)}
         />
         <input
           className="input-base md:col-span-3"
@@ -166,7 +180,12 @@ export function StrmTreeGenerateSection({
           覆盖已存在
         </label>
         <label className="flex min-h-10 items-center gap-2 rounded-2xl border border-gray-200 bg-white/70 px-3 py-2 text-sm text-ink-50 md:col-span-4">
-          <input type="checkbox" checked={cleanup} onChange={(e) => setCleanup(e.target.checked)} />
+          <input
+            type="checkbox"
+            checked={!batchLimitEnabled && cleanup}
+            disabled={batchLimitEnabled}
+            onChange={(e) => setCleanup(e.target.checked)}
+          />
           清理不在当前目录树中的旧 STRM
         </label>
         <button
