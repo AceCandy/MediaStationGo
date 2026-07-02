@@ -32,6 +32,7 @@ export function StrmTreeGenerateSection({
   cleanup,
   generating,
   onGenerate,
+  onPreview,
   onImportTreeFile,
   outputDir,
   outputPrefix,
@@ -39,6 +40,7 @@ export function StrmTreeGenerateSection({
   pathsText,
   provider,
   result,
+  runningMode,
   setBaseURL,
   setCleanup,
   setOutputDir,
@@ -168,12 +170,21 @@ export function StrmTreeGenerateSection({
           清理不在当前目录树中的旧 STRM
         </label>
         <button
+          type="button"
+          disabled={generating || (!treeText.trim() && !pathsText.trim()) || !outputDir.trim()}
+          className="inline-flex min-h-10 items-center justify-center gap-2 rounded-2xl border border-primary-400/40 px-3 py-2 text-sm font-medium text-brand-500 transition hover:bg-primary-400/10 disabled:cursor-not-allowed disabled:opacity-50 md:col-span-2"
+          onClick={onPreview}
+        >
+          {runningMode === 'preview' ? <Loader2 size={16} className="animate-spin" /> : <FolderTree size={16} />}
+          {runningMode === 'preview' ? '预检中...' : '预检目录树'}
+        </button>
+        <button
           type="submit"
           disabled={generating || (!treeText.trim() && !pathsText.trim()) || !outputDir.trim()}
-          className="neon-button md:col-span-4"
+          className="neon-button md:col-span-2"
         >
-          {generating ? <Loader2 size={16} className="animate-spin" /> : <FolderTree size={16} />}
-          {generating ? '生成中...' : '按目录树生成'}
+          {runningMode === 'generate' ? <Loader2 size={16} className="animate-spin" /> : <FolderTree size={16} />}
+          {runningMode === 'generate' ? '生成中...' : '按目录树生成'}
         </button>
       </form>
       <StrmGenerateResultPanel result={result} />

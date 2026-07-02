@@ -81,3 +81,59 @@ func TestGenerateSTRMFromTreeSupportsCommonVideoExtensions(t *testing.T) {
 		t.Fatalf("iso source should stay ignored by tree generator, stat err=%v", err)
 	}
 }
+
+func TestGenerateSTRMFromTreeDryRunDoesNotWriteOrCleanup(t *testing.T) {
+	outDir := filepath.Join(t.TempDir(), "strm")
+	stale := filepath.Join(outDir, "Movies", "Old.Movie.strm")
+	if err := os.MkdirAll(filepath.Dir(stale), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(stale, []byte("old\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	svc := NewSTRMService(zap.NewNop(), nil, nil)
+
+	res, err := svc.GenerateFromTree(t.Context(), GenerateSTRMTreeOptions{
+		Provider:  "openlist",
+		Paths:     []string{"/Movies/New.Movie.2026.mkv"},
+		OutputDir: outDir,
+		Cleanup:   true,
+		DryRun:    true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Previewed != 1 || res.Generated != 0 || res.Updated != 0 || res.Cleaned != 0 || len(res.Errors) != 0 {
+		t.Fatalf("result = %#v, want one preview and no writes", res)
+	}
+	if len(res.Items) != 1 || res.Items[0].Action != "preview" || res.Items[0].Reason != "generated" {
+		t.Fatalf("preview item = %#v, want generated preview", res.Items)
+	}
+	if _, err := os.Stat(filepath.Join(outDir, "Movies", "New.Movie.2026.strm")); !os.IsNotExist(err) {
+		t.Fatalf("dry run should not write new strm, stat err=%v", err)
+	}
+	if got := readSTRM(t, stale); got != "old" {
+		t.Fatalf("dry run cleanup touched stale file: %q", got)
+	}
+}
+
+func TestGenerateSTRMFromTreeDryRunDoesNotCreateOutputDir(t *testing.T) {
+	outDir := filepath.Join(t.TempDir(), "missing-strm")
+	svc := NewSTRMService(zap.NewNop(), nil, nil)
+
+	res, err := svc.GenerateFromTree(t.Context(), GenerateSTRMTreeOptions{
+		Provider:  "openlist",
+		Paths:     []string{"/Movies/New.Movie.2026.mkv"},
+		OutputDir: outDir,
+		DryRun:    true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Previewed != 1 {
+		t.Fatalf("previewed = %d, want 1", res.Previewed)
+	}
+	if _, err := os.Stat(outDir); !os.IsNotExist(err) {
+		t.Fatalf("dry run should not create output dir, stat err=%v", err)
+	}
+}

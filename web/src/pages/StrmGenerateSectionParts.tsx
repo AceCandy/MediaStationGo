@@ -271,6 +271,7 @@ export function StrmGenerateResultPanel({ result }: { result: GenerateSTRMResult
         输出目录：{result.output_dir}
       </div>
       <div className="mt-1">
+        {result.previewed ? `预检 ${result.previewed} · ` : ''}
         新增 {result.generated} · 更新 {result.updated} · 跳过 {result.skipped} · 清理 {result.cleaned || 0}
       </div>
       {result.errors && result.errors.length > 0 && (

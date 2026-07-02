@@ -17,6 +17,7 @@ export type GenerateSTRMResult = {
   updated: number
   skipped: number
   cleaned: number
+  previewed?: number
   errors?: string[]
   items?: Array<{
     media_id: string
@@ -38,6 +39,7 @@ export type GenerateSTRMTreeInput = {
   base_url?: string
   overwrite?: boolean
   cleanup?: boolean
+  dry_run?: boolean
 }
 
 export const strmAPI = {

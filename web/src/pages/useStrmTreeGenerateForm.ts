@@ -16,7 +16,7 @@ export function useStrmTreeGenerateForm() {
   const [pathsText, setPathsText] = useState('')
   const [overwrite, setOverwrite] = useState(false)
   const [cleanup, setCleanup] = useState(false)
-  const [generating, setGenerating] = useState(false)
+  const [runningMode, setRunningMode] = useState<'generate' | 'preview' | null>(null)
   const [result, setResult] = useState<GenerateSTRMResult | null>(null)
 
   const onImportTreeFile = async (event: ChangeEvent<HTMLInputElement>) => {
@@ -38,8 +38,7 @@ export function useStrmTreeGenerateForm() {
     }
   }
 
-  const onGenerate = async (event: FormEvent) => {
-    event.preventDefault()
+  const runGenerate = async (dryRun: boolean) => {
     const trimmedBaseURL = baseURL.trim()
     const paths = parsePathList(pathsText)
     if (!treeText.trim() && paths.length === 0) {
@@ -50,7 +49,7 @@ export function useStrmTreeGenerateForm() {
       toast.error('域名必须以 http:// 或 https:// 开头')
       return
     }
-    setGenerating(true)
+    setRunningMode(dryRun ? 'preview' : 'generate')
     try {
       const next = await strmAPI.generateFromTree({
         provider,
@@ -62,28 +61,44 @@ export function useStrmTreeGenerateForm() {
         paths: paths.length > 0 ? paths : undefined,
         overwrite,
         cleanup,
+        dry_run: dryRun,
       })
       setResult(next)
-      toast.success(`生成完成：新增 ${next.generated} · 更新 ${next.updated} · 跳过 ${next.skipped}`)
+      if (dryRun) {
+        toast.success(`预检完成：将处理 ${next.previewed ?? 0} 个视频 · 跳过 ${next.skipped}`)
+      } else {
+        toast.success(`生成完成：新增 ${next.generated} · 更新 ${next.updated} · 跳过 ${next.skipped}`)
+      }
     } catch (err: unknown) {
-      toast.error(apiErrorMessage(err, '目录树生成失败'))
+      toast.error(apiErrorMessage(err, dryRun ? '目录树预检失败' : '目录树生成失败'))
     } finally {
-      setGenerating(false)
+      setRunningMode(null)
     }
+  }
+
+  const onGenerate = async (event: FormEvent) => {
+    event.preventDefault()
+    await runGenerate(false)
+  }
+
+  const onPreview = async () => {
+    await runGenerate(true)
   }
 
   return {
     baseURL,
     cleanup,
-    generating,
+    generating: runningMode !== null,
     onImportTreeFile,
     onGenerate,
+    onPreview,
     outputDir,
     outputPrefix,
     overwrite,
     pathsText,
     provider,
     result,
+    runningMode,
     setBaseURL,
     setCleanup,
     setOutputDir,

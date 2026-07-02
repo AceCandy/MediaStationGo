@@ -31,6 +31,7 @@ type GenerateSTRMResult struct {
 	Updated   int                `json:"updated"`
 	Skipped   int                `json:"skipped"`
 	Cleaned   int                `json:"cleaned"`
+	Previewed int                `json:"previewed,omitempty"`
 	Errors    []string           `json:"errors,omitempty"`
 	Items     []GenerateSTRMItem `json:"items,omitempty"`
 }
@@ -269,6 +270,8 @@ func (r *GenerateSTRMResult) addItem(item GenerateSTRMItem) {
 		r.Updated++
 	case "skipped":
 		r.Skipped++
+	case "preview":
+		r.Previewed++
 	case "error":
 		r.Errors = append(r.Errors, fmt.Sprintf("%s: %s", item.Title, item.Reason))
 	}
@@ -285,6 +288,7 @@ func (r *GenerateSTRMResult) merge(part *GenerateSTRMResult) {
 	r.Updated += part.Updated
 	r.Skipped += part.Skipped
 	r.Cleaned += part.Cleaned
+	r.Previewed += part.Previewed
 	r.Errors = append(r.Errors, part.Errors...)
 	r.Items = append(r.Items, part.Items...)
 }

@@ -19,6 +19,7 @@ type GenerateSTRMTreeOptions struct {
 	BaseURL      string   `json:"base_url,omitempty"`
 	Overwrite    bool     `json:"overwrite"`
 	Cleanup      bool     `json:"cleanup"`
+	DryRun       bool     `json:"dry_run"`
 }
 
 type strmTreeSource struct {
@@ -36,8 +37,10 @@ func (s *STRMService) GenerateFromTree(ctx context.Context, opts GenerateSTRMTre
 	if outputDir == "" || outputDir == "." {
 		return nil, errors.New("output_dir required")
 	}
-	if err := os.MkdirAll(outputDir, 0o755); err != nil { // #nosec G301 -- STRM output directories must be readable by media players.
-		return nil, err
+	if !opts.DryRun {
+		if err := os.MkdirAll(outputDir, 0o755); err != nil { // #nosec G301 -- STRM output directories must be readable by media players.
+			return nil, err
+		}
 	}
 	result := &GenerateSTRMResult{LibraryID: provider, OutputDir: outputDir}
 	expectedFiles := make(map[string]struct{})
@@ -53,7 +56,7 @@ func (s *STRMService) GenerateFromTree(ctx context.Context, opts GenerateSTRMTre
 		}
 		result.addItem(item)
 	}
-	if opts.Cleanup && len(expectedFiles) > 0 {
+	if opts.Cleanup && !opts.DryRun && len(expectedFiles) > 0 {
 		cleanupDir := outputDir
 		if prefix, err := strmTreeOutputPrefixPath(opts.OutputPrefix); err == nil && prefix != "" {
 			cleanupDir = filepath.Join(outputDir, prefix)
@@ -93,6 +96,11 @@ func generateTreeSTRMItem(outputDir string, source strmTreeSource, opts Generate
 	action := "generated"
 	if _, err := os.Stat(filePath); err == nil {
 		action = "updated"
+	}
+	if opts.DryRun {
+		item.Action = "preview"
+		item.Reason = action
+		return item
 	}
 	if err := os.MkdirAll(filepath.Dir(filePath), 0o755); err != nil { // #nosec G301 -- STRM output directories must be readable by media players.
 		item.Action = "error"
