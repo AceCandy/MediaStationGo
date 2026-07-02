@@ -22,6 +22,7 @@ type GenerateSTRMTreeOptions struct {
 	DryRun            bool     `json:"dry_run"`
 	BatchLimit        int      `json:"batch_limit,omitempty"`
 	TransferSubtitles bool     `json:"transfer_subtitles,omitempty"`
+	MissingOnly       bool     `json:"missing_only,omitempty"`
 }
 
 type strmTreeSource struct {
@@ -73,6 +74,10 @@ func (s *STRMService) GenerateFromTree(ctx context.Context, opts GenerateSTRMTre
 	result.Total = len(sources)
 	result.Ignored = collection.ignoredCount
 	result.IgnoredItems = collection.ignored
+	existingRefs, err := s.strmTreeExistingCloudRefs(ctx, opts)
+	if err != nil {
+		return nil, err
+	}
 	expectedFiles := make(map[string]struct{})
 	for i, source := range sources {
 		select {
@@ -80,7 +85,7 @@ func (s *STRMService) GenerateFromTree(ctx context.Context, opts GenerateSTRMTre
 			return result, ctx.Err()
 		default:
 		}
-		item := generateTreeSTRMItem(outputDir, source, opts)
+		item := generateTreeSTRMItem(outputDir, source, opts, existingRefs)
 		if item.FilePath != "" && item.Action != "error" {
 			expectedFiles[filepath.Clean(item.FilePath)] = struct{}{}
 		}
@@ -112,7 +117,7 @@ func strmTreeBatchLimitReached(result *GenerateSTRMResult, limit int) bool {
 	return result.Generated+result.Updated+result.Previewed >= limit
 }
 
-func generateTreeSTRMItem(outputDir string, source strmTreeSource, opts GenerateSTRMTreeOptions) GenerateSTRMItem {
+func generateTreeSTRMItem(outputDir string, source strmTreeSource, opts GenerateSTRMTreeOptions, existingRefs map[string]struct{}) GenerateSTRMItem {
 	relSource := strmTreeRelativeSource(source.Path, opts.SourceRoot)
 	relPath, err := strmTreeOutputRelativePath(relSource)
 	if source.Kind == strmTreeSourceKindSubtitle {
@@ -133,6 +138,11 @@ func generateTreeSTRMItem(outputDir string, source strmTreeSource, opts Generate
 	filePath := filepath.Join(outputDir, prefix, relPath)
 	item.FilePath = filePath
 	item.URL = absolutizeSTRMURL(BuildRelativeCloudPlayURL(source.Provider, strmTreeCloudRef(source.cloudRefPath(), opts.SourceRoot)), opts.BaseURL)
+	if strmTreeSourceAlreadyInLibrary(source, opts, existingRefs) {
+		item.Action = "skipped"
+		item.Reason = "already in media library"
+		return item
+	}
 	if _, err := os.Stat(filePath); err == nil && !opts.Overwrite {
 		item.Action = "skipped"
 		item.Reason = "target exists"

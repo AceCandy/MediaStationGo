@@ -8,6 +8,9 @@ import (
 	"testing"
 
 	"go.uber.org/zap"
+
+	"github.com/ShukeBta/MediaStationGo/internal/model"
+	"github.com/ShukeBta/MediaStationGo/internal/repository"
 )
 
 func TestGenerateSTRMFromTreeUsesMediaPathFromURLQuery(t *testing.T) {
@@ -161,6 +164,64 @@ func TestGenerateSTRMFromTreeDoesNotDedupeDifferentProviders(t *testing.T) {
 	got := readSTRM(t, filepath.Join(outDir, "Movies", "Same.Movie.strm"))
 	if !strings.Contains(got, "/api/cloud/play/cloud115?") || !strings.Contains(got, "ref=%2FMovies%2FSame.Movie.mkv") {
 		t.Fatalf("final strm url = %q, want second provider write to prove it was not deduped", got)
+	}
+}
+
+func TestGenerateSTRMFromTreeMissingOnlySkipsMediaAlreadyInLibrary(t *testing.T) {
+	db := newServiceTestDB(t, &model.Media{})
+	repos := repository.New(db)
+	rows := []model.Media{
+		{
+			Base:    model.Base{ID: "existing-strm"},
+			Title:   "Existing STRM",
+			Path:    "cloud://openlist/Movies/Existing.Path.Copy.mkv",
+			STRMURL: "/api/cloud/play/openlist?ref=%2FMovies%2FExisting.Movie.mkv",
+		},
+		{
+			Base:  model.Base{ID: "existing-cloud-path"},
+			Title: "Existing Cloud Path",
+			Path:  "cloud://cloud115/Shows/Existing.Show.S01E01.mkv",
+		},
+		{
+			Base:  model.Base{ID: "different-provider"},
+			Title: "Different Provider",
+			Path:  "cloud://cloud115/Shows/Same.Provider.mkv",
+		},
+	}
+	for i := range rows {
+		if err := repos.DB.Create(&rows[i]).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	outDir := filepath.Join(t.TempDir(), "strm")
+	svc := NewSTRMService(zap.NewNop(), repos, nil)
+
+	res, err := svc.GenerateFromTree(t.Context(), GenerateSTRMTreeOptions{
+		Provider: "openlist",
+		Paths: []string{
+			"cloud://openlist/Movies/Existing.Movie.mkv",
+			"cloud://openlist/Movies/New.Movie.mkv",
+			"cloud://cloud115/Shows/Existing.Show.S01E01.mkv",
+			"cloud://openlist/Shows/Same.Provider.mkv",
+		},
+		OutputDir:   outDir,
+		MissingOnly: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Generated != 2 || res.Skipped != 2 || len(res.Errors) != 0 {
+		t.Fatalf("result = %#v, want generated=2 skipped=2", res)
+	}
+	if _, err := os.Stat(filepath.Join(outDir, "Movies", "Existing.Movie.strm")); !os.IsNotExist(err) {
+		t.Fatalf("existing media should not generate STRM, stat err=%v", err)
+	}
+	assertFileContains(t, filepath.Join(outDir, "Movies", "New.Movie.strm"), "/api/cloud/play/openlist?ref=%2FMovies%2FNew.Movie.mkv")
+	assertFileContains(t, filepath.Join(outDir, "Shows", "Same.Provider.strm"), "/api/cloud/play/openlist?ref=%2FShows%2FSame.Provider.mkv")
+	for _, item := range res.Items {
+		if item.Title == "Existing.Movie" && item.Reason != "already in media library" {
+			t.Fatalf("existing media skip reason = %q", item.Reason)
+		}
 	}
 }
 

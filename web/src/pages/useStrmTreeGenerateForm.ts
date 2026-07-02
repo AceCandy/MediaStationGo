@@ -18,6 +18,7 @@ export function useStrmTreeGenerateForm() {
   const [overwrite, setOverwrite] = useState(false)
   const [cleanup, setCleanup] = useState(false)
   const [transferSubtitles, setTransferSubtitles] = useState(true)
+  const [missingOnly, setMissingOnly] = useState(false)
   const [refreshLibrary, setRefreshLibrary] = useState(true)
   const [runningMode, setRunningMode] = useState<'generate' | 'preview' | null>(null)
   const [result, setResult] = useState<GenerateSTRMResult | null>(null)
@@ -72,6 +73,7 @@ export function useStrmTreeGenerateForm() {
         dry_run: dryRun,
         batch_limit: parsedBatchLimit || undefined,
         transfer_subtitles: transferSubtitles,
+        missing_only: missingOnly,
         refresh_library: refreshLibrary,
       })
       setResult(next)
@@ -104,6 +106,7 @@ export function useStrmTreeGenerateForm() {
     onImportTreeFile,
     onGenerate,
     onPreview,
+    missingOnly,
     outputDir,
     outputPrefix,
     overwrite,
@@ -115,6 +118,7 @@ export function useStrmTreeGenerateForm() {
     setBaseURL,
     setBatchLimit,
     setCleanup,
+    setMissingOnly,
     setOutputDir,
     setOutputPrefix,
     setOverwrite,

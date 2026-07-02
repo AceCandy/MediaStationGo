@@ -123,6 +123,7 @@ type generateSTRMTreeReq struct {
 	DryRun            bool     `json:"dry_run"`
 	BatchLimit        int      `json:"batch_limit"`
 	TransferSubtitles bool     `json:"transfer_subtitles"`
+	MissingOnly       bool     `json:"missing_only"`
 	RefreshLibrary    bool     `json:"refresh_library"`
 }
 
@@ -208,6 +209,7 @@ func generateSTRMFromTreeHandler(svc *service.Container) gin.HandlerFunc {
 			DryRun:            req.DryRun,
 			BatchLimit:        req.BatchLimit,
 			TransferSubtitles: req.TransferSubtitles,
+			MissingOnly:       req.MissingOnly,
 		})
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
