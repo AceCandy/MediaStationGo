@@ -1,6 +1,6 @@
 import { Loader2, Save, Wand2 } from 'lucide-react'
 
-import type { GenerateSTRMResult } from '../api/strm'
+import type { GenerateSTRMResult, STRMRefreshResult } from '../api/strm'
 import type { Library } from '../types'
 import { currentOrigin, type CloudPlaybackMode } from './strmPageModel'
 import type { StrmGenerateSectionProps } from './StrmGenerateSection'
@@ -147,6 +147,7 @@ type StrmGenerateFormProps = Pick<
   | 'includeLocal'
   | 'preserveTree'
   | 'refreshLibrary'
+  | 'scrapeAfter'
   | 'generating'
   | 'onGenerate'
   | 'setGenerateLibraryID'
@@ -156,6 +157,7 @@ type StrmGenerateFormProps = Pick<
   | 'setIncludeLocal'
   | 'setPreserveTree'
   | 'setRefreshLibrary'
+  | 'setScrapeAfter'
 >
 
 export function StrmGenerateForm({
@@ -168,6 +170,7 @@ export function StrmGenerateForm({
   includeLocal,
   preserveTree,
   refreshLibrary,
+  scrapeAfter,
   generating,
   onGenerate,
   setGenerateLibraryID,
@@ -177,6 +180,7 @@ export function StrmGenerateForm({
   setIncludeLocal,
   setPreserveTree,
   setRefreshLibrary,
+  setScrapeAfter,
 }: StrmGenerateFormProps) {
   return (
     <form onSubmit={onGenerate} className="grid gap-3 md:grid-cols-4">
@@ -195,11 +199,17 @@ export function StrmGenerateForm({
       >
         使用当前访问地址
       </button>
-      <div className="grid gap-2 md:col-span-4 md:grid-cols-4">
+      <div className="grid gap-2 md:col-span-4 md:grid-cols-5">
         <CompactOption checked={overwrite} label="覆盖已存在" onChange={setOverwrite} />
         <CompactOption checked={includeLocal} label="包含本地媒体" onChange={setIncludeLocal} />
         <CompactOption checked={preserveTree} label="保留目录树" onChange={setPreserveTree} />
         <CompactOption checked={refreshLibrary} label="生成后刷新媒体库" onChange={setRefreshLibrary} />
+        <CompactOption
+          checked={refreshLibrary && scrapeAfter}
+          disabled={!refreshLibrary}
+          label="刷新后自动刮削"
+          onChange={setScrapeAfter}
+        />
       </div>
       <StrmOutputDirPicker
         className="md:col-span-4"
@@ -218,16 +228,18 @@ export function StrmGenerateForm({
 
 type CompactOptionProps = {
   checked: boolean
+  disabled?: boolean
   label: string
   onChange: (value: boolean) => void
 }
 
-function CompactOption({ checked, label, onChange }: CompactOptionProps) {
+function CompactOption({ checked, disabled, label, onChange }: CompactOptionProps) {
   return (
-    <label className="flex min-h-10 items-center gap-2 rounded-2xl border border-gray-200 bg-white/70 px-3 py-2 text-sm text-ink-50">
+    <label className={`flex min-h-10 items-center gap-2 rounded-2xl border border-gray-200 bg-white/70 px-3 py-2 text-sm text-ink-50 ${disabled ? 'cursor-not-allowed opacity-50' : ''}`}>
       <input
         type="checkbox"
         checked={checked}
+        disabled={disabled}
         onChange={(e) => onChange(e.target.checked)}
       />
       {label}
@@ -288,13 +300,7 @@ export function StrmGenerateResultPanel({ result }: { result: GenerateSTRMResult
       {result.batch_limited && (
         <div className="mt-1 text-amber-600">本批已达到上限，剩余 {result.remaining || 0} 个可继续运行。</div>
       )}
-      {result.refresh && (
-        <div className={result.refresh.queued ? 'mt-1 text-emerald-600' : 'mt-1 text-amber-600'}>
-          {result.refresh.queued
-            ? `媒体库刷新已排队：${result.refresh.targets?.map((target) => target.name).join('、') || '已匹配媒体库'}`
-            : `媒体库未刷新：${result.refresh.reason || '未匹配到可扫描媒体库'}`}
-        </div>
-      )}
+      <StrmRefreshStatus refresh={result.refresh} />
       {result.ignored_items && result.ignored_items.length > 0 && (
         <div className="mt-1 text-amber-600">
           已忽略 {result.ignored || result.ignored_items.length} 个非视频/sidecar：{result.ignored_items.slice(0, 3).join('；')}
@@ -306,5 +312,27 @@ export function StrmGenerateResultPanel({ result }: { result: GenerateSTRMResult
         </div>
       )}
     </div>
+  )
+}
+
+export function StrmRefreshStatus({ refresh }: { refresh?: STRMRefreshResult }) {
+  if (!refresh) {
+    return null
+  }
+  return (
+    <>
+      <div className={refresh.queued ? 'mt-1 text-emerald-600' : 'mt-1 text-amber-600'}>
+        {refresh.queued
+          ? `媒体库刷新已排队：${refresh.targets?.map((target) => target.name).join('、') || '已匹配媒体库'}`
+          : `媒体库未刷新：${refresh.reason || '未匹配到可扫描媒体库'}`}
+      </div>
+      {refresh.scrape_requested && (
+        <div className={refresh.scrape_queued ? 'mt-1 text-emerald-600' : 'mt-1 text-amber-600'}>
+          {refresh.scrape_queued
+            ? '扫描完成后将自动刮削'
+            : `未安排刮削：${refresh.scrape_reason || '媒体库未刷新'}`}
+        </div>
+      )}
+    </>
   )
 }

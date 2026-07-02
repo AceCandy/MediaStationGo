@@ -10,10 +10,13 @@ import (
 )
 
 type STRMRefreshResult struct {
-	Requested bool                `json:"requested"`
-	Queued    bool                `json:"queued"`
-	Reason    string              `json:"reason,omitempty"`
-	Targets   []STRMRefreshTarget `json:"targets,omitempty"`
+	Requested       bool                `json:"requested"`
+	Queued          bool                `json:"queued"`
+	Reason          string              `json:"reason,omitempty"`
+	ScrapeRequested bool                `json:"scrape_requested,omitempty"`
+	ScrapeQueued    bool                `json:"scrape_queued,omitempty"`
+	ScrapeReason    string              `json:"scrape_reason,omitempty"`
+	Targets         []STRMRefreshTarget `json:"targets,omitempty"`
 }
 
 type STRMRefreshTarget struct {

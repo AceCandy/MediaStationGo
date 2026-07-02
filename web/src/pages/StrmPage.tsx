@@ -34,6 +34,7 @@ export function StrmPage() {
         includeLocal={strm.generate.includeLocal}
         preserveTree={strm.generate.preserveTree}
         refreshLibrary={strm.generate.refreshLibrary}
+        scrapeAfter={strm.generate.scrapeAfter}
         generating={strm.generate.generating}
         generateResult={strm.generate.generateResult}
         playbackStatus={strm.generate.playbackStatus}
@@ -50,6 +51,7 @@ export function StrmPage() {
         setIncludeLocal={strm.generate.setIncludeLocal}
         setPreserveTree={strm.generate.setPreserveTree}
         setRefreshLibrary={strm.generate.setRefreshLibrary}
+        setScrapeAfter={strm.generate.setScrapeAfter}
       />
 
       <StrmTreeGenerateSection {...strm.treeGenerate} outputPresets={strm.outputPresets} />

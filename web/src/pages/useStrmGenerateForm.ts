@@ -34,6 +34,7 @@ export function useStrmGenerateForm(libraries: Library[]) {
   const [includeLocal, setIncludeLocal] = useState(true)
   const [preserveTree, setPreserveTree] = useState(false)
   const [refreshLibrary, setRefreshLibrary] = useState(true)
+  const [scrapeAfter, setScrapeAfter] = useState(false)
   const [generating, setGenerating] = useState(false)
   const [generateResult, setGenerateResult] = useState<GenerateSTRMResult | null>(null)
 
@@ -119,6 +120,7 @@ export function useStrmGenerateForm(libraries: Library[]) {
         include_local: includeLocal,
         preserve_tree: preserveTree,
         refresh_library: refreshLibrary,
+        scrape_after: refreshLibrary && scrapeAfter,
       })
       const nextOutputDir = result.output_dir || outputDir
       setGenerateResult(result)
@@ -133,6 +135,11 @@ export function useStrmGenerateForm(libraries: Library[]) {
     } finally {
       setGenerating(false)
     }
+  }
+
+  const setRefreshLibraryEnabled = (value: boolean) => {
+    setRefreshLibrary(value)
+    if (!value) setScrapeAfter(false)
   }
 
   const saveSTRMSettings = async () => {
@@ -177,6 +184,7 @@ export function useStrmGenerateForm(libraries: Library[]) {
     overwrite,
     preserveTree,
     refreshLibrary,
+    scrapeAfter,
     playbackStatus: playbackStatusText(strmPlaybackEnabled, redirectProxyEnabled, cloudPlaybackMode),
     redirectProxyEnabled,
     saveSTRMSettings,
@@ -189,7 +197,8 @@ export function useStrmGenerateForm(libraries: Library[]) {
     setOutputDir: onOutputDirChange,
     setOverwrite,
     setPreserveTree,
-    setRefreshLibrary,
+    setRefreshLibrary: setRefreshLibraryEnabled,
+    setScrapeAfter,
     setRedirectProxyEnabled,
     setStrmPlaybackEnabled,
     strmPlaybackEnabled,

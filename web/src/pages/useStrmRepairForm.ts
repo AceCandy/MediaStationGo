@@ -10,6 +10,7 @@ export function useStrmRepairForm() {
   const [baseURL, setBaseURL] = useState(currentOrigin())
   const [outputDir, setOutputDir] = useState('data/strm/tree')
   const [refreshLibrary, setRefreshLibrary] = useState(true)
+  const [scrapeAfter, setScrapeAfter] = useState(false)
   const [runningMode, setRunningMode] = useState<'repair' | 'preview' | null>(null)
   const [result, setResult] = useState<RepairSTRMResult | null>(null)
 
@@ -30,6 +31,7 @@ export function useStrmRepairForm() {
         base_url: trimmedBaseURL.replace(/\/+$/, '') || undefined,
         dry_run: dryRun,
         refresh_library: refreshLibrary,
+        scrape_after: !dryRun && refreshLibrary && scrapeAfter,
       })
       setResult(next)
       if (dryRun) {
@@ -53,17 +55,24 @@ export function useStrmRepairForm() {
     await runRepair(true)
   }
 
+  const setRefreshLibraryEnabled = (value: boolean) => {
+    setRefreshLibrary(value)
+    if (!value) setScrapeAfter(false)
+  }
+
   return {
     baseURL,
     outputDir,
     repairing: runningMode !== null,
     refreshLibrary,
+    scrapeAfter,
     result,
     runningMode,
     onPreview,
     onRepair,
     setBaseURL,
     setOutputDir,
-    setRefreshLibrary,
+    setRefreshLibrary: setRefreshLibraryEnabled,
+    setScrapeAfter,
   }
 }

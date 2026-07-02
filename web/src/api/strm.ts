@@ -9,6 +9,7 @@ export type GenerateSTRMInput = {
   include_local?: boolean
   preserve_tree?: boolean
   refresh_library?: boolean
+  scrape_after?: boolean
 }
 
 export type GenerateSTRMResult = {
@@ -51,6 +52,7 @@ export type GenerateSTRMTreeInput = {
   transfer_subtitles?: boolean
   missing_only?: boolean
   refresh_library?: boolean
+  scrape_after?: boolean
 }
 
 export type RepairSTRMInput = {
@@ -58,6 +60,7 @@ export type RepairSTRMInput = {
   base_url?: string
   dry_run?: boolean
   refresh_library?: boolean
+  scrape_after?: boolean
 }
 
 export type RepairSTRMResult = {
@@ -80,6 +83,9 @@ export type STRMRefreshResult = {
   requested: boolean
   queued: boolean
   reason?: string
+  scrape_requested?: boolean
+  scrape_queued?: boolean
+  scrape_reason?: string
   targets?: Array<{
     library_id: string
     root_id?: string

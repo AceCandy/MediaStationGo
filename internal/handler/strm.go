@@ -108,6 +108,7 @@ type generateSTRMReq struct {
 	IncludeLocal *bool  `json:"include_local"`
 	PreserveTree bool   `json:"preserve_tree"`
 	Refresh      bool   `json:"refresh_library"`
+	ScrapeAfter  bool   `json:"scrape_after"`
 }
 
 type generateSTRMTreeReq struct {
@@ -125,6 +126,7 @@ type generateSTRMTreeReq struct {
 	TransferSubtitles bool     `json:"transfer_subtitles"`
 	MissingOnly       bool     `json:"missing_only"`
 	RefreshLibrary    bool     `json:"refresh_library"`
+	ScrapeAfter       bool     `json:"scrape_after"`
 }
 
 type repairSTRMReq struct {
@@ -132,6 +134,7 @@ type repairSTRMReq struct {
 	BaseURL        string `json:"base_url"`
 	DryRun         bool   `json:"dry_run"`
 	RefreshLibrary bool   `json:"refresh_library"`
+	ScrapeAfter    bool   `json:"scrape_after"`
 }
 
 func listSTRMOutputPresetsHandler(svc *service.Container) gin.HandlerFunc {
@@ -186,7 +189,11 @@ func generateSTRMHandler(svc *service.Container) gin.HandlerFunc {
 			return
 		}
 		if req.Refresh {
-			res.Refresh = queueSTRMRefreshAfterChanges(c.Request.Context(), svc, res.OutputDir, "STRM 生成后刷新媒体库", strmGenerationChanged(res))
+			res.Refresh = queueSTRMRefreshAfterChanges(c.Request.Context(), svc, res.OutputDir, strmRefreshQueueOptions{
+				TaskName:    "STRM 生成后刷新媒体库",
+				Changed:     strmGenerationChanged(res),
+				ScrapeAfter: req.ScrapeAfter,
+			})
 		}
 		c.JSON(http.StatusOK, res)
 	}
@@ -227,7 +234,11 @@ func generateSTRMFromTreeHandler(svc *service.Container) gin.HandlerFunc {
 			return
 		}
 		if req.RefreshLibrary && !req.DryRun {
-			res.Refresh = queueSTRMRefreshAfterChanges(c.Request.Context(), svc, res.OutputDir, "STRM 目录树生成后刷新媒体库", strmGenerationChanged(res))
+			res.Refresh = queueSTRMRefreshAfterChanges(c.Request.Context(), svc, res.OutputDir, strmRefreshQueueOptions{
+				TaskName:    "STRM 目录树生成后刷新媒体库",
+				Changed:     strmGenerationChanged(res),
+				ScrapeAfter: req.ScrapeAfter,
+			})
 		}
 		c.JSON(http.StatusOK, res)
 	}
@@ -258,7 +269,11 @@ func repairSTRMHandler(svc *service.Container) gin.HandlerFunc {
 			return
 		}
 		if req.RefreshLibrary && !req.DryRun {
-			res.Refresh = queueSTRMRefreshAfterChanges(c.Request.Context(), svc, res.OutputDir, "STRM 修复后刷新媒体库", res.Repaired > 0)
+			res.Refresh = queueSTRMRefreshAfterChanges(c.Request.Context(), svc, res.OutputDir, strmRefreshQueueOptions{
+				TaskName:    "STRM 修复后刷新媒体库",
+				Changed:     res.Repaired > 0,
+				ScrapeAfter: req.ScrapeAfter,
+			})
 		}
 		c.JSON(http.StatusOK, res)
 	}
@@ -268,26 +283,43 @@ func strmGenerationChanged(res *service.GenerateSTRMResult) bool {
 	return res != nil && (res.Generated > 0 || res.Updated > 0 || res.Cleaned > 0)
 }
 
-func queueSTRMRefreshAfterChanges(ctx context.Context, svc *service.Container, outputDir, taskName string, changed bool) *service.STRMRefreshResult {
-	refresh := &service.STRMRefreshResult{Requested: true}
-	if !changed {
+type strmRefreshQueueOptions struct {
+	TaskName    string
+	Changed     bool
+	ScrapeAfter bool
+}
+
+type strmRefreshRunOptions struct {
+	ScrapeAfter bool
+}
+
+func queueSTRMRefreshAfterChanges(ctx context.Context, svc *service.Container, outputDir string, options strmRefreshQueueOptions) *service.STRMRefreshResult {
+	refresh := &service.STRMRefreshResult{Requested: true, ScrapeRequested: options.ScrapeAfter}
+	if !options.Changed {
 		refresh.Reason = "no strm changes"
+		refresh.ScrapeReason = strmRefreshScrapeSkipReason(refresh)
 		return refresh
 	}
 	if svc == nil || svc.Scan == nil {
 		refresh.Reason = "scanner unavailable"
+		refresh.ScrapeReason = strmRefreshScrapeSkipReason(refresh)
 		return refresh
 	}
 	targets, err := service.FindSTRMRefreshTargets(ctx, svc.Repo, outputDir)
 	if err != nil {
 		refresh.Reason = err.Error()
+		refresh.ScrapeReason = strmRefreshScrapeSkipReason(refresh)
 		return refresh
 	}
 	if len(targets) == 0 {
 		refresh.Reason = "no matching local library"
+		refresh.ScrapeReason = strmRefreshScrapeSkipReason(refresh)
 		return refresh
 	}
 	refresh.Targets = targets
+	if options.ScrapeAfter && svc.Scraper == nil {
+		refresh.ScrapeReason = "scraper unavailable"
+	}
 	for _, target := range targets {
 		key := target.LibraryID
 		if target.RootID != "" {
@@ -298,16 +330,21 @@ func queueSTRMRefreshAfterChanges(ctx context.Context, svc *service.Container, o
 			continue
 		}
 		refresh.Queued = true
-		task := startScanHTTPTask(svc, taskName, target.Name, target.Path)
-		go runSTRMRefreshScan(svc, target, task, finishScan)
+		runOptions := strmRefreshRunOptions{ScrapeAfter: options.ScrapeAfter && svc.Scraper != nil}
+		if runOptions.ScrapeAfter {
+			refresh.ScrapeQueued = true
+		}
+		task := startScanHTTPTask(svc, options.TaskName, target.Name, target.Path)
+		go runSTRMRefreshScan(svc, target, task, finishScan, runOptions)
 	}
 	if !refresh.Queued {
 		refresh.Reason = "matching library already scanning"
+		refresh.ScrapeReason = strmRefreshScrapeSkipReason(refresh)
 	}
 	return refresh
 }
 
-func runSTRMRefreshScan(svc *service.Container, target service.STRMRefreshTarget, task *service.TaskHandle, finish func()) {
+func runSTRMRefreshScan(svc *service.Container, target service.STRMRefreshTarget, task *service.TaskHandle, finish func(), options strmRefreshRunOptions) {
 	defer finish()
 	var (
 		res *service.ScanResult
@@ -322,7 +359,60 @@ func runSTRMRefreshScan(svc *service.Container, target service.STRMRefreshTarget
 		finishHTTPTask(task, err, "scan", "STRM 刷新媒体库失败", scanTaskMetrics(res), scanTaskDetails(res, 20))
 		return
 	}
-	finishHTTPTask(task, nil, "completed", "STRM 刷新媒体库结束", scanTaskMetrics(res), scanTaskDetails(res, 20))
+	if !options.ScrapeAfter {
+		finishHTTPTask(task, nil, "completed", "STRM 刷新媒体库结束", scanTaskMetrics(res), scanTaskDetails(res, 20))
+		return
+	}
+	scrape, reclassified, scrapeErr := runSTRMRefreshScrape(svc, target, task)
+	metrics := strmRefreshTaskMetrics(res, scrape, reclassified)
+	if scrapeErr != nil {
+		finishHTTPTask(task, scrapeErr, "scrape", "STRM 刷新媒体库完成，刮削失败", metrics, scanTaskDetails(res, 20))
+		return
+	}
+	finishHTTPTask(task, nil, "completed", "STRM 刷新媒体库和刮削结束", metrics, scanTaskDetails(res, 20))
+}
+
+func runSTRMRefreshScrape(svc *service.Container, target service.STRMRefreshTarget, task *service.TaskHandle) (service.EnrichLibraryResult, int, error) {
+	if task != nil {
+		task.Update(service.TaskUpdate{
+			Stage:      "scrape",
+			SourcePath: target.Path,
+			Message:    "正在刮削 STRM 媒体库",
+		})
+	}
+	result, err := svc.Scraper.EnrichLibraryDetailedWithOptions(context.Background(), target.LibraryID, service.ScrapeOptions{RetryNoMatch: true})
+	reclassified := 0
+	if result.Processed > 0 {
+		reclassified = reclassifyLibraryAfterScrape(context.Background(), svc, target.LibraryID)
+	}
+	return result, reclassified, err
+}
+
+func strmRefreshTaskMetrics(scan *service.ScanResult, scrape service.EnrichLibraryResult, reclassified int) map[string]int64 {
+	metrics := scanTaskMetrics(scan)
+	if metrics == nil {
+		metrics = map[string]int64{}
+	}
+	metrics["scrape_matched"] = int64(scrape.Matched)
+	metrics["scrape_processed"] = int64(scrape.Processed)
+	metrics["scrape_candidates"] = int64(scrape.Candidates)
+	if scrape.Failed > 0 {
+		metrics["scrape_failed"] = int64(scrape.Failed)
+	}
+	if reclassified > 0 {
+		metrics["scrape_reclassified"] = int64(reclassified)
+	}
+	return metrics
+}
+
+func strmRefreshScrapeSkipReason(refresh *service.STRMRefreshResult) string {
+	if refresh == nil || !refresh.ScrapeRequested {
+		return ""
+	}
+	if refresh.Reason != "" {
+		return "refresh not queued: " + refresh.Reason
+	}
+	return "refresh not queued"
 }
 
 func strmPlaybackTokenForRequest(c *gin.Context, svc *service.Container) string {

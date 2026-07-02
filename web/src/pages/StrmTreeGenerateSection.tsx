@@ -49,6 +49,7 @@ export function StrmTreeGenerateSection({
   refreshLibrary,
   result,
   runningMode,
+  scrapeAfter,
   setBaseURL,
   setBatchLimit,
   setCleanup,
@@ -59,6 +60,7 @@ export function StrmTreeGenerateSection({
   setPathsText,
   setProvider,
   setRefreshLibrary,
+  setScrapeAfter,
   setSourceRoot,
   setTreeText,
   setTransferSubtitles,
@@ -202,6 +204,15 @@ export function StrmTreeGenerateSection({
         <label className="flex min-h-10 items-center gap-2 rounded-2xl border border-gray-200 bg-white/70 px-3 py-2 text-sm text-ink-50 md:col-span-4">
           <input type="checkbox" checked={refreshLibrary} onChange={(e) => setRefreshLibrary(e.target.checked)} />
           生成后刷新媒体库
+        </label>
+        <label className={`flex min-h-10 items-center gap-2 rounded-2xl border border-gray-200 bg-white/70 px-3 py-2 text-sm text-ink-50 md:col-span-4 ${!refreshLibrary ? 'cursor-not-allowed opacity-50' : ''}`}>
+          <input
+            type="checkbox"
+            checked={refreshLibrary && scrapeAfter}
+            disabled={!refreshLibrary}
+            onChange={(e) => setScrapeAfter(e.target.checked)}
+          />
+          刷新后自动刮削
         </label>
         <label className="flex min-h-10 items-center gap-2 rounded-2xl border border-gray-200 bg-white/70 px-3 py-2 text-sm text-ink-50 md:col-span-4">
           <input

@@ -20,6 +20,7 @@ export function useStrmTreeGenerateForm() {
   const [transferSubtitles, setTransferSubtitles] = useState(true)
   const [missingOnly, setMissingOnly] = useState(false)
   const [refreshLibrary, setRefreshLibrary] = useState(true)
+  const [scrapeAfter, setScrapeAfter] = useState(false)
   const [runningMode, setRunningMode] = useState<'generate' | 'preview' | null>(null)
   const [result, setResult] = useState<GenerateSTRMResult | null>(null)
 
@@ -75,6 +76,7 @@ export function useStrmTreeGenerateForm() {
         transfer_subtitles: transferSubtitles,
         missing_only: missingOnly,
         refresh_library: refreshLibrary,
+        scrape_after: !dryRun && refreshLibrary && scrapeAfter,
       })
       setResult(next)
       if (dryRun) {
@@ -98,6 +100,11 @@ export function useStrmTreeGenerateForm() {
     await runGenerate(true)
   }
 
+  const setRefreshLibraryEnabled = (value: boolean) => {
+    setRefreshLibrary(value)
+    if (!value) setScrapeAfter(false)
+  }
+
   return {
     baseURL,
     batchLimit,
@@ -115,6 +122,7 @@ export function useStrmTreeGenerateForm() {
     result,
     runningMode,
     refreshLibrary,
+    scrapeAfter,
     setBaseURL,
     setBatchLimit,
     setCleanup,
@@ -124,7 +132,8 @@ export function useStrmTreeGenerateForm() {
     setOverwrite,
     setPathsText,
     setProvider,
-    setRefreshLibrary,
+    setRefreshLibrary: setRefreshLibraryEnabled,
+    setScrapeAfter,
     setSourceRoot,
     setTreeText,
     setTransferSubtitles,
