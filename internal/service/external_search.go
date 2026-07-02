@@ -19,6 +19,7 @@ type ExternalMediaResult struct {
 	PosterURL          string   `json:"poster_url,omitempty"`
 	BackdropURL        string   `json:"backdrop_url,omitempty"`
 	Year               int      `json:"year,omitempty"`
+	ReleaseDate        string   `json:"release_date,omitempty"`
 	Rating             float32  `json:"rating,omitempty"`
 	TMDbID             int      `json:"tmdb_id,omitempty"`
 	BangumiID          int      `json:"bangumi_id,omitempty"`
@@ -64,6 +65,7 @@ func SearchExternalMedia(ctx context.Context, query string, year int, mediaType 
 			PosterURL:        m.PosterURL,
 			BackdropURL:      m.BackdropURL,
 			Year:             m.Year,
+			ReleaseDate:      m.ReleaseDate,
 			Rating:           m.Rating,
 			TMDbID:           m.TMDbID,
 			BangumiID:        m.BangumiID,

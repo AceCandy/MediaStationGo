@@ -10,6 +10,7 @@ type scanDerivedMetadata struct {
 	Title        string
 	ScrapeStatus string
 	Year         int
+	ReleaseDate  string
 	TMDbID       int
 	BangumiID    int
 	DoubanID     string
@@ -41,6 +42,9 @@ func cloudMetadataNeedsRefresh(existing existingCloudMedia, localMeta *LocalMeta
 		return true
 	}
 	if localMeta.Year > 0 && existing.Year != localMeta.Year {
+		return true
+	}
+	if localMeta.ReleaseDate != "" && strings.TrimSpace(existing.ReleaseDate) != strings.TrimSpace(localMeta.ReleaseDate) {
 		return true
 	}
 	if localMeta.Overview != "" && strings.TrimSpace(existing.Overview) != strings.TrimSpace(localMeta.Overview) {
@@ -131,6 +135,9 @@ func localMetadataNeedsRefresh(existing existingLocalMedia, local *LocalMetadata
 	if local.Year > 0 && existing.Year != local.Year {
 		return true
 	}
+	if local.ReleaseDate != "" && strings.TrimSpace(existing.ReleaseDate) != strings.TrimSpace(local.ReleaseDate) {
+		return true
+	}
 	if local.Overview != "" && strings.TrimSpace(existing.Overview) != strings.TrimSpace(local.Overview) {
 		return true
 	}
@@ -181,6 +188,7 @@ func cloudDerivedMetadataNeedsRefresh(existing existingCloudMedia, incoming *mod
 		Title:        existing.Title,
 		ScrapeStatus: existing.ScrapeStatus,
 		Year:         existing.Year,
+		ReleaseDate:  existing.ReleaseDate,
 		TMDbID:       existing.TMDbID,
 		BangumiID:    existing.BangumiID,
 		DoubanID:     existing.DoubanID,
@@ -204,6 +212,7 @@ func localDerivedMetadataNeedsRefresh(existing existingLocalMedia, incoming *mod
 		Title:        existing.Title,
 		ScrapeStatus: existing.ScrapeStatus,
 		Year:         existing.Year,
+		ReleaseDate:  existing.ReleaseDate,
 		TMDbID:       existing.TMDbID,
 		BangumiID:    existing.BangumiID,
 		DoubanID:     existing.DoubanID,
@@ -220,6 +229,9 @@ func scanDerivedMetadataNeedsRefresh(existing scanDerivedMetadata, incoming *mod
 		return true
 	}
 	if enrichable && incoming.Year > 0 && existing.Year != incoming.Year {
+		return true
+	}
+	if enrichable && incoming.ReleaseDate != "" && strings.TrimSpace(existing.ReleaseDate) != strings.TrimSpace(incoming.ReleaseDate) {
 		return true
 	}
 	if (incoming.SeasonNum > 0 || incoming.EpisodeNum > 0) && existing.SeasonNum != incoming.SeasonNum {

@@ -60,6 +60,7 @@ func (t *TMDbProvider) GetMovieMatch(ctx context.Context, tmdbID int) (*Match, e
 	if r.BackdropPath != "" {
 		m.BackdropURL = t.imgCDN + "/w1280" + r.BackdropPath
 	}
+	m.ReleaseDate = normalizeReleaseDate(r.ReleaseDate)
 	if len(r.ReleaseDate) >= 4 {
 		_, _ = fmt.Sscanf(r.ReleaseDate[:4], "%d", &m.Year)
 	}
@@ -131,6 +132,7 @@ func (t *TMDbProvider) GetTVMatch(ctx context.Context, tmdbID int) (*Match, erro
 	if r.BackdropPath != "" {
 		m.BackdropURL = t.imgCDN + "/w1280" + r.BackdropPath
 	}
+	m.ReleaseDate = normalizeReleaseDate(r.FirstAirDate)
 	if len(r.FirstAirDate) >= 4 {
 		_, _ = fmt.Sscanf(r.FirstAirDate[:4], "%d", &m.Year)
 	}

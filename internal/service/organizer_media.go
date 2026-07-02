@@ -186,3 +186,21 @@ func (o *OrganizerService) applyOrganizeMedia(ctx context.Context, req organizeM
 	)
 	return dst.path, nil
 }
+
+func cleanupEmptyOrganizeParents(oldPath, stopRoot string) {
+	dir := filepath.Clean(filepath.Dir(strings.TrimSpace(oldPath)))
+	root := filepath.Clean(strings.TrimSpace(stopRoot))
+	if dir == "" || root == "" || dir == "." || root == "." || !pathWithin(dir, root) {
+		return
+	}
+	for !samePath(dir, root) {
+		if err := os.Remove(dir); err != nil {
+			return
+		}
+		next := filepath.Dir(dir)
+		if samePath(next, dir) {
+			return
+		}
+		dir = next
+	}
+}

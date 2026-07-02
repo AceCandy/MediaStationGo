@@ -31,6 +31,9 @@ func mergeManualRequestIntoMatch(match *Match, req ManualScrapeRequest) *Match {
 	if req.Year > 0 {
 		match.Year = req.Year
 	}
+	if value := normalizeReleaseDate(req.ReleaseDate); value != "" {
+		match.ReleaseDate = value
+	}
 	if req.Rating > 0 {
 		match.Rating = req.Rating
 	}

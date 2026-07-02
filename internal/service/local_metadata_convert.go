@@ -14,6 +14,7 @@ func metadataFromDoc(doc *nfoDocument, baseDir string, seriesLike bool) *LocalMe
 		OriginalName: cleanXMLText(doc.OriginalTitle),
 		AdultCode:    normalizeAdultCode(doc.Num),
 		Year:         int(doc.Year),
+		ReleaseDate:  normalizeReleaseDate(firstText(doc.Premiered, doc.ReleaseDate, doc.Release, doc.Aired)),
 		Overview:     firstText(doc.Plot, doc.Outline, doc.OriginalPlot),
 		Rating:       float32(doc.Rating),
 		PosterURL:    firstRemoteURL(baseDir, nfoPosterValues(doc)...),
@@ -48,7 +49,7 @@ func metadataFromDoc(doc *nfoDocument, baseDir string, seriesLike bool) *LocalMe
 		}
 	}
 	if meta.Year == 0 {
-		meta.Year = yearFromDate(firstText(doc.Premiered, doc.ReleaseDate, doc.Release, doc.Aired))
+		meta.Year = yearFromDate(meta.ReleaseDate)
 	}
 	if meta.TMDbID == 0 {
 		meta.TMDbID = tmdbIDFromUniqueIDs(doc.UniqueIDs)

@@ -135,7 +135,11 @@ func (p *OrganizePipelineService) Run(ctx context.Context, req OrganizePipelineR
 			scanRoot = filepath.Dir(path)
 		}
 		preferredLibraryID := p.scanPreferredLibraryID(ctx, req)
-		res.Scans, res.Scrapes = p.scanner.ScanAndScrapeLibrariesForPath(ctx, scanRoot, preferredLibraryID, p.scrapeAfter(ctx, req))
+		scrapeAfter := p.scrapeAfter(ctx, req)
+		res.Scans, res.Scrapes = p.scanner.ScanAndScrapeLibrariesForPath(ctx, scanRoot, preferredLibraryID, scrapeAfter)
+		if scrapeAfter {
+			p.syncScrapedOrganizedNames(ctx, opts, res, path)
+		}
 	} else if p.log != nil && res != nil && !req.DryRun {
 		p.log.Info("organize pipeline skipped scan; no destination changes",
 			zap.String("trigger", string(req.Trigger)),

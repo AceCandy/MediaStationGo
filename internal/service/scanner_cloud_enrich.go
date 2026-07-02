@@ -101,6 +101,9 @@ func mergeMatchIntoLocalMetadata(meta *LocalMetadata, match *Match) {
 	if match.Year > 0 {
 		meta.Year = match.Year
 	}
+	if match.ReleaseDate != "" {
+		meta.ReleaseDate = match.ReleaseDate
+	}
 	if match.Overview != "" {
 		meta.Overview = match.Overview
 	}

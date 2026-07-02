@@ -24,17 +24,19 @@ func TestUpdateMediaMetadataMarksManualMatch(t *testing.T) {
 	svc := NewMediaService(&config.Config{}, zap.NewNop(), repos)
 	title := "手动标题"
 	overview := "手动简介"
+	releaseDate := "2026-06-23"
 	season := 0
 	episode := 1
 	tmdbID := 12345
 	nsfw := true
 	updated, err := svc.UpdateMetadata(t.Context(), media.ID, MediaMetadataUpdate{
-		Title:      &title,
-		Overview:   &overview,
-		SeasonNum:  &season,
-		EpisodeNum: &episode,
-		TMDbID:     &tmdbID,
-		NSFW:       &nsfw,
+		Title:       &title,
+		Overview:    &overview,
+		ReleaseDate: &releaseDate,
+		SeasonNum:   &season,
+		EpisodeNum:  &episode,
+		TMDbID:      &tmdbID,
+		NSFW:        &nsfw,
 	})
 	if err != nil {
 		t.Fatalf("update metadata: %v", err)
@@ -44,5 +46,8 @@ func TestUpdateMediaMetadataMarksManualMatch(t *testing.T) {
 	}
 	if updated.SeasonNum != 0 || updated.EpisodeNum != 1 || updated.TMDbID != tmdbID || !updated.NSFW {
 		t.Fatalf("ids/episode metadata not saved: %#v", updated)
+	}
+	if updated.ReleaseDate != releaseDate {
+		t.Fatalf("release date = %q, want %q", updated.ReleaseDate, releaseDate)
 	}
 }

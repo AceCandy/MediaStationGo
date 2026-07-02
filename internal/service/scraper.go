@@ -126,6 +126,9 @@ func (s *ScraperService) applyProviderMatchWithOptions(ctx context.Context, m *m
 		"year":          match.Year,
 		"scrape_status": "matched",
 	}
+	if match.ReleaseDate != "" {
+		updates["release_date"] = match.ReleaseDate
+	}
 	if match.OriginalName != "" {
 		updates["original_name"] = match.OriginalName
 	}

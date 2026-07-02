@@ -103,12 +103,13 @@ func (r *MediaRepository) ListByLibrariesFiltered(ctx context.Context, libraryID
 		return nil, 0, err
 	}
 	// 多级排序消除"随机"观感:
-	//  1. year desc        — 上映年份新→旧(用户期望的上映时间维度)
-	//  2. updated_at desc  — 同年按最近更新(刮削/补集会刷新)
-	//  3. created_at desc  — 再按入库时间
-	//  4. id desc          — 稳定 tie-breaker:云盘批量扫描同批 created_at 相同时,
+	//  1. release_date desc — 精确上映/首播日期新→旧
+	//  2. year desc         — 老数据没有完整日期时仍按年份新→旧
+	//  3. updated_at desc   — 同日期/同年按最近更新兜底
+	//  4. created_at desc   — 再按入库时间
+	//  5. id desc           — 稳定 tie-breaker:云盘批量扫描同批 created_at 相同时,
 	//                        没有它 DB 返回顺序不确定,正是"随机排序"的根因。
-	err := q.Order("year DESC, updated_at DESC, created_at DESC, id DESC").
+	err := q.Order("release_date DESC, year DESC, updated_at DESC, created_at DESC, id DESC").
 		Offset(offset).Limit(limit).Find(&items).Error
 	return items, total, err
 }

@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"testing"
+	"time"
 
 	"go.uber.org/zap"
 
@@ -22,6 +23,49 @@ func newTestEmbyService(t *testing.T) *EmbyService {
 	}
 	repos := repository.New(db)
 	return NewEmbyService(&config.Config{}, zap.NewNop(), repos)
+}
+
+func TestEmbyLatestItemsOrderByReleaseDate(t *testing.T) {
+	svc := newTestEmbyService(t)
+	lib := model.Library{Name: "电影", Path: `/media/movies`, Type: "movie", Enabled: true}
+	if err := svc.repo.Library.Create(t.Context(), &lib); err != nil {
+		t.Fatalf("create library: %v", err)
+	}
+	base := time.Now()
+	rows := []model.Media{
+		{
+			Base:        model.Base{ID: "older-release-newer-scan", CreatedAt: base.Add(2 * time.Hour)},
+			LibraryID:   lib.ID,
+			Title:       "旧上映新入库",
+			Path:        `/media/movies/old.mkv`,
+			Year:        2026,
+			ReleaseDate: "2026-01-10",
+		},
+		{
+			Base:        model.Base{ID: "newer-release-older-scan", CreatedAt: base},
+			LibraryID:   lib.ID,
+			Title:       "新上映",
+			Path:        `/media/movies/new.mkv`,
+			Year:        2026,
+			ReleaseDate: "2026-06-23",
+		},
+	}
+	for i := range rows {
+		if err := svc.repo.DB.Create(&rows[i]).Error; err != nil {
+			t.Fatalf("create media: %v", err)
+		}
+	}
+
+	items, err := svc.LatestItems(t.Context(), "", lib.ID, 10)
+	if err != nil {
+		t.Fatalf("latest items: %v", err)
+	}
+	if len(items) != 2 || items[0]["Id"] != "newer-release-older-scan" {
+		t.Fatalf("latest items should prefer release date over created_at, got %#v", items)
+	}
+	if _, ok := items[0]["PremiereDate"].(time.Time); !ok {
+		t.Fatalf("latest item should expose PremiereDate for Emby clients: %#v", items[0])
+	}
 }
 
 type fakeCloudPlaybackResolver struct {

@@ -25,6 +25,7 @@ export interface Media {
   overview?: string
   rating: number
   year: number
+  release_date?: string
   season_num: number
   episode_num: number
   scrape_status: string

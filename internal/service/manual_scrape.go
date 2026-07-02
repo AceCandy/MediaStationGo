@@ -17,6 +17,7 @@ type ManualScrapeRequest struct {
 	PosterURL      string   `json:"poster_url"`
 	BackdropURL    string   `json:"backdrop_url"`
 	Year           int      `json:"year"`
+	ReleaseDate    string   `json:"release_date"`
 	Rating         float32  `json:"rating"`
 	TMDbID         int      `json:"tmdb_id"`
 	BangumiID      int      `json:"bangumi_id"`

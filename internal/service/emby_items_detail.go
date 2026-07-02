@@ -101,7 +101,7 @@ func (e *EmbyService) LatestItems(ctx context.Context, userID, parentID string, 
 		rowLimit = 500
 	}
 	var rows []model.Media
-	if err := q.Order("media.created_at desc").Limit(rowLimit).Find(&rows).Error; err != nil {
+	if err := q.Order(mediaReleaseOrderSQL(true)).Limit(rowLimit).Find(&rows).Error; err != nil {
 		return nil, err
 	}
 	rows = e.collapseMediaVersionRows(ctx, rows)
@@ -126,11 +126,11 @@ func (e *EmbyService) latestSeriesItemsForLibrary(ctx context.Context, userID, l
 		Where("library_id IN ? AND (season_num > 0 OR episode_num > 0)", e.mergedLibraryIDs(ctx, libraryID))
 	q = e.applyUserMediaVisibility(ctx, q, userID)
 	var rows []model.Media
-	if err := q.Order("media.created_at desc").Limit(embySeriesGroupingLimit).Find(&rows).Error; err != nil {
+	if err := q.Order(mediaReleaseOrderSQL(true)).Limit(embySeriesGroupingLimit).Find(&rows).Error; err != nil {
 		return nil, err
 	}
 	groups := e.seriesGroupsFromMedia(rows)
-	sortSeriesGroups(groups, ItemsParams{SortBy: "datecreated", SortOrder: "Descending"})
+	sortSeriesGroups(groups, ItemsParams{SortBy: "premieredate", SortOrder: "Descending"})
 	if len(groups) > limit {
 		groups = groups[:limit]
 	}
@@ -219,7 +219,7 @@ func (e *EmbyService) itemPayload(ctx context.Context, m *model.Media, fav bool,
 		pct = float64(posMs) / float64(durationMs) * 100
 	}
 
-	return map[string]any{
+	item := map[string]any{
 		"Id":                m.ID,
 		"Name":              name,
 		"OriginalTitle":     m.OriginalName,
@@ -259,4 +259,8 @@ func (e *EmbyService) itemPayload(ctx context.Context, m *model.Media, fav bool,
 		},
 		"MediaSources": e.mediaSourcesForItem(ctx, m, true, false),
 	}
+	if premiered, ok := embyPremiereDate(m.ReleaseDate); ok {
+		item["PremiereDate"] = premiered
+	}
+	return item
 }

@@ -66,20 +66,26 @@ func (e *EmbyService) mediaItems(ctx context.Context, p ItemsParams) (map[string
 	if err := q.Count(&total).Error; err != nil {
 		return nil, err
 	}
-	order := "media.created_at desc"
+	desc := !strings.EqualFold(firstCSVValue(p.SortOrder), "Ascending")
+	order := mediaReleaseOrderSQL(true)
+	orderIncludesDirection := true
 	switch primarySupportedEmbySort(p.SortBy, resumeFilter) {
 	case "sortname", "name":
 		order = "media.title"
+		orderIncludesDirection = false
 	case "premieredate", "productionyear":
-		order = "media.year"
+		order = mediaReleaseOrderSQL(desc)
 	case "datecreated":
 		order = "media.created_at"
+		orderIncludesDirection = false
 	case "dateplayed":
 		order = "resume.watched_at"
+		orderIncludesDirection = false
 	case "communityrating":
 		order = "media.rating"
+		orderIncludesDirection = false
 	}
-	if strings.EqualFold(firstCSVValue(p.SortOrder), "Descending") {
+	if !orderIncludesDirection && strings.EqualFold(firstCSVValue(p.SortOrder), "Descending") {
 		if !strings.HasSuffix(order, " desc") {
 			order = order + " desc"
 		}
@@ -231,7 +237,7 @@ func (e *EmbyService) seriesItemsForLibrary(ctx context.Context, libraryID strin
 		q = q.Joins("JOIN favorites ON favorites.media_id = media.id AND favorites.user_id = ? AND favorites.deleted_at IS NULL", p.UserID)
 	}
 	var rows []model.Media
-	if err := q.Order("media.created_at desc").Limit(embySeriesGroupingLimit).Find(&rows).Error; err != nil {
+	if err := q.Order(mediaReleaseOrderSQL(true)).Limit(embySeriesGroupingLimit).Find(&rows).Error; err != nil {
 		return nil, err
 	}
 	groups := e.seriesGroupsFromMedia(rows)

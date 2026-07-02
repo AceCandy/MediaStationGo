@@ -45,6 +45,7 @@ func (s *ScraperService) ManualSearch(ctx context.Context, media *model.Media, q
 			PosterURL:        match.PosterURL,
 			BackdropURL:      match.BackdropURL,
 			Year:             match.Year,
+			ReleaseDate:      match.ReleaseDate,
 			Rating:           match.Rating,
 			TMDbID:           match.TMDbID,
 			BangumiID:        match.BangumiID,

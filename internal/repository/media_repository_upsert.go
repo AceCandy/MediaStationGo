@@ -103,6 +103,9 @@ func addMediaTitleUpdates(updates map[string]any, existing, incoming model.Media
 			if incoming.Year > 0 {
 				setIfChanged(updates, "year", existing.Year, incoming.Year)
 			}
+			if incoming.ReleaseDate != "" {
+				setIfChanged(updates, "release_date", existing.ReleaseDate, incoming.ReleaseDate)
+			}
 			if strings.TrimSpace(existing.ScrapeStatus) == "no_match" && incoming.ScrapeStatus != "matched" && (titleChanged || yearChanged) {
 				updates["scrape_status"] = "pending"
 			}
@@ -118,6 +121,9 @@ func addMediaExternalIDUpdates(updates map[string]any, existing, incoming model.
 	changedExternalID := addIncomingMediaProviderIDs(updates, existing, incoming)
 	if incoming.Year > 0 && existing.Year <= 0 {
 		updates["year"] = incoming.Year
+	}
+	if incoming.ReleaseDate != "" && existing.ReleaseDate == "" {
+		updates["release_date"] = incoming.ReleaseDate
 	}
 	if changedExternalID && (status == "no_match" || status == "matched") && incoming.ScrapeStatus != "matched" {
 		updates["scrape_status"] = "pending"
@@ -151,6 +157,9 @@ func addMatchedMediaDetailUpdates(updates map[string]any, existing, incoming mod
 	}
 	if incoming.Year > 0 {
 		setIfChanged(updates, "year", existing.Year, incoming.Year)
+	}
+	if incoming.ReleaseDate != "" {
+		setIfChanged(updates, "release_date", existing.ReleaseDate, incoming.ReleaseDate)
 	}
 	if incoming.NSFW && !existing.NSFW {
 		updates["nsfw"] = true

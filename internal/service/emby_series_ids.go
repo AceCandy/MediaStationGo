@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 )
@@ -87,7 +88,7 @@ func seasonName(seasonNum int) string {
 }
 
 func sortSeriesGroups(groups []embySeriesGroup, p ItemsParams) {
-	switch strings.ToLower(p.SortBy) {
+	switch primarySupportedEmbySort(p.SortBy, false) {
 	case "sortname", "name":
 		sort.SliceStable(groups, func(i, j int) bool {
 			if strings.EqualFold(p.SortOrder, "Descending") {
@@ -95,12 +96,30 @@ func sortSeriesGroups(groups []embySeriesGroup, p ItemsParams) {
 			}
 			return groups[i].Name < groups[j].Name
 		})
-	default:
+	case "datecreated":
 		sort.SliceStable(groups, func(i, j int) bool {
 			if strings.EqualFold(p.SortOrder, "Ascending") {
 				return groups[i].CreatedAt.Before(groups[j].CreatedAt)
 			}
 			return groups[i].CreatedAt.After(groups[j].CreatedAt)
 		})
+	default:
+		sort.SliceStable(groups, func(i, j int) bool {
+			if strings.EqualFold(p.SortOrder, "Ascending") {
+				return embySeriesReleaseSortTime(groups[i]).Before(embySeriesReleaseSortTime(groups[j]))
+			}
+			return embySeriesReleaseSortTime(groups[i]).After(embySeriesReleaseSortTime(groups[j]))
+		})
 	}
+}
+
+func embySeriesReleaseSortTime(group embySeriesGroup) time.Time {
+	return mediaReleaseSortTime(model.Media{
+		ReleaseDate: group.ReleaseDate,
+		Year:        group.Year,
+		Base: model.Base{
+			CreatedAt: group.CreatedAt,
+			UpdatedAt: group.CreatedAt,
+		},
+	})
 }

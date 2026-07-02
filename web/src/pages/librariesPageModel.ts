@@ -19,5 +19,8 @@ export function latestLibraryCards(items: Media[]): SeriesCard[] {
 }
 
 export function mediaTime(media: Media): number {
+  const releaseTime = Date.parse(media.release_date || '')
+  if (releaseTime) return releaseTime
+  if (media.year > 0) return Date.UTC(media.year, 11, 31)
   return Date.parse(media.updated_at || media.created_at || '') || 0
 }

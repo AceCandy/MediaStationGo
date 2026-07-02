@@ -18,6 +18,7 @@ type embySeriesGroup struct {
 	Overview    string
 	Rating      float32
 	Year        int
+	ReleaseDate string
 	TMDbID      int
 	BangumiID   int
 	CreatedAt   time.Time
@@ -117,19 +118,28 @@ func (e *EmbyService) seriesGroupsFromMedia(rows []model.Media) []embySeriesGrou
 		group, ok := byID[seriesID]
 		if !ok {
 			group = &embySeriesGroup{
-				ID:        seriesID,
-				LibraryID: row.LibraryID,
-				Name:      e.seriesNameForMedia(&row),
-				Year:      row.Year,
-				TMDbID:    row.TMDbID,
-				BangumiID: row.BangumiID,
-				CreatedAt: row.CreatedAt,
+				ID:          seriesID,
+				LibraryID:   row.LibraryID,
+				Name:        e.seriesNameForMedia(&row),
+				Year:        row.Year,
+				ReleaseDate: row.ReleaseDate,
+				TMDbID:      row.TMDbID,
+				BangumiID:   row.BangumiID,
+				CreatedAt:   row.CreatedAt,
 			}
 			byID[seriesID] = group
 			order = append(order, seriesID)
 		}
 		if row.CreatedAt.After(group.CreatedAt) {
 			group.CreatedAt = row.CreatedAt
+		}
+		if strings.TrimSpace(row.ReleaseDate) != "" && mediaReleaseSortTime(row).After(embySeriesReleaseSortTime(*group)) {
+			group.ReleaseDate = row.ReleaseDate
+			if row.Year > 0 {
+				group.Year = row.Year
+			}
+		} else if group.ReleaseDate == "" && group.Year == 0 && row.Year > 0 {
+			group.Year = row.Year
 		}
 		if group.PosterURL == "" && row.PosterURL != "" {
 			group.PosterURL = row.PosterURL

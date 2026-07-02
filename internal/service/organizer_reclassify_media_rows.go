@@ -63,6 +63,9 @@ func applyReclassifyMatchUpdates(updates map[string]any, match *Match) {
 	if match.Year > 0 {
 		updates["year"] = match.Year
 	}
+	if value := strings.TrimSpace(match.ReleaseDate); value != "" {
+		updates["release_date"] = value
+	}
 	if match.TMDbID > 0 {
 		updates["tm_db_id"] = match.TMDbID
 	}

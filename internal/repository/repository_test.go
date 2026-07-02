@@ -186,6 +186,42 @@ func TestMediaUpsertMatchedIncomingRefreshesScrapedMetadata(t *testing.T) {
 	}
 }
 
+func TestListByLibraryOrdersByReleaseDate(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := database.AutoMigrate(db); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	repos := New(db)
+	lib := model.Library{Name: "国产剧", Path: "/media/tv", Type: "tv", Enabled: true}
+	if err := repos.Library.Create(t.Context(), &lib); err != nil {
+		t.Fatal(err)
+	}
+	rows := []model.Media{
+		{LibraryID: lib.ID, Title: "旧片但最近更新", Path: "/media/tv/old.mkv", Year: 2026, ReleaseDate: "2026-01-10", ScrapeStatus: "matched"},
+		{LibraryID: lib.ID, Title: "最新首播", Path: "/media/tv/newest.mkv", Year: 2026, ReleaseDate: "2026-06-23", ScrapeStatus: "matched"},
+		{LibraryID: lib.ID, Title: "无完整日期", Path: "/media/tv/year-only.mkv", Year: 2025, ScrapeStatus: "matched"},
+	}
+	for i := range rows {
+		if err := repos.Media.Upsert(t.Context(), &rows[i]); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	items, total, err := repos.Media.ListByLibrary(t.Context(), lib.ID, 0, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if total != 3 || len(items) != 3 {
+		t.Fatalf("list total=%d len=%d", total, len(items))
+	}
+	if got := []string{items[0].Title, items[1].Title, items[2].Title}; got[0] != "最新首播" || got[1] != "旧片但最近更新" || got[2] != "无完整日期" {
+		t.Fatalf("release-date order = %#v", got)
+	}
+}
+
 func TestMediaUpsertScanDoesNotClearMatchedMetadata(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	if err != nil {

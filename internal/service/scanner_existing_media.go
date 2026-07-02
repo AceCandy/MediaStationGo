@@ -19,7 +19,7 @@ func (s *ScannerService) existingCloudMediaSnapshotForLibraries(ctx context.Cont
 	var rows []model.Media
 	if err := s.repo.DB.WithContext(ctx).
 		Model(&model.Media{}).
-		Select("library_id", "path", "title", "original_name", "episode_title", "size_bytes", "duration_sec", "width", "height", "video_codec", "audio_codec", "container", "poster_url", "backdrop_url", "strm_url", "overview", "year", "rating", "tm_db_id", "bangumi_id", "douban_id", "thetvdb_id", "season_num", "episode_num", "genres", "countries", "languages", "nsfw", "scrape_status").
+		Select("library_id", "path", "title", "original_name", "episode_title", "size_bytes", "duration_sec", "width", "height", "video_codec", "audio_codec", "container", "poster_url", "backdrop_url", "strm_url", "overview", "year", "release_date", "rating", "tm_db_id", "bangumi_id", "douban_id", "thetvdb_id", "season_num", "episode_num", "genres", "countries", "languages", "nsfw", "scrape_status").
 		Where("library_id IN ? AND path LIKE ?", libraryIDs, "cloud://%").
 		Find(&rows).Error; err != nil {
 		return nil, err
@@ -46,6 +46,7 @@ func (s *ScannerService) existingCloudMediaSnapshotForLibraries(ctx context.Cont
 			STRMURL:      row.STRMURL,
 			Overview:     row.Overview,
 			Year:         row.Year,
+			ReleaseDate:  row.ReleaseDate,
 			Rating:       row.Rating,
 			TMDbID:       row.TMDbID,
 			BangumiID:    row.BangumiID,
@@ -67,7 +68,7 @@ func (s *ScannerService) existingLocalMediaSnapshot(ctx context.Context, library
 	var rows []model.Media
 	if err := s.repo.DB.WithContext(ctx).
 		Model(&model.Media{}).
-		Select("path", "library_root_id", "relative_path", "title", "original_name", "episode_title", "size_bytes", "duration_sec", "width", "height", "video_codec", "audio_codec", "container", "strm_url", "file_id", "poster_url", "backdrop_url", "overview", "year", "rating", "tm_db_id", "bangumi_id", "douban_id", "thetvdb_id", "season_num", "episode_num", "genres", "countries", "languages", "nsfw", "scrape_status").
+		Select("path", "library_root_id", "relative_path", "title", "original_name", "episode_title", "size_bytes", "duration_sec", "width", "height", "video_codec", "audio_codec", "container", "strm_url", "file_id", "poster_url", "backdrop_url", "overview", "year", "release_date", "rating", "tm_db_id", "bangumi_id", "douban_id", "thetvdb_id", "season_num", "episode_num", "genres", "countries", "languages", "nsfw", "scrape_status").
 		Where("library_id = ? AND path NOT LIKE ?", libraryID, "cloud://%").
 		Find(&rows).Error; err != nil {
 		return nil, err
@@ -96,6 +97,7 @@ func (s *ScannerService) existingLocalMediaSnapshot(ctx context.Context, library
 			BackdropURL:   row.BackdropURL,
 			Overview:      row.Overview,
 			Year:          row.Year,
+			ReleaseDate:   row.ReleaseDate,
 			Rating:        row.Rating,
 			TMDbID:        row.TMDbID,
 			BangumiID:     row.BangumiID,

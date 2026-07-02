@@ -253,6 +253,7 @@ type existingCloudMedia struct {
 	STRMURL      string
 	Overview     string
 	Year         int
+	ReleaseDate  string
 	Rating       float32
 	TMDbID       int
 	BangumiID    int
@@ -286,6 +287,7 @@ type existingLocalMedia struct {
 	BackdropURL   string
 	Overview      string
 	Year          int
+	ReleaseDate   string
 	Rating        float32
 	TMDbID        int
 	BangumiID     int

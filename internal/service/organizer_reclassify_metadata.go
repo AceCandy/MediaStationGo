@@ -86,6 +86,9 @@ func mediaWithReclassifyMatch(media model.Media, match *Match) model.Media {
 	if match.Year > 0 {
 		media.Year = match.Year
 	}
+	if value := strings.TrimSpace(match.ReleaseDate); value != "" {
+		media.ReleaseDate = value
+	}
 	if match.TMDbID > 0 {
 		media.TMDbID = match.TMDbID
 	}

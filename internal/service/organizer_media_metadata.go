@@ -81,6 +81,7 @@ func addOrganizedMediaMetadataUpdates(updates map[string]any, media model.Media)
 	if media.Year > 0 {
 		updates["year"] = media.Year
 	}
+	setNonEmptyUpdate(updates, "release_date", media.ReleaseDate)
 	if media.Rating > 0 {
 		updates["rating"] = media.Rating
 	}

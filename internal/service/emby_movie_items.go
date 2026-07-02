@@ -60,7 +60,7 @@ func (e *EmbyService) movieLibraryItems(ctx context.Context, p ItemsParams) (map
 			return map[string]any{"Items": []map[string]any{}, "TotalRecordCount": 0, "StartIndex": p.StartIndex}, nil
 		}
 		epQ = epQ.Where("(season_num > 0 OR episode_num > 0) AND ("+clause+")", args...).
-			Order("media.created_at desc").Limit(embySeriesGroupingLimit)
+			Order(mediaReleaseOrderSQL(true)).Limit(embySeriesGroupingLimit)
 		if err := epQ.Find(&episodicRows).Error; err != nil {
 			return nil, err
 		}
@@ -73,7 +73,7 @@ func (e *EmbyService) movieLibraryItems(ctx context.Context, p ItemsParams) (map
 		return map[string]any{"Items": []map[string]any{}, "TotalRecordCount": 0, "StartIndex": p.StartIndex}, nil
 	}
 	movieQ = filterLikelyEpisodicPathsFromMovieQuery(movieQ).
-		Order("media.created_at desc").Limit(embySeriesGroupingLimit)
+		Order(mediaReleaseOrderSQL(true)).Limit(embySeriesGroupingLimit)
 	var movieRows []model.Media
 	if err := movieQ.Find(&movieRows).Error; err != nil {
 		return nil, err
@@ -83,20 +83,20 @@ func (e *EmbyService) movieLibraryItems(ctx context.Context, p ItemsParams) (map
 		return nil, err
 	}
 
-	// 合并: Series 卡片 + Movie 项, 统一按 DateCreated 倒序。
+	// 合并: Series 卡片 + Movie 项, 统一按首播/上映日期倒序。
 	type entry struct {
-		createdAt time.Time
-		payload   map[string]any
+		sortAt  time.Time
+		payload map[string]any
 	}
 	entries := make([]entry, 0, len(seriesGroups)+len(movieItems))
 	for _, g := range seriesGroups {
-		entries = append(entries, entry{createdAt: g.CreatedAt, payload: e.seriesPayload(g)})
+		entries = append(entries, entry{sortAt: embySeriesReleaseSortTime(g), payload: e.seriesPayload(g)})
 	}
 	for _, item := range movieItems {
-		entries = append(entries, entry{createdAt: embyPayloadCreatedAt(item), payload: item})
+		entries = append(entries, entry{sortAt: embyPayloadReleaseSortTime(item), payload: item})
 	}
 	sort.SliceStable(entries, func(i, j int) bool {
-		return entries[i].createdAt.After(entries[j].createdAt)
+		return entries[i].sortAt.After(entries[j].sortAt)
 	})
 	total := len(entries)
 	paged := pageSlice(entries, p.StartIndex, p.Limit)
@@ -116,6 +116,19 @@ func embyPayloadCreatedAt(item map[string]any) time.Time {
 		return v
 	}
 	return time.Time{}
+}
+
+func embyPayloadReleaseSortTime(item map[string]any) time.Time {
+	if item == nil {
+		return time.Time{}
+	}
+	if v, ok := item["PremiereDate"].(time.Time); ok {
+		return v
+	}
+	if year, ok := item["ProductionYear"].(int); ok && year > 0 {
+		return time.Date(year, time.December, 31, 0, 0, 0, 0, time.UTC)
+	}
+	return embyPayloadCreatedAt(item)
 }
 
 func (e *EmbyService) libraryIsEpisodic(ctx context.Context, libraryID string) (bool, error) {

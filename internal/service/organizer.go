@@ -102,6 +102,38 @@ func (o *OrganizerService) OrganizeMediaWithOptions(ctx context.Context, mediaID
 	return o.applyOrganizeMedia(ctx, req, dst)
 }
 
+// SyncMediaPathWithMetadata renames an already-organized media file after
+// metadata scraping has finalized the display title/year. It always moves the
+// organized target itself, even when the ingest transfer mode was copy/link.
+func (o *OrganizerService) SyncMediaPathWithMetadata(ctx context.Context, mediaID string, opts OrganizeOptions) (string, error) {
+	req, err := o.resolveOrganizeMediaRequest(ctx, mediaID, opts)
+	if err != nil {
+		return "", err
+	}
+	dst, err := o.buildOrganizeMediaDestination(ctx, req)
+	if err != nil {
+		return "", err
+	}
+	if samePath(req.media.Path, dst.path) {
+		if !req.dryRun {
+			if err := o.persistOrganizedMediaMetadata(ctx, req.media); err != nil {
+				return "", err
+			}
+		}
+		return dst.path, nil
+	}
+	if req.dryRun {
+		return dst.path, nil
+	}
+	req.transferMode = TransferMove
+	before := req.media.Path
+	after, err := o.applyOrganizeMedia(ctx, req, dst)
+	if err == nil {
+		cleanupEmptyOrganizeParents(before, req.baseRoot)
+	}
+	return after, err
+}
+
 // OrganizeLibrary organizes every media row in a library whose file is
 // not already in the expected path structure.
 func (o *OrganizerService) OrganizeLibrary(ctx context.Context, libraryID string) (*OrganizeResult, error) {

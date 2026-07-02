@@ -146,6 +146,14 @@ func groupMediaSeriesCards(items []model.Media) []SeriesCard {
 }
 
 func seriesMediaTime(media model.Media) time.Time {
+	if releaseDate := strings.TrimSpace(media.ReleaseDate); releaseDate != "" {
+		if parsed, err := time.Parse("2006-01-02", releaseDate); err == nil {
+			return parsed
+		}
+	}
+	if media.Year > 0 {
+		return time.Date(media.Year, time.December, 31, 0, 0, 0, 0, time.UTC)
+	}
 	if media.UpdatedAt.After(media.CreatedAt) {
 		return media.UpdatedAt
 	}

@@ -29,6 +29,9 @@ func applyLocalIdentityMetadata(m *model.Media, local *LocalMetadata) {
 	if local.Year > 0 {
 		m.Year = local.Year
 	}
+	if local.ReleaseDate != "" {
+		m.ReleaseDate = local.ReleaseDate
+	}
 	if local.Overview != "" {
 		m.Overview = local.Overview
 	}
@@ -98,6 +101,7 @@ func localHasDescriptiveMetadata(local *LocalMetadata) bool {
 		local.EpisodeTitle != "" ||
 		local.AdultCode != "" ||
 		local.Year > 0 ||
+		local.ReleaseDate != "" ||
 		local.Overview != "" ||
 		local.Rating > 0 ||
 		local.TMDbID > 0 ||

@@ -43,6 +43,7 @@ type Media struct {
 	Overview      string  `gorm:"type:text" json:"overview,omitempty"`
 	Rating        float32 `json:"rating"`
 	Year          int     `json:"year"`
+	ReleaseDate   string  `gorm:"size:10;index" json:"release_date,omitempty"`
 	SeasonNum     int     `json:"season_num"`
 	EpisodeNum    int     `json:"episode_num"`
 	ScrapeStatus  string  `gorm:"size:16;default:pending" json:"scrape_status"`

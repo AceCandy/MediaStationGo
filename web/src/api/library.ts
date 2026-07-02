@@ -39,6 +39,7 @@ export interface ManualScrapeCandidate {
   poster_url?: string
   backdrop_url?: string
   year?: number
+  release_date?: string
   rating?: number
   tmdb_id?: number
   bangumi_id?: number
@@ -66,6 +67,7 @@ export interface MediaMetadataUpdate {
   poster_url?: string
   backdrop_url?: string
   year?: number
+  release_date?: string
   rating?: number
   season_num?: number
   episode_num?: number

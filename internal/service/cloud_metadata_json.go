@@ -25,6 +25,7 @@ func metadataFromCloudJSON(body []byte) (*LocalMetadata, cloudJSONArtwork) {
 		OriginalName: firstJSONString(obj, "original_title", "originaltitle", "original_name", "originalname", "sorttitle"),
 		EpisodeTitle: firstJSONString(obj, "episode_title", "episodetitle", "episode_name", "episodename"),
 		Year:         firstJSONInt(obj, "year"),
+		ReleaseDate:  normalizeReleaseDate(firstJSONString(obj, "release_date", "releasedate", "premiered", "aired", "date")),
 		Overview:     firstJSONString(obj, "overview", "plot", "outline", "summary", "description"),
 		Rating:       firstJSONFloat(obj, "rating", "vote_average", "score"),
 		TMDbID:       firstJSONInt(obj, "tmdb_id", "tmdbid", "tmdb"),
@@ -44,7 +45,7 @@ func metadataFromCloudJSON(body []byte) (*LocalMetadata, cloudJSONArtwork) {
 		meta.Title = showTitle
 	}
 	if meta.Year == 0 {
-		meta.Year = yearFromDate(firstJSONString(obj, "release_date", "releasedate", "premiered", "aired", "date"))
+		meta.Year = yearFromDate(meta.ReleaseDate)
 	}
 	artwork := cloudJSONArtwork{
 		posterValues: firstJSONStrings(obj,

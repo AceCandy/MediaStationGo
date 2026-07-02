@@ -4,6 +4,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 )
 
 func firstRemoteURL(baseDir string, values ...string) string {
@@ -67,6 +68,18 @@ func yearFromDate(value string) int {
 	}
 	year, _ := strconv.Atoi(value[:4])
 	return year
+}
+
+func normalizeReleaseDate(value string) string {
+	value = strings.TrimSpace(value)
+	if len(value) < len("2006-01-02") {
+		return ""
+	}
+	value = value[:len("2006-01-02")]
+	if parsed, err := time.Parse("2006-01-02", value); err == nil {
+		return parsed.Format("2006-01-02")
+	}
+	return ""
 }
 
 func samePath(a, b string) bool {

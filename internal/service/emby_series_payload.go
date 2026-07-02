@@ -10,7 +10,7 @@ func (e *EmbyService) seriesPayload(group embySeriesGroup) map[string]any {
 	if group.BackdropURL != "" {
 		backdropTags = append(backdropTags, group.ID+"-bd")
 	}
-	return map[string]any{
+	item := map[string]any{
 		"Id":                 group.ID,
 		"Name":               group.Name,
 		"ServerId":           embyServerID,
@@ -32,6 +32,10 @@ func (e *EmbyService) seriesPayload(group embySeriesGroup) map[string]any {
 		},
 		"UserData": emptyUserData(),
 	}
+	if premiered, ok := embyPremiereDate(group.ReleaseDate); ok {
+		item["PremiereDate"] = premiered
+	}
+	return item
 }
 
 func (e *EmbyService) seasonPayload(season embySeasonGroup) map[string]any {

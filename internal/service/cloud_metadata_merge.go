@@ -24,6 +24,9 @@ func mergeCloudMetadata(dst, src *LocalMetadata) *LocalMetadata {
 	if src.Year > 0 {
 		dst.Year = src.Year
 	}
+	if src.ReleaseDate != "" {
+		dst.ReleaseDate = src.ReleaseDate
+	}
 	if src.Overview != "" {
 		dst.Overview = src.Overview
 	}
@@ -85,6 +88,9 @@ func mergeCloudPathHintMetadata(dst, hint *LocalMetadata) *LocalMetadata {
 	}
 	if dst.Year == 0 {
 		dst.Year = hint.Year
+	}
+	if dst.ReleaseDate == "" {
+		dst.ReleaseDate = hint.ReleaseDate
 	}
 	if dst.TMDbID == 0 {
 		dst.TMDbID = hint.TMDbID

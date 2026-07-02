@@ -89,6 +89,9 @@ func mergeLocalMetadataIntoMatch(match *Match, local *LocalMetadata) {
 	if local.Year > 0 {
 		match.Year = local.Year
 	}
+	if local.ReleaseDate != "" {
+		match.ReleaseDate = local.ReleaseDate
+	}
 	if local.TMDbID > 0 {
 		match.TMDbID = local.TMDbID
 	}
@@ -150,6 +153,9 @@ func mergeScrapePathHintMetadata(dst, src *LocalMetadata) *LocalMetadata {
 	if dst.Year <= 0 && src.Year > 0 {
 		dst.Year = src.Year
 	}
+	if dst.ReleaseDate == "" && src.ReleaseDate != "" {
+		dst.ReleaseDate = src.ReleaseDate
+	}
 	if src.TMDbID > 0 {
 		dst.TMDbID = src.TMDbID
 	}
@@ -203,6 +209,9 @@ func (s *ScraperService) applyLocalMetadataMatch(ctx context.Context, m *model.M
 	}
 	if next.Year > 0 {
 		updates["year"] = next.Year
+	}
+	if next.ReleaseDate != "" {
+		updates["release_date"] = next.ReleaseDate
 	}
 	if next.TMDbID > 0 {
 		updates["tm_db_id"] = next.TMDbID

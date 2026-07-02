@@ -109,6 +109,62 @@ func TestOrganizeDirectoryUsesScraperMatchBeforeRename(t *testing.T) {
 	}
 }
 
+func TestOrganizePipelineRenamesAfterScrape(t *testing.T) {
+	scraper, repos, closeServer := newTestScraper(t)
+	defer closeServer()
+
+	root := t.TempDir()
+	src := filepath.Join(root, "downloads")
+	dest := filepath.Join(root, "media")
+	sourceFile := filepath.Join(src, "Spy.x.Family.S01E01.2022.1080p.mkv")
+	writeOrgFile(t, sourceFile, "episode")
+
+	lib := model.Library{
+		Name:    "剧集",
+		Path:    filepath.Join(dest, "电视剧"),
+		Type:    "tv",
+		Enabled: true,
+	}
+	if err := repos.Library.Create(t.Context(), &lib); err != nil {
+		t.Fatal(err)
+	}
+
+	organizer := NewOrganizerService(&config.Config{}, zap.NewNop(), repos)
+	scanner := NewScannerService(&config.Config{}, zap.NewNop(), repos, NewHub(zap.NewNop()), nil, scraper)
+	pipeline := NewOrganizePipelineService(zap.NewNop(), repos, organizer, scanner, nil)
+	_, err := pipeline.Run(t.Context(), OrganizePipelineRequest{
+		Scope:        OrganizeScopeDirectory,
+		Trigger:      OrganizeTriggerManual,
+		SourcePath:   src,
+		DestPath:     dest,
+		TransferMode: string(TransferCopy),
+		MediaType:    "tv",
+	})
+	if err != nil {
+		t.Fatalf("pipeline organize: %v", err)
+	}
+
+	englishPath := filepath.Join(dest, "电视剧", "Spy Family", "Season 01", "Spy Family - S01E01.mkv")
+	if _, err := os.Stat(englishPath); !os.IsNotExist(err) {
+		t.Fatalf("english pre-scrape path should be renamed away, stat err=%v", err)
+	}
+	englishDir := filepath.Join(dest, "电视剧", "Spy Family")
+	if _, err := os.Stat(englishDir); !os.IsNotExist(err) {
+		t.Fatalf("empty english pre-scrape directory should be cleaned up, stat err=%v", err)
+	}
+	want := filepath.Join(dest, "电视剧", "间谍过家家", "Season 01", "间谍过家家 - S01E01.mkv")
+	if _, err := os.Stat(want); err != nil {
+		t.Fatalf("scraped rename target missing %q: %v", want, err)
+	}
+	var got model.Media
+	if err := repos.DB.First(&got, "path = ?", want).Error; err != nil {
+		t.Fatal(err)
+	}
+	if got.Title != "间谍过家家" || got.ReleaseDate != "2022-04-09" || got.ScrapeStatus != "matched" {
+		t.Fatalf("media after scrape rename = title=%q release=%q status=%q", got.Title, got.ReleaseDate, got.ScrapeStatus)
+	}
+}
+
 func TestOrganizeMediaRefreshesMetadataBeforeRename(t *testing.T) {
 	scraper, repos, closeServer := newTestScraper(t)
 	defer closeServer()
