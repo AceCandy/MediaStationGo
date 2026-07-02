@@ -134,6 +134,17 @@ type repairSTRMReq struct {
 	RefreshLibrary bool   `json:"refresh_library"`
 }
 
+func listSTRMOutputPresetsHandler(svc *service.Container) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		items, err := service.STRMOutputPresets(c.Request.Context(), svc.Repo)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"items": items})
+	}
+}
+
 func generateSTRMHandler(svc *service.Container) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req generateSTRMReq

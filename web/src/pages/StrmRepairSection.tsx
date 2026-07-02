@@ -1,13 +1,18 @@
 import { Loader2, RotateCcw, Wrench } from 'lucide-react'
 
+import type { STRMOutputPreset } from '../api/strm'
 import { currentOrigin } from './strmPageModel'
+import { StrmOutputDirPicker } from './StrmOutputDirPicker'
 import type { useStrmRepairForm } from './useStrmRepairForm'
 
-type StrmRepairSectionProps = ReturnType<typeof useStrmRepairForm>
+type StrmRepairSectionProps = ReturnType<typeof useStrmRepairForm> & {
+  outputPresets: STRMOutputPreset[]
+}
 
 export function StrmRepairSection({
   baseURL,
   outputDir,
+  outputPresets,
   repairing,
   refreshLibrary,
   result,
@@ -25,12 +30,13 @@ export function StrmRepairSection({
         <p className="text-sm text-ink-50">批量修复已存在 .strm 文件中的本服务播放地址。</p>
       </div>
       <form onSubmit={onRepair} className="grid gap-3 md:grid-cols-4">
-        <input
+        <StrmOutputDirPicker
+          className="md:col-span-2"
           required
-          className="input-base md:col-span-2"
+          presets={outputPresets}
           placeholder="STRM 输出目录"
           value={outputDir}
-          onChange={(e) => setOutputDir(e.target.value)}
+          onChange={setOutputDir}
         />
         <input
           className="input-base"

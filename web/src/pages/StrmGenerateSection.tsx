@@ -1,6 +1,6 @@
 import type { FormEvent } from 'react'
 
-import type { GenerateSTRMResult } from '../api/strm'
+import type { GenerateSTRMResult, STRMOutputPreset } from '../api/strm'
 import type { Library } from '../types'
 import type { CloudPlaybackMode } from './strmPageModel'
 import {
@@ -17,6 +17,7 @@ export type StrmGenerateSectionProps = {
   generateLibraryID: string
   baseURL: string
   outputDir: string
+  outputPresets: STRMOutputPreset[]
   cloudPlaybackMode: CloudPlaybackMode
   strmPlaybackEnabled: boolean
   redirectProxyEnabled: boolean

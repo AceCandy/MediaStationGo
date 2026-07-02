@@ -4,6 +4,7 @@ import type { GenerateSTRMResult } from '../api/strm'
 import type { Library } from '../types'
 import { currentOrigin, type CloudPlaybackMode } from './strmPageModel'
 import type { StrmGenerateSectionProps } from './StrmGenerateSection'
+import { StrmOutputDirPicker } from './StrmOutputDirPicker'
 
 type PlaybackStatusProps = Pick<
   StrmGenerateSectionProps,
@@ -141,6 +142,7 @@ type StrmGenerateFormProps = Pick<
   | 'generateLibraryID'
   | 'baseURL'
   | 'outputDir'
+  | 'outputPresets'
   | 'overwrite'
   | 'includeLocal'
   | 'preserveTree'
@@ -161,6 +163,7 @@ export function StrmGenerateForm({
   generateLibraryID,
   baseURL,
   outputDir,
+  outputPresets,
   overwrite,
   includeLocal,
   preserveTree,
@@ -198,11 +201,12 @@ export function StrmGenerateForm({
         <CompactOption checked={preserveTree} label="保留目录树" onChange={setPreserveTree} />
         <CompactOption checked={refreshLibrary} label="生成后刷新媒体库" onChange={setRefreshLibrary} />
       </div>
-      <input
-        className="input-base md:col-span-4"
+      <StrmOutputDirPicker
+        className="md:col-span-4"
+        presets={outputPresets}
         placeholder="输出目录可留空，默认写入 data/strm/分类/子分类"
         value={outputDir}
-        onChange={(e) => setOutputDir(e.target.value)}
+        onChange={setOutputDir}
       />
       <button type="submit" disabled={generating || !generateLibraryID || !baseURL.trim()} className="neon-button md:col-span-4">
         {generating ? <Loader2 size={16} className="animate-spin" /> : <Wand2 size={16} />}

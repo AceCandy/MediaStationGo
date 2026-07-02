@@ -88,10 +88,18 @@ export type STRMRefreshResult = {
   }>
 }
 
+export type STRMOutputPreset = {
+  label: string
+  path: string
+  kind: 'default' | 'library' | string
+}
+
 export const strmAPI = {
   set: (mediaID: string, url: string) =>
     api.put(`/media/${mediaID}/strm`, { url }).then((r) => r.data),
   clear: (mediaID: string) => api.delete(`/media/${mediaID}/strm`).then((r) => r.data),
+  outputPresets: () =>
+    api.get<{ items: STRMOutputPreset[] }>('/strm/output-presets').then((r) => r.data.items),
   importURL: (libraryID: string, title: string, url: string) =>
     api.post('/strm/import', { library_id: libraryID, title, url }).then((r) => r.data),
   generate: (input: GenerateSTRMInput) =>

@@ -52,6 +52,7 @@ func registerAuthedDLNARoutes(authed *gin.RouterGroup, svc *service.Container) {
 func registerAuthedSTRMRoutes(authed *gin.RouterGroup, svc *service.Container) {
 	authed.PUT("/media/:id/strm", middleware.AdminRequired(), setSTRMHandler(svc))
 	authed.DELETE("/media/:id/strm", middleware.AdminRequired(), clearSTRMHandler(svc))
+	authed.GET("/strm/output-presets", middleware.AdminRequired(), listSTRMOutputPresetsHandler(svc))
 	authed.POST("/strm/import", middleware.AdminRequired(), importSTRMHandler(svc))
 	authed.POST("/strm/generate", middleware.AdminRequired(), generateSTRMHandler(svc))
 	authed.POST("/strm/generate-from-tree", middleware.AdminRequired(), generateSTRMFromTreeHandler(svc))

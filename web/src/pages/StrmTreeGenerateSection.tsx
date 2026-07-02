@@ -1,10 +1,14 @@
 import { FolderTree, Loader2, Upload, X } from 'lucide-react'
 
+import type { STRMOutputPreset } from '../api/strm'
 import { currentOrigin } from './strmPageModel'
 import { StrmGenerateResultPanel } from './StrmGenerateSectionParts'
+import { StrmOutputDirPicker } from './StrmOutputDirPicker'
 import type { useStrmTreeGenerateForm } from './useStrmTreeGenerateForm'
 
-type StrmTreeGenerateSectionProps = ReturnType<typeof useStrmTreeGenerateForm>
+type StrmTreeGenerateSectionProps = ReturnType<typeof useStrmTreeGenerateForm> & {
+  outputPresets: STRMOutputPreset[]
+}
 
 const outputPrefixPresets = [
   '电影/演唱会',
@@ -37,6 +41,7 @@ export function StrmTreeGenerateSection({
   onPreview,
   onImportTreeFile,
   outputDir,
+  outputPresets,
   outputPrefix,
   overwrite,
   pathsText,
@@ -83,12 +88,13 @@ export function StrmTreeGenerateSection({
           value={sourceRoot}
           onChange={(e) => setSourceRoot(e.target.value)}
         />
-        <input
+        <StrmOutputDirPicker
+          className="md:col-span-2"
           required
-          className="input-base"
+          presets={outputPresets}
           placeholder="输出目录"
           value={outputDir}
-          onChange={(e) => setOutputDir(e.target.value)}
+          onChange={setOutputDir}
         />
         <select
           className="input-base"

@@ -24,6 +24,7 @@ export function StrmPage() {
         generateLibraryID={strm.generate.generateLibraryID}
         baseURL={strm.generate.baseURL}
         outputDir={strm.generate.outputDir}
+        outputPresets={strm.outputPresets}
         cloudPlaybackMode={strm.generate.cloudPlaybackMode}
         strmPlaybackEnabled={strm.generate.strmPlaybackEnabled}
         redirectProxyEnabled={strm.generate.redirectProxyEnabled}
@@ -51,9 +52,9 @@ export function StrmPage() {
         setRefreshLibrary={strm.generate.setRefreshLibrary}
       />
 
-      <StrmTreeGenerateSection {...strm.treeGenerate} />
+      <StrmTreeGenerateSection {...strm.treeGenerate} outputPresets={strm.outputPresets} />
 
-      <StrmRepairSection {...strm.repair} />
+      <StrmRepairSection {...strm.repair} outputPresets={strm.outputPresets} />
 
       <StrmImportSection
         libraries={strm.libraries}
