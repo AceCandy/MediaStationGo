@@ -7,6 +7,7 @@
 package handler
 
 import (
+	"context"
 	"net/http"
 	"strings"
 
@@ -106,6 +107,7 @@ type generateSTRMReq struct {
 	Overwrite    bool   `json:"overwrite"`
 	IncludeLocal *bool  `json:"include_local"`
 	PreserveTree bool   `json:"preserve_tree"`
+	Refresh      bool   `json:"refresh_library"`
 }
 
 type generateSTRMTreeReq struct {
@@ -121,12 +123,14 @@ type generateSTRMTreeReq struct {
 	DryRun            bool     `json:"dry_run"`
 	BatchLimit        int      `json:"batch_limit"`
 	TransferSubtitles bool     `json:"transfer_subtitles"`
+	RefreshLibrary    bool     `json:"refresh_library"`
 }
 
 type repairSTRMReq struct {
-	OutputDir string `json:"output_dir" binding:"required"`
-	BaseURL   string `json:"base_url"`
-	DryRun    bool   `json:"dry_run"`
+	OutputDir      string `json:"output_dir" binding:"required"`
+	BaseURL        string `json:"base_url"`
+	DryRun         bool   `json:"dry_run"`
+	RefreshLibrary bool   `json:"refresh_library"`
 }
 
 func generateSTRMHandler(svc *service.Container) gin.HandlerFunc {
@@ -169,6 +173,9 @@ func generateSTRMHandler(svc *service.Container) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
+		if req.Refresh {
+			res.Refresh = queueSTRMRefreshAfterChanges(c.Request.Context(), svc, res.OutputDir, "STRM 生成后刷新媒体库", strmGenerationChanged(res))
+		}
 		c.JSON(http.StatusOK, res)
 	}
 }
@@ -206,6 +213,9 @@ func generateSTRMFromTreeHandler(svc *service.Container) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
+		if req.RefreshLibrary && !req.DryRun {
+			res.Refresh = queueSTRMRefreshAfterChanges(c.Request.Context(), svc, res.OutputDir, "STRM 目录树生成后刷新媒体库", strmGenerationChanged(res))
+		}
 		c.JSON(http.StatusOK, res)
 	}
 }
@@ -234,8 +244,72 @@ func repairSTRMHandler(svc *service.Container) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
+		if req.RefreshLibrary && !req.DryRun {
+			res.Refresh = queueSTRMRefreshAfterChanges(c.Request.Context(), svc, res.OutputDir, "STRM 修复后刷新媒体库", res.Repaired > 0)
+		}
 		c.JSON(http.StatusOK, res)
 	}
+}
+
+func strmGenerationChanged(res *service.GenerateSTRMResult) bool {
+	return res != nil && (res.Generated > 0 || res.Updated > 0 || res.Cleaned > 0)
+}
+
+func queueSTRMRefreshAfterChanges(ctx context.Context, svc *service.Container, outputDir, taskName string, changed bool) *service.STRMRefreshResult {
+	refresh := &service.STRMRefreshResult{Requested: true}
+	if !changed {
+		refresh.Reason = "no strm changes"
+		return refresh
+	}
+	if svc == nil || svc.Scan == nil {
+		refresh.Reason = "scanner unavailable"
+		return refresh
+	}
+	targets, err := service.FindSTRMRefreshTargets(ctx, svc.Repo, outputDir)
+	if err != nil {
+		refresh.Reason = err.Error()
+		return refresh
+	}
+	if len(targets) == 0 {
+		refresh.Reason = "no matching local library"
+		return refresh
+	}
+	refresh.Targets = targets
+	for _, target := range targets {
+		key := target.LibraryID
+		if target.RootID != "" {
+			key += ":" + target.RootID
+		}
+		finishScan, ok := svc.Scan.TryBeginLocalScan(key)
+		if !ok {
+			continue
+		}
+		refresh.Queued = true
+		task := startScanHTTPTask(svc, taskName, target.Name, target.Path)
+		go runSTRMRefreshScan(svc, target, task, finishScan)
+	}
+	if !refresh.Queued {
+		refresh.Reason = "matching library already scanning"
+	}
+	return refresh
+}
+
+func runSTRMRefreshScan(svc *service.Container, target service.STRMRefreshTarget, task *service.TaskHandle, finish func()) {
+	defer finish()
+	var (
+		res *service.ScanResult
+		err error
+	)
+	if target.RootID != "" {
+		res, err = svc.Scan.ScanLibraryRoot(context.Background(), target.LibraryID, target.RootID)
+	} else {
+		res, err = svc.Scan.ScanLibrary(context.Background(), target.LibraryID)
+	}
+	if err != nil {
+		finishHTTPTask(task, err, "scan", "STRM 刷新媒体库失败", scanTaskMetrics(res), scanTaskDetails(res, 20))
+		return
+	}
+	finishHTTPTask(task, nil, "completed", "STRM 刷新媒体库结束", scanTaskMetrics(res), scanTaskDetails(res, 20))
 }
 
 func strmPlaybackTokenForRequest(c *gin.Context, svc *service.Container) string {

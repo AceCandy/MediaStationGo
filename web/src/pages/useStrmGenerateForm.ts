@@ -33,6 +33,7 @@ export function useStrmGenerateForm(libraries: Library[]) {
   const [overwrite, setOverwrite] = useState(false)
   const [includeLocal, setIncludeLocal] = useState(true)
   const [preserveTree, setPreserveTree] = useState(false)
+  const [refreshLibrary, setRefreshLibrary] = useState(true)
   const [generating, setGenerating] = useState(false)
   const [generateResult, setGenerateResult] = useState<GenerateSTRMResult | null>(null)
 
@@ -117,6 +118,7 @@ export function useStrmGenerateForm(libraries: Library[]) {
         enabled: autoGenerate,
         include_local: includeLocal,
         preserve_tree: preserveTree,
+        refresh_library: refreshLibrary,
       })
       const nextOutputDir = result.output_dir || outputDir
       setGenerateResult(result)
@@ -174,6 +176,7 @@ export function useStrmGenerateForm(libraries: Library[]) {
     includeLocal,
     overwrite,
     preserveTree,
+    refreshLibrary,
     playbackStatus: playbackStatusText(strmPlaybackEnabled, redirectProxyEnabled, cloudPlaybackMode),
     redirectProxyEnabled,
     saveSTRMSettings,
@@ -186,6 +189,7 @@ export function useStrmGenerateForm(libraries: Library[]) {
     setOutputDir: onOutputDirChange,
     setOverwrite,
     setPreserveTree,
+    setRefreshLibrary,
     setRedirectProxyEnabled,
     setStrmPlaybackEnabled,
     strmPlaybackEnabled,

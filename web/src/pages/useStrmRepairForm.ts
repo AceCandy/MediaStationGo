@@ -9,6 +9,7 @@ import { apiErrorMessage, isHTTPURL } from './strmPageUtils'
 export function useStrmRepairForm() {
   const [baseURL, setBaseURL] = useState(currentOrigin())
   const [outputDir, setOutputDir] = useState('data/strm/tree')
+  const [refreshLibrary, setRefreshLibrary] = useState(true)
   const [runningMode, setRunningMode] = useState<'repair' | 'preview' | null>(null)
   const [result, setResult] = useState<RepairSTRMResult | null>(null)
 
@@ -28,6 +29,7 @@ export function useStrmRepairForm() {
         output_dir: outputDir.trim(),
         base_url: trimmedBaseURL.replace(/\/+$/, '') || undefined,
         dry_run: dryRun,
+        refresh_library: refreshLibrary,
       })
       setResult(next)
       if (dryRun) {
@@ -55,11 +57,13 @@ export function useStrmRepairForm() {
     baseURL,
     outputDir,
     repairing: runningMode !== null,
+    refreshLibrary,
     result,
     runningMode,
     onPreview,
     onRepair,
     setBaseURL,
     setOutputDir,
+    setRefreshLibrary,
   }
 }

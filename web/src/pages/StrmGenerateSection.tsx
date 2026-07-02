@@ -25,6 +25,7 @@ export type StrmGenerateSectionProps = {
   overwrite: boolean
   includeLocal: boolean
   preserveTree: boolean
+  refreshLibrary: boolean
   generating: boolean
   generateResult: GenerateSTRMResult | null
   playbackStatus: string
@@ -40,6 +41,7 @@ export type StrmGenerateSectionProps = {
   setOverwrite: (value: boolean) => void
   setIncludeLocal: (value: boolean) => void
   setPreserveTree: (value: boolean) => void
+  setRefreshLibrary: (value: boolean) => void
 }
 
 export function StrmGenerateSection(props: StrmGenerateSectionProps) {

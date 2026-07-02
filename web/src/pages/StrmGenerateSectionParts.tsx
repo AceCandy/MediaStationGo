@@ -144,6 +144,7 @@ type StrmGenerateFormProps = Pick<
   | 'overwrite'
   | 'includeLocal'
   | 'preserveTree'
+  | 'refreshLibrary'
   | 'generating'
   | 'onGenerate'
   | 'setGenerateLibraryID'
@@ -152,6 +153,7 @@ type StrmGenerateFormProps = Pick<
   | 'setOverwrite'
   | 'setIncludeLocal'
   | 'setPreserveTree'
+  | 'setRefreshLibrary'
 >
 
 export function StrmGenerateForm({
@@ -162,6 +164,7 @@ export function StrmGenerateForm({
   overwrite,
   includeLocal,
   preserveTree,
+  refreshLibrary,
   generating,
   onGenerate,
   setGenerateLibraryID,
@@ -170,6 +173,7 @@ export function StrmGenerateForm({
   setOverwrite,
   setIncludeLocal,
   setPreserveTree,
+  setRefreshLibrary,
 }: StrmGenerateFormProps) {
   return (
     <form onSubmit={onGenerate} className="grid gap-3 md:grid-cols-4">
@@ -188,10 +192,11 @@ export function StrmGenerateForm({
       >
         使用当前访问地址
       </button>
-      <div className="grid gap-2 md:col-span-4 md:grid-cols-3">
+      <div className="grid gap-2 md:col-span-4 md:grid-cols-4">
         <CompactOption checked={overwrite} label="覆盖已存在" onChange={setOverwrite} />
         <CompactOption checked={includeLocal} label="包含本地媒体" onChange={setIncludeLocal} />
         <CompactOption checked={preserveTree} label="保留目录树" onChange={setPreserveTree} />
+        <CompactOption checked={refreshLibrary} label="生成后刷新媒体库" onChange={setRefreshLibrary} />
       </div>
       <input
         className="input-base md:col-span-4"
@@ -278,6 +283,13 @@ export function StrmGenerateResultPanel({ result }: { result: GenerateSTRMResult
       </div>
       {result.batch_limited && (
         <div className="mt-1 text-amber-600">本批已达到上限，剩余 {result.remaining || 0} 个可继续运行。</div>
+      )}
+      {result.refresh && (
+        <div className={result.refresh.queued ? 'mt-1 text-emerald-600' : 'mt-1 text-amber-600'}>
+          {result.refresh.queued
+            ? `媒体库刷新已排队：${result.refresh.targets?.map((target) => target.name).join('、') || '已匹配媒体库'}`
+            : `媒体库未刷新：${result.refresh.reason || '未匹配到可扫描媒体库'}`}
+        </div>
       )}
       {result.ignored_items && result.ignored_items.length > 0 && (
         <div className="mt-1 text-amber-600">

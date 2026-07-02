@@ -40,6 +40,7 @@ export function StrmTreeGenerateSection({
   overwrite,
   pathsText,
   provider,
+  refreshLibrary,
   result,
   runningMode,
   setBaseURL,
@@ -50,6 +51,7 @@ export function StrmTreeGenerateSection({
   setOverwrite,
   setPathsText,
   setProvider,
+  setRefreshLibrary,
   setSourceRoot,
   setTreeText,
   setTransferSubtitles,
@@ -184,6 +186,10 @@ export function StrmTreeGenerateSection({
         <label className="flex min-h-10 items-center gap-2 rounded-2xl border border-gray-200 bg-white/70 px-3 py-2 text-sm text-ink-50 md:col-span-4">
           <input type="checkbox" checked={transferSubtitles} onChange={(e) => setTransferSubtitles(e.target.checked)} />
           转移同名字幕链接
+        </label>
+        <label className="flex min-h-10 items-center gap-2 rounded-2xl border border-gray-200 bg-white/70 px-3 py-2 text-sm text-ink-50 md:col-span-4">
+          <input type="checkbox" checked={refreshLibrary} onChange={(e) => setRefreshLibrary(e.target.checked)} />
+          生成后刷新媒体库
         </label>
         <label className="flex min-h-10 items-center gap-2 rounded-2xl border border-gray-200 bg-white/70 px-3 py-2 text-sm text-ink-50 md:col-span-4">
           <input

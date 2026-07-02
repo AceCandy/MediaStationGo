@@ -8,6 +8,7 @@ export type GenerateSTRMInput = {
   overwrite?: boolean
   include_local?: boolean
   preserve_tree?: boolean
+  refresh_library?: boolean
 }
 
 export type GenerateSTRMResult = {
@@ -24,6 +25,7 @@ export type GenerateSTRMResult = {
   previewed?: number
   errors?: string[]
   ignored_items?: string[]
+  refresh?: STRMRefreshResult
   items?: Array<{
     media_id: string
     title: string
@@ -47,12 +49,14 @@ export type GenerateSTRMTreeInput = {
   dry_run?: boolean
   batch_limit?: number
   transfer_subtitles?: boolean
+  refresh_library?: boolean
 }
 
 export type RepairSTRMInput = {
   output_dir: string
   base_url?: string
   dry_run?: boolean
+  refresh_library?: boolean
 }
 
 export type RepairSTRMResult = {
@@ -61,12 +65,25 @@ export type RepairSTRMResult = {
   previewed?: number
   skipped: number
   errors?: string[]
+  refresh?: STRMRefreshResult
   items?: Array<{
     file_path: string
     before?: string
     after?: string
     action: string
     reason?: string
+  }>
+}
+
+export type STRMRefreshResult = {
+  requested: boolean
+  queued: boolean
+  reason?: string
+  targets?: Array<{
+    library_id: string
+    root_id?: string
+    name: string
+    path: string
   }>
 }
 

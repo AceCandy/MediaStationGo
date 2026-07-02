@@ -17,12 +17,13 @@ type RepairSTRMOptions struct {
 }
 
 type RepairSTRMResult struct {
-	OutputDir string           `json:"output_dir"`
-	Repaired  int              `json:"repaired"`
-	Previewed int              `json:"previewed,omitempty"`
-	Skipped   int              `json:"skipped"`
-	Errors    []string         `json:"errors,omitempty"`
-	Items     []RepairSTRMItem `json:"items,omitempty"`
+	OutputDir string             `json:"output_dir"`
+	Repaired  int                `json:"repaired"`
+	Previewed int                `json:"previewed,omitempty"`
+	Skipped   int                `json:"skipped"`
+	Errors    []string           `json:"errors,omitempty"`
+	Items     []RepairSTRMItem   `json:"items,omitempty"`
+	Refresh   *STRMRefreshResult `json:"refresh,omitempty"`
 }
 
 type RepairSTRMItem struct {

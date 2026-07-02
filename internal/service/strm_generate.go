@@ -41,6 +41,7 @@ type GenerateSTRMResult struct {
 	Errors       []string           `json:"errors,omitempty"`
 	IgnoredItems []string           `json:"ignored_items,omitempty"`
 	Items        []GenerateSTRMItem `json:"items,omitempty"`
+	Refresh      *STRMRefreshResult `json:"refresh,omitempty"`
 }
 
 type GenerateSTRMItem struct {

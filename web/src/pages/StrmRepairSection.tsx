@@ -9,12 +9,14 @@ export function StrmRepairSection({
   baseURL,
   outputDir,
   repairing,
+  refreshLibrary,
   result,
   runningMode,
   onPreview,
   onRepair,
   setBaseURL,
   setOutputDir,
+  setRefreshLibrary,
 }: StrmRepairSectionProps) {
   return (
     <section className="glass-panel space-y-4">
@@ -43,6 +45,10 @@ export function StrmRepairSection({
         >
           使用当前访问地址
         </button>
+        <label className="flex min-h-10 items-center gap-2 rounded-2xl border border-gray-200 bg-white/70 px-3 py-2 text-sm text-ink-50 md:col-span-4">
+          <input type="checkbox" checked={refreshLibrary} onChange={(e) => setRefreshLibrary(e.target.checked)} />
+          修复后刷新媒体库
+        </label>
         <button
           type="button"
           disabled={repairing || !outputDir.trim()}
@@ -64,6 +70,13 @@ export function StrmRepairSection({
             {result.previewed ? `预检 ${result.previewed} · ` : ''}
             修复 {result.repaired} · 跳过 {result.skipped}
           </div>
+          {result.refresh && (
+            <div className={result.refresh.queued ? 'mt-1 text-emerald-600' : 'mt-1 text-amber-600'}>
+              {result.refresh.queued
+                ? `媒体库刷新已排队：${result.refresh.targets?.map((target) => target.name).join('、') || '已匹配媒体库'}`
+                : `媒体库未刷新：${result.refresh.reason || '未匹配到可扫描媒体库'}`}
+            </div>
+          )}
           {result.errors && result.errors.length > 0 && (
             <div className="mt-2 text-red-500">
               失败 {result.errors.length} 条：{result.errors.slice(0, 3).join('；')}

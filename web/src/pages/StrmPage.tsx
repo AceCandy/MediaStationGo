@@ -32,6 +32,7 @@ export function StrmPage() {
         overwrite={strm.generate.overwrite}
         includeLocal={strm.generate.includeLocal}
         preserveTree={strm.generate.preserveTree}
+        refreshLibrary={strm.generate.refreshLibrary}
         generating={strm.generate.generating}
         generateResult={strm.generate.generateResult}
         playbackStatus={strm.generate.playbackStatus}
@@ -47,6 +48,7 @@ export function StrmPage() {
         setOverwrite={strm.generate.setOverwrite}
         setIncludeLocal={strm.generate.setIncludeLocal}
         setPreserveTree={strm.generate.setPreserveTree}
+        setRefreshLibrary={strm.generate.setRefreshLibrary}
       />
 
       <StrmTreeGenerateSection {...strm.treeGenerate} />
