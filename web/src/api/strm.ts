@@ -46,6 +46,7 @@ export type GenerateSTRMTreeInput = {
   cleanup?: boolean
   dry_run?: boolean
   batch_limit?: number
+  transfer_subtitles?: boolean
 }
 
 export const strmAPI = {

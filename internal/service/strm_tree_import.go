@@ -10,29 +10,47 @@ import (
 )
 
 type GenerateSTRMTreeOptions struct {
-	Provider     string   `json:"provider"`
-	TreeText     string   `json:"tree_text,omitempty"`
-	Paths        []string `json:"paths,omitempty"`
-	SourceRoot   string   `json:"source_root,omitempty"`
-	OutputPrefix string   `json:"output_prefix,omitempty"`
-	OutputDir    string   `json:"output_dir"`
-	BaseURL      string   `json:"base_url,omitempty"`
-	Overwrite    bool     `json:"overwrite"`
-	Cleanup      bool     `json:"cleanup"`
-	DryRun       bool     `json:"dry_run"`
-	BatchLimit   int      `json:"batch_limit,omitempty"`
+	Provider          string   `json:"provider"`
+	TreeText          string   `json:"tree_text,omitempty"`
+	Paths             []string `json:"paths,omitempty"`
+	SourceRoot        string   `json:"source_root,omitempty"`
+	OutputPrefix      string   `json:"output_prefix,omitempty"`
+	OutputDir         string   `json:"output_dir"`
+	BaseURL           string   `json:"base_url,omitempty"`
+	Overwrite         bool     `json:"overwrite"`
+	Cleanup           bool     `json:"cleanup"`
+	DryRun            bool     `json:"dry_run"`
+	BatchLimit        int      `json:"batch_limit,omitempty"`
+	TransferSubtitles bool     `json:"transfer_subtitles,omitempty"`
 }
 
 type strmTreeSource struct {
 	Provider string
 	Path     string
 	RefPath  string
+	Kind     string
 }
+
+const (
+	strmTreeSourceKindVideo    = "video"
+	strmTreeSourceKindSubtitle = "subtitle"
+)
 
 type strmTreeSourceCollection struct {
 	sources      []strmTreeSource
 	ignored      []string
 	ignoredCount int
+}
+
+type strmTreeSourceCollector struct {
+	fallbackProvider  string
+	transferSubtitles bool
+	sources           []strmTreeSource
+	subtitles         []strmTreeSource
+	ignored           []string
+	ignoredCount      int
+	seen              map[string]struct{}
+	seenIgnored       map[string]struct{}
 }
 
 func (s *STRMService) GenerateFromTree(ctx context.Context, opts GenerateSTRMTreeOptions) (*GenerateSTRMResult, error) {
@@ -97,6 +115,9 @@ func strmTreeBatchLimitReached(result *GenerateSTRMResult, limit int) bool {
 func generateTreeSTRMItem(outputDir string, source strmTreeSource, opts GenerateSTRMTreeOptions) GenerateSTRMItem {
 	relSource := strmTreeRelativeSource(source.Path, opts.SourceRoot)
 	relPath, err := strmTreeOutputRelativePath(relSource)
+	if source.Kind == strmTreeSourceKindSubtitle {
+		relPath, err = strmTreeOutputSubtitleLinkRelativePath(relSource)
+	}
 	item := GenerateSTRMItem{Title: strings.TrimSuffix(path.Base(source.Path), path.Ext(source.Path))}
 	if err != nil {
 		item.Action = "error"
@@ -141,49 +162,100 @@ func generateTreeSTRMItem(outputDir string, source strmTreeSource, opts Generate
 }
 
 func collectSTRMTreeSources(opts GenerateSTRMTreeOptions) strmTreeSourceCollection {
-	fallbackProvider := normalizeSTRMTreeProvider(opts.Provider)
-	out := make([]strmTreeSource, 0, len(opts.Paths))
-	seen := map[string]struct{}{}
-	ignored := make([]string, 0)
-	ignoredCount := 0
-	seenIgnored := map[string]struct{}{}
-	addIgnored := func(value string) {
-		if ignoredPath, ok := strmTreeIgnoredFileLikeSource(value); ok {
-			key := strings.ToLower(ignoredPath)
-			if _, exists := seenIgnored[key]; exists {
-				return
-			}
-			seenIgnored[key] = struct{}{}
-			ignoredCount++
-			if len(ignored) < strmTreeIgnoredItemSampleLimit {
-				ignored = append(ignored, ignoredPath)
-			}
-		}
-	}
-	add := func(value string) {
-		source := normalizeSTRMTreeSourceWithProvider(value, fallbackProvider)
-		if source.Provider == "" || source.Path == "" || !strmTreeSourceIsVideo(source.Path) {
-			addIgnored(value)
-			return
-		}
-		key := strings.ToLower(source.Provider) + "\x00" + strings.ToLower(source.Path) + "\x00" + strings.ToLower(source.cloudRefPath())
-		if _, ok := seen[key]; ok {
-			return
-		}
-		seen[key] = struct{}{}
-		out = append(out, source)
-	}
+	collector := newSTRMTreeSourceCollector(opts)
 	for _, value := range opts.Paths {
-		add(value)
+		collector.add(value)
 	}
 	treeSources, treeIgnored := parseSTRMTreeTextWithIgnored(opts.TreeText)
 	for _, value := range treeSources {
-		add(value)
+		collector.add(value)
 	}
 	for _, value := range treeIgnored {
-		addIgnored(value)
+		collector.addIgnoredOrSubtitle(value)
 	}
-	return strmTreeSourceCollection{sources: out, ignored: ignored, ignoredCount: ignoredCount}
+	collector.finalizeSubtitles()
+	return collector.collection()
+}
+
+func newSTRMTreeSourceCollector(opts GenerateSTRMTreeOptions) *strmTreeSourceCollector {
+	return &strmTreeSourceCollector{
+		fallbackProvider:  normalizeSTRMTreeProvider(opts.Provider),
+		transferSubtitles: opts.TransferSubtitles,
+		sources:           make([]strmTreeSource, 0, len(opts.Paths)),
+		subtitles:         make([]strmTreeSource, 0),
+		ignored:           make([]string, 0),
+		seen:              map[string]struct{}{},
+		seenIgnored:       map[string]struct{}{},
+	}
+}
+
+func (c *strmTreeSourceCollector) add(value string) {
+	source := normalizeSTRMTreeSourceWithProvider(value, c.fallbackProvider)
+	if source.Provider == "" || source.Path == "" || !strmTreeSourceIsVideo(source.Path) {
+		c.addIgnoredOrSubtitle(value)
+		return
+	}
+	source.Kind = strmTreeSourceKindVideo
+	c.addSource(source)
+}
+
+func (c *strmTreeSourceCollector) addIgnoredOrSubtitle(value string) {
+	if c.transferSubtitles && c.addSubtitleCandidate(value) {
+		return
+	}
+	c.addIgnored(value)
+}
+
+func (c *strmTreeSourceCollector) addSource(source strmTreeSource) {
+	if source.Kind == "" {
+		source.Kind = strmTreeSourceKindVideo
+	}
+	key := strings.ToLower(source.Provider) + "\x00" + strings.ToLower(source.Kind) + "\x00" + strings.ToLower(source.Path) + "\x00" + strings.ToLower(source.cloudRefPath())
+	if _, ok := c.seen[key]; ok {
+		return
+	}
+	c.seen[key] = struct{}{}
+	c.sources = append(c.sources, source)
+}
+
+func (c *strmTreeSourceCollector) addSubtitleCandidate(value string) bool {
+	source := normalizeSTRMTreeSubtitleSourceWithProvider(value, c.fallbackProvider)
+	if source.Provider == "" || source.Path == "" {
+		return false
+	}
+	c.subtitles = append(c.subtitles, source)
+	return true
+}
+
+func (c *strmTreeSourceCollector) addIgnored(value string) {
+	if ignoredPath, ok := strmTreeIgnoredFileLikeSource(value); ok {
+		key := strings.ToLower(ignoredPath)
+		if _, exists := c.seenIgnored[key]; exists {
+			return
+		}
+		c.seenIgnored[key] = struct{}{}
+		c.ignoredCount++
+		if len(c.ignored) < strmTreeIgnoredItemSampleLimit {
+			c.ignored = append(c.ignored, ignoredPath)
+		}
+	}
+}
+
+func (c *strmTreeSourceCollector) finalizeSubtitles() {
+	if !c.transferSubtitles {
+		return
+	}
+	for _, source := range c.subtitles {
+		if strmTreeSubtitleMatchesVideo(source, c.sources) {
+			c.addSource(source)
+			continue
+		}
+		c.addIgnored(source.Path)
+	}
+}
+
+func (c *strmTreeSourceCollector) collection() strmTreeSourceCollection {
+	return strmTreeSourceCollection{sources: c.sources, ignored: c.ignored, ignoredCount: c.ignoredCount}
 }
 
 func (s strmTreeSource) cloudRefPath() string {

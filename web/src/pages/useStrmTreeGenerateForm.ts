@@ -17,6 +17,7 @@ export function useStrmTreeGenerateForm() {
   const [pathsText, setPathsText] = useState('')
   const [overwrite, setOverwrite] = useState(false)
   const [cleanup, setCleanup] = useState(false)
+  const [transferSubtitles, setTransferSubtitles] = useState(true)
   const [runningMode, setRunningMode] = useState<'generate' | 'preview' | null>(null)
   const [result, setResult] = useState<GenerateSTRMResult | null>(null)
 
@@ -69,6 +70,7 @@ export function useStrmTreeGenerateForm() {
         cleanup: parsedBatchLimit > 0 ? false : cleanup,
         dry_run: dryRun,
         batch_limit: parsedBatchLimit || undefined,
+        transfer_subtitles: transferSubtitles,
       })
       setResult(next)
       if (dryRun) {
@@ -117,7 +119,9 @@ export function useStrmTreeGenerateForm() {
     setProvider,
     setSourceRoot,
     setTreeText,
+    setTransferSubtitles,
     sourceRoot,
+    transferSubtitles,
     treeText,
   }
 }

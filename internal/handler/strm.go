@@ -109,17 +109,18 @@ type generateSTRMReq struct {
 }
 
 type generateSTRMTreeReq struct {
-	Provider     string   `json:"provider"`
-	TreeText     string   `json:"tree_text"`
-	Paths        []string `json:"paths"`
-	SourceRoot   string   `json:"source_root"`
-	OutputPrefix string   `json:"output_prefix"`
-	OutputDir    string   `json:"output_dir"`
-	BaseURL      string   `json:"base_url"`
-	Overwrite    bool     `json:"overwrite"`
-	Cleanup      bool     `json:"cleanup"`
-	DryRun       bool     `json:"dry_run"`
-	BatchLimit   int      `json:"batch_limit"`
+	Provider          string   `json:"provider"`
+	TreeText          string   `json:"tree_text"`
+	Paths             []string `json:"paths"`
+	SourceRoot        string   `json:"source_root"`
+	OutputPrefix      string   `json:"output_prefix"`
+	OutputDir         string   `json:"output_dir"`
+	BaseURL           string   `json:"base_url"`
+	Overwrite         bool     `json:"overwrite"`
+	Cleanup           bool     `json:"cleanup"`
+	DryRun            bool     `json:"dry_run"`
+	BatchLimit        int      `json:"batch_limit"`
+	TransferSubtitles bool     `json:"transfer_subtitles"`
 }
 
 func generateSTRMHandler(svc *service.Container) gin.HandlerFunc {
@@ -182,17 +183,18 @@ func generateSTRMFromTreeHandler(svc *service.Container) gin.HandlerFunc {
 			baseURL = strings.TrimRight(absoluteRequestURL(c, "/"), "/")
 		}
 		res, err := strmSvc.GenerateFromTree(c.Request.Context(), service.GenerateSTRMTreeOptions{
-			Provider:     req.Provider,
-			TreeText:     req.TreeText,
-			Paths:        req.Paths,
-			SourceRoot:   req.SourceRoot,
-			OutputPrefix: req.OutputPrefix,
-			OutputDir:    req.OutputDir,
-			BaseURL:      baseURL,
-			Overwrite:    req.Overwrite,
-			Cleanup:      req.Cleanup,
-			DryRun:       req.DryRun,
-			BatchLimit:   req.BatchLimit,
+			Provider:          req.Provider,
+			TreeText:          req.TreeText,
+			Paths:             req.Paths,
+			SourceRoot:        req.SourceRoot,
+			OutputPrefix:      req.OutputPrefix,
+			OutputDir:         req.OutputDir,
+			BaseURL:           baseURL,
+			Overwrite:         req.Overwrite,
+			Cleanup:           req.Cleanup,
+			DryRun:            req.DryRun,
+			BatchLimit:        req.BatchLimit,
+			TransferSubtitles: req.TransferSubtitles,
 		})
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})

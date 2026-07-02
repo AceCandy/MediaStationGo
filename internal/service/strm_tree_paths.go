@@ -29,6 +29,14 @@ func strmTreeCloudRef(source, sourceRoot string) string {
 }
 
 func strmTreeOutputRelativePath(source string) (string, error) {
+	return strmTreeOutputRelativePathWithLinkExtension(source, videoExtensions, ".strm", false)
+}
+
+func strmTreeOutputSubtitleLinkRelativePath(source string) (string, error) {
+	return strmTreeOutputRelativePathWithLinkExtension(source, strmTreeSubtitleExtensions, ".strm", true)
+}
+
+func strmTreeOutputRelativePathWithLinkExtension(source string, allowedExtensions map[string]struct{}, linkExtension string, appendLinkExtension bool) (string, error) {
 	parts := strings.Split(strings.Trim(strings.ReplaceAll(source, "\\", "/"), "/"), "/")
 	if len(parts) == 0 {
 		return "", errors.New("empty source path")
@@ -41,10 +49,16 @@ func strmTreeOutputRelativePath(source string) (string, error) {
 		}
 		if i == len(parts)-1 {
 			ext := strings.ToLower(path.Ext(part))
-			if _, ok := videoExtensions[ext]; !ok {
+			if _, ok := allowedExtensions[ext]; !ok {
 				return "", fmt.Errorf("unsupported media extension %q", ext)
 			}
-			part = strings.TrimSuffix(part, path.Ext(part)) + ".strm"
+			if linkExtension != "" {
+				if appendLinkExtension {
+					part += linkExtension
+				} else {
+					part = strings.TrimSuffix(part, path.Ext(part)) + linkExtension
+				}
+			}
 		}
 		safe := sanitizeFilename(part)
 		if safe == "" {
@@ -53,6 +67,37 @@ func strmTreeOutputRelativePath(source string) (string, error) {
 		out = append(out, safe)
 	}
 	return filepath.Join(out...), nil
+}
+
+func strmTreeSubtitleMatchesVideo(subtitle strmTreeSource, videos []strmTreeSource) bool {
+	subDir, subBase := strmTreeDirAndBase(subtitle.Path)
+	if subBase == "" {
+		return false
+	}
+	for _, video := range videos {
+		if video.Kind != "" && video.Kind != strmTreeSourceKindVideo {
+			continue
+		}
+		if !strings.EqualFold(subtitle.Provider, video.Provider) {
+			continue
+		}
+		videoDir, videoBase := strmTreeDirAndBase(video.Path)
+		if !strings.EqualFold(subDir, videoDir) || videoBase == "" {
+			continue
+		}
+		if strings.EqualFold(subBase, videoBase) || strings.HasPrefix(strings.ToLower(subBase), strings.ToLower(videoBase)+".") {
+			return true
+		}
+	}
+	return false
+}
+
+func strmTreeDirAndBase(source string) (string, string) {
+	source = normalizeSTRMTreeSource(source)
+	dir := path.Dir(source)
+	name := path.Base(source)
+	base := strings.TrimSuffix(name, path.Ext(name))
+	return strings.ToLower(strings.Trim(dir, "/")), strings.ToLower(base)
 }
 
 func strmTreeOutputPrefixPath(prefix string) (string, error) {

@@ -31,6 +31,15 @@ var strmTreeKnownNonVideoExtensions = map[string]struct{}{
 	".webp": {},
 }
 
+var strmTreeSubtitleExtensions = map[string]struct{}{
+	".ass": {},
+	".idx": {},
+	".srt": {},
+	".ssa": {},
+	".sub": {},
+	".vtt": {},
+}
+
 func normalizeSTRMTreeProvider(raw string) string {
 	switch strings.ToLower(strings.TrimSpace(raw)) {
 	case "115", "115pan", "pan115", "cloud115":
@@ -107,6 +116,30 @@ func normalizeSTRMTreeSourceWithProvider(raw, fallbackProvider string) strmTreeS
 		return strmTreeSource{}
 	}
 	return strmTreeSource{Provider: provider, Path: source}
+}
+
+func normalizeSTRMTreeSubtitleSourceWithProvider(raw, fallbackProvider string) strmTreeSource {
+	provider := normalizeSTRMTreeProvider(fallbackProvider)
+	value := strings.TrimSpace(strings.Trim(raw, `"'`))
+	if value == "" {
+		return strmTreeSource{}
+	}
+	if info, ok := ParseCloudLibraryMount(value); ok {
+		source, sourceOK := strmTreeSubtitleFileLikeSource(info.DisplayDir)
+		if !sourceOK {
+			return strmTreeSource{}
+		}
+		ref, refOK := strmTreeSubtitleFileLikeSource(info.ScanDir)
+		if !refOK {
+			ref = source
+		}
+		return strmTreeSource{Provider: normalizeSTRMTreeProvider(info.Provider), Path: source, RefPath: ref, Kind: strmTreeSourceKindSubtitle}
+	}
+	source, ok := strmTreeSubtitleFileLikeSource(value)
+	if !ok {
+		return strmTreeSource{}
+	}
+	return strmTreeSource{Provider: provider, Path: source, Kind: strmTreeSourceKindSubtitle}
 }
 
 func strmTreeCloudPlaySourceFromURL(parsed *url.URL) (string, string) {
@@ -239,6 +272,18 @@ func strmTreeIgnoredFileLikeSource(raw string) (string, bool) {
 		return source, true
 	}
 	return "", false
+}
+
+func strmTreeSubtitleFileLikeSource(raw string) (string, bool) {
+	source, ok := strmTreeIgnoredFileLikeSource(raw)
+	if !ok {
+		return "", false
+	}
+	ext := strings.ToLower(path.Ext(source))
+	if _, ok := strmTreeSubtitleExtensions[ext]; !ok {
+		return "", false
+	}
+	return source, true
 }
 
 func cleanSTRMTreePathDecorations(value string) string {

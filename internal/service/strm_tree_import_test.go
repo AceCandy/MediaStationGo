@@ -121,6 +121,51 @@ func TestGenerateSTRMFromTreeReportsIgnoredFileLikeRows(t *testing.T) {
 	}
 }
 
+func TestGenerateSTRMFromTreeTransfersMatchingSubtitleLinks(t *testing.T) {
+	outDir := filepath.Join(t.TempDir(), "strm")
+	svc := NewSTRMService(zap.NewNop(), nil, nil)
+
+	res, err := svc.GenerateFromTree(t.Context(), GenerateSTRMTreeOptions{
+		Provider: "openlist",
+		Paths: []string{
+			"/Movies/A.mkv",
+			"/Movies/A.zh.srt",
+			"/Movies/Orphan.srt",
+		},
+		TreeText: strings.Join([]string{
+			"电视剧",
+			"└── Show.Name.2026",
+			"    ├── Show.S01E01.mp4",
+			"    ├── Show.S01E01.ass",
+			"    └── Show.S01E02.srt",
+		}, "\n"),
+		OutputDir:         outDir,
+		BaseURL:           "https://media.example.com",
+		TransferSubtitles: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Generated != 4 || res.Ignored != 2 || len(res.Errors) != 0 {
+		t.Fatalf("result = %#v, want two video links, two matching subtitle links, and two orphan subtitles ignored", res)
+	}
+	movieSubtitle := readSTRM(t, filepath.Join(outDir, "Movies", "A.zh.srt.strm"))
+	if !strings.HasPrefix(movieSubtitle, "https://media.example.com/api/cloud/play/openlist?") ||
+		!strings.Contains(movieSubtitle, "ref=%2FMovies%2FA.zh.srt") {
+		t.Fatalf("subtitle link = %q, want cloud play URL for subtitle source", movieSubtitle)
+	}
+	showSubtitle := readSTRM(t, filepath.Join(outDir, "电视剧", "Show.Name.2026", "Show.S01E01.ass.strm"))
+	if !strings.Contains(showSubtitle, "ref=%2F%E7%94%B5%E8%A7%86%E5%89%A7%2FShow.Name.2026%2FShow.S01E01.ass") {
+		t.Fatalf("tree subtitle link = %q, want full tree subtitle ref", showSubtitle)
+	}
+	if _, err := os.Stat(filepath.Join(outDir, "Movies", "Orphan.srt.strm")); !os.IsNotExist(err) {
+		t.Fatalf("orphan subtitle should not generate a link, stat err=%v", err)
+	}
+	if _, err := os.Stat(filepath.Join(outDir, "电视剧", "Show.Name.2026", "Show.S01E02.srt.strm")); !os.IsNotExist(err) {
+		t.Fatalf("subtitle without matching episode should not generate a link, stat err=%v", err)
+	}
+}
+
 func TestGenerateSTRMFromTreeLimitsIgnoredItemSamples(t *testing.T) {
 	outDir := filepath.Join(t.TempDir(), "strm")
 	paths := make([]string, 0, 25)
