@@ -122,18 +122,11 @@ func (e *EmbyService) latestSeriesItemsForLibrary(ctx context.Context, userID, l
 	if limit <= 0 || limit > 100 {
 		limit = 20
 	}
-	rowLimit := limit * 40
-	if rowLimit < 200 {
-		rowLimit = 200
-	}
-	if rowLimit > embySeriesGroupingLimit {
-		rowLimit = embySeriesGroupingLimit
-	}
 	q := e.repo.DB.WithContext(ctx).Model(&model.Media{}).
 		Where("library_id IN ? AND (season_num > 0 OR episode_num > 0)", e.mergedLibraryIDs(ctx, libraryID))
 	q = e.applyUserMediaVisibility(ctx, q, userID)
 	var rows []model.Media
-	if err := q.Order("media.created_at desc").Limit(rowLimit).Find(&rows).Error; err != nil {
+	if err := q.Order("media.created_at desc").Limit(embySeriesGroupingLimit).Find(&rows).Error; err != nil {
 		return nil, err
 	}
 	groups := e.seriesGroupsFromMedia(rows)

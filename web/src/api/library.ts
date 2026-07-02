@@ -151,6 +151,9 @@ export const libraryAPI = {
 }
 
 export const mediaAPI = {
+  recent: (limit = 24) =>
+    api.get<SeriesCard[]>('/media/recent', { params: { limit } }).then((r) => r.data),
+
   search: (q: string, limit = 50) =>
     api.get<MediaSearchPage>('/media', { params: { q, limit } }).then((r) => r.data),
 

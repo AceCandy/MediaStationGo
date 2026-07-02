@@ -1,11 +1,56 @@
 package service
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
+	"go.uber.org/zap"
+
+	"github.com/ShukeBta/MediaStationGo/internal/config"
 	"github.com/ShukeBta/MediaStationGo/internal/model"
+	"github.com/ShukeBta/MediaStationGo/internal/repository"
 )
+
+func TestListRecentSeriesCardsCountsAllEpisodesInSeries(t *testing.T) {
+	db := newServiceTestDB(t, &model.Library{}, &model.Media{})
+	repos := repository.New(db)
+	lib := model.Library{Name: "国漫", Path: "/media/anime", Type: "anime", Enabled: true}
+	if err := repos.Library.Create(t.Context(), &lib); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 7, 2, 12, 0, 0, 0, time.UTC)
+	rows := make([]model.Media, 0, 40)
+	for i := 1; i <= 40; i++ {
+		created := now.Add(-48 * time.Hour)
+		if i > 23 {
+			created = now.Add(time.Duration(i) * time.Minute)
+		}
+		rows = append(rows, model.Media{
+			Base:       model.Base{ID: fmt.Sprintf("recent-ep-%02d", i), CreatedAt: created, UpdatedAt: created},
+			LibraryID:  lib.ID,
+			Title:      "史上最强炼体老祖",
+			Path:       fmt.Sprintf("/media/anime/国漫/史上最强炼体老祖/Season 01/史上最强炼体老祖.S01E%02d.mkv", i),
+			SeasonNum:  1,
+			EpisodeNum: i,
+		})
+	}
+	if err := repos.DB.Create(&rows).Error; err != nil {
+		t.Fatal(err)
+	}
+	svc := NewMediaService(&config.Config{}, zap.NewNop(), repos)
+
+	cards, err := svc.ListRecentSeriesCards(t.Context(), 24, MediaVisibility{IncludeNSFW: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cards) != 1 {
+		t.Fatalf("recent cards = %#v, want one series card", cards)
+	}
+	if cards[0].Count != 40 {
+		t.Fatalf("recent series count = %d, want full 40 episodes", cards[0].Count)
+	}
+}
 
 func TestMediaSeriesKeyCollapsesNestedSpecialFolders(t *testing.T) {
 	main := model.Media{

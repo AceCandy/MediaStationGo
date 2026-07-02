@@ -144,8 +144,24 @@ func embyResumeItemsHandler(svc *service.Container) gin.HandlerFunc {
 	}
 }
 
-func embyItemsCountsHandler(_ *service.Container) gin.HandlerFunc {
+func embyItemsCountsHandler(svc *service.Container) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		if svc != nil && svc.Emby != nil {
+			uid := firstQueryValue(c, "UserId", "userId")
+			if uid == "" {
+				uid = c.Param("userId")
+			}
+			if uid == "" {
+				uid = embyUserID(c)
+			}
+			out, err := svc.Emby.ItemCounts(c.Request.Context(), uid)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+				return
+			}
+			c.JSON(http.StatusOK, out)
+			return
+		}
 		c.JSON(http.StatusOK, gin.H{
 			"MovieCount":   0,
 			"SeriesCount":  0,
@@ -166,18 +182,18 @@ func embyDisplayPreferencesHandler(_ *service.Container) gin.HandlerFunc {
 			"RememberIndexing":   false,
 			"PrimaryImageHeight": 250,
 			"PrimaryImageWidth":  250,
-			"ScrollDirection":    "Horizontal",
+			"ScrollDirection":    "Vertical",
 			"ShowSidebar":        true,
 			"CustomPrefs": gin.H{
 				"homeexploresection": "1",
 				"homesection0":       "smalllibrarytiles",
 				"homesection1":       "resume",
-				"homesection2":       "latestmedia",
+				"homesection2":       "none",
 				"homesection3":       "nextup",
 				"homesection4":       "none",
 				"homesection5":       "none",
 				"homesection6":       "none",
-				"latestItems":        "true",
+				"latestItems":        "false",
 				"landing-livetv":     "false",
 			},
 		})

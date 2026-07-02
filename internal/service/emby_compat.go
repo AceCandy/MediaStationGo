@@ -113,7 +113,7 @@ const (
 	embyVirtualSeasonPrefix = "msgo-season-"
 	embyVirtualCacheTTL     = 10 * time.Minute
 	embyVisibilityCacheTTL  = 30 * time.Second
-	embySeriesGroupingLimit = 5000
+	embySeriesGroupingLimit = maxMediaSearchLimit
 )
 
 var (

@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"strings"
 
 	"go.uber.org/zap"
@@ -88,4 +90,37 @@ func (d *DownloadService) preferredEnabledQBitClient(ctx context.Context) (*mode
 		break
 	}
 	return selected, nil
+}
+
+func (d *DownloadService) defaultDownloaderNotConfiguredError(ctx context.Context) error {
+	const prefix = "no default downloader configured"
+	if d == nil || d.repo == nil || d.repo.DownloadClient == nil {
+		return errors.New(prefix + ": 请在下载客户端中配置并启用 qBittorrent")
+	}
+	rows, err := d.repo.DownloadClient.ListEnabled(ctx)
+	if err != nil {
+		return fmt.Errorf("%s: 读取下载客户端配置失败: %w", prefix, err)
+	}
+	if len(rows) == 0 {
+		return errors.New(prefix + ": 请在下载客户端中启用 qBittorrent 并设为默认；当前没有已启用的下载器")
+	}
+
+	var enabled []string
+	var hasQBit bool
+	for _, row := range rows {
+		label := strings.TrimSpace(row.Name)
+		if label == "" {
+			label = row.Type
+		} else if row.Type != "" {
+			label += "(" + row.Type + ")"
+		}
+		enabled = append(enabled, label)
+		if strings.EqualFold(strings.TrimSpace(row.Type), "qbittorrent") {
+			hasQBit = true
+		}
+	}
+	if !hasQBit {
+		return fmt.Errorf("%s: 订阅投递目前需要 qBittorrent；当前启用的下载器为 %s", prefix, strings.Join(enabled, ", "))
+	}
+	return errors.New(prefix + ": 请在下载客户端中选择一个启用的 qBittorrent 作为默认下载器")
 }

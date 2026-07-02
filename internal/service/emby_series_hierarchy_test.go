@@ -2,7 +2,9 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"testing"
+	"time"
 
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 )
@@ -94,6 +96,63 @@ func TestEmbyItemsExposeSeriesSeasonEpisodeHierarchy(t *testing.T) {
 	}
 	if sources[0]["DirectStreamUrl"] != "/Videos/ep-1/stream.mkv" {
 		t.Fatalf("playback should use Emby-compatible stream URL: %#v", sources[0])
+	}
+}
+
+func TestEmbySeriesGroupingPaginatesAfterFullLibraryGrouping(t *testing.T) {
+	svc := newTestEmbyService(t)
+	lib := model.Library{Name: "国漫", Path: `/media/anime`, Type: "anime", Enabled: true}
+	if err := svc.repo.Library.Create(t.Context(), &lib); err != nil {
+		t.Fatalf("create library: %v", err)
+	}
+	now := time.Date(2026, 7, 2, 12, 0, 0, 0, time.UTC)
+	rows := make([]model.Media, 0, 25*40)
+	for series := 1; series <= 25; series++ {
+		for episode := 1; episode <= 40; episode++ {
+			created := now.Add(time.Duration(series*1000+episode) * time.Second)
+			rows = append(rows, model.Media{
+				Base:       model.Base{ID: fmt.Sprintf("show-%02d-ep-%02d", series, episode), CreatedAt: created, UpdatedAt: created},
+				LibraryID:  lib.ID,
+				Title:      fmt.Sprintf("测试番 %02d", series),
+				Path:       fmt.Sprintf(`/media/anime/测试番 %02d/Season 01/测试番 %02d.S01E%02d.mkv`, series, series, episode),
+				SeasonNum:  1,
+				EpisodeNum: episode,
+			})
+		}
+	}
+	if err := svc.repo.DB.CreateInBatches(rows, 200).Error; err != nil {
+		t.Fatalf("create media: %v", err)
+	}
+
+	root, err := svc.Items(t.Context(), ItemsParams{ParentID: lib.ID, Limit: 20})
+	if err != nil {
+		t.Fatalf("library items: %v", err)
+	}
+	if root["TotalRecordCount"] != 25 {
+		t.Fatalf("series total = %#v, want 25", root["TotalRecordCount"])
+	}
+	rootItems := root["Items"].([]map[string]any)
+	if len(rootItems) != 20 {
+		t.Fatalf("first page series len = %d, want 20", len(rootItems))
+	}
+	if rootItems[0]["RecursiveItemCount"] != 40 {
+		t.Fatalf("first series episode count = %#v, want 40", rootItems[0]["RecursiveItemCount"])
+	}
+
+	latest, err := svc.LatestItems(t.Context(), "user-1", lib.ID, 25)
+	if err != nil {
+		t.Fatalf("latest items: %v", err)
+	}
+	if len(latest) != 25 {
+		t.Fatalf("latest series len = %d, want 25", len(latest))
+	}
+
+	counts, err := svc.ItemCounts(t.Context(), "user-1")
+	if err != nil {
+		t.Fatalf("item counts: %v", err)
+	}
+	if counts["SeriesCount"] != 25 || counts["EpisodeCount"] != int64(1000) {
+		t.Fatalf("counts = %#v, want 25 series and 1000 episodes", counts)
 	}
 }
 

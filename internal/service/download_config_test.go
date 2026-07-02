@@ -3,6 +3,7 @@ package service
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 
@@ -176,6 +177,9 @@ func TestAddDownloadWithMetaFailsClosedWhenNoDownloaderConfigured(t *testing.T) 
 	if err == nil {
 		t.Fatal("expected no downloader configured error")
 	}
+	if !strings.Contains(err.Error(), "当前没有已启用的下载器") {
+		t.Fatalf("err = %v, want enabled downloader guidance", err)
+	}
 	if task != nil {
 		t.Fatalf("task = %#v, want nil", task)
 	}
@@ -299,5 +303,32 @@ func TestReloadConfigManagedModeDoesNotFallbackToLegacyWithoutRows(t *testing.T)
 	}
 	if got := atomic.LoadInt32(&addCalls); got != 0 {
 		t.Fatalf("qb add calls = %d, want 0", got)
+	}
+}
+
+func TestAddDownloadWithMetaExplainsUnsupportedEnabledDownloader(t *testing.T) {
+	db := newServiceTestDB(t, &model.DownloadClient{}, &model.DownloadTask{}, &model.Setting{})
+	repos := repository.New(db)
+	if err := repos.Setting.Set(t.Context(), settingDownloadClientsManaged, "true"); err != nil {
+		t.Fatal(err)
+	}
+	if err := repos.DownloadClient.Create(t.Context(), &model.DownloadClient{
+		Name:    "aria2",
+		Type:    "aria2",
+		Host:    "http://127.0.0.1:6800",
+		Enabled: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	svc := NewDownloadService(zap.NewNop(), repos, NewHub(zap.NewNop()), nil)
+	_, err := svc.AddDownloadWithMeta(t.Context(), "u1", "magnet:?xt=urn:btih:ffffffffffffffffffffffffffffffffffffffff&dn=Movie+2026+1080p", "/downloads", DownloadTaskMeta{
+		Title: "Movie 2026 1080p",
+	})
+	if err == nil {
+		t.Fatal("expected unsupported downloader error")
+	}
+	if !strings.Contains(err.Error(), "订阅投递目前需要 qBittorrent") {
+		t.Fatalf("err = %v, want qBittorrent guidance", err)
 	}
 }

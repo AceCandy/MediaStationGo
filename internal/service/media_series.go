@@ -31,6 +31,26 @@ func (s *MediaService) ListLibrarySeriesCards(ctx context.Context, libraryID str
 	return cards, int64(len(cards)), nil
 }
 
+func (s *MediaService) ListRecentSeriesCards(ctx context.Context, limit int, visibility MediaVisibility) ([]SeriesCard, error) {
+	if limit <= 0 {
+		limit = 24
+	} else if limit > 100 {
+		limit = 100
+	}
+	rows, err := s.SearchMediaVisible(ctx, "", maxMediaSearchLimit, visibility)
+	if err != nil {
+		return nil, err
+	}
+	cards := groupMediaSeriesCards(rows)
+	if len(cards) == 0 {
+		return []SeriesCard{}, nil
+	}
+	if len(cards) > limit {
+		cards = cards[:limit]
+	}
+	return cards, nil
+}
+
 func (s *MediaService) ListLibrarySeriesEpisodes(ctx context.Context, libraryID, key string, visibility MediaVisibility) ([]model.Media, error) {
 	rows, _, err := s.listAllMediaVisible(ctx, libraryID, visibility)
 	if err != nil {

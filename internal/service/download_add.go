@@ -55,7 +55,7 @@ func (d *DownloadService) AddDownloadWithMeta(ctx context.Context, userID, urlSt
 	}
 	_ = d.ReloadConfig(ctx)
 	if !d.qb.IsConfigured() {
-		return nil, errors.New("no default downloader configured")
+		return nil, d.defaultDownloaderNotConfiguredError(ctx)
 	}
 	if d.torrentExistsByIdentity(ctx, req) {
 		task, err := d.createTask(ctx, userID, urlStr, req.savePath, req.meta)

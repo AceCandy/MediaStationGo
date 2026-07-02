@@ -146,8 +146,11 @@ func TestEmbyDisplayPreferencesAllowsAnonymousCompatibility(t *testing.T) {
 	if !ok {
 		t.Fatalf("missing CustomPrefs: %#v", body)
 	}
-	if customPrefs["homesection0"] != "smalllibrarytiles" || customPrefs["homesection2"] != "latestmedia" {
-		t.Fatalf("homepage sections should expose library tiles and latest media: %#v", customPrefs)
+	if customPrefs["homesection0"] != "smalllibrarytiles" || customPrefs["homesection2"] != "none" || customPrefs["latestItems"] != "false" {
+		t.Fatalf("homepage sections should expose library tiles without duplicate latest rails: %#v", customPrefs)
+	}
+	if body["ScrollDirection"] != "Vertical" {
+		t.Fatalf("homepage should prefer vertical library browsing, got %#v", body)
 	}
 
 	req = httptest.NewRequest(http.MethodPost, "/emby/displaypreferences/usersettings", strings.NewReader(`{}`))

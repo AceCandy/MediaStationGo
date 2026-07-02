@@ -230,15 +230,8 @@ func (e *EmbyService) seriesItemsForLibrary(ctx context.Context, libraryID strin
 		}
 		q = q.Joins("JOIN favorites ON favorites.media_id = media.id AND favorites.user_id = ? AND favorites.deleted_at IS NULL", p.UserID)
 	}
-	rowLimit := p.StartIndex + maxInt(p.Limit*40, 1000)
-	if rowLimit < p.Limit {
-		rowLimit = p.Limit
-	}
-	if rowLimit > embySeriesGroupingLimit {
-		rowLimit = embySeriesGroupingLimit
-	}
 	var rows []model.Media
-	if err := q.Order("media.created_at desc").Limit(rowLimit).Find(&rows).Error; err != nil {
+	if err := q.Order("media.created_at desc").Limit(embySeriesGroupingLimit).Find(&rows).Error; err != nil {
 		return nil, err
 	}
 	groups := e.seriesGroupsFromMedia(rows)
