@@ -25,15 +25,18 @@ type GenerateSTRMOptions struct {
 }
 
 type GenerateSTRMResult struct {
-	LibraryID string             `json:"library_id"`
-	OutputDir string             `json:"output_dir"`
-	Generated int                `json:"generated"`
-	Updated   int                `json:"updated"`
-	Skipped   int                `json:"skipped"`
-	Cleaned   int                `json:"cleaned"`
-	Previewed int                `json:"previewed,omitempty"`
-	Errors    []string           `json:"errors,omitempty"`
-	Items     []GenerateSTRMItem `json:"items,omitempty"`
+	LibraryID    string             `json:"library_id"`
+	OutputDir    string             `json:"output_dir"`
+	Generated    int                `json:"generated"`
+	Updated      int                `json:"updated"`
+	Skipped      int                `json:"skipped"`
+	Cleaned      int                `json:"cleaned"`
+	Total        int                `json:"total,omitempty"`
+	Remaining    int                `json:"remaining,omitempty"`
+	BatchLimited bool               `json:"batch_limited,omitempty"`
+	Previewed    int                `json:"previewed,omitempty"`
+	Errors       []string           `json:"errors,omitempty"`
+	Items        []GenerateSTRMItem `json:"items,omitempty"`
 }
 
 type GenerateSTRMItem struct {

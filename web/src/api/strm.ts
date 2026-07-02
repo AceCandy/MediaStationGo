@@ -17,6 +17,9 @@ export type GenerateSTRMResult = {
   updated: number
   skipped: number
   cleaned: number
+  total?: number
+  remaining?: number
+  batch_limited?: boolean
   previewed?: number
   errors?: string[]
   items?: Array<{

@@ -44,8 +44,10 @@ func (s *STRMService) GenerateFromTree(ctx context.Context, opts GenerateSTRMTre
 		}
 	}
 	result := &GenerateSTRMResult{LibraryID: provider, OutputDir: outputDir}
+	sources := collectSTRMTreeSources(opts)
+	result.Total = len(sources)
 	expectedFiles := make(map[string]struct{})
-	for _, source := range collectSTRMTreeSources(opts) {
+	for i, source := range sources {
 		select {
 		case <-ctx.Done():
 			return result, ctx.Err()
@@ -57,6 +59,8 @@ func (s *STRMService) GenerateFromTree(ctx context.Context, opts GenerateSTRMTre
 		}
 		result.addItem(item)
 		if strmTreeBatchLimitReached(result, opts.BatchLimit) {
+			result.Remaining = len(sources) - i - 1
+			result.BatchLimited = result.Remaining > 0
 			break
 		}
 	}

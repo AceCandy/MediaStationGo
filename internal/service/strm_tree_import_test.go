@@ -155,6 +155,9 @@ func TestGenerateSTRMFromTreeBatchLimitContinuesAfterExistingFiles(t *testing.T)
 	if first.Generated != 2 || first.Skipped != 0 {
 		t.Fatalf("first batch = %#v, want two generated", first)
 	}
+	if first.Total != 3 || first.Remaining != 1 || !first.BatchLimited {
+		t.Fatalf("first batch progress = total %d remaining %d limited %v, want 3/1/true", first.Total, first.Remaining, first.BatchLimited)
+	}
 	if _, err := os.Stat(filepath.Join(outDir, "Movies", "C.strm")); !os.IsNotExist(err) {
 		t.Fatalf("first batch should not write third item, stat err=%v", err)
 	}
@@ -165,6 +168,9 @@ func TestGenerateSTRMFromTreeBatchLimitContinuesAfterExistingFiles(t *testing.T)
 	}
 	if second.Generated != 1 || second.Skipped != 2 {
 		t.Fatalf("second batch = %#v, want two existing skips then next generated", second)
+	}
+	if second.Total != 3 || second.Remaining != 0 || second.BatchLimited {
+		t.Fatalf("second batch progress = total %d remaining %d limited %v, want 3/0/false", second.Total, second.Remaining, second.BatchLimited)
 	}
 	if got := readSTRM(t, filepath.Join(outDir, "Movies", "C.strm")); !strings.Contains(got, "C.mkv") {
 		t.Fatalf("second batch C.strm = %q, want generated third item", got)
