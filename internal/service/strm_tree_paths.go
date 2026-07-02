@@ -1,10 +1,12 @@
 package service
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"path"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -30,6 +32,70 @@ func strmTreeCloudRef(source, sourceRoot string) string {
 
 func strmTreeOutputRelativePath(source string) (string, error) {
 	return strmTreeOutputRelativePathWithLinkExtension(source, videoExtensions, ".strm", false)
+}
+
+func (s *STRMService) strmTreeRecognizedOutputRelativePath(ctx context.Context, source, sourceRoot string) (string, error) {
+	source = normalizeSTRMTreeSource(source)
+	season, episode := ParseEpisode(source)
+	title, year := s.strmTreeCleanQuery(ctx, source)
+	if season > 0 || episode > 0 {
+		show := s.strmTreeRecognizedSeriesTitle(ctx, source, sourceRoot, title)
+		if show == "" {
+			return "", errors.New("empty recognized series title")
+		}
+		if season <= 0 {
+			season = 1
+		}
+		if episode <= 0 {
+			return "", errors.New("missing recognized episode number")
+		}
+		name := fmt.Sprintf("%s S%02dE%02d.strm", show, season, episode)
+		return filepath.Join(sanitizeFilename(show), fmt.Sprintf("Season %02d", season), sanitizeFilename(name)), nil
+	}
+	if title == "" {
+		return "", errors.New("empty recognized movie title")
+	}
+	movie := sanitizeFilename(titleCaseWords(title))
+	if movie == "" {
+		return "", errors.New("empty recognized movie filename")
+	}
+	folder := movie
+	if year > 0 && !strings.Contains(folder, strconv.Itoa(year)) {
+		folder = fmt.Sprintf("%s (%d)", movie, year)
+	}
+	return filepath.Join(sanitizeFilename(folder), sanitizeFilename(folder)+".strm"), nil
+}
+
+func (s *STRMService) strmTreeRecognizedSeriesTitle(ctx context.Context, source, sourceRoot, fallback string) string {
+	rel := strmTreeRelativeSource(source, sourceRoot)
+	parts := strings.Split(strings.Trim(strings.ReplaceAll(rel, "\\", "/"), "/"), "/")
+	if len(parts) >= 2 {
+		dir := parts[len(parts)-2]
+		if strings.TrimSpace(dir) != "" && !seriesSeasonDirRE.MatchString(dir) {
+			if title, _ := s.strmTreeCleanQuery(ctx, dir); title != "" {
+				return sanitizeFilename(titleCaseWords(title))
+			}
+			return sanitizeFilename(strings.TrimSpace(dir))
+		}
+	}
+	if len(parts) >= 3 {
+		dir := parts[len(parts)-3]
+		if title, _ := s.strmTreeCleanQuery(ctx, dir); title != "" {
+			return sanitizeFilename(titleCaseWords(title))
+		}
+		return sanitizeFilename(strings.TrimSpace(dir))
+	}
+	if fallback != "" {
+		return sanitizeFilename(titleCaseWords(fallback))
+	}
+	return ""
+}
+
+func (s *STRMService) strmTreeCleanQuery(ctx context.Context, raw string) (string, int) {
+	if s == nil {
+		return CleanQuery(raw)
+	}
+	return CleanQueryWithRecognition(ctx, s.repo, raw)
 }
 
 func strmTreeOutputSubtitleLinkRelativePath(source string) (string, error) {

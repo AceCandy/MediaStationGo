@@ -21,6 +21,7 @@ type GenerateSTRMTreeOptions struct {
 	Cleanup           bool     `json:"cleanup"`
 	DryRun            bool     `json:"dry_run"`
 	BatchLimit        int      `json:"batch_limit,omitempty"`
+	RecognizeRename   bool     `json:"recognize_rename,omitempty"`
 	TransferSubtitles bool     `json:"transfer_subtitles,omitempty"`
 	MissingOnly       bool     `json:"missing_only,omitempty"`
 }
@@ -85,7 +86,7 @@ func (s *STRMService) GenerateFromTree(ctx context.Context, opts GenerateSTRMTre
 			return result, ctx.Err()
 		default:
 		}
-		item := generateTreeSTRMItem(outputDir, source, opts, existingRefs)
+		item := s.generateTreeSTRMItem(ctx, outputDir, source, opts, existingRefs)
 		if item.FilePath != "" && item.Action != "error" {
 			expectedFiles[filepath.Clean(item.FilePath)] = struct{}{}
 		}
@@ -117,9 +118,15 @@ func strmTreeBatchLimitReached(result *GenerateSTRMResult, limit int) bool {
 	return result.Generated+result.Updated+result.Previewed >= limit
 }
 
-func generateTreeSTRMItem(outputDir string, source strmTreeSource, opts GenerateSTRMTreeOptions, existingRefs map[string]struct{}) GenerateSTRMItem {
+func (s *STRMService) generateTreeSTRMItem(ctx context.Context, outputDir string, source strmTreeSource, opts GenerateSTRMTreeOptions, existingRefs map[string]struct{}) GenerateSTRMItem {
 	relSource := strmTreeRelativeSource(source.Path, opts.SourceRoot)
 	relPath, err := strmTreeOutputRelativePath(relSource)
+	if opts.RecognizeRename && source.Kind != strmTreeSourceKindSubtitle {
+		if renamed, renameErr := s.strmTreeRecognizedOutputRelativePath(ctx, source.Path, opts.SourceRoot); renameErr == nil && renamed != "" {
+			relPath = renamed
+			err = nil
+		}
+	}
 	if source.Kind == strmTreeSourceKindSubtitle {
 		relPath, err = strmTreeOutputSubtitleLinkRelativePath(relSource)
 	}

@@ -46,6 +46,7 @@ export function StrmTreeGenerateSection({
   overwrite,
   pathsText,
   provider,
+  recognizeRename,
   refreshLibrary,
   result,
   runningMode,
@@ -59,6 +60,7 @@ export function StrmTreeGenerateSection({
   setOverwrite,
   setPathsText,
   setProvider,
+  setRecognizeRename,
   setRefreshLibrary,
   setScrapeAfter,
   setSourceRoot,
@@ -192,6 +194,10 @@ export function StrmTreeGenerateSection({
         <label className="flex min-h-10 items-center gap-2 rounded-2xl border border-gray-200 bg-white/70 px-3 py-2 text-sm text-ink-50 md:col-span-4">
           <input type="checkbox" checked={overwrite} onChange={(e) => setOverwrite(e.target.checked)} />
           覆盖已存在
+        </label>
+        <label className="flex min-h-10 items-center gap-2 rounded-2xl border border-gray-200 bg-white/70 px-3 py-2 text-sm text-ink-50 md:col-span-4">
+          <input type="checkbox" checked={recognizeRename} onChange={(e) => setRecognizeRename(e.target.checked)} />
+          识别重命名
         </label>
         <label className="flex min-h-10 items-center gap-2 rounded-2xl border border-gray-200 bg-white/70 px-3 py-2 text-sm text-ink-50 md:col-span-4">
           <input type="checkbox" checked={transferSubtitles} onChange={(e) => setTransferSubtitles(e.target.checked)} />

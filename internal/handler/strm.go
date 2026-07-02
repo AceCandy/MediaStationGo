@@ -123,6 +123,7 @@ type generateSTRMTreeReq struct {
 	Cleanup           bool     `json:"cleanup"`
 	DryRun            bool     `json:"dry_run"`
 	BatchLimit        int      `json:"batch_limit"`
+	RecognizeRename   bool     `json:"recognize_rename"`
 	TransferSubtitles bool     `json:"transfer_subtitles"`
 	MissingOnly       bool     `json:"missing_only"`
 	RefreshLibrary    bool     `json:"refresh_library"`
@@ -226,6 +227,7 @@ func generateSTRMFromTreeHandler(svc *service.Container) gin.HandlerFunc {
 			Cleanup:           req.Cleanup,
 			DryRun:            req.DryRun,
 			BatchLimit:        req.BatchLimit,
+			RecognizeRename:   req.RecognizeRename,
 			TransferSubtitles: req.TransferSubtitles,
 			MissingOnly:       req.MissingOnly,
 		})

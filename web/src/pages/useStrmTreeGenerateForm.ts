@@ -17,6 +17,7 @@ export function useStrmTreeGenerateForm() {
   const [pathsText, setPathsText] = useState('')
   const [overwrite, setOverwrite] = useState(false)
   const [cleanup, setCleanup] = useState(false)
+  const [recognizeRename, setRecognizeRename] = useState(false)
   const [transferSubtitles, setTransferSubtitles] = useState(true)
   const [missingOnly, setMissingOnly] = useState(false)
   const [refreshLibrary, setRefreshLibrary] = useState(true)
@@ -73,6 +74,7 @@ export function useStrmTreeGenerateForm() {
         cleanup: parsedBatchLimit > 0 ? false : cleanup,
         dry_run: dryRun,
         batch_limit: parsedBatchLimit || undefined,
+        recognize_rename: recognizeRename,
         transfer_subtitles: transferSubtitles,
         missing_only: missingOnly,
         refresh_library: refreshLibrary,
@@ -121,6 +123,7 @@ export function useStrmTreeGenerateForm() {
     provider,
     result,
     runningMode,
+    recognizeRename,
     refreshLibrary,
     scrapeAfter,
     setBaseURL,
@@ -132,6 +135,7 @@ export function useStrmTreeGenerateForm() {
     setOverwrite,
     setPathsText,
     setProvider,
+    setRecognizeRename,
     setRefreshLibrary: setRefreshLibraryEnabled,
     setScrapeAfter,
     setSourceRoot,

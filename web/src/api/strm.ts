@@ -49,6 +49,7 @@ export type GenerateSTRMTreeInput = {
   cleanup?: boolean
   dry_run?: boolean
   batch_limit?: number
+  recognize_rename?: boolean
   transfer_subtitles?: boolean
   missing_only?: boolean
   refresh_library?: boolean

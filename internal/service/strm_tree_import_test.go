@@ -44,6 +44,36 @@ func TestGenerateSTRMFromTreePaths(t *testing.T) {
 	}
 }
 
+func TestGenerateSTRMFromTreeRecognizeRenameOutputPaths(t *testing.T) {
+	outDir := filepath.Join(t.TempDir(), "strm")
+	svc := NewSTRMService(zap.NewNop(), nil, nil)
+
+	res, err := svc.GenerateFromTree(t.Context(), GenerateSTRMTreeOptions{
+		Provider:        "openlist",
+		Paths:           []string{"/电视剧/国产剧/南部档案/Season 01/Archives.The.Nanyang.Mystery.S01E02.2160p.WEB-DL.mkv", "/电影/Dune.Part.Two.2024.2160p.WEB-DL.mkv"},
+		SourceRoot:      "/电视剧",
+		OutputDir:       outDir,
+		RecognizeRename: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Generated != 2 || len(res.Errors) != 0 {
+		t.Fatalf("result = %#v, want two generated renamed STRM files", res)
+	}
+	episode := readSTRM(t, filepath.Join(outDir, "南部档案", "Season 01", "南部档案 S01E02.strm"))
+	if !strings.Contains(episode, "ref=%2F%E7%94%B5%E8%A7%86%E5%89%A7%2F%E5%9B%BD%E4%BA%A7%E5%89%A7%2F%E5%8D%97%E9%83%A8%E6%A1%A3%E6%A1%88%2FSeason+01%2FArchives.The.Nanyang.Mystery.S01E02.2160p.WEB-DL.mkv") {
+		t.Fatalf("episode strm URL = %q, want original cloud ref preserved", episode)
+	}
+	movie := readSTRM(t, filepath.Join(outDir, "Dune Part Two (2024)", "Dune Part Two (2024).strm"))
+	if !strings.Contains(movie, "ref=%2F%E7%94%B5%E5%BD%B1%2FDune.Part.Two.2024.2160p.WEB-DL.mkv") {
+		t.Fatalf("movie strm URL = %q, want original cloud ref preserved", movie)
+	}
+	if _, err := os.Stat(filepath.Join(outDir, "国产剧", "南部档案", "Season 01", "Archives.The.Nanyang.Mystery.S01E02.2160p.WEB-DL.strm")); !os.IsNotExist(err) {
+		t.Fatalf("recognize rename should not leave original episode output path, stat err=%v", err)
+	}
+}
+
 func TestGenerateSTRMFromTreeSupportsCommonVideoExtensions(t *testing.T) {
 	outDir := filepath.Join(t.TempDir(), "strm")
 	svc := NewSTRMService(zap.NewNop(), nil, nil)
