@@ -2,6 +2,7 @@ import { StrmAttachSection } from './StrmAttachSection'
 import { StrmGenerateSection } from './StrmGenerateSection'
 import { StrmImportSection } from './StrmImportSection'
 import { StrmPageHeader } from './StrmPageHeader'
+import { StrmRepairSection } from './StrmRepairSection'
 import { StrmTreeGenerateSection } from './StrmTreeGenerateSection'
 import { useStrmPage } from './useStrmPage'
 
@@ -49,6 +50,8 @@ export function StrmPage() {
       />
 
       <StrmTreeGenerateSection {...strm.treeGenerate} />
+
+      <StrmRepairSection {...strm.repair} />
 
       <StrmImportSection
         libraries={strm.libraries}

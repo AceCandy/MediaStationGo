@@ -55,6 +55,7 @@ func registerAuthedSTRMRoutes(authed *gin.RouterGroup, svc *service.Container) {
 	authed.POST("/strm/import", middleware.AdminRequired(), importSTRMHandler(svc))
 	authed.POST("/strm/generate", middleware.AdminRequired(), generateSTRMHandler(svc))
 	authed.POST("/strm/generate-from-tree", middleware.AdminRequired(), generateSTRMFromTreeHandler(svc))
+	authed.POST("/strm/repair", middleware.AdminRequired(), repairSTRMHandler(svc))
 }
 
 func registerAuthedDuplicateRoutes(authed *gin.RouterGroup, svc *service.Container) {

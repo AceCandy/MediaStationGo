@@ -49,6 +49,27 @@ export type GenerateSTRMTreeInput = {
   transfer_subtitles?: boolean
 }
 
+export type RepairSTRMInput = {
+  output_dir: string
+  base_url?: string
+  dry_run?: boolean
+}
+
+export type RepairSTRMResult = {
+  output_dir: string
+  repaired: number
+  previewed?: number
+  skipped: number
+  errors?: string[]
+  items?: Array<{
+    file_path: string
+    before?: string
+    after?: string
+    action: string
+    reason?: string
+  }>
+}
+
 export const strmAPI = {
   set: (mediaID: string, url: string) =>
     api.put(`/media/${mediaID}/strm`, { url }).then((r) => r.data),
@@ -62,5 +83,9 @@ export const strmAPI = {
   generateFromTree: (input: GenerateSTRMTreeInput) =>
     api
       .post<GenerateSTRMResult>('/strm/generate-from-tree', input, { timeout: BATCH_REQUEST_TIMEOUT })
+      .then((r) => r.data),
+  repair: (input: RepairSTRMInput) =>
+    api
+      .post<RepairSTRMResult>('/strm/repair', input, { timeout: BATCH_REQUEST_TIMEOUT })
       .then((r) => r.data),
 }

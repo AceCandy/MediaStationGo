@@ -5,12 +5,14 @@ import type { Library } from '../types'
 import { useStrmAttachForm } from './useStrmAttachForm'
 import { useStrmGenerateForm } from './useStrmGenerateForm'
 import { useStrmImportForm } from './useStrmImportForm'
+import { useStrmRepairForm } from './useStrmRepairForm'
 import { useStrmTreeGenerateForm } from './useStrmTreeGenerateForm'
 
 export function useStrmPage() {
   const [libraries, setLibraries] = useState<Library[]>([])
   const generate = useStrmGenerateForm(libraries)
   const treeGenerate = useStrmTreeGenerateForm()
+  const repair = useStrmRepairForm()
   const importForm = useStrmImportForm(libraries)
   const attach = useStrmAttachForm()
 
@@ -23,6 +25,7 @@ export function useStrmPage() {
     generate,
     importForm,
     libraries,
+    repair,
     treeGenerate,
   }
 }

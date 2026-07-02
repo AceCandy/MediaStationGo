@@ -123,6 +123,12 @@ type generateSTRMTreeReq struct {
 	TransferSubtitles bool     `json:"transfer_subtitles"`
 }
 
+type repairSTRMReq struct {
+	OutputDir string `json:"output_dir" binding:"required"`
+	BaseURL   string `json:"base_url"`
+	DryRun    bool   `json:"dry_run"`
+}
+
 func generateSTRMHandler(svc *service.Container) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req generateSTRMReq
@@ -195,6 +201,34 @@ func generateSTRMFromTreeHandler(svc *service.Container) gin.HandlerFunc {
 			DryRun:            req.DryRun,
 			BatchLimit:        req.BatchLimit,
 			TransferSubtitles: req.TransferSubtitles,
+		})
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, res)
+	}
+}
+
+func repairSTRMHandler(svc *service.Container) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req repairSTRMReq
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		strmSvc := svc.STRM
+		if strmSvc == nil {
+			strmSvc = service.NewSTRMService(svc.Log, svc.Repo, svc.Cfg)
+		}
+		baseURL := strings.TrimRight(strings.TrimSpace(req.BaseURL), "/")
+		if baseURL == "" {
+			baseURL = strings.TrimRight(absoluteRequestURL(c, "/"), "/")
+		}
+		res, err := strmSvc.RepairFiles(c.Request.Context(), service.RepairSTRMOptions{
+			OutputDir: req.OutputDir,
+			BaseURL:   baseURL,
+			DryRun:    req.DryRun,
 		})
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
