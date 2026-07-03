@@ -68,9 +68,6 @@ func (s *TelegramBotService) redeemRegisterFlow(ctx context.Context, channel *mo
 		if errors.Is(err, errRegistrationCodeExpired) {
 			return telegramCommandReply{Text: "兑换码已过期。"}
 		}
-		if errors.Is(err, ErrUserLimitReached) {
-			return telegramCommandReply{Text: "注册失败：用户数量已达授权上限。"}
-		}
 		return telegramCommandReply{Text: "注册失败：" + err.Error()}
 	}
 	if claimedCode == nil {
@@ -102,13 +99,6 @@ func (s *TelegramBotService) createUserFromRegistrationCode(ctx context.Context,
 		}
 		if claimed.IsExpired() {
 			return errRegistrationCodeExpired
-		}
-		var count int64
-		if err := tx.Model(&model.User{}).Count(&count).Error; err != nil {
-			return err
-		}
-		if count >= LicensedMaxUsers(ctx, s.repo) {
-			return ErrUserLimitReached
 		}
 		hash, err := hashPassword(password)
 		if err != nil {

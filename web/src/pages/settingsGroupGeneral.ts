@@ -106,30 +106,3 @@ export const generalSettingsGroup: SettingGroup = {
     },
   ],
 }
-
-export const licenseSettingsGroup: SettingGroup = {
-  key: 'license',
-  label: '授权服务',
-  description: '连接私有 MediaStationGo 授权服务；开源版默认最多 20 个用户，激活后按授权策略提升额度。',
-  items: [
-    {
-      key: 'license.server_url',
-      label: 'License Server 地址',
-      type: 'text',
-      placeholder: 'https://mgosever.3jzs.com',
-    },
-    {
-      key: 'license.public_key',
-      label: 'Ed25519 验签公钥',
-      type: 'text',
-      hint: '优先使用。客户端只保存公钥，无法伪造授权服务响应；自建 MgoSever 时填写私钥对应的公钥。',
-      placeholder: 'MCowBQYDK2VwAyEA...',
-    },
-    {
-      key: 'license.hmac_secret',
-      label: 'HMAC 签名密钥（旧版兼容）',
-      type: 'text',
-      hint: '仅兼容旧版授权服务。新版本应使用 Ed25519 公钥，避免把共享密钥编译进客户端。',
-    },
-  ],
-}

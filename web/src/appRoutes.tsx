@@ -56,7 +56,6 @@ const DownloadClientsPage = lazy(() =>
 const StorageConfigPage = lazy(() =>
   import('./pages/StorageConfigPage').then((m) => ({ default: m.StorageConfigPage })),
 )
-const LicensePage = lazy(() => import('./pages/LicensePage').then((m) => ({ default: m.LicensePage })))
 
 export type AppRoute = {
   path?: string
@@ -99,7 +98,6 @@ export const appRoutes: AppRoute[] = [
   { path: 'settings', element: <SettingsPage />, adminOnly: true },
   { path: 'assistant', element: <AssistantChatPage />, adminOnly: true },
   { path: 'download-clients', element: <DownloadClientsPage />, adminOnly: true },
-  { path: 'license', element: <LicensePage />, adminOnly: true },
   { path: 'storage-config', element: <StorageConfigPage />, adminOnly: true },
   { path: 'stats', element: <StatsPage />, adminOnly: true },
   { path: 'admin', element: <AdminPage />, adminOnly: true },

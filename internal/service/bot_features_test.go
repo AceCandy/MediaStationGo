@@ -58,9 +58,9 @@ func TestCapacityRemaining(t *testing.T) {
 		c    capacityInfo
 		want int64
 	}{
-		{"license only", capacityInfo{UsedUsers: 5, MaxUsers: 20}, 15},
+		{"capacity only", capacityInfo{UsedUsers: 5, MaxUsers: 20}, 15},
 		{"quota tighter", capacityInfo{UsedUsers: 5, MaxUsers: 100, OpenRegLimit: 10, OpenRegUsed: 3}, 7},
-		{"license tighter", capacityInfo{UsedUsers: 95, MaxUsers: 100, OpenRegLimit: 50, OpenRegUsed: 0}, 5},
+		{"capacity tighter", capacityInfo{UsedUsers: 95, MaxUsers: 100, OpenRegLimit: 50, OpenRegUsed: 0}, 5},
 		{"full", capacityInfo{UsedUsers: 20, MaxUsers: 20}, 0},
 		{"quota exhausted", capacityInfo{UsedUsers: 1, MaxUsers: 100, OpenRegLimit: 5, OpenRegUsed: 5}, 0},
 	}

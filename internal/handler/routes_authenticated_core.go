@@ -7,17 +7,13 @@ import (
 	"github.com/ShukeBta/MediaStationGo/internal/service"
 )
 
-func registerAuthedUserAndLicenseRoutes(authed *gin.RouterGroup, svc *service.Container) {
+func registerAuthedUserRoutes(authed *gin.RouterGroup, svc *service.Container) {
 	authed.GET("/me", meHandler(svc))
 	authed.PATCH("/me", updateProfileHandler(svc))
 	authed.POST("/me/password", changePasswordHandler(svc))
 	authed.POST("/me/logout", logoutHandler(svc))
 
 	authed.GET("/auth/permissions", getMyPermissionsHandler(svc))
-
-	authed.GET("/license/status", middleware.AdminRequired(), licenseStatusHandler(svc))
-	authed.POST("/license/activate", middleware.AdminRequired(), licenseActivateHandler(svc))
-	authed.POST("/license/heartbeat", middleware.AdminRequired(), licenseHeartbeatHandler(svc))
 }
 
 func registerAuthedLibraryRoutes(authed *gin.RouterGroup, svc *service.Container) {

@@ -94,9 +94,9 @@ func (s *TelegramBotService) cmdRegister(ctx context.Context, channel *model.Not
 	if !s.openRegEnabled(ctx) {
 		return telegramCommandReply{Text: "注册功能未开放，请联系管理员开启后再试。"}
 	}
-	// 开注名额已用尽则拦截（容量随凭证授权实时变化，名额单独计数）。
+	// 开注名额已用尽则拦截，名额只由管理员配置控制。
 	if c := s.loadCapacity(ctx); c.Remaining() <= 0 {
-		return telegramCommandReply{Text: "注册名额已满，请等待管理员重新开放或扩容授权。"}
+		return telegramCommandReply{Text: "注册名额已满，请等待管理员重新开放或调整名额。"}
 	}
 	if s.auth == nil {
 		return telegramCommandReply{Text: "注册功能暂不可用，请联系管理员。"}
@@ -121,8 +121,6 @@ func (s *TelegramBotService) cmdRegister(ctx context.Context, channel *model.Not
 		switch {
 		case errors.Is(err, ErrUsernameTaken):
 			return telegramCommandReply{Text: "该用户名已被占用，请换一个；如果是你本人的账号，请改用 <code>/start 用户名 密码</code> 绑定。"}
-		case errors.Is(err, ErrUserLimitReached):
-			return telegramCommandReply{Text: "注册失败：已达到用户数量上限，请联系管理员。"}
 		default:
 			return telegramCommandReply{Text: "注册失败：" + err.Error()}
 		}
@@ -151,10 +149,14 @@ func (s *TelegramBotService) cmdRegistrationToggle(ctx context.Context, args []s
 			if c.OpenRegLimit > 0 {
 				state = fmt.Sprintf("已开启（%d/%d 名额）", c.OpenRegUsed, c.OpenRegLimit)
 			} else {
-				state = "已开启（不限名额，受授权上限约束）"
+				state = "已开启（不限名额）"
 			}
 		}
-		return telegramCommandReply{Text: fmt.Sprintf("普通用户 Bot 注册功能当前<b>%s</b>。\n剩余可注册：<b>%d</b> 人。\n\n开启：<code>/registration on 10</code>\n不限：<code>/registration on 0</code>\n关闭：<code>/registration off</code>", state, c.Remaining())}
+		remainingLabel := "不限"
+		if c.OpenRegLimit > 0 {
+			remainingLabel = fmt.Sprintf("%d", c.Remaining())
+		}
+		return telegramCommandReply{Text: fmt.Sprintf("普通用户 Bot 注册功能当前<b>%s</b>。\n剩余可注册：<b>%s</b> 人。\n\n开启：<code>/registration on 10</code>\n不限：<code>/registration on 0</code>\n关闭：<code>/registration off</code>", state, remainingLabel)}
 	}
 	switch strings.ToLower(strings.TrimSpace(args[0])) {
 	case "on", "true", "1", "open", "enable", "enabled", "开启", "打开", "开":

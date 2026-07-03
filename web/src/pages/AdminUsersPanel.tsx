@@ -2,7 +2,6 @@ import { FormEvent, useEffect, useState } from 'react'
 import toast from 'react-hot-toast'
 
 import { adminAPI } from '../api/admin'
-import { licenseAPI, type LicenseStatus } from '../api/license'
 import type { User } from '../types'
 import { confirmAction } from '../components/confirmAction'
 import { requestPassword } from '../components/requestPassword'
@@ -11,32 +10,19 @@ import { AdminUsersTable } from './AdminUsersTable'
 
 export function AdminUsersPanel() {
   const [users, setUsers] = useState<User[]>([])
-  const [licenseStatus, setLicenseStatus] = useState<LicenseStatus | null>(null)
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [editingID, setEditingID] = useState<string | null>(null)
   const [editingUsername, setEditingUsername] = useState('')
   const [resettingPasswordID, setResettingPasswordID] = useState<string | null>(null)
   const refresh = async () => {
-    const [nextUsers, nextLicense] = await Promise.all([
-      adminAPI.listUsers(),
-      licenseAPI.status().catch(() => null),
-    ])
-    setUsers(nextUsers)
-    setLicenseStatus(nextLicense)
+    setUsers(await adminAPI.listUsers())
   }
   useEffect(() => {
     refresh().catch(() => undefined)
     const timer = window.setInterval(() => refresh().catch(() => undefined), 10000)
     return () => window.clearInterval(timer)
   }, [])
-
-  const unlimitedUsers =
-    licenseStatus?.active === true &&
-    (licenseStatus.unlimited_users === true || licenseStatus.max_users == null)
-  const maxUsers = unlimitedUsers ? null : (licenseStatus?.max_users ?? 20)
-  const userLimitReached = maxUsers != null && users.length >= maxUsers
-  const userLimitLabel = unlimitedUsers ? '不限制' : String(maxUsers)
 
   const handleCreate = async (e: FormEvent) => {
     e.preventDefault()
@@ -139,10 +125,8 @@ export function AdminUsersPanel() {
     <div className="space-y-6">
       <AdminUsersForm
         usersCount={users.length}
-        userLimitLabel={userLimitLabel}
         username={username}
         password={password}
-        userLimitReached={userLimitReached}
         onUsernameChange={setUsername}
         onPasswordChange={setPassword}
         onSubmit={handleCreate}
@@ -166,10 +150,7 @@ export function AdminUsersPanel() {
 }
 
 function userCreateErrorMessage(err: unknown): string | undefined {
-  const data = (err as { response?: { data?: { error?: string; max_users?: number } } })?.response?.data
+  const data = (err as { response?: { data?: { error?: string } } })?.response?.data
   if (!data?.error) return undefined
-  if (data.error === 'user limit reached' && data.max_users != null) {
-    return `用户数量已达到授权上限：${data.max_users} 人`
-  }
   return data.error
 }

@@ -123,15 +123,6 @@ func schemaHandler(_ *service.Container) gin.HandlerFunc {
 					},
 				},
 				{
-					"key":   "license",
-					"label": "授权服务",
-					"items": []gin.H{
-						{"key": "license.server_url", "type": "text", "label": "License Server 地址"},
-						{"key": "license.public_key", "type": "text", "label": "Ed25519 验签公钥"},
-						{"key": "license.hmac_secret", "type": "text", "label": "HMAC 签名密钥（旧版兼容）"},
-					},
-				},
-				{
 					"key":   "system-update",
 					"label": "系统更新",
 					"items": []gin.H{

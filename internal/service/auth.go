@@ -36,13 +36,8 @@ var (
 	ErrInvalidCredentials = errors.New("invalid username or password")
 	ErrUsernameTaken      = errors.New("username already taken")
 	ErrUserInactive       = errors.New("user account is inactive")
-	ErrUserLimitReached   = errors.New("user limit reached")
 	ErrUserExpired        = errors.New("user account has expired")
 )
-
-// MaxUsers is kept for compatibility with tests and callers; dynamic runtime
-// checks use LicensedMaxUsers so official licensed builds can raise the quota.
-const MaxUsers = OpenSourceUserLimit
 
 // SeedAdmin makes sure at least one admin user exists. It mirrors the
 // legacy default behaviour: if no admin row is found we create
@@ -97,11 +92,6 @@ func (s *AuthService) Register(ctx context.Context, username, password string) (
 	}
 	if err := s.repo.User.ReleaseDeletedUsername(ctx, username); err != nil {
 		return nil, nil, err
-	}
-	if n, err := s.repo.User.Count(ctx); err != nil {
-		return nil, nil, err
-	} else if n >= LicensedMaxUsers(ctx, s.repo) {
-		return nil, nil, ErrUserLimitReached
 	}
 	hash, err := hashPassword(password)
 	if err != nil {

@@ -9,7 +9,6 @@ import {
   Heart,
   Home,
   Image,
-  KeySquare,
   Library,
   ListMusic,
   Rss,
@@ -92,12 +91,11 @@ export const LAYOUT_NAV_GROUPS: LayoutNavGroup[] = [
     id: 'system',
     label: '系统配置',
     icon: Settings,
-    activePaths: ['/admin', '/sites', '/notify-channels', '/license', '/settings', '/assistant'],
+    activePaths: ['/admin', '/sites', '/notify-channels', '/settings', '/assistant'],
     adminOnly: true,
     items: [
       { to: '/admin', label: '媒体与用户', icon: Settings },
       { to: '/settings', label: '系统设置', icon: Sliders },
-      { to: '/license', label: '授权许可', icon: KeySquare },
     ],
   },
 ]

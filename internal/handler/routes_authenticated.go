@@ -14,7 +14,7 @@ func registerAuthenticatedRoutes(api *gin.RouterGroup, cfg *config.Config, svc *
 	authed.Use(middleware.AuthRequired(cfg.Secrets.JWTSecret))
 	authed.Use(activeUserRequired(svc))
 
-	registerAuthedUserAndLicenseRoutes(authed, svc)
+	registerAuthedUserRoutes(authed, svc)
 	registerAuthedLibraryRoutes(authed, svc)
 	registerAuthedMediaRoutes(authed, svc)
 	registerAuthedPlaybackAndProxyRoutes(authed, svc)

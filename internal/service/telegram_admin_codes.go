@@ -16,11 +16,16 @@ func (s *TelegramBotService) replyCapacity(ctx context.Context) telegramCommandR
 		if c.OpenRegLimit > 0 {
 			quota = fmt.Sprintf("已开放（%d/%d 名额）", c.OpenRegUsed, c.OpenRegLimit)
 		} else {
-			quota = "已开放（不限名额，受授权上限约束）"
+			quota = "已开放（不限名额）"
 		}
 	}
-	text := fmt.Sprintf("<b>容量 / 状态</b>\n\n授权上限：<b>%d</b> 人（随凭证授权实时变化）\n已用：<b>%d</b> 人\n剩余可注册：<b>%d</b> 人\n开注状态：<b>%s</b>",
-		c.MaxUsers, c.UsedUsers, c.Remaining(), quota)
+	// 用户容量放开后无全局上限；仅在有开注名额时才展示具体可注册人数。
+	remainingLabel := "不限"
+	if c.OpenRegLimit > 0 {
+		remainingLabel = fmt.Sprintf("%d", c.Remaining())
+	}
+	text := fmt.Sprintf("<b>容量 / 状态</b>\n\n已用：<b>%d</b> 人\n剩余可注册：<b>%s</b> 人\n开注状态：<b>%s</b>",
+		c.UsedUsers, remainingLabel, quota)
 	return telegramCommandReply{Text: text, Buttons: [][]telegramInlineButton{{{Text: "⬅️ 返回菜单", Data: "menu_main"}}}}
 }
 

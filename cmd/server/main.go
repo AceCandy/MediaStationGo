@@ -143,7 +143,6 @@ func main() {
 		}
 	}()
 	go services.Boot()
-	go handler.RunLicenseHeartbeatLoop(services.Context(), services)
 	go services.TelegramBot.StartPolling(context.Background())
 
 	// Graceful shutdown.

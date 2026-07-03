@@ -569,16 +569,9 @@ If MediaStationGo saves you time, feel free to buy the author a bowl of noodles.
 
 ---
 
-## License and Non-Commercial Statement
+## License
 
 This project uses `GPL-3.0` as its base license. See [LICENSE](LICENSE).
-
-The maintainers also state and request:
-
-- The project is intended for personal learning, home NAS, self-hosted media, non-commercial research, and community collaboration.
-- Without explicit written permission from the author, do not use this project or derivative versions for commercial resale, paid hosting, paid SaaS, pre-installed commercial devices, closed-source redistribution, or other profit-oriented commercial use.
-- For commercial cooperation, enterprise deployment, custom development, integrated redistribution, or commercial authorization, contact the author first.
-- If there is any interpretive difference between this README and the formal `GPL-3.0` license text, the code license is governed by [LICENSE](LICENSE); commercial usage should additionally obtain author permission.
 
 ---
 

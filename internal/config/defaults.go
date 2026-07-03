@@ -5,8 +5,6 @@ import "github.com/spf13/viper"
 const (
 	defaultDatabaseMaxOpenConns = 4
 	defaultDatabaseMaxIdleConns = 2
-	defaultLicenseServerURL     = "https://mgosever.3jzs.com"
-	defaultLicensePublicKey     = "MCowBQYDK2VwAyEABRXnXy+urjrbKit6Yu/HiezWgP0NdsZW3tsegJWRrtI="
 )
 
 func setDefaults(v *viper.Viper) {
@@ -114,8 +112,4 @@ func setDefaults(v *viper.Viper) {
 	// API Config 默认设置
 	v.SetDefault("api_config.auto_encrypt", true)
 	v.SetDefault("api_config.default_timeout", 30)
-
-	v.SetDefault("license.server_url", defaultLicenseServerURL)
-	v.SetDefault("license.hmac_secret", "")
-	v.SetDefault("license.public_key", defaultLicensePublicKey)
 }

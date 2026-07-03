@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -12,31 +13,31 @@ import (
 
 // ── 容量 / 开注名额 ──────────────────────────────────────────────────────────
 
-// capacityInfo 描述当前用户容量（随凭证授权实时变化）与开注名额状态。
+// capacityInfo 描述当前用户容量与开注名额状态。
 type capacityInfo struct {
 	UsedUsers    int64
-	MaxUsers     int64 // 来自 LicensedMaxUsers，随授权实时变化
+	MaxUsers     int64 // 用户容量上限，放开后恒为无限
 	OpenRegOn    bool
 	OpenRegLimit int // 0 = 不限（仅受 MaxUsers 约束）
 	OpenRegUsed  int
 }
 
-// Remaining 返回还能注册多少个账号（同时受授权上限与开注名额约束）。
+// Remaining 返回还能注册多少个账号（同时受容量上限与开注名额约束）。
 func (c capacityInfo) Remaining() int64 {
-	byLicense := c.MaxUsers - c.UsedUsers
-	if byLicense < 0 {
-		byLicense = 0
+	byCapacity := c.MaxUsers - c.UsedUsers
+	if byCapacity < 0 {
+		byCapacity = 0
 	}
 	if c.OpenRegLimit > 0 {
 		byQuota := int64(c.OpenRegLimit - c.OpenRegUsed)
 		if byQuota < 0 {
 			byQuota = 0
 		}
-		if byQuota < byLicense {
+		if byQuota < byCapacity {
 			return byQuota
 		}
 	}
-	return byLicense
+	return byCapacity
 }
 
 // loadCapacity reads live capacity + open-reg quota state.
@@ -44,7 +45,7 @@ func (s *TelegramBotService) loadCapacity(ctx context.Context) capacityInfo {
 	used, _ := s.repo.User.Count(ctx)
 	info := capacityInfo{
 		UsedUsers:    used,
-		MaxUsers:     LicensedMaxUsers(ctx, s.repo),
+		MaxUsers:     math.MaxInt64,
 		OpenRegOn:    s.openRegEnabled(ctx),
 		OpenRegLimit: s.intSetting(ctx, SettingOpenRegLimit, 0),
 		OpenRegUsed:  s.intSetting(ctx, SettingOpenRegUsed, 0),
@@ -70,7 +71,7 @@ func (s *TelegramBotService) openRegEnabled(ctx context.Context) bool {
 }
 
 // openRegistration opens registration for `limit` new accounts (0 = unlimited,
-// bounded only by the license). Resets the used counter.
+// bounded only by total capacity). Resets the used counter.
 func (s *TelegramBotService) openRegistration(ctx context.Context, limit int) error {
 	if limit < 0 {
 		limit = 0
