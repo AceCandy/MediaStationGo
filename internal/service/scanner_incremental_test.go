@@ -91,6 +91,38 @@ func TestScanLibraryImportsISOImage(t *testing.T) {
 	}
 }
 
+func TestScanLibraryUsesISOParentFolderForScrapeIdentity(t *testing.T) {
+	sc, repos := newScannerTestEnv(t)
+	root := t.TempDir()
+	lib := model.Library{Name: "Movies", Path: root, Type: "movie", Enabled: true}
+	if err := repos.Library.Create(t.Context(), &lib); err != nil {
+		t.Fatal(err)
+	}
+	movieDir := filepath.Join(root, "Dune.Part.Two.2024")
+	if err := os.MkdirAll(movieDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	isoPath := filepath.Join(movieDir, "BDMV.iso")
+	if err := os.WriteFile(isoPath, []byte("iso image"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := sc.ScanLibrary(t.Context(), lib.ID); err != nil {
+		t.Fatal(err)
+	}
+	var media model.Media
+	if err := repos.DB.First(&media).Error; err != nil {
+		t.Fatal(err)
+	}
+	if media.Title != "dune part two" || media.Year != 2024 || media.ScrapeStatus != "pending" {
+		t.Fatalf("ISO scrape identity = title=%q year=%d status=%q", media.Title, media.Year, media.ScrapeStatus)
+	}
+	candidates := scrapeQueryCandidates(&media, &lib)
+	if len(candidates) == 0 || candidates[0] != "dune part two" {
+		t.Fatalf("ISO scrape candidates = %#v", candidates)
+	}
+}
+
 func TestScanLibraryReturnsNotFoundForMissingLibrary(t *testing.T) {
 	sc, _ := newScannerTestEnv(t)
 

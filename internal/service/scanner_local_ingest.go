@@ -140,6 +140,7 @@ func (s *ScannerService) buildLocalScanMedia(in localScanMediaInput) *model.Medi
 	if title == "" {
 		title = strings.TrimSuffix(filepath.Base(in.path), in.ext)
 	}
+	title, year = preferISOParentScrapeIdentity(in.path, in.lib.Path, title, year)
 
 	media := &model.Media{
 		LibraryID:     in.lib.ID,

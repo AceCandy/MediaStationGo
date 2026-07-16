@@ -20,6 +20,7 @@ func (s *ScannerService) ingestCloudFile(ctx context.Context, lib *model.Library
 	if title == "" {
 		title = ref
 	}
+	title, year = preferISOParentScrapeIdentity(path, lib.Path, title, year)
 	parsedSeason, parsedEpisode := ParseEpisode(path)
 	if librarySupportsSeasons(lib) || parsedSeason > 0 || parsedEpisode > 0 {
 		if seriesTitle, seriesYear := cloudSeriesTitleFromMediaPath(path); seriesTitle != "" {
