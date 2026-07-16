@@ -63,6 +63,34 @@ func TestIngestPathAddsSingleFile(t *testing.T) {
 	}
 }
 
+func TestScanLibraryImportsISOImage(t *testing.T) {
+	sc, repos := newScannerTestEnv(t)
+	root := t.TempDir()
+	lib := model.Library{Name: "Movies", Path: root, Type: "movie", Enabled: true}
+	if err := repos.Library.Create(t.Context(), &lib); err != nil {
+		t.Fatal(err)
+	}
+	isoPath := filepath.Join(root, "Movie.Name.2026.iso")
+	if err := os.WriteFile(isoPath, []byte("iso image"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := sc.ScanLibrary(t.Context(), lib.ID)
+	if err != nil {
+		t.Fatalf("scan: %v", err)
+	}
+	if res.Added != 1 || res.ErrorCount != 0 {
+		t.Fatalf("scan result = %#v, want one ISO image added without errors", res)
+	}
+	var media model.Media
+	if err := repos.DB.First(&media).Error; err != nil {
+		t.Fatal(err)
+	}
+	if media.Path != isoPath || media.Container != "iso" {
+		t.Fatalf("ISO media = %#v, want path %q and container iso", media, isoPath)
+	}
+}
+
 func TestScanLibraryReturnsNotFoundForMissingLibrary(t *testing.T) {
 	sc, _ := newScannerTestEnv(t)
 

@@ -169,7 +169,7 @@ func (s *ScannerService) buildLocalScanMedia(in localScanMediaInput) *model.Medi
 }
 
 func (s *ScannerService) localProbeAfter(path, ext string) func() {
-	if ext == ".strm" || s.probe == nil {
+	if !mediaExtensionSupportsProbe(ext) || s.probe == nil {
 		return nil
 	}
 	return func() {
