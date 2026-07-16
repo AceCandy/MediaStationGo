@@ -10,9 +10,11 @@ export function AdminLibraryPanel() {
       <AdminLibraryCreateForm
         name={createForm.name}
         type={createForm.type}
+        coverURL={createForm.coverURL}
         roots={createForm.roots}
         onNameChange={createForm.setName}
         onTypeChange={createForm.setType}
+        onCoverURLChange={createForm.setCoverURL}
         onRootChange={createForm.updateRoot}
         onAddRoot={createForm.addRoot}
         onRemoveRoot={createForm.removeRoot}
@@ -28,6 +30,8 @@ export function AdminLibraryPanel() {
         onRemoveRoot={rootActions.removeLibraryRoot}
         onScanLibrary={libraryActions.scanLibrary}
         onRemoveLibrary={libraryActions.removeLibrary}
+        onAddLibraryRoot={libraryActions.addLibraryRoot}
+        onEditLibraryCover={libraryActions.editLibraryCover}
       />
     </div>
   )
