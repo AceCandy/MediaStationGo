@@ -123,6 +123,49 @@ func TestScanLibraryUsesISOParentFolderForScrapeIdentity(t *testing.T) {
 	}
 }
 
+func TestScanLibraryRepairsPreviouslyUnmatchedGenericISO(t *testing.T) {
+	sc, repos := newScannerTestEnv(t)
+	root := t.TempDir()
+	lib := model.Library{Name: "Movies", Path: root, Type: "movie", Enabled: true}
+	if err := repos.Library.Create(t.Context(), &lib); err != nil {
+		t.Fatal(err)
+	}
+	movieDir := filepath.Join(root, "Dune.Part.Two.2024")
+	if err := os.MkdirAll(movieDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	isoPath := filepath.Join(movieDir, "BDMV.iso")
+	if err := os.WriteFile(isoPath, []byte("iso image"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	legacy := model.Media{
+		LibraryID:    lib.ID,
+		Title:        "bdmv",
+		Path:         isoPath,
+		Container:    "iso",
+		SizeBytes:    int64(len("iso image")),
+		ScrapeStatus: "no_match",
+	}
+	if err := repos.DB.Create(&legacy).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := sc.ScanLibrary(t.Context(), lib.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Updated != 1 || res.Skipped != 0 {
+		t.Fatalf("rescan result = %#v, want legacy ISO refreshed", res)
+	}
+	var media model.Media
+	if err := repos.DB.First(&media, "id = ?", legacy.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if media.Title != "dune part two" || media.Year != 2024 || media.ScrapeStatus != "pending" {
+		t.Fatalf("repaired ISO = title=%q year=%d status=%q", media.Title, media.Year, media.ScrapeStatus)
+	}
+}
+
 func TestScanLibraryReturnsNotFoundForMissingLibrary(t *testing.T) {
 	sc, _ := newScannerTestEnv(t)
 
