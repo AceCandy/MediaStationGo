@@ -31,6 +31,7 @@ function useCreateLibraryForm(refresh: () => Promise<void>) {
   const [name, setName] = useState('')
   const [roots, setRoots] = useState<RootDraft[]>([emptyRootDraft()])
   const [type, setType] = useState('movie')
+  const [coverURL, setCoverURL] = useState('')
 
   const handleCreate = async (e: FormEvent) => {
     e.preventDefault()
@@ -40,10 +41,11 @@ function useCreateLibraryForm(refresh: () => Promise<void>) {
         toast.error('请至少填写一个路径')
         return
       }
-      await libraryAPI.createWithRoots(name, type, payload)
+      await libraryAPI.createWithRoots(name, type, payload, coverURL.trim())
       toast.success('媒体库已保存')
       setName('')
       setRoots([emptyRootDraft()])
+      setCoverURL('')
       await refresh()
     } catch (err: unknown) {
       toast.error(apiErrorMessage(err, '创建失败'))
@@ -57,9 +59,11 @@ function useCreateLibraryForm(refresh: () => Promise<void>) {
   return {
     name,
     type,
+    coverURL,
     roots,
     setName,
     setType,
+    setCoverURL,
     updateRoot,
     addRoot: () => setRoots((prev) => [...prev, emptyRootDraft()]),
     removeRoot: (index: number) => setRoots((prev) => (prev.length <= 1 ? prev : prev.filter((_, i) => i !== index))),
@@ -153,5 +157,22 @@ function useLibraryActions(refresh: () => Promise<void>) {
     await refresh()
   }
 
-  return { scanLibrary, removeLibrary }
+  const addLibraryRoot = async (library: Library) => {
+    const path = window.prompt(`为「${library.name}」添加来源目录：`)
+    if (!path?.trim()) return
+    const name = window.prompt('来源名称（可选）：') ?? ''
+    await libraryAPI.addRoot(library.id, { path: path.trim(), name: name.trim(), enabled: true })
+    toast.success('来源目录已添加')
+    await refresh()
+  }
+
+  const editLibraryCover = async (library: Library) => {
+    const coverURL = window.prompt('自定义封面 URL（留空可清除）：', library.cover_url ?? '')
+    if (coverURL === null) return
+    await libraryAPI.update(library.id, { cover_url: coverURL.trim() })
+    toast.success(coverURL.trim() ? '媒体库封面已保存' : '媒体库封面已清除')
+    await refresh()
+  }
+
+  return { scanLibrary, removeLibrary, addLibraryRoot, editLibraryCover }
 }
