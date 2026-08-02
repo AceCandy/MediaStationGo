@@ -13,12 +13,17 @@ func TestEmbyMovieLibrarySeasonNumbersStayMovies(t *testing.T) {
 	if err := svc.repo.Library.Create(t.Context(), &lib); err != nil {
 		t.Fatalf("create library: %v", err)
 	}
+	metadata := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{
+		Base: model.Base{ID: "metadata-movie-with-episode-numbers"}, Kind: model.MetadataKindMovie,
+		Title: "Movie Mistaken S01E01", Source: "tmdb",
+	})
+	createServiceTestArtwork(t, svc.repo.DB, metadata.ID, model.ArtworkTypePoster, "asset-movie-poster")
 	media := model.Media{
 		Base:       model.Base{ID: "movie-with-episode-numbers"},
 		LibraryID:  lib.ID,
+		MetadataID: metadata.ID,
 		Title:      "Movie Mistaken S01E01",
 		Path:       `/media/movies/animation/Movie.Mistaken.S01E01.mkv`,
-		PosterURL:  `/poster.jpg`,
 		SeasonNum:  1,
 		EpisodeNum: 1,
 	}
@@ -63,7 +68,7 @@ func TestEmbyMovieLibrarySeasonNumbersStayMovies(t *testing.T) {
 		t.Fatalf("root movie query: %v", err)
 	}
 	rootItems := rootMovies["Items"].([]map[string]any)
-	if len(rootItems) != 1 || rootItems[0]["Id"] != media.ID || rootItems[0]["Type"] != "Movie" {
+	if len(rootItems) != 1 || rootItems[0]["Id"] != media.MetadataID || rootItems[0]["Type"] != "Movie" {
 		t.Fatalf("root movie query should include movie-library item despite season numbers, got %#v", rootItems)
 	}
 
@@ -108,7 +113,7 @@ func TestEmbyMovieLibraryFiltersMisplacedSeriesPaths(t *testing.T) {
 		t.Fatalf("items: %v", err)
 	}
 	items := out["Items"].([]map[string]any)
-	if len(items) != 1 || items[0]["Id"] != movie.ID {
+	if len(items) != 1 || items[0]["Id"] != movie.MetadataID {
 		t.Fatalf("movie library should filter misplaced series paths, got %#v", items)
 	}
 
@@ -132,25 +137,25 @@ func TestEmbyMovieLibraryGroupsEpisodicContentIntoSeries(t *testing.T) {
 		t.Fatalf("create library: %v", err)
 	}
 	base := time.Now()
-	// 剧集结构内容: 同一部「高达剧场版」的两集, 单集 tmdb 各不相同(模拟 NFO 单集 id 污染)。
+	// 剧集结构内容：两个文件通过明确的本地系列身份绑定同一 Series metadata。
 	rows := []model.Media{
 		{
 			Base:       model.Base{ID: "gundam-e13", CreatedAt: base.Add(2 * time.Minute)},
 			LibraryID:  lib.ID,
+			SeriesID:   "local-gundam-movie-series",
 			Title:      "高达剧场版",
 			Path:       `/media/动画电影/高达剧场版/Season 01/高达剧场版 - S01E13.mkv`,
 			PosterURL:  `/poster.jpg`,
-			TMDbID:     4375419,
 			SeasonNum:  1,
 			EpisodeNum: 13,
 		},
 		{
 			Base:       model.Base{ID: "gundam-e14", CreatedAt: base.Add(3 * time.Minute)},
 			LibraryID:  lib.ID,
+			SeriesID:   "local-gundam-movie-series",
 			Title:      "高达剧场版",
 			Path:       `/media/动画电影/高达剧场版/Season 01/高达剧场版 - S01E14.mkv`,
 			PosterURL:  `/poster.jpg`,
-			TMDbID:     4375461,
 			SeasonNum:  1,
 			EpisodeNum: 14,
 		},
@@ -197,7 +202,7 @@ func TestEmbyMovieLibraryGroupsEpisodicContentIntoSeries(t *testing.T) {
 	if movieCount != 1 {
 		t.Fatalf("real movie should stay as one Movie item, got %d: %#v", movieCount, items)
 	}
-	// 两集 tmdb 不同, 但按路径剧名聚成同一 Series, 集数应为 2。
+	// 两个媒体版本共享同一系列身份，集数应为 2。
 	if got := seriesPayload["RecursiveItemCount"]; got != 2 {
 		t.Fatalf("series should contain both episodes despite differing tmdb ids, got RecursiveItemCount=%v", got)
 	}

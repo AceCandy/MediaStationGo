@@ -29,7 +29,7 @@ func TestEmbyMarkPlayedRefreshesPlaybackDevice(t *testing.T) {
 	if sqlDB, err := db.DB(); err == nil {
 		sqlDB.SetMaxOpenConns(1)
 	}
-	if err := db.AutoMigrate(model.AllModels()...); err != nil {
+	if err := migrateMediaHandlerTestDB(db, model.AllModels()...); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 	repos := repository.New(db)
@@ -96,7 +96,7 @@ func TestEmbyCompatSessionAllowsSameClientRequestsWithoutToken(t *testing.T) {
 		t.Fatalf("get sql db: %v", err)
 	}
 	sqlDB.SetMaxOpenConns(1)
-	if err := db.AutoMigrate(model.AllModels()...); err != nil {
+	if err := migrateMediaHandlerTestDB(db, model.AllModels()...); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 	repos := repository.New(db)
@@ -163,7 +163,7 @@ func TestEmbyAuthenticatedRequestRefreshesRealtimeUserActivity(t *testing.T) {
 	if sqlDB, err := db.DB(); err == nil {
 		sqlDB.SetMaxOpenConns(1)
 	}
-	if err := db.AutoMigrate(model.AllModels()...); err != nil {
+	if err := migrateMediaHandlerTestDB(db, model.AllModels()...); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 	repos := repository.New(db)

@@ -33,6 +33,7 @@ func organizeMatchFromLocalMetadata(local *LocalMetadata) *Match {
 		return nil
 	}
 	match := &Match{
+		Source:       "local_nfo",
 		Title:        strings.TrimSpace(local.Title),
 		OriginalName: strings.TrimSpace(local.OriginalName),
 		Overview:     local.Overview,
@@ -68,12 +69,18 @@ func (o *OrganizerService) lookupOrganizeSourceMedia(ctx context.Context, path s
 	}
 	var media model.Media
 	if err := o.repo.DB.WithContext(ctx).
+		Select("id").
 		Where("path = ? AND deleted_at IS NULL", path).
 		Limit(1).
 		Take(&media).Error; err != nil {
 		return nil
 	}
-	return &media
+	view, err := o.repo.MediaView.FindByID(ctx, media.ID)
+	if err != nil || view == nil {
+		return nil
+	}
+	display := mediaViewsAsMedia([]model.MediaView{*view})
+	return &display[0]
 }
 
 func organizeMatchFromMedia(media *model.Media) *Match {

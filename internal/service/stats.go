@@ -42,14 +42,14 @@ func (s *StatsService) SetRuntimeCache(cache *RuntimeCacheService) *StatsService
 
 // Snapshot is the JSON returned by /api/stats.
 type Snapshot struct {
-	Libraries      int64         `json:"libraries"`
-	MediaCount     int64         `json:"media_count"`
-	UsersCount     int64         `json:"users_count"`
-	TotalSizeBytes int64         `json:"total_size_bytes"`
-	TotalSeconds   int64         `json:"total_seconds"`
-	RecentlyAdded  []model.Media `json:"recently_added"`
-	Hardware       Hardware      `json:"hardware"`
-	GeneratedAt    time.Time     `json:"generated_at"`
+	Libraries      int64             `json:"libraries"`
+	MediaCount     int64             `json:"media_count"`
+	UsersCount     int64             `json:"users_count"`
+	TotalSizeBytes int64             `json:"total_size_bytes"`
+	TotalSeconds   int64             `json:"total_seconds"`
+	RecentlyAdded  []model.MediaView `json:"recently_added"`
+	Hardware       Hardware          `json:"hardware"`
+	GeneratedAt    time.Time         `json:"generated_at"`
 }
 
 // Hardware is the live CPU / memory / disk readings.
@@ -119,17 +119,11 @@ func (s *StatsService) Compute(ctx context.Context, dataDir string) (*Snapshot, 
 	snap.TotalSizeBytes = sum.Size
 	snap.TotalSeconds = sum.Seconds
 
-	recentQuery := s.repo.DB.Model(&model.Media{})
-	if len(activeLibraryIDs) == 0 {
-		recentQuery = recentQuery.Where("1 = 0")
-	} else {
-		recentQuery = recentQuery.Where("library_id IN ?", activeLibraryIDs)
-	}
-	if err := recentQuery.
-		Order("created_at desc").Limit(12).
-		Find(&snap.RecentlyAdded).Error; err != nil {
+	recent, _, err := s.repo.MediaView.ListByLibrariesFiltered(ctx, activeLibraryIDs, 0, 12, repository.MediaQueryFilter{IncludeNSFW: true})
+	if err != nil {
 		return nil, err
 	}
+	snap.RecentlyAdded = recent
 
 	if s.cache != nil {
 		cacheCopy := *snap

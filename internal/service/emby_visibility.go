@@ -8,49 +8,42 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/ShukeBta/MediaStationGo/internal/model"
+	"github.com/ShukeBta/MediaStationGo/internal/repository"
 )
 
 func (e *EmbyService) applyUserMediaVisibility(ctx context.Context, q *gorm.DB, userID string) *gorm.DB {
 	visibility := e.mediaVisibility(ctx, userID)
+	// Persisted media must always point at a live metadata row. Keep this join
+	// aligned with MediaView so counts and payloads cannot disagree on orphaned
+	// media rows.
+	q = q.Joins("JOIN metadata_items AS emby_metadata ON emby_metadata.id = media.metadata_id AND emby_metadata.deleted_at IS NULL")
 	if !visibility.IncludeNSFW {
-		q = q.Where("nsfw = ?", false)
+		q = q.Where("COALESCE(emby_metadata.nsfw, FALSE) = FALSE")
 		if hidden := visibility.HiddenLibraryIDs; len(hidden) > 0 {
-			q = q.Where("library_id NOT IN ?", hidden)
+			q = q.Where("media.library_id NOT IN ?", hidden)
 		}
 	}
 	if len(visibility.AllowedLibraryIDs) > 0 {
-		q = q.Where("library_id IN ?", visibility.AllowedLibraryIDs)
+		q = q.Where("media.library_id IN ?", visibility.AllowedLibraryIDs)
 	}
 	return q
 }
 
-func (e *EmbyService) filterMediaRowsForUser(ctx context.Context, rows []model.Media, userID string) []model.Media {
+func (e *EmbyService) mediaQueryFilter(ctx context.Context, userID string) repository.MediaQueryFilter {
 	visibility := e.mediaVisibility(ctx, userID)
-	if visibility.IncludeNSFW && len(visibility.AllowedLibraryIDs) == 0 {
-		return rows
+	return repository.MediaQueryFilter{
+		IncludeNSFW:       visibility.IncludeNSFW,
+		AllowedLibraryIDs: visibility.AllowedLibraryIDs,
+		HiddenLibraryIDs:  visibility.HiddenLibraryIDs,
 	}
-	allowed := map[string]bool{}
-	for _, id := range visibility.AllowedLibraryIDs {
-		allowed[id] = true
+}
+
+func (e *EmbyService) mediaViewsForRows(ctx context.Context, rows []model.Media, userID string) ([]model.MediaView, error) {
+	ids := make([]string, 0, len(rows))
+	for i := range rows {
+		ids = append(ids, rows[i].ID)
 	}
-	hiddenLibraries := map[string]bool{}
-	for _, id := range visibility.HiddenLibraryIDs {
-		hiddenLibraries[id] = true
-	}
-	out := rows[:0]
-	for _, row := range rows {
-		if row.NSFW && !visibility.IncludeNSFW {
-			continue
-		}
-		if hiddenLibraries[row.LibraryID] {
-			continue
-		}
-		if len(allowed) > 0 && !allowed[row.LibraryID] {
-			continue
-		}
-		out = append(out, row)
-	}
-	return out
+	return e.repo.MediaView.FindByIDs(ctx, ids, e.mediaQueryFilter(ctx, userID))
 }
 
 func (e *EmbyService) mediaVisibility(ctx context.Context, userID string) MediaVisibility {

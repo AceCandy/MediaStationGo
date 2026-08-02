@@ -62,14 +62,19 @@ func manualScrapeApplyOneHandler(svc *service.Container) gin.HandlerFunc {
 		applyCtx, cancel := manualScrapeApplyContext(c)
 		defer cancel()
 		mediaID := c.Param("id")
-		media, err := svc.Scraper.ApplyManualMatch(applyCtx, mediaID, req)
+		_, err := svc.Scraper.ApplyManualMatch(applyCtx, mediaID, req)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		reclassifyMediaAfterScrapeWithTypeHints(applyCtx, svc, map[string]string{mediaID: req.MediaType}, mediaID)
-		if refreshed, _ := svc.Repo.Media.FindByID(applyCtx, mediaID); refreshed != nil {
-			media = refreshed
+		media, err := svc.Media.GetMedia(applyCtx, mediaID)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		if media == nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "media not found after manual scrape"})
+			return
 		}
 		c.JSON(http.StatusOK, media)
 	}
@@ -97,7 +102,6 @@ func manualScrapeApplyBatchHandler(svc *service.Container) gin.HandlerFunc {
 				errorsOut = append(errorsOut, id+": "+err.Error())
 				continue
 			}
-			reclassifyMediaAfterScrapeWithTypeHints(applyCtx, svc, map[string]string{id: req.Match.MediaType}, id)
 			applied++
 		}
 		if applied == 0 && len(errorsOut) > 0 {

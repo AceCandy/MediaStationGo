@@ -27,9 +27,14 @@ func TestMediaVisibilityFiltersNSFWAndLibraries(t *testing.T) {
 	if err := repos.Setting.Set(t.Context(), AdultLibraryIDsSettingKey, `["`+libB.ID+`"]`); err != nil {
 		t.Fatal(err)
 	}
+	adultMetadata := model.MetadataItem{Kind: model.MetadataKindMovie, Title: "成人电影", NSFW: true, Source: "tmdb"}
+	if err := db.Create(&adultMetadata).Error; err != nil {
+		t.Fatal(err)
+	}
+	adultMetadataID := adultMetadata.ID
 	rows := []model.Media{
 		{LibraryID: libA.ID, Title: "普通电影", Path: "/media/movies/a.mkv"},
-		{LibraryID: libA.ID, Title: "成人电影", Path: "/media/movies/b.mkv", NSFW: true},
+		{LibraryID: libA.ID, MetadataID: adultMetadataID, Title: "成人电影", Path: "/media/movies/b.mkv"},
 		{LibraryID: libB.ID, Title: "限制媒体库电影", Path: "/media/adult/c.mkv"},
 	}
 	if err := db.Create(&rows).Error; err != nil {
@@ -144,9 +149,14 @@ func TestConfiguredAdultLibrariesDoNotHideSafeLibraryWithNSFWItems(t *testing.T)
 	if err := repos.Setting.Set(t.Context(), AdultLibraryIDsSettingKey, `["`+adult.ID+`"]`); err != nil {
 		t.Fatal(err)
 	}
+	adultMetadata := model.MetadataItem{Kind: model.MetadataKindMovie, Title: "误入普通库的成人条目", NSFW: true, Source: "tmdb"}
+	if err := db.Create(&adultMetadata).Error; err != nil {
+		t.Fatal(err)
+	}
+	adultMetadataID := adultMetadata.ID
 	if err := db.Create(&[]model.Media{
 		{LibraryID: safe.ID, Title: "普通电影", Path: "/media/movie/a.mkv"},
-		{LibraryID: safe.ID, Title: "误入普通库的成人条目", Path: "/media/movie/b.mkv", NSFW: true},
+		{LibraryID: safe.ID, MetadataID: adultMetadataID, Title: "误入普通库的成人条目", Path: "/media/movie/b.mkv"},
 		{LibraryID: adult.ID, Title: "成人影片", Path: "/media/9KG/c.mkv"},
 	}).Error; err != nil {
 		t.Fatal(err)
@@ -252,7 +262,7 @@ func TestSearchMediaVisibleCanReturnHugeLibraryResultsWhenRequested(t *testing.T
 	}
 }
 
-func sortedMediaTitles(rows []model.Media) []string {
+func sortedMediaTitles(rows []model.MediaView) []string {
 	out := make([]string, 0, len(rows))
 	for _, row := range rows {
 		out = append(out, row.Title)

@@ -15,14 +15,15 @@ func TestEmbyViewsMergeEpisodicCloudLibrariesIntoUserLibrary(t *testing.T) {
 			t.Fatalf("create library: %v", err)
 		}
 	}
-	if err := svc.repo.DB.Create(&model.Media{
+	media := model.Media{
 		Base:       model.Base{ID: "cloud-show-1"},
 		LibraryID:  cloud.ID,
 		Title:      "云盘国漫",
 		Path:       "cloud://openlist/国漫/云盘国漫/Season 01/云盘国漫.S01E01.mkv",
 		SeasonNum:  1,
 		EpisodeNum: 1,
-	}).Error; err != nil {
+	}
+	if err := svc.repo.DB.Create(&media).Error; err != nil {
 		t.Fatalf("create media: %v", err)
 	}
 
@@ -43,7 +44,7 @@ func TestEmbyViewsMergeEpisodicCloudLibrariesIntoUserLibrary(t *testing.T) {
 		t.Fatalf("items: %v", err)
 	}
 	episodes := items["Items"].([]map[string]any)
-	if len(episodes) != 1 || episodes[0]["Id"] != "cloud-show-1" {
+	if len(episodes) != 1 || episodes[0]["Id"] != media.MetadataID {
 		t.Fatalf("merged local library should include cloud episodes, got %#v", episodes)
 	}
 }
@@ -57,14 +58,15 @@ func TestEmbyViewsMergeCloudCategoryAliasesIntoUserLibrary(t *testing.T) {
 			t.Fatalf("create library: %v", err)
 		}
 	}
-	if err := svc.repo.DB.Create(&model.Media{
+	media := model.Media{
 		Base:       model.Base{ID: "cloud-anime-1"},
 		LibraryID:  cloud.ID,
 		Title:      "云盘日漫",
 		Path:       "cloud://openlist/日漫/云盘日漫/Season 01/云盘日漫.S01E01.mkv",
 		SeasonNum:  1,
 		EpisodeNum: 1,
-	}).Error; err != nil {
+	}
+	if err := svc.repo.DB.Create(&media).Error; err != nil {
 		t.Fatalf("create media: %v", err)
 	}
 
@@ -82,7 +84,7 @@ func TestEmbyViewsMergeCloudCategoryAliasesIntoUserLibrary(t *testing.T) {
 		t.Fatalf("items: %v", err)
 	}
 	episodes := items["Items"].([]map[string]any)
-	if len(episodes) != 1 || episodes[0]["Id"] != "cloud-anime-1" {
+	if len(episodes) != 1 || episodes[0]["Id"] != media.MetadataID {
 		t.Fatalf("merged local 日番 library should include 日漫 cloud episodes, got %#v", episodes)
 	}
 }

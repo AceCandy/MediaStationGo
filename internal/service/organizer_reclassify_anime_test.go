@@ -29,17 +29,17 @@ func TestOrganizeDirectoryReclassifiesScannedAnimeUsingDBMetadata(t *testing.T) 
 
 	wrongPath := filepath.Join(euusLib.Path, "Blades Of The Guardians", "Season 2", "Blades Of The Guardians - S02E01-1080p.TX.WEB-DL.mkv")
 	writeOrgFile(t, wrongPath, "episode")
+	metadata := createServiceTestEpisodeMetadata(t, repos.DB,
+		model.MetadataItem{Kind: model.MetadataKindSeries, Title: "镖人", OriginalName: "Blades Of The Guardians", Languages: "zh", Countries: "CN", Genres: "动画,动作冒险", Source: "tmdb"},
+		model.MetadataItem{Kind: model.MetadataKindEpisode, Title: "镖人", OriginalName: "Blades Of The Guardians", SeasonNum: 2, EpisodeNum: 1, Languages: "zh", Countries: "CN", Genres: "动画,动作冒险", Source: "tmdb"},
+		model.MetadataIdentifier{Provider: "tmdb", EntityKind: model.MetadataKindSeries, ExternalID: "107463"})
 	if err := repos.DB.Create(&model.Media{
 		LibraryID:    euusLib.ID,
-		Title:        "镖人",
-		OriginalName: "Blades Of The Guardians",
+		MetadataID:   metadata.ID,
+		Title:        "Blades Of The Guardians",
 		Path:         wrongPath,
 		SeasonNum:    2,
 		EpisodeNum:   1,
-		TMDbID:       107463,
-		Languages:    "zh",
-		Countries:    "CN",
-		Genres:       "动画,动作冒险",
 		ScrapeStatus: "matched",
 	}).Error; err != nil {
 		t.Fatal(err)
@@ -91,17 +91,17 @@ func TestReclassifyMisclassifiedMediaMovesScannedAnimeToPhysicalAnimeLibrary(t *
 
 	wrongPath := filepath.Join(euusLib.Path, "Blades Of The Guardians", "Season 2", "Blades Of The Guardians - S02E01.mkv")
 	writeOrgFile(t, wrongPath, "episode")
+	metadata := createServiceTestEpisodeMetadata(t, repos.DB,
+		model.MetadataItem{Kind: model.MetadataKindSeries, Title: "镖人", OriginalName: "Blades Of The Guardians", Languages: "zh", Countries: "CN", Genres: "动画,动作冒险", Source: "tmdb"},
+		model.MetadataItem{Kind: model.MetadataKindEpisode, Title: "镖人", OriginalName: "Blades Of The Guardians", SeasonNum: 2, EpisodeNum: 1, Languages: "zh", Countries: "CN", Genres: "动画,动作冒险", Source: "tmdb"},
+		model.MetadataIdentifier{Provider: "tmdb", EntityKind: model.MetadataKindSeries, ExternalID: "107463"})
 	if err := repos.DB.Create(&model.Media{
 		LibraryID:    euusLib.ID,
-		Title:        "镖人",
-		OriginalName: "Blades Of The Guardians",
+		MetadataID:   metadata.ID,
+		Title:        "Blades Of The Guardians",
 		Path:         wrongPath,
 		SeasonNum:    2,
 		EpisodeNum:   1,
-		TMDbID:       107463,
-		Languages:    "zh",
-		Countries:    "CN",
-		Genres:       "动画,动作冒险",
 		ScrapeStatus: "matched",
 	}).Error; err != nil {
 		t.Fatal(err)
@@ -142,17 +142,17 @@ func TestReclassifyMisclassifiedMediaCreatesMissingTargetCategoryLibrary(t *test
 
 	wrongPath := filepath.Join(euusLib.Path, "Blades Of The Guardians", "Season 2", "Blades Of The Guardians - S02E01.mkv")
 	writeOrgFile(t, wrongPath, "episode")
+	metadata := createServiceTestEpisodeMetadata(t, repos.DB,
+		model.MetadataItem{Kind: model.MetadataKindSeries, Title: "镖人", OriginalName: "Blades Of The Guardians", Languages: "zh", Countries: "CN", Genres: "动画,动作冒险", Source: "tmdb"},
+		model.MetadataItem{Kind: model.MetadataKindEpisode, Title: "镖人", OriginalName: "Blades Of The Guardians", SeasonNum: 2, EpisodeNum: 1, Languages: "zh", Countries: "CN", Genres: "动画,动作冒险", Source: "tmdb"},
+		model.MetadataIdentifier{Provider: "tmdb", EntityKind: model.MetadataKindSeries, ExternalID: "107463"})
 	if err := repos.DB.Create(&model.Media{
 		LibraryID:    euusLib.ID,
-		Title:        "镖人",
-		OriginalName: "Blades Of The Guardians",
+		MetadataID:   metadata.ID,
+		Title:        "Blades Of The Guardians",
 		Path:         wrongPath,
 		SeasonNum:    2,
 		EpisodeNum:   1,
-		TMDbID:       107463,
-		Languages:    "zh",
-		Countries:    "CN",
-		Genres:       "动画,动作冒险",
 		ScrapeStatus: "matched",
 	}).Error; err != nil {
 		t.Fatal(err)
@@ -203,17 +203,17 @@ func TestReclassifyMisclassifiedMediaMovesWesternAnimationToWesternAnimeLibrary(
 
 	wrongPath := filepath.Join(jpAnimeLib.Path, "Family Guy", "Season 10", "Family Guy - S10E15.mkv")
 	writeOrgFile(t, wrongPath, "episode")
+	metadata := createServiceTestEpisodeMetadata(t, repos.DB,
+		model.MetadataItem{Kind: model.MetadataKindSeries, Title: "恶搞之家", OriginalName: "Family Guy", Languages: "en", Countries: "US", Genres: "动画,喜剧", Source: "tmdb"},
+		model.MetadataItem{Kind: model.MetadataKindEpisode, Title: "恶搞之家", OriginalName: "Family Guy", SeasonNum: 10, EpisodeNum: 15, Languages: "en", Countries: "US", Genres: "动画,喜剧", Source: "tmdb"},
+		model.MetadataIdentifier{Provider: "tmdb", EntityKind: model.MetadataKindSeries, ExternalID: "1434"})
 	if err := repos.DB.Create(&model.Media{
 		LibraryID:    jpAnimeLib.ID,
-		Title:        "恶搞之家",
-		OriginalName: "Family Guy",
+		MetadataID:   metadata.ID,
+		Title:        "Family Guy",
 		Path:         wrongPath,
 		SeasonNum:    10,
 		EpisodeNum:   15,
-		TMDbID:       1434,
-		Languages:    "en",
-		Countries:    "US",
-		Genres:       "动画,喜剧",
 		ScrapeStatus: "matched",
 	}).Error; err != nil {
 		t.Fatal(err)

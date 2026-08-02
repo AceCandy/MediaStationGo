@@ -51,15 +51,15 @@ func smartSearchHandler(svc *service.Container) gin.HandlerFunc {
 func aiRecommendHandler(svc *service.Container) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		uid, _ := c.Get(middleware.CtxUserID)
-		hist, err := svc.Playback.RecentHistory(c.Request.Context(), toString(uid), 10)
+		visibility := mediaVisibilityForRequest(c, svc)
+		hist, err := svc.Playback.RecentHistory(c.Request.Context(), toString(uid), 10, visibility)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
 		titles := make([]string, 0, len(hist))
-		visibility := mediaVisibilityForRequest(c, svc)
 		for _, h := range hist {
-			if h.Media != nil && visibility.Allows(h.Media) && strings.TrimSpace(h.Media.Title) != "" {
+			if h.Media != nil && strings.TrimSpace(h.Media.Title) != "" {
 				titles = append(titles, h.Media.Title)
 			}
 		}

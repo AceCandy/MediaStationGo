@@ -123,10 +123,6 @@ func (o *OrganizerService) writeOrganizedSourceFile(ctx context.Context, req org
 	if err := transferFile(req.Source, plan.Target.Path, req.Mode); err != nil {
 		return err
 	}
-	if err := transferSidecarNFO(req.Source, plan.Target.Path, req.Mode); err != nil {
-		o.log.Warn("organize sidecar nfo failed",
-			zap.String("from", req.Source), zap.String("to", plan.Target.Path), zap.Error(err))
-	}
 	o.persistOrganizedSourceMetadata(ctx, plan)
 	req.Result.Organized++
 	return nil

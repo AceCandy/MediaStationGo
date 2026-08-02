@@ -18,6 +18,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/ShukeBta/MediaStationGo/internal/model"
+	"github.com/ShukeBta/MediaStationGo/internal/repository"
 	"github.com/ShukeBta/MediaStationGo/internal/service"
 )
 
@@ -86,10 +87,13 @@ func statsTopContentHandler(svc *service.Container) gin.HandlerFunc {
 			PlayCount  int64     `json:"play_count"`
 			LastPlayed time.Time `json:"last_played"`
 		}
+		visibility := service.ExpandMediaVisibilityForMergedCloudLibraries(c.Request.Context(), svc.Repo, mediaVisibilityForRequest(c, svc))
 		var rows []row
-		_ = svc.Repo.DB.Table("playback_histories").
-			Select("media_id, COUNT(*) as play_count, MAX(watched_at) as last_played").
-			Group("media_id").
+		q := svc.Repo.DB.Table("playback_histories").
+			Joins("JOIN media ON media.id = playback_histories.media_id AND media.deleted_at IS NULL")
+		q = applyMediaVisibilityQuery(q, visibility)
+		_ = q.Select("playback_histories.media_id, COUNT(*) as play_count, MAX(playback_histories.watched_at) as last_played").
+			Group("playback_histories.media_id").
 			Order("play_count desc").
 			Limit(limit).
 			Scan(&rows).Error
@@ -98,15 +102,14 @@ func statsTopContentHandler(svc *service.Container) gin.HandlerFunc {
 		for _, r := range rows {
 			ids = append(ids, r.MediaID)
 		}
-		mIdx := map[string]model.Media{}
+		mIdx := map[string]model.MediaView{}
 		if len(ids) > 0 {
-			var media []model.Media
-			_ = svc.Repo.DB.Where("id IN ?", ids).Find(&media).Error
-			visibility := mediaVisibilityForRequest(c, svc)
+			media, _ := svc.Repo.MediaView.FindByIDs(c.Request.Context(), ids, repository.MediaQueryFilter{
+				IncludeNSFW:       visibility.IncludeNSFW,
+				AllowedLibraryIDs: visibility.AllowedLibraryIDs,
+				HiddenLibraryIDs:  visibility.HiddenLibraryIDs,
+			})
 			for _, m := range media {
-				if !visibility.Allows(&m) {
-					continue
-				}
 				mIdx[m.ID] = m
 			}
 		}

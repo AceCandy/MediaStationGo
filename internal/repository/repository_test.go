@@ -13,6 +13,33 @@ import (
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 )
 
+func createTestMetadata(t *testing.T, repos *Container, item model.MetadataItem, identifiers ...model.MetadataIdentifier) *model.MetadataItem {
+	t.Helper()
+	if err := repos.Metadata.Create(t.Context(), &item, identifiers); err != nil {
+		t.Fatalf("create metadata: %v", err)
+	}
+	return &item
+}
+
+func TestValidateMetadataItemIdentity(t *testing.T) {
+	parentID := "series-1"
+	for name, item := range map[string]*model.MetadataItem{
+		"episode without parent":      {Kind: model.MetadataKindEpisode, SeasonNum: 1, EpisodeNum: 1},
+		"episode without number":      {Kind: model.MetadataKindEpisode, ParentID: &parentID, SeasonNum: 1},
+		"movie with episode identity": {Kind: model.MetadataKindMovie, SeasonNum: 1, EpisodeNum: 1},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := validateMetadataItem(item); err == nil {
+				t.Fatal("expected invalid metadata identity to be rejected")
+			}
+		})
+	}
+	valid := &model.MetadataItem{Kind: model.MetadataKindEpisode, ParentID: &parentID, SeasonNum: 0, EpisodeNum: 1}
+	if err := validateMetadataItem(valid); err != nil {
+		t.Fatalf("valid special episode rejected: %v", err)
+	}
+}
+
 func TestMediaUpsertSkipsUnchangedExistingRow(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	if err != nil {
@@ -137,33 +164,51 @@ func TestMediaUpsertMatchedIncomingRefreshesScrapedMetadata(t *testing.T) {
 		Title:        "扫描标题",
 		Path:         path,
 		ScrapeStatus: "no_match",
-		PosterURL:    "/old-poster.jpg",
 	}
 	if err := repos.Media.Upsert(t.Context(), &existing); err != nil {
+		t.Fatal(err)
+	}
+	series := createTestMetadata(t, repos, model.MetadataItem{
+		Base: model.Base{ID: "metadata-series-1"}, Kind: model.MetadataKindSeries,
+		Title: "中文剧名", OriginalName: "Original Show", Source: "tmdb",
+	},
+		model.MetadataIdentifier{Provider: "tmdb", EntityKind: model.MetadataKindSeries, ExternalID: "123"},
+		model.MetadataIdentifier{Provider: "bangumi", EntityKind: model.MetadataKindSeries, ExternalID: "456"},
+		model.MetadataIdentifier{Provider: "douban", EntityKind: model.MetadataKindSeries, ExternalID: "db-1"},
+		model.MetadataIdentifier{Provider: "thetvdb", EntityKind: model.MetadataKindSeries, ExternalID: "tvdb-1"},
+	)
+	season := createTestMetadata(t, repos, model.MetadataItem{
+		Base: model.Base{ID: "metadata-season-1"}, Kind: model.MetadataKindSeason, ParentID: &series.ID,
+		Title: "第一季", SeasonNum: 1, Source: "tmdb",
+	})
+	episode := createTestMetadata(t, repos, model.MetadataItem{
+		Base: model.Base{ID: "metadata-episode-1"}, Kind: model.MetadataKindEpisode, ParentID: &season.ID,
+		Title: "中文剧名", OriginalName: "Original Show", EpisodeTitle: "第一集", Overview: "剧情简介",
+		Rating: 8.6, Year: 2026, EpisodeNum: 1, Languages: "zh,en", Countries: "CN",
+		Genres: "剧情,悬疑", NSFW: true, Source: "tmdb",
+	})
+	assets := []model.ArtworkAsset{
+		{Base: model.Base{ID: "asset-poster-1"}, SHA256: "poster-hash-1", StorageKey: "sha256/po/poster.jpg", MimeType: "image/jpeg"},
+		{Base: model.Base{ID: "asset-backdrop-1"}, SHA256: "backdrop-hash-1", StorageKey: "sha256/ba/backdrop.jpg", MimeType: "image/jpeg"},
+	}
+	if err := repos.DB.Create(&assets).Error; err != nil {
+		t.Fatal(err)
+	}
+	artworks := []model.MetadataArtwork{
+		{MetadataID: episode.ID, AssetID: assets[0].ID, ArtworkType: model.ArtworkTypePoster},
+		{MetadataID: episode.ID, AssetID: assets[1].ID, ArtworkType: model.ArtworkTypeBackdrop},
+	}
+	if err := repos.DB.Create(&artworks).Error; err != nil {
 		t.Fatal(err)
 	}
 	incoming := model.Media{
 		LibraryID:    lib.ID,
 		Title:        "中文剧名",
-		OriginalName: "Original Show",
-		EpisodeTitle: "第一集",
 		Path:         path,
-		PosterURL:    "/poster.jpg",
-		BackdropURL:  "/backdrop.jpg",
-		Overview:     "剧情简介",
-		Rating:       8.6,
-		Year:         2026,
 		SeasonNum:    1,
 		EpisodeNum:   1,
 		ScrapeStatus: "matched",
-		TMDbID:       123,
-		BangumiID:    456,
-		DoubanID:     "db-1",
-		TheTVDBID:    "tvdb-1",
-		Languages:    "zh,en",
-		Countries:    "CN",
-		Genres:       "剧情,悬疑",
-		NSFW:         true,
+		MetadataID:   episode.ID,
 	}
 	if err := repos.Media.Upsert(t.Context(), &incoming); err != nil {
 		t.Fatal(err)
@@ -172,17 +217,24 @@ func TestMediaUpsertMatchedIncomingRefreshesScrapedMetadata(t *testing.T) {
 	if err := repos.DB.Where("path = ?", path).First(&got).Error; err != nil {
 		t.Fatal(err)
 	}
-	if got.Title != "中文剧名" || got.OriginalName != "Original Show" || got.EpisodeTitle != "第一集" {
-		t.Fatalf("matched names not refreshed: %#v", got)
+	if got.MetadataID != episode.ID || got.ScrapeStatus != "matched" || got.SeasonNum != 1 || got.EpisodeNum != 1 {
+		t.Fatalf("matched metadata link not refreshed: %#v", got)
 	}
-	if got.PosterURL != "/poster.jpg" || got.BackdropURL != "/backdrop.jpg" || got.Overview != "剧情简介" {
-		t.Fatalf("matched artwork/overview not refreshed: %#v", got)
+	view, err := repos.MediaView.FindByID(t.Context(), got.ID)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if got.ScrapeStatus != "matched" || got.TMDbID != 123 || got.BangumiID != 456 || got.DoubanID != "db-1" || got.TheTVDBID != "tvdb-1" {
-		t.Fatalf("matched provider metadata not refreshed: %#v", got)
+	if view == nil || view.Title != "中文剧名" || view.OriginalName != "Original Show" || view.EpisodeTitle != "第一集" || view.Overview != "剧情简介" {
+		t.Fatalf("shared names/overview not projected: %#v", view)
 	}
-	if got.Year != 2026 || got.SeasonNum != 1 || got.EpisodeNum != 1 || got.Rating != 8.6 || got.Languages != "zh,en" || got.Countries != "CN" || got.Genres != "剧情,悬疑" || !got.NSFW {
-		t.Fatalf("matched detail metadata not refreshed: %#v", got)
+	if view.PosterURL != "/api/artwork/asset-poster-1" || view.BackdropURL != "/api/artwork/asset-backdrop-1" {
+		t.Fatalf("shared artwork not projected: %#v", view)
+	}
+	if view.TMDbID != 123 || view.BangumiID != 456 || view.DoubanID != "db-1" || view.TheTVDBID != "tvdb-1" {
+		t.Fatalf("shared provider identifiers not projected: %#v", view)
+	}
+	if view.Year != 2026 || view.SeasonNum != 1 || view.EpisodeNum != 1 || view.Rating != 8.6 || view.Languages != "zh,en" || view.Countries != "CN" || view.Genres != "剧情,悬疑" || !view.NSFW {
+		t.Fatalf("shared detail metadata not projected: %#v", view)
 	}
 }
 
@@ -199,13 +251,21 @@ func TestListByLibraryOrdersByReleaseDate(t *testing.T) {
 	if err := repos.Library.Create(t.Context(), &lib); err != nil {
 		t.Fatal(err)
 	}
-	rows := []model.Media{
-		{LibraryID: lib.ID, Title: "旧片但最近更新", Path: "/media/tv/old.mkv", Year: 2026, ReleaseDate: "2026-01-10", ScrapeStatus: "matched"},
-		{LibraryID: lib.ID, Title: "最新首播", Path: "/media/tv/newest.mkv", Year: 2026, ReleaseDate: "2026-06-23", ScrapeStatus: "matched"},
-		{LibraryID: lib.ID, Title: "无完整日期", Path: "/media/tv/year-only.mkv", Year: 2025, ScrapeStatus: "matched"},
+	testRows := []struct {
+		id, title, path, releaseDate string
+		year                         int
+	}{
+		{"metadata-list-old", "旧片但最近更新", "/media/tv/old.mkv", "2026-01-10", 2026},
+		{"metadata-list-newest", "最新首播", "/media/tv/newest.mkv", "2026-06-23", 2026},
+		{"metadata-list-year", "无完整日期", "/media/tv/year-only.mkv", "", 2025},
 	}
-	for i := range rows {
-		if err := repos.Media.Upsert(t.Context(), &rows[i]); err != nil {
+	for _, row := range testRows {
+		metadata := createTestMetadata(t, repos, model.MetadataItem{
+			Base: model.Base{ID: row.id}, Kind: model.MetadataKindSeries, Title: row.title,
+			Year: row.year, ReleaseDate: row.releaseDate, Source: "tmdb",
+		})
+		media := model.Media{LibraryID: lib.ID, MetadataID: metadata.ID, Title: row.title, Path: row.path, Year: row.year, ScrapeStatus: "matched"}
+		if err := repos.Media.Upsert(t.Context(), &media); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -236,22 +296,33 @@ func TestMediaUpsertScanDoesNotClearMatchedMetadata(t *testing.T) {
 		t.Fatal(err)
 	}
 	path := "/media/tv/间谍过家家/Season 01/间谍过家家 - S01E01.mkv"
+	series := createTestMetadata(t, repos, model.MetadataItem{
+		Base: model.Base{ID: "metadata-spy-series"}, Kind: model.MetadataKindSeries,
+		Title: "间谍过家家", OriginalName: "SPY×FAMILY", Overview: "剧情简介", Year: 2022, Source: "tmdb",
+	},
+		model.MetadataIdentifier{Provider: "tmdb", EntityKind: model.MetadataKindSeries, ExternalID: "12345"},
+		model.MetadataIdentifier{Provider: "bangumi", EntityKind: model.MetadataKindSeries, ExternalID: "67890"},
+		model.MetadataIdentifier{Provider: "douban", EntityKind: model.MetadataKindSeries, ExternalID: "db-spy"},
+		model.MetadataIdentifier{Provider: "thetvdb", EntityKind: model.MetadataKindSeries, ExternalID: "tvdb-spy"},
+	)
+	season := createTestMetadata(t, repos, model.MetadataItem{
+		Base: model.Base{ID: "metadata-spy-season"}, Kind: model.MetadataKindSeason, ParentID: &series.ID,
+		Title: "第一季", SeasonNum: 1, Source: "tmdb",
+	})
+	episode := createTestMetadata(t, repos, model.MetadataItem{
+		Base: model.Base{ID: "metadata-spy-episode"}, Kind: model.MetadataKindEpisode, ParentID: &season.ID,
+		Title: "间谍过家家", OriginalName: "SPY×FAMILY", Overview: "剧情简介", Year: 2022,
+		EpisodeNum: 1, Source: "tmdb",
+	})
 	existing := model.Media{
 		LibraryID:    lib.ID,
+		MetadataID:   episode.ID,
 		Title:        "间谍过家家",
-		OriginalName: "SPY×FAMILY",
 		Path:         path,
-		PosterURL:    "/poster.jpg",
-		BackdropURL:  "/backdrop.jpg",
-		Overview:     "剧情简介",
 		Year:         2022,
 		SeasonNum:    1,
 		EpisodeNum:   1,
 		ScrapeStatus: "matched",
-		TMDbID:       12345,
-		BangumiID:    67890,
-		DoubanID:     "db-spy",
-		TheTVDBID:    "tvdb-spy",
 	}
 	if err := repos.Media.Upsert(t.Context(), &existing); err != nil {
 		t.Fatal(err)
@@ -278,19 +349,20 @@ func TestMediaUpsertScanDoesNotClearMatchedMetadata(t *testing.T) {
 	if err := repos.DB.Where("path = ?", path).First(&got).Error; err != nil {
 		t.Fatal(err)
 	}
-	if got.Title != "间谍过家家" || got.OriginalName != "SPY×FAMILY" || got.ScrapeStatus != "matched" {
-		t.Fatalf("matched names/status were overwritten by scan: %#v", got)
-	}
-	if got.TMDbID != 12345 || got.BangumiID != 67890 || got.DoubanID != "db-spy" || got.TheTVDBID != "tvdb-spy" {
-		t.Fatalf("matched provider ids were cleared by scan: %#v", got)
-	}
-	if got.PosterURL != "/poster.jpg" || got.BackdropURL != "/backdrop.jpg" || got.Overview != "剧情简介" {
-		t.Fatalf("matched artwork/overview were overwritten by scan: %#v", got)
+	if got.MetadataID != episode.ID || got.ScrapeStatus != "matched" {
+		t.Fatalf("matched metadata link/status were overwritten by scan: %#v", got)
 	}
 	if got.SizeBytes != 2048 || got.DurationSec != 1500 || got.Width != 1920 || got.Height != 1080 || got.Container != "mkv" {
 		t.Fatalf("file scan fields were not refreshed: %#v", got)
 	}
-	if scan.ID != got.ID || scan.Title != got.Title || scan.TMDbID != got.TMDbID || scan.ScrapeStatus != "matched" {
+	view, err := repos.MediaView.FindByID(t.Context(), got.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if view == nil || view.Title != "间谍过家家" || view.OriginalName != "SPY×FAMILY" || view.Overview != "剧情简介" || view.TMDbID != 12345 || view.BangumiID != 67890 || view.DoubanID != "db-spy" || view.TheTVDBID != "tvdb-spy" {
+		t.Fatalf("shared metadata was not preserved after scan: %#v", view)
+	}
+	if scan.ID != got.ID || scan.MetadataID != episode.ID || scan.Title != got.Title || scan.ScrapeStatus != "matched" {
 		t.Fatalf("upsert caller did not receive fresh matched row: %#v want %#v", scan, got)
 	}
 }
@@ -318,12 +390,12 @@ func TestMediaUpsertMigratesCloudLibraryIDOnRescan(t *testing.T) {
 	}
 	path := "cloud://openlist/国漫/成何体统 (2024) {tmdb-256783}/Season 1/成何体统.S01E01.mkv"
 	// 第一次：被父目录库扫描入库。
-	first := model.Media{LibraryID: parent.ID, Title: "成何体统", Path: path, SeasonNum: 1, EpisodeNum: 1}
+	first := model.Media{LibraryID: parent.ID, SeriesID: "local-series", Title: "成何体统", Path: path, SeasonNum: 1, EpisodeNum: 1}
 	if err := repos.Media.Upsert(t.Context(), &first); err != nil {
 		t.Fatal(err)
 	}
 	// 第二次：按二级分类重新挂载并扫描，归入更精确的「国漫」库。
-	second := model.Media{LibraryID: category.ID, Title: "成何体统", Path: path, SeasonNum: 1, EpisodeNum: 1}
+	second := model.Media{LibraryID: category.ID, SeriesID: "local-series", Title: "成何体统", Path: path, SeasonNum: 1, EpisodeNum: 1}
 	if err := repos.Media.Upsert(t.Context(), &second); err != nil {
 		t.Fatal(err)
 	}
@@ -389,6 +461,8 @@ func TestMediaSearchUsesExternalBackendAndFallsBack(t *testing.T) {
 		{Base: model.Base{ID: "m-1"}, LibraryID: lib.ID, Title: "Alpha", Path: "/media/a.mkv"},
 		{Base: model.Base{ID: "m-2"}, LibraryID: lib.ID, Title: "Beta", Path: "/media/b.mkv"},
 	} {
+		metadata := createTestMetadata(t, repos, model.MetadataItem{Kind: model.MetadataKindMovie, Title: row.Title, Source: "local"})
+		row.MetadataID = metadata.ID
 		if err := repos.DB.Create(&row).Error; err != nil {
 			t.Fatal(err)
 		}
@@ -425,26 +499,22 @@ func TestMediaSearchFilteredSupportsChineseFuzzyTerms(t *testing.T) {
 	if err := repos.Library.Create(t.Context(), &lib); err != nil {
 		t.Fatalf("create library: %v", err)
 	}
-	rows := []model.Media{
-		{
-			Base:         model.Base{ID: "m-ferry"},
-			LibraryID:    lib.ID,
-			Title:        "灵魂摆渡·十年",
-			OriginalName: "The Ferry Man 10th Anniversary",
-			Path:         "/media/国产剧/灵魂摆渡·十年/S01E01.mkv",
-			Genres:       "悬疑,奇幻",
-		},
-		{
-			Base:         model.Base{ID: "m-ashes"},
-			LibraryID:    lib.ID,
-			Title:        "翘楚",
-			OriginalName: "Ashes to Crown",
-			Path:         "/media/国产剧/翘楚/S01E01.mkv",
-			Genres:       "剧情",
-		},
+	testRows := []struct {
+		mediaID, metadataID, title, originalName, path, genres string
+	}{
+		{"m-ferry", "metadata-ferry", "灵魂摆渡·十年", "The Ferry Man 10th Anniversary", "/media/国产剧/灵魂摆渡·十年/S01E01.mkv", "悬疑,奇幻"},
+		{"m-ashes", "metadata-ashes", "翘楚", "Ashes to Crown", "/media/国产剧/翘楚/S01E01.mkv", "剧情"},
 	}
-	for i := range rows {
-		if err := repos.Media.Upsert(t.Context(), &rows[i]); err != nil {
+	for _, row := range testRows {
+		metadata := createTestMetadata(t, repos, model.MetadataItem{
+			Base: model.Base{ID: row.metadataID}, Kind: model.MetadataKindSeries,
+			Title: row.title, OriginalName: row.originalName, Genres: row.genres, Source: "tmdb",
+		})
+		media := model.Media{
+			Base: model.Base{ID: row.mediaID}, LibraryID: lib.ID, MetadataID: metadata.ID,
+			Title: row.title, Path: row.path, ScrapeStatus: "matched",
+		}
+		if err := repos.Media.Upsert(t.Context(), &media); err != nil {
 			t.Fatalf("upsert media: %v", err)
 		}
 	}
@@ -487,11 +557,13 @@ func TestMediaSearchIndexBackfillRunsInBatches(t *testing.T) {
 	if err := repos.Library.Create(t.Context(), &lib); err != nil {
 		t.Fatal(err)
 	}
+	metadata := createTestMetadata(t, repos, model.MetadataItem{
+		Base: model.Base{ID: "metadata-backfill"}, Kind: model.MetadataKindMovie,
+		Title: "后台索引", Source: "tmdb",
+	})
 	if err := repos.DB.Create(&model.Media{
-		Base:      model.Base{ID: "m-backfill"},
-		LibraryID: lib.ID,
-		Title:     "后台索引",
-		Path:      "/media/movie/后台索引.mkv",
+		Base: model.Base{ID: "m-backfill"}, LibraryID: lib.ID, MetadataID: metadata.ID,
+		Title: "后台索引", Path: "/media/movie/后台索引.mkv", ScrapeStatus: "matched",
 	}).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -501,7 +573,7 @@ func TestMediaSearchIndexBackfillRunsInBatches(t *testing.T) {
 		t.Fatal(err)
 	}
 	if indexed != 1 {
-		t.Fatalf("insert trigger should index new media, got %d rows", indexed)
+		t.Fatalf("insert trigger should index new metadata, got %d rows", indexed)
 	}
 	// 清空 FTS 模拟旧库升级后索引缺失，回填应按批补齐且 rowid 对齐。
 	if err := repos.DB.Exec(`DELETE FROM media_search_fts`).Error; err != nil {
@@ -515,14 +587,14 @@ func TestMediaSearchIndexBackfillRunsInBatches(t *testing.T) {
 		t.Fatalf("backfilled rows = %d, want 1", n)
 	}
 	var aligned int64
-	if err := repos.DB.Raw(`SELECT COUNT(*) FROM media_search_fts f JOIN media m ON f.rowid = m.rowid AND f.media_id = m.id`).Scan(&aligned).Error; err != nil {
+	if err := repos.DB.Raw(`SELECT COUNT(*) FROM media_search_fts f JOIN metadata_items mi ON f.rowid = mi.rowid AND f.metadata_id = mi.id`).Scan(&aligned).Error; err != nil {
 		t.Fatal(err)
 	}
 	if aligned != 1 {
-		t.Fatalf("fts rows aligned with media rowid = %d, want 1", aligned)
+		t.Fatalf("fts rows aligned with metadata rowid = %d, want 1", aligned)
 	}
-	// 软删除后触发器应清理对应 FTS 行，避免搜索命中已删媒体。
-	if err := repos.DB.Delete(&model.Media{}, "id = ?", "m-backfill").Error; err != nil {
+	// 共享元数据软删除后，触发器应清理对应 FTS 行。
+	if err := repos.DB.Delete(&model.MetadataItem{}, "id = ?", metadata.ID).Error; err != nil {
 		t.Fatal(err)
 	}
 	var after int64
@@ -530,6 +602,6 @@ func TestMediaSearchIndexBackfillRunsInBatches(t *testing.T) {
 		t.Fatal(err)
 	}
 	if after != 0 {
-		t.Fatalf("soft delete should drop fts row, got %d", after)
+		t.Fatalf("metadata soft delete should drop fts row, got %d", after)
 	}
 }

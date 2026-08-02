@@ -10,7 +10,6 @@ type scanDerivedMetadata struct {
 	Title        string
 	ScrapeStatus string
 	Year         int
-	ReleaseDate  string
 	TMDbID       int
 	BangumiID    int
 	DoubanID     string
@@ -20,76 +19,7 @@ type scanDerivedMetadata struct {
 }
 
 func cloudMetadataNeedsRefresh(existing existingCloudMedia, localMeta *LocalMetadata) bool {
-	if localMeta == nil {
-		return false
-	}
-	if localMeta.PathHint && !localMeta.HasNFO && !localMeta.HasArtwork {
-		return cloudPathHintNeedsRefresh(existing, localMeta)
-	}
-	if localMetadataMarksMatched(localMeta) && strings.TrimSpace(existing.ScrapeStatus) != "matched" {
-		return true
-	}
-	if localMeta.Title != "" && strings.TrimSpace(existing.Title) != strings.TrimSpace(localMeta.Title) {
-		return true
-	}
-	if localMeta.OriginalName != "" && strings.TrimSpace(existing.OriginalName) != strings.TrimSpace(localMeta.OriginalName) {
-		return true
-	}
-	if localMeta.EpisodeTitle != "" && strings.TrimSpace(existing.EpisodeTitle) != strings.TrimSpace(localMeta.EpisodeTitle) {
-		return true
-	}
-	if localMeta.AdultCode != "" && !strings.EqualFold(strings.TrimSpace(existing.OriginalName), strings.TrimSpace(localMeta.AdultCode)) {
-		return true
-	}
-	if localMeta.Year > 0 && existing.Year != localMeta.Year {
-		return true
-	}
-	if localMeta.ReleaseDate != "" && strings.TrimSpace(existing.ReleaseDate) != strings.TrimSpace(localMeta.ReleaseDate) {
-		return true
-	}
-	if localMeta.Overview != "" && strings.TrimSpace(existing.Overview) != strings.TrimSpace(localMeta.Overview) {
-		return true
-	}
-	if localMeta.Rating > 0 && existing.Rating != localMeta.Rating {
-		return true
-	}
-	if localMeta.TMDbID > 0 && existing.TMDbID != localMeta.TMDbID {
-		return true
-	}
-	if localMeta.BangumiID > 0 && existing.BangumiID != localMeta.BangumiID {
-		return true
-	}
-	if strings.TrimSpace(localMeta.DoubanID) != "" && strings.TrimSpace(existing.DoubanID) != strings.TrimSpace(localMeta.DoubanID) {
-		return true
-	}
-	if strings.TrimSpace(localMeta.TheTVDBID) != "" && strings.TrimSpace(existing.TheTVDBID) != strings.TrimSpace(localMeta.TheTVDBID) {
-		return true
-	}
-	if strings.TrimSpace(localMeta.PosterURL) != "" && strings.TrimSpace(existing.PosterURL) != strings.TrimSpace(localMeta.PosterURL) {
-		return true
-	}
-	if strings.TrimSpace(localMeta.BackdropURL) != "" && strings.TrimSpace(existing.BackdropURL) != strings.TrimSpace(localMeta.BackdropURL) {
-		return true
-	}
-	if (localMeta.SeasonNum > 0 || localMeta.EpisodeNum > 0) && existing.SeasonNum != localMeta.SeasonNum {
-		return true
-	}
-	if localMeta.EpisodeNum > 0 && existing.EpisodeNum != localMeta.EpisodeNum {
-		return true
-	}
-	if localMeta.Genres != "" && strings.TrimSpace(existing.Genres) != strings.TrimSpace(localMeta.Genres) {
-		return true
-	}
-	if localMeta.Countries != "" && strings.TrimSpace(existing.Countries) != strings.TrimSpace(localMeta.Countries) {
-		return true
-	}
-	if localMeta.Languages != "" && strings.TrimSpace(existing.Languages) != strings.TrimSpace(localMeta.Languages) {
-		return true
-	}
-	if localMeta.NSFW && !existing.NSFW {
-		return true
-	}
-	return false
+	return existing.LocalMetadataHint != encodeLocalMetadataHint(localMeta)
 }
 
 func cloudPathHintNeedsRefresh(existing existingCloudMedia, localMeta *LocalMetadata) bool {
@@ -114,41 +44,11 @@ func cloudTrackMetadataMissing(existing existingCloudMedia) bool {
 }
 
 func localMetadataNeedsRefresh(existing existingLocalMedia, local *LocalMetadata) bool {
+	if existing.LocalMetadataHint != encodeLocalMetadataHint(local) {
+		return true
+	}
 	if local == nil {
 		return false
-	}
-	if localMetadataMarksMatched(local) && strings.TrimSpace(existing.ScrapeStatus) != "matched" {
-		return true
-	}
-	if local.Title != "" && strings.TrimSpace(existing.Title) != strings.TrimSpace(local.Title) {
-		return true
-	}
-	if local.OriginalName != "" && strings.TrimSpace(existing.OriginalName) != strings.TrimSpace(local.OriginalName) {
-		return true
-	}
-	if local.EpisodeTitle != "" && strings.TrimSpace(existing.EpisodeTitle) != strings.TrimSpace(local.EpisodeTitle) {
-		return true
-	}
-	if local.AdultCode != "" && !strings.EqualFold(strings.TrimSpace(existing.OriginalName), strings.TrimSpace(local.AdultCode)) {
-		return true
-	}
-	if local.Year > 0 && existing.Year != local.Year {
-		return true
-	}
-	if local.ReleaseDate != "" && strings.TrimSpace(existing.ReleaseDate) != strings.TrimSpace(local.ReleaseDate) {
-		return true
-	}
-	if local.Overview != "" && strings.TrimSpace(existing.Overview) != strings.TrimSpace(local.Overview) {
-		return true
-	}
-	if local.Rating > 0 && existing.Rating != local.Rating {
-		return true
-	}
-	if local.PosterURL != "" && strings.TrimSpace(existing.PosterURL) != strings.TrimSpace(local.PosterURL) {
-		return true
-	}
-	if local.BackdropURL != "" && strings.TrimSpace(existing.BackdropURL) != strings.TrimSpace(local.BackdropURL) {
-		return true
 	}
 	if local.TMDbID > 0 && existing.TMDbID != local.TMDbID {
 		return true
@@ -168,16 +68,7 @@ func localMetadataNeedsRefresh(existing existingLocalMedia, local *LocalMetadata
 	if local.EpisodeNum > 0 && existing.EpisodeNum != local.EpisodeNum {
 		return true
 	}
-	if local.Genres != "" && strings.TrimSpace(existing.Genres) != strings.TrimSpace(local.Genres) {
-		return true
-	}
-	if local.Countries != "" && strings.TrimSpace(existing.Countries) != strings.TrimSpace(local.Countries) {
-		return true
-	}
-	if local.Languages != "" && strings.TrimSpace(existing.Languages) != strings.TrimSpace(local.Languages) {
-		return true
-	}
-	return local.NSFW && !existing.NSFW
+	return false
 }
 
 func cloudDerivedMetadataNeedsRefresh(existing existingCloudMedia, incoming *model.Media) bool {
@@ -188,7 +79,6 @@ func cloudDerivedMetadataNeedsRefresh(existing existingCloudMedia, incoming *mod
 		Title:        existing.Title,
 		ScrapeStatus: existing.ScrapeStatus,
 		Year:         existing.Year,
-		ReleaseDate:  existing.ReleaseDate,
 		TMDbID:       existing.TMDbID,
 		BangumiID:    existing.BangumiID,
 		DoubanID:     existing.DoubanID,
@@ -212,7 +102,6 @@ func localDerivedMetadataNeedsRefresh(existing existingLocalMedia, incoming *mod
 		Title:        existing.Title,
 		ScrapeStatus: existing.ScrapeStatus,
 		Year:         existing.Year,
-		ReleaseDate:  existing.ReleaseDate,
 		TMDbID:       existing.TMDbID,
 		BangumiID:    existing.BangumiID,
 		DoubanID:     existing.DoubanID,
@@ -229,9 +118,6 @@ func scanDerivedMetadataNeedsRefresh(existing scanDerivedMetadata, incoming *mod
 		return true
 	}
 	if enrichable && incoming.Year > 0 && existing.Year != incoming.Year {
-		return true
-	}
-	if enrichable && incoming.ReleaseDate != "" && strings.TrimSpace(existing.ReleaseDate) != strings.TrimSpace(incoming.ReleaseDate) {
 		return true
 	}
 	if (incoming.SeasonNum > 0 || incoming.EpisodeNum > 0) && existing.SeasonNum != incoming.SeasonNum {

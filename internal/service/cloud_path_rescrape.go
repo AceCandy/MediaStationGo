@@ -11,13 +11,12 @@ import (
 
 // RepairAndRescrapeResult 汇总一次「全库修复+重刮」的结果。
 type RepairAndRescrapeResult struct {
-	Repaired     int `json:"repaired"`     // 从路径占位符回填外部 ID 的媒体数
-	Reclassified int `json:"reclassified"` // 按元数据纠偏到正确分类/媒体库的媒体数
-	Libraries    int `json:"libraries"`    // 参与重刮的媒体库数
-	Matched      int `json:"matched"`      // 重刮后成功匹配的媒体数
-	Processed    int `json:"processed"`    // 实际完成刮削处理的媒体数
-	Errors       int `json:"errors"`       // 单条媒体刮削失败数
-	Reset        int `json:"reset"`        // 被重置为 pending 以便重刮的剧集行数
+	Repaired  int `json:"repaired"`  // 从路径占位符回填外部 ID 的媒体数
+	Libraries int `json:"libraries"` // 参与重刮的媒体库数
+	Matched   int `json:"matched"`   // 重刮后成功匹配的媒体数
+	Processed int `json:"processed"` // 实际完成刮削处理的媒体数
+	Errors    int `json:"errors"`    // 单条媒体刮削失败数
+	Reset     int `json:"reset"`     // 被重置为 pending 以便重刮的剧集行数
 }
 
 // resetEpisodicMatchedForRescrape 把剧集类(有季集号)且已 matched 的行重置为
@@ -122,20 +121,9 @@ func (c *Container) RepairAndRescrapeAllLibraries(ctx context.Context, options .
 		result.Processed += scrapeResult.Processed
 		result.Errors += scrapeResult.Failed
 	}
-	if c.Organizer != nil {
-		reclassifyResult, err := c.Organizer.ReclassifyMisclassifiedMedia(ctx, MediaCategoryReclassifyOptions{})
-		if err != nil {
-			return result, err
-		}
-		if reclassifyResult != nil {
-			result.Reclassified = reclassifyResult.Reclassified
-			result.Errors += len(reclassifyResult.Errors)
-		}
-	}
 	if c.Log != nil {
 		c.Log.Info("repair and rescrape all libraries done",
 			zap.Int("repaired", result.Repaired),
-			zap.Int("reclassified", result.Reclassified),
 			zap.Int("libraries", result.Libraries),
 			zap.Int("matched", result.Matched),
 			zap.Int("processed", result.Processed),
@@ -183,21 +171,10 @@ func (c *Container) RepairAndRescrapeLibrary(ctx context.Context, libraryID stri
 	result.Matched = scrapeResult.Matched
 	result.Processed = scrapeResult.Processed
 	result.Errors = scrapeResult.Failed
-	if c.Organizer != nil {
-		reclassifyResult, err := c.Organizer.ReclassifyMisclassifiedMedia(ctx, MediaCategoryReclassifyOptions{LibraryIDs: libraryIDs})
-		if err != nil {
-			return result, err
-		}
-		if reclassifyResult != nil {
-			result.Reclassified = reclassifyResult.Reclassified
-			result.Errors += len(reclassifyResult.Errors)
-		}
-	}
 	if c.Log != nil {
 		c.Log.Info("repair and rescrape library done",
 			zap.String("library", libraryID),
 			zap.Int("repaired", result.Repaired),
-			zap.Int("reclassified", result.Reclassified),
 			zap.Int("matched", result.Matched),
 			zap.Int("processed", result.Processed),
 			zap.Int("errors", result.Errors))

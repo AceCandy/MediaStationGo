@@ -3,7 +3,6 @@ package repository
 import (
 	"context"
 	"errors"
-	"sync"
 
 	"gorm.io/gorm"
 
@@ -12,11 +11,8 @@ import (
 
 // MediaRepository persists model.Media records.
 type MediaRepository struct {
-	db *gorm.DB
-
-	searchIndexOnce      sync.Once
-	searchIndexAvailable bool
-	searchBackend        MediaSearchBackend
+	db   *gorm.DB
+	view *MediaViewRepository
 }
 
 type MediaSearchBackend interface {
@@ -26,12 +22,12 @@ type MediaSearchBackend interface {
 type MediaSearchSyncBackend interface {
 	MediaSearchBackend
 	EnsureIndex(ctx context.Context) error
-	IndexMedia(ctx context.Context, rows []model.Media) error
+	IndexMedia(ctx context.Context, rows []model.MediaView) error
 }
 
 func (r *MediaRepository) SetSearchBackend(backend MediaSearchBackend) {
-	if r != nil {
-		r.searchBackend = backend
+	if r != nil && r.viewRepository() != nil {
+		r.viewRepository().SetSearchBackend(backend)
 	}
 }
 
@@ -43,25 +39,22 @@ type MediaQueryFilter struct {
 	HiddenLibraryIDs  []string
 }
 
-func applyMediaQueryFilter(q *gorm.DB, filter MediaQueryFilter) *gorm.DB {
-	if !filter.IncludeNSFW {
-		q = q.Where("nsfw = ?", false)
-	}
-	if len(filter.HiddenLibraryIDs) > 0 {
-		q = q.Where("library_id NOT IN ?", filter.HiddenLibraryIDs)
-	}
-	if len(filter.AllowedLibraryIDs) > 0 {
-		q = q.Where("library_id IN ?", filter.AllowedLibraryIDs)
-	}
-	return q
-}
-
 func (r *MediaRepository) indexMediaBestEffort(ctx context.Context, media model.Media) {
-	backend, ok := r.searchBackend.(MediaSearchSyncBackend)
-	if !ok {
+	viewRepo := r.viewRepository()
+	if viewRepo == nil {
 		return
 	}
-	_ = backend.IndexMedia(ctx, []model.Media{media})
+	viewRepo.indexMediaIDsBestEffort(ctx, []string{media.ID})
+}
+
+func (r *MediaRepository) viewRepository() *MediaViewRepository {
+	if r == nil || r.db == nil {
+		return nil
+	}
+	if r.view == nil {
+		r.view = &MediaViewRepository{db: r.db}
+	}
+	return r.view
 }
 
 // FindByID returns the media row or (nil, nil).
@@ -87,31 +80,11 @@ func (r *MediaRepository) ListByLibraryFiltered(ctx context.Context, libraryID s
 }
 
 func (r *MediaRepository) ListByLibrariesFiltered(ctx context.Context, libraryIDs []string, offset, limit int, filter MediaQueryFilter) ([]model.Media, int64, error) {
-	var items []model.Media
-	var total int64
-	if len(libraryIDs) == 0 {
-		return items, 0, nil
-	}
-	q := r.db.WithContext(ctx).Model(&model.Media{})
-	if len(libraryIDs) == 1 {
-		q = q.Where("library_id = ?", libraryIDs[0])
-	} else {
-		q = q.Where("library_id IN ?", libraryIDs)
-	}
-	q = applyMediaQueryFilter(q, filter)
-	if err := q.Count(&total).Error; err != nil {
+	views, total, err := r.viewRepository().ListByLibrariesFiltered(ctx, libraryIDs, offset, limit, filter)
+	if err != nil {
 		return nil, 0, err
 	}
-	// 多级排序消除"随机"观感:
-	//  1. release_date desc — 精确上映/首播日期新→旧
-	//  2. year desc         — 老数据没有完整日期时仍按年份新→旧
-	//  3. updated_at desc   — 同日期/同年按最近更新兜底
-	//  4. created_at desc   — 再按入库时间
-	//  5. id desc           — 稳定 tie-breaker:云盘批量扫描同批 created_at 相同时,
-	//                        没有它 DB 返回顺序不确定,正是"随机排序"的根因。
-	err := q.Order("release_date DESC, year DESC, updated_at DESC, created_at DESC, id DESC").
-		Offset(offset).Limit(limit).Find(&items).Error
-	return items, total, err
+	return mediaViewsToMedia(views), total, nil
 }
 
 // DeleteByLibrary purges all media tied to a library.

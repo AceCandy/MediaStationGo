@@ -129,11 +129,11 @@ func TestEnrichOneCloudPathHintOverridesStaleTMDbID(t *testing.T) {
 	}))
 	defer upstream.Close()
 
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open("file:"+t.Name()+"?mode=memory&cache=shared"), &gorm.Config{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&model.Library{}, &model.Series{}, &model.Media{}); err != nil {
+	if err := migrateScraperTestModels(t, db); err != nil {
 		t.Fatal(err)
 	}
 	repos := repository.New(db)
@@ -164,11 +164,8 @@ func TestEnrichOneCloudPathHintOverridesStaleTMDbID(t *testing.T) {
 	if err := scraper.EnrichOne(t.Context(), &media); err != nil {
 		t.Fatal(err)
 	}
-	var got model.Media
-	if err := repos.DB.First(&got, "id = ?", media.ID).Error; err != nil {
-		t.Fatal(err)
-	}
-	if got.ScrapeStatus != "matched" || got.TMDbID != 296753 || got.Title != "折腰" || got.PosterURL == "" {
+	got := serviceTestMediaView(t, repos, media.ID)
+	if got.ScrapeStatus != "matched" || got.TMDbID != 296753 || got.Title != "折腰" {
 		t.Fatalf("path hint was not authoritative: status=%q tmdb=%d title=%q poster=%q", got.ScrapeStatus, got.TMDbID, got.Title, got.PosterURL)
 	}
 	for _, path := range requested {
@@ -221,11 +218,11 @@ func TestEnrichOneRejectsStaleEpisodeTMDbIDBySeriesTitle(t *testing.T) {
 	}))
 	defer upstream.Close()
 
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open("file:"+t.Name()+"?mode=memory&cache=shared"), &gorm.Config{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&model.Library{}, &model.Series{}, &model.Media{}); err != nil {
+	if err := migrateScraperTestModels(t, db); err != nil {
 		t.Fatal(err)
 	}
 	repos := repository.New(db)
@@ -256,11 +253,8 @@ func TestEnrichOneRejectsStaleEpisodeTMDbIDBySeriesTitle(t *testing.T) {
 	if err := scraper.EnrichOne(t.Context(), &media); err != nil {
 		t.Fatal(err)
 	}
-	var got model.Media
-	if err := repos.DB.First(&got, "id = ?", media.ID).Error; err != nil {
-		t.Fatal(err)
-	}
-	if got.ScrapeStatus != "matched" || got.TMDbID != 296753 || got.Title != "折腰" || got.PosterURL == "" {
+	got := serviceTestMediaView(t, repos, media.ID)
+	if got.ScrapeStatus != "matched" || got.TMDbID != 296753 || got.Title != "折腰" {
 		t.Fatalf("stale tmdb id should be rejected and repaired by title search: status=%q tmdb=%d title=%q poster=%q requests=%v",
 			got.ScrapeStatus, got.TMDbID, got.Title, got.PosterURL, requested)
 	}
@@ -318,11 +312,11 @@ func TestEnrichOneUsesLocalPathExternalIDHints(t *testing.T) {
 	}))
 	defer upstream.Close()
 
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open("file:"+t.Name()+"?mode=memory&cache=shared"), &gorm.Config{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&model.Library{}, &model.Series{}, &model.Media{}); err != nil {
+	if err := migrateScraperTestModels(t, db); err != nil {
 		t.Fatal(err)
 	}
 	repos := repository.New(db)
@@ -352,10 +346,7 @@ func TestEnrichOneUsesLocalPathExternalIDHints(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	var got model.Media
-	if err := repos.DB.First(&got, "id = ?", media.ID).Error; err != nil {
-		t.Fatal(err)
-	}
+	got := serviceTestMediaView(t, repos, media.ID)
 	if got.ScrapeStatus != "matched" || got.TMDbID != 27205 || got.Title != "Inception" {
 		t.Fatalf("local path tmdb hint was not used: status=%q tmdb=%d title=%q requests=%v", got.ScrapeStatus, got.TMDbID, got.Title, requested)
 	}

@@ -393,7 +393,7 @@ func newPlaybackScopeTestRouter(t *testing.T) (*gin.Engine, *service.Container, 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(
+	if err := migrateMediaHandlerTestDB(db,
 		&model.User{},
 		&model.UserPermission{},
 		&model.RefreshToken{},

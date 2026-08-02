@@ -24,6 +24,11 @@ func (o *OrganizerService) reclassifyCloudScannedMedia(ctx context.Context, medi
 			return false, nil
 		}
 		media = mediaWithReclassifyMatch(media, metadataMatch)
+		if !dryRun {
+			if err := o.persistOrganizerMatch(ctx, &media, &lib, metadataMatch); err != nil {
+				return false, err
+			}
+		}
 	}
 	if matchType := normalizeOrganizeMediaType(metadataMatchMediaType(metadataMatch)); matchType != "" {
 		mediaType = matchType
@@ -71,15 +76,13 @@ func (o *OrganizerService) reclassifyCloudScannedMedia(ctx context.Context, medi
 		return true, nil
 	}
 	updates := map[string]any{
-		"library_id": targetLibrary.ID,
-		"series_id":  "",
+		"library_id":  targetLibrary.ID,
+		"series_hint": "",
 	}
 	if normalizeOrganizeMediaType(mediaType) == "movie" {
 		updates["season_num"] = 0
 		updates["episode_num"] = 0
-		updates["episode_title"] = ""
 	}
-	applyReclassifyMatchUpdates(updates, metadataMatch)
 	if err := o.repo.DB.WithContext(ctx).Model(&model.Media{}).Where("id = ?", media.ID).Updates(updates).Error; err != nil {
 		return false, err
 	}

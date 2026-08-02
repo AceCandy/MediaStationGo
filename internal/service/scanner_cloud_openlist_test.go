@@ -250,8 +250,8 @@ func TestScanCloudLibraryQueuesMissingExistingTrackMetadataBeforeNewFiles(t *tes
 	if err != nil {
 		t.Fatalf("scan cloud: %v", err)
 	}
-	if res.Added != newFiles || res.Skipped != 1 {
-		t.Fatalf("scan result = %#v, want new files added and existing skipped", res)
+	if res.Added != newFiles || res.Updated != 1 || res.Skipped != 0 {
+		t.Fatalf("scan result = %#v, want new files added and existing hint refreshed", res)
 	}
 	foundExistingProbe := false
 	for {

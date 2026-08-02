@@ -25,7 +25,6 @@ type LibrarySeriesDetailSectionProps = {
   onManualScrape: () => void
   onMetadataEdit: () => void
   onProbe: () => void
-  onNFO: () => void
   onOrganize: () => void
   onSoftDelete: () => void
   onSeasonChange: (season: number) => void
@@ -46,7 +45,6 @@ export function LibrarySeriesDetailSection({
   onManualScrape,
   onMetadataEdit,
   onProbe,
-  onNFO,
   onOrganize,
   onSoftDelete,
   onSeasonChange,
@@ -72,7 +70,6 @@ export function LibrarySeriesDetailSection({
             onManualScrape={onManualScrape}
             onMetadataEdit={onMetadataEdit}
             onProbe={onProbe}
-            onNFO={onNFO}
             onOrganize={onOrganize}
             onSoftDelete={onSoftDelete}
           />

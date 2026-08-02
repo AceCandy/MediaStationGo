@@ -5,8 +5,6 @@ import (
 	"strings"
 	"unicode"
 
-	"gorm.io/gorm"
-
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 )
 
@@ -22,125 +20,40 @@ func (r *MediaRepository) SearchFiltered(ctx context.Context, query string, limi
 }
 
 func (r *MediaRepository) SearchFilteredPage(ctx context.Context, query string, offset, limit int, filter MediaQueryFilter) ([]model.Media, int64, error) {
-	query = strings.TrimSpace(query)
-	if limit <= 0 {
-		limit = 50
-	}
-	if query != "" && r.searchBackend != nil {
-		if items, total, ok := r.searchFilteredBackend(ctx, query, offset, limit, filter); ok {
-			return items, total, nil
-		}
-	}
-	if query != "" {
-		if items, total, ok := r.searchFilteredFTS(ctx, query, offset, limit, filter); ok {
-			if total > 0 {
-				return items, total, nil
-			}
-		}
-	}
-	return r.searchFilteredLIKE(ctx, query, offset, limit, filter)
-}
-
-func (r *MediaRepository) searchFilteredBackend(ctx context.Context, query string, offset, limit int, filter MediaQueryFilter) ([]model.Media, int64, bool) {
-	ids, total, err := r.searchBackend.SearchMediaIDs(ctx, query, offset, limit, filter)
+	views, total, err := r.viewRepository().SearchFilteredPage(ctx, query, offset, limit, filter)
 	if err != nil {
-		return nil, 0, false
-	}
-	if len(ids) == 0 {
-		return []model.Media{}, total, true
-	}
-	var rows []model.Media
-	q := r.db.WithContext(ctx).Model(&model.Media{}).Where("id IN ?", ids)
-	q = applyMediaQueryFilter(q, filter)
-	if err := q.Find(&rows).Error; err != nil {
-		return nil, 0, false
-	}
-	byID := make(map[string]model.Media, len(rows))
-	for _, row := range rows {
-		byID[row.ID] = row
-	}
-	items := make([]model.Media, 0, len(ids))
-	for _, id := range ids {
-		if row, ok := byID[id]; ok {
-			items = append(items, row)
-		}
-	}
-	if len(items) == 0 && total > 0 {
-		return nil, 0, false
-	}
-	return items, total, true
-}
-
-func (r *MediaRepository) searchFilteredFTS(ctx context.Context, query string, offset, limit int, filter MediaQueryFilter) ([]model.Media, int64, bool) {
-	if !r.searchIndexEnabled(ctx) {
-		return nil, 0, false
-	}
-	ftsQuery := mediaFTSQuery(query)
-	if ftsQuery == "" {
-		return nil, 0, false
-	}
-	var total int64
-	var items []model.Media
-	q := r.db.WithContext(ctx).
-		Table("media").
-		Joins("JOIN media_search_fts ON media_search_fts.rowid = media.rowid").
-		Where("media.deleted_at IS NULL").
-		Where("media_search_fts MATCH ?", ftsQuery)
-	q = applyQualifiedMediaQueryFilter(q, filter)
-	if err := q.Count(&total).Error; err != nil {
-		return nil, 0, false
-	}
-	if total == 0 {
-		return items, 0, true
-	}
-	err := q.Select("media.*").Order("bm25(media_search_fts), media.created_at DESC").Offset(offset).Limit(limit).Find(&items).Error
-	if err != nil {
-		return nil, 0, false
-	}
-	return items, total, true
-}
-
-func (r *MediaRepository) searchFilteredLIKE(ctx context.Context, query string, offset, limit int, filter MediaQueryFilter) ([]model.Media, int64, error) {
-	var items []model.Media
-	var total int64
-	q := r.db.WithContext(ctx).Model(&model.Media{})
-	q = applyMediaQueryFilter(q, filter)
-	terms := mediaSearchTerms(query)
-	for _, term := range terms {
-		like := "%" + escapeLike(term) + "%"
-		q = q.Where(
-			"(title LIKE ? ESCAPE '\\' OR original_name LIKE ? ESCAPE '\\' OR path LIKE ? ESCAPE '\\' OR genres LIKE ? ESCAPE '\\')",
-			like, like, like, like,
-		)
-	}
-	if err := q.Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
-	if query != "" {
-		prefix := escapeLike(query) + "%"
-		exact := query
-		q = q.Order(gorm.Expr(
-			"CASE WHEN title = ? THEN 0 WHEN original_name = ? THEN 1 WHEN title LIKE ? ESCAPE '\\' THEN 2 WHEN original_name LIKE ? ESCAPE '\\' THEN 3 ELSE 4 END, created_at desc",
-			exact, exact, prefix, prefix,
-		))
-	} else {
-		q = q.Order("created_at desc")
-	}
-	err := q.Offset(offset).Limit(limit).Find(&items).Error
-	return items, total, err
+	return mediaViewsToMedia(views), total, nil
 }
 
-func applyQualifiedMediaQueryFilter(q *gorm.DB, filter MediaQueryFilter) *gorm.DB {
-	if !filter.IncludeNSFW {
-		q = q.Where("media.nsfw = ?", false)
+func mediaViewsToMedia(views []model.MediaView) []model.Media {
+	rows := make([]model.Media, 0, len(views))
+	for _, view := range views {
+		row := view.Media
+		row.SeriesID = view.SeriesID
+		row.Title = view.Title
+		row.OriginalName = view.OriginalName
+		row.EpisodeTitle = view.EpisodeTitle
+		row.PosterURL = view.PosterURL
+		row.BackdropURL = view.BackdropURL
+		row.Overview = view.Overview
+		row.Rating = view.Rating
+		row.Year = view.Year
+		row.ReleaseDate = view.ReleaseDate
+		row.SeasonNum = view.SeasonNum
+		row.EpisodeNum = view.EpisodeNum
+		row.TMDbID = view.TMDbID
+		row.BangumiID = view.BangumiID
+		row.DoubanID = view.DoubanID
+		row.TheTVDBID = view.TheTVDBID
+		row.Languages = view.Languages
+		row.Countries = view.Countries
+		row.Genres = view.Genres
+		row.NSFW = view.NSFW
+		rows = append(rows, row)
 	}
-	if len(filter.HiddenLibraryIDs) > 0 {
-		q = q.Where("media.library_id NOT IN ?", filter.HiddenLibraryIDs)
-	}
-	if len(filter.AllowedLibraryIDs) > 0 {
-		q = q.Where("media.library_id IN ?", filter.AllowedLibraryIDs)
-	}
-	return q
+	return rows
 }
 
 func mediaFTSQuery(query string) string {
@@ -191,6 +104,10 @@ func escapeLike(value string) string {
 }
 
 func (r *MediaRepository) BackfillSearchIndex(ctx context.Context, batchLimit int) (int64, error) {
+	return r.viewRepository().BackfillSearchIndex(ctx, batchLimit)
+}
+
+func (r *MediaViewRepository) BackfillSearchIndex(ctx context.Context, batchLimit int) (int64, error) {
 	if backend, ok := r.searchBackend.(MediaSearchSyncBackend); ok {
 		return r.backfillExternalSearchIndex(ctx, backend, batchLimit)
 	}
@@ -200,25 +117,20 @@ func (r *MediaRepository) BackfillSearchIndex(ctx context.Context, batchLimit in
 	if !r.searchIndexEnabled(ctx) {
 		return 0, nil
 	}
-	// 关键性能点：FTS5 普通列（含 UNINDEXED）不支持索引查找，按
-	// media_id 做 NOT EXISTS 是对 FTS 表的整表扫描，再叠加 ORDER BY
-	// 后每个批次都要对全部 media 行探测一遍——大库一次启动回填等于
-	// 上百亿次行访问，曾把 CPU 钉满数小时。v2 布局下 FTS 行 rowid 与
-	// media.rowid 对齐，NOT EXISTS 走 rowid 点查，且无需排序。
 	res := r.db.WithContext(ctx).Exec(`
-INSERT INTO media_search_fts(rowid, media_id, title, original_name, path, genres)
-SELECT m.rowid, m.id, COALESCE(m.title, ''), COALESCE(m.original_name, ''), COALESCE(m.path, ''), COALESCE(m.genres, '')
-FROM media AS m
-WHERE m.deleted_at IS NULL
+INSERT INTO media_search_fts(rowid, metadata_id, title, original_name, overview, genres)
+SELECT mi.rowid, mi.id, COALESCE(mi.title, ''), COALESCE(mi.original_name, ''), COALESCE(mi.overview, ''), COALESCE(mi.genres, '')
+FROM metadata_items AS mi
+WHERE mi.deleted_at IS NULL
   AND NOT EXISTS (
-    SELECT 1 FROM media_search_fts AS f WHERE f.rowid = m.rowid
+    SELECT 1 FROM media_search_fts AS f WHERE f.rowid = mi.rowid
   )
 LIMIT ?
 `, batchLimit)
 	return res.RowsAffected, res.Error
 }
 
-func (r *MediaRepository) backfillExternalSearchIndex(ctx context.Context, backend MediaSearchSyncBackend, batchLimit int) (int64, error) {
+func (r *MediaViewRepository) backfillExternalSearchIndex(ctx context.Context, backend MediaSearchSyncBackend, batchLimit int) (int64, error) {
 	if batchLimit <= 0 {
 		batchLimit = 1000
 	}
@@ -227,30 +139,46 @@ func (r *MediaRepository) backfillExternalSearchIndex(ctx context.Context, backe
 	}
 	var lastID string
 	for {
-		var rows []model.Media
+		var ids []string
 		q := r.db.WithContext(ctx).
 			Model(&model.Media{}).
+			Select("id").
 			Where("deleted_at IS NULL")
 		if lastID != "" {
 			q = q.Where("id > ?", lastID)
 		}
-		if err := q.Order("id ASC").Limit(batchLimit).Find(&rows).Error; err != nil {
+		if err := q.Order("id ASC").Limit(batchLimit).Find(&ids).Error; err != nil {
 			return 0, err
 		}
-		if len(rows) == 0 {
+		if len(ids) == 0 {
 			return 0, nil
+		}
+		rows, err := r.FindByIDs(ctx, ids, MediaQueryFilter{IncludeNSFW: true})
+		if err != nil {
+			return 0, err
 		}
 		if err := backend.IndexMedia(ctx, rows); err != nil {
 			return 0, err
 		}
-		lastID = rows[len(rows)-1].ID
-		if len(rows) < batchLimit {
+		lastID = ids[len(ids)-1]
+		if len(ids) < batchLimit {
 			return 0, nil
 		}
 	}
 }
 
-func (r *MediaRepository) searchIndexEnabled(ctx context.Context) bool {
+func (r *MediaViewRepository) indexMediaIDsBestEffort(ctx context.Context, ids []string) {
+	backend, ok := r.searchBackend.(MediaSearchSyncBackend)
+	if !ok || len(ids) == 0 {
+		return
+	}
+	rows, err := r.FindByIDs(ctx, ids, MediaQueryFilter{IncludeNSFW: true})
+	if err == nil && len(rows) > 0 {
+		_ = backend.IndexMedia(ctx, rows)
+	}
+}
+
+func (r *MediaViewRepository) searchIndexEnabled(ctx context.Context) bool {
 	if r == nil || r.db == nil {
 		return false
 	}

@@ -13,6 +13,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/ShukeBta/MediaStationGo/internal/model"
+	"github.com/ShukeBta/MediaStationGo/internal/repository"
 	"github.com/ShukeBta/MediaStationGo/internal/service"
 )
 
@@ -32,7 +33,7 @@ func statsHandler(svc *service.Container) gin.HandlerFunc {
 }
 
 func applyStatsVisibility(c *gin.Context, svc *service.Container, snap *service.Snapshot) error {
-	visibility := mediaVisibilityForRequest(c, svc)
+	visibility := service.ExpandMediaVisibilityForMergedCloudLibraries(c.Request.Context(), svc.Repo, mediaVisibilityForRequest(c, svc))
 	libs, err := svc.Repo.Library.List(c.Request.Context())
 	if err != nil {
 		return err
@@ -81,11 +82,12 @@ func applyStatsVisibility(c *gin.Context, svc *service.Container, snap *service.
 	snap.TotalSizeBytes = sum.Size
 	snap.TotalSeconds = sum.Seconds
 
-	var recent []model.Media
-	if err := applyActiveLibraryQuery(applyMediaVisibilityQuery(svc.Repo.DB.WithContext(c.Request.Context()).Model(&model.Media{}), visibility), activeLibraryIDs).
-		Order("created_at desc").
-		Limit(12).
-		Find(&recent).Error; err != nil {
+	recent, _, err := svc.Repo.MediaView.ListByLibrariesFiltered(c.Request.Context(), activeLibraryIDs, 0, 12, repository.MediaQueryFilter{
+		IncludeNSFW:       visibility.IncludeNSFW,
+		AllowedLibraryIDs: visibility.AllowedLibraryIDs,
+		HiddenLibraryIDs:  visibility.HiddenLibraryIDs,
+	})
+	if err != nil {
 		return err
 	}
 	snap.RecentlyAdded = recent
@@ -102,11 +104,11 @@ func applyStatsVisibility(c *gin.Context, svc *service.Container, snap *service.
 }
 
 type visibleStatsCacheValue struct {
-	Libraries      int64         `json:"libraries"`
-	MediaCount     int64         `json:"media_count"`
-	TotalSizeBytes int64         `json:"total_size_bytes"`
-	TotalSeconds   int64         `json:"total_seconds"`
-	RecentlyAdded  []model.Media `json:"recently_added"`
+	Libraries      int64             `json:"libraries"`
+	MediaCount     int64             `json:"media_count"`
+	TotalSizeBytes int64             `json:"total_size_bytes"`
+	TotalSeconds   int64             `json:"total_seconds"`
+	RecentlyAdded  []model.MediaView `json:"recently_added"`
 }
 
 func visibleStatsCacheKey(visibility service.MediaVisibility, activeLibraryIDs []string) string {
@@ -134,14 +136,15 @@ func boolString(value bool) string {
 }
 
 func applyMediaVisibilityQuery(q *gorm.DB, visibility service.MediaVisibility) *gorm.DB {
+	q = q.Joins("LEFT JOIN metadata_items AS stats_metadata ON stats_metadata.id = media.metadata_id AND stats_metadata.deleted_at IS NULL")
 	if !visibility.IncludeNSFW {
-		q = q.Where("nsfw = ?", false)
+		q = q.Where("COALESCE(stats_metadata.nsfw, FALSE) = FALSE")
 	}
 	if len(visibility.HiddenLibraryIDs) > 0 {
-		q = q.Where("library_id NOT IN ?", visibility.HiddenLibraryIDs)
+		q = q.Where("media.library_id NOT IN ?", visibility.HiddenLibraryIDs)
 	}
 	if len(visibility.AllowedLibraryIDs) > 0 {
-		q = q.Where("library_id IN ?", visibility.AllowedLibraryIDs)
+		q = q.Where("media.library_id IN ?", visibility.AllowedLibraryIDs)
 	}
 	return q
 }
@@ -150,5 +153,5 @@ func applyActiveLibraryQuery(q *gorm.DB, libraryIDs []string) *gorm.DB {
 	if len(libraryIDs) == 0 {
 		return q.Where("1 = 0")
 	}
-	return q.Where("library_id IN ?", libraryIDs)
+	return q.Where("media.library_id IN ?", libraryIDs)
 }

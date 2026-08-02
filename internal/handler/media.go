@@ -168,7 +168,7 @@ func listMediaHandler(svc *service.Container) gin.HandlerFunc {
 				return
 			}
 			if items == nil {
-				items = []model.Media{}
+				items = []model.MediaView{}
 			}
 			c.JSON(http.StatusOK, gin.H{
 				"items":     items,
@@ -206,7 +206,7 @@ func getMediaHandler(svc *service.Container) gin.HandlerFunc {
 			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
 			return
 		}
-		if !mediaVisibleForRequest(c, svc, m) {
+		if !mediaViewVisibleForRequest(c, svc, m) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
 			return
 		}
@@ -291,7 +291,7 @@ func searchMediaHandler(svc *service.Container) gin.HandlerFunc {
 
 func streamHandler(svc *service.Container) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		m, err := svc.Media.GetMedia(c.Request.Context(), c.Param("id"))
+		m, err := svc.Media.GetRawMedia(c.Request.Context(), c.Param("id"))
 		if err != nil || m == nil || !mediaVisibleForRequest(c, svc, m) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
 			return

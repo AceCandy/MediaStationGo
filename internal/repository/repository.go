@@ -13,7 +13,9 @@ type Container struct {
 	User           *UserRepository
 	Library        *LibraryRepository
 	Media          *MediaRepository
-	Series         *SeriesRepository
+	MediaView      *MediaViewRepository
+	Metadata       *MetadataRepository
+	Artwork        *ArtworkRepository
 	History        *HistoryRepository
 	Favorite       *FavoriteRepository
 	Playlist       *PlaylistRepository
@@ -38,12 +40,15 @@ type Container struct {
 
 // New 将每个 repository 连接到单个 *gorm.DB。
 func New(db *gorm.DB) *Container {
+	mediaView := &MediaViewRepository{db: db}
 	return &Container{
 		DB:             db,
 		User:           &UserRepository{db: db},
 		Library:        &LibraryRepository{db: db},
-		Media:          &MediaRepository{db: db},
-		Series:         &SeriesRepository{db: db},
+		Media:          &MediaRepository{db: db, view: mediaView},
+		MediaView:      mediaView,
+		Metadata:       &MetadataRepository{db: db, view: mediaView},
+		Artwork:        &ArtworkRepository{db: db},
 		History:        &HistoryRepository{db: db},
 		Favorite:       &FavoriteRepository{db: db},
 		Playlist:       &PlaylistRepository{db: db},

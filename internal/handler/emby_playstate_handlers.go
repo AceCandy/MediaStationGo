@@ -12,6 +12,7 @@ import (
 
 type embyPlayingReq struct {
 	ItemId        string `json:"ItemId"`
+	MediaSourceId string `json:"MediaSourceId"`
 	PositionTicks int64  `json:"PositionTicks"`
 	RunTimeTicks  int64  `json:"RunTimeTicks"`
 }
@@ -28,6 +29,9 @@ func embyPlayingProgressHandler(svc *service.Container) gin.HandlerFunc {
 		if req.ItemId == "" {
 			req.ItemId = c.Query("ItemId")
 		}
+		if req.MediaSourceId == "" {
+			req.MediaSourceId = c.Query("MediaSourceId")
+		}
 		if req.PositionTicks == 0 {
 			req.PositionTicks, _ = strconv.ParseInt(c.Query("PositionTicks"), 10, 64)
 		}
@@ -43,7 +47,10 @@ func embyPlayingProgressHandler(svc *service.Container) gin.HandlerFunc {
 			c.Status(http.StatusUnauthorized)
 			return
 		}
-		_ = svc.Emby.RecordProgress(c.Request.Context(), uid, req.ItemId, req.PositionTicks, req.RunTimeTicks)
+		if err := svc.Emby.RecordProgress(c.Request.Context(), uid, req.ItemId, req.MediaSourceId, req.PositionTicks, req.RunTimeTicks); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
 		stopped := strings.Contains(strings.ToLower(c.FullPath()+" "+c.Request.URL.Path), "stopped")
 		if svc.Sessions != nil {
 			svc.Sessions.RecordPlayback(c.Request.Context(), uid, "",

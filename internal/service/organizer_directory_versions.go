@@ -5,9 +5,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
-
-	"go.uber.org/zap"
 
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 )
@@ -93,16 +92,17 @@ func (o *OrganizerService) existingByIdentity(ctx context.Context, destRoot, tit
 	if title == "" {
 		return nil
 	}
-	q := o.repo.DB.WithContext(ctx).Model(&model.Media{}).
-		Where("deleted_at IS NULL").
-		Where("LOWER(title) = ?", strings.ToLower(title))
+	q := o.repo.DB.WithContext(ctx).Table("media AS m").
+		Joins("LEFT JOIN metadata_items AS mi ON mi.id = m.metadata_id AND mi.deleted_at IS NULL").
+		Where("m.deleted_at IS NULL").
+		Where("LOWER(COALESCE(mi.title, m.scan_title)) = ?", strings.ToLower(title))
 	if season > 0 || episode > 0 {
-		q = q.Where("season_num = ? AND episode_num = ?", season, episode)
+		q = q.Where("COALESCE(NULLIF(mi.season_num, 0), m.season_num) = ? AND COALESCE(NULLIF(mi.episode_num, 0), m.episode_num) = ?", season, episode)
 	} else if year > 0 {
-		q = q.Where("year = ?", year)
+		q = q.Where("COALESCE(NULLIF(mi.year, 0), m.scan_year) = ?", year)
 	}
 	var rows []model.Media
-	if err := q.Find(&rows).Error; err != nil {
+	if err := q.Select("m.*").Find(&rows).Error; err != nil {
 		return nil
 	}
 	var out []string
@@ -121,32 +121,34 @@ func (o *OrganizerService) existingByExternalIdentity(ctx context.Context, destR
 	var conds []string
 	var args []any
 	if match.TMDbID > 0 {
-		conds = append(conds, "tm_db_id = ?")
-		args = append(args, match.TMDbID)
+		conds = append(conds, "(mid.provider = 'tmdb' AND mid.external_id = ?)")
+		args = append(args, strconv.Itoa(match.TMDbID))
 	}
 	if match.BangumiID > 0 {
-		conds = append(conds, "bangumi_id = ?")
-		args = append(args, match.BangumiID)
+		conds = append(conds, "(mid.provider = 'bangumi' AND mid.external_id = ?)")
+		args = append(args, strconv.Itoa(match.BangumiID))
 	}
 	if strings.TrimSpace(match.DoubanID) != "" {
-		conds = append(conds, "douban_id = ?")
+		conds = append(conds, "(mid.provider = 'douban' AND mid.external_id = ?)")
 		args = append(args, strings.TrimSpace(match.DoubanID))
 	}
 	if strings.TrimSpace(match.TheTVDBID) != "" {
-		conds = append(conds, "thetvdb_id = ?")
+		conds = append(conds, "(mid.provider = 'thetvdb' AND mid.external_id = ?)")
 		args = append(args, strings.TrimSpace(match.TheTVDBID))
 	}
 	if len(conds) == 0 {
 		return nil
 	}
-	q := o.repo.DB.WithContext(ctx).Model(&model.Media{}).
-		Where("deleted_at IS NULL").
+	q := o.repo.DB.WithContext(ctx).Table("media AS m").
+		Joins("LEFT JOIN metadata_items AS mi ON mi.id = m.metadata_id AND mi.deleted_at IS NULL").
+		Joins("LEFT JOIN metadata_identifiers AS mid ON mid.metadata_id = COALESCE(mi.parent_id, mi.id) AND mid.deleted_at IS NULL").
+		Where("m.deleted_at IS NULL").
 		Where("("+strings.Join(conds, " OR ")+")", args...)
 	if season > 0 || episode > 0 {
-		q = q.Where("season_num = ? AND episode_num = ?", season, episode)
+		q = q.Where("COALESCE(NULLIF(mi.season_num, 0), m.season_num) = ? AND COALESCE(NULLIF(mi.episode_num, 0), m.episode_num) = ?", season, episode)
 	}
 	var rows []model.Media
-	if err := q.Find(&rows).Error; err != nil {
+	if err := q.Select("m.*").Find(&rows).Error; err != nil {
 		return nil
 	}
 	var out []string
@@ -185,15 +187,12 @@ func (o *OrganizerService) existingByFolder(destDir, episodeTag string) []string
 	return out
 }
 
-// replaceVersions removes the existing lower-resolution files (and their NFO
-// sidecars + DB rows) and transfers src into dst.
+// replaceVersions removes the existing lower-resolution files and DB rows,
+// then transfers src into dst.
 func (o *OrganizerService) replaceVersions(ctx context.Context, src string, existing []string, dst string, mode TransferMode) error {
 	for _, e := range existing {
 		if err := os.Remove(e); err != nil && !os.IsNotExist(err) {
 			return fmt.Errorf("remove existing %s: %w", e, err)
-		}
-		if nfo := nfoPath(e); nfo != "" {
-			_ = os.Remove(nfo)
 		}
 		if o.repo != nil && o.repo.DB != nil {
 			_ = o.repo.DB.WithContext(ctx).Where("path = ?", e).Delete(&model.Media{}).Error
@@ -204,10 +203,6 @@ func (o *OrganizerService) replaceVersions(ctx context.Context, src string, exis
 	}
 	if err := transferFile(src, dst, mode); err != nil {
 		return err
-	}
-	if err := transferSidecarNFO(src, dst, mode); err != nil {
-		o.log.Warn("organize sidecar nfo failed",
-			zap.String("from", src), zap.String("to", dst), zap.Error(err))
 	}
 	return nil
 }

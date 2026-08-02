@@ -56,8 +56,8 @@ func TestExistingCloudMediaSnapshotFiltersCloudRows(t *testing.T) {
 	if row.VideoCodec != "h264" || row.AudioCodec != "aac" || row.Container != "mkv" {
 		t.Fatalf("codec fields not preserved: %#v", row)
 	}
-	if row.PosterURL != "/poster.jpg" || row.BackdropURL != "/backdrop.jpg" || row.STRMURL == "" {
-		t.Fatalf("artwork/strm fields not preserved: %#v", row)
+	if row.STRMURL == "" || row.ScrapeStatus != "matched" {
+		t.Fatalf("stream/status fields not preserved: %#v", row)
 	}
 	if row.Year != 2026 || row.TMDbID != 123 || row.BangumiID != 456 || row.DoubanID != "douban-1" || row.TheTVDBID != "tvdb-1" {
 		t.Fatalf("scraper ids not preserved: %#v", row)

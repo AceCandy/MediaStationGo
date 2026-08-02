@@ -18,6 +18,9 @@ func mediaSeriesKey(media model.Media) string {
 func mediaSeriesRawKey(media model.Media) string {
 	fromPath := seriesTitleFromMediaPath(media.Path)
 	if media.SeasonNum > 0 || media.EpisodeNum > 0 || episodicPathRE.MatchString(media.Path+" "+media.DisplayLibraryPath+" "+media.LibraryPath) {
+		if strings.TrimSpace(media.SeriesID) != "" {
+			return "series:" + strings.TrimSpace(media.SeriesID)
+		}
 		if fromPath != "" {
 			return seriesFingerprint("library-path", mediaTargetLibraryID(media), fromPath)
 		}
@@ -36,10 +39,10 @@ func mediaSeriesRawKey(media model.Media) string {
 		if strings.TrimSpace(media.TheTVDBID) != "" {
 			return seriesFingerprint("episodic-external", "thetvdb:"+strings.TrimSpace(media.TheTVDBID))
 		}
-		if strings.TrimSpace(media.SeriesID) != "" {
-			return "series:" + strings.TrimSpace(media.SeriesID)
-		}
 		return seriesFingerprint("library-title", mediaTargetLibraryID(media), normalizeSeriesTitle(seriesDisplayTitle(media)))
+	}
+	if strings.TrimSpace(media.MetadataID) != "" {
+		return "metadata:" + strings.TrimSpace(media.MetadataID)
 	}
 	if strings.TrimSpace(media.SeriesID) != "" {
 		return "series:" + strings.TrimSpace(media.SeriesID)

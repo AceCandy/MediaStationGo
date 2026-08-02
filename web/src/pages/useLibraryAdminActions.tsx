@@ -90,10 +90,6 @@ export function useLibraryAdminActions({
     runSeriesTool('probe', '整剧媒体轨探测', (media) => api.post(`/media/${media.id}/probe`))
   }
 
-  const handleSeriesNFO = () => {
-    runSeriesTool('nfo', '整剧 NFO 写出', (media) => recycleAPI.exportNFO(media.id))
-  }
-
   const handleSeriesOrganize = async () => {
     if (!selectedSeries || selectedSeriesEpisodes.length === 0 || !library) return
     const source = seriesSourceRoot(selectedSeriesEpisodes)
@@ -163,10 +159,6 @@ export function useLibraryAdminActions({
     runMovieTool(media, 'probe', '媒体轨探测', (item) => api.post(`/media/${item.id}/probe`))
   }
 
-  const handleMovieNFO = (media: Media) => {
-    runMovieTool(media, 'nfo', 'NFO 写出', (item) => recycleAPI.exportNFO(item.id))
-  }
-
   const handleMovieSoftDelete = async (media: Media) => {
     if (!(await confirmAction({
       title: '移入回收站',
@@ -185,7 +177,6 @@ export function useLibraryAdminActions({
         onSmartScrape={handleMovieSmartScrape}
         onManualScrape={setManualMovie}
         onProbe={handleMovieProbe}
-        onNFO={handleMovieNFO}
         onSoftDelete={handleMovieSoftDelete}
       />
     )
@@ -201,7 +192,6 @@ export function useLibraryAdminActions({
     handleRepairRescrape,
     handleSeriesSmartScrape,
     handleSeriesProbe,
-    handleSeriesNFO,
     handleSeriesOrganize,
     handleSeriesSoftDelete,
     movieActions,

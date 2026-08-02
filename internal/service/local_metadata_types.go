@@ -1,6 +1,7 @@
 package service
 
 import (
+	"encoding/json"
 	"encoding/xml"
 	"strconv"
 	"strings"
@@ -31,6 +32,28 @@ type LocalMetadata struct {
 	HasNFO       bool
 	HasArtwork   bool
 	PathHint     bool
+}
+
+func encodeLocalMetadataHint(meta *LocalMetadata) string {
+	if meta == nil {
+		return ""
+	}
+	data, err := json.Marshal(meta)
+	if err != nil {
+		return ""
+	}
+	return string(data)
+}
+
+func decodeLocalMetadataHint(raw string) (*LocalMetadata, error) {
+	if strings.TrimSpace(raw) == "" {
+		return nil, nil
+	}
+	var meta LocalMetadata
+	if err := json.Unmarshal([]byte(raw), &meta); err != nil {
+		return nil, err
+	}
+	return &meta, nil
 }
 
 type nfoUniqueID struct {

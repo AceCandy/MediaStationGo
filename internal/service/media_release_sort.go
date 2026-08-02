@@ -24,12 +24,18 @@ func mediaReleaseSortTime(media model.Media) time.Time {
 	return media.CreatedAt
 }
 
+func mediaViewReleaseSortTime(media model.MediaView) time.Time {
+	media.Media.ReleaseDate = media.ReleaseDate
+	media.Media.Year = media.Year
+	return mediaReleaseSortTime(media.Media)
+}
+
 func mediaReleaseOrderSQL(desc bool) string {
 	dir := "ASC"
 	if desc {
 		dir = "DESC"
 	}
-	return fmt.Sprintf("media.release_date %s, media.year %s, media.created_at %s, media.id %s", dir, dir, dir, dir)
+	return fmt.Sprintf("COALESCE(emby_metadata.release_date, '') %s, COALESCE(emby_metadata.year, 0) %s, media.created_at %s, media.id %s", dir, dir, dir, dir)
 }
 
 func embyPremiereDate(value string) (time.Time, bool) {

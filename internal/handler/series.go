@@ -19,8 +19,8 @@ import (
 
 // seasonGroup is the JSON returned to the React UI per season.
 type seasonGroup struct {
-	Season   int           `json:"season"`
-	Episodes []model.Media `json:"episodes"`
+	Season   int               `json:"season"`
+	Episodes []model.MediaView `json:"episodes"`
 }
 
 func listSeasonsHandler(svc *service.Container) gin.HandlerFunc {
@@ -33,7 +33,7 @@ func listSeasonsHandler(svc *service.Container) gin.HandlerFunc {
 			}
 		}
 		visibility := mediaVisibilityForRequest(c, svc)
-		var rows []model.Media
+		var rows []model.MediaView
 		const pageSize = 2000
 		for page := 1; ; page++ {
 			pageRows, total, err := svc.Media.ListMediaVisible(c.Request.Context(), libID, page, pageSize, visibility)
@@ -46,9 +46,9 @@ func listSeasonsHandler(svc *service.Container) gin.HandlerFunc {
 				break
 			}
 		}
-		buckets := make(map[int][]model.Media)
+		buckets := make(map[int][]model.MediaView)
 		for _, r := range rows {
-			if !visibility.Allows(&r) {
+			if !visibility.AllowsView(&r) {
 				continue
 			}
 			buckets[r.SeasonNum] = append(buckets[r.SeasonNum], r)

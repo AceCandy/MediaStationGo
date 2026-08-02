@@ -39,7 +39,7 @@ func TestEnrichOneRejectsWrongYearMatchFromSeriesFolder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&model.Library{}, &model.Series{}, &model.Media{}); err != nil {
+	if err := migrateScraperTestModels(t, db); err != nil {
 		t.Fatal(err)
 	}
 	repos := repository.New(db)
@@ -85,7 +85,7 @@ func TestEnrichOnePrefersLocalMetadataWithoutProvider(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&model.Library{}, &model.Series{}, &model.Media{}); err != nil {
+	if err := migrateScraperTestModels(t, db); err != nil {
 		t.Fatal(err)
 	}
 	repos := repository.New(db)
@@ -135,10 +135,7 @@ func TestEnrichOnePrefersLocalMetadataWithoutProvider(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	var got model.Media
-	if err := repos.DB.First(&got, "id = ?", media.ID).Error; err != nil {
-		t.Fatal(err)
-	}
+	got := serviceTestMediaView(t, repos, media.ID)
 	if got.ScrapeStatus != "matched" || got.Title != "间谍过家家" || got.TMDbID != 120089 {
 		t.Fatalf("unexpected local scrape: status=%q title=%q tmdb=%d", got.ScrapeStatus, got.Title, got.TMDbID)
 	}

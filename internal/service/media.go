@@ -11,10 +11,11 @@ import (
 
 // MediaService offers high-level CRUD over libraries and media items.
 type MediaService struct {
-	cfg   *config.Config
-	log   *zap.Logger
-	repo  *repository.Container
-	cache *RuntimeCacheService
+	cfg     *config.Config
+	log     *zap.Logger
+	repo    *repository.Container
+	cache   *RuntimeCacheService
+	artwork *ArtworkStore
 }
 
 type MediaVisibility struct {
@@ -30,11 +31,22 @@ func (v MediaVisibility) Allows(media *model.Media) bool {
 	if media == nil {
 		return false
 	}
-	if !v.IncludeNSFW && media.NSFW {
+	return v.allows(media.LibraryID, media.NSFW)
+}
+
+func (v MediaVisibility) AllowsView(media *model.MediaView) bool {
+	if media == nil {
+		return false
+	}
+	return v.allows(media.LibraryID, media.NSFW)
+}
+
+func (v MediaVisibility) allows(libraryID string, nsfw bool) bool {
+	if !v.IncludeNSFW && nsfw {
 		return false
 	}
 	for _, id := range v.HiddenLibraryIDs {
-		if id == media.LibraryID {
+		if id == libraryID {
 			return false
 		}
 	}
@@ -42,7 +54,7 @@ func (v MediaVisibility) Allows(media *model.Media) bool {
 		return true
 	}
 	for _, id := range v.AllowedLibraryIDs {
-		if id == media.LibraryID {
+		if id == libraryID {
 			return true
 		}
 	}
@@ -57,6 +69,13 @@ func NewMediaService(cfg *config.Config, log *zap.Logger, repo *repository.Conta
 func (s *MediaService) SetRuntimeCache(cache *RuntimeCacheService) *MediaService {
 	if s != nil {
 		s.cache = cache
+	}
+	return s
+}
+
+func (s *MediaService) SetArtworkStore(artwork *ArtworkStore) *MediaService {
+	if s != nil {
+		s.artwork = artwork
 	}
 	return s
 }

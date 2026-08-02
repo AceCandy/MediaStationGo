@@ -84,7 +84,7 @@ func TestEnrichLibraryDefersEpisodeDetailsUntilMainMetadataFinishes(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&model.Library{}, &model.Series{}, &model.Media{}); err != nil {
+	if err := migrateScraperTestModels(t, db); err != nil {
 		t.Fatal(err)
 	}
 	repos := repository.New(db)
@@ -151,14 +151,21 @@ func TestEnrichLibraryDefersEpisodeDetailsUntilMainMetadataFinishes(t *testing.T
 	if err := repos.DB.Where("library_id = ?", lib.ID).Order("episode_num ASC").Find(&stored).Error; err != nil {
 		t.Fatal(err)
 	}
-	if len(stored) != 2 || stored[0].Overview != "第一集剧情" || stored[1].Overview != "第二集剧情" {
-		t.Fatalf("deferred episode metadata not saved: %+v", stored)
+	if len(stored) != 2 {
+		t.Fatalf("stored episodes = %d, want 2", len(stored))
 	}
-	if stored[0].EpisodeTitle != "任务代号: 猫" || stored[1].EpisodeTitle != "接近目标" {
-		t.Fatalf("deferred episode titles not saved: %+v", stored)
+	views := []*model.MediaView{
+		serviceTestMediaView(t, repos, stored[0].ID),
+		serviceTestMediaView(t, repos, stored[1].ID),
 	}
-	if stored[0].OriginalName != "SPY×FAMILY" || stored[1].OriginalName != "SPY×FAMILY" {
-		t.Fatalf("series original_name should stay shared: %+v", stored)
+	if views[0].Overview != "第一集剧情" || views[1].Overview != "第二集剧情" {
+		t.Fatalf("deferred episode metadata not saved: %+v", views)
+	}
+	if views[0].EpisodeTitle != "任务代号: 猫" || views[1].EpisodeTitle != "接近目标" {
+		t.Fatalf("deferred episode titles not saved: %+v", views)
+	}
+	if views[0].OriginalName != "SPY×FAMILY" || views[1].OriginalName != "SPY×FAMILY" {
+		t.Fatalf("series original_name should stay shared: %+v", views)
 	}
 }
 
@@ -194,17 +201,19 @@ func TestEnrichLibrarySkipsDeferredEpisodeStillWhenDisabled(t *testing.T) {
 		t.Fatalf("result=%+v, want one matched episode", result)
 	}
 
-	var got model.Media
-	if err := repos.DB.First(&got, "id = ?", media.ID).Error; err != nil {
-		t.Fatal(err)
-	}
+	got := serviceTestMediaView(t, repos, media.ID)
 	if got.Overview != "单集剧情" || got.DurationSec != 24*60 {
 		t.Fatalf("deferred episode text metadata should still be saved: overview=%q duration=%d", got.Overview, got.DurationSec)
 	}
-	if strings.HasSuffix(got.BackdropURL, "/images/w500/still.jpg") {
-		t.Fatalf("deferred episode still should not be saved when disabled: backdrop=%q", got.BackdropURL)
+	var stillCount int64
+	if got.MetadataID == "" {
+		t.Fatal("matched episode has no metadata link")
 	}
-	if !strings.HasSuffix(got.BackdropURL, "/images/w1280/backdrop.jpg") {
-		t.Fatalf("series backdrop should remain available when episode still is disabled: got %q", got.BackdropURL)
+	if err := repos.DB.Model(&model.MetadataArtwork{}).
+		Where("metadata_id = ? AND artwork_type = ?", got.MetadataID, model.ArtworkTypeStill).Count(&stillCount).Error; err != nil {
+		t.Fatal(err)
+	}
+	if stillCount != 0 || got.BackdropURL == "" {
+		t.Fatalf("episode still disabled state invalid: rows=%d backdrop=%q", stillCount, got.BackdropURL)
 	}
 }

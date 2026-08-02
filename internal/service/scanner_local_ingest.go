@@ -93,10 +93,13 @@ func (s *ScannerService) readLocalScanMetadata(lib *model.Library, root *model.L
 	if root != nil && strings.TrimSpace(root.Path) != "" {
 		rootPath = root.Path
 	}
-	localMeta, err := ReadLocalMetadata(path, rootPath, librarySupportsSeasons(lib) || parsedSeason > 0 || parsedEpisode > 0)
+	seriesLike := librarySupportsSeasons(lib) || parsedSeason > 0 || parsedEpisode > 0
+	localMeta, err := ReadLocalMetadata(path, rootPath, seriesLike)
 	if err != nil {
 		s.log.Warn("read local metadata failed", zap.String("path", path), zap.Error(err))
 	}
+	_, hints := pathHintMetadata(path, seriesLike)
+	localMeta = hints.applyToLocalMetadata(localMeta)
 	return localMeta
 }
 
@@ -164,7 +167,11 @@ func (s *ScannerService) buildLocalScanMedia(in localScanMediaInput) *model.Medi
 		}
 	}
 	if in.localMeta != nil {
-		applyLocalMetadata(media, in.localMeta)
+		applyLocalScanHints(media, in.localMeta)
+		media.LocalMetadataHint = encodeLocalMetadataHint(in.localMeta)
+	}
+	if media.EpisodeNum > 0 {
+		media.SeriesID = localSeriesIdentity(media)
 	}
 	return media
 }

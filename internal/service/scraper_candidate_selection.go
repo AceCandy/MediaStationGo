@@ -8,6 +8,11 @@ import (
 )
 
 func (s *ScraperService) lookupAutomaticTMDb(ctx context.Context, kind, query string, year int) *Match {
+	match, _ := s.lookupAutomaticTMDbWithError(ctx, kind, query, year)
+	return match
+}
+
+func (s *ScraperService) lookupAutomaticTMDbWithError(ctx context.Context, kind, query string, year int) (*Match, error) {
 	var (
 		candidates []*Match
 		err        error
@@ -22,13 +27,14 @@ func (s *ScraperService) lookupAutomaticTMDb(ctx context.Context, kind, query st
 	}
 	if err != nil {
 		s.log.Debug("tmdb "+mediaLabel+" search failed", zap.String("query", query), zap.Error(err))
-		return nil
+		return nil, err
 	}
 	if match := bestAutomaticMetadataMatch(query, year, kind, candidates); match != nil {
-		return s.localizeAutomaticTMDbMatch(ctx, kind, query, match)
+		match.Source = "tmdb"
+		return s.localizeAutomaticTMDbMatch(ctx, kind, query, match), nil
 	}
 	if !queryNeedsEnglishTMDbFallback(query) {
-		return nil
+		return nil, nil
 	}
 
 	var alternate []*Match
@@ -39,10 +45,13 @@ func (s *ScraperService) lookupAutomaticTMDb(ctx context.Context, kind, query st
 	}
 	if err != nil {
 		s.log.Debug("tmdb "+mediaLabel+" alternate-language search failed", zap.String("query", query), zap.Error(err))
-		return nil
+		return nil, err
 	}
 	match := bestAutomaticMetadataMatch(query, year, kind, mergeTMDbLanguageCandidates(candidates, alternate))
-	return s.localizeAutomaticTMDbMatch(ctx, kind, query, match)
+	if match != nil {
+		match.Source = "tmdb"
+	}
+	return s.localizeAutomaticTMDbMatch(ctx, kind, query, match), nil
 }
 
 func (s *ScraperService) localizeAutomaticTMDbMatch(ctx context.Context, kind, query string, match *Match) *Match {

@@ -173,12 +173,17 @@ func (d *DoubanProvider) GetMatchByID(ctx context.Context, doubanID string) (*Ma
 	}
 	m := &Match{
 		DoubanID:  doubanID,
+		TMDbID:    positiveIntFromMap(subject, "tmdb_id", "tmdbid"),
 		Title:     title,
 		Overview:  firstStringFromMap(subject, "short_comment", "intro", "summary", "abstract"),
 		PosterURL: firstStringFromMap(subject, "pic", "img", "cover", "cover_url"),
 		Year:      year,
 		Rating:    float32FromMap(subject, "rate", "rating"),
 	}
+	if m.TMDbID == 0 {
+		m.TMDbID = positiveIntFromMap(raw, "tmdb_id", "tmdbid")
+	}
+	m.AllowIdentifierMerge = true
 	if m.Title == "" {
 		m.Title = firstStringFromMap(raw, "title")
 	}

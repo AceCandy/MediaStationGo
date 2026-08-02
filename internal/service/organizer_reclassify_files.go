@@ -26,26 +26,9 @@ func organizeFileExists(path string) bool {
 	return err == nil
 }
 
-func moveSidecarNFO(oldMedia, newMedia string) error {
-	oldNFO := nfoPath(oldMedia)
-	newNFO := nfoPath(newMedia)
-	if oldNFO == newNFO || !organizeFileExists(oldNFO) || organizeFileExists(newNFO) {
-		return nil
-	}
-	if err := os.MkdirAll(filepath.Dir(newNFO), 0o755); err != nil { // #nosec G301 -- sidecar media directories must remain readable by NAS/player users.
-		return err
-	}
-	return moveFile(oldNFO, newNFO)
-}
-
-func removeMediaAndNFO(path string) error {
+func removeMediaFile(path string) error {
 	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 		return err
-	}
-	if nfo := nfoPath(path); nfo != "" {
-		if err := os.Remove(nfo); err != nil && !os.IsNotExist(err) {
-			return err
-		}
 	}
 	return nil
 }

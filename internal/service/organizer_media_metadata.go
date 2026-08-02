@@ -9,9 +9,9 @@ import (
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 )
 
-func (o *OrganizerService) refreshOrganizeMediaMetadata(ctx context.Context, media *model.Media, lib *model.Library, requestedType string) {
+func (o *OrganizerService) refreshOrganizeMediaMetadata(ctx context.Context, media *model.Media, lib *model.Library, requestedType string) error {
 	if o == nil || media == nil || lib == nil || !organizeMediaNeedsMetadataRefresh(*media) {
-		return
+		return nil
 	}
 	mediaType := normalizeOrganizeMediaType(requestedType)
 	if mediaType == "" {
@@ -19,9 +19,12 @@ func (o *OrganizerService) refreshOrganizeMediaMetadata(ctx context.Context, med
 	}
 	match := o.lookupReclassifyMetadata(ctx, *media, *lib, mediaType)
 	if match == nil {
-		return
+		return nil
 	}
 	refreshed := mediaWithReclassifyMatch(*media, match)
+	if err := o.persistOrganizerMatch(ctx, &refreshed, lib, match); err != nil {
+		return err
+	}
 	*media = refreshed
 	if o.log != nil {
 		o.log.Info("organize media metadata refreshed before rename",
@@ -33,6 +36,7 @@ func (o *OrganizerService) refreshOrganizeMediaMetadata(ctx context.Context, med
 			zap.String("douban_id", media.DoubanID),
 			zap.String("thetvdb_id", media.TheTVDBID))
 	}
+	return nil
 }
 
 func organizeMediaNeedsMetadataRefresh(media model.Media) bool {
@@ -65,54 +69,46 @@ func organizeMediaTitleLooksLikeRelease(title string) bool {
 	return false
 }
 
-func addOrganizedMediaMetadataUpdates(updates map[string]any, media model.Media) {
-	if updates == nil || strings.TrimSpace(media.ScrapeStatus) != "matched" {
-		return
-	}
-	setNonEmptyUpdate(updates, "title", media.Title)
-	setNonEmptyUpdate(updates, "original_name", media.OriginalName)
-	setNonEmptyUpdate(updates, "episode_title", media.EpisodeTitle)
-	setNonEmptyUpdate(updates, "poster_url", media.PosterURL)
-	setNonEmptyUpdate(updates, "backdrop_url", media.BackdropURL)
-	setNonEmptyUpdate(updates, "overview", media.Overview)
-	setNonEmptyUpdate(updates, "languages", media.Languages)
-	setNonEmptyUpdate(updates, "countries", media.Countries)
-	setNonEmptyUpdate(updates, "genres", media.Genres)
-	if media.Year > 0 {
-		updates["year"] = media.Year
-	}
-	setNonEmptyUpdate(updates, "release_date", media.ReleaseDate)
-	if media.Rating > 0 {
-		updates["rating"] = media.Rating
-	}
-	if media.TMDbID > 0 {
-		updates["tm_db_id"] = media.TMDbID
-	}
-	if media.BangumiID > 0 {
-		updates["bangumi_id"] = media.BangumiID
-	}
-	setNonEmptyUpdate(updates, "douban_id", media.DoubanID)
-	setNonEmptyUpdate(updates, "thetvdb_id", media.TheTVDBID)
-	if media.NSFW {
-		updates["nsfw"] = true
-	}
-	updates["scrape_status"] = "matched"
-}
-
-func (o *OrganizerService) persistOrganizedMediaMetadata(ctx context.Context, media *model.Media) error {
-	if o == nil || o.repo == nil || o.repo.DB == nil || media == nil {
+func (o *OrganizerService) persistOrganizerMatch(ctx context.Context, media *model.Media, lib *model.Library, match *Match) error {
+	if o == nil || o.scraper == nil || o.repo == nil || o.repo.DB == nil || media == nil || lib == nil || match == nil {
 		return nil
 	}
-	updates := map[string]any{}
-	addOrganizedMediaMetadataUpdates(updates, *media)
-	if len(updates) == 0 {
-		return nil
+	var (
+		persisted *persistedMetadataMatch
+		err       error
+	)
+	if strings.EqualFold(strings.TrimSpace(match.Source), "local_nfo") {
+		persisted, err = o.scraper.persistLocalMetadata(ctx, media, lib, localMetadataFromMatch(match))
+	} else {
+		persisted, err = o.scraper.persistProviderMetadata(ctx, media, lib, match)
 	}
-	return o.repo.DB.WithContext(ctx).Model(&model.Media{}).Where("id = ?", media.ID).Updates(updates).Error
+	if err != nil {
+		return err
+	}
+	updates := map[string]any{
+		"metadata_id": persisted.Target.ID, "scrape_status": "matched",
+		"scrape_error": "", "local_metadata_hint": "",
+	}
+	applyScrapeMediaTypeResets(updates, match)
+	if err := o.repo.DB.WithContext(ctx).Model(&model.Media{}).Where("id = ?", media.ID).Updates(updates).Error; err != nil {
+		return err
+	}
+	media.MetadataID = persisted.Target.ID
+	media.ScrapeStatus = "matched"
+	o.repo.MediaView.ReindexMediaIDs(ctx, media.ID)
+	return nil
 }
 
-func setNonEmptyUpdate(updates map[string]any, key, value string) {
-	if strings.TrimSpace(value) != "" {
-		updates[key] = value
+func localMetadataFromMatch(match *Match) *LocalMetadata {
+	if match == nil {
+		return nil
+	}
+	return &LocalMetadata{
+		Title: match.Title, OriginalName: match.OriginalName, Overview: match.Overview,
+		PosterURL: match.PosterURL, BackdropURL: match.BackdropURL, Year: match.Year,
+		ReleaseDate: match.ReleaseDate, Rating: match.Rating, TMDbID: match.TMDbID,
+		BangumiID: match.BangumiID, DoubanID: match.DoubanID, TheTVDBID: match.TheTVDBID,
+		Languages: strings.Join(match.Languages, ","), Countries: strings.Join(match.Countries, ","),
+		Genres: strings.Join(match.Genres, ","), NSFW: match.NSFW, HasNFO: true,
 	}
 }

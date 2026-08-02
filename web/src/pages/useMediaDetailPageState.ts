@@ -112,12 +112,11 @@ function useMediaDetailActions({
     [media, refresh, scrapeEpisodeArtwork],
   )
   const reprobe = useCallback(() => reprobeMedia(media, refresh), [media, refresh])
-  const exportNFO = useCallback(() => exportMediaNFO(media), [media])
   const softDelete = useCallback(
     () => softDeleteMedia(media, navigate),
     [media, navigate],
   )
-  return { goBack, toggleFavourite, rescrape, reprobe, exportNFO, softDelete }
+  return { goBack, toggleFavourite, rescrape, reprobe, softDelete }
 }
 
 function goBackFromMediaDetail(media: Media | null, navigate: NavigateFunction, replace = false): void {
@@ -161,16 +160,6 @@ async function reprobeMedia(media: Media | null, refresh: () => Promise<void>): 
     await refresh()
   } catch (err: unknown) {
     toast.error(apiErrorMessage(err, '探测失败，请检查 ffprobe 是否已安装'))
-  }
-}
-
-async function exportMediaNFO(media: Media | null): Promise<void> {
-  if (!media) return
-  try {
-    const result = await recycleAPI.exportNFO(media.id)
-    toast.success(`NFO 已成功写入 ${result.path}`)
-  } catch (err: unknown) {
-    toast.error(apiErrorMessage(err, '导出失败'))
   }
 }
 

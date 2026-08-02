@@ -326,7 +326,7 @@ func TestOrganizeDirectoryTVEpisodeDedup(t *testing.T) {
 
 	repos := newOrganizerTestRepo(t)
 	row := model.Media{Title: "Friends", Path: existing, SeasonNum: 1, EpisodeNum: 1, Container: "mkv", Width: 1920, Height: 1080}
-	if err := repos.Media.Upsert(t.Context(), &row); err != nil {
+	if err := repos.Media.Upsert(t.Context(), serviceTestMediaForUpsert(&row)); err != nil {
 		t.Fatal(err)
 	}
 

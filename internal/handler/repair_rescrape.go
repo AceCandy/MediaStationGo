@@ -26,13 +26,12 @@ func repairAndRescrapeAllHandler(svc *service.Container) gin.HandlerFunc {
 		go func(options service.ScrapeOptions) {
 			result, err := svc.RepairAndRescrapeAllLibraries(context.Background(), options)
 			metrics := map[string]int64{
-				"repaired":     int64(result.Repaired),
-				"reclassified": int64(result.Reclassified),
-				"libraries":    int64(result.Libraries),
-				"matched":      int64(result.Matched),
-				"processed":    int64(result.Processed),
-				"errors":       int64(result.Errors),
-				"reset":        int64(result.Reset),
+				"repaired":  int64(result.Repaired),
+				"libraries": int64(result.Libraries),
+				"matched":   int64(result.Matched),
+				"processed": int64(result.Processed),
+				"errors":    int64(result.Errors),
+				"reset":     int64(result.Reset),
 			}
 			stage := "completed"
 			message := "全库修复并重刮完成"
@@ -63,13 +62,12 @@ func repairAndRescrapeLibraryHandler(svc *service.Container) gin.HandlerFunc {
 		go func(options service.ScrapeOptions) {
 			result, err := svc.RepairAndRescrapeLibrary(context.Background(), libraryID, options)
 			metrics := map[string]int64{
-				"repaired":     int64(result.Repaired),
-				"reclassified": int64(result.Reclassified),
-				"libraries":    int64(result.Libraries),
-				"matched":      int64(result.Matched),
-				"processed":    int64(result.Processed),
-				"errors":       int64(result.Errors),
-				"reset":        int64(result.Reset),
+				"repaired":  int64(result.Repaired),
+				"libraries": int64(result.Libraries),
+				"matched":   int64(result.Matched),
+				"processed": int64(result.Processed),
+				"errors":    int64(result.Errors),
+				"reset":     int64(result.Reset),
 			}
 			stage := "completed"
 			message := "媒体库修复并重刮完成"

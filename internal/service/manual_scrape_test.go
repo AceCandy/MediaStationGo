@@ -93,7 +93,7 @@ func TestManualSearchReturnsTMDbCandidatePage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&model.Library{}, &model.Series{}, &model.Media{}); err != nil {
+	if err := migrateScraperTestModels(t, db); err != nil {
 		t.Fatal(err)
 	}
 	repos := repository.New(db)
@@ -152,7 +152,7 @@ func TestManualSearchFallsBackToMovieFolderForGenericQuery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&model.Library{}, &model.Series{}, &model.Media{}); err != nil {
+	if err := migrateScraperTestModels(t, db); err != nil {
 		t.Fatal(err)
 	}
 	repos := repository.New(db)
@@ -213,7 +213,7 @@ func TestManualSearchReturnsMovieFallbackForTVTypedTMDbSearch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&model.Library{}, &model.Series{}, &model.Media{}); err != nil {
+	if err := migrateScraperTestModels(t, db); err != nil {
 		t.Fatal(err)
 	}
 	repos := repository.New(db)
@@ -272,7 +272,7 @@ func TestManualSearchAllProvidersTMDbNumericIDTriesMovieAndTVNamespaces(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&model.Library{}, &model.Series{}, &model.Media{}); err != nil {
+	if err := migrateScraperTestModels(t, db); err != nil {
 		t.Fatal(err)
 	}
 	repos := repository.New(db)
@@ -329,7 +329,7 @@ func TestManualSearchTMDbProviderIDUsesIDLookupOnly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&model.Library{}, &model.Series{}, &model.Media{}); err != nil {
+	if err := migrateScraperTestModels(t, db); err != nil {
 		t.Fatal(err)
 	}
 	repos := repository.New(db)
@@ -395,7 +395,7 @@ func TestManualSearchAllProvidersProviderIDSkipsAdultSource(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&model.Library{}, &model.Series{}, &model.Media{}, &model.APIConfig{}); err != nil {
+	if err := migrateScraperTestModels(t, db, &model.APIConfig{}); err != nil {
 		t.Fatal(err)
 	}
 	repos := repository.New(db)
@@ -472,7 +472,7 @@ func TestManualSearchIncludesAdultProvider(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&model.Library{}, &model.Series{}, &model.Media{}, &model.APIConfig{}); err != nil {
+	if err := migrateScraperTestModels(t, db, &model.APIConfig{}); err != nil {
 		t.Fatal(err)
 	}
 	repos := repository.New(db)
@@ -528,7 +528,7 @@ func TestApplyManualMatchSavesSelectedCloudMatchWhenDetailsSlow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&model.Library{}, &model.Series{}, &model.Media{}); err != nil {
+	if err := migrateScraperTestModels(t, db); err != nil {
 		t.Fatal(err)
 	}
 	repos := repository.New(db)
@@ -570,8 +570,15 @@ func TestApplyManualMatchSavesSelectedCloudMatchWhenDetailsSlow(t *testing.T) {
 	if err := repos.DB.First(&got, "id = ?", media.ID).Error; err != nil {
 		t.Fatal(err)
 	}
-	if got.Title != "Correct Cloud Movie" || got.ScrapeStatus != "matched" || got.TMDbID != 77 {
-		t.Fatalf("manual cloud match was not saved: title=%q status=%q tmdb=%d", got.Title, got.ScrapeStatus, got.TMDbID)
+	if got.MetadataID == "" || got.ScrapeStatus != "matched" {
+		t.Fatalf("manual cloud match link was not saved: %#v", got)
+	}
+	view, err := repos.MediaView.FindByID(t.Context(), media.ID)
+	if err != nil || view == nil {
+		t.Fatalf("find manual media view: %#v %v", view, err)
+	}
+	if view.Title != "Correct Cloud Movie" || view.TMDbID != 77 {
+		t.Fatalf("manual cloud metadata was not projected: %#v", view)
 	}
 }
 
@@ -580,7 +587,7 @@ func TestApplyManualMovieMatchClearsEpisodeMarkers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&model.Library{}, &model.Series{}, &model.Media{}); err != nil {
+	if err := migrateScraperTestModels(t, db); err != nil {
 		t.Fatal(err)
 	}
 	repos := repository.New(db)
@@ -623,7 +630,11 @@ func TestApplyManualMovieMatchClearsEpisodeMarkers(t *testing.T) {
 	if got.SeasonNum != 0 || got.EpisodeNum != 0 || got.EpisodeTitle != "" || got.SeriesID != "" {
 		t.Fatalf("episode markers were not cleared: %#v", got)
 	}
-	if got.TMDbID != 0 || got.TheTVDBID != "" {
-		t.Fatalf("stale external IDs were not cleared for manual movie fallback: tmdb=%d thetvdb=%q", got.TMDbID, got.TheTVDBID)
+	view, err := repos.MediaView.FindByID(t.Context(), media.ID)
+	if err != nil || view == nil {
+		t.Fatalf("find manual movie view: %#v %v", view, err)
+	}
+	if view.Title != "Dune" || view.TMDbID != 0 || view.TheTVDBID != "" {
+		t.Fatalf("stale lookup hints leaked into shared metadata: %#v", view)
 	}
 }

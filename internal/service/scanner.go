@@ -59,7 +59,6 @@ type ScannerService struct {
 	hub       *Hub
 	probe     *FFprobeService
 	scraper   *ScraperService
-	organizer *OrganizerService
 	storage   *StorageConfigService
 	cache     *RuntimeCacheService
 	notify    *NotifyChannelService
@@ -126,12 +125,6 @@ func (s *ScannerService) SetStorageConfig(storage *StorageConfigService) {
 				go s.cloudMediaProbeWorker()
 			}
 		})
-	}
-}
-
-func (s *ScannerService) SetOrganizer(organizer *OrganizerService) {
-	if s != nil {
-		s.organizer = organizer
 	}
 }
 
@@ -271,6 +264,7 @@ type existingCloudMedia struct {
 	Languages    string
 	NSFW         bool
 	ScrapeStatus string
+	LocalMetadataHint string
 }
 
 type existingLocalMedia struct {
@@ -305,4 +299,5 @@ type existingLocalMedia struct {
 	Languages     string
 	NSFW          bool
 	ScrapeStatus  string
+	LocalMetadataHint string
 }

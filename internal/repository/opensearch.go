@@ -51,7 +51,7 @@ func (b *OpenSearchMediaBackend) SearchMediaIDs(ctx context.Context, query strin
 		map[string]any{
 			"multi_match": map[string]any{
 				"query":     query,
-				"fields":    []string{"title^4", "original_name^3", "genres^2", "path"},
+				"fields":    []string{"title^4", "original_name^3", "overview^2", "genres^2", "path", "scan_title"},
 				"type":      "best_fields",
 				"operator":  "and",
 				"fuzziness": "AUTO",
@@ -123,7 +123,9 @@ func (b *OpenSearchMediaBackend) EnsureIndex(ctx context.Context) error {
 				"library_id":    map[string]any{"type": "keyword"},
 				"title":         map[string]any{"type": "text"},
 				"original_name": map[string]any{"type": "text"},
+				"overview":      map[string]any{"type": "text"},
 				"path":          map[string]any{"type": "text"},
+				"scan_title":    map[string]any{"type": "text"},
 				"genres":        map[string]any{"type": "text"},
 				"nsfw":          map[string]any{"type": "boolean"},
 				"deleted":       map[string]any{"type": "boolean"},
@@ -134,7 +136,7 @@ func (b *OpenSearchMediaBackend) EnsureIndex(ctx context.Context) error {
 	return b.doJSON(ctx, http.MethodPut, "/"+url.PathEscape(b.index), mapping, nil)
 }
 
-func (b *OpenSearchMediaBackend) IndexMedia(ctx context.Context, rows []model.Media) error {
+func (b *OpenSearchMediaBackend) IndexMedia(ctx context.Context, rows []model.MediaView) error {
 	if len(rows) == 0 {
 		return nil
 	}
@@ -149,7 +151,9 @@ func (b *OpenSearchMediaBackend) IndexMedia(ctx context.Context, rows []model.Me
 			"library_id":    row.LibraryID,
 			"title":         row.Title,
 			"original_name": row.OriginalName,
+			"overview":      row.Overview,
 			"path":          row.Path,
+			"scan_title":    row.Media.Title,
 			"genres":        row.Genres,
 			"nsfw":          row.NSFW,
 			"deleted":       row.DeletedAt.Valid,

@@ -12,7 +12,7 @@ import (
 )
 
 func (c *Container) warmMediaSearchIndex(ctx context.Context) {
-	if c == nil || c.Repo == nil || c.Repo.Media == nil {
+	if c == nil || c.Repo == nil || c.Repo.MediaView == nil {
 		return
 	}
 	if !mediaSearchWarmupEnabled(ctx, c.Repo) {
@@ -37,7 +37,7 @@ func (c *Container) warmMediaSearchIndex(ctx context.Context) {
 			return
 		default:
 		}
-		n, err := c.Repo.Media.BackfillSearchIndex(ctx, batchSize)
+		n, err := c.Repo.MediaView.BackfillSearchIndex(ctx, batchSize)
 		if err != nil {
 			c.Log.Debug("media search index warmup stopped", zap.Error(err))
 			return

@@ -13,7 +13,6 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/ShukeBta/MediaStationGo/internal/middleware"
-	"github.com/ShukeBta/MediaStationGo/internal/model"
 	"github.com/ShukeBta/MediaStationGo/internal/service"
 )
 
@@ -23,18 +22,7 @@ import (
 func addMediaFavoriteHandler(svc *service.Container) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		uid, _ := c.Get(middleware.CtxUserID)
-		// Check current state.
-		var existing model.Favorite
-		err := svc.Repo.DB.WithContext(c.Request.Context()).
-			Where("user_id = ? AND media_id = ?", uid, c.Param("id")).
-			First(&existing).Error
-		if err == nil {
-			c.JSON(http.StatusOK, gin.H{"favourite": true})
-			return
-		}
-		// Otherwise create.
-		fav := &model.Favorite{UserID: toString(uid), MediaID: c.Param("id")}
-		if err := svc.Repo.DB.WithContext(c.Request.Context()).Create(fav).Error; err != nil {
+		if _, err := svc.Playback.SetFavourite(c.Request.Context(), toString(uid), c.Param("id"), true); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
@@ -46,9 +34,7 @@ func addMediaFavoriteHandler(svc *service.Container) gin.HandlerFunc {
 func removeMediaFavoriteHandler(svc *service.Container) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		uid, _ := c.Get(middleware.CtxUserID)
-		if err := svc.Repo.DB.WithContext(c.Request.Context()).
-			Where("user_id = ? AND media_id = ?", uid, c.Param("id")).
-			Delete(&model.Favorite{}).Error; err != nil {
+		if _, err := svc.Playback.SetFavourite(c.Request.Context(), toString(uid), c.Param("id"), false); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
@@ -60,12 +46,12 @@ func removeMediaFavoriteHandler(svc *service.Container) gin.HandlerFunc {
 func getMediaFavoriteStatusHandler(svc *service.Container) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		uid, _ := c.Get(middleware.CtxUserID)
-		var n int64
-		_ = svc.Repo.DB.WithContext(c.Request.Context()).
-			Model(&model.Favorite{}).
-			Where("user_id = ? AND media_id = ?", uid, c.Param("id")).
-			Count(&n).Error
-		c.JSON(http.StatusOK, gin.H{"favourite": n > 0})
+		favorite, err := svc.Playback.IsFavourite(c.Request.Context(), toString(uid), c.Param("id"))
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"favourite": favorite})
 	}
 }
 
@@ -94,7 +80,6 @@ func aiScrapeMediaHandler(svc *service.Container) gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		reclassifyMediaAfterScrape(c.Request.Context(), svc, m.ID)
 		refreshed, _ := svc.Repo.Media.FindByID(c.Request.Context(), m.ID)
 		c.JSON(http.StatusOK, refreshed)
 	}

@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"strings"
 
 	"go.uber.org/zap"
@@ -10,9 +12,15 @@ import (
 )
 
 func (s *ScraperService) matchFromMediaExternalIDs(ctx context.Context, m *model.Media, lib *model.Library) *Match {
+	return s.matchFromMediaExternalIDsWithOutcome(ctx, m, lib).Match
+}
+
+func (s *ScraperService) matchFromMediaExternalIDsWithOutcome(ctx context.Context, m *model.Media, lib *model.Library) providerLookupResult {
+	result := providerLookupResult{}
 	if s == nil || m == nil {
-		return nil
+		return result
 	}
+	var lookupErrors []error
 	mediaType := ""
 	if lib != nil {
 		mediaType = lib.Type
@@ -21,44 +29,80 @@ func (s *ScraperService) matchFromMediaExternalIDs(ctx context.Context, m *model
 		if mediaIsEpisodic(m, lib) {
 			mediaType = "tv"
 		}
-		if match := s.manualTMDbMatchByID(ctx, m.TMDbID, normalizeMediaType(mediaType, m.Title, "")); match != nil {
-			if s.mediaExternalIDMatchTrusted(m, lib, match, "tmdb") {
-				preferExistingLocalizedEpisodeTitle(m, lib, match)
-				return match
+		if s.tmdb != nil && s.tmdb.Enabled() {
+			result.Tried = true
+			match, err := s.tmdbMatchByID(ctx, m.TMDbID, normalizeMediaType(mediaType, m.Title, ""))
+			if err != nil {
+				lookupErrors = append(lookupErrors, fmt.Errorf("tmdb id %d: %w", m.TMDbID, err))
+			}
+			if match != nil {
+				if s.mediaExternalIDMatchTrusted(m, lib, match, "tmdb") {
+					match.Source = "tmdb"
+					match.AllowIdentifierMerge = true
+					preferExistingLocalizedEpisodeTitle(m, lib, match)
+					result.Match = match
+					return result
+				}
 			}
 		}
 	}
 	if strings.TrimSpace(m.DoubanID) != "" && s.douban != nil && s.douban.Enabled() {
+		result.Tried = true
 		if match, err := s.douban.GetMatchByID(ctx, strings.TrimSpace(m.DoubanID)); err == nil && match != nil {
 			if s.mediaExternalIDMatchTrusted(m, lib, match, "douban") {
+				match.Source = "douban"
+				match.AllowIdentifierMerge = true
 				preferExistingLocalizedEpisodeTitle(m, lib, match)
-				return match
+				result.Match = match
+				return result
 			}
 		} else if err != nil {
 			s.log.Debug("douban id lookup failed", zap.String("media_id", m.ID), zap.String("douban_id", m.DoubanID), zap.Error(err))
+			lookupErrors = append(lookupErrors, fmt.Errorf("douban id %s: %w", m.DoubanID, err))
 		}
 	}
 	if m.BangumiID > 0 && s.bangumi != nil && s.bangumi.Enabled() {
+		result.Tried = true
 		if match, err := s.bangumi.GetSubject(ctx, m.BangumiID); err == nil && match != nil {
 			if s.mediaExternalIDMatchTrusted(m, lib, match, "bangumi") {
+				match.Source = "bangumi"
+				match.AllowIdentifierMerge = true
 				preferExistingLocalizedEpisodeTitle(m, lib, match)
-				return match
+				result.Match = match
+				return result
 			}
 		} else if err != nil {
 			s.log.Debug("bangumi id lookup failed", zap.String("media_id", m.ID), zap.Int("bangumi_id", m.BangumiID), zap.Error(err))
+			lookupErrors = append(lookupErrors, fmt.Errorf("bangumi id %d: %w", m.BangumiID, err))
 		}
 	}
 	if strings.TrimSpace(m.TheTVDBID) != "" && s.thetvdb != nil && s.thetvdb.Enabled() {
+		result.Tried = true
 		if match, err := s.thetvdb.GetSeriesMatchByID(ctx, strings.TrimSpace(m.TheTVDBID)); err == nil && match != nil {
 			if s.mediaExternalIDMatchTrusted(m, lib, match, "thetvdb") {
+				match.Source = "thetvdb"
+				match.AllowIdentifierMerge = true
 				preferExistingLocalizedEpisodeTitle(m, lib, match)
-				return match
+				result.Match = match
+				return result
 			}
 		} else if err != nil {
 			s.log.Debug("thetvdb id lookup failed", zap.String("media_id", m.ID), zap.String("thetvdb_id", m.TheTVDBID), zap.Error(err))
+			lookupErrors = append(lookupErrors, fmt.Errorf("thetvdb id %s: %w", m.TheTVDBID, err))
 		}
 	}
-	return nil
+	result.Err = errors.Join(lookupErrors...)
+	return result
+}
+
+func (s *ScraperService) tmdbMatchByID(ctx context.Context, id int, mediaType string) (*Match, error) {
+	if s == nil || s.tmdb == nil || !s.tmdb.Enabled() || id <= 0 {
+		return nil, nil
+	}
+	if normalizeMediaType(mediaType, "", "") == "tv" {
+		return s.tmdb.GetTVMatch(ctx, id)
+	}
+	return s.tmdb.GetMovieMatch(ctx, id)
 }
 
 func (s *ScraperService) mediaExternalIDMatchTrusted(m *model.Media, lib *model.Library, match *Match, source string) bool {

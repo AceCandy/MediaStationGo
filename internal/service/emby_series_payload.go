@@ -1,7 +1,19 @@
 package service
 
-func (e *EmbyService) seriesPayload(group embySeriesGroup) map[string]any {
+import (
+	"context"
+)
+
+func (e *EmbyService) seriesPayload(ctx context.Context, group embySeriesGroup, userID string) map[string]any {
 	e.rememberSeriesGroup(group)
+	target := embyItemTarget{ItemID: group.ID, MetadataID: group.ID}
+	if len(group.Episodes) > 0 {
+		target.MediaID = group.Episodes[0].ID
+	}
+	favorite, positionMs := e.userDataForTarget(ctx, userID, target)
+	userData := emptyUserData()
+	userData["IsFavorite"] = favorite
+	userData["PlaybackPositionTicks"] = positionMs * 10_000
 	imageTags := map[string]string{}
 	backdropTags := []string{}
 	if group.PosterURL != "" {
@@ -30,7 +42,7 @@ func (e *EmbyService) seriesPayload(group embySeriesGroup) map[string]any {
 			"Tmdb":    intToStr(group.TMDbID),
 			"Bangumi": intToStr(group.BangumiID),
 		},
-		"UserData": emptyUserData(),
+		"UserData": userData,
 	}
 	if premiered, ok := embyPremiereDate(group.ReleaseDate); ok {
 		item["PremiereDate"] = premiered
@@ -38,8 +50,16 @@ func (e *EmbyService) seriesPayload(group embySeriesGroup) map[string]any {
 	return item
 }
 
-func (e *EmbyService) seasonPayload(season embySeasonGroup) map[string]any {
+func (e *EmbyService) seasonPayload(ctx context.Context, season embySeasonGroup, userID string) map[string]any {
 	e.rememberSeasonGroup(season)
+	mediaID := ""
+	if len(season.Episodes) > 0 {
+		mediaID = season.Episodes[0].ID
+	}
+	favorite, positionMs := e.userDataForTarget(ctx, userID, embyItemTarget{ItemID: season.ID, MetadataID: season.ID, MediaID: mediaID})
+	userData := emptyUserData()
+	userData["IsFavorite"] = favorite
+	userData["PlaybackPositionTicks"] = positionMs * 10_000
 	imageTags := map[string]string{}
 	backdropTags := []string{}
 	if season.Series.PosterURL != "" {
@@ -62,6 +82,6 @@ func (e *EmbyService) seasonPayload(season embySeasonGroup) map[string]any {
 		"ChildCount":        len(season.Episodes),
 		"ImageTags":         imageTags,
 		"BackdropImageTags": backdropTags,
-		"UserData":          emptyUserData(),
+		"UserData":          userData,
 	}
 }

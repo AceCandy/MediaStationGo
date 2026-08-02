@@ -109,8 +109,6 @@ type ItemsParams struct {
 }
 
 const (
-	embyVirtualSeriesPrefix = "msgo-series-"
-	embyVirtualSeasonPrefix = "msgo-season-"
 	embyVirtualCacheTTL     = 10 * time.Minute
 	embyVisibilityCacheTTL  = 30 * time.Second
 	embySeriesGroupingLimit = maxMediaSearchLimit
@@ -186,7 +184,7 @@ func (e *EmbyService) Items(ctx context.Context, p ItemsParams) (map[string]any,
 		seasons := e.seasonsForSeries(series)
 		items := make([]map[string]any, 0, len(seasons))
 		for _, season := range pageSlice(seasons, p.StartIndex, p.Limit) {
-			items = append(items, e.seasonPayload(season))
+			items = append(items, e.seasonPayload(ctx, season, p.UserID))
 		}
 		return map[string]any{"Items": items, "TotalRecordCount": len(seasons), "StartIndex": p.StartIndex}, nil
 	}

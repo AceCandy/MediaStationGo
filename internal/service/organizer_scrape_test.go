@@ -61,8 +61,9 @@ func TestOrganizeDirectoryScanAndScrapeAfter(t *testing.T) {
 	if err := repos.DB.Where("path LIKE ?", "%Spy Family - S01E01.mkv").First(&media).Error; err != nil {
 		t.Fatal(err)
 	}
-	if media.ScrapeStatus != "matched" || media.TMDbID != 12345 {
-		t.Fatalf("media scrape status=%q tmdb=%d, want matched/12345", media.ScrapeStatus, media.TMDbID)
+	view := serviceTestMediaView(t, repos, media.ID)
+	if view.ScrapeStatus != "matched" || view.TMDbID != 12345 {
+		t.Fatalf("media scrape status=%q tmdb=%d, want matched/12345", view.ScrapeStatus, view.TMDbID)
 	}
 	if _, err := os.Stat(media.Path); err != nil {
 		t.Fatalf("organized file missing at %q: %v", media.Path, err)
@@ -104,8 +105,9 @@ func TestOrganizeDirectoryUsesScraperMatchBeforeRename(t *testing.T) {
 	if err := repos.DB.First(&media, "path = ?", want).Error; err != nil {
 		t.Fatalf("organized metadata should be persisted before scan: %v", err)
 	}
-	if media.Title != "间谍过家家" || media.TMDbID != 12345 || media.ScrapeStatus != "matched" {
-		t.Fatalf("persisted media = title=%q tmdb=%d status=%q, want localized matched metadata", media.Title, media.TMDbID, media.ScrapeStatus)
+	view := serviceTestMediaView(t, repos, media.ID)
+	if view.Title != "间谍过家家" || view.TMDbID != 12345 || view.ScrapeStatus != "matched" {
+		t.Fatalf("persisted media = title=%q tmdb=%d status=%q, want localized matched metadata", view.Title, view.TMDbID, view.ScrapeStatus)
 	}
 }
 
@@ -156,12 +158,20 @@ func TestOrganizePipelineRenamesAfterScrape(t *testing.T) {
 	if _, err := os.Stat(want); err != nil {
 		t.Fatalf("scraped rename target missing %q: %v", want, err)
 	}
-	var got model.Media
-	if err := repos.DB.First(&got, "path = ?", want).Error; err != nil {
+	var stored model.Media
+	if err := repos.DB.First(&stored, "path = ?", want).Error; err != nil {
 		t.Fatal(err)
 	}
-	if got.Title != "间谍过家家" || got.ReleaseDate != "2022-04-09" || got.ScrapeStatus != "matched" {
+	got := serviceTestMediaView(t, repos, stored.ID)
+	if got.Title != "间谍过家家" || got.ScrapeStatus != "matched" {
 		t.Fatalf("media after scrape rename = title=%q release=%q status=%q", got.Title, got.ReleaseDate, got.ScrapeStatus)
+	}
+	var series model.MetadataItem
+	if err := repos.DB.First(&series, "id = ?", got.SeriesID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if series.ReleaseDate != "2022-04-09" {
+		t.Fatalf("series release date = %q, want 2022-04-09", series.ReleaseDate)
 	}
 }
 
@@ -193,7 +203,7 @@ func TestOrganizeMediaRefreshesMetadataBeforeRename(t *testing.T) {
 		EpisodeNum:   1,
 		ScrapeStatus: "pending",
 	}
-	if err := repos.Media.Upsert(t.Context(), &media); err != nil {
+	if err := repos.Media.Upsert(t.Context(), serviceTestMediaForUpsert(&media)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -210,10 +220,7 @@ func TestOrganizeMediaRefreshesMetadataBeforeRename(t *testing.T) {
 		t.Fatalf("dst = %q, want %q", dst, want)
 	}
 
-	var got model.Media
-	if err := repos.DB.First(&got, "id = ?", media.ID).Error; err != nil {
-		t.Fatal(err)
-	}
+	got := serviceTestMediaView(t, repos, media.ID)
 	if got.Title != "间谍过家家" || got.TMDbID != 12345 || got.ScrapeStatus != "matched" {
 		t.Fatalf("media = title=%q tmdb=%d status=%q, want localized matched metadata", got.Title, got.TMDbID, got.ScrapeStatus)
 	}
@@ -246,7 +253,7 @@ func TestOrganizeMediaRefreshesMatchedReleaseTitleBeforeRename(t *testing.T) {
 		TMDbID:       12345,
 		ScrapeStatus: "matched",
 	}
-	if err := repos.Media.Upsert(t.Context(), &media); err != nil {
+	if err := repos.Media.Upsert(t.Context(), serviceTestMediaForUpsert(&media)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -263,10 +270,7 @@ func TestOrganizeMediaRefreshesMatchedReleaseTitleBeforeRename(t *testing.T) {
 		t.Fatalf("dst = %q, want %q", dst, want)
 	}
 
-	var got model.Media
-	if err := repos.DB.First(&got, "id = ?", media.ID).Error; err != nil {
-		t.Fatal(err)
-	}
+	got := serviceTestMediaView(t, repos, media.ID)
 	if got.Title != "间谍过家家" || got.TMDbID != 12345 || got.OriginalName != "SPY×FAMILY" {
 		t.Fatalf("media = title=%q original=%q tmdb=%d, want refreshed localized metadata", got.Title, got.OriginalName, got.TMDbID)
 	}
@@ -294,7 +298,7 @@ func TestOrganizeMediaPersistsMetadataWhenAlreadyInPlace(t *testing.T) {
 		EpisodeNum:   1,
 		ScrapeStatus: "matched",
 	}
-	if err := repos.Media.Upsert(t.Context(), &media); err != nil {
+	if err := repos.Media.Upsert(t.Context(), serviceTestMediaForUpsert(&media)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -310,10 +314,7 @@ func TestOrganizeMediaPersistsMetadataWhenAlreadyInPlace(t *testing.T) {
 		t.Fatalf("dst = %q, want existing path %q", dst, mediaPath)
 	}
 
-	var got model.Media
-	if err := repos.DB.First(&got, "id = ?", media.ID).Error; err != nil {
-		t.Fatal(err)
-	}
+	got := serviceTestMediaView(t, repos, media.ID)
 	if got.Title != "间谍过家家" || got.TMDbID != 12345 || got.OriginalName != "SPY×FAMILY" || got.ScrapeStatus != "matched" {
 		t.Fatalf("metadata not persisted for already-in-place media: title=%q original=%q tmdb=%d status=%q", got.Title, got.OriginalName, got.TMDbID, got.ScrapeStatus)
 	}
@@ -341,7 +342,7 @@ func TestOrganizeLibraryPersistsMetadataForInPlaceWeakRows(t *testing.T) {
 		EpisodeNum:   1,
 		ScrapeStatus: "matched",
 	}
-	if err := repos.Media.Upsert(t.Context(), &media); err != nil {
+	if err := repos.Media.Upsert(t.Context(), serviceTestMediaForUpsert(&media)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -355,10 +356,7 @@ func TestOrganizeLibraryPersistsMetadataForInPlaceWeakRows(t *testing.T) {
 		t.Fatalf("result = %+v, want metadata-only refresh without move", res)
 	}
 
-	var got model.Media
-	if err := repos.DB.First(&got, "id = ?", media.ID).Error; err != nil {
-		t.Fatal(err)
-	}
+	got := serviceTestMediaView(t, repos, media.ID)
 	if got.Title != "间谍过家家" || got.TMDbID != 12345 || got.OriginalName != "SPY×FAMILY" || got.ScrapeStatus != "matched" {
 		t.Fatalf("metadata not persisted for in-place library row: title=%q original=%q tmdb=%d status=%q", got.Title, got.OriginalName, got.TMDbID, got.ScrapeStatus)
 	}
@@ -390,7 +388,7 @@ func TestOrganizeScanAndScrapeRetriesNoMatchRows(t *testing.T) {
 		EpisodeNum:   2,
 		ScrapeStatus: "no_match",
 	}
-	if err := repos.Media.Upsert(t.Context(), &media); err != nil {
+	if err := repos.Media.Upsert(t.Context(), serviceTestMediaForUpsert(&media)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -400,10 +398,7 @@ func TestOrganizeScanAndScrapeRetriesNoMatchRows(t *testing.T) {
 		t.Fatalf("scrapes = %#v, want one retried no_match row", scrapes)
 	}
 
-	var got model.Media
-	if err := repos.DB.First(&got, "path = ?", mediaPath).Error; err != nil {
-		t.Fatal(err)
-	}
+	got := serviceTestMediaView(t, repos, media.ID)
 	if got.ScrapeStatus != "matched" || got.TMDbID != 12345 {
 		t.Fatalf("media scrape status=%q tmdb=%d, want matched/12345", got.ScrapeStatus, got.TMDbID)
 	}
@@ -435,7 +430,7 @@ func TestOrganizeScanAndScrapeRepairsWeakMatchedReleaseTitle(t *testing.T) {
 		EpisodeNum:   1,
 		ScrapeStatus: "matched",
 	}
-	if err := repos.Media.Upsert(t.Context(), &media); err != nil {
+	if err := repos.Media.Upsert(t.Context(), serviceTestMediaForUpsert(&media)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -445,10 +440,7 @@ func TestOrganizeScanAndScrapeRepairsWeakMatchedReleaseTitle(t *testing.T) {
 		t.Fatalf("scrapes = %#v, want one repaired matched release row", scrapes)
 	}
 
-	var got model.Media
-	if err := repos.DB.First(&got, "path = ?", mediaPath).Error; err != nil {
-		t.Fatal(err)
-	}
+	got := serviceTestMediaView(t, repos, media.ID)
 	if got.Title != "间谍过家家" || got.TMDbID != 12345 || got.ScrapeStatus != "matched" {
 		t.Fatalf("media = title=%q tmdb=%d status=%q, want localized matched metadata", got.Title, got.TMDbID, got.ScrapeStatus)
 	}

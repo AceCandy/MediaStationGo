@@ -31,19 +31,12 @@ func historyListHandler(svc *service.Container) gin.HandlerFunc {
 		if limit <= 0 || limit > 500 {
 			limit = 50
 		}
-		items, err := svc.Playback.RecentHistory(c.Request.Context(), toString(uid), limit)
+		items, err := svc.Playback.RecentHistory(c.Request.Context(), toString(uid), limit, mediaVisibilityForRequest(c, svc))
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		visibility := mediaVisibilityForRequest(c, svc)
-		filtered := make([]service.HistoryItem, 0, len(items))
-		for _, item := range items {
-			if item.Media == nil || visibility.Allows(item.Media) {
-				filtered = append(filtered, item)
-			}
-		}
-		c.JSON(http.StatusOK, filtered)
+		c.JSON(http.StatusOK, items)
 	}
 }
 
@@ -96,40 +89,19 @@ func historyContinueHandler(svc *service.Container) gin.HandlerFunc {
 		if limit <= 0 || limit > 50 {
 			limit = 10
 		}
-		var rows []model.PlaybackHistory
-		if err := svc.Repo.DB.
-			Where("user_id = ? AND completed = ?", toString(uid), false).
-			Order("watched_at desc").
-			Limit(limit).
-			Find(&rows).Error; err != nil {
+		items, err := svc.Playback.ContinueHistory(c.Request.Context(), toString(uid), limit, mediaVisibilityForRequest(c, svc))
+		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		// Hydrate media in one query.
-		ids := make([]string, 0, len(rows))
-		for _, r := range rows {
-			ids = append(ids, r.MediaID)
-		}
-		var media []model.Media
-		if len(ids) > 0 {
-			_ = svc.Repo.DB.Where("id IN ?", ids).Find(&media).Error
-		}
-		mIdx := make(map[string]model.Media, len(media))
-		for _, m := range media {
-			if !mediaVisibleForRequest(c, svc, &m) {
-				continue
-			}
-			mIdx[m.ID] = m
-		}
-		out := make([]gin.H, 0, len(rows))
-		for _, r := range rows {
-			m, ok := mIdx[r.MediaID]
-			if !ok {
+		out := make([]gin.H, 0, len(items))
+		for _, item := range items {
+			if item.Media == nil {
 				continue
 			}
 			out = append(out, gin.H{
-				"history": r,
-				"media":   m,
+				"history": item.PlaybackHistory,
+				"media":   item.Media,
 			})
 		}
 		c.JSON(http.StatusOK, out)
@@ -148,20 +120,32 @@ func historyDeleteHandler(svc *service.Container) gin.HandlerFunc {
 		userID := toString(uid)
 		mediaID := c.Query("media_id")
 		status := c.Query("status")
-
-		q := svc.Repo.DB.Where("user_id = ?", userID)
-		if mediaID != "" {
-			q = q.Where("media_id = ?", mediaID)
-		}
+		var completed *bool
 		switch status {
 		case "completed", "watched":
-			q = q.Where("completed = ?", true)
+			value := true
+			completed = &value
 		case "incomplete", "unfinished", "unwatched":
-			q = q.Where("completed = ?", false)
+			value := false
+			completed = &value
 		case "":
 		default:
 			c.JSON(http.StatusBadRequest, gin.H{"error": "status must be completed or incomplete"})
 			return
+		}
+
+		q := svc.Repo.DB.Where("user_id = ?", userID)
+		if mediaID != "" {
+			removed, err := svc.Playback.DeleteHistoryForMedia(c.Request.Context(), userID, mediaID, completed)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+				return
+			}
+			c.JSON(http.StatusOK, gin.H{"removed": removed})
+			return
+		}
+		if completed != nil {
+			q = q.Where("completed = ?", *completed)
 		}
 		res := q.Delete(&model.PlaybackHistory{})
 		if err := res.Error; err != nil {

@@ -100,14 +100,6 @@ func main() {
 		logger.Info("cloud path metadata repair completed", zap.Int("media_count", repaired))
 	}
 
-	// 一次性清洗历史脏数据: 老版本把单集 episode id / 单集名写进整剧字段, 导致
-	// 同一部剧被拆成多张单集卡。清空被污染的字段并重置为 pending(借后续重刮修正)。
-	if cleaned, err := services.NormalizePollutedEpisodeMetadata(context.Background()); err != nil {
-		logger.Warn("polluted episode metadata cleanup failed", zap.Error(err))
-	} else if cleaned > 0 {
-		logger.Info("polluted episode metadata cleanup completed", zap.Int("media_count", cleaned))
-	}
-
 	if err := services.Auth.SeedAdmin(context.Background()); err != nil {
 		logger.Warn("seed admin failed", zap.Error(err))
 	}

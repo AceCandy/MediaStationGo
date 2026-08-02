@@ -57,7 +57,7 @@ func TestOrganizeDirectoryUsesTMDbChineseAlternativeTitle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&model.Library{}, &model.Series{}, &model.Media{}); err != nil {
+	if err := migrateScraperTestModels(t, db); err != nil {
 		t.Fatal(err)
 	}
 	repos := repository.New(db)
@@ -94,7 +94,8 @@ func TestOrganizeDirectoryUsesTMDbChineseAlternativeTitle(t *testing.T) {
 	if err := repos.DB.First(&stored, "path = ?", want).Error; err != nil {
 		t.Fatal(err)
 	}
-	if stored.Title != "菜鸟老警" || stored.OriginalName != "The Rookie" || stored.TMDbID != 7583 {
-		t.Fatalf("stored title=%q original=%q tmdb=%d, want localized Chinese metadata", stored.Title, stored.OriginalName, stored.TMDbID)
+	view := serviceTestMediaView(t, repos, stored.ID)
+	if view.Title != "菜鸟老警" || view.OriginalName != "The Rookie" || view.TMDbID != 7583 {
+		t.Fatalf("stored title=%q original=%q tmdb=%d, want localized Chinese metadata", view.Title, view.OriginalName, view.TMDbID)
 	}
 }

@@ -1,34 +1,26 @@
 package service
 
 import (
-	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"path/filepath"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 )
 
-func (e *EmbyService) seriesIDForMedia(m *model.Media) string {
-	if strings.TrimSpace(m.SeriesID) != "" {
-		return m.SeriesID
+func (e *EmbyService) seriesIDForMedia(m *model.MediaView) string {
+	if m == nil {
+		return ""
 	}
-	return stableEmbyID(embyVirtualSeriesPrefix, m.LibraryID, e.seriesNameForMedia(m))
+	return strings.TrimSpace(m.SeriesID)
 }
 
-func (e *EmbyService) seasonIDForMedia(m *model.Media) string {
-	return seasonID(e.seriesIDForMedia(m), m.SeasonNum)
-}
-
-func (e *EmbyService) seriesNameForMedia(m *model.Media) string {
-	if strings.TrimSpace(m.SeriesID) != "" {
-		if series, err := e.repo.Series.FindByID(context.Background(), m.SeriesID); err == nil && series != nil && strings.TrimSpace(series.Title) != "" {
-			return series.Title
+func (e *EmbyService) seriesNameForMedia(m *model.MediaView) string {
+	if m.MetadataID != "" {
+		if name := strings.TrimSpace(m.Title); name != "" {
+			return name
 		}
 	}
 	if name := inferSeriesNameFromPath(m.Path); name != "" {
@@ -59,22 +51,6 @@ func inferSeriesNameFromPath(path string) string {
 		return ""
 	}
 	return base
-}
-
-func stableEmbyID(prefix string, parts ...string) string {
-	h := sha256.New()
-	for _, part := range parts {
-		_, _ = h.Write([]byte(strings.ToLower(strings.TrimSpace(part))))
-		_, _ = h.Write([]byte{0})
-	}
-	return prefix + hex.EncodeToString(h.Sum(nil))[:32]
-}
-
-func seasonID(seriesID string, seasonNum int) string {
-	if seasonNum < 0 {
-		seasonNum = 1
-	}
-	return stableEmbyID(embyVirtualSeasonPrefix, seriesID, strconv.Itoa(seasonNum))
 }
 
 func seasonName(seasonNum int) string {

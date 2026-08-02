@@ -102,7 +102,7 @@ func TestEnsurePerformanceIndexesCreatesHotPathIndexes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&model.Media{}, &model.Favorite{}, &model.PlaybackHistory{}, &model.PlayProfile{}); err != nil {
+	if err := db.AutoMigrate(&model.MetadataItem{}, &model.Media{}, &model.Favorite{}, &model.PlaybackHistory{}, &model.PlayProfile{}); err != nil {
 		t.Fatal(err)
 	}
 	if err := ensurePerformanceIndexes(db); err != nil {
@@ -111,6 +111,8 @@ func TestEnsurePerformanceIndexesCreatesHotPathIndexes(t *testing.T) {
 	for _, name := range []string{
 		"idx_media_library_created_active",
 		"idx_media_library_episode_active",
+		"idx_media_metadata_active",
+		"idx_metadata_parent_episode_active",
 		"idx_favorites_user_media_active",
 		"idx_playback_histories_user_media_active",
 		"idx_play_profiles_user_created_active",
@@ -130,7 +132,7 @@ func TestEnsureMediaSearchIndexCreatesVersionedTriggers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&model.Media{}); err != nil {
+	if err := db.AutoMigrate(&model.MetadataItem{}); err != nil {
 		t.Fatal(err)
 	}
 	if err := ensureMediaSearchIndex(db); err != nil {
@@ -155,16 +157,16 @@ func TestEnsureMediaSearchIndexCreatesVersionedTriggers(t *testing.T) {
 			t.Fatalf("trigger %s count = %d, want 1", trigger, count)
 		}
 	}
-	media := model.Media{LibraryID: "lib-1", Title: "中文搜索电影", Path: "/media/movie.mkv", Genres: "动画,冒险"}
-	if err := db.Create(&media).Error; err != nil {
+	metadata := model.MetadataItem{Kind: model.MetadataKindMovie, Title: "中文搜索电影", Genres: "动画,冒险", Source: "tmdb"}
+	if err := db.Create(&metadata).Error; err != nil {
 		t.Fatal(err)
 	}
 	var indexed int
-	if err := db.Raw(`SELECT COUNT(1) FROM media_search_fts WHERE media_id = ?`, media.ID).Scan(&indexed).Error; err != nil {
+	if err := db.Raw(`SELECT COUNT(1) FROM media_search_fts WHERE metadata_id = ?`, metadata.ID).Scan(&indexed).Error; err != nil {
 		t.Fatal(err)
 	}
 	if indexed != 1 {
-		t.Fatalf("indexed rows = %d, want inserted media indexed", indexed)
+		t.Fatalf("indexed rows = %d, want inserted metadata indexed", indexed)
 	}
 }
 
@@ -229,7 +231,7 @@ func TestCopyModelTablesResumesPartialSQLiteMigration(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, db := range []*gorm.DB{src, dst} {
-		if err := db.AutoMigrate(&model.User{}, &model.Media{}, &model.Setting{}); err != nil {
+		if err := db.AutoMigrate(&model.User{}, &model.MetadataItem{}, &model.Media{}, &model.Setting{}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -240,19 +242,23 @@ func TestCopyModelTablesResumesPartialSQLiteMigration(t *testing.T) {
 	if err := dst.Create(&user).Error; err != nil {
 		t.Fatal(err)
 	}
+	metadata := model.MetadataItem{Kind: model.MetadataKindMovie, Title: "Resume Migration", Source: "local"}
+	if err := src.Create(&metadata).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := dst.Create(&metadata).Error; err != nil {
+		t.Fatal(err)
+	}
 	media := model.Media{
 		LibraryID:    "library-1",
+		MetadataID:   metadata.ID,
 		Title:        "Resume Migration",
 		Path:         "/media/resume.mp4",
 		Container:    "mov,mp4,m4a,3gp,3g2,mj2",
 		ScrapeStatus: "matched",
-		OriginalName: "Resume Migration",
-		PosterURL:    "/media/poster.jpg",
-		BackdropURL:  "/media/backdrop.jpg",
 		VideoCodec:   "hevc",
 		AudioCodec:   "eac3",
 		DurationSec:  120,
-		Genres:       "家庭,动画,冒险,喜剧,奇幻,Peter Del Vecho,Jeff Draheim,詹妮弗·李,克里斯·巴克,伊迪娜·门泽尔,克里斯汀·贝尔,乔什·盖德,乔纳森·格罗夫,埃文·蕾切尔·伍德,斯特林·K·布朗",
 		SizeBytes:    1024,
 		Width:        3840,
 		Height:       2160,
@@ -280,8 +286,8 @@ func TestCopyModelTablesResumesPartialSQLiteMigration(t *testing.T) {
 	if got.Container != media.Container {
 		t.Fatalf("container = %q, want %q", got.Container, media.Container)
 	}
-	if got.Genres != media.Genres {
-		t.Fatalf("genres = %q, want %q", got.Genres, media.Genres)
+	if got.VideoCodec != media.VideoCodec || got.AudioCodec != media.AudioCodec || got.DurationSec != media.DurationSec {
+		t.Fatalf("track facts not copied: %#v", got)
 	}
 
 	copied, err = copyModelTables(src, dst, 2)

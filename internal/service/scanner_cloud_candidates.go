@@ -172,10 +172,10 @@ func (c *cloudScanCandidateCollector) addFileCandidate(displayDir string, entry 
 	displayPath := joinCloudDisplayPath(displayDir, entry.Name)
 	path := cloudMediaPath(c.req.provider, displayPath)
 	candidate := cloudCandidate{
-		ref:       ref,
-		name:      entry.Name,
-		size:      entry.Size,
-		path:      path,
+		ref:  ref,
+		name: entry.Name,
+		size: entry.Size,
+		path: path,
 	}
 	if c.req.autoCategoryRoot {
 		candidate.categoryDisplayDir, candidate.categoryScanDir = cloudAutoCategoryDirsForMediaPath(path)
@@ -185,7 +185,6 @@ func (c *cloudScanCandidateCollector) addFileCandidate(displayDir string, entry 
 		}
 	}
 	localMeta := c.scanner.cloudFileMetadata(c.ctx, c.req.provider, displayPath, entry.Name, sidecars, dirMeta, librarySupportsSeasons(c.lib))
-	localMeta = c.scanner.enrichCloudMetadataFromExternalIDs(c.ctx, c.lib, candidate.path, localMeta)
 	if localMeta != nil {
 		c.scanner.cacheCloudMetadataArtworkNow(c.ctx, localMeta)
 	}

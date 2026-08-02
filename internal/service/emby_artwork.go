@@ -21,21 +21,12 @@ func (e *EmbyService) ImageURL(ctx context.Context, id, imageType string) (strin
 		}
 		return backdrop
 	}
-	if strings.HasPrefix(id, embyVirtualSeasonPrefix) {
-		if raw, ok := e.cachedArtworkURL(id, imageType); ok {
-			return raw, nil
-		}
-		return "", nil
+	if raw, ok := e.cachedArtworkURL(id, imageType); ok {
+		return raw, nil
 	}
-	if strings.HasPrefix(id, embyVirtualSeriesPrefix) {
-		if raw, ok := e.cachedArtworkURL(id, imageType); ok {
-			return raw, nil
-		}
-		return "", nil
-	}
-	m, err := e.repo.Media.FindByID(ctx, id)
+	m, err := e.mediaViewForItemID(ctx, id, "")
 	if err == nil && m != nil {
-		if e.mediaShouldBeEpisode(ctx, m) {
+		if e.mediaShouldBeEpisode(ctx, &m.Media) {
 			switch strings.ToLower(imageType) {
 			case "backdrop", "art":
 				return "", nil
@@ -46,6 +37,11 @@ func (e *EmbyService) ImageURL(ctx context.Context, id, imageType string) (strin
 	if err != nil {
 		return "", err
 	}
+	if season, ok, err := e.findSeasonGroup(ctx, id, ""); err != nil {
+		return "", err
+	} else if ok {
+		return pick(season.Series.PosterURL, season.Series.BackdropURL), nil
+	}
 	if series, ok, err := e.findSeriesGroup(ctx, id, ""); err != nil {
 		return "", err
 	} else if ok {
@@ -54,21 +50,21 @@ func (e *EmbyService) ImageURL(ctx context.Context, id, imageType string) (strin
 	return "", nil
 }
 
-func (e *EmbyService) mediaPrimaryArtwork(ctx context.Context, m *model.Media) string {
+func (e *EmbyService) mediaPrimaryArtwork(ctx context.Context, m *model.MediaView) string {
 	if m == nil {
 		return ""
 	}
-	if e.mediaShouldBeEpisode(ctx, m) && strings.TrimSpace(m.BackdropURL) != "" {
+	if e.mediaShouldBeEpisode(ctx, &m.Media) && strings.TrimSpace(m.BackdropURL) != "" {
 		return m.BackdropURL
 	}
 	return m.PosterURL
 }
 
-func (e *EmbyService) mediaBackdropArtwork(ctx context.Context, m *model.Media) string {
+func (e *EmbyService) mediaBackdropArtwork(ctx context.Context, m *model.MediaView) string {
 	if m == nil {
 		return ""
 	}
-	if e.mediaShouldBeEpisode(ctx, m) {
+	if e.mediaShouldBeEpisode(ctx, &m.Media) {
 		return ""
 	}
 	return m.BackdropURL

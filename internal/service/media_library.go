@@ -12,38 +12,17 @@ func (s *MediaService) ListLibraries(ctx context.Context) ([]model.Library, erro
 	return s.repo.Library.List(ctx)
 }
 
-// DeleteLibrary removes a library and its media rows. The on-disk files are
-// left untouched.
+// DeleteLibrary permanently removes a library and its media rows. The on-disk
+// files are left untouched.
 func (s *MediaService) DeleteLibrary(ctx context.Context, id string) error {
-	lib, err := s.repo.Library.FindByID(ctx, id)
-	if err != nil {
-		return err
-	}
-	if lib != nil {
-		if _, ok := ParseCloudLibraryMount(lib.Path); ok {
-			err := s.repo.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-				if err := tx.Unscoped().Where("library_id = ?", id).Delete(&model.Media{}).Error; err != nil {
-					return err
-				}
-				if err := hardDeleteLibraryRoots(ctx, tx, id); err != nil {
-					return err
-				}
-				return tx.Unscoped().Where("id = ?", id).Delete(&model.Library{}).Error
-			})
-			if err == nil {
-				s.invalidateMediaCache(ctx)
-			}
-			return err
-		}
-	}
-	err = s.repo.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := tx.Where("library_id = ?", id).Delete(&model.Media{}).Error; err != nil {
+	err := s.repo.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Unscoped().Where("library_id = ?", id).Delete(&model.Media{}).Error; err != nil {
 			return err
 		}
 		if err := hardDeleteLibraryRoots(ctx, tx, id); err != nil {
 			return err
 		}
-		return tx.Delete(&model.Library{}, "id = ?", id).Error
+		return tx.Unscoped().Where("id = ?", id).Delete(&model.Library{}).Error
 	})
 	if err == nil {
 		s.invalidateMediaCache(ctx)

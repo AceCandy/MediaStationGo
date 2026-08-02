@@ -16,6 +16,20 @@ func applyLocalMetadata(m *model.Media, local *LocalMetadata) {
 	}
 }
 
+// applyLocalScanHints 只保留 provider 查询和单集定位所需的扫描提示。
+func applyLocalScanHints(m *model.Media, local *LocalMetadata) {
+	if m == nil || local == nil {
+		return
+	}
+	applyLocalExternalIDMetadata(m, local)
+	if local.SeasonNum > 0 || local.EpisodeNum > 0 {
+		m.SeasonNum = local.SeasonNum
+	}
+	if local.EpisodeNum > 0 {
+		m.EpisodeNum = local.EpisodeNum
+	}
+}
+
 func applyLocalIdentityMetadata(m *model.Media, local *LocalMetadata) {
 	if local.Title != "" {
 		m.Title = local.Title

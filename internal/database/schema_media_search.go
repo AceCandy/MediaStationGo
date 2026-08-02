@@ -3,9 +3,9 @@ package database
 import "gorm.io/gorm"
 
 // mediaSearchIndexSchemaVersion identifies the physical FTS index layout.
-// v2 aligns FTS rowids with media rowids and keeps the index current with
-// triggers.
-const mediaSearchIndexSchemaVersion = 2
+// v3 indexes shared metadata once; unresolved scan titles and paths stay in
+// the media query fallback branch.
+const mediaSearchIndexSchemaVersion = 3
 
 func ensureMediaSearchIndex(db *gorm.DB) error {
 	if err := ensureMediaSearchMetaTable(db); err != nil {
@@ -49,10 +49,10 @@ func resetMediaSearchIndex(db *gorm.DB) {
 }
 
 func createMediaSearchFTSTable(db *gorm.DB) bool {
-	if err := db.Exec(`CREATE VIRTUAL TABLE IF NOT EXISTS media_search_fts USING fts5(media_id UNINDEXED, title, original_name, path, genres, tokenize='trigram')`).Error; err == nil {
+	if err := db.Exec(`CREATE VIRTUAL TABLE IF NOT EXISTS media_search_fts USING fts5(metadata_id UNINDEXED, title, original_name, overview, genres, tokenize='trigram')`).Error; err == nil {
 		return true
 	}
-	if err := db.Exec(`CREATE VIRTUAL TABLE IF NOT EXISTS media_search_fts USING fts5(media_id UNINDEXED, title, original_name, path, genres, tokenize='unicode61')`).Error; err == nil {
+	if err := db.Exec(`CREATE VIRTUAL TABLE IF NOT EXISTS media_search_fts USING fts5(metadata_id UNINDEXED, title, original_name, overview, genres, tokenize='unicode61')`).Error; err == nil {
 		return true
 	}
 	// FTS is an acceleration path. Some embedded SQLite builds may omit FTS5;
@@ -70,18 +70,18 @@ func createMediaSearchTriggers(db *gorm.DB) error {
 }
 
 var mediaSearchTriggerStatements = []string{
-	`CREATE TRIGGER IF NOT EXISTS media_search_fts_ai AFTER INSERT ON media WHEN new.deleted_at IS NULL BEGIN
+	`CREATE TRIGGER IF NOT EXISTS media_search_fts_ai AFTER INSERT ON metadata_items WHEN new.deleted_at IS NULL BEGIN
 		DELETE FROM media_search_fts WHERE rowid = new.rowid;
-		INSERT INTO media_search_fts(rowid, media_id, title, original_name, path, genres)
-		VALUES (new.rowid, new.id, COALESCE(new.title, ''), COALESCE(new.original_name, ''), COALESCE(new.path, ''), COALESCE(new.genres, ''));
+		INSERT INTO media_search_fts(rowid, metadata_id, title, original_name, overview, genres)
+		VALUES (new.rowid, new.id, COALESCE(new.title, ''), COALESCE(new.original_name, ''), COALESCE(new.overview, ''), COALESCE(new.genres, ''));
 	END`,
-	`CREATE TRIGGER IF NOT EXISTS media_search_fts_au AFTER UPDATE OF title, original_name, path, genres, deleted_at ON media BEGIN
+	`CREATE TRIGGER IF NOT EXISTS media_search_fts_au AFTER UPDATE OF title, original_name, overview, genres, deleted_at ON metadata_items BEGIN
 		DELETE FROM media_search_fts WHERE rowid = old.rowid;
-		INSERT INTO media_search_fts(rowid, media_id, title, original_name, path, genres)
-		SELECT new.rowid, new.id, COALESCE(new.title, ''), COALESCE(new.original_name, ''), COALESCE(new.path, ''), COALESCE(new.genres, '')
+		INSERT INTO media_search_fts(rowid, metadata_id, title, original_name, overview, genres)
+		SELECT new.rowid, new.id, COALESCE(new.title, ''), COALESCE(new.original_name, ''), COALESCE(new.overview, ''), COALESCE(new.genres, '')
 		WHERE new.deleted_at IS NULL;
 	END`,
-	`CREATE TRIGGER IF NOT EXISTS media_search_fts_ad AFTER DELETE ON media BEGIN
+	`CREATE TRIGGER IF NOT EXISTS media_search_fts_ad AFTER DELETE ON metadata_items BEGIN
 		DELETE FROM media_search_fts WHERE rowid = old.rowid;
 	END`,
 }

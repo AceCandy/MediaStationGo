@@ -11,11 +11,11 @@ import (
 )
 
 // ListMedia paginates media items inside a library.
-func (s *MediaService) ListMedia(ctx context.Context, libraryID string, page, pageSize int) ([]model.Media, int64, error) {
+func (s *MediaService) ListMedia(ctx context.Context, libraryID string, page, pageSize int) ([]model.MediaView, int64, error) {
 	return s.ListMediaVisible(ctx, libraryID, page, pageSize, MediaVisibility{IncludeNSFW: true})
 }
 
-func (s *MediaService) ListMediaVisible(ctx context.Context, libraryID string, page, pageSize int, visibility MediaVisibility) ([]model.Media, int64, error) {
+func (s *MediaService) ListMediaVisible(ctx context.Context, libraryID string, page, pageSize int, visibility MediaVisibility) ([]model.MediaView, int64, error) {
 	if pageSize <= 0 {
 		pageSize = 50
 	}
@@ -38,14 +38,14 @@ func (s *MediaService) ListMediaVisible(ctx context.Context, libraryID string, p
 	cacheKey := s.mediaListCacheKey(libraryID, libraryIDs, page, pageSize, filter)
 	var cached mediaListCacheValue
 	if s.cache != nil && s.cache.GetJSON(ctx, cacheKey, &cached) {
-		s.attachLibraryMetadata(ctx, cached.Items)
+		s.attachLibraryMetadataViews(ctx, cached.Items)
 		return cached.Items, cached.Total, nil
 	}
-	items, total, err := s.repo.Media.ListByLibrariesFiltered(ctx, libraryIDs, (page-1)*pageSize, pageSize, filter)
+	items, total, err := s.repo.MediaView.ListByLibrariesFiltered(ctx, libraryIDs, (page-1)*pageSize, pageSize, filter)
 	if err != nil {
 		return nil, 0, err
 	}
-	s.attachLibraryMetadata(ctx, items)
+	s.attachLibraryMetadataViews(ctx, items)
 	if s.cache != nil {
 		s.cache.SetJSON(ctx, cacheKey, mediaListCacheValue{Items: items, Total: total}, time.Duration(s.mediaCacheTTLSeconds())*time.Second)
 	}
@@ -58,11 +58,11 @@ func (s *MediaService) ListMediaVisibleGrouped(ctx context.Context, libraryID st
 	if err != nil {
 		return nil, 0, err
 	}
-	grouped := groupMediaVersions(items)
+	grouped := groupMediaVersions(mediaViewsAsMedia(items))
 	return paginateMediaItems(grouped, page, pageSize), int64(len(grouped)), nil
 }
 
-func (s *MediaService) listMediaVisibleForGrouping(ctx context.Context, libraryID string, visibility MediaVisibility) ([]model.Media, error) {
+func (s *MediaService) listMediaVisibleForGrouping(ctx context.Context, libraryID string, visibility MediaVisibility) ([]model.MediaView, error) {
 	visibility = ExpandMediaVisibilityForMergedCloudLibraries(ctx, s.repo, visibility)
 	libraryIDs, err := MergedLibraryIDsForLibrary(ctx, s.repo, libraryID)
 	if err != nil {
@@ -76,10 +76,10 @@ func (s *MediaService) listMediaVisibleForGrouping(ctx context.Context, libraryI
 	cacheKey := s.mediaListCacheKey(libraryID, libraryIDs, 0, maxMediaSearchLimit, filter) + ":group-source"
 	var cached mediaListCacheValue
 	if s.cache != nil && s.cache.GetJSON(ctx, cacheKey, &cached) {
-		s.attachLibraryMetadata(ctx, cached.Items)
+		s.attachLibraryMetadataViews(ctx, cached.Items)
 		return cached.Items, nil
 	}
-	items, total, err := s.repo.Media.ListByLibrariesFiltered(ctx, libraryIDs, 0, maxMediaSearchLimit, filter)
+	items, total, err := s.repo.MediaView.ListByLibrariesFiltered(ctx, libraryIDs, 0, maxMediaSearchLimit, filter)
 	if err != nil {
 		return nil, err
 	}
@@ -89,15 +89,27 @@ func (s *MediaService) listMediaVisibleForGrouping(ctx context.Context, libraryI
 			zap.Int64("total", total),
 			zap.Int("limit", maxMediaSearchLimit))
 	}
-	s.attachLibraryMetadata(ctx, items)
+	s.attachLibraryMetadataViews(ctx, items)
 	if s.cache != nil {
 		s.cache.SetJSON(ctx, cacheKey, mediaListCacheValue{Items: items, Total: total}, time.Duration(s.mediaCacheTTLSeconds())*time.Second)
 	}
 	return items, nil
 }
 
-// GetMedia returns a single media row.
-func (s *MediaService) GetMedia(ctx context.Context, id string) (*model.Media, error) {
+// GetMedia 返回包含共享元数据的统一媒体视图。
+func (s *MediaService) GetMedia(ctx context.Context, id string) (*model.MediaView, error) {
+	media, err := s.repo.MediaView.FindByID(ctx, id)
+	if err != nil || media == nil {
+		return media, err
+	}
+	items := []model.MediaView{*media}
+	s.attachLibraryMetadataViews(ctx, items)
+	*media = items[0]
+	return media, nil
+}
+
+// GetRawMedia 仅供扫描、文件打开和播放内部读取文件事实。
+func (s *MediaService) GetRawMedia(ctx context.Context, id string) (*model.Media, error) {
 	media, err := s.repo.Media.FindByID(ctx, id)
 	if err != nil || media == nil {
 		return media, err

@@ -7,37 +7,34 @@ import (
 	"strings"
 	"time"
 
-	"gorm.io/gorm"
-
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 )
 
-// SetFavorite 把 mediaID 标为 userID 的收藏。
-func (e *EmbyService) SetFavorite(ctx context.Context, userID, mediaID string, favorite bool) error {
-	if favorite {
-		var f model.Favorite
-		err := e.repo.DB.WithContext(ctx).
-			Where("user_id = ? AND media_id = ?", userID, mediaID).First(&f).Error
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return e.repo.DB.WithContext(ctx).Create(&model.Favorite{
-				UserID: userID, MediaID: mediaID,
-			}).Error
-		}
+// SetFavorite 按 Emby 作品身份保存收藏，MediaID 仅保留具体版本。
+func (e *EmbyService) SetFavorite(ctx context.Context, userID, itemID string, favorite bool) error {
+	target, err := e.itemTarget(ctx, itemID, userID)
+	if err != nil {
 		return err
 	}
-	return e.repo.DB.WithContext(ctx).
-		Where("user_id = ? AND media_id = ?", userID, mediaID).
-		Delete(&model.Favorite{}).Error
+	if target.ItemID == "" || target.MetadataID == "" {
+		return errors.New("media not found")
+	}
+	_, err = e.repo.Favorite.SetByIdentity(ctx, userID, target.MetadataID, target.MediaID, favorite)
+	return err
 }
 
-// MarkPlayed 把 mediaID 标为已看（写一个 100% 进度的 history 行）。
-func (e *EmbyService) MarkPlayed(ctx context.Context, userID, mediaID string, played bool) error {
+// MarkPlayed 按作品身份标记已看，并保留当前具体版本。
+func (e *EmbyService) MarkPlayed(ctx context.Context, userID, itemID string, played bool) error {
+	target, err := e.itemTarget(ctx, itemID, userID)
+	if err != nil || target.MetadataID == "" || target.MediaID == "" {
+		return errors.New("media not found")
+	}
 	if !played {
 		return e.repo.DB.WithContext(ctx).
-			Where("user_id = ? AND media_id = ?", userID, mediaID).
+			Where("user_id = ? AND metadata_id = ?", userID, target.MetadataID).
 			Delete(&model.PlaybackHistory{}).Error
 	}
-	m, err := e.repo.Media.FindByID(ctx, mediaID)
+	m, err := e.repo.Media.FindByID(ctx, target.MediaID)
 	if err != nil || m == nil {
 		return errors.New("media not found")
 	}
@@ -47,7 +44,8 @@ func (e *EmbyService) MarkPlayed(ctx context.Context, userID, mediaID string, pl
 	}
 	return e.repo.History.Upsert(ctx, &model.PlaybackHistory{
 		UserID:     userID,
-		MediaID:    mediaID,
+		MetadataID: target.MetadataID,
+		MediaID:    target.MediaID,
 		PositionMs: dur,
 		DurationMs: dur,
 		WatchedAt:  time.Now(),
@@ -56,19 +54,37 @@ func (e *EmbyService) MarkPlayed(ctx context.Context, userID, mediaID string, pl
 }
 
 // RecordProgress 记录播放进度（来自 Emby 客户端的 /Sessions/Playing/Progress）。
-func (e *EmbyService) RecordProgress(ctx context.Context, userID, mediaID string, positionTicks, runtimeTicks int64) error {
+func (e *EmbyService) RecordProgress(ctx context.Context, userID, itemID, mediaSourceID string, positionTicks, runtimeTicks int64) error {
+	target, err := e.itemTarget(ctx, itemID, userID)
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(mediaSourceID) != "" {
+		sourceTarget, sourceErr := e.itemTarget(ctx, mediaSourceID, userID)
+		if sourceErr != nil {
+			return sourceErr
+		}
+		sameItem := target.MetadataID != "" && sourceTarget.MetadataID == target.MetadataID
+		if sourceTarget.MediaID != "" && sameItem {
+			target.MediaID = sourceTarget.MediaID
+		}
+	}
+	if target.MetadataID == "" || target.MediaID == "" {
+		return errors.New("media not found")
+	}
 	pos := positionTicks / 10_000
 	dur := runtimeTicks / 10_000
 	if dur <= 0 {
 		// runtimeTicks 缺失时回退到 media.DurationSec
-		if m, _ := e.repo.Media.FindByID(ctx, mediaID); m != nil {
+		if m, _ := e.repo.Media.FindByID(ctx, target.MediaID); m != nil {
 			dur = int64(m.DurationSec) * 1000
 		}
 	}
 	completed := dur > 0 && pos >= dur*9/10
 	return e.repo.History.Upsert(ctx, &model.PlaybackHistory{
 		UserID:     userID,
-		MediaID:    mediaID,
+		MetadataID: target.MetadataID,
+		MediaID:    target.MediaID,
 		PositionMs: pos,
 		DurationMs: dur,
 		WatchedAt:  time.Now(),

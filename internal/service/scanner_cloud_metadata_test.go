@@ -154,15 +154,16 @@ func TestScanCloudLibraryReadsMovieDirectoryNFOAndCleanTitleArtwork(t *testing.T
 	if err := repos.DB.First(&media).Error; err != nil {
 		t.Fatal(err)
 	}
-	if media.Title != "Action Movie" || media.Year != 2025 || media.TMDbID != 1197306 {
-		t.Fatalf("movie.nfo metadata not applied: %#v", media)
-	}
 	wantPoster := "/api/img/cloud/openlist?ref=%2FMovies%2FAction+Movie+%282025%29+%7Btmdb-1197306%7D%2Faction+movie+%282025%29-poster.jpg"
-	if media.PosterURL != wantPoster {
-		t.Fatalf("poster url = %q, want %q", media.PosterURL, wantPoster)
+	local := serviceTestLocalMetadataHint(t, media)
+	if local.Title != "Action Movie" || local.Year != 2025 || local.TMDbID != 1197306 || local.PosterURL != wantPoster {
+		t.Fatalf("unexpected movie.nfo hint: %#v", local)
+	}
+	if media.MetadataID == "" || media.ScrapeStatus != "pending" || media.PosterURL != "" {
+		t.Fatalf("unexpected scanner metadata state: %#v", media)
 	}
 	rec := httptest.NewRecorder()
-	if !imageProxy.ServeCloudCached(rec, httptest.NewRequest(http.MethodGet, media.PosterURL, nil), "openlist:/Movies/Action Movie (2025) {tmdb-1197306}/action movie (2025)-poster.jpg") {
+	if !imageProxy.ServeCloudCached(rec, httptest.NewRequest(http.MethodGet, local.PosterURL, nil), "openlist:/Movies/Action Movie (2025) {tmdb-1197306}/action movie (2025)-poster.jpg") {
 		t.Fatal("clean-title cloud poster should be cached locally during scan")
 	}
 	if got := rec.Body.Bytes(); !bytes.Equal(got, testJPEG) {
@@ -247,15 +248,16 @@ func TestScanCloudLibraryReadsRemoteJSONMetadataAndArtwork(t *testing.T) {
 	if err := repos.DB.First(&media).Error; err != nil {
 		t.Fatal(err)
 	}
-	if media.Title != "JSON Sidecar Movie" || media.Year != 2026 || media.TMDbID != 12345 || media.ScrapeStatus != "matched" {
-		t.Fatalf("json metadata not applied: %#v", media)
-	}
 	wantPoster := "/api/img/cloud/openlist?ref=%2FMovies%2FSidecar+Movie+%282026%29+%7Btmdb-12345%7D%2Fposter.jpg"
-	if media.PosterURL != wantPoster {
-		t.Fatalf("poster url = %q, want %q", media.PosterURL, wantPoster)
+	local := serviceTestLocalMetadataHint(t, media)
+	if local.Title != "JSON Sidecar Movie" || local.Year != 2026 || local.TMDbID != 12345 || local.PosterURL != wantPoster || local.Overview != "metadata from cloud json" {
+		t.Fatalf("unexpected JSON metadata hint: %#v", local)
+	}
+	if media.MetadataID == "" || media.ScrapeStatus != "pending" || media.PosterURL != "" {
+		t.Fatalf("unexpected scanner metadata state: %#v", media)
 	}
 	rec := httptest.NewRecorder()
-	if !imageProxy.ServeCloudCached(rec, httptest.NewRequest(http.MethodGet, media.PosterURL, nil), "openlist:/Movies/Sidecar Movie (2026) {tmdb-12345}/poster.jpg") {
+	if !imageProxy.ServeCloudCached(rec, httptest.NewRequest(http.MethodGet, local.PosterURL, nil), "openlist:/Movies/Sidecar Movie (2026) {tmdb-12345}/poster.jpg") {
 		t.Fatal("JSON cloud poster should be cached locally during scan")
 	}
 	if got := rec.Body.Bytes(); !bytes.Equal(got, testJPEG) {
@@ -289,8 +291,10 @@ func TestCloudEpisodeJSONDoesNotPolluteSeriesIdentity(t *testing.T) {
 	}
 }
 
-func TestScanCloudLibraryEnrichesPathHintTMDbArtwork(t *testing.T) {
+func TestScanCloudLibraryStoresPathHintWithoutTMDbEnrichment(t *testing.T) {
+	tmdbCalled := false
 	tmdb := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		tmdbCalled = true
 		if r.URL.Path != "/movie/755679" {
 			t.Fatalf("unexpected tmdb path %s", r.URL.Path)
 		}
@@ -373,16 +377,19 @@ func TestScanCloudLibraryEnrichesPathHintTMDbArtwork(t *testing.T) {
 	if err := repos.DB.First(&media).Error; err != nil {
 		t.Fatal(err)
 	}
-	if media.ScrapeStatus != "matched" || media.TMDbID != 755679 || media.PosterURL == "" || media.BackdropURL == "" || media.Overview == "" {
-		t.Fatalf("path-hint tmdb metadata not enriched: %#v", media)
+	local := serviceTestLocalMetadataHint(t, media)
+	if local.TMDbID != 755679 || !local.PathHint || media.TMDbID != 755679 {
+		t.Fatalf("path hint not stored: media=%#v hint=%#v", media, local)
 	}
-	if media.PosterURL != "https://image.tmdb.org/t/p/w500/poster-fast11.jpg" {
-		t.Fatalf("poster url = %q", media.PosterURL)
+	if tmdbCalled || media.MetadataID == "" || media.ScrapeStatus != "pending" || media.PosterURL != "" || media.BackdropURL != "" || media.Overview != "" {
+		t.Fatalf("scanner unexpectedly enriched metadata: called=%t media=%#v", tmdbCalled, media)
 	}
 }
 
-func TestScanCloudLibraryKeepsCloudArtworkWhenEnrichingPathHint(t *testing.T) {
+func TestScanCloudLibraryKeepsCloudArtworkInPathHint(t *testing.T) {
+	tmdbCalled := false
 	tmdb := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		tmdbCalled = true
 		if r.URL.Path != "/movie/755679" {
 			t.Fatalf("unexpected tmdb path %s", r.URL.Path)
 		}
@@ -470,15 +477,16 @@ func TestScanCloudLibraryKeepsCloudArtworkWhenEnrichingPathHint(t *testing.T) {
 		t.Fatal(err)
 	}
 	wantPoster := "/api/img/cloud/openlist?ref=%2FMovies%2F%E9%80%9F%E5%BA%A6%E4%B8%8E%E6%BF%80%E6%83%8511+%282028%29+%7Btmdb-755679%7D%2Fposter.jpg"
-	if media.PosterURL != wantPoster {
-		t.Fatalf("poster url = %q, want local cloud poster %q", media.PosterURL, wantPoster)
+	local := serviceTestLocalMetadataHint(t, media)
+	if local.TMDbID != 755679 || local.PosterURL != wantPoster {
+		t.Fatalf("cloud artwork path hint not stored: %#v", local)
 	}
-	if media.BackdropURL != "https://image.tmdb.org/t/p/w1280/remote-backdrop.jpg" || media.Overview == "" {
-		t.Fatalf("external enrichment should still fill missing fields: %#v", media)
+	if tmdbCalled || media.MetadataID == "" || media.ScrapeStatus != "pending" || media.PosterURL != "" || media.BackdropURL != "" || media.Overview != "" {
+		t.Fatalf("scanner unexpectedly enriched metadata: called=%t media=%#v", tmdbCalled, media)
 	}
 	rec := httptest.NewRecorder()
-	if !imageProxy.ServeCloudCached(rec, httptest.NewRequest(http.MethodGet, media.PosterURL, nil), "openlist:/Movies/速度与激情11 (2028) {tmdb-755679}/poster.jpg") {
-		t.Fatal("local cloud poster should be cached during enriched scan")
+	if !imageProxy.ServeCloudCached(rec, httptest.NewRequest(http.MethodGet, local.PosterURL, nil), "openlist:/Movies/速度与激情11 (2028) {tmdb-755679}/poster.jpg") {
+		t.Fatal("local cloud poster should be cached during scan")
 	}
 	if got := rec.Body.Bytes(); !bytes.Equal(got, testJPEG) {
 		t.Fatalf("cached poster body = %x", got)

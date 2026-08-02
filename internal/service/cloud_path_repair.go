@@ -24,7 +24,7 @@ func (c *Container) RepairCloudPathMetadata(ctx context.Context, libraryID ...st
 	var rows []model.Media
 	query := c.Repo.DB.WithContext(ctx).
 		Model(&model.Media{}).
-		Select("id, title, path, year, season_num, episode_num, scrape_status, tm_db_id, bangumi_id, douban_id, thetvdb_id").
+		Select("id, scan_title, path, scan_year, season_num, episode_num, scrape_status, lookup_tmdb_id, lookup_bangumi_id, lookup_douban_id, lookup_thetvdb_id").
 		Where("("+strings.Join([]string{
 			"LOWER(path) LIKE ?",
 			"LOWER(path) LIKE ?",
@@ -51,26 +51,26 @@ func (c *Container) RepairCloudPathMetadata(ctx context.Context, libraryID ...st
 			enrichable := status == "" || status == "pending" || status == "no_match"
 			changedExternalID := false
 			if meta.TMDbID > 0 && row.TMDbID != meta.TMDbID {
-				updates["tm_db_id"] = meta.TMDbID
+				updates["lookup_tmdb_id"] = meta.TMDbID
 				changedExternalID = true
 			}
 			if meta.BangumiID > 0 && row.BangumiID != meta.BangumiID {
-				updates["bangumi_id"] = meta.BangumiID
+				updates["lookup_bangumi_id"] = meta.BangumiID
 				changedExternalID = true
 			}
 			if strings.TrimSpace(meta.DoubanID) != "" && strings.TrimSpace(row.DoubanID) != strings.TrimSpace(meta.DoubanID) {
-				updates["douban_id"] = strings.TrimSpace(meta.DoubanID)
+				updates["lookup_douban_id"] = strings.TrimSpace(meta.DoubanID)
 				changedExternalID = true
 			}
 			if strings.TrimSpace(meta.TheTVDBID) != "" && strings.TrimSpace(row.TheTVDBID) != strings.TrimSpace(meta.TheTVDBID) {
-				updates["thetvdb_id"] = strings.TrimSpace(meta.TheTVDBID)
+				updates["lookup_thetvdb_id"] = strings.TrimSpace(meta.TheTVDBID)
 				changedExternalID = true
 			}
 			if meta.Year > 0 && row.Year <= 0 {
-				updates["year"] = meta.Year
+				updates["scan_year"] = meta.Year
 			}
 			if enrichable && strings.TrimSpace(meta.Title) != "" && cloudPathRepairShouldReplaceTitle(row.Title, meta.Title) {
-				updates["title"] = strings.TrimSpace(meta.Title)
+				updates["scan_title"] = strings.TrimSpace(meta.Title)
 			}
 			if changedExternalID && (status == "" || status == "no_match" || status == "matched") {
 				updates["scrape_status"] = "pending"

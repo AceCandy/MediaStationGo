@@ -106,7 +106,7 @@ func TestOrganizePipelinePrefersCurrentMediaLibraryAfterMediaOrganize(t *testing
 		EpisodeNum:   1,
 		ScrapeStatus: "matched",
 	}
-	if err := repos.Media.Upsert(t.Context(), &media); err != nil {
+	if err := repos.Media.Upsert(t.Context(), serviceTestMediaForUpsert(&media)); err != nil {
 		t.Fatal(err)
 	}
 

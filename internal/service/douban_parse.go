@@ -40,6 +40,23 @@ func float32FromMap(values map[string]any, keys ...string) float32 {
 	return 0
 }
 
+func positiveIntFromMap(values map[string]any, keys ...string) int {
+	for _, key := range keys {
+		switch value := values[key].(type) {
+		case float64:
+			if value > 0 {
+				return int(value)
+			}
+		case string:
+			var out int
+			if _, err := fmt.Sscanf(strings.TrimSpace(value), "%d", &out); err == nil && out > 0 {
+				return out
+			}
+		}
+	}
+	return 0
+}
+
 func doubanEpisodeCountFromValue(value any) int {
 	switch v := value.(type) {
 	case float64:

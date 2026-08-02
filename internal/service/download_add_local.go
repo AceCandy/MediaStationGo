@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/ShukeBta/MediaStationGo/internal/model"
+	"github.com/ShukeBta/MediaStationGo/internal/repository"
 )
 
 func (d *DownloadService) localMediaAlreadyExists(ctx context.Context, title string) bool {
@@ -25,21 +26,22 @@ func (d *DownloadService) localMediaAvailabilityRows(ctx context.Context, title 
 	if len(queries) == 0 {
 		return nil, false
 	}
-	var rows []model.Media
-	db := d.repo.DB.WithContext(ctx).Model(&model.Media{})
-	for i, query := range queries {
-		like := "%" + query + "%"
-		clause := "title LIKE ? OR original_name LIKE ? OR path LIKE ?"
-		if i == 0 {
-			db = db.Where(clause, like, like, like)
-		} else {
-			db = db.Or(clause, like, like, like)
+	rows := make([]model.Media, 0)
+	seen := make(map[string]struct{})
+	for _, query := range queries {
+		matches, err := d.repo.Media.SearchFiltered(ctx, query, 200, repository.MediaQueryFilter{IncludeNSFW: true})
+		if err != nil {
+			return nil, false
+		}
+		for _, row := range matches {
+			if _, ok := seen[row.ID]; ok {
+				continue
+			}
+			seen[row.ID] = struct{}{}
+			rows = append(rows, row)
 		}
 	}
-	if err := db.
-		Order("season_num asc, episode_num asc, created_at desc").
-		Limit(200).
-		Find(&rows).Error; err != nil || len(rows) == 0 {
+	if len(rows) == 0 {
 		return nil, false
 	}
 	return rows, true

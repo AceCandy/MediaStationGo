@@ -50,8 +50,6 @@ func registerAuthedMediaRoutes(authed *gin.RouterGroup, svc *service.Container) 
 	authed.DELETE("/media/:id/purge", middleware.AdminRequired(), purgeMediaHandler(svc))
 	authed.GET("/media/:id/subtitles", listSubtitlesHandler(svc))
 	authed.GET("/subtitles/:id", serveSubtitleHandler(svc))
-	authed.POST("/media/:id/nfo", middleware.AdminRequired(), exportNFOHandler(svc))
-	authed.POST("/libraries/:id/nfo", middleware.AdminRequired(), exportLibraryNFOHandler(svc))
 }
 
 func registerAuthedPlaybackAndProxyRoutes(authed *gin.RouterGroup, svc *service.Container) {
@@ -67,6 +65,8 @@ func registerAuthedPlaybackAndProxyRoutes(authed *gin.RouterGroup, svc *service.
 	authed.GET("/img/cloud/:type", cloudArtworkProxyHandler(svc))
 	authed.HEAD("/img/cloud/:type", cloudArtworkProxyHandler(svc))
 	authed.GET("/img", imageProxyHandler(svc))
+	authed.GET("/artwork/:id", artworkHandler(svc))
+	authed.HEAD("/artwork/:id", artworkHandler(svc))
 }
 
 func registerAuthedCollectionRoutes(authed *gin.RouterGroup, svc *service.Container) {

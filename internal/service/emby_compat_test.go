@@ -15,7 +15,7 @@ import (
 
 func newTestEmbyService(t *testing.T) *EmbyService {
 	t.Helper()
-	db := newServiceTestDB(t, &model.Library{}, &model.Series{}, &model.Media{}, &model.Favorite{}, &model.PlaybackHistory{}, &model.User{}, &model.Setting{})
+	db := newServiceTestDB(t, &model.Library{}, &model.Media{}, &model.Favorite{}, &model.PlaybackHistory{}, &model.User{}, &model.Setting{})
 	// 内存库 + 异步探测协程：限制为单连接，避免连接池新建连接时
 	// 拿到一个空白的 :memory: 实例（no such table）。
 	if sqlDB, err := db.DB(); err == nil {
@@ -32,26 +32,23 @@ func TestEmbyLatestItemsOrderByReleaseDate(t *testing.T) {
 		t.Fatalf("create library: %v", err)
 	}
 	base := time.Now()
-	rows := []model.Media{
-		{
-			Base:        model.Base{ID: "older-release-newer-scan", CreatedAt: base.Add(2 * time.Hour)},
-			LibraryID:   lib.ID,
-			Title:       "旧上映新入库",
-			Path:        `/media/movies/old.mkv`,
-			Year:        2026,
-			ReleaseDate: "2026-01-10",
-		},
-		{
-			Base:        model.Base{ID: "newer-release-older-scan", CreatedAt: base},
-			LibraryID:   lib.ID,
-			Title:       "新上映",
-			Path:        `/media/movies/new.mkv`,
-			Year:        2026,
-			ReleaseDate: "2026-06-23",
-		},
+	testRows := []struct {
+		id, title, path, releaseDate string
+		createdAt                    time.Time
+	}{
+		{"older-release-newer-scan", "旧上映新入库", `/media/movies/old.mkv`, "2026-01-10", base.Add(2 * time.Hour)},
+		{"newer-release-older-scan", "新上映", `/media/movies/new.mkv`, "2026-06-23", base},
 	}
-	for i := range rows {
-		if err := svc.repo.DB.Create(&rows[i]).Error; err != nil {
+	for _, row := range testRows {
+		metadata := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{
+			Base: model.Base{ID: "metadata-" + row.id}, Kind: model.MetadataKindMovie,
+			Title: row.title, Year: 2026, ReleaseDate: row.releaseDate, Source: "tmdb",
+		})
+		media := model.Media{
+			Base: model.Base{ID: row.id, CreatedAt: row.createdAt}, LibraryID: lib.ID, MetadataID: metadata.ID,
+			Title: row.title, Path: row.path, Year: 2026, ScrapeStatus: "matched",
+		}
+		if err := svc.repo.DB.Create(&media).Error; err != nil {
 			t.Fatalf("create media: %v", err)
 		}
 	}
@@ -60,7 +57,7 @@ func TestEmbyLatestItemsOrderByReleaseDate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("latest items: %v", err)
 	}
-	if len(items) != 2 || items[0]["Id"] != "newer-release-older-scan" {
+	if len(items) != 2 || items[0]["Id"] != "metadata-newer-release-older-scan" {
 		t.Fatalf("latest items should prefer release date over created_at, got %#v", items)
 	}
 	if _, ok := items[0]["PremiereDate"].(time.Time); !ok {

@@ -38,11 +38,14 @@ func TestOrganizeMediaReDetectsSeasonFromPath(t *testing.T) {
 		EpisodeNum:   3,
 		ScrapeStatus: "matched",
 	}
-	if err := repos.Media.Upsert(t.Context(), &media); err != nil {
+	organizer := NewOrganizerService(&config.Config{}, zap.NewNop(), repos)
+	if err := organizer.refreshEpisodeIdentity(&media, &lib); err != nil {
+		t.Fatal(err)
+	}
+	if err := repos.Media.Upsert(t.Context(), serviceTestMediaForUpsert(&media)); err != nil {
 		t.Fatal(err)
 	}
 
-	organizer := NewOrganizerService(&config.Config{}, zap.NewNop(), repos)
 	dst, err := organizer.OrganizeMedia(t.Context(), media.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -93,11 +96,14 @@ func TestOrganizeMediaUsesEpisodeNFOSeason(t *testing.T) {
 		EpisodeNum:   3,
 		ScrapeStatus: "matched",
 	}
-	if err := repos.Media.Upsert(t.Context(), &media); err != nil {
+	organizer := NewOrganizerService(&config.Config{}, zap.NewNop(), repos)
+	if err := organizer.refreshEpisodeIdentity(&media, &lib); err != nil {
+		t.Fatal(err)
+	}
+	if err := repos.Media.Upsert(t.Context(), serviceTestMediaForUpsert(&media)); err != nil {
 		t.Fatal(err)
 	}
 
-	organizer := NewOrganizerService(&config.Config{}, zap.NewNop(), repos)
 	dst, err := organizer.OrganizeMedia(t.Context(), media.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -129,17 +135,20 @@ func TestOrganizeMediaAddsTypeRootForGenericMediaRoot(t *testing.T) {
 	if err := repos.Library.Create(t.Context(), &lib); err != nil {
 		t.Fatal(err)
 	}
+	metadata := createServiceTestEpisodeMetadata(t, repos.DB,
+		model.MetadataItem{Kind: model.MetadataKindSeries, Title: "Some Show", Countries: "CN", Source: "tmdb"},
+		model.MetadataItem{Kind: model.MetadataKindEpisode, Title: "Some Show", Countries: "CN", SeasonNum: 1, EpisodeNum: 2, Source: "tmdb"})
 	media := model.Media{
 		LibraryID:    lib.ID,
+		MetadataID:   metadata.ID,
 		Title:        "Some Show",
 		Path:         source,
 		Container:    "mkv",
-		Countries:    "CN",
 		SeasonNum:    1,
 		EpisodeNum:   2,
 		ScrapeStatus: "matched",
 	}
-	if err := repos.Media.Upsert(t.Context(), &media); err != nil {
+	if err := repos.Media.Upsert(t.Context(), serviceTestMediaForUpsert(&media)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -178,17 +187,20 @@ func TestOrganizeMediaDoesNotRepeatCategoryWhenLibraryIsCategoryRoot(t *testing.
 	if err := repos.Library.Create(t.Context(), &lib); err != nil {
 		t.Fatal(err)
 	}
+	metadata := createServiceTestEpisodeMetadata(t, repos.DB,
+		model.MetadataItem{Kind: model.MetadataKindSeries, Title: "Some Show", Countries: "CN", Source: "tmdb"},
+		model.MetadataItem{Kind: model.MetadataKindEpisode, Title: "Some Show", Countries: "CN", SeasonNum: 1, EpisodeNum: 2, Source: "tmdb"})
 	media := model.Media{
 		LibraryID:    lib.ID,
+		MetadataID:   metadata.ID,
 		Title:        "Some Show",
 		Path:         source,
 		Container:    "mkv",
-		Countries:    "CN",
 		SeasonNum:    1,
 		EpisodeNum:   2,
 		ScrapeStatus: "matched",
 	}
-	if err := repos.Media.Upsert(t.Context(), &media); err != nil {
+	if err := repos.Media.Upsert(t.Context(), serviceTestMediaForUpsert(&media)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -235,7 +247,7 @@ func TestOrganizeMediaTreatsCategoryLibraryAsCollectionRoot(t *testing.T) {
 		EpisodeNum:   2,
 		ScrapeStatus: "matched",
 	}
-	if err := repos.Media.Upsert(t.Context(), &media); err != nil {
+	if err := repos.Media.Upsert(t.Context(), serviceTestMediaForUpsert(&media)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -305,7 +317,7 @@ func TestOrganizeLibrarySkipsFilesAlreadyInsideLibrary(t *testing.T) {
 		EpisodeNum:   2,
 		ScrapeStatus: "matched",
 	}
-	if err := repos.Media.Upsert(t.Context(), &media); err != nil {
+	if err := repos.Media.Upsert(t.Context(), serviceTestMediaForUpsert(&media)); err != nil {
 		t.Fatal(err)
 	}
 

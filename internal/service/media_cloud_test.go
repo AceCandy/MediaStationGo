@@ -11,7 +11,7 @@ import (
 	"github.com/ShukeBta/MediaStationGo/internal/repository"
 )
 
-func TestDeleteLibraryHardDeletesLibraryRoots(t *testing.T) {
+func TestDeleteLibraryHardDeletesLibraryAndMedia(t *testing.T) {
 	db := newServiceTestDB(t, &model.Library{}, &model.LibraryRoot{}, &model.Media{})
 	repos := repository.New(db)
 	rootA := filepath.Join(t.TempDir(), "movies-a")
@@ -23,14 +23,16 @@ func TestDeleteLibraryHardDeletesLibraryRoots(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := repos.Media.Upsert(t.Context(), &model.Media{
+	media := &model.Media{
 		LibraryID:     lib.ID,
 		LibraryRootID: lib.Roots[0].ID,
 		Title:         "测试电影",
 		Path:          filepath.Join(rootA, "movie.mkv"),
-	}); err != nil {
+	}
+	if err := repos.Media.Upsert(t.Context(), media); err != nil {
 		t.Fatal(err)
 	}
+	metadataID := media.MetadataID
 
 	svc := NewMediaService(&config.Config{}, zap.NewNop(), repos)
 	if err := svc.DeleteLibrary(t.Context(), lib.ID); err != nil {
@@ -44,12 +46,66 @@ func TestDeleteLibraryHardDeletesLibraryRoots(t *testing.T) {
 	if rootCount != 0 {
 		t.Fatalf("library roots should be hard deleted, count=%d", rootCount)
 	}
-	var visibleLibraryCount int64
-	if err := db.Model(&model.Library{}).Where("id = ?", lib.ID).Count(&visibleLibraryCount).Error; err != nil {
+	var libraryCount int64
+	if err := db.Unscoped().Model(&model.Library{}).Where("id = ?", lib.ID).Count(&libraryCount).Error; err != nil {
 		t.Fatal(err)
 	}
-	if visibleLibraryCount != 0 {
-		t.Fatalf("deleted library should not remain visible, count=%d", visibleLibraryCount)
+	if libraryCount != 0 {
+		t.Fatalf("library should be hard deleted, count=%d", libraryCount)
+	}
+	var mediaCount int64
+	if err := db.Unscoped().Model(&model.Media{}).Where("library_id = ?", lib.ID).Count(&mediaCount).Error; err != nil {
+		t.Fatal(err)
+	}
+	if mediaCount != 0 {
+		t.Fatalf("library media should be hard deleted, count=%d", mediaCount)
+	}
+	var metadataCount int64
+	if err := db.Unscoped().Model(&model.MetadataItem{}).Where("id = ?", metadataID).Count(&metadataCount).Error; err != nil {
+		t.Fatal(err)
+	}
+	if metadataCount != 1 {
+		t.Fatalf("shared metadata should be preserved, count=%d", metadataCount)
+	}
+}
+
+func TestDeleteLibraryRollsBackHardDelete(t *testing.T) {
+	db := newServiceTestDB(t, &model.Library{}, &model.LibraryRoot{}, &model.Media{})
+	repos := repository.New(db)
+	root := t.TempDir()
+	lib := &model.Library{Name: "电影", Path: root, Type: "movie", Enabled: true}
+	if err := repos.Library.Create(t.Context(), lib); err != nil {
+		t.Fatal(err)
+	}
+	if err := repos.Media.Upsert(t.Context(), &model.Media{
+		LibraryID: lib.ID,
+		Title:     "测试电影",
+		Path:      filepath.Join(root, "movie.mkv"),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec(`CREATE TRIGGER fail_library_delete
+		BEFORE DELETE ON libraries
+		BEGIN
+			SELECT RAISE(ABORT, 'forced delete failure');
+		END`).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	svc := NewMediaService(&config.Config{}, zap.NewNop(), repos)
+	if err := svc.DeleteLibrary(t.Context(), lib.ID); err == nil {
+		t.Fatal("expected library deletion to fail")
+	}
+
+	var libraryCount, mediaCount int64
+	if err := db.Unscoped().Model(&model.Library{}).Where("id = ?", lib.ID).Count(&libraryCount).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Unscoped().Model(&model.Media{}).Where("library_id = ?", lib.ID).Count(&mediaCount).Error; err != nil {
+		t.Fatal(err)
+	}
+	if libraryCount != 1 || mediaCount != 1 {
+		t.Fatalf("failed deletion should roll back all rows: libraries=%d media=%d", libraryCount, mediaCount)
 	}
 }
 

@@ -3,6 +3,9 @@ package repository
 import (
 	"context"
 	"errors"
+	"fmt"
+	"path/filepath"
+	"strconv"
 	"strings"
 
 	"gorm.io/gorm"
@@ -23,8 +26,128 @@ import (
 //     永远捞不到数据。
 func (r *MediaRepository) Upsert(ctx context.Context, m *model.Media) error {
 	return withSQLiteBusyRetry(ctx, func() error {
-		return r.upsert(ctx, m)
+		return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+			txRepo := &MediaRepository{db: tx}
+			if err := txRepo.ensureMediaMetadata(ctx, m); err != nil {
+				return err
+			}
+			return txRepo.upsert(ctx, m)
+		})
 	})
+}
+
+func (r *MediaRepository) ensureMediaMetadata(ctx context.Context, media *model.Media) error {
+	if media == nil {
+		return errors.New("media is required")
+	}
+	if strings.TrimSpace(media.MetadataID) == "" {
+		var existing model.Media
+		err := r.db.WithContext(ctx).Unscoped().Where("path = ?", media.Path).First(&existing).Error
+		if err == nil && strings.TrimSpace(existing.MetadataID) != "" {
+			media.MetadataID = existing.MetadataID
+		} else if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			return err
+		}
+	}
+	if strings.TrimSpace(media.MetadataID) == "" {
+		metadataID, err := r.createBaseMetadata(ctx, media)
+		if err != nil {
+			return err
+		}
+		media.MetadataID = metadataID
+	}
+	var count int64
+	if err := r.db.WithContext(ctx).Model(&model.MetadataItem{}).Where("id = ?", media.MetadataID).Count(&count).Error; err != nil {
+		return err
+	}
+	if count != 1 {
+		return errors.New("media metadata not found")
+	}
+	return nil
+}
+
+func (r *MediaRepository) createBaseMetadata(ctx context.Context, media *model.Media) (string, error) {
+	metadataRepo := &MetadataRepository{db: r.db}
+	title := strings.TrimSpace(media.Title)
+	if title == "" {
+		title = strings.TrimSuffix(filepath.Base(media.Path), filepath.Ext(media.Path))
+	}
+	if title == "" {
+		return "", errors.New("media title is required")
+	}
+	entityKind := model.MetadataKindMovie
+	if media.EpisodeNum > 0 {
+		entityKind = model.MetadataKindSeries
+	}
+	identifiers := mediaMetadataIdentifiers(media, entityKind)
+	if entityKind == model.MetadataKindMovie {
+		item, err := metadataRepo.UpsertCanonical(ctx, &model.MetadataItem{
+			Kind: model.MetadataKindMovie, Title: title, Year: media.Year, Source: "local",
+		}, identifiers, "")
+		if err != nil {
+			return "", err
+		}
+		return item.ID, nil
+	}
+	if len(identifiers) == 0 {
+		seriesKey := strings.TrimSpace(media.SeriesID)
+		if seriesKey == "" {
+			return "", errors.New("local episode series identity is required")
+		}
+		identifiers = append(identifiers, model.MetadataIdentifier{
+			Provider: "local", EntityKind: model.MetadataKindSeries, ExternalID: seriesKey,
+		})
+	}
+	series, err := metadataRepo.UpsertCanonical(ctx, &model.MetadataItem{
+		Kind: model.MetadataKindSeries, Title: title, Year: media.Year, Source: "local",
+	}, identifiers, "")
+	if err != nil {
+		return "", err
+	}
+	season, err := metadataRepo.UpsertSeason(ctx, &model.MetadataItem{
+		Kind: model.MetadataKindSeason, ParentID: &series.ID, SeasonNum: media.SeasonNum,
+		Title: seasonBaseTitle(media.SeasonNum), Source: "local",
+	})
+	if err != nil {
+		return "", err
+	}
+	episodeTitle := strings.TrimSpace(media.EpisodeTitle)
+	if episodeTitle == "" {
+		episodeTitle = fmt.Sprintf("Episode %d", media.EpisodeNum)
+	}
+	episode, err := metadataRepo.UpsertEpisode(ctx, &model.MetadataItem{
+		Kind: model.MetadataKindEpisode, ParentID: &season.ID, EpisodeNum: media.EpisodeNum,
+		Title: title, EpisodeTitle: episodeTitle, Source: "local",
+	})
+	if err != nil {
+		return "", err
+	}
+	media.SeriesID = series.ID
+	return episode.ID, nil
+}
+
+func mediaMetadataIdentifiers(media *model.Media, entityKind string) []model.MetadataIdentifier {
+	identifiers := make([]model.MetadataIdentifier, 0, 4)
+	if media.TMDbID > 0 {
+		identifiers = append(identifiers, model.MetadataIdentifier{Provider: "tmdb", EntityKind: entityKind, ExternalID: strconv.Itoa(media.TMDbID)})
+	}
+	if media.BangumiID > 0 {
+		identifiers = append(identifiers, model.MetadataIdentifier{Provider: "bangumi", EntityKind: entityKind, ExternalID: strconv.Itoa(media.BangumiID)})
+	}
+	if id := strings.TrimSpace(media.DoubanID); id != "" {
+		identifiers = append(identifiers, model.MetadataIdentifier{Provider: "douban", EntityKind: entityKind, ExternalID: id})
+	}
+	if id := strings.TrimSpace(media.TheTVDBID); id != "" {
+		identifiers = append(identifiers, model.MetadataIdentifier{Provider: "thetvdb", EntityKind: entityKind, ExternalID: id})
+	}
+	return identifiers
+}
+
+func seasonBaseTitle(seasonNum int) string {
+	if seasonNum == 0 {
+		return "Specials"
+	}
+	return fmt.Sprintf("Season %d", seasonNum)
 }
 
 func (r *MediaRepository) upsert(ctx context.Context, m *model.Media) error {
@@ -66,8 +189,7 @@ func mediaUpsertUpdates(existing, incoming model.Media) map[string]any {
 	addMediaFileScanUpdates(updates, existing, incoming)
 	addMediaTitleUpdates(updates, existing, incoming)
 	addMediaExternalIDUpdates(updates, existing, incoming)
-	addMatchedMediaMetadataUpdates(updates, existing, incoming)
-	addMediaArtworkUpdates(updates, existing, incoming)
+	addMatchedMediaStatusUpdate(updates, existing, incoming)
 	addMediaPlacementUpdates(updates, existing, incoming)
 	addMediaSTRMUpdate(updates, existing, incoming)
 	return updates
@@ -82,6 +204,7 @@ func addMediaFileScanUpdates(updates map[string]any, existing, incoming model.Me
 	setIfChanged(updates, "video_codec", existing.VideoCodec, incoming.VideoCodec)
 	setIfChanged(updates, "audio_codec", existing.AudioCodec, incoming.AudioCodec)
 	setIfChanged(updates, "container", existing.Container, incoming.Container)
+	setIfChanged(updates, "local_metadata_hint", existing.LocalMetadataHint, incoming.LocalMetadataHint)
 	if existing.DeletedAt.Valid {
 		updates["deleted_at"] = nil
 	}
@@ -99,12 +222,9 @@ func addMediaTitleUpdates(updates map[string]any, existing, incoming model.Media
 		if incoming.ScrapeStatus == "matched" || existing.ScrapeStatus == "pending" || existing.ScrapeStatus == "" || existing.ScrapeStatus == "no_match" {
 			titleChanged := !strings.EqualFold(strings.TrimSpace(existing.Title), strings.TrimSpace(incoming.Title))
 			yearChanged := incoming.Year > 0 && existing.Year != incoming.Year
-			setIfChanged(updates, "title", existing.Title, incoming.Title)
+			setIfChanged(updates, "scan_title", existing.Title, incoming.Title)
 			if incoming.Year > 0 {
-				setIfChanged(updates, "year", existing.Year, incoming.Year)
-			}
-			if incoming.ReleaseDate != "" {
-				setIfChanged(updates, "release_date", existing.ReleaseDate, incoming.ReleaseDate)
+				setIfChanged(updates, "scan_year", existing.Year, incoming.Year)
 			}
 			if strings.TrimSpace(existing.ScrapeStatus) == "no_match" && incoming.ScrapeStatus != "matched" && (titleChanged || yearChanged) {
 				updates["scrape_status"] = "pending"
@@ -120,10 +240,7 @@ func addMediaExternalIDUpdates(updates map[string]any, existing, incoming model.
 	}
 	changedExternalID := addIncomingMediaProviderIDs(updates, existing, incoming)
 	if incoming.Year > 0 && existing.Year <= 0 {
-		updates["year"] = incoming.Year
-	}
-	if incoming.ReleaseDate != "" && existing.ReleaseDate == "" {
-		updates["release_date"] = incoming.ReleaseDate
+		updates["scan_year"] = incoming.Year
 	}
 	if changedExternalID && (status == "no_match" || status == "matched") && incoming.ScrapeStatus != "matched" {
 		updates["scrape_status"] = "pending"
@@ -135,43 +252,12 @@ func mediaCanRefreshExternalIDs(existingStatus string, incoming model.Media) boo
 		incoming.ScrapeStatus == "matched" || strings.HasPrefix(strings.ToLower(strings.TrimSpace(incoming.Path)), "cloud://")
 }
 
-func addMatchedMediaMetadataUpdates(updates map[string]any, existing, incoming model.Media) {
-	if incoming.ScrapeStatus == "matched" {
+func addMatchedMediaStatusUpdate(updates map[string]any, existing, incoming model.Media) {
+	if incoming.ScrapeStatus == "matched" && incoming.MetadataID != "" {
+		if existing.MetadataID != incoming.MetadataID {
+			updates["metadata_id"] = incoming.MetadataID
+		}
 		setIfChanged(updates, "scrape_status", existing.ScrapeStatus, incoming.ScrapeStatus)
-		addMatchedMediaDetailUpdates(updates, existing, incoming)
-		addIncomingMediaProviderIDs(updates, existing, incoming)
-	}
-}
-
-func addMatchedMediaDetailUpdates(updates map[string]any, existing, incoming model.Media) {
-	setNonEmptyMediaString(updates, "original_name", existing.OriginalName, incoming.OriginalName)
-	setNonEmptyMediaString(updates, "episode_title", existing.EpisodeTitle, incoming.EpisodeTitle)
-	setNonEmptyMediaString(updates, "poster_url", existing.PosterURL, incoming.PosterURL)
-	setNonEmptyMediaString(updates, "backdrop_url", existing.BackdropURL, incoming.BackdropURL)
-	setNonEmptyMediaString(updates, "overview", existing.Overview, incoming.Overview)
-	setNonEmptyMediaString(updates, "languages", existing.Languages, incoming.Languages)
-	setNonEmptyMediaString(updates, "countries", existing.Countries, incoming.Countries)
-	setNonEmptyMediaString(updates, "genres", existing.Genres, incoming.Genres)
-	if incoming.Rating > 0 {
-		setIfChanged(updates, "rating", existing.Rating, incoming.Rating)
-	}
-	if incoming.Year > 0 {
-		setIfChanged(updates, "year", existing.Year, incoming.Year)
-	}
-	if incoming.ReleaseDate != "" {
-		setIfChanged(updates, "release_date", existing.ReleaseDate, incoming.ReleaseDate)
-	}
-	if incoming.NSFW && !existing.NSFW {
-		updates["nsfw"] = true
-	}
-}
-
-func addMediaArtworkUpdates(updates map[string]any, existing, incoming model.Media) {
-	if incoming.PosterURL != "" {
-		setIfChanged(updates, "poster_url", existing.PosterURL, incoming.PosterURL)
-	}
-	if incoming.BackdropURL != "" {
-		setIfChanged(updates, "backdrop_url", existing.BackdropURL, incoming.BackdropURL)
 	}
 }
 
@@ -213,28 +299,22 @@ func addMediaSTRMUpdate(updates map[string]any, existing, incoming model.Media) 
 func addIncomingMediaProviderIDs(updates map[string]any, existing, incoming model.Media) bool {
 	changed := false
 	if incoming.TMDbID > 0 && existing.TMDbID != incoming.TMDbID {
-		updates["tm_db_id"] = incoming.TMDbID
+		updates["lookup_tmdb_id"] = incoming.TMDbID
 		changed = true
 	}
 	if incoming.BangumiID > 0 && existing.BangumiID != incoming.BangumiID {
-		updates["bangumi_id"] = incoming.BangumiID
+		updates["lookup_bangumi_id"] = incoming.BangumiID
 		changed = true
 	}
 	if incoming.DoubanID != "" && strings.TrimSpace(existing.DoubanID) != strings.TrimSpace(incoming.DoubanID) {
-		updates["douban_id"] = incoming.DoubanID
+		updates["lookup_douban_id"] = incoming.DoubanID
 		changed = true
 	}
 	if incoming.TheTVDBID != "" && strings.TrimSpace(existing.TheTVDBID) != strings.TrimSpace(incoming.TheTVDBID) {
-		updates["thetvdb_id"] = incoming.TheTVDBID
+		updates["lookup_thetvdb_id"] = incoming.TheTVDBID
 		changed = true
 	}
 	return changed
-}
-
-func setNonEmptyMediaString(updates map[string]any, key, current, next string) {
-	if next != "" {
-		setIfChanged(updates, key, current, next)
-	}
 }
 
 func (r *MediaRepository) applyMediaUpsertUpdates(ctx context.Context, m *model.Media, existing model.Media, updates map[string]any) error {

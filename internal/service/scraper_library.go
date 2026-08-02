@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -13,7 +15,17 @@ import (
 // lookup runs the provider chain after local NFO has been considered:
 // TMDb -> Douban -> Bangumi -> TheTVDB. Douban and Bangumi do not require API
 // keys; providers that are unavailable or return an error are skipped.
+type providerLookupResult struct {
+	Match *Match
+	Err   error
+	Tried bool
+}
+
 func (s *ScraperService) lookup(ctx context.Context, lib *model.Library, media *model.Media, query string, year int) *Match {
+	return s.lookupWithOutcome(ctx, lib, media, query, year).Match
+}
+
+func (s *ScraperService) lookupWithOutcome(ctx context.Context, lib *model.Library, media *model.Media, query string, year int) providerLookupResult {
 	kind := ""
 	if lib != nil {
 		kind = lib.Type
@@ -25,33 +37,53 @@ func (s *ScraperService) lookup(ctx context.Context, lib *model.Library, media *
 	if (normalizeOrganizeMediaType(kind) != "movie" || explicitEpisode) && mediaIsEpisodic(media, lib) {
 		kind = "tv"
 	}
+	result := providerLookupResult{}
+	var lookupErrors []error
 	if s.tmdb != nil && s.tmdb.Enabled() {
-		if match := s.lookupAutomaticTMDb(ctx, kind, query, year); match != nil {
-			return match
+		result.Tried = true
+		if match, err := s.lookupAutomaticTMDbWithError(ctx, kind, query, year); match != nil {
+			match.Source = "tmdb"
+			result.Match = match
+			return result
+		} else if err != nil {
+			lookupErrors = append(lookupErrors, fmt.Errorf("tmdb: %w", err))
 		}
 	}
 	if s.douban != nil && s.douban.Enabled() {
+		result.Tried = true
 		if m, err := s.douban.SearchMatch(ctx, query); err == nil && m != nil && metadataMatchCompatibleWithType(kind, m) {
-			return m
+			m.Source = "douban"
+			result.Match = m
+			return result
 		} else if err != nil {
 			s.log.Debug("douban search failed", zap.String("query", query), zap.Error(err))
+			lookupErrors = append(lookupErrors, fmt.Errorf("douban: %w", err))
 		}
 	}
 	if s.bangumi != nil && s.bangumi.Enabled() {
+		result.Tried = true
 		if m, err := s.bangumi.Search(ctx, query); err == nil && m != nil && metadataMatchCompatibleWithType(kind, m) {
-			return m
+			m.Source = "bangumi"
+			result.Match = m
+			return result
 		} else if err != nil {
 			s.log.Debug("bangumi search failed", zap.String("query", query), zap.Error(err))
+			lookupErrors = append(lookupErrors, fmt.Errorf("bangumi: %w", err))
 		}
 	}
 	if (kind == "anime" || kind == "tv" || kind == "variety" || kind == "show" || kind == "shows") && s.thetvdb != nil && s.thetvdb.Enabled() {
+		result.Tried = true
 		if m, err := s.thetvdb.SearchSeries(ctx, query); err == nil && m != nil && metadataMatchCompatibleWithType(kind, m) {
-			return m
+			m.Source = "thetvdb"
+			result.Match = m
+			return result
 		} else if err != nil {
 			s.log.Debug("thetvdb search failed", zap.String("query", query), zap.Error(err))
+			lookupErrors = append(lookupErrors, fmt.Errorf("thetvdb: %w", err))
 		}
 	}
-	return nil
+	result.Err = errors.Join(lookupErrors...)
+	return result
 }
 
 func isTVMetadataKind(kind string) bool {
@@ -84,6 +116,12 @@ type EnrichLibraryResult struct {
 	Candidates int
 }
 
+type scrapeCandidateGroup struct {
+	MetadataID     string
+	Representative model.Media
+	MediaIDs       []string
+}
+
 func (s *ScraperService) EnrichLibraryDetailed(ctx context.Context, libraryID string, retryNoMatch ...bool) (EnrichLibraryResult, error) {
 	options := ScrapeOptions{}
 	if len(retryNoMatch) > 0 {
@@ -98,26 +136,37 @@ func (s *ScraperService) EnrichLibraryDetailedWithOptions(ctx context.Context, l
 	if err != nil {
 		return result, err
 	}
-	result.Candidates = len(rows)
+	groups, err := groupScrapeCandidateRows(rows)
+	if err != nil {
+		return result, err
+	}
+	result.Candidates = len(groups)
 	runOptions := options
 	runOptions.DeferEpisodeDetails = true
-	for i := range rows {
+	representatives := make([]model.Media, 0, len(groups))
+	for i := range groups {
 		select {
 		case <-ctx.Done():
 			return result, ctx.Err()
 		default:
 		}
-		if err := s.EnrichOneWithOptions(ctx, &rows[i], runOptions); err != nil {
-			s.log.Warn("enrich failed", zap.String("media", rows[i].ID), zap.Error(err))
-			s.notifyScrapeFailed(rows[i], err)
+		representative := &groups[i].Representative
+		enrichErr := s.EnrichOneWithOptions(ctx, representative, runOptions)
+		if err := s.syncScrapeCandidateGroup(ctx, groups[i]); err != nil {
+			return result, err
+		}
+		representatives = append(representatives, *representative)
+		if enrichErr != nil {
+			s.log.Warn("enrich failed", zap.String("media", representative.ID), zap.Error(enrichErr))
+			s.notifyScrapeFailed(*representative, enrichErr)
 			result.Failed++
 			continue
 		}
 		result.Processed++
-		if s.mediaIsMatched(ctx, rows[i].ID) {
+		if s.mediaIsMatched(ctx, representative.ID) {
 			result.Matched++
 		}
-		if i < len(rows)-1 {
+		if i < len(groups)-1 {
 			if delay := s.scrapeDelay(ctx); delay > 0 {
 				select {
 				case <-ctx.Done():
@@ -127,7 +176,7 @@ func (s *ScraperService) EnrichLibraryDetailedWithOptions(ctx context.Context, l
 			}
 		}
 	}
-	if err := s.enrichDeferredEpisodeDetails(ctx, rows, options); err != nil {
+	if err := s.enrichDeferredEpisodeDetails(ctx, representatives, options); err != nil {
 		return result, err
 	}
 	s.hub.Publish("scrape", map[string]any{
@@ -141,6 +190,64 @@ func (s *ScraperService) EnrichLibraryDetailedWithOptions(ctx context.Context, l
 	return result, nil
 }
 
+func groupScrapeCandidateRows(rows []model.Media) ([]scrapeCandidateGroup, error) {
+	groups := make([]scrapeCandidateGroup, 0, len(rows))
+	groupIndexes := make(map[string]int, len(rows))
+	for i := range rows {
+		metadataID := strings.TrimSpace(rows[i].MetadataID)
+		if metadataID == "" {
+			return nil, fmt.Errorf("media %s has no metadata_id", rows[i].ID)
+		}
+		if groupIndex, ok := groupIndexes[metadataID]; ok {
+			groups[groupIndex].MediaIDs = append(groups[groupIndex].MediaIDs, rows[i].ID)
+			continue
+		}
+		groupIndexes[metadataID] = len(groups)
+		groups = append(groups, scrapeCandidateGroup{
+			MetadataID:     metadataID,
+			Representative: rows[i],
+			MediaIDs:       []string{rows[i].ID},
+		})
+	}
+	return groups, nil
+}
+
+func (s *ScraperService) syncScrapeCandidateGroup(ctx context.Context, group scrapeCandidateGroup) error {
+	fresh, err := s.repo.Media.FindByID(ctx, group.Representative.ID)
+	if err != nil {
+		return err
+	}
+	if fresh == nil {
+		return fmt.Errorf("representative media %s not found after scrape", group.Representative.ID)
+	}
+	metadataIDs := []string{group.MetadataID}
+	if fresh.MetadataID != group.MetadataID {
+		metadataIDs = append(metadataIDs, fresh.MetadataID)
+	}
+	mediaIDs := make([]string, 0, len(group.MediaIDs))
+	if err := s.repo.DB.WithContext(ctx).Model(&model.Media{}).
+		Where("metadata_id IN ? OR id IN ?", metadataIDs, group.MediaIDs).
+		Pluck("id", &mediaIDs).Error; err != nil {
+		return err
+	}
+	updates := map[string]any{
+		"metadata_id":         fresh.MetadataID,
+		"scrape_status":       fresh.ScrapeStatus,
+		"scrape_error":        fresh.ScrapeError,
+		"local_metadata_hint": fresh.LocalMetadataHint,
+		"lookup_tmdb_id":      fresh.TMDbID,
+		"lookup_bangumi_id":   fresh.BangumiID,
+		"lookup_douban_id":    fresh.DoubanID,
+		"lookup_thetvdb_id":   fresh.TheTVDBID,
+	}
+	if err := s.repo.DB.WithContext(ctx).Model(&model.Media{}).
+		Where("id IN ?", mediaIDs).Updates(updates).Error; err != nil {
+		return err
+	}
+	s.repo.MediaView.ReindexMediaIDs(ctx, mediaIDs...)
+	return nil
+}
+
 func (s *ScraperService) scrapeCandidateRows(ctx context.Context, libraryID string, options ScrapeOptions) ([]model.Media, error) {
 	var rows []model.Media
 	libraryIDs := []string{}
@@ -151,8 +258,8 @@ func (s *ScraperService) scrapeCandidateRows(ctx context.Context, libraryID stri
 			return nil, err
 		}
 	}
-	statusFilter := "scrape_status IS NULL OR scrape_status = '' OR scrape_status = ?"
-	statusArgs := []any{"pending"}
+	statusFilter := "scrape_status IS NULL OR scrape_status = '' OR scrape_status = ? OR scrape_status = ?"
+	statusArgs := []any{"pending", "error"}
 	if options.RetryNoMatch {
 		statusFilter += " OR scrape_status = ?"
 		statusArgs = append(statusArgs, "no_match")

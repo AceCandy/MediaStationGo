@@ -66,12 +66,6 @@ func (o *OrganizerService) reclassifyExistingMedia(ctx context.Context, req orga
 	if err := moveFile(oldPath, target); err != nil {
 		return false, err
 	}
-	if err := moveSidecarNFO(oldPath, target); err != nil && o != nil && o.log != nil {
-		o.log.Warn("organize reclassify sidecar nfo failed",
-			zap.String("from", nfoPath(oldPath)),
-			zap.String("to", nfoPath(target)),
-			zap.Error(err))
-	}
 	if err := o.updateReclassifiedMediaRow(ctx, oldPath, target, req); err != nil {
 		return false, err
 	}
@@ -151,7 +145,7 @@ func (o *OrganizerService) cleanupReclassifiedDuplicates(ctx context.Context, re
 			cleaned++
 			continue
 		}
-		if err := removeMediaAndNFO(oldPath); err != nil {
+		if err := removeMediaFile(oldPath); err != nil {
 			return cleaned, err
 		}
 		o.deleteMediaRowForPath(ctx, oldPath)
@@ -192,12 +186,6 @@ func (o *OrganizerService) moveReclassifiedConflict(ctx context.Context, req org
 	}
 	if err := moveFile(oldPath, conflictTarget); err != nil {
 		return false, err
-	}
-	if err := moveSidecarNFO(oldPath, conflictTarget); err != nil && o != nil && o.log != nil {
-		o.log.Warn("organize reclassify conflict sidecar nfo failed",
-			zap.String("from", nfoPath(oldPath)),
-			zap.String("to", nfoPath(conflictTarget)),
-			zap.Error(err))
 	}
 	if err := o.updateReclassifiedMediaRow(ctx, oldPath, conflictTarget, req); err != nil {
 		return false, err

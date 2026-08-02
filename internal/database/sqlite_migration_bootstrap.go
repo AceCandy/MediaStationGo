@@ -62,7 +62,6 @@ func sqliteSourceHasMigratableRows(src *gorm.DB) (bool, error) {
 func targetLooksLikeBootstrapOnly(target *gorm.DB) (bool, error) {
 	for _, m := range []any{
 		&model.Library{},
-		&model.Series{},
 		&model.Media{},
 		&model.PlaybackHistory{},
 		&model.Favorite{},

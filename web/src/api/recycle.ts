@@ -15,10 +15,4 @@ export const recycleAPI = {
 
   purgeMany: (ids: string[]) =>
     api.post<{ applied: number; errors?: string[] }>('/recycle/purge', { media_ids: ids }).then((r) => r.data),
-
-  exportNFO: (id: string) =>
-    api.post<{ path: string }>(`/media/${id}/nfo`).then((r) => r.data),
-
-  exportLibraryNFO: (id: string) =>
-    api.post<{ written: number }>(`/libraries/${id}/nfo`).then((r) => r.data),
 }

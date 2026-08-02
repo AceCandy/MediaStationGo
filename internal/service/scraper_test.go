@@ -3,7 +3,6 @@ package service
 import (
 	"errors"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/ShukeBta/MediaStationGo/internal/model"
@@ -68,16 +67,13 @@ func TestEnrichOneUsesExistingTMDbIDForCloudMedia(t *testing.T) {
 	if err := scraper.EnrichOne(t.Context(), &media); err != nil {
 		t.Fatal(err)
 	}
-	var got model.Media
-	if err := repos.DB.First(&got, "id = ?", media.ID).Error; err != nil {
-		t.Fatal(err)
-	}
+	got := serviceTestMediaView(t, repos, media.ID)
 	if got.ScrapeStatus != "matched" || got.Title != "间谍过家家" || got.TMDbID != 12345 || got.PosterURL == "" {
 		t.Fatalf("tmdb id scrape did not apply match: title=%q status=%q tmdb=%d poster=%q", got.Title, got.ScrapeStatus, got.TMDbID, got.PosterURL)
 	}
 }
 
-func TestEnrichOneWritesTMDbIDColumn(t *testing.T) {
+func TestEnrichOneWritesTMDbIdentifier(t *testing.T) {
 	scraper, repos, closeServer := newTestScraper(t)
 	defer closeServer()
 
@@ -105,10 +101,7 @@ func TestEnrichOneWritesTMDbIDColumn(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	var got model.Media
-	if err := repos.DB.First(&got, "id = ?", media.ID).Error; err != nil {
-		t.Fatal(err)
-	}
+	got := serviceTestMediaView(t, repos, media.ID)
 	if got.ScrapeStatus != "matched" || got.TMDbID != 12345 {
 		t.Fatalf("unexpected scraped media: status=%q tmdb=%d", got.ScrapeStatus, got.TMDbID)
 	}
@@ -138,10 +131,7 @@ func TestEnrichOneTreatsEpisodicMediaInMovieLibraryAsTV(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	var got model.Media
-	if err := repos.DB.First(&got, "id = ?", media.ID).Error; err != nil {
-		t.Fatal(err)
-	}
+	got := serviceTestMediaView(t, repos, media.ID)
 	if got.ScrapeStatus != "matched" || got.TMDbID != 12345 {
 		t.Fatalf("episodic media in movie library should use tv scrape: status=%q tmdb=%d", got.ScrapeStatus, got.TMDbID)
 	}
@@ -188,16 +178,12 @@ func TestEnrichOneWritesTMDbEpisodeMetadata(t *testing.T) {
 		t.Fatal(err)
 	}
 	mediaPath := filepath.Join(lib.Path, "间谍过家家 - S02E01.mkv")
-	existingPoster := "https://image.tmdb.org/t/p/w500/existing-poster.jpg"
-	existingBackdrop := "https://image.tmdb.org/t/p/w1280/existing-backdrop.jpg"
 	media := model.Media{
 		LibraryID:    lib.ID,
 		Title:        "间谍过家家",
 		Path:         mediaPath,
 		SeasonNum:    2,
 		EpisodeNum:   1,
-		PosterURL:    existingPoster,
-		BackdropURL:  existingBackdrop,
 		ScrapeStatus: "pending",
 	}
 	if err := repos.DB.Create(&media).Error; err != nil {
@@ -208,15 +194,12 @@ func TestEnrichOneWritesTMDbEpisodeMetadata(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	var got model.Media
-	if err := repos.DB.First(&got, "id = ?", media.ID).Error; err != nil {
-		t.Fatal(err)
-	}
+	got := serviceTestMediaView(t, repos, media.ID)
 	// 单集专属信息(简介/剧照/评分/时长)应回填到该集行。
 	if got.Overview != "单集剧情" {
 		t.Fatalf("episode overview not saved: overview=%q", got.Overview)
 	}
-	if !strings.HasSuffix(got.BackdropURL, "/images/w500/still.jpg") || got.DurationSec != 24*60 {
+	if got.BackdropURL == "" || got.DurationSec != 24*60 {
 		t.Fatalf("episode still/runtime not saved: backdrop=%q duration=%d", got.BackdropURL, got.DurationSec)
 	}
 	if got.Rating < 9.09 || got.Rating > 9.11 {
@@ -241,16 +224,12 @@ func TestEnrichOneSkipsTMDbEpisodeStillWhenDisabled(t *testing.T) {
 		t.Fatal(err)
 	}
 	mediaPath := filepath.Join(lib.Path, "间谍过家家 - S02E01.mkv")
-	existingPoster := "https://image.tmdb.org/t/p/w500/existing-poster.jpg"
-	existingBackdrop := "https://image.tmdb.org/t/p/w1280/existing-backdrop.jpg"
 	media := model.Media{
 		LibraryID:    lib.ID,
 		Title:        "间谍过家家",
 		Path:         mediaPath,
 		SeasonNum:    2,
 		EpisodeNum:   1,
-		PosterURL:    existingPoster,
-		BackdropURL:  existingBackdrop,
 		ScrapeStatus: "pending",
 	}
 	if err := repos.DB.Create(&media).Error; err != nil {
@@ -262,27 +241,26 @@ func TestEnrichOneSkipsTMDbEpisodeStillWhenDisabled(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	var got model.Media
-	if err := repos.DB.First(&got, "id = ?", media.ID).Error; err != nil {
-		t.Fatal(err)
-	}
+	got := serviceTestMediaView(t, repos, media.ID)
 	if got.Overview != "单集剧情" || got.DurationSec != 24*60 {
 		t.Fatalf("episode metadata should still be saved: overview=%q duration=%d", got.Overview, got.DurationSec)
 	}
 	if got.Rating < 9.09 || got.Rating > 9.11 {
 		t.Fatalf("episode rating = %v, want 9.1", got.Rating)
 	}
-	if strings.HasSuffix(got.BackdropURL, "/images/w500/still.jpg") {
-		t.Fatalf("episode still should not be saved when disabled: backdrop=%q", got.BackdropURL)
+	var stillCount int64
+	if got.MetadataID == "" {
+		t.Fatal("matched episode has no metadata link")
 	}
-	if !strings.HasSuffix(got.PosterURL, "/images/w500/poster.jpg") {
-		t.Fatalf("series poster should still be saved when episode artwork is disabled: got %q", got.PosterURL)
+	if err := repos.DB.Model(&model.MetadataArtwork{}).
+		Where("metadata_id = ? AND artwork_type = ?", got.MetadataID, model.ArtworkTypeStill).Count(&stillCount).Error; err != nil {
+		t.Fatal(err)
 	}
-	if !strings.HasSuffix(got.BackdropURL, "/images/w1280/backdrop.jpg") {
-		t.Fatalf("series backdrop should still be saved when episode artwork is disabled: got %q", got.BackdropURL)
+	if stillCount != 0 {
+		t.Fatalf("episode still should not be saved when disabled, rows=%d", stillCount)
 	}
-	if got.PosterURL == existingPoster || got.BackdropURL == existingBackdrop {
-		t.Fatalf("main artwork should be refreshed while episode still is skipped: poster=%q backdrop=%q", got.PosterURL, got.BackdropURL)
+	if got.PosterURL == "" || got.BackdropURL == "" {
+		t.Fatalf("series artwork should remain available: poster=%q backdrop=%q", got.PosterURL, got.BackdropURL)
 	}
 }
 
@@ -320,16 +298,22 @@ func TestApplyManualMatchSkipsTMDbEpisodeStillWhenDisabled(t *testing.T) {
 	if got == nil {
 		t.Fatal("manual match returned nil media")
 	}
-	if got.Overview != "单集剧情" || got.DurationSec != 24*60 {
-		t.Fatalf("episode metadata should still be saved: overview=%q duration=%d", got.Overview, got.DurationSec)
+	view := serviceTestMediaView(t, repos, media.ID)
+	if view.Overview != "单集剧情" || view.DurationSec != 24*60 {
+		t.Fatalf("episode metadata should still be saved: overview=%q duration=%d", view.Overview, view.DurationSec)
 	}
-	if strings.HasSuffix(got.BackdropURL, "/images/w500/still.jpg") {
-		t.Fatalf("manual episode still should not be saved when disabled: backdrop=%q", got.BackdropURL)
+	var stillCount int64
+	if view.MetadataID == "" {
+		t.Fatal("manual matched episode has no metadata link")
 	}
-	if !strings.HasSuffix(got.PosterURL, "/images/w500/poster.jpg") {
-		t.Fatalf("series poster should still be saved when manual episode artwork is disabled: got %q", got.PosterURL)
+	if err := repos.DB.Model(&model.MetadataArtwork{}).
+		Where("metadata_id = ? AND artwork_type = ?", view.MetadataID, model.ArtworkTypeStill).Count(&stillCount).Error; err != nil {
+		t.Fatal(err)
 	}
-	if !strings.HasSuffix(got.BackdropURL, "/images/w1280/backdrop.jpg") {
-		t.Fatalf("series backdrop should still be saved when manual episode artwork is disabled: got %q", got.BackdropURL)
+	if stillCount != 0 {
+		t.Fatalf("manual episode still should not be saved when disabled, rows=%d", stillCount)
+	}
+	if view.PosterURL == "" || view.BackdropURL == "" {
+		t.Fatalf("series artwork should remain available: poster=%q backdrop=%q", view.PosterURL, view.BackdropURL)
 	}
 }

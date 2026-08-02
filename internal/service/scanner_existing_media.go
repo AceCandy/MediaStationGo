@@ -19,7 +19,7 @@ func (s *ScannerService) existingCloudMediaSnapshotForLibraries(ctx context.Cont
 	var rows []model.Media
 	if err := s.repo.DB.WithContext(ctx).
 		Model(&model.Media{}).
-		Select("library_id", "path", "title", "original_name", "episode_title", "size_bytes", "duration_sec", "width", "height", "video_codec", "audio_codec", "container", "poster_url", "backdrop_url", "strm_url", "overview", "year", "release_date", "rating", "tm_db_id", "bangumi_id", "douban_id", "thetvdb_id", "season_num", "episode_num", "genres", "countries", "languages", "nsfw", "scrape_status").
+		Select("library_id", "path", "scan_title", "size_bytes", "duration_sec", "width", "height", "video_codec", "audio_codec", "container", "strm_url", "scan_year", "lookup_tmdb_id", "lookup_bangumi_id", "lookup_douban_id", "lookup_thetvdb_id", "season_num", "episode_num", "scrape_status", "local_metadata_hint").
 		Where("library_id IN ? AND path LIKE ?", libraryIDs, "cloud://%").
 		Find(&rows).Error; err != nil {
 		return nil, err
@@ -30,35 +30,36 @@ func (s *ScannerService) existingCloudMediaSnapshotForLibraries(ctx context.Cont
 			continue
 		}
 		snapshot[row.Path] = existingCloudMedia{
-			LibraryID:    row.LibraryID,
-			Title:        row.Title,
-			OriginalName: row.OriginalName,
-			EpisodeTitle: row.EpisodeTitle,
-			SizeBytes:    row.SizeBytes,
-			DurationSec:  row.DurationSec,
-			Width:        row.Width,
-			Height:       row.Height,
-			VideoCodec:   row.VideoCodec,
-			AudioCodec:   row.AudioCodec,
-			Container:    row.Container,
-			PosterURL:    row.PosterURL,
-			BackdropURL:  row.BackdropURL,
-			STRMURL:      row.STRMURL,
-			Overview:     row.Overview,
-			Year:         row.Year,
-			ReleaseDate:  row.ReleaseDate,
-			Rating:       row.Rating,
-			TMDbID:       row.TMDbID,
-			BangumiID:    row.BangumiID,
-			DoubanID:     row.DoubanID,
-			TheTVDBID:    row.TheTVDBID,
-			SeasonNum:    row.SeasonNum,
-			EpisodeNum:   row.EpisodeNum,
-			Genres:       row.Genres,
-			Countries:    row.Countries,
-			Languages:    row.Languages,
-			NSFW:         row.NSFW,
-			ScrapeStatus: row.ScrapeStatus,
+			LibraryID:         row.LibraryID,
+			Title:             row.Title,
+			OriginalName:      row.OriginalName,
+			EpisodeTitle:      row.EpisodeTitle,
+			SizeBytes:         row.SizeBytes,
+			DurationSec:       row.DurationSec,
+			Width:             row.Width,
+			Height:            row.Height,
+			VideoCodec:        row.VideoCodec,
+			AudioCodec:        row.AudioCodec,
+			Container:         row.Container,
+			PosterURL:         row.PosterURL,
+			BackdropURL:       row.BackdropURL,
+			STRMURL:           row.STRMURL,
+			Overview:          row.Overview,
+			Year:              row.Year,
+			ReleaseDate:       row.ReleaseDate,
+			Rating:            row.Rating,
+			TMDbID:            row.TMDbID,
+			BangumiID:         row.BangumiID,
+			DoubanID:          row.DoubanID,
+			TheTVDBID:         row.TheTVDBID,
+			SeasonNum:         row.SeasonNum,
+			EpisodeNum:        row.EpisodeNum,
+			Genres:            row.Genres,
+			Countries:         row.Countries,
+			Languages:         row.Languages,
+			NSFW:              row.NSFW,
+			ScrapeStatus:      row.ScrapeStatus,
+			LocalMetadataHint: row.LocalMetadataHint,
 		}
 	}
 	return snapshot, nil
@@ -68,7 +69,7 @@ func (s *ScannerService) existingLocalMediaSnapshot(ctx context.Context, library
 	var rows []model.Media
 	if err := s.repo.DB.WithContext(ctx).
 		Model(&model.Media{}).
-		Select("path", "library_root_id", "relative_path", "title", "original_name", "episode_title", "size_bytes", "duration_sec", "width", "height", "video_codec", "audio_codec", "container", "strm_url", "file_id", "poster_url", "backdrop_url", "overview", "year", "release_date", "rating", "tm_db_id", "bangumi_id", "douban_id", "thetvdb_id", "season_num", "episode_num", "genres", "countries", "languages", "nsfw", "scrape_status").
+		Select("path", "library_root_id", "relative_path", "scan_title", "size_bytes", "duration_sec", "width", "height", "video_codec", "audio_codec", "container", "strm_url", "file_id", "scan_year", "lookup_tmdb_id", "lookup_bangumi_id", "lookup_douban_id", "lookup_thetvdb_id", "season_num", "episode_num", "scrape_status", "local_metadata_hint").
 		Where("library_id = ? AND path NOT LIKE ?", libraryID, "cloud://%").
 		Find(&rows).Error; err != nil {
 		return nil, err
@@ -79,37 +80,38 @@ func (s *ScannerService) existingLocalMediaSnapshot(ctx context.Context, library
 			continue
 		}
 		snapshot[filepath.Clean(row.Path)] = existingLocalMedia{
-			LibraryRootID: row.LibraryRootID,
-			RelativePath:  row.RelativePath,
-			Title:         row.Title,
-			OriginalName:  row.OriginalName,
-			EpisodeTitle:  row.EpisodeTitle,
-			SizeBytes:     row.SizeBytes,
-			DurationSec:   row.DurationSec,
-			Width:         row.Width,
-			Height:        row.Height,
-			VideoCodec:    row.VideoCodec,
-			AudioCodec:    row.AudioCodec,
-			Container:     row.Container,
-			STRMURL:       row.STRMURL,
-			FileID:        row.FileID,
-			PosterURL:     row.PosterURL,
-			BackdropURL:   row.BackdropURL,
-			Overview:      row.Overview,
-			Year:          row.Year,
-			ReleaseDate:   row.ReleaseDate,
-			Rating:        row.Rating,
-			TMDbID:        row.TMDbID,
-			BangumiID:     row.BangumiID,
-			DoubanID:      row.DoubanID,
-			TheTVDBID:     row.TheTVDBID,
-			SeasonNum:     row.SeasonNum,
-			EpisodeNum:    row.EpisodeNum,
-			Genres:        row.Genres,
-			Countries:     row.Countries,
-			Languages:     row.Languages,
-			NSFW:          row.NSFW,
-			ScrapeStatus:  row.ScrapeStatus,
+			LibraryRootID:     row.LibraryRootID,
+			RelativePath:      row.RelativePath,
+			Title:             row.Title,
+			OriginalName:      row.OriginalName,
+			EpisodeTitle:      row.EpisodeTitle,
+			SizeBytes:         row.SizeBytes,
+			DurationSec:       row.DurationSec,
+			Width:             row.Width,
+			Height:            row.Height,
+			VideoCodec:        row.VideoCodec,
+			AudioCodec:        row.AudioCodec,
+			Container:         row.Container,
+			STRMURL:           row.STRMURL,
+			FileID:            row.FileID,
+			PosterURL:         row.PosterURL,
+			BackdropURL:       row.BackdropURL,
+			Overview:          row.Overview,
+			Year:              row.Year,
+			ReleaseDate:       row.ReleaseDate,
+			Rating:            row.Rating,
+			TMDbID:            row.TMDbID,
+			BangumiID:         row.BangumiID,
+			DoubanID:          row.DoubanID,
+			TheTVDBID:         row.TheTVDBID,
+			SeasonNum:         row.SeasonNum,
+			EpisodeNum:        row.EpisodeNum,
+			Genres:            row.Genres,
+			Countries:         row.Countries,
+			Languages:         row.Languages,
+			NSFW:              row.NSFW,
+			ScrapeStatus:      row.ScrapeStatus,
+			LocalMetadataHint: row.LocalMetadataHint,
 		}
 	}
 	return snapshot, nil

@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"strconv"
 	"strings"
 
 	"github.com/ShukeBta/MediaStationGo/internal/model"
@@ -29,47 +30,74 @@ type MediaMetadataUpdate struct {
 	NSFW         *bool    `json:"nsfw"`
 }
 
-func (s *MediaService) UpdateMetadata(ctx context.Context, id string, req MediaMetadataUpdate) (*model.Media, error) {
-	if s == nil || s.repo == nil || s.repo.DB == nil {
+func (s *MediaService) UpdateMetadata(ctx context.Context, id string, req MediaMetadataUpdate) (*model.MediaView, error) {
+	if s == nil || s.repo == nil || s.repo.DB == nil || s.repo.Metadata == nil || s.repo.MediaView == nil {
 		return nil, errors.New("media service unavailable")
 	}
 	id = strings.TrimSpace(id)
 	if id == "" {
 		return nil, errors.New("media id required")
 	}
-	if existing, err := s.repo.Media.FindByID(ctx, id); err != nil {
+	media, err := s.repo.Media.FindByID(ctx, id)
+	if err != nil {
 		return nil, err
-	} else if existing == nil {
+	}
+	if media == nil {
 		return nil, errors.New("media not found")
 	}
-	updates := map[string]any{"scrape_status": "matched"}
-	if req.Title != nil {
-		title := strings.TrimSpace(*req.Title)
-		if title == "" {
-			return nil, errors.New("title required")
+	view, err := s.repo.MediaView.FindByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if view == nil {
+		return nil, errors.New("media not found")
+	}
+
+	target, isNew, err := s.manualMetadataTarget(ctx, media, view, req)
+	if err != nil {
+		return nil, err
+	}
+	applyManualMetadataUpdate(target, req)
+	if strings.TrimSpace(target.Title) == "" {
+		return nil, errors.New("title required")
+	}
+	target.Source = "manual"
+
+	identity := target
+	if target.Kind == model.MetadataKindEpisode {
+		identity, err = s.manualEpisodeParent(ctx, target)
+		if err != nil {
+			return nil, err
 		}
-		updates["title"] = title
+		target.ParentID = &identity.ID
 	}
-	if req.OriginalName != nil {
-		updates["original_name"] = strings.TrimSpace(*req.OriginalName)
+	if isNew {
+		if target.Kind == model.MetadataKindEpisode {
+			target, err = s.repo.Metadata.UpsertEpisode(ctx, target)
+		} else {
+			target, err = s.repo.Metadata.UpsertCanonical(ctx, target, nil, "")
+		}
+	} else {
+		err = s.repo.Metadata.Update(ctx, target)
 	}
-	if req.Overview != nil {
-		updates["overview"] = strings.TrimSpace(*req.Overview)
+	if err != nil {
+		return nil, err
 	}
-	if req.PosterURL != nil {
-		updates["poster_url"] = strings.TrimSpace(*req.PosterURL)
+	if target.Kind != model.MetadataKindEpisode {
+		identity = target
 	}
-	if req.BackdropURL != nil {
-		updates["backdrop_url"] = strings.TrimSpace(*req.BackdropURL)
+	if err := s.replaceManualIdentifiers(ctx, identity, media, req, isNew); err != nil {
+		return nil, err
 	}
-	if req.Year != nil {
-		updates["year"] = clampNonNegativeInt(*req.Year)
+	if err := s.updateManualArtwork(ctx, identity.ID, model.ArtworkTypePoster, req.PosterURL, view.PosterURL); err != nil {
+		return nil, err
 	}
-	if req.ReleaseDate != nil {
-		updates["release_date"] = normalizeReleaseDate(*req.ReleaseDate)
+	if err := s.updateManualArtwork(ctx, identity.ID, model.ArtworkTypeBackdrop, req.BackdropURL, view.BackdropURL); err != nil {
+		return nil, err
 	}
-	if req.Rating != nil {
-		updates["rating"] = clampRating(*req.Rating)
+
+	updates := map[string]any{
+		"metadata_id": target.ID, "scrape_status": "matched", "scrape_error": "", "local_metadata_hint": "",
 	}
 	if req.SeasonNum != nil {
 		updates["season_num"] = clampNonNegativeInt(*req.SeasonNum)
@@ -77,35 +105,168 @@ func (s *MediaService) UpdateMetadata(ctx context.Context, id string, req MediaM
 	if req.EpisodeNum != nil {
 		updates["episode_num"] = clampNonNegativeInt(*req.EpisodeNum)
 	}
-	if req.TMDbID != nil {
-		updates["tm_db_id"] = clampNonNegativeInt(*req.TMDbID)
-	}
-	if req.BangumiID != nil {
-		updates["bangumi_id"] = clampNonNegativeInt(*req.BangumiID)
-	}
-	if req.DoubanID != nil {
-		updates["douban_id"] = strings.TrimSpace(*req.DoubanID)
-	}
-	if req.TheTVDBID != nil {
-		updates["thetvdb_id"] = strings.TrimSpace(*req.TheTVDBID)
-	}
-	if req.Languages != nil {
-		updates["languages"] = normalizeMetadataCSV(*req.Languages)
-	}
-	if req.Countries != nil {
-		updates["countries"] = normalizeMetadataCSV(*req.Countries)
-	}
-	if req.Genres != nil {
-		updates["genres"] = normalizeMetadataCSV(*req.Genres)
-	}
-	if req.NSFW != nil {
-		updates["nsfw"] = *req.NSFW
-	}
 	if err := s.repo.DB.WithContext(ctx).Model(&model.Media{}).Where("id = ?", id).Updates(updates).Error; err != nil {
 		return nil, err
 	}
+	s.repo.MediaView.ReindexMediaIDs(ctx, id)
 	s.invalidateMediaCache(ctx)
-	return s.repo.Media.FindByID(ctx, id)
+	return s.repo.MediaView.FindByID(ctx, id)
+}
+
+func (s *MediaService) manualMetadataTarget(ctx context.Context, media *model.Media, view *model.MediaView, req MediaMetadataUpdate) (*model.MetadataItem, bool, error) {
+	if strings.TrimSpace(media.MetadataID) != "" {
+		item, err := s.repo.Metadata.FindByID(ctx, media.MetadataID)
+		if err != nil || item != nil {
+			return item, false, err
+		}
+	}
+	season, episode := view.SeasonNum, view.EpisodeNum
+	if req.SeasonNum != nil {
+		season = clampNonNegativeInt(*req.SeasonNum)
+	}
+	if req.EpisodeNum != nil {
+		episode = clampNonNegativeInt(*req.EpisodeNum)
+	}
+	kind := model.MetadataKindMovie
+	if episode > 0 {
+		kind = model.MetadataKindEpisode
+	} else if lib, err := s.repo.Library.FindByID(ctx, media.LibraryID); err != nil {
+		return nil, false, err
+	} else if librarySupportsSeasons(lib) {
+		kind = model.MetadataKindSeries
+	}
+	return &model.MetadataItem{
+		Kind: kind, Title: firstNonEmpty(view.Title, media.Title), OriginalName: view.OriginalName,
+		EpisodeTitle: view.EpisodeTitle, Overview: view.Overview, Rating: view.Rating,
+		Year: view.Year, ReleaseDate: view.ReleaseDate, SeasonNum: season, EpisodeNum: episode,
+		Languages: view.Languages, Countries: view.Countries, Genres: view.Genres,
+		NSFW: view.NSFW, Source: "manual",
+	}, true, nil
+}
+
+func (s *MediaService) manualEpisodeParent(ctx context.Context, episode *model.MetadataItem) (*model.MetadataItem, error) {
+	if episode.ParentID != nil && strings.TrimSpace(*episode.ParentID) != "" {
+		parent, err := s.repo.Metadata.FindByID(ctx, *episode.ParentID)
+		if err != nil {
+			return nil, err
+		}
+		if parent != nil {
+			return parent, nil
+		}
+	}
+	parent := *episode
+	parent.Base = model.Base{}
+	parent.Kind = model.MetadataKindSeries
+	parent.ParentID = nil
+	parent.SeasonNum = 0
+	parent.EpisodeNum = 0
+	parent.EpisodeTitle = ""
+	return s.repo.Metadata.UpsertCanonical(ctx, &parent, nil, "")
+}
+
+func applyManualMetadataUpdate(item *model.MetadataItem, req MediaMetadataUpdate) {
+	if req.Title != nil {
+		item.Title = strings.TrimSpace(*req.Title)
+	}
+	if req.OriginalName != nil {
+		item.OriginalName = strings.TrimSpace(*req.OriginalName)
+	}
+	if req.Overview != nil {
+		item.Overview = strings.TrimSpace(*req.Overview)
+	}
+	if req.Year != nil {
+		item.Year = clampNonNegativeInt(*req.Year)
+	}
+	if req.ReleaseDate != nil {
+		item.ReleaseDate = normalizeReleaseDate(*req.ReleaseDate)
+	}
+	if req.Rating != nil {
+		item.Rating = clampRating(*req.Rating)
+	}
+	if req.SeasonNum != nil && item.Kind == model.MetadataKindEpisode {
+		item.SeasonNum = clampNonNegativeInt(*req.SeasonNum)
+	}
+	if req.EpisodeNum != nil && item.Kind == model.MetadataKindEpisode {
+		item.EpisodeNum = clampNonNegativeInt(*req.EpisodeNum)
+	}
+	if req.Languages != nil {
+		item.Languages = normalizeMetadataCSV(*req.Languages)
+	}
+	if req.Countries != nil {
+		item.Countries = normalizeMetadataCSV(*req.Countries)
+	}
+	if req.Genres != nil {
+		item.Genres = normalizeMetadataCSV(*req.Genres)
+	}
+	if req.NSFW != nil {
+		item.NSFW = *req.NSFW
+	}
+}
+
+func (s *MediaService) replaceManualIdentifiers(ctx context.Context, item *model.MetadataItem, media *model.Media, req MediaMetadataUpdate, isNew bool) error {
+	values := []struct {
+		provider string
+		value    string
+		set      bool
+	}{
+		{provider: "tmdb", value: manualIntIdentifier(req.TMDbID, media.TMDbID), set: req.TMDbID != nil || (isNew && media.TMDbID > 0)},
+		{provider: "bangumi", value: manualIntIdentifier(req.BangumiID, media.BangumiID), set: req.BangumiID != nil || (isNew && media.BangumiID > 0)},
+		{provider: "douban", value: manualStringIdentifier(req.DoubanID, media.DoubanID), set: req.DoubanID != nil || (isNew && strings.TrimSpace(media.DoubanID) != "")},
+		{provider: "thetvdb", value: manualStringIdentifier(req.TheTVDBID, media.TheTVDBID), set: req.TheTVDBID != nil || (isNew && strings.TrimSpace(media.TheTVDBID) != "")},
+	}
+	for _, entry := range values {
+		if entry.set {
+			if err := s.repo.Metadata.ReplaceIdentifier(ctx, item.ID, entry.provider, item.Kind, entry.value); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func manualIntIdentifier(value *int, fallback int) string {
+	if value != nil {
+		if n := clampNonNegativeInt(*value); n > 0 {
+			return strconv.Itoa(n)
+		}
+		return ""
+	}
+	if fallback > 0 {
+		return strconv.Itoa(fallback)
+	}
+	return ""
+}
+
+func manualStringIdentifier(value *string, fallback string) string {
+	if value != nil {
+		return strings.TrimSpace(*value)
+	}
+	return strings.TrimSpace(fallback)
+}
+
+func (s *MediaService) updateManualArtwork(ctx context.Context, metadataID, artworkType string, requested *string, current string) error {
+	if requested == nil {
+		return nil
+	}
+	value := strings.TrimSpace(*requested)
+	if value == strings.TrimSpace(current) {
+		return nil
+	}
+	if value == "" {
+		return s.repo.Artwork.DeleteSelection(ctx, metadataID, artworkType)
+	}
+	if s.artwork == nil {
+		return errors.New("artwork store unavailable")
+	}
+	if isHTTPish(value) {
+		_, err := s.artwork.ImportRemote(ctx, metadataID, artworkType, "manual", value)
+		return err
+	}
+	if strings.HasPrefix(value, "/api/artwork/") {
+		return errors.New("managed artwork URL cannot be reassigned")
+	}
+	_, err := s.artwork.ImportLocal(ctx, metadataID, artworkType, value)
+	return err
 }
 
 func normalizeMetadataCSV(value string) string {

@@ -85,7 +85,6 @@ export function LibraryPage() {
     handleRepairRescrape,
     handleSeriesSmartScrape,
     handleSeriesProbe,
-    handleSeriesNFO,
     handleSeriesOrganize,
     handleSeriesSoftDelete,
     movieActions,
@@ -154,7 +153,6 @@ export function LibraryPage() {
         onManualScrape={() => setManualSeriesScrapeOpen(true)}
         onMetadataEdit={() => setSeriesMetadataEditOpen(true)}
         onProbe={handleSeriesProbe}
-        onNFO={handleSeriesNFO}
         onOrganize={handleSeriesOrganize}
         onSoftDelete={handleSeriesSoftDelete}
         onSeasonChange={setSelectedSeason}

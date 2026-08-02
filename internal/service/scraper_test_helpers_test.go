@@ -1,9 +1,13 @@
 package service
 
 import (
+	"bytes"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -14,6 +18,7 @@ import (
 	"github.com/ShukeBta/MediaStationGo/internal/config"
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 	"github.com/ShukeBta/MediaStationGo/internal/repository"
+	"github.com/ShukeBta/MediaStationGo/internal/testutil"
 )
 
 func firstIndexFunc(values []string, match func(string) bool) int {
@@ -27,8 +32,14 @@ func firstIndexFunc(values []string, match func(string) bool) int {
 
 func newTestScraper(t *testing.T) (*ScraperService, *repository.Container, func()) {
 	t.Helper()
+	imageData := testArtworkPNG(t, 4, 3)
 
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/images/") {
+			w.Header().Set("Content-Type", "image/png")
+			_, _ = w.Write(imageData)
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
 		switch {
 		case strings.HasPrefix(r.URL.Path, "/search/tv"):
@@ -75,12 +86,19 @@ func newTestScraper(t *testing.T) (*ScraperService, *repository.Container, func(
 		}
 	}))
 
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
+	dsn := "file:" + url.QueryEscape(t.Name()) + "?mode=memory&cache=shared"
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	if err != nil {
 		upstream.Close()
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&model.Library{}, &model.Series{}, &model.Media{}); err != nil {
+	sqlDB, err := db.DB()
+	if err != nil {
+		upstream.Close()
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = sqlDB.Close() })
+	if err := migrateScraperTestModels(t, db); err != nil {
 		upstream.Close()
 		t.Fatal(err)
 	}
@@ -88,12 +106,38 @@ func newTestScraper(t *testing.T) (*ScraperService, *repository.Container, func(
 	cfg := &config.Config{}
 	cfg.Secrets.TMDbAPIKey = "test-key"
 	cfg.Secrets.TMDbAPIProxy = upstream.URL
-	cfg.Secrets.TMDbImageProxy = upstream.URL + "/images"
+	cfg.Secrets.TMDbImageProxy = "https://images.example.test/images"
+	cfg.App.DataDir = t.TempDir()
+	cfg.Cache.CacheDir = filepath.Join(cfg.App.DataDir, "cache")
 	log := zap.NewNop()
 	tmdb := NewTMDbProvider(cfg, log, nil)
 	scraper := NewScraperService(cfg, log, repos, tmdb, nil, nil, nil, NewHub(log))
+	images := NewImageProxy(cfg, log)
+	images.client = &http.Client{Transport: imageRoundTripFunc(func(*http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"image/png"}},
+			Body:       io.NopCloser(bytes.NewReader(imageData)),
+		}, nil
+	})}
+	scraper.SetImageProxy(images)
+	scraper.SetArtworkStore(NewArtworkStore(cfg, repos.Artwork, images))
 
 	return scraper, repos, upstream.Close
+}
+
+func migrateScraperTestModels(t *testing.T, db *gorm.DB, extra ...any) error {
+	t.Helper()
+	models := []any{
+		&model.Library{}, &model.MetadataItem{}, &model.MetadataIdentifier{},
+		&model.ArtworkAsset{}, &model.MetadataArtwork{}, &model.Media{},
+		&model.Favorite{}, &model.PlaybackHistory{}, &model.PlaylistItem{},
+	}
+	models = append(models, extra...)
+	if err := db.AutoMigrate(models...); err != nil {
+		return err
+	}
+	return testutil.RegisterMediaMetadataFixtures(db)
 }
 
 func firstQuery(values []string) string {

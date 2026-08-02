@@ -52,7 +52,8 @@ func (s *ScannerService) ingestCloudFile(ctx context.Context, lib *model.Library
 		}
 	}
 	if localMeta != nil {
-		applyLocalMetadata(m, localMeta)
+		applyLocalScanHints(m, localMeta)
+		m.LocalMetadataHint = encodeLocalMetadataHint(localMeta)
 		s.queueCloudArtworkPrefetch(localMeta.PosterURL)
 		s.queueCloudArtworkPrefetch(localMeta.BackdropURL)
 	}
@@ -69,6 +70,9 @@ func (s *ScannerService) ingestCloudFile(ctx context.Context, lib *model.Library
 		if strings.TrimSpace(hints.TheTVDBID) != "" && strings.TrimSpace(m.TheTVDBID) == "" {
 			m.TheTVDBID = strings.TrimSpace(hints.TheTVDBID)
 		}
+	}
+	if m.EpisodeNum > 0 {
+		m.SeriesID = localSeriesIdentity(m)
 	}
 	isNewMedia := false
 	needsTrackProbe := true

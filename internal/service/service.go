@@ -35,6 +35,7 @@ type Container struct {
 	Discover         *DiscoverService
 	Playback         *PlaybackService
 	ImageProxy       *ImageProxy
+	Artwork          *ArtworkStore
 	Watcher          *WatcherService
 	Downloads        *DownloadService
 	Subscription     *SubscriptionService
@@ -42,7 +43,6 @@ type Container struct {
 	Stats            *StatsService
 	Profile          *ProfileService
 	Audit            *AuditService
-	NFO              *NFOService
 	AI               *AIService
 	APIConfig        *APIConfigService
 	Crypto           *CryptoService

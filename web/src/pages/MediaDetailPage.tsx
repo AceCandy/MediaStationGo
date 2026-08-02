@@ -39,7 +39,6 @@ export function MediaDetailPage() {
         onMetadataEdit={() => detail.setMetadataEditOpen(true)}
         onOrganize={() => detail.setOrganizeOpen(true)}
         onProbe={detail.reprobe}
-        onExportNFO={detail.exportNFO}
         onSoftDelete={detail.softDelete}
       />
       <MediaDetailDialogs

@@ -108,7 +108,7 @@ func TestEmbyItemsFiltersFavorites(t *testing.T) {
 	if err := svc.repo.DB.Create(&normal).Error; err != nil {
 		t.Fatalf("create normal media: %v", err)
 	}
-	if err := svc.repo.DB.Create(&model.Favorite{UserID: viewer.ID, MediaID: favorite.ID}).Error; err != nil {
+	if err := svc.repo.DB.Create(&model.Favorite{UserID: viewer.ID, MetadataID: favorite.MetadataID, MediaID: favorite.ID}).Error; err != nil {
 		t.Fatalf("create favorite: %v", err)
 	}
 
@@ -125,7 +125,7 @@ func TestEmbyItemsFiltersFavorites(t *testing.T) {
 		t.Fatalf("expected one favorite, got %#v", out)
 	}
 	items := out["Items"].([]map[string]any)
-	if len(items) != 1 || items[0]["Id"] != favorite.ID {
+	if len(items) != 1 || items[0]["Id"] != favorite.MetadataID {
 		t.Fatalf("favorite filter returned wrong items: %#v", items)
 	}
 	userData := items[0]["UserData"].(map[string]any)
@@ -154,6 +154,7 @@ func TestEmbyItemsFiltersResumableForHome(t *testing.T) {
 	}
 	if err := svc.repo.DB.Create(&model.PlaybackHistory{
 		UserID:     viewer.ID,
+		MetadataID: resumable.MetadataID,
 		MediaID:    resumable.ID,
 		PositionMs: 30_000,
 		DurationMs: 120_000,
@@ -179,7 +180,7 @@ func TestEmbyItemsFiltersResumableForHome(t *testing.T) {
 		t.Fatalf("expected one resumable item, got %#v", out)
 	}
 	items := out["Items"].([]map[string]any)
-	if len(items) != 1 || items[0]["Id"] != resumable.ID {
+	if len(items) != 1 || items[0]["Id"] != resumable.MetadataID {
 		t.Fatalf("resumable filter returned wrong items: %#v", items)
 	}
 }
@@ -301,6 +302,44 @@ func TestEmbyPlaybackInfoRespectsDirectPlayOnly(t *testing.T) {
 	}
 	if src["SupportsDirectPlay"] != true || src["DirectStreamUrl"] != "/Videos/m-1/stream.mkv" {
 		t.Fatalf("direct-only must still allow direct play: %#v", src)
+	}
+}
+
+func TestEmbyPlaybackInfoUsesSharedMetadataForNameAndVisibility(t *testing.T) {
+	svc := newTestEmbyService(t)
+	viewer := &model.User{Username: "viewer", Role: "user", Tier: "free", IsActive: true, HideAdult: true}
+	if err := svc.repo.User.Create(t.Context(), viewer); err != nil {
+		t.Fatalf("create viewer: %v", err)
+	}
+	lib := model.Library{Name: "电影", Path: `/media/movies`, Type: "movie", Enabled: true}
+	if err := svc.repo.Library.Create(t.Context(), &lib); err != nil {
+		t.Fatalf("create library: %v", err)
+	}
+	metadata := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{
+		Kind: model.MetadataKindMovie, Title: "共享标题", NSFW: true, Source: "tmdb",
+	})
+	media := model.Media{
+		Base: model.Base{ID: "shared-playback"}, LibraryID: lib.ID, MetadataID: metadata.ID,
+		Title: "扫描文件名", Path: `/media/movies/shared.mkv`,
+	}
+	if err := svc.repo.DB.Create(&media).Error; err != nil {
+		t.Fatalf("create media: %v", err)
+	}
+
+	pb, err := svc.PlaybackInfo(t.Context(), media.ID, "")
+	if err != nil {
+		t.Fatalf("playback info: %v", err)
+	}
+	source := pb["MediaSources"].([]map[string]any)[0]
+	if source["Name"] != metadata.Title {
+		t.Fatalf("media source name = %#v, want shared title %q", source["Name"], metadata.Title)
+	}
+	hidden, err := svc.PlaybackInfo(t.Context(), media.ID, viewer.ID)
+	if err != nil {
+		t.Fatalf("hidden playback info: %v", err)
+	}
+	if hidden != nil {
+		t.Fatalf("shared NSFW metadata must hide playback, got %#v", hidden)
 	}
 }
 

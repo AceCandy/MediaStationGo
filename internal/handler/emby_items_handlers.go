@@ -70,6 +70,17 @@ func embyItemsHandler(svc *service.Container) gin.HandlerFunc {
 	}
 }
 
+func embySearchHintsHandler(svc *service.Container) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		out, err := svc.Emby.SearchHints(c.Request.Context(), parseEmbyItemsParams(c))
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, out)
+	}
+}
+
 func embyItemByIDHandler(svc *service.Container) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id := c.Param("id")

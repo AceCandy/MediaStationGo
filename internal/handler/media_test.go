@@ -21,6 +21,7 @@ import (
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 	"github.com/ShukeBta/MediaStationGo/internal/repository"
 	"github.com/ShukeBta/MediaStationGo/internal/service"
+	"github.com/ShukeBta/MediaStationGo/internal/testutil"
 )
 
 func TestListLibrariesHidesAdultDirectoriesUnlessAdminRequestsAll(t *testing.T) {
@@ -29,7 +30,7 @@ func TestListLibrariesHidesAdultDirectoriesUnlessAdminRequestsAll(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&model.User{}, &model.Library{}, &model.Media{}, &model.Setting{}, &model.PlayProfile{}); err != nil {
+	if err := migrateMediaHandlerTestDB(db, &model.User{}, &model.Library{}, &model.Media{}, &model.Setting{}, &model.PlayProfile{}); err != nil {
 		t.Fatal(err)
 	}
 	repos := repository.New(db)
@@ -73,7 +74,7 @@ func TestListLibrariesIncludeHiddenNormalizesCloudDisplayNames(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&model.Library{}, &model.Media{}); err != nil {
+	if err := migrateMediaHandlerTestDB(db, &model.Library{}, &model.Media{}); err != nil {
 		t.Fatal(err)
 	}
 	repos := repository.New(db)
@@ -101,7 +102,7 @@ func TestListLibrariesShowsAutoCategoryLibraries(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&model.Library{}, &model.Media{}); err != nil {
+	if err := migrateMediaHandlerTestDB(db, &model.Library{}, &model.Media{}); err != nil {
 		t.Fatal(err)
 	}
 	repos := repository.New(db)
@@ -153,7 +154,7 @@ func TestGetLibraryAllowsEmptyLibrary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&model.User{}, &model.Library{}, &model.Media{}, &model.Setting{}, &model.PlayProfile{}); err != nil {
+	if err := migrateMediaHandlerTestDB(db, &model.User{}, &model.Library{}, &model.Media{}, &model.Setting{}, &model.PlayProfile{}); err != nil {
 		t.Fatal(err)
 	}
 	repos := repository.New(db)
@@ -182,7 +183,7 @@ func TestListMediaGroupsMultipleVersionsByDefault(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&model.User{}, &model.Library{}, &model.Media{}, &model.Setting{}, &model.PlayProfile{}); err != nil {
+	if err := migrateMediaHandlerTestDB(db, &model.User{}, &model.Library{}, &model.Media{}, &model.Setting{}, &model.PlayProfile{}); err != nil {
 		t.Fatal(err)
 	}
 	repos := repository.New(db)
@@ -190,26 +191,32 @@ func TestListMediaGroupsMultipleVersionsByDefault(t *testing.T) {
 	if err := repos.Library.Create(t.Context(), &lib); err != nil {
 		t.Fatal(err)
 	}
+	metadata := model.MetadataItem{Kind: model.MetadataKindMovie, Title: "流浪地球", Year: 2019, Source: "local"}
+	if err := repos.DB.Create(&metadata).Error; err != nil {
+		t.Fatal(err)
+	}
 	if err := repos.DB.Create(&[]model.Media{
 		{
-			Base:      model.Base{ID: "movie-1080", CreatedAt: time.Now().Add(-time.Minute)},
-			LibraryID: lib.ID,
-			Title:     "流浪地球",
-			Path:      "/media/movies/The.Wandering.Earth.2019.1080p.mkv",
-			Year:      2019,
-			Width:     1920,
-			Height:    1080,
-			SizeBytes: 100,
+			Base:       model.Base{ID: "movie-1080", CreatedAt: time.Now().Add(-time.Minute)},
+			LibraryID:  lib.ID,
+			MetadataID: metadata.ID,
+			Title:      "流浪地球",
+			Path:       "/media/movies/The.Wandering.Earth.2019.1080p.mkv",
+			Year:       2019,
+			Width:      1920,
+			Height:     1080,
+			SizeBytes:  100,
 		},
 		{
-			Base:      model.Base{ID: "movie-2160", CreatedAt: time.Now()},
-			LibraryID: lib.ID,
-			Title:     "流浪地球",
-			Path:      "cloud://openlist/Movies/The.Wandering.Earth.2019.2160p.mkv",
-			Year:      2019,
-			Width:     3840,
-			Height:    2160,
-			SizeBytes: 200,
+			Base:       model.Base{ID: "movie-2160", CreatedAt: time.Now()},
+			LibraryID:  lib.ID,
+			MetadataID: metadata.ID,
+			Title:      "流浪地球",
+			Path:       "cloud://openlist/Movies/The.Wandering.Earth.2019.2160p.mkv",
+			Year:       2019,
+			Width:      3840,
+			Height:     2160,
+			SizeBytes:  200,
 		},
 	}).Error; err != nil {
 		t.Fatal(err)
@@ -245,7 +252,7 @@ func TestListLibrarySeriesDoesNotTruncateLargeEpisodeLibraries(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&model.User{}, &model.Library{}, &model.Media{}, &model.Setting{}, &model.PlayProfile{}); err != nil {
+	if err := migrateMediaHandlerTestDB(db, &model.User{}, &model.Library{}, &model.Media{}, &model.Setting{}, &model.PlayProfile{}); err != nil {
 		t.Fatal(err)
 	}
 	repos := repository.New(db)
@@ -299,7 +306,7 @@ func TestScanLibraryHandlerSurfacesCloudQueueStartFailure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&model.Library{}, &model.LibraryRoot{}, &model.Media{}, &model.Setting{}); err != nil {
+	if err := migrateMediaHandlerTestDB(db, &model.Library{}, &model.LibraryRoot{}, &model.Media{}, &model.Setting{}); err != nil {
 		t.Fatal(err)
 	}
 	repos := repository.New(db)
@@ -398,8 +405,8 @@ type seriesListResponse struct {
 }
 
 type seriesEpisodesResponse struct {
-	Items []model.Media `json:"items"`
-	Total int64         `json:"total"`
+	Items []model.MediaView `json:"items"`
+	Total int64             `json:"total"`
 }
 
 func requestMediaList(t *testing.T, svc *service.Container, path, libraryID string) mediaListResponse {
@@ -468,7 +475,7 @@ func TestEmptyLibraryListsReturnEmptyArraysNotNull(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&model.Library{}, &model.Media{}); err != nil {
+	if err := migrateMediaHandlerTestDB(db, &model.Library{}, &model.Media{}); err != nil {
 		t.Fatal(err)
 	}
 	repos := repository.New(db)
@@ -512,4 +519,15 @@ func TestEmptyLibraryListsReturnEmptyArraysNotNull(t *testing.T) {
 			t.Fatalf("%s: expected items:[] for empty library, got %s", tc.name, body)
 		}
 	}
+}
+
+func migrateMediaHandlerTestDB(db *gorm.DB, models ...any) error {
+	models = append(models,
+		&model.MetadataItem{}, &model.MetadataIdentifier{},
+		&model.ArtworkAsset{}, &model.MetadataArtwork{},
+	)
+	if err := db.AutoMigrate(models...); err != nil {
+		return err
+	}
+	return testutil.RegisterMediaMetadataFixtures(db)
 }

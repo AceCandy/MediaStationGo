@@ -13,8 +13,8 @@ import (
 )
 
 type mediaListCacheValue struct {
-	Items []model.Media `json:"items"`
-	Total int64         `json:"total"`
+	Items []model.MediaView `json:"items"`
+	Total int64             `json:"total"`
 }
 
 func (s *MediaService) mediaListCacheKey(libraryID string, libraryIDs []string, page, pageSize int, filter repository.MediaQueryFilter) string {

@@ -28,6 +28,10 @@ func registerLowercaseEmbyUserRoutes(auth *gin.RouterGroup, svc *service.Contain
 func registerLowercaseEmbyItemRoutes(auth *gin.RouterGroup, svc *service.Container) {
 	auth.GET("/items", embyItemsHandler(svc))
 	auth.GET("/users/:userId/items", embyItemsHandler(svc))
+	auth.GET("/searchhints", embySearchHintsHandler(svc))
+	auth.GET("/search/hints", embySearchHintsHandler(svc))
+	auth.GET("/users/:userId/searchhints", embySearchHintsHandler(svc))
+	auth.GET("/users/:userId/search/hints", embySearchHintsHandler(svc))
 	auth.GET("/items/counts", embyItemsCountsHandler(svc))
 	auth.GET("/users/:userId/items/counts", embyItemsCountsHandler(svc))
 	auth.GET("/items/latest", embyLatestItemsHandler(svc))

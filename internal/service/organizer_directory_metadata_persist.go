@@ -26,9 +26,22 @@ func (o *OrganizerService) persistOrganizedSourceMetadata(ctx context.Context, p
 	if fileID, ok := fileIdentity(plan.Target.Path); ok {
 		media.FileID = fileID
 	}
-	if err := o.repo.Media.Upsert(ctx, media); err != nil && o.log != nil {
-		o.log.Warn("persist organized metadata failed",
-			zap.String("path", plan.Target.Path),
+	if err := o.repo.Media.Upsert(ctx, media); err != nil {
+		if o.log != nil {
+			o.log.Warn("persist organized metadata failed",
+				zap.String("path", plan.Target.Path),
+				zap.String("library_id", libraryID),
+				zap.Error(err))
+		}
+		return
+	}
+	lib, err := o.repo.Library.FindByID(ctx, libraryID)
+	if err != nil || lib == nil {
+		return
+	}
+	if err := o.persistOrganizerMatch(ctx, media, lib, plan.MetadataMatch); err != nil && o.log != nil {
+		o.log.Warn("persist organized shared metadata failed",
+			zap.String("media_id", media.ID),
 			zap.String("library_id", libraryID),
 			zap.Error(err))
 	}
@@ -39,12 +52,7 @@ func organizedSourceMediaFromPlan(libraryID string, plan organizeSourceFilePlan)
 	media := &model.Media{
 		LibraryID:    libraryID,
 		Title:        strings.TrimSpace(firstNonEmpty(match.Title, plan.Identity.ParsedTitle, plan.Identity.Title)),
-		OriginalName: strings.TrimSpace(match.OriginalName),
-		Overview:     match.Overview,
-		PosterURL:    match.PosterURL,
-		BackdropURL:  match.BackdropURL,
 		Year:         firstPositiveInt(match.Year, plan.Identity.Year),
-		Rating:       match.Rating,
 		Path:         plan.Target.Path,
 		Container:    strings.TrimPrefix(strings.ToLower(filepath.Ext(plan.Target.Path)), "."),
 		SeasonNum:    plan.Identity.Season,
@@ -53,15 +61,14 @@ func organizedSourceMediaFromPlan(libraryID string, plan organizeSourceFilePlan)
 		BangumiID:    match.BangumiID,
 		DoubanID:     strings.TrimSpace(match.DoubanID),
 		TheTVDBID:    strings.TrimSpace(match.TheTVDBID),
-		Genres:       strings.Join(match.Genres, ","),
-		Countries:    strings.Join(match.Countries, ","),
-		Languages:    strings.Join(match.Languages, ","),
-		NSFW:         match.NSFW,
-		ScrapeStatus: "matched",
+		ScrapeStatus: "pending",
 	}
 	if normalizeOrganizeMediaType(plan.Layout.MediaType) == "movie" {
 		media.SeasonNum = 0
 		media.EpisodeNum = 0
+	}
+	if media.EpisodeNum > 0 {
+		media.SeriesID = localSeriesIdentity(media)
 	}
 	return media
 }

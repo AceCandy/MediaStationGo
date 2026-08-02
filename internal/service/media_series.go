@@ -27,7 +27,7 @@ func (s *MediaService) ListLibrarySeriesCards(ctx context.Context, libraryID str
 	if err != nil {
 		return nil, 0, err
 	}
-	cards := groupMediaSeriesCards(rows)
+	cards := groupMediaSeriesCards(mediaViewsAsMedia(rows))
 	return cards, int64(len(cards)), nil
 }
 
@@ -41,7 +41,7 @@ func (s *MediaService) ListRecentSeriesCards(ctx context.Context, limit int, vis
 	if err != nil {
 		return nil, err
 	}
-	cards := groupMediaSeriesCards(rows)
+	cards := groupMediaSeriesCards(mediaViewsAsMedia(rows))
 	if len(cards) == 0 {
 		return []SeriesCard{}, nil
 	}
@@ -51,15 +51,16 @@ func (s *MediaService) ListRecentSeriesCards(ctx context.Context, limit int, vis
 	return cards, nil
 }
 
-func (s *MediaService) ListLibrarySeriesEpisodes(ctx context.Context, libraryID, key string, visibility MediaVisibility) ([]model.Media, error) {
+func (s *MediaService) ListLibrarySeriesEpisodes(ctx context.Context, libraryID, key string, visibility MediaVisibility) ([]model.MediaView, error) {
 	rows, _, err := s.listAllMediaVisible(ctx, libraryID, visibility)
 	if err != nil {
 		return nil, err
 	}
-	out := make([]model.Media, 0)
-	resolver := newMediaSeriesKeyResolver(rows)
-	for _, row := range rows {
-		if resolver.key(row) == key {
+	out := make([]model.MediaView, 0)
+	groupingRows := mediaViewsAsMedia(rows)
+	resolver := newMediaSeriesKeyResolver(groupingRows)
+	for i, row := range rows {
+		if resolver.key(groupingRows[i]) == key {
 			out = append(out, row)
 		}
 	}
@@ -75,9 +76,9 @@ func (s *MediaService) ListLibrarySeriesEpisodes(ctx context.Context, libraryID,
 	return out, nil
 }
 
-func (s *MediaService) listAllMediaVisible(ctx context.Context, libraryID string, visibility MediaVisibility) ([]model.Media, int64, error) {
+func (s *MediaService) listAllMediaVisible(ctx context.Context, libraryID string, visibility MediaVisibility) ([]model.MediaView, int64, error) {
 	const pageSize = 2000
-	var all []model.Media
+	var all []model.MediaView
 	var total int64
 	for page := 1; ; page++ {
 		rows, n, err := s.ListMediaVisible(ctx, libraryID, page, pageSize, visibility)
@@ -86,7 +87,7 @@ func (s *MediaService) listAllMediaVisible(ctx context.Context, libraryID string
 		}
 		if page == 1 {
 			total = n
-			all = make([]model.Media, 0, minInt64(n, pageSize))
+			all = make([]model.MediaView, 0, minInt64(n, pageSize))
 		}
 		all = append(all, rows...)
 		if int64(len(all)) >= n || len(rows) < pageSize {

@@ -10,22 +10,22 @@ import (
 
 func (e *EmbyService) ItemCounts(ctx context.Context, userID string) (map[string]any, error) {
 	base := func() *gorm.DB {
-		q := e.repo.DB.WithContext(ctx).Model(&model.Media{}).Where("deleted_at IS NULL")
+		q := e.repo.DB.WithContext(ctx).Model(&model.Media{}).Where("media.deleted_at IS NULL")
 		return e.applyUserMediaVisibility(ctx, q, userID)
 	}
 
 	var itemCount int64
-	if err := base().Count(&itemCount).Error; err != nil {
+	if err := base().Distinct("media.metadata_id").Count(&itemCount).Error; err != nil {
 		return nil, err
 	}
 
 	var movieCount int64
-	if err := e.filterMovieItems(ctx, base()).Count(&movieCount).Error; err != nil {
+	if err := e.filterMovieItems(ctx, base()).Distinct("media.metadata_id").Count(&movieCount).Error; err != nil {
 		return nil, err
 	}
 
 	var episodeCount int64
-	if err := e.filterEpisodeItems(ctx, base()).Count(&episodeCount).Error; err != nil {
+	if err := e.filterEpisodeItems(ctx, base()).Distinct("media.metadata_id").Count(&episodeCount).Error; err != nil {
 		return nil, err
 	}
 
@@ -44,17 +44,21 @@ func (e *EmbyService) ItemCounts(ctx context.Context, userID string) (map[string
 
 func (e *EmbyService) countVisibleSeries(ctx context.Context, userID string) (int, error) {
 	q := e.repo.DB.WithContext(ctx).Model(&model.Media{}).
-		Select("id, library_id, series_id, title, original_name, path, season_num, episode_num").
-		Where("season_num > 0 OR episode_num > 0")
+		Select("media.id, media.library_id, media.metadata_id, media.scan_title, media.path, media.season_num, media.episode_num").
+		Where("media.season_num > 0 OR media.episode_num > 0")
 	q = e.applyUserMediaVisibility(ctx, q, userID)
 
 	seen := map[string]struct{}{}
 	var rows []model.Media
 	err := q.Order("media.id asc").FindInBatches(&rows, 1000, func(tx *gorm.DB, batch int) error {
-		for i := range rows {
-			key := strings.TrimSpace(rows[i].SeriesID)
+		views, err := e.mediaViewsForRows(ctx, rows, userID)
+		if err != nil {
+			return err
+		}
+		for i := range views {
+			key := strings.TrimSpace(views[i].SeriesID)
 			if key == "" {
-				key = stableEmbyID(embyVirtualSeriesPrefix, rows[i].LibraryID, e.seriesNameForMedia(&rows[i]))
+				continue
 			}
 			seen[key] = struct{}{}
 		}

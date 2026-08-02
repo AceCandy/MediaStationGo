@@ -45,6 +45,12 @@ func embyItemImageHandler(svc *service.Container) gin.HandlerFunc {
 			serveCloudResolvedLink(svc, c, typ, ref)
 			return
 		}
+		if assetID := strings.TrimPrefix(raw, "/api/artwork/"); assetID != raw && assetID != "" {
+			if svc.Artwork == nil || svc.Artwork.Serve(ctx, c.Writer, req, assetID) != nil {
+				embyServePlaceholderImage(c)
+			}
+			return
+		}
 		if svc.ImageProxy == nil {
 			embyServePlaceholderImage(c)
 			return

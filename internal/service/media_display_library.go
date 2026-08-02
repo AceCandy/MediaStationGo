@@ -44,6 +44,44 @@ func (s *MediaService) attachLibraryMetadata(ctx context.Context, items []model.
 	}
 }
 
+func (s *MediaService) attachLibraryMetadataViews(ctx context.Context, items []model.MediaView) {
+	rows := mediaViewsAsMedia(items)
+	s.attachLibraryMetadata(ctx, rows)
+	for i := range items {
+		items[i].LibraryName = rows[i].LibraryName
+		items[i].LibraryPath = rows[i].LibraryPath
+		items[i].DisplayLibraryID = rows[i].DisplayLibraryID
+		items[i].DisplayLibraryName = rows[i].DisplayLibraryName
+		items[i].DisplayLibraryPath = rows[i].DisplayLibraryPath
+	}
+}
+
+func mediaViewsAsMedia(items []model.MediaView) []model.Media {
+	rows := make([]model.Media, len(items))
+	for i := range items {
+		rows[i] = items[i].Media
+		rows[i].SeriesID = items[i].SeriesID
+		rows[i].Title = items[i].Title
+		rows[i].OriginalName = items[i].OriginalName
+		rows[i].EpisodeTitle = items[i].EpisodeTitle
+		rows[i].PosterURL = items[i].PosterURL
+		rows[i].BackdropURL = items[i].BackdropURL
+		rows[i].Overview = items[i].Overview
+		rows[i].Rating = items[i].Rating
+		rows[i].Year = items[i].Year
+		rows[i].ReleaseDate = items[i].ReleaseDate
+		rows[i].TMDbID = items[i].TMDbID
+		rows[i].BangumiID = items[i].BangumiID
+		rows[i].DoubanID = items[i].DoubanID
+		rows[i].TheTVDBID = items[i].TheTVDBID
+		rows[i].Languages = items[i].Languages
+		rows[i].Countries = items[i].Countries
+		rows[i].Genres = items[i].Genres
+		rows[i].NSFW = items[i].NSFW
+	}
+	return rows
+}
+
 type mediaDisplayLibraryResolver struct {
 	byID              map[string]model.Library
 	displayByID       map[string]model.Library

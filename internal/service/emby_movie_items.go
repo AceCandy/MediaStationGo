@@ -38,15 +38,16 @@ func (e *EmbyService) movieLibraryItems(ctx context.Context, p ItemsParams) (map
 	libIDs := e.mergedLibraryIDs(ctx, p.ParentID)
 	apply := func(q *gorm.DB) *gorm.DB {
 		q = e.applyUserMediaVisibility(ctx, q, p.UserID)
-		q = q.Where("library_id IN ?", libIDs)
+		q = q.Where("media.library_id IN ?", libIDs)
 		if p.SearchTerm != "" {
-			q = q.Where("title LIKE ? OR original_name LIKE ?", "%"+p.SearchTerm+"%", "%"+p.SearchTerm+"%")
+			q = q.Where("COALESCE(emby_metadata.title, media.scan_title) LIKE ? OR COALESCE(emby_metadata.original_name, '') LIKE ?", "%"+p.SearchTerm+"%", "%"+p.SearchTerm+"%")
 		}
 		if containsEmbyFilter(p.Filters, "IsFavorite") {
 			if strings.TrimSpace(p.UserID) == "" {
 				return nil
 			}
-			q = q.Joins("JOIN favorites ON favorites.media_id = media.id AND favorites.user_id = ? AND favorites.deleted_at IS NULL", p.UserID)
+			q = q.Joins("LEFT JOIN metadata_items AS favorite_season ON favorite_season.id = emby_metadata.parent_id AND emby_metadata.kind = 'episode' AND favorite_season.kind = 'season' AND favorite_season.deleted_at IS NULL").
+				Joins("JOIN favorites ON favorites.user_id = ? AND favorites.deleted_at IS NULL AND favorites.metadata_id = CASE WHEN emby_metadata.kind = 'episode' THEN favorite_season.parent_id ELSE media.metadata_id END", p.UserID)
 		}
 		return q
 	}
@@ -59,13 +60,18 @@ func (e *EmbyService) movieLibraryItems(ctx context.Context, p ItemsParams) (map
 		if epQ == nil {
 			return map[string]any{"Items": []map[string]any{}, "TotalRecordCount": 0, "StartIndex": p.StartIndex}, nil
 		}
-		epQ = epQ.Where("(season_num > 0 OR episode_num > 0) AND ("+clause+")", args...).
+		epQ = epQ.Where("(media.season_num > 0 OR media.episode_num > 0) AND ("+clause+")", args...).
 			Order(mediaReleaseOrderSQL(true)).Limit(embySeriesGroupingLimit)
 		if err := epQ.Find(&episodicRows).Error; err != nil {
 			return nil, err
 		}
 	}
-	seriesGroups := e.seriesGroupsFromMedia(episodicRows)
+	var err error
+	displayRows, err := e.mediaViewsForRows(ctx, episodicRows, p.UserID)
+	if err != nil {
+		return nil, err
+	}
+	seriesGroups := e.seriesGroupsFromMedia(displayRows)
 
 	// 真正的电影 -> Movie 项(剔除剧集结构行)。
 	movieQ := apply(e.repo.DB.WithContext(ctx).Model(&model.Media{}))
@@ -90,7 +96,7 @@ func (e *EmbyService) movieLibraryItems(ctx context.Context, p ItemsParams) (map
 	}
 	entries := make([]entry, 0, len(seriesGroups)+len(movieItems))
 	for _, g := range seriesGroups {
-		entries = append(entries, entry{sortAt: embySeriesReleaseSortTime(g), payload: e.seriesPayload(g)})
+		entries = append(entries, entry{sortAt: embySeriesReleaseSortTime(g), payload: e.seriesPayload(ctx, g, p.UserID)})
 	}
 	for _, item := range movieItems {
 		entries = append(entries, entry{sortAt: embyPayloadReleaseSortTime(item), payload: item})

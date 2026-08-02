@@ -88,11 +88,6 @@ func (o *OrganizerService) OrganizeMediaWithOptions(ctx context.Context, mediaID
 
 	// Skip if already in place.
 	if req.media.Path == dst.path {
-		if !req.dryRun {
-			if err := o.persistOrganizedMediaMetadata(ctx, req.media); err != nil {
-				return "", err
-			}
-		}
 		return dst.path, nil
 	}
 	if req.dryRun {
@@ -115,11 +110,6 @@ func (o *OrganizerService) SyncMediaPathWithMetadata(ctx context.Context, mediaI
 		return "", err
 	}
 	if samePath(req.media.Path, dst.path) {
-		if !req.dryRun {
-			if err := o.persistOrganizedMediaMetadata(ctx, req.media); err != nil {
-				return "", err
-			}
-		}
 		return dst.path, nil
 	}
 	if req.dryRun {

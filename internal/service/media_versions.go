@@ -105,6 +105,9 @@ func groupMediaVersions(items []model.Media) []MediaItem {
 }
 
 func mediaVersionGroupKey(m model.Media) string {
+	if strings.TrimSpace(m.MetadataID) != "" {
+		return "metadata:" + strings.TrimSpace(m.MetadataID)
+	}
 	if m.SeasonNum > 0 || m.EpisodeNum > 0 {
 		switch {
 		case m.TMDbID > 0:

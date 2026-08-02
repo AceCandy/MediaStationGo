@@ -24,50 +24,31 @@ func (e *EmbyService) Item(ctx context.Context, mediaID, userID string) (map[str
 		}
 		return e.libraryAsView(&libs[0]), nil
 	}
-	if strings.HasPrefix(mediaID, embyVirtualSeasonPrefix) {
-		if season, ok, err := e.findSeasonGroup(ctx, mediaID, userID); err != nil {
-			return nil, err
-		} else if ok {
-			return e.seasonPayload(season), nil
-		}
-	}
-	if strings.HasPrefix(mediaID, embyVirtualSeriesPrefix) {
-		if series, ok, err := e.findSeriesGroup(ctx, mediaID, userID); err != nil {
-			return nil, err
-		} else if ok {
-			return e.seriesPayload(series), nil
-		}
-	}
-	m, err := e.repo.Media.FindByID(ctx, mediaID)
+	m, err := e.mediaViewForItemID(ctx, mediaID, userID)
 	if err != nil {
 		return nil, err
 	}
 	if m == nil {
+		if season, ok, err := e.findSeasonGroup(ctx, mediaID, userID); err != nil {
+			return nil, err
+		} else if ok {
+			return e.seasonPayload(ctx, season, userID), nil
+		}
 		if series, ok, err := e.findSeriesGroup(ctx, mediaID, userID); err != nil {
 			return nil, err
 		} else if ok {
-			return e.seriesPayload(series), nil
+			return e.seriesPayload(ctx, series, userID), nil
 		}
 		return nil, nil
 	}
-	if !UserDefaultMediaVisibility(ctx, e.repo, userID).Allows(m) {
+	if !e.mediaVisibility(ctx, userID).AllowsView(m) {
 		return nil, nil
 	}
-	fav := false
-	pos := int64(0)
-	if userID != "" {
-		var f model.Favorite
-		ferr := e.repo.DB.WithContext(ctx).Where("user_id = ? AND media_id = ?", userID, mediaID).First(&f).Error
-		if ferr == nil {
-			fav = true
-		}
-		var h model.PlaybackHistory
-		herr := e.repo.DB.WithContext(ctx).Where("user_id = ? AND media_id = ?", userID, mediaID).
-			Order("watched_at desc").First(&h).Error
-		if herr == nil {
-			pos = h.PositionMs
-		}
+	target, err := e.itemTarget(ctx, mediaID, userID)
+	if err != nil {
+		return nil, err
 	}
+	fav, pos := e.userDataForTarget(ctx, userID, target)
 	return e.itemPayload(ctx, m, fav, pos), nil
 }
 
@@ -81,7 +62,7 @@ func (e *EmbyService) LatestItems(ctx context.Context, userID, parentID string, 
 	if e.cache != nil && e.cache.GetJSON(ctx, cacheKey, &cached) {
 		return cached.Items, nil
 	}
-	q := e.repo.DB.WithContext(ctx).Model(&model.Media{}).Where("deleted_at IS NULL")
+	q := e.repo.DB.WithContext(ctx).Model(&model.Media{}).Where("media.deleted_at IS NULL")
 	q = e.applyUserMediaVisibility(ctx, q, userID)
 	if parentID != "" {
 		if episodic, err := e.libraryIsEpisodic(ctx, parentID); err == nil && episodic {
@@ -91,7 +72,7 @@ func (e *EmbyService) LatestItems(ctx context.Context, userID, parentID string, 
 			}
 			return out, err
 		}
-		q = q.Where("library_id IN ?", e.mergedLibraryIDs(ctx, parentID))
+		q = q.Where("media.library_id IN ?", e.mergedLibraryIDs(ctx, parentID))
 	}
 	rowLimit := limit * 4
 	if rowLimit < 100 {
@@ -104,14 +85,15 @@ func (e *EmbyService) LatestItems(ctx context.Context, userID, parentID string, 
 	if err := q.Order(mediaReleaseOrderSQL(true)).Limit(rowLimit).Find(&rows).Error; err != nil {
 		return nil, err
 	}
-	rows = e.collapseMediaVersionRows(ctx, rows)
-	if len(rows) > limit {
-		rows = rows[:limit]
-	}
-	out, err := e.payloadsForMedia(ctx, rows, userID)
+	views, err := e.mediaViewsForRows(ctx, rows, userID)
 	if err != nil {
 		return nil, err
 	}
+	views = e.collapseMediaVersionViews(ctx, views)
+	if len(views) > limit {
+		views = views[:limit]
+	}
+	out := e.payloadsForViews(ctx, views, userID)
 	if e.cache != nil {
 		e.cache.SetJSON(ctx, cacheKey, embyLatestCacheValue{Items: out}, time.Duration(e.mediaCacheTTLSeconds())*time.Second)
 	}
@@ -123,20 +105,24 @@ func (e *EmbyService) latestSeriesItemsForLibrary(ctx context.Context, userID, l
 		limit = 20
 	}
 	q := e.repo.DB.WithContext(ctx).Model(&model.Media{}).
-		Where("library_id IN ? AND (season_num > 0 OR episode_num > 0)", e.mergedLibraryIDs(ctx, libraryID))
+		Where("media.library_id IN ? AND (media.season_num > 0 OR media.episode_num > 0)", e.mergedLibraryIDs(ctx, libraryID))
 	q = e.applyUserMediaVisibility(ctx, q, userID)
 	var rows []model.Media
 	if err := q.Order(mediaReleaseOrderSQL(true)).Limit(embySeriesGroupingLimit).Find(&rows).Error; err != nil {
 		return nil, err
 	}
-	groups := e.seriesGroupsFromMedia(rows)
+	displayRows, err := e.mediaViewsForRows(ctx, rows, userID)
+	if err != nil {
+		return nil, err
+	}
+	groups := e.seriesGroupsFromMedia(displayRows)
 	sortSeriesGroups(groups, ItemsParams{SortBy: "premieredate", SortOrder: "Descending"})
 	if len(groups) > limit {
 		groups = groups[:limit]
 	}
 	items := make([]map[string]any, 0, len(groups))
 	for _, group := range groups {
-		items = append(items, e.seriesPayload(group))
+		items = append(items, e.seriesPayload(ctx, group, userID))
 	}
 	return items, nil
 }
@@ -147,52 +133,47 @@ func (e *EmbyService) ResumeItems(ctx context.Context, userID string, limit int)
 		limit = 20
 	}
 	var hist []model.PlaybackHistory
-	if err := e.repo.DB.WithContext(ctx).
-		Where("user_id = ? AND completed = ? AND position_ms > 0", userID, false).
-		Order("watched_at desc").Limit(limit).Find(&hist).Error; err != nil {
+	q := e.repo.DB.WithContext(ctx).
+		Table("playback_histories").
+		Joins("JOIN media ON media.metadata_id = playback_histories.metadata_id AND media.deleted_at IS NULL")
+	q = e.applyUserMediaVisibility(ctx, q, userID)
+	if err := q.Select("DISTINCT playback_histories.*").
+		Where("playback_histories.user_id = ? AND playback_histories.completed = ? AND playback_histories.position_ms > 0", userID, false).
+		Order("playback_histories.watched_at desc").Limit(limit).Scan(&hist).Error; err != nil {
 		return nil, err
 	}
 	if len(hist) == 0 {
 		return map[string]any{"Items": []any{}, "TotalRecordCount": 0}, nil
 	}
-	ids := make([]string, 0, len(hist))
-	posByID := map[string]int64{}
-	for _, h := range hist {
-		ids = append(ids, h.MediaID)
-		posByID[h.MediaID] = h.PositionMs
-	}
-	var medias []model.Media
-	q := e.repo.DB.WithContext(ctx).Where("id IN ?", ids)
-	q = e.applyUserMediaVisibility(ctx, q, userID)
-	if err := q.Find(&medias).Error; err != nil {
-		return nil, err
-	}
-	byID := map[string]*model.Media{}
-	for i := range medias {
-		byID[medias[i].ID] = &medias[i]
-	}
 	items := make([]map[string]any, 0, len(hist))
 	for _, h := range hist {
-		if m, ok := byID[h.MediaID]; ok {
-			items = append(items, e.itemPayload(ctx, m, false, posByID[h.MediaID]))
+		m, err := e.mediaViewForItemID(ctx, h.MetadataID, userID)
+		if err != nil {
+			return nil, err
+		}
+		if m != nil {
+			items = append(items, e.itemPayload(ctx, m, false, h.PositionMs))
 		}
 	}
 	return map[string]any{"Items": items, "TotalRecordCount": len(items)}, nil
 }
 
-func (e *EmbyService) itemPayload(ctx context.Context, m *model.Media, fav bool, posMs int64) map[string]any {
+func (e *EmbyService) itemPayload(ctx context.Context, m *model.MediaView, fav bool, posMs int64) map[string]any {
 	itemType := "Movie"
 	name := m.Title
 	parentID := m.LibraryID
 	seriesID := m.SeriesID
 	seriesName := ""
-	seasonID := ""
-	if e.mediaShouldBeEpisode(ctx, m) {
+	seasonItemID := ""
+	if e.mediaShouldBeEpisode(ctx, &m.Media) {
 		itemType = "Episode"
 		seriesID = e.seriesIDForMedia(m)
-		seriesName = e.seriesNameForMedia(m)
-		seasonID = e.seasonIDForMedia(m)
-		parentID = seasonID
+		seriesName = strings.TrimSpace(m.Title)
+		if seriesName == "" {
+			seriesName = e.seriesNameForMedia(m)
+		}
+		seasonItemID = m.SeasonID
+		parentID = seasonItemID
 		episodeTitle := strings.TrimSpace(m.EpisodeTitle)
 		if episodeTitle != "" {
 			name = episodeTitle
@@ -204,11 +185,12 @@ func (e *EmbyService) itemPayload(ctx context.Context, m *model.Media, fav bool,
 	backdropTags := []string{}
 	primaryArtwork := e.mediaPrimaryArtwork(ctx, m)
 	backdropArtwork := e.mediaBackdropArtwork(ctx, m)
+	itemID := embyItemID(m)
 	if primaryArtwork != "" {
-		imageTags["Primary"] = m.ID
+		imageTags["Primary"] = itemID
 	}
 	if backdropArtwork != "" {
-		backdropTags = append(backdropTags, m.ID+"-bd")
+		backdropTags = append(backdropTags, itemID+"-bd")
 	}
 
 	runTimeTicks := int64(m.DurationSec) * 10_000_000
@@ -220,7 +202,7 @@ func (e *EmbyService) itemPayload(ctx context.Context, m *model.Media, fav bool,
 	}
 
 	item := map[string]any{
-		"Id":                m.ID,
+		"Id":                itemID,
 		"Name":              name,
 		"OriginalTitle":     m.OriginalName,
 		"ServerId":          embyServerID,
@@ -239,7 +221,7 @@ func (e *EmbyService) itemPayload(ctx context.Context, m *model.Media, fav bool,
 		"DateCreated":       m.CreatedAt,
 		"Path":              m.Path,
 		"ParentId":          parentID,
-		"SeasonId":          seasonID,
+		"SeasonId":          seasonItemID,
 		"SeasonName":        seasonName(m.SeasonNum),
 		"SeriesId":          seriesID,
 		"SeriesName":        seriesName,
@@ -257,7 +239,7 @@ func (e *EmbyService) itemPayload(ctx context.Context, m *model.Media, fav bool,
 			"Played":                played,
 			"PlayedPercentage":      pct,
 		},
-		"MediaSources": e.mediaSourcesForItem(ctx, m, true, false),
+		"MediaSources": e.mediaSourcesForView(ctx, m, true, false),
 	}
 	if premiered, ok := embyPremiereDate(m.ReleaseDate); ok {
 		item["PremiereDate"] = premiered

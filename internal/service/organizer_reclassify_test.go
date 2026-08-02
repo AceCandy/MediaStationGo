@@ -59,17 +59,17 @@ func TestOrganizeDirectoryReclassifiesExistingWrongCategoryMedia(t *testing.T) {
 
 	wrongPath := filepath.Join(euusLib.Path, "The First Jasmine", "Season 01", "The First Jasmine - S01E01.mkv")
 	writeOrgFile(t, wrongPath, "existing")
+	metadata := createServiceTestEpisodeMetadata(t, repos.DB,
+		model.MetadataItem{Kind: model.MetadataKindSeries, Title: "莫离", OriginalName: "The First Jasmine", Languages: "zh", Countries: "CN", Genres: "剧情", Source: "tmdb"},
+		model.MetadataItem{Kind: model.MetadataKindEpisode, Title: "莫离", OriginalName: "The First Jasmine", SeasonNum: 1, EpisodeNum: 1, Languages: "zh", Countries: "CN", Genres: "剧情", Source: "tmdb"},
+		model.MetadataIdentifier{Provider: "tmdb", EntityKind: model.MetadataKindSeries, ExternalID: "292696"})
 	if err := repos.DB.Create(&model.Media{
 		LibraryID:    euusLib.ID,
-		Title:        "莫离",
-		OriginalName: "The First Jasmine",
+		MetadataID:   metadata.ID,
+		Title:        "The First Jasmine",
 		Path:         wrongPath,
 		SeasonNum:    1,
 		EpisodeNum:   1,
-		TMDbID:       292696,
-		Languages:    "zh",
-		Countries:    "CN",
-		Genres:       "剧情",
 		ScrapeStatus: "matched",
 	}).Error; err != nil {
 		t.Fatal(err)
@@ -129,30 +129,30 @@ func TestReclassifyMisclassifiedMediaFiltersByMediaID(t *testing.T) {
 	writeOrgFile(t, movingPath, "episode")
 	writeOrgFile(t, stayingPath, "episode")
 
+	movingMetadata := createServiceTestEpisodeMetadata(t, repos.DB,
+		model.MetadataItem{Kind: model.MetadataKindSeries, Title: "太行谣", OriginalName: "Motherhood Of Taihang", Languages: "zh", Countries: "CN", Genres: "剧情", Source: "tmdb"},
+		model.MetadataItem{Kind: model.MetadataKindEpisode, Title: "太行谣", OriginalName: "Motherhood Of Taihang", SeasonNum: 1, EpisodeNum: 1, Languages: "zh", Countries: "CN", Genres: "剧情", Source: "tmdb"},
+		model.MetadataIdentifier{Provider: "tmdb", EntityKind: model.MetadataKindSeries, ExternalID: "323682"})
 	moving := model.Media{
 		LibraryID:    euusLib.ID,
-		Title:        "太行谣",
-		OriginalName: "Motherhood Of Taihang",
+		MetadataID:   movingMetadata.ID,
+		Title:        "Motherhood Of Taihang",
 		Path:         movingPath,
 		SeasonNum:    1,
 		EpisodeNum:   1,
-		TMDbID:       323682,
-		Languages:    "zh",
-		Countries:    "CN",
-		Genres:       "剧情",
 		ScrapeStatus: "matched",
 	}
+	stayingMetadata := createServiceTestEpisodeMetadata(t, repos.DB,
+		model.MetadataItem{Kind: model.MetadataKindSeries, Title: "莫离", OriginalName: "The First Jasmine", Languages: "zh", Countries: "CN", Genres: "剧情", Source: "tmdb"},
+		model.MetadataItem{Kind: model.MetadataKindEpisode, Title: "莫离", OriginalName: "The First Jasmine", SeasonNum: 1, EpisodeNum: 1, Languages: "zh", Countries: "CN", Genres: "剧情", Source: "tmdb"},
+		model.MetadataIdentifier{Provider: "tmdb", EntityKind: model.MetadataKindSeries, ExternalID: "292696"})
 	staying := model.Media{
 		LibraryID:    euusLib.ID,
-		Title:        "莫离",
-		OriginalName: "The First Jasmine",
+		MetadataID:   stayingMetadata.ID,
+		Title:        "The First Jasmine",
 		Path:         stayingPath,
 		SeasonNum:    1,
 		EpisodeNum:   1,
-		TMDbID:       292696,
-		Languages:    "zh",
-		Countries:    "CN",
-		Genres:       "剧情",
 		ScrapeStatus: "matched",
 	}
 	if err := repos.DB.Create(&moving).Error; err != nil {
@@ -254,10 +254,11 @@ func TestReclassifyMisclassifiedMediaRetriesNoMatchMetadata(t *testing.T) {
 	if _, err := os.Stat(want); err != nil {
 		t.Fatalf("reclassified media missing at %q: %v; items=%#v", want, err, res.Items)
 	}
-	var got model.Media
-	if err := repos.DB.First(&got, "path = ?", want).Error; err != nil {
+	var stored model.Media
+	if err := repos.DB.First(&stored, "path = ?", want).Error; err != nil {
 		t.Fatal(err)
 	}
+	got := serviceTestMediaView(t, repos, stored.ID)
 	if got.LibraryID != domesticLib.ID || got.Title != "莫离" || got.TMDbID != 292696 || got.Countries != "CN" || got.Languages != "zh" || got.ScrapeStatus != "matched" {
 		t.Fatalf("row after metadata retry = %#v, want domestic matched metadata", got)
 	}
@@ -281,18 +282,16 @@ func TestReclassifyMisclassifiedMediaHonorsManualMovieHint(t *testing.T) {
 
 	wrongPath := filepath.Join(euusLib.Path, "Dune", "Season 01", "Dune - S01E202.mkv")
 	writeOrgFile(t, wrongPath, "movie")
+	metadata := createServiceTestMetadata(t, repos.DB, model.MetadataItem{
+		Kind: model.MetadataKindMovie, Title: "Dune", OriginalName: "Dune", Languages: "en", Countries: "US", Genres: "科幻,冒险", Year: 2021, Source: "tmdb",
+	}, model.MetadataIdentifier{Provider: "tmdb", EntityKind: model.MetadataKindMovie, ExternalID: "438631"})
 	media := model.Media{
 		LibraryID:    euusLib.ID,
+		MetadataID:   metadata.ID,
 		Title:        "Dune",
-		OriginalName: "Dune",
 		Path:         wrongPath,
 		SeasonNum:    1,
 		EpisodeNum:   202,
-		TMDbID:       438631,
-		Languages:    "en",
-		Countries:    "US",
-		Genres:       "科幻,冒险",
-		Year:         2021,
 		ScrapeStatus: "matched",
 	}
 	if err := repos.DB.Create(&media).Error; err != nil {

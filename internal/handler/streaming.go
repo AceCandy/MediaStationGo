@@ -14,7 +14,7 @@ import (
 
 func hlsPlaylistHandler(svc *service.Container) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		m, err := svc.Media.GetMedia(c.Request.Context(), c.Param("id"))
+		m, err := svc.Media.GetRawMedia(c.Request.Context(), c.Param("id"))
 		if err != nil || m == nil || !mediaVisibleForRequest(c, svc, m) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
 			return
@@ -44,7 +44,7 @@ func hlsPlaylistHandler(svc *service.Container) gin.HandlerFunc {
 
 func hlsSegmentHandler(svc *service.Container) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		m, err := svc.Media.GetMedia(c.Request.Context(), c.Param("id"))
+		m, err := svc.Media.GetRawMedia(c.Request.Context(), c.Param("id"))
 		if err != nil || m == nil || !mediaVisibleForRequest(c, svc, m) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
 			return
@@ -182,14 +182,10 @@ func scrapeOneHandler(svc *service.Container) gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		reclassified := reclassifyMediaAfterScrape(c.Request.Context(), svc, m.ID)
 		refreshed, _ := svc.Repo.Media.FindByID(c.Request.Context(), m.ID)
 		metrics := map[string]int64{"processed": 1}
 		if refreshed != nil && refreshed.ScrapeStatus == "matched" {
 			metrics["matched"] = 1
-		}
-		if reclassified > 0 {
-			metrics["reclassified"] = int64(reclassified)
 		}
 		finishHTTPTask(task, nil, "completed", "手动刮削媒体结束", metrics, nil)
 		c.JSON(http.StatusOK, refreshed)
@@ -216,17 +212,10 @@ func scrapeLibraryHandler(svc *service.Container) gin.HandlerFunc {
 		// pushes per-item progress on the "scrape" topic.
 		go func(libID string, task *service.TaskHandle, options service.ScrapeOptions) {
 			result, err := svc.Scraper.EnrichLibraryDetailedWithOptions(context.Background(), libID, options)
-			reclassified := 0
-			if result.Processed > 0 {
-				reclassified = reclassifyLibraryAfterScrape(context.Background(), svc, libID)
-			}
 			metrics := map[string]int64{
 				"matched":    int64(result.Matched),
 				"processed":  int64(result.Processed),
 				"candidates": int64(result.Candidates),
-			}
-			if reclassified > 0 {
-				metrics["reclassified"] = int64(reclassified)
 			}
 			if result.Failed > 0 {
 				metrics["errors"] = int64(result.Failed)

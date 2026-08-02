@@ -10,6 +10,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/ShukeBta/MediaStationGo/internal/model"
+	"github.com/ShukeBta/MediaStationGo/internal/repository"
 )
 
 // MediaCategoryReclassifyOptions controls the metadata-based category audit.
@@ -64,26 +65,35 @@ func (o *OrganizerService) ReclassifyMisclassifiedMedia(ctx context.Context, opt
 	}
 	var rows []model.Media
 	err = query.FindInBatches(&rows, 500, func(_ *gorm.DB, _ int) error {
+		ids := make([]string, 0, len(rows))
 		for i := range rows {
-			lib, ok := libByID[rows[i].LibraryID]
+			ids = append(ids, rows[i].ID)
+		}
+		views, err := o.repo.MediaView.FindByIDs(ctx, ids, repository.MediaQueryFilter{IncludeNSFW: true})
+		if err != nil {
+			return err
+		}
+		displayRows := mediaViewsAsMedia(views)
+		for i := range displayRows {
+			lib, ok := libByID[displayRows[i].LibraryID]
 			if !ok {
 				continue
 			}
-			changed, err := o.reclassifyScannedMedia(ctx, rows[i], lib, typeHints[rows[i].ID], OrganizeOptions{}, opts.DryRun, res)
+			changed, err := o.reclassifyScannedMedia(ctx, displayRows[i], lib, typeHints[displayRows[i].ID], OrganizeOptions{}, opts.DryRun, res)
 			if err != nil {
-				res.Errors = append(res.Errors, fmt.Sprintf("%s: %s", rows[i].Title, err.Error()))
+				res.Errors = append(res.Errors, fmt.Sprintf("%s: %s", displayRows[i].Title, err.Error()))
 				if o.log != nil {
 					o.log.Warn("metadata category reclassify failed",
-						zap.String("media", rows[i].ID),
-						zap.String("path", rows[i].Path),
+						zap.String("media", displayRows[i].ID),
+						zap.String("path", displayRows[i].Path),
 						zap.Error(err))
 				}
 				continue
 			}
 			if changed && o.log != nil {
 				o.log.Debug("metadata category reclassify applied",
-					zap.String("media", rows[i].ID),
-					zap.String("title", rows[i].Title))
+					zap.String("media", displayRows[i].ID),
+					zap.String("title", displayRows[i].Title))
 			}
 		}
 		return nil
@@ -138,6 +148,11 @@ func (o *OrganizerService) reclassifyScannedMedia(ctx context.Context, media mod
 		}
 		media = mediaWithReclassifyMatch(media, metadataMatch)
 		metadataRefreshed = true
+		if !dryRun {
+			if err := o.persistOrganizerMatch(ctx, &media, &lib, metadataMatch); err != nil {
+				return false, err
+			}
+		}
 	}
 	if !explicitType {
 		if matchType := normalizeOrganizeMediaType(metadataMatchMediaType(metadataMatch)); matchType != "" {
@@ -186,9 +201,6 @@ func (o *OrganizerService) reclassifyScannedMedia(ctx context.Context, media mod
 	}
 	if strings.EqualFold(targetLibrary.ID, lib.ID) && pathWithin(media.Path, targetLibrary.Path) {
 		if metadataRefreshed && !dryRun {
-			if err := o.persistOrganizedMediaMetadata(ctx, &media); err != nil {
-				return false, err
-			}
 			if o.log != nil {
 				o.log.Info("media metadata refreshed without reclassify",
 					zap.String("media", media.ID),
@@ -258,13 +270,11 @@ func (o *OrganizerService) reclassifyScannedMediaLibraryOnly(ctx context.Context
 		res.Reclassified++
 		return true, nil
 	}
-	updates := map[string]any{"library_id": targetLib.ID, "series_id": ""}
+	updates := map[string]any{"library_id": targetLib.ID, "series_hint": ""}
 	if normalizeOrganizeMediaType(mediaType) == "movie" {
 		updates["season_num"] = 0
 		updates["episode_num"] = 0
-		updates["episode_title"] = ""
 	}
-	applyReclassifyMatchUpdates(updates, metadataMatch)
 	if err := o.repo.DB.WithContext(ctx).
 		Model(&model.Media{}).
 		Where("id = ?", media.ID).

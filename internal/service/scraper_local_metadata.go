@@ -181,49 +181,25 @@ func isCloudMediaPath(value string) bool {
 func (s *ScraperService) applyLocalMetadataMatch(ctx context.Context, m *model.Media, local *LocalMetadata) error {
 	next := *m
 	applyLocalMetadata(&next, local)
-	status := "matched"
-	if !localMetadataMarksMatched(local) {
-		status = "pending"
+	lib, err := s.repo.Library.FindByID(ctx, m.LibraryID)
+	if err != nil {
+		return err
+	}
+	persisted, err := s.persistLocalMetadata(ctx, m, lib, local)
+	if err != nil {
+		return s.markScrapeError(ctx, m.ID, err)
 	}
 	updates := map[string]any{
-		"title":         next.Title,
-		"scrape_status": status,
+		"metadata_id":         persisted.Target.ID,
+		"scrape_status":       "matched",
+		"scrape_error":        "",
+		"local_metadata_hint": "",
 	}
-	if next.OriginalName != "" {
-		updates["original_name"] = next.OriginalName
+	if m.SeasonNum > 0 || m.EpisodeNum > 0 {
+		updates["season_num"] = m.SeasonNum
 	}
-	if next.EpisodeTitle != "" {
-		updates["episode_title"] = next.EpisodeTitle
-	}
-	if next.Overview != "" {
-		updates["overview"] = next.Overview
-	}
-	if next.PosterURL != "" {
-		updates["poster_url"] = next.PosterURL
-	}
-	if next.BackdropURL != "" {
-		updates["backdrop_url"] = next.BackdropURL
-	}
-	if next.Rating > 0 {
-		updates["rating"] = next.Rating
-	}
-	if next.Year > 0 {
-		updates["year"] = next.Year
-	}
-	if next.ReleaseDate != "" {
-		updates["release_date"] = next.ReleaseDate
-	}
-	if next.TMDbID > 0 {
-		updates["tm_db_id"] = next.TMDbID
-	}
-	if next.BangumiID > 0 {
-		updates["bangumi_id"] = next.BangumiID
-	}
-	if next.DoubanID != "" {
-		updates["douban_id"] = next.DoubanID
-	}
-	if next.TheTVDBID != "" {
-		updates["thetvdb_id"] = next.TheTVDBID
+	if m.EpisodeNum > 0 {
+		updates["episode_num"] = m.EpisodeNum
 	}
 	if next.SeasonNum > 0 || next.EpisodeNum > 0 {
 		updates["season_num"] = next.SeasonNum
@@ -231,29 +207,16 @@ func (s *ScraperService) applyLocalMetadataMatch(ctx context.Context, m *model.M
 	if next.EpisodeNum > 0 {
 		updates["episode_num"] = next.EpisodeNum
 	}
-	if next.Genres != "" {
-		updates["genres"] = next.Genres
-	}
-	if next.Countries != "" {
-		updates["countries"] = next.Countries
-	}
-	if next.Languages != "" {
-		updates["languages"] = next.Languages
-	}
-	if next.NSFW {
-		updates["nsfw"] = true
-	}
 	if err := s.repo.DB.WithContext(ctx).Model(&model.Media{}).
 		Where("id = ?", m.ID).Updates(updates).Error; err != nil {
 		return err
 	}
+	s.repo.MediaView.ReindexMediaIDs(ctx, m.ID)
 	s.invalidateMediaCache(ctx)
 	s.hub.Publish("scrape", map[string]any{
-		"media_id":  m.ID,
-		"title":     next.Title,
-		"tmdb_id":   next.TMDbID,
-		"douban_id": next.DoubanID,
-		"source":    "local_nfo",
+		"media_id": m.ID,
+		"title":    persisted.Target.Title,
+		"source":   "local_nfo",
 	})
 	return nil
 }

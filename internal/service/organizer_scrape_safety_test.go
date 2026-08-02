@@ -158,13 +158,17 @@ func TestOrganizeDirectoryDedupsByExternalIDBeforeRename(t *testing.T) {
 	if err := repos.Library.Create(t.Context(), &lib); err != nil {
 		t.Fatal(err)
 	}
+	metadata := createServiceTestEpisodeMetadata(t, repos.DB,
+		model.MetadataItem{Kind: model.MetadataKindSeries, Title: "间谍过家家", Source: "tmdb"},
+		model.MetadataItem{Kind: model.MetadataKindEpisode, Title: "间谍过家家", SeasonNum: 1, EpisodeNum: 1, Source: "tmdb"},
+		model.MetadataIdentifier{Provider: "tmdb", EntityKind: model.MetadataKindSeries, ExternalID: "12345"})
 	if err := repos.DB.Create(&model.Media{
 		LibraryID:    lib.ID,
+		MetadataID:   metadata.ID,
 		Title:        "旧错误名",
 		Path:         existingPath,
 		SeasonNum:    1,
 		EpisodeNum:   1,
-		TMDbID:       12345,
 		ScrapeStatus: "matched",
 	}).Error; err != nil {
 		t.Fatal(err)

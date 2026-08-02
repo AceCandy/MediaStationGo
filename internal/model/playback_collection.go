@@ -2,22 +2,26 @@ package model
 
 import "time"
 
-// PlaybackHistory 记录当前播放位置以支持续播。
+// PlaybackHistory 记录作品级播放位置；MediaID 保留最后使用的具体版本。
 type PlaybackHistory struct {
 	Base
-	UserID     string    `gorm:"index;size:36;not null" json:"user_id"`
-	MediaID    string    `gorm:"index;size:128;not null" json:"media_id"`
-	PositionMs int64     `json:"position_ms"`
-	DurationMs int64     `json:"duration_ms"`
-	WatchedAt  time.Time `json:"watched_at"`
-	Completed  bool      `json:"completed"`
+	UserID     string        `gorm:"index;size:36;not null" json:"user_id"`
+	MetadataID string        `gorm:"index;size:36;not null;check:chk_playback_history_metadata_id,metadata_id <> ''" json:"metadata_id"`
+	MediaID    string        `gorm:"index;size:128;not null" json:"media_id"`
+	PositionMs int64         `json:"position_ms"`
+	DurationMs int64         `json:"duration_ms"`
+	WatchedAt  time.Time     `json:"watched_at"`
+	Completed  bool          `json:"completed"`
+	Metadata   *MetadataItem `gorm:"foreignKey:MetadataID;references:ID;constraint:OnUpdate:CASCADE,OnDelete:RESTRICT" json:"-"`
 }
 
-// Favorite 将媒体项标记为给定用户的收藏。
+// Favorite 将共享元数据项标记为用户收藏；MediaID 保留首选播放版本。
 type Favorite struct {
 	Base
-	UserID  string `gorm:"index;size:36;not null;uniqueIndex:uniq_user_media" json:"user_id"`
-	MediaID string `gorm:"index;size:128;not null;uniqueIndex:uniq_user_media" json:"media_id"`
+	UserID     string        `gorm:"index;size:36;not null" json:"user_id"`
+	MetadataID string        `gorm:"index;size:36;not null;check:chk_favorite_metadata_id,metadata_id <> ''" json:"metadata_id"`
+	MediaID    string        `gorm:"index;size:128;not null" json:"media_id"`
+	Metadata   *MetadataItem `gorm:"foreignKey:MetadataID;references:ID;constraint:OnUpdate:CASCADE,OnDelete:RESTRICT" json:"-"`
 }
 
 // Playlist 是用户策划的、有序的媒体列表。
@@ -28,12 +32,14 @@ type Playlist struct {
 	IsPublic bool   `gorm:"default:false" json:"is_public"`
 }
 
-// PlaylistItem 是 Playlist 和 Media 的连接表，带有排序。
+// PlaylistItem 是 Playlist 和作品元数据的连接表；MediaID 是首选播放版本。
 type PlaylistItem struct {
 	Base
-	PlaylistID string `gorm:"index;size:36;not null" json:"playlist_id"`
-	MediaID    string `gorm:"index;size:128;not null" json:"media_id"`
-	Position   int    `json:"position"`
+	PlaylistID string        `gorm:"index;size:36;not null" json:"playlist_id"`
+	MetadataID string        `gorm:"index;size:36;not null;check:chk_playlist_item_metadata_id,metadata_id <> ''" json:"metadata_id"`
+	MediaID    string        `gorm:"index;size:128;not null" json:"media_id"`
+	Position   int           `json:"position"`
+	Metadata   *MetadataItem `gorm:"foreignKey:MetadataID;references:ID;constraint:OnUpdate:CASCADE,OnDelete:RESTRICT" json:"-"`
 }
 
 // PlayProfile lets one user define multiple "viewing personas" with

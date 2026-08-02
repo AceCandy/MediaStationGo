@@ -217,6 +217,45 @@ func TestScanLibraryReadsLocalSTRMTarget(t *testing.T) {
 	}
 }
 
+func TestScanLibraryReadsTMDbHintFromMovieParent(t *testing.T) {
+	sc, repos := newScannerTestEnv(t)
+	root := t.TempDir()
+	lib := model.Library{Name: "Movies", Path: root, Type: "movie", Enabled: true}
+	if err := repos.Library.Create(t.Context(), &lib); err != nil {
+		t.Fatal(err)
+	}
+	movieDir := filepath.Join(root, "Snow White (1938) [tmdbid=408]")
+	if err := os.MkdirAll(movieDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	strmPath := filepath.Join(movieDir, "Snow White (1938).strm")
+	if err := os.WriteFile(strmPath, []byte("https://cdn.example.com/movie.mkv\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := sc.ScanLibrary(t.Context(), lib.ID)
+	if err != nil {
+		t.Fatalf("scan: %v", err)
+	}
+	if res.Added != 1 || res.ErrorCount != 0 {
+		t.Fatalf("scan result = %#v, want one media added without errors", res)
+	}
+	var media model.Media
+	if err := repos.DB.First(&media).Error; err != nil {
+		t.Fatal(err)
+	}
+	if media.TMDbID != 408 {
+		t.Fatalf("media TMDbID = %d, want 408", media.TMDbID)
+	}
+	metadata, err := repos.Metadata.FindByIdentifier(t.Context(), "tmdb", model.MetadataKindMovie, "408")
+	if err != nil || metadata == nil {
+		t.Fatalf("find TMDb metadata: metadata=%#v err=%v", metadata, err)
+	}
+	if metadata.Source != "local" {
+		t.Fatalf("metadata source = %q, want local before provider scrape", metadata.Source)
+	}
+}
+
 func TestScanLibrarySkipsUnchangedExistingLocalMedia(t *testing.T) {
 	sc, repos := newScannerTestEnv(t)
 	root := t.TempDir()
@@ -323,8 +362,9 @@ func TestScanLibrarySkipsUnchangedLocalMetadata(t *testing.T) {
 	if err := repos.DB.First(&media, "path = ?", file).Error; err != nil {
 		t.Fatal(err)
 	}
-	if media.Title != "Local Metadata Updated" || media.ScrapeStatus != "matched" {
-		t.Fatalf("local metadata was not refreshed: title=%q status=%q", media.Title, media.ScrapeStatus)
+	local := serviceTestLocalMetadataHint(t, media)
+	if local.Title != "Local Metadata Updated" || local.TMDbID != 12345 || media.ScrapeStatus != "pending" || media.MetadataID == "" {
+		t.Fatalf("local metadata hint was not refreshed: media=%+v hint=%+v", media, local)
 	}
 }
 

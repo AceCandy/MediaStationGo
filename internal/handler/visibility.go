@@ -81,6 +81,10 @@ func mediaVisibleForRequest(c *gin.Context, svc *service.Container, media *model
 	return mediaVisibilityForRequest(c, svc).Allows(media)
 }
 
+func mediaViewVisibleForRequest(c *gin.Context, svc *service.Container, media *model.MediaView) bool {
+	return mediaVisibilityForRequest(c, svc).AllowsView(media)
+}
+
 func settingBool(c *gin.Context, svc *service.Container, key string, fallback bool) bool {
 	if svc == nil || svc.Repo == nil || svc.Repo.Setting == nil {
 		return fallback

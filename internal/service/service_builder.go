@@ -79,10 +79,10 @@ func (b *serviceContainerBuilder) initProviderServices() {
 
 func (b *serviceContainerBuilder) configureMediaSearchBackend() {
 	searchBackend := repository.NewOpenSearchMediaBackend(b.cfg.Search)
-	if searchBackend == nil || b.repos == nil || b.repos.Media == nil {
+	if searchBackend == nil || b.repos == nil || b.repos.MediaView == nil {
 		return
 	}
-	b.repos.Media.SetSearchBackend(searchBackend)
+	b.repos.MediaView.SetSearchBackend(searchBackend)
 	if b.log != nil {
 		b.log.Info("opensearch media search enabled", zap.String("index", b.cfg.Search.Index), zap.String("url", b.cfg.Search.OpenSearchURL))
 	}
@@ -95,11 +95,9 @@ func (b *serviceContainerBuilder) initContentServices() {
 	b.c.Discover = NewDiscoverService(b.log, b.c.TMDb)
 	b.c.Transcoder = NewTranscoderService(b.cfg, b.log, b.repos, b.c.WSHub)
 	b.c.Scan = NewScannerService(b.cfg, b.log, b.repos, b.c.WSHub, b.c.FFprobe, b.c.Scraper)
-	b.c.Scan.SetOrganizer(b.c.Organizer)
 	b.c.Scan.SetRuntimeCache(b.c.Cache)
 	b.c.OrganizePipeline = NewOrganizePipelineService(b.log, b.repos, b.c.Organizer, b.c.Scan, b.c.Tasks)
 	b.c.Watcher = NewWatcherService(b.log, b.repos, b.c.Scan)
-	b.c.NFO = NewNFOService(b.log, b.repos)
 	b.c.AI = NewAIService(b.cfg, b.log, b.c.APIConfig)
 	b.c.Duplicate = NewDuplicateService(b.log, b.repos, b.c.WSHub)
 	b.c.FileManager = NewFileManagerService(b.cfg, b.log, b.repos)
@@ -171,8 +169,11 @@ func (b *serviceContainerBuilder) initSiteDownloadServices() {
 func (b *serviceContainerBuilder) initImageProxy() {
 	b.c.ImageProxy = NewImageProxy(b.cfg, b.log)
 	b.c.ImageProxy.SetLibraryRootsProvider(b.libraryRoots)
+	b.c.Artwork = NewArtworkStore(b.cfg, b.repos.Artwork, b.c.ImageProxy)
+	b.c.Media.SetArtworkStore(b.c.Artwork)
 	b.c.Scan.SetImageProxy(b.c.ImageProxy)
 	b.c.Scraper.SetImageProxy(b.c.ImageProxy)
+	b.c.Scraper.SetArtworkStore(b.c.Artwork)
 	b.c.Discover.SetImageProxy(b.c.ImageProxy)
 }
 

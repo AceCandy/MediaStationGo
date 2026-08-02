@@ -513,7 +513,7 @@ func libraryNames(libs []model.Library) []string {
 	return out
 }
 
-func mediaTitles(items []model.Media) []string {
+func mediaTitles(items []model.MediaView) []string {
 	out := make([]string, 0, len(items))
 	for _, item := range items {
 		out = append(out, item.Title)
@@ -522,7 +522,7 @@ func mediaTitles(items []model.Media) []string {
 	return out
 }
 
-func mediaByTitle(items []model.Media, title string) *model.Media {
+func mediaByTitle(items []model.MediaView, title string) *model.MediaView {
 	for i := range items {
 		if items[i].Title == title {
 			return &items[i]

@@ -25,6 +25,7 @@ type ScraperService struct {
 	notify  *NotifyChannelService
 	cache   *RuntimeCacheService
 	images  *ImageProxy
+	artwork *ArtworkStore
 }
 
 // NewScraperService is the constructor.
@@ -69,6 +70,13 @@ func (s *ScraperService) SetRuntimeCache(cache *RuntimeCacheService) *ScraperSer
 func (s *ScraperService) SetImageProxy(images *ImageProxy) *ScraperService {
 	if s != nil {
 		s.images = images
+	}
+	return s
+}
+
+func (s *ScraperService) SetArtworkStore(artwork *ArtworkStore) *ScraperService {
+	if s != nil {
+		s.artwork = artwork
 	}
 	return s
 }

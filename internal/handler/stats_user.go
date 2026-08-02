@@ -4,7 +4,6 @@ package handler
 import (
 	"net/http"
 	"strconv"
-	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -26,9 +25,9 @@ func statsUserHandler(svc *service.Container) gin.HandlerFunc {
 		_ = svc.Repo.DB.Model(&model.PlaybackHistory{}).
 			Where("user_id = ?", uid).Count(&total).Error
 		c.JSON(http.StatusOK, gin.H{
-			"user_id":      uid,
-			"watched_ms":   watched,
-			"plays":        total,
+			"user_id":       uid,
+			"watched_ms":    watched,
+			"plays":         total,
 			"watched_hours": float64(watched) / 1000.0 / 3600.0,
 		})
 	}
@@ -93,16 +92,8 @@ func statsPlayHandler(svc *service.Container) gin.HandlerFunc {
 			return
 		}
 		uid, _ := c.Get(middleware.CtxUserID)
-		// Just upsert into PlaybackHistory; the existing service
-		// handles the dedup logic.
-		if err := svc.Repo.History.Upsert(c.Request.Context(), &model.PlaybackHistory{
-			UserID:     toString(uid),
-			MediaID:    req.MediaID,
-			PositionMs: req.PositionMs,
-			DurationMs: req.DurationMs,
-			WatchedAt:  time.Now(),
-			Completed:  req.Completed,
-		}); err != nil {
+		if err := svc.Playback.RecordProgressEvent(c.Request.Context(), toString(uid), req.MediaID,
+			req.PositionMs, req.DurationMs, req.Completed); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}

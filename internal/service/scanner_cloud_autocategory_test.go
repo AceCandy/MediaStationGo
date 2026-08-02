@@ -120,7 +120,7 @@ func TestScanRootCloudLibraryCreatesAutoCategoryLibraries(t *testing.T) {
 	wantLibraries := map[string]string{
 		"cloud://openlist/电视剧/欧美剧/The Show/The.Show.S01E01.mkv": byDisplayDir["电视剧/欧美剧"].ID,
 		"cloud://openlist/电影/华语电影/Movie.2024.mkv":               byDisplayDir["电影/华语电影"].ID,
-		"cloud://openlist/动漫/国漫/剑来/剑来.S01E01.mkv":             byDisplayDir["动漫/国漫"].ID,
+		"cloud://openlist/动漫/国漫/剑来/剑来.S01E01.mkv":               byDisplayDir["动漫/国漫"].ID,
 	}
 	for _, row := range rows {
 		if row.LibraryID != wantLibraries[row.Path] {

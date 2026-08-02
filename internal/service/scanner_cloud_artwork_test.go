@@ -77,14 +77,15 @@ func TestScanCloudLibraryCachesFileLevelRemoteArtwork(t *testing.T) {
 	if err := repos.DB.First(&media).Error; err != nil {
 		t.Fatal(err)
 	}
-	if media.Title != "Sidecar Movie" || media.Year != 2026 {
-		t.Fatalf("metadata not applied: %#v", media)
+	local := serviceTestLocalMetadataHint(t, media)
+	if local.Title != "Sidecar Movie" || local.Year != 2026 || local.PosterURL != "/api/img/cloud/openlist?ref=%2FMovies%2FMovie.jpg" {
+		t.Fatalf("unexpected local metadata hint: %#v", local)
 	}
-	if media.PosterURL != "/api/img/cloud/openlist?ref=%2FMovies%2FMovie.jpg" {
-		t.Fatalf("poster url = %q", media.PosterURL)
+	if media.MetadataID == "" || media.ScrapeStatus != "pending" || media.PosterURL != "" {
+		t.Fatalf("unexpected scanner metadata state: %#v", media)
 	}
 	rec := httptest.NewRecorder()
-	if !imageProxy.ServeCloudCached(rec, httptest.NewRequest(http.MethodGet, media.PosterURL, nil), "openlist:/Movies/Movie.jpg") {
+	if !imageProxy.ServeCloudCached(rec, httptest.NewRequest(http.MethodGet, local.PosterURL, nil), "openlist:/Movies/Movie.jpg") {
 		t.Fatal("file-level cloud poster should be cached locally during scan before media is exposed")
 	}
 	if got := rec.Body.Bytes(); !bytes.Equal(got, testJPEG) {
@@ -160,17 +161,15 @@ func TestScanCloudLibraryUsesArtworkReferencedByRemoteNFO(t *testing.T) {
 	if err := repos.DB.First(&media).Error; err != nil {
 		t.Fatal(err)
 	}
-	if media.Title != "NFO Custom Artwork" {
-		t.Fatalf("metadata title = %q", media.Title)
+	local := serviceTestLocalMetadataHint(t, media)
+	if local.Title != "NFO Custom Artwork" || local.PosterURL != "/api/img/cloud/openlist?ref=%2FMovies%2FArtwork.Custom.tbn" || local.BackdropURL != "/api/img/cloud/openlist?ref=%2FMovies%2FScene.Still.png" {
+		t.Fatalf("unexpected NFO artwork hint: %#v", local)
 	}
-	if media.PosterURL != "/api/img/cloud/openlist?ref=%2FMovies%2FArtwork.Custom.tbn" {
-		t.Fatalf("poster url = %q", media.PosterURL)
-	}
-	if media.BackdropURL != "/api/img/cloud/openlist?ref=%2FMovies%2FScene.Still.png" {
-		t.Fatalf("backdrop url = %q", media.BackdropURL)
+	if media.MetadataID == "" || media.ScrapeStatus != "pending" || media.PosterURL != "" || media.BackdropURL != "" {
+		t.Fatalf("unexpected scanner metadata state: %#v", media)
 	}
 	rec := httptest.NewRecorder()
-	if !imageProxy.ServeCloudCached(rec, httptest.NewRequest(http.MethodGet, media.PosterURL, nil), "openlist:/Movies/Artwork.Custom.tbn") {
+	if !imageProxy.ServeCloudCached(rec, httptest.NewRequest(http.MethodGet, local.PosterURL, nil), "openlist:/Movies/Artwork.Custom.tbn") {
 		t.Fatal("NFO-referenced cloud poster should be cached locally during scan")
 	}
 	if got := rec.Body.Bytes(); !bytes.Equal(got, testJPEG) {
@@ -253,26 +252,22 @@ func TestScanCloudLibraryReadsRemoteNFOAndArtwork(t *testing.T) {
 	if err := repos.DB.First(&media).Error; err != nil {
 		t.Fatal(err)
 	}
-	// 单集名(episode <title>「第一集」)不得写入 OriginalName(整剧原名/分组键)。
-	// tvshow.nfo 未提供 originaltitle, 故 OriginalName 应为空。
-	if media.Title != "剑来" || media.OriginalName != "" || media.Year != 2024 {
-		t.Fatalf("metadata not applied: %#v", media)
-	}
 	if media.SeasonNum != 1 || media.EpisodeNum != 1 {
 		t.Fatalf("episode numbers = %d/%d", media.SeasonNum, media.EpisodeNum)
 	}
-	if media.PosterURL != "/api/img/cloud/openlist?ref=%2FAnime%2FJianLai%2Fposter.jpg" {
-		t.Fatalf("poster url = %q", media.PosterURL)
+	local := serviceTestLocalMetadataHint(t, media)
+	if local.Title != "剑来" || local.EpisodeTitle != "第一集" || local.Year != 2024 || local.PosterURL != "/api/img/cloud/openlist?ref=%2FAnime%2FJianLai%2Fposter.jpg" {
+		t.Fatalf("unexpected episode metadata hint: %#v", local)
+	}
+	if media.MetadataID == "" || media.ScrapeStatus != "pending" || media.PosterURL != "" {
+		t.Fatalf("unexpected scanner metadata state: %#v", media)
 	}
 	rec := httptest.NewRecorder()
-	if !imageProxy.ServeCloudCached(rec, httptest.NewRequest(http.MethodGet, media.PosterURL, nil), "openlist:/Anime/JianLai/poster.jpg") {
+	if !imageProxy.ServeCloudCached(rec, httptest.NewRequest(http.MethodGet, local.PosterURL, nil), "openlist:/Anime/JianLai/poster.jpg") {
 		t.Fatal("cloud poster should be cached locally during scan before media is exposed")
 	}
 	if got := rec.Body.Bytes(); !bytes.Equal(got, testJPEG) {
 		t.Fatalf("cached poster body = %x", got)
-	}
-	if media.ScrapeStatus != "matched" {
-		t.Fatalf("scrape status = %q", media.ScrapeStatus)
 	}
 }
 
@@ -367,17 +362,15 @@ func TestScanCloudLibraryRefreshesExistingRemoteNFOAndArtwork(t *testing.T) {
 	if err := repos.DB.First(&media, "path = ?", mediaPath).Error; err != nil {
 		t.Fatal(err)
 	}
-	if media.Title != "剑来" || media.Year != 2024 || media.TMDbID != 296753 {
-		t.Fatalf("metadata not refreshed: %#v", media)
+	local := serviceTestLocalMetadataHint(t, media)
+	if local.Title != "剑来" || local.Year != 2024 || local.TMDbID != 296753 || local.PosterURL != "/api/img/cloud/openlist?ref=%2FAnime%2FJianLai%2Fposter.jpg" {
+		t.Fatalf("metadata hint not refreshed: %#v", local)
 	}
-	if media.PosterURL != "/api/img/cloud/openlist?ref=%2FAnime%2FJianLai%2Fposter.jpg" {
-		t.Fatalf("poster url = %q", media.PosterURL)
-	}
-	if media.ScrapeStatus != "matched" {
-		t.Fatalf("scrape status = %q", media.ScrapeStatus)
+	if media.MetadataID == "" || media.ScrapeStatus != "pending" || media.PosterURL != "" {
+		t.Fatalf("unexpected scanner metadata state: %#v", media)
 	}
 	rec := httptest.NewRecorder()
-	if !imageProxy.ServeCloudCached(rec, httptest.NewRequest(http.MethodGet, media.PosterURL, nil), "openlist:/Anime/JianLai/poster.jpg") {
+	if !imageProxy.ServeCloudCached(rec, httptest.NewRequest(http.MethodGet, local.PosterURL, nil), "openlist:/Anime/JianLai/poster.jpg") {
 		t.Fatal("refreshed cloud poster should be cached locally during scan")
 	}
 	if got := rec.Body.Bytes(); !bytes.Equal(got, testJPEG) {

@@ -51,13 +51,12 @@ func TestScanLibraryUsesLocalMetadata(t *testing.T) {
 	if err := db.First(&media, "path = ?", mediaPath).Error; err != nil {
 		t.Fatal(err)
 	}
-	// 单集名(本地第三集)不应写入 OriginalName(整剧原名,合集分组键)。
-	// tvshow.nfo 未提供 originaltitle, 故 OriginalName 应为空。
-	if media.Title != "本地剧名" || media.OriginalName != "" || media.SeasonNum != 2 || media.EpisodeNum != 3 || media.ScrapeStatus != "matched" {
+	if media.SeasonNum != 2 || media.EpisodeNum != 3 || media.ScrapeStatus != "pending" || media.MetadataID == "" {
 		t.Fatalf("unexpected scanned media: %+v", media)
 	}
-	if media.EpisodeTitle != "本地第三集" {
-		t.Fatalf("episode_title = %q, want 本地第三集", media.EpisodeTitle)
+	local := serviceTestLocalMetadataHint(t, media)
+	if !local.HasNFO || local.Title != "本地剧名" || local.EpisodeTitle != "本地第三集" || local.Year != 2025 {
+		t.Fatalf("unexpected local metadata hint: %+v", local)
 	}
 
 	res, err = scanner.ScanLibrary(t.Context(), lib.ID)
@@ -99,11 +98,9 @@ func TestScanLibraryDoesNotMarkArtworkOnlyAsMatched(t *testing.T) {
 	if err := db.First(&media, "path = ?", mediaPath).Error; err != nil {
 		t.Fatal(err)
 	}
-	if media.PosterURL != poster {
-		t.Fatalf("poster_url = %q, want %q", media.PosterURL, poster)
-	}
-	if media.ScrapeStatus == "matched" {
-		t.Fatalf("artwork-only media should remain enrichable, got status %q", media.ScrapeStatus)
+	local := serviceTestLocalMetadataHint(t, media)
+	if !local.HasArtwork || local.PosterURL != poster || media.MetadataID == "" || media.ScrapeStatus != "pending" {
+		t.Fatalf("unexpected artwork-only scan state: media=%+v hint=%+v", media, local)
 	}
 }
 
@@ -142,11 +139,9 @@ func TestScanLibraryRefreshesArtworkOnlyMetadata(t *testing.T) {
 	if err := db.First(&media, "path = ?", mediaPath).Error; err != nil {
 		t.Fatal(err)
 	}
-	if media.PosterURL != newPoster {
-		t.Fatalf("poster_url = %q, want refreshed local poster %q", media.PosterURL, newPoster)
-	}
-	if media.ScrapeStatus == "matched" {
-		t.Fatalf("artwork-only refresh should keep media enrichable, got %q", media.ScrapeStatus)
+	local := serviceTestLocalMetadataHint(t, media)
+	if local.PosterURL != newPoster || media.MetadataID == "" || media.ScrapeStatus != "pending" {
+		t.Fatalf("unexpected refreshed artwork hint: media=%+v hint=%+v", media, local)
 	}
 }
 

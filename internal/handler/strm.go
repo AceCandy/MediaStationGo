@@ -365,8 +365,8 @@ func runSTRMRefreshScan(svc *service.Container, target service.STRMRefreshTarget
 		finishHTTPTask(task, nil, "completed", "STRM 刷新媒体库结束", scanTaskMetrics(res), scanTaskDetails(res, 20))
 		return
 	}
-	scrape, reclassified, scrapeErr := runSTRMRefreshScrape(svc, target, task)
-	metrics := strmRefreshTaskMetrics(res, scrape, reclassified)
+	scrape, scrapeErr := runSTRMRefreshScrape(svc, target, task)
+	metrics := strmRefreshTaskMetrics(res, scrape)
 	if scrapeErr != nil {
 		finishHTTPTask(task, scrapeErr, "scrape", "STRM 刷新媒体库完成，刮削失败", metrics, scanTaskDetails(res, 20))
 		return
@@ -374,7 +374,7 @@ func runSTRMRefreshScan(svc *service.Container, target service.STRMRefreshTarget
 	finishHTTPTask(task, nil, "completed", "STRM 刷新媒体库和刮削结束", metrics, scanTaskDetails(res, 20))
 }
 
-func runSTRMRefreshScrape(svc *service.Container, target service.STRMRefreshTarget, task *service.TaskHandle) (service.EnrichLibraryResult, int, error) {
+func runSTRMRefreshScrape(svc *service.Container, target service.STRMRefreshTarget, task *service.TaskHandle) (service.EnrichLibraryResult, error) {
 	if task != nil {
 		task.Update(service.TaskUpdate{
 			Stage:      "scrape",
@@ -383,14 +383,10 @@ func runSTRMRefreshScrape(svc *service.Container, target service.STRMRefreshTarg
 		})
 	}
 	result, err := svc.Scraper.EnrichLibraryDetailedWithOptions(context.Background(), target.LibraryID, service.ScrapeOptions{RetryNoMatch: true})
-	reclassified := 0
-	if result.Processed > 0 {
-		reclassified = reclassifyLibraryAfterScrape(context.Background(), svc, target.LibraryID)
-	}
-	return result, reclassified, err
+	return result, err
 }
 
-func strmRefreshTaskMetrics(scan *service.ScanResult, scrape service.EnrichLibraryResult, reclassified int) map[string]int64 {
+func strmRefreshTaskMetrics(scan *service.ScanResult, scrape service.EnrichLibraryResult) map[string]int64 {
 	metrics := scanTaskMetrics(scan)
 	if metrics == nil {
 		metrics = map[string]int64{}
@@ -400,9 +396,6 @@ func strmRefreshTaskMetrics(scan *service.ScanResult, scrape service.EnrichLibra
 	metrics["scrape_candidates"] = int64(scrape.Candidates)
 	if scrape.Failed > 0 {
 		metrics["scrape_failed"] = int64(scrape.Failed)
-	}
-	if reclassified > 0 {
-		metrics["scrape_reclassified"] = int64(reclassified)
 	}
 	return metrics
 }

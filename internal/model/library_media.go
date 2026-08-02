@@ -21,41 +21,46 @@ type LibraryRoot struct {
 	SortOrder int    `gorm:"default:0" json:"sort_order"`
 }
 
-// Media 是单个可播放项。剧集链接到 SeriesID；电影 SeriesID == ""。
+// Media 是单个可播放文件。展示元数据通过 MetadataID 关联共享表。
+// Title、Year、provider ID 和 SeriesID 仅是扫描/匹配提示，不是权威元数据。
 type Media struct {
 	Base
-	LibraryID     string  `gorm:"index;size:36" json:"library_id"`
-	LibraryRootID string  `gorm:"index;size:36" json:"library_root_id,omitempty"`
-	SeriesID      string  `gorm:"index;size:128" json:"series_id,omitempty"`
-	Title         string  `gorm:"size:255;not null" json:"title"`
-	OriginalName  string  `gorm:"size:255" json:"original_name,omitempty"`
-	EpisodeTitle  string  `gorm:"size:255" json:"episode_title,omitempty"`
-	Path          string  `gorm:"uniqueIndex;size:1024;not null" json:"path"`
-	RelativePath  string  `gorm:"size:1024" json:"relative_path,omitempty"`
-	SizeBytes     int64   `json:"size_bytes"`
-	DurationSec   int     `json:"duration_sec"`
-	Width         int     `json:"width"`
-	Height        int     `json:"height"`
-	VideoCodec    string  `gorm:"size:32" json:"video_codec,omitempty"`
-	AudioCodec    string  `gorm:"size:32" json:"audio_codec,omitempty"`
-	Container     string  `gorm:"size:128" json:"container,omitempty"`
-	PosterURL     string  `gorm:"size:1024" json:"poster_url,omitempty"`
-	BackdropURL   string  `gorm:"size:1024" json:"backdrop_url,omitempty"`
-	Overview      string  `gorm:"type:text" json:"overview,omitempty"`
-	Rating        float32 `json:"rating"`
-	Year          int     `json:"year"`
-	ReleaseDate   string  `gorm:"size:10;index" json:"release_date,omitempty"`
-	SeasonNum     int     `json:"season_num"`
-	EpisodeNum    int     `json:"episode_num"`
-	ScrapeStatus  string  `gorm:"size:16;default:pending" json:"scrape_status"`
-	TMDbID        int     `json:"tmdb_id"`
-	BangumiID     int     `json:"bangumi_id"`
-	DoubanID      string  `gorm:"column:douban_id;size:32" json:"douban_id,omitempty"`
-	TheTVDBID     string  `gorm:"column:thetvdb_id;size:64" json:"thetvdb_id,omitempty"`
-	Languages     string  `gorm:"size:64"  json:"languages,omitempty"` // 逗号分隔的 ISO 639-1 代码，如 "zh,en"
-	Countries     string  `gorm:"size:128" json:"countries,omitempty"` // 逗号分隔的 ISO 3166-1，如 "CN,US"
-	Genres        string  `gorm:"type:text" json:"genres,omitempty"`   // 逗号分隔的类型名，如 "Action,Animation"
-	NSFW          bool    `gorm:"default:false" json:"nsfw"`
+	LibraryID         string        `gorm:"index;size:36" json:"library_id"`
+	LibraryRootID     string        `gorm:"index;size:36" json:"library_root_id,omitempty"`
+	MetadataID        string        `gorm:"index;size:36;not null;check:chk_media_metadata_id,metadata_id <> ''" json:"metadata_id"`
+	Metadata          *MetadataItem `gorm:"foreignKey:MetadataID;references:ID;constraint:OnUpdate:CASCADE,OnDelete:RESTRICT" json:"-"`
+	SeriesID          string        `gorm:"column:series_hint;index;size:128" json:"series_id,omitempty"`
+	Title             string        `gorm:"column:scan_title;size:255" json:"title"`
+	OriginalName      string        `gorm:"-" json:"original_name,omitempty"`
+	EpisodeTitle      string        `gorm:"-" json:"episode_title,omitempty"`
+	Path              string        `gorm:"uniqueIndex;size:1024;not null" json:"path"`
+	RelativePath      string        `gorm:"size:1024" json:"relative_path,omitempty"`
+	SizeBytes         int64         `json:"size_bytes"`
+	DurationSec       int           `json:"duration_sec"`
+	Width             int           `json:"width"`
+	Height            int           `json:"height"`
+	VideoCodec        string        `gorm:"size:32" json:"video_codec,omitempty"`
+	AudioCodec        string        `gorm:"size:32" json:"audio_codec,omitempty"`
+	Container         string        `gorm:"size:128" json:"container,omitempty"`
+	PosterURL         string        `gorm:"-" json:"poster_url,omitempty"`
+	BackdropURL       string        `gorm:"-" json:"backdrop_url,omitempty"`
+	Overview          string        `gorm:"-" json:"overview,omitempty"`
+	Rating            float32       `gorm:"-" json:"rating"`
+	Year              int           `gorm:"column:scan_year" json:"year"`
+	ReleaseDate       string        `gorm:"-" json:"release_date,omitempty"`
+	SeasonNum         int           `json:"season_num"`
+	EpisodeNum        int           `json:"episode_num"`
+	ScrapeStatus      string        `gorm:"size:16;default:pending" json:"scrape_status"`
+	ScrapeError       string        `gorm:"size:1024" json:"scrape_error,omitempty"`
+	LocalMetadataHint string        `gorm:"type:text" json:"-"`
+	TMDbID            int           `gorm:"column:lookup_tmdb_id" json:"tmdb_id"`
+	BangumiID         int           `gorm:"column:lookup_bangumi_id" json:"bangumi_id"`
+	DoubanID          string        `gorm:"column:lookup_douban_id;size:32" json:"douban_id,omitempty"`
+	TheTVDBID         string        `gorm:"column:lookup_thetvdb_id;size:64" json:"thetvdb_id,omitempty"`
+	Languages         string        `gorm:"-" json:"languages,omitempty"`
+	Countries         string        `gorm:"-" json:"countries,omitempty"`
+	Genres            string        `gorm:"-" json:"genres,omitempty"`
+	NSFW              bool          `gorm:"-" json:"nsfw"`
 
 	// STRMURL is the indirection target for .strm files: when present the
 	// stream handler redirects to it instead of opening the local file.
@@ -82,20 +87,4 @@ type Media struct {
 	// IsDuplicate flags this media as a duplicate of another media row.
 	IsDuplicate bool   `gorm:"default:false" json:"is_duplicate"`
 	DuplicateOf string `gorm:"size:128" json:"duplicate_of,omitempty"`
-}
-
-// Series 将属于同一节目的剧集分组。
-type Series struct {
-	Base
-	LibraryID   string  `gorm:"index;size:36" json:"library_id"`
-	Title       string  `gorm:"size:255;not null" json:"title"`
-	PosterURL   string  `gorm:"size:1024" json:"poster_url,omitempty"`
-	BackdropURL string  `gorm:"size:1024" json:"backdrop_url,omitempty"`
-	Overview    string  `gorm:"type:text" json:"overview,omitempty"`
-	Rating      float32 `json:"rating"`
-	Year        int     `json:"year"`
-	TMDbID      int     `json:"tmdb_id"`
-	BangumiID   int     `json:"bangumi_id"`
-	DoubanID    string  `gorm:"column:douban_id;size:32" json:"douban_id,omitempty"`
-	TheTVDBID   string  `gorm:"column:thetvdb_id;size:64" json:"thetvdb_id,omitempty"`
 }

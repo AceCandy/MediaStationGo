@@ -57,7 +57,21 @@ func (o *OrganizerService) resolveOrganizeMediaRequest(ctx context.Context, medi
 			return organizeMediaRequest{}, err
 		}
 	}
-	o.refreshOrganizeMediaMetadata(ctx, m, lib, opts.MediaType)
+	detectedSeason, detectedEpisode := m.SeasonNum, m.EpisodeNum
+	hasMetadata := m.MetadataID != ""
+	view, err := o.repo.MediaView.FindByID(ctx, mediaID)
+	if err != nil {
+		return organizeMediaRequest{}, err
+	}
+	if view != nil {
+		*m = mediaViewsAsMedia([]model.MediaView{*view})[0]
+		if !hasMetadata {
+			m.SeasonNum, m.EpisodeNum = detectedSeason, detectedEpisode
+		}
+	}
+	if err := o.refreshOrganizeMediaMetadata(ctx, m, lib, opts.MediaType); err != nil {
+		return organizeMediaRequest{}, err
+	}
 	return organizeMediaRequest{
 		media:         m,
 		library:       lib,
@@ -152,7 +166,6 @@ func (o *OrganizerService) applyOrganizeMedia(ctx context.Context, req organizeM
 	updates := map[string]any{
 		"path": dst.path,
 	}
-	addOrganizedMediaMetadataUpdates(updates, *m)
 	if normalizeOrganizeMediaType(dst.mediaType) == "movie" {
 		updates["season_num"] = 0
 		updates["episode_num"] = 0
@@ -168,13 +181,6 @@ func (o *OrganizerService) applyOrganizeMedia(ctx context.Context, req organizeM
 		Where("id = ?", m.ID).
 		Updates(updates).Error; err != nil {
 		return dst.path, err
-	}
-	if err := transferSidecarNFO(m.Path, dst.path, req.transferMode); err != nil {
-		o.log.Warn("organize sidecar nfo failed",
-			zap.String("media", m.ID),
-			zap.String("from", nfoPath(m.Path)),
-			zap.String("to", nfoPath(dst.path)),
-			zap.Error(err))
 	}
 	o.log.Info("organized",
 		zap.String("media", m.ID),

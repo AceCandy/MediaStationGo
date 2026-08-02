@@ -248,8 +248,13 @@ func TestOrganizeDirectoryReclassifiesMovieFromDirtyGeneratedEpisodePath(t *test
 
 	wrongPath := filepath.Join(euusLib.Path, "请求救援 (2026)", "Season 1", "请求救援 - S01E202-1080p - 第 202 集.mkv")
 	writeOrgFile(t, wrongPath, "movie")
+	movie := createServiceTestMetadata(t, repos.DB, model.MetadataItem{
+		Kind: model.MetadataKindMovie, Title: "请求救援", OriginalName: "请求救援",
+		Overview: "movie overview", Year: 2026, Source: "tmdb",
+	}, model.MetadataIdentifier{Provider: "tmdb", EntityKind: model.MetadataKindMovie, ExternalID: "1198994"})
 	if err := repos.DB.Create(&model.Media{
 		LibraryID:    euusLib.ID,
+		MetadataID:   movie.ID,
 		Title:        "请求救援",
 		OriginalName: "请求救援",
 		Path:         wrongPath,

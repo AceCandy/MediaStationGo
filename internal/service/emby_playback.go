@@ -19,9 +19,9 @@ func (e *EmbyService) PlaybackInfo(ctx context.Context, mediaID, userID string) 
 	if err != nil || m == nil {
 		return nil, err
 	}
-	e.ensureCloudTrackMetadata(ctx, m)
+	e.ensureCloudTrackMetadata(ctx, &m.Media)
 	return map[string]any{
-		"MediaSources":  e.mediaSourcesForItem(ctx, m, false, e.directPlayOnly(ctx)),
+		"MediaSources":  e.mediaSourcesForView(ctx, m, false, e.directPlayOnly(ctx)),
 		"PlaySessionId": fmt.Sprintf("%s-%d", m.ID, time.Now().Unix()),
 	}, nil
 }
@@ -152,7 +152,7 @@ func (e *EmbyService) directPlayOnly(ctx context.Context) bool {
 	return parseBoolSetting(v, false)
 }
 
-func (e *EmbyService) playableMedia(ctx context.Context, id, userID string) (*model.Media, error) {
+func (e *EmbyService) playableMedia(ctx context.Context, id, userID string) (*model.MediaView, error) {
 	if season, ok, err := e.findSeasonGroup(ctx, id, userID); err != nil {
 		return nil, err
 	} else if ok && len(season.Episodes) > 0 {
@@ -163,14 +163,7 @@ func (e *EmbyService) playableMedia(ctx context.Context, id, userID string) (*mo
 	} else if ok && len(series.Episodes) > 0 {
 		return &series.Episodes[0], nil
 	}
-	m, err := e.repo.Media.FindByID(ctx, id)
-	if err != nil || m == nil {
-		return m, err
-	}
-	if !UserDefaultMediaVisibility(ctx, e.repo, userID).Allows(m) {
-		return nil, nil
-	}
-	return m, nil
+	return e.mediaViewForItemID(ctx, id, userID)
 }
 
 // mediaSource 是 /Items 与 /PlaybackInfo 共享的 MediaSource 结构。
@@ -178,7 +171,7 @@ func (e *EmbyService) playableMedia(ctx context.Context, id, userID string) (*mo
 // asEmbedded=true：嵌在 /Items 列表里，不包含完整 stream URL（避免暴露
 // 直链给搜索接口）。/PlaybackInfo 走 false 路径，URL 指向 Emby 兼容
 // /Videos/{id}/stream（客户端会继续携带 X-Emby-Token 或 append api_key）。
-func (e *EmbyService) mediaSource(ctx context.Context, m *model.Media, asEmbedded, directOnly bool) map[string]any {
+func (e *EmbyService) mediaSource(ctx context.Context, m *model.Media, displayName string, asEmbedded, directOnly bool) map[string]any {
 	container := embyMediaContainer(m)
 	isCloud := strings.TrimSpace(m.STRMURL) != ""
 	playURL := e.embyMediaPlayURL(ctx, m, container, isCloud)
@@ -189,7 +182,7 @@ func (e *EmbyService) mediaSource(ctx context.Context, m *model.Media, asEmbedde
 		// surfacing as "network/playback failed". Keep cloud media direct-only.
 		directOnly = true
 	}
-	src := e.baseMediaSource(m, container, isCloud, playURL, directOnly)
+	src := e.baseMediaSource(m, displayName, container, isCloud, playURL, directOnly)
 	if !asEmbedded && playURL != "" {
 		src["DirectStreamUrl"] = playURL
 		// 直连解码模式下不下发 TranscodingUrl，迫使客户端本地解码直连，
@@ -209,10 +202,13 @@ func (e *EmbyService) mediaSource(ctx context.Context, m *model.Media, asEmbedde
 	return src
 }
 
-func (e *EmbyService) baseMediaSource(m *model.Media, container string, isCloud bool, playURL string, directOnly bool) map[string]any {
+func (e *EmbyService) baseMediaSource(m *model.Media, displayName, container string, isCloud bool, playURL string, directOnly bool) map[string]any {
+	if strings.TrimSpace(displayName) == "" {
+		displayName = m.Title
+	}
 	return map[string]any{
 		"Id":                    m.ID,
-		"Name":                  m.Title,
+		"Name":                  displayName,
 		"Path":                  m.Path,
 		"Container":             container,
 		"Size":                  m.SizeBytes,

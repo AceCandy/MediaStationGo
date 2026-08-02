@@ -8,6 +8,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/ShukeBta/MediaStationGo/internal/model"
+	"github.com/ShukeBta/MediaStationGo/internal/repository"
 )
 
 // cmdStatus 处理 /status 命令。
@@ -40,13 +41,11 @@ func (s *TelegramBotService) cmdSearch(ctx context.Context, args []string) (tele
 	}
 
 	keyword := strings.Join(args, " ")
-	var results []model.Media
-	err := s.repo.DB.Where("title LIKE ?", "%"+keyword+"%").
-		Order("year DESC").Limit(8).
-		Find(&results).Error
+	views, err := s.repo.MediaView.SearchFiltered(ctx, keyword, 8, repository.MediaQueryFilter{IncludeNSFW: true})
 	if err != nil {
 		return telegramCommandReply{}, err
 	}
+	results := mediaViewsAsMedia(views)
 
 	if len(results) == 0 {
 		return telegramCommandReply{Text: fmt.Sprintf("未找到与 <b>%s</b> 相关的媒体", keyword)}, nil

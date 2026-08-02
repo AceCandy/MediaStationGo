@@ -70,10 +70,7 @@ func TestEnrichOneUsesAlternateLanguageTitleAndKeepsLocalizedMetadata(t *testing
 	if err := scraper.EnrichOne(t.Context(), &media); err != nil {
 		t.Fatal(err)
 	}
-	got, err := repos.Media.FindByID(t.Context(), media.ID)
-	if err != nil || got == nil {
-		t.Fatalf("load media: %v", err)
-	}
+	got := serviceTestMediaView(t, repos, media.ID)
 	if got.TMDbID != 292696 || got.Title != "莫离" || got.ScrapeStatus != "matched" {
 		t.Fatalf("matched media=%+v, want localized correct TMDb result", got)
 	}

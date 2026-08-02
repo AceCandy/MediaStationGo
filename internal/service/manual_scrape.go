@@ -55,6 +55,7 @@ func (s *ScraperService) ApplyManualMatchWithOptions(ctx context.Context, mediaI
 	if strings.TrimSpace(match.Title) == "" {
 		return nil, errors.New("manual match title required")
 	}
+	match.AllowIdentifierMerge = true
 	if err := s.applyProviderMatchWithOptions(ctx, media, lib, match, options); err != nil {
 		return nil, err
 	}
@@ -66,6 +67,7 @@ func (s *ScraperService) manualRequestMatch(ctx context.Context, req ManualScrap
 	mediaType := normalizeMediaType(req.MediaType, req.Title, "")
 	fallback := func() (*Match, error) {
 		match := mergeManualRequestIntoMatch(&Match{}, req)
+		match.Source = firstText(source, "manual")
 		if strings.TrimSpace(match.Title) == "" {
 			return nil, errors.New("manual match title required")
 		}
@@ -74,12 +76,14 @@ func (s *ScraperService) manualRequestMatch(ctx context.Context, req ManualScrap
 	switch {
 	case req.TMDbID > 0 && (source == "" || source == "tmdb"):
 		if match := s.manualTMDbMatchByID(ctx, req.TMDbID, mediaType); match != nil {
+			match.Source = "tmdb"
 			return mergeManualRequestIntoMatch(match, req), nil
 		}
 	case req.BangumiID > 0 && (source == "" || source == "bangumi"):
 		if s.bangumi != nil {
 			match, err := s.bangumi.GetSubject(ctx, req.BangumiID)
 			if err == nil && match != nil {
+				match.Source = "bangumi"
 				return mergeManualRequestIntoMatch(match, req), nil
 			}
 		}
@@ -87,6 +91,7 @@ func (s *ScraperService) manualRequestMatch(ctx context.Context, req ManualScrap
 		if s.thetvdb != nil {
 			match, err := s.thetvdb.GetSeriesMatchByID(ctx, req.TheTVDBID)
 			if err == nil && match != nil {
+				match.Source = "thetvdb"
 				return mergeManualRequestIntoMatch(match, req), nil
 			}
 		}
@@ -94,11 +99,13 @@ func (s *ScraperService) manualRequestMatch(ctx context.Context, req ManualScrap
 		if s.douban != nil {
 			match, err := s.douban.GetMatchByID(ctx, req.DoubanID)
 			if err == nil && match != nil {
+				match.Source = "douban"
 				return mergeManualRequestIntoMatch(match, req), nil
 			}
 		}
 	case source == "adult":
 		if match := s.manualAdultMatch(ctx, firstText(req.OriginalName, req.Title)); match != nil {
+			match.Source = "adult"
 			return mergeManualRequestIntoMatch(match, req), nil
 		}
 	}

@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/ShukeBta/MediaStationGo/internal/model"
+	"github.com/ShukeBta/MediaStationGo/internal/repository"
 )
 
 type GenerateSTRMOptions struct {
@@ -198,12 +199,18 @@ func (s *STRMService) saveSTRMGenerationSettings(ctx context.Context, outputDir 
 }
 
 func (s *STRMService) librarySTRMMedia(ctx context.Context, libraryID string) ([]model.Media, error) {
-	var rows []model.Media
-	err := s.repo.DB.WithContext(ctx).
+	var ids []string
+	if err := s.repo.DB.WithContext(ctx).Model(&model.Media{}).
 		Where("library_id = ?", libraryID).
-		Order("title asc, season_num asc, episode_num asc, created_at asc").
-		Find(&rows).Error
-	return rows, err
+		Order("scan_title asc, season_num asc, episode_num asc, created_at asc").
+		Pluck("id", &ids).Error; err != nil {
+		return nil, err
+	}
+	views, err := s.repo.MediaView.FindByIDs(ctx, ids, repository.MediaQueryFilter{IncludeNSFW: true})
+	if err != nil {
+		return nil, err
+	}
+	return mediaViewsAsMedia(views), nil
 }
 
 func (s *STRMService) defaultOutputDir(lib *model.Library) string {

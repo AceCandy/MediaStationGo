@@ -157,6 +157,10 @@ func registerEmbyAuthenticatedUserRoutes(auth *gin.RouterGroup, svc *service.Con
 func registerEmbyAuthenticatedItemRoutes(auth *gin.RouterGroup, svc *service.Container) {
 	auth.GET("/Items", embyItemsHandler(svc))
 	auth.GET("/Users/:userId/Items", embyItemsHandler(svc))
+	auth.GET("/SearchHints", embySearchHintsHandler(svc))
+	auth.GET("/Search/Hints", embySearchHintsHandler(svc))
+	auth.GET("/Users/:userId/SearchHints", embySearchHintsHandler(svc))
+	auth.GET("/Users/:userId/Search/Hints", embySearchHintsHandler(svc))
 	auth.GET("/Items/Counts", embyItemsCountsHandler(svc))
 	auth.GET("/Users/:userId/Items/Counts", embyItemsCountsHandler(svc))
 	auth.GET("/Items/Latest", embyLatestItemsHandler(svc))

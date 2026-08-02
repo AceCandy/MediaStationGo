@@ -259,7 +259,7 @@ func TestOrganizeMediaHonorsConfiguredNamingFormat(t *testing.T) {
 		SeasonNum:  1,
 		EpisodeNum: 2,
 	}
-	if err := repos.Media.Upsert(t.Context(), &media); err != nil {
+	if err := repos.Media.Upsert(t.Context(), serviceTestMediaForUpsert(&media)); err != nil {
 		t.Fatal(err)
 	}
 

@@ -4,6 +4,7 @@ package service
 // across providers; provider-specific IDs sit side-by-side so the scraper
 // orchestrator can write them all into a single update.
 type Match struct {
+	Source        string   `json:"-"`
 	TMDbID        int      `json:"tmdb_id"`
 	BangumiID     int      `json:"bangumi_id"`
 	DoubanID      string   `json:"douban_id,omitempty"`
@@ -23,6 +24,8 @@ type Match struct {
 	Aliases       []string `json:"aliases,omitempty"`
 	NSFW          bool     `json:"nsfw,omitempty"`
 	SearchKeyword string   `json:"-"`
+	// AllowIdentifierMerge 仅用于 provider 明确 crosswalk 或用户确认的匹配。
+	AllowIdentifierMerge bool `json:"-"`
 }
 
 // TMDbEpisodeDetails holds per-episode metadata from /tv/{id}/season/{season}/episode/{episode}.

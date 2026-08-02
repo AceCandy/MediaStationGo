@@ -53,18 +53,8 @@ func (b *localMediaWriteBatch) Flush() {
 	}
 	items := b.items
 	b.items = nil
-	media := make([]model.Media, 0, len(items))
-	for _, item := range items {
-		if item.media != nil {
-			media = append(media, *item.media)
-		}
-	}
-	if len(media) == 0 {
-		return
-	}
 	existingPaths := b.existingPaths(items)
 	createItems := make([]localMediaWriteItem, 0, len(items))
-	createMedia := make([]model.Media, 0, len(items))
 	for _, item := range items {
 		if item.media == nil {
 			continue
@@ -74,19 +64,8 @@ func (b *localMediaWriteBatch) Flush() {
 			continue
 		}
 		createItems = append(createItems, item)
-		createMedia = append(createMedia, *item.media)
 	}
-	if len(createMedia) == 0 {
-		b.publish()
-		return
-	}
-	if err := b.scanner.repo.DB.WithContext(b.ctx).CreateInBatches(&createMedia, b.limit).Error; err == nil {
-		b.res.Added += len(createMedia)
-		for _, item := range createItems {
-			if item.after != nil {
-				item.after()
-			}
-		}
+	if len(createItems) == 0 {
 		b.publish()
 		return
 	}

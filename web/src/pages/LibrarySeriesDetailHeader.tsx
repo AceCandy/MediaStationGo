@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom'
-import { ArrowLeft, Database, FileText, Film, FolderInput, Pencil, Play, Search, Sparkles, Trash2 } from 'lucide-react'
+import { ArrowLeft, Database, Film, FolderInput, Pencil, Play, Search, Sparkles, Trash2 } from 'lucide-react'
 
 import { imageURL } from '../api/client'
 import { ExternalPlayerButton } from '../components/ExternalPlayerButton'
@@ -18,7 +18,6 @@ type LibrarySeriesDetailHeaderProps = {
   onManualScrape: () => void
   onMetadataEdit: () => void
   onProbe: () => void
-  onNFO: () => void
   onOrganize: () => void
   onSoftDelete: () => void
 }
@@ -35,7 +34,6 @@ export function LibrarySeriesDetailHeader({
   onManualScrape,
   onMetadataEdit,
   onProbe,
-  onNFO,
   onOrganize,
   onSoftDelete,
 }: LibrarySeriesDetailHeaderProps) {
@@ -103,10 +101,6 @@ export function LibrarySeriesDetailHeader({
                 <button onClick={onProbe} disabled={!!seriesToolBusy} className="btn-outline px-3.5 py-2 text-xs gap-1.5">
                   <Database size={13} />
                   <span>{seriesToolBusy === 'probe' ? '探测中…' : '探测媒体轨'}</span>
-                </button>
-                <button onClick={onNFO} disabled={!!seriesToolBusy} className="btn-outline px-3.5 py-2 text-xs gap-1.5">
-                  <FileText size={13} />
-                  <span>{seriesToolBusy === 'nfo' ? '写出中…' : '写出本地 NFO'}</span>
                 </button>
                 <button onClick={onOrganize} disabled={!!seriesToolBusy} className="btn-outline px-3.5 py-2 text-xs gap-1.5">
                   <FolderInput size={13} />

@@ -71,15 +71,20 @@ func LookupLocalAvailability(ctx context.Context, repo *repository.Container, ti
 	if query == "" {
 		return out
 	}
-	like := "%" + query + "%"
-	var rows []model.Media
-	if err := repo.DB.WithContext(ctx).
-		Where("title LIKE ? OR original_name LIKE ? OR path LIKE ?", like, like, like).
-		Order("season_num asc, episode_num asc, created_at desc").
-		Limit(2000).
-		Find(&rows).Error; err != nil {
+	views, err := repo.MediaView.SearchFiltered(ctx, query, 2000, repository.MediaQueryFilter{IncludeNSFW: true})
+	if err != nil {
 		return out
 	}
+	rows := mediaViewsAsMedia(views)
+	sort.SliceStable(rows, func(i, j int) bool {
+		if rows[i].SeasonNum != rows[j].SeasonNum {
+			return rows[i].SeasonNum < rows[j].SeasonNum
+		}
+		if rows[i].EpisodeNum != rows[j].EpisodeNum {
+			return rows[i].EpisodeNum < rows[j].EpisodeNum
+		}
+		return rows[i].CreatedAt.After(rows[j].CreatedAt)
+	})
 	out.LocalMediaCount = len(rows)
 	out.InLibrary = len(rows) > 0
 	if len(rows) == 0 {

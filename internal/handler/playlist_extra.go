@@ -26,15 +26,9 @@ func reorderPlaylistHandler(svc *service.Container) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
-		pid := c.Param("id")
-		for i, mid := range req.Order {
-			if err := svc.Repo.DB.WithContext(c.Request.Context()).
-				Model(&model.PlaylistItem{}).
-				Where("playlist_id = ? AND media_id = ?", pid, mid).
-				Update("position", i).Error; err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-				return
-			}
+		if err := svc.Playback.ReorderPlaylist(c.Request.Context(), c.Param("id"), req.Order); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
 		}
 		c.Status(http.StatusNoContent)
 	}

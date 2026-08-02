@@ -19,8 +19,42 @@ import (
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 	"github.com/ShukeBta/MediaStationGo/internal/repository"
 	"github.com/ShukeBta/MediaStationGo/internal/service"
-	"github.com/ShukeBta/MediaStationGo/internal/service/cloud"
 )
+
+func createEmbyArtworkFixture(t *testing.T, db *gorm.DB, cfg *config.Config, mediaID string, data []byte, mimeType, extension string) {
+	t.Helper()
+	metadataID := "metadata-" + mediaID
+	assetID := "asset-" + mediaID
+	storageKey := "test/" + mediaID + "/poster." + extension
+	path := filepath.Join(cfg.App.DataDir, "artwork", filepath.FromSlash(storageKey))
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("create artwork dir: %v", err)
+	}
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatalf("write artwork: %v", err)
+	}
+	if err := db.Create(&model.MetadataItem{
+		Base: model.Base{ID: metadataID}, Kind: model.MetadataKindMovie, Title: "Artwork Test", Source: "test",
+	}).Error; err != nil {
+		t.Fatalf("create metadata: %v", err)
+	}
+	if err := db.Create(&model.ArtworkAsset{
+		Base: model.Base{ID: assetID}, SHA256: strings.Repeat("a", 64), StorageKey: storageKey,
+		MimeType: mimeType, SizeBytes: int64(len(data)),
+	}).Error; err != nil {
+		t.Fatalf("create artwork asset: %v", err)
+	}
+	if err := db.Create(&model.MetadataArtwork{
+		MetadataID: metadataID, AssetID: assetID, ArtworkType: model.ArtworkTypePoster,
+	}).Error; err != nil {
+		t.Fatalf("create metadata artwork: %v", err)
+	}
+	if err := db.Create(&model.Media{
+		Base: model.Base{ID: mediaID}, MetadataID: metadataID, Title: "Artwork Test", Path: "/media/" + mediaID + ".mp4",
+	}).Error; err != nil {
+		t.Fatalf("create media: %v", err)
+	}
+}
 
 func TestEmbyItemImageServesWithoutAPIAuth(t *testing.T) {
 	gin.SetMode(gin.TestMode)
@@ -28,12 +62,11 @@ func TestEmbyItemImageServesWithoutAPIAuth(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
-	if err := db.AutoMigrate(&model.Media{}); err != nil {
+	if err := migrateMediaHandlerTestDB(db, &model.Media{}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 
-	posterPath := filepath.Join(t.TempDir(), "poster.png")
-	if err := os.WriteFile(posterPath, []byte{
+	posterData := []byte{
 		0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
 		0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
 		0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
@@ -43,29 +76,22 @@ func TestEmbyItemImageServesWithoutAPIAuth(t *testing.T) {
 		0x05, 0x00, 0x01, 0x0d, 0x0a, 0x2d, 0xb4, 0x00,
 		0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae,
 		0x42, 0x60, 0x82,
-	}, 0o644); err != nil {
-		t.Fatalf("write poster: %v", err)
 	}
 
 	repos := repository.New(db)
 	cfg := &config.Config{
-		App:   config.AppConfig{DataDir: filepath.Dir(posterPath)},
+		App:   config.AppConfig{DataDir: t.TempDir()},
 		Cache: config.CacheConfig{CacheDir: t.TempDir()},
 	}
-	if err := db.Create(&model.Media{
-		Base:      model.Base{ID: "media-1"},
-		Title:     "Poster Test",
-		Path:      "D:\\media\\poster-test.mp4",
-		PosterURL: posterPath,
-	}).Error; err != nil {
-		t.Fatalf("create media: %v", err)
-	}
+	createEmbyArtworkFixture(t, db, cfg, "media-1", posterData, "image/png", "png")
+	imageProxy := service.NewImageProxy(cfg, zap.NewNop())
 
 	router := gin.New()
 	registerEmbyRoutes(router, "test-secret", &service.Container{
 		Repo:       repos,
 		Emby:       service.NewEmbyService(cfg, zap.NewNop(), repos),
-		ImageProxy: service.NewImageProxy(cfg, zap.NewNop()),
+		Artwork:    service.NewArtworkStore(cfg, repos.Artwork, imageProxy),
+		ImageProxy: imageProxy,
 	})
 
 	req := httptest.NewRequest(http.MethodGet, "/Items/media-1/Images/Primary", nil)
@@ -92,42 +118,26 @@ func TestEmbyItemImageServesWithoutAPIAuth(t *testing.T) {
 	}
 }
 
-func TestEmbyItemImageServesCachedCloudArtworkWithoutResolve(t *testing.T) {
+func TestEmbyItemImageServesPersistentArtworkWithoutResolve(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "image/jpeg")
-		_, _ = w.Write(handlerTestJPEG)
-	}))
-	defer upstream.Close()
-
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
-	if err := db.AutoMigrate(&model.Media{}); err != nil {
+	if err := migrateMediaHandlerTestDB(db, &model.Media{}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 
-	cfg := &config.Config{Cache: config.CacheConfig{CacheDir: t.TempDir()}}
+	cfg := &config.Config{App: config.AppConfig{DataDir: t.TempDir()}, Cache: config.CacheConfig{CacheDir: t.TempDir()}}
 	imageProxy := service.NewImageProxy(cfg, zap.NewNop())
-	ref := "/Movies/Cloud Movie/poster.jpg"
-	if err := imageProxy.PrefetchCloudResolved(t.Context(), "openlist:"+ref, &cloud.DirectLink{URL: upstream.URL + "/poster.jpg"}); err != nil {
-		t.Fatalf("prefetch cloud poster: %v", err)
-	}
 	repos := repository.New(db)
-	if err := db.Create(&model.Media{
-		Base:      model.Base{ID: "cloud-media-1"},
-		Title:     "Cloud Poster Test",
-		Path:      "cloud://openlist/Movies/Cloud Movie/movie.mkv",
-		PosterURL: service.CloudArtworkURL("openlist", ref),
-	}).Error; err != nil {
-		t.Fatalf("create media: %v", err)
-	}
+	createEmbyArtworkFixture(t, db, cfg, "cloud-media-1", handlerTestJPEG, "image/jpeg", "jpg")
 
 	router := gin.New()
 	registerEmbyRoutes(router, "test-secret", &service.Container{
 		Repo:       repos,
 		Emby:       service.NewEmbyService(cfg, zap.NewNop(), repos),
+		Artwork:    service.NewArtworkStore(cfg, repos.Artwork, imageProxy),
 		ImageProxy: imageProxy,
 	})
 
@@ -139,7 +149,7 @@ func TestEmbyItemImageServesCachedCloudArtworkWithoutResolve(t *testing.T) {
 		t.Fatalf("unexpected status: %d body=%s", w.Code, w.Body.String())
 	}
 	if got := w.Body.Bytes(); !bytes.Equal(got, handlerTestJPEG) {
-		t.Fatalf("body = %q, want cached cloud poster", got)
+		t.Fatalf("body = %q, want persistent artwork", got)
 	}
 	if location := w.Header().Get("Location"); location != "" {
 		t.Fatalf("expected direct cached image response, got redirect to %q", location)
@@ -155,7 +165,7 @@ func TestEmbyMissingItemImageReturnsTransparentPlaceholder(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
-	if err := db.AutoMigrate(model.AllModels()...); err != nil {
+	if err := migrateMediaHandlerTestDB(db, model.AllModels()...); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 	repos := repository.New(db)
@@ -194,7 +204,7 @@ func TestEmbyUserItemByIDRouteReturnsJSON(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
-	if err := db.AutoMigrate(&model.User{}, &model.Library{}, &model.Media{}, &model.Favorite{}, &model.PlaybackHistory{}); err != nil {
+	if err := migrateMediaHandlerTestDB(db, &model.User{}, &model.Library{}, &model.Media{}, &model.Favorite{}, &model.PlaybackHistory{}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 	repos := repository.New(db)
@@ -212,7 +222,7 @@ func TestEmbyUserItemByIDRouteReturnsJSON(t *testing.T) {
 	if err := repos.Library.Create(t.Context(), &lib); err != nil {
 		t.Fatalf("create library: %v", err)
 	}
-	if err := db.Create(&model.Media{
+	media := model.Media{
 		Base:       model.Base{ID: "episode-1"},
 		LibraryID:  lib.ID,
 		Title:      "Test Show",
@@ -220,7 +230,8 @@ func TestEmbyUserItemByIDRouteReturnsJSON(t *testing.T) {
 		SeasonNum:  1,
 		EpisodeNum: 1,
 		Container:  "mkv",
-	}).Error; err != nil {
+	}
+	if err := db.Create(&media).Error; err != nil {
 		t.Fatalf("create media: %v", err)
 	}
 
@@ -247,7 +258,7 @@ func TestEmbyUserItemByIDRouteReturnsJSON(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &item); err != nil {
 		t.Fatalf("decode item: %v", err)
 	}
-	if item["Id"] != "episode-1" || item["Type"] != "Episode" {
+	if item["Id"] != media.MetadataID || item["Type"] != "Episode" {
 		t.Fatalf("unexpected item payload: %#v", item)
 	}
 }
@@ -258,7 +269,7 @@ func TestEmbyUserItemByIDRouteReturnsLibraryView(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
-	if err := db.AutoMigrate(model.AllModels()...); err != nil {
+	if err := migrateMediaHandlerTestDB(db, model.AllModels()...); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 	repos := repository.New(db)

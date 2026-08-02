@@ -138,7 +138,7 @@ func TestEmbyOfficialClientProbeRoutesAvoidHomepageBlocking404s(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
-	if err := db.AutoMigrate(model.AllModels()...); err != nil {
+	if err := migrateMediaHandlerTestDB(db, model.AllModels()...); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 	repos := repository.New(db)
