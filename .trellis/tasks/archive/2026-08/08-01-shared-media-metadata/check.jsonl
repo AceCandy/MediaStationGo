@@ -1,0 +1,2 @@
+{"file": ".trellis/tasks/08-01-shared-media-metadata/research/codebase.md", "reason": "核对实现是否覆盖已定位调用链"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "复核跨层数据流、排序、过滤与消费者一致性"}
