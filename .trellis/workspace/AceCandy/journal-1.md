@@ -47,3 +47,25 @@ Implemented shared metadata identities, MediaView reads, persistent artwork, Emb
 ### Status
 
 [OK] **Completed**
+
+
+## Session 3: 完整媒体轨道探测与播放选择
+
+**Date**: 2026-08-04
+**Task**: 完整媒体轨道探测与播放选择
+**Branch**: `main`
+
+### Summary
+
+新增一对一完整媒体探测文档、统一本地与云媒体探测持久化、Emby 全轨道与实时字幕展示、播放选轨和 HLS 音轨隔离，并提供管理员按库回填任务。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `9d8e605` | (see git log) |
+| `150ca66` | (see git log) |
+
+### Status
+
+[OK] **Completed**

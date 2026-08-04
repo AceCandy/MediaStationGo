@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 2
+- **Total Sessions**: 3
 - **Last Active**: 2026-08-04
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~49 | Active |
+| `journal-1.md` | ~71 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 3 | 2026-08-04 | 完整媒体轨道探测与播放选择 | `9d8e605`, `150ca66` | `main` |
 | 2 | 2026-08-04 | 修复 STRM 多版本媒体信息 | `106aa36` | `main` |
 | 1 | 2026-08-03 | Complete shared media metadata | `ddef5cc` | `main` |
 <!-- @@@/auto:session-history -->
