@@ -8,6 +8,8 @@ import (
 	"strings"
 
 	"go.uber.org/zap"
+
+	"github.com/ShukeBta/MediaStationGo/internal/model"
 )
 
 func (s *ScannerService) resolveCloudSTRMTarget(ctx context.Context, typ, ref string) (string, error) {
@@ -45,6 +47,9 @@ func readLocalSTRMTarget(path string) (string, error) {
 		if candidate == "" || strings.HasPrefix(candidate, "#") {
 			continue
 		}
+		if isLocalSTRMMediaTarget(candidate) {
+			return filepath.Clean(candidate), nil
+		}
 		if strings.HasPrefix(candidate, "/api/") || strings.HasPrefix(candidate, "/Videos/") || strings.HasPrefix(candidate, "/videos/") {
 			return candidate, nil
 		}
@@ -58,6 +63,37 @@ func readLocalSTRMTarget(path string) (string, error) {
 		}
 	}
 	return "", nil
+}
+
+func localSTRMFileTarget(m *model.Media) string {
+	if m == nil || (!strings.EqualFold(strings.TrimSpace(m.Container), "strm") && !strings.EqualFold(filepath.Ext(m.Path), ".strm")) {
+		return ""
+	}
+	target := strings.TrimSpace(m.STRMURL)
+	if target == "" {
+		target, _ = readLocalSTRMTarget(m.Path)
+	}
+	if !isLocalSTRMMediaTarget(target) {
+		return ""
+	}
+	return filepath.Clean(target)
+}
+
+func isLocalSTRMMediaTarget(target string) bool {
+	if !filepath.IsAbs(target) {
+		return false
+	}
+	ext := strings.ToLower(filepath.Ext(target))
+	_, ok := videoExtensions[ext]
+	return ok && ext != ".strm"
+}
+
+func localProbeResultUpdates(probe *ProbeResult, path string) map[string]any {
+	updates := probeResultUpdates(probe)
+	if stat, err := os.Stat(path); err == nil {
+		updates["size_bytes"] = stat.Size()
+	}
+	return updates
 }
 
 func (s *ScannerService) maybeGenerateSTRMAfterScan(libraryID string) {

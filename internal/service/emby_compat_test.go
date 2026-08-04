@@ -81,8 +81,22 @@ func (f *fakeCloudPlaybackResolver) CloudResolve(_ context.Context, typ, fileRef
 
 type fakeCloudPlaybackProber struct {
 	probe   *ProbeResult
+	path    string
 	rawURL  string
 	headers map[string]string
+	started chan struct{}
+	release <-chan struct{}
+}
+
+func (f *fakeCloudPlaybackProber) Probe(_ context.Context, path string) (*ProbeResult, error) {
+	f.path = path
+	if f.started != nil {
+		close(f.started)
+	}
+	if f.release != nil {
+		<-f.release
+	}
+	return f.probe, nil
 }
 
 func (f *fakeCloudPlaybackProber) ProbeHTTP(_ context.Context, rawURL string, headers map[string]string) (*ProbeResult, error) {

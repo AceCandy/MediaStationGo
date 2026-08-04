@@ -59,8 +59,8 @@ type EmbyService struct {
 	visibilityMu    sync.RWMutex
 	visibilityCache map[string]embyVisibilityCacheEntry
 
-	cloudProbeMu       sync.Mutex
-	cloudProbeInFlight map[string]struct{}
+	trackProbeMu       sync.Mutex
+	trackProbeInFlight map[string]struct{}
 }
 
 type cloudPlaybackResolver interface {
@@ -68,6 +68,7 @@ type cloudPlaybackResolver interface {
 }
 
 type cloudPlaybackProber interface {
+	localMediaProber
 	ProbeHTTP(ctx context.Context, rawURL string, headers map[string]string) (*ProbeResult, error)
 }
 

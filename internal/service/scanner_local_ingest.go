@@ -60,7 +60,7 @@ func (s *ScannerService) ingestFile(ctx context.Context, lib *model.Library, roo
 		media:      media,
 		isNewMedia: isNewMedia,
 		writeBatch: writeBatch,
-		after:      s.localProbeAfter(path, ext),
+		after:      s.localProbeAfter(media, path, ext),
 		res:        res,
 	})
 }
@@ -176,12 +176,16 @@ func (s *ScannerService) buildLocalScanMedia(in localScanMediaInput) *model.Medi
 	return media
 }
 
-func (s *ScannerService) localProbeAfter(path, ext string) func() {
-	if !mediaExtensionSupportsProbe(ext) || s.probe == nil {
+func (s *ScannerService) localProbeAfter(media *model.Media, path, ext string) func() {
+	probePath := path
+	if ext == ".strm" {
+		probePath = localSTRMFileTarget(media)
+	}
+	if probePath == "" || !mediaExtensionSupportsProbe(strings.ToLower(filepath.Ext(probePath))) || s.probe == nil {
 		return nil
 	}
 	return func() {
-		s.queueLocalMediaProbe(path)
+		s.queueLocalMediaProbe(path, probePath)
 	}
 }
 

@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -213,6 +215,73 @@ func TestServeFileRedirectsLocalSTRMFileTargetByDefault(t *testing.T) {
 	}
 	if loc := w.Header().Get("Location"); loc != target {
 		t.Fatalf("Location = %q, want %q", loc, target)
+	}
+}
+
+func TestServeFileReadsLocalPathFromLegacySTRMRecord(t *testing.T) {
+	repos := newStreamTestRepo(t)
+	dir := t.TempDir()
+	target := filepath.Join(dir, "LocalMovie.mkv")
+	if err := os.WriteFile(target, []byte("abcdef"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	strmPath := filepath.Join(dir, "LocalMovie.strm")
+	if err := os.WriteFile(strmPath, []byte(target), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := repos.DB.Create(&model.Media{
+		Base:      model.Base{ID: "local-path-strm"},
+		Title:     "Local STRM",
+		Path:      strmPath,
+		Container: "strm",
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	svc := NewStreamService(&config.Config{}, zap.NewNop(), repos, nil)
+	req := httptest.NewRequest(http.MethodGet, "http://nas.local/api/stream/local-path-strm", nil)
+	req.Header.Set("Range", "bytes=1-3")
+	w := httptest.NewRecorder()
+
+	if err := svc.ServeFile(w, req, "local-path-strm"); err != nil {
+		t.Fatal(err)
+	}
+	if w.Code != http.StatusPartialContent || w.Body.String() != "bcd" {
+		t.Fatalf("status/body = %d/%q, want 206/%q", w.Code, w.Body.String(), "bcd")
+	}
+}
+
+func TestStreamProbeUsesLocalSTRMTarget(t *testing.T) {
+	repos := newStreamTestRepo(t)
+	dir := t.TempDir()
+	target := filepath.Join(dir, "LocalMovie.mkv")
+	if err := os.WriteFile(target, []byte("target-video"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	strmPath := filepath.Join(dir, "LocalMovie.strm")
+	if err := os.WriteFile(strmPath, []byte(target), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	media := model.Media{Base: model.Base{ID: "local-probe-strm"}, Path: strmPath, Container: "strm"}
+	if err := repos.DB.Create(&media).Error; err != nil {
+		t.Fatal(err)
+	}
+	prober := &fakeCloudPlaybackProber{probe: &ProbeResult{
+		DurationSec: 120, Width: 1920, Height: 1080, VideoCodec: "h264", AudioCodec: "aac", Container: "matroska,webm",
+	}}
+	svc := NewStreamService(&config.Config{}, zap.NewNop(), repos, nil)
+
+	if err := svc.Probe(t.Context(), media.ID, prober); err != nil {
+		t.Fatal(err)
+	}
+	if prober.path != target {
+		t.Fatalf("probed path = %q, want STRM target %q", prober.path, target)
+	}
+	var persisted model.Media
+	if err := repos.DB.First(&persisted, "id = ?", media.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if persisted.DurationSec != 120 || persisted.SizeBytes != int64(len("target-video")) {
+		t.Fatalf("probe metadata not persisted: %#v", persisted)
 	}
 }
 

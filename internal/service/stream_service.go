@@ -35,6 +35,10 @@ type StreamService struct {
 	transcoder *TranscoderService
 }
 
+type localMediaProber interface {
+	Probe(ctx context.Context, path string) (*ProbeResult, error)
+}
+
 // NewStreamService is the constructor.
 func NewStreamService(cfg *config.Config, log *zap.Logger, repo *repository.Container, transcoder *TranscoderService) *StreamService {
 	return &StreamService{
@@ -71,24 +75,19 @@ func (s *StreamService) directPlayOnly(ctx context.Context) bool {
 
 // Probe re-runs ffprobe against an existing media row and refreshes the
 // extracted metadata. Used by the admin UI's "rescan" button.
-func (s *StreamService) Probe(ctx context.Context, mediaID string, probe *FFprobeService) error {
+func (s *StreamService) Probe(ctx context.Context, mediaID string, probe localMediaProber) error {
 	m, err := s.repo.Media.FindByID(ctx, mediaID)
 	if err != nil || m == nil {
 		return ErrMediaNotFound
 	}
-	res, err := probe.Probe(ctx, m.Path)
+	probePath := m.Path
+	if target := localSTRMFileTarget(m); target != "" {
+		probePath = target
+	}
+	res, err := probe.Probe(ctx, probePath)
 	if err != nil {
 		return err
 	}
-	updates := map[string]any{
-		"duration_sec": res.DurationSec,
-		"width":        res.Width,
-		"height":       res.Height,
-		"video_codec":  res.VideoCodec,
-		"audio_codec":  res.AudioCodec,
-	}
-	if res.Container != "" {
-		updates["container"] = res.Container
-	}
+	updates := localProbeResultUpdates(res, probePath)
 	return s.repo.DB.Model(m).Updates(updates).Error
 }

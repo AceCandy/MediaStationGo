@@ -11,6 +11,8 @@ export function pickPlayerMode(media: Media): PlayerMode {
 }
 
 export function needsTranscodeForBrowser(media: Media): boolean {
+  if (media.strm_url?.trim() || media.container?.toLowerCase() === 'strm') return false
+
   const container = (media.container ?? '').toLowerCase()
   const videoCodec = (media.video_codec ?? '').toLowerCase()
   const audioCodec = (media.audio_codec ?? '').toLowerCase()

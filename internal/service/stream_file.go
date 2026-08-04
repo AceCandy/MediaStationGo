@@ -29,6 +29,9 @@ func (s *StreamService) ServeFileWithCloudMode(w http.ResponseWriter, r *http.Re
 	if m == nil {
 		return ErrMediaNotFound
 	}
+	if target := localSTRMFileTarget(m); target != "" {
+		return serveLocalMediaFile(w, r, target)
+	}
 	if strmURL := strings.TrimSpace(m.STRMURL); strmURL != "" && playableSTRMTarget(r.Context(), s.repo, strmURL, m) {
 		if !cloudPlaybackModeEnabled(r.Context(), s.repo, cloudMode) {
 			return ErrCloudPlaybackDisabled
@@ -46,7 +49,11 @@ func (s *StreamService) ServeFileWithCloudMode(w http.ResponseWriter, r *http.Re
 		// 处理器据此回 502 + 原因，方便用户在播放器/日志里定位。
 		return ErrCloudPlaybackUnavailable
 	}
-	f, err := os.Open(m.Path)
+	return serveLocalMediaFile(w, r, m.Path)
+}
+
+func serveLocalMediaFile(w http.ResponseWriter, r *http.Request, path string) error {
+	f, err := os.Open(path)
 	if err != nil {
 		return ErrMediaNotFound
 	}

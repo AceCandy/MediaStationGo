@@ -17,11 +17,12 @@ import { PlayerVideoStage } from './PlayerVideoStage'
 // Fullscreen, dark-themed video page.
 //
 //   ?mode=hls       force HLS even when direct play would work
-//   ?mode=direct    force direct play (default for browser-friendly codecs)
+//   ?mode=direct    force direct play (default for browser-friendly codecs and STRM URLs)
 //
 // We pick a sensible default based on the source codec: H.264 + AAC in
 // MP4 / WebM containers play directly; everything else (HEVC, MKV, AV1,
-// AC3 audio, …) gets routed through ffmpeg → HLS.
+// AC3 audio, …) gets routed through ffmpeg → HLS. STRM URLs always use the
+// direct stream endpoint, which redirects to their target.
 //
 // External subtitles next to the source file are auto-discovered and
 // attached as <track> elements.
@@ -185,6 +186,9 @@ export function PlayerPage() {
       if (directOnly) {
         setPlayerError('直接播放失败。当前为「客户端直连解码」模式，宿主机不转码；请使用支持该编码/封装的播放器（如 Infuse / VLC / Emby 客户端）播放，或关闭直连解码模式。')
         toast.error('直接播放失败（客户端直连解码模式）')
+      } else if (media?.strm_url?.trim()) {
+        setPlayerError('STRM 直连播放失败。请检查 STRM URL 是否可访问、是否已过期、是否需要登录，以及目标格式是否受当前浏览器支持。')
+        toast.error('STRM 直连播放失败')
       } else if (hlsUnavailable) {
         setPlayerError('直接播放失败，且 HLS 转码不可用。请检查文件是否存在，或配置本机 ffmpeg 后使用 HLS 转码播放。')
         toast.error('直接播放失败，HLS 转码不可用')
@@ -199,7 +203,7 @@ export function PlayerPage() {
 
     setPlayerError('视频播放失败，请检查文件是否存在，或确认 ffmpeg 已正确配置。')
     toast.error('视频播放失败，请检查文件是否存在')
-  }, [directOnly, hlsUnavailable, mode, params, setParams])
+  }, [directOnly, hlsUnavailable, media, mode, params, setParams])
 
   return (
     <div className="relative -m-6 flex min-h-screen flex-col overflow-hidden bg-black md:-m-8">

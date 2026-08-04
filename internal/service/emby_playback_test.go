@@ -1,6 +1,8 @@
 package service
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -380,6 +382,154 @@ func TestEmbyPlaybackInfoKeepsSTRMBehindStreamEndpoint(t *testing.T) {
 	streams := src["MediaStreams"].([]map[string]any)
 	if len(streams) == 0 || streams[0]["Type"] != "Video" {
 		t.Fatalf("strm media should expose a fallback video stream for Android clients: %#v", src)
+	}
+}
+
+func TestEmbyMediaSourceUsesLocalSTRMTargetContainer(t *testing.T) {
+	svc := newTestEmbyService(t)
+	dir := t.TempDir()
+	target := filepath.Join(dir, "LocalMovie.mkv")
+	if err := os.WriteFile(target, []byte("video"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	strmPath := filepath.Join(dir, "LocalMovie.strm")
+	if err := os.WriteFile(strmPath, []byte(target), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	media := &model.Media{
+		Base:  model.Base{ID: "local-path-strm"},
+		Title: "Local STRM",
+		Path:  strmPath,
+	}
+
+	src := svc.mediaSource(t.Context(), media, media.Title, false, false)
+	if src["Container"] != "mkv" || src["IsRemote"] != false {
+		t.Fatalf("local strm source should expose mkv as local media: %#v", src)
+	}
+	if src["DirectStreamUrl"] != "/Videos/local-path-strm/stream.mkv" {
+		t.Fatalf("local strm stream URL should use target extension: %#v", src)
+	}
+	if src["Path"] != "/Videos/local-path-strm/stream.mkv" {
+		t.Fatalf("local strm path should not expose the strm text file: %#v", src)
+	}
+}
+
+func TestEmbyPlaybackInfoAsynchronouslyProbesLocalSTRMTarget(t *testing.T) {
+	svc := newTestEmbyService(t)
+	dir := t.TempDir()
+	target := filepath.Join(dir, "LocalMovie.mkv")
+	if err := os.WriteFile(target, []byte("target-video"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	strmPath := filepath.Join(dir, "LocalMovie.strm")
+	if err := os.WriteFile(strmPath, []byte(target), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	media := model.Media{
+		Base: model.Base{ID: "local-playback-probe"}, Title: "Local STRM",
+		Path: strmPath, Container: "strm",
+	}
+	if err := svc.repo.DB.Create(&media).Error; err != nil {
+		t.Fatal(err)
+	}
+	prober := &fakeCloudPlaybackProber{probe: &ProbeResult{
+		DurationSec: 3661, Width: 3840, Height: 2160, VideoCodec: "hevc", AudioCodec: "eac3", Container: "matroska,webm",
+	}}
+	svc.SetCloudProbe(nil, prober)
+
+	if _, err := svc.PlaybackInfo(t.Context(), media.ID, "user-1"); err != nil {
+		t.Fatalf("playback info: %v", err)
+	}
+	var persisted model.Media
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		if err := svc.repo.DB.First(&persisted, "id = ?", media.ID).Error; err != nil {
+			t.Fatal(err)
+		}
+		if persisted.DurationSec > 0 || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if prober.path != target || persisted.DurationSec != 3661 || persisted.SizeBytes != int64(len("target-video")) {
+		t.Fatalf("local playback probe path/media = %q/%#v", prober.path, persisted)
+	}
+	pb, err := svc.PlaybackInfo(t.Context(), media.ID, "user-1")
+	if err != nil {
+		t.Fatalf("playback info after probe: %v", err)
+	}
+	src := pb["MediaSources"].([]map[string]any)[0]
+	if src["RunTimeTicks"] != int64(3661)*10_000_000 || src["Size"] != int64(len("target-video")) {
+		t.Fatalf("playback info did not read persisted probe metadata: %#v", src)
+	}
+}
+
+func TestEmbyTrackProbeReservationDeduplicatesMedia(t *testing.T) {
+	svc := newTestEmbyService(t)
+	if !svc.reserveTrackProbe("media-1") {
+		t.Fatal("first track probe reservation should succeed")
+	}
+	if svc.reserveTrackProbe("media-1") {
+		t.Fatal("duplicate track probe reservation should fail")
+	}
+	if svc.reserveTrackProbe("media-2") {
+		t.Fatal("track probe reservations should respect the global ffprobe limit")
+	}
+	svc.releaseTrackProbe("media-1")
+	if !svc.reserveTrackProbe("media-1") {
+		t.Fatal("reservation should succeed after release")
+	}
+}
+
+func TestEmbyLocalSTRMProbeDiscardsStaleTargetResult(t *testing.T) {
+	svc := newTestEmbyService(t)
+	dir := t.TempDir()
+	targetA := filepath.Join(dir, "Movie-A.mkv")
+	targetB := filepath.Join(dir, "Movie-B.mkv")
+	if err := os.WriteFile(targetA, []byte("video-a"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(targetB, []byte("video-b"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	media := model.Media{
+		Base: model.Base{ID: "local-stale-probe"}, Path: filepath.Join(dir, "Movie.strm"),
+		Container: "strm", STRMURL: targetA,
+	}
+	if err := svc.repo.DB.Create(&media).Error; err != nil {
+		t.Fatal(err)
+	}
+	started := make(chan struct{})
+	release := make(chan struct{})
+	prober := &fakeCloudPlaybackProber{
+		probe: &ProbeResult{DurationSec: 100, Container: "matroska,webm"}, started: started, release: release,
+	}
+	svc.SetCloudProbe(nil, prober)
+
+	if _, err := svc.PlaybackInfo(t.Context(), media.ID, "user-1"); err != nil {
+		t.Fatal(err)
+	}
+	<-started
+	if err := svc.repo.DB.Model(&model.Media{}).Where("id = ?", media.ID).Update("strm_url", targetB).Error; err != nil {
+		t.Fatal(err)
+	}
+	close(release)
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		svc.trackProbeMu.Lock()
+		pending := len(svc.trackProbeInFlight)
+		svc.trackProbeMu.Unlock()
+		if pending == 0 || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	var persisted model.Media
+	if err := svc.repo.DB.First(&persisted, "id = ?", media.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if persisted.DurationSec != 0 {
+		t.Fatalf("stale target metadata was persisted: %#v", persisted)
 	}
 }
 

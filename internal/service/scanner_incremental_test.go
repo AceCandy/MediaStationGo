@@ -217,6 +217,44 @@ func TestScanLibraryReadsLocalSTRMTarget(t *testing.T) {
 	}
 }
 
+func TestScanLibraryReadsLocalSTRMFileTarget(t *testing.T) {
+	sc, repos := newScannerTestEnv(t)
+	root := t.TempDir()
+	lib := model.Library{Name: "STRM", Path: root, Type: "movie", Enabled: true}
+	if err := repos.Library.Create(t.Context(), &lib); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(root, "Cloud Movie.mkv")
+	if err := os.WriteFile(target, []byte("video"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	strmPath := filepath.Join(root, "Cloud Movie.strm")
+	if err := os.WriteFile(strmPath, []byte(target), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := sc.ScanLibrary(t.Context(), lib.ID); err != nil {
+		t.Fatalf("scan: %v", err)
+	}
+	var media model.Media
+	if err := repos.DB.Where("path = ?", strmPath).First(&media).Error; err != nil {
+		t.Fatal(err)
+	}
+	if media.STRMURL != target {
+		t.Fatalf("strm target = %q, want %q", media.STRMURL, target)
+	}
+}
+
+func TestReadLocalSTRMTargetRejectsNonMediaLocalFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "not-media.strm")
+	if err := os.WriteFile(path, []byte(filepath.Join(t.TempDir(), "secret.txt")), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if target, err := readLocalSTRMTarget(path); err != nil || target != "" {
+		t.Fatalf("target/error = %q/%v, want empty target", target, err)
+	}
+}
+
 func TestScanLibraryReadsTMDbHintFromMovieParent(t *testing.T) {
 	sc, repos := newScannerTestEnv(t)
 	root := t.TempDir()

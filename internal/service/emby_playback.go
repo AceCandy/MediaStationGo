@@ -19,49 +19,42 @@ func (e *EmbyService) PlaybackInfo(ctx context.Context, mediaID, userID string) 
 	if err != nil || m == nil {
 		return nil, err
 	}
-	e.ensureCloudTrackMetadata(ctx, &m.Media)
+	e.ensureTrackMetadata(ctx, &m.Media)
 	return map[string]any{
 		"MediaSources":  e.mediaSourcesForView(ctx, m, false, e.directPlayOnly(ctx)),
 		"PlaySessionId": fmt.Sprintf("%s-%d", m.ID, time.Now().Unix()),
 	}, nil
 }
 
-// ensureCloudTrackMetadata 在后台补齐云盘媒体的轨道元数据。
+// ensureTrackMetadata 在后台补齐云盘或本地 STRM 媒体的轨道元数据。
 //
 // 注意必须是异步的：此前这里在 PlaybackInfo 请求路径上同步执行
 // CloudResolve + ffprobe(HTTP)（最长 8 秒），既把第三方播放器的起播时间
 // 拖长到秒级，又让每一次点开详情/起播都可能触发一次云盘数据下载，是
 // Docker 部署下 CPU/带宽长期居高的来源之一。探测结果落库后，下一次
 // 请求自然能读到完整元数据。
-func (e *EmbyService) ensureCloudTrackMetadata(ctx context.Context, m *model.Media) {
-	if e == nil || m == nil || e.storage == nil || e.probe == nil || !mediaTrackMetadataMissing(m) {
+func (e *EmbyService) ensureTrackMetadata(ctx context.Context, m *model.Media) {
+	if e == nil || m == nil || e.probe == nil || !mediaTrackMetadataMissing(m) {
+		return
+	}
+	if target := localSTRMFileTarget(m); target != "" {
+		if e.reserveTrackProbe(m.ID) {
+			go e.probeLocalSTRMTrackMetadata(m.ID, target)
+		}
+		return
+	}
+	if e.storage == nil {
 		return
 	}
 	typ, ref, ok := parseCloudMediaPlaybackURL(m.STRMURL)
-	if !ok {
+	if !ok || !e.reserveTrackProbe(m.ID) {
 		return
 	}
-	mediaID := m.ID
-	e.cloudProbeMu.Lock()
-	if e.cloudProbeInFlight == nil {
-		e.cloudProbeInFlight = make(map[string]struct{})
-	}
-	if _, busy := e.cloudProbeInFlight[mediaID]; busy {
-		e.cloudProbeMu.Unlock()
-		return
-	}
-	e.cloudProbeInFlight[mediaID] = struct{}{}
-	e.cloudProbeMu.Unlock()
-
-	go e.probeCloudTrackMetadata(mediaID, typ, ref)
+	go e.probeCloudTrackMetadata(m.ID, typ, ref)
 }
 
 func (e *EmbyService) probeCloudTrackMetadata(mediaID, typ, ref string) {
-	defer func() {
-		e.cloudProbeMu.Lock()
-		delete(e.cloudProbeInFlight, mediaID)
-		e.cloudProbeMu.Unlock()
-	}()
+	defer e.releaseTrackProbe(mediaID)
 	probeCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	link, err := e.storage.CloudResolve(probeCtx, typ, ref, "")
@@ -72,18 +65,76 @@ func (e *EmbyService) probeCloudTrackMetadata(mediaID, typ, ref string) {
 		return
 	}
 	probe, err := e.probe.ProbeHTTP(probeCtx, link.URL, link.Headers)
+	cancel()
 	if err != nil {
 		if e.log != nil {
 			e.log.Debug("playback cloud ffprobe failed", zap.String("media_id", mediaID), zap.Error(err))
 		}
 		return
 	}
-	updates := probeResultUpdates(probe)
+	writeCtx, writeCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer writeCancel()
+	current, err := e.repo.Media.FindByID(writeCtx, mediaID)
+	if err != nil || current == nil {
+		return
+	}
+	currentType, currentRef, currentOK := parseCloudMediaPlaybackURL(current.STRMURL)
+	if !currentOK || currentType != typ || currentRef != ref {
+		return
+	}
+	e.persistTrackMetadata(writeCtx, mediaID, probeResultUpdates(probe))
+}
+
+func (e *EmbyService) probeLocalSTRMTrackMetadata(mediaID, target string) {
+	defer e.releaseTrackProbe(mediaID)
+	probeCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	probe, err := e.probe.Probe(probeCtx, target)
+	cancel()
+	if err != nil {
+		if e.log != nil {
+			e.log.Debug("playback local strm ffprobe failed", zap.String("media_id", mediaID), zap.Error(err))
+		}
+		return
+	}
+	writeCtx, writeCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer writeCancel()
+	current, err := e.repo.Media.FindByID(writeCtx, mediaID)
+	if err != nil || current == nil || localSTRMFileTarget(current) != target {
+		return
+	}
+	e.persistTrackMetadata(writeCtx, mediaID, localProbeResultUpdates(probe, target))
+}
+
+func (e *EmbyService) reserveTrackProbe(mediaID string) bool {
+	e.trackProbeMu.Lock()
+	defer e.trackProbeMu.Unlock()
+	if e.trackProbeInFlight == nil {
+		e.trackProbeInFlight = make(map[string]struct{})
+	}
+	limit := 1
+	if e.cfg != nil {
+		limit = normalizeFFprobeMaxConcurrent(e.cfg.App.FFprobeMaxConcurrent)
+	}
+	if _, busy := e.trackProbeInFlight[mediaID]; busy || len(e.trackProbeInFlight) >= limit {
+		return false
+	}
+	e.trackProbeInFlight[mediaID] = struct{}{}
+	return true
+}
+
+func (e *EmbyService) releaseTrackProbe(mediaID string) {
+	e.trackProbeMu.Lock()
+	delete(e.trackProbeInFlight, mediaID)
+	e.trackProbeMu.Unlock()
+}
+
+func (e *EmbyService) persistTrackMetadata(ctx context.Context, mediaID string, updates map[string]any) {
 	if len(updates) == 0 {
 		return
 	}
-	if err := e.repo.DB.WithContext(probeCtx).Model(&model.Media{}).Where("id = ?", mediaID).Updates(updates).Error; err != nil && e.log != nil {
-		e.log.Debug("persist playback cloud probe failed", zap.String("media_id", mediaID), zap.Error(err))
+	if err := e.repo.DB.WithContext(ctx).Model(&model.Media{}).Where("id = ?", mediaID).Updates(updates).Error; err != nil && e.log != nil {
+		e.log.Debug("persist playback track probe failed", zap.String("media_id", mediaID), zap.Error(err))
 	}
 }
 
@@ -173,7 +224,8 @@ func (e *EmbyService) playableMedia(ctx context.Context, id, userID string) (*mo
 // /Videos/{id}/stream（客户端会继续携带 X-Emby-Token 或 append api_key）。
 func (e *EmbyService) mediaSource(ctx context.Context, m *model.Media, displayName string, asEmbedded, directOnly bool) map[string]any {
 	container := embyMediaContainer(m)
-	isCloud := strings.TrimSpace(m.STRMURL) != ""
+	isLocalSTRM := localSTRMFileTarget(m) != ""
+	isCloud := strings.TrimSpace(m.STRMURL) != "" && !isLocalSTRM
 	playURL := e.embyMediaPlayURL(ctx, m, container, isCloud)
 	if isCloud {
 		// Cloud/WebDAV media is already a direct/proxy stream. Advertising HLS
@@ -191,12 +243,10 @@ func (e *EmbyService) mediaSource(ctx context.Context, m *model.Media, displayNa
 			src["TranscodingUrl"] = "/Videos/" + m.ID + "/master.m3u8"
 		}
 	}
-	if strings.TrimSpace(m.STRMURL) != "" && playURL != "" {
-		// STRM / cloud:// media must stay behind a token-aware endpoint. When
-		// STRM playback is enabled we expose /api/stream so third-party clients
-		// follow the same STRM entry as generated .strm files; when disabled we
-		// expose /Videos/{id}/stream so playback uses the Emby 302/proxy path.
-		src["IsRemote"] = true
+	if (isCloud || isLocalSTRM) && playURL != "" {
+		// Never expose the backing .strm text path. Cloud STRM sources use the
+		// configured token-aware endpoint; local STRM sources use /Videos.
+		src["IsRemote"] = isCloud
 		src["Path"] = playURL
 	}
 	return src
@@ -229,6 +279,11 @@ func (e *EmbyService) baseMediaSource(m *model.Media, displayName, container str
 
 func embyMediaContainer(m *model.Media) string {
 	container := strings.Trim(strings.ToLower(m.Container), ". ")
+	if target := localSTRMFileTarget(m); target != "" {
+		if ext := strings.TrimPrefix(strings.ToLower(filepath.Ext(target)), "."); ext != "" {
+			return ext
+		}
+	}
 	if container == "" {
 		container = strings.TrimPrefix(strings.ToLower(filepath.Ext(m.Path)), ".")
 	}

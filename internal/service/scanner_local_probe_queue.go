@@ -16,8 +16,8 @@ func (s *ScannerService) localMediaProbeWorker() {
 	}
 }
 
-func (s *ScannerService) queueLocalMediaProbe(path string) bool {
-	task, ok := s.newLocalMediaProbeTask(path)
+func (s *ScannerService) queueLocalMediaProbe(path, probePath string) bool {
+	task, ok := s.newLocalMediaProbeTask(path, probePath)
 	if !ok {
 		return false
 	}
@@ -33,12 +33,12 @@ func (s *ScannerService) queueLocalMediaProbe(path string) bool {
 	return false
 }
 
-func (s *ScannerService) newLocalMediaProbeTask(path string) (localMediaProbeTask, bool) {
+func (s *ScannerService) newLocalMediaProbeTask(path, probePath string) (localMediaProbeTask, bool) {
 	if s == nil || s.probe == nil {
 		return localMediaProbeTask{}, false
 	}
-	task := localMediaProbeTask{path: strings.TrimSpace(path)}
-	return task, task.path != ""
+	task := localMediaProbeTask{path: strings.TrimSpace(path), probePath: strings.TrimSpace(probePath)}
+	return task, task.path != "" && task.probePath != ""
 }
 
 func (s *ScannerService) startLocalMediaProbeWorkers() {
@@ -90,19 +90,27 @@ func (s *ScannerService) probeLocalMediaAsync(task localMediaProbeTask) {
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
-	probe, err := s.probe.Probe(ctx, task.path)
+	probe, err := s.probe.Probe(ctx, task.probePath)
+	cancel()
 	if err != nil {
 		if s.log != nil {
 			s.log.Debug("local media async probe failed", zap.String("path", task.path), zap.Error(err))
 		}
 		return
 	}
-	updates := probeResultUpdates(probe)
+	updates := localProbeResultUpdates(probe, task.probePath)
 	if len(updates) == 0 {
 		return
 	}
-	if err := s.repo.DB.WithContext(ctx).Model(&model.Media{}).Where("path = ?", task.path).Updates(updates).Error; err != nil {
+	writeCtx, writeCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer writeCancel()
+	if task.path != task.probePath {
+		var current model.Media
+		if err := s.repo.DB.WithContext(writeCtx).Where("path = ?", task.path).First(&current).Error; err != nil || localSTRMFileTarget(&current) != task.probePath {
+			return
+		}
+	}
+	if err := s.repo.DB.WithContext(writeCtx).Model(&model.Media{}).Where("path = ?", task.path).Updates(updates).Error; err != nil {
 		if s.log != nil {
 			s.log.Debug("update local media track metadata failed", zap.String("path", task.path), zap.Error(err))
 		}

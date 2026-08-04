@@ -231,7 +231,8 @@ type cloudMediaProbeTask struct {
 }
 
 type localMediaProbeTask struct {
-	path string
+	path      string
+	probePath string
 }
 
 type existingCloudMedia struct {
