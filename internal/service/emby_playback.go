@@ -19,9 +19,15 @@ func (e *EmbyService) PlaybackInfo(ctx context.Context, mediaID, userID string) 
 	if err != nil || m == nil {
 		return nil, err
 	}
-	e.ensureTrackMetadata(ctx, &m.Media)
+	siblings := e.mediaVersionSiblings(ctx, m)
+	if len(siblings) == 0 {
+		siblings = []model.MediaView{*m}
+	}
+	for i := range siblings {
+		e.ensureTrackMetadata(ctx, &siblings[i].Media)
+	}
 	return map[string]any{
-		"MediaSources":  e.mediaSourcesForView(ctx, m, false, e.directPlayOnly(ctx)),
+		"MediaSources":  e.mediaSourcesFromViews(ctx, siblings, false, e.directPlayOnly(ctx)),
 		"PlaySessionId": fmt.Sprintf("%s-%d", m.ID, time.Now().Unix()),
 	}, nil
 }
@@ -112,11 +118,7 @@ func (e *EmbyService) reserveTrackProbe(mediaID string) bool {
 	if e.trackProbeInFlight == nil {
 		e.trackProbeInFlight = make(map[string]struct{})
 	}
-	limit := 1
-	if e.cfg != nil {
-		limit = normalizeFFprobeMaxConcurrent(e.cfg.App.FFprobeMaxConcurrent)
-	}
-	if _, busy := e.trackProbeInFlight[mediaID]; busy || len(e.trackProbeInFlight) >= limit {
+	if _, busy := e.trackProbeInFlight[mediaID]; busy {
 		return false
 	}
 	e.trackProbeInFlight[mediaID] = struct{}{}
@@ -247,7 +249,7 @@ func (e *EmbyService) mediaSource(ctx context.Context, m *model.Media, displayNa
 		// Never expose the backing .strm text path. Cloud STRM sources use the
 		// configured token-aware endpoint; local STRM sources use /Videos.
 		src["IsRemote"] = isCloud
-		src["Path"] = playURL
+		src["Path"] = embyMediaSourcePath(m, playURL, isLocalSTRM, isCloud)
 	}
 	return src
 }
@@ -256,7 +258,7 @@ func (e *EmbyService) baseMediaSource(m *model.Media, displayName, container str
 	if strings.TrimSpace(displayName) == "" {
 		displayName = m.Title
 	}
-	return map[string]any{
+	src := map[string]any{
 		"Id":                    m.ID,
 		"Name":                  displayName,
 		"Path":                  m.Path,
@@ -275,6 +277,27 @@ func (e *EmbyService) baseMediaSource(m *model.Media, displayName, container str
 		"RunTimeTicks":          int64(m.DurationSec) * 10_000_000,
 		"MediaStreams":          e.mediaStreams(m),
 	}
+	if bitrate := embyAverageBitrate(m); bitrate > 0 {
+		src["Bitrate"] = bitrate
+	}
+	return src
+}
+
+func embyMediaSourcePath(m *model.Media, playURL string, isLocalSTRM, isCloud bool) string {
+	if m == nil {
+		return ""
+	}
+	if (isCloud || isLocalSTRM) && strings.TrimSpace(playURL) != "" {
+		return playURL
+	}
+	return m.Path
+}
+
+func embyAverageBitrate(m *model.Media) int64 {
+	if m == nil || m.SizeBytes <= 0 || m.DurationSec <= 0 {
+		return 0
+	}
+	return m.SizeBytes * 8 / int64(m.DurationSec)
 }
 
 func embyMediaContainer(m *model.Media) string {

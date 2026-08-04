@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"path/filepath"
 	"testing"
 	"time"
@@ -48,13 +49,19 @@ func TestReserveLocalMediaProbeRejectsDuplicateAndReleaseAllowsRetry(t *testing.
 	}
 }
 
-func TestEnqueueLocalMediaProbeReportsFullQueue(t *testing.T) {
+func TestEnqueueLocalMediaProbeWaitsForSpace(t *testing.T) {
 	scanner := newLocalProbeQueueTestScanner(1)
-	if !scanner.enqueueLocalMediaProbe(localMediaProbeTask{path: "C:/library/a.strm", probePath: "C:/media/a.mkv"}) {
+	if !scanner.enqueueLocalMediaProbe(context.Background(), localMediaProbeTask{path: "C:/library/a.strm", probePath: "C:/media/a.mkv"}) {
 		t.Fatal("first enqueue should fit buffer")
 	}
-	if scanner.enqueueLocalMediaProbe(localMediaProbeTask{path: "C:/library/b.strm", probePath: "C:/media/b.mkv"}) {
-		t.Fatal("second enqueue should report full queue")
+	enqueued := make(chan bool, 1)
+	go func() {
+		enqueued <- scanner.enqueueLocalMediaProbe(context.Background(), localMediaProbeTask{path: "C:/library/b.strm", probePath: "C:/media/b.mkv"})
+	}()
+	select {
+	case <-enqueued:
+		t.Fatal("second enqueue should wait while the queue is full")
+	case <-time.After(20 * time.Millisecond):
 	}
 	select {
 	case task := <-scanner.localMediaProbeQueue:
@@ -63,6 +70,17 @@ func TestEnqueueLocalMediaProbeReportsFullQueue(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("expected queued task")
+	}
+	select {
+	case ok := <-enqueued:
+		if !ok {
+			t.Fatal("second enqueue should succeed after space is available")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("second enqueue did not resume")
+	}
+	if task := <-scanner.localMediaProbeQueue; task.path != "C:/library/b.strm" {
+		t.Fatalf("queued task = %#v, want second path", task)
 	}
 }
 
@@ -73,7 +91,19 @@ func TestLocalProbeAfterUsesSTRMFileTarget(t *testing.T) {
 	target := filepath.Join(dir, "movie.mkv")
 	media := &model.Media{Path: strmPath, Container: "strm", STRMURL: target}
 
-	if after := scanner.localProbeAfter(media, strmPath, ".strm"); after == nil {
+	if after := scanner.localProbeAfter(context.Background(), media, strmPath, ".strm"); after == nil {
 		t.Fatal("local STRM target should schedule ffprobe after scan")
+	}
+}
+
+func TestEnqueueLocalMediaProbeHonorsContextCancellation(t *testing.T) {
+	scanner := newLocalProbeQueueTestScanner(1)
+	if !scanner.enqueueLocalMediaProbe(context.Background(), localMediaProbeTask{path: "a", probePath: "a.mkv"}) {
+		t.Fatal("first enqueue should fit buffer")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if scanner.enqueueLocalMediaProbe(ctx, localMediaProbeTask{path: "b", probePath: "b.mkv"}) {
+		t.Fatal("canceled context should prevent waiting on a full queue")
 	}
 }

@@ -200,6 +200,10 @@ func (e *EmbyService) itemPayload(ctx context.Context, m *model.MediaView, fav b
 	if durationMs > 0 {
 		pct = float64(posMs) / float64(durationMs) * 100
 	}
+	container := embyMediaContainer(&m.Media)
+	isLocalSTRM := localSTRMFileTarget(&m.Media) != ""
+	isCloud := strings.TrimSpace(m.STRMURL) != "" && !isLocalSTRM
+	playURL := e.embyMediaPlayURL(ctx, &m.Media, container, isCloud)
 
 	item := map[string]any{
 		"Id":                itemID,
@@ -215,11 +219,11 @@ func (e *EmbyService) itemPayload(ctx context.Context, m *model.MediaView, fav b
 		"Overview":          m.Overview,
 		"RunTimeTicks":      runTimeTicks,
 		"CommunityRating":   m.Rating,
-		"Container":         m.Container,
+		"Container":         container,
 		"Width":             m.Width,
 		"Height":            m.Height,
 		"DateCreated":       m.CreatedAt,
-		"Path":              m.Path,
+		"Path":              embyMediaSourcePath(&m.Media, playURL, isLocalSTRM, isCloud),
 		"ParentId":          parentID,
 		"SeasonId":          seasonItemID,
 		"SeasonName":        seasonName(m.SeasonNum),

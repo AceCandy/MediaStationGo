@@ -1,14 +1,43 @@
 package service
 
 import (
+	"context"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 	"github.com/ShukeBta/MediaStationGo/internal/service/cloud"
 )
+
+type recordingLocalPlaybackProber struct {
+	mu    sync.Mutex
+	probe *ProbeResult
+	paths []string
+}
+
+func (p *recordingLocalPlaybackProber) Probe(_ context.Context, path string) (*ProbeResult, error) {
+	p.mu.Lock()
+	p.paths = append(p.paths, path)
+	p.mu.Unlock()
+	return p.probe, nil
+}
+
+func (p *recordingLocalPlaybackProber) ProbeHTTP(_ context.Context, _ string, _ map[string]string) (*ProbeResult, error) {
+	return p.probe, nil
+}
+
+func (p *recordingLocalPlaybackProber) probedPaths() map[string]bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	paths := make(map[string]bool, len(p.paths))
+	for _, path := range p.paths {
+		paths[path] = true
+	}
+	return paths
+}
 
 func TestEmbyRootItemsExposeLibraries(t *testing.T) {
 	svc := newTestEmbyService(t)
@@ -307,7 +336,7 @@ func TestEmbyPlaybackInfoRespectsDirectPlayOnly(t *testing.T) {
 	}
 }
 
-func TestEmbyPlaybackInfoUsesSharedMetadataForNameAndVisibility(t *testing.T) {
+func TestEmbyPlaybackInfoUsesSourceNameAndSharedVisibility(t *testing.T) {
 	svc := newTestEmbyService(t)
 	viewer := &model.User{Username: "viewer", Role: "user", Tier: "free", IsActive: true, HideAdult: true}
 	if err := svc.repo.User.Create(t.Context(), viewer); err != nil {
@@ -333,8 +362,8 @@ func TestEmbyPlaybackInfoUsesSharedMetadataForNameAndVisibility(t *testing.T) {
 		t.Fatalf("playback info: %v", err)
 	}
 	source := pb["MediaSources"].([]map[string]any)[0]
-	if source["Name"] != metadata.Title {
-		t.Fatalf("media source name = %#v, want shared title %q", source["Name"], metadata.Title)
+	if source["Name"] != "shared" {
+		t.Fatalf("media source name = %#v, want source filename without extension", source["Name"])
 	}
 	hidden, err := svc.PlaybackInfo(t.Context(), media.ID, viewer.ID)
 	if err != nil {
@@ -397,9 +426,11 @@ func TestEmbyMediaSourceUsesLocalSTRMTargetContainer(t *testing.T) {
 		t.Fatal(err)
 	}
 	media := &model.Media{
-		Base:  model.Base{ID: "local-path-strm"},
-		Title: "Local STRM",
-		Path:  strmPath,
+		Base:        model.Base{ID: "local-path-strm"},
+		Title:       "Local STRM",
+		Path:        strmPath,
+		SizeBytes:   8_000,
+		DurationSec: 10,
 	}
 
 	src := svc.mediaSource(t.Context(), media, media.Title, false, false)
@@ -411,6 +442,68 @@ func TestEmbyMediaSourceUsesLocalSTRMTargetContainer(t *testing.T) {
 	}
 	if src["Path"] != "/Videos/local-path-strm/stream.mkv" {
 		t.Fatalf("local strm path should not expose the strm text file: %#v", src)
+	}
+	if src["Bitrate"] != int64(6_400) {
+		t.Fatalf("local strm bitrate = %v, want 6400", src["Bitrate"])
+	}
+}
+
+func TestEmbyMediaVersionNameRemovesIdentityAndEpisodeParts(t *testing.T) {
+	tests := []struct {
+		name     string
+		media    model.Media
+		fallback string
+		want     string
+	}{
+		{
+			name: "local strm chinese episode",
+			media: model.Media{
+				Path:      "/strm/紫川.strm",
+				Container: "strm",
+				STRMURL:   "/media/紫川.2024.S02E24.第24集.2160p.WEB-DL.H.265-ColorTV.mkv",
+				Title:     "紫川",
+				Year:      2024,
+			},
+			fallback: "紫川",
+			want:     "2160p.WEB-DL.H.265-ColorTV",
+		},
+		{
+			name: "movie title with dots",
+			media: model.Media{
+				Path:  "/media/Dune.Part.Two.2024.2160p.WEB-DL.mkv",
+				Title: "Dune Part Two",
+				Year:  2024,
+			},
+			fallback: "Dune Part Two",
+			want:     "2160p.WEB-DL",
+		},
+		{
+			name: "source title differs from metadata language",
+			media: model.Media{
+				Path:         "/media/Archives.The.Nanyang.Mystery.S01E02.2160p.WEB-DL.mkv",
+				Title:        "南部档案",
+				OriginalName: "Archives The Nanyang Mystery",
+			},
+			fallback: "南部档案",
+			want:     "2160p.WEB-DL",
+		},
+		{
+			name: "unknown version tags use title fallback",
+			media: model.Media{
+				Path:  "/media/Movie.Title.2024.S01E02.Custom.Release.mkv",
+				Title: "Movie Title",
+				Year:  2024,
+			},
+			fallback: "Movie Title",
+			want:     "Custom.Release",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := embyMediaVersionName(&tt.media, tt.fallback); got != tt.want {
+				t.Fatalf("embyMediaVersionName() = %q, want %q", got, tt.want)
+			}
+		})
 	}
 }
 
@@ -464,6 +557,122 @@ func TestEmbyPlaybackInfoAsynchronouslyProbesLocalSTRMTarget(t *testing.T) {
 	}
 }
 
+func TestEmbyPlaybackInfoProbesAllLocalSTRMVersions(t *testing.T) {
+	svc := newTestEmbyService(t)
+	svc.cfg.App.FFprobeMaxConcurrent = 1
+	lib := model.Library{Name: "电影", Path: "/media/movies", Type: "movie", Enabled: true}
+	if err := svc.repo.Library.Create(t.Context(), &lib); err != nil {
+		t.Fatal(err)
+	}
+	metadata := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{
+		Kind: model.MetadataKindMovie, Title: "Multi STRM", Source: "local",
+	})
+	dir := t.TempDir()
+	targets := []string{filepath.Join(dir, "Movie-A.mkv"), filepath.Join(dir, "Movie-B.mp4")}
+	contents := [][]byte{[]byte("target-a"), []byte("target-version-b")}
+	media := make([]model.Media, 0, len(targets))
+	for i, target := range targets {
+		if err := os.WriteFile(target, contents[i], 0o644); err != nil {
+			t.Fatal(err)
+		}
+		strmPath := filepath.Join(dir, "Movie-"+string(rune('A'+i))+".strm")
+		if err := os.WriteFile(strmPath, []byte(target), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		row := model.Media{
+			Base: model.Base{ID: "local-version-" + string(rune('a'+i))}, LibraryID: lib.ID, MetadataID: metadata.ID,
+			Title: metadata.Title, Path: strmPath, Container: "strm",
+		}
+		if err := svc.repo.DB.Create(&row).Error; err != nil {
+			t.Fatal(err)
+		}
+		media = append(media, row)
+	}
+	prober := &recordingLocalPlaybackProber{probe: &ProbeResult{
+		DurationSec: 2, Width: 1920, Height: 1080, VideoCodec: "hevc", AudioCodec: "aac", Container: "matroska,webm",
+	}}
+	svc.SetCloudProbe(nil, prober)
+
+	if _, err := svc.PlaybackInfo(t.Context(), media[0].ID, "user-1"); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		var completed int64
+		if err := svc.repo.DB.Model(&model.Media{}).
+			Where("id IN ? AND duration_sec > 0", []string{media[0].ID, media[1].ID}).
+			Count(&completed).Error; err != nil {
+			t.Fatal(err)
+		}
+		if completed == 2 || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	paths := prober.probedPaths()
+	if !paths[targets[0]] || !paths[targets[1]] {
+		t.Fatalf("probed paths = %#v, want both targets", paths)
+	}
+
+	pb, err := svc.PlaybackInfo(t.Context(), media[0].ID, "user-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sources := pb["MediaSources"].([]map[string]any)
+	if len(sources) != 2 {
+		t.Fatalf("media sources = %#v, want two versions", sources)
+	}
+	wantBitrates := map[string]int64{
+		media[0].ID: int64(len(contents[0])) * 4,
+		media[1].ID: int64(len(contents[1])) * 4,
+	}
+	for _, source := range sources {
+		id := source["Id"].(string)
+		if source["Bitrate"] != wantBitrates[id] {
+			t.Fatalf("source %s bitrate = %v, want %d", id, source["Bitrate"], wantBitrates[id])
+		}
+	}
+}
+
+func TestEmbyItemUsesLocalSTRMMediaSourceContainerAndPath(t *testing.T) {
+	svc := newTestEmbyService(t)
+	lib := model.Library{Name: "电影", Path: "/media/movies", Type: "movie", Enabled: true}
+	if err := svc.repo.Library.Create(t.Context(), &lib); err != nil {
+		t.Fatal(err)
+	}
+	metadata := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{
+		Kind: model.MetadataKindMovie, Title: "Local STRM", Source: "local",
+	})
+	dir := t.TempDir()
+	target := filepath.Join(dir, "LocalMovie.mkv")
+	if err := os.WriteFile(target, []byte("video"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	strmPath := filepath.Join(dir, "LocalMovie.strm")
+	if err := os.WriteFile(strmPath, []byte(target), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	media := model.Media{
+		Base: model.Base{ID: "local-item-strm"}, LibraryID: lib.ID, MetadataID: metadata.ID,
+		Title: metadata.Title, Path: strmPath, Container: "strm",
+	}
+	if err := svc.repo.DB.Create(&media).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	item, err := svc.Item(t.Context(), media.ID, "user-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := item["MediaSources"].([]map[string]any)[0]
+	if item["Container"] != "mkv" || item["Container"] != source["Container"] {
+		t.Fatalf("item/source container mismatch: %#v", item)
+	}
+	if item["Path"] != "/Videos/local-item-strm/stream.mkv" || item["Path"] != source["Path"] {
+		t.Fatalf("item/source path mismatch: %#v", item)
+	}
+}
+
 func TestEmbyTrackProbeReservationDeduplicatesMedia(t *testing.T) {
 	svc := newTestEmbyService(t)
 	if !svc.reserveTrackProbe("media-1") {
@@ -472,8 +681,8 @@ func TestEmbyTrackProbeReservationDeduplicatesMedia(t *testing.T) {
 	if svc.reserveTrackProbe("media-1") {
 		t.Fatal("duplicate track probe reservation should fail")
 	}
-	if svc.reserveTrackProbe("media-2") {
-		t.Fatal("track probe reservations should respect the global ffprobe limit")
+	if !svc.reserveTrackProbe("media-2") {
+		t.Fatal("different media should queue behind the ffprobe limiter")
 	}
 	svc.releaseTrackProbe("media-1")
 	if !svc.reserveTrackProbe("media-1") {

@@ -16,7 +16,7 @@ func (s *ScannerService) localMediaProbeWorker() {
 	}
 }
 
-func (s *ScannerService) queueLocalMediaProbe(path, probePath string) bool {
+func (s *ScannerService) queueLocalMediaProbe(ctx context.Context, path, probePath string) bool {
 	task, ok := s.newLocalMediaProbeTask(path, probePath)
 	if !ok {
 		return false
@@ -25,7 +25,7 @@ func (s *ScannerService) queueLocalMediaProbe(path, probePath string) bool {
 	if !s.reserveLocalMediaProbe(task.path) {
 		return false
 	}
-	if s.enqueueLocalMediaProbe(task) {
+	if s.enqueueLocalMediaProbe(ctx, task) {
 		return true
 	}
 	s.releaseLocalMediaProbe(task.path)
@@ -69,11 +69,14 @@ func (s *ScannerService) releaseLocalMediaProbe(path string) {
 	s.localMediaProbeMu.Unlock()
 }
 
-func (s *ScannerService) enqueueLocalMediaProbe(task localMediaProbeTask) bool {
+func (s *ScannerService) enqueueLocalMediaProbe(ctx context.Context, task localMediaProbeTask) bool {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	select {
 	case s.localMediaProbeQueue <- task:
 		return true
-	default:
+	case <-ctx.Done():
 		return false
 	}
 }

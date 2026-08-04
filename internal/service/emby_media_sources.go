@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -17,7 +19,7 @@ func (e *EmbyService) mediaSourcesForItem(ctx context.Context, m *model.Media, a
 	}
 	view, err := e.repo.MediaView.FindByID(ctx, m.ID)
 	if err != nil || view == nil {
-		return []map[string]any{e.mediaSource(ctx, m, m.Title, asEmbedded, directOnly)}
+		return []map[string]any{e.mediaSource(ctx, m, embyMediaVersionName(m, m.Title), asEmbedded, directOnly)}
 	}
 	return e.mediaSourcesForView(ctx, view, asEmbedded, directOnly)
 }
@@ -25,13 +27,65 @@ func (e *EmbyService) mediaSourcesForItem(ctx context.Context, m *model.Media, a
 func (e *EmbyService) mediaSourcesForView(ctx context.Context, m *model.MediaView, asEmbedded, directOnly bool) []map[string]any {
 	siblings := e.mediaVersionSiblings(ctx, m)
 	if len(siblings) == 0 {
-		return []map[string]any{e.mediaSource(ctx, &m.Media, m.Title, asEmbedded, directOnly)}
+		return []map[string]any{e.mediaSource(ctx, &m.Media, embyMediaVersionName(&m.Media, m.Title), asEmbedded, directOnly)}
 	}
+	return e.mediaSourcesFromViews(ctx, siblings, asEmbedded, directOnly)
+}
+
+func (e *EmbyService) mediaSourcesFromViews(ctx context.Context, siblings []model.MediaView, asEmbedded, directOnly bool) []map[string]any {
 	sources := make([]map[string]any, 0, len(siblings))
 	for i := range siblings {
-		sources = append(sources, e.mediaSource(ctx, &siblings[i].Media, siblings[i].Title, asEmbedded, directOnly))
+		name := embyMediaVersionName(&siblings[i].Media, siblings[i].Title)
+		sources = append(sources, e.mediaSource(ctx, &siblings[i].Media, name, asEmbedded, directOnly))
 	}
 	return sources
+}
+
+var (
+	embyVersionBoundaryRE = regexp.MustCompile(`(?i)(?:^|[\s._\-\[\(\{])((?:\d{3,4}p|\d{2,3}fps|4k|8k|uhd|fhd|ds4k|blu[._-]?ray|b[dr]rip|web[._-]?dl|web[._-]?rip|hdtv|remux|dvd[._-]?rip|hdr10?|dovi|sdr|hevc|avc|av1|vvc|[hx][._-]?26[456]|ddp?\d*|eac3|truehd|dts|aac\d*|flac|atmos))(?:$|[\s._\-\]\)\}])`)
+	embyNameSeparatorRE   = regexp.MustCompile(`[\s._\-:：·]+`)
+)
+
+func embyMediaVersionName(m *model.Media, fallback string) string {
+	if m == nil {
+		return strings.TrimSpace(fallback)
+	}
+	source := m.Path
+	if target := localSTRMFileTarget(m); target != "" {
+		source = target
+	}
+	base := pathBaseSlash(source)
+	name := strings.TrimSuffix(base, filepath.Ext(base))
+	if match := embyVersionBoundaryRE.FindStringSubmatchIndex(name); len(match) >= 4 {
+		return cleanEmbyVersionName(name[match[2]:], fallback)
+	}
+	return cleanEmbyVersionName(name, fallback, m.Title, m.OriginalName)
+}
+
+func cleanEmbyVersionName(name, fallback string, titles ...string) string {
+	name = yearPattern.ReplaceAllString(name, " ")
+	for _, pattern := range []*regexp.Regexp{patSEnE, patDanglingSE, patNxE, patEP, patCNRange, patCN, patSeasonOnly, patCNSeason} {
+		name = pattern.ReplaceAllString(name, " ")
+	}
+	for _, title := range append(titles, fallback) {
+		parts := embyNameSeparatorRE.Split(strings.TrimSpace(title), -1)
+		kept := parts[:0]
+		for _, part := range parts {
+			if part != "" {
+				kept = append(kept, regexp.QuoteMeta(part))
+			}
+		}
+		if len(kept) == 0 {
+			continue
+		}
+		pattern := regexp.MustCompile(`(?i)(?:^|[\s._\-:：·]+)` + strings.Join(kept, `[\s._\-:：·]+`) + `(?:$|[\s._\-:：·]+)`)
+		name = pattern.ReplaceAllString(name, " ")
+	}
+	name = strings.Trim(name, " ._-:：·[](){}")
+	if name == "" {
+		return "默认版本"
+	}
+	return name
 }
 
 func (e *EmbyService) mediaVersionSiblings(ctx context.Context, m *model.MediaView) []model.MediaView {

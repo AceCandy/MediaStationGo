@@ -35,6 +35,9 @@
 - Graph merge recursively pairs Series children by season and episode number, moves media and metadata-owned state, deduplicates user relations, then hard-deletes the unreferenced source metadata.
 - Lists, permissions, pagination, search, playback display text, and Emby display text read `MediaView`. File opening, probing, duration, codecs, path, and STRM URL read the embedded `Media` facts.
 - A local `.strm` keeps the sidecar in `Media.Path` and its supported absolute media target in `Media.STRMURL`. Scan, manual reprobe, and asynchronous PlaybackInfo repair probe the target while persisting facts to the original Media row; stale target results must be discarded.
+- Emby `PlaybackInfo` must enumerate every visible sibling `Media` version before scheduling asynchronous track repair. The playback-layer in-flight map deduplicates by `Media.ID`; the `FFprobeService` limiter remains the only actual probe concurrency limit.
+- For a local `.strm`, Emby item and source `Container`/`Path` must describe the resolved `Media.STRMURL` target and must never expose the `.strm` sidecar as the playable path. A source `Bitrate` is the average `SizeBytes * 8 / DurationSec` only when both inputs are positive.
+- Emby `MediaSource.Name` is a version label derived from the real source filename (the resolved STRM target for local STRM). Remove the extension, title/year, season/episode markers, and preserve the remaining technical release markers; use `默认版本` when no label remains.
 - A successful single-media manual scrape response must be read after persistence from `MediaView`; returning the raw `Media` row can expose the previous scan title or omit shared metadata fields. A failed or empty refresh is an internal error, not a successful `null` response.
 - `MediaView` uses an inner join to `metadata_items`; persisted unresolved media does not exist and scan hints never replace canonical display identity.
 - Emby movie, Series, Season and Episode item identity and user state always use real `MetadataItem.ID`. Concrete `MediaSource` identity and the last or preferred playable version use `Media.ID`; there is no media-ID identity fallback or virtual Series/Season ID.
@@ -64,6 +67,9 @@
 | Provider metadata implies a different category/library | Persist metadata and artwork only; preserve the media path and library ID |
 | User cannot view NSFW/library | Filter in `MediaView` query before pagination or playback response creation |
 | Any library, root, or media hard-delete fails | Roll back the whole library deletion and return an error |
+| Playback repair sees multiple visible versions | Schedule each missing version asynchronously; do not reject siblings merely because the playback reservation map is full |
+| Local probe queue is full | Wait for queue capacity until the caller context is canceled; release the per-path reservation on cancellation |
+| Local STRM source is exposed through Emby | Resolve the target for source path/container/name; never return the `.strm` text path as a playable source |
 
 ### 5. Good / Base / Bad Cases
 
@@ -79,6 +85,8 @@
 - Bad: using GORM's scoped `Delete` for a library or its media and leaving rows in the recycle bin.
 - Good: a scan or scrape changes title, identifiers, artwork and scrape status while the playable file path and library ID remain unchanged.
 - Bad: calling `ReclassifyMisclassifiedMedia` after a scrape and silently moving or deleting a local media/STRM file.
+- Good: a two-version local STRM item schedules both target files, persists each result to its original `Media` row, and exposes matching target container/path/name/average bitrate.
+- Bad: limiting sibling scheduling by the playback reservation map or deriving a source label from the `.strm` sidecar/title, which leaves versions unprobed or displays `strm`/title metadata.
 
 ### 6. Tests Required
 
@@ -88,10 +96,12 @@
 - Merge: move multiple media versions, favorites, playlists and history; recursively merge Series children; assert duplicate user state is resolved and source metadata is physically gone.
 - Query: add multiple identifiers for one metadata/provider/kind and assert media count, page length, and order remain unchanged.
 - Visibility: shared `NSFW` must hide list, search, detail, and PlaybackInfo results before pagination/response mapping.
-- Playback/Emby: assert source `Name` comes from `MediaView.Title` while source path/container/codecs come from `Media`.
+- Playback/Emby: assert item display `Name` comes from shared metadata while each `MediaSource.Name` comes from the real source filename with title, year, season/episode markers, and extension removed; source path/container/codecs still come from `Media`.
 - Playback/Emby: assert multiple media versions expose one metadata item ID, share user state, and retain distinct media source IDs.
 - Playback/Emby: assert `/Videos/{metadata_id}/stream` and HLS requests resolve to a concrete visible media source ID before opening files or transcoding.
 - Playback/Emby: assert local STRM scan, manual reprobe, and missing-metadata PlaybackInfo use the real target, persist target size/track facts, deduplicate and bound background probes, and reject stale target results.
+- Playback/Emby: assert all visible sibling versions are scheduled, duplicate media IDs are not probed concurrently, average bitrate is omitted when size or duration is missing, and target-derived source name/container/path never expose the STRM sidecar.
+- Scanner queue: assert a full local probe queue waits for capacity and a canceled context releases the reserved path without enqueuing a stale task.
 - Playback/Emby: assert `/Items` totals, `/Items/Counts`, and `/SearchHints` count shared metadata once while still exposing every concrete version as a `MediaSource`.
 - Playback/Emby: assert Series and Season IDs are real metadata IDs, Episode parent IDs follow the stored hierarchy, and no virtual or media-ID fallback is emitted.
 - Scrape state: test provider match, definitive no-match with local fallback, and provider error without fallback.
@@ -146,4 +156,18 @@ if err == nil && result.Processed > 0 {
 
 // Correct: scraping owns metadata and managed artwork only.
 _, err := scraper.EnrichLibraryDetailedWithOptions(ctx, libraryID, options)
+```
+
+For STRM playback repair, reservation and probe concurrency are separate concerns:
+
+```go
+// Wrong: the playback reservation map becomes a second global probe limiter.
+if len(e.trackProbeInFlight) >= normalizeFFprobeMaxConcurrent(limit) {
+    return false
+}
+
+// Correct: reserve only by media ID; FFprobeService owns concurrency.
+if _, busy := e.trackProbeInFlight[mediaID]; busy {
+    return false
+}
 ```
