@@ -84,29 +84,38 @@ type EmbyMediaSource struct {
 
 // EmbyMediaStream 媒体流（视频/音频/字幕）。
 type EmbyMediaStream struct {
-	Codec              string `json:"Codec"`
-	Type               string `json:"Type"` // Video / Audio / Subtitle
-	Language           string `json:"Language,omitempty"`
-	DisplayTitle       string `json:"DisplayTitle,omitempty"`
-	Index              int    `json:"Index"`
-	IsDefault          bool   `json:"IsDefault"`
-	IsForced           bool   `json:"IsForced"`
-	IsExternal         bool   `json:"IsExternal,omitempty"`
-	Height             int    `json:"Height,omitempty"`
-	Width              int    `json:"Width,omitempty"`
-	BitRate            int64  `json:"BitRate,omitempty"`
-	Channels           int    `json:"Channels,omitempty"`
-	SampleRate         int    `json:"SampleRate,omitempty"`
-	AspectRatio        string `json:"AspectRatio,omitempty"`
-	VideoRange         string `json:"VideoRange,omitempty"`
-	DeliveryUrl        string `json:"DeliveryUrl,omitempty"`
-	DeliveryMethod     string `json:"DeliveryMethod,omitempty"`
-	ExternalUrl        string `json:"ExternalUrl,omitempty"`
-	ExternalSubtitleId string `json:"ExternalSubtitleId,omitempty"`
-	SubtitleFileName   string `json:"SubtitleFileName,omitempty"`
-	Title              string `json:"Title,omitempty"`
-	Comment            string `json:"Comment,omitempty"`
-	Path               string `json:"Path,omitempty"`
+	Codec              string  `json:"Codec"`
+	Type               string  `json:"Type"` // Video / Audio / Subtitle
+	Language           string  `json:"Language,omitempty"`
+	DisplayTitle       string  `json:"DisplayTitle,omitempty"`
+	Index              int     `json:"Index"`
+	IsDefault          bool    `json:"IsDefault"`
+	IsForced           bool    `json:"IsForced"`
+	IsExternal         bool    `json:"IsExternal,omitempty"`
+	Height             int     `json:"Height,omitempty"`
+	Width              int     `json:"Width,omitempty"`
+	BitRate            int64   `json:"BitRate,omitempty"`
+	Channels           int     `json:"Channels,omitempty"`
+	SampleRate         int     `json:"SampleRate,omitempty"`
+	AspectRatio        string  `json:"AspectRatio,omitempty"`
+	VideoRange         string  `json:"VideoRange,omitempty"`
+	DeliveryUrl        string  `json:"DeliveryUrl,omitempty"`
+	DeliveryMethod     string  `json:"DeliveryMethod,omitempty"`
+	ExternalUrl        string  `json:"ExternalUrl,omitempty"`
+	ExternalSubtitleId string  `json:"ExternalSubtitleId,omitempty"`
+	SubtitleFileName   string  `json:"SubtitleFileName,omitempty"`
+	Title              string  `json:"Title,omitempty"`
+	Comment            string  `json:"Comment,omitempty"`
+	Path               string  `json:"Path,omitempty"`
+	Profile            string  `json:"Profile,omitempty"`
+	PixelFormat        string  `json:"PixelFormat,omitempty"`
+	BitDepth           int     `json:"BitDepth,omitempty"`
+	ColorRange         string  `json:"ColorRange,omitempty"`
+	ColorSpace         string  `json:"ColorSpace,omitempty"`
+	ColorTransfer      string  `json:"ColorTransfer,omitempty"`
+	ColorPrimaries     string  `json:"ColorPrimaries,omitempty"`
+	AverageFrameRate   float64 `json:"AverageFrameRate,omitempty"`
+	RealFrameRate      float64 `json:"RealFrameRate,omitempty"`
 }
 
 // EmbyPerson 人员信息。

@@ -33,6 +33,13 @@ type StreamService struct {
 	log        *zap.Logger
 	repo       *repository.Container
 	transcoder *TranscoderService
+	mediaProbe *MediaProbeService
+}
+
+func (s *StreamService) SetMediaProbe(mediaProbe *MediaProbeService) {
+	if s != nil {
+		s.mediaProbe = mediaProbe
+	}
 }
 
 type localMediaProber interface {
@@ -76,6 +83,10 @@ func (s *StreamService) directPlayOnly(ctx context.Context) bool {
 // Probe re-runs ffprobe against an existing media row and refreshes the
 // extracted metadata. Used by the admin UI's "rescan" button.
 func (s *StreamService) Probe(ctx context.Context, mediaID string, probe localMediaProber) error {
+	if s.mediaProbe != nil {
+		_, err := s.mediaProbe.ProbeMedia(ctx, mediaID)
+		return err
+	}
 	m, err := s.repo.Media.FindByID(ctx, mediaID)
 	if err != nil || m == nil {
 		return ErrMediaNotFound

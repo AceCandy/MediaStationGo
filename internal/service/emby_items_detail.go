@@ -49,7 +49,7 @@ func (e *EmbyService) Item(ctx context.Context, mediaID, userID string) (map[str
 		return nil, err
 	}
 	fav, pos := e.userDataForTarget(ctx, userID, target)
-	return e.itemPayload(ctx, m, fav, pos), nil
+	return e.itemPayload(ctx, m, fav, pos, true), nil
 }
 
 // LatestItems 最近添加，全库或指定库。
@@ -152,13 +152,13 @@ func (e *EmbyService) ResumeItems(ctx context.Context, userID string, limit int)
 			return nil, err
 		}
 		if m != nil {
-			items = append(items, e.itemPayload(ctx, m, false, h.PositionMs))
+			items = append(items, e.itemPayload(ctx, m, false, h.PositionMs, false))
 		}
 	}
 	return map[string]any{"Items": items, "TotalRecordCount": len(items)}, nil
 }
 
-func (e *EmbyService) itemPayload(ctx context.Context, m *model.MediaView, fav bool, posMs int64) map[string]any {
+func (e *EmbyService) itemPayload(ctx context.Context, m *model.MediaView, fav bool, posMs int64, completeStreams bool) map[string]any {
 	itemType := "Movie"
 	name := m.Title
 	parentID := m.LibraryID
@@ -243,7 +243,7 @@ func (e *EmbyService) itemPayload(ctx context.Context, m *model.MediaView, fav b
 			"Played":                played,
 			"PlayedPercentage":      pct,
 		},
-		"MediaSources": e.mediaSourcesForView(ctx, m, true, false),
+		"MediaSources": e.mediaSourcesForView(ctx, m, true, false, completeStreams),
 	}
 	if premiered, ok := embyPremiereDate(m.ReleaseDate); ok {
 		item["PremiereDate"] = premiered

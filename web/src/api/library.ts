@@ -126,6 +126,9 @@ export const libraryAPI = {
   scrape: (id: string, options?: ScrapeOptions) =>
     api.post(`/libraries/${id}/scrape`, options ?? null, { timeout: BATCH_REQUEST_TIMEOUT }).then((r) => r.data),
 
+  probeTracks: (id: string) =>
+    api.post<{ status: string }>(`/libraries/${id}/probe`).then((r) => r.data),
+
   listMedia: (id: string, page = 1, pageSize = 50, options?: { groupVersions?: boolean }) =>
     api
       .get<MediaPage>(`/libraries/${id}/media`, {

@@ -93,6 +93,21 @@ func (s *ScannerService) probeLocalMediaAsync(task localMediaProbeTask) {
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	if s.mediaProbe != nil {
+		media, err := s.repo.Media.FindByPath(ctx, task.path)
+		if err == nil && media != nil {
+			probe, probeErr := s.mediaProbe.ProbeMedia(ctx, media.ID)
+			cancel()
+			if probeErr != nil {
+				if s.log != nil {
+					s.log.Debug("local media async probe failed", zap.String("path", task.path), zap.Error(probeErr))
+				}
+				return
+			}
+			s.publishLocalProbeResult(task.path, probe)
+			return
+		}
+	}
 	probe, err := s.probe.Probe(ctx, task.probePath)
 	cancel()
 	if err != nil {
@@ -119,9 +134,13 @@ func (s *ScannerService) probeLocalMediaAsync(task localMediaProbeTask) {
 		}
 		return
 	}
-	if s.hub != nil {
+	s.publishLocalProbeResult(task.path, probe)
+}
+
+func (s *ScannerService) publishLocalProbeResult(path string, probe *ProbeResult) {
+	if s.hub != nil && probe != nil {
 		s.hub.Publish("scan", map[string]any{
-			"path":          task.path,
+			"path":          path,
 			"track_probed":  true,
 			"duration_sec":  probe.DurationSec,
 			"video_codec":   probe.VideoCodec,

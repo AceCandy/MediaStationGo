@@ -15,25 +15,44 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
+	"time"
 
 	"go.uber.org/zap"
 
+	"github.com/ShukeBta/MediaStationGo/internal/config"
 	"github.com/ShukeBta/MediaStationGo/internal/repository"
 )
 
 // SubtitleService is the discovery + conversion entry point.
 type SubtitleService struct {
-	log     *zap.Logger
-	repo    *repository.Container
-	storage *StorageConfigService
+	log        *zap.Logger
+	repo       *repository.Container
+	storage    *StorageConfigService
+	mediaProbe *MediaProbeService
+	cfg        *config.Config
+}
+
+func (s *SubtitleService) SetMediaProbe(mediaProbe *MediaProbeService) {
+	if s != nil {
+		s.mediaProbe = mediaProbe
+	}
+}
+
+func (s *SubtitleService) SetConfig(cfg *config.Config) {
+	if s != nil {
+		s.cfg = cfg
+	}
 }
 
 // NewSubtitleService is the constructor.
@@ -58,6 +77,115 @@ type SubtitleTrack struct {
 	Path  string `json:"path"`
 	URL   string `json:"url"`
 	Codec string `json:"codec"`
+}
+
+// SubtitleSelection 是 Emby 对外使用的稳定字幕索引，不暴露实际存储路径。
+type SubtitleSelection struct {
+	Index    int
+	Codec    string
+	Language string
+	Title    string
+	Default  bool
+	Forced   bool
+	External bool
+	source   string
+}
+
+func (s *SubtitleService) Selections(ctx context.Context, mediaID string, doc *ProbeDocument) []SubtitleSelection {
+	selections := make([]SubtitleSelection, 0)
+	maxIndex := -1
+	if doc != nil {
+		for _, stream := range doc.Streams {
+			if stream.Index > maxIndex {
+				maxIndex = stream.Index
+			}
+			if stream.CodecType == "subtitle" {
+				selections = append(selections, SubtitleSelection{
+					Index: stream.Index, Codec: stream.CodecName, Language: stream.Tags.Language,
+					Title: stream.Tags.Title, Default: stream.Disposition.Default,
+					Forced: stream.Disposition.Forced,
+				})
+			}
+		}
+	} else if media, _ := s.repo.Media.FindByID(ctx, mediaID); media != nil {
+		if media.VideoCodec != "" || media.Width > 0 {
+			maxIndex = 0
+		}
+		if media.AudioCodec != "" {
+			maxIndex = 1
+		}
+	}
+	tracks, err := s.Discover(ctx, mediaID)
+	if err != nil {
+		return selections
+	}
+	sort.SliceStable(tracks, func(i, j int) bool {
+		left := strings.Join([]string{tracks[i].Lang, tracks[i].Label, tracks[i].Codec, tracks[i].Path}, "\x00")
+		right := strings.Join([]string{tracks[j].Lang, tracks[j].Label, tracks[j].Codec, tracks[j].Path}, "\x00")
+		return left < right
+	})
+	for _, track := range tracks {
+		maxIndex++
+		selections = append(selections, SubtitleSelection{
+			Index: maxIndex, Codec: track.Codec, Language: track.Lang,
+			Title: track.Label, External: true, source: track.Path,
+		})
+	}
+	return selections
+}
+
+func (s *SubtitleService) ServeByIndex(ctx context.Context, mediaID string, index int, w io.Writer) error {
+	var doc *ProbeDocument
+	if s.mediaProbe != nil {
+		doc, _ = s.mediaProbe.Load(ctx, mediaID)
+	}
+	for _, selection := range s.Selections(ctx, mediaID, doc) {
+		if selection.Index != index {
+			continue
+		}
+		if selection.External {
+			return s.Serve(ctx, mediaID, selection.source, w)
+		}
+		return s.serveEmbedded(ctx, mediaID, index, w)
+	}
+	return errors.New("subtitle stream not found")
+}
+
+func (s *SubtitleService) serveEmbedded(ctx context.Context, mediaID string, index int, w io.Writer) error {
+	if s.mediaProbe == nil || s.cfg == nil {
+		return errors.New("embedded subtitle extraction unavailable")
+	}
+	media, err := s.repo.Media.FindByID(ctx, mediaID)
+	if err != nil || media == nil {
+		return errors.New("media not found")
+	}
+	source, err := s.mediaProbe.resolveSource(ctx, media)
+	if err != nil {
+		return err
+	}
+	bin, err := resolveLocalExecutable(s.cfg.App.FFmpegPath, "ffmpeg")
+	if err != nil {
+		return err
+	}
+	input := source.path
+	args := []string{"-v", "error"}
+	if source.url != "" {
+		input = source.url
+		if headers := ffmpegHeaderText(source.headers); headers != "" {
+			args = append(args, "-headers", headers)
+		}
+	}
+	args = append(args, "-i", input, "-map", fmt.Sprintf("0:%d", index), "-f", "webvtt", "pipe:1")
+	extractCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancel()
+	cmd := exec.CommandContext(extractCtx, bin, args...) // #nosec G204 -- executable is resolved and stream index is validated.
+	cmd.Stdout = w
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("extract embedded subtitle: %w", err)
+	}
+	return nil
 }
 
 // extToCodec maps the file extension to the inner codec name.

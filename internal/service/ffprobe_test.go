@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -101,6 +102,77 @@ func TestParseProbeJSONExtractsPrimaryStreams(t *testing.T) {
 	}
 	if got.DurationSec != 125 || got.Container != "matroska,webm" || got.VideoCodec != "hevc" || got.AudioCodec != "eac3" || got.Width != 3840 || got.Height != 2160 {
 		t.Fatalf("parsed probe = %+v", got)
+	}
+}
+
+func TestParseProbeJSONPreservesSafeCompleteDocument(t *testing.T) {
+	got, err := parseProbeJSON([]byte(`{
+		"format": {
+			"filename": "https://example.invalid/movie.mkv?token=secret",
+			"format_name": "matroska,webm", "format_long_name": "Matroska / WebM",
+			"duration": "125.9", "size": "4096", "bit_rate": "8000000", "probe_score": 100,
+			"tags": {"title": "Movie", "authorization": "Bearer secret", "cookie": "sid=secret"}
+		},
+		"streams": [
+			{"index": 0, "codec_type": "video", "codec_name": "hevc", "profile": "Main 10",
+			 "width": 3840, "height": 2160, "pix_fmt": "yuv420p10le", "bits_per_raw_sample": "10",
+			 "avg_frame_rate": "25/1", "color_range": "tv", "color_space": "bt2020nc",
+			 "color_transfer": "smpte2084", "color_primaries": "bt2020",
+			 "side_data_list": [{"side_data_type": "Content light level metadata", "max_content": 1000, "max_average": 400}]},
+			{"index": 1, "codec_type": "audio", "codec_name": "aac", "sample_rate": "48000", "channels": 2,
+			 "tags": {"language": "chi", "title": "Mandarin"}, "disposition": {"default": 1}},
+			{"index": 2, "codec_type": "audio", "codec_name": "aac", "tags": {"language": "jpn"}},
+			{"index": 3, "codec_type": "audio", "codec_name": "eac3", "channels": 6},
+			{"index": 4, "codec_type": "subtitle", "codec_name": "ass", "tags": {"language": "chi", "title": "Signs"},
+			 "disposition": {"forced": 1}},
+			{"index": 5, "codec_type": "video", "codec_name": "mjpeg", "disposition": {"attached_pic": 1}},
+			{"index": 6, "codec_type": "attachment", "codec_name": "ttf"}
+		],
+		"chapters": [{"id": 7, "time_base": "1/1000", "start_time": "0", "end_time": "60.5", "tags": {"title": "Intro", "url": "https://secret"}}]
+	}`))
+	if err != nil {
+		t.Fatalf("parseProbeJSON: %v", err)
+	}
+	if got.Document == nil || len(got.Document.Streams) != 5 || len(got.Document.Chapters) != 1 {
+		t.Fatalf("complete document missing: %#v", got.Document)
+	}
+	if got.Document.Streams[3].Index != 3 || got.Document.Streams[3].CodecName != "eac3" {
+		t.Fatalf("third audio stream lost: %#v", got.Document.Streams)
+	}
+	video := got.Document.Streams[0]
+	if video.Profile != "Main 10" || video.BitDepth != 10 || video.AverageFrameRate != "25/1" || video.ColorTransfer != "smpte2084" {
+		t.Fatalf("video facts lost: %#v", video)
+	}
+	if !got.Document.Streams[1].Disposition.Default || !got.Document.Streams[4].Disposition.Forced {
+		t.Fatalf("stream dispositions lost: %#v", got.Document.Streams)
+	}
+	persisted, err := MarshalProbeDocument(got.Document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, forbidden := range []string{"filename", "example.invalid", "secret", "authorization", "cookie", "https://"} {
+		if strings.Contains(strings.ToLower(persisted), forbidden) {
+			t.Fatalf("persisted probe contains forbidden %q: %s", forbidden, persisted)
+		}
+	}
+	roundTrip, err := UnmarshalProbeDocument(persisted, ProbeDocumentSchemaVersion)
+	if err != nil || len(roundTrip.Streams) != 5 || roundTrip.Streams[4].Index != 4 {
+		t.Fatalf("round trip failed: doc=%#v err=%v", roundTrip, err)
+	}
+}
+
+func TestUnmarshalProbeDocumentRejectsInvalidStreams(t *testing.T) {
+	for name, data := range map[string]string{
+		"negative index":   `{"schema_version":1,"format":{},"streams":[{"index":-1,"codec_type":"audio"}]}`,
+		"duplicate index":  `{"schema_version":1,"format":{},"streams":[{"index":1,"codec_type":"audio"},{"index":1,"codec_type":"subtitle"}]}`,
+		"attachment":       `{"schema_version":1,"format":{},"streams":[{"index":2,"codec_type":"attachment"}]}`,
+		"attached picture": `{"schema_version":1,"format":{},"streams":[{"index":3,"codec_type":"video","disposition":{"attached_pic":true}}]}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := UnmarshalProbeDocument(data, ProbeDocumentSchemaVersion); err == nil {
+				t.Fatalf("invalid document accepted: %s", data)
+			}
+		})
 	}
 }
 

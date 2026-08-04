@@ -2,9 +2,7 @@
 //
 // FFprobeService shells out to the `ffprobe` binary configured in
 // app.ffprobe_path and parses its JSON output into a typed struct. It is
-// intentionally minimal: we only extract the fields needed to populate
-// model.Media (duration, resolution, video / audio codec) so a fresh scan
-// can show meaningful metadata even before the TMDb scraper has run.
+// extracts a safe typed document plus the scalar summary stored on model.Media.
 package service
 
 import (
@@ -62,6 +60,7 @@ type ProbeResult struct {
 	VideoCodec  string
 	AudioCodec  string
 	Container   string
+	Document    *ProbeDocument
 }
 
 // Probe runs ffprobe against path and returns a typed result. A 30s timeout
@@ -85,6 +84,7 @@ func (f *FFprobeService) Probe(ctx context.Context, path string) (*ProbeResult, 
 			"-print_format", "json",
 			"-show_format",
 			"-show_streams",
+			"-show_chapters",
 			path,
 		)
 		out, err := cmd.Output()
@@ -124,7 +124,7 @@ func (f *FFprobeService) ProbeHTTP(ctx context.Context, rawURL string, headers m
 		if headerText != "" {
 			args = append(args, "-headers", headerText)
 		}
-		args = append(args, "-print_format", "json", "-show_format", "-show_streams", rawURL)
+		args = append(args, "-print_format", "json", "-show_format", "-show_streams", "-show_chapters", rawURL)
 		cmd := exec.CommandContext(probeCtx, bin, args...) // #nosec G204 -- bin is resolved by resolveLocalExecutable before execution.
 		out, err := cmd.Output()
 		if err == nil {

@@ -379,3 +379,63 @@ func TestAppendQueryToHLSSegments(t *testing.T) {
 		t.Fatalf("existing query should be preserved: %q", got)
 	}
 }
+
+func TestAppendQueryToHLSSegmentsDropsUnknownQuery(t *testing.T) {
+	got := appendQueryToHLSSegments("#EXTM3U\nseg_00000.ts\n", "api_key=abc&AudioStreamIndex=3&redirect=https%3A%2F%2Fevil.invalid")
+	if !strings.Contains(got, "api_key=abc") || !strings.Contains(got, "AudioStreamIndex=3") {
+		t.Fatalf("allowed query missing: %q", got)
+	}
+	if strings.Contains(got, "redirect") || strings.Contains(got, "evil.invalid") {
+		t.Fatalf("unknown query leaked: %q", got)
+	}
+}
+
+func TestResolvedHLSQueryPinsValidatedAudioSelection(t *testing.T) {
+	got := resolvedHLSQuery("token=abc&audioStreamIndex=99&redirect=https%3A%2F%2Fevil.invalid", TranscodeKey{MediaID: "media", AudioStreamIndex: 3})
+	values, err := url.ParseQuery(got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if values.Get("token") != "abc" || values.Get("AudioStreamIndex") != "3" || values.Get("audioStreamIndex") != "" {
+		t.Fatalf("resolved query = %q", got)
+	}
+	if values.Get("redirect") != "" || values.Get("_hls_audio_fallback") != "" {
+		t.Fatalf("unexpected query fields = %q", got)
+	}
+
+	fallback := resolvedHLSQuery("token=abc", TranscodeKey{MediaID: "media", AudioStreamIndex: -1})
+	values, err = url.ParseQuery(fallback)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if values.Get("AudioStreamIndex") != "-1" || values.Get("_hls_audio_fallback") != "1" {
+		t.Fatalf("fallback query = %q", fallback)
+	}
+}
+
+func TestHLSKeyKeepsFallbackAfterProbeArrives(t *testing.T) {
+	db := newServiceTestDB(t, &model.Media{}, &model.MediaProbeMetadata{})
+	repos := repository.New(db)
+	metadata := createServiceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindMovie, Title: "Movie", Source: "local"})
+	media := model.Media{MetadataID: metadata.ID, LibraryID: "library", Title: "Movie", Path: "/movie.mkv"}
+	if err := db.Create(&media).Error; err != nil {
+		t.Fatal(err)
+	}
+	doc := &ProbeDocument{SchemaVersion: ProbeDocumentSchemaVersion, Streams: []ProbeStream{
+		{Index: 2, CodecType: "audio"},
+		{Index: 3, CodecType: "audio", Disposition: ProbeDisposition{Default: true}},
+	}}
+	probeJSON, err := MarshalProbeDocument(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&model.MediaProbeMetadata{MediaID: media.ID, ProbeJSON: probeJSON, SchemaVersion: ProbeDocumentSchemaVersion}).Error; err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodGet, "/?AudioStreamIndex=-1&_hls_audio_fallback=1", nil)
+	stream := &StreamService{mediaProbe: NewMediaProbeService(repos, nil)}
+	key, err := stream.hlsKey(request, media.ID)
+	if err != nil || key.AudioStreamIndex != -1 {
+		t.Fatalf("key = %#v, err=%v", key, err)
+	}
+}

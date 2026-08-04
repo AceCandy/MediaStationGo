@@ -79,10 +79,12 @@ export function LibraryPage() {
     scraping,
     scrapeEpisodeArtwork,
     repairing,
+    backfilling,
     seriesToolBusy,
     setScrapeEpisodeArtwork,
     handleScrape,
     handleRepairRescrape,
+    handleProbeBackfill,
     handleSeriesSmartScrape,
     handleSeriesProbe,
     handleSeriesOrganize,
@@ -122,10 +124,12 @@ export function LibraryPage() {
         scanning={scanning}
         scraping={scraping}
         repairing={repairing}
+        backfilling={backfilling}
         onScrapeEpisodeArtworkChange={setScrapeEpisodeArtwork}
         onScan={handleScan}
         onScrape={handleScrape}
         onRepairRescrape={handleRepairRescrape}
+        onProbeBackfill={handleProbeBackfill}
       />
 
       <LibraryMediaSections

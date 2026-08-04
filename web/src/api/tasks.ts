@@ -2,7 +2,9 @@ import { api } from './client'
 import type { QBitTorrent } from '../types'
 
 export interface ActiveTranscode {
+  job_id: string
   media_id: string
+  audio_stream_index: number
   encoder: string
   started_at: string
   playlist_ok: boolean

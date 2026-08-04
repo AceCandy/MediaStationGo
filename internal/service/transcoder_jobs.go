@@ -10,12 +10,12 @@ import (
 
 // WaitReady blocks (with a deadline) until the playlist file shows up on
 // disk. Returns true on success.
-func (t *TranscoderService) WaitReady(ctx context.Context, mediaID string, timeout time.Duration) bool {
+func (t *TranscoderService) WaitReady(ctx context.Context, key TranscodeKey, timeout time.Duration) bool {
 	deadline := time.Now().Add(timeout)
 	for {
-		if _, err := os.Stat(t.PlaylistPath(mediaID)); err == nil {
+		if _, err := os.Stat(t.PlaylistPath(key)); err == nil {
 			t.mu.Lock()
-			if j, ok := t.jobs[mediaID]; ok {
+			if j, ok := t.jobs[key.String()]; ok {
 				j.playlistOK = true
 			}
 			t.mu.Unlock()
@@ -33,26 +33,41 @@ func (t *TranscoderService) WaitReady(ctx context.Context, mediaID string, timeo
 }
 
 // StopJob cancels a running ffmpeg process for mediaID, if any.
-func (t *TranscoderService) StopJob(mediaID string) {
+func (t *TranscoderService) StopJob(key TranscodeKey) {
+	t.mu.Lock()
+	if j, ok := t.jobs[key.String()]; ok {
+		j.cancel()
+		if err := os.RemoveAll(j.outputDir); err != nil && t.log != nil {
+			t.log.Warn("remove transcode output failed", zap.String("job_id", key.String()), zap.Error(err))
+		}
+		delete(t.jobs, key.String())
+	}
+	t.mu.Unlock()
+}
+
+func (t *TranscoderService) removeJobIfCurrent(job *hlsJob) bool {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	if j, ok := t.jobs[mediaID]; ok {
-		j.cancel()
-		delete(t.jobs, mediaID)
+	if current, ok := t.jobs[job.key.String()]; ok && current != job {
+		return false
 	}
+	if t.jobs[job.key.String()] == job {
+		delete(t.jobs, job.key.String())
+	}
+	return true
 }
 
 // TouchJob records client activity for the HLS playlist or segment. The idle
 // watchdog uses it to stop ffmpeg soon after the player is closed or switches
 // back to direct play.
-func (t *TranscoderService) TouchJob(mediaID string) {
+func (t *TranscoderService) TouchJob(key TranscodeKey) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	t.touchJobLocked(mediaID)
+	t.touchJobLocked(key.String())
 }
 
-func (t *TranscoderService) touchJobLocked(mediaID string) {
-	if j, ok := t.jobs[mediaID]; ok {
+func (t *TranscoderService) touchJobLocked(jobID string) {
+	if j, ok := t.jobs[jobID]; ok {
 		j.lastAccess = time.Now()
 	}
 }
@@ -69,10 +84,12 @@ func (t *TranscoderService) StopAll() {
 
 // ActiveJob is the JSON shape exposed to the React Tasks panel.
 type ActiveJob struct {
-	MediaID    string    `json:"media_id"`
-	Encoder    string    `json:"encoder"`
-	StartedAt  time.Time `json:"started_at"`
-	PlaylistOK bool      `json:"playlist_ok"`
+	JobID            string    `json:"job_id"`
+	MediaID          string    `json:"media_id"`
+	AudioStreamIndex int       `json:"audio_stream_index"`
+	Encoder          string    `json:"encoder"`
+	StartedAt        time.Time `json:"started_at"`
+	PlaylistOK       bool      `json:"playlist_ok"`
 }
 
 // Active returns a snapshot of the currently running transcode jobs.
@@ -82,10 +99,12 @@ func (t *TranscoderService) Active() []ActiveJob {
 	out := make([]ActiveJob, 0, len(t.jobs))
 	for _, j := range t.jobs {
 		out = append(out, ActiveJob{
-			MediaID:    j.mediaID,
-			Encoder:    j.encoder,
-			StartedAt:  j.startedAt,
-			PlaylistOK: j.playlistOK,
+			JobID:            j.key.String(),
+			MediaID:          j.mediaID,
+			AudioStreamIndex: j.audioStreamIndex,
+			Encoder:          j.encoder,
+			StartedAt:        j.startedAt,
+			PlaylistOK:       j.playlistOK,
 		})
 	}
 	return out
@@ -116,7 +135,7 @@ func (t *TranscoderService) monitorIdle(ctx context.Context, job *hlsJob) {
 			return
 		case <-ticker.C:
 			t.mu.Lock()
-			current, ok := t.jobs[job.mediaID]
+			current, ok := t.jobs[job.key.String()]
 			if !ok {
 				t.mu.Unlock()
 				return
@@ -129,7 +148,7 @@ func (t *TranscoderService) monitorIdle(ctx context.Context, job *hlsJob) {
 					zap.Duration("idle_for", idleFor),
 					zap.Duration("timeout", timeout),
 				)
-				t.StopJob(job.mediaID)
+				t.StopJob(job.key)
 				return
 			}
 		}

@@ -17,13 +17,13 @@ func (t *TranscoderService) runFFmpeg(ctx context.Context, job *hlsJob, source s
 	bin, err := t.resolveFFmpegPath()
 	if err != nil {
 		t.log.Warn("ffmpeg unavailable", zap.String("media_id", job.mediaID), zap.Error(err))
-		t.mu.Lock()
-		delete(t.jobs, job.mediaID)
-		t.mu.Unlock()
+		if !t.removeJobIfCurrent(job) {
+			return
+		}
 		t.hub.Publish("transcode", map[string]any{
-			"media_id": job.mediaID,
-			"status":   "error",
-			"error":    err.Error(),
+			"job_id": job.key.String(), "media_id": job.mediaID, "audio_stream_index": job.audioStreamIndex,
+			"status": "error",
+			"error":  err.Error(),
 		})
 		return
 	}
@@ -31,20 +31,22 @@ func (t *TranscoderService) runFFmpeg(ctx context.Context, job *hlsJob, source s
 	playlist := filepath.Join(job.outputDir, "index.m3u8")
 	segments := filepath.Join(job.outputDir, "seg_%05d.ts")
 
-	args := buildFFmpegArgs(t.cfg, source, playlist, segments)
+	args := buildFFmpegArgs(t.cfg, source, playlist, segments, job.audioStreamIndex)
 
 	cmd := exec.CommandContext(ctx, bin, args...) // #nosec G204 -- bin is resolved by resolveFFmpegPath and args are passed without a shell.
 	cmd.Stderr = os.Stderr
 
 	t.log.Info("transcode started",
+		zap.String("job_id", job.key.String()),
 		zap.String("media_id", job.mediaID),
+		zap.Int("audio_stream_index", job.audioStreamIndex),
 		zap.String("encoder", job.encoder),
 		zap.String("source", source),
 	)
 	t.hub.Publish("transcode", map[string]any{
-		"media_id": job.mediaID,
-		"encoder":  job.encoder,
-		"status":   "started",
+		"job_id": job.key.String(), "media_id": job.mediaID, "audio_stream_index": job.audioStreamIndex,
+		"encoder": job.encoder,
+		"status":  "started",
 	})
 
 	if err := cmd.Run(); err != nil && !errors.Is(ctx.Err(), context.Canceled) {
@@ -54,12 +56,12 @@ func (t *TranscoderService) runFFmpeg(ctx context.Context, job *hlsJob, source s
 		)
 	}
 
-	t.mu.Lock()
-	delete(t.jobs, job.mediaID)
-	t.mu.Unlock()
+	if !t.removeJobIfCurrent(job) {
+		return
+	}
 
 	t.hub.Publish("transcode", map[string]any{
-		"media_id": job.mediaID,
+		"job_id": job.key.String(), "media_id": job.mediaID, "audio_stream_index": job.audioStreamIndex,
 		"status":   "stopped",
 		"duration": time.Since(job.startedAt).Seconds(),
 	})

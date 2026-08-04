@@ -4,8 +4,10 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -18,14 +20,18 @@ func (s *StreamService) ServeHLSPlaylist(w http.ResponseWriter, r *http.Request,
 	if s.directPlayOnly(r.Context()) {
 		return ErrTranscodeDisabled
 	}
-	if _, err := s.transcoder.EnsureJob(r.Context(), mediaID); err != nil {
+	key, err := s.hlsKey(r, mediaID)
+	if err != nil {
 		return err
 	}
-	s.transcoder.TouchJob(mediaID)
-	if !s.transcoder.WaitReady(r.Context(), mediaID, 30*time.Second) {
+	if _, err := s.transcoder.EnsureJob(r.Context(), key); err != nil {
+		return err
+	}
+	s.transcoder.TouchJob(key)
+	if !s.transcoder.WaitReady(r.Context(), key, 30*time.Second) {
 		return errors.New("hls playlist not ready")
 	}
-	playlist := s.transcoder.PlaylistPath(mediaID)
+	playlist := s.transcoder.PlaylistPath(key)
 	f, err := os.Open(playlist) // #nosec G304 -- playlist path is generated under the transcoder cache directory for this media ID.
 	if err != nil {
 		return err
@@ -35,12 +41,13 @@ func (s *StreamService) ServeHLSPlaylist(w http.ResponseWriter, r *http.Request,
 	w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Content-Disposition", "inline")
-	if r.URL.RawQuery != "" {
+	segmentQuery := resolvedHLSQuery(r.URL.RawQuery, key)
+	if segmentQuery != "" {
 		data, err := io.ReadAll(f)
 		if err != nil {
 			return err
 		}
-		playlist := appendQueryToHLSSegments(string(data), r.URL.RawQuery)
+		playlist := appendQueryToHLSSegments(string(data), segmentQuery)
 		_, err = io.WriteString(w, playlist)
 		return err
 	}
@@ -49,7 +56,8 @@ func (s *StreamService) ServeHLSPlaylist(w http.ResponseWriter, r *http.Request,
 }
 
 func appendQueryToHLSSegments(playlist, rawQuery string) string {
-	if strings.TrimSpace(rawQuery) == "" {
+	rawQuery = allowedHLSQuery(rawQuery)
+	if rawQuery == "" {
 		return playlist
 	}
 	lines := strings.SplitAfter(playlist, "\n")
@@ -71,20 +79,52 @@ func appendQueryToHLSSegments(playlist, rawQuery string) string {
 	return strings.Join(lines, "")
 }
 
+func allowedHLSQuery(rawQuery string) string {
+	values, err := url.ParseQuery(strings.TrimSpace(rawQuery))
+	if err != nil {
+		return ""
+	}
+	allowed := url.Values{}
+	for _, key := range []string{"api_key", "apiKey", "token", "X-Emby-Token", "X-MediaBrowser-Token", "AudioStreamIndex", "audioStreamIndex", "SubtitleStreamIndex", "subtitleStreamIndex", "_hls_audio_fallback"} {
+		if entries, ok := values[key]; ok {
+			for _, value := range entries {
+				allowed.Add(key, value)
+			}
+		}
+	}
+	return allowed.Encode()
+}
+
+func resolvedHLSQuery(rawQuery string, key TranscodeKey) string {
+	values, _ := url.ParseQuery(allowedHLSQuery(rawQuery))
+	values.Del("AudioStreamIndex")
+	values.Del("audioStreamIndex")
+	values.Del("_hls_audio_fallback")
+	values.Set("AudioStreamIndex", strconv.Itoa(key.AudioStreamIndex))
+	if key.AudioStreamIndex < 0 {
+		values.Set("_hls_audio_fallback", "1")
+	}
+	return values.Encode()
+}
+
 // ServeHLSSegment writes a single .ts segment from the on-disk cache.
 func (s *StreamService) ServeHLSSegment(w http.ResponseWriter, r *http.Request, mediaID, segment string) error {
-	s.transcoder.TouchJob(mediaID)
+	key, err := s.hlsKey(r, mediaID)
+	if err != nil {
+		return err
+	}
+	s.transcoder.TouchJob(key)
 	// Only allow segments that look like seg_NNNNN.ts so we cannot be tricked
 	// into reading arbitrary files via path traversal.
 	if !strings.HasPrefix(segment, "seg_") || !strings.HasSuffix(segment, ".ts") {
 		return errors.New("bad segment")
 	}
-	full := filepath.Join(s.transcoder.HLSDir(mediaID), segment)
+	full := filepath.Join(s.transcoder.HLSDir(key), segment)
 	abs, err := filepath.Abs(full)
 	if err != nil {
 		return err
 	}
-	dir, _ := filepath.Abs(s.transcoder.HLSDir(mediaID))
+	dir, _ := filepath.Abs(s.transcoder.HLSDir(key))
 	if !pathWithin(abs, dir) {
 		return errors.New("path escape")
 	}
@@ -98,5 +138,37 @@ func (s *StreamService) ServeHLSSegment(w http.ResponseWriter, r *http.Request, 
 	w.Header().Set("Cache-Control", "public, max-age=3600")
 	w.Header().Set("Content-Disposition", "inline")
 	http.ServeContent(w, r, stat.Name(), stat.ModTime(), f)
+	return nil
+}
+
+func (s *StreamService) hlsKey(r *http.Request, mediaID string) (TranscodeKey, error) {
+	selection, err := PlaybackSelectionFromQuery(r.URL.Query())
+	if err != nil {
+		return TranscodeKey{}, err
+	}
+	if selection.AudioStreamIndex != nil && *selection.AudioStreamIndex == -1 && r.URL.Query().Get("_hls_audio_fallback") == "1" {
+		return TranscodeKey{MediaID: mediaID, AudioStreamIndex: -1}, nil
+	}
+	var doc *ProbeDocument
+	if s.mediaProbe != nil {
+		doc, _ = s.mediaProbe.Load(r.Context(), mediaID)
+	}
+	audioIndex, err := resolveAudioStreamIndex(doc, selection.AudioStreamIndex)
+	if err != nil {
+		return TranscodeKey{}, err
+	}
+	return TranscodeKey{MediaID: mediaID, AudioStreamIndex: audioIndex}, nil
+}
+
+func (s *StreamService) StopHLS(r *http.Request, mediaID string) error {
+	_, explicitAudio := queryValue(r.URL.Query(), "AudioStreamIndex", "audioStreamIndex")
+	key, err := s.hlsKey(r, mediaID)
+	if err != nil {
+		return err
+	}
+	s.transcoder.StopJob(key)
+	if !explicitAudio && key.AudioStreamIndex >= 0 {
+		s.transcoder.StopJob(TranscodeKey{MediaID: mediaID, AudioStreamIndex: -1})
+	}
 	return nil
 }

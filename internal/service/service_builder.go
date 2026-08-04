@@ -113,6 +113,7 @@ func (b *serviceContainerBuilder) initContentServices() {
 	b.c.Stream = NewStreamService(b.cfg, b.log, b.repos, b.c.Transcoder)
 	b.c.Playback = NewPlaybackService(b.log, b.repos)
 	b.c.Subtitle = NewSubtitleService(b.log, b.repos)
+	b.c.Emby.SetSubtitle(b.c.Subtitle)
 	b.c.Stats = NewStatsService(b.log, b.repos).SetRuntimeCache(b.c.Cache)
 	b.c.Profile = NewProfileService(b.log, b.repos)
 	b.c.Audit = NewAuditService(b.log, b.repos)
@@ -122,6 +123,14 @@ func (b *serviceContainerBuilder) initAccessAndStorageServices() {
 	b.c.PlayProfiles = NewPlayProfileService(b.log, b.repos)
 	b.c.Permissions = NewPermissionService(b.log, b.repos)
 	b.c.StorageCfg = NewStorageConfigService(b.log, b.repos, b.c.Crypto)
+	b.c.MediaProbe = NewMediaProbeService(b.repos, b.c.FFprobe).
+		SetStorage(b.c.StorageCfg).
+		SetRuntimeCache(b.c.Cache)
+	b.c.Scan.SetMediaProbe(b.c.MediaProbe)
+	b.c.Stream.SetMediaProbe(b.c.MediaProbe)
+	b.c.Emby.SetMediaProbe(b.c.MediaProbe)
+	b.c.Subtitle.SetMediaProbe(b.c.MediaProbe)
+	b.c.Subtitle.SetConfig(b.cfg)
 	b.c.STRM = NewSTRMService(b.log, b.repos, b.cfg)
 	b.c.Scan.SetStorageConfig(b.c.StorageCfg)
 	b.c.Subtitle.SetStorageConfig(b.c.StorageCfg)

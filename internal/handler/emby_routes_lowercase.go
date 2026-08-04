@@ -71,6 +71,7 @@ func registerLowercaseEmbyPlaybackRoutes(auth *gin.RouterGroup, svc *service.Con
 	auth.GET("/videos/:id/main.m3u8", embyVideoHLSPlaylistHandler(svc))
 	auth.HEAD("/videos/:id/main.m3u8", embyVideoHLSPlaylistHandler(svc))
 	auth.GET("/videos/:id/:seg", embyVideoHLSSegmentHandler(svc))
+	auth.GET("/videos/:id/subtitles/:index/stream.vtt", embySubtitleHandler(svc))
 }
 
 func registerLowercaseEmbyProgressRoutes(auth *gin.RouterGroup, svc *service.Container) {

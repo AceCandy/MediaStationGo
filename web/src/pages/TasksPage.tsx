@@ -10,6 +10,9 @@ const metricLabels: Record<string, string> = {
   replaced: '替换',
   reclassified: '纠偏',
   skipped: '跳过',
+  total: '总数',
+  completed: '完成',
+  failed: '失败',
   errors: '错误',
   scans: '扫描库',
   scan_visited: '访问',
@@ -48,7 +51,7 @@ function formatMetrics(metrics?: Record<string, number>): string {
 }
 
 function hasTaskIssues(task: BackgroundTask): boolean {
-  return Boolean(task.metrics?.errors || task.metrics?.scan_errors || task.metrics?.scrape_errors)
+  return Boolean(task.metrics?.errors || task.metrics?.scan_errors || task.metrics?.scrape_errors || task.metrics?.failed)
 }
 
 function statusBadge(task: BackgroundTask) {
@@ -182,11 +185,11 @@ export function TasksPage() {
       </header>
 
       <section className="glass-panel">
-        <h2 className="mb-3 font-display text-lg font-semibold text-ink-600">整理 / 重命名 / 入库 / 刮削任务</h2>
+        <h2 className="mb-3 font-display text-lg font-semibold text-ink-600">整理 / 重命名 / 入库 / 刮削 / 轨道回填任务</h2>
         <div className="space-y-5">
           <div>
             <h3 className="mb-2 text-sm font-semibold text-ink-500">运行中</h3>
-            <BackgroundTaskTable tasks={background.active} empty="暂无运行中的整理、重命名、入库或刮削任务。" />
+            <BackgroundTaskTable tasks={background.active} empty="暂无运行中的后台任务。" />
           </div>
           <div>
             <h3 className="mb-2 text-sm font-semibold text-ink-500">最近完成</h3>

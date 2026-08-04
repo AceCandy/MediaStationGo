@@ -1,13 +1,17 @@
 package handler
 
 import (
+	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/ShukeBta/MediaStationGo/internal/model"
 	"github.com/ShukeBta/MediaStationGo/internal/service"
 )
 
@@ -17,7 +21,19 @@ func embyPlaybackInfoHandler(svc *service.Container) gin.HandlerFunc {
 		if uid == "" {
 			uid = embyUserID(c)
 		}
-		out, err := svc.Emby.PlaybackInfo(c.Request.Context(), c.Param("id"), uid)
+		selection, requestedUserID, err := embyPlaybackSelection(c)
+		if err != nil {
+			embyError(c, http.StatusBadRequest, err.Error())
+			return
+		}
+		if uid == "" {
+			uid = requestedUserID
+		}
+		out, err := svc.Emby.PlaybackInfoWithOptions(c.Request.Context(), c.Param("id"), uid, selection)
+		if errors.Is(err, service.ErrInvalidStreamIndex) {
+			embyError(c, http.StatusBadRequest, err.Error())
+			return
+		}
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
@@ -29,6 +45,29 @@ func embyPlaybackInfoHandler(svc *service.Container) gin.HandlerFunc {
 		embyAttachRequestTokenToMediaSources(c, out)
 		c.JSON(http.StatusOK, out)
 	}
+}
+
+func embyPlaybackSelection(c *gin.Context) (service.PlaybackSelection, string, error) {
+	selection, err := service.PlaybackSelectionFromQuery(c.Request.URL.Query())
+	if err != nil {
+		return service.PlaybackSelection{}, "", err
+	}
+	var req model.EmbyPlaybackInfoRequest
+	if c.Request.Method == http.MethodPost && c.Request.Body != nil {
+		if err := json.NewDecoder(c.Request.Body).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
+			return service.PlaybackSelection{}, "", err
+		}
+		if req.AudioStreamIndex != nil {
+			selection.AudioStreamIndex = req.AudioStreamIndex
+		}
+		if req.SubtitleStreamIndex != nil {
+			selection.SubtitleStreamIndex = req.SubtitleStreamIndex
+		}
+		if strings.TrimSpace(req.MediaSourceId) != "" {
+			selection.MediaSourceID = strings.TrimSpace(req.MediaSourceId)
+		}
+	}
+	return selection, strings.TrimSpace(req.UserId), nil
 }
 
 func embyAttachRequestTokenToMediaSources(c *gin.Context, out any) {
@@ -82,6 +121,44 @@ func embyAttachTokenToMediaSources(sources []map[string]any, token string) {
 				continue
 			}
 			source[key] = embyAppendAPIKey(raw, token)
+		}
+		if streams, ok := source["MediaStreams"].([]map[string]any); ok {
+			embyAttachTokenToSubtitleStreams(streams, token)
+		} else if streams, ok := source["MediaStreams"].([]any); ok {
+			for _, stream := range streams {
+				if mapped, ok := stream.(map[string]any); ok {
+					embyAttachTokenToSubtitleStreams([]map[string]any{mapped}, token)
+				}
+			}
+		}
+	}
+}
+
+func embyAttachTokenToSubtitleStreams(streams []map[string]any, token string) {
+	for _, stream := range streams {
+		if raw, ok := stream["DeliveryUrl"].(string); ok {
+			stream["DeliveryUrl"] = embyAppendAPIKey(raw, token)
+		}
+	}
+}
+
+func embySubtitleHandler(svc *service.Container) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		uid := embyUserID(c)
+		mediaID, err := svc.Emby.PlayableMediaID(c.Request.Context(), c.Param("id"), uid)
+		if err != nil || mediaID == "" || svc.Subtitle == nil {
+			c.Status(http.StatusNotFound)
+			return
+		}
+		index, err := strconv.Atoi(c.Param("index"))
+		if err != nil || index < 0 {
+			c.Status(http.StatusNotFound)
+			return
+		}
+		c.Header("Content-Type", "text/vtt; charset=utf-8")
+		c.Header("Cache-Control", "no-store")
+		if err := svc.Subtitle.ServeByIndex(c.Request.Context(), mediaID, index, c.Writer); err != nil && !c.Writer.Written() {
+			c.Status(http.StatusNotFound)
 		}
 	}
 }
@@ -257,6 +334,10 @@ func embyVideoHLSPlaylistHandler(svc *service.Container) gin.HandlerFunc {
 			return
 		}
 		err = svc.Stream.ServeHLSPlaylist(c.Writer, c.Request, mediaID)
+		if errors.Is(err, service.ErrInvalidStreamIndex) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
 		if errors.Is(err, service.ErrTranscodeDisabled) {
 			c.JSON(http.StatusConflict, gin.H{"error": "transcode disabled"})
 			return
@@ -284,7 +365,9 @@ func embyVideoHLSSegmentHandler(svc *service.Container) gin.HandlerFunc {
 			c.Status(http.StatusNotFound)
 			return
 		}
-		if err := svc.Stream.ServeHLSSegment(c.Writer, c.Request, mediaID, c.Param("seg")); err != nil {
+		if err := svc.Stream.ServeHLSSegment(c.Writer, c.Request, mediaID, c.Param("seg")); errors.Is(err, service.ErrInvalidStreamIndex) {
+			c.Status(http.StatusBadRequest)
+		} else if err != nil {
 			c.Status(http.StatusNotFound)
 		}
 	}

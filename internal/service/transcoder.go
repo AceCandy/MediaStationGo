@@ -15,8 +15,8 @@
 //	                         plus the kernel module loaded)
 //
 // Concurrency model:
-//   - Each Media has at most one active ffmpeg job.
-//   - jobs[mediaID] tracks the running goroutine + cancel func.
+//   - Each media/audio selection has at most one active ffmpeg job.
+//   - jobs[key] tracks the running goroutine + cancel func.
 //   - Calling Start while a job already exists is a no-op.
 //   - When the playlist file appears on disk we consider the job "ready"
 //     and unblock the HTTP handler that was waiting on it.
@@ -49,13 +49,15 @@ type TranscoderService struct {
 
 // hlsJob holds the live state of one ffmpeg run.
 type hlsJob struct {
-	mediaID    string
-	outputDir  string
-	cancel     context.CancelFunc
-	startedAt  time.Time
-	lastAccess time.Time
-	playlistOK bool
-	encoder    string
+	key              TranscodeKey
+	mediaID          string
+	audioStreamIndex int
+	outputDir        string
+	cancel           context.CancelFunc
+	startedAt        time.Time
+	lastAccess       time.Time
+	playlistOK       bool
+	encoder          string
 }
 
 var (
@@ -78,30 +80,34 @@ func NewTranscoderService(cfg *config.Config, log *zap.Logger, repo *repository.
 }
 
 // HLSDir is the per-media directory that holds index.m3u8 + segment files.
-func (t *TranscoderService) HLSDir(mediaID string) string {
-	return filepath.Join(t.cfg.Cache.CacheDir, "hls", mediaID)
+func (t *TranscoderService) HLSDir(key TranscodeKey) string {
+	return filepath.Join(t.cfg.Cache.CacheDir, "hls", key.String())
 }
 
 // PlaylistPath returns the absolute path of the m3u8 playlist for a media.
-func (t *TranscoderService) PlaylistPath(mediaID string) string {
-	return filepath.Join(t.HLSDir(mediaID), "index.m3u8")
+func (t *TranscoderService) PlaylistPath(key TranscodeKey) string {
+	return filepath.Join(t.HLSDir(key), "index.m3u8")
 }
 
 // EnsureJob makes sure a transcode is running for mediaID. The function is
 // non-blocking: it returns the playlist path immediately. The caller is
 // expected to poll until WaitReady reports true.
-func (t *TranscoderService) EnsureJob(ctx context.Context, mediaID string) (string, error) {
+func (t *TranscoderService) EnsureJob(ctx context.Context, key TranscodeKey) (string, error) {
 	if !t.cfg.Transcoder.Enabled {
 		return "", ErrTranscodeDisabled
 	}
-	m, err := t.repo.Media.FindByID(ctx, mediaID)
+	m, err := t.repo.Media.FindByID(ctx, key.MediaID)
 	if err != nil {
 		return "", err
 	}
 	if m == nil {
 		return "", ErrMediaNotFound
 	}
-	if _, err := os.Stat(m.Path); err != nil {
+	source := m.Path
+	if target := localSTRMFileTarget(m); target != "" {
+		source = target
+	}
+	if _, err := os.Stat(source); err != nil {
 		return "", ErrMediaNotFound
 	}
 	if _, err := t.resolveFFmpegPath(); err != nil {
@@ -109,17 +115,22 @@ func (t *TranscoderService) EnsureJob(ctx context.Context, mediaID string) (stri
 	}
 
 	t.mu.Lock()
-	if _, ok := t.jobs[mediaID]; ok {
-		t.touchJobLocked(mediaID)
+	jobID := key.String()
+	if _, ok := t.jobs[jobID]; ok {
+		t.touchJobLocked(jobID)
 		t.mu.Unlock()
-		return t.PlaylistPath(mediaID), nil
+		return t.PlaylistPath(key), nil
 	}
 	if max := t.maxConcurrent(); max > 0 && len(t.jobs) >= max {
 		t.mu.Unlock()
 		return "", ErrTranscodeBusy
 	}
 
-	outDir := t.HLSDir(mediaID)
+	outDir := t.HLSDir(key)
+	if err := os.RemoveAll(outDir); err != nil {
+		t.mu.Unlock()
+		return "", err
+	}
 	if err := os.MkdirAll(outDir, 0o750); err != nil {
 		t.mu.Unlock()
 		return "", err
@@ -127,17 +138,17 @@ func (t *TranscoderService) EnsureJob(ctx context.Context, mediaID string) (stri
 
 	jobCtx, cancel := context.WithCancel(context.Background())
 	job := &hlsJob{
-		mediaID:    mediaID,
+		key: key, mediaID: key.MediaID, audioStreamIndex: key.AudioStreamIndex,
 		outputDir:  outDir,
 		cancel:     cancel,
 		startedAt:  time.Now(),
 		lastAccess: time.Now(),
 		encoder:    t.effectiveEncoder(),
 	}
-	t.jobs[mediaID] = job
+	t.jobs[jobID] = job
 	t.mu.Unlock()
 
 	go t.monitorIdle(jobCtx, job)
-	go t.runFFmpeg(jobCtx, job, m.Path)
-	return t.PlaylistPath(mediaID), nil
+	go t.runFFmpeg(jobCtx, job, source)
+	return t.PlaylistPath(key), nil
 }

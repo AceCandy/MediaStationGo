@@ -30,12 +30,12 @@ type ffmpegVideoPlan struct {
 // buildFFmpegArgs assembles the ffmpeg command line for the configured
 // encoder. The function is package-level so the unit test can pin its
 // behaviour without spawning a real ffmpeg process.
-func buildFFmpegArgs(cfg *config.Config, source, playlist, segments string) []string {
+func buildFFmpegArgs(cfg *config.Config, source, playlist, segments string, audioStreamIndex int) []string {
 	settings := ffmpegArgSettingsFromConfig(cfg)
 	video := ffmpegVideoPlanForSettings(settings)
 
 	args := baseFFmpegArgs(video.preInput, settings.realtime)
-	args = appendInputAndVideoArgs(args, source, settings, video)
+	args = appendInputAndVideoArgs(args, source, settings, video, audioStreamIndex)
 	args = appendOutputHLSArgs(args, settings, segments, playlist)
 	return args
 }
@@ -111,8 +111,12 @@ func baseFFmpegArgs(preInput string, realtime bool) []string {
 	return args
 }
 
-func appendInputAndVideoArgs(args []string, source string, settings ffmpegArgSettings, video ffmpegVideoPlan) []string {
-	args = append(args, "-i", source, "-map", "0:v:0?", "-map", "0:a:0?", "-vf", video.filter, "-c:v", video.codec)
+func appendInputAndVideoArgs(args []string, source string, settings ffmpegArgSettings, video ffmpegVideoPlan, audioStreamIndex int) []string {
+	audioMap := "0:a:0?"
+	if audioStreamIndex >= 0 {
+		audioMap = fmt.Sprintf("0:%d?", audioStreamIndex)
+	}
+	args = append(args, "-i", source, "-map", "0:v:0?", "-map", audioMap, "-vf", video.filter, "-c:v", video.codec)
 	if settings.threads > 0 && video.codec == "libx264" {
 		args = append(args, "-threads", strconv.Itoa(settings.threads))
 	}

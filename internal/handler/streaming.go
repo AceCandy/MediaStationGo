@@ -23,6 +23,10 @@ func hlsPlaylistHandler(svc *service.Container) gin.HandlerFunc {
 			return
 		}
 		err = svc.Stream.ServeHLSPlaylist(c.Writer, c.Request, c.Param("id"))
+		if errors.Is(err, service.ErrInvalidStreamIndex) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
 		if errors.Is(err, service.ErrMediaNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
 			return
@@ -62,7 +66,10 @@ func hlsSegmentHandler(svc *service.Container) gin.HandlerFunc {
 
 func stopTranscodeHandler(svc *service.Container) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		svc.Transcoder.StopJob(c.Param("id"))
+		if err := svc.Stream.StopHLS(c.Request, c.Param("id")); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
 		c.Status(http.StatusNoContent)
 	}
 }

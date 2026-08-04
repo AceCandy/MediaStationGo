@@ -14,6 +14,7 @@ const (
 	TaskStatusFailed    = "failed"
 
 	TaskKindOrganize = "organize"
+	TaskKindProbe    = "probe"
 	TaskKindScan     = "scan"
 	TaskKindScrape   = "scrape"
 	TaskKindUpdate   = "update"

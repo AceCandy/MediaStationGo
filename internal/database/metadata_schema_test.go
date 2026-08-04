@@ -2,6 +2,7 @@ package database
 
 import (
 	"testing"
+	"time"
 
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
@@ -88,5 +89,42 @@ func TestMetadataSchemaCanonicalIdentityConstraints(t *testing.T) {
 	}
 	if err := db.Unscoped().Delete(&movie).Error; err == nil {
 		t.Fatal("expected referenced metadata deletion to be rejected")
+	}
+}
+
+func TestMediaProbeMetadataOneToOneAndCascade(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open("file:media_probe_schema?mode=memory&cache=shared&_pragma=foreign_keys(1)"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(&model.MetadataItem{}, &model.Media{}, &model.MediaProbeMetadata{}); err != nil {
+		t.Fatal(err)
+	}
+	metadata := model.MetadataItem{Kind: model.MetadataKindMovie, Title: "Movie", Source: "local"}
+	if err := db.Create(&metadata).Error; err != nil {
+		t.Fatal(err)
+	}
+	media := model.Media{LibraryID: "library", MetadataID: metadata.ID, Title: "Movie", Path: "/probe.mkv"}
+	if err := db.Create(&media).Error; err != nil {
+		t.Fatal(err)
+	}
+	row := model.MediaProbeMetadata{MediaID: media.ID, ProbeJSON: `{"schema_version":1}`, SchemaVersion: 1, ProbedAt: time.Now()}
+	if err := db.Create(&row).Error; err != nil {
+		t.Fatal(err)
+	}
+	duplicate := row
+	duplicate.ProbeJSON = `{"schema_version":1,"duplicate":true}`
+	if err := db.Create(&duplicate).Error; err == nil {
+		t.Fatal("expected one-to-one primary key constraint")
+	}
+	if err := db.Unscoped().Delete(&media).Error; err != nil {
+		t.Fatal(err)
+	}
+	var count int64
+	if err := db.Model(&model.MediaProbeMetadata{}).Where("media_id = ?", media.ID).Count(&count).Error; err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Fatalf("probe rows after media delete = %d, want 0", count)
 	}
 }

@@ -12,10 +12,12 @@ type LibraryPageHeaderProps = {
   scanning: boolean
   scraping: boolean
   repairing: boolean
+  backfilling: boolean
   onScrapeEpisodeArtworkChange: (checked: boolean) => void
   onScan: () => void
   onScrape: () => void
   onRepairRescrape: () => void
+  onProbeBackfill: () => void
 }
 
 export function LibraryPageHeader({
@@ -28,10 +30,12 @@ export function LibraryPageHeader({
   scanning,
   scraping,
   repairing,
+  backfilling,
   onScrapeEpisodeArtworkChange,
   onScan,
   onScrape,
   onRepairRescrape,
+  onProbeBackfill,
 }: LibraryPageHeaderProps) {
   const displayPath = library ? libraryDisplayPath(library.path) : ''
 
@@ -67,6 +71,14 @@ export function LibraryPageHeader({
             title="回填本库占位符外部 ID 并重刮，修正空 ID / 拆集问题"
           >
             {repairing ? '修复中…' : '修复+重刮本库'}
+          </button>
+          <button
+            onClick={onProbeBackfill}
+            disabled={backfilling}
+            className="btn-outline"
+            title="仅为缺失或版本过期的媒体回填完整音视频与字幕轨道"
+          >
+            {backfilling ? '回填中…' : '回填媒体轨道'}
           </button>
         </div>
       )}

@@ -19,17 +19,21 @@ func (s *ScannerService) probeCloudMediaAsync(task cloudMediaProbeTask) {
 	}()
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
+	if s.mediaProbe != nil {
+		media, err := s.repo.Media.FindByPath(ctx, task.path)
+		if err == nil && media != nil {
+			probe, probeErr := s.mediaProbe.ProbeMedia(ctx, media.ID)
+			if probeErr != nil {
+				s.recordCloudProbeFailure(task, probeErr)
+				return
+			}
+			s.finishCloudProbe(task, probe)
+			return
+		}
+	}
 	probe, err := s.probeCloudFileMetadata(ctx, task.typ, task.ref)
 	if err != nil {
-		if s.log != nil {
-			s.log.Debug("cloud media async probe failed", zap.String("provider", task.typ), zap.String("path", task.path), zap.Error(err))
-		}
-		s.cloudMediaProbeMu.Lock()
-		if s.cloudMediaProbeBackoff == nil {
-			s.cloudMediaProbeBackoff = make(map[string]time.Time)
-		}
-		s.cloudMediaProbeBackoff[task.path] = time.Now().Add(cloudMediaProbeFailureBackoff)
-		s.cloudMediaProbeMu.Unlock()
+		s.recordCloudProbeFailure(task, err)
 		return
 	}
 	updates := probeResultUpdates(probe)
@@ -42,10 +46,26 @@ func (s *ScannerService) probeCloudMediaAsync(task cloudMediaProbeTask) {
 		}
 		return
 	}
+	s.finishCloudProbe(task, probe)
+}
+
+func (s *ScannerService) recordCloudProbeFailure(task cloudMediaProbeTask, err error) {
+	if s.log != nil {
+		s.log.Debug("cloud media async probe failed", zap.String("provider", task.typ), zap.String("path", task.path), zap.Error(err))
+	}
+	s.cloudMediaProbeMu.Lock()
+	if s.cloudMediaProbeBackoff == nil {
+		s.cloudMediaProbeBackoff = make(map[string]time.Time)
+	}
+	s.cloudMediaProbeBackoff[task.path] = time.Now().Add(cloudMediaProbeFailureBackoff)
+	s.cloudMediaProbeMu.Unlock()
+}
+
+func (s *ScannerService) finishCloudProbe(task cloudMediaProbeTask, probe *ProbeResult) {
 	s.cloudMediaProbeMu.Lock()
 	delete(s.cloudMediaProbeBackoff, task.path)
 	s.cloudMediaProbeMu.Unlock()
-	if s.hub != nil {
+	if s.hub != nil && probe != nil {
 		s.hub.Publish("scan", map[string]any{
 			"path":          task.path,
 			"cloud":         true,

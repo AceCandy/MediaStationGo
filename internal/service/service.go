@@ -27,6 +27,7 @@ type Container struct {
 	Stream           *StreamService
 	Transcoder       *TranscoderService
 	FFprobe          *FFprobeService
+	MediaProbe       *MediaProbeService
 	TMDb             *TMDbProvider
 	Bangumi          *BangumiProvider
 	TheTVDB          *TheTVDBProvider

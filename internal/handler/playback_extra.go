@@ -238,7 +238,7 @@ func transcodeStatusHandler(svc *service.Container) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		jobID := c.Param("job_id")
 		for _, j := range svc.Transcoder.Active() {
-			if j.MediaID == jobID {
+			if j.JobID == jobID || j.MediaID == jobID {
 				c.JSON(http.StatusOK, gin.H{"job_id": jobID, "status": "running", "job": j})
 				return
 			}

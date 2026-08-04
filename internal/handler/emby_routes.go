@@ -205,6 +205,7 @@ func registerEmbyAuthenticatedPlaybackRoutes(auth *gin.RouterGroup, prefix strin
 	auth.GET("/Videos/:id/main.m3u8", embyVideoHLSPlaylistHandler(svc))
 	auth.HEAD("/Videos/:id/main.m3u8", embyVideoHLSPlaylistHandler(svc))
 	auth.GET("/Videos/:id/:seg", embyVideoHLSSegmentHandler(svc))
+	auth.GET("/Videos/:id/Subtitles/:index/Stream.vtt", embySubtitleHandler(svc))
 }
 
 func registerEmbyVideoStreamRoutes(auth *gin.RouterGroup, svc *service.Container, basePath string) {

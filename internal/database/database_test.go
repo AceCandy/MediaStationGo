@@ -231,7 +231,7 @@ func TestCopyModelTablesResumesPartialSQLiteMigration(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, db := range []*gorm.DB{src, dst} {
-		if err := db.AutoMigrate(&model.User{}, &model.MetadataItem{}, &model.Media{}, &model.Setting{}); err != nil {
+		if err := db.AutoMigrate(&model.User{}, &model.MetadataItem{}, &model.Media{}, &model.MediaProbeMetadata{}, &model.Setting{}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -268,6 +268,12 @@ func TestCopyModelTablesResumesPartialSQLiteMigration(t *testing.T) {
 	if err := src.Create(&media).Error; err != nil {
 		t.Fatal(err)
 	}
+	probe := model.MediaProbeMetadata{
+		MediaID: media.ID, ProbeJSON: `{"schema_version":1}`, SchemaVersion: 1, ProbedAt: time.Now().UTC(),
+	}
+	if err := src.Create(&probe).Error; err != nil {
+		t.Fatal(err)
+	}
 	if err := src.Create(&model.Setting{Key: "organize.auto", Value: "false"}).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -276,8 +282,8 @@ func TestCopyModelTablesResumesPartialSQLiteMigration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if copied != 2 {
-		t.Fatalf("copied rows = %d, want 2", copied)
+	if copied != 3 {
+		t.Fatalf("copied rows = %d, want 3", copied)
 	}
 	var got model.Media
 	if err := dst.First(&got, "path = ?", media.Path).Error; err != nil {
@@ -288,6 +294,13 @@ func TestCopyModelTablesResumesPartialSQLiteMigration(t *testing.T) {
 	}
 	if got.VideoCodec != media.VideoCodec || got.AudioCodec != media.AudioCodec || got.DurationSec != media.DurationSec {
 		t.Fatalf("track facts not copied: %#v", got)
+	}
+	var gotProbe model.MediaProbeMetadata
+	if err := dst.First(&gotProbe, "media_id = ?", media.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if gotProbe.ProbeJSON != probe.ProbeJSON || gotProbe.SchemaVersion != probe.SchemaVersion || gotProbe.ProbedAt.IsZero() {
+		t.Fatalf("probe metadata not copied: %#v", gotProbe)
 	}
 
 	copied, err = copyModelTables(src, dst, 2)

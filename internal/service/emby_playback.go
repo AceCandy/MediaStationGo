@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 	"path/filepath"
@@ -15,6 +16,10 @@ import (
 
 // PlaybackInfo returns a PlaybackInfoResponse usable by Emby clients.
 func (e *EmbyService) PlaybackInfo(ctx context.Context, mediaID, userID string) (map[string]any, error) {
+	return e.PlaybackInfoWithOptions(ctx, mediaID, userID, PlaybackSelection{})
+}
+
+func (e *EmbyService) PlaybackInfoWithOptions(ctx context.Context, mediaID, userID string, selection PlaybackSelection) (map[string]any, error) {
 	m, err := e.playableMedia(ctx, mediaID, userID)
 	if err != nil || m == nil {
 		return nil, err
@@ -26,10 +31,66 @@ func (e *EmbyService) PlaybackInfo(ctx context.Context, mediaID, userID string) 
 	for i := range siblings {
 		e.ensureTrackMetadata(ctx, &siblings[i].Media)
 	}
+	if err := e.validatePlaybackSelection(ctx, siblings, m.ID, selection); err != nil {
+		return nil, err
+	}
 	return map[string]any{
-		"MediaSources":  e.mediaSourcesFromViews(ctx, siblings, false, e.directPlayOnly(ctx)),
+		"MediaSources":  e.mediaSourcesFromViewsWithSelection(ctx, siblings, false, e.directPlayOnly(ctx), selection),
 		"PlaySessionId": fmt.Sprintf("%s-%d", m.ID, time.Now().Unix()),
 	}, nil
+}
+
+func (e *EmbyService) validatePlaybackSelection(ctx context.Context, siblings []model.MediaView, fallbackID string, selection PlaybackSelection) error {
+	if err := validatePlaybackSelectionValues(selection); err != nil {
+		return err
+	}
+	targetID := strings.TrimSpace(selection.MediaSourceID)
+	if targetID == "" {
+		targetID = fallbackID
+	}
+	var target *model.Media
+	for i := range siblings {
+		if siblings[i].ID == targetID {
+			target = &siblings[i].Media
+			break
+		}
+	}
+	if target == nil {
+		return ErrInvalidStreamIndex
+	}
+	var doc *ProbeDocument
+	if e.mediaProbe != nil {
+		doc, _ = e.mediaProbe.Load(ctx, targetID)
+	}
+	if selection.AudioStreamIndex != nil && *selection.AudioStreamIndex >= 0 {
+		if _, err := resolveAudioStreamIndex(doc, selection.AudioStreamIndex); err != nil {
+			return err
+		}
+	}
+	if selection.SubtitleStreamIndex != nil && *selection.SubtitleStreamIndex >= 0 &&
+		!e.hasSubtitleSelection(ctx, target, doc, *selection.SubtitleStreamIndex) {
+		return ErrInvalidStreamIndex
+	}
+	return nil
+}
+
+func (e *EmbyService) hasSubtitleSelection(ctx context.Context, media *model.Media, doc *ProbeDocument, index int) bool {
+	if e.subtitle != nil {
+		for _, selection := range e.subtitle.Selections(ctx, media.ID, doc) {
+			if selection.Index == index {
+				return true
+			}
+		}
+		return false
+	}
+	if doc != nil {
+		for _, stream := range doc.Streams {
+			if stream.Index == index && stream.CodecType == "subtitle" {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // ensureTrackMetadata 在后台补齐云盘或本地 STRM 媒体的轨道元数据。
@@ -40,6 +101,13 @@ func (e *EmbyService) PlaybackInfo(ctx context.Context, mediaID, userID string) 
 // Docker 部署下 CPU/带宽长期居高的来源之一。探测结果落库后，下一次
 // 请求自然能读到完整元数据。
 func (e *EmbyService) ensureTrackMetadata(ctx context.Context, m *model.Media) {
+	if e != nil && m != nil && e.mediaProbe != nil {
+		if !e.mediaProbe.NeedsProbe(ctx, m.ID) || !e.reserveTrackProbe(m.ID) {
+			return
+		}
+		go e.probeTrackMetadata(m.ID)
+		return
+	}
 	if e == nil || m == nil || e.probe == nil || !mediaTrackMetadataMissing(m) {
 		return
 	}
@@ -57,6 +125,15 @@ func (e *EmbyService) ensureTrackMetadata(ctx context.Context, m *model.Media) {
 		return
 	}
 	go e.probeCloudTrackMetadata(m.ID, typ, ref)
+}
+
+func (e *EmbyService) probeTrackMetadata(mediaID string) {
+	defer e.releaseTrackProbe(mediaID)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	if _, err := e.mediaProbe.ProbeMedia(ctx, mediaID); err != nil && e.log != nil && !errors.Is(err, ErrMediaProbeSourceChanged) {
+		e.log.Debug("playback media probe failed", zap.String("media_id", mediaID), zap.Error(err))
+	}
 }
 
 func (e *EmbyService) probeCloudTrackMetadata(mediaID, typ, ref string) {
@@ -225,6 +302,18 @@ func (e *EmbyService) playableMedia(ctx context.Context, id, userID string) (*mo
 // 直链给搜索接口）。/PlaybackInfo 走 false 路径，URL 指向 Emby 兼容
 // /Videos/{id}/stream（客户端会继续携带 X-Emby-Token 或 append api_key）。
 func (e *EmbyService) mediaSource(ctx context.Context, m *model.Media, displayName string, asEmbedded, directOnly bool) map[string]any {
+	var doc *ProbeDocument
+	if e.mediaProbe != nil {
+		doc, _ = e.mediaProbe.Load(ctx, m.ID)
+	}
+	return e.mediaSourceWithProbe(ctx, m, displayName, asEmbedded, directOnly, doc)
+}
+
+func (e *EmbyService) mediaSourceWithProbe(ctx context.Context, m *model.Media, displayName string, asEmbedded, directOnly bool, doc *ProbeDocument) map[string]any {
+	return e.mediaSourceWithSelection(ctx, m, displayName, asEmbedded, directOnly, doc, PlaybackSelection{}, true)
+}
+
+func (e *EmbyService) mediaSourceWithSelection(ctx context.Context, m *model.Media, displayName string, asEmbedded, directOnly bool, doc *ProbeDocument, selection PlaybackSelection, liveSubtitles bool) map[string]any {
 	container := embyMediaContainer(m)
 	isLocalSTRM := localSTRMFileTarget(m) != ""
 	isCloud := strings.TrimSpace(m.STRMURL) != "" && !isLocalSTRM
@@ -236,13 +325,21 @@ func (e *EmbyService) mediaSource(ctx context.Context, m *model.Media, displayNa
 		// surfacing as "network/playback failed". Keep cloud media direct-only.
 		directOnly = true
 	}
-	src := e.baseMediaSource(m, displayName, container, isCloud, playURL, directOnly)
+	src := e.baseMediaSource(ctx, m, displayName, container, isCloud, playURL, directOnly, doc, liveSubtitles)
 	if !asEmbedded && playURL != "" {
 		src["DirectStreamUrl"] = playURL
 		// 直连解码模式下不下发 TranscodingUrl，迫使客户端本地解码直连，
 		// 宿主机不参与转码。
 		if !directOnly {
-			src["TranscodingUrl"] = "/Videos/" + m.ID + "/master.m3u8"
+			transcodingURL := "/Videos/" + m.ID + "/master.m3u8"
+			requested := selection.AudioStreamIndex
+			if selection.MediaSourceID != "" && selection.MediaSourceID != m.ID {
+				requested = nil
+			}
+			if audioIndex, err := resolveAudioStreamIndex(doc, requested); err == nil && audioIndex >= 0 {
+				transcodingURL = appendPlaybackSelection(transcodingURL, audioIndex, selection.SubtitleStreamIndex)
+			}
+			src["TranscodingUrl"] = transcodingURL
 		}
 	}
 	if (isCloud || isLocalSTRM) && playURL != "" {
@@ -254,7 +351,21 @@ func (e *EmbyService) mediaSource(ctx context.Context, m *model.Media, displayNa
 	return src
 }
 
-func (e *EmbyService) baseMediaSource(m *model.Media, displayName, container string, isCloud bool, playURL string, directOnly bool) map[string]any {
+func appendPlaybackSelection(raw string, audioIndex int, subtitleIndex *int) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return raw
+	}
+	q := u.Query()
+	q.Set("AudioStreamIndex", fmt.Sprintf("%d", audioIndex))
+	if subtitleIndex != nil {
+		q.Set("SubtitleStreamIndex", fmt.Sprintf("%d", *subtitleIndex))
+	}
+	u.RawQuery = q.Encode()
+	return u.String()
+}
+
+func (e *EmbyService) baseMediaSource(ctx context.Context, m *model.Media, displayName, container string, isCloud bool, playURL string, directOnly bool, doc *ProbeDocument, liveSubtitles bool) map[string]any {
 	if strings.TrimSpace(displayName) == "" {
 		displayName = m.Title
 	}
@@ -275,10 +386,15 @@ func (e *EmbyService) baseMediaSource(m *model.Media, displayName, container str
 		"SupportsDirectPlay":    !isCloud || playURL != "",
 		"SupportsProbing":       true,
 		"RunTimeTicks":          int64(m.DurationSec) * 10_000_000,
-		"MediaStreams":          e.mediaStreams(m),
+		"MediaStreams":          e.mediaStreams(ctx, m, doc, liveSubtitles),
+	}
+	if doc != nil && doc.Format.BitRate > 0 {
+		src["Bitrate"] = doc.Format.BitRate
 	}
 	if bitrate := embyAverageBitrate(m); bitrate > 0 {
-		src["Bitrate"] = bitrate
+		if _, ok := src["Bitrate"]; !ok {
+			src["Bitrate"] = bitrate
+		}
 	}
 	return src
 }

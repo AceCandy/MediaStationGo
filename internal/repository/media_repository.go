@@ -70,6 +70,19 @@ func (r *MediaRepository) FindByID(ctx context.Context, id string) (*model.Media
 	return &m, nil
 }
 
+// FindByPath returns the active media row for a scanner source path.
+func (r *MediaRepository) FindByPath(ctx context.Context, path string) (*model.Media, error) {
+	var m model.Media
+	err := r.db.WithContext(ctx).Where("path = ?", path).First(&m).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &m, nil
+}
+
 // ListByLibrary returns paginated media items for a library.
 func (r *MediaRepository) ListByLibrary(ctx context.Context, libraryID string, offset, limit int) ([]model.Media, int64, error) {
 	return r.ListByLibraryFiltered(ctx, libraryID, offset, limit, MediaQueryFilter{IncludeNSFW: true})

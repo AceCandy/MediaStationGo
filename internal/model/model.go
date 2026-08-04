@@ -40,6 +40,7 @@ func AllModels() []interface{} {
 		&ArtworkAsset{},
 		&MetadataArtwork{},
 		&Media{},
+		&MediaProbeMetadata{},
 		&PlaybackHistory{},
 		&Favorite{},
 		&Playlist{},

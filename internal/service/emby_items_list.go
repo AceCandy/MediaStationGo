@@ -210,7 +210,7 @@ func (e *EmbyService) payloadsForViews(ctx context.Context, views []model.MediaV
 	for i := range views {
 		m := &views[i]
 		itemID := embyItemID(m)
-		items = append(items, e.itemPayload(ctx, m, userFavs[itemID], userPos[itemID]))
+		items = append(items, e.itemPayload(ctx, m, userFavs[itemID], userPos[itemID], false))
 	}
 	return items
 }

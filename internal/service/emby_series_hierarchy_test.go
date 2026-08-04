@@ -272,7 +272,7 @@ func TestEmbyEpisodeStillIsPrimaryImageNotArt(t *testing.T) {
 	if err != nil || view == nil {
 		t.Fatalf("find media view: %#v %v", view, err)
 	}
-	item := svc.itemPayload(t.Context(), view, false, 0)
+	item := svc.itemPayload(t.Context(), view, false, 0, false)
 	if tags, ok := item["ImageTags"].(map[string]string); !ok || tags["Primary"] != episode.ID {
 		t.Fatalf("episode should expose a primary image tag: %#v", item["ImageTags"])
 	}

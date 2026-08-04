@@ -5,8 +5,9 @@ type EmbyPlaybackInfoRequest struct {
 	UserId              string             `json:"UserId,omitempty"`
 	MaxStreamingBitrate int64              `json:"MaxStreamingBitrate,omitempty"`
 	StartTimeTicks      int64              `json:"StartTimeTicks,omitempty"`
-	AudioStreamIndex    int                `json:"AudioStreamIndex,omitempty"`
-	SubtitleStreamIndex int                `json:"SubtitleStreamIndex,omitempty"`
+	AudioStreamIndex    *int               `json:"AudioStreamIndex,omitempty"`
+	SubtitleStreamIndex *int               `json:"SubtitleStreamIndex,omitempty"`
+	MediaSourceId       string             `json:"MediaSourceId,omitempty"`
 	MaxAudioChannels    int                `json:"MaxAudioChannels,omitempty"`
 	ItemId              string             `json:"ItemId,omitempty"`
 	DeviceProfile       *EmbyDeviceProfile `json:"DeviceProfile,omitempty"`

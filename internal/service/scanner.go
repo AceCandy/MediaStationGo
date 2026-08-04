@@ -53,15 +53,16 @@ func mediaExtensionSupportsProbe(ext string) bool {
 
 // ScannerService walks libraries on disk and upserts model.Media rows.
 type ScannerService struct {
-	cfg       *config.Config
-	log       *zap.Logger
-	repo      *repository.Container
-	hub       *Hub
-	probe     *FFprobeService
-	scraper   *ScraperService
-	storage   *StorageConfigService
-	cache     *RuntimeCacheService
-	notify    *NotifyChannelService
+	cfg        *config.Config
+	log        *zap.Logger
+	repo       *repository.Container
+	hub        *Hub
+	probe      *FFprobeService
+	mediaProbe *MediaProbeService
+	scraper    *ScraperService
+	storage    *StorageConfigService
+	cache      *RuntimeCacheService
+	notify     *NotifyChannelService
 
 	imageProxy *ImageProxy
 
@@ -85,6 +86,12 @@ type ScannerService struct {
 	localMediaProbing       map[string]struct{}
 	localScanMu             sync.Mutex
 	localScans              map[string]struct{}
+}
+
+func (s *ScannerService) SetMediaProbe(mediaProbe *MediaProbeService) {
+	if s != nil {
+		s.mediaProbe = mediaProbe
+	}
 }
 
 // NewScannerService is the constructor.
@@ -236,69 +243,69 @@ type localMediaProbeTask struct {
 }
 
 type existingCloudMedia struct {
-	LibraryID    string
-	Title        string
-	OriginalName string
-	EpisodeTitle string
-	SizeBytes    int64
-	DurationSec  int
-	Width        int
-	Height       int
-	VideoCodec   string
-	AudioCodec   string
-	Container    string
-	PosterURL    string
-	BackdropURL  string
-	STRMURL      string
-	Overview     string
-	Year         int
-	ReleaseDate  string
-	Rating       float32
-	TMDbID       int
-	BangumiID    int
-	DoubanID     string
-	TheTVDBID    string
-	SeasonNum    int
-	EpisodeNum   int
-	Genres       string
-	Countries    string
-	Languages    string
-	NSFW         bool
-	ScrapeStatus string
+	LibraryID         string
+	Title             string
+	OriginalName      string
+	EpisodeTitle      string
+	SizeBytes         int64
+	DurationSec       int
+	Width             int
+	Height            int
+	VideoCodec        string
+	AudioCodec        string
+	Container         string
+	PosterURL         string
+	BackdropURL       string
+	STRMURL           string
+	Overview          string
+	Year              int
+	ReleaseDate       string
+	Rating            float32
+	TMDbID            int
+	BangumiID         int
+	DoubanID          string
+	TheTVDBID         string
+	SeasonNum         int
+	EpisodeNum        int
+	Genres            string
+	Countries         string
+	Languages         string
+	NSFW              bool
+	ScrapeStatus      string
 	LocalMetadataHint string
 }
 
 type existingLocalMedia struct {
-	LibraryRootID string
-	RelativePath  string
-	Title         string
-	OriginalName  string
-	EpisodeTitle  string
-	SizeBytes     int64
-	DurationSec   int
-	Width         int
-	Height        int
-	VideoCodec    string
-	AudioCodec    string
-	Container     string
-	STRMURL       string
-	FileID        string
-	PosterURL     string
-	BackdropURL   string
-	Overview      string
-	Year          int
-	ReleaseDate   string
-	Rating        float32
-	TMDbID        int
-	BangumiID     int
-	DoubanID      string
-	TheTVDBID     string
-	SeasonNum     int
-	EpisodeNum    int
-	Genres        string
-	Countries     string
-	Languages     string
-	NSFW          bool
-	ScrapeStatus  string
+	LibraryRootID     string
+	RelativePath      string
+	Title             string
+	OriginalName      string
+	EpisodeTitle      string
+	SizeBytes         int64
+	DurationSec       int
+	Width             int
+	Height            int
+	VideoCodec        string
+	AudioCodec        string
+	Container         string
+	STRMURL           string
+	FileID            string
+	PosterURL         string
+	BackdropURL       string
+	Overview          string
+	Year              int
+	ReleaseDate       string
+	Rating            float32
+	TMDbID            int
+	BangumiID         int
+	DoubanID          string
+	TheTVDBID         string
+	SeasonNum         int
+	EpisodeNum        int
+	Genres            string
+	Countries         string
+	Languages         string
+	NSFW              bool
+	ScrapeStatus      string
 	LocalMetadataHint string
 }
