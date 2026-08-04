@@ -81,14 +81,16 @@ type SubtitleTrack struct {
 
 // SubtitleSelection 是 Emby 对外使用的稳定字幕索引，不暴露实际存储路径。
 type SubtitleSelection struct {
-	Index    int
-	Codec    string
-	Language string
-	Title    string
-	Default  bool
-	Forced   bool
-	External bool
-	source   string
+	Index           int
+	Codec           string
+	Language        string
+	Title           string
+	Default         bool
+	Forced          bool
+	HearingImpaired bool
+	VisualImpaired  bool
+	External        bool
+	source          string
 }
 
 func (s *SubtitleService) Selections(ctx context.Context, mediaID string, doc *ProbeDocument) []SubtitleSelection {
@@ -103,7 +105,8 @@ func (s *SubtitleService) Selections(ctx context.Context, mediaID string, doc *P
 				selections = append(selections, SubtitleSelection{
 					Index: stream.Index, Codec: stream.CodecName, Language: stream.Tags.Language,
 					Title: stream.Tags.Title, Default: stream.Disposition.Default,
-					Forced: stream.Disposition.Forced,
+					Forced: stream.Disposition.Forced, HearingImpaired: stream.Disposition.HearingImpaired,
+					VisualImpaired: stream.Disposition.VisualImpaired,
 				})
 			}
 		}

@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -102,6 +103,35 @@ func TestParseProbeJSONExtractsPrimaryStreams(t *testing.T) {
 	}
 	if got.DurationSec != 125 || got.Container != "matroska,webm" || got.VideoCodec != "hevc" || got.AudioCodec != "eac3" || got.Width != 3840 || got.Height != 2160 {
 		t.Fatalf("parsed probe = %+v", got)
+	}
+}
+
+func TestParseProbeJSONDerivesBitDepthFromPixelFormat(t *testing.T) {
+	for _, test := range []struct {
+		format string
+		want   int
+	}{
+		{format: "yuv420p10le", want: 10},
+		{format: "yuv420p12le", want: 12},
+		{format: "p010le", want: 10},
+		{format: "p210le", want: 10},
+		{format: "p410le", want: 10},
+		{format: "p012le", want: 12},
+		{format: "p212le", want: 12},
+		{format: "p412le", want: 12},
+		{format: "y210le", want: 10},
+		{format: "x2rgb10le", want: 10},
+		{format: "yuv420p", want: 0},
+	} {
+		t.Run(test.format, func(t *testing.T) {
+			got, err := parseProbeJSON([]byte(fmt.Sprintf(`{"streams":[{"codec_type":"video","pix_fmt":"%s"}]}`, test.format)))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.Document.Streams[0].BitDepth != test.want {
+				t.Fatalf("bit depth = %d, want %d", got.Document.Streams[0].BitDepth, test.want)
+			}
+		})
 	}
 }
 

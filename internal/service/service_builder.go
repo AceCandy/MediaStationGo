@@ -126,6 +126,7 @@ func (b *serviceContainerBuilder) initAccessAndStorageServices() {
 	b.c.MediaProbe = NewMediaProbeService(b.repos, b.c.FFprobe).
 		SetStorage(b.c.StorageCfg).
 		SetRuntimeCache(b.c.Cache)
+	b.c.Media.SetMediaProbe(b.c.MediaProbe)
 	b.c.Scan.SetMediaProbe(b.c.MediaProbe)
 	b.c.Stream.SetMediaProbe(b.c.MediaProbe)
 	b.c.Emby.SetMediaProbe(b.c.MediaProbe)

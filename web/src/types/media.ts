@@ -42,9 +42,46 @@ export interface Media {
   file_id?: string
   is_duplicate?: boolean
   duplicate_of?: string
+  tracks?: MediaTrack[]
   versions?: Media[]
   created_at: string
   updated_at: string
+}
+
+export interface MediaTrack {
+  index: number
+  type: 'video' | 'audio' | 'subtitle'
+  codec?: string
+  profile?: string
+  level?: number
+  time_base?: string
+  language?: string
+  display_language?: string
+  title?: string
+  display_title?: string
+  bit_rate?: number
+  is_default: boolean
+  is_forced: boolean
+  is_hearing_impaired?: boolean
+  is_visual_impaired?: boolean
+  width?: number
+  height?: number
+  aspect_ratio?: string
+  pixel_format?: string
+  bit_depth?: number
+  color_range?: string
+  color_space?: string
+  color_transfer?: string
+  color_primaries?: string
+  video_range?: string
+  average_frame_rate?: number
+  real_frame_rate?: number
+  channels?: number
+  sample_rate?: number
+  channel_layout?: string
+  sample_format?: string
+  bits_per_sample?: number
+  is_text_subtitle?: boolean
 }
 
 export interface Playlist {

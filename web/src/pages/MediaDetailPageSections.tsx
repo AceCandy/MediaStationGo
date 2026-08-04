@@ -9,6 +9,7 @@ import type { Media } from '../types'
 import { MediaDetailAdminPanel } from './MediaDetailAdminPanel'
 import { MediaDetailPoster } from './MediaDetailArtwork'
 import { MediaDetailMetadata } from './MediaDetailMetadata'
+import { MediaDetailTracks } from './MediaDetailTracks'
 import { mediaDetailScrapeMediaType } from './MediaDetailPageModel'
 
 interface MediaDetailPlaybackActionsProps {
@@ -140,6 +141,7 @@ export function MediaDetailMainContent({
 
       <div className="flex-1 space-y-6">
         <MediaDetailMetadata media={media} />
+        <MediaDetailTracks tracks={media.tracks} />
         <div className="divider border-gray-200/60" />
         <div className="flex flex-col gap-5">
           <MediaDetailPlaybackActions media={media} favourite={favourite} onToggleFavourite={onToggleFavourite} />

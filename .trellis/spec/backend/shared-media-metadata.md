@@ -42,6 +42,7 @@
 - Probe JSON must never contain the input filename/path/URL, signed query, request headers, cookies, authorization values, route tokens, attachments, or arbitrary metadata. Unknown schema versions, malformed JSON, duplicate/negative stream indexes, attached pictures, and unsupported stream types are invalid and trigger scalar fallback plus lazy repair.
 - Emby `PlaybackInfo` must enumerate every visible sibling `Media` version before scheduling asynchronous track repair. The playback-layer in-flight map deduplicates by `Media.ID`; the `FFprobeService` limiter remains the only actual probe concurrency limit.
 - Emby detail and PlaybackInfo batch-load valid probe documents and map every embedded video/audio/subtitle by its absolute ffprobe stream index. Sidecar subtitles are rediscovered and deterministically indexed after the highest embedded index on every response.
+- `GET /api/media/:id` attaches an optional `tracks` array through `MediaService.GetMedia` only. Each `MediaTrack` is a typed whitelist projection of video/audio/subtitle facts with the original absolute `index`; it excludes probe paths, URLs, headers, credentials, arbitrary tags, and unsupported stream types. Missing or invalid probe data omits the array, while list/search responses do not load or expose it.
 - Emby paginated browse/list payloads use scalar media fields only: they do not load complete probe documents, scan sidecar subtitles, or schedule lazy track repair.
 - Embedded and sidecar subtitles are externally delivered through a controlled token-aware `DeliveryUrl`; delivery revalidates the current stream/index and never accepts a caller-supplied filesystem path or ffmpeg map expression.
 - GET query and POST body playback selections preserve omitted, `0`, and `-1`. Values below `-1`, missing explicit audio indexes, unknown subtitle indexes, and media-source IDs outside the visible sibling set are rejected.
@@ -115,6 +116,7 @@
 - Playback/Emby: assert `/Videos/{metadata_id}/stream` and HLS requests resolve to a concrete visible media source ID before opening files or transcoding.
 - Playback/Emby: assert local STRM scan, manual reprobe, and missing-metadata PlaybackInfo use the real target, persist target size/track facts, deduplicate and bound background probes, and reject stale target results.
 - Probe storage: assert safe typed JSON round-trips every video/audio/subtitle absolute index and disposition while excluding input URLs, credentials, arbitrary tags, attachments, and structurally invalid streams; hard media deletion must cascade to the one-to-one probe row.
+- Media detail projection: assert `GET /api/media/:id` returns only whitelisted track fields with absolute indexes, omits malformed/missing probe data, and leaves paginated list/search payloads without `tracks` or probe loads.
 - Backfill: cover more than one keyset page, valid-record skips, version/corruption repair, failure accounting, request-independent context, and `total = completed + skipped + failed` for completed runs.
 - Playback selection: cover GET and POST omitted/zero/negative values, explicit invalid audio/subtitle indexes, default-audio choice, numeric ffmpeg maps, two simultaneous audio selections, stop/restart isolation, and allowlisted segment query propagation.
 - Subtitles: add/remove sidecars between PlaybackInfo calls, deliver embedded and sidecar streams by controlled index, and reject stale or wrong-type indexes without exposing backing paths or credentials.
@@ -161,6 +163,17 @@ tx.Where("library_id = ?", id).Delete(&model.Media{})
 
 // Correct: permanently removes file rows without deleting shared metadata.
 tx.Unscoped().Where("library_id = ?", id).Delete(&model.Media{})
+```
+
+For media detail tracks, returning the persisted probe document directly is also incorrect:
+
+```go
+// Wrong: exposes the storage-shaped probe document instead of the response whitelist.
+return c.JSON(http.StatusOK, probeDocument)
+
+// Correct: attach the typed whitelist only to the single-media detail view.
+media, err := svc.Media.GetMedia(ctx, id)
+return c.JSON(http.StatusOK, media)
 ```
 
 Scrape completion must not trigger organization:

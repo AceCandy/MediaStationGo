@@ -32,8 +32,8 @@ func TestEmbyMediaStreamsMapCompleteProbeAndLiveSidecar(t *testing.T) {
 		t.Fatal(err)
 	}
 	doc := &ProbeDocument{SchemaVersion: ProbeDocumentSchemaVersion, Streams: []ProbeStream{
-		{Index: 0, CodecType: "video", CodecName: "hevc", Profile: "Main 10", Width: 3840, Height: 2160, BitDepth: 10, ColorTransfer: "smpte2084", AverageFrameRate: "25/1"},
-		{Index: 2, CodecType: "audio", CodecName: "aac", SampleRate: 48000, Channels: 2, Tags: ProbeTags{Language: "chi"}, Disposition: ProbeDisposition{Default: true}},
+		{Index: 0, CodecType: "video", CodecName: "hevc", Profile: "Main 10", Level: 156, TimeBase: "1/1000", Width: 3840, Height: 2160, PixelFormat: "yuv420p10le", BitDepth: 10, ColorTransfer: "smpte2084", AverageFrameRate: "25/1"},
+		{Index: 2, CodecType: "audio", CodecName: "aac", Profile: "LC", TimeBase: "1/1000", SampleRate: 48000, Channels: 2, ChannelLayout: "stereo", Tags: ProbeTags{Language: "chi"}, Disposition: ProbeDisposition{Default: true}},
 		{Index: 4, CodecType: "subtitle", CodecName: "ass", Tags: ProbeTags{Language: "chi", Title: "Signs"}, Disposition: ProbeDisposition{Forced: true}},
 	}}
 	probeJSON, _ := MarshalProbeDocument(doc)
@@ -51,8 +51,14 @@ func TestEmbyMediaStreamsMapCompleteProbeAndLiveSidecar(t *testing.T) {
 	if len(streams) != 4 {
 		t.Fatalf("streams = %#v", streams)
 	}
-	if streams[0]["Index"] != 0 || streams[0]["VideoRange"] != "HDR10" || streams[0]["AverageFrameRate"] != float64(25) || streams[1]["Index"] != 2 || streams[2]["Index"] != 4 {
+	if streams[0]["Index"] != 0 || streams[0]["VideoRange"] != "HDR 10" || streams[0]["ExtendedVideoType"] != "Hdr10" || streams[0]["Level"] != 156 || streams[0]["TimeBase"] != "1/1000" || streams[0]["DisplayTitle"] != "4K HDR 10 HEVC" || streams[0]["AverageFrameRate"] != float64(25) {
 		t.Fatalf("embedded streams mapped incorrectly: %#v", streams)
+	}
+	if streams[1]["Index"] != 2 || streams[1]["DisplayLanguage"] != "Chinese" || streams[1]["DisplayTitle"] != "Chinese AAC stereo (默认)" || streams[1]["Profile"] != "LC" {
+		t.Fatalf("audio stream mapped incorrectly: %#v", streams)
+	}
+	if streams[2]["Index"] != 4 {
+		t.Fatalf("embedded subtitle index changed: %#v", streams)
 	}
 	if streams[2]["IsExternal"] != true || streams[2]["DeliveryMethod"] != "External" {
 		t.Fatalf("embedded subtitle is not externally deliverable: %#v", streams[2])
@@ -72,6 +78,26 @@ func TestEmbyMediaStreamsMapCompleteProbeAndLiveSidecar(t *testing.T) {
 	}
 	if err := subtitles.ServeByIndex(t.Context(), media.ID, 5, &bytes.Buffer{}); err == nil {
 		t.Fatal("deleted sidecar remained addressable")
+	}
+}
+
+func TestProbeExtendedVideoTypeUsesEmbyEnumValues(t *testing.T) {
+	for _, test := range []struct {
+		videoRange  string
+		wantType    string
+		wantSubType string
+	}{
+		{videoRange: "HDR 10", wantType: "Hdr10", wantSubType: "Hdr10"},
+		{videoRange: "HDR 10+", wantType: "Hdr10Plus", wantSubType: "Hdr10Plus0"},
+		{videoRange: "Dolby Vision", wantType: "DolbyVision", wantSubType: "None"},
+		{videoRange: "HLG", wantType: "HyperLogGamma", wantSubType: "HyperLogGamma"},
+	} {
+		t.Run(test.videoRange, func(t *testing.T) {
+			gotType, gotSubType, _ := probeExtendedVideoType(test.videoRange)
+			if gotType != test.wantType || gotSubType != test.wantSubType {
+				t.Fatalf("probeExtendedVideoType(%q) = %q, %q", test.videoRange, gotType, gotSubType)
+			}
+		})
 	}
 }
 

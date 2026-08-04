@@ -105,6 +105,11 @@ func (s *MediaService) GetMedia(ctx context.Context, id string) (*model.MediaVie
 	items := []model.MediaView{*media}
 	s.attachLibraryMetadataViews(ctx, items)
 	*media = items[0]
+	if s.probe != nil {
+		if doc, ok := s.probe.Load(ctx, media.ID); ok {
+			media.Tracks = projectProbeTracks(doc)
+		}
+	}
 	return media, nil
 }
 

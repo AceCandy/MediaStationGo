@@ -16,6 +16,7 @@ type MediaService struct {
 	repo    *repository.Container
 	cache   *RuntimeCacheService
 	artwork *ArtworkStore
+	probe   *MediaProbeService
 }
 
 type MediaVisibility struct {
@@ -69,6 +70,13 @@ func NewMediaService(cfg *config.Config, log *zap.Logger, repo *repository.Conta
 func (s *MediaService) SetRuntimeCache(cache *RuntimeCacheService) *MediaService {
 	if s != nil {
 		s.cache = cache
+	}
+	return s
+}
+
+func (s *MediaService) SetMediaProbe(probe *MediaProbeService) *MediaService {
+	if s != nil {
+		s.probe = probe
 	}
 	return s
 }

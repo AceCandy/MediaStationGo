@@ -153,6 +153,9 @@ func normalizeProbeStream(raw rawProbeStream) ProbeStream {
 	if bitDepth == 0 {
 		bitDepth = raw.BitsPerSample
 	}
+	if bitDepth == 0 {
+		bitDepth = pixelFormatBitDepth(raw.PixelFormat)
+	}
 	return ProbeStream{
 		Index: raw.Index, CodecType: raw.CodecType, CodecName: raw.CodecName,
 		CodecLongName: raw.CodecLongName, Profile: raw.Profile, Level: raw.Level,
@@ -175,6 +178,19 @@ func normalizeProbeStream(raw rawProbeStream) ProbeStream {
 	}
 }
 
+func pixelFormatBitDepth(pixelFormat string) int {
+	format := strings.ToLower(strings.TrimSpace(pixelFormat))
+	if format == "" {
+		return 0
+	}
+	match := pixelFormatBitDepthRE.FindStringSubmatch(format)
+	if len(match) != 2 {
+		return 0
+	}
+	depth, _ := strconv.Atoi(match[1])
+	return depth
+}
+
 func safeProbeTags(tags map[string]string) ProbeTags {
 	return ProbeTags{
 		Language: tags["language"], Title: tags["title"], HandlerName: tags["handler_name"],
@@ -193,10 +209,11 @@ func int64Value(value string) int64 {
 }
 
 var (
-	ffmpegDurationRE = regexp.MustCompile(`Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)`)
-	ffmpegInputRE    = regexp.MustCompile(`Input #\d+,\s*(.+?),\s*from`)
-	ffmpegVideoRE    = regexp.MustCompile(`Video:\s*([^,\s]+).*?(\d{2,5})x(\d{2,5})`)
-	ffmpegAudioRE    = regexp.MustCompile(`Audio:\s*([^,\s]+)`)
+	pixelFormatBitDepthRE = regexp.MustCompile(`(?:p0?|p[024]|gray|xyz|y[24]|x2(?:rgb|bgr))(9|10|12|14|16)(?:le|be)$`)
+	ffmpegDurationRE      = regexp.MustCompile(`Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)`)
+	ffmpegInputRE         = regexp.MustCompile(`Input #\d+,\s*(.+?),\s*from`)
+	ffmpegVideoRE         = regexp.MustCompile(`Video:\s*([^,\s]+).*?(\d{2,5})x(\d{2,5})`)
+	ffmpegAudioRE         = regexp.MustCompile(`Audio:\s*([^,\s]+)`)
 )
 
 func parseFFmpegProbeText(text string) *ProbeResult {

@@ -87,4 +87,44 @@ type Media struct {
 	// IsDuplicate flags this media as a duplicate of another media row.
 	IsDuplicate bool   `gorm:"default:false" json:"is_duplicate"`
 	DuplicateOf string `gorm:"size:128" json:"duplicate_of,omitempty"`
+
+	// Tracks 仅在单媒体详情响应中附加，列表和搜索不会加载完整探测文档。
+	Tracks []MediaTrack `gorm:"-" json:"tracks,omitempty"`
+}
+
+// MediaTrack 是面向详情页的安全轨道投影，不包含原始路径、URL 或任意探测标签。
+type MediaTrack struct {
+	Index             int     `json:"index"`
+	Type              string  `json:"type"`
+	Codec             string  `json:"codec,omitempty"`
+	Profile           string  `json:"profile,omitempty"`
+	Level             int     `json:"level,omitempty"`
+	TimeBase          string  `json:"time_base,omitempty"`
+	Language          string  `json:"language,omitempty"`
+	DisplayLanguage   string  `json:"display_language,omitempty"`
+	Title             string  `json:"title,omitempty"`
+	DisplayTitle      string  `json:"display_title,omitempty"`
+	BitRate           int64   `json:"bit_rate,omitempty"`
+	IsDefault         bool    `json:"is_default"`
+	IsForced          bool    `json:"is_forced"`
+	IsHearingImpaired bool    `json:"is_hearing_impaired,omitempty"`
+	IsVisualImpaired  bool    `json:"is_visual_impaired,omitempty"`
+	Width             int     `json:"width,omitempty"`
+	Height            int     `json:"height,omitempty"`
+	AspectRatio       string  `json:"aspect_ratio,omitempty"`
+	PixelFormat       string  `json:"pixel_format,omitempty"`
+	BitDepth          int     `json:"bit_depth,omitempty"`
+	ColorRange        string  `json:"color_range,omitempty"`
+	ColorSpace        string  `json:"color_space,omitempty"`
+	ColorTransfer     string  `json:"color_transfer,omitempty"`
+	ColorPrimaries    string  `json:"color_primaries,omitempty"`
+	VideoRange        string  `json:"video_range,omitempty"`
+	AverageFrameRate  float64 `json:"average_frame_rate,omitempty"`
+	RealFrameRate     float64 `json:"real_frame_rate,omitempty"`
+	Channels          int     `json:"channels,omitempty"`
+	SampleRate        int     `json:"sample_rate,omitempty"`
+	ChannelLayout     string  `json:"channel_layout,omitempty"`
+	SampleFormat      string  `json:"sample_format,omitempty"`
+	BitsPerSample     int     `json:"bits_per_sample,omitempty"`
+	IsTextSubtitle    bool    `json:"is_text_subtitle,omitempty"`
 }

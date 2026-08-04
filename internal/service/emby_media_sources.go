@@ -255,13 +255,7 @@ func (e *EmbyService) mediaStreams(ctx context.Context, m *model.Media, doc *Pro
 	}
 	if liveSubtitles && e.subtitle != nil {
 		for _, subtitle := range e.subtitle.Selections(ctx, m.ID, doc) {
-			streams = append(streams, map[string]any{
-				"Codec": subtitle.Codec, "Type": "Subtitle", "Language": subtitle.Language,
-				"Title": subtitle.Title, "DisplayTitle": subtitleDisplayTitle(subtitle),
-				"Index": subtitle.Index, "IsDefault": subtitle.Default, "IsForced": subtitle.Forced,
-				"IsExternal": true, "DeliveryMethod": "External",
-				"DeliveryUrl": embySubtitleDeliveryURL(m.ID, subtitle.Index),
-			})
+			streams = append(streams, mapSubtitleSelection(m.ID, subtitle))
 		}
 	}
 	if len(streams) == 0 {
@@ -298,13 +292,7 @@ func (e *EmbyService) scalarMediaStreams(ctx context.Context, m *model.Media, li
 	}
 	if liveSubtitles && e.subtitle != nil {
 		for _, subtitle := range e.subtitle.Selections(ctx, m.ID, nil) {
-			streams = append(streams, map[string]any{
-				"Codec": subtitle.Codec, "Type": "Subtitle", "Language": subtitle.Language,
-				"Title": subtitle.Title, "DisplayTitle": subtitleDisplayTitle(subtitle),
-				"Index": subtitle.Index, "IsDefault": false, "IsForced": false,
-				"IsExternal": true, "DeliveryMethod": "External",
-				"DeliveryUrl": embySubtitleDeliveryURL(m.ID, subtitle.Index),
-			})
+			streams = append(streams, mapSubtitleSelection(m.ID, subtitle))
 		}
 	}
 	if len(streams) == 0 {
@@ -322,56 +310,90 @@ func (e *EmbyService) scalarMediaStreams(ctx context.Context, m *model.Media, li
 }
 
 func mapProbeStream(stream ProbeStream) map[string]any {
-	if stream.CodecType != "video" && stream.CodecType != "audio" {
+	track, ok := projectProbeTrack(stream)
+	if !ok || track.Type == "subtitle" {
 		return nil
 	}
-	streamType := strings.ToUpper(stream.CodecType[:1]) + stream.CodecType[1:]
 	mapped := map[string]any{
-		"Codec": stream.CodecName, "Type": streamType, "Index": stream.Index,
-		"IsDefault": stream.Disposition.Default, "IsForced": stream.Disposition.Forced,
-		"IsExternal": false,
+		"Codec": track.Codec, "Type": strings.ToUpper(track.Type[:1]) + track.Type[1:], "Index": track.Index,
+		"IsDefault": track.IsDefault, "IsForced": track.IsForced,
+		"IsExternal": false, "Protocol": "File",
+		"IsTextSubtitleStream": false, "SupportsExternalStream": false,
 	}
-	setStringValue(mapped, "Language", stream.Tags.Language)
-	setStringValue(mapped, "Title", stream.Tags.Title)
-	setStringValue(mapped, "DisplayTitle", probeStreamDisplayTitle(stream))
-	if stream.BitRate > 0 {
-		mapped["BitRate"] = stream.BitRate
+	setStringValue(mapped, "Language", track.Language)
+	setStringValue(mapped, "DisplayLanguage", track.DisplayLanguage)
+	setStringValue(mapped, "Title", track.Title)
+	setStringValue(mapped, "DisplayTitle", track.DisplayTitle)
+	setStringValue(mapped, "Profile", track.Profile)
+	setStringValue(mapped, "TimeBase", track.TimeBase)
+	if track.Level > 0 {
+		mapped["Level"] = track.Level
 	}
-	if stream.CodecType == "video" {
-		if stream.Width > 0 {
-			mapped["Width"] = stream.Width
+	if track.BitRate > 0 {
+		mapped["BitRate"] = track.BitRate
+	}
+	if track.IsHearingImpaired {
+		mapped["IsHearingImpaired"] = true
+	}
+	if track.IsVisualImpaired {
+		mapped["IsVisualImpaired"] = true
+	}
+	if track.Type == "video" {
+		if track.Width > 0 {
+			mapped["Width"] = track.Width
 		}
-		if stream.Height > 0 {
-			mapped["Height"] = stream.Height
+		if track.Height > 0 {
+			mapped["Height"] = track.Height
 		}
-		setStringValue(mapped, "AspectRatio", firstNonEmpty(stream.DisplayAspectRatio, stream.SampleAspectRatio))
-		setStringValue(mapped, "Profile", stream.Profile)
-		setStringValue(mapped, "PixelFormat", stream.PixelFormat)
-		if stream.BitDepth > 0 {
-			mapped["BitDepth"] = stream.BitDepth
+		setStringValue(mapped, "AspectRatio", track.AspectRatio)
+		setStringValue(mapped, "PixelFormat", track.PixelFormat)
+		setStringValue(mapped, "ColorRange", track.ColorRange)
+		setStringValue(mapped, "ColorSpace", track.ColorSpace)
+		setStringValue(mapped, "ColorTransfer", track.ColorTransfer)
+		setStringValue(mapped, "ColorPrimaries", track.ColorPrimaries)
+		if track.BitDepth > 0 {
+			mapped["BitDepth"] = track.BitDepth
 		}
-		setStringValue(mapped, "ColorRange", stream.ColorRange)
-		setStringValue(mapped, "ColorSpace", stream.ColorSpace)
-		setStringValue(mapped, "ColorTransfer", stream.ColorTransfer)
-		setStringValue(mapped, "ColorPrimaries", stream.ColorPrimaries)
-		if rate, ok := probeFrameRate(stream.AverageFrameRate); ok {
-			mapped["AverageFrameRate"] = rate
+		setStringValue(mapped, "VideoRange", track.VideoRange)
+		if track.AverageFrameRate > 0 {
+			mapped["AverageFrameRate"] = track.AverageFrameRate
 		}
-		if rate, ok := probeFrameRate(stream.RealFrameRate); ok {
-			mapped["RealFrameRate"] = rate
+		if track.RealFrameRate > 0 {
+			mapped["RealFrameRate"] = track.RealFrameRate
 		}
-		setStringValue(mapped, "VideoRange", probeVideoRange(stream))
+		if videoType, videoSubType, description := probeExtendedVideoType(track.VideoRange); videoType != "" {
+			mapped["ExtendedVideoType"] = videoType
+			mapped["ExtendedVideoSubType"] = videoSubType
+			mapped["ExtendedVideoSubTypeDescription"] = description
+		}
 	} else {
-		if stream.Channels > 0 {
-			mapped["Channels"] = stream.Channels
+		if track.Channels > 0 {
+			mapped["Channels"] = track.Channels
 		}
-		if stream.SampleRate > 0 {
-			mapped["SampleRate"] = stream.SampleRate
+		if track.SampleRate > 0 {
+			mapped["SampleRate"] = track.SampleRate
 		}
-		setStringValue(mapped, "ChannelLayout", stream.ChannelLayout)
-		setStringValue(mapped, "SampleFormat", stream.SampleFormat)
+		setStringValue(mapped, "ChannelLayout", track.ChannelLayout)
+		setStringValue(mapped, "SampleFormat", track.SampleFormat)
+		if track.BitsPerSample > 0 {
+			mapped["BitsPerSample"] = track.BitsPerSample
+		}
 	}
 	return mapped
+}
+
+func mapSubtitleSelection(mediaID string, subtitle SubtitleSelection) map[string]any {
+	// Embedded subtitles also use the controlled extraction URL, so Emby must request both kinds externally.
+	return map[string]any{
+		"Codec": subtitle.Codec, "Type": "Subtitle", "Language": subtitle.Language,
+		"DisplayLanguage": probeDisplayLanguage(subtitle.Language), "Title": subtitle.Title,
+		"DisplayTitle": subtitleDisplayTitle(subtitle), "Index": subtitle.Index,
+		"IsDefault": subtitle.Default, "IsForced": subtitle.Forced,
+		"IsHearingImpaired": subtitle.HearingImpaired, "IsVisualImpaired": subtitle.VisualImpaired,
+		"IsExternal": true, "IsTextSubtitleStream": isTextSubtitleCodec(subtitle.Codec),
+		"SupportsExternalStream": true, "Protocol": "File", "DeliveryMethod": "External",
+		"DeliveryUrl": embySubtitleDeliveryURL(mediaID, subtitle.Index),
+	}
 }
 
 func setStringValue(target map[string]any, key, value string) {
@@ -405,11 +427,14 @@ func subtitleDisplayTitle(subtitle SubtitleSelection) string {
 	if subtitle.Title != "" && subtitle.Title != "und" {
 		parts = append(parts, subtitle.Title)
 	}
-	if subtitle.Language != "" && subtitle.Language != "und" && subtitle.Language != subtitle.Title {
-		parts = append(parts, subtitle.Language)
+	if language := probeDisplayLanguage(subtitle.Language); language != "" && language != subtitle.Title {
+		parts = append(parts, language)
 	}
 	if subtitle.Codec != "" {
 		parts = append(parts, strings.ToUpper(subtitle.Codec))
+	}
+	if subtitle.Forced {
+		parts = append(parts, "(强制)")
 	}
 	if len(parts) == 0 {
 		return "Subtitle"
@@ -419,36 +444,120 @@ func subtitleDisplayTitle(subtitle SubtitleSelection) string {
 
 func probeStreamDisplayTitle(stream ProbeStream) string {
 	parts := make([]string, 0, 4)
-	if stream.Tags.Title != "" {
-		parts = append(parts, stream.Tags.Title)
+	switch stream.CodecType {
+	case "video":
+		if resolution := probeResolutionLabel(stream.Width, stream.Height); resolution != "" {
+			parts = append(parts, resolution)
+		}
+		if videoRange := probeVideoRange(stream); videoRange != "" && videoRange != "SDR" {
+			parts = append(parts, videoRange)
+		}
+	case "audio":
+		if language := probeDisplayLanguage(stream.Tags.Language); language != "" {
+			parts = append(parts, language)
+		}
+		if codec := strings.TrimSpace(stream.CodecName); codec != "" {
+			parts = append(parts, strings.ToUpper(codec))
+		}
+		if layout := probeChannelLayout(stream); layout != "" {
+			parts = append(parts, layout)
+		}
+	case "subtitle":
+		if title := strings.TrimSpace(stream.Tags.Title); title != "" {
+			parts = append(parts, title)
+		}
+		if language := probeDisplayLanguage(stream.Tags.Language); language != "" {
+			parts = append(parts, language)
+		}
 	}
-	if stream.Tags.Language != "" {
-		parts = append(parts, stream.Tags.Language)
+	if stream.CodecType != "audio" {
+		codec := strings.TrimSpace(stream.CodecName)
+		if codec != "" {
+			parts = append(parts, strings.ToUpper(codec))
+		}
 	}
-	if stream.CodecType == "video" && stream.Width > 0 && stream.Height > 0 {
-		parts = append(parts, fmt.Sprintf("%dx%d", stream.Width, stream.Height))
-	}
-	if stream.CodecName != "" {
-		parts = append(parts, strings.ToUpper(stream.CodecName))
+	if stream.CodecType == "audio" {
+		if stream.Disposition.Default {
+			parts = append(parts, "(默认)")
+		}
+		if stream.Disposition.Forced {
+			parts = append(parts, "(强制)")
+		}
 	}
 	return strings.Join(parts, " ")
+}
+
+func probeResolutionLabel(width, height int) string {
+	switch {
+	case width >= 7000 || height >= 4000:
+		return "8K"
+	case width >= 3800 || height >= 2000:
+		return "4K"
+	case height >= 1080:
+		return "1080p"
+	case height >= 720:
+		return "720p"
+	case width > 0 && height > 0:
+		return fmt.Sprintf("%dx%d", width, height)
+	default:
+		return ""
+	}
+}
+
+func probeChannelLayout(stream ProbeStream) string {
+	if layout := strings.TrimSpace(stream.ChannelLayout); layout != "" {
+		return layout
+	}
+	switch stream.Channels {
+	case 1:
+		return "mono"
+	case 2:
+		return "stereo"
+	case 6:
+		return "5.1"
+	case 8:
+		return "7.1"
+	default:
+		if stream.Channels > 0 {
+			return fmt.Sprintf("%dch", stream.Channels)
+		}
+		return ""
+	}
 }
 
 func probeVideoRange(stream ProbeStream) string {
 	transfer := strings.ToLower(stream.ColorTransfer)
 	for _, side := range stream.SideData {
 		if strings.Contains(strings.ToLower(side.Type), "dovi") || strings.Contains(strings.ToLower(side.Type), "dolby vision") {
-			return "DOVI"
+			return "Dolby Vision"
+		}
+		if strings.Contains(strings.ToLower(side.Type), "hdr10+") || strings.Contains(strings.ToLower(side.Type), "smpte2094") {
+			return "HDR 10+"
 		}
 	}
 	switch transfer {
 	case "smpte2084":
-		return "HDR10"
+		return "HDR 10"
 	case "arib-std-b67":
 		return "HLG"
 	case "bt709", "smpte170m", "bt470m", "bt470bg", "iec61966-2-1":
 		return "SDR"
 	default:
 		return ""
+	}
+}
+
+func probeExtendedVideoType(videoRange string) (string, string, string) {
+	switch videoRange {
+	case "HDR 10":
+		return "Hdr10", "Hdr10", "HDR 10"
+	case "HDR 10+":
+		return "Hdr10Plus", "Hdr10Plus0", "HDR 10+"
+	case "Dolby Vision":
+		return "DolbyVision", "None", "Dolby Vision"
+	case "HLG":
+		return "HyperLogGamma", "HyperLogGamma", "Hybrid Log-Gamma"
+	default:
+		return "", "", ""
 	}
 }
