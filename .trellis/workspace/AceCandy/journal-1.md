@@ -69,3 +69,24 @@ Implemented shared metadata identities, MediaView reads, persistent artwork, Emb
 ### Status
 
 [OK] **Completed**
+
+
+## Session 4: 媒体详情轨道展示
+
+**Date**: 2026-08-05
+**Task**: 媒体详情轨道展示
+**Branch**: `main`
+
+### Summary
+
+完成媒体详情轨道展示：详情接口通过安全白名单返回视频、音频和内嵌字幕轨道，列表接口保持轻量；补充 Emby HDR、语言、声道与绝对索引映射，修正合法扩展视频枚举、10/12-bit 像素格式推导和 44.1 kHz 显示，并同步共享媒体元数据规范。Go 全仓测试、vet、build，前端 lint/build 与 diff 检查均通过。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `70244e2` | (see git log) |
+
+### Status
+
+[OK] **Completed**
