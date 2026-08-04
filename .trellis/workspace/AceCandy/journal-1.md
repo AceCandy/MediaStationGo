@@ -26,3 +26,24 @@ Implemented shared metadata identities, MediaView reads, persistent artwork, Emb
 ### Status
 
 [OK] **Completed**
+
+
+## Session 2: 修复 STRM 多版本媒体信息
+
+**Date**: 2026-08-04
+**Task**: 修复 STRM 多版本媒体信息
+**Branch**: `main`
+
+### Summary
+
+修复多版本本地 STRM 异步探测、真实源版本名、容器路径与平均码率，并更新共享媒体元数据规范。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `106aa36` | (see git log) |
+
+### Status
+
+[OK] **Completed**
