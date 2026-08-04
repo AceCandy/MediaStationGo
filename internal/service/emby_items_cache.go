@@ -8,6 +8,8 @@ import (
 	"strings"
 )
 
+const embyItemsCachePrefix = "media:emby:"
+
 type embyItemsCacheValue struct {
 	Items            []map[string]any `json:"items"`
 	TotalRecordCount int64            `json:"total_record_count"`
@@ -39,12 +41,12 @@ func (e *EmbyService) embyItemsCacheKey(kind string, p ItemsParams) string {
 		strconv.Itoa(p.StartIndex),
 		strconv.Itoa(p.Limit),
 	}, "|")))
-	return "media:emby:" + hex.EncodeToString(sum[:])
+	return embyItemsCachePrefix + hex.EncodeToString(sum[:])
 }
 
 func (e *EmbyService) embyLatestCacheKey(userID, parentID string, limit int) string {
 	sum := sha256.Sum256([]byte(strings.Join([]string{"latest", userID, parentID, strconv.Itoa(limit)}, "|")))
-	return "media:emby:" + hex.EncodeToString(sum[:])
+	return embyItemsCachePrefix + hex.EncodeToString(sum[:])
 }
 
 func (e *EmbyService) mediaCacheTTLSeconds() int {

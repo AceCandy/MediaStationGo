@@ -165,6 +165,65 @@ func TestEmbyItemsFiltersFavorites(t *testing.T) {
 	}
 }
 
+func TestEmbySetFavoriteInvalidatesItemsCache(t *testing.T) {
+	svc := newTestEmbyService(t)
+	svc.SetRuntimeCache(NewRuntimeCacheService(svc.cfg, svc.log))
+	viewer := &model.User{Base: model.Base{ID: "user-1"}, Username: "viewer", Role: "user", Tier: "free", IsActive: true}
+	if err := svc.repo.User.Create(t.Context(), viewer); err != nil {
+		t.Fatalf("create viewer: %v", err)
+	}
+	lib := model.Library{Name: "电影", Path: `/media/movies`, Type: "movie", Enabled: true}
+	if err := svc.repo.Library.Create(t.Context(), &lib); err != nil {
+		t.Fatalf("create library: %v", err)
+	}
+	metadata := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{
+		Kind: model.MetadataKindMovie, Title: "收藏电影", Source: "local",
+	})
+	media := model.Media{
+		Base: model.Base{ID: "movie-1"}, LibraryID: lib.ID, MetadataID: metadata.ID,
+		Title: "收藏电影", Path: `/media/movies/favorite.mkv`,
+	}
+	if err := svc.repo.DB.Create(&media).Error; err != nil {
+		t.Fatalf("create media: %v", err)
+	}
+
+	params := ItemsParams{
+		UserID: viewer.ID, ParentID: lib.ID, IncludeItemTypes: []string{"Movie"}, Recursive: true, Limit: 50,
+	}
+	out, err := svc.Items(t.Context(), params)
+	if err != nil {
+		t.Fatalf("items before favorite: %v", err)
+	}
+	items := out["Items"].([]map[string]any)
+	if got := items[0]["UserData"].(map[string]any)["IsFavorite"]; got != false {
+		t.Fatalf("favorite before update = %v, want false", got)
+	}
+
+	if err := svc.SetFavorite(t.Context(), viewer.ID, metadata.ID, true); err != nil {
+		t.Fatalf("set favorite: %v", err)
+	}
+	out, err = svc.Items(t.Context(), params)
+	if err != nil {
+		t.Fatalf("items after favorite: %v", err)
+	}
+	items = out["Items"].([]map[string]any)
+	if got := items[0]["UserData"].(map[string]any)["IsFavorite"]; got != true {
+		t.Fatalf("favorite after update = %v, want true", got)
+	}
+
+	if err := svc.SetFavorite(t.Context(), viewer.ID, metadata.ID, false); err != nil {
+		t.Fatalf("unset favorite: %v", err)
+	}
+	out, err = svc.Items(t.Context(), params)
+	if err != nil {
+		t.Fatalf("items after removing favorite: %v", err)
+	}
+	items = out["Items"].([]map[string]any)
+	if got := items[0]["UserData"].(map[string]any)["IsFavorite"]; got != false {
+		t.Fatalf("favorite after removal = %v, want false", got)
+	}
+}
+
 func TestEmbyItemsFiltersResumableForHome(t *testing.T) {
 	svc := newTestEmbyService(t)
 	viewer := &model.User{Base: model.Base{ID: "user-1"}, Username: "viewer", Role: "user", Tier: "free", IsActive: true}

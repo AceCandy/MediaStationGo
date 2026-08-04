@@ -19,8 +19,13 @@ func (e *EmbyService) SetFavorite(ctx context.Context, userID, itemID string, fa
 	if target.ItemID == "" || target.MetadataID == "" {
 		return errors.New("media not found")
 	}
-	_, err = e.repo.Favorite.SetByIdentity(ctx, userID, target.MetadataID, target.MediaID, favorite)
-	return err
+	if _, err = e.repo.Favorite.SetByIdentity(ctx, userID, target.MetadataID, target.MediaID, favorite); err != nil {
+		return err
+	}
+	if e.cache != nil {
+		e.cache.DeletePrefix(ctx, embyItemsCachePrefix)
+	}
+	return nil
 }
 
 // MarkPlayed 按作品身份标记已看，并保留当前具体版本。
