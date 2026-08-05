@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
 
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 	"github.com/ShukeBta/MediaStationGo/internal/service"
@@ -23,6 +24,13 @@ func embyPlaybackInfoHandler(svc *service.Container) gin.HandlerFunc {
 		}
 		selection, requestedUserID, err := embyPlaybackSelection(c)
 		if err != nil {
+			if svc != nil && svc.Log != nil {
+				svc.Log.Info("emby playback info request rejected",
+					zap.String("item_id", c.Param("id")),
+					zap.Error(err),
+					zap.String("request_method", c.Request.Method),
+				)
+			}
 			embyError(c, http.StatusBadRequest, err.Error())
 			return
 		}
@@ -31,6 +39,16 @@ func embyPlaybackInfoHandler(svc *service.Container) gin.HandlerFunc {
 		}
 		out, err := svc.Emby.PlaybackInfoWithOptions(c.Request.Context(), c.Param("id"), uid, selection)
 		if errors.Is(err, service.ErrInvalidStreamIndex) {
+			if svc != nil && svc.Log != nil {
+				svc.Log.Info("emby playback info selection rejected",
+					zap.String("item_id", c.Param("id")),
+					zap.String("user_id", uid),
+					zap.String("media_source_id", selection.MediaSourceID),
+					zap.Intp("audio_stream_index", selection.AudioStreamIndex),
+					zap.Intp("subtitle_stream_index", selection.SubtitleStreamIndex),
+					zap.Error(err),
+				)
+			}
 			embyError(c, http.StatusBadRequest, err.Error())
 			return
 		}

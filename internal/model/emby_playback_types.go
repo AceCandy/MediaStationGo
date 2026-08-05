@@ -1,5 +1,27 @@
 package model
 
+import (
+	"fmt"
+	"strconv"
+	"strings"
+)
+
+// EmbyFlexibleInt 兼容部分客户端将整数编码为 JSON 字符串。
+type EmbyFlexibleInt int
+
+func (v *EmbyFlexibleInt) UnmarshalJSON(data []byte) error {
+	raw := strings.TrimSpace(strings.Trim(string(data), `"`))
+	if raw == "" || raw == "null" {
+		return nil
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil {
+		return fmt.Errorf("invalid integer %q: %w", raw, err)
+	}
+	*v = EmbyFlexibleInt(n)
+	return nil
+}
+
 // EmbyPlaybackInfoRequest 播放信息请求。
 type EmbyPlaybackInfoRequest struct {
 	UserId              string             `json:"UserId,omitempty"`
@@ -45,20 +67,20 @@ type EmbyDirectPlayProfile struct {
 
 // EmbyTranscodingProfile 转码配置。
 type EmbyTranscodingProfile struct {
-	Container                 string `json:"Container,omitempty"`
-	Type                      string `json:"Type,omitempty"`
-	VideoCodec                string `json:"VideoCodec,omitempty"`
-	AudioCodec                string `json:"AudioCodec,omitempty"`
-	Protocol                  string `json:"Protocol,omitempty"`
-	EstimateContentLength     bool   `json:"EstimateContentLength,omitempty"`
-	EnableMpegtsM2TsMode      bool   `json:"EnableMpegtsM2TsMode,omitempty"`
-	TranscodeSeekInfo         string `json:"TranscodeSeekInfo,omitempty"`
-	Context                   string `json:"Context,omitempty"`
-	EnableSubtitlesInManifest bool   `json:"EnableSubtitlesInManifest,omitempty"`
-	MaxAudioChannels          int    `json:"MaxAudioChannels,omitempty"`
-	MinSegments               int    `json:"MinSegments,omitempty"`
-	SegmentLength             int    `json:"SegmentLength,omitempty"`
-	BreakOnNonKeyFrames       bool   `json:"BreakOnNonKeyFrames,omitempty"`
+	Container                 string          `json:"Container,omitempty"`
+	Type                      string          `json:"Type,omitempty"`
+	VideoCodec                string          `json:"VideoCodec,omitempty"`
+	AudioCodec                string          `json:"AudioCodec,omitempty"`
+	Protocol                  string          `json:"Protocol,omitempty"`
+	EstimateContentLength     bool            `json:"EstimateContentLength,omitempty"`
+	EnableMpegtsM2TsMode      bool            `json:"EnableMpegtsM2TsMode,omitempty"`
+	TranscodeSeekInfo         string          `json:"TranscodeSeekInfo,omitempty"`
+	Context                   string          `json:"Context,omitempty"`
+	EnableSubtitlesInManifest bool            `json:"EnableSubtitlesInManifest,omitempty"`
+	MaxAudioChannels          EmbyFlexibleInt `json:"MaxAudioChannels,omitempty"`
+	MinSegments               int             `json:"MinSegments,omitempty"`
+	SegmentLength             int             `json:"SegmentLength,omitempty"`
+	BreakOnNonKeyFrames       bool            `json:"BreakOnNonKeyFrames,omitempty"`
 }
 
 // EmbyContainerProfile 容器配置。
