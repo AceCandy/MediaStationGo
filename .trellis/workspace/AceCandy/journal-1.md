@@ -90,3 +90,24 @@ Implemented shared metadata identities, MediaView reads, persistent artwork, Emb
 ### Status
 
 [OK] **Completed**
+
+
+## Session 5: Cached playback redirects
+
+**Date**: 2026-08-06
+**Task**: Cached playback redirects
+**Branch**: `main`
+
+### Summary
+
+Added one-hour cloud direct-link caching, playback source/cache diagnostics, configurable local-path to OpenList mappings, and server-side resolution of mapped OpenList URLs to final CDN redirects.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `407f620` | (see git log) |
+
+### Status
+
+[OK] **Completed**
