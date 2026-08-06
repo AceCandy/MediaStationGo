@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 5
+- **Total Sessions**: 6
 - **Last Active**: 2026-08-06
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~113 | Active |
+| `journal-1.md` | ~134 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 6 | 2026-08-06 | 将成人刮削移出常规工作链 | `745a5e7` | `main` |
 | 5 | 2026-08-06 | Cached playback redirects | `407f620` | `main` |
 | 4 | 2026-08-05 | 媒体详情轨道展示 | `70244e2` | `main` |
 | 3 | 2026-08-04 | 完整媒体轨道探测与播放选择 | `9d8e605`, `150ca66` | `main` |

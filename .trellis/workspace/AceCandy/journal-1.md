@@ -111,3 +111,24 @@ Added one-hour cloud direct-link caching, playback source/cache diagnostics, con
 ### Status
 
 [OK] **Completed**
+
+
+## Session 6: 将成人刮削移出常规工作链
+
+**Date**: 2026-08-06
+**Task**: 将成人刮削移出常规工作链
+**Branch**: `main`
+
+### Summary
+
+常规扫描、重刮、all provider 手动搜索及非成人整理不再调用成人源；保留显式成人手动搜索和成人整理，并补充回归测试与共享元数据规范。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `745a5e7` | (see git log) |
+
+### Status
+
+[OK] **Completed**
