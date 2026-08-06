@@ -89,7 +89,7 @@ const (
 	maxScrapeDelayMS        = 5 * 60 * 1000
 )
 
-// AnyEnabled reports whether at least one provider can run.
+// AnyEnabled reports whether at least one regular provider can run.
 func (s *ScraperService) AnyEnabled() bool {
 	if s.tmdb != nil && s.tmdb.Enabled() {
 		return true
@@ -98,9 +98,6 @@ func (s *ScraperService) AnyEnabled() bool {
 		return true
 	}
 	if s.thetvdb != nil && s.thetvdb.Enabled() {
-		return true
-	}
-	if s.adult != nil && s.adult.Enabled() {
 		return true
 	}
 	if s.douban != nil && s.douban.Enabled() {

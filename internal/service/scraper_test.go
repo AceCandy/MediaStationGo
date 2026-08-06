@@ -2,12 +2,21 @@ package service
 
 import (
 	"errors"
+	"net/http"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 	"gorm.io/gorm"
 )
+
+func TestScraperAnyEnabledIgnoresAdultProvider(t *testing.T) {
+	scraper := &ScraperService{adult: &AdultProvider{}}
+	if scraper.AnyEnabled() {
+		t.Fatal("adult provider alone must not enable the regular scrape chain")
+	}
+}
 
 func TestEnrichOneReturnsNoMatchPersistenceError(t *testing.T) {
 	scraper, repos, closeServer := newTestScraper(t)
@@ -43,18 +52,25 @@ func TestEnrichOneReturnsNoMatchPersistenceError(t *testing.T) {
 	}
 }
 
-func TestEnrichOneUsesExistingTMDbIDForCloudMedia(t *testing.T) {
+func TestEnrichOneUsesExistingTMDbIDWithoutAdultLookup(t *testing.T) {
 	scraper, repos, closeServer := newTestScraper(t)
 	defer closeServer()
+	var adultCalls atomic.Int32
+	adult := NewAdultProvider(scraper.log, nil)
+	adult.client = &http.Client{Transport: imageRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		adultCalls.Add(1)
+		return &http.Response{StatusCode: http.StatusNotFound, Header: make(http.Header), Body: http.NoBody, Request: req}, nil
+	})}
+	scraper.adult = adult
 
-	lib := model.Library{Name: "OpenList · 国漫", Path: "cloud://openlist/国漫", Type: "anime", Enabled: true}
+	lib := model.Library{Name: "OpenList · 国漫", Path: "cloud://openlist/STRM-115/国漫", Type: "anime", Enabled: true}
 	if err := repos.DB.Create(&lib).Error; err != nil {
 		t.Fatal(err)
 	}
 	media := model.Media{
 		LibraryID:    lib.ID,
 		Title:        "dirty release title",
-		Path:         "cloud://openlist/国漫/间谍过家家 (2022) {tmdb-12345}/Season 1/间谍过家家.S01E01.2160p.mkv",
+		Path:         "cloud://openlist/STRM-115/国漫/间谍过家家 (2022) {tmdb-12345}/Season 1/间谍过家家.S01E01.2160p.mkv",
 		SeasonNum:    1,
 		EpisodeNum:   1,
 		TMDbID:       12345,
@@ -70,6 +86,9 @@ func TestEnrichOneUsesExistingTMDbIDForCloudMedia(t *testing.T) {
 	got := serviceTestMediaView(t, repos, media.ID)
 	if got.ScrapeStatus != "matched" || got.Title != "间谍过家家" || got.TMDbID != 12345 || got.PosterURL == "" {
 		t.Fatalf("tmdb id scrape did not apply match: title=%q status=%q tmdb=%d poster=%q", got.Title, got.ScrapeStatus, got.TMDbID, got.PosterURL)
+	}
+	if calls := adultCalls.Load(); calls != 0 {
+		t.Fatalf("adult provider was called %d times during regular scrape", calls)
 	}
 }
 

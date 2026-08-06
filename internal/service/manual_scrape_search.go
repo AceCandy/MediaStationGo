@@ -60,7 +60,7 @@ func (s *ScraperService) ManualSearch(ctx context.Context, media *model.Media, q
 		})
 	}
 
-	if providers.want("adult") {
+	if _, explicitAdult := providers["adult"]; explicitAdult {
 		for _, candidateQuery := range queries {
 			if externalIDHintsFromText(candidateQuery).useful() {
 				continue

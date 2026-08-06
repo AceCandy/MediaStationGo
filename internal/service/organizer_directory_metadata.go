@@ -151,10 +151,9 @@ func (o *OrganizerService) lookupOrganizeMetadataByPathHints(ctx context.Context
 }
 
 func (o *OrganizerService) lookupOrganizeAdultMetadata(ctx context.Context, src, mediaType, title string) *Match {
-	if o == nil || o.scraper == nil || o.scraper.adult == nil || !o.scraper.adult.Enabled() {
+	if o == nil || o.scraper == nil || o.scraper.adult == nil || !o.scraper.adult.Enabled() || normalizeOrganizeMediaType(mediaType) != "adult" {
 		return nil
 	}
-	isAdult := normalizeOrganizeMediaType(mediaType) == "adult"
 	candidates := []string{src, filepath.Base(src), title}
 	outCodes := make([]string, 0, len(candidates))
 	seen := map[string]struct{}{}
@@ -169,7 +168,7 @@ func (o *OrganizerService) lookupOrganizeAdultMetadata(ctx context.Context, src,
 		seen[code] = struct{}{}
 		outCodes = append(outCodes, code)
 	}
-	if !isAdult && len(outCodes) == 0 {
+	if len(outCodes) == 0 {
 		return nil
 	}
 	for _, code := range outCodes {

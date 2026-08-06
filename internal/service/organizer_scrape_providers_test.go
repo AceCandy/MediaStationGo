@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"go.uber.org/zap"
@@ -14,6 +15,24 @@ import (
 	"github.com/ShukeBta/MediaStationGo/internal/config"
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 )
+
+func TestOrganizeNonAdultMediaSkipsAdultProvider(t *testing.T) {
+	var calls atomic.Int32
+	adult := NewAdultProvider(zap.NewNop(), nil)
+	adult.client = &http.Client{Transport: imageRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		calls.Add(1)
+		return &http.Response{StatusCode: http.StatusNotFound, Header: make(http.Header), Body: http.NoBody, Request: req}, nil
+	})}
+	organizer := &OrganizerService{log: zap.NewNop(), scraper: &ScraperService{adult: adult}}
+
+	match := organizer.lookupOrganizeAdultMetadata(t.Context(), "/media/STRM-115/Movie.mkv", "movie", "Movie")
+	if match != nil {
+		t.Fatalf("non-adult organize returned adult match: %#v", match)
+	}
+	if got := calls.Load(); got != 0 {
+		t.Fatalf("adult provider was called %d times for non-adult organize", got)
+	}
+}
 
 func TestOrganizeDirectoryUsesAdultMetadataBeforeRename(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

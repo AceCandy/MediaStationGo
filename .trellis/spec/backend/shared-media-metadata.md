@@ -23,6 +23,8 @@
 - Artwork response: `/api/artwork/:assetID`; originals live under `App.DataDir/artwork/sha256/...`.
 - Library deletion: `DELETE /api/libraries/:id` -> `MediaService.DeleteLibrary(ctx, id)`.
 - Scrape entrypoints (`POST /api/media/:id/scrape`, `POST /api/libraries/:id/scrape`, manual apply, scan auto-scrape, STRM refresh, and repair-rescrape) enrich metadata only and never invoke `OrganizerService`.
+- Regular scrape entrypoints never infer an adult code or call `AdultProvider`. `ScraperService.AnyEnabled` reports regular provider availability and excludes the adult provider.
+- Adult network lookup requires an explicit adult operation: manual search whose provider set contains `adult`, manual apply with `source=adult`, or organize with `mediaType=adult`. Manual search with an empty provider or `provider=all` is not an explicit adult operation.
 
 ### 3. Contracts
 
@@ -74,6 +76,8 @@
 | Explicit provider crosswalk or user-confirmed identity resolves to another metadata | Transactionally merge references and hierarchy, then hard-delete the unreferenced source |
 | Provider returns no match | Try read-only local fallback; otherwise set `no_match` |
 | Provider request fails | Set `error`; preserve existing canonical data and do not import local fallback |
+| A regular scrape path or `provider=all` query resembles an adult code | Do not call `AdultProvider`; continue regular external-ID and provider lookup |
+| An explicit adult manual/organize operation has a valid code | Allow `AdultProvider` lookup and persist the selected adult match normally |
 | Artwork import fails | Return the error and keep the currently selected managed asset |
 | Provider metadata implies a different category/library | Persist metadata and artwork only; preserve the media path and library ID |
 | User cannot view NSFW/library | Filter in `MediaView` query before pagination or playback response creation |
@@ -95,6 +99,9 @@
 - Bad: creating a media row first and filling `metadata_id` later, or treating `Media.ID` as an item identity fallback.
 - Bad: copying provider title, genres, NSFW, or artwork URL into each `Media` row.
 - Bad: applying NFO title or artwork after a successful provider match.
+- Good: `/media/STRM-115/Movie.mkv` follows the regular provider chain without a JavDB/JavBus request.
+- Good: explicit `provider=adult`, `source=adult`, or `mediaType=adult` can still request adult metadata.
+- Bad: treating `provider=all`, a parent directory, or a scan title that resembles a code as consent to contact an adult provider.
 - Bad: joining all `MetadataIdentifier` rows directly and then applying `COUNT`, `OFFSET`, or `LIMIT`.
 - Good: deleting a local or cloud library physically removes its library/root/media rows while the referenced metadata and user state remain.
 - Bad: using GORM's scoped `Delete` for a library or its media and leaving rows in the recycle bin.
@@ -125,6 +132,7 @@
 - Playback/Emby: assert `/Items` totals, `/Items/Counts`, and `/SearchHints` count shared metadata once while still exposing every concrete version as a `MediaSource`.
 - Playback/Emby: assert Series and Season IDs are real metadata IDs, Episode parent IDs follow the stored hierarchy, and no virtual or media-ID fallback is emitted.
 - Scrape state: test provider match, definitive no-match with local fallback, and provider error without fallback.
+- Scrape provider boundary: assert regular enrichment, `provider=all` manual search, and non-adult organize make zero adult-provider requests; retain positive coverage for explicit adult manual search and adult organize.
 - Manual apply API: assert the response contains the newly persisted shared title while the media path and library ID remain unchanged.
 - Artwork: delete/ignore cache and remote source after import; `/api/artwork/:assetID` must still serve the DataDir copy.
 - Sidecars: snapshot NFO/poster/fanart/thumb before scan/scrape/organize and assert content and paths are unchanged afterward.
@@ -187,6 +195,20 @@ if err == nil && result.Processed > 0 {
 
 // Correct: scraping owns metadata and managed artwork only.
 _, err := scraper.EnrichLibraryDetailedWithOptions(ctx, libraryID, options)
+```
+
+Adult scraping must also remain explicit:
+
+```go
+// Wrong: a regular scrape infers adult intent from a path such as STRM-115.
+if code := AdultCodeFromMediaPath(media.Path); code != "" {
+    match, err := scraper.adult.Search(ctx, code)
+}
+
+// Correct: only an explicit adult entrypoint calls the adult provider.
+if _, explicitAdult := providers["adult"]; explicitAdult {
+    matches := scraper.manualAdultMatches(ctx, media, query)
+}
 ```
 
 For STRM playback repair, reservation and probe concurrency are separate concerns:

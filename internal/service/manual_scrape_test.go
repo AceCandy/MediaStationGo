@@ -365,18 +365,20 @@ func TestManualSearchTMDbProviderIDUsesIDLookupOnly(t *testing.T) {
 	}
 }
 
-func TestManualSearchAllProvidersProviderIDSkipsAdultSource(t *testing.T) {
+func TestManualSearchAllProvidersSkipsAdultSource(t *testing.T) {
 	var tmdbPaths []string
 	tmdbUpstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		tmdbPaths = append(tmdbPaths, r.URL.Path)
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
-		case "/movie/1208850":
+		case "/search/movie":
 			_ = json.NewEncoder(w).Encode(map[string]any{
-				"id":             1208850,
-				"title":          "多拉特行动",
-				"original_title": "Malbatt: Misi Bakara",
-				"release_date":   "2024-01-11",
+				"results": []map[string]any{{
+					"id":             1208850,
+					"title":          "多拉特行动",
+					"original_title": "Malbatt: Misi Bakara",
+					"release_date":   "2024-01-11",
+				}},
 			})
 		default:
 			http.NotFound(w, r)
@@ -419,15 +421,15 @@ func TestManualSearchAllProvidersProviderIDSkipsAdultSource(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	results, err := scraper.ManualSearch(t.Context(), &media, "[tmdbid-1208850]", "all", "movie")
+	results, err := scraper.ManualSearch(t.Context(), &media, "多拉特行动", "all", "movie")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(results) != 1 || results[0].TMDbID != 1208850 || results[0].Source != "tmdb" {
-		t.Fatalf("manual provider-id results=%#v, tmdb paths=%v", results, tmdbPaths)
+		t.Fatalf("manual all-provider results=%#v, tmdb paths=%v", results, tmdbPaths)
 	}
 	if calls := adultCalls.Load(); calls != 0 {
-		t.Fatalf("adult provider was called %d times for explicit tmdb id", calls)
+		t.Fatalf("adult provider was called %d times for regular manual search", calls)
 	}
 }
 

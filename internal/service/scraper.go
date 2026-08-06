@@ -55,18 +55,6 @@ func (s *ScraperService) EnrichOneWithOptions(ctx context.Context, m *model.Medi
 	year := mediaYearHint(&lookupMedia)
 	var lookupErrors []error
 
-	if s.adult != nil && s.adult.Enabled() {
-		if code := firstText(localAdultCode(local), AdultCodeFromMediaPath(m.Path), normalizeAdultCode(lookupMedia.OriginalName), normalizeAdultCode(lookupMedia.Title)); code != "" {
-			if adultMatch, err := s.adult.Search(ctx, code); err == nil && adultMatch != nil {
-				adultMatch.Source = "adult"
-				return s.applyProviderMatchWithOptions(ctx, m, lib, adultMatch, options)
-			} else if err != nil {
-				s.log.Debug("adult metadata search failed", zap.String("media_id", m.ID), zap.String("code", code), zap.Error(err))
-				lookupErrors = append(lookupErrors, err)
-			}
-		}
-	}
-
 	externalResult := s.matchFromMediaExternalIDsWithOutcome(ctx, &lookupMedia, lib)
 	if match := externalResult.Match; match != nil {
 		s.applyFanartArtwork(ctx, match)
