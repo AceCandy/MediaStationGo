@@ -5,7 +5,6 @@ import (
 	"encoding/hex"
 	"io"
 	"net/http"
-	"net/url"
 	"path"
 	"sort"
 	"strings"
@@ -19,13 +18,14 @@ import (
 )
 
 type cloudPlaybackRequest struct {
-	svc          *service.Container
-	c            *gin.Context
-	typ          string
-	ref          string
-	link         *cloud.DirectLink
-	resolveStart time.Time
-	resolveDur   time.Duration
+	svc           *service.Container
+	c             *gin.Context
+	typ           string
+	ref           string
+	link          *cloud.DirectLink
+	resolveSource string
+	resolveStart  time.Time
+	resolveDur    time.Duration
 }
 
 // cloudPlayHandler resolves a cloud file to its direct link and either issues a
@@ -61,13 +61,17 @@ func serveCloudResolvedLink(svc *service.Container, c *gin.Context, typ, ref str
 		return
 	}
 	resolveStart := time.Now()
-	link, err := svc.StorageCfg.CloudResolve(c.Request.Context(), typ, ref, c.Request.UserAgent())
+	link, cacheHit, err := svc.StorageCfg.CloudResolveWithCacheStatus(c.Request.Context(), typ, ref, c.Request.UserAgent())
 	resolveDur := time.Since(resolveStart)
 	if err != nil {
 		logCloudPlayback(svc, "cloud playback resolve failed",
-			append(cloudPlaybackLogFields(typ, ref, nil, resolveDur), zap.Error(err))...)
+			append(cloudPlaybackLogFields(typ, ref, nil, resolveDur, "upstream"), zap.Error(err))...)
 		c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
 		return
+	}
+	resolveSource := "upstream"
+	if cacheHit {
+		resolveSource = "cache"
 	}
 	if isCloudImageRef(ref) && svc.ImageProxy != nil {
 		if err := svc.ImageProxy.ServeCloudResolved(c.Request.Context(), c.Writer, c.Request, typ+":"+ref, link); err != nil {
@@ -82,7 +86,7 @@ func serveCloudResolvedLink(svc *service.Container, c *gin.Context, typ, ref str
 		// Pure offload: send the client straight to the cloud CDN.
 		setRedirectNoStoreHeaders(c)
 		logCloudPlayback(svc, "cloud playback redirect",
-			append(cloudPlaybackLogFields(typ, ref, link, resolveDur),
+			append(cloudPlaybackLogFields(typ, ref, link, resolveDur, resolveSource),
 				zap.String("mode", "redirect"),
 				zap.Int("status", http.StatusFound),
 				zap.String("method", c.Request.Method),
@@ -92,13 +96,14 @@ func serveCloudResolvedLink(svc *service.Container, c *gin.Context, typ, ref str
 		return
 	}
 	proxyCloudResolvedLink(cloudPlaybackRequest{
-		svc:          svc,
-		c:            c,
-		typ:          typ,
-		ref:          ref,
-		link:         link,
-		resolveStart: resolveStart,
-		resolveDur:   resolveDur,
+		svc:           svc,
+		c:             c,
+		typ:           typ,
+		ref:           ref,
+		link:          link,
+		resolveSource: resolveSource,
+		resolveStart:  resolveStart,
+		resolveDur:    resolveDur,
 	})
 }
 
@@ -131,7 +136,7 @@ func proxyCloudResolvedLink(playback cloudPlaybackRequest) {
 	upstreamHeaderDur := time.Since(upstreamStart)
 	if err != nil {
 		logCloudPlayback(playback.svc, "cloud playback proxy upstream failed",
-			append(cloudPlaybackLogFields(playback.typ, playback.ref, playback.link, playback.resolveDur),
+			append(cloudPlaybackLogFields(playback.typ, playback.ref, playback.link, playback.resolveDur, playback.resolveSource),
 				zap.String("mode", "proxy"),
 				zap.String("method", clientMethod),
 				zap.String("upstream_method", upstreamMethod),
@@ -162,7 +167,7 @@ func handleCloudProxyError(playback cloudPlaybackRequest, req *http.Request, res
 	c := playback.c
 	c.Header("Cache-Control", "no-store")
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-	fields := append(cloudPlaybackLogFields(playback.typ, playback.ref, playback.link, playback.resolveDur),
+	fields := append(cloudPlaybackLogFields(playback.typ, playback.ref, playback.link, playback.resolveDur, playback.resolveSource),
 		zap.String("mode", "proxy"),
 		zap.String("method", clientMethod),
 		zap.String("upstream_method", upstreamMethod),
@@ -191,7 +196,7 @@ func streamCloudProxyResponse(playback cloudPlaybackRequest, req *http.Request, 
 	if c.Request.Method != http.MethodHead {
 		copied, copyErr = io.Copy(c.Writer, resp.Body)
 	}
-	fields := append(cloudPlaybackLogFields(playback.typ, playback.ref, playback.link, playback.resolveDur),
+	fields := append(cloudPlaybackLogFields(playback.typ, playback.ref, playback.link, playback.resolveDur, playback.resolveSource),
 		zap.String("mode", "proxy"),
 		zap.String("method", clientMethod),
 		zap.String("upstream_method", upstreamMethod),
@@ -229,7 +234,7 @@ func logCloudPlayback(svc *service.Container, msg string, fields ...zap.Field) {
 	svc.Log.Info(msg, fields...)
 }
 
-func cloudPlaybackLogFields(typ, ref string, link *cloud.DirectLink, resolveDur time.Duration) []zap.Field {
+func cloudPlaybackLogFields(typ, ref string, link *cloud.DirectLink, resolveDur time.Duration, resolveSource string) []zap.Field {
 	refHash, refExt := cloudPlaybackRefFingerprint(ref)
 	fields := []zap.Field{
 		zap.String("provider", strings.TrimSpace(typ)),
@@ -237,12 +242,20 @@ func cloudPlaybackLogFields(typ, ref string, link *cloud.DirectLink, resolveDur 
 		zap.String("ref_ext", refExt),
 		zap.Int64("resolve_ms", durationMilliseconds(resolveDur)),
 	}
+	if resolveSource != "" {
+		fields = append(fields, zap.String("resolve_source", resolveSource))
+	}
 	if link != nil {
+		playbackSource := "remote_redirect"
+		if link.Proxy {
+			playbackSource = "remote_proxy"
+		}
 		fields = append(fields,
-			zap.String("target_host", cloudPlaybackLinkHost(link.URL)),
+			zap.String("playback_source", playbackSource),
 			zap.Bool("headers_required", len(link.Headers) > 0),
 			zap.Strings("header_names", cloudPlaybackHeaderNames(link.Headers)),
 		)
+		fields = append(fields, service.PlaybackURLLogFields(link.URL)...)
 	}
 	return fields
 }
@@ -252,14 +265,6 @@ func cloudPlaybackRefFingerprint(ref string) (string, string) {
 	sum := sha256.Sum256([]byte(ref))
 	ext := strings.ToLower(path.Ext(strings.Trim(strings.ReplaceAll(ref, "\\", "/"), "/")))
 	return hex.EncodeToString(sum[:])[:12], ext
-}
-
-func cloudPlaybackLinkHost(raw string) string {
-	u, err := url.Parse(strings.TrimSpace(raw))
-	if err != nil || u.Host == "" {
-		return ""
-	}
-	return u.Host
 }
 
 func cloudPlaybackHeaderNames(headers map[string]string) []string {

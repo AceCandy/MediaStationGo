@@ -49,9 +49,6 @@ func TestCloudPlaybackDiagnosticsDoNotExposeRawRefOrURL(t *testing.T) {
 	if refExt != ".mkv" {
 		t.Fatalf("ref ext = %q, want .mkv", refExt)
 	}
-	if host := cloudPlaybackLinkHost("https://cdn.example.test/movie.mkv?token=secret"); host != "cdn.example.test" {
-		t.Fatalf("host = %q, want cdn.example.test", host)
-	}
 	names := cloudPlaybackHeaderNames(map[string]string{
 		"Authorization": "Bearer secret",
 		"Cookie":        "sid=secret",

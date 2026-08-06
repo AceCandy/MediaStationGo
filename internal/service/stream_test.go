@@ -2,6 +2,7 @@ package service
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -11,6 +12,7 @@ import (
 	"testing"
 
 	"go.uber.org/zap"
+	"go.uber.org/zap/zaptest/observer"
 
 	"github.com/ShukeBta/MediaStationGo/internal/config"
 	"github.com/ShukeBta/MediaStationGo/internal/model"
@@ -163,7 +165,7 @@ func TestServeFileRedirectsCloudMediaForVideoStreamMode(t *testing.T) {
 
 func TestServeFileRedirectsCloudMediaExternalHTTPSTRMURL(t *testing.T) {
 	repos := newStreamTestRepo(t)
-	target := "https://cdn.example.test/Movie.mkv?sign=direct"
+	target := "https://cdn.example.test/%E5%AF%92%E6%88%98.mkv?sign=direct"
 	if err := repos.DB.Create(&model.Media{
 		Base:    model.Base{ID: "cloud-http"},
 		Title:   "Cloud HTTP",
@@ -172,7 +174,8 @@ func TestServeFileRedirectsCloudMediaExternalHTTPSTRMURL(t *testing.T) {
 	}).Error; err != nil {
 		t.Fatal(err)
 	}
-	svc := NewStreamService(&config.Config{}, zap.NewNop(), repos, nil)
+	core, observed := observer.New(zap.InfoLevel)
+	svc := NewStreamService(&config.Config{}, zap.New(core), repos, nil)
 	req := httptest.NewRequest(http.MethodGet, "http://nas.local:18080/api/stream/cloud-http?token=jwt123", nil)
 	w := httptest.NewRecorder()
 
@@ -188,6 +191,196 @@ func TestServeFileRedirectsCloudMediaExternalHTTPSTRMURL(t *testing.T) {
 	}
 	if strings.Contains(loc, "jwt123") || strings.Contains(loc, "media_id=") {
 		t.Fatalf("external direct link must not receive internal auth query, got %q", loc)
+	}
+	entries := observed.FilterMessage("media playback redirect").All()
+	if len(entries) != 1 {
+		t.Fatalf("redirect log entries = %d, want 1", len(entries))
+	}
+	fields := entries[0].ContextMap()
+	if fields["playback_source"] != "remote_redirect" || fields["resolve_source"] != "configured" ||
+		fields["target_scheme"] != "https" || fields["target_host"] != "cdn.example.test" || fields["target_path"] != "/寒战.mkv" ||
+		fmt.Sprint(fields["target_query_keys"]) != "[sign]" {
+		t.Fatalf("unexpected redirect log fields: %#v", fields)
+	}
+	loggedTarget := fmt.Sprint(fields["target_scheme"], fields["target_host"], fields["target_path"], fields["target_query_keys"])
+	if strings.Contains(loggedTarget, "direct") || fields["target_hash"] == "" {
+		t.Fatalf("redirect log should hide query values and include target hash: %#v", fields)
+	}
+}
+
+func TestServeFileLogsLocalFilePath(t *testing.T) {
+	repos := newStreamTestRepo(t)
+	target := filepath.Join(t.TempDir(), "Movie.mkv")
+	if err := os.WriteFile(target, []byte("video"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := repos.DB.Create(&model.Media{Base: model.Base{ID: "local-file"}, Path: target}).Error; err != nil {
+		t.Fatal(err)
+	}
+	core, observed := observer.New(zap.InfoLevel)
+	svc := NewStreamService(&config.Config{}, zap.New(core), repos, nil)
+	req := httptest.NewRequest(http.MethodGet, "http://nas.local/api/stream/local-file", nil)
+	w := httptest.NewRecorder()
+
+	if err := svc.ServeFile(w, req, "local-file"); err != nil {
+		t.Fatal(err)
+	}
+	entries := observed.FilterMessage("media playback local").All()
+	if len(entries) != 1 {
+		t.Fatalf("local playback log entries = %d, want 1", len(entries))
+	}
+	fields := entries[0].ContextMap()
+	if fields["playback_source"] != "local_file" || fields["path"] != target {
+		t.Fatalf("unexpected local playback log fields: %#v", fields)
+	}
+}
+
+func TestServeFileRedirectsMappedLocalPathUsingLongestPrefix(t *testing.T) {
+	repos := newStreamTestRepo(t)
+	localPath := "/mnt/media/new115/电影/测试 影片 (2026).mkv"
+	upstreamCalls := 0
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		upstreamCalls++
+		if r.Header.Get("Range") != "bytes=0-0" {
+			t.Errorf("Range = %q, want bytes=0-0", r.Header.Get("Range"))
+		}
+		if r.URL.EscapedPath() != "/d/new115/%E7%94%B5%E5%BD%B1/%E6%B5%8B%E8%AF%95%20%E5%BD%B1%E7%89%87%20%282026%29.mkv" {
+			t.Errorf("escaped path = %q", r.URL.EscapedPath())
+		}
+		http.Redirect(w, r, "https://cdn.example.test/movie.mkv?t=temporary", http.StatusFound)
+	}))
+	defer upstream.Close()
+	mappings := strings.Join([]string{
+		"/mnt/media => https://fallback.example.test/d/all/",
+		"/mnt/media/new115/ => " + upstream.URL + "/d/new115/",
+	}, "\n")
+	if err := repos.Setting.Set(t.Context(), PlaybackPathMappingsSettingKey, mappings); err != nil {
+		t.Fatal(err)
+	}
+	if err := repos.DB.Create(&model.Media{Base: model.Base{ID: "mapped-local"}, Path: localPath}).Error; err != nil {
+		t.Fatal(err)
+	}
+	core, observed := observer.New(zap.InfoLevel)
+	svc := NewStreamService(&config.Config{}, zap.New(core), repos, nil)
+	svc.SetStorageConfig(NewStorageConfigService(zap.NewNop(), nil, nil))
+	req := httptest.NewRequest(http.MethodGet, "http://nas.local/api/stream/mapped-local", nil)
+	req.Header.Set("User-Agent", "mapped-player")
+	w := httptest.NewRecorder()
+
+	if err := svc.ServeFile(w, req, "mapped-local"); err != nil {
+		t.Fatal(err)
+	}
+	if w.Code != http.StatusFound {
+		t.Fatalf("status = %d, want 302", w.Code)
+	}
+	location, err := url.Parse(w.Header().Get("Location"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if location.Scheme != "https" || location.Host != "cdn.example.test" ||
+		location.Path != "/movie.mkv" || location.Query().Get("t") != "temporary" {
+		t.Fatalf("unexpected mapped redirect: %q", location.String())
+	}
+	if got := w.Header().Get("Cache-Control"); !strings.Contains(got, "no-store") {
+		t.Fatalf("mapped redirect Cache-Control = %q, want no-store", got)
+	}
+	w = httptest.NewRecorder()
+	if err := svc.ServeFile(w, req, "mapped-local"); err != nil {
+		t.Fatal(err)
+	}
+	if upstreamCalls != 1 || w.Header().Get("Location") != location.String() {
+		t.Fatalf("cached redirect calls/location = %d/%q", upstreamCalls, w.Header().Get("Location"))
+	}
+	entries := observed.FilterMessage("media playback redirect").All()
+	if len(entries) != 2 {
+		t.Fatalf("redirect log entries = %d, want 2", len(entries))
+	}
+	fields := entries[0].ContextMap()
+	if fields["playback_source"] != "remote_redirect" || fields["resolve_source"] != "path_mapping" ||
+		fields["path"] != localPath || fields["target_host"] != "cdn.example.test" ||
+		fields["target_path"] != "/movie.mkv" || fields["cache_hit"] != false {
+		t.Fatalf("unexpected mapped redirect log fields: %#v", fields)
+	}
+	if fields := entries[1].ContextMap(); fields["cache_hit"] != true {
+		t.Fatalf("cached redirect log fields: %#v", fields)
+	}
+}
+
+func TestServeFileRedirectsMappedLocalSTRMTarget(t *testing.T) {
+	repos := newStreamTestRepo(t)
+	localTarget := "/mnt/media/new115/电影/测试影片 (2026).mp4"
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "https://cdn.example.test/zhongkui.mp4?t=temporary", http.StatusFound)
+	}))
+	defer upstream.Close()
+	if err := repos.Setting.Set(t.Context(), PlaybackPathMappingsSettingKey,
+		"/mnt/media/new115/ => "+upstream.URL+"/d/new115/"); err != nil {
+		t.Fatal(err)
+	}
+	if err := repos.DB.Create(&model.Media{
+		Base:      model.Base{ID: "mapped-local-strm"},
+		Path:      "/data/strm/测试影片 (2026).strm",
+		Container: "strm",
+		STRMURL:   localTarget,
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	core, observed := observer.New(zap.InfoLevel)
+	svc := NewStreamService(&config.Config{}, zap.New(core), repos, nil)
+	svc.SetStorageConfig(NewStorageConfigService(zap.NewNop(), nil, nil))
+	w := httptest.NewRecorder()
+
+	if err := svc.ServeFile(w, httptest.NewRequest(http.MethodGet, "/api/stream/mapped-local-strm", nil), "mapped-local-strm"); err != nil {
+		t.Fatal(err)
+	}
+	location, err := url.Parse(w.Header().Get("Location"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w.Code != http.StatusFound || location.Host != "cdn.example.test" ||
+		location.Path != "/zhongkui.mp4" {
+		t.Fatalf("unexpected local STRM redirect: status=%d location=%q", w.Code, location.String())
+	}
+	entries := observed.FilterMessage("media playback redirect").All()
+	if len(entries) != 1 {
+		t.Fatalf("redirect log entries = %d, want 1", len(entries))
+	}
+	fields := entries[0].ContextMap()
+	if fields["resolve_source"] != "path_mapping" || fields["path"] != localTarget {
+		t.Fatalf("unexpected local STRM redirect log fields: %#v", fields)
+	}
+}
+
+func TestServeFileIgnoresInvalidOrNonMatchingPathMappings(t *testing.T) {
+	repos := newStreamTestRepo(t)
+	dir := t.TempDir()
+	target := filepath.Join(dir, "media-other", "Movie.mkv")
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(target, []byte("video"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mappings := strings.Join([]string{
+		"# comments are ignored",
+		filepath.Join(dir, "media") + " => https://cdn.example.test/d/media/",
+		filepath.Join(dir, "media-other") + " => ftp://cdn.example.test/d/media-other/",
+		"invalid line",
+	}, "\n")
+	if err := repos.Setting.Set(t.Context(), PlaybackPathMappingsSettingKey, mappings); err != nil {
+		t.Fatal(err)
+	}
+	if err := repos.DB.Create(&model.Media{Base: model.Base{ID: "local-fallback"}, Path: target}).Error; err != nil {
+		t.Fatal(err)
+	}
+	svc := NewStreamService(&config.Config{}, zap.NewNop(), repos, nil)
+	w := httptest.NewRecorder()
+
+	if err := svc.ServeFile(w, httptest.NewRequest(http.MethodGet, "/api/stream/local-fallback", nil), "local-fallback"); err != nil {
+		t.Fatal(err)
+	}
+	if w.Code != http.StatusOK || w.Body.String() != "video" || w.Header().Get("Location") != "" {
+		t.Fatalf("status/body/location = %d/%q/%q, want local 200", w.Code, w.Body.String(), w.Header().Get("Location"))
 	}
 }
 
@@ -237,7 +430,8 @@ func TestServeFileReadsLocalPathFromLegacySTRMRecord(t *testing.T) {
 	}).Error; err != nil {
 		t.Fatal(err)
 	}
-	svc := NewStreamService(&config.Config{}, zap.NewNop(), repos, nil)
+	core, observed := observer.New(zap.InfoLevel)
+	svc := NewStreamService(&config.Config{}, zap.New(core), repos, nil)
 	req := httptest.NewRequest(http.MethodGet, "http://nas.local/api/stream/local-path-strm", nil)
 	req.Header.Set("Range", "bytes=1-3")
 	w := httptest.NewRecorder()
@@ -247,6 +441,14 @@ func TestServeFileReadsLocalPathFromLegacySTRMRecord(t *testing.T) {
 	}
 	if w.Code != http.StatusPartialContent || w.Body.String() != "bcd" {
 		t.Fatalf("status/body = %d/%q, want 206/%q", w.Code, w.Body.String(), "bcd")
+	}
+	entries := observed.FilterMessage("media playback local").All()
+	if len(entries) != 1 {
+		t.Fatalf("local playback log entries = %d, want 1", len(entries))
+	}
+	fields := entries[0].ContextMap()
+	if fields["playback_source"] != "local_strm" || fields["path"] != target {
+		t.Fatalf("unexpected local playback log fields: %#v", fields)
 	}
 }
 

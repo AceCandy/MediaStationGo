@@ -64,6 +64,7 @@ func schemaHandler(_ *service.Container) gin.HandlerFunc {
 					"items": []gin.H{
 						{"key": "tmdb.language", "type": "select", "label": "TMDb 元数据语言"},
 						{"key": "app.server_url", "type": "text", "label": "公开访问域名 / STRM 域名"},
+						{"key": "playback.path_mappings", "type": "textarea", "label": "本地播放路径 302 映射"},
 						{"key": "transcode.enabled", "type": "toggle", "label": "启用转码"},
 						{"key": "transcode.hw_accel", "type": "select", "label": "硬件编码器"},
 						{"key": "transcode.hw_enabled", "type": "toggle", "label": "启用硬件加速"},

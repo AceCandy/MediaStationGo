@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -37,42 +39,131 @@ const (
 // so we resolve with the client's own UA. When clientUA is empty the provider's
 // default UA is used.
 func (s *StorageConfigService) CloudResolve(ctx context.Context, typ, fileRef, clientUA string) (*cloud.DirectLink, error) {
+	link, _, err := s.CloudResolveWithCacheStatus(ctx, typ, fileRef, clientUA)
+	return link, err
+}
+
+// CloudResolveWithCacheStatus reports whether the returned link came from the in-process cache.
+func (s *StorageConfigService) CloudResolveWithCacheStatus(ctx context.Context, typ, fileRef, clientUA string) (*cloud.DirectLink, bool, error) {
 	if s == nil {
-		return nil, errors.New("storage config service unavailable")
+		return nil, false, errors.New("storage config service unavailable")
 	}
 	cacheKey := s.resolveCacheKey(typ, fileRef, clientUA)
 	if link, ok, refresh := s.cachedResolve(cacheKey, typ); ok {
 		if refresh {
 			s.refreshResolveInBackground(cacheKey, typ, fileRef, clientUA)
 		}
-		return link, nil
+		return link, true, nil
 	}
 	if call, owner := s.beginResolve(cacheKey); !owner {
 		select {
 		case <-call.done:
 			if call.err != nil {
-				return nil, call.err
+				return nil, false, call.err
 			}
-			return cloneDirectLink(call.link), nil
+			return cloneDirectLink(call.link), false, nil
 		case <-ctx.Done():
-			return nil, ctx.Err()
+			return nil, false, ctx.Err()
 		}
 	} else {
 		defer s.finishResolve(cacheKey, call)
 		p, err := s.cloudProviderWithUA(ctx, typ, clientUA)
 		if err != nil {
 			call.err = err
-			return nil, err
+			return nil, false, err
 		}
 		link, err := p.Resolve(ctx, fileRef)
 		if err != nil {
 			call.err = err
-			return nil, err
+			return nil, false, err
 		}
 		call.link = cloneDirectLink(link)
 		s.storeResolvedLink(cacheKey, typ, link)
-		return cloneDirectLink(link), nil
+		return cloneDirectLink(link), false, nil
 	}
+}
+
+// ResolveHTTPRedirectWithCacheStatus resolves an OpenList-style URL to its
+// first redirect target and caches that temporary direct link for one hour.
+func (s *StorageConfigService) ResolveHTTPRedirectWithCacheStatus(ctx context.Context, target, clientUA string) (string, bool, error) {
+	if s == nil {
+		return "", false, errors.New("storage config service unavailable")
+	}
+	target = strings.TrimSpace(target)
+	if !isHTTPPlaybackTarget(target) {
+		return "", false, errors.New("invalid playback redirect target")
+	}
+	cacheKey := s.resolveCacheKey("path_mapping", target, clientUA)
+	if link, ok, _ := s.cachedResolve(cacheKey, cloud.TypeOpenList); ok {
+		return link.URL, true, nil
+	}
+	call, owner := s.beginResolve(cacheKey)
+	if !owner {
+		select {
+		case <-call.done:
+			if call.err != nil {
+				return "", false, call.err
+			}
+			return call.link.URL, false, nil
+		case <-ctx.Done():
+			return "", false, ctx.Err()
+		}
+	}
+	defer s.finishResolve(cacheKey, call)
+	resolved, err := s.resolveHTTPRedirect(ctx, target, clientUA)
+	if err != nil {
+		call.err = err
+		return "", false, err
+	}
+	call.link = &cloud.DirectLink{URL: resolved}
+	s.storeResolvedLink(cacheKey, cloud.TypeOpenList, call.link)
+	return resolved, false, nil
+}
+
+func (s *StorageConfigService) resolveHTTPRedirect(ctx context.Context, target, clientUA string) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Accept", "*/*")
+	req.Header.Set("Accept-Encoding", "identity")
+	req.Header.Set("Range", "bytes=0-0")
+	if clientUA = strings.TrimSpace(clientUA); clientUA != "" {
+		req.Header.Set("User-Agent", clientUA)
+	}
+	client := s.client
+	if client == nil {
+		client = http.DefaultClient
+	}
+	noFollow := *client
+	noFollow.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	resp, err := noFollow.Do(req)
+	if err != nil {
+		return "", errors.New("request playback path mapping failed")
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 300 || resp.StatusCode >= 400 {
+		return "", fmt.Errorf("playback path mapping returned http %d without redirect", resp.StatusCode)
+	}
+	rawLocation := strings.TrimSpace(resp.Header.Get("Location"))
+	if rawLocation == "" {
+		return "", fmt.Errorf("playback path mapping returned http %d without Location", resp.StatusCode)
+	}
+	location, err := url.Parse(rawLocation)
+	if err != nil {
+		return "", fmt.Errorf("invalid playback redirect Location: %w", err)
+	}
+	if !location.IsAbs() {
+		base, parseErr := url.Parse(target)
+		if parseErr != nil {
+			return "", parseErr
+		}
+		location = base.ResolveReference(location)
+	}
+	if !isHTTPPlaybackTarget(location.String()) {
+		return "", errors.New("unsupported playback redirect Location")
+	}
+	return location.String(), nil
 }
 
 func (s *StorageConfigService) resolveCacheKey(typ, fileRef, clientUA string) string {
@@ -198,7 +289,7 @@ func cloudResolveHotRefreshWindow(ttl time.Duration) time.Duration {
 func cloudResolveCacheTTL(typ string) time.Duration {
 	switch typ {
 	case cloud.Type115, cloud.TypeCloudDrive2, cloud.TypeOpenList:
-		return 2 * time.Minute
+		return time.Hour
 	default:
 		return 5 * time.Minute
 	}

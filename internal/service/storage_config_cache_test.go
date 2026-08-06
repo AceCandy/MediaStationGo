@@ -1,12 +1,16 @@
 package service
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"go.uber.org/zap"
 )
 
 func TestCloudResolveHotCacheRefreshesInBackground(t *testing.T) {
@@ -32,20 +36,20 @@ func TestCloudResolveHotCacheRefreshesInBackground(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	link, err := storage.CloudResolve(t.Context(), "openlist", "/Movies/f1.mkv", "Player/1")
+	link, cacheHit, err := storage.CloudResolveWithCacheStatus(t.Context(), "openlist", "/Movies/f1.mkv", "Player/1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if link.URL != "http://cdn.local/1.mkv" || resolves.Load() != 1 {
-		t.Fatalf("first resolve link=%#v resolves=%d", link, resolves.Load())
+	if link.URL != "http://cdn.local/1.mkv" || cacheHit || resolves.Load() != 1 {
+		t.Fatalf("first resolve link=%#v cacheHit=%t resolves=%d", link, cacheHit, resolves.Load())
 	}
 	for i := 0; i < cloudResolveHotHitThreshold-1; i++ {
-		link, err = storage.CloudResolve(t.Context(), "openlist", "/Movies/f1.mkv", "Player/1")
+		link, cacheHit, err = storage.CloudResolveWithCacheStatus(t.Context(), "openlist", "/Movies/f1.mkv", "Player/1")
 		if err != nil {
 			t.Fatal(err)
 		}
-		if link.URL != "http://cdn.local/1.mkv" || resolves.Load() != 1 {
-			t.Fatalf("cached resolve link=%#v resolves=%d", link, resolves.Load())
+		if link.URL != "http://cdn.local/1.mkv" || !cacheHit || resolves.Load() != 1 {
+			t.Fatalf("cached resolve link=%#v cacheHit=%t resolves=%d", link, cacheHit, resolves.Load())
 		}
 	}
 
@@ -80,10 +84,22 @@ func TestCloudResolveHotCacheRefreshesInBackground(t *testing.T) {
 	}
 }
 
-func TestCloudResolveCacheTTLUsesShortTTLForCloudPlaybackLinks(t *testing.T) {
+func TestCloudResolveCacheTTLUsesOneHourForCloudPlaybackLinks(t *testing.T) {
 	for _, typ := range []string{"cloud115", "clouddrive2", "openlist"} {
-		if got := cloudResolveCacheTTL(typ); got != 2*time.Minute {
-			t.Fatalf("%s cloud resolve cache ttl = %v, want 2m", typ, got)
+		if got := cloudResolveCacheTTL(typ); got != time.Hour {
+			t.Fatalf("%s cloud resolve cache ttl = %v, want 1h", typ, got)
 		}
+	}
+}
+
+func TestResolveHTTPRedirectDoesNotExposeTargetOnTransportError(t *testing.T) {
+	svc := NewStorageConfigService(zap.NewNop(), nil, nil)
+	svc.client = &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return nil, errors.New("transport failed")
+	})}
+
+	_, _, err := svc.ResolveHTTPRedirectWithCacheStatus(t.Context(), "https://openlist.example.test/d/movie.mp4?token=secret", "player")
+	if err == nil || strings.Contains(err.Error(), "secret") || strings.Contains(err.Error(), "openlist.example.test") {
+		t.Fatalf("transport error must not expose target URL: %v", err)
 	}
 }

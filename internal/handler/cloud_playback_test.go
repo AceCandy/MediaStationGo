@@ -1,12 +1,17 @@
 package handler
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zaptest/observer"
 
+	"github.com/ShukeBta/MediaStationGo/internal/service"
 	"github.com/ShukeBta/MediaStationGo/internal/service/cloud"
 )
 
@@ -26,13 +31,16 @@ func TestProxyCloudResolvedLinkUsesHEADWithoutSyntheticRange(t *testing.T) {
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
 	c.Request = httptest.NewRequest(http.MethodHead, "/api/cloud/play/openlist?ref=movie", nil)
+	core, observed := observer.New(zap.InfoLevel)
 
 	proxyCloudResolvedLink(cloudPlaybackRequest{
-		c:   c,
-		typ: "openlist",
-		ref: "movie",
+		svc:           &service.Container{Log: zap.New(core)},
+		c:             c,
+		typ:           "openlist",
+		ref:           "movie",
+		resolveSource: "cache",
 		link: &cloud.DirectLink{
-			URL:   upstream.URL + "/movie.mp4",
+			URL:   upstream.URL + "/movie.mp4?token=secret",
 			Proxy: true,
 		},
 	})
@@ -51,5 +59,18 @@ func TestProxyCloudResolvedLinkUsesHEADWithoutSyntheticRange(t *testing.T) {
 	}
 	if rec.Body.Len() != 0 {
 		t.Fatalf("HEAD response body length = %d, want 0", rec.Body.Len())
+	}
+	entries := observed.FilterMessage("cloud playback proxy finished").All()
+	if len(entries) != 1 {
+		t.Fatalf("proxy log entries = %d, want 1", len(entries))
+	}
+	fields := entries[0].ContextMap()
+	if fields["playback_source"] != "remote_proxy" || fields["resolve_source"] != "cache" ||
+		fields["target_path"] != "/movie.mp4" || fmt.Sprint(fields["target_query_keys"]) != "[token]" {
+		t.Fatalf("unexpected proxy log fields: %#v", fields)
+	}
+	loggedTarget := fmt.Sprint(fields["target_scheme"], fields["target_host"], fields["target_path"], fields["target_query_keys"])
+	if strings.Contains(loggedTarget, "secret") || fields["target_hash"] == "" {
+		t.Fatalf("proxy log should hide query values and include target hash: %#v", fields)
 	}
 }

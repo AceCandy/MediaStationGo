@@ -15,6 +15,7 @@ const (
 	CloudPlaybackModeSettingKey            = "cloud.playback_mode"
 	CloudPlaybackSTRMEnabledSettingKey     = "cloud.playback_strm_enabled"
 	CloudPlaybackRedirectEnabledSettingKey = "cloud.playback_redirect_proxy_enabled"
+	PlaybackPathMappingsSettingKey         = "playback.path_mappings"
 
 	CloudPlaybackModeSTRM          = "strm"
 	CloudPlaybackModeRedirectProxy = "redirect_proxy"
@@ -34,11 +35,18 @@ type StreamService struct {
 	repo       *repository.Container
 	transcoder *TranscoderService
 	mediaProbe *MediaProbeService
+	storageCfg *StorageConfigService
 }
 
 func (s *StreamService) SetMediaProbe(mediaProbe *MediaProbeService) {
 	if s != nil {
 		s.mediaProbe = mediaProbe
+	}
+}
+
+func (s *StreamService) SetStorageConfig(storageCfg *StorageConfigService) {
+	if s != nil {
+		s.storageCfg = storageCfg
 	}
 }
 

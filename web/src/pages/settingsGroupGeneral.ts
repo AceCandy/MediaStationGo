@@ -38,6 +38,13 @@ export const generalSettingsGroup: SettingGroup = {
       defaultValue: 'false',
     },
     {
+      key: 'playback.path_mappings',
+      label: '本地播放路径 302 映射',
+      type: 'textarea',
+      hint: '每行一条“本地路径前缀 => 远程 HTTP URL 前缀”；命中时不读取本地文件，直接返回 302。更具体的前缀优先。',
+      placeholder: '/mnt/media/new115/ => http://openlist.local:5244/d/new115/',
+    },
+    {
       key: 'transcode.enabled',
       label: '启用转码',
       type: 'toggle',

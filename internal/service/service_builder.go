@@ -123,6 +123,7 @@ func (b *serviceContainerBuilder) initAccessAndStorageServices() {
 	b.c.PlayProfiles = NewPlayProfileService(b.log, b.repos)
 	b.c.Permissions = NewPermissionService(b.log, b.repos)
 	b.c.StorageCfg = NewStorageConfigService(b.log, b.repos, b.c.Crypto)
+	b.c.Stream.SetStorageConfig(b.c.StorageCfg)
 	b.c.MediaProbe = NewMediaProbeService(b.repos, b.c.FFprobe).
 		SetStorage(b.c.StorageCfg).
 		SetRuntimeCache(b.c.Cache)
