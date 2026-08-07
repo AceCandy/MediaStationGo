@@ -1,5 +1,112 @@
 # Shared Media Metadata Contract
 
+## Scenario: People Credits and Localization
+
+### 1. Scope / Trigger
+
+- Apply this contract when changing TMDb/NFO credit collection, shared people,
+  Emby People responses, people backfill, or AI localization.
+- `Person` owns shared identity, `PersonIdentifier` owns provider identity, and
+  `MetadataCredit` owns the relationship between one person and one work.
+
+### 2. Signatures
+
+- Shared identity: `Person{Name, OriginalName, NormalizedName, Overview, ProfileURL, Source}`.
+- Provider identity: `PersonIdentifier{PersonID, Provider, ExternalID}` with
+  uniqueness on `(provider, external_id)`.
+- Work relationship: `MetadataCredit{MetadataID, PersonID, Type, OriginalRole, Role, SortOrder}`.
+- Supported types: `Actor`, `GuestStar`, `Director`, and `Writer`.
+- Provider-neutral scrape payload: `PersonCredit` plus `LoadedCreditTypes`.
+- Backfill API: admin-only `POST /api/libraries/:id/people-backfill`.
+- Translation cache identity: `(kind, context_key, source_text, target_language, prompt_version)`.
+
+### 3. Contracts
+
+- TMDb people are reused only through TMDb person IDs. NFO-only people are
+  reused by normalized local name and are never merged into TMDb people by
+  name alone.
+- A loaded credit type is an authoritative snapshot, including an explicitly
+  empty snapshot. A type absent from `LoadedCreditTypes` must preserve existing
+  rows. NFO may fill only a provider-loaded type whose provider snapshot is empty.
+- Credit replacement is transactional and idempotent. Metadata graph merge
+  moves and deduplicates credits before deleting the source metadata.
+- Movie and Series expose their own ordered credits. Episode uses its own rows
+  for each present type and inherits only missing types from its Series.
+- Credit source/display roles and translation source/display values use `text`;
+  existing PostgreSQL columns must be upgraded explicitly during migration.
+- Credit persistence completes before translation. A service-lifetime worker
+  discovers untranslated rows at startup, after wake signals, and periodically.
+- Person-name translation carries up to three related works. Role translation
+  carries the current title, original title, year, and media kind. Requests use
+  Responses API without tools and contain at most 100 unique entries per batch.
+- Cache hits apply without an AI request. Cache misses save only non-empty
+  Chinese results. Writes update a target only while its original and display
+  values still equal the request snapshot.
+- AI failure, malformed output, timeout, or partial output never rolls back or
+  fails the authoritative metadata scrape.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required result |
+| --- | --- |
+| TMDb person ID already exists | Reuse its `Person`; do not create a name-based duplicate |
+| NFO name matches a TMDb person | Keep separate identities unless an explicit external ID connects them |
+| Loaded type has no credits | Remove stale credits of that type |
+| Type is not loaded | Preserve existing credits of that type |
+| Provider type is non-empty and NFO also has rows | Keep provider rows; do not union guessed identities |
+| Episode has no credit rows for one type | Inherit that type from Series only |
+| AI is disabled/unconfigured or request fails | Keep original display values and let scraping succeed |
+| Original changes while AI request is running | Reject the stale conditional write |
+| Provider role exceeds 255 characters | Persist and cache it without truncation |
+
+### 5. Good / Base / Bad Cases
+
+- Good: repeated TMDb scrape reuses the same person ID and replaces only the
+  loaded credit types while preserving translated display values whose source
+  text did not change.
+- Good: Episode guest stars coexist with inherited Series actors, directors,
+  and writers according to per-type replacement.
+- Base: AI localization is disabled; original people and role values remain
+  fully usable through Emby.
+- Bad: merge people solely because normalized names match across local and TMDb.
+- Bad: call AI before committing credits, or overwrite a re-scraped role with a
+  response generated for its previous original value.
+
+### 6. Tests Required
+
+- Repository: provider-ID reuse, local-name isolation, loaded-type replacement,
+  empty snapshots, soft-delete restoration, merge deduplication, and long roles.
+- Provider/NFO: movie/Series cast and crew, Episode guest stars and crew, and
+  provider-empty versus provider-missing type behavior.
+- Emby: item `People`, Episode per-type inheritance, Persons pagination/search,
+  person detail, image proxy, uppercase/lowercase routes, and ID filtering.
+- Backfill: only metadata without current credits and with usable TMDb identity;
+  verify task progress and request-independent service context.
+- Translation: startup discovery, cache hit without AI, 100-entry splitting,
+  work context, valid Chinese filtering, retry/cancellation, and stale-write rejection.
+- PostgreSQL: assert role/cache fields resolve to `text`; when a test DSN is
+  available, migrate legacy `varchar(255)` columns and round-trip a long role.
+
+### 7. Wrong vs Correct
+
+```go
+// Wrong: provider and local identities can collide on a common name.
+person := findOrCreateByNormalizedName(input.Name)
+
+// Correct: stable provider IDs own remote identity; local names stay local.
+person := findOrCreateByProviderID(input.Provider, input.ExternalID)
+```
+
+```go
+// Wrong: a late AI result can overwrite refreshed provider data.
+db.Model(&credit).Update("role", translated)
+
+// Correct: apply only to the unchanged source/display snapshot.
+db.Model(&credit).
+    Where("original_role = ? AND role = ?", original, original).
+    Update("role", translated)
+```
+
 ## Scenario: Canonical Metadata and Managed Artwork
 
 ### 1. Scope / Trigger
