@@ -132,3 +132,24 @@ Added one-hour cloud direct-link caching, playback source/cache diagnostics, con
 ### Status
 
 [OK] **Completed**
+
+
+## Session 7: 复用 canonical metadata 扫描流程
+
+**Date**: 2026-08-07
+**Task**: 复用 canonical metadata 扫描流程
+**Branch**: `main`
+
+### Summary
+
+完成方案 B：扫描按精确 provider ID 复用已有 canonical metadata；未命中保持 media.metadata_id 为 NULL，provider 成功或明确无匹配的 local fallback 后再绑定；补充 nullable schema、扫描与 enrichment 回归测试并归档任务。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `ac9ac54` | (see git log) |
+
+### Status
+
+[OK] **Completed**
