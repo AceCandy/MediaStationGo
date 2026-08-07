@@ -1,6 +1,7 @@
 package service
 
 import (
+	"sync"
 	"time"
 
 	"go.uber.org/zap"
@@ -26,6 +27,18 @@ type ScraperService struct {
 	cache   *RuntimeCacheService
 	images  *ImageProxy
 	artwork *ArtworkStore
+	ai      *AIService
+
+	peopleTranslationWake chan struct{}
+	peopleTranslationOnce sync.Once
+	peopleTranslationWG   sync.WaitGroup
+}
+
+func (s *ScraperService) SetAI(ai *AIService) *ScraperService {
+	if s != nil {
+		s.ai = ai
+	}
+	return s
 }
 
 // NewScraperService is the constructor.
@@ -47,6 +60,7 @@ func NewScraperService(
 	return &ScraperService{
 		cfg: cfg, log: log, repo: repo,
 		tmdb: tmdb, bangumi: bangumi, thetvdb: thetvdb, fanart: fanart, adult: adultProvider, hub: hub,
+		peopleTranslationWake: make(chan struct{}, 1),
 	}
 }
 

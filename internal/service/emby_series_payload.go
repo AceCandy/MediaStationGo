@@ -38,6 +38,7 @@ func (e *EmbyService) seriesPayload(ctx context.Context, group embySeriesGroup, 
 		"DateCreated":        formatEmbyDateTime(group.CreatedAt),
 		"ImageTags":          imageTags,
 		"BackdropImageTags":  backdropTags,
+		"People":             e.peopleForMetadata(ctx, group.ID, ""),
 		"ProviderIds": map[string]string{
 			"Tmdb":    intToStr(group.TMDbID),
 			"Bangumi": intToStr(group.BangumiID),

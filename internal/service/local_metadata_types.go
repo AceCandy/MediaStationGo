@@ -9,29 +9,33 @@ import (
 
 // LocalMetadata contains metadata read from Kodi/Jellyfin sidecar NFO files.
 type LocalMetadata struct {
-	Title        string
-	OriginalName string
-	EpisodeTitle string
-	AdultCode    string
-	Year         int
-	ReleaseDate  string
-	Overview     string
-	Rating       float32
-	PosterURL    string
-	BackdropURL  string
-	TMDbID       int
-	BangumiID    int
-	DoubanID     string
-	TheTVDBID    string
-	SeasonNum    int
-	EpisodeNum   int
-	Genres       string
-	Countries    string
-	Languages    string
-	NSFW         bool
-	HasNFO       bool
-	HasArtwork   bool
-	PathHint     bool
+	Title                    string
+	OriginalName             string
+	EpisodeTitle             string
+	AdultCode                string
+	Year                     int
+	ReleaseDate              string
+	Overview                 string
+	Rating                   float32
+	PosterURL                string
+	BackdropURL              string
+	TMDbID                   int
+	BangumiID                int
+	DoubanID                 string
+	TheTVDBID                string
+	SeasonNum                int
+	EpisodeNum               int
+	Genres                   string
+	Countries                string
+	Languages                string
+	NSFW                     bool
+	HasNFO                   bool
+	HasArtwork               bool
+	PathHint                 bool
+	Credits                  []PersonCredit
+	LoadedCreditTypes        []string
+	EpisodeCredits           []PersonCredit
+	EpisodeLoadedCreditTypes []string
 }
 
 func encodeLocalMetadataHint(meta *LocalMetadata) string {
@@ -114,6 +118,8 @@ type nfoDocument struct {
 	Publisher     string        `xml:"publisher"`
 	Label         string        `xml:"label"`
 	Directors     []string      `xml:"director"`
+	Writers       []string      `xml:"writer"`
+	Credits       []string      `xml:"credits"`
 	Actors        []nfoActor    `xml:"actor"`
 }
 

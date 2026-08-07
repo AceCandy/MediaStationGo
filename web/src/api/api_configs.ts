@@ -4,8 +4,10 @@ export interface APIConfig {
   id: string
   provider: string
   base_url?: string
+  model?: string
   extra?: string
   enabled: boolean
+  web_search_enabled: boolean
   description?: string
   has_key: boolean
   masked_key?: string
@@ -16,8 +18,10 @@ export interface APIConfig {
 export interface APIConfigPatch {
   api_key?: string
   base_url?: string
+  model?: string
   extra?: string
   enabled?: boolean
+  web_search_enabled?: boolean
   description?: string
 }
 

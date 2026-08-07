@@ -17,6 +17,7 @@ const (
 	TaskKindProbe    = "probe"
 	TaskKindScan     = "scan"
 	TaskKindScrape   = "scrape"
+	TaskKindPeople   = "people"
 	TaskKindUpdate   = "update"
 )
 

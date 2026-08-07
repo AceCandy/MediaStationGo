@@ -64,6 +64,11 @@ func newTestScraper(t *testing.T) (*ScraperService, *repository.Container, func(
 				"vote_average": 9.1,
 				"runtime":      24,
 			})
+		case r.URL.Path == "/tv/12345/credits":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"cast": []map[string]any{{"id": 99, "name": "Test Actor", "character": "Hero", "order": 0, "profile_path": "/actor.jpg"}},
+				"crew": []map[string]any{{"id": 100, "name": "Test Director", "job": "Director"}},
+			})
 		case strings.HasPrefix(r.URL.Path, "/tv/12345"):
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"id":             12345,
@@ -132,6 +137,7 @@ func migrateScraperTestModels(t *testing.T, db *gorm.DB, extra ...any) error {
 		&model.Library{}, &model.MetadataItem{}, &model.MetadataIdentifier{},
 		&model.ArtworkAsset{}, &model.MetadataArtwork{}, &model.Media{},
 		&model.Favorite{}, &model.PlaybackHistory{}, &model.PlaylistItem{},
+		&model.Person{}, &model.PersonIdentifier{}, &model.MetadataCredit{},
 	}
 	models = append(models, extra...)
 	if err := db.AutoMigrate(models...); err != nil {

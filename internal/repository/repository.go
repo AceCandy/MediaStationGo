@@ -16,6 +16,7 @@ type Container struct {
 	MediaProbe     *MediaProbeRepository
 	MediaView      *MediaViewRepository
 	Metadata       *MetadataRepository
+	Person         *PersonRepository
 	Artwork        *ArtworkRepository
 	History        *HistoryRepository
 	Favorite       *FavoriteRepository
@@ -50,6 +51,7 @@ func New(db *gorm.DB) *Container {
 		MediaProbe:     &MediaProbeRepository{db: db},
 		MediaView:      mediaView,
 		Metadata:       &MetadataRepository{db: db, view: mediaView},
+		Person:         &PersonRepository{db: db},
 		Artwork:        &ArtworkRepository{db: db},
 		History:        &HistoryRepository{db: db},
 		Favorite:       &FavoriteRepository{db: db},

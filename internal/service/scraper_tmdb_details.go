@@ -81,6 +81,14 @@ func (s *ScraperService) fetchAndSaveTMDbEpisodeDetails(ctx context.Context, m *
 	if episode == nil {
 		return false
 	}
+	creditsUpdated := false
+	if len(episode.LoadedCreditTypes) > 0 {
+		if err := s.persistCredits(ctx, metadataID, episode.LoadedCreditTypes, episode.Credits); err != nil {
+			s.log.Warn("failed to save tmdb episode credits", zap.String("media_id", m.ID), zap.Error(err))
+		} else {
+			creditsUpdated = true
+		}
+	}
 	metadataUpdates, mediaUpdates := tmdbEpisodeMetadataUpdates(m, episode, matchYear)
 	artworkUpdated := false
 	if strings.TrimSpace(episode.StillURL) != "" && options.episodeArtworkEnabled() {
@@ -90,7 +98,7 @@ func (s *ScraperService) fetchAndSaveTMDbEpisodeDetails(ctx context.Context, m *
 			artworkUpdated = true
 		}
 	}
-	if len(metadataUpdates) == 0 && len(mediaUpdates) == 0 && !artworkUpdated {
+	if len(metadataUpdates) == 0 && len(mediaUpdates) == 0 && !artworkUpdated && !creditsUpdated {
 		return false
 	}
 	if len(metadataUpdates) > 0 {

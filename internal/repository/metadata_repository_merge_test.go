@@ -18,6 +18,7 @@ func newMetadataMergeTestRepository(t *testing.T) *Container {
 	}
 	if err := db.AutoMigrate(
 		&model.MetadataItem{}, &model.MetadataIdentifier{}, &model.ArtworkAsset{}, &model.MetadataArtwork{},
+		&model.Person{}, &model.PersonIdentifier{}, &model.MetadataCredit{},
 		&model.Media{}, &model.PlaybackHistory{}, &model.Favorite{}, &model.Playlist{}, &model.PlaylistItem{},
 	); err != nil {
 		t.Fatal(err)

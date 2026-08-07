@@ -25,17 +25,33 @@ type Match struct {
 	NSFW          bool     `json:"nsfw,omitempty"`
 	SearchKeyword string   `json:"-"`
 	// AllowIdentifierMerge 仅用于 provider 明确 crosswalk 或用户确认的匹配。
-	AllowIdentifierMerge bool `json:"-"`
+	AllowIdentifierMerge bool           `json:"-"`
+	Credits              []PersonCredit `json:"-"`
+	LoadedCreditTypes    []string       `json:"-"`
+}
+
+// PersonCredit 是 provider-neutral 的演职员快照。
+type PersonCredit struct {
+	Provider     string
+	ExternalID   string
+	Name         string
+	Overview     string
+	ProfileURL   string
+	Type         string
+	OriginalRole string
+	SortOrder    int
 }
 
 // TMDbEpisodeDetails holds per-episode metadata from /tv/{id}/season/{season}/episode/{episode}.
 type TMDbEpisodeDetails struct {
-	Name     string
-	Overview string
-	StillURL string
-	AirYear  int
-	Rating   float32
-	Runtime  int
+	Name              string
+	Overview          string
+	StillURL          string
+	AirYear           int
+	Rating            float32
+	Runtime           int
+	Credits           []PersonCredit
+	LoadedCreditTypes []string
 }
 
 // TMDbDetails holds extended metadata from the /movie/{id} or /tv/{id} endpoints.

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/glebarez/sqlite"
+	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 
 	"github.com/ShukeBta/MediaStationGo/internal/config"
@@ -51,6 +52,56 @@ func TestOpenSQLiteWithNilLoggerConfiguresPool(t *testing.T) {
 	stats := sqlDB.Stats()
 	if stats.MaxOpenConnections != 3 {
 		t.Fatalf("MaxOpenConnections = %d, want 3", stats.MaxOpenConnections)
+	}
+}
+
+func TestOpenForMigrationKeepsSQLitePreparedStatements(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Database.Type = "sqlite"
+	cfg.Database.DBPath = filepath.Join(t.TempDir(), "migration.db")
+
+	db, err := OpenForMigration(cfg, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = sqlDB.Close() })
+	if !db.PrepareStmt {
+		t.Fatal("sqlite migration should retain GORM prepared statements")
+	}
+}
+
+func TestPostgresMigrationDialectorUsesSimpleProtocol(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Database.DSN = "postgres://example.invalid/mediastation"
+	if prepareStmtEnabled("postgres", true) {
+		t.Fatal("postgres migration should disable GORM prepared statements")
+	}
+
+	dialector, err := databaseDialector(cfg, "postgres", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	postgresDialector, ok := dialector.(*postgres.Dialector)
+	if !ok {
+		t.Fatalf("dialector type = %T, want postgres", dialector)
+	}
+	if !postgresDialector.Config.PreferSimpleProtocol {
+		t.Fatal("postgres migration dialector should use simple protocol")
+	}
+
+	runtimeDialector, err := databaseDialector(cfg, "postgres", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if runtimeDialector.(*postgres.Dialector).Config.PreferSimpleProtocol {
+		t.Fatal("postgres runtime dialector should retain prepared statements")
+	}
+	if !prepareStmtEnabled("postgres", false) {
+		t.Fatal("postgres runtime should enable GORM prepared statements")
 	}
 }
 

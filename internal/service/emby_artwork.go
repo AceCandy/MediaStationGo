@@ -24,6 +24,16 @@ func (e *EmbyService) ImageURL(ctx context.Context, id, imageType string) (strin
 	if raw, ok := e.cachedArtworkURL(id, imageType); ok {
 		return raw, nil
 	}
+	if e.repo != nil && e.repo.Person != nil {
+		if person, personErr := e.repo.Person.FindByID(ctx, id); personErr != nil && !isMissingPeopleTable(personErr) {
+			return "", personErr
+		} else if person != nil {
+			if strings.EqualFold(imageType, "primary") || strings.TrimSpace(imageType) == "" {
+				return person.ProfileURL, nil
+			}
+			return "", nil
+		}
+	}
 	m, err := e.mediaViewForItemID(ctx, id, "")
 	if err == nil && m != nil {
 		if e.mediaShouldBeEpisode(ctx, &m.Media) {

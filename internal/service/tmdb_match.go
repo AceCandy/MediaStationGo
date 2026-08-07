@@ -4,6 +4,10 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"strconv"
+	"strings"
+
+	"github.com/ShukeBta/MediaStationGo/internal/model"
 )
 
 func (t *TMDbProvider) GetMovieMatch(ctx context.Context, tmdbID int) (*Match, error) {
@@ -18,7 +22,7 @@ func (t *TMDbProvider) GetMovieMatch(ctx context.Context, tmdbID int) (*Match, e
 	q := url.Values{}
 	q.Set("api_key", apiKey)
 	q.Set("language", "zh-CN")
-	q.Set("append_to_response", "alternative_titles,translations")
+	q.Set("append_to_response", "alternative_titles,translations,credits")
 	u := base + "/movie/" + fmt.Sprint(tmdbID) + "?" + q.Encode()
 	var r struct {
 		ID               int     `json:"id"`
@@ -45,6 +49,7 @@ func (t *TMDbProvider) GetMovieMatch(ctx context.Context, tmdbID int) (*Match, e
 		Translations struct {
 			Translations []tmdbTranslation `json:"translations"`
 		} `json:"translations"`
+		Credits tmdbCredits `json:"credits"`
 	}
 	if err := t.getJSON(ctx, u, &r); err != nil {
 		return nil, err
@@ -81,6 +86,7 @@ func (t *TMDbProvider) GetMovieMatch(ctx context.Context, tmdbID int) (*Match, e
 	for _, l := range r.SpokenLanguages {
 		m.Languages = append(m.Languages, l.Iso639_1)
 	}
+	m.Credits, m.LoadedCreditTypes = tmdbCreditsToPersonCredits(r.Credits, t.imgCDN, false)
 	m.Genres = deduplicate(m.Genres)
 	m.Countries = deduplicate(m.Countries)
 	m.Languages = deduplicate(m.Languages)
@@ -99,7 +105,7 @@ func (t *TMDbProvider) GetTVMatch(ctx context.Context, tmdbID int) (*Match, erro
 	q := url.Values{}
 	q.Set("api_key", apiKey)
 	q.Set("language", "zh-CN")
-	q.Set("append_to_response", "alternative_titles,translations")
+	q.Set("append_to_response", "alternative_titles,translations,credits")
 	u := base + "/tv/" + fmt.Sprint(tmdbID) + "?" + q.Encode()
 	var r struct {
 		ID               int      `json:"id"`
@@ -124,6 +130,7 @@ func (t *TMDbProvider) GetTVMatch(ctx context.Context, tmdbID int) (*Match, erro
 		Translations struct {
 			Translations []tmdbTranslation `json:"translations"`
 		} `json:"translations"`
+		Credits tmdbCredits `json:"credits"`
 	}
 	if err := t.getJSON(ctx, u, &r); err != nil {
 		return nil, err
@@ -158,7 +165,64 @@ func (t *TMDbProvider) GetTVMatch(ctx context.Context, tmdbID int) (*Match, erro
 	for _, l := range r.SpokenLanguages {
 		m.Languages = append(m.Languages, l.Iso639_1)
 	}
+	m.Credits, m.LoadedCreditTypes = tmdbCreditsToPersonCredits(r.Credits, t.imgCDN, false)
 	m.Genres = deduplicate(m.Genres)
 	m.Languages = deduplicate(m.Languages)
 	return m, nil
+}
+
+type tmdbCredits struct {
+	Cast []struct {
+		ID          int    `json:"id"`
+		Name        string `json:"name"`
+		Character   string `json:"character"`
+		Order       int    `json:"order"`
+		ProfilePath string `json:"profile_path"`
+	} `json:"cast"`
+	Crew []struct {
+		ID          int    `json:"id"`
+		Name        string `json:"name"`
+		Job         string `json:"job"`
+		Order       int    `json:"order"`
+		ProfilePath string `json:"profile_path"`
+	} `json:"crew"`
+}
+
+func tmdbCreditsToPersonCredits(raw tmdbCredits, imageCDN string, episode bool) ([]PersonCredit, []string) {
+	credits := make([]PersonCredit, 0, len(raw.Cast)+len(raw.Crew))
+	loaded := []string{model.CreditTypeActor, model.CreditTypeDirector, model.CreditTypeWriter}
+	if episode {
+		loaded = []string{model.CreditTypeGuestStar, model.CreditTypeDirector, model.CreditTypeWriter}
+	}
+	for _, cast := range raw.Cast {
+		if cast.ID <= 0 || strings.TrimSpace(cast.Name) == "" {
+			continue
+		}
+		typ := model.CreditTypeActor
+		if episode {
+			typ = model.CreditTypeGuestStar
+		}
+		credits = append(credits, PersonCredit{Provider: "tmdb", ExternalID: strconv.Itoa(cast.ID), Name: strings.TrimSpace(cast.Name), Type: typ, OriginalRole: strings.TrimSpace(cast.Character), SortOrder: cast.Order, ProfileURL: tmdbProfileURL(imageCDN, cast.ProfilePath)})
+	}
+	for _, crew := range raw.Crew {
+		typ := ""
+		switch strings.ToLower(strings.TrimSpace(crew.Job)) {
+		case "director":
+			typ = model.CreditTypeDirector
+		case "writer", "screenplay", "story", "teleplay":
+			typ = model.CreditTypeWriter
+		}
+		if typ == "" || crew.ID <= 0 || strings.TrimSpace(crew.Name) == "" {
+			continue
+		}
+		credits = append(credits, PersonCredit{Provider: "tmdb", ExternalID: strconv.Itoa(crew.ID), Name: strings.TrimSpace(crew.Name), Type: typ, OriginalRole: strings.TrimSpace(crew.Job), SortOrder: crew.Order, ProfileURL: tmdbProfileURL(imageCDN, crew.ProfilePath)})
+	}
+	return credits, loaded
+}
+
+func tmdbProfileURL(imageCDN, path string) string {
+	if strings.TrimSpace(path) == "" {
+		return ""
+	}
+	return strings.TrimRight(imageCDN, "/") + "/w185" + path
 }

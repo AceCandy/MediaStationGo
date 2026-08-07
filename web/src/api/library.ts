@@ -129,6 +129,9 @@ export const libraryAPI = {
   probeTracks: (id: string) =>
     api.post<{ status: string }>(`/libraries/${id}/probe`).then((r) => r.data),
 
+  backfillPeople: (id: string) =>
+    api.post<{ status: string }>(`/libraries/${id}/people-backfill`).then((r) => r.data),
+
   listMedia: (id: string, page = 1, pageSize = 50, options?: { groupVersions?: boolean }) =>
     api
       .get<MediaPage>(`/libraries/${id}/media`, {

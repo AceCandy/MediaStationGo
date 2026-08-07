@@ -30,6 +30,7 @@ TMDb credits / local NFO actors
 
 - `MetadataID`, `PersonID`, `Type`, `Role`, `OriginalRole`, `SortOrder`.
 - `OriginalRole` is source text. `Role` is the display value and may be AI-localized for Actor/GuestStar; source refresh only resets it when the original changed.
+- Role source/display values use text columns because providers may return one credit containing many slash-separated roles.
 - Active uniqueness includes metadata, person, type and role so one actor may hold multiple roles.
 - Queries order by `sort_order`, then stable ID.
 - Repository replacement runs in one transaction: resolve/upsert people, soft-delete stale credits, restore or create current credits.
@@ -80,12 +81,16 @@ No migration fabricates actors from legacy `genres` or names. The existing manua
 
 Use the existing `AIService` and a persisted `metadata.people_ai_translate` setting exposed as a SettingsPage toggle. Translation runs after the authoritative credit snapshot is persisted:
 
-1. Query people/credits whose original text is non-Chinese and display translation is missing or stale.
-2. Submit one JSON batch per metadata item, keyed by stable person/credit IDs.
-3. Parse and validate exact keys and non-empty string values.
-4. Update display fields only. Any request or validation error keeps original display text and does not fail scraping.
+1. Persist the authoritative people and credit snapshot, then signal a service-lifetime background worker; scraping never waits for AI.
+2. On startup, periodically, and after a signal, query people/credits whose original text is non-Chinese and whose display value still equals the original.
+3. Resolve a context-aware cache before calling AI. Person-name cache keys use the stable Person identity; role cache keys use the Metadata identity. Both also include kind, original text, target language and prompt version.
+4. Person entries include up to three associated movie/Series titles. Role entries include the current title, original title, year and media kind.
+5. Deduplicate exact cache keys, then split misses at the first of 100 entries or the input-character limit. Submit each batch through Responses API without tools.
+6. Parse and validate exact keys and non-empty Chinese values. Persist successful cache rows, then update display fields only when the target ID, original text and untranslated display value still match the request snapshot.
+7. Any request, validation or conditional-update miss keeps the current display text and does not fail scraping. A later worker pass may retry unresolved rows.
 
-Persisted display fields are the cache. Unchanged originals retain localized values across re-scrapes, so no separate translation-cache table is needed.
+`TranslationCache` is a reusable result dictionary, not a task queue. Database source/display fields remain the durable pending-state source, so a restart can rediscover unfinished work without persisting an in-memory queue.
+Its source and translated values use text columns so long role values remain cacheable after credit persistence.
 
 ## 7. Compatibility and Rollback
 

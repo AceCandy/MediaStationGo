@@ -13,11 +13,13 @@ type LibraryPageHeaderProps = {
   scraping: boolean
   repairing: boolean
   backfilling: boolean
+  peopleBackfilling: boolean
   onScrapeEpisodeArtworkChange: (checked: boolean) => void
   onScan: () => void
   onScrape: () => void
   onRepairRescrape: () => void
   onProbeBackfill: () => void
+  onPeopleBackfill: () => void
 }
 
 export function LibraryPageHeader({
@@ -31,11 +33,13 @@ export function LibraryPageHeader({
   scraping,
   repairing,
   backfilling,
+  peopleBackfilling,
   onScrapeEpisodeArtworkChange,
   onScan,
   onScrape,
   onRepairRescrape,
   onProbeBackfill,
+  onPeopleBackfill,
 }: LibraryPageHeaderProps) {
   const displayPath = library ? libraryDisplayPath(library.path) : ''
 
@@ -79,6 +83,14 @@ export function LibraryPageHeader({
             title="仅为缺失或版本过期的媒体回填完整音视频与字幕轨道"
           >
             {backfilling ? '回填中…' : '回填媒体轨道'}
+          </button>
+          <button
+            onClick={onPeopleBackfill}
+            disabled={peopleBackfilling}
+            className="btn-outline"
+            title="仅为没有人物关系且已有 TMDb ID 的电影和剧集回填演职员"
+          >
+            {peopleBackfilling ? '回填中…' : '回填人物信息'}
           </button>
         </div>
       )}

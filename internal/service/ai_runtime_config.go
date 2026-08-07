@@ -8,11 +8,12 @@ import (
 )
 
 type aiRuntimeConfig struct {
-	Enabled  bool
-	Provider string
-	APIBase  string
-	APIKey   string
-	Model    string
+	Enabled          bool
+	Provider         string
+	APIBase          string
+	APIKey           string
+	Model            string
+	WebSearchEnabled bool
 }
 
 func (a *AIService) resolveRuntimeConfig(ctx context.Context) aiRuntimeConfig {
@@ -47,6 +48,10 @@ func (a *AIService) resolveRuntimeConfig(ctx context.Context) aiRuntimeConfig {
 		if resolved.APIKey != "" {
 			out.APIKey = strings.TrimSpace(resolved.APIKey)
 		}
+		if strings.TrimSpace(resolved.Model) != "" {
+			out.Model = strings.TrimSpace(resolved.Model)
+		}
+		out.WebSearchEnabled = resolved.WebSearchEnabled
 		if resolved.Enabled && out.APIKey != "" {
 			out.Enabled = true
 			out.Provider = "openai"

@@ -199,7 +199,7 @@ func (s *AssistantService) History(ctx context.Context, userID string, isAdmin b
 			}
 			out = append(out, map[string]any{
 				"op_id":      m.OperationID,
-				"session":   sess.ID,
+				"session":    sess.ID,
 				"created_at": m.CreatedAt,
 				"content":    m.Content,
 			})

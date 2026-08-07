@@ -11,6 +11,11 @@ import (
 
 // Item 单条目详情。
 func (e *EmbyService) Item(ctx context.Context, mediaID, userID string) (map[string]any, error) {
+	if person, err := e.personItem(ctx, mediaID); err != nil {
+		return nil, err
+	} else if person != nil {
+		return person, nil
+	}
 	if lib, err := e.repo.Library.FindByID(ctx, mediaID); err != nil {
 		return nil, err
 	} else if lib != nil {
@@ -232,6 +237,7 @@ func (e *EmbyService) itemPayload(ctx context.Context, m *model.MediaView, fav b
 		"ImageTags":         imageTags,
 		"BackdropImageTags": backdropTags,
 		"Genres":            splitCSV(m.Genres),
+		"People":            e.peopleForMetadata(ctx, m.MetadataID, seriesID),
 		"ProviderIds": map[string]string{
 			"Tmdb":    intToStr(m.TMDbID),
 			"Bangumi": intToStr(m.BangumiID),

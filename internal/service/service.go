@@ -108,6 +108,9 @@ func (c *Container) Boot() {
 	if err := c.APIConfig.SeedDefaults(c.stopCtx); err != nil {
 		c.Log.Warn("api config seed failed", zap.Error(err))
 	}
+	if c.Scraper != nil {
+		c.Scraper.StartPeopleTranslationWorker(c.stopCtx)
+	}
 	go c.warmMediaSearchIndex(c.stopCtx)
 
 	// 加载所有已配置的下载客户端
@@ -162,6 +165,9 @@ func (c *Container) runInactivitySweeper(ctx context.Context) {
 func (c *Container) Close() {
 	if c.stopCancel != nil {
 		c.stopCancel()
+	}
+	if c.Scraper != nil {
+		c.Scraper.WaitPeopleTranslationWorker()
 	}
 	if c.Scheduler != nil {
 		c.Scheduler.Stop()

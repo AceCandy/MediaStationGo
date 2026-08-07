@@ -49,6 +49,9 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.Search.Index != "mediastation_media" {
 		t.Fatalf("expected default search index, got %q", cfg.Search.Index)
 	}
+	if cfg.AI.Timeout != DefaultAITimeoutSeconds {
+		t.Fatalf("expected default AI timeout %ds, got %ds", DefaultAITimeoutSeconds, cfg.AI.Timeout)
+	}
 	if cfg.Database.MaxIdleConns != defaultDatabaseMaxIdleConns {
 		t.Fatalf("expected default MaxIdleConns %d, got %d", defaultDatabaseMaxIdleConns, cfg.Database.MaxIdleConns)
 	}

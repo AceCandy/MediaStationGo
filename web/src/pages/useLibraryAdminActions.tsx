@@ -36,6 +36,7 @@ export function useLibraryAdminActions({
   const [scrapeEpisodeArtwork, setScrapeEpisodeArtwork] = useState(false)
   const [repairing, setRepairing] = useState(false)
   const [backfilling, setBackfilling] = useState(false)
+	const [peopleBackfilling, setPeopleBackfilling] = useState(false)
   const [seriesToolBusy, setSeriesToolBusy] = useState('')
   const [movieToolBusy, setMovieToolBusy] = useState('')
 
@@ -74,6 +75,19 @@ export function useLibraryAdminActions({
       toast.error('媒体轨道回填启动失败')
     } finally {
       setBackfilling(false)
+    }
+  }
+
+  const handlePeopleBackfill = async () => {
+    if (peopleBackfilling) return
+    setPeopleBackfilling(true)
+    try {
+      await libraryAPI.backfillPeople(libraryID)
+      toast.success('人物信息回填已加入后台队列，进度可在任务中查看')
+    } catch {
+      toast.error('人物信息回填启动失败')
+    } finally {
+      setPeopleBackfilling(false)
     }
   }
 
@@ -201,11 +215,13 @@ export function useLibraryAdminActions({
     scrapeEpisodeArtwork,
     repairing,
     backfilling,
+    peopleBackfilling,
     seriesToolBusy,
     setScrapeEpisodeArtwork,
     handleScrape,
     handleRepairRescrape,
     handleProbeBackfill,
+    handlePeopleBackfill,
     handleSeriesSmartScrape,
     handleSeriesProbe,
     handleSeriesOrganize,

@@ -29,7 +29,7 @@ import (
 	"github.com/ShukeBta/MediaStationGo/internal/config"
 )
 
-// AIService talks to an OpenAI-compatible chat-completions endpoint.
+// AIService talks to OpenAI-compatible chat-completions and Responses endpoints.
 type AIService struct {
 	cfg       *config.Config
 	log       *zap.Logger
@@ -41,7 +41,7 @@ type AIService struct {
 func NewAIService(cfg *config.Config, log *zap.Logger, apiConfig *APIConfigService) *AIService {
 	timeout := time.Duration(cfg.AI.Timeout) * time.Second
 	if timeout <= 0 {
-		timeout = 30 * time.Second
+		timeout = time.Duration(config.DefaultAITimeoutSeconds) * time.Second
 	}
 	return &AIService{
 		cfg:       cfg,
@@ -82,6 +82,57 @@ type SearchIntent struct {
 	Type     string `json:"type,omitempty"` // movie / tv / anime / music
 	Sort     string `json:"sort,omitempty"` // recent / rating / random
 	Language string `json:"language,omitempty"`
+}
+
+type AITranslationEntry struct {
+	Key     string                `json:"key"`
+	Kind    string                `json:"kind"`
+	Text    string                `json:"text"`
+	Context *AITranslationContext `json:"context,omitempty"`
+}
+
+// AITranslationContext 提供人物或角色所属作品的消歧线索。
+type AITranslationContext struct {
+	Title         string   `json:"title,omitempty"`
+	OriginalTitle string   `json:"original_title,omitempty"`
+	Year          int      `json:"year,omitempty"`
+	MediaKind     string   `json:"media_kind,omitempty"`
+	KnownFor      []string `json:"known_for,omitempty"`
+}
+
+// TranslatePeople returns only validated non-empty translations. It is best effort.
+func (a *AIService) TranslatePeople(ctx context.Context, entries []AITranslationEntry) (map[string]string, error) {
+	result := make(map[string]string)
+	if a == nil || len(entries) == 0 || !a.EnabledFor(ctx) {
+		return result, nil
+	}
+	payload, err := json.Marshal(entries)
+	if err != nil {
+		return result, err
+	}
+	system := "Translate the supplied person names and actor roles into accurate Simplified Chinese. Use each entry's work context only to disambiguate established person names and character roles. Return a JSON object mapping every exact key to one non-empty translated string. Preserve text that is already Chinese. JSON only."
+	out, err := a.completeResponses(ctx, a.resolveRuntimeConfig(ctx), system, string(payload), nil)
+	if err != nil {
+		return result, err
+	}
+	var raw map[string]any
+	if err := json.Unmarshal([]byte(out), &raw); err != nil {
+		return result, err
+	}
+	valid := make(map[string]struct{}, len(entries))
+	for _, entry := range entries {
+		valid[entry.Key] = struct{}{}
+	}
+	for key, value := range raw {
+		if _, ok := valid[key]; !ok {
+			continue
+		}
+		text, ok := value.(string)
+		if ok && strings.TrimSpace(text) != "" {
+			result[key] = strings.TrimSpace(text)
+		}
+	}
+	return result, nil
 }
 
 // SmartSearch turns a natural-language query into a structured intent.
@@ -201,6 +252,9 @@ func (a *AIService) Chat(ctx context.Context, history []ChatTurn) (string, error
 	if !runtime.Enabled || len(history) == 0 {
 		return offlineReply(history), nil
 	}
+	if runtime.WebSearchEnabled {
+		return a.chatWithWebSearch(ctx, runtime, history)
+	}
 	// Build a chat/completions payload preserving the history order.
 	msgs := make([]map[string]string, 0, len(history)+1)
 	msgs = append(msgs, map[string]string{
@@ -249,6 +303,72 @@ func (a *AIService) Chat(ctx context.Context, history []ChatTurn) (string, error
 		return "", errors.New("ai: empty completion")
 	}
 	return strings.TrimSpace(out.Choices[0].Message.Content), nil
+}
+
+// chatWithWebSearch uses the Responses API because hosted web search is not
+// available through Chat Completions.
+func (a *AIService) chatWithWebSearch(ctx context.Context, runtime aiRuntimeConfig, history []ChatTurn) (string, error) {
+	return a.completeResponses(ctx, runtime, "You are MediaStationGo's helpful media-library assistant. "+
+		"Respond concisely in the user's language. "+
+		"Never invent file paths or media that don't exist.", history,
+		[]map[string]string{{"type": "web_search"}})
+}
+
+// completeResponses sends one non-streaming Responses API request and returns
+// the text from its message output. A nil tools slice keeps the request offline.
+func (a *AIService) completeResponses(ctx context.Context, runtime aiRuntimeConfig, instructions string, input any, tools []map[string]string) (string, error) {
+	payload := map[string]any{
+		"model":        runtime.Model,
+		"instructions": instructions,
+		"input":        input,
+	}
+	if len(tools) > 0 {
+		payload["tools"] = tools
+	}
+	body, _ := json.Marshal(payload)
+	endpoint := strings.TrimRight(runtime.APIBase, "/") + "/responses"
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+runtime.APIKey)
+	resp, err := a.client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		raw, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("ai responses %d: %s", resp.StatusCode, strings.TrimSpace(string(raw)))
+	}
+	var out struct {
+		Output []struct {
+			Type    string `json:"type"`
+			Content []struct {
+				Type string `json:"type"`
+				Text string `json:"text"`
+			} `json:"content"`
+		} `json:"output"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return "", err
+	}
+	parts := make([]string, 0, 1)
+	for _, item := range out.Output {
+		if item.Type != "message" {
+			continue
+		}
+		for _, content := range item.Content {
+			if content.Type == "output_text" && strings.TrimSpace(content.Text) != "" {
+				parts = append(parts, strings.TrimSpace(content.Text))
+			}
+		}
+	}
+	if len(parts) == 0 {
+		return "", errors.New("ai responses: empty output")
+	}
+	return strings.Join(parts, "\n"), nil
 }
 
 // offlineReply returns a deterministic stand-in response so the UI's

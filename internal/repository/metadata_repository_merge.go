@@ -56,10 +56,42 @@ func mergeMetadataGraph(tx *gorm.DB, sourceID, targetID string) error {
 	if err := mergeMetadataArtwork(tx, source.ID, target.ID); err != nil {
 		return err
 	}
+	if err := mergeMetadataCredits(tx, source.ID, target.ID); err != nil {
+		return err
+	}
 	if err := tx.Unscoped().Model(&model.MetadataIdentifier{}).Where("metadata_id = ?", source.ID).Update("metadata_id", target.ID).Error; err != nil {
 		return err
 	}
 	return tx.Unscoped().Delete(&source).Error
+}
+
+func mergeMetadataCredits(tx *gorm.DB, sourceID, targetID string) error {
+	var rows []model.MetadataCredit
+	if err := tx.Unscoped().Where("metadata_id = ?", sourceID).Find(&rows).Error; err != nil {
+		return err
+	}
+	for i := range rows {
+		var existing model.MetadataCredit
+		err := tx.Unscoped().Where("metadata_id = ? AND person_id = ? AND type = ? AND original_role = ?", targetID, rows[i].PersonID, rows[i].Type, rows[i].OriginalRole).First(&existing).Error
+		if err == nil {
+			if rows[i].SortOrder < existing.SortOrder {
+				if err := tx.Unscoped().Model(&existing).Update("sort_order", rows[i].SortOrder).Error; err != nil {
+					return err
+				}
+			}
+			if err := tx.Unscoped().Delete(&rows[i]).Error; err != nil {
+				return err
+			}
+			continue
+		}
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return err
+		}
+		if err := tx.Unscoped().Model(&rows[i]).Update("metadata_id", targetID).Error; err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func mergeMetadataChildren(tx *gorm.DB, sourceID, targetID, kind, identityColumn string) error {

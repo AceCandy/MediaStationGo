@@ -94,6 +94,38 @@ npm --prefix web run lint
 git diff --check
 ```
 
+## Phase 6: Context-Aware Asynchronous People Translation
+
+- [x] Add a context-scoped translation cache model and repository lookups/upserts.
+- [x] Remove synchronous AI work from credit persistence and signal a service-lifetime worker after the snapshot commits.
+- [x] Discover pending people/roles on startup and periodically so interrupted work resumes after restart.
+- [x] Add up to three associated works for person names and exact work context for roles.
+- [x] Resolve cache hits first, deduplicate misses and split Responses requests by 100 entries plus a character cap.
+- [x] Persist only valid Chinese translations and conditionally update unchanged Person/Credit rows.
+- [x] Cover cache isolation/hits, context payloads, batch splitting, asynchronous persistence and stale-write rejection.
+
+Validation:
+
+```bash
+go test ./internal/repository -run 'TranslationCache|Person|Credit'
+go test ./internal/service -run 'PeopleTranslation|TranslatePeople'
+git diff --check
+```
+
+## Phase 7: Long Role Compatibility
+
+- [x] Store credit source/display roles and translation cache source/display values as text.
+- [x] Explicitly upgrade existing PostgreSQL columns from `varchar(255)` to `text`.
+- [x] Cover a role longer than 255 characters and assert PostgreSQL schema types.
+
+Validation:
+
+```bash
+go test ./internal/repository -run 'LongRole|PostgresTextColumns|TranslationCache'
+go test ./internal/database
+git diff --check
+```
+
 ## Known Risks
 
 - Different Emby clients may request additional Person field variants; tests cover repository-observed route/query patterns, but real-client interoperability remains a manual verification item.

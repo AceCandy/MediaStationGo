@@ -11,6 +11,9 @@ func AutoMigrate(db *gorm.DB) error {
 	if err := db.AutoMigrate(model.AllModels()...); err != nil {
 		return err
 	}
+	if err := ensureAPIConfigColumns(db); err != nil {
+		return err
+	}
 	if err := ensurePostgresColumnCompatibility(db); err != nil {
 		return err
 	}
@@ -29,6 +32,24 @@ func AutoMigrate(db *gorm.DB) error {
 	return nil
 }
 
+// ensureAPIConfigColumns covers databases created before the API config model
+// gained editable model and web-search fields. GORM's AutoMigrate can skip
+// this when the legacy duplicate config model already owns the table.
+func ensureAPIConfigColumns(db *gorm.DB) error {
+	if !db.Migrator().HasTable(&model.APIConfig{}) {
+		return nil
+	}
+	for _, column := range []string{"Model", "WebSearchEnabled"} {
+		if db.Migrator().HasColumn(&model.APIConfig{}, column) {
+			continue
+		}
+		if err := db.Migrator().AddColumn(&model.APIConfig{}, column); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func ensurePostgresColumnCompatibility(db *gorm.DB) error {
 	if !isPostgres(db) {
 		return nil
@@ -42,6 +63,10 @@ func ensurePostgresColumnCompatibility(db *gorm.DB) error {
 		`ALTER TABLE favorites ALTER COLUMN media_id TYPE varchar(128)`,
 		`ALTER TABLE playlist_items ALTER COLUMN media_id TYPE varchar(128)`,
 		`ALTER TABLE strm_records ALTER COLUMN media_id TYPE varchar(128)`,
+		`ALTER TABLE metadata_credits ALTER COLUMN original_role TYPE text`,
+		`ALTER TABLE metadata_credits ALTER COLUMN role TYPE text`,
+		`ALTER TABLE translation_caches ALTER COLUMN source_text TYPE text`,
+		`ALTER TABLE translation_caches ALTER COLUMN translated_text TYPE text`,
 	}
 	for _, stmt := range statements {
 		if err := db.Exec(stmt).Error; err != nil {

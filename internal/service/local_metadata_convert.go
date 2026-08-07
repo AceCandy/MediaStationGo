@@ -3,6 +3,8 @@ package service
 import (
 	"strconv"
 	"strings"
+
+	"github.com/ShukeBta/MediaStationGo/internal/model"
 )
 
 func metadataFromDoc(doc *nfoDocument, baseDir string, seriesLike bool) *LocalMetadata {
@@ -54,7 +56,33 @@ func metadataFromDoc(doc *nfoDocument, baseDir string, seriesLike bool) *LocalMe
 	if meta.TMDbID == 0 {
 		meta.TMDbID = tmdbIDFromUniqueIDs(doc.UniqueIDs)
 	}
+	meta.Credits, meta.LoadedCreditTypes = localCreditsFromDoc(doc)
 	return meta
+}
+
+func localCreditsFromDoc(doc *nfoDocument) ([]PersonCredit, []string) {
+	if doc == nil {
+		return nil, nil
+	}
+	credits := make([]PersonCredit, 0, len(doc.Actors)+len(doc.Directors)+len(doc.Writers)+len(doc.Credits))
+	loaded := []string{model.CreditTypeActor, model.CreditTypeDirector, model.CreditTypeWriter}
+	for i, actor := range doc.Actors {
+		if name := cleanXMLText(actor.Name); name != "" {
+			credits = append(credits, PersonCredit{Name: name, Type: model.CreditTypeActor, OriginalRole: cleanXMLText(actor.Role), SortOrder: i})
+		}
+	}
+	for i, name := range doc.Directors {
+		if name = cleanXMLText(name); name != "" {
+			credits = append(credits, PersonCredit{Name: name, Type: model.CreditTypeDirector, SortOrder: i})
+		}
+	}
+	writerNames := append(append([]string{}, doc.Writers...), doc.Credits...)
+	for i, name := range writerNames {
+		if name = cleanXMLText(name); name != "" {
+			credits = append(credits, PersonCredit{Name: name, Type: model.CreditTypeWriter, SortOrder: i})
+		}
+	}
+	return credits, loaded
 }
 
 func adultAwareGenres(doc *nfoDocument) []string {
@@ -98,6 +126,10 @@ func adultAwareGenres(doc *nfoDocument) []string {
 //   - 单集名【不写入】OriginalName(整剧原名);整剧原名只来自 tvshow.nfo。
 //   - 仅 overview/rating/剧照/季集号等【单集级】字段按集回填(不影响分组)。
 func mergeEpisodeMetadata(dst, episode *LocalMetadata, doc *nfoDocument) {
+	if dst != nil && episode != nil {
+		dst.EpisodeCredits = append([]PersonCredit(nil), episode.Credits...)
+		dst.EpisodeLoadedCreditTypes = append([]string(nil), episode.LoadedCreditTypes...)
+	}
 	showTitle := cleanXMLText(doc.ShowTitle)
 	// 整剧标题: 优先 <showtitle>(MoviePilot 在单集 NFO 里也会写整剧名);
 	// 其次保留 dst 已有(来自 tvshow.nfo)。不要把单集 <title> 当整剧标题,

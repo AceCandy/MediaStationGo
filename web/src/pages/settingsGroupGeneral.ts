@@ -24,6 +24,13 @@ export const generalSettingsGroup: SettingGroup = {
       ],
     },
     {
+      key: 'metadata.people_ai_translate',
+      label: 'AI 翻译人物与角色名',
+      type: 'toggle',
+      hint: '开启后，刮削完成时使用已配置的 AI 将非中文人物名和演员角色名翻译为简体中文；默认关闭，避免产生额外调用费用。',
+      defaultValue: 'false',
+    },
+    {
       key: 'app.server_url',
       label: '公开访问域名 / STRM 域名',
       type: 'text',

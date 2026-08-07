@@ -30,6 +30,18 @@ func containsSupportedEmbyItemType(types []string) bool {
 	return false
 }
 
+func containsOnlyPersonItemTypes(types []string) bool {
+	if len(types) == 0 {
+		return false
+	}
+	for _, typ := range types {
+		if !strings.EqualFold(strings.TrimSpace(typ), "person") {
+			return false
+		}
+	}
+	return true
+}
+
 func containsOnlyFolderItemTypes(types []string) bool {
 	if len(types) == 0 {
 		return false

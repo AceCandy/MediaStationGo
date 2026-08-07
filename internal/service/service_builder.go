@@ -99,6 +99,7 @@ func (b *serviceContainerBuilder) initContentServices() {
 	b.c.OrganizePipeline = NewOrganizePipelineService(b.log, b.repos, b.c.Organizer, b.c.Scan, b.c.Tasks)
 	b.c.Watcher = NewWatcherService(b.log, b.repos, b.c.Scan)
 	b.c.AI = NewAIService(b.cfg, b.log, b.c.APIConfig)
+	b.c.Scraper.SetAI(b.c.AI)
 	b.c.Duplicate = NewDuplicateService(b.log, b.repos, b.c.WSHub)
 	b.c.FileManager = NewFileManagerService(b.cfg, b.log, b.repos)
 	b.c.DLNA = NewDLNAService(b.log)

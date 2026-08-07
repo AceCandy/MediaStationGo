@@ -75,9 +75,9 @@ func main() {
 		}
 	}
 
-	db, err := database.Open(cfg, logger)
+	db, err := database.OpenForMigration(cfg, logger)
 	if err != nil {
-		logger.Fatal("database open failed", zap.Error(err))
+		logger.Fatal("migration database open failed", zap.Error(err))
 	}
 	if err := waitForDatabase(db, logger); err != nil {
 		logger.Fatal("database not ready", zap.Error(err))
@@ -87,6 +87,22 @@ func main() {
 	}
 	if err := database.MigrateSQLiteToCurrentIfNeeded(cfg, db, logger); err != nil {
 		logger.Fatal("sqlite to postgres migration failed", zap.Error(err))
+	}
+	if db.Dialector.Name() == "postgres" {
+		migrationSQLDB, err := db.DB()
+		if err != nil {
+			logger.Fatal("migration database handle failed", zap.Error(err))
+		}
+		if err := migrationSQLDB.Close(); err != nil {
+			logger.Fatal("migration database close failed", zap.Error(err))
+		}
+		db, err = database.Open(cfg, logger)
+		if err != nil {
+			logger.Fatal("database open failed", zap.Error(err))
+		}
+		if err := waitForDatabase(db, logger); err != nil {
+			logger.Fatal("database not ready after migration", zap.Error(err))
+		}
 	}
 
 	repos := repository.New(db)

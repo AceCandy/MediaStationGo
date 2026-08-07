@@ -84,6 +84,7 @@ func (s *ScraperService) EnrichOneWithOptions(ctx context.Context, m *model.Medi
 
 	externalResult := s.matchFromMediaExternalIDsWithOutcome(ctx, &lookupMedia, lib)
 	if match := externalResult.Match; match != nil {
+		mergeLocalCreditsIntoMatch(match, local)
 		s.applyFanartArtwork(ctx, match)
 		return s.applyProviderMatchWithOptions(ctx, m, lib, match, options)
 	}
@@ -152,9 +153,33 @@ func (s *ScraperService) EnrichOneWithOptions(ctx context.Context, m *model.Medi
 			}()))
 		return nil
 	}
+	mergeLocalCreditsIntoMatch(match, local)
 	s.applyFanartArtwork(ctx, match)
 
 	return s.applyProviderMatchWithOptions(ctx, m, lib, match, options)
+}
+
+func mergeLocalCreditsIntoMatch(match *Match, local *LocalMetadata) {
+	if match == nil || local == nil || len(local.Credits) == 0 {
+		return
+	}
+	for _, typ := range match.LoadedCreditTypes {
+		hasType := false
+		for _, credit := range match.Credits {
+			if credit.Type == typ {
+				hasType = true
+				break
+			}
+		}
+		if hasType {
+			continue
+		}
+		for _, credit := range local.Credits {
+			if credit.Type == typ {
+				match.Credits = append(match.Credits, credit)
+			}
+		}
+	}
 }
 
 func localMetadataEligibleForFallback(local *LocalMetadata) bool {

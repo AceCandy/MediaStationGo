@@ -2,23 +2,34 @@ import { FormEvent, useEffect, useState } from 'react'
 import toast from 'react-hot-toast'
 import { Eye, KeyRound, Pencil, Save, Trash2, X } from 'lucide-react'
 
-import { apiConfigsAPI, type APIConfig } from '../api/api_configs'
+import { apiConfigsAPI, type APIConfig, type APIConfigPatch } from '../api/api_configs'
 import { confirmAction } from './confirmAction'
 
 // Compact inline-editable provider table for use inside AdminPage's "外部API" tab.
 export function APIConfigsPanel() {
   const [items, setItems] = useState<APIConfig[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState('')
   const [editing, setEditing] = useState<string | null>(null)
 
-  const refresh = () =>
-    apiConfigsAPI
-      .list()
-      .then(setItems)
-      .finally(() => setLoading(false))
+  const refresh = async () => {
+    setLoading(true)
+    setLoadError('')
+    try {
+      setItems(await apiConfigsAPI.list())
+    } catch (err: unknown) {
+      const message =
+        (err as { response?: { data?: { error?: string } } })?.response?.data?.error ??
+        '外部 API 配置加载失败'
+      setItems([])
+      setLoadError(message)
+    } finally {
+      setLoading(false)
+    }
+  }
 
   useEffect(() => {
-    refresh().catch(() => undefined)
+    void refresh()
   }, [])
 
   return (
@@ -38,7 +49,20 @@ export function APIConfigsPanel() {
         <p className="py-6 text-center text-sm text-sand-500">加载中…</p>
       )}
 
-      {!loading && (
+      {!loading && loadError && (
+        <div className="flex items-center justify-between gap-3 border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          <span className="break-words">{loadError}</span>
+          <button
+            type="button"
+            onClick={() => void refresh()}
+            className="shrink-0 text-sm font-medium text-red-700 hover:text-red-900"
+          >
+            重试
+          </button>
+        </div>
+      )}
+
+      {!loading && !loadError && (
         <div className="glass-panel overflow-hidden">
           <table className="w-full text-left text-sm">
             <thead className="border-b border-gray-200 text-xs uppercase tracking-wider text-sand-500">
@@ -151,17 +175,24 @@ function EditingRow({
 }) {
   const [apiKey, setAPIKey] = useState('')
   const [baseURL, setBaseURL] = useState(item.base_url ?? '')
+  const [model, setModel] = useState(item.model ?? '')
   const [extra, setExtra] = useState(item.extra ?? '')
   const [enabled, setEnabled] = useState(item.enabled)
+  const [webSearchEnabled, setWebSearchEnabled] = useState(item.web_search_enabled)
   const [saving, setSaving] = useState(false)
   const isAdult = item.provider === 'adult'
+  const isOpenAI = item.provider === 'openai'
 
   const submit = async (e: FormEvent) => {
     e.preventDefault()
     setSaving(true)
     try {
-      const patch: Record<string, unknown> = { base_url: baseURL, enabled }
+      const patch: APIConfigPatch = { base_url: baseURL, enabled }
       if (isAdult) patch.extra = extra
+      if (isOpenAI) {
+        patch.model = model
+        patch.web_search_enabled = webSearchEnabled
+      }
       if (apiKey.trim()) patch.api_key = apiKey.trim()
       await apiConfigsAPI.update(item.provider, patch)
       toast.success(`${item.provider} 已保存`)
@@ -202,6 +233,17 @@ function EditingRow({
               onChange={(e) => setBaseURL(e.target.value)}
             />
           </label>
+          {isOpenAI && (
+            <label className="min-w-48 flex-1 text-xs text-ink-50">
+              模型
+              <input
+                className="input-base mt-1"
+                placeholder="gpt-4o-mini"
+                value={model}
+                onChange={(e) => setModel(e.target.value)}
+              />
+            </label>
+          )}
           {isAdult && (
             <label className="min-w-64 flex-1 text-xs text-ink-50">
               备用源 URL
@@ -221,6 +263,16 @@ function EditingRow({
             />
             启用
           </label>
+          {isOpenAI && (
+            <label className="flex items-center gap-2 text-xs text-ink-50">
+              <input
+                type="checkbox"
+                checked={webSearchEnabled}
+                onChange={(e) => setWebSearchEnabled(e.target.checked)}
+              />
+              联网搜索
+            </label>
+          )}
           <button type="submit" disabled={saving} className="neon-button !px-3 !py-1.5 !text-xs">
             <Save size={12} /> 保存
           </button>

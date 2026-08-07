@@ -30,6 +30,7 @@ func registerAuthedLibraryRoutes(authed *gin.RouterGroup, svc *service.Container
 	authed.POST("/libraries/:id/scan", middleware.AdminRequired(), scanLibraryHandler(svc))
 	authed.POST("/libraries/:id/scrape", middleware.AdminRequired(), scrapeLibraryHandler(svc))
 	authed.POST("/libraries/:id/probe", middleware.AdminRequired(), probeLibraryHandler(svc))
+	authed.POST("/libraries/:id/people-backfill", middleware.AdminRequired(), peopleBackfillLibraryHandler(svc))
 
 	authed.GET("/libraries/:id/media", listMediaHandler(svc))
 	authed.GET("/libraries/:id/series", listLibrarySeriesHandler(svc))

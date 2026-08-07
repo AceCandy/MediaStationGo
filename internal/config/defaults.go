@@ -2,6 +2,8 @@ package config
 
 import "github.com/spf13/viper"
 
+const DefaultAITimeoutSeconds = 120
+
 const (
 	defaultDatabaseMaxOpenConns = 4
 	defaultDatabaseMaxIdleConns = 2
@@ -56,7 +58,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("ai.provider", "openai")
 	v.SetDefault("ai.api_base", "https://api.openai.com/v1")
 	v.SetDefault("ai.model", "gpt-4o-mini")
-	v.SetDefault("ai.timeout", 30)
+	v.SetDefault("ai.timeout", DefaultAITimeoutSeconds)
 	v.SetDefault("ai.max_concurrent", 3)
 
 	v.SetDefault("flaresolverr.enabled", false)

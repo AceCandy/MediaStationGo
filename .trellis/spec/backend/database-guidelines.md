@@ -18,6 +18,49 @@ Questions to answer:
 
 (To be filled by the team)
 
+## Scenario: Database-Backed AI Configuration
+
+### 1. Scope / Trigger
+
+Use this contract when adding AI provider options that must be editable from the admin API and survive restarts.
+
+### 2. Signatures
+
+- `model.APIConfig`: `Model string`, `WebSearchEnabled bool`.
+- `service.APIConfigPatch`: pointer fields `model` and `web_search_enabled` for partial updates.
+- `service.Resolved`: decrypted runtime projection carrying both fields.
+
+### 3. Contracts
+
+- `PUT /admin/api-configs/openai` accepts `model` and `web_search_enabled`.
+- `GET /admin/api-configs` returns `model` and `web_search_enabled`; API keys remain masked.
+- A non-empty database `model` overrides `cfg.AI.Model`; an empty value keeps the file fallback.
+- `web_search_enabled=true` applies only to AI chat and sends Responses API `tools: [{"type":"web_search"}]`.
+
+### 4. Validation & Error Matrix
+
+- Empty model -> retain the runtime fallback.
+- Responses API HTTP error or unsupported upstream -> return the error; never claim a web-backed answer.
+- Disabled/unconfigured AI -> return the existing offline reply without an external request.
+
+### 5. Good/Base/Bad Cases
+
+- Good: database model `gpt-5.6`, search enabled, `/responses` returns message output text.
+- Base: search disabled, `/chat/completions` remains unchanged.
+- Bad: search enabled against a provider without Responses support; surface the upstream error.
+
+### 6. Tests Required
+
+- Assert API config update/public/resolve round-trip for model and search flag.
+- Assert enabled chat requests `/responses` with model, input, and `web_search` and extracts `output_text`.
+- Assert disabled chat requests `/chat/completions`; People translation requests `/responses` without tools.
+
+### 7. Wrong vs Correct
+
+Wrong: add `web_search` to People translation just because it uses Responses.
+
+Correct: use Responses for People translation without tools; reserve `web_search` for `Chat` when its toggle is enabled.
+
 ---
 
 ## Query Patterns
@@ -26,13 +69,43 @@ Questions to answer:
 
 (To be filled by the team)
 
+## Runtime Configuration Defaults
+
+- Define each runtime default once in the owning config package. Constructors
+  may use that exported constant as a defensive fallback, but must not repeat a
+  numeric default independently.
+- When changing a default, update and test the final `config.Load()` projection.
+  A constructor-only test is insufficient because Viper defaults populate the
+  field before the constructor runs.
+- Preserve explicit file and environment overrides unless the product contract
+  explicitly requires a fixed value.
+
 ---
 
 ## Migrations
 
-<!-- How to create and run migrations -->
+- Store provider/NFO/AI free-form text as `text` unless the upstream contract
+  defines a real maximum. Do not infer `varchar(255)` from typical samples.
+- When changing a PostgreSQL column type, include an idempotent compatibility
+  statement for existing databases and a dialect-level schema assertion;
+  SQLite round-trip tests do not enforce `varchar` lengths.
 
-(To be filled by the team)
+### PostgreSQL Prepared Plan Safety
+
+- PostgreSQL schema migrations must use a dedicated connection with GORM
+  `PrepareStmt=false` and pgx `PreferSimpleProtocol=true`.
+- After migration, close that connection and open the direct PostgreSQL runtime
+  connection with prepared statements enabled. SQLite keeps its existing
+  connection and prepared-statement behavior.
+- Do not enable runtime prepared statements through a transaction pooler unless
+  the pooler explicitly supports them and schema-change invalidation is tested.
+- Clearing GORM's cache after `AutoMigrate` is insufficient because a stale-plan
+  error can occur inside `AutoMigrate` itself.
+- Any change to the PostgreSQL dialector must retain a focused test proving the
+  migration/runtime protocol split.
+- When a schema change touches a table queried during startup, verify one real
+  PostgreSQL/pooler startup and the first business query after startup. Unit
+  migration tests alone do not cover pooled server-session state.
 
 ---
 

@@ -42,7 +42,7 @@ func (s *APIConfigService) SeedDefaults(ctx context.Context) error {
 		{Provider: "fanart", BaseURL: "https://webservice.fanart.tv/v3", Description: "Fanart.tv (artwork)", Enabled: true},
 		{Provider: "douban", Description: "Douban cookie (zh metadata)", Enabled: true},
 		{Provider: "adult", BaseURL: "https://javdb.com", Extra: "https://javbus.sbs,https://www.javbus.com,https://www.cdnbus.cyou,https://www.javsee.cyou,https://www.busjav.cyou", Description: "Adult / 番号元数据（JavDB/JavBus）", Enabled: true},
-		{Provider: "openai", BaseURL: "https://api.openai.com/v1", Description: "OpenAI-compatible (smart search)", Enabled: true},
+		{Provider: "openai", BaseURL: "https://api.openai.com/v1", Model: "gpt-4o-mini", Description: "OpenAI-compatible (smart search)", Enabled: true},
 	}
 	for i := range defaults {
 		var existing model.APIConfig
@@ -65,16 +65,18 @@ func (s *APIConfigService) SeedDefaults(ctx context.Context) error {
 // PublicView is the safe-to-display projection of an API config row.
 // The plaintext key is never returned — only a mask.
 type PublicView struct {
-	ID          string    `json:"id"`
-	Provider    string    `json:"provider"`
-	BaseURL     string    `json:"base_url,omitempty"`
-	Extra       string    `json:"extra,omitempty"`
-	Enabled     bool      `json:"enabled"`
-	Description string    `json:"description,omitempty"`
-	HasKey      bool      `json:"has_key"`
-	MaskedKey   string    `json:"masked_key,omitempty"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	ID               string    `json:"id"`
+	Provider         string    `json:"provider"`
+	BaseURL          string    `json:"base_url,omitempty"`
+	Model            string    `json:"model,omitempty"`
+	Extra            string    `json:"extra,omitempty"`
+	Enabled          bool      `json:"enabled"`
+	WebSearchEnabled bool      `json:"web_search_enabled"`
+	Description      string    `json:"description,omitempty"`
+	HasKey           bool      `json:"has_key"`
+	MaskedKey        string    `json:"masked_key,omitempty"`
+	CreatedAt        time.Time `json:"created_at"`
+	UpdatedAt        time.Time `json:"updated_at"`
 }
 
 // List returns every API config row (with masked keys).
@@ -104,10 +106,12 @@ func (s *APIConfigService) Get(ctx context.Context, provider string) (*PublicVie
 // client. Empty struct (with no error) when the provider is unknown or
 // the API key is empty.
 type Resolved struct {
-	APIKey  string
-	BaseURL string
-	Extra   string
-	Enabled bool
+	APIKey           string
+	BaseURL          string
+	Model            string
+	Extra            string
+	Enabled          bool
+	WebSearchEnabled bool
 }
 
 // Resolve fetches the live configuration for a provider, decrypting the
@@ -123,10 +127,12 @@ func (s *APIConfigService) Resolve(ctx context.Context, provider string) (Resolv
 		return Resolved{}, nil
 	}
 	resolved := Resolved{
-		APIKey:  s.crypto.Decrypt(row.APIKey),
-		BaseURL: row.BaseURL,
-		Extra:   row.Extra,
-		Enabled: row.Enabled,
+		APIKey:           s.crypto.Decrypt(row.APIKey),
+		BaseURL:          row.BaseURL,
+		Model:            row.Model,
+		Extra:            row.Extra,
+		Enabled:          row.Enabled,
+		WebSearchEnabled: row.WebSearchEnabled,
 	}
 	s.log.Debug("api_config.resolve: success",
 		zap.String("provider", provider),
@@ -138,11 +144,13 @@ func (s *APIConfigService) Resolve(ctx context.Context, provider string) (Resolv
 // Update upserts a single provider's config. An empty patch.APIKey leaves
 // the existing key untouched; pass "<clear>" sentinel to wipe it.
 type APIConfigPatch struct {
-	APIKey      *string `json:"api_key,omitempty"`
-	BaseURL     *string `json:"base_url,omitempty"`
-	Extra       *string `json:"extra,omitempty"`
-	Enabled     *bool   `json:"enabled,omitempty"`
-	Description *string `json:"description,omitempty"`
+	APIKey           *string `json:"api_key,omitempty"`
+	BaseURL          *string `json:"base_url,omitempty"`
+	Model            *string `json:"model,omitempty"`
+	Extra            *string `json:"extra,omitempty"`
+	Enabled          *bool   `json:"enabled,omitempty"`
+	WebSearchEnabled *bool   `json:"web_search_enabled,omitempty"`
+	Description      *string `json:"description,omitempty"`
 }
 
 // Update applies the patch and returns the new public view.
@@ -175,11 +183,17 @@ func (s *APIConfigService) Update(ctx context.Context, provider string, patch AP
 	if patch.BaseURL != nil {
 		updates["base_url"] = *patch.BaseURL
 	}
+	if patch.Model != nil {
+		updates["model"] = strings.TrimSpace(*patch.Model)
+	}
 	if patch.Extra != nil {
 		updates["extra"] = *patch.Extra
 	}
 	if patch.Enabled != nil {
 		updates["enabled"] = *patch.Enabled
+	}
+	if patch.WebSearchEnabled != nil {
+		updates["web_search_enabled"] = *patch.WebSearchEnabled
 	}
 	if patch.Description != nil {
 		updates["description"] = *patch.Description
@@ -225,15 +239,17 @@ func (s *APIConfigService) findByProvider(ctx context.Context, provider string) 
 func (s *APIConfigService) toPublic(r *model.APIConfig) PublicView {
 	plain := s.crypto.Decrypt(r.APIKey)
 	pv := PublicView{
-		ID:          r.ID,
-		Provider:    r.Provider,
-		BaseURL:     r.BaseURL,
-		Extra:       r.Extra,
-		Enabled:     r.Enabled,
-		Description: r.Description,
-		HasKey:      plain != "",
-		CreatedAt:   r.CreatedAt,
-		UpdatedAt:   r.UpdatedAt,
+		ID:               r.ID,
+		Provider:         r.Provider,
+		BaseURL:          r.BaseURL,
+		Model:            r.Model,
+		Extra:            r.Extra,
+		Enabled:          r.Enabled,
+		WebSearchEnabled: r.WebSearchEnabled,
+		Description:      r.Description,
+		HasKey:           plain != "",
+		CreatedAt:        r.CreatedAt,
+		UpdatedAt:        r.UpdatedAt,
 	}
 	if pv.HasKey {
 		pv.MaskedKey = MaskAPIKey(plain)

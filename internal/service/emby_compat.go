@@ -150,6 +150,9 @@ func (e *EmbyService) Items(ctx context.Context, p ItemsParams) (map[string]any,
 	if p.StartIndex < 0 {
 		p.StartIndex = 0
 	}
+	if containsOnlyPersonItemTypes(p.IncludeItemTypes) {
+		return e.Persons(ctx, p)
+	}
 	if len(p.IncludeItemTypes) > 0 && !containsSupportedEmbyItemType(p.IncludeItemTypes) {
 		return emptyItemsEnvelope(p.StartIndex), nil
 	}

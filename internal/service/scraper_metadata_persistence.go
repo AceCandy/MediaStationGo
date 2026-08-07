@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/ShukeBta/MediaStationGo/internal/model"
+	"github.com/ShukeBta/MediaStationGo/internal/repository"
 )
 
 type persistedMetadataMatch struct {
@@ -48,6 +49,9 @@ func (s *ScraperService) persistProviderMetadata(ctx context.Context, media *mod
 		return nil, err
 	}
 	result.PosterURL, result.BackdropURL = seriesPoster, seriesBackdrop
+	if err := s.persistCredits(ctx, canonical.ID, match.LoadedCreditTypes, match.Credits); err != nil {
+		return nil, err
+	}
 
 	if entityKind != model.MetadataKindSeries || media.EpisodeNum <= 0 {
 		return result, nil
@@ -115,6 +119,9 @@ func (s *ScraperService) persistLocalMetadata(ctx context.Context, media *model.
 		return nil, err
 	}
 	result.PosterURL, result.BackdropURL = posterURL, backdropURL
+	if err := s.persistCredits(ctx, canonical.ID, local.LoadedCreditTypes, local.Credits); err != nil {
+		return nil, err
+	}
 	if entityKind != model.MetadataKindSeries || media.EpisodeNum <= 0 {
 		return result, nil
 	}
@@ -142,8 +149,32 @@ func (s *ScraperService) persistLocalMetadata(ctx context.Context, media *model.
 		return nil, err
 	}
 	result.PosterURL, result.BackdropURL = posterURL, backdropURL
+	episodeCredits, episodeLoaded := local.Credits, local.LoadedCreditTypes
+	if len(local.EpisodeLoadedCreditTypes) > 0 {
+		episodeCredits, episodeLoaded = local.EpisodeCredits, local.EpisodeLoadedCreditTypes
+	}
+	if err := s.persistCredits(ctx, target.ID, episodeLoaded, episodeCredits); err != nil {
+		return nil, err
+	}
 	return result, nil
 }
+
+func (s *ScraperService) persistCredits(ctx context.Context, metadataID string, loaded []string, credits []PersonCredit) error {
+	if s == nil || s.repo == nil || s.repo.Person == nil || len(loaded) == 0 {
+		return nil
+	}
+	inputs := make([]repository.CreditInput, 0, len(credits))
+	for _, credit := range credits {
+		inputs = append(inputs, repository.CreditInput{Provider: credit.Provider, ExternalID: credit.ExternalID, Name: credit.Name, Overview: credit.Overview, ProfileURL: credit.ProfileURL, Type: credit.Type, OriginalRole: credit.OriginalRole, SortOrder: credit.SortOrder})
+	}
+	if err := s.repo.Person.ReplaceCredits(ctx, metadataID, loaded, inputs); err != nil {
+		return err
+	}
+	s.queuePeopleTranslation()
+	return nil
+}
+
+const peopleAITranslateSettingKey = "metadata.people_ai_translate"
 
 func (s *ScraperService) upsertSeasonMetadata(ctx context.Context, series *model.MetadataItem, seasonNum int, source string) (*model.MetadataItem, error) {
 	if series == nil {

@@ -19,6 +19,15 @@ import (
 // Open initialises the configured GORM database. database.type=auto chooses
 // PostgreSQL when database.dsn is present and otherwise falls back to SQLite.
 func Open(cfg *config.Config, log *zap.Logger) (*gorm.DB, error) {
+	return open(cfg, log, false)
+}
+
+// OpenForMigration avoids PostgreSQL prepared plans while schemas are changing.
+func OpenForMigration(cfg *config.Config, log *zap.Logger) (*gorm.DB, error) {
+	return open(cfg, log, true)
+}
+
+func open(cfg *config.Config, log *zap.Logger, migration bool) (*gorm.DB, error) {
 	if cfg == nil {
 		return nil, errors.New("database config is required")
 	}
@@ -26,13 +35,13 @@ func Open(cfg *config.Config, log *zap.Logger) (*gorm.DB, error) {
 	if dialect == "auto" {
 		dialect = effectiveAutoDatabaseType(cfg)
 	}
-	dialector, err := databaseDialector(cfg, dialect)
+	dialector, err := databaseDialector(cfg, dialect, migration)
 	if err != nil {
 		return nil, err
 	}
 	db, err := gorm.Open(dialector, &gorm.Config{
 		Logger:                                   newGormLogger(log),
-		PrepareStmt:                              true,
+		PrepareStmt:                              prepareStmtEnabled(dialect, migration),
 		DisableForeignKeyConstraintWhenMigrating: false,
 	})
 	if err != nil {
@@ -45,6 +54,10 @@ func Open(cfg *config.Config, log *zap.Logger) (*gorm.DB, error) {
 		return nil, err
 	}
 	return db, nil
+}
+
+func prepareStmtEnabled(dialect string, migration bool) bool {
+	return dialect != "postgres" || !migration
 }
 
 func newGormLogger(log *zap.Logger) logger.Interface {
@@ -96,7 +109,7 @@ func effectiveAutoDatabaseType(cfg *config.Config) string {
 	return "sqlite"
 }
 
-func databaseDialector(cfg *config.Config, dialect string) (gorm.Dialector, error) {
+func databaseDialector(cfg *config.Config, dialect string, migration bool) (gorm.Dialector, error) {
 	switch dialect {
 	case "sqlite":
 		return sqlite.Open(buildSQLiteDSN(cfg)), nil
@@ -105,7 +118,7 @@ func databaseDialector(cfg *config.Config, dialect string) (gorm.Dialector, erro
 		if dsn == "" {
 			return nil, fmt.Errorf("database.dsn is required when database.type=postgres")
 		}
-		return postgres.Open(dsn), nil
+		return postgres.New(postgres.Config{DSN: dsn, PreferSimpleProtocol: migration}), nil
 	default:
 		return nil, fmt.Errorf("unsupported database.type %q (supported: sqlite, postgres)", cfg.Database.Type)
 	}
