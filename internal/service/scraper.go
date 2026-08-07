@@ -51,6 +51,33 @@ func (s *ScraperService) EnrichOneWithOptions(ctx context.Context, m *model.Medi
 		m.SeasonNum = lookupMedia.SeasonNum
 		m.EpisodeNum = lookupMedia.EpisodeNum
 	}
+	if strings.TrimSpace(m.MetadataID) == "" {
+		if err := s.repo.Media.ResolveMetadata(ctx, &lookupMedia); err != nil {
+			return s.markScrapeError(ctx, m.ID, err)
+		}
+		if lookupMedia.MetadataID != "" {
+			updates := map[string]any{
+				"metadata_id":         lookupMedia.MetadataID,
+				"scrape_status":       "matched",
+				"scrape_error":        "",
+				"local_metadata_hint": "",
+				"series_hint":         lookupMedia.SeriesID,
+				"lookup_tmdb_id":      lookupMedia.TMDbID,
+				"lookup_bangumi_id":   lookupMedia.BangumiID,
+				"lookup_douban_id":    lookupMedia.DoubanID,
+				"lookup_thetvdb_id":   lookupMedia.TheTVDBID,
+			}
+			if err := s.repo.DB.WithContext(ctx).Model(&model.Media{}).Where("id = ?", m.ID).Updates(updates).Error; err != nil {
+				return err
+			}
+			m.MetadataID = lookupMedia.MetadataID
+			m.SeriesID = lookupMedia.SeriesID
+			m.ScrapeStatus = "matched"
+			s.repo.MediaView.ReindexMediaIDs(ctx, m.ID)
+			s.invalidateMediaCache(ctx)
+			return nil
+		}
+	}
 
 	year := mediaYearHint(&lookupMedia)
 	var lookupErrors []error

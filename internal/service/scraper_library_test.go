@@ -35,6 +35,82 @@ func TestManualEnrichLibraryRetriesNoMatchAndCountsRealMatches(t *testing.T) {
 	}
 }
 
+func TestEnrichLibraryBindsUnresolvedMediaAfterProviderMatch(t *testing.T) {
+	scraper, repos, closeServer := newTestScraper(t)
+	defer closeServer()
+	if err := repos.DB.Callback().Create().Remove("testutil:media-metadata"); err != nil {
+		t.Fatal(err)
+	}
+
+	lib := model.Library{Name: "番剧", Path: t.TempDir(), Type: "tv", Enabled: true}
+	if err := repos.DB.Create(&lib).Error; err != nil {
+		t.Fatal(err)
+	}
+	media := model.Media{
+		LibraryID: lib.ID, Title: "间谍过家家",
+		Path:      filepath.Join(lib.Path, "间谍过家家 - S02E02.mkv"),
+		SeasonNum: 2, EpisodeNum: 2, ScrapeStatus: "pending",
+	}
+	if err := repos.DB.Create(&media).Error; err != nil {
+		t.Fatal(err)
+	}
+	if media.MetadataID != "" {
+		t.Fatalf("metadata ID before provider lookup = %q, want empty", media.MetadataID)
+	}
+
+	result, err := scraper.EnrichLibraryDetailed(t.Context(), lib.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Candidates != 1 || result.Processed != 1 || result.Matched != 1 || result.Failed != 0 {
+		t.Fatalf("result=%+v, want one unresolved media matched", result)
+	}
+	got, err := repos.Media.FindByID(t.Context(), media.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got == nil || got.MetadataID == "" || got.ScrapeStatus != "matched" {
+		t.Fatalf("media after provider lookup = %#v", got)
+	}
+}
+
+func TestEnrichOneReusesCanonicalBeforeProviderLookup(t *testing.T) {
+	scraper, repos, closeServer := newTestScraper(t)
+	defer closeServer()
+	if err := repos.DB.Callback().Create().Remove("testutil:media-metadata"); err != nil {
+		t.Fatal(err)
+	}
+	lib := model.Library{Name: "Movies", Path: t.TempDir(), Type: "movie", Enabled: true}
+	if err := repos.DB.Create(&lib).Error; err != nil {
+		t.Fatal(err)
+	}
+	metadata := model.MetadataItem{Kind: model.MetadataKindMovie, Title: "Cached movie", Source: "tmdb"}
+	if err := repos.Metadata.Create(t.Context(), &metadata, []model.MetadataIdentifier{{
+		Provider: "tmdb", EntityKind: model.MetadataKindMovie, ExternalID: "408",
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	media := model.Media{
+		LibraryID: lib.ID, Title: "Snow White", Path: filepath.Join(lib.Path, "Snow White.mkv"),
+		TMDbID: 408, ScrapeStatus: "pending",
+	}
+	if err := repos.DB.Create(&media).Error; err != nil {
+		t.Fatal(err)
+	}
+	closeServer()
+
+	if err := scraper.EnrichOne(t.Context(), &media); err != nil {
+		t.Fatalf("reuse canonical metadata without provider request: %v", err)
+	}
+	got, err := repos.Media.FindByID(t.Context(), media.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got == nil || got.MetadataID != metadata.ID || got.ScrapeStatus != "matched" {
+		t.Fatalf("media after canonical reuse = %#v", got)
+	}
+}
+
 func TestManualEnrichLibraryCanRefreshAlreadyMatchedRows(t *testing.T) {
 	scraper, repos, closeServer := newTestScraper(t)
 	defer closeServer()

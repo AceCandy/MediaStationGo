@@ -42,6 +42,9 @@ func TestEnrichOneRejectsWrongYearMatchFromSeriesFolder(t *testing.T) {
 	if err := migrateScraperTestModels(t, db); err != nil {
 		t.Fatal(err)
 	}
+	if err := db.Callback().Create().Remove("testutil:media-metadata"); err != nil {
+		t.Fatal(err)
+	}
 	repos := repository.New(db)
 	cfg := &config.Config{}
 	cfg.Secrets.TMDbAPIKey = "test-key"
@@ -66,7 +69,6 @@ func TestEnrichOneRejectsWrongYearMatchFromSeriesFolder(t *testing.T) {
 	if err := repos.DB.Create(&media).Error; err != nil {
 		t.Fatal(err)
 	}
-
 	if err := scraper.EnrichOne(t.Context(), &media); err != nil {
 		t.Fatal(err)
 	}
@@ -86,6 +88,9 @@ func TestEnrichOnePrefersLocalMetadataWithoutProvider(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := migrateScraperTestModels(t, db); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Callback().Create().Remove("testutil:media-metadata"); err != nil {
 		t.Fatal(err)
 	}
 	repos := repository.New(db)
@@ -129,6 +134,9 @@ func TestEnrichOnePrefersLocalMetadataWithoutProvider(t *testing.T) {
 	}
 	if err := repos.DB.Create(&media).Error; err != nil {
 		t.Fatal(err)
+	}
+	if media.MetadataID != "" {
+		t.Fatalf("metadata ID before local fallback = %q, want empty", media.MetadataID)
 	}
 
 	if err := scraper.EnrichOne(t.Context(), &media); err != nil {

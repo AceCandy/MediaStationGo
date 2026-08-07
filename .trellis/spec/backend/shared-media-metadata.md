@@ -13,7 +13,8 @@
 - Canonical entities: `MetadataItem{Kind, ParentID, SeasonNum, EpisodeNum, Title, ..., NSFW, Source}`.
 - External identity: `MetadataIdentifier{MetadataID, Provider, EntityKind, ExternalID}` with global uniqueness on `(provider, entity_kind, external_id)`.
 - Season identity: `(parent_series_id, season_num)`; episode identity: `(parent_season_id, episode_num)`; provider season/episode IDs are not required.
-- File link: non-null `Media.MetadataID` with a restrictive foreign key to `MetadataItem.ID`.
+- File link: nullable `Media.MetadataID` while scan status is unresolved; every
+  non-null value has a restrictive foreign key to `MetadataItem.ID`.
 - Metadata-owned state: `Favorite.MetadataID`, `PlaybackHistory.MetadataID`, and `PlaylistItem.MetadataID` are non-null; `MediaID` only selects a concrete playable version.
 - Read model: `MediaViewRepository.FindByID`, `FindByIDs`, `ListByLibrariesFiltered`, and `SearchFilteredPage`.
 - Complete track facts: `MediaProbeMetadata{MediaID, ProbeJSON, SchemaVersion, ProbedAt}` uses `media_id` as both primary key and a cascading foreign key to `media(id)`; list queries must not join or preload this table.
@@ -29,8 +30,13 @@
 
 ### 3. Contracts
 
-- Scanner resolves or creates minimum metadata before writing media. Metadata hierarchy and media are persisted in one transaction; a failed ingest must not leave an unbound media row.
-- Minimum metadata is an internal identity, not proof of provider success. A movie without provider IDs gets an independent `source=local` item; episodic media resolves `Series -> Season -> Episode` before media.
+- Scanner resolves exact provider identifiers before writing media but never
+  creates local metadata. An exact movie identity binds the Movie; an episodic
+  identity binds only when its stored `Series -> Season -> Episode` hierarchy
+  already contains that episode.
+- When exact identity does not resolve, scanner persists the media with
+  `metadata_id = NULL`, scan hints, and `scrape_status=pending`. Provider or
+  eligible local persistence fills the link after scan.
 - A reliable provider ID resolves by `(provider, entity_kind, external_id)`. TMDb is optional; Douban-only and provider-less manual metadata are valid.
 - Provider match enriches one canonical `MetadataItem`, its identifiers and managed artwork, then links every matching file through `Media.MetadataID`.
 - Provider no-match may import existing NFO and sidecar images. Provider error or timeout must set an error state and must not fall back to local metadata.
@@ -54,7 +60,9 @@
 - For a local `.strm`, Emby item and source `Container`/`Path` must describe the resolved `Media.STRMURL` target and must never expose the `.strm` sidecar as the playable path. A source `Bitrate` is the average `SizeBytes * 8 / DurationSec` only when both inputs are positive.
 - Emby `MediaSource.Name` is a version label derived from the real source filename (the resolved STRM target for local STRM). Remove the extension, title/year, season/episode markers, and preserve the remaining technical release markers; use `默认版本` when no label remains.
 - A successful single-media manual scrape response must be read after persistence from `MediaView`; returning the raw `Media` row can expose the previous scan title or omit shared metadata fields. A failed or empty refresh is an internal error, not a successful `null` response.
-- `MediaView` uses an inner join to `metadata_items`; persisted unresolved media does not exist and scan hints never replace canonical display identity.
+- `MediaView` uses an inner join to `metadata_items`; persisted unresolved media
+  remains in the raw `media` table but is absent from metadata-backed display
+  reads, and scan hints never replace canonical display identity.
 - Emby movie, Series, Season and Episode item identity and user state always use real `MetadataItem.ID`. Concrete `MediaSource` identity and the last or preferred playable version use `Media.ID`; there is no media-ID identity fallback or virtual Series/Season ID.
 - Emby `/Items`, `/Items/Counts`, and search hint totals must count logical metadata items after applying the same visibility, type, and library filters used by the payload. Version collapse must happen before user-visible pagination, so multiple playable versions cannot consume a page or inflate `TotalRecordCount`.
 - Emby stream and HLS endpoints may receive either a metadata item ID or a concrete media source ID. They must resolve the request to a visible playable `Media.ID` before calling stream/transcode services.
@@ -72,7 +80,9 @@
 | Season has no Series parent, negative season, or episode position | Repository validation error and database CHECK rejection |
 | Episode has no Season parent, nonzero season position, or non-positive episode | Repository validation error and database CHECK rejection |
 | Movie/Series has a parent or season/episode identity | Repository validation error and database CHECK rejection |
-| Media or metadata-owned user state has an empty/missing metadata ID | Database NOT NULL/CHECK/foreign-key rejection |
+| Pending media has no metadata ID | Store SQL `NULL`; keep it out of `MediaView` until enrichment binds metadata |
+| Media has a non-null unknown metadata ID | Database foreign-key rejection |
+| Metadata-owned user state has an empty/missing metadata ID | Database NOT NULL/CHECK/foreign-key rejection |
 | A new provider ID is unowned | Attach it to the current metadata; replace a stale ID for the same provider/kind |
 | Provider identifiers resolve to different metadata rows without explicit merge authority | Reject without changing either metadata graph |
 | Explicit provider crosswalk or user-confirmed identity resolves to another metadata | Transactionally merge references and hierarchy, then hard-delete the unreferenced source |
@@ -98,8 +108,13 @@
 - Good: two paths with the same TMDb movie identity link to one movie metadata row, share Emby favorite/played/resume state, and keep separate media IDs, paths, codecs, sizes, and media sources.
 - Good: two files for the same series/season/episode link to one Episode whose parent is a real Season whose parent is the Series; the Season can be favorited independently.
 - Good: a Douban-only movie creates/reuses metadata without a TMDb ID; a later explicit TMDb crosswalk either attaches the unowned ID or safely merges into its existing owner.
-- Base: a provider-less file has minimum local/manual metadata and a non-null `metadata_id`; MediaView displays that minimum metadata until enrichment.
-- Bad: creating a media row first and filling `metadata_id` later, or treating `Media.ID` as an item identity fallback.
+- Base: an unresolved file has `metadata_id = NULL` and remains absent from
+  `MediaView` until provider or eligible local persistence binds canonical
+  metadata.
+- Good: scanner binds an existing exact canonical identity without updating its
+  title, details, source, or identifiers.
+- Bad: scanner creates or overwrites `source=local` metadata before provider
+  lookup, or treating `Media.ID` as an item identity fallback.
 - Bad: copying provider title, genres, NSFW, or artwork URL into each `Media` row.
 - Bad: applying NFO title or artwork after a successful provider match.
 - Good: `/media/STRM-115/Movie.mkv` follows the regular provider chain without a JavDB/JavBus request.
@@ -116,7 +131,12 @@
 
 ### 6. Tests Required
 
-- Schema: create `Series -> Season 0 -> Episode` and reject invalid parent kinds, duplicate season/episode identities, empty media metadata IDs, unknown foreign keys, and deletion of referenced metadata.
+- Schema: create `Series -> Season 0 -> Episode`; allow a NULL media metadata ID;
+  reject invalid parent kinds, duplicate season/episode identities, unknown
+  non-null foreign keys, and deletion of referenced metadata.
+- Scanner identity: assert exact movie and existing episode identities bind
+  without mutating canonical metadata; assert unresolved scans create no local
+  metadata row and remain absent from `MediaView`.
 - Identity: allow equal external IDs across provider or entity kind; deduplicate equal canonical identities.
 - Identity: replace a stale unowned identifier for the same provider/kind, preserve other provider identifiers, and reject an occupied identifier unless merge is explicitly authorized.
 - Merge: move multiple media versions, favorites, playlists and history; recursively merge Series children; assert duplicate user state is resolved and source metadata is physically gone.
@@ -166,7 +186,25 @@ repo.DB.Table("media AS m").
     Offset(offset).Limit(limit)
 ```
 
-The inner metadata join enforces the persisted identity contract. The identifier projection must preserve one output row per media before filtering, counting, sorting, and pagination.
+The inner metadata join enforces display eligibility: raw unresolved media is
+persisted but intentionally absent until `metadata_id` is filled. The identifier
+projection must preserve one output row per media before filtering, counting,
+sorting, and pagination.
+
+Scanner persistence must not manufacture local canonical metadata:
+
+```go
+// Wrong: turns an unresolved scan hint into canonical metadata before lookup.
+metadata, err := metadataRepo.UpsertCanonical(ctx, localItem, identifiers, "")
+media.MetadataID = metadata.ID
+
+// Correct: bind only an exact existing canonical result; otherwise persist NULL.
+metadata, err := findExistingMediaMetadata(ctx, media)
+if metadata != nil {
+    media.MetadataID = metadata.ID
+    media.ScrapeStatus = "matched"
+}
+```
 
 For library deletion, scoped GORM deletion is also incorrect:
 

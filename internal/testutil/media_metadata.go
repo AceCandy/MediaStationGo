@@ -18,7 +18,8 @@ import (
 
 const mediaMetadataFixtureCallback = "testutil:media-metadata"
 
-// RegisterMediaMetadataFixtures 让旧测试夹具也遵守 media 必须绑定 metadata 的新建约束。
+// RegisterMediaMetadataFixtures 为依赖 MediaView 的旧测试夹具补齐最小 metadata。
+// 生产扫描流程允许 pending media 暂时没有 metadata 关联。
 func RegisterMediaMetadataFixtures(db *gorm.DB) error {
 	if db == nil {
 		return errors.New("test database is required")

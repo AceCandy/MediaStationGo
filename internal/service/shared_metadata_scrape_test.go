@@ -149,6 +149,9 @@ func TestProviderErrorDoesNotFallBackToLocalNFO(t *testing.T) {
 	if err := migrateScraperTestModels(t, db); err != nil {
 		t.Fatal(err)
 	}
+	if err := db.Callback().Create().Remove("testutil:media-metadata"); err != nil {
+		t.Fatal(err)
+	}
 	repos := repository.New(db)
 	root := t.TempDir()
 	mediaPath := filepath.Join(root, "movie.mkv")
@@ -174,14 +177,14 @@ func TestProviderErrorDoesNotFallBackToLocalNFO(t *testing.T) {
 	if err := db.First(&got, "id = ?", media.ID).Error; err != nil {
 		t.Fatal(err)
 	}
-	if got.ScrapeStatus != "error" || got.MetadataID == "" || got.ScrapeError == "" {
+	if got.ScrapeStatus != "error" || got.MetadataID != "" || got.ScrapeError == "" {
 		t.Fatalf("provider error incorrectly fell back to local metadata: %#v", got)
 	}
 	var metadataCount int64
 	if err := db.Model(&model.MetadataItem{}).Count(&metadataCount).Error; err != nil {
 		t.Fatal(err)
 	}
-	if metadataCount != 1 {
-		t.Fatalf("metadata rows after provider error = %d, want 1 base metadata row", metadataCount)
+	if metadataCount != 0 {
+		t.Fatalf("metadata rows after provider error = %d, want none", metadataCount)
 	}
 }

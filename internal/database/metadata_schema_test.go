@@ -10,6 +10,14 @@ import (
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 )
 
+type legacyRequiredMedia struct {
+	ID         string `gorm:"primaryKey;size:36"`
+	MetadataID string `gorm:"size:36;not null;check:chk_media_metadata_id,metadata_id <> ''"`
+	Path       string `gorm:"uniqueIndex;size:1024;not null"`
+}
+
+func (legacyRequiredMedia) TableName() string { return "media" }
+
 func TestMetadataSchemaCanonicalIdentityConstraints(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open("file:metadata_schema?mode=memory&cache=shared&_pragma=foreign_keys(1)"), &gorm.Config{})
 	if err != nil {
@@ -81,14 +89,54 @@ func TestMetadataSchemaCanonicalIdentityConstraints(t *testing.T) {
 	if err := db.Create(&media).Error; err != nil {
 		t.Fatalf("create media with metadata: %v", err)
 	}
-	if err := db.Create(&model.Media{LibraryID: "library", Title: "Missing", Path: "/missing.mkv"}).Error; err == nil {
-		t.Fatal("expected empty media metadata id to be rejected")
+	unresolved := model.Media{LibraryID: "library", Title: "Missing", Path: "/missing.mkv"}
+	if err := db.Create(&unresolved).Error; err != nil {
+		t.Fatalf("create unresolved media: %v", err)
+	}
+	var unresolvedCount int64
+	if err := db.Raw(`SELECT COUNT(1) FROM media WHERE id = ? AND metadata_id IS NULL`, unresolved.ID).Scan(&unresolvedCount).Error; err != nil {
+		t.Fatal(err)
+	}
+	if unresolvedCount != 1 {
+		t.Fatal("expected unresolved media metadata id to be NULL")
 	}
 	if err := db.Create(&model.Media{LibraryID: "library", MetadataID: "missing", Title: "Dangling", Path: "/dangling.mkv"}).Error; err == nil {
 		t.Fatal("expected dangling media metadata id to be rejected")
 	}
 	if err := db.Unscoped().Delete(&movie).Error; err == nil {
 		t.Fatal("expected referenced metadata deletion to be rejected")
+	}
+}
+
+func TestMetadataSchemaMigrationMakesMediaMetadataNullable(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open("file:metadata_nullable_migration?mode=memory&cache=shared&_pragma=foreign_keys(1)"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(&model.MetadataItem{}, &legacyRequiredMedia{}); err != nil {
+		t.Fatal(err)
+	}
+	metadata := model.MetadataItem{Kind: model.MetadataKindMovie, Title: "Existing", Source: "tmdb"}
+	if err := db.Create(&metadata).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&legacyRequiredMedia{ID: "legacy", MetadataID: metadata.ID, Path: "/legacy.mkv"}).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	if err := db.AutoMigrate(&model.Media{}); err != nil {
+		t.Fatal(err)
+	}
+	unresolved := model.Media{LibraryID: "library", Title: "Pending", Path: "/pending.mkv"}
+	if err := db.Create(&unresolved).Error; err != nil {
+		t.Fatalf("create unresolved media after migration: %v", err)
+	}
+	var nullCount int64
+	if err := db.Raw(`SELECT COUNT(1) FROM media WHERE id = ? AND metadata_id IS NULL`, unresolved.ID).Scan(&nullCount).Error; err != nil {
+		t.Fatal(err)
+	}
+	if nullCount != 1 {
+		t.Fatal("expected migrated metadata_id column to accept NULL")
 	}
 }
 

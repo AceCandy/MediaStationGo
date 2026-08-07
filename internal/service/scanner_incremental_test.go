@@ -18,6 +18,9 @@ import (
 func newScannerTestEnv(t *testing.T) (*ScannerService, *repository.Container) {
 	t.Helper()
 	db := newServiceTestDB(t, &model.Library{}, &model.Media{}, &model.Setting{})
+	if err := db.Callback().Create().Remove("testutil:media-metadata"); err != nil {
+		t.Fatal(err)
+	}
 	repos := repository.New(db)
 	sc := NewScannerService(&config.Config{}, zap.NewNop(), repos, NewHub(zap.NewNop()), nil, nil)
 	return sc, repos
@@ -262,11 +265,11 @@ func TestScanLibraryReadsTMDbHintFromMovieParent(t *testing.T) {
 	if err := repos.Library.Create(t.Context(), &lib); err != nil {
 		t.Fatal(err)
 	}
-	movieDir := filepath.Join(root, "Snow White (1938) [tmdbid=408]")
+	movieDir := filepath.Join(root, "白雪公主和七个小矮人 (1938) [tmdbid=408]")
 	if err := os.MkdirAll(movieDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	strmPath := filepath.Join(movieDir, "Snow White (1938).strm")
+	strmPath := filepath.Join(movieDir, "白雪公主和七个小矮人 (1938).strm")
 	if err := os.WriteFile(strmPath, []byte("https://cdn.example.com/movie.mkv\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -285,12 +288,70 @@ func TestScanLibraryReadsTMDbHintFromMovieParent(t *testing.T) {
 	if media.TMDbID != 408 {
 		t.Fatalf("media TMDbID = %d, want 408", media.TMDbID)
 	}
-	metadata, err := repos.Metadata.FindByIdentifier(t.Context(), "tmdb", model.MetadataKindMovie, "408")
-	if err != nil || metadata == nil {
-		t.Fatalf("find TMDb metadata: metadata=%#v err=%v", metadata, err)
+	if media.MetadataID != "" || media.ScrapeStatus != "pending" {
+		t.Fatalf("media metadata/status = %q/%q, want unresolved pending media", media.MetadataID, media.ScrapeStatus)
 	}
-	if metadata.Source != "local" {
-		t.Fatalf("metadata source = %q, want local before provider scrape", metadata.Source)
+	metadata, err := repos.Metadata.FindByIdentifier(t.Context(), "tmdb", model.MetadataKindMovie, "408")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if metadata != nil {
+		t.Fatalf("metadata = %#v, want no local row before provider scrape", metadata)
+	}
+	view, err := repos.MediaView.FindByID(t.Context(), media.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if view != nil {
+		t.Fatalf("unresolved media view = %#v, want hidden until metadata is bound", view)
+	}
+}
+
+func TestScanLibraryReusesTMDbMetadataFromMovieParent(t *testing.T) {
+	sc, repos := newScannerTestEnv(t)
+	root := t.TempDir()
+	lib := model.Library{Name: "Movies", Path: root, Type: "movie", Enabled: true}
+	if err := repos.Library.Create(t.Context(), &lib); err != nil {
+		t.Fatal(err)
+	}
+	metadata := model.MetadataItem{Kind: model.MetadataKindMovie, Title: "Provider title", Overview: "Provider overview", Source: "tmdb"}
+	if err := repos.Metadata.Create(t.Context(), &metadata, []model.MetadataIdentifier{{
+		Provider: "tmdb", EntityKind: model.MetadataKindMovie, ExternalID: "408",
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	movieDir := filepath.Join(root, "白雪公主和七个小矮人 (1938) [tmdbid=408]")
+	if err := os.MkdirAll(movieDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(movieDir, "movie.strm"), []byte("https://cdn.example.com/movie.mkv\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := sc.ScanLibrary(t.Context(), lib.ID); err != nil {
+		t.Fatal(err)
+	}
+	var media model.Media
+	if err := repos.DB.First(&media).Error; err != nil {
+		t.Fatal(err)
+	}
+	if media.MetadataID != metadata.ID || media.ScrapeStatus != "matched" {
+		t.Fatalf("media metadata/status = %q/%q, want %q/matched", media.MetadataID, media.ScrapeStatus, metadata.ID)
+	}
+	saved, err := repos.Metadata.FindByID(t.Context(), metadata.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if saved == nil || saved.Title != metadata.Title || saved.Overview != metadata.Overview || saved.Source != metadata.Source {
+		t.Fatalf("canonical metadata was overwritten: %#v", saved)
+	}
+	scraper := NewScraperService(&config.Config{}, zap.NewNop(), repos, nil, nil, nil, nil, NewHub(zap.NewNop()))
+	candidates, err := scraper.scrapeCandidateRows(t.Context(), lib.ID, ScrapeOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(candidates) != 0 {
+		t.Fatalf("matched cache hit produced %d scrape candidates", len(candidates))
 	}
 }
 
@@ -401,7 +462,7 @@ func TestScanLibrarySkipsUnchangedLocalMetadata(t *testing.T) {
 		t.Fatal(err)
 	}
 	local := serviceTestLocalMetadataHint(t, media)
-	if local.Title != "Local Metadata Updated" || local.TMDbID != 12345 || media.ScrapeStatus != "pending" || media.MetadataID == "" {
+	if local.Title != "Local Metadata Updated" || local.TMDbID != 12345 || media.ScrapeStatus != "pending" || media.MetadataID != "" {
 		t.Fatalf("local metadata hint was not refreshed: media=%+v hint=%+v", media, local)
 	}
 }

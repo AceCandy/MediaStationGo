@@ -21,13 +21,14 @@ type LibraryRoot struct {
 	SortOrder int    `gorm:"default:0" json:"sort_order"`
 }
 
-// Media 是单个可播放文件。展示元数据通过 MetadataID 关联共享表。
+// Media 是单个可播放文件。展示元数据通过 MetadataID 关联共享表；扫描后、
+// 刮削完成前允许暂时没有该关联。
 // Title、Year、provider ID 和 SeriesID 仅是扫描/匹配提示，不是权威元数据。
 type Media struct {
 	Base
 	LibraryID         string        `gorm:"index;size:36" json:"library_id"`
 	LibraryRootID     string        `gorm:"index;size:36" json:"library_root_id,omitempty"`
-	MetadataID        string        `gorm:"index;size:36;not null;check:chk_media_metadata_id,metadata_id <> ''" json:"metadata_id"`
+	MetadataID        string        `gorm:"index;size:36;default:null" json:"metadata_id"`
 	Metadata          *MetadataItem `gorm:"foreignKey:MetadataID;references:ID;constraint:OnUpdate:CASCADE,OnDelete:RESTRICT" json:"-"`
 	SeriesID          string        `gorm:"column:series_hint;index;size:128" json:"series_id,omitempty"`
 	Title             string        `gorm:"column:scan_title;size:255" json:"title"`

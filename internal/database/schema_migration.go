@@ -37,6 +37,7 @@ func ensurePostgresColumnCompatibility(db *gorm.DB) error {
 		`ALTER TABLE media ALTER COLUMN container TYPE varchar(128)`,
 		`ALTER TABLE media ALTER COLUMN series_hint TYPE varchar(128)`,
 		`ALTER TABLE media ALTER COLUMN duplicate_of TYPE varchar(128)`,
+		`ALTER TABLE media ALTER COLUMN metadata_id DROP NOT NULL`,
 		`ALTER TABLE playback_histories ALTER COLUMN media_id TYPE varchar(128)`,
 		`ALTER TABLE favorites ALTER COLUMN media_id TYPE varchar(128)`,
 		`ALTER TABLE playlist_items ALTER COLUMN media_id TYPE varchar(128)`,

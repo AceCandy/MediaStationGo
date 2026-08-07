@@ -3,8 +3,6 @@ package repository
 import (
 	"context"
 	"errors"
-	"fmt"
-	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -28,7 +26,7 @@ func (r *MediaRepository) Upsert(ctx context.Context, m *model.Media) error {
 	return withSQLiteBusyRetry(ctx, func() error {
 		return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 			txRepo := &MediaRepository{db: tx}
-			if err := txRepo.ensureMediaMetadata(ctx, m); err != nil {
+			if err := txRepo.ResolveMetadata(ctx, m); err != nil {
 				return err
 			}
 			return txRepo.upsert(ctx, m)
@@ -36,7 +34,8 @@ func (r *MediaRepository) Upsert(ctx context.Context, m *model.Media) error {
 	})
 }
 
-func (r *MediaRepository) ensureMediaMetadata(ctx context.Context, media *model.Media) error {
+// ResolveMetadata 只按已入库的精确 provider 标识补充 metadata 关联，不创建占位元数据。
+func (r *MediaRepository) ResolveMetadata(ctx context.Context, media *model.Media) error {
 	if media == nil {
 		return errors.New("media is required")
 	}
@@ -50,11 +49,17 @@ func (r *MediaRepository) ensureMediaMetadata(ctx context.Context, media *model.
 		}
 	}
 	if strings.TrimSpace(media.MetadataID) == "" {
-		metadataID, err := r.createBaseMetadata(ctx, media)
+		metadata, err := r.findExistingMediaMetadata(ctx, media)
 		if err != nil {
 			return err
 		}
-		media.MetadataID = metadataID
+		if metadata != nil {
+			media.MetadataID = metadata.ID
+			media.ScrapeStatus = "matched"
+		}
+	}
+	if strings.TrimSpace(media.MetadataID) == "" {
+		return nil
 	}
 	var count int64
 	if err := r.db.WithContext(ctx).Model(&model.MetadataItem{}).Where("id = ?", media.MetadataID).Count(&count).Error; err != nil {
@@ -66,64 +71,42 @@ func (r *MediaRepository) ensureMediaMetadata(ctx context.Context, media *model.
 	return nil
 }
 
-func (r *MediaRepository) createBaseMetadata(ctx context.Context, media *model.Media) (string, error) {
+func (r *MediaRepository) findExistingMediaMetadata(ctx context.Context, media *model.Media) (*model.MetadataItem, error) {
 	metadataRepo := &MetadataRepository{db: r.db}
-	title := strings.TrimSpace(media.Title)
-	if title == "" {
-		title = strings.TrimSuffix(filepath.Base(media.Path), filepath.Ext(media.Path))
-	}
-	if title == "" {
-		return "", errors.New("media title is required")
-	}
 	entityKind := model.MetadataKindMovie
 	if media.EpisodeNum > 0 {
 		entityKind = model.MetadataKindSeries
 	}
 	identifiers := mediaMetadataIdentifiers(media, entityKind)
-	if entityKind == model.MetadataKindMovie {
-		item, err := metadataRepo.UpsertCanonical(ctx, &model.MetadataItem{
-			Kind: model.MetadataKindMovie, Title: title, Year: media.Year, Source: "local",
-		}, identifiers, "")
-		if err != nil {
-			return "", err
-		}
-		return item.ID, nil
-	}
 	if len(identifiers) == 0 {
-		seriesKey := strings.TrimSpace(media.SeriesID)
-		if seriesKey == "" {
-			return "", errors.New("local episode series identity is required")
+		return nil, nil
+	}
+	var series *model.MetadataItem
+	for _, identifier := range identifiers {
+		item, err := metadataRepo.FindByIdentifier(ctx, identifier.Provider, identifier.EntityKind, identifier.ExternalID)
+		if err != nil {
+			return nil, err
 		}
-		identifiers = append(identifiers, model.MetadataIdentifier{
-			Provider: "local", EntityKind: model.MetadataKindSeries, ExternalID: seriesKey,
-		})
+		if item == nil {
+			continue
+		}
+		if series != nil && series.ID != item.ID {
+			return nil, errors.New("media identifiers resolve to different metadata items")
+		}
+		series = item
 	}
-	series, err := metadataRepo.UpsertCanonical(ctx, &model.MetadataItem{
-		Kind: model.MetadataKindSeries, Title: title, Year: media.Year, Source: "local",
-	}, identifiers, "")
-	if err != nil {
-		return "", err
+	if series == nil || entityKind == model.MetadataKindMovie {
+		return series, nil
 	}
-	season, err := metadataRepo.UpsertSeason(ctx, &model.MetadataItem{
-		Kind: model.MetadataKindSeason, ParentID: &series.ID, SeasonNum: media.SeasonNum,
-		Title: seasonBaseTitle(media.SeasonNum), Source: "local",
-	})
-	if err != nil {
-		return "", err
+	if media.SeasonNum < 0 || media.EpisodeNum <= 0 {
+		return nil, nil
 	}
-	episodeTitle := strings.TrimSpace(media.EpisodeTitle)
-	if episodeTitle == "" {
-		episodeTitle = fmt.Sprintf("Episode %d", media.EpisodeNum)
-	}
-	episode, err := metadataRepo.UpsertEpisode(ctx, &model.MetadataItem{
-		Kind: model.MetadataKindEpisode, ParentID: &season.ID, EpisodeNum: media.EpisodeNum,
-		Title: title, EpisodeTitle: episodeTitle, Source: "local",
-	})
-	if err != nil {
-		return "", err
+	episode, err := metadataRepo.FindEpisode(ctx, series.ID, media.SeasonNum, media.EpisodeNum)
+	if err != nil || episode == nil {
+		return episode, err
 	}
 	media.SeriesID = series.ID
-	return episode.ID, nil
+	return episode, nil
 }
 
 func mediaMetadataIdentifiers(media *model.Media, entityKind string) []model.MetadataIdentifier {
@@ -141,13 +124,6 @@ func mediaMetadataIdentifiers(media *model.Media, entityKind string) []model.Met
 		identifiers = append(identifiers, model.MetadataIdentifier{Provider: "thetvdb", EntityKind: entityKind, ExternalID: id})
 	}
 	return identifiers
-}
-
-func seasonBaseTitle(seasonNum int) string {
-	if seasonNum == 0 {
-		return "Specials"
-	}
-	return fmt.Sprintf("Season %d", seasonNum)
 }
 
 func (r *MediaRepository) upsert(ctx context.Context, m *model.Media) error {

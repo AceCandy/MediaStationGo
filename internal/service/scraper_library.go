@@ -195,14 +195,15 @@ func groupScrapeCandidateRows(rows []model.Media) ([]scrapeCandidateGroup, error
 	groupIndexes := make(map[string]int, len(rows))
 	for i := range rows {
 		metadataID := strings.TrimSpace(rows[i].MetadataID)
+		groupKey := metadataID
 		if metadataID == "" {
-			return nil, fmt.Errorf("media %s has no metadata_id", rows[i].ID)
+			groupKey = "media:" + rows[i].ID
 		}
-		if groupIndex, ok := groupIndexes[metadataID]; ok {
+		if groupIndex, ok := groupIndexes[groupKey]; ok {
 			groups[groupIndex].MediaIDs = append(groups[groupIndex].MediaIDs, rows[i].ID)
 			continue
 		}
-		groupIndexes[metadataID] = len(groups)
+		groupIndexes[groupKey] = len(groups)
 		groups = append(groups, scrapeCandidateGroup{
 			MetadataID:     metadataID,
 			Representative: rows[i],
@@ -220,18 +221,24 @@ func (s *ScraperService) syncScrapeCandidateGroup(ctx context.Context, group scr
 	if fresh == nil {
 		return fmt.Errorf("representative media %s not found after scrape", group.Representative.ID)
 	}
-	metadataIDs := []string{group.MetadataID}
-	if fresh.MetadataID != group.MetadataID {
+	metadataIDs := make([]string, 0, 2)
+	if group.MetadataID != "" {
+		metadataIDs = append(metadataIDs, group.MetadataID)
+	}
+	if fresh.MetadataID != "" && fresh.MetadataID != group.MetadataID {
 		metadataIDs = append(metadataIDs, fresh.MetadataID)
 	}
 	mediaIDs := make([]string, 0, len(group.MediaIDs))
-	if err := s.repo.DB.WithContext(ctx).Model(&model.Media{}).
-		Where("metadata_id IN ? OR id IN ?", metadataIDs, group.MediaIDs).
-		Pluck("id", &mediaIDs).Error; err != nil {
+	mediaQuery := s.repo.DB.WithContext(ctx).Model(&model.Media{})
+	if len(metadataIDs) > 0 {
+		mediaQuery = mediaQuery.Where("metadata_id IN ? OR id IN ?", metadataIDs, group.MediaIDs)
+	} else {
+		mediaQuery = mediaQuery.Where("id IN ?", group.MediaIDs)
+	}
+	if err := mediaQuery.Pluck("id", &mediaIDs).Error; err != nil {
 		return err
 	}
 	updates := map[string]any{
-		"metadata_id":         fresh.MetadataID,
 		"scrape_status":       fresh.ScrapeStatus,
 		"scrape_error":        fresh.ScrapeError,
 		"local_metadata_hint": fresh.LocalMetadataHint,
@@ -239,6 +246,9 @@ func (s *ScraperService) syncScrapeCandidateGroup(ctx context.Context, group scr
 		"lookup_bangumi_id":   fresh.BangumiID,
 		"lookup_douban_id":    fresh.DoubanID,
 		"lookup_thetvdb_id":   fresh.TheTVDBID,
+	}
+	if fresh.MetadataID != "" {
+		updates["metadata_id"] = fresh.MetadataID
 	}
 	if err := s.repo.DB.WithContext(ctx).Model(&model.Media{}).
 		Where("id IN ?", mediaIDs).Updates(updates).Error; err != nil {
