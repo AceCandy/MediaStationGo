@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"strings"
-	"time"
 
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 )
@@ -163,7 +162,7 @@ func (e *EmbyService) libraryAsView(l *model.Library) map[string]any {
 		"IsFolder":                 true,
 		"Path":                     l.Path,
 		"SortName":                 strings.ToLower(l.Name),
-		"DateCreated":              l.CreatedAt.UTC().Format(time.RFC3339),
+		"DateCreated":              formatEmbyDateTime(l.CreatedAt),
 		"CanDelete":                false,
 		"CanDownload":              false,
 		"DisplayPreferencesId":     l.ID,

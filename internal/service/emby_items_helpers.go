@@ -1,6 +1,15 @@
 package service
 
-import "strings"
+import (
+	"strings"
+	"time"
+)
+
+const embyDateTimeLayout = "2006-01-02T15:04:05.0000000Z"
+
+func formatEmbyDateTime(value time.Time) string {
+	return value.UTC().Format(embyDateTimeLayout)
+}
 
 func containsItemType(types []string, want string) bool {
 	for _, t := range types {

@@ -96,6 +96,28 @@ func TestMediaProbePersistsLocalSTRMTargetSize(t *testing.T) {
 	}
 }
 
+func TestMediaProbePersistsRemoteSTRMTargetSize(t *testing.T) {
+	db := newServiceTestDB(t, &model.Media{}, &model.MediaProbeMetadata{})
+	repos := repository.New(db)
+	metadata := createServiceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindMovie, Title: "Movie", Source: "local"})
+	media := model.Media{
+		MetadataID: metadata.ID, LibraryID: "library", Title: "Movie",
+		Path: "/virtual/movie.strm", STRMURL: "https://openlist.example.test/d/mount/movie.mkv", Container: "strm", SizeBytes: 201,
+	}
+	if err := db.Create(&media).Error; err != nil {
+		t.Fatal(err)
+	}
+	result := probeResultFixture()
+	result.Document.Format.Size = 26_972_800_320
+	if _, err := NewMediaProbeService(repos, &stubMediaProbeRunner{result: result}).ProbeMedia(t.Context(), media.ID); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := repos.Media.FindByID(t.Context(), media.ID)
+	if got.SizeBytes != result.Document.Format.Size {
+		t.Fatalf("size_bytes = %d, want remote target size %d", got.SizeBytes, result.Document.Format.Size)
+	}
+}
+
 func TestMediaProbeFallbackDoesNotOverwriteCompleteDocument(t *testing.T) {
 	db := newServiceTestDB(t, &model.Media{}, &model.MediaProbeMetadata{})
 	repos := repository.New(db)

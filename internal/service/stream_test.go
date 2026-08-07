@@ -208,6 +208,57 @@ func TestServeFileRedirectsCloudMediaExternalHTTPSTRMURL(t *testing.T) {
 	}
 }
 
+func TestServeFileResolvesAndCachesConfiguredOpenListSTRMURL(t *testing.T) {
+	repos := newStreamTestRepo(t)
+	upstreamCalls := 0
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		upstreamCalls++
+		if r.Header.Get("Range") != "bytes=0-0" || r.Header.Get("User-Agent") != "test-player" {
+			t.Errorf("unexpected probe headers: range=%q ua=%q", r.Header.Get("Range"), r.Header.Get("User-Agent"))
+		}
+		http.Redirect(w, r, "https://cdn.example.test/movie.mkv?t=temporary", http.StatusFound)
+	}))
+	defer upstream.Close()
+	if err := repos.DB.Create(&model.Media{
+		Base:      model.Base{ID: "configured-openlist"},
+		Title:     "Configured OpenList",
+		Path:      "/data/strm/movie.strm",
+		Container: "strm",
+		STRMURL:   upstream.URL + "/d/new115/movie.mkv",
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	core, observed := observer.New(zap.InfoLevel)
+	svc := NewStreamService(&config.Config{}, zap.New(core), repos, nil)
+	svc.SetStorageConfig(NewStorageConfigService(zap.NewNop(), nil, nil))
+
+	for i := 0; i < 2; i++ {
+		req := httptest.NewRequest(http.MethodGet, "http://media.example/api/stream/configured-openlist", nil)
+		req.Header.Set("User-Agent", "test-player")
+		w := httptest.NewRecorder()
+		if err := svc.ServeFile(w, req, "configured-openlist"); err != nil {
+			t.Fatal(err)
+		}
+		if w.Code != http.StatusFound || w.Header().Get("Location") != "https://cdn.example.test/movie.mkv?t=temporary" {
+			t.Fatalf("redirect = %d %q", w.Code, w.Header().Get("Location"))
+		}
+	}
+	if upstreamCalls != 1 {
+		t.Fatalf("OpenList probe calls = %d, want 1", upstreamCalls)
+	}
+	entries := observed.FilterMessage("media playback redirect").All()
+	if len(entries) != 2 {
+		t.Fatalf("redirect log entries = %d, want 2", len(entries))
+	}
+	first, second := entries[0].ContextMap(), entries[1].ContextMap()
+	if first["resolve_source"] != "configured" || first["cache_hit"] != false || first["target_host"] != "cdn.example.test" {
+		t.Fatalf("unexpected first redirect log: %#v", first)
+	}
+	if second["cache_hit"] != true || second["target_hash"] != first["target_hash"] {
+		t.Fatalf("unexpected cached redirect log: %#v", second)
+	}
+}
+
 func TestServeFileLogsLocalFilePath(t *testing.T) {
 	repos := newStreamTestRepo(t)
 	target := filepath.Join(t.TempDir(), "Movie.mkv")

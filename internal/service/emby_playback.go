@@ -37,6 +37,7 @@ func (e *EmbyService) PlaybackInfoWithOptions(ctx context.Context, mediaID, user
 	return map[string]any{
 		"MediaSources":  e.mediaSourcesFromViewsWithSelection(ctx, siblings, false, e.directPlayOnly(ctx), selection),
 		"PlaySessionId": fmt.Sprintf("%s-%d", m.ID, time.Now().Unix()),
+		"DateCreated":   formatEmbyDateTime(m.CreatedAt),
 	}, nil
 }
 
@@ -369,12 +370,17 @@ func (e *EmbyService) baseMediaSource(ctx context.Context, m *model.Media, displ
 	if strings.TrimSpace(displayName) == "" {
 		displayName = m.Title
 	}
+	size := m.SizeBytes
+	if doc != nil && doc.Format.Size > 0 {
+		size = doc.Format.Size
+	}
 	src := map[string]any{
 		"Id":                    m.ID,
 		"Name":                  displayName,
 		"Path":                  m.Path,
 		"Container":             container,
-		"Size":                  m.SizeBytes,
+		"Size":                  size,
+		"DateCreated":           formatEmbyDateTime(m.CreatedAt),
 		"Protocol":              "Http",
 		"Type":                  "Default",
 		"IsRemote":              isCloud,
@@ -423,6 +429,9 @@ func embyMediaContainer(m *model.Media) string {
 			return ext
 		}
 	}
+	if target := embyRemoteSTRMContainer(m.STRMURL); target != "" {
+		return target
+	}
 	if container == "" {
 		container = strings.TrimPrefix(strings.ToLower(filepath.Ext(m.Path)), ".")
 	}
@@ -430,6 +439,30 @@ func embyMediaContainer(m *model.Media) string {
 		return "strm"
 	}
 	return container
+}
+
+func embyRemoteSTRMContainer(raw string) string {
+	target := strings.TrimSpace(raw)
+	if target == "" {
+		return ""
+	}
+	if _, ref, ok := parseCloudMediaPlaybackURL(target); ok {
+		target = ref
+	} else {
+		u, err := url.Parse(target)
+		if err != nil {
+			return ""
+		}
+		target = u.Path
+	}
+	ext := strings.ToLower(filepath.Ext(target))
+	if ext == ".strm" {
+		return ""
+	}
+	if _, ok := videoExtensions[ext]; !ok {
+		return ""
+	}
+	return strings.TrimPrefix(ext, ".")
 }
 
 func (e *EmbyService) embyMediaPlayURL(ctx context.Context, m *model.Media, container string, isCloud bool) string {

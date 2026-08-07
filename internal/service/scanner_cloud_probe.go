@@ -120,6 +120,9 @@ func probeResultUpdates(probe *ProbeResult) map[string]any {
 	if probe == nil {
 		return updates
 	}
+	if probe.Document != nil && probe.Document.Format.Size > 0 {
+		updates["size_bytes"] = probe.Document.Format.Size
+	}
 	if probe.DurationSec > 0 {
 		updates["duration_sec"] = probe.DurationSec
 	}

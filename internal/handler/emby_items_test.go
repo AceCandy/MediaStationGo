@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
@@ -223,7 +224,10 @@ func TestEmbyUserItemByIDRouteReturnsJSON(t *testing.T) {
 		t.Fatalf("create library: %v", err)
 	}
 	media := model.Media{
-		Base:       model.Base{ID: "episode-1"},
+		Base: model.Base{
+			ID:        "episode-1",
+			CreatedAt: time.Date(2026, time.August, 6, 20, 9, 14, 746_854_000, time.FixedZone("UTC+8", 8*60*60)),
+		},
 		LibraryID:  lib.ID,
 		Title:      "Test Show",
 		Path:       "D:\\media\\tv\\Test Show\\Season 01\\Test Show - S01E01.mkv",
@@ -260,6 +264,9 @@ func TestEmbyUserItemByIDRouteReturnsJSON(t *testing.T) {
 	}
 	if item["Id"] != media.MetadataID || item["Type"] != "Episode" {
 		t.Fatalf("unexpected item payload: %#v", item)
+	}
+	if item["DateCreated"] != "2026-08-06T12:09:14.7468540Z" {
+		t.Fatalf("item date created = %#v", item["DateCreated"])
 	}
 }
 

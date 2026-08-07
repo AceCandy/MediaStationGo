@@ -52,6 +52,17 @@ func (s *StreamService) ServeFileWithCloudMode(w http.ResponseWriter, r *http.Re
 		target := normalizeCloudPlayTarget(strmURL)
 		target = withAuthTokenForInternalRedirect(target, r, PublicServerURL(r.Context(), s.repo, s.cfg))
 		redirectTarget := absoluteInternalRedirect(target, r)
+		resolveConfiguredRedirect := isOpenListDownloadURL(redirectTarget)
+		cacheHit := false
+		if resolveConfiguredRedirect {
+			if s.storageCfg == nil {
+				return errors.New("playback redirect resolver unavailable")
+			}
+			redirectTarget, cacheHit, err = s.storageCfg.ResolveHTTPRedirectWithCacheStatus(r.Context(), redirectTarget, r.UserAgent())
+			if err != nil {
+				return err
+			}
+		}
 		setCloudRedirectNoStore(w)
 		if !isCloudPlaybackTarget(strmURL) && s.log != nil {
 			fields := []zap.Field{
@@ -60,6 +71,9 @@ func (s *StreamService) ServeFileWithCloudMode(w http.ResponseWriter, r *http.Re
 				zap.String("resolve_source", "configured"),
 				zap.String("method", r.Method),
 				zap.String("range", r.Header.Get("Range")),
+			}
+			if resolveConfiguredRedirect {
+				fields = append(fields, zap.Bool("cache_hit", cacheHit))
 			}
 			s.log.Info("media playback redirect", append(fields, PlaybackURLLogFields(redirectTarget)...)...)
 		}
@@ -238,4 +252,17 @@ func isHTTPPlaybackTarget(raw string) bool {
 	}
 	scheme := strings.ToLower(strings.TrimSpace(u.Scheme))
 	return scheme == "http" || scheme == "https"
+}
+
+func isOpenListDownloadURL(raw string) bool {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || !isHTTPPlaybackTarget(raw) {
+		return false
+	}
+	for _, segment := range strings.Split(strings.Trim(u.Path, "/"), "/") {
+		if segment == "d" {
+			return true
+		}
+	}
+	return false
 }

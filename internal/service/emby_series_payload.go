@@ -35,7 +35,7 @@ func (e *EmbyService) seriesPayload(ctx context.Context, group embySeriesGroup, 
 		"CommunityRating":    group.Rating,
 		"RecursiveItemCount": len(group.Episodes),
 		"ChildCount":         len(e.seasonsForSeries(group)),
-		"DateCreated":        group.CreatedAt,
+		"DateCreated":        formatEmbyDateTime(group.CreatedAt),
 		"ImageTags":          imageTags,
 		"BackdropImageTags":  backdropTags,
 		"ProviderIds": map[string]string{

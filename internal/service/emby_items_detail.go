@@ -222,7 +222,7 @@ func (e *EmbyService) itemPayload(ctx context.Context, m *model.MediaView, fav b
 		"Container":         container,
 		"Width":             m.Width,
 		"Height":            m.Height,
-		"DateCreated":       m.CreatedAt,
+		"DateCreated":       formatEmbyDateTime(m.CreatedAt),
 		"Path":              embyMediaSourcePath(&m.Media, playURL, isLocalSTRM, isCloud),
 		"ParentId":          parentID,
 		"SeasonId":          seasonItemID,

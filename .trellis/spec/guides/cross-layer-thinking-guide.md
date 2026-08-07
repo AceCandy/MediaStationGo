@@ -110,6 +110,7 @@ Before implementation:
 - [ ] Identified all layer boundaries
 - [ ] Defined format at each boundary
 - [ ] Decided where validation happens
+- [ ] Verified compatibility fields in serialized output at the exact object nesting level consumed by the client
 
 After implementation:
 

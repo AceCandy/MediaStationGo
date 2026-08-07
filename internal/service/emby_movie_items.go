@@ -113,13 +113,17 @@ func (e *EmbyService) movieLibraryItems(ctx context.Context, p ItemsParams) (map
 	return map[string]any{"Items": items, "TotalRecordCount": total, "StartIndex": p.StartIndex}, nil
 }
 
-// embyPayloadCreatedAt 从 item payload 里取 DateCreated(time.Time),用于合并排序。
+// embyPayloadCreatedAt 从 item payload 里取 DateCreated,用于合并排序。
 func embyPayloadCreatedAt(item map[string]any) time.Time {
 	if item == nil {
 		return time.Time{}
 	}
 	if v, ok := item["DateCreated"].(time.Time); ok {
 		return v
+	}
+	if v, ok := item["DateCreated"].(string); ok {
+		parsed, _ := time.Parse(time.RFC3339Nano, v)
+		return parsed
 	}
 	return time.Time{}
 }

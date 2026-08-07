@@ -18,6 +18,7 @@
 - Read model: `MediaViewRepository.FindByID`, `FindByIDs`, `ListByLibrariesFiltered`, and `SearchFilteredPage`.
 - Complete track facts: `MediaProbeMetadata{MediaID, ProbeJSON, SchemaVersion, ProbedAt}` uses `media_id` as both primary key and a cascading foreign key to `media(id)`; list queries must not join or preload this table.
 - Probe document: `ProbeDocumentSchemaVersion` and `MarshalProbeDocument` / `UnmarshalProbeDocument` own the versioned JSON contract. Only typed format, video, audio, subtitle, chapter, safe tag, disposition, and color/HDR fields are persistable.
+- Emby playback response: `PlaybackInfo{MediaSources, PlaySessionId, DateCreated}`; `DateCreated` is the selected concrete `Media.CreatedAt` encoded as a non-null UTC JSON timestamp with seven fractional digits and a trailing `Z`.
 - Track backfill API: admin-only `POST /api/libraries/:id/probe` starts a service-lifetime background task and reports `total`, `completed`, `skipped`, and `failed` metrics.
 - Manual apply API: `POST /api/media/:id/scrape/apply` accepts `ManualScrapeRequest`, persists metadata through `ScraperService.ApplyManualMatch`, then returns the refreshed `MediaView` from `MediaService.GetMedia`.
 - Artwork response: `/api/artwork/:assetID`; originals live under `App.DataDir/artwork/sha256/...`.
@@ -43,6 +44,7 @@
 - A successful full probe atomically updates the scalar `Media` projection and upserts its complete probe document after rechecking the source identity. Local and local-STRM probes also persist the probed target's size. Failed, partial, or stale probes must not replace the previous valid complete document.
 - Probe JSON must never contain the input filename/path/URL, signed query, request headers, cookies, authorization values, route tokens, attachments, or arbitrary metadata. Unknown schema versions, malformed JSON, duplicate/negative stream indexes, attached pictures, and unsupported stream types are invalid and trigger scalar fallback plus lazy repair.
 - Emby `PlaybackInfo` must enumerate every visible sibling `Media` version before scheduling asynchronous track repair. The playback-layer in-flight map deduplicates by `Media.ID`; the `FFprobeService` limiter remains the only actual probe concurrency limit.
+- Emby `PlaybackInfo.DateCreated` must be present at the response top level as well as on each `MediaSource`. Compatibility fields must be verified at the exact JSON layer consumed by the client; a same-named field on the item or nested source does not satisfy a top-level contract.
 - Emby detail and PlaybackInfo batch-load valid probe documents and map every embedded video/audio/subtitle by its absolute ffprobe stream index. Sidecar subtitles are rediscovered and deterministically indexed after the highest embedded index on every response.
 - `GET /api/media/:id` attaches an optional `tracks` array through `MediaService.GetMedia` only. Each `MediaTrack` is a typed whitelist projection of video/audio/subtitle facts with the original absolute `index`; it excludes probe paths, URLs, headers, credentials, arbitrary tags, and unsupported stream types. Missing or invalid probe data omits the array, while list/search responses do not load or expose it.
 - Emby paginated browse/list payloads use scalar media fields only: they do not load complete probe documents, scan sidecar subtitles, or schedule lazy track repair.
@@ -89,6 +91,7 @@
 | Probe source changes while ffprobe is running | Reject the result transactionally; update neither scalar facts nor complete JSON |
 | Explicit audio/subtitle selection is invalid | Return bad request; never silently map a different track |
 | Embedded or sidecar subtitle index no longer resolves | Return not found and require a refreshed PlaybackInfo response |
+| PlaybackInfo resolves a visible concrete media | Return its non-null `DateCreated` at the response top level; do not rely only on item/source dates |
 
 ### 5. Good / Base / Bad Cases
 
@@ -109,6 +112,7 @@
 - Bad: calling `ReclassifyMisclassifiedMedia` after a scrape and silently moving or deleting a local media/STRM file.
 - Good: a two-version local STRM item schedules both target files, persists each result to its original `Media` row, and exposes matching target container/path/name/average bitrate.
 - Bad: limiting sibling scheduling by the playback reservation map or deriving a source label from the `.strm` sidecar/title, which leaves versions unprobed or displays `strm`/title metadata.
+- Good: PlaybackInfo for a concrete media returns the same `Media.CreatedAt` at the top level and on that media source; bad: adding the field only to `MediaSource` while the client reads `PlaybackInfo.DateCreated`.
 
 ### 6. Tests Required
 
@@ -120,6 +124,7 @@
 - Visibility: shared `NSFW` must hide list, search, detail, and PlaybackInfo results before pagination/response mapping.
 - Playback/Emby: assert item display `Name` comes from shared metadata while each `MediaSource.Name` comes from the real source filename with title, year, season/episode markers, and extension removed; source path/container/codecs still come from `Media`.
 - Playback/Emby: assert multiple media versions expose one metadata item ID, share user state, and retain distinct media source IDs.
+- Playback/Emby: JSON-round-trip PlaybackInfo and assert top-level `DateCreated` is present, non-null, parseable, and equal to the selected concrete media's creation time.
 - Playback/Emby: assert `/Videos/{metadata_id}/stream` and HLS requests resolve to a concrete visible media source ID before opening files or transcoding.
 - Playback/Emby: assert local STRM scan, manual reprobe, and missing-metadata PlaybackInfo use the real target, persist target size/track facts, deduplicate and bound background probes, and reject stale target results.
 - Probe storage: assert safe typed JSON round-trips every video/audio/subtitle absolute index and disposition while excluding input URLs, credentials, arbitrary tags, attachments, and structurally invalid streams; hard media deletion must cascade to the one-to-one probe row.
@@ -223,4 +228,14 @@ if len(e.trackProbeInFlight) >= normalizeFFprobeMaxConcurrent(limit) {
 if _, busy := e.trackProbeInFlight[mediaID]; busy {
     return false
 }
+```
+
+Playback compatibility fields must be placed at the exact response layer:
+
+```go
+// Wrong: a nested source date does not satisfy clients reading the response top level.
+return map[string]any{"MediaSources": sources}
+
+// Correct: keep the source fields and expose the selected media date at PlaybackInfo top level.
+return map[string]any{"MediaSources": sources, "DateCreated": formatEmbyDateTime(media.CreatedAt)}
 ```

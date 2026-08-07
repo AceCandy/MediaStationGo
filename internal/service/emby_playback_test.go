@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"sync"
@@ -507,6 +508,35 @@ func TestEmbyMediaSourceUsesLocalSTRMTargetContainer(t *testing.T) {
 	}
 }
 
+func TestEmbyMediaSourceUsesRemoteSTRMTargetContainerAndDate(t *testing.T) {
+	svc := newTestEmbyService(t)
+	createdAt := time.Date(2026, time.August, 6, 20, 9, 14, 746_854_000, time.FixedZone("UTC+8", 8*60*60))
+	media := &model.Media{
+		Base:        model.Base{ID: "remote-path-strm", CreatedAt: createdAt},
+		Title:       "Remote STRM",
+		Path:        "/virtual/movie.strm",
+		STRMURL:     "https://openlist.example.test/d/mount/Movie.mkv?sign=temporary",
+		Container:   "matroska,webm",
+		SizeBytes:   201,
+		DurationSec: 5_893,
+	}
+	doc := &ProbeDocument{Format: ProbeFormat{Size: 26_972_800_320}}
+
+	src := svc.mediaSourceWithProbe(t.Context(), media, media.Title, false, false, doc)
+	if src["Container"] != "mkv" || src["IsRemote"] != true {
+		t.Fatalf("remote strm source should expose target container: %#v", src)
+	}
+	if src["DirectStreamUrl"] != "/Videos/remote-path-strm/stream.mkv" || src["Path"] != "/Videos/remote-path-strm/stream.mkv" {
+		t.Fatalf("remote strm source should use target extension in stream URL: %#v", src)
+	}
+	if src["DateCreated"] != "2026-08-06T12:09:14.7468540Z" {
+		t.Fatalf("remote strm date created = %#v", src["DateCreated"])
+	}
+	if src["Size"] != doc.Format.Size {
+		t.Fatalf("remote strm size = %#v, want %d", src["Size"], doc.Format.Size)
+	}
+}
+
 func TestEmbyMediaVersionNameRemovesIdentityAndEpisodeParts(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -806,12 +836,13 @@ func TestEmbyPlaybackInfoUsesVideoStreamWhenSTRMDisabled(t *testing.T) {
 	if err := svc.repo.Setting.Set(t.Context(), CloudPlaybackModeSettingKey, CloudPlaybackModeRedirectProxy); err != nil {
 		t.Fatalf("set cloud playback mode: %v", err)
 	}
+	createdAt := time.Date(2026, time.August, 6, 20, 9, 14, 0, time.UTC)
 	lib := model.Library{Name: "OpenList", Path: `cloud://openlist/Movies`, Type: "movie", Enabled: true}
 	if err := svc.repo.Library.Create(t.Context(), &lib); err != nil {
 		t.Fatalf("create library: %v", err)
 	}
 	media := model.Media{
-		Base:      model.Base{ID: "cloud-302"},
+		Base:      model.Base{ID: "cloud-302", CreatedAt: createdAt},
 		LibraryID: lib.ID,
 		Title:     "Cloud 302 Movie",
 		Path:      `cloud://openlist/Movies/Movie.mkv`,
@@ -825,6 +856,22 @@ func TestEmbyPlaybackInfoUsesVideoStreamWhenSTRMDisabled(t *testing.T) {
 	pb, err := svc.PlaybackInfo(t.Context(), "cloud-302", "user-1")
 	if err != nil {
 		t.Fatalf("playback info: %v", err)
+	}
+	if pb["DateCreated"] != "2026-08-06T20:09:14.0000000Z" {
+		t.Fatalf("playback info date created = %#v", pb["DateCreated"])
+	}
+	encoded, err := json.Marshal(pb)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded struct {
+		DateCreated *time.Time `json:"DateCreated"`
+	}
+	if err := json.Unmarshal(encoded, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if decoded.DateCreated == nil || !decoded.DateCreated.Equal(createdAt) {
+		t.Fatalf("playback info JSON date created = %#v, want %v", decoded.DateCreated, createdAt)
 	}
 	src := pb["MediaSources"].([]map[string]any)[0]
 	if src["DirectStreamUrl"] != "/Videos/cloud-302/stream.mkv" {
