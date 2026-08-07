@@ -153,3 +153,25 @@ Added one-hour cloud direct-link caching, playback source/cache diagnostics, con
 ### Status
 
 [OK] **Completed**
+
+
+## Session 8: Emby 人物元数据与 AI 翻译
+
+**Date**: 2026-08-07
+**Task**: Emby 人物元数据与 AI 翻译
+**Branch**: `main`
+
+### Summary
+
+实现共享人物与演职员关系、Emby People 和人物回填、上下文缓存异步翻译、管理端 AI 模型与联网配置，并修复 PostgreSQL 迁移及长角色字段限制；补充可执行人物元数据规范。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `f22f311` | (see git log) |
+| `7cf369e` | (see git log) |
+
+### Status
+
+[OK] **Completed**

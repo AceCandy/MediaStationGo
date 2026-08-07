@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 7
+- **Total Sessions**: 8
 - **Last Active**: 2026-08-07
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~155 | Active |
+| `journal-1.md` | ~177 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 8 | 2026-08-07 | Emby 人物元数据与 AI 翻译 | `f22f311`, `7cf369e` | `main` |
 | 7 | 2026-08-07 | 复用 canonical metadata 扫描流程 | `ac9ac54` | `main` |
 | 6 | 2026-08-06 | 将成人刮削移出常规工作链 | `745a5e7` | `main` |
 | 5 | 2026-08-06 | Cached playback redirects | `407f620` | `main` |
