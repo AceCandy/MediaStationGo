@@ -1,8 +1,8 @@
 // Package service — AES-GCM crypto helper for at-rest secrets.
 //
 // Sensitive fields (third-party API keys, qBittorrent passwords, …) are
-// stored in SQLite. We encrypt them with AES-256-GCM keyed off the JWT
-// secret so a stolen DB file alone is not enough to recover the
+// stored in PostgreSQL. We encrypt them with AES-256-GCM keyed off the JWT
+// secret so a database leak alone is not enough to recover the
 // plaintext credentials.
 //
 // Format on disk:  "enc:v1:" + base64(nonce || ciphertext || tag)

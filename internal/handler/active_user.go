@@ -22,10 +22,6 @@ func activeUserRequired(svc *service.Container) gin.HandlerFunc {
 		}
 		u, err := svc.Repo.User.FindByID(c.Request.Context(), userID)
 		if err != nil {
-			if service.IsTransientDatabaseLock(err) {
-				c.Next()
-				return
-			}
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"code": 40101, "message": "user not found"})
 			return
 		}
@@ -55,10 +51,6 @@ func activeEmbyUserRequired(svc *service.Container) gin.HandlerFunc {
 			return
 		}
 		if err != nil {
-			if service.IsTransientDatabaseLock(err) {
-				c.Next()
-				return
-			}
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"Code": 40101, "Message": "User not found"})
 			return
 		}

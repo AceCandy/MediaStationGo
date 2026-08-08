@@ -3,8 +3,6 @@ package repository
 import (
 	"context"
 	"strings"
-	"sync"
-	"unicode/utf8"
 
 	"gorm.io/gorm"
 
@@ -39,10 +37,8 @@ m.*,
 
 // MediaViewRepository 对共享元数据完成 JOIN 后再执行权限、排序和分页。
 type MediaViewRepository struct {
-	db                   *gorm.DB
-	searchIndexOnce      sync.Once
-	searchIndexAvailable bool
-	searchBackend        MediaSearchBackend
+	db            *gorm.DB
+	searchBackend MediaSearchBackend
 }
 
 func (r *MediaViewRepository) SetSearchBackend(backend MediaSearchBackend) {
@@ -184,11 +180,7 @@ func (r *MediaViewRepository) SearchFilteredPage(ctx context.Context, query stri
 		}
 	}
 	q := applyMediaViewFilter(r.query(ctx), filter)
-	if query != "" && r.searchIndexEnabled(ctx) {
-		q = applyMediaViewFTSFilter(q, query)
-	} else {
-		q = applyMediaViewLIKEFilter(q, query)
-	}
+	q = applyMediaViewLIKEFilter(q, query)
 	var total int64
 	if err := q.Count(&total).Error; err != nil {
 		return nil, 0, err
@@ -225,31 +217,6 @@ func applyMediaViewLIKEFilter(q *gorm.DB, query string) *gorm.DB {
 			like, like, like, like, like, like)
 	}
 	return q
-}
-
-func applyMediaViewFTSFilter(q *gorm.DB, query string) *gorm.DB {
-	ftsQuery := mediaFTSQuery(query)
-	if ftsQuery == "" {
-		return applyMediaViewLIKEFilter(q, query)
-	}
-	terms := mediaSearchTerms(query)
-	for _, term := range terms {
-		if utf8.RuneCountInString(term) < 3 {
-			return applyMediaViewLIKEFilter(q, query)
-		}
-	}
-	pathConditions := make([]string, 0, len(terms))
-	args := []any{ftsQuery}
-	for _, term := range terms {
-		pathConditions = append(pathConditions, "(m.scan_title LIKE ? ESCAPE '\\' OR m.path LIKE ? ESCAPE '\\')")
-		like := "%" + escapeLike(term) + "%"
-		args = append(args, like, like)
-	}
-	condition := "mi.rowid IN (SELECT rowid FROM media_search_fts WHERE media_search_fts MATCH ?)"
-	if len(pathConditions) > 0 {
-		condition += " OR (" + strings.Join(pathConditions, " AND ") + ")"
-	}
-	return q.Where("("+condition+")", args...)
 }
 
 func (r *MediaViewRepository) SearchFiltered(ctx context.Context, query string, limit int, filter MediaQueryFilter) ([]model.MediaView, error) {

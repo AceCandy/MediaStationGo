@@ -3,7 +3,7 @@ package database
 import (
 	"testing"
 
-	"github.com/glebarez/sqlite"
+	testdb "github.com/ShukeBta/MediaStationGo/internal/testdb"
 	"gorm.io/gorm"
 
 	"github.com/ShukeBta/MediaStationGo/internal/model"
@@ -21,7 +21,7 @@ type legacyAPIConfig struct {
 func (legacyAPIConfig) TableName() string { return "api_configs" }
 
 func TestEnsureAPIConfigColumnsAddsNewFields(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open("file:api-config-columns?mode=memory&cache=shared"), &gorm.Config{})
+	db, err := testdb.OpenPostgres(t, &gorm.Config{})
 	if err != nil {
 		t.Fatal(err)
 	}

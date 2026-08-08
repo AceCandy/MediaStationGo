@@ -1,17 +1,16 @@
 package database
 
 import (
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/glebarez/sqlite"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 
 	"github.com/ShukeBta/MediaStationGo/internal/config"
 	"github.com/ShukeBta/MediaStationGo/internal/model"
+	testdb "github.com/ShukeBta/MediaStationGo/internal/testdb"
 )
 
 func TestOpenRequiresConfig(t *testing.T) {
@@ -27,61 +26,29 @@ func TestOpenRequiresConfig(t *testing.T) {
 	}
 }
 
-func TestOpenSQLiteWithNilLoggerConfiguresPool(t *testing.T) {
+func TestDatabaseDialectorRejectsNonPostgres(t *testing.T) {
 	cfg := &config.Config{}
-	cfg.Database.Type = "sqlite"
-	cfg.Database.DBPath = filepath.Join(t.TempDir(), "mediastation.db")
-	cfg.Database.WALMode = true
-	cfg.Database.BusyTimeout = 5000
-	cfg.Database.CacheSize = -2000
-	cfg.Database.MaxOpenConns = 3
-	cfg.Database.MaxIdleConns = 2
-
-	db, err := Open(cfg, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	sqlDB, err := db.DB()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer sqlDB.Close()
-	if err := db.Exec("SELECT 1").Error; err != nil {
-		t.Fatal(err)
-	}
-	stats := sqlDB.Stats()
-	if stats.MaxOpenConnections != 3 {
-		t.Fatalf("MaxOpenConnections = %d, want 3", stats.MaxOpenConnections)
+	cfg.Database.Type = "mysql"
+	cfg.Database.DSN = "ignored"
+	if _, err := databaseDialector(cfg, false); err == nil || !strings.Contains(err.Error(), "supported: postgres") {
+		t.Fatalf("error = %v, want postgres-only error", err)
 	}
 }
 
-func TestOpenForMigrationKeepsSQLitePreparedStatements(t *testing.T) {
+func TestDatabaseDialectorRequiresDSN(t *testing.T) {
 	cfg := &config.Config{}
-	cfg.Database.Type = "sqlite"
-	cfg.Database.DBPath = filepath.Join(t.TempDir(), "migration.db")
-
-	db, err := OpenForMigration(cfg, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	sqlDB, err := db.DB()
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = sqlDB.Close() })
-	if !db.PrepareStmt {
-		t.Fatal("sqlite migration should retain GORM prepared statements")
+	cfg.Database.Type = "postgres"
+	if _, err := databaseDialector(cfg, false); err == nil || !strings.Contains(err.Error(), "database.dsn") {
+		t.Fatalf("error = %v, want database.dsn error", err)
 	}
 }
 
 func TestPostgresMigrationDialectorUsesSimpleProtocol(t *testing.T) {
 	cfg := &config.Config{}
+	cfg.Database.Type = "postgres"
 	cfg.Database.DSN = "postgres://example.invalid/mediastation"
-	if prepareStmtEnabled("postgres", true) {
-		t.Fatal("postgres migration should disable GORM prepared statements")
-	}
 
-	dialector, err := databaseDialector(cfg, "postgres", true)
+	dialector, err := databaseDialector(cfg, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,20 +60,17 @@ func TestPostgresMigrationDialectorUsesSimpleProtocol(t *testing.T) {
 		t.Fatal("postgres migration dialector should use simple protocol")
 	}
 
-	runtimeDialector, err := databaseDialector(cfg, "postgres", false)
+	runtimeDialector, err := databaseDialector(cfg, false)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if runtimeDialector.(*postgres.Dialector).Config.PreferSimpleProtocol {
 		t.Fatal("postgres runtime dialector should retain prepared statements")
 	}
-	if !prepareStmtEnabled("postgres", false) {
-		t.Fatal("postgres runtime should enable GORM prepared statements")
-	}
 }
 
 func TestEnforceTelegramBindingOneToOneCleansDuplicatesAndAddsIndex(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	db, err := testdb.OpenPostgres(t, &gorm.Config{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -149,7 +113,7 @@ func TestEnforceTelegramBindingOneToOneCleansDuplicatesAndAddsIndex(t *testing.T
 }
 
 func TestEnsurePerformanceIndexesCreatesHotPathIndexes(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	db, err := testdb.OpenPostgres(t, &gorm.Config{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -169,371 +133,11 @@ func TestEnsurePerformanceIndexesCreatesHotPathIndexes(t *testing.T) {
 		"idx_play_profiles_user_created_active",
 	} {
 		var count int
-		if err := db.Raw(`SELECT COUNT(1) FROM sqlite_master WHERE type = 'index' AND name = ?`, name).Scan(&count).Error; err != nil {
+		if err := db.Raw(`SELECT COUNT(1) FROM pg_indexes WHERE schemaname = current_schema() AND indexname = ?`, name).Scan(&count).Error; err != nil {
 			t.Fatal(err)
 		}
 		if count != 1 {
 			t.Fatalf("index %s count = %d, want 1", name, count)
 		}
-	}
-}
-
-func TestEnsureMediaSearchIndexCreatesVersionedTriggers(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := db.AutoMigrate(&model.MetadataItem{}); err != nil {
-		t.Fatal(err)
-	}
-	if err := ensureMediaSearchIndex(db); err != nil {
-		t.Fatal(err)
-	}
-	if !sqliteFTSTableExists(t, db, "media_search_fts") {
-		t.Skip("SQLite FTS5 is unavailable in this build")
-	}
-	var version int
-	if err := db.Raw(`SELECT version FROM media_search_meta WHERE id = 1`).Scan(&version).Error; err != nil {
-		t.Fatal(err)
-	}
-	if version != mediaSearchIndexSchemaVersion {
-		t.Fatalf("media search schema version = %d, want %d", version, mediaSearchIndexSchemaVersion)
-	}
-	for _, trigger := range []string{"media_search_fts_ai", "media_search_fts_au", "media_search_fts_ad"} {
-		var count int
-		if err := db.Raw(`SELECT COUNT(1) FROM sqlite_master WHERE type = 'trigger' AND name = ?`, trigger).Scan(&count).Error; err != nil {
-			t.Fatal(err)
-		}
-		if count != 1 {
-			t.Fatalf("trigger %s count = %d, want 1", trigger, count)
-		}
-	}
-	metadata := model.MetadataItem{Kind: model.MetadataKindMovie, Title: "中文搜索电影", Genres: "动画,冒险", Source: "tmdb"}
-	if err := db.Create(&metadata).Error; err != nil {
-		t.Fatal(err)
-	}
-	var indexed int
-	if err := db.Raw(`SELECT COUNT(1) FROM media_search_fts WHERE metadata_id = ?`, metadata.ID).Scan(&indexed).Error; err != nil {
-		t.Fatal(err)
-	}
-	if indexed != 1 {
-		t.Fatalf("indexed rows = %d, want inserted metadata indexed", indexed)
-	}
-}
-
-func sqliteFTSTableExists(t *testing.T, db *gorm.DB, table string) bool {
-	t.Helper()
-	var count int
-	if err := db.Raw(`SELECT COUNT(1) FROM sqlite_master WHERE type = 'table' AND name = ?`, table).Scan(&count).Error; err != nil {
-		t.Fatal(err)
-	}
-	return count == 1
-}
-
-func TestCopyModelTablesMigratesExistingSQLiteRows(t *testing.T) {
-	src, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	dst, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, db := range []*gorm.DB{src, dst} {
-		if err := db.AutoMigrate(&model.User{}, &model.Library{}, &model.Setting{}); err != nil {
-			t.Fatal(err)
-		}
-	}
-	user := model.User{Username: "admin", PasswordHash: "hash", Role: "admin", IsActive: true}
-	if err := src.Create(&user).Error; err != nil {
-		t.Fatal(err)
-	}
-	lib := model.Library{Name: "Movies", Path: "/media/movies", Type: "movie", Enabled: true}
-	if err := src.Create(&lib).Error; err != nil {
-		t.Fatal(err)
-	}
-	if err := src.Create(&model.Setting{Key: "organize.auto", Value: "false"}).Error; err != nil {
-		t.Fatal(err)
-	}
-
-	copied, err := copyModelTables(src, dst, 2)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if copied != 3 {
-		t.Fatalf("copied rows = %d, want 3", copied)
-	}
-	var got model.User
-	if err := dst.First(&got, "username = ?", "admin").Error; err != nil {
-		t.Fatal(err)
-	}
-	if got.ID != user.ID || got.Role != "admin" {
-		t.Fatalf("user not preserved: %#v", got)
-	}
-}
-
-func TestCopyModelTablesResumesPartialSQLiteMigration(t *testing.T) {
-	src, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	dst, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, db := range []*gorm.DB{src, dst} {
-		if err := db.AutoMigrate(&model.User{}, &model.MetadataItem{}, &model.Media{}, &model.MediaProbeMetadata{}, &model.Setting{}); err != nil {
-			t.Fatal(err)
-		}
-	}
-	user := model.User{Username: "admin", PasswordHash: "hash", Role: "admin", IsActive: true}
-	if err := src.Create(&user).Error; err != nil {
-		t.Fatal(err)
-	}
-	if err := dst.Create(&user).Error; err != nil {
-		t.Fatal(err)
-	}
-	metadata := model.MetadataItem{Kind: model.MetadataKindMovie, Title: "Resume Migration", Source: "local"}
-	if err := src.Create(&metadata).Error; err != nil {
-		t.Fatal(err)
-	}
-	if err := dst.Create(&metadata).Error; err != nil {
-		t.Fatal(err)
-	}
-	media := model.Media{
-		LibraryID:    "library-1",
-		MetadataID:   metadata.ID,
-		Title:        "Resume Migration",
-		Path:         "/media/resume.mp4",
-		Container:    "mov,mp4,m4a,3gp,3g2,mj2",
-		ScrapeStatus: "matched",
-		VideoCodec:   "hevc",
-		AudioCodec:   "eac3",
-		DurationSec:  120,
-		SizeBytes:    1024,
-		Width:        3840,
-		Height:       2160,
-		SeasonNum:    1,
-		EpisodeNum:   1,
-	}
-	if err := src.Create(&media).Error; err != nil {
-		t.Fatal(err)
-	}
-	probe := model.MediaProbeMetadata{
-		MediaID: media.ID, ProbeJSON: `{"schema_version":1}`, SchemaVersion: 1, ProbedAt: time.Now().UTC(),
-	}
-	if err := src.Create(&probe).Error; err != nil {
-		t.Fatal(err)
-	}
-	if err := src.Create(&model.Setting{Key: "organize.auto", Value: "false"}).Error; err != nil {
-		t.Fatal(err)
-	}
-
-	copied, err := copyModelTables(src, dst, 2)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if copied != 3 {
-		t.Fatalf("copied rows = %d, want 3", copied)
-	}
-	var got model.Media
-	if err := dst.First(&got, "path = ?", media.Path).Error; err != nil {
-		t.Fatal(err)
-	}
-	if got.Container != media.Container {
-		t.Fatalf("container = %q, want %q", got.Container, media.Container)
-	}
-	if got.VideoCodec != media.VideoCodec || got.AudioCodec != media.AudioCodec || got.DurationSec != media.DurationSec {
-		t.Fatalf("track facts not copied: %#v", got)
-	}
-	var gotProbe model.MediaProbeMetadata
-	if err := dst.First(&gotProbe, "media_id = ?", media.ID).Error; err != nil {
-		t.Fatal(err)
-	}
-	if gotProbe.ProbeJSON != probe.ProbeJSON || gotProbe.SchemaVersion != probe.SchemaVersion || gotProbe.ProbedAt.IsZero() {
-		t.Fatalf("probe metadata not copied: %#v", gotProbe)
-	}
-
-	copied, err = copyModelTables(src, dst, 2)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if copied != 0 {
-		t.Fatalf("second copy rows = %d, want 0", copied)
-	}
-}
-
-func TestSQLiteMigrationCompleteMarker(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := db.AutoMigrate(&model.Setting{}); err != nil {
-		t.Fatal(err)
-	}
-	complete, err := sqliteMigrationMarkedComplete(db)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if complete {
-		t.Fatal("fresh database should not be marked migrated")
-	}
-	if err := markSQLiteMigrationComplete(db); err != nil {
-		t.Fatal(err)
-	}
-	complete, err = sqliteMigrationMarkedComplete(db)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !complete {
-		t.Fatal("database should be marked migrated")
-	}
-}
-
-func TestSQLiteMigrationFallsBackToDataDirDefaultPath(t *testing.T) {
-	dir := t.TempDir()
-	sqlitePath := filepath.Join(dir, "mediastation.db")
-	src, err := gorm.Open(sqlite.Open(sqlitePath), &gorm.Config{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := src.AutoMigrate(&model.User{}, &model.Library{}); err != nil {
-		t.Fatal(err)
-	}
-	user := model.User{Username: "real-admin", PasswordHash: "hash", Role: "admin", IsActive: true}
-	if err := src.Create(&user).Error; err != nil {
-		t.Fatal(err)
-	}
-	lib := model.Library{Name: "Movies", Path: "/media/movies", Type: "movie", Enabled: true}
-	if err := src.Create(&lib).Error; err != nil {
-		t.Fatal(err)
-	}
-	sqlDB, _ := src.DB()
-	_ = sqlDB.Close()
-
-	dst, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := dst.AutoMigrate(&model.User{}, &model.Library{}, &model.Setting{}); err != nil {
-		t.Fatal(err)
-	}
-	if err := dst.Create(&model.User{Username: "admin", PasswordHash: "bootstrap", Role: "admin", IsActive: true}).Error; err != nil {
-		t.Fatal(err)
-	}
-
-	cfg := &config.Config{}
-	cfg.App.DataDir = dir
-	cfg.Database.DBPath = filepath.Join(dir, "disabled-sqlite-migration.db")
-	sourcePath, err := sqliteMigrationSourcePath(cfg, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if sourcePath != sqlitePath {
-		t.Fatalf("source path = %q, want fallback %q", sourcePath, sqlitePath)
-	}
-
-	src2, err := gorm.Open(sqlite.Open(sourcePath), &gorm.Config{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	sqlDB2, _ := src2.DB()
-	defer func() {
-		if sqlDB2 != nil {
-			_ = sqlDB2.Close()
-		}
-	}()
-	if err := resetBootstrapTargetBeforeSQLiteMigrationIfSafe(src2, dst, nil); err != nil {
-		t.Fatal(err)
-	}
-	copied, err := copyModelTables(src2, dst, 2)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if copied != 2 {
-		t.Fatalf("copied rows = %d, want 2", copied)
-	}
-
-	var userCount int64
-	if err := dst.Model(&model.User{}).Count(&userCount).Error; err != nil {
-		t.Fatal(err)
-	}
-	if userCount != 1 {
-		t.Fatalf("user count = %d, want migrated source only", userCount)
-	}
-	var got model.User
-	if err := dst.First(&got, "username = ?", "real-admin").Error; err != nil {
-		t.Fatal(err)
-	}
-	var libCount int64
-	if err := dst.Model(&model.Library{}).Where("path = ?", "/media/movies").Count(&libCount).Error; err != nil {
-		t.Fatal(err)
-	}
-	if libCount != 1 {
-		t.Fatalf("library count = %d, want 1", libCount)
-	}
-}
-
-func TestOpenSQLiteMigrationSourceUsesFallbackSourcePath(t *testing.T) {
-	dir := t.TempDir()
-	sqlitePath := filepath.Join(dir, "mediastation.db")
-	src, err := gorm.Open(sqlite.Open(sqlitePath), &gorm.Config{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := src.AutoMigrate(&model.User{}, &model.Library{}, &model.Setting{}); err != nil {
-		t.Fatal(err)
-	}
-	if err := src.Create(&model.User{Username: "real-admin", PasswordHash: "hash", Role: "admin", IsActive: true}).Error; err != nil {
-		t.Fatal(err)
-	}
-	if err := src.Create(&model.Library{Name: "Movies", Path: "/media/movies", Type: "movie", Enabled: true}).Error; err != nil {
-		t.Fatal(err)
-	}
-	sqlDB, _ := src.DB()
-	_ = sqlDB.Close()
-
-	dst, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := dst.AutoMigrate(&model.User{}, &model.Library{}, &model.Setting{}); err != nil {
-		t.Fatal(err)
-	}
-
-	cfg := &config.Config{}
-	cfg.App.DataDir = dir
-	cfg.Database.DBPath = filepath.Join(dir, "disabled-sqlite-migration.db")
-	sourcePath, err := sqliteMigrationSourcePath(cfg, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if sourcePath != sqlitePath {
-		t.Fatalf("source path = %q, want %q", sourcePath, sqlitePath)
-	}
-
-	src2, err := openSQLiteMigrationSource(cfg, sourcePath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	sqlDB2, _ := src2.DB()
-	defer func() {
-		if sqlDB2 != nil {
-			_ = sqlDB2.Close()
-		}
-	}()
-	copied, err := copyModelTables(src2, dst, 2)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if copied != 2 {
-		t.Fatalf("copied rows = %d, want 2", copied)
-	}
-	var userCount int64
-	if err := dst.Model(&model.User{}).Where("username = ?", "real-admin").Count(&userCount).Error; err != nil {
-		t.Fatal(err)
-	}
-	if userCount != 1 {
-		t.Fatalf("migrated user count = %d, want 1", userCount)
 	}
 }

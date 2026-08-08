@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/glebarez/sqlite"
+	testdb "github.com/ShukeBta/MediaStationGo/internal/testdb"
 	"gorm.io/gorm"
 
 	"github.com/ShukeBta/MediaStationGo/internal/model"
@@ -19,7 +19,7 @@ type legacyRequiredMedia struct {
 func (legacyRequiredMedia) TableName() string { return "media" }
 
 func TestMetadataSchemaCanonicalIdentityConstraints(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open("file:metadata_schema?mode=memory&cache=shared&_pragma=foreign_keys(1)"), &gorm.Config{})
+	db, err := testdb.OpenPostgres(t, &gorm.Config{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -109,7 +109,7 @@ func TestMetadataSchemaCanonicalIdentityConstraints(t *testing.T) {
 }
 
 func TestMetadataSchemaMigrationMakesMediaMetadataNullable(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open("file:metadata_nullable_migration?mode=memory&cache=shared&_pragma=foreign_keys(1)"), &gorm.Config{})
+	db, err := testdb.OpenPostgres(t, &gorm.Config{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -141,7 +141,7 @@ func TestMetadataSchemaMigrationMakesMediaMetadataNullable(t *testing.T) {
 }
 
 func TestMediaProbeMetadataOneToOneAndCascade(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open("file:media_probe_schema?mode=memory&cache=shared&_pragma=foreign_keys(1)"), &gorm.Config{})
+	db, err := testdb.OpenPostgres(t, &gorm.Config{})
 	if err != nil {
 		t.Fatal(err)
 	}

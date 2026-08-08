@@ -3,7 +3,7 @@ package service
 import (
 	"testing"
 
-	"github.com/glebarez/sqlite"
+	testdb "github.com/ShukeBta/MediaStationGo/internal/testdb"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 
@@ -14,7 +14,7 @@ import (
 
 func newServiceTestDB(t *testing.T, models ...any) *gorm.DB {
 	t.Helper()
-	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
+	db, err := testdb.OpenPostgres(t, &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
 	if err != nil {
 		t.Fatal(err)
 	}

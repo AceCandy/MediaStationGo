@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/glebarez/sqlite"
+	testdb "github.com/ShukeBta/MediaStationGo/internal/testdb"
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 
@@ -142,7 +142,7 @@ func TestProviderErrorDoesNotFallBackToLocalNFO(t *testing.T) {
 		http.Error(w, "temporary failure", http.StatusServiceUnavailable)
 	}))
 	defer upstream.Close()
-	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	db, err := testdb.OpenPostgres(t, &gorm.Config{})
 	if err != nil {
 		t.Fatal(err)
 	}

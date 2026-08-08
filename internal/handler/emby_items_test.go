@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
+	testdb "github.com/ShukeBta/MediaStationGo/internal/testdb"
 	"github.com/gin-gonic/gin"
-	"github.com/glebarez/sqlite"
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 
@@ -59,7 +59,7 @@ func createEmbyArtworkFixture(t *testing.T, db *gorm.DB, cfg *config.Config, med
 
 func TestEmbyItemImageServesWithoutAPIAuth(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	db, err := testdb.OpenPostgres(t, &gorm.Config{})
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
@@ -121,7 +121,7 @@ func TestEmbyItemImageServesWithoutAPIAuth(t *testing.T) {
 
 func TestEmbyItemImageServesPersistentArtworkWithoutResolve(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	db, err := testdb.OpenPostgres(t, &gorm.Config{})
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
@@ -162,7 +162,7 @@ func TestEmbyItemImageServesPersistentArtworkWithoutResolve(t *testing.T) {
 
 func TestEmbyMissingItemImageReturnsTransparentPlaceholder(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	db, err := testdb.OpenPostgres(t, &gorm.Config{})
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
@@ -201,7 +201,7 @@ func TestEmbyMissingItemImageReturnsTransparentPlaceholder(t *testing.T) {
 
 func TestEmbyUserItemByIDRouteReturnsJSON(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	db, err := testdb.OpenPostgres(t, &gorm.Config{})
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
@@ -272,7 +272,7 @@ func TestEmbyUserItemByIDRouteReturnsJSON(t *testing.T) {
 
 func TestEmbyUserItemByIDRouteReturnsLibraryView(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	db, err := testdb.OpenPostgres(t, &gorm.Config{})
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}

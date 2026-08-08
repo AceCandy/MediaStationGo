@@ -24,12 +24,8 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("app.cors_origins", []string{})
 	v.SetDefault("app.server_url", "")
 
-	v.SetDefault("database.type", "auto")
-	v.SetDefault("database.db_path", "./data/mediastation.db")
+	v.SetDefault("database.type", "postgres")
 	v.SetDefault("database.dsn", "")
-	v.SetDefault("database.wal_mode", true)
-	v.SetDefault("database.busy_timeout", 5000)
-	v.SetDefault("database.cache_size", -20000)
 	v.SetDefault("database.max_open_conns", defaultDatabaseMaxOpenConns)
 	v.SetDefault("database.max_idle_conns", defaultDatabaseMaxIdleConns)
 

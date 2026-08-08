@@ -14,7 +14,6 @@
   <a href="#快速开始">快速开始</a> ·
   <a href="#三挡部署">三挡部署</a> ·
   <a href="#路径映射">路径映射</a> ·
-  <a href="#旧-sqlite-迁移">旧 SQLite 迁移</a> ·
   <a href="#开发构建">开发构建</a> ·
   <a href="CONTRIBUTING.md">贡献规范</a> ·
   <a href="https://mgo.3jzs.com">在线演示</a>
@@ -40,7 +39,7 @@ MediaStationGo 是一个自托管媒体管理系统，面向 NAS、小主机、�
 - **本地 + 网盘**：支持本地硬盘、下载目录、OpenList、CloudDrive2、WebDAV、STRMURL 和 302 反代播放。
 - **订阅下载入库**：连接 qBittorrent 后支持搜索、订阅、下载完成整理、刮削和入库通知。
 - **多用户与权限**：管理员/普通用户、有效期、成人内容开关、设备管理、注册码和 Telegram Bot 绑定。
-- **灵活部署**：单镜像 SQLite 一键起步，或按规模选择 PostgreSQL、Redis、OpenSearch，低配 NAS 到大库检索都能覆盖。
+- **灵活部署**：按规模选择 PostgreSQL、Redis、OpenSearch，低配 NAS 到大库检索都能覆盖。
 
 ## 社区与友链
 
@@ -58,15 +57,12 @@ MediaStationGo 是一个自托管媒体管理系统，面向 NAS、小主机、�
 
 ## 快速开始
 
-最推荐使用 Docker Compose。仓库提供四份独立完整模板，全部不依赖 `.env`。想最省心就下载单镜像档（SQLite，只有一个镜像）；只需要按需修改访问端口、媒体目录、下载目录和可选硬件设备。需要多用户/高并发再选第一档起的 PostgreSQL 档位。
+最推荐使用 Docker Compose。仓库提供三份独立完整模板，全部使用 PostgreSQL 且不依赖 `.env`。只需要按需修改访问端口、媒体目录、下载目录和可选硬件设备。
 
 ```bash
 mkdir -p MediaStationGo
 cd MediaStationGo
-# 最省心：单镜像 + SQLite，只启动一个容器
-curl -fsSL https://raw.githubusercontent.com/ShukeBta/MediaStationGo/main/docker-compose.simple.yml -o docker-compose.yml
-# 或第一档：PostgreSQL（多用户/高并发更稳）
-# curl -fsSL https://raw.githubusercontent.com/ShukeBta/MediaStationGo/main/docker-compose.yml -o docker-compose.yml
+curl -fsSL https://raw.githubusercontent.com/ShukeBta/MediaStationGo/main/docker-compose.yml -o docker-compose.yml
 docker compose up -d
 ```
 
@@ -93,62 +89,13 @@ Docker Hub 备用：shukbet/mediastationgo:latest
 
 ## 部署档位
 
-MediaStationGo 推荐按机器资源和用户规模选择部署档位。每份 Compose 文件都是完整文件，不需要再叠加多个 `-f`。想一个镜像跑起来就选单镜像档（SQLite）；需要多用户 / 高并发时再用 PostgreSQL 三档。Redis 和 OpenSearch 是增强组件，不替代 PostgreSQL。
+MediaStationGo 推荐按机器资源和用户规模选择部署档位。每份 Compose 文件都是完整文件，不需要再叠加多个 `-f`。PostgreSQL 是唯一支持的主数据库，Redis 和 OpenSearch 是增强组件，不替代 PostgreSQL。
 
 | 档位 | 完整配置文件 | 组件 | 适合场景 |
 | --- | --- | --- | --- |
-| 单镜像档 | `docker-compose.simple.yml` | MediaStationGo + 内置 SQLite | 新手、单人使用、只想一个镜像跑起来的低配机器 |
 | 第一档 | `docker-compose.yml` | MediaStationGo + PostgreSQL | 大多数 NAS、个人/家庭使用、低内存机器 |
 | 第二档 | `docker-compose.standard.yml` | MediaStationGo + PostgreSQL + Redis | 多用户、Emby 客户端频繁刷新、首页/媒体列表访问较多 |
 | 第三档 | `docker-compose.search.yml` | MediaStationGo + PostgreSQL + Redis + OpenSearch | 超大媒体库、复杂全文搜索、后续需要独立搜索索引 |
-
-### 单镜像档：SQLite（最省心）
-
-只启动 MediaStationGo 一个镜像，主数据库用内置 SQLite，不需要 PostgreSQL / Redis / `.env`。变量最少、资源占用最低，适合新手和单人使用。日后需要多用户或更高并发时，保留 `./data` 后切换到第一档的 PostgreSQL 即可。
-
-```bash
-mkdir -p MediaStationGo
-cd MediaStationGo
-curl -fsSL https://raw.githubusercontent.com/ShukeBta/MediaStationGo/main/docker-compose.simple.yml -o docker-compose.yml
-docker compose up -d
-```
-
-第一次部署通常只需要改 `docker-compose.yml` 里的这几处：
-
-```yaml
-ports:
-  - "18080:8080"          # 改左边 18080 即可
-volumes:
-  - ./data:/data          # 必须备份
-  - ./media:/media        # 改左边为你的媒体目录，例如 /vol1/1000/Media:/media
-  - ./downloads:/downloads # 改左边为你的下载目录，例如 /vol1/1000/Downloads:/downloads
-  # - /dev/dri:/dev/dri   # Intel 核显硬解需要时取消注释
-```
-
-网页后台添加媒体库时填写容器内路径：
-
-```text
-/media
-/media/电影
-/media/电视剧
-```
-
-下载器保存目录建议也对齐到：
-
-```text
-/downloads
-```
-
-关键数据目录：
-
-```text
-./data       JWT 密钥、运行配置、SQLite 主数据库（mediastation.db）——必须备份
-./cache      海报/临时缓存，可重建
-./media      媒体库
-./downloads  下载目录
-```
-
-> 单镜像模式请不要配置 `MEDIASTATION_DATABASE_DSN`；一旦填了 DSN 就会切回 PostgreSQL。
 
 ### 第一档：PostgreSQL
 
@@ -165,7 +112,7 @@ docker compose up -d
 
 ```text
 ./postgres   PostgreSQL 主数据库，必须备份
-./data       JWT 密钥、运行配置、旧 SQLite 迁移源
+./data       JWT 密钥和运行配置
 ./cache      海报、临时文件、转码缓存，可删除重建
 ```
 
@@ -197,16 +144,15 @@ OpenSearch 数据目录是 `./opensearch`。搜索索引可重建，但重建大
 
 ## 配置示例
 
-仓库内提供四份推荐 Compose 文件：
+仓库内提供三份推荐 Compose 文件：
 
 ```text
-docker-compose.simple.yml     单镜像档：MediaStationGo + 内置 SQLite
 docker-compose.yml            第一档：MediaStationGo + PostgreSQL
 docker-compose.standard.yml   第二档：MediaStationGo + PostgreSQL + Redis
 docker-compose.search.yml     第三档：MediaStationGo + PostgreSQL + Redis + OpenSearch
 ```
 
-仓库只保留面向用户部署和项目维护的必要文件。旧的本地部署脚本、发包脚本、开发机辅助脚本、`.env` 示例和旧高级 Compose 模板已经移除；Linux / Docker 用户按上面四个 Compose 文件部署即可。开发者本地生成的 `bin/`、`data/`、`cache/`、`logs/`、`.tmp/`、`tools/` 等目录已列入 `.gitignore`，不应提交到仓库。
+仓库只保留面向用户部署和项目维护的必要文件。Linux / Docker 用户按上面三个 Compose 文件部署即可。开发者本地生成的 `bin/`、`data/`、`cache/`、`logs/`、`.tmp/`、`tools/` 等目录已列入 `.gitignore`，不应提交到仓库。
 
 如果直接下载为 `docker-compose.yml`，启动命令统一是：
 
@@ -217,7 +163,7 @@ docker compose up -d
 如果保留原始文件名，也可以这样启动：
 
 ```bash
-docker compose -f docker-compose.simple.yml up -d
+docker compose -f docker-compose.yml up -d
 docker compose -f docker-compose.standard.yml up -d
 docker compose -f docker-compose.search.yml up -d
 ```
@@ -232,7 +178,7 @@ services:
       # 左边是宿主机访问端口，右边是容器内端口。
       - "18080:8080"
     volumes:
-      # 运行数据：JWT 密钥、配置、旧 SQLite 迁移源。
+      # 运行数据：JWT 密钥和配置。
       - ./data:/data
 
       # 缓存目录：海报、临时文件、转码缓存，可删除重建。
@@ -249,9 +195,6 @@ services:
       # PostgreSQL 主数据库。
       MEDIASTATION_DATABASE_TYPE: postgres
       MEDIASTATION_DATABASE_DSN: postgres://mediastation:mediastation@postgres:5432/mediastation?sslmode=disable
-
-      # 旧 SQLite 迁移源：只在从旧版 data/mediastation.db 导入时使用。
-      MEDIASTATION_DATABASE_DB_PATH: /data/mediastation.db
 
       # 路径换算：宿主机路径和容器路径必须一一对应。
       MEDIASTATION_MEDIA_DIR: /vol1/1000/Media
@@ -291,26 +234,6 @@ environment:
 ```
 
 如果后台添加媒体库时填的是 `/vol1/...`，Compose 里也建议把同一个 `/vol1/...` 挂进容器，避免自动整理和下载入库时路径不可访问。
-
-## 旧 SQLite 迁移
-
-新版推荐 PostgreSQL 作为主数据库。`MEDIASTATION_DATABASE_DB_PATH` 不是主库路径，而是旧 SQLite 数据的迁移源。
-
-迁移步骤：
-
-1. 把旧版 `mediastation.db` 放到 `./data/mediastation.db`。
-2. 保持 `MEDIASTATION_DATABASE_DB_PATH: /data/mediastation.db`。
-3. 启动一次，确认日志显示迁移完成，网页数据正常。
-4. 备份 `./postgres` 和 `./data`。
-5. 确认不再需要 SQLite 后，把迁移源改成不存在的路径，例如：
-
-```yaml
-environment:
-  # 已完成 SQLite 迁移后，建议改成不存在的路径，避免下次启动重复检查旧库。
-  MEDIASTATION_DATABASE_DB_PATH: /data/no-sqlite-migration.db
-```
-
-不要删除 `./postgres`。PostgreSQL 已经是主数据库，删除它会丢失账号、媒体库、订阅、配置和历史数据。
 
 ## 日志与 STRM 路径
 
@@ -353,7 +276,7 @@ docker compose -f docker-compose.search.yml up -d --no-deps mediastation-go
 
 ```text
 ./postgres   PostgreSQL 主数据库
-./data       JWT 密钥、运行配置、旧 SQLite 迁移源
+./data       JWT 密钥和运行配置
 ```
 
 可重建：
@@ -377,10 +300,6 @@ MediaStationGo 支持 Telegram Bot 绑定、用户菜单、群组管理菜单和
 管理员可以在后台配置 Bot Token、Chat ID、通知频道和事件类型。群组里管理类命令只允许管理员执行，普通用户只能看到和使用用户命令。
 
 ## 常见问题
-
-**启动后还是反复迁移 SQLite？**
-
-确认旧数据已经迁移成功后，把 `MEDIASTATION_DATABASE_DB_PATH` 改成不存在的路径，例如 `/data/no-sqlite-migration.db`，然后重启容器。
 
 **扫库或入库速度很慢？**
 

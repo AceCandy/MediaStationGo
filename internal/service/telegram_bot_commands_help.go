@@ -76,6 +76,6 @@ func telegramMgoAdminCommandHelp() string {
 		"审计：<code>/userip 用户名</code> 查用户 IP；<code>/auditip IP</code> 按 IP 审计；<code>/auditdevice 关键词</code> 按终端设备审计；<code>/auditclient 关键词</code> 按客户端审计；<code>/udeviceid 设备ID</code> 按设备指纹审计。\n" +
 		"清理：<code>/syncunbound</code> 检查未绑定账号；<code>/syncgroupm</code> 校验群成员；<code>/check_ex</code> 检查过期账号；<code>/deleted</code> 按保号规则预览清理候选。\n" +
 		"权限：<code>/embyadmin 用户名 on|off</code> 设置管理员；<code>/banall confirm</code>/<code>/unbanall confirm</code> 批量禁用/解禁；<code>/prouser 用户名</code>/<code>/revuser 用户名</code> 管理保护名单；<code>/embylibs_blockall</code>/<code>/embylibs_unblockall</code> 批量禁用/开放媒体库权限。\n" +
-		"运维：<code>/proadmin TelegramID</code>/<code>/revadmin TelegramID</code> 管理 Bot 管理员；<code>/backup_db</code> 备份数据库；<code>/restore_from_db 文件名 confirm</code> 恢复数据库。\n" +
+		"运维：<code>/proadmin TelegramID</code>/<code>/revadmin TelegramID</code> 管理 Bot 管理员。\n" +
 		"说明：重复别名如 <code>/low_activity</code>、<code>/urm</code> 仍可兼容识别，但不显示在命令栏。"
 }

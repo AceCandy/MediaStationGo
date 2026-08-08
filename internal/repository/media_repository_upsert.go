@@ -23,14 +23,12 @@ import (
 //     显式写入）。这两个问题都让 EnrichLibrary(WHERE scrape_status='pending')
 //     永远捞不到数据。
 func (r *MediaRepository) Upsert(ctx context.Context, m *model.Media) error {
-	return withSQLiteBusyRetry(ctx, func() error {
-		return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-			txRepo := &MediaRepository{db: tx}
-			if err := txRepo.ResolveMetadata(ctx, m); err != nil {
-				return err
-			}
-			return txRepo.upsert(ctx, m)
-		})
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		txRepo := &MediaRepository{db: tx}
+		if err := txRepo.ResolveMetadata(ctx, m); err != nil {
+			return err
+		}
+		return txRepo.upsert(ctx, m)
 	})
 }
 

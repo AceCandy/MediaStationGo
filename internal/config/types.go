@@ -63,15 +63,10 @@ type AppConfig struct {
 	ServerURL              string   `mapstructure:"server_url"`
 }
 
-// DatabaseConfig 配置 GORM 数据库。默认 auto：
-// Docker Compose 主线会注入 PostgreSQL DSN；裸机/旧部署没有 DSN 时回退 SQLite。
+// DatabaseConfig 配置 PostgreSQL 连接。
 type DatabaseConfig struct {
 	Type         string `mapstructure:"type"`
-	DBPath       string `mapstructure:"db_path"`
 	DSN          string `mapstructure:"dsn"`
-	WALMode      bool   `mapstructure:"wal_mode"`
-	BusyTimeout  int    `mapstructure:"busy_timeout"`
-	CacheSize    int    `mapstructure:"cache_size"`
 	MaxOpenConns int    `mapstructure:"max_open_conns"`
 	MaxIdleConns int    `mapstructure:"max_idle_conns"`
 }

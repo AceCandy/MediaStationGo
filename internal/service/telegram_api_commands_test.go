@@ -119,7 +119,7 @@ func TestTelegramCommandMenusSeparateGroupAndAdminCommands(t *testing.T) {
 	}
 	adminCommands := telegramAdminBotCommandMenu()
 	adminNames := telegramCommandNames(adminCommands)
-	for _, required := range []string{"users", "status", "cleanup_mode", "cleanup_rule", "ucr", "uinfo", "rmemby", "only_rm_record", "renewall", "userip", "auditip", "auditdevice", "auditclient", "udeviceid", "syncunbound", "syncgroupm", "check_ex", "deleted", "embyadmin", "banall", "unbanall", "prouser", "revuser", "embylibs_blockall", "embylibs_unblockall", "proadmin", "revadmin", "backup_db", "restore_from_db"} {
+	for _, required := range []string{"users", "status", "cleanup_mode", "cleanup_rule", "ucr", "uinfo", "rmemby", "only_rm_record", "renewall", "userip", "auditip", "auditdevice", "auditclient", "udeviceid", "syncunbound", "syncgroupm", "check_ex", "deleted", "embyadmin", "banall", "unbanall", "prouser", "revuser", "embylibs_blockall", "embylibs_unblockall", "proadmin", "revadmin"} {
 		if !adminNames[required] {
 			t.Fatalf("admin menu should include %s", required)
 		}

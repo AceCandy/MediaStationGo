@@ -18,7 +18,6 @@ func registerAdminRoutes(api *gin.RouterGroup, cfg *config.Config, svc *service.
 	registerAdminCloudRoutes(admin, svc)
 	registerAdminDownloadClientRoutes(admin, svc)
 	registerAdminSystemRoutes(admin, svc)
-	registerAdminBackupRoutes(admin, svc)
 	registerAdminNotificationRoutes(admin, svc)
 	registerAdminTelegramRoutes(admin, svc)
 	registerAdminOrganizerRoutes(admin, svc)
@@ -83,13 +82,6 @@ func registerAdminSystemRoutes(admin *gin.RouterGroup, svc *service.Container) {
 	admin.GET("/system/update", systemUpdateStatusHandler(svc))
 	admin.POST("/system/update/check", systemUpdateCheckHandler(svc))
 	admin.POST("/system/update/apply", systemUpdateApplyHandler(svc))
-}
-
-func registerAdminBackupRoutes(admin *gin.RouterGroup, svc *service.Container) {
-	admin.GET("/backups", listBackupsHandler(svc))
-	admin.POST("/backups", createBackupHandler(svc))
-	admin.DELETE("/backups", deleteBackupHandler(svc))
-	admin.POST("/backups/restore", restoreBackupHandler(svc))
 }
 
 func registerAdminNotificationRoutes(admin *gin.RouterGroup, svc *service.Container) {

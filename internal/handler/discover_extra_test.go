@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/glebarez/sqlite"
+	testdb "github.com/ShukeBta/MediaStationGo/internal/testdb"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest/observer"
 	"gorm.io/gorm"
@@ -17,7 +17,7 @@ import (
 )
 
 func TestDiscoverProviderEnabledHonorsAPIConfigToggle(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
+	db, err := testdb.OpenPostgres(t, &gorm.Config{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -126,7 +126,7 @@ func TestDiscoverFeedErrorMessageHidesTechnicalTimeout(t *testing.T) {
 }
 
 func TestDefaultDiscoverSectionKeysSkipDisabledProviders(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
+	db, err := testdb.OpenPostgres(t, &gorm.Config{})
 	if err != nil {
 		t.Fatal(err)
 	}

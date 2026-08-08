@@ -77,7 +77,6 @@ RUN mkdir -p /data /cache /media \
 ENV MEDIASTATION_APP_PORT=8080 \
     MEDIASTATION_APP_DATA_DIR=/data \
     MEDIASTATION_APP_WEB_DIR=/app/web/dist \
-    MEDIASTATION_DATABASE_DB_PATH=/data/mediastation.db \
     MEDIASTATION_CACHE_CACHE_DIR=/cache \
     MEDIASTATION_LOGGING_LEVEL=info \
     TZ=Asia/Shanghai

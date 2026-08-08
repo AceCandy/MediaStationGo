@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/glebarez/sqlite"
+	testdb "github.com/ShukeBta/MediaStationGo/internal/testdb"
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 
@@ -398,7 +398,7 @@ func TestScanCloudLibraryListsChildDirectoriesConcurrently(t *testing.T) {
 	})
 	defer upstream.Close()
 
-	db, err := gorm.Open(sqlite.Open("file:cloud_scan_concurrent?mode=memory&cache=shared"), &gorm.Config{})
+	db, err := testdb.OpenPostgres(t, &gorm.Config{})
 	if err != nil {
 		t.Fatal(err)
 	}

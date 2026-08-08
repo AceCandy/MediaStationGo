@@ -79,15 +79,12 @@ It helps you:
 
 ## Quick Start
 
-Docker Compose is the recommended path. Beginners do not need `.env`, bare-metal binaries, or source builds. Use the single-image SQLite template if you want the smallest possible setup.
+Docker Compose is the recommended path. Beginners do not need `.env`, bare-metal binaries, or source builds.
 
 ```bash
 mkdir -p MediaStationGo
 cd MediaStationGo
-# Simplest option: one MediaStationGo container + SQLite
-curl -fsSL https://raw.githubusercontent.com/ShukeBta/MediaStationGo/main/docker-compose.simple.yml -o docker-compose.yml
-# Or tier 1: MediaStationGo + PostgreSQL
-# curl -fsSL https://raw.githubusercontent.com/ShukeBta/MediaStationGo/main/docker-compose.yml -o docker-compose.yml
+curl -fsSL https://raw.githubusercontent.com/ShukeBta/MediaStationGo/main/docker-compose.yml -o docker-compose.yml
 ```
 
 Edit `docker-compose.yml`:
@@ -121,76 +118,19 @@ Password: admin123
 
 The repository `docker-compose.yml` is the lightweight recommended template: no `.env` required, and by default it only starts `MediaStationGo + PostgreSQL`. This is the best starting point for most NAS users.
 
-If you already have an older `./data/mediastation.db`, the first start with the new compose file automatically imports it into PostgreSQL. Keep `./data`; it still stores the JWT secret, runtime data, and the old SQLite migration source.
+PostgreSQL is the only supported primary database. Keep both `./postgres` and `./data` when updating the deployment.
 
 ### Deployment modes
 
 | Mode | Command | Best for |
 | --- | --- | --- |
-| Single image: SQLite | `docker compose -f docker-compose.simple.yml up -d` | Beginners and single-user setups that want one image only, no PostgreSQL/Redis |
 | Lightweight: PG only | `docker compose up -d` | Most NAS devices, lowest resource use |
 | Standard: PG + Redis | `docker compose -f docker-compose.standard.yml up -d` | Multi-user use and frequent Emby client refreshes |
 | Search enhanced: PG + Redis + OpenSearch | `docker compose -f docker-compose.search.yml up -d` | Huge libraries and future standalone search indexing |
 
 Each compose file is standalone. Do not stack multiple `-f` files together.
 
-The single-image `docker-compose.simple.yml` runs only MediaStationGo with a built-in SQLite database — the simplest starting point. Do not set `MEDIASTATION_DATABASE_DSN` there, or it switches back to PostgreSQL. Move up to the PostgreSQL modes for multi-user or high-concurrency use (keep `./data` when you switch). Redis and OpenSearch are enhancement layers, not source databases. Do not enable OpenSearch by default on low-memory NAS devices.
-
-### Database Choice And Disabling SQLite
-
-The current Docker Compose setup uses PostgreSQL by default. SQLite is no longer the primary database in the recommended Docker deployment. The runtime database is controlled by:
-
-```yaml
-environment:
-  MEDIASTATION_DATABASE_TYPE: postgres
-  MEDIASTATION_DATABASE_DSN: postgres://mediastation:mediastation@postgres:5432/mediastation?sslmode=disable
-```
-
-`MEDIASTATION_DATABASE_DB_PATH` is only used as a one-time migration source for old SQLite data:
-
-- Fresh installs: `docker compose up -d` uses PostgreSQL and does not create a new SQLite primary database.
-- Upgrades: if `./data/mediastation.db` exists, the first start with the new compose file imports it into PostgreSQL.
-- Migration fills missing rows by primary key and skips rows that already exist. If it fails partway through, a later start continues the remaining tables.
-- After a successful import, PostgreSQL gets a completion marker in the `settings` table, so the old SQLite file is not imported again.
-- Redis is a hot cache and OpenSearch is a search index; neither is a source database.
-
-Recommended SQLite to PostgreSQL upgrade flow:
-
-```bash
-docker compose pull mediastation-go
-docker compose up -d --no-deps mediastation-go
-docker compose logs -f mediastation-go
-```
-
-After you see `sqlite data migrated to postgres`, or after the web UI shows your users, libraries, and settings correctly, you can stop using the old SQLite file as a migration source.
-
-To make the deployment PostgreSQL-only after migration, keep PostgreSQL selected and point the old SQLite migration path at a non-existent file:
-
-> Only do this after the web UI confirms that users, libraries, settings, and media rows are already present in PostgreSQL.
-
-```yaml
-environment:
-  MEDIASTATION_DATABASE_TYPE: postgres
-  MEDIASTATION_DATABASE_DSN: postgres://mediastation:mediastation@postgres:5432/mediastation?sslmode=disable
-  MEDIASTATION_DATABASE_DB_PATH: /data/disabled-sqlite-migration.db
-```
-
-Then rename or move the old host-side SQLite file as an offline backup:
-
-```bash
-mv data/mediastation.db data/mediastation.sqlite.bak
-```
-
-For bare-metal or custom `config.yaml` deployments, use the same idea:
-
-```yaml
-database:
-  type: postgres
-  dsn: postgres://mediastation:mediastation@127.0.0.1:5432/mediastation?sslmode=disable
-  db_path: ""
-```
-
-Do not delete `./postgres`. After migration, it is the real primary database. Keep `./data` too, because it stores the JWT secret and runtime files.
+Redis and OpenSearch are enhancement layers, not source databases. Do not enable OpenSearch by default on low-memory NAS devices.
 
 ### Choose an image source
 
@@ -235,7 +175,7 @@ Meaning:
 
 | Host path | Container path | Purpose |
 | --- | --- | --- |
-| `./data` | app `/data` | Settings, JWT secret, old SQLite migration source; the primary DB is under `./postgres` |
+| `./data` | app `/data` | Settings, JWT secret, and runtime files; the primary DB is under `./postgres` |
 | `./cache` | app `/cache` | Cache; safe to clean when needed |
 | `./media` | `/media` | Media libraries; use `/media/...` in the web UI |
 | `./downloads` | `/downloads` | Download directory and organization source |
@@ -331,12 +271,9 @@ services:
       MEDIASTATION_APP_WEB_DIR: /app/web/dist
       MEDIASTATION_APP_DATA_DIR: /data
 
-      # Lightweight mode uses PostgreSQL by default.
-      # Old SQLite data migrates from this path on first start.
+      # PostgreSQL is the only supported primary database.
       MEDIASTATION_DATABASE_TYPE: postgres
       MEDIASTATION_DATABASE_DSN: postgres://mediastation:mediastation@postgres:5432/mediastation?sslmode=disable
-      # After migration, change this to /data/disabled-sqlite-migration.db to disable the SQLite migration source.
-      MEDIASTATION_DATABASE_DB_PATH: /data/mediastation.db
       MEDIASTATION_CACHE_CACHE_DIR: /cache
 
       # Use /media and /downloads in the web UI and downloader by default.
@@ -426,7 +363,7 @@ data/
 postgres/
 ```
 
-`postgres/` is the primary database and contains users, libraries, settings, and media metadata. `data/` stores the JWT secret, runtime files, and optional old SQLite migration source.
+`postgres/` is the primary database and contains users, libraries, settings, and media metadata. `data/` stores the JWT secret and runtime files.
 
 If you enabled the extended modes, these are optional:
 
@@ -435,7 +372,7 @@ redis/        # hot cache, safe to rebuild
 opensearch/   # search index, rebuildable; backing it up can save reindex time on huge libraries
 ```
 
-`cache/` is usually not important. If you explicitly still use `database.type=sqlite`, the primary database remains `data/mediastation.db`.
+`cache/` is usually not important.
 
 ### Stop
 
@@ -492,7 +429,7 @@ Suggested settings:
 
 Beginners should not. Editing `docker-compose.yml` directly is easier to understand.
 
-`.env` is not required by the provided deployment templates. For the single-image template, edit `docker-compose.simple.yml` directly and only adjust the port, volume paths, and optional hardware device mapping.
+`.env` is not required by the provided deployment templates. Edit the selected Compose file directly and adjust the port, volume paths, and optional hardware device mapping.
 
 ---
 

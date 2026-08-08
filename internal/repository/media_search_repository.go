@@ -56,21 +56,6 @@ func mediaViewsToMedia(views []model.MediaView) []model.Media {
 	return rows
 }
 
-func mediaFTSQuery(query string) string {
-	terms := mediaSearchTerms(query)
-	if len(terms) == 0 {
-		return ""
-	}
-	quoted := make([]string, 0, len(terms))
-	for _, term := range terms {
-		term = strings.ReplaceAll(term, `"`, `""`)
-		if term != "" {
-			quoted = append(quoted, `"`+term+`"`)
-		}
-	}
-	return strings.Join(quoted, " AND ")
-}
-
 func mediaSearchTerms(query string) []string {
 	query = strings.TrimSpace(query)
 	if query == "" {
@@ -111,23 +96,7 @@ func (r *MediaViewRepository) BackfillSearchIndex(ctx context.Context, batchLimi
 	if backend, ok := r.searchBackend.(MediaSearchSyncBackend); ok {
 		return r.backfillExternalSearchIndex(ctx, backend, batchLimit)
 	}
-	if batchLimit <= 0 {
-		batchLimit = 1000
-	}
-	if !r.searchIndexEnabled(ctx) {
-		return 0, nil
-	}
-	res := r.db.WithContext(ctx).Exec(`
-INSERT INTO media_search_fts(rowid, metadata_id, title, original_name, overview, genres)
-SELECT mi.rowid, mi.id, COALESCE(mi.title, ''), COALESCE(mi.original_name, ''), COALESCE(mi.overview, ''), COALESCE(mi.genres, '')
-FROM metadata_items AS mi
-WHERE mi.deleted_at IS NULL
-  AND NOT EXISTS (
-    SELECT 1 FROM media_search_fts AS f WHERE f.rowid = mi.rowid
-  )
-LIMIT ?
-`, batchLimit)
-	return res.RowsAffected, res.Error
+	return 0, nil
 }
 
 func (r *MediaViewRepository) backfillExternalSearchIndex(ctx context.Context, backend MediaSearchSyncBackend, batchLimit int) (int64, error) {
@@ -176,21 +145,4 @@ func (r *MediaViewRepository) indexMediaIDsBestEffort(ctx context.Context, ids [
 	if err == nil && len(rows) > 0 {
 		_ = backend.IndexMedia(ctx, rows)
 	}
-}
-
-func (r *MediaViewRepository) searchIndexEnabled(ctx context.Context) bool {
-	if r == nil || r.db == nil {
-		return false
-	}
-	if r.db.Dialector == nil || r.db.Dialector.Name() != "sqlite" {
-		return false
-	}
-	r.searchIndexOnce.Do(func() {
-		var count int64
-		err := r.db.WithContext(ctx).
-			Raw(`SELECT COUNT(*) FROM sqlite_master WHERE name = 'media_search_fts'`).
-			Scan(&count).Error
-		r.searchIndexAvailable = err == nil && count > 0
-	})
-	return r.searchIndexAvailable
 }

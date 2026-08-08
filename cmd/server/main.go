@@ -3,7 +3,7 @@
 // MediaStationGo is a Go rewrite of the legacy Python implementation,
 // adopting the same tech stack as cropflre/nowen-video:
 //
-//	Backend:  Go 1.25 + Gin + GORM + PostgreSQL/SQLite + Viper + Zap + JWT
+//	Backend:  Go 1.25 + Gin + GORM + PostgreSQL + Viper + Zap + JWT
 //	Frontend: React 18 + Vite + Tailwind + Zustand + HLS.js
 //
 // The binary embeds the SPA build artifacts at /app/web/dist and serves them
@@ -85,24 +85,19 @@ func main() {
 	if err := database.AutoMigrate(db); err != nil {
 		logger.Fatal("auto-migrate failed", zap.Error(err))
 	}
-	if err := database.MigrateSQLiteToCurrentIfNeeded(cfg, db, logger); err != nil {
-		logger.Fatal("sqlite to postgres migration failed", zap.Error(err))
+	migrationSQLDB, err := db.DB()
+	if err != nil {
+		logger.Fatal("migration database handle failed", zap.Error(err))
 	}
-	if db.Dialector.Name() == "postgres" {
-		migrationSQLDB, err := db.DB()
-		if err != nil {
-			logger.Fatal("migration database handle failed", zap.Error(err))
-		}
-		if err := migrationSQLDB.Close(); err != nil {
-			logger.Fatal("migration database close failed", zap.Error(err))
-		}
-		db, err = database.Open(cfg, logger)
-		if err != nil {
-			logger.Fatal("database open failed", zap.Error(err))
-		}
-		if err := waitForDatabase(db, logger); err != nil {
-			logger.Fatal("database not ready after migration", zap.Error(err))
-		}
+	if err := migrationSQLDB.Close(); err != nil {
+		logger.Fatal("migration database close failed", zap.Error(err))
+	}
+	db, err = database.Open(cfg, logger)
+	if err != nil {
+		logger.Fatal("database open failed", zap.Error(err))
+	}
+	if err := waitForDatabase(db, logger); err != nil {
+		logger.Fatal("database not ready after migration", zap.Error(err))
 	}
 
 	repos := repository.New(db)

@@ -87,16 +87,14 @@ Correct: use Responses for People translation without tools; reserve `web_search
 - Store provider/NFO/AI free-form text as `text` unless the upstream contract
   defines a real maximum. Do not infer `varchar(255)` from typical samples.
 - When changing a PostgreSQL column type, include an idempotent compatibility
-  statement for existing databases and a dialect-level schema assertion;
-  SQLite round-trip tests do not enforce `varchar` lengths.
+  statement and a PostgreSQL schema assertion.
 
 ### PostgreSQL Prepared Plan Safety
 
 - PostgreSQL schema migrations must use a dedicated connection with GORM
   `PrepareStmt=false` and pgx `PreferSimpleProtocol=true`.
 - After migration, close that connection and open the direct PostgreSQL runtime
-  connection with prepared statements enabled. SQLite keeps its existing
-  connection and prepared-statement behavior.
+  connection with prepared statements enabled.
 - Do not enable runtime prepared statements through a transaction pooler unless
   the pooler explicitly supports them and schema-change invalidation is tested.
 - Clearing GORM's cache after `AutoMigrate` is insufficient because a stale-plan
@@ -106,6 +104,50 @@ Correct: use Responses for People translation without tools; reserve `web_search
 - When a schema change touches a table queried during startup, verify one real
   PostgreSQL/pooler startup and the first business query after startup. Unit
   migration tests alone do not cover pooled server-session state.
+
+## Scenario: PostgreSQL-Only Database Runtime
+
+### 1. Scope / Trigger
+
+- Applies to database configuration, startup, migrations, repositories, and database-backed tests.
+
+### 2. Signatures
+
+- `database.Open(*config.Config, *zap.Logger) (*gorm.DB, error)` opens PostgreSQL.
+- `database.OpenForMigration(*config.Config, *zap.Logger) (*gorm.DB, error)` opens PostgreSQL with migration-safe protocol settings.
+- `MEDIASTATION_DATABASE_TYPE=postgres` and `MEDIASTATION_DATABASE_DSN=<postgres dsn>` are the database inputs.
+
+### 3. Contracts
+
+- PostgreSQL is the only runtime and test database dialect.
+- `database.dsn` is required; there is no embedded database fallback.
+- Runtime connections enable prepared statements; migration connections use simple protocol and disable GORM prepared statements.
+- Database tests use `MEDIASTATION_TEST_POSTGRES_DSN` and an isolated schema per test.
+
+### 4. Validation & Error Matrix
+
+- Missing DSN -> return `database.dsn is required` before opening GORM.
+- Any non-PostgreSQL `database.type` -> return an unsupported-type error naming PostgreSQL as the only supported type.
+- Missing `MEDIASTATION_TEST_POSTGRES_DSN` -> skip database-backed tests with an explicit message.
+
+### 5. Good/Base/Bad Cases
+
+- Good: `type=postgres` with a reachable DSN opens and migrates successfully.
+- Base: `postgresql` and `pg` aliases select the same PostgreSQL dialector.
+- Bad: an embedded/file database type or an empty DSN never falls back to another dialect.
+
+### 6. Tests Required
+
+- Assert non-PostgreSQL types are rejected.
+- Assert an empty DSN is rejected.
+- Assert migration and runtime dialectors retain their simple/prepared protocol split.
+- Run database integration tests against isolated PostgreSQL schemas.
+
+### 7. Wrong vs Correct
+
+Wrong: silently fall back to a file database when the PostgreSQL DSN is absent.
+
+Correct: fail startup with a concrete configuration error so deployment mistakes are visible.
 
 ---
 

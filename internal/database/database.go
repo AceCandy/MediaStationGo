@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/glebarez/sqlite"
 	"go.uber.org/zap"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
@@ -16,8 +15,7 @@ import (
 	"github.com/ShukeBta/MediaStationGo/internal/config"
 )
 
-// Open initialises the configured GORM database. database.type=auto chooses
-// PostgreSQL when database.dsn is present and otherwise falls back to SQLite.
+// Open initialises the configured PostgreSQL database.
 func Open(cfg *config.Config, log *zap.Logger) (*gorm.DB, error) {
 	return open(cfg, log, false)
 }
@@ -31,33 +29,22 @@ func open(cfg *config.Config, log *zap.Logger, migration bool) (*gorm.DB, error)
 	if cfg == nil {
 		return nil, errors.New("database config is required")
 	}
-	dialect := normalizeDatabaseType(cfg.Database.Type)
-	if dialect == "auto" {
-		dialect = effectiveAutoDatabaseType(cfg)
-	}
-	dialector, err := databaseDialector(cfg, dialect, migration)
+	dialector, err := databaseDialector(cfg, migration)
 	if err != nil {
 		return nil, err
 	}
 	db, err := gorm.Open(dialector, &gorm.Config{
 		Logger:                                   newGormLogger(log),
-		PrepareStmt:                              prepareStmtEnabled(dialect, migration),
+		PrepareStmt:                              !migration,
 		DisableForeignKeyConstraintWhenMigrating: false,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("gorm open: %w", err)
 	}
-	if dialect == "sqlite" {
-		installSQLiteWriteGate(db)
-	}
 	if err := configureConnectionPool(db, cfg); err != nil {
 		return nil, err
 	}
 	return db, nil
-}
-
-func prepareStmtEnabled(dialect string, migration bool) bool {
-	return dialect != "postgres" || !migration
 }
 
 func newGormLogger(log *zap.Logger) logger.Interface {
@@ -89,39 +76,16 @@ func configureConnectionPool(db *gorm.DB, cfg *config.Config) error {
 	return nil
 }
 
-func normalizeDatabaseType(value string) string {
-	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "", "auto":
-		return "auto"
-	case "sqlite", "sqlite3":
-		return "sqlite"
-	case "postgres", "postgresql", "pg":
-		return "postgres"
-	default:
-		return strings.ToLower(strings.TrimSpace(value))
+func databaseDialector(cfg *config.Config, migration bool) (gorm.Dialector, error) {
+	databaseType := strings.ToLower(strings.TrimSpace(cfg.Database.Type))
+	if databaseType != "postgres" && databaseType != "postgresql" && databaseType != "pg" {
+		return nil, fmt.Errorf("unsupported database.type %q (supported: postgres)", cfg.Database.Type)
 	}
-}
-
-func effectiveAutoDatabaseType(cfg *config.Config) string {
-	if cfg != nil && strings.TrimSpace(cfg.Database.DSN) != "" {
-		return "postgres"
+	dsn := strings.TrimSpace(cfg.Database.DSN)
+	if dsn == "" {
+		return nil, errors.New("database.dsn is required")
 	}
-	return "sqlite"
-}
-
-func databaseDialector(cfg *config.Config, dialect string, migration bool) (gorm.Dialector, error) {
-	switch dialect {
-	case "sqlite":
-		return sqlite.Open(buildSQLiteDSN(cfg)), nil
-	case "postgres":
-		dsn := strings.TrimSpace(cfg.Database.DSN)
-		if dsn == "" {
-			return nil, fmt.Errorf("database.dsn is required when database.type=postgres")
-		}
-		return postgres.New(postgres.Config{DSN: dsn, PreferSimpleProtocol: migration}), nil
-	default:
-		return nil, fmt.Errorf("unsupported database.type %q (supported: sqlite, postgres)", cfg.Database.Type)
-	}
+	return postgres.New(postgres.Config{DSN: dsn, PreferSimpleProtocol: migration}), nil
 }
 
 // zapStdLogger adapts a *zap.Logger to GORM's tiny logger interface.

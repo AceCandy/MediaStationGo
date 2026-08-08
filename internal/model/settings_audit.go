@@ -9,7 +9,7 @@ type Setting struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
-// AccessLog 是结构化审计跟踪条目。存储在 SQLite 中供管理活动面板使用。
+// AccessLog 是结构化审计跟踪条目，供管理活动面板使用。
 type AccessLog struct {
 	Base
 	UserID string `gorm:"index;size:36" json:"user_id"`

@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	testdb "github.com/ShukeBta/MediaStationGo/internal/testdb"
 	"github.com/gin-gonic/gin"
-	"github.com/glebarez/sqlite"
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 
@@ -20,7 +20,7 @@ import (
 
 func TestEmbyLowercaseVideoStreamRouteServesMedia(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	db, err := testdb.OpenPostgres(t, &gorm.Config{})
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
@@ -79,7 +79,7 @@ func TestEmbyLowercaseVideoStreamRouteServesMedia(t *testing.T) {
 
 func TestEmbyPrefixedAPIStreamRouteServesMedia(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	db, err := testdb.OpenPostgres(t, &gorm.Config{})
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
@@ -138,7 +138,7 @@ func TestEmbyPrefixedAPIStreamRouteServesMedia(t *testing.T) {
 
 func TestEmbyLowercaseOriginalHeadRouteServesHeaders(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	db, err := testdb.OpenPostgres(t, &gorm.Config{})
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
@@ -197,7 +197,7 @@ func TestEmbyLowercaseOriginalHeadRouteServesHeaders(t *testing.T) {
 
 func TestEmbyLowercaseVideoHLSRouteDoesNot404WhenDirectOnly(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	db, err := testdb.OpenPostgres(t, &gorm.Config{})
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}

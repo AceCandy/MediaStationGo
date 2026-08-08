@@ -5,9 +5,6 @@ import (
 	"testing"
 	"time"
 
-	"go.uber.org/zap"
-
-	"github.com/ShukeBta/MediaStationGo/internal/config"
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 )
 
@@ -176,12 +173,9 @@ func TestMgoBotSyncExpiryAndBotAdminCommands(t *testing.T) {
 	}
 }
 
-func TestMgoBotProtectedUsersAndBackupCommands(t *testing.T) {
+func TestMgoBotProtectedUsers(t *testing.T) {
 	ctx := t.Context()
 	repos, bot := newBotTestService(t)
-	cfg := &config.Config{}
-	cfg.App.DataDir = t.TempDir()
-	bot.SetBackupService(NewBackupService(cfg, zap.NewNop(), repos.DB))
 
 	channel := &model.NotifyChannel{Name: "Telegram", Type: "telegram", Enabled: true, Config: `{"admin_user_ids":"9701"}`}
 	msg := &TelegramMessage{From: TelegramUser{ID: 9701, Username: "admin"}, Chat: TelegramChat{ID: 9701, Type: "private"}}
@@ -229,20 +223,6 @@ func TestMgoBotProtectedUsersAndBackupCommands(t *testing.T) {
 		t.Fatalf("expected unprotect success, got %q", reply.Text)
 	}
 
-	reply, err = bot.executeCommand(ctx, channel, msg, "/backup_db")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(reply.Text, "数据库备份完成") {
-		t.Fatalf("backup_db should create backup, got %q", reply.Text)
-	}
-	reply, err = bot.executeCommand(ctx, channel, msg, "/restore_from_db list")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(reply.Text, "mediastation_") {
-		t.Fatalf("restore list should show backup, got %q", reply.Text)
-	}
 }
 
 func TestMgoBotAliasesAndSyncGroupGuards(t *testing.T) {

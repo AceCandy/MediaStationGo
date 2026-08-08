@@ -2,7 +2,7 @@ package model
 
 // APIConfig stores third-party data-source configuration. The api_key
 // column is encrypted with AES-GCM (see internal/service/crypto.go) so an
-// SQLite leak does not expose third-party credentials.
+// database leak does not expose third-party credentials.
 //
 // Provider values mirror the original Python project:
 //

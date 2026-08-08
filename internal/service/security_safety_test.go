@@ -1,11 +1,6 @@
 package service
 
-import (
-	"path/filepath"
-	"testing"
-
-	"github.com/ShukeBta/MediaStationGo/internal/config"
-)
+import "testing"
 
 func TestValidateSTRMProxyURLBlocksPrivateTargets(t *testing.T) {
 	blocked := []string{
@@ -26,23 +21,6 @@ func TestValidateSTRMProxyURLAllowsPublicHTTP(t *testing.T) {
 		if _, err := validateSTRMProxyURL(raw); err != nil {
 			t.Fatalf("validateSTRMProxyURL(%q) = %v, want nil", raw, err)
 		}
-	}
-}
-
-func TestBackupFilePathRejectsTraversal(t *testing.T) {
-	svc := &BackupService{cfg: &config.Config{}}
-	svc.cfg.App.DataDir = t.TempDir()
-	for _, name := range []string{"../evil.db", `..\evil.db`, "nested/evil.db", "evil.sqlite"} {
-		if _, err := svc.backupFilePath(name); err == nil {
-			t.Fatalf("backupFilePath(%q) allowed traversal or non-backup file", name)
-		}
-	}
-	path, err := svc.backupFilePath("mediastation_20260611_010203.db")
-	if err != nil {
-		t.Fatalf("backupFilePath(valid) = %v", err)
-	}
-	if filepath.Dir(path) != filepath.Join(svc.cfg.App.DataDir, "backups") {
-		t.Fatalf("backupFilePath(valid) dir = %q", filepath.Dir(path))
 	}
 }
 

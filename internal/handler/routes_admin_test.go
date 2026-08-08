@@ -30,7 +30,6 @@ func TestAdminRouteSurfacesAreRegistered(t *testing.T) {
 		"GET /api/admin/cloud/:type/list",
 		"GET /api/admin/download/clients",
 		"POST /api/admin/system/scheduler/:name/trigger",
-		"POST /api/admin/backups",
 		"GET /api/admin/notify/channels",
 		"GET /api/admin/telegram/webhook",
 		"GET /api/admin/organize/sources",

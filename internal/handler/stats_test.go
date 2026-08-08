@@ -6,8 +6,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	testdb "github.com/ShukeBta/MediaStationGo/internal/testdb"
 	"github.com/gin-gonic/gin"
-	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 
 	"github.com/ShukeBta/MediaStationGo/internal/middleware"
@@ -18,7 +18,7 @@ import (
 
 func TestStatsSnapshotHidesAdultRecentlyAddedForUser(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	db, err := testdb.OpenPostgres(t, &gorm.Config{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,7 +67,7 @@ func TestStatsSnapshotHidesAdultRecentlyAddedForUser(t *testing.T) {
 
 func TestStatsLibrariesCountsMergedCloudLibraryItems(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	db, err := testdb.OpenPostgres(t, &gorm.Config{})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -14,11 +14,8 @@ func (c *Config) normalize() error {
 	if c.App.DataDir == "" {
 		c.App.DataDir = "./data"
 	}
-	if c.Database.DBPath == "" {
-		c.Database.DBPath = filepath.Join(c.App.DataDir, "mediastation.db")
-	}
 	if c.Database.Type == "" {
-		c.Database.Type = "auto"
+		c.Database.Type = "postgres"
 	}
 	if c.App.MaxCPUThreads < 1 {
 		c.App.MaxCPUThreads = 1

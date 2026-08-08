@@ -26,9 +26,6 @@ func AutoMigrate(db *gorm.DB) error {
 	if err := ensureLibraryRootsCompatibility(db); err != nil {
 		return err
 	}
-	if isSQLite(db) {
-		return ensureMediaSearchIndex(db)
-	}
 	return nil
 }
 
@@ -51,9 +48,6 @@ func ensureAPIConfigColumns(db *gorm.DB) error {
 }
 
 func ensurePostgresColumnCompatibility(db *gorm.DB) error {
-	if !isPostgres(db) {
-		return nil
-	}
 	statements := []string{
 		`ALTER TABLE media ALTER COLUMN container TYPE varchar(128)`,
 		`ALTER TABLE media ALTER COLUMN series_hint TYPE varchar(128)`,
@@ -101,19 +95,11 @@ func ensurePerformanceIndexes(db *gorm.DB) error {
 			`CREATE UNIQUE INDEX IF NOT EXISTS uniq_playlist_items_metadata_active ON playlist_items(playlist_id, metadata_id) WHERE deleted_at IS NULL`,
 		)
 	}
-	if isSQLite(db) {
-		statements = append(statements,
-			`CREATE INDEX IF NOT EXISTS idx_metadata_title_active ON metadata_items(title COLLATE NOCASE) WHERE deleted_at IS NULL`,
-			`CREATE INDEX IF NOT EXISTS idx_metadata_original_name_active ON metadata_items(original_name COLLATE NOCASE) WHERE deleted_at IS NULL`,
-			`CREATE INDEX IF NOT EXISTS idx_media_scan_title_active ON media(scan_title COLLATE NOCASE) WHERE deleted_at IS NULL`,
-		)
-	} else {
-		statements = append(statements,
-			`CREATE INDEX IF NOT EXISTS idx_metadata_title_active ON metadata_items(title) WHERE deleted_at IS NULL`,
-			`CREATE INDEX IF NOT EXISTS idx_metadata_original_name_active ON metadata_items(original_name) WHERE deleted_at IS NULL`,
-			`CREATE INDEX IF NOT EXISTS idx_media_scan_title_active ON media(scan_title) WHERE deleted_at IS NULL`,
-		)
-	}
+	statements = append(statements,
+		`CREATE INDEX IF NOT EXISTS idx_metadata_title_active ON metadata_items(title) WHERE deleted_at IS NULL`,
+		`CREATE INDEX IF NOT EXISTS idx_metadata_original_name_active ON metadata_items(original_name) WHERE deleted_at IS NULL`,
+		`CREATE INDEX IF NOT EXISTS idx_media_scan_title_active ON media(scan_title) WHERE deleted_at IS NULL`,
+	)
 	for _, stmt := range statements {
 		if err := db.Exec(stmt).Error; err != nil {
 			return err

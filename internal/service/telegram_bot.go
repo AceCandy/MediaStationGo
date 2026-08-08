@@ -73,7 +73,6 @@ type TelegramBotService struct {
 	crypto *CryptoService
 	auth   *AuthService
 	device *DeviceService
-	backup *BackupService
 
 	pollingMu     sync.Mutex
 	pollingCancel map[string]context.CancelFunc // bot_token -> cancel
@@ -92,9 +91,6 @@ type pendingInput struct {
 // SetDeviceService wires the device-management service used by the device
 // menu (list / kick) and enforcement notifications.
 func (s *TelegramBotService) SetDeviceService(d *DeviceService) { s.device = d }
-
-// SetBackupService wires database backup/restore commands.
-func (s *TelegramBotService) SetBackupService(b *BackupService) { s.backup = b }
 
 // NotifyUserByID sends a Telegram message to the local user identified by
 // userID, resolved through their Telegram binding. Used by enforcement to warn

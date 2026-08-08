@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	testdb "github.com/ShukeBta/MediaStationGo/internal/testdb"
 	"github.com/gin-gonic/gin"
-	"github.com/glebarez/sqlite"
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 
@@ -52,7 +52,7 @@ func TestStorageConfigCloudTestSuccessSavesAndEnablesProvider(t *testing.T) {
 	}))
 	defer openlist.Close()
 
-	db, err := gorm.Open(sqlite.Open("file:storage_config_cloud_test?mode=memory&cache=shared"), &gorm.Config{})
+	db, err := testdb.OpenPostgres(t, &gorm.Config{})
 	if err != nil {
 		t.Fatal(err)
 	}

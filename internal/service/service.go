@@ -54,7 +54,6 @@ type Container struct {
 	Scheduler        *SchedulerService
 	Storage          *StorageService
 	Emby             *EmbyService
-	Backup           *BackupService
 	Notifier         *NotifierService
 	NotifyChannels   *NotifyChannelService
 	TelegramBot      *TelegramBotService

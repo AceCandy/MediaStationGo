@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/glebarez/sqlite"
+	testdb "github.com/ShukeBta/MediaStationGo/internal/testdb"
 	"gorm.io/gorm"
 
 	"github.com/ShukeBta/MediaStationGo/internal/database"
@@ -41,7 +41,7 @@ func TestValidateMetadataItemIdentity(t *testing.T) {
 }
 
 func TestMediaUpsertSkipsUnchangedExistingRow(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	db, err := testdb.OpenPostgres(t, &gorm.Config{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -100,7 +100,7 @@ func TestMediaUpsertSkipsUnchangedExistingRow(t *testing.T) {
 }
 
 func TestMediaUpsertRefreshesCloudExternalIDFromPathHint(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	db, err := testdb.OpenPostgres(t, &gorm.Config{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -146,7 +146,7 @@ func TestMediaUpsertRefreshesCloudExternalIDFromPathHint(t *testing.T) {
 }
 
 func TestMediaUpsertMatchedIncomingRefreshesScrapedMetadata(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	db, err := testdb.OpenPostgres(t, &gorm.Config{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -239,7 +239,7 @@ func TestMediaUpsertMatchedIncomingRefreshesScrapedMetadata(t *testing.T) {
 }
 
 func TestListByLibraryOrdersByReleaseDate(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	db, err := testdb.OpenPostgres(t, &gorm.Config{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -283,7 +283,7 @@ func TestListByLibraryOrdersByReleaseDate(t *testing.T) {
 }
 
 func TestMediaUpsertScanDoesNotClearMatchedMetadata(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	db, err := testdb.OpenPostgres(t, &gorm.Config{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -372,7 +372,7 @@ func TestMediaUpsertScanDoesNotClearMatchedMetadata(t *testing.T) {
 // 精确的分类库并扫描，library_id 必须迁移到新分类库，否则媒体被钉死在旧库、新库
 // 视图里看不到。本地媒体物理位置固定，不参与迁移。
 func TestMediaUpsertMigratesCloudLibraryIDOnRescan(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	db, err := testdb.OpenPostgres(t, &gorm.Config{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -445,7 +445,7 @@ func (f fakeMediaSearchBackend) SearchMediaIDs(context.Context, string, int, int
 }
 
 func TestMediaSearchUsesExternalBackendAndFallsBack(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	db, err := testdb.OpenPostgres(t, &gorm.Config{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -487,7 +487,7 @@ func TestMediaSearchUsesExternalBackendAndFallsBack(t *testing.T) {
 }
 
 func TestMediaSearchFilteredSupportsChineseFuzzyTerms(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	db, err := testdb.OpenPostgres(t, &gorm.Config{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -541,67 +541,5 @@ func TestMediaSearchFilteredSupportsChineseFuzzyTerms(t *testing.T) {
 	}
 	if len(items) == 0 || items[0].ID != "m-ferry" {
 		t.Fatalf("genre search missed target: %#v", items)
-	}
-}
-
-func TestMediaSearchIndexBackfillRunsInBatches(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := database.AutoMigrate(db); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
-	repos := New(db)
-	lib := model.Library{Name: "电影", Path: "/media/movie", Type: "movie", Enabled: true}
-	if err := repos.Library.Create(t.Context(), &lib); err != nil {
-		t.Fatal(err)
-	}
-	metadata := createTestMetadata(t, repos, model.MetadataItem{
-		Base: model.Base{ID: "metadata-backfill"}, Kind: model.MetadataKindMovie,
-		Title: "后台索引", Source: "tmdb",
-	})
-	if err := repos.DB.Create(&model.Media{
-		Base: model.Base{ID: "m-backfill"}, LibraryID: lib.ID, MetadataID: metadata.ID,
-		Title: "后台索引", Path: "/media/movie/后台索引.mkv", ScrapeStatus: "matched",
-	}).Error; err != nil {
-		t.Fatal(err)
-	}
-	// 插入触发器应当同步维护 FTS 行。
-	var indexed int64
-	if err := repos.DB.Raw(`SELECT COUNT(*) FROM media_search_fts`).Scan(&indexed).Error; err != nil {
-		t.Fatal(err)
-	}
-	if indexed != 1 {
-		t.Fatalf("insert trigger should index new metadata, got %d rows", indexed)
-	}
-	// 清空 FTS 模拟旧库升级后索引缺失，回填应按批补齐且 rowid 对齐。
-	if err := repos.DB.Exec(`DELETE FROM media_search_fts`).Error; err != nil {
-		t.Fatal(err)
-	}
-	n, err := repos.Media.BackfillSearchIndex(t.Context(), 1)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if n != 1 {
-		t.Fatalf("backfilled rows = %d, want 1", n)
-	}
-	var aligned int64
-	if err := repos.DB.Raw(`SELECT COUNT(*) FROM media_search_fts f JOIN metadata_items mi ON f.rowid = mi.rowid AND f.metadata_id = mi.id`).Scan(&aligned).Error; err != nil {
-		t.Fatal(err)
-	}
-	if aligned != 1 {
-		t.Fatalf("fts rows aligned with metadata rowid = %d, want 1", aligned)
-	}
-	// 共享元数据软删除后，触发器应清理对应 FTS 行。
-	if err := repos.DB.Delete(&model.MetadataItem{}, "id = ?", metadata.ID).Error; err != nil {
-		t.Fatal(err)
-	}
-	var after int64
-	if err := repos.DB.Raw(`SELECT COUNT(*) FROM media_search_fts`).Scan(&after).Error; err != nil {
-		t.Fatal(err)
-	}
-	if after != 0 {
-		t.Fatalf("metadata soft delete should drop fts row, got %d", after)
 	}
 }

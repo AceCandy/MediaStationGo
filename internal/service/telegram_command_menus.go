@@ -29,7 +29,7 @@ var telegramSupportedCommandSet = map[string]struct{}{
 	"/check_ex": {}, "/deleted": {}, "/low_activity": {}, "/uranks": {}, "/days_ranks": {}, "/week_ranks": {},
 	"/embyadmin": {}, "/unbanall": {}, "/banall": {}, "/embylibs_unblockall": {}, "/embylibs_blockall": {},
 	"/extraembylibs_unblockall": {}, "/extraembylibs_blockall": {}, "/proadmin": {}, "/revadmin": {},
-	"/backup_db": {}, "/restore_from_db": {}, "/prouser": {}, "/revuser": {},
+	"/prouser": {}, "/revuser": {},
 }
 
 type telegramBotCommand struct {
@@ -118,11 +118,9 @@ func telegramMgoAdminBotCommandMenu() []telegramBotCommand {
 		{Command: "embylibs_blockall", Description: "Mgo权限: 批量禁用媒体库"},
 		{Command: "embylibs_unblockall", Description: "Mgo权限: 批量开放媒体库"},
 
-		// 运维：Bot 管理员与数据库备份恢复。
+		// 运维：Bot 管理员。
 		{Command: "proadmin", Description: "Mgo运维: 添加Bot管理员"},
 		{Command: "revadmin", Description: "Mgo运维: 移除Bot管理员"},
-		{Command: "backup_db", Description: "Mgo运维: 备份数据库"},
-		{Command: "restore_from_db", Description: "Mgo运维: 恢复数据库"},
 	}
 }
 

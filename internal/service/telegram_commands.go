@@ -166,8 +166,6 @@ func (s *TelegramBotService) telegramMgoPolicyCommandDefinitions(ctx context.Con
 		{Aliases: []string{"/revadmin"}, AdminOnly: true, AdminOnlyText: adminOnly, Handle: func(args []string) (telegramCommandReply, error) {
 			return s.cmdMgoBotAdmin(ctx, channel, args, false), nil
 		}},
-		{Aliases: []string{"/backup_db"}, AdminOnly: true, AdminOnlyText: adminOnly, Handle: func(args []string) (telegramCommandReply, error) { return s.cmdMgoBackupDB(ctx), nil }},
-		{Aliases: []string{"/restore_from_db"}, AdminOnly: true, AdminOnlyText: adminOnly, Handle: func(args []string) (telegramCommandReply, error) { return s.cmdMgoRestoreDB(ctx, args), nil }},
 		{Aliases: []string{"/prouser"}, AdminOnly: true, AdminOnlyText: adminOnly, Handle: func(args []string) (telegramCommandReply, error) {
 			return s.cmdMgoProtectedUser(ctx, args, true), nil
 		}},

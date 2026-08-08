@@ -28,11 +28,8 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.App.MaxCPUThreads != 2 {
 		t.Fatalf("expected default MaxCPUThreads 2, got %d", cfg.App.MaxCPUThreads)
 	}
-	if cfg.Database.DBPath == "" {
-		t.Fatalf("expected non-empty DBPath")
-	}
-	if cfg.Database.Type != "auto" {
-		t.Fatalf("expected default database type auto, got %q", cfg.Database.Type)
+	if cfg.Database.Type != "postgres" {
+		t.Fatalf("expected default database type postgres, got %q", cfg.Database.Type)
 	}
 	if cfg.Logging.Level != "warn" || !cfg.Logging.EnableRotation || cfg.Logging.MaxSizeMB != 20 {
 		t.Fatalf("expected warn rotating logs by default, got level=%q rotation=%v max=%d", cfg.Logging.Level, cfg.Logging.EnableRotation, cfg.Logging.MaxSizeMB)

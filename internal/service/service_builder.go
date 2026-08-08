@@ -105,7 +105,6 @@ func (b *serviceContainerBuilder) initContentServices() {
 	b.c.DLNA = NewDLNAService(b.log)
 	b.c.Storage = NewStorageService(b.log, b.repos)
 	b.c.Emby = NewEmbyService(b.cfg, b.log, b.repos)
-	b.c.Backup = NewBackupService(b.cfg, b.log, b.repos.DB)
 	b.c.Notifier = NewNotifierService(b.log, b.repos)
 	b.c.NotifyChannels = NewNotifyChannelService(b.log, b.repos)
 	b.c.Scan.SetNotifyChannels(b.c.NotifyChannels)
@@ -157,7 +156,6 @@ func (b *serviceContainerBuilder) initIdentityServices() {
 	b.c.Device.SetSessionTracker(b.c.Sessions)
 	b.c.TelegramBot = NewTelegramBotService(b.log, b.repos, b.c.Crypto, b.c.Auth)
 	b.c.TelegramBot.SetDeviceService(b.c.Device)
-	b.c.TelegramBot.SetBackupService(b.c.Backup)
 	// Device enforcement notifies users through their Telegram binding before destructive actions.
 	b.c.Device.SetNotifier(b.c.TelegramBot.NotifyUserByID)
 	b.c.ApiConfig = NewApiConfigService(b.cfg, b.log, b.repos, b.c.Crypto)

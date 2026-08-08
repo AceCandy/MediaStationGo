@@ -8,7 +8,7 @@ import { confirmAction } from '../components/confirmAction'
 // APIConfigsPage manages third-party API keys (TMDb / Bangumi / TheTVDB /
 // Fanart / OpenAI / Douban). Plaintext keys are never returned by the
 // backend — only a "abc1****wxyz" mask. The actual secret is encrypted
-// in SQLite with AES-GCM keyed off the JWT secret.
+// in PostgreSQL with AES-GCM keyed off the JWT secret.
 export function APIConfigsPage() {
   const [items, setItems] = useState<APIConfig[]>([])
   const [loading, setLoading] = useState(true)

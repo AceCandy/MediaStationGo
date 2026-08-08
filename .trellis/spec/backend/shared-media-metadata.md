@@ -313,7 +313,7 @@ db.Model(&credit).
 - Sidecars: snapshot NFO/poster/fanart/thumb before scan/scrape/organize and assert content and paths are unchanged afterward.
 - Media files: snapshot playable paths before every scrape entrypoint and assert file existence, path, library ID and bytes are unchanged afterward.
 - Library deletion: query with `Unscoped` and assert library/root/media rows are gone, metadata remains, and a failed child delete rolls back all rows.
-- Run SQLite coverage. When a PostgreSQL DSN is available, run AutoMigrate plus MediaView query/constraint integration tests; otherwise record static verification as incomplete.
+- Run AutoMigrate plus MediaView query/constraint integration tests against an isolated PostgreSQL test schema.
 
 ### 7. Wrong vs Correct
 
