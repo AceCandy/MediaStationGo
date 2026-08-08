@@ -95,7 +95,6 @@ type UserDevice struct {
 	FirstSeenAt time.Time  `json:"first_seen_at"`
 	LastSeenAt  time.Time  `gorm:"index" json:"last_seen_at"`
 	LastPlayAt  *time.Time `gorm:"index" json:"last_play_at,omitempty"`
-	Warnings    int        `gorm:"default:0" json:"warnings"`   // 指纹不匹配累计告警次数
 	Kicked      bool       `gorm:"default:false" json:"kicked"` // 被一键踢下线（强制重新登录）
 	Realtime    bool       `gorm:"-" json:"realtime,omitempty"`
 	Online      bool       `gorm:"-" json:"online,omitempty"`

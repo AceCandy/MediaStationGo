@@ -69,6 +69,46 @@ func TestPostgresMigrationDialectorUsesSimpleProtocol(t *testing.T) {
 	}
 }
 
+func TestRemoveUnusedLegacyColumns(t *testing.T) {
+	db, err := testdb.OpenPostgres(t, &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(&model.Person{}, &model.UserDevice{}); err != nil {
+		t.Fatal(err)
+	}
+	for _, stmt := range []string{
+		`ALTER TABLE people ADD COLUMN profile_image_source text`,
+		`ALTER TABLE user_devices ADD COLUMN warnings integer`,
+	} {
+		if err := db.Exec(stmt).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if err := removeUnusedLegacyColumns(db); err != nil {
+		t.Fatal(err)
+	}
+	for _, column := range []struct {
+		table string
+		name  string
+	}{
+		{table: "people", name: "profile_image_source"},
+		{table: "user_devices", name: "warnings"},
+	} {
+		var count int
+		if err := db.Raw(`
+SELECT COUNT(1)
+FROM information_schema.columns
+WHERE table_schema = current_schema() AND table_name = ? AND column_name = ?`, column.table, column.name).Scan(&count).Error; err != nil {
+			t.Fatal(err)
+		}
+		if count != 0 {
+			t.Fatalf("legacy column %s.%s still exists", column.table, column.name)
+		}
+	}
+}
+
 func TestEnforceTelegramBindingOneToOneCleansDuplicatesAndAddsIndex(t *testing.T) {
 	db, err := testdb.OpenPostgres(t, &gorm.Config{})
 	if err != nil {

@@ -26,6 +26,51 @@ func AutoMigrate(db *gorm.DB) error {
 	if err := ensureLibraryRootsCompatibility(db); err != nil {
 		return err
 	}
+	if err := removeDownloadSubscriptionSchema(db); err != nil {
+		return err
+	}
+	if err := removeUnusedLegacyColumns(db); err != nil {
+		return err
+	}
+	return nil
+}
+
+// removeDownloadSubscriptionSchema removes the tables and columns owned by
+// the retired subscription/download feature. AutoMigrate only creates or
+// alters models, so these explicitly destructive removals are kept here as a
+// one-time compatibility migration for existing installations.
+func removeDownloadSubscriptionSchema(db *gorm.DB) error {
+	statements := []string{
+		`DROP TABLE IF EXISTS download_tasks CASCADE`,
+		`DROP TABLE IF EXISTS download_clients CASCADE`,
+		`DROP TABLE IF EXISTS subscriptions CASCADE`,
+		`ALTER TABLE IF EXISTS user_permissions DROP COLUMN IF EXISTS can_manage_downloads`,
+		`ALTER TABLE IF EXISTS user_permissions DROP COLUMN IF EXISTS can_manage_subscriptions`,
+		`ALTER TABLE IF EXISTS sites DROP COLUMN IF EXISTS downloader`,
+		`ALTER TABLE IF EXISTS sites DROP COLUMN IF EXISTS rss_url`,
+		`ALTER TABLE IF EXISTS sites DROP COLUMN IF EXISTS upload_bytes`,
+		`ALTER TABLE IF EXISTS sites DROP COLUMN IF EXISTS download_bytes`,
+		`DELETE FROM settings WHERE key LIKE 'subscription.%' OR key LIKE 'qbittorrent.%' OR key LIKE 'transmission.%' OR key LIKE 'aria2.%' OR key IN ('organize.keep_seeding', 'downloads.smart_classify', 'organizer.auto_after_download')`,
+	}
+	for _, stmt := range statements {
+		if err := db.Exec(stmt).Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// removeUnusedLegacyColumns removes columns that have no current model or
+// runtime consumer. AutoMigrate never drops columns removed from a model.
+func removeUnusedLegacyColumns(db *gorm.DB) error {
+	for _, stmt := range []string{
+		`ALTER TABLE IF EXISTS people DROP COLUMN IF EXISTS profile_image_source`,
+		`ALTER TABLE IF EXISTS user_devices DROP COLUMN IF EXISTS warnings`,
+	} {
+		if err := db.Exec(stmt).Error; err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
