@@ -175,3 +175,24 @@ Added one-hour cloud direct-link caching, playback source/cache diagnostics, con
 ### Status
 
 [OK] **Completed**
+
+
+## Session 9: Persist artwork and refactor Emby metadata scope
+
+**Date**: 2026-08-08
+**Task**: Persist artwork and refactor Emby metadata scope
+**Branch**: `main`
+
+### Summary
+
+Persist cloud artwork and Emby people images under DataDir, and query Emby logical metadata scopes with version-aware visibility and pagination. Verified with go test ./..., go vet ./..., and git diff --check.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `26b4738` | (see git log) |
+
+### Status
+
+[OK] **Completed**
