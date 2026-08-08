@@ -1,0 +1,4 @@
+{"file":".trellis/spec/backend/shared-media-metadata.md","reason":"Review the person and artwork cross-layer contracts against the implementation."}
+{"file":".trellis/spec/backend/database-guidelines.md","reason":"Review model migration, transaction boundaries, and repository updates."}
+{"file":".trellis/spec/backend/error-handling.md","reason":"Review download failure propagation and placeholder behavior."}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"Review test coverage and required verification."}

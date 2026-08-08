@@ -1,0 +1,4 @@
+{"file":".trellis/spec/backend/shared-media-metadata.md","reason":"Defines Person identity, credit persistence, Emby people contracts, and managed artwork boundaries."}
+{"file":".trellis/spec/backend/database-guidelines.md","reason":"Defines GORM model migration and persistence conventions."}
+{"file":".trellis/spec/backend/error-handling.md","reason":"Applies to non-fatal image download failures during metadata persistence."}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"Defines focused tests and final verification requirements."}
