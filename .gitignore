@@ -22,6 +22,8 @@ web/coverage/
 web/tsconfig.tsbuildinfo
 dist-release/
 
+docs/cankao/
+
 # Data / runtime
 data/
 cache/

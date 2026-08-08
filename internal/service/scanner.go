@@ -69,10 +69,6 @@ type ScannerService struct {
 	cloudScanMu             sync.Mutex
 	cloudScans              map[string]*cloudScanEntry
 	cloudSlots              chan struct{}
-	cloudImagePrefetchOnce  sync.Once
-	cloudImagePrefetchQueue chan cloudImagePrefetchTask
-	cloudImagePrefetchMu    sync.Mutex
-	cloudImagePrefetching   map[string]struct{}
 	cloudMediaProbeOnce     sync.Once
 	cloudMediaProbeQueue    chan cloudMediaProbeTask
 	cloudMediaProbeMu       sync.Mutex
@@ -105,18 +101,16 @@ func NewScannerService(
 ) *ScannerService {
 	return &ScannerService{
 		cfg: cfg, log: log, repo: repo, hub: hub,
-		probe:                   probe,
-		scraper:                 scraper,
-		cloudScans:              make(map[string]*cloudScanEntry),
-		cloudSlots:              make(chan struct{}, 1),
-		cloudImagePrefetchQueue: make(chan cloudImagePrefetchTask, 256),
-		cloudImagePrefetching:   make(map[string]struct{}),
-		cloudMediaProbeQueue:    make(chan cloudMediaProbeTask, 1024),
-		cloudMediaProbing:       make(map[string]struct{}),
-		cloudMediaProbeBackoff:  make(map[string]time.Time),
-		localMediaProbeQueue:    make(chan localMediaProbeTask, 1024),
-		localMediaProbing:       make(map[string]struct{}),
-		localScans:              make(map[string]struct{}),
+		probe:                  probe,
+		scraper:                scraper,
+		cloudScans:             make(map[string]*cloudScanEntry),
+		cloudSlots:             make(chan struct{}, 1),
+		cloudMediaProbeQueue:   make(chan cloudMediaProbeTask, 1024),
+		cloudMediaProbing:      make(map[string]struct{}),
+		cloudMediaProbeBackoff: make(map[string]time.Time),
+		localMediaProbeQueue:   make(chan localMediaProbeTask, 1024),
+		localMediaProbing:      make(map[string]struct{}),
+		localScans:             make(map[string]struct{}),
 	}
 }
 
@@ -147,16 +141,8 @@ func (s *ScannerService) SetNotifyChannels(notify *NotifyChannelService) {
 	}
 }
 
-// SetImageProxy lets cloud scans warm sidecar poster/backdrop files into the
-// local image cache. This keeps library opening fast without forcing the UI or
-// Emby clients to resolve/download every cloud poster on demand.
 func (s *ScannerService) SetImageProxy(imageProxy *ImageProxy) {
 	s.imageProxy = imageProxy
-	if imageProxy != nil {
-		s.cloudImagePrefetchOnce.Do(func() {
-			go s.cloudImagePrefetchWorker()
-		})
-	}
 }
 
 // ScanResult summarises a scan run.

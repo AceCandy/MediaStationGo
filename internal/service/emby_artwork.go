@@ -25,12 +25,11 @@ func (e *EmbyService) ImageURL(ctx context.Context, id, imageType string) (strin
 		return raw, nil
 	}
 	if e.repo != nil && e.repo.Person != nil {
-		if person, personErr := e.repo.Person.FindByID(ctx, id); personErr != nil && !isMissingPeopleTable(personErr) {
+		person, personErr := e.repo.Person.FindByID(ctx, id)
+		if personErr != nil && !isMissingPeopleTable(personErr) {
 			return "", personErr
-		} else if person != nil {
-			if strings.EqualFold(imageType, "primary") || strings.TrimSpace(imageType) == "" {
-				return person.ProfileURL, nil
-			}
+		}
+		if personErr == nil && person != nil {
 			return "", nil
 		}
 	}

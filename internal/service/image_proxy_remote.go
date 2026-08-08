@@ -143,11 +143,31 @@ func (p *ImageProxy) fetchAndCacheRemoteImage(ctx context.Context, raw, host, ca
 		p.log.Warn("imageproxy: mkdir failed", zap.String("dir", p.cacheDir), zap.Error(err))
 		return nil, "", "", errImageProxyRequestSetup
 	}
+	data, ctype, contentLength, err := p.fetchRemoteImageUncached(ctx, raw, host)
+	if err == nil {
+		p.writeImageCache(cachePath, failPath, "img-*.tmp", data)
+		return data, ctype, contentLength, nil
+	}
+	if !errors.Is(err, errImageProxyRequestSetup) {
+		p.markImageFetchFailed(failPath)
+	}
+	return nil, "", "", err
+}
+
+func (p *ImageProxy) fetchRemoteImageDirect(ctx context.Context, raw string) ([]byte, string, error) {
+	u, err := p.validateURL(raw)
+	if err != nil {
+		return nil, "", err
+	}
+	data, ctype, _, err := p.fetchRemoteImageUncached(ctx, raw, strings.ToLower(u.Host))
+	return data, ctype, err
+}
+
+func (p *ImageProxy) fetchRemoteImageUncached(ctx context.Context, raw, host string) ([]byte, string, string, error) {
 	var lastErr error
 	for _, candidate := range p.remoteImageFetchClients() {
 		data, ctype, contentLength, err := p.fetchRemoteImageOnce(ctx, raw, host, candidate)
 		if err == nil {
-			p.writeImageCache(cachePath, failPath, "img-*.tmp", data)
 			return data, ctype, contentLength, nil
 		}
 		if errors.Is(err, errImageProxyRequestSetup) {
@@ -158,13 +178,11 @@ func (p *ImageProxy) fetchAndCacheRemoteImage(ctx context.Context, raw, host, ca
 	if p.canUseExternalImageFallback() && isDoubanImageHost(host) {
 		data, ctype, contentLength, err := fetchRemoteImageWithCurl(ctx, raw, host)
 		if err == nil {
-			p.writeImageCache(cachePath, failPath, "img-*.tmp", data)
 			return data, ctype, contentLength, nil
 		}
 		p.log.Warn("imageproxy: curl fallback failed", zap.String("host", host), zap.Error(err))
 		lastErr = err
 	}
-	p.markImageFetchFailed(failPath)
 	if lastErr == nil {
 		lastErr = errors.New("upstream image fetch failed")
 	}

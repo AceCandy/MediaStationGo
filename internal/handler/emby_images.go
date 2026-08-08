@@ -35,6 +35,14 @@ func embyItemImageHandler(svc *service.Container) gin.HandlerFunc {
 		req := c.Request.WithContext(ctx)
 		id := c.Param("id")
 		imgType := strings.ToLower(c.Param("type"))
+		if imgType == "primary" && svc.PeopleImages != nil {
+			if isPerson, personErr := svc.PeopleImages.ServePerson(ctx, c.Writer, req, id); isPerson {
+				if personErr != nil {
+					embyServePlaceholderImage(c)
+				}
+				return
+			}
+		}
 		raw, err := svc.Emby.ImageURL(ctx, id, imgType)
 		if err != nil || raw == "" {
 			embyServePlaceholderImage(c)

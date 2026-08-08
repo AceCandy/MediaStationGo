@@ -1,7 +1,6 @@
 package service
 
 import (
-	"bytes"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -163,11 +162,8 @@ func TestScanCloudLibraryReadsMovieDirectoryNFOAndCleanTitleArtwork(t *testing.T
 		t.Fatalf("unexpected scanner metadata state: %#v", media)
 	}
 	rec := httptest.NewRecorder()
-	if !imageProxy.ServeCloudCached(rec, httptest.NewRequest(http.MethodGet, local.PosterURL, nil), "openlist:/Movies/Action Movie (2025) {tmdb-1197306}/action movie (2025)-poster.jpg") {
-		t.Fatal("clean-title cloud poster should be cached locally during scan")
-	}
-	if got := rec.Body.Bytes(); !bytes.Equal(got, testJPEG) {
-		t.Fatalf("cached poster body = %x", got)
+	if imageProxy.ServeCloudCached(rec, httptest.NewRequest(http.MethodGet, local.PosterURL, nil), "openlist:/Movies/Action Movie (2025) {tmdb-1197306}/action movie (2025)-poster.jpg") {
+		t.Fatal("clean-title cloud poster should not be cached during scan")
 	}
 }
 
@@ -257,11 +253,8 @@ func TestScanCloudLibraryReadsRemoteJSONMetadataAndArtwork(t *testing.T) {
 		t.Fatalf("unexpected scanner metadata state: %#v", media)
 	}
 	rec := httptest.NewRecorder()
-	if !imageProxy.ServeCloudCached(rec, httptest.NewRequest(http.MethodGet, local.PosterURL, nil), "openlist:/Movies/Sidecar Movie (2026) {tmdb-12345}/poster.jpg") {
-		t.Fatal("JSON cloud poster should be cached locally during scan")
-	}
-	if got := rec.Body.Bytes(); !bytes.Equal(got, testJPEG) {
-		t.Fatalf("cached poster body = %x", got)
+	if imageProxy.ServeCloudCached(rec, httptest.NewRequest(http.MethodGet, local.PosterURL, nil), "openlist:/Movies/Sidecar Movie (2026) {tmdb-12345}/poster.jpg") {
+		t.Fatal("JSON cloud poster should not be cached during scan")
 	}
 }
 
@@ -485,10 +478,7 @@ func TestScanCloudLibraryKeepsCloudArtworkInPathHint(t *testing.T) {
 		t.Fatalf("scanner unexpectedly enriched metadata: called=%t media=%#v", tmdbCalled, media)
 	}
 	rec := httptest.NewRecorder()
-	if !imageProxy.ServeCloudCached(rec, httptest.NewRequest(http.MethodGet, local.PosterURL, nil), "openlist:/Movies/速度与激情11 (2028) {tmdb-755679}/poster.jpg") {
-		t.Fatal("local cloud poster should be cached during scan")
-	}
-	if got := rec.Body.Bytes(); !bytes.Equal(got, testJPEG) {
-		t.Fatalf("cached poster body = %x", got)
+	if imageProxy.ServeCloudCached(rec, httptest.NewRequest(http.MethodGet, local.PosterURL, nil), "openlist:/Movies/速度与激情11 (2028) {tmdb-755679}/poster.jpg") {
+		t.Fatal("local cloud poster should not be cached during scan")
 	}
 }

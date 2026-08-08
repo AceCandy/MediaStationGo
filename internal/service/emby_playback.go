@@ -24,7 +24,7 @@ func (e *EmbyService) PlaybackInfoWithOptions(ctx context.Context, mediaID, user
 	if err != nil || m == nil {
 		return nil, err
 	}
-	siblings := e.mediaVersionSiblings(ctx, m)
+	siblings := e.mediaVersionSiblings(ctx, m, userID)
 	if len(siblings) == 0 {
 		siblings = []model.MediaView{*m}
 	}

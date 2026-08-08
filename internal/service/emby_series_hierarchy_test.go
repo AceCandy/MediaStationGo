@@ -181,6 +181,50 @@ func TestEmbySeriesGroupingPaginatesAfterFullLibraryGrouping(t *testing.T) {
 	}
 }
 
+func TestEmbySeriesHierarchyCountsEpisodeMetadataOnceAcrossVersions(t *testing.T) {
+	svc := newTestEmbyService(t)
+	lib := model.Library{Name: "动画", Path: `/media/anime-versions`, Type: "anime", Enabled: true}
+	if err := svc.repo.Library.Create(t.Context(), &lib); err != nil {
+		t.Fatalf("create library: %v", err)
+	}
+	series := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{
+		Base: model.Base{ID: "series-version-count"}, Kind: model.MetadataKindSeries,
+		Title: "版本计数", Source: "tmdb",
+	})
+	season := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{
+		Base: model.Base{ID: "season-version-count"}, Kind: model.MetadataKindSeason,
+		ParentID: &series.ID, SeasonNum: 1, Title: series.Title, Source: "tmdb",
+	})
+	episode := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{
+		Base: model.Base{ID: "episode-version-count"}, Kind: model.MetadataKindEpisode,
+		ParentID: &season.ID, EpisodeNum: 1, Title: series.Title, EpisodeTitle: "第一集", Source: "tmdb",
+	})
+	versions := []model.Media{
+		{Base: model.Base{ID: "episode-version-1080"}, LibraryID: lib.ID, MetadataID: episode.ID, Title: series.Title, Path: `/media/anime-versions/show/Season 01/show.S01E01.1080p.mkv`, SeasonNum: 1, EpisodeNum: 1},
+		{Base: model.Base{ID: "episode-version-2160"}, LibraryID: lib.ID, MetadataID: episode.ID, Title: series.Title, Path: `/media/anime-versions/show/Season 01/show.S01E01.2160p.mkv`, SeasonNum: 1, EpisodeNum: 1},
+	}
+	if err := svc.repo.DB.Create(&versions).Error; err != nil {
+		t.Fatalf("create episode versions: %v", err)
+	}
+
+	root, err := svc.Items(t.Context(), ItemsParams{ParentID: lib.ID, Limit: 10})
+	if err != nil {
+		t.Fatalf("series items: %v", err)
+	}
+	seriesItems := root["Items"].([]map[string]any)
+	if len(seriesItems) != 1 || seriesItems[0]["RecursiveItemCount"] != 1 {
+		t.Fatalf("series version count = %#v, want one logical episode", root)
+	}
+	seasons, err := svc.Items(t.Context(), ItemsParams{ParentID: series.ID, Limit: 10})
+	if err != nil {
+		t.Fatalf("season items: %v", err)
+	}
+	seasonItems := seasons["Items"].([]map[string]any)
+	if len(seasonItems) != 1 || seasonItems[0]["ChildCount"] != 1 {
+		t.Fatalf("season version count = %#v, want one logical episode", seasons)
+	}
+}
+
 func TestEmbyItemsKeepSpecialsInSeasonZero(t *testing.T) {
 	svc := newTestEmbyService(t)
 	lib := model.Library{Name: "番剧", Path: `F:\downloads\日番`, Type: "anime", Enabled: true}
@@ -272,7 +316,7 @@ func TestEmbyEpisodeStillIsPrimaryImageNotArt(t *testing.T) {
 	if err != nil || view == nil {
 		t.Fatalf("find media view: %#v %v", view, err)
 	}
-	item := svc.itemPayload(t.Context(), view, false, 0, false)
+	item := svc.itemPayload(t.Context(), view, "", false, 0, false)
 	if tags, ok := item["ImageTags"].(map[string]string); !ok || tags["Primary"] != episode.ID {
 		t.Fatalf("episode should expose a primary image tag: %#v", item["ImageTags"])
 	}

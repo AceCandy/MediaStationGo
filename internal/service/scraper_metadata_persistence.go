@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 
+	"go.uber.org/zap"
+
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 	"github.com/ShukeBta/MediaStationGo/internal/repository"
 )
@@ -165,7 +167,17 @@ func (s *ScraperService) persistCredits(ctx context.Context, metadataID string, 
 	}
 	inputs := make([]repository.CreditInput, 0, len(credits))
 	for _, credit := range credits {
-		inputs = append(inputs, repository.CreditInput{Provider: credit.Provider, ExternalID: credit.ExternalID, Name: credit.Name, Overview: credit.Overview, ProfileURL: credit.ProfileURL, Type: credit.Type, OriginalRole: credit.OriginalRole, SortOrder: credit.SortOrder})
+		input := repository.CreditInput{Provider: credit.Provider, ExternalID: credit.ExternalID, Name: credit.Name, Overview: credit.Overview, ProfileURL: credit.ProfileURL, Type: credit.Type, OriginalRole: credit.OriginalRole, SortOrder: credit.SortOrder}
+		if s.people != nil && strings.TrimSpace(credit.ProfileURL) != "" {
+			if key, err := s.people.Import(ctx, credit.ProfileURL); err != nil {
+				if s.log != nil {
+					s.log.Warn("people image localization failed during scrape", zap.String("person", credit.Name), zap.Error(err))
+				}
+			} else {
+				input.ProfileImageKey = key
+			}
+		}
+		inputs = append(inputs, input)
 	}
 	if err := s.repo.Person.ReplaceCredits(ctx, metadataID, loaded, inputs); err != nil {
 		return err
@@ -214,7 +226,7 @@ func (s *ScraperService) persistOneMetadataArtwork(ctx context.Context, metadata
 	case isHTTPish(source):
 		asset, err = s.artwork.ImportRemote(ctx, metadataID, artworkType, provider, source)
 	case func() bool { _, _, ok := ParseCloudArtworkURL(source); return ok }():
-		asset, err = s.artwork.ImportCloudCached(ctx, metadataID, artworkType, source)
+		asset, err = s.artwork.ImportCloud(ctx, metadataID, artworkType, source)
 	default:
 		asset, err = s.artwork.ImportLocal(ctx, metadataID, artworkType, source)
 	}

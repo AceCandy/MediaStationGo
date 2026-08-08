@@ -54,40 +54,31 @@ func (e *EmbyService) movieLibraryItems(ctx context.Context, p ItemsParams) (map
 
 	// 剧集结构内容 -> Series 卡片。
 	clause, args := embyLikelyEpisodicPathSQL()
-	var episodicRows []model.Media
+	var seriesGroups []embySeriesGroup
 	if clause != "" {
 		epQ := apply(e.repo.DB.WithContext(ctx).Model(&model.Media{}))
 		if epQ == nil {
 			return map[string]any{"Items": []map[string]any{}, "TotalRecordCount": 0, "StartIndex": p.StartIndex}, nil
 		}
-		epQ = epQ.Where("(media.season_num > 0 OR media.episode_num > 0) AND ("+clause+")", args...).
-			Order(mediaReleaseOrderSQL(true)).Limit(embySeriesGroupingLimit)
-		if err := epQ.Find(&episodicRows).Error; err != nil {
+		epQ = seriesScopeQuery(epQ.Where("(media.season_num > 0 OR media.episode_num > 0) AND ("+clause+")", args...))
+		var err error
+		seriesGroups, _, err = e.seriesMetadataPage(ctx, epQ, p.UserID, p, 0, 0)
+		if err != nil {
 			return nil, err
 		}
 	}
-	var err error
-	displayRows, err := e.mediaViewsForRows(ctx, episodicRows, p.UserID)
-	if err != nil {
-		return nil, err
-	}
-	seriesGroups := e.seriesGroupsFromMedia(displayRows)
 
 	// 真正的电影 -> Movie 项(剔除剧集结构行)。
 	movieQ := apply(e.repo.DB.WithContext(ctx).Model(&model.Media{}))
 	if movieQ == nil {
 		return map[string]any{"Items": []map[string]any{}, "TotalRecordCount": 0, "StartIndex": p.StartIndex}, nil
 	}
-	movieQ = filterLikelyEpisodicPathsFromMovieQuery(movieQ).
-		Order(mediaReleaseOrderSQL(true)).Limit(embySeriesGroupingLimit)
-	var movieRows []model.Media
-	if err := movieQ.Find(&movieRows).Error; err != nil {
-		return nil, err
-	}
-	movieItems, err := e.payloadsForMedia(ctx, movieRows, p.UserID)
+	movieQ = filterLikelyEpisodicPathsFromMovieQuery(movieQ)
+	movieViews, _, err := e.metadataPage(ctx, movieQ, p.UserID, metadataOrderSQL(p, false), 0, 0)
 	if err != nil {
 		return nil, err
 	}
+	movieItems := e.payloadsForViews(ctx, movieViews, p.UserID)
 
 	// 合并: Series 卡片 + Movie 项, 统一按首播/上映日期倒序。
 	type entry struct {
@@ -96,9 +87,12 @@ func (e *EmbyService) movieLibraryItems(ctx context.Context, p ItemsParams) (map
 	}
 	entries := make([]entry, 0, len(seriesGroups)+len(movieItems))
 	for _, g := range seriesGroups {
-		entries = append(entries, entry{sortAt: embySeriesReleaseSortTime(g), payload: e.seriesPayload(ctx, g, p.UserID)})
+		item := e.seriesPayload(ctx, g, p.UserID)
+		item["ParentId"] = p.ParentID
+		entries = append(entries, entry{sortAt: embySeriesReleaseSortTime(g), payload: item})
 	}
 	for _, item := range movieItems {
+		item["ParentId"] = p.ParentID
 		entries = append(entries, entry{sortAt: embyPayloadReleaseSortTime(item), payload: item})
 	}
 	sort.SliceStable(entries, func(i, j int) bool {

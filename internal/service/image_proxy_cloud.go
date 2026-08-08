@@ -107,6 +107,23 @@ func (p *ImageProxy) fetchAndCacheCloudImage(ctx context.Context, stableKey stri
 		return nil, "", err
 	}
 	_, cachePath, failPath := p.cloudImageCachePaths(stableKey)
+	data, ctype, err := p.fetchCloudImage(ctx, link, userAgent)
+	if err != nil {
+		p.markImageFetchFailed(failPath)
+		return nil, "", err
+	}
+	p.writeImageCache(cachePath, failPath, "img-cloud-*.tmp", data)
+	return data, ctype, nil
+}
+
+func (p *ImageProxy) fetchCloudImageDirect(ctx context.Context, link *cloud.DirectLink) ([]byte, string, error) {
+	return p.fetchCloudImage(ctx, link, "MediaStationGo/0.1")
+}
+
+func (p *ImageProxy) fetchCloudImage(ctx context.Context, link *cloud.DirectLink, userAgent string) ([]byte, string, error) {
+	if p == nil || link == nil || strings.TrimSpace(link.URL) == "" {
+		return nil, "", errors.New("cloud image link is unavailable")
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, link.URL, nil)
 	if err != nil {
 		return nil, "", err
@@ -124,28 +141,22 @@ func (p *ImageProxy) fetchAndCacheCloudImage(ctx context.Context, stableKey stri
 	req.Header.Set("Accept", "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8")
 	resp, err := p.client.Do(req)
 	if err != nil {
-		p.markImageFetchFailed(failPath)
 		return nil, "", err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 400 {
-		p.markImageFetchFailed(failPath)
 		return nil, "", errors.New("cloud image returned " + resp.Status)
 	}
 	data, err := io.ReadAll(io.LimitReader(resp.Body, 32<<20))
 	if err != nil {
-		p.markImageFetchFailed(failPath)
 		return nil, "", err
 	}
 	if len(data) == 0 {
-		p.markImageFetchFailed(failPath)
 		return nil, "", errors.New("cloud image body is empty")
 	}
 	ctype, ok := validImageContentType(data)
 	if !ok {
-		p.markImageFetchFailed(failPath)
 		return nil, "", errors.New("cloud image returned non-image content")
 	}
-	p.writeImageCache(cachePath, failPath, "img-cloud-*.tmp", data)
 	return data, ctype, nil
 }

@@ -1,7 +1,6 @@
 package service
 
 import (
-	"bytes"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -13,7 +12,7 @@ import (
 	"github.com/ShukeBta/MediaStationGo/internal/repository"
 )
 
-func TestScanCloudLibraryCachesFileLevelRemoteArtwork(t *testing.T) {
+func TestScanCloudLibraryDoesNotCacheFileLevelRemoteArtwork(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case "PROPFIND":
@@ -85,11 +84,8 @@ func TestScanCloudLibraryCachesFileLevelRemoteArtwork(t *testing.T) {
 		t.Fatalf("unexpected scanner metadata state: %#v", media)
 	}
 	rec := httptest.NewRecorder()
-	if !imageProxy.ServeCloudCached(rec, httptest.NewRequest(http.MethodGet, local.PosterURL, nil), "openlist:/Movies/Movie.jpg") {
-		t.Fatal("file-level cloud poster should be cached locally during scan before media is exposed")
-	}
-	if got := rec.Body.Bytes(); !bytes.Equal(got, testJPEG) {
-		t.Fatalf("cached poster body = %x", got)
+	if imageProxy.ServeCloudCached(rec, httptest.NewRequest(http.MethodGet, local.PosterURL, nil), "openlist:/Movies/Movie.jpg") {
+		t.Fatal("file-level cloud poster should not be cached during scan")
 	}
 }
 
@@ -169,11 +165,8 @@ func TestScanCloudLibraryUsesArtworkReferencedByRemoteNFO(t *testing.T) {
 		t.Fatalf("unexpected scanner metadata state: %#v", media)
 	}
 	rec := httptest.NewRecorder()
-	if !imageProxy.ServeCloudCached(rec, httptest.NewRequest(http.MethodGet, local.PosterURL, nil), "openlist:/Movies/Artwork.Custom.tbn") {
-		t.Fatal("NFO-referenced cloud poster should be cached locally during scan")
-	}
-	if got := rec.Body.Bytes(); !bytes.Equal(got, testJPEG) {
-		t.Fatalf("cached poster body = %x", got)
+	if imageProxy.ServeCloudCached(rec, httptest.NewRequest(http.MethodGet, local.PosterURL, nil), "openlist:/Movies/Artwork.Custom.tbn") {
+		t.Fatal("NFO-referenced cloud poster should not be cached during scan")
 	}
 }
 
@@ -263,11 +256,8 @@ func TestScanCloudLibraryReadsRemoteNFOAndArtwork(t *testing.T) {
 		t.Fatalf("unexpected scanner metadata state: %#v", media)
 	}
 	rec := httptest.NewRecorder()
-	if !imageProxy.ServeCloudCached(rec, httptest.NewRequest(http.MethodGet, local.PosterURL, nil), "openlist:/Anime/JianLai/poster.jpg") {
-		t.Fatal("cloud poster should be cached locally during scan before media is exposed")
-	}
-	if got := rec.Body.Bytes(); !bytes.Equal(got, testJPEG) {
-		t.Fatalf("cached poster body = %x", got)
+	if imageProxy.ServeCloudCached(rec, httptest.NewRequest(http.MethodGet, local.PosterURL, nil), "openlist:/Anime/JianLai/poster.jpg") {
+		t.Fatal("cloud poster should not be cached during scan")
 	}
 }
 
@@ -370,10 +360,7 @@ func TestScanCloudLibraryRefreshesExistingRemoteNFOAndArtwork(t *testing.T) {
 		t.Fatalf("unexpected scanner metadata state: %#v", media)
 	}
 	rec := httptest.NewRecorder()
-	if !imageProxy.ServeCloudCached(rec, httptest.NewRequest(http.MethodGet, local.PosterURL, nil), "openlist:/Anime/JianLai/poster.jpg") {
-		t.Fatal("refreshed cloud poster should be cached locally during scan")
-	}
-	if got := rec.Body.Bytes(); !bytes.Equal(got, testJPEG) {
-		t.Fatalf("cached poster body = %x", got)
+	if imageProxy.ServeCloudCached(rec, httptest.NewRequest(http.MethodGet, local.PosterURL, nil), "openlist:/Anime/JianLai/poster.jpg") {
+		t.Fatal("refreshed cloud poster should not be cached during scan")
 	}
 }

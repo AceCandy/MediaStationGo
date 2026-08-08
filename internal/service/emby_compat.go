@@ -124,9 +124,8 @@ type ItemsParams struct {
 }
 
 const (
-	embyVirtualCacheTTL     = 10 * time.Minute
-	embyVisibilityCacheTTL  = 30 * time.Second
-	embySeriesGroupingLimit = maxMediaSearchLimit
+	embyVirtualCacheTTL    = 10 * time.Minute
+	embyVisibilityCacheTTL = 30 * time.Second
 )
 
 var (

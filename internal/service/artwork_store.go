@@ -3,9 +3,7 @@ package service
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
 	"encoding/binary"
-	"encoding/hex"
 	"errors"
 	"image"
 	_ "image/gif"
@@ -33,6 +31,7 @@ type ArtworkStore struct {
 	root       string
 	repo       *repository.ArtworkRepository
 	imageProxy *ImageProxy
+	cloud      cloudPlaybackResolver
 	mu         sync.Mutex
 }
 
@@ -42,6 +41,13 @@ func NewArtworkStore(cfg *config.Config, repo *repository.ArtworkRepository, ima
 		repo:       repo,
 		imageProxy: imageProxy,
 	}
+}
+
+func (s *ArtworkStore) SetCloudResolver(cloud cloudPlaybackResolver) *ArtworkStore {
+	if s != nil {
+		s.cloud = cloud
+	}
+	return s
 }
 
 func (s *ArtworkStore) ImportRemote(ctx context.Context, metadataID, artworkType, provider, sourceURL string) (*model.ArtworkAsset, error) {
@@ -78,20 +84,23 @@ func (s *ArtworkStore) ImportLocal(ctx context.Context, metadataID, artworkType,
 	return s.save(ctx, metadataID, artworkType, "local_nfo", abs, data, "")
 }
 
-func (s *ArtworkStore) ImportCloudCached(ctx context.Context, metadataID, artworkType, sourceURL string) (*model.ArtworkAsset, error) {
-	if s.imageProxy == nil {
-		return nil, errors.New("image proxy is unavailable")
+func (s *ArtworkStore) ImportCloud(ctx context.Context, metadataID, artworkType, sourceURL string) (*model.ArtworkAsset, error) {
+	if s.imageProxy == nil || s.cloud == nil {
+		return nil, errors.New("cloud artwork import is unavailable")
 	}
 	typ, ref, ok := ParseCloudArtworkURL(sourceURL)
 	if !ok {
 		return nil, errors.New("invalid cloud artwork URL")
 	}
-	_, cachePath, _ := s.imageProxy.cloudImageCachePaths(typ + ":" + ref)
-	data, err := os.ReadFile(cachePath) // #nosec G304 -- cachePath is SHA-derived under the configured cache directory.
+	link, err := s.cloud.CloudResolve(ctx, typ, ref, "")
 	if err != nil {
 		return nil, err
 	}
-	return s.save(ctx, metadataID, artworkType, "local_nfo", sourceURL, data, "")
+	data, mimeType, err := s.imageProxy.fetchCloudImageDirect(ctx, link)
+	if err != nil {
+		return nil, err
+	}
+	return s.save(ctx, metadataID, artworkType, "local_nfo", sourceURL, data, mimeType)
 }
 
 func (s *ArtworkStore) save(ctx context.Context, metadataID, artworkType, provider, sourceURL string, data []byte, _ string) (*model.ArtworkAsset, error) {
@@ -101,25 +110,11 @@ func (s *ArtworkStore) save(ctx context.Context, metadataID, artworkType, provid
 	if !validArtworkType(artworkType) {
 		return nil, errors.New("invalid artwork type")
 	}
-	if len(data) == 0 || len(data) > maxArtworkBytes {
-		return nil, errors.New("invalid artwork size")
-	}
-	mimeType, ok := validImageContentType(data)
-	if !ok {
-		return nil, errImageProxyNonImageContent
-	}
-	width, height, err := artworkDimensions(data, mimeType)
+	stored, err := prepareStoredImage(data)
 	if err != nil {
 		return nil, err
 	}
-	ext, err := artworkExtension(mimeType)
-	if err != nil {
-		return nil, err
-	}
-	sum := sha256.Sum256(data)
-	hash := hex.EncodeToString(sum[:])
-	storageKey := filepath.ToSlash(filepath.Join("sha256", hash[:2], hash[2:4], hash+ext))
-	path, err := s.pathForStorageKey(storageKey)
+	path, err := s.pathForStorageKey(stored.StorageKey)
 	if err != nil {
 		return nil, err
 	}
@@ -127,8 +122,8 @@ func (s *ArtworkStore) save(ctx context.Context, metadataID, artworkType, provid
 		return nil, err
 	}
 	asset := &model.ArtworkAsset{
-		SHA256: hash, StorageKey: storageKey, MimeType: mimeType,
-		Width: width, Height: height, SizeBytes: int64(len(data)),
+		SHA256: stored.SHA256, StorageKey: stored.StorageKey, MimeType: stored.MimeType,
+		Width: stored.Width, Height: stored.Height, SizeBytes: stored.SizeBytes,
 	}
 	if s.repo == nil {
 		return nil, errors.New("artwork repository is unavailable")
@@ -145,32 +140,7 @@ func (s *ArtworkStore) write(path string, data []byte) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return err
 	}
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".artwork-*.tmp")
-	if err != nil {
-		return err
-	}
-	tmpPath := tmp.Name()
-	ok := false
-	defer func() {
-		_ = tmp.Close()
-		if !ok {
-			_ = os.Remove(tmpPath)
-		}
-	}()
-	if _, err := tmp.Write(data); err != nil {
-		return err
-	}
-	if err := tmp.Sync(); err != nil {
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	if err := os.Rename(tmpPath, path); err != nil {
-		return err
-	}
-	ok = true
-	return nil
+	return writeStoredImage(path, data, ".artwork-*.tmp")
 }
 
 func (s *ArtworkStore) Serve(ctx context.Context, w http.ResponseWriter, r *http.Request, assetID string) error {
@@ -202,19 +172,7 @@ func ArtworkURL(assetID string) string {
 }
 
 func (s *ArtworkStore) pathForStorageKey(storageKey string) (string, error) {
-	clean := filepath.Clean(filepath.FromSlash(storageKey))
-	if clean == "." || filepath.IsAbs(clean) || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
-		return "", errors.New("invalid artwork storage key")
-	}
-	rootAbs, err := filepath.Abs(s.root)
-	if err != nil {
-		return "", err
-	}
-	pathAbs, err := filepath.Abs(filepath.Join(rootAbs, clean))
-	if err != nil || !strings.HasPrefix(pathAbs, rootAbs+string(filepath.Separator)) {
-		return "", errors.New("invalid artwork storage path")
-	}
-	return pathAbs, nil
+	return storedImagePath(s.root, storageKey)
 }
 
 func validArtworkType(value string) bool {

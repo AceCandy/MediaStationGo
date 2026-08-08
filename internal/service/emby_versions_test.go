@@ -200,6 +200,82 @@ func TestEmbyVersionPaginationFillsLogicalPage(t *testing.T) {
 	}
 }
 
+func TestEmbySharedMetadataAcrossIndependentLibrariesUsesOneGlobalItemAndVisibleSources(t *testing.T) {
+	svc := newTestEmbyService(t)
+	if err := svc.repo.DB.AutoMigrate(&model.PlayProfile{}); err != nil {
+		t.Fatalf("migrate play profiles: %v", err)
+	}
+	firstLibrary := model.Library{Name: "电影一", Path: `/media/movies-a`, Type: "movie", Enabled: true}
+	secondLibrary := model.Library{Name: "电影二", Path: `/media/movies-b`, Type: "movie", Enabled: true}
+	for _, library := range []*model.Library{&firstLibrary, &secondLibrary} {
+		if err := svc.repo.Library.Create(t.Context(), library); err != nil {
+			t.Fatalf("create library: %v", err)
+		}
+	}
+	metadata := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{
+		Base: model.Base{ID: "metadata-cross-library"}, Kind: model.MetadataKindMovie,
+		Title: "跨库作品", Source: "tmdb",
+	})
+	createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{
+		Base: model.Base{ID: "metadata-catalog-only"}, Kind: model.MetadataKindMovie,
+		Title: metadata.Title, Source: "tmdb",
+	})
+	versions := []model.Media{
+		{Base: model.Base{ID: "cross-library-a"}, LibraryID: firstLibrary.ID, MetadataID: metadata.ID, Title: metadata.Title, Path: `/media/movies-a/work.1080p.mkv`},
+		{Base: model.Base{ID: "cross-library-b"}, LibraryID: secondLibrary.ID, MetadataID: metadata.ID, Title: metadata.Title, Path: `/media/movies-b/work.2160p.mkv`},
+	}
+	if err := svc.repo.DB.Create(&versions).Error; err != nil {
+		t.Fatalf("create versions: %v", err)
+	}
+
+	for _, libraryID := range []string{firstLibrary.ID, secondLibrary.ID} {
+		out, err := svc.Items(t.Context(), ItemsParams{ParentID: libraryID, IncludeItemTypes: []string{"Movie"}, Recursive: true, Limit: 10})
+		if err != nil {
+			t.Fatalf("library items: %v", err)
+		}
+		if rows := out["Items"].([]map[string]any); len(rows) != 1 || rows[0]["Id"] != metadata.ID {
+			t.Fatalf("library %q items = %#v, want shared work once", libraryID, out)
+		}
+	}
+
+	global, err := svc.Items(t.Context(), ItemsParams{SearchTerm: metadata.Title, Recursive: true, Limit: 10})
+	if err != nil {
+		t.Fatalf("global items: %v", err)
+	}
+	if rows := global["Items"].([]map[string]any); len(rows) != 1 || global["TotalRecordCount"] != int64(1) {
+		t.Fatalf("global shared work = %#v, want one logical item", global)
+	}
+
+	playback, err := svc.PlaybackInfo(t.Context(), versions[0].ID, "")
+	if err != nil {
+		t.Fatalf("unrestricted playback: %v", err)
+	}
+	if sources := playback["MediaSources"].([]map[string]any); len(sources) != 2 {
+		t.Fatalf("unrestricted sources = %#v, want both libraries", sources)
+	}
+
+	viewer := model.User{Username: "cross-library-viewer", Role: "user", IsActive: true}
+	if err := svc.repo.User.Create(t.Context(), &viewer); err != nil {
+		t.Fatalf("create viewer: %v", err)
+	}
+	if err := svc.repo.DB.Create(&model.PlayProfile{
+		UserID: viewer.ID, Name: "受限", IsDefault: true,
+		AllowedLibraryIDs: `["` + firstLibrary.ID + `"]`,
+	}).Error; err != nil {
+		t.Fatalf("create play profile: %v", err)
+	}
+	restricted, err := svc.Item(t.Context(), metadata.ID, viewer.ID)
+	if err != nil {
+		t.Fatalf("restricted item: %v", err)
+	}
+	if sources := restricted["MediaSources"].([]map[string]any); len(sources) != 1 || sources[0]["Id"] != versions[0].ID {
+		t.Fatalf("restricted sources = %#v, want only allowed library", sources)
+	}
+	if hidden, err := svc.PlaybackInfo(t.Context(), versions[1].ID, viewer.ID); err != nil || hidden != nil {
+		t.Fatalf("hidden concrete source playback = %#v, %v; want nil", hidden, err)
+	}
+}
+
 func TestEmbyMetadataVersionsShareUserStateAndKeepSourceIDs(t *testing.T) {
 	svc := newTestEmbyService(t)
 	if err := svc.repo.DB.AutoMigrate(&model.Playlist{}, &model.PlaylistItem{}); err != nil {
@@ -364,5 +440,45 @@ func TestEmbyLatestItemsCollapsesMovieVersions(t *testing.T) {
 	sources := latest[0]["MediaSources"].([]map[string]any)
 	if len(sources) != 2 {
 		t.Fatalf("collapsed latest item should expose both versions, got %#v", sources)
+	}
+}
+
+func TestEmbyLatestItemsPaginatesMetadataBeforeLoadingVersions(t *testing.T) {
+	svc := newTestEmbyService(t)
+	lib := model.Library{Name: "电影", Path: `/media/latest`, Type: "movie", Enabled: true}
+	if err := svc.repo.Library.Create(t.Context(), &lib); err != nil {
+		t.Fatalf("create library: %v", err)
+	}
+	first := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{
+		Base: model.Base{ID: "metadata-latest-many"}, Kind: model.MetadataKindMovie,
+		Title: "多版本新片", ReleaseDate: "2026-08-08", Source: "tmdb",
+	})
+	second := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{
+		Base: model.Base{ID: "metadata-latest-second"}, Kind: model.MetadataKindMovie,
+		Title: "第二部新片", ReleaseDate: "2026-08-07", Source: "tmdb",
+	})
+	now := time.Now()
+	versions := make([]model.Media, 101, 102)
+	for i := range versions {
+		versions[i] = model.Media{
+			Base:      model.Base{ID: fmt.Sprintf("latest-many-%03d", i), CreatedAt: now.Add(time.Duration(i) * time.Second)},
+			LibraryID: lib.ID, MetadataID: first.ID, Title: first.Title,
+			Path: fmt.Sprintf(`/media/latest/many-%03d.mkv`, i),
+		}
+	}
+	versions = append(versions, model.Media{
+		Base:      model.Base{ID: "latest-second", CreatedAt: now.Add(-time.Hour)},
+		LibraryID: lib.ID, MetadataID: second.ID, Title: second.Title, Path: `/media/latest/second.mkv`,
+	})
+	if err := svc.repo.DB.Create(&versions).Error; err != nil {
+		t.Fatalf("create latest versions: %v", err)
+	}
+
+	latest, err := svc.LatestItems(t.Context(), "", lib.ID, 2)
+	if err != nil {
+		t.Fatalf("latest items: %v", err)
+	}
+	if len(latest) != 2 || latest[0]["Id"] != first.ID || latest[1]["Id"] != second.ID {
+		t.Fatalf("latest logical page = %#v, want both works", latest)
 	}
 }

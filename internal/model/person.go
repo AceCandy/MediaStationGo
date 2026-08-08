@@ -10,12 +10,13 @@ const (
 // Person 保存跨作品复用的人物资料；OriginalName 始终保留来源原文。
 type Person struct {
 	Base
-	Name           string `gorm:"size:255;not null" json:"name"`
-	OriginalName   string `gorm:"size:255;not null" json:"original_name"`
-	NormalizedName string `gorm:"size:255;not null;index;uniqueIndex:uidx_local_person_name,priority:2,where:source = 'local' AND deleted_at IS NULL" json:"normalized_name"`
-	Overview       string `gorm:"type:text" json:"overview,omitempty"`
-	ProfileURL     string `gorm:"size:2048" json:"profile_url,omitempty"`
-	Source         string `gorm:"size:32;not null;index;uniqueIndex:uidx_local_person_name,priority:1,where:source = 'local' AND deleted_at IS NULL" json:"source"`
+	Name            string `gorm:"size:255;not null" json:"name"`
+	OriginalName    string `gorm:"size:255;not null" json:"original_name"`
+	NormalizedName  string `gorm:"size:255;not null;index;uniqueIndex:uidx_local_person_name,priority:2,where:source = 'local' AND deleted_at IS NULL" json:"normalized_name"`
+	Overview        string `gorm:"type:text" json:"overview,omitempty"`
+	ProfileURL      string `gorm:"size:2048" json:"profile_url,omitempty"`
+	ProfileImageKey string `gorm:"size:255" json:"-"`
+	Source          string `gorm:"size:32;not null;index;uniqueIndex:uidx_local_person_name,priority:1,where:source = 'local' AND deleted_at IS NULL" json:"source"`
 }
 
 // PersonIdentifier 保存人物的 provider 外部标识。

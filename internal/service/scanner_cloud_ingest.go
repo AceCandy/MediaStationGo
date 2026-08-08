@@ -54,8 +54,6 @@ func (s *ScannerService) ingestCloudFile(ctx context.Context, lib *model.Library
 	if localMeta != nil {
 		applyLocalScanHints(m, localMeta)
 		m.LocalMetadataHint = encodeLocalMetadataHint(localMeta)
-		s.queueCloudArtworkPrefetch(localMeta.PosterURL)
-		s.queueCloudArtworkPrefetch(localMeta.BackdropURL)
 	}
 	if _, hints := pathHintMetadata(path, librarySupportsSeasons(lib) || parsedSeason > 0 || parsedEpisode > 0); hints.useful() {
 		if hints.TMDbID > 0 && m.TMDbID <= 0 {

@@ -39,22 +39,18 @@ func (e *EmbyService) findSeriesGroup(ctx context.Context, id, userID string) (e
 	if strings.TrimSpace(id) == "" {
 		return embySeriesGroup{}, false, nil
 	}
-	if group, ok := e.cachedSeriesGroup(id); ok {
-		return group, true, nil
-	}
 	var rows []model.Media
 	q := e.repo.DB.WithContext(ctx).Model(&model.Media{}).Where("media.season_num > 0 OR media.episode_num > 0")
 	q = e.applyUserMediaVisibility(ctx, q, userID)
-	q = q.Joins("JOIN metadata_items AS emby_season ON emby_season.id = emby_metadata.parent_id AND emby_season.kind = 'season' AND emby_season.deleted_at IS NULL").
-		Where("emby_season.parent_id = ?", id)
-	if err := q.Order("media.season_num asc, media.episode_num asc, media.created_at asc").Limit(embySeriesGroupingLimit).Find(&rows).Error; err != nil {
+	q = seriesScopeQuery(q).Where("scope_series.id = ?", id)
+	if err := q.Order("scope_season.season_num asc, emby_metadata.episode_num asc, media.created_at desc").Find(&rows).Error; err != nil {
 		return embySeriesGroup{}, false, err
 	}
 	displayRows, err := e.mediaViewsForRows(ctx, rows, userID)
 	if err != nil {
 		return embySeriesGroup{}, false, err
 	}
-	for _, group := range e.seriesGroupsFromMedia(displayRows) {
+	for _, group := range e.seriesGroupsFromMedia(preferredMetadataViewsInOrder(displayRows)) {
 		if group.ID == id {
 			e.rememberSeriesGroup(group)
 			return group, true, nil
@@ -67,9 +63,6 @@ func (e *EmbyService) findSeasonGroup(ctx context.Context, id, userID string) (e
 	if strings.TrimSpace(id) == "" {
 		return embySeasonGroup{}, false, nil
 	}
-	if season, ok := e.cachedSeasonGroup(id); ok {
-		return season, true, nil
-	}
 	var rows []model.Media
 	q := e.repo.DB.WithContext(ctx).Model(&model.Media{}).
 		Where("media.season_num > 0 OR media.episode_num > 0")
@@ -77,7 +70,6 @@ func (e *EmbyService) findSeasonGroup(ctx context.Context, id, userID string) (e
 	q = q.Where("emby_metadata.parent_id = ?", id)
 	if err := q.
 		Order("media.season_num asc, media.episode_num asc, media.created_at asc").
-		Limit(embySeriesGroupingLimit).
 		Find(&rows).Error; err != nil {
 		return embySeasonGroup{}, false, err
 	}
@@ -85,7 +77,7 @@ func (e *EmbyService) findSeasonGroup(ctx context.Context, id, userID string) (e
 	if err != nil {
 		return embySeasonGroup{}, false, err
 	}
-	for _, series := range e.seriesGroupsFromMedia(displayRows) {
+	for _, series := range e.seriesGroupsFromMedia(preferredMetadataViewsInOrder(displayRows)) {
 		for _, season := range e.seasonsForSeries(series) {
 			if season.ID == id {
 				e.rememberSeriesGroup(series)

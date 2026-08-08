@@ -15,14 +15,15 @@ import (
 
 // CreditInput 是一次演职员快照中的 provider-neutral 持久化输入。
 type CreditInput struct {
-	Provider     string
-	ExternalID   string
-	Name         string
-	Overview     string
-	ProfileURL   string
-	Type         string
-	OriginalRole string
-	SortOrder    int
+	Provider        string
+	ExternalID      string
+	Name            string
+	Overview        string
+	ProfileURL      string
+	ProfileImageKey string
+	Type            string
+	OriginalRole    string
+	SortOrder       int
 }
 
 // PersonWorkContext 是人物翻译使用的作品识别线索。
@@ -235,7 +236,7 @@ func upsertCreditPerson(tx *gorm.DB, input CreditInput) (*model.Person, error) {
 		if !errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, err
 		}
-		person := model.Person{Name: name, OriginalName: name, NormalizedName: normalizePersonName(name), Overview: input.Overview, ProfileURL: input.ProfileURL, Source: provider}
+		person := model.Person{Name: name, OriginalName: name, NormalizedName: normalizePersonName(name), Overview: input.Overview, ProfileURL: input.ProfileURL, ProfileImageKey: input.ProfileImageKey, Source: provider}
 		if err := tx.Create(&person).Error; err != nil {
 			return nil, err
 		}
@@ -249,7 +250,7 @@ func upsertCreditPerson(tx *gorm.DB, input CreditInput) (*model.Person, error) {
 	var person model.Person
 	err := tx.Unscoped().Where("source = ? AND normalized_name = ?", "local", normalizePersonName(name)).First(&person).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
-		person = model.Person{Name: name, OriginalName: name, NormalizedName: normalizePersonName(name), Overview: input.Overview, ProfileURL: input.ProfileURL, Source: "local"}
+		person = model.Person{Name: name, OriginalName: name, NormalizedName: normalizePersonName(name), Overview: input.Overview, ProfileURL: input.ProfileURL, ProfileImageKey: input.ProfileImageKey, Source: "local"}
 		return &person, tx.Create(&person).Error
 	}
 	if err != nil {
@@ -267,7 +268,13 @@ func personSourceUpdates(person model.Person, input CreditInput, source string) 
 	if person.OriginalName != name || strings.TrimSpace(displayName) == "" {
 		displayName = name
 	}
-	return map[string]any{"name": displayName, "original_name": name, "normalized_name": normalizePersonName(name), "overview": input.Overview, "profile_url": input.ProfileURL, "source": source, "deleted_at": nil, "updated_at": time.Now()}
+	key := person.ProfileImageKey
+	if strings.TrimSpace(input.ProfileURL) == "" {
+		key = ""
+	} else if strings.TrimSpace(input.ProfileImageKey) != "" {
+		key = strings.TrimSpace(input.ProfileImageKey)
+	}
+	return map[string]any{"name": displayName, "original_name": name, "normalized_name": normalizePersonName(name), "overview": input.Overview, "profile_url": input.ProfileURL, "profile_image_key": key, "source": source, "deleted_at": nil, "updated_at": time.Now()}
 }
 
 func restoreOrCreateCredit(tx *gorm.DB, metadataID, personID string, input CreditInput) error {

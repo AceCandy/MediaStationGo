@@ -181,11 +181,13 @@ func (b *serviceContainerBuilder) initSiteDownloadServices() {
 func (b *serviceContainerBuilder) initImageProxy() {
 	b.c.ImageProxy = NewImageProxy(b.cfg, b.log)
 	b.c.ImageProxy.SetLibraryRootsProvider(b.libraryRoots)
-	b.c.Artwork = NewArtworkStore(b.cfg, b.repos.Artwork, b.c.ImageProxy)
+	b.c.Artwork = NewArtworkStore(b.cfg, b.repos.Artwork, b.c.ImageProxy).SetCloudResolver(b.c.StorageCfg)
+	b.c.PeopleImages = NewPeopleImageStore(b.cfg, b.repos.Person, b.c.ImageProxy)
 	b.c.Media.SetArtworkStore(b.c.Artwork)
 	b.c.Scan.SetImageProxy(b.c.ImageProxy)
 	b.c.Scraper.SetImageProxy(b.c.ImageProxy)
 	b.c.Scraper.SetArtworkStore(b.c.Artwork)
+	b.c.Scraper.SetPeopleImageStore(b.c.PeopleImages)
 	b.c.Discover.SetImageProxy(b.c.ImageProxy)
 }
 

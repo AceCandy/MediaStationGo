@@ -124,6 +124,10 @@ db.Model(&credit).
   non-null value has a restrictive foreign key to `MetadataItem.ID`.
 - Metadata-owned state: `Favorite.MetadataID`, `PlaybackHistory.MetadataID`, and `PlaylistItem.MetadataID` are non-null; `MediaID` only selects a concrete playable version.
 - Read model: `MediaViewRepository.FindByID`, `FindByIDs`, `ListByLibrariesFiltered`, and `SearchFilteredPage`.
+- Emby logical-page boundary: `metadataPage` selects and paginates distinct
+  `MetadataItem.ID` values, batch-loads visible `MediaView` versions for only
+  that page, then `preferredMetadataViews` selects one representative view per
+  logical item.
 - Complete track facts: `MediaProbeMetadata{MediaID, ProbeJSON, SchemaVersion, ProbedAt}` uses `media_id` as both primary key and a cascading foreign key to `media(id)`; list queries must not join or preload this table.
 - Probe document: `ProbeDocumentSchemaVersion` and `MarshalProbeDocument` / `UnmarshalProbeDocument` own the versioned JSON contract. Only typed format, video, audio, subtitle, chapter, safe tag, disposition, and color/HDR fields are persistable.
 - Emby playback response: `PlaybackInfo{MediaSources, PlaySessionId, DateCreated}`; `DateCreated` is the selected concrete `Media.CreatedAt` encoded as a non-null UTC JSON timestamp with seven fractional digits and a trailing `Z`.
@@ -172,10 +176,33 @@ db.Model(&credit).
   reads, and scan hints never replace canonical display identity.
 - Emby movie, Series, Season and Episode item identity and user state always use real `MetadataItem.ID`. Concrete `MediaSource` identity and the last or preferred playable version use `Media.ID`; there is no media-ID identity fallback or virtual Series/Season ID.
 - Emby `/Items`, `/Items/Counts`, and search hint totals must count logical metadata items after applying the same visibility, type, and library filters used by the payload. Version collapse must happen before user-visible pagination, so multiple playable versions cannot consume a page or inflate `TotalRecordCount`.
+- Physical Emby library membership is derived from a valid, user-visible
+  `Media{LibraryID, MetadataID}` relation. Metadata with no Media is retained as
+  catalog data but does not belong to a physical library; one Metadata may
+  independently belong to multiple physical libraries.
+- Count, ordering, offset, and limit must run on grouped Metadata IDs before
+  visible `MediaView` versions are batch-loaded. Count and page queries must
+  share the same library, type, search, NSFW, and user-visibility predicates.
+- Series and Season scope is derived through visible
+  `Episode -> Season -> Series` metadata hierarchy, and Episode versions are
+  collapsed by Episode Metadata ID before counts or pagination.
+- After a logical item is selected, item detail and PlaybackInfo enumerate all
+  sibling Media versions visible to the current user, including versions in
+  separate physical libraries. Every sibling query must reapply allowed and
+  hidden library plus NSFW filters.
+- A library-scoped top-level item uses the requested container as `ParentId`;
+  a global projection does not assign the shared Metadata to a physical library.
+- Do not cache or reuse a Series/Season payload containing a user-filtered
+  Episode collection across users; only user-independent data may use a global
+  cache.
 - Emby stream and HLS endpoints may receive either a metadata item ID or a concrete media source ID. They must resolve the request to a visible playable `Media.ID` before calling stream/transcode services.
 - Emby clients may call `/SearchHints`, `/Search/Hints`, and their user-scoped or lowercase variants; these routes must project shared metadata titles and IDs, not raw media scan fields.
 - Provider identifier projection must return at most one joined row per media. Aggregate or otherwise reduce identifiers before joining; never join the raw one-to-many identifier table into paginated media queries.
 - Selected artwork is copied into `DataDir`; remote URLs and source paths are provenance only and are never served as the authoritative runtime image.
+- Cloud sidecar posters and backdrops are resolved and downloaded directly
+  during metadata persistence into `DataDir/artwork`; scanner must not prefetch
+  them into `cache/images`, and managed artwork import never reads or writes
+  that cache. The generic cloud image route may still cache explicit requests.
 - Scanner, scraper, metadata edit, and organizer metadata flows only read NFO/poster/fanart/thumb sidecars. They must not create, overwrite, move, or delete them.
 - Scan and scrape flows must not move, rename, delete, deduplicate, or reclassify playable media files or change their library/path placement. Only an explicit organize operation may invoke `ReclassifyMisclassifiedMedia` or other filesystem transfer helpers.
 - Deleting a library transactionally hard-deletes its `Media`, `LibraryRoot`, and `Library` rows. It preserves shared metadata, metadata-owned user state, identifiers, managed artwork, and all on-disk media files.
@@ -200,6 +227,9 @@ db.Model(&credit).
 | Artwork import fails | Return the error and keep the currently selected managed asset |
 | Provider metadata implies a different category/library | Persist metadata and artwork only; preserve the media path and library ID |
 | User cannot view NSFW/library | Filter in `MediaView` query before pagination or playback response creation |
+| Catalog Metadata has no valid Media | Keep it persisted, but exclude it from physical Emby library results |
+| One Metadata has Media in allowed and hidden libraries | Return one logical item and only MediaSources from allowed libraries |
+| Many Media versions share one Metadata | Count and paginate the Metadata once; return all visible versions in detail/playback |
 | Any library, root, or media hard-delete fails | Roll back the whole library deletion and return an error |
 | Playback repair sees multiple visible versions | Schedule each missing version asynchronously; do not reject siblings merely because the playback reservation map is full |
 | Local probe queue is full | Wait for queue capacity until the caller context is canceled; release the per-path reservation on cancellation |
@@ -213,6 +243,9 @@ db.Model(&credit).
 ### 5. Good / Base / Bad Cases
 
 - Good: two paths with the same TMDb movie identity link to one movie metadata row, share Emby favorite/played/resume state, and keep separate media IDs, paths, codecs, sizes, and media sources.
+- Good: one movie present in two physical libraries appears once in each scoped
+  list and once in a global list; an unrestricted detail response includes both
+  concrete MediaSources.
 - Good: two files for the same series/season/episode link to one Episode whose parent is a real Season whose parent is the Series; the Season can be favorited independently.
 - Good: a Douban-only movie creates/reuses metadata without a TMDb ID; a later explicit TMDb crosswalk either attaches the unowned ID or safely merges into its existing owner.
 - Base: an unresolved file has `metadata_id = NULL` and remains absent from
@@ -228,6 +261,8 @@ db.Model(&credit).
 - Good: explicit `provider=adult`, `source=adult`, or `mediaType=adult` can still request adult metadata.
 - Bad: treating `provider=all`, a parent directory, or a scan title that resembles a code as consent to contact an adult provider.
 - Bad: joining all `MetadataIdentifier` rows directly and then applying `COUNT`, `OFFSET`, or `LIMIT`.
+- Bad: paginating Media rows and collapsing versions afterward, because early
+  versions can consume the page and hide later logical works.
 - Good: deleting a local or cloud library physically removes its library/root/media rows while the referenced metadata and user state remain.
 - Bad: using GORM's scoped `Delete` for a library or its media and leaving rows in the recycle bin.
 - Good: a scan or scrape changes title, identifiers, artwork and scrape status while the playable file path and library ID remain unchanged.
@@ -263,6 +298,14 @@ db.Model(&credit).
 - Scanner queue: assert a full local probe queue waits for capacity and a canceled context releases the reserved path without enqueuing a stale task.
 - Playback/Emby: assert `/Items` totals, `/Items/Counts`, and `/SearchHints` count shared metadata once while still exposing every concrete version as a `MediaSource`.
 - Playback/Emby: assert Series and Season IDs are real metadata IDs, Episode parent IDs follow the stored hierarchy, and no virtual or media-ID fallback is emitted.
+- Playback/Emby: place one Metadata in two independent libraries and assert it
+  is listed once per scoped library and once globally, catalog-only Metadata is
+  absent, and hidden-library sibling MediaSources are excluded.
+- Playback/Emby: assert Latest selects its logical Metadata page before loading
+  versions, so any number of versions for the first work cannot displace the
+  next work.
+- Playback/Emby: assert Series and Season Episode counts collapse multiple Media
+  versions of one Episode Metadata to one logical Episode.
 - Scrape state: test provider match, definitive no-match with local fallback, and provider error without fallback.
 - Scrape provider boundary: assert regular enrichment, `provider=all` manual search, and non-adult organize make zero adult-provider requests; retain positive coverage for explicit adult manual search and adult organize.
 - Manual apply API: assert the response contains the newly persisted shared title while the media path and library ID remain unchanged.
@@ -297,6 +340,17 @@ The inner metadata join enforces display eligibility: raw unresolved media is
 persisted but intentionally absent until `metadata_id` is filled. The identifier
 projection must preserve one output row per media before filtering, counting,
 sorting, and pagination.
+
+Emby logical pagination must also happen before version loading:
+
+```go
+// Wrong: versions consume the physical page before logical deduplication.
+views := repo.ListByLibrariesFiltered(ctx, libraryIDs, offset, limit, filter)
+items := preferredMetadataViews(views)
+
+// Correct: page grouped Metadata IDs, then load visible versions for that page.
+items, total, err := metadataPage(ctx, scopedQuery, userID, order, offset, limit)
+```
 
 Scanner persistence must not manufacture local canonical metadata:
 
@@ -383,4 +437,101 @@ return map[string]any{"MediaSources": sources}
 
 // Correct: keep the source fields and expose the selected media date at PlaybackInfo top level.
 return map[string]any{"MediaSources": sources, "DateCreated": formatEmbyDateTime(media.CreatedAt)}
+```
+
+## Scenario: Persisted Emby People Images
+
+### 1. Scope / Trigger
+
+- Apply this contract when changing `Person` profile images, credit
+  persistence, or Emby person image routes.
+- Person profile images are managed assets, but they are not
+  `MetadataArtwork`; a person has one current image and keeps its provider
+  source URL as provenance only.
+
+### 2. Signatures
+
+- `Person.ProfileURL` is the source reference.
+- `Person.ProfileImageKey` is a relative key under `DataDir/people`, such as
+  `sha256/ab/cd/<hash>.jpg`.
+- `PeopleImageStore.Import(ctx, source) (key, error)` validates and atomically
+  stores image bytes.
+- `PeopleImageStore.ServePerson(ctx, writer, request, personID)` serves only a
+  validated local key and reports whether the ID belongs to a person.
+- Public image contract remains `GET /Items/{id}/Images/Primary` and its
+  `/emby` and case variants.
+
+### 3. Contracts
+
+- Person bytes live at `App.DataDir/people/sha256/<first-two>/<next-two>/`;
+  the key is content SHA-256 based and deduplicates identical bytes.
+- Profile downloads happen before credit persistence writes the person and
+  bypass `cache/images`; image network errors are warnings and do not fail the
+  authoritative scrape.
+- A successful refresh replaces the key only after validation and atomic write;
+  a failed refresh preserves the prior key and file.
+- There is no startup image migration or request-time lazy download. The
+  scraper persistence flow is the only remote person-image ingestion path.
+- The Emby JSON shape remains `ImageTags.Primary = person.ID`; the image handler
+  serves local bytes directly. A missing, invalid, or failed image returns the
+  existing transparent placeholder.
+- `cache/images` cleanup must not remove files under `DataDir/people`.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required result |
+| --- | --- |
+| Empty or unsupported profile source | Do not import; serve the placeholder |
+| Non-image, malformed, or oversized bytes | Reject import; preserve any prior key |
+| Existing file has the expected size but different bytes | Rewrite it atomically |
+| Source download fails or times out | Log a warning, preserve the prior key, and let scraping succeed |
+| Profile source changes | Import the new image before updating the key/source pair |
+| Key escapes the people root | Reject it and serve the placeholder |
+| Person has no usable local key | Serve the placeholder without network I/O |
+| `cache/images` contains bytes or a failure marker for the source | Ignore it and perform direct import |
+
+### 5. Good / Base / Bad Cases
+
+- Good: repeated references to one image resolve to one sharded content-hash
+  path and Emby serves the bytes from that path.
+- Base: a profile URL exists but its download is unavailable; metadata commits
+  and the old local image remains available without request-time retry.
+- Bad: returning `ProfileURL` to `ImageProxy` from the Emby person route when a
+  local key is missing.
+- Bad: storing people images in `cache/images` or attaching them to
+  `MetadataArtwork`, which couples them to media artwork cleanup and schema.
+
+### 6. Tests Required
+
+- Storage: sharded path, SHA-256 deduplication, atomic persistence, malformed
+  input rejection, and same-size corruption repair.
+- Persistence: successful credit image key write, source/key replacement, and
+  failed refresh preservation.
+- Remote import: assert no image or failure marker is created under
+  `cache/images`.
+- Emby: local bytes for GET and HEAD, `/Items` and `/emby/Items` prefixes,
+  uppercase/lowercase route variants, and transparent placeholder on failure.
+- Compatibility: existing movie/series artwork tests and cache cleanup behavior
+  remain unchanged.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```go
+// The handler falls through to ImageProxy and may fetch or expose a remote URL.
+raw, _ := svc.Emby.ImageURL(ctx, personID, "primary")
+return svc.ImageProxy.Serve(ctx, w, r, raw)
+```
+
+#### Correct
+
+```go
+// Resolve the person first and serve only the validated DataDir/people key.
+if isPerson, err := svc.PeopleImages.ServePerson(ctx, w, r, personID); isPerson {
+    if err != nil {
+        serveTransparentPlaceholder(w)
+    }
+    return
+}
 ```

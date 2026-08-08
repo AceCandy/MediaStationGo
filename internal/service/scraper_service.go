@@ -27,6 +27,7 @@ type ScraperService struct {
 	cache   *RuntimeCacheService
 	images  *ImageProxy
 	artwork *ArtworkStore
+	people  *PeopleImageStore
 	ai      *AIService
 
 	peopleTranslationWake chan struct{}
@@ -91,6 +92,13 @@ func (s *ScraperService) SetImageProxy(images *ImageProxy) *ScraperService {
 func (s *ScraperService) SetArtworkStore(artwork *ArtworkStore) *ScraperService {
 	if s != nil {
 		s.artwork = artwork
+	}
+	return s
+}
+
+func (s *ScraperService) SetPeopleImageStore(people *PeopleImageStore) *ScraperService {
+	if s != nil {
+		s.people = people
 	}
 	return s
 }

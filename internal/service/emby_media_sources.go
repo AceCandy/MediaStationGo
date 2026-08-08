@@ -11,7 +11,6 @@ import (
 	"strings"
 
 	"github.com/ShukeBta/MediaStationGo/internal/model"
-	"github.com/ShukeBta/MediaStationGo/internal/repository"
 )
 
 func (e *EmbyService) mediaSourcesForItem(ctx context.Context, m *model.Media, asEmbedded, directOnly bool) []map[string]any {
@@ -22,11 +21,11 @@ func (e *EmbyService) mediaSourcesForItem(ctx context.Context, m *model.Media, a
 	if err != nil || view == nil {
 		return []map[string]any{e.mediaSource(ctx, m, embyMediaVersionName(m, m.Title), asEmbedded, directOnly)}
 	}
-	return e.mediaSourcesForView(ctx, view, asEmbedded, directOnly, true)
+	return e.mediaSourcesForView(ctx, view, "", asEmbedded, directOnly, true)
 }
 
-func (e *EmbyService) mediaSourcesForView(ctx context.Context, m *model.MediaView, asEmbedded, directOnly, completeStreams bool) []map[string]any {
-	siblings := e.mediaVersionSiblings(ctx, m)
+func (e *EmbyService) mediaSourcesForView(ctx context.Context, m *model.MediaView, userID string, asEmbedded, directOnly, completeStreams bool) []map[string]any {
+	siblings := e.mediaVersionSiblings(ctx, m, userID)
 	if len(siblings) == 0 {
 		siblings = []model.MediaView{*m}
 	}
@@ -112,20 +111,20 @@ func cleanEmbyVersionName(name, fallback string, titles ...string) string {
 	return name
 }
 
-func (e *EmbyService) mediaVersionSiblings(ctx context.Context, m *model.MediaView) []model.MediaView {
+func (e *EmbyService) mediaVersionSiblings(ctx context.Context, m *model.MediaView, userID string) []model.MediaView {
 	if e == nil || e.repo == nil || e.repo.DB == nil || m == nil || strings.TrimSpace(m.ID) == "" {
 		return nil
 	}
-	libraryIDs := e.mergedLibraryIDs(ctx, m.LibraryID)
-	if len(libraryIDs) == 0 {
-		libraryIDs = []string{m.LibraryID}
-	}
-	q := e.repo.DB.WithContext(ctx).Model(&model.Media{}).
-		Where("media.library_id IN ?", libraryIDs).
-		Where("media.season_num = ? AND media.episode_num = ?", m.SeasonNum, m.EpisodeNum)
+	q := e.repo.DB.WithContext(ctx).Model(&model.Media{})
 	if strings.TrimSpace(m.MetadataID) != "" {
 		q = q.Where("media.metadata_id = ?", m.MetadataID)
 	} else {
+		libraryIDs := e.mergedLibraryIDs(ctx, m.LibraryID)
+		if len(libraryIDs) == 0 {
+			libraryIDs = []string{m.LibraryID}
+		}
+		q = q.Where("media.library_id IN ?", libraryIDs).
+			Where("media.season_num = ? AND media.episode_num = ?", m.SeasonNum, m.EpisodeNum)
 		title := strings.TrimSpace(m.Title)
 		if title == "" {
 			title = strings.TrimSpace(m.OriginalName)
@@ -146,7 +145,7 @@ func (e *EmbyService) mediaVersionSiblings(ctx context.Context, m *model.MediaVi
 	for i := range rows {
 		ids = append(ids, rows[i].ID)
 	}
-	views, err := e.repo.MediaView.FindByIDs(ctx, ids, repository.MediaQueryFilter{IncludeNSFW: true})
+	views, err := e.repo.MediaView.FindByIDs(ctx, ids, e.mediaQueryFilter(ctx, userID))
 	if err != nil || len(views) == 0 {
 		return []model.MediaView{*m}
 	}

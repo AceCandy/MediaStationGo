@@ -6,8 +6,6 @@ import (
 	"strings"
 	"time"
 
-	"gorm.io/gorm"
-
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 )
 
@@ -64,77 +62,16 @@ func (e *EmbyService) mediaItems(ctx context.Context, p ItemsParams) (map[string
 		q = e.filterEpisodeItems(ctx, q)
 	}
 
-	collapseVersions := e.shouldCollapseMediaVersions(ctx, p)
-	var total int64
-	totalQuery := q.Session(&gorm.Session{})
-	if collapseVersions {
-		totalQuery = totalQuery.Distinct("media.metadata_id")
-	}
-	if err := totalQuery.Count(&total).Error; err != nil {
+	views, total, err := e.metadataPage(ctx, q, p.UserID, metadataOrderSQL(p, resumeFilter), p.StartIndex, p.Limit)
+	if err != nil {
 		return nil, err
 	}
-	desc := !strings.EqualFold(firstCSVValue(p.SortOrder), "Ascending")
-	order := mediaReleaseOrderSQL(true)
-	orderIncludesDirection := true
-	switch primarySupportedEmbySort(p.SortBy, resumeFilter) {
-	case "sortname", "name":
-		order = "COALESCE(emby_metadata.title, media.scan_title)"
-		orderIncludesDirection = false
-	case "premieredate", "productionyear":
-		order = mediaReleaseOrderSQL(desc)
-	case "datecreated":
-		order = "media.created_at"
-		orderIncludesDirection = false
-	case "dateplayed":
-		order = "resume.watched_at"
-		orderIncludesDirection = false
-	case "communityrating":
-		order = "COALESCE(emby_metadata.rating, 0)"
-		orderIncludesDirection = false
-	}
-	if !orderIncludesDirection && strings.EqualFold(firstCSVValue(p.SortOrder), "Descending") {
-		if !strings.HasSuffix(order, " desc") {
-			order = order + " desc"
-		}
-	}
-
-	var views []model.MediaView
-	if collapseVersions {
-		// Read ordered media in batches until the requested logical page is
-		// filled. A fixed over-fetch is not enough when one work has many
-		// versions, because all rows in the first batch may collapse to one item.
-		fetchOffset := 0
-		fetchLimit := maxInt(p.Limit*4, p.Limit)
-		target := p.StartIndex + p.Limit
-		for {
-			var batch []model.Media
-			if err := q.Order(order).Offset(fetchOffset).Limit(fetchLimit).Find(&batch).Error; err != nil {
-				return nil, err
-			}
-			batchViews, err := e.mediaViewsForRows(ctx, batch, p.UserID)
-			if err != nil {
-				return nil, err
-			}
-			views = append(views, batchViews...)
-			views = e.collapseMediaVersionViews(ctx, views)
-			if len(views) >= target || len(batch) < fetchLimit {
-				break
-			}
-			fetchOffset += len(batch)
-		}
-		views = pageSlice(views, p.StartIndex, p.Limit)
-	} else {
-		var rows []model.Media
-		if err := q.Order(order).Offset(p.StartIndex).Limit(p.Limit).Find(&rows).Error; err != nil {
-			return nil, err
-		}
-		var err error
-		views, err = e.mediaViewsForRows(ctx, rows, p.UserID)
-		if err != nil {
-			return nil, err
-		}
-	}
 	items := e.payloadsForViews(ctx, views, p.UserID)
+	for _, item := range items {
+		if item["Type"] == "Movie" {
+			item["ParentId"] = p.ParentID
+		}
+	}
 	out := map[string]any{"Items": items, "TotalRecordCount": total, "StartIndex": p.StartIndex}
 	if e.cache != nil {
 		e.cache.SetJSON(ctx, cacheKey, embyItemsCacheValue{Items: items, TotalRecordCount: total, StartIndex: p.StartIndex}, time.Duration(e.mediaCacheTTLSeconds())*time.Second)
@@ -210,23 +147,9 @@ func (e *EmbyService) payloadsForViews(ctx context.Context, views []model.MediaV
 	for i := range views {
 		m := &views[i]
 		itemID := embyItemID(m)
-		items = append(items, e.itemPayload(ctx, m, userFavs[itemID], userPos[itemID], false))
+		items = append(items, e.itemPayload(ctx, m, userID, userFavs[itemID], userPos[itemID], false))
 	}
 	return items
-}
-
-func (e *EmbyService) shouldCollapseMediaVersions(ctx context.Context, p ItemsParams) bool {
-	if containsItemType(p.IncludeItemTypes, "Series") || containsItemType(p.IncludeItemTypes, "Season") {
-		return false
-	}
-	if containsItemType(p.IncludeItemTypes, "Episode") && !containsItemType(p.IncludeItemTypes, "Movie") {
-		return true
-	}
-	if p.ParentID == "" {
-		return true
-	}
-	episodic, err := e.libraryIsEpisodic(ctx, p.ParentID)
-	return err == nil && !episodic
 }
 
 func (e *EmbyService) collapseMediaVersionViews(ctx context.Context, rows []model.MediaView) []model.MediaView {
@@ -256,33 +179,28 @@ func (e *EmbyService) collapseMediaVersionViews(ctx context.Context, rows []mode
 func (e *EmbyService) seriesItemsForLibrary(ctx context.Context, libraryID string, p ItemsParams) (map[string]any, error) {
 	q := e.repo.DB.WithContext(ctx).Model(&model.Media{}).Where("media.season_num > 0 OR media.episode_num > 0")
 	q = e.applyUserMediaVisibility(ctx, q, p.UserID)
+	q = seriesScopeQuery(q)
 	if libraryID != "" {
 		q = q.Where("media.library_id IN ?", e.mergedLibraryIDs(ctx, libraryID))
 	}
 	if p.SearchTerm != "" {
-		q = q.Where("COALESCE(emby_metadata.title, media.scan_title) LIKE ? OR COALESCE(emby_metadata.original_name, '') LIKE ?", "%"+p.SearchTerm+"%", "%"+p.SearchTerm+"%")
+		q = q.Where("scope_series.title LIKE ? OR COALESCE(scope_series.original_name, '') LIKE ?", "%"+p.SearchTerm+"%", "%"+p.SearchTerm+"%")
 	}
 	if containsEmbyFilter(p.Filters, "IsFavorite") {
 		if strings.TrimSpace(p.UserID) == "" {
 			return map[string]any{"Items": []map[string]any{}, "TotalRecordCount": 0, "StartIndex": p.StartIndex}, nil
 		}
-		q = q.Joins("JOIN metadata_items AS favorite_season ON favorite_season.id = emby_metadata.parent_id AND favorite_season.kind = 'season' AND favorite_season.deleted_at IS NULL").
-			Joins("JOIN favorites ON favorites.user_id = ? AND favorites.deleted_at IS NULL AND favorites.metadata_id = favorite_season.parent_id", p.UserID)
+		q = q.Joins("JOIN favorites ON favorites.user_id = ? AND favorites.deleted_at IS NULL AND favorites.metadata_id = scope_series.id", p.UserID)
 	}
-	var rows []model.Media
-	if err := q.Order(mediaReleaseOrderSQL(true)).Limit(embySeriesGroupingLimit).Find(&rows).Error; err != nil {
-		return nil, err
-	}
-	displayRows, err := e.mediaViewsForRows(ctx, rows, p.UserID)
+	groups, total, err := e.seriesMetadataPage(ctx, q, p.UserID, p, p.StartIndex, p.Limit)
 	if err != nil {
 		return nil, err
 	}
-	groups := e.seriesGroupsFromMedia(displayRows)
-	sortSeriesGroups(groups, p)
-	total := len(groups)
 	items := make([]map[string]any, 0, minInt(p.Limit, len(groups)))
-	for _, group := range pageSlice(groups, p.StartIndex, p.Limit) {
-		items = append(items, e.seriesPayload(ctx, group, p.UserID))
+	for _, group := range groups {
+		item := e.seriesPayload(ctx, group, p.UserID)
+		item["ParentId"] = libraryID
+		items = append(items, item)
 	}
-	return map[string]any{"Items": items, "TotalRecordCount": total, "StartIndex": p.StartIndex}, nil
+	return map[string]any{"Items": items, "TotalRecordCount": int(total), "StartIndex": p.StartIndex}, nil
 }

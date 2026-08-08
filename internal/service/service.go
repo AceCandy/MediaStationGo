@@ -37,6 +37,7 @@ type Container struct {
 	Playback         *PlaybackService
 	ImageProxy       *ImageProxy
 	Artwork          *ArtworkStore
+	PeopleImages     *PeopleImageStore
 	Watcher          *WatcherService
 	Downloads        *DownloadService
 	Subscription     *SubscriptionService
