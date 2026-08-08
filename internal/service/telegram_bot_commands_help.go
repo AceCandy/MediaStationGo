@@ -60,12 +60,9 @@ func (s *TelegramBotService) cmdHelp(ctx context.Context, msg *TelegramMessage) 
 		"<b>/hideadult on|off</b> — 隐藏/显示当前绑定账号的成人目录\n" +
 		"<b>/status</b> — 系统运行状态\n" +
 		"<b>/search 关键词</b> — 搜索媒体库\n" +
-		"<b>/downloads</b> — 下载列表\n" +
 		"<b>/stats</b> — 媒体库统计\n\n" +
 		telegramMgoAdminCommandHelp() + "\n\n" +
 		"<b>自动推送事件：</b>\n" +
-		"• 订阅命中新资源\n" +
-		"• 下载任务完成\n" +
 		"• 刮削失败告警\n" +
 		"• 系统异常通知"
 }

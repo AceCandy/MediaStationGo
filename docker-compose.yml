@@ -33,11 +33,6 @@ services:
     ports:
       - "18080:8080"
 
-    # 让容器可以访问宿主机上的 qBittorrent。
-    # qB 地址通常可填：http://host.docker.internal:8085
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-
     volumes:
       # 程序运行数据：JWT 密钥和运行配置。
       # 主数据库在 ./postgres，升级/备份时 ./data 和 ./postgres 都要保留。
@@ -61,8 +56,8 @@ services:
         bind:
           create_host_path: false
 
-      # 下载目录。
-      # qB 下载目录、手动整理、自动整理会经常用到。
+      # 待整理源目录。
+      # 手动整理和自动整理会使用这个目录。
       # NAS 示例：
       #   source: /vol1/1000/Downloads
       # Windows Docker Desktop 示例：
@@ -115,8 +110,8 @@ services:
       MEDIASTATION_MEDIA_DIR: /media
       MEDIASTATION_MEDIA_CONTAINER_DIR: /media
 
-      # 默认推荐下载器保存路径使用 /downloads。
-      # 如果下载器只能返回宿主机路径，再改成同一个宿主机真实路径。
+      # 默认推荐待整理源目录使用 /downloads。
+      # 如果旧媒体库或整理设置保存了宿主机路径，再改成同一个宿主机真实路径。
       MEDIASTATION_DOWNLOAD_DIR: /downloads
       MEDIASTATION_DOWNLOAD_CONTAINER_DIR: /downloads
 

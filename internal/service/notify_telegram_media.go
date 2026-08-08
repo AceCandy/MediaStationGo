@@ -13,10 +13,6 @@ const (
 var telegramSeasonEpisodePattern = regexp.MustCompile(`(?i)S\d{1,2}E\d{1,3}(?:[\-.~_ ]?E?\d{1,3})?`)
 
 func formatTelegramMediaNotification(event NotifyEvent) string {
-	if strings.TrimSpace(event.Type) == EventDownloadComplete {
-		return formatTelegramDownloadCompleteNotification(event)
-	}
-
 	tag := telegramMediaTag(event.Data)
 	if tag == "" {
 		return ""
@@ -99,17 +95,6 @@ func formatTelegramMediaNotification(event NotifyEvent) string {
 		lines = append(lines, "", telegramMediaTemplateSeparator, links)
 	}
 	return strings.TrimSpace(strings.Join(lines, "\n"))
-}
-
-func formatTelegramDownloadCompleteNotification(event NotifyEvent) string {
-	title := telegramMessageFieldValue(event.Message, "任务", "媒体", "资源")
-	if title == "" {
-		title = telegramFirstValue(event.Data, "title", "name", "media_title", "chinese_title", "resource_title")
-	}
-	if title == "" {
-		title = "下载任务"
-	}
-	return "#下载完成\n📺 任务：" + escapeHTML(title)
 }
 
 func telegramMediaTag(data map[string]interface{}) string {

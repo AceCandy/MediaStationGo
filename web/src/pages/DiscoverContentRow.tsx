@@ -190,7 +190,7 @@ function DiscoverCard({
         </p>
         <p className="flex items-center gap-1 pt-1 text-[10px] font-semibold text-brand-500">
           <Info size={10} />
-          详情 / 订阅
+          查看详情
         </p>
       </div>
     </button>

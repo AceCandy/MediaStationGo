@@ -50,10 +50,6 @@ export function GlobalEvents() {
         toast.success(`刮削完成：没有待刮削媒体 · 成功匹配 ${matched} 项`)
       }
     }
-    if (topic === 'subscription') {
-      const queued = (p.queued as number | undefined) ?? 0
-      if (queued > 0) toast.success(`订阅「${p.name}」已加入 ${queued} 项下载`)
-    }
   }, [role])
 
   useWebSocket(onEvent)

@@ -28,7 +28,6 @@ func TestAdminRouteSurfacesAreRegistered(t *testing.T) {
 		"GET /api/admin/users/:id/permissions",
 		"GET /api/admin/storage/status",
 		"GET /api/admin/cloud/:type/list",
-		"GET /api/admin/download/clients",
 		"POST /api/admin/system/scheduler/:name/trigger",
 		"GET /api/admin/notify/channels",
 		"GET /api/admin/telegram/webhook",
@@ -40,5 +39,8 @@ func TestAdminRouteSurfacesAreRegistered(t *testing.T) {
 		if !routes[want] {
 			t.Fatalf("%s route is not registered", want)
 		}
+	}
+	if routes["GET /api/admin/download/clients"] {
+		t.Fatal("retired download client route is still registered")
 	}
 }

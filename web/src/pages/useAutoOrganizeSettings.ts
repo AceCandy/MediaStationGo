@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import toast from 'react-hot-toast'
 
 import { adminAPI } from '../api/admin'
@@ -81,11 +81,6 @@ export function useAutoOrganizeSettings({ onScrapeAfterChange }: UseAutoOrganize
     }
   }, [dirty, save])
 
-  const moveKeepsSeeding = useMemo(
-    () => config.transferMode === 'move' && settingOn(config.keepSeeding),
-    [config.keepSeeding, config.transferMode],
-  )
-
   return {
     config,
     dirty,
@@ -93,7 +88,6 @@ export function useAutoOrganizeSettings({ onScrapeAfterChange }: UseAutoOrganize
     running,
     loading,
     activeTab,
-    moveKeepsSeeding,
     refresh,
     save,
     runNow,

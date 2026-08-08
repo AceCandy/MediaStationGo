@@ -30,14 +30,14 @@
 
 ## 项目简介
 
-MediaStationGo 是一个自托管媒体管理系统，面向 NAS、小主机、家庭影音和多用户共享场景。它把媒体库、刮削、下载整理、订阅、网盘播放、Emby 协议兼容、用户权限和 Bot 通知放在一个后台里，目标是让用户只维护一套服务，就能给网页端、手机端、电视端和第三方播放器使用。
+MediaStationGo 是一个自托管媒体管理系统，面向 NAS、小主机、家庭影音和多用户共享场景。它把媒体库、刮削、站点搜索、文件整理、网盘播放、Emby 协议兼容、用户权限和 Bot 通知放在一个后台里，目标是让用户只维护一套服务，就能给网页端、手机端、电视端和第三方播放器使用。
 
 核心能力：
 
 - **媒体库管理**：电影、电视剧、动漫、综艺、音乐和自定义媒体库统一管理。
 - **Emby 协议兼容**：Infuse、VidHub、SenPlayer、Fileball 等客户端可按 Emby/Jellyfin 方式添加服务器。
 - **本地 + 网盘**：支持本地硬盘、下载目录、OpenList、CloudDrive2、WebDAV、STRMURL 和 302 反代播放。
-- **订阅下载入库**：连接 qBittorrent 后支持搜索、订阅、下载完成整理、刮削和入库通知。
+- **站点搜索与整理入库**：搜索已配置的站点资源，并将本地待整理文件整理、刮削和入库。
 - **多用户与权限**：管理员/普通用户、有效期、成人内容开关、设备管理、注册码和 Telegram Bot 绑定。
 - **灵活部署**：按规模选择 PostgreSQL、Redis、OpenSearch，低配 NAS 到大库检索都能覆盖。
 
@@ -187,7 +187,7 @@ services:
       # 媒体库目录：自动整理/重命名/入库需要写权限。
       - /vol1/1000/Media:/media
 
-      # 下载目录：qBittorrent 保存目录和自动整理源目录。
+      # 待整理源目录。
       - /vol1/1000/Downloads:/downloads
     environment:
       TZ: Asia/Shanghai
@@ -212,12 +212,12 @@ NAS 示例：
 ```yaml
 volumes:
   - /vol1/1000/Docker/moviepilot-v2/media:/vol1/1000/Docker/moviepilot-v2/media
-  - /vol1/1000/qBittorrent/downloads:/vol1/1000/qBittorrent/downloads
+  - /vol1/1000/Downloads:/vol1/1000/Downloads
 environment:
   MEDIASTATION_MEDIA_DIR: /vol1/1000/Docker/moviepilot-v2/media
   MEDIASTATION_MEDIA_CONTAINER_DIR: /vol1/1000/Docker/moviepilot-v2/media
-  MEDIASTATION_DOWNLOAD_DIR: /vol1/1000/qBittorrent/downloads
-  MEDIASTATION_DOWNLOAD_CONTAINER_DIR: /vol1/1000/qBittorrent/downloads
+  MEDIASTATION_DOWNLOAD_DIR: /vol1/1000/Downloads
+  MEDIASTATION_DOWNLOAD_CONTAINER_DIR: /vol1/1000/Downloads
 ```
 
 Windows Docker Desktop 示例：
@@ -233,7 +233,7 @@ environment:
   MEDIASTATION_DOWNLOAD_CONTAINER_DIR: /downloads
 ```
 
-如果后台添加媒体库时填的是 `/vol1/...`，Compose 里也建议把同一个 `/vol1/...` 挂进容器，避免自动整理和下载入库时路径不可访问。
+如果后台添加媒体库时填的是 `/vol1/...`，Compose 里也建议把同一个 `/vol1/...` 挂进容器，避免自动整理和入库时路径不可访问。
 
 ## 日志与 STRM 路径
 
@@ -245,7 +245,7 @@ tail -f ./data/logs/app.log
 tail -f ./data/logs/error.log
 ```
 
-如果要排查订阅、站点搜索、自动整理或 STRM 生成问题，保持 `MEDIASTATION_LOGGING_LEVEL: info`；需要更细日志时临时改成 `debug`，确认后再改回 `info`。
+如果要排查站点搜索、自动整理或 STRM 生成问题，保持 `MEDIASTATION_LOGGING_LEVEL: info`；需要更细日志时临时改成 `debug`，确认后再改回 `info`。
 
 STRM 输出目录请使用容器内可写路径，例如 `/data/strm`，或你已经挂载进容器的媒体目录。旧版本保存过 `/app/data/strm` 的部署会在生成时自动迁移到当前 `MEDIASTATION_APP_DATA_DIR`，默认就是 `/data`。
 
@@ -291,8 +291,6 @@ docker compose -f docker-compose.search.yml up -d --no-deps mediastation-go
 
 MediaStationGo 支持 Telegram Bot 绑定、用户菜单、群组管理菜单和事件通知。常见通知事件包括：
 
-- 订阅命中新资源
-- 下载任务完成
 - 入库完成
 - 刮削失败告警
 - 系统异常通知
@@ -305,9 +303,9 @@ MediaStationGo 支持 Telegram Bot 绑定、用户菜单、群组管理菜单和
 
 先确认数据库档位和路径映射正确。第一档已经足够大多数场景；第二档 Redis 能缓解频繁刷新造成的数据库压力；第三档主要增强搜索，不会替代媒体扫描本身。网盘扫描还会受网盘接口响应、目录数量和网络质量影响。
 
-**qBittorrent 下载完成后无法整理？**
+**自动整理源目录无法访问？**
 
-确认 qBittorrent 保存路径已经通过 `volumes` 挂载进 MediaStationGo 容器，并且 `MEDIASTATION_DOWNLOAD_DIR` 与 `MEDIASTATION_DOWNLOAD_CONTAINER_DIR` 对应正确。
+确认待整理源目录已经通过 `volumes` 挂载进 MediaStationGo 容器，并且 `MEDIASTATION_DOWNLOAD_DIR` 与 `MEDIASTATION_DOWNLOAD_CONTAINER_DIR` 对应正确。
 
 **硬链接目录在 Docker / NAS 上看不到内容？**
 

@@ -7,23 +7,6 @@ import (
 	"github.com/ShukeBta/MediaStationGo/internal/service"
 )
 
-func registerAuthedDownloadRoutes(authed *gin.RouterGroup, svc *service.Container) {
-	authed.GET("/downloads", requirePermission(svc, "can_manage_downloads"), listDownloadsHandler(svc))
-	authed.POST("/downloads", requirePermission(svc, "can_manage_downloads"), addDownloadHandler(svc))
-	authed.DELETE("/downloads/:hash", requirePermission(svc, "can_manage_downloads"), deleteDownloadHandler(svc))
-	authed.POST("/downloads/relocate", requirePermission(svc, "can_manage_downloads"), relocateDownloadHandler(svc))
-	authed.POST("/downloads/reload", requirePermission(svc, "can_manage_downloads"), reloadDownloadConfigHandler(svc))
-}
-
-func registerAuthedSubscriptionRoutes(authed *gin.RouterGroup, svc *service.Container) {
-	authed.GET("/subscriptions", requirePermission(svc, "can_manage_subscriptions"), listSubscriptionsHandler(svc))
-	authed.GET("/subscriptions/history", requirePermission(svc, "can_manage_subscriptions"), listSubscriptionHistoryHandler(svc))
-	authed.POST("/subscriptions", requirePermission(svc, "can_manage_subscriptions"), createSubscriptionHandler(svc))
-	authed.DELETE("/subscriptions/:id", requirePermission(svc, "can_manage_subscriptions"), deleteSubscriptionHandler(svc))
-	authed.POST("/subscriptions/:id/restore", requirePermission(svc, "can_manage_subscriptions"), restoreSubscriptionHandler(svc))
-	authed.POST("/subscriptions/:id/run", requirePermission(svc, "can_manage_subscriptions"), runSubscriptionHandler(svc))
-}
-
 func registerAuthedStatsDiscoveryAndAIRoutes(authed *gin.RouterGroup, svc *service.Container) {
 	authed.GET("/stats", statsHandler(svc))
 	authed.GET("/tasks", middleware.AdminRequired(), tasksHandler(svc))

@@ -8,9 +8,8 @@
 //	notify.wechat.sendkey
 //	notify.webhook.url + notify.webhook.method
 //
-// Notifications are triggered by the subscription poller, the download
-// poller, the scan / scrape completions, and any future event worth
-// surfacing to the operator's phone.
+// Notifications are triggered by scan / scrape completions and any future
+// event worth surfacing to the operator's phone.
 package service
 
 import (

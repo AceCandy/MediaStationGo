@@ -37,7 +37,7 @@ func newServiceContainer(cfg *config.Config, log *zap.Logger, repos *repository.
 	builder.initContentServices()
 	builder.initAccessAndStorageServices()
 	builder.initIdentityServices()
-	builder.initSiteDownloadServices()
+	builder.initSiteServices()
 	builder.initImageProxy()
 	builder.attachRuntimeContext()
 	return builder.c
@@ -138,7 +138,6 @@ func (b *serviceContainerBuilder) initAccessAndStorageServices() {
 	b.c.Subtitle.SetStorageConfig(b.c.StorageCfg)
 	b.c.Emby.SetRuntimeCache(b.c.Cache)
 	b.c.Emby.SetCloudProbe(b.c.StorageCfg, b.c.FFprobe)
-	b.c.DownloadClients = NewDownloadClientService(b.log, b.repos)
 	b.c.Assistant = NewAssistantService(b.log, b.repos, b.c.AI)
 	b.c.Scheduler = NewSchedulerService(
 		b.log, b.repos, b.c.Scan, b.c.Transcoder,
@@ -159,21 +158,11 @@ func (b *serviceContainerBuilder) initIdentityServices() {
 	// Device enforcement notifies users through their Telegram binding before destructive actions.
 	b.c.Device.SetNotifier(b.c.TelegramBot.NotifyUserByID)
 	b.c.ApiConfig = NewApiConfigService(b.cfg, b.log, b.repos, b.c.Crypto)
-	b.c.DownloadMgr = NewDownloadManager(b.log, b.repos, b.c.Crypto)
 	b.c.Notify = NewNotifyService(b.log, b.repos, b.c.Crypto)
 }
 
-func (b *serviceContainerBuilder) initSiteDownloadServices() {
+func (b *serviceContainerBuilder) initSiteServices() {
 	b.c.Site = NewSiteService(b.log, b.repos, b.flareSolverrURL())
-	b.c.Downloads = NewDownloadService(b.log, b.repos, b.c.WSHub, b.c.Organizer, b.c.Site)
-	b.c.Organizer.SetActiveDownloadPathProvider(b.c.Downloads.ActiveDownloadPaths)
-	b.c.Downloads.SetScanner(b.c.Scan)
-	b.c.Downloads.SetTaskTracker(b.c.Tasks)
-	b.c.Downloads.SetOrganizePipeline(b.c.OrganizePipeline)
-	b.c.Downloads.SetNotifyChannels(b.c.NotifyChannels)
-	b.c.Subscription = NewSubscriptionService(b.cfg, b.log, b.repos, b.c.Downloads, b.c.Site, b.c.WSHub)
-	b.c.Subscription.SetScraper(b.c.Scraper)
-	b.c.Subscription.SetNotifyChannels(b.c.NotifyChannels)
 }
 
 func (b *serviceContainerBuilder) initImageProxy() {

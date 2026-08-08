@@ -18,7 +18,6 @@ type AutoOrganizeSettingsPanelProps = {
   loading: boolean
   saving: boolean
   running: boolean
-  moveKeepsSeeding: boolean
   onRefresh: () => void
   onSave: () => void
   onRunNow: () => void
@@ -40,7 +39,6 @@ export function AutoOrganizeSettingsPanel({
   loading,
   saving,
   running,
-  moveKeepsSeeding,
   onRefresh,
   onSave,
   onRunNow,
@@ -53,7 +51,7 @@ export function AutoOrganizeSettingsPanel({
         <div>
           <h2 className="font-display text-lg font-semibold text-ink-600">自动整理设置</h2>
           <p className="text-xs text-sand-500">
-            设置后可自动递归扫描下载/待整理目录，整理到媒体库目录；也可以在这里立即执行一次。
+            设置后可自动递归扫描待整理目录，整理到媒体库目录；也可以在这里立即执行一次。
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -108,7 +106,6 @@ export function AutoOrganizeSettingsPanel({
         <AutoOrganizeBasicTab
           config={config}
           currentDir={currentDir}
-          moveKeepsSeeding={moveKeepsSeeding}
           onConfigChange={onConfigChange}
         />
       )}

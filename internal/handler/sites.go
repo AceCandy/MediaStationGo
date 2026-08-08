@@ -48,12 +48,10 @@ type createSiteReq struct {
 	APIKey     string `json:"api_key"`
 	AuthHeader string `json:"auth_header"`
 	UserAgent  string `json:"user_agent"`
-	RSSURL     string `json:"rss_url"`
 	Timeout    int    `json:"timeout"`
 	Priority   int    `json:"priority"`
 	UseProxy   bool   `json:"use_proxy"`
 	Enabled    *bool  `json:"enabled"`
-	Downloader string `json:"downloader"`
 }
 
 func createSiteHandler(svc *service.Container) gin.HandlerFunc {
@@ -72,9 +70,6 @@ func createSiteHandler(svc *service.Container) gin.HandlerFunc {
 		if req.UserAgent != "" {
 			extraMap["user_agent"] = req.UserAgent
 		}
-		if req.RSSURL != "" {
-			extraMap["rss_url"] = req.RSSURL
-		}
 		if req.Timeout > 0 {
 			extraMap["timeout"] = req.Timeout
 		}
@@ -82,9 +77,6 @@ func createSiteHandler(svc *service.Container) gin.HandlerFunc {
 			extraMap["priority"] = req.Priority
 		}
 		extraMap["use_proxy"] = req.UseProxy
-		if req.Downloader != "" {
-			extraMap["downloader"] = req.Downloader
-		}
 		extraJSON, _ := json.Marshal(extraMap)
 
 		site := &model.Site{

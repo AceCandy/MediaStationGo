@@ -136,9 +136,8 @@ type AIConfig struct {
 
 // OrganizerConfig 配置媒体文件智能分类整理。
 type OrganizerConfig struct {
-	SmartClassify     bool              `mapstructure:"smart_classify"`
-	AutoAfterDownload bool              `mapstructure:"auto_after_download"`
-	Categories        map[string]string `mapstructure:"categories"`
+	SmartClassify bool              `mapstructure:"smart_classify"`
+	Categories    map[string]string `mapstructure:"categories"`
 }
 
 // FlareSolverrConfig 配置 FlareSolverr 服务（用于绕过 Cloudflare/WAF）。

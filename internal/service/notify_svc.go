@@ -1,7 +1,7 @@
 // Package service — 通知服务事件分发引擎。
 //
 // NotifyService 管理所有通知渠道，根据事件类型将通知分发给
-// 订阅了该事件的渠道。支持 4 种内置事件类型和 5 种通知渠道。
+// 订阅了该事件的渠道。支持 3 种内置事件类型和 5 种通知渠道。
 package service
 
 import (
@@ -17,11 +17,9 @@ import (
 
 // 通知事件类型常量。
 const (
-	EventSubscriptionHit  = "subscription_hit"
-	EventDownloadComplete = "download_complete"
-	EventScrapeFailed     = "scrape_failed"
-	EventSystemAlert      = "system_alert"
-	EventLibraryIngest    = "library_ingest"
+	EventScrapeFailed  = "scrape_failed"
+	EventSystemAlert   = "system_alert"
+	EventLibraryIngest = "library_ingest"
 )
 
 // NotifyEvent 是通知事件的数据结构。

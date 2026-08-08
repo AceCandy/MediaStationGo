@@ -169,8 +169,7 @@ func TestDefaultPermissionsAreViewerOnly(t *testing.T) {
 	if !perms.CanViewDashboard || !perms.CanPlayMedia || !perms.CanExternalPlayer {
 		t.Fatal("viewer defaults must allow library viewing, playback, and external players")
 	}
-	if perms.CanManageDownloads || perms.CanManageSubscriptions || perms.CanManageFiles ||
-		perms.CanEditMedia || perms.CanRescrape || perms.CanCaptureFrames ||
+	if perms.CanManageFiles || perms.CanEditMedia || perms.CanRescrape || perms.CanCaptureFrames ||
 		perms.CanManageSites || perms.CanManageUsers || perms.CanManageStrm {
 		t.Fatal("viewer defaults must not allow downloads, scraping, media edits, or file management")
 	}

@@ -116,7 +116,3 @@ func (a *NexusPHPAdapter) GetDetail(ctx context.Context, cfg SiteConfig, id stri
 
 	return parseNexusPHPDetailHTML(string(data), id, cfg.URL)
 }
-
-func (a *NexusPHPAdapter) GetDownloadURL(ctx context.Context, cfg SiteConfig, id string) (string, error) {
-	return cfg.URL + "/download.php?id=" + id, nil
-}

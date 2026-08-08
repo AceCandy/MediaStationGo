@@ -16,7 +16,6 @@ func registerAdminRoutes(api *gin.RouterGroup, cfg *config.Config, svc *service.
 	registerAdminPermissionRoutes(admin, svc)
 	registerAdminStorageRoutes(admin, svc)
 	registerAdminCloudRoutes(admin, svc)
-	registerAdminDownloadClientRoutes(admin, svc)
 	registerAdminSystemRoutes(admin, svc)
 	registerAdminNotificationRoutes(admin, svc)
 	registerAdminTelegramRoutes(admin, svc)
@@ -66,15 +65,6 @@ func registerAdminCloudRoutes(admin *gin.RouterGroup, svc *service.Container) {
 	admin.POST("/cloud/:type/mount", cloudMountHandler(svc))
 	admin.POST("/cloud/:type/qr/start", cloud115QRStartHandler(svc))
 	admin.POST("/cloud/:type/qr/poll", cloud115QRPollHandler(svc))
-}
-
-func registerAdminDownloadClientRoutes(admin *gin.RouterGroup, svc *service.Container) {
-	admin.GET("/download/clients", listDownloadClientsHandler(svc))
-	admin.POST("/download/clients", createDownloadClientHandler(svc))
-	admin.PUT("/download/clients/:id", updateDownloadClientHandler(svc))
-	admin.DELETE("/download/clients/:id", deleteDownloadClientHandler(svc))
-	admin.POST("/download/clients/:id/test", testDownloadClientHandler(svc))
-	admin.GET("/download/aria2/stats", aria2StatsHandler(svc))
 }
 
 func registerAdminSystemRoutes(admin *gin.RouterGroup, svc *service.Container) {

@@ -7,7 +7,7 @@
 <h3 align="center">A lightweight, polished, NAS-friendly private media center</h3>
 
 <p align="center">
-  <strong>Docker-first setup · Multi-user management · Media library · Metadata · Downloads · Emby-protocol clients · Cloud playback</strong>
+  <strong>Docker-first setup · Multi-user management · Media library · Metadata · Site search · Emby-protocol clients · Cloud playback</strong>
 </p>
 
 <p align="center">
@@ -37,7 +37,7 @@ It helps you:
 - Create multiple user accounts for family members, friends, or different devices.
 - Scan files and enrich posters, summaries, years, seasons, and episodes.
 - Play in the web UI, or log in with a MediaStationGo account from Emby-protocol apps such as Infuse, VidHub, SenPlayer, and Emby clients.
-- Connect qBittorrent for search, subscriptions, downloads, and post-download organization.
+- Search configured sites and organize local staging files into the media library.
 - Connect OpenList, CloudDrive2, WebDAV, and other storage backends with STRMURL or 302 redirect playback.
 - Run on NAS, mini PCs, VPS, Linux, Windows Docker Desktop, or any Docker-friendly host.
 
@@ -51,7 +51,7 @@ It helps you:
 - **Emby-protocol compatibility**: add the server in third-party players as an Emby/Jellyfin-compatible server, then log in with your MediaStationGo username and password.
 - **Multi-user management**: supports admins, regular users, account enable/disable, expiry dates, device management, Bot registration, and redeem codes.
 - **Local + cloud media in one place**: manage local disks, download folders, OpenList, CloudDrive2, WebDAV, and other storage backends from one panel.
-- **Download-to-library workflow**: connect qBittorrent for search, subscriptions, download completion organization, and metadata matching.
+- **Site search and organization**: search configured sites, then organize and scrape local staging files into the library.
 - **NAS-friendly**: simple Docker Compose deployment. The primary database lives under `postgres/`, while runtime secrets and files live under `data/`.
 
 ---
@@ -236,11 +236,6 @@ services:
     ports:
       - "18080:8080"
 
-    # Let the container reach qBittorrent running on the host:
-    # qB URL example: http://host.docker.internal:8085
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-
     volumes:
       # Application data. Back this up before upgrades.
       - ./data:/data
@@ -276,7 +271,7 @@ services:
       MEDIASTATION_DATABASE_DSN: postgres://mediastation:mediastation@postgres:5432/mediastation?sslmode=disable
       MEDIASTATION_CACHE_CACHE_DIR: /cache
 
-      # Use /media and /downloads in the web UI and downloader by default.
+      # Use /media and /downloads as the media and staging paths by default.
       # Only set MEDIASTATION_*_DIR to real host paths when migrating old
       # libraries/tasks that already stored host paths.
       MEDIASTATION_MEDIA_DIR: /media
@@ -312,21 +307,17 @@ services:
    - Use a container path such as `/media/Movies`.
    - Start a scan.
 
-2. **Connect qBittorrent**
-   - Go to download client settings.
-   - If qBittorrent runs on the host, try `http://host.docker.internal:8085`.
-
-3. **Configure metadata providers**
+2. **Configure metadata providers**
    - Go to system settings / external APIs.
    - Add TMDb, Bangumi, TheTVDB, Fanart, Douban, or other providers when needed.
 
-4. **Use external players**
+3. **Use external players**
    - Add the server as an Emby/Jellyfin-compatible server.
    - Server URL: `http://SERVER_IP:18080`.
    - Use the username and password created in MediaStationGo. No separate Emby server is required.
    - Admins can create regular users in the web UI or Bot so each person can log in with their own account.
 
-5. **Use cloud playback**
+4. **Use cloud playback**
    - Configure OpenList, CloudDrive2, WebDAV, or another provider in storage settings.
    - Choose STRMURL or 302 redirect playback in the admin settings.
    - The enabled option takes priority. If both are disabled, playback falls back to the normal server playback path.
@@ -350,7 +341,7 @@ tail -f ./data/logs/app.log
 tail -f ./data/logs/error.log
 ```
 
-The compose templates keep full application logs in `./data/logs/app.log` and split warnings/errors into `warn.log` and `error.log`. Keep `MEDIASTATION_LOGGING_LEVEL=info` while diagnosing subscription, site search, organizer, or STRM generation issues; temporarily switch to `debug` only when deeper tracing is needed.
+The compose templates keep full application logs in `./data/logs/app.log` and split warnings/errors into `warn.log` and `error.log`. Keep `MEDIASTATION_LOGGING_LEVEL=info` while diagnosing site search, organizer, or STRM generation issues; temporarily switch to `debug` only when deeper tracing is needed.
 
 Use a writable container path for STRM output, such as `/data/strm` or a mounted media path. Deployments that previously saved `/app/data/strm` are migrated automatically to the configured `MEDIASTATION_APP_DATA_DIR`, which defaults to `/data`.
 
@@ -407,17 +398,7 @@ Most cases are path mistakes.
 - In the web UI, use `/media/Movies`, not the original NAS path.
 - Docker maps downloads to `/downloads`; use `/downloads` as the organization source when possible.
 
-### 3. qBittorrent cannot connect
-
-If qBittorrent is on the host, try:
-
-```text
-http://host.docker.internal:8085
-```
-
-If qBittorrent is on another machine, use that machine's LAN IP.
-
-### 4. NAS CPU usage is high
+### 3. NAS CPU usage is high
 
 Suggested settings:
 
@@ -425,7 +406,7 @@ Suggested settings:
 - Enable automatic organization, scrape-after-scan, and boot cloud scan only when you really need them.
 - Avoid frequent full-library scans on large libraries. Prefer manual scan or scheduled night sync.
 
-### 5. Should I use `.env`?
+### 4. Should I use `.env`?
 
 Beginners should not. Editing `docker-compose.yml` directly is easier to understand.
 
@@ -442,7 +423,7 @@ Beginners should not. Editing `docker-compose.yml` directly is easier to underst
 | Playback | Web playback, HTTP Range, HLS transcoding, direct links, STRMURL, 302 redirect |
 | External clients | Emby-protocol compatible APIs; MediaStationGo accounts can log in to third-party players |
 | User management | Multi-user accounts, admin/regular users, expiry dates, device management, Bot registration and redeem codes |
-| Downloads | qBittorrent, site search, subscriptions, post-download organization |
+| Search and organization | Site search, local staging organization, metadata matching |
 | File manager | Browse, organize, copy, move, hardlink, symlink |
 | Operations | Task queue, recycle bin, duplicate files, notifications, logs |
 | AI | OpenAI-compatible API, AI search, recommendations, assistant |

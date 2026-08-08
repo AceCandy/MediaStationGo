@@ -1,5 +1,7 @@
 package model
 
+import "time"
+
 const (
 	MetadataKindMovie   = "movie"
 	MetadataKindSeries  = "series"
@@ -31,6 +33,9 @@ type MetadataItem struct {
 	NSFW         bool          `gorm:"default:false" json:"nsfw"`
 	Source       string        `gorm:"size:32;not null" json:"source"`
 	Parent       *MetadataItem `gorm:"foreignKey:ParentID;references:ID;constraint:OnUpdate:CASCADE,OnDelete:RESTRICT" json:"-"`
+
+	// CatalogHydratedAt 表示发现页后台已完成完整的目录数据、图片和人物入库。
+	CatalogHydratedAt *time.Time `gorm:"index" json:"catalog_hydrated_at,omitempty"`
 }
 
 // MetadataIdentifier 保存 provider 外部标识；同一数字在不同 provider 或实体类型下互不冲突。

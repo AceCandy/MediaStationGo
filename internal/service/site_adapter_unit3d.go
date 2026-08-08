@@ -127,12 +127,7 @@ func (a *UNIT3DAdapter) GetDetail(ctx context.Context, cfg SiteConfig, id string
 		detail.InfoHash = v
 	}
 
-	detail.DownloadURL = cfg.URL + "/api/torrents/" + id + "/download"
 	return detail, nil
-}
-
-func (a *UNIT3DAdapter) GetDownloadURL(ctx context.Context, cfg SiteConfig, id string) (string, error) {
-	return cfg.URL + "/api/torrents/" + id + "/download", nil
 }
 
 // parseUNIT3DJSON 解析 UNIT3D JSON 响应。
@@ -190,7 +185,6 @@ func parseUNIT3DJSON(data []byte, siteName, baseURL string) (*SiteSearchResult, 
 		}
 
 		item.DetailURL = baseURL + "/torrents/" + item.ID
-		item.DownloadURL = baseURL + "/api/torrents/" + item.ID + "/download"
 		result.Items = append(result.Items, item)
 	}
 

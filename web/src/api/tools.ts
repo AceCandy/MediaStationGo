@@ -19,8 +19,8 @@ export interface OrganizeOverrides {
   dry_run?: boolean
 }
 
-// OrganizeSource is a selectable organize source directory (e.g. the download
-// directory) surfaced so operators can organize an arbitrary directory and not
+// OrganizeSource is a selectable organize source directory surfaced so
+// operators can organize an arbitrary directory and not
 // only registered libraries.
 export interface OrganizeSource {
   label: string
@@ -42,14 +42,14 @@ export const toolsAPI = {
       )
       .then((r) => r.data),
 
-  // organizeSources lists selectable source directories (download/media dir).
+  // organizeSources lists selectable source directories.
   organizeSources: () =>
     api
       .get<{ sources: OrganizeSource[] }>('/admin/organize/sources')
       .then((r) => r.data.sources ?? []),
 
-  // organizeDirectory organizes an arbitrary source directory (e.g. downloads)
-  // into the destination with dedup + 洗版 (resolution replacement).
+  // organizeDirectory organizes an arbitrary source directory into the
+  // destination with dedup + 洗版 (resolution replacement).
   organizeDirectory: (opts: OrganizeOverrides) =>
     api
       .post<{

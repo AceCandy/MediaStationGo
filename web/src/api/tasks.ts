@@ -1,5 +1,4 @@
 import { api } from './client'
-import type { QBitTorrent } from '../types'
 
 export interface ActiveTranscode {
   job_id: string
@@ -34,7 +33,6 @@ export interface BackgroundTaskSnapshot {
 
 export interface TasksSnapshot {
   transcodes: ActiveTranscode[]
-  torrents: QBitTorrent[] | null
   background_tasks?: BackgroundTaskSnapshot
 }
 

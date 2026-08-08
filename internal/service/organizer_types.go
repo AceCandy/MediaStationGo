@@ -41,11 +41,11 @@ type OrganizeOptions struct {
 	TransferMode TransferMode
 	// MediaType 手动整理时由 UI 指定的媒体类型。空值时按文件名/目录推断。
 	MediaType string
-	// MediaCategory 由订阅/下载任务或 UI 指定的分类。空值时按目录/NFO/规则推断。
+	// MediaCategory 由 UI 指定的分类。空值时按目录/NFO/规则推断。
 	MediaCategory string
 	// DryRun 仅生成整理预览，不实际移动/复制/硬链接文件。
 	DryRun bool
 	// AllowReplaceExisting 允许用本次来源替换目标库中已存在的同一媒体。
-	// 默认 false：只去重不洗版，避免未开启洗版的订阅/手动整理留下或替换出多份版本。
+	// 默认 false：只去重不洗版，避免手动整理留下或替换出多份版本。
 	AllowReplaceExisting bool
 }

@@ -18,20 +18,14 @@ type Site struct {
 
 	// ── 高级设置 ──────────────────────────────────────────────────────────
 	UserAgent        string `gorm:"size:500" json:"user_agent"`             // 自定义 User-Agent
-	RSSURL           string `gorm:"size:1000" json:"rss_url"`               // RSS 订阅地址
 	Timeout          int    `gorm:"default:15" json:"timeout"`              // 请求超时(秒), 0=不限制
 	Priority         int    `gorm:"default:50" json:"priority"`             // 优先级, 越小越优先
 	UseProxy         bool   `gorm:"default:false" json:"use_proxy"`         // 是否使用代理
 	RateLimit        bool   `gorm:"default:false" json:"rate_limit"`        // 是否限制访问频率
 	BrowserEmulation bool   `gorm:"default:false" json:"browser_emulation"` // 浏览器仿真(防爬)
 
-	// ── 状态与统计 ────────────────────────────────────────────────────────
-	LoginStatus   string `gorm:"size:20;default:unknown" json:"login_status"` // unknown / ok / fail
-	UploadBytes   int64  `gorm:"default:0" json:"upload_bytes"`               // 上传字节统计
-	DownloadBytes int64  `gorm:"default:0" json:"download_bytes"`             // 下载字节统计
-
-	// ── 关联下载器 ────────────────────────────────────────────────────────
-	Downloader string `gorm:"size:50" json:"downloader"` // qbittorrent / transmission / aria2
+	// ── 状态 ──────────────────────────────────────────────────────────────
+	LoginStatus string `gorm:"size:20;default:unknown" json:"login_status"` // unknown / ok / fail
 
 	Enabled     bool       `gorm:"default:true" json:"enabled"`
 	IsDefault   bool       `gorm:"default:false" json:"is_default"`

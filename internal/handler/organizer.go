@@ -88,16 +88,16 @@ func organizeLibraryHandler(svc *service.Container) gin.HandlerFunc {
 	}
 }
 
-// organizeSourcesHandler lists selectable organize source directories (download
-// dir + media dir) so the UI can offer them alongside registered libraries.
+// organizeSourcesHandler lists selectable organize source directories (staging
+// and media dirs) so the UI can offer them alongside registered libraries.
 func organizeSourcesHandler(svc *service.Container) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"sources": svc.Organizer.OrganizeSourceCandidates(c.Request.Context())})
 	}
 }
 
-// organizeDirectoryHandler organizes an arbitrary source directory (e.g. the
-// download directory) into the destination with dedup + 洗版.
+// organizeDirectoryHandler organizes an arbitrary source directory into the
+// destination with dedup + 洗版.
 func organizeDirectoryHandler(svc *service.Container) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req organizeReq

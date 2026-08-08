@@ -48,8 +48,8 @@ func (s *SiteService) FindByID(ctx context.Context, id string) (*model.Site, err
 }
 
 // siteUpdatableFields is the whitelist of columns that may be patched via
-// the update endpoint. Fields like id, created_at, deleted_at, login_status,
-// upload_bytes, download_bytes are excluded to prevent injection.
+// the update endpoint. Fields like id, created_at, deleted_at, and login_status
+// are excluded to prevent injection.
 var siteUpdatableFields = map[string]bool{
 	"name":              true,
 	"url":               true,
@@ -59,13 +59,11 @@ var siteUpdatableFields = map[string]bool{
 	"cookie":            true,
 	"auth_header":       true,
 	"user_agent":        true,
-	"rss_url":           true,
 	"timeout":           true,
 	"priority":          true,
 	"use_proxy":         true,
 	"rate_limit":        true,
 	"browser_emulation": true,
-	"downloader":        true,
 	"enabled":           true,
 	"is_default":        true,
 	"extra":             true,

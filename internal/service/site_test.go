@@ -82,37 +82,6 @@ func TestYemaPTTestConnectionDoesNotFallbackAfterAuthFailure(t *testing.T) {
 	}
 }
 
-func TestRedactSensitiveDownloadURL(t *testing.T) {
-	tests := []struct {
-		name string
-		raw  string
-		want string
-	}{
-		{
-			name: "query secrets",
-			raw:  "https://pt.example/download.php?id=123&passkey=secret#frag",
-			want: "https://pt.example/download.php",
-		},
-		{
-			name: "magnet",
-			raw:  "magnet:?xt=urn:btih:abc&dn=movie",
-			want: "magnet:?xt=***",
-		},
-		{
-			name: "invalid",
-			raw:  "not a url",
-			want: "[redacted-download-url]",
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := redactSensitiveDownloadURL(tt.raw); got != tt.want {
-				t.Fatalf("redactSensitiveDownloadURL() = %q, want %q", got, tt.want)
-			}
-		})
-	}
-}
-
 func TestSiteSearchReturnsErrorWhenAllEnabledSitesFail(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "upstream timeout simulation", http.StatusGatewayTimeout)

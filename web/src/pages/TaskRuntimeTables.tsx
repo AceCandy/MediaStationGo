@@ -1,17 +1,4 @@
 import type { ActiveTranscode } from '../api/tasks'
-import type { QBitTorrent } from '../types'
-
-function fmtBytes(n: number): string {
-  if (!n || n <= 0) return '0 B'
-  const u = ['B', 'KB', 'MB', 'GB', 'TB']
-  let v = n
-  let i = 0
-  while (v >= 1024 && i < u.length - 1) {
-    v /= 1024
-    i++
-  }
-  return `${v.toFixed(2)} ${u[i]}`
-}
 
 export function TranscodeTaskTable({ transcodes }: { transcodes: ActiveTranscode[] }) {
   if (transcodes.length === 0) return <p className="text-sand-500">暂无运行中转码。</p>
@@ -44,41 +31,6 @@ export function TranscodeTaskTable({ transcodes }: { transcodes: ActiveTranscode
                 </span>
               )}
             </td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
-  )
-}
-
-export function TorrentTaskTable({ torrents }: { torrents: QBitTorrent[] }) {
-  if (torrents.length === 0) return <p className="text-sand-500">暂无运行中下载。</p>
-  return (
-    <table className="w-full text-left text-sm">
-      <thead className="text-xs uppercase tracking-wider text-sand-500">
-        <tr>
-          <th className="py-2">名称</th>
-          <th>状态</th>
-          <th>进度</th>
-          <th>体积</th>
-        </tr>
-      </thead>
-      <tbody>
-        {torrents.map((t) => (
-          <tr key={t.hash} className="border-t border-gray-200 align-top">
-            <td className="max-w-md truncate py-2 text-ink-600" title={t.name}>
-              {t.name}
-            </td>
-            <td className="text-ink-100">{t.state}</td>
-            <td className="text-ink-100">
-              <div className="flex items-center gap-2">
-                <div className="h-1 w-24 overflow-hidden rounded-lg bg-gray-200">
-                  <div className="h-full bg-primary-400" style={{ width: `${Math.round(t.progress * 100)}%` }} />
-                </div>
-                {(t.progress * 100).toFixed(1)}%
-              </div>
-            </td>
-            <td className="text-ink-100">{fmtBytes(t.size)}</td>
           </tr>
         ))}
       </tbody>

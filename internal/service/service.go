@@ -39,8 +39,6 @@ type Container struct {
 	Artwork          *ArtworkStore
 	PeopleImages     *PeopleImageStore
 	Watcher          *WatcherService
-	Downloads        *DownloadService
-	Subscription     *SubscriptionService
 	Subtitle         *SubtitleService
 	Stats            *StatsService
 	Profile          *ProfileService
@@ -62,14 +60,12 @@ type Container struct {
 	StorageCfg       *StorageConfigService
 	STRM             *STRMService
 	SystemUpdate     *SystemUpdateService
-	DownloadClients  *DownloadClientService
 	Assistant        *AssistantService
 	Organizer        *OrganizerService
 	OrganizePipeline *OrganizePipelineService
 	Douban           *DoubanProvider
 	Token            *TokenService
 	ApiConfig        *ApiConfigService
-	DownloadMgr      *DownloadManager
 	Notify           *NotifyService
 	Site             *SiteService
 	Device           *DeviceService
@@ -91,7 +87,7 @@ func NewWithVersion(cfg *config.Config, log *zap.Logger, repos *repository.Conta
 	return newServiceContainer(cfg, log, repos, version)
 }
 
-// Boot 启动后台工作进程（watcher, downloads poller, subscription scheduler）。
+// Boot 启动后台工作进程（watcher、媒体扫描与调度任务）。
 // 在 AutoMigrate 后调用一次。
 func (c *Container) Boot() {
 	if err := c.NormalizeLocalLibraryPaths(c.stopCtx); err != nil {
@@ -103,20 +99,14 @@ func (c *Container) Boot() {
 	if err := c.Watcher.Start(c.stopCtx); err != nil {
 		c.Log.Warn("watcher start failed", zap.Error(err))
 	}
-	c.Downloads.Start(c.stopCtx)
-	c.Subscription.Start(c.stopCtx)
 	if err := c.APIConfig.SeedDefaults(c.stopCtx); err != nil {
 		c.Log.Warn("api config seed failed", zap.Error(err))
 	}
 	if c.Scraper != nil {
 		c.Scraper.StartPeopleTranslationWorker(c.stopCtx)
+		c.Scraper.StartCatalogHydrationWorker(c.stopCtx)
 	}
 	go c.warmMediaSearchIndex(c.stopCtx)
-
-	// 加载所有已配置的下载客户端
-	if err := c.DownloadMgr.LoadAll(c.stopCtx); err != nil {
-		c.Log.Warn("failed to load download clients", zap.Error(err))
-	}
 
 	// 启动调度器定时任务
 	c.Scheduler.Start(c.stopCtx)
@@ -167,6 +157,7 @@ func (c *Container) Close() {
 		c.stopCancel()
 	}
 	if c.Scraper != nil {
+		c.Scraper.WaitCatalogHydrationWorker()
 		c.Scraper.WaitPeopleTranslationWorker()
 	}
 	if c.Scheduler != nil {
@@ -174,12 +165,6 @@ func (c *Container) Close() {
 	}
 	if c.Watcher != nil {
 		c.Watcher.Stop()
-	}
-	if c.Subscription != nil {
-		c.Subscription.Stop()
-	}
-	if c.Downloads != nil {
-		c.Downloads.Stop()
 	}
 	if c.Transcoder != nil {
 		c.Transcoder.StopAll()

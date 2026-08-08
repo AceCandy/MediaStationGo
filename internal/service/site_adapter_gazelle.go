@@ -107,9 +107,8 @@ func (a *GazelleAdapter) GetDetail(ctx context.Context, cfg SiteConfig, id strin
 	}
 
 	detail := &TorrentDetail{
-		ID:          id,
-		DetailURL:   cfg.URL + "/torrents.php?torrentid=" + id,
-		DownloadURL: cfg.URL + "/torrents.php?action=download&id=" + id,
+		ID:        id,
+		DetailURL: cfg.URL + "/torrents.php?torrentid=" + id,
 	}
 
 	if v, ok := torrent["groupName"].(string); ok {
@@ -144,10 +143,6 @@ func (a *GazelleAdapter) GetDetail(ctx context.Context, cfg SiteConfig, id strin
 	}
 
 	return detail, nil
-}
-
-func (a *GazelleAdapter) GetDownloadURL(ctx context.Context, cfg SiteConfig, id string) (string, error) {
-	return cfg.URL + "/torrents.php?action=download&id=" + id, nil
 }
 
 // parseGazelleJSON 解析 Gazelle JSON 响应。
@@ -214,7 +209,6 @@ func parseGazelleJSON(data []byte, siteName, baseURL string) (*SiteSearchResult,
 		}
 
 		item.DetailURL = baseURL + "/torrents.php?torrentid=" + item.ID
-		item.DownloadURL = baseURL + "/torrents.php?action=download&id=" + item.ID
 		result.Items = append(result.Items, item)
 	}
 

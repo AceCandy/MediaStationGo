@@ -89,10 +89,6 @@ func (a *CustomRSSAdapter) GetDetail(ctx context.Context, cfg SiteConfig, id str
 	}, nil
 }
 
-func (a *CustomRSSAdapter) GetDownloadURL(ctx context.Context, cfg SiteConfig, id string) (string, error) {
-	return id, nil // In RSS, the ID is often the download URL
-}
-
 // parseRSSXML 解析 RSS XML 内容。
 func parseRSSXML(data []byte, siteName, keyword string) (*SiteSearchResult, error) {
 	result := &SiteSearchResult{
@@ -125,7 +121,6 @@ func parseRSSXML(data []byte, siteName, keyword string) (*SiteSearchResult, erro
 		linkRegex := regexp.MustCompile(`<link>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?</link>`)
 		if m := linkRegex.FindStringSubmatch(item[1]); len(m) >= 2 {
 			ri.DetailURL = strings.TrimSpace(m[1])
-			ri.DownloadURL = strings.TrimSpace(m[1])
 		}
 
 		// Description

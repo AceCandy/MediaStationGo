@@ -24,7 +24,6 @@ type OrganizeTrigger string
 const (
 	OrganizeTriggerManual    OrganizeTrigger = "manual"
 	OrganizeTriggerScheduled OrganizeTrigger = "scheduled"
-	OrganizeTriggerDownload  OrganizeTrigger = "download"
 )
 
 // OrganizePipelineRequest is the single service-facing entry point for every

@@ -1,9 +1,8 @@
 import { FormEvent, useState } from 'react'
 import toast from 'react-hot-toast'
-import { Download, Search } from 'lucide-react'
+import { Search } from 'lucide-react'
 
 import { sitesAPI, type SiteSearchResult } from '../api/sites'
-import { downloadsAPI } from '../api/downloads'
 
 function fmtBytes(n: number): string {
   if (!n || n <= 0) return '—'
@@ -43,26 +42,6 @@ export function SiteSearchPage() {
       toast.error(msg)
     } finally {
       setLoading(false)
-    }
-  }
-
-  const downloadTorrent = async (item: SiteSearchResult) => {
-    const url = item.download_url || item.torrent_url
-    if (!url) {
-      toast.error('无可用下载链接')
-      return
-    }
-    try {
-      await downloadsAPI.add(url, '', {
-        title: item.title,
-        source_category: item.category,
-      })
-      toast.success(`已加入下载: ${item.title.substring(0, 40)}...`)
-    } catch (err: unknown) {
-      const msg =
-        (err as { response?: { data?: { error?: string } } })?.response?.data?.error ??
-        '下载失败'
-      toast.error(msg)
     }
   }
 
@@ -112,7 +91,6 @@ export function SiteSearchPage() {
                 <th>S</th>
                 <th>L</th>
                 <th>Free</th>
-                <th className="text-right">操作</th>
               </tr>
             </thead>
             <tbody>
@@ -120,17 +98,17 @@ export function SiteSearchPage() {
                 <tr key={idx} className="border-t border-gray-200 align-top">
                   <td className="py-2 text-brand-500">{item.site_name}</td>
                   <td className="max-w-md py-2">
-                    <a
-                      href={item.torrent_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="font-semibold text-ink-600 transition hover:text-brand-500"
-                      title={item.title}
-                    >
+                    {item.detail_url ? (
+                      <a href={item.detail_url} target="_blank" rel="noopener noreferrer" className="font-semibold text-ink-600 transition hover:text-brand-500" title={item.title}>
                       {item.title.length > 80
                         ? item.title.substring(0, 80) + '…'
                         : item.title}
-                    </a>
+                      </a>
+                    ) : (
+                      <span className="font-semibold text-ink-600" title={item.title}>
+                        {item.title.length > 80 ? item.title.substring(0, 80) + '…' : item.title}
+                      </span>
+                    )}
                     {item.subtitle && (
                       <div className="mt-1 line-clamp-2 text-xs text-ink-50" title={item.subtitle}>
                         {item.subtitle}
@@ -148,15 +126,6 @@ export function SiteSearchPage() {
                         Free
                       </span>
                     )}
-                  </td>
-                  <td className="py-2 text-right">
-                    <button
-                      onClick={() => downloadTorrent(item)}
-                      className="rounded-lg border border-primary-400/40 px-2 py-1 text-xs text-brand-500 hover:bg-primary-400/10"
-                      title="加入下载"
-                    >
-                      <Download size={12} className="inline" />
-                    </button>
                   </td>
                 </tr>
               ))}

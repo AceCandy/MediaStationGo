@@ -170,8 +170,7 @@ func TestFileManagerIncludesConfiguredOrganizeRoots(t *testing.T) {
 	root := t.TempDir()
 	sourceDir := filepath.Join(root, "downloads")
 	targetDir := filepath.Join(root, "media")
-	qbDir := filepath.Join(root, "qb-save")
-	for _, dir := range []string{sourceDir, targetDir, qbDir} {
+	for _, dir := range []string{sourceDir, targetDir} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -183,10 +182,6 @@ func TestFileManagerIncludesConfiguredOrganizeRoots(t *testing.T) {
 	if err := repos.Setting.Set(t.Context(), "organize.target_dir", targetDir); err != nil {
 		t.Fatal(err)
 	}
-	if err := repos.Setting.Set(t.Context(), "qbittorrent.savepath", qbDir); err != nil {
-		t.Fatal(err)
-	}
-
 	listing, err := svc.List("", 100)
 	if err != nil {
 		t.Fatal(err)
@@ -198,7 +193,6 @@ func TestFileManagerIncludesConfiguredOrganizeRoots(t *testing.T) {
 	for label, want := range map[string]string{
 		"organize-source": filepath.Clean(sourceDir),
 		"organize-target": filepath.Clean(targetDir),
-		"qb-savepath":     filepath.Clean(qbDir),
 	} {
 		if got[label] != want {
 			t.Fatalf("root %s = %q, want %q; roots=%#v", label, got[label], want, listing.Roots)

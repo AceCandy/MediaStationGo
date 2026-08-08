@@ -77,7 +77,6 @@ func (s *FileManagerService) allowedRoots() (map[string]string, error) {
 		}
 		addSetting("organize-source", "organize.source_dir")
 		addSetting("organize-target", "organize.target_dir")
-		addSetting("qb-savepath", "qbittorrent.savepath")
 	}
 	if s.repo != nil && s.repo.Library != nil {
 		libs, err := s.repo.Library.List(context.Background())

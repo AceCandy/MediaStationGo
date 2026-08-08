@@ -56,17 +56,15 @@ func (b *BangumiProvider) Calendar(ctx context.Context) ([]ExternalMediaResult, 
 				year, _ = strconv.Atoi(item.AirDate[:4])
 			}
 			out = append(out, ExternalMediaResult{
-				Source:           "bangumi",
-				MediaType:        "anime",
-				Title:            title,
-				OriginalName:     item.Name,
-				Overview:         item.Summary,
-				PosterURL:        poster,
-				Year:             year,
-				Rating:           item.Rating.Score,
-				BangumiID:        item.ID,
-				SubscribeKeyword: buildSubscribeKeyword(title, year),
-				SubscribeAliases: buildSubscribeAliases(title, item.Name, year),
+				Source:       "bangumi",
+				MediaType:    "anime",
+				Title:        title,
+				OriginalName: item.Name,
+				Overview:     item.Summary,
+				PosterURL:    poster,
+				Year:         year,
+				Rating:       item.Rating.Score,
+				BangumiID:    item.ID,
 			})
 			if len(out) >= 24 {
 				return out, nil

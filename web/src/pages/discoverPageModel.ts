@@ -163,7 +163,3 @@ function orderSectionKeys(keys: string[], sections: DiscoverSection[]): string[]
   const selected = new Set(keys)
   return sections.map((section) => section.key).filter((key) => selected.has(key))
 }
-
-export function buildSubscribeKeyword(item: DiscoverItem): string {
-  return [item.title, item.year && item.year > 0 ? item.year : ''].filter(Boolean).join(' ')
-}

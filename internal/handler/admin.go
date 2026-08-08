@@ -50,7 +50,7 @@ func createUserHandler(svc *service.Container) gin.HandlerFunc {
 		}
 		// Admin-created users are intentionally normal viewers by default.
 		// They can log in from Web/Emby-compatible clients and play media, but
-		// cannot scrape, scan, download, delete, export NFO, or manage files.
+		// cannot scrape, scan, delete, export NFO, or manage files.
 		if u.Role != "user" {
 			u, err = svc.Profile.AdminUpdateRole(c.Request.Context(), u.ID, "user")
 			if err != nil {

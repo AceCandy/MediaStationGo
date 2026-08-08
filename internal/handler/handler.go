@@ -90,13 +90,6 @@ func testApiConfigHandler(svc *service.Container) gin.HandlerFunc {
 	return h.TestApiConfig
 }
 
-// ─── Download Client Handler 包装 ─────────────────────────────────────────────
-
-func getDownloadClientHandler(svc *service.Container) gin.HandlerFunc {
-	h := NewDownloadClientHandler(svc, svc.Log)
-	return h.Get
-}
-
 // ─── Notify Channel Handler 包装 ──────────────────────────────────────────────
 
 func getNotifyChannelTypesHandler(svc *service.Container) gin.HandlerFunc {

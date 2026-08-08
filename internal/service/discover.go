@@ -66,18 +66,16 @@ func (d *DiscoverService) TMDbSection(ctx context.Context, key string, pages ...
 	out := make([]ExternalMediaResult, 0, len(matches))
 	for _, item := range matches {
 		out = append(out, ExternalMediaResult{
-			Source:           "tmdb",
-			MediaType:        mediaType,
-			Title:            item.Title,
-			OriginalName:     item.OriginalName,
-			Overview:         item.Overview,
-			PosterURL:        item.PosterURL,
-			BackdropURL:      item.BackdropURL,
-			Year:             item.Year,
-			Rating:           item.Rating,
-			TMDbID:           item.TMDbID,
-			SubscribeKeyword: buildSubscribeKeyword(item.Title, item.Year),
-			SubscribeAliases: buildSubscribeAliases(item.Title, item.OriginalName, item.Year),
+			Source:       "tmdb",
+			MediaType:    mediaType,
+			Title:        item.Title,
+			OriginalName: item.OriginalName,
+			Overview:     item.Overview,
+			PosterURL:    item.PosterURL,
+			BackdropURL:  item.BackdropURL,
+			Year:         item.Year,
+			Rating:       item.Rating,
+			TMDbID:       item.TMDbID,
 		})
 	}
 	return out, nil

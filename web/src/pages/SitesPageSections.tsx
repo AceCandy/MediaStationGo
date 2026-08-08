@@ -7,33 +7,14 @@ import { SiteCard } from "./SiteCard";
 export function SitesManagementShortcuts() {
   return (
     <ManagementShortcuts
-      title="站点与下载链路"
-      description="把站点、搜索、订阅和下载器放在同一工作流里，避免功能入口被隐藏。"
+      title="站点与搜索"
+      description="管理站点连接，并在启用的站点中搜索资源。"
       items={[
-        {
-          to: "/download-clients",
-          title: "下载器管理",
-          description: "添加、测试和维护下载器连接",
-          badge: "必需",
-          group: "基础配置",
-        },
         {
           to: "/site-search",
           title: "站点检索",
-          description: "跨 PT 站点搜索资源并创建下载任务",
-          group: "资源获取",
-        },
-        {
-          to: "/subscriptions",
-          title: "订阅管理",
-          description: "管理追剧追番和自动下载规则",
-          group: "资源获取",
-        },
-        {
-          to: "/downloads",
-          title: "下载中心",
-          description: "查看下载任务状态和历史记录",
-          group: "任务状态",
+          description: "跨 PT 站点搜索并查看资源详情",
+          group: "资源搜索",
         },
       ]}
     />

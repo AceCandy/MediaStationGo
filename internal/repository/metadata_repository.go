@@ -51,6 +51,17 @@ func (r *MetadataRepository) FindByIdentifier(ctx context.Context, provider, ent
 	return &item, nil
 }
 
+// MarkCatalogHydrated records that asynchronous discover hydration completed.
+func (r *MetadataRepository) MarkCatalogHydrated(ctx context.Context, id string, at time.Time) error {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return errors.New("metadata id is required")
+	}
+	return r.db.WithContext(ctx).Model(&model.MetadataItem{}).
+		Where("id = ?", id).
+		Update("catalog_hydrated_at", at).Error
+}
+
 func (r *MetadataRepository) FindSeason(ctx context.Context, seriesID string, seasonNum int) (*model.MetadataItem, error) {
 	var item model.MetadataItem
 	err := r.db.WithContext(ctx).

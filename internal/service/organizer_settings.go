@@ -26,7 +26,7 @@ func (o *OrganizerService) resolveBaseRoot(ctx context.Context, lib *model.Libra
 // resolveSourceRoot picks the organize source root (源目录，待整理文件所在目录):
 // a per-request override wins, then the organize.source_dir setting, then the
 // library's own path. Library organize only touches media located under this
-// root, so operators can point at a specific download/staging folder.
+// root, so operators can point at a specific staging folder.
 func (o *OrganizerService) resolveSourceRoot(ctx context.Context, lib *model.Library, override string) string {
 	if r := strings.TrimSpace(override); r != "" {
 		return r
@@ -40,9 +40,7 @@ func (o *OrganizerService) resolveSourceRoot(ctx context.Context, lib *model.Lib
 }
 
 // resolveTransferMode picks the transfer mode: a per-request override wins,
-// otherwise the organize.transfer_mode setting (default move). When the
-// effective mode is move and 做种保种 (organize.keep_seeding) is enabled, it is
-// upgraded to hardlink so the source stays in place for the torrent client.
+// otherwise the organize.transfer_mode setting (default move).
 func (o *OrganizerService) resolveTransferMode(ctx context.Context, override TransferMode) TransferMode {
 	mode := override
 	if mode == "" {
@@ -53,26 +51,7 @@ func (o *OrganizerService) resolveTransferMode(ctx context.Context, override Tra
 			}
 		}
 	}
-	if mode == TransferMove && o.keepSeedingEnabled(ctx) {
-		// 移动会删除源文件导致 qBittorrent 停止做种；保种开启时改用硬链接
-		// 既规范命名又保留源文件继续做种上传。硬链接失败时会报错，避免静默
-		// 退化复制后占用双份磁盘空间。
-		return TransferHardlink
-	}
 	return mode
-}
-
-// keepSeedingEnabled reports whether 做种保种 is on. Defaults to true so an
-// unconfigured instance never silently breaks seeding on organize.
-func (o *OrganizerService) keepSeedingEnabled(ctx context.Context) bool {
-	if o.repo == nil || o.repo.Setting == nil {
-		return true
-	}
-	v, err := o.repo.Setting.Get(ctx, "organize.keep_seeding")
-	if err != nil || strings.TrimSpace(v) == "" {
-		return true
-	}
-	return v == "true" || v == "1" || v == "on"
 }
 
 func (o *OrganizerService) autoAddLibraryEnabled(ctx context.Context) bool {

@@ -2,7 +2,6 @@ import type { LucideIcon } from 'lucide-react'
 import {
   Cast,
   Clock,
-  CloudDownload,
   Compass,
   Globe,
   HardDrive,
@@ -11,7 +10,6 @@ import {
   Image,
   Library,
   ListMusic,
-  Rss,
   Search,
   Settings,
   Sliders,
@@ -19,7 +17,7 @@ import {
   User,
 } from 'lucide-react'
 
-export type LayoutNavGroupID = 'media' | 'personal' | 'downloads' | 'tools' | 'system'
+export type LayoutNavGroupID = 'media' | 'personal' | 'sites' | 'tools' | 'system'
 
 export type LayoutNavItem = {
   to: string
@@ -67,13 +65,12 @@ export const LAYOUT_NAV_GROUPS: LayoutNavGroup[] = [
     ],
   },
   {
-    id: 'downloads',
-    label: '下载与订阅',
-    icon: CloudDownload,
-    activePaths: ['/downloads', '/download-clients', '/subscriptions', '/site-search', '/sites'],
+    id: 'sites',
+    label: '站点与搜索',
+    icon: Globe,
+    activePaths: ['/site-search', '/sites'],
     items: [
-      { to: '/downloads', label: '下载中心', icon: CloudDownload, permission: 'can_manage_downloads' },
-      { to: '/subscriptions', label: '订阅管理', icon: Rss, permission: 'can_manage_subscriptions' },
+      { to: '/site-search', label: '站点搜索', icon: Search, permission: 'can_manage_sites' },
       { to: '/sites', label: '站点管理', icon: Globe, permission: 'can_manage_sites' },
     ],
   },

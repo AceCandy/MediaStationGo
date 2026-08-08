@@ -51,6 +51,6 @@ func TestNewInternalHTTPClientBypassesProxyEnvironment(t *testing.T) {
 	if proxyURL, err := transport.Proxy(req); err != nil {
 		t.Fatal(err)
 	} else if proxyURL != nil {
-		t.Fatalf("internal downloader client must bypass proxy, got %s", proxyURL)
+		t.Fatalf("internal service client must bypass proxy, got %s", proxyURL)
 	}
 }

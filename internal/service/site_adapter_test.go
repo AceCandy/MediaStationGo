@@ -227,7 +227,7 @@ func TestNexusPHPSearchUsesSearchstr(t *testing.T) {
 	var gotQuery string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotQuery = r.URL.RawQuery
-		_, _ = w.Write([]byte(`<table class="torrents"><tr><td><a href="details.php?id=123" title="测试资源">测试资源</a></td><td><a href="download.php?id=123">下载</a></td></tr></table>`))
+		_, _ = w.Write([]byte(`<table class="torrents"><tr><td><a href="details.php?id=123" title="测试资源">测试资源</a></td></tr></table>`))
 	}))
 	defer server.Close()
 
@@ -281,7 +281,6 @@ func TestParseNexusPHPHTMLModernRows(t *testing.T) {
     <td>
       <a class="torrent-title" href="/details.php?id=456&hit=1" title="Some &amp; Movie 2026 2160p">ignored</a>
       <span class="subtitle">副标题 &amp; 描述</span>
-      <a href="/download.php?id=456&passkey=abc">下载</a>
     </td>
     <td>12.5 GiB</td>
     <td class="seeders"><a>33</a></td>
@@ -300,8 +299,8 @@ func TestParseNexusPHPHTMLModernRows(t *testing.T) {
 	if item.ID != "456" || item.Title != "Some & Movie 2026 2160p" || item.Subtitle != "副标题 & 描述" {
 		t.Fatalf("parsed item = %#v", item)
 	}
-	if item.DetailURL != "https://pt.example/details.php?id=456&hit=1" || item.DownloadURL != "https://pt.example/download.php?id=456&passkey=abc" {
-		t.Fatalf("urls = detail %q download %q", item.DetailURL, item.DownloadURL)
+	if item.DetailURL != "https://pt.example/details.php?id=456&hit=1" {
+		t.Fatalf("detail url = %q", item.DetailURL)
 	}
 	if item.Seeders != 33 || item.Leechers != 4 || item.Snatched != 99 {
 		t.Fatalf("stats = %#v", item)
@@ -314,7 +313,6 @@ func TestParseNexusPHPHTMLCapturesRiskAndPromotionLabels(t *testing.T) {
   <tr class="torrent">
     <td><a href="/details.php?id=456" title="Some Show S01E01 1080p WEB-DL">Some Show</a></td>
     <td><img class="pro_free" alt="免费" /><span title="HR">H&R</span></td>
-    <td><a href="/download.php?id=456">下载</a></td>
   </tr>
 </table>`
 	result, err := parseNexusPHPHTML(page, "Nexus", "https://pt.example")
@@ -337,7 +335,7 @@ func TestParseNexusPHPHTMLIgnoresUserDetailsLinks(t *testing.T) {
 	page := `
 <table>
   <tr><td><a href="userdetails.php?id=31044">shukBeta</a></td><td>15.5 GiB</td></tr>
-  <tr><td><a href="/details.php?id=789" title="问心 S01 1080p">问心</a><a href="/download.php?id=789">下载</a></td><td>1.5 GiB</td></tr>
+  <tr><td><a href="/details.php?id=789" title="问心 S01 1080p">问心</a></td><td>1.5 GiB</td></tr>
 </table>`
 	result, err := parseNexusPHPHTML(page, "Nexus", "https://pt.example")
 	if err != nil {
@@ -359,12 +357,6 @@ func TestMTeamAPIRateLimits(t *testing.T) {
 	detail := mteamAPIRateLimits(mteamAPIEndpointDetail)
 	if len(detail) != 1 || detail[0].Limit != 100 || detail[0].Window != time.Hour {
 		t.Fatalf("detail limits = %#v, want 100/1h", detail)
-	}
-	download := mteamAPIRateLimits(mteamAPIEndpointDownload)
-	if len(download) != 2 ||
-		download[0].Limit != 100 || download[0].Window != time.Hour ||
-		download[1].Limit != 1000 || download[1].Window != 24*time.Hour {
-		t.Fatalf("download limits = %#v, want 100/1h and 1000/24h", download)
 	}
 }
 

@@ -17,8 +17,6 @@ var (
 	classifierAnimeRE   = regexp.MustCompile(`(?i)(?:^|[^a-z0-9])(?:anime|bangumi)(?:[^a-z0-9]|$)`)
 )
 
-const DownloadSmartClassifySettingKey = "downloads.smart_classify"
-
 type mediaClassifyInput struct {
 	MediaType string
 	Title     string

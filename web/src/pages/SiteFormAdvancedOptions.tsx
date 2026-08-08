@@ -75,22 +75,6 @@ export function SiteFormAdvancedOptions({
                 }
               />
             </div>
-            <div>
-              <label className="block text-xs text-ink-50 mb-1">
-                关联下载器
-              </label>
-              <input
-                className="input-base w-full text-xs"
-                placeholder="下载器 ID 或名称"
-                value={form.downloader}
-                onChange={(event) =>
-                  setForm((current) => ({
-                    ...current,
-                    downloader: event.target.value,
-                  }))
-                }
-              />
-            </div>
           </div>
 
           <div className="flex flex-wrap gap-4">

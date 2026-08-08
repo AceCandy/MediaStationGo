@@ -40,22 +40,21 @@ type SiteSearchResult struct {
 	Page     int           `json:"page"`
 }
 
-// TorrentItem 种子条目。
+// TorrentItem 站点搜索条目。
 type TorrentItem struct {
-	ID          string     `json:"id"`
-	Title       string     `json:"title"`
-	Subtitle    string     `json:"subtitle"`
-	Labels      string     `json:"labels,omitempty"`
-	Category    string     `json:"category"`
-	Size        int64      `json:"size"`
-	Seeders     int        `json:"seeders"`
-	Leechers    int        `json:"leechers"`
-	Snatched    int        `json:"snatched"`
-	Free        bool       `json:"free"`
-	FreeEndAt   *time.Time `json:"free_end_at"`
-	UploadTime  time.Time  `json:"upload_time"`
-	DetailURL   string     `json:"detail_url"`
-	DownloadURL string     `json:"download_url"`
+	ID         string     `json:"id"`
+	Title      string     `json:"title"`
+	Subtitle   string     `json:"subtitle"`
+	Labels     string     `json:"labels,omitempty"`
+	Category   string     `json:"category"`
+	Size       int64      `json:"size"`
+	Seeders    int        `json:"seeders"`
+	Leechers   int        `json:"leechers"`
+	Snatched   int        `json:"snatched"`
+	Free       bool       `json:"free"`
+	FreeEndAt  *time.Time `json:"free_end_at"`
+	UploadTime time.Time  `json:"upload_time"`
+	DetailURL  string     `json:"detail_url"`
 }
 
 // TorrentDetail 种子详情。
@@ -72,7 +71,6 @@ type TorrentDetail struct {
 	FreeEndAt   *time.Time `json:"free_end_at"`
 	UploadTime  time.Time  `json:"upload_time"`
 	DetailURL   string     `json:"detail_url"`
-	DownloadURL string     `json:"download_url"`
 	InfoHash    string     `json:"info_hash,omitempty"`
 	ImdbID      string     `json:"imdb_id,omitempty"`
 	Description string     `json:"description,omitempty"`
@@ -92,9 +90,6 @@ type SiteAdapter interface {
 
 	// GetDetail 获取种子详情。
 	GetDetail(ctx context.Context, cfg SiteConfig, id string) (*TorrentDetail, error)
-
-	// GetDownloadURL 获取下载链接。
-	GetDownloadURL(ctx context.Context, cfg SiteConfig, id string) (string, error)
 }
 
 // newHTTPClient 创建带有认证头的 HTTP 客户端。

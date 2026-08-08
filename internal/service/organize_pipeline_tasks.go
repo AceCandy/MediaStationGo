@@ -41,8 +41,6 @@ func (p *OrganizePipelineService) defaultTaskName(req OrganizePipelineRequest) s
 	switch req.Trigger {
 	case OrganizeTriggerScheduled:
 		return "自动整理重命名刮削入库"
-	case OrganizeTriggerDownload:
-		return "下载完成自动整理重命名刮削入库"
 	default:
 		if req.DryRun {
 			return "预览整理重命名入库"
@@ -55,8 +53,6 @@ func (p *OrganizePipelineService) failureMessage(req OrganizePipelineRequest) st
 	switch req.Trigger {
 	case OrganizeTriggerScheduled:
 		return "自动整理重命名入库失败"
-	case OrganizeTriggerDownload:
-		return "下载完成自动整理失败"
 	default:
 		return "手动整理重命名入库失败"
 	}
@@ -66,8 +62,6 @@ func (p *OrganizePipelineService) completedMessage(req OrganizePipelineRequest) 
 	switch req.Trigger {
 	case OrganizeTriggerScheduled:
 		return "自动整理重命名刮削入库结束"
-	case OrganizeTriggerDownload:
-		return "下载完成自动整理入库结束"
 	default:
 		return "手动整理重命名刮削入库结束"
 	}

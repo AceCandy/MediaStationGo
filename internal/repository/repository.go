@@ -9,69 +9,63 @@ import "gorm.io/gorm"
 
 // Container 是所有 repositories 的注册表，注入到 services 中。
 type Container struct {
-	DB             *gorm.DB
-	User           *UserRepository
-	Library        *LibraryRepository
-	Media          *MediaRepository
-	MediaProbe     *MediaProbeRepository
-	MediaView      *MediaViewRepository
-	Metadata       *MetadataRepository
-	Person         *PersonRepository
-	Artwork        *ArtworkRepository
-	History        *HistoryRepository
-	Favorite       *FavoriteRepository
-	Playlist       *PlaylistRepository
-	Download       *DownloadRepository
-	Subscription   *SubscriptionRepository
-	Setting        *SettingRepository
-	Log            *AccessLogRepository
-	Permission     *PermissionRepository
-	RefreshToken   *RefreshTokenRepository
-	ApiConfig      *ApiConfigRepository
-	DownloadClient *DownloadClientRepository
-	NotifyChannel  *NotifyChannelRepository
-	Site           *SiteRepository
-	STRM           *STRMRepository
-	PlayProfile    *PlayProfileRepository
-	StorageConfig  *StorageConfigRepository
-	Assistant      *AssistantRepository
-	RegCode        *RegistrationCodeRepository
-	SignIn         *SignInRepository
-	UserDevice     *UserDeviceRepository
+	DB            *gorm.DB
+	User          *UserRepository
+	Library       *LibraryRepository
+	Media         *MediaRepository
+	MediaProbe    *MediaProbeRepository
+	MediaView     *MediaViewRepository
+	Metadata      *MetadataRepository
+	Person        *PersonRepository
+	Artwork       *ArtworkRepository
+	History       *HistoryRepository
+	Favorite      *FavoriteRepository
+	Playlist      *PlaylistRepository
+	Setting       *SettingRepository
+	Log           *AccessLogRepository
+	Permission    *PermissionRepository
+	RefreshToken  *RefreshTokenRepository
+	ApiConfig     *ApiConfigRepository
+	NotifyChannel *NotifyChannelRepository
+	Site          *SiteRepository
+	STRM          *STRMRepository
+	PlayProfile   *PlayProfileRepository
+	StorageConfig *StorageConfigRepository
+	Assistant     *AssistantRepository
+	RegCode       *RegistrationCodeRepository
+	SignIn        *SignInRepository
+	UserDevice    *UserDeviceRepository
 }
 
 // New 将每个 repository 连接到单个 *gorm.DB。
 func New(db *gorm.DB) *Container {
 	mediaView := &MediaViewRepository{db: db}
 	return &Container{
-		DB:             db,
-		User:           &UserRepository{db: db},
-		Library:        &LibraryRepository{db: db},
-		Media:          &MediaRepository{db: db, view: mediaView},
-		MediaProbe:     &MediaProbeRepository{db: db},
-		MediaView:      mediaView,
-		Metadata:       &MetadataRepository{db: db, view: mediaView},
-		Person:         &PersonRepository{db: db},
-		Artwork:        &ArtworkRepository{db: db},
-		History:        &HistoryRepository{db: db},
-		Favorite:       &FavoriteRepository{db: db},
-		Playlist:       &PlaylistRepository{db: db},
-		Download:       &DownloadRepository{db: db},
-		Subscription:   &SubscriptionRepository{db: db},
-		Setting:        &SettingRepository{db: db},
-		Log:            &AccessLogRepository{db: db},
-		Permission:     &PermissionRepository{db: db},
-		RefreshToken:   &RefreshTokenRepository{db: db},
-		ApiConfig:      &ApiConfigRepository{db: db},
-		DownloadClient: &DownloadClientRepository{db: db},
-		NotifyChannel:  &NotifyChannelRepository{db: db},
-		Site:           &SiteRepository{db: db},
-		STRM:           &STRMRepository{db: db},
-		PlayProfile:    &PlayProfileRepository{db: db},
-		StorageConfig:  &StorageConfigRepository{db: db},
-		Assistant:      &AssistantRepository{db: db},
-		RegCode:        &RegistrationCodeRepository{db: db},
-		SignIn:         &SignInRepository{db: db},
-		UserDevice:     &UserDeviceRepository{db: db},
+		DB:            db,
+		User:          &UserRepository{db: db},
+		Library:       &LibraryRepository{db: db},
+		Media:         &MediaRepository{db: db, view: mediaView},
+		MediaProbe:    &MediaProbeRepository{db: db},
+		MediaView:     mediaView,
+		Metadata:      &MetadataRepository{db: db, view: mediaView},
+		Person:        &PersonRepository{db: db},
+		Artwork:       &ArtworkRepository{db: db},
+		History:       &HistoryRepository{db: db},
+		Favorite:      &FavoriteRepository{db: db},
+		Playlist:      &PlaylistRepository{db: db},
+		Setting:       &SettingRepository{db: db},
+		Log:           &AccessLogRepository{db: db},
+		Permission:    &PermissionRepository{db: db},
+		RefreshToken:  &RefreshTokenRepository{db: db},
+		ApiConfig:     &ApiConfigRepository{db: db},
+		NotifyChannel: &NotifyChannelRepository{db: db},
+		Site:          &SiteRepository{db: db},
+		STRM:          &STRMRepository{db: db},
+		PlayProfile:   &PlayProfileRepository{db: db},
+		StorageConfig: &StorageConfigRepository{db: db},
+		Assistant:     &AssistantRepository{db: db},
+		RegCode:       &RegistrationCodeRepository{db: db},
+		SignIn:        &SignInRepository{db: db},
+		UserDevice:    &UserDeviceRepository{db: db},
 	}
 }

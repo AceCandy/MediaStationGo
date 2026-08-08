@@ -55,13 +55,11 @@ export const defaultSiteForm = () => ({
   extra: "",
   // 高级设置
   user_agent: "",
-  rss_url: "",
   timeout: DEFAULT_SITE_TIMEOUT_SECONDS,
   priority: 50,
   use_proxy: false,
   rate_limit: false,
   browser_emulation: false,
-  downloader: "",
 });
 
 export type SiteForm = ReturnType<typeof defaultSiteForm>;
@@ -79,13 +77,11 @@ export function siteToForm(site: Site): SiteForm {
     is_default: site.is_default || false,
     extra: site.extra || "",
     user_agent: site.user_agent || "",
-    rss_url: site.rss_url || "",
     timeout: site.timeout ?? DEFAULT_SITE_TIMEOUT_SECONDS,
     priority: site.priority ?? 50,
     use_proxy: site.use_proxy || false,
     rate_limit: site.rate_limit || false,
     browser_emulation: site.browser_emulation || false,
-    downloader: site.downloader || "",
   };
 }
 
@@ -102,7 +98,6 @@ export function siteFormToPayload(
     is_default: form.is_default,
     extra: form.extra || "",
     user_agent: form.user_agent || "",
-    rss_url: form.rss_url || "",
     timeout:
       Number(form.timeout) ||
       (API_SITE_TYPES.has(form.type)
@@ -112,7 +107,6 @@ export function siteFormToPayload(
     use_proxy: !!form.use_proxy,
     rate_limit: !!form.rate_limit,
     browser_emulation: !!form.browser_emulation,
-    downloader: form.downloader || "",
   };
   if (includeEmptySecrets || form.cookie.trim())
     payload.cookie = form.cookie.trim();

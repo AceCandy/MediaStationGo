@@ -76,14 +76,12 @@ func (d *DoubanProvider) Discover(ctx context.Context, key string, pages ...int)
 		}
 		rating, _ := strconv.ParseFloat(subject.Rate, 32)
 		out = append(out, ExternalMediaResult{
-			Source:           "douban",
-			MediaType:        mediaType,
-			Title:            subject.Title,
-			PosterURL:        subject.Cover,
-			Rating:           float32(rating),
-			DoubanID:         subject.ID,
-			SubscribeKeyword: subject.Title,
-			SubscribeAliases: buildSubscribeAliases(subject.Title, "", 0),
+			Source:    "douban",
+			MediaType: mediaType,
+			Title:     subject.Title,
+			PosterURL: subject.Cover,
+			Rating:    float32(rating),
+			DoubanID:  subject.ID,
 		})
 	}
 	return out, nil

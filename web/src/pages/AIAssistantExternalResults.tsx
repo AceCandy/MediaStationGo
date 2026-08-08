@@ -1,7 +1,6 @@
 import { useState } from 'react'
 
 import type { ExternalMediaResult } from '../api/ai'
-import type { DiscoverItem } from '../api/discover'
 import { imageURL } from '../api/client'
 import { DiscoverDetailModal } from './DiscoverDetailModal'
 
@@ -18,8 +17,7 @@ export function AIAssistantExternalResults({ items }: AIAssistantExternalResults
     <>
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
         {items.map((item) => {
-          const keyword = item.subscribe_keyword || item.title
-          const key = `${item.source}:${keyword}`
+          const key = `${item.source}:${item.tmdb_id ?? item.bangumi_id ?? item.douban_id ?? item.title}`
           return (
             <article
               key={key}
@@ -49,9 +47,9 @@ export function AIAssistantExternalResults({ items }: AIAssistantExternalResults
                   </div>
                   <h3 className="truncate font-semibold text-ink-600">{item.title}</h3>
                   <p className="mt-1 line-clamp-2 text-xs text-ink-50">
-                    {item.overview || `订阅关键词：${keyword}`}
+                    {item.overview || '暂无简介。'}
                   </p>
-                  <p className="mt-2 text-xs font-semibold text-brand-500">详情 / 订阅设置</p>
+                  <p className="mt-2 text-xs font-semibold text-brand-500">查看详情</p>
                 </div>
               </div>
             </article>
@@ -60,7 +58,7 @@ export function AIAssistantExternalResults({ items }: AIAssistantExternalResults
       </div>
       {activeItem && (
         <DiscoverDetailModal
-          item={activeItem as unknown as DiscoverItem}
+          item={activeItem}
           onClose={() => setActiveItem(null)}
         />
       )}

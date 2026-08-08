@@ -124,10 +124,6 @@ func parseMTeamJSON(data []byte, siteName, baseURL string) (*SiteSearchResult, e
 		}
 
 		item.DetailURL = baseURL + "/detail/" + item.ID
-		// 标记 download_url 指向 genDlToken；真正的下载链接由 handler 层
-		// 在用户点"下载"时通过 MTeamAdapter.GetDownloadURL 解析。
-		// 这样前端 SiteSearchPage 才知道这一行有可用的下载入口。
-		item.DownloadURL = baseURL + "/api/torrent/genDlToken?id=" + item.ID
 		result.Items = append(result.Items, item)
 	}
 

@@ -111,23 +111,6 @@ export function SiteFormAuthFields({
         </div>
       )}
 
-      <div className="mt-4">
-        <label className="block text-xs text-ink-50 mb-1">RSS 地址</label>
-        <input
-          className="input-base w-full text-xs font-mono"
-          placeholder="https://.../torrents/rss?..."
-          value={form.rss_url}
-          onChange={(event) =>
-            setForm((current) => ({
-              ...current,
-              rss_url: event.target.value,
-            }))
-          }
-        />
-        <p className="text-xs text-sand-500 mt-1">
-          站点 RSS 订阅地址，用于获取最新资源
-        </p>
-      </div>
     </div>
   );
 }

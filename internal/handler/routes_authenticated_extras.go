@@ -60,11 +60,6 @@ func registerAuthedSitesExtraRoutes(authed *gin.RouterGroup, svc *service.Contai
 	authed.GET("/sites/:id/userdata", requirePermission(svc, "can_manage_sites"), siteUserdataHandler(svc))
 }
 
-func registerAuthedSubscriptionExtraRoutes(authed *gin.RouterGroup, svc *service.Container) {
-	authed.PUT("/subscriptions/:id", requirePermission(svc, "can_manage_subscriptions"), updateSubscriptionHandler(svc))
-	authed.POST("/subscriptions/:id/search", requirePermission(svc, "can_manage_subscriptions"), searchSubscriptionHandler(svc))
-}
-
 func registerAuthedPlaylistExtraRoutes(authed *gin.RouterGroup, svc *service.Container) {
 	authed.POST("/playlists/:id/reorder", reorderPlaylistHandler(svc))
 	authed.DELETE("/playlists/:id/items/by-id/:item_id", deletePlaylistItemByIDHandler(svc))
@@ -93,16 +88,6 @@ func registerAuthedPlaybackExtraRoutes(authed *gin.RouterGroup, svc *service.Con
 	authed.GET("/playback/:id/external-players", externalPlayersHandler(svc))
 	authed.GET("/playback/:id/external-url", externalURLHandler(svc))
 	authed.GET("/playback/transcode/:job_id/status", transcodeStatusHandler(svc))
-}
-
-func registerAuthedDownloadOpsRoutes(authed *gin.RouterGroup, svc *service.Container) {
-	authed.POST("/download/:id/pause", requirePermission(svc, "can_manage_downloads"), downloadPauseHandler(svc))
-	authed.POST("/download/:id/resume", requirePermission(svc, "can_manage_downloads"), downloadResumeHandler(svc))
-	authed.POST("/download/:id/organize", requirePermission(svc, "can_manage_files"), downloadOrganizeOneHandler(svc))
-	authed.POST("/download/organize", requirePermission(svc, "can_manage_files"), downloadOrganizeAllHandler(svc))
-	authed.POST("/download/sync", requirePermission(svc, "can_manage_downloads"), downloadSyncHandler(svc))
-	authed.POST("/download/start-auto-sync", requirePermission(svc, "can_manage_downloads"), downloadAutoSyncHandler(svc))
-	authed.GET("/download/tasks", requirePermission(svc, "can_manage_downloads"), downloadTasksAliasHandler(svc))
 }
 
 func registerAuthedAssistantRoutes(authed *gin.RouterGroup, svc *service.Container) {

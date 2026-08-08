@@ -9,8 +9,7 @@ export interface SiteSearchResult {
   site_id: string
   title: string
   subtitle?: string
-  torrent_url: string
-  download_url: string
+  detail_url?: string
   category?: string
   size: number
   seeders: number

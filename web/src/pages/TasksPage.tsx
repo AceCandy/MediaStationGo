@@ -3,7 +3,7 @@ import toast from 'react-hot-toast'
 import { Activity, Copy } from 'lucide-react'
 
 import { tasksAPI, type BackgroundTask, type TasksSnapshot } from '../api/tasks'
-import { TorrentTaskTable, TranscodeTaskTable } from './TaskRuntimeTables'
+import { TranscodeTaskTable } from './TaskRuntimeTables'
 
 const metricLabels: Record<string, string> = {
   organized: '新增',
@@ -153,8 +153,7 @@ function BackgroundTaskTable({ tasks, empty }: { tasks: BackgroundTask[]; empty:
   )
 }
 
-// TasksPage shows everything the backend is doing right now: ffmpeg
-// transcodes + qBittorrent downloads. Refreshes every 3 s.
+// TasksPage shows active transcodes and background jobs. Refreshes every 3 s.
 export function TasksPage() {
   const [snap, setSnap] = useState<TasksSnapshot | null>(null)
 
@@ -174,7 +173,6 @@ export function TasksPage() {
 
   if (!snap) return <p className="text-sand-500">加载中…</p>
 
-  const torrents = snap.torrents ?? []
   const background = snap.background_tasks ?? { active: [], recent: [] }
 
   return (
@@ -203,10 +201,6 @@ export function TasksPage() {
         <TranscodeTaskTable transcodes={snap.transcodes} />
       </section>
 
-      <section className="glass-panel">
-        <h2 className="mb-3 font-display text-lg font-semibold text-ink-600">下载任务</h2>
-        <TorrentTaskTable torrents={torrents} />
-      </section>
     </div>
   )
 }

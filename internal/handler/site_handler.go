@@ -91,9 +91,6 @@ func (h *SiteHandler) CreateSite(c *gin.Context) {
 	if v, ok := body["user_agent"].(string); ok {
 		site.UserAgent = v
 	}
-	if v, ok := body["rss_url"].(string); ok {
-		site.RSSURL = v
-	}
 	if v, ok := body["timeout"].(float64); ok {
 		site.Timeout = int(v)
 	}
@@ -108,9 +105,6 @@ func (h *SiteHandler) CreateSite(c *gin.Context) {
 	}
 	if v, ok := body["browser_emulation"].(bool); ok {
 		site.BrowserEmulation = v
-	}
-	if v, ok := body["downloader"].(string); ok {
-		site.Downloader = v
 	}
 
 	if err := h.svc.Site.Create(c.Request.Context(), &site); err != nil {

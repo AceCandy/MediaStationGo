@@ -1,6 +1,6 @@
 # 安全策略
 
-MediaStationGo 是自托管媒体系统，常部署在 NAS、家庭网络、Docker、反向代理和第三方下载器环境中。安全问题通常会同时涉及应用代码、容器配置、路径映射、站点 Cookie / API Key、下载器凭据和外部访问入口。请按本策略报告和处理安全问题。
+MediaStationGo 是自托管媒体系统，常部署在 NAS、家庭网络、Docker 和反向代理环境中。安全问题通常会同时涉及应用代码、容器配置、路径映射、站点 Cookie / API Key 和外部访问入口。请按本策略报告和处理安全问题。
 
 ## 支持范围
 
@@ -22,7 +22,7 @@ MediaStationGo 是自托管媒体系统，常部署在 NAS、家庭网络、Dock
 
 报告时请尽量提供：
 
-- 影响范围：认证绕过、权限提升、敏感信息泄露、任意文件读写、命令执行、SSRF、路径穿越、下载器凭据泄露等。
+- 影响范围：认证绕过、权限提升、敏感信息泄露、任意文件读写、命令执行、SSRF、路径穿越等。
 - 复现环境：部署方式、镜像版本或 commit、NAS / 系统、Docker / Compose 版本、是否有反向代理。
 - 复现步骤：最小可复现路径、请求、页面操作或配置条件。
 - 影响证明：截图、脱敏日志、请求响应、数据库字段名等。
@@ -31,7 +31,6 @@ MediaStationGo 是自托管媒体系统，常部署在 NAS、家庭网络、Dock
 请务必脱敏：
 
 - 站点 Cookie、Passkey、API Key、YemaPT Auth Key、M-Team API Key。
-- qBittorrent / Transmission / Aria2 用户名密码。
 - Telegram Bot Token、JWT、数据库密码、反代访问 Token。
 - 私有下载链接、媒体库真实敏感路径、用户个人信息。
 
@@ -44,17 +43,17 @@ MediaStationGo 是自托管媒体系统，常部署在 NAS、家庭网络、Dock
 - 高危问题优先修复，并在可行时提供临时缓解建议。
 - 修复发布后，再公开披露必要信息；公开内容会避免包含可直接滥用的细节。
 
-如果问题需要更长时间修复，例如涉及数据迁移、权限模型、第三方站点 API 或下载器协议，我们会在私密报告中同步进展。
+如果问题需要更长时间修复，例如涉及数据迁移、权限模型或第三方站点 API，我们会在私密报告中同步进展。
 
 ## 安全问题范围
 
 欢迎报告：
 
-- 未授权访问管理接口、媒体库、下载任务、站点配置或用户数据。
+- 未授权访问管理接口、媒体库、站点配置或用户数据。
 - 普通用户越权执行管理员操作。
 - 读取或写入容器可访问范围外的文件。
 - 通过路径映射、整理入库、STRM、图片代理、字幕、备份恢复等功能触发路径穿越。
-- 泄露 Cookie、API Key、下载器密码、Telegram Token、JWT 或数据库凭据。
+- 泄露 Cookie、API Key、Telegram Token、JWT 或数据库凭据。
 - SSRF、任意重定向、反代信任边界错误。
 - Docker Compose 示例中可能导致默认暴露敏感服务的问题。
 - 日志中输出敏感信息或无法脱敏的问题。
@@ -71,10 +70,10 @@ MediaStationGo 是自托管媒体系统，常部署在 NAS、家庭网络、Dock
 部署 MediaStationGo 时建议：
 
 - 首次登录后立即修改默认 `admin / admin123`。
-- 不要把 PostgreSQL、Redis、OpenSearch、qBittorrent WebUI 暴露到公网。
+- 不要把 PostgreSQL、Redis 或 OpenSearch 暴露到公网。
 - 反向代理公网访问时启用 HTTPS，并限制管理后台访问来源。
 - 使用强随机的 JWT / 加密密钥，妥善备份 `./data` 和数据库。
-- 不要在 Issue、PR、截图或日志中公开站点 Cookie、API Key、Passkey、下载器密码。
+- 不要在 Issue、PR、截图或日志中公开站点 Cookie、API Key 或 Passkey。
 - Docker `volumes` 只挂载 MediaStationGo 需要访问的目录，媒体库目录需要写入时再授予写权限。
 - 定期更新镜像，并在升级前备份 `./postgres` 和 `./data`。
 

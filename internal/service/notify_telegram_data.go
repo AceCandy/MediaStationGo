@@ -76,8 +76,6 @@ func telegramFieldLabel(key string) string {
 		return "类型"
 	case "overview":
 		return "简介"
-	case "subscription":
-		return "订阅"
 	case "queued":
 		return "新增资源"
 	default:

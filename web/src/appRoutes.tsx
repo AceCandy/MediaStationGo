@@ -14,10 +14,6 @@ const PlaylistDetailPage = lazy(() =>
 const MediaDetailPage = lazy(() => import('./pages/MediaDetailPage').then((m) => ({ default: m.MediaDetailPage })))
 const PlayerPage = lazy(() => import('./pages/PlayerPage').then((m) => ({ default: m.PlayerPage })))
 const AdminPage = lazy(() => import('./pages/AdminPage').then((m) => ({ default: m.AdminPage })))
-const DownloadsPage = lazy(() => import('./pages/DownloadsPage').then((m) => ({ default: m.DownloadsPage })))
-const SubscriptionsPage = lazy(() =>
-  import('./pages/SubscriptionsPage').then((m) => ({ default: m.SubscriptionsPage })),
-)
 const ProfilePage = lazy(() => import('./pages/ProfilePage').then((m) => ({ default: m.ProfilePage })))
 const StatsPage = lazy(() => import('./pages/StatsPage').then((m) => ({ default: m.StatsPage })))
 const DiscoverPage = lazy(() => import('./pages/DiscoverPage').then((m) => ({ default: m.DiscoverPage })))
@@ -50,9 +46,6 @@ const SettingsPage = lazy(() => import('./pages/SettingsPage').then((m) => ({ de
 const AssistantChatPage = lazy(() =>
   import('./pages/AssistantChatPage').then((m) => ({ default: m.AssistantChatPage })),
 )
-const DownloadClientsPage = lazy(() =>
-  import('./pages/DownloadClientsPage').then((m) => ({ default: m.DownloadClientsPage })),
-)
 const StorageConfigPage = lazy(() =>
   import('./pages/StorageConfigPage').then((m) => ({ default: m.StorageConfigPage })),
 )
@@ -75,8 +68,6 @@ export const appRoutes: AppRoute[] = [
   { path: 'playlist/:id', element: <PlaylistDetailPage /> },
   { path: 'media/:id', element: <MediaDetailPage /> },
   { path: 'play/:id', element: <PlayerPage /> },
-  { path: 'downloads', element: <DownloadsPage /> },
-  { path: 'subscriptions', element: <SubscriptionsPage /> },
   { path: 'profile', element: <ProfilePage /> },
   { path: 'dlna', element: <DlnaPage /> },
   { path: 'history', element: <WatchHistoryPage /> },
@@ -97,7 +88,6 @@ export const appRoutes: AppRoute[] = [
   { path: 'notify-channels', element: <NotifyChannelsPage />, adminOnly: true },
   { path: 'settings', element: <SettingsPage />, adminOnly: true },
   { path: 'assistant', element: <AssistantChatPage />, adminOnly: true },
-  { path: 'download-clients', element: <DownloadClientsPage />, adminOnly: true },
   { path: 'storage-config', element: <StorageConfigPage />, adminOnly: true },
   { path: 'stats', element: <StatsPage />, adminOnly: true },
   { path: 'admin', element: <AdminPage />, adminOnly: true },

@@ -15,9 +15,8 @@ import (
 )
 
 const (
-	mteamAPIEndpointSearch   = "torrent_search"
-	mteamAPIEndpointDetail   = "torrent_detail"
-	mteamAPIEndpointDownload = "torrent_download"
+	mteamAPIEndpointSearch = "torrent_search"
+	mteamAPIEndpointDetail = "torrent_detail"
 
 	mteamAPISearchDailyLimit = 1500
 )
@@ -170,11 +169,6 @@ func mteamAPIRateLimits(endpoint string) []siteAPIRateLimit {
 		return []siteAPIRateLimit{{Bucket: "torrent_search_24h", Limit: mteamAPISearchDailyLimit, Window: 24 * time.Hour}}
 	case mteamAPIEndpointDetail:
 		return []siteAPIRateLimit{{Bucket: "torrent_detail_1h", Limit: 100, Window: time.Hour}}
-	case mteamAPIEndpointDownload:
-		return []siteAPIRateLimit{
-			{Bucket: "torrent_download_1h", Limit: 100, Window: time.Hour},
-			{Bucket: "torrent_download_24h", Limit: 1000, Window: 24 * time.Hour},
-		}
 	default:
 		return nil
 	}

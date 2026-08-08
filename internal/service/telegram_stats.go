@@ -68,48 +68,6 @@ func (s *TelegramBotService) cmdSearch(ctx context.Context, args []string) (tele
 	return telegramCommandReply{Text: sb.String()}, nil
 }
 
-// cmdDownloads 处理 /downloads 命令。
-func (s *TelegramBotService) cmdDownloads(ctx context.Context) (telegramCommandReply, error) {
-	type Row struct {
-		Title  string
-		Status string
-	}
-	var rows []Row
-	if err := s.repo.DB.Raw(
-		"SELECT COALESCE(NULLIF(title,''),'下载任务') as title, COALESCE(status,'unknown') as status FROM download_tasks ORDER BY created_at DESC LIMIT 8",
-	).Scan(&rows).Error; err != nil {
-		return telegramCommandReply{}, err
-	}
-
-	if len(rows) == 0 {
-		return telegramCommandReply{Text: "当前没有下载任务。"}, nil
-	}
-
-	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("<b>下载任务 (%d)</b>\n\n", len(rows)))
-	for _, r := range rows {
-		icon := "⏳"
-		switch r.Status {
-		case "completed":
-			icon = "✅"
-		case "downloading":
-			icon = "📥"
-		case "error":
-			icon = "❌"
-		}
-		name := strings.TrimSpace(r.Title)
-		if name == "" {
-			name = "下载任务"
-		}
-		if len(name) > 60 {
-			name = name[:57] + "..."
-		}
-		sb.WriteString(fmt.Sprintf("%s %s\n", icon, name))
-	}
-
-	return telegramCommandReply{Text: sb.String()}, nil
-}
-
 // cmdStats 处理 /stats 命令。
 func (s *TelegramBotService) cmdStats(ctx context.Context) (telegramCommandReply, error) {
 	libs, err := s.activeTelegramStatsLibraries(ctx)

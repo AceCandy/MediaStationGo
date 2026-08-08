@@ -9,12 +9,7 @@ func telegramShouldShowEventHeading(event NotifyEvent) bool {
 	if telegramMediaTag(event.Data) != "" {
 		return false
 	}
-	switch strings.TrimSpace(event.Type) {
-	case EventSubscriptionHit, EventDownloadComplete:
-		return false
-	default:
-		return true
-	}
+	return true
 }
 
 func telegramEventTag(event NotifyEvent) string {
@@ -22,10 +17,6 @@ func telegramEventTag(event NotifyEvent) string {
 		return tag
 	}
 	switch strings.TrimSpace(event.Type) {
-	case EventSubscriptionHit:
-		return "#订阅"
-	case EventDownloadComplete:
-		return "#下载完成"
 	case EventScrapeFailed:
 		return "#刮削失败"
 	case EventSystemAlert:
@@ -49,10 +40,6 @@ func telegramEventHeading(event NotifyEvent) string {
 	}
 	icon := "🔔"
 	switch strings.TrimSpace(event.Type) {
-	case EventSubscriptionHit:
-		icon = "🎯"
-	case EventDownloadComplete:
-		icon = "✅"
 	case EventScrapeFailed:
 		icon = "⚠️"
 	case EventSystemAlert:

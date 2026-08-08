@@ -20,8 +20,7 @@ type SearchResult struct {
 	Title         string `json:"title"`
 	Subtitle      string `json:"subtitle,omitempty"`
 	Labels        string `json:"labels,omitempty"`
-	TorrentURL    string `json:"torrent_url"`
-	DownloadURL   string `json:"download_url"`
+	DetailURL     string `json:"detail_url"`
 	Category      string `json:"category,omitempty"`
 	SearchKeyword string `json:"search_keyword,omitempty"`
 	Size          int64  `json:"size"`
@@ -195,8 +194,7 @@ func siteSearchResultsFromItems(site model.Site, result *SiteSearchResult, keywo
 			Title:         item.Title,
 			Subtitle:      item.Subtitle,
 			Labels:        item.Labels,
-			TorrentURL:    item.DetailURL,
-			DownloadURL:   item.DownloadURL,
+			DetailURL:     item.DetailURL,
 			Category:      item.Category,
 			SearchKeyword: keyword,
 			Size:          item.Size,

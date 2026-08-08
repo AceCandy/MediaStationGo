@@ -37,7 +37,6 @@ func parseNexusPHPDetailHTML(html, id, baseURL string) (*TorrentDetail, error) {
 	if m := regexp.MustCompile(`(?i)<div[^>]*id="kdescr"[^>]*>(.*?)</div>`).FindStringSubmatch(html); len(m) >= 2 {
 		detail.Description = stripHTML(m[1])
 	}
-	detail.DownloadURL = baseURL + "/download.php?id=" + id
 	detail.Free = strings.Contains(html, "free") || strings.Contains(html, "免费")
 	return detail, nil
 }

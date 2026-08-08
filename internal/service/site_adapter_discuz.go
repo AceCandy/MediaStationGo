@@ -105,16 +105,6 @@ func (a *DiscuzAdapter) GetDetail(ctx context.Context, cfg SiteConfig, id string
 		detail.Title = strings.TrimSpace(m[1])
 	}
 
-	// Extract magnet/torrent links
-	magnetRegex := regexp.MustCompile(`magnet:\?[^\s"'<>]+`)
-	if m := magnetRegex.FindString(html); m != "" {
-		detail.DownloadURL = m
-	}
-	torrentRegex := regexp.MustCompile(`(attachment\.php\?aid=\d+)`)
-	if m := torrentRegex.FindString(html); m != "" && detail.DownloadURL == "" {
-		detail.DownloadURL = cfg.URL + "/" + m
-	}
-
 	// Description
 	descRegex := regexp.MustCompile(`<div[^>]*class="t_fsz"[^>]*>(.*?)</div>`)
 	if m := descRegex.FindStringSubmatch(html); len(m) >= 2 {
@@ -122,10 +112,6 @@ func (a *DiscuzAdapter) GetDetail(ctx context.Context, cfg SiteConfig, id string
 	}
 
 	return detail, nil
-}
-
-func (a *DiscuzAdapter) GetDownloadURL(ctx context.Context, cfg SiteConfig, id string) (string, error) {
-	return cfg.URL + "/forum.php?mod=viewthread&tid=" + id, nil
 }
 
 // parseDiscuzHTML 解析 Discuz HTML 响应。

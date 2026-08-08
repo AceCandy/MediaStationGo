@@ -2,7 +2,6 @@ import { adultSettingsGroup } from './settingsGroupAccess'
 import { cloudUploadSettingsGroup } from './settingsGroupCloud'
 import { generalSettingsGroup } from './settingsGroupGeneral'
 import { recognitionWordsSettingsGroup } from './settingsGroupRecognitionWords'
-import { subscriptionSettingsGroup } from './settingsGroupSubscriptions'
 import { systemUpdateSettingsGroup } from './settingsGroupSystemUpdate'
 import type { SettingGroup } from './settingsGroupTypes'
 
@@ -12,7 +11,6 @@ export const GROUPS: SettingGroup[] = [
   generalSettingsGroup,
   systemUpdateSettingsGroup,
   recognitionWordsSettingsGroup,
-  subscriptionSettingsGroup,
   cloudUploadSettingsGroup,
   adultSettingsGroup,
 ]

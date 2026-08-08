@@ -81,8 +81,7 @@ type Media struct {
 
 	// FileID is a "device:inode" identity for the underlying file. Hardlinks
 	// to the same data share a FileID, letting the scanner skip re-importing a
-	// seeding source kept by keep_seeding and its organized hardlink as two
-	// separate items (avoids duplicate rows + double-counted storage).
+	// source file and its organized hardlink as two separate items.
 	FileID string `gorm:"index;size:64" json:"file_id,omitempty"`
 
 	// IsDuplicate flags this media as a duplicate of another media row.

@@ -4,11 +4,10 @@
 //
 //	move     移动（同盘 rename，跨盘 copy+删除源）——会移除源文件
 //	copy     复制（保留源文件）
-//	hardlink 硬链接（同盘零额外占用，保留源文件；做种不受影响）
+//	hardlink 硬链接（同盘零额外占用，保留源文件）
 //	symlink  软链接（保留源文件，指向源）
 //
-// 除 move 外，其余方式都保留源文件，因此 qBittorrent 等下载器仍能在原
-// 路径找到数据继续做种上传。
+// 除 move 外，其余方式都保留源文件，适合需要保留源文件的整理场景。
 package service
 
 import (
@@ -29,7 +28,7 @@ const (
 	TransferMove TransferMode = "move"
 	// TransferCopy 复制：保留源文件。
 	TransferCopy TransferMode = "copy"
-	// TransferHardlink 硬链接：同盘零额外占用并保留源文件，做种不受影响。
+	// TransferHardlink 硬链接：同盘零额外占用并保留源文件。
 	TransferHardlink TransferMode = "hardlink"
 	// TransferSymlink 软链接：保留源文件，目标指向源。
 	TransferSymlink TransferMode = "symlink"
@@ -49,11 +48,6 @@ func parseTransferMode(s string) TransferMode {
 	}
 }
 
-// keepsSource 报告该转移方式是否会保留源文件（用于做种）。
-func (m TransferMode) keepsSource() bool {
-	return m == TransferCopy || m == TransferHardlink || m == TransferSymlink
-}
-
 // transferFile 按指定方式把 src 转移到 dst。
 // dst 已存在时一律报错，绝不覆盖（防止不同 release 改名后互相覆盖）。
 func transferFile(src, dst string, mode TransferMode) error {
@@ -69,7 +63,7 @@ func transferFile(src, dst string, mode TransferMode) error {
 			// 即使在宿主机上同属一块盘，容器内 os.Link 也会因跨文件系统
 			// (EXDEV) 失败。hardlink 模式必须保持零额外数据占用语义，不能
 			// 自动降级为复制；需要复制时请显式选择 copy。
-			return fmt.Errorf("hardlink failed: %w; source and target must be on the same filesystem/subvolume from inside the container. If you selected move, disable keep_seeding first because keep_seeding upgrades move to hardlink; choose copy if you want to keep seeding across mounts", err)
+			return fmt.Errorf("hardlink failed: %w; source and target must be on the same filesystem/subvolume from inside the container. Choose copy if you need a cross-filesystem transfer", err)
 		}
 		return nil
 	case TransferSymlink:

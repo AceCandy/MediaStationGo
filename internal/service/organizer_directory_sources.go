@@ -10,16 +10,16 @@ import (
 )
 
 // OrganizeSourceCandidate is a selectable organize source directory surfaced to
-// the UI so operators can organize an arbitrary directory (such as the download
-// directory) and not only registered libraries.
+// the UI so operators can organize an arbitrary directory and not only
+// registered libraries.
 type OrganizeSourceCandidate struct {
 	Label string `json:"label"`
 	Path  string `json:"path"`
-	Kind  string `json:"kind"` // "download" | "media"
+	Kind  string `json:"kind"` // "source" | "download" | "media"
 }
 
 // OrganizeSourceCandidates returns the configured directories that are valid
-// organize sources (download dir + media dir). It uses the container-visible
+// organize sources (source dir + media dir). It uses the container-visible
 // paths; in NAS direct-read mode those equal the host paths the operator sees.
 func (o *OrganizerService) OrganizeSourceCandidates(ctx context.Context) []OrganizeSourceCandidate {
 	out := []OrganizeSourceCandidate{}
@@ -40,7 +40,6 @@ func (o *OrganizerService) OrganizeSourceCandidates(ctx context.Context) []Organ
 		out = append(out, OrganizeSourceCandidate{Label: label, Path: clean, Kind: kind})
 	}
 	add("默认整理源", o.settingValue(ctx, "organize.source_dir"), "source")
-	add("下载器保存目录", o.settingValue(ctx, "qbittorrent.savepath"), "download")
 	add("下载目录", envOrDefault("MEDIASTATION_DOWNLOAD_CONTAINER_DIR", "/downloads"), "download")
 	add("媒体目录", envOrDefault("MEDIASTATION_MEDIA_CONTAINER_DIR", "/media"), "media")
 	return out
@@ -57,16 +56,12 @@ func (o *OrganizerService) settingValue(ctx context.Context, key string) string 
 }
 
 // defaultSourceRoot resolves the source root for a directory organize:
-// explicit override → organize.source_dir setting → qB default save path →
-// download container dir.
+// explicit override → organize.source_dir setting → download container dir.
 func (o *OrganizerService) defaultSourceRoot(ctx context.Context, override string) string {
 	if r := strings.TrimSpace(override); r != "" {
 		return r
 	}
 	if v := o.settingValue(ctx, "organize.source_dir"); v != "" {
-		return v
-	}
-	if v := o.settingValue(ctx, "qbittorrent.savepath"); v != "" {
 		return v
 	}
 	return envOrDefault("MEDIASTATION_DOWNLOAD_CONTAINER_DIR", "/downloads")

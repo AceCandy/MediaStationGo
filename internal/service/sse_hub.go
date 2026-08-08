@@ -30,12 +30,10 @@ type SSEEvent struct {
 
 // SSEEvent 事件类型常量。
 const (
-	EventTypeScan      = "scan"
-	EventTypeDownload  = "download"
-	EventTypeSubscribe = "subscribe"
-	EventTypeTask      = "task"
-	EventTypeSystem    = "system"
-	EventTypeAuth      = "auth"
+	EventTypeScan   = "scan"
+	EventTypeTask   = "task"
+	EventTypeSystem = "system"
+	EventTypeAuth   = "auth"
 )
 
 // sseTicket 是一次性 OTP 票据。

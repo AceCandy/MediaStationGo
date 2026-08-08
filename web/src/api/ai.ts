@@ -23,13 +23,6 @@ export interface ExternalMediaResult {
   tmdb_id?: number
   bangumi_id?: number
   douban_id?: string
-  subscribe_keyword: string
-  subscribe_aliases?: string[]
-  total_episodes?: number
-  downloaded_episodes?: number
-  local_media_count?: number
-  missing_episodes?: number[]
-  in_library?: boolean
 }
 
 export const aiAPI = {

@@ -31,17 +31,25 @@ func TestAuthenticatedRouteSurfacesAreRegistered(t *testing.T) {
 		"GET /api/media",
 		"GET /api/stream/:id",
 		"GET /api/storage",
-		"GET /api/downloads",
-		"GET /api/subscriptions",
 		"GET /api/sites/search",
 		"GET /api/watch-history",
 		"GET /api/discover/feed",
 		"GET /api/playback/:id/info",
-		"GET /api/download/tasks",
 		"GET /api/admin/assistant/history",
 	} {
 		if !routes[want] {
 			t.Fatalf("%s route is not registered", want)
+		}
+	}
+	for _, forbidden := range []string{
+		"GET /api/downloads",
+		"POST /api/downloads",
+		"GET /api/subscriptions",
+		"POST /api/subscriptions",
+		"GET /api/download/tasks",
+	} {
+		if routes[forbidden] {
+			t.Fatalf("retired route is still registered: %s", forbidden)
 		}
 	}
 }

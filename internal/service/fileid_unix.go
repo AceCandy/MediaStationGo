@@ -10,9 +10,8 @@ import (
 
 // fileIdentity returns a stable "device:inode" identifier for the file at
 // path. Hardlinks to the same data share an identity, which lets the scanner
-// avoid importing the same physical file twice (e.g. a seeding source kept by
-// keep_seeding and its organized hardlink). ok is false when the identity
-// cannot be determined.
+// avoid importing the same physical file twice when a source and its organized
+// hardlink both exist. ok is false when the identity cannot be determined.
 func fileIdentity(path string) (string, bool) {
 	fi, err := os.Stat(path)
 	if err != nil {

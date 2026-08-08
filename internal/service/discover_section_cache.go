@@ -76,8 +76,6 @@ func cloneExternalMediaResults(items []ExternalMediaResult) []ExternalMediaResul
 	out := make([]ExternalMediaResult, len(items))
 	for i, item := range items {
 		out[i] = item
-		out[i].SubscribeAliases = cloneStrings(item.SubscribeAliases)
-		out[i].MissingEpisodes = cloneInts(item.MissingEpisodes)
 		out[i].Languages = cloneStrings(item.Languages)
 		out[i].Countries = cloneStrings(item.Countries)
 		out[i].Genres = cloneStrings(item.Genres)
@@ -90,15 +88,6 @@ func cloneStrings(items []string) []string {
 		return nil
 	}
 	out := make([]string, len(items))
-	copy(out, items)
-	return out
-}
-
-func cloneInts(items []int) []int {
-	if len(items) == 0 {
-		return nil
-	}
-	out := make([]int, len(items))
 	copy(out, items)
 	return out
 }

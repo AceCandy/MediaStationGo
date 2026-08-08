@@ -121,6 +121,9 @@ func discoverFeedHandler(svc *service.Container) gin.HandlerFunc {
 		if svc != nil && svc.Discover != nil {
 			svc.Discover.WarmExternalArtwork(artworkItems)
 		}
+		if svc != nil && svc.Scraper != nil {
+			svc.Scraper.QueueCatalogHydration(artworkItems)
+		}
 		c.JSON(http.StatusOK, out)
 	}
 }

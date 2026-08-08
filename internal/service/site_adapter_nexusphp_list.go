@@ -35,7 +35,7 @@ func parseNexusPHPHTML(html, siteName, baseURL string) (*SiteSearchResult, error
 
 func nexusPHPPageLooksLogin(pageHTML string) bool {
 	lower := strings.ToLower(pageHTML)
-	if strings.Contains(lower, "details.php") || strings.Contains(lower, "download.php") {
+	if strings.Contains(lower, "details.php") {
 		return false
 	}
 	for _, marker := range []string{
@@ -63,9 +63,6 @@ func parseNexusPHPRow(row, baseURL string) TorrentItem {
 		item.Subtitle = nexusPHPSubtitle(row)
 		item.Labels = nexusPHPRowLabels(row)
 		item.DetailURL = resolveSiteURL(baseURL, link.href)
-	}
-	if link := firstNexusPHPLink(row, "download.php"); link != nil {
-		item.DownloadURL = resolveSiteURL(baseURL, link.href)
 	}
 	if sizeMatches := regexp.MustCompile(`(?i)(\d+\.?\d*)\s*(GiB|MiB|TiB|KiB|GB|MB|TB|KB)`).FindStringSubmatch(row); len(sizeMatches) >= 3 {
 		item.Size = parseSizeString(sizeMatches[1], sizeMatches[2])

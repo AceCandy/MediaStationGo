@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"strconv"
 	"strings"
 	"time"
 )
@@ -177,61 +176,11 @@ func (a *MTeamAdapter) GetDetail(ctx context.Context, cfg SiteConfig, id string)
 	if v, ok := dataField["free"].(bool); ok {
 		detail.Free = v
 	}
-	if v, ok := dataField["download"].(string); ok {
-		detail.DownloadURL = v
-	}
 	if v, ok := dataField["description"].(string); ok {
 		detail.Description = stripHTML(v)
 	}
 
 	return detail, nil
-}
-
-// GetDownloadURL 解析 M-Team 种子的真实下载链接。
-//
-// M-Team v3 流程：
-//
-//	POST /api/torrent/genDlToken?id={tid}     (带 x-api-key)
-//	→ {"code":"0","data":"https://api.m-team.cc/api/rss/dlv2?sign=..."}
-//
-// 拿到的 sign URL 可被任何下载客户端无认证地直接 GET。这是旧版参考实现
-// _download_torrent_file 方法的子集。
-func (a *MTeamAdapter) GetDownloadURL(ctx context.Context, cfg SiteConfig, id string) (string, error) {
-	if err := reserveMTeamAPIQuota(ctx, cfg, mteamAPIEndpointDownload); err != nil {
-		return "", err
-	}
-	u := cfg.URL + "/api/torrent/genDlToken?id=" + id
-	// genDlToken 是 POST 但参数走 query string；body 留空。
-	data, status, err := doRequestJSON(ctx, a.client, "POST", u, cfg, []byte("{}"))
-	if err != nil {
-		return "", mteamRequestError("genDlToken", cfg, err)
-	}
-	if status >= 300 {
-		return "", fmt.Errorf("genDlToken: HTTP %d", status)
-	}
-	var resp map[string]interface{}
-	if err := json.Unmarshal(data, &resp); err != nil {
-		return "", fmt.Errorf("genDlToken parse: %w", err)
-	}
-	codeStr := ""
-	switch v := resp["code"].(type) {
-	case string:
-		codeStr = v
-	case float64:
-		codeStr = strconv.Itoa(int(v))
-	}
-	if codeStr != "0" && codeStr != "200" {
-		msg, _ := resp["message"].(string)
-		if msg == "" {
-			msg = "unknown error"
-		}
-		return "", fmt.Errorf("genDlToken: %s", msg)
-	}
-	dl, _ := resp["data"].(string)
-	if dl == "" {
-		return "", fmt.Errorf("genDlToken: empty data field")
-	}
-	return dl, nil
 }
 
 func mteamRequestError(action string, cfg SiteConfig, err error) error {

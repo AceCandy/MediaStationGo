@@ -95,7 +95,7 @@ export function SiteCard({
         )}
       </div>
 
-      {/* 状态与统计（只读） */}
+      {/* 状态（只读） */}
       <div className="text-xs text-sand-500 space-y-0.5">
         <div>
           状态：
@@ -111,14 +111,6 @@ export function SiteCard({
             {site.login_status || "unknown"}
           </span>
         </div>
-        {(site.upload_bytes || 0) > 0 && (
-          <div>
-            ↑ {Math.round(((site.upload_bytes ?? 0) / 1073741824) * 100) / 100}{" "}
-            GB / ↓{" "}
-            {Math.round(((site.download_bytes ?? 0) / 1073741824) * 100) / 100}{" "}
-            GB
-          </div>
-        )}
         {site.priority !== 50 && <div>优先级：{site.priority}</div>}
       </div>
 

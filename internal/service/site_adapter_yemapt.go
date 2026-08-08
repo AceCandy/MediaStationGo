@@ -62,10 +62,6 @@ func (a *YemaPTAdapter) GetDetail(ctx context.Context, cfg SiteConfig, id string
 	return nil, errYemaPTTorrentOpenAPIUnsupported()
 }
 
-func (a *YemaPTAdapter) GetDownloadURL(ctx context.Context, cfg SiteConfig, id string) (string, error) {
-	return "", errYemaPTTorrentOpenAPIUnsupported()
-}
-
 type yemaPTAPIResponse struct {
 	Success      bool            `json:"success"`
 	ShowType     int             `json:"showType"`
@@ -75,7 +71,7 @@ type yemaPTAPIResponse struct {
 }
 
 func errYemaPTTorrentOpenAPIUnsupported() error {
-	return errors.New("YemaPT 当前公开 OpenAPI 未提供种子搜索/详情/下载接口")
+	return errors.New("YemaPT 当前公开 OpenAPI 未提供种子搜索/详情接口")
 }
 
 func isYemaPTConfig(cfg SiteConfig) bool {

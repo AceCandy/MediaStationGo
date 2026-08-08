@@ -86,7 +86,7 @@ export function HomeFeaturedSection({
           </div>
 
           <p className="line-clamp-3 max-w-2xl text-sm font-semibold leading-relaxed text-[var(--app-subtle)] sm:text-base">
-            {featuredItem.overview || '家庭私人媒体中心收藏。支持多端播放、外部播放器、智能刮削与订阅下载。'}
+            {featuredItem.overview || '家庭私人媒体中心收藏。支持多端播放、外部播放器与智能刮削。'}
           </p>
 
           <div className="flex flex-wrap items-center gap-3 text-xs font-bold text-[var(--app-muted)]">
