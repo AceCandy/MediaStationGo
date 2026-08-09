@@ -30,8 +30,8 @@
   rows. NFO may fill only a provider-loaded type whose provider snapshot is empty.
 - Credit replacement is transactional and idempotent. Metadata graph merge
   moves and deduplicates credits before deleting the source metadata.
-- Movie and Series expose their own ordered credits. Episode uses its own rows
-  for each present type and inherits only missing types from its Series.
+- Movie, Series, Season, and Episode expose only their own ordered credits.
+  An empty entity-owned credit type stays empty and never inherits an ancestor.
 - Credit source/display roles and translation source/display values use `text`;
   existing PostgreSQL columns must be upgraded explicitly during migration.
 - Credit persistence completes before translation. A service-lifetime worker
@@ -54,7 +54,7 @@
 | Loaded type has no credits | Remove stale credits of that type |
 | Type is not loaded | Preserve existing credits of that type |
 | Provider type is non-empty and NFO also has rows | Keep provider rows; do not union guessed identities |
-| Episode has no credit rows for one type | Inherit that type from Series only |
+| Season/Episode has no credit rows for one type | Keep that type empty; do not query an ancestor |
 | AI is disabled/unconfigured or request fails | Keep original display values and let scraping succeed |
 | Original changes while AI request is running | Reject the stale conditional write |
 | Provider role exceeds 255 characters | Persist and cache it without truncation |
@@ -64,8 +64,8 @@
 - Good: repeated TMDb scrape reuses the same person ID and replaces only the
   loaded credit types while preserving translated display values whose source
   text did not change.
-- Good: Episode guest stars coexist with inherited Series actors, directors,
-  and writers according to per-type replacement.
+- Good: Episode guest stars and crew come only from the Episode provider
+  response; Series actors remain on the Series.
 - Base: AI localization is disabled; original people and role values remain
   fully usable through Emby.
 - Bad: merge people solely because normalized names match across local and TMDb.
@@ -78,7 +78,7 @@
   empty snapshots, soft-delete restoration, merge deduplication, and long roles.
 - Provider/NFO: movie/Series cast and crew, Episode guest stars and crew, and
   provider-empty versus provider-missing type behavior.
-- Emby: item `People`, Episode per-type inheritance, Persons pagination/search,
+- Emby: item `People`, no Season/Episode inheritance, Persons pagination/search,
   person detail, image proxy, uppercase/lowercase routes, and ID filtering.
 - Backfill: only metadata without current credits and with usable TMDb identity;
   verify task progress and request-independent service context.
@@ -119,7 +119,10 @@ db.Model(&credit).
 
 - Canonical entities: `MetadataItem{Kind, ParentID, SeasonNum, EpisodeNum, Title, ..., NSFW, Source}`.
 - External identity: `MetadataIdentifier{MetadataID, Provider, EntityKind, ExternalID}` with global uniqueness on `(provider, entity_kind, external_id)`.
-- Season identity: `(parent_series_id, season_num)`; episode identity: `(parent_season_id, episode_num)`; provider season/episode IDs are not required.
+- Season identity: `(parent_series_id, season_num)`; episode identity:
+  `(parent_season_id, episode_num)`. TMDb catalog hydration also requires each
+  Season/Episode's own provider identifier; local-only entities may remain
+  hierarchy-identified.
 - File link: nullable `Media.MetadataID` while scan status is unresolved; every
   non-null value has a restrictive foreign key to `MetadataItem.ID`.
 - Metadata-owned state: `Favorite.MetadataID`, `PlaybackHistory.MetadataID`, and `PlaylistItem.MetadataID` are non-null; `MediaID` only selects a concrete playable version.
@@ -199,6 +202,10 @@ db.Model(&credit).
 - Emby clients may call `/SearchHints`, `/Search/Hints`, and their user-scoped or lowercase variants; these routes must project shared metadata titles and IDs, not raw media scan fields.
 - Provider identifier projection must return at most one joined row per media. Aggregate or otherwise reduce identifiers before joining; never join the raw one-to-many identifier table into paginated media queries.
 - Selected artwork is copied into `DataDir`; remote URLs and source paths are provenance only and are never served as the authoritative runtime image.
+- Series, Season, and Episode image projections are entity-owned. Series uses
+  poster/backdrop, Season uses poster, and Episode uses still; MediaView, Emby
+  payloads, image routes, and virtual artwork caches must not fall back to an
+  ancestor.
 - Cloud sidecar posters and backdrops are resolved and downloaded directly
   during metadata persistence into `DataDir/artwork`; scanner must not prefetch
   them into `cache/images`, and managed artwork import never reads or writes
@@ -437,6 +444,98 @@ return map[string]any{"MediaSources": sources}
 
 // Correct: keep the source fields and expose the selected media date at PlaybackInfo top level.
 return map[string]any{"MediaSources": sources, "DateCreated": formatEmbyDateTime(media.CreatedAt)}
+```
+
+## Scenario: Durable TMDb Catalog Hydration
+
+### 1. Scope / Trigger
+
+- Apply when changing TMDb discover persistence, canonical TV hierarchy,
+  provider snapshots, catalog jobs, or Series/Season/Episode artwork.
+
+### 2. Signatures
+
+- Canonical item checkpoints:
+  `MetadataItem{RuntimeSec, CatalogMetadataHydratedAt, CatalogArtworkHydratedAt, CatalogHydratedAt}`.
+- Raw response: `MetadataProviderSnapshot{MetadataID, Provider, Payload JSONB, FetchedAt}`.
+- Durable work: `CatalogHydrationJob{Provider, EntityKind, ExternalID, MetadataID, Status, Stage, Attempts, NextAttemptAt, LastError}`.
+- Queue boundary:
+  `QueueCatalogHydrationContext(context.Context, []ExternalMediaResult) error`.
+
+### 3. Contracts
+
+- Discover requests synchronously upsert only valid TMDb Movie/Series jobs and
+  then return; provider details, credits, profile images, and artwork run in one
+  service-lifetime worker.
+- The database job keyed by `(provider, entity_kind, external_id)` is queue
+  truth. A wake channel only shortens sleep. Startup changes `running` jobs to
+  retryable work.
+- Series details create every Season shell, including Season 0. One seasons
+  turn hydrates one Season and all Episodes listed by that Season response,
+  then yields to another job.
+- Every TMDb Series, Season, and Episode stores its own TMDb identifier, typed
+  display fields, credits, complete provider response JSONB, and selected
+  original image bytes. Episode runtime is seconds on `MetadataItem`.
+- Own metadata and own artwork checkpoints advance independently. Episode full
+  completion requires both; Season waits for all expected Episodes; Series and
+  its job wait for all expected Seasons. Explicitly absent image paths satisfy
+  artwork completion, while a failed download does not.
+- Provider/log/job errors contain endpoint/entity/status only. Never persist or
+  log request URLs, query strings, API keys, headers, signed image URLs, or
+  credentials.
+- Catalog-only metadata creates no `Media` and stays outside physical Emby
+  library membership until a visible Media links to it.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required result |
+| --- | --- |
+| TMDb ID is non-positive or media type is unsupported | Create no job and send no wake signal |
+| Duplicate discover rows | Keep one durable job identity |
+| HTTP 429 | Honor valid `Retry-After`; otherwise use bounded, cancelable backoff |
+| Worker stops while a job is running | Reset it to retry on next startup |
+| Required own image download fails | Preserve the old own selection and leave artwork/full checkpoints empty |
+| Provider explicitly returns no own image | Mark own artwork complete without ancestor fallback |
+| One Episode is incomplete | Keep its Season, Series, and durable job incomplete |
+
+### 5. Good / Base / Bad Cases
+
+- Good: discovering one Series eventually stores `Series -> Season 0/1 ->
+  Episode`, each with its own TMDb ID, raw JSON, credits, and original image.
+- Base: a Series has no Seasons or an entity has no image path; explicit empty
+  inventories/scopes complete without synthetic children or inherited images.
+- Bad: an in-memory map is queue truth, a root-only timestamp suppresses child
+  hydration, or a Season/Episode copies Series artwork or people.
+
+### 6. Tests Required
+
+- Provider: Series/Season/Episode inventories, raw unknown-field retention,
+  original image URLs, external IDs, runtime, 429 retry/cancel, and errors with
+  no URL/API key.
+- Repository/PostgreSQL: JSONB round-trip, job uniqueness, claim/retry/recovery,
+  bounded root priority, child completion gating, and idempotent provider-ID
+  attachment/merge.
+- Service: Season 0 plus all Episodes, partial resume, no Media creation, own
+  artwork/profile bytes, and bottom-up completion.
+- MediaView/Emby: own Episode IDs/stills, own Season posters/people, no virtual
+  cache fallback, and catalog-only exclusion from physical libraries.
+
+### 7. Wrong vs Correct
+
+```go
+// Wrong: a wake-only in-memory queue loses work on restart.
+pending[key] = discoverItem
+
+// Correct: persist the idempotent identity, then coalesce only the wake signal.
+repo.Metadata.EnqueueCatalogJob(ctx, "tmdb", entityKind, externalID)
+```
+
+```go
+// Wrong: Season silently displays the Series poster.
+seasonPoster := series.PosterURL
+
+// Correct: missing own Season artwork remains empty.
+seasonPoster := metadataArtworkURL(ctx, season.ID, model.ArtworkTypePoster)
 ```
 
 ## Scenario: Persisted Emby People Images

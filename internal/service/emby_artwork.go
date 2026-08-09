@@ -9,21 +9,6 @@ import (
 
 // ImageURL returns artwork for a media/series/season item id.
 func (e *EmbyService) ImageURL(ctx context.Context, id, imageType string) (string, error) {
-	pick := func(primary, backdrop string) string {
-		switch strings.ToLower(imageType) {
-		case "backdrop", "art":
-			if backdrop != "" {
-				return backdrop
-			}
-		}
-		if primary != "" {
-			return primary
-		}
-		return backdrop
-	}
-	if raw, ok := e.cachedArtworkURL(id, imageType); ok {
-		return raw, nil
-	}
 	if e.repo != nil && e.repo.Person != nil {
 		person, personErr := e.repo.Person.FindByID(ctx, id)
 		if personErr != nil && !isMissingPeopleTable(personErr) {
@@ -33,6 +18,32 @@ func (e *EmbyService) ImageURL(ctx context.Context, id, imageType string) (strin
 			return "", nil
 		}
 	}
+	if e.repo != nil && e.repo.Metadata != nil {
+		metadata, metadataErr := e.repo.Metadata.FindByID(ctx, id)
+		if metadataErr != nil {
+			return "", metadataErr
+		}
+		if metadata != nil {
+			artworkType := ""
+			switch strings.ToLower(imageType) {
+			case "backdrop", "art":
+				if metadata.Kind == model.MetadataKindMovie || metadata.Kind == model.MetadataKindSeries {
+					artworkType = model.ArtworkTypeBackdrop
+				}
+			default:
+				switch metadata.Kind {
+				case model.MetadataKindEpisode:
+					artworkType = model.ArtworkTypeStill
+				default:
+					artworkType = model.ArtworkTypePoster
+				}
+			}
+			return e.metadataArtworkURL(ctx, metadata.ID, artworkType), nil
+		}
+	}
+	if raw, ok := e.cachedArtworkURL(id, imageType); ok {
+		return raw, nil
+	}
 	m, err := e.mediaViewForItemID(ctx, id, "")
 	if err == nil && m != nil {
 		if e.mediaShouldBeEpisode(ctx, &m.Media) {
@@ -41,22 +52,28 @@ func (e *EmbyService) ImageURL(ctx context.Context, id, imageType string) (strin
 				return "", nil
 			}
 		}
-		return pick(e.mediaPrimaryArtwork(ctx, m), e.mediaBackdropArtwork(ctx, m)), nil
+		switch strings.ToLower(imageType) {
+		case "backdrop", "art":
+			return e.mediaBackdropArtwork(ctx, m), nil
+		default:
+			return e.mediaPrimaryArtwork(ctx, m), nil
+		}
 	}
 	if err != nil {
 		return "", err
 	}
-	if season, ok, err := e.findSeasonGroup(ctx, id, ""); err != nil {
-		return "", err
-	} else if ok {
-		return pick(season.Series.PosterURL, season.Series.BackdropURL), nil
-	}
-	if series, ok, err := e.findSeriesGroup(ctx, id, ""); err != nil {
-		return "", err
-	} else if ok {
-		return pick(series.PosterURL, series.BackdropURL), nil
-	}
 	return "", nil
+}
+
+func (e *EmbyService) metadataArtworkURL(ctx context.Context, metadataID, artworkType string) string {
+	if e == nil || e.repo == nil || e.repo.Artwork == nil || strings.TrimSpace(artworkType) == "" {
+		return ""
+	}
+	asset, err := e.repo.Artwork.FindSelection(ctx, metadataID, artworkType)
+	if err != nil || asset == nil {
+		return ""
+	}
+	return ArtworkURL(asset.ID)
 }
 
 func (e *EmbyService) mediaPrimaryArtwork(ctx context.Context, m *model.MediaView) string {

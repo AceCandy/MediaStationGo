@@ -8,7 +8,7 @@ import (
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 )
 
-func (e *EmbyService) peopleForMetadata(ctx context.Context, metadataID, seriesID string) []model.EmbyPerson {
+func (e *EmbyService) peopleForMetadata(ctx context.Context, metadataID string) []model.EmbyPerson {
 	if e == nil || e.repo == nil || e.repo.Person == nil || strings.TrimSpace(metadataID) == "" {
 		return []model.EmbyPerson{}
 	}
@@ -19,16 +19,6 @@ func (e *EmbyService) peopleForMetadata(ctx context.Context, metadataID, seriesI
 	byType := make(map[string][]model.MetadataCredit)
 	for _, row := range rows {
 		byType[row.Type] = append(byType[row.Type], row)
-	}
-	if strings.TrimSpace(seriesID) != "" && seriesID != metadataID {
-		seriesRows, seriesErr := e.repo.Person.ListCreditsWithPeople(ctx, seriesID)
-		if seriesErr == nil {
-			for _, row := range seriesRows {
-				if len(byType[row.Type]) == 0 {
-					byType[row.Type] = append(byType[row.Type], row)
-				}
-			}
-		}
 	}
 	ordered := make([]model.MetadataCredit, 0, len(rows))
 	for _, typ := range []string{model.CreditTypeActor, model.CreditTypeGuestStar, model.CreditTypeDirector, model.CreditTypeWriter} {

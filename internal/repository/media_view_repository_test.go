@@ -105,6 +105,8 @@ func TestMediaViewProjectsEpisodeArtworkAndParentIdentifiers(t *testing.T) {
 		{Base: model.Base{ID: "identifier-tmdb-alias"}, MetadataID: series.ID, Provider: "tmdb", EntityKind: model.MetadataKindSeries, ExternalID: "456"},
 		{Base: model.Base{ID: "identifier-tmdb-movie"}, MetadataID: series.ID, Provider: "tmdb", EntityKind: model.MetadataKindMovie, ExternalID: "999"},
 		{Base: model.Base{ID: "identifier-douban"}, MetadataID: series.ID, Provider: "douban", EntityKind: model.MetadataKindSeries, ExternalID: "db-123"},
+		{Base: model.Base{ID: "identifier-episode-tmdb"}, MetadataID: episodes[0].ID, Provider: "tmdb", EntityKind: model.MetadataKindEpisode, ExternalID: "601"},
+		{Base: model.Base{ID: "identifier-episode-douban"}, MetadataID: episodes[0].ID, Provider: "douban", EntityKind: model.MetadataKindEpisode, ExternalID: "db-601"},
 	}
 	if err := repos.DB.Create(&identifiers).Error; err != nil {
 		t.Fatal(err)
@@ -149,29 +151,32 @@ func TestMediaViewProjectsEpisodeArtworkAndParentIdentifiers(t *testing.T) {
 	if first == nil || first.SeriesID != series.ID || first.SeasonID != season.ID || first.Title != series.Title || first.EpisodeTitle != "Pilot" {
 		t.Fatalf("episode projection = %#v", first)
 	}
-	if first.PosterURL != "/api/artwork/asset-poster" || first.BackdropURL != "/api/artwork/asset-still" {
+	if first.PosterURL != "" || first.BackdropURL != "/api/artwork/asset-still" {
 		t.Fatalf("episode artwork poster=%q backdrop=%q", first.PosterURL, first.BackdropURL)
 	}
-	if first.TMDbID != 123 || first.DoubanID != "db-123" {
-		t.Fatalf("parent identifiers tmdb=%d douban=%q", first.TMDbID, first.DoubanID)
+	if first.TMDbID != 601 || first.DoubanID != "db-601" {
+		t.Fatalf("episode identifiers tmdb=%d douban=%q", first.TMDbID, first.DoubanID)
 	}
 
 	second, err := repos.MediaView.FindByID(t.Context(), "media-episode-2")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if second == nil || second.PosterURL != "/api/artwork/asset-poster" || second.BackdropURL != "/api/artwork/asset-backdrop" {
-		t.Fatalf("inherited episode artwork = %#v", second)
+	if second == nil || second.PosterURL != "" || second.BackdropURL != "" || second.TMDbID != 0 {
+		t.Fatalf("episode inherited parent data = %#v", second)
 	}
 
 	payload, err := json.Marshal(first)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, field := range []string{"season_id", "title", "nsfw", "poster_url", "tmdb_id"} {
+	for _, field := range []string{"season_id", "title", "nsfw", "tmdb_id"} {
 		if count := strings.Count(string(payload), `"`+field+`":`); count != 1 {
 			t.Fatalf("JSON field %q count=%d payload=%s", field, count, payload)
 		}
+	}
+	if strings.Contains(string(payload), `"poster_url"`) {
+		t.Fatalf("empty own poster should be omitted: %s", payload)
 	}
 }
 

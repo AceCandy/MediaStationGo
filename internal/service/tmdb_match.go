@@ -22,7 +22,7 @@ func (t *TMDbProvider) GetMovieMatch(ctx context.Context, tmdbID int) (*Match, e
 	q := url.Values{}
 	q.Set("api_key", apiKey)
 	q.Set("language", "zh-CN")
-	q.Set("append_to_response", "alternative_titles,translations,credits")
+	q.Set("append_to_response", "alternative_titles,translations,credits,external_ids,keywords,videos")
 	u := base + "/movie/" + fmt.Sprint(tmdbID) + "?" + q.Encode()
 	var r struct {
 		ID               int     `json:"id"`
@@ -49,9 +49,13 @@ func (t *TMDbProvider) GetMovieMatch(ctx context.Context, tmdbID int) (*Match, e
 		Translations struct {
 			Translations []tmdbTranslation `json:"translations"`
 		} `json:"translations"`
-		Credits tmdbCredits `json:"credits"`
+		Credits     tmdbCredits `json:"credits"`
+		ExternalIDs struct {
+			IMDbID string `json:"imdb_id"`
+		} `json:"external_ids"`
 	}
-	if err := t.getJSON(ctx, u, &r); err != nil {
+	raw, err := t.getJSONRaw(ctx, u, &r)
+	if err != nil {
 		return nil, err
 	}
 	m := &Match{
@@ -62,6 +66,8 @@ func (t *TMDbProvider) GetMovieMatch(ctx context.Context, tmdbID int) (*Match, e
 		Overview:     r.Overview,
 		Rating:       r.VoteAverage,
 		Languages:    nonEmptyStrings(r.OriginalLanguage),
+		IMDbID:       strings.TrimSpace(r.ExternalIDs.IMDbID),
+		RawJSON:      raw,
 	}
 	if m.Title == "" {
 		m.Title = r.OriginalTitle
@@ -69,9 +75,11 @@ func (t *TMDbProvider) GetMovieMatch(ctx context.Context, tmdbID int) (*Match, e
 	applyTMDbChineseTitle(m, r.AlternativeTitles.Titles, r.Translations.Translations)
 	if r.PosterPath != "" {
 		m.PosterURL = t.imgCDN + "/w500" + r.PosterPath
+		m.CatalogPosterURL = tmdbOriginalImageURL(t.imgCDN, r.PosterPath)
 	}
 	if r.BackdropPath != "" {
 		m.BackdropURL = t.imgCDN + "/w1280" + r.BackdropPath
+		m.CatalogBackdropURL = tmdbOriginalImageURL(t.imgCDN, r.BackdropPath)
 	}
 	m.ReleaseDate = normalizeReleaseDate(r.ReleaseDate)
 	if len(r.ReleaseDate) >= 4 {
@@ -105,7 +113,7 @@ func (t *TMDbProvider) GetTVMatch(ctx context.Context, tmdbID int) (*Match, erro
 	q := url.Values{}
 	q.Set("api_key", apiKey)
 	q.Set("language", "zh-CN")
-	q.Set("append_to_response", "alternative_titles,translations,credits")
+	q.Set("append_to_response", "alternative_titles,translations,credits,external_ids,keywords,videos,content_ratings")
 	u := base + "/tv/" + fmt.Sprint(tmdbID) + "?" + q.Encode()
 	var r struct {
 		ID               int      `json:"id"`
@@ -130,9 +138,22 @@ func (t *TMDbProvider) GetTVMatch(ctx context.Context, tmdbID int) (*Match, erro
 		Translations struct {
 			Translations []tmdbTranslation `json:"translations"`
 		} `json:"translations"`
-		Credits tmdbCredits `json:"credits"`
+		Credits     tmdbCredits `json:"credits"`
+		ExternalIDs struct {
+			IMDbID string `json:"imdb_id"`
+			TVDBID int    `json:"tvdb_id"`
+		} `json:"external_ids"`
+		Seasons []struct {
+			ID           int    `json:"id"`
+			SeasonNumber int    `json:"season_number"`
+			Name         string `json:"name"`
+			Overview     string `json:"overview"`
+			AirDate      string `json:"air_date"`
+			PosterPath   string `json:"poster_path"`
+		} `json:"seasons"`
 	}
-	if err := t.getJSON(ctx, u, &r); err != nil {
+	raw, err := t.getJSONRaw(ctx, u, &r)
+	if err != nil {
 		return nil, err
 	}
 	m := &Match{
@@ -144,6 +165,14 @@ func (t *TMDbProvider) GetTVMatch(ctx context.Context, tmdbID int) (*Match, erro
 		Rating:       r.VoteAverage,
 		Languages:    nonEmptyStrings(r.OriginalLanguage),
 		Countries:    deduplicate(r.OriginCountry),
+		IMDbID:       strings.TrimSpace(r.ExternalIDs.IMDbID),
+		RawJSON:      raw,
+	}
+	if r.ExternalIDs.TVDBID > 0 {
+		m.TheTVDBID = strconv.Itoa(r.ExternalIDs.TVDBID)
+	}
+	for _, season := range r.Seasons {
+		m.Seasons = append(m.Seasons, TMDbSeasonSummary{ID: season.ID, SeasonNumber: season.SeasonNumber, Name: season.Name, Overview: season.Overview, AirDate: season.AirDate, PosterPath: season.PosterPath})
 	}
 	if m.Title == "" {
 		m.Title = r.OriginalName
@@ -151,9 +180,11 @@ func (t *TMDbProvider) GetTVMatch(ctx context.Context, tmdbID int) (*Match, erro
 	applyTMDbChineseTitle(m, r.AlternativeTitles.Results, r.Translations.Translations)
 	if r.PosterPath != "" {
 		m.PosterURL = t.imgCDN + "/w500" + r.PosterPath
+		m.CatalogPosterURL = tmdbOriginalImageURL(t.imgCDN, r.PosterPath)
 	}
 	if r.BackdropPath != "" {
 		m.BackdropURL = t.imgCDN + "/w1280" + r.BackdropPath
+		m.CatalogBackdropURL = tmdbOriginalImageURL(t.imgCDN, r.BackdropPath)
 	}
 	m.ReleaseDate = normalizeReleaseDate(r.FirstAirDate)
 	if len(r.FirstAirDate) >= 4 {
@@ -225,4 +256,11 @@ func tmdbProfileURL(imageCDN, path string) string {
 		return ""
 	}
 	return strings.TrimRight(imageCDN, "/") + "/w185" + path
+}
+
+func tmdbOriginalImageURL(imageCDN, path string) string {
+	if strings.TrimSpace(path) == "" {
+		return ""
+	}
+	return strings.TrimRight(imageCDN, "/") + "/original" + path
 }

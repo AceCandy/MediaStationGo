@@ -263,6 +263,9 @@ func metadataIdentifiersFromMatch(match *Match, entityKind string) []model.Metad
 	if value := strings.TrimSpace(match.TheTVDBID); value != "" {
 		out = append(out, model.MetadataIdentifier{Provider: "thetvdb", EntityKind: entityKind, ExternalID: value})
 	}
+	if value := strings.TrimSpace(match.IMDbID); value != "" {
+		out = append(out, model.MetadataIdentifier{Provider: "imdb", EntityKind: entityKind, ExternalID: value})
+	}
 	if len(out) == 0 && match.Source == "adult" && strings.TrimSpace(match.OriginalName) != "" {
 		out = append(out, model.MetadataIdentifier{Provider: "adult", EntityKind: entityKind, ExternalID: strings.TrimSpace(match.OriginalName)})
 	}

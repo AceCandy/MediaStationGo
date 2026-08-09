@@ -388,6 +388,38 @@ func TestEmbySeriesArtworkUsesSharedMetadata(t *testing.T) {
 	}
 }
 
+func TestEmbySeasonAndEpisodeDoNotInheritSeriesArtworkOrPeople(t *testing.T) {
+	svc := newTestEmbyService(t)
+	seriesID := "metadata-no-inherit-series"
+	episode := createServiceTestEpisodeMetadata(t, svc.repo.DB,
+		model.MetadataItem{Base: model.Base{ID: seriesID}, Kind: model.MetadataKindSeries, Title: "独立元数据", Source: "tmdb"},
+		model.MetadataItem{Base: model.Base{ID: "metadata-no-inherit-episode"}, Kind: model.MetadataKindEpisode, Title: "独立元数据", SeasonNum: 1, EpisodeNum: 1, Source: "tmdb"},
+	)
+	if episode.ParentID == nil {
+		t.Fatal("episode season parent is missing")
+	}
+	createServiceTestArtwork(t, svc.repo.DB, seriesID, model.ArtworkTypePoster, "asset-no-inherit-poster")
+	person := model.Person{Name: "Series Actor", OriginalName: "Series Actor", NormalizedName: "series actor", Source: "tmdb"}
+	if err := svc.repo.DB.Create(&person).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.repo.DB.Create(&model.MetadataCredit{MetadataID: seriesID, PersonID: person.ID, Type: model.CreditTypeActor}).Error; err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{*episode.ParentID, episode.ID} {
+		image, err := svc.ImageURL(t.Context(), id, "Primary")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if image != "" {
+			t.Fatalf("metadata %s inherited series image %q", id, image)
+		}
+		if people := svc.peopleForMetadata(t.Context(), id); len(people) != 0 {
+			t.Fatalf("metadata %s inherited series people: %#v", id, people)
+		}
+	}
+}
+
 func TestEmbyCloudAnimeUsesCanonicalSeriesMetadata(t *testing.T) {
 	svc := newTestEmbyService(t)
 	lib := model.Library{Name: "OpenList · 国漫", Path: `cloud://openlist/国漫`, Type: "anime", Enabled: true}

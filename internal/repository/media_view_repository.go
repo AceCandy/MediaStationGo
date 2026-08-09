@@ -32,8 +32,8 @@ m.*,
 	COALESCE(mi.nsfw, FALSE) AS view_nsfw,
 	COALESCE(mi.kind, '') AS view_metadata_kind,
 	COALESCE(mi.source, '') AS view_metadata_source,
-	COALESCE(poster_asset.id, parent_poster_asset.id, series_poster_asset.id, '') AS view_poster_asset_id,
-	COALESCE(still_asset.id, backdrop_asset.id, parent_backdrop_asset.id, series_backdrop_asset.id, '') AS view_backdrop_asset_id`
+	COALESCE(poster_asset.id, '') AS view_poster_asset_id,
+	COALESCE(still_asset.id, backdrop_asset.id, '') AS view_backdrop_asset_id`
 
 // MediaViewRepository 对共享元数据完成 JOIN 后再执行权限、排序和分页。
 type MediaViewRepository struct {
@@ -62,22 +62,13 @@ func (r *MediaViewRepository) query(ctx context.Context) *gorm.DB {
 			FROM metadata_identifiers
 			WHERE deleted_at IS NULL
 			GROUP BY metadata_id, entity_kind
-		) AS identifiers ON identifiers.metadata_id = COALESCE(series_metadata.id, mi.id)
-			AND identifiers.entity_kind = CASE WHEN mi.kind = 'episode' THEN 'series' ELSE mi.kind END`).
+		) AS identifiers ON identifiers.metadata_id = mi.id AND identifiers.entity_kind = mi.kind`).
 		Joins("LEFT JOIN metadata_artworks AS poster ON poster.metadata_id = mi.id AND poster.artwork_type = 'poster' AND poster.deleted_at IS NULL").
 		Joins("LEFT JOIN artwork_assets AS poster_asset ON poster_asset.id = poster.asset_id AND poster_asset.deleted_at IS NULL").
 		Joins("LEFT JOIN metadata_artworks AS backdrop ON backdrop.metadata_id = mi.id AND backdrop.artwork_type = 'backdrop' AND backdrop.deleted_at IS NULL").
 		Joins("LEFT JOIN artwork_assets AS backdrop_asset ON backdrop_asset.id = backdrop.asset_id AND backdrop_asset.deleted_at IS NULL").
 		Joins("LEFT JOIN metadata_artworks AS still ON still.metadata_id = mi.id AND still.artwork_type = 'still' AND still.deleted_at IS NULL").
 		Joins("LEFT JOIN artwork_assets AS still_asset ON still_asset.id = still.asset_id AND still_asset.deleted_at IS NULL").
-		Joins("LEFT JOIN metadata_artworks AS parent_poster ON parent_poster.metadata_id = mi.parent_id AND parent_poster.artwork_type = 'poster' AND parent_poster.deleted_at IS NULL").
-		Joins("LEFT JOIN artwork_assets AS parent_poster_asset ON parent_poster_asset.id = parent_poster.asset_id AND parent_poster_asset.deleted_at IS NULL").
-		Joins("LEFT JOIN metadata_artworks AS parent_backdrop ON parent_backdrop.metadata_id = mi.parent_id AND parent_backdrop.artwork_type = 'backdrop' AND parent_backdrop.deleted_at IS NULL").
-		Joins("LEFT JOIN artwork_assets AS parent_backdrop_asset ON parent_backdrop_asset.id = parent_backdrop.asset_id AND parent_backdrop_asset.deleted_at IS NULL").
-		Joins("LEFT JOIN metadata_artworks AS series_poster ON series_poster.metadata_id = series_metadata.id AND series_poster.artwork_type = 'poster' AND series_poster.deleted_at IS NULL").
-		Joins("LEFT JOIN artwork_assets AS series_poster_asset ON series_poster_asset.id = series_poster.asset_id AND series_poster_asset.deleted_at IS NULL").
-		Joins("LEFT JOIN metadata_artworks AS series_backdrop ON series_backdrop.metadata_id = series_metadata.id AND series_backdrop.artwork_type = 'backdrop' AND series_backdrop.deleted_at IS NULL").
-		Joins("LEFT JOIN artwork_assets AS series_backdrop_asset ON series_backdrop_asset.id = series_backdrop.asset_id AND series_backdrop_asset.deleted_at IS NULL").
 		Where("m.deleted_at IS NULL")
 }
 

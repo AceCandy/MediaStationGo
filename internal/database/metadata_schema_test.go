@@ -1,6 +1,7 @@
 package database
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -14,6 +15,47 @@ type legacyRequiredMedia struct {
 	ID         string `gorm:"primaryKey;size:36"`
 	MetadataID string `gorm:"size:36;not null;check:chk_media_metadata_id,metadata_id <> ''"`
 	Path       string `gorm:"uniqueIndex;size:1024;not null"`
+}
+
+func TestCatalogMetadataSnapshotAndJobSchema(t *testing.T) {
+	db, err := testdb.OpenPostgres(t, &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(&model.MetadataItem{}, &model.MetadataProviderSnapshot{}, &model.CatalogHydrationJob{}); err != nil {
+		t.Fatal(err)
+	}
+	metadata := model.MetadataItem{Kind: model.MetadataKindSeries, Title: "Series", Source: "tmdb"}
+	if err := db.Create(&metadata).Error; err != nil {
+		t.Fatal(err)
+	}
+	snapshot := model.MetadataProviderSnapshot{MetadataID: metadata.ID, Provider: "tmdb", Payload: `{"future":true}`, FetchedAt: time.Now().UTC()}
+	if err := db.Create(&snapshot).Error; err != nil {
+		t.Fatal(err)
+	}
+	columns, err := db.Migrator().ColumnTypes(&model.MetadataProviderSnapshot{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	foundJSONB := false
+	for _, column := range columns {
+		if column.Name() == "payload" && strings.EqualFold(column.DatabaseTypeName(), "jsonb") {
+			foundJSONB = true
+		}
+	}
+	if !foundJSONB {
+		t.Fatal("metadata provider snapshot payload is not PostgreSQL jsonb")
+	}
+	jobs := []model.CatalogHydrationJob{
+		{Provider: "tmdb", EntityKind: model.MetadataKindSeries, ExternalID: "42", Status: model.CatalogJobStatusPending, Stage: model.CatalogJobStageRoot},
+		{Provider: "tmdb", EntityKind: model.MetadataKindSeries, ExternalID: "42", Status: model.CatalogJobStatusPending, Stage: model.CatalogJobStageRoot},
+	}
+	if err := db.Create(&jobs[0]).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&jobs[1]).Error; err == nil {
+		t.Fatal("expected duplicate catalog hydration identity to be rejected")
+	}
 }
 
 func (legacyRequiredMedia) TableName() string { return "media" }

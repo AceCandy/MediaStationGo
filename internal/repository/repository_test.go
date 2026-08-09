@@ -186,17 +186,20 @@ func TestMediaUpsertMatchedIncomingRefreshesScrapedMetadata(t *testing.T) {
 		Title: "中文剧名", OriginalName: "Original Show", EpisodeTitle: "第一集", Overview: "剧情简介",
 		Rating: 8.6, Year: 2026, EpisodeNum: 1, Languages: "zh,en", Countries: "CN",
 		Genres: "剧情,悬疑", NSFW: true, Source: "tmdb",
-	})
+	},
+		model.MetadataIdentifier{Provider: "tmdb", EntityKind: model.MetadataKindEpisode, ExternalID: "601"},
+		model.MetadataIdentifier{Provider: "bangumi", EntityKind: model.MetadataKindEpisode, ExternalID: "602"},
+		model.MetadataIdentifier{Provider: "douban", EntityKind: model.MetadataKindEpisode, ExternalID: "db-e1"},
+		model.MetadataIdentifier{Provider: "thetvdb", EntityKind: model.MetadataKindEpisode, ExternalID: "tvdb-e1"},
+	)
 	assets := []model.ArtworkAsset{
-		{Base: model.Base{ID: "asset-poster-1"}, SHA256: "poster-hash-1", StorageKey: "sha256/po/poster.jpg", MimeType: "image/jpeg"},
 		{Base: model.Base{ID: "asset-backdrop-1"}, SHA256: "backdrop-hash-1", StorageKey: "sha256/ba/backdrop.jpg", MimeType: "image/jpeg"},
 	}
 	if err := repos.DB.Create(&assets).Error; err != nil {
 		t.Fatal(err)
 	}
 	artworks := []model.MetadataArtwork{
-		{MetadataID: episode.ID, AssetID: assets[0].ID, ArtworkType: model.ArtworkTypePoster},
-		{MetadataID: episode.ID, AssetID: assets[1].ID, ArtworkType: model.ArtworkTypeBackdrop},
+		{MetadataID: episode.ID, AssetID: assets[0].ID, ArtworkType: model.ArtworkTypeStill},
 	}
 	if err := repos.DB.Create(&artworks).Error; err != nil {
 		t.Fatal(err)
@@ -227,10 +230,10 @@ func TestMediaUpsertMatchedIncomingRefreshesScrapedMetadata(t *testing.T) {
 	if view == nil || view.Title != "中文剧名" || view.OriginalName != "Original Show" || view.EpisodeTitle != "第一集" || view.Overview != "剧情简介" {
 		t.Fatalf("shared names/overview not projected: %#v", view)
 	}
-	if view.PosterURL != "/api/artwork/asset-poster-1" || view.BackdropURL != "/api/artwork/asset-backdrop-1" {
+	if view.PosterURL != "" || view.BackdropURL != "/api/artwork/asset-backdrop-1" {
 		t.Fatalf("shared artwork not projected: %#v", view)
 	}
-	if view.TMDbID != 123 || view.BangumiID != 456 || view.DoubanID != "db-1" || view.TheTVDBID != "tvdb-1" {
+	if view.TMDbID != 601 || view.BangumiID != 602 || view.DoubanID != "db-e1" || view.TheTVDBID != "tvdb-e1" {
 		t.Fatalf("shared provider identifiers not projected: %#v", view)
 	}
 	if view.Year != 2026 || view.SeasonNum != 1 || view.EpisodeNum != 1 || view.Rating != 8.6 || view.Languages != "zh,en" || view.Countries != "CN" || view.Genres != "剧情,悬疑" || !view.NSFW {

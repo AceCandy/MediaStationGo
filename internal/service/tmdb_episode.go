@@ -22,6 +22,7 @@ func (t *TMDbProvider) GetTVEpisodeDetails(ctx context.Context, tmdbID, season, 
 	q := url.Values{}
 	q.Set("api_key", apiKey)
 	q.Set("language", "zh-CN")
+	q.Set("append_to_response", "external_ids,credits,translations,videos")
 	u := base + "/tv/" + fmt.Sprint(tmdbID) + "/season/" + fmt.Sprint(season) + "/episode/" + fmt.Sprint(episode) + "?" + q.Encode()
 	var r struct {
 		Name        string  `json:"name"`
@@ -30,7 +31,13 @@ func (t *TMDbProvider) GetTVEpisodeDetails(ctx context.Context, tmdbID, season, 
 		AirDate     string  `json:"air_date"`
 		VoteAverage float32 `json:"vote_average"`
 		Runtime     int     `json:"runtime"`
-		GuestStars  []struct {
+		ID          int     `json:"id"`
+		ExternalIDs struct {
+			IMDbID string `json:"imdb_id"`
+			TVDBID int    `json:"tvdb_id"`
+		} `json:"external_ids"`
+		Credits    tmdbCredits `json:"credits"`
+		GuestStars []struct {
 			ID          int    `json:"id"`
 			Name        string `json:"name"`
 			Character   string `json:"character"`
@@ -45,14 +52,19 @@ func (t *TMDbProvider) GetTVEpisodeDetails(ctx context.Context, tmdbID, season, 
 			ProfilePath string `json:"profile_path"`
 		} `json:"crew"`
 	}
-	if err := t.getJSON(ctx, u, &r); err != nil {
+	raw, err := t.getJSONRaw(ctx, u, &r)
+	if err != nil {
 		return nil, err
 	}
 	details := &TMDbEpisodeDetails{
-		Name:     r.Name,
-		Overview: r.Overview,
-		Rating:   r.VoteAverage,
-		Runtime:  r.Runtime,
+		ID:          r.ID,
+		Name:        r.Name,
+		Overview:    r.Overview,
+		AirDate:     normalizeReleaseDate(r.AirDate),
+		Rating:      r.VoteAverage,
+		Runtime:     r.Runtime,
+		ExternalIDs: TMDbExternalIDs{IMDbID: strings.TrimSpace(r.ExternalIDs.IMDbID), TVDBID: r.ExternalIDs.TVDBID},
+		RawJSON:     raw,
 	}
 	details.LoadedCreditTypes = []string{model.CreditTypeGuestStar, model.CreditTypeDirector, model.CreditTypeWriter}
 	for _, cast := range r.GuestStars {
@@ -72,8 +84,12 @@ func (t *TMDbProvider) GetTVEpisodeDetails(ctx context.Context, tmdbID, season, 
 			details.Credits = append(details.Credits, PersonCredit{Provider: "tmdb", ExternalID: strconv.Itoa(crew.ID), Name: strings.TrimSpace(crew.Name), Type: typ, OriginalRole: strings.TrimSpace(crew.Job), SortOrder: crew.Order, ProfileURL: tmdbProfileURL(t.imgCDN, crew.ProfilePath)})
 		}
 	}
+	if appended, _ := tmdbCreditsToPersonCredits(r.Credits, t.imgCDN, true); len(appended) > 0 {
+		details.Credits = appended
+	}
 	if r.StillPath != "" {
 		details.StillURL = t.imgCDN + "/w500" + r.StillPath
+		details.CatalogStillURL = tmdbOriginalImageURL(t.imgCDN, r.StillPath)
 	}
 	if len(r.AirDate) >= 4 {
 		_, _ = fmt.Sscanf(r.AirDate[:4], "%d", &details.AirYear)

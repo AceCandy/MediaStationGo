@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -13,182 +14,502 @@ import (
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 )
 
-// StartCatalogHydrationWorker starts the service-lifetime worker used by the
-// discover page. The worker is intentionally independent from HTTP requests so
-// a slow detail, credit, or image request cannot delay the feed response.
+const catalogRootBurst = 4
+
+var catalogURLPattern = regexp.MustCompile(`https?://[^\s]+`)
+
+// StartCatalogHydrationWorker 启动发现页目录抓取 worker。
 func (s *ScraperService) StartCatalogHydrationWorker(ctx context.Context) {
-	if s == nil {
+	if s == nil || s.repo == nil || s.repo.Metadata == nil {
 		return
 	}
 	s.catalogHydrationOnce.Do(func() {
-		s.catalogHydrationMu.Lock()
-		if s.catalogHydrationPending == nil {
-			s.catalogHydrationPending = make(map[string]ExternalMediaResult)
-		}
 		if s.catalogHydrationWake == nil {
 			s.catalogHydrationWake = make(chan struct{}, 1)
 		}
-		s.catalogHydrationMu.Unlock()
+		if err := s.repo.Metadata.RecoverCatalogJobs(ctx); err != nil {
+			if s.log != nil {
+				s.log.Warn("recover catalog hydration jobs failed", zap.Error(err))
+			}
+			return
+		}
 		s.catalogHydrationWG.Add(1)
 		go s.runCatalogHydrationWorker(ctx)
 	})
 }
 
-// WaitCatalogHydrationWorker joins the worker during service shutdown.
+// WaitCatalogHydrationWorker 等待 worker 退出。
 func (s *ScraperService) WaitCatalogHydrationWorker() {
 	if s != nil {
 		s.catalogHydrationWG.Wait()
 	}
 }
 
-// QueueCatalogHydration coalesces TMDb discover rows for asynchronous import.
-func (s *ScraperService) QueueCatalogHydration(items []ExternalMediaResult) {
-	if s == nil || len(items) == 0 {
-		return
+// QueueCatalogHydrationContext 幂等写入持久化任务后唤醒 worker。
+func (s *ScraperService) QueueCatalogHydrationContext(ctx context.Context, items []ExternalMediaResult) error {
+	if s == nil || len(items) == 0 || s.repo == nil || s.repo.Metadata == nil {
+		return nil
 	}
-	s.catalogHydrationMu.Lock()
-	if s.catalogHydrationPending == nil {
-		s.catalogHydrationPending = make(map[string]ExternalMediaResult)
-	}
-	if s.catalogHydrationWake == nil {
-		s.catalogHydrationWake = make(chan struct{}, 1)
-	}
+	queued := false
 	for _, item := range items {
 		if !isTMDbCatalogItem(item) {
 			continue
 		}
-		key := catalogHydrationKey(item)
-		if _, exists := s.catalogHydrationPending[key]; !exists {
-			s.catalogHydrationPending[key] = item
+		entityKind, supported := catalogEntityKind(item.MediaType)
+		if !supported {
+			continue
 		}
+		if err := s.repo.Metadata.EnqueueCatalogJob(ctx, "tmdb", entityKind, strconv.Itoa(item.TMDbID)); err != nil {
+			return err
+		}
+		queued = true
 	}
-	wake := s.catalogHydrationWake
-	s.catalogHydrationMu.Unlock()
+	if !queued {
+		return nil
+	}
+	if s.catalogHydrationWake == nil {
+		s.catalogHydrationWake = make(chan struct{}, 1)
+	}
 	select {
-	case wake <- struct{}{}:
+	case s.catalogHydrationWake <- struct{}{}:
 	default:
 	}
+	return nil
 }
 
 func (s *ScraperService) runCatalogHydrationWorker(ctx context.Context) {
 	defer s.catalogHydrationWG.Done()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-s.catalogHydrationWake:
-		}
-		for {
-			items := s.takeCatalogHydrationBatch()
-			if len(items) == 0 {
-				break
+	rootStreak := 0
+	for ctx.Err() == nil {
+		job, err := s.claimNextCatalogJob(ctx, &rootStreak)
+		if err != nil {
+			if s.log != nil && ctx.Err() == nil {
+				s.log.Warn("claim catalog hydration job failed", zap.Error(err))
 			}
-			for _, item := range items {
-				// Failed items are retried when a later discover response observes them again.
-				if err := s.hydrateCatalogItem(ctx, item); err != nil && ctx.Err() == nil && s.log != nil {
-					s.log.Warn("discover catalog hydration failed",
-						zap.Int("tmdb_id", item.TMDbID),
-						zap.String("media_type", item.MediaType),
-						zap.Error(err))
-				}
+			if !waitForContext(ctx, time.Second) {
+				return
+			}
+			continue
+		}
+		if job == nil {
+			if !s.waitCatalogHydration(ctx) {
+				return
+			}
+			continue
+		}
+		if err := s.processCatalogJob(ctx, job); err != nil && ctx.Err() == nil {
+			safeErr := sanitizeCatalogError(err)
+			next := time.Now().UTC().Add(catalogRetryDelay(job.Attempts))
+			_ = s.repo.Metadata.RetryCatalogJob(ctx, job.ID, safeErr.Error(), next)
+			if s.log != nil {
+				s.log.Warn("catalog hydration failed", zap.String("provider", job.Provider), zap.String("entity_kind", job.EntityKind), zap.String("external_id", job.ExternalID), zap.Error(safeErr))
 			}
 		}
 	}
 }
 
-func (s *ScraperService) takeCatalogHydrationBatch() []ExternalMediaResult {
-	s.catalogHydrationMu.Lock()
-	defer s.catalogHydrationMu.Unlock()
-	if len(s.catalogHydrationPending) == 0 {
-		return nil
+func (s *ScraperService) claimNextCatalogJob(ctx context.Context, rootStreak *int) (*model.CatalogHydrationJob, error) {
+	now := time.Now().UTC()
+	if *rootStreak >= catalogRootBurst {
+		if job, err := s.repo.Metadata.ClaimCatalogJob(ctx, model.CatalogJobStageSeasons, now); err != nil || job != nil {
+			if job != nil {
+				*rootStreak = 0
+			}
+			return job, err
+		}
+		*rootStreak = 0
 	}
-	items := make([]ExternalMediaResult, 0, len(s.catalogHydrationPending))
-	for _, item := range s.catalogHydrationPending {
-		items = append(items, item)
+	if job, err := s.repo.Metadata.ClaimCatalogJob(ctx, model.CatalogJobStageRoot, now); err != nil || job != nil {
+		if job != nil {
+			(*rootStreak)++
+		}
+		return job, err
 	}
-	s.catalogHydrationPending = make(map[string]ExternalMediaResult)
-	return items
+	job, err := s.repo.Metadata.ClaimCatalogJob(ctx, model.CatalogJobStageSeasons, now)
+	if job != nil {
+		*rootStreak = 0
+	}
+	return job, err
 }
 
-func (s *ScraperService) hydrateCatalogItem(ctx context.Context, item ExternalMediaResult) error {
-	if !isTMDbCatalogItem(item) || s.repo == nil || s.repo.Metadata == nil || s.tmdb == nil {
-		return nil
+func (s *ScraperService) waitCatalogHydration(ctx context.Context) bool {
+	next, err := s.repo.Metadata.NextCatalogAttemptAt(ctx)
+	if err != nil {
+		return waitForContext(ctx, time.Second)
 	}
-	entityKind := catalogEntityKind(item.MediaType)
-	externalID := strconv.Itoa(item.TMDbID)
-	existing, err := s.repo.Metadata.FindByIdentifier(ctx, "tmdb", entityKind, externalID)
+	var timer *time.Timer
+	var timerC <-chan time.Time
+	if next != nil {
+		delay := time.Until(*next)
+		if delay < 0 {
+			delay = 0
+		}
+		timer = time.NewTimer(delay)
+		timerC = timer.C
+		defer timer.Stop()
+	}
+	select {
+	case <-ctx.Done():
+		return false
+	case <-s.catalogHydrationWake:
+		return true
+	case <-timerC:
+		return true
+	}
+}
+
+func waitForContext(ctx context.Context, delay time.Duration) bool {
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-timer.C:
+		return true
+	}
+}
+
+func (s *ScraperService) processCatalogJob(ctx context.Context, job *model.CatalogHydrationJob) error {
+	if job == nil || job.Provider != "tmdb" {
+		return errors.New("unsupported catalog hydration job")
+	}
+	tmdbID, err := strconv.Atoi(job.ExternalID)
+	if err != nil || tmdbID <= 0 {
+		return errors.New("invalid tmdb catalog id")
+	}
+	if job.Stage == model.CatalogJobStageSeasons && job.EntityKind == model.MetadataKindSeries {
+		return s.hydrateCatalogSeasonTurn(ctx, job, tmdbID)
+	}
+	return s.hydrateCatalogRoot(ctx, job, tmdbID)
+}
+
+func (s *ScraperService) hydrateCatalogRoot(ctx context.Context, job *model.CatalogHydrationJob, tmdbID int) error {
+	if s.tmdb == nil {
+		return errors.New("tmdb catalog provider is unavailable")
+	}
+	item, err := s.repo.Metadata.FindByIdentifier(ctx, "tmdb", job.EntityKind, job.ExternalID)
 	if err != nil {
 		return err
 	}
-	if existing != nil && existing.CatalogHydratedAt != nil {
-		return nil
+	if item != nil && item.CatalogMetadataHydratedAt != nil && item.CatalogArtworkHydratedAt != nil {
+		if job.EntityKind == model.MetadataKindMovie {
+			return s.completeCatalogLeafJob(ctx, job, item)
+		}
+		return s.repo.Metadata.RequeueCatalogJob(ctx, job.ID, model.CatalogJobStageSeasons, &item.ID)
 	}
 
 	var match *Match
-	if entityKind == model.MetadataKindSeries {
-		match, err = s.tmdb.GetTVMatch(ctx, item.TMDbID)
+	if job.EntityKind == model.MetadataKindSeries {
+		match, err = s.tmdb.GetTVMatch(ctx, tmdbID)
 	} else {
-		match, err = s.tmdb.GetMovieMatch(ctx, item.TMDbID)
+		match, err = s.tmdb.GetMovieMatch(ctx, tmdbID)
 	}
 	if err != nil {
 		return err
 	}
 	if match == nil || strings.TrimSpace(match.Title) == "" {
-		return fmt.Errorf("tmdb %d returned no catalog match", item.TMDbID)
+		return fmt.Errorf("tmdb %s %d returned no catalog details", job.EntityKind, tmdbID)
 	}
 	match.Source = "tmdb"
-	match.MediaType = item.MediaType
-	fillCatalogMatchFallbacks(match, item)
-	result, err := s.persistProviderMetadata(ctx, &model.Media{}, nil, match)
+	if item == nil || item.CatalogMetadataHydratedAt == nil {
+		identifiers := metadataIdentifiersFromMatch(match, job.EntityKind)
+		preferredID := ""
+		if item != nil {
+			preferredID = item.ID
+		}
+		item, err = s.repo.Metadata.UpsertCanonicalWithMerge(ctx, metadataItemFromMatch(match, job.EntityKind, "tmdb"), identifiers, preferredID, true)
+		if err != nil {
+			return err
+		}
+	}
+	now := time.Now().UTC()
+	if item.CatalogMetadataHydratedAt == nil {
+		if err := s.repo.Metadata.UpsertProviderSnapshot(ctx, item.ID, "tmdb", match.RawJSON, now); err != nil {
+			return err
+		}
+		if err := s.persistCredits(ctx, item.ID, match.LoadedCreditTypes, match.Credits); err != nil {
+			return err
+		}
+		if job.EntityKind == model.MetadataKindSeries {
+			for _, season := range match.Seasons {
+				if _, err := s.upsertCatalogSeasonShell(ctx, item, season); err != nil {
+					return err
+				}
+			}
+		}
+		if err := s.repo.Metadata.MarkCatalogCheckpoint(ctx, item.ID, "catalog_metadata_hydrated_at", now); err != nil {
+			return err
+		}
+	}
+	if item.CatalogArtworkHydratedAt == nil {
+		if err := s.persistCatalogArtwork(ctx, item.ID, map[string]string{model.ArtworkTypePoster: match.CatalogPosterURL, model.ArtworkTypeBackdrop: match.CatalogBackdropURL}); err != nil {
+			return err
+		}
+		if err := s.repo.Metadata.MarkCatalogCheckpoint(ctx, item.ID, "catalog_artwork_hydrated_at", now); err != nil {
+			return err
+		}
+	}
+	if job.EntityKind == model.MetadataKindMovie {
+		return s.completeCatalogLeafJob(ctx, job, item)
+	}
+	return s.repo.Metadata.RequeueCatalogJob(ctx, job.ID, model.CatalogJobStageSeasons, &item.ID)
+}
+
+func (s *ScraperService) completeCatalogLeafJob(ctx context.Context, job *model.CatalogHydrationJob, item *model.MetadataItem) error {
+	now := time.Now().UTC()
+	if item.CatalogHydratedAt == nil {
+		if err := s.repo.Metadata.MarkCatalogCheckpoint(ctx, item.ID, "catalog_hydrated_at", now); err != nil {
+			return err
+		}
+	}
+	return s.repo.Metadata.CompleteCatalogJob(ctx, job.ID, item.ID, now)
+}
+
+func (s *ScraperService) hydrateCatalogSeasonTurn(ctx context.Context, job *model.CatalogHydrationJob, tmdbID int) error {
+	series, err := s.catalogJobMetadata(ctx, job)
 	if err != nil {
 		return err
 	}
-	if result == nil || result.Target == nil {
-		return errors.New("catalog metadata persistence returned no target")
+	season, err := s.repo.Metadata.FindIncompleteCatalogChild(ctx, series.ID, model.MetadataKindSeason)
+	if err != nil {
+		return err
 	}
-	return s.repo.Metadata.MarkCatalogHydrated(ctx, result.Target.ID, time.Now().UTC())
+	if season == nil {
+		now := time.Now().UTC()
+		if err := s.repo.Metadata.MarkCatalogCheckpoint(ctx, series.ID, "catalog_hydrated_at", now); err != nil {
+			return err
+		}
+		return s.repo.Metadata.CompleteCatalogJob(ctx, job.ID, series.ID, now)
+	}
+	if err := s.hydrateCatalogSeason(ctx, series, season, tmdbID); err != nil {
+		return err
+	}
+	return s.repo.Metadata.RequeueCatalogJob(ctx, job.ID, model.CatalogJobStageSeasons, &series.ID)
 }
 
-func fillCatalogMatchFallbacks(match *Match, item ExternalMediaResult) {
-	if match == nil {
-		return
+func (s *ScraperService) catalogJobMetadata(ctx context.Context, job *model.CatalogHydrationJob) (*model.MetadataItem, error) {
+	if job.MetadataID != nil {
+		if item, err := s.repo.Metadata.FindByID(ctx, *job.MetadataID); err != nil || item != nil {
+			return item, err
+		}
 	}
-	if match.Title == "" {
-		match.Title = item.Title
+	item, err := s.repo.Metadata.FindByIdentifier(ctx, job.Provider, job.EntityKind, job.ExternalID)
+	if err != nil {
+		return nil, err
 	}
-	if match.Overview == "" {
-		match.Overview = item.Overview
+	if item == nil {
+		return nil, errors.New("catalog job metadata is missing")
 	}
-	if match.PosterURL == "" {
-		match.PosterURL = item.PosterURL
+	return item, nil
+}
+
+func (s *ScraperService) hydrateCatalogSeason(ctx context.Context, series, season *model.MetadataItem, tmdbID int) error {
+	var details *TMDbSeasonDetails
+	var err error
+	if season.CatalogMetadataHydratedAt == nil || season.CatalogArtworkHydratedAt == nil {
+		details, err = s.tmdb.GetTVSeasonDetails(ctx, tmdbID, season.SeasonNum)
+		if err != nil {
+			return err
+		}
+		if details == nil {
+			return fmt.Errorf("tmdb season %d returned no details", season.SeasonNum)
+		}
 	}
-	if match.BackdropURL == "" {
-		match.BackdropURL = item.BackdropURL
+	now := time.Now().UTC()
+	if season.CatalogMetadataHydratedAt == nil {
+		season = catalogSeasonItem(series.ID, details)
+		season, err = s.repo.Metadata.UpsertSeasonWithIdentifiers(ctx, season, catalogIdentifiers(model.MetadataKindSeason, details.ID, details.ExternalIDs))
+		if err != nil {
+			return err
+		}
+		if err := s.repo.Metadata.UpsertProviderSnapshot(ctx, season.ID, "tmdb", details.RawJSON, now); err != nil {
+			return err
+		}
+		if err := s.persistCredits(ctx, season.ID, details.LoadedCreditTypes, details.Credits); err != nil {
+			return err
+		}
+		for _, episode := range details.Episodes {
+			if _, err := s.upsertCatalogEpisodeShell(ctx, series, season, episode); err != nil {
+				return err
+			}
+		}
+		if err := s.repo.Metadata.MarkCatalogCheckpoint(ctx, season.ID, "catalog_metadata_hydrated_at", now); err != nil {
+			return err
+		}
 	}
-	if match.Year == 0 {
-		match.Year = item.Year
+	if season.CatalogArtworkHydratedAt == nil {
+		if err := s.persistCatalogArtwork(ctx, season.ID, map[string]string{model.ArtworkTypePoster: details.PosterURL}); err != nil {
+			return err
+		}
+		if err := s.repo.Metadata.MarkCatalogCheckpoint(ctx, season.ID, "catalog_artwork_hydrated_at", now); err != nil {
+			return err
+		}
 	}
-	if match.Rating == 0 {
-		match.Rating = item.Rating
+	for {
+		episode, err := s.repo.Metadata.FindIncompleteCatalogChild(ctx, season.ID, model.MetadataKindEpisode)
+		if err != nil {
+			return err
+		}
+		if episode == nil {
+			break
+		}
+		if err := s.hydrateCatalogEpisode(ctx, series, season, episode, tmdbID); err != nil {
+			return err
+		}
 	}
-	if match.TMDbID == 0 {
-		match.TMDbID = item.TMDbID
+	return s.repo.Metadata.MarkCatalogCheckpoint(ctx, season.ID, "catalog_hydrated_at", time.Now().UTC())
+}
+
+func (s *ScraperService) hydrateCatalogEpisode(ctx context.Context, series, season, episode *model.MetadataItem, tmdbID int) error {
+	if episode.CatalogMetadataHydratedAt != nil && episode.CatalogArtworkHydratedAt != nil {
+		return s.repo.Metadata.MarkCatalogCheckpoint(ctx, episode.ID, "catalog_hydrated_at", time.Now().UTC())
 	}
+	details, err := s.tmdb.GetTVEpisodeDetails(ctx, tmdbID, season.SeasonNum, episode.EpisodeNum)
+	if err != nil {
+		return err
+	}
+	if details == nil {
+		return fmt.Errorf("tmdb episode S%02dE%02d returned no details", season.SeasonNum, episode.EpisodeNum)
+	}
+	now := time.Now().UTC()
+	if episode.CatalogMetadataHydratedAt == nil {
+		item := &model.MetadataItem{Kind: model.MetadataKindEpisode, ParentID: &season.ID, EpisodeNum: episode.EpisodeNum, Title: series.Title, EpisodeTitle: strings.TrimSpace(details.Name), Overview: strings.TrimSpace(details.Overview), Rating: details.Rating, RuntimeSec: details.Runtime * 60, ReleaseDate: details.AirDate, Year: details.AirYear, Source: "tmdb"}
+		ids := catalogIdentifiers(model.MetadataKindEpisode, firstPositive(details.ID, catalogTMDbID(ctx, s, episode)), details.ExternalIDs)
+		episode, err = s.repo.Metadata.UpsertEpisodeWithIdentifiers(ctx, item, ids)
+		if err != nil {
+			return err
+		}
+		if err := s.repo.Metadata.UpsertProviderSnapshot(ctx, episode.ID, "tmdb", details.RawJSON, now); err != nil {
+			return err
+		}
+		if err := s.persistCredits(ctx, episode.ID, details.LoadedCreditTypes, details.Credits); err != nil {
+			return err
+		}
+		if err := s.repo.Metadata.MarkCatalogCheckpoint(ctx, episode.ID, "catalog_metadata_hydrated_at", now); err != nil {
+			return err
+		}
+	}
+	if episode.CatalogArtworkHydratedAt == nil {
+		if err := s.persistCatalogArtwork(ctx, episode.ID, map[string]string{model.ArtworkTypeStill: details.CatalogStillURL}); err != nil {
+			return err
+		}
+		if err := s.repo.Metadata.MarkCatalogCheckpoint(ctx, episode.ID, "catalog_artwork_hydrated_at", now); err != nil {
+			return err
+		}
+	}
+	return s.repo.Metadata.MarkCatalogCheckpoint(ctx, episode.ID, "catalog_hydrated_at", time.Now().UTC())
+}
+
+func (s *ScraperService) upsertCatalogSeasonShell(ctx context.Context, series *model.MetadataItem, summary TMDbSeasonSummary) (*model.MetadataItem, error) {
+	title := strings.TrimSpace(summary.Name)
+	if title == "" {
+		title = seasonName(summary.SeasonNumber)
+	}
+	item := &model.MetadataItem{Kind: model.MetadataKindSeason, ParentID: &series.ID, SeasonNum: summary.SeasonNumber, Title: title, Overview: strings.TrimSpace(summary.Overview), ReleaseDate: normalizeReleaseDate(summary.AirDate), Source: "tmdb"}
+	return s.repo.Metadata.UpsertSeasonWithIdentifiers(ctx, item, catalogIdentifiers(model.MetadataKindSeason, summary.ID, TMDbExternalIDs{}))
+}
+
+func (s *ScraperService) upsertCatalogEpisodeShell(ctx context.Context, series, season *model.MetadataItem, summary TMDbEpisodeSummary) (*model.MetadataItem, error) {
+	item := &model.MetadataItem{Kind: model.MetadataKindEpisode, ParentID: &season.ID, EpisodeNum: summary.EpisodeNumber, Title: series.Title, EpisodeTitle: summary.Name, Source: "tmdb"}
+	return s.repo.Metadata.UpsertEpisodeWithIdentifiers(ctx, item, catalogIdentifiers(model.MetadataKindEpisode, summary.ID, TMDbExternalIDs{}))
+}
+
+func catalogSeasonItem(seriesID string, details *TMDbSeasonDetails) *model.MetadataItem {
+	title := strings.TrimSpace(details.Name)
+	if title == "" {
+		title = seasonName(details.SeasonNumber)
+	}
+	year := 0
+	if len(details.AirDate) >= 4 {
+		year, _ = strconv.Atoi(details.AirDate[:4])
+	}
+	return &model.MetadataItem{Kind: model.MetadataKindSeason, ParentID: &seriesID, SeasonNum: details.SeasonNumber, Title: title, Overview: details.Overview, Rating: details.Rating, ReleaseDate: details.AirDate, Year: year, Source: "tmdb"}
+}
+
+func catalogIdentifiers(kind string, tmdbID int, external TMDbExternalIDs) []model.MetadataIdentifier {
+	ids := make([]model.MetadataIdentifier, 0, 3)
+	if tmdbID > 0 {
+		ids = append(ids, model.MetadataIdentifier{Provider: "tmdb", EntityKind: kind, ExternalID: strconv.Itoa(tmdbID)})
+	}
+	if external.TVDBID > 0 {
+		ids = append(ids, model.MetadataIdentifier{Provider: "thetvdb", EntityKind: kind, ExternalID: strconv.Itoa(external.TVDBID)})
+	}
+	if value := strings.TrimSpace(external.IMDbID); value != "" {
+		ids = append(ids, model.MetadataIdentifier{Provider: "imdb", EntityKind: kind, ExternalID: value})
+	}
+	return ids
+}
+
+func catalogTMDbID(ctx context.Context, s *ScraperService, item *model.MetadataItem) int {
+	if s == nil || item == nil {
+		return 0
+	}
+	ids, err := s.repo.Metadata.ListIdentifiers(ctx, item.ID)
+	if err != nil {
+		return 0
+	}
+	for _, id := range ids {
+		if id.Provider == "tmdb" && id.EntityKind == item.Kind {
+			value, _ := strconv.Atoi(id.ExternalID)
+			return value
+		}
+	}
+	return 0
+}
+
+func firstPositive(values ...int) int {
+	for _, value := range values {
+		if value > 0 {
+			return value
+		}
+	}
+	return 0
+}
+
+func (s *ScraperService) persistCatalogArtwork(ctx context.Context, metadataID string, sources map[string]string) error {
+	for _, artworkType := range []string{model.ArtworkTypePoster, model.ArtworkTypeBackdrop, model.ArtworkTypeStill} {
+		source, ok := sources[artworkType]
+		if !ok || strings.TrimSpace(source) == "" {
+			continue
+		}
+		if s.artwork == nil {
+			return errors.New("catalog artwork store is unavailable")
+		}
+		if _, err := s.persistOneMetadataArtwork(ctx, metadataID, artworkType, "tmdb", source); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func catalogRetryDelay(attempt int) time.Duration {
+	if attempt < 1 {
+		attempt = 1
+	}
+	if attempt > 7 {
+		attempt = 7
+	}
+	return time.Duration(1<<(attempt-1)) * time.Minute
+}
+
+func sanitizeCatalogError(err error) error {
+	if err == nil {
+		return nil
+	}
+	message := catalogURLPattern.ReplaceAllString(err.Error(), "[redacted-url]")
+	return errors.New(message)
 }
 
 func isTMDbCatalogItem(item ExternalMediaResult) bool {
 	return strings.EqualFold(strings.TrimSpace(item.Source), "tmdb") && item.TMDbID > 0
 }
 
-func catalogEntityKind(mediaType string) string {
+func catalogEntityKind(mediaType string) (string, bool) {
 	switch strings.ToLower(strings.TrimSpace(mediaType)) {
 	case "tv", "series", "show", "anime", "variety":
-		return model.MetadataKindSeries
-	default:
-		return model.MetadataKindMovie
+		return model.MetadataKindSeries, true
+	case "movie", "film":
+		return model.MetadataKindMovie, true
 	}
-}
-
-func catalogHydrationKey(item ExternalMediaResult) string {
-	return fmt.Sprintf("tmdb:%s:%d", catalogEntityKind(item.MediaType), item.TMDbID)
+	return "", false
 }

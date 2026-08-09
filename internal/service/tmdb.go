@@ -16,10 +16,15 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
+	"strconv"
+	"strings"
 	"time"
 
 	"go.uber.org/zap"
@@ -119,17 +124,77 @@ func (t *TMDbProvider) resolveBaseURL(ctx context.Context) string {
 }
 
 func (t *TMDbProvider) getJSON(ctx context.Context, url string, out any) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	_, err := t.getJSONRaw(ctx, url, out)
+	return err
+}
+
+func (t *TMDbProvider) getJSONRaw(ctx context.Context, rawURL string, out any) ([]byte, error) {
+	const maxAttempts = 4
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		body, retryAfter, err := t.getJSONAttempt(ctx, rawURL, out)
+		if err == nil {
+			return body, nil
+		}
+		if retryAfter < 0 || attempt == maxAttempts-1 {
+			return nil, err
+		}
+		if retryAfter == 0 {
+			retryAfter = time.Second << attempt
+		}
+		if retryAfter > 30*time.Second {
+			retryAfter = 30 * time.Second
+		}
+		timer := time.NewTimer(retryAfter)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return nil, ctx.Err()
+		case <-timer.C:
+		}
+	}
+	return nil, errors.New("tmdb request failed")
+}
+
+func (t *TMDbProvider) getJSONAttempt(ctx context.Context, rawURL string, out any) ([]byte, time.Duration, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {
-		return err
+		return nil, -1, errors.New("invalid tmdb request")
 	}
 	resp, err := t.client.Do(req)
 	if err != nil {
-		return err
+		if ctx.Err() != nil {
+			return nil, -1, ctx.Err()
+		}
+		return nil, -1, fmt.Errorf("tmdb endpoint %s request failed", req.URL.Path)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 400 {
-		return fmt.Errorf("tmdb %s: %d", url, resp.StatusCode)
+		retryAfter := time.Duration(-1)
+		if resp.StatusCode == http.StatusTooManyRequests {
+			retryAfter = parseRetryAfter(resp.Header.Get("Retry-After"), time.Now())
+		}
+		return nil, retryAfter, fmt.Errorf("tmdb endpoint %s returned status %d", req.URL.Path, resp.StatusCode)
 	}
-	return json.NewDecoder(resp.Body).Decode(out)
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, -1, err
+	}
+	if err := json.NewDecoder(bytes.NewReader(body)).Decode(out); err != nil {
+		return nil, -1, fmt.Errorf("tmdb endpoint %s returned invalid JSON: %w", req.URL.Path, err)
+	}
+	return body, -1, nil
+}
+
+func parseRetryAfter(value string, now time.Time) time.Duration {
+	value = strings.TrimSpace(value)
+	if seconds, err := strconv.Atoi(value); err == nil && seconds >= 0 {
+		return time.Duration(seconds) * time.Second
+	}
+	if at, err := http.ParseTime(value); err == nil {
+		if delay := at.Sub(now); delay > 0 {
+			return delay
+		}
+		return 0
+	}
+	return 0
 }

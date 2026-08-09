@@ -47,8 +47,6 @@ func (e *EmbyService) rememberSeriesGroup(group embySeriesGroup) {
 	e.virtualArtwork[group.ID+"-bd"] = embyArtworkCacheEntry{primary: group.PosterURL, backdrop: group.BackdropURL, expiresAt: expiresAt}
 	for _, season := range e.seasonsForSeries(group) {
 		e.virtualSeasons[season.ID] = embySeasonCacheEntry{season: season, expiresAt: expiresAt}
-		e.virtualArtwork[season.ID] = embyArtworkCacheEntry{primary: season.Series.PosterURL, backdrop: season.Series.BackdropURL, expiresAt: expiresAt}
-		e.virtualArtwork[season.ID+"-bd"] = embyArtworkCacheEntry{primary: season.Series.PosterURL, backdrop: season.Series.BackdropURL, expiresAt: expiresAt}
 	}
 }
 
@@ -62,12 +60,7 @@ func (e *EmbyService) rememberSeasonGroup(season embySeasonGroup) {
 	if e.virtualSeasons == nil {
 		e.virtualSeasons = make(map[string]embySeasonCacheEntry)
 	}
-	if e.virtualArtwork == nil {
-		e.virtualArtwork = make(map[string]embyArtworkCacheEntry)
-	}
 	e.virtualSeasons[season.ID] = embySeasonCacheEntry{season: season, expiresAt: expiresAt}
-	e.virtualArtwork[season.ID] = embyArtworkCacheEntry{primary: season.Series.PosterURL, backdrop: season.Series.BackdropURL, expiresAt: expiresAt}
-	e.virtualArtwork[season.ID+"-bd"] = embyArtworkCacheEntry{primary: season.Series.PosterURL, backdrop: season.Series.BackdropURL, expiresAt: expiresAt}
 }
 
 func (e *EmbyService) cachedSeriesGroup(id string) (embySeriesGroup, bool) {

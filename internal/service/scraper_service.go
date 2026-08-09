@@ -34,11 +34,9 @@ type ScraperService struct {
 	peopleTranslationOnce sync.Once
 	peopleTranslationWG   sync.WaitGroup
 
-	catalogHydrationMu      sync.Mutex
-	catalogHydrationPending map[string]ExternalMediaResult
-	catalogHydrationWake    chan struct{}
-	catalogHydrationOnce    sync.Once
-	catalogHydrationWG      sync.WaitGroup
+	catalogHydrationWake chan struct{}
+	catalogHydrationOnce sync.Once
+	catalogHydrationWG   sync.WaitGroup
 }
 
 func (s *ScraperService) SetAI(ai *AIService) *ScraperService {

@@ -122,7 +122,9 @@ func discoverFeedHandler(svc *service.Container) gin.HandlerFunc {
 			svc.Discover.WarmExternalArtwork(artworkItems)
 		}
 		if svc != nil && svc.Scraper != nil {
-			svc.Scraper.QueueCatalogHydration(artworkItems)
+			if err := svc.Scraper.QueueCatalogHydrationContext(c.Request.Context(), artworkItems); err != nil && svc.Log != nil {
+				svc.Log.Warn("queue discover catalog hydration failed", zap.Error(err))
+			}
 		}
 		c.JSON(http.StatusOK, out)
 	}

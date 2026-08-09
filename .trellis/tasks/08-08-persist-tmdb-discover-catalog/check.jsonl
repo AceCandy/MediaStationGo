@@ -1,1 +1,4 @@
-{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file":".trellis/spec/backend/index.md","reason":"Backend spec entrypoint; follow its active shared-media contract to verify identity, no fake Media, managed artwork, hierarchy, scanner, and Emby behavior."}
+{"file":".trellis/spec/backend/database-guidelines.md","reason":"Verify PostgreSQL migration and JSONB persistence requirements."}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"Verify every provider, persistence, projection, and response boundary end to end."}
+{"file":".trellis/tasks/08-08-persist-tmdb-discover-catalog/research/season-episode-catalog.md","reason":"Verify the implementation matches approved TMDb request and artwork scope decisions."}

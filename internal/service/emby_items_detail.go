@@ -221,11 +221,8 @@ func (e *EmbyService) itemPayload(ctx context.Context, m *model.MediaView, userI
 		"ImageTags":         imageTags,
 		"BackdropImageTags": backdropTags,
 		"Genres":            splitCSV(m.Genres),
-		"People":            e.peopleForMetadata(ctx, m.MetadataID, seriesID),
-		"ProviderIds": map[string]string{
-			"Tmdb":    intToStr(m.TMDbID),
-			"Bangumi": intToStr(m.BangumiID),
-		},
+		"People":            e.peopleForMetadata(ctx, m.MetadataID),
+		"ProviderIds":       e.metadataProviderIDs(ctx, m.MetadataID),
 		"UserData": map[string]any{
 			"PlaybackPositionTicks": posMs * 10_000,
 			"PlayCount":             0,

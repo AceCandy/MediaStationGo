@@ -11,6 +11,14 @@ const (
 	ArtworkTypePoster   = "poster"
 	ArtworkTypeBackdrop = "backdrop"
 	ArtworkTypeStill    = "still"
+
+	CatalogJobStatusPending   = "pending"
+	CatalogJobStatusRunning   = "running"
+	CatalogJobStatusRetry     = "retry"
+	CatalogJobStatusCompleted = "completed"
+
+	CatalogJobStageRoot    = "root"
+	CatalogJobStageSeasons = "seasons"
 )
 
 // MetadataItem 保存可由多个媒体文件共享的作品、剧集或单集元数据。
@@ -25,6 +33,7 @@ type MetadataItem struct {
 	EpisodeTitle string        `gorm:"size:255" json:"episode_title,omitempty"`
 	Overview     string        `gorm:"type:text" json:"overview,omitempty"`
 	Rating       float32       `json:"rating"`
+	RuntimeSec   int           `json:"runtime_sec"`
 	Year         int           `json:"year"`
 	ReleaseDate  string        `gorm:"size:10;index" json:"release_date,omitempty"`
 	Languages    string        `gorm:"size:64" json:"languages,omitempty"`
@@ -34,7 +43,11 @@ type MetadataItem struct {
 	Source       string        `gorm:"size:32;not null" json:"source"`
 	Parent       *MetadataItem `gorm:"foreignKey:ParentID;references:ID;constraint:OnUpdate:CASCADE,OnDelete:RESTRICT" json:"-"`
 
-	// CatalogHydratedAt 表示发现页后台已完成完整的目录数据、图片和人物入库。
+	// CatalogMetadataHydratedAt 表示本实体的 provider 数据、标识和人物已完成入库。
+	CatalogMetadataHydratedAt *time.Time `gorm:"index" json:"catalog_metadata_hydrated_at,omitempty"`
+	// CatalogArtworkHydratedAt 表示本实体要求的图片均已入库或 provider 明确未提供。
+	CatalogArtworkHydratedAt *time.Time `gorm:"index" json:"catalog_artwork_hydrated_at,omitempty"`
+	// CatalogHydratedAt 表示本实体及其全部目录子项均已完成入库。
 	CatalogHydratedAt *time.Time `gorm:"index" json:"catalog_hydrated_at,omitempty"`
 }
 
@@ -66,4 +79,31 @@ type MetadataArtwork struct {
 	ArtworkType    string `gorm:"size:16;not null;uniqueIndex:uidx_metadata_artwork,priority:2" json:"artwork_type"`
 	SourceProvider string `gorm:"size:32" json:"source_provider,omitempty"`
 	SourceURL      string `gorm:"size:2048" json:"source_url,omitempty"`
+}
+
+// MetadataProviderSnapshot 保存 provider 返回的完整实体详情，避免未投影字段丢失。
+type MetadataProviderSnapshot struct {
+	Base
+	MetadataID string       `gorm:"size:36;not null;uniqueIndex:uidx_metadata_provider_snapshot,priority:1" json:"metadata_id"`
+	Provider   string       `gorm:"size:32;not null;uniqueIndex:uidx_metadata_provider_snapshot,priority:2" json:"provider"`
+	Payload    string       `gorm:"type:jsonb;not null" json:"payload"`
+	FetchedAt  time.Time    `gorm:"not null;index" json:"fetched_at"`
+	Metadata   MetadataItem `gorm:"foreignKey:MetadataID;references:ID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE" json:"-"`
+}
+
+// CatalogHydrationJob 是发现页目录抓取的持久化调度状态。
+type CatalogHydrationJob struct {
+	Base
+	Provider      string        `gorm:"size:32;not null;uniqueIndex:uidx_catalog_hydration_job,priority:1" json:"provider"`
+	EntityKind    string        `gorm:"size:16;not null;uniqueIndex:uidx_catalog_hydration_job,priority:2" json:"entity_kind"`
+	ExternalID    string        `gorm:"size:128;not null;uniqueIndex:uidx_catalog_hydration_job,priority:3" json:"external_id"`
+	MetadataID    *string       `gorm:"size:36;index" json:"metadata_id,omitempty"`
+	Status        string        `gorm:"size:16;not null;index" json:"status"`
+	Stage         string        `gorm:"size:16;not null;index" json:"stage"`
+	Attempts      int           `gorm:"not null;default:0" json:"attempts"`
+	NextAttemptAt *time.Time    `gorm:"index" json:"next_attempt_at,omitempty"`
+	LastError     string        `gorm:"type:text" json:"last_error,omitempty"`
+	StartedAt     *time.Time    `json:"started_at,omitempty"`
+	CompletedAt   *time.Time    `json:"completed_at,omitempty"`
+	Metadata      *MetadataItem `gorm:"foreignKey:MetadataID;references:ID;constraint:OnUpdate:CASCADE,OnDelete:SET NULL" json:"-"`
 }

@@ -51,17 +51,6 @@ func (r *MetadataRepository) FindByIdentifier(ctx context.Context, provider, ent
 	return &item, nil
 }
 
-// MarkCatalogHydrated records that asynchronous discover hydration completed.
-func (r *MetadataRepository) MarkCatalogHydrated(ctx context.Context, id string, at time.Time) error {
-	id = strings.TrimSpace(id)
-	if id == "" {
-		return errors.New("metadata id is required")
-	}
-	return r.db.WithContext(ctx).Model(&model.MetadataItem{}).
-		Where("id = ?", id).
-		Update("catalog_hydrated_at", at).Error
-}
-
 func (r *MetadataRepository) FindSeason(ctx context.Context, seriesID string, seasonNum int) (*model.MetadataItem, error) {
 	var item model.MetadataItem
 	err := r.db.WithContext(ctx).
@@ -276,6 +265,10 @@ func (r *MetadataRepository) Merge(ctx context.Context, sourceID, targetID strin
 }
 
 func (r *MetadataRepository) UpsertSeason(ctx context.Context, item *model.MetadataItem) (*model.MetadataItem, error) {
+	return r.UpsertSeasonWithIdentifiers(ctx, item, nil)
+}
+
+func (r *MetadataRepository) UpsertSeasonWithIdentifiers(ctx context.Context, item *model.MetadataItem, identifiers []model.MetadataIdentifier) (*model.MetadataItem, error) {
 	if item == nil || item.Kind != model.MetadataKindSeason {
 		return nil, errors.New("season metadata is required")
 	}
@@ -293,10 +286,14 @@ func (r *MetadataRepository) UpsertSeason(ctx context.Context, item *model.Metad
 	if err == nil {
 		preferredID = existing.ID
 	}
-	return r.UpsertCanonical(ctx, item, nil, preferredID)
+	return r.UpsertCanonicalWithMerge(ctx, item, identifiers, preferredID, len(identifiers) > 0)
 }
 
 func (r *MetadataRepository) UpsertEpisode(ctx context.Context, item *model.MetadataItem) (*model.MetadataItem, error) {
+	return r.UpsertEpisodeWithIdentifiers(ctx, item, nil)
+}
+
+func (r *MetadataRepository) UpsertEpisodeWithIdentifiers(ctx context.Context, item *model.MetadataItem, identifiers []model.MetadataIdentifier) (*model.MetadataItem, error) {
 	if item == nil || item.Kind != model.MetadataKindEpisode {
 		return nil, errors.New("episode metadata is required")
 	}
@@ -314,7 +311,7 @@ func (r *MetadataRepository) UpsertEpisode(ctx context.Context, item *model.Meta
 	if err == nil {
 		preferredID = existing.ID
 	}
-	return r.UpsertCanonical(ctx, item, nil, preferredID)
+	return r.UpsertCanonicalWithMerge(ctx, item, identifiers, preferredID, len(identifiers) > 0)
 }
 
 func (r *MetadataRepository) Update(ctx context.Context, item *model.MetadataItem) error {
@@ -423,7 +420,8 @@ func metadataItemUpdates(item *model.MetadataItem) map[string]any {
 		"season_num": item.SeasonNum, "episode_num": item.EpisodeNum,
 		"title": item.Title, "original_name": item.OriginalName, "episode_title": item.EpisodeTitle,
 		"overview": item.Overview, "rating": item.Rating, "year": item.Year, "release_date": item.ReleaseDate,
-		"languages": item.Languages, "countries": item.Countries, "genres": item.Genres,
+		"runtime_sec": item.RuntimeSec,
+		"languages":   item.Languages, "countries": item.Countries, "genres": item.Genres,
 		"nsfw": item.NSFW, "source": item.Source, "updated_at": time.Now(),
 	}
 }
