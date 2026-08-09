@@ -88,8 +88,8 @@ func TestMediaViewProjectsEpisodeArtworkAndParentIdentifiers(t *testing.T) {
 	}
 	seasonID := season.ID
 	episodes := []model.MetadataItem{
-		{Base: model.Base{ID: "metadata-episode-1"}, Kind: model.MetadataKindEpisode, ParentID: &seasonID, EpisodeNum: 1, Title: series.Title, EpisodeTitle: "Pilot", Source: "tmdb"},
-		{Base: model.Base{ID: "metadata-episode-2"}, Kind: model.MetadataKindEpisode, ParentID: &seasonID, EpisodeNum: 2, Title: series.Title, EpisodeTitle: "Second", Source: "tmdb"},
+		{Base: model.Base{ID: "metadata-episode-1"}, Kind: model.MetadataKindEpisode, ParentID: &seasonID, EpisodeNum: 1, Title: "Pilot", Source: "tmdb"},
+		{Base: model.Base{ID: "metadata-episode-2"}, Kind: model.MetadataKindEpisode, ParentID: &seasonID, EpisodeNum: 2, Title: "Second", Source: "tmdb"},
 	}
 	if err := repos.DB.Create(&series).Error; err != nil {
 		t.Fatal(err)
@@ -148,7 +148,7 @@ func TestMediaViewProjectsEpisodeArtworkAndParentIdentifiers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if first == nil || first.SeriesID != series.ID || first.SeasonID != season.ID || first.Title != series.Title || first.EpisodeTitle != "Pilot" {
+	if first == nil || first.SeriesID != series.ID || first.SeasonID != season.ID || first.SeriesTitle != series.Title || first.Title != "Pilot" {
 		t.Fatalf("episode projection = %#v", first)
 	}
 	if first.PosterURL != "" || first.BackdropURL != "/api/artwork/asset-still" {
@@ -170,7 +170,7 @@ func TestMediaViewProjectsEpisodeArtworkAndParentIdentifiers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, field := range []string{"season_id", "title", "nsfw", "tmdb_id"} {
+	for _, field := range []string{"season_id", "series_title", "title", "nsfw", "tmdb_id"} {
 		if count := strings.Count(string(payload), `"`+field+`":`); count != 1 {
 			t.Fatalf("JSON field %q count=%d payload=%s", field, count, payload)
 		}

@@ -36,7 +36,10 @@ func (t *TMDbProvider) GetTVEpisodeDetails(ctx context.Context, tmdbID, season, 
 			IMDbID string `json:"imdb_id"`
 			TVDBID int    `json:"tvdb_id"`
 		} `json:"external_ids"`
-		Credits    tmdbCredits `json:"credits"`
+		Credits      tmdbCredits `json:"credits"`
+		Translations struct {
+			Translations []tmdbTranslation `json:"translations"`
+		} `json:"translations"`
 		GuestStars []struct {
 			ID          int    `json:"id"`
 			Name        string `json:"name"`
@@ -58,8 +61,8 @@ func (t *TMDbProvider) GetTVEpisodeDetails(ctx context.Context, tmdbID, season, 
 	}
 	details := &TMDbEpisodeDetails{
 		ID:          r.ID,
-		Name:        r.Name,
-		Overview:    r.Overview,
+		Name:        preferredTMDbEntityTitle(r.Name, r.Translations.Translations, model.MetadataKindEpisode, episode),
+		Overview:    preferredTMDbEntityOverview(r.Overview, r.Translations.Translations),
 		AirDate:     normalizeReleaseDate(r.AirDate),
 		Rating:      r.VoteAverage,
 		Runtime:     r.Runtime,

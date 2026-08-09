@@ -62,13 +62,13 @@ func (s *ScraperService) persistProviderMetadata(ctx context.Context, media *mod
 	if err != nil {
 		return nil, err
 	}
-	episode := metadataItemFromMatch(match, model.MetadataKindEpisode, source)
-	episode.ParentID = &season.ID
-	episode.SeasonNum = 0
-	episode.EpisodeNum = media.EpisodeNum
-	episode.EpisodeTitle = strings.TrimSpace(media.EpisodeTitle)
-	episode.Overview = ""
-	episode.Rating = 0
+	episode := &model.MetadataItem{
+		Kind:       model.MetadataKindEpisode,
+		ParentID:   &season.ID,
+		EpisodeNum: media.EpisodeNum,
+		Title:      preferredTMDbEntityTitle(media.EpisodeTitle, nil, model.MetadataKindEpisode, media.EpisodeNum),
+		Source:     source,
+	}
 	if existing, findErr := s.repo.Metadata.FindEpisode(ctx, canonical.ID, media.SeasonNum, media.EpisodeNum); findErr != nil {
 		return nil, findErr
 	} else if existing != nil {
@@ -79,11 +79,7 @@ func (s *ScraperService) persistProviderMetadata(ctx context.Context, media *mod
 		return nil, err
 	}
 	result.Target = target
-	posterURL, backdropURL, err := s.persistMetadataArtwork(ctx, target.ID, source, match.PosterURL, match.BackdropURL)
-	if err != nil {
-		return nil, err
-	}
-	result.PosterURL, result.BackdropURL = posterURL, backdropURL
+	result.PosterURL, result.BackdropURL = "", ""
 	return result, nil
 }
 
@@ -131,11 +127,21 @@ func (s *ScraperService) persistLocalMetadata(ctx context.Context, media *model.
 	if err != nil {
 		return nil, err
 	}
-	episode := metadataItemFromMatch(match, model.MetadataKindEpisode, "local")
-	episode.ParentID = &season.ID
-	episode.SeasonNum = 0
-	episode.EpisodeNum = media.EpisodeNum
-	episode.EpisodeTitle = strings.TrimSpace(local.EpisodeTitle)
+	episode := &model.MetadataItem{
+		Kind:        model.MetadataKindEpisode,
+		ParentID:    &season.ID,
+		EpisodeNum:  media.EpisodeNum,
+		Title:       preferredTMDbEntityTitle(local.EpisodeTitle, nil, model.MetadataKindEpisode, media.EpisodeNum),
+		Overview:    strings.TrimSpace(local.EpisodeOverview),
+		Rating:      local.EpisodeRating,
+		Year:        local.EpisodeYear,
+		ReleaseDate: strings.TrimSpace(local.EpisodeReleaseDate),
+		Languages:   local.EpisodeLanguages,
+		Countries:   local.EpisodeCountries,
+		Genres:      local.EpisodeGenres,
+		NSFW:        local.EpisodeNSFW,
+		Source:      "local",
+	}
 	if existing, findErr := s.repo.Metadata.FindEpisode(ctx, canonical.ID, media.SeasonNum, media.EpisodeNum); findErr != nil {
 		return nil, findErr
 	} else if existing != nil {
@@ -146,16 +152,12 @@ func (s *ScraperService) persistLocalMetadata(ctx context.Context, media *model.
 		return nil, err
 	}
 	result.Target = target
-	posterURL, backdropURL, err = s.persistMetadataArtwork(ctx, target.ID, "local", local.PosterURL, local.BackdropURL)
+	stillURL, err := s.persistOneMetadataArtwork(ctx, target.ID, model.ArtworkTypeStill, "local", local.EpisodeStillURL)
 	if err != nil {
 		return nil, err
 	}
-	result.PosterURL, result.BackdropURL = posterURL, backdropURL
-	episodeCredits, episodeLoaded := local.Credits, local.LoadedCreditTypes
-	if len(local.EpisodeLoadedCreditTypes) > 0 {
-		episodeCredits, episodeLoaded = local.EpisodeCredits, local.EpisodeLoadedCreditTypes
-	}
-	if err := s.persistCredits(ctx, target.ID, episodeLoaded, episodeCredits); err != nil {
+	result.PosterURL, result.BackdropURL = "", stillURL
+	if err := s.persistCredits(ctx, target.ID, local.EpisodeLoadedCreditTypes, local.EpisodeCredits); err != nil {
 		return nil, err
 	}
 	return result, nil
@@ -191,6 +193,10 @@ const peopleAITranslateSettingKey = "metadata.people_ai_translate"
 func (s *ScraperService) upsertSeasonMetadata(ctx context.Context, series *model.MetadataItem, seasonNum int, source string) (*model.MetadataItem, error) {
 	if series == nil {
 		return nil, errors.New("series metadata is required")
+	}
+	season, err := s.repo.Metadata.FindSeason(ctx, series.ID, seasonNum)
+	if err != nil || season != nil {
+		return season, err
 	}
 	return s.repo.Metadata.UpsertSeason(ctx, &model.MetadataItem{
 		Kind:      model.MetadataKindSeason,
@@ -329,18 +335,23 @@ func preserveEpisodeDetails(next, existing *model.MetadataItem) {
 	if next == nil || existing == nil {
 		return
 	}
-	next.EpisodeTitle = existing.EpisodeTitle
+	next.Title = existing.Title
+	next.OriginalName = existing.OriginalName
 	next.Overview = existing.Overview
 	next.Rating = existing.Rating
+	next.RuntimeSec = existing.RuntimeSec
 	next.ReleaseDate = existing.ReleaseDate
-	if existing.Year > 0 {
-		next.Year = existing.Year
-	}
+	next.Year = existing.Year
+	next.Languages = existing.Languages
+	next.Countries = existing.Countries
+	next.Genres = existing.Genres
+	next.NSFW = existing.NSFW
+	next.Source = existing.Source
 }
 
 func preserveMissingLocalEpisodeDetails(next, existing *model.MetadataItem) {
-	if next.EpisodeTitle == "" {
-		next.EpisodeTitle = existing.EpisodeTitle
+	if next.Title == "" {
+		next.Title = existing.Title
 	}
 	if next.Overview == "" {
 		next.Overview = existing.Overview
@@ -353,5 +364,20 @@ func preserveMissingLocalEpisodeDetails(next, existing *model.MetadataItem) {
 	}
 	if next.Year <= 0 {
 		next.Year = existing.Year
+	}
+	if next.RuntimeSec <= 0 {
+		next.RuntimeSec = existing.RuntimeSec
+	}
+	if next.Languages == "" {
+		next.Languages = existing.Languages
+	}
+	if next.Countries == "" {
+		next.Countries = existing.Countries
+	}
+	if next.Genres == "" {
+		next.Genres = existing.Genres
+	}
+	if !next.NSFW {
+		next.NSFW = existing.NSFW
 	}
 }

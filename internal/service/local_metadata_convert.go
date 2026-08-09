@@ -124,11 +124,22 @@ func adultAwareGenres(doc *nfoDocument) []string {
 //   - 单集外部 id(tmdb/bangumi/douban/thetvdb)一律【不写入】整剧外部 id;
 //     整剧 id 只认 tvshow.nfo(已在 dst);无则留空,交由路径剧名分组兜底。
 //   - 单集名【不写入】OriginalName(整剧原名);整剧原名只来自 tvshow.nfo。
-//   - 仅 overview/rating/剧照/季集号等【单集级】字段按集回填(不影响分组)。
+//   - 单集展示字段保存在 Episode* 中，不覆盖整剧字段。
 func mergeEpisodeMetadata(dst, episode *LocalMetadata, doc *nfoDocument) {
 	if dst != nil && episode != nil {
 		dst.EpisodeCredits = append([]PersonCredit(nil), episode.Credits...)
 		dst.EpisodeLoadedCreditTypes = append([]string(nil), episode.LoadedCreditTypes...)
+		dst.EpisodeYear = episode.Year
+		dst.EpisodeReleaseDate = episode.ReleaseDate
+		dst.EpisodeOverview = episode.Overview
+		dst.EpisodeRating = episode.Rating
+		dst.EpisodeStillURL = firstText(episode.PosterURL, episode.BackdropURL)
+		dst.EpisodeGenres = episode.Genres
+		dst.EpisodeCountries = episode.Countries
+		dst.EpisodeLanguages = episode.Languages
+		dst.EpisodeNSFW = episode.NSFW
+		dst.HasNFO = dst.HasNFO || episode.HasNFO
+		dst.HasArtwork = dst.HasArtwork || episode.HasArtwork
 	}
 	showTitle := cleanXMLText(doc.ShowTitle)
 	// 整剧标题: 优先 <showtitle>(MoviePilot 在单集 NFO 里也会写整剧名);
@@ -142,38 +153,12 @@ func mergeEpisodeMetadata(dst, episode *LocalMetadata, doc *nfoDocument) {
 		dst.EpisodeTitle = episodeTitle
 	}
 
-	// 单集级展示字段: 每个媒体行本就对应一集,这些可安全按集回填。
-	if dst.Year == 0 && episode.Year > 0 {
-		dst.Year = episode.Year
-	}
-	if episode.Overview != "" {
-		dst.Overview = episode.Overview
-	}
-	if episode.Rating > 0 {
-		dst.Rating = episode.Rating
-	}
-	if episode.PosterURL != "" {
-		dst.PosterURL = episode.PosterURL
-	}
-	if episode.BackdropURL != "" {
-		dst.BackdropURL = episode.BackdropURL
-	}
 	// 整剧外部 id: 单集 NFO 的 id 都是单集级,绝不写入整剧字段(见上方说明)。
 	if episode.SeasonNum > 0 {
 		dst.SeasonNum = episode.SeasonNum
 	}
 	if episode.EpisodeNum > 0 {
 		dst.EpisodeNum = episode.EpisodeNum
-	}
-	// 题材/地区/语言为整剧级,单集 NFO 偶尔携带时仅在整剧未提供时回填。
-	if dst.Genres == "" && episode.Genres != "" {
-		dst.Genres = episode.Genres
-	}
-	if dst.Countries == "" && episode.Countries != "" {
-		dst.Countries = episode.Countries
-	}
-	if dst.Languages == "" && episode.Languages != "" {
-		dst.Languages = episode.Languages
 	}
 }
 

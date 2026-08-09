@@ -63,13 +63,12 @@ func (s *MediaService) UpdateMetadata(ctx context.Context, id string, req MediaM
 	}
 	target.Source = "manual"
 
-	identity := target
 	if target.Kind == model.MetadataKindEpisode {
-		identity, err = s.manualEpisodeParent(ctx, target)
-		if err != nil {
-			return nil, err
+		parent, parentErr := s.manualEpisodeParent(ctx, target)
+		if parentErr != nil {
+			return nil, parentErr
 		}
-		target.ParentID = &identity.ID
+		target.ParentID = &parent.ID
 	}
 	if isNew {
 		if target.Kind == model.MetadataKindEpisode {
@@ -83,16 +82,13 @@ func (s *MediaService) UpdateMetadata(ctx context.Context, id string, req MediaM
 	if err != nil {
 		return nil, err
 	}
-	if target.Kind != model.MetadataKindEpisode {
-		identity = target
-	}
-	if err := s.replaceManualIdentifiers(ctx, identity, media, req, isNew); err != nil {
+	if err := s.replaceManualIdentifiers(ctx, target, media, req, isNew); err != nil {
 		return nil, err
 	}
-	if err := s.updateManualArtwork(ctx, identity.ID, model.ArtworkTypePoster, req.PosterURL, view.PosterURL); err != nil {
+	if err := s.updateManualArtwork(ctx, target.ID, model.ArtworkTypePoster, req.PosterURL, view.PosterURL); err != nil {
 		return nil, err
 	}
-	if err := s.updateManualArtwork(ctx, identity.ID, model.ArtworkTypeBackdrop, req.BackdropURL, view.BackdropURL); err != nil {
+	if err := s.updateManualArtwork(ctx, target.ID, model.ArtworkTypeBackdrop, req.BackdropURL, view.BackdropURL); err != nil {
 		return nil, err
 	}
 
@@ -137,7 +133,7 @@ func (s *MediaService) manualMetadataTarget(ctx context.Context, media *model.Me
 	}
 	return &model.MetadataItem{
 		Kind: kind, Title: firstNonEmpty(view.Title, media.Title), OriginalName: view.OriginalName,
-		EpisodeTitle: view.EpisodeTitle, Overview: view.Overview, Rating: view.Rating,
+		Overview: view.Overview, Rating: view.Rating,
 		Year: view.Year, ReleaseDate: view.ReleaseDate, SeasonNum: season, EpisodeNum: episode,
 		Languages: view.Languages, Countries: view.Countries, Genres: view.Genres,
 		NSFW: view.NSFW, Source: "manual",
@@ -145,23 +141,20 @@ func (s *MediaService) manualMetadataTarget(ctx context.Context, media *model.Me
 }
 
 func (s *MediaService) manualEpisodeParent(ctx context.Context, episode *model.MetadataItem) (*model.MetadataItem, error) {
-	if episode.ParentID != nil && strings.TrimSpace(*episode.ParentID) != "" {
-		parent, err := s.repo.Metadata.FindByID(ctx, *episode.ParentID)
-		if err != nil {
-			return nil, err
-		}
-		if parent != nil {
-			return parent, nil
-		}
+	if episode == nil || episode.ParentID == nil || strings.TrimSpace(*episode.ParentID) == "" {
+		return nil, errors.New("episode season parent is required")
 	}
-	parent := *episode
-	parent.Base = model.Base{}
-	parent.Kind = model.MetadataKindSeries
-	parent.ParentID = nil
-	parent.SeasonNum = 0
-	parent.EpisodeNum = 0
-	parent.EpisodeTitle = ""
-	return s.repo.Metadata.UpsertCanonical(ctx, &parent, nil, "")
+	parent, err := s.repo.Metadata.FindByID(ctx, *episode.ParentID)
+	if err != nil {
+		return nil, err
+	}
+	if parent == nil {
+		return nil, errors.New("episode season parent not found")
+	}
+	if parent.Kind != model.MetadataKindSeason {
+		return nil, errors.New("episode parent must be a season")
+	}
+	return parent, nil
 }
 
 func applyManualMetadataUpdate(item *model.MetadataItem, req MediaMetadataUpdate) {

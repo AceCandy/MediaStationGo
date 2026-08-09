@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+
+	"github.com/ShukeBta/MediaStationGo/internal/model"
 )
 
 // GetTVSeasonDetails 返回一季自身详情和该季完整 Episode 清单。
@@ -33,7 +35,10 @@ func (t *TMDbProvider) GetTVSeasonDetails(ctx context.Context, tmdbID, seasonNum
 			IMDbID string `json:"imdb_id"`
 			TVDBID int    `json:"tvdb_id"`
 		} `json:"external_ids"`
-		Credits  tmdbCredits `json:"credits"`
+		Credits      tmdbCredits `json:"credits"`
+		Translations struct {
+			Translations []tmdbTranslation `json:"translations"`
+		} `json:"translations"`
 		Episodes []struct {
 			ID            int    `json:"id"`
 			EpisodeNumber int    `json:"episode_number"`
@@ -45,8 +50,9 @@ func (t *TMDbProvider) GetTVSeasonDetails(ctx context.Context, tmdbID, seasonNum
 		return nil, err
 	}
 	details := &TMDbSeasonDetails{
-		ID: response.ID, SeasonNumber: response.SeasonNumber, Name: strings.TrimSpace(response.Name),
-		Overview: strings.TrimSpace(response.Overview), AirDate: normalizeReleaseDate(response.AirDate),
+		ID: response.ID, SeasonNumber: response.SeasonNumber,
+		Name:     preferredTMDbEntityTitle(response.Name, response.Translations.Translations, model.MetadataKindSeason, response.SeasonNumber),
+		Overview: preferredTMDbEntityOverview(response.Overview, response.Translations.Translations), AirDate: normalizeReleaseDate(response.AirDate),
 		Rating: response.VoteAverage, PosterURL: tmdbOriginalImageURL(t.imgCDN, response.PosterPath),
 		ExternalIDs: TMDbExternalIDs{IMDbID: strings.TrimSpace(response.ExternalIDs.IMDbID), TVDBID: response.ExternalIDs.TVDBID},
 		RawJSON:     raw,

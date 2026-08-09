@@ -23,7 +23,7 @@ func mergeCloudEpisodeMetadata(dst, episode *LocalMetadata) *LocalMetadata {
 	mergeCloudEpisodeIdentity(dst, episode)
 	mergeCloudEpisodeDisplay(dst, episode)
 	mergeCloudEpisodeNumbersAndTaxonomy(dst, episode)
-	dst.NSFW = dst.NSFW || episode.NSFW
+	dst.EpisodeNSFW = episode.NSFW
 	dst.HasNFO = dst.HasNFO || episode.HasNFO
 	dst.HasArtwork = dst.HasArtwork || episode.HasArtwork
 	return dst
@@ -47,21 +47,11 @@ func mergeCloudEpisodeIdentity(dst, episode *LocalMetadata) {
 }
 
 func mergeCloudEpisodeDisplay(dst, episode *LocalMetadata) {
-	if dst.Year == 0 && episode.Year > 0 {
-		dst.Year = episode.Year
-	}
-	if episode.Overview != "" {
-		dst.Overview = episode.Overview
-	}
-	if episode.Rating > 0 {
-		dst.Rating = episode.Rating
-	}
-	if episode.PosterURL != "" {
-		dst.PosterURL = episode.PosterURL
-	}
-	if episode.BackdropURL != "" {
-		dst.BackdropURL = episode.BackdropURL
-	}
+	dst.EpisodeYear = episode.Year
+	dst.EpisodeReleaseDate = episode.ReleaseDate
+	dst.EpisodeOverview = episode.Overview
+	dst.EpisodeRating = episode.Rating
+	dst.EpisodeStillURL = firstText(episode.PosterURL, episode.BackdropURL)
 }
 
 func mergeCloudEpisodeNumbersAndTaxonomy(dst, episode *LocalMetadata) {
@@ -71,13 +61,7 @@ func mergeCloudEpisodeNumbersAndTaxonomy(dst, episode *LocalMetadata) {
 	if episode.EpisodeNum > 0 {
 		dst.EpisodeNum = episode.EpisodeNum
 	}
-	if dst.Genres == "" && episode.Genres != "" {
-		dst.Genres = episode.Genres
-	}
-	if dst.Countries == "" && episode.Countries != "" {
-		dst.Countries = episode.Countries
-	}
-	if dst.Languages == "" && episode.Languages != "" {
-		dst.Languages = episode.Languages
-	}
+	dst.EpisodeGenres = episode.Genres
+	dst.EpisodeCountries = episode.Countries
+	dst.EpisodeLanguages = episode.Languages
 }

@@ -158,6 +158,9 @@ func seriesPathPartLooksLikeFile(part string) bool {
 }
 
 func seriesDisplayTitle(media model.Media) string {
+	if title := strings.TrimSpace(media.SeriesTitle); title != "" {
+		return title
+	}
 	if fromPath := seriesTitleFromMediaPath(media.Path); fromPath != "" {
 		return fromPath
 	}

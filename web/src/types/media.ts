@@ -8,9 +8,9 @@ export interface Media {
   display_library_name?: string
   display_library_path?: string
   series_id?: string
-  title: string
-  original_name?: string
-  episode_title?: string
+	series_title?: string
+	title: string
+	original_name?: string
   path: string
   relative_path?: string
   size_bytes: number

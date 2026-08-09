@@ -31,9 +31,10 @@ type Media struct {
 	MetadataID        string        `gorm:"index;size:36;default:null" json:"metadata_id"`
 	Metadata          *MetadataItem `gorm:"foreignKey:MetadataID;references:ID;constraint:OnUpdate:CASCADE,OnDelete:RESTRICT" json:"-"`
 	SeriesID          string        `gorm:"column:series_hint;index;size:128" json:"series_id,omitempty"`
+	SeriesTitle       string        `gorm:"-" json:"series_title,omitempty"`
 	Title             string        `gorm:"column:scan_title;size:255" json:"title"`
 	OriginalName      string        `gorm:"-" json:"original_name,omitempty"`
-	EpisodeTitle      string        `gorm:"-" json:"episode_title,omitempty"`
+	EpisodeTitle      string        `gorm:"-" json:"-"`
 	Path              string        `gorm:"uniqueIndex;size:1024;not null" json:"path"`
 	RelativePath      string        `gorm:"size:1024" json:"relative_path,omitempty"`
 	SizeBytes         int64         `json:"size_bytes"`

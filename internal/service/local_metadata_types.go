@@ -12,6 +12,15 @@ type LocalMetadata struct {
 	Title                    string
 	OriginalName             string
 	EpisodeTitle             string
+	EpisodeYear              int
+	EpisodeReleaseDate       string
+	EpisodeOverview          string
+	EpisodeRating            float32
+	EpisodeStillURL          string
+	EpisodeGenres            string
+	EpisodeCountries         string
+	EpisodeLanguages         string
+	EpisodeNSFW              bool
 	AdultCode                string
 	Year                     int
 	ReleaseDate              string

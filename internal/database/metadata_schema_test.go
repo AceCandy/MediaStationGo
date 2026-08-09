@@ -17,6 +17,27 @@ type legacyRequiredMedia struct {
 	Path       string `gorm:"uniqueIndex;size:1024;not null"`
 }
 
+type legacyPositiveSeasonMetadataItem struct {
+	ID         string  `gorm:"primaryKey;size:36"`
+	Kind       string  `gorm:"size:16;not null;check:chk_metadata_identity,(kind = 'season' AND parent_id IS NOT NULL AND parent_id <> '' AND season_num > 0 AND episode_num = 0) OR (kind = 'episode' AND parent_id IS NOT NULL AND parent_id <> '' AND season_num = 0 AND episode_num > 0) OR (kind IN ('movie','series') AND parent_id IS NULL AND season_num = 0 AND episode_num = 0)"`
+	ParentID   *string `gorm:"size:36"`
+	SeasonNum  int
+	EpisodeNum int
+	Title      string `gorm:"size:255;not null"`
+	Source     string `gorm:"size:32;not null"`
+}
+
+type legacyEpisodeTitleMetadataItem struct {
+	ID           string  `gorm:"primaryKey;size:36"`
+	Kind         string  `gorm:"size:16;not null"`
+	ParentID     *string `gorm:"size:36"`
+	SeasonNum    int
+	EpisodeNum   int
+	Title        string `gorm:"size:255;not null"`
+	EpisodeTitle string `gorm:"size:255"`
+	Source       string `gorm:"size:32;not null"`
+}
+
 func TestCatalogMetadataSnapshotAndJobSchema(t *testing.T) {
 	db, err := testdb.OpenPostgres(t, &gorm.Config{})
 	if err != nil {
@@ -58,7 +79,115 @@ func TestCatalogMetadataSnapshotAndJobSchema(t *testing.T) {
 	}
 }
 
+func TestAutoMigrateReplacesLegacyMetadataIdentityConstraint(t *testing.T) {
+	db, err := testdb.OpenPostgres(t, &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(&legacyPositiveSeasonMetadataItem{}); err != nil {
+		t.Fatal(err)
+	}
+	parent := legacyPositiveSeasonMetadataItem{ID: "legacy-series", Kind: model.MetadataKindSeries, Title: "Series", Source: "tmdb"}
+	if err := db.Create(&parent).Error; err != nil {
+		t.Fatal(err)
+	}
+	legacySeason := legacyPositiveSeasonMetadataItem{ID: "legacy-season-zero", Kind: model.MetadataKindSeason, ParentID: &parent.ID, Title: "Specials", Source: "tmdb"}
+	if err := db.Create(&legacySeason).Error; err == nil {
+		t.Fatal("expected legacy constraint to reject season zero")
+	}
+
+	if err := AutoMigrate(db); err != nil {
+		t.Fatal(err)
+	}
+	if db.Migrator().HasConstraint(&model.MetadataItem{}, "chk_metadata_identity") {
+		t.Fatal("legacy metadata identity constraint still exists")
+	}
+	if !db.Migrator().HasConstraint(&model.MetadataItem{}, "chk_metadata_identity_season_zero") {
+		t.Fatal("replacement metadata identity constraint is missing")
+	}
+	season := model.MetadataItem{Kind: model.MetadataKindSeason, ParentID: &parent.ID, Title: "Specials", Source: "tmdb"}
+	if err := db.Create(&season).Error; err != nil {
+		t.Fatalf("season zero rejected after migration: %v", err)
+	}
+	invalidMovie := model.MetadataItem{Kind: model.MetadataKindMovie, SeasonNum: 1, Title: "Invalid", Source: "tmdb"}
+	if err := db.Create(&invalidMovie).Error; err == nil {
+		t.Fatal("expected migrated constraint to reject invalid movie identity")
+	}
+	if err := AutoMigrate(db); err != nil {
+		t.Fatalf("repeated migration failed: %v", err)
+	}
+	if !db.Migrator().HasConstraint(&model.MetadataItem{}, "chk_metadata_identity_season_zero") {
+		t.Fatal("replacement metadata identity constraint was lost after repeated migration")
+	}
+}
+
 func (legacyRequiredMedia) TableName() string { return "media" }
+
+func (legacyPositiveSeasonMetadataItem) TableName() string { return "metadata_items" }
+
+func (legacyEpisodeTitleMetadataItem) TableName() string { return "metadata_items" }
+
+func TestAutoMigrateBackfillsAndRemovesLegacyEpisodeTitle(t *testing.T) {
+	db, err := testdb.OpenPostgres(t, &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(&legacyEpisodeTitleMetadataItem{}); err != nil {
+		t.Fatal(err)
+	}
+	if !db.Migrator().HasColumn(&legacyEpisodeTitleMetadataItem{}, "episode_title") {
+		t.Fatal("legacy episode_title column was not created")
+	}
+	seriesID := "legacy-title-series"
+	seasonID := "legacy-title-season"
+	rows := []legacyEpisodeTitleMetadataItem{
+		{ID: seriesID, Kind: model.MetadataKindSeries, Title: "Series", EpisodeTitle: "Wrong series value", Source: "tmdb"},
+		{ID: seasonID, Kind: model.MetadataKindSeason, ParentID: &seriesID, SeasonNum: 1, Title: "Season 1", Source: "tmdb"},
+		{ID: "legacy-title-episode", Kind: model.MetadataKindEpisode, ParentID: &seasonID, EpisodeNum: 1, Title: "Series", EpisodeTitle: "  Pilot  ", Source: "tmdb"},
+		{ID: "legacy-empty-episode-title", Kind: model.MetadataKindEpisode, ParentID: &seasonID, EpisodeNum: 2, Title: "Existing title", EpisodeTitle: "   ", Source: "tmdb"},
+		{ID: "legacy-null-episode-title", Kind: model.MetadataKindEpisode, ParentID: &seasonID, EpisodeNum: 3, Title: "Null title", Source: "tmdb"},
+	}
+	if err := db.Create(&rows).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Model(&legacyEpisodeTitleMetadataItem{}).Where("id = ?", "legacy-null-episode-title").UpdateColumn("episode_title", nil).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	if err := AutoMigrate(db); err != nil {
+		t.Fatal(err)
+	}
+	if db.Migrator().HasColumn(&legacyEpisodeTitleMetadataItem{}, "episode_title") {
+		t.Fatal("legacy episode_title column still exists")
+	}
+	for id, want := range map[string]string{
+		seriesID:                     "Series",
+		"legacy-title-episode":       "Pilot",
+		"legacy-empty-episode-title": "Existing title",
+		"legacy-null-episode-title":  "Null title",
+	} {
+		var title string
+		if err := db.Model(&model.MetadataItem{}).Select("title").Where("id = ?", id).Scan(&title).Error; err != nil {
+			t.Fatal(err)
+		}
+		if title != want {
+			t.Fatalf("metadata %s title = %q, want %q", id, title, want)
+		}
+	}
+	if err := AutoMigrate(db); err != nil {
+		t.Fatalf("repeated migration failed: %v", err)
+	}
+	if db.Migrator().HasColumn(&legacyEpisodeTitleMetadataItem{}, "episode_title") {
+		t.Fatal("repeated migration restored legacy episode_title column")
+	}
+	var title string
+	if err := db.Model(&model.MetadataItem{}).Select("title").Where("id = ?", "legacy-title-episode").Scan(&title).Error; err != nil {
+		t.Fatal(err)
+	}
+	if title != "Pilot" {
+		t.Fatalf("repeated migration changed episode title to %q", title)
+	}
+}
 
 func TestMetadataSchemaCanonicalIdentityConstraints(t *testing.T) {
 	db, err := testdb.OpenPostgres(t, &gorm.Config{})

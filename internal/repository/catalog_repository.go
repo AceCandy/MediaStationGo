@@ -34,6 +34,25 @@ func (r *MetadataRepository) FindProviderSnapshot(ctx context.Context, metadataI
 	return &snapshot, err
 }
 
+func (r *MetadataRepository) ListProviderSnapshotsAfter(ctx context.Context, provider string, kinds []string, afterID string, limit int) ([]model.MetadataProviderSnapshot, error) {
+	provider = strings.ToLower(strings.TrimSpace(provider))
+	if provider == "" || len(kinds) == 0 {
+		return []model.MetadataProviderSnapshot{}, nil
+	}
+	if limit <= 0 {
+		limit = 200
+	}
+	var snapshots []model.MetadataProviderSnapshot
+	q := r.db.WithContext(ctx).Model(&model.MetadataProviderSnapshot{}).
+		Joins("JOIN metadata_items AS snapshot_metadata ON snapshot_metadata.id = metadata_provider_snapshots.metadata_id AND snapshot_metadata.deleted_at IS NULL").
+		Where("metadata_provider_snapshots.provider = ? AND snapshot_metadata.source = ? AND snapshot_metadata.kind IN ?", provider, provider, kinds)
+	if strings.TrimSpace(afterID) != "" {
+		q = q.Where("metadata_provider_snapshots.id > ?", afterID)
+	}
+	err := q.Preload("Metadata").Order("metadata_provider_snapshots.id ASC").Limit(limit).Find(&snapshots).Error
+	return snapshots, err
+}
+
 func (r *MetadataRepository) EnqueueCatalogJob(ctx context.Context, provider, entityKind, externalID string) error {
 	provider = strings.ToLower(strings.TrimSpace(provider))
 	entityKind = strings.ToLower(strings.TrimSpace(entityKind))

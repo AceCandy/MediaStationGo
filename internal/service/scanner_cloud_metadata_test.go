@@ -276,11 +276,11 @@ func TestCloudEpisodeJSONDoesNotPolluteSeriesIdentity(t *testing.T) {
 	if got.Title != "遮天" || got.OriginalName != "" || got.TMDbID != 0 {
 		t.Fatalf("episode json polluted series identity: %+v", got)
 	}
-	if got.EpisodeTitle != "九龙拉棺" || got.Overview != "本集简介" || got.SeasonNum != 1 || got.EpisodeNum != 1 {
+	if got.EpisodeTitle != "九龙拉棺" || got.EpisodeOverview != "本集简介" || got.SeasonNum != 1 || got.EpisodeNum != 1 {
 		t.Fatalf("episode json fields not preserved: %+v", got)
 	}
-	if got.Genres != "动画" {
-		t.Fatalf("episode json taxonomy should fill empty series taxonomy, got %q", got.Genres)
+	if got.Overview != "" || got.Genres != "" || got.EpisodeGenres != "动画" {
+		t.Fatalf("episode json metadata polluted series fields: %+v", got)
 	}
 }
 

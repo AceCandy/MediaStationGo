@@ -7,8 +7,8 @@ type MediaDetailMetadataProps = {
 }
 
 export function MediaDetailMetadata({ media }: MediaDetailMetadataProps) {
-  const heading = media.episode_title?.trim() || media.title
-  const showTitleContext = Boolean(media.episode_title?.trim() && media.title && media.title !== heading)
+  const heading = media.title
+  const seriesContext = media.series_title?.trim()
 
   return (
     <>
@@ -16,9 +16,9 @@ export function MediaDetailMetadata({ media }: MediaDetailMetadataProps) {
         <h1 className="font-display text-3xl sm:text-4xl font-extrabold tracking-tight text-gray-900 leading-tight">
           {heading}
         </h1>
-        {showTitleContext && (
+        {seriesContext && (
           <p className="text-sm font-semibold text-gray-500">
-            {media.title}
+            {seriesContext}
           </p>
         )}
         <div className="flex flex-wrap items-center gap-2.5 text-xs text-gray-500 font-bold tracking-wide uppercase">

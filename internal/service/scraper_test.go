@@ -224,13 +224,11 @@ func TestEnrichOneWritesTMDbEpisodeMetadata(t *testing.T) {
 	if got.Rating < 9.09 || got.Rating > 9.11 {
 		t.Fatalf("episode rating = %v, want 9.1", got.Rating)
 	}
-	if got.EpisodeTitle != "任务代号: 猫" {
-		t.Fatalf("episode_title should store per-episode name, got %q", got.EpisodeTitle)
+	if got.Title != "任务代号: 猫" || got.SeriesTitle != "间谍过家家" {
+		t.Fatalf("episode/series titles = %q/%q", got.Title, got.SeriesTitle)
 	}
-	// original_name 必须保持「整剧原名」,绝不能被单集名(任务代号: 猫)覆盖,
-	// 否则同剧每集 original_name 不同会导致合集被拆成多集无法合并。
-	if got.OriginalName != "SPY×FAMILY" {
-		t.Fatalf("original_name should stay series-level, got %q (episode name must not overwrite it)", got.OriginalName)
+	if got.OriginalName != "" {
+		t.Fatalf("episode original_name must not inherit series metadata, got %q", got.OriginalName)
 	}
 }
 

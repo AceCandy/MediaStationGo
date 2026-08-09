@@ -34,7 +34,6 @@ func mediaViewsToMedia(views []model.MediaView) []model.Media {
 		row.SeriesID = view.SeriesID
 		row.Title = view.Title
 		row.OriginalName = view.OriginalName
-		row.EpisodeTitle = view.EpisodeTitle
 		row.PosterURL = view.PosterURL
 		row.BackdropURL = view.BackdropURL
 		row.Overview = view.Overview

@@ -57,7 +57,7 @@ export function LibrarySeriesDetailHeader({
           {series.rep.poster_url ? (
             <img
               src={imageURL(series.rep.poster_url, series.rep.updated_at)}
-              alt={series.rep.title}
+              alt={seriesTitle(series.rep)}
               className="aspect-[2/3] w-full object-cover"
               referrerPolicy="no-referrer"
             />

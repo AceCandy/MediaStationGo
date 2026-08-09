@@ -109,6 +109,55 @@ func TestPeopleTranslationWorkerUsesContextAndCache(t *testing.T) {
 	}
 }
 
+func TestPeopleTranslationWorkerRetriesAfterBackoff(t *testing.T) {
+	previousInterval := peopleTranslationSweepInterval
+	previousBackoff := peopleTranslationRetryBackoff
+	peopleTranslationSweepInterval = time.Hour
+	peopleTranslationRetryBackoff = [...]time.Duration{20 * time.Millisecond, 20 * time.Millisecond, 20 * time.Millisecond}
+	t.Cleanup(func() {
+		peopleTranslationSweepInterval = previousInterval
+		peopleTranslationRetryBackoff = previousBackoff
+	})
+
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if calls.Add(1) == 1 {
+			http.Error(w, `{"error":{"message":"temporary failure"}}`, http.StatusInternalServerError)
+			return
+		}
+		_, _ = w.Write([]byte(`{"output":[{"type":"message","content":[{"type":"output_text","text":"{\"translation:0\":\"梁朝伟\",\"translation:1\":\"陈永仁\"}"}]}]}`))
+	}))
+	t.Cleanup(server.Close)
+
+	db := newServiceTestDB(t, &model.Person{}, &model.PersonIdentifier{}, &model.MetadataCredit{}, &model.TranslationCache{}, &model.Setting{})
+	repos := repository.New(db)
+	if err := repos.Setting.Set(t.Context(), peopleAITranslateSettingKey, "true"); err != nil {
+		t.Fatal(err)
+	}
+	metadata := model.MetadataItem{Kind: model.MetadataKindMovie, Title: "无间道", OriginalName: "Infernal Affairs", Year: 2002, Source: "tmdb"}
+	if err := db.Create(&metadata).Error; err != nil {
+		t.Fatal(err)
+	}
+	cfg := &config.Config{AI: config.AIConfig{Enabled: true, APIKey: "test-key", APIBase: server.URL + "/v1", Model: "test-model"}}
+	scraper := NewScraperService(cfg, zap.NewNop(), repos, nil, nil, nil, nil, nil).SetAI(NewAIService(cfg, zap.NewNop(), nil))
+	if err := scraper.persistCredits(t.Context(), metadata.ID, []string{model.CreditTypeActor}, []PersonCredit{{
+		Provider: "tmdb", ExternalID: "140", Name: "Tony Leung Chiu-wai", Type: model.CreditTypeActor, OriginalRole: "Chan Wing-yan",
+	}}); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	scraper.StartPeopleTranslationWorker(ctx)
+	t.Cleanup(func() {
+		cancel()
+		scraper.WaitPeopleTranslationWorker()
+	})
+	waitForPeopleTranslation(t, db, "梁朝伟", "陈永仁")
+	if got := calls.Load(); got != 2 {
+		t.Fatalf("AI request count = %d, want 2 after automatic retry", got)
+	}
+}
+
 func TestSplitPeopleTranslationBatchesLimitsEntries(t *testing.T) {
 	groups := make([]*pendingPeopleTranslation, 205)
 	for i := range groups {

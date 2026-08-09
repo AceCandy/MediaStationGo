@@ -418,7 +418,7 @@ func metadataItemUpdates(item *model.MetadataItem) map[string]any {
 	return map[string]any{
 		"kind": item.Kind, "parent_id": item.ParentID,
 		"season_num": item.SeasonNum, "episode_num": item.EpisodeNum,
-		"title": item.Title, "original_name": item.OriginalName, "episode_title": item.EpisodeTitle,
+		"title": item.Title, "original_name": item.OriginalName,
 		"overview": item.Overview, "rating": item.Rating, "year": item.Year, "release_date": item.ReleaseDate,
 		"runtime_sec": item.RuntimeSec,
 		"languages":   item.Languages, "countries": item.Countries, "genres": item.Genres,
@@ -494,14 +494,16 @@ func normalizeMetadataIdentifier(identifier *model.MetadataIdentifier) error {
 			}
 			identifier.ExternalID = strconv.FormatUint(value, 10)
 		}
-	case "local", "adult":
+	case "local", "adult", "imdb":
 		if identifier.ExternalID == "" {
 			return fmt.Errorf("%s external id is required", identifier.Provider)
 		}
 	default:
 		return fmt.Errorf("unsupported metadata provider %q", identifier.Provider)
 	}
-	if identifier.EntityKind != model.MetadataKindMovie && identifier.EntityKind != model.MetadataKindSeries {
+	switch identifier.EntityKind {
+	case model.MetadataKindMovie, model.MetadataKindSeries, model.MetadataKindSeason, model.MetadataKindEpisode:
+	default:
 		return fmt.Errorf("unsupported metadata identifier kind %q", identifier.EntityKind)
 	}
 	return nil

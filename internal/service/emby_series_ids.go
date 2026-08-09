@@ -18,10 +18,11 @@ func (e *EmbyService) seriesIDForMedia(m *model.MediaView) string {
 }
 
 func (e *EmbyService) seriesNameForMedia(m *model.MediaView) string {
-	if m.MetadataID != "" {
-		if name := strings.TrimSpace(m.Title); name != "" {
-			return name
-		}
+	if name := strings.TrimSpace(m.SeriesTitle); name != "" {
+		return name
+	}
+	if m.MetadataKind == model.MetadataKindSeries {
+		return strings.TrimSpace(m.Title)
 	}
 	if name := inferSeriesNameFromPath(m.Path); name != "" {
 		return name

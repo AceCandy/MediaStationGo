@@ -144,13 +144,10 @@ func TestEnrichOnePrefersLocalMetadataWithoutProvider(t *testing.T) {
 	}
 
 	got := serviceTestMediaView(t, repos, media.ID)
-	if got.ScrapeStatus != "matched" || got.Title != "间谍过家家" || got.TMDbID != 120089 {
-		t.Fatalf("unexpected local scrape: status=%q title=%q tmdb=%d", got.ScrapeStatus, got.Title, got.TMDbID)
+	if got.ScrapeStatus != "matched" || got.Title != "企鹅公园" || got.SeriesTitle != "间谍过家家" || got.TMDbID != 0 {
+		t.Fatalf("unexpected local scrape: status=%q title=%q series=%q tmdb=%d", got.ScrapeStatus, got.Title, got.SeriesTitle, got.TMDbID)
 	}
 	if got.SeasonNum != 2 || got.EpisodeNum != 12 || got.Overview != "本地剧情" {
 		t.Fatalf("unexpected local episode data: s=%d e=%d overview=%q", got.SeasonNum, got.EpisodeNum, got.Overview)
-	}
-	if got.EpisodeTitle != "企鹅公园" {
-		t.Fatalf("episode_title = %q, want local episode title", got.EpisodeTitle)
 	}
 }

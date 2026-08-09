@@ -11,6 +11,12 @@ func AutoMigrate(db *gorm.DB) error {
 	if err := db.AutoMigrate(model.AllModels()...); err != nil {
 		return err
 	}
+	if err := removeLegacyMetadataIdentityConstraint(db); err != nil {
+		return err
+	}
+	if err := migrateLegacyEpisodeTitle(db); err != nil {
+		return err
+	}
 	if err := ensureAPIConfigColumns(db); err != nil {
 		return err
 	}
@@ -33,6 +39,35 @@ func AutoMigrate(db *gorm.DB) error {
 		return err
 	}
 	return nil
+}
+
+// removeLegacyMetadataIdentityConstraint removes the old named check after
+// AutoMigrate has installed its replacement.
+func removeLegacyMetadataIdentityConstraint(db *gorm.DB) error {
+	const name = "chk_metadata_identity"
+	if !db.Migrator().HasConstraint(&model.MetadataItem{}, name) {
+		return nil
+	}
+	return db.Migrator().DropConstraint(&model.MetadataItem{}, name)
+}
+
+// migrateLegacyEpisodeTitle preserves old Episode names before removing the
+// redundant column. The update and drop are atomic to avoid partial upgrades.
+func migrateLegacyEpisodeTitle(db *gorm.DB) error {
+	if !db.Migrator().HasColumn(&model.MetadataItem{}, "episode_title") {
+		return nil
+	}
+	return db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Exec(`
+UPDATE metadata_items
+SET title = BTRIM(episode_title)
+WHERE kind = 'episode'
+  AND BTRIM(COALESCE(episode_title, '')) <> ''
+`).Error; err != nil {
+			return err
+		}
+		return tx.Exec(`ALTER TABLE metadata_items DROP COLUMN episode_title`).Error
+	})
 }
 
 // removeDownloadSubscriptionSchema removes the tables and columns owned by

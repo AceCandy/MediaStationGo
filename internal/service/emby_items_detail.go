@@ -157,16 +157,11 @@ func (e *EmbyService) itemPayload(ctx context.Context, m *model.MediaView, userI
 	if e.mediaShouldBeEpisode(ctx, &m.Media) {
 		itemType = "Episode"
 		seriesID = e.seriesIDForMedia(m)
-		seriesName = strings.TrimSpace(m.Title)
-		if seriesName == "" {
-			seriesName = e.seriesNameForMedia(m)
-		}
+		seriesName = e.seriesNameForMedia(m)
 		seasonItemID = m.SeasonID
 		parentID = seasonItemID
-		episodeTitle := strings.TrimSpace(m.EpisodeTitle)
-		if episodeTitle != "" {
-			name = episodeTitle
-		} else if m.EpisodeNum > 0 {
+		name = strings.TrimSpace(m.Title)
+		if name == "" && m.EpisodeNum > 0 {
 			name = fmt.Sprintf("第 %d 集", m.EpisodeNum)
 		}
 	}

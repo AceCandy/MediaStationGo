@@ -78,7 +78,7 @@ func repeatedSeriesTitleKey(media model.Media) string {
 	if !strings.EqualFold(strings.TrimSpace(media.ScrapeStatus), "matched") {
 		return ""
 	}
-	title := strings.TrimSpace(firstNonEmpty(media.Title, media.OriginalName))
+	title := strings.TrimSpace(firstNonEmpty(media.SeriesTitle, media.Title, media.OriginalName))
 	if title == "" || unsafeAutomaticEpisodeQuery(title) || organizeMediaTitleLooksLikeRelease(title) {
 		return ""
 	}

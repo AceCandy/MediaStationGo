@@ -103,22 +103,18 @@ export function LibrarySeriesEpisodes({
 }
 
 function episodeDisplayTitle(ep: Media, siblings: Media[]): string {
-  const title = ep.episode_title?.trim()
+  const title = ep.title?.trim()
   if (title && !looksLikeSeriesTitle(ep, title, siblings)) {
     return title
   }
 
-  const mediaTitle = ep.title?.trim()
-  if (mediaTitle && !looksLikeSeriesTitle(ep, mediaTitle, siblings)) {
-    return mediaTitle
-  }
-
-  return ep.episode_num > 0 ? `第 ${ep.episode_num} 集` : mediaTitle || title || '未命名'
+  return ep.episode_num > 0 ? `第 ${ep.episode_num} 集` : title || '未命名'
 }
 
 function looksLikeSeriesTitle(ep: Media, title: string, siblings: Media[]): boolean {
   const normalized = normalizeEpisodeTitle(title)
   if (!normalized) return true
+  if (ep.series_title && normalizeEpisodeTitle(ep.series_title) === normalized) return true
   if (ep.original_name && normalizeEpisodeTitle(ep.original_name) === normalized) return true
   const pathTitle = seriesTitleFromPath(ep.path)
   if (pathTitle && normalizeEpisodeTitle(pathTitle) === normalized) return true

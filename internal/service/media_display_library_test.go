@@ -62,3 +62,14 @@ func TestAttachLibraryMetadataAutoCategoryKeepsOwnDisplayLibrary(t *testing.T) {
 		t.Fatalf("library_name = %q, want 成人 (not the source cloud library)", got.LibraryName)
 	}
 }
+
+func TestMediaViewsAsMediaKeepsParentSeriesTitle(t *testing.T) {
+	rows := mediaViewsAsMedia([]model.MediaView{{
+		Media:       model.Media{Title: "raw title"},
+		Title:       "Episode title",
+		SeriesTitle: "Series title",
+	}})
+	if len(rows) != 1 || rows[0].Title != "Episode title" || rows[0].SeriesTitle != "Series title" {
+		t.Fatalf("media projection = %#v", rows)
+	}
+}

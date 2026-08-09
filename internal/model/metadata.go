@@ -24,13 +24,12 @@ const (
 // MetadataItem 保存可由多个媒体文件共享的作品、剧集或单集元数据。
 type MetadataItem struct {
 	Base
-	Kind         string        `gorm:"size:16;not null;index;check:chk_metadata_identity,(kind = 'season' AND parent_id IS NOT NULL AND parent_id <> '' AND season_num >= 0 AND episode_num = 0) OR (kind = 'episode' AND parent_id IS NOT NULL AND parent_id <> '' AND season_num = 0 AND episode_num > 0) OR (kind IN ('movie','series') AND parent_id IS NULL AND season_num = 0 AND episode_num = 0)" json:"kind"`
+	Kind         string        `gorm:"size:16;not null;index;check:chk_metadata_identity_season_zero,(kind = 'season' AND parent_id IS NOT NULL AND parent_id <> '' AND season_num >= 0 AND episode_num = 0) OR (kind = 'episode' AND parent_id IS NOT NULL AND parent_id <> '' AND season_num = 0 AND episode_num > 0) OR (kind IN ('movie','series') AND parent_id IS NULL AND season_num = 0 AND episode_num = 0)" json:"kind"`
 	ParentID     *string       `gorm:"size:36;index;uniqueIndex:uidx_metadata_season,priority:1,where:kind = 'season' AND deleted_at IS NULL;uniqueIndex:uidx_metadata_episode,priority:1,where:kind = 'episode' AND deleted_at IS NULL" json:"parent_id,omitempty"`
 	SeasonNum    int           `gorm:"uniqueIndex:uidx_metadata_season,priority:2,where:kind = 'season' AND deleted_at IS NULL" json:"season_num"`
 	EpisodeNum   int           `gorm:"uniqueIndex:uidx_metadata_episode,priority:2,where:kind = 'episode' AND deleted_at IS NULL" json:"episode_num"`
 	Title        string        `gorm:"size:255;not null" json:"title"`
 	OriginalName string        `gorm:"size:255" json:"original_name,omitempty"`
-	EpisodeTitle string        `gorm:"size:255" json:"episode_title,omitempty"`
 	Overview     string        `gorm:"type:text" json:"overview,omitempty"`
 	Rating       float32       `json:"rating"`
 	RuntimeSec   int           `json:"runtime_sec"`

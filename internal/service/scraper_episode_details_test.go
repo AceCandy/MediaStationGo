@@ -161,11 +161,14 @@ func TestEnrichLibraryDefersEpisodeDetailsUntilMainMetadataFinishes(t *testing.T
 	if views[0].Overview != "第一集剧情" || views[1].Overview != "第二集剧情" {
 		t.Fatalf("deferred episode metadata not saved: %+v", views)
 	}
-	if views[0].EpisodeTitle != "任务代号: 猫" || views[1].EpisodeTitle != "接近目标" {
-		t.Fatalf("deferred episode titles not saved: %+v", views)
+	if views[0].Title != "任务代号: 猫" || views[1].Title != "接近目标" {
+		t.Fatalf("episode canonical titles not saved: %+v", views)
 	}
-	if views[0].OriginalName != "SPY×FAMILY" || views[1].OriginalName != "SPY×FAMILY" {
-		t.Fatalf("series original_name should stay shared: %+v", views)
+	if views[0].SeriesTitle != "间谍过家家" || views[1].SeriesTitle != "间谍过家家" {
+		t.Fatalf("parent series titles not projected: %+v", views)
+	}
+	if views[0].OriginalName != "" || views[1].OriginalName != "" {
+		t.Fatalf("episode original_name must not inherit the series: %+v", views)
 	}
 }
 

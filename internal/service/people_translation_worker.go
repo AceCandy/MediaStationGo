@@ -92,6 +92,7 @@ func (s *ScraperService) runPeopleTranslationWorker(ctx context.Context) {
 				timer.Stop()
 				return
 			case <-timer.C:
+				s.queuePeopleTranslation()
 			}
 			continue
 		}

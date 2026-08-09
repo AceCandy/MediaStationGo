@@ -79,6 +79,9 @@ func (s *ScraperService) QueueCatalogHydrationContext(ctx context.Context, items
 
 func (s *ScraperService) runCatalogHydrationWorker(ctx context.Context) {
 	defer s.catalogHydrationWG.Done()
+	if err := s.localizeTMDbCatalogSnapshots(ctx); err != nil && s.log != nil && ctx.Err() == nil {
+		s.log.Warn("catalog snapshot localization failed", zap.Error(err))
+	}
 	rootStreak := 0
 	for ctx.Err() == nil {
 		job, err := s.claimNextCatalogJob(ctx, &rootStreak)
@@ -329,7 +332,7 @@ func (s *ScraperService) hydrateCatalogSeason(ctx context.Context, series, seaso
 			return err
 		}
 		for _, episode := range details.Episodes {
-			if _, err := s.upsertCatalogEpisodeShell(ctx, series, season, episode); err != nil {
+			if _, err := s.upsertCatalogEpisodeShell(ctx, season, episode); err != nil {
 				return err
 			}
 		}
@@ -353,14 +356,14 @@ func (s *ScraperService) hydrateCatalogSeason(ctx context.Context, series, seaso
 		if episode == nil {
 			break
 		}
-		if err := s.hydrateCatalogEpisode(ctx, series, season, episode, tmdbID); err != nil {
+		if err := s.hydrateCatalogEpisode(ctx, season, episode, tmdbID); err != nil {
 			return err
 		}
 	}
 	return s.repo.Metadata.MarkCatalogCheckpoint(ctx, season.ID, "catalog_hydrated_at", time.Now().UTC())
 }
 
-func (s *ScraperService) hydrateCatalogEpisode(ctx context.Context, series, season, episode *model.MetadataItem, tmdbID int) error {
+func (s *ScraperService) hydrateCatalogEpisode(ctx context.Context, season, episode *model.MetadataItem, tmdbID int) error {
 	if episode.CatalogMetadataHydratedAt != nil && episode.CatalogArtworkHydratedAt != nil {
 		return s.repo.Metadata.MarkCatalogCheckpoint(ctx, episode.ID, "catalog_hydrated_at", time.Now().UTC())
 	}
@@ -373,7 +376,8 @@ func (s *ScraperService) hydrateCatalogEpisode(ctx context.Context, series, seas
 	}
 	now := time.Now().UTC()
 	if episode.CatalogMetadataHydratedAt == nil {
-		item := &model.MetadataItem{Kind: model.MetadataKindEpisode, ParentID: &season.ID, EpisodeNum: episode.EpisodeNum, Title: series.Title, EpisodeTitle: strings.TrimSpace(details.Name), Overview: strings.TrimSpace(details.Overview), Rating: details.Rating, RuntimeSec: details.Runtime * 60, ReleaseDate: details.AirDate, Year: details.AirYear, Source: "tmdb"}
+		title := preferredTMDbEntityTitle(details.Name, nil, model.MetadataKindEpisode, episode.EpisodeNum)
+		item := &model.MetadataItem{Kind: model.MetadataKindEpisode, ParentID: &season.ID, EpisodeNum: episode.EpisodeNum, Title: title, Overview: strings.TrimSpace(details.Overview), Rating: details.Rating, RuntimeSec: details.Runtime * 60, ReleaseDate: details.AirDate, Year: details.AirYear, Source: "tmdb"}
 		ids := catalogIdentifiers(model.MetadataKindEpisode, firstPositive(details.ID, catalogTMDbID(ctx, s, episode)), details.ExternalIDs)
 		episode, err = s.repo.Metadata.UpsertEpisodeWithIdentifiers(ctx, item, ids)
 		if err != nil {
@@ -405,12 +409,13 @@ func (s *ScraperService) upsertCatalogSeasonShell(ctx context.Context, series *m
 	if title == "" {
 		title = seasonName(summary.SeasonNumber)
 	}
-	item := &model.MetadataItem{Kind: model.MetadataKindSeason, ParentID: &series.ID, SeasonNum: summary.SeasonNumber, Title: title, Overview: strings.TrimSpace(summary.Overview), ReleaseDate: normalizeReleaseDate(summary.AirDate), Source: "tmdb"}
+	item := &model.MetadataItem{Kind: model.MetadataKindSeason, ParentID: &series.ID, SeasonNum: summary.SeasonNumber, Title: title, ReleaseDate: normalizeReleaseDate(summary.AirDate), Source: "tmdb"}
 	return s.repo.Metadata.UpsertSeasonWithIdentifiers(ctx, item, catalogIdentifiers(model.MetadataKindSeason, summary.ID, TMDbExternalIDs{}))
 }
 
-func (s *ScraperService) upsertCatalogEpisodeShell(ctx context.Context, series, season *model.MetadataItem, summary TMDbEpisodeSummary) (*model.MetadataItem, error) {
-	item := &model.MetadataItem{Kind: model.MetadataKindEpisode, ParentID: &season.ID, EpisodeNum: summary.EpisodeNumber, Title: series.Title, EpisodeTitle: summary.Name, Source: "tmdb"}
+func (s *ScraperService) upsertCatalogEpisodeShell(ctx context.Context, season *model.MetadataItem, summary TMDbEpisodeSummary) (*model.MetadataItem, error) {
+	title := preferredTMDbEntityTitle(summary.Name, nil, model.MetadataKindEpisode, summary.EpisodeNumber)
+	item := &model.MetadataItem{Kind: model.MetadataKindEpisode, ParentID: &season.ID, EpisodeNum: summary.EpisodeNumber, Title: title, Source: "tmdb"}
 	return s.repo.Metadata.UpsertEpisodeWithIdentifiers(ctx, item, catalogIdentifiers(model.MetadataKindEpisode, summary.ID, TMDbExternalIDs{}))
 }
 
@@ -475,7 +480,7 @@ func (s *ScraperService) persistCatalogArtwork(ctx context.Context, metadataID s
 		if s.artwork == nil {
 			return errors.New("catalog artwork store is unavailable")
 		}
-		if _, err := s.persistOneMetadataArtwork(ctx, metadataID, artworkType, "tmdb", source); err != nil {
+		if _, err := s.artwork.importCatalogRemote(ctx, metadataID, artworkType, "tmdb", source); err != nil {
 			return err
 		}
 	}

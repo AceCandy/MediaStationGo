@@ -94,7 +94,7 @@ func TestMediaUpsertReusesExistingEpisodeMetadata(t *testing.T) {
 	}
 	episode, err := repos.Metadata.UpsertEpisode(t.Context(), &model.MetadataItem{
 		Kind: model.MetadataKindEpisode, ParentID: &season.ID, EpisodeNum: 12,
-		Title: "Show", EpisodeTitle: "Episode 12", Source: "tmdb",
+		Title: "Episode 12", Source: "tmdb",
 	})
 	if err != nil {
 		t.Fatal(err)

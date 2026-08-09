@@ -7,10 +7,10 @@ import "strconv"
 type MediaView struct {
 	Media
 	SeriesID       string  `gorm:"column:view_series_id" json:"series_id,omitempty"`
+	SeriesTitle    string  `gorm:"column:view_series_title" json:"series_title,omitempty"`
 	SeasonID       string  `gorm:"column:view_season_id" json:"season_id,omitempty"`
 	Title          string  `gorm:"column:view_title" json:"title"`
 	OriginalName   string  `gorm:"column:view_original_name" json:"original_name,omitempty"`
-	EpisodeTitle   string  `gorm:"column:view_episode_title" json:"episode_title,omitempty"`
 	PosterURL      string  `gorm:"-" json:"poster_url,omitempty"`
 	BackdropURL    string  `gorm:"-" json:"backdrop_url,omitempty"`
 	Overview       string  `gorm:"column:view_overview" json:"overview,omitempty"`

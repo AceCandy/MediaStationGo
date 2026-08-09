@@ -96,6 +96,120 @@ func TestProviderMatchesShareOnlyTheSameEpisodeMetadata(t *testing.T) {
 	}
 }
 
+func TestEpisodeShellsDoNotInheritParentMetadata(t *testing.T) {
+	scraper, repos, closeServer := newTestScraper(t)
+	defer closeServer()
+	lib := model.Library{Name: "TV", Path: t.TempDir(), Type: "tv", Enabled: true}
+	if err := repos.DB.Create(&lib).Error; err != nil {
+		t.Fatal(err)
+	}
+	media := model.Media{LibraryID: lib.ID, Title: "Show", EpisodeTitle: "Own episode", Path: filepath.Join(lib.Path, "show-s01e01.mkv"), SeasonNum: 1, EpisodeNum: 1}
+	match := &Match{
+		Source: "tmdb", MediaType: "tv", TMDbID: 888, Title: "Parent show", OriginalName: "Parent original",
+		Overview: "Parent overview", Rating: 8.8, Year: 2024, ReleaseDate: "2024-01-02",
+		Languages: []string{"ja"}, Countries: []string{"JP"}, Genres: []string{"Animation"}, NSFW: true,
+		PosterURL: "https://images.example.test/images/parent-poster.png", BackdropURL: "https://images.example.test/images/parent-backdrop.png",
+		LoadedCreditTypes: []string{model.CreditTypeActor}, Credits: []PersonCredit{{Name: "Parent actor", Type: model.CreditTypeActor}},
+	}
+
+	persisted, err := scraper.persistProviderMetadata(t.Context(), &media, &lib, match)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertChildOwnMetadata(t, persisted.Target, "Own episode", "", 0, 0, "", "", "", "", false)
+	season, err := repos.Metadata.FindSeason(t.Context(), persisted.Series.ID, 1)
+	if err != nil || season == nil {
+		t.Fatalf("season = %#v, err = %v", season, err)
+	}
+	assertChildOwnMetadata(t, season, "第 1 季", "", 0, 0, "", "", "", "", false)
+	assertNoChildArtworkOrCredits(t, repos, season.ID)
+	assertNoChildArtworkOrCredits(t, repos, persisted.Target.ID)
+
+	season.Overview, season.Year, season.Genres = "Own season", 2025, "Season genre"
+	persisted.Target.Overview, persisted.Target.Year, persisted.Target.RuntimeSec = "Own episode overview", 2026, 1500
+	persisted.Target.Languages, persisted.Target.Countries, persisted.Target.Genres = "ko", "KR", "Episode genre"
+	if err := repos.Metadata.Update(t.Context(), season); err != nil {
+		t.Fatal(err)
+	}
+	if err := repos.Metadata.Update(t.Context(), persisted.Target); err != nil {
+		t.Fatal(err)
+	}
+	persisted, err = scraper.persistProviderMetadata(t.Context(), &media, &lib, match)
+	if err != nil {
+		t.Fatal(err)
+	}
+	season, _ = repos.Metadata.FindSeason(t.Context(), persisted.Series.ID, 1)
+	if season == nil || season.Overview != "Own season" || season.Year != 2025 || season.Genres != "Season genre" {
+		t.Fatalf("season shell overwrote owned metadata: %#v", season)
+	}
+	if persisted.Target.Overview != "Own episode overview" || persisted.Target.Year != 2026 || persisted.Target.RuntimeSec != 1500 || persisted.Target.Languages != "ko" || persisted.Target.Countries != "KR" || persisted.Target.Genres != "Episode genre" {
+		t.Fatalf("episode shell overwrote owned metadata: %#v", persisted.Target)
+	}
+}
+
+func TestLocalEpisodePersistsOnlyEntityOwnedMetadata(t *testing.T) {
+	scraper, repos, closeServer := newTestScraper(t)
+	defer closeServer()
+	lib := model.Library{Name: "TV", Path: t.TempDir(), Type: "tv", Enabled: true}
+	if err := repos.DB.Create(&lib).Error; err != nil {
+		t.Fatal(err)
+	}
+	media := model.Media{LibraryID: lib.ID, Title: "Show", Path: filepath.Join(lib.Path, "show-s01e01.mkv"), SeasonNum: 1, EpisodeNum: 1}
+	local := &LocalMetadata{
+		Title: "Parent show", OriginalName: "Parent original", Overview: "Parent overview", Rating: 8.8,
+		Year: 2024, ReleaseDate: "2024-01-02", Languages: "ja", Countries: "JP", Genres: "Parent genre", NSFW: true,
+		PosterURL: "https://images.example.test/images/parent-poster.png", BackdropURL: "https://images.example.test/images/parent-backdrop.png",
+		Credits: []PersonCredit{{Name: "Parent actor", Type: model.CreditTypeActor}}, LoadedCreditTypes: []string{model.CreditTypeActor},
+		EpisodeTitle: "Own episode", EpisodeOverview: "Own overview", EpisodeRating: 7.7, EpisodeYear: 2025,
+		EpisodeReleaseDate: "2025-02-03", EpisodeLanguages: "ko", EpisodeCountries: "KR", EpisodeGenres: "Own genre",
+		EpisodeStillURL: "https://images.example.test/images/episode-still.png",
+	}
+
+	persisted, err := scraper.persistLocalMetadata(t.Context(), &media, &lib, local)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertChildOwnMetadata(t, persisted.Target, "Own episode", "Own overview", 7.7, 2025, "2025-02-03", "ko", "KR", "Own genre", false)
+	if asset, findErr := repos.Artwork.FindSelection(t.Context(), persisted.Target.ID, model.ArtworkTypeStill); findErr != nil || asset == nil {
+		t.Fatalf("episode own still = %#v, err = %v", asset, findErr)
+	}
+	for _, artworkType := range []string{model.ArtworkTypePoster, model.ArtworkTypeBackdrop} {
+		if asset, findErr := repos.Artwork.FindSelection(t.Context(), persisted.Target.ID, artworkType); findErr != nil || asset != nil {
+			t.Fatalf("episode inherited %s: asset=%#v err=%v", artworkType, asset, findErr)
+		}
+	}
+	var credits int64
+	if err := repos.DB.Model(&model.MetadataCredit{}).Where("metadata_id = ?", persisted.Target.ID).Count(&credits).Error; err != nil {
+		t.Fatal(err)
+	}
+	if credits != 0 {
+		t.Fatalf("episode inherited %d parent credits", credits)
+	}
+}
+
+func assertChildOwnMetadata(t *testing.T, item *model.MetadataItem, title, overview string, rating float32, year int, releaseDate, languages, countries, genres string, nsfw bool) {
+	t.Helper()
+	if item == nil || item.Title != title || item.OriginalName != "" || item.Overview != overview || item.Rating != rating || item.Year != year || item.ReleaseDate != releaseDate || item.Languages != languages || item.Countries != countries || item.Genres != genres || item.NSFW != nsfw {
+		t.Fatalf("child metadata ownership mismatch: %#v", item)
+	}
+}
+
+func assertNoChildArtworkOrCredits(t *testing.T, repos *repository.Container, metadataID string) {
+	t.Helper()
+	for _, artworkType := range []string{model.ArtworkTypePoster, model.ArtworkTypeBackdrop, model.ArtworkTypeStill} {
+		if asset, err := repos.Artwork.FindSelection(t.Context(), metadataID, artworkType); err != nil || asset != nil {
+			t.Fatalf("child inherited %s: asset=%#v err=%v", artworkType, asset, err)
+		}
+	}
+	var credits int64
+	if err := repos.DB.Model(&model.MetadataCredit{}).Where("metadata_id = ?", metadataID).Count(&credits).Error; err != nil {
+		t.Fatal(err)
+	}
+	if credits != 0 {
+		t.Fatalf("child inherited %d parent credits", credits)
+	}
+}
+
 func TestProviderMatchDoesNotMergeLocalNFOFields(t *testing.T) {
 	scraper, repos, closeServer := newTestScraper(t)
 	defer closeServer()
@@ -129,10 +243,10 @@ func TestProviderMatchDoesNotMergeLocalNFOFields(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if item == nil || item.Title != "间谍过家家" || item.Overview != "单集剧情" || item.EpisodeTitle != "任务代号: 猫" {
+	if item == nil || item.Title != "任务代号: 猫" || item.OriginalName != "" || item.Overview != "单集剧情" {
 		t.Fatalf("provider metadata was mixed with local NFO: %#v", item)
 	}
-	if strings.Contains(item.Title+item.Overview+item.EpisodeTitle, "本地") {
+	if strings.Contains(item.Title+item.Overview, "本地") {
 		t.Fatalf("local NFO overrode provider metadata: %#v", item)
 	}
 }

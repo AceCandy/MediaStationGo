@@ -61,6 +61,16 @@ func (s *ArtworkStore) ImportRemote(ctx context.Context, metadataID, artworkType
 	return s.save(ctx, metadataID, artworkType, provider, sourceURL, data, mimeType)
 }
 
+func (s *ArtworkStore) importCatalogRemote(ctx context.Context, metadataID, artworkType, provider, sourceURL string) (*model.ArtworkAsset, error) {
+	if s.imageProxy == nil {
+		return nil, errors.New("image proxy is unavailable")
+	}
+	if err := s.imageProxy.RemoveFailed(sourceURL); err != nil {
+		return nil, err
+	}
+	return s.ImportRemote(ctx, metadataID, artworkType, provider, sourceURL)
+}
+
 func (s *ArtworkStore) ImportLocal(ctx context.Context, metadataID, artworkType, sourcePath string) (*model.ArtworkAsset, error) {
 	if s.imageProxy == nil {
 		return nil, errors.New("image proxy is unavailable")

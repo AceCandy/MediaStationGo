@@ -61,9 +61,9 @@ func mediaViewsAsMedia(items []model.MediaView) []model.Media {
 	for i := range items {
 		rows[i] = items[i].Media
 		rows[i].SeriesID = items[i].SeriesID
+		rows[i].SeriesTitle = items[i].SeriesTitle
 		rows[i].Title = items[i].Title
 		rows[i].OriginalName = items[i].OriginalName
-		rows[i].EpisodeTitle = items[i].EpisodeTitle
 		rows[i].PosterURL = items[i].PosterURL
 		rows[i].BackdropURL = items[i].BackdropURL
 		rows[i].Overview = items[i].Overview

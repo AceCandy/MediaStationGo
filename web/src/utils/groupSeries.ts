@@ -104,9 +104,10 @@ export function isSeriesCard(card: SeriesCard): boolean {
 }
 
 export function seriesTitle(media: Media): string {
+  const canonical = media.series_title?.trim()
   const title = media.title?.trim()
   const fromPath = seriesTitleFromPath(media.path)
-  return (title && !unsafeEpisodeTitle(title) ? title : '') || fromPath || media.original_name || title || '未命名节目'
+  return canonical || (title && !unsafeEpisodeTitle(title) ? title : '') || fromPath || media.original_name || title || '未命名节目'
 }
 
 function normalizeTitle(value?: string): string {
@@ -319,7 +320,7 @@ function repeatedSeriesExternalRawKey(media: Media): string {
 function repeatedSeriesTitleRawKey(media: Media): string {
   if (!isEpisodeLike(media) && !pathLooksEpisodic(media)) return ''
   if ((media.scrape_status ?? '').trim().toLowerCase() !== 'matched') return ''
-  const title = (media.title || media.original_name || '').trim()
+  const title = (media.series_title || media.title || media.original_name || '').trim()
   if (!title || unsafeEpisodeTitle(title)) return ''
   const normalized = normalizeTitle(title)
   return normalized

@@ -50,12 +50,16 @@ func TestReadLocalEpisodeMetadataMergesShowAndEpisode(t *testing.T) {
 	if err := os.WriteFile(mediaPath, []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(showDir, "tvshow.nfo"), []byte(`<tvshow><title>正确剧名</title><year>2024</year><tmdbid>123</tmdbid></tvshow>`), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(showDir, "tvshow.nfo"), []byte(`<tvshow><title>正确剧名</title><year>2024</year><plot>整剧简介</plot><genre>整剧类型</genre><tmdbid>123</tmdbid></tvshow>`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	episodeStill := filepath.Join(seasonDir, "episode.jpg")
+	if err := os.WriteFile(episodeStill, []byte("image"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	// 单集 NFO 携带【单集级】tmdb id(4375419)与单集名(第三集):二者都不得
 	// 覆盖整剧字段,否则同剧各集 id/原名互不相同会被拆成多张卡。
-	if err := os.WriteFile(nfoPath(mediaPath), []byte(`<episodedetails><title>第三集</title><season>2</season><episode>3</episode><plot>本集简介</plot><uniqueid type="tmdb">4375419</uniqueid></episodedetails>`), 0o644); err != nil {
+	if err := os.WriteFile(nfoPath(mediaPath), []byte(`<episodedetails><title>第三集</title><season>2</season><episode>3</episode><year>2025</year><aired>2025-01-02</aired><plot>本集简介</plot><rating>7.5</rating><genre>单集类型</genre><country>单集地区</country><language>单集语言</language><thumb>episode.jpg</thumb><uniqueid type="tmdb">4375419</uniqueid></episodedetails>`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -73,9 +77,15 @@ func TestReadLocalEpisodeMetadataMergesShowAndEpisode(t *testing.T) {
 	if got.EpisodeTitle != "第三集" {
 		t.Fatalf("episode title metadata = %q, want 第三集", got.EpisodeTitle)
 	}
-	// 单集级简介按集回填;整剧 tmdb 仍取 tvshow.nfo 的 123,单集 id 不得覆盖。
-	if got.Overview != "本集简介" || got.TMDbID != 123 {
+	// 整剧和单集字段分开保存，单集不得覆盖整剧。
+	if got.Overview != "整剧简介" || got.Genres != "整剧类型" || got.TMDbID != 123 {
 		t.Fatalf("episode/show merge failed: %+v", got)
+	}
+	if got.EpisodeOverview != "本集简介" || got.EpisodeYear != 2025 || got.EpisodeReleaseDate != "2025-01-02" || got.EpisodeRating != 7.5 || got.EpisodeStillURL != episodeStill {
+		t.Fatalf("episode display metadata not preserved separately: %+v", got)
+	}
+	if got.EpisodeGenres != "单集类型" || got.EpisodeCountries != "单集地区" || got.EpisodeLanguages != "单集语言" {
+		t.Fatalf("episode taxonomy not preserved separately: %+v", got)
 	}
 }
 

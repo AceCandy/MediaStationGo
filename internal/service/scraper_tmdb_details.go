@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"strconv"
 	"strings"
 	"time"
 
@@ -128,8 +129,9 @@ func (s *ScraperService) fetchAndSaveTMDbEpisodeDetails(ctx context.Context, m *
 }
 
 func applyTMDbEpisodeMetadataUpdates(item *model.MetadataItem, updates map[string]any) {
-	if value, ok := updates["episode_title"].(string); ok {
-		item.EpisodeTitle = value
+	if value, ok := updates["title"].(string); ok {
+		item.Title = value
+		item.OriginalName = ""
 	}
 	if value, ok := updates["overview"].(string); ok {
 		item.Overview = value
@@ -148,10 +150,8 @@ func tmdbEpisodeMetadataUpdates(m *model.Media, episode *TMDbEpisodeDetails, mat
 	if episode == nil {
 		return metadataUpdates, mediaUpdates
 	}
-	// Keep original_name at series level. Per-episode names can split one show
-	// into multiple cards because original_name participates in grouping.
 	if strings.TrimSpace(episode.Name) != "" {
-		metadataUpdates["episode_title"] = strings.TrimSpace(episode.Name)
+		metadataUpdates["title"] = strings.TrimSpace(episode.Name)
 	}
 	if strings.TrimSpace(episode.Overview) != "" {
 		metadataUpdates["overview"] = strings.TrimSpace(episode.Overview)
@@ -186,14 +186,29 @@ func (s *ScraperService) enrichDeferredEpisodeDetails(ctx context.Context, rows 
 			s.log.Debug("deferred episode metadata media missing", zap.String("media_id", rows[i].ID), zap.Error(err))
 			continue
 		}
-		if media.TMDbID <= 0 || media.EpisodeNum <= 0 || media.MetadataID == "" {
+		if media.EpisodeNum <= 0 || media.MetadataID == "" || media.SeriesID == "" {
+			continue
+		}
+		identifiers, identifierErr := s.repo.Metadata.ListIdentifiers(ctx, media.SeriesID)
+		if identifierErr != nil {
+			s.log.Debug("deferred episode series identity lookup failed", zap.String("media_id", rows[i].ID), zap.Error(identifierErr))
+			continue
+		}
+		seriesTMDbID := 0
+		for _, identifier := range identifiers {
+			if identifier.Provider == "tmdb" && identifier.EntityKind == model.MetadataKindSeries {
+				seriesTMDbID, _ = strconv.Atoi(identifier.ExternalID)
+				break
+			}
+		}
+		if seriesTMDbID <= 0 {
 			continue
 		}
 		lib, _ := s.repo.Library.FindByID(ctx, media.LibraryID)
 		if !mediaIsEpisodic(&media.Media, lib) {
 			continue
 		}
-		if s.fetchAndSaveTMDbEpisodeDetails(ctx, &media.Media, media.MetadataID, media.TMDbID, media.Year, options) {
+		if s.fetchAndSaveTMDbEpisodeDetails(ctx, &media.Media, media.MetadataID, seriesTMDbID, media.Year, options) {
 			s.invalidateMediaCache(ctx)
 		}
 		if i < len(rows)-1 {

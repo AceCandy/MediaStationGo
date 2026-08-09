@@ -12,10 +12,10 @@ import (
 const mediaViewSelect = `
 m.*,
 	COALESCE(CASE WHEN mi.kind IN ('episode', 'season') THEN series_metadata.id WHEN mi.kind = 'series' THEN mi.id ELSE NULL END, '') AS view_series_id,
+	COALESCE(CASE WHEN mi.kind IN ('episode', 'season') THEN series_metadata.title WHEN mi.kind = 'series' THEN mi.title ELSE NULL END, '') AS view_series_title,
 	COALESCE(CASE WHEN mi.kind = 'episode' THEN season_metadata.id WHEN mi.kind = 'season' THEN mi.id ELSE NULL END, '') AS view_season_id,
 	COALESCE(NULLIF(mi.title, ''), m.scan_title) AS view_title,
 	COALESCE(mi.original_name, '') AS view_original_name,
-	COALESCE(mi.episode_title, '') AS view_episode_title,
 	COALESCE(mi.overview, '') AS view_overview,
 	COALESCE(mi.rating, 0) AS view_rating,
 	COALESCE(mi.year, m.scan_year, 0) AS view_year,

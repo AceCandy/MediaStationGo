@@ -40,6 +40,40 @@ func TestValidateMetadataItemIdentity(t *testing.T) {
 	}
 }
 
+func TestNormalizeMetadataIdentifierAcceptsCatalogProvidersAndKinds(t *testing.T) {
+	tests := map[string]struct {
+		identifier model.MetadataIdentifier
+		want       model.MetadataIdentifier
+	}{
+		"imdb series": {
+			identifier: model.MetadataIdentifier{Provider: " IMDb ", EntityKind: " SERIES ", ExternalID: " tt1234567 "},
+			want:       model.MetadataIdentifier{Provider: "imdb", EntityKind: model.MetadataKindSeries, ExternalID: "tt1234567"},
+		},
+		"tmdb season": {
+			identifier: model.MetadataIdentifier{Provider: "tmdb", EntityKind: model.MetadataKindSeason, ExternalID: "101"},
+			want:       model.MetadataIdentifier{Provider: "tmdb", EntityKind: model.MetadataKindSeason, ExternalID: "101"},
+		},
+		"thetvdb season": {
+			identifier: model.MetadataIdentifier{Provider: "thetvdb", EntityKind: model.MetadataKindSeason, ExternalID: "201"},
+			want:       model.MetadataIdentifier{Provider: "thetvdb", EntityKind: model.MetadataKindSeason, ExternalID: "201"},
+		},
+		"imdb episode": {
+			identifier: model.MetadataIdentifier{Provider: "imdb", EntityKind: model.MetadataKindEpisode, ExternalID: "tt7654321"},
+			want:       model.MetadataIdentifier{Provider: "imdb", EntityKind: model.MetadataKindEpisode, ExternalID: "tt7654321"},
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			if err := normalizeMetadataIdentifier(&tt.identifier); err != nil {
+				t.Fatalf("valid catalog identifier rejected: %v", err)
+			}
+			if tt.identifier.Provider != tt.want.Provider || tt.identifier.EntityKind != tt.want.EntityKind || tt.identifier.ExternalID != tt.want.ExternalID {
+				t.Fatalf("catalog identifier was not normalized: got %#v, want %#v", tt.identifier, tt.want)
+			}
+		})
+	}
+}
+
 func TestMediaUpsertSkipsUnchangedExistingRow(t *testing.T) {
 	db, err := testdb.OpenPostgres(t, &gorm.Config{})
 	if err != nil {
@@ -183,7 +217,7 @@ func TestMediaUpsertMatchedIncomingRefreshesScrapedMetadata(t *testing.T) {
 	})
 	episode := createTestMetadata(t, repos, model.MetadataItem{
 		Base: model.Base{ID: "metadata-episode-1"}, Kind: model.MetadataKindEpisode, ParentID: &season.ID,
-		Title: "中文剧名", OriginalName: "Original Show", EpisodeTitle: "第一集", Overview: "剧情简介",
+		Title: "第一集", OriginalName: "Episode One", Overview: "剧情简介",
 		Rating: 8.6, Year: 2026, EpisodeNum: 1, Languages: "zh,en", Countries: "CN",
 		Genres: "剧情,悬疑", NSFW: true, Source: "tmdb",
 	},
@@ -227,7 +261,7 @@ func TestMediaUpsertMatchedIncomingRefreshesScrapedMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if view == nil || view.Title != "中文剧名" || view.OriginalName != "Original Show" || view.EpisodeTitle != "第一集" || view.Overview != "剧情简介" {
+	if view == nil || view.SeriesTitle != "中文剧名" || view.Title != "第一集" || view.OriginalName != "Episode One" || view.Overview != "剧情简介" {
 		t.Fatalf("shared names/overview not projected: %#v", view)
 	}
 	if view.PosterURL != "" || view.BackdropURL != "/api/artwork/asset-backdrop-1" {
@@ -314,7 +348,7 @@ func TestMediaUpsertScanDoesNotClearMatchedMetadata(t *testing.T) {
 	})
 	episode := createTestMetadata(t, repos, model.MetadataItem{
 		Base: model.Base{ID: "metadata-spy-episode"}, Kind: model.MetadataKindEpisode, ParentID: &season.ID,
-		Title: "间谍过家家", OriginalName: "SPY×FAMILY", Overview: "剧情简介", Year: 2022,
+		Title: "行动代号〈梟〉", OriginalName: "OPERATION STRIX", Overview: "第一集简介", Year: 2022,
 		EpisodeNum: 1, Source: "tmdb",
 	})
 	existing := model.Media{
@@ -362,8 +396,11 @@ func TestMediaUpsertScanDoesNotClearMatchedMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if view == nil || view.Title != "间谍过家家" || view.OriginalName != "SPY×FAMILY" || view.Overview != "剧情简介" || view.TMDbID != 12345 || view.BangumiID != 67890 || view.DoubanID != "db-spy" || view.TheTVDBID != "tvdb-spy" {
+	if view == nil || view.SeriesTitle != "间谍过家家" || view.Title != "行动代号〈梟〉" || view.OriginalName != "OPERATION STRIX" || view.Overview != "第一集简介" {
 		t.Fatalf("shared metadata was not preserved after scan: %#v", view)
+	}
+	if view.TMDbID != 0 || view.BangumiID != 0 || view.DoubanID != "" || view.TheTVDBID != "" {
+		t.Fatalf("episode view inherited series provider identifiers: %#v", view)
 	}
 	if scan.ID != got.ID || scan.MetadataID != episode.ID || scan.Title != got.Title || scan.ScrapeStatus != "matched" {
 		t.Fatalf("upsert caller did not receive fresh matched row: %#v want %#v", scan, got)

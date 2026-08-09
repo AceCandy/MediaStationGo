@@ -1,11 +1,37 @@
 package model
 
 import (
+	"encoding/json"
+	"strings"
 	"sync"
 	"testing"
 
 	"gorm.io/gorm/schema"
 )
+
+func TestMediaJSONOmitsEpisodeTitleHint(t *testing.T) {
+	raw, err := json.Marshal(Media{Title: "Episode", EpisodeTitle: "legacy hint"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "episode_title") {
+		t.Fatalf("media JSON exposes internal episode title hint: %s", raw)
+	}
+}
+
+func TestMetadataIdentityConstraintParsesWithExplicitName(t *testing.T) {
+	parsed, err := schema.Parse(&MetadataItem{}, &sync.Map{}, schema.NamingStrategy{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	constraint, ok := parsed.ParseCheckConstraints()["chk_metadata_identity_season_zero"]
+	if !ok {
+		t.Fatal("metadata identity constraint name was not parsed")
+	}
+	if !strings.Contains(constraint.Constraint, "season_num >= 0") {
+		t.Fatalf("metadata identity constraint does not allow season zero: %s", constraint.Constraint)
+	}
+}
 
 func TestMediaReferenceFieldsAllowVirtualEmbyIDs(t *testing.T) {
 	virtualIDLen := len("msgo-series-c003a8f345ea99aca9bb857591afd915")

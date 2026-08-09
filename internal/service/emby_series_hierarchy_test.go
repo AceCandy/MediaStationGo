@@ -23,8 +23,8 @@ func TestEmbyItemsExposeSeriesSeasonEpisodeHierarchy(t *testing.T) {
 		ParentID: &series.ID, SeasonNum: 2, Title: "第 2 季", Source: "tmdb",
 	})
 	episodeMetadata := []model.MetadataItem{
-		{Base: model.Base{ID: "metadata-episode-1"}, Kind: model.MetadataKindEpisode, ParentID: &season.ID, Title: series.Title, EpisodeTitle: "第 1 集", EpisodeNum: 1, Source: "tmdb"},
-		{Base: model.Base{ID: "metadata-episode-2"}, Kind: model.MetadataKindEpisode, ParentID: &season.ID, Title: series.Title, EpisodeTitle: "第 2 集", EpisodeNum: 2, Source: "tmdb"},
+		{Base: model.Base{ID: "metadata-episode-1"}, Kind: model.MetadataKindEpisode, ParentID: &season.ID, Title: "任务代号: 猫", EpisodeNum: 1, Source: "tmdb"},
+		{Base: model.Base{ID: "metadata-episode-2"}, Kind: model.MetadataKindEpisode, ParentID: &season.ID, Title: "接近目标", EpisodeNum: 2, Source: "tmdb"},
 	}
 	if err := svc.repo.DB.Create(&episodeMetadata).Error; err != nil {
 		t.Fatalf("create episodes: %v", err)
@@ -93,11 +93,14 @@ func TestEmbyItemsExposeSeriesSeasonEpisodeHierarchy(t *testing.T) {
 		t.Fatalf("season episodes: %v", err)
 	}
 	episodeItems := episodes["Items"].([]map[string]any)
-	if len(episodeItems) != 2 || episodeItems[0]["Type"] != "Episode" || episodeItems[0]["Name"] != "第 1 集" {
+	if len(episodeItems) != 2 || episodeItems[0]["Type"] != "Episode" || episodeItems[0]["Name"] != "任务代号: 猫" {
 		t.Fatalf("unexpected episodes: %#v", episodeItems)
 	}
 	if episodeItems[0]["SeriesId"] != seriesID || episodeItems[0]["ParentId"] != seasonItems[0]["Id"] {
 		t.Fatalf("episode hierarchy not linked: %#v", episodeItems[0])
+	}
+	if episodeItems[0]["SeriesName"] != series.Title {
+		t.Fatalf("episode series name = %#v, want parent series title %q", episodeItems[0]["SeriesName"], series.Title)
 	}
 	if episodeItems[0]["Id"] != episodeMetadata[0].ID || episodeItems[0]["SeasonId"] != season.ID {
 		t.Fatalf("episode identity not metadata-backed: %#v", episodeItems[0])
@@ -197,7 +200,7 @@ func TestEmbySeriesHierarchyCountsEpisodeMetadataOnceAcrossVersions(t *testing.T
 	})
 	episode := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{
 		Base: model.Base{ID: "episode-version-count"}, Kind: model.MetadataKindEpisode,
-		ParentID: &season.ID, EpisodeNum: 1, Title: series.Title, EpisodeTitle: "第一集", Source: "tmdb",
+		ParentID: &season.ID, EpisodeNum: 1, Title: "第一集", Source: "tmdb",
 	})
 	versions := []model.Media{
 		{Base: model.Base{ID: "episode-version-1080"}, LibraryID: lib.ID, MetadataID: episode.ID, Title: series.Title, Path: `/media/anime-versions/show/Season 01/show.S01E01.1080p.mkv`, SeasonNum: 1, EpisodeNum: 1},

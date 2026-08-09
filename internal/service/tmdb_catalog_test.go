@@ -27,7 +27,7 @@ func TestTMDbSeasonDetailsPreservesInventoryAndRawJSON(t *testing.T) {
 				t.Fatalf("append_to_response missing %s: %q", name, r.URL.RawQuery)
 			}
 		}
-		_, _ = io.WriteString(w, `{"id":99,"season_number":0,"name":"特别篇","poster_path":"/season.jpg","external_ids":{"tvdb_id":123},"episodes":[{"id":1001,"episode_number":1,"name":"特别集"}],"future_field":{"kept":true}}`)
+		_, _ = io.WriteString(w, `{"id":99,"season_number":0,"name":"特别篇","overview":"","poster_path":"/season.jpg","external_ids":{"tvdb_id":123},"translations":{"translations":[{"iso_3166_1":"US","iso_639_1":"en","data":{"name":"Special Missions","overview":"Season-specific overview"}}]},"episodes":[{"id":1001,"episode_number":1,"name":"特别集"}],"future_field":{"kept":true}}`)
 	}))
 	defer server.Close()
 	provider := newTMDbTestProvider(server.URL)
@@ -38,8 +38,30 @@ func TestTMDbSeasonDetailsPreservesInventoryAndRawJSON(t *testing.T) {
 	if details == nil || details.ID != 99 || details.SeasonNumber != 0 || len(details.Episodes) != 1 || details.Episodes[0].ID != 1001 {
 		t.Fatalf("details = %#v", details)
 	}
+	if details.Name != "Special Missions" || details.Overview != "Season-specific overview" {
+		t.Fatalf("localized season = %#v", details)
+	}
 	if details.PosterURL != "https://image.test/t/p/original/season.jpg" || !strings.Contains(string(details.RawJSON), "future_field") {
 		t.Fatalf("poster/raw = %q %s", details.PosterURL, details.RawJSON)
+	}
+}
+
+func TestTMDbEpisodeDetailsUsesSpecificTranslation(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/tv/42/season/1/episode/11" {
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = io.WriteString(w, `{"id":1011,"name":"第 11 集","overview":"","translations":{"translations":[{"iso_3166_1":"US","iso_639_1":"en","data":{"name":"The Crossing","overview":"Episode-specific overview"}}]}}`)
+	}))
+	defer server.Close()
+
+	details, err := newTMDbTestProvider(server.URL).GetTVEpisodeDetails(t.Context(), 42, 1, 11)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if details == nil || details.Name != "The Crossing" || details.Overview != "Episode-specific overview" {
+		t.Fatalf("localized episode = %#v", details)
 	}
 }
 

@@ -43,7 +43,8 @@
   Chinese results. Writes update a target only while its original and display
   values still equal the request snapshot.
 - AI failure, malformed output, timeout, or partial output never rolls back or
-  fails the authoritative metadata scrape.
+  fails the authoritative metadata scrape. A failed pass self-schedules after
+  bounded backoff instead of waiting for the periodic sweep.
 
 ### 4. Validation & Error Matrix
 
@@ -71,6 +72,7 @@
 - Bad: merge people solely because normalized names match across local and TMDb.
 - Bad: call AI before committing credits, or overwrite a re-scraped role with a
   response generated for its previous original value.
+- Bad: log a retry delay but wait for the periodic sweep before retrying.
 
 ### 6. Tests Required
 
@@ -83,7 +85,8 @@
 - Backfill: only metadata without current credits and with usable TMDb identity;
   verify task progress and request-independent service context.
 - Translation: startup discovery, cache hit without AI, 100-entry splitting,
-  work context, valid Chinese filtering, retry/cancellation, and stale-write rejection.
+  work context, valid Chinese filtering, automatic backoff retry without a
+  sweep wake, cancellation, and stale-write rejection.
 - PostgreSQL: assert role/cache fields resolve to `text`; when a test DSN is
   available, migrate legacy `varchar(255)` columns and round-trip a long role.
 
@@ -461,6 +464,16 @@ return map[string]any{"MediaSources": sources, "DateCreated": formatEmbyDateTime
 - Durable work: `CatalogHydrationJob{Provider, EntityKind, ExternalID, MetadataID, Status, Stage, Attempts, NextAttemptAt, LastError}`.
 - Queue boundary:
   `QueueCatalogHydrationContext(context.Context, []ExternalMediaResult) error`.
+- Episode display ownership:
+  `MetadataItem{Title, OriginalName, Overview}` contains only the Episode's own
+  values; `MediaView{SeriesID, SeriesTitle, SeasonID}` projects hierarchy
+  context separately. There is no persisted or serialized `episode_title`.
+- Legacy title migration: non-empty `metadata_items.episode_title` values are
+  trimmed into Episode `title`, then the legacy column is dropped in the same
+  PostgreSQL transaction.
+- Snapshot backfill boundary:
+  `ListProviderSnapshotsAfter(context.Context, provider, kinds, afterID, limit)`
+  keyset-pages provider snapshots and their owned metadata.
 
 ### 3. Contracts
 
@@ -473,13 +486,41 @@ return map[string]any{"MediaSources": sources, "DateCreated": formatEmbyDateTime
 - Series details create every Season shell, including Season 0. One seasons
   turn hydrates one Season and all Episodes listed by that Season response,
   then yields to another job.
+- Season and Episode shells keep `Overview` empty. Only the entity's own detail
+  response may populate it during full hydration; inventory summaries and
+  ancestor descriptions are never copied into child metadata.
 - Every TMDb Series, Season, and Episode stores its own TMDb identifier, typed
   display fields, credits, complete provider response JSONB, and selected
   original image bytes. Episode runtime is seconds on `MetadataItem`.
+- Episode `Title` stores the best title for that Episode. The Series name is
+  exposed only through the real parent hierarchy as `MediaView.SeriesTitle`;
+  Episode `OriginalName`, `Overview`, identifiers, and artwork never inherit
+  from Series or Season. NFO/scanner episode-title hints are internal input and
+  must be normalized into `MetadataItem.Title`, never serialized as a second
+  API field.
+- Startup compatibility migration copies each non-blank legacy Episode
+  `episode_title` into `title` before dropping the column. A blank legacy value
+  preserves the existing title, non-Episode rows are unchanged, and repeated
+  startup skips the absent column.
+- Season/Episode title and overview localization considers only that entity's
+  TMDb response and translations. Prefer a concrete top-level Chinese value,
+  then `zh-CN`, `zh-SG/HK/TW`, other Chinese, `en-US`, and other translations.
+  Generated labels such as `Episode 1`, `第 1 集`, `Season 1`, and `Specials`
+  do not beat a concrete translation; generate a numbered fallback only when
+  no concrete entity-owned title exists.
+- Worker startup keyset-pages TMDb Season/Episode JSONB snapshots in batches
+  and reapplies the same localization rules without network requests. It
+  updates only `source=tmdb` metadata, never manual metadata, and skips writes
+  when the owned display fields are already current. A malformed or failed
+  individual snapshot is logged by metadata ID and skipped so later rows and
+  pages still run; list-query or context errors terminate the pass.
 - Own metadata and own artwork checkpoints advance independently. Episode full
   completion requires both; Season waits for all expected Episodes; Series and
   its job wait for all expected Seasons. Explicitly absent image paths satisfy
   artwork completion, while a failed download does not.
+- A Catalog artwork retry removes only that source URL's fresh image-proxy
+  failure marker before importing. It preserves successful cached bytes and
+  does not change the generic browser proxy's negative-cache behavior.
 - Provider/log/job errors contain endpoint/entity/status only. Never persist or
   log request URLs, query strings, API keys, headers, signed image URLs, or
   credentials.
@@ -495,17 +536,33 @@ return map[string]any{"MediaSources": sources, "DateCreated": formatEmbyDateTime
 | HTTP 429 | Honor valid `Retry-After`; otherwise use bounded, cancelable backoff |
 | Worker stops while a job is running | Reset it to retry on next startup |
 | Required own image download fails | Preserve the old own selection and leave artwork/full checkpoints empty |
+| Catalog retry follows a recent proxy image failure | Retry the upstream URL without deleting a successful cached image |
 | Provider explicitly returns no own image | Mark own artwork complete without ancestor fallback |
 | One Episode is incomplete | Keep its Season, Series, and durable job incomplete |
+| Episode/Season top-level title is a generated label | Continue through its own translations before accepting or generating a fallback |
+| Snapshot belongs to manual or non-TMDb metadata | Leave its display fields unchanged |
+| Snapshot-localized fields already match | Perform no metadata update |
+| One snapshot cannot decode or update | Log that metadata ID and continue with later rows; never log its payload |
+| Legacy Episode has a non-blank `episode_title` | Trim it into `title`, then remove the legacy column atomically |
+| Legacy `episode_title` is blank or belongs to a non-Episode | Preserve the current `title` |
+| Legacy column is already absent | Skip the compatibility migration successfully |
 
 ### 5. Good / Base / Bad Cases
 
 - Good: discovering one Series eventually stores `Series -> Season 0/1 ->
   Episode`, each with its own TMDb ID, raw JSON, credits, and original image.
+- Good: an Episode stores its localized name in `Title`, while clients receive
+  the parent show name from `SeriesTitle`.
 - Base: a Series has no Seasons or an entity has no image path; explicit empty
   inventories/scopes complete without synthetic children or inherited images.
+- Base: a historical TMDb Episode snapshot is relocalized at startup without a
+  provider request; a manual Episode with the same shape remains untouched.
 - Bad: an in-memory map is queue truth, a root-only timestamp suppresses child
   hydration, or a Season/Episode copies Series artwork or people.
+- Bad: storing the Series name in `Episode.Title` or copying the Series
+  `OriginalName`, overview, or provider IDs into an Episode projection.
+- Bad: a browser-facing image failure marker suppresses the durable job's own
+  scheduled retry for the full negative-cache TTL.
 
 ### 6. Tests Required
 
@@ -516,9 +573,18 @@ return map[string]any{"MediaSources": sources, "DateCreated": formatEmbyDateTime
   bounded root priority, child completion gating, and idempotent provider-ID
   attachment/merge.
 - Service: Season 0 plus all Episodes, partial resume, no Media creation, own
-  artwork/profile bytes, and bottom-up completion.
-- MediaView/Emby: own Episode IDs/stills, own Season posters/people, no virtual
-  cache fallback, and catalog-only exclusion from physical libraries.
+  artwork/profile bytes, image retry past a fresh proxy failure marker, and
+  bottom-up completion.
+- Localization/backfill: placeholder-title rejection, locale priority,
+  entity-owned overview fallback, keyset pagination beyond one batch,
+  per-item failure isolation, manual-source protection, and idempotent no-op
+  updates.
+- Migration/API: backfill a non-empty legacy Episode title, preserve blank and
+  non-Episode titles, drop the column idempotently, and omit `episode_title`
+  from serialized media payloads.
+- MediaView/Emby: Episode-owned title and identifiers, parent `SeriesTitle`, own
+  Episode stills, own Season posters/people, no virtual cache fallback, and
+  catalog-only exclusion from physical libraries.
 
 ### 7. Wrong vs Correct
 
@@ -536,6 +602,15 @@ seasonPoster := series.PosterURL
 
 // Correct: missing own Season artwork remains empty.
 seasonPoster := metadataArtworkURL(ctx, season.ID, model.ArtworkTypePoster)
+```
+
+```go
+// Wrong: overload Episode.Title with hierarchy context.
+episode.Title = series.Title
+
+// Correct: keep the Episode title on the entity and project context separately.
+episode.Title = localizedEpisodeTitle
+view.SeriesTitle = parentSeries.Title
 ```
 
 ## Scenario: Persisted Emby People Images

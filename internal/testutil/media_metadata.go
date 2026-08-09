@@ -116,9 +116,13 @@ func attachMediaFixtureMetadata(tx *gorm.DB, media *model.Media) error {
 	if err != nil {
 		return err
 	}
+	episodeTitle := strings.TrimSpace(media.EpisodeTitle)
+	if episodeTitle == "" {
+		episodeTitle = title
+	}
 	episode, err := metadata.UpsertEpisode(context.Background(), &model.MetadataItem{
 		Kind: model.MetadataKindEpisode, ParentID: &season.ID, EpisodeNum: media.EpisodeNum,
-		Title: title, EpisodeTitle: media.EpisodeTitle, Source: "local",
+		Title: episodeTitle, Source: "local",
 	})
 	if err != nil {
 		return err

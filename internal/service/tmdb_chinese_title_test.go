@@ -10,6 +10,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/ShukeBta/MediaStationGo/internal/config"
+	"github.com/ShukeBta/MediaStationGo/internal/model"
 )
 
 func TestApplyTMDbChineseTitlePrefersMainlandAlternative(t *testing.T) {
@@ -32,6 +33,47 @@ func TestApplyTMDbChineseTitleFallsBackToSingaporeTranslation(t *testing.T) {
 
 	if match.Title != "新加坡中文名" {
 		t.Fatalf("title=%q, want Singapore Chinese translation", match.Title)
+	}
+}
+
+func TestPreferredTMDbEntityTitleSkipsGeneratedEpisodeName(t *testing.T) {
+	translation := tmdbTranslation{Country: "US", Language: "en"}
+	translation.Data.Name = "Inside S1 E1"
+
+	if got := preferredTMDbEntityTitle("第 1 集", []tmdbTranslation{translation}, model.MetadataKindEpisode, 1); got != "Inside S1 E1" {
+		t.Fatalf("episode title = %q, want specific translation", got)
+	}
+	if got := preferredTMDbEntityTitle("Episode 4", nil, model.MetadataKindEpisode, 4); got != "第 4 集" {
+		t.Fatalf("episode title = %q, want generated localized fallback", got)
+	}
+	if got := preferredTMDbEntityTitle("Season 2", nil, model.MetadataKindSeason, 2); got != "第 2 季" {
+		t.Fatalf("season title = %q, want generated localized fallback", got)
+	}
+}
+
+func TestPreferredTMDbEntityTitlePrefersChineseTranslationOverOriginalFallback(t *testing.T) {
+	translation := tmdbTranslation{Country: "CN", Language: "zh"}
+	translation.Data.Name = "跨越边界"
+
+	if got := preferredTMDbEntityTitle("The Crossing", []tmdbTranslation{translation}, model.MetadataKindEpisode, 11); got != "跨越边界" {
+		t.Fatalf("episode title = %q, want Chinese translation", got)
+	}
+}
+
+func TestPreferredTMDbEntityTextFallsBackWithoutParentMetadata(t *testing.T) {
+	translation := tmdbTranslation{Country: "US", Language: "en"}
+	translation.Data.Overview = "Episode-specific overview"
+
+	if got := preferredTMDbEntityOverview("", []tmdbTranslation{translation}); got != "Episode-specific overview" {
+		t.Fatalf("episode overview = %q, want translated own overview", got)
+	}
+	if got := preferredTMDbEntityTitle("", nil, model.MetadataKindSeason, 0); got != "特别篇" {
+		t.Fatalf("empty season title = %q, want generated own fallback", got)
+	}
+	chinese := tmdbTranslation{Country: "CN", Language: "zh"}
+	chinese.Data.Overview = "本集专属简介"
+	if got := preferredTMDbEntityOverview("Original overview", []tmdbTranslation{chinese}); got != "本集专属简介" {
+		t.Fatalf("episode overview = %q, want Chinese translation", got)
 	}
 }
 
