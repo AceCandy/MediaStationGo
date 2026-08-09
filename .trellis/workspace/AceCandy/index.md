@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 9
-- **Last Active**: 2026-08-08
+- **Total Sessions**: 10
+- **Last Active**: 2026-08-09
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~198 | Active |
+| `journal-1.md` | ~229 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 10 | 2026-08-09 | Finalize Season and Episode metadata ownership | `e6b5b6b` | `main` |
 | 9 | 2026-08-08 | Persist artwork and refactor Emby metadata scope | `26b4738` | `main` |
 | 8 | 2026-08-07 | Emby 人物元数据与 AI 翻译 | `f22f311`, `7cf369e` | `main` |
 | 7 | 2026-08-07 | 复用 canonical metadata 扫描流程 | `ac9ac54` | `main` |

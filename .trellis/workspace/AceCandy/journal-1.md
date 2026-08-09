@@ -196,3 +196,34 @@ Persist cloud artwork and Emby people images under DataDir, and query Emby logic
 ### Status
 
 [OK] **Completed**
+
+
+## Session 10: Finalize Season and Episode metadata ownership
+
+**Date**: 2026-08-09
+**Task**: Finalize Season and Episode metadata ownership
+**Branch**: `main`
+
+### Summary
+
+Unified Episode title storage, kept Season and Episode metadata entity-owned, restored TMDb snapshot localization, and aligned Emby and Web consumers.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `e6b5b6b` | (see git log) |
+
+### Testing
+
+- [OK] go vet ./internal/service ./internal/repository ./internal/model ./internal/database
+- [OK] go test ./internal/model ./internal/database ./internal/repository ./internal/service -count=1
+- [OK] web npm run lint and npm run build
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- Run PostgreSQL integration tests when MEDIASTATION_TEST_POSTGRES_DSN is available.
