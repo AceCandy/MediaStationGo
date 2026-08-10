@@ -249,3 +249,25 @@ Reorganized viewer and admin navigation, unified route access, added bounded pos
 ### Status
 
 [OK] **Completed**
+
+
+## Session 12: Refine Web Information Architecture
+
+**Date**: 2026-08-11
+**Task**: Refine Web Information Architecture
+**Branch**: `main`
+
+### Summary
+
+Reorganized management navigation around retained capabilities, merged related operational views, routed settings sections, removed duplicate UI, and verified responsive behavior.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `783d2ef` | (see git log) |
+| `35ce448` | (see git log) |
+
+### Status
+
+[OK] **Completed**

@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 11
-- **Last Active**: 2026-08-10
+- **Total Sessions**: 12
+- **Last Active**: 2026-08-11
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~251 | Active |
+| `journal-1.md` | ~273 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 12 | 2026-08-11 | Refine Web Information Architecture | `783d2ef`, `35ce448` | `main` |
 | 11 | 2026-08-10 | Reorganize Web UI Around Emby Core | `8c07aa5`, `2af58c4` | `main` |
 | 10 | 2026-08-09 | Finalize Season and Episode metadata ownership | `e6b5b6b` | `main` |
 | 9 | 2026-08-08 | Persist artwork and refactor Emby metadata scope | `26b4738` | `main` |
