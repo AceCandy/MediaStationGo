@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/frontend/index.md", "reason": "Frontend pre-development and quality checklist"}
+{"file": ".trellis/spec/frontend/routing-and-loading-contracts.md", "reason": "Canonical route, access, navigation, and URL-state contracts"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Avoid duplicate constants and unnecessary abstractions"}
+{"file": ".trellis/tasks/08-10-refine-web-information-architecture/research/current-ui-audit.md", "reason": "Verified UI evidence and retained-field boundaries"}

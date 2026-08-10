@@ -4,7 +4,8 @@
 
 `web/src/appRoutes.tsx` is the single manifest for application route IDs,
 paths, access metadata, and navigation metadata. Consumers such as
-`layoutNavigation.ts` derive navigation groups from that manifest.
+`layoutNavigation.ts` project destination leaves from that manifest and combine
+them with separately defined non-route groups.
 
 Required behavior:
 
@@ -12,8 +13,17 @@ Required behavior:
   the page. Do not repeat those values in a separate navigation list.
 - Apply manifest access metadata to direct route rendering as well as visible
   navigation. Hiding a link is not an access control.
+- Model management groups separately from destination routes. A group is an
+  expandable button without a route or `aria-current`; only a visible leaf
+  route is a navigation link and may receive `aria-current="page"`.
+- Project management leaves from the manifest after applying inherited access
+  metadata, and remove groups whose leaves are all filtered out.
+- Match active paths on segment boundaries: a path matches itself or descendants
+  below `path/`, never an unrelated path with the same string prefix.
 - Keep canonical internal links on the maintained viewer or `/admin/*` path.
   Legacy root paths exist only as guarded `Navigate replace` redirects.
+- Redirect `/admin` and non-content management group roots with `replace` to a
+  deterministic retained leaf; redirect targets must not form cycles.
 - Keep ordinary `/search` authenticated but independent of AI permissions.
   Apply AI capability and provider checks only to `mode=ai` behavior.
 
