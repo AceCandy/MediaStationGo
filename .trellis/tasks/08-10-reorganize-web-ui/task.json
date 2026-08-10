@@ -1,0 +1,33 @@
+{
+  "id": "reorganize-web-ui",
+  "name": "reorganize-web-ui",
+  "title": "Reorganize Web UI Around Emby Core",
+  "description": "Reorganize the maintained Web UI around the remaining Emby-focused viewing and administration capabilities.",
+  "status": "in_progress",
+  "dev_type": "feature",
+  "scope": "web frontend information architecture and responsive navigation",
+  "package": "web",
+  "priority": "P2",
+  "creator": "AceCandy",
+  "assignee": "AceCandy",
+  "createdAt": "2026-08-10",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [
+    "web/src/appRoutes.tsx",
+    "web/src/components/layoutNavigation.ts",
+    "web/src/stores/permissions.ts",
+    "web/src/pages/LibrariesPage.tsx",
+    "web/src/pages/MePage.tsx",
+    "web/src/pages/AdminLayoutPage.tsx"
+  ],
+  "notes": "Implemented the approved four-destination viewer space, canonical query views, shared route/access manifest, user-bound permissions, bounded poster loading, contextual DLNA, and /admin/* management shell. Final lint, production build, diff check, Trellis validation, legacy-link scan, sensitive-artifact scan, and mocked authenticated browser checks passed at 390x844, 768x1024, 1024x768, and 1440x900. Real-backend authenticated media mutations were not exercised because no valid local test session was available; browser mocks were isolated and removed.",
+  "meta": {}
+}

@@ -1,0 +1,4 @@
+{"file":".trellis/spec/guides/code-reuse-thinking-guide.md","reason":"Keep route access, navigation metadata, and recomposed page data logic single-sourced instead of copied across consumers."}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"Trace route manifest, permission store, layout, query state, and page composition as one UI data flow."}
+{"file":".trellis/tasks/08-10-reorganize-web-ui/research/current-ui-inventory.md","reason":"Use the verified current route, capability, Discover, admin, responsive, and test baseline during implementation."}
+{"file":".trellis/spec/frontend/index.md","reason":"Preserve the route/access manifest, user-bound permission lifecycle, canonical query state, and bounded poster loading contracts."}

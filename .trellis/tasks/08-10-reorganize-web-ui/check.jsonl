@@ -1,0 +1,4 @@
+{"file":".trellis/spec/guides/code-reuse-thinking-guide.md","reason":"Check that permissions, paths, and recomposed behaviors have one owner and no drift-prone copies."}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"Check route, permission, navigation, responsive layout, and page-state boundaries end to end."}
+{"file":".trellis/tasks/08-10-reorganize-web-ui/research/current-ui-inventory.md","reason":"Compare the final behavior with the verified baseline and retained capability inventory."}
+{"file":".trellis/spec/frontend/index.md","reason":"Verify the final route/access ownership, permission lifecycle, canonical query state, responsive checks, and bounded poster loading contracts."}
