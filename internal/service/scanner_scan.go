@@ -32,15 +32,14 @@ func (s *ScannerService) ScanLibraryRoot(ctx context.Context, libraryID, rootID 
 	if root == nil {
 		return nil, errors.New("library root not found")
 	}
-	if mount, ok := ParseCloudLibraryMount(root.Path); ok {
-		return s.scanCloudLibraryRoot(ctx, lib, root, mount, true)
+	if isRetiredCloudPath(root.Path) {
+		return nil, errors.New("library root path is no longer supported")
 	}
 	return s.scanLocalLibraryRoot(ctx, lib, root, true)
 }
 
 // ScanLibraryWithoutAutoScrape walks a library without kicking off online
-// metadata enrichment. Cloud mounts can contain very large trees; keeping mount
-// scans import-only prevents scraper bursts from overwhelming small NAS boxes.
+// metadata enrichment.
 func (s *ScannerService) ScanLibraryWithoutAutoScrape(ctx context.Context, libraryID string) (*ScanResult, error) {
 	return s.scanLibrary(ctx, libraryID, false)
 }
@@ -74,8 +73,8 @@ func (s *ScannerService) scanLibrary(ctx context.Context, libraryID string, auto
 	if lib == nil {
 		return nil, errors.New("library not found")
 	}
-	if mount, ok := ParseCloudLibraryMount(lib.Path); ok {
-		return s.scanMountedCloudLibrary(ctx, lib, mount, autoScrape)
+	if isRetiredCloudPath(lib.Path) {
+		return nil, errors.New("library path is no longer supported")
 	}
 	res := &ScanResult{LibraryID: lib.ID}
 	writeBatch := newLocalMediaWriteBatch(s, ctx, res, 100)
@@ -216,11 +215,11 @@ func (s *ScannerService) finishLocalLibraryScan(ctx context.Context, lib *model.
 		"error_count": res.ErrorCount,
 		"errors":      res.Errors,
 	})
-	s.notifyScanFinished(lib, res, nil, false)
+	s.notifyScanFinished(lib, res, nil)
 	s.invalidateMediaCache(ctx)
 	s.maybeGenerateSTRMAfterScan(lib.ID)
 
-	if scanHasImportChanges(res) && autoScrape && s.scraper != nil && s.scraper.AnyEnabled() && s.autoScrapeEnabled(ctx) {
+	if (res.Added > 0 || res.Updated > 0 || res.Removed > 0) && autoScrape && s.scraper != nil && s.scraper.AnyEnabled() && s.autoScrapeEnabled(ctx) {
 		s.startAutoScrape(ctx, lib.ID)
 	}
 }

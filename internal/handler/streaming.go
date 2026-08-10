@@ -1,4 +1,4 @@
-// Package handler — HLS / image-proxy / scrape endpoints.
+// Package handler — image-proxy / scrape endpoints.
 package handler
 
 import (
@@ -11,68 +11,6 @@ import (
 
 	"github.com/ShukeBta/MediaStationGo/internal/service"
 )
-
-func hlsPlaylistHandler(svc *service.Container) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		m, err := svc.Media.GetRawMedia(c.Request.Context(), c.Param("id"))
-		if err != nil || m == nil || !mediaVisibleForRequest(c, svc, m) {
-			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
-			return
-		}
-		if !enforceScopedPlaybackToken(c, m.ID) {
-			return
-		}
-		err = svc.Stream.ServeHLSPlaylist(c.Writer, c.Request, c.Param("id"))
-		if errors.Is(err, service.ErrInvalidStreamIndex) {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-			return
-		}
-		if errors.Is(err, service.ErrMediaNotFound) {
-			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
-			return
-		}
-		if errors.Is(err, service.ErrTranscodeDisabled) {
-			c.JSON(http.StatusConflict, gin.H{"error": "transcode disabled"})
-			return
-		}
-		if errors.Is(err, service.ErrTranscodeBusy) {
-			c.JSON(http.StatusTooManyRequests, gin.H{"error": "transcode busy"})
-			return
-		}
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-	}
-}
-
-func hlsSegmentHandler(svc *service.Container) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		m, err := svc.Media.GetRawMedia(c.Request.Context(), c.Param("id"))
-		if err != nil || m == nil || !mediaVisibleForRequest(c, svc, m) {
-			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
-			return
-		}
-		if !enforceScopedPlaybackToken(c, m.ID) {
-			return
-		}
-		err = svc.Stream.ServeHLSSegment(c.Writer, c.Request, c.Param("id"), c.Param("seg"))
-		if err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
-			return
-		}
-	}
-}
-
-func stopTranscodeHandler(svc *service.Container) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		if err := svc.Stream.StopHLS(c.Request, c.Param("id")); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-			return
-		}
-		c.Status(http.StatusNoContent)
-	}
-}
 
 func imageProxyHandler(svc *service.Container) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -87,42 +25,6 @@ func imageProxyHandler(svc *service.Container) gin.HandlerFunc {
 		// URL. In that case we still return 400 to make the misuse visible.
 		if err := svc.ImageProxy.Serve(c.Request.Context(), c.Writer, c.Request, raw); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-			return
-		}
-	}
-}
-
-func cloudArtworkProxyHandler(svc *service.Container) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		typ := c.Param("type")
-		ref := c.Query("ref")
-		if !service.IsAdminCloudConfigurable(typ) {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "unsupported cloud provider"})
-			return
-		}
-		if ref == "" || !isCloudImageRef(ref) {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "image ref required"})
-			return
-		}
-		if svc == nil || svc.ImageProxy == nil {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "image proxy unavailable"})
-			return
-		}
-		stableKey := typ + ":" + ref
-		if svc.ImageProxy.ServeCloudCached(c.Writer, c.Request, stableKey) {
-			return
-		}
-		if svc.StorageCfg == nil {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "cloud storage service unavailable"})
-			return
-		}
-		link, err := svc.StorageCfg.CloudResolve(c.Request.Context(), typ, ref, c.Request.UserAgent())
-		if err != nil {
-			c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
-			return
-		}
-		if err := svc.ImageProxy.ServeCloudResolved(c.Request.Context(), c.Writer, c.Request, stableKey, link); err != nil {
-			c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
 			return
 		}
 	}

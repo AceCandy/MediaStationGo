@@ -90,7 +90,7 @@ export function ManualOrganizePanel({
             ))}
           </select>
           <span className="text-[11px] text-sand-500">
-            手动整理只写入本地可写媒体库；网盘请到“外部存储”中挂载、扫描或转存。
+            手动整理只写入本地可写媒体库。
           </span>
         </label>
         <label className="space-y-1">

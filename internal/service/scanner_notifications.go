@@ -8,7 +8,7 @@ import (
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 )
 
-func (s *ScannerService) notifyScanFinished(lib *model.Library, res *ScanResult, err error, cloud bool) {
+func (s *ScannerService) notifyScanFinished(lib *model.Library, res *ScanResult, err error) {
 	if s == nil || s.notify == nil || lib == nil || res == nil {
 		return
 	}
@@ -23,11 +23,7 @@ func (s *ScannerService) notifyScanFinished(lib *model.Library, res *ScanResult,
 	if res.Added+res.Updated <= 0 {
 		return
 	}
-	source := "本地媒体库"
-	if cloud {
-		source = "网盘媒体库"
-	}
-	body := fmt.Sprintf("%s：%s\n新增：%d\n更新：%d\n跳过：%d\n移除：%d", source, lib.Name, res.Added, res.Updated, res.Skipped, res.Removed)
+	body := fmt.Sprintf("本地媒体库：%s\n新增：%d\n更新：%d\n跳过：%d\n移除：%d", lib.Name, res.Added, res.Updated, res.Skipped, res.Removed)
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()

@@ -87,32 +87,32 @@ func TestMediaVisibilityFiltersNSFWAndLibraries(t *testing.T) {
 	}
 }
 
-func TestMediaVisibilityHidesDeprecatedNativeCloudLibraries(t *testing.T) {
+func TestMediaVisibilityDoesNotApplyRetiredProviderRules(t *testing.T) {
 	db := newServiceTestDB(t, &model.Library{}, &model.Media{})
 	repos := repository.New(db)
 	svc := NewMediaService(&config.Config{}, zap.NewNop(), repos)
 
 	legacy := model.Library{
-		Name:    "旧云盘",
-		Path:    BuildCloudLibraryPath(LegacyQuarkProvider, "archive", "archive"),
+		Name:    "历史媒体库",
+		Path:    "/media/archive",
 		Type:    "movie",
 		Enabled: true,
 	}
-	openList := model.Library{
-		Name:    "OpenList",
-		Path:    BuildCloudLibraryPath("openlist", "movies", "movies"),
+	other := model.Library{
+		Name:    "其他媒体库",
+		Path:    "/media/movies",
 		Type:    "movie",
 		Enabled: true,
 	}
 	if err := repos.Library.Create(t.Context(), &legacy); err != nil {
 		t.Fatal(err)
 	}
-	if err := repos.Library.Create(t.Context(), &openList); err != nil {
+	if err := repos.Library.Create(t.Context(), &other); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.Create(&[]model.Media{
-		{LibraryID: legacy.ID, Title: "历史媒体", Path: "cloud://" + LegacyQuarkProvider + "/archive/old.mkv"},
-		{LibraryID: openList.ID, Title: "可见媒体", Path: "cloud://openlist/movies/new.mkv"},
+		{LibraryID: legacy.ID, Title: "历史媒体", Path: "/media/archive/old.mkv"},
+		{LibraryID: other.ID, Title: "可见媒体", Path: "/media/movies/new.mkv"},
 	}).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -121,16 +121,16 @@ func TestMediaVisibilityHidesDeprecatedNativeCloudLibraries(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := sortedMediaTitles(items); !slices.Equal(got, []string{"可见媒体"}) {
-		t.Fatalf("deprecated native cloud media should be hidden from search, got %#v", got)
+	if got := sortedMediaTitles(items); len(got) != 2 {
+		t.Fatalf("ordinary libraries should remain visible, got %#v", got)
 	}
 
 	listed, total, err := svc.ListMediaVisible(t.Context(), legacy.ID, 1, 20, MediaVisibility{IncludeNSFW: true})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if total != 0 || len(listed) != 0 {
-		t.Fatalf("deprecated native cloud media should be hidden from direct list total=%d rows=%#v", total, sortedMediaTitles(listed))
+	if total != 1 || len(listed) != 1 {
+		t.Fatalf("requested local library should remain visible total=%d rows=%#v", total, sortedMediaTitles(listed))
 	}
 }
 

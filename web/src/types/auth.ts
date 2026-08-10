@@ -39,7 +39,6 @@ export interface UserPermission {
   can_use_ai: boolean
   can_capture_frames: boolean
   can_view_discover: boolean
-  can_manage_sites: boolean
   can_use_ai_assistant: boolean
   can_manage_users: boolean
   can_manage_files: boolean

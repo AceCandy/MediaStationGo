@@ -1,0 +1,2 @@
+{"file":".trellis/spec/backend/shared-media-metadata.md","reason":"Verify that cloud/transcoder deletion preserves canonical identity, entity-owned metadata, complete probe facts, visibility, subtitles, artwork, playback progress, and user state; flag obsolete HLS clauses for the required Phase 3 spec update."}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"Check exact serialized Emby fields and every database/service/route/Web/config boundary so capability removal does not leave mismatched consumers or stale claims."}

@@ -132,7 +132,6 @@ func (s *TelegramBotService) activeTelegramStatsLibraries(ctx context.Context) (
 	if err != nil {
 		return nil, err
 	}
-	libs = FilterDisplayCloudLibraries(ctx, s.repo, libs)
 	out := libs[:0]
 	for _, lib := range libs {
 		if lib.Enabled {

@@ -22,6 +22,8 @@ import (
 	"github.com/ShukeBta/MediaStationGo/internal/service"
 )
 
+var embyTestJPEG = []byte{0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 'J', 'F', 'I', 'F', 0x00, 0xff, 0xd9}
+
 func createEmbyArtworkFixture(t *testing.T, db *gorm.DB, cfg *config.Config, mediaID string, data []byte, mimeType, extension string) {
 	t.Helper()
 	metadataID := "metadata-" + mediaID
@@ -132,7 +134,7 @@ func TestEmbyItemImageServesPersistentArtworkWithoutResolve(t *testing.T) {
 	cfg := &config.Config{App: config.AppConfig{DataDir: t.TempDir()}, Cache: config.CacheConfig{CacheDir: t.TempDir()}}
 	imageProxy := service.NewImageProxy(cfg, zap.NewNop())
 	repos := repository.New(db)
-	createEmbyArtworkFixture(t, db, cfg, "cloud-media-1", handlerTestJPEG, "image/jpeg", "jpg")
+	createEmbyArtworkFixture(t, db, cfg, "media-artwork-1", embyTestJPEG, "image/jpeg", "jpg")
 
 	router := gin.New()
 	registerEmbyRoutes(router, "test-secret", &service.Container{
@@ -142,14 +144,14 @@ func TestEmbyItemImageServesPersistentArtworkWithoutResolve(t *testing.T) {
 		ImageProxy: imageProxy,
 	})
 
-	req := httptest.NewRequest(http.MethodGet, "/Items/cloud-media-1/Images/Primary", nil)
+	req := httptest.NewRequest(http.MethodGet, "/Items/media-artwork-1/Images/Primary", nil)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("unexpected status: %d body=%s", w.Code, w.Body.String())
 	}
-	if got := w.Body.Bytes(); !bytes.Equal(got, handlerTestJPEG) {
+	if got := w.Body.Bytes(); !bytes.Equal(got, embyTestJPEG) {
 		t.Fatalf("body = %q, want persistent artwork", got)
 	}
 	if location := w.Header().Get("Location"); location != "" {

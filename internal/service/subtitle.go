@@ -15,22 +15,18 @@
 package service
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
-	"time"
 
 	"go.uber.org/zap"
 
-	"github.com/ShukeBta/MediaStationGo/internal/config"
 	"github.com/ShukeBta/MediaStationGo/internal/repository"
 )
 
@@ -38,9 +34,7 @@ import (
 type SubtitleService struct {
 	log        *zap.Logger
 	repo       *repository.Container
-	storage    *StorageConfigService
 	mediaProbe *MediaProbeService
-	cfg        *config.Config
 }
 
 func (s *SubtitleService) SetMediaProbe(mediaProbe *MediaProbeService) {
@@ -49,25 +43,9 @@ func (s *SubtitleService) SetMediaProbe(mediaProbe *MediaProbeService) {
 	}
 }
 
-func (s *SubtitleService) SetConfig(cfg *config.Config) {
-	if s != nil {
-		s.cfg = cfg
-	}
-}
-
 // NewSubtitleService is the constructor.
-func NewSubtitleService(log *zap.Logger, repo *repository.Container, storage ...*StorageConfigService) *SubtitleService {
-	s := &SubtitleService{log: log, repo: repo}
-	if len(storage) > 0 {
-		s.storage = storage[0]
-	}
-	return s
-}
-
-func (s *SubtitleService) SetStorageConfig(storage *StorageConfigService) {
-	if s != nil {
-		s.storage = storage
-	}
+func NewSubtitleService(log *zap.Logger, repo *repository.Container) *SubtitleService {
+	return &SubtitleService{log: log, repo: repo}
 }
 
 // SubtitleTrack describes one external subtitle file.
@@ -149,46 +127,9 @@ func (s *SubtitleService) ServeByIndex(ctx context.Context, mediaID string, inde
 		if selection.External {
 			return s.Serve(ctx, mediaID, selection.source, w)
 		}
-		return s.serveEmbedded(ctx, mediaID, index, w)
+		return errors.New("embedded subtitles are selected from the original media source")
 	}
 	return errors.New("subtitle stream not found")
-}
-
-func (s *SubtitleService) serveEmbedded(ctx context.Context, mediaID string, index int, w io.Writer) error {
-	if s.mediaProbe == nil || s.cfg == nil {
-		return errors.New("embedded subtitle extraction unavailable")
-	}
-	media, err := s.repo.Media.FindByID(ctx, mediaID)
-	if err != nil || media == nil {
-		return errors.New("media not found")
-	}
-	source, err := s.mediaProbe.resolveSource(ctx, media)
-	if err != nil {
-		return err
-	}
-	bin, err := resolveLocalExecutable(s.cfg.App.FFmpegPath, "ffmpeg")
-	if err != nil {
-		return err
-	}
-	input := source.path
-	args := []string{"-v", "error"}
-	if source.url != "" {
-		input = source.url
-		if headers := ffmpegHeaderText(source.headers); headers != "" {
-			args = append(args, "-headers", headers)
-		}
-	}
-	args = append(args, "-i", input, "-map", fmt.Sprintf("0:%d", index), "-f", "webvtt", "pipe:1")
-	extractCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
-	defer cancel()
-	cmd := exec.CommandContext(extractCtx, bin, args...) // #nosec G204 -- executable is resolved and stream index is validated.
-	cmd.Stdout = w
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("extract embedded subtitle: %w", err)
-	}
-	return nil
 }
 
 // extToCodec maps the file extension to the inner codec name.
@@ -209,9 +150,6 @@ func (s *SubtitleService) Discover(ctx context.Context, mediaID string) ([]Subti
 	}
 	if m == nil {
 		return nil, errors.New("media not found")
-	}
-	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(m.Path)), "cloud://") {
-		return discoverCloudSubtitles(ctx, s, *m), nil
 	}
 	dir := filepath.Dir(m.Path)
 	base := strings.TrimSuffix(filepath.Base(m.Path), filepath.Ext(m.Path))
@@ -278,9 +216,6 @@ func (s *SubtitleService) Serve(ctx context.Context, mediaID, sub string, w io.W
 	m, err := s.repo.Media.FindByID(ctx, mediaID)
 	if err != nil || m == nil {
 		return errors.New("media not found")
-	}
-	if typ, ref, name, ok := parseCloudSubtitlePath(sub); ok {
-		return serveCloudSubtitle(ctx, s, *m, typ, ref, name, w)
 	}
 	abs, err := filepath.Abs(sub)
 	if err != nil {

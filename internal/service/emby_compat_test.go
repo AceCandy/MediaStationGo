@@ -1,7 +1,6 @@
 package service
 
 import (
-	"context"
 	"testing"
 	"time"
 
@@ -10,12 +9,11 @@ import (
 	"github.com/ShukeBta/MediaStationGo/internal/config"
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 	"github.com/ShukeBta/MediaStationGo/internal/repository"
-	"github.com/ShukeBta/MediaStationGo/internal/service/cloud"
 )
 
 func newTestEmbyService(t *testing.T) *EmbyService {
 	t.Helper()
-	db := newServiceTestDB(t, &model.Library{}, &model.Media{}, &model.Favorite{}, &model.PlaybackHistory{}, &model.User{}, &model.Setting{}, &model.Person{}, &model.MetadataCredit{})
+	db := newServiceTestDB(t, &model.Library{}, &model.Media{}, &model.MediaProbeMetadata{}, &model.Favorite{}, &model.PlaybackHistory{}, &model.User{}, &model.Setting{}, &model.Person{}, &model.MetadataCredit{})
 	// 内存库 + 异步探测协程：限制为单连接，避免连接池新建连接时
 	// 拿到一个空白的 :memory: 实例（no such table）。
 	if sqlDB, err := db.DB(); err == nil {
@@ -63,44 +61,4 @@ func TestEmbyLatestItemsOrderByReleaseDate(t *testing.T) {
 	if _, ok := items[0]["PremiereDate"].(time.Time); !ok {
 		t.Fatalf("latest item should expose PremiereDate for Emby clients: %#v", items[0])
 	}
-}
-
-type fakeCloudPlaybackResolver struct {
-	link *cloud.DirectLink
-	typ  string
-	ref  string
-	ua   string
-}
-
-func (f *fakeCloudPlaybackResolver) CloudResolve(_ context.Context, typ, fileRef, clientUA string) (*cloud.DirectLink, error) {
-	f.typ = typ
-	f.ref = fileRef
-	f.ua = clientUA
-	return f.link, nil
-}
-
-type fakeCloudPlaybackProber struct {
-	probe   *ProbeResult
-	path    string
-	rawURL  string
-	headers map[string]string
-	started chan struct{}
-	release <-chan struct{}
-}
-
-func (f *fakeCloudPlaybackProber) Probe(_ context.Context, path string) (*ProbeResult, error) {
-	f.path = path
-	if f.started != nil {
-		close(f.started)
-	}
-	if f.release != nil {
-		<-f.release
-	}
-	return f.probe, nil
-}
-
-func (f *fakeCloudPlaybackProber) ProbeHTTP(_ context.Context, rawURL string, headers map[string]string) (*ProbeResult, error) {
-	f.rawURL = rawURL
-	f.headers = headers
-	return f.probe, nil
 }

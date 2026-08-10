@@ -4,7 +4,6 @@
 //	POST /playback/:id/progress
 //	GET  /playback/:id/external-players
 //	GET  /playback/:id/external-url
-//	GET  /playback/transcode/:job_id/status
 package handler
 
 import (
@@ -33,7 +32,6 @@ func playbackInfoHandler(svc *service.Container) gin.HandlerFunc {
 		c.JSON(http.StatusOK, gin.H{
 			"media":      m,
 			"stream_url": "/api/stream/" + m.ID + "?token=" + url.QueryEscape(token) + profileQuery,
-			"hls_url":    "/api/hls/" + m.ID + "/index.m3u8?token=" + url.QueryEscape(token) + profileQuery,
 		})
 	}
 }
@@ -230,21 +228,6 @@ func setRedirectNoStoreHeaders(c *gin.Context) {
 	c.Header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
 	c.Header("Pragma", "no-cache")
 	c.Header("Expires", "0")
-}
-
-// transcodeStatusHandler reports the live status of one transcode job.
-// We surface the active jobs the transcoder knows about.
-func transcodeStatusHandler(svc *service.Container) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		jobID := c.Param("job_id")
-		for _, j := range svc.Transcoder.Active() {
-			if j.JobID == jobID || j.MediaID == jobID {
-				c.JSON(http.StatusOK, gin.H{"job_id": jobID, "status": "running", "job": j})
-				return
-			}
-		}
-		c.JSON(http.StatusOK, gin.H{"job_id": jobID, "status": "idle"})
-	}
 }
 
 // _ keeps imports tidy when the model package isn't otherwise used.

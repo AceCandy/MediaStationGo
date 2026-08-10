@@ -121,7 +121,7 @@ export function useLibraryAdminActions({
   const handleSeriesOrganize = async () => {
     if (!selectedSeries || selectedSeriesEpisodes.length === 0 || !library) return
     const source = seriesSourceRoot(selectedSeriesEpisodes)
-    if (!source || source.toLowerCase().startsWith('cloud://')) {
+    if (!source) {
       toast.error('当前合集不是本地文件夹，无法使用本地整理入库')
       return
     }

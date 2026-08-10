@@ -107,13 +107,13 @@ func (e *EmbyService) userPayload(u *model.User) map[string]any {
 			"EnableUserPreferenceAccess":     true,
 			"EnableRemoteAccess":             true,
 			"EnableMediaPlayback":            true,
-			"EnableAudioPlaybackTranscoding": true,
-			"EnableVideoPlaybackTranscoding": true,
-			"EnablePlaybackRemuxing":         true,
+			"EnableAudioPlaybackTranscoding": false,
+			"EnableVideoPlaybackTranscoding": false,
+			"EnablePlaybackRemuxing":         false,
 			"EnableLiveTvAccess":             false,
 			"EnableContentDownloading":       canDownload,
-			"EnableSyncTranscoding":          canDownload,
-			"EnableMediaConversion":          canDownload,
+			"EnableSyncTranscoding":          false,
+			"EnableMediaConversion":          false,
 			"EnableAllChannels":              true,
 			"EnableAllFolders":               true,
 			"EnableAllDevices":               true,
@@ -129,7 +129,6 @@ func (e *EmbyService) Views(ctx context.Context, userID string) (map[string]any,
 	if err != nil {
 		return nil, err
 	}
-	libs = FilterDisplayCloudLibraries(ctx, e.repo, libs)
 	visibility := e.mediaVisibility(ctx, userID)
 	items := make([]map[string]any, 0, len(libs))
 	for _, l := range libs {

@@ -113,12 +113,29 @@ func normalizeReclassifyMediaTypeHints(values map[string]string) map[string]stri
 	return out
 }
 
+func compactLibraryIDs(ids ...string) []string {
+	out := make([]string, 0, len(ids))
+	seen := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		out = append(out, id)
+	}
+	return out
+}
+
 func (o *OrganizerService) reclassifyScannedMedia(ctx context.Context, media model.Media, lib model.Library, mediaTypeHint string, opts OrganizeOptions, dryRun bool, res *OrganizeResult) (bool, error) {
 	if res == nil || !lib.Enabled || strings.TrimSpace(media.Path) == "" {
 		return false, nil
 	}
-	if mount, ok := ParseCloudLibraryMount(lib.Path); ok {
-		return o.reclassifyCloudScannedMedia(ctx, media, lib, mount, mediaTypeHint, dryRun, res)
+	if isRetiredCloudPath(lib.Path) {
+		return false, nil
 	}
 	if !organizeFileExists(media.Path) {
 		return false, nil

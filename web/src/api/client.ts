@@ -144,11 +144,6 @@ export function streamURL(mediaId: string): string {
   return `/api/stream/${encodeURIComponent(mediaId)}?${tokenQuery()}${profileQuery()}`
 }
 
-// hlsURL returns the m3u8 playlist URL fed into hls.js.
-export function hlsURL(mediaId: string): string {
-  return `/api/hls/${encodeURIComponent(mediaId)}/index.m3u8?${tokenQuery()}${profileQuery()}`
-}
-
 // imageURL converts a remote poster URL into a same-origin proxy URL so it
 // can never be blocked by CORS / GFW. Empty strings pass through unchanged.
 export type ImageURLOptions =
@@ -167,7 +162,6 @@ export function imageURL(remote?: string, version?: string, options: ImageURLOpt
   const refreshQuery = refreshCache ? 'refresh=1' : ''
   const imageQuery = [versionQuery, retryQuery, refreshQuery].filter(Boolean).join('&')
   if (remote.startsWith('/api/img')) return withQuery(withoutAuthQuery(remote), imageQuery)
-  if (remote.startsWith('/api/cloud/play/')) return withQuery(withoutAuthQuery(remote), imageQuery)
   if (remote.startsWith('/api/')) return withQuery(withQuery(remote, tokenQuery()), imageQuery)
   return withQuery(`/api/img?url=${encodeURIComponent(remote)}`, imageQuery)
 }

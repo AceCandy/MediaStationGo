@@ -43,7 +43,6 @@ func TestEmbyMediaStreamsMapCompleteProbeAndLiveSidecar(t *testing.T) {
 	mediaProbe := NewMediaProbeService(repos, nil)
 	subtitles := NewSubtitleService(zap.NewNop(), repos)
 	subtitles.SetMediaProbe(mediaProbe)
-	subtitles.SetConfig(&config.Config{})
 	emby := NewEmbyService(&config.Config{}, zap.NewNop(), repos)
 	emby.SetMediaProbe(mediaProbe)
 	emby.SetSubtitle(subtitles)
@@ -60,8 +59,8 @@ func TestEmbyMediaStreamsMapCompleteProbeAndLiveSidecar(t *testing.T) {
 	if streams[2]["Index"] != 4 {
 		t.Fatalf("embedded subtitle index changed: %#v", streams)
 	}
-	if streams[2]["IsExternal"] != true || streams[2]["DeliveryMethod"] != "External" {
-		t.Fatalf("embedded subtitle is not externally deliverable: %#v", streams[2])
+	if streams[2]["IsExternal"] != false || streams[2]["DeliveryUrl"] != nil {
+		t.Fatalf("embedded subtitle should remain an in-file track without extraction URL: %#v", streams[2])
 	}
 	if streams[3]["Index"] != 5 || streams[3]["IsExternal"] != true || streams[3]["DeliveryUrl"] != embySubtitleDeliveryURL(media.ID, 5) {
 		t.Fatalf("sidecar stream mapped incorrectly: %#v", streams[3])
@@ -141,7 +140,6 @@ func TestEmbyItemsUseScalarStreamsWhileItemUsesCompleteProbeDocument(t *testing.
 	}
 	subtitles := NewSubtitleService(zap.NewNop(), svc.repo)
 	subtitles.SetMediaProbe(mediaProbe)
-	subtitles.SetConfig(&config.Config{})
 	svc.SetSubtitle(subtitles)
 
 	listed, err := svc.Items(t.Context(), ItemsParams{ParentID: lib.ID, Recursive: true, Limit: 10})

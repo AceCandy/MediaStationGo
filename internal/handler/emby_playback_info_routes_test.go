@@ -87,13 +87,12 @@ func TestEmbyLowercasePlaybackInfoRouteReturnsJSON(t *testing.T) {
 	if !strings.Contains(directURL, "api_key=") {
 		t.Fatalf("DirectStreamUrl should carry api_key for clients that do not repeat auth headers: %#v", source)
 	}
-	transcodeURL, _ := source["TranscodingUrl"].(string)
-	if transcodeURL != "" && !strings.Contains(transcodeURL, "api_key=") {
-		t.Fatalf("TranscodingUrl should carry api_key: %#v", source)
+	if _, ok := source["TranscodingUrl"]; ok {
+		t.Fatalf("direct-only PlaybackInfo must omit TranscodingUrl: %#v", source)
 	}
 }
 
-func TestEmbyPlaybackInfoDoesNotExposeTokenInCloudPath(t *testing.T) {
+func TestEmbyPlaybackInfoDoesNotExposeTokenInRemotePath(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db, err := testdb.OpenPostgres(t, &gorm.Config{})
 	if err != nil {
@@ -103,9 +102,6 @@ func TestEmbyPlaybackInfoDoesNotExposeTokenInCloudPath(t *testing.T) {
 		t.Fatalf("migrate: %v", err)
 	}
 	repos := repository.New(db)
-	if err := repos.Setting.Set(t.Context(), service.CloudPlaybackModeSettingKey, service.CloudPlaybackModeSTRM); err != nil {
-		t.Fatalf("set cloud playback mode: %v", err)
-	}
 	if err := repos.User.Create(t.Context(), &model.User{
 		Base:         model.Base{ID: "user-1"},
 		Username:     "tester",
@@ -116,16 +112,16 @@ func TestEmbyPlaybackInfoDoesNotExposeTokenInCloudPath(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("create user: %v", err)
 	}
-	lib := model.Library{Name: "OpenList", Path: "cloud://openlist/Movies", Type: "movie", Enabled: true}
+	lib := model.Library{Name: "远程电影", Path: t.TempDir(), Type: "movie", Enabled: true}
 	if err := repos.Library.Create(t.Context(), &lib); err != nil {
 		t.Fatalf("create library: %v", err)
 	}
 	if err := db.Create(&model.Media{
-		Base:      model.Base{ID: "cloud-1"},
+		Base:      model.Base{ID: "remote-1"},
 		LibraryID: lib.ID,
-		Title:     "Cloud Movie",
-		Path:      "cloud://openlist/Movies/Movie.mkv",
-		STRMURL:   "/api/cloud/play/openlist?ref=%2FMovies%2FMovie.mkv",
+		Title:     "Remote Movie",
+		Path:      "https://example.invalid/Movies/Movie.mkv",
+		STRMURL:   "https://example.invalid/Movies/Movie.mkv",
 		Container: "mkv",
 	}).Error; err != nil {
 		t.Fatalf("create media: %v", err)
@@ -138,7 +134,7 @@ func TestEmbyPlaybackInfoDoesNotExposeTokenInCloudPath(t *testing.T) {
 		Emby: service.NewEmbyService(&config.Config{}, zap.NewNop(), repos),
 	})
 
-	req := httptest.NewRequest(http.MethodGet, "/users/user-1/items/cloud-1/playbackinfo", nil)
+	req := httptest.NewRequest(http.MethodGet, "/users/user-1/items/remote-1/playbackinfo", nil)
 	req.Header.Set("X-Emby-Token", signedTestToken(t, secret))
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
@@ -152,28 +148,25 @@ func TestEmbyPlaybackInfoDoesNotExposeTokenInCloudPath(t *testing.T) {
 	}
 	source := body["MediaSources"].([]any)[0].(map[string]any)
 	pathURL, _ := source["Path"].(string)
-	if pathURL != "/api/stream/cloud-1" {
-		t.Fatalf("cloud Path should stay as non-tokenized display stream URL, got %#v", source)
+	if pathURL != "/Videos/remote-1/stream.mkv" {
+		t.Fatalf("remote Path should stay as non-tokenized stream URL, got %#v", source)
 	}
 	if strings.Contains(pathURL, "api_key=") || strings.Contains(pathURL, "token=") {
-		t.Fatalf("cloud Path must not expose auth key/token: %#v", source)
-	}
-	if strings.Contains(pathURL, "/api/cloud/play/") {
-		t.Fatalf("cloud Path should not expose naked cloud play URL: %#v", source)
+		t.Fatalf("remote Path must not expose auth key/token: %#v", source)
 	}
 	directURL, _ := source["DirectStreamUrl"].(string)
-	if !strings.HasPrefix(directURL, "/api/stream/cloud-1") || !strings.Contains(directURL, "api_key=") {
+	if !strings.HasPrefix(directURL, "/Videos/remote-1/stream.mkv") || !strings.Contains(directURL, "api_key=") {
 		t.Fatalf("DirectStreamUrl should stay tokenized: %#v", source)
 	}
 	if source["SupportsDirectPlay"] != true {
-		t.Fatalf("cloud media should advertise DirectPlay when tokenized Path is playable: %#v", source)
+		t.Fatalf("remote media should advertise DirectPlay when tokenized Path is playable: %#v", source)
 	}
 	if source["SupportsTranscoding"] != false {
-		t.Fatalf("cloud media should not advertise host transcoding: %#v", source)
+		t.Fatalf("remote media should not advertise host transcoding: %#v", source)
 	}
 }
 
-func TestEmbyItemsDoNotExposeTokenInEmbeddedCloudPath(t *testing.T) {
+func TestEmbyItemsDoNotExposeTokenInEmbeddedRemotePath(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db, err := testdb.OpenPostgres(t, &gorm.Config{})
 	if err != nil {
@@ -183,9 +176,6 @@ func TestEmbyItemsDoNotExposeTokenInEmbeddedCloudPath(t *testing.T) {
 		t.Fatalf("migrate: %v", err)
 	}
 	repos := repository.New(db)
-	if err := repos.Setting.Set(t.Context(), service.CloudPlaybackModeSettingKey, service.CloudPlaybackModeSTRM); err != nil {
-		t.Fatalf("set cloud playback mode: %v", err)
-	}
 	if err := repos.User.Create(t.Context(), &model.User{
 		Base:         model.Base{ID: "user-1"},
 		Username:     "tester",
@@ -196,16 +186,16 @@ func TestEmbyItemsDoNotExposeTokenInEmbeddedCloudPath(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("create user: %v", err)
 	}
-	lib := model.Library{Name: "OpenList", Path: "cloud://openlist/Movies", Type: "movie", Enabled: true}
+	lib := model.Library{Name: "远程电影", Path: t.TempDir(), Type: "movie", Enabled: true}
 	if err := repos.Library.Create(t.Context(), &lib); err != nil {
 		t.Fatalf("create library: %v", err)
 	}
 	if err := db.Create(&model.Media{
-		Base:      model.Base{ID: "cloud-1"},
+		Base:      model.Base{ID: "remote-1"},
 		LibraryID: lib.ID,
-		Title:     "Cloud Movie",
-		Path:      "cloud://openlist/Movies/Movie.mkv",
-		STRMURL:   "/api/cloud/play/openlist?ref=%2FMovies%2FMovie.mkv",
+		Title:     "Remote Movie",
+		Path:      "https://example.invalid/Movies/Movie.mkv",
+		STRMURL:   "https://example.invalid/Movies/Movie.mkv",
 		Container: "mkv",
 	}).Error; err != nil {
 		t.Fatalf("create media: %v", err)
@@ -236,10 +226,10 @@ func TestEmbyItemsDoNotExposeTokenInEmbeddedCloudPath(t *testing.T) {
 	}
 	source := items[0].(map[string]any)["MediaSources"].([]any)[0].(map[string]any)
 	pathURL, _ := source["Path"].(string)
-	if pathURL != "/api/stream/cloud-1" {
-		t.Fatalf("embedded cloud Path should stay as non-tokenized display stream URL, got %#v", source)
+	if pathURL != "/Videos/remote-1/stream.mkv" {
+		t.Fatalf("embedded remote Path should stay as non-tokenized stream URL, got %#v", source)
 	}
 	if strings.Contains(pathURL, "api_key=") || strings.Contains(pathURL, "token=") {
-		t.Fatalf("embedded cloud Path must not expose auth key/token: %#v", source)
+		t.Fatalf("embedded remote Path must not expose auth key/token: %#v", source)
 	}
 }

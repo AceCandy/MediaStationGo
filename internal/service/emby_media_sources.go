@@ -13,18 +13,18 @@ import (
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 )
 
-func (e *EmbyService) mediaSourcesForItem(ctx context.Context, m *model.Media, asEmbedded, directOnly bool) []map[string]any {
+func (e *EmbyService) mediaSourcesForItem(ctx context.Context, m *model.Media, asEmbedded bool) []map[string]any {
 	if m == nil {
 		return nil
 	}
 	view, err := e.repo.MediaView.FindByID(ctx, m.ID)
 	if err != nil || view == nil {
-		return []map[string]any{e.mediaSource(ctx, m, embyMediaVersionName(m, m.Title), asEmbedded, directOnly)}
+		return []map[string]any{e.mediaSource(ctx, m, embyMediaVersionName(m, m.Title), asEmbedded)}
 	}
-	return e.mediaSourcesForView(ctx, view, "", asEmbedded, directOnly, true)
+	return e.mediaSourcesForView(ctx, view, "", asEmbedded, true)
 }
 
-func (e *EmbyService) mediaSourcesForView(ctx context.Context, m *model.MediaView, userID string, asEmbedded, directOnly, completeStreams bool) []map[string]any {
+func (e *EmbyService) mediaSourcesForView(ctx context.Context, m *model.MediaView, userID string, asEmbedded, completeStreams bool) []map[string]any {
 	siblings := e.mediaVersionSiblings(ctx, m, userID)
 	if len(siblings) == 0 {
 		siblings = []model.MediaView{*m}
@@ -33,21 +33,21 @@ func (e *EmbyService) mediaSourcesForView(ctx context.Context, m *model.MediaVie
 		for i := range siblings {
 			e.ensureTrackMetadata(ctx, &siblings[i].Media)
 		}
-		return e.mediaSourcesFromViews(ctx, siblings, asEmbedded, directOnly)
+		return e.mediaSourcesFromViews(ctx, siblings, asEmbedded)
 	}
 	sources := make([]map[string]any, 0, len(siblings))
 	for i := range siblings {
 		name := embyMediaVersionName(&siblings[i].Media, siblings[i].Title)
-		sources = append(sources, e.mediaSourceWithSelection(ctx, &siblings[i].Media, name, asEmbedded, directOnly, nil, PlaybackSelection{}, false))
+		sources = append(sources, e.mediaSourceWithSelection(ctx, &siblings[i].Media, name, asEmbedded, nil, PlaybackSelection{}, false))
 	}
 	return sources
 }
 
-func (e *EmbyService) mediaSourcesFromViews(ctx context.Context, siblings []model.MediaView, asEmbedded, directOnly bool) []map[string]any {
-	return e.mediaSourcesFromViewsWithSelection(ctx, siblings, asEmbedded, directOnly, PlaybackSelection{})
+func (e *EmbyService) mediaSourcesFromViews(ctx context.Context, siblings []model.MediaView, asEmbedded bool) []map[string]any {
+	return e.mediaSourcesFromViewsWithSelection(ctx, siblings, asEmbedded, PlaybackSelection{})
 }
 
-func (e *EmbyService) mediaSourcesFromViewsWithSelection(ctx context.Context, siblings []model.MediaView, asEmbedded, directOnly bool, selection PlaybackSelection) []map[string]any {
+func (e *EmbyService) mediaSourcesFromViewsWithSelection(ctx context.Context, siblings []model.MediaView, asEmbedded bool, selection PlaybackSelection) []map[string]any {
 	ids := make([]string, 0, len(siblings))
 	for i := range siblings {
 		ids = append(ids, siblings[i].ID)
@@ -59,7 +59,7 @@ func (e *EmbyService) mediaSourcesFromViewsWithSelection(ctx context.Context, si
 	sources := make([]map[string]any, 0, len(siblings))
 	for i := range siblings {
 		name := embyMediaVersionName(&siblings[i].Media, siblings[i].Title)
-		sources = append(sources, e.mediaSourceWithSelection(ctx, &siblings[i].Media, name, asEmbedded, directOnly, documents[siblings[i].ID], selection, true))
+		sources = append(sources, e.mediaSourceWithSelection(ctx, &siblings[i].Media, name, asEmbedded, documents[siblings[i].ID], selection, true))
 	}
 	return sources
 }
@@ -211,10 +211,10 @@ func (e *EmbyService) mediaVersionKey(ctx context.Context, m *model.MediaView) s
 }
 
 func preferMediaVersion(candidate, current model.Media) bool {
-	candidateCloud := strings.TrimSpace(candidate.STRMURL) != "" || strings.HasPrefix(strings.ToLower(strings.TrimSpace(candidate.Path)), "cloud://")
-	currentCloud := strings.TrimSpace(current.STRMURL) != "" || strings.HasPrefix(strings.ToLower(strings.TrimSpace(current.Path)), "cloud://")
-	if candidateCloud != currentCloud {
-		return !candidateCloud
+	candidateRemote := strings.TrimSpace(candidate.STRMURL) != ""
+	currentRemote := strings.TrimSpace(current.STRMURL) != ""
+	if candidateRemote != currentRemote {
+		return !candidateRemote
 	}
 	if candidate.Width != current.Width {
 		return candidate.Width > current.Width
@@ -382,17 +382,20 @@ func mapProbeStream(stream ProbeStream) map[string]any {
 }
 
 func mapSubtitleSelection(mediaID string, subtitle SubtitleSelection) map[string]any {
-	// Embedded subtitles also use the controlled extraction URL, so Emby must request both kinds externally.
-	return map[string]any{
+	mapped := map[string]any{
 		"Codec": subtitle.Codec, "Type": "Subtitle", "Language": subtitle.Language,
 		"DisplayLanguage": probeDisplayLanguage(subtitle.Language), "Title": subtitle.Title,
 		"DisplayTitle": subtitleDisplayTitle(subtitle), "Index": subtitle.Index,
 		"IsDefault": subtitle.Default, "IsForced": subtitle.Forced,
 		"IsHearingImpaired": subtitle.HearingImpaired, "IsVisualImpaired": subtitle.VisualImpaired,
-		"IsExternal": true, "IsTextSubtitleStream": isTextSubtitleCodec(subtitle.Codec),
-		"SupportsExternalStream": true, "Protocol": "File", "DeliveryMethod": "External",
-		"DeliveryUrl": embySubtitleDeliveryURL(mediaID, subtitle.Index),
+		"IsExternal": subtitle.External, "IsTextSubtitleStream": isTextSubtitleCodec(subtitle.Codec),
+		"SupportsExternalStream": subtitle.External, "Protocol": "File",
 	}
+	if subtitle.External {
+		mapped["DeliveryMethod"] = "External"
+		mapped["DeliveryUrl"] = embySubtitleDeliveryURL(mediaID, subtitle.Index)
+	}
+	return mapped
 }
 
 func setStringValue(target map[string]any, key, value string) {

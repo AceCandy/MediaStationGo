@@ -1,4 +1,4 @@
-import { ArrowLeft, Heart, Play, RefreshCw } from 'lucide-react'
+import { ArrowLeft, Heart, Play } from 'lucide-react'
 import { Link } from 'react-router-dom'
 
 import { ExternalPlayerButton } from '../components/ExternalPlayerButton'
@@ -93,14 +93,6 @@ export function MediaDetailPlaybackActions({
       <Link to={`/play/${media.id}`} className="btn-primary px-6 py-3.5 shadow-sm">
         <Play size={16} fill="currentColor" />
         <span>立即播放</span>
-      </Link>
-
-      <Link
-        to={`/play/${media.id}?mode=hls`}
-        className="btn-outline border-brand-500/30 hover:border-brand-500 text-[#c9954a] hover:bg-brand-50 px-5"
-      >
-        <RefreshCw size={14} className="animate-spin-slow" />
-        <span>HLS 兼容转码播放</span>
       </Link>
 
       <ExternalPlayerButton mediaId={media.id} />

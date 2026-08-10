@@ -38,7 +38,6 @@ export function AdminPage() {
         title="统一管理入口"
         description="侧栏保持精简，完整管理能力统一从这里进入。"
         items={[
-          { to: '/sites', title: '站点管理', description: '维护 PT 站点、认证方式和检索配置', group: '站点与搜索' },
           { to: '/files', title: '手动整理', description: '从下载目录选择文件夹并整理入库', group: '文件与入库' },
           { to: '/storage', title: '存储与文件', description: '查看占用、清理重复项和管理文件', group: '文件与入库' },
           { to: '/notify-channels', title: '通知渠道', description: '配置 Bot、Webhook、邮件等通知出口', group: '系统运维' },

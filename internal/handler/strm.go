@@ -2,8 +2,7 @@
 //
 // Setting a media row's strm_url makes the stream handler issue a 302
 // redirect to that URL instead of opening a local file. This lets the
-// operator expose WebDAV / Alist / S3 / HTTP direct links as ordinary
-// MediaStationGo entries.
+// operator expose HTTP/HTTPS media links as ordinary MediaStationGo entries.
 package handler
 
 import (
@@ -111,25 +110,6 @@ type generateSTRMReq struct {
 	ScrapeAfter  bool   `json:"scrape_after"`
 }
 
-type generateSTRMTreeReq struct {
-	Provider          string   `json:"provider"`
-	TreeText          string   `json:"tree_text"`
-	Paths             []string `json:"paths"`
-	SourceRoot        string   `json:"source_root"`
-	OutputPrefix      string   `json:"output_prefix"`
-	OutputDir         string   `json:"output_dir"`
-	BaseURL           string   `json:"base_url"`
-	Overwrite         bool     `json:"overwrite"`
-	Cleanup           bool     `json:"cleanup"`
-	DryRun            bool     `json:"dry_run"`
-	BatchLimit        int      `json:"batch_limit"`
-	RecognizeRename   bool     `json:"recognize_rename"`
-	TransferSubtitles bool     `json:"transfer_subtitles"`
-	MissingOnly       bool     `json:"missing_only"`
-	RefreshLibrary    bool     `json:"refresh_library"`
-	ScrapeAfter       bool     `json:"scrape_after"`
-}
-
 type repairSTRMReq struct {
 	OutputDir      string `json:"output_dir" binding:"required"`
 	BaseURL        string `json:"base_url"`
@@ -192,52 +172,6 @@ func generateSTRMHandler(svc *service.Container) gin.HandlerFunc {
 		if req.Refresh {
 			res.Refresh = queueSTRMRefreshAfterChanges(c.Request.Context(), svc, res.OutputDir, strmRefreshQueueOptions{
 				TaskName:    "STRM 生成后刷新媒体库",
-				Changed:     strmGenerationChanged(res),
-				ScrapeAfter: req.ScrapeAfter,
-			})
-		}
-		c.JSON(http.StatusOK, res)
-	}
-}
-
-func generateSTRMFromTreeHandler(svc *service.Container) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		var req generateSTRMTreeReq
-		if err := c.ShouldBindJSON(&req); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-			return
-		}
-		strmSvc := svc.STRM
-		if strmSvc == nil {
-			strmSvc = service.NewSTRMService(svc.Log, svc.Repo, svc.Cfg)
-		}
-		baseURL := strings.TrimRight(strings.TrimSpace(req.BaseURL), "/")
-		if baseURL == "" {
-			baseURL = strings.TrimRight(absoluteRequestURL(c, "/"), "/")
-		}
-		res, err := strmSvc.GenerateFromTree(c.Request.Context(), service.GenerateSTRMTreeOptions{
-			Provider:          req.Provider,
-			TreeText:          req.TreeText,
-			Paths:             req.Paths,
-			SourceRoot:        req.SourceRoot,
-			OutputPrefix:      req.OutputPrefix,
-			OutputDir:         req.OutputDir,
-			BaseURL:           baseURL,
-			Overwrite:         req.Overwrite,
-			Cleanup:           req.Cleanup,
-			DryRun:            req.DryRun,
-			BatchLimit:        req.BatchLimit,
-			RecognizeRename:   req.RecognizeRename,
-			TransferSubtitles: req.TransferSubtitles,
-			MissingOnly:       req.MissingOnly,
-		})
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-			return
-		}
-		if req.RefreshLibrary && !req.DryRun {
-			res.Refresh = queueSTRMRefreshAfterChanges(c.Request.Context(), svc, res.OutputDir, strmRefreshQueueOptions{
-				TaskName:    "STRM 目录树生成后刷新媒体库",
 				Changed:     strmGenerationChanged(res),
 				ScrapeAfter: req.ScrapeAfter,
 			})

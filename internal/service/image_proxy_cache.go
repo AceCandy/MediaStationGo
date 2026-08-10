@@ -68,17 +68,6 @@ func serveCachedPlaceholder(w http.ResponseWriter) {
 	_, _ = w.Write(transparent1x1PNG)
 }
 
-func (p *ImageProxy) cloudImageCachePaths(stableKey string) (string, string, string) {
-	stableKey = strings.TrimSpace(stableKey)
-	if stableKey == "" {
-		stableKey = "unknown"
-	}
-	sum := sha256.Sum256([]byte("cloud-image:" + stableKey))
-	key := "cloud-" + hex.EncodeToString(sum[:])
-	cachePath := filepath.Join(p.cacheDir, key)
-	return key, cachePath, cachePath + ".fail"
-}
-
 func (p *ImageProxy) remoteImageCachePaths(raw string) (string, string, string, error) {
 	if _, err := p.validateURL(raw); err != nil {
 		return "", "", "", err

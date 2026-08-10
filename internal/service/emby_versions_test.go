@@ -12,11 +12,11 @@ import (
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 )
 
-func TestEmbyLatestItemsIncludesMergedCloudMovieLibrary(t *testing.T) {
+func TestEmbyLatestItemsStayWithinRequestedLibrary(t *testing.T) {
 	svc := newTestEmbyService(t)
 	local := model.Library{Name: "国产电影", Path: `/media/国产电影`, Type: "movie", Enabled: true}
-	cloud := model.Library{Name: "OpenList · 国产电影", Path: BuildCloudLibraryPath("openlist", "/国产电影", "/国产电影"), Type: "movie", Enabled: true}
-	for _, lib := range []*model.Library{&local, &cloud} {
+	other := model.Library{Name: "其他电影", Path: `/media/其他电影`, Type: "movie", Enabled: true}
+	for _, lib := range []*model.Library{&local, &other} {
 		if err := svc.repo.Library.Create(t.Context(), lib); err != nil {
 			t.Fatalf("create library: %v", err)
 		}
@@ -29,10 +29,10 @@ func TestEmbyLatestItemsIncludesMergedCloudMovieLibrary(t *testing.T) {
 			Path:      `/media/国产电影/local.mkv`,
 		},
 		{
-			Base:      model.Base{ID: "cloud-movie", CreatedAt: time.Now()},
-			LibraryID: cloud.ID,
-			Title:     "云盘版本",
-			Path:      `cloud://openlist/国产电影/cloud.mkv`,
+			Base:      model.Base{ID: "other-movie", CreatedAt: time.Now()},
+			LibraryID: other.ID,
+			Title:     "其他版本",
+			Path:      `/media/其他电影/other.mkv`,
 		},
 	}
 	for i := range media {
@@ -45,19 +45,19 @@ func TestEmbyLatestItemsIncludesMergedCloudMovieLibrary(t *testing.T) {
 	if err != nil {
 		t.Fatalf("latest items: %v", err)
 	}
-	if len(latest) != 2 {
-		t.Fatalf("latest items = %#v, want local and merged cloud media", latest)
+	if len(latest) != 1 {
+		t.Fatalf("latest items = %#v, want requested library only", latest)
 	}
-	if latest[0]["Id"] != media[1].MetadataID || latest[1]["Id"] != media[0].MetadataID {
-		t.Fatalf("latest order/items = %#v, want cloud then local", latest)
+	if latest[0]["Id"] != media[0].MetadataID {
+		t.Fatalf("latest item = %#v, want local media", latest)
 	}
 }
 
-func TestEmbyMergedLocalCloudMovieVersionsShareMediaSources(t *testing.T) {
+func TestEmbyLocalAndHTTPMovieVersionsShareMediaSources(t *testing.T) {
 	svc := newTestEmbyService(t)
 	local := model.Library{Name: "国产电影", Path: `/media/国产电影`, Type: "movie", Enabled: true}
-	cloud := model.Library{Name: "OpenList · 国产电影", Path: BuildCloudLibraryPath("openlist", "/国产电影", "/国产电影"), Type: "movie", Enabled: true}
-	for _, lib := range []*model.Library{&local, &cloud} {
+	remote := model.Library{Name: "远程电影", Path: `/media/远程电影`, Type: "movie", Enabled: true}
+	for _, lib := range []*model.Library{&local, &remote} {
 		if err := svc.repo.Library.Create(t.Context(), lib); err != nil {
 			t.Fatalf("create library: %v", err)
 		}
@@ -77,14 +77,14 @@ func TestEmbyMergedLocalCloudMovieVersionsShareMediaSources(t *testing.T) {
 			Width:      1920,
 		},
 		{
-			Base:       model.Base{ID: "cloud-version", CreatedAt: time.Now().Add(time.Minute)},
-			LibraryID:  cloud.ID,
+			Base:       model.Base{ID: "remote-version", CreatedAt: time.Now().Add(time.Minute)},
+			LibraryID:  remote.ID,
 			MetadataID: metadata.ID,
 			Title:      "流浪地球",
 			Year:       2019,
-			Path:       `cloud://openlist/国产电影/流浪地球.2019.2160p.mkv`,
+			Path:       `https://example.invalid/流浪地球.2019.2160p.mkv`,
 			Container:  "mkv",
-			STRMURL:    "https://example.invalid/cloud",
+			STRMURL:    "https://example.invalid/流浪地球.2019.2160p.mkv",
 			Width:      3840,
 		},
 	} {
@@ -99,14 +99,14 @@ func TestEmbyMergedLocalCloudMovieVersionsShareMediaSources(t *testing.T) {
 	}
 	rows := items["Items"].([]map[string]any)
 	if len(rows) != 1 {
-		t.Fatalf("merged local/cloud versions should show as one item, got %#v", rows)
+		t.Fatalf("local/HTTP versions should show as one item, got %#v", rows)
 	}
 	if rows[0]["Id"] != metadata.ID {
 		t.Fatalf("item id should use shared metadata, got %#v", rows[0])
 	}
 	sources := rows[0]["MediaSources"].([]map[string]any)
 	if len(sources) != 2 {
-		t.Fatalf("merged item should expose two media sources, got %#v", sources)
+		t.Fatalf("item should expose two media sources, got %#v", sources)
 	}
 
 	playback, err := svc.PlaybackInfo(t.Context(), "local-version", "user-1")
@@ -115,7 +115,7 @@ func TestEmbyMergedLocalCloudMovieVersionsShareMediaSources(t *testing.T) {
 	}
 	playSources := playback["MediaSources"].([]map[string]any)
 	if len(playSources) != 2 {
-		t.Fatalf("playback should expose local and cloud versions, got %#v", playSources)
+		t.Fatalf("playback should expose local and HTTP versions, got %#v", playSources)
 	}
 }
 

@@ -66,7 +66,7 @@ type Media struct {
 
 	// STRMURL is the indirection target for .strm files: when present the
 	// stream handler redirects to it instead of opening the local file.
-	// Used to expose WebDAV / Alist / S3 / HTTP direct links as media items.
+	// Only absolute HTTP/HTTPS targets are accepted by public entry points.
 	STRMURL string `gorm:"size:2048" json:"strm_url,omitempty"`
 
 	LibraryName string `gorm:"-" json:"library_name,omitempty"`

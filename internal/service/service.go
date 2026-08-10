@@ -1,6 +1,6 @@
 // Package service 包含 MediaStationGo 的业务逻辑。
 // Handler 反序列化 HTTP 请求，调用 Service 方法，然后序列化响应。
-// Services 拥有所有横切策略（认证、扫描、转码等）且不直接处理 HTTP 类型。
+// Services 拥有所有横切策略（认证、扫描等）且不直接处理 HTTP 类型。
 package service
 
 import (
@@ -25,7 +25,6 @@ type Container struct {
 	Media            *MediaService
 	Scan             *ScannerService
 	Stream           *StreamService
-	Transcoder       *TranscoderService
 	FFprobe          *FFprobeService
 	MediaProbe       *MediaProbeService
 	TMDb             *TMDbProvider
@@ -57,7 +56,6 @@ type Container struct {
 	TelegramBot      *TelegramBotService
 	PlayProfiles     *PlayProfileService
 	Permissions      *PermissionService
-	StorageCfg       *StorageConfigService
 	STRM             *STRMService
 	SystemUpdate     *SystemUpdateService
 	Assistant        *AssistantService
@@ -67,7 +65,6 @@ type Container struct {
 	Token            *TokenService
 	ApiConfig        *ApiConfigService
 	Notify           *NotifyService
-	Site             *SiteService
 	Device           *DeviceService
 	Cache            *RuntimeCacheService
 	Sessions         *SessionTrackerService
@@ -93,9 +90,6 @@ func (c *Container) Boot() {
 	if err := c.NormalizeLocalLibraryPaths(c.stopCtx); err != nil {
 		c.Log.Warn("normalize local library paths failed", zap.Error(err))
 	}
-	if err := c.NormalizeCloudLibraryTypes(c.stopCtx); err != nil {
-		c.Log.Warn("normalize cloud library types failed", zap.Error(err))
-	}
 	if err := c.Watcher.Start(c.stopCtx); err != nil {
 		c.Log.Warn("watcher start failed", zap.Error(err))
 	}
@@ -110,12 +104,6 @@ func (c *Container) Boot() {
 
 	// 启动调度器定时任务
 	c.Scheduler.Start(c.stopCtx)
-
-	// 云盘存储健康检查
-	c.BootCloudStorageHealthCheck(c.stopCtx)
-
-	// 自动扫描云盘媒体库，使内容对所有用户立即可见
-	c.BootCloudLibraries(c.stopCtx)
 
 	// Mgo 保号规则巡检：默认关闭，由管理员通过 Telegram Bot 命令开启。
 	// 每天触发一次评估；规则里的窗口可随机，不固定。
@@ -151,7 +139,7 @@ func (c *Container) runInactivitySweeper(ctx context.Context) {
 	}
 }
 
-// Close 释放 services 持有的任何资源（websocket hub, ffmpeg 转码, fsnotify, 后台轮询器）。
+// Close 释放 services 持有的任何资源（websocket hub、fsnotify、后台轮询器）。
 func (c *Container) Close() {
 	if c.stopCancel != nil {
 		c.stopCancel()
@@ -165,9 +153,6 @@ func (c *Container) Close() {
 	}
 	if c.Watcher != nil {
 		c.Watcher.Stop()
-	}
-	if c.Transcoder != nil {
-		c.Transcoder.StopAll()
 	}
 	if c.Cache != nil {
 		_ = c.Cache.Close()

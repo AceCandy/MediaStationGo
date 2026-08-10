@@ -40,7 +40,6 @@ func registerAuthedSearchRoutes(authed *gin.RouterGroup, svc *service.Container)
 	authed.GET("/search", searchUnifiedHandler(svc))
 	authed.GET("/search/advanced", searchAdvancedHandler(svc))
 	authed.GET("/search/tmdb", searchTMDbHandler(svc))
-	authed.GET("/search/sites", searchSitesHandler(svc))
 }
 
 func registerAuthedSystemExtraRoutes(authed *gin.RouterGroup, svc *service.Container) {
@@ -53,11 +52,6 @@ func registerAuthedStatsExtraRoutes(authed *gin.RouterGroup, svc *service.Contai
 	authed.GET("/stats/user/:id", statsUserHandler(svc))
 	authed.GET("/stats/top-users", statsTopUsersHandler(svc))
 	authed.POST("/stats/play", statsPlayHandler(svc))
-}
-
-func registerAuthedSitesExtraRoutes(authed *gin.RouterGroup, svc *service.Container) {
-	authed.GET("/sites/:id/resource", requirePermission(svc, "can_manage_sites"), siteResourceHandler(svc))
-	authed.GET("/sites/:id/userdata", requirePermission(svc, "can_manage_sites"), siteUserdataHandler(svc))
 }
 
 func registerAuthedPlaylistExtraRoutes(authed *gin.RouterGroup, svc *service.Container) {
@@ -87,7 +81,6 @@ func registerAuthedPlaybackExtraRoutes(authed *gin.RouterGroup, svc *service.Con
 	authed.POST("/playback/:id/progress", playbackProgressHandler(svc))
 	authed.GET("/playback/:id/external-players", externalPlayersHandler(svc))
 	authed.GET("/playback/:id/external-url", externalURLHandler(svc))
-	authed.GET("/playback/transcode/:job_id/status", transcodeStatusHandler(svc))
 }
 
 func registerAuthedAssistantRoutes(authed *gin.RouterGroup, svc *service.Container) {

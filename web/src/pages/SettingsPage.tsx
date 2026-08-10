@@ -77,7 +77,7 @@ export function SettingsPage() {
         <div>
           <h1 className="font-display text-3xl font-bold text-ink-600">系统设置</h1>
           <p className="text-sm text-ink-50">
-            按分组编辑转码 / 网盘转存 / Adult 等关键配置
+            按分组编辑媒体探测、识别规则、系统更新与内容访问配置
           </p>
         </div>
       </div>

@@ -3,7 +3,6 @@ import toast from 'react-hot-toast'
 import { Activity, Copy } from 'lucide-react'
 
 import { tasksAPI, type BackgroundTask, type TasksSnapshot } from '../api/tasks'
-import { TranscodeTaskTable } from './TaskRuntimeTables'
 
 const metricLabels: Record<string, string> = {
   organized: '新增',
@@ -153,7 +152,7 @@ function BackgroundTaskTable({ tasks, empty }: { tasks: BackgroundTask[]; empty:
   )
 }
 
-// TasksPage shows active transcodes and background jobs. Refreshes every 3 s.
+// TasksPage shows active and recently completed background jobs. Refreshes every 3 s.
 export function TasksPage() {
   const [snap, setSnap] = useState<TasksSnapshot | null>(null)
 
@@ -194,11 +193,6 @@ export function TasksPage() {
             <BackgroundTaskTable tasks={background.recent.slice(0, 10)} empty="暂无最近完成的后台任务。" />
           </div>
         </div>
-      </section>
-
-      <section className="glass-panel">
-        <h2 className="mb-3 font-display text-lg font-semibold text-ink-600">转码任务</h2>
-        <TranscodeTaskTable transcodes={snap.transcodes} />
       </section>
 
     </div>

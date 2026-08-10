@@ -31,7 +31,6 @@ type ArtworkStore struct {
 	root       string
 	repo       *repository.ArtworkRepository
 	imageProxy *ImageProxy
-	cloud      cloudPlaybackResolver
 	mu         sync.Mutex
 }
 
@@ -41,13 +40,6 @@ func NewArtworkStore(cfg *config.Config, repo *repository.ArtworkRepository, ima
 		repo:       repo,
 		imageProxy: imageProxy,
 	}
-}
-
-func (s *ArtworkStore) SetCloudResolver(cloud cloudPlaybackResolver) *ArtworkStore {
-	if s != nil {
-		s.cloud = cloud
-	}
-	return s
 }
 
 func (s *ArtworkStore) ImportRemote(ctx context.Context, metadataID, artworkType, provider, sourceURL string) (*model.ArtworkAsset, error) {
@@ -92,25 +84,6 @@ func (s *ArtworkStore) ImportLocal(ctx context.Context, metadataID, artworkType,
 		return nil, errors.New("artwork exceeds 32 MiB limit")
 	}
 	return s.save(ctx, metadataID, artworkType, "local_nfo", abs, data, "")
-}
-
-func (s *ArtworkStore) ImportCloud(ctx context.Context, metadataID, artworkType, sourceURL string) (*model.ArtworkAsset, error) {
-	if s.imageProxy == nil || s.cloud == nil {
-		return nil, errors.New("cloud artwork import is unavailable")
-	}
-	typ, ref, ok := ParseCloudArtworkURL(sourceURL)
-	if !ok {
-		return nil, errors.New("invalid cloud artwork URL")
-	}
-	link, err := s.cloud.CloudResolve(ctx, typ, ref, "")
-	if err != nil {
-		return nil, err
-	}
-	data, mimeType, err := s.imageProxy.fetchCloudImageDirect(ctx, link)
-	if err != nil {
-		return nil, err
-	}
-	return s.save(ctx, metadataID, artworkType, "local_nfo", sourceURL, data, mimeType)
 }
 
 func (s *ArtworkStore) save(ctx context.Context, metadataID, artworkType, provider, sourceURL string, data []byte, _ string) (*model.ArtworkAsset, error) {

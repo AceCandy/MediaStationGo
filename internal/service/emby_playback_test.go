@@ -10,23 +10,36 @@ import (
 	"time"
 
 	"github.com/ShukeBta/MediaStationGo/internal/model"
-	"github.com/ShukeBta/MediaStationGo/internal/service/cloud"
 )
 
 type recordingLocalPlaybackProber struct {
-	mu    sync.Mutex
-	probe *ProbeResult
-	paths []string
+	mu      sync.Mutex
+	probe   *ProbeResult
+	paths   []string
+	path    string
+	rawURL  string
+	started chan struct{}
+	release <-chan struct{}
 }
 
 func (p *recordingLocalPlaybackProber) Probe(_ context.Context, path string) (*ProbeResult, error) {
 	p.mu.Lock()
 	p.paths = append(p.paths, path)
+	p.path = path
 	p.mu.Unlock()
+	if p.started != nil {
+		close(p.started)
+	}
+	if p.release != nil {
+		<-p.release
+	}
 	return p.probe, nil
 }
 
-func (p *recordingLocalPlaybackProber) ProbeHTTP(_ context.Context, _ string, _ map[string]string) (*ProbeResult, error) {
+func (p *recordingLocalPlaybackProber) ProbeHTTP(_ context.Context, rawURL string) (*ProbeResult, error) {
+	p.mu.Lock()
+	p.rawURL = rawURL
+	p.mu.Unlock()
 	return p.probe, nil
 }
 
@@ -351,7 +364,7 @@ func TestEmbyHidesAdultLibrariesForUserLock(t *testing.T) {
 	}
 }
 
-func TestEmbyPlaybackInfoRespectsDirectPlayOnly(t *testing.T) {
+func TestEmbyPlaybackInfoIsAlwaysDirectOnly(t *testing.T) {
 	svc := newTestEmbyService(t)
 	lib := model.Library{Name: "电影", Path: `/media/movies`, Type: "movie", Enabled: true}
 	if err := svc.repo.Library.Create(t.Context(), &lib); err != nil {
@@ -367,32 +380,14 @@ func TestEmbyPlaybackInfoRespectsDirectPlayOnly(t *testing.T) {
 		t.Fatalf("playback info: %v", err)
 	}
 	src := pb["MediaSources"].([]map[string]any)[0]
-	if src["SupportsTranscoding"] != true {
-		t.Fatalf("expected SupportsTranscoding=true by default, got %#v", src["SupportsTranscoding"])
-	}
-	if _, ok := src["TranscodingUrl"]; !ok {
-		t.Fatalf("expected TranscodingUrl present by default: %#v", src)
-	}
-	if src["TranscodingUrl"] != "/Videos/m-1/master.m3u8" {
-		t.Fatalf("expected HLS TranscodingUrl by default, got %#v", src["TranscodingUrl"])
-	}
-
-	if err := svc.repo.Setting.Set(t.Context(), PlaybackDirectOnlySettingKey, "true"); err != nil {
-		t.Fatalf("enable direct-only: %v", err)
-	}
-	pb, err = svc.PlaybackInfo(t.Context(), "m-1", "user-1")
-	if err != nil {
-		t.Fatalf("playback info (direct-only): %v", err)
-	}
-	src = pb["MediaSources"].([]map[string]any)[0]
 	if src["SupportsTranscoding"] != false {
-		t.Fatalf("expected SupportsTranscoding=false in direct-only mode, got %#v", src["SupportsTranscoding"])
+		t.Fatalf("expected SupportsTranscoding=false, got %#v", src["SupportsTranscoding"])
 	}
 	if _, ok := src["TranscodingUrl"]; ok {
-		t.Fatalf("expected no TranscodingUrl in direct-only mode: %#v", src)
+		t.Fatalf("expected no TranscodingUrl: %#v", src)
 	}
 	if src["SupportsDirectPlay"] != true || src["DirectStreamUrl"] != "/Videos/m-1/stream.mkv" {
-		t.Fatalf("direct-only must still allow direct play: %#v", src)
+		t.Fatalf("direct playback must remain available: %#v", src)
 	}
 }
 
@@ -434,27 +429,24 @@ func TestEmbyPlaybackInfoUsesSourceNameAndSharedVisibility(t *testing.T) {
 	}
 }
 
-func TestEmbyPlaybackInfoKeepsSTRMBehindStreamEndpoint(t *testing.T) {
+func TestEmbyPlaybackInfoKeepsRemoteSTRMBehindStreamEndpoint(t *testing.T) {
 	svc := newTestEmbyService(t)
-	if err := svc.repo.Setting.Set(t.Context(), CloudPlaybackModeSettingKey, CloudPlaybackModeSTRM); err != nil {
-		t.Fatalf("set cloud playback mode: %v", err)
-	}
-	lib := model.Library{Name: "OpenList", Path: `cloud://openlist/Movies`, Type: "movie", Enabled: true}
+	lib := model.Library{Name: "电影", Path: `/media/movies`, Type: "movie", Enabled: true}
 	if err := svc.repo.Library.Create(t.Context(), &lib); err != nil {
 		t.Fatalf("create library: %v", err)
 	}
 	media := model.Media{
-		Base:      model.Base{ID: "cloud-1"},
+		Base:      model.Base{ID: "remote-1"},
 		LibraryID: lib.ID,
-		Title:     "Cloud Movie",
-		Path:      `cloud://openlist/Movies/f1.mkv`,
-		STRMURL:   `/api/cloud/play/openlist?ref=%2FMovies%2Ff1.mkv`,
+		Title:     "Remote Movie",
+		Path:      `/media/movies/remote.strm`,
+		STRMURL:   `https://media.example.test/Movies/f1.mkv?token=temporary`,
 	}
 	if err := svc.repo.DB.Create(&media).Error; err != nil {
 		t.Fatalf("create media: %v", err)
 	}
 
-	pb, err := svc.PlaybackInfo(t.Context(), "cloud-1", "user-1")
+	pb, err := svc.PlaybackInfo(t.Context(), "remote-1", "user-1")
 	if err != nil {
 		t.Fatalf("playback info: %v", err)
 	}
@@ -462,11 +454,11 @@ func TestEmbyPlaybackInfoKeepsSTRMBehindStreamEndpoint(t *testing.T) {
 	if src["IsRemote"] != true {
 		t.Fatalf("strm media should be marked remote: %#v", src)
 	}
-	if src["DirectStreamUrl"] != "/api/stream/cloud-1" {
-		t.Fatalf("strm playback should prefer /api/stream when enabled: %#v", src)
+	if src["DirectStreamUrl"] != "/Videos/remote-1/stream.mkv" {
+		t.Fatalf("remote STRM should use the Emby stream endpoint: %#v", src)
 	}
-	if src["Path"] != "/api/stream/cloud-1" {
-		t.Fatalf("path should prefer /api/stream when enabled: %#v", src)
+	if src["Path"] != "/Videos/remote-1/stream.mkv" {
+		t.Fatalf("remote STRM path should use the Emby stream endpoint: %#v", src)
 	}
 	streams := src["MediaStreams"].([]map[string]any)
 	if len(streams) == 0 || streams[0]["Type"] != "Video" {
@@ -493,7 +485,7 @@ func TestEmbyMediaSourceUsesLocalSTRMTargetContainer(t *testing.T) {
 		DurationSec: 10,
 	}
 
-	src := svc.mediaSource(t.Context(), media, media.Title, false, false)
+	src := svc.mediaSource(t.Context(), media, media.Title, false)
 	if src["Container"] != "mkv" || src["IsRemote"] != false {
 		t.Fatalf("local strm source should expose mkv as local media: %#v", src)
 	}
@@ -515,14 +507,14 @@ func TestEmbyMediaSourceUsesRemoteSTRMTargetContainerAndDate(t *testing.T) {
 		Base:        model.Base{ID: "remote-path-strm", CreatedAt: createdAt},
 		Title:       "Remote STRM",
 		Path:        "/virtual/movie.strm",
-		STRMURL:     "https://openlist.example.test/d/mount/Movie.mkv?sign=temporary",
+		STRMURL:     "https://media.example.test/Movie.mkv?sign=temporary",
 		Container:   "matroska,webm",
 		SizeBytes:   201,
 		DurationSec: 5_893,
 	}
 	doc := &ProbeDocument{Format: ProbeFormat{Size: 26_972_800_320}}
 
-	src := svc.mediaSourceWithProbe(t.Context(), media, media.Title, false, false, doc)
+	src := svc.mediaSourceWithProbe(t.Context(), media, media.Title, false, doc)
 	if src["Container"] != "mkv" || src["IsRemote"] != true {
 		t.Fatalf("remote strm source should expose target container: %#v", src)
 	}
@@ -614,10 +606,10 @@ func TestEmbyPlaybackInfoAsynchronouslyProbesLocalSTRMTarget(t *testing.T) {
 	if err := svc.repo.DB.Create(&media).Error; err != nil {
 		t.Fatal(err)
 	}
-	prober := &fakeCloudPlaybackProber{probe: &ProbeResult{
+	prober := &recordingLocalPlaybackProber{probe: &ProbeResult{
 		DurationSec: 3661, Width: 3840, Height: 2160, VideoCodec: "hevc", AudioCodec: "eac3", Container: "matroska,webm",
 	}}
-	svc.SetCloudProbe(nil, prober)
+	svc.SetMediaProbe(NewMediaProbeService(svc.repo, prober))
 
 	if _, err := svc.PlaybackInfo(t.Context(), media.ID, "user-1"); err != nil {
 		t.Fatalf("playback info: %v", err)
@@ -680,7 +672,7 @@ func TestEmbyPlaybackInfoProbesAllLocalSTRMVersions(t *testing.T) {
 	prober := &recordingLocalPlaybackProber{probe: &ProbeResult{
 		DurationSec: 2, Width: 1920, Height: 1080, VideoCodec: "hevc", AudioCodec: "aac", Container: "matroska,webm",
 	}}
-	svc.SetCloudProbe(nil, prober)
+	svc.SetMediaProbe(NewMediaProbeService(svc.repo, prober))
 
 	if _, err := svc.PlaybackInfo(t.Context(), media[0].ID, "user-1"); err != nil {
 		t.Fatal(err)
@@ -799,10 +791,10 @@ func TestEmbyLocalSTRMProbeDiscardsStaleTargetResult(t *testing.T) {
 	}
 	started := make(chan struct{})
 	release := make(chan struct{})
-	prober := &fakeCloudPlaybackProber{
+	prober := &recordingLocalPlaybackProber{
 		probe: &ProbeResult{DurationSec: 100, Container: "matroska,webm"}, started: started, release: release,
 	}
-	svc.SetCloudProbe(nil, prober)
+	svc.SetMediaProbe(NewMediaProbeService(svc.repo, prober))
 
 	if _, err := svc.PlaybackInfo(t.Context(), media.ID, "user-1"); err != nil {
 		t.Fatal(err)
@@ -831,29 +823,26 @@ func TestEmbyLocalSTRMProbeDiscardsStaleTargetResult(t *testing.T) {
 	}
 }
 
-func TestEmbyPlaybackInfoUsesVideoStreamWhenSTRMDisabled(t *testing.T) {
+func TestEmbyPlaybackInfoUsesVideoStreamForRemoteSTRM(t *testing.T) {
 	svc := newTestEmbyService(t)
-	if err := svc.repo.Setting.Set(t.Context(), CloudPlaybackModeSettingKey, CloudPlaybackModeRedirectProxy); err != nil {
-		t.Fatalf("set cloud playback mode: %v", err)
-	}
 	createdAt := time.Date(2026, time.August, 6, 20, 9, 14, 0, time.UTC)
-	lib := model.Library{Name: "OpenList", Path: `cloud://openlist/Movies`, Type: "movie", Enabled: true}
+	lib := model.Library{Name: "电影", Path: `/media/movies`, Type: "movie", Enabled: true}
 	if err := svc.repo.Library.Create(t.Context(), &lib); err != nil {
 		t.Fatalf("create library: %v", err)
 	}
 	media := model.Media{
-		Base:      model.Base{ID: "cloud-302", CreatedAt: createdAt},
+		Base:      model.Base{ID: "remote-302", CreatedAt: createdAt},
 		LibraryID: lib.ID,
-		Title:     "Cloud 302 Movie",
-		Path:      `cloud://openlist/Movies/Movie.mkv`,
-		STRMURL:   `/api/cloud/play/openlist?ref=%2FMovies%2FMovie.mkv`,
+		Title:     "Remote 302 Movie",
+		Path:      `/media/movies/Movie.strm`,
+		STRMURL:   `https://media.example.test/Movies/Movie.mkv?token=temporary`,
 		Container: "mkv",
 	}
 	if err := svc.repo.DB.Create(&media).Error; err != nil {
 		t.Fatalf("create media: %v", err)
 	}
 
-	pb, err := svc.PlaybackInfo(t.Context(), "cloud-302", "user-1")
+	pb, err := svc.PlaybackInfo(t.Context(), "remote-302", "user-1")
 	if err != nil {
 		t.Fatalf("playback info: %v", err)
 	}
@@ -874,37 +863,31 @@ func TestEmbyPlaybackInfoUsesVideoStreamWhenSTRMDisabled(t *testing.T) {
 		t.Fatalf("playback info JSON date created = %#v, want %v", decoded.DateCreated, createdAt)
 	}
 	src := pb["MediaSources"].([]map[string]any)[0]
-	if src["DirectStreamUrl"] != "/Videos/cloud-302/stream.mkv" {
-		t.Fatalf("302/proxy mode should use Emby video stream URL: %#v", src)
+	if src["DirectStreamUrl"] != "/Videos/remote-302/stream.mkv" {
+		t.Fatalf("remote STRM should use Emby video stream URL: %#v", src)
 	}
-	if src["Path"] != "/Videos/cloud-302/stream.mkv" {
-		t.Fatalf("302/proxy mode path should use Emby video stream URL: %#v", src)
+	if src["Path"] != "/Videos/remote-302/stream.mkv" {
+		t.Fatalf("remote STRM path should use Emby video stream URL: %#v", src)
 	}
 }
 
-func TestEmbyPlaybackInfoProbesMissingCloudTrackMetadata(t *testing.T) {
+func TestEmbyPlaybackInfoProbesMissingHTTPTrackMetadata(t *testing.T) {
 	svc := newTestEmbyService(t)
-	lib := model.Library{Name: "OpenList", Path: `cloud://openlist/Movies`, Type: "movie", Enabled: true}
+	lib := model.Library{Name: "电影", Path: `/media/movies`, Type: "movie", Enabled: true}
 	if err := svc.repo.Library.Create(t.Context(), &lib); err != nil {
 		t.Fatalf("create library: %v", err)
 	}
 	media := model.Media{
-		Base:      model.Base{ID: "cloud-probe-1"},
+		Base:      model.Base{ID: "http-probe-1"},
 		LibraryID: lib.ID,
-		Title:     "云盘电影",
-		Path:      `cloud://openlist/Movies/Movie.mkv`,
-		STRMURL:   `http://nas.local/api/cloud/play/openlist?ref=%2FMovies%2FMovie.mkv`,
+		Title:     "远程电影",
+		Path:      `/media/movies/Movie.strm`,
+		STRMURL:   `http://cdn.example.test/Movie.mkv?token=temporary`,
 	}
 	if err := svc.repo.DB.Create(&media).Error; err != nil {
 		t.Fatalf("create media: %v", err)
 	}
-	resolver := &fakeCloudPlaybackResolver{
-		link: &cloud.DirectLink{
-			URL:     "http://cdn.example.test/Movie.mkv",
-			Headers: map[string]string{"Authorization": "Bearer probe-token"},
-		},
-	}
-	prober := &fakeCloudPlaybackProber{
+	prober := &recordingLocalPlaybackProber{
 		probe: &ProbeResult{
 			DurationSec: 3661,
 			Width:       3840,
@@ -914,16 +897,16 @@ func TestEmbyPlaybackInfoProbesMissingCloudTrackMetadata(t *testing.T) {
 			Container:   "matroska,webm",
 		},
 	}
-	svc.SetCloudProbe(resolver, prober)
+	svc.SetMediaProbe(NewMediaProbeService(svc.repo, prober))
 
-	if _, err := svc.PlaybackInfo(t.Context(), "cloud-probe-1", "user-1"); err != nil {
+	if _, err := svc.PlaybackInfo(t.Context(), "http-probe-1", "user-1"); err != nil {
 		t.Fatalf("playback info: %v", err)
 	}
 
 	var persisted model.Media
 	deadline := time.Now().Add(3 * time.Second)
 	for {
-		if err := svc.repo.DB.First(&persisted, "id = ?", "cloud-probe-1").Error; err != nil {
+		if err := svc.repo.DB.First(&persisted, "id = ?", "http-probe-1").Error; err != nil {
 			t.Fatalf("reload media: %v", err)
 		}
 		if persisted.DurationSec > 0 || time.Now().After(deadline) {
@@ -934,14 +917,11 @@ func TestEmbyPlaybackInfoProbesMissingCloudTrackMetadata(t *testing.T) {
 	if persisted.DurationSec != 3661 || persisted.Width != 3840 || persisted.Height != 2160 || persisted.VideoCodec != "hevc" || persisted.AudioCodec != "eac3" {
 		t.Fatalf("probe metadata not persisted: %#v", persisted)
 	}
-	if resolver.typ != "openlist" || resolver.ref != "/Movies/Movie.mkv" {
-		t.Fatalf("resolver called with typ=%q ref=%q", resolver.typ, resolver.ref)
-	}
-	if prober.rawURL != "http://cdn.example.test/Movie.mkv" || prober.headers["Authorization"] != "Bearer probe-token" {
-		t.Fatalf("probe called with url=%q headers=%#v", prober.rawURL, prober.headers)
+	if prober.rawURL != media.STRMURL {
+		t.Fatalf("probe called with url=%q", prober.rawURL)
 	}
 
-	pb, err := svc.PlaybackInfo(t.Context(), "cloud-probe-1", "user-1")
+	pb, err := svc.PlaybackInfo(t.Context(), "http-probe-1", "user-1")
 	if err != nil {
 		t.Fatalf("playback info (second): %v", err)
 	}

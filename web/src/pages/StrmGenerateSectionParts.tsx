@@ -1,137 +1,20 @@
-import { Loader2, Save, Wand2 } from 'lucide-react'
+import { Loader2, Wand2 } from 'lucide-react'
 
 import type { GenerateSTRMResult, STRMRefreshResult } from '../api/strm'
 import type { Library } from '../types'
-import { currentOrigin, type CloudPlaybackMode } from './strmPageModel'
+import { currentOrigin } from './strmPageModel'
 import type { StrmGenerateSectionProps } from './StrmGenerateSection'
 import { StrmOutputDirPicker } from './StrmOutputDirPicker'
 
-type PlaybackStatusProps = Pick<
-  StrmGenerateSectionProps,
-  'playbackStatus' | 'strmPlaybackEnabled' | 'redirectProxyEnabled'
->
-
-export function StrmGenerateHeader({ playbackStatus, strmPlaybackEnabled, redirectProxyEnabled }: PlaybackStatusProps) {
-  const enabled = strmPlaybackEnabled || redirectProxyEnabled
+export function StrmGenerateHeader() {
   return (
-    <div className="flex items-start justify-between gap-3">
+    <div>
       <div>
         <h2 className="font-display text-lg font-semibold text-ink-600">自动生成 STRM 文件</h2>
         <p className="text-sm text-ink-50">
           只需要填写自己的访问域名，系统会按媒体库内每个媒体批量生成可播放的 .strm 文件。
         </p>
       </div>
-      <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${
-        enabled
-          ? 'border-emerald-300/40 bg-emerald-400/10 text-emerald-500'
-          : 'border-red-300/40 bg-red-400/10 text-red-500'
-      }`}>
-        {playbackStatus}
-      </span>
-    </div>
-  )
-}
-
-type PlaybackToggleProps = Pick<
-  StrmGenerateSectionProps,
-  'strmPlaybackEnabled' | 'redirectProxyEnabled' | 'setStrmPlaybackEnabled' | 'setRedirectProxyEnabled'
->
-
-export function PlaybackTogglePanel({
-  strmPlaybackEnabled,
-  redirectProxyEnabled,
-  setStrmPlaybackEnabled,
-  setRedirectProxyEnabled,
-}: PlaybackToggleProps) {
-  return (
-    <div className="grid gap-3 rounded-2xl border border-gray-200 bg-white/70 p-4 md:grid-cols-2">
-      <PlaybackToggle
-        checked={strmPlaybackEnabled}
-        title="启用 STRMURL 播放"
-        description="第三方客户端可拿到 /api/stream/媒体ID 入口，适合 STRM 管理和自动生成方案。"
-        onChange={setStrmPlaybackEnabled}
-      />
-      <PlaybackToggle
-        checked={redirectProxyEnabled}
-        title="启用 302/反代播放"
-        description="第三方客户端可拿到 /Videos/媒体ID/stream 入口，由服务端解析后 302 或必要时反代。"
-        onChange={setRedirectProxyEnabled}
-      />
-    </div>
-  )
-}
-
-type PlaybackToggleItemProps = {
-  checked: boolean
-  title: string
-  description: string
-  onChange: (value: boolean) => void
-}
-
-function PlaybackToggle({ checked, title, description, onChange }: PlaybackToggleItemProps) {
-  return (
-    <label className="flex items-start gap-3 text-sm text-ink-100">
-      <input
-        type="checkbox"
-        className="mt-1 h-4 w-4 accent-primary-400"
-        checked={checked}
-        onChange={(e) => onChange(e.target.checked)}
-      />
-      <span>
-        <span className="block font-medium text-ink-600">{title}</span>
-        <span className="text-xs text-ink-50">{description}</span>
-      </span>
-    </label>
-  )
-}
-
-type PlaybackPreferenceProps = Pick<
-  StrmGenerateSectionProps,
-  | 'cloudPlaybackMode'
-  | 'strmPlaybackEnabled'
-  | 'redirectProxyEnabled'
-  | 'autoGenerate'
-  | 'savingSettings'
-  | 'saveSTRMSettings'
-  | 'setCloudPlaybackMode'
-  | 'setAutoGenerate'
->
-
-export function PlaybackPreferencePanel({
-  cloudPlaybackMode,
-  strmPlaybackEnabled,
-  redirectProxyEnabled,
-  autoGenerate,
-  savingSettings,
-  saveSTRMSettings,
-  setCloudPlaybackMode,
-  setAutoGenerate,
-}: PlaybackPreferenceProps) {
-  return (
-    <div className="grid gap-3 rounded-2xl border border-gray-200 bg-white/70 p-4 md:grid-cols-[1fr_1fr_auto]">
-      <label className="text-sm text-ink-100">
-        <span className="mb-1 block font-medium text-ink-600">两者都开启时优先</span>
-        <select
-          className="input-base"
-          value={cloudPlaybackMode}
-          onChange={(e) => setCloudPlaybackMode(e.target.value as CloudPlaybackMode)}
-          disabled={!strmPlaybackEnabled || !redirectProxyEnabled}
-        >
-          <option value="strm">优先 STRMURL</option>
-          <option value="redirect_proxy">优先 302/反代</option>
-        </select>
-        <span className="mt-1 block text-xs text-ink-50">只开启一个时自动使用已开启的播放方式；两个都关闭时云盘媒体不向第三方提供播放。</span>
-      </label>
-      <PlaybackToggle
-        checked={autoGenerate}
-        title="扫描后自动刷新 STRM 文件"
-        description="默认关闭，避免扫描大型网盘库时重复写文件。"
-        onChange={setAutoGenerate}
-      />
-      <button type="button" className="neon-button self-center" disabled={savingSettings} onClick={saveSTRMSettings}>
-        {savingSettings ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
-        保存开关
-      </button>
     </div>
   )
 }
@@ -143,6 +26,7 @@ type StrmGenerateFormProps = Pick<
   | 'baseURL'
   | 'outputDir'
   | 'outputPresets'
+  | 'autoGenerate'
   | 'overwrite'
   | 'includeLocal'
   | 'preserveTree'
@@ -153,6 +37,7 @@ type StrmGenerateFormProps = Pick<
   | 'setGenerateLibraryID'
   | 'setBaseURL'
   | 'setOutputDir'
+  | 'setAutoGenerate'
   | 'setOverwrite'
   | 'setIncludeLocal'
   | 'setPreserveTree'
@@ -166,6 +51,7 @@ export function StrmGenerateForm({
   baseURL,
   outputDir,
   outputPresets,
+  autoGenerate,
   overwrite,
   includeLocal,
   preserveTree,
@@ -176,6 +62,7 @@ export function StrmGenerateForm({
   setGenerateLibraryID,
   setBaseURL,
   setOutputDir,
+  setAutoGenerate,
   setOverwrite,
   setIncludeLocal,
   setPreserveTree,
@@ -199,10 +86,11 @@ export function StrmGenerateForm({
       >
         使用当前访问地址
       </button>
-      <div className="grid gap-2 md:col-span-4 md:grid-cols-5">
+      <div className="grid gap-2 md:col-span-4 md:grid-cols-6">
         <CompactOption checked={overwrite} label="覆盖已存在" onChange={setOverwrite} />
         <CompactOption checked={includeLocal} label="包含本地媒体" onChange={setIncludeLocal} />
         <CompactOption checked={preserveTree} label="保留目录树" onChange={setPreserveTree} />
+        <CompactOption checked={autoGenerate} label="扫描后自动刷新" onChange={setAutoGenerate} />
         <CompactOption checked={refreshLibrary} label="生成后刷新媒体库" onChange={setRefreshLibrary} />
         <CompactOption
           checked={refreshLibrary && scrapeAfter}
@@ -277,7 +165,7 @@ function LibrarySelect({ libraries, value, onChange }: LibrarySelectProps) {
 export function StrmGenerateHint() {
   return (
     <p className="text-xs text-sand-500">
-      生成内容为 <code>域名 + /api/stream/媒体ID?token=...</code>；第三方客户端播放优先方式由上方「STRMURL / 302反代」模式决定。域名会同步保存到系统设置中的「公开访问域名 / STRM 域名」。
+      生成内容为 <code>域名 + /api/stream/媒体ID?token=...</code>；域名会同步保存到系统设置中的「公开访问域名 / STRM 域名」。
     </p>
   )
 }

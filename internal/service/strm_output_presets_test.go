@@ -14,7 +14,7 @@ func TestSTRMOutputPresetsIncludesDefaultsAndLocalLibraries(t *testing.T) {
 	base := t.TempDir()
 	movieRoot := filepath.Join(base, "strm", "电影")
 	tvRoot := filepath.Join(base, "strm", "电视剧")
-	cloudRoot := BuildCloudLibraryPath("openlist", "/电影", "/电影")
+	cloudRoot := "cloud://openlist/电影"
 	disabledRoot := filepath.Join(base, "strm", "动漫")
 
 	libraries := []*model.Library{

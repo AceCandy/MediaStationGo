@@ -86,8 +86,8 @@ func ensureOrganizeDestinationWritable(dest string) error {
 	if dest == "" || dest == "." {
 		return errors.New("destination path required")
 	}
-	if _, ok := ParseCloudLibraryMount(dest); ok {
-		return errors.New("organize destination must be a local writable media directory; enable cloud transfer in external storage when writing to cloud")
+	if isRetiredCloudPath(dest) {
+		return errors.New("organize destination must be a local writable media directory")
 	}
 	if err := os.MkdirAll(dest, 0o755); err != nil { // #nosec G301 -- organized media directories must remain readable by NAS/player users.
 		return fmt.Errorf("destination path is not a writable directory: %s: %w", dest, err)

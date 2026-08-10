@@ -57,7 +57,6 @@ export function StoragePage() {
         description="保留常用入口：先整理/入库，再按需进入文件或清理功能。"
         items={[
           { to: '/files', title: '文件管理', description: '浏览服务器文件，做少量安全文件操作', group: '整理入库' },
-          { to: '/storage-config', title: '存储配置', description: '维护媒体存储路径和容量策略', group: '整理入库' },
           { to: '/duplicates', title: '重复清理', description: '扫描重复媒体并进行安全清理', badge: '清理', group: '空间维护' },
           { to: '/recycle', title: '回收站', description: '查看已删除资源并执行恢复或释放空间', group: '空间维护' },
         ]}

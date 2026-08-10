@@ -231,8 +231,6 @@ func (s *ScraperService) persistOneMetadataArtwork(ctx context.Context, metadata
 	switch {
 	case isHTTPish(source):
 		asset, err = s.artwork.ImportRemote(ctx, metadataID, artworkType, provider, source)
-	case func() bool { _, _, ok := ParseCloudArtworkURL(source); return ok }():
-		asset, err = s.artwork.ImportCloud(ctx, metadataID, artworkType, source)
 	default:
 		asset, err = s.artwork.ImportLocal(ctx, metadataID, artworkType, source)
 	}

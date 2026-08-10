@@ -4,14 +4,12 @@
 #
 # Stage 1 (frontend) :  Node 20  -> static SPA bundle
 # Stage 2 (backend)  :  Go 1.25  -> single static binary (CGO_ENABLED=0)
-# Stage 3 (runtime)  :  Alpine 3.23 -> ffmpeg + tzdata + non-root user
+# Stage 3 (runtime)  :  Alpine 3.23 -> ffprobe + tzdata + non-root user
 #
 # Build:
 #   docker buildx build --platform linux/amd64,linux/arm64 \
 #     --build-arg VERSION=MediaStationGo-v0.1.16 -t mediastation-go:latest --push .
 #
-# Optional Intel VAAPI/QSV runtime packages:
-#   docker buildx build --build-arg WITH_VAAPI=true ...
 # =============================================================================
 
 # ---- Stage 1: frontend (always build on the host architecture) -------------
@@ -43,24 +41,14 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 
 # ---- Stage 3: runtime ------------------------------------------------------
 FROM alpine:3.23
-ARG WITH_VAAPI=false
-# Default runtime keeps only the packages needed by normal deployments.
-# VAAPI/mesa drivers pull a large graphics dependency tree, so they are opt-in
-# for users who explicitly build an Intel hardware-acceleration image.
-# NVENC requires the proprietary NVIDIA Container Toolkit on the host only.
+# Alpine ships ffprobe in the ffmpeg package; the application invokes ffprobe
+# for media inspection and does not start ffmpeg.
 RUN apk add --no-cache \
         ffmpeg \
         docker-cli \
         tzdata \
         ca-certificates \
         su-exec \
-    && if [ "$WITH_VAAPI" = "true" ]; then \
-        if [ "$(apk --print-arch)" = "x86_64" ]; then \
-            apk add --no-cache intel-media-driver libva-utils mesa-va-gallium; \
-        else \
-            apk add --no-cache libva-utils mesa-va-gallium || true; \
-        fi; \
-    fi \
     && rm -rf /var/cache/apk/*
 
 # Non-root user for the long-running process.

@@ -183,15 +183,6 @@ func librarySpecificityScore(media model.Media) int {
 		return 0
 	}
 	normalized := strings.TrimRight(strings.ReplaceAll(rawPath, "\\", "/"), "/")
-	lower := strings.ToLower(normalized)
-	if strings.HasPrefix(lower, "cloud://") {
-		rest := normalized[len("cloud://"):]
-		slash := strings.Index(rest, "/")
-		if slash < 0 || slash == len(rest)-1 {
-			return 0
-		}
-		return 100 + len(nonEmptySlashParts(rest[slash+1:]))
-	}
 	return 200 + len(nonEmptySlashParts(normalized))
 }
 

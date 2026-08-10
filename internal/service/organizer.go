@@ -119,8 +119,8 @@ func (o *OrganizerService) OrganizeLibraryWithOptions(ctx context.Context, libra
 	if err != nil || lib == nil {
 		return nil, errors.New("library not found")
 	}
-	if _, ok := ParseCloudLibraryMount(lib.Path); ok {
-		return nil, errors.New("local organize cannot use cloud libraries directly; use external storage scan/mount for cloud media or enable cloud transfer to write to cloud")
+	if isRetiredCloudPath(lib.Path) {
+		return nil, errors.New("library path is no longer supported")
 	}
 	var rows []model.Media
 	if err := o.repo.DB.WithContext(ctx).
@@ -130,13 +130,13 @@ func (o *OrganizerService) OrganizeLibraryWithOptions(ctx context.Context, libra
 	}
 	// 源目录（待整理）：仅整理位于该目录下的媒体；留空 = 整个媒体库。
 	sourceRoot := o.resolveSourceRoot(ctx, lib, opts.SourcePath)
-	if _, ok := ParseCloudLibraryMount(sourceRoot); ok {
-		return nil, errors.New("organize source must be a local directory; cloud libraries should be managed from external storage scan/mount")
+	if isRetiredCloudPath(sourceRoot) {
+		return nil, errors.New("organize source must be a local directory")
 	}
 	// 目的地目录：已位于该根下的文件视为已整理；受 dest_path 覆盖与设置影响。
 	baseRoot := normalizeMappedOrganizeDestinationRoot(o.resolveBaseRoot(ctx, lib, opts.DestPath))
-	if _, ok := ParseCloudLibraryMount(baseRoot); ok {
-		return nil, errors.New("organize destination must be a local writable media directory; enable cloud transfer in external storage when writing to cloud")
+	if isRetiredCloudPath(baseRoot) {
+		return nil, errors.New("organize destination must be a local writable media directory")
 	}
 	if !opts.DryRun {
 		if err := ensureOrganizeDestinationWritable(baseRoot); err != nil {

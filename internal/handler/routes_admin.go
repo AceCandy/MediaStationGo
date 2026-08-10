@@ -14,13 +14,10 @@ func registerAdminRoutes(api *gin.RouterGroup, cfg *config.Config, svc *service.
 	admin.Use(middleware.AuthRequired(cfg.Secrets.JWTSecret), middleware.AdminRequired())
 	registerAdminUserRoutes(admin, svc)
 	registerAdminPermissionRoutes(admin, svc)
-	registerAdminStorageRoutes(admin, svc)
-	registerAdminCloudRoutes(admin, svc)
 	registerAdminSystemRoutes(admin, svc)
 	registerAdminNotificationRoutes(admin, svc)
 	registerAdminTelegramRoutes(admin, svc)
 	registerAdminOrganizerRoutes(admin, svc)
-	registerAdminRepairRoutes(admin, svc)
 	registerAdminAPIConfigRoutes(admin, svc)
 	registerAdminSchedulerRoutes(admin, svc)
 	registerAdminRecognitionWordRoutes(admin, svc)
@@ -43,28 +40,6 @@ func registerAdminPermissionRoutes(admin *gin.RouterGroup, svc *service.Containe
 	admin.GET("/users/:id/permissions", getUserPermissionsHandler(svc))
 	admin.PUT("/users/:id/permissions", updateUserPermissionsHandler(svc))
 	admin.POST("/users/:id/permissions/reset", resetUserPermissionsHandler(svc))
-}
-
-func registerAdminStorageRoutes(admin *gin.RouterGroup, svc *service.Container) {
-	admin.GET("/storage/status", listStorageConfigsHandler(svc))
-	admin.GET("/storage/:type", getStorageConfigHandler(svc))
-	admin.PUT("/storage/:type", saveStorageConfigHandler(svc))
-	admin.POST("/storage/:type/test", testStorageConfigHandler(svc))
-	admin.POST("/storage/:type/logout", logoutStorageConfigHandler(svc))
-	admin.POST("/storage/:type/upload-local", storageUploadLocalHandler(svc))
-}
-
-func registerAdminCloudRoutes(admin *gin.RouterGroup, svc *service.Container) {
-	admin.POST("/cloud/scan-all", cloudScanAllHandler(svc))
-	admin.POST("/cloud/scan/cancel", cloudScanCancelHandler(svc))
-	admin.GET("/cloud/scan/status", cloudScanStatusHandler(svc))
-	admin.GET("/cloud/:type/list", cloudListHandler(svc))
-	admin.POST("/cloud/:type/mkdir", cloudMkdirHandler(svc))
-	admin.PUT("/cloud/:type/rename", cloudRenameHandler(svc))
-	admin.POST("/cloud/:type/import", cloudImportHandler(svc))
-	admin.POST("/cloud/:type/mount", cloudMountHandler(svc))
-	admin.POST("/cloud/:type/qr/start", cloud115QRStartHandler(svc))
-	admin.POST("/cloud/:type/qr/poll", cloud115QRPollHandler(svc))
 }
 
 func registerAdminSystemRoutes(admin *gin.RouterGroup, svc *service.Container) {
@@ -95,11 +70,6 @@ func registerAdminOrganizerRoutes(admin *gin.RouterGroup, svc *service.Container
 	admin.POST("/libraries/:id/organize", organizeLibraryHandler(svc))
 	admin.GET("/organize/sources", organizeSourcesHandler(svc))
 	admin.POST("/organize/source", organizeDirectoryHandler(svc))
-}
-
-func registerAdminRepairRoutes(admin *gin.RouterGroup, svc *service.Container) {
-	admin.POST("/media/repair-rescrape", repairAndRescrapeAllHandler(svc))
-	admin.POST("/libraries/:id/repair-rescrape", repairAndRescrapeLibraryHandler(svc))
 }
 
 func registerAdminAPIConfigRoutes(admin *gin.RouterGroup, svc *service.Container) {

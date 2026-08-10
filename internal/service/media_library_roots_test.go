@@ -1,6 +1,7 @@
 package service
 
 import (
+	"errors"
 	"path/filepath"
 	"testing"
 
@@ -99,27 +100,16 @@ func TestCreateLibraryWithRootsKeepsDifferentTypesSeparate(t *testing.T) {
 	}
 }
 
-func TestCreateLibraryWithRootsAcceptsCloudRoot(t *testing.T) {
+func TestCreateLibraryWithRootsRejectsCloudRoot(t *testing.T) {
 	db := newServiceTestDB(t, &model.Library{}, &model.LibraryRoot{}, &model.Media{})
 	repos := repository.New(db)
 	svc := NewMediaService(&config.Config{}, zap.NewNop(), repos)
 
-	lib, err := svc.CreateLibraryWithRoots(t.Context(), "国漫", "anime", []LibraryRootInput{{
+	_, err := svc.CreateLibraryWithRoots(t.Context(), "国漫", "anime", []LibraryRootInput{{
 		Name: "OpenList",
 		Path: "cloud://openlist/动漫/国漫?dir=国漫&auto_category=1",
 	}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	roots, err := repos.Library.ListRoots(t.Context(), lib.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(roots) != 1 {
-		t.Fatalf("roots = %#v, want one cloud root", roots)
-	}
-	info, ok := ParseCloudLibraryMount(roots[0].Path)
-	if !ok || info.DisplayDir != "动漫/国漫" || info.ScanDir != "国漫" || !CloudLibraryAutoCategory(model.Library{Path: roots[0].Path}) {
-		t.Fatalf("cloud root = %#v info=%#v", roots[0], info)
+	if !errors.Is(err, ErrCloudLibraryRootUnsupported) {
+		t.Fatalf("error = %v, want ErrCloudLibraryRootUnsupported", err)
 	}
 }

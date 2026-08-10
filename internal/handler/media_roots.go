@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"errors"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -29,7 +30,11 @@ func createLibraryRootHandler(svc *service.Container) gin.HandlerFunc {
 		}
 		root, err := svc.Media.AddLibraryRoot(c.Request.Context(), c.Param("id"), req)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			status := http.StatusInternalServerError
+			if errors.Is(err, service.ErrCloudLibraryRootUnsupported) {
+				status = http.StatusBadRequest
+			}
+			c.JSON(status, gin.H{"error": err.Error()})
 			return
 		}
 		go func() { _ = svc.Watcher.Refresh(context.Background()) }()
@@ -46,7 +51,11 @@ func updateLibraryRootHandler(svc *service.Container) gin.HandlerFunc {
 		}
 		root, err := svc.Media.UpdateLibraryRoot(c.Request.Context(), c.Param("id"), c.Param("root_id"), req)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			status := http.StatusInternalServerError
+			if errors.Is(err, service.ErrCloudLibraryRootUnsupported) {
+				status = http.StatusBadRequest
+			}
+			c.JSON(status, gin.H{"error": err.Error()})
 			return
 		}
 		if root == nil {

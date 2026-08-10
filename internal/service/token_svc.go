@@ -192,12 +192,16 @@ func (s *TokenService) RevokeAll(ctx context.Context, userID string) error {
 
 // ValidateAccessToken 验证 Access Token 并返回 Claims。
 func (s *TokenService) ValidateAccessToken(tokenString string) (*Claims, error) {
+	return validateAccessToken(tokenString, s.cfg.Secrets.JWTSecret)
+}
+
+func validateAccessToken(tokenString, secret string) (*Claims, error) {
 	claims := &Claims{}
 	_, err := jwt.ParseWithClaims(tokenString, claims, func(t *jwt.Token) (interface{}, error) {
 		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, errors.New("unexpected signing method")
 		}
-		return []byte(s.cfg.Secrets.JWTSecret), nil
+		return []byte(secret), nil
 	})
 	if err != nil {
 		return nil, err

@@ -1,7 +1,6 @@
 package service
 
 import (
-	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -10,7 +9,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/golang-jwt/jwt/v5"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest/observer"
 
@@ -19,167 +20,266 @@ import (
 	"github.com/ShukeBta/MediaStationGo/internal/repository"
 )
 
-func TestWithAuthTokenPropagatesToInternalRedirect(t *testing.T) {
-	// <video src=/api/stream/{id}?token=JWT> follows the 302 to the cloud
-	// play endpoint, which must stay authenticated.
-	r := &http.Request{Header: http.Header{}, URL: &url.URL{RawQuery: "token=jwt123&profile=p"}}
-	got := withAuthToken("/api/cloud/play/cloud115?ref=abc", r)
+const streamTestJWTSecret = "stream-test-secret"
+
+func TestInternalStreamRedirectUsesMediaScopedToken(t *testing.T) {
+	cfg := &config.Config{Secrets: config.SecretsConfig{JWTSecret: streamTestJWTSecret}}
+	svc := NewStreamService(cfg, zap.NewNop(), nil)
+	accountToken := signStreamTestToken(t, Claims{UserID: "user-1", Role: "user", Tier: "basic"})
+	r := httptest.NewRequest(http.MethodGet, "http://media.example/Videos/wrapper-1/stream?"+url.Values{
+		"token": {accountToken},
+	}.Encode(), nil)
+	got := svc.withExternalPlaybackTokenForInternalRedirect(
+		"/api/stream/source-1?quality=source&token=stored-token&api_key=stored-key",
+		r,
+		"",
+		"wrapper-1",
+	)
 	u, err := url.Parse(got)
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
-	if u.Query().Get("token") != "jwt123" {
-		t.Fatalf("token not propagated: %q", got)
+	q := u.Query()
+	if q.Get("api_key") != "" || len(q["token"]) != 1 || q.Get("token") == accountToken || q.Get("token") == "stored-token" {
+		t.Fatalf("internal redirect should contain only a fresh scoped token: %q", got)
 	}
-	if u.Query().Get("ref") != "abc" {
+	claims := parseStreamTestToken(t, q.Get("token"))
+	if claims.UserID != "user-1" || claims.Purpose != ExternalPlaybackTokenPurpose || claims.MediaID != "source-1" {
+		t.Fatalf("redirect claims = %#v, want user-1 scoped to source-1", claims)
+	}
+	if q.Get("quality") != "source" {
 		t.Fatalf("existing query lost: %q", got)
 	}
 }
 
-func TestWithAuthTokenNeverLeaksToAbsoluteURL(t *testing.T) {
-	// An absolute external direct link (e.g. cloud CDN) must NOT receive the JWT.
+func TestExternalRedirectNeverReceivesPlaybackToken(t *testing.T) {
 	r := &http.Request{Header: http.Header{}, URL: &url.URL{RawQuery: "token=jwt123"}}
-	got := withAuthToken("https://cdn.115.example/x.mp4?sig=1", r)
+	got := (&StreamService{}).withExternalPlaybackTokenForInternalRedirect(
+		"https://cdn.example.test/x.mp4?quality=source", r, "", "wrapper-1",
+	)
 	if strings.Contains(got, "jwt123") {
 		t.Fatalf("JWT leaked to external URL: %q", got)
 	}
-	if got != "https://cdn.115.example/x.mp4?sig=1" {
+	if got != "https://cdn.example.test/x.mp4?quality=source" {
 		t.Fatalf("external URL mutated: %q", got)
 	}
 }
 
-func TestWithAuthTokenPropagatesToSameOriginAbsoluteInternalURL(t *testing.T) {
-	r := httptest.NewRequest(http.MethodGet, "http://media.example/Videos/m-1/stream?api_key=jwt123", nil)
-	got := withAuthTokenForInternalRedirect("http://media.example/api/cloud/play/openlist?ref=abc", r, "http://media.example")
+func TestSameOriginAbsoluteInternalURLUsesMediaScopedToken(t *testing.T) {
+	cfg := &config.Config{Secrets: config.SecretsConfig{JWTSecret: streamTestJWTSecret}}
+	svc := NewStreamService(cfg, zap.NewNop(), nil)
+	accountToken := signStreamTestToken(t, Claims{UserID: "user-1", Role: "user"})
+	r := httptest.NewRequest(http.MethodGet, "http://media.example/Videos/m-1/stream?api_key="+accountToken, nil)
+	got := svc.withExternalPlaybackTokenForInternalRedirect(
+		"http://media.example/api/stream/source-1?quality=source", r, "http://media.example", "m-1",
+	)
 	u, err := url.Parse(got)
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
-	if u.Query().Get("token") != "jwt123" || u.Query().Get("ref") != "abc" {
-		t.Fatalf("same-origin internal URL should keep ref and receive token: %q", got)
-	}
-}
-
-func TestWithAuthTokenAddsMediaIDToCloudPlaybackRedirect(t *testing.T) {
-	req := httptest.NewRequest(http.MethodGet, "http://media.example/api/stream/media-1?token=jwt123", nil)
-	got := withAuthTokenForInternalRedirect("/api/cloud/play/openlist?ref=abc", req, "")
-	u, err := url.Parse(got)
-	if err != nil {
-		t.Fatalf("parse: %v", err)
-	}
-	if u.Query().Get("token") != "jwt123" || u.Query().Get("media_id") != "media-1" {
-		t.Fatalf("cloud redirect should carry token and media_id, got %q", got)
+	claims := parseStreamTestToken(t, u.Query().Get("token"))
+	if claims.MediaID != "source-1" || claims.Purpose != ExternalPlaybackTokenPurpose || u.Query().Get("quality") != "source" {
+		t.Fatalf("same-origin internal URL should keep query and receive scoped token: %q", got)
 	}
 }
 
 func TestServeFileRedirectsInternalSTRMAsAbsoluteURLWithToken(t *testing.T) {
 	repos := newStreamTestRepo(t)
-	if err := repos.DB.Create(&model.Media{
-		Base:    model.Base{ID: "cloud-1"},
-		Title:   "Cloud",
-		Path:    "cloud://openlist/Movie.mkv",
-		STRMURL: "/api/cloud/play/openlist?ref=movie",
-	}).Error; err != nil {
-		t.Fatal(err)
+	rows := []model.Media{
+		{Base: model.Base{ID: "internal-strm"}, Title: "Internal STRM", Path: "/media/Internal.strm", Container: "strm", STRMURL: "/api/stream/source-1?quality=source&token=stored-token&api_key=stored-key"},
+		{Base: model.Base{ID: "source-1"}, Path: "/media/Source.mkv", DurationSec: 2 * 60 * 60},
 	}
-	svc := NewStreamService(&config.Config{}, zap.NewNop(), repos, nil)
-	req := httptest.NewRequest(http.MethodGet, "http://nas.local:18080/api/stream/cloud-1?api_key=jwt123", nil)
+	for i := range rows {
+		if err := repos.DB.Create(&rows[i]).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	cfg := &config.Config{Secrets: config.SecretsConfig{JWTSecret: streamTestJWTSecret}}
+	svc := NewStreamService(cfg, zap.NewNop(), repos)
+	accountToken := signStreamTestToken(t, Claims{UserID: "user-1", Role: "user", Tier: "basic"})
+	req := httptest.NewRequest(http.MethodGet, "http://nas.local:18080/api/stream/internal-strm?api_key="+accountToken, nil)
 	w := httptest.NewRecorder()
 
-	if err := svc.ServeFile(w, req, "cloud-1"); err != nil {
+	if err := svc.ServeFile(w, req, "internal-strm"); err != nil {
 		t.Fatal(err)
 	}
 	if w.Code != http.StatusFound {
 		t.Fatalf("status = %d, want 302", w.Code)
 	}
 	loc := w.Header().Get("Location")
-	if !strings.HasPrefix(loc, "http://nas.local:18080/api/cloud/play/openlist?") ||
-		!strings.Contains(loc, "ref=movie") ||
-		!strings.Contains(loc, "token=jwt123") {
+	location, err := url.Parse(loc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if location.Scheme != "http" || location.Host != "nas.local:18080" || location.Path != "/api/stream/source-1" ||
+		location.Query().Get("quality") != "source" || location.Query().Get("api_key") != "" {
 		t.Fatalf("redirect Location should be absolute and tokenized, got %q", loc)
 	}
+	claims := parseStreamTestToken(t, location.Query().Get("token"))
+	if claims.UserID != "user-1" || claims.Purpose != ExternalPlaybackTokenPurpose || claims.MediaID != "source-1" || location.Query().Get("token") == accountToken {
+		t.Fatalf("redirect claims = %#v, want a new user-1 token scoped to source-1", claims)
+	}
 	if got := w.Header().Get("Cache-Control"); !strings.Contains(got, "no-store") {
-		t.Fatalf("cloud redirect Cache-Control = %q, want no-store", got)
+		t.Fatalf("redirect Cache-Control = %q, want no-store", got)
 	}
 }
 
 func TestServeFileRedirectUsesForwardedTunnelHost(t *testing.T) {
 	repos := newStreamTestRepo(t)
-	if err := repos.DB.Create(&model.Media{
-		Base:    model.Base{ID: "cloud-1"},
-		Title:   "Cloud",
-		Path:    "cloud://openlist/Movie.mkv",
-		STRMURL: "/api/cloud/play/openlist?ref=movie",
-	}).Error; err != nil {
-		t.Fatal(err)
+	rows := []model.Media{
+		{Base: model.Base{ID: "internal-strm"}, Title: "Internal STRM", Path: "/media/Internal.strm", Container: "strm", STRMURL: "/api/stream/source-1?quality=source"},
+		{Base: model.Base{ID: "source-1"}, Path: "/media/Source.mkv"},
 	}
-	svc := NewStreamService(&config.Config{}, zap.NewNop(), repos, nil)
-	req := httptest.NewRequest(http.MethodGet, "http://127.0.0.1:8080/api/stream/cloud-1?api_key=jwt123", nil)
+	for i := range rows {
+		if err := repos.DB.Create(&rows[i]).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	cfg := &config.Config{Secrets: config.SecretsConfig{JWTSecret: streamTestJWTSecret}}
+	svc := NewStreamService(cfg, zap.NewNop(), repos)
+	accountToken := signStreamTestToken(t, Claims{UserID: "user-1", Role: "user"})
+	req := httptest.NewRequest(http.MethodGet, "http://127.0.0.1:8080/api/stream/internal-strm?api_key="+accountToken, nil)
 	req.Header.Set("X-Forwarded-Host", "media.example.com")
 	req.Header.Set("X-Forwarded-Proto", "https")
 	w := httptest.NewRecorder()
 
-	if err := svc.ServeFile(w, req, "cloud-1"); err != nil {
+	if err := svc.ServeFile(w, req, "internal-strm"); err != nil {
 		t.Fatal(err)
 	}
 	if w.Code != http.StatusFound {
 		t.Fatalf("status = %d, want 302", w.Code)
 	}
 	loc := w.Header().Get("Location")
-	if !strings.HasPrefix(loc, "https://media.example.com/api/cloud/play/openlist?") ||
-		!strings.Contains(loc, "ref=movie") ||
-		!strings.Contains(loc, "token=jwt123") {
+	location, err := url.Parse(loc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if location.Scheme != "https" || location.Host != "media.example.com" || location.Path != "/api/stream/source-1" ||
+		location.Query().Get("quality") != "source" || location.Query().Get("token") == accountToken {
 		t.Fatalf("redirect Location should use forwarded tunnel host and token, got %q", loc)
 	}
+	if claims := parseStreamTestToken(t, location.Query().Get("token")); claims.MediaID != "source-1" {
+		t.Fatalf("redirect claims = %#v, want source-1 scope", claims)
+	}
 }
 
-func TestServeFileRedirectsCloudMediaForVideoStreamMode(t *testing.T) {
-	repos := newStreamTestRepo(t)
-	if err := repos.Setting.Set(t.Context(), CloudPlaybackModeSettingKey, CloudPlaybackModeRedirectProxy); err != nil {
-		t.Fatal(err)
-	}
-	if err := repos.DB.Create(&model.Media{
-		Base:    model.Base{ID: "cloud-1"},
-		Title:   "Cloud",
-		Path:    "cloud://openlist/Movie.mkv",
-		STRMURL: "/api/cloud/play/openlist?ref=movie",
-	}).Error; err != nil {
-		t.Fatal(err)
-	}
-	svc := NewStreamService(&config.Config{}, zap.NewNop(), repos, nil)
-	req := httptest.NewRequest(http.MethodGet, "http://nas.local:18080/api/stream/cloud-1?api_key=jwt123", nil)
-	w := httptest.NewRecorder()
-
-	err := svc.ServeFile(w, req, "cloud-1")
+func TestInternalStreamRedirectDoesNotPropagateInvalidToken(t *testing.T) {
+	cfg := &config.Config{Secrets: config.SecretsConfig{JWTSecret: streamTestJWTSecret}}
+	svc := NewStreamService(cfg, zap.NewNop(), nil)
+	r := httptest.NewRequest(http.MethodGet, "http://media.example/api/stream/wrapper-1?api_key=invalid-token", nil)
+	got := svc.withExternalPlaybackTokenForInternalRedirect(
+		"/api/stream/source-1?quality=source&token=stored-token&api_key=stored-key", r, "", "wrapper-1",
+	)
+	u, err := url.Parse(got)
 	if err != nil {
-		t.Fatalf("video stream mode should still reach cloud playback endpoint: %v", err)
+		t.Fatal(err)
 	}
-	if w.Code != http.StatusFound {
-		t.Fatalf("status = %d, want 302", w.Code)
-	}
-	loc := w.Header().Get("Location")
-	if !strings.Contains(loc, "/api/cloud/play/openlist?") || !strings.Contains(loc, "token=jwt123") {
-		t.Fatalf("redirect Location should target tokenized cloud play endpoint, got %q", loc)
+	if u.Query().Get("token") != "" || u.Query().Get("api_key") != "" || u.Query().Get("quality") != "source" {
+		t.Fatalf("invalid credentials must not reach internal redirect: %q", got)
 	}
 }
 
-func TestServeFileRedirectsCloudMediaExternalHTTPSTRMURL(t *testing.T) {
+func TestInternalStreamRedirectRescopesExistingPlaybackToken(t *testing.T) {
+	cfg := &config.Config{Secrets: config.SecretsConfig{JWTSecret: streamTestJWTSecret}}
+	svc := NewStreamService(cfg, zap.NewNop(), nil)
+	sourceToken := signStreamTestToken(t, Claims{
+		UserID: "user-1", Role: "user", Purpose: ExternalPlaybackTokenPurpose, MediaID: "wrapper-1",
+	})
+	r := httptest.NewRequest(http.MethodGet, "http://media.example/api/stream/wrapper-1?token="+sourceToken, nil)
+	got := svc.withExternalPlaybackTokenForInternalRedirect("/api/stream/source-1", r, "", "wrapper-1")
+	u, err := url.Parse(got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	targetToken := u.Query().Get("token")
+	claims := parseStreamTestToken(t, targetToken)
+	if targetToken == sourceToken || claims.Purpose != ExternalPlaybackTokenPurpose || claims.MediaID != "source-1" {
+		t.Fatalf("redirect claims = %#v, want a new token scoped to source-1", claims)
+	}
+}
+
+func TestInternalStreamRedirectRejectsUnusableScopedTokens(t *testing.T) {
+	cfg := &config.Config{Secrets: config.SecretsConfig{JWTSecret: streamTestJWTSecret}}
+	svc := NewStreamService(cfg, zap.NewNop(), nil)
+	tests := []struct {
+		name   string
+		claims Claims
+	}{
+		{
+			name: "different source media",
+			claims: Claims{
+				UserID: "user-1", Role: "user", Purpose: ExternalPlaybackTokenPurpose, MediaID: "other-wrapper",
+			},
+		},
+		{
+			name:   "unknown purpose",
+			claims: Claims{UserID: "user-1", Role: "user", Purpose: "other", MediaID: "wrapper-1"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			token := signStreamTestToken(t, tt.claims)
+			r := httptest.NewRequest(http.MethodGet, "http://media.example/api/stream/wrapper-1?token="+token, nil)
+			got := svc.withExternalPlaybackTokenForInternalRedirect(
+				"/api/stream/source-1?quality=source&token=stored-token&api_key=stored-key", r, "", "wrapper-1",
+			)
+			u, err := url.Parse(got)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if u.Query().Get("token") != "" || u.Query().Get("api_key") != "" || u.Query().Get("quality") != "source" {
+				t.Fatal("unusable scoped credentials reached internal redirect")
+			}
+		})
+	}
+}
+
+func TestInternalStreamRedirectRequiresExactPath(t *testing.T) {
+	cfg := &config.Config{Secrets: config.SecretsConfig{JWTSecret: streamTestJWTSecret}}
+	svc := NewStreamService(cfg, zap.NewNop(), nil)
+	accountToken := signStreamTestToken(t, Claims{UserID: "user-1", Role: "user"})
+	r := httptest.NewRequest(http.MethodGet, "http://media.example/api/stream/wrapper-1?token="+accountToken, nil)
+	for _, target := range []string{
+		"/api/stream/source-1/?quality=source",
+		"/api/stream/source-1/extra?quality=source",
+	} {
+		t.Run(target, func(t *testing.T) {
+			if got := svc.withExternalPlaybackTokenForInternalRedirect(target, r, "", "wrapper-1"); got != target {
+				t.Fatal("non-exact stream target changed")
+			}
+		})
+	}
+}
+
+func TestCrossSchemeAbsoluteInternalURLDoesNotReceivePlaybackToken(t *testing.T) {
+	cfg := &config.Config{Secrets: config.SecretsConfig{JWTSecret: streamTestJWTSecret}}
+	svc := NewStreamService(cfg, zap.NewNop(), nil)
+	accountToken := signStreamTestToken(t, Claims{UserID: "user-1", Role: "user"})
+	r := httptest.NewRequest(http.MethodGet, "https://media.example/Videos/wrapper-1/stream?token="+accountToken, nil)
+	target := "http://media.example/api/stream/source-1?quality=source"
+	if got := svc.withExternalPlaybackTokenForInternalRedirect(target, r, "", "wrapper-1"); got != target {
+		t.Fatal("cross-scheme target changed")
+	}
+}
+
+func TestServeFileRedirectsExternalHTTPSTRMURLUnchanged(t *testing.T) {
 	repos := newStreamTestRepo(t)
-	target := "https://cdn.example.test/%E5%AF%92%E6%88%98.mkv?sign=direct"
+	target := "https://cdn.example.test/%E5%AF%92%E6%88%98.mkv?quality=source"
 	if err := repos.DB.Create(&model.Media{
-		Base:    model.Base{ID: "cloud-http"},
-		Title:   "Cloud HTTP",
-		Path:    "cloud://openlist/Movie.mkv",
-		STRMURL: target,
+		Base:      model.Base{ID: "remote-http"},
+		Title:     "Remote HTTP",
+		Path:      "/media/寒战.strm",
+		Container: "strm",
+		STRMURL:   target,
 	}).Error; err != nil {
 		t.Fatal(err)
 	}
 	core, observed := observer.New(zap.InfoLevel)
-	svc := NewStreamService(&config.Config{}, zap.New(core), repos, nil)
-	req := httptest.NewRequest(http.MethodGet, "http://nas.local:18080/api/stream/cloud-http?token=jwt123", nil)
+	svc := NewStreamService(&config.Config{}, zap.New(core), repos)
+	req := httptest.NewRequest(http.MethodGet, "http://nas.local:18080/api/stream/remote-http?token=jwt123", nil)
 	w := httptest.NewRecorder()
 
-	if err := svc.ServeFile(w, req, "cloud-http"); err != nil {
+	if err := svc.ServeFile(w, req, "remote-http"); err != nil {
 		t.Fatalf("external HTTP STRM target should redirect: %v", err)
 	}
 	if w.Code != http.StatusFound {
@@ -197,65 +297,14 @@ func TestServeFileRedirectsCloudMediaExternalHTTPSTRMURL(t *testing.T) {
 		t.Fatalf("redirect log entries = %d, want 1", len(entries))
 	}
 	fields := entries[0].ContextMap()
-	if fields["playback_source"] != "remote_redirect" || fields["resolve_source"] != "configured" ||
+	if fields["playback_source"] != "remote_redirect" ||
 		fields["target_scheme"] != "https" || fields["target_host"] != "cdn.example.test" || fields["target_path"] != "/寒战.mkv" ||
-		fmt.Sprint(fields["target_query_keys"]) != "[sign]" {
+		fmt.Sprint(fields["target_query_keys"]) != "[quality]" {
 		t.Fatalf("unexpected redirect log fields: %#v", fields)
 	}
 	loggedTarget := fmt.Sprint(fields["target_scheme"], fields["target_host"], fields["target_path"], fields["target_query_keys"])
-	if strings.Contains(loggedTarget, "direct") || fields["target_hash"] == "" {
+	if strings.Contains(loggedTarget, "source") || fields["target_hash"] == "" {
 		t.Fatalf("redirect log should hide query values and include target hash: %#v", fields)
-	}
-}
-
-func TestServeFileResolvesAndCachesConfiguredOpenListSTRMURL(t *testing.T) {
-	repos := newStreamTestRepo(t)
-	upstreamCalls := 0
-	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		upstreamCalls++
-		if r.Header.Get("Range") != "bytes=0-0" || r.Header.Get("User-Agent") != "test-player" {
-			t.Errorf("unexpected probe headers: range=%q ua=%q", r.Header.Get("Range"), r.Header.Get("User-Agent"))
-		}
-		http.Redirect(w, r, "https://cdn.example.test/movie.mkv?t=temporary", http.StatusFound)
-	}))
-	defer upstream.Close()
-	if err := repos.DB.Create(&model.Media{
-		Base:      model.Base{ID: "configured-openlist"},
-		Title:     "Configured OpenList",
-		Path:      "/data/strm/movie.strm",
-		Container: "strm",
-		STRMURL:   upstream.URL + "/d/new115/movie.mkv",
-	}).Error; err != nil {
-		t.Fatal(err)
-	}
-	core, observed := observer.New(zap.InfoLevel)
-	svc := NewStreamService(&config.Config{}, zap.New(core), repos, nil)
-	svc.SetStorageConfig(NewStorageConfigService(zap.NewNop(), nil, nil))
-
-	for i := 0; i < 2; i++ {
-		req := httptest.NewRequest(http.MethodGet, "http://media.example/api/stream/configured-openlist", nil)
-		req.Header.Set("User-Agent", "test-player")
-		w := httptest.NewRecorder()
-		if err := svc.ServeFile(w, req, "configured-openlist"); err != nil {
-			t.Fatal(err)
-		}
-		if w.Code != http.StatusFound || w.Header().Get("Location") != "https://cdn.example.test/movie.mkv?t=temporary" {
-			t.Fatalf("redirect = %d %q", w.Code, w.Header().Get("Location"))
-		}
-	}
-	if upstreamCalls != 1 {
-		t.Fatalf("OpenList probe calls = %d, want 1", upstreamCalls)
-	}
-	entries := observed.FilterMessage("media playback redirect").All()
-	if len(entries) != 2 {
-		t.Fatalf("redirect log entries = %d, want 2", len(entries))
-	}
-	first, second := entries[0].ContextMap(), entries[1].ContextMap()
-	if first["resolve_source"] != "configured" || first["cache_hit"] != false || first["target_host"] != "cdn.example.test" {
-		t.Fatalf("unexpected first redirect log: %#v", first)
-	}
-	if second["cache_hit"] != true || second["target_hash"] != first["target_hash"] {
-		t.Fatalf("unexpected cached redirect log: %#v", second)
 	}
 }
 
@@ -269,7 +318,7 @@ func TestServeFileLogsLocalFilePath(t *testing.T) {
 		t.Fatal(err)
 	}
 	core, observed := observer.New(zap.InfoLevel)
-	svc := NewStreamService(&config.Config{}, zap.New(core), repos, nil)
+	svc := NewStreamService(&config.Config{}, zap.New(core), repos)
 	req := httptest.NewRequest(http.MethodGet, "http://nas.local/api/stream/local-file", nil)
 	w := httptest.NewRecorder()
 
@@ -288,22 +337,10 @@ func TestServeFileLogsLocalFilePath(t *testing.T) {
 
 func TestServeFileRedirectsMappedLocalPathUsingLongestPrefix(t *testing.T) {
 	repos := newStreamTestRepo(t)
-	localPath := "/mnt/media/new115/电影/测试 影片 (2026).mkv"
-	upstreamCalls := 0
-	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		upstreamCalls++
-		if r.Header.Get("Range") != "bytes=0-0" {
-			t.Errorf("Range = %q, want bytes=0-0", r.Header.Get("Range"))
-		}
-		if r.URL.EscapedPath() != "/d/new115/%E7%94%B5%E5%BD%B1/%E6%B5%8B%E8%AF%95%20%E5%BD%B1%E7%89%87%20%282026%29.mkv" {
-			t.Errorf("escaped path = %q", r.URL.EscapedPath())
-		}
-		http.Redirect(w, r, "https://cdn.example.test/movie.mkv?t=temporary", http.StatusFound)
-	}))
-	defer upstream.Close()
+	localPath := "/mnt/media/archive/电影/测试 影片 (2026).mkv"
 	mappings := strings.Join([]string{
-		"/mnt/media => https://fallback.example.test/d/all/",
-		"/mnt/media/new115/ => " + upstream.URL + "/d/new115/",
+		"/mnt/media => https://fallback.example.test/files/",
+		"/mnt/media/archive/ => https://cdn.example.test/media/",
 	}, "\n")
 	if err := repos.Setting.Set(t.Context(), PlaybackPathMappingsSettingKey, mappings); err != nil {
 		t.Fatal(err)
@@ -312,10 +349,8 @@ func TestServeFileRedirectsMappedLocalPathUsingLongestPrefix(t *testing.T) {
 		t.Fatal(err)
 	}
 	core, observed := observer.New(zap.InfoLevel)
-	svc := NewStreamService(&config.Config{}, zap.New(core), repos, nil)
-	svc.SetStorageConfig(NewStorageConfigService(zap.NewNop(), nil, nil))
+	svc := NewStreamService(&config.Config{}, zap.New(core), repos)
 	req := httptest.NewRequest(http.MethodGet, "http://nas.local/api/stream/mapped-local", nil)
-	req.Header.Set("User-Agent", "mapped-player")
 	w := httptest.NewRecorder()
 
 	if err := svc.ServeFile(w, req, "mapped-local"); err != nil {
@@ -329,43 +364,29 @@ func TestServeFileRedirectsMappedLocalPathUsingLongestPrefix(t *testing.T) {
 		t.Fatal(err)
 	}
 	if location.Scheme != "https" || location.Host != "cdn.example.test" ||
-		location.Path != "/movie.mkv" || location.Query().Get("t") != "temporary" {
+		location.Path != "/media/电影/测试 影片 (2026).mkv" {
 		t.Fatalf("unexpected mapped redirect: %q", location.String())
 	}
 	if got := w.Header().Get("Cache-Control"); !strings.Contains(got, "no-store") {
 		t.Fatalf("mapped redirect Cache-Control = %q, want no-store", got)
 	}
-	w = httptest.NewRecorder()
-	if err := svc.ServeFile(w, req, "mapped-local"); err != nil {
-		t.Fatal(err)
-	}
-	if upstreamCalls != 1 || w.Header().Get("Location") != location.String() {
-		t.Fatalf("cached redirect calls/location = %d/%q", upstreamCalls, w.Header().Get("Location"))
-	}
 	entries := observed.FilterMessage("media playback redirect").All()
-	if len(entries) != 2 {
-		t.Fatalf("redirect log entries = %d, want 2", len(entries))
+	if len(entries) != 1 {
+		t.Fatalf("redirect log entries = %d, want 1", len(entries))
 	}
 	fields := entries[0].ContextMap()
 	if fields["playback_source"] != "remote_redirect" || fields["resolve_source"] != "path_mapping" ||
 		fields["path"] != localPath || fields["target_host"] != "cdn.example.test" ||
-		fields["target_path"] != "/movie.mkv" || fields["cache_hit"] != false {
+		fields["target_path"] != "/media/电影/测试 影片 (2026).mkv" {
 		t.Fatalf("unexpected mapped redirect log fields: %#v", fields)
-	}
-	if fields := entries[1].ContextMap(); fields["cache_hit"] != true {
-		t.Fatalf("cached redirect log fields: %#v", fields)
 	}
 }
 
 func TestServeFileRedirectsMappedLocalSTRMTarget(t *testing.T) {
 	repos := newStreamTestRepo(t)
-	localTarget := "/mnt/media/new115/电影/测试影片 (2026).mp4"
-	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		http.Redirect(w, r, "https://cdn.example.test/zhongkui.mp4?t=temporary", http.StatusFound)
-	}))
-	defer upstream.Close()
+	localTarget := "/mnt/media/archive/电影/测试影片 (2026).mp4"
 	if err := repos.Setting.Set(t.Context(), PlaybackPathMappingsSettingKey,
-		"/mnt/media/new115/ => "+upstream.URL+"/d/new115/"); err != nil {
+		"/mnt/media/archive/ => https://cdn.example.test/media/"); err != nil {
 		t.Fatal(err)
 	}
 	if err := repos.DB.Create(&model.Media{
@@ -377,8 +398,7 @@ func TestServeFileRedirectsMappedLocalSTRMTarget(t *testing.T) {
 		t.Fatal(err)
 	}
 	core, observed := observer.New(zap.InfoLevel)
-	svc := NewStreamService(&config.Config{}, zap.New(core), repos, nil)
-	svc.SetStorageConfig(NewStorageConfigService(zap.NewNop(), nil, nil))
+	svc := NewStreamService(&config.Config{}, zap.New(core), repos)
 	w := httptest.NewRecorder()
 
 	if err := svc.ServeFile(w, httptest.NewRequest(http.MethodGet, "/api/stream/mapped-local-strm", nil), "mapped-local-strm"); err != nil {
@@ -389,7 +409,7 @@ func TestServeFileRedirectsMappedLocalSTRMTarget(t *testing.T) {
 		t.Fatal(err)
 	}
 	if w.Code != http.StatusFound || location.Host != "cdn.example.test" ||
-		location.Path != "/zhongkui.mp4" {
+		location.Path != "/media/电影/测试影片 (2026).mp4" {
 		t.Fatalf("unexpected local STRM redirect: status=%d location=%q", w.Code, location.String())
 	}
 	entries := observed.FilterMessage("media playback redirect").All()
@@ -424,7 +444,7 @@ func TestServeFileIgnoresInvalidOrNonMatchingPathMappings(t *testing.T) {
 	if err := repos.DB.Create(&model.Media{Base: model.Base{ID: "local-fallback"}, Path: target}).Error; err != nil {
 		t.Fatal(err)
 	}
-	svc := NewStreamService(&config.Config{}, zap.NewNop(), repos, nil)
+	svc := NewStreamService(&config.Config{}, zap.NewNop(), repos)
 	w := httptest.NewRecorder()
 
 	if err := svc.ServeFile(w, httptest.NewRequest(http.MethodGet, "/api/stream/local-fallback", nil), "local-fallback"); err != nil {
@@ -437,7 +457,7 @@ func TestServeFileIgnoresInvalidOrNonMatchingPathMappings(t *testing.T) {
 
 func TestServeFileRedirectsLocalSTRMFileTargetByDefault(t *testing.T) {
 	repos := newStreamTestRepo(t)
-	target := "https://cdn.example.test/LocalMovie.mkv?sign=direct"
+	target := "https://cdn.example.test/LocalMovie.mkv?quality=source"
 	if err := repos.DB.Create(&model.Media{
 		Base:      model.Base{ID: "local-strm"},
 		Title:     "Local STRM",
@@ -447,7 +467,7 @@ func TestServeFileRedirectsLocalSTRMFileTargetByDefault(t *testing.T) {
 	}).Error; err != nil {
 		t.Fatal(err)
 	}
-	svc := NewStreamService(&config.Config{}, zap.NewNop(), repos, nil)
+	svc := NewStreamService(&config.Config{}, zap.NewNop(), repos)
 	req := httptest.NewRequest(http.MethodGet, "http://nas.local:18080/api/stream/local-strm?token=jwt123", nil)
 	w := httptest.NewRecorder()
 
@@ -482,7 +502,7 @@ func TestServeFileReadsLocalPathFromLegacySTRMRecord(t *testing.T) {
 		t.Fatal(err)
 	}
 	core, observed := observer.New(zap.InfoLevel)
-	svc := NewStreamService(&config.Config{}, zap.New(core), repos, nil)
+	svc := NewStreamService(&config.Config{}, zap.New(core), repos)
 	req := httptest.NewRequest(http.MethodGet, "http://nas.local/api/stream/local-path-strm", nil)
 	req.Header.Set("Range", "bytes=1-3")
 	w := httptest.NewRecorder()
@@ -518,10 +538,10 @@ func TestStreamProbeUsesLocalSTRMTarget(t *testing.T) {
 	if err := repos.DB.Create(&media).Error; err != nil {
 		t.Fatal(err)
 	}
-	prober := &fakeCloudPlaybackProber{probe: &ProbeResult{
+	prober := &recordingLocalPlaybackProber{probe: &ProbeResult{
 		DurationSec: 120, Width: 1920, Height: 1080, VideoCodec: "h264", AudioCodec: "aac", Container: "matroska,webm",
 	}}
-	svc := NewStreamService(&config.Config{}, zap.NewNop(), repos, nil)
+	svc := NewStreamService(&config.Config{}, zap.NewNop(), repos)
 
 	if err := svc.Probe(t.Context(), media.ID, prober); err != nil {
 		t.Fatal(err)
@@ -538,70 +558,38 @@ func TestStreamProbeUsesLocalSTRMTarget(t *testing.T) {
 	}
 }
 
-func TestCloudPlaybackModeUsesExplicitModeBeforeLegacySTRMFlag(t *testing.T) {
-	repos := newStreamTestRepo(t)
-	if got := CloudPlaybackMode(t.Context(), repos); got != CloudPlaybackModeRedirectProxy {
-		t.Fatalf("default mode = %q, want %q", got, CloudPlaybackModeRedirectProxy)
-	}
-	if err := repos.Setting.Set(t.Context(), STRMEnabledSettingKey, "true"); err != nil {
-		t.Fatal(err)
-	}
-	if got := CloudPlaybackMode(t.Context(), repos); got != CloudPlaybackModeSTRM {
-		t.Fatalf("legacy strm.enabled=true mode = %q, want %q", got, CloudPlaybackModeSTRM)
-	}
-	if err := repos.Setting.Set(t.Context(), CloudPlaybackModeSettingKey, CloudPlaybackModeRedirectProxy); err != nil {
-		t.Fatal(err)
-	}
-	if got := CloudPlaybackMode(t.Context(), repos); got != CloudPlaybackModeRedirectProxy {
-		t.Fatalf("explicit mode should override legacy flag, got %q", got)
-	}
-	if err := repos.Setting.Set(t.Context(), CloudPlaybackModeSettingKey, CloudPlaybackModeSTRM); err != nil {
-		t.Fatal(err)
-	}
-	if got := CloudPlaybackMode(t.Context(), repos); got != CloudPlaybackModeSTRM {
-		t.Fatalf("explicit strm mode = %q, want %q", got, CloudPlaybackModeSTRM)
-	}
-	if err := repos.Setting.Set(t.Context(), CloudPlaybackSTRMEnabledSettingKey, "false"); err != nil {
-		t.Fatal(err)
-	}
-	if err := repos.Setting.Set(t.Context(), CloudPlaybackRedirectEnabledSettingKey, "false"); err != nil {
-		t.Fatal(err)
-	}
-	if got := CloudPlaybackMode(t.Context(), repos); got != "" {
-		t.Fatalf("both disabled mode = %q, want empty", got)
-	}
-}
-
-func TestServeFileRejectsCloudMediaWhenSelectedModeDisabled(t *testing.T) {
-	repos := newStreamTestRepo(t)
-	if err := repos.Setting.Set(t.Context(), CloudPlaybackSTRMEnabledSettingKey, "false"); err != nil {
-		t.Fatal(err)
-	}
-	if err := repos.Setting.Set(t.Context(), CloudPlaybackRedirectEnabledSettingKey, "false"); err != nil {
-		t.Fatal(err)
-	}
-	if err := repos.DB.Create(&model.Media{
-		Base:    model.Base{ID: "cloud-1"},
-		Title:   "Cloud",
-		Path:    "cloud://openlist/Movie.mkv",
-		STRMURL: "/api/cloud/play/openlist?ref=movie",
-	}).Error; err != nil {
-		t.Fatal(err)
-	}
-	svc := NewStreamService(&config.Config{}, zap.NewNop(), repos, nil)
-	req := httptest.NewRequest(http.MethodGet, "http://nas.local:18080/api/stream/cloud-1?api_key=jwt123", nil)
-	w := httptest.NewRecorder()
-
-	err := svc.ServeFileWithCloudMode(w, req, "cloud-1", CloudPlaybackModeSTRM)
-	if !errors.Is(err, ErrCloudPlaybackDisabled) {
-		t.Fatalf("error = %v, want ErrCloudPlaybackDisabled", err)
-	}
-}
-
 func newStreamTestRepo(t *testing.T) *repository.Container {
 	t.Helper()
 	db := newServiceTestDB(t, &model.Media{}, &model.Setting{})
 	return repository.New(db)
+}
+
+func signStreamTestToken(t *testing.T, claims Claims) string {
+	t.Helper()
+	now := time.Now()
+	claims.RegisteredClaims = jwt.RegisteredClaims{
+		IssuedAt:  jwt.NewNumericDate(now),
+		ExpiresAt: jwt.NewNumericDate(now.Add(time.Hour)),
+		Issuer:    "mediastationgo",
+		Subject:   claims.UserID,
+	}
+	token, err := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(streamTestJWTSecret))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return token
+}
+
+func parseStreamTestToken(t *testing.T, raw string) *Claims {
+	t.Helper()
+	claims := &Claims{}
+	parsed, err := jwt.ParseWithClaims(raw, claims, func(*jwt.Token) (interface{}, error) {
+		return []byte(streamTestJWTSecret), nil
+	})
+	if err != nil || !parsed.Valid {
+		t.Fatalf("parse playback token: %v", err)
+	}
+	return claims
 }
 
 func TestRequestTokenFromBearerHeader(t *testing.T) {
@@ -619,76 +607,5 @@ func TestRequestTokenFromMediaBrowserAuthorizationHeader(t *testing.T) {
 	r := &http.Request{Header: h, URL: &url.URL{}}
 	if got := requestToken(r); got != "mbtok" {
 		t.Fatalf("MediaBrowser token not extracted: %q", got)
-	}
-}
-
-func TestAppendQueryToHLSSegments(t *testing.T) {
-	in := "#EXTM3U\n#EXTINF:4.0,\nseg_00000.ts\n#EXTINF:4.0,\nseg_00001.ts?old=1\n"
-	got := appendQueryToHLSSegments(in, "token=abc")
-	if !strings.Contains(got, "seg_00000.ts?token=abc") {
-		t.Fatalf("missing tokenized segment: %q", got)
-	}
-	if !strings.Contains(got, "seg_00001.ts?old=1") {
-		t.Fatalf("existing query should be preserved: %q", got)
-	}
-}
-
-func TestAppendQueryToHLSSegmentsDropsUnknownQuery(t *testing.T) {
-	got := appendQueryToHLSSegments("#EXTM3U\nseg_00000.ts\n", "api_key=abc&AudioStreamIndex=3&redirect=https%3A%2F%2Fevil.invalid")
-	if !strings.Contains(got, "api_key=abc") || !strings.Contains(got, "AudioStreamIndex=3") {
-		t.Fatalf("allowed query missing: %q", got)
-	}
-	if strings.Contains(got, "redirect") || strings.Contains(got, "evil.invalid") {
-		t.Fatalf("unknown query leaked: %q", got)
-	}
-}
-
-func TestResolvedHLSQueryPinsValidatedAudioSelection(t *testing.T) {
-	got := resolvedHLSQuery("token=abc&audioStreamIndex=99&redirect=https%3A%2F%2Fevil.invalid", TranscodeKey{MediaID: "media", AudioStreamIndex: 3})
-	values, err := url.ParseQuery(got)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if values.Get("token") != "abc" || values.Get("AudioStreamIndex") != "3" || values.Get("audioStreamIndex") != "" {
-		t.Fatalf("resolved query = %q", got)
-	}
-	if values.Get("redirect") != "" || values.Get("_hls_audio_fallback") != "" {
-		t.Fatalf("unexpected query fields = %q", got)
-	}
-
-	fallback := resolvedHLSQuery("token=abc", TranscodeKey{MediaID: "media", AudioStreamIndex: -1})
-	values, err = url.ParseQuery(fallback)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if values.Get("AudioStreamIndex") != "-1" || values.Get("_hls_audio_fallback") != "1" {
-		t.Fatalf("fallback query = %q", fallback)
-	}
-}
-
-func TestHLSKeyKeepsFallbackAfterProbeArrives(t *testing.T) {
-	db := newServiceTestDB(t, &model.Media{}, &model.MediaProbeMetadata{})
-	repos := repository.New(db)
-	metadata := createServiceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindMovie, Title: "Movie", Source: "local"})
-	media := model.Media{MetadataID: metadata.ID, LibraryID: "library", Title: "Movie", Path: "/movie.mkv"}
-	if err := db.Create(&media).Error; err != nil {
-		t.Fatal(err)
-	}
-	doc := &ProbeDocument{SchemaVersion: ProbeDocumentSchemaVersion, Streams: []ProbeStream{
-		{Index: 2, CodecType: "audio"},
-		{Index: 3, CodecType: "audio", Disposition: ProbeDisposition{Default: true}},
-	}}
-	probeJSON, err := MarshalProbeDocument(doc)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := db.Create(&model.MediaProbeMetadata{MediaID: media.ID, ProbeJSON: probeJSON, SchemaVersion: ProbeDocumentSchemaVersion}).Error; err != nil {
-		t.Fatal(err)
-	}
-	request := httptest.NewRequest(http.MethodGet, "/?AudioStreamIndex=-1&_hls_audio_fallback=1", nil)
-	stream := &StreamService{mediaProbe: NewMediaProbeService(repos, nil)}
-	key, err := stream.hlsKey(request, media.ID)
-	if err != nil || key.AudioStreamIndex != -1 {
-		t.Fatalf("key = %#v, err=%v", key, err)
 	}
 }

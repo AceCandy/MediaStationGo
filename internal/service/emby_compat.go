@@ -19,7 +19,6 @@ import (
 
 	"github.com/ShukeBta/MediaStationGo/internal/config"
 	"github.com/ShukeBta/MediaStationGo/internal/repository"
-	"github.com/ShukeBta/MediaStationGo/internal/service/cloud"
 	"go.uber.org/zap"
 )
 
@@ -37,18 +36,11 @@ const (
 	embyLocalPasswordResetProviderID  = "Emby.Server.Implementations.LocalPasswordResetProvider"  // #nosec G101 -- Emby provider identifier, not a credential.
 )
 
-// PlaybackDirectOnlySettingKey 控制「客户端直连解码」模式：开启后宿主机
-// 不再提供转码，所有播放交给第三方客户端本地解码（direct play / 302 直链），
-// 以释放宿主机 CPU 资源。
-const PlaybackDirectOnlySettingKey = "playback.direct_only"
-
 // EmbyService produces Emby-shaped JSON.
 type EmbyService struct {
 	cfg        *config.Config
 	log        *zap.Logger
 	repo       *repository.Container
-	storage    cloudPlaybackResolver
-	probe      cloudPlaybackProber
 	mediaProbe *MediaProbeService
 	subtitle   *SubtitleService
 	cache      *RuntimeCacheService
@@ -65,15 +57,6 @@ type EmbyService struct {
 	trackProbeInFlight map[string]struct{}
 }
 
-type cloudPlaybackResolver interface {
-	CloudResolve(ctx context.Context, typ, fileRef, clientUA string) (*cloud.DirectLink, error)
-}
-
-type cloudPlaybackProber interface {
-	localMediaProber
-	ProbeHTTP(ctx context.Context, rawURL string, headers map[string]string) (*ProbeResult, error)
-}
-
 // NewEmbyService is the constructor.
 func NewEmbyService(cfg *config.Config, log *zap.Logger, repo *repository.Container) *EmbyService {
 	return &EmbyService{cfg: cfg, log: log, repo: repo}
@@ -84,14 +67,6 @@ func (e *EmbyService) SetRuntimeCache(cache *RuntimeCacheService) *EmbyService {
 		e.cache = cache
 	}
 	return e
-}
-
-func (e *EmbyService) SetCloudProbe(storage cloudPlaybackResolver, probe cloudPlaybackProber) {
-	if e == nil {
-		return
-	}
-	e.storage = storage
-	e.probe = probe
 }
 
 func (e *EmbyService) SetMediaProbe(mediaProbe *MediaProbeService) {

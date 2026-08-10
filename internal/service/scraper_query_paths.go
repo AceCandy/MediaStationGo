@@ -68,12 +68,6 @@ func cleanSlashPath(value string) string {
 }
 
 func comparableLibraryRoot(libraryRoot string) string {
-	if info, ok := ParseCloudLibraryMount(libraryRoot); ok {
-		if strings.TrimSpace(info.DisplayDir) == "" {
-			return "cloud://" + info.Provider
-		}
-		return "cloud://" + info.Provider + "/" + info.DisplayDir
-	}
 	return cleanSlashPath(libraryRoot)
 }
 
@@ -112,12 +106,7 @@ func seriesFolderTitle(mediaPath, libraryRoot string) string {
 }
 
 func libraryRootTitle(libraryRoot string) string {
-	base := ""
-	if info, ok := ParseCloudLibraryMount(libraryRoot); ok {
-		base = pathBaseSlash(info.DisplayDir)
-	} else {
-		base = pathBaseSlash(libraryRoot)
-	}
+	base := pathBaseSlash(libraryRoot)
 	if base == "" || base == "." || isGenericMediaCategoryFolder(base) || isTechnicalMediaFolder(base) || strictSeasonFolderMatched(base) || isMediaCollectionFolder(base) {
 		return ""
 	}

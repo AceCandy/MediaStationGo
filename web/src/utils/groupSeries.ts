@@ -352,13 +352,6 @@ function librarySpecificityScore(media: Media): number {
   const rawPath = (media.display_library_path || media.library_path || '').trim()
   if (!rawPath) return 0
   const normalized = rawPath.replace(/\\/g, '/').replace(/\/+$/, '')
-  const lower = normalized.toLowerCase()
-  if (lower.startsWith('cloud://')) {
-    const rest = normalized.slice('cloud://'.length)
-    const slash = rest.indexOf('/')
-    if (slash < 0 || slash === rest.length - 1) return 0
-    return 100 + rest.slice(slash + 1).split('/').filter(Boolean).length
-  }
   return 200 + normalized.split('/').filter(Boolean).length
 }
 

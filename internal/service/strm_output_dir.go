@@ -73,9 +73,6 @@ func strmLibraryCategoryParts(lib model.Library) []string {
 }
 
 func strmLibraryPathParts(raw string) []string {
-	if info, ok := ParseCloudLibraryMount(raw); ok {
-		return strmSlashParts(info.DisplayDir)
-	}
 	clean := cleanPathForVolumeMapping(raw)
 	clean = strings.Trim(pathAfterWindowsDrivePrefix(clean), "/")
 	return strmSlashParts(clean)

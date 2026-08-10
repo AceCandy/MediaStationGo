@@ -197,20 +197,15 @@ func registerEmbyAuthenticatedPlaybackRoutes(auth *gin.RouterGroup, prefix strin
 
 	registerEmbyVideoStreamRoutes(auth, svc, "/Videos")
 	if prefix == "/emby" {
-		auth.GET("/api/stream/:id", embyVideoStreamHandler(svc, service.CloudPlaybackModeSTRM))
-		auth.HEAD("/api/stream/:id", embyVideoStreamHandler(svc, service.CloudPlaybackModeSTRM))
+		auth.GET("/api/stream/:id", embyVideoStreamHandler(svc))
+		auth.HEAD("/api/stream/:id", embyVideoStreamHandler(svc))
 	}
-	auth.GET("/Videos/:id/master.m3u8", embyVideoHLSPlaylistHandler(svc))
-	auth.HEAD("/Videos/:id/master.m3u8", embyVideoHLSPlaylistHandler(svc))
-	auth.GET("/Videos/:id/main.m3u8", embyVideoHLSPlaylistHandler(svc))
-	auth.HEAD("/Videos/:id/main.m3u8", embyVideoHLSPlaylistHandler(svc))
-	auth.GET("/Videos/:id/:seg", embyVideoHLSSegmentHandler(svc))
 	auth.GET("/Videos/:id/Subtitles/:index/Stream.vtt", embySubtitleHandler(svc))
 }
 
 func registerEmbyVideoStreamRoutes(auth *gin.RouterGroup, svc *service.Container, basePath string) {
 	streamHandler := func() gin.HandlerFunc {
-		return embyVideoStreamHandler(svc, service.CloudPlaybackModeRedirectProxy)
+		return embyVideoStreamHandler(svc)
 	}
 	for _, path := range []string{"/:id/stream", "/:id/stream.:container", "/:id/original", "/:id/original.:container"} {
 		fullPath := basePath + path

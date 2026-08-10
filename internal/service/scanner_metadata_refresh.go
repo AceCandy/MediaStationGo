@@ -18,31 +18,6 @@ type scanDerivedMetadata struct {
 	EpisodeNum   int
 }
 
-func cloudMetadataNeedsRefresh(existing existingCloudMedia, localMeta *LocalMetadata) bool {
-	return existing.LocalMetadataHint != encodeLocalMetadataHint(localMeta)
-}
-
-func cloudPathHintNeedsRefresh(existing existingCloudMedia, localMeta *LocalMetadata) bool {
-	if localMeta.TMDbID > 0 && existing.TMDbID != localMeta.TMDbID {
-		return true
-	}
-	if localMeta.BangumiID > 0 && existing.BangumiID != localMeta.BangumiID {
-		return true
-	}
-	if strings.TrimSpace(localMeta.DoubanID) != "" && strings.TrimSpace(existing.DoubanID) != strings.TrimSpace(localMeta.DoubanID) {
-		return true
-	}
-	return strings.TrimSpace(localMeta.TheTVDBID) != "" && strings.TrimSpace(existing.TheTVDBID) != strings.TrimSpace(localMeta.TheTVDBID)
-}
-
-func cloudTrackMetadataMissing(existing existingCloudMedia) bool {
-	return existing.DurationSec <= 0 ||
-		existing.Width <= 0 ||
-		existing.Height <= 0 ||
-		strings.TrimSpace(existing.VideoCodec) == "" ||
-		strings.TrimSpace(existing.AudioCodec) == ""
-}
-
 func localMetadataNeedsRefresh(existing existingLocalMedia, local *LocalMetadata) bool {
 	if existing.LocalMetadataHint != encodeLocalMetadataHint(local) {
 		return true
@@ -69,23 +44,6 @@ func localMetadataNeedsRefresh(existing existingLocalMedia, local *LocalMetadata
 		return true
 	}
 	return false
-}
-
-func cloudDerivedMetadataNeedsRefresh(existing existingCloudMedia, incoming *model.Media) bool {
-	if incoming == nil {
-		return false
-	}
-	return scanDerivedMetadataNeedsRefresh(scanDerivedMetadata{
-		Title:        existing.Title,
-		ScrapeStatus: existing.ScrapeStatus,
-		Year:         existing.Year,
-		TMDbID:       existing.TMDbID,
-		BangumiID:    existing.BangumiID,
-		DoubanID:     existing.DoubanID,
-		TheTVDBID:    existing.TheTVDBID,
-		SeasonNum:    existing.SeasonNum,
-		EpisodeNum:   existing.EpisodeNum,
-	}, incoming)
 }
 
 func localDerivedMetadataNeedsRefresh(existing existingLocalMedia, incoming *model.Media) bool {
@@ -138,16 +96,8 @@ func scanDerivedMetadataNeedsRefresh(existing scanDerivedMetadata, incoming *mod
 	return strings.TrimSpace(incoming.TheTVDBID) != "" && strings.TrimSpace(existing.TheTVDBID) != strings.TrimSpace(incoming.TheTVDBID)
 }
 
-func cloudSeriesTitleFromMediaPath(mediaPath string) (string, int) {
+func mediaPathTitleYear(mediaPath string) (string, int) {
 	displayPath := strings.TrimSpace(mediaPath)
-	if strings.HasPrefix(strings.ToLower(displayPath), "cloud://") {
-		rest := strings.TrimPrefix(displayPath, "cloud://")
-		if idx := strings.Index(rest, "/"); idx >= 0 {
-			displayPath = rest[idx+1:]
-		} else {
-			return "", 0
-		}
-	}
 	displayPath = strings.Trim(strings.ReplaceAll(displayPath, "\\", "/"), "/")
 	if displayPath == "" {
 		return "", 0

@@ -18,7 +18,6 @@ func (s *MediaService) SearchMediaVisible(ctx context.Context, query string, lim
 	} else if limit > maxMediaSearchLimit {
 		limit = maxMediaSearchLimit
 	}
-	visibility = ExpandMediaVisibilityForMergedCloudLibraries(ctx, s.repo, visibility)
 	items, err := s.repo.MediaView.SearchFiltered(ctx, query, limit, repository.MediaQueryFilter{
 		IncludeNSFW:       visibility.IncludeNSFW,
 		AllowedLibraryIDs: visibility.AllowedLibraryIDs,
@@ -54,7 +53,6 @@ func (s *MediaService) SearchMediaVisiblePage(ctx context.Context, query string,
 	if page < 1 {
 		page = 1
 	}
-	visibility = ExpandMediaVisibilityForMergedCloudLibraries(ctx, s.repo, visibility)
 	items, total, err := s.repo.MediaView.SearchFilteredPage(ctx, query, (page-1)*pageSize, pageSize, repository.MediaQueryFilter{
 		IncludeNSFW:       visibility.IncludeNSFW,
 		AllowedLibraryIDs: visibility.AllowedLibraryIDs,

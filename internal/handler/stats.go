@@ -33,12 +33,11 @@ func statsHandler(svc *service.Container) gin.HandlerFunc {
 }
 
 func applyStatsVisibility(c *gin.Context, svc *service.Container, snap *service.Snapshot) error {
-	visibility := service.ExpandMediaVisibilityForMergedCloudLibraries(c.Request.Context(), svc.Repo, mediaVisibilityForRequest(c, svc))
+	visibility := mediaVisibilityForRequest(c, svc)
 	libs, err := svc.Repo.Library.List(c.Request.Context())
 	if err != nil {
 		return err
 	}
-	libs = service.FilterDisplayCloudLibraries(c.Request.Context(), svc.Repo, libs)
 	var visibleLibraries int64
 	activeLibraryIDs := make([]string, 0, len(libs))
 	for _, lib := range libs {

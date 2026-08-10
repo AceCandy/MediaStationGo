@@ -127,7 +127,7 @@ func repairedSTRMPlaybackURL(raw, baseURL string) (string, bool) {
 
 func strmRepairOwnsAPIPath(apiPath string) bool {
 	value := strings.ToLower(strings.TrimSpace(apiPath))
-	return strings.HasPrefix(value, "/api/stream/") || strings.HasPrefix(value, "/api/cloud/play/")
+	return strings.HasPrefix(value, "/api/stream/")
 }
 
 func (r *RepairSTRMResult) addRepairItem(item RepairSTRMItem) {

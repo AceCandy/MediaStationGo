@@ -32,7 +32,6 @@ export interface ScanResult {
   skipped?: number
   discovered?: number
   queued?: boolean
-  cloud?: boolean
   message?: string
   estimate_message?: string
 }

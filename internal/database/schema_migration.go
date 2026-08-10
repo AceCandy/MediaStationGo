@@ -1,6 +1,8 @@
 package database
 
 import (
+	"fmt"
+
 	"gorm.io/gorm"
 
 	"github.com/ShukeBta/MediaStationGo/internal/model"
@@ -29,16 +31,124 @@ func AutoMigrate(db *gorm.DB) error {
 	if err := ensurePerformanceIndexes(db); err != nil {
 		return err
 	}
+	if err := removeCloudStorageSchema(db); err != nil {
+		return err
+	}
 	if err := ensureLibraryRootsCompatibility(db); err != nil {
 		return err
 	}
 	if err := removeDownloadSubscriptionSchema(db); err != nil {
 		return err
 	}
+	if err := removePTSiteSchema(db); err != nil {
+		return err
+	}
 	if err := removeUnusedLegacyColumns(db); err != nil {
 		return err
 	}
 	return nil
+}
+
+// removePTSiteSchema permanently removes retired tracker credentials and
+// their dedicated permission without changing any other user permissions.
+func removePTSiteSchema(db *gorm.DB) error {
+	return db.Transaction(func(tx *gorm.DB) error {
+		for _, stmt := range []string{
+			`DROP TABLE IF EXISTS sites CASCADE`,
+			`ALTER TABLE IF EXISTS user_permissions DROP COLUMN IF EXISTS can_manage_sites`,
+		} {
+			if err := tx.Exec(stmt).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+// removeCloudStorageSchema retires provider-backed storage without touching
+// protocol-neutral local, HTTP, or HTTPS media sources.
+func removeCloudStorageSchema(db *gorm.DB) error {
+	return db.Transaction(func(tx *gorm.DB) error {
+		statements := []string{
+			`CREATE TEMP TABLE retired_cloud_roots ON COMMIT DROP AS
+SELECT id, library_id
+FROM library_roots
+WHERE LOWER(BTRIM(path)) LIKE 'cloud://%'`,
+			`CREATE TEMP TABLE retired_cloud_media ON COMMIT DROP AS
+SELECT DISTINCT m.id, m.library_id
+FROM media AS m
+WHERE LOWER(BTRIM(m.path)) LIKE 'cloud://%'
+   OR m.library_root_id IN (SELECT id FROM retired_cloud_roots)
+   OR EXISTS (
+       SELECT 1
+       FROM strm_records AS sr
+       WHERE sr.media_id = m.id
+         AND LOWER(BTRIM(sr.protocol)) IN ('alist', 'alists', 'openlist', 'openlists', 'webdav', 'davs', 's3')
+   )`,
+			`CREATE TEMP TABLE retired_cloud_libraries ON COMMIT DROP AS
+SELECT DISTINCT id
+FROM (
+    SELECT id FROM libraries WHERE LOWER(BTRIM(path)) LIKE 'cloud://%'
+    UNION
+    SELECT library_id FROM retired_cloud_roots WHERE BTRIM(COALESCE(library_id, '')) <> ''
+    UNION
+    SELECT library_id FROM retired_cloud_media WHERE BTRIM(COALESCE(library_id, '')) <> ''
+) AS candidates`,
+			`DELETE FROM media_probe_metadata WHERE media_id IN (SELECT id FROM retired_cloud_media)`,
+			`DELETE FROM strm_records
+WHERE media_id IN (SELECT id FROM retired_cloud_media)
+   OR LOWER(BTRIM(protocol)) IN ('alist', 'alists', 'openlist', 'openlists', 'webdav', 'davs', 's3')`,
+			`DELETE FROM media WHERE id IN (SELECT id FROM retired_cloud_media)`,
+			`DELETE FROM library_roots WHERE id IN (SELECT id FROM retired_cloud_roots)`,
+		}
+		for _, stmt := range statements {
+			if err := tx.Exec(stmt).Error; err != nil {
+				return err
+			}
+		}
+
+		var unsafeLibraries int64
+		if err := tx.Raw(`
+SELECT COUNT(*)
+FROM retired_cloud_libraries AS retired
+WHERE EXISTS (SELECT 1 FROM media WHERE library_id = retired.id)
+  AND NOT EXISTS (SELECT 1 FROM library_roots WHERE library_id = retired.id)
+`).Scan(&unsafeLibraries).Error; err != nil {
+			return err
+		}
+		if unsafeLibraries > 0 {
+			return fmt.Errorf("cloud storage retirement found %d libraries with media but no surviving root", unsafeLibraries)
+		}
+
+		for _, stmt := range []string{
+			`UPDATE libraries AS l
+SET path = (
+    SELECT r.path
+    FROM library_roots AS r
+    WHERE r.library_id = l.id
+    ORDER BY r.sort_order, r.created_at, r.id
+    LIMIT 1
+)
+WHERE l.id IN (SELECT id FROM retired_cloud_libraries)
+  AND EXISTS (SELECT 1 FROM library_roots WHERE library_id = l.id)`,
+			`DELETE FROM libraries AS l
+WHERE l.id IN (SELECT id FROM retired_cloud_libraries)
+  AND NOT EXISTS (SELECT 1 FROM library_roots WHERE library_id = l.id)
+  AND NOT EXISTS (SELECT 1 FROM media WHERE library_id = l.id)`,
+			`DELETE FROM settings
+WHERE LOWER(key) LIKE 'cloud.%'
+   OR LOWER(key) LIKE 'app.cloud\_%' ESCAPE '\'
+   OR LOWER(key) LIKE 'transcode.%'
+   OR LOWER(key) LIKE 'transcoder.%'
+   OR LOWER(key) IN ('ffmpeg.path', 'app.ffmpeg_path')`,
+			`DROP TABLE IF EXISTS storage_configs CASCADE`,
+		} {
+			if err := tx.Exec(stmt).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
 
 // removeLegacyMetadataIdentityConstraint removes the old named check after
@@ -81,10 +191,6 @@ func removeDownloadSubscriptionSchema(db *gorm.DB) error {
 		`DROP TABLE IF EXISTS subscriptions CASCADE`,
 		`ALTER TABLE IF EXISTS user_permissions DROP COLUMN IF EXISTS can_manage_downloads`,
 		`ALTER TABLE IF EXISTS user_permissions DROP COLUMN IF EXISTS can_manage_subscriptions`,
-		`ALTER TABLE IF EXISTS sites DROP COLUMN IF EXISTS downloader`,
-		`ALTER TABLE IF EXISTS sites DROP COLUMN IF EXISTS rss_url`,
-		`ALTER TABLE IF EXISTS sites DROP COLUMN IF EXISTS upload_bytes`,
-		`ALTER TABLE IF EXISTS sites DROP COLUMN IF EXISTS download_bytes`,
 		`DELETE FROM settings WHERE key LIKE 'subscription.%' OR key LIKE 'qbittorrent.%' OR key LIKE 'transmission.%' OR key LIKE 'aria2.%' OR key IN ('organize.keep_seeding', 'downloads.smart_classify', 'organizer.auto_after_download')`,
 	}
 	for _, stmt := range statements {

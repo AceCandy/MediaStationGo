@@ -1,14 +1,5 @@
 import { api } from './client'
 
-export interface ActiveTranscode {
-  job_id: string
-  media_id: string
-  audio_stream_index: number
-  encoder: string
-  started_at: string
-  playlist_ok: boolean
-}
-
 export interface BackgroundTask {
   id: string
   kind: string
@@ -32,7 +23,6 @@ export interface BackgroundTaskSnapshot {
 }
 
 export interface TasksSnapshot {
-  transcodes: ActiveTranscode[]
   background_tasks?: BackgroundTaskSnapshot
 }
 

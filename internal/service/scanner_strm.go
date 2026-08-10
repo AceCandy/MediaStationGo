@@ -12,31 +12,6 @@ import (
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 )
 
-func (s *ScannerService) resolveCloudSTRMTarget(ctx context.Context, typ, ref string) (string, error) {
-	if s.storage == nil {
-		return "", nil
-	}
-	content, err := s.storage.CloudReadText(ctx, typ, ref, 64<<10)
-	if err != nil {
-		return "", err
-	}
-	for _, line := range strings.Split(content, "\n") {
-		candidate := strings.TrimSpace(strings.TrimPrefix(line, "\ufeff"))
-		if candidate == "" || strings.HasPrefix(candidate, "#") {
-			continue
-		}
-		u, err := url.Parse(candidate)
-		if err != nil {
-			continue
-		}
-		switch strings.ToLower(u.Scheme) {
-		case "http", "https", "webdav", "davs", "alist", "alists", "openlist", "openlists":
-			return candidate, nil
-		}
-	}
-	return "", nil
-}
-
 func readLocalSTRMTarget(path string) (string, error) {
 	data, err := os.ReadFile(path) // #nosec G304 -- path is a discovered .strm file under the configured library root.
 	if err != nil {
@@ -50,15 +25,12 @@ func readLocalSTRMTarget(path string) (string, error) {
 		if isLocalSTRMMediaTarget(candidate) {
 			return filepath.Clean(candidate), nil
 		}
-		if strings.HasPrefix(candidate, "/api/") || strings.HasPrefix(candidate, "/Videos/") || strings.HasPrefix(candidate, "/videos/") {
-			return candidate, nil
-		}
 		u, err := url.Parse(candidate)
-		if err != nil {
+		if err != nil || !u.IsAbs() || u.Host == "" {
 			continue
 		}
 		switch strings.ToLower(u.Scheme) {
-		case "http", "https", "webdav", "davs", "alist", "alists", "openlist", "openlists":
+		case "http", "https":
 			return candidate, nil
 		}
 	}

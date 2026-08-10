@@ -33,10 +33,6 @@ type OrganizeDirectoryResult = {
   scrapes?: OrganizeScrapeSummary[]
 }
 
-export function isCloudLibraryPath(value: string): boolean {
-  return value.trim().toLowerCase().startsWith('cloud://')
-}
-
 export function summarizeOrganizeResults(results: OrganizeDirectoryResult[]) {
   const preview = results.flatMap((result) => result.items ?? [])
   const organized = results.reduce((sum, result) => sum + (result.organized ?? 0), 0)

@@ -193,27 +193,27 @@ func TestScrapeCandidateRowsPrioritizeLibraryArtworkBeforeEpisodes(t *testing.T)
 	}
 }
 
-func TestEnrichLibraryIncludesMergedCloudLibraryMedia(t *testing.T) {
+func TestEnrichLibraryScopesCandidatesToRequestedLibrary(t *testing.T) {
 	scraper, repos, closeServer := newTestScraper(t)
 	defer closeServer()
 
 	local := model.Library{Name: "番剧", Path: t.TempDir(), Type: "tv", Enabled: true}
-	cloud := model.Library{
-		Name:    "OpenList · 番剧",
-		Path:    BuildCloudLibraryPath("openlist", "/番剧", "/番剧"),
+	target := model.Library{
+		Name:    "另一个番剧库",
+		Path:    t.TempDir(),
 		Type:    "tv",
 		Enabled: true,
 	}
 	if err := repos.DB.Create(&local).Error; err != nil {
 		t.Fatal(err)
 	}
-	if err := repos.DB.Create(&cloud).Error; err != nil {
+	if err := repos.DB.Create(&target).Error; err != nil {
 		t.Fatal(err)
 	}
 	if err := repos.DB.Create(&model.Media{
-		LibraryID:    cloud.ID,
+		LibraryID:    target.ID,
 		Title:        "间谍过家家",
-		Path:         "cloud://openlist/番剧/间谍过家家 - S02E02.mkv",
+		Path:         target.Path + "/间谍过家家 - S02E02.mkv",
 		SeasonNum:    2,
 		EpisodeNum:   2,
 		ScrapeStatus: "pending",
@@ -221,20 +221,20 @@ func TestEnrichLibraryIncludesMergedCloudLibraryMedia(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	result, err := scraper.EnrichLibraryDetailed(t.Context(), local.ID, true)
+	result, err := scraper.EnrichLibraryDetailed(t.Context(), target.ID, true)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if result.Matched != 1 || result.Processed != 1 || result.Candidates != 1 || result.Failed != 0 {
-		t.Fatalf("result=%+v, want merged cloud media to be scraped once", result)
+		t.Fatalf("result=%+v, want requested library media to be scraped once", result)
 	}
 	var media model.Media
-	if err := repos.DB.First(&media, "library_id = ?", cloud.ID).Error; err != nil {
+	if err := repos.DB.First(&media, "library_id = ?", target.ID).Error; err != nil {
 		t.Fatal(err)
 	}
 	got := serviceTestMediaView(t, repos, media.ID)
 	if got.ScrapeStatus != "matched" || got.TMDbID != 12345 {
-		t.Fatalf("merged cloud media was not enriched: status=%q tmdb=%d", got.ScrapeStatus, got.TMDbID)
+		t.Fatalf("requested library media was not enriched: status=%q tmdb=%d", got.ScrapeStatus, got.TMDbID)
 	}
 }
 

@@ -8,9 +8,9 @@ import (
 	"gorm.io/gorm"
 )
 
-// UserPermission 定义用户细粒度权限（19项）。
+// UserPermission 定义用户细粒度权限（18项）。
 // 默认开启（6项）：CanViewDashboard, CanPlayMedia, CanCast, CanExternalPlayer, CanFavorite, CanViewHistory
-// 默认关闭（13项）：其他权限需要管理员分配
+// 默认关闭（12项）：其他权限需要管理员分配
 type UserPermission struct {
 	ID     string `gorm:"primaryKey;size:36" json:"id"`
 	UserID string `gorm:"uniqueIndex;size:36;not null" json:"user_id"`
@@ -29,7 +29,6 @@ type UserPermission struct {
 	CanUseAI          bool `gorm:"default:false" json:"can_use_ai"`
 	CanCaptureFrames  bool `gorm:"default:false" json:"can_capture_frames"`
 	CanViewDiscover   bool `gorm:"default:false" json:"can_view_discover"`
-	CanManageSites    bool `gorm:"default:false" json:"can_manage_sites"`
 	CanUseAIAssistant bool `gorm:"default:false" json:"can_use_ai_assistant"`
 	CanManageUsers    bool `gorm:"default:false" json:"can_manage_users"`
 	CanManageFiles    bool `gorm:"default:false" json:"can_manage_files"`
@@ -64,7 +63,6 @@ func NewDefaultPermission(userID string) *UserPermission {
 		CanUseAI:          false,
 		CanCaptureFrames:  false,
 		CanViewDiscover:   false,
-		CanManageSites:    false,
 		CanUseAIAssistant: false,
 		CanManageUsers:    false,
 		CanManageFiles:    false,
@@ -87,7 +85,6 @@ func (p *UserPermission) PermissionMap() map[string]bool {
 		"can_use_ai":           p.CanUseAI,
 		"can_capture_frames":   p.CanCaptureFrames,
 		"can_view_discover":    p.CanViewDiscover,
-		"can_manage_sites":     p.CanManageSites,
 		"can_use_ai_assistant": p.CanUseAIAssistant,
 		"can_manage_users":     p.CanManageUsers,
 		"can_manage_files":     p.CanManageFiles,

@@ -38,7 +38,6 @@ func registerAuthedSTRMRoutes(authed *gin.RouterGroup, svc *service.Container) {
 	authed.GET("/strm/output-presets", middleware.AdminRequired(), listSTRMOutputPresetsHandler(svc))
 	authed.POST("/strm/import", middleware.AdminRequired(), importSTRMHandler(svc))
 	authed.POST("/strm/generate", middleware.AdminRequired(), generateSTRMHandler(svc))
-	authed.POST("/strm/generate-from-tree", middleware.AdminRequired(), generateSTRMFromTreeHandler(svc))
 	authed.POST("/strm/repair", middleware.AdminRequired(), repairSTRMHandler(svc))
 }
 
@@ -46,19 +45,6 @@ func registerAuthedDuplicateRoutes(authed *gin.RouterGroup, svc *service.Contain
 	authed.GET("/duplicates", middleware.AdminRequired(), listDuplicatesHandler(svc))
 	authed.POST("/duplicates/scan", middleware.AdminRequired(), detectDuplicatesHandler(svc))
 	authed.POST("/duplicates/unmark", middleware.AdminRequired(), unmarkDuplicatesHandler(svc))
-}
-
-func registerAuthedSiteRoutes(authed *gin.RouterGroup, svc *service.Container) {
-	siteHandler := NewSiteHandler(svc)
-	authed.GET("/sites", requirePermission(svc, "can_manage_sites"), siteHandler.ListSites)
-	authed.GET("/sites/types", requirePermission(svc, "can_manage_sites"), siteHandler.GetSiteTypes)
-	authed.GET("/sites/auth-types", requirePermission(svc, "can_manage_sites"), siteHandler.GetAuthTypes)
-	authed.POST("/sites", requirePermission(svc, "can_manage_sites"), siteHandler.CreateSite)
-	authed.GET("/sites/:id", requirePermission(svc, "can_manage_sites"), siteHandler.GetSite)
-	authed.PUT("/sites/:id", requirePermission(svc, "can_manage_sites"), siteHandler.UpdateSite)
-	authed.DELETE("/sites/:id", requirePermission(svc, "can_manage_sites"), siteHandler.DeleteSite)
-	authed.POST("/sites/:id/test", requirePermission(svc, "can_manage_sites"), siteHandler.TestSite)
-	authed.GET("/sites/search", requirePermission(svc, "can_manage_sites"), siteSearchHandler(svc))
 }
 
 func registerAuthedRecycleAndRealtimeRoutes(authed *gin.RouterGroup, svc *service.Container) {

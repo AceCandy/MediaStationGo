@@ -3,6 +3,9 @@ package service
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -71,6 +74,31 @@ func TestFFprobeSetMaxConcurrentHotSwapsLimiter(t *testing.T) {
 	svc.release(firstToken)
 	svc.release(secondToken)
 	svc.release(thirdToken)
+}
+
+func TestFFprobeFailureDoesNotStartFFmpeg(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell sentinel is POSIX-only")
+	}
+	dir := t.TempDir()
+	marker := filepath.Join(dir, "ffmpeg-started")
+	ffprobePath := filepath.Join(dir, "ffprobe")
+	ffmpegPath := filepath.Join(dir, "ffmpeg")
+	if err := os.WriteFile(ffprobePath, []byte("#!/bin/sh\nexit 1\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(ffmpegPath, []byte(fmt.Sprintf("#!/bin/sh\n: > %q\n", marker)), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	cfg := &config.Config{App: config.AppConfig{FFprobePath: ffprobePath}}
+	if _, err := NewFFprobeService(cfg, zap.NewNop()).Probe(t.Context(), "movie.mkv"); err == nil {
+		t.Fatal("ffprobe failure should be returned")
+	}
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatalf("ffmpeg sentinel was executed: %v", err)
+	}
 }
 
 func TestApplyRuntimeSettingFFprobeMaxConcurrent(t *testing.T) {
@@ -203,15 +231,5 @@ func TestUnmarshalProbeDocumentRejectsInvalidStreams(t *testing.T) {
 				t.Fatalf("invalid document accepted: %s", data)
 			}
 		})
-	}
-}
-
-func TestParseFFmpegProbeTextExtractsFallbackMetadata(t *testing.T) {
-	got := parseFFmpegProbeText(`Input #0, matroska,webm, from 'movie.mkv':
-  Duration: 01:02:03.45, start: 0.000000, bitrate: N/A
-  Stream #0:0: Video: h264 (High), yuv420p(progressive), 1920x804
-  Stream #0:1: Audio: aac, 48000 Hz, stereo`)
-	if got.DurationSec != 3723 || got.Container != "matroska,webm" || got.VideoCodec != "h264" || got.AudioCodec != "aac" || got.Width != 1920 || got.Height != 804 {
-		t.Fatalf("parsed ffmpeg text = %+v", got)
 	}
 }

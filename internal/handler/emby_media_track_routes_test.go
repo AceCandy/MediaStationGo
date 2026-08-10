@@ -162,13 +162,13 @@ func assertPlaybackSelectionURL(t *testing.T, response *httptest.ResponseRecorde
 	}
 	var payload struct {
 		MediaSources []struct {
-			TranscodingURL string `json:"TranscodingUrl"`
+			DirectStreamURL string `json:"DirectStreamUrl"`
 		} `json:"MediaSources"`
 	}
 	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil || len(payload.MediaSources) != 1 {
 		t.Fatalf("decode playback info: payload=%#v err=%v", payload, err)
 	}
-	parsed, err := url.Parse(payload.MediaSources[0].TranscodingURL)
+	parsed, err := url.Parse(payload.MediaSources[0].DirectStreamURL)
 	if err != nil {
 		t.Fatal(err)
 	}

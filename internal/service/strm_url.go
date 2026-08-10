@@ -7,9 +7,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"time"
 
-	"github.com/golang-jwt/jwt/v5"
 	"go.uber.org/zap"
 
 	"github.com/ShukeBta/MediaStationGo/internal/model"
@@ -20,17 +18,39 @@ func (s *STRMService) strmPlaybackURL(ctx context.Context, media model.Media, ba
 		return ""
 	}
 	query := url.Values{}
-	token := strings.TrimSpace(playbackToken)
-	if token == "" {
-		token = s.defaultSTRMPlaybackToken(ctx)
-	}
+	token := s.scopedSTRMPlaybackToken(ctx, media, playbackToken)
 	if token != "" {
 		query.Set("token", token)
 	}
 	return buildAbsoluteSTRMAPIURL(firstNonEmpty(baseURL, PublicServerURL(ctx, s.repo, s.cfg)), "/api/stream/"+url.PathEscape(media.ID), query)
 }
 
-func (s *STRMService) defaultSTRMPlaybackToken(ctx context.Context) string {
+func (s *STRMService) scopedSTRMPlaybackToken(ctx context.Context, media model.Media, playbackToken string) string {
+	playbackToken = strings.TrimSpace(playbackToken)
+	if playbackToken == "" {
+		return s.defaultSTRMPlaybackToken(ctx, media)
+	}
+	if s == nil || s.cfg == nil {
+		return ""
+	}
+	claims, err := validateAccessToken(playbackToken, s.cfg.Secrets.JWTSecret)
+	if err != nil || claims.UserID == "" || (claims.Purpose != "" && claims.Purpose != ExternalPlaybackTokenPurpose) {
+		return ""
+	}
+	if claims.Purpose == ExternalPlaybackTokenPurpose && claims.MediaID != media.ID {
+		return ""
+	}
+	token, err := signExternalPlaybackToken(*claims, media.ID, media.DurationSec, s.cfg.Secrets.JWTSecret)
+	if err != nil {
+		if s.log != nil {
+			s.log.Warn("sign strm playback token failed", zap.Error(err))
+		}
+		return ""
+	}
+	return token
+}
+
+func (s *STRMService) defaultSTRMPlaybackToken(ctx context.Context, media model.Media) string {
 	if s == nil || s.repo == nil || s.repo.User == nil || s.cfg == nil || strings.TrimSpace(s.cfg.Secrets.JWTSecret) == "" {
 		return ""
 	}
@@ -41,7 +61,11 @@ func (s *STRMService) defaultSTRMPlaybackToken(ctx context.Context) string {
 		}
 		return ""
 	}
-	token, err := signSTRMPlaybackToken(admin, s.cfg.Secrets.JWTSecret)
+	token, err := signExternalPlaybackToken(Claims{
+		UserID: admin.ID,
+		Role:   admin.Role,
+		Tier:   admin.Tier,
+	}, media.ID, media.DurationSec, s.cfg.Secrets.JWTSecret)
 	if err != nil {
 		if s.log != nil {
 			s.log.Warn("sign strm playback token failed", zap.Error(err))
@@ -49,25 +73,6 @@ func (s *STRMService) defaultSTRMPlaybackToken(ctx context.Context) string {
 		return ""
 	}
 	return token
-}
-
-func signSTRMPlaybackToken(u *model.User, secret string) (string, error) {
-	if u == nil || strings.TrimSpace(u.ID) == "" || strings.TrimSpace(secret) == "" {
-		return "", ErrSTRMURLInvalid
-	}
-	claims := Claims{
-		UserID: u.ID,
-		Role:   u.Role,
-		Tier:   u.Tier,
-		RegisteredClaims: jwt.RegisteredClaims{
-			IssuedAt:  jwt.NewNumericDate(time.Now()),
-			ExpiresAt: jwt.NewNumericDate(time.Now().Add(EmbyTokenDuration)),
-			Issuer:    "mediastationgo",
-			Subject:   u.ID,
-		},
-	}
-	t := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	return t.SignedString([]byte(secret))
 }
 
 func (s *STRMService) strmRelativePath(lib model.Library, media model.Media) string {

@@ -9,7 +9,7 @@ import (
 
 var ErrInvalidStreamIndex = errors.New("invalid media stream index")
 
-// PlaybackSelection 保留缺省、0 与 -1 的区别，供 PlaybackInfo 和 HLS 共用。
+// PlaybackSelection 保留缺省、0 与 -1 的区别，供 PlaybackInfo 和直放 URL 共用。
 type PlaybackSelection struct {
 	MediaSourceID       string
 	AudioStreamIndex    *int

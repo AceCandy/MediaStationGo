@@ -49,15 +49,6 @@ func updateSettingHandler(svc *service.Container) gin.HandlerFunc {
 		if svc.FFprobe != nil && (req.Key == "ffprobe.max_concurrent" || req.Key == "app.ffprobe_max_concurrent") {
 			svc.FFprobe.SetMaxConcurrent(svc.Cfg.App.FFprobeMaxConcurrent)
 		}
-		if req.Key == "transcode.enabled" && !svc.Cfg.Transcoder.Enabled {
-			svc.Transcoder.StopAll()
-		}
-		if req.Key == "transcode.hw_enabled" || req.Key == "transcode.hw_accel" || req.Key == "transcoder.hardware_accel" || req.Key == "transcoder.encoder" {
-			svc.Transcoder.StopAll()
-		}
-		if req.Key == "cloud.auto_sync_enabled" && !service.ParseBoolSetting(req.Value, false) && svc.Scan != nil {
-			_ = svc.Scan.CancelAllCloudScans()
-		}
 		c.Status(http.StatusNoContent)
 	}
 }

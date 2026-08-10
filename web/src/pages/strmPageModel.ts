@@ -1,7 +1,5 @@
 import type { Library } from '../types'
 
-export type CloudPlaybackMode = 'strm' | 'redirect_proxy'
-
 export function currentOrigin() {
   if (typeof window === 'undefined') return ''
   return window.location.origin.replace(/\/+$/, '')
@@ -23,19 +21,6 @@ export function preferredSTRMBaseURL(saved: string) {
   if (!trimmed) return current
   if (current && isLocalPlaybackBase(trimmed) && trimmed !== current) return current
   return trimmed
-}
-
-export function playbackStatusText(
-  strmPlaybackEnabled: boolean,
-  redirectProxyEnabled: boolean,
-  cloudPlaybackMode: CloudPlaybackMode,
-) {
-  if (strmPlaybackEnabled && redirectProxyEnabled) {
-    return `两者开启 · 优先${cloudPlaybackMode === 'strm' ? 'STRMURL' : '302/反代'}`
-  }
-  if (strmPlaybackEnabled) return '仅 STRMURL'
-  if (redirectProxyEnabled) return '仅 302/反代'
-  return '云盘第三方播放关闭'
 }
 
 export function suggestedSTRMOutputDir(root: string, library: Library) {
@@ -86,21 +71,8 @@ function categoryPartsFromPath(parts: string[]) {
 }
 
 function libraryPathParts(raw: string) {
-  const cloudParts = cloudDisplayPathParts(raw)
-  if (cloudParts.length > 0) return cloudParts
   const cleaned = toSlash(raw).replace(/^[A-Za-z]:/, '').replace(/^\/+|\/+$/g, '')
   return splitPath(cleaned)
-}
-
-function cloudDisplayPathParts(raw: string) {
-  if (!/^cloud:\/\//i.test(raw.trim())) return []
-  try {
-    const url = new URL(raw)
-    return splitPath(decodeURIComponent(url.pathname.replace(/^\/+|\/+$/g, '')))
-  } catch {
-    const rest = raw.trim().replace(/^cloud:\/\/[^/]+\/?/i, '').split('?')[0] ?? ''
-    return splitPath(decodeURIComponent(rest.replace(/^\/+|\/+$/g, '')))
-  }
 }
 
 function nameParts(name: string) {

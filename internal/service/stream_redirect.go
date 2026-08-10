@@ -6,39 +6,9 @@ import (
 	"strings"
 )
 
-// normalizeCloudPlayTarget 把存库的云盘播放 URL 规范化为相对路径。
-//
-// STRMURL 是扫描时根据当时的 server_url/请求地址生成并固化进数据库的。
-// 在 Windows 开发机上扫描、再部署到 Docker（或更换了内网 IP/域名）后，
-// 这些绝对 URL 会指向已失效的旧地址，第三方播放器跟随 302 就会拿到
-// 连接失败/404。这里只要能从 URL 中解析出 provider+ref，就重建为相对
-// /api/cloud/play 路径，由 absoluteInternalRedirect 基于「当前请求」补全
-// host，从而对历史脏数据免疫。
-func normalizeCloudPlayTarget(raw string) string {
-	typ, ref, ok := parseCloudMediaPlaybackURL(raw)
-	if !ok {
-		return raw
-	}
-	return BuildRelativeCloudPlayURL(typ, ref)
-}
-
-// BuildRelativeCloudPlayURL 构造相对的云盘播放 API 路径。
-func BuildRelativeCloudPlayURL(typ, ref string) string {
-	return "/api/cloud/play/" + url.PathEscape(strings.TrimSpace(typ)) + "?" + url.Values{"ref": []string{ref}}.Encode()
-}
-
-// withAuthToken propagates the caller's auth token onto an internal redirect
-// target. A browser <video> element cannot send Authorization headers or
-// cookies when it follows a 302, so the cloud 302 chain
-// (/api/stream?token=… → /api/cloud/play → CDN) would otherwise hit
-// /api/cloud/play unauthenticated and 401. We only attach the token to our
-// own relative API endpoints — never to an absolute external direct link —
-// so the JWT is never leaked off-site (e.g. to the cloud CDN).
-func withAuthToken(target string, r *http.Request) string {
-	return withAuthTokenForInternalRedirect(target, r, "")
-}
-
-func withAuthTokenForInternalRedirect(target string, r *http.Request, publicBase string) string {
+// withExternalPlaybackTokenForInternalRedirect exchanges caller credentials
+// for a short-lived token scoped to the persisted internal stream target.
+func (s *StreamService) withExternalPlaybackTokenForInternalRedirect(target string, r *http.Request, publicBase, sourceMediaID string) string {
 	if r == nil {
 		return target
 	}
@@ -49,52 +19,50 @@ func withAuthTokenForInternalRedirect(target string, r *http.Request, publicBase
 	if err != nil {
 		return target
 	}
-	if u.IsAbs() && !isInternalAPIURL(u, r, publicBase) {
+	if !isInternalAPIURL(u, r, publicBase) {
 		return target
 	}
-	if !strings.HasPrefix(strings.ToLower(u.Path), "/api/") {
-		return target
-	}
-	tok := requestToken(r)
-	if tok == "" {
+	targetMediaID, ok := internalStreamRedirectMediaID(u)
+	if !ok {
 		return target
 	}
 	q := u.Query()
-	if q.Get("token") == "" {
-		q.Set("token", tok)
+	for _, key := range []string{"token", "api_key", "apiKey", "ApiKey"} {
+		q.Del(key)
 	}
-	if q.Get("media_id") == "" && strings.HasPrefix(strings.ToLower(u.Path), "/api/cloud/play/") {
-		if mediaID := playbackMediaIDFromRequestPath(r.URL.Path); mediaID != "" {
-			q.Set("media_id", mediaID)
+	secret := ""
+	if s != nil && s.cfg != nil {
+		secret = s.cfg.Secrets.JWTSecret
+	}
+	claims, err := validateAccessToken(requestToken(r), secret)
+	if err == nil && claims.UserID != "" && (claims.Purpose == "" || claims.Purpose == ExternalPlaybackTokenPurpose) {
+		sourceMediaID = strings.TrimSpace(sourceMediaID)
+		if claims.Purpose != ExternalPlaybackTokenPurpose || claims.MediaID == sourceMediaID {
+			durationSec := 0
+			if s != nil && s.repo != nil && s.repo.Media != nil {
+				if media, findErr := s.repo.Media.FindByID(r.Context(), targetMediaID); findErr == nil && media != nil {
+					durationSec = media.DurationSec
+				}
+			}
+			if token, signErr := signExternalPlaybackToken(*claims, targetMediaID, durationSec, secret); signErr == nil {
+				q.Set("token", token)
+			}
 		}
 	}
 	u.RawQuery = q.Encode()
 	return u.String()
 }
 
-func playbackMediaIDFromRequestPath(pathValue string) string {
-	pathValue = strings.TrimSpace(pathValue)
-	if pathValue == "" {
-		return ""
+func internalStreamRedirectMediaID(u *url.URL) (string, bool) {
+	if u == nil {
+		return "", false
 	}
-	segments := strings.Split(strings.Trim(pathValue, "/"), "/")
-	lower := make([]string, len(segments))
-	for i, segment := range segments {
-		lower[i] = strings.ToLower(segment)
+	parts := strings.Split(strings.TrimPrefix(u.Path, "/"), "/")
+	if len(parts) != 3 || !strings.EqualFold(parts[0], "api") || !strings.EqualFold(parts[1], "stream") {
+		return "", false
 	}
-	var mediaID string
-	switch {
-	case len(segments) >= 3 && lower[0] == "api" && lower[1] == "stream":
-		mediaID = segments[2]
-	case len(segments) >= 4 && lower[0] == "emby" && lower[1] == "api" && lower[2] == "stream":
-		mediaID = segments[3]
-	case len(segments) >= 3 && lower[0] == "videos":
-		mediaID = segments[1]
-	}
-	if decoded, err := url.PathUnescape(mediaID); err == nil {
-		mediaID = decoded
-	}
-	return strings.TrimSpace(mediaID)
+	mediaID := strings.TrimSpace(parts[2])
+	return mediaID, mediaID != ""
 }
 
 func absoluteInternalRedirect(target string, r *http.Request) string {
@@ -130,19 +98,31 @@ func isInternalAPIURL(u *url.URL, r *http.Request, publicBase string) bool {
 		return false
 	}
 	targetHost := strings.ToLower(strings.TrimSpace(u.Host))
+	targetScheme := strings.ToLower(strings.TrimSpace(u.Scheme))
 	if targetHost == "" {
-		return true
+		return targetScheme == ""
+	}
+	if targetScheme != "http" && targetScheme != "https" {
+		return false
 	}
 	if r != nil {
-		if host := strings.ToLower(strings.TrimSpace(r.Host)); host != "" && targetHost == host {
+		requestScheme := strings.TrimSpace(r.Header.Get("X-Forwarded-Proto"))
+		if requestScheme == "" {
+			if r.TLS != nil {
+				requestScheme = "https"
+			} else {
+				requestScheme = "http"
+			}
+		}
+		if host := strings.ToLower(strings.TrimSpace(r.Host)); host != "" && targetHost == host && strings.EqualFold(targetScheme, requestScheme) {
 			return true
 		}
-		if host := strings.ToLower(strings.TrimSpace(r.Header.Get("X-Forwarded-Host"))); host != "" && targetHost == host {
+		if host := strings.ToLower(strings.TrimSpace(r.Header.Get("X-Forwarded-Host"))); host != "" && targetHost == host && strings.EqualFold(targetScheme, requestScheme) {
 			return true
 		}
 	}
 	if publicBase != "" {
-		if base, err := url.Parse(publicBase); err == nil && strings.EqualFold(strings.TrimSpace(base.Host), targetHost) {
+		if base, err := url.Parse(publicBase); err == nil && strings.EqualFold(strings.TrimSpace(base.Host), targetHost) && strings.EqualFold(strings.TrimSpace(base.Scheme), targetScheme) {
 			return true
 		}
 	}

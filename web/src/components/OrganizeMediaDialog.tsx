@@ -13,8 +13,7 @@ interface OrganizeMediaDialogProps {
 }
 
 // OrganizeMediaDialog 对单个媒体执行「手动整理入库」：把该媒体按命名规范转移到
-// 目标媒体目录，并可手动覆盖类型/二级分类/目标路径/转移方式。后端 handler 为
-// POST /admin/media/:id/organize（见 organizeMediaHandler）。云盘媒体不支持本地整理。
+// 目标媒体目录，并可手动覆盖类型/二级分类/目标路径/转移方式。
 export function OrganizeMediaDialog({ open, media, onClose, onOrganized }: OrganizeMediaDialogProps) {
   const [form, setForm] = useState({
     media_type: '',
@@ -35,8 +34,6 @@ export function OrganizeMediaDialog({ open, media, onClose, onOrganized }: Organ
   }, [open, media])
 
   if (!open || !media) return null
-
-  const isCloud = (media.path || '').toLowerCase().startsWith('cloud://')
 
   const set = (key: keyof typeof form, value: string | boolean) => {
     setForm((prev) => ({ ...prev, [key]: value }))
@@ -89,11 +86,6 @@ export function OrganizeMediaDialog({ open, media, onClose, onOrganized }: Organ
         </div>
 
         <div className="grid flex-1 gap-4 overflow-y-auto p-5 md:grid-cols-2">
-          {isCloud && (
-            <div className="md:col-span-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-700">
-              该媒体位于云盘库，本地整理无法直接移动云盘文件。请在外部存储中启用云盘转移，或对本地媒体使用本功能。
-            </div>
-          )}
           <label>
             <span className="mb-1 block text-xs font-bold text-gray-500">类型（留空自动识别）</span>
             <select
@@ -163,10 +155,10 @@ export function OrganizeMediaDialog({ open, media, onClose, onOrganized }: Organ
 
         <div className="flex justify-end gap-2 border-t border-gray-200 px-5 py-4">
           <button onClick={onClose} className="btn-outline px-4">取消</button>
-          <button onClick={() => run(true)} disabled={busy || isCloud} className="btn-outline px-4">
+		  <button onClick={() => run(true)} disabled={busy} className="btn-outline px-4">
             预览路径
           </button>
-          <button onClick={() => run(false)} disabled={busy || isCloud} className="btn-primary px-5">
+		  <button onClick={() => run(false)} disabled={busy} className="btn-primary px-5">
             <FolderInput size={16} />
             {busy ? '整理中…' : '整理入库'}
           </button>

@@ -2,7 +2,7 @@
 //
 // Clients connect to /api/ws?token=... (the token is the same JWT used for
 // REST calls). The first message they send is a JSON {"action":"subscribe",
-// "topics":["scan","scrape","transcode"]}. Subsequent server-pushed events
+// "topics":["scan","scrape","task"]}. Subsequent server-pushed events
 // arrive as {"topic":"...","payload":{...}}.
 package handler
 

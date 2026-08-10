@@ -262,11 +262,7 @@ func (s *ScraperService) scrapeCandidateRows(ctx context.Context, libraryID stri
 	var rows []model.Media
 	libraryIDs := []string{}
 	if strings.TrimSpace(libraryID) != "" {
-		var err error
-		libraryIDs, err = MergedLibraryIDsForLibrary(ctx, s.repo, libraryID)
-		if err != nil {
-			return nil, err
-		}
+		libraryIDs = []string{strings.TrimSpace(libraryID)}
 	}
 	statusFilter := "scrape_status IS NULL OR scrape_status = '' OR scrape_status = ? OR scrape_status = ?"
 	statusArgs := []any{"pending", "error"}

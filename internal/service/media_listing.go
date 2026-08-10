@@ -25,11 +25,7 @@ func (s *MediaService) ListMediaVisible(ctx context.Context, libraryID string, p
 	if page < 1 {
 		page = 1
 	}
-	visibility = ExpandMediaVisibilityForMergedCloudLibraries(ctx, s.repo, visibility)
-	libraryIDs, err := MergedLibraryIDsForLibrary(ctx, s.repo, libraryID)
-	if err != nil {
-		return nil, 0, err
-	}
+	libraryIDs := []string{libraryID}
 	filter := repository.MediaQueryFilter{
 		IncludeNSFW:       visibility.IncludeNSFW,
 		AllowedLibraryIDs: visibility.AllowedLibraryIDs,
@@ -63,11 +59,7 @@ func (s *MediaService) ListMediaVisibleGrouped(ctx context.Context, libraryID st
 }
 
 func (s *MediaService) listMediaVisibleForGrouping(ctx context.Context, libraryID string, visibility MediaVisibility) ([]model.MediaView, error) {
-	visibility = ExpandMediaVisibilityForMergedCloudLibraries(ctx, s.repo, visibility)
-	libraryIDs, err := MergedLibraryIDsForLibrary(ctx, s.repo, libraryID)
-	if err != nil {
-		return nil, err
-	}
+	libraryIDs := []string{libraryID}
 	filter := repository.MediaQueryFilter{
 		IncludeNSFW:       visibility.IncludeNSFW,
 		AllowedLibraryIDs: visibility.AllowedLibraryIDs,

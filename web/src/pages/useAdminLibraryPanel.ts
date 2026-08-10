@@ -146,7 +146,7 @@ function useEditableLibraryRootActions(refresh: () => Promise<void>, drafts: Edi
 function useLibraryActions(refresh: () => Promise<void>) {
   const scanLibrary = async (library: Library) => {
     const result = await libraryAPI.scan(library.id)
-    if (result.queued) toast.success('云盘扫描已加入后台队列，会自动入库')
+    if (result.queued) toast.success('扫描已加入后台队列，会自动入库')
     else toast.success(`扫描完成，新增 ${result.added}，更新 ${result.updated ?? 0}`)
   }
 

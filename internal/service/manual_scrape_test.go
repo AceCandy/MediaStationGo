@@ -504,7 +504,7 @@ func TestManualSearchIncludesAdultProvider(t *testing.T) {
 	}
 }
 
-func TestApplyManualMatchSavesSelectedCloudMatchWhenDetailsSlow(t *testing.T) {
+func TestApplyManualMatchSavesSelectedMatchWhenDetailsSlow(t *testing.T) {
 	oldTimeout := tmdbDetailsTimeout
 	tmdbDetailsTimeout = 20 * time.Millisecond
 	defer func() { tmdbDetailsTimeout = oldTimeout }()
@@ -540,14 +540,14 @@ func TestApplyManualMatchSavesSelectedCloudMatchWhenDetailsSlow(t *testing.T) {
 	log := zap.NewNop()
 	scraper := NewScraperService(cfg, log, repos, NewTMDbProvider(cfg, log, nil), nil, nil, nil, NewHub(log))
 
-	lib := model.Library{Name: "OpenList · Movies", Path: "cloud://openlist/Movies", Type: "movie", Enabled: true}
+	lib := model.Library{Name: "Movies", Path: "/media/movies", Type: "movie", Enabled: true}
 	if err := repos.DB.Create(&lib).Error; err != nil {
 		t.Fatal(err)
 	}
 	media := model.Media{
 		LibraryID:    lib.ID,
-		Title:        "bad cloud title",
-		Path:         "cloud://openlist/Movies/Bad.Title.2026.mkv",
+		Title:        "bad title",
+		Path:         "/media/movies/Bad.Title.2026.mkv",
 		ScrapeStatus: "pending",
 	}
 	if err := repos.DB.Create(&media).Error; err != nil {
@@ -558,7 +558,7 @@ func TestApplyManualMatchSavesSelectedCloudMatchWhenDetailsSlow(t *testing.T) {
 	if _, err := scraper.ApplyManualMatch(t.Context(), media.ID, ManualScrapeRequest{
 		Source:    "manual",
 		MediaType: "movie",
-		Title:     "Correct Cloud Movie",
+		Title:     "Correct Movie",
 		TMDbID:    77,
 		Year:      2026,
 	}); err != nil {
@@ -573,14 +573,14 @@ func TestApplyManualMatchSavesSelectedCloudMatchWhenDetailsSlow(t *testing.T) {
 		t.Fatal(err)
 	}
 	if got.MetadataID == "" || got.ScrapeStatus != "matched" {
-		t.Fatalf("manual cloud match link was not saved: %#v", got)
+		t.Fatalf("manual match link was not saved: %#v", got)
 	}
 	view, err := repos.MediaView.FindByID(t.Context(), media.ID)
 	if err != nil || view == nil {
 		t.Fatalf("find manual media view: %#v %v", view, err)
 	}
-	if view.Title != "Correct Cloud Movie" || view.TMDbID != 77 {
-		t.Fatalf("manual cloud metadata was not projected: %#v", view)
+	if view.Title != "Correct Movie" || view.TMDbID != 77 {
+		t.Fatalf("manual metadata was not projected: %#v", view)
 	}
 }
 

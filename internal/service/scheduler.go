@@ -5,11 +5,7 @@
 //
 //	library_scan      every 24 h  — optional full re-scan for local libraries;
 //	                                  filesystem watchers handle normal changes.
-//	cloud_sync        low frequency — optional cloud library sync.
-//	cloud_upload      low frequency — optional local-to-cloud metadata upload.
 //	organize_source   opt-in        — organize the configured staging folder.
-//	transcode_cleanup every 24 h   — purge HLS transcode artefacts
-//	                                  older than 24 h.
 //	recycle_purge     every 24 h   — empty the recycle bin of rows
 //	                                  soft-deleted more than 30 days
 //	                                  ago.
@@ -35,13 +31,10 @@ type SchedulerService struct {
 	log              *zap.Logger
 	repo             *repository.Container
 	scanner          *ScannerService
-	transcoder       *TranscoderService
 	organizer        *OrganizerService
 	organizePipeline *OrganizePipelineService
-	storageCfg       *StorageConfigService
 	hub              *Hub
 	tasks            *TaskTrackerService
-	cacheDir         string
 	now              func() time.Time
 
 	mu     sync.Mutex
@@ -76,8 +69,8 @@ type scheduledJob struct {
 type schedulerManualRunKey struct{}
 
 const (
-	localLastPeriodicScanDateKey   = "scan.last_periodic_date"
-	cloudAutoSyncCompletedDateForm = "2006-01-02"
+	localLastPeriodicScanDateKey = "scan.last_periodic_date"
+	periodicScanDateFormat       = "2006-01-02"
 )
 
 // NewSchedulerService is the constructor.
@@ -85,23 +78,17 @@ func NewSchedulerService(
 	log *zap.Logger,
 	repo *repository.Container,
 	scanner *ScannerService,
-	transcoder *TranscoderService,
 	organizer *OrganizerService,
-	storageCfg *StorageConfigService,
 	hub *Hub,
-	cacheDir string,
 ) *SchedulerService {
 	return &SchedulerService{
-		log:        log,
-		repo:       repo,
-		scanner:    scanner,
-		transcoder: transcoder,
-		organizer:  organizer,
-		storageCfg: storageCfg,
-		hub:        hub,
-		cacheDir:   cacheDir,
-		now:        time.Now,
-		stopCh:     make(chan struct{}),
+		log:       log,
+		repo:      repo,
+		scanner:   scanner,
+		organizer: organizer,
+		hub:       hub,
+		now:       time.Now,
+		stopCh:    make(chan struct{}),
 	}
 }
 
@@ -114,24 +101,9 @@ func (s *SchedulerService) Start(ctx context.Context) {
 			run:      s.jobScanLibraries,
 		},
 		{
-			name:     "cloud_sync",
-			interval: s.cloudSyncInterval(ctx),
-			run:      s.jobSyncCloudLibraries,
-		},
-		{
-			name:     "cloud_upload",
-			interval: s.cloudUploadInterval(ctx),
-			run:      s.jobUploadLocalToCloud,
-		},
-		{
 			name:     "organize_source",
 			interval: s.organizeSourceInterval(ctx),
 			run:      s.jobOrganizeSource,
-		},
-		{
-			name:     "transcode_cleanup",
-			interval: 24 * time.Hour,
-			run:      s.jobCleanTranscodeCache,
 		},
 		{
 			name:     "recycle_purge",

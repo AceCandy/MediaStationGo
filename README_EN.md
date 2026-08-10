@@ -7,7 +7,7 @@
 <h3 align="center">A lightweight, polished, NAS-friendly private media center</h3>
 
 <p align="center">
-  <strong>Docker-first setup · Multi-user management · Media library · Metadata · Site search · Emby-protocol clients · Cloud playback</strong>
+  <strong>Docker-first setup · Multi-user management · Media library · Metadata search · Emby-protocol clients · Direct playback</strong>
 </p>
 
 <p align="center">
@@ -33,12 +33,12 @@ MediaStationGo is a self-hosted media center for personal libraries, home NAS, a
 
 It helps you:
 
-- Manage movies, TV shows, anime, variety shows, music, and adult libraries.
+- Manage movies, TV shows, anime, variety shows, and other video libraries.
 - Create multiple user accounts for family members, friends, or different devices.
 - Scan files and enrich posters, summaries, years, seasons, and episodes.
-- Play in the web UI, or log in with a MediaStationGo account from Emby-protocol apps such as Infuse, VidHub, SenPlayer, and Emby clients.
-- Search configured sites and organize local staging files into the media library.
-- Connect OpenList, CloudDrive2, WebDAV, and other storage backends with STRMURL or 302 redirect playback.
+- Play in the web UI, or log in with a MediaStationGo account from Yamby, official Emby clients, and SenPlayer.
+- Search local media and external metadata, then organize local staging files into the media library.
+- Direct-play local files and protocol-neutral HTTP/HTTPS or STRM sources with HEAD, Range, and 302 redirect support.
 - Run on NAS, mini PCs, VPS, Linux, Windows Docker Desktop, or any Docker-friendly host.
 
 > The project is moving fast. With the default PostgreSQL deployment, back up both `data/` and `postgres/`.
@@ -50,8 +50,8 @@ It helps you:
 - **One server, many clients**: deploy MediaStationGo once; you do not need to run a separate Emby server.
 - **Emby-protocol compatibility**: add the server in third-party players as an Emby/Jellyfin-compatible server, then log in with your MediaStationGo username and password.
 - **Multi-user management**: supports admins, regular users, account enable/disable, expiry dates, device management, Bot registration, and redeem codes.
-- **Local + cloud media in one place**: manage local disks, download folders, OpenList, CloudDrive2, WebDAV, and other storage backends from one panel.
-- **Site search and organization**: search configured sites, then organize and scrape local staging files into the library.
+- **Original-source playback**: serve unchanged local bytes or redirect protocol-neutral HTTP/HTTPS and STRM sources without server-side transcoding.
+- **Media search and organization**: search local media and external metadata, then organize and scrape local staging files into the library.
 - **NAS-friendly**: simple Docker Compose deployment. The primary database lives under `postgres/`, while runtime secrets and files live under `data/`.
 
 ---
@@ -59,8 +59,8 @@ It helps you:
 ## Who is it for?
 
 - **Beginners** who want to edit one `docker-compose.yml` and start the service.
-- **NAS users** who want a low-resource media center for local disks and cloud storage.
-- **PT/download users** who want downloads, organization, metadata, and playback in one panel.
+- **NAS users** who want a low-resource media center for local disks and protocol-neutral remote media URLs.
+- **Library organizers** who want staging-folder organization, metadata, and playback in one panel.
 - **External-player users** who want to log in to Emby-protocol third-party apps with one MediaStationGo account.
 - **Family-sharing users** who want separate user accounts without deploying a separate media server for each person.
 - **Developers** who want to study or extend a Go + React self-hosted media app.
@@ -73,7 +73,7 @@ It helps you:
 - Username: `admin`
 - Password: `admin123`
 
-> The demo is for feature preview only. Do not save private API keys, tracker cookies, or personal data there.
+> The demo is for feature preview only. Do not save private API keys or personal data there.
 
 ---
 
@@ -317,11 +317,6 @@ services:
    - Use the username and password created in MediaStationGo. No separate Emby server is required.
    - Admins can create regular users in the web UI or Bot so each person can log in with their own account.
 
-4. **Use cloud playback**
-   - Configure OpenList, CloudDrive2, WebDAV, or another provider in storage settings.
-   - Choose STRMURL or 302 redirect playback in the admin settings.
-   - The enabled option takes priority. If both are disabled, playback falls back to the normal server playback path.
-
 ---
 
 ## Update, Backup, Logs
@@ -341,7 +336,7 @@ tail -f ./data/logs/app.log
 tail -f ./data/logs/error.log
 ```
 
-The compose templates keep full application logs in `./data/logs/app.log` and split warnings/errors into `warn.log` and `error.log`. Keep `MEDIASTATION_LOGGING_LEVEL=info` while diagnosing site search, organizer, or STRM generation issues; temporarily switch to `debug` only when deeper tracing is needed.
+The compose templates keep full application logs in `./data/logs/app.log` and split warnings/errors into `warn.log` and `error.log`. Keep `MEDIASTATION_LOGGING_LEVEL=info` while diagnosing media search, organizer, or STRM generation issues; temporarily switch to `debug` only when deeper tracing is needed.
 
 Use a writable container path for STRM output, such as `/data/strm` or a mounted media path. Deployments that previously saved `/app/data/strm` are migrated automatically to the configured `MEDIASTATION_APP_DATA_DIR`, which defaults to `/data`.
 
@@ -403,14 +398,14 @@ Most cases are path mistakes.
 Suggested settings:
 
 - Set `ffprobe.max_concurrent` to `1`.
-- Enable automatic organization, scrape-after-scan, and boot cloud scan only when you really need them.
-- Avoid frequent full-library scans on large libraries. Prefer manual scan or scheduled night sync.
+- Enable automatic organization and scrape-after-scan only when you really need them.
+- Avoid frequent full-library scans on large libraries. Prefer manual or scheduled scans.
 
 ### 4. Should I use `.env`?
 
 Beginners should not. Editing `docker-compose.yml` directly is easier to understand.
 
-`.env` is not required by the provided deployment templates. Edit the selected Compose file directly and adjust the port, volume paths, and optional hardware device mapping.
+`.env` is not required by the provided deployment templates. Edit the selected Compose file directly and adjust the port and volume paths.
 
 ---
 
@@ -420,10 +415,10 @@ Beginners should not. Editing `docker-compose.yml` directly is easier to underst
 | --- | --- |
 | Libraries | Movies, TV shows, anime, variety, music, adult content |
 | Metadata | NFO, local artwork, TMDb, TheTVDB, Bangumi, Douban, Fanart, JavBus/JavDB |
-| Playback | Web playback, HTTP Range, HLS transcoding, direct links, STRMURL, 302 redirect |
+| Playback | Web playback, original-byte direct play, HTTP HEAD/Range, STRMURL, 302 redirect |
 | External clients | Emby-protocol compatible APIs; MediaStationGo accounts can log in to third-party players |
 | User management | Multi-user accounts, admin/regular users, expiry dates, device management, Bot registration and redeem codes |
-| Search and organization | Site search, local staging organization, metadata matching |
+| Search and organization | Local media search, external metadata search, local staging organization |
 | File manager | Browse, organize, copy, move, hardlink, symlink |
 | Operations | Task queue, recycle bin, duplicate files, notifications, logs |
 | AI | OpenAI-compatible API, AI search, recommendations, assistant |
@@ -432,7 +427,7 @@ Directory hardlinks are handled by recreating the directory tree and hardlinking
 each contained file. Linux cannot hardlink a directory itself. Hardlinks still
 require the source and target files to be on the same filesystem/subvolume from
 inside the container; if media and downloads are separate bind mounts, disks,
-btrfs subvolumes, or cloud mounts, use copy or symlink instead.
+or btrfs subvolumes, use copy or symlink instead.
 
 ## Development
 

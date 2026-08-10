@@ -19,15 +19,11 @@ func (e *EmbyService) Item(ctx context.Context, mediaID, userID string) (map[str
 	if lib, err := e.repo.Library.FindByID(ctx, mediaID); err != nil {
 		return nil, err
 	} else if lib != nil {
-		libs := FilterDisplayCloudLibraries(ctx, e.repo, []model.Library{*lib})
-		if len(libs) == 0 {
-			return nil, nil
-		}
 		visibility := e.mediaVisibility(ctx, userID)
-		if !e.libraryVisibleFromCachedVisibility(libs[0], visibility) {
+		if !e.libraryVisibleFromCachedVisibility(*lib, visibility) {
 			return nil, nil
 		}
-		return e.libraryAsView(&libs[0]), nil
+		return e.libraryAsView(lib), nil
 	}
 	m, err := e.mediaViewForItemID(ctx, mediaID, userID)
 	if err != nil {
@@ -186,8 +182,8 @@ func (e *EmbyService) itemPayload(ctx context.Context, m *model.MediaView, userI
 	}
 	container := embyMediaContainer(&m.Media)
 	isLocalSTRM := localSTRMFileTarget(&m.Media) != ""
-	isCloud := strings.TrimSpace(m.STRMURL) != "" && !isLocalSTRM
-	playURL := e.embyMediaPlayURL(ctx, &m.Media, container, isCloud)
+	isRemote := strings.TrimSpace(m.STRMURL) != "" && !isLocalSTRM
+	playURL := embyDirectStreamURL(m.ID, container)
 
 	item := map[string]any{
 		"Id":                itemID,
@@ -207,7 +203,7 @@ func (e *EmbyService) itemPayload(ctx context.Context, m *model.MediaView, userI
 		"Width":             m.Width,
 		"Height":            m.Height,
 		"DateCreated":       formatEmbyDateTime(m.CreatedAt),
-		"Path":              embyMediaSourcePath(&m.Media, playURL, isLocalSTRM, isCloud),
+		"Path":              embyMediaSourcePath(&m.Media, playURL, isLocalSTRM, isRemote),
 		"ParentId":          parentID,
 		"SeasonId":          seasonItemID,
 		"SeasonName":        seasonName(m.SeasonNum),
@@ -225,7 +221,7 @@ func (e *EmbyService) itemPayload(ctx context.Context, m *model.MediaView, userI
 			"Played":                played,
 			"PlayedPercentage":      pct,
 		},
-		"MediaSources": e.mediaSourcesForView(ctx, m, userID, true, false, completeStreams),
+		"MediaSources": e.mediaSourcesForView(ctx, m, userID, true, completeStreams),
 	}
 	if premiered, ok := embyPremiereDate(m.ReleaseDate); ok {
 		item["PremiereDate"] = premiered

@@ -18,6 +18,8 @@ type LibraryRootInput struct {
 	SortOrder *int   `json:"sort_order,omitempty"`
 }
 
+var ErrCloudLibraryRootUnsupported = errors.New("cloud library roots are no longer supported")
+
 // CreateLibrary persists a library after validating that its path exists.
 func (s *MediaService) CreateLibrary(ctx context.Context, name, path, kind string) (*model.Library, error) {
 	return s.CreateLibraryWithRoots(ctx, name, kind, []LibraryRootInput{{Path: path}})
@@ -293,37 +295,16 @@ func (s *MediaService) ensureLibraryRootPathUnique(ctx context.Context, libraryI
 
 func normalizeLibraryRootPath(rawPath string) (string, error) {
 	rawPath = strings.TrimSpace(rawPath)
-	if info, ok := ParseCloudLibraryMount(rawPath); ok {
-		displayDir := canonicalLibraryDisplayDir(firstNonEmpty(info.DisplayDir, info.ScanDir))
-		if displayDir == "" {
-			displayDir = firstNonEmpty(info.DisplayDir, info.ScanDir)
-		}
-		if CloudLibraryAutoCategory(model.Library{Path: rawPath}) {
-			return BuildCloudAutoCategoryLibraryPathWithScanDir(info.Provider, info.ScanDir, displayDir), nil
-		}
-		return BuildCloudLibraryPath(info.Provider, info.ScanDir, displayDir), nil
+	if strings.HasPrefix(strings.ToLower(rawPath), "cloud://") {
+		return "", ErrCloudLibraryRootUnsupported
 	}
 	return resolveAccessibleLibraryPath(rawPath)
 }
 
 func libraryRootPathKey(pathValue string) string {
-	pathValue = strings.TrimSpace(pathValue)
-	if info, ok := ParseCloudLibraryMount(pathValue); ok {
-		auto := "0"
-		if CloudLibraryAutoCategory(model.Library{Path: pathValue}) {
-			auto = "1"
-		}
-		return strings.ToLower(info.Provider + "\x00" + info.ScanDir + "\x00" + info.DisplayDir + "\x00" + auto)
-	}
-	return strings.ToLower(filepath.Clean(pathValue))
+	return strings.ToLower(filepath.Clean(strings.TrimSpace(pathValue)))
 }
 
 func libraryRootNameForPath(pathValue string) string {
-	if info, ok := ParseCloudLibraryMount(pathValue); ok {
-		if base := cloudMountDirBase(firstNonEmpty(info.DisplayDir, info.ScanDir)); base != "" {
-			return base
-		}
-		return CloudMountProviderLabel(info.Provider)
-	}
 	return filepath.Base(filepath.Clean(pathValue))
 }

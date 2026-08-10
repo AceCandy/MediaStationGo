@@ -57,7 +57,6 @@ type EmbySystemInfo struct {
 	SupportsHttps         bool   `json:"SupportsHttps"`
 	SupportsAutoDiscovery bool   `json:"SupportsAutoDiscovery"`
 	WebSocketPortNumber   int    `json:"WebSocketPortNumber"`
-	TranscodingTempPath   string `json:"TranscodingTempPath,omitempty"`
 	CanSelfUpdate         bool   `json:"CanSelfUpdate"`
 	CanLaunchWebBrowser   bool   `json:"CanLaunchWebBrowser"`
 	CanRestart            bool   `json:"CanRestart"`

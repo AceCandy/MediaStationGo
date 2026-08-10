@@ -9,7 +9,7 @@ export function StrmPageHeader() {
       <div>
         <h1 className="font-display text-3xl font-bold text-ink-600">STRM 管理</h1>
         <p className="text-sm text-ink-50">
-          将外部 HTTP / WebDAV / Alist 直链以&quot;虚拟文件&quot;形式纳入媒体库
+          将外部 HTTP / HTTPS 媒体地址以&quot;虚拟文件&quot;形式纳入媒体库
         </p>
       </div>
     </div>

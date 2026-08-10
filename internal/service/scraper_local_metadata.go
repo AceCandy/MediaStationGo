@@ -174,8 +174,12 @@ func mergeScrapePathHintMetadata(dst, src *LocalMetadata) *LocalMetadata {
 	return dst
 }
 
-func isCloudMediaPath(value string) bool {
-	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(value)), "cloud://")
+func cloneLocalMetadata(src *LocalMetadata) *LocalMetadata {
+	if src == nil {
+		return nil
+	}
+	copy := *src
+	return &copy
 }
 
 func (s *ScraperService) applyLocalMetadataMatch(ctx context.Context, m *model.Media, local *LocalMetadata) error {

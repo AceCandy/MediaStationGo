@@ -208,38 +208,4 @@ func int64Value(value string) int64 {
 	return v
 }
 
-var (
-	pixelFormatBitDepthRE = regexp.MustCompile(`(?:p0?|p[024]|gray|xyz|y[24]|x2(?:rgb|bgr))(9|10|12|14|16)(?:le|be)$`)
-	ffmpegDurationRE      = regexp.MustCompile(`Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)`)
-	ffmpegInputRE         = regexp.MustCompile(`Input #\d+,\s*(.+?),\s*from`)
-	ffmpegVideoRE         = regexp.MustCompile(`Video:\s*([^,\s]+).*?(\d{2,5})x(\d{2,5})`)
-	ffmpegAudioRE         = regexp.MustCompile(`Audio:\s*([^,\s]+)`)
-)
-
-func parseFFmpegProbeText(text string) *ProbeResult {
-	res := &ProbeResult{}
-	if match := ffmpegInputRE.FindStringSubmatch(text); len(match) == 2 {
-		res.Container = strings.TrimSpace(match[1])
-	}
-	if match := ffmpegDurationRE.FindStringSubmatch(text); len(match) == 4 {
-		hours, _ := strconv.Atoi(match[1])
-		minutes, _ := strconv.Atoi(match[2])
-		seconds, _ := strconv.ParseFloat(match[3], 64)
-		res.DurationSec = hours*3600 + minutes*60 + int(seconds)
-	}
-	for _, line := range strings.Split(text, "\n") {
-		if res.VideoCodec == "" {
-			if match := ffmpegVideoRE.FindStringSubmatch(line); len(match) == 4 {
-				res.VideoCodec = strings.TrimSpace(match[1])
-				res.Width, _ = strconv.Atoi(match[2])
-				res.Height, _ = strconv.Atoi(match[3])
-			}
-		}
-		if res.AudioCodec == "" {
-			if match := ffmpegAudioRE.FindStringSubmatch(line); len(match) == 2 {
-				res.AudioCodec = strings.TrimSpace(match[1])
-			}
-		}
-	}
-	return res
-}
+var pixelFormatBitDepthRE = regexp.MustCompile(`(?:p0?|p[024]|gray|xyz|y[24]|x2(?:rgb|bgr))(9|10|12|14|16)(?:le|be)$`)

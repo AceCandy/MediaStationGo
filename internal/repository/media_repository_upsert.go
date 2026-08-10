@@ -223,7 +223,7 @@ func addMediaExternalIDUpdates(updates map[string]any, existing, incoming model.
 
 func mediaCanRefreshExternalIDs(existingStatus string, incoming model.Media) bool {
 	return existingStatus == "pending" || existingStatus == "" || existingStatus == "no_match" ||
-		incoming.ScrapeStatus == "matched" || strings.HasPrefix(strings.ToLower(strings.TrimSpace(incoming.Path)), "cloud://")
+		incoming.ScrapeStatus == "matched"
 }
 
 func addMatchedMediaStatusUpdate(updates map[string]any, existing, incoming model.Media) {
@@ -236,14 +236,8 @@ func addMatchedMediaStatusUpdate(updates map[string]any, existing, incoming mode
 }
 
 func addMediaPlacementUpdates(updates map[string]any, existing, incoming model.Media) {
-	// 云盘媒体：同一 cloud:// 文件可能先被父目录库扫描入库，之后用户按二级
-	// 分类重新挂载/扫描到更精确的分类库。此时让 library_id 迁移到当前扫描库，
-	// 否则媒体被钉死在旧库、新分类库里看不到(表现为"媒体部分消失")。
-	// 本地媒体物理位置固定：仅在原 library_id 为空时回填，不迁移。
-	if isCloudMediaPath := strings.HasPrefix(strings.ToLower(strings.TrimSpace(incoming.Path)), "cloud://"); incoming.LibraryID != "" && incoming.LibraryID != existing.LibraryID {
-		if isCloudMediaPath || existing.LibraryID == "" {
-			updates["library_id"] = incoming.LibraryID
-		}
+	if incoming.LibraryID != "" && incoming.LibraryID != existing.LibraryID && existing.LibraryID == "" {
+		updates["library_id"] = incoming.LibraryID
 	}
 	if incoming.LibraryRootID != "" && incoming.LibraryRootID != existing.LibraryRootID {
 		updates["library_root_id"] = incoming.LibraryRootID

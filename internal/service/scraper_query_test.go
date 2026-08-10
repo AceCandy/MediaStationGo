@@ -87,7 +87,7 @@ func TestExternalIDHintsFromText(t *testing.T) {
 }
 
 func TestPathHintMetadataDoesNotMarkMediaMatched(t *testing.T) {
-	meta, hints := pathHintMetadata("cloud://openlist/国漫/折腰 (2025) {tmdb 296753}/Season 1/折腰.S01E01.mkv", true)
+	meta, hints := pathHintMetadata("/media/tv/折腰 (2025) {tmdb 296753}/Season 1/折腰.S01E01.mkv", true)
 	if meta == nil || hints.TMDbID != 296753 || meta.TMDbID != 296753 || meta.Title != "折腰" || meta.Year != 2025 {
 		t.Fatalf("path hint metadata = %+v hints=%+v", meta, hints)
 	}
@@ -99,7 +99,7 @@ func TestPathHintMetadataDoesNotMarkMediaMatched(t *testing.T) {
 }
 
 func TestPathHintMetadataIgnoresEpisodeFileIDForSeries(t *testing.T) {
-	meta, hints := pathHintMetadata("cloud://openlist/国漫/遮天 (2023)/Season 1/遮天.S01E01.{tmdb-4375419}.mkv", true)
+	meta, hints := pathHintMetadata("/media/tv/遮天 (2023)/Season 1/遮天.S01E01.{tmdb-4375419}.mkv", true)
 	if meta == nil || meta.Title != "遮天" || meta.Year != 2023 {
 		t.Fatalf("series path hint metadata = %+v", meta)
 	}
@@ -108,7 +108,7 @@ func TestPathHintMetadataIgnoresEpisodeFileIDForSeries(t *testing.T) {
 	}
 }
 
-func TestEnrichOneCloudPathHintOverridesStaleTMDbID(t *testing.T) {
+func TestEnrichOnePathHintOverridesStaleTMDbID(t *testing.T) {
 	var requested []string
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requested = append(requested, r.URL.Path)
@@ -144,14 +144,14 @@ func TestEnrichOneCloudPathHintOverridesStaleTMDbID(t *testing.T) {
 	log := zap.NewNop()
 	scraper := NewScraperService(cfg, log, repos, NewTMDbProvider(cfg, log, nil), nil, nil, nil, NewHub(log))
 
-	lib := model.Library{Name: "OpenList · 国产剧", Path: "cloud://openlist/国产剧", Type: "tv", Enabled: true}
+	lib := model.Library{Name: "国产剧", Path: "/media/tv", Type: "tv", Enabled: true}
 	if err := repos.DB.Create(&lib).Error; err != nil {
 		t.Fatal(err)
 	}
 	media := model.Media{
 		LibraryID:    lib.ID,
 		Title:        "折腰",
-		Path:         "cloud://openlist/国产剧/折腰 (2025) {tmdb-296753}/Season 1/折腰.S01E01.mkv",
+		Path:         "/media/tv/折腰 (2025) {tmdb-296753}/Season 1/折腰.S01E01.mkv",
 		SeasonNum:    1,
 		EpisodeNum:   1,
 		TMDbID:       220269,
@@ -233,14 +233,14 @@ func TestEnrichOneRejectsStaleEpisodeTMDbIDBySeriesTitle(t *testing.T) {
 	log := zap.NewNop()
 	scraper := NewScraperService(cfg, log, repos, NewTMDbProvider(cfg, log, nil), nil, nil, nil, NewHub(log))
 
-	lib := model.Library{Name: "OpenList · 国产剧", Path: "cloud://openlist/国产剧", Type: "tv", Enabled: true}
+	lib := model.Library{Name: "国产剧", Path: "/media/tv", Type: "tv", Enabled: true}
 	if err := repos.DB.Create(&lib).Error; err != nil {
 		t.Fatal(err)
 	}
 	media := model.Media{
 		LibraryID:    lib.ID,
 		Title:        "折腰",
-		Path:         "cloud://openlist/国产剧/折腰 (2025)/Season 1/折腰.S01E01.mkv",
+		Path:         "/media/tv/折腰 (2025)/Season 1/折腰.S01E01.mkv",
 		SeasonNum:    1,
 		EpisodeNum:   1,
 		TMDbID:       220269,
@@ -269,7 +269,7 @@ func TestEnrichOneRejectsStaleEpisodeTMDbIDBySeriesTitle(t *testing.T) {
 func TestMediaYearHintUsesSeriesFolderYearForEpisodes(t *testing.T) {
 	media := &model.Media{
 		Year:       2026,
-		Path:       "cloud://openlist/国产剧/折腰 (2025)/Season 1/折腰.S01E01.mkv",
+		Path:       "/media/tv/折腰 (2025)/Season 1/折腰.S01E01.mkv",
 		SeasonNum:  1,
 		EpisodeNum: 1,
 	}
@@ -281,7 +281,7 @@ func TestMediaYearHintUsesSeriesFolderYearForEpisodes(t *testing.T) {
 func TestMediaYearHintIgnoresEpisodeRowYearWithoutSeriesFolderYear(t *testing.T) {
 	media := &model.Media{
 		Year:       2026,
-		Path:       "cloud://openlist/综艺/哈哈哈哈哈/Season 6/哈哈哈哈哈 - S06E01.mkv",
+		Path:       "/media/variety/哈哈哈哈哈/Season 6/哈哈哈哈哈 - S06E01.mkv",
 		SeasonNum:  6,
 		EpisodeNum: 1,
 	}

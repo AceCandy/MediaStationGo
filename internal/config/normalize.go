@@ -23,12 +23,6 @@ func (c *Config) normalize() error {
 	if c.App.MaxCPUThreads > 8 {
 		c.App.MaxCPUThreads = 8
 	}
-	if c.App.CloudScanMaxConcurrent < 1 {
-		c.App.CloudScanMaxConcurrent = 1
-	}
-	if c.App.CloudScanMaxConcurrent > 16 {
-		c.App.CloudScanMaxConcurrent = 16
-	}
 	if c.Database.MaxOpenConns <= 0 {
 		c.Database.MaxOpenConns = defaultDatabaseMaxOpenConns
 	}

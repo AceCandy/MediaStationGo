@@ -27,10 +27,8 @@ type Container struct {
 	RefreshToken  *RefreshTokenRepository
 	ApiConfig     *ApiConfigRepository
 	NotifyChannel *NotifyChannelRepository
-	Site          *SiteRepository
 	STRM          *STRMRepository
 	PlayProfile   *PlayProfileRepository
-	StorageConfig *StorageConfigRepository
 	Assistant     *AssistantRepository
 	RegCode       *RegistrationCodeRepository
 	SignIn        *SignInRepository
@@ -59,10 +57,8 @@ func New(db *gorm.DB) *Container {
 		RefreshToken:  &RefreshTokenRepository{db: db},
 		ApiConfig:     &ApiConfigRepository{db: db},
 		NotifyChannel: &NotifyChannelRepository{db: db},
-		Site:          &SiteRepository{db: db},
 		STRM:          &STRMRepository{db: db},
 		PlayProfile:   &PlayProfileRepository{db: db},
-		StorageConfig: &StorageConfigRepository{db: db},
 		Assistant:     &AssistantRepository{db: db},
 		RegCode:       &RegistrationCodeRepository{db: db},
 		SignIn:        &SignInRepository{db: db},

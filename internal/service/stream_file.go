@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"errors"
 	"net/http"
 	"net/url"
 	"os"
@@ -13,22 +12,14 @@ import (
 	"strings"
 
 	"go.uber.org/zap"
-
-	"github.com/ShukeBta/MediaStationGo/internal/model"
-	"github.com/ShukeBta/MediaStationGo/internal/repository"
 )
 
 // ServeFile streams the file backing the given media ID using
 // http.ServeContent so HEAD / Range / If-Modified-Since are handled for free.
 //
-// When the media row has a STRMURL set we redirect (302) to that URL
-// instead of opening a local file. This lets WebDAV / Alist / S3 / HTTP
-// direct links flow through the rest of the player UI unchanged.
+// HTTP/HTTPS STRM targets remain redirects; configured prefixes may first
+// resolve one upstream redirect without proxying media bytes.
 func (s *StreamService) ServeFile(w http.ResponseWriter, r *http.Request, mediaID string) error {
-	return s.ServeFileWithCloudMode(w, r, mediaID, "")
-}
-
-func (s *StreamService) ServeFileWithCloudMode(w http.ResponseWriter, r *http.Request, mediaID, cloudMode string) error {
 	m, err := s.repo.Media.FindByID(r.Context(), mediaID)
 	if err != nil {
 		return err
@@ -44,47 +35,25 @@ func (s *StreamService) ServeFileWithCloudMode(w http.ResponseWriter, r *http.Re
 		}
 		return s.serveLocalMediaFile(w, r, mediaID, target, "local_strm")
 	}
-	if strmURL := strings.TrimSpace(m.STRMURL); strmURL != "" && playableSTRMTarget(r.Context(), s.repo, strmURL, m) {
-		if !cloudPlaybackModeEnabled(r.Context(), s.repo, cloudMode) {
-			return ErrCloudPlaybackDisabled
-		}
-		// 云盘播放 URL 先规范化为相对路径，免疫扫描时固化的旧 host。
-		target := normalizeCloudPlayTarget(strmURL)
-		target = withAuthTokenForInternalRedirect(target, r, PublicServerURL(r.Context(), s.repo, s.cfg))
+	if target := strings.TrimSpace(m.STRMURL); playableSTRMTarget(target) {
+		resolution := s.resolveConfiguredPlaybackRedirect(r.Context(), target, r.UserAgent())
+		target = resolution.target
+		target = s.withExternalPlaybackTokenForInternalRedirect(target, r, PublicServerURL(r.Context(), s.repo, s.cfg), mediaID)
 		redirectTarget := absoluteInternalRedirect(target, r)
-		resolveConfiguredRedirect := isOpenListDownloadURL(redirectTarget)
-		cacheHit := false
-		if resolveConfiguredRedirect {
-			if s.storageCfg == nil {
-				return errors.New("playback redirect resolver unavailable")
-			}
-			redirectTarget, cacheHit, err = s.storageCfg.ResolveHTTPRedirectWithCacheStatus(r.Context(), redirectTarget, r.UserAgent())
-			if err != nil {
-				return err
-			}
-		}
-		setCloudRedirectNoStore(w)
-		if !isCloudPlaybackTarget(strmURL) && s.log != nil {
+		setPlaybackRedirectNoStore(w)
+		if s.log != nil {
 			fields := []zap.Field{
 				zap.String("media_id", mediaID),
 				zap.String("playback_source", "remote_redirect"),
-				zap.String("resolve_source", "configured"),
 				zap.String("method", r.Method),
 				zap.String("range", r.Header.Get("Range")),
 			}
-			if resolveConfiguredRedirect {
-				fields = append(fields, zap.Bool("cache_hit", cacheHit))
-			}
-			s.log.Info("media playback redirect", append(fields, PlaybackURLLogFields(redirectTarget)...)...)
+			fields = append(fields, resolution.logFields()...)
+			fields = append(fields, PlaybackURLLogFields(redirectTarget)...)
+			s.log.Info("media playback redirect", fields...)
 		}
 		http.Redirect(w, r, redirectTarget, http.StatusFound)
 		return nil
-	}
-	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(m.Path)), "cloud://") {
-		// 云盘媒体没有本地文件可回退；走到这里说明 STRM 播放被关闭或
-		// STRMURL 缺失。返回明确错误而不是笼统的「文件不存在」，
-		// 处理器据此回 502 + 原因，方便用户在播放器/日志里定位。
-		return ErrCloudPlaybackUnavailable
 	}
 	if handled, err := s.redirectMappedPlaybackPath(w, r, mediaID, m.Path); err != nil {
 		return err
@@ -99,14 +68,11 @@ func (s *StreamService) redirectMappedPlaybackPath(w http.ResponseWriter, r *htt
 	if target == "" {
 		return false, nil
 	}
-	if s.storageCfg == nil {
-		return true, errors.New("playback redirect resolver unavailable")
-	}
-	resolved, cacheHit, err := s.storageCfg.ResolveHTTPRedirectWithCacheStatus(r.Context(), target, r.UserAgent())
-	if err != nil {
-		return true, err
-	}
-	setCloudRedirectNoStore(w)
+	resolution := s.resolveConfiguredPlaybackRedirect(r.Context(), target, r.UserAgent())
+	target = resolution.target
+	target = s.withExternalPlaybackTokenForInternalRedirect(target, r, PublicServerURL(r.Context(), s.repo, s.cfg), mediaID)
+	resolved := absoluteInternalRedirect(target, r)
+	setPlaybackRedirectNoStore(w)
 	if s.log != nil {
 		fields := []zap.Field{
 			zap.String("media_id", mediaID),
@@ -115,9 +81,10 @@ func (s *StreamService) redirectMappedPlaybackPath(w http.ResponseWriter, r *htt
 			zap.String("path", localPath),
 			zap.String("method", r.Method),
 			zap.String("range", r.Header.Get("Range")),
-			zap.Bool("cache_hit", cacheHit),
 		}
-		s.log.Info("media playback redirect", append(fields, PlaybackURLLogFields(resolved)...)...)
+		fields = append(fields, resolution.logFields()...)
+		fields = append(fields, PlaybackURLLogFields(resolved)...)
+		s.log.Info("media playback redirect", fields...)
 	}
 	http.Redirect(w, r, resolved, http.StatusFound)
 	return true, nil
@@ -221,7 +188,7 @@ func PlaybackURLLogFields(raw string) []zap.Field {
 	)
 }
 
-func setCloudRedirectNoStore(w http.ResponseWriter) {
+func setPlaybackRedirectNoStore(w http.ResponseWriter) {
 	if w == nil {
 		return
 	}
@@ -230,19 +197,16 @@ func setCloudRedirectNoStore(w http.ResponseWriter) {
 	w.Header().Set("Expires", "0")
 }
 
-func isCloudPlaybackTarget(raw string) bool {
-	_, _, ok := parseCloudMediaPlaybackURL(raw)
+func playableSTRMTarget(raw string) bool {
+	if isHTTPPlaybackTarget(raw) {
+		return true
+	}
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || u.IsAbs() {
+		return false
+	}
+	_, ok := internalStreamRedirectMediaID(u)
 	return ok
-}
-
-func playableSTRMTarget(ctx context.Context, repo *repository.Container, raw string, m *model.Media) bool {
-	if isCloudPlaybackTarget(raw) || isHTTPPlaybackTarget(raw) {
-		return true
-	}
-	if m != nil && strings.EqualFold(strings.TrimSpace(m.Container), "strm") {
-		return true
-	}
-	return STRMPlaybackEnabled(ctx, repo)
 }
 
 func isHTTPPlaybackTarget(raw string) bool {
@@ -252,17 +216,4 @@ func isHTTPPlaybackTarget(raw string) bool {
 	}
 	scheme := strings.ToLower(strings.TrimSpace(u.Scheme))
 	return scheme == "http" || scheme == "https"
-}
-
-func isOpenListDownloadURL(raw string) bool {
-	u, err := url.Parse(strings.TrimSpace(raw))
-	if err != nil || !isHTTPPlaybackTarget(raw) {
-		return false
-	}
-	for _, segment := range strings.Split(strings.Trim(u.Path, "/"), "/") {
-		if segment == "d" {
-			return true
-		}
-	}
-	return false
 }

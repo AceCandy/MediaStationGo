@@ -37,25 +37,6 @@ export type GenerateSTRMResult = {
   }>
 }
 
-export type GenerateSTRMTreeInput = {
-  provider: string
-  tree_text?: string
-  paths?: string[]
-  source_root?: string
-  output_prefix?: string
-  output_dir: string
-  base_url?: string
-  overwrite?: boolean
-  cleanup?: boolean
-  dry_run?: boolean
-  batch_limit?: number
-  recognize_rename?: boolean
-  transfer_subtitles?: boolean
-  missing_only?: boolean
-  refresh_library?: boolean
-  scrape_after?: boolean
-}
-
 export type RepairSTRMInput = {
   output_dir: string
   base_url?: string
@@ -112,10 +93,6 @@ export const strmAPI = {
   generate: (input: GenerateSTRMInput) =>
     api
       .post<GenerateSTRMResult>('/strm/generate', input, { timeout: BATCH_REQUEST_TIMEOUT })
-      .then((r) => r.data),
-  generateFromTree: (input: GenerateSTRMTreeInput) =>
-    api
-      .post<GenerateSTRMResult>('/strm/generate-from-tree', input, { timeout: BATCH_REQUEST_TIMEOUT })
       .then((r) => r.data),
   repair: (input: RepairSTRMInput) =>
     api

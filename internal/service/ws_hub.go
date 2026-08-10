@@ -1,5 +1,5 @@
-// Package service — WebSocket hub used to push real-time progress events
-// (scan / scrape / transcode) to subscribed clients.
+// Package service — WebSocket hub used to push real-time task progress events
+// to subscribed clients.
 package service
 
 import (

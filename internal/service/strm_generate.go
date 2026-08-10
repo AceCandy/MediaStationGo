@@ -14,13 +14,14 @@ import (
 )
 
 type GenerateSTRMOptions struct {
-	LibraryID        string `json:"library_id"`
-	OutputDir        string `json:"output_dir"`
-	BaseURL          string `json:"base_url,omitempty"`
-	Enabled          bool   `json:"enabled"`
-	Overwrite        bool   `json:"overwrite"`
-	IncludeLocal     bool   `json:"include_local"`
-	PreserveTree     bool   `json:"preserve_tree"`
+	LibraryID    string `json:"library_id"`
+	OutputDir    string `json:"output_dir"`
+	BaseURL      string `json:"base_url,omitempty"`
+	Enabled      bool   `json:"enabled"`
+	Overwrite    bool   `json:"overwrite"`
+	IncludeLocal bool   `json:"include_local"`
+	PreserveTree bool   `json:"preserve_tree"`
+	// PlaybackToken supplies caller identity; generated URLs receive media-scoped tokens.
 	PlaybackToken    string `json:"-"`
 	SkipSettingsSave bool   `json:"-"`
 }

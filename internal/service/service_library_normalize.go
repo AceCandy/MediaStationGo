@@ -17,7 +17,7 @@ func (c *Container) NormalizeLocalLibraryPaths(ctx context.Context) error {
 		return err
 	}
 	for _, lib := range libs {
-		if _, ok := ParseCloudLibraryMount(lib.Path); ok {
+		if isRetiredCloudPath(lib.Path) {
 			continue
 		}
 		if len(lib.Roots) == 0 {
@@ -35,7 +35,7 @@ func (c *Container) NormalizeLocalLibraryPaths(ctx context.Context) error {
 		}
 		primaryPath := ""
 		for i, root := range lib.Roots {
-			if _, ok := ParseCloudLibraryMount(root.Path); ok {
+			if isRetiredCloudPath(root.Path) {
 				if i == 0 {
 					primaryPath = root.Path
 				}
@@ -76,31 +76,4 @@ func normalizePersistedLocalLibraryPath(pathValue string) string {
 		return filepath.Clean(pathValue)
 	}
 	return resolveMappedDestinationPath(pathValue)
-}
-
-func (c *Container) NormalizeCloudLibraryTypes(ctx context.Context) error {
-	if c == nil || c.Repo == nil || c.Repo.Library == nil || c.Repo.DB == nil {
-		return nil
-	}
-	libs, err := c.Repo.Library.List(ctx)
-	if err != nil {
-		return err
-	}
-	for _, lib := range libs {
-		info, ok := ParseCloudLibraryMount(lib.Path)
-		if !ok {
-			continue
-		}
-		want := InferCloudMountMediaType(info.DisplayDir, lib.Name)
-		if want == "" || want == lib.Type {
-			continue
-		}
-		if err := c.Repo.DB.WithContext(ctx).
-			Model(&model.Library{}).
-			Where("id = ?", lib.ID).
-			Update("type", want).Error; err != nil {
-			return err
-		}
-	}
-	return nil
 }

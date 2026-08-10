@@ -1,6 +1,6 @@
 # 贡献规范
 
-感谢你愿意帮助 MediaStationGo 变得更稳定。这个项目主要面向 NAS、Docker 部署、媒体库整理、站点搜索和多端播放场景；提交 Issue 或 Pull Request 时，请尽量提供可复现、可验证的信息。
+感谢你愿意帮助 MediaStationGo 变得更稳定。这个项目主要面向 NAS、Docker 部署、媒体库整理、媒体搜索和多端播放场景；提交 Issue 或 Pull Request 时，请尽量提供可复现、可验证的信息。
 
 ## Issue 提交规范
 
@@ -17,12 +17,12 @@
 - 复现步骤：从哪个页面、点击什么、填写什么、触发什么任务。
 - 部署方式：Docker 第一档 / 第二档 / 第三档、裸机运行、反代方式等。
 - 环境信息：NAS 型号或系统、Docker / Compose 版本、浏览器、MediaStationGo 镜像版本。
-- 相关配置：路径映射、整理源目录、媒体库路径、站点类型等。请隐藏 Cookie、API Key、密码和 Token。
+- 相关配置：路径映射、整理源目录、媒体库路径、元数据服务等。请隐藏 Cookie、API Key、密码和 Token。
 - 日志和任务信息：优先提供应用日志、任务队列详情、浏览器控制台错误、网络请求错误。
 
 ### 日志建议
 
-排查站点搜索、整理入库、网盘扫描时，建议临时把日志级别调整为 `info` 或 `debug`，复现后再恢复。
+排查媒体搜索、整理入库或媒体扫描时，建议临时把日志级别调整为 `info` 或 `debug`，复现后再恢复。
 
 Docker 部署常用命令：
 
@@ -40,7 +40,7 @@ docker compose exec postgres psql -U mediastation -d mediastation -c "select key
 
 请勿公开粘贴以下敏感信息：
 
-- 站点 Cookie、Passkey、API Key、YemaPT Auth Key、M-Team API Key。
+- 第三方服务 Cookie 和 API Key。
 - Telegram Bot Token。
 - JWT、数据库密码、私有下载链接。
 
@@ -63,7 +63,7 @@ PR 应该尽量小而清晰。一次 PR 聚焦一个问题或一组强相关改�
 - 背景：修复哪个 Issue / 哪个用户场景 / 哪个回归。
 - 改动摘要：后端、前端、配置、文档分别改了什么。
 - 验证结果：运行过哪些命令，是否有无法运行的测试。
-- 风险说明：数据迁移、Docker 配置、路径映射、站点 API 限流等是否受影响。
+- 风险说明：数据迁移、Docker 配置、路径映射、第三方 API 限流等是否受影响。
 - 截图或录屏：涉及 UI、任务队列、错误提示、设置页时请附上。
 
 ### 推荐验证命令
@@ -79,7 +79,7 @@ git diff --check
 如果只改动某个模块，可以先跑定向测试，例如：
 
 ```bash
-go test ./internal/service -run "TestOrganize|TestMTeam" -count=1
+go test ./internal/service -run "TestOrganize|TestSearchExternalMedia" -count=1
 go test ./cmd/server -count=1
 ```
 
@@ -90,7 +90,7 @@ go test ./cmd/server -count=1
 - 用户可见错误需要可操作：说明失败原因、下一步怎么查或怎么修。
 - 后台任务失败不要静默吞掉，应进入任务队列、日志或 API 响应。
 - Docker/NAS 路径相关改动必须考虑宿主机路径与容器路径映射。
-- 站点 API 改动需要注意去重、限流、敏感信息脱敏。
+- 第三方 API 改动需要注意去重、限流、敏感信息脱敏。
 
 ## Commit Message 建议
 
@@ -98,7 +98,7 @@ go test ./cmd/server -count=1
 
 ```text
 fix organizer hardlink diagnostics
-feat(yemapt): add auth-only site adapter
+feat(search): add metadata provider filter
 docs: add issue and pull request guidelines
 test: cover organizer source matching
 ```

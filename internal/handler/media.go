@@ -31,11 +31,9 @@ func listLibrariesHandler(svc *service.Container) gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		libs = service.FilterDeprecatedNativeCloudLibraries(libs)
 		role, _ := c.Get(middleware.CtxUserRole)
 		includeHidden := role == "admin" && (c.Query("include_hidden") == "1" || c.Query("all") == "1")
 		if !includeHidden {
-			libs = service.FilterDisplayCloudLibraries(c.Request.Context(), svc.Repo, libs)
 			visibility := mediaVisibilityForRequest(c, svc)
 			filtered := libs[:0]
 			for _, lib := range libs {
@@ -44,9 +42,6 @@ func listLibrariesHandler(svc *service.Container) gin.HandlerFunc {
 				}
 			}
 			libs = filtered
-		} else {
-			libs = service.FilterMergedCloudAutoCategoryLibraries(libs)
-			libs = service.NormalizeCloudLibraryDisplayNames(libs)
 		}
 		c.JSON(http.StatusOK, libs)
 	}
@@ -63,23 +58,17 @@ func getLibraryHandler(svc *service.Container) gin.HandlerFunc {
 			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
 			return
 		}
-		libs := service.FilterDeprecatedNativeCloudLibraries([]model.Library{*lib})
-		if len(libs) == 0 {
-			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
-			return
-		}
 		role, _ := c.Get(middleware.CtxUserRole)
 		includeHidden := role == "admin" && (c.Query("include_hidden") == "1" || c.Query("all") == "1")
 		if includeHidden {
-			c.JSON(http.StatusOK, service.NormalizeCloudLibraryDisplayNames(libs)[0])
+			c.JSON(http.StatusOK, lib)
 			return
 		}
-		libs = service.FilterDisplayCloudLibraries(c.Request.Context(), svc.Repo, libs)
-		if len(libs) == 0 || !service.LibraryVisibleForUser(c.Request.Context(), svc.Repo, libs[0], mediaVisibilityForRequest(c, svc)) {
+		if !service.LibraryVisibleForUser(c.Request.Context(), svc.Repo, *lib, mediaVisibilityForRequest(c, svc)) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
 			return
 		}
-		c.JSON(http.StatusOK, libs[0])
+		c.JSON(http.StatusOK, lib)
 	}
 }
 
@@ -101,7 +90,11 @@ func createLibraryHandler(svc *service.Container) gin.HandlerFunc {
 		}
 		l, err := svc.Media.CreateLibraryWithRootsAndCover(c.Request.Context(), req.Name, req.Type, req.CoverURL, roots)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			status := http.StatusInternalServerError
+			if errors.Is(err, service.ErrCloudLibraryRootUnsupported) {
+				status = http.StatusBadRequest
+			}
+			c.JSON(status, gin.H{"error": err.Error()})
 			return
 		}
 		uid, _ := c.Get("ctx_user_id")
@@ -139,11 +132,6 @@ func updateLibraryHandler(svc *service.Container) gin.HandlerFunc {
 func deleteLibraryHandler(svc *service.Container) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id := c.Param("id")
-		if lib, err := svc.Repo.Library.FindByID(c.Request.Context(), id); err == nil && lib != nil {
-			if _, ok := service.ParseCloudLibraryMount(lib.Path); ok && svc.Scan != nil {
-				_ = svc.Scan.CancelCloudScan(id)
-			}
-		}
 		if err := svc.Media.DeleteLibrary(c.Request.Context(), id); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
@@ -302,14 +290,6 @@ func streamHandler(svc *service.Container) gin.HandlerFunc {
 		err = svc.Stream.ServeFile(c.Writer, c.Request, c.Param("id"))
 		if errors.Is(err, service.ErrMediaNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
-			return
-		}
-		if errors.Is(err, service.ErrCloudPlaybackDisabled) {
-			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
-			return
-		}
-		if errors.Is(err, service.ErrCloudPlaybackUnavailable) {
-			c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
 			return
 		}
 		if err != nil {

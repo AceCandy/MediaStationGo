@@ -3,7 +3,6 @@ import {
   Cast,
   Clock,
   Compass,
-  Globe,
   HardDrive,
   Heart,
   Home,
@@ -17,7 +16,7 @@ import {
   User,
 } from 'lucide-react'
 
-export type LayoutNavGroupID = 'media' | 'personal' | 'sites' | 'tools' | 'system'
+export type LayoutNavGroupID = 'media' | 'personal' | 'tools' | 'system'
 
 export type LayoutNavItem = {
   to: string
@@ -65,20 +64,10 @@ export const LAYOUT_NAV_GROUPS: LayoutNavGroup[] = [
     ],
   },
   {
-    id: 'sites',
-    label: '站点与搜索',
-    icon: Globe,
-    activePaths: ['/site-search', '/sites'],
-    items: [
-      { to: '/site-search', label: '站点搜索', icon: Search, permission: 'can_manage_sites' },
-      { to: '/sites', label: '站点管理', icon: Globe, permission: 'can_manage_sites' },
-    ],
-  },
-  {
     id: 'tools',
     label: '文件与自动化',
     icon: HardDrive,
-    activePaths: ['/storage', '/storage-config', '/files', '/strm', '/duplicates', '/tasks', '/scheduler', '/recycle', '/stats'],
+    activePaths: ['/storage', '/files', '/strm', '/duplicates', '/tasks', '/scheduler', '/recycle', '/stats'],
     adminOnly: true,
     items: [
       { to: '/storage', label: '存储与文件', icon: HardDrive },
@@ -88,7 +77,7 @@ export const LAYOUT_NAV_GROUPS: LayoutNavGroup[] = [
     id: 'system',
     label: '系统配置',
     icon: Settings,
-    activePaths: ['/admin', '/sites', '/notify-channels', '/settings', '/assistant'],
+    activePaths: ['/admin', '/notify-channels', '/settings', '/assistant'],
     adminOnly: true,
     items: [
       { to: '/admin', label: '媒体与用户', icon: Settings },

@@ -65,7 +65,7 @@ func TestStatsSnapshotHidesAdultRecentlyAddedForUser(t *testing.T) {
 	}
 }
 
-func TestStatsLibrariesCountsMergedCloudLibraryItems(t *testing.T) {
+func TestStatsLibrariesCountsEachLocalLibrary(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db, err := testdb.OpenPostgres(t, &gorm.Config{})
 	if err != nil {
@@ -75,16 +75,16 @@ func TestStatsLibrariesCountsMergedCloudLibraryItems(t *testing.T) {
 		t.Fatal(err)
 	}
 	repos := repository.New(db)
-	local := model.Library{Name: "国产电影", Path: "/media/国产电影", Type: "movie", Enabled: true}
-	cloud := model.Library{Name: "OpenList · 国产电影", Path: service.BuildCloudLibraryPath("openlist", "/国产电影", "/国产电影"), Type: "movie", Enabled: true}
-	for _, lib := range []*model.Library{&local, &cloud} {
+	primary := model.Library{Name: "国产电影", Path: "/media/国产电影", Type: "movie", Enabled: true}
+	secondary := model.Library{Name: "国产电影 2", Path: "/media/国产电影-2", Type: "movie", Enabled: true}
+	for _, lib := range []*model.Library{&primary, &secondary} {
 		if err := repos.Library.Create(t.Context(), lib); err != nil {
 			t.Fatal(err)
 		}
 	}
 	if err := db.Create(&[]model.Media{
-		{LibraryID: local.ID, Title: "本地版本", Path: "/media/国产电影/local.mkv", SizeBytes: 100},
-		{LibraryID: cloud.ID, Title: "云盘版本", Path: "cloud://openlist/国产电影/cloud.mkv", SizeBytes: 200},
+		{LibraryID: primary.ID, Title: "电影一", Path: "/media/国产电影/one.mkv", SizeBytes: 100},
+		{LibraryID: secondary.ID, Title: "电影二", Path: "/media/国产电影-2/two.mkv", SizeBytes: 200},
 	}).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -99,6 +99,9 @@ func TestStatsLibrariesCountsMergedCloudLibraryItems(t *testing.T) {
 	}
 	var payload struct {
 		Libraries []struct {
+			Library struct {
+				ID string `json:"id"`
+			} `json:"library"`
 			ItemCount int64 `json:"item_count"`
 			TotalSize int64 `json:"total_size"`
 		} `json:"libraries"`
@@ -106,10 +109,17 @@ func TestStatsLibrariesCountsMergedCloudLibraryItems(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &payload); err != nil {
 		t.Fatal(err)
 	}
-	if len(payload.Libraries) != 1 {
-		t.Fatalf("libraries = %#v, want one merged display library", payload.Libraries)
+	if len(payload.Libraries) != 2 {
+		t.Fatalf("libraries = %#v, want two local libraries", payload.Libraries)
 	}
-	if payload.Libraries[0].ItemCount != 2 || payload.Libraries[0].TotalSize != 300 {
-		t.Fatalf("merged stats = %#v, want count=2 size=300", payload.Libraries[0])
+	stats := make(map[string][2]int64, len(payload.Libraries))
+	for _, library := range payload.Libraries {
+		stats[library.Library.ID] = [2]int64{library.ItemCount, library.TotalSize}
+	}
+	if got := stats[primary.ID]; got != ([2]int64{1, 100}) {
+		t.Fatalf("primary stats = %#v, want count=1 size=100", got)
+	}
+	if got := stats[secondary.ID]; got != ([2]int64{1, 200}) {
+		t.Fatalf("secondary stats = %#v, want count=1 size=200", got)
 	}
 }

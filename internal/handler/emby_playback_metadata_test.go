@@ -61,7 +61,7 @@ func TestEmbyVideoStreamResolvesMetadataIDToMediaID(t *testing.T) {
 	reposSvc := &service.Container{
 		Repo:   repos,
 		Emby:   service.NewEmbyService(cfg, zap.NewNop(), repos),
-		Stream: service.NewStreamService(cfg, zap.NewNop(), repos, nil),
+		Stream: service.NewStreamService(cfg, zap.NewNop(), repos),
 	}
 	router := gin.New()
 	registerEmbyRoutes(router, secret, reposSvc)

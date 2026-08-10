@@ -28,8 +28,8 @@ func TestAutoGenerateSTRMAfterScanUsesAllScopeRoot(t *testing.T) {
 	}
 	lib := model.Library{
 		Base:    model.Base{ID: "tv-lib"},
-		Name:    "OpenList 欧美剧",
-		Path:    BuildCloudLibraryPath("openlist", "/电视剧/欧美剧", "/电视剧/欧美剧"),
+		Name:    "欧美剧",
+		Path:    filepath.Join(t.TempDir(), "电视剧", "欧美剧"),
 		Type:    "tv",
 		Enabled: true,
 	}
@@ -40,8 +40,7 @@ func TestAutoGenerateSTRMAfterScanUsesAllScopeRoot(t *testing.T) {
 		Base:       model.Base{ID: "show-1"},
 		LibraryID:  lib.ID,
 		Title:      "第一集",
-		Path:       "cloud://openlist/电视剧/欧美剧/Show/S01E01.mkv",
-		STRMURL:    "/api/cloud/play/openlist?ref=show",
+		Path:       filepath.Join(lib.Path, "Show", "Season 01", "Show.S01E01.mkv"),
 		SeasonNum:  1,
 		EpisodeNum: 1,
 	}

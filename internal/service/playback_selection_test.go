@@ -20,14 +20,3 @@ func TestResolveAudioStreamIndexUsesDefaultAndRejectsUnknown(t *testing.T) {
 		t.Fatal("unknown audio index accepted")
 	}
 }
-
-func TestTranscodeKeyIsolatesAudioSelections(t *testing.T) {
-	first := (TranscodeKey{MediaID: "media", AudioStreamIndex: 2}).String()
-	second := (TranscodeKey{MediaID: "media", AudioStreamIndex: 3}).String()
-	if first == second {
-		t.Fatal("different audio selections share a transcode key")
-	}
-	if first != (TranscodeKey{MediaID: "media", AudioStreamIndex: 2}).String() {
-		t.Fatal("transcode key is not deterministic")
-	}
-}

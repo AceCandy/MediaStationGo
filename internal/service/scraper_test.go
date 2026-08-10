@@ -63,14 +63,14 @@ func TestEnrichOneUsesExistingTMDbIDWithoutAdultLookup(t *testing.T) {
 	})}
 	scraper.adult = adult
 
-	lib := model.Library{Name: "OpenList · 国漫", Path: "cloud://openlist/STRM-115/国漫", Type: "anime", Enabled: true}
+	lib := model.Library{Name: "国漫", Path: "/media/anime", Type: "anime", Enabled: true}
 	if err := repos.DB.Create(&lib).Error; err != nil {
 		t.Fatal(err)
 	}
 	media := model.Media{
 		LibraryID:    lib.ID,
 		Title:        "dirty release title",
-		Path:         "cloud://openlist/STRM-115/国漫/间谍过家家 (2022) {tmdb-12345}/Season 1/间谍过家家.S01E01.2160p.mkv",
+		Path:         "/media/anime/间谍过家家 (2022) {tmdb-12345}/Season 1/间谍过家家.S01E01.2160p.mkv",
 		SeasonNum:    1,
 		EpisodeNum:   1,
 		TMDbID:       12345,

@@ -5,8 +5,7 @@ const STRIP_QUERY_KEYS = ['token', 'profile_id', 'profile_pin_token']
 
 function isArtworkRequest(url) {
   if (url.origin !== self.location.origin) return false
-  if (url.pathname === '/api/img') return true
-  return url.pathname.startsWith('/api/cloud/play/')
+  return url.pathname === '/api/img'
 }
 
 function normalizedArtworkRequest(request) {
@@ -104,9 +103,6 @@ async function deleteOldArtworkVariants(cache, currentRequest) {
 function artworkIdentity(url) {
   if (url.pathname === '/api/img') {
     return `${url.origin}${url.pathname}?url=${url.searchParams.get('url') || ''}`
-  }
-  if (url.pathname.startsWith('/api/cloud/play/')) {
-    return `${url.origin}${url.pathname}?ref=${url.searchParams.get('ref') || ''}`
   }
   return ''
 }

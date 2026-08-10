@@ -15,12 +15,9 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("app.env", "production")
 	v.SetDefault("app.data_dir", "./data")
 	v.SetDefault("app.web_dir", "./web/dist")
-	v.SetDefault("app.ffmpeg_path", "ffmpeg")
 	v.SetDefault("app.ffprobe_path", "ffprobe")
 	v.SetDefault("app.ffprobe_max_concurrent", 2)
-	v.SetDefault("app.cloud_scan_max_concurrent", 8)
 	v.SetDefault("app.max_cpu_threads", 2)
-	v.SetDefault("app.vaapi_device", "/dev/dri/renderD128")
 	v.SetDefault("app.cors_origins", []string{})
 	v.SetDefault("app.server_url", "")
 
@@ -39,7 +36,6 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("logging.max_backups", 10)
 
 	v.SetDefault("cache.cache_dir", "./cache")
-	v.SetDefault("cache.cleanup_interval_min", 60)
 	v.SetDefault("cache.redis_url", "")
 	v.SetDefault("cache.redis_prefix", "mediastationgo")
 	v.SetDefault("cache.media_ttl_seconds", 15)
@@ -56,11 +52,6 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("ai.model", "gpt-4o-mini")
 	v.SetDefault("ai.timeout", DefaultAITimeoutSeconds)
 	v.SetDefault("ai.max_concurrent", 3)
-
-	v.SetDefault("flaresolverr.enabled", false)
-	v.SetDefault("flaresolverr.url", "http://localhost:8191")
-	v.SetDefault("flaresolverr.session", "mediastation")
-	v.SetDefault("flaresolverr.timeout", 60)
 
 	v.SetDefault("organizer.smart_classify", true)
 	v.SetDefault("organize.scrape_after", true)
@@ -91,20 +82,6 @@ func setDefaults(v *viper.Viper) {
 		"https://raw.githubusercontent.com/Putarku/MoviePilot-Help/main/Words/TV.txt",
 		"https://raw.githubusercontent.com/Putarku/MoviePilot-Help/main/Words/anime.txt",
 	})
-
-	v.SetDefault("transcoder.encoder", "")
-	v.SetDefault("transcoder.enabled", true)
-	v.SetDefault("transcoder.hardware_accel", false)
-	v.SetDefault("transcoder.preset", "veryfast")
-	v.SetDefault("transcoder.video_bitrate", "1500k")
-	v.SetDefault("transcoder.max_rate", "1800k")
-	v.SetDefault("transcoder.buf_size", "3000k")
-	v.SetDefault("transcoder.max_height", 720)
-	v.SetDefault("transcoder.segment_seconds", 4)
-	v.SetDefault("transcoder.realtime", true)
-	v.SetDefault("transcoder.threads", 2)
-	v.SetDefault("transcoder.max_concurrent", 1)
-	v.SetDefault("transcoder.idle_timeout_seconds", 120)
 
 	// API Config 默认设置
 	v.SetDefault("api_config.auto_encrypt", true)

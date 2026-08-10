@@ -137,6 +137,12 @@ db.Model(&credit).
 - Complete track facts: `MediaProbeMetadata{MediaID, ProbeJSON, SchemaVersion, ProbedAt}` uses `media_id` as both primary key and a cascading foreign key to `media(id)`; list queries must not join or preload this table.
 - Probe document: `ProbeDocumentSchemaVersion` and `MarshalProbeDocument` / `UnmarshalProbeDocument` own the versioned JSON contract. Only typed format, video, audio, subtitle, chapter, safe tag, disposition, and color/HDR fields are persistable.
 - Emby playback response: `PlaybackInfo{MediaSources, PlaySessionId, DateCreated}`; `DateCreated` is the selected concrete `Media.CreatedAt` encoded as a non-null UTC JSON timestamp with seven fractional digits and a trailing `Z`.
+- Direct-only source response: `EmbyMediaSource{DirectStreamUrl, SupportsDirectPlay, SupportsDirectStream, SupportsTranscoding=false}`; `TranscodingUrl` is absent.
+- Probe execution boundary: `FFprobeService.Probe(context.Context, path)` and `ProbeHTTP(context.Context, rawURL)` invoke only the resolved `ffprobe` executable.
+- Direct playback routes: `/api/stream/:id` and Emby `/Videos/:id/{stream,original}` GET/HEAD variants serve unchanged bytes or a protocol-neutral HTTP redirect. HLS playlist/segment and transcode status routes do not exist.
+- Redirect pre-resolution setting: `playback.redirect_resolve_prefixes` contains
+  one literal HTTP/HTTPS URL prefix per line and applies to persisted STRM
+  targets and the final URL produced by `playback.path_mappings`.
 - Track backfill API: admin-only `POST /api/libraries/:id/probe` starts a service-lifetime background task and reports `total`, `completed`, `skipped`, and `failed` metrics.
 - Manual apply API: `POST /api/media/:id/scrape/apply` accepts `ManualScrapeRequest`, persists metadata through `ScraperService.ApplyManualMatch`, then returns the refreshed `MediaView` from `MediaService.GetMedia`.
 - Artwork response: `/api/artwork/:assetID`; originals live under `App.DataDir/artwork/sha256/...`.
@@ -164,16 +170,36 @@ db.Model(&credit).
 - Graph merge recursively pairs Series children by season and episode number, moves media and metadata-owned state, deduplicates user relations, then hard-deletes the unreferenced source metadata.
 - Lists, permissions, pagination, search, playback display text, and Emby display text read `MediaView`. File opening, probing, duration, codecs, path, and STRM URL read the embedded `Media` facts.
 - A local `.strm` keeps the sidecar in `Media.Path` and its supported absolute media target in `Media.STRMURL`. Scan, manual reprobe, and asynchronous PlaybackInfo repair probe the target while persisting facts to the original Media row; stale target results must be discarded.
-- A successful full probe atomically updates the scalar `Media` projection and upserts its complete probe document after rechecking the source identity. Local and local-STRM probes also persist the probed target's size. Failed, partial, or stale probes must not replace the previous valid complete document.
+- A successful full probe atomically updates the scalar `Media` projection and upserts its complete probe document after rechecking the source identity. Local and local-STRM probes also persist the probed target's size. Failed, partial, or stale probes must not replace the previous valid complete document, and probe failure must never fall back to `ffmpeg -i`.
 - Probe JSON must never contain the input filename/path/URL, signed query, request headers, cookies, authorization values, route tokens, attachments, or arbitrary metadata. Unknown schema versions, malformed JSON, duplicate/negative stream indexes, attached pictures, and unsupported stream types are invalid and trigger scalar fallback plus lazy repair.
 - Emby `PlaybackInfo` must enumerate every visible sibling `Media` version before scheduling asynchronous track repair. The playback-layer in-flight map deduplicates by `Media.ID`; the `FFprobeService` limiter remains the only actual probe concurrency limit.
 - Emby `PlaybackInfo.DateCreated` must be present at the response top level as well as on each `MediaSource`. Compatibility fields must be verified at the exact JSON layer consumed by the client; a same-named field on the item or nested source does not satisfy a top-level contract.
 - Emby detail and PlaybackInfo batch-load valid probe documents and map every embedded video/audio/subtitle by its absolute ffprobe stream index. Sidecar subtitles are rediscovered and deterministically indexed after the highest embedded index on every response.
 - `GET /api/media/:id` attaches an optional `tracks` array through `MediaService.GetMedia` only. Each `MediaTrack` is a typed whitelist projection of video/audio/subtitle facts with the original absolute `index`; it excludes probe paths, URLs, headers, credentials, arbitrary tags, and unsupported stream types. Missing or invalid probe data omits the array, while list/search responses do not load or expose it.
 - Emby paginated browse/list payloads use scalar media fields only: they do not load complete probe documents, scan sidecar subtitles, or schedule lazy track repair.
-- Embedded and sidecar subtitles are externally delivered through a controlled token-aware `DeliveryUrl`; delivery revalidates the current stream/index and never accepts a caller-supplied filesystem path or ffmpeg map expression.
+- Embedded subtitles remain non-external `MediaStreams` and receive no extraction `DeliveryUrl`. Supported external SRT/ASS/SSA/VTT sidecars receive a controlled token-aware `DeliveryUrl`; delivery revalidates the current stream/index and never accepts a caller-supplied filesystem path.
 - GET query and POST body playback selections preserve omitted, `0`, and `-1`. Values below `-1`, missing explicit audio indexes, unknown subtitle indexes, and media-source IDs outside the visible sibling set are rejected.
-- HLS validates the selected absolute audio index before building `-map 0:<index>?`. Its job registry, output directory, playlist, segment, stop, active status, and cleanup all use the same deterministic media/audio `TranscodeKey`; external subtitle selection does not change that key.
+- PlaybackInfo, user policy, server capability, and device-profile responses are direct-only: `SupportsTranscoding=false`, conversion/remux fields are false or omitted, transcoding profiles are empty, and no transcoding URL is returned.
+- Audio and subtitle selection changes only the selected indexes carried through PlaybackInfo and the unchanged original stream. A client that cannot decode the source container or codec receives no HLS, remux, or conversion fallback.
+- An external absolute HTTP/HTTPS target is redirected unchanged, including its
+  existing query, unless its post-mapping URL matches a configured
+  `playback.redirect_resolve_prefixes` entry. Matching is case-sensitive after
+  trimming each line; empty, relative, credential-bearing, and non-HTTP/HTTPS
+  entries do not participate.
+- A matched target is requested once with GET, `Range: bytes=0-0`, and the
+  exact player `User-Agent`; no Authorization, Cookie, stored provider header,
+  or player header is forwarded. Automatic redirect following is disabled. The
+  first 3xx `Location` is resolved against the requested URL and accepted only
+  as an absolute credential-free HTTP/HTTPS URL; later hops are client-owned.
+- A successful resolved target is cached in memory for one hour by the actual
+  post-mapping source URL and exact `User-Agent`. Failures, timeouts, non-3xx
+  responses, and missing or invalid locations are not cached and return the
+  original URL. Player-facing redirects remain HTTP 302 with `no-store`.
+- External original and resolved targets receive no MediaStation token or
+  `media_id`. A same-origin internal `/api/stream/:id` redirect may receive only
+  the existing short-lived token scoped to that media ID. Redirect logs expose
+  no query value, signed URL, credential, Cookie, Authorization, or playback
+  token.
 - For a local `.strm`, Emby item and source `Container`/`Path` must describe the resolved `Media.STRMURL` target and must never expose the `.strm` sidecar as the playable path. A source `Bitrate` is the average `SizeBytes * 8 / DurationSec` only when both inputs are positive.
 - Emby `MediaSource.Name` is a version label derived from the real source filename (the resolved STRM target for local STRM). Remove the extension, title/year, season/episode markers, and preserve the remaining technical release markers; use `默认版本` when no label remains.
 - A successful single-media manual scrape response must be read after persistence from `MediaView`; returning the raw `Media` row can expose the previous scan title or omit shared metadata fields. A failed or empty refresh is an internal error, not a successful `null` response.
@@ -201,7 +227,7 @@ db.Model(&credit).
 - Do not cache or reuse a Series/Season payload containing a user-filtered
   Episode collection across users; only user-independent data may use a global
   cache.
-- Emby stream and HLS endpoints may receive either a metadata item ID or a concrete media source ID. They must resolve the request to a visible playable `Media.ID` before calling stream/transcode services.
+- Emby stream endpoints may receive either a metadata item ID or a concrete media source ID. They must resolve the request to a visible playable `Media.ID` before serving unchanged bytes or returning the persisted protocol-neutral redirect.
 - Emby clients may call `/SearchHints`, `/Search/Hints`, and their user-scoped or lowercase variants; these routes must project shared metadata titles and IDs, not raw media scan fields.
 - Provider identifier projection must return at most one joined row per media. Aggregate or otherwise reduce identifiers before joining; never join the raw one-to-many identifier table into paginated media queries.
 - Selected artwork is copied into `DataDir`; remote URLs and source paths are provenance only and are never served as the authoritative runtime image.
@@ -209,10 +235,6 @@ db.Model(&credit).
   poster/backdrop, Season uses poster, and Episode uses still; MediaView, Emby
   payloads, image routes, and virtual artwork caches must not fall back to an
   ancestor.
-- Cloud sidecar posters and backdrops are resolved and downloaded directly
-  during metadata persistence into `DataDir/artwork`; scanner must not prefetch
-  them into `cache/images`, and managed artwork import never reads or writes
-  that cache. The generic cloud image route may still cache explicit requests.
 - Scanner, scraper, metadata edit, and organizer metadata flows only read NFO/poster/fanart/thumb sidecars. They must not create, overwrite, move, or delete them.
 - Scan and scrape flows must not move, rename, delete, deduplicate, or reclassify playable media files or change their library/path placement. Only an explicit organize operation may invoke `ReclassifyMisclassifiedMedia` or other filesystem transfer helpers.
 - Deleting a library transactionally hard-deletes its `Media`, `LibraryRoot`, and `Library` rows. It preserves shared metadata, metadata-owned user state, identifiers, managed artwork, and all on-disk media files.
@@ -246,8 +268,15 @@ db.Model(&credit).
 | Local STRM source is exposed through Emby | Resolve the target for source path/container/name; never return the `.strm` text path as a playable source |
 | Probe JSON is malformed, outdated, or fails structural validation | Ignore it, serve scalar fallback, and schedule lazy repair without overwriting prior valid data on failure |
 | Probe source changes while ffprobe is running | Reject the result transactionally; update neither scalar facts nor complete JSON |
+| FFprobe is missing, times out, or returns invalid output | Return a probe error, preserve the previous valid document, and never start FFmpeg |
 | Explicit audio/subtitle selection is invalid | Return bad request; never silently map a different track |
 | Embedded or sidecar subtitle index no longer resolves | Return not found and require a refreshed PlaybackInfo response |
+| Embedded subtitle is selected | Keep it as a source stream without an extraction URL or server-side conversion |
+| External sidecar subtitle is selected | Return only the controlled token-aware delivery URL for the revalidated sidecar index |
+| External HTTP/HTTPS target matches no redirect prefix | Return the original URL unchanged in HTTP 302; append no internal token or `media_id` |
+| STRM or post-mapping URL matches a redirect prefix | Return the first valid 3xx `Location` in HTTP 302 and cache it for one hour by source URL plus exact `User-Agent` |
+| Redirect pre-resolution fails or returns an invalid target | Cache nothing and return the original URL in HTTP 302 |
+| Client cannot decode the original source | Offer no HLS, remux, or transcode URL; let direct playback fail clearly |
 | PlaybackInfo resolves a visible concrete media | Return its non-null `DateCreated` at the response top level; do not rely only on item/source dates |
 
 ### 5. Good / Base / Bad Cases
@@ -273,13 +302,21 @@ db.Model(&credit).
 - Bad: joining all `MetadataIdentifier` rows directly and then applying `COUNT`, `OFFSET`, or `LIMIT`.
 - Bad: paginating Media rows and collapsing versions afterward, because early
   versions can consume the page and hide later logical works.
-- Good: deleting a local or cloud library physically removes its library/root/media rows while the referenced metadata and user state remain.
+- Good: deleting a local library physically removes its library/root/media rows while the referenced metadata and user state remain.
 - Bad: using GORM's scoped `Delete` for a library or its media and leaving rows in the recycle bin.
 - Good: a scan or scrape changes title, identifiers, artwork and scrape status while the playable file path and library ID remain unchanged.
 - Bad: calling `ReclassifyMisclassifiedMedia` after a scrape and silently moving or deleting a local media/STRM file.
 - Good: a two-version local STRM item schedules both target files, persists each result to its original `Media` row, and exposes matching target container/path/name/average bitrate.
 - Bad: limiting sibling scheduling by the playback reservation map or deriving a source label from the `.strm` sidecar/title, which leaves versions unprobed or displays `strm`/title metadata.
 - Good: PlaybackInfo for a concrete media returns the same `Media.CreatedAt` at the top level and on that media source; bad: adding the field only to `MediaSource` while the client reads `PlaybackInfo.DateCreated`.
+- Good: an unmatched external HTTPS STRM target keeps its signed query
+  byte-for-byte in the 302 `Location` while receiving no internal token or
+  media ID.
+- Good: a configured media-gateway prefix resolves only the first relative 302
+  `Location`; a repeated request with the same source URL and `User-Agent` uses
+  the one-hour cache while another `User-Agent` resolves independently.
+- Base: a client cannot decode the original codec and reports a direct-play failure; the server does not create an alternate stream.
+- Bad: advertising HLS or a transcoding URL that the direct-only server cannot and must not serve.
 
 ### 6. Tests Required
 
@@ -297,13 +334,20 @@ db.Model(&credit).
 - Playback/Emby: assert item display `Name` comes from shared metadata while each `MediaSource.Name` comes from the real source filename with title, year, season/episode markers, and extension removed; source path/container/codecs still come from `Media`.
 - Playback/Emby: assert multiple media versions expose one metadata item ID, share user state, and retain distinct media source IDs.
 - Playback/Emby: JSON-round-trip PlaybackInfo and assert top-level `DateCreated` is present, non-null, parseable, and equal to the selected concrete media's creation time.
-- Playback/Emby: assert `/Videos/{metadata_id}/stream` and HLS requests resolve to a concrete visible media source ID before opening files or transcoding.
+- Playback/Emby: assert `/Videos/{metadata_id}/{stream,original}` resolves to a concrete visible media source ID before serving bytes, and assert all HLS/transcode route variants are absent.
 - Playback/Emby: assert local STRM scan, manual reprobe, and missing-metadata PlaybackInfo use the real target, persist target size/track facts, deduplicate and bound background probes, and reject stale target results.
 - Probe storage: assert safe typed JSON round-trips every video/audio/subtitle absolute index and disposition while excluding input URLs, credentials, arbitrary tags, attachments, and structurally invalid streams; hard media deletion must cascade to the one-to-one probe row.
 - Media detail projection: assert `GET /api/media/:id` returns only whitelisted track fields with absolute indexes, omits malformed/missing probe data, and leaves paginated list/search payloads without `tracks` or probe loads.
 - Backfill: cover more than one keyset page, valid-record skips, version/corruption repair, failure accounting, request-independent context, and `total = completed + skipped + failed` for completed runs.
-- Playback selection: cover GET and POST omitted/zero/negative values, explicit invalid audio/subtitle indexes, default-audio choice, numeric ffmpeg maps, two simultaneous audio selections, stop/restart isolation, and allowlisted segment query propagation.
-- Subtitles: add/remove sidecars between PlaybackInfo calls, deliver embedded and sidecar streams by controlled index, and reject stale or wrong-type indexes without exposing backing paths or credentials.
+- Playback selection: cover GET and POST omitted/zero/negative values, explicit invalid audio/subtitle indexes, default-audio choice, two simultaneous selections, source-version selection, and stop/restart isolation without conversion.
+- Subtitles: add/remove sidecars between PlaybackInfo calls, assert embedded streams have no extraction URL, deliver external sidecars by controlled index, and reject stale or wrong-type indexes without exposing backing paths or credentials.
+- Direct source delivery: cover local GET/HEAD/Range/206 and invalid ranges;
+  unchanged unmatched external targets; prefix parsing; STRM and post-mapping
+  resolution; relative first-hop locations; one-hour expiry; exact
+  `User-Agent` isolation; failed-resolution passthrough without caching;
+  upstream header isolation; sanitized logs; and media-scoped tokens only on
+  internal `/api/stream/:id` redirects.
+- Probe execution: put an `ffmpeg` sentinel first on `PATH`; probe success/failure, PlaybackInfo, original playback, and subtitle delivery must never execute it.
 - Playback/Emby: assert all visible sibling versions are scheduled, duplicate media IDs are not probed concurrently, average bitrate is omitted when size or duration is missing, and target-derived source name/container/path never expose the STRM sidecar.
 - Scanner queue: assert a full local probe queue waits for capacity and a canceled context releases the reserved path without enqueuing a stale task.
 - Playback/Emby: assert `/Items` totals, `/Items/Counts`, and `/SearchHints` count shared metadata once while still exposing every concrete version as a `MediaSource`.
@@ -447,6 +491,19 @@ return map[string]any{"MediaSources": sources}
 
 // Correct: keep the source fields and expose the selected media date at PlaybackInfo top level.
 return map[string]any{"MediaSources": sources, "DateCreated": formatEmbyDateTime(media.CreatedAt)}
+```
+
+Direct-only capability projection must also match the routes the server owns:
+
+```go
+// Wrong: advertise a conversion route that does not exist.
+source["SupportsTranscoding"] = true
+source["TranscodingUrl"] = "/Videos/" + media.ID + "/master.m3u8"
+
+// Correct: expose only unchanged-source delivery.
+source["SupportsTranscoding"] = false
+delete(source, "TranscodingUrl")
+source["DirectStreamUrl"] = "/Videos/" + media.ID + "/stream." + container
 ```
 
 ## Scenario: Durable TMDb Catalog Hydration

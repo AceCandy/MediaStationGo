@@ -108,7 +108,7 @@ func (w *WatcherService) Refresh(ctx context.Context) error {
 			if !root.Enabled {
 				continue
 			}
-			if _, _, ok := parseCloudLibraryPath(root.Path); ok {
+			if isRetiredCloudPath(root.Path) {
 				continue
 			}
 			watchRoot, info, err := resolveAccessibleMappedPath(root.Path)

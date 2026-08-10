@@ -32,7 +32,6 @@ func embyVirtualFoldersHandler(svc *service.Container) gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		libs = service.FilterDisplayCloudLibraries(c.Request.Context(), svc.Repo, libs)
 		uid := embyUserID(c)
 		visibility := service.UserDefaultMediaVisibility(c.Request.Context(), svc.Repo, uid)
 		out := make([]gin.H, 0, len(libs))

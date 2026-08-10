@@ -26,14 +26,7 @@ export function GlobalEvents() {
         return
       }
       if (p.queued) {
-        toast.loading(String(p.message ?? '云盘扫描已加入后台队列，会自动入库'), { id })
-        return
-      }
-      if (p.cloud && p.stage) {
-        const stage = p.stage === 'importing' ? '正在入库' : '正在遍历目录'
-        const speed = Number(p.files_per_second ?? 0)
-        const speedText = speed > 0 ? ` · ${speed.toFixed(speed >= 10 ? 0 : 1)} 个/秒` : ''
-        toast.loading(`${stage}：目录 ${p.dirs ?? 0} · 已发现 ${p.discovered ?? 0} · 已入库 ${p.visited ?? 0}${speedText}`, { id })
+		toast.loading(String(p.message ?? '扫描已加入后台队列'), { id })
       }
     }
     if (topic === 'scrape' && p.finished) {

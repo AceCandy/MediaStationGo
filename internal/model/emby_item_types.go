@@ -73,7 +73,6 @@ type EmbyMediaSource struct {
 	SupportsTranscoding  bool              `json:"SupportsTranscoding"`
 	SupportsDirectStream bool              `json:"SupportsDirectStream"`
 	SupportsDirectPlay   bool              `json:"SupportsDirectPlay"`
-	TranscodingUrl       string            `json:"TranscodingUrl,omitempty"`
 	Protocol             string            `json:"Protocol,omitempty"`
 	Type                 string            `json:"Type,omitempty"`
 	IsRemote             bool              `json:"IsRemote,omitempty"`

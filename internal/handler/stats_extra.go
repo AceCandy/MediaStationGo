@@ -87,7 +87,7 @@ func statsTopContentHandler(svc *service.Container) gin.HandlerFunc {
 			PlayCount  int64     `json:"play_count"`
 			LastPlayed time.Time `json:"last_played"`
 		}
-		visibility := service.ExpandMediaVisibilityForMergedCloudLibraries(c.Request.Context(), svc.Repo, mediaVisibilityForRequest(c, svc))
+		visibility := mediaVisibilityForRequest(c, svc)
 		var rows []row
 		q := svc.Repo.DB.Table("playback_histories").
 			Joins("JOIN media ON media.id = playback_histories.media_id AND media.deleted_at IS NULL")
@@ -137,7 +137,6 @@ func statsLibrariesHandler(svc *service.Container) gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		libs = service.FilterDisplayCloudLibraries(c.Request.Context(), svc.Repo, libs)
 		out := make([]gin.H, 0, len(libs))
 		visibility := mediaVisibilityForRequest(c, svc)
 		for _, l := range libs {
@@ -147,17 +146,13 @@ func statsLibrariesHandler(svc *service.Container) gin.HandlerFunc {
 			if !service.LibraryVisibleForUser(c.Request.Context(), svc.Repo, l, visibility) {
 				continue
 			}
-			libraryIDs, err := service.MergedLibraryIDsForLibrary(c.Request.Context(), svc.Repo, l.ID)
-			if err != nil || len(libraryIDs) == 0 {
-				libraryIDs = []string{l.ID}
-			}
 			var count int64
 			var size int64
 			_ = applyMediaVisibilityQuery(svc.Repo.DB.Model(&model.Media{}), visibility).
-				Where("library_id IN ?", libraryIDs).
+				Where("library_id = ?", l.ID).
 				Count(&count).Error
 			_ = applyMediaVisibilityQuery(svc.Repo.DB.Model(&model.Media{}), visibility).
-				Where("library_id IN ?", libraryIDs).
+				Where("library_id = ?", l.ID).
 				Select("COALESCE(SUM(size_bytes),0)").Row().Scan(&size)
 			out = append(out, gin.H{
 				"library":    l,

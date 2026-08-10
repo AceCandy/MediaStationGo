@@ -33,8 +33,6 @@ func ApplyRuntimeSetting(cfg *config.Config, key, value string) {
 	}
 	value = strings.TrimSpace(value)
 	switch key {
-	case "ffmpeg.path", "app.ffmpeg_path":
-		cfg.App.FFmpegPath = value
 	case "app.server_url", "server.url", "public.server_url", "strm.base_url":
 		cfg.App.ServerURL = strings.TrimRight(value, "/")
 	case "ffprobe.path", "app.ffprobe_path":
@@ -49,16 +47,6 @@ func ApplyRuntimeSetting(cfg *config.Config, key, value string) {
 			}
 			cfg.App.FFprobeMaxConcurrent = n
 		}
-	case "cloud.scan_max_concurrent", "cloud.scan_list_concurrency", "app.cloud_scan_max_concurrent":
-		if n, err := strconv.Atoi(value); err == nil {
-			if n < 1 {
-				n = 1
-			}
-			if n > 16 {
-				n = 16
-			}
-			cfg.App.CloudScanMaxConcurrent = n
-		}
 	case "app.max_cpu_threads", "runtime.max_cpu_threads":
 		if n, err := strconv.Atoi(value); err == nil {
 			if n < 1 {
@@ -69,37 +57,6 @@ func ApplyRuntimeSetting(cfg *config.Config, key, value string) {
 			}
 			cfg.App.MaxCPUThreads = n
 		}
-	case "transcode.enabled", "transcoder.enabled":
-		cfg.Transcoder.Enabled = parseBoolSetting(value, true)
-	case "transcode.hw_enabled", "transcoder.hardware_accel":
-		cfg.Transcoder.HardwareAccel = parseBoolSetting(value, false)
-	case "transcode.hw_accel", "transcoder.encoder":
-		switch value {
-		case "", "auto", "none", "software":
-			cfg.Transcoder.Encoder = ""
-		case "nvenc", "qsv", "vaapi":
-			cfg.Transcoder.Encoder = value
-		}
-	case "transcode.max_height", "transcoder.max_height":
-		if n, err := strconv.Atoi(value); err == nil {
-			cfg.Transcoder.MaxHeight = n
-		}
-	case "transcode.max_jobs", "transcoder.max_concurrent":
-		if n, err := strconv.Atoi(value); err == nil {
-			cfg.Transcoder.MaxConcurrent = n
-		}
-	case "transcode.realtime", "transcoder.realtime":
-		cfg.Transcoder.Realtime = parseBoolSetting(value, true)
-	case "transcode.threads", "transcoder.threads":
-		if n, err := strconv.Atoi(value); err == nil {
-			cfg.Transcoder.Threads = n
-		}
-	case "transcode.idle_timeout_seconds", "transcoder.idle_timeout_seconds":
-		if n, err := strconv.Atoi(value); err == nil {
-			cfg.Transcoder.IdleTimeoutSeconds = n
-		}
-	case "transcode.video_bitrate", "transcoder.video_bitrate":
-		cfg.Transcoder.VideoBitrate = value
 	}
 }
 

@@ -3,7 +3,6 @@ import { StrmGenerateSection } from './StrmGenerateSection'
 import { StrmImportSection } from './StrmImportSection'
 import { StrmPageHeader } from './StrmPageHeader'
 import { StrmRepairSection } from './StrmRepairSection'
-import { StrmTreeGenerateSection } from './StrmTreeGenerateSection'
 import { useStrmPage } from './useStrmPage'
 
 // StrmPage exposes the URL-as-file admin tooling backed by the Go server:
@@ -25,11 +24,7 @@ export function StrmPage() {
         baseURL={strm.generate.baseURL}
         outputDir={strm.generate.outputDir}
         outputPresets={strm.outputPresets}
-        cloudPlaybackMode={strm.generate.cloudPlaybackMode}
-        strmPlaybackEnabled={strm.generate.strmPlaybackEnabled}
-        redirectProxyEnabled={strm.generate.redirectProxyEnabled}
         autoGenerate={strm.generate.autoGenerate}
-        savingSettings={strm.generate.savingSettings}
         overwrite={strm.generate.overwrite}
         includeLocal={strm.generate.includeLocal}
         preserveTree={strm.generate.preserveTree}
@@ -37,15 +32,10 @@ export function StrmPage() {
         scrapeAfter={strm.generate.scrapeAfter}
         generating={strm.generate.generating}
         generateResult={strm.generate.generateResult}
-        playbackStatus={strm.generate.playbackStatus}
         onGenerate={strm.generate.onGenerate}
-        saveSTRMSettings={strm.generate.saveSTRMSettings}
         setGenerateLibraryID={strm.generate.setGenerateLibraryID}
         setBaseURL={strm.generate.setBaseURL}
         setOutputDir={strm.generate.setOutputDir}
-        setCloudPlaybackMode={strm.generate.setCloudPlaybackMode}
-        setStrmPlaybackEnabled={strm.generate.setStrmPlaybackEnabled}
-        setRedirectProxyEnabled={strm.generate.setRedirectProxyEnabled}
         setAutoGenerate={strm.generate.setAutoGenerate}
         setOverwrite={strm.generate.setOverwrite}
         setIncludeLocal={strm.generate.setIncludeLocal}
@@ -53,8 +43,6 @@ export function StrmPage() {
         setRefreshLibrary={strm.generate.setRefreshLibrary}
         setScrapeAfter={strm.generate.setScrapeAfter}
       />
-
-      <StrmTreeGenerateSection {...strm.treeGenerate} outputPresets={strm.outputPresets} />
 
       <StrmRepairSection {...strm.repair} outputPresets={strm.outputPresets} />
 

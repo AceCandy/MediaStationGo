@@ -2,8 +2,6 @@ package service
 
 import (
 	"bytes"
-	"context"
-	"errors"
 	"image"
 	"image/color"
 	"image/png"
@@ -11,7 +9,6 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	testdb "github.com/ShukeBta/MediaStationGo/internal/testdb"
@@ -21,14 +18,7 @@ import (
 	"github.com/ShukeBta/MediaStationGo/internal/config"
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 	"github.com/ShukeBta/MediaStationGo/internal/repository"
-	"github.com/ShukeBta/MediaStationGo/internal/service/cloud"
 )
-
-type cloudArtworkResolverFunc func(context.Context, string, string, string) (*cloud.DirectLink, error)
-
-func (f cloudArtworkResolverFunc) CloudResolve(ctx context.Context, typ, ref, clientUA string) (*cloud.DirectLink, error) {
-	return f(ctx, typ, ref, clientUA)
-}
 
 func TestArtworkStorePersistsAndDeduplicatesLocalImages(t *testing.T) {
 	dataDir := t.TempDir()
@@ -98,75 +88,6 @@ func TestArtworkStorePersistsAndDeduplicatesLocalImages(t *testing.T) {
 	}
 	if rec.Code != http.StatusOK || rec.Header().Get("Content-Type") != "image/png" || !bytes.Equal(rec.Body.Bytes(), data) {
 		t.Fatalf("served artwork mismatch: status=%d type=%q bytes=%d", rec.Code, rec.Header().Get("Content-Type"), rec.Body.Len())
-	}
-}
-
-func TestPersistMetadataArtworkImportsCloudImagesWithoutCache(t *testing.T) {
-	data := testArtworkPNG(t, 4, 3)
-	var requests int
-	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		requests++
-		if r.Header.Get("X-Cloud-Auth") != "test-token" {
-			t.Fatalf("missing cloud direct-link header")
-		}
-		w.Header().Set("Content-Type", "image/png")
-		_, _ = w.Write(data)
-	}))
-	defer upstream.Close()
-
-	db, err := testdb.OpenPostgres(t, &gorm.Config{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := db.AutoMigrate(&model.MetadataItem{}, &model.ArtworkAsset{}, &model.MetadataArtwork{}); err != nil {
-		t.Fatal(err)
-	}
-	item := model.MetadataItem{Kind: model.MetadataKindMovie, Title: "Cloud", Source: "local_nfo"}
-	if err := db.Create(&item).Error; err != nil {
-		t.Fatal(err)
-	}
-
-	dataDir := t.TempDir()
-	cacheDir := filepath.Join(t.TempDir(), "cache")
-	cfg := &config.Config{App: config.AppConfig{DataDir: dataDir}, Cache: config.CacheConfig{CacheDir: cacheDir}}
-	repos := repository.New(db)
-	proxy := NewImageProxy(cfg, zap.NewNop())
-	proxy.client = upstream.Client()
-	store := NewArtworkStore(cfg, repos.Artwork, proxy).SetCloudResolver(cloudArtworkResolverFunc(
-		func(_ context.Context, typ, ref, clientUA string) (*cloud.DirectLink, error) {
-			if typ != "openlist" || clientUA != "" {
-				t.Fatalf("unexpected cloud resolve arguments: type=%q ua=%q", typ, clientUA)
-			}
-			return &cloud.DirectLink{URL: upstream.URL + ref, Headers: map[string]string{"X-Cloud-Auth": "test-token"}}, nil
-		},
-	))
-	scraper := &ScraperService{artwork: store}
-	poster, backdrop, err := scraper.persistMetadataArtwork(
-		t.Context(), item.ID, "local_nfo",
-		"/api/img/cloud/openlist?ref=%2FMovies%2Fposter.png",
-		"/api/img/cloud/openlist?ref=%2FMovies%2Fbackdrop.png",
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if requests != 2 || !strings.HasPrefix(poster, "/api/artwork/") || !strings.HasPrefix(backdrop, "/api/artwork/") {
-		t.Fatalf("cloud artwork persistence = requests:%d poster:%q backdrop:%q", requests, poster, backdrop)
-	}
-	for _, artworkType := range []string{model.ArtworkTypePoster, model.ArtworkTypeBackdrop} {
-		asset, err := repos.Artwork.FindSelection(t.Context(), item.ID, artworkType)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if asset == nil {
-			t.Fatalf("missing %s selection", artworkType)
-		}
-		stored, err := os.ReadFile(filepath.Join(dataDir, "artwork", filepath.FromSlash(asset.StorageKey)))
-		if err != nil || !bytes.Equal(stored, data) {
-			t.Fatalf("stored %s artwork mismatch: %v", artworkType, err)
-		}
-	}
-	if _, err := os.Stat(filepath.Join(cacheDir, "images")); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("cloud metadata import created image cache: %v", err)
 	}
 }
 

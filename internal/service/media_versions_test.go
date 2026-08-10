@@ -22,18 +22,18 @@ func TestGroupMediaVersionsMergesEpisodeByExternalIDAcrossLibraries(t *testing.T
 		SizeBytes:  100,
 		PosterURL:  "https://image.tmdb.org/t/p/w500/poster.jpg",
 	}
-	cloud := model.Media{
-		LibraryID:  "cloud-tv",
+	remote := model.Media{
+		LibraryID:  "remote-tv",
 		Title:      "折腰",
-		Path:       "cloud://openlist/国产剧/折腰 (2025) {tmdb-296753}/Season 1/折腰.S01E01.mkv",
+		Path:       "https://media.example.com/series/zheyao/s01e01.mkv",
 		SeasonNum:  1,
 		EpisodeNum: 1,
 		TMDbID:     296753,
 		SizeBytes:  200,
-		STRMURL:    "/api/cloud/play/openlist?ref=/国产剧/折腰/01.mkv",
+		STRMURL:    "https://media.example.com/series/zheyao/s01e01.mkv",
 	}
 
-	grouped := groupMediaVersions([]model.Media{local, cloud})
+	grouped := groupMediaVersions([]model.Media{local, remote})
 	if len(grouped) != 1 {
 		t.Fatalf("grouped len = %d, want 1: %#v", len(grouped), grouped)
 	}
@@ -43,8 +43,8 @@ func TestGroupMediaVersionsMergesEpisodeByExternalIDAcrossLibraries(t *testing.T
 	if grouped[0].Media.Path != local.Path {
 		t.Fatalf("local version should remain primary, got %q want %q", grouped[0].Media.Path, local.Path)
 	}
-	if grouped[0].Versions[0].Path != local.Path || grouped[0].Versions[1].Path != cloud.Path {
-		t.Fatalf("versions should be ordered local before cloud, got %#v", grouped[0].Versions)
+	if grouped[0].Versions[0].Path != local.Path || grouped[0].Versions[1].Path != remote.Path {
+		t.Fatalf("versions should be ordered local before remote, got %#v", grouped[0].Versions)
 	}
 }
 

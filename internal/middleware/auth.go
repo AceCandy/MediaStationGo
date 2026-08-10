@@ -119,12 +119,8 @@ func externalPlaybackTokenAllowedPath(c *gin.Context, mediaID string) bool {
 	}
 	if len(segments) >= 3 && strings.EqualFold(segments[0], "api") {
 		switch strings.ToLower(segments[1]) {
-		case "stream", "hls":
+		case "stream":
 			return segments[2] == mediaID
-		case "cloud":
-			return len(segments) >= 3 &&
-				strings.EqualFold(segments[2], "play") &&
-				strings.TrimSpace(c.Query("media_id")) == mediaID
 		}
 	}
 	return false

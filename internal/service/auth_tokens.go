@@ -55,25 +55,43 @@ func ExternalPlaybackTokenDurationForMedia(durationSec int) time.Duration {
 // that are handed to third-party players. It must not be accepted as a
 // reusable account/session token for arbitrary media playback.
 func (s *AuthService) IssueExternalPlaybackToken(u *model.User, mediaID string, durationSec int) (string, error) {
+	if u == nil {
+		return "", errors.New("user required")
+	}
+	return signExternalPlaybackToken(Claims{
+		UserID: u.ID,
+		Role:   u.Role,
+		Tier:   u.Tier,
+	}, mediaID, durationSec, s.cfg.Secrets.JWTSecret)
+}
+
+func signExternalPlaybackToken(identity Claims, mediaID string, durationSec int, secret string) (string, error) {
 	mediaID = strings.TrimSpace(mediaID)
 	if mediaID == "" {
 		return "", errors.New("media id required")
 	}
+	if strings.TrimSpace(identity.UserID) == "" {
+		return "", errors.New("user id required")
+	}
+	if strings.TrimSpace(secret) == "" {
+		return "", errors.New("jwt secret required")
+	}
+	now := time.Now()
 	claims := Claims{
-		UserID:  u.ID,
-		Role:    u.Role,
-		Tier:    u.Tier,
+		UserID:  identity.UserID,
+		Role:    identity.Role,
+		Tier:    identity.Tier,
 		Purpose: ExternalPlaybackTokenPurpose,
 		MediaID: mediaID,
 		RegisteredClaims: jwt.RegisteredClaims{
-			IssuedAt:  jwt.NewNumericDate(time.Now()),
-			ExpiresAt: jwt.NewNumericDate(time.Now().Add(ExternalPlaybackTokenDurationForMedia(durationSec))),
+			IssuedAt:  jwt.NewNumericDate(now),
+			ExpiresAt: jwt.NewNumericDate(now.Add(ExternalPlaybackTokenDurationForMedia(durationSec))),
 			Issuer:    "mediastationgo",
-			Subject:   u.ID,
+			Subject:   identity.UserID,
 		},
 	}
 	t := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	return t.SignedString([]byte(s.cfg.Secrets.JWTSecret))
+	return t.SignedString([]byte(secret))
 }
 
 // EmbyTokenDuration 是第三方 Emby/Jellyfin 客户端访问令牌的有效期。

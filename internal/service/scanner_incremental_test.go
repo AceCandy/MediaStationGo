@@ -200,7 +200,7 @@ func TestScanLibraryReadsLocalSTRMTarget(t *testing.T) {
 	if err := repos.Library.Create(t.Context(), &lib); err != nil {
 		t.Fatal(err)
 	}
-	strmPath := filepath.Join(root, "Cloud Movie.strm")
+	strmPath := filepath.Join(root, "Remote Movie.strm")
 	if err := os.WriteFile(strmPath, []byte("https://cdn.example.com/movie.mkv\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -227,11 +227,11 @@ func TestScanLibraryReadsLocalSTRMFileTarget(t *testing.T) {
 	if err := repos.Library.Create(t.Context(), &lib); err != nil {
 		t.Fatal(err)
 	}
-	target := filepath.Join(root, "Cloud Movie.mkv")
+	target := filepath.Join(root, "Local Movie.mkv")
 	if err := os.WriteFile(target, []byte("video"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	strmPath := filepath.Join(root, "Cloud Movie.strm")
+	strmPath := filepath.Join(root, "Local Movie.strm")
 	if err := os.WriteFile(strmPath, []byte(target), 0o644); err != nil {
 		t.Fatal(err)
 	}

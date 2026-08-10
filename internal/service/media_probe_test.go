@@ -29,7 +29,7 @@ func (s *stubMediaProbeRunner) Probe(_ context.Context, path string) (*ProbeResu
 	return s.result, s.err
 }
 
-func (s *stubMediaProbeRunner) ProbeHTTP(context.Context, string, map[string]string) (*ProbeResult, error) {
+func (s *stubMediaProbeRunner) ProbeHTTP(context.Context, string) (*ProbeResult, error) {
 	return s.Probe(context.Background(), "")
 }
 
@@ -102,7 +102,7 @@ func TestMediaProbePersistsRemoteSTRMTargetSize(t *testing.T) {
 	metadata := createServiceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindMovie, Title: "Movie", Source: "local"})
 	media := model.Media{
 		MetadataID: metadata.ID, LibraryID: "library", Title: "Movie",
-		Path: "/virtual/movie.strm", STRMURL: "https://openlist.example.test/d/mount/movie.mkv", Container: "strm", SizeBytes: 201,
+		Path: "/virtual/movie.strm", STRMURL: "https://media.example.test/movie.mkv", Container: "strm", SizeBytes: 201,
 	}
 	if err := db.Create(&media).Error; err != nil {
 		t.Fatal(err)
@@ -141,7 +141,7 @@ func TestMediaProbeFallbackDoesNotOverwriteCompleteDocument(t *testing.T) {
 	}
 	after, _ := repos.MediaProbe.FindByMediaID(t.Context(), media.ID)
 	if after.ProbeJSON != oldJSON {
-		t.Fatal("partial ffmpeg fallback overwrote complete document")
+		t.Fatal("partial probe result overwrote complete document")
 	}
 }
 

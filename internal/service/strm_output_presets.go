@@ -45,7 +45,7 @@ func STRMOutputPresets(ctx context.Context, repo *repository.Container) ([]STRMO
 			if !root.Enabled || strings.TrimSpace(root.Path) == "" {
 				continue
 			}
-			if _, ok := ParseCloudLibraryMount(root.Path); ok {
+			if isRetiredCloudPath(root.Path) {
 				continue
 			}
 			pathValue := filepath.Clean(resolveMappedDestinationPath(root.Path))

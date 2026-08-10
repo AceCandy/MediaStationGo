@@ -170,8 +170,11 @@ func TestDefaultPermissionsAreViewerOnly(t *testing.T) {
 		t.Fatal("viewer defaults must allow library viewing, playback, and external players")
 	}
 	if perms.CanManageFiles || perms.CanEditMedia || perms.CanRescrape || perms.CanCaptureFrames ||
-		perms.CanManageSites || perms.CanManageUsers || perms.CanManageStrm {
+		perms.CanManageUsers || perms.CanManageStrm {
 		t.Fatal("viewer defaults must not allow downloads, scraping, media edits, or file management")
+	}
+	if _, exists := perms.PermissionMap()["can_manage_sites"]; exists {
+		t.Fatal("retired site permission must not be serialized")
 	}
 }
 

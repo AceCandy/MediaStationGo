@@ -68,7 +68,7 @@ func TestListLibrariesHidesAdultDirectoriesUnlessAdminRequestsAll(t *testing.T) 
 	}
 }
 
-func TestListLibrariesIncludeHiddenNormalizesCloudDisplayNames(t *testing.T) {
+func TestListLibrariesIncludeHiddenKeepsLibraryDisplayName(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db, err := testdb.OpenPostgres(t, &gorm.Config{})
 	if err != nil {
@@ -78,8 +78,8 @@ func TestListLibrariesIncludeHiddenNormalizesCloudDisplayNames(t *testing.T) {
 		t.Fatal(err)
 	}
 	repos := repository.New(db)
-	cloud := model.Library{Name: "OpenList · 国产剧", Path: service.BuildCloudLibraryPath("openlist", "/国产剧", "/国产剧"), Type: "tv", Enabled: true}
-	if err := repos.Library.Create(t.Context(), &cloud); err != nil {
+	lib := model.Library{Name: "国产剧", Path: "/media/tv", Type: "tv", Enabled: true}
+	if err := repos.Library.Create(t.Context(), &lib); err != nil {
 		t.Fatal(err)
 	}
 	svc := &service.Container{
@@ -92,11 +92,11 @@ func TestListLibrariesIncludeHiddenNormalizesCloudDisplayNames(t *testing.T) {
 		t.Fatalf("include_hidden list = %#v, want one library", all)
 	}
 	if all[0].Name != "国产剧" {
-		t.Fatalf("cloud display name = %q, want stripped directory name", all[0].Name)
+		t.Fatalf("library display name = %q, want 国产剧", all[0].Name)
 	}
 }
 
-func TestListLibrariesShowsAutoCategoryLibraries(t *testing.T) {
+func TestListLibrariesShowsAllOrdinaryLibraries(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db, err := testdb.OpenPostgres(t, &gorm.Config{})
 	if err != nil {
@@ -106,8 +106,8 @@ func TestListLibrariesShowsAutoCategoryLibraries(t *testing.T) {
 		t.Fatal(err)
 	}
 	repos := repository.New(db)
-	root := model.Library{Name: "OpenList", Path: "cloud://openlist", Type: "movie", Enabled: true}
-	auto := model.Library{Name: "欧美剧", Path: service.BuildCloudAutoCategoryLibraryPath("openlist", "电视剧/欧美剧"), Type: "tv", Enabled: true}
+	root := model.Library{Name: "电影", Path: "/media/movies", Type: "movie", Enabled: true}
+	auto := model.Library{Name: "欧美剧", Path: "/media/tv/western", Type: "tv", Enabled: true}
 	for _, lib := range []*model.Library{&root, &auto} {
 		if err := repos.Library.Create(t.Context(), lib); err != nil {
 			t.Fatal(err)
@@ -212,7 +212,8 @@ func TestListMediaGroupsMultipleVersionsByDefault(t *testing.T) {
 			LibraryID:  lib.ID,
 			MetadataID: metadata.ID,
 			Title:      "流浪地球",
-			Path:       "cloud://openlist/Movies/The.Wandering.Earth.2019.2160p.mkv",
+			Path:       "/media/movies/The.Wandering.Earth.2019.2160p.strm",
+			STRMURL:    "https://media.example.test/The.Wandering.Earth.2019.2160p.mkv",
 			Year:       2019,
 			Width:      3840,
 			Height:     2160,
@@ -237,7 +238,7 @@ func TestListMediaGroupsMultipleVersionsByDefault(t *testing.T) {
 		t.Fatalf("versions = %#v, want both versions", grouped.Items[0].Versions)
 	}
 	if grouped.Items[0].Versions[0].ID != "movie-1080" || grouped.Items[0].Versions[1].ID != "movie-2160" {
-		t.Fatalf("versions should keep local before cloud: %#v", grouped.Items[0].Versions)
+		t.Fatalf("versions should keep local before remote: %#v", grouped.Items[0].Versions)
 	}
 
 	raw := requestMediaList(t, svc, "/api/libraries/"+lib.ID+"/media?group_versions=0", lib.ID)
@@ -256,7 +257,7 @@ func TestListLibrarySeriesDoesNotTruncateLargeEpisodeLibraries(t *testing.T) {
 		t.Fatal(err)
 	}
 	repos := repository.New(db)
-	lib := model.Library{Name: "国漫", Path: "cloud://openlist/国漫", Type: "anime", Enabled: true}
+	lib := model.Library{Name: "国漫", Path: "/media/anime", Type: "anime", Enabled: true}
 	if err := repos.Library.Create(t.Context(), &lib); err != nil {
 		t.Fatal(err)
 	}
@@ -266,7 +267,7 @@ func TestListLibrarySeriesDoesNotTruncateLargeEpisodeLibraries(t *testing.T) {
 			Base:       model.Base{ID: fmt.Sprintf("ep-%04d", i), CreatedAt: time.Now().Add(time.Duration(i) * time.Second)},
 			LibraryID:  lib.ID,
 			Title:      "大剧",
-			Path:       fmt.Sprintf("cloud://openlist/国漫/大剧 (2026) {tmdb-123}/Season 1/大剧.S01E%04d.mkv", i),
+			Path:       fmt.Sprintf("/media/anime/大剧 (2026) {tmdb-123}/Season 1/大剧.S01E%04d.mkv", i),
 			SeasonNum:  1,
 			EpisodeNum: i,
 		})
@@ -300,7 +301,7 @@ func TestListLibrarySeriesDoesNotTruncateLargeEpisodeLibraries(t *testing.T) {
 	}
 }
 
-func TestScanLibraryHandlerSurfacesCloudQueueStartFailure(t *testing.T) {
+func TestScanLibraryHandlerQueuesLocalScan(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db, err := testdb.OpenPostgres(t, &gorm.Config{})
 	if err != nil {
@@ -310,7 +311,7 @@ func TestScanLibraryHandlerSurfacesCloudQueueStartFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	repos := repository.New(db)
-	lib := model.Library{Name: "旧夸克云盘", Path: service.BuildCloudLibraryPath(service.LegacyQuarkProvider, "archive", "archive"), Type: "movie", Enabled: true}
+	lib := model.Library{Name: "电影", Path: t.TempDir(), Type: "movie", Enabled: true}
 	if err := repos.Library.Create(t.Context(), &lib); err != nil {
 		t.Fatal(err)
 	}
@@ -327,11 +328,11 @@ func TestScanLibraryHandlerSurfacesCloudQueueStartFailure(t *testing.T) {
 
 	scanLibraryHandler(svc)(c)
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("status=%d body=%s, want bad request", w.Code, w.Body.String())
+	if w.Code != http.StatusAccepted {
+		t.Fatalf("status=%d body=%s, want accepted", w.Code, w.Body.String())
 	}
-	if !strings.Contains(w.Body.String(), "deprecated") {
-		t.Fatalf("body=%s, want cloud queue start error", w.Body.String())
+	if !strings.Contains(w.Body.String(), `"queued":true`) {
+		t.Fatalf("body=%s, want queued local scan", w.Body.String())
 	}
 }
 

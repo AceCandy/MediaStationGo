@@ -55,13 +55,13 @@ func TestListRecentSeriesCardsCountsAllEpisodesInSeries(t *testing.T) {
 func TestMediaSeriesKeyCollapsesNestedSpecialFolders(t *testing.T) {
 	main := model.Media{
 		LibraryID:  "lib-tv",
-		Path:       `cloud://openlist/动漫/国漫/示例剧/Season 01/示例剧.S01E01.mkv`,
+		Path:       `/media/anime/示例剧/Season 01/示例剧.S01E01.mkv`,
 		SeasonNum:  1,
 		EpisodeNum: 1,
 	}
 	special := model.Media{
 		LibraryID: "lib-tv",
-		Path:      `cloud://openlist/动漫/国漫/示例剧/Extras/Season 01/示例剧.SP01.mkv`,
+		Path:      `/media/anime/示例剧/Extras/Season 01/示例剧.SP01.mkv`,
 	}
 
 	if got, want := mediaSeriesKey(special), mediaSeriesKey(main); got != want {
@@ -116,25 +116,25 @@ func TestGroupMediaSeriesCardsSortsByLatestEpisodeTime(t *testing.T) {
 func TestMediaSeriesKeyCollapsesSpecialTitleSuffix(t *testing.T) {
 	main := model.Media{
 		LibraryID:  "lib-tv",
-		Path:       `cloud://openlist/电视剧/欧美剧/Example Show/Season 01/Example.Show.S01E01.mkv`,
+		Path:       `/media/tv/Example Show/Season 01/Example.Show.S01E01.mkv`,
 		SeasonNum:  1,
 		EpisodeNum: 1,
 	}
 	special := model.Media{
 		LibraryID:  "lib-tv",
-		Path:       `cloud://openlist/电视剧/欧美剧/Example Show Specials/Example.Show.Special.01.mkv`,
+		Path:       `/media/tv/Example Show Specials/Example.Show.Special.01.mkv`,
 		SeasonNum:  0,
 		EpisodeNum: 1,
 	}
 	chineseSpecial := model.Media{
 		LibraryID:  "lib-tv",
-		Path:       `cloud://openlist/动漫/国漫/示例剧 特别篇/示例剧.SP01.mkv`,
+		Path:       `/media/anime/示例剧 特别篇/示例剧.SP01.mkv`,
 		SeasonNum:  0,
 		EpisodeNum: 1,
 	}
 	chineseMain := model.Media{
 		LibraryID:  "lib-tv",
-		Path:       `cloud://openlist/动漫/国漫/示例剧/Season 01/示例剧.S01E01.mkv`,
+		Path:       `/media/anime/示例剧/Season 01/示例剧.S01E01.mkv`,
 		SeasonNum:  1,
 		EpisodeNum: 1,
 	}
@@ -150,25 +150,25 @@ func TestMediaSeriesKeyCollapsesSpecialTitleSuffix(t *testing.T) {
 func TestMediaSeriesKeyCollapsesSeasonZeroAndSpecialAliases(t *testing.T) {
 	main := model.Media{
 		LibraryID:  "lib-anime",
-		Path:       `cloud://openlist/动漫/日番/宝可梦 (1997) {tmdb-60572}/Season 1/宝可梦.S01E01.mkv`,
+		Path:       `/media/anime/宝可梦 (1997) {tmdb-60572}/Season 1/宝可梦.S01E01.mkv`,
 		SeasonNum:  1,
 		EpisodeNum: 1,
 	}
 	seasonZero := model.Media{
 		LibraryID:  "lib-anime",
-		Path:       `cloud://openlist/动漫/日番/宝可梦 (1997) {tmdb-60572}/Season 0/宝可梦.S00E34.mkv`,
+		Path:       `/media/anime/宝可梦 (1997) {tmdb-60572}/Season 0/宝可梦.S00E34.mkv`,
 		SeasonNum:  0,
 		EpisodeNum: 34,
 	}
 	specialEpisode := model.Media{
 		LibraryID:  "lib-anime",
-		Path:       `cloud://openlist/动漫/日番/宝可梦 Special Episode/宝可梦.SP01.mkv`,
+		Path:       `/media/anime/宝可梦 Special Episode/宝可梦.SP01.mkv`,
 		SeasonNum:  0,
 		EpisodeNum: 1,
 	}
 	extraEpisode := model.Media{
 		LibraryID:  "lib-anime",
-		Path:       `cloud://openlist/动漫/日番/宝可梦 番外篇/宝可梦.SP02.mkv`,
+		Path:       `/media/anime/宝可梦 番外篇/宝可梦.SP02.mkv`,
 		SeasonNum:  0,
 		EpisodeNum: 2,
 	}
@@ -301,7 +301,7 @@ func TestMediaSeriesKeyTreatsDomesticTelevisionFolderAsSeries(t *testing.T) {
 	weakEpisode := model.Media{
 		LibraryID: "lib-domestic-tv",
 		Path:      `/media/国产电视剧/人世间 (2022) [TMDBID-156568]/人世间.S01E02.mkv`,
-		// Some local/cloud scans may miss S/E at first while local NFO or
+		// Some scans may miss S/E at first while local NFO or
 		// scraper metadata already carries an episode-level TMDb id.
 		TMDbID: 4375419,
 	}

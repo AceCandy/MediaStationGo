@@ -22,8 +22,7 @@ const (
 )
 
 // BackgroundTask is the compact, operator-facing shape shown on the live tasks
-// page. It tracks long-running work that is not represented by a download or
-// transcode job, such as organize → scan → scrape ingest flows.
+// page, such as organize → scan → scrape ingest flows.
 type BackgroundTask struct {
 	ID         string           `json:"id"`
 	Kind       string           `json:"kind"`

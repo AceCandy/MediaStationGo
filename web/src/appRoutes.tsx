@@ -30,8 +30,6 @@ const WatchHistoryPage = lazy(() =>
   import('./pages/WatchHistoryPage').then((m) => ({ default: m.WatchHistoryPage })),
 )
 const PosterWallPage = lazy(() => import('./pages/PosterWallPage').then((m) => ({ default: m.PosterWallPage })))
-const SitesPage = lazy(() => import('./pages/SitesPage').then((m) => ({ default: m.SitesPage })))
-const SiteSearchPage = lazy(() => import('./pages/SiteSearchPage').then((m) => ({ default: m.SiteSearchPage })))
 const AIAssistantPage = lazy(() =>
   import('./pages/AIAssistantPage').then((m) => ({ default: m.AIAssistantPage })),
 )
@@ -45,9 +43,6 @@ const NotifyChannelsPage = lazy(() =>
 const SettingsPage = lazy(() => import('./pages/SettingsPage').then((m) => ({ default: m.SettingsPage })))
 const AssistantChatPage = lazy(() =>
   import('./pages/AssistantChatPage').then((m) => ({ default: m.AssistantChatPage })),
-)
-const StorageConfigPage = lazy(() =>
-  import('./pages/StorageConfigPage').then((m) => ({ default: m.StorageConfigPage })),
 )
 
 export type AppRoute = {
@@ -72,12 +67,10 @@ export const appRoutes: AppRoute[] = [
   { path: 'dlna', element: <DlnaPage /> },
   { path: 'history', element: <WatchHistoryPage /> },
   { path: 'poster-wall', element: <PosterWallPage /> },
-  { path: 'site-search', element: <SiteSearchPage /> },
   { path: 'ai', element: <AIAssistantPage /> },
   { path: 'play-profiles', element: <ProfileManagementPage /> },
   { path: 'api-configs', element: <Navigate to="/admin?tab=api" replace /> },
   { path: 'tools', element: <Navigate to="/storage" replace /> },
-  { path: 'sites', element: <SitesPage />, adminOnly: true },
   { path: 'files', element: <FileManagerPage />, adminOnly: true },
   { path: 'storage', element: <StoragePage />, adminOnly: true },
   { path: 'duplicates', element: <DuplicatesPage />, adminOnly: true },
@@ -88,7 +81,6 @@ export const appRoutes: AppRoute[] = [
   { path: 'notify-channels', element: <NotifyChannelsPage />, adminOnly: true },
   { path: 'settings', element: <SettingsPage />, adminOnly: true },
   { path: 'assistant', element: <AssistantChatPage />, adminOnly: true },
-  { path: 'storage-config', element: <StorageConfigPage />, adminOnly: true },
   { path: 'stats', element: <StatsPage />, adminOnly: true },
   { path: 'admin', element: <AdminPage />, adminOnly: true },
 ]

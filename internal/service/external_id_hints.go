@@ -79,7 +79,7 @@ func pathHintMetadata(raw string, seriesLike bool) (*LocalMetadata, mediaExterna
 	if seriesLike {
 		title, year = CleanQuery(source)
 	} else {
-		title, year = cloudSeriesTitleFromMediaPath(source)
+		title, year = mediaPathTitleYear(source)
 		if title == "" {
 			title, year = CleanQuery(source)
 		}

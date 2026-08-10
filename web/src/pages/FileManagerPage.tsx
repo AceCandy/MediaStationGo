@@ -12,7 +12,6 @@ import { FileOperationsPanel } from './FileOperationsPanel'
 import { ManualOrganizePanel } from './ManualOrganizePanel'
 import { useAutoOrganizeSettings } from './useAutoOrganizeSettings'
 import { useFileOperations } from './useFileOperations'
-import { isCloudLibraryPath } from './fileManagerModel'
 import { useManualOrganize } from './useManualOrganize'
 
 // FileManagerPage provides a focused local storage view:
@@ -31,10 +30,6 @@ export function FileManagerPage() {
     if (data?.path) return data.path
     return path
   }, [data?.path, path])
-  const localLibraries = useMemo(
-    () => libraries.filter((library) => !isCloudLibraryPath(library.path)),
-    [libraries],
-  )
   const refresh = useCallback(() => {
     setLoading(true)
     setError('')
@@ -61,7 +56,7 @@ export function FileManagerPage() {
   const fileOperations = useFileOperations({ currentDir, path, refresh })
   const manualOrganize = useManualOrganize({
     currentDir,
-    localLibraries,
+    localLibraries: libraries,
     selectedPath: fileOperations.selected?.path,
     selectedPaths: fileOperations.selectedPaths,
     scrapeAfter,
@@ -109,7 +104,7 @@ export function FileManagerPage() {
         <ManualOrganizePanel
           organizeSource={manualOrganize.organizeSource}
           selectedCount={fileOperations.selectedPaths.length}
-          localLibraries={localLibraries}
+          localLibraries={libraries}
           organizeLibraryID={manualOrganize.organizeLibraryID}
           organizeDestPath={manualOrganize.organizeDestPath}
           organizeMediaType={manualOrganize.organizeMediaType}

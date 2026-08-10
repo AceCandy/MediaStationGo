@@ -48,7 +48,7 @@ export function LayoutSearchBox({
         onClick={() => onFocusedChange(true)}
         onFocus={() => onFocusedChange(true)}
         onBlur={() => window.setTimeout(() => onFocusedChange(false), 120)}
-        placeholder="搜索电影、电视剧、演员、种子站点..."
+        placeholder="搜索电影、电视剧、演员..."
         className="w-full rounded-full border border-[var(--app-border)] bg-[var(--app-control-bg)] py-2.5 pl-11 pr-12 text-sm text-[var(--app-text)] placeholder:text-[var(--app-muted)] outline-none transition-all duration-300 focus:border-brand-500 focus:bg-[var(--app-panel)] focus:ring-4 focus:ring-brand-100/40"
       />
       <div className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2">

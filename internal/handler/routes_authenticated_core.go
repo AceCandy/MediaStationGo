@@ -57,15 +57,6 @@ func registerAuthedMediaRoutes(authed *gin.RouterGroup, svc *service.Container) 
 func registerAuthedPlaybackAndProxyRoutes(authed *gin.RouterGroup, svc *service.Container) {
 	authed.GET("/stream/:id", streamHandler(svc))
 	authed.HEAD("/stream/:id", streamHandler(svc))
-	authed.GET("/hls/:id/index.m3u8", hlsPlaylistHandler(svc))
-	authed.GET("/hls/:id/:seg", hlsSegmentHandler(svc))
-	authed.DELETE("/hls/:id", stopTranscodeHandler(svc))
-
-	authed.GET("/cloud/play/:type", cloudPlayHandler(svc))
-	authed.HEAD("/cloud/play/:type", cloudPlayHandler(svc))
-
-	authed.GET("/img/cloud/:type", cloudArtworkProxyHandler(svc))
-	authed.HEAD("/img/cloud/:type", cloudArtworkProxyHandler(svc))
 	authed.GET("/img", imageProxyHandler(svc))
 	authed.GET("/artwork/:id", artworkHandler(svc))
 	authed.HEAD("/artwork/:id", artworkHandler(svc))

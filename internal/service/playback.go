@@ -103,7 +103,6 @@ func (p *PlaybackService) ContinueHistory(ctx context.Context, userID string, li
 }
 
 func (p *PlaybackService) historyItems(ctx context.Context, userID string, limit int, completed *bool, visibility MediaVisibility) ([]HistoryItem, error) {
-	visibility = ExpandMediaVisibilityForMergedCloudLibraries(ctx, p.repo, visibility)
 	filter := repository.MediaQueryFilter{
 		IncludeNSFW:       visibility.IncludeNSFW,
 		AllowedLibraryIDs: visibility.AllowedLibraryIDs,
@@ -169,7 +168,6 @@ func (p *PlaybackService) ListFavourites(ctx context.Context, userID string, vis
 	if len(favs) == 0 {
 		return nil, nil
 	}
-	visibility = ExpandMediaVisibilityForMergedCloudLibraries(ctx, p.repo, visibility)
 	filter := repository.MediaQueryFilter{
 		IncludeNSFW:       visibility.IncludeNSFW,
 		AllowedLibraryIDs: visibility.AllowedLibraryIDs,
@@ -230,7 +228,6 @@ func (p *PlaybackService) GetPlaylist(ctx context.Context, playlistID string, vi
 	if len(rows) == 0 {
 		return &PlaylistDetail{Playlist: pl}, nil
 	}
-	visibility = ExpandMediaVisibilityForMergedCloudLibraries(ctx, p.repo, visibility)
 	filter := repository.MediaQueryFilter{
 		IncludeNSFW:       visibility.IncludeNSFW,
 		AllowedLibraryIDs: visibility.AllowedLibraryIDs,

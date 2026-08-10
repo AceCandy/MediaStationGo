@@ -4,7 +4,7 @@
 // adopting the same tech stack as cropflre/nowen-video:
 //
 //	Backend:  Go 1.25 + Gin + GORM + PostgreSQL + Viper + Zap + JWT
-//	Frontend: React 18 + Vite + Tailwind + Zustand + HLS.js
+//	Frontend: React 18 + Vite + Tailwind + Zustand
 //
 // The binary embeds the SPA build artifacts at /app/web/dist and serves them
 // alongside the JSON REST API at /api/* and the WebSocket hub at /api/ws.
@@ -104,12 +104,6 @@ func main() {
 	service.ApplyRuntimeSettings(context.Background(), cfg, repos, logger)
 	applyCPUThreadLimit(cfg, logger)
 	services := service.NewWithVersion(cfg, logger, repos, appVersion)
-
-	if repaired, err := services.RepairCloudPathMetadata(context.Background()); err != nil {
-		logger.Warn("cloud path metadata repair failed", zap.Error(err))
-	} else if repaired > 0 {
-		logger.Info("cloud path metadata repair completed", zap.Int("media_count", repaired))
-	}
 
 	if err := services.Auth.SeedAdmin(context.Background()); err != nil {
 		logger.Warn("seed admin failed", zap.Error(err))

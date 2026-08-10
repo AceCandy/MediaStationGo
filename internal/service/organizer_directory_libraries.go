@@ -41,7 +41,7 @@ func (o *OrganizerService) organizeLibraryForLayout(ctx context.Context, destRoo
 		if !lib.Enabled || strings.TrimSpace(lib.Path) == "" {
 			continue
 		}
-		if _, ok := ParseCloudLibraryMount(lib.Path); ok {
+		if isRetiredCloudPath(lib.Path) {
 			continue
 		}
 		if isOrganizeStagingDir(lib.Path) {
@@ -188,7 +188,7 @@ func (o *OrganizerService) ensureOrganizeLibraryForRoot(ctx context.Context, roo
 	if root == "" || root == "." {
 		return model.Library{}, false
 	}
-	if _, ok := ParseCloudLibraryMount(root); ok {
+	if isRetiredCloudPath(root) {
 		return model.Library{}, false
 	}
 	libraries, err := o.repo.Library.List(ctx)
@@ -204,7 +204,7 @@ func (o *OrganizerService) ensureOrganizeLibraryForRoot(ctx context.Context, roo
 		if !lib.Enabled || strings.TrimSpace(lib.Path) == "" {
 			continue
 		}
-		if _, ok := ParseCloudLibraryMount(lib.Path); ok {
+		if isRetiredCloudPath(lib.Path) {
 			continue
 		}
 		lib.Path = resolveMappedDestinationPath(lib.Path)

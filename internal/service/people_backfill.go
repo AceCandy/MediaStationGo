@@ -33,16 +33,13 @@ func (s *ScraperService) BackfillLibraryPeople(ctx context.Context, libraryID st
 	if s == nil || s.repo == nil || s.repo.Person == nil || s.tmdb == nil || !s.tmdb.Enabled() {
 		return result, nil
 	}
-	libraryIDs, err := MergedLibraryIDsForLibrary(ctx, s.repo, strings.TrimSpace(libraryID))
-	if err != nil {
-		return result, err
-	}
+	libraryID = strings.TrimSpace(libraryID)
 	var candidates []peopleBackfillCandidate
-	err = s.repo.DB.WithContext(ctx).Table("metadata_items AS mi").
+	err := s.repo.DB.WithContext(ctx).Table("metadata_items AS mi").
 		Select("DISTINCT mi.id AS metadata_id, mi.kind, mid.external_id").
 		Joins("JOIN metadata_identifiers AS mid ON mid.metadata_id = mi.id AND mid.deleted_at IS NULL AND mid.provider = ?", "tmdb").
 		Where("mi.deleted_at IS NULL AND mi.kind IN ?", []string{model.MetadataKindMovie, model.MetadataKindSeries}).
-		Where("EXISTS (SELECT 1 FROM media m WHERE m.metadata_id = mi.id AND m.deleted_at IS NULL AND m.library_id IN ?)", libraryIDs).
+		Where("EXISTS (SELECT 1 FROM media m WHERE m.metadata_id = mi.id AND m.deleted_at IS NULL AND m.library_id = ?)", libraryID).
 		Where("NOT EXISTS (SELECT 1 FROM metadata_credits mc WHERE mc.metadata_id = mi.id AND mc.deleted_at IS NULL)").
 		Order("mi.kind, mi.id").Scan(&candidates).Error
 	if err != nil {

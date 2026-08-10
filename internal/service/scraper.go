@@ -27,10 +27,9 @@ func (s *ScraperService) EnrichOneWithOptions(ctx context.Context, m *model.Medi
 	}
 
 	seriesLike := mediaIsEpisodic(m, lib)
-	cloudMedia := isCloudMediaPath(m.Path) || (lib != nil && isCloudMediaPath(lib.Path))
 	var local *LocalMetadata
 	var localErr error
-	if cloudMedia {
+	if isHTTPish(m.Path) {
 		local, localErr = decodeLocalMetadataHint(m.LocalMetadataHint)
 	} else {
 		if found, err := ReadLocalMetadata(m.Path, lib.Path, seriesLike); err == nil && found != nil {
@@ -225,7 +224,7 @@ func (s *ScraperService) applyProviderMatchWithOptions(ctx context.Context, m *m
 	s.repo.MediaView.ReindexMediaIDs(ctx, m.ID)
 
 	// Fetch extended metadata after the selected match is already saved.
-	// Manual cloud/batch applies must not fail just because an optional provider
+	// Manual and batch applies must not fail just because an optional provider
 	// details request is slow or unavailable.
 	if match.TMDbID > 0 && s.tmdb != nil && s.tmdb.Enabled() {
 		mediaType := s.determineMediaTypeForMedia(lib, m, match)

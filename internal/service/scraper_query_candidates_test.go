@@ -33,14 +33,14 @@ func TestScrapeQueryCandidatesPreferSeriesFolderAndCJKTitle(t *testing.T) {
 	}
 }
 
-func TestScrapeQueryCandidatesUseCloudSeriesFolder(t *testing.T) {
+func TestScrapeQueryCandidatesUseSeriesFolder(t *testing.T) {
 	lib := &model.Library{
-		Path: "cloud://openlist/国产剧",
+		Path: "/media/tv",
 		Type: "movie",
 	}
 	media := &model.Media{
 		Title:      "折腰 S01E01",
-		Path:       "cloud://openlist/国产剧/折腰 (2025)/Season 1/折腰.S01E01.mkv",
+		Path:       "/media/tv/折腰 (2025)/Season 1/折腰.S01E01.mkv",
 		SeasonNum:  1,
 		EpisodeNum: 1,
 	}
@@ -50,7 +50,7 @@ func TestScrapeQueryCandidatesUseCloudSeriesFolder(t *testing.T) {
 		t.Fatal("scrapeQueryCandidates returned no candidates")
 	}
 	if got[0] != "折腰" {
-		t.Fatalf("first query candidate = %q, want cloud series folder title; all candidates=%#v", got[0], got)
+		t.Fatalf("first query candidate = %q, want series folder title; all candidates=%#v", got[0], got)
 	}
 }
 

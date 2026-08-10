@@ -36,35 +36,26 @@ func (r ProbeBackfillResult) Metrics() map[string]int64 {
 
 type mediaProbeRunner interface {
 	Probe(ctx context.Context, path string) (*ProbeResult, error)
-	ProbeHTTP(ctx context.Context, rawURL string, headers map[string]string) (*ProbeResult, error)
+	ProbeHTTP(ctx context.Context, rawURL string) (*ProbeResult, error)
 }
 
 type mediaProbeSource struct {
 	identity string
 	path     string
 	url      string
-	headers  map[string]string
 	local    bool
 	size     int64
 }
 
 // MediaProbeService 是完整探测文档的唯一写入入口。
 type MediaProbeService struct {
-	repo    *repository.Container
-	probe   mediaProbeRunner
-	storage cloudPlaybackResolver
-	cache   *RuntimeCacheService
+	repo  *repository.Container
+	probe mediaProbeRunner
+	cache *RuntimeCacheService
 }
 
 func NewMediaProbeService(repo *repository.Container, probe mediaProbeRunner) *MediaProbeService {
 	return &MediaProbeService{repo: repo, probe: probe}
-}
-
-func (s *MediaProbeService) SetStorage(storage cloudPlaybackResolver) *MediaProbeService {
-	if s != nil {
-		s.storage = storage
-	}
-	return s
 }
 
 func (s *MediaProbeService) SetRuntimeCache(cache *RuntimeCacheService) *MediaProbeService {
@@ -91,7 +82,7 @@ func (s *MediaProbeService) ProbeMedia(ctx context.Context, mediaID string) (*Pr
 	}
 	var result *ProbeResult
 	if source.url != "" {
-		result, err = s.probe.ProbeHTTP(ctx, source.url, source.headers)
+		result, err = s.probe.ProbeHTTP(ctx, source.url)
 	} else {
 		result, err = s.probe.Probe(ctx, source.path)
 	}
@@ -208,23 +199,10 @@ func (s *MediaProbeService) resolveSource(ctx context.Context, media *model.Medi
 	if target := localSTRMFileTarget(media); target != "" {
 		return localMediaProbeSource(media, target)
 	}
-	if typ, ref, ok := parseCloudMediaPlaybackURL(media.STRMURL); ok {
-		if s.storage == nil {
-			return mediaProbeSource{}, errors.New("cloud probe unavailable")
-		}
-		link, err := s.storage.CloudResolve(ctx, typ, ref, "")
-		if err != nil {
-			return mediaProbeSource{}, err
-		}
-		return mediaProbeSource{
-			identity: remoteProbeSourceIdentity(media, "cloud", typ+"\x00"+ref),
-			url:      link.URL, headers: link.Headers,
-		}, nil
-	}
 	if rawURL := strings.TrimSpace(media.STRMURL); isHTTPPlaybackTarget(rawURL) {
 		return mediaProbeSource{identity: remoteProbeSourceIdentity(media, "http", rawURL), url: rawURL}, nil
 	}
-	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(media.Path)), "cloud://") || strings.EqualFold(filepath.Ext(media.Path), ".strm") {
+	if strings.EqualFold(filepath.Ext(media.Path), ".strm") {
 		return mediaProbeSource{}, errors.New("media probe source unavailable")
 	}
 	return localMediaProbeSource(media, media.Path)
@@ -234,9 +212,6 @@ func (s *MediaProbeService) currentSourceIdentity(media *model.Media) (string, e
 	if target := localSTRMFileTarget(media); target != "" {
 		source, err := localMediaProbeSource(media, target)
 		return source.identity, err
-	}
-	if typ, ref, ok := parseCloudMediaPlaybackURL(media.STRMURL); ok {
-		return remoteProbeSourceIdentity(media, "cloud", typ+"\x00"+ref), nil
 	}
 	if rawURL := strings.TrimSpace(media.STRMURL); isHTTPPlaybackTarget(rawURL) {
 		return remoteProbeSourceIdentity(media, "http", rawURL), nil
@@ -259,6 +234,35 @@ func localMediaProbeSource(media *model.Media, target string) (mediaProbeSource,
 
 func remoteProbeSourceIdentity(media *model.Media, kind, stableRef string) string {
 	return strings.Join([]string{kind, media.Path, media.STRMURL, stableRef}, "\x00")
+}
+
+func probeResultUpdates(probe *ProbeResult) map[string]any {
+	updates := map[string]any{}
+	if probe == nil {
+		return updates
+	}
+	if probe.Document != nil && probe.Document.Format.Size > 0 {
+		updates["size_bytes"] = probe.Document.Format.Size
+	}
+	if probe.DurationSec > 0 {
+		updates["duration_sec"] = probe.DurationSec
+	}
+	if probe.Width > 0 {
+		updates["width"] = probe.Width
+	}
+	if probe.Height > 0 {
+		updates["height"] = probe.Height
+	}
+	if strings.TrimSpace(probe.VideoCodec) != "" {
+		updates["video_codec"] = probe.VideoCodec
+	}
+	if strings.TrimSpace(probe.AudioCodec) != "" {
+		updates["audio_codec"] = probe.AudioCodec
+	}
+	if probe.Container != "" {
+		updates["container"] = probe.Container
+	}
+	return updates
 }
 
 func (s *MediaProbeService) persist(ctx context.Context, mediaID string, source mediaProbeSource, result *ProbeResult) error {

@@ -31,9 +31,8 @@ type ExternalMediaResult struct {
 	NSFW         bool     `json:"nsfw,omitempty"`
 }
 
-// SearchExternalMedia fans out one normalized search intent to TMDb, Douban
-// and Bangumi. This keeps a clean separation of "metadata discovery"
-// from later tracker searching/downloading, but keeps our Go service small.
+// SearchExternalMedia fans out one normalized metadata search to TMDb, Douban
+// and Bangumi without coupling the results to the local media library.
 func SearchExternalMedia(ctx context.Context, query string, year int, mediaType string, tmdb *TMDbProvider, douban *DoubanProvider, bangumi *BangumiProvider) []ExternalMediaResult {
 	query = strings.TrimSpace(query)
 	if query == "" {

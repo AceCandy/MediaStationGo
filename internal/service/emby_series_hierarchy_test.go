@@ -423,30 +423,30 @@ func TestEmbySeasonAndEpisodeDoNotInheritSeriesArtworkOrPeople(t *testing.T) {
 	}
 }
 
-func TestEmbyCloudAnimeUsesCanonicalSeriesMetadata(t *testing.T) {
+func TestEmbyAnimeUsesCanonicalSeriesMetadata(t *testing.T) {
 	svc := newTestEmbyService(t)
-	lib := model.Library{Name: "OpenList · 国漫", Path: `cloud://openlist/国漫`, Type: "anime", Enabled: true}
+	lib := model.Library{Name: "国漫", Path: `/media/anime`, Type: "anime", Enabled: true}
 	if err := svc.repo.Library.Create(t.Context(), &lib); err != nil {
 		t.Fatalf("create library: %v", err)
 	}
 	for _, media := range []model.Media{
 		{
-			Base:         model.Base{ID: "cloud-ep-1"},
+			Base:         model.Base{ID: "anime-ep-1"},
 			LibraryID:    lib.ID,
-			SeriesID:     "local-cloud-jianlai",
+			SeriesID:     "local-jianlai",
 			Title:        "剑来",
 			EpisodeTitle: "04",
-			Path:         `cloud://openlist/国漫/剑来/第二季/04.mkv`,
+			Path:         `/media/anime/剑来/第二季/04.mkv`,
 			SeasonNum:    2,
 			EpisodeNum:   4,
 		},
 		{
-			Base:         model.Base{ID: "cloud-ep-2"},
+			Base:         model.Base{ID: "anime-ep-2"},
 			LibraryID:    lib.ID,
-			SeriesID:     "local-cloud-jianlai",
+			SeriesID:     "local-jianlai",
 			Title:        "剑来",
 			EpisodeTitle: "05",
-			Path:         `cloud://openlist/国漫/剑来/第二季/05.mkv`,
+			Path:         `/media/anime/剑来/第二季/05.mkv`,
 			SeasonNum:    2,
 			EpisodeNum:   5,
 		},
@@ -462,6 +462,6 @@ func TestEmbyCloudAnimeUsesCanonicalSeriesMetadata(t *testing.T) {
 	}
 	items := root["Items"].([]map[string]any)
 	if len(items) != 1 || items[0]["Type"] != "Series" || items[0]["Name"] != "剑来" {
-		t.Fatalf("cloud anime should use canonical series metadata, got %#v", items)
+		t.Fatalf("anime should use canonical series metadata, got %#v", items)
 	}
 }

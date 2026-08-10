@@ -38,7 +38,7 @@ export function SchedulerPage() {
         <div>
           <h1 className="font-display text-3xl font-bold text-ink-600">定时任务</h1>
           <p className="text-sm text-ink-50">
-            后端周期性任务(媒体库扫描、转码缓存清理、回收站自动清理),每 5 秒刷新状态。
+            后端周期性任务（媒体库扫描、回收站自动清理等），每 5 秒刷新状态。
           </p>
         </div>
       </header>

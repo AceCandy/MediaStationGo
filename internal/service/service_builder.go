@@ -37,7 +37,6 @@ func newServiceContainer(cfg *config.Config, log *zap.Logger, repos *repository.
 	builder.initContentServices()
 	builder.initAccessAndStorageServices()
 	builder.initIdentityServices()
-	builder.initSiteServices()
 	builder.initImageProxy()
 	builder.attachRuntimeContext()
 	return builder.c
@@ -93,7 +92,6 @@ func (b *serviceContainerBuilder) initContentServices() {
 	b.c.Organizer.SetProbe(b.c.FFprobe)
 	b.c.Organizer.SetScraper(b.c.Scraper)
 	b.c.Discover = NewDiscoverService(b.log, b.c.TMDb)
-	b.c.Transcoder = NewTranscoderService(b.cfg, b.log, b.repos, b.c.WSHub)
 	b.c.Scan = NewScannerService(b.cfg, b.log, b.repos, b.c.WSHub, b.c.FFprobe, b.c.Scraper)
 	b.c.Scan.SetRuntimeCache(b.c.Cache)
 	b.c.OrganizePipeline = NewOrganizePipelineService(b.log, b.repos, b.c.Organizer, b.c.Scan, b.c.Tasks)
@@ -110,7 +108,7 @@ func (b *serviceContainerBuilder) initContentServices() {
 	b.c.Scan.SetNotifyChannels(b.c.NotifyChannels)
 	b.c.Scraper.SetNotifyChannels(b.c.NotifyChannels)
 	b.c.Media = NewMediaService(b.cfg, b.log, b.repos).SetRuntimeCache(b.c.Cache)
-	b.c.Stream = NewStreamService(b.cfg, b.log, b.repos, b.c.Transcoder)
+	b.c.Stream = NewStreamService(b.cfg, b.log, b.repos)
 	b.c.Playback = NewPlaybackService(b.log, b.repos)
 	b.c.Subtitle = NewSubtitleService(b.log, b.repos)
 	b.c.Emby.SetSubtitle(b.c.Subtitle)
@@ -122,26 +120,17 @@ func (b *serviceContainerBuilder) initContentServices() {
 func (b *serviceContainerBuilder) initAccessAndStorageServices() {
 	b.c.PlayProfiles = NewPlayProfileService(b.log, b.repos)
 	b.c.Permissions = NewPermissionService(b.log, b.repos)
-	b.c.StorageCfg = NewStorageConfigService(b.log, b.repos, b.c.Crypto)
-	b.c.Stream.SetStorageConfig(b.c.StorageCfg)
-	b.c.MediaProbe = NewMediaProbeService(b.repos, b.c.FFprobe).
-		SetStorage(b.c.StorageCfg).
-		SetRuntimeCache(b.c.Cache)
+	b.c.MediaProbe = NewMediaProbeService(b.repos, b.c.FFprobe).SetRuntimeCache(b.c.Cache)
 	b.c.Media.SetMediaProbe(b.c.MediaProbe)
 	b.c.Scan.SetMediaProbe(b.c.MediaProbe)
 	b.c.Stream.SetMediaProbe(b.c.MediaProbe)
 	b.c.Emby.SetMediaProbe(b.c.MediaProbe)
 	b.c.Subtitle.SetMediaProbe(b.c.MediaProbe)
-	b.c.Subtitle.SetConfig(b.cfg)
 	b.c.STRM = NewSTRMService(b.log, b.repos, b.cfg)
-	b.c.Scan.SetStorageConfig(b.c.StorageCfg)
-	b.c.Subtitle.SetStorageConfig(b.c.StorageCfg)
 	b.c.Emby.SetRuntimeCache(b.c.Cache)
-	b.c.Emby.SetCloudProbe(b.c.StorageCfg, b.c.FFprobe)
 	b.c.Assistant = NewAssistantService(b.log, b.repos, b.c.AI)
 	b.c.Scheduler = NewSchedulerService(
-		b.log, b.repos, b.c.Scan, b.c.Transcoder,
-		b.c.Organizer, b.c.StorageCfg, b.c.WSHub, b.cfg.Cache.CacheDir,
+		b.log, b.repos, b.c.Scan, b.c.Organizer, b.c.WSHub,
 	)
 	b.c.Scheduler.SetTaskTracker(b.c.Tasks)
 	b.c.Scheduler.SetOrganizePipeline(b.c.OrganizePipeline)
@@ -161,14 +150,10 @@ func (b *serviceContainerBuilder) initIdentityServices() {
 	b.c.Notify = NewNotifyService(b.log, b.repos, b.c.Crypto)
 }
 
-func (b *serviceContainerBuilder) initSiteServices() {
-	b.c.Site = NewSiteService(b.log, b.repos, b.flareSolverrURL())
-}
-
 func (b *serviceContainerBuilder) initImageProxy() {
 	b.c.ImageProxy = NewImageProxy(b.cfg, b.log)
 	b.c.ImageProxy.SetLibraryRootsProvider(b.libraryRoots)
-	b.c.Artwork = NewArtworkStore(b.cfg, b.repos.Artwork, b.c.ImageProxy).SetCloudResolver(b.c.StorageCfg)
+	b.c.Artwork = NewArtworkStore(b.cfg, b.repos.Artwork, b.c.ImageProxy)
 	b.c.PeopleImages = NewPeopleImageStore(b.cfg, b.repos.Person, b.c.ImageProxy)
 	b.c.Media.SetArtworkStore(b.c.Artwork)
 	b.c.Scan.SetImageProxy(b.c.ImageProxy)
@@ -199,13 +184,6 @@ func (b *serviceContainerBuilder) libraryRoots() []string {
 		}
 	}
 	return roots
-}
-
-func (b *serviceContainerBuilder) flareSolverrURL() string {
-	if b.cfg.FlareSolverr.Enabled && b.cfg.FlareSolverr.URL != "" {
-		return b.cfg.FlareSolverr.URL
-	}
-	return ""
 }
 
 func (b *serviceContainerBuilder) attachRuntimeContext() {

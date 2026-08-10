@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -21,6 +22,8 @@ import (
 	"github.com/ShukeBta/MediaStationGo/internal/repository"
 	"github.com/ShukeBta/MediaStationGo/internal/service"
 )
+
+const playbackScopeRemoteURL = "https://cdn.example.test/Movies/Movie.mkv?quality=source&part=1"
 
 func TestExternalURLUsesMediaScopedPlaybackToken(t *testing.T) {
 	router, svc, secret := newPlaybackScopeTestRouter(t)
@@ -84,7 +87,7 @@ func TestExternalURLUsesMediaScopedPlaybackToken(t *testing.T) {
 	}
 }
 
-func TestStreamCloudMediaWithoutSTRMURLReturnsBadGateway(t *testing.T) {
+func TestStreamMissingLocalMediaReturnsNotFound(t *testing.T) {
 	router, _, secret := newPlaybackScopeTestRouter(t)
 	loginToken := signedTestToken(t, secret)
 
@@ -93,11 +96,11 @@ func TestStreamCloudMediaWithoutSTRMURLReturnsBadGateway(t *testing.T) {
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
-	if w.Code != http.StatusBadGateway {
-		t.Fatalf("status = %d body=%s, want 502", w.Code, w.Body.String())
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("status = %d body=%s, want 404", w.Code, w.Body.String())
 	}
-	if !strings.Contains(w.Body.String(), service.ErrCloudPlaybackUnavailable.Error()) {
-		t.Fatalf("body = %q, want cloud playback unavailable error", w.Body.String())
+	if !strings.Contains(w.Body.String(), "not found") {
+		t.Fatalf("body = %q, want media not found error", w.Body.String())
 	}
 }
 
@@ -232,14 +235,8 @@ func TestExternalURLPrefersConfiguredPublicServerURLOverLocalBrowserOrigin(t *te
 	}
 }
 
-func TestAPIStreamAllowsRedirectPlaybackWhenSTRMModeDisabled(t *testing.T) {
-	router, svc, secret := newPlaybackScopeTestRouter(t)
-	if err := svc.Repo.Setting.Set(t.Context(), service.CloudPlaybackSTRMEnabledSettingKey, "false"); err != nil {
-		t.Fatal(err)
-	}
-	if err := svc.Repo.Setting.Set(t.Context(), service.CloudPlaybackRedirectEnabledSettingKey, "true"); err != nil {
-		t.Fatal(err)
-	}
+func TestAPIStreamRedirectsHTTPSTRMTargetUnchanged(t *testing.T) {
+	router, _, secret := newPlaybackScopeTestRouter(t)
 	loginToken := signedTestToken(t, secret)
 
 	req := httptest.NewRequest(http.MethodGet, "http://nas.local/api/stream/media-1?api_key="+url.QueryEscape(loginToken), nil)
@@ -249,9 +246,8 @@ func TestAPIStreamAllowsRedirectPlaybackWhenSTRMModeDisabled(t *testing.T) {
 	if w.Code != http.StatusFound {
 		t.Fatalf("status = %d body=%s, want 302", w.Code, w.Body.String())
 	}
-	loc := w.Header().Get("Location")
-	if !strings.Contains(loc, "/api/cloud/play/openlist?") || !strings.Contains(loc, "token="+url.QueryEscape(loginToken)) {
-		t.Fatalf("redirect Location should target tokenized cloud play endpoint, got %q", loc)
+	if got := w.Header().Get("Location"); got != playbackScopeRemoteURL {
+		t.Fatalf("redirect Location = %q, want unchanged target %q", got, playbackScopeRemoteURL)
 	}
 }
 
@@ -275,7 +271,7 @@ func TestScopedPlaybackTokenCannotStreamAnotherMedia(t *testing.T) {
 	}
 }
 
-func TestScopedPlaybackTokenCanFollowCloudRedirectForSameMedia(t *testing.T) {
+func TestScopedPlaybackTokenCanRedirectSameMedia(t *testing.T) {
 	router, svc, _ := newPlaybackScopeTestRouter(t)
 	user, err := svc.Repo.User.FindByID(t.Context(), "user-1")
 	if err != nil || user == nil {
@@ -293,42 +289,8 @@ func TestScopedPlaybackTokenCanFollowCloudRedirectForSameMedia(t *testing.T) {
 	if w.Code != http.StatusFound {
 		t.Fatalf("stream status = %d body=%s, want 302", w.Code, w.Body.String())
 	}
-	loc := w.Header().Get("Location")
-	if !strings.Contains(loc, "/api/cloud/play/openlist?") ||
-		!strings.Contains(loc, "media_id=media-1") ||
-		!strings.Contains(loc, "token="+url.QueryEscape(playToken)) {
-		t.Fatalf("redirect Location should carry scoped token and media_id, got %q", loc)
-	}
-
-	req = httptest.NewRequest(http.MethodGet, loc, nil)
-	w = httptest.NewRecorder()
-	router.ServeHTTP(w, req)
-
-	if w.Code == http.StatusForbidden || w.Code == http.StatusUnauthorized {
-		t.Fatalf("cloud redirect rejected scoped token: status=%d body=%s", w.Code, w.Body.String())
-	}
-	if w.Code != http.StatusServiceUnavailable {
-		t.Fatalf("cloud redirect status = %d body=%s, want storage service fallback 503", w.Code, w.Body.String())
-	}
-}
-
-func TestScopedPlaybackTokenCannotRetargetCloudRef(t *testing.T) {
-	router, svc, _ := newPlaybackScopeTestRouter(t)
-	user, err := svc.Repo.User.FindByID(t.Context(), "user-1")
-	if err != nil || user == nil {
-		t.Fatalf("find user: %v", err)
-	}
-	playToken, err := svc.Auth.IssueExternalPlaybackToken(user, "media-1", 2*60*60)
-	if err != nil {
-		t.Fatalf("issue playback token: %v", err)
-	}
-
-	req := httptest.NewRequest(http.MethodGet, "http://nas.local/api/cloud/play/openlist?ref=other&media_id=media-1&token="+url.QueryEscape(playToken), nil)
-	w := httptest.NewRecorder()
-	router.ServeHTTP(w, req)
-
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("status = %d body=%s", w.Code, w.Body.String())
+	if got := w.Header().Get("Location"); got != playbackScopeRemoteURL {
+		t.Fatalf("redirect Location = %q, want unchanged target %q", got, playbackScopeRemoteURL)
 	}
 }
 
@@ -415,7 +377,7 @@ func newPlaybackScopeTestRouter(t *testing.T) (*gin.Engine, *service.Container, 
 		Repo:        repos,
 		Auth:        auth,
 		Media:       service.NewMediaService(cfg, log, repos),
-		Stream:      service.NewStreamService(cfg, log, repos, nil),
+		Stream:      service.NewStreamService(cfg, log, repos),
 		Permissions: permissions,
 	}
 	if err := repos.User.Create(t.Context(), &model.User{
@@ -427,7 +389,8 @@ func newPlaybackScopeTestRouter(t *testing.T) (*gin.Engine, *service.Container, 
 	}); err != nil {
 		t.Fatal(err)
 	}
-	lib := model.Library{Base: model.Base{ID: "lib-1"}, Name: "OpenList", Path: "cloud://openlist/Movies", Type: "movie", Enabled: true}
+	libraryRoot := t.TempDir()
+	lib := model.Library{Base: model.Base{ID: "lib-1"}, Name: "Movies", Path: libraryRoot, Type: "movie", Enabled: true}
 	if err := repos.DB.Create(&lib).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -435,23 +398,23 @@ func newPlaybackScopeTestRouter(t *testing.T) (*gin.Engine, *service.Container, 
 		{
 			Base:        model.Base{ID: "media-1"},
 			LibraryID:   lib.ID,
-			Title:       "Cloud 1",
-			Path:        "cloud://openlist/Movies/Movie.mkv",
+			Title:       "Movie 1",
+			Path:        filepath.Join(libraryRoot, "Movie.mkv"),
 			DurationSec: 2 * 60 * 60,
-			STRMURL:     "/api/cloud/play/openlist?ref=/Movies/Movie.mkv",
+			STRMURL:     playbackScopeRemoteURL,
 		},
 		{
 			Base:      model.Base{ID: "media-2"},
 			LibraryID: lib.ID,
-			Title:     "Cloud 2",
-			Path:      "cloud://openlist/Movies/Other.mkv",
-			STRMURL:   "/api/cloud/play/openlist?ref=/Movies/Other.mkv",
+			Title:     "Movie 2",
+			Path:      filepath.Join(libraryRoot, "Other.mkv"),
+			STRMURL:   "https://cdn.example.test/Movies/Other.mkv",
 		},
 		{
 			Base:      model.Base{ID: "media-missing-strm"},
 			LibraryID: lib.ID,
-			Title:     "Cloud missing STRM",
-			Path:      "cloud://openlist/Movies/Missing.mkv",
+			Title:     "Missing local movie",
+			Path:      filepath.Join(libraryRoot, "Missing.mkv"),
 		},
 	}
 	if err := repos.DB.Create(&rows).Error; err != nil {
@@ -464,6 +427,5 @@ func newPlaybackScopeTestRouter(t *testing.T) (*gin.Engine, *service.Container, 
 	api.GET("/playback/:id/external-url", externalURLHandler(svc))
 	api.GET("/playback/:id/external-players", externalPlayersHandler(svc))
 	api.GET("/stream/:id", streamHandler(svc))
-	api.GET("/cloud/play/:type", cloudPlayHandler(svc))
 	return router, svc, cfg.Secrets.JWTSecret
 }

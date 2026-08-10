@@ -2,18 +2,16 @@ package config
 
 // Config 是根配置聚合。
 type Config struct {
-	App          AppConfig          `mapstructure:"app"`
-	Database     DatabaseConfig     `mapstructure:"database"`
-	Secrets      SecretsConfig      `mapstructure:"secrets"`
-	Logging      LoggingConfig      `mapstructure:"logging"`
-	Cache        CacheConfig        `mapstructure:"cache"`
-	Search       SearchConfig       `mapstructure:"search"`
-	Media        MediaConfig        `mapstructure:"media"`
-	Transcoder   TranscoderConfig   `mapstructure:"transcoder"`
-	AI           AIConfig           `mapstructure:"ai"`
-	FlareSolverr FlareSolverrConfig `mapstructure:"flaresolverr"`
-	ApiConfig    ApiConfigConfig    `mapstructure:"api_config"`
-	Organizer    OrganizerConfig    `mapstructure:"organizer"`
+	App       AppConfig       `mapstructure:"app"`
+	Database  DatabaseConfig  `mapstructure:"database"`
+	Secrets   SecretsConfig   `mapstructure:"secrets"`
+	Logging   LoggingConfig   `mapstructure:"logging"`
+	Cache     CacheConfig     `mapstructure:"cache"`
+	Search    SearchConfig    `mapstructure:"search"`
+	Media     MediaConfig     `mapstructure:"media"`
+	AI        AIConfig        `mapstructure:"ai"`
+	ApiConfig ApiConfigConfig `mapstructure:"api_config"`
+	Organizer OrganizerConfig `mapstructure:"organizer"`
 }
 
 // ApiConfigConfig API 配置相关设置。
@@ -24,23 +22,6 @@ type ApiConfigConfig struct {
 	DefaultTimeout int `mapstructure:"default_timeout"`
 }
 
-// TranscoderConfig 控制 HLS / ffmpeg 后端。
-type TranscoderConfig struct {
-	Encoder            string `mapstructure:"encoder"` // "" / nvenc / qsv / vaapi
-	Enabled            bool   `mapstructure:"enabled"`
-	HardwareAccel      bool   `mapstructure:"hardware_accel"`
-	Preset             string `mapstructure:"preset"`
-	VideoBitrate       string `mapstructure:"video_bitrate"`
-	MaxRate            string `mapstructure:"max_rate"`
-	BufSize            string `mapstructure:"buf_size"`
-	MaxHeight          int    `mapstructure:"max_height"`
-	SegmentSeconds     int    `mapstructure:"segment_seconds"`
-	Realtime           bool   `mapstructure:"realtime"`
-	Threads            int    `mapstructure:"threads"`
-	MaxConcurrent      int    `mapstructure:"max_concurrent"`
-	IdleTimeoutSeconds int    `mapstructure:"idle_timeout_seconds"`
-}
-
 // AppConfig 保存运行时应用参数。
 type AppConfig struct {
 	Port        int    `mapstructure:"port"`
@@ -48,19 +29,14 @@ type AppConfig struct {
 	Env         string `mapstructure:"env"`
 	DataDir     string `mapstructure:"data_dir"`
 	WebDir      string `mapstructure:"web_dir"`
-	FFmpegPath  string `mapstructure:"ffmpeg_path"`
 	FFprobePath string `mapstructure:"ffprobe_path"`
-	// FFprobeMaxConcurrent limits concurrent ffprobe/ffmpeg metadata probes.
+	// FFprobeMaxConcurrent limits concurrent ffprobe metadata probes.
 	// NAS devices can become unresponsive when a scan starts many probe
 	// processes at once, so the default is deliberately conservative.
-	FFprobeMaxConcurrent int `mapstructure:"ffprobe_max_concurrent"`
-	// CloudScanMaxConcurrent limits concurrent cloud directory list requests
-	// inside one mounted cloud library scan.
-	CloudScanMaxConcurrent int      `mapstructure:"cloud_scan_max_concurrent"`
-	MaxCPUThreads          int      `mapstructure:"max_cpu_threads"`
-	VAAPIDevice            string   `mapstructure:"vaapi_device"`
-	CORSOrigins            []string `mapstructure:"cors_origins"`
-	ServerURL              string   `mapstructure:"server_url"`
+	FFprobeMaxConcurrent int      `mapstructure:"ffprobe_max_concurrent"`
+	MaxCPUThreads        int      `mapstructure:"max_cpu_threads"`
+	CORSOrigins          []string `mapstructure:"cors_origins"`
+	ServerURL            string   `mapstructure:"server_url"`
 }
 
 // DatabaseConfig 配置 PostgreSQL 连接。
@@ -96,16 +72,12 @@ type LoggingConfig struct {
 	MaxBackups     int    `mapstructure:"max_backups"`
 }
 
-// CacheConfig 控制磁盘转码/刮削缓存。
+// CacheConfig 控制刮削与运行时缓存。
 type CacheConfig struct {
-	CacheDir           string `mapstructure:"cache_dir"`
-	MaxDiskUsageMB     int    `mapstructure:"max_disk_usage_mb"`
-	TTLHours           int    `mapstructure:"ttl_hours"`
-	AutoCleanup        bool   `mapstructure:"auto_cleanup"`
-	CleanupIntervalMin int    `mapstructure:"cleanup_interval_min"`
-	RedisURL           string `mapstructure:"redis_url"`
-	RedisPrefix        string `mapstructure:"redis_prefix"`
-	MediaTTLSeconds    int    `mapstructure:"media_ttl_seconds"`
+	CacheDir        string `mapstructure:"cache_dir"`
+	RedisURL        string `mapstructure:"redis_url"`
+	RedisPrefix     string `mapstructure:"redis_prefix"`
+	MediaTTLSeconds int    `mapstructure:"media_ttl_seconds"`
 }
 
 type SearchConfig struct {
@@ -138,12 +110,4 @@ type AIConfig struct {
 type OrganizerConfig struct {
 	SmartClassify bool              `mapstructure:"smart_classify"`
 	Categories    map[string]string `mapstructure:"categories"`
-}
-
-// FlareSolverrConfig 配置 FlareSolverr 服务（用于绕过 Cloudflare/WAF）。
-type FlareSolverrConfig struct {
-	Enabled bool   `mapstructure:"enabled"`
-	URL     string `mapstructure:"url"`
-	Session string `mapstructure:"session"`
-	Timeout int    `mapstructure:"timeout"`
 }

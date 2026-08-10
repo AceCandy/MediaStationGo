@@ -133,12 +133,8 @@ func embyAttachTokenToMediaSourcesMap(out map[string]any, token string) {
 
 func embyAttachTokenToMediaSources(sources []map[string]any, token string) {
 	for _, source := range sources {
-		for _, key := range []string{"DirectStreamUrl", "TranscodingUrl"} {
-			raw, ok := source[key].(string)
-			if !ok {
-				continue
-			}
-			source[key] = embyAppendAPIKey(raw, token)
+		if raw, ok := source["DirectStreamUrl"].(string); ok {
+			source["DirectStreamUrl"] = embyAppendAPIKey(raw, token)
 		}
 		if streams, ok := source["MediaStreams"].([]map[string]any); ok {
 			embyAttachTokenToSubtitleStreams(streams, token)
@@ -250,7 +246,7 @@ func embyAppendAPIKey(raw, token string) string {
 
 // embyVideoStreamHandler 是 GET /Videos/{id}/stream 的入口，
 // 直接代理到我们的 /api/stream/{id}（同一个 ServeFile）。
-func embyVideoStreamHandler(svc *service.Container, cloudMode string) gin.HandlerFunc {
+func embyVideoStreamHandler(svc *service.Container) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		uid := embyUserID(c)
 		item, err := svc.Emby.Item(c.Request.Context(), c.Param("id"), uid)
@@ -271,28 +267,11 @@ func embyVideoStreamHandler(svc *service.Container, cloudMode string) gin.Handle
 			c.Status(http.StatusNotFound)
 			return
 		}
-		if embyShouldRedirectVideoStreamToSTRM(c, svc, mediaID, cloudMode) {
-			target := "/api/stream/" + url.PathEscape(mediaID)
-			if token := embyPlaybackRedirectToken(c, svc); token != "" {
-				target = embyAppendAPIKey(target, token)
-			}
-			setRedirectNoStoreHeaders(c)
-			c.Redirect(http.StatusFound, absoluteRequestURL(c, target))
-			return
-		}
-		// 直接调用 Stream service 写入 response。
-		// 此前这里把所有错误一律吞成 404：云盘 Cookie 过期、直链解析失败、
-		// STRM 播放被关闭……在第三方播放器上全部表现为「404 不存在」，
-		// 无法排查。现在区分：行不存在→404；云盘播放不可用/上游故障→502+原因。
-		err = svc.Stream.ServeFileWithCloudMode(c.Writer, c.Request, mediaID, cloudMode)
+		err = svc.Stream.ServeFile(c.Writer, c.Request, mediaID)
 		switch {
 		case err == nil:
 		case errors.Is(err, service.ErrMediaNotFound):
 			c.Status(http.StatusNotFound)
-		case errors.Is(err, service.ErrCloudPlaybackDisabled):
-			if !c.Writer.Written() {
-				c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
-			}
 		default:
 			if !c.Writer.Written() {
 				c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
@@ -321,72 +300,4 @@ func embyPlaybackRedirectToken(c *gin.Context, svc *service.Container) string {
 		return ""
 	}
 	return token
-}
-
-func embyShouldRedirectVideoStreamToSTRM(c *gin.Context, svc *service.Container, mediaID, cloudMode string) bool {
-	if c == nil || svc == nil || svc.Repo == nil || svc.Repo.Media == nil || cloudMode != service.CloudPlaybackModeRedirectProxy {
-		return false
-	}
-	settings := service.CloudPlaybackSettings(c.Request.Context(), svc.Repo)
-	if settings.PreferredMode != service.CloudPlaybackModeSTRM || !settings.STRMEnabled {
-		return false
-	}
-	m, err := svc.Repo.Media.FindByID(c.Request.Context(), mediaID)
-	if err != nil || m == nil {
-		return false
-	}
-	return strings.TrimSpace(m.STRMURL) != ""
-}
-
-func embyVideoHLSPlaylistHandler(svc *service.Container) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		uid := embyUserID(c)
-		item, err := svc.Emby.Item(c.Request.Context(), c.Param("id"), uid)
-		if err != nil || item == nil || svc.Stream == nil {
-			c.Status(http.StatusNotFound)
-			return
-		}
-		mediaID, err := svc.Emby.PlayableMediaID(c.Request.Context(), c.Param("id"), uid)
-		if err != nil || mediaID == "" {
-			c.Status(http.StatusNotFound)
-			return
-		}
-		err = svc.Stream.ServeHLSPlaylist(c.Writer, c.Request, mediaID)
-		if errors.Is(err, service.ErrInvalidStreamIndex) {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-			return
-		}
-		if errors.Is(err, service.ErrTranscodeDisabled) {
-			c.JSON(http.StatusConflict, gin.H{"error": "transcode disabled"})
-			return
-		}
-		if errors.Is(err, service.ErrTranscodeBusy) {
-			c.JSON(http.StatusTooManyRequests, gin.H{"error": "transcode busy"})
-			return
-		}
-		if err != nil {
-			c.Status(http.StatusNotFound)
-		}
-	}
-}
-
-func embyVideoHLSSegmentHandler(svc *service.Container) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		uid := embyUserID(c)
-		item, err := svc.Emby.Item(c.Request.Context(), c.Param("id"), uid)
-		if err != nil || item == nil || svc.Stream == nil {
-			c.Status(http.StatusNotFound)
-			return
-		}
-		mediaID, err := svc.Emby.PlayableMediaID(c.Request.Context(), c.Param("id"), uid)
-		if err != nil || mediaID == "" {
-			c.Status(http.StatusNotFound)
-			return
-		}
-		if err := svc.Stream.ServeHLSSegment(c.Writer, c.Request, mediaID, c.Param("seg")); errors.Is(err, service.ErrInvalidStreamIndex) {
-			c.Status(http.StatusBadRequest)
-		} else if err != nil {
-			c.Status(http.StatusNotFound)
-		}
-	}
 }
