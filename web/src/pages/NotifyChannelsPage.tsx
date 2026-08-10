@@ -95,7 +95,7 @@ export function NotifyChannelsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-400/10 text-amber-300">
             <Bell size={20} />
@@ -107,8 +107,24 @@ export function NotifyChannelsPage() {
             </p>
           </div>
         </div>
-        <div className="flex flex-wrap justify-end gap-2">
+        <button
+          onClick={() => {
+            setEditing(null)
+            setShowForm(true)
+          }}
+          className="neon-button self-start sm:self-auto"
+        >
+          <Plus size={16} /> 添加渠道
+        </button>
+      </div>
+
+      <details className="border-y border-gray-200 py-3">
+        <summary className="cursor-pointer text-sm font-semibold text-ink-600">
+          Telegram Bot 运行控制
+        </summary>
+        <div className="mt-3 flex flex-wrap gap-2">
           <button
+            type="button"
             onClick={onStartPolling}
             disabled={pollingBusy !== null}
             className="rounded-xl border border-gray-200 px-3 py-2 text-sm text-ink-100 hover:border-primary-400/40 hover:text-brand-500 disabled:opacity-50"
@@ -118,6 +134,7 @@ export function NotifyChannelsPage() {
             {' '}启动 Bot 轮询
           </button>
           <button
+            type="button"
             onClick={onStopPolling}
             disabled={pollingBusy !== null}
             className="rounded-xl border border-gray-200 px-3 py-2 text-sm text-ink-100 hover:border-primary-400/40 hover:text-brand-500 disabled:opacity-50"
@@ -126,17 +143,8 @@ export function NotifyChannelsPage() {
             {pollingBusy === 'stop' ? <Loader2 size={16} className="inline animate-spin" /> : <Square size={16} className="inline" />}
             {' '}停止轮询
           </button>
-          <button
-            onClick={() => {
-              setEditing(null)
-              setShowForm(true)
-            }}
-            className="neon-button"
-          >
-            <Plus size={16} /> 添加渠道
-          </button>
         </div>
-      </div>
+      </details>
 
       {loading && (
         <div className="flex justify-center py-12 text-ink-50">

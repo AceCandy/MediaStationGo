@@ -1,14 +1,13 @@
 import type { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { ArrowRight, Film, FolderOpen, Library as LibraryIcon, Music, PlayCircle, RefreshCw, Tv } from 'lucide-react'
+import { ArrowRight, Film, Library as LibraryIcon, Music, PlayCircle, RefreshCw, Tv } from 'lucide-react'
 
-import { imageURL } from '../api/client'
 import { EpisodeArtworkToggle } from '../components/EpisodeArtworkToggle'
 import { MediaCard } from '../components/MediaCard'
-import { artworkScore, seriesCardLink, type SeriesCard } from '../utils/groupSeries'
+import { seriesCardLink } from '../utils/groupSeries'
 import { libraryDisplayPath } from './libraryDisplayModel'
-import { mediaTime, type LibraryPreview } from './librariesPageModel'
+import type { LibraryPreview } from './librariesPageModel'
 
 const TYPE_ICONS: Record<string, ReactNode> = {
   movie: <Film size={18} />,
@@ -95,91 +94,18 @@ export function LibrariesEmptyState() {
 
 export function LibrariesContent({ previews }: { previews: LibraryPreview[] }) {
   return (
-    <>
-      <section className="space-y-4">
-        <div>
-          <h2 className="font-display text-2xl font-bold text-ink-600">媒体库入口</h2>
-          <p className="text-sm text-ink-50">按目录进入完整媒体库；下方每个目录也会直接展示最新内容。</p>
-        </div>
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-          {previews.map((preview, index) => (
-            <motion.div
-              key={preview.library.id}
-              initial={{ opacity: 0, y: 12 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: index * 0.03 }}
-            >
-              <LibraryEntryCard preview={preview} />
-            </motion.div>
-          ))}
-        </div>
-      </section>
-
-      <section className="space-y-6">
-        {previews.map((preview, index) => (
-          <motion.div
-            key={preview.library.id}
-            initial={{ opacity: 0, y: 12 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: index * 0.03 }}
-          >
-            <LibraryShelf preview={preview} />
-          </motion.div>
-        ))}
-      </section>
-    </>
-  )
-}
-
-function LibraryEntryCard({ preview }: { preview: LibraryPreview }) {
-  const library = preview.library
-  const artwork = library.cover_url
-    ? [{ src: library.cover_url, version: library.updated_at }]
-    : libraryArtworkItems(preview.cards)
-  const displayPath = libraryDisplayPath(library.path)
-
-  return (
-    <Link
-      to={`/library/${library.id}`}
-      className="group flex overflow-hidden rounded-3xl border border-sand-200 bg-white p-3 shadow-card transition-all hover:-translate-y-0.5 hover:border-brand-200 hover:shadow-card-hover"
-    >
-      <div className={`grid h-24 w-36 shrink-0 gap-1 overflow-hidden rounded-2xl bg-[linear-gradient(135deg,#fff7ed,#f8fafc)] ${artwork.length > 1 ? 'grid-cols-2' : 'grid-cols-1'}`}>
-        {artwork.length > 0 ? (
-          artwork.map(({ src, version }, index) => (
-            <img
-              key={`${src}-${index}`}
-              src={imageURL(src, version)}
-              alt=""
-              loading="lazy"
-              referrerPolicy="no-referrer"
-              className="h-full w-full object-cover"
-              onError={(event) => { event.currentTarget.style.visibility = 'hidden' }}
-            />
-          ))
-        ) : (
-          <div className="col-span-2 flex h-full items-center justify-center text-brand-500">
-            {TYPE_ICONS[library.type] ?? <FolderOpen size={34} />}
-          </div>
-        )}
-      </div>
-      <div className="flex min-w-0 flex-1 flex-col justify-between px-4 py-1">
-        <div>
-          <div className="mb-1 inline-flex rounded-full bg-sand-100 px-2 py-0.5 text-[10px] font-bold text-sand-600">
-            {TYPE_LABELS[library.type] ?? library.type}
-          </div>
-          <h2 className="truncate font-display text-xl font-black text-ink-600 group-hover:text-brand-600">
-            {library.name}
-          </h2>
-          <p className="mt-1 line-clamp-1 break-all text-xs text-ink-50" title={library.path}>
-            {displayPath}
-          </p>
-        </div>
-        <div className="flex items-center justify-between text-xs font-bold">
-          <span className="text-sand-600">{preview.total.toLocaleString()} 个条目</span>
-          <span className="text-brand-600">浏览全部</span>
-        </div>
-      </div>
-    </Link>
+    <section className="space-y-6">
+      {previews.map((preview, index) => (
+        <motion.div
+          key={preview.library.id}
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: index * 0.03 }}
+        >
+          <LibraryShelf preview={preview} />
+        </motion.div>
+      ))}
+    </section>
   )
 }
 
@@ -196,7 +122,11 @@ function LibraryShelf({ preview }: { preview: LibraryPreview }) {
             {TYPE_ICONS[library.type] ?? <LibraryIcon size={14} />}
             {TYPE_LABELS[library.type] ?? library.type}
           </div>
-          <h2 className="truncate font-display text-2xl font-black text-ink-600">{library.name}</h2>
+          <h2 className="truncate font-display text-2xl font-black">
+            <Link to={`/library/${library.id}`} className="text-ink-600 hover:text-brand-600">
+              {library.name}
+            </Link>
+          </h2>
           <p className="mt-1 line-clamp-1 break-all text-xs text-ink-50">
             <span title={library.path}>{displayPath}</span> · {preview.total.toLocaleString()} 个条目 · 最新 {cards.length} 部
           </p>
@@ -226,15 +156,4 @@ function LibraryShelf({ preview }: { preview: LibraryPreview }) {
       )}
     </section>
   )
-}
-
-function libraryArtworkItems(cards: SeriesCard[]): Array<{ src: string; version?: string }> {
-  return [...cards]
-    .sort((a, b) => artworkScore(b.rep) - artworkScore(a.rep) || mediaTime(b.rep) - mediaTime(a.rep))
-    .map((card) => ({
-      src: card.rep.poster_url || card.rep.backdrop_url || '',
-      version: card.rep.updated_at,
-    }))
-    .filter((item) => Boolean(item.src))
-    .slice(0, 4)
 }

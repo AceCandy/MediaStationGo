@@ -3,7 +3,6 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../stores/auth'
 import { usePlayProfileStore } from '../stores/playProfile'
 import {
-  LayoutFrameFooter,
   LayoutHeader,
   LayoutMobileBottomNav,
   LayoutSidebars,
@@ -68,7 +67,6 @@ export function Layout() {
           </div>
         )}
         <LayoutWorkspace routeKey={location.pathname} />
-        <LayoutFrameFooter />
         <LayoutMobileBottomNav pathname={location.pathname} can={permissions.can} />
       </div>
     </div>

@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
 import toast from 'react-hot-toast'
-import { Home, RotateCcw, Square, CheckSquare, Trash2 } from 'lucide-react'
+import { RotateCcw, Square, CheckSquare, Trash2 } from 'lucide-react'
 
 import { recycleAPI } from '../api/recycle'
 import { confirmAction } from '../components/confirmAction'
@@ -78,18 +77,12 @@ export function RecycleBinPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="font-display text-3xl font-bold text-ink-600">回收站</h1>
-          <p className="mt-2 text-sm text-ink-50">
-            软删除的媒体保留在数据库中,可以恢复。彻底删除不会移除磁盘上的文件,只会从数据库清除条目。
-          </p>
-          <p className="mt-1 text-xs text-sand-500">系统最多保留最新 200 条回收站记录，超过后会自动清理旧记录。</p>
-        </div>
-        <Link to="/" className="btn-outline shrink-0 py-2.5 px-4 text-sm">
-          <Home size={15} />
-          返回系统首页
-        </Link>
+      <div>
+        <h1 className="font-display text-3xl font-bold text-ink-600">回收站</h1>
+        <p className="mt-2 text-sm text-ink-50">
+          软删除的媒体保留在数据库中,可以恢复。彻底删除不会移除磁盘上的文件,只会从数据库清除条目。
+        </p>
+        <p className="mt-1 text-xs text-sand-500">系统最多保留最新 200 条回收站记录，超过后会自动清理旧记录。</p>
       </div>
 
       {loading && <p className="text-sand-500">加载中…</p>}

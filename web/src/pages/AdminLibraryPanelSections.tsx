@@ -34,24 +34,27 @@ export function AdminLibraryCreateForm({
     <form onSubmit={onSubmit} className="glass-panel grid gap-3 md:grid-cols-4">
       <input
         required
-        className="input-base"
+        className="input-base md:col-span-2"
         placeholder="名称"
         value={name}
         onChange={(e) => onNameChange(e.target.value)}
       />
-      <select className="input-base" value={type} onChange={(e) => onTypeChange(e.target.value)}>
+      <select className="input-base md:col-span-2" value={type} onChange={(e) => onTypeChange(e.target.value)}>
         <option value="movie">电影</option>
         <option value="tv">电视剧</option>
         <option value="variety">综艺</option>
         <option value="anime">动漫</option>
         <option value="music">音乐</option>
       </select>
-      <input
-        className="input-base md:col-span-2"
-        placeholder="自定义封面 URL（可选）"
-        value={coverURL}
-        onChange={(e) => onCoverURLChange(e.target.value)}
-      />
+      <details className="md:col-span-4 border-t border-gray-200 pt-3">
+        <summary className="cursor-pointer text-sm font-semibold text-ink-600">高级设置</summary>
+        <input
+          className="input-base mt-3"
+          placeholder="自定义封面 URL（可选）"
+          value={coverURL}
+          onChange={(e) => onCoverURLChange(e.target.value)}
+        />
+      </details>
       <div className="md:col-span-4 space-y-2">
         {roots.map((root, index) => (
           <CreateRootRow
@@ -88,13 +91,7 @@ type CreateRootRowProps = {
 
 function CreateRootRow({ root, index, canRemove, onChange, onRemove }: CreateRootRowProps) {
   return (
-    <div className="grid gap-2 rounded-xl border border-gray-200/80 bg-white/60 p-2 md:grid-cols-[minmax(0,1fr)_minmax(0,2fr)_auto]">
-      <input
-        className="input-base"
-        placeholder="路径名称"
-        value={root.name ?? ''}
-        onChange={(e) => onChange(index, { name: e.target.value })}
-      />
+    <div className="grid gap-2 rounded-xl border border-gray-200/80 bg-white/60 p-2 md:grid-cols-[minmax(0,1fr)_auto]">
       <input
         required={index === 0}
         className="input-base"
@@ -111,6 +108,15 @@ function CreateRootRow({ root, index, canRemove, onChange, onRemove }: CreateRoo
       >
         <Trash2 size={16} />
       </button>
+      <details className="md:col-span-2">
+        <summary className="cursor-pointer text-xs font-semibold text-ink-600">路径高级设置</summary>
+        <input
+          className="input-base mt-2"
+          placeholder="路径名称（可选）"
+          value={root.name ?? ''}
+          onChange={(e) => onChange(index, { name: e.target.value })}
+        />
+      </details>
     </div>
   )
 }

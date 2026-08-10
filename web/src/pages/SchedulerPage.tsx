@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react'
 import toast from 'react-hot-toast'
-import { Clock, Play } from 'lucide-react'
+import { Play } from 'lucide-react'
 
 import { schedulerAPI, type JobStatus } from '../api/scheduler'
 
-export function SchedulerPage() {
+export function SchedulerSection() {
   const [jobs, setJobs] = useState<JobStatus[]>([])
   const [running, setRunning] = useState<string>('')
 
@@ -32,18 +32,12 @@ export function SchedulerPage() {
   }
 
   return (
-    <div className="space-y-6">
-      <header className="flex items-center gap-3">
-        <Clock className="h-6 w-6 text-brand-500" />
-        <div>
-          <h1 className="font-display text-3xl font-bold text-ink-600">定时任务</h1>
-          <p className="text-sm text-ink-50">
-            后端周期性任务（媒体库扫描、回收站自动清理等），每 5 秒刷新状态。
-          </p>
-        </div>
-      </header>
-
-      <div className="glass-panel">
+    <section id="scheduled-tasks" className="glass-panel space-y-3">
+      <div>
+        <h2 className="font-display text-lg font-semibold text-ink-600">定时任务</h2>
+        <p className="text-sm text-ink-50">媒体库扫描、回收站清理等周期任务，每 5 秒刷新状态。</p>
+      </div>
+      <div className="overflow-x-auto">
         <table className="w-full text-left text-sm">
           <thead className="text-xs uppercase tracking-wider text-sand-500">
             <tr>
@@ -79,6 +73,6 @@ export function SchedulerPage() {
           </tbody>
         </table>
       </div>
-    </div>
+    </section>
   )
 }

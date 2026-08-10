@@ -3,7 +3,6 @@ import { Link, Outlet } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import clsx from 'clsx'
 
-import { AppFooter } from './AppFooter'
 import { LayoutSidebarContent, type LayoutSidebarContentProps } from './LayoutSidebarContent'
 import { RouteErrorBoundary } from './RouteErrorBoundary'
 import { VIEWER_NAV_ITEMS } from './layoutNavigation'
@@ -201,7 +200,7 @@ export function LayoutMobileBottomNav({
           return (
             <Link
               key={item.to}
-              to={item.to}
+              to={item.to!}
               aria-current={active ? 'page' : undefined}
               className={clsx(
                 'flex min-h-14 min-w-0 flex-col items-center justify-center gap-1 px-1 text-[11px] font-bold transition-colors',
@@ -220,14 +219,10 @@ export function LayoutMobileBottomNav({
   )
 }
 
-export function LayoutFrameFooter() {
-  return (
-    <AppFooter className="hidden border-t border-[var(--app-border)] bg-[var(--app-panel)] py-5 text-center text-xs text-[var(--app-muted)] lg:block" />
-  )
-}
-
 function routeMatches(pathname: string, paths: string[]) {
-  return paths.some((path) => (path === '/' ? pathname === '/' : pathname.startsWith(path)))
+  return paths.some((path) =>
+    path === '/' ? pathname === '/' : pathname === path || pathname.startsWith(`${path}/`),
+  )
 }
 
 export { LayoutSidebarContent }

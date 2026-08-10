@@ -1,14 +1,25 @@
-import { Home, Settings, type LucideIcon } from 'lucide-react'
+import {
+  HardDrive,
+  Home,
+  Library,
+  ListChecks,
+  Plug,
+  Settings,
+  SlidersHorizontal,
+  type LucideIcon,
+} from 'lucide-react'
 
-import { resolveAppRoutes, type NavigationScope } from '../appRoutes'
+import { resolveAppRoutes, type ManagementGroupID, type NavigationScope } from '../appRoutes'
 
 export type LayoutNavGroupID = 'viewer' | 'management'
 
 export type LayoutNavItem = {
-  to: string
+  to?: string
   label: string
   icon: LucideIcon
   activePaths: string[]
+  group?: ManagementGroupID
+  children?: LayoutNavItem[]
   end?: boolean
   permission?: string
   adminOnly?: boolean
@@ -23,6 +34,13 @@ export type LayoutNavGroup = {
   items: LayoutNavItem[]
 }
 
+type ManagementGroupDefinition = {
+  group: ManagementGroupID
+  label: string
+  icon: LucideIcon
+  activePaths: string[]
+}
+
 function navigationItems(scope: NavigationScope): LayoutNavItem[] {
   return resolveAppRoutes()
     .filter(({ route }) => route.navigation?.scope === scope)
@@ -34,6 +52,7 @@ function navigationItems(scope: NavigationScope): LayoutNavItem[] {
         label: navigation.label,
         icon: navigation.icon,
         activePaths: navigation.activePaths ?? [navigation.to],
+        group: navigation.group,
         end: navigation.end,
         permission,
         adminOnly,
@@ -42,6 +61,18 @@ function navigationItems(scope: NavigationScope): LayoutNavItem[] {
 }
 
 export const VIEWER_NAV_ITEMS = navigationItems('viewer')
+const ALL_MANAGEMENT_NAV_ITEMS = navigationItems('management')
+const MANAGEMENT_GROUPS: ManagementGroupDefinition[] = [
+  { group: 'media', label: '媒体入库', icon: Library, activePaths: ['/admin/media'] },
+  { group: 'storage', label: '存储与清理', icon: HardDrive, activePaths: ['/admin/storage'] },
+  { group: 'tasks', label: '任务与运行', icon: ListChecks, activePaths: ['/admin/tasks'] },
+  { group: 'integrations', label: '用户与集成', icon: Plug, activePaths: ['/admin/integrations'] },
+  { group: 'settings', label: '系统设置', icon: SlidersHorizontal, activePaths: ['/admin/settings'] },
+]
+const MANAGEMENT_NAV_ITEMS: LayoutNavItem[] = MANAGEMENT_GROUPS.map((group) => ({
+  ...group,
+  children: ALL_MANAGEMENT_NAV_ITEMS.filter((item) => item.group === group.group),
+}))
 
 export const LAYOUT_NAV_GROUPS: LayoutNavGroup[] = [
   {
@@ -57,11 +88,11 @@ export const LAYOUT_NAV_GROUPS: LayoutNavGroup[] = [
     icon: Settings,
     activePaths: ['/admin'],
     adminOnly: true,
-    items: navigationItems('sidebar'),
+    items: MANAGEMENT_NAV_ITEMS,
   },
 ]
 
-export const NAV_GROUP_PATHS: Record<LayoutNavGroupID, string[]> = LAYOUT_NAV_GROUPS.reduce(
-  (paths, group) => ({ ...paths, [group.id]: group.activePaths }),
-  {} as Record<LayoutNavGroupID, string[]>,
-)
+export const NAV_GROUP_PATHS: Record<string, string[]> = {
+  ...Object.fromEntries(LAYOUT_NAV_GROUPS.map((group) => [group.id, group.activePaths])),
+  ...Object.fromEntries(MANAGEMENT_GROUPS.map((group) => [group.group, group.activePaths])),
+}

@@ -4,7 +4,8 @@ export const systemUpdateSettingsGroup: SettingGroup = {
   key: 'system-update',
   label: '系统更新',
   description: 'Docker Compose 部署可在这里检查并拉取最新版镜像。',
-  items: [
+  items: [],
+  advancedItems: [
     {
       key: 'system.update.image',
       label: '应用镜像',

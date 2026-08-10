@@ -64,8 +64,7 @@ export function DuplicatesPage() {
         <div>
           <h1 className="font-display text-3xl font-bold text-ink-600">重复文件</h1>
           <p className="text-sm text-ink-50">
-            通过稀疏采样 MD5(头部 / 中部 / 尾部各 1 MiB + 文件大小)检测重复媒体,
-            同一组中保留刮削过的较大文件作为主条目,其余标记为重复。
+            扫描媒体库中的重复文件，并标记重复条目；不会删除磁盘文件。
           </p>
         </div>
       </header>

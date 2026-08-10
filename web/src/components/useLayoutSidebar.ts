@@ -21,8 +21,12 @@ export function useLayoutSidebar(pathname: string) {
   }, [pathname])
 
   const isRouteIn = useCallback(
-    (paths: string[]) =>
-      paths.some((path) => (path === '/' ? pathname === '/' : pathname.startsWith(path))),
+    (paths: string[], end = false) =>
+      paths.some((path) =>
+        path === '/' || end
+          ? pathname === path
+          : pathname === path || pathname.startsWith(`${path}/`),
+      ),
     [pathname],
   )
 
@@ -32,10 +36,10 @@ export function useLayoutSidebar(pathname: string) {
   )
 
   useEffect(() => {
-    const active = Object.entries(NAV_GROUP_PATHS).find(([, paths]) => isRouteIn(paths))?.[0]
-    if (active) {
-      setOpenGroups((current) => (current[active] ? current : { ...current, [active]: true }))
-    }
+    const active = Object.entries(NAV_GROUP_PATHS)
+      .filter(([, paths]) => isRouteIn(paths))
+      .map(([key]) => [key, true])
+    if (active.length > 0) setOpenGroups(Object.fromEntries(active))
   }, [isRouteIn])
 
   return {

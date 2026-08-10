@@ -3,6 +3,7 @@ import toast from 'react-hot-toast'
 import { Activity, Copy } from 'lucide-react'
 
 import { tasksAPI, type BackgroundTask, type TasksSnapshot } from '../api/tasks'
+import { SchedulerSection } from './SchedulerPage'
 
 const metricLabels: Record<string, string> = {
   organized: '新增',
@@ -170,31 +171,36 @@ export function TasksPage() {
     }
   }, [])
 
-  if (!snap) return <p className="text-sand-500">加载中…</p>
-
-  const background = snap.background_tasks ?? { active: [], recent: [] }
+  const background = snap?.background_tasks ?? { active: [], recent: [] }
 
   return (
     <div className="space-y-8">
       <header className="flex items-center gap-3">
         <Activity className="h-6 w-6 text-brand-500" />
-        <h1 className="font-display text-3xl font-bold text-ink-600">实时任务</h1>
+        <div>
+          <h1 className="font-display text-3xl font-bold text-ink-600">任务中心</h1>
+          <p className="text-sm text-ink-50">查看后台任务进度并管理周期任务。</p>
+        </div>
       </header>
 
-      <section className="glass-panel">
+      <section className="glass-panel overflow-x-auto">
         <h2 className="mb-3 font-display text-lg font-semibold text-ink-600">整理 / 重命名 / 入库 / 刮削 / 轨道回填任务</h2>
-        <div className="space-y-5">
-          <div>
-            <h3 className="mb-2 text-sm font-semibold text-ink-500">运行中</h3>
-            <BackgroundTaskTable tasks={background.active} empty="暂无运行中的后台任务。" />
+        {!snap ? (
+          <p className="text-sand-500">加载中…</p>
+        ) : (
+          <div className="space-y-5">
+            <div>
+              <h3 className="mb-2 text-sm font-semibold text-ink-500">运行中</h3>
+              <BackgroundTaskTable tasks={background.active} empty="暂无运行中的后台任务。" />
+            </div>
+            <div>
+              <h3 className="mb-2 text-sm font-semibold text-ink-500">最近完成</h3>
+              <BackgroundTaskTable tasks={background.recent.slice(0, 10)} empty="暂无最近完成的后台任务。" />
+            </div>
           </div>
-          <div>
-            <h3 className="mb-2 text-sm font-semibold text-ink-500">最近完成</h3>
-            <BackgroundTaskTable tasks={background.recent.slice(0, 10)} empty="暂无最近完成的后台任务。" />
-          </div>
-        </div>
+        )}
       </section>
-
+      <SchedulerSection />
     </div>
   )
 }

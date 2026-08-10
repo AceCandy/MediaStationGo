@@ -84,7 +84,7 @@ type RootEditorProps = Omit<LibraryTableRowProps, 'library'> & {
 function ExistingRootEditor({ library, root, ...actions }: RootEditorProps) {
   const draft = actions.editableRootDraft(library.id, root)
   return (
-    <div className="grid items-center gap-1.5 rounded-lg border border-gray-200/80 bg-gray-50/60 p-1.5 xl:grid-cols-[minmax(92px,0.65fr)_minmax(240px,2fr)_auto_auto]">
+    <div className="grid items-center gap-1.5 rounded-lg border border-gray-200/80 bg-gray-50/60 p-1.5 xl:grid-cols-[minmax(240px,2fr)_auto_auto]">
       {root.id ? <EditableRootFields library={library} root={root} draft={draft} {...actions} /> : <ReadonlyRootFields root={root} />}
       <RootStatus enabled={draft.enabled ?? root.enabled} />
       <RootActionButtons library={library} root={root} draft={draft} {...actions} />
@@ -94,31 +94,34 @@ function ExistingRootEditor({ library, root, ...actions }: RootEditorProps) {
 
 function ReadonlyRootFields({ root }: { root: LibraryRoot }) {
   return (
-    <>
-      <span className="truncate rounded-md bg-white/80 px-2.5 py-1.5 text-xs text-ink-600">{displayLibraryRootName(root.name, root.path)}</span>
-      <span className="min-w-0 truncate rounded-md bg-white/80 px-2.5 py-1.5 text-xs text-ink-100" title={displayLibraryRootPath(root.path)}>
+    <div className="min-w-0 space-y-1">
+      <span className="block truncate rounded-md bg-white/80 px-2.5 py-1.5 text-xs text-ink-600">{displayLibraryRootName(root.name, root.path)}</span>
+      <span className="block min-w-0 truncate rounded-md bg-white/80 px-2.5 py-1.5 text-xs text-ink-100" title={displayLibraryRootPath(root.path)}>
         {displayLibraryRootPath(root.path)}
       </span>
-    </>
+    </div>
   )
 }
 
 function EditableRootFields({ library, root, draft, onEditableRootChange }: RootEditorProps & { draft: RootDraft }) {
   return (
-    <>
-      <input
-        className="h-9 w-full rounded-lg border border-gray-200 bg-white/80 px-3 text-xs text-gray-900 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100/60"
-        placeholder="路径名称"
-        value={draft.name ?? ''}
-        onChange={(e) => onEditableRootChange(library.id, root, { name: e.target.value })}
-      />
+    <div className="min-w-0 space-y-1.5">
       <input
         className="h-9 w-full rounded-lg border border-gray-200 bg-white/80 px-3 text-xs text-gray-900 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100/60"
         placeholder="真实路径"
         value={draft.path}
         onChange={(e) => onEditableRootChange(library.id, root, { path: e.target.value })}
       />
-    </>
+      <details>
+        <summary className="cursor-pointer text-xs font-semibold text-ink-600">路径高级设置</summary>
+        <input
+          className="mt-1.5 h-9 w-full rounded-lg border border-gray-200 bg-white/80 px-3 text-xs text-gray-900 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100/60"
+          placeholder="路径名称（可选）"
+          value={draft.name ?? ''}
+          onChange={(e) => onEditableRootChange(library.id, root, { name: e.target.value })}
+        />
+      </details>
+    </div>
   )
 }
 

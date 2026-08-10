@@ -1,9 +1,9 @@
 import type { SettingGroup } from './settingsGroupTypes'
 
 export const adultSettingsGroup: SettingGroup = {
-  key: 'adult',
-  label: 'Adult / NSFW',
-  description: '成人内容隔离开关 (默认隐藏)',
+  key: 'access',
+  label: '内容访问',
+  description: '这里设置全局成人内容策略；每个用户和观影 Profile 仍可在全局允许范围内设置个人偏好。',
   items: [
     {
       key: 'adult.enabled',
@@ -19,6 +19,8 @@ export const adultSettingsGroup: SettingGroup = {
       hint: '管理员指定哪些媒体库目录属于成人影视库。指定后网页、搜索和第三方客户端都会统一隐藏。',
       defaultValue: '[]',
     },
+  ],
+  advancedItems: [
     {
       key: 'adult.require_pin',
       label: '访问需要 PIN',

@@ -1,8 +1,11 @@
 import type { SettingDef } from './SettingsRow'
 
+export type SettingGroupKey = 'general' | 'playback' | 'recognition-words' | 'access' | 'system-update'
+
 export interface SettingGroup {
-  key: string
+  key: SettingGroupKey
   label: string
   description?: string
   items: SettingDef[]
+  advancedItems?: SettingDef[]
 }

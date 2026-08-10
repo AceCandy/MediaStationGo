@@ -1,18 +1,11 @@
 import { useEffect, useState } from 'react'
 
 import { statsAPI } from '../api/stats'
-import type { Hardware, StatsSnapshot } from '../types'
-import {
-  AggregateStatsSection,
-  StatsHeader,
-  StatsTiles,
-  SystemMonitorSection,
-} from './StatsPageSections'
+import type { Hardware } from '../types'
+import { StatsHeader, SystemMonitorSection } from './StatsPageSections'
 
-// StatsPage renders the operator dashboard. Aggregate stats refresh less often,
-// while hardware metrics are polled every 2 s for a real-time monitoring feel.
+// StatsPage polls live process and host metrics every 2 s.
 export function StatsPage() {
-  const [snap, setSnap] = useState<StatsSnapshot | null>(null)
   const [hardware, setHardware] = useState<Hardware | null>(null)
   const [lastMonitorAt, setLastMonitorAt] = useState<string>('')
   const [monitorError, setMonitorError] = useState('')
@@ -20,19 +13,19 @@ export function StatsPage() {
 
   useEffect(() => {
     let cancelled = false
-    const tick = () =>
-      statsAPI.snapshot().then((s) => {
+    statsAPI
+      .snapshot()
+      .then((snapshot) => {
         if (!cancelled) {
-          setSnap(s)
-          setHardware((current) => current ?? s.hardware)
-          setLastMonitorAt((current) => current || s.generated_at)
+          setHardware(snapshot.hardware)
+          setLastMonitorAt(snapshot.generated_at)
         }
       })
-    tick().finally(() => setLoading(false))
-    const id = window.setInterval(tick, 30_000)
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
     return () => {
       cancelled = true
-      window.clearInterval(id)
     }
   }, [])
 
@@ -62,9 +55,9 @@ export function StatsPage() {
   }, [])
 
   if (loading) return <p className="text-sand-500">加载中…</p>
-  if (!snap) return <p className="text-sand-500">无法获取统计数据</p>
+  if (!hardware) return <p className="text-sand-500">无法获取运行数据</p>
 
-  const live = hardware ?? snap.hardware
+  const live = hardware
   const memPct =
     live.memory_total > 0
       ? (live.memory_used / live.memory_total) * 100
@@ -76,19 +69,13 @@ export function StatsPage() {
 
   return (
     <div className="space-y-8">
-      <StatsHeader
-        generatedAt={snap.generated_at}
-        lastMonitorAt={lastMonitorAt}
-        monitorError={monitorError}
-      />
-      <StatsTiles snap={snap} live={live} memPct={memPct} diskPct={diskPct} />
+      <StatsHeader lastMonitorAt={lastMonitorAt} monitorError={monitorError} />
       <SystemMonitorSection
         live={live}
         memPct={memPct}
         diskPct={diskPct}
         monitorError={monitorError}
       />
-      <AggregateStatsSection generatedAt={snap.generated_at} />
     </div>
   )
 }

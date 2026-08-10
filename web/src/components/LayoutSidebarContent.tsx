@@ -13,7 +13,7 @@ export type LayoutSidebarContentProps = {
   isAdmin: boolean
   username?: string
   can: (key: string) => boolean
-  isRouteIn: (paths: string[]) => boolean
+  isRouteIn: (paths: string[], end?: boolean) => boolean
   onToggleGroup: (id: string) => void
   onToggleSidebar: () => void
   onCloseMobileDrawer: () => void
@@ -71,7 +71,12 @@ function visibleSidebarGroups({
     (!item.adminOnly || isAdmin) && (!item.permission || can(item.permission))
   return LAYOUT_NAV_GROUPS
     .filter((group) => !group.adminOnly || isAdmin)
-    .map((group) => ({ group, items: group.items.filter(isItemVisible) }))
+    .map((group) => ({
+      group,
+      items: group.items
+        .map((item) => ({ ...item, children: item.children?.filter(isItemVisible) }))
+        .filter((item) => item.children ? item.children.length > 0 : isItemVisible(item)),
+    }))
     .filter(({ items }) => items.length > 0)
 }
 
@@ -138,7 +143,7 @@ function LayoutSidebarNav({
   navigationId: string
   sidebarExpanded: boolean
   openGroups: Record<string, boolean>
-  isRouteIn: (paths: string[]) => boolean
+  isRouteIn: (paths: string[], end?: boolean) => boolean
   onToggleGroup: (id: string) => void
 }) {
   return (
@@ -149,7 +154,8 @@ function LayoutSidebarNav({
           group={group}
           items={items}
           sidebarExpanded={sidebarExpanded}
-          open={openGroups[group.id] ?? group.id === 'viewer'}
+          open={openGroups[group.id] ?? false}
+          openGroups={openGroups}
           active={isRouteIn(NAV_GROUP_PATHS[group.id])}
           isRouteIn={isRouteIn}
           onToggleGroup={onToggleGroup}
@@ -164,6 +170,7 @@ function LayoutSidebarNavGroup({
   items,
   sidebarExpanded,
   open,
+  openGroups,
   active,
   isRouteIn,
   onToggleGroup,
@@ -172,8 +179,9 @@ function LayoutSidebarNavGroup({
   items: LayoutNavItem[]
   sidebarExpanded: boolean
   open: boolean
+  openGroups: Record<string, boolean>
   active: boolean
-  isRouteIn: (paths: string[]) => boolean
+  isRouteIn: (paths: string[], end?: boolean) => boolean
   onToggleGroup: (id: string) => void
 }) {
   const GroupIcon = group.icon
@@ -189,14 +197,44 @@ function LayoutSidebarNavGroup({
     >
       {items.map((item) => {
         const ItemIcon = item.icon
+        const active = isRouteIn(item.activePaths)
+        if (item.children) {
+          const id = item.group!
+          return (
+            <SidebarGroup
+              key={id}
+              id={id}
+              icon={<ItemIcon size={16} />}
+              label={item.label}
+              open={openGroups[id] ?? active}
+              active={active}
+              onToggle={onToggleGroup}
+            >
+              {item.children.map((child) => {
+                const ChildIcon = child.icon
+                return (
+                  <SidebarLink
+                    key={child.to}
+                    to={child.to!}
+                    icon={<ChildIcon size={14} />}
+                    label={child.label}
+                    end={child.end}
+                    active={isRouteIn(child.activePaths, child.end)}
+                    child
+                  />
+                )
+              })}
+            </SidebarGroup>
+          )
+        }
         return (
           <SidebarLink
             key={item.to}
-            to={item.to}
+            to={item.to!}
             icon={<ItemIcon size={16} />}
             label={item.label}
             end={item.end}
-            active={isRouteIn(item.activePaths)}
+            active={isRouteIn(item.activePaths, item.end)}
             child
           />
         )

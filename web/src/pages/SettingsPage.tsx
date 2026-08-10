@@ -6,12 +6,11 @@ import { adminAPI } from '../api/admin'
 import { libraryAPI } from '../api/library'
 import type { Library, Setting } from '../types'
 import { SettingRow } from './SettingsRow'
-import { ALL_KEYS, GROUPS } from './settingsGroups'
+import { ALL_KEYS, GROUPS, type SettingGroupKey } from './settingsGroups'
 import { SystemUpdatePanel } from './SystemUpdatePanel'
 import { RecognitionWordsPanel } from './RecognitionWordsPanel'
 
-export function SettingsPage() {
-  const [activeGroup, setActiveGroup] = useState(GROUPS[0].key)
+export function SettingsPage({ groupKey }: { groupKey: SettingGroupKey }) {
   const [values, setValues] = useState<Record<string, string>>({})
   const [dirty, setDirty] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(true)
@@ -66,7 +65,8 @@ export function SettingsPage() {
     }
   }
 
-  const group = GROUPS.find((g) => g.key === activeGroup)!
+  const group = GROUPS.find((candidate) => candidate.key === groupKey)!
+  const hasSettings = group.items.length > 0 || Boolean(group.advancedItems?.length)
 
   return (
     <div className="space-y-6">
@@ -75,28 +75,9 @@ export function SettingsPage() {
           <SettingsIcon size={20} />
         </div>
         <div>
-          <h1 className="font-display text-3xl font-bold text-ink-600">系统设置</h1>
-          <p className="text-sm text-ink-50">
-            按分组编辑媒体探测、识别规则、系统更新与内容访问配置
-          </p>
+          <h1 className="font-display text-3xl font-bold text-ink-600">{group.label}</h1>
+          {group.description && <p className="text-sm text-ink-50">{group.description}</p>}
         </div>
-      </div>
-
-      <div className="flex gap-2 overflow-x-auto border-b border-gray-200">
-        {GROUPS.map((g) => (
-          <button
-            key={g.key}
-            onClick={() => setActiveGroup(g.key)}
-            className={
-              'border-b-2 px-4 py-2 text-sm whitespace-nowrap transition ' +
-              (activeGroup === g.key
-                ? 'border-primary-400 text-brand-500'
-                : 'border-transparent text-ink-50 hover:text-white')
-            }
-          >
-            {g.label}
-          </button>
-        ))}
       </div>
 
       {loading && (
@@ -109,9 +90,8 @@ export function SettingsPage() {
         <div className="space-y-4">
           {group.key === 'system-update' && <SystemUpdatePanel />}
           {group.key === 'recognition-words' && <RecognitionWordsPanel />}
-          {group.items.length > 0 && (
+          {hasSettings && (
             <form onSubmit={onSave} className="glass-panel space-y-4">
-              {group.description && <p className="text-xs text-sand-500">{group.description}</p>}
               {group.items.map((it) => (
                 <SettingRow
                   key={it.key}
@@ -121,6 +101,24 @@ export function SettingsPage() {
                   libraries={libraries}
                 />
               ))}
+              {group.advancedItems && group.advancedItems.length > 0 && (
+                <details className="border-t border-gray-200 pt-4">
+                  <summary className="cursor-pointer text-sm font-semibold text-ink-600">
+                    高级设置
+                  </summary>
+                  <div className="mt-4 space-y-4">
+                    {group.advancedItems.map((it) => (
+                      <SettingRow
+                        key={it.key}
+                        def={it}
+                        value={values[it.key] ?? it.defaultValue ?? ''}
+                        onChange={(v) => onChange(it.key, v)}
+                        libraries={libraries}
+                      />
+                    ))}
+                  </div>
+                </details>
+              )}
               <div className="flex items-center justify-between pt-2">
                 <span className="text-xs text-sand-500">
                   {dirty.size > 0 ? `有 ${dirty.size} 项未保存` : '所有更改已保存'}

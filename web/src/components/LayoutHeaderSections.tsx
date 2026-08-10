@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom'
-import { Cast, Menu, MessageSquareText, Search, Sparkles } from 'lucide-react'
+import { Cast, Menu, Search } from 'lucide-react'
 
 import type { PlayProfile, User } from '../types'
 import { LayoutSearchBox } from './LayoutSearchBox'
@@ -158,15 +158,6 @@ function LayoutQuickActions({ permissions }: { permissions: LayoutPermissionStat
       >
         <Search size={18} />
       </Link>
-      {permissions.can('can_view_discover') && (
-        <Link
-          to="/discover"
-          className="hidden md:flex items-center gap-2 rounded-xl border border-[var(--app-border)] px-4 py-2.5 text-xs font-bold text-[var(--app-muted)] hover:bg-[var(--app-hover)] hover:text-[var(--app-text)] transition-all"
-        >
-          <Sparkles size={14} className="text-brand-500" />
-          <span>发现新片</span>
-        </Link>
-      )}
       {permissions.can('can_cast') && (
         <Link
           to="/dlna"
@@ -175,16 +166,6 @@ function LayoutQuickActions({ permissions }: { permissions: LayoutPermissionStat
           className="relative min-h-11 min-w-11 rounded-xl border border-[var(--app-border)] p-2.5 text-[var(--app-muted)] transition-colors hover:bg-[var(--app-hover)] hover:text-[var(--app-text)]"
         >
           <Cast size={18} />
-        </Link>
-      )}
-      {permissions.isAdmin && (
-        <Link
-          to="/admin/integrations/notifications"
-          title="通知配置"
-          aria-label="打开通知配置"
-          className="relative hidden min-h-11 min-w-11 rounded-xl border border-[var(--app-border)] p-2.5 text-[var(--app-muted)] transition-colors hover:bg-[var(--app-hover)] hover:text-[var(--app-text)] sm:block"
-        >
-          <MessageSquareText size={18} />
         </Link>
       )}
     </>

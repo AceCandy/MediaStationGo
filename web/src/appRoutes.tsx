@@ -4,7 +4,6 @@ import {
   BarChart3,
   Bell,
   Bot,
-  CalendarClock,
   Compass,
   Copy,
   FileText,
@@ -13,14 +12,13 @@ import {
   KeyRound,
   Library,
   ListChecks,
-  Settings,
   SlidersHorizontal,
   Trash2,
   User,
   Users,
   type LucideIcon,
 } from 'lucide-react'
-import { Navigate, useSearchParams } from 'react-router-dom'
+import { Navigate, Outlet, useSearchParams } from 'react-router-dom'
 
 const HomePage = lazy(() => import('./pages/HomePage').then((m) => ({ default: m.HomePage })))
 const LibraryPage = lazy(() => import('./pages/LibraryPage').then((m) => ({ default: m.LibraryPage })))
@@ -32,14 +30,7 @@ const PlaylistDetailPage = lazy(() =>
 )
 const MediaDetailPage = lazy(() => import('./pages/MediaDetailPage').then((m) => ({ default: m.MediaDetailPage })))
 const PlayerPage = lazy(() => import('./pages/PlayerPage').then((m) => ({ default: m.PlayerPage })))
-const AdminLayoutPage = lazy(() =>
-  import('./pages/AdminLayoutPage').then((m) => ({ default: m.AdminLayoutPage })),
-)
-const AdminPage = lazy(() => import('./pages/AdminPage').then((m) => ({ default: m.AdminPage })))
 const AdminMediaPage = lazy(() => import('./pages/AdminPage').then((m) => ({ default: m.AdminMediaPage })))
-const AdminIntegrationsPage = lazy(() =>
-  import('./pages/AdminPage').then((m) => ({ default: m.AdminIntegrationsPage })),
-)
 const AdminUsersPage = lazy(() => import('./pages/AdminPage').then((m) => ({ default: m.AdminUsersPage })))
 const AdminAPIsPage = lazy(() => import('./pages/AdminPage').then((m) => ({ default: m.AdminAPIsPage })))
 const ProfilePage = lazy(() => import('./pages/ProfilePage').then((m) => ({ default: m.ProfilePage })))
@@ -53,7 +44,6 @@ const FileManagerPage = lazy(() =>
 )
 const StoragePage = lazy(() => import('./pages/StoragePage').then((m) => ({ default: m.StoragePage })))
 const DuplicatesPage = lazy(() => import('./pages/DuplicatesPage').then((m) => ({ default: m.DuplicatesPage })))
-const SchedulerPage = lazy(() => import('./pages/SchedulerPage').then((m) => ({ default: m.SchedulerPage })))
 const StrmPage = lazy(() => import('./pages/StrmPage').then((m) => ({ default: m.StrmPage })))
 const ProfileManagementPage = lazy(() =>
   import('./pages/ProfileManagementPage').then((m) => ({ default: m.ProfileManagementPage })),
@@ -66,7 +56,7 @@ const AssistantChatPage = lazy(() =>
   import('./pages/AssistantChatPage').then((m) => ({ default: m.AssistantChatPage })),
 )
 
-export type NavigationScope = 'viewer' | 'sidebar' | 'management'
+export type NavigationScope = 'viewer' | 'management'
 export type ManagementGroupID = 'media' | 'storage' | 'tasks' | 'integrations' | 'settings'
 
 export type AppRouteNavigation = {
@@ -114,15 +104,15 @@ export function resolveAppRoutes(
 function AdminEntryPage() {
   const [searchParams] = useSearchParams()
   const tabs = searchParams.getAll('tab')
-  if (tabs.length === 0) return <AdminPage />
-  if (tabs.length !== 1) return <Navigate to="/admin" replace />
+  if (tabs.length === 0) return <Navigate to="/admin/media" replace />
+  if (tabs.length !== 1) return <Navigate to="/admin/media" replace />
 
   const target = {
     library: '/admin/media',
     users: '/admin/integrations/users',
     api: '/admin/integrations/apis',
   }[tabs[0]]
-  return <Navigate to={target ?? '/admin'} replace />
+  return <Navigate to={target ?? '/admin/media'} replace />
 }
 
 export const appRoutes: AppRoute[] = [
@@ -204,23 +194,15 @@ export const appRoutes: AppRoute[] = [
   {
     id: 'admin-root',
     path: 'admin',
-    element: <AdminLayoutPage />,
+    element: <Outlet />,
     adminOnly: true,
-    navigation: {
-      scope: 'sidebar',
-      label: '管理空间',
-      icon: Settings,
-      to: '/admin',
-      order: 10,
-      activePaths: ['/admin'],
-    },
     children: [
       { id: 'admin-overview', index: true, element: <AdminEntryPage /> },
       {
         id: 'admin-media',
         path: 'media',
         element: <AdminMediaPage />,
-        navigation: { scope: 'management', group: 'media', label: '媒体库', icon: Library, to: '/admin/media', order: 10 },
+        navigation: { scope: 'management', group: 'media', label: '媒体库管理', icon: Library, to: '/admin/media', order: 10, end: true },
       },
       {
         id: 'admin-media-files',
@@ -238,7 +220,7 @@ export const appRoutes: AppRoute[] = [
         id: 'admin-storage',
         path: 'storage',
         element: <StoragePage />,
-        navigation: { scope: 'management', group: 'storage', label: '存储概览', icon: HardDrive, to: '/admin/storage', order: 10 },
+        navigation: { scope: 'management', group: 'storage', label: '存储概览', icon: HardDrive, to: '/admin/storage', order: 10, end: true },
       },
       {
         id: 'admin-storage-duplicates',
@@ -256,25 +238,23 @@ export const appRoutes: AppRoute[] = [
         id: 'admin-tasks',
         path: 'tasks',
         element: <TasksPage />,
-        navigation: { scope: 'management', group: 'tasks', label: '任务列表', icon: ListChecks, to: '/admin/tasks', order: 10 },
+        navigation: { scope: 'management', group: 'tasks', label: '任务中心', icon: ListChecks, to: '/admin/tasks', order: 10, end: true },
       },
       {
         id: 'admin-tasks-scheduler',
         path: 'tasks/scheduler',
-        element: <SchedulerPage />,
-        navigation: { scope: 'management', group: 'tasks', label: '调度器', icon: CalendarClock, to: '/admin/tasks/scheduler', order: 20 },
+        element: <Navigate to="/admin/tasks#scheduled-tasks" replace />,
       },
       {
         id: 'admin-tasks-stats',
         path: 'tasks/stats',
         element: <StatsPage />,
-        navigation: { scope: 'management', group: 'tasks', label: '运行统计', icon: BarChart3, to: '/admin/tasks/stats', order: 30 },
+        navigation: { scope: 'management', group: 'tasks', label: '运行监控', icon: BarChart3, to: '/admin/tasks/stats', order: 20 },
       },
       {
         id: 'admin-integrations',
         path: 'integrations',
-        element: <AdminIntegrationsPage />,
-        navigation: { scope: 'management', group: 'integrations', label: '集成概览', icon: Settings, to: '/admin/integrations', order: 10 },
+        element: <Navigate to="/admin/integrations/users" replace />,
       },
       {
         id: 'admin-integrations-users',
@@ -303,8 +283,37 @@ export const appRoutes: AppRoute[] = [
       {
         id: 'admin-settings',
         path: 'settings',
-        element: <SettingsPage />,
-        navigation: { scope: 'management', group: 'settings', label: '系统设置', icon: SlidersHorizontal, to: '/admin/settings', order: 10 },
+        element: <Navigate to="/admin/settings/general" replace />,
+      },
+      {
+        id: 'admin-settings-general',
+        path: 'settings/general',
+        element: <SettingsPage groupKey="general" />,
+        navigation: { scope: 'management', group: 'settings', label: '常规', icon: SlidersHorizontal, to: '/admin/settings/general', order: 10 },
+      },
+      {
+        id: 'admin-settings-playback',
+        path: 'settings/playback',
+        element: <SettingsPage groupKey="playback" />,
+        navigation: { scope: 'management', group: 'settings', label: '播放与探测', icon: FileText, to: '/admin/settings/playback', order: 20 },
+      },
+      {
+        id: 'admin-settings-recognition',
+        path: 'settings/recognition-words',
+        element: <SettingsPage groupKey="recognition-words" />,
+        navigation: { scope: 'management', group: 'settings', label: '识别词', icon: ListChecks, to: '/admin/settings/recognition-words', order: 30 },
+      },
+      {
+        id: 'admin-settings-access',
+        path: 'settings/access',
+        element: <SettingsPage groupKey="access" />,
+        navigation: { scope: 'management', group: 'settings', label: '内容访问', icon: KeyRound, to: '/admin/settings/access', order: 40 },
+      },
+      {
+        id: 'admin-settings-update',
+        path: 'settings/system-update',
+        element: <SettingsPage groupKey="system-update" />,
+        navigation: { scope: 'management', group: 'settings', label: '系统更新', icon: HardDrive, to: '/admin/settings/system-update', order: 50 },
       },
     ],
   },
@@ -316,10 +325,10 @@ export const appRoutes: AppRoute[] = [
   { id: 'legacy-duplicates', path: 'duplicates', element: <Navigate to="/admin/storage/duplicates" replace />, adminOnly: true },
   { id: 'legacy-recycle', path: 'recycle', element: <Navigate to="/admin/storage/recycle" replace />, adminOnly: true },
   { id: 'legacy-tasks', path: 'tasks', element: <Navigate to="/admin/tasks" replace />, adminOnly: true },
-  { id: 'legacy-scheduler', path: 'scheduler', element: <Navigate to="/admin/tasks/scheduler" replace />, adminOnly: true },
+  { id: 'legacy-scheduler', path: 'scheduler', element: <Navigate to="/admin/tasks#scheduled-tasks" replace />, adminOnly: true },
   { id: 'legacy-stats', path: 'stats', element: <Navigate to="/admin/tasks/stats" replace />, adminOnly: true },
   { id: 'legacy-notify', path: 'notify-channels', element: <Navigate to="/admin/integrations/notifications" replace />, adminOnly: true },
   { id: 'legacy-assistant', path: 'assistant', element: <Navigate to="/admin/integrations/assistant" replace />, adminOnly: true },
   { id: 'legacy-api-configs', path: 'api-configs', element: <Navigate to="/admin/integrations/apis" replace />, adminOnly: true },
-  { id: 'legacy-settings', path: 'settings', element: <Navigate to="/admin/settings" replace />, adminOnly: true },
+  { id: 'legacy-settings', path: 'settings', element: <Navigate to="/admin/settings/general" replace />, adminOnly: true },
 ]
