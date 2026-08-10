@@ -227,3 +227,25 @@ Unified Episode title storage, kept Season and Episode metadata entity-owned, re
 ### Next Steps
 
 - Run PostgreSQL integration tests when MEDIASTATION_TEST_POSTGRES_DSN is available.
+
+
+## Session 11: Reorganize Web UI Around Emby Core
+
+**Date**: 2026-08-10
+**Task**: Reorganize Web UI Around Emby Core
+**Branch**: `main`
+
+### Summary
+
+Reorganized viewer and admin navigation, unified route access, added bounded poster loading, and verified responsive UI.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `8c07aa5` | (see git log) |
+| `2af58c4` | (see git log) |
+
+### Status
+
+[OK] **Completed**
