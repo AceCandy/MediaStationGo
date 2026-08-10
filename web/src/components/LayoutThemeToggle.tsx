@@ -20,7 +20,11 @@ const options: Array<{
 
 export function LayoutThemeToggle({ mode, onChange }: LayoutThemeToggleProps) {
   return (
-    <div className="flex items-center rounded-full border border-[var(--app-border)] bg-[var(--app-control-bg)] p-1 shadow-sm">
+    <div
+      role="group"
+      aria-label="主题模式"
+      className="flex items-center rounded-full border border-[var(--app-border)] bg-[var(--app-control-bg)] p-1 shadow-sm"
+    >
       {options.map((option) => {
         const Icon = option.icon
         const active = mode === option.mode
@@ -32,7 +36,7 @@ export function LayoutThemeToggle({ mode, onChange }: LayoutThemeToggleProps) {
             aria-label={option.label}
             aria-pressed={active}
             className={clsx(
-              'inline-flex h-8 w-8 items-center justify-center rounded-full transition-all duration-200',
+              'inline-flex h-11 w-11 items-center justify-center rounded-full transition-all duration-200',
               active
                 ? 'bg-[var(--app-command-bg)] text-[var(--app-command-text)] shadow-sm'
                 : 'text-[var(--app-muted)] hover:bg-[var(--app-hover)] hover:text-[var(--app-text)]',

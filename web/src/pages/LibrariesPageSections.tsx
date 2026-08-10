@@ -29,6 +29,7 @@ const TYPE_LABELS: Record<string, string> = {
 }
 
 export function LibrariesHeader({
+  isAdmin,
   previewCount,
   total,
   repairMsg,
@@ -37,6 +38,7 @@ export function LibrariesHeader({
   onRepairEpisodeArtworkChange,
   onRepairRescrape,
 }: {
+  isAdmin: boolean
   previewCount: number
   total: number
   repairMsg: string
@@ -53,29 +55,31 @@ export function LibrariesHeader({
           共 {previewCount} 个目录 · {total.toLocaleString()} 个条目。每个目录直接展示最新入库内容。
         </p>
       </div>
-      <div className="flex flex-wrap items-center gap-3">
-        {repairMsg && <span className="text-xs text-ink-50">{repairMsg}</span>}
-        <EpisodeArtworkToggle
-          checked={repairEpisodeArtwork}
-          onChange={onRepairEpisodeArtworkChange}
-          title="关闭后仍会获取主海报和每集文字元数据，只跳过每集图片"
-          className="h-10"
-        />
-        <button
-          type="button"
-          onClick={onRepairRescrape}
-          disabled={repairing}
-          className="btn-outline disabled:cursor-not-allowed disabled:opacity-60"
-          title="从媒体路径回填缺失/错误的外部 ID，再批量重刮整库"
-        >
-          <RefreshCw size={14} className={repairing ? 'animate-spin' : ''} />
-          {repairing ? '正在启动…' : '全库修复+重刮'}
-        </button>
-        <Link to="/admin" className="btn-outline">
-          管理媒体库
-          <ArrowRight size={14} />
-        </Link>
-      </div>
+      {isAdmin && (
+        <div className="flex flex-wrap items-center gap-3">
+          {repairMsg && <span className="text-xs text-ink-50">{repairMsg}</span>}
+          <EpisodeArtworkToggle
+            checked={repairEpisodeArtwork}
+            onChange={onRepairEpisodeArtworkChange}
+            title="关闭后仍会获取主海报和每集文字元数据，只跳过每集图片"
+            className="h-10"
+          />
+          <button
+            type="button"
+            onClick={onRepairRescrape}
+            disabled={repairing}
+            className="btn-outline disabled:cursor-not-allowed disabled:opacity-60"
+            title="从媒体路径回填缺失/错误的外部 ID，再批量重刮整库"
+          >
+            <RefreshCw size={14} className={repairing ? 'animate-spin' : ''} />
+            {repairing ? '正在启动…' : '全库修复+重刮'}
+          </button>
+          <Link to="/admin/media" className="btn-outline">
+            管理媒体库
+            <ArrowRight size={14} />
+          </Link>
+        </div>
+      )}
     </div>
   )
 }

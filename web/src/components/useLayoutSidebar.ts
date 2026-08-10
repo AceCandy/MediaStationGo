@@ -5,7 +5,7 @@ import { NAV_GROUP_PATHS } from './layoutNavigation'
 export function useLayoutSidebar(pathname: string) {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true)
   const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState(false)
-  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({ media: true })
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({ viewer: true })
 
   useEffect(() => {
     const handleResize = () => {

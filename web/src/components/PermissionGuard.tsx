@@ -1,7 +1,7 @@
 import { type ReactNode } from 'react'
 
-import { usePermissionStore } from '../stores/permissions'
 import { useAuthStore } from '../stores/auth'
+import { useLayoutPermissions } from './useLayoutPermissions'
 
 interface PermissionGuardProps {
   permission: string
@@ -24,27 +24,26 @@ export function PermissionGuard({
   fallback = null,
   requireSuperUser = false,
 }: PermissionGuardProps) {
-  const { hasPermission, isSuper, permissions, isLoading } = usePermissionStore()
-  const tier = useAuthStore((state) => state.tier)
-  const role = useAuthStore((state) => state.user?.role)
+  const user = useAuthStore((state) => state.user)
+  const permissions = useLayoutPermissions(user)
 
   // 超级用户（admin 或 plus）默认有所有权限
-  if (isSuper || tier === 'plus' || role === 'admin') {
+  if (user?.tier === 'plus' || user?.role === 'admin') {
     return <>{children}</>
   }
 
   // 如果 requireSuperUser 为 true 且用户不是超级用户，则不显示
-  if (requireSuperUser && !isSuper) {
+  if (requireSuperUser) {
     return <>{fallback}</>
   }
 
   // 加载中时显示 fallback
-  if (isLoading && Object.keys(permissions).length === 0) {
+  if (!permissions.isReady) {
     return <>{fallback}</>
   }
 
   // 检查具体权限
-  if (hasPermission(permission)) {
+  if (permissions.can(permission)) {
     return <>{children}</>
   }
 

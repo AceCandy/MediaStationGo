@@ -1,27 +1,14 @@
-import type { LucideIcon } from 'lucide-react'
-import {
-  Cast,
-  Clock,
-  Compass,
-  HardDrive,
-  Heart,
-  Home,
-  Image,
-  Library,
-  ListMusic,
-  Search,
-  Settings,
-  Sliders,
-  Sparkles,
-  User,
-} from 'lucide-react'
+import { Home, Settings, type LucideIcon } from 'lucide-react'
 
-export type LayoutNavGroupID = 'media' | 'personal' | 'tools' | 'system'
+import { resolveAppRoutes, type NavigationScope } from '../appRoutes'
+
+export type LayoutNavGroupID = 'viewer' | 'management'
 
 export type LayoutNavItem = {
   to: string
   label: string
   icon: LucideIcon
+  activePaths: string[]
   end?: boolean
   permission?: string
   adminOnly?: boolean
@@ -36,53 +23,41 @@ export type LayoutNavGroup = {
   items: LayoutNavItem[]
 }
 
+function navigationItems(scope: NavigationScope): LayoutNavItem[] {
+  return resolveAppRoutes()
+    .filter(({ route }) => route.navigation?.scope === scope)
+    .sort((left, right) => (left.route.navigation?.order ?? 0) - (right.route.navigation?.order ?? 0))
+    .map(({ route, adminOnly, permission }) => {
+      const navigation = route.navigation!
+      return {
+        to: navigation.to,
+        label: navigation.label,
+        icon: navigation.icon,
+        activePaths: navigation.activePaths ?? [navigation.to],
+        end: navigation.end,
+        permission,
+        adminOnly,
+      }
+    })
+}
+
+export const VIEWER_NAV_ITEMS = navigationItems('viewer')
+
 export const LAYOUT_NAV_GROUPS: LayoutNavGroup[] = [
   {
-    id: 'media',
-    label: '媒体浏览',
+    id: 'viewer',
+    label: '观看空间',
     icon: Home,
-    activePaths: ['/', '/libraries', '/library', '/poster-wall', '/discover', '/search', '/dlna', '/ai'],
-    items: [
-      { to: '/', label: '系统首页', icon: Home, end: true },
-      { to: '/libraries', label: '媒体库', icon: Library },
-      { to: '/poster-wall', label: '海报墙', icon: Image },
-      { to: '/discover', label: '精彩发现', icon: Compass, permission: 'can_view_discover' },
-      { to: '/search', label: '智能搜索', icon: Search, permission: 'can_use_ai' },
-      { to: '/dlna', label: 'DLNA 投屏', icon: Cast, permission: 'can_cast' },
-      { to: '/ai', label: 'AI 助理', icon: Sparkles, permission: 'can_use_ai_assistant' },
-    ],
+    activePaths: VIEWER_NAV_ITEMS.flatMap((item) => item.activePaths),
+    items: VIEWER_NAV_ITEMS,
   },
   {
-    id: 'personal',
-    label: '个人观影',
-    icon: User,
-    activePaths: ['/favourites', '/playlists', '/playlist', '/history', '/profile', '/play-profiles'],
-    items: [
-      { to: '/favourites', label: '我的收藏', icon: Heart },
-      { to: '/playlists', label: '播放列表', icon: ListMusic },
-      { to: '/history', label: '观看历史', icon: Clock },
-    ],
-  },
-  {
-    id: 'tools',
-    label: '文件与自动化',
-    icon: HardDrive,
-    activePaths: ['/storage', '/files', '/strm', '/duplicates', '/tasks', '/scheduler', '/recycle', '/stats'],
-    adminOnly: true,
-    items: [
-      { to: '/storage', label: '存储与文件', icon: HardDrive },
-    ],
-  },
-  {
-    id: 'system',
-    label: '系统配置',
+    id: 'management',
+    label: '管理空间',
     icon: Settings,
-    activePaths: ['/admin', '/notify-channels', '/settings', '/assistant'],
+    activePaths: ['/admin'],
     adminOnly: true,
-    items: [
-      { to: '/admin', label: '媒体与用户', icon: Settings },
-      { to: '/settings', label: '系统设置', icon: Sliders },
-    ],
+    items: navigationItems('sidebar'),
   },
 ]
 

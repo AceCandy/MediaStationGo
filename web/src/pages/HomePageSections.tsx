@@ -45,11 +45,13 @@ export function HomeFeaturedSection({
   featuredVisual,
   featuredPoster,
   featuredMark,
+  showDiscover,
 }: {
   featuredItem: Media
   featuredVisual: string
   featuredPoster: string
   featuredMark: string
+  showDiscover: boolean
 }) {
   return (
     <section className="relative overflow-hidden rounded-[2rem] border border-[var(--app-border)] bg-[var(--app-panel)] shadow-[0_24px_80px_var(--app-shadow)]">
@@ -110,10 +112,12 @@ export function HomeFeaturedSection({
               <Play size={16} fill="currentColor" />
               <span>立即播放</span>
             </Link>
-            <Link to="/discover" className="inline-flex items-center justify-center gap-2 rounded-xl border border-[var(--app-border)] bg-[var(--app-panel)] px-5 py-3.5 text-sm font-bold text-[var(--app-subtle)] shadow-sm transition-all hover:-translate-y-0.5 hover:border-brand-500/40 hover:text-[var(--app-text)]">
-              <span>发现更多精彩</span>
-              <ArrowRight size={16} />
-            </Link>
+            {showDiscover && (
+              <Link to="/discover" className="inline-flex items-center justify-center gap-2 rounded-xl border border-[var(--app-border)] bg-[var(--app-panel)] px-5 py-3.5 text-sm font-bold text-[var(--app-subtle)] shadow-sm transition-all hover:-translate-y-0.5 hover:border-brand-500/40 hover:text-[var(--app-text)]">
+                <span>发现更多精彩</span>
+                <ArrowRight size={16} />
+              </Link>
+            )}
           </div>
         </div>
 
@@ -175,8 +179,8 @@ export function RecentMediaSection({ recentCards }: { recentCards: SeriesCard[] 
             <p className="text-xs text-[var(--app-muted)]">按整部电影、剧集、番剧和综艺合集展示新增内容。</p>
           </div>
         </div>
-        <Link to="/poster-wall" className="group inline-flex items-center gap-1 text-xs font-bold text-[var(--app-subtle)] transition-colors hover:text-brand-500">
-          <span>海报墙</span>
+        <Link to="/libraries?view=poster" className="group inline-flex items-center gap-1 text-xs font-bold text-[var(--app-subtle)] transition-colors hover:text-brand-500">
+          <span>海报视图</span>
           <ArrowRight size={14} className="transition-transform group-hover:translate-x-0.5" />
         </Link>
       </div>

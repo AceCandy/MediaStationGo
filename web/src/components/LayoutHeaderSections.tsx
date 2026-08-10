@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom'
-import { Menu, MessageSquareText, Search, Sparkles } from 'lucide-react'
+import { Cast, Menu, MessageSquareText, Search, Sparkles } from 'lucide-react'
 
 import type { PlayProfile, User } from '../types'
 import { LayoutSearchBox } from './LayoutSearchBox'
@@ -72,7 +72,9 @@ function LayoutHeaderSearch({
     <div className="flex items-center gap-3 flex-1 max-w-lg md:gap-4">
       <button
         onClick={onOpenMobileDrawer}
-        className="rounded-xl border border-[var(--app-border)] p-2.5 text-[var(--app-muted)] hover:bg-[var(--app-hover)] hover:text-[var(--app-text)] transition-colors lg:hidden"
+        aria-label="打开导航"
+        title="打开导航"
+        className="min-h-11 min-w-11 rounded-xl border border-[var(--app-border)] p-2.5 text-[var(--app-muted)] hover:bg-[var(--app-hover)] hover:text-[var(--app-text)] transition-colors lg:hidden"
       >
         <Menu size={18} />
       </button>
@@ -125,7 +127,9 @@ function LayoutHeaderActions({
   return (
     <div className="flex shrink-0 items-center gap-2 sm:gap-3 md:gap-4">
       <LayoutQuickActions permissions={permissions} />
-      <LayoutThemeToggle mode={themeMode} onChange={onThemeChange} />
+      <div className="hidden xl:block">
+        <LayoutThemeToggle mode={themeMode} onChange={onThemeChange} />
+      </div>
       <span className="hidden h-6 w-px bg-[var(--app-border)] sm:block" />
       <LayoutProfileMenu
         user={user}
@@ -133,8 +137,10 @@ function LayoutHeaderActions({
         profiles={profiles}
         activeProfileId={activeProfileId}
         activeProfile={activeProfile}
+        themeMode={themeMode}
         onToggleProfile={onToggleProfile}
         onCloseProfile={onCloseProfile}
+        onThemeChange={onThemeChange}
         onUseDefaultProfile={onUseDefaultProfile}
         onSwitchProfile={onSwitchProfile}
         onLogout={onLogout}
@@ -148,7 +154,7 @@ function LayoutQuickActions({ permissions }: { permissions: LayoutPermissionStat
     <>
       <Link
         to="/search"
-        className="rounded-xl border border-[var(--app-border)] p-2.5 text-[var(--app-muted)] hover:bg-[var(--app-hover)] hover:text-[var(--app-text)] transition-colors sm:hidden"
+        className="min-h-11 min-w-11 rounded-xl border border-[var(--app-border)] p-2.5 text-[var(--app-muted)] hover:bg-[var(--app-hover)] hover:text-[var(--app-text)] transition-colors sm:hidden"
       >
         <Search size={18} />
       </Link>
@@ -161,12 +167,22 @@ function LayoutQuickActions({ permissions }: { permissions: LayoutPermissionStat
           <span>发现新片</span>
         </Link>
       )}
+      {permissions.can('can_cast') && (
+        <Link
+          to="/dlna"
+          title="DLNA 投屏"
+          aria-label="打开 DLNA 投屏"
+          className="relative min-h-11 min-w-11 rounded-xl border border-[var(--app-border)] p-2.5 text-[var(--app-muted)] transition-colors hover:bg-[var(--app-hover)] hover:text-[var(--app-text)]"
+        >
+          <Cast size={18} />
+        </Link>
+      )}
       {permissions.isAdmin && (
         <Link
-          to="/notify-channels"
+          to="/admin/integrations/notifications"
           title="通知配置"
           aria-label="打开通知配置"
-          className="relative rounded-xl border border-[var(--app-border)] p-2.5 text-[var(--app-muted)] hover:bg-[var(--app-hover)] hover:text-[var(--app-text)] transition-all"
+          className="relative hidden min-h-11 min-w-11 rounded-xl border border-[var(--app-border)] p-2.5 text-[var(--app-muted)] transition-colors hover:bg-[var(--app-hover)] hover:text-[var(--app-text)] sm:block"
         >
           <MessageSquareText size={18} />
         </Link>
@@ -181,12 +197,14 @@ function LayoutProfileMenu({
   profiles,
   activeProfileId,
   activeProfile,
+  themeMode,
   onToggleProfile,
   onCloseProfile,
+  onThemeChange,
   onUseDefaultProfile,
   onSwitchProfile,
   onLogout,
-}: Omit<LayoutHeaderActionsProps, 'permissions' | 'themeMode' | 'onThemeChange'>) {
+}: Omit<LayoutHeaderActionsProps, 'permissions'>) {
   return (
     <LayoutUserMenu
       user={user}
@@ -194,8 +212,10 @@ function LayoutProfileMenu({
       profiles={profiles}
       activeProfileId={activeProfileId}
       activeProfile={activeProfile}
+      themeMode={themeMode}
       onToggle={onToggleProfile}
       onClose={onCloseProfile}
+      onThemeChange={onThemeChange}
       onUseDefaultProfile={onUseDefaultProfile}
       onSwitchProfile={onSwitchProfile}
       onLogout={onLogout}

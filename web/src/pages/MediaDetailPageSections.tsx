@@ -1,4 +1,4 @@
-import { ArrowLeft, Heart, Play } from 'lucide-react'
+import { ArrowLeft, Cast, Heart, Play } from 'lucide-react'
 import { Link } from 'react-router-dom'
 
 import { ExternalPlayerButton } from '../components/ExternalPlayerButton'
@@ -15,6 +15,7 @@ import { mediaDetailScrapeMediaType } from './MediaDetailPageModel'
 interface MediaDetailPlaybackActionsProps {
   media: Media
   favourite: boolean
+  canCast: boolean
   onToggleFavourite: () => void
 }
 
@@ -86,6 +87,7 @@ export function MediaDetailBackButton({ onBack }: { onBack: () => void }) {
 export function MediaDetailPlaybackActions({
   media,
   favourite,
+  canCast,
   onToggleFavourite,
 }: MediaDetailPlaybackActionsProps) {
   return (
@@ -96,6 +98,17 @@ export function MediaDetailPlaybackActions({
       </Link>
 
       <ExternalPlayerButton mediaId={media.id} />
+
+      {canCast && (
+        <Link
+          to={`/dlna?media=${encodeURIComponent(media.id)}`}
+          className="btn-outline gap-2"
+          aria-label={`投屏播放 ${media.title}`}
+        >
+          <Cast size={14} />
+          <span>投屏</span>
+        </Link>
+      )}
 
       <button
         onClick={onToggleFavourite}
@@ -116,6 +129,7 @@ export function MediaDetailPlaybackActions({
 export function MediaDetailMainContent({
   media,
   isAdmin,
+  canCast,
   favourite,
   scrapeEpisodeArtwork,
   onToggleFavourite,
@@ -136,7 +150,12 @@ export function MediaDetailMainContent({
         <MediaDetailTracks tracks={media.tracks} />
         <div className="divider border-gray-200/60" />
         <div className="flex flex-col gap-5">
-          <MediaDetailPlaybackActions media={media} favourite={favourite} onToggleFavourite={onToggleFavourite} />
+          <MediaDetailPlaybackActions
+            media={media}
+            favourite={favourite}
+            canCast={canCast}
+            onToggleFavourite={onToggleFavourite}
+          />
           {isAdmin && (
             <MediaDetailAdminPanel
               media={media}

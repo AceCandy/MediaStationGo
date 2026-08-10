@@ -1,19 +1,47 @@
 /* eslint-disable react-refresh/only-export-components */
 import { lazy, type ReactElement } from 'react'
-import { Navigate } from 'react-router-dom'
+import {
+  BarChart3,
+  Bell,
+  Bot,
+  CalendarClock,
+  Compass,
+  Copy,
+  FileText,
+  HardDrive,
+  Home,
+  KeyRound,
+  Library,
+  ListChecks,
+  Settings,
+  SlidersHorizontal,
+  Trash2,
+  User,
+  Users,
+  type LucideIcon,
+} from 'lucide-react'
+import { Navigate, useSearchParams } from 'react-router-dom'
 
 const HomePage = lazy(() => import('./pages/HomePage').then((m) => ({ default: m.HomePage })))
 const LibraryPage = lazy(() => import('./pages/LibraryPage').then((m) => ({ default: m.LibraryPage })))
 const LibrariesPage = lazy(() => import('./pages/LibrariesPage').then((m) => ({ default: m.LibrariesPage })))
 const SearchPage = lazy(() => import('./pages/SearchPage').then((m) => ({ default: m.SearchPage })))
-const FavouritesPage = lazy(() => import('./pages/FavouritesPage').then((m) => ({ default: m.FavouritesPage })))
-const PlaylistsPage = lazy(() => import('./pages/PlaylistsPage').then((m) => ({ default: m.PlaylistsPage })))
+const MePage = lazy(() => import('./pages/MePage').then((m) => ({ default: m.MePage })))
 const PlaylistDetailPage = lazy(() =>
   import('./pages/PlaylistDetailPage').then((m) => ({ default: m.PlaylistDetailPage })),
 )
 const MediaDetailPage = lazy(() => import('./pages/MediaDetailPage').then((m) => ({ default: m.MediaDetailPage })))
 const PlayerPage = lazy(() => import('./pages/PlayerPage').then((m) => ({ default: m.PlayerPage })))
+const AdminLayoutPage = lazy(() =>
+  import('./pages/AdminLayoutPage').then((m) => ({ default: m.AdminLayoutPage })),
+)
 const AdminPage = lazy(() => import('./pages/AdminPage').then((m) => ({ default: m.AdminPage })))
+const AdminMediaPage = lazy(() => import('./pages/AdminPage').then((m) => ({ default: m.AdminMediaPage })))
+const AdminIntegrationsPage = lazy(() =>
+  import('./pages/AdminPage').then((m) => ({ default: m.AdminIntegrationsPage })),
+)
+const AdminUsersPage = lazy(() => import('./pages/AdminPage').then((m) => ({ default: m.AdminUsersPage })))
+const AdminAPIsPage = lazy(() => import('./pages/AdminPage').then((m) => ({ default: m.AdminAPIsPage })))
 const ProfilePage = lazy(() => import('./pages/ProfilePage').then((m) => ({ default: m.ProfilePage })))
 const StatsPage = lazy(() => import('./pages/StatsPage').then((m) => ({ default: m.StatsPage })))
 const DiscoverPage = lazy(() => import('./pages/DiscoverPage').then((m) => ({ default: m.DiscoverPage })))
@@ -26,13 +54,6 @@ const FileManagerPage = lazy(() =>
 const StoragePage = lazy(() => import('./pages/StoragePage').then((m) => ({ default: m.StoragePage })))
 const DuplicatesPage = lazy(() => import('./pages/DuplicatesPage').then((m) => ({ default: m.DuplicatesPage })))
 const SchedulerPage = lazy(() => import('./pages/SchedulerPage').then((m) => ({ default: m.SchedulerPage })))
-const WatchHistoryPage = lazy(() =>
-  import('./pages/WatchHistoryPage').then((m) => ({ default: m.WatchHistoryPage })),
-)
-const PosterWallPage = lazy(() => import('./pages/PosterWallPage').then((m) => ({ default: m.PosterWallPage })))
-const AIAssistantPage = lazy(() =>
-  import('./pages/AIAssistantPage').then((m) => ({ default: m.AIAssistantPage })),
-)
 const StrmPage = lazy(() => import('./pages/StrmPage').then((m) => ({ default: m.StrmPage })))
 const ProfileManagementPage = lazy(() =>
   import('./pages/ProfileManagementPage').then((m) => ({ default: m.ProfileManagementPage })),
@@ -45,42 +66,260 @@ const AssistantChatPage = lazy(() =>
   import('./pages/AssistantChatPage').then((m) => ({ default: m.AssistantChatPage })),
 )
 
+export type NavigationScope = 'viewer' | 'sidebar' | 'management'
+export type ManagementGroupID = 'media' | 'storage' | 'tasks' | 'integrations' | 'settings'
+
+export type AppRouteNavigation = {
+  scope: NavigationScope
+  label: string
+  icon: LucideIcon
+  to: string
+  order: number
+  group?: ManagementGroupID
+  activePaths?: string[]
+  end?: boolean
+}
+
 export type AppRoute = {
+  id: string
   path?: string
   index?: boolean
   element: ReactElement
   adminOnly?: boolean
+  permission?: string
+  deniedTo?: string
+  navigation?: AppRouteNavigation
+  children?: AppRoute[]
+}
+
+export type ResolvedAppRoute = {
+  route: AppRoute
+  adminOnly: boolean
+  permission?: string
+}
+
+export function resolveAppRoutes(
+  routes: AppRoute[] = appRoutes,
+  inherited: Pick<ResolvedAppRoute, 'adminOnly' | 'permission'> = { adminOnly: false },
+): ResolvedAppRoute[] {
+  return routes.flatMap((route) => {
+    const access = {
+      adminOnly: inherited.adminOnly || Boolean(route.adminOnly),
+      permission: route.permission ?? inherited.permission,
+    }
+    return [{ route, ...access }, ...resolveAppRoutes(route.children ?? [], access)]
+  })
+}
+
+function AdminEntryPage() {
+  const [searchParams] = useSearchParams()
+  const tabs = searchParams.getAll('tab')
+  if (tabs.length === 0) return <AdminPage />
+  if (tabs.length !== 1) return <Navigate to="/admin" replace />
+
+  const target = {
+    library: '/admin/media',
+    users: '/admin/integrations/users',
+    api: '/admin/integrations/apis',
+  }[tabs[0]]
+  return <Navigate to={target ?? '/admin'} replace />
 }
 
 export const appRoutes: AppRoute[] = [
-  { index: true, element: <HomePage /> },
-  { path: 'libraries', element: <LibrariesPage /> },
-  { path: 'library/:id', element: <LibraryPage /> },
-  { path: 'discover', element: <DiscoverPage /> },
-  { path: 'search', element: <SearchPage /> },
-  { path: 'favourites', element: <FavouritesPage /> },
-  { path: 'playlists', element: <PlaylistsPage /> },
-  { path: 'playlist/:id', element: <PlaylistDetailPage /> },
-  { path: 'media/:id', element: <MediaDetailPage /> },
-  { path: 'play/:id', element: <PlayerPage /> },
-  { path: 'profile', element: <ProfilePage /> },
-  { path: 'dlna', element: <DlnaPage /> },
-  { path: 'history', element: <WatchHistoryPage /> },
-  { path: 'poster-wall', element: <PosterWallPage /> },
-  { path: 'ai', element: <AIAssistantPage /> },
-  { path: 'play-profiles', element: <ProfileManagementPage /> },
-  { path: 'api-configs', element: <Navigate to="/admin?tab=api" replace /> },
-  { path: 'tools', element: <Navigate to="/storage" replace /> },
-  { path: 'files', element: <FileManagerPage />, adminOnly: true },
-  { path: 'storage', element: <StoragePage />, adminOnly: true },
-  { path: 'duplicates', element: <DuplicatesPage />, adminOnly: true },
-  { path: 'scheduler', element: <SchedulerPage />, adminOnly: true },
-  { path: 'tasks', element: <TasksPage />, adminOnly: true },
-  { path: 'recycle', element: <RecycleBinPage />, adminOnly: true },
-  { path: 'strm', element: <StrmPage />, adminOnly: true },
-  { path: 'notify-channels', element: <NotifyChannelsPage />, adminOnly: true },
-  { path: 'settings', element: <SettingsPage />, adminOnly: true },
-  { path: 'assistant', element: <AssistantChatPage />, adminOnly: true },
-  { path: 'stats', element: <StatsPage />, adminOnly: true },
-  { path: 'admin', element: <AdminPage />, adminOnly: true },
+  {
+    id: 'home',
+    index: true,
+    element: <HomePage />,
+    navigation: {
+      scope: 'viewer',
+      label: '首页',
+      icon: Home,
+      to: '/',
+      order: 10,
+      activePaths: ['/'],
+      end: true,
+    },
+  },
+  {
+    id: 'libraries',
+    path: 'libraries',
+    element: <LibrariesPage />,
+    navigation: {
+      scope: 'viewer',
+      label: '媒体库',
+      icon: Library,
+      to: '/libraries',
+      order: 20,
+      activePaths: ['/libraries', '/library', '/media', '/play'],
+    },
+  },
+  { id: 'library-detail', path: 'library/:id', element: <LibraryPage /> },
+  {
+    id: 'discover',
+    path: 'discover',
+    element: <DiscoverPage />,
+    permission: 'can_view_discover',
+    navigation: {
+      scope: 'viewer',
+      label: '发现',
+      icon: Compass,
+      to: '/discover',
+      order: 30,
+      activePaths: ['/discover'],
+    },
+  },
+  { id: 'search', path: 'search', element: <SearchPage /> },
+  {
+    id: 'me',
+    path: 'me',
+    element: <MePage />,
+    navigation: {
+      scope: 'viewer',
+      label: '我的',
+      icon: User,
+      to: '/me?tab=favourites',
+      order: 40,
+      activePaths: ['/me', '/playlist'],
+    },
+  },
+  { id: 'playlist-detail', path: 'playlist/:id', element: <PlaylistDetailPage /> },
+  { id: 'media-detail', path: 'media/:id', element: <MediaDetailPage /> },
+  { id: 'player', path: 'play/:id', element: <PlayerPage /> },
+  { id: 'profile', path: 'profile', element: <ProfilePage /> },
+  {
+    id: 'dlna',
+    path: 'dlna',
+    element: <DlnaPage />,
+    permission: 'can_cast',
+    deniedTo: '/',
+  },
+  { id: 'play-profiles', path: 'play-profiles', element: <ProfileManagementPage /> },
+
+  { id: 'legacy-poster-wall', path: 'poster-wall', element: <Navigate to="/libraries?view=poster" replace /> },
+  { id: 'legacy-favourites', path: 'favourites', element: <Navigate to="/me?tab=favourites" replace /> },
+  { id: 'legacy-playlists', path: 'playlists', element: <Navigate to="/me?tab=playlists" replace /> },
+  { id: 'legacy-history', path: 'history', element: <Navigate to="/me?tab=history" replace /> },
+  { id: 'legacy-ai', path: 'ai', element: <Navigate to="/search?mode=ai" replace /> },
+
+  {
+    id: 'admin-root',
+    path: 'admin',
+    element: <AdminLayoutPage />,
+    adminOnly: true,
+    navigation: {
+      scope: 'sidebar',
+      label: '管理空间',
+      icon: Settings,
+      to: '/admin',
+      order: 10,
+      activePaths: ['/admin'],
+    },
+    children: [
+      { id: 'admin-overview', index: true, element: <AdminEntryPage /> },
+      {
+        id: 'admin-media',
+        path: 'media',
+        element: <AdminMediaPage />,
+        navigation: { scope: 'management', group: 'media', label: '媒体库', icon: Library, to: '/admin/media', order: 10 },
+      },
+      {
+        id: 'admin-media-files',
+        path: 'media/files',
+        element: <FileManagerPage />,
+        navigation: { scope: 'management', group: 'media', label: '文件与入库', icon: FileText, to: '/admin/media/files', order: 20 },
+      },
+      {
+        id: 'admin-media-strm',
+        path: 'media/strm',
+        element: <StrmPage />,
+        navigation: { scope: 'management', group: 'media', label: 'STRM 工具', icon: FileText, to: '/admin/media/strm', order: 30 },
+      },
+      {
+        id: 'admin-storage',
+        path: 'storage',
+        element: <StoragePage />,
+        navigation: { scope: 'management', group: 'storage', label: '存储概览', icon: HardDrive, to: '/admin/storage', order: 10 },
+      },
+      {
+        id: 'admin-storage-duplicates',
+        path: 'storage/duplicates',
+        element: <DuplicatesPage />,
+        navigation: { scope: 'management', group: 'storage', label: '重复文件', icon: Copy, to: '/admin/storage/duplicates', order: 20 },
+      },
+      {
+        id: 'admin-storage-recycle',
+        path: 'storage/recycle',
+        element: <RecycleBinPage />,
+        navigation: { scope: 'management', group: 'storage', label: '回收站', icon: Trash2, to: '/admin/storage/recycle', order: 30 },
+      },
+      {
+        id: 'admin-tasks',
+        path: 'tasks',
+        element: <TasksPage />,
+        navigation: { scope: 'management', group: 'tasks', label: '任务列表', icon: ListChecks, to: '/admin/tasks', order: 10 },
+      },
+      {
+        id: 'admin-tasks-scheduler',
+        path: 'tasks/scheduler',
+        element: <SchedulerPage />,
+        navigation: { scope: 'management', group: 'tasks', label: '调度器', icon: CalendarClock, to: '/admin/tasks/scheduler', order: 20 },
+      },
+      {
+        id: 'admin-tasks-stats',
+        path: 'tasks/stats',
+        element: <StatsPage />,
+        navigation: { scope: 'management', group: 'tasks', label: '运行统计', icon: BarChart3, to: '/admin/tasks/stats', order: 30 },
+      },
+      {
+        id: 'admin-integrations',
+        path: 'integrations',
+        element: <AdminIntegrationsPage />,
+        navigation: { scope: 'management', group: 'integrations', label: '集成概览', icon: Settings, to: '/admin/integrations', order: 10 },
+      },
+      {
+        id: 'admin-integrations-users',
+        path: 'integrations/users',
+        element: <AdminUsersPage />,
+        navigation: { scope: 'management', group: 'integrations', label: '用户管理', icon: Users, to: '/admin/integrations/users', order: 20 },
+      },
+      {
+        id: 'admin-integrations-apis',
+        path: 'integrations/apis',
+        element: <AdminAPIsPage />,
+        navigation: { scope: 'management', group: 'integrations', label: '外部 API', icon: KeyRound, to: '/admin/integrations/apis', order: 30 },
+      },
+      {
+        id: 'admin-integrations-notifications',
+        path: 'integrations/notifications',
+        element: <NotifyChannelsPage />,
+        navigation: { scope: 'management', group: 'integrations', label: '通知渠道', icon: Bell, to: '/admin/integrations/notifications', order: 40 },
+      },
+      {
+        id: 'admin-integrations-assistant',
+        path: 'integrations/assistant',
+        element: <AssistantChatPage />,
+        navigation: { scope: 'management', group: 'integrations', label: 'AI 会话', icon: Bot, to: '/admin/integrations/assistant', order: 50 },
+      },
+      {
+        id: 'admin-settings',
+        path: 'settings',
+        element: <SettingsPage />,
+        navigation: { scope: 'management', group: 'settings', label: '系统设置', icon: SlidersHorizontal, to: '/admin/settings', order: 10 },
+      },
+    ],
+  },
+
+  { id: 'legacy-files', path: 'files', element: <Navigate to="/admin/media/files" replace />, adminOnly: true },
+  { id: 'legacy-strm', path: 'strm', element: <Navigate to="/admin/media/strm" replace />, adminOnly: true },
+  { id: 'legacy-storage', path: 'storage', element: <Navigate to="/admin/storage" replace />, adminOnly: true },
+  { id: 'legacy-tools', path: 'tools', element: <Navigate to="/admin/storage" replace />, adminOnly: true },
+  { id: 'legacy-duplicates', path: 'duplicates', element: <Navigate to="/admin/storage/duplicates" replace />, adminOnly: true },
+  { id: 'legacy-recycle', path: 'recycle', element: <Navigate to="/admin/storage/recycle" replace />, adminOnly: true },
+  { id: 'legacy-tasks', path: 'tasks', element: <Navigate to="/admin/tasks" replace />, adminOnly: true },
+  { id: 'legacy-scheduler', path: 'scheduler', element: <Navigate to="/admin/tasks/scheduler" replace />, adminOnly: true },
+  { id: 'legacy-stats', path: 'stats', element: <Navigate to="/admin/tasks/stats" replace />, adminOnly: true },
+  { id: 'legacy-notify', path: 'notify-channels', element: <Navigate to="/admin/integrations/notifications" replace />, adminOnly: true },
+  { id: 'legacy-assistant', path: 'assistant', element: <Navigate to="/admin/integrations/assistant" replace />, adminOnly: true },
+  { id: 'legacy-api-configs', path: 'api-configs', element: <Navigate to="/admin/integrations/apis" replace />, adminOnly: true },
+  { id: 'legacy-settings', path: 'settings', element: <Navigate to="/admin/settings" replace />, adminOnly: true },
 ]

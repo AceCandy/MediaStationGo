@@ -1,3 +1,5 @@
+import { Navigate } from 'react-router-dom'
+
 import { ExternalResults } from './SearchExternalResults'
 import { SearchHeader } from './SearchHeader'
 import { SearchInputBar } from './SearchInputBar'
@@ -8,12 +10,14 @@ import { useSearchPage } from './useSearchPage'
 export function SearchPage() {
   const search = useSearchPage()
 
+  if (search.normalizationTarget) return <Navigate to={search.normalizationTarget} replace />
+
   return (
     <div className="space-y-6">
       <SearchHeader
         aiOn={search.aiOn}
         aiAvailable={search.aiAvailable}
-        onToggleAI={() => search.setAiOn((on) => !on)}
+        onToggleAI={() => search.setSearchMode(search.aiOn ? 'default' : 'ai')}
       />
 
       <SearchInputBar

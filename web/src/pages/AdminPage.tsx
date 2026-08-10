@@ -1,69 +1,82 @@
-import { useEffect, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
-
 import { APIConfigsPanel } from '../components/APIConfigsPanel'
 import { ManagementShortcuts } from '../components/ManagementShortcuts'
 import { AdminLibraryPanel } from './AdminLibraryPanel'
 import { AdminUsersPanel } from './AdminUsersPanel'
 
-type AdminTab = 'library' | 'users' | 'api'
-
-function parseAdminTab(value: string | null): AdminTab {
-  if (value === 'users' || value === 'api') return value
-  return 'library'
-}
-
 export function AdminPage() {
-  const [searchParams, setSearchParams] = useSearchParams()
-  const [tab, setTab] = useState<AdminTab>(() => parseAdminTab(searchParams.get('tab')))
-  const tabs = [
-    { key: 'library' as const, label: '媒体库' },
-    { key: 'users' as const, label: '用户' },
-    { key: 'api' as const, label: '外部API' },
-  ]
-
-  useEffect(() => {
-    setTab(parseAdminTab(searchParams.get('tab')))
-  }, [searchParams])
-
-  const selectTab = (next: AdminTab) => {
-    setTab(next)
-    setSearchParams(next === 'library' ? {} : { tab: next })
-  }
-
   return (
     <div className="space-y-6">
-      <h1 className="font-display text-3xl font-bold text-ink-600">管理后台</h1>
+      <PageHeading title="管理总览" description="按工作域进入现有管理能力。" />
       <ManagementShortcuts
-        title="统一管理入口"
-        description="侧栏保持精简，完整管理能力统一从这里进入。"
+        title="管理工作域"
         items={[
-          { to: '/files', title: '手动整理', description: '从下载目录选择文件夹并整理入库', group: '文件与入库' },
-          { to: '/storage', title: '存储与文件', description: '查看占用、清理重复项和管理文件', group: '文件与入库' },
-          { to: '/notify-channels', title: '通知渠道', description: '配置 Bot、Webhook、邮件等通知出口', group: '系统运维' },
-          { to: '/assistant', title: 'AI 会话', description: '查看和接管后台 AI 操作记录', group: '系统运维' },
+          { to: '/admin/media', title: '媒体入库', description: '媒体库、文件整理与 STRM 工具' },
+          { to: '/admin/storage', title: '存储与清理', description: '存储概览、重复文件与回收站' },
+          { to: '/admin/tasks', title: '任务状态', description: '任务列表、调度器与运行统计' },
+          { to: '/admin/integrations', title: '用户与集成', description: '用户、外部 API、通知与 AI 会话' },
+          { to: '/admin/settings', title: '系统设置', description: '系统参数、识别词与更新设置' },
         ]}
       />
-      <div className="flex flex-wrap gap-2 border-b border-gray-200">
-        {tabs.map((k) => (
-          <button
-            key={k.key}
-            onClick={() => selectTab(k.key)}
-            className={
-              'border-b-2 px-4 py-2 text-sm transition ' +
-              (tab === k.key
-                ? 'border-primary-400 text-brand-500'
-                : 'border-transparent text-ink-50 hover:text-white')
-            }
-          >
-            {k.label}
-          </button>
-        ))}
-      </div>
+    </div>
+  )
+}
 
-      {tab === 'library' && <AdminLibraryPanel />}
-      {tab === 'users' && <AdminUsersPanel />}
-      {tab === 'api' && <APIConfigsPanel />}
+export function AdminMediaPage() {
+  return (
+    <div className="space-y-8">
+      <PageHeading title="媒体入库" description="管理媒体库，并进入文件整理或 STRM 工作流。" />
+      <ManagementShortcuts
+        title="入库工具"
+        items={[
+          { to: '/admin/media/files', title: '文件与入库', description: '浏览文件并手动整理入库' },
+          { to: '/admin/media/strm', title: 'STRM 工具', description: '生成、修复、导入与绑定 STRM' },
+        ]}
+      />
+      <AdminLibraryPanel />
+    </div>
+  )
+}
+
+export function AdminIntegrationsPage() {
+  return (
+    <div className="space-y-6">
+      <PageHeading title="用户与集成" description="管理访问用户和外部服务连接。" />
+      <ManagementShortcuts
+        title="集成能力"
+        items={[
+          { to: '/admin/integrations/users', title: '用户管理', description: '账户、状态、密码与权限' },
+          { to: '/admin/integrations/apis', title: '外部 API', description: 'TMDb、Douban、Bangumi 与 AI 配置' },
+          { to: '/admin/integrations/notifications', title: '通知渠道', description: 'Bot、Webhook 与邮件通知' },
+          { to: '/admin/integrations/assistant', title: 'AI 会话', description: '后台多轮会话与操作记录' },
+        ]}
+      />
+    </div>
+  )
+}
+
+export function AdminUsersPage() {
+  return (
+    <div className="space-y-6">
+      <PageHeading title="用户管理" description="管理账户状态、密码与访问权限。" />
+      <AdminUsersPanel />
+    </div>
+  )
+}
+
+export function AdminAPIsPage() {
+  return (
+    <div className="space-y-6">
+      <PageHeading title="外部 API" description="配置发现、元数据和 AI 服务提供方。" />
+      <APIConfigsPanel />
+    </div>
+  )
+}
+
+function PageHeading({ title, description }: { title: string; description: string }) {
+  return (
+    <div>
+      <h1 className="font-display text-3xl font-bold text-[var(--app-text)]">{title}</h1>
+      <p className="mt-1 text-sm text-[var(--app-muted)]">{description}</p>
     </div>
   )
 }

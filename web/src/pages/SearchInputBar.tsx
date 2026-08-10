@@ -12,9 +12,11 @@ export function SearchInputBar({ aiOn, query, onQueryChange, onAISubmit }: Searc
     return (
       <form onSubmit={onAISubmit} className="flex flex-wrap gap-2">
         <input
-          autoFocus
           className="input-base"
-          placeholder='例如:"2010 年后的科幻电影" / "最近的动漫"'
+          name="ai-search"
+          aria-label="AI 搜索描述"
+          autoComplete="off"
+          placeholder='例如：“2010 年后的科幻电影”或“最近的动漫”…'
           value={query}
           onChange={(e: ChangeEvent<HTMLInputElement>) => onQueryChange(e.target.value)}
         />
@@ -27,8 +29,10 @@ export function SearchInputBar({ aiOn, query, onQueryChange, onAISubmit }: Searc
 
   return (
     <input
-      autoFocus
       className="input-base"
+      name="media-search"
+      aria-label="按标题搜索媒体"
+      autoComplete="off"
       placeholder="按标题搜索…"
       value={query}
       onChange={(e: ChangeEvent<HTMLInputElement>) => onQueryChange(e.target.value)}

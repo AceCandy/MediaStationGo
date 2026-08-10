@@ -159,7 +159,7 @@ export function SystemUpdatePanel() {
           <span className="min-w-0 truncate text-ink-100">
             后台任务：<span className="font-mono">{status.task_id}</span>
           </span>
-          <Link className="btn-ghost shrink-0 px-3 py-2" to="/tasks">
+          <Link className="btn-ghost shrink-0 px-3 py-2" to="/admin/tasks">
             查看任务
           </Link>
         </div>

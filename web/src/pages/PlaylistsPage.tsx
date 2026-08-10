@@ -9,7 +9,7 @@ import type { Playlist } from '../types'
 
 // Landing page for playlists. Lists every playlist owned by the current
 // user and lets them create / delete one.
-export function PlaylistsPage() {
+export function PlaylistsPage({ embedded = false }: { embedded?: boolean }) {
   const [items, setItems] = useState<Playlist[]>([])
   const [name, setName] = useState('')
   const [loading, setLoading] = useState(true)
@@ -38,7 +38,7 @@ export function PlaylistsPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="font-display text-3xl font-bold text-ink-600">播放列表</h1>
+      {!embedded && <h1 className="font-display text-3xl font-bold text-ink-600">播放列表</h1>}
 
       <form onSubmit={onCreate} className="glass-panel grid gap-3 md:grid-cols-[1fr_auto]">
         <input

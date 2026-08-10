@@ -28,18 +28,19 @@ export function usePermission(
   options: { autoFetch?: boolean } = {}
 ): boolean {
   const { autoFetch = true } = options
-  const { hasPermission, isSuper, permissions, isLoading, fetchPermissions } = usePermissionStore()
+  const { hasPermission, isSuper, userId: permissionUserId, loadedUserId, isLoading, fetchPermissions } = usePermissionStore()
   const tier = useAuthStore((state) => state.tier)
-  const role = useAuthStore((state) => state.user?.role)
+  const user = useAuthStore((state) => state.user)
+  const role = user?.role
   const isAuthenticated = useAuthStore((state) => state.token !== null)
   const hasSuperAccess = isSuper || tier === 'plus' || role === 'admin'
 
   // 权限未加载时自动获取
   useEffect(() => {
-    if (!hasSuperAccess && isAuthenticated && autoFetch && Object.keys(permissions).length === 0 && !isLoading) {
-      fetchPermissions()
+    if (!hasSuperAccess && user && isAuthenticated && autoFetch && permissionUserId !== user.id && !isLoading) {
+      void fetchPermissions(user.id)
     }
-  }, [autoFetch, fetchPermissions, hasSuperAccess, isAuthenticated, isLoading, permissions])
+  }, [autoFetch, fetchPermissions, hasSuperAccess, isAuthenticated, isLoading, permissionUserId, user])
 
   // 超级用户有所有权限
   if (hasSuperAccess) {
@@ -51,7 +52,7 @@ export function usePermission(
     return false
   }
 
-  return hasPermission(key)
+  return loadedUserId === user?.id && hasPermission(key)
 }
 
 /**
@@ -78,16 +79,17 @@ export function usePermission(
  * ```
  */
 export function usePermissions() {
-  const { permissions, isSuper, isLoading, fetchPermissions } = usePermissionStore()
+  const { permissions, isSuper, isLoading, loadedUserId, fetchPermissions } = usePermissionStore()
   const tier = useAuthStore((state) => state.tier)
-  const role = useAuthStore((state) => state.user?.role)
+  const user = useAuthStore((state) => state.user)
+  const role = user?.role
   const isAuthenticated = useAuthStore((state) => state.token !== null)
 
   const check = (key: string): boolean => {
     if (isSuper || tier === 'plus' || role === 'admin') {
       return true
     }
-    return permissions[key] === true
+    return loadedUserId === user?.id && permissions[key] === true
   }
 
   return {
@@ -95,7 +97,7 @@ export function usePermissions() {
     isSuper: isSuper || tier === 'plus' || role === 'admin',
     isLoading,
     check,
-    refetch: fetchPermissions,
+    refetch: () => (user ? fetchPermissions(user.id) : Promise.resolve()),
     isAuthenticated,
   }
 }

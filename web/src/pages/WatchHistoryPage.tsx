@@ -18,7 +18,7 @@ function fmtDuration(ms: number): string {
 
 // WatchHistoryPage shows a full paginated view of the user's playback
 // history with progress bars and resume links.
-export function WatchHistoryPage() {
+export function WatchHistoryPage({ embedded = false }: { embedded?: boolean }) {
   const [items, setItems] = useState<HistoryItem[]>([])
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState('')
@@ -61,10 +61,12 @@ export function WatchHistoryPage() {
   return (
     <div className="space-y-6">
       <header className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <Clock className="h-6 w-6 text-brand-500" />
-          <h1 className="font-display text-3xl font-bold text-ink-600">观看历史</h1>
-        </div>
+        {!embedded && (
+          <div className="flex items-center gap-3">
+            <Clock className="h-6 w-6 text-brand-500" />
+            <h1 className="font-display text-3xl font-bold text-ink-600">观看历史</h1>
+          </div>
+        )}
         <div className="flex flex-wrap items-center gap-2">
           <button
             onClick={() => clearByStatus('incomplete')}
@@ -97,7 +99,7 @@ export function WatchHistoryPage() {
           return (
             <div
               key={h.id}
-              className="glass-panel flex items-center gap-4 !p-3"
+              className="glass-panel grid grid-cols-[3rem_minmax(0,1fr)] items-center gap-3 !p-3 sm:flex sm:gap-4"
             >
               <div className="h-16 w-12 shrink-0 overflow-hidden rounded-lg bg-surface-900">
                 {m.poster_url ? (
@@ -109,14 +111,14 @@ export function WatchHistoryPage() {
                   />
                 ) : null}
               </div>
-              <div className="flex-1 space-y-1">
+              <div className="min-w-0 flex-1 space-y-1">
                 <Link
                   to={`/media/${m.id}`}
                   className="font-medium text-ink-600 transition hover:text-brand-500"
                 >
                   {m.title}
                 </Link>
-                <div className="flex items-center gap-3 text-xs text-ink-50">
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink-50">
                   <span>{fmtDuration(h.position_ms)} / {fmtDuration(h.duration_ms)}</span>
                   <span>{new Date(h.watched_at).toLocaleString()}</span>
                   {h.completed && (
@@ -132,17 +134,17 @@ export function WatchHistoryPage() {
                   />
                 </div>
               </div>
-              <div className="flex shrink-0 items-center gap-2">
+              <div className="col-span-2 flex shrink-0 flex-wrap items-center justify-end gap-2 sm:col-auto">
                 <Link
                   to={`/play/${m.id}`}
-                  className="neon-button !px-3 !py-1 !text-xs"
+                  className="neon-button min-h-11 !px-3 !text-xs"
                 >
                   <Play size={12} /> 继续
                 </Link>
                 <button
                   onClick={() => removeOne(h.id)}
                   disabled={busy === h.id}
-                  className="inline-flex items-center gap-1 rounded-xl border border-gray-200 bg-white px-3 py-1.5 text-xs font-bold text-gray-500 transition hover:border-red-200 hover:bg-red-50 hover:text-red-500 disabled:opacity-50"
+                  className="inline-flex min-h-11 items-center gap-1 rounded-xl border border-gray-200 bg-white px-3 text-xs font-bold text-gray-500 transition hover:border-red-200 hover:bg-red-50 hover:text-red-500 disabled:opacity-50"
                   title="移除此条观看历史"
                 >
                   <Trash2 size={12} />

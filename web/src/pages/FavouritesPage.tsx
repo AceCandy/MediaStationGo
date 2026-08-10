@@ -5,7 +5,7 @@ import { playbackAPI } from '../api/playback'
 import { MediaCard } from '../components/MediaCard'
 import type { Media } from '../types'
 
-export function FavouritesPage() {
+export function FavouritesPage({ embedded = false }: { embedded?: boolean }) {
   const [items, setItems] = useState<Media[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -28,7 +28,7 @@ export function FavouritesPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="font-display text-3xl font-bold text-ink-600">我的收藏</h1>
+      {!embedded && <h1 className="font-display text-3xl font-bold text-ink-600">我的收藏</h1>}
 
       {loading && (
         <div className="flex items-center gap-2 py-8 text-ink-50">

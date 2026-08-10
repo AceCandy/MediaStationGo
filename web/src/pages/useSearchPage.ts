@@ -4,6 +4,8 @@ import toast from 'react-hot-toast'
 
 import { aiAPI, type ExternalMediaResult, type SearchIntent } from '../api/ai'
 import { mediaAPI } from '../api/library'
+import { useLayoutPermissions } from '../components/useLayoutPermissions'
+import { useAuthStore } from '../stores/auth'
 import type { Media } from '../types'
 import { groupSeries } from '../utils/groupSeries'
 
@@ -14,27 +16,56 @@ function apiErrorMessage(err: unknown, fallback: string): string {
 }
 
 export function useSearchPage() {
-  const [searchParams] = useSearchParams()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const user = useAuthStore((state) => state.user)
+  const { can, isReady: permissionsReady } = useLayoutPermissions(user)
   const urlQuery = searchParams.get('q') ?? ''
+  const modeValues = searchParams.getAll('mode')
+  const requestedMode = modeValues[0] ?? 'default'
+  const validMode = modeValues.length <= 1 && (requestedMode === 'default' || requestedMode === 'ai')
+  const requestedAI = validMode && requestedMode === 'ai'
   const [q, setQ] = useState('')
   const [items, setItems] = useState<Media[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-  const [aiOn, setAiOn] = useState(false)
-  const [aiAvailable, setAiAvailable] = useState(false)
+  const [providerAvailable, setProviderAvailable] = useState(false)
+  const [providerChecked, setProviderChecked] = useState(false)
   const [intent, setIntent] = useState<SearchIntent | null>(null)
   const [hasSearched, setHasSearched] = useState(false)
   const [externalItems, setExternalItems] = useState<ExternalMediaResult[]>([])
   const [searchTotal, setSearchTotal] = useState(0)
   const searchSeq = useRef(0)
   const localCards = useMemo(() => groupSeries(items), [items])
+  const hasAIPermission = permissionsReady && can('can_use_ai')
+  const aiAvailable = hasAIPermission && providerChecked && providerAvailable
+  const aiOn = requestedAI && aiAvailable
+  const normalSearchTarget = useMemo(() => {
+    const next = new URLSearchParams(searchParams)
+    next.delete('mode')
+    const query = next.toString()
+    return `/search${query ? `?${query}` : ''}`
+  }, [searchParams])
 
   useEffect(() => {
-    aiAPI
-      .status()
-      .then((status) => setAiAvailable(status.enabled))
-      .catch(() => setAiAvailable(false))
-  }, [])
+    if (!validMode || !permissionsReady) return
+    if (!can('can_use_ai')) {
+      setProviderAvailable(false)
+      setProviderChecked(true)
+      return
+    }
+    setProviderChecked(false)
+    aiAPI.status()
+      .then((status) => setProviderAvailable(status.enabled))
+      .catch(() => setProviderAvailable(false))
+      .finally(() => setProviderChecked(true))
+  }, [can, permissionsReady, validMode])
+
+  useEffect(() => {
+    if (!requestedAI || !permissionsReady || !providerChecked || aiAvailable) return
+    const next = new URLSearchParams(searchParams)
+    next.delete('mode')
+    setSearchParams(next, { replace: true })
+  }, [aiAvailable, permissionsReady, providerChecked, requestedAI, searchParams, setSearchParams])
 
   useEffect(() => {
     setQ(urlQuery)
@@ -52,6 +83,8 @@ export function useSearchPage() {
 
     setHasSearched(true)
     setError('')
+    setExternalItems([])
+    setIntent(null)
     const loadAll = async () => {
       let page = 1
       let collected: Media[] = []
@@ -84,22 +117,22 @@ export function useSearchPage() {
   }, [])
 
   useEffect(() => {
-    if (aiOn) return
+    if (!validMode || requestedAI || aiOn) return
     setLoading(true)
     const timer = window.setTimeout(() => doQuickSearch(q), 300)
     return () => window.clearTimeout(timer)
-  }, [q, aiOn, doQuickSearch])
+  }, [q, aiOn, doQuickSearch, requestedAI, validMode])
 
   const onAISubmit = async (event: FormEvent) => {
     event.preventDefault()
     const trimmedQuery = q.trim()
-    if (!trimmedQuery) return
+    if (!trimmedQuery || !aiAvailable) return
     ++searchSeq.current
     setLoading(true)
     setError('')
     setHasSearched(true)
     try {
-      const data = await aiAPI.smartSearch(q)
+      const data = await aiAPI.smartSearch(trimmedQuery)
       setItems(data.items ?? [])
       setSearchTotal((data.items ?? []).length)
       setExternalItems(data.external_items ?? [])
@@ -113,6 +146,13 @@ export function useSearchPage() {
     }
   }
 
+  const setSearchMode = (mode: 'default' | 'ai') => {
+    const next = new URLSearchParams(searchParams)
+    if (mode === 'ai') next.set('mode', 'ai')
+    else next.delete('mode')
+    setSearchParams(next)
+  }
+
   return {
     aiAvailable,
     aiOn,
@@ -122,10 +162,11 @@ export function useSearchPage() {
     itemCount: items.length,
     loading,
     localCards,
+    normalizationTarget: validMode ? null : normalSearchTarget,
     onAISubmit,
     q,
     searchTotal,
-    setAiOn,
+    setSearchMode,
     setQ,
     showEmpty: !loading && !error && hasSearched && localCards.length === 0,
     showIdle: !loading && !error && !hasSearched,

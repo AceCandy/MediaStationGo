@@ -1,15 +1,25 @@
 import { useEffect, useMemo, useState } from 'react'
+import { GalleryHorizontalEnd, LayoutGrid } from 'lucide-react'
+import { Link, Navigate, useSearchParams } from 'react-router-dom'
+import clsx from 'clsx'
 
 import { libraryAPI } from '../api/library'
 import { toolsAPI } from '../api/tools'
+import { useAuthStore } from '../stores/auth'
 import {
   LibrariesContent,
   LibrariesEmptyState,
   LibrariesHeader,
 } from './LibrariesPageSections'
 import { isSeriesLibraryType, latestLibraryCards, type LibraryPreview } from './librariesPageModel'
+import { PosterWallPage } from './PosterWallPage'
 
 export function LibrariesPage() {
+  const isAdmin = useAuthStore((state) => state.user?.role === 'admin')
+  const [searchParams] = useSearchParams()
+  const viewValues = searchParams.getAll('view')
+  const view = viewValues[0] ?? 'library'
+  const validView = viewValues.length <= 1 && (view === 'library' || view === 'poster')
   const [previews, setPreviews] = useState<LibraryPreview[]>([])
   const [loading, setLoading] = useState(true)
   const [repairing, setRepairing] = useState(false)
@@ -31,6 +41,7 @@ export function LibrariesPage() {
   }
 
   useEffect(() => {
+    if (!validView || view !== 'library') return undefined
     let cancelled = false
     async function load() {
       setLoading(true)
@@ -59,31 +70,69 @@ export function LibrariesPage() {
     }
     load()
     return () => { cancelled = true }
-  }, [])
+  }, [validView, view])
 
   const total = useMemo(() => previews.reduce((sum, preview) => sum + preview.total, 0), [previews])
 
-  if (loading) {
-    return <p className="px-2 py-8 text-sm text-sand-500">媒体库加载中…</p>
-  }
+  if (!validView) return <Navigate to="/libraries" replace />
 
   return (
     <div className="space-y-8">
-      <LibrariesHeader
-        previewCount={previews.length}
-        total={total}
-        repairMsg={repairMsg}
-        repairEpisodeArtwork={repairEpisodeArtwork}
-        repairing={repairing}
-        onRepairEpisodeArtworkChange={setRepairEpisodeArtwork}
-        onRepairRescrape={handleRepairRescrape}
-      />
-
-      {previews.length === 0 ? (
-        <LibrariesEmptyState />
+      <LibrariesViewSwitcher view={view} />
+      {view === 'poster' ? (
+        <PosterWallPage />
       ) : (
-        <LibrariesContent previews={previews} />
+        <>
+          {loading ? (
+            <p className="px-2 py-8 text-sm text-sand-500">媒体库加载中…</p>
+          ) : (
+            <>
+              <LibrariesHeader
+                isAdmin={isAdmin}
+                previewCount={previews.length}
+                total={total}
+                repairMsg={repairMsg}
+                repairEpisodeArtwork={repairEpisodeArtwork}
+                repairing={repairing}
+                onRepairEpisodeArtworkChange={setRepairEpisodeArtwork}
+                onRepairRescrape={handleRepairRescrape}
+              />
+              {previews.length === 0 ? <LibrariesEmptyState /> : <LibrariesContent previews={previews} />}
+            </>
+          )}
+        </>
       )}
     </div>
+  )
+}
+
+function LibrariesViewSwitcher({ view }: { view: string }) {
+  const items = [
+    { id: 'library', label: '媒体库', icon: LayoutGrid, to: '/libraries' },
+    { id: 'poster', label: '海报视图', icon: GalleryHorizontalEnd, to: '/libraries?view=poster' },
+  ]
+  return (
+    <nav aria-label="媒体库视图" className="inline-grid grid-cols-2 rounded-lg border border-[var(--app-border)] bg-[var(--app-panel)] p-1">
+      {items.map((item) => {
+        const Icon = item.icon
+        const active = view === item.id
+        return (
+          <Link
+            key={item.id}
+            to={item.to}
+            aria-current={active ? 'page' : undefined}
+            className={clsx(
+              'flex min-h-11 items-center justify-center gap-2 rounded-md px-4 text-sm font-bold transition-colors',
+              active
+                ? 'bg-[var(--app-active-bg)] text-[var(--app-active-text)]'
+                : 'text-[var(--app-muted)] hover:bg-[var(--app-hover)] hover:text-[var(--app-text)]',
+            )}
+          >
+            <Icon size={16} />
+            {item.label}
+          </Link>
+        )
+      })}
+    </nav>
   )
 }

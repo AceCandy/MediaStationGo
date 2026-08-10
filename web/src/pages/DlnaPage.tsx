@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import toast from 'react-hot-toast'
 import { Cast, RefreshCw, Tv } from 'lucide-react'
 
@@ -10,6 +11,8 @@ import type { Media } from '../types'
 // DlnaPage scans the LAN for UPnP MediaRenderer devices and lets the
 // user push a media item to one of them via SetAVTransportURI + Play.
 export function DlnaPage() {
+  const [searchParams] = useSearchParams()
+  const requestedMediaID = searchParams.get('media') ?? ''
   const [devices, setDevices] = useState<DLNADevice[]>([])
   const [scanning, setScanning] = useState(false)
   const [media, setMedia] = useState<Media[]>([])
@@ -25,12 +28,27 @@ export function DlnaPage() {
   }
 
   useEffect(() => {
+    let cancelled = false
     scan(false)
-    mediaAPI.search('', 30).then((d) => {
-      setMedia(d.items)
-      if (d.items.length > 0) setSelectedMedia(d.items[0].id)
+    const recentRequest = mediaAPI.search('', 30).then((data) => data.items ?? []).catch(() => [] as Media[])
+    const requestedRequest = requestedMediaID
+      ? mediaAPI.get(requestedMediaID).then((item) => [item]).catch(() => [] as Media[])
+      : Promise.resolve([] as Media[])
+    Promise.all([requestedRequest, recentRequest]).then(([requested, recent]) => {
+      if (cancelled) return
+      const seen = new Set<string>()
+      const items = [...requested, ...recent].filter((item) => {
+        if (seen.has(item.id)) return false
+        seen.add(item.id)
+        return true
+      })
+      setMedia(items)
+      if (items.length > 0) setSelectedMedia(requested[0]?.id ?? items[0].id)
     })
-  }, [])
+    return () => {
+      cancelled = true
+    }
+  }, [requestedMediaID])
 
   const cast = async (dev: DLNADevice) => {
     if (!selectedMedia) {

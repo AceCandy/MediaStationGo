@@ -5,6 +5,7 @@ import { usePlayProfileStore } from '../stores/playProfile'
 import {
   LayoutFrameFooter,
   LayoutHeader,
+  LayoutMobileBottomNav,
   LayoutSidebars,
   LayoutWorkspace,
 } from './LayoutSections'
@@ -36,6 +37,12 @@ export function Layout() {
 
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-[var(--app-bg)] text-[var(--app-text)] font-body select-none">
+      <a
+        href="#main-content"
+        className="sr-only z-[60] rounded-md bg-[var(--app-panel)] px-4 py-3 text-sm font-bold text-[var(--app-text)] focus:not-sr-only focus:fixed focus:left-4 focus:top-4"
+      >
+        跳到主要内容
+      </a>
       <LayoutSidebars
         sidebar={sidebar}
         isAdmin={permissions.isAdmin}
@@ -54,8 +61,15 @@ export function Layout() {
           profile={profile}
           onLogout={closeProfileAndLogout}
         />
+        {permissions.error && (
+          <div role="status" className="flex flex-wrap items-center justify-between gap-3 border-b border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-800 md:px-8">
+            <span>权限信息加载失败，部分入口暂不可用。</span>
+            <button type="button" onClick={permissions.retry} className="min-h-11 font-bold underline">重试</button>
+          </div>
+        )}
         <LayoutWorkspace routeKey={location.pathname} />
         <LayoutFrameFooter />
+        <LayoutMobileBottomNav pathname={location.pathname} can={permissions.can} />
       </div>
     </div>
   )

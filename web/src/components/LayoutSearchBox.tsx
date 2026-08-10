@@ -42,13 +42,16 @@ export function LayoutSearchBox({
       </span>
       <input
         type="text"
+        name="global-search"
+        aria-label="搜索媒体"
+        autoComplete="off"
         value={query}
         onChange={(event) => onQueryChange(event.target.value)}
         onMouseDown={() => onFocusedChange(true)}
         onClick={() => onFocusedChange(true)}
         onFocus={() => onFocusedChange(true)}
         onBlur={() => window.setTimeout(() => onFocusedChange(false), 120)}
-        placeholder="搜索电影、电视剧、演员..."
+        placeholder="搜索电影、电视剧、演员…"
         className="w-full rounded-full border border-[var(--app-border)] bg-[var(--app-control-bg)] py-2.5 pl-11 pr-12 text-sm text-[var(--app-text)] placeholder:text-[var(--app-muted)] outline-none transition-all duration-300 focus:border-brand-500 focus:bg-[var(--app-panel)] focus:ring-4 focus:ring-brand-100/40"
       />
       <div className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2">
@@ -70,7 +73,7 @@ export function LayoutSearchBox({
               {loading && (
                 <div className="flex items-center gap-2 px-3 py-4 text-sm text-[var(--app-muted)]">
                   <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-brand-500 border-t-transparent" />
-                  搜索中...
+                  搜索中…
                 </div>
               )}
               {!loading && error && (

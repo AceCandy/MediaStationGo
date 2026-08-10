@@ -112,7 +112,7 @@ export function AssistantChatPage() {
   }
 
   return (
-    <div className="grid h-[calc(100vh-100px)] grid-cols-[260px_1fr] gap-4">
+    <div className="grid min-h-[42rem] grid-cols-1 gap-4 lg:h-[calc(100vh-10rem)] lg:min-h-0 lg:grid-cols-[260px_1fr]">
       <AssistantSessionsSidebar
         sessions={sessions}
         activeSessionId={active?.session.id}

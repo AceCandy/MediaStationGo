@@ -1,10 +1,12 @@
-import { Outlet } from 'react-router-dom'
+import { useEffect, useRef } from 'react'
+import { Link, Outlet } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import clsx from 'clsx'
 
 import { AppFooter } from './AppFooter'
 import { LayoutSidebarContent, type LayoutSidebarContentProps } from './LayoutSidebarContent'
 import { RouteErrorBoundary } from './RouteErrorBoundary'
+import { VIEWER_NAV_ITEMS } from './layoutNavigation'
 import type { useLayoutSidebar } from './useLayoutSidebar'
 
 type LayoutSidebarState = ReturnType<typeof useLayoutSidebar>
@@ -47,11 +49,55 @@ export function LayoutDesktopSidebar({ children, isSidebarOpen }: LayoutSidebarP
 }
 
 export function LayoutMobileSidebar({ children, isOpen, onClose }: LayoutMobileSidebarProps) {
+  const panelRef = useRef<HTMLDivElement>(null)
+  const onCloseRef = useRef(onClose)
+
+  useEffect(() => {
+    onCloseRef.current = onClose
+  }, [onClose])
+
+  useEffect(() => {
+    if (!isOpen) return undefined
+    const returnTarget = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    const panel = panelRef.current
+    const focusable = () => Array.from(
+      panel?.querySelectorAll<HTMLElement>('a[href], button:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])') ?? [],
+    )
+    focusable()[0]?.focus()
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        onCloseRef.current()
+        return
+      }
+      if (event.key !== 'Tab') return
+      const targets = focusable()
+      if (targets.length === 0) return
+      const first = targets[0]
+      const last = targets[targets.length - 1]
+      const focusInside = panel?.contains(document.activeElement)
+      if (!focusInside || (event.shiftKey && document.activeElement === first)) {
+        event.preventDefault()
+        ;(event.shiftKey ? last : first).focus()
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault()
+        first.focus()
+      }
+    }
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown)
+      returnTarget?.focus()
+    }
+  }, [isOpen])
+
   return (
     <AnimatePresence>
       {isOpen && (
         <div className="fixed inset-0 z-50 flex lg:hidden">
-          <motion.div
+          <motion.button
+            type="button"
+            aria-label="关闭导航"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
@@ -59,11 +105,15 @@ export function LayoutMobileSidebar({ children, isOpen, onClose }: LayoutMobileS
             className="fixed inset-0 bg-black/15 backdrop-blur-sm"
           />
           <motion.div
+            ref={panelRef}
             initial={{ x: '-100%' }}
             animate={{ x: 0 }}
             exit={{ x: '-100%' }}
             transition={{ type: 'spring', damping: 25, stiffness: 220 }}
-            className="relative flex w-64 max-w-xs flex-col h-full z-10 shadow-xl"
+            className="relative z-10 flex h-full w-80 max-w-[calc(100vw-3rem)] flex-col overscroll-contain shadow-xl"
+            role="dialog"
+            aria-modal="true"
+            aria-label="应用导航"
           >
             {children}
           </motion.div>
@@ -111,7 +161,7 @@ export function LayoutSidebars({
 
 export function LayoutWorkspace({ routeKey }: LayoutWorkspaceProps) {
   return (
-    <main className="flex-1 overflow-y-auto px-4 py-6 md:px-8 md:py-10">
+    <main id="main-content" tabIndex={-1} className="flex-1 overflow-y-auto px-4 py-6 md:px-8 md:py-10">
       <div className="max-w-7xl mx-auto">
         <AnimatePresence mode="wait">
           <motion.div
@@ -131,10 +181,53 @@ export function LayoutWorkspace({ routeKey }: LayoutWorkspaceProps) {
   )
 }
 
+export function LayoutMobileBottomNav({
+  pathname,
+  can,
+}: {
+  pathname: string
+  can: (key: string) => boolean
+}) {
+  const items = VIEWER_NAV_ITEMS.filter((item) => !item.permission || can(item.permission))
+  return (
+    <nav
+      aria-label="主要导航"
+      className="z-40 shrink-0 border-t border-[var(--app-border)] bg-[var(--app-panel)] pb-[env(safe-area-inset-bottom)] lg:hidden"
+    >
+      <div className="grid" style={{ gridTemplateColumns: `repeat(${items.length}, minmax(0, 1fr))` }}>
+        {items.map((item) => {
+          const Icon = item.icon
+          const active = routeMatches(pathname, item.activePaths)
+          return (
+            <Link
+              key={item.to}
+              to={item.to}
+              aria-current={active ? 'page' : undefined}
+              className={clsx(
+                'flex min-h-14 min-w-0 flex-col items-center justify-center gap-1 px-1 text-[11px] font-bold transition-colors',
+                active
+                  ? 'bg-[var(--app-active-bg)] text-[var(--app-active-text)]'
+                  : 'text-[var(--app-muted)] hover:bg-[var(--app-hover)] hover:text-[var(--app-text)]',
+              )}
+            >
+              <Icon size={19} aria-hidden="true" />
+              <span className="truncate">{item.label}</span>
+            </Link>
+          )
+        })}
+      </div>
+    </nav>
+  )
+}
+
 export function LayoutFrameFooter() {
   return (
-    <AppFooter className="border-t border-[var(--app-border)] bg-[var(--app-panel)] py-5 text-center text-xs text-[var(--app-muted)]" />
+    <AppFooter className="hidden border-t border-[var(--app-border)] bg-[var(--app-panel)] py-5 text-center text-xs text-[var(--app-muted)] lg:block" />
   )
+}
+
+function routeMatches(pathname: string, paths: string[]) {
+  return paths.some((path) => (path === '/' ? pathname === '/' : pathname.startsWith(path)))
 }
 
 export { LayoutSidebarContent }

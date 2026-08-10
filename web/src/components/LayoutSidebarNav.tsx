@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import { useId, type ReactNode } from 'react'
 import { NavLink } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import { ChevronDown } from 'lucide-react'
@@ -16,11 +16,16 @@ type SidebarGroupProps = {
 }
 
 export function SidebarGroup({ id, icon, label, children, collapsed, open, active, onToggle }: SidebarGroupProps) {
+  const contentId = useId()
+
   return (
     <div className="space-y-1">
       <button
         type="button"
         onClick={() => onToggle(id)}
+        aria-label={collapsed ? label : undefined}
+        aria-expanded={collapsed ? undefined : Boolean(open)}
+        aria-controls={collapsed ? undefined : contentId}
         className={clsx(
           'group relative flex w-full items-center gap-3.5 rounded-xl px-4 py-3 text-sm font-bold transition-all duration-300',
           active
@@ -50,21 +55,23 @@ export function SidebarGroup({ id, icon, label, children, collapsed, open, activ
           </div>
         )}
       </button>
-      <AnimatePresence initial={false}>
-        {!collapsed && open && (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: 'auto', opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.18, ease: 'easeOut' }}
-            className="overflow-hidden"
-          >
-            <div className="space-y-1 pb-1 pl-3">
-              {children}
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      <div id={contentId}>
+        <AnimatePresence initial={false}>
+          {!collapsed && open && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 'auto', opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={{ duration: 0.18, ease: 'easeOut' }}
+              className="overflow-hidden"
+            >
+              <div className="space-y-1 pb-1 pl-3">
+                {children}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
     </div>
   )
 }
@@ -74,20 +81,22 @@ type SidebarLinkProps = {
   icon: ReactNode
   label: string
   end?: boolean
+  active?: boolean
   collapsed?: boolean
   child?: boolean
 }
 
-export function SidebarLink({ to, icon, label, end, collapsed, child }: SidebarLinkProps) {
+export function SidebarLink({ to, icon, label, end, active = false, collapsed, child }: SidebarLinkProps) {
   return (
     <NavLink
       to={to}
       end={end}
+      aria-current={active ? 'page' : undefined}
       className={({ isActive }) =>
         clsx(
           'relative flex items-center gap-3.5 rounded-xl px-4 py-3 text-sm font-semibold transition-all duration-300 group',
           child && 'py-2.5 text-[13px]',
-          isActive
+          isActive || active
             ? 'bg-[var(--app-active-bg)] text-[var(--app-active-text)] shadow-sm'
             : 'text-[var(--app-muted)] hover:bg-[var(--app-hover)] hover:text-[var(--app-text)]',
         )
@@ -97,7 +106,7 @@ export function SidebarLink({ to, icon, label, end, collapsed, child }: SidebarL
         <>
           <span className={clsx(
             'flex h-5 w-5 shrink-0 items-center justify-center transition-transform duration-300 group-hover:scale-110',
-            isActive ? 'text-[var(--app-active-icon)]' : 'text-[var(--app-muted)] group-hover:text-[var(--app-subtle)]',
+            isActive || active ? 'text-[var(--app-active-icon)]' : 'text-[var(--app-muted)] group-hover:text-[var(--app-subtle)]',
           )}>
             {icon}
           </span>

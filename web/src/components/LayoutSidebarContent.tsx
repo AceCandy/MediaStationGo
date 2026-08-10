@@ -1,3 +1,4 @@
+import { useId } from 'react'
 import { Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { LogOut, Menu, X } from 'lucide-react'
@@ -39,16 +40,19 @@ export function LayoutSidebarContent({
 }: LayoutSidebarContentProps) {
   const sidebarExpanded = isSidebarOpen || isMobileDrawerOpen
   const visibleGroups = visibleSidebarGroups({ isAdmin, can })
+  const navigationId = useId()
 
   return (
     <div className="flex h-full flex-col border-r border-[var(--app-border)] bg-[var(--app-panel)]">
       <LayoutSidebarHeader
         sidebarExpanded={sidebarExpanded}
+        navigationId={navigationId}
         onToggleSidebar={onToggleSidebar}
         onCloseMobileDrawer={onCloseMobileDrawer}
       />
       <LayoutSidebarNav
         groups={visibleGroups}
+        navigationId={navigationId}
         sidebarExpanded={sidebarExpanded}
         openGroups={openGroups}
         isRouteIn={isRouteIn}
@@ -73,16 +77,18 @@ function visibleSidebarGroups({
 
 function LayoutSidebarHeader({
   sidebarExpanded,
+  navigationId,
   onToggleSidebar,
   onCloseMobileDrawer,
 }: {
   sidebarExpanded: boolean
+  navigationId: string
   onToggleSidebar: () => void
   onCloseMobileDrawer: () => void
 }) {
   return (
-    <div className="flex h-20 items-center justify-between border-b border-[var(--app-border)] px-6">
-      <Link to="/" className="flex items-center gap-3">
+    <div className="flex h-20 items-center justify-between border-b border-[var(--app-border)] px-4">
+      <Link to="/" className="flex min-w-0 items-center gap-2.5">
         <img
           src="/brand/mediastationgo-logo.svg"
           alt="MediaStationGo"
@@ -92,16 +98,28 @@ function LayoutSidebarHeader({
           <motion.span
             initial={{ opacity: 0, x: -10 }}
             animate={{ opacity: 1, x: 0 }}
-            className="font-display text-lg font-extrabold tracking-tight text-[var(--app-text)]"
+            className="truncate font-display text-sm font-extrabold tracking-tight text-[var(--app-text)]"
           >
             MediaStationGo
           </motion.span>
         )}
       </Link>
-      <SidebarIconButton className="hidden lg:block" onClick={onToggleSidebar}>
+      <SidebarIconButton
+        label={sidebarExpanded ? '折叠侧栏' : '展开侧栏'}
+        className="hidden lg:block"
+        expanded={sidebarExpanded}
+        controls={navigationId}
+        onClick={onToggleSidebar}
+      >
         <Menu size={18} />
       </SidebarIconButton>
-      <SidebarIconButton className="block lg:hidden" onClick={onCloseMobileDrawer}>
+      <SidebarIconButton
+        label="关闭导航"
+        className="block lg:hidden"
+        expanded
+        controls={navigationId}
+        onClick={onCloseMobileDrawer}
+      >
         <X size={18} />
       </SidebarIconButton>
     </div>
@@ -110,27 +128,30 @@ function LayoutSidebarHeader({
 
 function LayoutSidebarNav({
   groups,
+  navigationId,
   sidebarExpanded,
   openGroups,
   isRouteIn,
   onToggleGroup,
 }: {
   groups: VisibleLayoutNavGroup[]
+  navigationId: string
   sidebarExpanded: boolean
   openGroups: Record<string, boolean>
   isRouteIn: (paths: string[]) => boolean
   onToggleGroup: (id: string) => void
 }) {
   return (
-    <nav className="flex-1 overflow-y-auto px-4 py-5 space-y-2 scrollbar-hide">
+    <nav id={navigationId} aria-label="侧栏导航" className="flex-1 overflow-y-auto px-4 py-5 space-y-2 scrollbar-hide">
       {groups.map(({ group, items }) => (
         <LayoutSidebarNavGroup
           key={group.id}
           group={group}
           items={items}
           sidebarExpanded={sidebarExpanded}
-          open={openGroups[group.id] ?? group.id === 'media'}
+          open={openGroups[group.id] ?? group.id === 'viewer'}
           active={isRouteIn(NAV_GROUP_PATHS[group.id])}
+          isRouteIn={isRouteIn}
           onToggleGroup={onToggleGroup}
         />
       ))}
@@ -144,6 +165,7 @@ function LayoutSidebarNavGroup({
   sidebarExpanded,
   open,
   active,
+  isRouteIn,
   onToggleGroup,
 }: {
   group: LayoutNavGroup
@@ -151,6 +173,7 @@ function LayoutSidebarNavGroup({
   sidebarExpanded: boolean
   open: boolean
   active: boolean
+  isRouteIn: (paths: string[]) => boolean
   onToggleGroup: (id: string) => void
 }) {
   const GroupIcon = group.icon
@@ -173,6 +196,7 @@ function LayoutSidebarNavGroup({
             icon={<ItemIcon size={16} />}
             label={item.label}
             end={item.end}
+            active={isRouteIn(item.activePaths)}
             child
           />
         )
@@ -212,17 +236,27 @@ function LayoutSidebarLogout({
 function SidebarIconButton({
   children,
   className,
+  label,
+  expanded,
+  controls,
   onClick,
 }: {
   children: React.ReactNode
   className: string
+  label: string
+  expanded?: boolean
+  controls?: string
   onClick: () => void
 }) {
   return (
     <button
       onClick={onClick}
+      aria-label={label}
+      aria-expanded={expanded}
+      aria-controls={controls}
+      title={label}
       className={clsx(
-        'rounded-xl p-1.5 text-[var(--app-muted)] hover:bg-[var(--app-hover)] hover:text-[var(--app-text)] transition-colors',
+        'min-h-11 min-w-11 rounded-xl p-2.5 text-[var(--app-muted)] hover:bg-[var(--app-hover)] hover:text-[var(--app-text)] transition-colors',
         className,
       )}
     >

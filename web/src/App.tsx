@@ -1,10 +1,12 @@
-import { Component, Suspense, type ErrorInfo, type ReactNode } from 'react'
+import { Component, Suspense, useEffect, type ErrorInfo, type ReactNode } from 'react'
 import { Navigate, Route, Routes } from 'react-router-dom'
 
 import { appRoutes, type AppRoute } from './appRoutes'
 import { Layout } from './components/Layout'
-import { RequireAdmin, RequireAuth } from './components/RequireAuth'
+import { RequireAdmin, RequireAuth, RequirePermission } from './components/RequireAuth'
 import { LoginPage } from './pages/LoginPage'
+import { useAuthStore } from './stores/auth'
+import { usePermissionStore } from './stores/permissions'
 
 const Loading = () => <p className="px-6 py-8 text-sand-500">加载中…</p>
 
@@ -52,11 +54,42 @@ class AppErrorBoundary extends Component<{ children: ReactNode }, { hasError: bo
 }
 
 function routeElement(route: AppRoute) {
-  if (!route.adminOnly) return route.element
-  return <RequireAdmin>{route.element}</RequireAdmin>
+  let element = route.element
+  if (route.permission) {
+    element = (
+      <RequirePermission permission={route.permission} deniedTo={route.deniedTo}>
+        {element}
+      </RequirePermission>
+    )
+  }
+  if (route.adminOnly) element = <RequireAdmin>{element}</RequireAdmin>
+  return element
+}
+
+function appRoute(route: AppRoute): ReactNode {
+  if (route.index) {
+    return <Route key={route.id} index element={routeElement(route)} />
+  }
+  return (
+    <Route
+      key={route.id}
+      path={route.path}
+      element={routeElement(route)}
+    >
+      {route.children?.map(appRoute)}
+    </Route>
+  )
 }
 
 export default function App() {
+  const authUserId = useAuthStore((state) => state.user?.id ?? null)
+  const permissionUserId = usePermissionStore((state) => state.userId)
+  const clearPermissions = usePermissionStore((state) => state.clearPermissions)
+
+  useEffect(() => {
+    if (!authUserId && permissionUserId) clearPermissions()
+  }, [authUserId, clearPermissions, permissionUserId])
+
   return (
     <AppErrorBoundary>
       <Suspense fallback={<Loading />}>
@@ -70,14 +103,7 @@ export default function App() {
               </RequireAuth>
             }
           >
-            {appRoutes.map((route) => (
-              <Route
-                key={route.index ? 'index' : route.path}
-                index={route.index}
-                path={route.path}
-                element={routeElement(route)}
-              />
-            ))}
+            {appRoutes.map(appRoute)}
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

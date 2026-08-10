@@ -9,7 +9,9 @@ interface PermissionState {
   isSuper: boolean
   isLoading: boolean
   error: string | null
-  fetchPermissions: () => Promise<void>
+  userId: string | null
+  loadedUserId: string | null
+  fetchPermissions: (userId: string) => Promise<void>
   hasPermission: (key: string) => boolean
   clearPermissions: () => void
 }
@@ -21,19 +23,36 @@ export const usePermissionStore = create<PermissionState>((set, get) => ({
   isSuper: false,
   isLoading: false,
   error: null,
+  userId: null,
+  loadedUserId: null,
 
-  fetchPermissions: async () => {
-    set({ isLoading: true, error: null })
+  fetchPermissions: async (userId) => {
+    const state = get()
+    if (state.isLoading && state.userId === userId) return
+
+    set({
+      permissions: {},
+      role: '',
+      tier: 'free',
+      isSuper: false,
+      isLoading: true,
+      error: null,
+      userId,
+      loadedUserId: null,
+    })
     try {
       const result = await getMyPermissions()
+      if (get().userId !== userId) return
       set({
         permissions: result.permissions ?? {},
         role: result.role ?? '',
         tier: result.tier ?? 'free',
         isSuper: result.is_super ?? false,
         isLoading: false,
+        loadedUserId: userId,
       })
     } catch (err) {
+      if (get().userId !== userId) return
       set({
         isLoading: false,
         error: err instanceof Error ? err.message : 'Failed to fetch permissions',
@@ -56,7 +75,10 @@ export const usePermissionStore = create<PermissionState>((set, get) => ({
       role: '',
       tier: 'free',
       isSuper: false,
+      isLoading: false,
       error: null,
+      userId: null,
+      loadedUserId: null,
     })
   },
 }))

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import { ChevronDown, Loader2, LogOut, RotateCw, Settings, User as UserIcon, UserCog } from 'lucide-react'
@@ -7,6 +7,8 @@ import toast from 'react-hot-toast'
 
 import { adminAPI } from '../api/admin'
 import type { PlayProfile } from '../types'
+import { LayoutThemeToggle } from './LayoutThemeToggle'
+import type { ThemeMode } from './useThemeMode'
 
 type LayoutUser = {
   username?: string
@@ -19,8 +21,10 @@ type LayoutUserMenuProps = {
   profiles: PlayProfile[]
   activeProfileId: string | null
   activeProfile: PlayProfile | null
+  themeMode: ThemeMode
   onToggle: () => void
   onClose: () => void
+  onThemeChange: (mode: ThemeMode) => void
   onUseDefaultProfile: () => void
   onSwitchProfile: (profile: PlayProfile) => void
   onLogout: () => void
@@ -32,28 +36,63 @@ export function LayoutUserMenu({
   profiles,
   activeProfileId,
   activeProfile,
+  themeMode,
   onToggle,
   onClose,
+  onThemeChange,
   onUseDefaultProfile,
   onSwitchProfile,
   onLogout,
 }: LayoutUserMenuProps) {
   const location = useLocation()
   const rootRef = useRef<HTMLDivElement>(null)
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const dialogRef = useRef<HTMLDivElement>(null)
+  const onCloseRef = useRef(onClose)
+  const dialogId = useId()
   const lastLocationRef = useRef(`${location.pathname}${location.search}`)
   const [updating, setUpdating] = useState(false)
 
   useEffect(() => {
+    onCloseRef.current = onClose
+  }, [onClose])
+
+  useEffect(() => {
     if (!isOpen) return undefined
+
+    const returnTarget = triggerRef.current
+    const focusable = () => Array.from(
+      dialogRef.current?.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      ) ?? [],
+    )
+    focusable()[0]?.focus()
 
     const handlePointerDown = (event: PointerEvent) => {
       const root = rootRef.current
       const target = event.target
       if (!root || !(target instanceof Node) || root.contains(target)) return
-      onClose()
+      onCloseRef.current()
     }
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose()
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        onCloseRef.current()
+        return
+      }
+      if (event.key !== 'Tab') return
+      const targets = focusable()
+      if (targets.length === 0) return
+      const first = targets[0]
+      const last = targets[targets.length - 1]
+      const focusInside = dialogRef.current?.contains(document.activeElement)
+      if (!focusInside || (event.shiftKey && document.activeElement === first)) {
+        event.preventDefault()
+        ;(event.shiftKey ? last : first).focus()
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault()
+        first.focus()
+      }
     }
 
     document.addEventListener('pointerdown', handlePointerDown, true)
@@ -61,8 +100,9 @@ export function LayoutUserMenu({
     return () => {
       document.removeEventListener('pointerdown', handlePointerDown, true)
       document.removeEventListener('keydown', handleKeyDown)
+      if (returnTarget?.isConnected) returnTarget.focus()
     }
-  }, [isOpen, onClose])
+  }, [isOpen])
 
   useEffect(() => {
     const nextLocation = `${location.pathname}${location.search}`
@@ -90,10 +130,12 @@ export function LayoutUserMenu({
   return (
     <div ref={rootRef} className="relative" data-testid="layout-user-menu">
       <button
+        ref={triggerRef}
         onClick={onToggle}
         aria-expanded={isOpen}
-        aria-haspopup="menu"
-        className="flex items-center gap-2.5 rounded-full border border-[var(--app-border)] p-1 pr-3 transition-all hover:bg-[var(--app-hover)]"
+        aria-haspopup="dialog"
+        aria-controls={isOpen ? dialogId : undefined}
+        className="flex min-h-11 items-center gap-2.5 rounded-full border border-[var(--app-border)] p-1 pr-3 transition-colors hover:bg-[var(--app-hover)]"
       >
         <div className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-[#111827] to-[#1f2937] font-display text-xs font-bold text-white shadow-sm">
           {user?.username?.slice(0, 2).toUpperCase() || 'US'}
@@ -110,11 +152,14 @@ export function LayoutUserMenu({
       <AnimatePresence>
         {isOpen && (
           <motion.div
+            ref={dialogRef}
+            id={dialogId}
             initial={{ opacity: 0, y: 10, scale: 0.95 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 10, scale: 0.95 }}
             transition={{ duration: 0.15 }}
-            role="menu"
+            role="dialog"
+            aria-label="用户与观影设置"
             className="absolute right-0 z-50 mt-3 w-56 origin-top-right rounded-2xl border border-[var(--app-border)] bg-[var(--app-panel)] p-2 shadow-xl"
           >
             <UserMenuLink to="/profile" icon={<UserIcon size={16} />} label="个人基本信息" onClick={onClose} />
@@ -132,6 +177,12 @@ export function LayoutUserMenu({
                 <span>一键更新系统</span>
               </button>
             )}
+            <div className="px-3 py-2 xl:hidden">
+              <p className="mb-2 text-[10px] font-bold uppercase tracking-wider text-[var(--app-muted)]">
+                主题模式
+              </p>
+              <LayoutThemeToggle mode={themeMode} onChange={onThemeChange} />
+            </div>
             <div className="my-1.5 border-t border-[var(--app-border)]" />
             <div className="px-3 py-2">
               <p className="mb-2 text-[10px] font-bold uppercase tracking-wider text-[var(--app-muted)]">
