@@ -163,8 +163,9 @@ container smoke check observes no `ffmpeg` process during retained workflows.
 - [x] Assert embedded subtitles are non-external source tracks without a server
       extraction URL, while supported external sidecars retain controlled
       delivery URLs.
-- [ ] Add sanitized request/response fixtures only for protocol differences
-      reproduced by Yamby, official Emby, or SenPlayer.
+- [x] Add sanitized request/response fixtures only for protocol differences
+      reproduced by Yamby, official Emby, or SenPlayer. No shared-contract
+      difference was reported, so no fixture was required.
 
 Verify: focused Emby service/handler JSON and route tests cover Movie and a full
 Series hierarchy, images, tracks, source selection, direct playback, seeking,

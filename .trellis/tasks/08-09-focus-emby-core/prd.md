@@ -247,44 +247,44 @@ surfaces no longer sit outside the focused Emby media-server boundary.
 
 ## Acceptance Criteria
 
-- [ ] The maintained Web UI contains no cloud provider configuration, browser,
+- [x] The maintained Web UI contains no cloud provider configuration, browser,
       mount, sync, upload, or transfer workflow.
-- [ ] Public and admin route inventories expose no provider-specific cloud
+- [x] Public and admin route inventories expose no provider-specific cloud
       management, sync, upload, mount, or playback endpoint.
-- [ ] The maintained Web UI and route inventory expose no PT/BT site add,
+- [x] The maintained Web UI and route inventory expose no PT/BT site add,
       update, delete, connection-test, resource, user-data, or torrent-search
       workflow, including `/sites`, `/sites/*`, and `/search/sites`.
-- [ ] Tracker models, repositories, services, adapters, helpers, FlareSolverr
+- [x] Tracker models, repositories, services, adapters, helpers, FlareSolverr
       configuration, `can_manage_sites`, and tracker-specific documentation are
       absent, while ordinary media/TMDb/AI/Emby search and HTTP/STRM playback
       remain available.
-- [ ] The idempotent retirement migration drops `sites` and
+- [x] The idempotent retirement migration drops `sites` and
       `user_permissions.can_manage_sites`; fresh schema creation does not
       recreate either, and unrelated user permissions and data survive.
-- [ ] The scheduler contains no `cloud_sync` or `cloud_upload` job and retains
+- [x] The scheduler contains no `cloud_sync` or `cloud_upload` job and retains
       local scan, organize, and recycle cleanup behavior; `transcode_cleanup`
       and HLS cache cleanup no longer exist.
-- [ ] A local media library can be scanned and exposed through the Emby library,
+- [x] A local media library can be scanned and exposed through the Emby library,
       item, hierarchy, image, people, and PlaybackInfo endpoints.
-- [ ] A plain HTTP/HTTPS or STRM media target remains playable without any cloud
+- [x] A plain HTTP/HTTPS or STRM media target remains playable without any cloud
       provider configuration or provider-specific service.
-- [ ] A configured matching URL is evaluated after path mapping, resolved to
+- [x] A configured matching URL is evaluated after path mapping, resolved to
       the first 3xx `Location` without following it, cached for one hour per
       post-mapping URL and exact player `User-Agent`, and returned in the
       player's HTTP 302 `Location`; a non-matching URL is returned unchanged,
       with no cloud-provider configuration required.
-- [ ] A redirect-resolution timeout, request failure, missing redirect, or
+- [x] A redirect-resolution timeout, request failure, missing redirect, or
       invalid target is not cached and falls back to returning the original URL
       in HTTP 302 instead of failing the playback request.
-- [ ] No transcoder service, HLS route, transcode scheduler job, transcode cache,
+- [x] No transcoder service, HLS route, transcode scheduler job, transcode cache,
       or encoder setting remains. Boot, probe, PlaybackInfo, original playback,
       and subtitle requests never start an FFmpeg process; FFprobe media
       inspection and persisted track metadata still work. A distribution
       package may contain an unused FFmpeg binary only when it supplies the
       retained FFprobe executable.
-- [ ] Emby payloads expose canonical metadata and complete probed media-source
+- [x] Emby payloads expose canonical metadata and complete probed media-source
       and stream information for the selected physical media version.
-- [ ] PlaybackInfo advertises no transcoding support or URL, and unsupported
+- [x] PlaybackInfo advertises no transcoding support or URL, and unsupported
       source codecs fail without invoking server-side conversion. User policy,
       server configuration, and device profiles do not advertise transcoding,
       remuxing, media conversion, or HLS support.
@@ -295,10 +295,10 @@ surfaces no longer sit outside the focused Emby media-server boundary.
       official Emby client, and SenPlayer; request/response fixtures cover any
       client-specific protocol difference found during real-client validation,
       and the recorded evidence identifies the exact client/server environment.
-- [ ] Local media and user state survive the change; cloud data handling follows
+- [x] Local media and user state survive the change; cloud data handling follows
       the approved destructive retirement policy, and no provider-specific
       configuration table, setting, library root, or media row remains.
-- [ ] Focused backend and Web tests, route-inventory checks, and `git diff
+- [x] Focused backend and Web tests, route-inventory checks, and `git diff
       --check` pass. Full compilation or full-suite execution remains subject
       to explicit user approval under the project Java/build policy when
       applicable.
