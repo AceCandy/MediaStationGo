@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"strings"
@@ -121,11 +122,14 @@ func (r *MetadataRepository) CompleteCatalogJob(ctx context.Context, id, metadat
 }
 
 func (r *MetadataRepository) NextCatalogAttemptAt(ctx context.Context) (*time.Time, error) {
-	var next *time.Time
+	var next sql.NullTime
 	err := r.db.WithContext(ctx).Model(&model.CatalogHydrationJob{}).
 		Where("status IN ? AND next_attempt_at IS NOT NULL", []string{model.CatalogJobStatusPending, model.CatalogJobStatusRetry}).
 		Select("MIN(next_attempt_at)").Scan(&next).Error
-	return next, err
+	if err != nil || !next.Valid {
+		return nil, err
+	}
+	return &next.Time, nil
 }
 
 func (r *MetadataRepository) MarkCatalogCheckpoint(ctx context.Context, id, column string, at time.Time) error {

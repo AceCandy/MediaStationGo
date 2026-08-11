@@ -65,9 +65,24 @@ Correct: use Responses for People translation without tools; reserve `web_search
 
 ## Query Patterns
 
-<!-- How should queries be written? Batch operations? -->
+### Nullable PostgreSQL Aggregates
 
-(To be filled by the team)
+PostgreSQL aggregates such as `MIN` return SQL `NULL` when no row matches.
+Repository methods must scan nullable aggregate results into `sql.Null*` or an
+equivalent nullable type and translate the empty result at the repository
+boundary. Do not use an arbitrary `COALESCE` sentinel.
+
+```go
+var value sql.NullTime
+err := db.Select("MIN(next_attempt_at)").Scan(&value).Error
+if err != nil || !value.Valid {
+	return nil, err
+}
+return &value.Time, nil
+```
+
+Regression tests must assert that an empty matched set returns `(nil, nil)` and
+that a populated set returns the expected aggregate value.
 
 ## Runtime Configuration Defaults
 
