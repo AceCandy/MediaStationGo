@@ -13,16 +13,16 @@ official Emby client, and SenPlayer.
 
 ### 1. Lock the Retirement Contracts
 
-- [ ] Add route-inventory tests that fail while provider cloud, PT/BT site,
+- [x] Add route-inventory tests that fail while provider cloud, PT/BT site,
       tracker search, HLS, transcode status, or transcode cleanup endpoints from
       design section 2.5 remain; disabled/busy handlers still count as present.
-- [ ] Add PlaybackInfo/policy/profile tests requiring direct URLs and complete
+- [x] Add PlaybackInfo/policy/profile tests requiring direct URLs and complete
       media facts while requiring `SupportsTranscoding=false`, no
       `TranscodingUrl`, false conversion/remux policy, and no transcoding
       profiles.
-- [ ] Add FFprobe tests requiring probe failure to return without starting an
+- [x] Add FFprobe tests requiring probe failure to return without starting an
       FFmpeg fallback.
-- [ ] Put a fake `ffmpeg` sentinel first on test `PATH`; boot the service and
+- [x] Put a fake `ffmpeg` sentinel first on test `PATH`; boot the service and
       exercise probe, PlaybackInfo, original playback, and embedded/external
       subtitle requests, asserting that the sentinel is never executed.
 - [x] Add direct-source regressions for local bytes, HTTP/HTTPS, STRM, 302 token
@@ -41,7 +41,7 @@ official Emby client, and SenPlayer.
       forwards only the fixed Range and player `User-Agent` headers, never
       forwards Authorization, Cookie, or stored headers, and never logs query
       values, tokens, or complete signed targets on success or failure.
-- [ ] Record a baseline inventory of `cloud`, provider, HLS, transcoder, and
+- [x] Record a baseline inventory of `cloud`, provider, HLS, transcoder, and
       FFmpeg references, excluding `docs/cankao`, generated output, dependencies,
       and intentionally retained FFprobe/package references. Store the reviewed
       allowlist and actionable baseline in task research, not raw secret-bearing
@@ -52,23 +52,23 @@ canonical metadata ownership.
 
 ### 2. Implement the Destructive Retirement Migrations
 
-- [ ] Reject new `cloud://` libraries, roots, and media at public/admin entry
+- [x] Reject new `cloud://` libraries, roots, and media at public/admin entry
       boundaries before deleting provider services.
-- [ ] Add idempotent PostgreSQL migration logic for the exact table, predicate,
+- [x] Add idempotent PostgreSQL migration logic for the exact table, predicate,
       and ordering contract in design section 3.2: provider-protocol
       `strm_records`, selected `media_probe_metadata`, `media`, cloud
       `library_roots`, only empty cloud `libraries`, cloud/transcode settings,
       then `storage_configs`.
-- [ ] Remove `StorageConfig` from AutoMigrate only after the destructive
+- [x] Remove `StorageConfig` from AutoMigrate only after the destructive
       migration runs.
-- [ ] Add migration tests proving local, HTTP/HTTPS, STRM, shared metadata,
+- [x] Add migration tests proving local, HTTP/HTTPS, STRM, shared metadata,
       artwork, people, user state, playlists, and playback history survive;
       prove media-owned probe rows do not become orphaned.
-- [ ] Cover active and soft-deleted rows, a pure cloud library, a mixed
+- [x] Cover active and soft-deleted rows, a pure cloud library, a mixed
       cloud/local-root library, provider-protocol versus HTTP/HTTPS STRM rows,
       absent legacy tables, repeated migration, and an injected mid-transaction
       failure that leaves every table unchanged.
-- [ ] Assert case/whitespace-normalized `cloud://` matching, stable mixed-root
+- [x] Assert case/whitespace-normalized `cloud://` matching, stable mixed-root
       selection by `sort_order`, `created_at`, and `id`, and rollback when a
       candidate retains media without a usable non-cloud root.
 - [x] Remove `Site` from AutoMigrate and add idempotent PostgreSQL DDL that drops
@@ -88,17 +88,18 @@ runtime connection is opened.
 
 ### 3. Retire Cloud/PT Backend and Preserve Generic Search and Playback
 
-- [ ] Remove provider clients, storage configuration repository/service wiring,
+- [x] Remove provider clients, storage configuration repository/service wiring,
       cloud boot/health/scan/upload/mount/metadata/image/subtitle logic, and
       cloud-only tests.
-- [ ] Remove admin/public cloud routes and cloud scheduler jobs.
+- [x] Remove admin/public cloud routes and cloud scheduler jobs.
 - [x] Remove PT/BT models, repositories, service-container wiring, handlers,
       routes, helpers, connection tests, tracker adapters, rate limiting,
       FlareSolverr configuration, and their focused tests.
 - [x] Remove `can_manage_sites` from backend permission models and serialized
       permission maps without changing unrelated permissions.
-- [ ] Remove cloud visibility merging and cloud path classification from shared
-      playback/library code without changing normal visibility filters.
+- [x] Remove cloud visibility merging and provider path handling from shared
+      playback/library code without changing normal visibility filters; retain
+      only deny-only `cloud://` admission guards required by section 2.
 - [x] Move only required protocol-neutral HTTP/STRM redirect resolution into
       the existing playback/stream boundary; preserve authorization, GET/HEAD,
       Range, content headers, seeking, and the exact internal/external 302 token
@@ -114,9 +115,9 @@ runtime connection is opened.
       exact `User-Agent` as the key; restart clears the cache.
 - [x] Keep player-facing redirect responses `no-store` and keep signed URL,
       token, credential, and query values out of logs.
-- [ ] Remove provider protocols from STRM creation/validation while preserving
+- [x] Remove provider protocols from STRM creation/validation while preserving
       local `.strm` plus plain HTTP/HTTPS targets and admin-owned path mappings.
-- [ ] Keep local scanners, metadata/artwork persistence, FFprobe backfill,
+- [x] Keep local scanners, metadata/artwork persistence, FFprobe backfill,
       organizer/recycle jobs, and generic STRM behavior intact.
 
 Verify: focused handler/service/repository tests and route inventory pass; a
@@ -124,18 +125,18 @@ plain HTTP/STRM source plays with no provider configuration.
 
 ### 4. Retire Transcoding and FFmpeg Invocation Paths
 
-- [ ] Remove `TranscoderService`, HLS service/handlers/routes, transcode jobs,
+- [x] Remove `TranscoderService`, HLS service/handlers/routes, transcode jobs,
       active-job/status APIs, HLS cache cleanup, and related models/tests.
-- [ ] Remove FFmpeg encoder discovery, auto-install, status/security endpoints,
+- [x] Remove FFmpeg encoder discovery, auto-install, status/security endpoints,
       settings, defaults, and runtime updates. Retain only FFprobe discovery,
       configuration, bounded execution, and security needed by FFprobe.
-- [ ] Delete FFprobe's local and HTTP `ffmpeg -i` fallback and its parser/tests;
+- [x] Delete FFprobe's local and HTTP `ffmpeg -i` fallback and its parser/tests;
       preserve prior valid probe documents on failure.
-- [ ] Remove transcode/HLS service lifecycle and dependency-container wiring.
-- [ ] Audit process-launch sites to prove no application path can start
+- [x] Remove transcode/HLS service lifecycle and dependency-container wiring.
+- [x] Audit process-launch sites to prove no application path can start
       `ffmpeg`; tolerate a distribution package name only when it is required
       to supply `ffprobe` and no executable path is used by the application.
-- [ ] Keep embedded subtitle facts in `MediaStreams` but remove their extraction
+- [x] Keep embedded subtitle facts in `MediaStreams` but remove their extraction
       `DeliveryUrl` and FFmpeg extraction path. Keep external sidecar discovery,
       stable indexes, token-aware delivery, and existing in-process text
       conversion.
@@ -146,20 +147,20 @@ container smoke check observes no `ffmpeg` process during retained workflows.
 
 ### 5. Make the Emby Contract Direct-Only and Complete
 
-- [ ] Preserve system/authentication/users/views/items/search/people/images,
+- [x] Preserve system/authentication/users/views/items/search/people/images,
       Series/Season/Episode, PlaybackInfo, original stream/subtitle, sessions,
       and playback-state routes with existing compatible prefixes/case aliases.
-- [ ] Preserve canonical entity ownership and complete `MediaSources` /
+- [x] Preserve canonical entity ownership and complete `MediaSources` /
       `MediaStreams` projections for every visible physical media version.
-- [ ] Always return `SupportsTranscoding=false`; omit `TranscodingUrl`; return
+- [x] Always return `SupportsTranscoding=false`; omit `TranscodingUrl`; return
       false/empty conversion, remux, and profile capabilities at their exact
       serialized layers.
-- [ ] Remove Emby HLS master/main/segment routes instead of leaving disabled or
+- [x] Remove Emby HLS master/main/segment routes instead of leaving disabled or
       busy responses.
-- [ ] Preserve selected media/audio/subtitle indexes through PlaybackInfo,
+- [x] Preserve selected media/audio/subtitle indexes through PlaybackInfo,
       controlled subtitle delivery, direct stream resolution, and progress
       events.
-- [ ] Assert embedded subtitles are non-external source tracks without a server
+- [x] Assert embedded subtitles are non-external source tracks without a server
       extraction URL, while supported external sidecars retain controlled
       delivery URLs.
 - [ ] Add sanitized request/response fixtures only for protocol differences
@@ -174,20 +175,20 @@ or release-blocking compatibility work.
 
 ### 6. Remove Cloud, PT, and Conversion Web Surfaces
 
-- [ ] Remove storage/provider pages, forms, APIs, browser/mount/import/transfer
+- [x] Remove storage/provider pages, forms, APIs, browser/mount/import/transfer
       controls, hooks/models, settings groups, navigation entries, and cloud
       progress states.
 - [x] Remove PT site management/search pages, forms, API/types, navigation,
       admin shortcuts, and `can_manage_sites` Web permission contracts.
 - [x] Preserve ordinary media search, metadata-provider search, AI search,
       manual scrape search, and their existing navigation/routes.
-- [ ] Keep generic STRM UI only where it does not require provider settings.
+- [x] Keep generic STRM UI only where it does not require provider settings.
 - [x] Add a multiline general playback field for
       `playback.redirect_resolve_prefixes`, positioned with the retained path
       mappings and described as generic URL-prefix matching.
-- [ ] Remove HLS player mode/button/status, dynamic `hls.js` use and dependency,
+- [x] Remove HLS player mode/button/status, dynamic `hls.js` use and dependency,
       active transcode tables, and FFmpeg/transcoder settings.
-- [ ] Keep local library administration, metadata/media details, direct player,
+- [x] Keep local library administration, metadata/media details, direct player,
       FFprobe settings/status, remaining schedules, and background task views.
 
 Verify: Web tests/type checks/build pass using project scripts; targeted UI
@@ -195,15 +196,15 @@ search shows no removed navigation or action.
 
 ### 7. Clean Deployment and Maintained Documentation
 
-- [ ] Remove cloud/transcoder environment variables, sample configuration,
+- [x] Remove cloud/transcoder environment variables, sample configuration,
       startup comments, and operator claims from maintained docs and deployment
       files.
 - [x] Remove PT/BT tracker, supported-site, site-search, FlareSolverr, and
       `can_manage_sites` claims from maintained documentation and examples.
-- [ ] Keep only FFprobe runtime configuration. If the container's supported
+- [x] Keep only FFprobe runtime configuration. If the container's supported
       package manager has no separate FFprobe package, document the package as
       a probe-only runtime dependency without exposing FFmpeg controls.
-- [ ] Remove obsolete cloud/HLS/transcode fixtures and generated lockfile
+- [x] Remove obsolete cloud/HLS/transcode fixtures and generated lockfile
       entries caused by dependency removal.
 
 Verify: configuration/reference inventory contains no actionable provider or
@@ -215,11 +216,11 @@ conversion setting; secrets and signed URLs are absent from the diff.
       packages affected by retirement and Emby compatibility.
 - [x] Run the repository's existing Web test, type-check, lint, and build
       scripts that cover changed code.
-- [ ] Run focused migration, permission, route-inventory, service-container,
+- [x] Run focused migration, permission, route-inventory, service-container,
       ordinary-search, HTTP/STRM, and Mgo-device tests after PT retirement.
-- [ ] Run the Web type-check, lint, test, and build scripts after removing PT
+- [x] Run the Web type-check, lint, test, and build scripts after removing PT
       pages, APIs, types, permissions, navigation, and documentation.
-- [ ] Run static route/config/process inventories, including PT adapter/site
+- [x] Run static route/config/process inventories, including PT adapter/site
       symbols and routes, and `git diff --check`.
 - [x] Independently review the diff against PRD acceptance criteria and the
       direct-only replacement for superseded HLS clauses in the shared spec.
@@ -255,6 +256,26 @@ The final inventory is reviewed, not required to be empty: canonical history,
 explicit `cloud://` migration guards, FFprobe package provenance, and negative
 tests may legitimately contain matched terms.
 
+## Remaining Verification Gates
+
+- The retained workflow sentinel and container smoke completed on 2026-08-11.
+  The current worktree image built successfully; the isolated PostgreSQL and
+  application containers became healthy, `/api/health` returned 200, the
+  process list contained only `mediastation-go`, and the fake `ffmpeg` marker
+  remained absent. All temporary containers, network, image, and files were
+  removed after verification.
+- Execute every cell in `research/client-acceptance.md` on Yamby, an official
+  Emby client, and SenPlayer. Automated tests do not replace this gate.
+
+The user reported on 2026-08-11 that the Yamby, official Emby, and SenPlayer
+workflows passed. Exact client versions, platforms, server revision, synthetic
+fixture, timestamp, seven-step matrix, and sanitized method/path/status trace
+were not supplied, so the evidence-complete acceptance checkbox remains open.
+
+PostgreSQL verification completed on 2026-08-11 with an isolated test schema:
+the migration connection closed, the prepared runtime connection completed its
+first query, and the database, repository, service, and handler packages passed.
+
 ## Risk and Review Gates
 
 - Do not delete provider files wholesale until generic HTTP/STRM call sites are
@@ -271,3 +292,14 @@ tests may legitimately contain matched terms.
   strings, local debug exports, or client captures containing private data.
 - After each implementation checkpoint, inspect the current working tree and
   preserve unrelated user changes.
+- The fresh-database catalog hydration warning was resolved on 2026-08-12.
+  `MIN(next_attempt_at)` now scans through `sql.NullTime`, with a PostgreSQL
+  regression test covering an empty table, NULL-only jobs, eligible minimum
+  selection, and completed-job exclusion. A fresh PostgreSQL container smoke
+  confirmed an empty queue, healthy service, and no NULL scan or catalog
+  hydration error in the application log.
+- Web dependency vulnerabilities were resolved on 2026-08-12 by upgrading
+  Axios, React Router, Vite, the Vite React plugin, PostCSS, and compatible
+  transitive dependencies. Node 22 is used for the frontend image stage.
+  Clean install, `npm audit`, lint, production build, full Docker build, and a
+  browser route/redirect smoke all passed with no console error.
