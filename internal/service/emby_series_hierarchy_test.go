@@ -134,19 +134,47 @@ func TestEmbySeriesGroupingPaginatesAfterFullLibraryGrouping(t *testing.T) {
 		t.Fatalf("create library: %v", err)
 	}
 	now := time.Date(2026, 7, 2, 12, 0, 0, 0, time.UTC)
+	seriesMetadata := make([]model.MetadataItem, 0, 25)
+	seasonMetadata := make([]model.MetadataItem, 0, 25)
+	episodeMetadata := make([]model.MetadataItem, 0, 25*40)
 	rows := make([]model.Media, 0, 25*40)
 	for series := 1; series <= 25; series++ {
+		seriesID := fmt.Sprintf("series-%02d", series)
+		seasonID := fmt.Sprintf("season-%02d", series)
+		title := fmt.Sprintf("测试番 %02d", series)
+		seriesMetadata = append(seriesMetadata, model.MetadataItem{
+			Base: model.Base{ID: seriesID}, Kind: model.MetadataKindSeries, Title: title, Source: "local",
+		})
+		seasonMetadata = append(seasonMetadata, model.MetadataItem{
+			Base: model.Base{ID: seasonID}, Kind: model.MetadataKindSeason, ParentID: &seriesID,
+			SeasonNum: 1, Title: "Season 1", Source: "local",
+		})
 		for episode := 1; episode <= 40; episode++ {
+			episodeID := fmt.Sprintf("episode-%02d-%02d", series, episode)
+			episodeMetadata = append(episodeMetadata, model.MetadataItem{
+				Base: model.Base{ID: episodeID}, Kind: model.MetadataKindEpisode, ParentID: &seasonID,
+				EpisodeNum: episode, Title: fmt.Sprintf("Episode %d", episode), Source: "local",
+			})
 			created := now.Add(time.Duration(series*1000+episode) * time.Second)
 			rows = append(rows, model.Media{
 				Base:       model.Base{ID: fmt.Sprintf("show-%02d-ep-%02d", series, episode), CreatedAt: created, UpdatedAt: created},
 				LibraryID:  lib.ID,
-				Title:      fmt.Sprintf("测试番 %02d", series),
+				MetadataID: episodeID,
+				Title:      title,
 				Path:       fmt.Sprintf(`/media/anime/测试番 %02d/Season 01/测试番 %02d.S01E%02d.mkv`, series, series, episode),
 				SeasonNum:  1,
 				EpisodeNum: episode,
 			})
 		}
+	}
+	if err := svc.repo.DB.Create(&seriesMetadata).Error; err != nil {
+		t.Fatalf("create series metadata: %v", err)
+	}
+	if err := svc.repo.DB.Create(&seasonMetadata).Error; err != nil {
+		t.Fatalf("create season metadata: %v", err)
+	}
+	if err := svc.repo.DB.CreateInBatches(episodeMetadata, 200).Error; err != nil {
+		t.Fatalf("create episode metadata: %v", err)
 	}
 	if err := svc.repo.DB.CreateInBatches(rows, 200).Error; err != nil {
 		t.Fatalf("create media: %v", err)
@@ -234,11 +262,17 @@ func TestEmbyItemsKeepSpecialsInSeasonZero(t *testing.T) {
 	if err := svc.repo.Library.Create(t.Context(), &lib); err != nil {
 		t.Fatalf("create library: %v", err)
 	}
-	episode := createServiceTestEpisodeMetadata(t, svc.repo.DB,
-		model.MetadataItem{Base: model.Base{ID: "metadata-specials-series"}, Kind: model.MetadataKindSeries, Title: "间谍过家家", Source: "tmdb"},
-		model.MetadataItem{Base: model.Base{ID: "metadata-specials-episode"}, Kind: model.MetadataKindEpisode,
-			Title: "间谍过家家", SeasonNum: 0, EpisodeNum: 1, Source: "tmdb",
-		})
+	series := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{
+		Base: model.Base{ID: "metadata-specials-series"}, Kind: model.MetadataKindSeries, Title: "间谍过家家", Source: "tmdb",
+	})
+	season := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{
+		Base: model.Base{ID: "metadata-specials-season"}, Kind: model.MetadataKindSeason,
+		ParentID: &series.ID, SeasonNum: 0, Title: "特别篇", Source: "tmdb",
+	})
+	episode := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{
+		Base: model.Base{ID: "metadata-specials-episode"}, Kind: model.MetadataKindEpisode,
+		ParentID: &season.ID, Title: "间谍过家家", EpisodeNum: 1, Source: "tmdb",
+	})
 	createServiceTestArtwork(t, svc.repo.DB, episode.ID, model.ArtworkTypeStill, "asset-special-still")
 	media := model.Media{
 		Base:       model.Base{ID: "sp-1"},

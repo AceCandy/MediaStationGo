@@ -165,8 +165,9 @@ func TestEnrichOnePathHintOverridesStaleTMDbID(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := serviceTestMediaView(t, repos, media.ID)
-	if got.ScrapeStatus != "matched" || got.TMDbID != 296753 || got.Title != "折腰" {
-		t.Fatalf("path hint was not authoritative: status=%q tmdb=%d title=%q poster=%q", got.ScrapeStatus, got.TMDbID, got.Title, got.PosterURL)
+	series := serviceTestTMDbSeries(t, repos, got, 296753)
+	if got.ScrapeStatus != "matched" || series.Title != "折腰" {
+		t.Fatalf("path hint was not authoritative: status=%q series_title=%q", got.ScrapeStatus, series.Title)
 	}
 	for _, path := range requested {
 		if path == "/tv/220269" || path == "/movie/220269" {
@@ -254,9 +255,10 @@ func TestEnrichOneRejectsStaleEpisodeTMDbIDBySeriesTitle(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := serviceTestMediaView(t, repos, media.ID)
-	if got.ScrapeStatus != "matched" || got.TMDbID != 296753 || got.Title != "折腰" {
-		t.Fatalf("stale tmdb id should be rejected and repaired by title search: status=%q tmdb=%d title=%q poster=%q requests=%v",
-			got.ScrapeStatus, got.TMDbID, got.Title, got.PosterURL, requested)
+	series := serviceTestTMDbSeries(t, repos, got, 296753)
+	if got.ScrapeStatus != "matched" || series.Title != "折腰" {
+		t.Fatalf("stale tmdb id should be rejected and repaired by title search: status=%q series_title=%q requests=%v",
+			got.ScrapeStatus, series.Title, requested)
 	}
 	if firstIndexFunc(requested, func(path string) bool { return path == "/tv/220269" }) < 0 {
 		t.Fatalf("test did not exercise stale id lookup: requests=%v", requested)

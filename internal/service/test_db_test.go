@@ -1,6 +1,7 @@
 package service
 
 import (
+	"strconv"
 	"testing"
 
 	testdb "github.com/ShukeBta/MediaStationGo/internal/testdb"
@@ -96,6 +97,28 @@ func serviceTestMediaView(t *testing.T, repos *repository.Container, mediaID str
 		t.Fatalf("find media view %q: %#v %v", mediaID, view, err)
 	}
 	return view
+}
+
+func serviceTestTMDbSeries(t *testing.T, repos *repository.Container, view *model.MediaView, tmdbID int) *model.MetadataItem {
+	t.Helper()
+	series, err := repos.Metadata.FindByIdentifier(t.Context(), "tmdb", model.MetadataKindSeries, strconv.Itoa(tmdbID))
+	if err != nil || series == nil {
+		t.Fatalf("find TMDb series %d: %#v %v", tmdbID, series, err)
+	}
+	if view == nil || view.SeriesID != series.ID {
+		t.Fatalf("media series match: view=%#v series=%#v want tmdb=%d", view, series, tmdbID)
+	}
+	return series
+}
+
+func serviceTestArtworkSelections(t *testing.T, repos *repository.Container, metadataID string, artworkTypes ...string) {
+	t.Helper()
+	for _, artworkType := range artworkTypes {
+		asset, err := repos.Artwork.FindSelection(t.Context(), metadataID, artworkType)
+		if err != nil || asset == nil {
+			t.Fatalf("find %s artwork for metadata %q: %#v %v", artworkType, metadataID, asset, err)
+		}
+	}
 }
 
 func serviceTestLocalMetadataHint(t *testing.T, media model.Media) *LocalMetadata {

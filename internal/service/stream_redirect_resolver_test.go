@@ -201,26 +201,33 @@ func TestServeFileResolvesMappedURLBeforeRedirect(t *testing.T) {
 
 	repos := newStreamTestRepo(t)
 	if err := repos.Setting.Set(t.Context(), PlaybackPathMappingsSettingKey,
-		"/mnt/media/ => "+upstream.URL+"/d/"); err != nil {
+		"/mnt/media-a/ => "+upstream.URL+"/d/\n/mnt/media-b/ => "+upstream.URL+"/d/"); err != nil {
 		t.Fatal(err)
 	}
 	if err := repos.Setting.Set(t.Context(), PlaybackRedirectResolvePrefixesSettingKey,
 		upstream.URL+"/d"); err != nil {
 		t.Fatal(err)
 	}
-	for _, id := range []string{"mapped-a", "mapped-b"} {
+	media := []struct {
+		id   string
+		path string
+	}{
+		{id: "mapped-a", path: "/mnt/media-a/archive/Movie.mkv"},
+		{id: "mapped-b", path: "/mnt/media-b/archive/Movie.mkv"},
+	}
+	for _, item := range media {
 		if err := repos.DB.Create(&model.Media{
-			Base: model.Base{ID: id}, Path: "/mnt/media/archive/Movie.mkv",
+			Base: model.Base{ID: item.id}, Path: item.path,
 		}).Error; err != nil {
 			t.Fatal(err)
 		}
 	}
 	core, observed := observer.New(zap.InfoLevel)
 	svc := NewStreamService(&config.Config{}, zap.New(core), repos)
-	for _, id := range []string{"mapped-a", "mapped-b"} {
-		w := servePlaybackRedirectRequest(t, svc, id, http.MethodHead, "SenPlayer/1")
+	for _, item := range media {
+		w := servePlaybackRedirectRequest(t, svc, item.id, http.MethodHead, "SenPlayer/1")
 		if w.Code != http.StatusFound || w.Header().Get("Location") != "https://cdn.example.test/Movie.mkv?token=direct-secret" {
-			t.Fatalf("%s status/location = %d/%q", id, w.Code, w.Header().Get("Location"))
+			t.Fatalf("%s status/location = %d/%q", item.id, w.Code, w.Header().Get("Location"))
 		}
 	}
 	if got := calls.Load(); got != 1 {

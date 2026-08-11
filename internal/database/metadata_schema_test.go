@@ -295,7 +295,7 @@ func TestMetadataSchemaMigrationMakesMediaMetadataNullable(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := db.AutoMigrate(&model.Media{}); err != nil {
+	if err := AutoMigrate(db); err != nil {
 		t.Fatal(err)
 	}
 	unresolved := model.Media{LibraryID: "library", Title: "Pending", Path: "/pending.mkv"}

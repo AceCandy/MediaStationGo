@@ -11,6 +11,8 @@ import (
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 )
 
+var errCloudMediaPathUnsupported = errors.New("cloud media paths are no longer supported")
+
 // Upsert inserts or updates a media row keyed by Path (unique index).
 //
 // 重要：当一条行已经存在时，scanner 重扫只应该刷新文件级元数据
@@ -23,6 +25,9 @@ import (
 //     显式写入）。这两个问题都让 EnrichLibrary(WHERE scrape_status='pending')
 //     永远捞不到数据。
 func (r *MediaRepository) Upsert(ctx context.Context, m *model.Media) error {
+	if m != nil && strings.HasPrefix(strings.ToLower(strings.TrimSpace(m.Path)), "cloud://") {
+		return errCloudMediaPathUnsupported
+	}
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		txRepo := &MediaRepository{db: tx}
 		if err := txRepo.ResolveMetadata(ctx, m); err != nil {
@@ -222,7 +227,8 @@ func addMediaExternalIDUpdates(updates map[string]any, existing, incoming model.
 }
 
 func mediaCanRefreshExternalIDs(existingStatus string, incoming model.Media) bool {
-	return existingStatus == "pending" || existingStatus == "" || existingStatus == "no_match" ||
+	return existingStatus == "pending" || existingStatus == "" ||
+		existingStatus == "no_match" || existingStatus == "matched" ||
 		incoming.ScrapeStatus == "matched"
 }
 

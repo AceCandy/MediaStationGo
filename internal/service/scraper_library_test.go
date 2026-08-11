@@ -233,8 +233,9 @@ func TestEnrichLibraryScopesCandidatesToRequestedLibrary(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := serviceTestMediaView(t, repos, media.ID)
-	if got.ScrapeStatus != "matched" || got.TMDbID != 12345 {
-		t.Fatalf("requested library media was not enriched: status=%q tmdb=%d", got.ScrapeStatus, got.TMDbID)
+	serviceTestTMDbSeries(t, repos, got, 12345)
+	if got.ScrapeStatus != "matched" {
+		t.Fatalf("requested library media was not enriched: status=%q", got.ScrapeStatus)
 	}
 }
 

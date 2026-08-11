@@ -74,6 +74,13 @@ func TestNormalizeMetadataIdentifierAcceptsCatalogProvidersAndKinds(t *testing.T
 	}
 }
 
+func TestMediaUpsertRejectsRetiredCloudPath(t *testing.T) {
+	err := (&MediaRepository{}).Upsert(t.Context(), &model.Media{Path: " CLOUD://OpenList/movie.mkv "})
+	if !errors.Is(err, errCloudMediaPathUnsupported) {
+		t.Fatalf("error = %v, want errCloudMediaPathUnsupported", err)
+	}
+}
+
 func TestMediaUpsertSkipsUnchangedExistingRow(t *testing.T) {
 	db, err := testdb.OpenPostgres(t, &gorm.Config{})
 	if err != nil {

@@ -4,6 +4,7 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/ShukeBta/MediaStationGo/internal/config"
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 	"github.com/ShukeBta/MediaStationGo/internal/repository"
 	"go.uber.org/zap"
@@ -31,7 +32,7 @@ func TestStorageBreakdownUsesCanonicalLibraryDisplay(t *testing.T) {
 		}
 	}
 
-	breakdown, err := NewStorageService(zap.NewNop(), repos).Compute(t.Context())
+	breakdown, err := NewStorageService(&config.Config{}, zap.NewNop(), repos).Compute(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}

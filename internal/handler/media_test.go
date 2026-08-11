@@ -261,16 +261,34 @@ func TestListLibrarySeriesDoesNotTruncateLargeEpisodeLibraries(t *testing.T) {
 	if err := repos.Library.Create(t.Context(), &lib); err != nil {
 		t.Fatal(err)
 	}
+	seriesMetadata := model.MetadataItem{Base: model.Base{ID: "series-large"}, Kind: model.MetadataKindSeries, Title: "大剧", Source: "local"}
+	if err := repos.DB.Create(&seriesMetadata).Error; err != nil {
+		t.Fatal(err)
+	}
+	seasonMetadata := model.MetadataItem{Base: model.Base{ID: "season-large"}, Kind: model.MetadataKindSeason, ParentID: &seriesMetadata.ID, SeasonNum: 1, Title: "Season 1", Source: "local"}
+	if err := repos.DB.Create(&seasonMetadata).Error; err != nil {
+		t.Fatal(err)
+	}
+	episodeMetadata := make([]model.MetadataItem, 0, 2001)
 	rows := make([]model.Media, 0, 2001)
 	for i := 1; i <= 2001; i++ {
+		episodeID := fmt.Sprintf("episode-%04d", i)
+		episodeMetadata = append(episodeMetadata, model.MetadataItem{
+			Base: model.Base{ID: episodeID}, Kind: model.MetadataKindEpisode, ParentID: &seasonMetadata.ID,
+			EpisodeNum: i, Title: fmt.Sprintf("Episode %d", i), Source: "local",
+		})
 		rows = append(rows, model.Media{
 			Base:       model.Base{ID: fmt.Sprintf("ep-%04d", i), CreatedAt: time.Now().Add(time.Duration(i) * time.Second)},
 			LibraryID:  lib.ID,
+			MetadataID: episodeID,
 			Title:      "大剧",
 			Path:       fmt.Sprintf("/media/anime/大剧 (2026) {tmdb-123}/Season 1/大剧.S01E%04d.mkv", i),
 			SeasonNum:  1,
 			EpisodeNum: i,
 		})
+	}
+	if err := repos.DB.CreateInBatches(episodeMetadata, 500).Error; err != nil {
+		t.Fatal(err)
 	}
 	if err := repos.DB.CreateInBatches(rows, 500).Error; err != nil {
 		t.Fatal(err)
@@ -526,6 +544,7 @@ func migrateMediaHandlerTestDB(db *gorm.DB, models ...any) error {
 	models = append(models,
 		&model.MetadataItem{}, &model.MetadataIdentifier{},
 		&model.ArtworkAsset{}, &model.MetadataArtwork{},
+		&model.Person{}, &model.MetadataCredit{},
 	)
 	if err := db.AutoMigrate(models...); err != nil {
 		return err

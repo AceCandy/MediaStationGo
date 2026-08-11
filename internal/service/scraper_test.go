@@ -84,8 +84,9 @@ func TestEnrichOneUsesExistingTMDbIDWithoutAdultLookup(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := serviceTestMediaView(t, repos, media.ID)
-	if got.ScrapeStatus != "matched" || got.Title != "间谍过家家" || got.TMDbID != 12345 || got.PosterURL == "" {
-		t.Fatalf("tmdb id scrape did not apply match: title=%q status=%q tmdb=%d poster=%q", got.Title, got.ScrapeStatus, got.TMDbID, got.PosterURL)
+	series := serviceTestTMDbSeries(t, repos, got, 12345)
+	if got.ScrapeStatus != "matched" || series.Title != "间谍过家家" {
+		t.Fatalf("tmdb id scrape did not apply match: series_title=%q status=%q", series.Title, got.ScrapeStatus)
 	}
 	if calls := adultCalls.Load(); calls != 0 {
 		t.Fatalf("adult provider was called %d times during regular scrape", calls)
@@ -121,8 +122,9 @@ func TestEnrichOneWritesTMDbIdentifier(t *testing.T) {
 	}
 
 	got := serviceTestMediaView(t, repos, media.ID)
-	if got.ScrapeStatus != "matched" || got.TMDbID != 12345 {
-		t.Fatalf("unexpected scraped media: status=%q tmdb=%d", got.ScrapeStatus, got.TMDbID)
+	serviceTestTMDbSeries(t, repos, got, 12345)
+	if got.ScrapeStatus != "matched" {
+		t.Fatalf("unexpected scraped media: status=%q", got.ScrapeStatus)
 	}
 }
 
@@ -151,8 +153,9 @@ func TestEnrichOneTreatsEpisodicMediaInMovieLibraryAsTV(t *testing.T) {
 	}
 
 	got := serviceTestMediaView(t, repos, media.ID)
-	if got.ScrapeStatus != "matched" || got.TMDbID != 12345 {
-		t.Fatalf("episodic media in movie library should use tv scrape: status=%q tmdb=%d", got.ScrapeStatus, got.TMDbID)
+	serviceTestTMDbSeries(t, repos, got, 12345)
+	if got.ScrapeStatus != "matched" {
+		t.Fatalf("episodic media in movie library should use tv scrape: status=%q", got.ScrapeStatus)
 	}
 }
 
@@ -276,9 +279,8 @@ func TestEnrichOneSkipsTMDbEpisodeStillWhenDisabled(t *testing.T) {
 	if stillCount != 0 {
 		t.Fatalf("episode still should not be saved when disabled, rows=%d", stillCount)
 	}
-	if got.PosterURL == "" || got.BackdropURL == "" {
-		t.Fatalf("series artwork should remain available: poster=%q backdrop=%q", got.PosterURL, got.BackdropURL)
-	}
+	series := serviceTestTMDbSeries(t, repos, got, 12345)
+	serviceTestArtworkSelections(t, repos, series.ID, model.ArtworkTypePoster, model.ArtworkTypeBackdrop)
 }
 
 func TestApplyManualMatchSkipsTMDbEpisodeStillWhenDisabled(t *testing.T) {
@@ -330,7 +332,6 @@ func TestApplyManualMatchSkipsTMDbEpisodeStillWhenDisabled(t *testing.T) {
 	if stillCount != 0 {
 		t.Fatalf("manual episode still should not be saved when disabled, rows=%d", stillCount)
 	}
-	if view.PosterURL == "" || view.BackdropURL == "" {
-		t.Fatalf("series artwork should remain available: poster=%q backdrop=%q", view.PosterURL, view.BackdropURL)
-	}
+	series := serviceTestTMDbSeries(t, repos, view, 12345)
+	serviceTestArtworkSelections(t, repos, series.ID, model.ArtworkTypePoster, model.ArtworkTypeBackdrop)
 }

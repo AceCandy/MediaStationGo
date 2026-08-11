@@ -7,21 +7,25 @@ package service
 
 import (
 	"context"
+	"path/filepath"
 
 	"go.uber.org/zap"
 
+	"github.com/ShukeBta/MediaStationGo/internal/config"
+	"github.com/ShukeBta/MediaStationGo/internal/model"
 	"github.com/ShukeBta/MediaStationGo/internal/repository"
 )
 
 // StorageService is the read-only aggregator.
 type StorageService struct {
+	cfg  *config.Config
 	log  *zap.Logger
 	repo *repository.Container
 }
 
 // NewStorageService is the constructor.
-func NewStorageService(log *zap.Logger, repo *repository.Container) *StorageService {
-	return &StorageService{log: log, repo: repo}
+func NewStorageService(cfg *config.Config, log *zap.Logger, repo *repository.Container) *StorageService {
+	return &StorageService{cfg: cfg, log: log, repo: repo}
 }
 
 // Breakdown is what /api/storage returns.
@@ -59,9 +63,10 @@ func (s *StorageService) Compute(ctx context.Context) (*Breakdown, error) {
 	out := &Breakdown{ByLibrary: make([]LibraryUsage, 0, len(libs))}
 	for _, l := range libs {
 		var usage LibraryUsage
+		name, mediaType := s.libraryDisplay(l)
 		usage.LibraryID = l.ID
-		usage.Name = l.Name
-		usage.Type = l.Type
+		usage.Name = name
+		usage.Type = mediaType
 		usage.Path = l.Path
 		row := struct {
 			Count   int64
@@ -90,6 +95,19 @@ func (s *StorageService) Compute(ctx context.Context) (*Breakdown, error) {
 	}
 	out.ByContainer = rows
 	return out, nil
+}
+
+func (s *StorageService) libraryDisplay(l model.Library) (string, string) {
+	var categories map[string]string
+	if s.cfg != nil {
+		categories = s.cfg.Organizer.Categories
+	}
+	for _, candidate := range []string{l.Name, filepath.Base(filepath.Clean(l.Path))} {
+		if hint, ok := findSourceCategoryHint(candidate, l.Type, categories); ok {
+			return categoryName(categories, hint.Key, hint.Fallback), hint.MediaType
+		}
+	}
+	return l.Name, l.Type
 }
 
 func (s *StorageService) containerStats(ctx context.Context) ([]ContainerStat, error) {

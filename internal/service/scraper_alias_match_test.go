@@ -71,7 +71,8 @@ func TestEnrichOneUsesAlternateLanguageTitleAndKeepsLocalizedMetadata(t *testing
 		t.Fatal(err)
 	}
 	got := serviceTestMediaView(t, repos, media.ID)
-	if got.TMDbID != 292696 || got.Title != "莫离" || got.ScrapeStatus != "matched" {
+	series := serviceTestTMDbSeries(t, repos, got, 292696)
+	if series.Title != "莫离" || got.ScrapeStatus != "matched" {
 		t.Fatalf("matched media=%+v, want localized correct TMDb result", got)
 	}
 	if got.SeasonNum != 1 || got.EpisodeNum != 1 {

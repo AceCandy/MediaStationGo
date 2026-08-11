@@ -101,7 +101,7 @@ func (b *serviceContainerBuilder) initContentServices() {
 	b.c.Duplicate = NewDuplicateService(b.log, b.repos, b.c.WSHub)
 	b.c.FileManager = NewFileManagerService(b.cfg, b.log, b.repos)
 	b.c.DLNA = NewDLNAService(b.log)
-	b.c.Storage = NewStorageService(b.log, b.repos)
+	b.c.Storage = NewStorageService(b.cfg, b.log, b.repos)
 	b.c.Emby = NewEmbyService(b.cfg, b.log, b.repos)
 	b.c.Notifier = NewNotifierService(b.log, b.repos)
 	b.c.NotifyChannels = NewNotifyChannelService(b.log, b.repos)

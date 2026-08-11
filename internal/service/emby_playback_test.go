@@ -290,36 +290,31 @@ func TestEmbyItemsFiltersResumableForHome(t *testing.T) {
 }
 
 func TestEmbyUserPolicyDisablesDownloadsForViewers(t *testing.T) {
-	svc := newTestEmbyService(t)
-	viewer := &model.User{Username: "viewer", Role: "user", Tier: "free", IsActive: true}
-	admin := &model.User{Username: "admin", Role: "admin", Tier: "plus", IsActive: true}
-	if err := svc.repo.User.Create(t.Context(), viewer); err != nil {
-		t.Fatalf("create viewer: %v", err)
-	}
-	if err := svc.repo.User.Create(t.Context(), admin); err != nil {
-		t.Fatalf("create admin: %v", err)
-	}
-
-	viewerPayload, err := svc.FindUser(t.Context(), viewer.ID)
-	if err != nil {
-		t.Fatalf("viewer payload: %v", err)
-	}
-	adminPayload, err := svc.FindUser(t.Context(), admin.ID)
-	if err != nil {
-		t.Fatalf("admin payload: %v", err)
-	}
+	svc := &EmbyService{}
+	viewerPayload := svc.userPayload(&model.User{Role: "user", IsActive: true})
+	adminPayload := svc.userPayload(&model.User{Role: "admin", IsActive: true})
 	viewerPolicy := viewerPayload["Policy"].(map[string]any)
 	adminPolicy := adminPayload["Policy"].(map[string]any)
 	if viewerPolicy["EnableMediaPlayback"] != true {
 		t.Fatalf("viewer must keep playback enabled: %#v", viewerPolicy)
 	}
 	if viewerPolicy["EnableContentDownloading"] != false ||
+		viewerPolicy["EnableAudioPlaybackTranscoding"] != false ||
+		viewerPolicy["EnableVideoPlaybackTranscoding"] != false ||
+		viewerPolicy["EnablePlaybackRemuxing"] != false ||
 		viewerPolicy["EnableSyncTranscoding"] != false ||
 		viewerPolicy["EnableMediaConversion"] != false {
-		t.Fatalf("viewer must not be allowed to download/sync media: %#v", viewerPolicy)
+		t.Fatalf("viewer must not be allowed to download or convert media: %#v", viewerPolicy)
 	}
 	if adminPolicy["EnableContentDownloading"] != true {
 		t.Fatalf("admin should keep downloading capability: %#v", adminPolicy)
+	}
+	if adminPolicy["EnableAudioPlaybackTranscoding"] != false ||
+		adminPolicy["EnableVideoPlaybackTranscoding"] != false ||
+		adminPolicy["EnablePlaybackRemuxing"] != false ||
+		adminPolicy["EnableSyncTranscoding"] != false ||
+		adminPolicy["EnableMediaConversion"] != false {
+		t.Fatalf("admin must not be allowed to convert media: %#v", adminPolicy)
 	}
 }
 

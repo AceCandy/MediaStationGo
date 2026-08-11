@@ -216,7 +216,9 @@ func TestEnrichLibrarySkipsDeferredEpisodeStillWhenDisabled(t *testing.T) {
 		Where("metadata_id = ? AND artwork_type = ?", got.MetadataID, model.ArtworkTypeStill).Count(&stillCount).Error; err != nil {
 		t.Fatal(err)
 	}
-	if stillCount != 0 || got.BackdropURL == "" {
-		t.Fatalf("episode still disabled state invalid: rows=%d backdrop=%q", stillCount, got.BackdropURL)
+	if stillCount != 0 {
+		t.Fatalf("episode still disabled state invalid: rows=%d", stillCount)
 	}
+	series := serviceTestTMDbSeries(t, repos, got, 12345)
+	serviceTestArtworkSelections(t, repos, series.ID, model.ArtworkTypePoster, model.ArtworkTypeBackdrop)
 }

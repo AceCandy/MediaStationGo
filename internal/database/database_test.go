@@ -1,6 +1,8 @@
 package database
 
 import (
+	"net/url"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -66,6 +68,95 @@ func TestPostgresMigrationDialectorUsesSimpleProtocol(t *testing.T) {
 	}
 	if runtimeDialector.(*postgres.Dialector).Config.PreferSimpleProtocol {
 		t.Fatal("postgres runtime dialector should retain prepared statements")
+	}
+}
+
+func TestMigrationConnectionClosesBeforePreparedRuntimeQuery(t *testing.T) {
+	isolationDB, err := testdb.OpenPostgres(t, &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var schema string
+	if err := isolationDB.Raw(`SELECT current_schema()`).Scan(&schema).Error; err != nil {
+		t.Fatal(err)
+	}
+	isolationSQLDB, err := isolationDB.DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := isolationSQLDB.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	dsn := strings.TrimSpace(os.Getenv("MEDIASTATION_TEST_POSTGRES_DSN"))
+	if strings.HasPrefix(dsn, "postgres://") || strings.HasPrefix(dsn, "postgresql://") {
+		parsed, err := url.Parse(dsn)
+		if err != nil {
+			t.Fatal("invalid PostgreSQL test DSN")
+		}
+		query := parsed.Query()
+		query.Set("search_path", schema)
+		parsed.RawQuery = query.Encode()
+		dsn = parsed.String()
+	} else {
+		dsn += " search_path=" + schema
+	}
+
+	cfg := &config.Config{}
+	cfg.Database.Type = "postgres"
+	cfg.Database.DSN = dsn
+	cfg.Database.MaxOpenConns = 1
+	cfg.Database.MaxIdleConns = 1
+
+	migrationDB, err := OpenForMigration(cfg, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	migrationSQLDB, err := migrationDB.DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = migrationSQLDB.Close() })
+	if _, ok := migrationDB.ConnPool.(*gorm.PreparedStmtDB); ok {
+		t.Fatal("migration connection should not prepare statements")
+	}
+	if err := AutoMigrate(migrationDB); err != nil {
+		t.Fatal(err)
+	}
+	want := model.Setting{Key: "runtime.prepared_query_check", Value: "ready"}
+	if err := migrationDB.Create(&want).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := migrationSQLDB.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	runtimeDB, err := Open(cfg, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtimeSQLDB, err := runtimeDB.DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = runtimeSQLDB.Close() })
+	prepared, ok := runtimeDB.ConnPool.(*gorm.PreparedStmtDB)
+	if !ok {
+		t.Fatal("runtime connection should prepare statements")
+	}
+
+	var got model.Setting
+	if err := runtimeDB.First(&got, "key = ?", want.Key).Error; err != nil {
+		t.Fatal(err)
+	}
+	if got.Value != want.Value {
+		t.Fatalf("setting value = %q, want %q", got.Value, want.Value)
+	}
+	prepared.Mux.RLock()
+	preparedCount := len(prepared.PreparedSQL)
+	prepared.Mux.RUnlock()
+	if preparedCount == 0 {
+		t.Fatal("first runtime query was not prepared")
 	}
 }
 

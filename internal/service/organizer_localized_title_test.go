@@ -95,7 +95,8 @@ func TestOrganizeDirectoryUsesTMDbChineseAlternativeTitle(t *testing.T) {
 		t.Fatal(err)
 	}
 	view := serviceTestMediaView(t, repos, stored.ID)
-	if view.Title != "菜鸟老警" || view.OriginalName != "The Rookie" || view.TMDbID != 7583 {
-		t.Fatalf("stored title=%q original=%q tmdb=%d, want localized Chinese metadata", view.Title, view.OriginalName, view.TMDbID)
+	series := serviceTestTMDbSeries(t, repos, view, 7583)
+	if series.Title != "菜鸟老警" || series.OriginalName != "The Rookie" {
+		t.Fatalf("stored series title=%q original=%q, want localized Chinese metadata", series.Title, series.OriginalName)
 	}
 }

@@ -84,6 +84,14 @@ func TestGenerateSTRMForLibraryWritesFilesAndRecords(t *testing.T) {
 	}
 }
 
+func TestGeneratedSTRMRecordRejectsProviderProtocol(t *testing.T) {
+	svc := &STRMService{}
+	err := svc.upsertGeneratedRecord(t.Context(), model.Media{Base: model.Base{ID: "media-1"}}, "/tmp/movie.strm", "openlist://movie", "movie")
+	if err == nil {
+		t.Fatal("provider-backed STRM protocol should be rejected")
+	}
+}
+
 func TestGenerateSTRMForLibrarySignsDefaultPlaybackToken(t *testing.T) {
 	db := newServiceTestDB(t, &model.Library{}, &model.Media{}, &model.STRMRecord{}, &model.Setting{}, &model.User{})
 	repos := repository.New(db)

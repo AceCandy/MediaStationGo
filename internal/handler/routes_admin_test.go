@@ -19,8 +19,10 @@ func TestAdminRouteSurfacesAreRegistered(t *testing.T) {
 	}, zap.NewNop(), &service.Container{Log: zap.NewNop()})
 
 	routes := map[string]bool{}
+	paths := map[string]bool{}
 	for _, route := range router.Routes() {
 		routes[route.Method+" "+route.Path] = true
+		paths[route.Path] = true
 	}
 
 	for _, want := range []string{
@@ -38,15 +40,41 @@ func TestAdminRouteSurfacesAreRegistered(t *testing.T) {
 		}
 	}
 	for _, retired := range []string{
-		"GET /api/admin/download/clients",
-		"GET /api/admin/storage/status",
-		"GET /api/admin/cloud/:type/list",
-		"POST /api/admin/cloud/scan-all",
-		"POST /api/admin/media/repair-rescrape",
-		"GET /api/playback/transcode/:job_id/status",
-		"GET /api/hls/:id/master.m3u8",
+		"/api/admin/download/clients",
+		"/api/admin/storage/status",
+		"/api/admin/storage/:type",
+		"/api/admin/storage/:type/test",
+		"/api/admin/storage/:type/logout",
+		"/api/admin/storage/:type/upload-local",
+		"/api/admin/cloud/:type/list",
+		"/api/admin/cloud/:type/mkdir",
+		"/api/admin/cloud/:type/rename",
+		"/api/admin/cloud/:type/import",
+		"/api/admin/cloud/:type/mount",
+		"/api/admin/cloud/:type/qr/start",
+		"/api/admin/cloud/:type/qr/poll",
+		"/api/admin/cloud/scan-all",
+		"/api/admin/cloud/scan/cancel",
+		"/api/admin/cloud/scan/status",
+		"/api/sites",
+		"/api/sites/types",
+		"/api/sites/auth-types",
+		"/api/sites/:id",
+		"/api/sites/:id/test",
+		"/api/sites/:id/resource",
+		"/api/sites/:id/userdata",
+		"/api/sites/search",
+		"/api/search/sites",
+		"/api/cloud/play/:type",
+		"/api/img/cloud/:type",
+		"/api/admin/media/repair-rescrape",
+		"/api/playback/transcode/:job_id/status",
+		"/api/hls/:id",
+		"/api/hls/:id/index.m3u8",
+		"/api/hls/:id/:seg",
+		"/api/hls/:id/master.m3u8",
 	} {
-		if routes[retired] {
+		if paths[retired] {
 			t.Fatalf("retired route is still registered: %s", retired)
 		}
 	}
@@ -57,16 +85,14 @@ func TestAdminRouteSurfacesAreRegistered(t *testing.T) {
 			"/videos/:id/master.m3u8",
 			"/videos/:id/main.m3u8",
 		} {
-			for _, method := range []string{"GET", "HEAD"} {
-				retired := method + " " + prefix + path
-				if routes[retired] {
-					t.Fatalf("retired route is still registered: %s", retired)
-				}
+			retired := prefix + path
+			if paths[retired] {
+				t.Fatalf("retired route is still registered: %s", retired)
 			}
 		}
 		for _, path := range []string{"/Videos/:id/:seg", "/videos/:id/:seg"} {
-			retired := "GET " + prefix + path
-			if routes[retired] {
+			retired := prefix + path
+			if paths[retired] {
 				t.Fatalf("retired route is still registered: %s", retired)
 			}
 		}

@@ -62,8 +62,9 @@ func TestOrganizeDirectoryScanAndScrapeAfter(t *testing.T) {
 		t.Fatal(err)
 	}
 	view := serviceTestMediaView(t, repos, media.ID)
-	if view.ScrapeStatus != "matched" || view.TMDbID != 12345 {
-		t.Fatalf("media scrape status=%q tmdb=%d, want matched/12345", view.ScrapeStatus, view.TMDbID)
+	serviceTestTMDbSeries(t, repos, view, 12345)
+	if view.ScrapeStatus != "matched" {
+		t.Fatalf("media scrape status=%q, want matched", view.ScrapeStatus)
 	}
 	if _, err := os.Stat(media.Path); err != nil {
 		t.Fatalf("organized file missing at %q: %v", media.Path, err)
@@ -106,8 +107,9 @@ func TestOrganizeDirectoryUsesScraperMatchBeforeRename(t *testing.T) {
 		t.Fatalf("organized metadata should be persisted before scan: %v", err)
 	}
 	view := serviceTestMediaView(t, repos, media.ID)
-	if view.Title != "间谍过家家" || view.TMDbID != 12345 || view.ScrapeStatus != "matched" {
-		t.Fatalf("persisted media = title=%q tmdb=%d status=%q, want localized matched metadata", view.Title, view.TMDbID, view.ScrapeStatus)
+	series := serviceTestTMDbSeries(t, repos, view, 12345)
+	if series.Title != "间谍过家家" || view.ScrapeStatus != "matched" {
+		t.Fatalf("persisted series = title=%q status=%q, want localized matched metadata", series.Title, view.ScrapeStatus)
 	}
 }
 
@@ -221,8 +223,9 @@ func TestOrganizeMediaRefreshesMetadataBeforeRename(t *testing.T) {
 	}
 
 	got := serviceTestMediaView(t, repos, media.ID)
-	if got.Title != "间谍过家家" || got.TMDbID != 12345 || got.ScrapeStatus != "matched" {
-		t.Fatalf("media = title=%q tmdb=%d status=%q, want localized matched metadata", got.Title, got.TMDbID, got.ScrapeStatus)
+	series := serviceTestTMDbSeries(t, repos, got, 12345)
+	if series.Title != "间谍过家家" || got.ScrapeStatus != "matched" {
+		t.Fatalf("series = title=%q status=%q, want localized matched metadata", series.Title, got.ScrapeStatus)
 	}
 	if got.Path != want {
 		t.Fatalf("media path = %q, want %q", got.Path, want)
@@ -271,8 +274,9 @@ func TestOrganizeMediaRefreshesMatchedReleaseTitleBeforeRename(t *testing.T) {
 	}
 
 	got := serviceTestMediaView(t, repos, media.ID)
-	if got.Title != "间谍过家家" || got.TMDbID != 12345 || got.OriginalName != "SPY×FAMILY" {
-		t.Fatalf("media = title=%q original=%q tmdb=%d, want refreshed localized metadata", got.Title, got.OriginalName, got.TMDbID)
+	series := serviceTestTMDbSeries(t, repos, got, 12345)
+	if series.Title != "间谍过家家" || series.OriginalName != "SPY×FAMILY" {
+		t.Fatalf("series = title=%q original=%q, want refreshed localized metadata", series.Title, series.OriginalName)
 	}
 }
 
@@ -315,8 +319,9 @@ func TestOrganizeMediaPersistsMetadataWhenAlreadyInPlace(t *testing.T) {
 	}
 
 	got := serviceTestMediaView(t, repos, media.ID)
-	if got.Title != "间谍过家家" || got.TMDbID != 12345 || got.OriginalName != "SPY×FAMILY" || got.ScrapeStatus != "matched" {
-		t.Fatalf("metadata not persisted for already-in-place media: title=%q original=%q tmdb=%d status=%q", got.Title, got.OriginalName, got.TMDbID, got.ScrapeStatus)
+	series := serviceTestTMDbSeries(t, repos, got, 12345)
+	if series.Title != "间谍过家家" || series.OriginalName != "SPY×FAMILY" || got.ScrapeStatus != "matched" {
+		t.Fatalf("metadata not persisted for already-in-place media: title=%q original=%q status=%q", series.Title, series.OriginalName, got.ScrapeStatus)
 	}
 }
 
@@ -357,8 +362,9 @@ func TestOrganizeLibraryPersistsMetadataForInPlaceWeakRows(t *testing.T) {
 	}
 
 	got := serviceTestMediaView(t, repos, media.ID)
-	if got.Title != "间谍过家家" || got.TMDbID != 12345 || got.OriginalName != "SPY×FAMILY" || got.ScrapeStatus != "matched" {
-		t.Fatalf("metadata not persisted for in-place library row: title=%q original=%q tmdb=%d status=%q", got.Title, got.OriginalName, got.TMDbID, got.ScrapeStatus)
+	series := serviceTestTMDbSeries(t, repos, got, 12345)
+	if series.Title != "间谍过家家" || series.OriginalName != "SPY×FAMILY" || got.ScrapeStatus != "matched" {
+		t.Fatalf("metadata not persisted for in-place library row: title=%q original=%q status=%q", series.Title, series.OriginalName, got.ScrapeStatus)
 	}
 }
 
@@ -399,8 +405,9 @@ func TestOrganizeScanAndScrapeRetriesNoMatchRows(t *testing.T) {
 	}
 
 	got := serviceTestMediaView(t, repos, media.ID)
-	if got.ScrapeStatus != "matched" || got.TMDbID != 12345 {
-		t.Fatalf("media scrape status=%q tmdb=%d, want matched/12345", got.ScrapeStatus, got.TMDbID)
+	serviceTestTMDbSeries(t, repos, got, 12345)
+	if got.ScrapeStatus != "matched" {
+		t.Fatalf("media scrape status=%q, want matched", got.ScrapeStatus)
 	}
 }
 
@@ -441,8 +448,9 @@ func TestOrganizeScanAndScrapeRepairsWeakMatchedReleaseTitle(t *testing.T) {
 	}
 
 	got := serviceTestMediaView(t, repos, media.ID)
-	if got.Title != "间谍过家家" || got.TMDbID != 12345 || got.ScrapeStatus != "matched" {
-		t.Fatalf("media = title=%q tmdb=%d status=%q, want localized matched metadata", got.Title, got.TMDbID, got.ScrapeStatus)
+	series := serviceTestTMDbSeries(t, repos, got, 12345)
+	if series.Title != "间谍过家家" || got.ScrapeStatus != "matched" {
+		t.Fatalf("series = title=%q status=%q, want localized matched metadata", series.Title, got.ScrapeStatus)
 	}
 }
 

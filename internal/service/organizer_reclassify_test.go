@@ -259,7 +259,8 @@ func TestReclassifyMisclassifiedMediaRetriesNoMatchMetadata(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := serviceTestMediaView(t, repos, stored.ID)
-	if got.LibraryID != domesticLib.ID || got.Title != "莫离" || got.TMDbID != 292696 || got.Countries != "CN" || got.Languages != "zh" || got.ScrapeStatus != "matched" {
+	series := serviceTestTMDbSeries(t, repos, got, 292696)
+	if got.LibraryID != domesticLib.ID || series.Title != "莫离" || series.Countries != "CN" || series.Languages != "zh" || got.ScrapeStatus != "matched" {
 		t.Fatalf("row after metadata retry = %#v, want domestic matched metadata", got)
 	}
 }

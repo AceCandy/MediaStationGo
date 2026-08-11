@@ -17,6 +17,9 @@ func (s *STRMService) upsertGeneratedRecord(ctx context.Context, media model.Med
 	if u, err := url.Parse(playURL); err == nil {
 		protocol = strings.ToLower(u.Scheme)
 	}
+	if protocol != "" && protocol != "http" && protocol != "https" {
+		return errors.New("generated STRM URL must be relative or use HTTP/HTTPS")
+	}
 	if protocol == "" {
 		protocol = "http"
 	}

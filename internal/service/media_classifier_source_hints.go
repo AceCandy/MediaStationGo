@@ -32,9 +32,17 @@ var sourceCategoryHints = []sourceCategoryHintDef{
 }
 
 func sourceCategoryHint(category, mediaType string, categories map[string]string) string {
+	hint, ok := findSourceCategoryHint(category, mediaType, categories)
+	if !ok {
+		return ""
+	}
+	return categoryName(categories, hint.Key, hint.Fallback)
+}
+
+func findSourceCategoryHint(category, mediaType string, categories map[string]string) (sourceCategoryHintDef, bool) {
 	tokens := sourceCategoryTokens(category)
 	if len(tokens) == 0 {
-		return ""
+		return sourceCategoryHintDef{}, false
 	}
 	for _, hint := range sourceCategoryHints {
 		if !sourceCategoryCompatible(mediaType, hint.MediaType) {
@@ -43,11 +51,11 @@ func sourceCategoryHint(category, mediaType string, categories map[string]string
 		names := append([]string{hint.Fallback, categoryName(categories, hint.Key, hint.Fallback)}, hint.Aliases...)
 		for _, name := range names {
 			if _, ok := tokens[strings.ToLower(strings.TrimSpace(name))]; ok {
-				return categoryName(categories, hint.Key, hint.Fallback)
+				return hint, true
 			}
 		}
 	}
-	return ""
+	return sourceCategoryHintDef{}, false
 }
 
 func sourceCategoryTokens(category string) map[string]struct{} {

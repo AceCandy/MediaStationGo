@@ -221,15 +221,33 @@ func TestSearchMediaVisibleCanReturnHugeLibraryResultsWhenRequested(t *testing.T
 		t.Fatal(err)
 	}
 	const total = 2505
+	series := createServiceTestMetadata(t, db, model.MetadataItem{
+		Base: model.Base{ID: "huge-series"}, Kind: model.MetadataKindSeries, Title: "海量剧集", Source: "local",
+	})
+	season := createServiceTestMetadata(t, db, model.MetadataItem{
+		Base: model.Base{ID: "huge-season"}, Kind: model.MetadataKindSeason,
+		ParentID: &series.ID, SeasonNum: 1, Title: "Season 1", Source: "local",
+	})
+	episodes := make([]model.MetadataItem, total)
 	rows := make([]model.Media, total)
 	for i := range rows {
+		title := fmt.Sprintf("海量剧集 %04d", i)
+		episodeID := fmt.Sprintf("huge-episode-%04d", i)
+		episodes[i] = model.MetadataItem{
+			Base: model.Base{ID: episodeID}, Kind: model.MetadataKindEpisode, ParentID: &season.ID,
+			EpisodeNum: i + 1, Title: title, Source: "local",
+		}
 		rows[i] = model.Media{
 			LibraryID:  lib.ID,
-			Title:      fmt.Sprintf("海量剧集 %04d", i),
+			MetadataID: episodeID,
+			Title:      title,
 			Path:       fmt.Sprintf("/media/huge/show-%04d.mkv", i),
 			SeasonNum:  1,
 			EpisodeNum: i + 1,
 		}
+	}
+	if err := db.CreateInBatches(&episodes, 500).Error; err != nil {
+		t.Fatal(err)
 	}
 	if err := db.CreateInBatches(&rows, 500).Error; err != nil {
 		t.Fatal(err)
