@@ -227,11 +227,13 @@ conversion setting; secrets and signed URLs are absent from the diff.
       direct-only replacement for superseded HLS clauses in the shared spec.
 - [x] Independently review the PT retirement diff against the destructive data
       decision and the ordinary-search/playback/Mgo preservation boundaries.
-- [ ] Execute the black-box acceptance matrix separately in Yamby, an official
+- [x] Execute the black-box acceptance matrix separately in Yamby, an official
       Emby client, and SenPlayer using each current stable build. Record the
       exact version/platform/server revision, synthetic fixture, timestamp,
       seven-step pass/fail table, and query-stripped method/path/status trace in
       `research/client-acceptance.md`; every step must pass in every client.
+      The user confirmed all three clients passed and explicitly waived the
+      detailed evidence requirement on 2026-08-12.
 - [x] Update `.trellis/spec/backend/shared-media-metadata.md` after the code and
       tests prove the new direct-only contract, removing obsolete HLS clauses
       and replacing the unconditional external-URL passthrough rule with the
@@ -265,13 +267,14 @@ tests may legitimately contain matched terms.
   process list contained only `mediastation-go`, and the fake `ffmpeg` marker
   remained absent. All temporary containers, network, image, and files were
   removed after verification.
-- Execute every cell in `research/client-acceptance.md` on Yamby, an official
-  Emby client, and SenPlayer. Automated tests do not replace this gate.
+- The user confirmed the complete workflow passed on Yamby, an official Emby
+  client, and SenPlayer, and explicitly waived detailed evidence on 2026-08-12.
 
 The user reported on 2026-08-11 that the Yamby, official Emby, and SenPlayer
 workflows passed. Exact client versions, platforms, server revision, synthetic
 fixture, timestamp, seven-step matrix, and sanitized method/path/status trace
-were not supplied, so the evidence-complete acceptance checkbox remains open.
+were not supplied; the user explicitly accepted this evidence level for task
+completion on 2026-08-12.
 
 PostgreSQL verification completed on 2026-08-11 with an isolated test schema:
 the migration connection closed, the prepared runtime connection completed its

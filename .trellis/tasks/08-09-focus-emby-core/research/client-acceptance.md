@@ -1,9 +1,8 @@
 # Emby Client Acceptance
 
-Status: user-reported pass on 2026-08-11 for Yamby, an official Emby client,
-and SenPlayer. Exact client versions, platforms, server revision, synthetic
-fixture, timestamp, and sanitized method/path/status traces were not supplied,
-so the evidence-complete release gate remains open.
+Status: accepted. The user reported a pass on 2026-08-11 for Yamby, an official
+Emby client, and SenPlayer, then explicitly waived the detailed evidence
+requirement on 2026-08-12.
 
 ## Required Environment Record
 
@@ -17,14 +16,14 @@ values.
 
 | Step | Yamby | Official Emby client | SenPlayer |
 | --- | --- | --- | --- |
-| Login and server/user/library discovery | Reported pass; evidence pending | Reported pass; evidence pending | Reported pass; evidence pending |
-| Browse Movie and Series -> Season -> Episode | Reported pass; evidence pending | Reported pass; evidence pending | Reported pass; evidence pending |
-| Display metadata, people, artwork, versions, and tracks | Reported pass; evidence pending | Reported pass; evidence pending | Reported pass; evidence pending |
-| PlaybackInfo source/audio/subtitle selection | Reported pass; evidence pending | Reported pass; evidence pending | Reported pass; evidence pending |
-| Original playback, HEAD, Range, seek, HTTP/STRM redirect | Reported pass; evidence pending | Reported pass; evidence pending | Reported pass; evidence pending |
-| Pause, resume, stop, played state, and progress/session state | Reported pass; evidence pending | Reported pass; evidence pending | Reported pass; evidence pending |
-| Unsupported source offers no HLS or conversion fallback | Reported pass; evidence pending | Reported pass; evidence pending | Reported pass; evidence pending |
+| Login and server/user/library discovery | User-confirmed pass | User-confirmed pass | User-confirmed pass |
+| Browse Movie and Series -> Season -> Episode | User-confirmed pass | User-confirmed pass | User-confirmed pass |
+| Display metadata, people, artwork, versions, and tracks | User-confirmed pass | User-confirmed pass | User-confirmed pass |
+| PlaybackInfo source/audio/subtitle selection | User-confirmed pass | User-confirmed pass | User-confirmed pass |
+| Original playback, HEAD, Range, seek, HTTP/STRM redirect | User-confirmed pass | User-confirmed pass | User-confirmed pass |
+| Pause, resume, stop, played state, and progress/session state | User-confirmed pass | User-confirmed pass | User-confirmed pass |
+| Unsupported source offers no HLS or conversion fallback | User-confirmed pass | User-confirmed pass | User-confirmed pass |
 
-All cells must pass before release. A skipped or conversion-fallback result is
-a failure, not a partial pass. Add a sanitized protocol fixture only when a
-real client reproduces a shared-contract incompatibility.
+The user explicitly accepted this evidence level for task completion on
+2026-08-12. Add a sanitized protocol fixture only when a real client reproduces
+a shared-contract incompatibility.

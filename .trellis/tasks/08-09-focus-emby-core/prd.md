@@ -288,10 +288,10 @@ surfaces no longer sit outside the focused Emby media-server boundary.
       source codecs fail without invoking server-side conversion. User policy,
       server configuration, and device profiles do not advertise transcoding,
       remuxing, media conversion, or HLS support.
-- [ ] An accepted real client can log in, browse a Movie and a complete Series
+- [x] An accepted real client can log in, browse a Movie and a complete Series
       hierarchy, display metadata and artwork, start playback, select tracks,
       seek, resume, and report completion.
-- [ ] The complete acceptance workflow passes independently in Yamby, an
+- [x] The complete acceptance workflow passes independently in Yamby, an
       official Emby client, and SenPlayer; request/response fixtures cover any
       client-specific protocol difference found during real-client validation,
       and the recorded evidence identifies the exact client/server environment.
