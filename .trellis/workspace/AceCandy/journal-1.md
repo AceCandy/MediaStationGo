@@ -271,3 +271,29 @@ Reorganized management navigation around retained capabilities, merged related o
 ### Status
 
 [OK] **Completed**
+
+
+## Session 13: Complete Emby core focus and risk closure
+
+**Date**: 2026-08-12
+**Task**: Complete Emby core focus and risk closure
+**Branch**: `main`
+
+### Summary
+
+Completed the focused Emby direct-play verification, fixed empty catalog scheduling, removed Web dependency vulnerabilities, and recorded user acceptance of the three-client validation.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `ba77919` | (see git log) |
+| `143f475` | (see git log) |
+| `d8f0b2e` | (see git log) |
+| `91ea66f` | (see git log) |
+| `f0124e4` | (see git log) |
+| `afe8124` | (see git log) |
+
+### Status
+
+[OK] **Completed**
