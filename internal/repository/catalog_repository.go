@@ -105,6 +105,19 @@ func (r *MetadataRepository) RequeueCatalogJob(ctx context.Context, id, stage st
 	}).Error
 }
 
+func (r *MetadataRepository) AdvanceRunningCatalogJob(ctx context.Context, id, stage, metadataID string) error {
+	res := r.db.WithContext(ctx).Model(&model.CatalogHydrationJob{}).
+		Where("id = ? AND status = ?", id, model.CatalogJobStatusRunning).
+		Updates(map[string]any{"stage": stage, "metadata_id": metadataID, "updated_at": time.Now().UTC()})
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected != 1 {
+		return errors.New("catalog hydration job is no longer running")
+	}
+	return nil
+}
+
 func (r *MetadataRepository) RetryCatalogJob(ctx context.Context, id, message string, next time.Time) error {
 	if len(message) > 2000 {
 		message = message[:2000]

@@ -107,10 +107,15 @@ func TestCatalogHydrationDoesNotSkipLegacyRootOnlySeries(t *testing.T) {
 		t.Fatal(err)
 	}
 	scraper.tmdb.client = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
-		if req.URL.Path != "/tv/54321" {
+		body := ""
+		switch req.URL.Path {
+		case "/tv/54321":
+			body = `{"id":54321,"name":"旧版剧集","seasons":[{"id":700,"season_number":1,"name":"第一季"}]}`
+		case "/tv/54321/season/1":
+			body = `{"id":700,"season_number":1,"name":"第一季","episodes":[]}`
+		default:
 			return &http.Response{StatusCode: http.StatusNotFound, Body: io.NopCloser(strings.NewReader("not found")), Request: req}, nil
 		}
-		body := `{"id":54321,"name":"旧版剧集","seasons":[{"id":700,"season_number":1,"name":"第一季"}]}`
 		return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": []string{"application/json"}}, Body: io.NopCloser(strings.NewReader(body)), Request: req}, nil
 	})}
 
@@ -123,7 +128,7 @@ func TestCatalogHydrationDoesNotSkipLegacyRootOnlySeries(t *testing.T) {
 	if err != nil || seriesAfter == nil {
 		t.Fatalf("legacy series = %#v, err = %v", seriesAfter, err)
 	}
-	if seriesAfter.CatalogMetadataHydratedAt == nil || seriesAfter.CatalogArtworkHydratedAt == nil {
+	if seriesAfter.CatalogMetadataHydratedAt == nil || seriesAfter.CatalogArtworkHydratedAt == nil || seriesAfter.CatalogHydratedAt == nil {
 		t.Fatalf("legacy series own checkpoints = %#v", seriesAfter)
 	}
 	var seasons []model.MetadataItem
@@ -175,29 +180,19 @@ func TestCatalogHydrationPersistsCompleteSeriesTree(t *testing.T) {
 	if err := repos.DB.Where("parent_id = ? AND kind = ?", rootSeries.ID, model.MetadataKindSeason).Order("season_num").Find(&shells).Error; err != nil {
 		t.Fatal(err)
 	}
-	for _, shell := range shells {
-		if shell.Overview != "" {
-			t.Fatalf("season shell inherited inventory overview: %#v", shell)
-		}
-	}
-	shells[0].Overview = "父级简介"
-	episodeShell, err := scraper.upsertCatalogEpisodeShell(t.Context(), &shells[0], TMDbEpisodeSummary{ID: 600, EpisodeNumber: 1, Name: "清单特别集"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if episodeShell.Overview != "" {
-		t.Fatalf("episode shell inherited overview: %#v", episodeShell)
-	}
-	processCatalogStage(t, scraper, model.CatalogJobStageSeasons)
-	processCatalogStage(t, scraper, model.CatalogJobStageSeasons)
-	processCatalogStage(t, scraper, model.CatalogJobStageSeasons)
-
 	series, err := repos.Metadata.FindByIdentifier(t.Context(), "tmdb", model.MetadataKindSeries, "12345")
 	if err != nil || series == nil {
 		t.Fatalf("series = %#v, err = %v", series, err)
 	}
 	if series.CatalogMetadataHydratedAt == nil || series.CatalogArtworkHydratedAt == nil || series.CatalogHydratedAt == nil {
 		t.Fatalf("series checkpoints = %#v", series)
+	}
+	var job model.CatalogHydrationJob
+	if err := repos.DB.Where("provider = ? AND entity_kind = ? AND external_id = ?", "tmdb", model.MetadataKindSeries, "12345").First(&job).Error; err != nil {
+		t.Fatal(err)
+	}
+	if job.Status != model.CatalogJobStatusCompleted {
+		t.Fatalf("series job status = %q, want completed without an intermediate requeue", job.Status)
 	}
 	var seasons []model.MetadataItem
 	if err := repos.DB.Where("parent_id = ? AND kind = ?", series.ID, model.MetadataKindSeason).Order("season_num").Find(&seasons).Error; err != nil {
@@ -250,12 +245,8 @@ func TestCatalogHydrationPersistsCompleteSeriesTree(t *testing.T) {
 			t.Fatalf("invalid snapshot for %s", snapshot.MetadataID)
 		}
 	}
-	var job model.CatalogHydrationJob
-	if err := repos.DB.First(&job).Error; err != nil {
-		t.Fatal(err)
-	}
-	if job.Status != model.CatalogJobStatusCompleted || job.CompletedAt == nil {
-		t.Fatalf("job = %#v, want completed", job)
+	if job.CompletedAt == nil {
+		t.Fatalf("job = %#v, want completed_at", job)
 	}
 	var mediaCount int64
 	if err := repos.DB.Model(&model.Media{}).Count(&mediaCount).Error; err != nil || mediaCount != 0 {

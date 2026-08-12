@@ -243,7 +243,7 @@ export const appRoutes: AppRoute[] = [
       {
         id: 'admin-tasks-scheduler',
         path: 'tasks/scheduler',
-        element: <Navigate to="/admin/tasks#scheduled-tasks" replace />,
+        element: <Navigate to="/admin/tasks?panel=scheduler" replace />,
       },
       {
         id: 'admin-tasks-stats',
@@ -319,7 +319,7 @@ export const appRoutes: AppRoute[] = [
   { id: 'legacy-duplicates', path: 'duplicates', element: <Navigate to="/admin/storage/duplicates" replace />, adminOnly: true },
   { id: 'legacy-recycle', path: 'recycle', element: <Navigate to="/admin/storage/recycle" replace />, adminOnly: true },
   { id: 'legacy-tasks', path: 'tasks', element: <Navigate to="/admin/tasks" replace />, adminOnly: true },
-  { id: 'legacy-scheduler', path: 'scheduler', element: <Navigate to="/admin/tasks#scheduled-tasks" replace />, adminOnly: true },
+  { id: 'legacy-scheduler', path: 'scheduler', element: <Navigate to="/admin/tasks?panel=scheduler" replace />, adminOnly: true },
   { id: 'legacy-stats', path: 'stats', element: <Navigate to="/admin/tasks/stats" replace />, adminOnly: true },
   { id: 'legacy-notify', path: 'notify-channels', element: <Navigate to="/admin/integrations/notifications" replace />, adminOnly: true },
   { id: 'legacy-assistant', path: 'assistant', element: <Navigate to="/admin/integrations/assistant" replace />, adminOnly: true },

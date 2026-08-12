@@ -34,6 +34,11 @@ func scanLibraryHandler(svc *service.Container) gin.HandlerFunc {
 			return
 		}
 		task := startScanHTTPTask(svc, "手动扫描入库", lib.Name, lib.Path)
+		if task == nil {
+			finishScan()
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "create task execution failed"})
+			return
+		}
 		go func(libraryID string, task *service.TaskHandle, finish func()) {
 			defer finish()
 			res, err := svc.Scan.ScanLibrary(context.Background(), libraryID)
@@ -68,6 +73,11 @@ func scanLibraryRootHandler(svc *service.Container) gin.HandlerFunc {
 			return
 		}
 		task := startScanHTTPTask(svc, "手动扫描媒体库路径", id, rootID)
+		if task == nil {
+			finishScan()
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "create task execution failed"})
+			return
+		}
 		go func(libraryID, libraryRootID string, task *service.TaskHandle, finish func()) {
 			defer finish()
 			res, err := svc.Scan.ScanLibraryRoot(context.Background(), libraryID, libraryRootID)
@@ -93,7 +103,7 @@ func startScanHTTPTask(svc *service.Container, name, libraryName, path string) *
 	if libraryName != "" {
 		name += "：" + libraryName
 	}
-	return svc.Tasks.Start(service.TaskKindScan, name, service.TaskUpdate{
+	return svc.Tasks.StartTriggered(service.TaskKindScan, service.TaskTriggerManual, name, service.TaskUpdate{
 		Stage:      "scan",
 		SourcePath: path,
 		Message:    "正在扫描并入库",

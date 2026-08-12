@@ -53,6 +53,7 @@ type Media struct {
 	SeasonNum         int           `json:"season_num"`
 	EpisodeNum        int           `json:"episode_num"`
 	ScrapeStatus      string        `gorm:"size:16;default:pending" json:"scrape_status"`
+	ScrapeTrigger     string        `gorm:"size:16;default:event" json:"scrape_trigger,omitempty"`
 	ScrapeError       string        `gorm:"size:1024" json:"scrape_error,omitempty"`
 	LocalMetadataHint string        `gorm:"type:text" json:"-"`
 	TMDbID            int           `gorm:"column:lookup_tmdb_id" json:"tmdb_id"`

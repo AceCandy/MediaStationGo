@@ -41,6 +41,9 @@ func (b *localMediaWriteBatch) AddWithAfter(path string, media *model.Media, aft
 	if media.ScrapeStatus == "" {
 		media.ScrapeStatus = "pending"
 	}
+	if media.ScrapeTrigger == "" {
+		media.ScrapeTrigger = TaskTriggerEvent
+	}
 	b.items = append(b.items, localMediaWriteItem{path: path, media: media, after: after})
 	if len(b.items) >= b.limit {
 		b.Flush()

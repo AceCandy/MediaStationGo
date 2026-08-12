@@ -131,6 +131,12 @@ func (s *ScraperService) EnrichLibraryDetailed(ctx context.Context, libraryID st
 }
 
 func (s *ScraperService) EnrichLibraryDetailedWithOptions(ctx context.Context, libraryID string, options ScrapeOptions) (EnrichLibraryResult, error) {
+	s.scrapeRunMu.Lock()
+	defer s.scrapeRunMu.Unlock()
+	return s.enrichLibraryDetailedWithOptions(ctx, libraryID, options)
+}
+
+func (s *ScraperService) enrichLibraryDetailedWithOptions(ctx context.Context, libraryID string, options ScrapeOptions) (EnrichLibraryResult, error) {
 	result := EnrichLibraryResult{LibraryID: libraryID}
 	rows, err := s.scrapeCandidateRows(ctx, libraryID, options)
 	if err != nil {
@@ -151,7 +157,7 @@ func (s *ScraperService) EnrichLibraryDetailedWithOptions(ctx context.Context, l
 		default:
 		}
 		representative := &groups[i].Representative
-		enrichErr := s.EnrichOneWithOptions(ctx, representative, runOptions)
+		enrichErr := s.enrichOneWithOptions(ctx, representative, runOptions)
 		if err := s.syncScrapeCandidateGroup(ctx, groups[i]); err != nil {
 			return result, err
 		}
@@ -195,8 +201,13 @@ func groupScrapeCandidateRows(rows []model.Media) ([]scrapeCandidateGroup, error
 	groupIndexes := make(map[string]int, len(rows))
 	for i := range rows {
 		metadataID := strings.TrimSpace(rows[i].MetadataID)
-		groupKey := metadataID
-		if metadataID == "" {
+		seriesID := strings.TrimSpace(rows[i].SeriesID)
+		groupKey := ""
+		if seriesID != "" {
+			groupKey = "series:" + seriesID
+		} else if metadataID != "" {
+			groupKey = metadataID
+		} else {
 			groupKey = "media:" + rows[i].ID
 		}
 		if groupIndex, ok := groupIndexes[groupKey]; ok {

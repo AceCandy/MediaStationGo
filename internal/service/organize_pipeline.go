@@ -87,6 +87,9 @@ func (p *OrganizePipelineService) Run(ctx context.Context, req OrganizePipelineR
 		opts.TransferMode = TransferMode(mode)
 	}
 	task := p.startTask(ctx, req, opts)
+	if p.tasks != nil && task == nil {
+		return nil, errors.New("create organize task execution failed")
+	}
 
 	response := &OrganizePipelineResponse{}
 	res, path, err := p.runOrganize(ctx, req, opts)

@@ -21,6 +21,12 @@ func (s *ScraperService) EnrichOne(ctx context.Context, m *model.Media) error {
 }
 
 func (s *ScraperService) EnrichOneWithOptions(ctx context.Context, m *model.Media, options ScrapeOptions) error {
+	s.scrapeRunMu.Lock()
+	defer s.scrapeRunMu.Unlock()
+	return s.enrichOneWithOptions(ctx, m, options)
+}
+
+func (s *ScraperService) enrichOneWithOptions(ctx context.Context, m *model.Media, options ScrapeOptions) error {
 	lib, err := s.repo.Library.FindByID(ctx, m.LibraryID)
 	if err != nil {
 		return err

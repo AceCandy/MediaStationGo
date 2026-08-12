@@ -44,6 +44,7 @@ func (b *serviceContainerBuilder) startRealtimeServices() {
 	b.c.WSHub = NewHub(b.log)
 	go b.c.WSHub.Run()
 	b.c.Tasks = NewTaskTrackerService(b.log, b.c.WSHub)
+	b.c.Tasks.ConfigurePersistence(b.repos.TaskExecution, b.cfg.App.DataDir)
 
 	b.c.SSEHub = NewSSEHub(b.log)
 	go b.c.SSEHub.Run()
@@ -71,6 +72,7 @@ func (b *serviceContainerBuilder) initProviderServices() {
 	)
 	b.c.Scraper.SetRuntimeCache(b.c.Cache)
 	b.c.Scraper.SetDouban(b.c.Douban)
+	b.c.Scraper.SetTaskTracker(b.c.Tasks)
 }
 
 func (b *serviceContainerBuilder) configureMediaSearchBackend() {

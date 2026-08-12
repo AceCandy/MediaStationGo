@@ -26,11 +26,15 @@ func probeLibraryHandler(svc *service.Container) gin.HandlerFunc {
 			return
 		}
 
-		task := svc.Tasks.Start(service.TaskKindProbe, "媒体轨道回填："+library.Name, service.TaskUpdate{
+		task := svc.Tasks.StartTriggered(service.TaskKindProbe, service.TaskTriggerManual, "媒体轨道回填："+library.Name, service.TaskUpdate{
 			Stage: "probe", SourcePath: library.Path,
 			Message: "媒体轨道回填已启动",
 			Metrics: service.ProbeBackfillResult{}.Metrics(),
 		})
+		if task == nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "create task execution failed"})
+			return
+		}
 		go func() {
 			result, err := svc.MediaProbe.BackfillLibrary(svc.Context(), libraryID, func(current service.ProbeBackfillResult) {
 				task.Update(service.TaskUpdate{Stage: "probe", Metrics: current.Metrics(), Details: current.Details})

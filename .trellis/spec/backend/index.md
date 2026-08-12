@@ -20,6 +20,7 @@ This directory contains guidelines for backend development. Fill in each file wi
 | [Quality Guidelines](./quality-guidelines.md) | Code standards, forbidden patterns | To fill |
 | [Logging Guidelines](./logging-guidelines.md) | Structured logging, log levels | To fill |
 | [Shared Media Metadata](./shared-media-metadata.md) | Canonical metadata, MediaView, artwork, and sidecar contracts | Active |
+| [Background Task Execution](./background-task-execution.md) | Persistent execution summaries, per-task logs, and scrape scheduling | Active |
 
 ---
 

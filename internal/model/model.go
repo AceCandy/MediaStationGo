@@ -39,6 +39,7 @@ func AllModels() []interface{} {
 		&MetadataIdentifier{},
 		&MetadataProviderSnapshot{},
 		&CatalogHydrationJob{},
+		&TaskExecution{},
 		&Person{},
 		&PersonIdentifier{},
 		&MetadataCredit{},

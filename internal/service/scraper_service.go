@@ -37,6 +37,14 @@ type ScraperService struct {
 	catalogHydrationWake chan struct{}
 	catalogHydrationOnce sync.Once
 	catalogHydrationWG   sync.WaitGroup
+	scrapeRunMu          sync.Mutex
+	tasks                *TaskTrackerService
+}
+
+func (s *ScraperService) SetTaskTracker(tasks *TaskTrackerService) {
+	if s != nil {
+		s.tasks = tasks
+	}
 }
 
 func (s *ScraperService) SetAI(ai *AIService) *ScraperService {

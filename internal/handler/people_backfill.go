@@ -25,7 +25,11 @@ func peopleBackfillLibraryHandler(svc *service.Container) gin.HandlerFunc {
 			c.JSON(http.StatusNotFound, gin.H{"error": "library not found"})
 			return
 		}
-		task := svc.Tasks.Start(service.TaskKindPeople, "人物信息回填："+library.Name, service.TaskUpdate{Stage: "people", SourcePath: library.Path, Message: "人物信息回填已启动", Metrics: service.PeopleBackfillResult{}.Metrics()})
+		task := svc.Tasks.StartTriggered(service.TaskKindPeople, service.TaskTriggerManual, "人物信息回填："+library.Name, service.TaskUpdate{Stage: "people", SourcePath: library.Path, Message: "人物信息回填已启动", Metrics: service.PeopleBackfillResult{}.Metrics()})
+		if task == nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "create task execution failed"})
+			return
+		}
 		go func() {
 			result, runErr := svc.Scraper.BackfillLibraryPeople(svc.Context(), libraryID, func(current service.PeopleBackfillResult) {
 				task.Update(service.TaskUpdate{Stage: "people", Metrics: current.Metrics(), Details: current.Details})

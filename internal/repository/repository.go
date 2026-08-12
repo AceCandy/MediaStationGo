@@ -33,6 +33,7 @@ type Container struct {
 	RegCode       *RegistrationCodeRepository
 	SignIn        *SignInRepository
 	UserDevice    *UserDeviceRepository
+	TaskExecution *TaskExecutionRepository
 }
 
 // New 将每个 repository 连接到单个 *gorm.DB。
@@ -63,5 +64,6 @@ func New(db *gorm.DB) *Container {
 		RegCode:       &RegistrationCodeRepository{db: db},
 		SignIn:        &SignInRepository{db: db},
 		UserDevice:    &UserDeviceRepository{db: db},
+		TaskExecution: &TaskExecutionRepository{db: db},
 	}
 }

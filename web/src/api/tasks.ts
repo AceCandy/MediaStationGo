@@ -3,8 +3,9 @@ import { api } from './client'
 export interface BackgroundTask {
   id: string
   kind: string
+  trigger: 'manual' | 'scheduled' | 'event'
   name: string
-  status: 'running' | 'completed' | 'failed'
+  status: 'running' | 'completed' | 'failed' | 'interrupted'
   stage?: string
   source_path?: string
   dest_path?: string
@@ -24,8 +25,19 @@ export interface BackgroundTaskSnapshot {
 
 export interface TasksSnapshot {
   background_tasks?: BackgroundTaskSnapshot
+  items: BackgroundTask[]
+  page: number
+  page_size: number
+  total: number
+}
+
+export interface TaskLog {
+  content: string
+  truncated: boolean
 }
 
 export const tasksAPI = {
-  snapshot: () => api.get<TasksSnapshot>('/tasks').then((r) => r.data),
+  snapshot: (page = 1, pageSize = 30) =>
+    api.get<TasksSnapshot>('/tasks', { params: { page, page_size: pageSize } }).then((r) => r.data),
+  log: (id: string) => api.get<TaskLog>(`/tasks/${id}/log`).then((r) => r.data),
 }

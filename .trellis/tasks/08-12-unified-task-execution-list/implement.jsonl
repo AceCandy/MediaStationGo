@@ -1,0 +1,3 @@
+{"file":".trellis/spec/backend/database-guidelines.md","reason":"任务执行表、PostgreSQL 查询与自动迁移必须遵循项目数据库约定"}
+{"file":".trellis/spec/frontend/routing-and-loading-contracts.md","reason":"任务中心管理路由、加载状态和响应式验证必须遵循前端契约"}
+{"file":".trellis/tasks/08-12-unified-task-execution-list/research/scrape-scheduler.md","reason":"统一刮削 worker 的现状证据、优先级和不可抢占粒度约束"}

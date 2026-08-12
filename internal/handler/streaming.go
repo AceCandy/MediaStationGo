@@ -2,7 +2,6 @@
 package handler
 
 import (
-	"context"
 	"errors"
 	"io"
 	"net/http"
@@ -85,19 +84,11 @@ func scrapeOneHandler(svc *service.Container) gin.HandlerFunc {
 			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
 			return
 		}
-		task := startScrapeHTTPTask(svc, "手动刮削媒体", m.Title, m.Path)
-		if err := svc.Scraper.EnrichOneWithOptions(c.Request.Context(), m, options); err != nil {
-			finishHTTPTask(task, err, "scrape", "手动刮削媒体失败", nil, nil)
+		if _, err := svc.Scraper.ResetMediaScrape(c.Request.Context(), m.ID); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		refreshed, _ := svc.Repo.Media.FindByID(c.Request.Context(), m.ID)
-		metrics := map[string]int64{"processed": 1}
-		if refreshed != nil && refreshed.ScrapeStatus == "matched" {
-			metrics["matched"] = 1
-		}
-		finishHTTPTask(task, nil, "completed", "手动刮削媒体结束", metrics, nil)
-		c.JSON(http.StatusOK, refreshed)
+		c.JSON(http.StatusAccepted, gin.H{"status": "queued"})
 	}
 }
 
@@ -111,48 +102,13 @@ func scrapeLibraryHandler(svc *service.Container) gin.HandlerFunc {
 			return
 		}
 		options.IncludeMatched = true
-		var task *service.TaskHandle
-		if lib, err := svc.Repo.Library.FindByID(c.Request.Context(), libID); err == nil && lib != nil {
-			task = startScrapeHTTPTask(svc, "手动刮削媒体库", lib.Name, lib.Path)
-		} else {
-			task = startScrapeHTTPTask(svc, "手动刮削媒体库", libID, "")
+		queued, err := svc.Scraper.ResetLibraryScrape(c.Request.Context(), libID, options.IncludeMatched)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
 		}
-		// Run in the background so HTTP returns instantly; the WS hub
-		// pushes per-item progress on the "scrape" topic.
-		go func(libID string, task *service.TaskHandle, options service.ScrapeOptions) {
-			result, err := svc.Scraper.EnrichLibraryDetailedWithOptions(context.Background(), libID, options)
-			metrics := map[string]int64{
-				"matched":    int64(result.Matched),
-				"processed":  int64(result.Processed),
-				"candidates": int64(result.Candidates),
-			}
-			if result.Failed > 0 {
-				metrics["errors"] = int64(result.Failed)
-			}
-			stage := "completed"
-			message := "手动刮削媒体库结束"
-			if err != nil {
-				stage = "scrape"
-				message = "手动刮削媒体库失败"
-			}
-			finishHTTPTask(task, err, stage, message, metrics, nil)
-		}(libID, task, options)
-		c.JSON(http.StatusAccepted, gin.H{"status": "scraping"})
+		c.JSON(http.StatusAccepted, gin.H{"status": "queued", "count": queued})
 	}
-}
-
-func startScrapeHTTPTask(svc *service.Container, name, title, path string) *service.TaskHandle {
-	if svc == nil || svc.Tasks == nil {
-		return nil
-	}
-	if title != "" {
-		name += "：" + title
-	}
-	return svc.Tasks.Start(service.TaskKindScrape, name, service.TaskUpdate{
-		Stage:      "scrape",
-		SourcePath: path,
-		Message:    "正在刮削元数据",
-	})
 }
 
 // reprobeHandler re-runs ffprobe against a single media. Admin-only.

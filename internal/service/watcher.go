@@ -292,5 +292,8 @@ func (w *WatcherService) process(ctx context.Context, d duePath) {
 		w.log.Warn("watcher ingest failed", zap.String("path", d.path), zap.Error(ierr))
 	} else if added {
 		w.log.Info("watcher ingested media", zap.String("path", d.path))
+		if w.scanner.scraper != nil && w.scanner.autoScrapeEnabled(ctx) {
+			w.scanner.scraper.WakeScrapeWorker()
+		}
 	}
 }

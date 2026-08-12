@@ -17,7 +17,11 @@ func (p *OrganizePipelineService) startTask(ctx context.Context, req OrganizePip
 	if req.DryRun {
 		message = "正在预览整理/重命名"
 	}
-	return p.tasks.Start(TaskKindOrganize, name, TaskUpdate{
+	trigger := TaskTriggerManual
+	if req.Trigger == OrganizeTriggerScheduled {
+		trigger = TaskTriggerScheduled
+	}
+	return p.tasks.StartTriggered(TaskKindOrganize, trigger, name, TaskUpdate{
 		Stage:      "organize",
 		SourcePath: firstNonEmpty(opts.SourcePath, p.defaultSourcePath(ctx, req)),
 		DestPath:   firstNonEmpty(opts.DestPath, p.defaultDestPath(ctx, req)),

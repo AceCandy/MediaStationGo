@@ -27,6 +27,12 @@ func (s *ScraperService) StartCatalogHydrationWorker(ctx context.Context) {
 		if s.catalogHydrationWake == nil {
 			s.catalogHydrationWake = make(chan struct{}, 1)
 		}
+		if err := s.recoverRunningMediaScrapes(ctx); err != nil {
+			if s.log != nil {
+				s.log.Warn("recover running media scrapes failed", zap.Error(err))
+			}
+			return
+		}
 		if err := s.repo.Metadata.RecoverCatalogJobs(ctx); err != nil {
 			if s.log != nil {
 				s.log.Warn("recover catalog hydration jobs failed", zap.Error(err))
@@ -77,6 +83,19 @@ func (s *ScraperService) QueueCatalogHydrationContext(ctx context.Context, items
 	return nil
 }
 
+func (s *ScraperService) WakeScrapeWorker() {
+	if s == nil {
+		return
+	}
+	if s.catalogHydrationWake == nil {
+		s.catalogHydrationWake = make(chan struct{}, 1)
+	}
+	select {
+	case s.catalogHydrationWake <- struct{}{}:
+	default:
+	}
+}
+
 func (s *ScraperService) runCatalogHydrationWorker(ctx context.Context) {
 	defer s.catalogHydrationWG.Done()
 	if err := s.localizeTMDbCatalogSnapshots(ctx); err != nil && s.log != nil && ctx.Err() == nil {
@@ -84,6 +103,19 @@ func (s *ScraperService) runCatalogHydrationWorker(ctx context.Context) {
 	}
 	rootStreak := 0
 	for ctx.Err() == nil {
+		processed, err := s.processNextMediaScrape(ctx)
+		if err != nil {
+			if s.log != nil && ctx.Err() == nil {
+				s.log.Warn("process pending media scrape failed", zap.Error(err))
+			}
+			if !waitForContext(ctx, time.Second) {
+				return
+			}
+			continue
+		}
+		if processed {
+			continue
+		}
 		job, err := s.claimNextCatalogJob(ctx, &rootStreak)
 		if err != nil {
 			if s.log != nil && ctx.Err() == nil {
@@ -100,8 +132,27 @@ func (s *ScraperService) runCatalogHydrationWorker(ctx context.Context) {
 			}
 			continue
 		}
-		if err := s.processCatalogJob(ctx, job); err != nil && ctx.Err() == nil {
-			safeErr := sanitizeCatalogError(err)
+		var task *TaskHandle
+		if s.tasks != nil {
+			kindName := "电影"
+			if job.EntityKind == model.MetadataKindSeries {
+				kindName = "电视剧"
+			}
+			task = s.tasks.StartTriggered(TaskKindScrape, TaskTriggerEvent, "发现目录刮削："+kindName+" "+job.ExternalID, TaskUpdate{
+				Stage: "scrape", Message: "正在补全发现目录元数据",
+			})
+			if task == nil {
+				next := time.Now().UTC().Add(catalogRetryDelay(job.Attempts))
+				_ = s.repo.Metadata.RetryCatalogJob(ctx, job.ID, "create scrape task execution failed", next)
+				continue
+			}
+		}
+		runErr := s.processCatalogJob(ctx, job)
+		if task != nil {
+			task.Finish(runErr, TaskUpdate{Stage: "completed", Message: "发现目录刮削结束", Metrics: map[string]int64{"processed": 1}})
+		}
+		if runErr != nil && ctx.Err() == nil {
+			safeErr := sanitizeCatalogError(runErr)
 			next := time.Now().UTC().Add(catalogRetryDelay(job.Attempts))
 			_ = s.repo.Metadata.RetryCatalogJob(ctx, job.ID, safeErr.Error(), next)
 			if s.log != nil {
@@ -180,13 +231,80 @@ func (s *ScraperService) processCatalogJob(ctx context.Context, job *model.Catal
 	if err != nil || tmdbID <= 0 {
 		return errors.New("invalid tmdb catalog id")
 	}
-	if job.Stage == model.CatalogJobStageSeasons && job.EntityKind == model.MetadataKindSeries {
-		return s.hydrateCatalogSeasonTurn(ctx, job, tmdbID)
+	s.scrapeRunMu.Lock()
+	defer s.scrapeRunMu.Unlock()
+	if job.EntityKind == model.MetadataKindSeries {
+		return s.hydrateCatalogSeries(ctx, job, tmdbID)
 	}
 	return s.hydrateCatalogRoot(ctx, job, tmdbID)
 }
 
+func (s *ScraperService) hydrateCatalogSeries(ctx context.Context, job *model.CatalogHydrationJob, tmdbID int) error {
+	if job.Stage != model.CatalogJobStageSeasons {
+		if err := s.hydrateCatalogSeriesRoot(ctx, job, tmdbID); err != nil {
+			return err
+		}
+	}
+	series, err := s.catalogJobMetadata(ctx, job)
+	if err != nil {
+		return err
+	}
+	for {
+		season, err := s.repo.Metadata.FindIncompleteCatalogChild(ctx, series.ID, model.MetadataKindSeason)
+		if err != nil {
+			return err
+		}
+		if season == nil {
+			break
+		}
+		if err := s.hydrateCatalogSeason(ctx, series, season, tmdbID); err != nil {
+			return err
+		}
+	}
+	now := time.Now().UTC()
+	if err := s.repo.Metadata.MarkCatalogCheckpoint(ctx, series.ID, "catalog_hydrated_at", now); err != nil {
+		return err
+	}
+	return s.repo.Metadata.CompleteCatalogJob(ctx, job.ID, series.ID, now)
+}
+
+func (s *ScraperService) hydrateCatalogSeriesRoot(ctx context.Context, job *model.CatalogHydrationJob, tmdbID int) error {
+	if err := s.hydrateCatalogRootData(ctx, job, tmdbID); err != nil {
+		return err
+	}
+	item, err := s.repo.Metadata.FindByIdentifier(ctx, job.Provider, job.EntityKind, job.ExternalID)
+	if err != nil {
+		return err
+	}
+	if item == nil {
+		return errors.New("catalog job metadata is missing")
+	}
+	if err := s.repo.Metadata.AdvanceRunningCatalogJob(ctx, job.ID, model.CatalogJobStageSeasons, item.ID); err != nil {
+		return err
+	}
+	job.Stage = model.CatalogJobStageSeasons
+	job.MetadataID = &item.ID
+	return nil
+}
+
 func (s *ScraperService) hydrateCatalogRoot(ctx context.Context, job *model.CatalogHydrationJob, tmdbID int) error {
+	if err := s.hydrateCatalogRootData(ctx, job, tmdbID); err != nil {
+		return err
+	}
+	item, err := s.repo.Metadata.FindByIdentifier(ctx, job.Provider, job.EntityKind, job.ExternalID)
+	if err != nil {
+		return err
+	}
+	if item == nil {
+		return errors.New("catalog job metadata is missing")
+	}
+	if job.EntityKind == model.MetadataKindMovie {
+		return s.completeCatalogLeafJob(ctx, job, item)
+	}
+	return s.repo.Metadata.RequeueCatalogJob(ctx, job.ID, model.CatalogJobStageSeasons, &item.ID)
+}
+
+func (s *ScraperService) hydrateCatalogRootData(ctx context.Context, job *model.CatalogHydrationJob, tmdbID int) error {
 	if s.tmdb == nil {
 		return errors.New("tmdb catalog provider is unavailable")
 	}
@@ -195,10 +313,7 @@ func (s *ScraperService) hydrateCatalogRoot(ctx context.Context, job *model.Cata
 		return err
 	}
 	if item != nil && item.CatalogMetadataHydratedAt != nil && item.CatalogArtworkHydratedAt != nil {
-		if job.EntityKind == model.MetadataKindMovie {
-			return s.completeCatalogLeafJob(ctx, job, item)
-		}
-		return s.repo.Metadata.RequeueCatalogJob(ctx, job.ID, model.CatalogJobStageSeasons, &item.ID)
+		return nil
 	}
 
 	var match *Match
@@ -252,10 +367,7 @@ func (s *ScraperService) hydrateCatalogRoot(ctx context.Context, job *model.Cata
 			return err
 		}
 	}
-	if job.EntityKind == model.MetadataKindMovie {
-		return s.completeCatalogLeafJob(ctx, job, item)
-	}
-	return s.repo.Metadata.RequeueCatalogJob(ctx, job.ID, model.CatalogJobStageSeasons, &item.ID)
+	return nil
 }
 
 func (s *ScraperService) completeCatalogLeafJob(ctx context.Context, job *model.CatalogHydrationJob, item *model.MetadataItem) error {
@@ -266,28 +378,6 @@ func (s *ScraperService) completeCatalogLeafJob(ctx context.Context, job *model.
 		}
 	}
 	return s.repo.Metadata.CompleteCatalogJob(ctx, job.ID, item.ID, now)
-}
-
-func (s *ScraperService) hydrateCatalogSeasonTurn(ctx context.Context, job *model.CatalogHydrationJob, tmdbID int) error {
-	series, err := s.catalogJobMetadata(ctx, job)
-	if err != nil {
-		return err
-	}
-	season, err := s.repo.Metadata.FindIncompleteCatalogChild(ctx, series.ID, model.MetadataKindSeason)
-	if err != nil {
-		return err
-	}
-	if season == nil {
-		now := time.Now().UTC()
-		if err := s.repo.Metadata.MarkCatalogCheckpoint(ctx, series.ID, "catalog_hydrated_at", now); err != nil {
-			return err
-		}
-		return s.repo.Metadata.CompleteCatalogJob(ctx, job.ID, series.ID, now)
-	}
-	if err := s.hydrateCatalogSeason(ctx, series, season, tmdbID); err != nil {
-		return err
-	}
-	return s.repo.Metadata.RequeueCatalogJob(ctx, job.ID, model.CatalogJobStageSeasons, &series.ID)
 }
 
 func (s *ScraperService) catalogJobMetadata(ctx context.Context, job *model.CatalogHydrationJob) (*model.MetadataItem, error) {

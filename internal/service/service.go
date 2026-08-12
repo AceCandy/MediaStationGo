@@ -81,6 +81,11 @@ func New(cfg *config.Config, log *zap.Logger, repos *repository.Container) *Cont
 // Boot 启动后台工作进程（watcher、媒体扫描与调度任务）。
 // 在 AutoMigrate 后调用一次。
 func (c *Container) Boot() {
+	if c.Tasks != nil {
+		if err := c.Tasks.Recover(c.stopCtx); err != nil {
+			c.Log.Warn("recover task executions failed", zap.Error(err))
+		}
+	}
 	if err := c.NormalizeLocalLibraryPaths(c.stopCtx); err != nil {
 		c.Log.Warn("normalize local library paths failed", zap.Error(err))
 	}

@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"strconv"
 	"strings"
 	"time"
@@ -23,10 +24,27 @@ func (s *SchedulerService) jobScanLibraries(ctx context.Context) error {
 	if !manual && !s.periodicScanDue(ctx, now) {
 		return nil
 	}
+	trigger := TaskTriggerScheduled
+	name := "定时媒体库扫描"
+	if manual {
+		trigger = TaskTriggerManual
+		name = "手动触发媒体库扫描"
+	}
+	var task *TaskHandle
+	if s.tasks != nil {
+		task = s.tasks.StartTriggered(TaskKindScan, trigger, name, TaskUpdate{Stage: "scan", Message: "正在扫描已启用媒体库"})
+		if task == nil {
+			return errors.New("create scan task execution failed")
+		}
+	}
 	libs, err := s.repo.Library.List(ctx)
 	if err != nil {
+		if task != nil {
+			task.Finish(err, TaskUpdate{Stage: "scan", Message: "媒体库扫描失败"})
+		}
 		return err
 	}
+	metrics := map[string]int64{}
 	for _, l := range libs {
 		if !l.Enabled {
 			continue
@@ -34,13 +52,26 @@ func (s *SchedulerService) jobScanLibraries(ctx context.Context) error {
 		if isRetiredCloudPath(l.Path) {
 			continue
 		}
-		if _, err := s.scanner.ScanLibrary(ctx, l.ID); err != nil {
+		metrics["libraries"]++
+		res, err := s.scanner.ScanLibrary(ctx, l.ID)
+		if err != nil {
+			metrics["errors"]++
 			s.log.Warn("scheduled scan failed",
 				zap.String("library", l.ID), zap.Error(err))
+			continue
+		}
+		if res != nil {
+			metrics["visited"] += int64(res.Visited)
+			metrics["added"] += int64(res.Added)
+			metrics["updated"] += int64(res.Updated)
+			metrics["removed"] += res.Removed
 		}
 	}
 	if !manual {
 		_ = s.markPeriodicScanCompleted(ctx, now)
+	}
+	if task != nil {
+		task.Finish(nil, TaskUpdate{Stage: "completed", Message: "媒体库扫描结束", Metrics: metrics})
 	}
 	return nil
 }
@@ -126,24 +157,6 @@ func (s *SchedulerService) ensureOrganizePipeline() *OrganizePipelineService {
 	return NewOrganizePipelineService(s.log, s.repo, s.organizer, s.scanner, s.tasks)
 }
 
-func (s *SchedulerService) startScheduledOrganizeTask(ctx context.Context, manual bool) *TaskHandle {
-	if s == nil || s.tasks == nil {
-		return nil
-	}
-	name := "自动整理重命名入库"
-	message := "正在执行计划自动整理/重命名/入库"
-	if manual {
-		name = "手动触发自动整理重命名入库"
-		message = "正在执行手动触发的自动整理/重命名/入库"
-	}
-	return s.tasks.Start(TaskKindOrganize, name, TaskUpdate{
-		Stage:      "organize",
-		SourcePath: s.organizer.defaultSourceRoot(ctx, ""),
-		DestPath:   s.organizer.defaultDestRoot(ctx, ""),
-		Message:    message,
-	})
-}
-
 func (s *SchedulerService) autoOrganizeSourceEnabled(ctx context.Context) bool {
 	if s.repo == nil || s.repo.Setting == nil {
 		return false
@@ -177,15 +190,36 @@ func (s *SchedulerService) organizeSourceInterval(ctx context.Context) time.Dura
 // jobPurgeRecycleBin permanently deletes media rows soft-deleted >30 days
 // ago. The on-disk file is left untouched (delete is operator-driven).
 func (s *SchedulerService) jobPurgeRecycleBin(ctx context.Context) error {
+	manual, _ := ctx.Value(schedulerManualRunKey{}).(bool)
+	trigger := TaskTriggerScheduled
+	name := "定时清理回收站"
+	if manual {
+		trigger = TaskTriggerManual
+		name = "手动触发回收站清理"
+	}
+	var task *TaskHandle
+	if s.tasks != nil {
+		task = s.tasks.StartTriggered(TaskKindRecycle, trigger, name, TaskUpdate{Stage: "recycle", Message: "正在清理过期回收站记录"})
+		if task == nil {
+			return errors.New("create recycle task execution failed")
+		}
+	}
 	cutoff := time.Now().Add(-30 * 24 * time.Hour)
 	res := s.repo.DB.WithContext(ctx).
 		Unscoped().
 		Where("deleted_at IS NOT NULL AND deleted_at < ?", cutoff).
 		Delete(&model.Media{})
 	if res.Error != nil && !isMissingTableErr(res.Error) {
+		if task != nil {
+			task.Finish(res.Error, TaskUpdate{Stage: "recycle", Message: "回收站清理失败"})
+		}
 		return res.Error
 	}
-	return pruneRecycleBinRows(ctx, s.repo.DB, maxRecycleBinRecords)
+	err := pruneRecycleBinRows(ctx, s.repo.DB, maxRecycleBinRecords)
+	if task != nil {
+		task.Finish(err, TaskUpdate{Stage: "completed", Message: "回收站清理结束", Metrics: map[string]int64{"deleted": res.RowsAffected}})
+	}
+	return err
 }
 
 // isMissingTableErr lets the test harness ignore "no such table" errors
