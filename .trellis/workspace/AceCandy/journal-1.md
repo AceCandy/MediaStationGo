@@ -339,3 +339,24 @@ Completed the focused Emby direct-play verification, fixed empty catalog schedul
 ### Status
 
 [OK] **Completed**
+
+
+## Session 16: 统一任务执行列表
+
+**Date**: 2026-08-13
+**Task**: 统一任务执行列表
+**Branch**: `main`
+
+### Summary
+
+持久化统一后台任务执行记录与分日任务日志，统一媒体和目录刮削调度，并更新任务中心页面。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `1a74908` | (see git log) |
+
+### Status
+
+[OK] **Completed**
