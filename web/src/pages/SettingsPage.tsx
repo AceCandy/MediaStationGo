@@ -7,7 +7,6 @@ import { libraryAPI } from '../api/library'
 import type { Library, Setting } from '../types'
 import { SettingRow } from './SettingsRow'
 import { ALL_KEYS, GROUPS, type SettingGroupKey } from './settingsGroups'
-import { SystemUpdatePanel } from './SystemUpdatePanel'
 import { RecognitionWordsPanel } from './RecognitionWordsPanel'
 
 export function SettingsPage({ groupKey }: { groupKey: SettingGroupKey }) {
@@ -88,7 +87,6 @@ export function SettingsPage({ groupKey }: { groupKey: SettingGroupKey }) {
 
       {!loading && (
         <div className="space-y-4">
-          {group.key === 'system-update' && <SystemUpdatePanel />}
           {group.key === 'recognition-words' && <RecognitionWordsPanel />}
           {hasSettings && (
             <form onSubmit={onSave} className="glass-panel space-y-4">

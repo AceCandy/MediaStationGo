@@ -68,11 +68,6 @@ services:
         bind:
           create_host_path: false
 
-      # 管理面板「系统更新」需要访问 Docker 引擎。
-      # 需要一键更新 Docker 镜像时取消下一行注释；如果提示权限不足，
-      # 请确认 PUID/PGID 对 /var/run/docker.sock 有读写权限。
-      # - /var/run/docker.sock:/var/run/docker.sock
-
     environment:
       TZ: Asia/Shanghai
 
@@ -99,9 +94,6 @@ services:
       MEDIASTATION_DATABASE_TYPE: postgres
       MEDIASTATION_DATABASE_DSN: postgres://mediastation:mediastation@postgres:5432/mediastation?sslmode=disable
       MEDIASTATION_CACHE_CACHE_DIR: /cache
-
-      # 管理面板热更新默认拉取此镜像，并用 Watchtower 一次性重建当前容器。
-      MEDIASTATION_UPDATE_IMAGE: ghcr.io/shukebta/mediastation-go:latest
 
       # 路径换算配置。
       # 默认推荐在网页里使用容器路径 /media。

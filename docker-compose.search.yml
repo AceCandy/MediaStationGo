@@ -68,10 +68,6 @@ services:
         bind:
           create_host_path: false
 
-      # 管理面板「系统更新」需要访问 Docker 引擎。
-      # 需要一键更新 Docker 镜像时取消下一行注释。
-      # - /var/run/docker.sock:/var/run/docker.sock
-
     environment:
       TZ: Asia/Shanghai
 
@@ -99,8 +95,6 @@ services:
       MEDIASTATION_SEARCH_BACKEND: opensearch
       MEDIASTATION_SEARCH_OPENSEARCH_URL: http://opensearch:9200
       MEDIASTATION_SEARCH_INDEX: mediastation_media
-
-      MEDIASTATION_UPDATE_IMAGE: ghcr.io/shukebta/mediastation-go:latest
 
       # 默认推荐在网页里使用容器路径 /media。
       # 如果旧媒体库已经保存了宿主机路径 /vol1/1000/Media，

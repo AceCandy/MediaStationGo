@@ -309,12 +309,6 @@ export const appRoutes: AppRoute[] = [
         element: <SettingsPage groupKey="access" />,
         navigation: { scope: 'management', group: 'settings', label: '内容访问', icon: KeyRound, to: '/admin/settings/access', order: 40 },
       },
-      {
-        id: 'admin-settings-update',
-        path: 'settings/system-update',
-        element: <SettingsPage groupKey="system-update" />,
-        navigation: { scope: 'management', group: 'settings', label: '系统更新', icon: HardDrive, to: '/admin/settings/system-update', order: 50 },
-      },
     ],
   },
 

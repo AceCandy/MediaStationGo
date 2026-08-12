@@ -40,6 +40,9 @@ func AutoMigrate(db *gorm.DB) error {
 	if err := removeDownloadSubscriptionSchema(db); err != nil {
 		return err
 	}
+	if err := removeSystemUpdateSettings(db); err != nil {
+		return err
+	}
 	if err := removePTSiteSchema(db); err != nil {
 		return err
 	}
@@ -199,6 +202,11 @@ func removeDownloadSubscriptionSchema(db *gorm.DB) error {
 		}
 	}
 	return nil
+}
+
+// removeSystemUpdateSettings 删除已退役系统更新功能留下的配置。
+func removeSystemUpdateSettings(db *gorm.DB) error {
+	return db.Exec(`DELETE FROM settings WHERE key IN ('system.update.image', 'system.update.watchtower_image', 'system.update.command', 'system.update.compose_dir')`).Error
 }
 
 // removeUnusedLegacyColumns removes columns that have no current model or

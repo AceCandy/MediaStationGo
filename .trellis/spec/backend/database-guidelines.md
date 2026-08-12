@@ -104,6 +104,16 @@ that a populated set returns the expected aggregate value.
 - When changing a PostgreSQL column type, include an idempotent compatibility
   statement and a PostgreSQL schema assertion.
 
+### Scenario: Retired Setting Cleanup
+
+1. Scope / Trigger: when a removed feature owns keys in the shared `settings` table, clean up only those retired keys during `AutoMigrate`.
+2. Signatures: add an unexported `func remove<Feature>Settings(db *gorm.DB) error` and call it from `AutoMigrate`.
+3. Contracts: use exact key names; keep the shared `settings` table and every unrelated row.
+4. Validation & Error Matrix: a database error aborts migration; absent keys are a successful no-op.
+5. Good/Base/Bad Cases: delete all owned keys; repeated execution succeeds; prefix-wide deletion that can remove another feature's keys is invalid.
+6. Tests Required: run the full `AutoMigrate` path twice on PostgreSQL, then assert retired keys are absent and an unrelated setting remains unchanged.
+7. Wrong vs Correct: wrong is leaving unused settings indefinitely or deleting with a broad prefix; correct is an idempotent exact-key deletion covered by a PostgreSQL test.
+
 ### PostgreSQL Prepared Plan Safety
 
 - PostgreSQL schema migrations must use a dedicated connection with GORM

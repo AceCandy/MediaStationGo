@@ -103,7 +103,7 @@ func main() {
 	repos := repository.New(db)
 	service.ApplyRuntimeSettings(context.Background(), cfg, repos, logger)
 	applyCPUThreadLimit(cfg, logger)
-	services := service.NewWithVersion(cfg, logger, repos, appVersion)
+	services := service.New(cfg, logger, repos)
 
 	if err := services.Auth.SeedAdmin(context.Background()); err != nil {
 		logger.Warn("seed admin failed", zap.Error(err))
