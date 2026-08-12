@@ -297,3 +297,24 @@ Completed the focused Emby direct-play verification, fixed empty catalog schedul
 ### Status
 
 [OK] **Completed**
+
+
+## Session 14: 移除登录页社区链接配置
+
+**Date**: 2026-08-12
+**Task**: 移除登录页社区链接配置
+**Branch**: `main`
+
+### Summary
+
+删除登录页社区链接 footer、无用设置项及其前后端专用接口，并增加退役路由回归断言；完成 handler 测试、前端 lint/build 和浏览器 smoke。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `3f1e80d` | (see git log) |
+
+### Status
+
+[OK] **Completed**

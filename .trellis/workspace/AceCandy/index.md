@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 13
+- **Total Sessions**: 14
 - **Last Active**: 2026-08-12
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~299 | Active |
+| `journal-1.md` | ~320 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 14 | 2026-08-12 | 移除登录页社区链接配置 | `3f1e80d` | `main` |
 | 13 | 2026-08-12 | Complete Emby core focus and risk closure | `ba77919`, `143f475`, `d8f0b2e`, `91ea66f`, `f0124e4`, `afe8124` | `main` |
 | 12 | 2026-08-11 | Refine Web Information Architecture | `783d2ef`, `35ce448` | `main` |
 | 11 | 2026-08-10 | Reorganize Web UI Around Emby Core | `8c07aa5`, `2af58c4` | `main` |
