@@ -1,0 +1,4 @@
+{"file":".trellis/spec/frontend/index.md","reason":"Frontend pre-development checklist and verification requirements."}
+{"file":".trellis/spec/frontend/routing-and-loading-contracts.md","reason":"Route manifest is the owner of route and navigation metadata being removed."}
+{"file":".trellis/spec/backend/index.md","reason":"Backend package guideline index for handler and service changes."}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"The feature removal spans navigation, API, service, settings metadata, and deployment templates."}

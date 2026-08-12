@@ -1,0 +1,4 @@
+{"file":".trellis/spec/frontend/index.md","reason":"Requires frontend lint, build, route, and viewport verification."}
+{"file":".trellis/spec/frontend/routing-and-loading-contracts.md","reason":"Verify visible navigation and direct route registration are removed consistently."}
+{"file":".trellis/spec/backend/index.md","reason":"Backend package guideline index for service and route review."}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"Check all layers of the removed contract and shared-code boundaries."}
