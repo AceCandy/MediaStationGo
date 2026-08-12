@@ -318,3 +318,24 @@ Completed the focused Emby direct-play verification, fixed empty catalog schedul
 ### Status
 
 [OK] **Completed**
+
+
+## Session 15: 移除系统更新功能
+
+**Date**: 2026-08-12
+**Task**: 移除系统更新功能
+**Branch**: `main`
+
+### Summary
+
+完整移除系统更新前后端链路、Docker Compose 更新配置及专属任务类型；启动迁移精确清理四个历史设置键，并补充 PostgreSQL 回归测试和数据库退役配置规范。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `8c203ae` | (see git log) |
+
+### Status
+
+[OK] **Completed**
