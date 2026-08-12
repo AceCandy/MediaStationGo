@@ -6,13 +6,6 @@ export const generalSettingsGroup: SettingGroup = {
   description: '界面与元数据的常用配置。外部 API 密钥请在“用户与集成 → 外部 API”中管理。',
   items: [
     {
-      key: 'ui.hide_community_links_for_users',
-      label: '隐藏登录页社区链接',
-      type: 'toggle',
-      hint: '开启后，登录页不显示 TG 群组、开源仓库和作者主页。',
-      defaultValue: 'false',
-    },
-    {
       key: 'tmdb.language',
       label: 'TMDb 元数据语言',
       type: 'select',

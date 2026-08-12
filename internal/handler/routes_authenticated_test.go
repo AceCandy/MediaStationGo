@@ -44,6 +44,7 @@ func TestAuthenticatedRouteSurfacesAreRegistered(t *testing.T) {
 		}
 	}
 	for _, forbidden := range []string{
+		"GET /api/public/ui-config",
 		"GET /api/downloads",
 		"POST /api/downloads",
 		"GET /api/subscriptions",
