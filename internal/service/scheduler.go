@@ -64,6 +64,7 @@ type scheduledJob struct {
 	lastErr  string
 	running  bool
 	started  time.Time
+	nextRun  time.Time
 }
 
 type schedulerManualRunKey struct{}

@@ -10,6 +10,8 @@ import (
 func registerAuthedStatsDiscoveryAndAIRoutes(authed *gin.RouterGroup, svc *service.Container) {
 	authed.GET("/stats", statsHandler(svc))
 	authed.GET("/tasks", middleware.AdminRequired(), tasksHandler(svc))
+	authed.GET("/tasks/definitions/:key/executions", middleware.AdminRequired(), taskDefinitionHistoryHandler(svc))
+	authed.POST("/tasks/definitions/:key/run", middleware.AdminRequired(), taskDefinitionRunHandler(svc))
 	authed.GET("/tasks/:id/log", middleware.AdminRequired(), taskLogHandler(svc))
 	authed.POST("/tasks/people-backfill", middleware.AdminRequired(), peopleBackfillHandler(svc))
 

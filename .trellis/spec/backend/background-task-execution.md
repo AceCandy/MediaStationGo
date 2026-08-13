@@ -13,6 +13,11 @@ history is observability only; business object state owns retry and recovery.
 - `TaskExecution`: UUID ID, kind, trigger, status, summary fields, JSON metrics,
   error, and start/update/finish timestamps.
 - `GET /api/tasks?page=&page_size=` returns `items`, `page`, `page_size`, and `total`.
+- `GET /api/tasks` also returns stable task `definitions`; each definition may
+  expose current state, latest terminal execution, schedule, next run, and a
+  server-owned manual action.
+- `GET /api/tasks/definitions/:key/executions` returns paginated execution
+  history for one validated task definition.
 - `GET /api/tasks/:id/log?tail_bytes=` returns `content` and `truncated`.
 - Task logs live at `<data_dir>/task-logs/YYYY-MM-DD/<task-id>.log`.
 - Media scrape states include `pending`, `running`, `matched`, `no_match`, and `error`.
@@ -21,6 +26,12 @@ history is observability only; business object state owns retry and recovery.
 
 - Triggers are `manual`, `scheduled`, or `event`; terminal execution statuses are
   `completed`, `failed`, or `interrupted`.
+- The task-center root view lists task definitions, not one row per execution.
+  Current state comes from an active execution or scheduler run, while latest
+  result comes from the newest terminal execution. Same-kind business tasks
+  such as people backfill/translation and media/catalog scraping stay separate.
+- Task-definition logs first select a related execution, then reuse that
+  execution UUID's log. Execution rows and daily log files remain unchanged.
 - A persisted execution must exist before its background work starts. A create
   failure aborts that execution; log append failure does not abort business work.
 - Startup marks stale task executions `interrupted` and changes stale media

@@ -1,0 +1,2 @@
+{"file":".trellis/spec/backend/background-task-execution.md","reason":"Preserve the execution-summary, log-storage, recovery, and trigger contracts while adding the definition read model."}
+{"file":".trellis/spec/frontend/routing-and-loading-contracts.md","reason":"Keep the existing admin route and bounded loading behavior while replacing the task-center view."}

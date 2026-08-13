@@ -139,7 +139,7 @@ func (s *ScraperService) runCatalogHydrationWorker(ctx context.Context) {
 				kindName = "电视剧"
 			}
 			task = s.tasks.StartTriggered(TaskKindScrape, TaskTriggerEvent, "发现目录刮削："+kindName+" "+job.ExternalID, TaskUpdate{
-				Stage: "scrape", Message: "正在补全发现目录元数据",
+				Stage: "scrape", SourcePath: "catalog", Message: "正在补全发现目录元数据",
 			})
 			if task == nil {
 				next := time.Now().UTC().Add(catalogRetryDelay(job.Attempts))

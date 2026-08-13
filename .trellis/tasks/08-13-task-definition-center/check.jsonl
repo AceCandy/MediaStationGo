@@ -1,0 +1,2 @@
+{"file":".trellis/spec/backend/background-task-execution.md","reason":"Review execution identity matching, history compatibility, actions, and task-log behavior."}
+{"file":".trellis/spec/frontend/routing-and-loading-contracts.md","reason":"Review responsive behavior, accessibility, refresh lifecycle, and route compatibility."}

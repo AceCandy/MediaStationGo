@@ -120,3 +120,64 @@ func TestSchedulerLoopWaitsIntervalAfterSlowRun(t *testing.T) {
 		t.Fatalf("slow job ran %d times; scheduler should not catch up missed ticks", got)
 	}
 }
+
+func TestSchedulerStatusIncludesNextRun(t *testing.T) {
+	scheduler := NewSchedulerService(zap.NewNop(), nil, nil, nil, nil)
+	now := time.Date(2026, 8, 13, 10, 0, 0, 0, time.UTC)
+	scheduler.now = func() time.Time { return now }
+	job := &scheduledJob{name: "scheduled", interval: time.Hour, run: func(context.Context) error { return nil }}
+	scheduler.jobs = []*scheduledJob{job}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan struct{})
+	go func() {
+		scheduler.loopWithInitialDelay(ctx, job, time.Hour)
+		close(done)
+	}()
+
+	deadline := time.Now().Add(time.Second)
+	for scheduler.Status()[0].NextRun.IsZero() && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	status := scheduler.Status()[0]
+	if want := now.Add(time.Hour); !status.NextRun.Equal(want) {
+		t.Fatalf("next run = %v, want %v", status.NextRun, want)
+	}
+	cancel()
+	<-done
+}
+
+func TestSchedulerStatusClearsNextRunWhileScheduledJobRuns(t *testing.T) {
+	scheduler := NewSchedulerService(zap.NewNop(), nil, nil, nil, nil)
+	started := make(chan struct{})
+	release := make(chan struct{})
+	job := &scheduledJob{name: "scheduled", interval: time.Hour, run: func(context.Context) error {
+		close(started)
+		<-release
+		return nil
+	}}
+	scheduler.jobs = []*scheduledJob{job}
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan struct{})
+	go func() {
+		scheduler.loopWithInitialDelay(ctx, job, time.Millisecond)
+		close(done)
+	}()
+
+	<-started
+	status := scheduler.Status()[0]
+	if !status.Running || !status.NextRun.IsZero() {
+		t.Fatalf("status while running = %#v", status)
+	}
+	close(release)
+	deadline := time.Now().Add(time.Second)
+	for scheduler.Status()[0].NextRun.IsZero() && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	status = scheduler.Status()[0]
+	if status.Running || status.NextRun.IsZero() {
+		t.Fatalf("status after run = %#v", status)
+	}
+	cancel()
+	<-done
+}

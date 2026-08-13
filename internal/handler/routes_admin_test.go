@@ -34,6 +34,8 @@ func TestAdminRouteSurfacesAreRegistered(t *testing.T) {
 		"GET /api/admin/organize/sources",
 		"GET /api/admin/api-configs",
 		"POST /api/admin/scheduler/:name/run",
+		"GET /api/tasks/definitions/:key/executions",
+		"POST /api/tasks/definitions/:key/run",
 	} {
 		if !routes[want] {
 			t.Fatalf("%s route is not registered", want)

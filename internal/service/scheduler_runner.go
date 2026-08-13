@@ -13,6 +13,7 @@ type JobStatus struct {
 	Name     string    `json:"name"`
 	Interval string    `json:"interval"`
 	LastRun  time.Time `json:"last_run,omitempty"`
+	NextRun  time.Time `json:"next_run,omitempty"`
 	LastErr  string    `json:"last_err,omitempty"`
 	Running  bool      `json:"running,omitempty"`
 	Started  time.Time `json:"started_at,omitempty"`
@@ -28,6 +29,7 @@ func (s *SchedulerService) Status() []JobStatus {
 			Name:     j.name,
 			Interval: j.interval.String(),
 			LastRun:  j.lastRun,
+			NextRun:  j.nextRun,
 			LastErr:  j.lastErr,
 			Running:  j.running,
 			Started:  j.started,
@@ -79,6 +81,9 @@ func (s *SchedulerService) loopWithInitialDelay(ctx context.Context, j *schedule
 		if delay < 0 {
 			delay = 0
 		}
+		s.mu.Lock()
+		j.nextRun = s.currentTime().Add(delay)
+		s.mu.Unlock()
 		timer := time.NewTimer(delay)
 		select {
 		case <-ctx.Done():
@@ -99,6 +104,9 @@ func (s *SchedulerService) loopWithInitialDelay(ctx context.Context, j *schedule
 			return
 		case <-timer.C:
 		}
+		s.mu.Lock()
+		j.nextRun = time.Time{}
+		s.mu.Unlock()
 		if err := s.runOnce(ctx, j); err != nil {
 			if errors.Is(err, ErrSchedulerJobAlreadyRunning) {
 				s.log.Debug("scheduled job skipped; previous run still active", zap.String("name", j.name))
