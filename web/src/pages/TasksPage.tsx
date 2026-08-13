@@ -28,6 +28,13 @@ function formatTime(value?: string): string {
   return value ? new Date(value).toLocaleString() : '-'
 }
 
+function reverseLogLines(content: string): string {
+  const trailingNewline = content.endsWith('\n')
+  const lines = content.split('\n')
+  if (trailingNewline) lines.pop()
+  return lines.reverse().join('\n') + (trailingNewline ? '\n' : '')
+}
+
 interface TaskRowProps {
   definition: TaskDefinition
   running: string
@@ -133,7 +140,7 @@ function TaskLogDialog({ definition, onClose }: { definition: TaskDefinition; on
         <TaskLogCalendar month={month} dates={log?.dates ?? []} selected={log?.date ?? ''} onMonthChange={setMonth} onSelect={selectDate} />
         <div className="flex min-h-64 min-w-0 flex-col">
           <div className="mb-2 h-5 text-xs text-sand-500">{log?.date ? formatDateKey(log.date) : ''}</div>
-          <pre className="min-h-56 flex-1 overflow-auto whitespace-pre-wrap break-words rounded border border-gray-200 bg-gray-950 p-3 font-mono text-xs leading-relaxed text-gray-100">{loading ? '加载日志中...' : error ? error : log?.content || '该任务暂无日志。'}</pre>
+          <pre className="min-h-56 flex-1 overflow-auto whitespace-pre-wrap break-words rounded border border-gray-200 bg-gray-950 p-3 font-mono text-xs leading-relaxed text-gray-100">{loading ? '加载日志中...' : error ? error : log?.content ? reverseLogLines(log.content) : '该任务暂无日志。'}</pre>
           {log?.truncated && <p className="mt-1 text-xs text-orange-600">日志过长，当前显示末尾内容。</p>}
         </div>
       </div>
