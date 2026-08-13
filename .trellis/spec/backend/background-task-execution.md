@@ -34,10 +34,14 @@ history is observability only; business object state owns retry and recovery.
 - Explicit rescrape resets the selected business objects to `pending` and wakes
   the worker. Catalog checkpoints remain the catalog recovery authority.
 - Global People backfill selects TMDB movie/series metadata with missing credits
-  and `people_hydrated_at IS NULL`. A successful provider response sets that
-  timestamp even when the provider returns no credits; task history is not the
-  checkpoint. The worker releases the shared scrape lock after each metadata
-  object so newly imported media can take priority before the next object.
+  and `people_hydrated_at IS NULL`, but only when TMDB is the metadata's current
+  source and the identifier kind matches the metadata kind. A successful
+  provider response sets that timestamp even when the provider returns no
+  credits; task history is not the checkpoint. A credits 404 invalidates that
+  exact TMDB identifier and returns associated media to the regular scrape
+  queue; transient failures retain the identifier for retry. The worker releases
+  the shared scrape lock after each metadata object so newly imported media can
+  take priority before the next object.
 - People translation creates an execution only after it finds pending names or
   roles. Disabled AI, an empty sweep, and cache-only idle checks create no task.
 

@@ -1,0 +1,4 @@
+{"file":".trellis/spec/backend/index.md","reason":"后端包通用约定"}
+{"file":".trellis/spec/backend/background-task-execution.md","reason":"人物任务与刮削恢复契约"}
+{"file":".trellis/spec/backend/database-guidelines.md","reason":"PostgreSQL 事务化数据修复约定"}
+{"file":".trellis/spec/backend/shared-media-metadata.md","reason":"metadata identifier 与共享媒体元数据契约"}

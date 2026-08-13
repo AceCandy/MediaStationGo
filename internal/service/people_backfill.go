@@ -3,6 +3,8 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
+	"net/http"
 	"strconv"
 	"strings"
 	"time"
@@ -118,8 +120,9 @@ func (s *ScraperService) pendingPeopleBackfillCandidates(ctx context.Context) ([
 	var candidates []peopleBackfillCandidate
 	err := s.repo.DB.WithContext(ctx).Table("metadata_items AS mi").
 		Select("DISTINCT mi.id AS metadata_id, mi.kind, mid.external_id").
-		Joins("JOIN metadata_identifiers AS mid ON mid.metadata_id = mi.id AND mid.deleted_at IS NULL AND mid.provider = ?", "tmdb").
+		Joins("JOIN metadata_identifiers AS mid ON mid.metadata_id = mi.id AND mid.deleted_at IS NULL AND mid.provider = ? AND mid.entity_kind = mi.kind", "tmdb").
 		Where("mi.deleted_at IS NULL AND mi.kind IN ?", []string{model.MetadataKindMovie, model.MetadataKindSeries}).
+		Where("mi.source = ?", "tmdb").
 		Where("mi.people_hydrated_at IS NULL").
 		Where("NOT EXISTS (SELECT 1 FROM metadata_credits mc WHERE mc.metadata_id = mi.id AND mc.deleted_at IS NULL)").
 		Order("mi.kind, mi.id").Scan(&candidates).Error
@@ -141,6 +144,7 @@ func (s *ScraperService) backfillPeopleCandidates(ctx context.Context, candidate
 		if parseErr != nil || tmdbID <= 0 {
 			result.Skipped++
 		} else {
+			wakeScrapeWorker := false
 			func() {
 				s.scrapeRunMu.Lock()
 				defer s.scrapeRunMu.Unlock()
@@ -151,7 +155,17 @@ func (s *ScraperService) backfillPeopleCandidates(ctx context.Context, candidate
 				credits, loaded, fetchErr := s.tmdb.GetCredits(ctx, tmdbID, mediaType)
 				if fetchErr != nil {
 					result.Failed++
-					result.Details = append(result.Details, candidate.MetadataID+": "+fetchErr.Error())
+					if !isTMDbHTTPStatus(fetchErr, http.StatusNotFound) {
+						result.Details = append(result.Details, candidate.MetadataID+": "+fetchErr.Error())
+						return
+					}
+					reset, invalidateErr := s.repo.Metadata.InvalidateTMDbIdentifier(ctx, candidate.MetadataID, candidate.Kind, candidate.ExternalID)
+					if invalidateErr != nil {
+						result.Details = append(result.Details, candidate.MetadataID+": "+fmt.Errorf("%w; invalidate TMDB identifier: %v", fetchErr, invalidateErr).Error())
+						return
+					}
+					wakeScrapeWorker = reset > 0
+					result.Details = append(result.Details, fmt.Sprintf("%s: TMDB 标识 %s 已失效，已重置 %d 个媒体", candidate.MetadataID, candidate.ExternalID, reset))
 				} else if persistErr := s.persistCredits(ctx, candidate.MetadataID, loaded, credits); persistErr != nil {
 					result.Failed++
 					result.Details = append(result.Details, candidate.MetadataID+": "+persistErr.Error())
@@ -159,6 +173,9 @@ func (s *ScraperService) backfillPeopleCandidates(ctx context.Context, candidate
 					result.Completed++
 				}
 			}()
+			if wakeScrapeWorker {
+				s.WakeScrapeWorker()
+			}
 		}
 		if progress != nil {
 			progress(result)

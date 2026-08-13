@@ -92,6 +92,9 @@ func TestTMDbGetJSONRetries429AndHidesAPIKey(t *testing.T) {
 	if err == nil || strings.Contains(err.Error(), "super-secret") || strings.Contains(err.Error(), "?") {
 		t.Fatalf("unsafe provider error: %v", err)
 	}
+	if !isTMDbHTTPStatus(err, http.StatusUnauthorized) || isTMDbHTTPStatus(err, http.StatusNotFound) {
+		t.Fatalf("status error = %v", err)
+	}
 }
 
 func TestTMDb429WaitHonorsCancellation(t *testing.T) {

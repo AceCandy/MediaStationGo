@@ -42,6 +42,20 @@ type TMDbProvider struct {
 	apiConfig *APIConfigService
 }
 
+type tmdbHTTPStatusError struct {
+	Path       string
+	StatusCode int
+}
+
+func (e *tmdbHTTPStatusError) Error() string {
+	return fmt.Sprintf("tmdb endpoint %s returned status %d", e.Path, e.StatusCode)
+}
+
+func isTMDbHTTPStatus(err error, statusCode int) bool {
+	var statusErr *tmdbHTTPStatusError
+	return errors.As(err, &statusErr) && statusErr.StatusCode == statusCode
+}
+
 // NewTMDbProvider is the constructor. APIBase / image CDN can be overridden
 // via secrets.tmdb_api_proxy + tmdb_image_proxy for users behind GFW.
 // apiConfig is optional; when non-nil, the provider will also check the
@@ -173,7 +187,7 @@ func (t *TMDbProvider) getJSONAttempt(ctx context.Context, rawURL string, out an
 		if resp.StatusCode == http.StatusTooManyRequests {
 			retryAfter = parseRetryAfter(resp.Header.Get("Retry-After"), time.Now())
 		}
-		return nil, retryAfter, fmt.Errorf("tmdb endpoint %s returned status %d", req.URL.Path, resp.StatusCode)
+		return nil, retryAfter, &tmdbHTTPStatusError{Path: req.URL.Path, StatusCode: resp.StatusCode}
 	}
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {

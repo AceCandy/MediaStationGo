@@ -1,6 +1,9 @@
 package service
 
 import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/ShukeBta/MediaStationGo/internal/model"
@@ -68,5 +71,136 @@ func TestBackfillPeopleDoesNotRetrySuccessfulEmptyCredits(t *testing.T) {
 	}
 	if len(candidates) != 0 {
 		t.Fatalf("candidates = %+v, want none", candidates)
+	}
+}
+
+func TestPendingPeopleBackfillCandidatesRequireTMDbSourceAndMatchingKind(t *testing.T) {
+	scraper, repos, closeUpstream := newTestScraper(t)
+	defer closeUpstream()
+	items := []model.MetadataItem{
+		{Kind: model.MetadataKindMovie, Title: "Douban Movie", Source: "douban"},
+		{Kind: model.MetadataKindMovie, Title: "Wrong Kind", Source: "tmdb"},
+	}
+	if err := repos.DB.Create(&items).Error; err != nil {
+		t.Fatal(err)
+	}
+	identifiers := []model.MetadataIdentifier{
+		{MetadataID: items[0].ID, Provider: "tmdb", EntityKind: model.MetadataKindMovie, ExternalID: "101"},
+		{MetadataID: items[1].ID, Provider: "tmdb", EntityKind: model.MetadataKindSeries, ExternalID: "102"},
+	}
+	if err := repos.DB.Create(&identifiers).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	candidates, err := scraper.pendingPeopleBackfillCandidates(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(candidates) != 0 {
+		t.Fatalf("candidates = %+v, want none", candidates)
+	}
+	var count int64
+	if err := repos.DB.Model(&model.MetadataIdentifier{}).Where("metadata_id IN ?", []string{items[0].ID, items[1].ID}).Count(&count).Error; err != nil || count != 2 {
+		t.Fatalf("identifier count = %d, err=%v", count, err)
+	}
+}
+
+func TestBackfillPeopleInvalidatesNotFoundTMDbAndContinues(t *testing.T) {
+	scraper, repos, closeUpstream := newTestScraper(t)
+	defer closeUpstream()
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/movie/404/credits":
+			w.WriteHeader(http.StatusNotFound)
+		case "/tv/12345/credits":
+			_ = json.NewEncoder(w).Encode(map[string]any{"cast": []map[string]any{{"id": 99, "name": "Test Actor", "character": "Hero"}}})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer upstream.Close()
+	scraper.cfg.Secrets.TMDbAPIProxy = upstream.URL
+	scraper.SetTaskTracker(NewTaskTrackerService(nil, nil))
+
+	invalid := model.MetadataItem{Kind: model.MetadataKindMovie, Title: "Invalid", Source: "tmdb"}
+	valid := model.MetadataItem{Kind: model.MetadataKindSeries, Title: "Valid", Source: "tmdb"}
+	if err := repos.DB.Create(&[]model.MetadataItem{invalid, valid}).Error; err != nil {
+		t.Fatal(err)
+	}
+	identifiers := []model.MetadataIdentifier{
+		{MetadataID: invalid.ID, Provider: "tmdb", EntityKind: model.MetadataKindMovie, ExternalID: "404"},
+		{MetadataID: valid.ID, Provider: "tmdb", EntityKind: model.MetadataKindSeries, ExternalID: "12345"},
+	}
+	if err := repos.DB.Create(&identifiers).Error; err != nil {
+		t.Fatal(err)
+	}
+	media := model.Media{MetadataID: invalid.ID, Title: "Invalid", Path: "/media/invalid.mkv", TMDbID: 404, ScrapeStatus: "matched", ScrapeTrigger: TaskTriggerManual, ScrapeError: "old"}
+	if err := repos.DB.Create(&media).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	if err := scraper.runPeopleBackfillPass(t.Context(), TaskTriggerManual); err != nil {
+		t.Fatal(err)
+	}
+	snapshot := scraper.tasks.Snapshot()
+	if len(snapshot.Recent) != 1 || snapshot.Recent[0].Metrics["failed"] != 1 || snapshot.Recent[0].Metrics["completed"] != 1 {
+		t.Fatalf("task snapshot = %+v", snapshot)
+	}
+	var activeIdentifiers int64
+	if err := repos.DB.Model(&model.MetadataIdentifier{}).Where("metadata_id = ? AND provider = ?", invalid.ID, "tmdb").Count(&activeIdentifiers).Error; err != nil || activeIdentifiers != 0 {
+		t.Fatalf("active identifiers = %d, err=%v", activeIdentifiers, err)
+	}
+	var got model.Media
+	if err := repos.DB.First(&got, "id = ?", media.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if got.TMDbID != 0 || got.ScrapeStatus != "pending" || got.ScrapeTrigger != TaskTriggerEvent || got.ScrapeError != "" {
+		t.Fatalf("media after invalidation = %+v", got)
+	}
+	candidates, err := scraper.pendingPeopleBackfillCandidates(t.Context())
+	if err != nil || len(candidates) != 0 {
+		t.Fatalf("remaining candidates = %+v, err=%v", candidates, err)
+	}
+	if len(scraper.catalogHydrationWake) != 1 {
+		t.Fatalf("scrape wake count = %d", len(scraper.catalogHydrationWake))
+	}
+}
+
+func TestBackfillPeopleKeepsTMDbIdentifierOnServerError(t *testing.T) {
+	scraper, repos, closeUpstream := newTestScraper(t)
+	defer closeUpstream()
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer upstream.Close()
+	scraper.cfg.Secrets.TMDbAPIProxy = upstream.URL
+
+	metadata := model.MetadataItem{Kind: model.MetadataKindMovie, Title: "Temporary Failure", Source: "tmdb"}
+	if err := repos.DB.Create(&metadata).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := repos.DB.Create(&model.MetadataIdentifier{MetadataID: metadata.ID, Provider: "tmdb", EntityKind: model.MetadataKindMovie, ExternalID: "500"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	media := model.Media{MetadataID: metadata.ID, Title: metadata.Title, Path: "/media/temporary.mkv", TMDbID: 500, ScrapeStatus: "matched"}
+	if err := repos.DB.Create(&media).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := scraper.BackfillLibraryPeople(t.Context(), "", nil)
+	if err != nil || result.Failed != 1 {
+		t.Fatalf("result = %+v, err=%v", result, err)
+	}
+	var identifierCount int64
+	if err := repos.DB.Model(&model.MetadataIdentifier{}).Where("metadata_id = ?", metadata.ID).Count(&identifierCount).Error; err != nil || identifierCount != 1 {
+		t.Fatalf("identifier count = %d, err=%v", identifierCount, err)
+	}
+	var got model.Media
+	if err := repos.DB.First(&got, "id = ?", media.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if got.TMDbID != 500 || got.ScrapeStatus != "matched" {
+		t.Fatalf("media after temporary error = %+v", got)
 	}
 }

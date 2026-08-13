@@ -410,6 +410,53 @@ func (r *MetadataRepository) ReplaceIdentifier(ctx context.Context, metadataID, 
 	})
 }
 
+// InvalidateTMDbIdentifier 移除失效作品标识，并将关联电影或整部电视剧交回统一刮削队列。
+func (r *MetadataRepository) InvalidateTMDbIdentifier(ctx context.Context, metadataID, entityKind, externalID string) (int64, error) {
+	identifier := model.MetadataIdentifier{Provider: "tmdb", EntityKind: entityKind, ExternalID: externalID}
+	if err := normalizeMetadataIdentifier(&identifier); err != nil {
+		return 0, err
+	}
+	tmdbID, err := strconv.Atoi(identifier.ExternalID)
+	if err != nil {
+		return 0, err
+	}
+	var reset int64
+	err = r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var item model.MetadataItem
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&item, "id = ?", strings.TrimSpace(metadataID)).Error; err != nil {
+			return err
+		}
+		if item.Source != "tmdb" || item.Kind != identifier.EntityKind {
+			return nil
+		}
+		deleted := tx.Where("metadata_id = ? AND provider = ? AND entity_kind = ? AND external_id = ?",
+			item.ID, identifier.Provider, identifier.EntityKind, identifier.ExternalID).Delete(&model.MetadataIdentifier{})
+		if deleted.Error != nil || deleted.RowsAffected == 0 {
+			return deleted.Error
+		}
+
+		media := tx.Model(&model.Media{})
+		if item.Kind == model.MetadataKindSeries {
+			media = media.Where("series_hint = ?", item.ID)
+		} else {
+			media = media.Where("metadata_id = ?", item.ID)
+		}
+		if err := media.Where("lookup_tmdb_id = ?", tmdbID).Update("lookup_tmdb_id", 0).Error; err != nil {
+			return err
+		}
+		media = tx.Model(&model.Media{})
+		if item.Kind == model.MetadataKindSeries {
+			media = media.Where("series_hint = ?", item.ID)
+		} else {
+			media = media.Where("metadata_id = ?", item.ID)
+		}
+		result := media.Updates(map[string]any{"scrape_status": "pending", "scrape_trigger": "event", "scrape_error": ""})
+		reset = result.RowsAffected
+		return result.Error
+	})
+	return reset, err
+}
+
 func (r *MetadataRepository) DB() *gorm.DB {
 	return r.db
 }
