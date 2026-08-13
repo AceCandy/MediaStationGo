@@ -1,31 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import toast from 'react-hot-toast'
 import { Activity, ChevronLeft, ChevronRight, FileText, Play, RefreshCw, X } from 'lucide-react'
 
-import { tasksAPI, type BackgroundTask, type TaskDefinition, type TaskHistory, type TaskLog } from '../api/tasks'
+import { tasksAPI, type BackgroundTask, type TaskDefinition, type TaskLog } from '../api/tasks'
 import { ModalShell } from '../components/ModalShell'
-
-const HISTORY_PAGE_SIZE = 20
-
-const metricLabels: Record<string, string> = {
-  organized: '新增', replaced: '替换', reclassified: '纠偏', skipped: '跳过', total: '总数',
-  completed: '完成', failed: '失败', errors: '错误', libraries: '媒体库', visited: '访问',
-  added: '入库', updated: '更新', removed: '移除', matched: '匹配', processed: '处理', deleted: '删除',
-  scan_visited: '访问', scan_added: '入库', scan_updated: '更新', scan_removed: '移除', scan_errors: '扫描错误',
-  scrape_matched: '匹配', scrape_processed: '刮削处理', scrape_errors: '刮削错误',
-}
-
-const triggerLabels: Record<BackgroundTask['trigger'], string> = {
-  manual: '手动', scheduled: '定时', event: '事件',
-}
-
-function formatMetrics(metrics?: Record<string, number>): string {
-  if (!metrics) return ''
-  return Object.entries(metrics)
-    .filter(([, value]) => Number.isFinite(value) && value !== 0)
-    .map(([key, value]) => `${metricLabels[key] ?? key} ${value}`)
-    .join(' · ')
-}
 
 function hasTaskIssues(task?: BackgroundTask): boolean {
   return Boolean(task?.metrics?.errors || task?.metrics?.scan_errors || task?.metrics?.scrape_errors || task?.metrics?.failed)
@@ -115,51 +93,98 @@ function DefinitionTable(props: { definitions: TaskDefinition[]; running: string
 }
 
 function TaskLogDialog({ definition, onClose }: { definition: TaskDefinition; onClose: () => void }) {
-  const [history, setHistory] = useState<TaskHistory | null>(null)
-  const [page, setPage] = useState(1)
-  const [selected, setSelected] = useState<BackgroundTask | null>(null)
   const [log, setLog] = useState<TaskLog | null>(null)
+  const [month, setMonth] = useState(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1))
+  const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const requestID = useRef(0)
 
   useEffect(() => {
     let active = true
+    const currentRequest = ++requestID.current
     setError('')
-    tasksAPI.history(definition.key, page, HISTORY_PAGE_SIZE)
-      .then((value) => {
-        if (!active) return
-        setHistory(value)
-        setSelected((current) => current && value.items.some((item) => item.id === current.id) ? current : (value.items[0] ?? null))
-      })
-      .catch(() => active && setError('任务执行记录读取失败'))
-    return () => { active = false }
-  }, [definition.key, page])
-
-  useEffect(() => {
-    let active = true
-    setError('')
+    setLoading(true)
     setLog(null)
-    if (!selected) return () => { active = false }
-    tasksAPI.log(selected.id).then((value) => active && setLog(value)).catch(() => active && setError('任务日志读取失败'))
+    tasksAPI.log(definition.key)
+      .then((value) => {
+        if (!active || requestID.current !== currentRequest) return
+        setLog(value)
+        if (value.date) setMonth(monthFromDateKey(value.date))
+      })
+      .catch(() => { if (active && requestID.current === currentRequest) setError('任务日志读取失败') })
+      .finally(() => { if (active && requestID.current === currentRequest) setLoading(false) })
     return () => { active = false }
-  }, [selected])
+  }, [definition.key])
 
-  const pages = Math.max(1, Math.ceil((history?.total ?? 0) / HISTORY_PAGE_SIZE))
+  const selectDate = (date: string) => {
+    const currentRequest = ++requestID.current
+    setError('')
+    setLoading(true)
+    tasksAPI.log(definition.key, date)
+      .then((value) => { if (requestID.current === currentRequest) setLog(value) })
+      .catch(() => { if (requestID.current === currentRequest) setError('任务日志读取失败') })
+      .finally(() => { if (requestID.current === currentRequest) setLoading(false) })
+  }
+
   return (
     <ModalShell onClose={onClose} maxWidth="max-w-5xl" className="flex max-h-[90vh] flex-col gap-3 p-4 sm:p-6" ariaLabel={`${definition.name}日志`}>
-      <header className="flex items-start justify-between gap-3"><div><h2 className="font-display text-lg font-semibold text-ink-600">{definition.name}</h2><p className="text-xs text-ink-50">执行记录与详细日志</p></div><button type="button" className="icon-btn" title="关闭" aria-label="关闭" onClick={onClose}><X size={18} /></button></header>
-        {error ? <p className="text-sm text-red-500">{error}</p> : !history ? <p className="py-8 text-center text-sm text-sand-500">加载中...</p> : history.items.length === 0 ? <p className="py-8 text-center text-sm text-sand-500">该任务尚无执行记录。</p> : (
-          <div className="grid min-h-0 flex-1 gap-3 md:grid-cols-[18rem_minmax(0,1fr)]">
-            <div className="flex min-h-0 flex-col border-b border-gray-200 pb-3 md:border-b-0 md:border-r md:pb-0 md:pr-3">
-              <div className="max-h-44 overflow-auto md:max-h-none md:flex-1">
-                {history.items.map((task) => <button type="button" key={task.id} className={`block w-full border-b border-gray-200 px-2 py-2 text-left text-xs last:border-0 ${selected?.id === task.id ? 'bg-gray-100' : 'hover:bg-gray-50'}`} onClick={() => setSelected(task)}><span className="font-medium text-ink-600">{formatTime(task.started_at)}</span><span className="ml-2 text-sand-500">{triggerLabels[task.trigger]}</span><div className="mt-1 truncate text-sand-500">{task.error || task.message || task.status}</div></button>)}
-              </div>
-              <nav className="mt-2 flex items-center justify-between text-xs text-ink-100" aria-label="执行记录分页"><button type="button" className="rounded border border-gray-200 p-1.5 disabled:opacity-40" title="上一页" disabled={page <= 1} onClick={() => setPage((value) => value - 1)}><ChevronLeft size={15} /></button><span>{page} / {pages}</span><button type="button" className="rounded border border-gray-200 p-1.5 disabled:opacity-40" title="下一页" disabled={page >= pages} onClick={() => setPage((value) => value + 1)}><ChevronRight size={15} /></button></nav>
-            </div>
-            <div className="flex min-h-48 min-w-0 flex-col"><div className="mb-2 text-xs text-sand-500">{selected && <>{selected.error || selected.message || selected.status}{formatMetrics(selected.metrics) && <span className="ml-2">{formatMetrics(selected.metrics)}</span>}</>}</div><pre className="min-h-40 flex-1 overflow-auto whitespace-pre-wrap break-words rounded border border-gray-200 bg-gray-950 p-3 font-mono text-xs leading-relaxed text-gray-100">{log ? (log.content || '暂无详细日志。') : '加载日志中...'}</pre>{log?.truncated && <p className="mt-1 text-xs text-orange-600">日志过长，当前显示末尾内容。</p>}</div>
-          </div>
-        )}
+      <header className="flex items-start justify-between gap-3"><div><h2 className="font-display text-lg font-semibold text-ink-600">{definition.name}</h2><p className="text-xs text-ink-50">按日期查看详细日志</p></div><button type="button" className="icon-btn" title="关闭" aria-label="关闭" onClick={onClose}><X size={18} /></button></header>
+      <div className="grid min-h-0 flex-1 gap-4 md:grid-cols-[17rem_minmax(0,1fr)]">
+        <TaskLogCalendar month={month} dates={log?.dates ?? []} selected={log?.date ?? ''} onMonthChange={setMonth} onSelect={selectDate} />
+        <div className="flex min-h-64 min-w-0 flex-col">
+          <div className="mb-2 h-5 text-xs text-sand-500">{log?.date ? formatDateKey(log.date) : ''}</div>
+          <pre className="min-h-56 flex-1 overflow-auto whitespace-pre-wrap break-words rounded border border-gray-200 bg-gray-950 p-3 font-mono text-xs leading-relaxed text-gray-100">{loading ? '加载日志中...' : error ? error : log?.content || '该任务暂无日志。'}</pre>
+          {log?.truncated && <p className="mt-1 text-xs text-orange-600">日志过长，当前显示末尾内容。</p>}
+        </div>
+      </div>
     </ModalShell>
   )
+}
+
+const weekDays = ['日', '一', '二', '三', '四', '五', '六']
+
+function TaskLogCalendar({ month, dates, selected, onMonthChange, onSelect }: { month: Date; dates: string[]; selected: string; onMonthChange: (month: Date) => void; onSelect: (date: string) => void }) {
+  const available = new Set(dates)
+  const firstDay = new Date(month.getFullYear(), month.getMonth(), 1).getDay()
+  const daysInMonth = new Date(month.getFullYear(), month.getMonth() + 1, 0).getDate()
+  const cells = Array.from({ length: 42 }, (_, index) => {
+    const day = index - firstDay + 1
+    return day > 0 && day <= daysInMonth ? day : null
+  })
+  const moveMonth = (offset: number) => onMonthChange(new Date(month.getFullYear(), month.getMonth() + offset, 1))
+
+  return (
+    <section className="border-b border-gray-200 pb-4 md:border-b-0 md:border-r md:pb-0 md:pr-4" aria-label="日志日期">
+      <div className="mb-3 flex h-9 items-center justify-between">
+        <button type="button" className="icon-btn" title="上个月" aria-label="上个月" onClick={() => moveMonth(-1)}><ChevronLeft size={17} /></button>
+        <h3 className="text-sm font-medium text-ink-600">{month.getFullYear()} 年 {month.getMonth() + 1} 月</h3>
+        <button type="button" className="icon-btn" title="下个月" aria-label="下个月" onClick={() => moveMonth(1)}><ChevronRight size={17} /></button>
+      </div>
+      <div className="grid grid-cols-7 gap-1 text-center">
+        {weekDays.map((day) => <span key={day} className="flex h-8 items-center justify-center text-xs text-ink-50">{day}</span>)}
+        {cells.map((day, index) => {
+          if (!day) return <span key={`empty-${index}`} className="h-8" aria-hidden="true" />
+          const date = dateKey(month.getFullYear(), month.getMonth() + 1, day)
+          const enabled = available.has(date)
+          return <button type="button" key={date} className={`h-8 border text-xs ${selected === date ? 'border-brand-500 bg-brand-500 text-white' : enabled ? 'border-gray-200 text-ink-600 hover:border-brand-400 hover:text-brand-500' : 'border-transparent text-ink-50 opacity-35'}`} disabled={!enabled} aria-pressed={selected === date} onClick={() => onSelect(date)}>{day}</button>
+        })}
+      </div>
+    </section>
+  )
+}
+
+function dateKey(year: number, month: number, day: number): string {
+  return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+}
+
+function monthFromDateKey(value: string): Date {
+  const [year, month] = value.split('-').map(Number)
+  return new Date(year, month - 1, 1)
+}
+
+function formatDateKey(value: string): string {
+  const [year, month, day] = value.split('-').map(Number)
+  return new Date(year, month - 1, day).toLocaleDateString()
 }
 
 export function TasksPage() {

@@ -52,6 +52,8 @@ export interface TaskHistory {
 }
 
 export interface TaskLog {
+  date: string
+  dates: string[]
   content: string
   truncated: boolean
 }
@@ -59,7 +61,8 @@ export interface TaskLog {
 export const tasksAPI = {
   snapshot: (page = 1, pageSize = 30) =>
     api.get<TasksSnapshot>('/tasks', { params: { page, page_size: pageSize } }).then((r) => r.data),
-  log: (id: string) => api.get<TaskLog>(`/tasks/${id}/log`).then((r) => r.data),
+  log: (key: string, date?: string) =>
+    api.get<TaskLog>(`/tasks/definitions/${key}/log`, { params: date ? { date } : undefined }).then((r) => r.data),
   history: (key: string, page = 1, pageSize = 20) =>
     api.get<TaskHistory>(`/tasks/definitions/${key}/executions`, { params: { page, page_size: pageSize } }).then((r) => r.data),
   run: (key: string) => api.post<{ status: string }>(`/tasks/definitions/${key}/run`).then((r) => r.data),

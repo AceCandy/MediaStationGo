@@ -18,8 +18,11 @@ history is observability only; business object state owns retry and recovery.
   server-owned manual action.
 - `GET /api/tasks/definitions/:key/executions` returns paginated execution
   history for one validated task definition.
-- `GET /api/tasks/:id/log?tail_bytes=` returns `content` and `truncated`.
-- Task logs live at `<data_dir>/task-logs/YYYY-MM-DD/<task-id>.log`.
+- `GET /api/tasks/definitions/:key/log?date=YYYY-MM-DD&tail_bytes=` returns
+  `date`, newest-first `dates`, `content`, and `truncated`. Omitting `date`
+  selects the newest available date.
+- Task logs live at
+  `<data_dir>/task-logs/YYYY-MM-DD/<task-definition-key>.log`.
 - Media scrape states include `pending`, `running`, `matched`, `no_match`, and `error`.
 
 ### 3. Contracts
@@ -30,8 +33,12 @@ history is observability only; business object state owns retry and recovery.
   Current state comes from an active execution or scheduler run, while latest
   result comes from the newest terminal execution. Same-kind business tasks
   such as people backfill/translation and media/catalog scraping stay separate.
-- Task-definition logs first select a related execution, then reuse that
-  execution UUID's log. Execution rows and daily log files remain unchanged.
+- Every execution of the same stable task definition appends to one local-day
+  file. Resolve the definition key with the same kind/name filters used by the
+  task center; raw kinds cannot distinguish people backfill from translation or
+  media scraping from catalog scraping.
+- The task-log UI selects an available date and displays the complete bounded
+  tail of that definition's daily file. It does not select an execution row.
 - A persisted execution must exist before its background work starts. A create
   failure aborts that execution; log append failure does not abort business work.
 - `TaskUpdate.Details` are append-only log records for that update, not an
@@ -66,7 +73,8 @@ history is observability only; business object state owns retry and recovery.
 
 | Condition | Required result |
 | --- | --- |
-| Invalid task UUID or client path | Reject; never resolve a client-provided path |
+| Unknown task definition key | Return 404; never use it as an unchecked filename |
+| Invalid or unavailable `YYYY-MM-DD` date | Return 400; never resolve a client-provided path |
 | Task execution insert fails | Do not start the background work |
 | Task log append fails | Continue work, log the application error |
 | A provider error contains a URL or query token | Preserve the original business error for the caller, but write only the sanitized error to the task log |
@@ -86,7 +94,8 @@ history is observability only; business object state owns retry and recovery.
 ### 6. Tests Required
 
 - Task start/update/finish, pagination, and `running -> interrupted` recovery.
-- Per-task daily log rollover, ordered read, invalid UUID, and tail truncation.
+- Per-definition daily log rollover, same-day append order, shared-kind
+  isolation, invalid date/key rejection, newest-first dates, and tail truncation.
 - Atomic whole-series claim, late-series-member exclusion, and
   `running -> pending` media recovery.
 - API/UI contract plus manual, scheduled, and event trigger attribution.
@@ -110,4 +119,12 @@ task.Update(TaskUpdate{Details: result.Details})
 // Correct: write only details created since the previous update.
 task.Update(TaskUpdate{Details: result.Details[detailCount:]})
 detailCount = len(result.Details)
+```
+
+```go
+// Wrong: TaskKindPeople merges two administrator-visible tasks.
+logs.append(task.Kind, level, message)
+
+// Correct: resolve the stable definition key with the task-definition filters.
+logs.append(taskDefinitionKeyForTask(task), level, message)
 ```

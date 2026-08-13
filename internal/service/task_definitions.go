@@ -50,6 +50,29 @@ var taskDefinitionSpecs = []taskDefinitionSpec{
 	{TaskDefinition: TaskDefinition{Key: TaskDefinitionRecyclePurge, Name: "回收站清理", Description: "清理超过保留期限的回收站记录", Trigger: "定时 / 手动", Action: "scheduler"}, filter: repository.TaskExecutionFilter{Kind: TaskKindRecycle}, schedulerJob: "recycle_purge"},
 }
 
+func isTaskDefinitionKey(key string) bool {
+	_, ok := taskDefinitionSpecForKey(key)
+	return ok
+}
+
+func taskDefinitionSpecForKey(key string) (taskDefinitionSpec, bool) {
+	for _, spec := range taskDefinitionSpecs {
+		if spec.Key == strings.TrimSpace(key) {
+			return spec, true
+		}
+	}
+	return taskDefinitionSpec{}, false
+}
+
+func taskDefinitionKeyForTask(task BackgroundTask) string {
+	for _, spec := range taskDefinitionSpecs {
+		if taskMatchesFilter(task, spec.filter) {
+			return spec.Key
+		}
+	}
+	return ""
+}
+
 func (t *TaskTrackerService) Definitions(scheduler []JobStatus) ([]TaskDefinition, error) {
 	statuses := make(map[string]JobStatus, len(scheduler))
 	for _, status := range scheduler {
@@ -113,19 +136,15 @@ func (t *TaskTrackerService) latestFiltered(filter repository.TaskExecutionFilte
 }
 
 func (t *TaskTrackerService) DefinitionHistory(key string, page, pageSize int) (TaskPage, error) {
-	for _, spec := range taskDefinitionSpecs {
-		if spec.Key == key {
-			return t.listFiltered(spec.filter, page, pageSize)
-		}
+	if spec, ok := taskDefinitionSpecForKey(key); ok {
+		return t.listFiltered(spec.filter, page, pageSize)
 	}
 	return TaskPage{}, ErrTaskDefinitionNotFound
 }
 
 func TaskDefinitionSchedulerJob(key string) (string, bool) {
-	for _, spec := range taskDefinitionSpecs {
-		if spec.Key == strings.TrimSpace(key) && spec.schedulerJob != "" {
-			return spec.schedulerJob, true
-		}
+	if spec, ok := taskDefinitionSpecForKey(key); ok && spec.schedulerJob != "" {
+		return spec.schedulerJob, true
 	}
 	return "", false
 }

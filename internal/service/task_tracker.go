@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -74,8 +75,10 @@ type TaskPage struct {
 }
 
 type TaskLog struct {
-	Content   string `json:"content"`
-	Truncated bool   `json:"truncated"`
+	Date      string   `json:"date"`
+	Dates     []string `json:"dates"`
+	Content   string   `json:"content"`
+	Truncated bool     `json:"truncated"`
 }
 
 type TaskTrackerService struct {
@@ -153,8 +156,8 @@ func (t *TaskTrackerService) StartTriggered(kind, trigger, name string, update T
 	t.active[task.ID] = task
 	snapshot := cloneBackgroundTask(*task)
 	t.mu.Unlock()
-	t.appendLog(task.ID, "info", task.Message)
-	t.appendDetails(task.ID, update.Details)
+	t.appendLog(snapshot, "info", task.Message)
+	t.appendDetails(snapshot, update.Details)
 	t.publish(snapshot)
 	return &TaskHandle{tracker: t, id: task.ID}
 }
@@ -222,20 +225,27 @@ func (t *TaskTrackerService) List(page, pageSize int) (TaskPage, error) {
 	return TaskPage{Items: items, Page: page, PageSize: pageSize, Total: total}, nil
 }
 
-func (t *TaskTrackerService) ReadLog(id string, tailBytes int64) (TaskLog, bool, error) {
-	if t == nil || t.repo == nil {
-		return TaskLog{}, false, nil
+func (t *TaskTrackerService) ReadDefinitionLog(key, date string, tailBytes int64) (TaskLog, error) {
+	if !isTaskDefinitionKey(key) {
+		return TaskLog{}, ErrTaskDefinitionNotFound
 	}
-	row, err := t.repo.Find(t.context(), id)
-	if err != nil || row == nil {
-		return TaskLog{}, false, err
+	if date != "" && !validTaskLogDate(date) {
+		return TaskLog{}, ErrTaskLogDateNotFound
 	}
-	endedAt := time.Time{}
-	if row.FinishedAt != nil {
-		endedAt = *row.FinishedAt
+	dates, err := t.logs.dates(key)
+	if err != nil {
+		return TaskLog{}, err
 	}
-	content, truncated, err := t.logs.read(row.ID, row.StartedAt, endedAt, tailBytes)
-	return TaskLog{Content: content, Truncated: truncated}, true, err
+	if len(dates) == 0 {
+		return TaskLog{Dates: []string{}}, nil
+	}
+	if date == "" {
+		date = dates[0]
+	} else if !slices.Contains(dates, date) {
+		return TaskLog{}, ErrTaskLogDateNotFound
+	}
+	content, truncated, err := t.logs.read(key, date, tailBytes)
+	return TaskLog{Date: date, Dates: dates, Content: content, Truncated: truncated}, err
 }
 
 func (t *TaskTrackerService) update(id string, update TaskUpdate) {
@@ -255,8 +265,8 @@ func (t *TaskTrackerService) update(id string, update TaskUpdate) {
 			t.logError("update task execution failed", err)
 		}
 	}
-	t.appendLog(id, "info", update.Message)
-	t.appendDetails(id, update.Details)
+	t.appendLog(snapshot, "info", update.Message)
+	t.appendDetails(snapshot, update.Details)
 	t.publish(snapshot)
 }
 
@@ -292,10 +302,10 @@ func (t *TaskTrackerService) finish(id string, finishErr error, update TaskUpdat
 			t.logError("finish task execution failed", err)
 		}
 	}
-	t.appendLog(id, "info", update.Message)
-	t.appendDetails(id, update.Details)
+	t.appendLog(snapshot, "info", update.Message)
+	t.appendDetails(snapshot, update.Details)
 	if finishErr != nil {
-		t.appendLog(id, "error", finishErr.Error())
+		t.appendLog(snapshot, "error", finishErr.Error())
 	}
 	t.publish(snapshot)
 }
@@ -337,15 +347,19 @@ func (t *TaskTrackerService) publish(task BackgroundTask) {
 	}
 }
 
-func (t *TaskTrackerService) appendLog(id, level, message string) {
-	if err := t.logs.append(id, level, message); err != nil {
+func (t *TaskTrackerService) appendLog(task BackgroundTask, level, message string) {
+	key := taskDefinitionKeyForTask(task)
+	if key == "" {
+		return
+	}
+	if err := t.logs.append(key, level, message); err != nil {
 		t.logError("append task log failed", err)
 	}
 }
 
-func (t *TaskTrackerService) appendDetails(id string, details []string) {
+func (t *TaskTrackerService) appendDetails(task BackgroundTask, details []string) {
 	for _, detail := range details {
-		t.appendLog(id, "detail", detail)
+		t.appendLog(task, "detail", detail)
 	}
 }
 

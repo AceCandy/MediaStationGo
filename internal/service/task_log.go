@@ -6,17 +6,19 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/google/uuid"
 )
 
 const (
 	defaultTaskLogTailBytes int64 = 256 * 1024
 	maxTaskLogTailBytes     int64 = 1024 * 1024
+	taskLogDateLayout             = "2006-01-02"
 )
+
+var ErrTaskLogDateNotFound = errors.New("task log date not found")
 
 type taskLogStore struct {
 	root string
@@ -31,19 +33,19 @@ func newTaskLogStore(dataDir string, now func() time.Time) *taskLogStore {
 	return &taskLogStore{root: filepath.Join(dataDir, "task-logs"), now: now}
 }
 
-func (s *taskLogStore) append(taskID, level, message string) error {
+func (s *taskLogStore) append(definitionKey, level, message string) error {
 	if s == nil || strings.TrimSpace(message) == "" {
 		return nil
 	}
-	if _, err := uuid.Parse(taskID); err != nil {
-		return errors.New("invalid task id")
+	if !isTaskDefinitionKey(definitionKey) {
+		return ErrTaskDefinitionNotFound
 	}
 	now := time.Now()
 	if s.now != nil {
 		now = s.now()
 	}
-	dir := filepath.Join(s.root, now.Format("2006-01-02"))
-	path := filepath.Join(dir, taskID+".log")
+	dir := filepath.Join(s.root, now.Format(taskLogDateLayout))
+	path := filepath.Join(dir, definitionKey+".log")
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := os.MkdirAll(dir, 0o750); err != nil {
@@ -58,12 +60,15 @@ func (s *taskLogStore) append(taskID, level, message string) error {
 	return err
 }
 
-func (s *taskLogStore) read(taskID string, startedAt, endedAt time.Time, tailBytes int64) (string, bool, error) {
+func (s *taskLogStore) read(definitionKey, date string, tailBytes int64) (string, bool, error) {
 	if s == nil {
 		return "", false, nil
 	}
-	if _, err := uuid.Parse(taskID); err != nil {
-		return "", false, errors.New("invalid task id")
+	if !isTaskDefinitionKey(definitionKey) {
+		return "", false, ErrTaskDefinitionNotFound
+	}
+	if !validTaskLogDate(date) {
+		return "", false, ErrTaskLogDateNotFound
 	}
 	if tailBytes <= 0 {
 		tailBytes = defaultTaskLogTailBytes
@@ -71,47 +76,51 @@ func (s *taskLogStore) read(taskID string, startedAt, endedAt time.Time, tailByt
 	if tailBytes > maxTaskLogTailBytes {
 		tailBytes = maxTaskLogTailBytes
 	}
-	if endedAt.IsZero() {
-		endedAt = time.Now()
-		if s.now != nil {
-			endedAt = s.now()
+	data, truncated, err := readFileTail(filepath.Join(s.root, date, definitionKey+".log"), tailBytes)
+	if errors.Is(err, os.ErrNotExist) {
+		return "", false, ErrTaskLogDateNotFound
+	}
+	return string(data), truncated, err
+}
+
+func (s *taskLogStore) dates(definitionKey string) ([]string, error) {
+	if s == nil {
+		return []string{}, nil
+	}
+	if !isTaskDefinitionKey(definitionKey) {
+		return nil, ErrTaskDefinitionNotFound
+	}
+	entries, err := os.ReadDir(s.root)
+	if errors.Is(err, os.ErrNotExist) {
+		return []string{}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	dates := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		date := entry.Name()
+		if !entry.IsDir() || !validTaskLogDate(date) {
+			continue
+		}
+		if info, statErr := os.Stat(filepath.Join(s.root, date, definitionKey+".log")); statErr == nil && info.Mode().IsRegular() {
+			dates = append(dates, date)
 		}
 	}
-	location := endedAt.Location()
-	if s.now != nil {
-		location = s.now().Location()
-	}
-	startedAt = startedAt.In(location)
-	endedAt = endedAt.In(location)
-	var content []byte
-	truncated := false
-	startDay := dateOnly(startedAt)
-	for day := dateOnly(endedAt); !day.Before(startDay); day = day.AddDate(0, 0, -1) {
-		path := filepath.Join(s.root, day.Format("2006-01-02"), taskID+".log")
-		data, fileTruncated, err := readFileTail(path, tailBytes-int64(len(content)))
-		if err != nil {
-			if errors.Is(err, os.ErrNotExist) {
-				continue
-			}
-			return "", false, err
-		}
-		content = append(data, content...)
-		truncated = truncated || fileTruncated
-		if int64(len(content)) >= tailBytes {
-			if day.After(startDay) {
-				truncated = true
-			}
-			break
-		}
-	}
-	return string(content), truncated, nil
+	sort.Sort(sort.Reverse(sort.StringSlice(dates)))
+	return dates, nil
+}
+
+func validTaskLogDate(value string) bool {
+	parsed, err := time.Parse(taskLogDateLayout, value)
+	return err == nil && parsed.Format(taskLogDateLayout) == value
 }
 
 func readFileTail(path string, limit int64) ([]byte, bool, error) {
 	if limit <= 0 {
 		return nil, true, nil
 	}
-	f, err := os.Open(path) // #nosec G304 -- path is derived from a validated UUID and server-owned dates.
+	f, err := os.Open(path) // #nosec G304 -- path uses validated server-owned definition keys and dates.
 	if err != nil {
 		return nil, false, err
 	}
@@ -131,9 +140,4 @@ func readFileTail(path string, limit int64) ([]byte, bool, error) {
 	data := make([]byte, readSize)
 	_, err = io.ReadFull(f, data)
 	return data, truncated, err
-}
-
-func dateOnly(value time.Time) time.Time {
-	y, m, d := value.Date()
-	return time.Date(y, m, d, 0, 0, 0, 0, value.Location())
 }

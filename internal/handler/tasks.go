@@ -101,20 +101,24 @@ func taskDefinitionRunHandler(svc *service.Container) gin.HandlerFunc {
 	}
 }
 
-func taskLogHandler(svc *service.Container) gin.HandlerFunc {
+func taskDefinitionLogHandler(svc *service.Container) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if svc == nil || svc.Tasks == nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": "task not found"})
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "task center unavailable"})
 			return
 		}
 		tailBytes, _ := strconv.ParseInt(c.DefaultQuery("tail_bytes", "0"), 10, 64)
-		log, found, err := svc.Tasks.ReadLog(c.Param("id"), tailBytes)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "failed to read task log"})
+		log, err := svc.Tasks.ReadDefinitionLog(c.Param("key"), c.Query("date"), tailBytes)
+		if errors.Is(err, service.ErrTaskDefinitionNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "task definition not found"})
 			return
 		}
-		if !found {
-			c.JSON(http.StatusNotFound, gin.H{"error": "task not found"})
+		if errors.Is(err, service.ErrTaskLogDateNotFound) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "task log date not found"})
+			return
+		}
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to read task log"})
 			return
 		}
 		c.JSON(http.StatusOK, log)

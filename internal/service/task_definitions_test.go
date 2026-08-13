@@ -1,6 +1,7 @@
 package service
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -33,6 +34,38 @@ func TestTaskDefinitionHistorySeparatesSharedKinds(t *testing.T) {
 		}
 		if page.Total != 1 || len(page.Items) != 1 || page.Items[0].Name != tt.name {
 			t.Fatalf("history %s = %#v", tt.key, page)
+		}
+	}
+}
+
+func TestTaskDefinitionLogsSeparateSharedKinds(t *testing.T) {
+	db := newServiceTestDB(t, &model.TaskExecution{})
+	tracker := NewTaskTrackerService(zap.NewNop(), nil)
+	tracker.ConfigurePersistence(repository.New(db).TaskExecution, t.TempDir())
+	tracker.now = func() time.Time { return time.Date(2026, 8, 13, 19, 0, 0, 0, time.Local) }
+
+	startFinishedTask(t, tracker, TaskKindPeople, "人物信息补齐", TaskUpdate{Message: "backfill"})
+	startFinishedTask(t, tracker, TaskKindPeople, "人物翻译", TaskUpdate{Message: "translation"})
+	startFinishedTask(t, tracker, TaskKindScrape, "媒体入库刮削：本地电影", TaskUpdate{Message: "media scrape"})
+	startFinishedTask(t, tracker, TaskKindScrape, "发现目录刮削：电影 1221950", TaskUpdate{Message: "catalog scrape"})
+
+	tests := []struct {
+		key     string
+		want    string
+		notWant string
+	}{
+		{TaskDefinitionPeopleBackfill, "backfill", "translation"},
+		{TaskDefinitionPeopleTranslation, "translation", "backfill"},
+		{TaskDefinitionMediaScrape, "media scrape", "catalog scrape"},
+		{TaskDefinitionCatalogScrape, "catalog scrape", "media scrape"},
+	}
+	for _, tt := range tests {
+		log, err := tracker.ReadDefinitionLog(tt.key, "", 0)
+		if err != nil {
+			t.Fatalf("read %s: %v", tt.key, err)
+		}
+		if log.Date != "2026-08-13" || !strings.Contains(log.Content, tt.want) || strings.Contains(log.Content, tt.notWant) {
+			t.Fatalf("log %s = %#v", tt.key, log)
 		}
 	}
 }
