@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 20
+- **Total Sessions**: 21
 - **Last Active**: 2026-08-13
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~446 | Active |
+| `journal-1.md` | ~467 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 21 | 2026-08-13 | 按日期聚合任务日志 | `afe4cd4` | `main` |
 | 20 | 2026-08-13 | Refine web UI and detailed task logs | `dc29dcf` | `main` |
 | 19 | 2026-08-13 | Task center definition view | `1d42906` | `main` |
 | 18 | 2026-08-13 | Stop invalid TMDB people retries | `b5ded94` | `main` |

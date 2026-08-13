@@ -444,3 +444,24 @@ Committed the existing web UI redesign together with detailed background task lo
 ### Status
 
 [OK] **Completed**
+
+
+## Session 21: 按日期聚合任务日志
+
+**Date**: 2026-08-13
+**Task**: 按日期聚合任务日志
+**Branch**: `main`
+
+### Summary
+
+将任务日志改为按稳定任务定义每日一个文件，新增按日期读取接口与日历选择界面，并补充后端测试、竞态防护和后台任务日志规范。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `afe4cd4` | (see git log) |
+
+### Status
+
+[OK] **Completed**
