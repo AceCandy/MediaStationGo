@@ -360,3 +360,24 @@ Completed the focused Emby direct-play verification, fixed empty catalog schedul
 ### Status
 
 [OK] **Completed**
+
+
+## Session 17: Complete people background tasks
+
+**Date**: 2026-08-13
+**Task**: Complete people background tasks
+**Branch**: `main`
+
+### Summary
+
+Added global people backfill and tracked people translation in the task center, with manual triggering, hydration state, cancellation semantics, tests, and UI verification.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `096ba7e` | (see git log) |
+
+### Status
+
+[OK] **Completed**
