@@ -423,3 +423,24 @@ Added global people backfill and tracked people translation in the task center, 
 ### Status
 
 [OK] **Completed**
+
+
+## Session 20: Refine web UI and detailed task logs
+
+**Date**: 2026-08-13
+**Task**: Refine web UI and detailed task logs
+**Branch**: `main`
+
+### Summary
+
+Committed the existing web UI redesign together with detailed background task logs, task-log redaction rules, focused service tests, and Trellis specs.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `dc29dcf` | (see git log) |
+
+### Status
+
+[OK] **Completed**
