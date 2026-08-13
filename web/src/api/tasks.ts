@@ -40,4 +40,5 @@ export const tasksAPI = {
   snapshot: (page = 1, pageSize = 30) =>
     api.get<TasksSnapshot>('/tasks', { params: { page, page_size: pageSize } }).then((r) => r.data),
   log: (id: string) => api.get<TaskLog>(`/tasks/${id}/log`).then((r) => r.data),
+  backfillPeople: () => api.post<{ status: string }>('/tasks/people-backfill').then((r) => r.data),
 }

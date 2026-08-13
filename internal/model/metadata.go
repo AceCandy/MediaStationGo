@@ -44,6 +44,8 @@ type MetadataItem struct {
 
 	// CatalogMetadataHydratedAt 表示本实体的 provider 数据、标识和人物已完成入库。
 	CatalogMetadataHydratedAt *time.Time `gorm:"index" json:"catalog_metadata_hydrated_at,omitempty"`
+	// PeopleHydratedAt 表示人物关系已从来源同步，包括来源明确返回空结果。
+	PeopleHydratedAt *time.Time `gorm:"index" json:"people_hydrated_at,omitempty"`
 	// CatalogArtworkHydratedAt 表示本实体要求的图片均已入库或 provider 明确未提供。
 	CatalogArtworkHydratedAt *time.Time `gorm:"index" json:"catalog_artwork_hydrated_at,omitempty"`
 	// CatalogHydratedAt 表示本实体及其全部目录子项均已完成入库。

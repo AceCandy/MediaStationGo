@@ -11,6 +11,7 @@ func registerAuthedStatsDiscoveryAndAIRoutes(authed *gin.RouterGroup, svc *servi
 	authed.GET("/stats", statsHandler(svc))
 	authed.GET("/tasks", middleware.AdminRequired(), tasksHandler(svc))
 	authed.GET("/tasks/:id/log", middleware.AdminRequired(), taskLogHandler(svc))
+	authed.POST("/tasks/people-backfill", middleware.AdminRequired(), peopleBackfillHandler(svc))
 
 	authed.GET("/discover/trending", requirePermission(svc, "can_view_discover"), trendingHandler(svc))
 	authed.GET("/discover/popular", requirePermission(svc, "can_view_discover"), popularHandler(svc))

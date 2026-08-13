@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import toast from 'react-hot-toast'
-import { Activity, ChevronLeft, ChevronRight, Clock3, Copy, FileText, X } from 'lucide-react'
+import { Activity, ChevronLeft, ChevronRight, Clock3, Copy, FileText, UserRoundCheck, X } from 'lucide-react'
 import { useSearchParams } from 'react-router-dom'
 
 import { tasksAPI, type BackgroundTask, type TaskLog, type TasksSnapshot } from '../api/tasks'
@@ -124,6 +124,7 @@ export function TasksPage() {
   const [page, setPage] = useState(1)
   const [logTask, setLogTask] = useState<BackgroundTask | null>(null)
   const [schedulerOpen, setSchedulerOpen] = useState(searchParams.get('panel') === 'scheduler')
+  const [peopleBackfilling, setPeopleBackfilling] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -148,11 +149,26 @@ export function TasksPage() {
       setSearchParams(next, { replace: true })
     }
   }
+  const backfillPeople = async () => {
+    if (peopleBackfilling) return
+    setPeopleBackfilling(true)
+    try {
+      await tasksAPI.backfillPeople()
+      toast.success('人物补齐已触发')
+    } catch {
+      toast.error('人物补齐触发失败')
+    } finally {
+      setPeopleBackfilling(false)
+    }
+  }
   return (
     <div className="space-y-6">
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3"><Activity className="h-6 w-6 text-brand-500" /><div><h1 className="font-display text-3xl font-bold text-ink-600">任务中心</h1><p className="text-sm text-ink-50">统一查看手动、定时和事件触发的后台执行。</p></div></div>
-        <button type="button" className="btn-outline gap-2" onClick={() => setSchedulerOpen(true)}><Clock3 size={16} />周期任务</button>
+        <div className="flex flex-wrap gap-2">
+          <button type="button" className="btn-outline gap-2" disabled={peopleBackfilling} onClick={() => void backfillPeople()}><UserRoundCheck size={16} />{peopleBackfilling ? '触发中...' : '补齐人物'}</button>
+          <button type="button" className="btn-outline gap-2" onClick={() => setSchedulerOpen(true)}><Clock3 size={16} />周期任务</button>
+        </div>
       </header>
       <section className="glass-panel overflow-x-auto">
         {!snap ? <p className="py-8 text-center text-sand-500">加载中...</p> : <TaskTable tasks={snap.items ?? []} onLog={setLogTask} />}

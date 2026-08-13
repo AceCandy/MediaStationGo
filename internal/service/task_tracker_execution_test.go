@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"errors"
 	"testing"
 
@@ -25,6 +26,17 @@ func TestTaskTrackerRecordsTriggerAndTerminalState(t *testing.T) {
 	got := snapshot.Recent[0]
 	if got.Trigger != TaskTriggerScheduled || got.Status != TaskStatusFailed || got.Error != "failed" || got.Metrics["visited"] != 2 {
 		t.Fatalf("task=%+v", got)
+	}
+}
+
+func TestTaskTrackerRecordsCanceledTaskAsInterrupted(t *testing.T) {
+	tracker := NewTaskTrackerService(nil, nil)
+	task := tracker.StartTriggered(TaskKindPeople, TaskTriggerEvent, "people", TaskUpdate{})
+	task.Finish(context.Canceled, TaskUpdate{Message: "interrupted"})
+
+	snapshot := tracker.Snapshot()
+	if len(snapshot.Recent) != 1 || snapshot.Recent[0].Status != TaskStatusInterrupted {
+		t.Fatalf("snapshot=%+v", snapshot)
 	}
 }
 

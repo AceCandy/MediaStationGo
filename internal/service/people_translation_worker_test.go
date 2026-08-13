@@ -70,6 +70,7 @@ func TestPeopleTranslationWorkerUsesContextAndCache(t *testing.T) {
 	}
 	cfg := &config.Config{AI: config.AIConfig{Enabled: true, APIKey: "test-key", APIBase: server.URL + "/v1", Model: "test-model"}}
 	scraper := NewScraperService(cfg, zap.NewNop(), repos, nil, nil, nil, nil, nil).SetAI(NewAIService(cfg, zap.NewNop(), nil))
+	scraper.SetTaskTracker(NewTaskTrackerService(zap.NewNop(), nil))
 	ctx, cancel := context.WithCancel(t.Context())
 	scraper.StartPeopleTranslationWorker(ctx)
 	t.Cleanup(func() {
@@ -107,6 +108,10 @@ func TestPeopleTranslationWorkerUsesContextAndCache(t *testing.T) {
 	if got := calls.Load(); got != 1 {
 		t.Fatalf("AI request count = %d, want 1 after cache hit", got)
 	}
+	snapshot := scraper.tasks.Snapshot()
+	if len(snapshot.Recent) == 0 || snapshot.Recent[0].Name != "人物翻译" {
+		t.Fatalf("task snapshot = %+v", snapshot)
+	}
 }
 
 func TestPeopleTranslationWorkerRetriesAfterBackoff(t *testing.T) {
@@ -140,6 +145,7 @@ func TestPeopleTranslationWorkerRetriesAfterBackoff(t *testing.T) {
 	}
 	cfg := &config.Config{AI: config.AIConfig{Enabled: true, APIKey: "test-key", APIBase: server.URL + "/v1", Model: "test-model"}}
 	scraper := NewScraperService(cfg, zap.NewNop(), repos, nil, nil, nil, nil, nil).SetAI(NewAIService(cfg, zap.NewNop(), nil))
+	scraper.SetTaskTracker(NewTaskTrackerService(zap.NewNop(), nil))
 	if err := scraper.persistCredits(t.Context(), metadata.ID, []string{model.CreditTypeActor}, []PersonCredit{{
 		Provider: "tmdb", ExternalID: "140", Name: "Tony Leung Chiu-wai", Type: model.CreditTypeActor, OriginalRole: "Chan Wing-yan",
 	}}); err != nil {
@@ -175,6 +181,24 @@ func TestPeopleTranslationRetryDelay(t *testing.T) {
 		if got := peopleTranslationRetryDelay(failures); got != expected {
 			t.Fatalf("retry delay after %d failures = %s, want %s", failures, got, expected)
 		}
+	}
+}
+
+func TestPeopleTranslationEmptyPassDoesNotCreateTask(t *testing.T) {
+	db := newServiceTestDB(t, &model.Person{}, &model.MetadataCredit{}, &model.TranslationCache{}, &model.Setting{})
+	repos := repository.New(db)
+	if err := repos.Setting.Set(t.Context(), peopleAITranslateSettingKey, "true"); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &config.Config{AI: config.AIConfig{Enabled: true, APIKey: "test-key"}}
+	scraper := NewScraperService(cfg, zap.NewNop(), repos, nil, nil, nil, nil, nil).SetAI(NewAIService(cfg, zap.NewNop(), nil))
+	scraper.SetTaskTracker(NewTaskTrackerService(zap.NewNop(), nil))
+	if err := scraper.translatePendingPeople(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	snapshot := scraper.tasks.Snapshot()
+	if len(snapshot.Active) != 0 || len(snapshot.Recent) != 0 {
+		t.Fatalf("unexpected task snapshot = %+v", snapshot)
 	}
 }
 

@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"sync"
 	"time"
@@ -270,7 +271,10 @@ func (t *TaskTrackerService) finish(id string, finishErr error, update TaskUpdat
 	applyTaskUpdate(task, update)
 	task.UpdatedAt = now
 	task.FinishedAt = &now
-	if finishErr != nil {
+	if errors.Is(finishErr, context.Canceled) {
+		task.Status = TaskStatusInterrupted
+		task.Error = finishErr.Error()
+	} else if finishErr != nil {
 		task.Status = TaskStatusFailed
 		task.Error = finishErr.Error()
 	} else {

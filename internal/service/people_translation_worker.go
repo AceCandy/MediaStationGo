@@ -122,12 +122,30 @@ func (s *ScraperService) translatePendingPeople(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	if len(groups) == 0 {
+		return nil
+	}
+	if s.tasks == nil {
+		return fmt.Errorf("task tracker unavailable")
+	}
+	metrics := map[string]int64{"total": int64(len(groups))}
+	task := s.tasks.StartTriggered(TaskKindPeople, TaskTriggerEvent, "人物翻译", TaskUpdate{Stage: "translation", Message: "人物翻译已启动", Metrics: metrics})
+	if task == nil {
+		return fmt.Errorf("create task execution failed")
+	}
+	completed := int64(0)
 	for start := 0; start < len(groups); start += peopleTranslationBatchSize {
 		end := min(start+peopleTranslationBatchSize, len(groups))
-		if err := s.translatePeopleWindow(ctx, groups[start:end]); err != nil {
+		applied, err := s.translatePeopleWindow(ctx, groups[start:end])
+		completed += int64(applied)
+		metrics["completed"] = completed
+		task.Update(TaskUpdate{Stage: "translation", Message: fmt.Sprintf("人物翻译进度 %d/%d", completed, len(groups)), Metrics: metrics})
+		if err != nil {
+			task.Finish(err, TaskUpdate{Stage: "translation", Message: "人物翻译失败", Metrics: metrics})
 			return err
 		}
 	}
+	task.Finish(nil, TaskUpdate{Stage: "completed", Message: "人物翻译完成", Metrics: metrics})
 	return nil
 }
 
@@ -186,14 +204,15 @@ func (s *ScraperService) pendingPeopleTranslationGroups(ctx context.Context) ([]
 	return groups, nil
 }
 
-func (s *ScraperService) translatePeopleWindow(ctx context.Context, groups []*pendingPeopleTranslation) error {
+func (s *ScraperService) translatePeopleWindow(ctx context.Context, groups []*pendingPeopleTranslation) (int, error) {
+	applied := 0
 	lookups := make([]repository.TranslationCacheLookup, 0, len(groups))
 	for _, group := range groups {
 		lookups = append(lookups, group.lookup)
 	}
 	cachedRows, err := s.repo.Person.ListTranslationCaches(ctx, lookups)
 	if err != nil {
-		return err
+		return applied, err
 	}
 	cached := make(map[string]string, len(cachedRows))
 	for _, row := range cachedRows {
@@ -206,8 +225,9 @@ func (s *ScraperService) translatePeopleWindow(ctx context.Context, groups []*pe
 	for _, group := range groups {
 		if translated := cached[translationCacheKey(group.lookup)]; translated != "" {
 			if err := s.repo.Person.ApplyCachedTranslation(ctx, group.targets, translated); err != nil {
-				return err
+				return applied, err
 			}
+			applied++
 			continue
 		}
 		misses = append(misses, group)
@@ -221,7 +241,7 @@ func (s *ScraperService) translatePeopleWindow(ctx context.Context, groups []*pe
 		}
 		translations, err := s.ai.TranslatePeople(ctx, entries)
 		if err != nil {
-			return err
+			return applied, err
 		}
 		status := s.ai.Status(ctx)
 		for key, translated := range translations {
@@ -235,11 +255,12 @@ func (s *ScraperService) translatePeopleWindow(ctx context.Context, groups []*pe
 				TranslatedText: translated, Provider: status.Provider, Model: status.Model,
 			}
 			if err := s.repo.Person.SaveAndApplyTranslation(ctx, cache, group.targets); err != nil {
-				return err
+				return applied, err
 			}
+			applied++
 		}
 	}
-	return nil
+	return applied, nil
 }
 
 func splitPeopleTranslationBatches(groups []*pendingPeopleTranslation, maxEntries, maxChars int) [][]*pendingPeopleTranslation {

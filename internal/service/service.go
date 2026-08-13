@@ -96,6 +96,7 @@ func (c *Container) Boot() {
 		c.Log.Warn("api config seed failed", zap.Error(err))
 	}
 	if c.Scraper != nil {
+		c.Scraper.StartPeopleBackfillWorker(c.stopCtx)
 		c.Scraper.StartPeopleTranslationWorker(c.stopCtx)
 		c.Scraper.StartCatalogHydrationWorker(c.stopCtx)
 	}
@@ -144,6 +145,7 @@ func (c *Container) Close() {
 		c.stopCancel()
 	}
 	if c.Scraper != nil {
+		c.Scraper.WaitPeopleBackfillWorker()
 		c.Scraper.WaitCatalogHydrationWorker()
 		c.Scraper.WaitPeopleTranslationWorker()
 	}

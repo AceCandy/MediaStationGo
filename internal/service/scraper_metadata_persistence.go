@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"go.uber.org/zap"
 
@@ -182,6 +183,9 @@ func (s *ScraperService) persistCredits(ctx context.Context, metadataID string, 
 		inputs = append(inputs, input)
 	}
 	if err := s.repo.Person.ReplaceCredits(ctx, metadataID, loaded, inputs); err != nil {
+		return err
+	}
+	if err := s.repo.DB.WithContext(ctx).Model(&model.MetadataItem{}).Where("id = ?", metadataID).Update("people_hydrated_at", time.Now().UTC()).Error; err != nil {
 		return err
 	}
 	s.queuePeopleTranslation()
