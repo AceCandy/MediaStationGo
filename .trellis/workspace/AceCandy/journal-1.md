@@ -402,3 +402,24 @@ Added global people backfill and tracked people translation in the task center, 
 ### Status
 
 [OK] **Completed**
+
+
+## Session 19: Task center definition view
+
+**Date**: 2026-08-13
+**Task**: Task center definition view
+**Branch**: `main`
+
+### Summary
+
+任务中心改为稳定任务定义列表，分离当前状态与最近结果，合并周期和人物补齐操作，并提供任务级执行历史与日志。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `1d42906` | (see git log) |
+
+### Status
+
+[OK] **Completed**
