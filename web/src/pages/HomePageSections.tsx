@@ -44,100 +44,130 @@ export function HomeFeaturedSection({
   featuredItem,
   featuredVisual,
   featuredPoster,
-  featuredMark,
   showDiscover,
 }: {
   featuredItem: Media
   featuredVisual: string
   featuredPoster: string
-  featuredMark: string
   showDiscover: boolean
 }) {
   return (
-    <section className="relative overflow-hidden rounded-[2rem] border border-[var(--app-border)] bg-[var(--app-panel)] shadow-[0_24px_80px_var(--app-shadow)]">
+    <section className="relative overflow-hidden rounded-[2rem] border border-[var(--app-border)] bg-[var(--app-panel)] shadow-elevated">
+      {/* 背景：氛围底 + backdrop 大图 + 可读性遮罩 */}
       <div className="absolute inset-0 z-0">
         <div className="theme-hero-bg h-full w-full" />
         {featuredVisual && (
           <img
             src={imageURL(featuredVisual, featuredItem.updated_at)}
             alt=""
-            className="absolute inset-0 h-full w-full scale-105 object-cover object-center opacity-[0.34] blur-[1px]"
+            className="absolute inset-0 h-full w-full scale-105 object-cover object-[center_20%] opacity-80"
             referrerPolicy="no-referrer"
             onError={(event) => { event.currentTarget.style.display = 'none' }}
           />
         )}
         <div className="theme-hero-overlay absolute inset-0" />
-        <div className="theme-hero-fade absolute inset-x-0 bottom-0 h-32" />
+        <div className="theme-hero-fade absolute inset-x-0 bottom-0 h-40" />
       </div>
 
-      <div className="relative z-10 grid gap-8 px-6 py-8 sm:px-8 md:grid-cols-[minmax(0,1fr)_280px] md:px-12 md:py-12 lg:grid-cols-[minmax(0,1fr)_340px] lg:px-14 lg:py-14">
-        <div className="flex min-w-0 flex-col justify-center space-y-5">
-          <div className="inline-flex w-fit items-center gap-2 rounded-full border border-[var(--app-brand-border)] bg-[var(--app-brand-soft)] px-3.5 py-1.5 text-xs font-bold uppercase tracking-widest text-[var(--app-brand-text)] shadow-sm backdrop-blur">
+      <div className="relative z-10 grid gap-10 px-6 py-10 sm:px-10 md:grid-cols-[minmax(0,1fr)_240px] md:py-14 lg:grid-cols-[minmax(0,1fr)_280px] lg:px-14">
+        <div className="flex min-w-0 flex-col justify-center">
+          <motion.div
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5, ease: [0.21, 0.47, 0.32, 0.98] }}
+            className="inline-flex w-fit items-center gap-2 rounded-full border border-[var(--app-brand-border)] bg-[var(--app-brand-soft)] px-3.5 py-1.5 text-[11px] font-bold uppercase tracking-[0.2em] text-[var(--app-brand-text)] backdrop-blur"
+          >
             <Sparkles size={12} fill="currentColor" />
-            <span>本周力荐 / Featured</span>
-          </div>
+            <span>本周力荐 · Featured</span>
+          </motion.div>
 
-          <div className="space-y-3">
-            <div className="inline-flex max-w-full items-center gap-2 rounded-2xl bg-[var(--app-active-bg)] px-3 py-2 text-[var(--app-active-text)] shadow-lg">
-              <span className="h-2 w-2 rounded-full bg-[#d4af37]" />
-              <span className="truncate text-xs font-black tracking-[0.26em]">{featuredMark}</span>
-            </div>
-            <h1 className="font-display text-3xl font-extrabold leading-tight tracking-tight text-[var(--app-text)] sm:text-4xl md:text-5xl">
-              {featuredItem.title}
-            </h1>
-          </div>
+          <motion.h1
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.55, delay: 0.08, ease: [0.21, 0.47, 0.32, 0.98] }}
+            className="mt-5 max-w-3xl font-display text-[clamp(1.5rem,3.4vw,2.6rem)] font-extrabold leading-[1.18] tracking-tight text-[var(--app-text)] line-clamp-3 [text-wrap:balance]"
+          >
+            {featuredItem.title}
+          </motion.h1>
 
-          <p className="line-clamp-3 max-w-2xl text-sm font-semibold leading-relaxed text-[var(--app-subtle)] sm:text-base">
-            {featuredItem.overview || '家庭私人媒体中心收藏。支持多端播放、外部播放器与智能刮削。'}
-          </p>
-
-          <div className="flex flex-wrap items-center gap-3 text-xs font-bold text-[var(--app-muted)]">
+          <motion.div
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5, delay: 0.16, ease: [0.21, 0.47, 0.32, 0.98] }}
+            className="mt-4 flex flex-wrap items-center gap-2 text-xs font-bold"
+          >
             {featuredItem.year > 0 && (
-              <span className="rounded-xl border border-[var(--app-border)] bg-[var(--app-panel)] px-2.5 py-1 text-[var(--app-text)] shadow-sm">{featuredItem.year} 年</span>
+              <span className="rounded-lg border border-[var(--app-border)] bg-[var(--app-panel)]/70 px-2.5 py-1 text-[var(--app-text)] backdrop-blur">{featuredItem.year}</span>
+            )}
+            {featuredItem.rating > 0 && (
+              <span className="badge-gold">★ {featuredItem.rating.toFixed(1)}</span>
             )}
             {featuredItem.video_codec && (
-              <span className="rounded-lg border border-[var(--app-brand-border)] bg-[var(--app-brand-soft)] px-2 py-1 text-[10px] font-bold uppercase text-[var(--app-brand-text)]">
+              <span className="rounded-lg border border-[var(--app-brand-border)] bg-[var(--app-brand-soft)] px-2.5 py-1 uppercase text-[var(--app-brand-text)] backdrop-blur">
                 {featuredItem.video_codec}
               </span>
             )}
             {featuredItem.container && (
-              <span className="rounded-lg border border-[var(--app-border)] bg-[var(--app-panel)] px-2 py-1 font-mono text-[10px] uppercase text-[var(--app-subtle)]">
+              <span className="rounded-lg border border-[var(--app-border)] bg-[var(--app-panel)]/70 px-2.5 py-1 font-mono text-[10px] uppercase text-[var(--app-subtle)] backdrop-blur">
                 {featuredItem.container}
               </span>
             )}
-          </div>
+          </motion.div>
 
-          <div className="flex flex-wrap items-center gap-4 pt-2">
-            <Link to={`/media/${featuredItem.id}`} className="inline-flex items-center justify-center gap-2 rounded-xl bg-[var(--app-command-bg)] px-6 py-3.5 text-sm font-bold text-[var(--app-command-text)] shadow-lg transition-all hover:-translate-y-0.5">
+          <motion.p
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5, delay: 0.24, ease: [0.21, 0.47, 0.32, 0.98] }}
+            className="mt-4 line-clamp-2 max-w-2xl text-sm font-medium leading-relaxed text-[var(--app-subtle)]"
+          >
+            {featuredItem.overview || '家庭私人媒体中心收藏。支持多端播放、外部播放器与智能刮削。'}
+          </motion.p>
+
+          <motion.div
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5, delay: 0.32, ease: [0.21, 0.47, 0.32, 0.98] }}
+            className="mt-7 flex flex-wrap items-center gap-3.5"
+          >
+            <Link to={`/media/${featuredItem.id}`} className="btn-primary px-7 py-3.5">
               <Play size={16} fill="currentColor" />
               <span>立即播放</span>
             </Link>
             {showDiscover && (
-              <Link to="/discover" className="inline-flex items-center justify-center gap-2 rounded-xl border border-[var(--app-border)] bg-[var(--app-panel)] px-5 py-3.5 text-sm font-bold text-[var(--app-subtle)] shadow-sm transition-all hover:-translate-y-0.5 hover:border-brand-500/40 hover:text-[var(--app-text)]">
+              <Link to="/discover" className="btn-outline px-5 py-3.5">
                 <span>发现更多精彩</span>
                 <ArrowRight size={16} />
               </Link>
             )}
-          </div>
+          </motion.div>
         </div>
 
-        <div className="relative order-first mx-auto flex w-full max-w-[220px] items-center md:order-none md:max-w-[260px] lg:max-w-[310px]">
-          <div className="absolute -right-6 top-5 h-32 w-32 rounded-full bg-[#d4af37]/20 blur-3xl" />
-          <div className="relative aspect-[2/3] w-full overflow-hidden rounded-[1.7rem] border border-[var(--app-border)] bg-[var(--app-poster-shell)] p-2 shadow-[0_32px_80px_var(--app-shadow)]">
-            <div className="flex h-full w-full flex-col items-center justify-center rounded-[1.25rem] text-center" style={{ background: 'var(--app-poster-empty)' }}>
-              <Film className="mb-4 h-12 w-12 text-[#c9954a]" />
-              <span className="px-6 font-display text-3xl font-black tracking-tight text-[var(--app-text)]">{featuredItem.title}</span>
+        {/* 右侧海报：紫罗兰光晕 + 悬浮 */}
+        <div className="relative order-first mx-auto flex w-full max-w-[200px] items-center md:order-none md:max-w-none">
+          <motion.div
+            initial={{ opacity: 0, y: 24, rotate: 2 }}
+            animate={{ opacity: 1, y: 0, rotate: 0 }}
+            whileHover={{ y: -8, rotate: 1 }}
+            transition={{ duration: 0.6, delay: 0.2, type: 'spring', stiffness: 120, damping: 18 }}
+            className="relative w-full"
+          >
+            <div className="absolute -inset-6 rounded-[2.5rem] bg-brand-500/20 blur-3xl" />
+            <div className="relative aspect-[2/3] w-full overflow-hidden rounded-[1.5rem] border border-white/15 shadow-[0_32px_80px_rgba(0,0,0,0.45)]">
+              <div className="flex h-full w-full flex-col items-center justify-center text-center" style={{ background: 'var(--app-poster-empty)' }}>
+                <Film className="mb-3 h-10 w-10 text-brand-400" />
+                <span className="px-5 font-display text-xl font-black leading-snug tracking-tight text-[var(--app-text)] [text-wrap:balance]">{featuredItem.title}</span>
+              </div>
+              {featuredPoster && (
+                <img
+                  src={imageURL(featuredPoster, featuredItem.updated_at)}
+                  alt={featuredItem.title}
+                  className="absolute inset-0 h-full w-full object-cover"
+                  referrerPolicy="no-referrer"
+                  onError={(event) => { event.currentTarget.style.display = 'none' }}
+                />
+              )}
             </div>
-            {featuredPoster && (
-              <img
-                src={imageURL(featuredPoster, featuredItem.updated_at)}
-                alt={featuredItem.title}
-                className="absolute inset-2 h-[calc(100%-1rem)] w-[calc(100%-1rem)] rounded-[1.25rem] object-cover"
-                referrerPolicy="no-referrer"
-                onError={(event) => { event.currentTarget.style.display = 'none' }}
-              />
-            )}
-          </div>
+          </motion.div>
         </div>
       </div>
     </section>
@@ -229,8 +259,9 @@ function ContinueCard({ media, progress }: { media: Media; progress: number }) {
             <motion.div
               initial={{ width: 0 }}
               animate={{ width: `${Math.round(progress * 100)}%` }}
-              transition={{ duration: 0.5, delay: 0.1 }}
-              className="h-full rounded-full bg-gradient-to-r from-brand-400 to-brand-500"
+              transition={{ duration: 0.6, delay: 0.1, ease: [0.21, 0.47, 0.32, 0.98] }}
+              className="h-full rounded-full"
+              style={{ background: 'linear-gradient(90deg, #8b5cf6, #d946ef)', boxShadow: '0 0 8px rgba(139,92,246,0.5)' }}
             />
           </div>
           <p className="text-[10px] font-bold uppercase tracking-wide text-[var(--app-muted)]">

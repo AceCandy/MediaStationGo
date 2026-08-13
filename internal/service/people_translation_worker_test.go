@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -199,6 +200,28 @@ func TestPeopleTranslationEmptyPassDoesNotCreateTask(t *testing.T) {
 	snapshot := scraper.tasks.Snapshot()
 	if len(snapshot.Active) != 0 || len(snapshot.Recent) != 0 {
 		t.Fatalf("unexpected task snapshot = %+v", snapshot)
+	}
+}
+
+func TestTranslatePeopleWindowReturnsResultDetails(t *testing.T) {
+	db := newServiceTestDB(t, &model.Person{}, &model.TranslationCache{})
+	repos := repository.New(db)
+	person := model.Person{Name: "Tony Leung Chiu-wai", OriginalName: "Tony Leung Chiu-wai"}
+	if err := db.Create(&person).Error; err != nil {
+		t.Fatal(err)
+	}
+	lookup := newTranslationCacheLookup("person_name", person.ID, person.OriginalName)
+	if err := db.Create(&model.TranslationCache{Kind: lookup.Kind, ContextKey: lookup.ContextKey, SourceText: lookup.SourceText, TargetLanguage: lookup.TargetLanguage, PromptVersion: lookup.PromptVersion, TranslatedText: "梁朝伟"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	group := &pendingPeopleTranslation{lookup: lookup, targets: []repository.TranslationTarget{{Kind: "person_name", ID: person.ID, OriginalText: person.OriginalName}}}
+	scraper := NewScraperService(&config.Config{}, zap.NewNop(), repos, nil, nil, nil, nil, nil)
+	applied, details, err := scraper.translatePeopleWindow(t.Context(), []*pendingPeopleTranslation{group})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if applied != 1 || !slices.Contains(details, "人物翻译 [缓存]: Tony Leung Chiu-wai -> 梁朝伟") {
+		t.Fatalf("applied=%d details=%v", applied, details)
 	}
 }
 

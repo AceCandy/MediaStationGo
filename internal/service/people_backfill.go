@@ -100,8 +100,11 @@ func (s *ScraperService) runPeopleBackfillPass(ctx context.Context, trigger stri
 	if task == nil {
 		return errors.New("create task execution failed")
 	}
+	detailCount := 0
 	result, runErr := s.backfillPeopleCandidates(ctx, candidates, func(current PeopleBackfillResult) {
-		task.Update(TaskUpdate{Stage: "people", Metrics: current.Metrics(), Details: current.Details})
+		newDetails := current.Details[detailCount:]
+		detailCount = len(current.Details)
+		task.Update(TaskUpdate{Stage: "people", Metrics: current.Metrics(), Details: newDetails})
 	})
 	message := "人物信息补齐完成"
 	stage := "completed"
@@ -109,7 +112,7 @@ func (s *ScraperService) runPeopleBackfillPass(ctx context.Context, trigger stri
 		message = "人物信息补齐失败"
 		stage = "people"
 	}
-	task.Finish(runErr, TaskUpdate{Stage: stage, Message: message, Metrics: result.Metrics(), Details: result.Details})
+	task.Finish(sanitizeTaskLogError(runErr), TaskUpdate{Stage: stage, Message: message, Metrics: result.Metrics()})
 	return runErr
 }
 
@@ -143,6 +146,7 @@ func (s *ScraperService) backfillPeopleCandidates(ctx context.Context, candidate
 		tmdbID, parseErr := strconv.Atoi(strings.TrimSpace(candidate.ExternalID))
 		if parseErr != nil || tmdbID <= 0 {
 			result.Skipped++
+			result.Details = append(result.Details, fmt.Sprintf("%s %s: 跳过无效 TMDB ID %q", candidate.Kind, candidate.MetadataID, candidate.ExternalID))
 		} else {
 			wakeScrapeWorker := false
 			func() {
@@ -156,21 +160,23 @@ func (s *ScraperService) backfillPeopleCandidates(ctx context.Context, candidate
 				if fetchErr != nil {
 					result.Failed++
 					if !isTMDbHTTPStatus(fetchErr, http.StatusNotFound) {
-						result.Details = append(result.Details, candidate.MetadataID+": "+fetchErr.Error())
+						result.Details = append(result.Details, candidate.MetadataID+": "+sanitizeTaskLogError(fetchErr).Error())
 						return
 					}
 					reset, invalidateErr := s.repo.Metadata.InvalidateTMDbIdentifier(ctx, candidate.MetadataID, candidate.Kind, candidate.ExternalID)
 					if invalidateErr != nil {
-						result.Details = append(result.Details, candidate.MetadataID+": "+fmt.Errorf("%w; invalidate TMDB identifier: %v", fetchErr, invalidateErr).Error())
+						combinedErr := fmt.Errorf("%w; invalidate TMDB identifier: %v", fetchErr, invalidateErr)
+						result.Details = append(result.Details, candidate.MetadataID+": "+sanitizeTaskLogError(combinedErr).Error())
 						return
 					}
 					wakeScrapeWorker = reset > 0
 					result.Details = append(result.Details, fmt.Sprintf("%s: TMDB 标识 %s 已失效，已重置 %d 个媒体", candidate.MetadataID, candidate.ExternalID, reset))
 				} else if persistErr := s.persistCredits(ctx, candidate.MetadataID, loaded, credits); persistErr != nil {
 					result.Failed++
-					result.Details = append(result.Details, candidate.MetadataID+": "+persistErr.Error())
+					result.Details = append(result.Details, candidate.MetadataID+": "+sanitizeTaskLogError(persistErr).Error())
 				} else {
 					result.Completed++
+					result.Details = append(result.Details, fmt.Sprintf("%s %s: TMDB %s 人物信息补齐成功", candidate.Kind, candidate.MetadataID, candidate.ExternalID))
 				}
 			}()
 			if wakeScrapeWorker {

@@ -20,14 +20,14 @@ export function ManualScrapeDialogHeader({
   onClose: () => void
 }) {
   return (
-    <div className="flex items-start justify-between gap-4 border-b border-sand-200 px-5 py-4">
+    <div className="modal-header">
       <div>
         <h2 className="font-display text-xl font-bold text-ink-600">手动搜索刮削</h2>
         <p className="mt-1 text-xs text-sand-500">
           {title} · {targetCount > 1 ? `将应用到 ${targetCount} 个媒体` : '单个媒体'}
         </p>
       </div>
-      <button onClick={onClose} className="btn-ghost h-9 w-9 p-0" aria-label="关闭">
+      <button onClick={onClose} className="icon-btn" aria-label="关闭">
         <X size={16} />
       </button>
     </div>

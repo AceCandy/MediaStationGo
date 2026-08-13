@@ -1,6 +1,8 @@
 import { FormEvent, useState } from 'react'
 import { KeyRound } from 'lucide-react'
 
+import { ModalShell } from './ModalShell'
+
 export type PasswordOptions = {
   title?: string
   message?: string
@@ -23,19 +25,10 @@ export function PasswordDialog({
   }
 
   return (
-    <div
-      className="fixed inset-0 z-[110] flex items-center justify-center bg-black/35 p-4 backdrop-blur-sm"
-      onClick={() => onClose(null)}
-    >
-      <form
-        role="dialog"
-        aria-modal="true"
-        onSubmit={onSubmit}
-        className="w-full max-w-sm overflow-hidden rounded-3xl border border-white/70 bg-white shadow-2xl"
-        onClick={(event) => event.stopPropagation()}
-      >
+    <ModalShell onClose={() => onClose(null)} maxWidth="max-w-sm" zIndex={110} ariaLabel={options.title || '需要密码确认'}>
+      <form onSubmit={onSubmit}>
         <div className="flex gap-4 p-5">
-          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-primary-400/10 text-brand-500">
+          <div className="modal-icon">
             <KeyRound size={22} />
           </div>
           <div className="min-w-0 flex-1">
@@ -50,29 +43,29 @@ export function PasswordDialog({
               type="password"
               value={password}
               onChange={(event) => setPassword(event.target.value)}
-              className="mt-4 w-full rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3 text-ink-600 outline-none transition focus:border-brand-500 focus:bg-white focus:ring-4 focus:ring-brand-100/40"
+              className="input-field mt-4"
               placeholder="当前账号密码"
               autoComplete="current-password"
             />
           </div>
         </div>
-        <div className="flex justify-end gap-2 border-t border-gray-100 bg-gray-50/80 px-5 py-4">
+        <div className="modal-footer">
           <button
             type="button"
             onClick={() => onClose(null)}
-            className="rounded-xl border border-gray-200 bg-white px-4 py-2 text-sm font-semibold text-ink-100 hover:bg-gray-50"
+            className="btn-outline px-4 py-2 shadow-none"
           >
             取消
           </button>
           <button
             type="submit"
             disabled={!password}
-            className="rounded-xl bg-brand-500 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-600 disabled:cursor-not-allowed disabled:opacity-50"
+            className="btn-primary px-4 py-2"
           >
             {options.confirmText || '确认'}
           </button>
         </div>
       </form>
-    </div>
+    </ModalShell>
   )
 }

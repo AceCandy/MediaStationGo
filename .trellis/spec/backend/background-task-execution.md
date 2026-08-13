@@ -34,6 +34,12 @@ history is observability only; business object state owns retry and recovery.
   execution UUID's log. Execution rows and daily log files remain unchanged.
 - A persisted execution must exist before its background work starts. A create
   failure aborts that execution; log append failure does not abort business work.
+- `TaskUpdate.Details` are append-only log records for that update, not an
+  accumulated task transcript. A batch worker must pass only newly produced
+  detail lines on each `Update` and must not repeat them on `Finish`.
+- Both `Details` and the error passed to `TaskHandle.Finish` are written to the
+  per-task log. Provider errors must be sanitized before either value is passed;
+  URLs and query strings are replaced with `[redacted-url]`.
 - Startup marks stale task executions `interrupted` and changes stale media
   scrape `running` rows back to `pending`. Neither task history nor log content is
   a resume checkpoint.
@@ -63,6 +69,8 @@ history is observability only; business object state owns retry and recovery.
 | Invalid task UUID or client path | Reject; never resolve a client-provided path |
 | Task execution insert fails | Do not start the background work |
 | Task log append fails | Continue work, log the application error |
+| A provider error contains a URL or query token | Preserve the original business error for the caller, but write only the sanitized error to the task log |
+| A batch update has old and new detail lines | Pass only the new lines to `TaskUpdate.Details` |
 | Process exits with a media group running | Restore its rows to `pending` at startup |
 | Any member loses a claim race | Roll back the whole group claim |
 | Library media exists while catalog work is pending | Process one library work unit first |
@@ -93,4 +101,13 @@ db.Where("scrape_status = ?", "pending").Find(&rows)
 db.Transaction(func(tx *gorm.DB) error {
 	return claimPendingGroup(tx)
 })
+```
+
+```go
+// Wrong: every update writes the complete accumulated slice again.
+task.Update(TaskUpdate{Details: result.Details})
+
+// Correct: write only details created since the previous update.
+task.Update(TaskUpdate{Details: result.Details[detailCount:]})
+detailCount = len(result.Details)
 ```

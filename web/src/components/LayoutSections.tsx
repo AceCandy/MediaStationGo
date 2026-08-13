@@ -101,7 +101,7 @@ export function LayoutMobileSidebar({ children, isOpen, onClose }: LayoutMobileS
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             onClick={onClose}
-            className="fixed inset-0 bg-black/15 backdrop-blur-sm"
+            className="fixed inset-0 bg-black/50 backdrop-blur-md"
           />
           <motion.div
             ref={panelRef}
@@ -160,15 +160,15 @@ export function LayoutSidebars({
 
 export function LayoutWorkspace({ routeKey }: LayoutWorkspaceProps) {
   return (
-    <main id="main-content" tabIndex={-1} className="flex-1 overflow-y-auto px-4 py-6 md:px-8 md:py-10">
-      <div className="max-w-7xl mx-auto">
+    <main id="main-content" tabIndex={-1} className="flex-1 overflow-y-auto px-4 py-6 md:px-8 md:py-8">
+      <div className="mx-auto max-w-[1500px]">
         <AnimatePresence mode="wait">
           <motion.div
             key={routeKey}
-            initial={{ opacity: 0, y: 12 }}
+            initial={{ opacity: 0, y: 14 }}
             animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -6 }}
-            transition={{ duration: 0.25, ease: 'easeOut' }}
+            exit={{ opacity: 0, y: -8 }}
+            transition={{ duration: 0.32, ease: [0.21, 0.47, 0.32, 0.98] }}
           >
             <RouteErrorBoundary>
               <Outlet />
@@ -191,9 +191,12 @@ export function LayoutMobileBottomNav({
   return (
     <nav
       aria-label="主要导航"
-      className="z-40 shrink-0 border-t border-[var(--app-border)] bg-[var(--app-panel)] pb-[env(safe-area-inset-bottom)] lg:hidden"
+      className="z-40 shrink-0 px-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] lg:hidden"
     >
-      <div className="grid" style={{ gridTemplateColumns: `repeat(${items.length}, minmax(0, 1fr))` }}>
+      <div
+        className="grid rounded-2xl border border-[var(--app-glass-border)] bg-[var(--app-glass)] p-1.5 shadow-elevated backdrop-blur-xl"
+        style={{ gridTemplateColumns: `repeat(${items.length}, minmax(0, 1fr))` }}
+      >
         {items.map((item) => {
           const Icon = item.icon
           const active = routeMatches(pathname, item.activePaths)
@@ -203,11 +206,12 @@ export function LayoutMobileBottomNav({
               to={item.to!}
               aria-current={active ? 'page' : undefined}
               className={clsx(
-                'flex min-h-14 min-w-0 flex-col items-center justify-center gap-1 px-1 text-[11px] font-bold transition-colors',
+                'flex min-h-14 min-w-0 flex-col items-center justify-center gap-1 rounded-xl px-1 text-[11px] font-bold transition-all duration-300',
                 active
-                  ? 'bg-[var(--app-active-bg)] text-[var(--app-active-text)]'
+                  ? 'text-white shadow-glow-sm'
                   : 'text-[var(--app-muted)] hover:bg-[var(--app-hover)] hover:text-[var(--app-text)]',
               )}
+              style={active ? { background: 'linear-gradient(135deg, #8b5cf6 0%, #7c3aed 60%, #6d28d9 100%)' } : undefined}
             >
               <Icon size={19} aria-hidden="true" />
               <span className="truncate">{item.label}</span>

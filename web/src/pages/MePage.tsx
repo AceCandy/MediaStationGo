@@ -42,7 +42,7 @@ export function MePage() {
               className={clsx(
                 'flex min-h-11 shrink-0 items-center gap-2 border-b-2 px-4 text-sm font-bold transition-colors',
                 active
-                  ? 'border-brand-500 text-[var(--app-active-text)]'
+                  ? 'border-brand-500 text-brand-500'
                   : 'border-transparent text-[var(--app-muted)] hover:text-[var(--app-text)]',
               )}
             >

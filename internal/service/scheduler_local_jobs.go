@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -40,7 +41,8 @@ func (s *SchedulerService) jobScanLibraries(ctx context.Context) error {
 	libs, err := s.repo.Library.List(ctx)
 	if err != nil {
 		if task != nil {
-			task.Finish(err, TaskUpdate{Stage: "scan", Message: "媒体库扫描失败"})
+			safeErr := sanitizeTaskLogError(err)
+			task.Finish(safeErr, TaskUpdate{Stage: "scan", Message: "媒体库扫描失败", Details: []string{"读取媒体库列表失败: " + safeErr.Error()}})
 		}
 		return err
 	}
@@ -56,6 +58,9 @@ func (s *SchedulerService) jobScanLibraries(ctx context.Context) error {
 		res, err := s.scanner.ScanLibrary(ctx, l.ID)
 		if err != nil {
 			metrics["errors"]++
+			if task != nil {
+				task.Update(TaskUpdate{Stage: "scan", Message: "正在扫描已启用媒体库", Metrics: metrics, Details: []string{fmt.Sprintf("媒体库 %s（%s）: 扫描失败: %v", l.Name, l.ID, sanitizeTaskLogError(err))}})
+			}
 			s.log.Warn("scheduled scan failed",
 				zap.String("library", l.ID), zap.Error(err))
 			continue
@@ -66,6 +71,9 @@ func (s *SchedulerService) jobScanLibraries(ctx context.Context) error {
 			metrics["updated"] += int64(res.Updated)
 			metrics["removed"] += res.Removed
 		}
+		if task != nil {
+			task.Update(TaskUpdate{Stage: "scan", Message: "正在扫描已启用媒体库", Metrics: metrics, Details: []string{libraryScanTaskDetail(l, res)}})
+		}
 	}
 	if !manual {
 		_ = s.markPeriodicScanCompleted(ctx, now)
@@ -74,6 +82,13 @@ func (s *SchedulerService) jobScanLibraries(ctx context.Context) error {
 		task.Finish(nil, TaskUpdate{Stage: "completed", Message: "媒体库扫描结束", Metrics: metrics})
 	}
 	return nil
+}
+
+func libraryScanTaskDetail(l model.Library, res *ScanResult) string {
+	if res == nil {
+		return fmt.Sprintf("媒体库 %s（%s）: 扫描完成，无结果统计", l.Name, l.ID)
+	}
+	return fmt.Sprintf("媒体库 %s（%s）: 访问 %d，新增 %d，更新 %d，移除 %d，跳过 %d，错误 %d", l.Name, l.ID, res.Visited, res.Added, res.Updated, res.Removed, res.Skipped, res.ErrorCount)
 }
 
 // periodicScanEnabled reports whether the operator opted into periodic full
@@ -211,13 +226,18 @@ func (s *SchedulerService) jobPurgeRecycleBin(ctx context.Context) error {
 		Delete(&model.Media{})
 	if res.Error != nil && !isMissingTableErr(res.Error) {
 		if task != nil {
-			task.Finish(res.Error, TaskUpdate{Stage: "recycle", Message: "回收站清理失败"})
+			safeErr := sanitizeTaskLogError(res.Error)
+			task.Finish(safeErr, TaskUpdate{Stage: "recycle", Message: "回收站清理失败", Details: []string{fmt.Sprintf("清理 %s 之前的回收站记录失败: %v", cutoff.Format(time.RFC3339), safeErr)}})
 		}
 		return res.Error
 	}
 	err := pruneRecycleBinRows(ctx, s.repo.DB, maxRecycleBinRecords)
 	if task != nil {
-		task.Finish(err, TaskUpdate{Stage: "completed", Message: "回收站清理结束", Metrics: map[string]int64{"deleted": res.RowsAffected}})
+		detail := fmt.Sprintf("已清理 %s 之前的回收站记录，删除 %d 条；并保留最近最多 %d 条记录", cutoff.Format(time.RFC3339), res.RowsAffected, maxRecycleBinRecords)
+		if err != nil {
+			detail = fmt.Sprintf("已删除 %d 条过期记录，但裁剪回收站失败: %v", res.RowsAffected, sanitizeTaskLogError(err))
+		}
+		task.Finish(sanitizeTaskLogError(err), TaskUpdate{Stage: "completed", Message: "回收站清理结束", Metrics: map[string]int64{"deleted": res.RowsAffected}, Details: []string{detail}})
 	}
 	return err
 }

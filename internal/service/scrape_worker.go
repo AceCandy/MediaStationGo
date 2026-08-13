@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 
 	"go.uber.org/zap"
@@ -58,9 +59,42 @@ func (s *ScraperService) processNextMediaScrape(ctx context.Context) (bool, erro
 		}
 	}
 	if task != nil {
-		task.Finish(err, TaskUpdate{Stage: "completed", Message: "已入库媒体刮削结束", Metrics: metrics})
+		media, _ := s.repo.Media.FindByID(ctx, group.Representative.ID)
+		safeErr := sanitizeTaskLogError(err)
+		task.Finish(safeErr, TaskUpdate{Stage: "completed", Message: "已入库媒体刮削结束", Metrics: metrics, Details: []string{mediaScrapeTaskDetail(*group, media, safeErr)}})
 	}
 	return true, nil
+}
+
+func mediaScrapeTaskDetail(group scrapeCandidateGroup, media *model.Media, scrapeErr error) string {
+	current := group.Representative
+	if media != nil {
+		current = *media
+	}
+	name := strings.TrimSpace(current.Title)
+	if name == "" {
+		name = current.ID
+	}
+	prefix := fmt.Sprintf("媒体 %s（%s，共 %d 个文件）", name, current.ID, len(group.MediaIDs))
+	if scrapeErr != nil {
+		return fmt.Sprintf("%s: 刮削失败: %v", prefix, scrapeErr)
+	}
+	switch current.ScrapeStatus {
+	case "matched":
+		if current.TMDbID > 0 {
+			return fmt.Sprintf("%s: 已匹配 TMDB %d", prefix, current.TMDbID)
+		}
+		return prefix + ": 已匹配元数据"
+	case "no_match":
+		return prefix + ": 未找到匹配元数据"
+	case "error":
+		if strings.TrimSpace(current.ScrapeError) != "" {
+			return fmt.Sprintf("%s: 刮削失败: %s", prefix, sanitizeTaskLogError(errors.New(current.ScrapeError)).Error())
+		}
+		return prefix + ": 刮削失败"
+	default:
+		return fmt.Sprintf("%s: 刮削状态 %s", prefix, current.ScrapeStatus)
+	}
 }
 
 func (s *ScraperService) claimNextPendingMediaGroup(ctx context.Context) (*scrapeCandidateGroup, error) {

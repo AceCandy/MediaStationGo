@@ -43,7 +43,7 @@ export function LayoutSidebarContent({
   const navigationId = useId()
 
   return (
-    <div className="flex h-full flex-col border-r border-[var(--app-border)] bg-[var(--app-panel)]">
+    <div className="flex h-full flex-col border-r border-[var(--app-border)] bg-[var(--app-glass)] backdrop-blur-xl">
       <LayoutSidebarHeader
         sidebarExpanded={sidebarExpanded}
         navigationId={navigationId}
@@ -92,12 +92,12 @@ function LayoutSidebarHeader({
   onCloseMobileDrawer: () => void
 }) {
   return (
-    <div className="flex h-20 items-center justify-between border-b border-[var(--app-border)] px-4">
-      <Link to="/" className="flex min-w-0 items-center gap-2.5">
+    <div className="flex h-16 items-center justify-between border-b border-[var(--app-border)] px-4">
+      <Link to="/" className="group flex min-w-0 items-center gap-2.5">
         <img
           src="/brand/mediastationgo-logo.svg"
           alt="MediaStationGo"
-          className="h-10 w-10 shrink-0 rounded-xl object-contain shadow-sm"
+          className="h-9 w-9 shrink-0 rounded-xl object-contain shadow-glow-sm transition-transform duration-300 group-hover:scale-105"
         />
         {sidebarExpanded && (
           <motion.span
@@ -105,7 +105,7 @@ function LayoutSidebarHeader({
             animate={{ opacity: 1, x: 0 }}
             className="truncate font-display text-sm font-extrabold tracking-tight text-[var(--app-text)]"
           >
-            MediaStationGo
+            Media<span className="text-gradient-brand">Station</span>Go
           </motion.span>
         )}
       </Link>
@@ -147,7 +147,7 @@ function LayoutSidebarNav({
   onToggleGroup: (id: string) => void
 }) {
   return (
-    <nav id={navigationId} aria-label="侧栏导航" className="flex-1 overflow-y-auto px-4 py-5 space-y-2 scrollbar-hide">
+    <nav id={navigationId} aria-label="侧栏导航" className="flex-1 overflow-y-auto px-3 py-4 space-y-1.5 scrollbar-hide">
       {groups.map(({ group, items }) => (
         <LayoutSidebarNavGroup
           key={group.id}
@@ -253,18 +253,18 @@ function LayoutSidebarLogout({
   onLogout: () => void
 }) {
   return (
-    <div className="border-t border-[var(--app-border)] bg-[var(--app-panel-soft)] p-4">
+    <div className="border-t border-[var(--app-border)] p-3">
       <button
         onClick={onLogout}
         className={clsx(
-          'flex items-center gap-3.5 rounded-xl px-4 py-3 text-sm font-semibold transition-all duration-300 w-full group/logout',
+          'flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-[13px] font-semibold transition-all duration-300 w-full group/logout',
           sidebarExpanded
             ? 'justify-start text-[var(--app-muted)] hover:bg-[var(--app-danger-soft)] hover:text-red-500'
             : 'justify-center text-[var(--app-muted)] hover:text-red-500',
         )}
         title={`安全登出 (${username ?? ''})`}
       >
-        <LogOut size={18} className="transition-transform group-hover/logout:-translate-x-0.5" />
+        <LogOut size={17} className="transition-transform group-hover/logout:-translate-x-0.5" />
         {sidebarExpanded && <span>安全退出</span>}
       </button>
     </div>

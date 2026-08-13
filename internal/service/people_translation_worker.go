@@ -136,12 +136,13 @@ func (s *ScraperService) translatePendingPeople(ctx context.Context) error {
 	completed := int64(0)
 	for start := 0; start < len(groups); start += peopleTranslationBatchSize {
 		end := min(start+peopleTranslationBatchSize, len(groups))
-		applied, err := s.translatePeopleWindow(ctx, groups[start:end])
+		applied, details, err := s.translatePeopleWindow(ctx, groups[start:end])
 		completed += int64(applied)
 		metrics["completed"] = completed
-		task.Update(TaskUpdate{Stage: "translation", Message: fmt.Sprintf("人物翻译进度 %d/%d", completed, len(groups)), Metrics: metrics})
+		task.Update(TaskUpdate{Stage: "translation", Message: fmt.Sprintf("人物翻译进度 %d/%d", completed, len(groups)), Metrics: metrics, Details: details})
 		if err != nil {
-			task.Finish(err, TaskUpdate{Stage: "translation", Message: "人物翻译失败", Metrics: metrics})
+			safeErr := sanitizeTaskLogError(err)
+			task.Finish(safeErr, TaskUpdate{Stage: "translation", Message: "人物翻译失败", Metrics: metrics})
 			return err
 		}
 	}
@@ -204,15 +205,16 @@ func (s *ScraperService) pendingPeopleTranslationGroups(ctx context.Context) ([]
 	return groups, nil
 }
 
-func (s *ScraperService) translatePeopleWindow(ctx context.Context, groups []*pendingPeopleTranslation) (int, error) {
+func (s *ScraperService) translatePeopleWindow(ctx context.Context, groups []*pendingPeopleTranslation) (int, []string, error) {
 	applied := 0
+	details := make([]string, 0, len(groups))
 	lookups := make([]repository.TranslationCacheLookup, 0, len(groups))
 	for _, group := range groups {
 		lookups = append(lookups, group.lookup)
 	}
 	cachedRows, err := s.repo.Person.ListTranslationCaches(ctx, lookups)
 	if err != nil {
-		return applied, err
+		return applied, appendPeopleTranslationFailures(details, groups, err), err
 	}
 	cached := make(map[string]string, len(cachedRows))
 	for _, row := range cachedRows {
@@ -225,28 +227,28 @@ func (s *ScraperService) translatePeopleWindow(ctx context.Context, groups []*pe
 	for _, group := range groups {
 		if translated := cached[translationCacheKey(group.lookup)]; translated != "" {
 			if err := s.repo.Person.ApplyCachedTranslation(ctx, group.targets, translated); err != nil {
-				return applied, err
+				return applied, appendPeopleTranslationFailures(details, []*pendingPeopleTranslation{group}, err), err
 			}
 			applied++
+			details = append(details, peopleTranslationDetail(group, translated, "缓存"))
 			continue
 		}
 		misses = append(misses, group)
 	}
 	for _, batch := range splitPeopleTranslationBatches(misses, peopleTranslationBatchSize, peopleTranslationMaxInputChars) {
 		entries := make([]AITranslationEntry, 0, len(batch))
-		byKey := make(map[string]*pendingPeopleTranslation, len(batch))
 		for _, group := range batch {
 			entries = append(entries, group.entry)
-			byKey[group.entry.Key] = group
 		}
 		translations, err := s.ai.TranslatePeople(ctx, entries)
 		if err != nil {
-			return applied, err
+			return applied, appendPeopleTranslationFailures(details, batch, err), err
 		}
 		status := s.ai.Status(ctx)
-		for key, translated := range translations {
-			group := byKey[key]
-			if group == nil || !containsChinese(translated) {
+		for _, group := range batch {
+			translated := translations[group.entry.Key]
+			if !containsChinese(translated) {
+				details = append(details, peopleTranslationDetail(group, "", "AI 未返回有效中文译文"))
 				continue
 			}
 			cache := model.TranslationCache{
@@ -255,12 +257,36 @@ func (s *ScraperService) translatePeopleWindow(ctx context.Context, groups []*pe
 				TranslatedText: translated, Provider: status.Provider, Model: status.Model,
 			}
 			if err := s.repo.Person.SaveAndApplyTranslation(ctx, cache, group.targets); err != nil {
-				return applied, err
+				return applied, appendPeopleTranslationFailures(details, []*pendingPeopleTranslation{group}, err), err
 			}
 			applied++
+			details = append(details, peopleTranslationDetail(group, translated, "AI"))
 		}
 	}
-	return applied, nil
+	return applied, details, nil
+}
+
+func appendPeopleTranslationFailures(details []string, groups []*pendingPeopleTranslation, err error) []string {
+	safeErr := sanitizeTaskLogError(err)
+	for _, group := range groups {
+		details = append(details, peopleTranslationDetail(group, "", "失败: "+safeErr.Error()))
+	}
+	return details
+}
+
+func peopleTranslationDetail(group *pendingPeopleTranslation, translated, source string) string {
+	kind := "人物"
+	if group != nil && group.lookup.Kind == "role" {
+		kind = "角色"
+	}
+	original := ""
+	if group != nil {
+		original = group.lookup.SourceText
+	}
+	if translated == "" {
+		return fmt.Sprintf("%s翻译 [%s]: %s", kind, source, original)
+	}
+	return fmt.Sprintf("%s翻译 [%s]: %s -> %s", kind, source, original, translated)
 }
 
 func splitPeopleTranslationBatches(groups []*pendingPeopleTranslation, maxEntries, maxChars int) [][]*pendingPeopleTranslation {

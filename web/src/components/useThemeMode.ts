@@ -7,9 +7,10 @@ const THEME_STORAGE_KEY = 'mediastationgo.theme'
 const DARK_QUERY = '(prefers-color-scheme: dark)'
 
 function readStoredTheme(): ThemeMode {
-  if (typeof window === 'undefined') return 'system'
+  if (typeof window === 'undefined') return 'dark'
   const value = window.localStorage.getItem(THEME_STORAGE_KEY)
-  return value === 'light' || value === 'dark' || value === 'system' ? value : 'system'
+  // 默认深色：媒体中心的第一公民体验是影院模式
+  return value === 'light' || value === 'dark' || value === 'system' ? value : 'dark'
 }
 
 function systemTheme(): ResolvedTheme {

@@ -25,7 +25,19 @@ ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
       <Toaster
         position="top-right"
         toastOptions={{
-          className: '!bg-surface-800 !text-white !border !border-white/10',
+          style: {
+            background: 'var(--app-glass)',
+            color: 'var(--app-text)',
+            border: '1px solid var(--app-glass-border)',
+            backdropFilter: 'blur(16px)',
+            WebkitBackdropFilter: 'blur(16px)',
+            boxShadow: '0 12px 40px var(--app-shadow)',
+            borderRadius: '14px',
+            fontSize: '13px',
+            fontWeight: 600,
+          },
+          success: { iconTheme: { primary: '#8b5cf6', secondary: '#ffffff' } },
+          error: { iconTheme: { primary: '#ef4444', secondary: '#ffffff' } },
         }}
       />
     </BrowserRouter>

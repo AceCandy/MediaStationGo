@@ -3,6 +3,7 @@ import toast from 'react-hot-toast'
 
 import { playProfilesAPI, type PlayProfileInput } from '../api/play_profiles'
 import type { Library, PlayProfile } from '../types'
+import { ModalShell } from '../components/ModalShell'
 import {
   ProfileFormActions,
   ProfileIdentityFields,
@@ -71,18 +72,16 @@ export function ProfileFormModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
-      <div className="glass-panel w-full max-w-lg max-h-[90vh] overflow-y-auto">
-        <h2 className="mb-4 font-display text-xl font-semibold text-ink-600">
-          {editing ? '编辑 Profile' : '创建 Profile'}
-        </h2>
-        <form onSubmit={onSubmit} className="space-y-4">
-          <ProfileIdentityFields form={form} editing={editing} update={update} />
-          <ProfilePreferenceFields form={form} update={update} />
-          <ProfileLibraryAccessField form={form} libraries={libraries} onToggleLibrary={toggleLib} />
-          <ProfileFormActions saving={saving} onClose={onClose} />
-        </form>
-      </div>
-    </div>
+    <ModalShell maxWidth="max-w-lg" className="max-h-[90vh] overflow-y-auto p-4 sm:p-6" ariaLabel={editing ? '编辑 Profile' : '创建 Profile'}>
+      <h2 className="mb-4 font-display text-xl font-semibold text-ink-600">
+        {editing ? '编辑 Profile' : '创建 Profile'}
+      </h2>
+      <form onSubmit={onSubmit} className="space-y-4">
+        <ProfileIdentityFields form={form} editing={editing} update={update} />
+        <ProfilePreferenceFields form={form} update={update} />
+        <ProfileLibraryAccessField form={form} libraries={libraries} onToggleLibrary={toggleLib} />
+        <ProfileFormActions saving={saving} onClose={onClose} />
+      </form>
+    </ModalShell>
   )
 }

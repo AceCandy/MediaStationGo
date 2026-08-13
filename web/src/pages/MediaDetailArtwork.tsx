@@ -11,18 +11,19 @@ type MediaDetailArtworkProps = {
 
 export function MediaDetailBackdrop({ media }: MediaDetailArtworkProps) {
   return (
-    <div className="absolute inset-0 h-[480px] z-0 overflow-hidden">
+    <div className="absolute inset-0 h-[520px] z-0 overflow-hidden">
       {media.backdrop_url || media.poster_url ? (
         <img
           src={imageURL(media.backdrop_url || media.poster_url || '', media.updated_at)}
           alt=""
-          className="w-full h-full object-cover opacity-[0.04] scale-110 blur-2xl"
+          className="h-full w-full scale-105 object-cover object-[center_18%]"
+          style={{ opacity: 'var(--app-backdrop-img-opacity, 0.35)' }}
           referrerPolicy="no-referrer"
         />
       ) : (
-        <div className="w-full h-full bg-gradient-to-b from-gray-50 to-transparent" />
+        <div className="theme-hero-bg h-full w-full" />
       )}
-      <div className="absolute inset-0 bg-gradient-to-t from-white via-white/95 to-transparent" />
+      <div className="absolute inset-0" style={{ background: 'var(--app-backdrop-overlay)' }} />
     </div>
   )
 }
@@ -50,10 +51,11 @@ export function MediaDetailPoster({ media }: MediaDetailArtworkProps) {
 
         <Link
           to={`/play/${media.id}`}
-          className="absolute inset-0 bg-[#111827]/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"
+          className="absolute inset-0 flex items-center justify-center bg-black/45 opacity-0 backdrop-blur-[2px] transition-opacity duration-300 group-hover:opacity-100"
         >
-          <div className="flex h-14 w-14 items-center justify-center rounded-full bg-brand-500 text-white shadow-xl transform scale-90 group-hover:scale-100 transition-transform">
-            <Play size={24} fill="currentColor" />
+          <div className="flex h-16 w-16 scale-90 items-center justify-center rounded-full text-white shadow-glow transition-transform duration-300 group-hover:scale-100"
+            style={{ background: 'linear-gradient(135deg, #8b5cf6 0%, #7c3aed 60%, #6d28d9 100%)' }}>
+            <Play size={26} fill="currentColor" />
           </div>
         </Link>
       </motion.div>

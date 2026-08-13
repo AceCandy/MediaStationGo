@@ -27,16 +27,17 @@ export function SidebarGroup({ id, icon, label, children, collapsed, open, activ
         aria-expanded={collapsed ? undefined : Boolean(open)}
         aria-controls={collapsed ? undefined : contentId}
         className={clsx(
-          'group relative flex w-full items-center gap-3.5 rounded-xl px-4 py-3 text-sm font-bold transition-all duration-300',
+          'group relative flex w-full items-center gap-3 rounded-xl px-3.5 py-2.5 text-[13px] font-bold transition-all duration-300 ease-smooth',
           active
-            ? 'bg-[var(--app-active-bg)] text-[var(--app-active-text)] shadow-sm'
+            ? 'text-white shadow-glow-sm'
             : 'text-[var(--app-muted)] hover:bg-[var(--app-hover)] hover:text-[var(--app-text)]',
           collapsed && 'justify-center px-0',
         )}
+        style={active ? { background: 'linear-gradient(135deg, #8b5cf6 0%, #7c3aed 60%, #6d28d9 100%)' } : undefined}
       >
         <span className={clsx(
-          'flex h-5 w-5 shrink-0 items-center justify-center',
-          active ? 'text-[var(--app-active-icon)]' : 'text-[var(--app-muted)] group-hover:text-[var(--app-subtle)]',
+          'flex h-5 w-5 shrink-0 items-center justify-center transition-transform duration-300 group-hover:scale-110',
+          active ? 'text-white' : 'text-[var(--app-muted)] group-hover:text-[var(--app-brand-text)]',
         )}>
           {icon}
         </span>
@@ -62,10 +63,10 @@ export function SidebarGroup({ id, icon, label, children, collapsed, open, activ
               initial={{ height: 0, opacity: 0 }}
               animate={{ height: 'auto', opacity: 1 }}
               exit={{ height: 0, opacity: 0 }}
-              transition={{ duration: 0.18, ease: 'easeOut' }}
+              transition={{ duration: 0.22, ease: [0.21, 0.47, 0.32, 0.98] }}
               className="overflow-hidden"
             >
-              <div className="space-y-1 pb-1 pl-3">
+              <div className="space-y-0.5 pb-1 pl-2 pt-1">
                 {children}
               </div>
             </motion.div>
@@ -94,19 +95,25 @@ export function SidebarLink({ to, icon, label, end, active = false, collapsed, c
       aria-current={active ? 'page' : undefined}
       className={({ isActive }) =>
         clsx(
-          'relative flex items-center gap-3.5 rounded-xl px-4 py-3 text-sm font-semibold transition-all duration-300 group',
-          child && 'py-2.5 text-[13px]',
+          'relative flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-[13px] font-semibold transition-all duration-300 ease-smooth group',
+          child && 'py-2 text-xs',
           isActive || active
-            ? 'bg-[var(--app-active-bg)] text-[var(--app-active-text)] shadow-sm'
+            ? 'bg-[var(--app-brand-soft)] text-[var(--app-brand-text)]'
             : 'text-[var(--app-muted)] hover:bg-[var(--app-hover)] hover:text-[var(--app-text)]',
         )
       }
     >
       {({ isActive }) => (
         <>
+          {(isActive || active) && (
+            <span
+              className="absolute left-0 top-1/2 h-4 w-[3px] -translate-y-1/2 rounded-full"
+              style={{ background: 'linear-gradient(180deg, #a78bfa, #7c3aed)' }}
+            />
+          )}
           <span className={clsx(
-            'flex h-5 w-5 shrink-0 items-center justify-center transition-transform duration-300 group-hover:scale-110',
-            isActive || active ? 'text-[var(--app-active-icon)]' : 'text-[var(--app-muted)] group-hover:text-[var(--app-subtle)]',
+            'flex h-5 w-5 shrink-0 items-center justify-center transition-all duration-300 group-hover:scale-110',
+            isActive || active ? 'text-[var(--app-brand-text)]' : 'text-[var(--app-muted)] group-hover:text-[var(--app-brand-text)]',
           )}>
             {icon}
           </span>

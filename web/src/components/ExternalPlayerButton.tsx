@@ -3,6 +3,7 @@ import toast from 'react-hot-toast'
 import { Copy, ExternalLink, PlaySquare, X } from 'lucide-react'
 
 import { playbackAPI, type ExternalPlayer } from '../api/playback'
+import { ModalShell } from './ModalShell'
 
 export function ExternalPlayerButton({
   mediaId,
@@ -83,42 +84,40 @@ function ExternalPlayerModal({
   }
 
   return (
-    <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm" onClick={onClose}>
-      <div className="w-full max-w-2xl overflow-hidden rounded-3xl border border-white/70 bg-white shadow-2xl" onClick={(event) => event.stopPropagation()}>
-        <div className="flex items-start justify-between gap-4 border-b border-gray-100 p-5">
-          <div>
-            <h3 className="font-display text-xl font-bold text-ink-600">外部播放器播放</h3>
-            <p className="mt-1 text-xs text-ink-50">链接已包含临时播放 Token，可复制到 VLC、Infuse、VidHub、SenPlayer 等客户端。</p>
-          </div>
-          <button onClick={onClose} className="rounded-xl p-2 text-ink-50 hover:bg-gray-100 hover:text-ink-600">
-            <X size={18} />
-          </button>
+    <ModalShell onClose={onClose} maxWidth="max-w-2xl" zIndex={90} ariaLabel="外部播放器播放">
+      <div className="modal-header p-5">
+        <div>
+          <h3 className="font-display text-xl font-bold text-ink-600">外部播放器播放</h3>
+          <p className="mt-1 text-xs text-ink-50">链接已包含临时播放 Token，可复制到 VLC、Infuse、VidHub、SenPlayer 等客户端。</p>
         </div>
-        <div className="space-y-4 p-5">
-          <div className="rounded-2xl border border-gray-100 bg-gray-50 p-3">
-            <div className="mb-2 text-xs font-semibold text-sand-500">直链播放地址</div>
-            <div className="flex gap-2">
-              <input readOnly value={streamURL} className="input-base min-w-0 flex-1 font-mono text-xs" />
-              <button onClick={() => copy(streamURL)} className="btn-outline shrink-0 px-3">
-                <Copy size={14} />
-                复制
-              </button>
-            </div>
+        <button onClick={onClose} className="icon-btn" aria-label="关闭">
+          <X size={18} />
+        </button>
+      </div>
+      <div className="space-y-4 p-5">
+        <div className="rounded-2xl border border-gray-100 bg-gray-50 p-3">
+          <div className="mb-2 text-xs font-semibold text-sand-500">直链播放地址</div>
+          <div className="flex gap-2">
+            <input readOnly value={streamURL} className="input-base min-w-0 flex-1 font-mono text-xs" />
+            <button onClick={() => copy(streamURL)} className="btn-outline shrink-0 px-3">
+              <Copy size={14} />
+              复制
+            </button>
           </div>
-          <div className="grid gap-2 sm:grid-cols-2">
-            {players.map((player) => (
-              <a
-                key={player.name}
-                href={player.url}
-                className="flex items-center justify-between rounded-2xl border border-gray-100 bg-white px-4 py-3 text-sm font-semibold text-ink-600 shadow-sm hover:border-brand-300 hover:bg-brand-50"
-              >
-                <span>{player.name}</span>
-                <ExternalLink size={15} className="text-brand-500" />
-              </a>
-            ))}
-          </div>
+        </div>
+        <div className="grid gap-2 sm:grid-cols-2">
+          {players.map((player) => (
+            <a
+              key={player.name}
+              href={player.url}
+              className="flex items-center justify-between rounded-2xl border border-gray-100 bg-white px-4 py-3 text-sm font-semibold text-ink-600 shadow-sm transition-all duration-300 ease-smooth hover:-translate-y-0.5 hover:border-brand-300 hover:bg-brand-50 hover:shadow-card-hover"
+            >
+              <span>{player.name}</span>
+              <ExternalLink size={15} className="text-brand-500" />
+            </a>
+          ))}
         </div>
       </div>
-    </div>
+    </ModalShell>
   )
 }

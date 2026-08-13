@@ -1,0 +1,2 @@
+{"file":".trellis/spec/backend/background-task-execution.md","reason":"Verify task log compatibility, execution lifecycle, and required tests."}
+{"file":".trellis/tasks/08-13-detailed-background-task-logs/prd.md","reason":"Verify every stable task category against observable acceptance criteria."}

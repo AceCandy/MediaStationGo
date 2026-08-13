@@ -9,6 +9,7 @@
 | Guide | Description | Status |
 |-------|-------------|--------|
 | [Routing and Loading Contracts](./routing-and-loading-contracts.md) | Route ownership, permission lifecycle, canonical query state, and bounded poster loading | Active |
+| [Cinema Design System](./design-system.md) | Brand palette, theme tokens, motion language, and component primitives | Active |
 
 ---
 

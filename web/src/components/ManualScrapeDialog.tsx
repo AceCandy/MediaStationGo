@@ -1,5 +1,6 @@
 import type { Media } from '../types'
 import { isEpisodeArtworkTarget } from './ManualScrapeDialogModel'
+import { ModalShell } from './ModalShell'
 import {
   ManualScrapeCandidateList,
   ManualScrapeDialogHeader,
@@ -44,26 +45,24 @@ export function ManualScrapeDialog({
   if (!open || !media) return null
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink-900/40 px-4 py-8 backdrop-blur-sm">
-      <div className="flex max-h-[86vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-sand-200 bg-white shadow-2xl">
-        <ManualScrapeDialogHeader title={scopeLabel || media.title} targetCount={dialog.targetIds.length} onClose={onClose} />
+    <ModalShell maxWidth="max-w-4xl" className="flex max-h-[86vh] flex-col" ariaLabel={scopeLabel || media.title}>
+      <ManualScrapeDialogHeader title={scopeLabel || media.title} targetCount={dialog.targetIds.length} onClose={onClose} />
 
-        <ManualScrapeSearchControls
-          query={dialog.query}
-          selectedProviders={dialog.selectedProviders}
-          searching={dialog.searching}
-          includeEpisodeArtwork={dialog.includeEpisodeArtwork}
-          showEpisodeArtworkToggle={isEpisodeArtworkTarget(media, mediaType, dialog.targetIds.length)}
-          onQueryChange={dialog.setQuery}
-          onProviderChange={dialog.setSelectedProviders}
-          onSearch={dialog.runSearch}
-          onEpisodeArtworkChange={dialog.setIncludeEpisodeArtwork}
-        />
+      <ManualScrapeSearchControls
+        query={dialog.query}
+        selectedProviders={dialog.selectedProviders}
+        searching={dialog.searching}
+        includeEpisodeArtwork={dialog.includeEpisodeArtwork}
+        showEpisodeArtworkToggle={isEpisodeArtworkTarget(media, mediaType, dialog.targetIds.length)}
+        onQueryChange={dialog.setQuery}
+        onProviderChange={dialog.setSelectedProviders}
+        onSearch={dialog.runSearch}
+        onEpisodeArtworkChange={dialog.setIncludeEpisodeArtwork}
+      />
 
-        <div className="flex-1 overflow-y-auto p-5">
-          <ManualScrapeCandidateList items={dialog.items} applyingKey={dialog.applyingKey} onApply={dialog.apply} />
-        </div>
+      <div className="flex-1 overflow-y-auto p-5">
+        <ManualScrapeCandidateList items={dialog.items} applyingKey={dialog.applyingKey} onApply={dialog.apply} />
       </div>
-    </div>
+    </ModalShell>
   )
 }

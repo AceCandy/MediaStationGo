@@ -4,6 +4,7 @@ import toast from 'react-hot-toast'
 
 import { mediaAPI, type MediaMetadataUpdate } from '../api/library'
 import type { Media } from '../types'
+import { ModalShell } from './ModalShell'
 
 interface MetadataEditDialogProps {
   open: boolean
@@ -135,19 +136,18 @@ export function MetadataEditDialog({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink-900/40 px-4 py-8 backdrop-blur-sm">
-      <div className="flex max-h-[88vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl">
-        <div className="flex items-start justify-between gap-4 border-b border-gray-200 px-5 py-4">
-          <div>
-            <h2 className="font-display text-xl font-bold text-gray-900">
-              {isSeries ? '编辑整剧元数据' : '编辑元数据'}
-            </h2>
-            <p className="mt-1 text-xs text-gray-500">{scopeLabel || '用于手动修正自采集或无法自动匹配的媒体。'}</p>
-          </div>
-          <button onClick={onClose} className="btn-ghost h-9 w-9 p-0" aria-label="关闭">
-            <X size={16} />
-          </button>
+    <ModalShell maxWidth="max-w-5xl" className="flex max-h-[88vh] flex-col" ariaLabel={isSeries ? '编辑整剧元数据' : '编辑元数据'}>
+      <div className="modal-header">
+        <div>
+          <h2 className="font-display text-xl font-bold text-gray-900">
+            {isSeries ? '编辑整剧元数据' : '编辑元数据'}
+          </h2>
+          <p className="mt-1 text-xs text-gray-500">{scopeLabel || '用于手动修正自采集或无法自动匹配的媒体。'}</p>
         </div>
+        <button onClick={onClose} className="icon-btn" aria-label="关闭">
+          <X size={16} />
+        </button>
+      </div>
         <div className="grid flex-1 gap-4 overflow-y-auto p-5 md:grid-cols-2">
           <Field label="标题" value={form.title} onChange={(value) => set('title', value)} />
           {!isSeries && <Field label="原名 / 单集名" value={form.original_name} onChange={(value) => set('original_name', value)} />}
@@ -180,19 +180,18 @@ export function MetadataEditDialog({
               value={form.overview}
               onChange={(event) => set('overview', event.target.value)}
               rows={5}
-              className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-semibold text-gray-700 outline-none focus:border-brand-300"
+              className="input-field px-3 py-2 font-semibold"
             />
           </label>
         </div>
-        <div className="flex justify-end gap-2 border-t border-gray-200 px-5 py-4">
-          <button onClick={onClose} className="btn-outline px-4">取消</button>
-          <button onClick={save} disabled={saving} className="btn-primary px-5">
-            <Save size={16} />
-            保存
-          </button>
-        </div>
+      <div className="modal-footer">
+        <button onClick={onClose} className="btn-outline px-4 py-2 shadow-none">取消</button>
+        <button onClick={save} disabled={saving} className="btn-primary px-5 py-2">
+          <Save size={16} />
+          保存
+        </button>
       </div>
-    </div>
+    </ModalShell>
   )
 }
 
@@ -220,7 +219,7 @@ function Field({
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}
         inputMode={inputMode}
-        className="h-11 w-full rounded-xl border border-gray-200 bg-white px-3 text-sm font-semibold text-gray-700 outline-none focus:border-brand-300"
+        className="input-field h-11 px-3 py-2 font-semibold"
       />
     </label>
   )

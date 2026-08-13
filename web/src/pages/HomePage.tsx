@@ -94,7 +94,6 @@ export function HomePage() {
   }, [history, recentCards])
   const featuredVisual = featuredItem?.backdrop_url || featuredItem?.poster_url || ''
   const featuredPoster = featuredItem?.poster_url || featuredItem?.backdrop_url || ''
-  const featuredMark = (featuredItem?.title || 'MS').trim().slice(0, 4).toUpperCase()
   const empty = !loading && libraries.length === 0 && recentCards.length === 0 && history.length === 0
 
   if (loading) {
@@ -112,7 +111,6 @@ export function HomePage() {
           featuredItem={featuredItem}
           featuredVisual={featuredVisual}
           featuredPoster={featuredPoster}
-          featuredMark={featuredMark}
           showDiscover={can('can_view_discover')}
         />
       )}

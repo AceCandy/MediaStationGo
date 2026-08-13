@@ -1,0 +1,2 @@
+{"file":".trellis/spec/backend/background-task-execution.md","reason":"Defines persistent task summaries, per-task logs, task kinds, and compatibility behavior."}
+{"file":".trellis/spec/backend/logging-guidelines.md","reason":"Defines the project logging boundary; implementation must follow established task-log behavior."}

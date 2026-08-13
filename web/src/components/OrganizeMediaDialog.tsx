@@ -4,6 +4,7 @@ import toast from 'react-hot-toast'
 
 import { toolsAPI, type OrganizeOverrides } from '../api/tools'
 import type { Media } from '../types'
+import { ModalShell } from './ModalShell'
 
 interface OrganizeMediaDialogProps {
   open: boolean
@@ -71,19 +72,18 @@ export function OrganizeMediaDialog({ open, media, onClose, onOrganized }: Organ
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink-900/40 px-4 py-8 backdrop-blur-sm">
-      <div className="flex max-h-[88vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl">
-        <div className="flex items-start justify-between gap-4 border-b border-gray-200 px-5 py-4">
-          <div>
-            <h2 className="font-display text-xl font-bold text-gray-900">整理入库</h2>
-            <p className="mt-1 text-xs text-gray-500">
-              把「{media.title}」按命名规范转移到媒体目录。留空则自动识别类型与二级分类。
-            </p>
-          </div>
-          <button onClick={onClose} className="btn-ghost h-9 w-9 p-0" aria-label="关闭">
-            <X size={16} />
-          </button>
+    <ModalShell maxWidth="max-w-2xl" className="flex max-h-[88vh] flex-col" ariaLabel="整理入库">
+      <div className="modal-header">
+        <div>
+          <h2 className="font-display text-xl font-bold text-gray-900">整理入库</h2>
+          <p className="mt-1 text-xs text-gray-500">
+            把「{media.title}」按命名规范转移到媒体目录。留空则自动识别类型与二级分类。
+          </p>
         </div>
+        <button onClick={onClose} className="icon-btn" aria-label="关闭">
+          <X size={16} />
+        </button>
+      </div>
 
         <div className="grid flex-1 gap-4 overflow-y-auto p-5 md:grid-cols-2">
           <label>
@@ -91,7 +91,7 @@ export function OrganizeMediaDialog({ open, media, onClose, onOrganized }: Organ
             <select
               value={form.media_type}
               onChange={(e) => set('media_type', e.target.value)}
-              className="h-11 w-full rounded-xl border border-gray-200 bg-white px-3 text-sm font-semibold text-gray-700 outline-none focus:border-brand-300"
+              className="input-field h-11 px-3 py-2 font-semibold"
             >
               <option value="">自动识别</option>
               <option value="movie">电影</option>
@@ -118,7 +118,7 @@ export function OrganizeMediaDialog({ open, media, onClose, onOrganized }: Organ
             <select
               value={form.transfer_mode}
               onChange={(e) => set('transfer_mode', e.target.value)}
-              className="h-11 w-full rounded-xl border border-gray-200 bg-white px-3 text-sm font-semibold text-gray-700 outline-none focus:border-brand-300"
+              className="input-field h-11 px-3 py-2 font-semibold"
             >
               <option value="hardlink">硬链接</option>
               <option value="symlink">软链接</option>
@@ -153,18 +153,17 @@ export function OrganizeMediaDialog({ open, media, onClose, onOrganized }: Organ
           )}
         </div>
 
-        <div className="flex justify-end gap-2 border-t border-gray-200 px-5 py-4">
-          <button onClick={onClose} className="btn-outline px-4">取消</button>
-		  <button onClick={() => run(true)} disabled={busy} className="btn-outline px-4">
-            预览路径
-          </button>
-		  <button onClick={() => run(false)} disabled={busy} className="btn-primary px-5">
-            <FolderInput size={16} />
-            {busy ? '整理中…' : '整理入库'}
-          </button>
-        </div>
+      <div className="modal-footer">
+        <button onClick={onClose} className="btn-outline px-4 py-2 shadow-none">取消</button>
+        <button onClick={() => run(true)} disabled={busy} className="btn-outline px-4 py-2 shadow-none">
+          预览路径
+        </button>
+        <button onClick={() => run(false)} disabled={busy} className="btn-primary px-5 py-2">
+          <FolderInput size={16} />
+          {busy ? '整理中…' : '整理入库'}
+        </button>
       </div>
-    </div>
+    </ModalShell>
   )
 }
 
@@ -186,7 +185,7 @@ function Field({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
-        className="h-11 w-full rounded-xl border border-gray-200 bg-white px-3 text-sm font-semibold text-gray-700 outline-none focus:border-brand-300"
+        className="input-field h-11 px-3 py-2 font-semibold"
       />
     </label>
   )

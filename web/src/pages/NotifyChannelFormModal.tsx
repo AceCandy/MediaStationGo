@@ -18,6 +18,7 @@ import {
   normalizeInitialConfig,
 } from './notifyChannelsModel'
 import { Field } from './NotifyChannelFormField'
+import { ModalShell } from '../components/ModalShell'
 import { NotifyChannelEventFields } from './NotifyChannelEventFields'
 import {
   BarkFields,
@@ -113,11 +114,10 @@ export function NotifyChannelFormModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
-      <div className="glass-panel w-full max-w-lg max-h-[90vh] overflow-y-auto">
-        <h2 className="mb-4 font-display text-xl font-semibold text-ink-600">
-          {editing ? '编辑通知渠道' : '添加通知渠道'}
-        </h2>
+    <ModalShell maxWidth="max-w-lg" className="max-h-[90vh] overflow-y-auto p-4 sm:p-6" ariaLabel={editing ? '编辑通知渠道' : '添加通知渠道'}>
+      <h2 className="mb-4 font-display text-xl font-semibold text-ink-600">
+        {editing ? '编辑通知渠道' : '添加通知渠道'}
+      </h2>
         <form onSubmit={onSubmit} className="space-y-4">
           <Field label="名称">
             <input
@@ -166,20 +166,19 @@ export function NotifyChannelFormModal({
             启用
           </label>
 
-          <div className="flex justify-end gap-2 pt-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="rounded-lg border border-gray-200 px-4 py-2 text-sm text-ink-100 hover:bg-gray-50"
-            >
-              取消
-            </button>
-            <button type="submit" disabled={saving} className="neon-button">
-              {saving && <Loader2 size={16} className="animate-spin" />} 保存
-            </button>
-          </div>
+        <div className="flex justify-end gap-2 pt-2">
+          <button
+            type="button"
+            onClick={onClose}
+            className="btn-outline px-4 py-2 shadow-none"
+          >
+            取消
+          </button>
+          <button type="submit" disabled={saving} className="btn-primary px-5 py-2">
+            {saving && <Loader2 size={16} className="animate-spin" />} 保存
+          </button>
+        </div>
         </form>
-      </div>
-    </div>
+    </ModalShell>
   )
 }

@@ -3,6 +3,7 @@ import toast from 'react-hot-toast'
 import { Activity, ChevronLeft, ChevronRight, FileText, Play, RefreshCw, X } from 'lucide-react'
 
 import { tasksAPI, type BackgroundTask, type TaskDefinition, type TaskHistory, type TaskLog } from '../api/tasks'
+import { ModalShell } from '../components/ModalShell'
 
 const HISTORY_PAGE_SIZE = 20
 
@@ -144,9 +145,8 @@ function TaskLogDialog({ definition, onClose }: { definition: TaskDefinition; on
 
   const pages = Math.max(1, Math.ceil((history?.total ?? 0) / HISTORY_PAGE_SIZE))
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/35 p-3 backdrop-blur-sm" onClick={onClose}>
-      <section role="dialog" aria-modal="true" aria-label={`${definition.name}日志`} className="glass-panel flex max-h-[90vh] w-full max-w-5xl flex-col gap-3" onClick={(event) => event.stopPropagation()}>
-        <header className="flex items-start justify-between gap-3"><div><h2 className="font-display text-lg font-semibold text-ink-600">{definition.name}</h2><p className="text-xs text-ink-50">执行记录与详细日志</p></div><button type="button" className="rounded p-2 text-sand-500 hover:bg-gray-100" title="关闭" aria-label="关闭" onClick={onClose}><X size={18} /></button></header>
+    <ModalShell onClose={onClose} maxWidth="max-w-5xl" className="flex max-h-[90vh] flex-col gap-3 p-4 sm:p-6" ariaLabel={`${definition.name}日志`}>
+      <header className="flex items-start justify-between gap-3"><div><h2 className="font-display text-lg font-semibold text-ink-600">{definition.name}</h2><p className="text-xs text-ink-50">执行记录与详细日志</p></div><button type="button" className="icon-btn" title="关闭" aria-label="关闭" onClick={onClose}><X size={18} /></button></header>
         {error ? <p className="text-sm text-red-500">{error}</p> : !history ? <p className="py-8 text-center text-sm text-sand-500">加载中...</p> : history.items.length === 0 ? <p className="py-8 text-center text-sm text-sand-500">该任务尚无执行记录。</p> : (
           <div className="grid min-h-0 flex-1 gap-3 md:grid-cols-[18rem_minmax(0,1fr)]">
             <div className="flex min-h-0 flex-col border-b border-gray-200 pb-3 md:border-b-0 md:border-r md:pb-0 md:pr-3">
@@ -158,8 +158,7 @@ function TaskLogDialog({ definition, onClose }: { definition: TaskDefinition; on
             <div className="flex min-h-48 min-w-0 flex-col"><div className="mb-2 text-xs text-sand-500">{selected && <>{selected.error || selected.message || selected.status}{formatMetrics(selected.metrics) && <span className="ml-2">{formatMetrics(selected.metrics)}</span>}</>}</div><pre className="min-h-40 flex-1 overflow-auto whitespace-pre-wrap break-words rounded border border-gray-200 bg-gray-950 p-3 font-mono text-xs leading-relaxed text-gray-100">{log ? (log.content || '暂无详细日志。') : '加载日志中...'}</pre>{log?.truncated && <p className="mt-1 text-xs text-orange-600">日志过长，当前显示末尾内容。</p>}</div>
           </div>
         )}
-      </section>
-    </div>
+    </ModalShell>
   )
 }
 

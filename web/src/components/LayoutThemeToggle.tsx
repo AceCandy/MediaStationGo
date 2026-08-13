@@ -38,7 +38,7 @@ export function LayoutThemeToggle({ mode, onChange }: LayoutThemeToggleProps) {
             className={clsx(
               'inline-flex h-11 w-11 items-center justify-center rounded-full transition-all duration-200',
               active
-                ? 'bg-[var(--app-command-bg)] text-[var(--app-command-text)] shadow-sm'
+                ? 'bg-[var(--app-brand-soft)] text-[var(--app-brand-text)] shadow-sm'
                 : 'text-[var(--app-muted)] hover:bg-[var(--app-hover)] hover:text-[var(--app-text)]',
             )}
             onClick={() => onChange(option.mode)}

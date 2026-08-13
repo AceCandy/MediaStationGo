@@ -40,7 +40,7 @@ export function LayoutHeader({
   onLogout,
 }: LayoutHeaderProps) {
   return (
-    <header className="flex h-20 shrink-0 items-center justify-between border-b border-[var(--app-border)] bg-[var(--app-header-bg)] px-4 backdrop-blur-md z-30 md:px-8">
+    <header className="sticky top-0 z-30 flex h-16 shrink-0 items-center justify-between border-b border-[var(--app-border)] bg-[var(--app-header-bg)] px-4 backdrop-blur-xl md:px-8">
       <LayoutHeaderSearch search={search} onOpenMobileDrawer={onOpenMobileDrawer} />
       <LayoutHeaderActions
         permissions={permissions}
@@ -74,7 +74,7 @@ function LayoutHeaderSearch({
         onClick={onOpenMobileDrawer}
         aria-label="打开导航"
         title="打开导航"
-        className="min-h-11 min-w-11 rounded-xl border border-[var(--app-border)] p-2.5 text-[var(--app-muted)] hover:bg-[var(--app-hover)] hover:text-[var(--app-text)] transition-colors lg:hidden"
+        className="min-h-11 min-w-11 rounded-xl p-2.5 text-[var(--app-muted)] transition-all duration-300 hover:bg-[var(--app-hover)] hover:text-[var(--app-text)] lg:hidden"
       >
         <Menu size={18} />
       </button>
@@ -154,7 +154,7 @@ function LayoutQuickActions({ permissions }: { permissions: LayoutPermissionStat
     <>
       <Link
         to="/search"
-        className="min-h-11 min-w-11 rounded-xl border border-[var(--app-border)] p-2.5 text-[var(--app-muted)] hover:bg-[var(--app-hover)] hover:text-[var(--app-text)] transition-colors sm:hidden"
+        className="min-h-11 min-w-11 rounded-xl p-2.5 text-[var(--app-muted)] transition-all duration-300 hover:bg-[var(--app-hover)] hover:text-[var(--app-text)] sm:hidden"
       >
         <Search size={18} />
       </Link>
@@ -163,7 +163,7 @@ function LayoutQuickActions({ permissions }: { permissions: LayoutPermissionStat
           to="/dlna"
           title="DLNA 投屏"
           aria-label="打开 DLNA 投屏"
-          className="relative min-h-11 min-w-11 rounded-xl border border-[var(--app-border)] p-2.5 text-[var(--app-muted)] transition-colors hover:bg-[var(--app-hover)] hover:text-[var(--app-text)]"
+          className="relative min-h-11 min-w-11 rounded-xl p-2.5 text-[var(--app-muted)] transition-all duration-300 hover:bg-[var(--app-hover)] hover:text-[var(--app-text)]"
         >
           <Cast size={18} />
         </Link>
