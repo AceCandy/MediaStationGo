@@ -381,3 +381,24 @@ Added global people backfill and tracked people translation in the task center, 
 ### Status
 
 [OK] **Completed**
+
+
+## Session 18: Stop invalid TMDB people retries
+
+**Date**: 2026-08-13
+**Task**: Stop invalid TMDB people retries
+**Branch**: `main`
+
+### Summary
+
+人物补齐仅处理 TMDB 来源；credits 404 时清除失效标识、重置媒体刮削状态并唤醒统一 worker，避免重复请求。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `b5ded94` | (see git log) |
+
+### Status
+
+[OK] **Completed**
