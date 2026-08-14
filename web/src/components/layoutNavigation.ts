@@ -86,7 +86,7 @@ export const LAYOUT_NAV_GROUPS: LayoutNavGroup[] = [
     id: 'management',
     label: '管理空间',
     icon: Settings,
-    activePaths: ['/admin'],
+    activePaths: MANAGEMENT_NAV_ITEMS.flatMap((item) => item.activePaths),
     adminOnly: true,
     items: MANAGEMENT_NAV_ITEMS,
   },

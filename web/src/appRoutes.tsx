@@ -4,6 +4,7 @@ import {
   BarChart3,
   Bell,
   Bot,
+  Code2,
   Compass,
   Copy,
   FileText,
@@ -33,6 +34,9 @@ const PlayerPage = lazy(() => import('./pages/PlayerPage').then((m) => ({ defaul
 const AdminMediaPage = lazy(() => import('./pages/AdminPage').then((m) => ({ default: m.AdminMediaPage })))
 const AdminUsersPage = lazy(() => import('./pages/AdminPage').then((m) => ({ default: m.AdminUsersPage })))
 const AdminAPIsPage = lazy(() => import('./pages/AdminPage').then((m) => ({ default: m.AdminAPIsPage })))
+const AdminEmbyAPIsPage = lazy(() =>
+  import('./pages/AdminEmbyAPIsPage').then((m) => ({ default: m.AdminEmbyAPIsPage })),
+)
 const ProfilePage = lazy(() => import('./pages/ProfilePage').then((m) => ({ default: m.ProfilePage })))
 const StatsPage = lazy(() => import('./pages/StatsPage').then((m) => ({ default: m.StatsPage })))
 const DiscoverPage = lazy(() => import('./pages/DiscoverPage').then((m) => ({ default: m.DiscoverPage })))
@@ -267,6 +271,22 @@ export const appRoutes: AppRoute[] = [
         path: 'integrations/apis',
         element: <AdminAPIsPage />,
         navigation: { scope: 'management', group: 'integrations', label: '外部 API', icon: KeyRound, to: '/admin/integrations/apis', order: 30 },
+      },
+      {
+        id: 'admin-integrations-emby-legacy',
+        path: 'integrations/emby',
+        element: <Navigate to="/admin/emby/interfaces" replace />,
+      },
+      {
+        id: 'admin-emby',
+        path: 'emby',
+        element: <Navigate to="/admin/emby/interfaces" replace />,
+      },
+      {
+        id: 'admin-emby-interfaces',
+        path: 'emby/interfaces',
+        element: <AdminEmbyAPIsPage />,
+        navigation: { scope: 'viewer', label: '播放器接口', icon: Code2, to: '/admin/emby/interfaces', order: 50, end: true },
       },
       {
         id: 'admin-integrations-notifications',

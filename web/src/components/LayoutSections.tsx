@@ -182,12 +182,16 @@ export function LayoutWorkspace({ routeKey }: LayoutWorkspaceProps) {
 
 export function LayoutMobileBottomNav({
   pathname,
+  isAdmin,
   can,
 }: {
   pathname: string
+  isAdmin: boolean
   can: (key: string) => boolean
 }) {
-  const items = VIEWER_NAV_ITEMS.filter((item) => !item.permission || can(item.permission))
+  const items = VIEWER_NAV_ITEMS.filter(
+    (item) => (!item.adminOnly || isAdmin) && (!item.permission || can(item.permission)),
+  )
   return (
     <nav
       aria-label="主要导航"

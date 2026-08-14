@@ -67,7 +67,11 @@ export function Layout() {
           </div>
         )}
         <LayoutWorkspace routeKey={location.pathname} />
-        <LayoutMobileBottomNav pathname={location.pathname} can={permissions.can} />
+        <LayoutMobileBottomNav
+          pathname={location.pathname}
+          isAdmin={permissions.isAdmin}
+          can={permissions.can}
+        />
       </div>
     </div>
   )
