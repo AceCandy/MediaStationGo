@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 21
-- **Last Active**: 2026-08-13
+- **Total Sessions**: 22
+- **Last Active**: 2026-08-14
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~467 | Active |
+| `journal-1.md` | ~488 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 22 | 2026-08-14 | 新增 Emby 播放器接口目录 | `cf06d0c` | `main` |
 | 21 | 2026-08-13 | 按日期聚合任务日志 | `afe4cd4` | `main` |
 | 20 | 2026-08-13 | Refine web UI and detailed task logs | `dc29dcf` | `main` |
 | 19 | 2026-08-13 | Task center definition view | `1d42906` | `main` |

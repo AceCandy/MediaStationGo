@@ -465,3 +465,24 @@ Committed the existing web UI redesign together with detailed background task lo
 ### Status
 
 [OK] **Completed**
+
+
+## Session 22: 新增 Emby 播放器接口目录
+
+**Date**: 2026-08-14
+**Task**: 新增 Emby 播放器接口目录
+**Branch**: `main`
+
+### Summary
+
+新增管理员可见的 Emby 播放器接口目录，入口位于观看空间的我的之后；保留旧路由重定向，并记录后端路由与静态目录同步规范。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `cf06d0c` | (see git log) |
+
+### Status
+
+[OK] **Completed**
