@@ -486,3 +486,24 @@ Committed the existing web UI redesign together with detailed background task lo
 ### Status
 
 [OK] **Completed**
+
+
+## Session 23: 恢复页面文本选择
+
+**Date**: 2026-08-15
+**Task**: 恢复页面文本选择
+**Branch**: `main`
+
+### Summary
+
+移除根布局的 select-none，使认证区域中的页面文本恢复鼠标框选与复制。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `a7d5063` | (see git log) |
+
+### Status
+
+[OK] **Completed**
