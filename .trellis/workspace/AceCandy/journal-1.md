@@ -507,3 +507,24 @@ Committed the existing web UI redesign together with detailed background task lo
 ### Status
 
 [OK] **Completed**
+
+
+## Session 24: 优化媒体详情与媒体库加载
+
+**Date**: 2026-08-15
+**Task**: 优化媒体详情与媒体库加载
+**Branch**: `main`
+
+### Summary
+
+将媒体详情探测改为局部异步流程，新增可见版本与展示型轨道选择器，并将媒体库改为每页 50 条下滑加载。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `274ee4c` | (see git log) |
+
+### Status
+
+[OK] **Completed**
