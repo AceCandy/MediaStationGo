@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
 
 	"github.com/ShukeBta/MediaStationGo/internal/middleware"
 	"github.com/ShukeBta/MediaStationGo/internal/model"
@@ -197,6 +198,15 @@ func getMediaHandler(svc *service.Container) gin.HandlerFunc {
 		if !mediaViewVisibleForRequest(c, svc, m) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
 			return
+		}
+		if svc.MediaProbe != nil && svc.MediaProbe.NeedsProbe(c.Request.Context(), m.ID) {
+			if _, err := svc.MediaProbe.ProbeMedia(c.Request.Context(), m.ID); err != nil {
+				if svc.Log != nil {
+					svc.Log.Debug("media detail probe failed", zap.String("media_id", m.ID), zap.Error(err))
+				}
+			} else if refreshed, err := svc.Media.GetMedia(c.Request.Context(), m.ID); err == nil && refreshed != nil {
+				m = refreshed
+			}
 		}
 		c.JSON(http.StatusOK, m)
 	}

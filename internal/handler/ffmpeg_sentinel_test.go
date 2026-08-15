@@ -17,6 +17,7 @@ import (
 
 	"github.com/ShukeBta/MediaStationGo/internal/config"
 	"github.com/ShukeBta/MediaStationGo/internal/database"
+	"github.com/ShukeBta/MediaStationGo/internal/middleware"
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 	"github.com/ShukeBta/MediaStationGo/internal/repository"
 	"github.com/ShukeBta/MediaStationGo/internal/service"
@@ -98,9 +99,21 @@ func TestRetainedPlaybackWorkflowsNeverStartFFmpeg(t *testing.T) {
 	container.Boot()
 	assertFFmpegSentinelNotStarted(t, marker, "service boot")
 
-	probe, err := container.MediaProbe.ProbeMedia(t.Context(), media.ID)
-	if err != nil || probe == nil || probe.Document == nil {
-		t.Fatalf("probe result = %#v, err = %v", probe, err)
+	detail := httptest.NewRecorder()
+	detailContext, _ := gin.CreateTestContext(detail)
+	detailContext.Set(middleware.CtxUserID, "user-1")
+	detailContext.Set(middleware.CtxUserRole, "admin")
+	detailContext.Params = gin.Params{{Key: "id", Value: media.ID}}
+	detailContext.Request = httptest.NewRequest(http.MethodGet, "/api/media/"+media.ID, nil)
+	getMediaHandler(container)(detailContext)
+	if detail.Code != http.StatusOK {
+		t.Fatalf("media detail status = %d body=%s", detail.Code, detail.Body.String())
+	}
+	if _, ok := container.MediaProbe.Load(t.Context(), media.ID); !ok {
+		t.Fatal("media detail did not persist probe result")
+	}
+	if !strings.Contains(detail.Body.String(), `"tracks":[`) {
+		t.Fatalf("media detail did not return refreshed tracks: %s", detail.Body.String())
 	}
 	assertFFmpegSentinelNotStarted(t, marker, "probe")
 
