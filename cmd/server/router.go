@@ -21,7 +21,11 @@ func buildRouter(cfg *config.Config, logger *zap.Logger, svc *service.Container)
 	}
 	r := gin.New()
 	r.Use(gin.Recovery())
-	r.Use(middleware.RequestLogger(logger))
+	var playerRequestRecorder middleware.PlayerRequestRecorder
+	if svc != nil && svc.PlayerLogs != nil {
+		playerRequestRecorder = svc.PlayerLogs.Record
+	}
+	r.Use(middleware.RequestLogger(logger, playerRequestRecorder))
 	if !cfg.App.Debug && len(cfg.App.CORSOrigins) == 0 {
 		logger.Warn("CORS: no origins configured in production — CORS headers will be omitted (same-origin enforced). Set app.cors_origins for cross-origin access.")
 	}

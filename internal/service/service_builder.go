@@ -48,6 +48,7 @@ func (b *serviceContainerBuilder) startRealtimeServices() {
 
 	b.c.SSEHub = NewSSEHub(b.log)
 	go b.c.SSEHub.Run()
+	b.c.PlayerLogs = NewPlayerRequestLogService(b.repos.PlayerLog, b.c.SSEHub)
 }
 
 func (b *serviceContainerBuilder) initProviderServices() {

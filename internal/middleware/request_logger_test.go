@@ -1,21 +1,31 @@
 package middleware
 
 import (
+	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest/observer"
+
+	"github.com/ShukeBta/MediaStationGo/internal/model"
 )
 
 func TestRequestLoggerSanitizesPlayerAPIRequest(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	core, logs := observer.New(zap.InfoLevel)
 	router := gin.New()
-	router.Use(RequestLogger(zap.New(core)))
+	var rows []*model.PlayerRequestLog
+	router.Use(RequestLogger(zap.New(core), func(_ context.Context, row *model.PlayerRequestLog) error {
+		rows = append(rows, row)
+		return nil
+	}))
 	for _, prefix := range []string{"/emby", ""} {
 		group := router.Group(prefix, MarkPlayerAPIRequest())
 		group.GET("/Users/:id/Items", func(c *gin.Context) { c.Status(http.StatusOK) })
@@ -35,6 +45,17 @@ func TestRequestLoggerSanitizesPlayerAPIRequest(t *testing.T) {
 
 	if logs.Len() != 2 {
 		t.Fatalf("logs = %d, want 2", logs.Len())
+	}
+	if len(rows) != 2 {
+		t.Fatalf("persisted rows = %d, want 2", len(rows))
+	}
+	for _, row := range rows {
+		if row.Route != "/Users/:id/Items" && row.Route != "/emby/Users/:id/Items" {
+			t.Fatalf("route = %q", row.Route)
+		}
+		if !reflect.DeepEqual(row.PathParams["id"], []string{"user-1"}) || row.Status != http.StatusOK {
+			t.Fatalf("row = %#v", row)
+		}
 	}
 	for _, entry := range logs.All() {
 		context := entry.ContextMap()
@@ -83,7 +104,7 @@ func TestRequestLoggerDoesNotAttachDetailsToRegularAPI(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	core, logs := observer.New(zap.InfoLevel)
 	router := gin.New()
-	router.Use(RequestLogger(zap.New(core)))
+	router.Use(RequestLogger(zap.New(core), nil))
 	router.GET("/api/health/details", func(c *gin.Context) { c.Status(http.StatusOK) })
 	router.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/api/health/details?debug=true", nil))
 
@@ -93,5 +114,32 @@ func TestRequestLoggerDoesNotAttachDetailsToRegularAPI(t *testing.T) {
 	}
 	if _, ok := context["query"]; ok {
 		t.Fatalf("regular API log contains query: %#v", context)
+	}
+}
+
+func TestRequestLoggerPersistenceFailureDoesNotChangeResponse(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.Use(RequestLogger(zap.NewNop(), func(context.Context, *model.PlayerRequestLog) error {
+		return errors.New("database unavailable")
+	}))
+	group := router.Group("/emby", MarkPlayerAPIRequest())
+	group.GET("/System/Info", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"ok": true}) })
+
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/emby/System/Info", nil))
+	if response.Code != http.StatusOK || response.Body.String() != "{\"ok\":true}" {
+		t.Fatalf("response changed: status=%d body=%s", response.Code, response.Body.String())
+	}
+}
+
+func TestSanitizedPlayerValuesTruncatesOversizedMetadata(t *testing.T) {
+	values := url.Values{"Fields": {strings.Repeat("界", maxPlayerRequestValueRunes+10)}}
+	out := sanitizedPlayerValues(values)
+	if got := len([]rune(out["Fields"][0])); got != maxPlayerRequestValueRunes {
+		t.Fatalf("value runes = %d, want %d", got, maxPlayerRequestValueRunes)
+	}
+	if !reflect.DeepEqual(out["_truncated"], []string{"true"}) {
+		t.Fatalf("truncation marker = %#v", out["_truncated"])
 	}
 }

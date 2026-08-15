@@ -13,6 +13,7 @@ import {
   KeyRound,
   Library,
   ListChecks,
+  ScrollText,
   SlidersHorizontal,
   Trash2,
   User,
@@ -58,6 +59,9 @@ const NotifyChannelsPage = lazy(() =>
 const SettingsPage = lazy(() => import('./pages/SettingsPage').then((m) => ({ default: m.SettingsPage })))
 const AssistantChatPage = lazy(() =>
   import('./pages/AssistantChatPage').then((m) => ({ default: m.AssistantChatPage })),
+)
+const PlayerRequestLogsPage = lazy(() =>
+  import('./pages/PlayerRequestLogsPage').then((m) => ({ default: m.PlayerRequestLogsPage })),
 )
 
 export type NavigationScope = 'viewer' | 'management'
@@ -188,6 +192,21 @@ export const appRoutes: AppRoute[] = [
     deniedTo: '/',
   },
   { id: 'play-profiles', path: 'play-profiles', element: <ProfileManagementPage /> },
+  {
+    id: 'player-request-logs',
+    path: 'player-logs',
+    element: <PlayerRequestLogsPage />,
+    adminOnly: true,
+    navigation: {
+      scope: 'viewer',
+      label: '播放器日志',
+      icon: ScrollText,
+      to: '/player-logs',
+      order: 60,
+      activePaths: ['/player-logs'],
+      end: true,
+    },
+  },
 
   { id: 'legacy-poster-wall', path: 'poster-wall', element: <Navigate to="/libraries?view=poster" replace /> },
   { id: 'legacy-favourites', path: 'favourites', element: <Navigate to="/me?tab=favourites" replace /> },

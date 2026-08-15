@@ -149,7 +149,7 @@ func sseHandler(svc *service.Container) gin.HandlerFunc {
 				if !ok {
 					return
 				}
-				c.SSEvent(event.Type, event.Payload)
+				c.SSEvent("message", event)
 				c.Writer.Flush()
 			}
 		}

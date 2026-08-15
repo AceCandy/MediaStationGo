@@ -190,7 +190,9 @@ export function LayoutMobileBottomNav({
   can: (key: string) => boolean
 }) {
   const items = VIEWER_NAV_ITEMS.filter(
-    (item) => (!item.adminOnly || isAdmin) && (!item.permission || can(item.permission)),
+    (item) =>
+      (!item.adminOnly || (isAdmin && routeMatches(pathname, item.activePaths))) &&
+      (!item.permission || can(item.permission)),
   )
   return (
     <nav

@@ -68,6 +68,7 @@ type Container struct {
 	Cache            *RuntimeCacheService
 	Sessions         *SessionTrackerService
 	RecognitionWords *RecognitionWordsService
+	PlayerLogs       *PlayerRequestLogService
 
 	stopCtx    context.Context
 	stopCancel context.CancelFunc

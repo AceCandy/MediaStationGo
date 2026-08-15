@@ -1,6 +1,35 @@
 import { api } from './client'
 import type { AccessLog, Setting, User } from '../types'
 
+export interface PlayerRequestLog {
+  id: string
+  requested_at: string
+  method: string
+  route: string
+  status: number
+  duration_ms: number
+  ip: string
+  path_params: Record<string, string[]>
+  headers: Record<string, string[]>
+  query: Record<string, string[]>
+}
+
+export interface PlayerRequestLogPage {
+  items: PlayerRequestLog[]
+  page: number
+  page_size: number
+  total: number
+}
+
+export interface PlayerRequestLogQuery {
+  month: string
+  page?: number
+  page_size?: number
+  path?: string
+  method?: string
+  status?: number
+}
+
 export const adminAPI = {
   listUsers: () => api.get<User[]>('/admin/users').then((r) => r.data),
 
@@ -24,4 +53,7 @@ export const adminAPI = {
     api.put('/admin/settings', { key, value }).then((r) => r.data),
 
   recentLogs: () => api.get<AccessLog[]>('/admin/logs').then((r) => r.data),
+
+  playerRequestLogs: (params: PlayerRequestLogQuery) =>
+    api.get<PlayerRequestLogPage>('/admin/player-request-logs', { params }).then((r) => r.data),
 }

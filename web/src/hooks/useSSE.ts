@@ -31,9 +31,9 @@ type SSEEventHandler = (event: SSEEvent) => void
  */
 export function useSSE(
   onEvent: SSEEventHandler,
-  options: { autoConnect?: boolean } = {}
+  options: { autoConnect?: boolean; onOpen?: () => void } = {}
 ) {
-  const { autoConnect = true } = options
+  const { autoConnect = true, onOpen } = options
   const eventSourceRef = useRef<EventSource | null>(null)
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const isConnectedRef = useRef(false)
@@ -59,6 +59,7 @@ export function useSSE(
     eventSource.onopen = () => {
       isConnectedRef.current = true
       reconnectAttemptsRef.current = 0
+      onOpen?.()
     }
 
     eventSource.onmessage = (event) => {
@@ -84,7 +85,7 @@ export function useSSE(
       }
     }
 
-  }, [onEvent])
+  }, [onEvent, onOpen])
 
   const disconnect = useCallback(() => {
     if (reconnectTimeoutRef.current) {

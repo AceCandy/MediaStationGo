@@ -34,6 +34,7 @@ type Container struct {
 	SignIn        *SignInRepository
 	UserDevice    *UserDeviceRepository
 	TaskExecution *TaskExecutionRepository
+	PlayerLog     *PlayerRequestLogRepository
 }
 
 // New 将每个 repository 连接到单个 *gorm.DB。
@@ -65,5 +66,6 @@ func New(db *gorm.DB) *Container {
 		SignIn:        &SignInRepository{db: db},
 		UserDevice:    &UserDeviceRepository{db: db},
 		TaskExecution: &TaskExecutionRepository{db: db},
+		PlayerLog:     &PlayerRequestLogRepository{db: db},
 	}
 }

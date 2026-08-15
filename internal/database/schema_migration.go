@@ -2,6 +2,7 @@ package database
 
 import (
 	"fmt"
+	"time"
 
 	"gorm.io/gorm"
 
@@ -11,6 +12,9 @@ import (
 // AutoMigrate creates tables for every model registered in the model package.
 func AutoMigrate(db *gorm.DB) error {
 	if err := db.AutoMigrate(model.AllModels()...); err != nil {
+		return err
+	}
+	if err := ensurePlayerRequestLogSchema(db); err != nil {
 		return err
 	}
 	if err := removeLegacyMetadataIdentityConstraint(db); err != nil {
@@ -48,6 +52,49 @@ func AutoMigrate(db *gorm.DB) error {
 	}
 	if err := removeUnusedLegacyColumns(db); err != nil {
 		return err
+	}
+	return nil
+}
+
+func ensurePlayerRequestLogSchema(db *gorm.DB) error {
+	for _, stmt := range []string{
+		`CREATE TABLE IF NOT EXISTS player_request_logs (
+	id varchar(36) NOT NULL,
+	requested_at timestamptz NOT NULL,
+	method varchar(16) NOT NULL,
+	route text NOT NULL,
+	status integer NOT NULL,
+	duration_ms bigint NOT NULL,
+	ip varchar(64) NOT NULL DEFAULT '',
+	path_params jsonb NOT NULL DEFAULT '{}'::jsonb,
+	headers jsonb NOT NULL DEFAULT '{}'::jsonb,
+	query jsonb NOT NULL DEFAULT '{}'::jsonb,
+	PRIMARY KEY (id, requested_at)
+) PARTITION BY RANGE (requested_at)`,
+		`CREATE INDEX IF NOT EXISTS idx_player_request_logs_requested_at ON player_request_logs (requested_at DESC, id DESC)`,
+		`CREATE INDEX IF NOT EXISTS idx_player_request_logs_method_time ON player_request_logs (method, requested_at DESC)`,
+		`CREATE INDEX IF NOT EXISTS idx_player_request_logs_status_time ON player_request_logs (status, requested_at DESC)`,
+	} {
+		if err := db.Exec(stmt).Error; err != nil {
+			return err
+		}
+	}
+	return EnsurePlayerRequestLogPartitions(db, time.Now().UTC())
+}
+
+// EnsurePlayerRequestLogPartitions 幂等创建指定月份及下一月份的日志分区。
+func EnsurePlayerRequestLogPartitions(db *gorm.DB, at time.Time) error {
+	month := time.Date(at.UTC().Year(), at.UTC().Month(), 1, 0, 0, 0, 0, time.UTC)
+	for _, start := range []time.Time{month, month.AddDate(0, 1, 0)} {
+		end := start.AddDate(0, 1, 0)
+		name := fmt.Sprintf("player_request_logs_%04d_%02d", start.Year(), start.Month())
+		stmt := fmt.Sprintf(
+			`CREATE TABLE IF NOT EXISTS %s PARTITION OF player_request_logs FOR VALUES FROM ('%s') TO ('%s')`,
+			name, start.Format(time.RFC3339), end.Format(time.RFC3339),
+		)
+		if err := db.Exec(stmt).Error; err != nil {
+			return err
+		}
 	}
 	return nil
 }
