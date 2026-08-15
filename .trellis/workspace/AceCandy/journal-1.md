@@ -528,3 +528,25 @@ Committed the existing web UI redesign together with detailed background task lo
 ### Status
 
 [OK] **Completed**
+
+
+## Session 25: 优化 Emby 列表查询性能
+
+**Date**: 2026-08-15
+**Task**: 优化 Emby 列表查询性能
+**Branch**: `main`
+
+### Summary
+
+批量化 Emby 列表关系查询，支持 Fields 按需返回，并增加播放器请求脱敏日志。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `6d96ea3` | (see git log) |
+| `eaeefb6` | (see git log) |
+
+### Status
+
+[OK] **Completed**

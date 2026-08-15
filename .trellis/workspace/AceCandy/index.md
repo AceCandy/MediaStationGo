@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 24
+- **Total Sessions**: 25
 - **Last Active**: 2026-08-15
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~530 | Active |
+| `journal-1.md` | ~552 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 25 | 2026-08-15 | 优化 Emby 列表查询性能 | `6d96ea3`, `eaeefb6` | `main` |
 | 24 | 2026-08-15 | 优化媒体详情与媒体库加载 | `274ee4c` | `main` |
 | 23 | 2026-08-15 | 恢复页面文本选择 | `a7d5063` | `main` |
 | 22 | 2026-08-14 | 新增 Emby 播放器接口目录 | `cf06d0c` | `main` |
