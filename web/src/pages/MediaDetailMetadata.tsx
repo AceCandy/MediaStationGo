@@ -76,8 +76,10 @@ export function MediaDetailMetadata({ media, favourite, onToggleFavourite }: Med
 
       <div className="space-y-4">
         <MetadataTags label="类型流派" values={parseCSV(media.genres)} primary />
-        <MetadataTags label="语言" values={parseCSV(media.languages)} />
-        <MetadataTags label="国家/地区" values={parseCSV(media.countries)} />
+        <div className="grid gap-4 sm:grid-cols-2">
+          <MetadataTags label="国家/地区" values={localizedCSV(media.countries, 'region')} />
+          <MetadataTags label="语言" values={localizedCSV(media.languages, 'language')} />
+        </div>
       </div>
     </>
   )
@@ -90,7 +92,7 @@ function MetadataTags({ label, values, primary = false }: { label: string; value
     : 'rounded-xl bg-gray-100 text-gray-600 border border-gray-200/40 px-2.5 py-1 text-2xs font-semibold'
   return (
     <div className="flex flex-wrap items-center gap-3">
-      <span className="text-xs font-bold text-gray-500 w-16 uppercase tracking-wider">{label}</span>
+      <span className="w-16 whitespace-nowrap text-xs font-bold uppercase tracking-wider text-gray-500">{label}</span>
       <div className="flex flex-wrap gap-2">
         {values.map((value) => (
           <span key={value} className={tagClass}>
@@ -124,4 +126,26 @@ function fmtSize(bytes: number): string {
 function parseCSV(s?: string): string[] {
   if (!s) return []
   return s.split(',').map((x) => x.trim()).filter(Boolean)
+}
+
+const chineseNames = typeof Intl.DisplayNames === 'function'
+  ? {
+      region: new Intl.DisplayNames(['zh-CN'], { type: 'region' }),
+      language: new Intl.DisplayNames(['zh-CN'], { type: 'language' }),
+    }
+  : null
+
+function localizedCSV(s: string | undefined, type: 'region' | 'language'): string[] {
+  return parseCSV(s).map((value) => {
+    const code = type === 'region' ? value.toUpperCase() : value
+    const isCode = type === 'region'
+      ? /^(?:[A-Z]{2}|\d{3})$/.test(code)
+      : /^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$/.test(code)
+    if (!isCode || !chineseNames) return value
+    try {
+      return chineseNames[type].of(code) || value
+    } catch {
+      return value
+    }
+  })
 }
