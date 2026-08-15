@@ -550,3 +550,24 @@ Committed the existing web UI redesign together with detailed background task lo
 ### Status
 
 [OK] **Completed**
+
+
+## Session 26: 播放器请求日志实时查看
+
+**Date**: 2026-08-15
+**Task**: 播放器请求日志实时查看
+**Branch**: `main`
+
+### Summary
+
+新增按 UTC 月分区的脱敏播放器请求日志、管理员查询页面与 SSE 实时刷新，并修复移动底栏拥挤和非法月份 URL 规范化。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `b798612` | (see git log) |
+
+### Status
+
+[OK] **Completed**
