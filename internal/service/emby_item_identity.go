@@ -26,6 +26,46 @@ func (e *EmbyService) userDataForTarget(ctx context.Context, userID string, targ
 	return favorite, history.PositionMs
 }
 
+func (e *EmbyService) userDataForMetadataIDs(ctx context.Context, userID string, metadataIDs []string) (map[string]bool, map[string]int64) {
+	favorites := map[string]bool{}
+	positions := map[string]int64{}
+	if e == nil || e.repo == nil || e.repo.DB == nil || strings.TrimSpace(userID) == "" || len(metadataIDs) == 0 {
+		return favorites, positions
+	}
+	ids := make([]string, 0, len(metadataIDs))
+	seen := make(map[string]struct{}, len(metadataIDs))
+	for _, id := range metadataIDs {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		ids = append(ids, id)
+	}
+	if len(ids) == 0 {
+		return favorites, positions
+	}
+	var favoriteRows []model.Favorite
+	if err := e.repo.DB.WithContext(ctx).Where("user_id = ? AND metadata_id IN ?", userID, ids).Find(&favoriteRows).Error; err == nil {
+		for _, favorite := range favoriteRows {
+			favorites[favorite.MetadataID] = true
+		}
+	}
+	var historyRows []model.PlaybackHistory
+	if err := e.repo.DB.WithContext(ctx).Where("user_id = ? AND metadata_id IN ?", userID, ids).
+		Order("watched_at desc").Find(&historyRows).Error; err == nil {
+		for _, history := range historyRows {
+			if _, ok := positions[history.MetadataID]; !ok {
+				positions[history.MetadataID] = history.PositionMs
+			}
+		}
+	}
+	return favorites, positions
+}
+
 func embyItemID(m *model.MediaView) string {
 	if m == nil {
 		return ""

@@ -133,9 +133,17 @@ func (r *MediaViewRepository) FindByMetadataID(ctx context.Context, metadataID s
 	if strings.TrimSpace(metadataID) == "" {
 		return []model.MediaView{}, nil
 	}
+	return r.FindByMetadataIDs(ctx, []string{metadataID}, filter)
+}
+
+// FindByMetadataIDs 返回多个作品当前可见的全部播放版本。
+func (r *MediaViewRepository) FindByMetadataIDs(ctx context.Context, metadataIDs []string, filter MediaQueryFilter) ([]model.MediaView, error) {
+	if len(metadataIDs) == 0 {
+		return []model.MediaView{}, nil
+	}
 	var rows []model.MediaView
-	q := applyMediaViewFilter(r.query(ctx).Where("m.metadata_id = ?", metadataID), filter).
-		Order("m.updated_at DESC, m.created_at DESC, m.id DESC")
+	q := applyMediaViewFilter(r.query(ctx).Where("m.metadata_id IN ?", metadataIDs), filter).
+		Order("m.metadata_id, m.updated_at DESC, m.created_at DESC, m.id DESC")
 	if err := scanMediaViews(q, &rows); err != nil {
 		return nil, err
 	}

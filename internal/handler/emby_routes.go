@@ -13,7 +13,7 @@ import (
 func registerEmbyRoutes(r *gin.Engine, jwtSecret string, svc *service.Container) {
 	for _, prefix := range []string{"/emby", ""} {
 		grp := r.Group(prefix)
-		grp.Use(embyNoStoreHeaders())
+		grp.Use(middleware.MarkPlayerAPIRequest(), embyNoStoreHeaders())
 
 		registerEmbyRootRoutes(grp, prefix, svc)
 		registerEmbyPublicRoutes(grp, jwtSecret, svc)

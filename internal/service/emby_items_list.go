@@ -66,7 +66,7 @@ func (e *EmbyService) mediaItems(ctx context.Context, p ItemsParams) (map[string
 	if err != nil {
 		return nil, err
 	}
-	items := e.payloadsForViews(ctx, views, p.UserID)
+	items := e.payloadsForViewsWithFields(ctx, views, p.UserID, p.Fields)
 	for _, item := range items {
 		if item["Type"] == "Movie" {
 			item["ParentId"] = p.ParentID
@@ -101,7 +101,7 @@ func (e *EmbyService) episodeItems(ctx context.Context, rows []model.MediaView, 
 		return rows[i].CreatedAt.Before(rows[j].CreatedAt)
 	})
 	total := len(rows)
-	items := e.payloadsForViews(ctx, pageSlice(rows, p.StartIndex, p.Limit), p.UserID)
+	items := e.payloadsForViewsWithFields(ctx, pageSlice(rows, p.StartIndex, p.Limit), p.UserID, p.Fields)
 	return map[string]any{"Items": items, "TotalRecordCount": total, "StartIndex": p.StartIndex}, nil
 }
 
@@ -113,43 +113,131 @@ func (e *EmbyService) payloadsForMedia(ctx context.Context, rows []model.Media, 
 	return e.payloadsForViews(ctx, views, userID), nil
 }
 
-func (e *EmbyService) payloadsForViews(ctx context.Context, views []model.MediaView, userID string) []map[string]any {
-	views = e.collapseMediaVersionViews(ctx, views)
-	userFavs := map[string]bool{}
-	userPos := map[string]int64{}
-	if userID != "" && len(views) > 0 {
-		itemIDs := make([]string, 0, len(views))
-		for _, view := range views {
-			if strings.TrimSpace(view.ID) != "" {
-				itemIDs = append(itemIDs, embyItemID(&view))
-			}
-		}
-		var favs []model.Favorite
-		favQuery := e.repo.DB.WithContext(ctx).Where("user_id = ?", userID).
-			Where("metadata_id IN ?", itemIDs)
-		_ = favQuery.Find(&favs).Error
-		for _, f := range favs {
-			userFavs[f.MetadataID] = true
-		}
-		var hist []model.PlaybackHistory
-		histQuery := e.repo.DB.WithContext(ctx).Where("user_id = ?", userID).
-			Where("metadata_id IN ?", itemIDs).
-			Order("watched_at desc")
-		_ = histQuery.Find(&hist).Error
-		for _, h := range hist {
-			if _, ok := userPos[h.MetadataID]; !ok {
-				userPos[h.MetadataID] = h.PositionMs
-			}
+type embyItemRelations struct {
+	peopleByMetadataID      map[string][]model.EmbyPerson
+	providerIDsByMetadataID map[string]map[string]string
+	versionsByMetadataID    map[string][]model.MediaView
+	episodeByMediaID        map[string]bool
+	fields                  embyListFields
+}
+
+type embyListFields struct {
+	people       bool
+	providerIDs  bool
+	mediaSources bool
+}
+
+func newEmbyListFields(requested []string) embyListFields {
+	if len(requested) == 0 {
+		return embyListFields{people: true, providerIDs: true, mediaSources: true}
+	}
+	var fields embyListFields
+	for _, field := range requested {
+		switch strings.ToLower(strings.TrimSpace(field)) {
+		case "people":
+			fields.people = true
+		case "providerids":
+			fields.providerIDs = true
+		case "mediasources", "mediastreams":
+			fields.mediaSources = true
 		}
 	}
+	return fields
+}
 
+func (e *EmbyService) payloadsForViews(ctx context.Context, views []model.MediaView, userID string) []map[string]any {
+	return e.payloadsForViewsWithFields(ctx, views, userID, nil)
+}
+
+func (e *EmbyService) payloadsForViewsWithFields(ctx context.Context, views []model.MediaView, userID string, requestedFields []string) []map[string]any {
+	views = e.collapseMediaVersionViews(ctx, views)
+	metadataIDs := make([]string, 0, len(views))
+	for i := range views {
+		metadataIDs = append(metadataIDs, views[i].MetadataID)
+	}
+	userFavs, userPos := e.userDataForMetadataIDs(ctx, userID, metadataIDs)
+
+	relations := e.itemRelationsForViews(ctx, views, userID, newEmbyListFields(requestedFields))
 	items := make([]map[string]any, 0, len(views))
 	for i := range views {
 		m := &views[i]
 		itemID := embyItemID(m)
-		items = append(items, e.itemPayload(ctx, m, userID, userFavs[itemID], userPos[itemID], false))
+		items = append(items, e.itemPayloadWithRelations(ctx, m, userID, userFavs[itemID], userPos[itemID], false, relations))
 	}
 	return items
+}
+
+func (e *EmbyService) itemRelationsForViews(ctx context.Context, views []model.MediaView, userID string, fields embyListFields) *embyItemRelations {
+	relations := &embyItemRelations{
+		peopleByMetadataID:      map[string][]model.EmbyPerson{},
+		providerIDsByMetadataID: map[string]map[string]string{},
+		versionsByMetadataID:    map[string][]model.MediaView{},
+		episodeByMediaID:        map[string]bool{},
+		fields:                  fields,
+	}
+	if e == nil || e.repo == nil || len(views) == 0 {
+		return relations
+	}
+	metadataIDs := make([]string, 0, len(views))
+	seen := make(map[string]struct{}, len(views))
+	needsEpisodeLibraries := false
+	for i := range views {
+		if id := strings.TrimSpace(views[i].MetadataID); id != "" {
+			if _, ok := seen[id]; !ok {
+				seen[id] = struct{}{}
+				metadataIDs = append(metadataIDs, id)
+			}
+		}
+		if views[i].Media.SeasonNum > 0 || views[i].Media.EpisodeNum > 0 {
+			needsEpisodeLibraries = true
+		}
+	}
+
+	if fields.people && e.repo.Person != nil {
+		if rows, err := e.repo.Person.ListCreditsWithPeopleByMetadataIDs(ctx, metadataIDs); err == nil {
+			grouped := make(map[string][]model.MetadataCredit)
+			for _, row := range rows {
+				grouped[row.MetadataID] = append(grouped[row.MetadataID], row)
+			}
+			for id, credits := range grouped {
+				relations.peopleByMetadataID[id] = embyPeopleFromCredits(credits)
+			}
+		}
+	}
+	if fields.providerIDs && e.repo.Metadata != nil {
+		if rows, err := e.repo.Metadata.ListIdentifiersByMetadataIDs(ctx, metadataIDs); err == nil {
+			grouped := make(map[string][]model.MetadataIdentifier)
+			for _, row := range rows {
+				grouped[row.MetadataID] = append(grouped[row.MetadataID], row)
+			}
+			for id, identifiers := range grouped {
+				relations.providerIDsByMetadataID[id] = metadataProviderIDsFromIdentifiers(identifiers)
+			}
+		}
+	}
+	if fields.mediaSources && e.repo.MediaView != nil {
+		if rows, err := e.repo.MediaView.FindByMetadataIDs(ctx, metadataIDs, e.mediaQueryFilter(ctx, userID)); err == nil {
+			for _, row := range rows {
+				relations.versionsByMetadataID[row.MetadataID] = append(relations.versionsByMetadataID[row.MetadataID], row)
+			}
+		}
+	}
+
+	episodicLibraries := map[string]struct{}{}
+	if needsEpisodeLibraries {
+		for _, id := range e.episodicLibraryIDs(ctx) {
+			episodicLibraries[id] = struct{}{}
+		}
+	}
+	for i := range views {
+		m := &views[i].Media
+		if m.SeasonNum <= 0 && m.EpisodeNum <= 0 {
+			continue
+		}
+		_, episodic := episodicLibraries[m.LibraryID]
+		relations.episodeByMediaID[m.ID] = episodic || embyMediaPathLooksEpisodic(m.Path)
+	}
+	return relations
 }
 
 func (e *EmbyService) collapseMediaVersionViews(ctx context.Context, rows []model.MediaView) []model.MediaView {
@@ -196,11 +284,9 @@ func (e *EmbyService) seriesItemsForLibrary(ctx context.Context, libraryID strin
 	if err != nil {
 		return nil, err
 	}
-	items := make([]map[string]any, 0, minInt(p.Limit, len(groups)))
-	for _, group := range groups {
-		item := e.seriesPayload(ctx, group, p.UserID)
+	items := e.seriesPayloadsWithFields(ctx, groups, p.UserID, p.Fields)
+	for _, item := range items {
 		item["ParentId"] = libraryID
-		items = append(items, item)
 	}
 	return map[string]any{"Items": items, "TotalRecordCount": int(total), "StartIndex": p.StartIndex}, nil
 }

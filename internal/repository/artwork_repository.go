@@ -73,6 +73,21 @@ func (r *ArtworkRepository) FindSelection(ctx context.Context, metadataID, artwo
 	return &asset, nil
 }
 
+// ListSelectionsByMetadataIDs 批量返回作品当前有效的图片选择。
+func (r *ArtworkRepository) ListSelectionsByMetadataIDs(ctx context.Context, metadataIDs []string) ([]model.MetadataArtwork, error) {
+	if len(metadataIDs) == 0 {
+		return []model.MetadataArtwork{}, nil
+	}
+	var selections []model.MetadataArtwork
+	err := r.db.WithContext(ctx).
+		Table("metadata_artworks AS ma").
+		Joins("JOIN artwork_assets AS aa ON aa.id = ma.asset_id AND aa.deleted_at IS NULL").
+		Where("ma.deleted_at IS NULL AND ma.metadata_id IN ?", metadataIDs).
+		Select("ma.*").
+		Find(&selections).Error
+	return selections, err
+}
+
 func (r *ArtworkRepository) DeleteSelection(ctx context.Context, metadataID, artworkType string) error {
 	return r.db.WithContext(ctx).
 		Where("metadata_id = ? AND artwork_type = ?", metadataID, artworkType).

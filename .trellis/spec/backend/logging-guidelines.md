@@ -30,9 +30,9 @@ Questions to answer:
 
 ## Structured Logging
 
-<!-- Log format, required fields -->
-
-(To be filled by the team)
+- Player-compatible API diagnostics enrich the existing `http` entry with
+  `player_api=true`, request headers, and query parameters. They must not create
+  a duplicate per-request log line.
 
 ---
 
@@ -46,6 +46,7 @@ Questions to answer:
 
 ## What NOT to Log
 
-<!-- Sensitive data, PII, secrets -->
-
-(To be filled by the team)
+- Never log request bodies, authorization values, cookies, tokens, API keys,
+  signatures, credentials, referrers, or persistent device identifiers.
+- When header or query names are logged for diagnostics, sensitive values must
+  be replaced with `[redacted]` before they reach the logger.

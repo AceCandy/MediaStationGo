@@ -103,11 +103,9 @@ func (e *EmbyService) latestSeriesItemsForLibrary(ctx context.Context, userID, l
 	if err != nil {
 		return nil, err
 	}
-	items := make([]map[string]any, 0, len(groups))
-	for _, group := range groups {
-		item := e.seriesPayload(ctx, group, userID)
+	items := e.seriesPayloadsWithFields(ctx, groups, userID, nil)
+	for _, item := range items {
 		item["ParentId"] = libraryID
-		items = append(items, item)
 	}
 	return items, nil
 }
@@ -144,13 +142,50 @@ func (e *EmbyService) ResumeItems(ctx context.Context, userID string, limit int)
 }
 
 func (e *EmbyService) itemPayload(ctx context.Context, m *model.MediaView, userID string, fav bool, posMs int64, completeStreams bool) map[string]any {
+	return e.itemPayloadWithRelations(ctx, m, userID, fav, posMs, completeStreams, nil)
+}
+
+func (e *EmbyService) itemPayloadWithRelations(ctx context.Context, m *model.MediaView, userID string, fav bool, posMs int64, completeStreams bool, relations *embyItemRelations) map[string]any {
+	var episode bool
+	var people []model.EmbyPerson
+	var providerIDs map[string]string
+	var mediaSources []map[string]any
+	if relations == nil {
+		episode = e.mediaShouldBeEpisode(ctx, &m.Media)
+		people = e.peopleForMetadata(ctx, m.MetadataID)
+		providerIDs = e.metadataProviderIDs(ctx, m.MetadataID)
+		mediaSources = e.mediaSourcesForView(ctx, m, userID, true, completeStreams)
+	} else {
+		episode = relations.episodeByMediaID[m.ID]
+		if relations.fields.people {
+			people = []model.EmbyPerson{}
+			if loaded, ok := relations.peopleByMetadataID[m.MetadataID]; ok {
+				people = loaded
+			}
+		}
+		if relations.fields.providerIDs {
+			providerIDs = map[string]string{}
+			if loaded, ok := relations.providerIDsByMetadataID[m.MetadataID]; ok {
+				providerIDs = loaded
+			}
+		}
+		if relations.fields.mediaSources {
+			siblings := []model.MediaView{*m}
+			if loaded := relations.versionsByMetadataID[m.MetadataID]; len(loaded) > 0 {
+				siblings = append([]model.MediaView(nil), loaded...)
+				siblings = orderMediaVersionSiblings(siblings, m.ID)
+			}
+			mediaSources = e.mediaSourcesForViews(ctx, siblings, true, completeStreams)
+		}
+	}
+
 	itemType := "Movie"
 	name := m.Title
 	parentID := m.LibraryID
 	seriesID := m.SeriesID
 	seriesName := ""
 	seasonItemID := ""
-	if e.mediaShouldBeEpisode(ctx, &m.Media) {
+	if episode {
 		itemType = "Episode"
 		seriesID = e.seriesIDForMedia(m)
 		seriesName = e.seriesNameForMedia(m)
@@ -163,8 +198,8 @@ func (e *EmbyService) itemPayload(ctx context.Context, m *model.MediaView, userI
 	}
 	imageTags := map[string]string{}
 	backdropTags := []string{}
-	primaryArtwork := e.mediaPrimaryArtwork(ctx, m)
-	backdropArtwork := e.mediaBackdropArtwork(ctx, m)
+	primaryArtwork := mediaPrimaryArtworkForType(m, episode)
+	backdropArtwork := mediaBackdropArtworkForType(m, episode)
 	itemID := embyItemID(m)
 	if primaryArtwork != "" {
 		imageTags["Primary"] = itemID
@@ -212,8 +247,6 @@ func (e *EmbyService) itemPayload(ctx context.Context, m *model.MediaView, userI
 		"ImageTags":         imageTags,
 		"BackdropImageTags": backdropTags,
 		"Genres":            splitCSV(m.Genres),
-		"People":            e.peopleForMetadata(ctx, m.MetadataID),
-		"ProviderIds":       e.metadataProviderIDs(ctx, m.MetadataID),
 		"UserData": map[string]any{
 			"PlaybackPositionTicks": posMs * 10_000,
 			"PlayCount":             0,
@@ -221,7 +254,15 @@ func (e *EmbyService) itemPayload(ctx context.Context, m *model.MediaView, userI
 			"Played":                played,
 			"PlayedPercentage":      pct,
 		},
-		"MediaSources": e.mediaSourcesForView(ctx, m, userID, true, completeStreams),
+	}
+	if relations == nil || relations.fields.people {
+		item["People"] = people
+	}
+	if relations == nil || relations.fields.providerIDs {
+		item["ProviderIds"] = providerIDs
+	}
+	if relations == nil || relations.fields.mediaSources {
+		item["MediaSources"] = mediaSources
 	}
 	if premiered, ok := embyPremiereDate(m.ReleaseDate); ok {
 		item["PremiereDate"] = premiered

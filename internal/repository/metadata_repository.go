@@ -31,6 +31,16 @@ func (r *MetadataRepository) FindByID(ctx context.Context, id string) (*model.Me
 	return &item, nil
 }
 
+// FindByIDs 批量返回共享元数据，调用方按 ID 组装结果。
+func (r *MetadataRepository) FindByIDs(ctx context.Context, ids []string) ([]model.MetadataItem, error) {
+	if len(ids) == 0 {
+		return []model.MetadataItem{}, nil
+	}
+	var items []model.MetadataItem
+	err := r.db.WithContext(ctx).Where("id IN ?", ids).Find(&items).Error
+	return items, err
+}
+
 func (r *MetadataRepository) FindByIdentifier(ctx context.Context, provider, entityKind, externalID string) (*model.MetadataItem, error) {
 	identifier := model.MetadataIdentifier{Provider: provider, EntityKind: entityKind, ExternalID: externalID}
 	if err := normalizeMetadataIdentifier(&identifier); err != nil {
@@ -362,8 +372,16 @@ func (r *MetadataRepository) UpsertIdentifiers(ctx context.Context, metadataID s
 }
 
 func (r *MetadataRepository) ListIdentifiers(ctx context.Context, metadataID string) ([]model.MetadataIdentifier, error) {
+	return r.ListIdentifiersByMetadataIDs(ctx, []string{metadataID})
+}
+
+// ListIdentifiersByMetadataIDs 批量返回多个作品自身的 provider 标识。
+func (r *MetadataRepository) ListIdentifiersByMetadataIDs(ctx context.Context, metadataIDs []string) ([]model.MetadataIdentifier, error) {
+	if len(metadataIDs) == 0 {
+		return []model.MetadataIdentifier{}, nil
+	}
 	var identifiers []model.MetadataIdentifier
-	err := r.db.WithContext(ctx).Where("metadata_id = ?", metadataID).Order("provider, entity_kind, external_id").Find(&identifiers).Error
+	err := r.db.WithContext(ctx).Where("metadata_id IN ?", metadataIDs).Order("metadata_id, provider, entity_kind, external_id").Find(&identifiers).Error
 	return identifiers, err
 }
 

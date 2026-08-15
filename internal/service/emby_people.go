@@ -16,6 +16,10 @@ func (e *EmbyService) peopleForMetadata(ctx context.Context, metadataID string) 
 	if err != nil {
 		return []model.EmbyPerson{}
 	}
+	return embyPeopleFromCredits(rows)
+}
+
+func embyPeopleFromCredits(rows []model.MetadataCredit) []model.EmbyPerson {
 	byType := make(map[string][]model.MetadataCredit)
 	for _, row := range rows {
 		byType[row.Type] = append(byType[row.Type], row)

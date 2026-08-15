@@ -29,6 +29,10 @@ func (e *EmbyService) mediaSourcesForView(ctx context.Context, m *model.MediaVie
 	if len(siblings) == 0 {
 		siblings = []model.MediaView{*m}
 	}
+	return e.mediaSourcesForViews(ctx, siblings, asEmbedded, completeStreams)
+}
+
+func (e *EmbyService) mediaSourcesForViews(ctx context.Context, siblings []model.MediaView, asEmbedded, completeStreams bool) []map[string]any {
 	if completeStreams {
 		for i := range siblings {
 			e.ensureTrackMetadata(ctx, &siblings[i].Media)
@@ -149,12 +153,16 @@ func (e *EmbyService) mediaVersionSiblings(ctx context.Context, m *model.MediaVi
 	if err != nil || len(views) == 0 {
 		return []model.MediaView{*m}
 	}
+	return orderMediaVersionSiblings(views, m.ID)
+}
+
+func orderMediaVersionSiblings(views []model.MediaView, currentID string) []model.MediaView {
 	views = collapseExactPathViews(views)
 	sort.SliceStable(views, func(i, j int) bool {
-		if views[i].ID == m.ID {
+		if views[i].ID == currentID {
 			return true
 		}
-		if views[j].ID == m.ID {
+		if views[j].ID == currentID {
 			return false
 		}
 		return preferMediaVersion(views[i].Media, views[j].Media)
