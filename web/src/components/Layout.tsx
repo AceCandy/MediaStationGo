@@ -35,7 +35,7 @@ export function Layout() {
   const closeProfileAndLogout = () => { profile.setIsProfileOpen(false); handleLogout() }
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-[var(--app-bg)] text-[var(--app-text)] font-body select-none">
+    <div className="flex h-screen w-screen overflow-hidden bg-[var(--app-bg)] text-[var(--app-text)] font-body">
       <a
         href="#main-content"
         className="sr-only z-[60] rounded-md bg-[var(--app-panel)] px-4 py-3 text-sm font-bold text-[var(--app-text)] focus:not-sr-only focus:fixed focus:left-4 focus:top-4"
