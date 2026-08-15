@@ -40,12 +40,14 @@ func registerAuthedLibraryRoutes(authed *gin.RouterGroup, svc *service.Container
 
 func registerAuthedMediaRoutes(authed *gin.RouterGroup, svc *service.Container) {
 	authed.GET("/media/:id", getMediaHandler(svc))
+	authed.GET("/media/:id/versions", listMediaVersionsHandler(svc))
 	authed.GET("/media", searchMediaHandler(svc))
 	authed.PATCH("/media/:id/metadata", middleware.AdminRequired(), updateMediaMetadataHandler(svc))
 	authed.POST("/media/:id/scrape", middleware.AdminRequired(), scrapeOneHandler(svc))
 	authed.GET("/media/:id/scrape/search", middleware.AdminRequired(), manualScrapeSearchHandler(svc))
 	authed.POST("/media/:id/scrape/apply", middleware.AdminRequired(), manualScrapeApplyOneHandler(svc))
 	authed.POST("/media/scrape/apply", middleware.AdminRequired(), manualScrapeApplyBatchHandler(svc))
+	authed.POST("/media/:id/probe/ensure", ensureMediaProbeHandler(svc))
 	authed.POST("/media/:id/probe", middleware.AdminRequired(), reprobeHandler(svc))
 	authed.DELETE("/media/:id", middleware.AdminRequired(), deleteMediaHandler(svc))
 	authed.POST("/media/:id/restore", middleware.AdminRequired(), restoreMediaHandler(svc))

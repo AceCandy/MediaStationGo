@@ -1,71 +1,120 @@
-import { Captions, Video, Volume2 } from 'lucide-react'
+import { LoaderCircle } from 'lucide-react'
 
-import type { MediaTrack } from '../types'
+import type { Media, MediaTrack } from '../types'
 
 type MediaDetailTracksProps = {
-  tracks?: MediaTrack[]
+  media: Media | null
+  versions: Media[]
+  selectedVersionID: string
+  loading: boolean
+  probing: boolean
+  probeError: string
+  onVersionChange: (id: string) => void
 }
 
-export function MediaDetailTracks({ tracks }: MediaDetailTracksProps) {
-  if (!tracks || tracks.length === 0) return null
-
-  const groups: Array<{ type: MediaTrack['type']; label: string; icon: typeof Video }> = [
-    { type: 'video', label: '视频', icon: Video },
-    { type: 'audio', label: '音频', icon: Volume2 },
-    { type: 'subtitle', label: '字幕', icon: Captions },
-  ]
+export function MediaDetailTracks({
+  media,
+  versions,
+  selectedVersionID,
+  loading,
+  probing,
+  probeError,
+  onVersionChange,
+}: MediaDetailTracksProps) {
+  const tracks = media?.tracks ?? []
+  const unavailableText = loading
+    ? '正在加载媒体信息…'
+    : probing
+      ? '正在探测媒体信息…'
+      : ''
 
   return (
-    <section className="space-y-4" aria-labelledby="media-tracks-heading">
-      <div className="flex items-center justify-between gap-3">
-        <h2 id="media-tracks-heading" className="text-xs font-bold uppercase tracking-widest text-brand-500">
-          媒体轨道
-        </h2>
-        <span className="text-xs font-semibold text-gray-400">{tracks.length} 条</span>
+    <section className="space-y-3" aria-labelledby="media-tracks-heading">
+      <h2 id="media-tracks-heading" className="text-xs font-bold uppercase tracking-widest text-brand-500">
+        媒体信息
+      </h2>
+
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <label className="min-w-0 space-y-1">
+          <span className="text-xs font-semibold text-gray-500">版本</span>
+          <select
+            className="input-base min-w-0 w-full"
+            value={selectedVersionID}
+            disabled={versions.length === 0}
+            onChange={(event) => onVersionChange(event.target.value)}
+          >
+            {versions.length === 0 ? (
+              <option value="">暂无可用版本</option>
+            ) : versions.map((version, index) => (
+              <option key={version.id} value={version.id}>{mediaVersionLabel(version, index)}</option>
+            ))}
+          </select>
+        </label>
+
+        <TrackSelect type="video" label="视频" mediaID={media?.id} tracks={tracks} unavailableText={unavailableText} />
+        <TrackSelect type="audio" label="音频" mediaID={media?.id} tracks={tracks} unavailableText={unavailableText} />
+        <TrackSelect type="subtitle" label="字幕" mediaID={media?.id} tracks={tracks} unavailableText={unavailableText} />
       </div>
 
-      <div className="space-y-5">
-        {groups.map(({ type, label, icon: Icon }) => {
-          const items = tracks.filter((track) => track.type === type)
-          if (items.length === 0) return null
-          return (
-            <div key={type}>
-              <div className="mb-2 flex items-center gap-2 text-sm font-bold text-gray-700">
-                <Icon size={16} className="text-brand-500" />
-                <span>{label}</span>
-              </div>
-              <div className="divide-y divide-gray-100 border-y border-gray-100">
-                {items.map((track) => <TrackRow key={`${track.type}-${track.index}`} track={track} />)}
-              </div>
-            </div>
-          )
-        })}
-      </div>
+      {(loading || probing || probeError) && (
+        <div className="flex items-center gap-2 text-sm font-semibold text-gray-500" aria-live="polite">
+          {(loading || probing) && <LoaderCircle size={16} className="animate-spin text-brand-500" aria-hidden="true" />}
+          <span>{unavailableText || probeError}</span>
+        </div>
+      )}
     </section>
   )
 }
 
-function TrackRow({ track }: { track: MediaTrack }) {
-  const facts = trackFacts(track)
+function TrackSelect({
+  type,
+  label,
+  mediaID,
+  tracks,
+  unavailableText,
+}: {
+  type: MediaTrack['type']
+  label: string
+  mediaID?: string
+  tracks: MediaTrack[]
+  unavailableText: string
+}) {
+  const items = tracks.filter((track) => track.type === type)
+  const selected = items.find((track) => track.is_default) ?? items[0]
+  const placeholder = unavailableText || `暂无${label}轨道`
+
   return (
-    <div className="grid gap-2 py-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,2fr)] sm:items-center">
-      <div className="min-w-0">
-        <p className="break-words text-sm font-semibold text-gray-800">
-          {track.display_title || track.title || track.codec || '未知轨道'}
-        </p>
-        {track.title && track.title !== track.display_title && (
-          <p className="mt-1 break-words text-xs font-medium text-gray-400">{track.title}</p>
-        )}
-      </div>
-      <div className="flex flex-wrap gap-1.5 sm:justify-end">
-        {facts.map((fact) => (
-          <span key={fact} className="rounded-md bg-gray-50 px-2 py-1 text-2xs font-semibold text-gray-500">
-            {fact}
-          </span>
+    <label className="min-w-0 space-y-1">
+      <span className="text-xs font-semibold text-gray-500">{label}</span>
+      <select
+        key={`${mediaID ?? 'loading'}-${type}-${items.map((item) => item.index).join(',')}`}
+        className="input-base min-w-0 w-full"
+        defaultValue={selected ? String(selected.index) : ''}
+        disabled={items.length === 0}
+      >
+        {items.length === 0 ? (
+          <option value="">{placeholder}</option>
+        ) : items.map((track) => (
+          <option key={track.index} value={track.index}>{trackLabel(track)}</option>
         ))}
-      </div>
-    </div>
+      </select>
+    </label>
   )
+}
+
+function mediaVersionLabel(media: Media, index: number): string {
+  const facts: string[] = []
+  if (media.width > 0 && media.height > 0) facts.push(`${media.width} × ${media.height}`)
+  if (media.video_codec) facts.push(media.video_codec.toUpperCase())
+  if (media.container) facts.push(media.container.toUpperCase())
+  const source = (media.strm_url || media.relative_path || media.path).split(/[?#]/, 1)[0]
+  const filename = source.split(/[\\/]/).pop()?.trim()
+  if (filename) facts.push(filename)
+  return facts.length > 0 ? facts.join(' · ') : `版本 ${index + 1}`
+}
+
+function trackLabel(track: MediaTrack): string {
+  return [track.display_title || track.title || track.codec || '未知轨道', ...trackFacts(track)].join(' · ')
 }
 
 function trackFacts(track: MediaTrack): string[] {
@@ -75,26 +124,19 @@ function trackFacts(track: MediaTrack): string[] {
     if (track.profile) facts.push(track.profile)
     if (track.bit_depth) facts.push(`${track.bit_depth}-bit`)
     if (track.video_range && track.video_range !== 'SDR') facts.push(track.video_range)
-    if (track.pixel_format) facts.push(track.pixel_format)
     if (track.average_frame_rate) facts.push(`${formatNumber(track.average_frame_rate)} fps`)
     if (track.bit_rate) facts.push(formatBitRate(track.bit_rate))
   } else if (track.type === 'audio') {
     if (track.display_language) facts.push(track.display_language)
-    if (track.profile) facts.push(track.profile)
     if (track.channel_layout) facts.push(track.channel_layout)
     else if (track.channels) facts.push(`${track.channels} 声道`)
     if (track.sample_rate) facts.push(`${formatNumber(track.sample_rate / 1000)} kHz`)
-    if (track.sample_format) facts.push(track.sample_format)
-    if (track.bits_per_sample) facts.push(`${track.bits_per_sample}-bit`)
     if (track.bit_rate) facts.push(formatBitRate(track.bit_rate))
   } else {
     if (track.display_language) facts.push(track.display_language)
-    facts.push(track.is_text_subtitle ? '文本字幕' : '图形字幕')
     if (track.is_forced) facts.push('强制')
   }
   if (track.is_default) facts.push('默认')
-  if (track.is_hearing_impaired) facts.push('听障')
-  if (track.is_visual_impaired) facts.push('视障')
   return facts
 }
 

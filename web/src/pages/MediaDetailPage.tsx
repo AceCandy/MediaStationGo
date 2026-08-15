@@ -31,10 +31,17 @@ export function MediaDetailPage() {
 
       <MediaDetailMainContent
         media={media}
+        versions={detail.versions}
+        displayMedia={detail.displayMedia}
+        selectedVersionID={detail.selectedVersionID}
         isAdmin={user?.role === 'admin'}
+        mediaInfoLoading={detail.mediaInfoLoading}
+        probing={detail.probing}
+        probeError={detail.probeError}
         canCast={permissions.can('can_cast')}
         favourite={detail.favourite}
         scrapeEpisodeArtwork={detail.scrapeEpisodeArtwork}
+        onVersionChange={detail.selectVersion}
         onToggleFavourite={detail.toggleFavourite}
         onScrapeEpisodeArtworkChange={detail.setScrapeEpisodeArtwork}
         onSmartScrape={detail.rescrape}

@@ -1,4 +1,4 @@
-import { ArrowLeft, Cast, Heart, Play } from 'lucide-react'
+import { ArrowLeft, Cast, Play } from 'lucide-react'
 import { Link } from 'react-router-dom'
 
 import { ExternalPlayerButton } from '../components/ExternalPlayerButton'
@@ -14,14 +14,21 @@ import { mediaDetailScrapeMediaType } from './MediaDetailPageModel'
 
 interface MediaDetailPlaybackActionsProps {
   media: Media
-  favourite: boolean
   canCast: boolean
-  onToggleFavourite: () => void
 }
 
 interface MediaDetailMainContentProps extends MediaDetailPlaybackActionsProps {
+  versions: Media[]
+  displayMedia: Media | null
+  selectedVersionID: string
   isAdmin: boolean
+  mediaInfoLoading: boolean
+  probing: boolean
+  probeError: string
+  favourite: boolean
   scrapeEpisodeArtwork: boolean
+  onVersionChange: (id: string) => void
+  onToggleFavourite: () => void
   onScrapeEpisodeArtworkChange: (checked: boolean) => void
   onSmartScrape: () => void
   onManualScrape: () => void
@@ -86,9 +93,7 @@ export function MediaDetailBackButton({ onBack }: { onBack: () => void }) {
 
 export function MediaDetailPlaybackActions({
   media,
-  favourite,
   canCast,
-  onToggleFavourite,
 }: MediaDetailPlaybackActionsProps) {
   return (
     <div className="flex flex-wrap gap-3">
@@ -109,29 +114,23 @@ export function MediaDetailPlaybackActions({
           <span>投屏</span>
         </Link>
       )}
-
-      <button
-        onClick={onToggleFavourite}
-        className={
-          'btn-outline gap-2 ' +
-          (favourite
-            ? '!border-red-200 !bg-red-50 !text-red-600 hover:!bg-red-100/50'
-            : 'hover:border-red-200 hover:text-red-600 hover:bg-red-50/50')
-        }
-      >
-        <Heart size={14} fill={favourite ? 'currentColor' : 'none'} />
-        <span>{favourite ? '取消收藏' : '加入收藏'}</span>
-      </button>
     </div>
   )
 }
 
 export function MediaDetailMainContent({
   media,
+  versions,
+  displayMedia,
+  selectedVersionID,
   isAdmin,
+  mediaInfoLoading,
+  probing,
+  probeError,
   canCast,
   favourite,
   scrapeEpisodeArtwork,
+  onVersionChange,
   onToggleFavourite,
   onScrapeEpisodeArtworkChange,
   onSmartScrape,
@@ -146,15 +145,21 @@ export function MediaDetailMainContent({
       <MediaDetailPoster media={media} />
 
       <div className="flex-1 space-y-6">
-        <MediaDetailMetadata media={media} />
-        <MediaDetailTracks tracks={media.tracks} />
+        <MediaDetailMetadata media={media} favourite={favourite} onToggleFavourite={onToggleFavourite} />
+        <MediaDetailTracks
+          media={displayMedia}
+          versions={versions}
+          selectedVersionID={selectedVersionID}
+          loading={mediaInfoLoading}
+          probing={probing}
+          probeError={probeError}
+          onVersionChange={onVersionChange}
+        />
         <div className="divider border-gray-200/60" />
         <div className="flex flex-col gap-5">
           <MediaDetailPlaybackActions
             media={media}
-            favourite={favourite}
             canCast={canCast}
-            onToggleFavourite={onToggleFavourite}
           />
           {isAdmin && (
             <MediaDetailAdminPanel

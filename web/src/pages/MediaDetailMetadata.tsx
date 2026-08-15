@@ -1,21 +1,39 @@
-import { Calendar } from 'lucide-react'
+import { Calendar, Heart } from 'lucide-react'
 
 import type { Media } from '../types'
 
 type MediaDetailMetadataProps = {
   media: Media
+  favourite: boolean
+  onToggleFavourite: () => void
 }
 
-export function MediaDetailMetadata({ media }: MediaDetailMetadataProps) {
+export function MediaDetailMetadata({ media, favourite, onToggleFavourite }: MediaDetailMetadataProps) {
   const heading = media.title
   const seriesContext = media.series_title?.trim()
 
   return (
     <>
       <div className="space-y-3">
-        <h1 className="font-display text-3xl sm:text-4xl font-extrabold tracking-tight text-gray-900 leading-tight">
-          {heading}
-        </h1>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <h1 className="min-w-0 break-words text-pretty font-display text-3xl sm:text-4xl font-extrabold tracking-tight text-gray-900 leading-tight">
+            {heading}
+          </h1>
+          <button
+            type="button"
+            onClick={onToggleFavourite}
+            aria-pressed={favourite}
+            className={
+              'btn-outline shrink-0 gap-2 ' +
+              (favourite
+                ? '!border-red-200 !bg-red-50 !text-red-600 hover:!bg-red-100/50'
+                : 'hover:border-red-200 hover:text-red-600 hover:bg-red-50/50')
+            }
+          >
+            <Heart size={14} fill={favourite ? 'currentColor' : 'none'} aria-hidden="true" />
+            <span>{favourite ? '取消收藏' : '加入收藏'}</span>
+          </button>
+        </div>
         {seriesContext && (
           <p className="text-sm font-semibold text-gray-500">
             {seriesContext}

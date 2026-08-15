@@ -109,11 +109,19 @@ func TestRetainedPlaybackWorkflowsNeverStartFFmpeg(t *testing.T) {
 	if detail.Code != http.StatusOK {
 		t.Fatalf("media detail status = %d body=%s", detail.Code, detail.Body.String())
 	}
-	if _, ok := container.MediaProbe.Load(t.Context(), media.ID); !ok {
-		t.Fatal("media detail did not persist probe result")
+	if _, ok := container.MediaProbe.Load(t.Context(), media.ID); ok {
+		t.Fatal("media detail blocked on media probe")
 	}
-	if !strings.Contains(detail.Body.String(), `"tracks":[`) {
-		t.Fatalf("media detail did not return refreshed tracks: %s", detail.Body.String())
+
+	probe := httptest.NewRecorder()
+	probeContext, _ := gin.CreateTestContext(probe)
+	probeContext.Set(middleware.CtxUserID, "user-1")
+	probeContext.Set(middleware.CtxUserRole, "user")
+	probeContext.Params = gin.Params{{Key: "id", Value: media.ID}}
+	probeContext.Request = httptest.NewRequest(http.MethodPost, "/api/media/"+media.ID+"/probe/ensure", nil)
+	ensureMediaProbeHandler(container)(probeContext)
+	if probe.Code != http.StatusOK || !strings.Contains(probe.Body.String(), `"tracks":[`) {
+		t.Fatalf("ensure media probe status = %d body=%s", probe.Code, probe.Body.String())
 	}
 	assertFFmpegSentinelNotStarted(t, marker, "probe")
 

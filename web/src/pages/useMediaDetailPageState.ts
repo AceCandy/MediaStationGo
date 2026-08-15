@@ -26,14 +26,24 @@ interface MediaDetailActionsParams {
   media: Media | null
   scrapeEpisodeArtwork: boolean
   navigate: NavigateFunction
-  refresh: () => Promise<void>
+  refresh: MediaDetailRefresh
   setFavourite: Dispatch<SetStateAction<boolean>>
 }
 
+type MediaDetailRefresh = () => Promise<Media | null>
+
 export function useMediaDetailPageState({ id, navigate }: MediaDetailPageStateParams) {
   const [media, setMedia] = useState<Media | null>(null)
+  const [versions, setVersions] = useState<Media[]>([])
+  const [selectedVersionID, setSelectedVersionID] = useState(id)
+  const [selectedMedia, setSelectedMedia] = useState<Media | null>(null)
   const [favourite, setFavourite] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [probing, setProbing] = useState(false)
+  const [probeError, setProbeError] = useState('')
+  const [selectedMediaLoading, setSelectedMediaLoading] = useState(false)
+  const [selectedMediaProbing, setSelectedMediaProbing] = useState(false)
+  const [selectedMediaError, setSelectedMediaError] = useState('')
   const [manualScrapeOpen, setManualScrapeOpen] = useState(false)
   const [metadataEditOpen, setMetadataEditOpen] = useState(false)
   const [organizeOpen, setOrganizeOpen] = useState(false)
@@ -49,18 +59,99 @@ export function useMediaDetailPageState({ id, navigate }: MediaDetailPageStatePa
   })
 
   useEffect(() => {
-    refresh().catch(() => undefined)
-  }, [refresh])
+    let cancelled = false
+    setVersions([])
+    setSelectedVersionID(id)
+    setSelectedMedia(null)
+    setProbing(false)
+    setProbeError('')
+    refresh()
+      .then(async (nextMedia) => {
+        if (cancelled || !nextMedia) return
+        setVersions([nextMedia])
+        void mediaAPI.listVersions(nextMedia.id)
+          .then((items) => {
+            if (!cancelled && items.length > 0) setVersions(items)
+          })
+          .catch(() => undefined)
+        if ((nextMedia.tracks?.length ?? 0) > 0) return
+        setProbing(true)
+        setProbeError('')
+        try {
+          const probed = await mediaAPI.ensureProbe(nextMedia.id)
+          if (!cancelled) {
+            setMedia(probed)
+            setVersions((items) => items.map((item) => item.id === probed.id ? probed : item))
+          }
+        } catch {
+          if (!cancelled) setProbeError('媒体信息探测失败，请检查 ffprobe 或媒体源是否可用')
+        } finally {
+          if (!cancelled) setProbing(false)
+        }
+      })
+      .catch(() => undefined)
+    return () => { cancelled = true }
+  }, [id, refresh])
+
+  useEffect(() => {
+    const currentMediaID = media?.id
+    if (!currentMediaID || currentMediaID !== id || !selectedVersionID || selectedVersionID === currentMediaID) {
+      setSelectedMedia(null)
+      setSelectedMediaLoading(false)
+      setSelectedMediaProbing(false)
+      setSelectedMediaError('')
+      return
+    }
+    let cancelled = false
+    setSelectedMedia(null)
+    setSelectedMediaLoading(true)
+    setSelectedMediaProbing(false)
+    setSelectedMediaError('')
+    mediaAPI.get(selectedVersionID)
+      .then(async (nextMedia) => {
+        if (cancelled) return
+        setSelectedMedia(nextMedia)
+        setSelectedMediaLoading(false)
+        if ((nextMedia.tracks?.length ?? 0) > 0) return
+        setSelectedMediaProbing(true)
+        try {
+          const probed = await mediaAPI.ensureProbe(nextMedia.id)
+          if (!cancelled) {
+            setSelectedMedia(probed)
+            setVersions((items) => items.map((item) => item.id === probed.id ? probed : item))
+          }
+        } catch {
+          if (!cancelled) setSelectedMediaError('媒体信息探测失败，请检查 ffprobe 或媒体源是否可用')
+        } finally {
+          if (!cancelled) setSelectedMediaProbing(false)
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setSelectedMediaError('媒体版本加载失败')
+      })
+      .finally(() => {
+        if (!cancelled) setSelectedMediaLoading(false)
+      })
+    return () => { cancelled = true }
+  }, [id, media?.id, selectedVersionID])
 
   const handleMetadataSaved = useCallback(async (next: Media) => {
     setMedia(next)
     await refresh()
   }, [refresh])
 
+  const showingCurrentMedia = !media || selectedVersionID === media.id
+
   return {
     media,
+    versions: versions.length > 0 ? versions : media ? [media] : [],
+    selectedVersionID,
+    displayMedia: showingCurrentMedia ? media : selectedMedia,
+    mediaInfoLoading: !showingCurrentMedia && selectedMediaLoading,
     favourite,
     loading,
+    probing: showingCurrentMedia ? probing : selectedMediaProbing,
+    probeError: showingCurrentMedia ? probeError : selectedMediaError,
     manualScrapeOpen,
     metadataEditOpen,
     organizeOpen,
@@ -71,6 +162,7 @@ export function useMediaDetailPageState({ id, navigate }: MediaDetailPageStatePa
     setMetadataEditOpen,
     setOrganizeOpen,
     setScrapeEpisodeArtwork,
+    selectVersion: setSelectedVersionID,
     ...actions,
   }
 }
@@ -80,15 +172,18 @@ function useMediaDetailRefresh({
   setMedia,
   setFavourite,
   setLoading,
-}: MediaDetailRefreshParams): () => Promise<void> {
+}: MediaDetailRefreshParams): MediaDetailRefresh {
   return useCallback(async () => {
-    if (!id) return
+    if (!id) return null
     setLoading(true)
     try {
       const nextMedia = await mediaAPI.get(id)
       setMedia(nextMedia)
-      const favourites = await playbackAPI.listFavourites().catch(() => [])
-      setFavourite(favourites.some((item) => item.id === nextMedia.id))
+      setLoading(false)
+      void playbackAPI.listFavourites()
+        .then((favourites) => setFavourite(favourites.some((item) => item.id === nextMedia.id)))
+        .catch(() => setFavourite(false))
+      return nextMedia
     } finally {
       setLoading(false)
     }
@@ -139,7 +234,7 @@ async function toggleMediaFavourite(
 async function rescrapeMedia(
   media: Media | null,
   scrapeEpisodeArtwork: boolean,
-  refresh: () => Promise<void>,
+  refresh: MediaDetailRefresh,
 ): Promise<void> {
   if (!media) return
   await api.post(`/media/${media.id}/scrape`, {
@@ -151,7 +246,7 @@ async function rescrapeMedia(
   await refresh()
 }
 
-async function reprobeMedia(media: Media | null, refresh: () => Promise<void>): Promise<void> {
+async function reprobeMedia(media: Media | null, refresh: MediaDetailRefresh): Promise<void> {
   if (!media) return
   try {
     const result = await api.post(`/media/${media.id}/probe`)

@@ -506,6 +506,60 @@ delete(source, "TranscodingUrl")
 source["DirectStreamUrl"] = "/Videos/" + media.ID + "/stream." + container
 ```
 
+## Scenario: Web Media Detail Version Display
+
+### 1. Scope / Trigger
+
+- Apply when changing the Web media detail version list, track display, or asynchronous probe flow.
+
+### 2. Signatures
+
+- Authenticated read API: `GET /api/media/:id/versions -> MediaView[]`.
+- Existing detail APIs: `GET /api/media/:id -> MediaView` and
+  `POST /api/media/:id/probe/ensure -> MediaView`.
+
+### 3. Contracts
+
+- Versions are visible `MediaView` siblings with the same non-null
+  `MetadataID`; the query reapplies NSFW plus allowed and hidden library filters.
+- The URL media owns title, favorite state, playback, casting, and management
+  actions. A selected sibling owns only the displayed video, audio, and subtitle
+  options; no selector changes a playback target or parameter.
+- Detail rendering does not wait for probing. Missing track data is repaired
+  asynchronously and only the media-info region shows loading or probe failure.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required result |
+| --- | --- |
+| Current media is absent, unresolved, or invisible | `404 not found` |
+| No visible sibling remains after filtering | `404 not found` |
+| Version query fails | `500` |
+| Ensure probe cannot inspect the source | `422 media probe failed`; keep the base detail visible |
+
+### 5. Good / Base / Bad Cases
+
+- Good: selecting another visible version refreshes only the three track selectors.
+- Base: one visible version has no tracks yet; show its base detail and probe locally.
+- Bad: replace the URL media with the selected sibling or list versions by title heuristics.
+
+### 6. Tests Required
+
+- Handler/service tests cover multiple siblings, hidden-library filtering, and
+  missing current media.
+- Web verification covers stale-request cancellation, local probe status,
+  unchanged play/cast IDs, empty selector states, and responsive keyboard use.
+
+### 7. Wrong vs Correct
+
+```typescript
+// Wrong: a display-only choice silently retargets every detail action.
+setMedia(selectedVersion)
+
+// Correct: keep action state stable and isolate the selector projection.
+setSelectedMedia(selectedVersion)
+```
+
 ## Scenario: Durable TMDb Catalog Hydration
 
 ### 1. Scope / Trigger

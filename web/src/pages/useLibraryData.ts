@@ -1,9 +1,11 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import toast from 'react-hot-toast'
 
 import { libraryAPI } from '../api/library'
 import type { Library, Media } from '../types'
 import { groupSeries, isEpisodeLike, type SeriesCard } from '../utils/groupSeries'
+
+const LIBRARY_PAGE_SIZE = 50
 
 export function useLibraryData(libraryID: string, selectedSeries: SeriesCard | null) {
   const [library, setLibrary] = useState<Library | null>(null)
@@ -12,8 +14,12 @@ export function useLibraryData(libraryID: string, selectedSeries: SeriesCard | n
   const [seriesEpisodeItems, setSeriesEpisodeItems] = useState<Media[]>([])
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(true)
-  const [loadingAll, setLoadingAll] = useState(false)
+  const [loadingMore, setLoadingMore] = useState(false)
+  const [loadMoreError, setLoadMoreError] = useState(false)
   const [loadingSeriesEpisodes, setLoadingSeriesEpisodes] = useState(false)
+  const [nextPage, setNextPage] = useState(2)
+  const loadingMoreRef = useRef(false)
+  const loadVersionRef = useRef(0)
 
   const isSeriesLibrary = isSeriesLibraryType(library?.type)
   const hasEpisodicItems = useMemo(() => items.some(isEpisodeLike), [items])
@@ -50,49 +56,60 @@ export function useLibraryData(libraryID: string, selectedSeries: SeriesCard | n
   useEffect(() => {
     if (!libraryID || !library) return
     let cancelled = false
+    loadVersionRef.current += 1
+    loadingMoreRef.current = false
     setLoading(true)
-    setLoadingAll(true)
+    setLoadingMore(false)
+    setLoadMoreError(false)
+    setTotal(0)
+    setNextPage(2)
     setItems([])
     setServerSeriesCards([])
     setSeriesEpisodeItems([])
 
-    const loadAll = async () => {
-      if (isSeriesLibrary) {
-        const collected = await loadAllSeriesCards(libraryID, (next) => {
-          if (cancelled) return
-          setTotal(next.total)
-          if (next.firstPage) {
-            setServerSeriesCards(next.items)
-            setLoading(false)
-          }
-        })
-        if (!cancelled) setServerSeriesCards(collected.items)
-        return
-      }
-
-      const collected = await loadAllMedia(libraryID, (next) => {
+    loadLibraryPage(libraryID, isSeriesLibrary, 1)
+      .then((page) => {
         if (cancelled) return
-        setTotal(next.total)
-        if (next.firstPage) {
-          setItems(next.items)
-          setLoading(false)
-        }
+        setTotal(page.total)
+        if (page.kind === 'series') setServerSeriesCards(page.items)
+        else setItems(page.items)
       })
-      if (!cancelled) setItems(collected.items)
-    }
-
-    loadAll()
       .catch(() => {
         if (!cancelled) toast.error('媒体库加载失败')
       })
       .finally(() => {
-        if (!cancelled) {
-          setLoading(false)
-          setLoadingAll(false)
-        }
+        if (!cancelled) setLoading(false)
       })
     return () => { cancelled = true }
   }, [libraryID, library, isSeriesLibrary])
+
+  const loadedCount = isSeriesLibrary ? serverSeriesCards.length : items.length
+  const hasMore = loadedCount < total
+  const loadMore = useCallback(async () => {
+    if (!libraryID || !library || !hasMore || loadingMoreRef.current) return
+    const loadVersion = loadVersionRef.current
+    loadingMoreRef.current = true
+    setLoadingMore(true)
+    setLoadMoreError(false)
+    try {
+      const page = await loadLibraryPage(libraryID, isSeriesLibrary, nextPage)
+      if (loadVersion !== loadVersionRef.current) return
+      setTotal(page.items.length === 0 ? loadedCount : page.total)
+      if (page.kind === 'series') setServerSeriesCards((current) => current.concat(page.items))
+      else setItems((current) => current.concat(page.items))
+      setNextPage((current) => current + 1)
+    } catch {
+      if (loadVersion === loadVersionRef.current) {
+        setLoadMoreError(true)
+        toast.error('加载更多失败')
+      }
+    } finally {
+      if (loadVersion === loadVersionRef.current) {
+        loadingMoreRef.current = false
+        setLoadingMore(false)
+      }
+    }
+  }, [hasMore, isSeriesLibrary, library, libraryID, loadedCount, nextPage])
 
   useEffect(() => {
     if (!libraryID || !isSeriesLibrary || !selectedSeries) {
@@ -120,10 +137,8 @@ export function useLibraryData(libraryID: string, selectedSeries: SeriesCard | n
     setLibrary((current) => (current ? { ...current } : current))
   }, [])
 
-  const loadingAllText = loadingAll && !loading && (isSeriesLibrary ? total > serverSeriesCards.length : total > items.length)
-    ? (isSeriesLibrary
-      ? `正在继续加载剧集卡片：${serverSeriesCards.length} / ${total}`
-      : `正在继续加载全部条目：${items.length} / ${total}`)
+  const loadingAllText = loadingMore
+    ? `正在加载更多：${loadedCount} / ${total}`
     : ''
 
   return {
@@ -137,6 +152,10 @@ export function useLibraryData(libraryID: string, selectedSeries: SeriesCard | n
     isSeries,
     seriesCards,
     loadingAllText,
+    loadingMore,
+    loadMoreError,
+    hasMore,
+    loadMore,
     reloadCurrentLibrary,
   }
 }
@@ -145,40 +164,13 @@ function isSeriesLibraryType(type?: string) {
   return type === 'tv' || type === 'anime' || type === 'variety'
 }
 
-async function loadAllSeriesCards(
-  libraryID: string,
-  onPage: (state: { items: SeriesCard[]; total: number; firstPage: boolean }) => void,
-) {
-  const pageSize = 500
-  let page = 1
-  let collected: SeriesCard[] = []
-  for (;;) {
-    const data = await libraryAPI.listSeries(libraryID, page, pageSize)
-    // 后端对空库可能返回 items: null（Go nil slice）；不兜底会 concat 出 [null] 并崩溃。
-    const pageItems = data.items ?? []
-    collected = collected.concat(pageItems)
-    onPage({ items: collected, total: data.total ?? collected.length, firstPage: page === 1 })
-    if (collected.length >= (data.total ?? 0) || pageItems.length < pageSize) break
-    page += 1
+async function loadLibraryPage(libraryID: string, series: boolean, page: number) {
+  if (series) {
+    const data = await libraryAPI.listSeries(libraryID, page, LIBRARY_PAGE_SIZE)
+    const items = data.items ?? []
+    return { kind: 'series' as const, items, total: data.total ?? items.length }
   }
-  return { items: collected }
-}
-
-async function loadAllMedia(
-  libraryID: string,
-  onPage: (state: { items: Media[]; total: number; firstPage: boolean }) => void,
-) {
-  const pageSize = 2000
-  let page = 1
-  let collected: Media[] = []
-  for (;;) {
-    const data = await libraryAPI.listMedia(libraryID, page, pageSize)
-    // 后端对空库可能返回 items: null（Go nil slice）；不兜底会 concat 出 [null] 并崩溃。
-    const pageItems = data.items ?? []
-    collected = collected.concat(pageItems)
-    onPage({ items: collected, total: data.total ?? collected.length, firstPage: page === 1 })
-    if (collected.length >= (data.total ?? 0) || pageItems.length < pageSize) break
-    page += 1
-  }
-  return { items: collected }
+  const data = await libraryAPI.listMedia(libraryID, page, LIBRARY_PAGE_SIZE)
+  const items = data.items ?? []
+  return { kind: 'media' as const, items, total: data.total ?? items.length }
 }

@@ -247,6 +247,59 @@ func TestListMediaGroupsMultipleVersionsByDefault(t *testing.T) {
 	}
 }
 
+func TestListMediaVersionsReturnsOnlyVisibleSiblings(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db, err := testdb.OpenPostgres(t, &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := migrateMediaHandlerTestDB(db, &model.User{}, &model.Library{}, &model.Media{}, &model.Setting{}, &model.PlayProfile{}); err != nil {
+		t.Fatal(err)
+	}
+	repos := repository.New(db)
+	viewer := &model.User{Username: "viewer-versions", PasswordHash: "hash", Role: "user", HideAdult: true}
+	if err := repos.User.Create(t.Context(), viewer); err != nil {
+		t.Fatal(err)
+	}
+	safe := model.Library{Name: "电影", Path: "/media/movies", Type: "movie", Enabled: true}
+	hidden := model.Library{Name: "隐藏库", Path: "/media/hidden", Type: "movie", Enabled: true}
+	for _, lib := range []*model.Library{&safe, &hidden} {
+		if err := repos.Library.Create(t.Context(), lib); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := repos.Setting.Set(t.Context(), service.AdultLibraryIDsSettingKey, `["`+hidden.ID+`"]`); err != nil {
+		t.Fatal(err)
+	}
+	metadata := model.MetadataItem{Kind: model.MetadataKindMovie, Title: "同一作品", Source: "local"}
+	if err := repos.DB.Create(&metadata).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := repos.DB.Create(&[]model.Media{
+		{Base: model.Base{ID: "version-safe-1"}, LibraryID: safe.ID, MetadataID: metadata.ID, Title: metadata.Title, Path: "/media/movies/version-1.mkv"},
+		{Base: model.Base{ID: "version-safe-2"}, LibraryID: safe.ID, MetadataID: metadata.ID, Title: metadata.Title, Path: "/media/movies/version-2.mkv"},
+		{Base: model.Base{ID: "version-hidden"}, LibraryID: hidden.ID, MetadataID: metadata.ID, Title: metadata.Title, Path: "/media/hidden/version-3.mkv"},
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	svc := &service.Container{
+		Repo:  repos,
+		Media: service.NewMediaService(&config.Config{}, zap.NewNop(), repos),
+	}
+
+	items := requestMediaVersions(t, svc, viewer.ID, "version-safe-1", http.StatusOK)
+	if len(items) != 2 {
+		t.Fatalf("visible versions = %#v, want two safe versions", items)
+	}
+	for _, item := range items {
+		if item.LibraryID != safe.ID {
+			t.Fatalf("hidden version leaked: %#v", item)
+		}
+	}
+
+	requestMediaVersions(t, svc, viewer.ID, "missing", http.StatusNotFound)
+}
+
 func TestListLibrarySeriesDoesNotTruncateLargeEpisodeLibraries(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db, err := testdb.OpenPostgres(t, &gorm.Config{})
@@ -445,6 +498,28 @@ func requestMediaList(t *testing.T, svc *service.Container, path, libraryID stri
 		t.Fatalf("decode media list: %v", err)
 	}
 	return payload
+}
+
+func requestMediaVersions(t *testing.T, svc *service.Container, userID, mediaID string, wantStatus int) []model.MediaView {
+	t.Helper()
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Set(middleware.CtxUserID, userID)
+	c.Set(middleware.CtxUserRole, "user")
+	c.Params = gin.Params{{Key: "id", Value: mediaID}}
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/media/"+mediaID+"/versions", nil)
+	listMediaVersionsHandler(svc)(c)
+	if w.Code != wantStatus {
+		t.Fatalf("GET media versions status = %d body=%s, want %d", w.Code, w.Body.String(), wantStatus)
+	}
+	if wantStatus != http.StatusOK {
+		return nil
+	}
+	var items []model.MediaView
+	if err := json.Unmarshal(w.Body.Bytes(), &items); err != nil {
+		t.Fatalf("decode media versions: %v", err)
+	}
+	return items
 }
 
 func requestLibrarySeries(t *testing.T, svc *service.Container, path, libraryID string) seriesListResponse {

@@ -183,6 +183,11 @@ export const mediaAPI = {
 
   get: (id: string) => api.get<Media>(`/media/${id}`).then((r) => r.data),
 
+  listVersions: (id: string) => api.get<Media[]>(`/media/${id}/versions`).then((r) => r.data),
+
+  ensureProbe: (id: string) =>
+    api.post<Media>(`/media/${id}/probe/ensure`, null, { timeout: LONG_REQUEST_TIMEOUT }).then((r) => r.data),
+
   updateMetadata: (id: string, payload: MediaMetadataUpdate) =>
     api.patch<Media>(`/media/${id}/metadata`, payload, { timeout: LONG_REQUEST_TIMEOUT }).then((r) => r.data),
 

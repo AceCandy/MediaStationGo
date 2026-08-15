@@ -29,6 +29,8 @@ func TestAuthenticatedRouteSurfacesAreRegistered(t *testing.T) {
 		"GET /api/libraries",
 		"POST /api/libraries/:id/probe",
 		"GET /api/media",
+		"GET /api/media/:id/versions",
+		"POST /api/media/:id/probe/ensure",
 		"GET /api/stream/:id",
 		"GET /api/storage",
 		"GET /api/search",

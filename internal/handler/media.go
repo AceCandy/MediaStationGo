@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
-	"go.uber.org/zap"
 
 	"github.com/ShukeBta/MediaStationGo/internal/middleware"
 	"github.com/ShukeBta/MediaStationGo/internal/model"
@@ -199,13 +198,49 @@ func getMediaHandler(svc *service.Container) gin.HandlerFunc {
 			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
 			return
 		}
-		if svc.MediaProbe != nil && svc.MediaProbe.NeedsProbe(c.Request.Context(), m.ID) {
+		c.JSON(http.StatusOK, m)
+	}
+}
+
+func listMediaVersionsHandler(svc *service.Container) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		items, err := svc.Media.ListMediaVersions(c.Request.Context(), c.Param("id"), mediaVisibilityForRequest(c, svc))
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		if len(items) == 0 {
+			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+			return
+		}
+		c.JSON(http.StatusOK, items)
+	}
+}
+
+func ensureMediaProbeHandler(svc *service.Container) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		m, err := svc.Media.GetMedia(c.Request.Context(), c.Param("id"))
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		if m == nil || !mediaViewVisibleForRequest(c, svc, m) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+			return
+		}
+		if svc.MediaProbe == nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "media probe unavailable"})
+			return
+		}
+		if svc.MediaProbe.NeedsProbe(c.Request.Context(), m.ID) {
 			if _, err := svc.MediaProbe.ProbeMedia(c.Request.Context(), m.ID); err != nil {
-				if svc.Log != nil {
-					svc.Log.Debug("media detail probe failed", zap.String("media_id", m.ID), zap.Error(err))
-				}
-			} else if refreshed, err := svc.Media.GetMedia(c.Request.Context(), m.ID); err == nil && refreshed != nil {
-				m = refreshed
+				c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "media probe failed"})
+				return
+			}
+			m, err = svc.Media.GetMedia(c.Request.Context(), m.ID)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+				return
 			}
 		}
 		c.JSON(http.StatusOK, m)

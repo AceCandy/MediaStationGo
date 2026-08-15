@@ -105,6 +105,24 @@ func (s *MediaService) GetMedia(ctx context.Context, id string) (*model.MediaVie
 	return media, nil
 }
 
+// ListMediaVersions 返回当前用户可见的同作品媒体版本。
+func (s *MediaService) ListMediaVersions(ctx context.Context, id string, visibility MediaVisibility) ([]model.MediaView, error) {
+	media, err := s.repo.MediaView.FindByID(ctx, id)
+	if err != nil || media == nil || !visibility.AllowsView(media) {
+		return []model.MediaView{}, err
+	}
+	items, err := s.repo.MediaView.FindByMetadataID(ctx, media.MetadataID, repository.MediaQueryFilter{
+		IncludeNSFW:       visibility.IncludeNSFW,
+		AllowedLibraryIDs: visibility.AllowedLibraryIDs,
+		HiddenLibraryIDs:  visibility.HiddenLibraryIDs,
+	})
+	if err != nil {
+		return nil, err
+	}
+	s.attachLibraryMetadataViews(ctx, items)
+	return items, nil
+}
+
 // GetRawMedia 仅供扫描、文件打开和播放内部读取文件事实。
 func (s *MediaService) GetRawMedia(ctx context.Context, id string) (*model.Media, error) {
 	media, err := s.repo.Media.FindByID(ctx, id)

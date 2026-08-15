@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useLocation, useParams, useSearchParams } from 'react-router-dom'
 import { motion } from 'framer-motion'
 
@@ -39,8 +39,23 @@ export function LibraryPage() {
     isSeries,
     seriesCards,
     loadingAllText,
+    loadingMore,
+    loadMoreError,
+    hasMore,
+    loadMore,
     reloadCurrentLibrary,
   } = useLibraryData(id, selectedSeries)
+  const loadMoreRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const target = loadMoreRef.current
+    if (!target || !hasMore || loadingMore || loadMoreError || selectedSeries) return
+    const observer = new IntersectionObserver(([entry]) => {
+      if (entry.isIntersecting) void loadMore()
+    }, { rootMargin: '600px 0px' })
+    observer.observe(target)
+    return () => observer.disconnect()
+  }, [hasMore, loadMore, loadingMore, loadMoreError, selectedSeries])
 
   const {
     scanning,
@@ -145,6 +160,16 @@ export function LibraryPage() {
         movieActions={movieActions}
         onSeriesClick={handleSeriesClick}
       />
+
+      {!selectedSeries && hasMore && (
+        <div ref={loadMoreRef} className="py-4 text-center text-sm text-sand-500">
+          {loadMoreError ? (
+            <button type="button" className="neon-button min-h-11" onClick={() => void loadMore()}>
+              重试加载更多
+            </button>
+          ) : loadingMore ? '正在加载更多…' : '继续下滑加载更多'}
+        </div>
+      )}
 
       <LibrarySeriesDetailSection
         selectedSeries={selectedSeries}
