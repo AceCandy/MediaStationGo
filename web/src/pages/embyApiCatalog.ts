@@ -412,6 +412,7 @@ export const EMBY_API_ENDPOINTS: readonly EmbyApiEndpoint[] = [
       { name: 'SearchTerm', location: 'query', type: 'string', description: '标题搜索词。' },
       { name: 'IncludeItemTypes', location: 'query', type: 'string', description: '逗号分隔的 Emby 媒体类型。' },
       { name: 'Filters', location: 'query', type: 'string', description: '逗号分隔的过滤条件。' },
+      { name: 'Fields', location: 'query', type: 'string', description: '可选字段列表；指定后仅按需返回 People、ProviderIds 和 MediaSources，省略时保持完整兼容响应。' },
       { name: 'Recursive', location: 'query', type: 'boolean', description: '是否递归查询。' },
       { name: 'SortBy / SortOrder', location: 'query', type: 'string', description: '排序字段和方向。' },
       { name: 'Limit / StartIndex', location: 'query', type: 'number', description: '分页参数，Limit 默认 50，最大 500。' },

@@ -99,8 +99,16 @@ func (r *PersonRepository) ListCredits(ctx context.Context, metadataID string) (
 }
 
 func (r *PersonRepository) ListCreditsWithPeople(ctx context.Context, metadataID string) ([]model.MetadataCredit, error) {
+	return r.ListCreditsWithPeopleByMetadataIDs(ctx, []string{metadataID})
+}
+
+// ListCreditsWithPeopleByMetadataIDs 批量返回多个作品各自的演职员关系。
+func (r *PersonRepository) ListCreditsWithPeopleByMetadataIDs(ctx context.Context, metadataIDs []string) ([]model.MetadataCredit, error) {
+	if len(metadataIDs) == 0 {
+		return []model.MetadataCredit{}, nil
+	}
 	var rows []model.MetadataCredit
-	err := r.db.WithContext(ctx).Preload("Person").Where("metadata_id = ?", metadataID).Order("sort_order, id").Find(&rows).Error
+	err := r.db.WithContext(ctx).Preload("Person").Where("metadata_id IN ?", metadataIDs).Order("metadata_id, sort_order, id").Find(&rows).Error
 	return rows, err
 }
 

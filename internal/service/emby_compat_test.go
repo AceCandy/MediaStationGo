@@ -1,10 +1,12 @@
 package service
 
 import (
+	"strconv"
 	"testing"
 	"time"
 
 	"go.uber.org/zap"
+	"gorm.io/gorm"
 
 	"github.com/ShukeBta/MediaStationGo/internal/config"
 	"github.com/ShukeBta/MediaStationGo/internal/model"
@@ -21,6 +23,123 @@ func newTestEmbyService(t *testing.T) *EmbyService {
 	}
 	repos := repository.New(db)
 	return NewEmbyService(&config.Config{}, zap.NewNop(), repos)
+}
+
+func TestEmbyItemsPayloadQueriesDoNotScaleWithPageSize(t *testing.T) {
+	svc := newTestEmbyService(t)
+	lib := model.Library{Name: "Movies", Path: "/media/movies", Type: "movie", Enabled: true}
+	if err := svc.repo.Library.Create(t.Context(), &lib); err != nil {
+		t.Fatal(err)
+	}
+	person := model.Person{
+		Base: model.Base{ID: "person-query-count"}, Name: "Actor", OriginalName: "Actor",
+		NormalizedName: "actor", Source: "tmdb",
+	}
+	if err := svc.repo.DB.Create(&person).Error; err != nil {
+		t.Fatal(err)
+	}
+	mediaIDs := []string{"media-query-1", "media-query-2", "media-query-3"}
+	for i, mediaID := range mediaIDs {
+		suffix := strconv.Itoa(i + 1)
+		metadata := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{
+			Base: model.Base{ID: "metadata-query-" + suffix},
+			Kind: model.MetadataKindMovie, Title: "Movie " + suffix, Source: "tmdb",
+		},
+			model.MetadataIdentifier{Provider: "tmdb", EntityKind: model.MetadataKindMovie, ExternalID: suffix},
+			model.MetadataIdentifier{Provider: "imdb", EntityKind: model.MetadataKindMovie, ExternalID: "tt-query-" + suffix},
+		)
+		if err := svc.repo.DB.Create(&model.MetadataCredit{
+			MetadataID: metadata.ID, PersonID: person.ID, Type: model.CreditTypeActor, Role: "Lead",
+		}).Error; err != nil {
+			t.Fatal(err)
+		}
+		if err := svc.repo.DB.Create(&model.Media{
+			Base: model.Base{ID: mediaID}, MetadataID: metadata.ID, LibraryID: lib.ID,
+			Title: metadata.Title, Path: "/media/movies/" + mediaID + ".mkv",
+		}).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	views, err := svc.repo.MediaView.FindByIDs(t.Context(), mediaIDs, repository.MediaQueryFilter{IncludeNSFW: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	queries := 0
+	if err := svc.repo.DB.Callback().Query().Before("gorm:query").Register("test:count-emby-items-payload", func(*gorm.DB) {
+		queries++
+	}); err != nil {
+		t.Fatal(err)
+	}
+	items := svc.payloadsForViews(t.Context(), views[:1], "")
+	oneItemQueries := queries
+	queries = 0
+	allItems := svc.payloadsForViews(t.Context(), views, "")
+	if queries != oneItemQueries {
+		t.Fatalf("payload queries grew with page size: one=%d three=%d", oneItemQueries, queries)
+	}
+	if len(allItems) != len(views) {
+		t.Fatalf("items = %d, want %d", len(allItems), len(views))
+	}
+	people := items[0]["People"].([]model.EmbyPerson)
+	providers := items[0]["ProviderIds"].(map[string]string)
+	sources := items[0]["MediaSources"].([]map[string]any)
+	if len(people) != 1 || people[0].Id != person.ID || providers["Tmdb"] != "1" || providers["Imdb"] != "tt-query-1" || len(sources) != 1 || sources[0]["Id"] != mediaIDs[0] {
+		t.Fatalf("list relations changed: people=%#v providers=%#v sources=%#v", people, providers, sources)
+	}
+	queries = 0
+	minimalItems := svc.payloadsForViewsWithFields(t.Context(), views, "", []string{"PrimaryImageAspectRatio"})
+	if queries >= oneItemQueries {
+		t.Fatalf("minimal fields queries = %d, want fewer than full payload %d", queries, oneItemQueries)
+	}
+	for _, key := range []string{"People", "ProviderIds", "MediaSources"} {
+		if _, ok := minimalItems[0][key]; ok {
+			t.Fatalf("minimal list unexpectedly contains %s: %#v", key, minimalItems[0])
+		}
+	}
+}
+
+func TestEmbyFolderPayloadQueriesDoNotScaleWithPageSize(t *testing.T) {
+	svc := newTestEmbyService(t)
+	seriesGroups := make([]embySeriesGroup, 0, 3)
+	seasonGroups := make([]embySeasonGroup, 0, 3)
+	for i := 1; i <= 3; i++ {
+		suffix := strconv.Itoa(i)
+		series := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{
+			Base: model.Base{ID: "series-query-" + suffix}, Kind: model.MetadataKindSeries,
+			Title: "Series " + suffix, Source: "tmdb",
+		})
+		season := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{
+			Base: model.Base{ID: "season-query-" + suffix}, Kind: model.MetadataKindSeason,
+			ParentID: &series.ID, SeasonNum: 1, Title: "Season 1", Source: "tmdb",
+		})
+		group := embySeriesGroup{ID: series.ID, Name: series.Title}
+		seriesGroups = append(seriesGroups, group)
+		seasonGroups = append(seasonGroups, embySeasonGroup{ID: season.ID, SeriesID: series.ID, Name: season.Title, Series: group})
+	}
+
+	queries := 0
+	if err := svc.repo.DB.Callback().Query().Before("gorm:query").Register("test:count-emby-folder-payload", func(*gorm.DB) {
+		queries++
+	}); err != nil {
+		t.Fatal(err)
+	}
+	svc.seriesPayloadsWithFields(t.Context(), seriesGroups[:1], "", nil)
+	oneSeriesQueries := queries
+	queries = 0
+	svc.seriesPayloadsWithFields(t.Context(), seriesGroups, "", nil)
+	if queries != oneSeriesQueries {
+		t.Fatalf("series payload queries grew with page size: one=%d three=%d", oneSeriesQueries, queries)
+	}
+
+	queries = 0
+	svc.seasonPayloadsWithFields(t.Context(), seasonGroups[:1], "", nil)
+	oneSeasonQueries := queries
+	queries = 0
+	svc.seasonPayloadsWithFields(t.Context(), seasonGroups, "", nil)
+	if queries != oneSeasonQueries {
+		t.Fatalf("season payload queries grew with page size: one=%d three=%d", oneSeasonQueries, queries)
+	}
 }
 
 func TestEmbyLatestItemsOrderByReleaseDate(t *testing.T) {

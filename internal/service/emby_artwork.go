@@ -77,20 +77,28 @@ func (e *EmbyService) metadataArtworkURL(ctx context.Context, metadataID, artwor
 }
 
 func (e *EmbyService) mediaPrimaryArtwork(ctx context.Context, m *model.MediaView) string {
+	return mediaPrimaryArtworkForType(m, m != nil && e.mediaShouldBeEpisode(ctx, &m.Media))
+}
+
+func mediaPrimaryArtworkForType(m *model.MediaView, episode bool) string {
 	if m == nil {
 		return ""
 	}
-	if e.mediaShouldBeEpisode(ctx, &m.Media) && strings.TrimSpace(m.BackdropURL) != "" {
+	if episode && strings.TrimSpace(m.BackdropURL) != "" {
 		return m.BackdropURL
 	}
 	return m.PosterURL
 }
 
 func (e *EmbyService) mediaBackdropArtwork(ctx context.Context, m *model.MediaView) string {
+	return mediaBackdropArtworkForType(m, m != nil && e.mediaShouldBeEpisode(ctx, &m.Media))
+}
+
+func mediaBackdropArtworkForType(m *model.MediaView, episode bool) string {
 	if m == nil {
 		return ""
 	}
-	if e.mediaShouldBeEpisode(ctx, &m.Media) {
+	if episode {
 		return ""
 	}
 	return m.BackdropURL

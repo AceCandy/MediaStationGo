@@ -222,6 +222,9 @@ db.Model(&credit).
   sibling Media versions visible to the current user, including versions in
   separate physical libraries. Every sibling query must reapply allowed and
   hidden library plus NSFW filters.
+- After an Emby logical page is selected, People, provider identifiers, and
+  visible sibling Media versions must be batch-loaded for the page rather than
+  queried inside the item payload loop.
 - A library-scoped top-level item uses the requested container as `ParentId`;
   a global projection does not assign the shared Metadata to a physical library.
 - Do not cache or reuse a Series/Season payload containing a user-filtered

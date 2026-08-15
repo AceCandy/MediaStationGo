@@ -78,7 +78,7 @@ func (e *EmbyService) movieLibraryItems(ctx context.Context, p ItemsParams) (map
 	if err != nil {
 		return nil, err
 	}
-	movieItems := e.payloadsForViews(ctx, movieViews, p.UserID)
+	movieItems := e.payloadsForViewsWithFields(ctx, movieViews, p.UserID, p.Fields)
 
 	// 合并: Series 卡片 + Movie 项, 统一按首播/上映日期倒序。
 	type entry struct {
@@ -86,10 +86,10 @@ func (e *EmbyService) movieLibraryItems(ctx context.Context, p ItemsParams) (map
 		payload map[string]any
 	}
 	entries := make([]entry, 0, len(seriesGroups)+len(movieItems))
-	for _, g := range seriesGroups {
-		item := e.seriesPayload(ctx, g, p.UserID)
+	seriesItems := e.seriesPayloadsWithFields(ctx, seriesGroups, p.UserID, p.Fields)
+	for i, item := range seriesItems {
 		item["ParentId"] = p.ParentID
-		entries = append(entries, entry{sortAt: embySeriesReleaseSortTime(g), payload: item})
+		entries = append(entries, entry{sortAt: embySeriesReleaseSortTime(seriesGroups[i]), payload: item})
 	}
 	for _, item := range movieItems {
 		item["ParentId"] = p.ParentID

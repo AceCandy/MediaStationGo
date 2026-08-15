@@ -23,9 +23,11 @@ type embyLatestCacheValue struct {
 func (e *EmbyService) embyItemsCacheKey(kind string, p ItemsParams) string {
 	includeTypes := append([]string(nil), p.IncludeItemTypes...)
 	filters := append([]string(nil), p.Filters...)
+	fields := append([]string(nil), p.Fields...)
 	ids := append([]string(nil), p.IDs...)
 	sort.Strings(includeTypes)
 	sort.Strings(filters)
+	sort.Strings(fields)
 	sort.Strings(ids)
 	sum := sha256.Sum256([]byte(strings.Join([]string{
 		kind,
@@ -35,6 +37,7 @@ func (e *EmbyService) embyItemsCacheKey(kind string, p ItemsParams) string {
 		p.SearchTerm,
 		strings.Join(includeTypes, ","),
 		strings.Join(filters, ","),
+		strings.Join(fields, ","),
 		strconv.FormatBool(p.Recursive),
 		p.SortBy,
 		p.SortOrder,

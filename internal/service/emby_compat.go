@@ -91,6 +91,7 @@ type ItemsParams struct {
 	SearchTerm       string
 	IncludeItemTypes []string
 	Filters          []string
+	Fields           []string
 	Recursive        bool
 	SortBy           string
 	SortOrder        string
@@ -174,10 +175,7 @@ func (e *EmbyService) Items(ctx context.Context, p ItemsParams) (map[string]any,
 			return e.episodeItems(ctx, series.Episodes, p)
 		}
 		seasons := e.seasonsForSeries(series)
-		items := make([]map[string]any, 0, len(seasons))
-		for _, season := range pageSlice(seasons, p.StartIndex, p.Limit) {
-			items = append(items, e.seasonPayload(ctx, season, p.UserID))
-		}
+		items := e.seasonPayloadsWithFields(ctx, pageSlice(seasons, p.StartIndex, p.Limit), p.UserID, p.Fields)
 		return map[string]any{"Items": items, "TotalRecordCount": len(seasons), "StartIndex": p.StartIndex}, nil
 	}
 
