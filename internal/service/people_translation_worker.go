@@ -21,6 +21,8 @@ const (
 )
 
 var peopleTranslationSweepInterval = 10 * time.Minute
+var peopleTranslationDebounceDelay = 10 * time.Second
+var peopleTranslationMaxDebounceWait = 30 * time.Second
 
 var peopleTranslationRetryBackoff = [...]time.Duration{
 	time.Minute,
@@ -78,6 +80,9 @@ func (s *ScraperService) runPeopleTranslationWorker(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-s.peopleTranslationWake:
+			if !waitForPeopleTranslationDebounce(ctx, s.peopleTranslationWake) {
+				return
+			}
 		case <-ticker.C:
 		}
 		if err := s.translatePendingPeople(ctx); err != nil && ctx.Err() == nil {
@@ -92,11 +97,34 @@ func (s *ScraperService) runPeopleTranslationWorker(ctx context.Context) {
 				timer.Stop()
 				return
 			case <-timer.C:
-				s.queuePeopleTranslation()
 			}
-			continue
 		}
 		failures = 0
+	}
+}
+
+func waitForPeopleTranslationDebounce(ctx context.Context, wake <-chan struct{}) bool {
+	debounce := time.NewTimer(peopleTranslationDebounceDelay)
+	defer debounce.Stop()
+	maximum := time.NewTimer(peopleTranslationMaxDebounceWait)
+	defer maximum.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return false
+		case <-debounce.C:
+			return true
+		case <-maximum.C:
+			return true
+		case <-wake:
+			if !debounce.Stop() {
+				select {
+				case <-debounce.C:
+				default:
+				}
+			}
+			debounce.Reset(peopleTranslationDebounceDelay)
+		}
 	}
 }
 

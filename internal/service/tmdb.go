@@ -111,7 +111,6 @@ func (t *TMDbProvider) resolveAPIKey(ctx context.Context) string {
 		} else if resolved.APIKey == "" {
 			t.log.Warn("tmdb: API key is empty in database")
 		} else {
-			t.log.Debug("tmdb: using API key from database")
 			return resolved.APIKey
 		}
 	} else {

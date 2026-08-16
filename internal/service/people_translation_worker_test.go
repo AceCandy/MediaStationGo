@@ -20,6 +20,7 @@ import (
 )
 
 func TestPeopleTranslationWorkerUsesContextAndCache(t *testing.T) {
+	setPeopleTranslationTestDebounce(t, 0, 0)
 	var calls atomic.Int32
 	requests := make(chan []AITranslationEntry, 1)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -116,6 +117,7 @@ func TestPeopleTranslationWorkerUsesContextAndCache(t *testing.T) {
 }
 
 func TestPeopleTranslationWorkerRetriesAfterBackoff(t *testing.T) {
+	setPeopleTranslationTestDebounce(t, 0, 0)
 	previousInterval := peopleTranslationSweepInterval
 	previousBackoff := peopleTranslationRetryBackoff
 	peopleTranslationSweepInterval = time.Hour
@@ -183,6 +185,34 @@ func TestPeopleTranslationRetryDelay(t *testing.T) {
 			t.Fatalf("retry delay after %d failures = %s, want %s", failures, got, expected)
 		}
 	}
+}
+
+func TestPeopleTranslationDebounceUsesMaximumWait(t *testing.T) {
+	setPeopleTranslationTestDebounce(t, 30*time.Millisecond, 70*time.Millisecond)
+	wake := make(chan struct{}, 1)
+	go func() {
+		for range 3 {
+			time.Sleep(20 * time.Millisecond)
+			wake <- struct{}{}
+		}
+	}()
+
+	started := time.Now()
+	if !waitForPeopleTranslationDebounce(t.Context(), wake) {
+		t.Fatal("debounce stopped before the maximum wait")
+	}
+	if elapsed := time.Since(started); elapsed < 60*time.Millisecond || elapsed > 120*time.Millisecond {
+		t.Fatalf("debounce waited %s, want maximum wait near 70ms", elapsed)
+	}
+}
+
+func setPeopleTranslationTestDebounce(t *testing.T, delay, maximum time.Duration) {
+	t.Helper()
+	previousDelay, previousMaximum := peopleTranslationDebounceDelay, peopleTranslationMaxDebounceWait
+	peopleTranslationDebounceDelay, peopleTranslationMaxDebounceWait = delay, maximum
+	t.Cleanup(func() {
+		peopleTranslationDebounceDelay, peopleTranslationMaxDebounceWait = previousDelay, previousMaximum
+	})
 }
 
 func TestPeopleTranslationEmptyPassDoesNotCreateTask(t *testing.T) {

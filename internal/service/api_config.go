@@ -134,10 +134,6 @@ func (s *APIConfigService) Resolve(ctx context.Context, provider string) (Resolv
 		Enabled:          row.Enabled,
 		WebSearchEnabled: row.WebSearchEnabled,
 	}
-	s.log.Debug("api_config.resolve: success",
-		zap.String("provider", provider),
-		zap.Bool("has_key", resolved.APIKey != ""),
-		zap.Bool("enabled", resolved.Enabled))
 	return resolved, nil
 }
 
