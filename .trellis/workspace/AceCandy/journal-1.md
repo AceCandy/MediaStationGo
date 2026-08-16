@@ -634,3 +634,24 @@ Committed the existing web UI redesign together with detailed background task lo
 ### Status
 
 [OK] **Completed**
+
+
+## Session 30: 记录空人物补齐执行
+
+**Date**: 2026-08-17
+**Task**: 记录空人物补齐执行
+**Branch**: `main`
+
+### Summary
+
+手动人物信息补齐在零候选时仍记录完成时间和任务日志，候选查询失败时记录失败；保留自动空扫描静默行为并补充回归测试。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `f5e382e` | (see git log) |
+
+### Status
+
+[OK] **Completed**
