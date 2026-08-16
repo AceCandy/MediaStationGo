@@ -59,6 +59,9 @@ func localizedCrewRole(typ, role string) string {
 }
 
 func (e *EmbyService) Persons(ctx context.Context, p ItemsParams) (map[string]any, error) {
+	if containsEmbyFilter(p.Filters, "IsFavorite") {
+		return emptyItemsEnvelope(p.StartIndex), nil
+	}
 	people, total, err := e.repo.Person.List(ctx, p.SearchTerm, p.IDs, p.StartIndex, p.Limit)
 	if err != nil {
 		return nil, err

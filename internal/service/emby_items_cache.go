@@ -25,15 +25,18 @@ func (e *EmbyService) embyItemsCacheKey(kind string, p ItemsParams) string {
 	filters := append([]string(nil), p.Filters...)
 	fields := append([]string(nil), p.Fields...)
 	ids := append([]string(nil), p.IDs...)
+	personIDs := append([]string(nil), p.PersonIDs...)
 	sort.Strings(includeTypes)
 	sort.Strings(filters)
 	sort.Strings(fields)
 	sort.Strings(ids)
+	sort.Strings(personIDs)
 	sum := sha256.Sum256([]byte(strings.Join([]string{
 		kind,
 		p.UserID,
 		p.ParentID,
 		strings.Join(ids, ","),
+		strings.Join(personIDs, ","),
 		p.SearchTerm,
 		strings.Join(includeTypes, ","),
 		strings.Join(filters, ","),

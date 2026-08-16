@@ -158,10 +158,11 @@ func TestEmbyItemsFiltersFavorites(t *testing.T) {
 	}
 
 	out, err := svc.Items(t.Context(), ItemsParams{
-		UserID:    viewer.ID,
-		Filters:   []string{"IsFavorite"},
-		Recursive: true,
-		Limit:     50,
+		UserID:           viewer.ID,
+		IncludeItemTypes: []string{"Movie"},
+		Filters:          []string{"IsFavorite"},
+		Recursive:        true,
+		Limit:            50,
 	})
 	if err != nil {
 		t.Fatalf("favorite items: %v", err)

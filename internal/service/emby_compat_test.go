@@ -99,6 +99,99 @@ func TestEmbyItemsPayloadQueriesDoNotScaleWithPageSize(t *testing.T) {
 	}
 }
 
+func TestEmbyFavoritePeopleItemsAreEmpty(t *testing.T) {
+	svc := newTestEmbyService(t)
+	person := model.Person{
+		Base:           model.Base{ID: "favorite-person"},
+		Name:           "Actor",
+		OriginalName:   "Actor",
+		NormalizedName: "actor",
+		Source:         "tmdb",
+	}
+	if err := svc.repo.DB.Create(&person).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	out, err := svc.Persons(t.Context(), ItemsParams{
+		UserID:     "user",
+		Filters:    []string{"IsFavorite"},
+		StartIndex: 3,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if items := out["Items"].([]map[string]any); len(items) != 0 || out["TotalRecordCount"] != int64(0) || out["StartIndex"] != 3 {
+		t.Fatalf("favorite people items = %#v, want empty page", out)
+	}
+}
+
+func TestEmbyUnsupportedFavoriteItemTypesAreEmpty(t *testing.T) {
+	svc := newTestEmbyService(t)
+	for _, itemTypes := range [][]string{{"Season"}, {"Episode"}, {"Folder"}, {"Movie", "Season"}} {
+		out, err := svc.Items(t.Context(), ItemsParams{
+			UserID:           "user",
+			IncludeItemTypes: itemTypes,
+			Filters:          []string{"IsFavorite"},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if items := out["Items"].([]map[string]any); len(items) != 0 || out["TotalRecordCount"] != int64(0) {
+			t.Fatalf("favorite item types %v = %#v, want empty page", itemTypes, out)
+		}
+	}
+}
+
+func TestEmbyItemsFilterByPerson(t *testing.T) {
+	svc := newTestEmbyService(t)
+	library := model.Library{Name: "Movies", Path: "/media/movies", Type: "movie", Enabled: true}
+	if err := svc.repo.Library.Create(t.Context(), &library); err != nil {
+		t.Fatal(err)
+	}
+	person := model.Person{Base: model.Base{ID: "person-1"}, Name: "Actor", OriginalName: "Actor", NormalizedName: "actor", Source: "tmdb"}
+	if err := svc.repo.DB.Create(&person).Error; err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"related", "unrelated"} {
+		metadata := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{Base: model.Base{ID: "metadata-" + id}, Kind: model.MetadataKindMovie, Title: id, Source: "tmdb"})
+		if err := svc.repo.DB.Create(&model.Media{Base: model.Base{ID: "media-" + id}, MetadataID: metadata.ID, LibraryID: library.ID, Title: id, Path: "/media/movies/" + id + ".mkv"}).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := svc.repo.DB.Create(&model.MetadataCredit{MetadataID: "metadata-related", PersonID: person.ID, Type: model.CreditTypeActor}).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	out, err := svc.Items(t.Context(), ItemsParams{PersonIDs: []string{person.ID}, IncludeItemTypes: []string{"Movie"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	items := out["Items"].([]map[string]any)
+	if len(items) != 1 || items[0]["Id"] != "metadata-related" {
+		t.Fatalf("person items = %#v, want related work", items)
+	}
+
+	for _, id := range []string{"related-series", "unrelated-series"} {
+		series := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{Base: model.Base{ID: id}, Kind: model.MetadataKindSeries, Title: id, Source: "tmdb"})
+		season := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{Base: model.Base{ID: id + "-season"}, Kind: model.MetadataKindSeason, ParentID: &series.ID, SeasonNum: 1, Title: "Season 1", Source: "tmdb"})
+		episode := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{Base: model.Base{ID: id + "-episode"}, Kind: model.MetadataKindEpisode, ParentID: &season.ID, SeasonNum: 1, EpisodeNum: 1, Title: "Episode 1", Source: "tmdb"})
+		if err := svc.repo.DB.Create(&model.Media{Base: model.Base{ID: "media-" + id}, MetadataID: episode.ID, LibraryID: library.ID, Title: id, Path: "/media/shows/" + id + "/S01E01.mkv", SeasonNum: 1, EpisodeNum: 1}).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := svc.repo.DB.Create(&model.MetadataCredit{MetadataID: "related-series", PersonID: person.ID, Type: model.CreditTypeActor}).Error; err != nil {
+		t.Fatal(err)
+	}
+	out, err = svc.Items(t.Context(), ItemsParams{PersonIDs: []string{person.ID}, IncludeItemTypes: []string{"Series"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	items = out["Items"].([]map[string]any)
+	if len(items) != 1 || items[0]["Id"] != "related-series" {
+		t.Fatalf("person series items = %#v, want related series", items)
+	}
+}
+
 func TestEmbyFolderPayloadQueriesDoNotScaleWithPageSize(t *testing.T) {
 	svc := newTestEmbyService(t)
 	seriesGroups := make([]embySeriesGroup, 0, 3)

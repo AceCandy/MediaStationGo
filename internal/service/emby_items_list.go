@@ -23,6 +23,10 @@ func (e *EmbyService) mediaItems(ctx context.Context, p ItemsParams) (map[string
 	if p.SearchTerm != "" {
 		q = q.Where("COALESCE(emby_metadata.title, media.scan_title) LIKE ? OR COALESCE(emby_metadata.original_name, '') LIKE ?", "%"+p.SearchTerm+"%", "%"+p.SearchTerm+"%")
 	}
+	if len(p.PersonIDs) > 0 {
+		credits := e.repo.DB.WithContext(ctx).Model(&model.MetadataCredit{}).Select("metadata_id").Where("person_id IN ?", p.PersonIDs)
+		q = q.Where("media.metadata_id IN (?)", credits)
+	}
 	if containsEmbyFilter(p.Filters, "IsFavorite") {
 		if strings.TrimSpace(p.UserID) == "" {
 			return map[string]any{"Items": []map[string]any{}, "TotalRecordCount": int64(0), "StartIndex": p.StartIndex}, nil
@@ -273,6 +277,10 @@ func (e *EmbyService) seriesItemsForLibrary(ctx context.Context, libraryID strin
 	}
 	if p.SearchTerm != "" {
 		q = q.Where("scope_series.title LIKE ? OR COALESCE(scope_series.original_name, '') LIKE ?", "%"+p.SearchTerm+"%", "%"+p.SearchTerm+"%")
+	}
+	if len(p.PersonIDs) > 0 {
+		credits := e.repo.DB.WithContext(ctx).Model(&model.MetadataCredit{}).Select("metadata_id").Where("person_id IN ?", p.PersonIDs)
+		q = q.Where("scope_series.id IN (?)", credits)
 	}
 	if containsEmbyFilter(p.Filters, "IsFavorite") {
 		if strings.TrimSpace(p.UserID) == "" {

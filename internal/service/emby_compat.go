@@ -88,6 +88,7 @@ type ItemsParams struct {
 	UserID           string
 	ParentID         string
 	IDs              []string
+	PersonIDs        []string
 	SearchTerm       string
 	IncludeItemTypes []string
 	Filters          []string
@@ -124,6 +125,9 @@ func (e *EmbyService) Items(ctx context.Context, p ItemsParams) (map[string]any,
 	}
 	if p.StartIndex < 0 {
 		p.StartIndex = 0
+	}
+	if containsEmbyFilter(p.Filters, "IsFavorite") && len(p.IncludeItemTypes) > 0 && !containsOnlyFavoriteItemTypes(p.IncludeItemTypes) {
+		return emptyItemsEnvelope(p.StartIndex), nil
 	}
 	if containsOnlyPersonItemTypes(p.IncludeItemTypes) {
 		return e.Persons(ctx, p)

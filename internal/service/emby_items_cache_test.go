@@ -12,4 +12,11 @@ func TestEmbyItemsCacheKeyIncludesFields(t *testing.T) {
 	if svc.embyItemsCacheKey("items", withPeople) == svc.embyItemsCacheKey("items", withSources) {
 		t.Fatal("different Fields share an Items cache key")
 	}
+	personOne := base
+	personOne.PersonIDs = []string{"person-1"}
+	personTwo := base
+	personTwo.PersonIDs = []string{"person-2"}
+	if svc.embyItemsCacheKey("items", personOne) == svc.embyItemsCacheKey("items", personTwo) {
+		t.Fatal("different PersonIDs share an Items cache key")
+	}
 }

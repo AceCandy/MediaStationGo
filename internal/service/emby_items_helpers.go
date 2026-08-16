@@ -42,6 +42,17 @@ func containsOnlyPersonItemTypes(types []string) bool {
 	return true
 }
 
+func containsOnlyFavoriteItemTypes(types []string) bool {
+	for _, itemType := range types {
+		switch strings.ToLower(strings.TrimSpace(itemType)) {
+		case "movie", "series":
+		default:
+			return false
+		}
+	}
+	return len(types) > 0
+}
+
 func containsOnlyFolderItemTypes(types []string) bool {
 	if len(types) == 0 {
 		return false
