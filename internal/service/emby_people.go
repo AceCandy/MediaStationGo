@@ -31,13 +31,31 @@ func embyPeopleFromCredits(rows []model.MetadataCredit) []model.EmbyPerson {
 	people := make([]model.EmbyPerson, 0, len(ordered))
 	for _, row := range ordered {
 		person := row.Person
-		entry := model.EmbyPerson{Id: person.ID, Name: person.Name, Role: row.Role, Type: row.Type}
+		entry := model.EmbyPerson{Id: person.ID, Name: person.Name, Role: localizedCrewRole(row.Type, row.Role), Type: row.Type}
 		if strings.TrimSpace(person.ProfileURL) != "" {
 			entry.PrimaryImageTag = person.ID
 		}
 		people = append(people, entry)
 	}
 	return people
+}
+
+func localizedCrewRole(typ, role string) string {
+	if typ != model.CreditTypeDirector && typ != model.CreditTypeWriter {
+		return role
+	}
+	switch strings.ToLower(strings.TrimSpace(role)) {
+	case "director":
+		return "导演"
+	case "writer", "screenplay":
+		return "编剧"
+	case "story":
+		return "故事创作"
+	case "teleplay":
+		return "电视剧编剧"
+	default:
+		return role
+	}
 }
 
 func (e *EmbyService) Persons(ctx context.Context, p ItemsParams) (map[string]any, error) {
