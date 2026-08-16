@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 
-import { NAV_GROUP_PATHS } from './layoutNavigation'
+import { LAYOUT_NAV_GROUPS } from './layoutNavigation'
 
 export function useLayoutSidebar(pathname: string) {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true)
@@ -36,9 +36,9 @@ export function useLayoutSidebar(pathname: string) {
   )
 
   useEffect(() => {
-    const active = Object.entries(NAV_GROUP_PATHS)
-      .filter(([, paths]) => isRouteIn(paths))
-      .map(([key]) => [key, true])
+    const active = LAYOUT_NAV_GROUPS
+      .filter((group) => group.items.some((item) => isRouteIn(item.activePaths, item.end)))
+      .map((group) => [group.id, true])
     if (active.length > 0) setOpenGroups(Object.fromEntries(active))
   }, [isRouteIn])
 

@@ -3,7 +3,7 @@ import type { SettingGroup } from './settingsGroupTypes'
 export const generalSettingsGroup: SettingGroup = {
   key: 'general',
   label: '常规',
-  description: '界面与元数据的常用配置。外部 API 密钥请在“用户与集成 → 外部 API”中管理。',
+  description: '界面与元数据的常用配置。外部 API 密钥请在“文件空间 → 外部 API”中管理。',
   items: [
     {
       key: 'tmdb.language',

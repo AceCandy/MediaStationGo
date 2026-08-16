@@ -13,11 +13,20 @@ Required behavior:
   the page. Do not repeat those values in a separate navigation list.
 - Apply manifest access metadata to direct route rendering as well as visible
   navigation. Hiding a link is not an access control.
-- Model management groups separately from destination routes. A group is an
-  expandable button without a route or `aria-current`; only a visible leaf
+- Model top-level layout spaces separately from destination routes. A space is
+  an expandable button without a route or `aria-current`; only a visible leaf
   route is a navigation link and may receive `aria-current="page"`.
-- Project management leaves from the manifest after applying inherited access
-  metadata, and remove groups whose leaves are all filtered out.
+- `AppRouteNavigation.scope` is `viewer | files | management`. Render those
+  spaces in that order as `观看空间`, `文件空间`, and `管理空间`; `files` and
+  `management` are administrator-only layout groups.
+- Project leaves for each scope directly from the manifest after applying
+  inherited access metadata. Do not add a second-level `group` field or a
+  separately maintained leaf list.
+- Determine a space's active and auto-open state by testing each leaf's
+  `activePaths` together with its `end` flag. Do not flatten paths into a
+  prefix-only group matcher: `/admin/storage` belongs to Management Space,
+  while `/admin/storage/duplicates` and `/admin/storage/recycle` belong to File
+  Space.
 - Match active paths on segment boundaries: a path matches itself or descendants
   below `path/`, never an unrelated path with the same string prefix.
 - Keep canonical internal links on the maintained viewer or `/admin/*` path.

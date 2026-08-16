@@ -24,8 +24,8 @@ export function StatsHeader({
   return (
     <header className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
       <div>
-        <h1 className="font-display text-3xl font-bold text-ink-600">运行监控</h1>
-        <p className="text-sm text-ink-50">CPU、内存与数据盘状态，每 2 秒刷新。</p>
+        <h1 className="font-display text-3xl font-bold text-ink-600">系统监控</h1>
+        <p className="text-sm text-ink-50">查看存储规模以及 CPU、内存与数据盘状态。</p>
       </div>
       <div className="glass-panel inline-flex items-center gap-3 !px-4 !py-3">
         <span className="relative flex h-3 w-3">

@@ -1,0 +1,2 @@
+{"file":".trellis/spec/frontend/index.md","reason":"核验前端质量门禁和响应式视口"}
+{"file":".trellis/spec/frontend/routing-and-loading-contracts.md","reason":"核验导航权限、活动路径、规范 URL 和重定向行为"}
