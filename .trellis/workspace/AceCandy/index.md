@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 27
+- **Total Sessions**: 28
 - **Last Active**: 2026-08-16
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~594 | Active |
+| `journal-1.md` | ~615 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 28 | 2026-08-16 | 复用剧集角色翻译 | `8c7081f` | `main` |
 | 27 | 2026-08-16 | 本地化常见影视职务 | `324ff15` | `main` |
 | 26 | 2026-08-15 | 播放器请求日志实时查看 | `b798612` | `main` |
 | 25 | 2026-08-15 | 优化 Emby 列表查询性能 | `6d96ea3`, `eaeefb6` | `main` |

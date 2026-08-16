@@ -592,3 +592,24 @@ Committed the existing web UI redesign together with detailed background task lo
 ### Status
 
 [OK] **Completed**
+
+
+## Session 28: 复用剧集角色翻译
+
+**Date**: 2026-08-16
+**Task**: 复用剧集角色翻译
+**Branch**: `main`
+
+### Summary
+
+将单集角色翻译缓存上下文归并至所属季，避免同季重复 AI 调用；新增同季复用和跨季隔离回归测试。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `8c7081f` | (see git log) |
+
+### Status
+
+[OK] **Completed**
