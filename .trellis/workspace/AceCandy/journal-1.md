@@ -571,3 +571,24 @@ Committed the existing web UI redesign together with detailed background task lo
 ### Status
 
 [OK] **Completed**
+
+
+## Session 27: 本地化常见影视职务
+
+**Date**: 2026-08-16
+**Task**: 本地化常见影视职务
+**Branch**: `main`
+
+### Summary
+
+在 Emby 人物输出阶段统一本地化导演与编剧相关职务，保留协议 Type 英文枚举，并增加定向回归测试。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `324ff15` | (see git log) |
+
+### Status
+
+[OK] **Completed**
