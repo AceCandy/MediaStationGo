@@ -613,3 +613,24 @@ Committed the existing web UI redesign together with detailed background task lo
 ### Status
 
 [OK] **Completed**
+
+
+## Session 29: 重组空间导航并合并系统监控
+
+**Date**: 2026-08-17
+**Task**: 重组空间导航并合并系统监控
+**Branch**: `main`
+
+### Summary
+
+新增文件空间并打平管理空间导航，合并存储概览与运行监控，完成构建、响应式界面和故障隔离验证。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `26a480b64979a4c33eeb4e7fa47a01ee4f5f2d07` | (see git log) |
+
+### Status
+
+[OK] **Completed**
