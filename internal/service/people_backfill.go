@@ -89,7 +89,7 @@ func (s *ScraperService) runPeopleBackfillWorker(ctx context.Context) {
 
 func (s *ScraperService) runPeopleBackfillPass(ctx context.Context, trigger string) error {
 	candidates, err := s.pendingPeopleBackfillCandidates(ctx)
-	if err != nil || len(candidates) == 0 {
+	if trigger != TaskTriggerManual && (err != nil || len(candidates) == 0) {
 		return err
 	}
 	if s.tasks == nil {
@@ -99,6 +99,14 @@ func (s *ScraperService) runPeopleBackfillPass(ctx context.Context, trigger stri
 	task := s.tasks.StartTriggered(TaskKindPeople, trigger, "人物信息补齐", TaskUpdate{Stage: "people", Message: "人物信息补齐已启动", Metrics: result.Metrics()})
 	if task == nil {
 		return errors.New("create task execution failed")
+	}
+	if err != nil {
+		task.Finish(sanitizeTaskLogError(err), TaskUpdate{Stage: "people", Message: "人物信息补齐失败", Metrics: result.Metrics()})
+		return err
+	}
+	if len(candidates) == 0 {
+		task.Finish(nil, TaskUpdate{Stage: "completed", Message: "人物信息补齐执行完成，无待补齐人物", Metrics: result.Metrics()})
+		return nil
 	}
 	detailCount := 0
 	result, runErr := s.backfillPeopleCandidates(ctx, candidates, func(current PeopleBackfillResult) {

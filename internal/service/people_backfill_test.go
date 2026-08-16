@@ -4,10 +4,71 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 )
+
+func TestManualPeopleBackfillRecordsEmptyRun(t *testing.T) {
+	scraper, _, closeUpstream := newTestScraper(t)
+	defer closeUpstream()
+	tasks := NewTaskTrackerService(nil, nil)
+	tasks.ConfigurePersistence(nil, t.TempDir())
+	scraper.SetTaskTracker(tasks)
+
+	if err := scraper.runPeopleBackfillPass(t.Context(), TaskTriggerEvent); err != nil {
+		t.Fatal(err)
+	}
+	if snapshot := tasks.Snapshot(); len(snapshot.Recent) != 0 {
+		t.Fatalf("event snapshot = %+v, want no empty execution", snapshot)
+	}
+	if err := scraper.runPeopleBackfillPass(t.Context(), TaskTriggerManual); err != nil {
+		t.Fatal(err)
+	}
+
+	snapshot := tasks.Snapshot()
+	if len(snapshot.Recent) != 1 || snapshot.Recent[0].Status != TaskStatusCompleted || snapshot.Recent[0].Metrics["total"] != 0 {
+		t.Fatalf("manual snapshot = %+v", snapshot)
+	}
+	log, err := tasks.ReadDefinitionLog(TaskDefinitionPeopleBackfill, "", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(log.Content, "人物信息补齐已启动") || !strings.Contains(log.Content, "人物信息补齐执行完成，无待补齐人物") {
+		t.Fatalf("task log = %q", log.Content)
+	}
+}
+
+func TestManualPeopleBackfillRecordsCandidateQueryFailure(t *testing.T) {
+	scraper, repos, closeUpstream := newTestScraper(t)
+	defer closeUpstream()
+	tasks := NewTaskTrackerService(nil, nil)
+	tasks.ConfigurePersistence(nil, t.TempDir())
+	scraper.SetTaskTracker(tasks)
+	sqlDB, err := repos.DB.DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := sqlDB.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := scraper.runPeopleBackfillPass(t.Context(), TaskTriggerManual); err == nil {
+		t.Fatal("manual run succeeded after candidate query failed")
+	}
+	snapshot := tasks.Snapshot()
+	if len(snapshot.Recent) != 1 || snapshot.Recent[0].Status != TaskStatusFailed {
+		t.Fatalf("manual snapshot = %+v, want failed execution", snapshot)
+	}
+	log, err := tasks.ReadDefinitionLog(TaskDefinitionPeopleBackfill, "", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(log.Content, "人物信息补齐失败") {
+		t.Fatalf("task log = %q", log.Content)
+	}
+}
 
 func TestBackfillPeopleFillsGlobalMetadataWithoutCredits(t *testing.T) {
 	scraper, repos, closeUpstream := newTestScraper(t)
