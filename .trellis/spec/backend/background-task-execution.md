@@ -68,6 +68,11 @@ history is observability only; business object state owns retry and recovery.
   take priority before the next object.
 - People translation creates an execution only after it finds pending names or
   roles. Disabled AI, an empty sweep, and cache-only idle checks create no task.
+- People-name translation caches by `Person.ID`. Role translation caches by the
+  owning metadata context: an episode uses its season `ParentID`; movie, series,
+  and season credits use their own `MetadataID`. The remaining cache identity is
+  the source text, target language, and prompt version, so equal roles in one
+  season share one translation while different seasons remain isolated.
 
 ### 4. Validation & Error Matrix
 
@@ -82,14 +87,20 @@ history is observability only; business object state owns retry and recovery.
 | Process exits with a media group running | Restore its rows to `pending` at startup |
 | Any member loses a claim race | Roll back the whole group claim |
 | Library media exists while catalog work is pending | Process one library work unit first |
+| An episode role has no season parent | Fall back to the episode `MetadataID`; never merge unrelated orphan records |
 
 ### 5. Good / Base / Bad Cases
 
 - Good: a two-episode series is claimed and completed as one unit, then the worker
   checks newly imported media before taking another catalog item.
+- Good: equal role source text in two episodes of the same season creates one
+  translation group with two write-back targets.
 - Base: no work exists; the worker waits for a wake signal.
+- Base: equal role source text in different seasons remains two translation groups.
 - Bad: select pending rows without a conditional update, or resume from an old
   task execution/log after restart.
+- Bad: use each episode `MetadataID` as the role cache context and call AI once
+  per episode for the same season role.
 
 ### 6. Tests Required
 
@@ -99,6 +110,8 @@ history is observability only; business object state owns retry and recovery.
 - Atomic whole-series claim, late-series-member exclusion, and
   `running -> pending` media recovery.
 - API/UI contract plus manual, scheduled, and event trigger attribution.
+- People translation grouping asserts same-season role reuse and cross-season
+  isolation without changing person-name caching.
 
 ### 7. Wrong vs Correct
 
@@ -127,4 +140,15 @@ logs.append(task.Kind, level, message)
 
 // Correct: resolve the stable definition key with the task-definition filters.
 logs.append(taskDefinitionKeyForTask(task), level, message)
+```
+
+```go
+// Wrong: every episode translates the same season role independently.
+contextKey := role.MetadataID
+
+// Correct: episode roles share the season context.
+contextKey := role.MetadataID
+if role.Metadata.Kind == model.MetadataKindEpisode && role.Metadata.ParentID != nil {
+	contextKey = *role.Metadata.ParentID
+}
 ```

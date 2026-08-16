@@ -233,6 +233,57 @@ func TestPeopleTranslationEmptyPassDoesNotCreateTask(t *testing.T) {
 	}
 }
 
+func TestPendingRoleTranslationsShareSeasonContext(t *testing.T) {
+	db := newServiceTestDB(t, &model.MetadataItem{}, &model.Person{}, &model.MetadataCredit{})
+	repos := repository.New(db)
+	series := model.MetadataItem{Kind: model.MetadataKindSeries, Title: "Series", Source: "tmdb"}
+	if err := db.Create(&series).Error; err != nil {
+		t.Fatal(err)
+	}
+	season1 := model.MetadataItem{Kind: model.MetadataKindSeason, ParentID: &series.ID, SeasonNum: 1, Title: "Season 1", Source: "tmdb"}
+	season2 := model.MetadataItem{Kind: model.MetadataKindSeason, ParentID: &series.ID, SeasonNum: 2, Title: "Season 2", Source: "tmdb"}
+	if err := db.Create(&season1).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&season2).Error; err != nil {
+		t.Fatal(err)
+	}
+	episodes := []model.MetadataItem{
+		{Kind: model.MetadataKindEpisode, ParentID: &season1.ID, EpisodeNum: 1, Title: "Episode 1", Source: "tmdb"},
+		{Kind: model.MetadataKindEpisode, ParentID: &season1.ID, EpisodeNum: 2, Title: "Episode 2", Source: "tmdb"},
+		{Kind: model.MetadataKindEpisode, ParentID: &season2.ID, EpisodeNum: 1, Title: "Episode 1", Source: "tmdb"},
+	}
+	if err := db.Create(&episodes).Error; err != nil {
+		t.Fatal(err)
+	}
+	person := model.Person{Name: "演员", OriginalName: "Actor", NormalizedName: "actor", Source: "tmdb"}
+	if err := db.Create(&person).Error; err != nil {
+		t.Fatal(err)
+	}
+	for _, episode := range episodes {
+		credit := model.MetadataCredit{MetadataID: episode.ID, PersonID: person.ID, Type: model.CreditTypeActor, OriginalRole: "Same Role", Role: "Same Role"}
+		if err := db.Create(&credit).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	scraper := NewScraperService(&config.Config{}, zap.NewNop(), repos, nil, nil, nil, nil, nil)
+	groups, err := scraper.pendingPeopleTranslationGroups(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(groups) != 2 {
+		t.Fatalf("role translation groups = %d, want 2", len(groups))
+	}
+	targetCounts := make(map[string]int, len(groups))
+	for _, group := range groups {
+		targetCounts[group.lookup.ContextKey] = len(group.targets)
+	}
+	if targetCounts[season1.ID] != 2 || targetCounts[season2.ID] != 1 {
+		t.Fatalf("role translation target counts = %v", targetCounts)
+	}
+}
+
 func TestTranslatePeopleWindowReturnsResultDetails(t *testing.T) {
 	db := newServiceTestDB(t, &model.Person{}, &model.TranslationCache{})
 	repos := repository.New(db)

@@ -225,7 +225,11 @@ func (s *ScraperService) pendingPeopleTranslationGroups(ctx context.Context) ([]
 		if role.OriginalRole == "" || containsChinese(role.OriginalRole) {
 			continue
 		}
-		add(newTranslationCacheLookup("role", role.MetadataID, role.OriginalRole), AITranslationEntry{
+		contextKey := role.MetadataID
+		if role.Metadata.Kind == model.MetadataKindEpisode && role.Metadata.ParentID != nil {
+			contextKey = *role.Metadata.ParentID
+		}
+		add(newTranslationCacheLookup("role", contextKey, role.OriginalRole), AITranslationEntry{
 			Kind: "role", Text: role.OriginalRole,
 			Context: &AITranslationContext{Title: role.Metadata.Title, OriginalTitle: role.Metadata.OriginalName, Year: role.Metadata.Year, MediaKind: role.Metadata.Kind},
 		}, repository.TranslationTarget{Kind: "role", ID: role.ID, OriginalText: role.OriginalRole})
