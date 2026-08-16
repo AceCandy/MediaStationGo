@@ -162,13 +162,13 @@ export function LayoutWorkspace({ routeKey }: LayoutWorkspaceProps) {
   return (
     <main id="main-content" tabIndex={-1} className="flex-1 overflow-y-auto px-4 py-6 md:px-8 md:py-8">
       <div className="mx-auto max-w-[1500px]">
-        <AnimatePresence mode="wait">
+        <AnimatePresence initial={false}>
           <motion.div
             key={routeKey}
             initial={{ opacity: 0, y: 14 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -8 }}
-            transition={{ duration: 0.32, ease: [0.21, 0.47, 0.32, 0.98] }}
+            transition={{ duration: 0.15, ease: [0.21, 0.47, 0.32, 0.98] }}
           >
             <RouteErrorBoundary>
               <Outlet />

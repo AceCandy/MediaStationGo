@@ -1,5 +1,6 @@
 export interface Media {
   id: string
+  metadata_id?: string
   library_id: string
   library_root_id?: string
   library_name?: string

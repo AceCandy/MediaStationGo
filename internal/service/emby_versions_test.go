@@ -322,7 +322,7 @@ func TestEmbyMetadataVersionsShareUserStateAndKeepSourceIDs(t *testing.T) {
 	if err := svc.SetFavorite(t.Context(), "user-1", metadata.ID, true); err != nil {
 		t.Fatalf("set favorite: %v", err)
 	}
-	if err := svc.RecordProgress(t.Context(), "user-1", metadata.ID, media1080.ID, 30_000*10_000, 120_000*10_000); err != nil {
+	if err := svc.RecordProgress(t.Context(), "user-1", metadata.ID, media1080.ID, "", 30_000*10_000, 120_000*10_000); err != nil {
 		t.Fatalf("record progress: %v", err)
 	}
 	var favorite model.Favorite

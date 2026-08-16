@@ -110,7 +110,6 @@ export const permissionDisplayNames: Record<string, string> = {
   can_cast: '投屏',
   can_external_player: '外部播放器',
   can_favorite: '收藏',
-  can_view_history: '观看历史',
   can_edit_media: '编辑媒体',
   can_rescrape: '重新刮削',
   can_use_ai: '使用 AI 搜索',
@@ -131,7 +130,6 @@ export const permissionCategories = {
     'can_cast',
     'can_external_player',
     'can_favorite',
-    'can_view_history',
   ],
   media: [
     'can_edit_media',

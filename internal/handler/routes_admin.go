@@ -22,6 +22,7 @@ func registerAdminRoutes(api *gin.RouterGroup, cfg *config.Config, svc *service.
 	registerAdminSchedulerRoutes(admin, svc)
 	registerAdminRecognitionWordRoutes(admin, svc)
 	admin.GET("/player-request-logs", playerRequestLogsHandler(svc))
+	admin.GET("/playback-stats", adminPlaybackStatsHandler(svc))
 }
 
 func registerAdminUserRoutes(admin *gin.RouterGroup, svc *service.Container) {

@@ -20,20 +20,35 @@ func TestListRecentSeriesCardsCountsAllEpisodesInSeries(t *testing.T) {
 		t.Fatal(err)
 	}
 	now := time.Date(2026, 7, 2, 12, 0, 0, 0, time.UTC)
+	series := createServiceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindSeries, Title: "史上最强炼体老祖", Source: "test"})
+	season := createServiceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindSeason, ParentID: &series.ID, SeasonNum: 1, Title: series.Title, Source: "test"})
 	rows := make([]model.Media, 0, 40)
 	for i := 1; i <= 40; i++ {
 		created := now.Add(-48 * time.Hour)
 		if i > 23 {
 			created = now.Add(time.Duration(i) * time.Minute)
 		}
+		episode := createServiceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindEpisode, ParentID: &season.ID, EpisodeNum: i, Title: fmt.Sprintf("第 %d 集", i), Source: "test"})
 		rows = append(rows, model.Media{
 			Base:       model.Base{ID: fmt.Sprintf("recent-ep-%02d", i), CreatedAt: created, UpdatedAt: created},
 			LibraryID:  lib.ID,
+			MetadataID: episode.ID,
 			Title:      "史上最强炼体老祖",
 			Path:       fmt.Sprintf("/media/anime/国漫/史上最强炼体老祖/Season 01/史上最强炼体老祖.S01E%02d.mkv", i),
 			SeasonNum:  1,
 			EpisodeNum: i,
 		})
+		if i == 1 {
+			rows = append(rows, model.Media{
+				Base:       model.Base{ID: "recent-ep-01-alt", CreatedAt: created.Add(time.Second), UpdatedAt: created.Add(time.Second)},
+				LibraryID:  lib.ID,
+				MetadataID: episode.ID,
+				Title:      series.Title,
+				Path:       "/media/anime/国漫/史上最强炼体老祖/Season 01/史上最强炼体老祖.S01E01.2160p.mkv",
+				SeasonNum:  1,
+				EpisodeNum: 1,
+			})
+		}
 	}
 	if err := repos.DB.Create(&rows).Error; err != nil {
 		t.Fatal(err)

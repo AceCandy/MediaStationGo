@@ -3,6 +3,7 @@ package handler
 import (
 	"github.com/gin-gonic/gin"
 
+	"github.com/ShukeBta/MediaStationGo/internal/middleware"
 	"github.com/ShukeBta/MediaStationGo/internal/service"
 )
 
@@ -24,8 +25,8 @@ func registerAuthedUISurfaceRoutes(authed *gin.RouterGroup, svc *service.Contain
 	authed.GET("/system/scheduler", systemSchedulerHandler(svc))
 
 	authed.GET("/stats/overview", statsOverviewHandler(svc))
-	authed.GET("/stats/trend", statsTrendHandler(svc))
-	authed.GET("/stats/top-content", statsTopContentHandler(svc))
+	authed.GET("/stats/trend", middleware.AdminRequired(), statsTrendHandler(svc))
+	authed.GET("/stats/top-content", middleware.AdminRequired(), statsTopContentHandler(svc))
 	authed.GET("/stats/libraries", statsLibrariesHandler(svc))
 	authed.GET("/stats/monitor", statsMonitorHandler(svc))
 
@@ -49,8 +50,8 @@ func registerAuthedSystemExtraRoutes(authed *gin.RouterGroup, svc *service.Conta
 }
 
 func registerAuthedStatsExtraRoutes(authed *gin.RouterGroup, svc *service.Container) {
-	authed.GET("/stats/user/:id", statsUserHandler(svc))
-	authed.GET("/stats/top-users", statsTopUsersHandler(svc))
+	authed.GET("/stats/user/:id", middleware.AdminRequired(), statsUserHandler(svc))
+	authed.GET("/stats/top-users", middleware.AdminRequired(), statsTopUsersHandler(svc))
 	authed.POST("/stats/play", statsPlayHandler(svc))
 }
 

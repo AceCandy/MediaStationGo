@@ -12,6 +12,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 
+	"github.com/ShukeBta/MediaStationGo/internal/middleware"
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 	"github.com/ShukeBta/MediaStationGo/internal/service"
 )
@@ -34,7 +35,11 @@ func embyPlaybackInfoHandler(svc *service.Container) gin.HandlerFunc {
 			embyError(c, http.StatusBadRequest, err.Error())
 			return
 		}
-		if uid == "" {
+		if requestedUserID != "" && requestedUserID != embyUserID(c) && !middleware.IsAdmin(c) {
+			embyError(c, http.StatusForbidden, "forbidden")
+			return
+		}
+		if c.Param("userId") == "" && requestedUserID != "" {
 			uid = requestedUserID
 		}
 		out, err := svc.Emby.PlaybackInfoWithOptions(c.Request.Context(), c.Param("id"), uid, selection)

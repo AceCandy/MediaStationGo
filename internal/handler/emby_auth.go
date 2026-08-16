@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"net/http"
 	"strings"
 	"sync"
 	"time"
@@ -24,6 +25,24 @@ func embyUserID(c *gin.Context) string {
 		}
 	}
 	return ""
+}
+
+// embyTargetUserRequired keeps every explicit Emby user scope bound to the
+// authenticated account unless an administrator deliberately targets another user.
+func embyTargetUserRequired() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		authUserID := embyUserID(c)
+		targetUserID := embyFirstNonEmptyString(
+			c.Param("userId"),
+			firstQueryValue(c, "UserId", "UserID", "userId", "userid"),
+		)
+		if targetUserID != "" && targetUserID != authUserID && !middleware.IsAdmin(c) {
+			embyError(c, http.StatusForbidden, "forbidden")
+			c.Abort()
+			return
+		}
+		c.Next()
+	}
 }
 
 const embyCompatSessionTTL = 30 * time.Minute

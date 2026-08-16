@@ -82,13 +82,14 @@ export function useLibrarySeriesSelection({
       return
     }
 
+    const seriesID = searchParams.get('series_id')
     const key = searchParams.get('series')
-    if (!key) {
+    if (!seriesID && !key) {
       setSelectedSeries(null)
       return
     }
 
-    const next = seriesCards.find((card) => card.key === key)
+    const next = seriesCards.find((card) => seriesID ? card.rep.series_id === seriesID : card.key === key)
     setSelectedSeries(next ?? null)
   }, [isSeries, loading, searchParams, seriesCards, setSelectedSeason, setSelectedSeries])
 
@@ -116,6 +117,7 @@ export function useLibrarySeriesSelection({
     onClearSeriesState?.()
     const next = new URLSearchParams(searchParams)
     next.delete('series')
+    next.delete('series_id')
     setSearchParams(next)
   }
 

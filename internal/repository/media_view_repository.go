@@ -150,6 +150,82 @@ func (r *MediaViewRepository) FindByMetadataIDs(ctx context.Context, metadataIDs
 	return rows, nil
 }
 
+// FindByLogicalMetadataIDs returns visible versions belonging to the requested
+// works. Episode and season media are addressed by their parent series ID.
+func (r *MediaViewRepository) FindByLogicalMetadataIDs(ctx context.Context, metadataIDs []string, filter MediaQueryFilter) ([]model.MediaView, error) {
+	if len(metadataIDs) == 0 {
+		return []model.MediaView{}, nil
+	}
+	logicalID := "CASE WHEN mi.kind IN ('episode', 'season') THEN COALESCE(series_metadata.id, mi.id) ELSE mi.id END"
+	q := applyMediaViewFilter(r.query(ctx).Where("m.metadata_id IN ? OR "+logicalID+" IN ?", metadataIDs, metadataIDs), filter).
+		Order("m.created_at DESC, m.id DESC")
+	var rows []model.MediaView
+	if err := scanMediaViews(q, &rows); err != nil {
+		return nil, err
+	}
+	return rows, nil
+}
+
+func (r *MediaViewRepository) FindByLogicalMetadataID(ctx context.Context, metadataID string, filter MediaQueryFilter) (*model.MediaView, error) {
+	rows, err := r.FindByLogicalMetadataIDs(ctx, []string{metadataID}, filter)
+	if err != nil || len(rows) == 0 {
+		return nil, err
+	}
+	return &rows[0], nil
+}
+
+// ListFavoriteCards 为每条收藏只加载一个当前可见的媒体版本。
+func (r *MediaViewRepository) ListFavoriteCards(ctx context.Context, userID string, filter MediaQueryFilter) ([]model.MediaView, error) {
+	logicalID := "CASE WHEN mi.kind IN ('episode', 'season') THEN COALESCE(series_metadata.id, mi.id) ELSE mi.id END"
+	base := r.db.WithContext(ctx).
+		Table("media AS m").
+		Joins("JOIN metadata_items AS mi ON mi.id = m.metadata_id AND mi.deleted_at IS NULL").
+		Joins("LEFT JOIN metadata_items AS season_metadata ON season_metadata.id = mi.parent_id AND mi.kind = 'episode' AND season_metadata.kind = 'season' AND season_metadata.deleted_at IS NULL").
+		Joins("LEFT JOIN metadata_items AS series_metadata ON series_metadata.id = CASE WHEN mi.kind = 'episode' THEN season_metadata.parent_id WHEN mi.kind = 'season' THEN mi.parent_id ELSE NULL END AND series_metadata.kind = 'series' AND series_metadata.deleted_at IS NULL").
+		Joins("JOIN favorites AS f ON f.user_id = ? AND f.deleted_at IS NULL AND (m.metadata_id = f.metadata_id OR "+logicalID+" = f.metadata_id)", userID).
+		Where("m.deleted_at IS NULL")
+	base = applyMediaViewFilter(base, filter)
+	type favoriteCard struct {
+		MediaID string `gorm:"column:media_id"`
+	}
+	var cards []favoriteCard
+	ranked := base.Select("m.id AS media_id, f.id AS favorite_id, f.created_at AS favorite_created_at, ROW_NUMBER() OVER (PARTITION BY f.id ORDER BY m.created_at DESC, m.id DESC) AS favorite_rank")
+	if err := r.db.WithContext(ctx).Table("(?) AS favorite_cards", ranked).
+		Where("favorite_rank = 1").Order("favorite_created_at DESC, favorite_id DESC").Scan(&cards).Error; err != nil {
+		return nil, err
+	}
+	ids := make([]string, 0, len(cards))
+	for _, card := range cards {
+		ids = append(ids, card.MediaID)
+	}
+	return r.FindByIDs(ctx, ids, filter)
+}
+
+// ListRecentLogicalWorks selects the logical work page in SQL before loading
+// the versions needed to build cards.
+func (r *MediaViewRepository) ListRecentLogicalWorks(ctx context.Context, limit int, filter MediaQueryFilter) ([]model.MediaView, error) {
+	if limit <= 0 {
+		limit = 24
+	}
+	logicalID := "CASE WHEN mi.kind IN ('episode', 'season') THEN COALESCE(series_metadata.id, mi.id) ELSE mi.id END"
+	base := applyMediaViewFilter(r.query(ctx), filter)
+	type logicalRow struct {
+		ID string `gorm:"column:logical_id"`
+	}
+	var ids []logicalRow
+	if err := base.Select(logicalID + " AS logical_id").Group(logicalID).
+		Order("MAX(m.created_at) DESC, logical_id DESC").Limit(limit).Scan(&ids).Error; err != nil {
+		return nil, err
+	}
+	logicalIDs := make([]string, 0, len(ids))
+	for _, row := range ids {
+		if strings.TrimSpace(row.ID) != "" {
+			logicalIDs = append(logicalIDs, row.ID)
+		}
+	}
+	return r.FindByLogicalMetadataIDs(ctx, logicalIDs, filter)
+}
+
 func (r *MediaViewRepository) ListByLibrariesFiltered(ctx context.Context, libraryIDs []string, offset, limit int, filter MediaQueryFilter) ([]model.MediaView, int64, error) {
 	if len(libraryIDs) == 0 {
 		return []model.MediaView{}, 0, nil

@@ -9,6 +9,8 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 	"time"
 
 	"go.uber.org/zap"
@@ -31,29 +33,68 @@ func NewPlaybackService(log *zap.Logger, repo *repository.Container) *PlaybackSe
 
 // ─── History ────────────────────────────────────────────────────────────────
 
-// RecordProgress upserts the resume position for a (user, media) pair. A
-// position within 30 seconds of the duration auto-flags the item as
-// completed so the home page can hide it from "Continue Watching".
-func (p *PlaybackService) RecordProgress(ctx context.Context, userID, mediaID string, position, duration int64) error {
-	completed := duration > 0 && position >= duration-30_000
-	return p.recordProgress(ctx, userID, mediaID, position, duration, completed)
+const (
+	playbackRecordThresholdMs = int64(20_000)
+	shortPlaybackDurationMs   = int64(10 * 60 * 1000)
+)
+
+var ErrInvalidPlaybackProgress = errors.New("invalid playback progress")
+
+func validatePlaybackProgress(position, duration int64) error {
+	if position < 0 {
+		return fmt.Errorf("%w: position must not be negative", ErrInvalidPlaybackProgress)
+	}
+	if duration <= 0 {
+		return fmt.Errorf("%w: duration must be positive", ErrInvalidPlaybackProgress)
+	}
+	if position > duration {
+		return fmt.Errorf("%w: position %d exceeds duration %d", ErrInvalidPlaybackProgress, position, duration)
+	}
+	return nil
 }
 
-func (p *PlaybackService) RecordProgressEvent(ctx context.Context, userID, mediaID string, position, duration int64, completed bool) error {
-	return p.recordProgress(ctx, userID, mediaID, position, duration, completed)
+func playbackCompleted(position, duration int64) bool {
+	if position < 0 || duration <= 0 {
+		return false
+	}
+	if duration < shortPlaybackDurationMs {
+		threshold := duration - 30_000
+		if threshold < 0 {
+			threshold = 0
+		}
+		return position >= threshold
+	}
+	return position >= duration*9/10
 }
 
-func (p *PlaybackService) recordProgress(ctx context.Context, userID, mediaID string, position, duration int64, completed bool) error {
+func shouldRecordPlaybackProgress(position int64) bool {
+	return position >= playbackRecordThresholdMs
+}
+
+// RecordProgress validates and stores automatic playback progress for visible media.
+func (p *PlaybackService) RecordProgress(ctx context.Context, userID, mediaID, sessionID string, position, duration int64, visibility MediaVisibility) error {
 	if userID == "" || mediaID == "" {
 		return errors.New("missing user or media")
 	}
-	media, err := p.repo.Media.FindByID(ctx, mediaID)
+	if err := validatePlaybackProgress(position, duration); err != nil {
+		return err
+	}
+	if !shouldRecordPlaybackProgress(position) {
+		return nil
+	}
+	filter := repository.MediaQueryFilter{
+		IncludeNSFW:       visibility.IncludeNSFW,
+		AllowedLibraryIDs: visibility.AllowedLibraryIDs,
+		HiddenLibraryIDs:  visibility.HiddenLibraryIDs,
+	}
+	rows, err := p.repo.MediaView.FindByIDs(ctx, []string{mediaID}, filter)
 	if err != nil {
 		return err
 	}
-	if media == nil {
+	if len(rows) == 0 || rows[0].MetadataID == "" {
 		return errors.New("media not found")
 	}
+	media := rows[0]
 	h := &model.PlaybackHistory{
 		UserID:     userID,
 		MetadataID: media.MetadataID,
@@ -61,9 +102,25 @@ func (p *PlaybackService) recordProgress(ctx context.Context, userID, mediaID st
 		PositionMs: position,
 		DurationMs: duration,
 		WatchedAt:  time.Now(),
-		Completed:  completed,
+		Completed:  playbackCompleted(position, duration),
 	}
-	return p.repo.History.Upsert(ctx, h)
+	if strings.TrimSpace(sessionID) == "" {
+		return p.repo.History.Upsert(ctx, h)
+	}
+	return p.repo.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		repos := repository.New(tx)
+		if err := repos.History.Upsert(ctx, h); err != nil {
+			return err
+		}
+		return repos.PlaybackEvent.Insert(ctx, &model.PlaybackEvent{
+			UserID:     userID,
+			SessionID:  strings.TrimSpace(sessionID),
+			MetadataID: media.MetadataID,
+			MediaID:    media.ID,
+			LibraryID:  media.LibraryID,
+			PlayedAt:   h.WatchedAt,
+		})
+	})
 }
 
 func (p *PlaybackService) DeleteHistoryForMedia(ctx context.Context, userID, mediaID string, completed *bool) (int64, error) {
@@ -161,29 +218,12 @@ func (p *PlaybackService) IsFavourite(ctx context.Context, userID, mediaID strin
 
 // ListFavourites returns every favourited media for a user.
 func (p *PlaybackService) ListFavourites(ctx context.Context, userID string, visibility MediaVisibility) ([]model.MediaView, error) {
-	favs, err := p.repo.Favorite.ListByUser(ctx, userID)
-	if err != nil {
-		return nil, err
-	}
-	if len(favs) == 0 {
-		return nil, nil
-	}
 	filter := repository.MediaQueryFilter{
 		IncludeNSFW:       visibility.IncludeNSFW,
 		AllowedLibraryIDs: visibility.AllowedLibraryIDs,
 		HiddenLibraryIDs:  visibility.HiddenLibraryIDs,
 	}
-	out := make([]model.MediaView, 0, len(favs))
-	for _, favorite := range favs {
-		media, err := p.mediaViewForState(ctx, favorite.MetadataID, favorite.MediaID, filter)
-		if err != nil {
-			return nil, err
-		}
-		if media != nil {
-			out = append(out, *media)
-		}
-	}
-	return out, nil
+	return p.repo.MediaView.ListFavoriteCards(ctx, userID, filter)
 }
 
 // ─── Playlists ──────────────────────────────────────────────────────────────

@@ -15,6 +15,17 @@ type PlaybackHistory struct {
 	Metadata   *MetadataItem `gorm:"foreignKey:MetadataID;references:ID;constraint:OnUpdate:CASCADE,OnDelete:RESTRICT" json:"-"`
 }
 
+// PlaybackEvent 记录一次达到统计门槛的独立播放会话；媒体与库字段是播放时快照。
+type PlaybackEvent struct {
+	Base
+	UserID     string    `gorm:"size:36;not null;uniqueIndex:uniq_playback_events_user_session_metadata,priority:1,where:deleted_at IS NULL;index:idx_playback_events_user_time,priority:1" json:"user_id"`
+	SessionID  string    `gorm:"size:128;not null;uniqueIndex:uniq_playback_events_user_session_metadata,priority:2,where:deleted_at IS NULL" json:"session_id"`
+	MetadataID string    `gorm:"size:36;not null;uniqueIndex:uniq_playback_events_user_session_metadata,priority:3,where:deleted_at IS NULL" json:"metadata_id"`
+	MediaID    string    `gorm:"size:128;not null" json:"media_id"`
+	LibraryID  string    `gorm:"size:36;not null;index:idx_playback_events_library_time,priority:1" json:"library_id"`
+	PlayedAt   time.Time `gorm:"not null;index;index:idx_playback_events_user_time,priority:2;index:idx_playback_events_library_time,priority:2" json:"played_at"`
+}
+
 // Favorite 将共享元数据项标记为用户收藏；MediaID 保留首选播放版本。
 type Favorite struct {
 	Base

@@ -1,0 +1,8 @@
+{"file":".trellis/spec/backend/index.md","reason":"后端开发前检查与 Emby 对外契约同步入口。"}
+{"file":".trellis/spec/backend/database-guidelines.md","reason":"PostgreSQL 唯一约束、幂等迁移和数据库测试约束。"}
+{"file":".trellis/spec/backend/shared-media-metadata.md","reason":"PlaybackHistory 的 metadata_id 所有权、媒体可见性与版本语义。"}
+{"file":".trellis/spec/backend/emby-api-catalog-sync.md","reason":"Emby 播放会话参数或行为变化时同步管理员目录。"}
+{"file":".trellis/spec/frontend/index.md","reason":"前端路由、权限和构建检查入口。"}
+{"file":".trellis/spec/frontend/routing-and-loading-contracts.md","reason":"观看空间路由、adminOnly 防护、账户切换和缓存生命周期约束。"}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"统一 API、服务、数据库和 Web 数据契约。"}
+{"file":".trellis/tasks/08-15-playback-history-consistency/research/current-playback-architecture.md","reason":"当前历史、Resume、会话、统计和前端复用点的代码调研结论。"}

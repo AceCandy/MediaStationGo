@@ -97,6 +97,7 @@ func (s *PermissionService) Effective(ctx context.Context, userID string) (*mode
 		return nil, err
 	}
 	if row != nil {
+		row.CanViewHistory = true
 		return row, nil
 	}
 	// Seed defaults on first read so subsequent updates have a row to
@@ -111,6 +112,7 @@ func (s *PermissionService) Effective(ctx context.Context, userID string) (*mode
 // Save persists the user permission patch (admin only — caller checks).
 func (s *PermissionService) Save(ctx context.Context, userID string, in *model.UserPermission) error {
 	in.UserID = userID
+	in.CanViewHistory = true
 	return s.repo.Permission.Upsert(ctx, in)
 }
 
@@ -122,6 +124,12 @@ func (s *PermissionService) EnsureForUser(ctx context.Context, userID string) (*
 		return nil, err
 	}
 	if row != nil {
+		if !row.CanViewHistory {
+			row.CanViewHistory = true
+			if err := s.repo.Permission.Upsert(ctx, row); err != nil {
+				return nil, err
+			}
+		}
 		return row, nil
 	}
 	def := DefaultPermissions(userID)

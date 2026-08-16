@@ -37,9 +37,9 @@ func playbackInfoHandler(svc *service.Container) gin.HandlerFunc {
 }
 
 type playbackProgressReq struct {
-	PositionMs int64 `json:"position_ms"`
-	DurationMs int64 `json:"duration_ms"`
-	Completed  bool  `json:"completed"`
+	PositionMs int64  `json:"position_ms"`
+	DurationMs int64  `json:"duration_ms"`
+	SessionID  string `json:"session_id"`
 }
 
 func playbackProgressHandler(svc *service.Container) gin.HandlerFunc {
@@ -51,10 +51,11 @@ func playbackProgressHandler(svc *service.Container) gin.HandlerFunc {
 		}
 		uid, _ := c.Get(middleware.CtxUserID)
 		if err := svc.Playback.RecordProgress(
-			c.Request.Context(), toString(uid), c.Param("id"),
+			c.Request.Context(), toString(uid), c.Param("id"), req.SessionID,
 			req.PositionMs, req.DurationMs,
+			mediaVisibilityForRequest(c, svc),
 		); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			writePlaybackProgressError(c, err)
 			return
 		}
 		c.Status(http.StatusNoContent)

@@ -178,6 +178,30 @@ func TestDefaultPermissionsAreViewerOnly(t *testing.T) {
 	}
 }
 
+func TestEnsureForUserNormalizesLegacyHistoryPermission(t *testing.T) {
+	ctx := context.Background()
+	repos, _, _, permissions := newAuthTestServices(t)
+	user := &model.User{Username: "viewer", PasswordHash: "hash", Role: "user", IsActive: true}
+	if err := repos.User.Create(ctx, user); err != nil {
+		t.Fatal(err)
+	}
+	if err := repos.Permission.Create(ctx, &model.UserPermission{UserID: user.ID, CanViewHistory: false}); err != nil {
+		t.Fatal(err)
+	}
+
+	row, err := permissions.EnsureForUser(ctx, user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !row.CanViewHistory {
+		t.Fatal("legacy history permission must be normalized")
+	}
+	stored, err := repos.Permission.FindByUserID(ctx, user.ID)
+	if err != nil || stored == nil || !stored.CanViewHistory {
+		t.Fatalf("stored permission = %#v, err = %v", stored, err)
+	}
+}
+
 func TestAdminEffectivePermissionsAreAllGranted(t *testing.T) {
 	ctx := context.Background()
 	repos, _, _, permissions := newAuthTestServices(t)

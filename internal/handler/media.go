@@ -185,16 +185,12 @@ func listMediaHandler(svc *service.Container) gin.HandlerFunc {
 
 func getMediaHandler(svc *service.Container) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		m, err := svc.Media.GetMedia(c.Request.Context(), c.Param("id"))
+		m, err := svc.Media.GetMediaVisible(c.Request.Context(), c.Param("id"), mediaVisibilityForRequest(c, svc))
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
 		if m == nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
-			return
-		}
-		if !mediaViewVisibleForRequest(c, svc, m) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
 			return
 		}
@@ -204,7 +200,8 @@ func getMediaHandler(svc *service.Container) gin.HandlerFunc {
 
 func listMediaVersionsHandler(svc *service.Container) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		items, err := svc.Media.ListMediaVersions(c.Request.Context(), c.Param("id"), mediaVisibilityForRequest(c, svc))
+		uid, _ := c.Get(middleware.CtxUserID)
+		items, err := svc.Media.ListMediaVersions(c.Request.Context(), c.Param("id"), toString(uid), mediaVisibilityForRequest(c, svc))
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return

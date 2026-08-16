@@ -49,6 +49,7 @@ func AllModels() []interface{} {
 		&Media{},
 		&MediaProbeMetadata{},
 		&PlaybackHistory{},
+		&PlaybackEvent{},
 		&Favorite{},
 		&Playlist{},
 		&PlaylistItem{},

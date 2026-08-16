@@ -6,6 +6,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/ShukeBta/MediaStationGo/internal/middleware"
 	"github.com/ShukeBta/MediaStationGo/internal/service"
 )
 
@@ -108,6 +109,17 @@ func embyListUsersHandler(svc *service.Container) gin.HandlerFunc {
 		users, err := svc.Emby.ListUsers(c.Request.Context())
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		if !middleware.IsAdmin(c) {
+			uid := embyUserID(c)
+			for _, user := range users {
+				if user["Id"] == uid {
+					c.JSON(http.StatusOK, []map[string]any{user})
+					return
+				}
+			}
+			c.JSON(http.StatusOK, []map[string]any{})
 			return
 		}
 		c.JSON(http.StatusOK, users)

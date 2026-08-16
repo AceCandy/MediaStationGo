@@ -79,9 +79,9 @@ func statsTopUsersHandler(svc *service.Container) gin.HandlerFunc {
 // emit one even when the actual progress write goes through /history.
 type playEventReq struct {
 	MediaID    string `json:"media_id" binding:"required"`
+	SessionID  string `json:"session_id"`
 	PositionMs int64  `json:"position_ms"`
 	DurationMs int64  `json:"duration_ms"`
-	Completed  bool   `json:"completed"`
 }
 
 func statsPlayHandler(svc *service.Container) gin.HandlerFunc {
@@ -92,9 +92,9 @@ func statsPlayHandler(svc *service.Container) gin.HandlerFunc {
 			return
 		}
 		uid, _ := c.Get(middleware.CtxUserID)
-		if err := svc.Playback.RecordProgressEvent(c.Request.Context(), toString(uid), req.MediaID,
-			req.PositionMs, req.DurationMs, req.Completed); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		if err := svc.Playback.RecordProgress(c.Request.Context(), toString(uid), req.MediaID, req.SessionID,
+			req.PositionMs, req.DurationMs, mediaVisibilityForRequest(c, svc)); err != nil {
+			writePlaybackProgressError(c, err)
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"ok": true})

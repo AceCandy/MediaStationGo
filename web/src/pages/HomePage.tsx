@@ -2,12 +2,12 @@ import { useEffect, useMemo, useState } from 'react'
 import toast from 'react-hot-toast'
 
 import { aiAPI } from '../api/ai'
-import { libraryAPI, mediaAPI } from '../api/library'
-import { playbackAPI, type HistoryItem } from '../api/playback'
+import { mediaAPI } from '../api/library'
+import { historyAPI } from '../api/history'
 import { useLayoutPermissions } from '../components/useLayoutPermissions'
 import { useAuthStore } from '../stores/auth'
-import type { Library, Media } from '../types'
-import { groupSeries, type SeriesCard } from '../utils/groupSeries'
+import type { HistoryItem, Media } from '../types'
+import type { SeriesCard } from '../utils/groupSeries'
 import {
   ContinueWatchingSection,
   HomeEmptyState,
@@ -23,36 +23,29 @@ const asArray = <T,>(value: unknown): T[] => (Array.isArray(value) ? value as T[
 export function HomePage() {
   const user = useAuthStore((state) => state.user)
   const { can, isReady: permissionsReady } = useLayoutPermissions(user)
-  const [libraries, setLibraries] = useState<Library[]>([])
   const [recentCards, setRecentCards] = useState<SeriesCard[]>([])
   const [history, setHistory] = useState<HistoryItem[]>([])
-  const [loading, setLoading] = useState(true)
+  const [pendingRecent, setPendingRecent] = useState(true)
+  const [pendingHistory, setPendingHistory] = useState(true)
   const [recommendationsAvailable, setRecommendationsAvailable] = useState(false)
   const [recommendations, setRecommendations] = useState<string[] | null>(null)
   const [recommending, setRecommending] = useState(false)
 
   useEffect(() => {
     let cancelled = false
-    async function load() {
-      setLoading(true)
-      try {
-        const [libs, recentItems, hist] = await Promise.all([
-          libraryAPI.list().then((rows) => asArray<Library>(rows)).catch(() => [] as Library[]),
-          mediaAPI.recent(24).then((rows) => asArray<SeriesCard>(rows)).catch(async () => {
-            const fallback = await mediaAPI.search('', 120).then((d) => asArray<Media>(d?.items)).catch(() => [] as Media[])
-            return groupSeries(fallback).slice(0, 24)
-          }),
-          playbackAPI.recentHistory().then((rows) => asArray<HistoryItem>(rows)).catch(() => [] as HistoryItem[]),
-        ])
-        if (cancelled) return
-        setLibraries(libs)
-        setRecentCards(recentItems)
-        setHistory(hist.filter((h) => h && !h.completed && !!h.media))
-      } finally {
-        if (!cancelled) setLoading(false)
-      }
-    }
-    load()
+    mediaAPI.recent(24).then((rows) => {
+      if (!cancelled) setRecentCards(asArray<SeriesCard>(rows))
+    }).catch(() => undefined).finally(() => {
+      if (!cancelled) setPendingRecent(false)
+    })
+    historyAPI.continueWatching(30)
+      .then((rows) => {
+        if (!cancelled) setHistory(asArray<{ history: HistoryItem; media: Media }>(rows).map(({ history: item, media }) => ({ ...item, media })).filter((h) => h && !h.completed && !!h.media))
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        if (!cancelled) setPendingHistory(false)
+      })
     return () => { cancelled = true }
   }, [])
 
@@ -94,9 +87,9 @@ export function HomePage() {
   }, [history, recentCards])
   const featuredVisual = featuredItem?.backdrop_url || featuredItem?.poster_url || ''
   const featuredPoster = featuredItem?.poster_url || featuredItem?.backdrop_url || ''
-  const empty = !loading && libraries.length === 0 && recentCards.length === 0 && history.length === 0
+  const empty = !pendingRecent && !pendingHistory && recentCards.length === 0 && history.length === 0
 
-  if (loading) {
+  if (pendingRecent && pendingHistory && recentCards.length === 0 && history.length === 0) {
     return <HomeLoadingState />
   }
 

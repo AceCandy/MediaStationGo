@@ -158,7 +158,7 @@ export function MediaDetailMainContent({
         <div className="divider border-gray-200/60" />
         <div className="flex flex-col gap-5">
           <MediaDetailPlaybackActions
-            media={media}
+            media={displayMedia ?? media}
             canCast={canCast}
           />
           {isAdmin && (

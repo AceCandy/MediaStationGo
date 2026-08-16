@@ -335,10 +335,21 @@ function mediaParentLooksLikeCollection(path?: string): boolean {
 }
 
 export function seriesCardLink(card: SeriesCard): string {
-  if (isSeriesCard(card)) {
-    return `/library/${targetLibraryID(card.linkMedia)}?series=${encodeURIComponent(card.key)}`
+	if (card.rep.series_id) {
+		return `/library/${encodeURIComponent(targetLibraryID(card.linkMedia))}?series_id=${encodeURIComponent(card.rep.series_id)}`
+	}
+	if (isSeriesCard(card)) {
+		return `/library/${encodeURIComponent(targetLibraryID(card.linkMedia))}?series=${encodeURIComponent(card.key)}`
+	}
+	return mediaDetailLink(card.rep)
+}
+
+export function mediaDetailLink(media: Media): string {
+  const libraryID = media.display_library_id || media.library_id
+  if (media.series_id && libraryID) {
+    return `/library/${encodeURIComponent(libraryID)}?series_id=${encodeURIComponent(media.series_id)}`
   }
-  return `/media/${card.rep.id}`
+  return `/media/${encodeURIComponent(media.metadata_id || media.id)}`
 }
 
 function betterSeriesLinkMedia(candidate: Media, current: Media): boolean {

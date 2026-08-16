@@ -30,7 +30,7 @@ func TestListLibrariesHidesAdultDirectoriesUnlessAdminRequestsAll(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := migrateMediaHandlerTestDB(db, &model.User{}, &model.Library{}, &model.Media{}, &model.Setting{}, &model.PlayProfile{}); err != nil {
+	if err := migrateMediaHandlerTestDB(db, &model.User{}, &model.Library{}, &model.Media{}, &model.PlaybackHistory{}, &model.Setting{}, &model.PlayProfile{}); err != nil {
 		t.Fatal(err)
 	}
 	repos := repository.New(db)
@@ -291,6 +291,19 @@ func TestListMediaVersionsReturnsOnlyVisibleSiblings(t *testing.T) {
 	if len(items) != 2 {
 		t.Fatalf("visible versions = %#v, want two safe versions", items)
 	}
+	if err := repos.History.Upsert(t.Context(), &model.PlaybackHistory{
+		UserID: viewer.ID, MetadataID: metadata.ID, MediaID: "version-safe-1", PositionMs: 30_000, DurationMs: 120_000,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	items = requestMediaVersions(t, svc, viewer.ID, metadata.ID, http.StatusOK)
+	if len(items) != 2 || items[0].ID != "version-safe-1" {
+		t.Fatalf("preferred version = %#v, want last played version first", items)
+	}
+	detail := requestMediaDetail(t, svc, viewer.ID, metadata.ID)
+	if detail.LibraryID != safe.ID {
+		t.Fatalf("metadata detail library = %q, want visible library %q", detail.LibraryID, safe.ID)
+	}
 	for _, item := range items {
 		if item.LibraryID != safe.ID {
 			t.Fatalf("hidden version leaked: %#v", item)
@@ -520,6 +533,25 @@ func requestMediaVersions(t *testing.T, svc *service.Container, userID, mediaID 
 		t.Fatalf("decode media versions: %v", err)
 	}
 	return items
+}
+
+func requestMediaDetail(t *testing.T, svc *service.Container, userID, mediaID string) model.MediaView {
+	t.Helper()
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Set(middleware.CtxUserID, userID)
+	c.Set(middleware.CtxUserRole, "user")
+	c.Params = gin.Params{{Key: "id", Value: mediaID}}
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/media/"+mediaID, nil)
+	getMediaHandler(svc)(c)
+	if w.Code != http.StatusOK {
+		t.Fatalf("GET media detail status = %d body=%s", w.Code, w.Body.String())
+	}
+	var item model.MediaView
+	if err := json.Unmarshal(w.Body.Bytes(), &item); err != nil {
+		t.Fatalf("decode media detail: %v", err)
+	}
+	return item
 }
 
 func requestLibrarySeries(t *testing.T, svc *service.Container, path, libraryID string) seriesListResponse {

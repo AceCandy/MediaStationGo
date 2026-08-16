@@ -4,6 +4,7 @@ export interface HistoryItem {
   id: string
   user_id: string
   media_id: string
+  metadata_id: string
   position_ms: number
   duration_ms: number
   watched_at: string

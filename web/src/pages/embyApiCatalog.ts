@@ -103,6 +103,7 @@ const playStateParameters: readonly EmbyApiParameter[] = [
   tokenHeader,
   { name: 'ItemId', location: 'body', type: 'string', description: '正在播放的媒体项 ID；也可通过同名 Query 传递。' },
   { name: 'MediaSourceId', location: 'body', type: 'string', description: 'PlaybackInfo 返回的媒体源 ID。' },
+  { name: 'PlaySessionId', location: 'body', type: 'string', description: 'PlaybackInfo 返回的播放会话 ID；同一次播放必须复用。' },
   { name: 'PositionTicks', location: 'body', type: 'number', description: '当前播放位置。' },
   { name: 'RunTimeTicks', location: 'body', type: 'number', description: '媒体总时长。' },
 ]
@@ -110,6 +111,7 @@ const playStateParameters: readonly EmbyApiParameter[] = [
 const playStateRequest = `{
   "ItemId": "media-42",
   "MediaSourceId": "source-42",
+  "PlaySessionId": "play-session-1",
   "PositionTicks": 18000000000,
   "RunTimeTicks": 72000000000
 }`
@@ -345,7 +347,7 @@ export const EMBY_API_ENDPOINTS: readonly EmbyApiEndpoint[] = [
     support: 'implemented',
     parameters: [
       tokenHeader,
-      { name: 'userId', location: 'path', type: 'string', required: true, description: '用户 ID。' },
+      { name: 'userId', location: 'path', type: 'string', required: true, description: '必须与令牌用户一致；管理员可显式指定其他账户。' },
     ],
     responses: [{ status: '200', contentType: 'application/json', description: '返回 CollectionFolder 类型的 Items 分页结构。', fields: itemsEnvelopeFields, example: `{
   "Items": [{ "Id": "library-1", "Name": "电影", "Type": "CollectionFolder", "CollectionType": "movies" }],
@@ -406,7 +408,7 @@ export const EMBY_API_ENDPOINTS: readonly EmbyApiEndpoint[] = [
     support: 'implemented',
     parameters: [
       tokenHeader,
-      { name: 'userId', location: 'path', type: 'string', description: '用户路径变体中的用户 ID。' },
+      { name: 'userId', location: 'path', type: 'string', description: '必须与令牌用户一致；管理员可显式指定其他账户。' },
       { name: 'ParentId', location: 'query', type: 'string', description: '父级媒体库、剧集或季 ID。' },
       { name: 'Ids', location: 'query', type: 'string', description: '逗号分隔的媒体 ID。' },
       { name: 'SearchTerm', location: 'query', type: 'string', description: '标题搜索词。' },
@@ -465,7 +467,7 @@ export const EMBY_API_ENDPOINTS: readonly EmbyApiEndpoint[] = [
     parameters: [
       tokenHeader,
       { name: 'id', location: 'path', type: 'string', required: true, description: '媒体项 ID。' },
-      { name: 'userId', location: 'path', type: 'string', description: '用户路径变体中的用户 ID。' },
+      { name: 'userId', location: 'path', type: 'string', description: '必须与令牌用户一致；管理员可显式指定其他账户。' },
     ],
     responses: [
       { status: '200', contentType: 'application/json', description: '完整 Emby 媒体项。', fields: itemFields, example: `{
@@ -483,7 +485,7 @@ export const EMBY_API_ENDPOINTS: readonly EmbyApiEndpoint[] = [
     id: 'items-latest',
     category: '媒体项',
     name: '最近入库',
-    description: '返回最近新增的媒体项。',
+    description: '按逻辑作品归组后返回最近入库的媒体项，剧集分集归到 Series，并按可见版本的最新入库时间排序。',
     methods: ['GET'],
     path: '/Items/Latest',
     aliases: ['/Users/:userId/Items/Latest', '/items/latest'],
@@ -626,7 +628,7 @@ export const EMBY_API_ENDPOINTS: readonly EmbyApiEndpoint[] = [
       { name: 'MediaSourceId', location: 'body', type: 'string', description: '指定媒体源。' },
       { name: 'AudioStreamIndex', location: 'body', type: 'number', description: '音轨索引。' },
       { name: 'SubtitleStreamIndex', location: 'body', type: 'number', description: '字幕轨索引。' },
-      { name: 'UserId', location: 'body', type: 'string', description: '用户 ID，覆盖 Query。' },
+      { name: 'UserId', location: 'body', type: 'string', description: '用户 ID；必须与令牌用户一致，管理员除外。' },
     ],
     requestExample: `{
   "MediaSourceId": "source-42",
@@ -719,7 +721,7 @@ export const EMBY_API_ENDPOINTS: readonly EmbyApiEndpoint[] = [
     support: 'implemented',
     parameters: playStateParameters,
     requestExample: playStateRequest,
-    responses: [noContentResponse, { status: '401 / 500', contentType: 'application/json', description: '用户已被终止会话，或进度记录失败。' }],
+    responses: [noContentResponse, { status: '400 / 401', contentType: 'application/json', description: '进度参数非法，或用户已被终止会话。' }],
   },
   {
     id: 'session-stopped',
@@ -747,7 +749,7 @@ export const EMBY_API_ENDPOINTS: readonly EmbyApiEndpoint[] = [
     support: 'implemented',
     parameters: [
       tokenHeader,
-      { name: 'userId', location: 'path', type: 'string', required: true, description: '用户 ID。' },
+      { name: 'userId', location: 'path', type: 'string', required: true, description: '必须与令牌用户一致；管理员可显式指定其他账户。' },
       { name: 'itemId', location: 'path', type: 'string', required: true, description: '媒体项 ID。' },
     ],
     responses: [{ status: '200', contentType: 'application/json', description: '返回更新后的 UserData；媒体无完整用户数据时至少返回 IsFavorite。', fields: userDataFields, example: `{ "IsFavorite": true }` }],
@@ -764,7 +766,7 @@ export const EMBY_API_ENDPOINTS: readonly EmbyApiEndpoint[] = [
     support: 'implemented',
     parameters: [
       tokenHeader,
-      { name: 'userId', location: 'path', type: 'string', required: true, description: '用户 ID。' },
+      { name: 'userId', location: 'path', type: 'string', required: true, description: '必须与令牌用户一致；管理员可显式指定其他账户。' },
       { name: 'itemId', location: 'path', type: 'string', required: true, description: '媒体项 ID。' },
     ],
     responses: [{ status: '200', contentType: 'application/json', description: '返回更新后的 UserData；媒体无完整用户数据时至少返回 Played。', fields: userDataFields, example: `{ "Played": true }` }],

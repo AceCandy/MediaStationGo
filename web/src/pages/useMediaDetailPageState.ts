@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type Dispatch, type SetStateAction } from 'react'
+import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react'
 import type { NavigateFunction } from 'react-router-dom'
 import toast from 'react-hot-toast'
 
@@ -69,11 +69,12 @@ export function useMediaDetailPageState({ id, navigate }: MediaDetailPageStatePa
       .then(async (nextMedia) => {
         if (cancelled || !nextMedia) return
         setVersions([nextMedia])
-        void mediaAPI.listVersions(nextMedia.id)
-          .then((items) => {
-            if (!cancelled && items.length > 0) setVersions(items)
-          })
-          .catch(() => undefined)
+        setSelectedVersionID(nextMedia.id)
+        void mediaAPI.listVersions(id).catch(() => [nextMedia]).then((items) => {
+          if (cancelled || items.length === 0) return
+          setVersions(items)
+          setSelectedVersionID(items[0].id)
+        })
         if ((nextMedia.tracks?.length ?? 0) > 0) return
         setProbing(true)
         setProbeError('')
@@ -95,7 +96,7 @@ export function useMediaDetailPageState({ id, navigate }: MediaDetailPageStatePa
 
   useEffect(() => {
     const currentMediaID = media?.id
-    if (!currentMediaID || currentMediaID !== id || !selectedVersionID || selectedVersionID === currentMediaID) {
+    if (!currentMediaID || !selectedVersionID || selectedVersionID === currentMediaID) {
       setSelectedMedia(null)
       setSelectedMediaLoading(false)
       setSelectedMediaProbing(false)
@@ -173,19 +174,30 @@ function useMediaDetailRefresh({
   setFavourite,
   setLoading,
 }: MediaDetailRefreshParams): MediaDetailRefresh {
+  const generation = useRef(0)
+  useEffect(() => {
+    generation.current += 1
+    return () => { generation.current += 1 }
+  }, [id])
   return useCallback(async () => {
     if (!id) return null
+    const requestGeneration = ++generation.current
     setLoading(true)
     try {
       const nextMedia = await mediaAPI.get(id)
+      if (requestGeneration !== generation.current) return null
       setMedia(nextMedia)
       setLoading(false)
-      void playbackAPI.listFavourites()
-        .then((favourites) => setFavourite(favourites.some((item) => item.id === nextMedia.id)))
-        .catch(() => setFavourite(false))
+      void playbackAPI.favouriteStatus(nextMedia.id)
+        .then((state) => {
+          if (requestGeneration === generation.current) setFavourite(state)
+        })
+        .catch(() => {
+          if (requestGeneration === generation.current) setFavourite(false)
+        })
       return nextMedia
     } finally {
-      setLoading(false)
+      if (requestGeneration === generation.current) setLoading(false)
     }
   }, [id, setFavourite, setLoading, setMedia])
 }

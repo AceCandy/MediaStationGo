@@ -19,6 +19,9 @@ func embySessionsHandler(svc *service.Container) gin.HandlerFunc {
 		}
 		out := make([]gin.H, 0)
 		for _, sess := range svc.Sessions.List(c.Request.Context()) {
+			if !middleware.IsAdmin(c) && sess.UserID != embyUserID(c) {
+				continue
+			}
 			last := sess.LastActivityAt
 			itemID := sess.ItemID
 			playState := gin.H{

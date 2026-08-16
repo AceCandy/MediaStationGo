@@ -1,6 +1,20 @@
 import { api } from './client'
 import type { AccessLog, Setting, User } from '../types'
 
+export interface PlaybackStatsQuery {
+  grain: 'day' | 'week' | 'month'
+  from: string
+  to: string
+  user_id?: string
+  media_type?: 'movie' | 'tv'
+  library_ids?: string
+}
+
+export interface PlaybackStatsResult {
+  total: number
+  buckets: { period: string; count: number }[]
+}
+
 export interface PlayerRequestLog {
   id: string
   requested_at: string
@@ -56,4 +70,7 @@ export const adminAPI = {
 
   playerRequestLogs: (params: PlayerRequestLogQuery) =>
     api.get<PlayerRequestLogPage>('/admin/player-request-logs', { params }).then((r) => r.data),
+
+  playbackStats: (params: PlaybackStatsQuery) =>
+    api.get<PlaybackStatsResult>('/admin/playback-stats', { params }).then((r) => r.data),
 }

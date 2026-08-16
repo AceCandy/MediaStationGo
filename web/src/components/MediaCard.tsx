@@ -4,6 +4,7 @@ import { motion } from 'framer-motion'
 import { Film, Play, Layers, Star } from 'lucide-react'
 import { imageURL } from '../api/client'
 import type { Media } from '../types'
+import { mediaDetailLink } from '../utils/groupSeries'
 
 export const MediaCard = ({
   media, progress, count, rating, linkTo, onClick, actions,
@@ -17,7 +18,7 @@ export const MediaCard = ({
   actions?: ReactNode
 }) => {
   const ref = useRef<HTMLDivElement>(null)
-  const href = linkTo ?? `/media/${media.id}`
+  const href = linkTo ?? mediaDetailLink(media)
   const [posterFit, setPosterFit] = useState<'cover' | 'contain'>('cover')
   const posterSrc = imageURL(media.poster_url, media.updated_at)
   const displayRating = rating ?? media.rating

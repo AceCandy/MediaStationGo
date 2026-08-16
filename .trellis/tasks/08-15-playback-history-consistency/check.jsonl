@@ -1,0 +1,7 @@
+{"file":".trellis/spec/backend/database-guidelines.md","reason":"复核 PostgreSQL Upsert、事件唯一约束、迁移幂等和真实数据库验证。"}
+{"file":".trellis/spec/backend/shared-media-metadata.md","reason":"复核 metadata 级历史、版本、媒体库与可见性边界。"}
+{"file":".trellis/spec/backend/emby-api-catalog-sync.md","reason":"复核所有玩家可见 Emby 变更已同步目录。"}
+{"file":".trellis/spec/frontend/index.md","reason":"复核 Web lint、build、导航和权限要求。"}
+{"file":".trellis/spec/frontend/routing-and-loading-contracts.md","reason":"复核统计页路由、直接访问防护和账户缓存隔离。"}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"复核跨层输入、输出、权限和 round-trip。"}
+{"file":".trellis/tasks/08-15-playback-history-consistency/research/current-playback-architecture.md","reason":"按现状锚点检查是否遗漏任一 Web/Emby 入口或测试路径。"}

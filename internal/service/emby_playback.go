@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"go.uber.org/zap"
 
 	"github.com/ShukeBta/MediaStationGo/internal/model"
@@ -39,7 +40,7 @@ func (e *EmbyService) PlaybackInfoWithOptions(ctx context.Context, mediaID, user
 	}
 	return map[string]any{
 		"MediaSources":  e.mediaSourcesFromViewsWithSelection(ctx, siblings, false, selection),
-		"PlaySessionId": fmt.Sprintf("%s-%d", m.ID, time.Now().Unix()),
+		"PlaySessionId": uuid.NewString(),
 		"DateCreated":   formatEmbyDateTime(m.CreatedAt),
 	}, nil
 }
@@ -180,14 +181,44 @@ func (e *EmbyService) playableMedia(ctx context.Context, id, userID string) (*mo
 	if season, ok, err := e.findSeasonGroup(ctx, id, userID); err != nil {
 		return nil, err
 	} else if ok && len(season.Episodes) > 0 {
-		return &season.Episodes[0], nil
+		return e.preferredPlayableView(ctx, userID, season.Episodes), nil
 	}
 	if series, ok, err := e.findSeriesGroup(ctx, id, userID); err != nil {
 		return nil, err
 	} else if ok && len(series.Episodes) > 0 {
-		return &series.Episodes[0], nil
+		return e.preferredPlayableView(ctx, userID, series.Episodes), nil
 	}
-	return e.mediaViewForItemID(ctx, id, userID)
+	m, err := e.mediaViewForItemID(ctx, id, userID)
+	if err != nil || m == nil || m.ID == id {
+		return m, err
+	}
+	return e.preferredPlayableView(ctx, userID, e.mediaVersionSiblings(ctx, m, userID)), nil
+}
+
+func (e *EmbyService) preferredPlayableView(ctx context.Context, userID string, views []model.MediaView) *model.MediaView {
+	if len(views) == 0 {
+		return nil
+	}
+	mediaIDs := make([]string, 0, len(views))
+	for _, view := range views {
+		mediaIDs = append(mediaIDs, view.ID)
+	}
+	var history model.PlaybackHistory
+	if userID != "" && e.repo.DB.WithContext(ctx).Where("user_id = ? AND media_id IN ?", userID, mediaIDs).
+		Order("watched_at DESC").Limit(1).Find(&history).Error == nil && history.ID != "" {
+		for i := range views {
+			if views[i].ID == history.MediaID {
+				return &views[i]
+			}
+		}
+	}
+	preferred := 0
+	for i := 1; i < len(views); i++ {
+		if preferMediaVersion(views[i].Media, views[preferred].Media) {
+			preferred = i
+		}
+	}
+	return &views[preferred]
 }
 
 // mediaSource 是 /Items 与 /PlaybackInfo 共享的 MediaSource 结构。

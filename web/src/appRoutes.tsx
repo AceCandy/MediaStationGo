@@ -63,6 +63,9 @@ const AssistantChatPage = lazy(() =>
 const PlayerRequestLogsPage = lazy(() =>
   import('./pages/PlayerRequestLogsPage').then((m) => ({ default: m.PlayerRequestLogsPage })),
 )
+const PlaybackStatsPage = lazy(() =>
+  import('./pages/PlaybackStatsPage').then((m) => ({ default: m.PlaybackStatsPage })),
+)
 
 export type NavigationScope = 'viewer' | 'management'
 export type ManagementGroupID = 'media' | 'storage' | 'tasks' | 'integrations' | 'settings'
@@ -184,6 +187,21 @@ export const appRoutes: AppRoute[] = [
   { id: 'media-detail', path: 'media/:id', element: <MediaDetailPage /> },
   { id: 'player', path: 'play/:id', element: <PlayerPage /> },
   { id: 'profile', path: 'profile', element: <ProfilePage /> },
+  {
+    id: 'playback-stats',
+    path: 'playback-stats',
+    element: <PlaybackStatsPage />,
+    adminOnly: true,
+    navigation: {
+      scope: 'viewer',
+      label: '播放统计',
+      icon: BarChart3,
+      to: '/playback-stats',
+      order: 45,
+      activePaths: ['/playback-stats'],
+      end: true,
+    },
+  },
   {
     id: 'dlna',
     path: 'dlna',

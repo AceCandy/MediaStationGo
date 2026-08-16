@@ -1,20 +1,8 @@
 import { api } from './client'
-import type { Media, Playlist } from '../types'
-
-// History rows arrive joined with their Media row; the backend returns null
-// for orphaned rows whose media has been removed.
-export interface HistoryItem {
-  id: string
-  user_id: string
-  media_id: string
-  position_ms: number
-  duration_ms: number
-  watched_at: string
-  completed: boolean
-  media?: Media | null
-  created_at: string
-  updated_at: string
-}
+import type { HistoryItem, Media, Playlist } from '../types'
+import { invalidateHistoryCache } from './history'
+import { useAuthStore } from '../stores/auth'
+import { getActivePlayProfileId, getActivePlayProfilePinToken } from '../stores/playProfile'
 
 export interface PlaylistDetail {
   playlist: Playlist
@@ -32,15 +20,83 @@ function publicOriginHeader() {
   return { 'X-MediaStation-Public-Origin': window.location.origin }
 }
 
+const favouritesCacheTTL = 5_000
+let favouritesAccountID = ''
+let favouritesGeneration = 0
+let favouritesCache: { expiresAt: number; value: Media[] } | null = null
+let favouritesRequest: Promise<Media[]> | null = null
+
+function favouritesAccountKey(): string {
+  const accountID = useAuthStore.getState().user?.id ?? ''
+  if (accountID !== favouritesAccountID) {
+    favouritesCache = null
+    favouritesRequest = null
+    favouritesGeneration += 1
+    favouritesAccountID = accountID
+  }
+  return accountID
+}
+
+function invalidateFavouritesCache() {
+  favouritesGeneration += 1
+  favouritesCache = null
+  favouritesRequest = null
+}
+
+function listFavourites(): Promise<Media[]> {
+  favouritesAccountKey()
+  if (favouritesCache && favouritesCache.expiresAt > Date.now()) {
+    return Promise.resolve(favouritesCache.value)
+  }
+  if (favouritesRequest) return favouritesRequest
+  const generation = favouritesGeneration
+  const request = api.get<{ items: Media[] }>('/favourites')
+    .then((r) => {
+      const items = r.data.items ?? []
+      if (generation === favouritesGeneration) {
+        favouritesCache = { expiresAt: Date.now() + favouritesCacheTTL, value: items }
+      }
+      return items
+    })
+    .finally(() => {
+      if (favouritesRequest === request) favouritesRequest = null
+    })
+  favouritesRequest = request
+  return request
+}
+
 export const playbackAPI = {
-  recordProgress: (mediaId: string, positionMs: number, durationMs: number) =>
+  recordProgress: (mediaId: string, sessionId: string, positionMs: number, durationMs: number) =>
     api
       .post('/history', {
         media_id: mediaId,
+        session_id: sessionId,
         position_ms: positionMs,
         duration_ms: durationMs,
       })
-      .then((r) => r.data),
+      .then((r) => {
+        invalidateHistoryCache()
+        return r.data
+      }),
+
+  recordProgressKeepalive: (mediaId: string, sessionId: string, positionMs: number, durationMs: number) => {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+    const token = useAuthStore.getState().token
+    if (token) headers.Authorization = `Bearer ${token}`
+    const profileID = getActivePlayProfileId()
+    if (profileID) {
+      headers['X-Play-Profile-ID'] = profileID
+      const pinToken = getActivePlayProfilePinToken()
+      if (pinToken) headers['X-Play-Profile-PIN-Token'] = pinToken
+    }
+    invalidateHistoryCache()
+    return fetch('/api/history', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ media_id: mediaId, session_id: sessionId, position_ms: positionMs, duration_ms: durationMs }),
+      keepalive: true,
+    })
+  },
 
   recentHistory: () =>
     api.get<{ items: HistoryItem[] }>('/history').then((r) => r.data.items),
@@ -48,10 +104,17 @@ export const playbackAPI = {
   toggleFavourite: (mediaId: string) =>
     api
       .post<{ favourite: boolean }>(`/favourites/${mediaId}`)
+      .then((r) => {
+        invalidateFavouritesCache()
+        return r.data.favourite
+      }),
+
+  favouriteStatus: (mediaId: string) =>
+    api
+      .get<{ favourite: boolean }>(`/media/${mediaId}/favorite/status`)
       .then((r) => r.data.favourite),
 
-  listFavourites: () =>
-    api.get<{ items: Media[] }>('/favourites').then((r) => r.data.items),
+  listFavourites,
 
   listPlaylists: () =>
     api.get<{ items: Playlist[] }>('/playlists').then((r) => r.data.items),

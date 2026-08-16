@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 )
@@ -18,22 +19,15 @@ func (r *HistoryRepository) Upsert(ctx context.Context, h *model.PlaybackHistory
 	if h == nil || strings.TrimSpace(h.MetadataID) == "" {
 		return errors.New("metadata id is required")
 	}
-	var existing model.PlaybackHistory
-	q := r.db.WithContext(ctx).Where("user_id = ? AND metadata_id = ?", h.UserID, h.MetadataID)
-	err := q.First(&existing).Error
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return r.db.WithContext(ctx).Create(h).Error
-	}
-	if err != nil {
-		return err
-	}
-	existing.PositionMs = h.PositionMs
-	existing.DurationMs = h.DurationMs
-	existing.WatchedAt = h.WatchedAt
-	existing.Completed = h.Completed
-	existing.MetadataID = h.MetadataID
-	existing.MediaID = h.MediaID
-	return r.db.WithContext(ctx).Save(&existing).Error
+	return r.db.WithContext(ctx).Clauses(clause.OnConflict{
+		Columns: []clause.Column{{Name: "user_id"}, {Name: "metadata_id"}},
+		TargetWhere: clause.Where{Exprs: []clause.Expression{
+			clause.Eq{Column: clause.Column{Name: "deleted_at"}, Value: nil},
+		}},
+		DoUpdates: clause.AssignmentColumns([]string{
+			"media_id", "position_ms", "duration_ms", "watched_at", "completed", "updated_at",
+		}),
+	}).Create(h).Error
 }
 
 // ListByUser returns the most recent history rows for the user.
@@ -54,6 +48,9 @@ func (r *HistoryRepository) ListByUserFiltered(ctx context.Context, userID strin
 	q = applyMediaViewFilter(q, filter)
 	if completed != nil {
 		q = q.Where("ph.completed = ?", *completed)
+	}
+	if completed != nil && !*completed {
+		q = q.Where("ph.position_ms >= ?", int64(20_000))
 	}
 	var rows []model.PlaybackHistory
 	err := q.Select("DISTINCT ph.*").Order("ph.watched_at desc").Limit(limit).Scan(&rows).Error

@@ -4,10 +4,10 @@ import { ArrowRight, Clock, Film, Play, Sparkles } from 'lucide-react'
 
 import { imageURL } from '../api/client'
 import { MediaCard } from '../components/MediaCard'
-import type { HistoryItem } from '../api/playback'
+import type { HistoryItem } from '../types'
 import type { Media } from '../types'
 import type { SeriesCard } from '../utils/groupSeries'
-import { seriesCardLink } from '../utils/groupSeries'
+import { mediaDetailLink, seriesCardLink } from '../utils/groupSeries'
 
 export function HomeLoadingState() {
   return (
@@ -129,7 +129,7 @@ export function HomeFeaturedSection({
             transition={{ duration: 0.5, delay: 0.32, ease: [0.21, 0.47, 0.32, 0.98] }}
             className="mt-7 flex flex-wrap items-center gap-3.5"
           >
-            <Link to={`/media/${featuredItem.id}`} className="btn-primary px-7 py-3.5">
+            <Link to={mediaDetailLink(featuredItem)} className="btn-primary px-7 py-3.5">
               <Play size={16} fill="currentColor" />
               <span>立即播放</span>
             </Link>
@@ -231,7 +231,7 @@ export function RecentMediaSection({ recentCards }: { recentCards: SeriesCard[] 
 
 function ContinueCard({ media, progress }: { media: Media; progress: number }) {
   return (
-    <Link to={`/media/${media.id}`} className="group flex items-center gap-4 rounded-2xl border border-[var(--app-border)] bg-[var(--app-panel)] p-3.5 shadow-[0_1px_3px_rgba(0,0,0,0.01)] transition-all duration-300 hover:border-brand-500/30 hover:bg-[var(--app-panel-soft)] hover:shadow-md">
+    <Link to={mediaDetailLink(media)} className="group flex items-center gap-4 rounded-2xl border border-[var(--app-border)] bg-[var(--app-panel)] p-3.5 shadow-[0_1px_3px_rgba(0,0,0,0.01)] transition-all duration-300 hover:border-brand-500/30 hover:bg-[var(--app-panel-soft)] hover:shadow-md">
       <div className="relative h-18 w-12 shrink-0 overflow-hidden rounded-xl border border-[var(--app-border)] bg-[var(--app-panel-soft)]">
         {media.poster_url ? (
           <img

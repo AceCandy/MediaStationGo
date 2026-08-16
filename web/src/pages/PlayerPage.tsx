@@ -26,6 +26,8 @@ export function PlayerPage() {
 
   const ref = useRef<HTMLVideoElement>(null)
   const lastSentRef = useRef(0)
+  const lastPositionRef = useRef(-1)
+  const sessionIDRef = useRef('')
 
   const [media, setMedia] = useState<Media | null>(null)
   const [subs, setSubs] = useState<SubtitleTrack[]>([])
@@ -62,29 +64,47 @@ export function PlayerPage() {
   useEffect(() => {
     if (!media || !ref.current) return
     const video = ref.current
+    sessionIDRef.current = crypto.randomUUID()
+    lastSentRef.current = 0
+    lastPositionRef.current = -1
     video.src = streamURL(media.id)
     void video.play().catch(() => undefined)
   }, [media])
 
-  // Persist resume position every 10 seconds while playing.
+  // Persist periodically, then force the last distinct position on lifecycle boundaries.
   useEffect(() => {
     if (!media || !ref.current) return
     const video = ref.current
-    const handler = () => {
+    const save = (force = false, keepalive = false) => {
       const now = Date.now()
-      if (now - lastSentRef.current < 10_000) return
-      lastSentRef.current = now
-      const positionMs = Math.floor(video.currentTime * 1000)
       const durationMs = Math.floor((video.duration || 0) * 1000)
-      if (positionMs > 0) {
-        playbackAPI.recordProgress(media.id, positionMs, durationMs).catch(() => undefined)
+      if (durationMs <= 0) return
+      const positionMs = Math.min(Math.floor(video.currentTime * 1000), durationMs)
+      if (positionMs <= 0 || positionMs === lastPositionRef.current) return
+      if (!force && now - lastSentRef.current < 10_000) return
+      lastSentRef.current = now
+      lastPositionRef.current = positionMs
+      if (keepalive) {
+        void playbackAPI.recordProgressKeepalive(media.id, sessionIDRef.current, positionMs, durationMs).catch(() => undefined)
+        return
       }
+      void playbackAPI.recordProgress(media.id, sessionIDRef.current, positionMs, durationMs)
+        .catch(() => playbackAPI.recordProgress(media.id, sessionIDRef.current, positionMs, durationMs))
+        .catch(() => undefined)
     }
-    video.addEventListener('timeupdate', handler)
-    video.addEventListener('pause', handler)
+    const periodicSave = () => save()
+    const finalSave = () => save(true)
+    const leaveSave = () => save(true, true)
+    video.addEventListener('timeupdate', periodicSave)
+    video.addEventListener('pause', finalSave)
+    video.addEventListener('ended', finalSave)
+    window.addEventListener('pagehide', leaveSave)
     return () => {
-      video.removeEventListener('timeupdate', handler)
-      video.removeEventListener('pause', handler)
+      video.removeEventListener('timeupdate', periodicSave)
+      video.removeEventListener('pause', finalSave)
+      video.removeEventListener('ended', finalSave)
+      window.removeEventListener('pagehide', leaveSave)
+      leaveSave()
     }
   }, [media])
 

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/ShukeBta/MediaStationGo/internal/model"
+	"github.com/ShukeBta/MediaStationGo/internal/repository"
 )
 
 type SeriesCard struct {
@@ -18,8 +19,9 @@ type SeriesCard struct {
 }
 
 type seriesCardGroup struct {
-	card   SeriesCard
-	latest time.Time
+	card       SeriesCard
+	latest     time.Time
+	episodeIDs map[string]struct{}
 }
 
 func (s *MediaService) ListLibrarySeriesCards(ctx context.Context, libraryID string, visibility MediaVisibility) ([]SeriesCard, int64, error) {
@@ -31,17 +33,43 @@ func (s *MediaService) ListLibrarySeriesCards(ctx context.Context, libraryID str
 	return cards, int64(len(cards)), nil
 }
 
+func seriesCardMetadataID(card SeriesCard) string {
+	if card.Rep.SeriesID != "" {
+		return card.Rep.SeriesID
+	}
+	return card.Rep.MetadataID
+}
+
 func (s *MediaService) ListRecentSeriesCards(ctx context.Context, limit int, visibility MediaVisibility) ([]SeriesCard, error) {
 	if limit <= 0 {
 		limit = 24
 	} else if limit > 100 {
 		limit = 100
 	}
-	rows, err := s.SearchMediaVisible(ctx, "", maxMediaSearchLimit, visibility)
+	filter := repository.MediaQueryFilter{
+		IncludeNSFW:       visibility.IncludeNSFW,
+		AllowedLibraryIDs: visibility.AllowedLibraryIDs,
+		HiddenLibraryIDs:  visibility.HiddenLibraryIDs,
+	}
+	rows, err := s.repo.MediaView.ListRecentLogicalWorks(ctx, limit, filter)
 	if err != nil {
 		return nil, err
 	}
+	s.attachLibraryMetadataViews(ctx, rows)
 	cards := groupMediaSeriesCards(mediaViewsAsMedia(rows))
+	recentAt := make(map[string]time.Time, len(cards))
+	for _, row := range rows {
+		id := row.MetadataID
+		if row.SeriesID != "" {
+			id = row.SeriesID
+		}
+		if row.CreatedAt.After(recentAt[id]) {
+			recentAt[id] = row.CreatedAt
+		}
+	}
+	sort.SliceStable(cards, func(i, j int) bool {
+		return recentAt[seriesCardMetadataID(cards[i])].After(recentAt[seriesCardMetadataID(cards[j])])
+	})
 	if len(cards) == 0 {
 		return []SeriesCard{}, nil
 	}
@@ -119,7 +147,11 @@ func groupMediaSeriesCards(items []model.Media) []SeriesCard {
 			// not multiple episodes. Keep a single movie card without presenting
 			// its versions as an "N episodes" collection.
 			if mediaLooksEpisodicForGrouping(item) || mediaLooksEpisodicForGrouping(card.LinkMedia) {
-				card.Count++
+				episodeID := firstNonEmpty(item.MetadataID, item.ID, item.Path)
+				if _, seen := group.episodeIDs[episodeID]; !seen {
+					group.episodeIDs[episodeID] = struct{}{}
+					card.Count++
+				}
 			}
 			if betterSeriesLinkMedia(item, card.LinkMedia) {
 				card.LinkMedia = item
@@ -138,9 +170,14 @@ func groupMediaSeriesCards(items []model.Media) []SeriesCard {
 			continue
 		}
 		byKey[key] = len(groups)
+		episodeIDs := map[string]struct{}{}
+		if mediaLooksEpisodicForGrouping(item) {
+			episodeIDs[firstNonEmpty(item.MetadataID, item.ID, item.Path)] = struct{}{}
+		}
 		groups = append(groups, seriesCardGroup{
-			card:   SeriesCard{Key: key, Rep: item, LinkMedia: item, Count: 1},
-			latest: seriesMediaTime(item),
+			card:       SeriesCard{Key: key, Rep: item, LinkMedia: item, Count: 1},
+			latest:     seriesMediaTime(item),
+			episodeIDs: episodeIDs,
 		})
 	}
 	sort.SliceStable(groups, func(i, j int) bool {

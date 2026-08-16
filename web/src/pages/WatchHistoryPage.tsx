@@ -94,8 +94,9 @@ export function WatchHistoryPage({ embedded = false }: { embedded?: boolean }) {
         {items.map((h) => {
           const m = h.media
           if (!m) return null
-          const progress =
-            h.duration_ms > 0 ? h.position_ms / h.duration_ms : 0
+          const progress = h.duration_ms > 0
+            ? Math.min(1, Math.max(0, h.position_ms / h.duration_ms))
+            : 0
           return (
             <div
               key={h.id}

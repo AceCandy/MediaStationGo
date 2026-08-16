@@ -19,6 +19,7 @@ type Container struct {
 	Person        *PersonRepository
 	Artwork       *ArtworkRepository
 	History       *HistoryRepository
+	PlaybackEvent *PlaybackEventRepository
 	Favorite      *FavoriteRepository
 	Playlist      *PlaylistRepository
 	Setting       *SettingRepository
@@ -51,6 +52,7 @@ func New(db *gorm.DB) *Container {
 		Person:        &PersonRepository{db: db},
 		Artwork:       &ArtworkRepository{db: db},
 		History:       &HistoryRepository{db: db},
+		PlaybackEvent: &PlaybackEventRepository{db: db},
 		Favorite:      &FavoriteRepository{db: db},
 		Playlist:      &PlaylistRepository{db: db},
 		Setting:       &SettingRepository{db: db},

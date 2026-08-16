@@ -75,7 +75,7 @@ func (e *EmbyService) LatestItems(ctx context.Context, userID, parentID string, 
 		}
 		q = q.Where("media.library_id IN ?", e.mergedLibraryIDs(ctx, parentID))
 	}
-	views, _, err := e.metadataPage(ctx, q, userID, metadataOrderSQL(ItemsParams{SortBy: "premieredate", SortOrder: "Descending"}, false), 0, limit)
+	views, _, err := e.metadataPage(ctx, q, userID, metadataOrderSQL(ItemsParams{SortBy: "datecreated", SortOrder: "Descending"}, false), 0, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -99,7 +99,7 @@ func (e *EmbyService) latestSeriesItemsForLibrary(ctx context.Context, userID, l
 		Where("media.library_id IN ? AND (media.season_num > 0 OR media.episode_num > 0)", e.mergedLibraryIDs(ctx, libraryID))
 	q = e.applyUserMediaVisibility(ctx, q, userID)
 	q = seriesScopeQuery(q)
-	groups, _, err := e.seriesMetadataPage(ctx, q, userID, ItemsParams{SortBy: "premieredate", SortOrder: "Descending"}, 0, limit)
+	groups, _, err := e.seriesMetadataPage(ctx, q, userID, ItemsParams{SortBy: "datecreated", SortOrder: "Descending"}, 0, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -115,28 +115,45 @@ func (e *EmbyService) ResumeItems(ctx context.Context, userID string, limit int)
 	if limit <= 0 || limit > 100 {
 		limit = 20
 	}
-	var hist []model.PlaybackHistory
-	q := e.repo.DB.WithContext(ctx).
-		Table("playback_histories").
-		Joins("JOIN media ON media.metadata_id = playback_histories.metadata_id AND media.deleted_at IS NULL")
-	q = e.applyUserMediaVisibility(ctx, q, userID)
-	if err := q.Select("DISTINCT playback_histories.*").
-		Where("playback_histories.user_id = ? AND playback_histories.completed = ? AND playback_histories.position_ms > 0", userID, false).
-		Order("playback_histories.watched_at desc").Limit(limit).Scan(&hist).Error; err != nil {
+	completed := false
+	hist, err := e.repo.History.ListByUserFiltered(ctx, userID, limit, &completed, e.mediaQueryFilter(ctx, userID))
+	if err != nil {
 		return nil, err
 	}
 	if len(hist) == 0 {
 		return map[string]any{"Items": []any{}, "TotalRecordCount": 0}, nil
 	}
-	items := make([]map[string]any, 0, len(hist))
-	for _, h := range hist {
-		m, err := e.mediaViewForItemID(ctx, h.MetadataID, userID)
-		if err != nil {
-			return nil, err
+	metadataIDs := make([]string, 0, len(hist))
+	lastMediaByMetadata := make(map[string]string, len(hist))
+	for i := range hist {
+		metadataIDs = append(metadataIDs, hist[i].MetadataID)
+		lastMediaByMetadata[hist[i].MetadataID] = hist[i].MediaID
+	}
+	versions, err := e.repo.MediaView.FindByMetadataIDs(ctx, metadataIDs, e.mediaQueryFilter(ctx, userID))
+	if err != nil {
+		return nil, err
+	}
+	viewsByMetadata := make(map[string]model.MediaView, len(hist))
+	for _, view := range versions {
+		current, ok := viewsByMetadata[view.MetadataID]
+		preferredID := lastMediaByMetadata[view.MetadataID]
+		if !ok || view.ID == preferredID || (current.ID != preferredID && preferMediaVersion(view.Media, current.Media)) {
+			viewsByMetadata[view.MetadataID] = view
 		}
-		if m != nil {
-			items = append(items, e.itemPayload(ctx, m, userID, false, h.PositionMs, false))
+	}
+	views := make([]model.MediaView, 0, len(hist))
+	positions := make(map[string]int64, len(hist))
+	for _, history := range hist {
+		if view, ok := viewsByMetadata[history.MetadataID]; ok {
+			views = append(views, view)
+			positions[history.MetadataID] = history.PositionMs
 		}
+	}
+	relations := e.itemRelationsForViews(ctx, views, userID, newEmbyListFields(nil))
+	items := make([]map[string]any, 0, len(views))
+	for i := range views {
+		view := &views[i]
+		items = append(items, e.itemPayloadWithRelations(ctx, view, userID, false, positions[view.MetadataID], false, relations))
 	}
 	return map[string]any{"Items": items, "TotalRecordCount": len(items)}, nil
 }
@@ -210,10 +227,16 @@ func (e *EmbyService) itemPayloadWithRelations(ctx context.Context, m *model.Med
 
 	runTimeTicks := int64(m.DurationSec) * 10_000_000
 	durationMs := int64(m.DurationSec) * 1000
-	played := posMs > 0 && durationMs > 0 && posMs >= durationMs*9/10
+	played := playbackCompleted(posMs, durationMs)
 	pct := 0.0
 	if durationMs > 0 {
 		pct = float64(posMs) / float64(durationMs) * 100
+		if pct < 0 {
+			pct = 0
+		}
+		if pct > 100 {
+			pct = 100
+		}
 	}
 	container := embyMediaContainer(&m.Media)
 	isLocalSTRM := localSTRMFileTarget(&m.Media) != ""
