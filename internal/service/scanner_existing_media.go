@@ -12,7 +12,7 @@ func (s *ScannerService) existingLocalMediaSnapshot(ctx context.Context, library
 	var rows []model.Media
 	if err := s.repo.DB.WithContext(ctx).
 		Model(&model.Media{}).
-		Select("path", "library_root_id", "relative_path", "scan_title", "size_bytes", "duration_sec", "width", "height", "video_codec", "audio_codec", "container", "strm_url", "file_id", "scan_year", "lookup_tmdb_id", "lookup_bangumi_id", "lookup_douban_id", "lookup_thetvdb_id", "season_num", "episode_num", "scrape_status", "local_metadata_hint").
+		Select("path", "library_root_id", "relative_path", "scan_title", "size_bytes", "scan_file_size_bytes", "scan_file_mtime_ns", "duration_sec", "width", "height", "video_codec", "audio_codec", "container", "strm_url", "file_id", "scan_year", "lookup_tmdb_id", "lookup_bangumi_id", "lookup_douban_id", "lookup_thetvdb_id", "season_num", "episode_num", "scrape_status", "local_metadata_hint").
 		Where("library_id = ? AND path NOT LIKE ?", libraryID, "cloud://%").
 		Find(&rows).Error; err != nil {
 		return nil, err
@@ -29,6 +29,8 @@ func (s *ScannerService) existingLocalMediaSnapshot(ctx context.Context, library
 			OriginalName:      row.OriginalName,
 			EpisodeTitle:      row.EpisodeTitle,
 			SizeBytes:         row.SizeBytes,
+			ScanFileSizeBytes: row.ScanFileSizeBytes,
+			ScanFileMTimeNS:   row.ScanFileMTimeNS,
 			DurationSec:       row.DurationSec,
 			Width:             row.Width,
 			Height:            row.Height,

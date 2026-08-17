@@ -9,8 +9,9 @@ import (
 // walkInfo is a tiny abstraction over os.FileInfo so that callers do not
 // need to depend on os/io packages directly.
 type walkInfo struct {
-	isDir bool
-	size  int64
+	isDir     bool
+	size      int64
+	modTimeNS int64
 }
 
 // walk traverses root depth-first calling fn for every entry. Hidden
@@ -28,6 +29,7 @@ func walk(root string, fn func(string, walkInfo) error) error {
 		if !d.IsDir() {
 			if fi, err := d.Info(); err == nil {
 				info.size = fi.Size()
+				info.modTimeNS = fi.ModTime().UnixNano()
 			}
 		}
 		return fn(path, info)

@@ -6,7 +6,6 @@
 //	library_scan      every 24 h  — optional full re-scan for local libraries;
 //	                                  filesystem watchers handle normal changes.
 //	organize_source   opt-in        — organize the configured staging folder.
-//	recycle_purge     every 24 h   — empty the recycle bin of rows
 //	                                  soft-deleted more than 30 days
 //	                                  ago.
 //
@@ -105,11 +104,6 @@ func (s *SchedulerService) Start(ctx context.Context) {
 			name:     "organize_source",
 			interval: s.organizeSourceInterval(ctx),
 			run:      s.jobOrganizeSource,
-		},
-		{
-			name:     "recycle_purge",
-			interval: 24 * time.Hour,
-			run:      s.jobPurgeRecycleBin,
 		},
 	}
 	for _, j := range s.jobs {

@@ -5,7 +5,6 @@ import toast from 'react-hot-toast'
 import { api } from '../api/client'
 import { mediaAPI } from '../api/library'
 import { playbackAPI } from '../api/playback'
-import { recycleAPI } from '../api/recycle'
 import { confirmAction } from '../components/confirmAction'
 import type { Media } from '../types'
 import { mediaLibraryBackTarget } from './MediaDetailPageModel'
@@ -273,13 +272,13 @@ async function reprobeMedia(media: Media | null, refresh: MediaDetailRefresh): P
 async function softDeleteMedia(media: Media | null, navigate: NavigateFunction): Promise<void> {
   if (!media) return
   const confirmed = await confirmAction({
-    title: '移入回收站',
-    message: `将「${media.title}」移至回收站? (磁盘文件保留)`,
-    confirmText: '移入回收站',
+    title: '永久删除媒体',
+    message: `将永久删除「${media.title}」的数据库记录；磁盘文件保留，此操作不可恢复。`,
+    confirmText: '永久删除',
   })
   if (!confirmed) return
-  await recycleAPI.softDelete(media.id)
-  toast.success('已移至回收站')
+  await mediaAPI.delete(media.id)
+  toast.success('已永久删除')
   goBackFromMediaDetail(media, navigate, true)
 }
 

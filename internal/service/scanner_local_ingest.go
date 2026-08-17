@@ -13,7 +13,7 @@ import (
 
 // ingestFile upserts a single media file. seenInodes dedups hardlinks within a
 // single scan; pass a fresh map for one-off ingests. It mutates res counters.
-func (s *ScannerService) ingestFile(ctx context.Context, lib *model.Library, root *model.LibraryRoot, path string, size int64, seenInodes map[string]string, existingMedia map[string]existingLocalMedia, writeBatch *localMediaWriteBatch, res *ScanResult) {
+func (s *ScannerService) ingestFile(ctx context.Context, lib *model.Library, root *model.LibraryRoot, path string, size, modTimeNS int64, seenInodes map[string]string, existingMedia map[string]existingLocalMedia, writeBatch *localMediaWriteBatch, res *ScanResult) {
 	res.Visited++
 	ext := strings.ToLower(filepath.Ext(path))
 	cleanPath := filepath.Clean(path)
@@ -32,6 +32,7 @@ func (s *ScannerService) ingestFile(ctx context.Context, lib *model.Library, roo
 		ext:           ext,
 		fileID:        fileID,
 		size:          size,
+		modTimeNS:     modTimeNS,
 		parsedSeason:  parsedSeason,
 		parsedEpisode: parsedEpisode,
 		localMeta:     localMeta,
@@ -40,8 +41,8 @@ func (s *ScannerService) ingestFile(ctx context.Context, lib *model.Library, roo
 		ctx:           ctx,
 		path:          path,
 		cleanPath:     cleanPath,
-		ext:           ext,
 		size:          size,
+		modTimeNS:     modTimeNS,
 		localMeta:     localMeta,
 		incoming:      media,
 		existingMedia: existingMedia,
@@ -107,8 +108,8 @@ type localMediaScanStateInput struct {
 	ctx           context.Context
 	path          string
 	cleanPath     string
-	ext           string
 	size          int64
+	modTimeNS     int64
 	localMeta     *LocalMetadata
 	incoming      *model.Media
 	existingMedia map[string]existingLocalMedia
@@ -120,7 +121,7 @@ func (s *ScannerService) localMediaScanState(in localMediaScanStateInput) (bool,
 	}
 	existing, exists := in.existingMedia[in.cleanPath]
 	isNewMedia := !exists
-	if exists && in.ext != ".strm" && existing.SizeBytes == in.size && !localMetadataNeedsRefresh(existing, in.localMeta) && !localDerivedMetadataNeedsRefresh(existing, in.incoming) {
+	if exists && existing.ScanFileMTimeNS != 0 && existing.ScanFileSizeBytes == in.size && existing.ScanFileMTimeNS == in.modTimeNS && !localMetadataNeedsRefresh(existing, in.localMeta) && !localDerivedMetadataNeedsRefresh(existing, in.incoming) {
 		return isNewMedia, true
 	}
 	return isNewMedia, false
@@ -133,6 +134,7 @@ type localScanMediaInput struct {
 	ext           string
 	fileID        string
 	size          int64
+	modTimeNS     int64
 	parsedSeason  int
 	parsedEpisode int
 	localMeta     *LocalMetadata
@@ -146,17 +148,19 @@ func (s *ScannerService) buildLocalScanMedia(in localScanMediaInput) *model.Medi
 	title, year = preferISOParentScrapeIdentity(in.path, in.lib.Path, title, year)
 
 	media := &model.Media{
-		LibraryID:     in.lib.ID,
-		LibraryRootID: libraryRootID(in.root),
-		RelativePath:  localRelativePath(in.path, in.root),
-		Title:         title,
-		Year:          year,
-		Path:          in.path,
-		SizeBytes:     in.size,
-		Container:     strings.TrimPrefix(in.ext, "."),
-		FileID:        in.fileID,
-		SeasonNum:     in.parsedSeason,
-		EpisodeNum:    in.parsedEpisode,
+		LibraryID:         in.lib.ID,
+		LibraryRootID:     libraryRootID(in.root),
+		RelativePath:      localRelativePath(in.path, in.root),
+		Title:             title,
+		Year:              year,
+		Path:              in.path,
+		SizeBytes:         in.size,
+		ScanFileSizeBytes: in.size,
+		ScanFileMTimeNS:   in.modTimeNS,
+		Container:         strings.TrimPrefix(in.ext, "."),
+		FileID:            in.fileID,
+		SeasonNum:         in.parsedSeason,
+		EpisodeNum:        in.parsedEpisode,
 	}
 	if in.ext == ".strm" {
 		media.Container = "strm"

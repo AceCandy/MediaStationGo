@@ -158,6 +158,8 @@ type existingLocalMedia struct {
 	OriginalName      string
 	EpisodeTitle      string
 	SizeBytes         int64
+	ScanFileSizeBytes int64
+	ScanFileMTimeNS   int64
 	DurationSec       int
 	Width             int
 	Height            int

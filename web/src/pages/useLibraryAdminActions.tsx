@@ -2,8 +2,7 @@ import { useState, type ReactNode } from 'react'
 import toast from 'react-hot-toast'
 
 import { api } from '../api/client'
-import { libraryAPI } from '../api/library'
-import { recycleAPI } from '../api/recycle'
+import { libraryAPI, mediaAPI } from '../api/library'
 import { toolsAPI } from '../api/tools'
 import { confirmAction } from '../components/confirmAction'
 import type { Library, Media } from '../types'
@@ -154,11 +153,11 @@ export function useLibraryAdminActions({
   const handleSeriesSoftDelete = async () => {
     if (!selectedSeries || selectedSeriesEpisodes.length === 0) return
     if (!(await confirmAction({
-      title: '移入回收站',
-      message: `将「${seriesTitle(selectedSeries.rep)}」的 ${selectedSeriesEpisodes.length} 个媒体移至回收站? (磁盘文件保留)`,
-      confirmText: '移入回收站',
+      title: '永久删除媒体',
+      message: `将永久删除「${seriesTitle(selectedSeries.rep)}」的 ${selectedSeriesEpisodes.length} 条数据库记录；磁盘文件保留，此操作不可恢复。`,
+      confirmText: '永久删除',
     }))) return
-    await runSeriesTool('delete', '整剧移入回收站', (media) => recycleAPI.softDelete(media.id))
+    await runSeriesTool('delete', '整剧永久删除', (media) => mediaAPI.delete(media.id))
     clearSelectedSeries()
   }
 
@@ -189,11 +188,11 @@ export function useLibraryAdminActions({
 
   const handleMovieSoftDelete = async (media: Media) => {
     if (!(await confirmAction({
-      title: '移入回收站',
-      message: `将「${media.title}」移至回收站? (磁盘文件保留)`,
-      confirmText: '移入回收站',
+      title: '永久删除媒体',
+      message: `将永久删除「${media.title}」的数据库记录；磁盘文件保留，此操作不可恢复。`,
+      confirmText: '永久删除',
     }))) return
-    await runMovieTool(media, 'delete', '移入回收站', (item) => recycleAPI.softDelete(item.id))
+    await runMovieTool(media, 'delete', '永久删除', (item) => mediaAPI.delete(item.id))
   }
 
   const movieActions = (media: Media): ReactNode => {

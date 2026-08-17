@@ -18,6 +18,7 @@ func (s *ScannerService) RemovePath(ctx context.Context, path string) (int64, er
 		return 0, nil // still exists; nothing to remove
 	}
 	res := s.repo.DB.WithContext(ctx).
+		Unscoped().
 		Where("path = ?", path).
 		Delete(&model.Media{})
 	if res.Error == nil && res.RowsAffected > 0 {
@@ -114,7 +115,7 @@ func (s *ScannerService) deleteMediaByIDs(ctx context.Context, ids []string) (in
 		if end > len(ids) {
 			end = len(ids)
 		}
-		res := s.repo.DB.WithContext(ctx).Where("id IN ?", ids[i:end]).Delete(&model.Media{})
+		res := s.repo.DB.WithContext(ctx).Unscoped().Where("id IN ?", ids[i:end]).Delete(&model.Media{})
 		if res.Error != nil {
 			return removed, res.Error
 		}

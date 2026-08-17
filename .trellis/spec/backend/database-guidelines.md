@@ -104,6 +104,53 @@ that a populated set returns the expected aggregate value.
 - When changing a PostgreSQL column type, include an idempotent compatibility
   statement and a PostgreSQL schema assertion.
 
+### Scenario: Local Media Scan Fingerprints and Hard Delete
+
+#### 1. Scope / Trigger
+
+Use this contract when changing local media discovery, media deletion, or the `media` schema.
+
+#### 2. Signatures
+
+- `media.scan_file_size_bytes bigint` stores the size of the scanned path itself.
+- `media.scan_file_mtime_ns bigint` stores `os.FileInfo.ModTime().UnixNano()` for that path.
+- `DELETE /media/:id` permanently deletes the media row but never deletes the disk file.
+
+#### 3. Contracts
+
+- A local file is unchanged only when both scan fingerprint fields match and path-derived metadata needs no refresh.
+- For `.strm`, the fingerprint belongs to the local sidecar; `media.size_bytes` may describe the playback target and must not be reused.
+- The unchanged return occurs before media Upsert and probe scheduling, preserving `media.updated_at` and probe data.
+- Post-scan automatic STRM generation skips media whose source path or container is already `.strm`; skipped source paths remain protected from overwrite cleanup.
+- Every media deletion uses `Unscoped().Delete`; `media.deleted_at` remains only as a compatibility column.
+- Hard delete retains shared metadata and user state while the existing foreign key cascades `media_probe_metadata`.
+
+#### 4. Validation & Error Matrix
+
+- `scan_file_mtime_ns = 0` -> process once and persist the fingerprint.
+- Size or mtime differs -> process and update the fingerprint.
+- Size and mtime match -> skip unless path-derived metadata changed.
+- Historical `deleted_at IS NOT NULL` row -> purge during migration; a database error aborts migration.
+
+#### 5. Good/Base/Bad Cases
+
+- Good: an unchanged `.strm` is skipped without reading or probing its target.
+- Base: a legacy row is updated once, then skipped on the next unchanged scan.
+- Bad: comparing `.strm` sidecar size with `media.size_bytes`, causing every scan to update.
+
+#### 6. Tests Required
+
+- Assert unchanged regular files and `.strm` files are skipped and keep `updated_at` unchanged.
+- Assert a size or nanosecond-mtime change updates the row.
+- Assert hard delete removes probe metadata but retains shared metadata and user-state rows.
+- Run migration twice and assert historical soft-deleted media stays absent while `media.deleted_at` remains.
+
+#### 7. Wrong vs Correct
+
+Wrong: call scoped `Delete(&model.Media{})` or special-case `.strm` to update on every scan.
+
+Correct: compare the dedicated scan fingerprint and use `Unscoped().Delete(&model.Media{})` for every media deletion path.
+
 ### Scenario: Retired Setting Cleanup
 
 1. Scope / Trigger: when a removed feature owns keys in the shared `settings` table, clean up only those retired keys during `AutoMigrate`.

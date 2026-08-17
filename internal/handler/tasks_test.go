@@ -30,8 +30,8 @@ func TestTasksHandlerReturnsStableDefinitions(t *testing.T) {
 	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
 		t.Fatal(err)
 	}
-	if len(response.Definitions) != 8 {
-		t.Fatalf("definitions = %d, want 8", len(response.Definitions))
+	if len(response.Definitions) != 7 {
+		t.Fatalf("definitions = %d, want 7", len(response.Definitions))
 	}
 }
 

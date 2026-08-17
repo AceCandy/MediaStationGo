@@ -63,7 +63,7 @@ export function MediaDetailAdminPanel({
           className="btn-outline py-2 px-3.5 text-xs gap-1.5 !border-red-100 !text-red-500 hover:!bg-red-50 hover:!border-red-200"
         >
           <Trash2 size={13} />
-          <span>移入回收站</span>
+          <span>永久删除</span>
         </button>
       </div>
     </div>

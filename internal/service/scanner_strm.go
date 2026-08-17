@@ -86,6 +86,7 @@ func (s *ScannerService) maybeGenerateSTRMAfterScan(libraryID string) {
 			Overwrite:        true,
 			PreserveTree:     s.autoSTRMPreserveTree(ctx),
 			SkipSettingsSave: true,
+			SkipSTRMSource:   true,
 		}
 		if outDir, scope := s.autoSTRMOutputDir(ctx); outDir != "" {
 			opts.OutputDir = outDir

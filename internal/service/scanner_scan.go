@@ -186,7 +186,7 @@ func (s *ScannerService) scanLocalLibraryFiles(ctx context.Context, lib *model.L
 			return nil
 		}
 		seen[filepath.Clean(path)] = struct{}{}
-		s.ingestFile(ctx, lib, root, path, info.size, seenInodes, existingMedia, writeBatch, res)
+		s.ingestFile(ctx, lib, root, path, info.size, info.modTimeNS, seenInodes, existingMedia, writeBatch, res)
 		return nil
 	}
 	return seen, walk(root.Path, walkFn)
@@ -253,7 +253,7 @@ func (s *ScannerService) IngestPath(ctx context.Context, libraryID, path string)
 		return false, nil
 	}
 	res := &ScanResult{LibraryID: lib.ID}
-	s.ingestFile(ctx, lib, root, path, fi.Size(), make(map[string]string), nil, nil, res)
+	s.ingestFile(ctx, lib, root, path, fi.Size(), fi.ModTime().UnixNano(), make(map[string]string), nil, nil, res)
 	if res.Added+res.Updated > 0 {
 		s.invalidateMediaCache(ctx)
 	}

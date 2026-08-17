@@ -1,11 +1,20 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import toast from 'react-hot-toast'
-import { Copy, Trash2 } from 'lucide-react'
+import {
+  CheckCircle2,
+  Copy,
+  Files,
+  HardDrive,
+  Layers,
+  ScanSearch,
+  Tags,
+  Trash2,
+} from 'lucide-react'
 
-import { duplicatesAPI, type DuplicateReport } from '../api/duplicates'
+import { duplicatesAPI, type DuplicateGroup, type DuplicateReport } from '../api/duplicates'
 import { libraryAPI } from '../api/library'
 import { confirmAction } from '../components/confirmAction'
-import type { Library } from '../types'
+import type { Library, Media } from '../types'
 
 function fmtBytes(n: number): string {
   if (!n) return '0 B'
@@ -17,6 +26,102 @@ function fmtBytes(n: number): string {
     i++
   }
   return `${v.toFixed(1)} ${u[i]}`
+}
+
+const TONE_STYLES = {
+  brand: 'border-brand-200/60 bg-brand-50 text-brand-500',
+  sage: 'border-sage-200/60 bg-sage-50 text-sage-600',
+  amber: 'border-amber-300/60 bg-amber-50 text-amber-600',
+  red: 'border-red-300/60 bg-red-50 text-red-500',
+} as const
+
+function StatCard({
+  icon,
+  label,
+  value,
+  tone,
+}: {
+  icon: ReactNode
+  label: string
+  value: string
+  tone: keyof typeof TONE_STYLES
+}) {
+  return (
+    <div className="glass-panel flex items-center gap-3 !p-4">
+      <div
+        className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border ${TONE_STYLES[tone]}`}
+      >
+        {icon}
+      </div>
+      <div className="min-w-0">
+        <p className="text-2xs font-bold uppercase tracking-widest text-ink-50">{label}</p>
+        <p className="truncate font-display text-xl font-bold text-ink-600">{value}</p>
+      </div>
+    </div>
+  )
+}
+
+function MediaRow({ media }: { media: Media }) {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <div className="min-w-0">
+        <p className="truncate text-sm font-medium text-ink-600" title={media.title}>
+          {media.title}
+        </p>
+        <p className="mt-0.5 truncate font-mono text-2xs text-ink-50" title={media.path}>
+          {media.path}
+        </p>
+      </div>
+      <div className="shrink-0 text-right text-xs text-ink-50">
+        <p className="font-semibold text-ink-100">{fmtBytes(media.size_bytes)}</p>
+        {media.library_name ? <p className="mt-0.5">{media.library_name}</p> : null}
+      </div>
+    </div>
+  )
+}
+
+function DuplicateGroupCard({ group, index }: { group: DuplicateGroup; index: number }) {
+  const releasable = group.duplicates.reduce((sum, d) => sum + d.size_bytes, 0)
+  return (
+    <section className="glass-panel space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+        <div className="flex items-center gap-2">
+          <span className="badge-brand">重复组 #{index + 1}</span>
+          <code
+            className="rounded-md bg-gray-100 px-2 py-0.5 font-mono text-2xs text-ink-50"
+            title={group.hash}
+          >
+            {group.hash.length > 16 ? `${group.hash.slice(0, 16)}…` : group.hash}
+          </code>
+        </div>
+        <p className="text-xs text-ink-50">
+          {group.duplicates.length + 1} 个相同文件 · 可释放{' '}
+          <span className="font-semibold text-red-400">{fmtBytes(releasable)}</span>
+        </p>
+      </div>
+
+      <div className="rounded-xl border border-emerald-300/50 bg-emerald-50/50 p-3">
+        <p className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold text-emerald-600">
+          <CheckCircle2 size={14} /> 保留主条目
+        </p>
+        <MediaRow media={group.primary} />
+      </div>
+
+      <div className="space-y-1.5">
+        <p className="flex items-center gap-1.5 text-xs font-semibold text-red-400">
+          <Copy size={13} /> 重复项（{group.duplicates.length}）
+        </p>
+        {group.duplicates.map((d) => (
+          <div
+            key={d.id}
+            className="rounded-xl border border-gray-200/80 bg-gray-50/50 p-3 transition hover:border-red-300/60"
+          >
+            <MediaRow media={d} />
+          </div>
+        ))}
+      </div>
+    </section>
+  )
 }
 
 export function DuplicatesPage() {
@@ -32,6 +137,15 @@ export function DuplicatesPage() {
   useEffect(() => {
     duplicatesAPI.list(libID).then(setReport).catch(() => setReport(null))
   }, [libID])
+
+  const releasableTotal = useMemo(
+    () =>
+      (report?.groups ?? []).reduce(
+        (sum, g) => sum + g.duplicates.reduce((s, d) => s + d.size_bytes, 0),
+        0,
+      ),
+    [report],
+  )
 
   const scan = async () => {
     setScanning(true)
@@ -57,41 +171,79 @@ export function DuplicatesPage() {
     setReport(null)
   }
 
+  const groups = report?.groups ?? []
+
   return (
     <div className="space-y-6">
-      <header className="flex items-center gap-3">
-        <Copy className="h-6 w-6 text-brand-500" />
+      <header className="flex items-center gap-4">
+        <div className="modal-icon">
+          <Copy size={20} />
+        </div>
         <div>
-          <h1 className="font-display text-3xl font-bold text-ink-600">重复文件</h1>
-          <p className="text-sm text-ink-50">
+          <h1 className="page-heading">重复文件</h1>
+          <p className="page-subtitle">
             扫描媒体库中的重复文件，并标记重复条目；不会删除磁盘文件。
           </p>
         </div>
       </header>
 
-      <div className="glass-panel grid gap-3 md:grid-cols-[1fr_auto_auto]">
-        <select
-          className="input-base"
-          value={libID}
-          onChange={(e) => setLibID(e.target.value)}
-        >
-          <option value="">所有媒体库</option>
-          {libs.map((l) => (
-            <option key={l.id} value={l.id}>
-              {l.name}
-            </option>
-          ))}
-        </select>
-        <button onClick={scan} disabled={scanning} className="neon-button">
-          {scanning ? '扫描中…' : '开始扫描'}
-        </button>
-        <button onClick={unmark} className="neon-button !border-red-400/40 !text-red-400">
-          <Trash2 size={14} /> 清除标记
-        </button>
+      <div className="glass-panel flex flex-col gap-3 md:flex-row md:items-end">
+        <div className="min-w-0 flex-1">
+          <label className="input-label">媒体库</label>
+          <select
+            className="input-base"
+            value={libID}
+            onChange={(e) => setLibID(e.target.value)}
+          >
+            <option value="">所有媒体库</option>
+            {libs.map((l) => (
+              <option key={l.id} value={l.id}>
+                {l.name}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="flex gap-2">
+          <button onClick={scan} disabled={scanning} className="btn-primary flex-1 md:flex-none">
+            <ScanSearch size={15} />
+            {scanning ? '扫描中…' : '开始扫描'}
+          </button>
+          <button
+            onClick={unmark}
+            className="btn-outline flex-1 !border-red-300/60 !text-red-500 hover:!border-red-400 hover:!text-red-500 md:flex-none"
+          >
+            <Trash2 size={14} /> 清除标记
+          </button>
+        </div>
       </div>
 
-      {report && report.groups_found === 0 && (
-        <p className="text-ink-50">扫描了 {report.total_scanned} 项,未发现重复。</p>
+      {report && (
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <StatCard
+            icon={<Files size={18} />}
+            label="扫描条目"
+            value={String(report.total_scanned)}
+            tone="brand"
+          />
+          <StatCard
+            icon={<Layers size={18} />}
+            label="重复组"
+            value={String(report.groups_found)}
+            tone="sage"
+          />
+          <StatCard
+            icon={<Tags size={18} />}
+            label="标记项"
+            value={String(report.items_marked)}
+            tone="amber"
+          />
+          <StatCard
+            icon={<HardDrive size={18} />}
+            label="可释放空间"
+            value={fmtBytes(releasableTotal)}
+            tone="red"
+          />
+        </div>
       )}
 
       {report && report.missing_removed ? (
@@ -100,29 +252,18 @@ export function DuplicatesPage() {
         </p>
       ) : null}
 
-      {report && (report.groups ?? []).map((g) => (
-        <section key={g.hash} className="glass-panel space-y-2">
-          <div className="flex items-center justify-between">
-            <p className="font-mono text-xs text-sand-500">{g.hash}</p>
-            <span className="rounded-lg border border-emerald-400/40 px-2 py-0.5 text-xs text-emerald-400">
-              主条目
-            </span>
+      {report && groups.length === 0 && (
+        <div className="glass-panel flex flex-col items-center gap-2 py-12 text-center">
+          <div className="modal-icon">
+            <CheckCircle2 size={20} />
           </div>
-          <p className="font-medium text-ink-600">{g.primary.title}</p>
-          <p className="font-mono text-xs text-ink-50">
-            {g.primary.path} · {fmtBytes(g.primary.size_bytes)}
-          </p>
-          <div className="space-y-1 border-t border-gray-200 pt-2">
-            <p className="text-xs uppercase tracking-wider text-red-400">
-              重复 ({g.duplicates.length})
-            </p>
-            {g.duplicates.map((d) => (
-              <div key={d.id} className="text-xs text-ink-50">
-                <span className="font-medium text-ink-600">{d.title}</span> · {d.path} · {fmtBytes(d.size_bytes)}
-              </div>
-            ))}
-          </div>
-        </section>
+          <p className="font-medium text-ink-600">未发现重复文件</p>
+          <p className="text-sm text-ink-50">已扫描 {report.total_scanned} 项媒体。</p>
+        </div>
+      )}
+
+      {groups.map((g, i) => (
+        <DuplicateGroupCard key={g.hash} group={g} index={i} />
       ))}
     </div>
   )

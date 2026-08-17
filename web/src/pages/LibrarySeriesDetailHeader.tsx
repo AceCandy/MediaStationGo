@@ -108,7 +108,7 @@ export function LibrarySeriesDetailHeader({
                 </button>
                 <button onClick={onSoftDelete} disabled={!!seriesToolBusy} className="btn-outline px-3.5 py-2 text-xs gap-1.5 !border-red-100 !text-red-500 hover:!border-red-200 hover:!bg-red-50">
                   <Trash2 size={13} />
-                  <span>{seriesToolBusy === 'delete' ? '处理中…' : '移入回收站'}</span>
+                  <span>{seriesToolBusy === 'delete' ? '处理中…' : '永久删除'}</span>
                 </button>
               </div>
             </div>

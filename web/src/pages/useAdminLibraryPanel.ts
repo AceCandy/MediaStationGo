@@ -33,13 +33,13 @@ function useCreateLibraryForm(refresh: () => Promise<void>) {
   const [type, setType] = useState('movie')
   const [coverURL, setCoverURL] = useState('')
 
-  const handleCreate = async (e: FormEvent) => {
+  const handleCreate = async (e: FormEvent): Promise<boolean> => {
     e.preventDefault()
     try {
       const payload = createRootPayload(roots)
       if (payload.length === 0) {
         toast.error('请至少填写一个路径')
-        return
+        return false
       }
       await libraryAPI.createWithRoots(name, type, payload, coverURL.trim())
       toast.success('媒体库已保存')
@@ -47,8 +47,10 @@ function useCreateLibraryForm(refresh: () => Promise<void>) {
       setRoots([emptyRootDraft()])
       setCoverURL('')
       await refresh()
+      return true
     } catch (err: unknown) {
       toast.error(apiErrorMessage(err, '创建失败'))
+      return false
     }
   }
 

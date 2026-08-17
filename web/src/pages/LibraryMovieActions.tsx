@@ -32,7 +32,7 @@ export function LibraryMovieActions({
       <button title="探测媒体轨" disabled={busy} onClick={() => onProbe(media)} className={buttonClass}>
         <Database size={13} />
       </button>
-      <button title="移入回收站" disabled={busy} onClick={() => onSoftDelete(media)} className={`${buttonClass} hover:!bg-red-50 hover:!text-red-500`}>
+      <button title="永久删除" disabled={busy} onClick={() => onSoftDelete(media)} className={`${buttonClass} hover:!bg-red-50 hover:!text-red-500`}>
         <Trash2 size={13} />
       </button>
     </>

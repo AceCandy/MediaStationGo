@@ -202,46 +202,6 @@ func (s *SchedulerService) organizeSourceInterval(ctx context.Context) time.Dura
 	return time.Duration(seconds) * time.Second
 }
 
-// jobPurgeRecycleBin permanently deletes media rows soft-deleted >30 days
-// ago. The on-disk file is left untouched (delete is operator-driven).
-func (s *SchedulerService) jobPurgeRecycleBin(ctx context.Context) error {
-	manual, _ := ctx.Value(schedulerManualRunKey{}).(bool)
-	trigger := TaskTriggerScheduled
-	name := "定时清理回收站"
-	if manual {
-		trigger = TaskTriggerManual
-		name = "手动触发回收站清理"
-	}
-	var task *TaskHandle
-	if s.tasks != nil {
-		task = s.tasks.StartTriggered(TaskKindRecycle, trigger, name, TaskUpdate{Stage: "recycle", Message: "正在清理过期回收站记录"})
-		if task == nil {
-			return errors.New("create recycle task execution failed")
-		}
-	}
-	cutoff := time.Now().Add(-30 * 24 * time.Hour)
-	res := s.repo.DB.WithContext(ctx).
-		Unscoped().
-		Where("deleted_at IS NOT NULL AND deleted_at < ?", cutoff).
-		Delete(&model.Media{})
-	if res.Error != nil && !isMissingTableErr(res.Error) {
-		if task != nil {
-			safeErr := sanitizeTaskLogError(res.Error)
-			task.Finish(safeErr, TaskUpdate{Stage: "recycle", Message: "回收站清理失败", Details: []string{fmt.Sprintf("清理 %s 之前的回收站记录失败: %v", cutoff.Format(time.RFC3339), safeErr)}})
-		}
-		return res.Error
-	}
-	err := pruneRecycleBinRows(ctx, s.repo.DB, maxRecycleBinRecords)
-	if task != nil {
-		detail := fmt.Sprintf("已清理 %s 之前的回收站记录，删除 %d 条；并保留最近最多 %d 条记录", cutoff.Format(time.RFC3339), res.RowsAffected, maxRecycleBinRecords)
-		if err != nil {
-			detail = fmt.Sprintf("已删除 %d 条过期记录，但裁剪回收站失败: %v", res.RowsAffected, sanitizeTaskLogError(err))
-		}
-		task.Finish(sanitizeTaskLogError(err), TaskUpdate{Stage: "completed", Message: "回收站清理结束", Metrics: map[string]int64{"deleted": res.RowsAffected}, Details: []string{detail}})
-	}
-	return err
-}
-
 // isMissingTableErr lets the test harness ignore "no such table" errors
 // that show up before AutoMigrate has run.
 func isMissingTableErr(err error) bool {

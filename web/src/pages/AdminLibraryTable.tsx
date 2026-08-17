@@ -1,12 +1,38 @@
 import type { MouseEvent, ReactNode } from 'react'
-import { Image, MoreVertical, Plus, Power, PowerOff, RefreshCw, Save, Trash2 } from 'lucide-react'
+import {
+  ChevronRight,
+  Film,
+  FolderOpen,
+  Image,
+  LibraryBig,
+  MoreVertical,
+  Plus,
+  Power,
+  PowerOff,
+  RefreshCw,
+  Save,
+  Trash2,
+  X,
+} from 'lucide-react'
 
+import { ModalShell } from '../components/ModalShell'
 import type { Library, LibraryRoot } from '../types'
 import type { RootDraft } from './adminLibraryPanelModel'
 import { displayLibraryRootName, displayLibraryRootPath, fallbackLibraryRoot } from './adminLibraryPanelModel'
 
-type LibraryTableProps = {
-  libs: Library[]
+const LIBRARY_TYPE_LABELS: Record<string, string> = {
+  movie: '电影',
+  tv: '电视剧',
+  variety: '综艺',
+  anime: '动漫',
+  music: '音乐',
+}
+
+function libraryTypeLabel(type: string): string {
+  return LIBRARY_TYPE_LABELS[type] ?? type
+}
+
+type LibraryActionProps = {
   editableRootDraft: (libraryID: string, root: LibraryRoot) => RootDraft
   onEditableRootChange: (libraryID: string, root: LibraryRoot, patch: Partial<RootDraft>) => void
   onSaveRoot: (libraryID: string, root: LibraryRoot) => void
@@ -19,64 +45,164 @@ type LibraryTableProps = {
   onEditLibraryCover: (library: Library) => void
 }
 
-export function AdminLibraryTable({ libs, ...actions }: LibraryTableProps) {
-  return (
-    <div className="glass-panel overflow-x-auto !p-3">
-      <table className="w-full min-w-[900px] text-left text-sm">
-        <thead className="text-xs uppercase tracking-wider text-sand-500">
-          <tr>
-            <th className="w-28 py-2">名称</th>
-            <th>路径</th>
-            <th className="w-20">类型</th>
-            <th className="w-12 text-right">操作</th>
-          </tr>
-        </thead>
-        <tbody>
-          {libs.map((library) => (
-            <LibraryTableRow key={library.id} library={library} {...actions} />
-          ))}
-        </tbody>
-      </table>
-    </div>
-  )
-}
+/* ── 媒体库卡片网格 ── */
 
-type LibraryTableRowProps = Omit<LibraryTableProps, 'libs'> & {
-  library: Library
-}
-
-function LibraryTableRow({ library, ...actions }: LibraryTableRowProps) {
-  return (
-    <tr className="border-t border-gray-200">
-      <td className="py-2 pr-3 font-medium text-ink-600">
-        <div className="flex items-center gap-2">
-          {library.cover_url && <img src={library.cover_url} alt="" className="h-10 w-8 rounded object-cover" />}
-          <span>{library.name}</span>
+export function AdminLibraryGrid({
+  libs,
+  onSelect,
+}: {
+  libs: Library[]
+  onSelect: (library: Library) => void
+}) {
+  if (!libs.length) {
+    return (
+      <div className="glass-panel flex flex-col items-center gap-2 py-12 text-center">
+        <div className="modal-icon">
+          <LibraryBig size={20} />
         </div>
-      </td>
-      <td className="py-1.5 text-ink-100">
-        <LibraryRootsCell library={library} {...actions} />
-      </td>
-      <td className="px-3 text-ink-100">{library.type}</td>
-      <td className="py-2 text-right">
-        <LibraryActionsCell library={library} {...actions} />
-      </td>
-    </tr>
-  )
-}
-
-function LibraryRootsCell({ library, ...actions }: LibraryTableRowProps) {
-  const roots = library.roots?.length ? library.roots : [fallbackLibraryRoot(library)]
+        <p className="font-medium text-ink-600">还没有媒体库</p>
+        <p className="text-sm text-ink-50">点击右上角「新建媒体库」创建第一个媒体库。</p>
+      </div>
+    )
+  }
   return (
-    <div className="min-w-[520px] space-y-1">
-      {roots.map((root) => (
-        <ExistingRootEditor key={root.id || root.path} library={library} root={root} {...actions} />
+    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+      {libs.map((library) => (
+        <LibraryGridCard key={library.id} library={library} onSelect={onSelect} />
       ))}
     </div>
   )
 }
 
-type RootEditorProps = Omit<LibraryTableRowProps, 'library'> & {
+function LibraryGridCard({
+  library,
+  onSelect,
+}: {
+  library: Library
+  onSelect: (library: Library) => void
+}) {
+  const rootCount = library.roots?.length || 1
+  return (
+    <button
+      type="button"
+      onClick={() => onSelect(library)}
+      className="card-hover group overflow-hidden !p-0 text-left"
+    >
+      <div className="relative flex h-32 items-center justify-center overflow-hidden bg-brand-50">
+        {library.cover_url ? (
+          <img
+            src={library.cover_url}
+            alt=""
+            className="h-full w-full object-cover transition duration-300 group-hover:scale-105"
+          />
+        ) : (
+          <Film size={32} className="text-brand-300" />
+        )}
+        <span className="badge-sage absolute left-3 top-3 shadow-sm">
+          {libraryTypeLabel(library.type)}
+        </span>
+        {!library.enabled && (
+          <span className="badge-neutral absolute right-3 top-3 shadow-sm">已禁用</span>
+        )}
+      </div>
+      <div className="flex items-center justify-between gap-2 p-4">
+        <div className="min-w-0">
+          <h3 className="truncate font-display text-base font-bold text-ink-600">{library.name}</h3>
+          <p className="mt-0.5 flex items-center gap-1 text-xs text-ink-50">
+            <FolderOpen size={12} /> {rootCount} 个路径来源
+          </p>
+        </div>
+        <ChevronRight
+          size={16}
+          className="shrink-0 text-ink-50 transition group-hover:translate-x-0.5 group-hover:text-brand-500"
+        />
+      </div>
+    </button>
+  )
+}
+
+/* ── 媒体库管理弹窗 ── */
+
+type LibraryDetailDialogProps = LibraryActionProps & {
+  library: Library
+  onClose: () => void
+}
+
+export function LibraryDetailDialog({ library, onClose, ...actions }: LibraryDetailDialogProps) {
+  const roots = library.roots?.length ? library.roots : [fallbackLibraryRoot(library)]
+  return (
+    <ModalShell
+      onClose={onClose}
+      maxWidth="max-w-2xl"
+      ariaLabel={`管理媒体库 ${library.name}`}
+      className="flex max-h-[85vh] flex-col"
+    >
+      <div className="modal-header">
+        <div className="flex min-w-0 items-center gap-3">
+          {library.cover_url ? (
+            <img
+              src={library.cover_url}
+              alt=""
+              className="h-14 w-11 shrink-0 rounded-lg border border-gray-200/80 object-cover"
+            />
+          ) : (
+            <div className="modal-icon">
+              <Film size={20} />
+            </div>
+          )}
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <h3 className="truncate font-display text-lg font-bold text-ink-600">{library.name}</h3>
+              <span className="badge-sage">{libraryTypeLabel(library.type)}</span>
+              {!library.enabled && <span className="badge-neutral">已禁用</span>}
+            </div>
+            <p className="mt-0.5 text-xs text-ink-50">{roots.length} 个路径来源</p>
+          </div>
+        </div>
+        <button className="icon-btn" onClick={onClose} aria-label="关闭">
+          <X size={18} />
+        </button>
+      </div>
+
+      <div className="min-h-0 flex-1 space-y-2 overflow-y-auto px-5 py-4">
+        <p className="text-2xs font-bold uppercase tracking-widest text-ink-50">路径来源</p>
+        {roots.map((root) => (
+          <ExistingRootEditor key={root.id || root.path} library={library} root={root} {...actions} />
+        ))}
+      </div>
+
+      <div className="modal-footer !justify-between">
+        <button
+          className="btn-ghost !text-red-500 hover:!bg-red-50 hover:!text-red-600"
+          onClick={() => actions.onRemoveLibrary(library)}
+        >
+          <Trash2 size={14} /> 删除媒体库
+        </button>
+        <div className="flex flex-wrap justify-end gap-2">
+          <button
+            className="btn-outline px-3 py-2 shadow-none"
+            onClick={() => actions.onEditLibraryCover(library)}
+          >
+            <Image size={14} /> 封面
+          </button>
+          <button
+            className="btn-outline px-3 py-2 shadow-none"
+            onClick={() => actions.onAddLibraryRoot(library)}
+          >
+            <Plus size={14} /> 添加来源
+          </button>
+          <button className="btn-primary px-4 py-2" onClick={() => actions.onScanLibrary(library)}>
+            <RefreshCw size={14} /> 扫描媒体库
+          </button>
+        </div>
+      </div>
+    </ModalShell>
+  )
+}
+
+/* ── 路径来源编辑 ── */
+
+type RootEditorProps = Omit<LibraryDetailDialogProps, 'library' | 'onClose'> & {
   library: Library
   root: LibraryRoot
 }
@@ -84,10 +210,23 @@ type RootEditorProps = Omit<LibraryTableRowProps, 'library'> & {
 function ExistingRootEditor({ library, root, ...actions }: RootEditorProps) {
   const draft = actions.editableRootDraft(library.id, root)
   return (
-    <div className="grid items-center gap-1.5 rounded-lg border border-gray-200/80 bg-gray-50/60 p-1.5 xl:grid-cols-[minmax(240px,2fr)_auto_auto]">
-      {root.id ? <EditableRootFields library={library} root={root} draft={draft} {...actions} /> : <ReadonlyRootFields root={root} />}
-      <RootStatus enabled={draft.enabled ?? root.enabled} />
-      <RootActionButtons library={library} root={root} draft={draft} {...actions} />
+    <div className="flex flex-col gap-2 rounded-xl border border-gray-200/80 bg-gray-50/60 p-2.5 lg:flex-row lg:items-center">
+      <div className="flex min-w-0 flex-1 items-start gap-2">
+        <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-gray-200 bg-white/80 text-ink-50">
+          <FolderOpen size={14} />
+        </div>
+        <div className="min-w-0 flex-1">
+          {root.id ? (
+            <EditableRootFields library={library} root={root} draft={draft} {...actions} />
+          ) : (
+            <ReadonlyRootFields root={root} />
+          )}
+        </div>
+      </div>
+      <div className="flex items-center justify-end gap-2">
+        <RootStatus enabled={draft.enabled ?? root.enabled} />
+        <RootActionButtons library={library} root={root} draft={draft} {...actions} />
+      </div>
     </div>
   )
 }
@@ -95,8 +234,13 @@ function ExistingRootEditor({ library, root, ...actions }: RootEditorProps) {
 function ReadonlyRootFields({ root }: { root: LibraryRoot }) {
   return (
     <div className="min-w-0 space-y-1">
-      <span className="block truncate rounded-md bg-white/80 px-2.5 py-1.5 text-xs text-ink-600">{displayLibraryRootName(root.name, root.path)}</span>
-      <span className="block min-w-0 truncate rounded-md bg-white/80 px-2.5 py-1.5 text-xs text-ink-100" title={displayLibraryRootPath(root.path)}>
+      <span className="block truncate rounded-md bg-white/80 px-2.5 py-1.5 text-xs text-ink-600">
+        {displayLibraryRootName(root.name, root.path)}
+      </span>
+      <span
+        className="block min-w-0 truncate rounded-md bg-white/80 px-2.5 py-1.5 font-mono text-2xs text-ink-100"
+        title={displayLibraryRootPath(root.path)}
+      >
         {displayLibraryRootPath(root.path)}
       </span>
     </div>
@@ -107,13 +251,15 @@ function EditableRootFields({ library, root, draft, onEditableRootChange }: Root
   return (
     <div className="min-w-0 space-y-1.5">
       <input
-        className="h-9 w-full rounded-lg border border-gray-200 bg-white/80 px-3 text-xs text-gray-900 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100/60"
+        className="h-9 w-full rounded-lg border border-gray-200 bg-white/80 px-3 font-mono text-xs text-gray-900 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100/60"
         placeholder="真实路径"
         value={draft.path}
         onChange={(e) => onEditableRootChange(library.id, root, { path: e.target.value })}
       />
-      <details>
-        <summary className="cursor-pointer text-xs font-semibold text-ink-600">路径高级设置</summary>
+      <details className="group">
+        <summary className="flex cursor-pointer list-none items-center gap-1 text-2xs font-semibold text-ink-50 [&::-webkit-details-marker]:hidden">
+          路径高级设置
+        </summary>
         <input
           className="mt-1.5 h-9 w-full rounded-lg border border-gray-200 bg-white/80 px-3 text-xs text-gray-900 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100/60"
           placeholder="路径名称（可选）"
@@ -128,10 +274,13 @@ function EditableRootFields({ library, root, draft, onEditableRootChange }: Root
 function RootStatus({ enabled }: { enabled: boolean }) {
   return (
     <span
-      className={`whitespace-nowrap rounded-md border px-2 py-1 text-xs ${
-        enabled ? 'border-emerald-300/60 text-emerald-600' : 'border-gray-300 text-ink-50'
+      className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border px-2.5 py-1 text-2xs font-bold ${
+        enabled
+          ? 'border-emerald-300/60 bg-emerald-50 text-emerald-600'
+          : 'border-gray-300 bg-gray-100 text-ink-50'
       }`}
     >
+      <span className={`h-1.5 w-1.5 rounded-full ${enabled ? 'bg-emerald-500' : 'bg-gray-400'}`} />
       {enabled ? '启用' : '禁用'}
     </span>
   )
@@ -176,25 +325,6 @@ function RootActionButtons({ library, root, draft, ...actions }: RootEditorProps
           删除
         </MenuButton>
       )}
-    </ActionMenu>
-  )
-}
-
-function LibraryActionsCell({ library, onScanLibrary, onRemoveLibrary, onAddLibraryRoot, onEditLibraryCover }: LibraryTableRowProps) {
-  return (
-    <ActionMenu label="媒体库操作">
-      <MenuButton icon={<RefreshCw size={14} />} label="扫描" onClick={() => onScanLibrary(library)}>
-        扫描
-      </MenuButton>
-      <MenuButton icon={<Plus size={14} />} label="添加来源" onClick={() => onAddLibraryRoot(library)}>
-        添加来源
-      </MenuButton>
-      <MenuButton icon={<Image size={14} />} label="自定义封面" onClick={() => onEditLibraryCover(library)}>
-        自定义封面
-      </MenuButton>
-      <MenuButton danger icon={<Trash2 size={14} />} label="删除" onClick={() => onRemoveLibrary(library)}>
-        删除
-      </MenuButton>
     </ActionMenu>
   )
 }

@@ -1,4 +1,5 @@
 import { useEffect, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import { motion, useReducedMotion } from 'framer-motion'
 import clsx from 'clsx'
 
@@ -51,7 +52,8 @@ export function ModalShell({
     }
   }, [onClose])
 
-  return (
+  // Portal 到 body：路由容器带有 transform 动效，会让 fixed 蒙层相对它定位而非视口
+  return createPortal(
     <motion.div
       className="modal-backdrop"
       style={{ zIndex }}
@@ -76,6 +78,7 @@ export function ModalShell({
       >
         {children}
       </motion.div>
-    </motion.div>
+    </motion.div>,
+    document.body,
   )
 }

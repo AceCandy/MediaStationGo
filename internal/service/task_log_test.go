@@ -85,10 +85,10 @@ func TestTaskLogStoreUsesConfiguredTimezone(t *testing.T) {
 func TestTaskLogStoreCapsRequestedTail(t *testing.T) {
 	store := newTaskLogStore(t.TempDir(), time.Now)
 	date := time.Now().Format(taskLogDateLayout)
-	if err := store.append(TaskDefinitionRecyclePurge, "info", strings.Repeat("x", int(maxTaskLogTailBytes)+64)); err != nil {
+	if err := store.append(TaskDefinitionLibraryScan, "info", strings.Repeat("x", int(maxTaskLogTailBytes)+64)); err != nil {
 		t.Fatal(err)
 	}
-	content, truncated, err := store.read(TaskDefinitionRecyclePurge, date, maxTaskLogTailBytes*10)
+	content, truncated, err := store.read(TaskDefinitionLibraryScan, date, maxTaskLogTailBytes*10)
 	if err != nil {
 		t.Fatal(err)
 	}

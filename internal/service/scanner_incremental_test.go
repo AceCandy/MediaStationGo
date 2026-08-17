@@ -385,6 +385,60 @@ func TestScanLibrarySkipsUnchangedExistingLocalMedia(t *testing.T) {
 	}
 }
 
+func TestScanLibrarySkipsUnchangedSTRMByFileFingerprint(t *testing.T) {
+	sc, repos := newScannerTestEnv(t)
+	root := t.TempDir()
+	lib := model.Library{Name: "STRM", Path: root, Type: "movie", Enabled: true}
+	if err := repos.Library.Create(t.Context(), &lib); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(root, "Remote Movie.strm")
+	if err := os.WriteFile(path, []byte("https://cdn.example.com/movie.mkv\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	first, err := sc.ScanLibrary(t.Context(), lib.ID)
+	if err != nil {
+		t.Fatalf("first scan: %v", err)
+	}
+	if first.Added != 1 {
+		t.Fatalf("first scan = %#v, want added=1", first)
+	}
+	var before model.Media
+	if err := repos.DB.First(&before, "path = ?", path).Error; err != nil {
+		t.Fatal(err)
+	}
+	if before.ScanFileSizeBytes == 0 || before.ScanFileMTimeNS == 0 {
+		t.Fatalf("scan fingerprint not persisted: %#v", before)
+	}
+
+	second, err := sc.ScanLibrary(t.Context(), lib.ID)
+	if err != nil {
+		t.Fatalf("second scan: %v", err)
+	}
+	if second.Updated != 0 || second.Skipped != 1 {
+		t.Fatalf("second scan = %#v, want unchanged STRM skipped", second)
+	}
+	var unchanged model.Media
+	if err := repos.DB.First(&unchanged, "path = ?", path).Error; err != nil {
+		t.Fatal(err)
+	}
+	if !unchanged.UpdatedAt.Equal(before.UpdatedAt) {
+		t.Fatalf("unchanged STRM touched updated_at: before=%s after=%s", before.UpdatedAt, unchanged.UpdatedAt)
+	}
+
+	changedAt := time.Unix(0, before.ScanFileMTimeNS).Add(time.Second)
+	if err := os.Chtimes(path, changedAt, changedAt); err != nil {
+		t.Fatal(err)
+	}
+	third, err := sc.ScanLibrary(t.Context(), lib.ID)
+	if err != nil {
+		t.Fatalf("third scan: %v", err)
+	}
+	if third.Updated != 1 || third.Skipped != 0 {
+		t.Fatalf("third scan = %#v, want changed mtime updated", third)
+	}
+}
+
 func TestScanLibraryUpdatesExistingPathFromOverlappingLibrary(t *testing.T) {
 	sc, repos := newScannerTestEnv(t)
 	root := t.TempDir()

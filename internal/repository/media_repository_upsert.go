@@ -177,6 +177,8 @@ func mediaUpsertUpdates(existing, incoming model.Media) map[string]any {
 func addMediaFileScanUpdates(updates map[string]any, existing, incoming model.Media) {
 	// 已存在：仅刷新文件层面的字段。
 	setIfChanged(updates, "size_bytes", existing.SizeBytes, incoming.SizeBytes)
+	setIfChanged(updates, "scan_file_size_bytes", existing.ScanFileSizeBytes, incoming.ScanFileSizeBytes)
+	setIfChanged(updates, "scan_file_mtime_ns", existing.ScanFileMTimeNS, incoming.ScanFileMTimeNS)
 	setIfChanged(updates, "duration_sec", existing.DurationSec, incoming.DurationSec)
 	setIfChanged(updates, "width", existing.Width, incoming.Width)
 	setIfChanged(updates, "height", existing.Height, incoming.Height)

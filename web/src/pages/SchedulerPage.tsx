@@ -35,7 +35,7 @@ export function SchedulerSection() {
     <section id="scheduled-tasks" className="glass-panel space-y-3">
       <div>
         <h2 className="font-display text-lg font-semibold text-ink-600">定时任务</h2>
-        <p className="text-sm text-ink-50">媒体库扫描、回收站清理等周期任务，每 5 秒刷新状态。</p>
+        <p className="text-sm text-ink-50">媒体库扫描等周期任务，每 5 秒刷新状态。</p>
       </div>
       <div className="overflow-x-auto">
         <table className="w-full text-left text-sm">

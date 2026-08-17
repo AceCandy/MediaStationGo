@@ -26,44 +26,48 @@ type LibraryRoot struct {
 // Title、Year、provider ID 和 SeriesID 仅是扫描/匹配提示，不是权威元数据。
 type Media struct {
 	Base
-	LibraryID         string        `gorm:"index;size:36" json:"library_id"`
-	LibraryRootID     string        `gorm:"index;size:36" json:"library_root_id,omitempty"`
-	MetadataID        string        `gorm:"index;size:36;default:null" json:"metadata_id"`
-	Metadata          *MetadataItem `gorm:"foreignKey:MetadataID;references:ID;constraint:OnUpdate:CASCADE,OnDelete:RESTRICT" json:"-"`
-	SeriesID          string        `gorm:"column:series_hint;index;size:128" json:"series_id,omitempty"`
-	SeriesTitle       string        `gorm:"-" json:"series_title,omitempty"`
-	Title             string        `gorm:"column:scan_title;size:255" json:"title"`
-	OriginalName      string        `gorm:"-" json:"original_name,omitempty"`
-	EpisodeTitle      string        `gorm:"-" json:"-"`
-	Path              string        `gorm:"uniqueIndex;size:1024;not null" json:"path"`
-	RelativePath      string        `gorm:"size:1024" json:"relative_path,omitempty"`
-	SizeBytes         int64         `json:"size_bytes"`
-	DurationSec       int           `json:"duration_sec"`
-	Width             int           `json:"width"`
-	Height            int           `json:"height"`
-	VideoCodec        string        `gorm:"size:32" json:"video_codec,omitempty"`
-	AudioCodec        string        `gorm:"size:32" json:"audio_codec,omitempty"`
-	Container         string        `gorm:"size:128" json:"container,omitempty"`
-	PosterURL         string        `gorm:"-" json:"poster_url,omitempty"`
-	BackdropURL       string        `gorm:"-" json:"backdrop_url,omitempty"`
-	Overview          string        `gorm:"-" json:"overview,omitempty"`
-	Rating            float32       `gorm:"-" json:"rating"`
-	Year              int           `gorm:"column:scan_year" json:"year"`
-	ReleaseDate       string        `gorm:"-" json:"release_date,omitempty"`
-	SeasonNum         int           `json:"season_num"`
-	EpisodeNum        int           `json:"episode_num"`
-	ScrapeStatus      string        `gorm:"size:16;default:pending" json:"scrape_status"`
-	ScrapeTrigger     string        `gorm:"size:16;default:event" json:"scrape_trigger,omitempty"`
-	ScrapeError       string        `gorm:"size:1024" json:"scrape_error,omitempty"`
-	LocalMetadataHint string        `gorm:"type:text" json:"-"`
-	TMDbID            int           `gorm:"column:lookup_tmdb_id" json:"tmdb_id"`
-	BangumiID         int           `gorm:"column:lookup_bangumi_id" json:"bangumi_id"`
-	DoubanID          string        `gorm:"column:lookup_douban_id;size:32" json:"douban_id,omitempty"`
-	TheTVDBID         string        `gorm:"column:lookup_thetvdb_id;size:64" json:"thetvdb_id,omitempty"`
-	Languages         string        `gorm:"-" json:"languages,omitempty"`
-	Countries         string        `gorm:"-" json:"countries,omitempty"`
-	Genres            string        `gorm:"-" json:"genres,omitempty"`
-	NSFW              bool          `gorm:"-" json:"nsfw"`
+	LibraryID     string        `gorm:"index;size:36" json:"library_id"`
+	LibraryRootID string        `gorm:"index;size:36" json:"library_root_id,omitempty"`
+	MetadataID    string        `gorm:"index;size:36;default:null" json:"metadata_id"`
+	Metadata      *MetadataItem `gorm:"foreignKey:MetadataID;references:ID;constraint:OnUpdate:CASCADE,OnDelete:RESTRICT" json:"-"`
+	SeriesID      string        `gorm:"column:series_hint;index;size:128" json:"series_id,omitempty"`
+	SeriesTitle   string        `gorm:"-" json:"series_title,omitempty"`
+	Title         string        `gorm:"column:scan_title;size:255" json:"title"`
+	OriginalName  string        `gorm:"-" json:"original_name,omitempty"`
+	EpisodeTitle  string        `gorm:"-" json:"-"`
+	Path          string        `gorm:"uniqueIndex;size:1024;not null" json:"path"`
+	RelativePath  string        `gorm:"size:1024" json:"relative_path,omitempty"`
+	SizeBytes     int64         `json:"size_bytes"`
+	// ScanFileSizeBytes 与 ScanFileMTimeNS 记录扫描路径自身的文件指纹。
+	// 对 .strm，它们描述边车文本文件，SizeBytes 仍可保存实际播放目标大小。
+	ScanFileSizeBytes int64   `gorm:"column:scan_file_size_bytes" json:"-"`
+	ScanFileMTimeNS   int64   `gorm:"column:scan_file_mtime_ns" json:"-"`
+	DurationSec       int     `json:"duration_sec"`
+	Width             int     `json:"width"`
+	Height            int     `json:"height"`
+	VideoCodec        string  `gorm:"size:32" json:"video_codec,omitempty"`
+	AudioCodec        string  `gorm:"size:32" json:"audio_codec,omitempty"`
+	Container         string  `gorm:"size:128" json:"container,omitempty"`
+	PosterURL         string  `gorm:"-" json:"poster_url,omitempty"`
+	BackdropURL       string  `gorm:"-" json:"backdrop_url,omitempty"`
+	Overview          string  `gorm:"-" json:"overview,omitempty"`
+	Rating            float32 `gorm:"-" json:"rating"`
+	Year              int     `gorm:"column:scan_year" json:"year"`
+	ReleaseDate       string  `gorm:"-" json:"release_date,omitempty"`
+	SeasonNum         int     `json:"season_num"`
+	EpisodeNum        int     `json:"episode_num"`
+	ScrapeStatus      string  `gorm:"size:16;default:pending" json:"scrape_status"`
+	ScrapeTrigger     string  `gorm:"size:16;default:event" json:"scrape_trigger,omitempty"`
+	ScrapeError       string  `gorm:"size:1024" json:"scrape_error,omitempty"`
+	LocalMetadataHint string  `gorm:"type:text" json:"-"`
+	TMDbID            int     `gorm:"column:lookup_tmdb_id" json:"tmdb_id"`
+	BangumiID         int     `gorm:"column:lookup_bangumi_id" json:"bangumi_id"`
+	DoubanID          string  `gorm:"column:lookup_douban_id;size:32" json:"douban_id,omitempty"`
+	TheTVDBID         string  `gorm:"column:lookup_thetvdb_id;size:64" json:"thetvdb_id,omitempty"`
+	Languages         string  `gorm:"-" json:"languages,omitempty"`
+	Countries         string  `gorm:"-" json:"countries,omitempty"`
+	Genres            string  `gorm:"-" json:"genres,omitempty"`
+	NSFW              bool    `gorm:"-" json:"nsfw"`
 
 	// STRMURL is the indirection target for .strm files: when present the
 	// stream handler redirects to it instead of opening the local file.

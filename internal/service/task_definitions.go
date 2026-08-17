@@ -16,7 +16,6 @@ const (
 	TaskDefinitionCatalogScrape     = "catalog_scrape"
 	TaskDefinitionPeopleBackfill    = "people_backfill"
 	TaskDefinitionPeopleTranslation = "people_translation"
-	TaskDefinitionRecyclePurge      = "recycle_purge"
 )
 
 var ErrTaskDefinitionNotFound = errors.New("task definition not found")
@@ -47,7 +46,6 @@ var taskDefinitionSpecs = []taskDefinitionSpec{
 	{TaskDefinition: TaskDefinition{Key: TaskDefinitionCatalogScrape, Name: "发现目录刮削", Description: "后台补全发现目录中的电影和电视剧", Trigger: "事件触发"}, filter: repository.TaskExecutionFilter{Kind: TaskKindScrape, NamePrefix: "发现目录刮削："}},
 	{TaskDefinition: TaskDefinition{Key: TaskDefinitionPeopleBackfill, Name: "人物信息补齐", Description: "补齐尚未获取演职员信息的元数据", Trigger: "事件 / 手动", Action: "people_backfill"}, filter: repository.TaskExecutionFilter{Kind: TaskKindPeople, Name: "人物信息补齐"}},
 	{TaskDefinition: TaskDefinition{Key: TaskDefinitionPeopleTranslation, Name: "人物翻译", Description: "逐步翻译尚无中文名称和角色名的人物", Trigger: "事件触发"}, filter: repository.TaskExecutionFilter{Kind: TaskKindPeople, Name: "人物翻译"}},
-	{TaskDefinition: TaskDefinition{Key: TaskDefinitionRecyclePurge, Name: "回收站清理", Description: "清理超过保留期限的回收站记录", Trigger: "定时 / 手动", Action: "scheduler"}, filter: repository.TaskExecutionFilter{Kind: TaskKindRecycle}, schedulerJob: "recycle_purge"},
 }
 
 func isTaskDefinitionKey(key string) bool {

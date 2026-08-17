@@ -15,7 +15,6 @@ import {
   ListChecks,
   ScrollText,
   SlidersHorizontal,
-  Trash2,
   User,
   Users,
   type LucideIcon,
@@ -41,7 +40,6 @@ const AdminEmbyAPIsPage = lazy(() =>
 const ProfilePage = lazy(() => import('./pages/ProfilePage').then((m) => ({ default: m.ProfilePage })))
 const DiscoverPage = lazy(() => import('./pages/DiscoverPage').then((m) => ({ default: m.DiscoverPage })))
 const TasksPage = lazy(() => import('./pages/TasksPage').then((m) => ({ default: m.TasksPage })))
-const RecycleBinPage = lazy(() => import('./pages/RecycleBinPage').then((m) => ({ default: m.RecycleBinPage })))
 const DlnaPage = lazy(() => import('./pages/DlnaPage').then((m) => ({ default: m.DlnaPage })))
 const FileManagerPage = lazy(() =>
   import('./pages/FileManagerPage').then((m) => ({ default: m.FileManagerPage })),
@@ -267,12 +265,6 @@ export const appRoutes: AppRoute[] = [
         navigation: { scope: 'files', label: '重复文件', icon: Copy, to: '/admin/storage/duplicates', order: 40 },
       },
       {
-        id: 'admin-storage-recycle',
-        path: 'storage/recycle',
-        element: <RecycleBinPage />,
-        navigation: { scope: 'files', label: '回收站', icon: Trash2, to: '/admin/storage/recycle', order: 50 },
-      },
-      {
         id: 'admin-tasks',
         path: 'tasks',
         element: <TasksPage />,
@@ -370,7 +362,6 @@ export const appRoutes: AppRoute[] = [
   { id: 'legacy-storage', path: 'storage', element: <Navigate to="/admin/storage" replace />, adminOnly: true },
   { id: 'legacy-tools', path: 'tools', element: <Navigate to="/admin/storage" replace />, adminOnly: true },
   { id: 'legacy-duplicates', path: 'duplicates', element: <Navigate to="/admin/storage/duplicates" replace />, adminOnly: true },
-  { id: 'legacy-recycle', path: 'recycle', element: <Navigate to="/admin/storage/recycle" replace />, adminOnly: true },
   { id: 'legacy-tasks', path: 'tasks', element: <Navigate to="/admin/tasks" replace />, adminOnly: true },
   { id: 'legacy-scheduler', path: 'scheduler', element: <Navigate to="/admin/tasks?panel=scheduler" replace />, adminOnly: true },
   { id: 'legacy-stats', path: 'stats', element: <Navigate to="/admin/storage" replace />, adminOnly: true },

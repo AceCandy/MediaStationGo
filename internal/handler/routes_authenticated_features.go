@@ -51,11 +51,7 @@ func registerAuthedDuplicateRoutes(authed *gin.RouterGroup, svc *service.Contain
 	authed.POST("/duplicates/unmark", middleware.AdminRequired(), unmarkDuplicatesHandler(svc))
 }
 
-func registerAuthedRecycleAndRealtimeRoutes(authed *gin.RouterGroup, svc *service.Container) {
-	authed.GET("/recycle", middleware.AdminRequired(), listRecycleHandler(svc))
-	authed.POST("/recycle/restore", middleware.AdminRequired(), restoreMediaBatchHandler(svc))
-	authed.POST("/recycle/purge", middleware.AdminRequired(), purgeMediaBatchHandler(svc))
-
+func registerAuthedRealtimeRoutes(authed *gin.RouterGroup, svc *service.Container) {
 	authed.GET("/ws", wsHandler(svc))
 	authed.GET("/events", sseHandler(svc))
 }

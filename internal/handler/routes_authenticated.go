@@ -24,7 +24,7 @@ func registerAuthenticatedRoutes(api *gin.RouterGroup, cfg *config.Config, svc *
 	registerAuthedDLNARoutes(authed, svc)
 	registerAuthedSTRMRoutes(authed, svc)
 	registerAuthedDuplicateRoutes(authed, svc)
-	registerAuthedRecycleAndRealtimeRoutes(authed, svc)
+	registerAuthedRealtimeRoutes(authed, svc)
 	registerAuthedSchedulerRoutes(authed, svc)
 	registerAuthedUISurfaceRoutes(authed, svc)
 	registerAuthedSearchRoutes(authed, svc)

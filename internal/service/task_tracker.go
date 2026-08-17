@@ -31,7 +31,6 @@ const (
 	TaskKindScan     = "scan"
 	TaskKindScrape   = "scrape"
 	TaskKindPeople   = "people"
-	TaskKindRecycle  = "recycle"
 )
 
 // BackgroundTask 是任务中心展示的一次后台执行摘要。

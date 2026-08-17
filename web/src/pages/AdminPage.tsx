@@ -1,3 +1,6 @@
+import type { ReactNode } from 'react'
+import { LibraryBig } from 'lucide-react'
+
 import { APIConfigsPanel } from '../components/APIConfigsPanel'
 import { AdminLibraryPanel } from './AdminLibraryPanel'
 import { AdminUsersPanel } from './AdminUsersPanel'
@@ -5,7 +8,11 @@ import { AdminUsersPanel } from './AdminUsersPanel'
 export function AdminMediaPage() {
   return (
     <div className="space-y-6">
-      <PageHeading title="媒体库管理" description="创建媒体库并维护入库路径。" />
+      <PageHeading
+        icon={<LibraryBig size={20} />}
+        title="媒体库管理"
+        description="创建媒体库并维护入库路径。"
+      />
       <AdminLibraryPanel />
     </div>
   )
@@ -29,11 +36,22 @@ export function AdminAPIsPage() {
   )
 }
 
-function PageHeading({ title, description }: { title: string; description: string }) {
+function PageHeading({
+  title,
+  description,
+  icon,
+}: {
+  title: string
+  description: string
+  icon?: ReactNode
+}) {
   return (
-    <div>
-      <h1 className="font-display text-3xl font-bold text-[var(--app-text)]">{title}</h1>
-      <p className="mt-1 text-sm text-[var(--app-muted)]">{description}</p>
-    </div>
+    <header className="flex items-center gap-4">
+      {icon ? <div className="modal-icon">{icon}</div> : null}
+      <div>
+        <h1 className="font-display text-3xl font-bold text-[var(--app-text)]">{title}</h1>
+        <p className="mt-1 text-sm text-[var(--app-muted)]">{description}</p>
+      </div>
+    </header>
   )
 }

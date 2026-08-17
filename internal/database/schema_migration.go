@@ -14,6 +14,9 @@ func AutoMigrate(db *gorm.DB) error {
 	if err := db.AutoMigrate(model.AllModels()...); err != nil {
 		return err
 	}
+	if err := purgeRetiredMediaRecycleRows(db); err != nil {
+		return err
+	}
 	if err := ensurePlayerRequestLogSchema(db); err != nil {
 		return err
 	}
@@ -54,6 +57,13 @@ func AutoMigrate(db *gorm.DB) error {
 		return err
 	}
 	return nil
+}
+
+func purgeRetiredMediaRecycleRows(db *gorm.DB) error {
+	if !db.Migrator().HasTable(&model.Media{}) || !db.Migrator().HasColumn(&model.Media{}, "deleted_at") {
+		return nil
+	}
+	return db.Unscoped().Where("deleted_at IS NOT NULL").Delete(&model.Media{}).Error
 }
 
 func ensurePlayerRequestLogSchema(db *gorm.DB) error {

@@ -183,6 +183,8 @@ export const mediaAPI = {
 
   get: (id: string) => api.get<Media>(`/media/${id}`).then((r) => r.data),
 
+  delete: (id: string) => api.delete(`/media/${id}`).then((r) => r.data),
+
   listVersions: (id: string) => api.get<Media[]>(`/media/${id}/versions`).then((r) => r.data),
 
   ensureProbe: (id: string) =>
