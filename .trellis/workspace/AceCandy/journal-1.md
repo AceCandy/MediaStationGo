@@ -697,3 +697,24 @@ Committed the existing web UI redesign together with detailed background task lo
 ### Status
 
 [OK] **Completed**
+
+
+## Session 33: 扫描仅按文件指纹判断变化
+
+**Date**: 2026-08-17
+**Task**: 扫描仅按文件指纹判断变化
+**Branch**: `main`
+
+### Summary
+
+将本地媒体扫描更新判定收敛为文件大小与纳秒级 mtime；指纹一致时在读取 NFO、派生元数据和 STRM 目标前跳过，并补充回归测试与后端规范。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `23e8ff0` | (see git log) |
+
+### Status
+
+[OK] **Completed**
