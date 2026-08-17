@@ -655,3 +655,24 @@ Committed the existing web UI redesign together with detailed background task lo
 ### Status
 
 [OK] **Completed**
+
+
+## Session 31: 修正媒体增量扫描与硬删除
+
+**Date**: 2026-08-17
+**Task**: 修正媒体增量扫描与硬删除
+**Branch**: `main`
+
+### Summary
+
+持久化本地文件大小与纳秒 mtime，未变化扫描直接跳过；媒体删除统一硬删除并移除回收站；自动 STRM 生成跳过已有 STRM 源且保护源文件；同步提交当前管理界面改动。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `5b923b5` | (see git log) |
+
+### Status
+
+[OK] **Completed**
