@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 31
+- **Total Sessions**: 32
 - **Last Active**: 2026-08-17
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~678 | Active |
+| `journal-1.md` | ~699 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 32 | 2026-08-17 | 记录媒体扫描变更文件 | `18d64e5` | `main` |
 | 31 | 2026-08-17 | 修正媒体增量扫描与硬删除 | `5b923b5` | `main` |
 | 30 | 2026-08-17 | 记录空人物补齐执行 | `f5e382e` | `main` |
 | 29 | 2026-08-17 | 重组空间导航并合并系统监控 | `26a480b64979a4c33eeb4e7fa47a01ee4f5f2d07` | `main` |

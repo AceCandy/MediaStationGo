@@ -676,3 +676,24 @@ Committed the existing web UI redesign together with detailed background task lo
 ### Status
 
 [OK] **Completed**
+
+
+## Session 32: 记录媒体扫描变更文件
+
+**Date**: 2026-08-17
+**Task**: 记录媒体扫描变更文件
+**Branch**: `main`
+
+### Summary
+
+媒体扫描任务日志新增图标化的新增、更新、删除文件路径，更新项记录文件指纹或元数据变化原因；扫描详情不再显示 DETAIL 标签，并补齐手动、计划任务和 STRM 刷新回归验证。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `18d64e5` | (see git log) |
+
+### Status
+
+[OK] **Completed**
