@@ -57,6 +57,20 @@ func TestIngestPathAddsSingleFile(t *testing.T) {
 	if got := countMedia(t, repos); got != 1 {
 		t.Fatalf("media count = %d, want 1", got)
 	}
+	var before model.Media
+	if err := repos.DB.First(&before, "path = ?", file).Error; err != nil {
+		t.Fatal(err)
+	}
+	if updated, err := sc.IngestPath(t.Context(), lib.ID, file); err != nil || updated {
+		t.Fatalf("unchanged ingest = updated=%v err=%v, want skipped", updated, err)
+	}
+	var unchanged model.Media
+	if err := repos.DB.First(&unchanged, "path = ?", file).Error; err != nil {
+		t.Fatal(err)
+	}
+	if !unchanged.UpdatedAt.Equal(before.UpdatedAt) {
+		t.Fatalf("unchanged ingest touched updated_at: before=%s after=%s", before.UpdatedAt, unchanged.UpdatedAt)
+	}
 	// Non-video file is ignored.
 	other := filepath.Join(root, "notes.txt")
 	if err := os.WriteFile(other, []byte("x"), 0o644); err != nil {
@@ -161,8 +175,8 @@ func TestScanLibraryRepairsPreviouslyUnmatchedGenericISO(t *testing.T) {
 	if res.Updated != 1 || res.Skipped != 0 {
 		t.Fatalf("rescan result = %#v, want legacy ISO refreshed", res)
 	}
-	if len(res.Changes) != 1 || !strings.Contains(res.Changes[0].Reason, "首次补录文件指纹") || !strings.Contains(res.Changes[0].Reason, "派生元数据变化") {
-		t.Fatalf("legacy ISO changes = %#v, want fingerprint backfill and derived metadata reasons", res.Changes)
+	if len(res.Changes) != 1 || !strings.Contains(res.Changes[0].Reason, "首次补录文件指纹") {
+		t.Fatalf("legacy ISO changes = %#v, want fingerprint backfill reason", res.Changes)
 	}
 	var media model.Media
 	if err := repos.DB.First(&media, "id = ?", legacy.ID).Error; err != nil {
@@ -170,6 +184,9 @@ func TestScanLibraryRepairsPreviouslyUnmatchedGenericISO(t *testing.T) {
 	}
 	if media.Title != "dune part two" || media.Year != 2024 || media.ScrapeStatus != "pending" {
 		t.Fatalf("repaired ISO = title=%q year=%d status=%q", media.Title, media.Year, media.ScrapeStatus)
+	}
+	if media.ScanFileSizeBytes == 0 || media.ScanFileMTimeNS == 0 {
+		t.Fatalf("legacy ISO fingerprint not backfilled: %#v", media)
 	}
 }
 
@@ -536,19 +553,19 @@ func TestScanLibrarySkipsUnchangedLocalMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatalf("third scan: %v", err)
 	}
-	if third.Added != 0 || third.Updated != 1 || third.Skipped != 0 {
-		t.Fatalf("third scan = %#v, want local metadata update only", third)
+	if third.Added != 0 || third.Updated != 0 || third.Skipped != 1 {
+		t.Fatalf("third scan = %#v, want unchanged media fingerprint skipped", third)
 	}
-	if len(third.Changes) != 1 || !strings.Contains(third.Changes[0].Reason, "本地元数据变化") {
-		t.Fatalf("third scan changes = %#v, want local metadata reason", third.Changes)
+	if len(third.Changes) != 0 {
+		t.Fatalf("third scan changes = %#v, want none", third.Changes)
 	}
 	var media model.Media
 	if err := repos.DB.First(&media, "path = ?", file).Error; err != nil {
 		t.Fatal(err)
 	}
 	local := serviceTestLocalMetadataHint(t, media)
-	if local.Title != "Local Metadata Updated" || local.TMDbID != 12345 || media.ScrapeStatus != "pending" || media.MetadataID != "" {
-		t.Fatalf("local metadata hint was not refreshed: media=%+v hint=%+v", media, local)
+	if local.Title != "Local Metadata" || local.TMDbID != 12345 || media.ScrapeStatus != "pending" || media.MetadataID != "" {
+		t.Fatalf("local metadata hint changed despite unchanged media fingerprint: media=%+v hint=%+v", media, local)
 	}
 }
 

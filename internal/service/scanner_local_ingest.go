@@ -23,6 +23,19 @@ func (s *ScannerService) ingestFile(ctx context.Context, lib *model.Library, roo
 	if skippedDuplicate {
 		return
 	}
+	isNewMedia, skipUnchanged, updateReason := s.localMediaScanState(localMediaScanStateInput{
+		ctx:           ctx,
+		libraryID:     lib.ID,
+		path:          path,
+		cleanPath:     cleanPath,
+		size:          size,
+		modTimeNS:     modTimeNS,
+		existingMedia: existingMedia,
+	})
+	if skipUnchanged {
+		res.Skipped++
+		return
+	}
 
 	parsedSeason, parsedEpisode := ParseEpisode(path)
 	localMeta := s.readLocalScanMetadata(lib, root, path, parsedSeason, parsedEpisode)
@@ -38,20 +51,6 @@ func (s *ScannerService) ingestFile(ctx context.Context, lib *model.Library, roo
 		parsedEpisode: parsedEpisode,
 		localMeta:     localMeta,
 	})
-	isNewMedia, skipUnchanged, updateReason := s.localMediaScanState(localMediaScanStateInput{
-		ctx:           ctx,
-		path:          path,
-		cleanPath:     cleanPath,
-		size:          size,
-		modTimeNS:     modTimeNS,
-		localMeta:     localMeta,
-		incoming:      media,
-		existingMedia: existingMedia,
-	})
-	if skipUnchanged {
-		res.Skipped++
-		return
-	}
 	if localMeta != nil {
 		res.LocalMetadata++
 	}
@@ -108,34 +107,45 @@ func (s *ScannerService) readLocalScanMetadata(lib *model.Library, root *model.L
 
 type localMediaScanStateInput struct {
 	ctx           context.Context
+	libraryID     string
 	path          string
 	cleanPath     string
 	size          int64
 	modTimeNS     int64
-	localMeta     *LocalMetadata
-	incoming      *model.Media
 	existingMedia map[string]existingLocalMedia
 }
 
 func (s *ScannerService) localMediaScanState(in localMediaScanStateInput) (bool, bool, string) {
+	var existing existingLocalMedia
+	var exists bool
 	if in.existingMedia == nil {
-		isNewMedia := !s.mediaPathExists(in.ctx, in.path)
-		if isNewMedia {
+		var media model.Media
+		query := s.repo.DB.WithContext(in.ctx).Unscoped().
+			Select("scan_file_size_bytes", "scan_file_mtime_ns").
+			Where("library_id = ? AND path = ?", in.libraryID, in.path).
+			Limit(1).Find(&media)
+		if query.Error != nil {
+			return false, false, "未加载旧文件指纹"
+		}
+		if query.RowsAffected == 0 {
 			return true, false, ""
 		}
-		return false, false, "未加载旧文件指纹"
+		existing = existingLocalMedia{
+			ScanFileSizeBytes: media.ScanFileSizeBytes,
+			ScanFileMTimeNS:   media.ScanFileMTimeNS,
+		}
+		exists = true
+	} else {
+		existing, exists = in.existingMedia[in.cleanPath]
 	}
-	existing, exists := in.existingMedia[in.cleanPath]
 	isNewMedia := !exists
 	if !exists {
 		return true, false, ""
 	}
-	localMetadataChanged := localMetadataNeedsRefresh(existing, in.localMeta)
-	derivedMetadataChanged := localDerivedMetadataNeedsRefresh(existing, in.incoming)
-	if existing.ScanFileMTimeNS != 0 && existing.ScanFileSizeBytes == in.size && existing.ScanFileMTimeNS == in.modTimeNS && !localMetadataChanged && !derivedMetadataChanged {
+	if existing.ScanFileMTimeNS != 0 && existing.ScanFileSizeBytes == in.size && existing.ScanFileMTimeNS == in.modTimeNS {
 		return false, true, ""
 	}
-	reasons := make([]string, 0, 4)
+	reasons := make([]string, 0, 3)
 	if existing.ScanFileMTimeNS == 0 {
 		reasons = append(reasons, "首次补录文件指纹")
 	}
@@ -144,12 +154,6 @@ func (s *ScannerService) localMediaScanState(in localMediaScanStateInput) (bool,
 	}
 	if existing.ScanFileMTimeNS != 0 && existing.ScanFileMTimeNS != in.modTimeNS {
 		reasons = append(reasons, fmt.Sprintf("mtime_ns 变化：%d → %d", existing.ScanFileMTimeNS, in.modTimeNS))
-	}
-	if localMetadataChanged {
-		reasons = append(reasons, "本地元数据变化")
-	}
-	if derivedMetadataChanged {
-		reasons = append(reasons, "派生元数据变化")
 	}
 	return isNewMedia, false, strings.Join(reasons, "；")
 }
@@ -287,11 +291,4 @@ func (s *ScannerService) duplicateByFileID(ctx context.Context, fileID, path str
 		}
 	}
 	return "", false
-}
-
-func (s *ScannerService) mediaPathExists(ctx context.Context, path string) bool {
-	var count int64
-	err := s.repo.DB.WithContext(ctx).Unscoped().Model(&model.Media{}).
-		Where("path = ?", path).Count(&count).Error
-	return err == nil && count > 0
 }

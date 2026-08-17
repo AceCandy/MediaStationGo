@@ -19,18 +19,11 @@ func TestExistingLocalMediaSnapshotFiltersAndCleansLocalRows(t *testing.T) {
 	cleanPath := filepath.Clean(rawPath)
 	if err := db.Create(&[]model.Media{
 		{
-			LibraryID:    "lib-1",
-			Path:         rawPath,
-			SizeBytes:    4096,
-			DurationSec:  240,
-			Width:        3840,
-			Height:       2160,
-			VideoCodec:   "hevc",
-			AudioCodec:   "truehd",
-			Container:    "mkv",
-			STRMURL:      "https://cdn.example.com/movie.mkv",
-			FileID:       "dev:inode",
-			ScrapeStatus: "matched",
+			LibraryID:         "lib-1",
+			Path:              rawPath,
+			ScanFileSizeBytes: 4096,
+			ScanFileMTimeNS:   123456789,
+			FileID:            "dev:inode",
 		},
 		{LibraryID: "lib-1", Path: "cloud://openlist/Movie.mkv", SizeBytes: 99},
 		{LibraryID: "lib-2", Path: filepath.Join("D:", "media", "Other.mkv"), SizeBytes: 88},
@@ -49,13 +42,7 @@ func TestExistingLocalMediaSnapshotFiltersAndCleansLocalRows(t *testing.T) {
 	if !ok {
 		t.Fatalf("snapshot key %q not found in %#v", cleanPath, got)
 	}
-	if row.SizeBytes != 4096 || row.DurationSec != 240 || row.Width != 3840 || row.Height != 2160 {
-		t.Fatalf("track fields not preserved: %#v", row)
-	}
-	if row.VideoCodec != "hevc" || row.AudioCodec != "truehd" || row.Container != "mkv" {
-		t.Fatalf("codec fields not preserved: %#v", row)
-	}
-	if row.STRMURL == "" || row.FileID != "dev:inode" {
-		t.Fatalf("identity fields not preserved: %#v", row)
+	if row.ScanFileSizeBytes != 4096 || row.ScanFileMTimeNS != 123456789 || row.FileID != "dev:inode" {
+		t.Fatalf("fingerprint fields not preserved: %#v", row)
 	}
 }

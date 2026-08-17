@@ -121,6 +121,7 @@ db.Model(&credit).
 ### 2. Signatures
 
 - Canonical entities: `MetadataItem{Kind, ParentID, SeasonNum, EpisodeNum, Title, ..., NSFW, Source}`.
+- Local scan fingerprint: `Media{ScanFileSizeBytes, ScanFileMTimeNS}` stores the scanned media file's own size and nanosecond mtime.
 - External identity: `MetadataIdentifier{MetadataID, Provider, EntityKind, ExternalID}` with global uniqueness on `(provider, entity_kind, external_id)`.
 - Season identity: `(parent_series_id, season_num)`; episode identity:
   `(parent_season_id, episode_num)`. TMDb catalog hydration also requires each
@@ -157,6 +158,12 @@ db.Model(&credit).
   creates local metadata. An exact movie identity binds the Movie; an episodic
   identity binds only when its stored `Series -> Season -> Episode` hierarchy
   already contains that episode.
+- An existing local media row is unchanged only when its persisted
+  `ScanFileSizeBytes` and nonzero `ScanFileMTimeNS` equal the current file.
+  This check runs before NFO, sidecar, path-derived metadata, or STRM target
+  reads. Those derived values never trigger an update by themselves.
+- A missing legacy fingerprint performs one normal update to persist both
+  values. A size or mtime change follows the normal scan update flow.
 - When exact identity does not resolve, scanner persists the media with
   `metadata_id = NULL`, scan hints, and `scrape_status=pending`. Provider or
   eligible local persistence fills the link after scan.
@@ -263,6 +270,8 @@ db.Model(&credit).
 | Provider metadata implies a different category/library | Persist metadata and artwork only; preserve the media path and library ID |
 | User cannot view NSFW/library | Filter in `MediaView` query before pagination or playback response creation |
 | Catalog Metadata has no valid Media | Keep it persisted, but exclude it from physical Emby library results |
+| Local media size and nonzero nanosecond mtime both match | Count it as skipped; do not read local/derived metadata, upsert, probe, or emit an update detail |
+| Local media fingerprint is missing or differs | Continue the normal scan write and report the fingerprint reason |
 | One Metadata has Media in allowed and hidden libraries | Return one logical item and only MediaSources from allowed libraries |
 | Many Media versions share one Metadata | Count and paginate the Metadata once; return all visible versions in detail/playback |
 | Any library, root, or media hard-delete fails | Roll back the whole library deletion and return an error |
@@ -306,6 +315,13 @@ db.Model(&credit).
 - Bad: paginating Media rows and collapsing versions afterward, because early
   versions can consume the page and hide later logical works.
 - Good: deleting a local library physically removes its library/root/media rows while the referenced metadata and user state remain.
+- Good: repeated scans of an unchanged `.strm` skip it without rebuilding a
+  cleared `local_metadata_hint` or starting another automatic scrape.
+- Base: an NFO or directory hint changes while the media file fingerprint does
+  not; the media row and its existing hint remain untouched until the media
+  file itself changes.
+- Bad: treating local or path-derived metadata differences as file updates,
+  which creates an update/scrape/hint-clear loop for unchanged media.
 - Bad: using GORM's scoped `Delete` for a library or its media and leaving rows in the recycle bin.
 - Good: a scan or scrape changes title, identifiers, artwork and scrape status while the playable file path and library ID remain unchanged.
 - Bad: calling `ReclassifyMisclassifiedMedia` after a scrape and silently moving or deleting a local media/STRM file.
@@ -329,6 +345,9 @@ db.Model(&credit).
 - Scanner identity: assert exact movie and existing episode identities bind
   without mutating canonical metadata; assert unresolved scans create no local
   metadata row and remain absent from `MediaView`.
+- Scanner fingerprint: assert unchanged `.strm` and ordinary files skip without
+  touching `updated_at`; NFO-only changes still skip; size/mtime changes update
+  with the matching reason; a zero legacy mtime is backfilled once.
 - Identity: allow equal external IDs across provider or entity kind; deduplicate equal canonical identities.
 - Identity: replace a stale unowned identifier for the same provider/kind, preserve other provider identifiers, and reject an occupied identifier unless merge is explicitly authorized.
 - Merge: move multiple media versions, favorites, playlists and history; recursively merge Series children; assert duplicate user state is resolved and source metadata is physically gone.
@@ -422,6 +441,16 @@ if metadata != nil {
     media.MetadataID = metadata.ID
     media.ScrapeStatus = "matched"
 }
+```
+
+Scanner change detection must stop at the media file fingerprint:
+
+```go
+// Wrong: unchanged files update because a transient scan hint was cleared.
+skip := sameSize && sameMTime && !localMetadataChanged
+
+// Correct: derived metadata is not read until the media file itself changed.
+skip := storedMTimeNS != 0 && sameSize && sameMTime
 ```
 
 For library deletion, scoped GORM deletion is also incorrect:
