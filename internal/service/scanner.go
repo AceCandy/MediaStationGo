@@ -114,16 +114,60 @@ func (s *ScannerService) SetImageProxy(imageProxy *ImageProxy) {
 
 // ScanResult summarises a scan run.
 type ScanResult struct {
-	LibraryID     string   `json:"library_id"`
-	Visited       int      `json:"visited"`
-	Added         int      `json:"added"`
-	Updated       int      `json:"updated"`
-	Skipped       int      `json:"skipped"`
-	Probed        int      `json:"probed"`
-	LocalMetadata int      `json:"local_metadata"`
-	Removed       int64    `json:"removed"`
-	ErrorCount    int      `json:"error_count,omitempty"`
-	Errors        []string `json:"errors,omitempty"`
+	LibraryID     string       `json:"library_id"`
+	Visited       int          `json:"visited"`
+	Added         int          `json:"added"`
+	Updated       int          `json:"updated"`
+	Skipped       int          `json:"skipped"`
+	Probed        int          `json:"probed"`
+	LocalMetadata int          `json:"local_metadata"`
+	Removed       int64        `json:"removed"`
+	ErrorCount    int          `json:"error_count,omitempty"`
+	Errors        []string     `json:"errors,omitempty"`
+	Changes       []ScanChange `json:"changes,omitempty"`
+}
+
+type ScanChangeAction string
+
+const (
+	ScanChangeAdded   ScanChangeAction = "added"
+	ScanChangeUpdated ScanChangeAction = "updated"
+	ScanChangeRemoved ScanChangeAction = "removed"
+)
+
+// ScanChange records one persisted media change for administrator task logs.
+type ScanChange struct {
+	Action ScanChangeAction `json:"action"`
+	Path   string           `json:"path"`
+	Reason string           `json:"reason,omitempty"`
+}
+
+func (res *ScanResult) addChange(action ScanChangeAction, path, reason string) {
+	if res == nil || strings.TrimSpace(path) == "" {
+		return
+	}
+	if action == ScanChangeUpdated && strings.TrimSpace(reason) == "" {
+		reason = "已有记录重新入库"
+	}
+	res.Changes = append(res.Changes, ScanChange{Action: action, Path: path, Reason: reason})
+}
+
+func (res *ScanResult) ChangeDetails() []string {
+	if res == nil {
+		return nil
+	}
+	out := make([]string, 0, len(res.Changes))
+	for _, change := range res.Changes {
+		switch change.Action {
+		case ScanChangeAdded:
+			out = append(out, "➕ 新增 "+change.Path)
+		case ScanChangeUpdated:
+			out = append(out, "🔄 更新 "+change.Path+"（"+change.Reason+"）")
+		case ScanChangeRemoved:
+			out = append(out, "🗑️ 删除 "+change.Path)
+		}
+	}
+	return out
 }
 
 var ErrLocalScanAlreadyRunning = errors.New("local scan already running")

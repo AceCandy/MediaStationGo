@@ -252,6 +252,9 @@ func TestScanLibraryPrunesMissingMedia(t *testing.T) {
 	if res.Removed != 1 {
 		t.Fatalf("Removed = %d, want 1", res.Removed)
 	}
+	if len(res.Changes) != 2 || res.Changes[1].Action != ScanChangeRemoved || res.Changes[1].Path != stale.Path {
+		t.Fatalf("changes = %#v, want removed path %q", res.Changes, stale.Path)
+	}
 	var count int64
 	if err := db.Model(&model.Media{}).Where("library_id = ?", lib.ID).Count(&count).Error; err != nil {
 		t.Fatal(err)

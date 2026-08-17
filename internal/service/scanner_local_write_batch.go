@@ -18,9 +18,10 @@ type localMediaWriteBatch struct {
 }
 
 type localMediaWriteItem struct {
-	path  string
-	media *model.Media
-	after func()
+	path         string
+	media        *model.Media
+	after        func()
+	updateReason string
 }
 
 func newLocalMediaWriteBatch(scanner *ScannerService, ctx context.Context, res *ScanResult, limit int) *localMediaWriteBatch {
@@ -31,10 +32,10 @@ func newLocalMediaWriteBatch(scanner *ScannerService, ctx context.Context, res *
 }
 
 func (b *localMediaWriteBatch) Add(path string, media *model.Media) {
-	b.AddWithAfter(path, media, nil)
+	b.AddWithAfter(path, media, nil, "")
 }
 
-func (b *localMediaWriteBatch) AddWithAfter(path string, media *model.Media, after func()) {
+func (b *localMediaWriteBatch) AddWithAfter(path string, media *model.Media, after func(), updateReason string) {
 	if b == nil || b.scanner == nil || media == nil {
 		return
 	}
@@ -44,7 +45,7 @@ func (b *localMediaWriteBatch) AddWithAfter(path string, media *model.Media, aft
 	if media.ScrapeTrigger == "" {
 		media.ScrapeTrigger = TaskTriggerEvent
 	}
-	b.items = append(b.items, localMediaWriteItem{path: path, media: media, after: after})
+	b.items = append(b.items, localMediaWriteItem{path: path, media: media, after: after, updateReason: updateReason})
 	if len(b.items) >= b.limit {
 		b.Flush()
 	}
@@ -84,8 +85,10 @@ func (b *localMediaWriteBatch) Flush() {
 		}
 		if wasExisting {
 			b.res.Updated++
+			b.res.addChange(ScanChangeUpdated, item.path, item.updateReason)
 		} else {
 			b.res.Added++
+			b.res.addChange(ScanChangeAdded, item.path, "")
 		}
 		if item.after != nil {
 			item.after()
@@ -134,6 +137,7 @@ func (b *localMediaWriteBatch) upsertExistingItem(item localMediaWriteItem) {
 		return
 	}
 	b.res.Updated++
+	b.res.addChange(ScanChangeUpdated, item.path, item.updateReason)
 	if item.after != nil {
 		item.after()
 	}

@@ -12,6 +12,8 @@ history is observability only; business object state owns retry and recovery.
 
 - `TaskExecution`: UUID ID, kind, trigger, status, summary fields, JSON metrics,
   error, and start/update/finish timestamps.
+- `TaskUpdate.DetailsWithoutLevel`: defaults to `false`; when `true`, detail
+  lines retain their timestamp but omit the `[DETAIL]` label.
 - `GET /api/tasks?page=&page_size=` returns `items`, `page`, `page_size`, and `total`.
 - `GET /api/tasks` also returns stable task `definitions`; each definition may
   expose current state, latest terminal execution, schedule, next run, and a
@@ -44,6 +46,10 @@ history is observability only; business object state owns retry and recovery.
 - `TaskUpdate.Details` are append-only log records for that update, not an
   accumulated task transcript. A batch worker must pass only newly produced
   detail lines on each `Update` and must not repeat them on `Finish`.
+- Detail lines use `[DETAIL]` by default. Set `DetailsWithoutLevel` only when
+  the operator-facing format already has an explicit marker such as
+  `➕` / `🔄` / `🗑️`; this avoids redundant `[DETAIL] ➕` prefixes without
+  changing the formatting of other task definitions.
 - Both `Details` and the error passed to `TaskHandle.Finish` are written to the
   per-task log. Provider errors must be sanitized before either value is passed;
   URLs and query strings are replaced with `[redacted-url]`.
@@ -84,6 +90,7 @@ history is observability only; business object state owns retry and recovery.
 | Task log append fails | Continue work, log the application error |
 | A provider error contains a URL or query token | Preserve the original business error for the caller, but write only the sanitized error to the task log |
 | A batch update has old and new detail lines | Pass only the new lines to `TaskUpdate.Details` |
+| Icon-marked details set `DetailsWithoutLevel` | Write `timestamp + detail`; do not write an empty `[]` or `[DETAIL]` label |
 | Process exits with a media group running | Restore its rows to `pending` at startup |
 | Any member loses a claim race | Roll back the whole group claim |
 | Library media exists while catalog work is pending | Process one library work unit first |
@@ -93,20 +100,26 @@ history is observability only; business object state owns retry and recovery.
 
 - Good: a two-episode series is claimed and completed as one unit, then the worker
   checks newly imported media before taking another catalog item.
+- Good: a scan change is written as `timestamp ➕ 新增 /media/a.strm`.
 - Good: equal role source text in two episodes of the same season creates one
   translation group with two write-back targets.
 - Base: no work exists; the worker waits for a wake signal.
+- Base: ordinary task details keep the existing `[DETAIL]` label.
 - Base: equal role source text in different seasons remains two translation groups.
 - Bad: select pending rows without a conditional update, or resume from an old
   task execution/log after restart.
 - Bad: use each episode `MetadataID` as the role cache context and call AI once
   per episode for the same season role.
+- Bad: encode `[DETAIL]` into detail text or remove detail levels globally just
+  to support one icon-marked task.
 
 ### 6. Tests Required
 
 - Task start/update/finish, pagination, and `running -> interrupted` recovery.
 - Per-definition daily log rollover, same-day append order, shared-kind
   isolation, invalid date/key rejection, newest-first dates, and tail truncation.
+- Level-free detail tests assert the timestamp and text remain while `[DETAIL]`
+  and an empty `[]` marker are absent.
 - Atomic whole-series claim, late-series-member exclusion, and
   `running -> pending` media recovery.
 - API/UI contract plus manual, scheduled, and event trigger attribution.
@@ -132,6 +145,17 @@ task.Update(TaskUpdate{Details: result.Details})
 // Correct: write only details created since the previous update.
 task.Update(TaskUpdate{Details: result.Details[detailCount:]})
 detailCount = len(result.Details)
+```
+
+```go
+// Wrong: icon-marked task logs still render a redundant level label.
+task.Update(TaskUpdate{Details: []string{"➕ 新增 /media/a.strm"}})
+
+// Correct: only this update omits the level label; other tasks keep defaults.
+task.Update(TaskUpdate{
+    Details:             []string{"➕ 新增 /media/a.strm"},
+    DetailsWithoutLevel: true,
+})
 ```
 
 ```go

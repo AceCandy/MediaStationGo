@@ -2,6 +2,7 @@ package service
 
 import (
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 
@@ -28,12 +29,29 @@ func TestPeopleTranslationDetail(t *testing.T) {
 
 func TestLibraryScanTaskDetail(t *testing.T) {
 	lib := model.Library{Base: model.Base{ID: "library-1"}, Name: "电影"}
-	result := &ScanResult{Visited: 10, Added: 2, Updated: 3, Removed: 1, Skipped: 4, ErrorCount: 1}
+	result := &ScanResult{
+		Visited: 10, Added: 2, Updated: 3, Removed: 1, Skipped: 4, ErrorCount: 1,
+		Changes: []ScanChange{
+			{Action: ScanChangeAdded, Path: "/media/a.strm"},
+			{Action: ScanChangeUpdated, Path: "/media/b.strm", Reason: "mtime_ns 变化：1 → 2"},
+			{Action: ScanChangeRemoved, Path: "/media/c.strm"},
+		},
+	}
 	got := libraryScanTaskDetail(lib, result)
 	for _, want := range []string{"电影", "访问 10", "新增 2", "更新 3", "移除 1", "跳过 4", "错误 1"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("detail %q does not contain %q", got, want)
 		}
+	}
+	details := libraryScanTaskDetails(lib, result)
+	wantDetails := []string{
+		got,
+		"➕ 新增 /media/a.strm",
+		"🔄 更新 /media/b.strm（mtime_ns 变化：1 → 2）",
+		"🗑️ 删除 /media/c.strm",
+	}
+	if !slices.Equal(details, wantDetails) {
+		t.Fatalf("details = %#v, want %#v", details, wantDetails)
 	}
 }
 

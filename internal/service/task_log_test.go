@@ -30,6 +30,21 @@ func TestTaskLogStoreAppendsOneDefinitionFilePerDay(t *testing.T) {
 	}
 }
 
+func TestTaskLogStoreAppendsLineWithoutLevel(t *testing.T) {
+	now := time.Date(2026, 8, 17, 12, 0, 0, 0, time.Local)
+	store := newTaskLogStore(t.TempDir(), func() time.Time { return now })
+	if err := store.append(TaskDefinitionLibraryScan, "", "➕ 新增 /media/a.strm"); err != nil {
+		t.Fatal(err)
+	}
+	content, _, err := store.read(TaskDefinitionLibraryScan, now.Format(taskLogDateLayout), defaultTaskLogTailBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(content, "[DETAIL]") || !strings.Contains(content, "2026-08-17T12:00:00") || !strings.Contains(content, "➕ 新增 /media/a.strm") {
+		t.Fatalf("content = %q", content)
+	}
+}
+
 func TestTaskLogStoreListsDatesNewestFirstAndReadsSelectedDay(t *testing.T) {
 	now := time.Date(2026, 8, 12, 23, 59, 0, 0, time.Local)
 	store := newTaskLogStore(t.TempDir(), func() time.Time { return now })

@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -37,7 +38,7 @@ func (s *ScannerService) ingestFile(ctx context.Context, lib *model.Library, roo
 		parsedEpisode: parsedEpisode,
 		localMeta:     localMeta,
 	})
-	isNewMedia, skipUnchanged := s.localMediaScanState(localMediaScanStateInput{
+	isNewMedia, skipUnchanged, updateReason := s.localMediaScanState(localMediaScanStateInput{
 		ctx:           ctx,
 		path:          path,
 		cleanPath:     cleanPath,
@@ -56,13 +57,14 @@ func (s *ScannerService) ingestFile(ctx context.Context, lib *model.Library, roo
 	}
 
 	s.writeLocalScanMedia(localScanWriteInput{
-		ctx:        ctx,
-		path:       path,
-		media:      media,
-		isNewMedia: isNewMedia,
-		writeBatch: writeBatch,
-		after:      s.localProbeAfter(ctx, media, path, ext),
-		res:        res,
+		ctx:          ctx,
+		path:         path,
+		media:        media,
+		isNewMedia:   isNewMedia,
+		updateReason: updateReason,
+		writeBatch:   writeBatch,
+		after:        s.localProbeAfter(ctx, media, path, ext),
+		res:          res,
 	})
 }
 
@@ -115,16 +117,41 @@ type localMediaScanStateInput struct {
 	existingMedia map[string]existingLocalMedia
 }
 
-func (s *ScannerService) localMediaScanState(in localMediaScanStateInput) (bool, bool) {
+func (s *ScannerService) localMediaScanState(in localMediaScanStateInput) (bool, bool, string) {
 	if in.existingMedia == nil {
-		return !s.mediaPathExists(in.ctx, in.path), false
+		isNewMedia := !s.mediaPathExists(in.ctx, in.path)
+		if isNewMedia {
+			return true, false, ""
+		}
+		return false, false, "未加载旧文件指纹"
 	}
 	existing, exists := in.existingMedia[in.cleanPath]
 	isNewMedia := !exists
-	if exists && existing.ScanFileMTimeNS != 0 && existing.ScanFileSizeBytes == in.size && existing.ScanFileMTimeNS == in.modTimeNS && !localMetadataNeedsRefresh(existing, in.localMeta) && !localDerivedMetadataNeedsRefresh(existing, in.incoming) {
-		return isNewMedia, true
+	if !exists {
+		return true, false, ""
 	}
-	return isNewMedia, false
+	localMetadataChanged := localMetadataNeedsRefresh(existing, in.localMeta)
+	derivedMetadataChanged := localDerivedMetadataNeedsRefresh(existing, in.incoming)
+	if existing.ScanFileMTimeNS != 0 && existing.ScanFileSizeBytes == in.size && existing.ScanFileMTimeNS == in.modTimeNS && !localMetadataChanged && !derivedMetadataChanged {
+		return false, true, ""
+	}
+	reasons := make([]string, 0, 4)
+	if existing.ScanFileMTimeNS == 0 {
+		reasons = append(reasons, "首次补录文件指纹")
+	}
+	if existing.ScanFileSizeBytes != in.size {
+		reasons = append(reasons, fmt.Sprintf("文件大小变化：%d → %d", existing.ScanFileSizeBytes, in.size))
+	}
+	if existing.ScanFileMTimeNS != 0 && existing.ScanFileMTimeNS != in.modTimeNS {
+		reasons = append(reasons, fmt.Sprintf("mtime_ns 变化：%d → %d", existing.ScanFileMTimeNS, in.modTimeNS))
+	}
+	if localMetadataChanged {
+		reasons = append(reasons, "本地元数据变化")
+	}
+	if derivedMetadataChanged {
+		reasons = append(reasons, "派生元数据变化")
+	}
+	return isNewMedia, false, strings.Join(reasons, "；")
 }
 
 type localScanMediaInput struct {
@@ -194,18 +221,19 @@ func (s *ScannerService) localProbeAfter(ctx context.Context, media *model.Media
 }
 
 type localScanWriteInput struct {
-	ctx        context.Context
-	path       string
-	media      *model.Media
-	isNewMedia bool
-	writeBatch *localMediaWriteBatch
-	after      func()
-	res        *ScanResult
+	ctx          context.Context
+	path         string
+	media        *model.Media
+	isNewMedia   bool
+	updateReason string
+	writeBatch   *localMediaWriteBatch
+	after        func()
+	res          *ScanResult
 }
 
 func (s *ScannerService) writeLocalScanMedia(in localScanWriteInput) {
 	if in.isNewMedia && in.writeBatch != nil {
-		in.writeBatch.AddWithAfter(in.path, in.media, in.after)
+		in.writeBatch.AddWithAfter(in.path, in.media, in.after, in.updateReason)
 		return
 	}
 	if err := s.repo.Media.Upsert(in.ctx, in.media); err != nil {
@@ -218,8 +246,10 @@ func (s *ScannerService) writeLocalScanMedia(in localScanWriteInput) {
 	}
 	if in.isNewMedia {
 		in.res.Added++
+		in.res.addChange(ScanChangeAdded, in.path, "")
 	} else {
 		in.res.Updated++
+		in.res.addChange(ScanChangeUpdated, in.path, in.updateReason)
 	}
 	s.publishLocalScanProgress(in.path, in.res)
 }

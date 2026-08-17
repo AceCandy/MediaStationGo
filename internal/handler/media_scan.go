@@ -43,10 +43,10 @@ func scanLibraryHandler(svc *service.Container) gin.HandlerFunc {
 			defer finish()
 			res, err := svc.Scan.ScanLibrary(context.Background(), libraryID)
 			if err != nil {
-				finishHTTPTask(task, err, "scan", "手动扫描入库失败", scanTaskMetrics(res), scanTaskDetails(res, 20))
+				finishHTTPTask(task, err, "scan", "手动扫描入库失败", scanTaskMetrics(res), scanTaskDetails(res, 20), true)
 				return
 			}
-			finishHTTPTask(task, nil, "completed", "手动扫描入库结束", scanTaskMetrics(res), scanTaskDetails(res, 20))
+			finishHTTPTask(task, nil, "completed", "手动扫描入库结束", scanTaskMetrics(res), scanTaskDetails(res, 20), true)
 		}(id, task, finishScan)
 		c.JSON(http.StatusAccepted, gin.H{
 			"library_id":       id,
@@ -82,10 +82,10 @@ func scanLibraryRootHandler(svc *service.Container) gin.HandlerFunc {
 			defer finish()
 			res, err := svc.Scan.ScanLibraryRoot(context.Background(), libraryID, libraryRootID)
 			if err != nil {
-				finishHTTPTask(task, err, "scan", "手动扫描路径失败", scanTaskMetrics(res), scanTaskDetails(res, 20))
+				finishHTTPTask(task, err, "scan", "手动扫描路径失败", scanTaskMetrics(res), scanTaskDetails(res, 20), true)
 				return
 			}
-			finishHTTPTask(task, nil, "completed", "手动扫描路径结束", scanTaskMetrics(res), scanTaskDetails(res, 20))
+			finishHTTPTask(task, nil, "completed", "手动扫描路径结束", scanTaskMetrics(res), scanTaskDetails(res, 20), true)
 		}(id, rootID, task, finishScan)
 		c.JSON(http.StatusAccepted, gin.H{
 			"library_id":       id,
@@ -127,17 +127,22 @@ func scanTaskMetrics(res *service.ScanResult) map[string]int64 {
 }
 
 func scanTaskDetails(res *service.ScanResult, limit int) []string {
-	if res == nil || limit <= 0 {
+	if res == nil {
 		return nil
 	}
-	out := make([]string, 0, limit)
+	out := res.ChangeDetails()
+	if limit <= 0 {
+		return out
+	}
+	errorCount := 0
 	for _, line := range res.Errors {
 		line = strings.TrimSpace(line)
 		if line == "" {
 			continue
 		}
 		out = append(out, "错误: "+line)
-		if len(out) >= limit {
+		errorCount++
+		if errorCount >= limit {
 			return out
 		}
 	}

@@ -43,7 +43,7 @@ func probeLibraryHandler(svc *service.Container) gin.HandlerFunc {
 			if err != nil {
 				stage, message = "probe", "媒体轨道回填失败"
 			}
-			finishHTTPTask(task, err, stage, message, result.Metrics(), result.Details)
+			finishHTTPTask(task, err, stage, message, result.Metrics(), result.Details, false)
 		}()
 		c.JSON(http.StatusAccepted, gin.H{"status": "started"})
 	}

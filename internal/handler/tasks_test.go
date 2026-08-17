@@ -35,6 +35,20 @@ func TestTasksHandlerReturnsStableDefinitions(t *testing.T) {
 	}
 }
 
+func TestScanTaskDetailsKeepsAllChangesAndLimitsOnlyErrors(t *testing.T) {
+	res := &service.ScanResult{
+		Changes: []service.ScanChange{
+			{Action: service.ScanChangeAdded, Path: "/media/a.strm"},
+			{Action: service.ScanChangeUpdated, Path: "/media/b.strm", Reason: "mtime_ns 变化"},
+		},
+		Errors: []string{"first", "second"},
+	}
+	details := scanTaskDetails(res, 1)
+	if len(details) != 3 || details[0] != "➕ 新增 /media/a.strm" || details[1] != "🔄 更新 /media/b.strm（mtime_ns 变化）" || details[2] != "错误: first" {
+		t.Fatalf("details = %#v", details)
+	}
+}
+
 func TestTaskDefinitionHistoryHandlerRejectsUnknownDefinition(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	recorder := httptest.NewRecorder()

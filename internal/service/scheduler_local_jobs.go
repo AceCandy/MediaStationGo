@@ -42,7 +42,7 @@ func (s *SchedulerService) jobScanLibraries(ctx context.Context) error {
 	if err != nil {
 		if task != nil {
 			safeErr := sanitizeTaskLogError(err)
-			task.Finish(safeErr, TaskUpdate{Stage: "scan", Message: "媒体库扫描失败", Details: []string{"读取媒体库列表失败: " + safeErr.Error()}})
+			task.Finish(safeErr, TaskUpdate{Stage: "scan", Message: "媒体库扫描失败", Details: []string{"读取媒体库列表失败: " + safeErr.Error()}, DetailsWithoutLevel: true})
 		}
 		return err
 	}
@@ -59,7 +59,7 @@ func (s *SchedulerService) jobScanLibraries(ctx context.Context) error {
 		if err != nil {
 			metrics["errors"]++
 			if task != nil {
-				task.Update(TaskUpdate{Stage: "scan", Message: "正在扫描已启用媒体库", Metrics: metrics, Details: []string{fmt.Sprintf("媒体库 %s（%s）: 扫描失败: %v", l.Name, l.ID, sanitizeTaskLogError(err))}})
+				task.Update(TaskUpdate{Stage: "scan", Message: "正在扫描已启用媒体库", Metrics: metrics, Details: []string{fmt.Sprintf("媒体库 %s（%s）: 扫描失败: %v", l.Name, l.ID, sanitizeTaskLogError(err))}, DetailsWithoutLevel: true})
 			}
 			s.log.Warn("scheduled scan failed",
 				zap.String("library", l.ID), zap.Error(err))
@@ -72,7 +72,7 @@ func (s *SchedulerService) jobScanLibraries(ctx context.Context) error {
 			metrics["removed"] += res.Removed
 		}
 		if task != nil {
-			task.Update(TaskUpdate{Stage: "scan", Message: "正在扫描已启用媒体库", Metrics: metrics, Details: []string{libraryScanTaskDetail(l, res)}})
+			task.Update(TaskUpdate{Stage: "scan", Message: "正在扫描已启用媒体库", Metrics: metrics, Details: libraryScanTaskDetails(l, res), DetailsWithoutLevel: true})
 		}
 	}
 	if !manual {
@@ -89,6 +89,11 @@ func libraryScanTaskDetail(l model.Library, res *ScanResult) string {
 		return fmt.Sprintf("媒体库 %s（%s）: 扫描完成，无结果统计", l.Name, l.ID)
 	}
 	return fmt.Sprintf("媒体库 %s（%s）: 访问 %d，新增 %d，更新 %d，移除 %d，跳过 %d，错误 %d", l.Name, l.ID, res.Visited, res.Added, res.Updated, res.Removed, res.Skipped, res.ErrorCount)
+}
+
+func libraryScanTaskDetails(l model.Library, res *ScanResult) []string {
+	details := []string{libraryScanTaskDetail(l, res)}
+	return append(details, res.ChangeDetails()...)
 }
 
 // periodicScanEnabled reports whether the operator opted into periodic full

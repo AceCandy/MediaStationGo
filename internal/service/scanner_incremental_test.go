@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -159,6 +160,9 @@ func TestScanLibraryRepairsPreviouslyUnmatchedGenericISO(t *testing.T) {
 	}
 	if res.Updated != 1 || res.Skipped != 0 {
 		t.Fatalf("rescan result = %#v, want legacy ISO refreshed", res)
+	}
+	if len(res.Changes) != 1 || !strings.Contains(res.Changes[0].Reason, "首次补录文件指纹") || !strings.Contains(res.Changes[0].Reason, "派生元数据变化") {
+		t.Fatalf("legacy ISO changes = %#v, want fingerprint backfill and derived metadata reasons", res.Changes)
 	}
 	var media model.Media
 	if err := repos.DB.First(&media, "id = ?", legacy.ID).Error; err != nil {
@@ -403,6 +407,9 @@ func TestScanLibrarySkipsUnchangedSTRMByFileFingerprint(t *testing.T) {
 	if first.Added != 1 {
 		t.Fatalf("first scan = %#v, want added=1", first)
 	}
+	if len(first.Changes) != 1 || first.Changes[0].Action != ScanChangeAdded || first.Changes[0].Path != path {
+		t.Fatalf("first scan changes = %#v, want added path %q", first.Changes, path)
+	}
 	var before model.Media
 	if err := repos.DB.First(&before, "path = ?", path).Error; err != nil {
 		t.Fatal(err)
@@ -417,6 +424,9 @@ func TestScanLibrarySkipsUnchangedSTRMByFileFingerprint(t *testing.T) {
 	}
 	if second.Updated != 0 || second.Skipped != 1 {
 		t.Fatalf("second scan = %#v, want unchanged STRM skipped", second)
+	}
+	if len(second.Changes) != 0 {
+		t.Fatalf("second scan changes = %#v, want none", second.Changes)
 	}
 	var unchanged model.Media
 	if err := repos.DB.First(&unchanged, "path = ?", path).Error; err != nil {
@@ -436,6 +446,24 @@ func TestScanLibrarySkipsUnchangedSTRMByFileFingerprint(t *testing.T) {
 	}
 	if third.Updated != 1 || third.Skipped != 0 {
 		t.Fatalf("third scan = %#v, want changed mtime updated", third)
+	}
+	if len(third.Changes) != 1 || third.Changes[0].Action != ScanChangeUpdated || third.Changes[0].Path != path || !strings.Contains(third.Changes[0].Reason, "mtime_ns 变化") {
+		t.Fatalf("third scan changes = %#v, want mtime update for %q", third.Changes, path)
+	}
+
+	if err := os.WriteFile(path, []byte("https://cdn.example.com/movie-updated.mkv\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sizeChangedAt := changedAt.Add(time.Second)
+	if err := os.Chtimes(path, sizeChangedAt, sizeChangedAt); err != nil {
+		t.Fatal(err)
+	}
+	fourth, err := sc.ScanLibrary(t.Context(), lib.ID)
+	if err != nil {
+		t.Fatalf("fourth scan: %v", err)
+	}
+	if len(fourth.Changes) != 1 || !strings.Contains(fourth.Changes[0].Reason, "文件大小变化") || !strings.Contains(fourth.Changes[0].Reason, "mtime_ns 变化") {
+		t.Fatalf("fourth scan changes = %#v, want size and mtime reasons", fourth.Changes)
 	}
 }
 
@@ -510,6 +538,9 @@ func TestScanLibrarySkipsUnchangedLocalMetadata(t *testing.T) {
 	}
 	if third.Added != 0 || third.Updated != 1 || third.Skipped != 0 {
 		t.Fatalf("third scan = %#v, want local metadata update only", third)
+	}
+	if len(third.Changes) != 1 || !strings.Contains(third.Changes[0].Reason, "本地元数据变化") {
+		t.Fatalf("third scan changes = %#v, want local metadata reason", third.Changes)
 	}
 	var media model.Media
 	if err := repos.DB.First(&media, "path = ?", file).Error; err != nil {

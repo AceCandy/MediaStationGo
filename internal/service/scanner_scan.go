@@ -123,11 +123,14 @@ func (s *ScannerService) scanLibrary(ctx context.Context, libraryID string, auto
 			continue
 		}
 		scannedRoots++
-		removed, err := s.pruneMissingMediaForRoot(ctx, lib.ID, root.ID, root.Path, seen)
+		removed, removedPaths, err := s.pruneMissingMediaForRoot(ctx, lib.ID, root.ID, root.Path, seen)
 		if err != nil {
 			s.log.Warn("prune missing media failed", zap.String("library_id", lib.ID), zap.String("root_id", root.ID), zap.Error(err))
 		} else {
 			res.Removed += removed
+			for _, path := range removedPaths {
+				res.addChange(ScanChangeRemoved, path, "")
+			}
 		}
 	}
 	writeBatch.Flush()
@@ -159,11 +162,14 @@ func (s *ScannerService) scanLocalLibraryRoot(ctx context.Context, lib *model.Li
 		addScanError(res, root.Path, walkErr)
 		return res, walkErr
 	}
-	removed, err := s.pruneMissingMediaForRoot(ctx, lib.ID, root.ID, root.Path, seen)
+	removed, removedPaths, err := s.pruneMissingMediaForRoot(ctx, lib.ID, root.ID, root.Path, seen)
 	if err != nil {
 		s.log.Warn("prune missing media failed", zap.String("library_id", lib.ID), zap.String("root_id", root.ID), zap.Error(err))
 	} else {
 		res.Removed = removed
+		for _, path := range removedPaths {
+			res.addChange(ScanChangeRemoved, path, "")
+		}
 	}
 	s.finishLocalLibraryScan(ctx, lib, res, autoScrape)
 	return res, nil

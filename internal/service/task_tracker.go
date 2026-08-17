@@ -53,12 +53,13 @@ type BackgroundTask struct {
 }
 
 type TaskUpdate struct {
-	Stage      string
-	SourcePath string
-	DestPath   string
-	Message    string
-	Details    []string
-	Metrics    map[string]int64
+	Stage               string
+	SourcePath          string
+	DestPath            string
+	Message             string
+	Details             []string
+	DetailsWithoutLevel bool
+	Metrics             map[string]int64
 }
 
 type TaskSnapshot struct {
@@ -156,7 +157,7 @@ func (t *TaskTrackerService) StartTriggered(kind, trigger, name string, update T
 	snapshot := cloneBackgroundTask(*task)
 	t.mu.Unlock()
 	t.appendLog(snapshot, "info", task.Message)
-	t.appendDetails(snapshot, update.Details)
+	t.appendDetails(snapshot, update.Details, update.DetailsWithoutLevel)
 	t.publish(snapshot)
 	return &TaskHandle{tracker: t, id: task.ID}
 }
@@ -265,7 +266,7 @@ func (t *TaskTrackerService) update(id string, update TaskUpdate) {
 		}
 	}
 	t.appendLog(snapshot, "info", update.Message)
-	t.appendDetails(snapshot, update.Details)
+	t.appendDetails(snapshot, update.Details, update.DetailsWithoutLevel)
 	t.publish(snapshot)
 }
 
@@ -302,7 +303,7 @@ func (t *TaskTrackerService) finish(id string, finishErr error, update TaskUpdat
 		}
 	}
 	t.appendLog(snapshot, "info", update.Message)
-	t.appendDetails(snapshot, update.Details)
+	t.appendDetails(snapshot, update.Details, update.DetailsWithoutLevel)
 	if finishErr != nil {
 		t.appendLog(snapshot, "error", finishErr.Error())
 	}
@@ -356,9 +357,13 @@ func (t *TaskTrackerService) appendLog(task BackgroundTask, level, message strin
 	}
 }
 
-func (t *TaskTrackerService) appendDetails(task BackgroundTask, details []string) {
+func (t *TaskTrackerService) appendDetails(task BackgroundTask, details []string, withoutLevel bool) {
+	level := "detail"
+	if withoutLevel {
+		level = ""
+	}
 	for _, detail := range details {
-		t.appendLog(task, "detail", detail)
+		t.appendLog(task, level, detail)
 	}
 }
 

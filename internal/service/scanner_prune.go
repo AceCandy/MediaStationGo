@@ -59,7 +59,7 @@ func (s *ScannerService) pruneMissingMedia(ctx context.Context, libraryID string
 	return s.deleteMediaByIDs(ctx, stale)
 }
 
-func (s *ScannerService) pruneMissingMediaForRoot(ctx context.Context, libraryID, rootID, rootPath string, seen map[string]struct{}) (int64, error) {
+func (s *ScannerService) pruneMissingMediaForRoot(ctx context.Context, libraryID, rootID, rootPath string, seen map[string]struct{}) (int64, []string, error) {
 	var rows []struct {
 		ID            string
 		Path          string
@@ -73,9 +73,10 @@ func (s *ScannerService) pruneMissingMediaForRoot(ctx context.Context, libraryID
 		q = q.Where("library_root_id = ? OR library_root_id = '' OR library_root_id IS NULL", rootID)
 	}
 	if err := q.Find(&rows).Error; err != nil {
-		return 0, err
+		return 0, nil, err
 	}
 	stale := make([]string, 0)
+	stalePaths := make([]string, 0)
 	for _, row := range rows {
 		if row.Path == "" {
 			continue
@@ -92,8 +93,13 @@ func (s *ScannerService) pruneMissingMediaForRoot(ctx context.Context, libraryID
 			continue
 		}
 		stale = append(stale, row.ID)
+		stalePaths = append(stalePaths, row.Path)
 	}
-	return s.deleteMediaByIDs(ctx, stale)
+	removed, err := s.deleteMediaByIDs(ctx, stale)
+	if err != nil {
+		return removed, nil, err
+	}
+	return removed, stalePaths, nil
 }
 
 func pathBelongsToRoot(pathValue, rootPath string) bool {

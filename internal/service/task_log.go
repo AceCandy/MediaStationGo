@@ -56,7 +56,11 @@ func (s *taskLogStore) append(definitionKey, level, message string) error {
 		return err
 	}
 	defer f.Close()
-	_, err = fmt.Fprintf(f, "%s [%s] %s\n", now.Format(time.RFC3339), strings.ToUpper(level), strings.TrimSpace(message))
+	if strings.TrimSpace(level) == "" {
+		_, err = fmt.Fprintf(f, "%s %s\n", now.Format(time.RFC3339), strings.TrimSpace(message))
+	} else {
+		_, err = fmt.Fprintf(f, "%s [%s] %s\n", now.Format(time.RFC3339), strings.ToUpper(level), strings.TrimSpace(message))
+	}
 	return err
 }
 

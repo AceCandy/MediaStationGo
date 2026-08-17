@@ -292,20 +292,20 @@ func runSTRMRefreshScan(svc *service.Container, target service.STRMRefreshTarget
 		res, err = svc.Scan.ScanLibrary(context.Background(), target.LibraryID)
 	}
 	if err != nil {
-		finishHTTPTask(task, err, "scan", "STRM 刷新媒体库失败", scanTaskMetrics(res), scanTaskDetails(res, 20))
+		finishHTTPTask(task, err, "scan", "STRM 刷新媒体库失败", scanTaskMetrics(res), scanTaskDetails(res, 20), true)
 		return
 	}
 	if !options.ScrapeAfter {
-		finishHTTPTask(task, nil, "completed", "STRM 刷新媒体库结束", scanTaskMetrics(res), scanTaskDetails(res, 20))
+		finishHTTPTask(task, nil, "completed", "STRM 刷新媒体库结束", scanTaskMetrics(res), scanTaskDetails(res, 20), true)
 		return
 	}
 	scrape, scrapeErr := runSTRMRefreshScrape(svc, target, task)
 	metrics := strmRefreshTaskMetrics(res, scrape)
 	if scrapeErr != nil {
-		finishHTTPTask(task, scrapeErr, "scrape", "STRM 刷新媒体库完成，刮削失败", metrics, scanTaskDetails(res, 20))
+		finishHTTPTask(task, scrapeErr, "scrape", "STRM 刷新媒体库完成，刮削失败", metrics, scanTaskDetails(res, 20), true)
 		return
 	}
-	finishHTTPTask(task, nil, "completed", "STRM 刷新媒体库和刮削结束", metrics, scanTaskDetails(res, 20))
+	finishHTTPTask(task, nil, "completed", "STRM 刷新媒体库和刮削结束", metrics, scanTaskDetails(res, 20), true)
 }
 
 func runSTRMRefreshScrape(svc *service.Container, target service.STRMRefreshTarget, task *service.TaskHandle) (service.EnrichLibraryResult, error) {
