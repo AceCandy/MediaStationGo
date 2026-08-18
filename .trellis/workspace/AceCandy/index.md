@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 33
-- **Last Active**: 2026-08-17
+- **Total Sessions**: 34
+- **Last Active**: 2026-08-18
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~720 | Active |
+| `journal-1.md` | ~741 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 34 | 2026-08-18 | 复用已有元数据跳过重复刮削 | `6c0ea0f` | `main` |
 | 33 | 2026-08-17 | 扫描仅按文件指纹判断变化 | `23e8ff0` | `main` |
 | 32 | 2026-08-17 | 记录媒体扫描变更文件 | `18d64e5` | `main` |
 | 31 | 2026-08-17 | 修正媒体增量扫描与硬删除 | `5b923b5` | `main` |

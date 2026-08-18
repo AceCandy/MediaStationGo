@@ -718,3 +718,24 @@ Committed the existing web UI redesign together with detailed background task lo
 ### Status
 
 [OK] **Completed**
+
+
+## Session 34: 复用已有元数据跳过重复刮削
+
+**Date**: 2026-08-18
+**Task**: 复用已有元数据跳过重复刮削
+**Branch**: `main`
+
+### Summary
+
+新增精确 Provider 元数据复用快捷路径，按剧集层级校验 Episode，并对默认占位标题实施 7 天刷新规则；补充测试和共享媒体元数据规范。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `6c0ea0f` | (see git log) |
+
+### Status
+
+[OK] **Completed**
