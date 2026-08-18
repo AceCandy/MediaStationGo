@@ -739,3 +739,24 @@ Committed the existing web UI redesign together with detailed background task lo
 ### Status
 
 [OK] **Completed**
+
+
+## Session 35: 优化页面请求与发现页调度
+
+**Date**: 2026-08-18
+**Task**: 优化页面请求与发现页调度
+**Branch**: `main`
+
+### Summary
+
+完成首页、媒体库、发现页及个人数据页面的重复请求优化；发现页按页码合并请求，并实现同 Provider 串行、不同 Provider 最多两路并行调度，补充 Provider 锁与回归测试。归档 Bootstrap Guidelines 和统一观看历史与播放统计任务。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `a728e98` | (see git log) |
+
+### Status
+
+[OK] **Completed**
