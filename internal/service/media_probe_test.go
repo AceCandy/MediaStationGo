@@ -214,7 +214,7 @@ func TestMediaProbeBackfillLibraryAccountsForResults(t *testing.T) {
 		return probeResultFixture(), nil
 	}}
 	var latest ProbeBackfillResult
-	result, err := NewMediaProbeService(repos, runner).BackfillLibrary(t.Context(), "target", func(current ProbeBackfillResult) {
+	result, err := NewMediaProbeService(repos, runner).BackfillLibrary(t.Context(), "target", 0, func(current ProbeBackfillResult) {
 		latest = current
 	})
 	if err != nil {
@@ -250,11 +250,85 @@ func TestMediaProbeBackfillLibraryUsesStablePagination(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	result, err := NewMediaProbeService(repos, &stubMediaProbeRunner{result: probeResultFixture()}).BackfillLibrary(t.Context(), "target", nil)
+	result, err := NewMediaProbeService(repos, &stubMediaProbeRunner{result: probeResultFixture()}).BackfillLibrary(t.Context(), "target", 0, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if result.Total != 101 || result.Completed != 101 || result.Skipped != 0 || result.Failed != 0 {
+		t.Fatalf("result = %#v", result)
+	}
+}
+
+func TestMediaProbeBackfillAllCoversLibrariesAndSkipsValidDocuments(t *testing.T) {
+	db := newServiceTestDB(t, &model.Media{}, &model.MediaProbeMetadata{})
+	repos := repository.New(db)
+	metadata := createServiceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindMovie, Title: "Movie", Source: "local"})
+	dir := t.TempDir()
+	media := []model.Media{
+		{MetadataID: metadata.ID, LibraryID: "first", Title: "Valid", Path: filepath.Join(dir, "valid.mkv")},
+		{MetadataID: metadata.ID, LibraryID: "second", Title: "Missing", Path: filepath.Join(dir, "missing.mkv")},
+	}
+	for i := range media {
+		if err := os.WriteFile(media[i].Path, []byte("media"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := db.Create(&media[i]).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	validJSON, err := MarshalProbeDocument(probeResultFixture().Document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&model.MediaProbeMetadata{MediaID: media[0].ID, ProbeJSON: validJSON, SchemaVersion: ProbeDocumentSchemaVersion}).Error; err != nil {
+		t.Fatal(err)
+	}
+	deleted := model.Media{MetadataID: metadata.ID, LibraryID: "first", Title: "Deleted", Path: filepath.Join(dir, "deleted.mkv")}
+	if err := db.Create(&deleted).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Delete(&deleted).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := NewMediaProbeService(repos, &stubMediaProbeRunner{result: probeResultFixture()}).BackfillAll(t.Context(), 0, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Total != 2 || result.Completed != 1 || result.Skipped != 1 || result.Failed != 0 {
+		t.Fatalf("result = %#v", result)
+	}
+}
+
+func TestMediaProbeBackfillAllHonorsLimit(t *testing.T) {
+	db := newServiceTestDB(t, &model.Media{}, &model.MediaProbeMetadata{})
+	repos := repository.New(db)
+	metadata := createServiceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindMovie, Title: "Movie", Source: "local"})
+	dir := t.TempDir()
+	media := make([]model.Media, 3)
+	for i := 0; i < 3; i++ {
+		path := filepath.Join(dir, fmt.Sprintf("limited-%d.mkv", i))
+		if err := os.WriteFile(path, []byte("media"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		media[i] = model.Media{Base: model.Base{ID: fmt.Sprintf("00000000-0000-0000-0000-%012d", i+1)}, MetadataID: metadata.ID, LibraryID: "library", Title: "Movie", Path: path}
+		if err := db.Create(&media[i]).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	validJSON, err := MarshalProbeDocument(probeResultFixture().Document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&model.MediaProbeMetadata{MediaID: media[0].ID, ProbeJSON: validJSON, SchemaVersion: ProbeDocumentSchemaVersion}).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := NewMediaProbeService(repos, &stubMediaProbeRunner{result: probeResultFixture()}).BackfillAll(t.Context(), 1, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Total != 2 || result.Completed != 1 || result.Skipped != 1 || result.Failed != 0 {
 		t.Fatalf("result = %#v", result)
 	}
 }

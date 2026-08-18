@@ -40,7 +40,7 @@ export interface TaskDefinition {
   schedule?: string
   current_state: 'idle' | 'running'
   next_run?: string
-  action?: 'scheduler' | 'people_backfill'
+  action?: 'scheduler' | 'people_backfill' | 'probe_backfill'
   latest?: BackgroundTask
 }
 
@@ -65,5 +65,6 @@ export const tasksAPI = {
     api.get<TaskLog>(`/tasks/definitions/${key}/log`, { params: date ? { date } : undefined }).then((r) => r.data),
   history: (key: string, page = 1, pageSize = 20) =>
     api.get<TaskHistory>(`/tasks/definitions/${key}/executions`, { params: { page, page_size: pageSize } }).then((r) => r.data),
-  run: (key: string) => api.post<{ status: string }>(`/tasks/definitions/${key}/run`).then((r) => r.data),
+  run: (key: string, options?: { limit?: number; library_id?: string }) =>
+    api.post<{ status: string }>(`/tasks/definitions/${key}/run`, options).then((r) => r.data),
 }

@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 
 	"go.uber.org/zap"
@@ -56,5 +57,29 @@ func TestTaskTrackerDoesNotStartWhenPersistenceCreateFails(t *testing.T) {
 	}
 	if snapshot := tracker.memorySnapshot(); len(snapshot.Active) != 0 {
 		t.Fatalf("active tasks = %#v, want none", snapshot.Active)
+	}
+}
+
+func TestTaskTrackerStartsOnlyOneIdleKindConcurrently(t *testing.T) {
+	tracker := NewTaskTrackerService(nil, nil)
+	var wg sync.WaitGroup
+	started := make(chan *TaskHandle, 8)
+	for i := 0; i < cap(started); i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			started <- tracker.StartTriggeredIfKindIdle(TaskKindProbe, TaskTriggerManual, "probe", TaskUpdate{})
+		}()
+	}
+	wg.Wait()
+	close(started)
+	count := 0
+	for task := range started {
+		if task != nil {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Fatalf("started = %d, want 1", count)
 	}
 }

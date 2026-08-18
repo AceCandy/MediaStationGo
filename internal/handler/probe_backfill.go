@@ -36,7 +36,7 @@ func probeLibraryHandler(svc *service.Container) gin.HandlerFunc {
 			return
 		}
 		go func() {
-			result, err := svc.MediaProbe.BackfillLibrary(svc.Context(), libraryID, func(current service.ProbeBackfillResult) {
+			result, err := svc.MediaProbe.BackfillLibrary(svc.Context(), libraryID, 0, func(current service.ProbeBackfillResult) {
 				task.Update(service.TaskUpdate{Stage: "probe", Metrics: current.Metrics(), Details: current.Details})
 			})
 			stage, message := "completed", "媒体轨道回填完成"

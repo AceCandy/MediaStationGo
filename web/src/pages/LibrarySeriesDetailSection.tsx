@@ -25,6 +25,7 @@ type LibrarySeriesDetailSectionProps = {
   onManualScrape: () => void
   onMetadataEdit: () => void
   onProbe: () => void
+  onEpisodeProbe: (media: Media) => void
   onOrganize: () => void
   onSoftDelete: () => void
   onSeasonChange: (season: number) => void
@@ -45,6 +46,7 @@ export function LibrarySeriesDetailSection({
   onManualScrape,
   onMetadataEdit,
   onProbe,
+  onEpisodeProbe,
   onOrganize,
   onSoftDelete,
   onSeasonChange,
@@ -81,6 +83,9 @@ export function LibrarySeriesDetailSection({
             visibleEpisodes={visibleEpisodes}
             playbackFrom={playbackFrom}
             onSeasonChange={onSeasonChange}
+            isAdmin={isAdmin}
+            seriesToolBusy={seriesToolBusy}
+            onEpisodeProbe={onEpisodeProbe}
           />
         </motion.div>
       )}
@@ -95,6 +100,9 @@ type LibrarySeriesEpisodesPanelProps = {
   visibleEpisodes: Media[]
   playbackFrom: string
   onSeasonChange: (season: number) => void
+  isAdmin: boolean
+  seriesToolBusy: string
+  onEpisodeProbe: (media: Media) => void
 }
 
 function LibrarySeriesEpisodesPanel({
@@ -104,6 +112,9 @@ function LibrarySeriesEpisodesPanel({
   visibleEpisodes,
   playbackFrom,
   onSeasonChange,
+  isAdmin,
+  seriesToolBusy,
+  onEpisodeProbe,
 }: LibrarySeriesEpisodesPanelProps) {
   return (
     <div className="space-y-6">
@@ -114,6 +125,9 @@ function LibrarySeriesEpisodesPanel({
         visibleEpisodes={visibleEpisodes}
         playbackFrom={playbackFrom}
         onSeasonChange={onSeasonChange}
+        isAdmin={isAdmin}
+        seriesToolBusy={seriesToolBusy}
+        onEpisodeProbe={onEpisodeProbe}
       />
     </div>
   )

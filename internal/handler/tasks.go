@@ -7,9 +7,12 @@
 package handler
 
 import (
+	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 
@@ -76,6 +79,78 @@ func taskDefinitionHistoryHandler(svc *service.Container) gin.HandlerFunc {
 func taskDefinitionRunHandler(svc *service.Container) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		key := c.Param("key")
+		if key == service.TaskDefinitionProbeBackfill {
+			if svc == nil || svc.MediaProbe == nil || svc.Tasks == nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "media probe backfill unavailable"})
+				return
+			}
+			var request struct {
+				Limit     int    `json:"limit"`
+				LibraryID string `json:"library_id"`
+			}
+			if c.Request != nil && c.Request.Body != nil {
+				if err := json.NewDecoder(c.Request.Body).Decode(&request); err != nil && !errors.Is(err, io.EOF) {
+					c.JSON(http.StatusBadRequest, gin.H{"error": "invalid probe backfill request"})
+					return
+				}
+			}
+			if request.Limit < 0 {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "limit must be positive"})
+				return
+			}
+			request.LibraryID = strings.TrimSpace(request.LibraryID)
+			taskName := "媒体轨道回填"
+			sourcePath := ""
+			if request.LibraryID != "" {
+				if svc.Repo == nil || svc.Repo.Library == nil {
+					c.JSON(http.StatusServiceUnavailable, gin.H{"error": "library unavailable"})
+					return
+				}
+				library, err := svc.Repo.Library.FindByID(c.Request.Context(), request.LibraryID)
+				if err != nil {
+					c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load library"})
+					return
+				}
+				if library == nil {
+					c.JSON(http.StatusNotFound, gin.H{"error": "library not found"})
+					return
+				}
+				taskName += "：" + library.Name
+				sourcePath = library.Path
+			}
+			task := svc.Tasks.StartTriggeredIfKindIdle(service.TaskKindProbe, service.TaskTriggerManual, taskName, service.TaskUpdate{
+				Stage: "probe", SourcePath: sourcePath, Message: "媒体轨道回填已启动", Metrics: service.ProbeBackfillResult{}.Metrics(),
+			})
+			if task == nil {
+				if svc.Tasks.IsKindRunning(service.TaskKindProbe) {
+					c.JSON(http.StatusConflict, gin.H{"error": "media probe backfill already running"})
+				} else {
+					c.JSON(http.StatusInternalServerError, gin.H{"error": "create task execution failed"})
+				}
+				return
+			}
+			go func() {
+				detailCount := 0
+				progress := func(current service.ProbeBackfillResult) {
+					task.Update(service.TaskUpdate{Stage: "probe", Metrics: current.Metrics(), Details: current.Details[detailCount:]})
+					detailCount = len(current.Details)
+				}
+				var result service.ProbeBackfillResult
+				var err error
+				if request.LibraryID == "" {
+					result, err = svc.MediaProbe.BackfillAll(svc.Context(), request.Limit, progress)
+				} else {
+					result, err = svc.MediaProbe.BackfillLibrary(svc.Context(), request.LibraryID, request.Limit, progress)
+				}
+				stage, message := "completed", "媒体轨道回填完成"
+				if err != nil {
+					stage, message = "probe", "媒体轨道回填失败"
+				}
+				finishHTTPTask(task, err, stage, message, result.Metrics(), nil, false)
+			}()
+			c.JSON(http.StatusAccepted, gin.H{"status": "started"})
+			return
+		}
 		if key == service.TaskDefinitionPeopleBackfill {
 			if svc == nil || svc.Scraper == nil || svc.Tasks == nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "people backfill unavailable"})

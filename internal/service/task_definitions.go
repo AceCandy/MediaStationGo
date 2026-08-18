@@ -41,7 +41,7 @@ type taskDefinitionSpec struct {
 var taskDefinitionSpecs = []taskDefinitionSpec{
 	{TaskDefinition: TaskDefinition{Key: TaskDefinitionOrganize, Name: "媒体整理", Description: "整理、重命名并入库下载目录内容", Trigger: "定时 / 手动", Action: "scheduler"}, filter: repository.TaskExecutionFilter{Kind: TaskKindOrganize}, schedulerJob: "organize_source"},
 	{TaskDefinition: TaskDefinition{Key: TaskDefinitionLibraryScan, Name: "媒体库扫描", Description: "扫描已启用媒体库并同步入库变化", Trigger: "定时 / 手动", Action: "scheduler"}, filter: repository.TaskExecutionFilter{Kind: TaskKindScan}, schedulerJob: "library_scan"},
-	{TaskDefinition: TaskDefinition{Key: TaskDefinitionProbeBackfill, Name: "媒体轨道回填", Description: "为媒体库补充视频、音频和字幕轨道", Trigger: "媒体库手动触发"}, filter: repository.TaskExecutionFilter{Kind: TaskKindProbe}},
+	{TaskDefinition: TaskDefinition{Key: TaskDefinitionProbeBackfill, Name: "媒体轨道回填", Description: "遍历并补充缺少完整探测信息的媒体轨道", Trigger: "全库手动触发", Action: "probe_backfill"}, filter: repository.TaskExecutionFilter{Kind: TaskKindProbe}},
 	{TaskDefinition: TaskDefinition{Key: TaskDefinitionMediaScrape, Name: "媒体入库刮削", Description: "优先处理已入库媒体的待刮削对象", Trigger: "事件触发"}, filter: repository.TaskExecutionFilter{Kind: TaskKindScrape, ExcludeNamePrefix: "发现目录刮削："}},
 	{TaskDefinition: TaskDefinition{Key: TaskDefinitionCatalogScrape, Name: "发现目录刮削", Description: "后台补全发现目录中的电影和电视剧", Trigger: "事件触发"}, filter: repository.TaskExecutionFilter{Kind: TaskKindScrape, NamePrefix: "发现目录刮削："}},
 	{TaskDefinition: TaskDefinition{Key: TaskDefinitionPeopleBackfill, Name: "人物信息补齐", Description: "补齐尚未获取演职员信息的元数据", Trigger: "事件 / 手动", Action: "people_backfill"}, filter: repository.TaskExecutionFilter{Kind: TaskKindPeople, Name: "人物信息补齐"}},

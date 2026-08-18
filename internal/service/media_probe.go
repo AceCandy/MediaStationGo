@@ -18,7 +18,7 @@ import (
 
 var ErrMediaProbeSourceChanged = errors.New("media probe source changed")
 
-// ProbeBackfillResult 汇总单个媒体库的完整轨道回填结果。
+// ProbeBackfillResult 汇总一次完整轨道回填结果。
 type ProbeBackfillResult struct {
 	Total     int64
 	Completed int64
@@ -132,16 +132,29 @@ func (s *MediaProbeService) NeedsProbe(ctx context.Context, mediaID string) bool
 	return !ok
 }
 
-// BackfillLibrary probes only media whose complete document is missing or outdated.
-func (s *MediaProbeService) BackfillLibrary(ctx context.Context, libraryID string, progress func(ProbeBackfillResult)) (ProbeBackfillResult, error) {
+// BackfillLibrary 回填指定媒体库中缺失或过期的完整探测文档，limit 为零时不限制探测数量。
+func (s *MediaProbeService) BackfillLibrary(ctx context.Context, libraryID string, limit int, progress func(ProbeBackfillResult)) (ProbeBackfillResult, error) {
+	return s.backfill(ctx, strings.TrimSpace(libraryID), limit, progress)
+}
+
+// BackfillAll 为所有缺少当前完整探测文档的媒体执行回填，limit 为零时不限制探测数量。
+func (s *MediaProbeService) BackfillAll(ctx context.Context, limit int, progress func(ProbeBackfillResult)) (ProbeBackfillResult, error) {
+	return s.backfill(ctx, "", limit, progress)
+}
+
+func (s *MediaProbeService) backfill(ctx context.Context, libraryID string, limit int, progress func(ProbeBackfillResult)) (ProbeBackfillResult, error) {
 	var result ProbeBackfillResult
 	if s == nil || s.repo == nil || s.repo.DB == nil {
 		return result, errors.New("media probe unavailable")
 	}
-	libraryID = strings.TrimSpace(libraryID)
-	if err := s.repo.DB.WithContext(ctx).Model(&model.Media{}).
-		Where("library_id = ?", libraryID).Count(&result.Total).Error; err != nil {
-		return result, err
+	countQuery := s.repo.DB.WithContext(ctx).Model(&model.Media{}).Where("deleted_at IS NULL")
+	if libraryID != "" {
+		countQuery = countQuery.Where("library_id = ?", libraryID)
+	}
+	if limit == 0 {
+		if err := countQuery.Count(&result.Total).Error; err != nil {
+			return result, err
+		}
 	}
 	type probeBackfillRow struct {
 		MediaID       string
@@ -150,13 +163,17 @@ func (s *MediaProbeService) BackfillLibrary(ctx context.Context, libraryID strin
 	}
 	const pageSize = 100
 	lastID := ""
+	probeAttempts := 0
 	for {
 		var rows []probeBackfillRow
 		query := s.repo.DB.WithContext(ctx).Table("media AS m").
 			Select("m.id AS media_id, p.probe_json, p.schema_version").
 			Joins("LEFT JOIN media_probe_metadata AS p ON p.media_id = m.id").
-			Where("m.library_id = ? AND m.deleted_at IS NULL", libraryID).
+			Where("m.deleted_at IS NULL").
 			Order("m.id").Limit(pageSize)
+		if libraryID != "" {
+			query = query.Where("m.library_id = ?", libraryID)
+		}
 		if lastID != "" {
 			query = query.Where("m.id > ?", lastID)
 		}
@@ -172,19 +189,28 @@ func (s *MediaProbeService) BackfillLibrary(ctx context.Context, libraryID strin
 			}
 			if _, err := UnmarshalProbeDocument(row.ProbeJSON, row.SchemaVersion); err == nil {
 				result.Skipped++
-			} else if probed, err := s.ProbeMedia(ctx, row.MediaID); err != nil || probed == nil || probed.Document == nil {
-				result.Failed++
-				if len(result.Details) < 20 {
-					if err == nil {
-						err = errors.New("complete probe document unavailable")
-					}
-					result.Details = append(result.Details, fmt.Sprintf("%s: %v", row.MediaID, err))
-				}
 			} else {
-				result.Completed++
+				probeAttempts++
+				if probed, err := s.ProbeMedia(ctx, row.MediaID); err != nil || probed == nil || probed.Document == nil {
+					result.Failed++
+					if len(result.Details) < 20 {
+						if err == nil {
+							err = errors.New("complete probe document unavailable")
+						}
+						result.Details = append(result.Details, fmt.Sprintf("%s: %v", row.MediaID, err))
+					}
+				} else {
+					result.Completed++
+				}
+			}
+			if limit > 0 {
+				result.Total++
 			}
 			if progress != nil {
 				progress(result)
+			}
+			if limit > 0 && probeAttempts >= limit {
+				return result, nil
 			}
 		}
 		lastID = rows[len(rows)-1].MediaID

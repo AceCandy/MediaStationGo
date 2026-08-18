@@ -259,6 +259,11 @@ async function rescrapeMedia(
 
 async function reprobeMedia(media: Media | null, refresh: MediaDetailRefresh): Promise<void> {
   if (!media) return
+  if (!(await confirmAction({
+    title: '强制探测媒体轨',
+    message: `将重新探测「${media.title}」，并覆盖已有媒体轨道信息。`,
+    confirmText: '强制探测',
+  }))) return
   try {
     const result = await api.post(`/media/${media.id}/probe`)
     if (result.data?.code === 0) toast.success('重新探测成功')

@@ -144,7 +144,11 @@ db.Model(&credit).
 - Redirect pre-resolution setting: `playback.redirect_resolve_prefixes` contains
   one literal HTTP/HTTPS URL prefix per line and applies to persisted STRM
   targets and the final URL produced by `playback.path_mappings`.
-- Track backfill API: admin-only `POST /api/libraries/:id/probe` starts a service-lifetime background task and reports `total`, `completed`, `skipped`, and `failed` metrics.
+- Track backfill APIs: admin-only `POST /api/libraries/:id/probe` backfills one
+  library; `POST /api/tasks/definitions/probe_backfill/run` starts a global
+  service-lifetime task and accepts optional JSON
+  `{limit: positive integer, library_id: string}`.
+  Both report `total`, `completed`, `skipped`, and `failed` metrics.
 - Manual apply API: `POST /api/media/:id/scrape/apply` accepts `ManualScrapeRequest`, persists metadata through `ScraperService.ApplyManualMatch`, then returns the refreshed `MediaView` from `MediaService.GetMedia`.
 - Artwork response: `/api/artwork/:assetID`; originals live under `App.DataDir/artwork/sha256/...`.
 - Library deletion: `DELETE /api/libraries/:id` -> `MediaService.DeleteLibrary(ctx, id)`.
@@ -180,6 +184,18 @@ db.Model(&credit).
 - Lists, permissions, pagination, search, playback display text, and Emby display text read `MediaView`. File opening, probing, duration, codecs, path, and STRM URL read the embedded `Media` facts.
 - A local `.strm` keeps the sidecar in `Media.Path` and its supported absolute media target in `Media.STRMURL`. Scan, manual reprobe, and asynchronous PlaybackInfo repair probe the target while persisting facts to the original Media row; stale target results must be discarded.
 - A successful full probe atomically updates the scalar `Media` projection and upserts its complete probe document after rechecking the source identity. Local and local-STRM probes also persist the probed target's size. Failed, partial, or stale probes must not replace the previous valid complete document, and probe failure must never fall back to `ffmpeg -i`.
+- Global track backfill scans every non-deleted `Media` across libraries, probes
+  only missing, outdated, or invalid complete documents, and skips valid current
+  documents. A positive `limit` caps actual probe attempts; valid skipped rows
+  do not consume that limit, while an omitted/zero limit processes all rows.
+  An omitted/empty `library_id` selects every library; a valid ID restricts the
+  same conditional backfill to that library and is resolved before task creation.
+  The task center exposes the server-owned action and rejects a new global run
+  while another probe task is active in the current process.
+- `POST /api/media/:id/probe` always forces a fresh probe and may overwrite the
+  current valid document only after successful source validation. UI callers
+  must present an explicit overwrite confirmation. Library and task-center
+  backfill entrypoints remain conditional and never force valid documents.
 - Probe JSON must never contain the input filename/path/URL, signed query, request headers, cookies, authorization values, route tokens, attachments, or arbitrary metadata. Unknown schema versions, malformed JSON, duplicate/negative stream indexes, attached pictures, and unsupported stream types are invalid and trigger scalar fallback plus lazy repair.
 - Emby `PlaybackInfo` must enumerate every visible sibling `Media` version before scheduling asynchronous track repair. The playback-layer in-flight map deduplicates by `Media.ID`; the `FFprobeService` limiter remains the only actual probe concurrency limit.
 - Emby `PlaybackInfo.DateCreated` must be present at the response top level as well as on each `MediaSource`. Compatibility fields must be verified at the exact JSON layer consumed by the client; a same-named field on the item or nested source does not satisfy a top-level contract.
@@ -283,6 +299,9 @@ db.Model(&credit).
 | Probe JSON is malformed, outdated, or fails structural validation | Ignore it, serve scalar fallback, and schedule lazy repair without overwriting prior valid data on failure |
 | Probe source changes while ffprobe is running | Reject the result transactionally; update neither scalar facts nor complete JSON |
 | FFprobe is missing, times out, or returns invalid output | Return a probe error, preserve the previous valid document, and never start FFmpeg |
+| A probe task is already active when global backfill is requested | Return `409`; do not create another global execution |
+| Global backfill `limit` is negative or not an integer | Return `400`; do not create a task execution |
+| Global backfill `library_id` does not resolve | Return `404`; do not create a task execution |
 | Explicit audio/subtitle selection is invalid | Return bad request; never silently map a different track |
 | Embedded or sidecar subtitle index no longer resolves | Return not found and require a refreshed PlaybackInfo response |
 | Embedded subtitle is selected | Keep it as a source stream without an extraction URL or server-side conversion |
@@ -328,6 +347,14 @@ db.Model(&credit).
 - Good: a scan or scrape changes title, identifiers, artwork and scrape status while the playable file path and library ID remain unchanged.
 - Bad: calling `ReclassifyMisclassifiedMedia` after a scrape and silently moving or deleting a local media/STRM file.
 - Good: a two-version local STRM item schedules both target files, persists each result to its original `Media` row, and exposes matching target container/path/name/average bitrate.
+- Good: task-center global backfill repairs missing documents across libraries,
+  skips valid documents and soft-deleted media, and keeps
+  `total = completed + skipped + failed`.
+- Good: a limit of 500 skips any number of valid documents and attempts at most
+  500 missing, outdated, or invalid documents; a later run continues to the
+  next remaining candidates.
+- Good: selecting one library with no limit repairs every missing document in
+  that library without probing media from another library.
 - Bad: limiting sibling scheduling by the playback reservation map or deriving a source label from the `.strm` sidecar/title, which leaves versions unprobed or displays `strm`/title metadata.
 - Good: PlaybackInfo for a concrete media returns the same `Media.CreatedAt` at the top level and on that media source; bad: adding the field only to `MediaSource` while the client reads `PlaybackInfo.DateCreated`.
 - Good: an unmatched external HTTPS STRM target keeps its signed query
@@ -362,7 +389,12 @@ db.Model(&credit).
 - Playback/Emby: assert local STRM scan, manual reprobe, and missing-metadata PlaybackInfo use the real target, persist target size/track facts, deduplicate and bound background probes, and reject stale target results.
 - Probe storage: assert safe typed JSON round-trips every video/audio/subtitle absolute index and disposition while excluding input URLs, credentials, arbitrary tags, attachments, and structurally invalid streams; hard media deletion must cascade to the one-to-one probe row.
 - Media detail projection: assert `GET /api/media/:id` returns only whitelisted track fields with absolute indexes, omits malformed/missing probe data, and leaves paginated list/search payloads without `tracks` or probe loads.
-- Backfill: cover more than one keyset page, valid-record skips, version/corruption repair, failure accounting, request-independent context, and `total = completed + skipped + failed` for completed runs.
+- Backfill: cover more than one keyset page, cross-library global execution,
+  soft-deleted exclusion, valid-record skips, version/corruption repair,
+  failure accounting, request-independent context, duplicate-run rejection,
+  all-library versus selected-library scope, limited probe-attempt accounting
+  where skips do not consume the limit, and
+  `total = completed + skipped + failed` for completed runs.
 - Playback selection: cover GET and POST omitted/zero/negative values, explicit invalid audio/subtitle indexes, default-audio choice, two simultaneous selections, source-version selection, and stop/restart isolation without conversion.
 - Subtitles: add/remove sidecars between PlaybackInfo calls, assert embedded streams have no extraction URL, deliver external sidecars by controlled index, and reject stale or wrong-type indexes without exposing backing paths or credentials.
 - Direct source delivery: cover local GET/HEAD/Range/206 and invalid ranges;
@@ -515,6 +547,16 @@ if len(e.trackProbeInFlight) >= normalizeFFprobeMaxConcurrent(limit) {
 if _, busy := e.trackProbeInFlight[mediaID]; busy {
     return false
 }
+```
+
+Global backfill must also reuse the shared probe path:
+
+```go
+// Wrong: the task-center action owns another ffprobe parser or persistence path.
+probe := ffprobeDirectly(media.Path)
+
+// Correct: global selection changes only scope; each candidate uses the shared owner.
+probe, err := mediaProbe.ProbeMedia(ctx, media.ID)
 ```
 
 Playback compatibility fields must be placed at the exact response layer:

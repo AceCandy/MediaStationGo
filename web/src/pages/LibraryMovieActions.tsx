@@ -1,4 +1,4 @@
-import { Database, Search, Sparkles, Trash2 } from 'lucide-react'
+import { Search, Sparkles, Trash2 } from 'lucide-react'
 
 import type { Media } from '../types'
 
@@ -7,7 +7,6 @@ type LibraryMovieActionsProps = {
   busy: boolean
   onSmartScrape: (media: Media) => void
   onManualScrape: (media: Media) => void
-  onProbe: (media: Media) => void
   onSoftDelete: (media: Media) => void
 }
 
@@ -16,7 +15,6 @@ export function LibraryMovieActions({
   busy,
   onSmartScrape,
   onManualScrape,
-  onProbe,
   onSoftDelete,
 }: LibraryMovieActionsProps) {
   const buttonClass = 'flex h-8 w-8 items-center justify-center rounded-lg border border-white/70 bg-white/90 text-gray-700 shadow-sm backdrop-blur transition hover:bg-brand-50 hover:text-brand-600 disabled:opacity-50'
@@ -28,9 +26,6 @@ export function LibraryMovieActions({
       </button>
       <button title="手动匹配刮削" disabled={busy} onClick={() => onManualScrape(media)} className={buttonClass}>
         <Search size={13} />
-      </button>
-      <button title="探测媒体轨" disabled={busy} onClick={() => onProbe(media)} className={buttonClass}>
-        <Database size={13} />
       </button>
       <button title="永久删除" disabled={busy} onClick={() => onSoftDelete(media)} className={`${buttonClass} hover:!bg-red-50 hover:!text-red-500`}>
         <Trash2 size={13} />

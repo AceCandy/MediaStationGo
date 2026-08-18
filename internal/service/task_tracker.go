@@ -86,6 +86,7 @@ type TaskTrackerService struct {
 	hub *Hub
 
 	mu        sync.Mutex
+	startMu   sync.Mutex
 	active    map[string]*BackgroundTask
 	recent    []BackgroundTask
 	maxRecent int
@@ -136,6 +137,25 @@ func (t *TaskTrackerService) StartTriggered(kind, trigger, name string, update T
 	if t == nil {
 		return nil
 	}
+	t.startMu.Lock()
+	defer t.startMu.Unlock()
+	return t.startTriggered(kind, trigger, name, update)
+}
+
+// StartTriggeredIfKindIdle 仅在同类任务未运行时原子创建任务。
+func (t *TaskTrackerService) StartTriggeredIfKindIdle(kind, trigger, name string, update TaskUpdate) *TaskHandle {
+	if t == nil {
+		return nil
+	}
+	t.startMu.Lock()
+	defer t.startMu.Unlock()
+	if t.IsKindRunning(kind) {
+		return nil
+	}
+	return t.startTriggered(kind, trigger, name, update)
+}
+
+func (t *TaskTrackerService) startTriggered(kind, trigger, name string, update TaskUpdate) *TaskHandle {
 	if strings.TrimSpace(trigger) == "" {
 		trigger = TaskTriggerManual
 	}
@@ -194,6 +214,21 @@ func (t *TaskTrackerService) Snapshot() TaskSnapshot {
 		t.logError("list task executions failed", err)
 	}
 	return t.memorySnapshot()
+}
+
+// IsKindRunning 判断同类后台任务是否正在当前进程中执行。
+func (t *TaskTrackerService) IsKindRunning(kind string) bool {
+	if t == nil {
+		return false
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	for _, task := range t.active {
+		if task.Kind == kind {
+			return true
+		}
+	}
+	return false
 }
 
 func (t *TaskTrackerService) List(page, pageSize int) (TaskPage, error) {

@@ -2,8 +2,10 @@ import { useEffect, useRef, useState } from 'react'
 import toast from 'react-hot-toast'
 import { Activity, ChevronLeft, ChevronRight, FileText, Play, RefreshCw, X } from 'lucide-react'
 
+import { libraryAPI } from '../api/library'
 import { tasksAPI, type BackgroundTask, type TaskDefinition, type TaskLog } from '../api/tasks'
 import { ModalShell } from '../components/ModalShell'
+import type { Library } from '../types'
 
 function hasTaskIssues(task?: BackgroundTask): boolean {
   return Boolean(task?.metrics?.errors || task?.metrics?.scan_errors || task?.metrics?.scrape_errors || task?.metrics?.failed)
@@ -38,14 +40,46 @@ function reverseLogLines(content: string): string {
 interface TaskRowProps {
   definition: TaskDefinition
   running: string
+  libraries: Library[]
+  probeLibraryID: string
+  onProbeLibraryChange: (value: string) => void
+  probeLimit: string
+  onProbeLimitChange: (value: string) => void
   onRun: (definition: TaskDefinition) => void
   onLog: (definition: TaskDefinition) => void
 }
 
-function TaskActions({ definition, running, onRun, onLog }: TaskRowProps) {
+function TaskActions({ definition, running, libraries, probeLibraryID, onProbeLibraryChange, probeLimit, onProbeLimitChange, onRun, onLog }: TaskRowProps) {
   const disabled = definition.current_state === 'running' || running === definition.key
   return (
-    <div className="flex items-center justify-end gap-1">
+    <div className="flex flex-wrap items-center justify-end gap-1">
+      {definition.action === 'probe_backfill' && (
+        <>
+          <select
+            value={probeLibraryID}
+            onChange={(event) => onProbeLibraryChange(event.target.value)}
+            disabled={disabled}
+            aria-label="媒体轨道回填媒体库"
+            title="选择回填范围"
+            className="h-8 w-32 rounded border border-gray-200 px-2 text-xs text-ink-600"
+          >
+            <option value="">全部媒体库</option>
+            {libraries.map((library) => <option key={library.id} value={library.id}>{library.name}</option>)}
+          </select>
+          <input
+            type="number"
+            min="1"
+            step="1"
+            value={probeLimit}
+            onChange={(event) => onProbeLimitChange(event.target.value)}
+            disabled={disabled}
+            placeholder="全部"
+            aria-label="媒体轨道回填数量限制"
+            title="留空表示当前范围内全量回填"
+            className="h-8 w-20 rounded border border-gray-200 px-2 text-xs text-ink-600"
+          />
+        </>
+      )}
       {definition.action && (
         <button type="button" className="rounded border border-gray-200 p-2 text-sand-500 hover:text-brand-500 disabled:cursor-not-allowed disabled:opacity-40" title={`立即执行${definition.name}`} aria-label={`立即执行${definition.name}`} disabled={disabled} onClick={() => onRun(definition)}>
           <Play size={16} />
@@ -58,7 +92,7 @@ function TaskActions({ definition, running, onRun, onLog }: TaskRowProps) {
   )
 }
 
-function DefinitionTable(props: { definitions: TaskDefinition[]; running: string; onRun: TaskRowProps['onRun']; onLog: TaskRowProps['onLog'] }) {
+function DefinitionTable(props: { definitions: TaskDefinition[]; running: string; libraries: Library[]; probeLibraryID: string; onProbeLibraryChange: TaskRowProps['onProbeLibraryChange']; probeLimit: string; onProbeLimitChange: TaskRowProps['onProbeLimitChange']; onRun: TaskRowProps['onRun']; onLog: TaskRowProps['onLog'] }) {
   return (
     <>
 		<div className="hidden overflow-x-auto lg:block">
@@ -198,7 +232,10 @@ export function TasksPage() {
 	const [definitions, setDefinitions] = useState<TaskDefinition[] | null>(null)
 	const [loadError, setLoadError] = useState(false)
   const [logDefinition, setLogDefinition] = useState<TaskDefinition | null>(null)
-  const [running, setRunning] = useState('')
+	const [running, setRunning] = useState('')
+	const [libraries, setLibraries] = useState<Library[]>([])
+	const [probeLibraryID, setProbeLibraryID] = useState('')
+	const [probeLimit, setProbeLimit] = useState('')
 
 	const refresh = () => tasksAPI.snapshot(1, 1).then((value) => { setDefinitions(value.definitions ?? []); setLoadError(false) })
   useEffect(() => {
@@ -208,12 +245,23 @@ export function TasksPage() {
     const id = window.setInterval(tick, 3_000)
     return () => { active = false; window.clearInterval(id) }
   }, [])
+  useEffect(() => {
+    libraryAPI.list({ includeHidden: true }).then(setLibraries).catch(() => setLibraries([]))
+  }, [])
 
   const run = async (definition: TaskDefinition) => {
     if (running || definition.current_state === 'running') return
     setRunning(definition.key)
     try {
-			await tasksAPI.run(definition.key)
+      const limit = definition.action === 'probe_backfill' && probeLimit ? Number(probeLimit) : undefined
+      if (limit !== undefined && (!Number.isInteger(limit) || limit < 1)) {
+        toast.error('回填数量必须是正整数')
+        return
+      }
+			await tasksAPI.run(definition.key, definition.action === 'probe_backfill' ? {
+        limit,
+        library_id: probeLibraryID || undefined,
+      } : undefined)
 			toast.success(`${definition.name}已触发`)
 			await refresh().catch(() => setLoadError(true))
     } catch (err: unknown) {
@@ -228,7 +276,7 @@ export function TasksPage() {
     <div className="space-y-6">
       <header className="flex items-center gap-3"><Activity className="h-6 w-6 text-brand-500" /><div><h1 className="font-display text-3xl font-bold text-ink-600">任务中心</h1><p className="text-sm text-ink-50">查看后台任务状态、调度与最近执行结果。</p></div></header>
 		<section className="glass-panel">
-			{loadError && !definitions ? <div className="flex flex-col items-center gap-3 py-8 text-sm text-ink-50"><p>任务列表加载失败。</p><button type="button" className="rounded border border-gray-200 p-2 text-sand-600 hover:text-brand-500" title="重新加载" aria-label="重新加载" onClick={() => void refresh()}><RefreshCw size={16} /></button></div> : !definitions ? <p className="py-8 text-center text-ink-50">加载中...</p> : definitions.length === 0 ? <p className="py-8 text-center text-ink-50">暂无任务。</p> : <DefinitionTable definitions={definitions} running={running} onRun={(definition) => void run(definition)} onLog={setLogDefinition} />}
+			{loadError && !definitions ? <div className="flex flex-col items-center gap-3 py-8 text-sm text-ink-50"><p>任务列表加载失败。</p><button type="button" className="rounded border border-gray-200 p-2 text-sand-600 hover:text-brand-500" title="重新加载" aria-label="重新加载" onClick={() => void refresh()}><RefreshCw size={16} /></button></div> : !definitions ? <p className="py-8 text-center text-ink-50">加载中...</p> : definitions.length === 0 ? <p className="py-8 text-center text-ink-50">暂无任务。</p> : <DefinitionTable definitions={definitions} running={running} libraries={libraries} probeLibraryID={probeLibraryID} onProbeLibraryChange={setProbeLibraryID} probeLimit={probeLimit} onProbeLimitChange={setProbeLimit} onRun={(definition) => void run(definition)} onLog={setLogDefinition} />}
       </section>
       {logDefinition && <TaskLogDialog definition={logDefinition} onClose={() => setLogDefinition(null)} />}
     </div>

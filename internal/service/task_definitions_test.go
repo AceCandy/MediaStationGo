@@ -92,6 +92,22 @@ func TestTaskDefinitionsIncludeIdleTasksAndLatestExecution(t *testing.T) {
 	t.Fatal("people translation definition not found")
 }
 
+func TestProbeBackfillDefinitionSupportsManualExecution(t *testing.T) {
+	definitions, err := NewTaskTrackerService(nil, nil).Definitions(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, definition := range definitions {
+		if definition.Key == TaskDefinitionProbeBackfill {
+			if definition.Action != "probe_backfill" {
+				t.Fatalf("action = %q", definition.Action)
+			}
+			return
+		}
+	}
+	t.Fatal("probe backfill definition not found")
+}
+
 func TestTaskDefinitionsSeparateCurrentStateFromLatestResult(t *testing.T) {
 	tracker := NewTaskTrackerService(nil, nil)
 	startFinishedTask(t, tracker, TaskKindPeople, "人物信息补齐", TaskUpdate{Stage: "people"})

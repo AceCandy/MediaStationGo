@@ -56,7 +56,7 @@ export function MediaDetailAdminPanel({
         </button>
         <button onClick={onProbe} className="btn-outline py-2 px-3.5 text-xs gap-1.5 border-gray-200 hover:border-brand-500/50 hover:bg-brand-50">
           <Database size={13} className="text-gray-600" />
-          <span>探测媒体轨 (ffprobe)</span>
+          <span>强制探测媒体轨 (ffprobe)</span>
         </button>
         <button
           onClick={onSoftDelete}

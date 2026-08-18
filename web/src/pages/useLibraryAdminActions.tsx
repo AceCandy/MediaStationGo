@@ -113,8 +113,32 @@ export function useLibraryAdminActions({
     )
   }
 
-  const handleSeriesProbe = () => {
-    runSeriesTool('probe', '整剧媒体轨探测', (media) => api.post(`/media/${media.id}/probe`))
+  const handleSeriesProbe = async () => {
+    if (!(await confirmAction({
+      title: '强制探测整剧',
+      message: `将重新探测 ${selectedSeriesEpisodes.length} 个媒体，并覆盖已有媒体轨道信息。`,
+      confirmText: '强制探测',
+    }))) return
+    await runSeriesTool('probe', '整剧媒体轨探测', (media) => api.post(`/media/${media.id}/probe`))
+  }
+
+  const handleEpisodeProbe = async (media: Media) => {
+    if (!(await confirmAction({
+      title: '强制探测单集',
+      message: `将重新探测「${media.title}」，并覆盖已有媒体轨道信息。`,
+      confirmText: '强制探测',
+    }))) return
+    setSeriesToolBusy(`probe:${media.id}`)
+    try {
+      await api.post(`/media/${media.id}/probe`)
+      toast.success(`单集媒体轨探测完成：${media.title}`)
+      reloadCurrentLibrary()
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error || '单集媒体轨探测失败'
+      toast.error(msg)
+    } finally {
+      setSeriesToolBusy('')
+    }
   }
 
   const handleSeriesOrganize = async () => {
@@ -182,10 +206,6 @@ export function useLibraryAdminActions({
     )
   }
 
-  const handleMovieProbe = (media: Media) => {
-    runMovieTool(media, 'probe', '媒体轨探测', (item) => api.post(`/media/${item.id}/probe`))
-  }
-
   const handleMovieSoftDelete = async (media: Media) => {
     if (!(await confirmAction({
       title: '永久删除媒体',
@@ -203,7 +223,6 @@ export function useLibraryAdminActions({
         busy={movieToolBusy.endsWith(`:${media.id}`)}
         onSmartScrape={handleMovieSmartScrape}
         onManualScrape={setManualMovie}
-        onProbe={handleMovieProbe}
         onSoftDelete={handleMovieSoftDelete}
       />
     )
@@ -223,6 +242,7 @@ export function useLibraryAdminActions({
     handlePeopleBackfill,
     handleSeriesSmartScrape,
     handleSeriesProbe,
+    handleEpisodeProbe,
     handleSeriesOrganize,
     handleSeriesSoftDelete,
     movieActions,

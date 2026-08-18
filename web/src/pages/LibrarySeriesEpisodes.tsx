@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom'
-import { Play } from 'lucide-react'
+import { Database, Play } from 'lucide-react'
 
 import { imageURL } from '../api/client'
 import { ExternalPlayerButton } from '../components/ExternalPlayerButton'
@@ -19,6 +19,9 @@ type LibrarySeriesEpisodesProps = {
   visibleEpisodes: Media[]
   playbackFrom: string
   onSeasonChange: (season: number) => void
+  isAdmin: boolean
+  seriesToolBusy: string
+  onEpisodeProbe: (media: Media) => void
 }
 
 export function LibrarySeriesEpisodes({
@@ -28,6 +31,9 @@ export function LibrarySeriesEpisodes({
   visibleEpisodes,
   playbackFrom,
   onSeasonChange,
+  isAdmin,
+  seriesToolBusy,
+  onEpisodeProbe,
 }: LibrarySeriesEpisodesProps) {
   if (loading) {
     return (
@@ -94,6 +100,18 @@ export function LibrarySeriesEpisodes({
                 <Play size={14} className="shrink-0 text-gray-500 opacity-0 transition-opacity group-hover:opacity-100 group-hover:text-brand-500" />
               </Link>
               <ExternalPlayerButton mediaId={ep.id} label="外部" compact />
+              {isAdmin && (
+                <button
+                  type="button"
+                  className="icon-btn"
+                  title="强制探测单集并覆盖已有媒体轨道"
+                  aria-label={`强制探测${episodeDisplayTitle(ep, visibleEpisodes)}媒体轨道`}
+                  disabled={!!seriesToolBusy}
+                  onClick={() => onEpisodeProbe(ep)}
+                >
+                  <Database size={14} />
+                </button>
+              )}
             </div>
           ))}
         </div>

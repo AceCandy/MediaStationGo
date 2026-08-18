@@ -98,9 +98,9 @@ export function LibrarySeriesDetailHeader({
                   <Pencil size={13} />
                   <span>编辑元数据</span>
                 </button>
-                <button onClick={onProbe} disabled={!!seriesToolBusy} className="btn-outline px-3.5 py-2 text-xs gap-1.5">
+                <button onClick={onProbe} disabled={!!seriesToolBusy} title="强制重新探测并覆盖整剧已有媒体轨道" className="btn-outline px-3.5 py-2 text-xs gap-1.5">
                   <Database size={13} />
-                  <span>{seriesToolBusy === 'probe' ? '探测中…' : '探测媒体轨'}</span>
+                  <span>{seriesToolBusy === 'probe' ? '探测中…' : '整剧强制探测'}</span>
                 </button>
                 <button onClick={onOrganize} disabled={!!seriesToolBusy} className="btn-outline px-3.5 py-2 text-xs gap-1.5">
                   <FolderInput size={13} />
