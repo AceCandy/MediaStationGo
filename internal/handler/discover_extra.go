@@ -10,8 +10,10 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -44,6 +46,23 @@ var discoverSectionCatalog = []discoverSectionDef{
 const discoverFeedSectionTimeout = 20 * time.Second
 const discoverFeedBangumiTimeout = 30 * time.Second
 const discoverFeedSlowSectionThreshold = 2 * time.Second
+const discoverProviderWorkerCount = 2
+
+type discoverSectionJob struct {
+	index    int
+	key      string
+	provider string
+	page     int
+}
+
+type discoverSectionResult struct {
+	index int
+	key   string
+	items []service.ExternalMediaResult
+	meta  gin.H
+}
+
+type discoverProviderLocksKey struct{}
 
 // discoverSectionsHandler returns the catalog of sections the UI can
 // pick from. The names match the upstream Vue UI so existing settings
@@ -76,46 +95,10 @@ func discoverFeedHandler(svc *service.Container) gin.HandlerFunc {
 		out := gin.H{}
 		meta := gin.H{}
 		artworkItems := []service.ExternalMediaResult{}
-		for _, raw := range keys {
-			k := strings.TrimSpace(raw)
-			if k == "" {
-				continue
-			}
-			if provider := discoverSectionProvider(k); provider != "" && !discoverProviderEnabled(c.Request.Context(), svc, provider) {
-				out[k] = []service.ExternalMediaResult{}
-				meta[k] = gin.H{"page": page, "has_next": false, "disabled": true}
-				continue
-			}
-			sectionTimeout := discoverSectionTimeout(k)
-			sectionCtx, cancel := context.WithTimeout(c.Request.Context(), sectionTimeout)
-			started := time.Now()
-			items, err := discoverSectionItems(sectionCtx, svc, k, page)
-			elapsed := time.Since(started)
-			cancel()
-			metaEntry := gin.H{"page": page, "has_next": false, "duration_ms": elapsed.Milliseconds()}
-			if err != nil {
-				logDiscoverFetchFailed(svc, k, page, elapsed, sectionTimeout, err)
-				if cached, ok := cachedDiscoverSection(svc, k, page); ok {
-					items = cached
-					metaEntry["stale"] = true
-					metaEntry["warning"] = discoverFeedStaleMessage(err)
-				} else if fallbackItems, fallbackKey, ok := fallbackDiscoverSectionItems(c.Request.Context(), svc, k, page); ok {
-					items = fallbackItems
-					metaEntry["fallback"] = fallbackKey
-					metaEntry["warning"] = discoverFeedFallbackMessage(fallbackKey, err)
-					rememberDiscoverSection(svc, k, page, items)
-				} else {
-					metaEntry["error"] = discoverFeedErrorMessage(err)
-					items = nil
-				}
-			} else {
-				logDiscoverFetchSlow(svc, k, page, elapsed, len(items))
-				rememberDiscoverSection(svc, k, page, items)
-			}
-			artworkItems = append(artworkItems, items...)
-			out[k] = items
-			metaEntry["has_next"] = discoverSectionHasNext(k, len(items))
-			meta[k] = metaEntry
+		for _, result := range loadDiscoverSections(c.Request.Context(), svc, keys, page) {
+			out[result.key] = result.items
+			meta[result.key] = result.meta
+			artworkItems = append(artworkItems, result.items...)
 		}
 		out["_meta"] = meta
 		if svc != nil && svc.Discover != nil {
@@ -128,6 +111,130 @@ func discoverFeedHandler(svc *service.Container) gin.HandlerFunc {
 		}
 		c.JSON(http.StatusOK, out)
 	}
+}
+
+func loadDiscoverSections(parent context.Context, svc *service.Container, keys []string, page int) []discoverSectionResult {
+	providerLocks := make(map[string]*sync.Mutex)
+	for _, provider := range []string{"tmdb", "douban", "bangumi"} {
+		providerLocks[provider] = &sync.Mutex{}
+	}
+	parent = context.WithValue(parent, discoverProviderLocksKey{}, providerLocks)
+	jobs := make([]discoverSectionJob, 0, len(keys))
+	immediate := make([]discoverSectionResult, 0, len(keys))
+	for index, raw := range keys {
+		k := strings.TrimSpace(raw)
+		if k == "" {
+			continue
+		}
+		provider := discoverSectionProvider(k)
+		if provider == "" {
+			continue
+		}
+		if !discoverProviderEnabled(parent, svc, provider) {
+			immediate = append(immediate, discoverSectionResult{
+				index: index,
+				key:   k,
+				items: []service.ExternalMediaResult{},
+				meta:  gin.H{"page": page, "has_next": false, "disabled": true},
+			})
+			continue
+		}
+		jobs = append(jobs, discoverSectionJob{index: index, key: k, provider: provider, page: page})
+	}
+	results := append(immediate, runDiscoverProviderGroups(parent, jobs, discoverProviderWorkerCount, func(ctx context.Context, job discoverSectionJob) discoverSectionResult {
+		return loadDiscoverSection(ctx, svc, job)
+	})...)
+	sort.Slice(results, func(i, j int) bool { return results[i].index < results[j].index })
+	return results
+}
+
+func runDiscoverProviderGroups(
+	parent context.Context,
+	jobs []discoverSectionJob,
+	workerCount int,
+	load func(context.Context, discoverSectionJob) discoverSectionResult,
+) []discoverSectionResult {
+	if len(jobs) == 0 {
+		return nil
+	}
+	groupsByProvider := make(map[string][]discoverSectionJob)
+	providerOrder := make([]string, 0)
+	for _, job := range jobs {
+		if _, ok := groupsByProvider[job.provider]; !ok {
+			providerOrder = append(providerOrder, job.provider)
+		}
+		groupsByProvider[job.provider] = append(groupsByProvider[job.provider], job)
+	}
+	if workerCount < 1 {
+		workerCount = 1
+	}
+	if workerCount > len(providerOrder) {
+		workerCount = len(providerOrder)
+	}
+
+	type providerGroup struct{ jobs []discoverSectionJob }
+	groups := make(chan providerGroup)
+	results := make(chan discoverSectionResult, len(jobs))
+	var workers sync.WaitGroup
+	workers.Add(workerCount)
+	for i := 0; i < workerCount; i++ {
+		go func() {
+			defer workers.Done()
+			for group := range groups {
+				for _, job := range group.jobs {
+					results <- load(parent, job)
+				}
+			}
+		}()
+	}
+	go func() {
+		defer close(groups)
+		for _, provider := range providerOrder {
+			select {
+			case groups <- providerGroup{jobs: groupsByProvider[provider]}:
+			case <-parent.Done():
+				return
+			}
+		}
+	}()
+	workers.Wait()
+	close(results)
+	collected := make([]discoverSectionResult, 0, len(jobs))
+	for result := range results {
+		collected = append(collected, result)
+	}
+	return collected
+}
+
+func loadDiscoverSection(parent context.Context, svc *service.Container, job discoverSectionJob) discoverSectionResult {
+	sectionTimeout := discoverSectionTimeout(job.key)
+	sectionCtx, cancel := context.WithTimeout(parent, sectionTimeout)
+	started := time.Now()
+	items, err := loadDiscoverSectionItems(sectionCtx, svc, job.provider, job.key, job.page)
+	elapsed := time.Since(started)
+	cancel()
+	metaEntry := gin.H{"page": job.page, "has_next": false, "duration_ms": elapsed.Milliseconds()}
+	if err != nil {
+		logDiscoverFetchFailed(svc, job.key, job.page, elapsed, sectionTimeout, err)
+		if cached, ok := cachedDiscoverSection(svc, job.key, job.page); ok {
+			items = cached
+			metaEntry["stale"] = true
+			metaEntry["warning"] = discoverFeedStaleMessage(err)
+		} else if fallbackItems, fallbackKey, ok := fallbackDiscoverSectionItems(parent, svc, job.key, job.page); ok {
+			items = fallbackItems
+			metaEntry["fallback"] = fallbackKey
+			metaEntry["warning"] = discoverFeedFallbackMessage(fallbackKey, err)
+			rememberDiscoverSection(svc, job.key, job.page, items)
+		} else {
+			metaEntry["error"] = discoverFeedErrorMessage(err)
+			items = nil
+		}
+	} else {
+		logDiscoverFetchSlow(svc, job.key, job.page, elapsed, len(items))
+		rememberDiscoverSection(svc, job.key, job.page, items)
+	}
+	metaEntry["has_next"] = discoverSectionHasNext(job.key, len(items))
+	return discoverSectionResult{index: job.index, key: job.key, items: items, meta: metaEntry}
 }
 
 func cachedDiscoverSection(svc *service.Container, key string, page int) ([]service.ExternalMediaResult, bool) {
@@ -151,7 +258,7 @@ func fallbackDiscoverSectionItems(parent context.Context, svc *service.Container
 	}
 	ctx, cancel := context.WithTimeout(parent, discoverSectionTimeout(fallbackKey))
 	defer cancel()
-	items, err := discoverSectionItems(ctx, svc, fallbackKey, page)
+	items, err := loadDiscoverSectionItems(ctx, svc, discoverSectionProvider(fallbackKey), fallbackKey, page)
 	if err != nil || len(items) == 0 {
 		return nil, fallbackKey, false
 	}
@@ -163,6 +270,16 @@ func fallbackDiscoverSectionItems(parent context.Context, svc *service.Container
 			zap.Int("items", len(items)))
 	}
 	return items, fallbackKey, true
+}
+
+func loadDiscoverSectionItems(ctx context.Context, svc *service.Container, provider, key string, page int) ([]service.ExternalMediaResult, error) {
+	if locks, ok := ctx.Value(discoverProviderLocksKey{}).(map[string]*sync.Mutex); ok {
+		if lock := locks[provider]; lock != nil {
+			lock.Lock()
+			defer lock.Unlock()
+		}
+	}
+	return discoverSectionItems(ctx, svc, key, page)
 }
 
 func fallbackDiscoverSectionKey(key string) string {

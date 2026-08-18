@@ -1,5 +1,9 @@
 import { api } from './client'
+import { useAuthStore } from '../stores/auth'
+import { getActivePlayProfileId } from '../stores/playProfile'
 import type { Media } from '../types'
+
+let sectionsRequest: { key: string; promise: Promise<DiscoverSection[]> } | null = null
 
 // TMDb-derived "Match" rows used by trending/popular rails. We re-use the
 // Media interface — only TMDb id / poster / overview are populated.
@@ -57,8 +61,18 @@ export const discoverAPI = {
       items: r.data.items ?? [],
       error: r.data.error,
     })),
-  sections: () =>
-    api.get<{ sections: DiscoverSection[] }>('/discover/sections').then((r) => r.data.sections),
+  sections: () => {
+    const key = `${useAuthStore.getState().user?.id ?? ''}:${getActivePlayProfileId() ?? ''}`
+    if (sectionsRequest?.key === key) return sectionsRequest.promise
+    const promise = api
+      .get<{ sections: DiscoverSection[] }>('/discover/sections')
+      .then((r) => r.data.sections)
+      .finally(() => {
+        if (sectionsRequest?.promise === promise) sectionsRequest = null
+      })
+    sectionsRequest = { key, promise }
+    return promise
+  },
   feed: (sectionKeys: string[], page = 1): Promise<DiscoverFeedResult> =>
     api
       .get<Record<string, DiscoverItem[] | DiscoverFeedMeta | Record<string, DiscoverFeedMeta> | null>>('/discover/feed', {

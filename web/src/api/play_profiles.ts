@@ -1,5 +1,8 @@
 import { api } from './client'
+import { useAuthStore } from '../stores/auth'
 import type { PlayProfile } from '../types'
+
+let profilesRequest: { key: string; promise: Promise<PlayProfile[]> } | null = null
 
 // Payload accepted by create / update.
 export interface PlayProfileInput {
@@ -25,7 +28,18 @@ export interface PlayProfilePINVerifyResponse {
 
 // playProfilesAPI wraps caller-scoped /play-profiles.
 export const playProfilesAPI = {
-  list: () => api.get<PlayProfile[]>('/play-profiles').then((r) => r.data),
+  list: () => {
+    const key = useAuthStore.getState().user?.id ?? ''
+    if (profilesRequest?.key === key) return profilesRequest.promise
+    const promise = api
+      .get<PlayProfile[]>('/play-profiles')
+      .then((r) => r.data)
+      .finally(() => {
+        if (profilesRequest?.promise === promise) profilesRequest = null
+      })
+    profilesRequest = { key, promise }
+    return promise
+  },
 
   create: (input: PlayProfileInput) =>
     api.post<PlayProfile>('/play-profiles', input).then((r) => r.data),

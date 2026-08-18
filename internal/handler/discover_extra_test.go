@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -78,6 +79,49 @@ func TestDiscoverSectionTimeoutRaisesBangumiBudget(t *testing.T) {
 	}
 	if got := discoverSectionTimeout("tmdb_latest_movie"); got != discoverFeedSectionTimeout {
 		t.Fatalf("tmdb timeout = %s, want %s", got, discoverFeedSectionTimeout)
+	}
+}
+
+func TestRunDiscoverProviderGroupsSerializesProvidersAndRunsGroupsInParallel(t *testing.T) {
+	jobs := []discoverSectionJob{
+		{index: 0, key: "tmdb-1", provider: "tmdb"},
+		{index: 1, key: "tmdb-2", provider: "tmdb"},
+		{index: 2, key: "douban-1", provider: "douban"},
+		{index: 3, key: "douban-2", provider: "douban"},
+		{index: 4, key: "bangumi-1", provider: "bangumi"},
+	}
+	var mu sync.Mutex
+	active := map[string]int{}
+	maxByProvider := map[string]int{}
+	activeTotal := 0
+	maxTotal := 0
+	results := runDiscoverProviderGroups(t.Context(), jobs, 2, func(ctx context.Context, job discoverSectionJob) discoverSectionResult {
+		mu.Lock()
+		active[job.provider]++
+		if active[job.provider] > maxByProvider[job.provider] {
+			maxByProvider[job.provider] = active[job.provider]
+		}
+		activeTotal++
+		if activeTotal > maxTotal {
+			maxTotal = activeTotal
+		}
+		mu.Unlock()
+		time.Sleep(10 * time.Millisecond)
+		mu.Lock()
+		active[job.provider]--
+		activeTotal--
+		mu.Unlock()
+		return discoverSectionResult{index: job.index, key: job.key}
+	})
+
+	if len(results) != len(jobs) {
+		t.Fatalf("got %d results, want %d", len(results), len(jobs))
+	}
+	if maxByProvider["tmdb"] != 1 || maxByProvider["douban"] != 1 {
+		t.Fatalf("same-provider jobs overlapped: max=%v", maxByProvider)
+	}
+	if maxTotal < 2 {
+		t.Fatalf("different providers did not run in parallel: max total=%d", maxTotal)
 	}
 }
 

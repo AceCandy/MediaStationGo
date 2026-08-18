@@ -25,6 +25,15 @@ let favouritesAccountID = ''
 let favouritesGeneration = 0
 let favouritesCache: { expiresAt: number; value: Media[] } | null = null
 let favouritesRequest: Promise<Media[]> | null = null
+let playlistsRequest: { key: string; promise: Promise<Playlist[]> } | null = null
+
+function playlistsKey(): string {
+  return `${useAuthStore.getState().user?.id ?? ''}:${getActivePlayProfileId() ?? ''}`
+}
+
+function invalidatePlaylistsRequest() {
+  playlistsRequest = null
+}
 
 function favouritesAccountKey(): string {
   const accountID = useAuthStore.getState().user?.id ?? ''
@@ -116,13 +125,26 @@ export const playbackAPI = {
 
   listFavourites,
 
-  listPlaylists: () =>
-    api.get<{ items: Playlist[] }>('/playlists').then((r) => r.data.items),
+  listPlaylists: () => {
+    const key = playlistsKey()
+    if (playlistsRequest?.key === key) return playlistsRequest.promise
+    const promise = api
+      .get<{ items: Playlist[] }>('/playlists')
+      .then((r) => r.data.items)
+      .finally(() => {
+        if (playlistsRequest?.promise === promise) playlistsRequest = null
+      })
+    playlistsRequest = { key, promise }
+    return promise
+  },
 
   createPlaylist: (name: string, isPublic = false) =>
     api
       .post<Playlist>('/playlists', { name, is_public: isPublic })
-      .then((r) => r.data),
+      .then((r) => {
+        invalidatePlaylistsRequest()
+        return r.data
+      }),
 
   getPlaylist: (id: string) =>
     api.get<PlaylistDetail>(`/playlists/${id}`).then((r) => r.data),
@@ -134,7 +156,10 @@ export const playbackAPI = {
     api.delete(`/playlists/${id}/items/${mediaId}`).then((r) => r.data),
 
   deletePlaylist: (id: string) =>
-    api.delete(`/playlists/${id}`).then((r) => r.data),
+    api.delete(`/playlists/${id}`).then((r) => {
+      invalidatePlaylistsRequest()
+      return r.data
+    }),
 
   externalPlayers: (mediaId: string) =>
     api

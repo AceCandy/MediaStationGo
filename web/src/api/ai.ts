@@ -1,5 +1,9 @@
 import { api } from './client'
+import { useAuthStore } from '../stores/auth'
+import { getActivePlayProfileId } from '../stores/playProfile'
 import type { Media } from '../types'
+
+let statusRequest: { key: string; promise: Promise<{ enabled: boolean; provider: string; model: string }> } | null = null
 
 export interface SearchIntent {
   query: string
@@ -26,10 +30,18 @@ export interface ExternalMediaResult {
 }
 
 export const aiAPI = {
-  status: () =>
-    api
+  status: () => {
+    const key = `${useAuthStore.getState().user?.id ?? ''}:${getActivePlayProfileId() ?? ''}`
+    if (statusRequest?.key === key) return statusRequest.promise
+    const promise = api
       .get<{ enabled: boolean; provider: string; model: string }>('/ai/status')
-      .then((r) => r.data),
+      .then((r) => r.data)
+      .finally(() => {
+        if (statusRequest?.promise === promise) statusRequest = null
+      })
+    statusRequest = { key, promise }
+    return promise
+  },
 
   smartSearch: (query: string) =>
     api

@@ -87,47 +87,59 @@ export function DiscoverPage() {
     })
     window.localStorage.setItem(discoverStorageKey, serializeSavedSections(selected))
 
-    let pending = selected.length
+    const requests = new Map<number, string[]>()
+    for (const key of selected) {
+      const page = rowPages[key] ?? 1
+      requests.set(page, [...(requests.get(page) ?? []), key])
+    }
+    let pending = requests.size
     const markDone = () => {
       pending -= 1
       if (!cancelled && pending <= 0) setLoading(false)
     }
-    for (const key of selected) {
-      const page = rowPages[key] ?? 1
+    for (const [page, keys] of requests) {
       discoverAPI
-        .feed([key], page)
+        .feed(keys, page)
         .then((feed) => {
           if (cancelled) return
-          const error = feed.meta[key]?.error
-          const nextItems = feed.items[key] ?? []
-          const nextCanNext = Boolean(feed.meta[key]?.has_next)
-          setRows((current) => {
-            if (error && nextItems.length === 0 && (current[key]?.length ?? 0) > 0) {
-              return current
+          for (const key of keys) {
+            const error = feed.meta[key]?.error
+            const nextItems = feed.items[key] ?? []
+            const nextCanNext = Boolean(feed.meta[key]?.has_next)
+            setRows((current) => {
+              if (error && nextItems.length === 0 && (current[key]?.length ?? 0) > 0) {
+                return current
+              }
+              return { ...current, [key]: nextItems }
+            })
+            setRowCanNext((current) => {
+              if (error && nextItems.length === 0 && key in current) {
+                return current
+              }
+              return { ...current, [key]: nextCanNext }
+            })
+            if (!error) {
+              writeCachedDiscoverRow(key, page, nextItems, nextCanNext)
             }
-            return { ...current, [key]: nextItems }
-          })
-          setRowCanNext((current) => {
-            if (error && nextItems.length === 0 && key in current) {
-              return current
-            }
-            return { ...current, [key]: nextCanNext }
-          })
-          if (!error) {
-            writeCachedDiscoverRow(key, page, nextItems, nextCanNext)
+            setRowErrors((current) => updateDiscoverRowError(current, key, error))
           }
-          setRowErrors((current) => updateDiscoverRowError(current, key, error))
         })
         .catch((err) => {
           if (cancelled) return
           const message = discoverRequestErrorMessage(err)
-          setRows((current) => ((current[key]?.length ?? 0) > 0 ? current : { ...current, [key]: [] }))
-          setRowCanNext((current) => (key in current ? current : { ...current, [key]: false }))
-          setRowErrors((current) => ({ ...current, [key]: message }))
+          for (const key of keys) {
+            setRows((current) => ((current[key]?.length ?? 0) > 0 ? current : { ...current, [key]: [] }))
+            setRowCanNext((current) => (key in current ? current : { ...current, [key]: false }))
+            setRowErrors((current) => ({ ...current, [key]: message }))
+          }
         })
         .finally(() => {
           if (!cancelled) {
-            setRowLoading((current) => ({ ...current, [key]: false }))
+            setRowLoading((current) => {
+              const next = { ...current }
+              for (const key of keys) next[key] = false
+              return next
+            })
           }
           markDone()
         })

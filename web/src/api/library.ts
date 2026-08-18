@@ -1,6 +1,22 @@
 import { api, BATCH_REQUEST_TIMEOUT, LONG_REQUEST_TIMEOUT } from './client'
+import { useAuthStore } from '../stores/auth'
+import { getActivePlayProfileId } from '../stores/playProfile'
 import type { Library, LibraryRoot, Media, ScanResult } from '../types'
 import type { SeriesCard } from '../utils/groupSeries'
+
+const recentRequests = new Map<string, Promise<SeriesCard[]>>()
+const libraryRequests = new Map<string, Promise<unknown>>()
+
+function libraryRequest<T>(key: string, load: () => Promise<T>): Promise<T> {
+  const scope = `${useAuthStore.getState().user?.id ?? ''}:${getActivePlayProfileId() ?? ''}:${key}`
+  const pending = libraryRequests.get(scope)
+  if (pending) return pending as Promise<T>
+  const request = load().finally(() => {
+    if (libraryRequests.get(scope) === request) libraryRequests.delete(scope)
+  })
+  libraryRequests.set(scope, request)
+  return request
+}
 
 export interface MediaPage {
   items: Media[]
@@ -83,18 +99,20 @@ export interface MediaMetadataUpdate {
 
 export const libraryAPI = {
   list: (options?: { includeHidden?: boolean }) =>
-    api
-      .get<Library[]>('/libraries', {
-        params: options?.includeHidden ? { include_hidden: 1 } : undefined,
-      })
-      .then((r) => r.data),
+    libraryRequest(`list:${options?.includeHidden ? 1 : 0}`, () =>
+      api
+        .get<Library[]>('/libraries', {
+          params: options?.includeHidden ? { include_hidden: 1 } : undefined,
+        })
+        .then((r) => r.data)),
 
   get: (id: string, options?: { includeHidden?: boolean }) =>
-    api
-      .get<Library>(`/libraries/${id}`, {
-        params: options?.includeHidden ? { include_hidden: 1 } : undefined,
-      })
-      .then((r) => r.data),
+    libraryRequest(`get:${id}:${options?.includeHidden ? 1 : 0}`, () =>
+      api
+        .get<Library>(`/libraries/${id}`, {
+          params: options?.includeHidden ? { include_hidden: 1 } : undefined,
+        })
+        .then((r) => r.data)),
 
   create: (name: string, path: string, type: string) =>
     api.post<Library>('/libraries', { name, path, type }).then((r) => r.data),
@@ -133,37 +151,52 @@ export const libraryAPI = {
     api.post<{ status: string }>(`/libraries/${id}/people-backfill`).then((r) => r.data),
 
   listMedia: (id: string, page = 1, pageSize = 50, options?: { groupVersions?: boolean }) =>
-    api
-      .get<MediaPage>(`/libraries/${id}/media`, {
-        params: {
-          page,
-          page_size: pageSize,
-          group_versions: options?.groupVersions === false ? 0 : undefined,
-        },
-        timeout: LONG_REQUEST_TIMEOUT,
-      })
-      .then((r) => r.data),
+    libraryRequest(`media:${id}:${page}:${pageSize}:${options?.groupVersions === false ? 0 : 1}`, () =>
+      api
+        .get<MediaPage>(`/libraries/${id}/media`, {
+          params: {
+            page,
+            page_size: pageSize,
+            group_versions: options?.groupVersions === false ? 0 : undefined,
+          },
+          timeout: LONG_REQUEST_TIMEOUT,
+        })
+        .then((r) => r.data)),
 
   listSeries: (id: string, page = 1, pageSize = 500) =>
-    api
-      .get<SeriesPage>(`/libraries/${id}/series`, {
-        params: { page, page_size: pageSize },
-        timeout: LONG_REQUEST_TIMEOUT,
-      })
-      .then((r) => r.data),
+    libraryRequest(`series:${id}:${page}:${pageSize}`, () =>
+      api
+        .get<SeriesPage>(`/libraries/${id}/series`, {
+          params: { page, page_size: pageSize },
+          timeout: LONG_REQUEST_TIMEOUT,
+        })
+        .then((r) => r.data)),
 
   listSeriesEpisodes: (id: string, key: string) =>
-    api
-      .get<{ items: Media[]; total: number }>(`/libraries/${id}/series/episodes`, {
-        params: { key },
-        timeout: LONG_REQUEST_TIMEOUT,
-      })
-      .then((r) => r.data),
+    libraryRequest(`episodes:${id}:${key}`, () =>
+      api
+        .get<{ items: Media[]; total: number }>(`/libraries/${id}/series/episodes`, {
+          params: { key },
+          timeout: LONG_REQUEST_TIMEOUT,
+        })
+        .then((r) => r.data)),
 }
 
 export const mediaAPI = {
-  recent: (limit = 24) =>
-    api.get<SeriesCard[]>('/media/recent', { params: { limit } }).then((r) => r.data),
+  recent: (limit = 24) => {
+    const accountID = useAuthStore.getState().user?.id ?? ''
+    const key = `${accountID}:${getActivePlayProfileId() ?? ''}:${limit}`
+    const pending = recentRequests.get(key)
+    if (pending) return pending
+    const request = api
+      .get<SeriesCard[]>('/media/recent', { params: { limit } })
+      .then((r) => r.data)
+      .finally(() => {
+        if (recentRequests.get(key) === request) recentRequests.delete(key)
+      })
+    recentRequests.set(key, request)
+    return request
+  },
 
   search: (q: string, limit = 50) =>
     api.get<MediaSearchPage>('/media', { params: { q, limit } }).then((r) => r.data),

@@ -21,6 +21,7 @@ export function LibrariesPage() {
   const view = viewValues[0] ?? 'library'
   const validView = viewValues.length <= 1 && (view === 'library' || view === 'poster')
   const [previews, setPreviews] = useState<LibraryPreview[]>([])
+  const [libraryCount, setLibraryCount] = useState(0)
   const [loading, setLoading] = useState(true)
   const [repairing, setRepairing] = useState(false)
   const [repairEpisodeArtwork, setRepairEpisodeArtwork] = useState(false)
@@ -45,25 +46,36 @@ export function LibrariesPage() {
     let cancelled = false
     async function load() {
       setLoading(true)
+      setPreviews([])
+      setLibraryCount(0)
       try {
         const libs = await libraryAPI.list()
-        const rows = await Promise.all(libs.map(async (library) => {
+        if (cancelled) return
+        setLibraryCount(libs.length)
+        const previewByID = new Map<string, LibraryPreview>()
+        const publish = () => {
+          if (cancelled) return
+          setPreviews(libs.map((library) => previewByID.get(library.id)).filter((preview): preview is LibraryPreview => Boolean(preview)))
+        }
+        await Promise.all(libs.map(async (library) => {
+          let preview: LibraryPreview
           try {
             if (isSeriesLibraryType(library.type)) {
               const [seriesPage, mediaPage] = await Promise.all([
                 libraryAPI.listSeries(library.id, 1, 10),
                 libraryAPI.listMedia(library.id, 1, 1, { groupVersions: false }),
               ])
-              return { library, items: [], total: mediaPage.total, cards: seriesPage.items ?? [] } satisfies LibraryPreview
+              preview = { library, items: [], total: mediaPage.total, cards: seriesPage.items ?? [] }
+            } else {
+              const page = await libraryAPI.listMedia(library.id, 1, 160, { groupVersions: false })
+              preview = { library, items: page.items, total: page.total, cards: latestLibraryCards(page.items) }
             }
-            const page = await libraryAPI.listMedia(library.id, 1, 160, { groupVersions: false })
-            const cards = latestLibraryCards(page.items)
-            return { library, items: page.items, total: page.total, cards } satisfies LibraryPreview
           } catch {
-            return { library, items: [], total: 0, cards: [] } satisfies LibraryPreview
+            preview = { library, items: [], total: 0, cards: [] }
           }
+          previewByID.set(library.id, preview)
+          publish()
         }))
-        if (!cancelled) setPreviews(rows)
       } finally {
         if (!cancelled) setLoading(false)
       }
@@ -83,13 +95,13 @@ export function LibrariesPage() {
         <PosterWallPage />
       ) : (
         <>
-          {loading ? (
+          {loading && previews.length === 0 ? (
             <p className="px-2 py-8 text-sm text-sand-500">媒体库加载中…</p>
           ) : (
             <>
               <LibrariesHeader
                 isAdmin={isAdmin}
-                previewCount={previews.length}
+                previewCount={libraryCount}
                 total={total}
                 repairMsg={repairMsg}
                 repairEpisodeArtwork={repairEpisodeArtwork}
@@ -97,7 +109,8 @@ export function LibrariesPage() {
                 onRepairEpisodeArtworkChange={setRepairEpisodeArtwork}
                 onRepairRescrape={handleRepairRescrape}
               />
-              {previews.length === 0 ? <LibrariesEmptyState /> : <LibrariesContent previews={previews} />}
+              {previews.length === 0 && !loading ? <LibrariesEmptyState /> : previews.length > 0 && <LibrariesContent previews={previews} />}
+              {loading && <p className="px-2 text-sm text-sand-500">媒体库内容加载中…</p>}
             </>
           )}
         </>

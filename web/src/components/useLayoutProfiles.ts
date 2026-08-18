@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import toast from 'react-hot-toast'
 
 import { playProfilesAPI } from '../api/play_profiles'
@@ -18,16 +18,23 @@ export function useLayoutProfiles({
 }: UseLayoutProfilesOptions) {
   const [isProfileOpen, setIsProfileOpen] = useState(false)
   const [profiles, setProfiles] = useState<PlayProfile[]>([])
+  const loadedUserID = useRef<string | null>(null)
 
   useEffect(() => {
     if (!user) {
+      loadedUserID.current = null
       setProfiles([])
       setActiveProfile(null)
       return
     }
+    const activeProfileKnown = !activeProfileId || profiles.length === 0 || profiles.some((profile) => profile.id === activeProfileId)
+    if (loadedUserID.current === user.id && activeProfileKnown) return
+    let cancelled = false
     playProfilesAPI
       .list()
       .then((rows) => {
+        if (cancelled) return
+        loadedUserID.current = user.id
         setProfiles(rows)
         const active = rows.find((profile) => profile.id === activeProfileId)
         if (!active) {
@@ -36,7 +43,8 @@ export function useLayoutProfiles({
         }
       })
       .catch(() => undefined)
-  }, [activeProfileId, setActiveProfile, user])
+    return () => { cancelled = true }
+  }, [activeProfileId, profiles, setActiveProfile, user])
 
   const activeProfile = useMemo(
     () => profiles.find((profile) => profile.id === activeProfileId) ?? null,
