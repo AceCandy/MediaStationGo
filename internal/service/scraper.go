@@ -9,6 +9,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"time"
 
 	"go.uber.org/zap"
 
@@ -56,30 +57,15 @@ func (s *ScraperService) enrichOneWithOptions(ctx context.Context, m *model.Medi
 		m.SeasonNum = lookupMedia.SeasonNum
 		m.EpisodeNum = lookupMedia.EpisodeNum
 	}
-	if strings.TrimSpace(m.MetadataID) == "" {
-		if err := s.repo.Media.ResolveMetadata(ctx, &lookupMedia); err != nil {
+	if !options.IncludeMatched && !options.RefreshWeakMatched {
+		exact, err := s.repo.Media.FindExactMetadata(ctx, &lookupMedia)
+		if err != nil {
 			return s.markScrapeError(ctx, m.ID, err)
 		}
-		if lookupMedia.MetadataID != "" {
-			updates := map[string]any{
-				"metadata_id":         lookupMedia.MetadataID,
-				"scrape_status":       "matched",
-				"scrape_error":        "",
-				"local_metadata_hint": "",
-				"series_hint":         lookupMedia.SeriesID,
-				"lookup_tmdb_id":      lookupMedia.TMDbID,
-				"lookup_bangumi_id":   lookupMedia.BangumiID,
-				"lookup_douban_id":    lookupMedia.DoubanID,
-				"lookup_thetvdb_id":   lookupMedia.TheTVDBID,
-			}
-			if err := s.repo.DB.WithContext(ctx).Model(&model.Media{}).Where("id = ?", m.ID).Updates(updates).Error; err != nil {
+		if exact != nil && (strings.TrimSpace(m.MetadataID) == "" || exact.ID == m.MetadataID) && !episodeMetadataNeedsRefresh(exact) {
+			if err := s.markMetadataMatched(ctx, m, &lookupMedia, exact.ID); err != nil {
 				return err
 			}
-			m.MetadataID = lookupMedia.MetadataID
-			m.SeriesID = lookupMedia.SeriesID
-			m.ScrapeStatus = "matched"
-			s.repo.MediaView.ReindexMediaIDs(ctx, m.ID)
-			s.invalidateMediaCache(ctx)
 			return nil
 		}
 	}
@@ -162,6 +148,36 @@ func (s *ScraperService) enrichOneWithOptions(ctx context.Context, m *model.Medi
 	s.applyFanartArtwork(ctx, match)
 
 	return s.applyProviderMatchWithOptions(ctx, m, lib, match, options)
+}
+
+func (s *ScraperService) markMetadataMatched(ctx context.Context, media, lookup *model.Media, metadataID string) error {
+	updates := map[string]any{
+		"metadata_id":         metadataID,
+		"scrape_status":       "matched",
+		"scrape_error":        "",
+		"local_metadata_hint": "",
+		"series_hint":         lookup.SeriesID,
+		"lookup_tmdb_id":      lookup.TMDbID,
+		"lookup_bangumi_id":   lookup.BangumiID,
+		"lookup_douban_id":    lookup.DoubanID,
+		"lookup_thetvdb_id":   lookup.TheTVDBID,
+	}
+	if err := s.repo.DB.WithContext(ctx).Model(&model.Media{}).Where("id = ?", media.ID).Updates(updates).Error; err != nil {
+		return err
+	}
+	media.MetadataID = metadataID
+	media.SeriesID = lookup.SeriesID
+	media.ScrapeStatus = "matched"
+	s.repo.MediaView.ReindexMediaIDs(ctx, media.ID)
+	s.invalidateMediaCache(ctx)
+	return nil
+}
+
+func episodeMetadataNeedsRefresh(metadata *model.MetadataItem) bool {
+	if metadata == nil || metadata.Kind != model.MetadataKindEpisode || !tmdbEntityTitleIsGenerated(metadata.Title, model.MetadataKindEpisode) {
+		return false
+	}
+	return !metadata.UpdatedAt.After(time.Now().UTC().Add(-7 * 24 * time.Hour))
 }
 
 func mergeLocalCreditsIntoMatch(match *Match, local *LocalMetadata) {

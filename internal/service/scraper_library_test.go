@@ -3,6 +3,7 @@ package service
 import (
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 )
@@ -108,6 +109,144 @@ func TestEnrichOneReusesCanonicalBeforeProviderLookup(t *testing.T) {
 	}
 	if got == nil || got.MetadataID != metadata.ID || got.ScrapeStatus != "matched" {
 		t.Fatalf("media after canonical reuse = %#v", got)
+	}
+}
+
+func TestEnrichOneReusesLinkedCanonicalBeforeProviderLookup(t *testing.T) {
+	scraper, repos, closeServer := newTestScraper(t)
+	defer closeServer()
+	if err := repos.DB.Callback().Create().Remove("testutil:media-metadata"); err != nil {
+		t.Fatal(err)
+	}
+
+	lib := model.Library{Name: "Movies", Path: t.TempDir(), Type: "movie", Enabled: true}
+	if err := repos.DB.Create(&lib).Error; err != nil {
+		t.Fatal(err)
+	}
+	metadata := model.MetadataItem{Kind: model.MetadataKindMovie, Title: "Cached movie", Source: "tmdb"}
+	if err := repos.Metadata.Create(t.Context(), &metadata, []model.MetadataIdentifier{{
+		Provider: "tmdb", EntityKind: model.MetadataKindMovie, ExternalID: "408",
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	metadataUpdatedAt := metadata.UpdatedAt
+	media := model.Media{
+		LibraryID: lib.ID, MetadataID: metadata.ID, TMDbID: 408,
+		Title: "Snow White", Path: filepath.Join(lib.Path, "Snow White.mkv"), ScrapeStatus: "pending",
+	}
+	if err := repos.DB.Create(&media).Error; err != nil {
+		t.Fatal(err)
+	}
+	closeServer()
+
+	if err := scraper.EnrichOne(t.Context(), &media); err != nil {
+		t.Fatalf("reuse linked canonical metadata without provider request: %v", err)
+	}
+	got, err := repos.Media.FindByID(t.Context(), media.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got == nil || got.MetadataID != metadata.ID || got.ScrapeStatus != "matched" {
+		t.Fatalf("media after linked canonical reuse = %#v", got)
+	}
+	updated, err := repos.Metadata.FindByID(t.Context(), metadata.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated == nil || !updated.UpdatedAt.Equal(metadataUpdatedAt) {
+		t.Fatalf("canonical metadata was touched: before=%s after=%s", metadataUpdatedAt, updated.UpdatedAt)
+	}
+}
+
+func TestEnrichOneReusesRecentGeneratedEpisodeMetadata(t *testing.T) {
+	scraper, repos, closeServer := newTestScraper(t)
+	defer closeServer()
+	if err := repos.DB.Callback().Create().Remove("testutil:media-metadata"); err != nil {
+		t.Fatal(err)
+	}
+
+	lib := model.Library{Name: "Shows", Path: t.TempDir(), Type: "tv", Enabled: true}
+	if err := repos.DB.Create(&lib).Error; err != nil {
+		t.Fatal(err)
+	}
+	episode := model.MetadataItem{
+		Kind: model.MetadataKindEpisode, SeasonNum: 2, EpisodeNum: 1, Title: "第 1 集", Source: "tmdb",
+		Base: model.Base{UpdatedAt: time.Now().UTC().Add(-6 * 24 * time.Hour)},
+	}
+	series := createServiceTestEpisodeMetadata(t, repos.DB,
+		model.MetadataItem{Kind: model.MetadataKindSeries, Title: "Show", Source: "tmdb"}, episode,
+		model.MetadataIdentifier{Provider: "tmdb", EntityKind: model.MetadataKindSeries, ExternalID: "12345"})
+	episodeMetadata, err := repos.Metadata.FindEpisode(t.Context(), series.ID, 2, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if episodeMetadata == nil {
+		t.Fatal("episode metadata not created")
+	}
+	media := model.Media{
+		LibraryID: lib.ID, MetadataID: episodeMetadata.ID, TMDbID: 12345, SeasonNum: 2, EpisodeNum: 1,
+		Title: "Show", Path: filepath.Join(lib.Path, "Show - S02E01.mkv"), ScrapeStatus: "pending",
+	}
+	if err := repos.DB.Create(&media).Error; err != nil {
+		t.Fatal(err)
+	}
+	closeServer()
+
+	if err := scraper.EnrichOne(t.Context(), &media); err != nil {
+		t.Fatalf("recent generated episode should be reused: %v", err)
+	}
+	got, err := repos.Media.FindByID(t.Context(), media.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got == nil || got.ScrapeStatus != "matched" || got.MetadataID != episodeMetadata.ID {
+		t.Fatalf("recent generated episode reuse = %#v", got)
+	}
+}
+
+func TestEnrichOneRefreshesStaleGeneratedEpisodeMetadata(t *testing.T) {
+	scraper, repos, closeServer := newTestScraper(t)
+	defer closeServer()
+	if err := repos.DB.Callback().Create().Remove("testutil:media-metadata"); err != nil {
+		t.Fatal(err)
+	}
+
+	lib := model.Library{Name: "Shows", Path: t.TempDir(), Type: "tv", Enabled: true}
+	if err := repos.DB.Create(&lib).Error; err != nil {
+		t.Fatal(err)
+	}
+	episode := model.MetadataItem{
+		Kind: model.MetadataKindEpisode, SeasonNum: 2, EpisodeNum: 1, Title: "第 1 集", Source: "tmdb",
+		Base: model.Base{UpdatedAt: time.Now().UTC().Add(-8 * 24 * time.Hour)},
+	}
+	series := createServiceTestEpisodeMetadata(t, repos.DB,
+		model.MetadataItem{Kind: model.MetadataKindSeries, Title: "Show", Source: "tmdb"}, episode,
+		model.MetadataIdentifier{Provider: "tmdb", EntityKind: model.MetadataKindSeries, ExternalID: "12345"})
+	episodeMetadata, err := repos.Metadata.FindEpisode(t.Context(), series.ID, 2, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if episodeMetadata == nil {
+		t.Fatal("episode metadata not created")
+	}
+	media := model.Media{
+		LibraryID: lib.ID, MetadataID: episodeMetadata.ID, TMDbID: 12345, SeasonNum: 2, EpisodeNum: 1,
+		Title: "Show", Path: filepath.Join(lib.Path, "Show - S02E01.mkv"), ScrapeStatus: "pending",
+	}
+	if err := repos.DB.Create(&media).Error; err != nil {
+		t.Fatal(err)
+	}
+	closeServer()
+
+	if err := scraper.EnrichOne(t.Context(), &media); err == nil {
+		t.Fatal("stale generated episode should continue to provider scraping")
+	}
+	got, err := repos.Media.FindByID(t.Context(), media.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got == nil || got.ScrapeStatus == "matched" {
+		t.Fatalf("stale generated episode was incorrectly reused: %#v", got)
 	}
 }
 

@@ -169,6 +169,8 @@ db.Model(&credit).
   eligible local persistence fills the link after scan.
 - A reliable provider ID resolves by `(provider, entity_kind, external_id)`. TMDb is optional; Douban-only and provider-less manual metadata are valid.
 - Provider match enriches one canonical `MetadataItem`, its identifiers and managed artwork, then links every matching file through `Media.MetadataID`.
+- Before regular provider scraping, an existing media link is revalidated by the current provider identifiers. If the exact movie or `Series -> Season -> Episode` metadata resolves to the same canonical ID, the media is marked `scrape_status=matched` without provider calls or writes to `metadata_items` and related canonical tables. `IncludeMatched` and `RefreshWeakMatched` bypass this shortcut.
+- Series and Season metadata only locate an existing Episode; a newly discovered Episode is scraped independently. An existing Episode with a generated placeholder title (for example `第 1 集` or `Episode 1`) is reusable for seven days after `metadata_items.updated_at`; after that it must be scraped again. Missing or incomplete episode hierarchy always continues through provider scraping.
 - Provider no-match may import existing NFO and sidecar images. Provider error or timeout must set an error state and must not fall back to local metadata.
 - Movie and series identifiers include `EntityKind`; equal numeric IDs across kinds or providers must not collide.
 - Season rows require a parent Series, `season_num >= 0`, and `episode_num = 0`. Episode rows require a parent Season, `season_num = 0`, and `episode_num > 0`. Movie and Series rows have no parent or episodic position.

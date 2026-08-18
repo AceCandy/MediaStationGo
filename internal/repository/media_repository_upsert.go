@@ -74,6 +74,15 @@ func (r *MediaRepository) ResolveMetadata(ctx context.Context, media *model.Medi
 	return nil
 }
 
+// FindExactMetadata 只按媒体当前的 provider 标识解析已有 canonical metadata，
+// 不读取或复用媒体行已有的 metadata_id。
+func (r *MediaRepository) FindExactMetadata(ctx context.Context, media *model.Media) (*model.MetadataItem, error) {
+	if media == nil {
+		return nil, errors.New("media is required")
+	}
+	return r.findExistingMediaMetadata(ctx, media)
+}
+
 func (r *MediaRepository) findExistingMediaMetadata(ctx context.Context, media *model.Media) (*model.MetadataItem, error) {
 	metadataRepo := &MetadataRepository{db: r.db}
 	entityKind := model.MetadataKindMovie
