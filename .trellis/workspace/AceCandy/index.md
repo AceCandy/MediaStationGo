@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 35
+- **Total Sessions**: 36
 - **Last Active**: 2026-08-18
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~762 | Active |
+| `journal-1.md` | ~783 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 36 | 2026-08-18 | 媒体轨道探测与回填 | `8fd4401` | `main` |
 | 35 | 2026-08-18 | 优化页面请求与发现页调度 | `a728e98` | `main` |
 | 34 | 2026-08-18 | 复用已有元数据跳过重复刮削 | `6c0ea0f` | `main` |
 | 33 | 2026-08-17 | 扫描仅按文件指纹判断变化 | `23e8ff0` | `main` |

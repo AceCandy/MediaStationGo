@@ -760,3 +760,24 @@ Committed the existing web UI redesign together with detailed background task lo
 ### Status
 
 [OK] **Completed**
+
+
+## Session 36: 媒体轨道探测与回填
+
+**Date**: 2026-08-18
+**Task**: 媒体轨道探测与回填
+**Branch**: `main`
+
+### Summary
+
+任务中心支持按媒体库和数量执行条件回填；详情页统一强制探测提示，并补充单集与整剧入口。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `8fd4401` | (see git log) |
+
+### Status
+
+[OK] **Completed**
