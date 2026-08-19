@@ -68,14 +68,11 @@ func (s *ScraperService) queuePeopleBackfill() {
 
 func (s *ScraperService) runPeopleBackfillWorker(ctx context.Context) {
 	defer s.peopleBackfillWG.Done()
-	ticker := time.NewTicker(10 * time.Minute)
-	defer ticker.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-s.peopleBackfillWake:
-		case <-ticker.C:
 		}
 		trigger := TaskTriggerEvent
 		if s.peopleBackfillManual.Swap(false) {
@@ -88,6 +85,11 @@ func (s *ScraperService) runPeopleBackfillWorker(ctx context.Context) {
 }
 
 func (s *ScraperService) runPeopleBackfillPass(ctx context.Context, trigger string) error {
+	if s == nil {
+		return nil
+	}
+	s.peopleBackfillRunMu.Lock()
+	defer s.peopleBackfillRunMu.Unlock()
 	candidates, err := s.pendingPeopleBackfillCandidates(ctx)
 	if trigger != TaskTriggerManual && (err != nil || len(candidates) == 0) {
 		return err

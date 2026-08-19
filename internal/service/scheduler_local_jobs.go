@@ -4,9 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strconv"
-	"strings"
-	"time"
 
 	"go.uber.org/zap"
 	"gorm.io/gorm"
@@ -16,15 +13,9 @@ import (
 
 // jobScanLibraries re-walks every enabled library.
 //
-// 默认关闭：文件变更由 WatcherService 增量入库，无需周期性全量重扫。
-// 仅当用户在设置中显式开启 scan.periodic_enabled 时才执行整库重扫，
-// 避免对硬盘的高频反复读取造成损伤（用户明确要求）。
+// 定时开关和周期由 SchedulerService 统一管理；手动调用始终执行。
 func (s *SchedulerService) jobScanLibraries(ctx context.Context) error {
 	manual, _ := ctx.Value(schedulerManualRunKey{}).(bool)
-	now := s.currentTime()
-	if !manual && !s.periodicScanDue(ctx, now) {
-		return nil
-	}
 	trigger := TaskTriggerScheduled
 	name := "定时媒体库扫描"
 	if manual {
@@ -75,9 +66,6 @@ func (s *SchedulerService) jobScanLibraries(ctx context.Context) error {
 			task.Update(TaskUpdate{Stage: "scan", Metrics: metrics, Details: libraryScanTaskDetails(l, res), DetailsWithoutLevel: true})
 		}
 	}
-	if !manual {
-		_ = s.markPeriodicScanCompleted(ctx, now)
-	}
 	if task != nil {
 		task.Finish(nil, TaskUpdate{Stage: "completed", Message: "媒体库扫描结束", Metrics: metrics})
 	}
@@ -96,57 +84,24 @@ func libraryScanTaskDetails(l model.Library, res *ScanResult) []string {
 	return append(details, res.ChangeDetails()...)
 }
 
-// periodicScanEnabled reports whether the operator opted into periodic full
-// library re-scans. Defaults to false so the incremental watcher is the only
-// thing touching the disk under normal operation.
-func (s *SchedulerService) periodicScanEnabled(ctx context.Context) bool {
-	if s.repo == nil || s.repo.Setting == nil {
-		return false
-	}
-	v, err := s.repo.Setting.Get(ctx, "scan.periodic_enabled")
-	if err != nil {
-		return false
-	}
-	return parseBoolSetting(v, false)
-}
-
-func (s *SchedulerService) periodicScanDue(ctx context.Context, now time.Time) bool {
-	if !s.periodicScanEnabled(ctx) {
-		return false
-	}
-	if s.repo == nil || s.repo.Setting == nil {
-		return true
-	}
-	last, err := s.repo.Setting.Get(ctx, localLastPeriodicScanDateKey)
-	if err != nil {
-		return true
-	}
-	return strings.TrimSpace(last) != now.In(time.Local).Format(periodicScanDateFormat)
-}
-
-func (s *SchedulerService) markPeriodicScanCompleted(ctx context.Context, now time.Time) error {
-	if s.repo == nil || s.repo.Setting == nil {
-		return nil
-	}
-	return s.repo.Setting.Set(ctx, localLastPeriodicScanDateKey, now.In(time.Local).Format(periodicScanDateFormat))
-}
-
 // jobOrganizeSource periodically organizes the configured staging/download
 // source directory into the configured media destination. It is intentionally
 // opt-in: manual file management remains available, but background disk walking
 // only starts after the operator enables organize.auto.
 func (s *SchedulerService) jobOrganizeSource(ctx context.Context) error {
 	manual, _ := ctx.Value(schedulerManualRunKey{}).(bool)
-	if s.organizer == nil || (!manual && !s.autoOrganizeSourceEnabled(ctx)) {
+	if s.organizer == nil {
 		return nil
 	}
 	taskName := "自动整理重命名刮削入库"
+	trigger := OrganizeTriggerScheduled
 	if manual {
 		taskName = "手动触发自动整理重命名刮削入库"
+		trigger = OrganizeTriggerManual
 	}
 	resWrap, err := s.ensureOrganizePipeline().Run(ctx, OrganizePipelineRequest{
 		Scope:    OrganizeScopeDirectory,
-		Trigger:  OrganizeTriggerScheduled,
+		Trigger:  trigger,
 		TaskName: taskName,
 	})
 	if err != nil {
@@ -177,34 +132,47 @@ func (s *SchedulerService) ensureOrganizePipeline() *OrganizePipelineService {
 	return NewOrganizePipelineService(s.log, s.repo, s.organizer, s.scanner, s.tasks)
 }
 
-func (s *SchedulerService) autoOrganizeSourceEnabled(ctx context.Context) bool {
-	if s.repo == nil || s.repo.Setting == nil {
-		return false
+func (s *SchedulerService) jobPeopleBackfill(ctx context.Context) error {
+	if s.scraper == nil {
+		return nil
 	}
-	v, err := s.repo.Setting.Get(ctx, "organize.auto")
-	if err != nil {
-		return false
-	}
-	return parseBoolSetting(v, false)
+	return s.scraper.runPeopleBackfillPass(ctx, TaskTriggerScheduled)
 }
 
-func (s *SchedulerService) organizeSourceInterval(ctx context.Context) time.Duration {
-	const fallback = 5 * time.Minute
-	if s.repo == nil || s.repo.Setting == nil {
-		return fallback
+func (s *SchedulerService) jobPeopleTranslation(ctx context.Context) error {
+	if s.scraper == nil {
+		return nil
 	}
-	v, err := s.repo.Setting.Get(ctx, "organize.interval_seconds")
+	return s.scraper.translatePendingPeopleTriggered(ctx, TaskTriggerScheduled)
+}
+
+func (s *SchedulerService) jobAccountCleanup(ctx context.Context) error {
+	if s.device == nil {
+		return nil
+	}
+	if s.tasks == nil {
+		return errors.New("task tracker unavailable")
+	}
+	metrics := map[string]int64{"removed": 0}
+	task := s.tasks.StartTriggered(TaskKindCleanup, TaskTriggerScheduled, "账号清理巡检", TaskUpdate{
+		Stage: "cleanup", Message: "账号清理巡检已启动", Metrics: metrics,
+	})
+	if task == nil {
+		return errors.New("create account cleanup task execution failed")
+	}
+	removed, err := s.device.SweepAccountCleanup(ctx)
+	metrics["removed"] = int64(removed)
 	if err != nil {
-		return fallback
+		safeErr := sanitizeTaskLogError(err)
+		task.Finish(safeErr, TaskUpdate{Stage: "cleanup", Message: "账号清理巡检失败", Metrics: metrics})
+		return err
 	}
-	seconds, err := strconv.Atoi(strings.TrimSpace(v))
-	if err != nil || seconds <= 0 {
-		return fallback
+	detail := "ℹ️ 账号清理巡检完成，未删除账号"
+	if removed > 0 {
+		detail = fmt.Sprintf("🗑️ 账号清理巡检删除 %d 个账号", removed)
 	}
-	if seconds < 60 {
-		seconds = 60
-	}
-	return time.Duration(seconds) * time.Second
+	task.Finish(nil, TaskUpdate{Stage: "completed", Message: "账号清理巡检完成", Metrics: metrics, Details: []string{detail}})
+	return nil
 }
 
 // isMissingTableErr lets the test harness ignore "no such table" errors

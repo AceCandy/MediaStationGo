@@ -95,7 +95,7 @@ func (b *serviceContainerBuilder) initContentServices() {
 	b.c.Scan = NewScannerService(b.cfg, b.log, b.repos, b.c.WSHub, b.c.FFprobe, b.c.Scraper)
 	b.c.Scan.SetRuntimeCache(b.c.Cache)
 	b.c.OrganizePipeline = NewOrganizePipelineService(b.log, b.repos, b.c.Organizer, b.c.Scan, b.c.Tasks)
-	b.c.Watcher = NewWatcherService(b.log, b.repos, b.c.Scan)
+	b.c.Watcher = NewWatcherService(b.log, b.repos, b.c.Scan, b.c.Tasks)
 	b.c.AI = NewAIService(b.cfg, b.log, b.c.APIConfig)
 	b.c.Scraper.SetAI(b.c.AI)
 	b.c.Duplicate = NewDuplicateService(b.log, b.repos, b.c.WSHub)
@@ -142,6 +142,7 @@ func (b *serviceContainerBuilder) initIdentityServices() {
 	b.c.Sessions = NewSessionTrackerService(b.log)
 	b.c.Device = NewDeviceService(b.log, b.repos)
 	b.c.Device.SetSessionTracker(b.c.Sessions)
+	b.c.Scheduler.SetPeriodicWorkers(b.c.Scraper, b.c.Device)
 	b.c.TelegramBot = NewTelegramBotService(b.log, b.repos, b.c.Crypto, b.c.Auth)
 	b.c.TelegramBot.SetDeviceService(b.c.Device)
 	// Device enforcement notifies users through their Telegram binding before destructive actions.

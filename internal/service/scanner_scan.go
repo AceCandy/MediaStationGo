@@ -236,34 +236,43 @@ func (s *ScannerService) finishLocalLibraryScan(ctx context.Context, lib *model.
 // Non-video files and directories are ignored. Returns true if a media row was
 // added or updated.
 func (s *ScannerService) IngestPath(ctx context.Context, libraryID, path string) (bool, error) {
-	lib, err := s.repo.Library.FindByID(ctx, libraryID)
-	if err != nil {
+	res, err := s.IngestPathResult(ctx, libraryID, path)
+	if err != nil || res == nil {
 		return false, err
 	}
+	return res.Added+res.Updated > 0, nil
+}
+
+// IngestPathResult returns the single-file scan details used by watcher task logs.
+func (s *ScannerService) IngestPathResult(ctx context.Context, libraryID, path string) (*ScanResult, error) {
+	lib, err := s.repo.Library.FindByID(ctx, libraryID)
+	if err != nil {
+		return nil, err
+	}
 	if lib == nil {
-		return false, errors.New("library not found")
+		return nil, errors.New("library not found")
 	}
 	root, err := s.localLibraryRootForPath(ctx, lib, path)
 	if err != nil || root == nil {
-		return false, err
+		return nil, err
 	}
 	if err := s.resolveLocalLibraryRootPath(ctx, lib, root); err != nil {
-		return false, err
+		return nil, err
 	}
 	fi, err := os.Stat(path)
 	if err != nil || fi.IsDir() {
-		return false, err
+		return nil, err
 	}
 	ext := strings.ToLower(filepath.Ext(path))
 	if _, ok := videoExtensions[ext]; !ok {
-		return false, nil
+		return nil, nil
 	}
 	res := &ScanResult{LibraryID: lib.ID}
 	s.ingestFile(ctx, lib, root, path, fi.Size(), fi.ModTime().UnixNano(), make(map[string]string), nil, nil, res)
 	if res.Added+res.Updated > 0 {
 		s.invalidateMediaCache(ctx)
 	}
-	return res.Added+res.Updated > 0, nil
+	return res, nil
 }
 
 func (s *ScannerService) resolveLocalLibraryPath(ctx context.Context, lib *model.Library) error {

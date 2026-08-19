@@ -8,6 +8,9 @@ import (
 	"time"
 
 	"go.uber.org/zap"
+
+	"github.com/ShukeBta/MediaStationGo/internal/model"
+	"github.com/ShukeBta/MediaStationGo/internal/repository"
 )
 
 func TestSchedulerRunNowAsyncSurvivesCallerCancellation(t *testing.T) {
@@ -180,4 +183,98 @@ func TestSchedulerStatusClearsNextRunWhileScheduledJobRuns(t *testing.T) {
 	}
 	cancel()
 	<-done
+}
+
+func TestSchedulerUpdateSchedulePersistsAndResetsRuntime(t *testing.T) {
+	db := newServiceTestDB(t, &model.Setting{})
+	repos := repository.New(db)
+	scheduler := NewSchedulerService(zap.NewNop(), repos, nil, nil, nil)
+	now := time.Date(2026, 8, 19, 12, 0, 0, 0, time.UTC)
+	scheduler.now = func() time.Time { return now }
+	job := scheduler.configuredJob(t.Context(), "library_scan", "scan.periodic_enabled", "scan.interval_seconds", false, time.Hour, func(context.Context) error { return nil })
+	scheduler.jobs = []*scheduledJob{job}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan struct{})
+	go func() {
+		scheduler.loopWithInitialDelay(ctx, job, time.Hour)
+		close(done)
+	}()
+	if err := scheduler.UpdateSchedule(t.Context(), "library_scan", true, 120); err != nil {
+		t.Fatalf("update schedule: %v", err)
+	}
+	deadline := time.Now().Add(time.Second)
+	for scheduler.Status()[0].NextRun.IsZero() && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	status := scheduler.Status()[0]
+	if !status.Enabled || status.IntervalSeconds != 120 || !status.NextRun.Equal(now.Add(2*time.Minute)) {
+		t.Fatalf("status after update = %#v", status)
+	}
+	for key, want := range map[string]string{"scan.periodic_enabled": "true", "scan.interval_seconds": "120"} {
+		if got, err := repos.Setting.Get(t.Context(), key); err != nil || got != want {
+			t.Fatalf("setting %s = %q, err = %v, want %q", key, got, err, want)
+		}
+	}
+	cancel()
+	<-done
+}
+
+func TestSchedulerUpdateScheduleRejectsInvalidConfigWithoutMutation(t *testing.T) {
+	db := newServiceTestDB(t, &model.Setting{})
+	repos := repository.New(db)
+	scheduler := NewSchedulerService(zap.NewNop(), repos, nil, nil, nil)
+	job := scheduler.configuredJob(t.Context(), "library_scan", "scan.periodic_enabled", "scan.interval_seconds", false, time.Hour, func(context.Context) error { return nil })
+	scheduler.jobs = []*scheduledJob{job, {name: "fixed", interval: time.Hour, run: func(context.Context) error { return nil }}}
+
+	for _, tt := range []struct {
+		name    string
+		seconds int64
+		wantErr error
+	}{
+		{name: "missing", seconds: 60, wantErr: ErrSchedulerJobNotFound},
+		{name: "fixed", seconds: 60, wantErr: ErrSchedulerConfigUnsupported},
+		{name: "library_scan", seconds: 59, wantErr: ErrSchedulerIntervalInvalid},
+		{name: "library_scan", seconds: int64(schedulerMaxInterval/time.Second) + 1, wantErr: ErrSchedulerIntervalInvalid},
+		{name: "library_scan", seconds: int64(^uint64(0) >> 1), wantErr: ErrSchedulerIntervalInvalid},
+	} {
+		if err := scheduler.UpdateSchedule(t.Context(), tt.name, true, tt.seconds); !errors.Is(err, tt.wantErr) {
+			t.Fatalf("update %s error = %v, want %v", tt.name, err, tt.wantErr)
+		}
+	}
+	status := scheduler.Status()[0]
+	if status.Enabled || status.IntervalSeconds != int64(time.Hour/time.Second) {
+		t.Fatalf("invalid update mutated status: %#v", status)
+	}
+	if got, err := repos.Setting.Get(t.Context(), "scan.periodic_enabled"); err != nil || got != "" {
+		t.Fatalf("invalid update persisted setting = %q, err = %v", got, err)
+	}
+}
+
+func TestSchedulerConfiguredJobIgnoresOverflowingStoredInterval(t *testing.T) {
+	db := newServiceTestDB(t, &model.Setting{})
+	repos := repository.New(db)
+	if err := repos.Setting.Set(t.Context(), "scan.interval_seconds", "9223372036854775807"); err != nil {
+		t.Fatal(err)
+	}
+	scheduler := NewSchedulerService(zap.NewNop(), repos, nil, nil, nil)
+	job := scheduler.configuredJob(t.Context(), "library_scan", "scan.periodic_enabled", "scan.interval_seconds", false, 24*time.Hour, func(context.Context) error { return nil })
+	if job.interval != 24*time.Hour {
+		t.Fatalf("interval = %v, want fallback 24h", job.interval)
+	}
+}
+
+func TestSchedulerManualRunBypassesDisabledSchedule(t *testing.T) {
+	scheduler := NewSchedulerService(zap.NewNop(), nil, nil, nil, nil)
+	var runs atomic.Int32
+	scheduler.jobs = []*scheduledJob{{
+		name: "disabled", interval: time.Hour, enabled: false, configurable: true,
+		run: func(context.Context) error { runs.Add(1); return nil },
+	}}
+	if err := scheduler.RunNow(t.Context(), "disabled"); err != nil {
+		t.Fatalf("manual run: %v", err)
+	}
+	if runs.Load() != 1 {
+		t.Fatalf("manual runs = %d, want 1", runs.Load())
+	}
 }

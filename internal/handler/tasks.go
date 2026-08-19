@@ -174,6 +174,56 @@ func taskDefinitionRunHandler(svc *service.Container) gin.HandlerFunc {
 	}
 }
 
+func taskDefinitionScheduleHandler(svc *service.Container) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		key := c.Param("key")
+		if !service.TaskDefinitionExists(key) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "task definition not found"})
+			return
+		}
+		job, ok := service.TaskDefinitionScheduleJob(key)
+		if !ok {
+			c.JSON(http.StatusMethodNotAllowed, gin.H{"error": "task schedule is not configurable"})
+			return
+		}
+		if svc == nil || svc.Scheduler == nil || svc.Tasks == nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "scheduler unavailable"})
+			return
+		}
+		var request struct {
+			Enabled         *bool `json:"enabled"`
+			IntervalSeconds int64 `json:"interval_seconds"`
+		}
+		if err := c.ShouldBindJSON(&request); err != nil || request.Enabled == nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid schedule request"})
+			return
+		}
+		if err := svc.Scheduler.UpdateSchedule(c.Request.Context(), job, *request.Enabled, request.IntervalSeconds); err != nil {
+			switch {
+			case errors.Is(err, service.ErrSchedulerIntervalInvalid):
+				c.JSON(http.StatusBadRequest, gin.H{"error": "interval is outside the supported range"})
+			case errors.Is(err, service.ErrSchedulerJobNotFound), errors.Is(err, service.ErrSchedulerConfigUnsupported):
+				c.JSON(http.StatusMethodNotAllowed, gin.H{"error": "task schedule is not configurable"})
+			default:
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update task schedule"})
+			}
+			return
+		}
+		definitions, err := svc.Tasks.Definitions(svc.Scheduler.Status())
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to refresh task definition"})
+			return
+		}
+		for _, definition := range definitions {
+			if definition.Key == key {
+				c.JSON(http.StatusOK, definition)
+				return
+			}
+		}
+		c.JSON(http.StatusNotFound, gin.H{"error": "task definition not found"})
+	}
+}
+
 func taskDefinitionLogHandler(svc *service.Container) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if svc == nil || svc.Tasks == nil {

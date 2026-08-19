@@ -1,13 +1,6 @@
 // Package service — periodic scheduled jobs.
 //
-// SchedulerService runs recurring background jobs that keep the
-// library up-to-date without operator intervention:
-//
-//	library_scan      every 24 h  — optional full re-scan for local libraries;
-//	                                  filesystem watchers handle normal changes.
-//	organize_source   opt-in        — organize the configured staging folder.
-//	                                  soft-deleted more than 30 days
-//	                                  ago.
+// SchedulerService owns the configurable periodic timers shown in the task center.
 //
 // Each job runs at most once at a time (an in-flight run blocks the
 // next tick). All work happens on a long-lived background context so
@@ -17,6 +10,8 @@ package service
 import (
 	"context"
 	"errors"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -32,18 +27,23 @@ type SchedulerService struct {
 	scanner          *ScannerService
 	organizer        *OrganizerService
 	organizePipeline *OrganizePipelineService
+	scraper          *ScraperService
+	device           *DeviceService
 	hub              *Hub
 	tasks            *TaskTrackerService
 	now              func() time.Time
 
-	mu     sync.Mutex
-	stopCh chan struct{}
-	jobs   []*scheduledJob
+	mu         sync.Mutex
+	scheduleMu sync.Mutex
+	stopCh     chan struct{}
+	jobs       []*scheduledJob
 }
 
 var (
 	ErrSchedulerJobNotFound       = errors.New("scheduled job not found")
 	ErrSchedulerJobAlreadyRunning = errors.New("scheduled job already running")
+	ErrSchedulerConfigUnsupported = errors.New("scheduled job is not configurable")
+	ErrSchedulerIntervalInvalid   = errors.New("scheduled job interval is invalid")
 )
 
 func (s *SchedulerService) SetTaskTracker(tasks *TaskTrackerService) {
@@ -54,24 +54,34 @@ func (s *SchedulerService) SetOrganizePipeline(pipeline *OrganizePipelineService
 	s.organizePipeline = pipeline
 }
 
+func (s *SchedulerService) SetPeriodicWorkers(scraper *ScraperService, device *DeviceService) {
+	s.scraper = scraper
+	s.device = device
+}
+
 // scheduledJob is one recurring task.
 type scheduledJob struct {
-	name     string
-	interval time.Duration
-	run      func(ctx context.Context) error
-	lastRun  time.Time
-	lastErr  string
-	running  bool
-	started  time.Time
-	nextRun  time.Time
+	name          string
+	interval      time.Duration
+	run           func(ctx context.Context) error
+	enabled       bool
+	configurable  bool
+	enabledKey    string
+	intervalKey   string
+	minInterval   time.Duration
+	maxInterval   time.Duration
+	reset         chan struct{}
+	configVersion uint64
+	lastRun       time.Time
+	lastErr       string
+	running       bool
+	started       time.Time
+	nextRun       time.Time
 }
 
 type schedulerManualRunKey struct{}
 
-const (
-	localLastPeriodicScanDateKey = "scan.last_periodic_date"
-	periodicScanDateFormat       = "2006-01-02"
-)
+const schedulerMaxInterval = 30 * 24 * time.Hour
 
 // NewSchedulerService is the constructor.
 func NewSchedulerService(
@@ -95,26 +105,42 @@ func NewSchedulerService(
 // Start kicks off every job in its own goroutine and returns immediately.
 func (s *SchedulerService) Start(ctx context.Context) {
 	s.jobs = []*scheduledJob{
-		{
-			name:     "library_scan",
-			interval: 24 * time.Hour,
-			run:      s.jobScanLibraries,
-		},
-		{
-			name:     "organize_source",
-			interval: s.organizeSourceInterval(ctx),
-			run:      s.jobOrganizeSource,
-		},
+		s.configuredJob(ctx, "library_scan", "scan.periodic_enabled", "scan.interval_seconds", false, 24*time.Hour, s.jobScanLibraries),
+		s.configuredJob(ctx, "organize_source", "organize.auto", "organize.interval_seconds", false, 5*time.Minute, s.jobOrganizeSource),
+		s.configuredJob(ctx, "people_backfill_periodic", "people.backfill_periodic_enabled", "people.backfill_interval_seconds", true, 10*time.Minute, s.jobPeopleBackfill),
+		s.configuredJob(ctx, "people_translation_periodic", "people.translation_periodic_enabled", "people.translation_interval_seconds", true, 10*time.Minute, s.jobPeopleTranslation),
+		s.configuredJob(ctx, "account_cleanup", SettingAccountCleanupEnabled, "device.account_cleanup_interval_seconds", false, 24*time.Hour, s.jobAccountCleanup),
 	}
 	for _, j := range s.jobs {
-		initialDelay := 15 * time.Second
-		if j.name == "library_scan" || j.name == "organize_source" {
-			// 重启后不立即整库重扫/整理下载目录：更新窗口恰是登录高峰，
-			// 15 秒即全量 walk + ffprobe 曾把 CPU/磁盘打满导致无法登录。
-			// 首轮等满一个完整周期再跑，平时节奏不变。
-			initialDelay = j.interval
+		go s.loopWithInitialDelay(ctx, j, j.interval)
+	}
+}
+
+func (s *SchedulerService) configuredJob(
+	ctx context.Context,
+	name, enabledKey, intervalKey string,
+	defaultEnabled bool,
+	defaultInterval time.Duration,
+	run func(context.Context) error,
+) *scheduledJob {
+	enabled := defaultEnabled
+	interval := defaultInterval
+	if s.repo != nil && s.repo.Setting != nil {
+		if value, err := s.repo.Setting.Get(ctx, enabledKey); err == nil && strings.TrimSpace(value) != "" {
+			enabled = parseBoolSetting(value, defaultEnabled)
 		}
-		go s.loopWithInitialDelay(ctx, j, initialDelay)
+		if value, err := s.repo.Setting.Get(ctx, intervalKey); err == nil {
+			if seconds, parseErr := strconv.ParseInt(strings.TrimSpace(value), 10, 64); parseErr == nil {
+				if seconds >= int64(time.Minute/time.Second) && seconds <= int64(schedulerMaxInterval/time.Second) {
+					interval = time.Duration(seconds) * time.Second
+				}
+			}
+		}
+	}
+	return &scheduledJob{
+		name: name, interval: interval, run: run, enabled: enabled, configurable: true,
+		enabledKey: enabledKey, intervalKey: intervalKey,
+		minInterval: time.Minute, maxInterval: schedulerMaxInterval, reset: make(chan struct{}, 1),
 	}
 }
 

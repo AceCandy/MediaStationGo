@@ -36,8 +36,8 @@ func TestTasksHandlerReturnsStableDefinitions(t *testing.T) {
 	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
 		t.Fatal(err)
 	}
-	if len(response.Definitions) != 7 {
-		t.Fatalf("definitions = %d, want 7", len(response.Definitions))
+	if len(response.Definitions) != 9 {
+		t.Fatalf("definitions = %d, want 9", len(response.Definitions))
 	}
 }
 
@@ -108,6 +108,89 @@ func TestTaskDefinitionRunHandlerRejectsTaskWithoutAction(t *testing.T) {
 	taskDefinitionRunHandler(&service.Container{})(ctx)
 
 	if recorder.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestTaskDefinitionScheduleHandlerUpdatesSchedule(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db, err := testdb.OpenPostgres(t, &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(&model.Setting{}); err != nil {
+		t.Fatal(err)
+	}
+	repos := repository.New(db)
+	scheduler := service.NewSchedulerService(zap.NewNop(), repos, nil, nil, nil)
+	scheduler.Start(t.Context())
+	defer scheduler.Stop()
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Params = gin.Params{{Key: "key", Value: service.TaskDefinitionLibraryScan}}
+	ctx.Request = httptest.NewRequest(http.MethodPut, "/api/tasks/definitions/library_scan/schedule", bytes.NewBufferString(`{"enabled":true,"interval_seconds":7200}`))
+	ctx.Request.Header.Set("Content-Type", "application/json")
+
+	taskDefinitionScheduleHandler(&service.Container{Scheduler: scheduler, Tasks: service.NewTaskTrackerService(zap.NewNop(), nil)})(ctx)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	var definition service.TaskDefinition
+	if err := json.Unmarshal(recorder.Body.Bytes(), &definition); err != nil {
+		t.Fatal(err)
+	}
+	if definition.ScheduleConfig == nil || !definition.ScheduleConfig.Enabled || definition.ScheduleConfig.IntervalSeconds != 7200 {
+		t.Fatalf("definition = %#v", definition)
+	}
+}
+
+func TestTaskDefinitionScheduleHandlerRejectsUnsupportedDefinition(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Params = gin.Params{{Key: "key", Value: service.TaskDefinitionLibraryWatch}}
+
+	taskDefinitionScheduleHandler(&service.Container{})(ctx)
+
+	if recorder.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestTaskDefinitionScheduleHandlerRejectsUnknownDefinition(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Params = gin.Params{{Key: "key", Value: "unknown"}}
+
+	taskDefinitionScheduleHandler(&service.Container{})(ctx)
+
+	if recorder.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestTaskDefinitionScheduleHandlerRejectsInvalidInterval(t *testing.T) {
+	db, err := testdb.OpenPostgres(t, &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(&model.Setting{}); err != nil {
+		t.Fatal(err)
+	}
+	scheduler := service.NewSchedulerService(zap.NewNop(), repository.New(db), nil, nil, nil)
+	scheduler.Start(t.Context())
+	defer scheduler.Stop()
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Params = gin.Params{{Key: "key", Value: service.TaskDefinitionLibraryScan}}
+	ctx.Request = httptest.NewRequest(http.MethodPut, "/api/tasks/definitions/library_scan/schedule", bytes.NewBufferString(`{"enabled":true,"interval_seconds":59}`))
+	ctx.Request.Header.Set("Content-Type", "application/json")
+
+	taskDefinitionScheduleHandler(&service.Container{Scheduler: scheduler, Tasks: service.NewTaskTrackerService(zap.NewNop(), nil)})(ctx)
+
+	if recorder.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
 	}
 }

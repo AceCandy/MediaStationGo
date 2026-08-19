@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import toast from 'react-hot-toast'
-import { Activity, ChevronLeft, ChevronRight, FileText, Play, RefreshCw, X } from 'lucide-react'
+import { Activity, ChevronLeft, ChevronRight, FileText, Play, RefreshCw, Settings, X } from 'lucide-react'
 
 import { libraryAPI } from '../api/library'
 import { tasksAPI, type BackgroundTask, type TaskDefinition, type TaskLog } from '../api/tasks'
@@ -28,6 +28,18 @@ function CurrentState({ state }: { state: TaskDefinition['current_state'] }) {
 
 function formatTime(value?: string): string {
   return value ? new Date(value).toLocaleString() : '-'
+}
+
+function formatInterval(seconds: number): string {
+  if (seconds % 86_400 === 0) return `${seconds / 86_400} 天`
+  if (seconds % 3_600 === 0) return `${seconds / 3_600} 小时`
+  return `${seconds / 60} 分钟`
+}
+
+function scheduleText(definition: TaskDefinition): string {
+  const config = definition.schedule_config
+  if (!config) return definition.schedule ? `每 ${definition.schedule}` : ''
+  return `${config.enabled ? '已启用' : '已关闭'} · 每 ${formatInterval(config.interval_seconds)}`
 }
 
 function reverseLogLines(content: string): string {
@@ -86,9 +98,10 @@ interface TaskRowProps {
   onProbeLimitChange: (value: string) => void
   onRun: (definition: TaskDefinition) => void
   onLog: (definition: TaskDefinition) => void
+  onSchedule: (definition: TaskDefinition) => void
 }
 
-function TaskActions({ definition, running, libraries, probeLibraryID, onProbeLibraryChange, probeLimit, onProbeLimitChange, onRun, onLog }: TaskRowProps) {
+function TaskActions({ definition, running, libraries, probeLibraryID, onProbeLibraryChange, probeLimit, onProbeLimitChange, onRun, onLog, onSchedule }: TaskRowProps) {
   const disabled = definition.current_state === 'running' || running === definition.key
   return (
     <div className="flex flex-wrap items-center justify-end gap-1">
@@ -124,6 +137,11 @@ function TaskActions({ definition, running, libraries, probeLibraryID, onProbeLi
           <Play size={16} />
         </button>
       )}
+      {definition.schedule_config && (
+        <button type="button" className="icon-btn" title={`设置${definition.name}周期`} aria-label={`设置${definition.name}周期`} onClick={() => onSchedule(definition)}>
+          <Settings size={16} />
+        </button>
+      )}
       <button type="button" className="rounded border border-gray-200 p-2 text-sand-500 hover:text-brand-500" title={`查看${definition.name}日志`} aria-label={`查看${definition.name}日志`} onClick={() => onLog(definition)}>
         <FileText size={16} />
       </button>
@@ -131,7 +149,7 @@ function TaskActions({ definition, running, libraries, probeLibraryID, onProbeLi
   )
 }
 
-function DefinitionTable(props: { definitions: TaskDefinition[]; running: string; libraries: Library[]; probeLibraryID: string; onProbeLibraryChange: TaskRowProps['onProbeLibraryChange']; probeLimit: string; onProbeLimitChange: TaskRowProps['onProbeLimitChange']; onRun: TaskRowProps['onRun']; onLog: TaskRowProps['onLog'] }) {
+function DefinitionTable(props: { definitions: TaskDefinition[]; running: string; libraries: Library[]; probeLibraryID: string; onProbeLibraryChange: TaskRowProps['onProbeLibraryChange']; probeLimit: string; onProbeLimitChange: TaskRowProps['onProbeLimitChange']; onRun: TaskRowProps['onRun']; onLog: TaskRowProps['onLog']; onSchedule: TaskRowProps['onSchedule'] }) {
   return (
     <>
 		<div className="hidden overflow-x-auto lg:block">
@@ -143,7 +161,7 @@ function DefinitionTable(props: { definitions: TaskDefinition[]; running: string
             {props.definitions.map((definition) => (
               <tr key={definition.key} className="border-t border-gray-200 align-top">
 				<td className="max-w-xs py-3"><div className="font-medium text-ink-600">{definition.name}</div><div className="mt-0.5 text-xs text-ink-50">{definition.description}</div></td>
-				<td className="py-3 text-ink-100"><div>{definition.trigger}</div>{definition.schedule && <div className="mt-0.5 text-xs text-ink-50">每 {definition.schedule}</div>}</td>
+				<td className="py-3 text-ink-100"><div>{definition.trigger}</div>{scheduleText(definition) && <div className="mt-0.5 text-xs text-ink-50">{scheduleText(definition)}</div>}</td>
                 <td className="py-3"><CurrentState state={definition.current_state} /></td>
                 <td className="py-3"><LatestResult task={definition.latest} /></td>
                 <td className="whitespace-nowrap py-3 text-ink-100">{formatTime(definition.latest?.finished_at ?? definition.latest?.started_at)}</td>
@@ -159,16 +177,70 @@ function DefinitionTable(props: { definitions: TaskDefinition[]; running: string
           <section key={definition.key} className="py-4 first:pt-0 last:pb-0">
 			<div className="flex items-start justify-between gap-3"><div><h2 className="font-medium text-ink-600">{definition.name}</h2><p className="mt-0.5 text-xs text-ink-50">{definition.description}</p></div><TaskActions {...props} definition={definition} /></div>
             <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
-			<div><dt className="text-ink-50">触发方式</dt><dd className="mt-0.5 text-ink-100">{definition.trigger}{definition.schedule ? ` · 每 ${definition.schedule}` : ''}</dd></div>
+			<div><dt className="text-ink-50">触发方式</dt><dd className="mt-0.5 text-ink-100">{definition.trigger}{scheduleText(definition) ? ` · ${scheduleText(definition)}` : ''}</dd></div>
 			<div><dt className="text-ink-50">当前状态</dt><dd className="mt-0.5"><CurrentState state={definition.current_state} /></dd></div>
 			<div><dt className="text-ink-50">最近结果</dt><dd className="mt-0.5"><LatestResult task={definition.latest} /></dd></div>
 			<div><dt className="text-ink-50">最近执行</dt><dd className="mt-0.5 text-ink-100">{formatTime(definition.latest?.finished_at ?? definition.latest?.started_at)}</dd></div>
-			{definition.schedule && <div className="col-span-2"><dt className="text-ink-50">下次执行</dt><dd className="mt-0.5 text-ink-100">{formatTime(definition.next_run)}</dd></div>}
+			{definition.schedule_config && <div className="col-span-2"><dt className="text-ink-50">下次执行</dt><dd className="mt-0.5 text-ink-100">{formatTime(definition.next_run)}</dd></div>}
             </dl>
           </section>
         ))}
       </div>
     </>
+  )
+}
+
+const scheduleUnits = {
+  minute: { label: '分钟', seconds: 60 },
+  hour: { label: '小时', seconds: 3_600 },
+  day: { label: '天', seconds: 86_400 },
+} as const
+
+type ScheduleUnit = keyof typeof scheduleUnits
+
+function scheduleUnitFor(seconds: number): ScheduleUnit {
+  if (seconds % scheduleUnits.day.seconds === 0) return 'day'
+  if (seconds % scheduleUnits.hour.seconds === 0) return 'hour'
+  return 'minute'
+}
+
+function TaskScheduleDialog({ definition, onClose, onSaved }: { definition: TaskDefinition; onClose: () => void; onSaved: () => Promise<void> }) {
+  const config = definition.schedule_config!
+  const initialUnit = scheduleUnitFor(config.interval_seconds)
+  const [enabled, setEnabled] = useState(config.enabled)
+  const [unit, setUnit] = useState<ScheduleUnit>(initialUnit)
+  const [value, setValue] = useState(String(config.interval_seconds / scheduleUnits[initialUnit].seconds))
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+  const unitSeconds = scheduleUnits[unit].seconds
+
+  const save = async () => {
+    setSaving(true)
+    setError('')
+    try {
+      await tasksAPI.updateSchedule(definition.key, enabled, Number(value) * unitSeconds)
+      await onSaved()
+      toast.success(`${definition.name}周期已更新`)
+      onClose()
+    } catch (err: unknown) {
+      setError((err as { response?: { data?: { error?: string } } })?.response?.data?.error ?? '周期设置保存失败')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <ModalShell onClose={saving ? undefined : onClose} maxWidth="max-w-md" className="p-5 sm:p-6" ariaLabel={`设置${definition.name}周期`}>
+      <header className="flex items-start justify-between gap-3"><div><h2 className="font-display text-lg font-semibold text-ink-600">{definition.name}</h2><p className="mt-1 text-xs text-ink-50">设置后台定时执行开关与周期</p></div><button type="button" className="icon-btn" title="关闭" aria-label="关闭" disabled={saving} onClick={onClose}><X size={18} /></button></header>
+      <label className="mt-5 flex items-center justify-between gap-4 text-sm text-ink-600"><span>启用定时执行</span><input type="checkbox" checked={enabled} disabled={saving} onChange={(event) => setEnabled(event.target.checked)} /></label>
+      <div className="mt-4 grid grid-cols-[minmax(0,1fr)_7rem] gap-2">
+        <label><span className="mb-1 block text-xs text-ink-50">执行周期</span><input className="input-field" type="number" min={Math.ceil(config.min_interval_seconds / unitSeconds)} max={Math.floor(config.max_interval_seconds / unitSeconds)} step="1" required value={value} disabled={saving} onChange={(event) => setValue(event.target.value)} /></label>
+        <label><span className="mb-1 block text-xs text-ink-50">单位</span><select className="input-field" value={unit} disabled={saving} onChange={(event) => setUnit(event.target.value as ScheduleUnit)}>{Object.entries(scheduleUnits).map(([key, item]) => <option key={key} value={key}>{item.label}</option>)}</select></label>
+      </div>
+      <p className="mt-2 text-xs text-ink-50">支持范围：{formatInterval(config.min_interval_seconds)} 至 {formatInterval(config.max_interval_seconds)}</p>
+      {error && <p className="mt-3 text-sm text-red-500" role="alert">{error}</p>}
+      <footer className="mt-6 flex justify-end gap-2"><button type="button" className="btn-outline" disabled={saving} onClick={onClose}>取消</button><button type="button" className="btn-primary" disabled={saving || !value} onClick={() => void save()}>{saving ? '保存中...' : '保存'}</button></footer>
+    </ModalShell>
   )
 }
 
@@ -274,6 +346,7 @@ export function TasksPage() {
 	const [definitions, setDefinitions] = useState<TaskDefinition[] | null>(null)
 	const [loadError, setLoadError] = useState(false)
   const [logDefinition, setLogDefinition] = useState<TaskDefinition | null>(null)
+	const [scheduleDefinition, setScheduleDefinition] = useState<TaskDefinition | null>(null)
 	const [running, setRunning] = useState('')
 	const [libraries, setLibraries] = useState<Library[]>([])
 	const [probeLibraryID, setProbeLibraryID] = useState('')
@@ -318,9 +391,10 @@ export function TasksPage() {
     <div className="space-y-6">
       <header className="flex items-center gap-3"><Activity className="h-6 w-6 text-brand-500" /><div><h1 className="font-display text-3xl font-bold text-ink-600">任务中心</h1><p className="text-sm text-ink-50">查看后台任务状态、调度与最近执行结果。</p></div></header>
 		<section className="glass-panel">
-			{loadError && !definitions ? <div className="flex flex-col items-center gap-3 py-8 text-sm text-ink-50"><p>任务列表加载失败。</p><button type="button" className="rounded border border-gray-200 p-2 text-sand-600 hover:text-brand-500" title="重新加载" aria-label="重新加载" onClick={() => void refresh()}><RefreshCw size={16} /></button></div> : !definitions ? <p className="py-8 text-center text-ink-50">加载中...</p> : definitions.length === 0 ? <p className="py-8 text-center text-ink-50">暂无任务。</p> : <DefinitionTable definitions={definitions} running={running} libraries={libraries} probeLibraryID={probeLibraryID} onProbeLibraryChange={setProbeLibraryID} probeLimit={probeLimit} onProbeLimitChange={setProbeLimit} onRun={(definition) => void run(definition)} onLog={setLogDefinition} />}
+			{loadError && !definitions ? <div className="flex flex-col items-center gap-3 py-8 text-sm text-ink-50"><p>任务列表加载失败。</p><button type="button" className="rounded border border-gray-200 p-2 text-sand-600 hover:text-brand-500" title="重新加载" aria-label="重新加载" onClick={() => void refresh()}><RefreshCw size={16} /></button></div> : !definitions ? <p className="py-8 text-center text-ink-50">加载中...</p> : definitions.length === 0 ? <p className="py-8 text-center text-ink-50">暂无任务。</p> : <DefinitionTable definitions={definitions} running={running} libraries={libraries} probeLibraryID={probeLibraryID} onProbeLibraryChange={setProbeLibraryID} probeLimit={probeLimit} onProbeLimitChange={setProbeLimit} onRun={(definition) => void run(definition)} onLog={setLogDefinition} onSchedule={setScheduleDefinition} />}
       </section>
       {logDefinition && <TaskLogDialog definition={logDefinition} onClose={() => setLogDefinition(null)} />}
+      {scheduleDefinition && <TaskScheduleDialog definition={scheduleDefinition} onClose={() => setScheduleDefinition(null)} onSaved={() => refresh().catch(() => setLoadError(true))} />}
     </div>
   )
 }

@@ -20,7 +20,6 @@ const (
 	peopleTranslationTargetLanguage = "zh-CN"
 )
 
-var peopleTranslationSweepInterval = 10 * time.Minute
 var peopleTranslationDebounceDelay = 10 * time.Second
 var peopleTranslationMaxDebounceWait = 30 * time.Second
 
@@ -72,8 +71,6 @@ func (s *ScraperService) queuePeopleTranslation() {
 
 func (s *ScraperService) runPeopleTranslationWorker(ctx context.Context) {
 	defer s.peopleTranslationWG.Done()
-	ticker := time.NewTicker(peopleTranslationSweepInterval)
-	defer ticker.Stop()
 	failures := 0
 	for {
 		select {
@@ -83,7 +80,6 @@ func (s *ScraperService) runPeopleTranslationWorker(ctx context.Context) {
 			if !waitForPeopleTranslationDebounce(ctx, s.peopleTranslationWake) {
 				return
 			}
-		case <-ticker.C:
 		}
 		if err := s.translatePendingPeople(ctx); err != nil && ctx.Err() == nil {
 			delay := peopleTranslationRetryDelay(failures)
@@ -139,7 +135,16 @@ func peopleTranslationRetryDelay(failures int) time.Duration {
 }
 
 func (s *ScraperService) translatePendingPeople(ctx context.Context) error {
-	if s == nil || s.ai == nil || s.repo == nil || s.repo.Setting == nil || s.repo.Person == nil {
+	return s.translatePendingPeopleTriggered(ctx, TaskTriggerEvent)
+}
+
+func (s *ScraperService) translatePendingPeopleTriggered(ctx context.Context, trigger string) error {
+	if s == nil {
+		return nil
+	}
+	s.peopleTranslationRunMu.Lock()
+	defer s.peopleTranslationRunMu.Unlock()
+	if s.ai == nil || s.repo == nil || s.repo.Setting == nil || s.repo.Person == nil {
 		return nil
 	}
 	enabled, err := s.repo.Setting.Get(ctx, peopleAITranslateSettingKey)
@@ -157,7 +162,7 @@ func (s *ScraperService) translatePendingPeople(ctx context.Context) error {
 		return fmt.Errorf("task tracker unavailable")
 	}
 	metrics := map[string]int64{"total": int64(len(groups))}
-	task := s.tasks.StartTriggered(TaskKindPeople, TaskTriggerEvent, "人物翻译", TaskUpdate{Stage: "translation", Message: "人物翻译已启动", Metrics: metrics})
+	task := s.tasks.StartTriggered(TaskKindPeople, trigger, "人物翻译", TaskUpdate{Stage: "translation", Message: "人物翻译已启动", Metrics: metrics})
 	if task == nil {
 		return fmt.Errorf("create task execution failed")
 	}

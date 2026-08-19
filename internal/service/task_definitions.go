@@ -11,25 +11,35 @@ import (
 const (
 	TaskDefinitionOrganize          = "organize"
 	TaskDefinitionLibraryScan       = "library_scan"
+	TaskDefinitionLibraryWatch      = "library_watch"
 	TaskDefinitionProbeBackfill     = "probe_backfill"
 	TaskDefinitionMediaScrape       = "media_scrape"
 	TaskDefinitionCatalogScrape     = "catalog_scrape"
 	TaskDefinitionPeopleBackfill    = "people_backfill"
 	TaskDefinitionPeopleTranslation = "people_translation"
+	TaskDefinitionAccountCleanup    = "account_cleanup"
 )
 
 var ErrTaskDefinitionNotFound = errors.New("task definition not found")
 
 type TaskDefinition struct {
-	Key          string          `json:"key"`
-	Name         string          `json:"name"`
-	Description  string          `json:"description"`
-	Trigger      string          `json:"trigger"`
-	Schedule     string          `json:"schedule,omitempty"`
-	CurrentState string          `json:"current_state"`
-	NextRun      *time.Time      `json:"next_run,omitempty"`
-	Action       string          `json:"action,omitempty"`
-	Latest       *BackgroundTask `json:"latest,omitempty"`
+	Key            string              `json:"key"`
+	Name           string              `json:"name"`
+	Description    string              `json:"description"`
+	Trigger        string              `json:"trigger"`
+	Schedule       string              `json:"schedule,omitempty"`
+	CurrentState   string              `json:"current_state"`
+	NextRun        *time.Time          `json:"next_run,omitempty"`
+	Action         string              `json:"action,omitempty"`
+	Latest         *BackgroundTask     `json:"latest,omitempty"`
+	ScheduleConfig *TaskScheduleConfig `json:"schedule_config,omitempty"`
+}
+
+type TaskScheduleConfig struct {
+	Enabled            bool  `json:"enabled"`
+	IntervalSeconds    int64 `json:"interval_seconds"`
+	MinIntervalSeconds int64 `json:"min_interval_seconds"`
+	MaxIntervalSeconds int64 `json:"max_interval_seconds"`
 }
 
 type taskDefinitionSpec struct {
@@ -41,16 +51,22 @@ type taskDefinitionSpec struct {
 var taskDefinitionSpecs = []taskDefinitionSpec{
 	{TaskDefinition: TaskDefinition{Key: TaskDefinitionOrganize, Name: "媒体整理", Description: "整理、重命名并入库下载目录内容", Trigger: "定时 / 手动", Action: "scheduler"}, filter: repository.TaskExecutionFilter{Kind: TaskKindOrganize}, schedulerJob: "organize_source"},
 	{TaskDefinition: TaskDefinition{Key: TaskDefinitionLibraryScan, Name: "媒体库扫描", Description: "扫描已启用媒体库并同步入库变化", Trigger: "定时 / 手动", Action: "scheduler"}, filter: repository.TaskExecutionFilter{Kind: TaskKindScan}, schedulerJob: "library_scan"},
+	{TaskDefinition: TaskDefinition{Key: TaskDefinitionLibraryWatch, Name: "媒体库变更监听", Description: "监听本地媒体文件变化并增量同步入库", Trigger: "文件事件"}, filter: repository.TaskExecutionFilter{Kind: TaskKindWatch}},
 	{TaskDefinition: TaskDefinition{Key: TaskDefinitionProbeBackfill, Name: "媒体轨道回填", Description: "遍历并补充缺少完整探测信息的媒体轨道", Trigger: "全库手动触发", Action: "probe_backfill"}, filter: repository.TaskExecutionFilter{Kind: TaskKindProbe}},
 	{TaskDefinition: TaskDefinition{Key: TaskDefinitionMediaScrape, Name: "媒体入库刮削", Description: "优先处理已入库媒体的待刮削对象", Trigger: "事件触发"}, filter: repository.TaskExecutionFilter{Kind: TaskKindScrape, ExcludeNamePrefix: "发现目录刮削："}},
 	{TaskDefinition: TaskDefinition{Key: TaskDefinitionCatalogScrape, Name: "发现目录刮削", Description: "后台补全发现目录中的电影和电视剧", Trigger: "事件触发"}, filter: repository.TaskExecutionFilter{Kind: TaskKindScrape, NamePrefix: "发现目录刮削："}},
-	{TaskDefinition: TaskDefinition{Key: TaskDefinitionPeopleBackfill, Name: "人物信息补齐", Description: "补齐尚未获取演职员信息的元数据", Trigger: "事件 / 手动", Action: "people_backfill"}, filter: repository.TaskExecutionFilter{Kind: TaskKindPeople, Name: "人物信息补齐"}},
-	{TaskDefinition: TaskDefinition{Key: TaskDefinitionPeopleTranslation, Name: "人物翻译", Description: "逐步翻译尚无中文名称和角色名的人物", Trigger: "事件触发"}, filter: repository.TaskExecutionFilter{Kind: TaskKindPeople, Name: "人物翻译"}},
+	{TaskDefinition: TaskDefinition{Key: TaskDefinitionPeopleBackfill, Name: "人物信息补齐", Description: "补齐尚未获取演职员信息的元数据", Trigger: "定时 / 事件 / 手动", Action: "people_backfill"}, filter: repository.TaskExecutionFilter{Kind: TaskKindPeople, Name: "人物信息补齐"}, schedulerJob: "people_backfill_periodic"},
+	{TaskDefinition: TaskDefinition{Key: TaskDefinitionPeopleTranslation, Name: "人物翻译", Description: "逐步翻译尚无中文名称和角色名的人物", Trigger: "定时 / 事件"}, filter: repository.TaskExecutionFilter{Kind: TaskKindPeople, Name: "人物翻译"}, schedulerJob: "people_translation_periodic"},
+	{TaskDefinition: TaskDefinition{Key: TaskDefinitionAccountCleanup, Name: "账号清理巡检", Description: "按保号规则检查并清理不符合条件的账号", Trigger: "定时"}, filter: repository.TaskExecutionFilter{Kind: TaskKindCleanup, Name: "账号清理巡检"}, schedulerJob: "account_cleanup"},
 }
 
 func isTaskDefinitionKey(key string) bool {
 	_, ok := taskDefinitionSpecForKey(key)
 	return ok
+}
+
+func TaskDefinitionExists(key string) bool {
+	return isTaskDefinitionKey(key)
 }
 
 func taskDefinitionSpecForKey(key string) (taskDefinitionSpec, bool) {
@@ -105,6 +121,12 @@ func (t *TaskTrackerService) Definitions(scheduler []JobStatus) ([]TaskDefinitio
 			if status.Running {
 				definition.CurrentState = TaskStatusRunning
 			}
+			if status.Configurable {
+				definition.ScheduleConfig = &TaskScheduleConfig{
+					Enabled: status.Enabled, IntervalSeconds: status.IntervalSeconds,
+					MinIntervalSeconds: status.MinIntervalSeconds, MaxIntervalSeconds: status.MaxIntervalSeconds,
+				}
+			}
 		}
 		definitions = append(definitions, definition)
 	}
@@ -141,6 +163,13 @@ func (t *TaskTrackerService) DefinitionHistory(key string, page, pageSize int) (
 }
 
 func TaskDefinitionSchedulerJob(key string) (string, bool) {
+	if spec, ok := taskDefinitionSpecForKey(key); ok && spec.schedulerJob != "" && spec.Action == "scheduler" {
+		return spec.schedulerJob, true
+	}
+	return "", false
+}
+
+func TaskDefinitionScheduleJob(key string) (string, bool) {
 	if spec, ok := taskDefinitionSpecForKey(key); ok && spec.schedulerJob != "" {
 		return spec.schedulerJob, true
 	}

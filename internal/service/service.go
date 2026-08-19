@@ -5,7 +5,6 @@ package service
 
 import (
 	"context"
-	"time"
 
 	"go.uber.org/zap"
 
@@ -105,12 +104,6 @@ func (c *Container) Boot() {
 
 	// 启动调度器定时任务
 	c.Scheduler.Start(c.stopCtx)
-
-	// Mgo 保号规则巡检：默认关闭，由管理员通过 Telegram Bot 命令开启。
-	// 每天触发一次评估；规则里的窗口可随机，不固定。
-	if c.Device != nil {
-		go c.runInactivitySweeper(c.stopCtx)
-	}
 }
 
 // Context is canceled when the service container is closing.
@@ -119,25 +112,6 @@ func (c *Container) Context() context.Context {
 		return context.Background()
 	}
 	return c.stopCtx
-}
-
-// runInactivitySweeper periodically runs the account-cleanup policy. Kept with
-// the historical name to avoid churn in callers.
-func (c *Container) runInactivitySweeper(ctx context.Context) {
-	ticker := time.NewTicker(24 * time.Hour)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			if n, err := c.Device.SweepAccountCleanup(ctx); err != nil {
-				c.Log.Warn("account cleanup sweep failed", zap.Error(err))
-			} else if n > 0 {
-				c.Log.Info("account cleanup sweep removed accounts", zap.Int("count", n))
-			}
-		}
-	}
 }
 
 // Close 释放 services 持有的任何资源（websocket hub、fsnotify、后台轮询器）。

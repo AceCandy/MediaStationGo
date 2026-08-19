@@ -14,8 +14,11 @@ package service
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -38,6 +41,7 @@ type WatcherService struct {
 	log     *zap.Logger
 	repo    *repository.Container
 	scanner *ScannerService
+	tasks   *TaskTrackerService
 
 	mu      sync.Mutex
 	watcher *fsnotify.Watcher
@@ -47,11 +51,12 @@ type WatcherService struct {
 }
 
 // NewWatcherService is the constructor.
-func NewWatcherService(log *zap.Logger, repo *repository.Container, scanner *ScannerService) *WatcherService {
+func NewWatcherService(log *zap.Logger, repo *repository.Container, scanner *ScannerService, tasks *TaskTrackerService) *WatcherService {
 	return &WatcherService{
 		log:     log,
 		repo:    repo,
 		scanner: scanner,
+		tasks:   tasks,
 		watched: make(map[string]string),
 		pending: make(map[string]pendingEvent),
 		stop:    make(chan struct{}),
@@ -267,33 +272,99 @@ func (w *WatcherService) debouncer(ctx context.Context) {
 			}
 		}
 		w.mu.Unlock()
-		for _, d := range due {
-			w.process(ctx, d)
+		w.processBatch(ctx, due)
+	}
+}
+
+func (w *WatcherService) processBatch(ctx context.Context, due []duePath) {
+	candidates := make([]duePath, 0, len(due))
+	for _, d := range due {
+		if fi, err := os.Stat(d.path); err == nil && fi.IsDir() {
+			continue
+		}
+		if _, ok := videoExtensions[strings.ToLower(filepath.Ext(d.path))]; ok {
+			candidates = append(candidates, d)
+		}
+	}
+	if len(candidates) == 0 {
+		return
+	}
+	metrics := map[string]int64{"total": int64(len(candidates))}
+	if w.tasks == nil {
+		w.requeue(candidates)
+		w.log.Error("watcher task tracker unavailable")
+		return
+	}
+	task := w.tasks.StartTriggered(TaskKindWatch, TaskTriggerEvent, "媒体库变更监听", TaskUpdate{
+		Stage: "watch", Message: "媒体库变更处理已启动", Metrics: metrics,
+	})
+	if task == nil {
+		w.requeue(candidates)
+		w.log.Error("create watcher task execution failed")
+		return
+	}
+	for _, d := range candidates {
+		details, key := w.processPath(ctx, d)
+		metrics[key]++
+		task.Update(TaskUpdate{Stage: "watch", Metrics: metrics, Details: details})
+	}
+	if metrics["failed"] > 0 {
+		task.Finish(errors.New("部分文件变更处理失败"), TaskUpdate{Stage: "watch", Message: "媒体库变更处理失败", Metrics: metrics})
+		return
+	}
+	task.Finish(nil, TaskUpdate{Stage: "completed", Message: "媒体库变更处理完成", Metrics: metrics})
+}
+
+func (w *WatcherService) requeue(paths []duePath) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	for _, d := range paths {
+		if _, exists := w.pending[d.path]; !exists {
+			w.pending[d.path] = pendingEvent{libraryID: d.libraryID, ts: time.Now()}
 		}
 	}
 }
 
-// process ingests or removes a single changed path.
-func (w *WatcherService) process(ctx context.Context, d duePath) {
+// processPath ingests or removes one changed media path and returns one update's details.
+func (w *WatcherService) processPath(ctx context.Context, d duePath) ([]string, string) {
 	fi, err := os.Stat(d.path)
 	if err != nil {
-		// Vanished (delete/rename away): drop its media row if any.
 		if removed, derr := w.scanner.RemovePath(ctx, d.path); derr != nil {
 			w.log.Warn("watcher remove failed", zap.String("path", d.path), zap.Error(derr))
+			safeErr := sanitizeTaskLogError(derr)
+			return []string{fmt.Sprintf("❌ 删除 %s 失败: %v", d.path, safeErr)}, "failed"
 		} else if removed > 0 {
 			w.log.Info("watcher removed media", zap.String("path", d.path))
+			return []string{"🗑️ 删除 " + d.path}, "removed"
 		}
-		return
+		return []string{"⏭️ 删除路径无对应媒体记录 " + d.path}, "skipped"
 	}
 	if fi.IsDir() {
-		return // directory events only matter for registering new watches
+		return nil, "skipped"
 	}
-	if added, ierr := w.scanner.IngestPath(ctx, d.libraryID, d.path); ierr != nil {
+	res, ierr := w.scanner.IngestPathResult(ctx, d.libraryID, d.path)
+	if ierr != nil {
 		w.log.Warn("watcher ingest failed", zap.String("path", d.path), zap.Error(ierr))
-	} else if added {
+		safeErr := sanitizeTaskLogError(ierr)
+		return []string{fmt.Sprintf("❌ 入库 %s 失败: %v", d.path, safeErr)}, "failed"
+	}
+	if res != nil && res.ErrorCount > 0 {
+		details := make([]string, 0, len(res.Errors))
+		for _, item := range res.Errors {
+			details = append(details, "❌ "+sanitizeTaskLogError(errors.New(item)).Error())
+		}
+		return details, "failed"
+	}
+	if res != nil && res.Added+res.Updated > 0 {
 		w.log.Info("watcher ingested media", zap.String("path", d.path))
 		if w.scanner.scraper != nil && w.scanner.autoScrapeEnabled(ctx) {
 			w.scanner.scraper.WakeScrapeWorker()
 		}
+		details := res.ChangeDetails()
+		if res.Added > 0 {
+			return details, "added"
+		}
+		return details, "updated"
 	}
+	return []string{"⏭️ 文件未产生入库变化 " + d.path}, "skipped"
 }

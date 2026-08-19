@@ -31,13 +31,15 @@ type ScraperService struct {
 	people  *PeopleImageStore
 	ai      *AIService
 
-	peopleTranslationWake chan struct{}
-	peopleTranslationOnce sync.Once
-	peopleTranslationWG   sync.WaitGroup
-	peopleBackfillWake    chan struct{}
-	peopleBackfillOnce    sync.Once
-	peopleBackfillWG      sync.WaitGroup
-	peopleBackfillManual  atomic.Bool
+	peopleTranslationWake  chan struct{}
+	peopleTranslationOnce  sync.Once
+	peopleTranslationWG    sync.WaitGroup
+	peopleTranslationRunMu sync.Mutex
+	peopleBackfillWake     chan struct{}
+	peopleBackfillOnce     sync.Once
+	peopleBackfillWG       sync.WaitGroup
+	peopleBackfillManual   atomic.Bool
+	peopleBackfillRunMu    sync.Mutex
 
 	catalogHydrationWake chan struct{}
 	catalogHydrationOnce sync.Once

@@ -12,7 +12,7 @@ import (
 	"github.com/ShukeBta/MediaStationGo/internal/repository"
 )
 
-func TestSchedulerPeriodicLocalScanRunsAtMostOncePerDay(t *testing.T) {
+func TestSchedulerPeriodicLocalScanRunsEveryInvocation(t *testing.T) {
 	root := t.TempDir()
 	libraryPath := filepath.Join(root, "library")
 	writeOrgFile(t, filepath.Join(libraryPath, "Daily.Show.S01E01.mkv"), "episode 1")
@@ -44,22 +44,12 @@ func TestSchedulerPeriodicLocalScanRunsAtMostOncePerDay(t *testing.T) {
 	if err := scheduler.jobScanLibraries(t.Context()); err != nil {
 		t.Fatalf("same-day periodic local scan: %v", err)
 	}
-	if got := countMedia(t, repos); got != 1 {
-		t.Fatalf("same-day periodic scan should not import new file, media count = %d", got)
-	}
-
-	scheduler.now = func() time.Time {
-		return time.Date(2026, 6, 21, 10, 0, 0, 0, time.Local)
-	}
-	if err := scheduler.jobScanLibraries(t.Context()); err != nil {
-		t.Fatalf("next-day periodic local scan: %v", err)
-	}
 	if got := countMedia(t, repos); got != 2 {
-		t.Fatalf("media count after next-day scan = %d, want 2", got)
+		t.Fatalf("media count after second scan = %d, want 2", got)
 	}
 }
 
-func TestSchedulerManualLocalScanBypassesDailyPeriodicLimit(t *testing.T) {
+func TestSchedulerManualLocalScanBypassesDisabledSchedule(t *testing.T) {
 	root := t.TempDir()
 	libraryPath := filepath.Join(root, "library")
 	writeOrgFile(t, filepath.Join(libraryPath, "Manual.Show.S01E01.mkv"), "episode 1")
@@ -80,9 +70,8 @@ func TestSchedulerManualLocalScanBypassesDailyPeriodicLimit(t *testing.T) {
 		return time.Date(2026, 6, 20, 10, 0, 0, 0, time.Local)
 	}
 	scheduler.jobs = []*scheduledJob{{
-		name:     "library_scan",
-		interval: 24 * time.Hour,
-		run:      scheduler.jobScanLibraries,
+		name: "library_scan", interval: 24 * time.Hour, run: scheduler.jobScanLibraries,
+		configurable: true, enabled: false,
 	}}
 
 	if err := scheduler.jobScanLibraries(t.Context()); err != nil {
@@ -93,6 +82,6 @@ func TestSchedulerManualLocalScanBypassesDailyPeriodicLimit(t *testing.T) {
 		t.Fatalf("manual local scan: %v", err)
 	}
 	if got := countMedia(t, repos); got != 2 {
-		t.Fatalf("manual scan should bypass daily periodic limit, media count = %d", got)
+		t.Fatalf("manual scan should bypass disabled schedule, media count = %d", got)
 	}
 }

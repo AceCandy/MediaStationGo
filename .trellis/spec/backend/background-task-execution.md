@@ -18,6 +18,10 @@ history is observability only; business object state owns retry and recovery.
 - `GET /api/tasks` also returns stable task `definitions`; each definition may
   expose current state, latest terminal execution, schedule, next run, and a
   server-owned manual action.
+- Configurable periodic definitions expose `schedule_config` with `enabled`,
+  `interval_seconds`, `min_interval_seconds`, and `max_interval_seconds`.
+- `PUT /api/tasks/definitions/:key/schedule` accepts `enabled` and
+  `interval_seconds`, then returns the refreshed task definition.
 - `GET /api/tasks/definitions/:key/executions` returns paginated execution
   history for one validated task definition.
 - `GET /api/tasks/definitions/:key/log?date=YYYY-MM-DD&tail_bytes=` returns
@@ -26,6 +30,8 @@ history is observability only; business object state owns retry and recovery.
 - Task logs live at
   `<data_dir>/task-logs/YYYY-MM-DD/<task-definition-key>.log`.
 - Media scrape states include `pending`, `running`, `matched`, `no_match`, and `error`.
+- Watcher batches use `TaskKindWatch`, `TaskTriggerEvent`, and the stable
+  `library_watch` definition; they never reuse the full-scan kind.
 
 ### 3. Contracts
 
@@ -42,6 +48,18 @@ history is observability only; business object state owns retry and recovery.
 - The task-log UI selects an available date and displays the complete bounded
   tail of that definition's daily file. It does not select an execution row.
 - Manual log refresh reloads the currently selected date without closing the dialog.
+- `SchedulerService` owns all configurable periodic timers. The initial jobs are
+  library scan, source organization, people backfill, people translation, and
+  account cleanup. Their intervals are whole seconds from 60 seconds through 30
+  days. Saving a schedule persists both settings and resets the live countdown;
+  a disabled job has no next run and does not block manual or event entry points.
+- Schedule setting keys, defaults, and bounds are server-owned. The task-center UI
+  only converts seconds into a numeric duration and unit and displays server errors.
+- A watcher debounce window creates at most one execution after directory and
+  unsupported-extension events are removed. Every remaining path is processed
+  even after another path fails. A task-execution create failure requeues the
+  complete candidate batch; individual business failures are recorded and make
+  the batch failed without creating a retry loop.
 - New task-center log lines never contain `[INFO]`, `[DETAIL]`, or `[ERROR]`.
   The tracker writes `🔻` first for start, `🔄` for progress, `❌` for terminal
   errors, and `🔺` last for finish. Because the UI reverses lines, `🔺` is the
@@ -98,8 +116,13 @@ history is observability only; business object state owns retry and recovery.
 | Condition | Required result |
 | --- | --- |
 | Unknown task definition key | Return 404; never use it as an unchecked filename |
+| Definition has no configurable periodic job | Reject the schedule update; do not persist settings |
+| Schedule interval is below 60 seconds or above 30 days | Return 400; do not change persisted or live configuration |
+| Schedule persistence fails | Keep the current live interval and enabled state |
+| Schedule is disabled | Clear `next_run`; manual and event entry points remain available |
 | Invalid or unavailable `YYYY-MM-DD` date | Return 400; never resolve a client-provided path |
 | Task execution insert fails | Do not start the background work |
+| Watcher execution insert fails | Requeue every candidate path for a later debounce batch |
 | Task log append fails | Continue work, log the application error |
 | A provider error contains a URL or query token | Preserve the original business error for the caller, but write only the sanitized error to the task log |
 | A batch update has old and new detail lines | Pass only the new lines to `TaskUpdate.Details` |
@@ -116,16 +139,23 @@ history is observability only; business object state owns retry and recovery.
 - Good: a two-episode series is claimed and completed as one unit, then the worker
   checks newly imported media before taking another catalog item.
 - Good: a scan change is written as `timestamp ➕ 新增 /media/a.strm`.
+- Good: enabling a two-hour library scan persists `7200`, resets its live timer,
+  and immediately returns a definition whose `schedule_config.enabled` is true.
+- Good: two settled video paths produce one `library_watch` execution with two
+  detail lines, while `library_scan` history remains empty.
 - Good: reverse display places the final `🔺` above all execution details and
   the initial `🔻` below them.
 - Good: equal role source text in two episodes of the same season creates one
   translation group with two write-back targets.
 - Base: no work exists; the worker waits for a wake signal.
+- Base: a disabled periodic job reports no `next_run`; its manual action still runs.
 - Base: an unmarked summary is written with `ℹ️`; historical labeled lines are
   displayed without their label and remain unchanged on disk.
 - Base: equal role source text in different seasons remains two translation groups.
 - Bad: select pending rows without a conditional update, or resume from an old
   task execution/log after restart.
+- Bad: keep a second ticker inside a periodic worker, or update a setting without
+  resetting the corresponding live scheduler timer.
 - Bad: use each episode `MetadataID` as the role cache context and call AI once
   per episode for the same season role.
 - Bad: emit a new `[INFO]`, `[DETAIL]`, or `[ERROR]` task-center line, depend on
@@ -144,6 +174,10 @@ history is observability only; business object state owns retry and recovery.
 - Atomic whole-series claim, late-series-member exclusion, and
   `running -> pending` media recovery.
 - API/UI contract plus manual, scheduled, and event trigger attribution.
+- Schedule tests assert persistence, live countdown reset, disabled `next_run`,
+  bounds rejection without mutation, and manual/event bypass behavior.
+- Watcher tests assert one execution per debounce batch, semantic per-path details,
+  partial-failure continuation, create-failure requeue, and scan/watch isolation.
 - People translation grouping asserts same-season role reuse and cross-season
   isolation without changing person-name caching.
 
@@ -192,5 +226,15 @@ contextKey := role.MetadataID
 contextKey := role.MetadataID
 if role.Metadata.Kind == model.MetadataKindEpisode && role.Metadata.ParentID != nil {
 	contextKey = *role.Metadata.ParentID
+}
+```
+
+```go
+// Wrong: persist a new interval but leave the running timer unchanged.
+repo.Setting.Set(ctx, intervalKey, value)
+
+// Correct: validate and persist first, then mutate the live job and signal reset.
+if err := scheduler.UpdateSchedule(ctx, jobName, enabled, intervalSeconds); err != nil {
+	return err
 }
 ```

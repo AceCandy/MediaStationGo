@@ -42,6 +42,14 @@ export interface TaskDefinition {
   next_run?: string
   action?: 'scheduler' | 'people_backfill' | 'probe_backfill'
   latest?: BackgroundTask
+  schedule_config?: TaskScheduleConfig
+}
+
+export interface TaskScheduleConfig {
+  enabled: boolean
+  interval_seconds: number
+  min_interval_seconds: number
+  max_interval_seconds: number
 }
 
 export interface TaskHistory {
@@ -67,4 +75,9 @@ export const tasksAPI = {
     api.get<TaskHistory>(`/tasks/definitions/${key}/executions`, { params: { page, page_size: pageSize } }).then((r) => r.data),
   run: (key: string, options?: { limit?: number; library_id?: string }) =>
     api.post<{ status: string }>(`/tasks/definitions/${key}/run`, options).then((r) => r.data),
+  updateSchedule: (key: string, enabled: boolean, intervalSeconds: number) =>
+    api.put<TaskDefinition>(`/tasks/definitions/${key}/schedule`, {
+      enabled,
+      interval_seconds: intervalSeconds,
+    }).then((r) => r.data),
 }

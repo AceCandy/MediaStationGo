@@ -118,12 +118,9 @@ func TestPeopleTranslationWorkerUsesContextAndCache(t *testing.T) {
 
 func TestPeopleTranslationWorkerRetriesAfterBackoff(t *testing.T) {
 	setPeopleTranslationTestDebounce(t, 0, 0)
-	previousInterval := peopleTranslationSweepInterval
 	previousBackoff := peopleTranslationRetryBackoff
-	peopleTranslationSweepInterval = time.Hour
 	peopleTranslationRetryBackoff = [...]time.Duration{20 * time.Millisecond, 20 * time.Millisecond, 20 * time.Millisecond}
 	t.Cleanup(func() {
-		peopleTranslationSweepInterval = previousInterval
 		peopleTranslationRetryBackoff = previousBackoff
 	})
 

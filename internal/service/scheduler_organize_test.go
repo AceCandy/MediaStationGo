@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -13,32 +14,11 @@ import (
 )
 
 func TestSchedulerOrganizeSourceDisabledByDefault(t *testing.T) {
-	root := t.TempDir()
-	src := filepath.Join(root, "downloads")
-	dest := filepath.Join(root, "media")
-	sourceFile := filepath.Join(src, "国产剧", "狂飙.S01E01.2023.1080p.mkv")
-	writeOrgFile(t, sourceFile, "episode")
-
 	repos := newOrganizerTestRepo(t)
-	if err := repos.Setting.Set(t.Context(), "organize.source_dir", src); err != nil {
-		t.Fatal(err)
-	}
-	if err := repos.Setting.Set(t.Context(), "organize.target_dir", dest); err != nil {
-		t.Fatal(err)
-	}
-	if err := repos.Setting.Set(t.Context(), "organize.transfer_mode", "copy"); err != nil {
-		t.Fatal(err)
-	}
-
-	organizer := NewOrganizerService(&config.Config{}, zap.NewNop(), repos)
-	scheduler := NewSchedulerService(zap.NewNop(), repos, nil, organizer, NewHub(zap.NewNop()))
-	if err := scheduler.jobOrganizeSource(t.Context()); err != nil {
-		t.Fatalf("disabled organize source job should be a no-op: %v", err)
-	}
-
-	want := filepath.Join(dest, "电视剧", "国产剧", "狂飙", "Season 01", "狂飙 - S01E01.mkv")
-	if _, err := os.Stat(want); !os.IsNotExist(err) {
-		t.Fatalf("disabled job should not create %q, stat err=%v", want, err)
+	scheduler := NewSchedulerService(zap.NewNop(), repos, nil, nil, nil)
+	job := scheduler.configuredJob(t.Context(), "organize_source", "organize.auto", "organize.interval_seconds", false, 5*time.Minute, func(context.Context) error { return nil })
+	if job.enabled {
+		t.Fatal("organize schedule should be disabled by default")
 	}
 }
 
