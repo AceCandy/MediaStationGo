@@ -1,0 +1,4 @@
+{"file":".trellis/spec/backend/background-task-execution.md","reason":"任务日志写入、按日文件、详情增量和前端日志查看的核心契约"}
+{"file":".trellis/spec/backend/shared-media-metadata.md","reason":"媒体轨道回填详情格式与远程探测行为契约"}
+{"file":".trellis/spec/frontend/design-system.md","reason":"任务日志彩色徽标、主题颜色与无障碍组件约定"}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"后端文本日志到前端兼容渲染的跨层数据流检查"}
