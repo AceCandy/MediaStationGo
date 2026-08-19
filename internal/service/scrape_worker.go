@@ -77,23 +77,23 @@ func mediaScrapeTaskDetail(group scrapeCandidateGroup, media *model.Media, scrap
 	}
 	prefix := fmt.Sprintf("媒体 %s（%s，共 %d 个文件）", name, current.ID, len(group.MediaIDs))
 	if scrapeErr != nil {
-		return fmt.Sprintf("%s: 刮削失败: %v", prefix, scrapeErr)
+		return fmt.Sprintf("❌ %s: 刮削失败: %v", prefix, scrapeErr)
 	}
 	switch current.ScrapeStatus {
 	case "matched":
 		if current.TMDbID > 0 {
-			return fmt.Sprintf("%s: 已匹配 TMDB %d", prefix, current.TMDbID)
+			return fmt.Sprintf("✅ %s: 已匹配 TMDB %d", prefix, current.TMDbID)
 		}
-		return prefix + ": 已匹配元数据"
+		return "✅ " + prefix + ": 已匹配元数据"
 	case "no_match":
-		return prefix + ": 未找到匹配元数据"
+		return "⚠️ " + prefix + ": 未找到匹配元数据"
 	case "error":
 		if strings.TrimSpace(current.ScrapeError) != "" {
-			return fmt.Sprintf("%s: 刮削失败: %s", prefix, sanitizeTaskLogError(errors.New(current.ScrapeError)).Error())
+			return fmt.Sprintf("❌ %s: 刮削失败: %s", prefix, sanitizeTaskLogError(errors.New(current.ScrapeError)).Error())
 		}
-		return prefix + ": 刮削失败"
+		return "❌ " + prefix + ": 刮削失败"
 	default:
-		return fmt.Sprintf("%s: 刮削状态 %s", prefix, current.ScrapeStatus)
+		return fmt.Sprintf("ℹ️ %s: 刮削状态 %s", prefix, current.ScrapeStatus)
 	}
 }
 

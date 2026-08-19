@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 	"github.com/ShukeBta/MediaStationGo/internal/repository"
@@ -109,8 +111,12 @@ func TestMediaProbePersistsRemoteSTRMTargetSize(t *testing.T) {
 	}
 	result := probeResultFixture()
 	result.Document.Format.Size = 26_972_800_320
+	startedAt := time.Now()
 	if _, err := NewMediaProbeService(repos, &stubMediaProbeRunner{result: result}).ProbeMedia(t.Context(), media.ID); err != nil {
 		t.Fatal(err)
+	}
+	if elapsed := time.Since(startedAt); elapsed < time.Second {
+		t.Fatalf("remote probe delay = %v, want at least 1s", elapsed)
 	}
 	got, _ := repos.Media.FindByID(t.Context(), media.ID)
 	if got.SizeBytes != result.Document.Format.Size {
@@ -206,7 +212,7 @@ func TestMediaProbeBackfillLibraryAccountsForResults(t *testing.T) {
 	runner := &stubMediaProbeRunner{probeFunc: func(path string) (*ProbeResult, error) {
 		probed = append(probed, filepath.Base(path))
 		if filepath.Base(path) == "failure.mkv" {
-			return nil, errors.New("probe failed")
+			return nil, fmt.Errorf("probe failed for %s", path)
 		}
 		if filepath.Base(path) == "fallback.mkv" {
 			return &ProbeResult{DurationSec: 120, VideoCodec: "hevc"}, nil
@@ -214,8 +220,10 @@ func TestMediaProbeBackfillLibraryAccountsForResults(t *testing.T) {
 		return probeResultFixture(), nil
 	}}
 	var latest ProbeBackfillResult
+	var details []string
 	result, err := NewMediaProbeService(repos, runner).BackfillLibrary(t.Context(), "target", 0, func(current ProbeBackfillResult) {
 		latest = current
+		details = append(details, current.Details...)
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -228,6 +236,19 @@ func TestMediaProbeBackfillLibraryAccountsForResults(t *testing.T) {
 	}
 	if len(probed) != 3 {
 		t.Fatalf("probed paths = %#v", probed)
+	}
+	if len(details) != 3 {
+		t.Fatalf("details = %#v, want one per probe", details)
+	}
+	joinedDetails := strings.Join(details, "\n")
+	if !strings.Contains(joinedDetails, fmt.Sprintf("✅️ %s %s", media[2].ID, media[2].Path)) {
+		t.Fatalf("success detail missing from %q", joinedDetails)
+	}
+	if !strings.Contains(joinedDetails, fmt.Sprintf("❌️ %s probe failed for [redacted-path]", media[3].ID)) {
+		t.Fatalf("failure detail missing from %q", joinedDetails)
+	}
+	if strings.Contains(joinedDetails, media[3].Path) || strings.Contains(joinedDetails, media[4].Path) {
+		t.Fatalf("failure detail contains path: %q", joinedDetails)
 	}
 	for _, path := range probed {
 		if path == "other.mkv" {

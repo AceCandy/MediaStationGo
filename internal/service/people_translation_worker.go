@@ -316,9 +316,13 @@ func peopleTranslationDetail(group *pendingPeopleTranslation, translated, source
 		original = group.lookup.SourceText
 	}
 	if translated == "" {
-		return fmt.Sprintf("%s翻译 [%s]: %s", kind, source, original)
+		marker := "⚠️"
+		if strings.HasPrefix(source, "失败:") {
+			marker = "❌"
+		}
+		return fmt.Sprintf("%s %s翻译 [%s]: %s", marker, kind, source, original)
 	}
-	return fmt.Sprintf("%s翻译 [%s]: %s -> %s", kind, source, original, translated)
+	return fmt.Sprintf("✅ %s翻译 [%s]: %s -> %s", kind, source, original, translated)
 }
 
 func splitPeopleTranslationBatches(groups []*pendingPeopleTranslation, maxEntries, maxChars int) [][]*pendingPeopleTranslation {

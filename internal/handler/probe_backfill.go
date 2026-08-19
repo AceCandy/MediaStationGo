@@ -37,13 +37,13 @@ func probeLibraryHandler(svc *service.Container) gin.HandlerFunc {
 		}
 		go func() {
 			result, err := svc.MediaProbe.BackfillLibrary(svc.Context(), libraryID, 0, func(current service.ProbeBackfillResult) {
-				task.Update(service.TaskUpdate{Stage: "probe", Metrics: current.Metrics(), Details: current.Details})
+				task.Update(service.TaskUpdate{Stage: "probe", Metrics: current.Metrics(), Details: current.Details, DetailsWithoutLevel: true})
 			})
 			stage, message := "completed", "媒体轨道回填完成"
 			if err != nil {
 				stage, message = "probe", "媒体轨道回填失败"
 			}
-			finishHTTPTask(task, err, stage, message, result.Metrics(), result.Details, false)
+			finishHTTPTask(task, err, stage, message, result.Metrics(), nil, false)
 		}()
 		c.JSON(http.StatusAccepted, gin.H{"status": "started"})
 	}

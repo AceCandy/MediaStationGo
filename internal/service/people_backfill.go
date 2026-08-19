@@ -154,7 +154,7 @@ func (s *ScraperService) backfillPeopleCandidates(ctx context.Context, candidate
 		tmdbID, parseErr := strconv.Atoi(strings.TrimSpace(candidate.ExternalID))
 		if parseErr != nil || tmdbID <= 0 {
 			result.Skipped++
-			result.Details = append(result.Details, fmt.Sprintf("%s %s: 跳过无效 TMDB ID %q", candidate.Kind, candidate.MetadataID, candidate.ExternalID))
+			result.Details = append(result.Details, fmt.Sprintf("⏭️ %s %s: 跳过无效 TMDB ID %q", candidate.Kind, candidate.MetadataID, candidate.ExternalID))
 		} else {
 			wakeScrapeWorker := false
 			func() {
@@ -168,23 +168,23 @@ func (s *ScraperService) backfillPeopleCandidates(ctx context.Context, candidate
 				if fetchErr != nil {
 					result.Failed++
 					if !isTMDbHTTPStatus(fetchErr, http.StatusNotFound) {
-						result.Details = append(result.Details, candidate.MetadataID+": "+sanitizeTaskLogError(fetchErr).Error())
+						result.Details = append(result.Details, "❌ "+candidate.MetadataID+": "+sanitizeTaskLogError(fetchErr).Error())
 						return
 					}
 					reset, invalidateErr := s.repo.Metadata.InvalidateTMDbIdentifier(ctx, candidate.MetadataID, candidate.Kind, candidate.ExternalID)
 					if invalidateErr != nil {
 						combinedErr := fmt.Errorf("%w; invalidate TMDB identifier: %v", fetchErr, invalidateErr)
-						result.Details = append(result.Details, candidate.MetadataID+": "+sanitizeTaskLogError(combinedErr).Error())
+						result.Details = append(result.Details, "❌ "+candidate.MetadataID+": "+sanitizeTaskLogError(combinedErr).Error())
 						return
 					}
 					wakeScrapeWorker = reset > 0
-					result.Details = append(result.Details, fmt.Sprintf("%s: TMDB 标识 %s 已失效，已重置 %d 个媒体", candidate.MetadataID, candidate.ExternalID, reset))
+					result.Details = append(result.Details, fmt.Sprintf("🔄 %s: TMDB 标识 %s 已失效，已重置 %d 个媒体", candidate.MetadataID, candidate.ExternalID, reset))
 				} else if persistErr := s.persistCredits(ctx, candidate.MetadataID, loaded, credits); persistErr != nil {
 					result.Failed++
-					result.Details = append(result.Details, candidate.MetadataID+": "+sanitizeTaskLogError(persistErr).Error())
+					result.Details = append(result.Details, "❌ "+candidate.MetadataID+": "+sanitizeTaskLogError(persistErr).Error())
 				} else {
 					result.Completed++
-					result.Details = append(result.Details, fmt.Sprintf("%s %s: TMDB %s 人物信息补齐成功", candidate.Kind, candidate.MetadataID, candidate.ExternalID))
+					result.Details = append(result.Details, fmt.Sprintf("✅ %s %s: TMDB %s 人物信息补齐成功", candidate.Kind, candidate.MetadataID, candidate.ExternalID))
 				}
 			}()
 			if wakeScrapeWorker {

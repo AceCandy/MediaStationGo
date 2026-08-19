@@ -82,6 +82,11 @@ func (s *MediaProbeService) ProbeMedia(ctx context.Context, mediaID string) (*Pr
 	}
 	var result *ProbeResult
 	if source.url != "" {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(time.Second):
+		}
 		result, err = s.probe.ProbeHTTP(ctx, source.url)
 	} else {
 		result, err = s.probe.Probe(ctx, source.path)
@@ -158,6 +163,7 @@ func (s *MediaProbeService) backfill(ctx context.Context, libraryID string, limi
 	}
 	type probeBackfillRow struct {
 		MediaID       string
+		Path          string
 		ProbeJSON     string
 		SchemaVersion int
 	}
@@ -167,7 +173,7 @@ func (s *MediaProbeService) backfill(ctx context.Context, libraryID string, limi
 	for {
 		var rows []probeBackfillRow
 		query := s.repo.DB.WithContext(ctx).Table("media AS m").
-			Select("m.id AS media_id, p.probe_json, p.schema_version").
+			Select("m.id AS media_id, m.path, p.probe_json, p.schema_version").
 			Joins("LEFT JOIN media_probe_metadata AS p ON p.media_id = m.id").
 			Where("m.deleted_at IS NULL").
 			Order("m.id").Limit(pageSize)
@@ -184,6 +190,7 @@ func (s *MediaProbeService) backfill(ctx context.Context, libraryID string, limi
 			break
 		}
 		for _, row := range rows {
+			result.Details = nil
 			if err := ctx.Err(); err != nil {
 				return result, err
 			}
@@ -193,14 +200,20 @@ func (s *MediaProbeService) backfill(ctx context.Context, libraryID string, limi
 				probeAttempts++
 				if probed, err := s.ProbeMedia(ctx, row.MediaID); err != nil || probed == nil || probed.Document == nil {
 					result.Failed++
-					if len(result.Details) < 20 {
-						if err == nil {
-							err = errors.New("complete probe document unavailable")
-						}
-						result.Details = append(result.Details, fmt.Sprintf("%s: %v", row.MediaID, err))
+					if err == nil {
+						err = errors.New("complete probe document unavailable")
 					}
+					if pathErr := (*os.PathError)(nil); errors.As(err, &pathErr) {
+						err = pathErr.Err
+					}
+					reason := sanitizeTaskLogError(err).Error()
+					if row.Path != "" {
+						reason = strings.ReplaceAll(reason, row.Path, "[redacted-path]")
+					}
+					result.Details = []string{fmt.Sprintf("❌️ %s %s", row.MediaID, reason)}
 				} else {
 					result.Completed++
+					result.Details = []string{fmt.Sprintf("✅️ %s %s", row.MediaID, row.Path)}
 				}
 			}
 			if limit > 0 {

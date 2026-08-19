@@ -37,6 +37,45 @@ function reverseLogLines(content: string): string {
   return lines.reverse().join('\n') + (trailingNewline ? '\n' : '')
 }
 
+const taskLogBadges = {
+  '🔺': ['结束', '▼', 'bg-violet-500'],
+  '🔻': ['开始', '▲', 'bg-violet-500'],
+  '➕': ['新增', '+', 'bg-emerald-500'],
+  '🗑': ['删除', '−', 'bg-rose-500'],
+  '🔄': ['更新', '↻', 'bg-blue-500'],
+  '✅': ['成功', '✓', 'bg-emerald-500'],
+  '❌': ['失败', '×', 'bg-red-500'],
+  '⏭': ['跳过', '»', 'bg-slate-500'],
+  '⚠': ['警告', '!', 'bg-amber-500'],
+  'ℹ': ['信息', 'i', 'bg-cyan-500'],
+} as const
+
+const taskLogMarkerPattern = /(🔺|🔻|➕|🗑️?|🔄|✅|❌|⏭️?|⚠️?|ℹ️?)/u
+const legacyTaskLogPattern = /^(\S+\s+)\[(INFO|DETAIL|ERROR)\]\s+(.*)$/u
+
+function renderLogContent(content: string) {
+  const lines = reverseLogLines(content).split('\n')
+  return lines.map((line, index) => {
+    const legacy = legacyTaskLogPattern.exec(line)
+    const visibleLine = legacy ? legacy[1] + legacy[3] : line
+    const match = taskLogMarkerPattern.exec(visibleLine)
+    const marker = match?.[0].replace('\uFE0F', '') as keyof typeof taskLogBadges | undefined
+    const fallback = legacy ? (legacy[2] === 'ERROR' ? '❌' : 'ℹ') : undefined
+    const badgeIndex = match?.index ?? legacy?.[1].length
+    const badgeKey = marker ?? fallback
+    if (!badgeKey || badgeIndex === undefined) return <span key={index}>{visibleLine}{index < lines.length - 1 ? '\n' : ''}</span>
+    const badge = taskLogBadges[badgeKey]
+    return (
+      <span key={index}>
+        {visibleLine.slice(0, badgeIndex)}
+        <span role="img" aria-label={badge[0]} className={`inline-flex h-4 w-4 items-center justify-center rounded align-[-0.15em] font-sans text-[11px] font-black leading-none text-white ${badge[2]}`}>{badge[1]}</span>
+        {visibleLine.slice(badgeIndex + (match?.[0].length ?? 0))}
+        {index < lines.length - 1 ? '\n' : ''}
+      </span>
+    )
+  })
+}
+
 interface TaskRowProps {
   definition: TaskDefinition
   running: string
@@ -157,7 +196,7 @@ function TaskLogDialog({ definition, onClose }: { definition: TaskDefinition; on
     return () => { active = false }
   }, [definition.key])
 
-  const selectDate = (date: string) => {
+  const loadLog = (date?: string) => {
     const currentRequest = ++requestID.current
     setError('')
     setLoading(true)
@@ -171,10 +210,13 @@ function TaskLogDialog({ definition, onClose }: { definition: TaskDefinition; on
     <ModalShell onClose={onClose} maxWidth="max-w-5xl" className="flex max-h-[90vh] flex-col gap-3 p-4 sm:p-6" ariaLabel={`${definition.name}日志`}>
       <header className="flex items-start justify-between gap-3"><div><h2 className="font-display text-lg font-semibold text-ink-600">{definition.name}</h2><p className="text-xs text-ink-50">按日期查看详细日志</p></div><button type="button" className="icon-btn" title="关闭" aria-label="关闭" onClick={onClose}><X size={18} /></button></header>
       <div className="grid min-h-0 flex-1 gap-4 md:grid-cols-[17rem_minmax(0,1fr)]">
-        <TaskLogCalendar month={month} dates={log?.dates ?? []} selected={log?.date ?? ''} onMonthChange={setMonth} onSelect={selectDate} />
+        <TaskLogCalendar month={month} dates={log?.dates ?? []} selected={log?.date ?? ''} onMonthChange={setMonth} onSelect={loadLog} />
         <div className="flex min-h-64 min-w-0 flex-col">
-          <div className="mb-2 h-5 text-xs text-sand-500">{log?.date ? formatDateKey(log.date) : ''}</div>
-          <pre className="min-h-56 flex-1 overflow-auto whitespace-pre-wrap break-words rounded border border-gray-200 bg-gray-950 p-3 font-mono text-xs leading-relaxed text-gray-100">{loading ? '加载日志中...' : error ? error : log?.content ? reverseLogLines(log.content) : '该任务暂无日志。'}</pre>
+          <div className="mb-2 flex h-9 items-center justify-between text-xs text-sand-500">
+            <span>{log?.date ? formatDateKey(log.date) : ''}</span>
+            <button type="button" className="icon-btn" title="刷新日志" aria-label="刷新日志" disabled={loading} onClick={() => loadLog(log?.date)}><RefreshCw size={16} className={loading ? 'animate-spin' : ''} /></button>
+          </div>
+          <pre className="min-h-56 flex-1 overflow-auto whitespace-pre-wrap break-words rounded border border-gray-200 bg-gray-950 p-3 font-mono text-xs leading-relaxed text-gray-100">{loading ? '加载日志中...' : error ? error : log?.content ? renderLogContent(log.content) : '该任务暂无日志。'}</pre>
           {log?.truncated && <p className="mt-1 text-xs text-orange-600">日志过长，当前显示末尾内容。</p>}
         </div>
       </div>

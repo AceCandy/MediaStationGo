@@ -12,17 +12,17 @@ import (
 func TestMediaScrapeTaskDetail(t *testing.T) {
 	group := scrapeCandidateGroup{Representative: model.Media{Base: model.Base{ID: "media-1"}, Title: "无间道"}, MediaIDs: []string{"media-1"}}
 	matched := model.Media{Base: model.Base{ID: "media-1"}, Title: "无间道", ScrapeStatus: "matched", TMDbID: 111}
-	if got := mediaScrapeTaskDetail(group, &matched, nil); !strings.Contains(got, "无间道") || !strings.Contains(got, "TMDB 111") {
+	if got := mediaScrapeTaskDetail(group, &matched, nil); !strings.HasPrefix(got, "✅ ") || !strings.Contains(got, "无间道") || !strings.Contains(got, "TMDB 111") {
 		t.Fatalf("matched detail = %q", got)
 	}
-	if got := mediaScrapeTaskDetail(group, nil, errors.New("provider unavailable")); !strings.Contains(got, "刮削失败: provider unavailable") {
+	if got := mediaScrapeTaskDetail(group, nil, errors.New("provider unavailable")); !strings.HasPrefix(got, "❌ ") || !strings.Contains(got, "刮削失败: provider unavailable") {
 		t.Fatalf("error detail = %q", got)
 	}
 }
 
 func TestPeopleTranslationDetail(t *testing.T) {
 	group := &pendingPeopleTranslation{lookup: newTranslationCacheLookup("role", "metadata-1", "Chan Wing-yan")}
-	if got := peopleTranslationDetail(group, "陈永仁", "AI"); got != "角色翻译 [AI]: Chan Wing-yan -> 陈永仁" {
+	if got := peopleTranslationDetail(group, "陈永仁", "AI"); got != "✅ 角色翻译 [AI]: Chan Wing-yan -> 陈永仁" {
 		t.Fatalf("detail = %q", got)
 	}
 }
@@ -38,6 +38,9 @@ func TestLibraryScanTaskDetail(t *testing.T) {
 		},
 	}
 	got := libraryScanTaskDetail(lib, result)
+	if !strings.HasPrefix(got, "ℹ️ ") {
+		t.Fatalf("detail = %q", got)
+	}
 	for _, want := range []string{"电影", "访问 10", "新增 2", "更新 3", "移除 1", "跳过 4", "错误 1"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("detail %q does not contain %q", got, want)
@@ -70,7 +73,7 @@ func TestTaskLogErrorRedactsURLs(t *testing.T) {
 func TestPeopleTranslationFailureDetailsIdentifyObject(t *testing.T) {
 	group := &pendingPeopleTranslation{lookup: newTranslationCacheLookup("person_name", "person-1", "Tony Leung")}
 	details := appendPeopleTranslationFailures(nil, []*pendingPeopleTranslation{group}, errors.New("request https://example.test?token=secret failed"))
-	if len(details) != 1 || !strings.Contains(details[0], "Tony Leung") || !strings.Contains(details[0], "[redacted-url]") || strings.Contains(details[0], "token=secret") {
+	if len(details) != 1 || !strings.HasPrefix(details[0], "❌ ") || !strings.Contains(details[0], "Tony Leung") || !strings.Contains(details[0], "[redacted-url]") || strings.Contains(details[0], "token=secret") {
 		t.Fatalf("details = %v", details)
 	}
 }

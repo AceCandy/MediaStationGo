@@ -176,7 +176,7 @@ func (t *TaskTrackerService) startTriggered(kind, trigger, name string, update T
 	t.active[task.ID] = task
 	snapshot := cloneBackgroundTask(*task)
 	t.mu.Unlock()
-	t.appendLog(snapshot, "info", task.Message)
+	t.appendLog(snapshot, "", taskLogLine("🔻", task.Message))
 	t.appendDetails(snapshot, update.Details, update.DetailsWithoutLevel)
 	t.publish(snapshot)
 	return &TaskHandle{tracker: t, id: task.ID}
@@ -291,6 +291,7 @@ func (t *TaskTrackerService) update(id string, update TaskUpdate) {
 		t.mu.Unlock()
 		return
 	}
+	messageChanged := strings.TrimSpace(update.Message) != "" && strings.TrimSpace(update.Message) != strings.TrimSpace(task.Message)
 	applyTaskUpdate(task, update)
 	task.UpdatedAt = now
 	snapshot := cloneBackgroundTask(*task)
@@ -300,7 +301,9 @@ func (t *TaskTrackerService) update(id string, update TaskUpdate) {
 			t.logError("update task execution failed", err)
 		}
 	}
-	t.appendLog(snapshot, "info", update.Message)
+	if messageChanged {
+		t.appendLog(snapshot, "", taskLogLine("🔄", update.Message))
+	}
 	t.appendDetails(snapshot, update.Details, update.DetailsWithoutLevel)
 	t.publish(snapshot)
 }
@@ -337,11 +340,11 @@ func (t *TaskTrackerService) finish(id string, finishErr error, update TaskUpdat
 			t.logError("finish task execution failed", err)
 		}
 	}
-	t.appendLog(snapshot, "info", update.Message)
 	t.appendDetails(snapshot, update.Details, update.DetailsWithoutLevel)
 	if finishErr != nil {
-		t.appendLog(snapshot, "error", finishErr.Error())
+		t.appendLog(snapshot, "", taskLogLine("❌", finishErr.Error()))
 	}
+	t.appendLog(snapshot, "", taskLogLine("🔺", update.Message))
 	t.publish(snapshot)
 }
 
@@ -392,14 +395,26 @@ func (t *TaskTrackerService) appendLog(task BackgroundTask, level, message strin
 	}
 }
 
-func (t *TaskTrackerService) appendDetails(task BackgroundTask, details []string, withoutLevel bool) {
-	level := "detail"
-	if withoutLevel {
-		level = ""
-	}
+func (t *TaskTrackerService) appendDetails(task BackgroundTask, details []string, _ bool) {
 	for _, detail := range details {
-		t.appendLog(task, level, detail)
+		t.appendLog(task, "", taskLogLine("ℹ️", detail))
 	}
+}
+
+const taskLogMarkerRunes = "🔺🔻➕🗑🔄✅❌⏭⚠ℹ"
+
+func taskLogLine(marker, message string) string {
+	message = strings.TrimSpace(message)
+	for _, first := range message {
+		if strings.ContainsRune(taskLogMarkerRunes, first) {
+			return message
+		}
+		break
+	}
+	if message == "" {
+		return ""
+	}
+	return marker + " " + message
 }
 
 func (t *TaskTrackerService) logError(message string, err error) {

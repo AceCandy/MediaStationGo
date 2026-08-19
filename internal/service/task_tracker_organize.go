@@ -62,7 +62,7 @@ func OrganizeTaskDetails(res *OrganizeResult, limit int) []string {
 		if line == "" {
 			continue
 		}
-		out = append(out, "错误: "+line)
+		out = append(out, "❌ 错误: "+line)
 		if len(out) >= limit {
 			return out
 		}
@@ -78,7 +78,18 @@ func OrganizeTaskDetails(res *OrganizeResult, limit int) []string {
 		if line == "" {
 			continue
 		}
-		out = append(out, item.Action+": "+line)
+		marker := "ℹ️"
+		switch item.Action {
+		case "error":
+			marker = "❌"
+		case "skip":
+			marker = "⏭️"
+		case "reclassify":
+			marker = "🔄"
+		case "cleanup":
+			marker = "🗑️"
+		}
+		out = append(out, marker+" "+item.Action+": "+line)
 		if len(out) >= limit {
 			return out
 		}

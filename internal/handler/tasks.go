@@ -130,10 +130,8 @@ func taskDefinitionRunHandler(svc *service.Container) gin.HandlerFunc {
 				return
 			}
 			go func() {
-				detailCount := 0
 				progress := func(current service.ProbeBackfillResult) {
-					task.Update(service.TaskUpdate{Stage: "probe", Metrics: current.Metrics(), Details: current.Details[detailCount:]})
-					detailCount = len(current.Details)
+					task.Update(service.TaskUpdate{Stage: "probe", Metrics: current.Metrics(), Details: current.Details, DetailsWithoutLevel: true})
 				}
 				var result service.ProbeBackfillResult
 				var err error

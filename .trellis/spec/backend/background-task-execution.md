@@ -12,8 +12,8 @@ history is observability only; business object state owns retry and recovery.
 
 - `TaskExecution`: UUID ID, kind, trigger, status, summary fields, JSON metrics,
   error, and start/update/finish timestamps.
-- `TaskUpdate.DetailsWithoutLevel`: defaults to `false`; when `true`, detail
-  lines retain their timestamp but omit the `[DETAIL]` label.
+- `TaskUpdate.Details`: append-only operator-facing lines. The tracker preserves
+  an existing semantic marker and prefixes an unmarked line with `ℹ️`.
 - `GET /api/tasks?page=&page_size=` returns `items`, `page`, `page_size`, and `total`.
 - `GET /api/tasks` also returns stable task `definitions`; each definition may
   expose current state, latest terminal execution, schedule, next run, and a
@@ -41,15 +41,28 @@ history is observability only; business object state owns retry and recovery.
   media scraping from catalog scraping.
 - The task-log UI selects an available date and displays the complete bounded
   tail of that definition's daily file. It does not select an execution row.
+- Manual log refresh reloads the currently selected date without closing the dialog.
+- New task-center log lines never contain `[INFO]`, `[DETAIL]`, or `[ERROR]`.
+  The tracker writes `🔻` first for start, `🔄` for progress, `❌` for terminal
+  errors, and `🔺` last for finish. Because the UI reverses lines, `🔺` is the
+  execution block's top boundary and renders as `▼`; `🔻` is its bottom boundary
+  and renders as `▲`.
+- Detail markers are `➕` add, `🗑️` delete/cleanup, `🔄` update/progress,
+  `✅` success, `❌` failure, `⏭️` skip, `⚠️` warning/no-match, and `ℹ️`
+  summary. The UI replaces them with fixed-color badges instead of relying on
+  platform emoji fonts. Historical level labels are hidden only when they occur
+  in the structured position immediately after the timestamp; legacy error
+  lines fall back to the failure badge and other legacy lines to the info badge.
 - A persisted execution must exist before its background work starts. A create
   failure aborts that execution; log append failure does not abort business work.
 - `TaskUpdate.Details` are append-only log records for that update, not an
   accumulated task transcript. A batch worker must pass only newly produced
   detail lines on each `Update` and must not repeat them on `Finish`.
-- Detail lines use `[DETAIL]` by default. Set `DetailsWithoutLevel` only when
-  the operator-facing format already has an explicit marker such as
-  `➕` / `🔄` / `🗑️`; this avoids redundant `[DETAIL] ➕` prefixes without
-  changing the formatting of other task definitions.
+- Detail producers should choose the accurate semantic marker. The central
+  tracker supplies `ℹ️` only as a fallback, so no task can reintroduce a bare detail
+  or a bracketed level label.
+- Progress messages are appended only when their text changes. Repeated updates
+  still persist metrics and append new details without duplicating the same summary.
 - Both `Details` and the error passed to `TaskHandle.Finish` are written to the
   per-task log. Provider errors must be sanitized before either value is passed;
   URLs and query strings are replaced with `[redacted-url]`.
@@ -90,7 +103,9 @@ history is observability only; business object state owns retry and recovery.
 | Task log append fails | Continue work, log the application error |
 | A provider error contains a URL or query token | Preserve the original business error for the caller, but write only the sanitized error to the task log |
 | A batch update has old and new detail lines | Pass only the new lines to `TaskUpdate.Details` |
-| Icon-marked details set `DetailsWithoutLevel` | Write `timestamp + detail`; do not write an empty `[]` or `[DETAIL]` label |
+| A detail already starts with a supported marker | Preserve it; do not prefix another marker |
+| A detail has no supported marker | Prefix `ℹ️`; never write a bracketed level label |
+| A historical line has a structured level label | Hide that label in the UI and render the corresponding fallback badge without rewriting the file |
 | Process exits with a media group running | Restore its rows to `pending` at startup |
 | Any member loses a claim race | Roll back the whole group claim |
 | Library media exists while catalog work is pending | Process one library work unit first |
@@ -101,25 +116,31 @@ history is observability only; business object state owns retry and recovery.
 - Good: a two-episode series is claimed and completed as one unit, then the worker
   checks newly imported media before taking another catalog item.
 - Good: a scan change is written as `timestamp ➕ 新增 /media/a.strm`.
+- Good: reverse display places the final `🔺` above all execution details and
+  the initial `🔻` below them.
 - Good: equal role source text in two episodes of the same season creates one
   translation group with two write-back targets.
 - Base: no work exists; the worker waits for a wake signal.
-- Base: ordinary task details keep the existing `[DETAIL]` label.
+- Base: an unmarked summary is written with `ℹ️`; historical labeled lines are
+  displayed without their label and remain unchanged on disk.
 - Base: equal role source text in different seasons remains two translation groups.
 - Bad: select pending rows without a conditional update, or resume from an old
   task execution/log after restart.
 - Bad: use each episode `MetadataID` as the role cache context and call AI once
   per episode for the same season role.
-- Bad: encode `[DETAIL]` into detail text or remove detail levels globally just
-  to support one icon-marked task.
+- Bad: emit a new `[INFO]`, `[DETAIL]`, or `[ERROR]` task-center line, depend on
+  monochrome system emoji rendering, or remove bracketed text from message bodies.
 
 ### 6. Tests Required
 
 - Task start/update/finish, pagination, and `running -> interrupted` recovery.
 - Per-definition daily log rollover, same-day append order, shared-kind
   isolation, invalid date/key rejection, newest-first dates, and tail truncation.
-- Level-free detail tests assert the timestamp and text remain while `[DETAIL]`
-  and an empty `[]` marker are absent.
+- Lifecycle tests assert physical write order `🔻 ... details ... ❌ ... 🔺`,
+  supported-marker preservation, `ℹ️` fallback, and absence of all three legacy
+  level labels.
+- UI lint/build checks cover all marker variants and structured legacy-label
+  fallback while retaining newest-first display, refresh, and tail truncation.
 - Atomic whole-series claim, late-series-member exclusion, and
   `running -> pending` media recovery.
 - API/UI contract plus manual, scheduled, and event trigger attribution.
@@ -148,14 +169,11 @@ detailCount = len(result.Details)
 ```
 
 ```go
-// Wrong: icon-marked task logs still render a redundant level label.
-task.Update(TaskUpdate{Details: []string{"➕ 新增 /media/a.strm"}})
+// Wrong: encode a legacy level or omit the semantic meaning.
+task.Update(TaskUpdate{Details: []string{"[DETAIL] 新增 /media/a.strm"}})
 
-// Correct: only this update omits the level label; other tasks keep defaults.
-task.Update(TaskUpdate{
-    Details:             []string{"➕ 新增 /media/a.strm"},
-    DetailsWithoutLevel: true,
-})
+// Correct: the producer supplies the accurate marker; the tracker owns layout.
+task.Update(TaskUpdate{Details: []string{"➕ 新增 /media/a.strm"}})
 ```
 
 ```go

@@ -140,6 +140,7 @@ db.Model(&credit).
 - Emby playback response: `PlaybackInfo{MediaSources, PlaySessionId, DateCreated}`; `DateCreated` is the selected concrete `Media.CreatedAt` encoded as a non-null UTC JSON timestamp with seven fractional digits and a trailing `Z`.
 - Direct-only source response: `EmbyMediaSource{DirectStreamUrl, SupportsDirectPlay, SupportsDirectStream, SupportsTranscoding=false}`; `TranscodingUrl` is absent.
 - Probe execution boundary: `FFprobeService.Probe(context.Context, path)` and `ProbeHTTP(context.Context, rawURL)` invoke only the resolved `ffprobe` executable.
+- Remote HTTP(S) probing waits one cancellable second before invoking ffprobe; local probing starts immediately.
 - Direct playback routes: `/api/stream/:id` and Emby `/Videos/:id/{stream,original}` GET/HEAD variants serve unchanged bytes or a protocol-neutral HTTP redirect. HLS playlist/segment and transcode status routes do not exist.
 - Redirect pre-resolution setting: `playback.redirect_resolve_prefixes` contains
   one literal HTTP/HTTPS URL prefix per line and applies to persisted STRM
@@ -149,6 +150,9 @@ db.Model(&credit).
   service-lifetime task and accepts optional JSON
   `{limit: positive integer, library_id: string}`.
   Both report `total`, `completed`, `skipped`, and `failed` metrics.
+  Each attempted item appends one marked task detail: `✅ <media-id> <media.path>`
+  on success or `❌ <media-id> <sanitized-error>` on failure. Failure details
+  never include the media path or remote URL.
 - Manual apply API: `POST /api/media/:id/scrape/apply` accepts `ManualScrapeRequest`, persists metadata through `ScraperService.ApplyManualMatch`, then returns the refreshed `MediaView` from `MediaService.GetMedia`.
 - Artwork response: `/api/artwork/:assetID`; originals live under `App.DataDir/artwork/sha256/...`.
 - Library deletion: `DELETE /api/libraries/:id` -> `MediaService.DeleteLibrary(ctx, id)`.

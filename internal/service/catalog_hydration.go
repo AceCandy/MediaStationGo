@@ -165,11 +165,11 @@ func (s *ScraperService) runCatalogHydrationWorker(ctx context.Context) {
 
 func (s *ScraperService) catalogScrapeTaskDetail(ctx context.Context, job *model.CatalogHydrationJob, runErr error) string {
 	if job == nil {
-		return "发现目录刮削: 任务信息缺失"
+		return "❌ 发现目录刮削: 任务信息缺失"
 	}
 	prefix := fmt.Sprintf("发现目录 %s %s %s（阶段 %s，第 %d 次尝试）", job.Provider, job.EntityKind, job.ExternalID, job.Stage, job.Attempts)
 	if runErr != nil {
-		return fmt.Sprintf("%s: 刮削失败: %v", prefix, runErr)
+		return fmt.Sprintf("❌ %s: 刮削失败: %v", prefix, runErr)
 	}
 	title := ""
 	if item, err := s.repo.Metadata.FindByIdentifier(ctx, job.Provider, job.EntityKind, job.ExternalID); err == nil && item != nil {
@@ -179,9 +179,9 @@ func (s *ScraperService) catalogScrapeTaskDetail(ctx context.Context, job *model
 		}
 	}
 	if title != "" {
-		return fmt.Sprintf("%s: 已刮削 %s", prefix, title)
+		return fmt.Sprintf("✅ %s: 已刮削 %s", prefix, title)
 	}
-	return prefix + ": 刮削完成"
+	return "✅ " + prefix + ": 刮削完成"
 }
 
 func (s *ScraperService) claimNextCatalogJob(ctx context.Context, rootStreak *int) (*model.CatalogHydrationJob, error) {

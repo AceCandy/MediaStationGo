@@ -95,7 +95,7 @@ func (f *FFprobeService) Probe(ctx context.Context, path string) (*ProbeResult, 
 		if f.log != nil {
 			f.log.Debug("ffprobe failed", zap.String("path", path), zap.Error(err))
 		}
-		return nil, fmt.Errorf("ffprobe %s: %w", path, err)
+		return nil, fmt.Errorf("ffprobe failed: %w", err)
 	}
 	return parseProbeJSON(out)
 }
