@@ -802,3 +802,24 @@ Committed the existing web UI redesign together with detailed background task lo
 ### Status
 
 [OK] **Completed**
+
+
+## Session 38: 统一任务中心调度与监听日志
+
+**Date**: 2026-08-19
+**Task**: 统一任务中心调度与监听日志
+**Branch**: `main`
+
+### Summary
+
+将五类周期任务统一接入任务中心配置，新增媒体库变更监听批次执行与日志，并补齐前后端验证。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `6be35eb` | (see git log) |
+
+### Status
+
+[OK] **Completed**
