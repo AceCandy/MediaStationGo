@@ -781,3 +781,24 @@ Committed the existing web UI redesign together with detailed background task lo
 ### Status
 
 [OK] **Completed**
+
+
+## Session 37: 统一任务中心日志样式
+
+**Date**: 2026-08-19
+**Task**: 统一任务中心日志样式
+**Branch**: `main`
+
+### Summary
+
+统一七类任务日志语义标记与彩色徽标，补充日志刷新、轨道探测逐条结果和远程等待，并修正倒序箭头及重复扫描进度。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `f62a778` | (see git log) |
+
+### Status
+
+[OK] **Completed**
