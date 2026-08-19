@@ -1,0 +1,3 @@
+{"file":".trellis/spec/backend/background-task-execution.md","reason":"任务定义、执行持久化、分日日志、触发类型和详情追加契约"}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"调度配置从后端设置到任务定义 API 和前端编辑器的跨层契约"}
+{"file":".trellis/spec/frontend/design-system.md","reason":"任务中心行内设置控件、响应式布局和可访问性约定"}
