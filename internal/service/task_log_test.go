@@ -45,7 +45,7 @@ func TestTaskLogStoreAppendsLineWithoutLevel(t *testing.T) {
 	}
 }
 
-func TestTaskTrackerWritesMarkedLifecycleWithoutLevels(t *testing.T) {
+func TestTaskTrackerOmitsEventLifecycleWithoutDroppingDetails(t *testing.T) {
 	now := time.Date(2026, 8, 19, 12, 0, 0, 0, time.Local)
 	tracker := NewTaskTrackerService(nil, nil)
 	tracker.ConfigurePersistence(nil, t.TempDir())
@@ -58,13 +58,15 @@ func TestTaskTrackerWritesMarkedLifecycleWithoutLevels(t *testing.T) {
 	now = now.Add(time.Second)
 	task.Update(TaskUpdate{Message: "进度"})
 	now = now.Add(time.Second)
+	task.Update(TaskUpdate{Details: []string{"✅ 成功", "⚠️ 警告"}})
+	now = now.Add(time.Second)
 	task.Finish(errors.New("失败原因"), TaskUpdate{Message: "结束", Details: []string{"⏭️ 跳过"}})
 
 	log, err := tracker.ReadDefinitionLog(TaskDefinitionPeopleTranslation, "", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantOrder := []string{"🔻 开始", "ℹ️ 普通详情", "🔄 进度", "➕ 新增", "⏭️ 跳过", "❌ 失败原因", "🔺 结束"}
+	wantOrder := []string{"ℹ️ 普通详情", "🔄 进度", "➕ 新增", "✅ 成功", "⚠️ 警告", "⏭️ 跳过", "❌ 失败原因"}
 	position := -1
 	for _, want := range wantOrder {
 		next := strings.Index(log.Content[position+1:], want)
@@ -76,8 +78,36 @@ func TestTaskTrackerWritesMarkedLifecycleWithoutLevels(t *testing.T) {
 	if strings.Contains(log.Content, "[INFO]") || strings.Contains(log.Content, "[DETAIL]") || strings.Contains(log.Content, "[ERROR]") {
 		t.Fatalf("log contains legacy level: %q", log.Content)
 	}
+	if strings.Contains(log.Content, "🔻 开始") || strings.Contains(log.Content, "🔺 结束") {
+		t.Fatalf("event log contains lifecycle line: %q", log.Content)
+	}
 	if strings.Contains(log.Content, "🔄 开始") || strings.Count(log.Content, "🔄 进度") != 1 {
 		t.Fatalf("log contains duplicate progress: %q", log.Content)
+	}
+}
+
+func TestTaskTrackerKeepsNonEventLifecycle(t *testing.T) {
+	for _, trigger := range []string{TaskTriggerManual, TaskTriggerScheduled} {
+		t.Run(trigger, func(t *testing.T) {
+			tracker := NewTaskTrackerService(nil, nil)
+			tracker.ConfigurePersistence(nil, t.TempDir())
+			task := tracker.StartTriggered(TaskKindPeople, trigger, "人物翻译", TaskUpdate{Message: "开始", Details: []string{"普通详情"}})
+			task.Update(TaskUpdate{Message: "进度"})
+			task.Finish(errors.New("失败原因"), TaskUpdate{Message: "结束", Details: []string{"⏭️ 跳过"}})
+
+			log, err := tracker.ReadDefinitionLog(TaskDefinitionPeopleTranslation, "", 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			position := -1
+			for _, want := range []string{"🔻 开始", "ℹ️ 普通详情", "🔄 进度", "⏭️ 跳过", "❌ 失败原因", "🔺 结束"} {
+				next := strings.Index(log.Content[position+1:], want)
+				if next < 0 {
+					t.Fatalf("%s log missing %q: %q", trigger, want, log.Content)
+				}
+				position += next + 1
+			}
+		})
 	}
 }
 

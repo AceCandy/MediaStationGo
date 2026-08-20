@@ -61,10 +61,12 @@ history is observability only; business object state owns retry and recovery.
   complete candidate batch; individual business failures are recorded and make
   the batch failed without creating a retry loop.
 - New task-center log lines never contain `[INFO]`, `[DETAIL]`, or `[ERROR]`.
-  The tracker writes `🔻` first for start, `🔄` for progress, `❌` for terminal
-  errors, and `🔺` last for finish. Because the UI reverses lines, `🔺` is the
-  execution block's top boundary and renders as `▼`; `🔻` is its bottom boundary
-  and renders as `▲`.
+  Manual and scheduled executions write `🔻` first for start, `🔄` for
+  progress, `❌` for terminal errors, and `🔺` last for finish. Event executions
+  omit the redundant `🔻`/`🔺` lifecycle lines while retaining progress,
+  details, and terminal errors. Because the UI reverses lines, a retained `🔺`
+  is the execution block's top boundary and renders as `▼`; a retained `🔻` is
+  its bottom boundary and renders as `▲`.
 - Detail markers are `➕` add, `🗑️` delete/cleanup, `🔄` update/progress,
   `✅` success, `❌` failure, `⏭️` skip, `⚠️` warning/no-match, and `ℹ️`
   summary. The UI replaces them with fixed-color badges instead of relying on
@@ -143,8 +145,10 @@ history is observability only; business object state owns retry and recovery.
   and immediately returns a definition whose `schedule_config.enabled` is true.
 - Good: two settled video paths produce one `library_watch` execution with two
   detail lines, while `library_scan` history remains empty.
-- Good: reverse display places the final `🔺` above all execution details and
-  the initial `🔻` below them.
+- Good: reverse display places a manual or scheduled execution's final `🔺`
+  above all execution details and its initial `🔻` below them.
+- Good: an event execution writes its semantic details and terminal error, when
+  present, without adding generic start or finish lines.
 - Good: equal role source text in two episodes of the same season creates one
   translation group with two write-back targets.
 - Base: no work exists; the worker waits for a wake signal.
@@ -166,9 +170,10 @@ history is observability only; business object state owns retry and recovery.
 - Task start/update/finish, pagination, and `running -> interrupted` recovery.
 - Per-definition daily log rollover, same-day append order, shared-kind
   isolation, invalid date/key rejection, newest-first dates, and tail truncation.
-- Lifecycle tests assert physical write order `🔻 ... details ... ❌ ... 🔺`,
-  supported-marker preservation, `ℹ️` fallback, and absence of all three legacy
-  level labels.
+- Lifecycle tests assert physical write order `🔻 ... details ... ❌ ... 🔺`
+  for manual and scheduled executions, absence of `🔻`/`🔺` for event
+  executions, supported-marker preservation, `ℹ️` fallback, and absence of all
+  three legacy level labels.
 - UI lint/build checks cover all marker variants and structured legacy-label
   fallback while retaining newest-first display, refresh, and tail truncation.
 - Atomic whole-series claim, late-series-member exclusion, and

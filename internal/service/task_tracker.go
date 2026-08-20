@@ -178,7 +178,9 @@ func (t *TaskTrackerService) startTriggered(kind, trigger, name string, update T
 	t.active[task.ID] = task
 	snapshot := cloneBackgroundTask(*task)
 	t.mu.Unlock()
-	t.appendLog(snapshot, "", taskLogLine("🔻", task.Message))
+	if snapshot.Trigger != TaskTriggerEvent {
+		t.appendLog(snapshot, "", taskLogLine("🔻", task.Message))
+	}
 	t.appendDetails(snapshot, update.Details, update.DetailsWithoutLevel)
 	t.publish(snapshot)
 	return &TaskHandle{tracker: t, id: task.ID}
@@ -346,7 +348,9 @@ func (t *TaskTrackerService) finish(id string, finishErr error, update TaskUpdat
 	if finishErr != nil {
 		t.appendLog(snapshot, "", taskLogLine("❌", finishErr.Error()))
 	}
-	t.appendLog(snapshot, "", taskLogLine("🔺", update.Message))
+	if snapshot.Trigger != TaskTriggerEvent {
+		t.appendLog(snapshot, "", taskLogLine("🔺", update.Message))
+	}
 	t.publish(snapshot)
 }
 
