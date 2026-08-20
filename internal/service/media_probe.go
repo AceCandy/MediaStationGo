@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,6 +18,8 @@ import (
 )
 
 var ErrMediaProbeSourceChanged = errors.New("media probe source changed")
+
+const FFprobePathMappingsSettingKey = "ffprobe.path_mappings"
 
 // ProbeBackfillResult 汇总一次完整轨道回填结果。
 type ProbeBackfillResult struct {
@@ -243,7 +246,7 @@ func (s *MediaProbeService) resolveSource(ctx context.Context, media *model.Medi
 		return localMediaProbeSource(media, target)
 	}
 	if rawURL := strings.TrimSpace(media.STRMURL); isHTTPPlaybackTarget(rawURL) {
-		return mediaProbeSource{identity: remoteProbeSourceIdentity(media, "http", rawURL), url: rawURL}, nil
+		return resolveRemoteProbeSource(media, rawURL, s.probePathMappings(ctx)), nil
 	}
 	if strings.EqualFold(filepath.Ext(media.Path), ".strm") {
 		return mediaProbeSource{}, errors.New("media probe source unavailable")
@@ -251,16 +254,104 @@ func (s *MediaProbeService) resolveSource(ctx context.Context, media *model.Medi
 	return localMediaProbeSource(media, media.Path)
 }
 
-func (s *MediaProbeService) currentSourceIdentity(media *model.Media) (string, error) {
+// currentSourceIdentity 用探测结束时的映射快照重新计算媒体源身份。
+func currentSourceIdentity(media *model.Media, rawMappings string) (string, error) {
 	if target := localSTRMFileTarget(media); target != "" {
 		source, err := localMediaProbeSource(media, target)
 		return source.identity, err
 	}
 	if rawURL := strings.TrimSpace(media.STRMURL); isHTTPPlaybackTarget(rawURL) {
-		return remoteProbeSourceIdentity(media, "http", rawURL), nil
+		return resolveRemoteProbeSource(media, rawURL, rawMappings).identity, nil
 	}
 	source, err := localMediaProbeSource(media, media.Path)
 	return source.identity, err
+}
+
+// resolveRemoteProbeSource 仅将 STRM 远程地址映射为可访问的本地媒体文件。
+func resolveRemoteProbeSource(media *model.Media, rawURL, rawMappings string) mediaProbeSource {
+	remote := mediaProbeSource{identity: remoteProbeSourceIdentity(media, "http", rawURL), url: rawURL}
+	if !strings.EqualFold(strings.TrimSpace(media.Container), "strm") && !strings.EqualFold(filepath.Ext(media.Path), ".strm") {
+		return remote
+	}
+	target := mapRemoteProbePath(rawMappings, rawURL)
+	if target == "" {
+		return remote
+	}
+	local, err := localMediaProbeSource(media, target)
+	if err != nil {
+		return remote
+	}
+	return local
+}
+
+func (s *MediaProbeService) probePathMappings(ctx context.Context) string {
+	if s == nil || s.repo == nil || s.repo.Setting == nil {
+		return ""
+	}
+	rawMappings, err := s.repo.Setting.Get(ctx, FFprobePathMappingsSettingKey)
+	if err != nil {
+		return ""
+	}
+	return rawMappings
+}
+
+// mapRemoteProbePath 将 URL 路径剩余部分拼接到本地前缀，并拒绝跨出前缀目录的结果。
+func mapRemoteProbePath(rawMappings, rawURL string) string {
+	target, err := url.Parse(strings.TrimSpace(rawURL))
+	if err != nil || target.Host == "" || !isHTTPPlaybackTarget(rawURL) {
+		return ""
+	}
+	bestPrefixLength, bestPath := -1, ""
+	for _, line := range strings.Split(rawMappings, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		parts := strings.SplitN(line, "=>", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		prefix, err := url.Parse(strings.TrimSpace(parts[0]))
+		localPrefix := filepath.Clean(strings.TrimSpace(parts[1]))
+		if err != nil || prefix.Host == "" || prefix.User != nil || !isHTTPPlaybackTarget(prefix.String()) || prefix.RawQuery != "" || prefix.Fragment != "" || !filepath.IsAbs(localPrefix) {
+			continue
+		}
+		if !strings.EqualFold(prefix.Scheme, target.Scheme) || !strings.EqualFold(prefix.Host, target.Host) {
+			continue
+		}
+		relativePath, prefixLength, ok := relativeURLPath(prefix.Path, target.Path)
+		if !ok || prefixLength <= bestPrefixLength {
+			continue
+		}
+		candidate := filepath.Join(localPrefix, filepath.FromSlash(relativePath))
+		relativeLocalPath, err := filepath.Rel(localPrefix, candidate)
+		if err != nil || relativeLocalPath == ".." || strings.HasPrefix(relativeLocalPath, ".."+string(filepath.Separator)) {
+			continue
+		}
+		bestPrefixLength, bestPath = prefixLength, candidate
+	}
+	return bestPath
+}
+
+// relativeURLPath 只在完整 URL 路径段边界上匹配前缀。
+func relativeURLPath(prefixPath, targetPath string) (string, int, bool) {
+	prefixPath = strings.TrimSuffix(prefixPath, "/")
+	if prefixPath == "" {
+		prefixPath = "/"
+	}
+	if targetPath == "" {
+		targetPath = "/"
+	}
+	if prefixPath == "/" {
+		return strings.TrimPrefix(targetPath, "/"), 1, true
+	}
+	if targetPath == prefixPath {
+		return "", len(prefixPath), true
+	}
+	if !strings.HasPrefix(targetPath, prefixPath+"/") {
+		return "", 0, false
+	}
+	return strings.TrimPrefix(targetPath[len(prefixPath):], "/"), len(prefixPath), true
 }
 
 func localMediaProbeSource(media *model.Media, target string) (mediaProbeSource, error) {
@@ -321,12 +412,13 @@ func (s *MediaProbeService) persist(ctx context.Context, mediaID string, source 
 			return err
 		}
 	}
+	rawMappings := s.probePathMappings(ctx)
 	return s.repo.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var current model.Media
 		if err := tx.Where("id = ?", mediaID).First(&current).Error; err != nil {
 			return err
 		}
-		identity, err := s.currentSourceIdentity(&current)
+		identity, err := currentSourceIdentity(&current, rawMappings)
 		if err != nil || identity != source.identity {
 			return ErrMediaProbeSourceChanged
 		}

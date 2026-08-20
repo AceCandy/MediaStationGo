@@ -29,6 +29,13 @@ export const playbackSettingsGroup: SettingGroup = {
       placeholder: 'http://media-gateway.example/d',
     },
     {
+      key: 'ffprobe.path_mappings',
+      label: '提取轨道路径映射',
+      type: 'textarea',
+      hint: '每行一条“远程 HTTP URL 前缀 => 本地路径前缀”；仅用于 STRM 内嵌轨道提取，本地文件不可用时回退远程探测，更具体的 URL 前缀优先。',
+      placeholder: 'https://media.example.com/archive/ => /mnt/media/archive/',
+    },
+    {
       key: 'ffprobe.path',
       label: 'FFprobe 路径',
       type: 'text',

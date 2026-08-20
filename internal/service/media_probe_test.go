@@ -133,6 +133,136 @@ func TestRemoteMediaProbeDelayRange(t *testing.T) {
 	}
 }
 
+func TestMapRemoteProbePath(t *testing.T) {
+	root := t.TempDir()
+	general := filepath.Join(root, "general")
+	specific := filepath.Join(root, "specific")
+	mappings := strings.Join([]string{
+		"https://media.example.test/archive/ => " + general,
+		"https://media.example.test/archive/4k/ => " + specific,
+	}, "\n")
+
+	tests := []struct {
+		name     string
+		rawURL   string
+		expected string
+	}{
+		{
+			name:     "longest prefix decodes path and ignores query",
+			rawURL:   "https://media.example.test/archive/4k/%E7%94%B5%E5%BD%B1.mkv?token=ignored",
+			expected: filepath.Join(specific, "电影.mkv"),
+		},
+		{name: "path boundary", rawURL: "https://media.example.test/archive-extra/movie.mkv"},
+		{name: "scheme mismatch", rawURL: "http://media.example.test/archive/movie.mkv"},
+		{name: "host mismatch", rawURL: "https://other.example.test/archive/movie.mkv"},
+		{name: "encoded traversal", rawURL: "https://media.example.test/archive/%2e%2e/secret.mkv"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := mapRemoteProbePath(mappings, tt.rawURL); got != tt.expected {
+				t.Fatalf("mapped path = %q, want %q", got, tt.expected)
+			}
+		})
+	}
+	if got := mapRemoteProbePath("http:///archive/ => "+general, "http:///archive/movie.mkv"); got != "" {
+		t.Fatalf("hostless URL mapped to %q", got)
+	}
+	if got := mapRemoteProbePath("https://user@media.example.test/archive/ => "+general, "https://media.example.test/archive/movie.mkv"); got != "" {
+		t.Fatalf("URL prefix with userinfo mapped to %q", got)
+	}
+}
+
+func TestMediaProbeResolvesMappedRemoteSTRMSource(t *testing.T) {
+	db := newServiceTestDB(t, &model.Media{}, &model.MediaProbeMetadata{}, &model.Setting{})
+	repos := repository.New(db)
+	metadata := createServiceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindMovie, Title: "Movie", Source: "local"})
+	root := t.TempDir()
+	target := filepath.Join(root, "movie.mkv")
+	if err := os.WriteFile(target, []byte("media"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := repos.Setting.Set(t.Context(), FFprobePathMappingsSettingKey, "https://media.example.test/archive/ => "+root); err != nil {
+		t.Fatal(err)
+	}
+	media := &model.Media{
+		MetadataID: metadata.ID, LibraryID: "library", Title: "Movie",
+		Path: "/virtual/movie.strm", STRMURL: "https://media.example.test/archive/movie.mkv?token=ignored", Container: "strm",
+	}
+	if err := db.Create(media).Error; err != nil {
+		t.Fatal(err)
+	}
+	runner := &stubMediaProbeRunner{probeFunc: func(path string) (*ProbeResult, error) {
+		if path != target {
+			t.Fatalf("probe path = %q, want %q", path, target)
+		}
+		return probeResultFixture(), nil
+	}}
+	svc := NewMediaProbeService(repos, runner)
+	source, err := svc.resolveSource(t.Context(), media)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !source.local || source.path != target || source.url != "" {
+		t.Fatalf("mapped source = %#v, want local path %q", source, target)
+	}
+	if _, err := svc.ProbeMedia(t.Context(), media.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	otherRoot := t.TempDir()
+	if err := os.WriteFile(filepath.Join(otherRoot, "movie.mkv"), []byte("other"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := repos.Setting.Set(t.Context(), FFprobePathMappingsSettingKey, "https://media.example.test/archive/ => "+otherRoot); err != nil {
+		t.Fatal(err)
+	}
+	identity, err := currentSourceIdentity(media, svc.probePathMappings(t.Context()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if identity == source.identity {
+		t.Fatal("mapping change did not change probe source identity")
+	}
+}
+
+func TestMediaProbePathMappingFallsBackToRemote(t *testing.T) {
+	db := newServiceTestDB(t, &model.Setting{})
+	repos := repository.New(db)
+	root := t.TempDir()
+	if err := repos.Setting.Set(t.Context(), FFprobePathMappingsSettingKey, "https://media.example.test/archive/ => "+root); err != nil {
+		t.Fatal(err)
+	}
+	svc := NewMediaProbeService(repos, &stubMediaProbeRunner{})
+	tests := []struct {
+		name  string
+		media model.Media
+	}{
+		{
+			name:  "mapped file missing",
+			media: model.Media{Path: "/virtual/movie.strm", STRMURL: "https://media.example.test/archive/missing.mkv", Container: "strm"},
+		},
+		{
+			name:  "mapping does not match",
+			media: model.Media{Path: "/virtual/movie.strm", STRMURL: "https://other.example.test/movie.mkv", Container: "strm"},
+		},
+		{
+			name:  "non strm media",
+			media: model.Media{Path: "/virtual/movie.mkv", STRMURL: "https://media.example.test/archive/movie.mkv", Container: "mkv"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			source, err := svc.resolveSource(t.Context(), &tt.media)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if source.local || source.url != tt.media.STRMURL {
+				t.Fatalf("source = %#v, want remote URL %q", source, tt.media.STRMURL)
+			}
+		})
+	}
+}
+
 func TestMediaProbeFallbackDoesNotOverwriteCompleteDocument(t *testing.T) {
 	db := newServiceTestDB(t, &model.Media{}, &model.MediaProbeMetadata{})
 	repos := repository.New(db)

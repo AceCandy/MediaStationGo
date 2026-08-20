@@ -140,6 +140,8 @@ db.Model(&credit).
 - Emby playback response: `PlaybackInfo{MediaSources, PlaySessionId, DateCreated}`; `DateCreated` is the selected concrete `Media.CreatedAt` encoded as a non-null UTC JSON timestamp with seven fractional digits and a trailing `Z`.
 - Direct-only source response: `EmbyMediaSource{DirectStreamUrl, SupportsDirectPlay, SupportsDirectStream, SupportsTranscoding=false}`; `TranscodingUrl` is absent.
 - Probe execution boundary: `FFprobeService.Probe(context.Context, path)` and `ProbeHTTP(context.Context, rawURL)` invoke only the resolved `ffprobe` executable.
+- Track probe path mapping setting: `ffprobe.path_mappings` contains one
+  `remote HTTP(S) URL prefix => absolute local path prefix` rule per line.
 - Remote HTTP(S) probing waits a cancellable random whole-second delay from two
   through five seconds before invoking ffprobe; local probing starts immediately.
 - Direct playback routes: `/api/stream/:id` and Emby `/Videos/:id/{stream,original}` GET/HEAD variants serve unchanged bytes or a protocol-neutral HTTP redirect. HLS playlist/segment and transcode status routes do not exist.
@@ -188,6 +190,17 @@ db.Model(&credit).
 - Graph merge recursively pairs Series children by season and episode number, moves media and metadata-owned state, deduplicates user relations, then hard-deletes the unreferenced source metadata.
 - Lists, permissions, pagination, search, playback display text, and Emby display text read `MediaView`. File opening, probing, duration, codecs, path, and STRM URL read the embedded `Media` facts.
 - A local `.strm` keeps the sidecar in `Media.Path` and its supported absolute media target in `Media.STRMURL`. Scan, manual reprobe, and asynchronous PlaybackInfo repair probe the target while persisting facts to the original Media row; stale target results must be discarded.
+- Only a `Media` whose container is `strm` or whose path ends in `.strm` may
+  apply `ffprobe.path_mappings`. Rules require a credential-free HTTP(S)
+  prefix with a host and an absolute local prefix. Matching compares scheme,
+  host, and complete decoded URL path segments; query and fragment values
+  never enter the local path. The longest matching URL path wins, and the
+  joined path must remain below its configured local prefix.
+- A mapped readable file uses the existing local `Probe` path without remote
+  delay. Invalid/unmatched rules and unavailable mapped files preserve the
+  original URL, delay, and `ProbeHTTP` behavior. Source validation rereads the
+  mapping after ffprobe and before opening the persistence transaction; do not
+  query the regular setting repository from inside that transaction.
 - A successful full probe atomically updates the scalar `Media` projection and upserts its complete probe document after rechecking the source identity. Local and local-STRM probes also persist the probed target's size. Failed, partial, or stale probes must not replace the previous valid complete document, and probe failure must never fall back to `ffmpeg -i`.
 - Global track backfill scans every non-deleted `Media` across libraries, probes
   only missing, outdated, or invalid complete documents, and skips valid current
@@ -303,6 +316,9 @@ db.Model(&credit).
 | Local STRM source is exposed through Emby | Resolve the target for source path/container/name; never return the `.strm` text path as a playable source |
 | Probe JSON is malformed, outdated, or fails structural validation | Ignore it, serve scalar fallback, and schedule lazy repair without overwriting prior valid data on failure |
 | Probe source changes while ffprobe is running | Reject the result transactionally; update neither scalar facts nor complete JSON |
+| STRM URL matches a valid track probe mapping and the local file is readable | Probe the mapped local file immediately and persist its local size |
+| Track probe mapping is invalid, unmatched, escapes its local prefix, or maps to an unavailable file | Preserve the original URL and use the existing delayed remote probe |
+| Track probe mapping changes while ffprobe is running | Reject the stale result; update neither scalar facts nor complete JSON |
 | FFprobe is missing, times out, or returns invalid output | Return a probe error, preserve the previous valid document, and never start FFmpeg |
 | A probe task is already active when global backfill is requested | Return `409`; do not create another global execution |
 | Global backfill `limit` is negative or not an integer | Return `400`; do not create a task execution |
@@ -352,6 +368,12 @@ db.Model(&credit).
 - Good: a scan or scrape changes title, identifiers, artwork and scrape status while the playable file path and library ID remain unchanged.
 - Bad: calling `ReclassifyMisclassifiedMedia` after a scrape and silently moving or deleting a local media/STRM file.
 - Good: a two-version local STRM item schedules both target files, persists each result to its original `Media` row, and exposes matching target container/path/name/average bitrate.
+- Good: a signed remote STRM URL maps by its decoded path to a mounted local
+  file; the query signature is ignored and the local probe starts immediately.
+- Base: no track probe mapping matches, or the mounted file is temporarily
+  unavailable; the existing delayed remote probe remains usable.
+- Bad: reuse or reverse `playback.path_mappings`, apply a track mapping to a
+  non-STRM media row, or build a local filename from URL query values.
 - Good: task-center global backfill repairs missing documents across libraries,
   skips valid documents and soft-deleted media, and keeps
   `total = completed + skipped + failed`.
@@ -411,6 +433,10 @@ db.Model(&credit).
 - Probe execution: put an `ffmpeg` sentinel first on `PATH`; probe success/failure, PlaybackInfo, original playback, and subtitle delivery must never execute it.
 - Probe execution: assert remote delay samples are whole seconds in the inclusive
   two-to-five-second range and local probing has no delay.
+- Probe path mapping: assert schema exposure, scheme/host/path-segment matching,
+  longest-prefix selection, decoded path joining, query exclusion, traversal
+  rejection, STRM-only gating, unavailable-file remote fallback, local runner
+  selection, and source rejection after a mapping change.
 - Playback/Emby: assert all visible sibling versions are scheduled, duplicate media IDs are not probed concurrently, average bitrate is omitted when size or duration is missing, and target-derived source name/container/path never expose the STRM sidecar.
 - Scanner queue: assert a full local probe queue waits for capacity and a canceled context releases the reserved path without enqueuing a stale task.
 - Playback/Emby: assert `/Items` totals, `/Items/Counts`, and `/SearchHints` count shared metadata once while still exposing every concrete version as a `MediaSource`.
@@ -564,6 +590,23 @@ probe := ffprobeDirectly(media.Path)
 
 // Correct: global selection changes only scope; each candidate uses the shared owner.
 probe, err := mediaProbe.ProbeMedia(ctx, media.ID)
+```
+
+Track probe source validation must not open a second database connection from
+inside the media persistence transaction:
+
+```go
+// Wrong: a single-connection test pool can deadlock while tx owns the connection.
+tx.Transaction(func(tx *gorm.DB) error {
+    mappings, _ := repo.Setting.Get(ctx, FFprobePathMappingsSettingKey)
+    return validateProbeSource(tx, mappings)
+})
+
+// Correct: snapshot the latest mapping after ffprobe, then open the transaction.
+mappings := mediaProbe.probePathMappings(ctx)
+db.Transaction(func(tx *gorm.DB) error {
+    return validateProbeSource(tx, mappings)
+})
 ```
 
 Playback compatibility fields must be placed at the exact response layer:

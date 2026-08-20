@@ -8,7 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func TestSettingsSchemaIncludesRedirectResolvePrefixes(t *testing.T) {
+func TestSettingsSchemaIncludesPathMappingTextareas(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -28,18 +28,27 @@ func TestSettingsSchemaIncludesRedirectResolvePrefixes(t *testing.T) {
 		t.Fatalf("decode settings schema: %v", err)
 	}
 
+	wanted := map[string]bool{
+		"playback.redirect_resolve_prefixes": false,
+		"ffprobe.path_mappings":              false,
+	}
 	for _, group := range response.Groups {
 		if group.Key != "general" {
 			continue
 		}
 		for _, item := range group.Items {
-			if item.Key == "playback.redirect_resolve_prefixes" {
-				if item.Type != "textarea" {
-					t.Fatalf("redirect resolve prefixes type = %q, want textarea", item.Type)
-				}
-				return
+			if _, ok := wanted[item.Key]; !ok {
+				continue
 			}
+			if item.Type != "textarea" {
+				t.Fatalf("%s type = %q, want textarea", item.Key, item.Type)
+			}
+			wanted[item.Key] = true
 		}
 	}
-	t.Fatal("redirect resolve prefixes setting is missing from the general schema")
+	for key, found := range wanted {
+		if !found {
+			t.Fatalf("%s setting is missing from the general schema", key)
+		}
+	}
 }

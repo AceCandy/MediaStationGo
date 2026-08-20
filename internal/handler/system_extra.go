@@ -66,6 +66,7 @@ func schemaHandler(_ *service.Container) gin.HandlerFunc {
 						{"key": "app.server_url", "type": "text", "label": "公开访问域名 / STRM 域名"},
 						{"key": "playback.path_mappings", "type": "textarea", "label": "本地播放路径 302 映射"},
 						{"key": "playback.redirect_resolve_prefixes", "type": "textarea", "label": "播放直链 302 预解析前缀"},
+						{"key": "ffprobe.path_mappings", "type": "textarea", "label": "提取轨道路径映射"},
 						{"key": "ffprobe.path", "type": "text", "label": "FFprobe 路径"},
 						{"key": "ffprobe.max_concurrent", "type": "number", "label": "FFprobe 最大并发"},
 					},
