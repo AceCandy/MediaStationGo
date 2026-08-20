@@ -85,7 +85,7 @@ func (s *MediaProbeService) ProbeMedia(ctx context.Context, mediaID string) (*Pr
 		select {
 		case <-ctx.Done():
 			return nil, ctx.Err()
-		case <-time.After(time.Second):
+		case <-time.After(remoteMediaProbeDelay()):
 		}
 		result, err = s.probe.ProbeHTTP(ctx, source.url)
 	} else {
@@ -101,6 +101,10 @@ func (s *MediaProbeService) ProbeMedia(ctx context.Context, mediaID string) (*Pr
 		s.cache.DeletePrefix(ctx, "media:")
 	}
 	return result, nil
+}
+
+func remoteMediaProbeDelay() time.Duration {
+	return time.Duration(secureRandomIntn(4)+2) * time.Second
 }
 
 func (s *MediaProbeService) Load(ctx context.Context, mediaID string) (*ProbeDocument, bool) {

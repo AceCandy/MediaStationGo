@@ -115,12 +115,21 @@ func TestMediaProbePersistsRemoteSTRMTargetSize(t *testing.T) {
 	if _, err := NewMediaProbeService(repos, &stubMediaProbeRunner{result: result}).ProbeMedia(t.Context(), media.ID); err != nil {
 		t.Fatal(err)
 	}
-	if elapsed := time.Since(startedAt); elapsed < time.Second {
-		t.Fatalf("remote probe delay = %v, want at least 1s", elapsed)
+	if elapsed := time.Since(startedAt); elapsed < 2*time.Second {
+		t.Fatalf("remote probe delay = %v, want at least 2s", elapsed)
 	}
 	got, _ := repos.Media.FindByID(t.Context(), media.ID)
 	if got.SizeBytes != result.Document.Format.Size {
 		t.Fatalf("size_bytes = %d, want remote target size %d", got.SizeBytes, result.Document.Format.Size)
+	}
+}
+
+func TestRemoteMediaProbeDelayRange(t *testing.T) {
+	for range 100 {
+		delay := remoteMediaProbeDelay()
+		if delay < 2*time.Second || delay > 5*time.Second || delay%time.Second != 0 {
+			t.Fatalf("remote probe delay = %v, want an integer 2-5s", delay)
+		}
 	}
 }
 

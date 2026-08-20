@@ -140,7 +140,8 @@ db.Model(&credit).
 - Emby playback response: `PlaybackInfo{MediaSources, PlaySessionId, DateCreated}`; `DateCreated` is the selected concrete `Media.CreatedAt` encoded as a non-null UTC JSON timestamp with seven fractional digits and a trailing `Z`.
 - Direct-only source response: `EmbyMediaSource{DirectStreamUrl, SupportsDirectPlay, SupportsDirectStream, SupportsTranscoding=false}`; `TranscodingUrl` is absent.
 - Probe execution boundary: `FFprobeService.Probe(context.Context, path)` and `ProbeHTTP(context.Context, rawURL)` invoke only the resolved `ffprobe` executable.
-- Remote HTTP(S) probing waits one cancellable second before invoking ffprobe; local probing starts immediately.
+- Remote HTTP(S) probing waits a cancellable random whole-second delay from two
+  through five seconds before invoking ffprobe; local probing starts immediately.
 - Direct playback routes: `/api/stream/:id` and Emby `/Videos/:id/{stream,original}` GET/HEAD variants serve unchanged bytes or a protocol-neutral HTTP redirect. HLS playlist/segment and transcode status routes do not exist.
 - Redirect pre-resolution setting: `playback.redirect_resolve_prefixes` contains
   one literal HTTP/HTTPS URL prefix per line and applies to persisted STRM
@@ -408,6 +409,8 @@ db.Model(&credit).
   upstream header isolation; sanitized logs; and media-scoped tokens only on
   internal `/api/stream/:id` redirects.
 - Probe execution: put an `ffmpeg` sentinel first on `PATH`; probe success/failure, PlaybackInfo, original playback, and subtitle delivery must never execute it.
+- Probe execution: assert remote delay samples are whole seconds in the inclusive
+  two-to-five-second range and local probing has no delay.
 - Playback/Emby: assert all visible sibling versions are scheduled, duplicate media IDs are not probed concurrently, average bitrate is omitted when size or duration is missing, and target-derived source name/container/path never expose the STRM sidecar.
 - Scanner queue: assert a full local probe queue waits for capacity and a canceled context releases the reserved path without enqueuing a stale task.
 - Playback/Emby: assert `/Items` totals, `/Items/Counts`, and `/SearchHints` count shared metadata once while still exposing every concrete version as a `MediaSource`.
