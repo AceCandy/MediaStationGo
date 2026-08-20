@@ -844,3 +844,24 @@ Committed the existing web UI redesign together with detailed background task lo
 ### Status
 
 [OK] **Completed**
+
+
+## Session 40: STRM 轨道本地路径映射
+
+**Date**: 2026-08-20
+**Task**: STRM 轨道本地路径映射
+**Branch**: `main`
+
+### Summary
+
+新增远程 STRM 到本地 FFprobe 路径映射，补充安全边界、回退逻辑、配置界面、测试和媒体元数据规范。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `4f92955` | (see git log) |
+
+### Status
+
+[OK] **Completed**
