@@ -823,3 +823,24 @@ Committed the existing web UI redesign together with detailed background task lo
 ### Status
 
 [OK] **Completed**
+
+
+## Session 39: 精简事件触发任务日志
+
+**Date**: 2026-08-20
+**Task**: 精简事件触发任务日志
+**Branch**: `main`
+
+### Summary
+
+事件触发任务不再写通用开始和结束生命周期日志，保留进度、业务明细与失败原因；手动和定时任务行为不变，并补充聚焦回归测试。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `11ea9b1` | (see git log) |
+
+### Status
+
+[OK] **Completed**
