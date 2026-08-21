@@ -907,3 +907,24 @@ Committed the existing web UI redesign together with detailed background task lo
 ### Status
 
 [OK] **Completed**
+
+
+## Session 43: 完成播放统计明细与热榜
+
+**Date**: 2026-08-21
+**Task**: 完成播放统计明细与热榜
+**Branch**: `main`
+
+### Summary
+
+实现播放统计明细、分页、每日/每周热榜及对应后端查询、前端页面和测试；完成质量检查并归档任务。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `9f80754` | (see git log) |
+
+### Status
+
+[OK] **Completed**

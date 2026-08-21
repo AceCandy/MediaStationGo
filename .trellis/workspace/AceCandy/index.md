@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 42
+- **Total Sessions**: 43
 - **Last Active**: 2026-08-21
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~909 | Active |
+| `journal-1.md` | ~930 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 43 | 2026-08-21 | 完成播放统计明细与热榜 | `9f80754` | `main` |
 | 42 | 2026-08-21 | 详情页影院化与媒体库网格美观度重构 | `49404af` | `main` |
 | 41 | 2026-08-21 | 统一 ffprobe 媒体技术元数据 | `a4ad1fb` | `main` |
 | 40 | 2026-08-20 | STRM 轨道本地路径映射 | `4f92955` | `main` |
