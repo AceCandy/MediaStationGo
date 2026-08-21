@@ -152,9 +152,9 @@ export function PosterWallPage() {
         <p className="text-ink-50">暂无媒体。请先添加媒体库并扫描。</p>
       )}
       <div className="grid grid-cols-3 gap-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 xl:grid-cols-10">
-        {cards.map((card) => (
+        {cards.map((card, index) => (
           <div key={card.key} className="relative">
-            <MediaCard media={card.rep} linkTo={seriesCardLink(card)} />
+            <MediaCard media={card.rep} linkTo={seriesCardLink(card)} staggerIndex={index % 20} />
             {card.count > 1 && (
               <span className="pointer-events-none absolute right-1.5 top-1.5 inline-flex items-center gap-0.5 rounded-lg bg-black/60 px-1.5 py-0.5 text-[10px] font-medium text-white backdrop-blur-sm">
                 <Layers size={10} />

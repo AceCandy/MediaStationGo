@@ -1,7 +1,7 @@
 import { api, BATCH_REQUEST_TIMEOUT, LONG_REQUEST_TIMEOUT } from './client'
 import { useAuthStore } from '../stores/auth'
 import { getActivePlayProfileId } from '../stores/playProfile'
-import type { Library, LibraryRoot, Media, ScanResult } from '../types'
+import type { Library, LibraryRoot, Media, MediaCredit, ScanResult } from '../types'
 import type { SeriesCard } from '../utils/groupSeries'
 
 const recentRequests = new Map<string, Promise<SeriesCard[]>>()
@@ -219,6 +219,9 @@ export const mediaAPI = {
   delete: (id: string) => api.delete(`/media/${id}`).then((r) => r.data),
 
   listVersions: (id: string) => api.get<Media[]>(`/media/${id}/versions`).then((r) => r.data),
+
+  listCredits: (id: string) =>
+    api.get<{ items: MediaCredit[] }>(`/media/${id}/credits`).then((r) => r.data.items ?? []),
 
   ensureProbe: (id: string) =>
     api.post<Media>(`/media/${id}/probe/ensure`, null, { timeout: LONG_REQUEST_TIMEOUT }).then((r) => r.data),

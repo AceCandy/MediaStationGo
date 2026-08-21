@@ -3,6 +3,7 @@ package middleware
 import (
 	"context"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -79,6 +80,53 @@ func TestRequestLoggerSanitizesPlayerAPIRequest(t *testing.T) {
 				t.Fatalf("header %s = %#v, want redacted", key, headers[key])
 			}
 		}
+	}
+}
+
+func TestRequestLoggerCapturesPlayerBodyWithoutChangingRequest(t *testing.T) {
+	tests := []struct {
+		name       string
+		body       string
+		storedBody string
+	}{
+		{
+			name:       "sanitized json",
+			body:       `{"ItemId":"item-1","PositionTicks":300000000,"DeviceId":"device-secret","Nested":{"Password":"password-secret"}}`,
+			storedBody: `{"DeviceId":"[redacted]","ItemId":"item-1","Nested":{"Password":"[redacted]"},"PositionTicks":300000000}`,
+		},
+		{name: "plain text", body: "plain body", storedBody: "plain body"},
+		{name: "invalid utf8", body: string([]byte{0xff}), storedBody: "�"},
+		{name: "json encoding expansion", body: `"` + strings.Repeat("&", 11_000) + `"`, storedBody: playerRequestBodyTruncated},
+		{name: "oversized", body: strings.Repeat("x", maxPlayerRequestJSONBytes+1), storedBody: playerRequestBodyTruncated},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gin.SetMode(gin.TestMode)
+			router := gin.New()
+			var row *model.PlayerRequestLog
+			router.Use(RequestLogger(zap.NewNop(), func(_ context.Context, recorded *model.PlayerRequestLog) error {
+				row = recorded
+				return nil
+			}))
+			group := router.Group("/emby", MarkPlayerAPIRequest())
+			group.POST("/Sessions/Playing/Progress", func(c *gin.Context) {
+				body, err := io.ReadAll(c.Request.Body)
+				if err != nil || string(body) != tt.body {
+					t.Fatalf("handler body = %q, err = %v", body, err)
+				}
+				c.Status(http.StatusNoContent)
+			})
+
+			response := httptest.NewRecorder()
+			request := httptest.NewRequest(http.MethodPost, "/emby/Sessions/Playing/Progress", strings.NewReader(tt.body))
+			router.ServeHTTP(response, request)
+			if response.Code != http.StatusNoContent {
+				t.Fatalf("status = %d, want %d", response.Code, http.StatusNoContent)
+			}
+			if row == nil || row.Body != tt.storedBody {
+				t.Fatalf("stored body = %q, want %q", row.Body, tt.storedBody)
+			}
+		})
 	}
 }
 

@@ -6,8 +6,9 @@ import { ManualScrapeDialog } from '../components/ManualScrapeDialog'
 import { MetadataEditDialog } from '../components/MetadataEditDialog'
 import { OrganizeMediaDialog } from '../components/OrganizeMediaDialog'
 import type { Media } from '../types'
-import { MediaDetailAdminPanel } from './MediaDetailAdminPanel'
+import { MediaDetailAdminMenu } from './MediaDetailAdminPanel'
 import { MediaDetailPoster } from './MediaDetailArtwork'
+import { MediaDetailCast } from './MediaDetailCast'
 import { MediaDetailMetadata } from './MediaDetailMetadata'
 import { MediaDetailTracks } from './MediaDetailTracks'
 import { mediaDetailScrapeMediaType } from './MediaDetailPageModel'
@@ -141,42 +142,53 @@ export function MediaDetailMainContent({
   onSoftDelete,
 }: MediaDetailMainContentProps) {
   return (
-    <div className="relative z-10 p-6 sm:p-10 flex flex-col md:flex-row gap-8 lg:gap-12">
-      <MediaDetailPoster media={media} />
-
-      <div className="flex-1 space-y-6">
-        <MediaDetailMetadata media={media} favourite={favourite} onToggleFavourite={onToggleFavourite} />
-        <MediaDetailTracks
-          media={displayMedia}
-          versions={versions}
-          selectedVersionID={selectedVersionID}
-          loading={mediaInfoLoading}
-          probing={probing}
-          probeError={probeError}
-          onVersionChange={onVersionChange}
-        />
-        <div className="divider border-gray-200/60" />
-        <div className="flex flex-col gap-5">
-          <MediaDetailPlaybackActions
-            media={displayMedia ?? media}
-            canCast={canCast}
+    <>
+      <div className="relative z-20 flex flex-col gap-8 p-6 pt-10 sm:p-10 sm:pt-16 md:flex-row lg:gap-12">
+        {/* 左列：海报 + 媒体信息，紧跟海报不留空 */}
+        <div className="mx-auto flex w-56 shrink-0 flex-col gap-7 md:mx-0 lg:w-64">
+          <MediaDetailPoster media={media} />
+          <MediaDetailTracks
+            media={displayMedia}
+            versions={versions}
+            selectedVersionID={selectedVersionID}
+            loading={mediaInfoLoading}
+            probing={probing}
+            probeError={probeError}
+            onVersionChange={onVersionChange}
           />
-          {isAdmin && (
-            <MediaDetailAdminPanel
-              media={media}
-              scrapeEpisodeArtwork={scrapeEpisodeArtwork}
-              onScrapeEpisodeArtworkChange={onScrapeEpisodeArtworkChange}
-              onSmartScrape={onSmartScrape}
-              onManualScrape={onManualScrape}
-              onMetadataEdit={onMetadataEdit}
-              onOrganize={onOrganize}
-              onProbe={onProbe}
-              onSoftDelete={onSoftDelete}
+        </div>
+
+        {/* 右列：元信息 → 播放操作（管理操作收敛进「更多操作」） */}
+        <div className="min-w-0 flex-1 space-y-7">
+          <MediaDetailMetadata media={media} favourite={favourite} onToggleFavourite={onToggleFavourite} />
+          <div className="divider border-gray-200/60" />
+          <div className="flex flex-wrap items-center gap-3">
+            <MediaDetailPlaybackActions
+              media={displayMedia ?? media}
+              canCast={canCast}
             />
-          )}
+            {isAdmin && (
+              <MediaDetailAdminMenu
+                media={media}
+                scrapeEpisodeArtwork={scrapeEpisodeArtwork}
+                onScrapeEpisodeArtworkChange={onScrapeEpisodeArtworkChange}
+                onSmartScrape={onSmartScrape}
+                onManualScrape={onManualScrape}
+                onMetadataEdit={onMetadataEdit}
+                onOrganize={onOrganize}
+                onProbe={onProbe}
+                onSoftDelete={onSoftDelete}
+              />
+            )}
+          </div>
         </div>
       </div>
-    </div>
+
+      {/* 演职员：通栏置于最底部（层级低于上栏，避免遮挡轨道下拉菜单） */}
+      <div className="relative z-10 px-6 pb-8 sm:px-10 sm:pb-10">
+        <MediaDetailCast mediaId={media.id} />
+      </div>
+    </>
   )
 }
 

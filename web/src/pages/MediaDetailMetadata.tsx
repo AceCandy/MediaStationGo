@@ -1,4 +1,5 @@
-import { Calendar, Heart } from 'lucide-react'
+import { Calendar, Heart, Star } from 'lucide-react'
+import { motion } from 'framer-motion'
 
 import type { Media } from '../types'
 
@@ -8,17 +9,30 @@ type MediaDetailMetadataProps = {
   onToggleFavourite: () => void
 }
 
+const rise = (delay: number) => ({
+  initial: { opacity: 0, y: 14 },
+  animate: { opacity: 1, y: 0 },
+  transition: { duration: 0.5, delay, ease: [0.21, 0.47, 0.32, 0.98] as const },
+})
+
 export function MediaDetailMetadata({ media, favourite, onToggleFavourite }: MediaDetailMetadataProps) {
   const heading = media.title
   const seriesContext = media.series_title?.trim()
 
   return (
     <>
-      <div className="space-y-3">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <h1 className="min-w-0 break-words text-pretty font-display text-3xl sm:text-4xl font-extrabold tracking-tight text-gray-900 leading-tight">
-            {heading}
-          </h1>
+      <div className="space-y-4">
+        <motion.div {...rise(0)} className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0 space-y-2">
+            <h1 className="break-words text-pretty font-display text-[clamp(1.75rem,3.4vw,2.75rem)] font-extrabold tracking-tight text-gray-900 leading-[1.15]">
+              {heading}
+            </h1>
+            {seriesContext && (
+              <p className="text-sm font-semibold text-gray-500">
+                {seriesContext}
+              </p>
+            )}
+          </div>
           <button
             type="button"
             onClick={onToggleFavourite}
@@ -33,54 +47,56 @@ export function MediaDetailMetadata({ media, favourite, onToggleFavourite }: Med
             <Heart size={14} fill={favourite ? 'currentColor' : 'none'} aria-hidden="true" />
             <span>{favourite ? '取消收藏' : '加入收藏'}</span>
           </button>
-        </div>
-        {seriesContext && (
-          <p className="text-sm font-semibold text-gray-500">
-            {seriesContext}
-          </p>
-        )}
-        <div className="flex flex-wrap items-center gap-2.5 text-xs text-gray-500 font-bold tracking-wide uppercase">
+        </motion.div>
+
+        <motion.div {...rise(0.08)} className="flex flex-wrap items-center gap-2.5 text-xs font-bold tracking-wide">
+          {media.rating > 0 && (
+            <span className="badge-gold !px-3 !py-1.5 !text-xs shadow-glow-gold">
+              <Star size={12} fill="currentColor" className="mr-1" />
+              {media.rating.toFixed(1)}
+            </span>
+          )}
           {media.year > 0 && (
-            <span className="inline-flex items-center gap-1 bg-gray-100 border border-gray-200/50 px-2.5 py-1 rounded-xl text-gray-700">
+            <span className="inline-flex items-center gap-1.5 rounded-xl border border-[var(--app-border)] bg-[var(--app-panel)]/70 px-3 py-1.5 text-[var(--app-text)] backdrop-blur">
               <Calendar size={13} className="text-brand-500" />
               <span>{media.year} 年</span>
             </span>
           )}
           {media.width > 0 && (
-            <span className="inline-flex items-center gap-1 bg-brand-50 text-brand-700 border border-brand-100/50 px-2.5 py-1 rounded-xl">
-              <span>{media.width} × {media.height}</span>
+            <span className="rounded-xl border border-[var(--app-brand-border)] bg-[var(--app-brand-soft)] px-3 py-1.5 uppercase text-[var(--app-brand-text)] backdrop-blur">
+              {media.width} × {media.height}
             </span>
           )}
-          <span className="bg-gray-100 border border-gray-200/50 px-2.5 py-1 rounded-xl text-gray-700">
-            {fmtSize(media.size_bytes)}
-          </span>
-          <span className="bg-gray-100 border border-gray-200/50 px-2.5 py-1 rounded-xl text-gray-700">
+          <span className="rounded-xl border border-[var(--app-border)] bg-[var(--app-panel)]/70 px-3 py-1.5 text-[var(--app-subtle)] backdrop-blur">
             {fmtDuration(media.duration_sec)}
           </span>
+          <span className="rounded-xl border border-[var(--app-border)] bg-[var(--app-panel)]/70 px-3 py-1.5 text-[var(--app-subtle)] backdrop-blur">
+            {fmtSize(media.size_bytes)}
+          </span>
           {media.container && (
-            <span className="bg-gray-100 border border-gray-200/50 px-2.5 py-1 rounded-xl text-gray-700 font-mono">
+            <span className="rounded-xl border border-[var(--app-border)] bg-[var(--app-panel)]/70 px-3 py-1.5 font-mono text-[10px] uppercase text-[var(--app-subtle)] backdrop-blur">
               {media.container}
             </span>
           )}
-        </div>
+        </motion.div>
       </div>
 
       {media.overview && (
-        <div className="rounded-2xl bg-gray-50/50 border border-gray-100 p-5 space-y-2">
-          <h3 className="text-xs font-bold uppercase tracking-widest text-brand-500">剧情简介</h3>
-          <p className="text-sm text-gray-600 leading-relaxed font-semibold">
+        <motion.div {...rise(0.16)} className="glass-panel !rounded-2xl !p-5 sm:!p-6 space-y-2.5">
+          <h3 className="text-xs font-bold uppercase tracking-[0.2em] text-brand-500">剧情简介</h3>
+          <p className="max-w-3xl text-[15px] leading-7 text-[var(--app-subtle)] font-medium">
             {media.overview}
           </p>
-        </div>
+        </motion.div>
       )}
 
-      <div className="space-y-4">
+      <motion.div {...rise(0.22)} className="space-y-4">
         <MetadataTags label="类型流派" values={parseCSV(media.genres)} primary />
         <div className="grid gap-4 sm:grid-cols-2">
           <MetadataTags label="国家/地区" values={localizedCSV(media.countries, 'region')} />
           <MetadataTags label="语言" values={localizedCSV(media.languages, 'language')} />
         </div>
-      </div>
+      </motion.div>
     </>
   )
 }
@@ -88,11 +104,11 @@ export function MediaDetailMetadata({ media, favourite, onToggleFavourite }: Med
 function MetadataTags({ label, values, primary = false }: { label: string; values: string[]; primary?: boolean }) {
   if (values.length === 0) return null
   const tagClass = primary
-    ? 'rounded-full bg-brand-50 text-brand-700 border border-brand-100/30 px-3 py-1 text-2xs font-bold uppercase tracking-wider'
-    : 'rounded-xl bg-gray-100 text-gray-600 border border-gray-200/40 px-2.5 py-1 text-2xs font-semibold'
+    ? 'rounded-full bg-[var(--app-brand-soft)] text-[var(--app-brand-text)] border border-[var(--app-brand-border)] px-3 py-1 text-2xs font-bold uppercase tracking-wider'
+    : 'rounded-xl bg-[var(--app-hover)] text-[var(--app-muted)] border border-[var(--app-border)] px-2.5 py-1 text-2xs font-semibold'
   return (
     <div className="flex flex-wrap items-center gap-3">
-      <span className="w-16 whitespace-nowrap text-xs font-bold uppercase tracking-wider text-gray-500">{label}</span>
+      <span className="w-16 whitespace-nowrap text-xs font-bold uppercase tracking-wider text-[var(--app-muted)]">{label}</span>
       <div className="flex flex-wrap gap-2">
         {values.map((value) => (
           <span key={value} className={tagClass}>

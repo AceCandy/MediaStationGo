@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import { useLocation, useParams, useSearchParams } from 'react-router-dom'
 import { motion } from 'framer-motion'
+import toast from 'react-hot-toast'
 
 import type { Media } from '../types'
+import { playbackAPI } from '../api/playback'
 import { useAuthStore } from '../stores/auth'
 import type { SeriesCard } from '../utils/groupSeries'
 import { LibraryPageDialogs } from './LibraryPageDialogs'
@@ -22,7 +24,37 @@ export function LibraryPage() {
 
   const [manualSeriesScrapeOpen, setManualSeriesScrapeOpen] = useState(false)
   const [seriesMetadataEditOpen, setSeriesMetadataEditOpen] = useState(false)
-  const [manualMovie, setManualMovie] = useState<Media | null>(null)
+
+  // 网格卡片收藏：整页拉一次收藏列表（API 层有 5s 缓存），本地维护 id 集合
+  const [favouriteIds, setFavouriteIds] = useState<ReadonlySet<string>>(() => new Set())
+
+  useEffect(() => {
+    let cancelled = false
+    playbackAPI
+      .listFavourites()
+      .then((list) => {
+        if (!cancelled) setFavouriteIds(new Set(list.map((item) => item.id)))
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const handleToggleFavourite = (media: Media) => {
+    playbackAPI
+      .toggleFavourite(media.id)
+      .then((state) => {
+        setFavouriteIds((prev) => {
+          const next = new Set(prev)
+          if (state) next.add(media.id)
+          else next.delete(media.id)
+          return next
+        })
+        toast.success(state ? '已加入我的收藏' : '已取消收藏')
+      })
+      .catch(() => toast.error('收藏操作失败'))
+  }
 
   // 剧集模式：选中某个剧集后展开详情
   const [selectedSeries, setSelectedSeries] = useState<SeriesCard | null>(null)
@@ -107,16 +139,13 @@ export function LibraryPage() {
     handleEpisodeProbe,
     handleSeriesOrganize,
     handleSeriesSoftDelete,
-    movieActions,
   } = useLibraryAdminActions({
     libraryID: id,
-    role,
     library,
     selectedSeries,
     selectedSeriesEpisodes,
     reloadCurrentLibrary,
     clearSelectedSeries,
-    setManualMovie,
   })
 
   if (loading) {
@@ -158,7 +187,8 @@ export function LibraryPage() {
         seriesCards={seriesCards}
         selectedSeries={selectedSeries}
         loading={loading}
-        movieActions={movieActions}
+        favouriteIds={favouriteIds}
+        onToggleFavourite={handleToggleFavourite}
         onSeriesClick={handleSeriesClick}
       />
 
@@ -196,14 +226,12 @@ export function LibraryPage() {
       <LibraryPageDialogs
         manualSeriesScrapeOpen={manualSeriesScrapeOpen}
         seriesMetadataEditOpen={seriesMetadataEditOpen}
-        manualMovie={manualMovie}
         selectedSeries={selectedSeries}
         selectedSeriesMediaIDs={selectedSeriesMediaIDs}
         libraryType={library?.type}
         scrapeEpisodeArtwork={scrapeEpisodeArtwork}
         onCloseManualSeriesScrape={() => setManualSeriesScrapeOpen(false)}
         onCloseSeriesMetadataEdit={() => setSeriesMetadataEditOpen(false)}
-        onCloseManualMovie={() => setManualMovie(null)}
         onApplied={reloadCurrentLibrary}
       />
     </div>

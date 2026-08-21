@@ -27,6 +27,7 @@ function statusClass(status: number): string {
 
 function LogDetails({ log, onClose }: { log: PlayerRequestLog; onClose: () => void }) {
   const sections = [
+    ['Body', log.body],
     ['Path 参数', log.path_params],
     ['Header', log.headers],
     ['Query', log.query],
@@ -44,7 +45,7 @@ function LogDetails({ log, onClose }: { log: PlayerRequestLog; onClose: () => vo
       </dl>
       <div className="mt-5 space-y-4">
         {sections.map(([label, value]) => (
-          <section key={label}><h3 className="mb-2 text-sm font-semibold text-ink-600">{label}</h3><pre className="max-h-64 overflow-auto rounded-lg bg-gray-950 p-3 text-xs leading-relaxed text-gray-100">{JSON.stringify(value ?? {}, null, 2)}</pre></section>
+          <section key={label}><h3 className="mb-2 text-sm font-semibold text-ink-600">{label}</h3><pre className="max-h-64 overflow-auto rounded-lg bg-gray-950 p-3 text-xs leading-relaxed text-gray-100">{typeof value === 'string' ? value || '-' : JSON.stringify(value ?? {}, null, 2)}</pre></section>
         ))}
       </div>
     </ModalShell>

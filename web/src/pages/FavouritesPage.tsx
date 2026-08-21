@@ -73,8 +73,8 @@ export function FavouritesPage({ embedded = false }: { embedded?: boolean }) {
 
       {items.length > 0 && (
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
-          {items.map((m) => (
-            <MediaCard key={m.id} media={m} />
+          {items.map((m, index) => (
+            <MediaCard key={m.id} media={m} staggerIndex={index} />
           ))}
         </div>
       )}

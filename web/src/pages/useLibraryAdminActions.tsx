@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react'
+import { useState } from 'react'
 import toast from 'react-hot-toast'
 
 import { api } from '../api/client'
@@ -7,29 +7,24 @@ import { toolsAPI } from '../api/tools'
 import { confirmAction } from '../components/confirmAction'
 import type { Library, Media } from '../types'
 import { seriesTitle, type SeriesCard } from '../utils/groupSeries'
-import { LibraryMovieActions } from './LibraryMovieActions'
 import { seriesSourceRoot } from './libraryPageModel'
 
 type UseLibraryAdminActionsOptions = {
   libraryID: string
-  role?: string
   library: Library | null
   selectedSeries: SeriesCard | null
   selectedSeriesEpisodes: Media[]
   reloadCurrentLibrary: () => void
   clearSelectedSeries: () => void
-  setManualMovie: (media: Media | null) => void
 }
 
 export function useLibraryAdminActions({
   libraryID,
-  role,
   library,
   selectedSeries,
   selectedSeriesEpisodes,
   reloadCurrentLibrary,
   clearSelectedSeries,
-  setManualMovie,
 }: UseLibraryAdminActionsOptions) {
   const [scraping, setScraping] = useState(false)
   const [scrapeEpisodeArtwork, setScrapeEpisodeArtwork] = useState(false)
@@ -37,7 +32,6 @@ export function useLibraryAdminActions({
   const [backfilling, setBackfilling] = useState(false)
 	const [peopleBackfilling, setPeopleBackfilling] = useState(false)
   const [seriesToolBusy, setSeriesToolBusy] = useState('')
-  const [movieToolBusy, setMovieToolBusy] = useState('')
 
   const handleScrape = async () => {
     setScraping(true)
@@ -185,49 +179,6 @@ export function useLibraryAdminActions({
     clearSelectedSeries()
   }
 
-  const runMovieTool = async (media: Media, key: string, label: string, action: (media: Media) => Promise<unknown>) => {
-    const busyKey = `${key}:${media.id}`
-    setMovieToolBusy(busyKey)
-    try {
-      await action(media)
-      toast.success(`${label}完成：${media.title}`)
-      reloadCurrentLibrary()
-    } catch (err: unknown) {
-      const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error || `${label}失败`
-      toast.error(msg)
-    } finally {
-      setMovieToolBusy('')
-    }
-  }
-
-  const handleMovieSmartScrape = (media: Media) => {
-    runMovieTool(media, 'scrape', '智能刮削', (item) =>
-      api.post(`/media/${item.id}/scrape`, smartScrapeOptions(scrapeEpisodeArtwork)),
-    )
-  }
-
-  const handleMovieSoftDelete = async (media: Media) => {
-    if (!(await confirmAction({
-      title: '永久删除媒体',
-      message: `将永久删除「${media.title}」的数据库记录；磁盘文件保留，此操作不可恢复。`,
-      confirmText: '永久删除',
-    }))) return
-    await runMovieTool(media, 'delete', '永久删除', (item) => mediaAPI.delete(item.id))
-  }
-
-  const movieActions = (media: Media): ReactNode => {
-    if (role !== 'admin') return undefined
-    return (
-      <LibraryMovieActions
-        media={media}
-        busy={movieToolBusy.endsWith(`:${media.id}`)}
-        onSmartScrape={handleMovieSmartScrape}
-        onManualScrape={setManualMovie}
-        onSoftDelete={handleMovieSoftDelete}
-      />
-    )
-  }
-
   return {
     scraping,
     scrapeEpisodeArtwork,
@@ -245,7 +196,6 @@ export function useLibraryAdminActions({
     handleEpisodeProbe,
     handleSeriesOrganize,
     handleSeriesSoftDelete,
-    movieActions,
   }
 }
 

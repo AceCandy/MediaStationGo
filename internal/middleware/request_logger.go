@@ -1,8 +1,10 @@
 package middleware
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/url"
 	"sort"
@@ -15,11 +17,15 @@ import (
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 )
 
-const playerAPIRequestContextKey = "player_api_request"
+const (
+	playerAPIRequestContextKey     = "player_api_request"
+	playerAPIRequestBodyContextKey = "player_api_request_body"
+)
 
 const (
 	maxPlayerRequestValueRunes = 4096
 	maxPlayerRequestJSONBytes  = 64 * 1024
+	playerRequestBodyTruncated = "[truncated: request body exceeds 64 KiB]"
 )
 
 type PlayerRequestRecorder func(context.Context, *model.PlayerRequestLog) error
@@ -28,6 +34,13 @@ type PlayerRequestRecorder func(context.Context, *model.PlayerRequestLog) error
 func MarkPlayerAPIRequest() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		c.Set(playerAPIRequestContextKey, true)
+		if c.Request.Body != nil {
+			original := c.Request.Body
+			body, _ := io.ReadAll(io.LimitReader(original, maxPlayerRequestJSONBytes+1))
+			c.Request.Body = io.NopCloser(io.MultiReader(bytes.NewReader(body), original))
+			defer original.Close()
+			c.Set(playerAPIRequestBodyContextKey, sanitizedPlayerBody(body))
+		}
 		c.Next()
 	}
 }
@@ -69,7 +82,7 @@ func RequestLogger(log *zap.Logger, recordPlayerRequest PlayerRequestRecorder) g
 				ctx, cancel := context.WithTimeout(context.WithoutCancel(c.Request.Context()), 3*time.Second)
 				err := recordPlayerRequest(ctx, &model.PlayerRequestLog{
 					RequestedAt: start, Method: c.Request.Method, Route: c.FullPath(), Status: status,
-					DurationMS: duration.Milliseconds(), IP: c.ClientIP(),
+					DurationMS: duration.Milliseconds(), IP: c.ClientIP(), Body: c.GetString(playerAPIRequestBodyContextKey),
 					PathParams: sanitizedPlayerParams(c.Params), Headers: headers, Query: query,
 				})
 				cancel()
@@ -80,6 +93,48 @@ func RequestLogger(log *zap.Logger, recordPlayerRequest PlayerRequestRecorder) g
 		}
 		log.Info("http", fields...)
 	}
+}
+
+func sanitizedPlayerBody(body []byte) string {
+	if len(body) > maxPlayerRequestJSONBytes {
+		return playerRequestBodyTruncated
+	}
+	if len(body) == 0 {
+		return ""
+	}
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	decoder.UseNumber()
+	var value any
+	if decoder.Decode(&value) != nil {
+		return strings.ToValidUTF8(string(body), "�")
+	}
+	var extra any
+	if decoder.Decode(&extra) != io.EOF {
+		return strings.ToValidUTF8(string(body), "�")
+	}
+	encoded, _ := json.Marshal(sanitizedPlayerJSON(value))
+	if len(encoded) > maxPlayerRequestJSONBytes {
+		return playerRequestBodyTruncated
+	}
+	return string(encoded)
+}
+
+func sanitizedPlayerJSON(value any) any {
+	switch typed := value.(type) {
+	case map[string]any:
+		for key, item := range typed {
+			if sensitivePlayerRequestField(key) {
+				typed[key] = "[redacted]"
+			} else {
+				typed[key] = sanitizedPlayerJSON(item)
+			}
+		}
+	case []any:
+		for i, item := range typed {
+			typed[i] = sanitizedPlayerJSON(item)
+		}
+	}
+	return value
 }
 
 func sanitizedPlayerHeaders(header http.Header) map[string][]string {

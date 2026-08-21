@@ -1,10 +1,17 @@
 import { api } from './client'
-import type { Media } from '../types'
+
+export interface DuplicateMedia {
+  id: string
+  title: string
+  path: string
+  size_bytes: number
+  library_name?: string
+}
 
 export interface DuplicateGroup {
   hash: string
-  primary: Media
-  duplicates: Media[]
+  primary: DuplicateMedia
+  duplicates: DuplicateMedia[]
 }
 
 export interface DuplicateReport {

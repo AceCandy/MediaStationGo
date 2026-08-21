@@ -50,8 +50,8 @@ html, body, #root { height: 100%; }
   --app-overlay: rgba(18, 18, 24, 0.38);
   --app-modal-shadow: 0 24px 70px rgba(18, 18, 24, 0.18), 0 4px 18px rgba(18, 18, 24, 0.08);
   --app-modal-highlight: rgba(255, 255, 255, 0.7);
-  --app-backdrop-img-opacity: 0.3;
-  --app-backdrop-overlay: linear-gradient(to top, #ffffff 12%, rgba(255,255,255,0.88) 45%, rgba(255,255,255,0.3) 100%);
+  --app-backdrop-img-opacity: 0.45;
+  --app-backdrop-overlay: linear-gradient(to top, #ffffff 6%, rgba(255,255,255,0.78) 42%, rgba(255,255,255,0.14) 100%);
 }
 
 :root[data-theme='dark'] {
@@ -95,8 +95,8 @@ html, body, #root { height: 100%; }
   --app-overlay: rgba(2, 2, 8, 0.62);
   --app-modal-shadow: 0 32px 90px rgba(0, 0, 0, 0.65), 0 0 48px rgba(139, 92, 246, 0.1);
   --app-modal-highlight: rgba(255, 255, 255, 0.07);
-  --app-backdrop-img-opacity: 0.55;
-  --app-backdrop-overlay: linear-gradient(to top, #10101a 10%, rgba(16,16,26,0.82) 48%, rgba(16,16,26,0.2) 100%);
+  --app-backdrop-img-opacity: 0.72;
+  --app-backdrop-overlay: linear-gradient(to top, #10101a 4%, rgba(16,16,26,0.66) 46%, rgba(16,16,26,0.08) 100%);
 }
 
 /* ─── 基底 ─── */
@@ -428,6 +428,7 @@ body::before {
   .skeleton::after {
     content: '';
     @apply absolute inset-0 -translate-x-full animate-shimmer;
+    animation-delay: var(--skeleton-delay, 0s);
     background: linear-gradient(90deg, transparent, rgba(139, 92, 246, 0.08), transparent);
   }
 

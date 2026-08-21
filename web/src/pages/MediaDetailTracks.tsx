@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Captions, Check, ChevronDown, Layers3, LoaderCircle, Music2, Video, type LucideIcon } from 'lucide-react'
 
 import type { Media, MediaTrack } from '../types'
@@ -36,7 +36,7 @@ export function MediaDetailTracks({
         媒体信息
       </h2>
 
-      <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
+      <div className="grid grid-cols-1 gap-3">
         <MediaInfoPicker
           icon={Layers3}
           label="版本"
@@ -150,7 +150,7 @@ function MediaInfoPicker({
             className="flex min-w-0 cursor-pointer list-none items-center gap-2 py-3 text-left text-sm font-semibold text-[var(--app-text)] outline-none [&::-webkit-details-marker]:hidden"
             aria-label={`${label}：${selected?.label ?? placeholder}`}
           >
-            <span className="min-w-0 flex-1 truncate">{selected?.label ?? placeholder}</span>
+            <PickerValue text={selected?.label ?? placeholder} />
             <ChevronDown size={16} className="shrink-0 text-[var(--app-muted)] transition-transform group-open:rotate-180" aria-hidden="true" />
           </summary>
           <div
@@ -173,7 +173,7 @@ function MediaInfoPicker({
                     details?.querySelector('summary')?.focus()
                   }}
                 >
-                  <span className="min-w-0 flex-1 truncate">{option.label}</span>
+                  <DropdownOptionValue text={option.label} />
                   {active && <Check size={16} className="shrink-0" aria-hidden="true" />}
                 </button>
               )
@@ -181,11 +181,83 @@ function MediaInfoPicker({
           </div>
         </details>
       ) : (
-        <span className={`min-w-0 flex-1 truncate py-3 text-sm font-semibold ${selected ? 'text-[var(--app-text)]' : 'text-[var(--app-muted)]'}`}>
-          {selected?.label ?? placeholder}
-        </span>
+        <PickerValue
+          text={selected?.label ?? placeholder}
+          muted={!selected}
+        />
       )}
     </div>
+  )
+}
+
+// PickerValue 截断文本 + hover 全文气泡：只有真的被截断时才显示 tooltip。
+function PickerValue({ text, muted = false }: { text: string; muted?: boolean }) {
+  const textRef = useRef<HTMLSpanElement>(null)
+  const [truncated, setTruncated] = useState(false)
+
+  useEffect(() => {
+    const el = textRef.current
+    if (el) setTruncated(el.scrollWidth > el.clientWidth + 1)
+  }, [text])
+
+  return (
+    <span className="group/value relative min-w-0 flex-1 py-3">
+      <span
+        ref={textRef}
+        className={`block truncate text-sm font-semibold ${muted ? 'text-[var(--app-muted)]' : 'text-[var(--app-text)]'}`}
+      >
+        {text}
+      </span>
+      {truncated && (
+        <span
+          role="tooltip"
+          className="pointer-events-none absolute bottom-full left-0 z-[60] mb-2 max-w-80 whitespace-normal break-words rounded-lg bg-[var(--app-tooltip-bg)] px-2.5 py-1.5 text-xs font-semibold text-[var(--app-tooltip-text)] opacity-0 shadow-lg transition-opacity duration-200 group-hover/value:opacity-100"
+        >
+          {text}
+        </span>
+      )}
+    </span>
+  )
+}
+
+// DropdownOptionValue 下拉选项文本：截断时 hover 用 fixed 定位气泡显示全文，
+// 不被下拉列表的 overflow 滚动容器裁剪；滚动时立即收起避免错位。
+// 注意：<details> 收起期间选项不排版（clientWidth 为 0），截断必须在 hover 时现测。
+function DropdownOptionValue({ text }: { text: string }) {
+  const textRef = useRef<HTMLSpanElement>(null)
+  const [pos, setPos] = useState<{ top: number; left: number; maxWidth: number } | null>(null)
+
+  useEffect(() => {
+    if (!pos) return undefined
+    const hide = () => setPos(null)
+    window.addEventListener('scroll', hide, true)
+    return () => window.removeEventListener('scroll', hide, true)
+  }, [pos])
+
+  return (
+    <span
+      className="relative min-w-0 flex-1"
+      onPointerEnter={() => {
+        const el = textRef.current
+        if (!el || el.scrollWidth <= el.clientWidth + 1) return
+        const rect = el.getBoundingClientRect()
+        const left = rect.right + 10
+        const maxWidth = Math.max(140, Math.min(320, window.innerWidth - left - 12))
+        setPos({ top: rect.top + rect.height / 2, left, maxWidth })
+      }}
+      onPointerLeave={() => setPos(null)}
+    >
+      <span ref={textRef} className="block truncate">{text}</span>
+      {pos && (
+        <span
+          role="tooltip"
+          className="pointer-events-none fixed z-[70] -translate-y-1/2 whitespace-normal break-words rounded-lg bg-[var(--app-tooltip-bg)] px-2.5 py-1.5 text-xs font-semibold text-[var(--app-tooltip-text)] shadow-lg"
+          style={{ top: pos.top, left: pos.left, maxWidth: pos.maxWidth }}
+        >
+          {text}
+        </span>
+      )}
+    </span>
   )
 }
 

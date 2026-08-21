@@ -1,4 +1,3 @@
-import type { ReactNode } from 'react'
 import { Film } from 'lucide-react'
 
 import { MediaCard } from '../components/MediaCard'
@@ -11,9 +10,13 @@ type LibraryMediaSectionsProps = {
   seriesCards: SeriesCard[]
   selectedSeries: SeriesCard | null
   loading: boolean
-  movieActions: (media: Media) => ReactNode
+  favouriteIds: ReadonlySet<string>
+  onToggleFavourite: (media: Media) => void
   onSeriesClick: (series: SeriesCard) => void
 }
+
+// 网格密度：少列数 + 大间距，卡片更大更透气（参考 Netflix/Emby 海报网格）
+const gridClass = 'grid grid-cols-2 gap-5 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 2xl:grid-cols-6'
 
 export function LibraryMediaSections({
   isSeries,
@@ -21,15 +24,22 @@ export function LibraryMediaSections({
   seriesCards,
   selectedSeries,
   loading,
-  movieActions,
+  favouriteIds,
+  onToggleFavourite,
   onSeriesClick,
 }: LibraryMediaSectionsProps) {
   return (
     <>
       {!isSeries && items.length > 0 && (
-        <div className="grid grid-cols-3 gap-4 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7 2xl:grid-cols-8">
-          {items.map((media) => (
-            <MediaCard key={media.id} media={media} actions={movieActions(media)} />
+        <div className={gridClass}>
+          {items.map((media, index) => (
+            <MediaCard
+              key={media.id}
+              media={media}
+              favourite={favouriteIds.has(media.id)}
+              onToggleFavourite={() => onToggleFavourite(media)}
+              staggerIndex={index}
+            />
           ))}
         </div>
       )}
@@ -39,13 +49,14 @@ export function LibraryMediaSections({
       )}
 
       {isSeries && seriesCards.length > 0 && !selectedSeries && (
-        <div className="grid grid-cols-3 gap-4 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7 2xl:grid-cols-8">
-          {seriesCards.map((series) => (
+        <div className={gridClass}>
+          {seriesCards.map((series, index) => (
             <MediaCard
               key={series.key}
               media={series.rep}
               count={series.count}
               onClick={() => onSeriesClick(series)}
+              staggerIndex={index}
             />
           ))}
         </div>
@@ -60,9 +71,13 @@ export function LibraryMediaSections({
 
 function LibraryEmptyState({ message }: { message: string }) {
   return (
-    <div className="flex flex-col items-center justify-center py-24 text-center">
-      <Film className="mb-4 h-12 w-12 text-gray-500" />
-      <p className="text-ink-50">{message}</p>
+    <div className="relative flex flex-col items-center justify-center overflow-hidden rounded-3xl border border-[var(--app-border)] bg-[var(--app-panel)] py-24 text-center">
+      <div aria-hidden="true" className="pointer-events-none absolute -top-16 left-1/2 h-40 w-80 -translate-x-1/2 rounded-full bg-brand-500/10 blur-3xl" />
+      <div className="relative mb-5 flex h-20 w-20 items-center justify-center rounded-3xl border border-[var(--app-brand-border)] bg-[var(--app-brand-soft)] text-[var(--app-accent)] shadow-glow-sm">
+        <Film size={30} className="stroke-[1.5]" />
+      </div>
+      <p className="relative font-display text-lg font-extrabold tracking-tight text-[var(--app-text)]">{message}</p>
+      <p className="relative mt-2 text-sm text-[var(--app-muted)]">扫描完成后，海报墙会自动出现在这里</p>
     </div>
   )
 }

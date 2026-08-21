@@ -139,12 +139,13 @@ function LibraryShelf({ preview }: { preview: LibraryPreview }) {
 
       {cards.length > 0 ? (
         <div className="flex gap-4 overflow-x-auto pb-2 pr-1">
-          {cards.map((card) => (
+          {cards.map((card, index) => (
             <div key={card.key} className="w-[9.5rem] shrink-0 lg:w-[10rem] 2xl:w-[10.5rem]">
               <MediaCard
                 media={card.rep}
                 count={card.count}
                 linkTo={seriesCardLink(card)}
+                staggerIndex={index}
               />
             </div>
           ))}

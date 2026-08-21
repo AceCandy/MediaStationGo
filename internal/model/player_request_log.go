@@ -17,6 +17,7 @@ type PlayerRequestLog struct {
 	Status      int                 `gorm:"not null" json:"status"`
 	DurationMS  int64               `gorm:"not null" json:"duration_ms"`
 	IP          string              `gorm:"size:64;not null" json:"ip"`
+	Body        string              `gorm:"type:text;not null;default:''" json:"body"`
 	PathParams  map[string][]string `gorm:"serializer:json;type:jsonb;not null" json:"path_params"`
 	Headers     map[string][]string `gorm:"serializer:json;type:jsonb;not null" json:"headers"`
 	Query       map[string][]string `gorm:"serializer:json;type:jsonb;not null" json:"query"`

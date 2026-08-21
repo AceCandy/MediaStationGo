@@ -124,12 +124,13 @@ function LocalMediaResults({
         本地媒体库 · {localCards.length} 个合集 / {itemCount} 个条目
       </div>
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
-        {localCards.map((card) => (
+        {localCards.map((card, index) => (
           <MediaCard
             key={card.key}
             media={card.rep}
             count={card.count}
             linkTo={seriesCardLink(card)}
+            staggerIndex={index}
           />
         ))}
       </div>

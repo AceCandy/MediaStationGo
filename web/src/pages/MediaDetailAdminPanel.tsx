@@ -1,9 +1,8 @@
-import { Database, FolderInput, Pencil, Search, Sparkles, Trash2 } from 'lucide-react'
+import { Check, Database, FolderInput, Image, MoreHorizontal, Pencil, Search, Sparkles, Trash2, type LucideIcon } from 'lucide-react'
 
-import { EpisodeArtworkToggle } from '../components/EpisodeArtworkToggle'
 import type { Media } from '../types'
 
-type MediaDetailAdminPanelProps = {
+type MediaDetailAdminMenuProps = {
   media: Media
   scrapeEpisodeArtwork: boolean
   onScrapeEpisodeArtworkChange: (checked: boolean) => void
@@ -15,7 +14,8 @@ type MediaDetailAdminPanelProps = {
   onSoftDelete: () => void
 }
 
-export function MediaDetailAdminPanel({
+// MediaDetailAdminMenu 管理操作收敛进播放操作排的「更多操作」下拉菜单。
+export function MediaDetailAdminMenu({
   media,
   scrapeEpisodeArtwork,
   onScrapeEpisodeArtworkChange,
@@ -25,48 +25,96 @@ export function MediaDetailAdminPanel({
   onOrganize,
   onProbe,
   onSoftDelete,
-}: MediaDetailAdminPanelProps) {
+}: MediaDetailAdminMenuProps) {
+  const close = (el: HTMLElement) => {
+    const details = el.closest('details')
+    if (details) details.open = false
+  }
+
   return (
-    <div className="rounded-2xl border border-gray-200 bg-gray-50/50 p-5 space-y-3">
-      <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#c9954a]">系统后台高级控制面板</p>
-      {isEpisodeArtworkTarget(media) && (
-        <EpisodeArtworkToggle
-          checked={scrapeEpisodeArtwork}
-          onChange={onScrapeEpisodeArtworkChange}
-          title="关闭后仍会获取每集简介、评分和时长，只跳过单集图片"
-          className="h-10"
-        />
-      )}
-      <div className="flex flex-wrap gap-2">
-        <button onClick={onSmartScrape} className="btn-outline py-2 px-3.5 text-xs gap-1.5 border-gray-200 hover:border-brand-500/50 hover:bg-brand-50">
-          <Sparkles size={13} className="text-[#c9954a]" />
-          <span>智能刮削 (TMDB)</span>
-        </button>
-        <button onClick={onManualScrape} className="btn-outline py-2 px-3.5 text-xs gap-1.5 border-gray-200 hover:border-brand-500/50 hover:bg-brand-50">
-          <Search size={13} className="text-[#c9954a]" />
-          <span>手动匹配刮削</span>
-        </button>
-        <button onClick={onMetadataEdit} className="btn-outline py-2 px-3.5 text-xs gap-1.5 border-gray-200 hover:border-brand-500/50 hover:bg-brand-50">
-          <Pencil size={13} className="text-gray-600" />
-          <span>编辑元数据</span>
-        </button>
-        <button onClick={onOrganize} className="btn-outline py-2 px-3.5 text-xs gap-1.5 border-gray-200 hover:border-brand-500/50 hover:bg-brand-50">
-          <FolderInput size={13} className="text-[#c9954a]" />
-          <span>整理入库</span>
-        </button>
-        <button onClick={onProbe} className="btn-outline py-2 px-3.5 text-xs gap-1.5 border-gray-200 hover:border-brand-500/50 hover:bg-brand-50">
-          <Database size={13} className="text-gray-600" />
-          <span>强制探测媒体轨 (ffprobe)</span>
-        </button>
-        <button
-          onClick={onSoftDelete}
-          className="btn-outline py-2 px-3.5 text-xs gap-1.5 !border-red-100 !text-red-500 hover:!bg-red-50 hover:!border-red-200"
-        >
-          <Trash2 size={13} />
-          <span>永久删除</span>
-        </button>
+    <details
+      className="group relative"
+      onBlur={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget)) event.currentTarget.open = false
+      }}
+      onKeyDown={(event) => {
+        if (event.key !== 'Escape') return
+        event.preventDefault()
+        event.currentTarget.open = false
+        event.currentTarget.querySelector('summary')?.focus()
+      }}
+    >
+      <summary
+        className="btn-outline cursor-pointer list-none [&::-webkit-details-marker]:hidden"
+        aria-label="更多操作"
+      >
+        <MoreHorizontal size={16} />
+        <span>更多操作</span>
+      </summary>
+
+      <div
+        role="menu"
+        aria-label="管理操作"
+        className="absolute right-0 top-full z-50 mt-2 w-64 overflow-hidden rounded-xl border border-[var(--app-border)] bg-[var(--app-panel)] p-1.5 shadow-xl"
+      >
+        {isEpisodeArtworkTarget(media) && (
+          <button
+            type="button"
+            role="menuitemcheckbox"
+            aria-checked={scrapeEpisodeArtwork}
+            className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left text-sm font-semibold text-[var(--app-text)] transition-colors hover:bg-[var(--app-hover)]"
+            onClick={(event) => {
+              onScrapeEpisodeArtworkChange(!scrapeEpisodeArtwork)
+              close(event.currentTarget)
+            }}
+          >
+            <Image size={15} className="shrink-0 text-[var(--app-gold)]" />
+            <span className="min-w-0 flex-1">刮削每集图片</span>
+            {scrapeEpisodeArtwork && <Check size={15} className="shrink-0 text-brand-500" />}
+          </button>
+        )}
+        <AdminMenuItem icon={Sparkles} iconClass="text-[var(--app-gold)]" label="智能刮削 (TMDB)" onClick={onSmartScrape} onClose={close} />
+        <AdminMenuItem icon={Search} iconClass="text-[var(--app-gold)]" label="手动匹配刮削" onClick={onManualScrape} onClose={close} />
+        <AdminMenuItem icon={Pencil} iconClass="text-[var(--app-muted)]" label="编辑元数据" onClick={onMetadataEdit} onClose={close} />
+        <AdminMenuItem icon={FolderInput} iconClass="text-[var(--app-gold)]" label="整理入库" onClick={onOrganize} onClose={close} />
+        <AdminMenuItem icon={Database} iconClass="text-[var(--app-muted)]" label="强制探测媒体轨 (ffprobe)" onClick={onProbe} onClose={close} />
+        <div className="mx-2 my-1.5 border-t border-[var(--app-border)]" />
+        <AdminMenuItem icon={Trash2} iconClass="text-red-500" label="永久删除" danger onClick={onSoftDelete} onClose={close} />
       </div>
-    </div>
+    </details>
+  )
+}
+
+function AdminMenuItem({
+  icon: Icon,
+  iconClass,
+  label,
+  danger = false,
+  onClick,
+  onClose,
+}: {
+  icon: LucideIcon
+  iconClass: string
+  label: string
+  danger?: boolean
+  onClick: () => void
+  onClose: (el: HTMLElement) => void
+}) {
+  return (
+    <button
+      type="button"
+      role="menuitem"
+      className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left text-sm font-semibold transition-colors ${
+        danger ? 'text-red-500 hover:bg-red-500/10' : 'text-[var(--app-text)] hover:bg-[var(--app-hover)]'
+      }`}
+      onClick={(event) => {
+        onClick()
+        onClose(event.currentTarget)
+      }}
+    >
+      <Icon size={15} className={`shrink-0 ${iconClass}`} />
+      <span className="min-w-0 flex-1 truncate">{label}</span>
+    </button>
   )
 }
 

@@ -153,9 +153,9 @@ function DefinitionTable(props: { definitions: TaskDefinition[]; running: string
   return (
     <>
 		<div className="hidden overflow-x-auto lg:block">
-        <table className="w-full min-w-[980px] text-left text-sm">
+        <table className="w-full min-w-[880px] text-left text-sm">
           <thead className="text-xs text-sand-500">
-            <tr><th className="py-2">任务</th><th>触发方式</th><th>当前状态</th><th>最近结果</th><th>最近执行</th><th>下次执行</th><th className="text-right">操作</th></tr>
+            <tr><th className="py-2">任务</th><th>触发方式</th><th>当前状态</th><th>最近结果</th><th>执行时间</th><th className="text-right">操作</th></tr>
           </thead>
           <tbody>
             {props.definitions.map((definition) => (
@@ -164,8 +164,7 @@ function DefinitionTable(props: { definitions: TaskDefinition[]; running: string
 				<td className="py-3 text-ink-100"><div>{definition.trigger}</div>{scheduleText(definition) && <div className="mt-0.5 text-xs text-ink-50">{scheduleText(definition)}</div>}</td>
                 <td className="py-3"><CurrentState state={definition.current_state} /></td>
                 <td className="py-3"><LatestResult task={definition.latest} /></td>
-                <td className="whitespace-nowrap py-3 text-ink-100">{formatTime(definition.latest?.finished_at ?? definition.latest?.started_at)}</td>
-                <td className="whitespace-nowrap py-3 text-ink-100">{formatTime(definition.next_run)}</td>
+                <td className="whitespace-nowrap py-3 text-ink-100"><div>最近 · {formatTime(definition.latest?.finished_at ?? definition.latest?.started_at)}</div><div className="mt-0.5 text-xs text-ink-50">下次 · {formatTime(definition.next_run)}</div></td>
                 <td className="py-3"><TaskActions {...props} definition={definition} /></td>
               </tr>
             ))}
@@ -180,8 +179,7 @@ function DefinitionTable(props: { definitions: TaskDefinition[]; running: string
 			<div><dt className="text-ink-50">触发方式</dt><dd className="mt-0.5 text-ink-100">{definition.trigger}{scheduleText(definition) ? ` · ${scheduleText(definition)}` : ''}</dd></div>
 			<div><dt className="text-ink-50">当前状态</dt><dd className="mt-0.5"><CurrentState state={definition.current_state} /></dd></div>
 			<div><dt className="text-ink-50">最近结果</dt><dd className="mt-0.5"><LatestResult task={definition.latest} /></dd></div>
-			<div><dt className="text-ink-50">最近执行</dt><dd className="mt-0.5 text-ink-100">{formatTime(definition.latest?.finished_at ?? definition.latest?.started_at)}</dd></div>
-			{definition.schedule_config && <div className="col-span-2"><dt className="text-ink-50">下次执行</dt><dd className="mt-0.5 text-ink-100">{formatTime(definition.next_run)}</dd></div>}
+			<div><dt className="text-ink-50">执行时间</dt><dd className="mt-0.5 text-ink-100"><div>最近 · {formatTime(definition.latest?.finished_at ?? definition.latest?.started_at)}</div>{definition.schedule_config && <div className="mt-0.5 text-ink-50">下次 · {formatTime(definition.next_run)}</div>}</dd></div>
             </dl>
           </section>
         ))}

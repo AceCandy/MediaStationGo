@@ -6,28 +6,24 @@ import { seriesTitle, type SeriesCard } from '../utils/groupSeries'
 type LibraryPageDialogsProps = {
   manualSeriesScrapeOpen: boolean
   seriesMetadataEditOpen: boolean
-  manualMovie: Media | null
   selectedSeries: SeriesCard | null
   selectedSeriesMediaIDs: string[]
   libraryType?: string
   scrapeEpisodeArtwork: boolean
   onCloseManualSeriesScrape: () => void
   onCloseSeriesMetadataEdit: () => void
-  onCloseManualMovie: () => void
   onApplied: () => void
 }
 
 export function LibraryPageDialogs({
   manualSeriesScrapeOpen,
   seriesMetadataEditOpen,
-  manualMovie,
   selectedSeries,
   selectedSeriesMediaIDs,
   libraryType,
   scrapeEpisodeArtwork,
   onCloseManualSeriesScrape,
   onCloseSeriesMetadataEdit,
-  onCloseManualMovie,
   onApplied,
 }: LibraryPageDialogsProps) {
   const selectedSeriesTitle = selectedSeries ? seriesTitle(selectedSeries.rep) : ''
@@ -53,16 +49,6 @@ export function LibraryPageDialogs({
         scopeLabel={selectedSeriesTitle || '当前剧集'}
         onClose={onCloseSeriesMetadataEdit}
         onSaved={onApplied}
-      />
-      <ManualScrapeDialog
-        open={!!manualMovie}
-        media={manualMovie}
-        defaultQuery={manualMovie?.title ?? ''}
-        mediaType={manualMovie ? scrapeMediaType(libraryType, manualMovie) : libraryType || 'movie'}
-        scopeLabel={manualMovie?.title ?? '当前电影'}
-        episodeArtwork={scrapeEpisodeArtwork}
-        onClose={onCloseManualMovie}
-        onApplied={onApplied}
       />
     </>
   )

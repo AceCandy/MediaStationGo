@@ -23,6 +23,7 @@ export interface PlayerRequestLog {
   status: number
   duration_ms: number
   ip: string
+  body: string
   path_params: Record<string, string[]>
   headers: Record<string, string[]>
   query: Record<string, string[]>

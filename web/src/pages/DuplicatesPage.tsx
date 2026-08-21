@@ -11,10 +11,15 @@ import {
   Trash2,
 } from 'lucide-react'
 
-import { duplicatesAPI, type DuplicateGroup, type DuplicateReport } from '../api/duplicates'
+import {
+  duplicatesAPI,
+  type DuplicateGroup,
+  type DuplicateMedia,
+  type DuplicateReport,
+} from '../api/duplicates'
 import { libraryAPI } from '../api/library'
 import { confirmAction } from '../components/confirmAction'
-import type { Library, Media } from '../types'
+import type { Library } from '../types'
 
 function fmtBytes(n: number): string {
   if (!n) return '0 B'
@@ -61,7 +66,7 @@ function StatCard({
   )
 }
 
-function MediaRow({ media }: { media: Media }) {
+function MediaRow({ media }: { media: DuplicateMedia }) {
   return (
     <div className="flex items-center justify-between gap-3">
       <div className="min-w-0">

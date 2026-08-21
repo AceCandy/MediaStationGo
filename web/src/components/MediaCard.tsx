@@ -1,13 +1,13 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { Film, Play, Layers, Star } from 'lucide-react'
+import { Film, Heart, Layers, Star } from 'lucide-react'
 import { imageURL } from '../api/client'
 import type { Media } from '../types'
 import { mediaDetailLink } from '../utils/groupSeries'
 
 export const MediaCard = ({
-  media, progress, count, rating, linkTo, onClick, actions,
+  media, progress, count, rating, linkTo, onClick, favourite, onToggleFavourite, staggerIndex,
 }: {
   media: Media
   progress?: number
@@ -15,7 +15,11 @@ export const MediaCard = ({
   rating?: number
   linkTo?: string
   onClick?: () => void
-  actions?: ReactNode
+  // 收藏角标：传入 onToggleFavourite 才渲染，favourite 控制红心跳常显
+  favourite?: boolean
+  onToggleFavourite?: () => void
+  // 网格入场错落序号：delay = min(index, 14) * 0.035s
+  staggerIndex?: number
 }) => {
   const ref = useRef<HTMLDivElement>(null)
   const href = linkTo ?? mediaDetailLink(media)
@@ -23,18 +27,36 @@ export const MediaCard = ({
   const posterSrc = imageURL(media.poster_url, media.updated_at)
   const displayRating = rating ?? media.rating
   const versionCount = media.versions?.length ?? 0
+  const entranceDelay = staggerIndex === undefined ? 0 : Math.min(staggerIndex, 14) * 0.035
+  // 入场结束后清零 delay，避免拖慢后续 hover 弹簧
+  const [motionDelay, setMotionDelay] = useState(entranceDelay)
+
+  useEffect(() => {
+    setMotionDelay(entranceDelay)
+  }, [entranceDelay])
 
   useEffect(() => {
     setPosterFit('cover')
   }, [media.poster_url, media.updated_at])
 
+  // 鼠标跟随高光：只写 CSS 变量，不触发 React 重渲染
+  const handlePointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+    const el = ref.current
+    if (!el) return
+    const rect = el.getBoundingClientRect()
+    el.style.setProperty('--spot-x', `${event.clientX - rect.left}px`)
+    el.style.setProperty('--spot-y', `${event.clientY - rect.top}px`)
+  }
+
   const card = (
       <motion.div
         ref={ref}
+        onPointerMove={handlePointerMove}
         initial={{ opacity: 0, y: 14 }}
         animate={{ opacity: 1, y: 0 }}
         whileHover={{ scale: 1.035, y: -6 }}
-        transition={{ type: 'spring', stiffness: 300, damping: 26 }}
+        transition={{ type: 'spring', stiffness: 300, damping: 26, delay: motionDelay }}
+        onAnimationComplete={() => { if (motionDelay) setMotionDelay(0) }}
         className="relative overflow-hidden rounded-2xl border border-[var(--app-border)] bg-[var(--app-panel)] shadow-poster transition-[border-color,box-shadow] duration-300 hover:border-[var(--app-accent-border)] hover:shadow-poster-hover"
       >
         {/* Poster Wrapper */}
@@ -74,6 +96,15 @@ export const MediaCard = ({
             </div>
           )}
 
+          {/* 鼠标跟随高光 */}
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-0 z-10 opacity-0 transition-opacity duration-300 group-hover:opacity-100"
+            style={{
+              background: 'radial-gradient(220px circle at var(--spot-x, 50%) var(--spot-y, 50%), rgba(167, 139, 250, 0.22), transparent 65%)',
+            }}
+          />
+
           {/* Episode count badge */}
           {count !== undefined && count > 1 && (
             <span className="absolute right-2.5 top-2.5 inline-flex items-center gap-1 rounded-lg border border-white/15 bg-black/55 px-2 py-1 text-[10px] font-bold text-white backdrop-blur-md">
@@ -99,13 +130,8 @@ export const MediaCard = ({
 
           {/* Hover Overlay */}
           <div className="absolute inset-0 flex flex-col justify-end bg-gradient-to-t from-black/90 via-black/35 to-transparent p-4 opacity-0 transition-opacity duration-300 group-hover:opacity-100">
-            <div className="translate-y-3 space-y-2.5 transition-transform duration-300 ease-smooth group-hover:translate-y-0">
-              <span className="inline-flex items-center gap-1.5 rounded-lg px-3.5 py-1.5 text-xs font-bold text-white shadow-glow-sm"
-                style={{ background: 'linear-gradient(135deg, #8b5cf6 0%, #7c3aed 60%, #6d28d9 100%)' }}>
-                <Play size={10} fill="currentColor" />
-                <span>立即观影</span>
-              </span>
-              <p className="text-[10px] font-medium leading-relaxed text-white/75 line-clamp-2">
+            <div className="translate-y-3 transition-transform duration-300 ease-smooth group-hover:translate-y-0">
+              <p className="text-[11px] font-medium leading-relaxed text-white/75 line-clamp-2">
                 {media.overview || '暂无简介内容'}
               </p>
             </div>
@@ -127,8 +153,8 @@ export const MediaCard = ({
         </div>
 
         {/* Media Metadata Info */}
-        <div className="space-y-1 border-t border-[var(--app-border)] p-3.5">
-          <p className="truncate text-[13px] font-bold text-[var(--app-text)] transition-colors duration-200 group-hover:text-[var(--app-brand-text)]">
+        <div className="space-y-1.5 border-t border-[var(--app-border)] p-4">
+          <p className="truncate text-sm font-bold text-[var(--app-text)] transition-colors duration-200 group-hover:text-[var(--app-brand-text)]">
             {media.title}
           </p>
           <div className="flex items-center justify-between text-[10px] font-bold uppercase tracking-wider text-[var(--app-muted)]">
@@ -143,30 +169,48 @@ export const MediaCard = ({
       </motion.div>
   )
 
+  // 收藏角标：右上角；与「N 集 / N 版本」角标同存时下移避开。置于 Link/button 之外以拦截点击。
+  const hasCountBadge = (count !== undefined && count > 1) || (count === undefined && versionCount > 1)
+  const favouriteButton = onToggleFavourite ? (
+    <button
+      type="button"
+      aria-label={favourite ? '取消收藏' : '加入收藏'}
+      aria-pressed={favourite}
+      title={favourite ? '取消收藏' : '加入收藏'}
+      onClick={(event) => {
+        event.preventDefault()
+        event.stopPropagation()
+        onToggleFavourite()
+      }}
+      className={
+        `absolute right-2 z-20 grid h-8 w-8 place-items-center rounded-full border backdrop-blur-md transition-all duration-200 ${hasCountBadge ? 'top-11' : 'top-2'} ` +
+        (favourite
+          ? 'border-red-400/50 bg-black/55 text-red-500 hover:bg-black/70'
+          : 'border-white/25 bg-black/45 text-white opacity-0 hover:bg-black/60 hover:text-red-400 group-hover:opacity-100 focus-visible:opacity-100')
+      }
+    >
+      <Heart size={14} fill={favourite ? 'currentColor' : 'none'} aria-hidden="true" />
+    </button>
+  ) : null
+
   if (onClick) {
     return (
       <div className="group relative block w-full">
         <button type="button" onClick={onClick} className="block w-full text-left">
           {card}
         </button>
-        {actions && (
-          <div className="absolute right-2 top-2 z-20 flex flex-wrap justify-end gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
-            {actions}
-          </div>
-        )}
+        {favouriteButton}
       </div>
     )
   }
 
-  if (actions) {
+  if (favouriteButton) {
     return (
       <div className="group relative block">
         <Link to={href} className="block">
           {card}
         </Link>
-        <div className="absolute right-2 top-2 z-20 flex flex-wrap justify-end gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
-          {actions}
-        </div>
+        {favouriteButton}
       </div>
     )
   }

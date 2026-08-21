@@ -79,8 +79,10 @@ func ensurePlayerRequestLogSchema(db *gorm.DB) error {
 	path_params jsonb NOT NULL DEFAULT '{}'::jsonb,
 	headers jsonb NOT NULL DEFAULT '{}'::jsonb,
 	query jsonb NOT NULL DEFAULT '{}'::jsonb,
+	body text NOT NULL DEFAULT '',
 	PRIMARY KEY (id, requested_at)
 ) PARTITION BY RANGE (requested_at)`,
+		`ALTER TABLE player_request_logs ADD COLUMN IF NOT EXISTS body text NOT NULL DEFAULT ''`,
 		`CREATE INDEX IF NOT EXISTS idx_player_request_logs_requested_at ON player_request_logs (requested_at DESC, id DESC)`,
 		`CREATE INDEX IF NOT EXISTS idx_player_request_logs_method_time ON player_request_logs (method, requested_at DESC)`,
 		`CREATE INDEX IF NOT EXISTS idx_player_request_logs_status_time ON player_request_logs (status, requested_at DESC)`,

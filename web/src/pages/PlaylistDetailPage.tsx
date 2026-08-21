@@ -34,9 +34,9 @@ export function PlaylistDetailPage() {
       )}
 
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
-        {detail.items.map((m) => (
+        {detail.items.map((m, index) => (
           <div key={m.id} className="relative">
-            <MediaCard media={m} />
+            <MediaCard media={m} staggerIndex={index} />
             <button
               className="absolute right-2 top-2 rounded-full bg-black/70 p-1 text-ink-600 transition hover:bg-red-600"
               onClick={async () => {

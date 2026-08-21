@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import { ChevronLeft, ChevronRight, Info } from 'lucide-react'
 
 import type { DiscoverItem } from '../api/discover'
@@ -70,12 +70,19 @@ export function ContentRow({
 export function DiscoverSkeleton() {
   return (
     <div className="space-y-8">
-      {[1, 2, 3].map((section) => (
+      {[0, 1, 2].map((section) => (
         <section key={section} className="space-y-4">
-          <div className="h-8 w-48 animate-pulse rounded-xl bg-gray-100" />
+          <div className="skeleton h-8 w-48 rounded-xl" />
           <div className="grid grid-cols-3 gap-4 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-7 xl:grid-cols-8">
-            {[1, 2, 3, 4, 5, 6, 7, 8].map((item) => (
-              <div key={item} className="aspect-[2/3] animate-pulse rounded-xl bg-gray-100" />
+            {Array.from({ length: 8 }, (_, item) => (
+              <div key={item} className="space-y-2">
+                <div
+                  className="skeleton aspect-[2/3] rounded-xl border border-[var(--app-border)]"
+                  style={{ '--skeleton-delay': `${(section * 8 + item) * 0.12}s` } as CSSProperties}
+                />
+                <div className="skeleton h-3 w-3/4 rounded-md" />
+                <div className="skeleton h-2.5 w-1/2 rounded-md" />
+              </div>
             ))}
           </div>
         </section>

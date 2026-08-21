@@ -30,7 +30,7 @@ export function MePage() {
         <p className="mt-1 text-sm text-[var(--app-muted)]">收藏内容、播放列表与观看记录</p>
       </div>
 
-      <nav aria-label="我的内容" className="flex min-w-0 gap-1 overflow-x-auto border-b border-[var(--app-border)]">
+      <nav aria-label="我的内容" className="flex min-w-0 gap-1.5 overflow-x-auto rounded-2xl border border-[var(--app-border)] bg-[var(--app-panel)] p-1.5 w-fit">
         {TABS.map((tab) => {
           const Icon = tab.icon
           const active = tab.id === activeTab
@@ -40,13 +40,13 @@ export function MePage() {
               to={`/me?tab=${tab.id}`}
               aria-current={active ? 'page' : undefined}
               className={clsx(
-                'flex min-h-11 shrink-0 items-center gap-2 border-b-2 px-4 text-sm font-bold transition-colors',
+                'flex min-h-10 shrink-0 items-center gap-2 rounded-xl px-4 text-sm font-bold transition-all duration-300 ease-smooth',
                 active
-                  ? 'border-brand-500 text-brand-500'
-                  : 'border-transparent text-[var(--app-muted)] hover:text-[var(--app-text)]',
+                  ? 'bg-[var(--app-active-bg)] text-[var(--app-active-text)] shadow-sm'
+                  : 'text-[var(--app-muted)] hover:bg-[var(--app-hover)] hover:text-[var(--app-text)]',
               )}
             >
-              <Icon size={16} />
+              <Icon size={16} className={active ? 'text-[var(--app-active-icon)]' : undefined} />
               {tab.label}
             </Link>
           )

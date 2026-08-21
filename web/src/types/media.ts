@@ -49,6 +49,14 @@ export interface Media {
   updated_at: string
 }
 
+export interface MediaCredit {
+  person_id: string
+  name: string
+  role?: string
+  type: string
+  profile_url?: string
+}
+
 export interface MediaTrack {
   index: number
   type: 'video' | 'audio' | 'subtitle'
