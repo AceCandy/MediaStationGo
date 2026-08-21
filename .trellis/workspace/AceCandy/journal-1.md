@@ -949,3 +949,24 @@ Committed the existing web UI redesign together with detailed background task lo
 ### Status
 
 [OK] **Completed**
+
+
+## Session 45: 统一定时任务手动触发
+
+**Date**: 2026-08-21
+**Task**: 统一定时任务手动触发
+**Branch**: `main`
+
+### Summary
+
+统一任务中心定时任务的手动执行入口，移除人物补齐启动事件 worker，为账号清理增加危险确认，并补齐回归测试与后台任务规范。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `0030282` | (see git log) |
+
+### Status
+
+[OK] **Completed**
