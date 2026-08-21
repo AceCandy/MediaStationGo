@@ -13,7 +13,8 @@ per-user, per-metadata history state but playback events are append-only.
 - Emby `/Sessions/Playing`, `/Sessions/Playing/Progress`, and
   `/Sessions/Playing/Stopped` forward `PlaySessionId` as `session_id`.
 - `GET /api/admin/playback-stats` accepts `grain=day|week|month`, `from`, `to`,
-  optional `user_id`, `media_type=movie|tv`, and comma-separated `library_ids`.
+  optional `user_id`, `media_type=movie|tv`, comma-separated `library_ids`,
+  `page`, `page_size`, `rank_grain=day|week`, and `rank_date`.
 - `playback_histories` is unique on active `(user_id, metadata_id)`;
   `playback_events` is unique on active `(user_id, session_id, metadata_id)`.
 
@@ -31,6 +32,15 @@ per-user, per-metadata history state but playback events are append-only.
 - Only the authenticated user may read or mutate UserData, history, favorites,
   and realtime sessions. An administrator may target another user only when an
   explicit user ID is supplied.
+- Playback statistics retain the legacy `total` and `buckets` fields and add
+  `details` and `ranking`. Details are ordered by `played_at DESC, id DESC`;
+  the Web UI requests 20 rows per page.
+- Ranking returns at most ten rows. Movies group by canonical metadata ID;
+  episodes group by their season metadata ID. A day/week window is intersected
+  with the selected `from`/`to` range, and weeks start on Monday.
+- A deleted media file does not remove its event. Details return
+  `media_available=false`, keep the snapshot media ID, and must not link to the
+  missing media. Missing titles display `媒体已不可用`.
 
 ## 4. Validation & Error Matrix
 
@@ -41,16 +51,24 @@ per-user, per-metadata history state but playback events are append-only.
 | Invisible media | Request is rejected; no history or event is written |
 | Non-admin explicit different user ID | `403` |
 | Invalid statistics grain/date or `from > to` | `400` |
+| `page < 1`, `page_size` outside 1..100, or overflowing offset | `400` |
+| Invalid `rank_grain`, or `rank_date` outside `from` through `to` | `400` |
 | Non-admin statistics request | `403` |
 
 ## 5. Good / Base / Bad Cases
 
 - Good: a 20-second Web update with a UUID creates or updates history and one
   event; duplicate updates with that UUID do not increment the count.
+- Good: two episodes from one season contribute to one season ranking row,
+  while two files sharing movie metadata contribute to one movie row.
 - Base: a legacy client without a session ID still saves valid history but does
   not create an event.
+- Base: a deleted media file remains in details as an unavailable, unlinked
+  audit event.
 - Bad: using a client-supplied `completed` value, or inserting an event outside
   the transaction that writes history.
+- Bad: ranking episodes separately or counting events outside the intersection
+  of the ranking period and selected date range.
 
 ## 6. Tests Required
 
@@ -63,6 +81,11 @@ per-user, per-metadata history state but playback events are append-only.
   event creation fails.
 - Cover statistics filters and invalid parameter combinations, and synchronize
   `web/src/pages/embyApiCatalog.ts` when player-visible Emby behavior changes.
+- Run playback-statistics repository tests against real PostgreSQL; assert
+  newest-first pagination, movie/season aggregation, date-range intersection,
+  deleted-media availability, and a page beyond the last item.
+- For the Web page, run lint/build and check desktop/mobile, light/dark,
+  day/week switching, empty/error states, and horizontal overflow.
 
 ## 7. Wrong vs Correct
 
@@ -72,6 +95,10 @@ per-user, per-metadata history state but playback events are append-only.
 history.Completed = request.Completed
 repo.History.Upsert(ctx, history)
 repo.PlaybackEvent.Insert(ctx, event)
+
+// Reusing this statement after Group/Order leaks aggregation state.
+q.Select("DATE_TRUNC(...) AS period").Group("period").Order("period")
+q.Select("pe.id").Scan(&details)
 ```
 
 ### Correct
@@ -83,4 +110,8 @@ return repo.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 	if err := repos.History.Upsert(ctx, history); err != nil { return err }
 	return repos.PlaybackEvent.Insert(ctx, event)
 })
+
+// Build each statistics branch from a clean common-filter statement.
+buckets := playbackStatsQuery(ctx, filter).Group("period")
+details := playbackStatsQuery(ctx, filter).Order("pe.played_at DESC, pe.id DESC")
 ```

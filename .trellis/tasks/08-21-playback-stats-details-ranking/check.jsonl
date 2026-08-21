@@ -1,1 +1,4 @@
-{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file":".trellis/spec/backend/playback-contracts.md","reason":"复核统计筛选、鉴权、事件语义及数据库测试覆盖。"}
+{"file":".trellis/spec/backend/shared-media-metadata.md","reason":"复核电影作品与电视剧季级身份未混用具体媒体版本。"}
+{"file":".trellis/spec/frontend/design-system.md","reason":"复核深浅主题、可访问状态和现有组件风格一致。"}
+{"file":".trellis/spec/frontend/routing-and-loading-contracts.md","reason":"复核分页有界、移动端无溢出及管理员访问不回退。"}

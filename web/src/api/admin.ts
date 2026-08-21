@@ -8,11 +8,52 @@ export interface PlaybackStatsQuery {
   user_id?: string
   media_type?: 'movie' | 'tv'
   library_ids?: string
+	page: number
+	page_size: number
+	rank_grain: 'day' | 'week'
+	rank_date: string
+}
+
+export interface PlaybackStatsDetail {
+	id: string
+	played_at: string
+	user_id: string
+	user_name: string
+	library_id: string
+	library_name: string
+	media_id: string
+	metadata_id: string
+	title: string
+	series_title?: string
+	season_num?: number
+	episode_num?: number
+	poster_url?: string
+	media_available: boolean
+}
+
+export interface PlaybackStatsRankItem {
+	group_id: string
+	title: string
+	series_title?: string
+	season_num?: number
+	poster_url?: string
+	count: number
 }
 
 export interface PlaybackStatsResult {
   total: number
   buckets: { period: string; count: number }[]
+	details: {
+		items: PlaybackStatsDetail[]
+		page: number
+		page_size: number
+		total: number
+	}
+	ranking: {
+		grain: 'day' | 'week'
+		period: string
+		items: PlaybackStatsRankItem[]
+	}
 }
 
 export interface PlayerRequestLog {

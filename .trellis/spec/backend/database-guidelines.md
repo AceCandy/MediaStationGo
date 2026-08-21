@@ -65,6 +65,14 @@ Correct: use Responses for People translation without tools; reserve `web_search
 
 ## Query Patterns
 
+### Rebuild GORM Statements After Aggregation
+
+Do not reuse a `*gorm.DB` statement after adding `Select`, `Group`, `Order`,
+`Limit`, or `Offset` for one result shape. Those clauses can remain on sibling
+queries and produce invalid SQL or silently wrong results. Keep shared filters
+in a small query-builder method and call it separately for counts, aggregates,
+details, and rankings. A real PostgreSQL test must execute every branch.
+
 ### Nullable PostgreSQL Aggregates
 
 PostgreSQL aggregates such as `MIN` return SQL `NULL` when no row matches.

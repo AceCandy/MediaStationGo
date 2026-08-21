@@ -1,1 +1,4 @@
-{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file":".trellis/spec/backend/playback-contracts.md","reason":"约束真实播放事件、统计权限、筛选、PostgreSQL 聚合与必需测试。"}
+{"file":".trellis/spec/backend/shared-media-metadata.md","reason":"约束 metadata 作品身份、media 播放版本和 MediaView 展示职责。"}
+{"file":".trellis/spec/frontend/design-system.md","reason":"约束统计页深浅主题、面板、颜色和交互视觉语言。"}
+{"file":".trellis/spec/frontend/routing-and-loading-contracts.md","reason":"约束管理员路由、有限分页加载和响应式验证。"}
