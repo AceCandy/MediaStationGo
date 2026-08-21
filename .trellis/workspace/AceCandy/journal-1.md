@@ -865,3 +865,24 @@ Committed the existing web UI redesign together with detailed background task lo
 ### Status
 
 [OK] **Completed**
+
+
+## Session 41: 统一 ffprobe 媒体技术元数据
+
+**Date**: 2026-08-21
+**Task**: 统一 ffprobe 媒体技术元数据
+**Branch**: `main`
+
+### Summary
+
+将媒体时长、大小、容器、编解码等技术事实统一到 media_probe_metadata，删除 media 主表重复列并修复 PlaybackInfo 与进度兼容。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `a4ad1fb` | (see git log) |
+
+### Status
+
+[OK] **Completed**

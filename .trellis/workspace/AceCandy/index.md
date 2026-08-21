@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 40
-- **Last Active**: 2026-08-20
+- **Total Sessions**: 41
+- **Last Active**: 2026-08-21
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~867 | Active |
+| `journal-1.md` | ~888 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 41 | 2026-08-21 | 统一 ffprobe 媒体技术元数据 | `a4ad1fb` | `main` |
 | 40 | 2026-08-20 | STRM 轨道本地路径映射 | `4f92955` | `main` |
 | 39 | 2026-08-20 | 精简事件触发任务日志 | `11ea9b1` | `main` |
 | 38 | 2026-08-19 | 统一任务中心调度与监听日志 | `6be35eb` | `main` |
