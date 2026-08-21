@@ -31,9 +31,6 @@ type ScraperService struct {
 	people  *PeopleImageStore
 	ai      *AIService
 
-	peopleTranslationWake  chan struct{}
-	peopleTranslationOnce  sync.Once
-	peopleTranslationWG    sync.WaitGroup
 	peopleTranslationRunMu sync.Mutex
 	peopleBackfillWake     chan struct{}
 	peopleBackfillOnce     sync.Once
@@ -80,8 +77,7 @@ func NewScraperService(
 	return &ScraperService{
 		cfg: cfg, log: log, repo: repo,
 		tmdb: tmdb, bangumi: bangumi, thetvdb: thetvdb, fanart: fanart, adult: adultProvider, hub: hub,
-		peopleTranslationWake: make(chan struct{}, 1),
-		peopleBackfillWake:    make(chan struct{}, 1),
+		peopleBackfillWake: make(chan struct{}, 1),
 	}
 }
 

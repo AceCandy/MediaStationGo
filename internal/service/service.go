@@ -97,7 +97,6 @@ func (c *Container) Boot() {
 	}
 	if c.Scraper != nil {
 		c.Scraper.StartPeopleBackfillWorker(c.stopCtx)
-		c.Scraper.StartPeopleTranslationWorker(c.stopCtx)
 		c.Scraper.StartCatalogHydrationWorker(c.stopCtx)
 	}
 	go c.warmMediaSearchIndex(c.stopCtx)
@@ -122,7 +121,6 @@ func (c *Container) Close() {
 	if c.Scraper != nil {
 		c.Scraper.WaitPeopleBackfillWorker()
 		c.Scraper.WaitCatalogHydrationWorker()
-		c.Scraper.WaitPeopleTranslationWorker()
 	}
 	if c.Scheduler != nil {
 		c.Scheduler.Stop()

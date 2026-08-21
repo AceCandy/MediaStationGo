@@ -34,8 +34,9 @@
   An empty entity-owned credit type stays empty and never inherits an ancestor.
 - Credit source/display roles and translation source/display values use `text`;
   existing PostgreSQL columns must be upgraded explicitly during migration.
-- Credit persistence completes before translation. A service-lifetime worker
-  discovers untranslated rows at startup, after wake signals, and periodically.
+- Credit persistence is independent from translation. The configured periodic
+  sweep discovers untranslated rows and processes at most 1,000 deduplicated
+  translation groups per execution.
 - Person-name translation carries up to three related works. Role translation
   carries the current title, original title, year, and media kind. Requests use
   Responses API without tools and contain at most 100 unique entries per batch.
@@ -43,8 +44,8 @@
   Chinese results. Writes update a target only while its original and display
   values still equal the request snapshot.
 - AI failure, malformed output, timeout, or partial output never rolls back or
-  fails the authoritative metadata scrape. A failed pass self-schedules after
-  bounded backoff instead of waiting for the periodic sweep.
+  fails the authoritative metadata scrape. Pending rows remain for a later
+  periodic sweep.
 
 ### 4. Validation & Error Matrix
 
@@ -72,7 +73,7 @@
 - Bad: merge people solely because normalized names match across local and TMDb.
 - Bad: call AI before committing credits, or overwrite a re-scraped role with a
   response generated for its previous original value.
-- Bad: log a retry delay but wait for the periodic sweep before retrying.
+- Bad: let translation failure roll back authoritative credit persistence.
 
 ### 6. Tests Required
 
@@ -84,9 +85,9 @@
   person detail, image proxy, uppercase/lowercase routes, and ID filtering.
 - Backfill: only metadata without current credits and with usable TMDb identity;
   verify task progress and request-independent service context.
-- Translation: startup discovery, cache hit without AI, 100-entry splitting,
-  work context, valid Chinese filtering, automatic backoff retry without a
-  sweep wake, cancellation, and stale-write rejection.
+- Translation: scheduled-only discovery, cache hit without AI, 100-entry
+  splitting, a 1,000-group execution limit with pending remainder, work context,
+  valid Chinese filtering, cancellation, and stale-write rejection.
 - PostgreSQL: assert role/cache fields resolve to `text`; when a test DSN is
   available, migrate legacy `varchar(255)` columns and round-trip a long role.
 

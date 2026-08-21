@@ -107,6 +107,9 @@ history is observability only; business object state owns retry and recovery.
   take priority before the next object.
 - People translation creates an execution only after it finds pending names or
   roles. Disabled AI, an empty sweep, and cache-only idle checks create no task.
+- People translation runs only through its configured periodic schedule. Each
+  execution processes at most the first 1,000 deduplicated translation groups;
+  remaining pending groups stay in business state for later executions.
 - People-name translation caches by `Person.ID`. Role translation caches by the
   owning metadata context: an episode uses its season `ParentID`; movie, series,
   and season credits use their own `MetadataID`. The remaining cache identity is
@@ -183,7 +186,8 @@ history is observability only; business object state owns retry and recovery.
   bounds rejection without mutation, and manual/event bypass behavior.
 - Watcher tests assert one execution per debounce batch, semantic per-path details,
   partial-failure continuation, create-failure requeue, and scan/watch isolation.
-- People translation grouping asserts same-season role reuse and cross-season
+- People translation tests assert scheduled-only execution, a 1,000-group pass
+  limit with the remainder left pending, same-season role reuse, and cross-season
   isolation without changing person-name caching.
 
 ### 7. Wrong vs Correct

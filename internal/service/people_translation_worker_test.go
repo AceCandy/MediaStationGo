@@ -1,7 +1,6 @@
 package service
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -19,8 +18,7 @@ import (
 	"github.com/ShukeBta/MediaStationGo/internal/repository"
 )
 
-func TestPeopleTranslationWorkerUsesContextAndCache(t *testing.T) {
-	setPeopleTranslationTestDebounce(t, 0, 0)
+func TestScheduledPeopleTranslationUsesContextAndCache(t *testing.T) {
 	var calls atomic.Int32
 	requests := make(chan []AITranslationEntry, 1)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -73,16 +71,13 @@ func TestPeopleTranslationWorkerUsesContextAndCache(t *testing.T) {
 	cfg := &config.Config{AI: config.AIConfig{Enabled: true, APIKey: "test-key", APIBase: server.URL + "/v1", Model: "test-model"}}
 	scraper := NewScraperService(cfg, zap.NewNop(), repos, nil, nil, nil, nil, nil).SetAI(NewAIService(cfg, zap.NewNop(), nil))
 	scraper.SetTaskTracker(NewTaskTrackerService(zap.NewNop(), nil))
-	ctx, cancel := context.WithCancel(t.Context())
-	scraper.StartPeopleTranslationWorker(ctx)
-	t.Cleanup(func() {
-		cancel()
-		scraper.WaitPeopleTranslationWorker()
-	})
 
 	if err := scraper.persistCredits(t.Context(), metadata.ID, []string{model.CreditTypeActor}, []PersonCredit{{
 		Provider: "tmdb", ExternalID: "140", Name: "Tony Leung Chiu-wai", Type: model.CreditTypeActor, OriginalRole: "Chan Wing-yan",
 	}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := scraper.translatePendingPeopleScheduled(t.Context()); err != nil {
 		t.Fatal(err)
 	}
 
@@ -105,62 +100,83 @@ func TestPeopleTranslationWorkerUsesContextAndCache(t *testing.T) {
 	if err := db.Model(&model.MetadataCredit{}).Where("metadata_id = ?", metadata.ID).Update("role", "Chan Wing-yan").Error; err != nil {
 		t.Fatal(err)
 	}
-	scraper.queuePeopleTranslation()
+	if err := scraper.translatePendingPeopleScheduled(t.Context()); err != nil {
+		t.Fatal(err)
+	}
 	waitForPeopleTranslation(t, db, "梁朝伟", "陈永仁")
 	if got := calls.Load(); got != 1 {
 		t.Fatalf("AI request count = %d, want 1 after cache hit", got)
 	}
 	snapshot := scraper.tasks.Snapshot()
-	if len(snapshot.Recent) == 0 || snapshot.Recent[0].Name != "人物翻译" {
+	if len(snapshot.Recent) == 0 || snapshot.Recent[0].Name != "人物翻译" || snapshot.Recent[0].Trigger != TaskTriggerScheduled {
 		t.Fatalf("task snapshot = %+v", snapshot)
 	}
 }
 
-func TestPeopleTranslationWorkerRetriesAfterBackoff(t *testing.T) {
-	setPeopleTranslationTestDebounce(t, 0, 0)
-	previousBackoff := peopleTranslationRetryBackoff
-	peopleTranslationRetryBackoff = [...]time.Duration{20 * time.Millisecond, 20 * time.Millisecond, 20 * time.Millisecond}
-	t.Cleanup(func() {
-		peopleTranslationRetryBackoff = previousBackoff
-	})
-
-	var calls atomic.Int32
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		if calls.Add(1) == 1 {
-			http.Error(w, `{"error":{"message":"temporary failure"}}`, http.StatusInternalServerError)
+func TestScheduledPeopleTranslationLimitsPassTo1000(t *testing.T) {
+	var received atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var payload struct {
+			Input string `json:"input"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Errorf("decode request: %v", err)
 			return
 		}
-		_, _ = w.Write([]byte(`{"output":[{"type":"message","content":[{"type":"output_text","text":"{\"translation:0\":\"梁朝伟\",\"translation:1\":\"陈永仁\"}"}]}]}`))
+		var entries []AITranslationEntry
+		if err := json.Unmarshal([]byte(payload.Input), &entries); err != nil {
+			t.Errorf("decode translation input: %v", err)
+			return
+		}
+		received.Add(int32(len(entries)))
+		translations := make(map[string]string, len(entries))
+		for _, entry := range entries {
+			translations[entry.Key] = "译名"
+		}
+		raw, _ := json.Marshal(translations)
+		_ = json.NewEncoder(w).Encode(map[string]any{"output": []any{map[string]any{
+			"type": "message", "content": []any{map[string]any{"type": "output_text", "text": string(raw)}},
+		}}})
 	}))
 	t.Cleanup(server.Close)
 
-	db := newServiceTestDB(t, &model.Person{}, &model.PersonIdentifier{}, &model.MetadataCredit{}, &model.TranslationCache{}, &model.Setting{})
-	repos := repository.New(db)
-	if err := repos.Setting.Set(t.Context(), peopleAITranslateSettingKey, "true"); err != nil {
+	db := newServiceTestDB(t, &model.Person{}, &model.TranslationCache{}, &model.Setting{})
+	people := make([]model.Person, peopleTranslationPassLimit+1)
+	for i := range people {
+		name := fmt.Sprintf("Person %04d", i)
+		people[i] = model.Person{Name: name, OriginalName: name}
+	}
+	if err := db.CreateInBatches(&people, 100).Error; err != nil {
 		t.Fatal(err)
 	}
-	metadata := model.MetadataItem{Kind: model.MetadataKindMovie, Title: "无间道", OriginalName: "Infernal Affairs", Year: 2002, Source: "tmdb"}
-	if err := db.Create(&metadata).Error; err != nil {
+	repos := repository.New(db)
+	if err := repos.Setting.Set(t.Context(), peopleAITranslateSettingKey, "true"); err != nil {
 		t.Fatal(err)
 	}
 	cfg := &config.Config{AI: config.AIConfig{Enabled: true, APIKey: "test-key", APIBase: server.URL + "/v1", Model: "test-model"}}
 	scraper := NewScraperService(cfg, zap.NewNop(), repos, nil, nil, nil, nil, nil).SetAI(NewAIService(cfg, zap.NewNop(), nil))
 	scraper.SetTaskTracker(NewTaskTrackerService(zap.NewNop(), nil))
-	if err := scraper.persistCredits(t.Context(), metadata.ID, []string{model.CreditTypeActor}, []PersonCredit{{
-		Provider: "tmdb", ExternalID: "140", Name: "Tony Leung Chiu-wai", Type: model.CreditTypeActor, OriginalRole: "Chan Wing-yan",
-	}}); err != nil {
+
+	if err := scraper.translatePendingPeopleScheduled(t.Context()); err != nil {
 		t.Fatal(err)
 	}
+	var pending int64
+	if err := db.Model(&model.Person{}).Where("name = original_name").Count(&pending).Error; err != nil {
+		t.Fatal(err)
+	}
+	snapshot := scraper.tasks.Snapshot()
+	if received.Load() != peopleTranslationPassLimit || pending != 1 || len(snapshot.Recent) != 1 || snapshot.Recent[0].Metrics["total"] != peopleTranslationPassLimit {
+		t.Fatalf("received=%d pending=%d snapshot=%+v", received.Load(), pending, snapshot)
+	}
 
-	ctx, cancel := context.WithCancel(t.Context())
-	scraper.StartPeopleTranslationWorker(ctx)
-	t.Cleanup(func() {
-		cancel()
-		scraper.WaitPeopleTranslationWorker()
-	})
-	waitForPeopleTranslation(t, db, "梁朝伟", "陈永仁")
-	if got := calls.Load(); got != 2 {
-		t.Fatalf("AI request count = %d, want 2 after automatic retry", got)
+	if err := scraper.translatePendingPeopleScheduled(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Model(&model.Person{}).Where("name = original_name").Count(&pending).Error; err != nil {
+		t.Fatal(err)
+	}
+	if received.Load() != peopleTranslationPassLimit+1 || pending != 0 {
+		t.Fatalf("received=%d pending=%d", received.Load(), pending)
 	}
 }
 
@@ -175,43 +191,6 @@ func TestSplitPeopleTranslationBatchesLimitsEntries(t *testing.T) {
 	}
 }
 
-func TestPeopleTranslationRetryDelay(t *testing.T) {
-	want := []time.Duration{time.Minute, 3 * time.Minute, 5 * time.Minute, 5 * time.Minute}
-	for failures, expected := range want {
-		if got := peopleTranslationRetryDelay(failures); got != expected {
-			t.Fatalf("retry delay after %d failures = %s, want %s", failures, got, expected)
-		}
-	}
-}
-
-func TestPeopleTranslationDebounceUsesMaximumWait(t *testing.T) {
-	setPeopleTranslationTestDebounce(t, 30*time.Millisecond, 70*time.Millisecond)
-	wake := make(chan struct{}, 1)
-	go func() {
-		for range 3 {
-			time.Sleep(20 * time.Millisecond)
-			wake <- struct{}{}
-		}
-	}()
-
-	started := time.Now()
-	if !waitForPeopleTranslationDebounce(t.Context(), wake) {
-		t.Fatal("debounce stopped before the maximum wait")
-	}
-	if elapsed := time.Since(started); elapsed < 60*time.Millisecond || elapsed > 120*time.Millisecond {
-		t.Fatalf("debounce waited %s, want maximum wait near 70ms", elapsed)
-	}
-}
-
-func setPeopleTranslationTestDebounce(t *testing.T, delay, maximum time.Duration) {
-	t.Helper()
-	previousDelay, previousMaximum := peopleTranslationDebounceDelay, peopleTranslationMaxDebounceWait
-	peopleTranslationDebounceDelay, peopleTranslationMaxDebounceWait = delay, maximum
-	t.Cleanup(func() {
-		peopleTranslationDebounceDelay, peopleTranslationMaxDebounceWait = previousDelay, previousMaximum
-	})
-}
-
 func TestPeopleTranslationEmptyPassDoesNotCreateTask(t *testing.T) {
 	db := newServiceTestDB(t, &model.Person{}, &model.MetadataCredit{}, &model.TranslationCache{}, &model.Setting{})
 	repos := repository.New(db)
@@ -221,7 +200,7 @@ func TestPeopleTranslationEmptyPassDoesNotCreateTask(t *testing.T) {
 	cfg := &config.Config{AI: config.AIConfig{Enabled: true, APIKey: "test-key"}}
 	scraper := NewScraperService(cfg, zap.NewNop(), repos, nil, nil, nil, nil, nil).SetAI(NewAIService(cfg, zap.NewNop(), nil))
 	scraper.SetTaskTracker(NewTaskTrackerService(zap.NewNop(), nil))
-	if err := scraper.translatePendingPeople(t.Context()); err != nil {
+	if err := scraper.translatePendingPeopleScheduled(t.Context()); err != nil {
 		t.Fatal(err)
 	}
 	snapshot := scraper.tasks.Snapshot()

@@ -21,9 +21,46 @@ func TestMediaScrapeTaskDetail(t *testing.T) {
 }
 
 func TestPeopleTranslationDetail(t *testing.T) {
-	group := &pendingPeopleTranslation{lookup: newTranslationCacheLookup("role", "metadata-1", "Chan Wing-yan")}
-	if got := peopleTranslationDetail(group, "陈永仁", "AI"); got != "✅ 角色翻译 [AI]: Chan Wing-yan -> 陈永仁" {
-		t.Fatalf("detail = %q", got)
+	tests := []struct {
+		name       string
+		group      *pendingPeopleTranslation
+		translated string
+		source     string
+		want       string
+	}{
+		{
+			name: "movie",
+			group: &pendingPeopleTranslation{
+				lookup: newTranslationCacheLookup("role", "metadata-1", "Chan Wing-yan"),
+				entry:  AITranslationEntry{Context: &AITranslationContext{Title: "无间道", MediaKind: model.MetadataKindMovie}},
+			},
+			translated: "陈永仁",
+			source:     "AI",
+			want:       "✅ 角色翻译 [AI] [电影: 无间道]: Chan Wing-yan -> 陈永仁",
+		},
+		{
+			name: "series warning",
+			group: &pendingPeopleTranslation{
+				lookup: newTranslationCacheLookup("role", "metadata-2", "JB"),
+				entry:  AITranslationEntry{Context: &AITranslationContext{Title: "谜案追踪", MediaKind: model.MetadataKindSeries}},
+			},
+			source: "AI 未返回有效中文译文",
+			want:   "⚠️ 角色翻译 [AI 未返回有效中文译文] [电视剧: 谜案追踪]: JB",
+		},
+		{
+			name:       "without context",
+			group:      &pendingPeopleTranslation{lookup: newTranslationCacheLookup("role", "metadata-3", "Unknown")},
+			translated: "未知",
+			source:     "AI",
+			want:       "✅ 角色翻译 [AI]: Unknown -> 未知",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := peopleTranslationDetail(test.group, test.translated, test.source); got != test.want {
+				t.Fatalf("detail = %q, want %q", got, test.want)
+			}
+		})
 	}
 }
 

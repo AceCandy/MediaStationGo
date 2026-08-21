@@ -188,7 +188,6 @@ func (s *ScraperService) persistCredits(ctx context.Context, metadataID string, 
 	if err := s.repo.DB.WithContext(ctx).Model(&model.MetadataItem{}).Where("id = ?", metadataID).Update("people_hydrated_at", time.Now().UTC()).Error; err != nil {
 		return err
 	}
-	s.queuePeopleTranslation()
 	return nil
 }
 

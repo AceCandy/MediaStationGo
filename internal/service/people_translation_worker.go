@@ -5,9 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
-	"time"
-
-	"go.uber.org/zap"
 
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 	"github.com/ShukeBta/MediaStationGo/internal/repository"
@@ -15,19 +12,11 @@ import (
 
 const (
 	peopleTranslationBatchSize      = 100
+	peopleTranslationPassLimit      = 1000
 	peopleTranslationMaxInputChars  = 24000
 	peopleTranslationPromptVersion  = "people-context-v1"
 	peopleTranslationTargetLanguage = "zh-CN"
 )
-
-var peopleTranslationDebounceDelay = 10 * time.Second
-var peopleTranslationMaxDebounceWait = 30 * time.Second
-
-var peopleTranslationRetryBackoff = [...]time.Duration{
-	time.Minute,
-	3 * time.Minute,
-	5 * time.Minute,
-}
 
 type pendingPeopleTranslation struct {
 	lookup  repository.TranslationCacheLookup
@@ -35,110 +24,7 @@ type pendingPeopleTranslation struct {
 	targets []repository.TranslationTarget
 }
 
-// StartPeopleTranslationWorker 启动随服务生命周期运行的人物翻译 worker。
-func (s *ScraperService) StartPeopleTranslationWorker(ctx context.Context) {
-	if s == nil {
-		return
-	}
-	s.peopleTranslationOnce.Do(func() {
-		if s.peopleTranslationWake == nil {
-			s.peopleTranslationWake = make(chan struct{}, 1)
-		}
-		s.peopleTranslationWG.Add(1)
-		go s.runPeopleTranslationWorker(ctx)
-		s.queuePeopleTranslation()
-	})
-}
-
-func (s *ScraperService) WaitPeopleTranslationWorker() {
-	if s != nil {
-		s.peopleTranslationWG.Wait()
-	}
-}
-
-func (s *ScraperService) queuePeopleTranslation() {
-	if s == nil {
-		return
-	}
-	if s.peopleTranslationWake == nil {
-		s.peopleTranslationWake = make(chan struct{}, 1)
-	}
-	select {
-	case s.peopleTranslationWake <- struct{}{}:
-	default:
-	}
-}
-
-func (s *ScraperService) runPeopleTranslationWorker(ctx context.Context) {
-	defer s.peopleTranslationWG.Done()
-	failures := 0
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-s.peopleTranslationWake:
-			if !waitForPeopleTranslationDebounce(ctx, s.peopleTranslationWake) {
-				return
-			}
-		}
-		if err := s.translatePendingPeople(ctx); err != nil && ctx.Err() == nil {
-			delay := peopleTranslationRetryDelay(failures)
-			failures++
-			if s.log != nil {
-				s.log.Warn("people translation pass failed", zap.Error(err), zap.Duration("retry_after", delay))
-			}
-			timer := time.NewTimer(delay)
-			select {
-			case <-ctx.Done():
-				timer.Stop()
-				return
-			case <-timer.C:
-			}
-		}
-		failures = 0
-	}
-}
-
-func waitForPeopleTranslationDebounce(ctx context.Context, wake <-chan struct{}) bool {
-	debounce := time.NewTimer(peopleTranslationDebounceDelay)
-	defer debounce.Stop()
-	maximum := time.NewTimer(peopleTranslationMaxDebounceWait)
-	defer maximum.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return false
-		case <-debounce.C:
-			return true
-		case <-maximum.C:
-			return true
-		case <-wake:
-			if !debounce.Stop() {
-				select {
-				case <-debounce.C:
-				default:
-				}
-			}
-			debounce.Reset(peopleTranslationDebounceDelay)
-		}
-	}
-}
-
-func peopleTranslationRetryDelay(failures int) time.Duration {
-	if failures < 0 {
-		failures = 0
-	}
-	if failures >= len(peopleTranslationRetryBackoff) {
-		failures = len(peopleTranslationRetryBackoff) - 1
-	}
-	return peopleTranslationRetryBackoff[failures]
-}
-
-func (s *ScraperService) translatePendingPeople(ctx context.Context) error {
-	return s.translatePendingPeopleTriggered(ctx, TaskTriggerEvent)
-}
-
-func (s *ScraperService) translatePendingPeopleTriggered(ctx context.Context, trigger string) error {
+func (s *ScraperService) translatePendingPeopleScheduled(ctx context.Context) error {
 	if s == nil {
 		return nil
 	}
@@ -158,11 +44,12 @@ func (s *ScraperService) translatePendingPeopleTriggered(ctx context.Context, tr
 	if len(groups) == 0 {
 		return nil
 	}
+	groups = groups[:min(len(groups), peopleTranslationPassLimit)]
 	if s.tasks == nil {
 		return fmt.Errorf("task tracker unavailable")
 	}
 	metrics := map[string]int64{"total": int64(len(groups))}
-	task := s.tasks.StartTriggered(TaskKindPeople, trigger, "人物翻译", TaskUpdate{Stage: "translation", Message: "人物翻译已启动", Metrics: metrics})
+	task := s.tasks.StartTriggered(TaskKindPeople, TaskTriggerScheduled, "人物翻译", TaskUpdate{Stage: "translation", Message: "人物翻译已启动", Metrics: metrics})
 	if task == nil {
 		return fmt.Errorf("create task execution failed")
 	}
@@ -313,8 +200,25 @@ func appendPeopleTranslationFailures(details []string, groups []*pendingPeopleTr
 
 func peopleTranslationDetail(group *pendingPeopleTranslation, translated, source string) string {
 	kind := "人物"
+	work := ""
 	if group != nil && group.lookup.Kind == "role" {
 		kind = "角色"
+		if context := group.entry.Context; context != nil {
+			title := strings.TrimSpace(context.Title)
+			if title == "" {
+				title = strings.TrimSpace(context.OriginalTitle)
+			}
+			mediaKind := ""
+			switch context.MediaKind {
+			case model.MetadataKindMovie:
+				mediaKind = "电影"
+			case model.MetadataKindSeries, model.MetadataKindSeason, model.MetadataKindEpisode:
+				mediaKind = "电视剧"
+			}
+			if mediaKind != "" && title != "" {
+				work = fmt.Sprintf(" [%s: %s]", mediaKind, title)
+			}
+		}
 	}
 	original := ""
 	if group != nil {
@@ -325,9 +229,9 @@ func peopleTranslationDetail(group *pendingPeopleTranslation, translated, source
 		if strings.HasPrefix(source, "失败:") {
 			marker = "❌"
 		}
-		return fmt.Sprintf("%s %s翻译 [%s]: %s", marker, kind, source, original)
+		return fmt.Sprintf("%s %s翻译 [%s]%s: %s", marker, kind, source, work, original)
 	}
-	return fmt.Sprintf("✅ %s翻译 [%s]: %s -> %s", kind, source, original, translated)
+	return fmt.Sprintf("✅ %s翻译 [%s]%s: %s -> %s", kind, source, work, original, translated)
 }
 
 func splitPeopleTranslationBatches(groups []*pendingPeopleTranslation, maxEntries, maxChars int) [][]*pendingPeopleTranslation {

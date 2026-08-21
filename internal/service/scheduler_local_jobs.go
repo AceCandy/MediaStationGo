@@ -143,7 +143,7 @@ func (s *SchedulerService) jobPeopleTranslation(ctx context.Context) error {
 	if s.scraper == nil {
 		return nil
 	}
-	return s.scraper.translatePendingPeopleTriggered(ctx, TaskTriggerScheduled)
+	return s.scraper.translatePendingPeopleScheduled(ctx)
 }
 
 func (s *SchedulerService) jobAccountCleanup(ctx context.Context) error {
