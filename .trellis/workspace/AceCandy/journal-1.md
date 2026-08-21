@@ -886,3 +886,24 @@ Committed the existing web UI redesign together with detailed background task lo
 ### Status
 
 [OK] **Completed**
+
+
+## Session 42: 详情页影院化与媒体库网格美观度重构
+
+**Date**: 2026-08-21
+**Task**: 详情页影院化与媒体库网格美观度重构
+**Branch**: `main`
+
+### Summary
+
+详情页影院化：新增 GET /media/:id/credits 演职员接口与通栏横滚、海报环境取色光晕、布局重构（左列海报+媒体信息紧跟、右列元信息+播放操作排）、管理功能收敛为「更多操作」下拉。媒体库：网格降为 2-6 列大卡片大间距，卡片移除立即观影/刮削/删除按钮改为单收藏角标（页面级 listFavourites id 集合 + toggleFavourite），轨道/版本下拉截断选项 hover 气泡全显（修复 details 收起时 clientWidth=0 测量失效）。卡片鼠标跟随高光与入场错落、空状态/骨架屏美化。顺带提交并归档 08-20-player-request-body-log（播放器请求 Body 日志：64KiB 截断、敏感字段脱敏、幂等迁移、日志详情页展示）。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `49404af` | (see git log) |
+
+### Status
+
+[OK] **Completed**
