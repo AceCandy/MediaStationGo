@@ -170,18 +170,66 @@ body::before {
   background-color: var(--app-hover) !important;
 }
 
-:root[data-theme='dark'] .bg-brand-50,
 :root[data-theme='dark'] .bg-primary-400\/10,
 :root[data-theme='dark'] .bg-primary-400\/15,
 :root[data-theme='dark'] .bg-primary-400\/20,
-:root[data-theme='dark'] .bg-sand-50,
-:root[data-theme='dark'] .bg-amber-50,
-:root[data-theme='dark'] .bg-yellow-50,
-:root[data-theme='dark'] .bg-emerald-50,
-:root[data-theme='dark'] .bg-green-50,
-:root[data-theme='dark'] .bg-red-50 {
+:root[data-theme='dark'] .bg-sand-50 {
   background-color: var(--app-control-bg) !important;
 }
+
+/* 语义色深色映射：浅色柔和的语义底色/文本/边框 → 保留色相的深色柔和变体。
+   规则：50 系底色 → 同色 10% 透明层；600~900 深文本 → 同色 300 亮文本；
+   100~300 浅边框 → 同色 30% 透明边框。新增硬编码浅色类时在此补充覆盖。 */
+:root[data-theme='dark'] .bg-red-50 { background-color: rgba(248, 113, 113, 0.1) !important; }
+:root[data-theme='dark'] .bg-red-50\/50 { background-color: rgba(248, 113, 113, 0.06) !important; }
+:root[data-theme='dark'] .hover\:bg-red-50:hover,
+:root[data-theme='dark'] .hover\:bg-red-50\/50:hover { background-color: rgba(248, 113, 113, 0.14) !important; }
+:root[data-theme='dark'] .bg-amber-50 { background-color: rgba(251, 191, 36, 0.1) !important; }
+:root[data-theme='dark'] .bg-yellow-50 { background-color: rgba(253, 224, 71, 0.1) !important; }
+:root[data-theme='dark'] .bg-emerald-50 { background-color: rgba(52, 211, 153, 0.1) !important; }
+:root[data-theme='dark'] .bg-emerald-50\/50 { background-color: rgba(52, 211, 153, 0.06) !important; }
+:root[data-theme='dark'] .bg-green-50 { background-color: rgba(74, 222, 128, 0.1) !important; }
+:root[data-theme='dark'] .bg-rose-50 { background-color: rgba(251, 113, 133, 0.1) !important; }
+:root[data-theme='dark'] .bg-sage-50 { background-color: rgba(34, 211, 238, 0.1) !important; }
+:root[data-theme='dark'] .bg-brand-50 { background-color: var(--app-brand-soft) !important; }
+:root[data-theme='dark'] .hover\:bg-brand-50:hover { background-color: var(--app-brand-emphasis) !important; }
+
+:root[data-theme='dark'] .text-red-600,
+:root[data-theme='dark'] .text-red-700,
+:root[data-theme='dark'] .text-red-900,
+:root[data-theme='dark'] .hover\:text-red-600:hover { color: #fca5a5 !important; }
+:root[data-theme='dark'] .text-emerald-600,
+:root[data-theme='dark'] .text-emerald-700 { color: #6ee7b7 !important; }
+:root[data-theme='dark'] .text-amber-600,
+:root[data-theme='dark'] .text-amber-700,
+:root[data-theme='dark'] .text-amber-800 { color: #fcd34d !important; }
+:root[data-theme='dark'] .text-yellow-700 { color: #fde047 !important; }
+:root[data-theme='dark'] .text-orange-600 { color: #fdba74 !important; }
+:root[data-theme='dark'] .text-rose-600 { color: #fda4af !important; }
+:root[data-theme='dark'] .text-sage-600,
+:root[data-theme='dark'] .text-sage-700 { color: #67e8f9 !important; }
+:root[data-theme='dark'] .text-brand-600,
+:root[data-theme='dark'] .text-brand-700 { color: var(--app-brand-text) !important; }
+
+:root[data-theme='dark'] .border-red-100,
+:root[data-theme='dark'] .border-red-200,
+:root[data-theme='dark'] .border-red-300,
+:root[data-theme='dark'] .border-red-300\/60,
+:root[data-theme='dark'] .hover\:border-red-300\/60:hover { border-color: rgba(248, 113, 113, 0.3) !important; }
+:root[data-theme='dark'] .border-amber-200,
+:root[data-theme='dark'] .border-amber-300,
+:root[data-theme='dark'] .border-amber-300\/50,
+:root[data-theme='dark'] .border-amber-300\/60,
+:root[data-theme='dark'] .border-amber-300\/70 { border-color: rgba(251, 191, 36, 0.3) !important; }
+:root[data-theme='dark'] .border-yellow-300 { border-color: rgba(253, 224, 71, 0.32) !important; }
+:root[data-theme='dark'] .border-emerald-300,
+:root[data-theme='dark'] .border-emerald-300\/50,
+:root[data-theme='dark'] .border-emerald-300\/60 { border-color: rgba(52, 211, 153, 0.3) !important; }
+:root[data-theme='dark'] .border-brand-200,
+:root[data-theme='dark'] .border-brand-300,
+:root[data-theme='dark'] .border-brand-200\/50,
+:root[data-theme='dark'] .border-brand-200\/60 { border-color: var(--app-brand-border) !important; }
+:root[data-theme='dark'] .border-sage-200\/60 { border-color: rgba(34, 211, 238, 0.3) !important; }
 
 :root[data-theme='dark'] .bg-\[\#f9fafb\] {
   background-color: var(--app-bg) !important;
@@ -190,7 +238,6 @@ body::before {
 :root[data-theme='dark'] .hover\:bg-gray-50:hover,
 :root[data-theme='dark'] .hover\:bg-gray-50\/50:hover,
 :root[data-theme='dark'] .hover\:bg-gray-100:hover,
-:root[data-theme='dark'] .hover\:bg-brand-50:hover,
 :root[data-theme='dark'] .hover\:bg-primary-400\/10:hover,
 :root[data-theme='dark'] .hover\:bg-red-100:hover {
   background-color: var(--app-hover) !important;
