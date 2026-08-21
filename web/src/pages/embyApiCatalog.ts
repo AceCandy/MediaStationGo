@@ -651,13 +651,14 @@ export const EMBY_API_ENDPOINTS: readonly EmbyApiEndpoint[] = [
     support: 'implemented',
     parameters: [
       tokenHeader,
-      { name: 'id', location: 'path', type: 'string', required: true, description: '媒体项 ID。' },
+      { name: 'id', location: 'path', type: 'string', required: true, description: '具体媒体源 ID，即 PlaybackInfo MediaSources[].Id；不接受 metadata、season 或 series ID。' },
       { name: 'container', location: 'path', type: 'string', description: '客户端期望的容器扩展名。' },
     ],
     responses: [
       { status: '200 / 206', contentType: 'video/* 或 application/octet-stream', description: '返回媒体内容；范围请求由流服务处理。HEAD 仅返回响应头。' },
       { status: '302', contentType: '无响应体', description: 'STRM 或远程媒体可能重定向到外部播放地址。' },
-      { status: '404 / 502', contentType: 'application/json', description: '媒体不存在，或底层流服务失败且尚未写出响应。' },
+      { status: '404 / 500 / 502', contentType: 'application/json', description: '具体媒体不存在，或媒体查询、底层流服务失败。' },
+      { status: '499', contentType: '无响应体', description: '客户端在播放流处理完成前取消请求。' },
     ],
   },
   {
@@ -669,7 +670,7 @@ export const EMBY_API_ENDPOINTS: readonly EmbyApiEndpoint[] = [
     path: '/emby/api/stream/:id',
     auth: 'token',
     support: 'implemented',
-    parameters: [tokenHeader, { name: 'id', location: 'path', type: 'string', required: true, description: '媒体项 ID。' }],
+    parameters: [tokenHeader, { name: 'id', location: 'path', type: 'string', required: true, description: '具体媒体源 ID，即 PlaybackInfo MediaSources[].Id。' }],
     responses: [
       { status: '200 / 206', contentType: '媒体内容', description: '本地文件由流服务输出。' },
       { status: '302', contentType: '无响应体', description: '远程 STRM 地址重定向。' },

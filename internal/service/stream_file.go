@@ -12,6 +12,8 @@ import (
 	"strings"
 
 	"go.uber.org/zap"
+
+	"github.com/ShukeBta/MediaStationGo/internal/model"
 )
 
 // ServeFile streams the file backing the given media ID using
@@ -27,6 +29,15 @@ func (s *StreamService) ServeFile(w http.ResponseWriter, r *http.Request, mediaI
 	if m == nil {
 		return ErrMediaNotFound
 	}
+	return s.ServeMedia(w, r, m)
+}
+
+// ServeMedia 播放已经加载的媒体记录，避免调用方重复按 ID 查询。
+func (s *StreamService) ServeMedia(w http.ResponseWriter, r *http.Request, m *model.Media) error {
+	if m == nil {
+		return ErrMediaNotFound
+	}
+	mediaID := m.ID
 	if target := localSTRMFileTarget(m); target != "" {
 		if handled, err := s.redirectMappedPlaybackPath(w, r, mediaID, target); err != nil {
 			return err
@@ -36,7 +47,10 @@ func (s *StreamService) ServeFile(w http.ResponseWriter, r *http.Request, mediaI
 		return s.serveLocalMediaFile(w, r, mediaID, target, "local_strm")
 	}
 	if target := strings.TrimSpace(m.STRMURL); playableSTRMTarget(target) {
-		resolution := s.resolveConfiguredPlaybackRedirect(r.Context(), target, r.UserAgent())
+		resolution := s.resolveConfiguredPlaybackRedirect(r.Context(), mediaID, target, r.UserAgent())
+		if resolution.local {
+			return s.serveLocalMediaFile(w, r, mediaID, resolution.target, "redirect_resolve_local_fallback")
+		}
 		target = resolution.target
 		target = s.withExternalPlaybackTokenForInternalRedirect(target, r, PublicServerURL(r.Context(), s.repo, s.cfg), mediaID)
 		redirectTarget := absoluteInternalRedirect(target, r)
@@ -68,7 +82,10 @@ func (s *StreamService) redirectMappedPlaybackPath(w http.ResponseWriter, r *htt
 	if target == "" {
 		return false, nil
 	}
-	resolution := s.resolveConfiguredPlaybackRedirect(r.Context(), target, r.UserAgent())
+	resolution := s.resolveConfiguredPlaybackRedirect(r.Context(), mediaID, target, r.UserAgent())
+	if resolution.local {
+		return true, s.serveLocalMediaFile(w, r, mediaID, resolution.target, "redirect_resolve_local_fallback")
+	}
 	target = resolution.target
 	target = s.withExternalPlaybackTokenForInternalRedirect(target, r, PublicServerURL(r.Context(), s.repo, s.cfg), mediaID)
 	resolved := absoluteInternalRedirect(target, r)

@@ -173,12 +173,5 @@ func (s *MediaService) ListMediaVersions(ctx context.Context, id, userID string,
 
 // GetRawMedia 仅供扫描、文件打开和播放内部读取文件事实。
 func (s *MediaService) GetRawMedia(ctx context.Context, id string) (*model.Media, error) {
-	media, err := s.repo.Media.FindByID(ctx, id)
-	if err != nil || media == nil {
-		return media, err
-	}
-	items := []model.Media{*media}
-	s.attachLibraryMetadata(ctx, items)
-	*media = items[0]
-	return media, nil
+	return s.repo.Media.FindByID(ctx, id)
 }

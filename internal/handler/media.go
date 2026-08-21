@@ -329,7 +329,7 @@ func streamHandler(svc *service.Container) gin.HandlerFunc {
 		if !enforceScopedPlaybackToken(c, m.ID) {
 			return
 		}
-		err = svc.Stream.ServeFile(c.Writer, c.Request, c.Param("id"))
+		err = svc.Stream.ServeMedia(c.Writer, c.Request, m)
 		if errors.Is(err, service.ErrMediaNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
 			return

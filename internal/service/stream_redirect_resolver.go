@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -26,13 +27,29 @@ var (
 
 type playbackRedirectCacheEntry struct {
 	target    string
+	local     bool
 	expiresAt time.Time
 }
 
 type playbackRedirectFlight struct {
 	done   chan struct{}
-	target string
+	result playbackRedirectResolveResult
 	err    error
+}
+
+type playbackRedirectResolveResult struct {
+	target         string
+	local          bool
+	cacheHit       bool
+	fallbackStatus int
+}
+
+type playbackRedirectResponseError struct {
+	status int
+}
+
+func (e *playbackRedirectResponseError) Error() string {
+	return fmt.Sprintf("playback redirect response status %d", e.status)
 }
 
 type playbackRedirectResolver struct {
@@ -54,31 +71,33 @@ func newPlaybackRedirectResolver() *playbackRedirectResolver {
 	}
 }
 
-func (r *playbackRedirectResolver) Resolve(ctx context.Context, rawURL, userAgent string) (string, bool, error) {
+func (r *playbackRedirectResolver) Resolve(ctx context.Context, mediaID, rawURL, userAgent string, localFallback func() string) (playbackRedirectResolveResult, error) {
 	source := strings.TrimSpace(rawURL)
 	base, ok := absolutePlaybackRedirectURL(source)
 	if r == nil || !ok {
-		return "", false, errPlaybackRedirectSource
+		return playbackRedirectResolveResult{}, errPlaybackRedirectSource
 	}
-	key := source + "\x00" + userAgent
+	key := mediaID + "\x00" + userAgent
 	now := r.currentTime()
 
 	r.mu.Lock()
 	r.removeExpiredLocked(now)
 	if cached, found := r.cache[key]; found {
 		r.mu.Unlock()
-		return cached.target, true, nil
+		return playbackRedirectResolveResult{target: cached.target, local: cached.local, cacheHit: true}, nil
 	}
 	if flight, found := r.flights[key]; found {
 		r.mu.Unlock()
 		select {
 		case <-ctx.Done():
-			return "", false, ctx.Err()
+			return playbackRedirectResolveResult{}, ctx.Err()
 		case <-flight.done:
 			if flight.err != nil {
-				return "", false, flight.err
+				return playbackRedirectResolveResult{}, flight.err
 			}
-			return flight.target, true, nil
+			result := flight.result
+			result.cacheHit = true
+			return result, nil
 		}
 	}
 	flight := &playbackRedirectFlight{done: make(chan struct{})}
@@ -86,19 +105,29 @@ func (r *playbackRedirectResolver) Resolve(ctx context.Context, rawURL, userAgen
 	r.mu.Unlock()
 
 	target, err := r.resolve(ctx, base, userAgent)
+	result := playbackRedirectResolveResult{target: target}
+	var statusErr *playbackRedirectResponseError
+	if errors.As(err, &statusErr) && statusErr.status == http.StatusInternalServerError && localFallback != nil {
+		if localPath := localFallback(); localPath != "" {
+			result.target = localPath
+			result.local = true
+			result.fallbackStatus = statusErr.status
+			err = nil
+		}
+	}
 	r.mu.Lock()
 	if err == nil {
 		ttl := r.ttl
 		if ttl <= 0 {
 			ttl = playbackRedirectCacheTTL
 		}
-		r.cache[key] = playbackRedirectCacheEntry{target: target, expiresAt: r.currentTime().Add(ttl)}
+		r.cache[key] = playbackRedirectCacheEntry{target: result.target, local: result.local, expiresAt: r.currentTime().Add(ttl)}
 	}
-	flight.target, flight.err = target, err
+	flight.result, flight.err = result, err
 	close(flight.done)
 	delete(r.flights, key)
 	r.mu.Unlock()
-	return target, false, err
+	return result, err
 }
 
 func (r *playbackRedirectResolver) resolve(ctx context.Context, source *url.URL, userAgent string) (string, error) {
@@ -129,7 +158,7 @@ func (r *playbackRedirectResolver) resolve(ctx context.Context, source *url.URL,
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < http.StatusMultipleChoices || resp.StatusCode >= http.StatusBadRequest {
-		return "", fmt.Errorf("playback redirect response status %d", resp.StatusCode)
+		return "", &playbackRedirectResponseError{status: resp.StatusCode}
 	}
 	location, err := url.Parse(strings.TrimSpace(resp.Header.Get("Location")))
 	if err != nil || location.String() == "" {
@@ -162,9 +191,10 @@ type playbackRedirectResolution struct {
 	matched  bool
 	resolved bool
 	cacheHit bool
+	local    bool
 }
 
-func (s *StreamService) resolveConfiguredPlaybackRedirect(ctx context.Context, rawURL, userAgent string) playbackRedirectResolution {
+func (s *StreamService) resolveConfiguredPlaybackRedirect(ctx context.Context, mediaID, rawURL, userAgent string) playbackRedirectResolution {
 	result := playbackRedirectResolution{target: strings.TrimSpace(rawURL)}
 	if s == nil || s.repo == nil || s.repo.Setting == nil {
 		return result
@@ -177,7 +207,9 @@ func (s *StreamService) resolveConfiguredPlaybackRedirect(ctx context.Context, r
 	if s.redirectResolver == nil {
 		return result
 	}
-	resolved, cacheHit, err := s.redirectResolver.Resolve(ctx, result.target, userAgent)
+	resolved, err := s.redirectResolver.Resolve(ctx, mediaID, result.target, userAgent, func() string {
+		return s.mappedRemotePlaybackPath(ctx, result.target)
+	})
 	if err != nil {
 		if s.log != nil {
 			fields := append(PlaybackURLLogFields(result.target), zap.Error(err))
@@ -185,10 +217,31 @@ func (s *StreamService) resolveConfiguredPlaybackRedirect(ctx context.Context, r
 		}
 		return result
 	}
-	result.target = resolved
+	if resolved.fallbackStatus != 0 && s.log != nil {
+		fields := append(PlaybackURLLogFields(result.target), zap.Int("status", resolved.fallbackStatus))
+		s.log.Warn("media playback redirect resolve fell back to local file", fields...)
+	}
+	result.target = resolved.target
 	result.resolved = true
-	result.cacheHit = cacheHit
+	result.cacheHit = resolved.cacheHit
+	result.local = resolved.local
 	return result
+}
+
+func (s *StreamService) mappedRemotePlaybackPath(ctx context.Context, rawURL string) string {
+	if s == nil || s.repo == nil || s.repo.Setting == nil {
+		return ""
+	}
+	rawMappings, err := s.repo.Setting.Get(ctx, FFprobePathMappingsSettingKey)
+	if err != nil {
+		return ""
+	}
+	path := mapRemoteProbePath(rawMappings, rawURL)
+	info, err := os.Stat(path)
+	if err != nil || !info.Mode().IsRegular() {
+		return ""
+	}
+	return path
 }
 
 func (r playbackRedirectResolution) logFields() []zap.Field {

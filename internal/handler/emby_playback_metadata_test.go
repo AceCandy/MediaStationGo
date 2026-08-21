@@ -3,8 +3,6 @@ package handler
 import (
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
 	"testing"
 
 	testdb "github.com/ShukeBta/MediaStationGo/internal/testdb"
@@ -18,7 +16,7 @@ import (
 	"github.com/ShukeBta/MediaStationGo/internal/service"
 )
 
-func TestEmbyVideoStreamResolvesMetadataIDToMediaID(t *testing.T) {
+func TestEmbyVideoStreamRejectsMetadataID(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db, err := testdb.OpenPostgres(t, &gorm.Config{})
 	if err != nil {
@@ -44,14 +42,9 @@ func TestEmbyVideoStreamResolvesMetadataIDToMediaID(t *testing.T) {
 	if err := db.Create(&metadata).Error; err != nil {
 		t.Fatalf("create metadata: %v", err)
 	}
-	mediaPath := filepath.Join(t.TempDir(), "movie.mp4")
-	content := []byte("playable media")
-	if err := os.WriteFile(mediaPath, content, 0o644); err != nil {
-		t.Fatalf("write media: %v", err)
-	}
 	if err := db.Create(&model.Media{
 		Base: model.Base{ID: "media-playback"}, LibraryID: lib.ID, MetadataID: metadata.ID,
-		Title: metadata.Title, Path: mediaPath, Container: "mp4",
+		Title: metadata.Title, Path: "/unused/movie.mp4", Container: "mp4",
 	}).Error; err != nil {
 		t.Fatalf("create media: %v", err)
 	}
@@ -61,6 +54,7 @@ func TestEmbyVideoStreamResolvesMetadataIDToMediaID(t *testing.T) {
 	reposSvc := &service.Container{
 		Repo:   repos,
 		Emby:   service.NewEmbyService(cfg, zap.NewNop(), repos),
+		Media:  service.NewMediaService(cfg, zap.NewNop(), repos),
 		Stream: service.NewStreamService(cfg, zap.NewNop(), repos),
 	}
 	router := gin.New()
@@ -70,10 +64,7 @@ func TestEmbyVideoStreamResolvesMetadataIDToMediaID(t *testing.T) {
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
-	}
-	if w.Body.String() != string(content) {
-		t.Fatalf("body=%q, want %q", w.Body.String(), content)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("status=%d body=%s, want 404", w.Code, w.Body.String())
 	}
 }

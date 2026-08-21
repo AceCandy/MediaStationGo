@@ -28,6 +28,7 @@ function statusClass(status: number): string {
 function LogDetails({ log, onClose }: { log: PlayerRequestLog; onClose: () => void }) {
   const sections = [
     ['Body', log.body],
+    ['错误响应', log.response_body],
     ['Path 参数', log.path_params],
     ['Header', log.headers],
     ['Query', log.query],

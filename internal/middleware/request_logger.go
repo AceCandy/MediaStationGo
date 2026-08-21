@@ -18,14 +18,17 @@ import (
 )
 
 const (
-	playerAPIRequestContextKey     = "player_api_request"
-	playerAPIRequestBodyContextKey = "player_api_request_body"
+	playerAPIRequestContextKey      = "player_api_request"
+	playerAPIRequestBodyContextKey  = "player_api_request_body"
+	playerAPIResponseBodyContextKey = "player_api_response_body"
 )
 
 const (
-	maxPlayerRequestValueRunes = 4096
-	maxPlayerRequestJSONBytes  = 64 * 1024
-	playerRequestBodyTruncated = "[truncated: request body exceeds 64 KiB]"
+	maxPlayerRequestValueRunes  = 4096
+	maxPlayerRequestJSONBytes   = 64 * 1024
+	playerRequestBodyTruncated  = "[truncated: request body exceeds 64 KiB]"
+	playerResponseBodyTruncated = "[truncated: response body exceeds 64 KiB]"
+	playerPlainTextRedacted     = "[redacted: non-JSON body contains sensitive data]"
 )
 
 type PlayerRequestRecorder func(context.Context, *model.PlayerRequestLog) error
@@ -34,6 +37,8 @@ type PlayerRequestRecorder func(context.Context, *model.PlayerRequestLog) error
 func MarkPlayerAPIRequest() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		c.Set(playerAPIRequestContextKey, true)
+		writer := &playerErrorResponseWriter{ResponseWriter: c.Writer}
+		c.Writer = writer
 		if c.Request.Body != nil {
 			original := c.Request.Body
 			body, _ := io.ReadAll(io.LimitReader(original, maxPlayerRequestJSONBytes+1))
@@ -42,7 +47,52 @@ func MarkPlayerAPIRequest() gin.HandlerFunc {
 			c.Set(playerAPIRequestBodyContextKey, sanitizedPlayerBody(body))
 		}
 		c.Next()
+		c.Set(playerAPIResponseBodyContextKey, writer.sanitizedBody())
 	}
+}
+
+// playerErrorResponseWriter 只保留失败响应的有限正文，不缓冲正常媒体数据。
+type playerErrorResponseWriter struct {
+	gin.ResponseWriter
+	body      bytes.Buffer
+	capturing bool
+	truncated bool
+}
+
+func (w *playerErrorResponseWriter) WriteHeader(statusCode int) {
+	if !w.ResponseWriter.Written() {
+		w.capturing = statusCode >= http.StatusBadRequest
+	}
+	w.ResponseWriter.WriteHeader(statusCode)
+}
+
+func (w *playerErrorResponseWriter) Write(data []byte) (int, error) {
+	w.capture(data)
+	return w.ResponseWriter.Write(data)
+}
+
+func (w *playerErrorResponseWriter) WriteString(data string) (int, error) {
+	w.capture([]byte(data))
+	return w.ResponseWriter.WriteString(data)
+}
+
+func (w *playerErrorResponseWriter) capture(data []byte) {
+	if !w.capturing || w.truncated || len(data) == 0 {
+		return
+	}
+	remaining := maxPlayerRequestJSONBytes - w.body.Len()
+	if len(data) > remaining {
+		w.truncated = true
+		return
+	}
+	_, _ = w.body.Write(data)
+}
+
+func (w *playerErrorResponseWriter) sanitizedBody() string {
+	if w.truncated {
+		return playerResponseBodyTruncated
+	}
+	return sanitizedPlayerPayload(w.body.Bytes(), playerResponseBodyTruncated)
 }
 
 // RequestLogger logs one structured line per request.
@@ -83,7 +133,8 @@ func RequestLogger(log *zap.Logger, recordPlayerRequest PlayerRequestRecorder) g
 				err := recordPlayerRequest(ctx, &model.PlayerRequestLog{
 					RequestedAt: start, Method: c.Request.Method, Route: c.FullPath(), Status: status,
 					DurationMS: duration.Milliseconds(), IP: c.ClientIP(), Body: c.GetString(playerAPIRequestBodyContextKey),
-					PathParams: sanitizedPlayerParams(c.Params), Headers: headers, Query: query,
+					ResponseBody: c.GetString(playerAPIResponseBodyContextKey),
+					PathParams:   sanitizedPlayerParams(c.Params), Headers: headers, Query: query,
 				})
 				cancel()
 				if err != nil {
@@ -96,8 +147,12 @@ func RequestLogger(log *zap.Logger, recordPlayerRequest PlayerRequestRecorder) g
 }
 
 func sanitizedPlayerBody(body []byte) string {
+	return sanitizedPlayerPayload(body, playerRequestBodyTruncated)
+}
+
+func sanitizedPlayerPayload(body []byte, truncatedMarker string) string {
 	if len(body) > maxPlayerRequestJSONBytes {
-		return playerRequestBodyTruncated
+		return truncatedMarker
 	}
 	if len(body) == 0 {
 		return ""
@@ -106,17 +161,28 @@ func sanitizedPlayerBody(body []byte) string {
 	decoder.UseNumber()
 	var value any
 	if decoder.Decode(&value) != nil {
-		return strings.ToValidUTF8(string(body), "�")
+		return sanitizedPlayerPlainText(body)
 	}
 	var extra any
 	if decoder.Decode(&extra) != io.EOF {
-		return strings.ToValidUTF8(string(body), "�")
+		return sanitizedPlayerPlainText(body)
 	}
 	encoded, _ := json.Marshal(sanitizedPlayerJSON(value))
 	if len(encoded) > maxPlayerRequestJSONBytes {
-		return playerRequestBodyTruncated
+		return truncatedMarker
 	}
 	return string(encoded)
+}
+
+func sanitizedPlayerPlainText(body []byte) string {
+	text := strings.ToValidUTF8(string(body), "�")
+	normalized := strings.NewReplacer("-", "", "_", "", " ", "", "\t", "").Replace(strings.ToLower(text))
+	for _, marker := range []string{"token", "authorization", "cookie", "password", "secret", "signature", "credential", "deviceid", "devicename", "apikey", "referer"} {
+		if strings.Contains(normalized, marker) {
+			return playerPlainTextRedacted
+		}
+	}
+	return text
 }
 
 func sanitizedPlayerJSON(value any) any {

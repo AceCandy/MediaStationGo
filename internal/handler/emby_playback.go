@@ -249,34 +249,28 @@ func embyAppendAPIKey(raw, token string) string {
 	return u.String()
 }
 
-// embyVideoStreamHandler 是 GET /Videos/{id}/stream 的入口，
-// 直接代理到我们的 /api/stream/{id}（同一个 ServeFile）。
+// embyVideoStreamHandler 是 GET /Videos/{id}/stream 的入口，路径 ID 为具体媒体 ID。
 func embyVideoStreamHandler(svc *service.Container) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		uid := embyUserID(c)
-		item, err := svc.Emby.Item(c.Request.Context(), c.Param("id"), uid)
+		m, err := svc.Media.GetRawMedia(c.Request.Context(), c.Param("id"))
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			writeInternalOrCanceled(c, err)
 			return
 		}
-		if item == nil {
+		if m == nil || !mediaVisibleForRequest(c, svc, m) {
 			c.Status(http.StatusNotFound)
 			return
 		}
-		mediaID, err := svc.Emby.PlayableMediaID(c.Request.Context(), c.Param("id"), uid)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		if !enforceScopedPlaybackToken(c, m.ID) {
 			return
 		}
-		if mediaID == "" {
-			c.Status(http.StatusNotFound)
-			return
-		}
-		err = svc.Stream.ServeFile(c.Writer, c.Request, mediaID)
+		err = svc.Stream.ServeMedia(c.Writer, c.Request, m)
 		switch {
 		case err == nil:
 		case errors.Is(err, service.ErrMediaNotFound):
 			c.Status(http.StatusNotFound)
+		case requestContextCanceled(c, err):
+			c.AbortWithStatus(statusClientClosedRequest)
 		default:
 			if !c.Writer.Written() {
 				c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})

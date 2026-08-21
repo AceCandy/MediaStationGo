@@ -1,0 +1,5 @@
+{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": ".trellis/spec/backend/index.md", "reason": "后端改动前置检查与玩家可见行为路由"}
+{"file": ".trellis/spec/backend/emby-api-catalog-sync.md", "reason": "Emby 流状态与目录同步契约"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "PostgreSQL 幂等迁移约束"}
+{"file": ".trellis/spec/backend/player-request-logging.md", "reason": "播放缓存与失败响应日志的最终契约"}

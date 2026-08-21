@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -62,6 +63,7 @@ func TestEmbyLowercaseVideoStreamRouteServesMedia(t *testing.T) {
 	registerEmbyRoutes(router, secret, &service.Container{
 		Repo:   repos,
 		Emby:   service.NewEmbyService(&config.Config{}, zap.NewNop(), repos),
+		Media:  service.NewMediaService(&config.Config{}, zap.NewNop(), repos),
 		Stream: service.NewStreamService(&config.Config{}, zap.NewNop(), repos),
 	})
 
@@ -121,6 +123,7 @@ func TestEmbyPrefixedAPIStreamRouteServesMedia(t *testing.T) {
 	registerEmbyRoutes(router, secret, &service.Container{
 		Repo:   repos,
 		Emby:   service.NewEmbyService(&config.Config{}, zap.NewNop(), repos),
+		Media:  service.NewMediaService(&config.Config{}, zap.NewNop(), repos),
 		Stream: service.NewStreamService(&config.Config{}, zap.NewNop(), repos),
 	})
 
@@ -180,6 +183,7 @@ func TestEmbyLowercaseOriginalHeadRouteServesHeaders(t *testing.T) {
 	registerEmbyRoutes(router, secret, &service.Container{
 		Repo:   repos,
 		Emby:   service.NewEmbyService(&config.Config{}, zap.NewNop(), repos),
+		Media:  service.NewMediaService(&config.Config{}, zap.NewNop(), repos),
 		Stream: service.NewStreamService(&config.Config{}, zap.NewNop(), repos),
 	})
 
@@ -192,5 +196,36 @@ func TestEmbyLowercaseOriginalHeadRouteServesHeaders(t *testing.T) {
 	}
 	if w.Body.Len() != 0 {
 		t.Fatalf("HEAD response should not include body, got %q", w.Body.String())
+	}
+}
+
+func TestEmbyVideoStreamCanceledRequestReturns499(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db, err := testdb.OpenPostgres(t, &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	if err := migrateMediaHandlerTestDB(db, model.AllModels()...); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	repos := repository.New(db)
+	svc := &service.Container{
+		Repo:   repos,
+		Emby:   service.NewEmbyService(&config.Config{}, zap.NewNop(), repos),
+		Media:  service.NewMediaService(&config.Config{}, zap.NewNop(), repos),
+		Stream: service.NewStreamService(&config.Config{}, zap.NewNop(), repos),
+	}
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	ctx, cancel := context.WithCancel(t.Context())
+	c.Request = httptest.NewRequest(http.MethodGet, "/Videos/media-1/stream.mp4", nil).WithContext(ctx)
+	c.Params = gin.Params{{Key: "id", Value: "media-1"}}
+	cancel()
+
+	embyVideoStreamHandler(svc)(c)
+
+	if w.Code != statusClientClosedRequest {
+		t.Fatalf("status = %d, want %d; body=%s", w.Code, statusClientClosedRequest, w.Body.String())
 	}
 }

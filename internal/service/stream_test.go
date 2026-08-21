@@ -22,6 +22,23 @@ import (
 
 const streamTestJWTSecret = "stream-test-secret"
 
+func TestServeMediaUsesLoadedRecord(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "loaded.mp4")
+	if err := os.WriteFile(path, []byte("loaded-media"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	svc := NewStreamService(&config.Config{}, zap.NewNop(), nil)
+	req := httptest.NewRequest(http.MethodGet, "/Videos/media-not-in-repository/stream", nil)
+	w := httptest.NewRecorder()
+
+	if err := svc.ServeMedia(w, req, &model.Media{Base: model.Base{ID: "media-not-in-repository"}, Path: path}); err != nil {
+		t.Fatal(err)
+	}
+	if w.Code != http.StatusOK || w.Body.String() != "loaded-media" {
+		t.Fatalf("status=%d body=%q", w.Code, w.Body.String())
+	}
+}
+
 func TestInternalStreamRedirectUsesMediaScopedToken(t *testing.T) {
 	cfg := &config.Config{Secrets: config.SecretsConfig{JWTSecret: streamTestJWTSecret}}
 	svc := NewStreamService(cfg, zap.NewNop(), nil)

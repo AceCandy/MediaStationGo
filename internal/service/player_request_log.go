@@ -11,17 +11,18 @@ import (
 )
 
 type PlayerRequestLogItem struct {
-	ID          string              `json:"id"`
-	RequestedAt time.Time           `json:"requested_at"`
-	Method      string              `json:"method"`
-	Route       string              `json:"route"`
-	Status      int                 `json:"status"`
-	DurationMS  int64               `json:"duration_ms"`
-	IP          string              `json:"ip"`
-	Body        string              `json:"body"`
-	PathParams  map[string][]string `json:"path_params"`
-	Headers     map[string][]string `json:"headers"`
-	Query       map[string][]string `json:"query"`
+	ID           string              `json:"id"`
+	RequestedAt  time.Time           `json:"requested_at"`
+	Method       string              `json:"method"`
+	Route        string              `json:"route"`
+	Status       int                 `json:"status"`
+	DurationMS   int64               `json:"duration_ms"`
+	IP           string              `json:"ip"`
+	Body         string              `json:"body"`
+	ResponseBody string              `json:"response_body"`
+	PathParams   map[string][]string `json:"path_params"`
+	Headers      map[string][]string `json:"headers"`
+	Query        map[string][]string `json:"query"`
 }
 
 type PlayerRequestLogPage struct {
@@ -92,7 +93,7 @@ func (s *PlayerRequestLogService) List(ctx context.Context, filter PlayerRequest
 	for i, row := range rows {
 		items[i] = PlayerRequestLogItem{
 			ID: row.ID, RequestedAt: row.RequestedAt, Method: row.Method, Route: row.Route,
-			Status: row.Status, DurationMS: row.DurationMS, IP: row.IP, Body: row.Body,
+			Status: row.Status, DurationMS: row.DurationMS, IP: row.IP, Body: row.Body, ResponseBody: row.ResponseBody,
 			PathParams: row.PathParams, Headers: row.Headers, Query: row.Query,
 		}
 	}

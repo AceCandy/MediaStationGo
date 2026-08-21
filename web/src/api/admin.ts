@@ -65,6 +65,7 @@ export interface PlayerRequestLog {
   duration_ms: number
   ip: string
   body: string
+  response_body: string
   path_params: Record<string, string[]>
   headers: Record<string, string[]>
   query: Record<string, string[]>

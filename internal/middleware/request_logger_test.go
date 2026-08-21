@@ -130,6 +130,55 @@ func TestRequestLoggerCapturesPlayerBodyWithoutChangingRequest(t *testing.T) {
 	}
 }
 
+func TestRequestLoggerCapturesOnlySanitizedPlayerErrorResponse(t *testing.T) {
+	tests := []struct {
+		name       string
+		status     int
+		body       string
+		storedBody string
+	}{
+		{
+			name:       "sanitized error",
+			status:     http.StatusInternalServerError,
+			body:       `{"error":"database unavailable","token":"response-secret"}`,
+			storedBody: `{"error":"database unavailable","token":"[redacted]"}`,
+		},
+		{name: "sanitized plain-text error", status: http.StatusBadRequest, body: "token=response-secret", storedBody: playerPlainTextRedacted},
+		{name: "successful response", status: http.StatusOK, body: `{"token":"response-secret"}`},
+		{name: "redirect response", status: http.StatusFound, body: "redirect body"},
+		{
+			name:       "oversized error",
+			status:     http.StatusBadGateway,
+			body:       strings.Repeat("x", maxPlayerRequestJSONBytes+1),
+			storedBody: playerResponseBodyTruncated,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gin.SetMode(gin.TestMode)
+			router := gin.New()
+			var row *model.PlayerRequestLog
+			router.Use(RequestLogger(zap.NewNop(), func(_ context.Context, recorded *model.PlayerRequestLog) error {
+				row = recorded
+				return nil
+			}))
+			group := router.Group("/emby", MarkPlayerAPIRequest())
+			group.GET("/error", func(c *gin.Context) {
+				c.Data(tt.status, "application/json", []byte(tt.body))
+			})
+
+			response := httptest.NewRecorder()
+			router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/emby/error", nil))
+			if response.Code != tt.status || response.Body.String() != tt.body {
+				t.Fatalf("response changed: status=%d body=%q", response.Code, response.Body.String())
+			}
+			if row == nil || row.ResponseBody != tt.storedBody {
+				t.Fatalf("stored response body = %q, want %q", row.ResponseBody, tt.storedBody)
+			}
+		})
+	}
+}
+
 func TestSensitivePlayerRequestField(t *testing.T) {
 	for _, name := range []string{
 		"token", "api_key", "apiKey", "ApiKey", "X-Api-Key",

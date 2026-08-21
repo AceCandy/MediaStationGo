@@ -6,6 +6,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -67,8 +69,8 @@ func TestPlaybackRedirectResolverCoalescesConcurrentRequests(t *testing.T) {
 	var workers sync.WaitGroup
 	resolve := func() {
 		defer workers.Done()
-		target, cacheHit, err := resolver.Resolve(t.Context(), "http://origin.example/d/Movie.mkv", "Player/1")
-		results <- result{target: target, cacheHit: cacheHit, err: err}
+		resolved, err := resolver.Resolve(t.Context(), "media-1", "http://origin.example/d/Movie.mkv", "Player/1", nil)
+		results <- result{target: resolved.target, cacheHit: resolved.cacheHit, err: err}
 	}
 	workers.Add(1)
 	go resolve()
@@ -95,6 +97,29 @@ func TestPlaybackRedirectResolverCoalescesConcurrentRequests(t *testing.T) {
 	}
 	if cacheHits != 1 {
 		t.Fatalf("concurrent cache hits = %d, want 1", cacheHits)
+	}
+}
+
+func TestPlaybackRedirectResolverOnlyUsesLocalFallbackFor500(t *testing.T) {
+	for _, status := range []int{http.StatusInternalServerError, http.StatusBadGateway} {
+		t.Run(http.StatusText(status), func(t *testing.T) {
+			resolver := newPlaybackRedirectResolver()
+			resolver.client.Transport = redirectResponseTransport(status, "")
+			fallbackCalls := 0
+			resolved, err := resolver.Resolve(t.Context(), "media-1", "http://origin.example/d/Movie.mkv", "Player/1", func() string {
+				fallbackCalls++
+				return "/media/Movie.mkv"
+			})
+			if status == http.StatusInternalServerError {
+				if err != nil || !resolved.local || resolved.target != "/media/Movie.mkv" || resolved.fallbackStatus != status || fallbackCalls != 1 {
+					t.Fatalf("500 result = %#v, err=%v, fallback calls=%d", resolved, err, fallbackCalls)
+				}
+				return
+			}
+			if err == nil || resolved.local || fallbackCalls != 0 {
+				t.Fatalf("502 result = %#v, err=%v, fallback calls=%d", resolved, err, fallbackCalls)
+			}
+		})
 	}
 }
 
@@ -230,12 +255,12 @@ func TestServeFileResolvesMappedURLBeforeRedirect(t *testing.T) {
 			t.Fatalf("%s status/location = %d/%q", item.id, w.Code, w.Header().Get("Location"))
 		}
 	}
-	if got := calls.Load(); got != 1 {
-		t.Fatalf("post-mapping URL cache calls = %d, want 1", got)
+	if got := calls.Load(); got != 2 {
+		t.Fatalf("per-media cache calls = %d, want 2", got)
 	}
 	redirects := observed.FilterMessage("media playback redirect").All()
 	if len(redirects) != 2 || redirects[0].ContextMap()["resolve_source"] != "path_mapping" ||
-		redirects[1].ContextMap()["redirect_resolve_source"] != "cache" {
+		redirects[1].ContextMap()["redirect_resolve_source"] != "upstream" {
 		t.Fatalf("mapped redirect logs = %#v", redirects)
 	}
 	assertRedirectLogsHideValues(t, observed, "direct-secret")
@@ -250,6 +275,10 @@ func TestServeFileFallsBackWhenRedirectResolutionFails(t *testing.T) {
 		{
 			name:      "non redirect",
 			transport: redirectResponseTransport(http.StatusOK, ""),
+		},
+		{
+			name:      "server error with missing mapped file",
+			transport: redirectResponseTransport(http.StatusInternalServerError, ""),
 		},
 		{
 			name:      "missing location",
@@ -281,6 +310,10 @@ func TestServeFileFallsBackWhenRedirectResolutionFails(t *testing.T) {
 			source := "http://origin.example.test/d/Movie.mkv?access=source-secret"
 			if err := repos.Setting.Set(t.Context(), PlaybackRedirectResolvePrefixesSettingKey,
 				"http://origin.example.test/d"); err != nil {
+				t.Fatal(err)
+			}
+			if err := repos.Setting.Set(t.Context(), FFprobePathMappingsSettingKey,
+				"http://origin.example.test/d/ => "+t.TempDir()); err != nil {
 				t.Fatal(err)
 			}
 			if err := repos.DB.Create(&model.Media{
@@ -317,6 +350,104 @@ func TestServeFileFallsBackWhenRedirectResolutionFails(t *testing.T) {
 			}
 			assertRedirectLogsHideValues(t, observed, "source-secret", "location-secret", "transport-secret")
 		})
+	}
+}
+
+func TestServeFileCachesMappedLocalFallbackAfterUpstream500(t *testing.T) {
+	root := t.TempDir()
+	localPath := filepath.Join(root, "Movie.mkv")
+	content := strings.Repeat("v", 256)
+	if err := os.WriteFile(localPath, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	repos := newStreamTestRepo(t)
+	source := "http://origin.example.test/d/Movie.mkv"
+	if err := repos.Setting.Set(t.Context(), PlaybackRedirectResolvePrefixesSettingKey, "http://origin.example.test/d"); err != nil {
+		t.Fatal(err)
+	}
+	if err := repos.Setting.Set(t.Context(), FFprobePathMappingsSettingKey, "http://origin.example.test/d/ => "+root); err != nil {
+		t.Fatal(err)
+	}
+	if err := repos.DB.Create(&model.Media{
+		Base: model.Base{ID: "mapped-500"}, Path: "/media/Movie.strm", Container: "strm", STRMURL: source,
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	var calls atomic.Int32
+	core, observed := observer.New(zap.InfoLevel)
+	svc := NewStreamService(&config.Config{}, zap.New(core), repos)
+	svc.redirectResolver.client.Transport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		calls.Add(1)
+		return redirectResponseTransport(http.StatusInternalServerError, "")(req)
+	})
+	now := time.Date(2026, time.August, 10, 0, 0, 0, 0, time.UTC)
+	svc.redirectResolver.now = func() time.Time { return now }
+
+	for i := 0; i < 2; i++ {
+		w := servePlaybackRedirectRequest(t, svc, "mapped-500", http.MethodGet, "Yamby/1")
+		if w.Code != http.StatusPartialContent || w.Body.String() != content[123:] || w.Header().Get("Location") != "" {
+			t.Fatalf("request %d status/body/location = %d/%q/%q", i+1, w.Code, w.Body.String(), w.Header().Get("Location"))
+		}
+	}
+	if got := calls.Load(); got != 1 {
+		t.Fatalf("cached local fallback upstream calls = %d, want 1", got)
+	}
+	now = now.Add(time.Hour + time.Second)
+	servePlaybackRedirectRequest(t, svc, "mapped-500", http.MethodGet, "Yamby/1")
+	if got := calls.Load(); got != 2 {
+		t.Fatalf("expired local fallback upstream calls = %d, want 2", got)
+	}
+	if got := observed.FilterMessage("media playback redirect resolve fell back to local file").Len(); got != 2 {
+		t.Fatalf("local fallback warnings = %d, want 2", got)
+	}
+}
+
+func TestServeFileUsesLocalFallbackAfterPlaybackPathMapping500(t *testing.T) {
+	root := t.TempDir()
+	localPath := filepath.Join(root, "archive", "Movie.mkv")
+	if err := os.MkdirAll(filepath.Dir(localPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	content := strings.Repeat("m", 256)
+	if err := os.WriteFile(localPath, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	repos := newStreamTestRepo(t)
+	if err := repos.Setting.Set(t.Context(), PlaybackPathMappingsSettingKey,
+		"/virtual/media/ => http://origin.example.test/d/"); err != nil {
+		t.Fatal(err)
+	}
+	if err := repos.Setting.Set(t.Context(), PlaybackRedirectResolvePrefixesSettingKey,
+		"http://origin.example.test/d"); err != nil {
+		t.Fatal(err)
+	}
+	if err := repos.Setting.Set(t.Context(), FFprobePathMappingsSettingKey,
+		"http://origin.example.test/d/ => "+root); err != nil {
+		t.Fatal(err)
+	}
+	if err := repos.DB.Create(&model.Media{
+		Base: model.Base{ID: "path-mapped-500"}, Path: "/virtual/media/archive/Movie.mkv",
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	var calls atomic.Int32
+	svc := NewStreamService(&config.Config{}, zap.NewNop(), repos)
+	svc.redirectResolver.client.Transport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		calls.Add(1)
+		return redirectResponseTransport(http.StatusInternalServerError, "")(req)
+	})
+	for i := 0; i < 2; i++ {
+		w := servePlaybackRedirectRequest(t, svc, "path-mapped-500", http.MethodGet, "Yamby/1")
+		if w.Code != http.StatusPartialContent || w.Body.String() != content[123:] || w.Header().Get("Location") != "" {
+			t.Fatalf("request %d status/body/location = %d/%q/%q", i+1, w.Code, w.Body.String(), w.Header().Get("Location"))
+		}
+	}
+	if got := calls.Load(); got != 1 {
+		t.Fatalf("cached mapped-path fallback upstream calls = %d, want 1", got)
 	}
 }
 
