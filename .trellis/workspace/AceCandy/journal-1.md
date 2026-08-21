@@ -928,3 +928,24 @@ Committed the existing web UI redesign together with detailed background task lo
 ### Status
 
 [OK] **Completed**
+
+
+## Session 44: 完善人物翻译日志与定时调度
+
+**Date**: 2026-08-21
+**Task**: 完善人物翻译日志与定时调度
+**Branch**: `main`
+
+### Summary
+
+人物翻译日志补充所属电影或电视剧；移除事件唤醒，仅保留定时执行；单次限制为1000个去重翻译项并补充回归测试与规范。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `26cfb2e` | (see git log) |
+
+### Status
+
+[OK] **Completed**
