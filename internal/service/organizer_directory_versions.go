@@ -217,12 +217,14 @@ func (o *OrganizerService) resolutionArea(ctx context.Context, path string) int 
 	// is normally scanned with ffprobe, so its files have accurate Width/Height
 	// even after organize stripped the resolution token from the filename.
 	if o.repo != nil && o.repo.DB != nil {
-		var m model.Media
+		var dimensions struct{ Width, Height int }
 		if err := o.repo.DB.WithContext(ctx).
-			Select("width", "height").
-			Where("path = ?", path).
-			Limit(1).Take(&m).Error; err == nil && m.Width > 0 && m.Height > 0 {
-			return m.Width * m.Height
+			Table("media AS m").
+			Joins("JOIN media_probe_metadata AS pm ON pm.media_id = m.id").
+			Select("pm.width", "pm.height").
+			Where("m.path = ?", path).
+			Limit(1).Take(&dimensions).Error; err == nil && dimensions.Width > 0 && dimensions.Height > 0 {
+			return dimensions.Width * dimensions.Height
 		}
 	}
 	if o.probe != nil {

@@ -14,7 +14,6 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/ShukeBta/MediaStationGo/internal/middleware"
-	"github.com/ShukeBta/MediaStationGo/internal/model"
 	"github.com/ShukeBta/MediaStationGo/internal/service"
 )
 
@@ -22,16 +21,44 @@ import (
 // player can hit. Mirrors the Python project's surface.
 func playbackInfoHandler(svc *service.Container) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		m, err := svc.Repo.Media.FindByID(c.Request.Context(), c.Param("id"))
-		if err != nil || m == nil || !mediaVisibleForRequest(c, svc, m) {
+		mediaID := c.Param("id")
+		view, err := svc.Repo.MediaView.FindByID(c.Request.Context(), mediaID)
+		if err != nil {
 			c.JSON(http.StatusNotFound, gin.H{"error": "media not found"})
 			return
 		}
-		token := externalPlaybackToken(c, svc, m.ID, m.DurationSec)
+		var media any
+		durationSec := 0
+		if view != nil {
+			if !mediaViewVisibleForRequest(c, svc, view) {
+				c.JSON(http.StatusNotFound, gin.H{"error": "media not found"})
+				return
+			}
+			media = view
+			durationSec = view.DurationSec
+		} else {
+			raw, err := svc.Repo.Media.FindByID(c.Request.Context(), mediaID)
+			if err != nil || raw == nil || !mediaVisibleForRequest(c, svc, raw) {
+				c.JSON(http.StatusNotFound, gin.H{"error": "media not found"})
+				return
+			}
+			raw.DurationSec, raw.SizeBytes, raw.Width, raw.Height = 0, 0, 0, 0
+			raw.Container, raw.VideoCodec, raw.AudioCodec = "", "", ""
+			if probe, _ := svc.Repo.MediaProbe.FindByMediaID(c.Request.Context(), mediaID); probe != nil {
+				raw.DurationSec = int(probe.DurationMS / 1000)
+				raw.SizeBytes = probe.SizeBytes
+				raw.Container = probe.Container
+				raw.Width, raw.Height = probe.Width, probe.Height
+				raw.VideoCodec, raw.AudioCodec = probe.VideoCodec, probe.AudioCodec
+			}
+			media = raw
+			durationSec = raw.DurationSec
+		}
+		token := externalPlaybackToken(c, svc, mediaID, durationSec)
 		profileQuery := externalProfileQuery(c)
 		c.JSON(http.StatusOK, gin.H{
-			"media":      m,
-			"stream_url": "/api/stream/" + m.ID + "?token=" + url.QueryEscape(token) + profileQuery,
+			"media":      media,
+			"stream_url": "/api/stream/" + mediaID + "?token=" + url.QueryEscape(token) + profileQuery,
 		})
 	}
 }
@@ -72,7 +99,7 @@ func externalPlayersHandler(svc *service.Container) gin.HandlerFunc {
 			c.JSON(http.StatusNotFound, gin.H{"error": "media not found"})
 			return
 		}
-		token := externalPlaybackToken(c, svc, m.ID, m.DurationSec)
+		token := externalPlaybackToken(c, svc, m.ID, playbackProbeDurationSec(c, svc, m.ID))
 		streamURL := externalPlaybackURL(c, svc, "/api/stream/"+m.ID+"?token="+url.QueryEscape(token)+externalProfileQuery(c))
 		escapedStream := url.QueryEscape(streamURL)
 		c.JSON(http.StatusOK, gin.H{
@@ -97,11 +124,22 @@ func externalURLHandler(svc *service.Container) gin.HandlerFunc {
 			c.JSON(http.StatusNotFound, gin.H{"error": "media not found"})
 			return
 		}
-		token := externalPlaybackToken(c, svc, m.ID, m.DurationSec)
+		token := externalPlaybackToken(c, svc, m.ID, playbackProbeDurationSec(c, svc, m.ID))
 		c.JSON(http.StatusOK, gin.H{
 			"url": externalPlaybackURL(c, svc, "/api/stream/"+m.ID+"?token="+url.QueryEscape(token)+externalProfileQuery(c)),
 		})
 	}
+}
+
+func playbackProbeDurationSec(c *gin.Context, svc *service.Container, mediaID string) int {
+	if c == nil || svc == nil || svc.Repo == nil || svc.Repo.MediaProbe == nil {
+		return 0
+	}
+	probe, _ := svc.Repo.MediaProbe.FindByMediaID(c.Request.Context(), mediaID)
+	if probe == nil {
+		return 0
+	}
+	return int(probe.DurationMS / 1000)
 }
 
 func externalProfileQuery(c *gin.Context) string {
@@ -230,7 +268,3 @@ func setRedirectNoStoreHeaders(c *gin.Context) {
 	c.Header("Pragma", "no-cache")
 	c.Header("Expires", "0")
 }
-
-// _ keeps imports tidy when the model package isn't otherwise used.
-var _ = model.Media{}
-var _ = service.Container{}

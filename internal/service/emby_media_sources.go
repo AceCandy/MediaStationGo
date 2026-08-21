@@ -13,17 +13,6 @@ import (
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 )
 
-func (e *EmbyService) mediaSourcesForItem(ctx context.Context, m *model.Media, asEmbedded bool) []map[string]any {
-	if m == nil {
-		return nil
-	}
-	view, err := e.repo.MediaView.FindByID(ctx, m.ID)
-	if err != nil || view == nil {
-		return []map[string]any{e.mediaSource(ctx, m, embyMediaVersionName(m, m.Title), asEmbedded)}
-	}
-	return e.mediaSourcesForView(ctx, view, "", asEmbedded, true)
-}
-
 func (e *EmbyService) mediaSourcesForView(ctx context.Context, m *model.MediaView, userID string, asEmbedded, completeStreams bool) []map[string]any {
 	siblings := e.mediaVersionSiblings(ctx, m, userID)
 	if len(siblings) == 0 {

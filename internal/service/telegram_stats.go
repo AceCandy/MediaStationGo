@@ -21,7 +21,7 @@ func (s *TelegramBotService) cmdStatus(ctx context.Context) (telegramCommandRepl
 	s.mediaStatsQuery(libraryIDs).Count(&mediaCount)
 
 	var totalSize int64
-	if err := s.mediaStatsQuery(libraryIDs).Select("COALESCE(SUM(size_bytes), 0)").Row().Scan(&totalSize); err != nil {
+	if err := s.mediaStatsQuery(libraryIDs).Select("COALESCE(SUM(pm.size_bytes), 0)").Row().Scan(&totalSize); err != nil {
 		return telegramCommandReply{}, err
 	}
 	totalSizeGB := float64(totalSize) / 1024 / 1024 / 1024
@@ -82,7 +82,7 @@ func (s *TelegramBotService) cmdStats(ctx context.Context) (telegramCommandReply
 	s.mediaStatsQuery(libraryIDs).Count(&totalMedia)
 
 	var totalSize int64
-	if err := s.mediaStatsQuery(libraryIDs).Select("COALESCE(SUM(size_bytes), 0)").Row().Scan(&totalSize); err != nil {
+	if err := s.mediaStatsQuery(libraryIDs).Select("COALESCE(SUM(pm.size_bytes), 0)").Row().Scan(&totalSize); err != nil {
 		return telegramCommandReply{}, err
 	}
 
@@ -154,11 +154,11 @@ func (s *TelegramBotService) activeTelegramStatsLibraryIDs(ctx context.Context) 
 }
 
 func (s *TelegramBotService) mediaStatsQuery(libraryIDs []string) *gorm.DB {
-	q := s.repo.DB.Model(&model.Media{})
+	q := s.repo.DB.Model(&model.Media{}).Joins("LEFT JOIN media_probe_metadata AS pm ON pm.media_id = media.id")
 	if len(libraryIDs) == 0 {
 		return q.Where("1 = 0")
 	}
-	return q.Where("library_id IN ?", libraryIDs)
+	return q.Where("media.library_id IN ?", libraryIDs)
 }
 
 // formatSize 格式化字节数为可读字符串。

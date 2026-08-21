@@ -250,7 +250,7 @@ func (s *STRMService) generateOne(ctx context.Context, lib model.Library, media 
 	filePath := filepath.Join(outputDir, rel)
 	item.FilePath = filePath
 	item.URL = playURL
-	if opts.SkipSTRMSource && (strings.EqualFold(strings.TrimSpace(media.Container), "strm") || strings.EqualFold(filepath.Ext(media.Path), ".strm")) {
+	if opts.SkipSTRMSource && strings.EqualFold(filepath.Ext(media.Path), ".strm") {
 		item.FilePath = filepath.Clean(media.Path)
 		item.Action = "skipped"
 		item.Reason = "source already strm"

@@ -56,9 +56,11 @@ func mediaStatsHandler(svc *service.Container) gin.HandlerFunc {
 		var totalCount, totalSize, totalSeconds int64
 		_ = svc.Repo.DB.Model(&model.Media{}).Count(&totalCount).Error
 		_ = svc.Repo.DB.Model(&model.Media{}).
-			Select("COALESCE(SUM(size_bytes),0)").Row().Scan(&totalSize)
+			Joins("LEFT JOIN media_probe_metadata AS pm ON pm.media_id = media.id").
+			Select("COALESCE(SUM(pm.size_bytes),0)").Row().Scan(&totalSize)
 		_ = svc.Repo.DB.Model(&model.Media{}).
-			Select("COALESCE(SUM(duration_sec),0)").Row().Scan(&totalSeconds)
+			Joins("LEFT JOIN media_probe_metadata AS pm ON pm.media_id = media.id").
+			Select("COALESCE(SUM(pm.duration_ms),0) / 1000").Row().Scan(&totalSeconds)
 
 		c.JSON(http.StatusOK, gin.H{
 			"by_type":       totals,

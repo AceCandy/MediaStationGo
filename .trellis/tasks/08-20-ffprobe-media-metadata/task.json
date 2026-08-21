@@ -3,7 +3,7 @@
   "name": "ffprobe-media-metadata",
   "title": "统一 ffprobe 技术元数据与播放信息",
   "description": "",
-  "status": "planning",
+  "status": "in_progress",
   "dev_type": null,
   "scope": null,
   "package": null,

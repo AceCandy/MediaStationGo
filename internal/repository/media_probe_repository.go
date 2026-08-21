@@ -44,7 +44,10 @@ func (r *MediaProbeRepository) ListByMediaIDs(ctx context.Context, mediaIDs []st
 
 func (r *MediaProbeRepository) Upsert(ctx context.Context, row *model.MediaProbeMetadata) error {
 	return r.db.WithContext(ctx).Clauses(clause.OnConflict{
-		Columns:   []clause.Column{{Name: "media_id"}},
-		DoUpdates: clause.AssignmentColumns([]string{"probe_json", "schema_version", "probed_at"}),
+		Columns: []clause.Column{{Name: "media_id"}},
+		DoUpdates: clause.AssignmentColumns([]string{
+			"probe_json", "schema_version", "summary_version", "duration_ms", "size_bytes",
+			"container", "bit_rate", "width", "height", "video_codec", "audio_codec", "probed_at",
+		}),
 	}).Create(row).Error
 }

@@ -185,16 +185,13 @@ func (s *ScannerService) buildLocalScanMedia(in localScanMediaInput) *model.Medi
 		Title:             title,
 		Year:              year,
 		Path:              in.path,
-		SizeBytes:         in.size,
 		ScanFileSizeBytes: in.size,
 		ScanFileMTimeNS:   in.modTimeNS,
-		Container:         strings.TrimPrefix(in.ext, "."),
 		FileID:            in.fileID,
 		SeasonNum:         in.parsedSeason,
 		EpisodeNum:        in.parsedEpisode,
 	}
 	if in.ext == ".strm" {
-		media.Container = "strm"
 		if targetURL, err := readLocalSTRMTarget(in.path); err == nil && targetURL != "" {
 			media.STRMURL = targetURL
 		} else if err != nil {

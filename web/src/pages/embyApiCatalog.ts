@@ -105,7 +105,7 @@ const playStateParameters: readonly EmbyApiParameter[] = [
   { name: 'MediaSourceId', location: 'body', type: 'string', description: 'PlaybackInfo 返回的媒体源 ID。' },
   { name: 'PlaySessionId', location: 'body', type: 'string', description: 'PlaybackInfo 返回的播放会话 ID；同一次播放必须复用。' },
   { name: 'PositionTicks', location: 'body', type: 'number', description: '当前播放位置。' },
-  { name: 'RunTimeTicks', location: 'body', type: 'number', description: '媒体总时长。' },
+  { name: 'RunTimeTicks', location: 'body', type: 'number', description: '媒体总时长；可省略，服务端会读取 ffprobe 时长，仍未知时接受请求但不记录进度。' },
 ]
 
 const playStateRequest = `{

@@ -372,18 +372,13 @@ func TestMediaUpsertScanDoesNotClearMatchedMetadata(t *testing.T) {
 		t.Fatal(err)
 	}
 	scan := model.Media{
-		LibraryID:   lib.ID,
-		Title:       "Spy.x.Family.S01E01.2022.1080p.WEB-DL",
-		Path:        path,
-		SizeBytes:   2048,
-		DurationSec: 1500,
-		Width:       1920,
-		Height:      1080,
-		VideoCodec:  "h264",
-		AudioCodec:  "aac",
-		Container:   "mkv",
-		SeasonNum:   1,
-		EpisodeNum:  1,
+		LibraryID:         lib.ID,
+		Title:             "Spy.x.Family.S01E01.2022.1080p.WEB-DL",
+		Path:              path,
+		ScanFileSizeBytes: 2048,
+		ScanFileMTimeNS:   1500,
+		SeasonNum:         1,
+		EpisodeNum:        1,
 	}
 	if err := repos.Media.Upsert(t.Context(), &scan); err != nil {
 		t.Fatal(err)
@@ -396,8 +391,8 @@ func TestMediaUpsertScanDoesNotClearMatchedMetadata(t *testing.T) {
 	if got.MetadataID != episode.ID || got.ScrapeStatus != "matched" {
 		t.Fatalf("matched metadata link/status were overwritten by scan: %#v", got)
 	}
-	if got.SizeBytes != 2048 || got.DurationSec != 1500 || got.Width != 1920 || got.Height != 1080 || got.Container != "mkv" {
-		t.Fatalf("file scan fields were not refreshed: %#v", got)
+	if got.ScanFileSizeBytes != 2048 || got.ScanFileMTimeNS != 1500 {
+		t.Fatalf("file scan fingerprint was not refreshed: %#v", got)
 	}
 	view, err := repos.MediaView.FindByID(t.Context(), got.ID)
 	if err != nil {

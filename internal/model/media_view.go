@@ -34,6 +34,14 @@ type MediaView struct {
 	BackdropAssetID   string `gorm:"column:view_backdrop_asset_id" json:"-"`
 	TMDbExternalID    string `gorm:"column:view_tmdb_external_id" json:"-"`
 	BangumiExternalID string `gorm:"column:view_bangumi_external_id" json:"-"`
+
+	ProbeDurationMS int64  `gorm:"column:view_probe_duration_ms" json:"-"`
+	ProbeSizeBytes  int64  `gorm:"column:view_probe_size_bytes" json:"-"`
+	ProbeContainer  string `gorm:"column:view_probe_container" json:"-"`
+	ProbeWidth      int    `gorm:"column:view_probe_width" json:"-"`
+	ProbeHeight     int    `gorm:"column:view_probe_height" json:"-"`
+	ProbeVideoCodec string `gorm:"column:view_probe_video_codec" json:"-"`
+	ProbeAudioCodec string `gorm:"column:view_probe_audio_codec" json:"-"`
 }
 
 func (v *MediaView) Normalize() {
@@ -44,6 +52,13 @@ func (v *MediaView) Normalize() {
 	v.BackdropURL = artworkViewURL(v.BackdropAssetID)
 	v.TMDbID, _ = strconv.Atoi(v.TMDbExternalID)
 	v.BangumiID, _ = strconv.Atoi(v.BangumiExternalID)
+	v.DurationSec = int(v.ProbeDurationMS / 1000)
+	v.SizeBytes = v.ProbeSizeBytes
+	v.Container = v.ProbeContainer
+	v.Width = v.ProbeWidth
+	v.Height = v.ProbeHeight
+	v.VideoCodec = v.ProbeVideoCodec
+	v.AudioCodec = v.ProbeAudioCodec
 }
 
 func artworkViewURL(assetID string) string {

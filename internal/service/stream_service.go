@@ -51,23 +51,10 @@ var ErrMediaNotFound = errors.New("media not found")
 
 // Probe re-runs ffprobe against an existing media row and refreshes the
 // extracted metadata. Used by the admin UI's "rescan" button.
-func (s *StreamService) Probe(ctx context.Context, mediaID string, probe localMediaProber) error {
-	if s.mediaProbe != nil {
-		_, err := s.mediaProbe.ProbeMedia(ctx, mediaID)
-		return err
+func (s *StreamService) Probe(ctx context.Context, mediaID string, _ localMediaProber) error {
+	if s.mediaProbe == nil {
+		return errors.New("media probe unavailable")
 	}
-	m, err := s.repo.Media.FindByID(ctx, mediaID)
-	if err != nil || m == nil {
-		return ErrMediaNotFound
-	}
-	probePath := m.Path
-	if target := localSTRMFileTarget(m); target != "" {
-		probePath = target
-	}
-	res, err := probe.Probe(ctx, probePath)
-	if err != nil {
-		return err
-	}
-	updates := localProbeResultUpdates(res, probePath)
-	return s.repo.DB.Model(m).Updates(updates).Error
+	_, err := s.mediaProbe.ProbeMedia(ctx, mediaID)
+	return err
 }

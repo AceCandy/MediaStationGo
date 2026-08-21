@@ -4,7 +4,8 @@
 
 将媒体技术信息统一由 ffprobe 探测结果负责，消除 `media` 主表与
 `media_probe_metadata` 内容分裂导致的播放时长为 0、PlaybackInfo 信息不一致和
-播放器进度接口 400。主表最终只保留媒体身份、扫描和关联信息。
+播放器进度接口 400。项目尚未上线，本任务直接删除旧技术列，使主表只保留媒体身份、
+扫描和关联信息，不保留双写或回滚影子。
 
 ## Background
 
@@ -23,14 +24,14 @@
 - 时长、目标媒体大小、真实容器、宽高、视频编码、音频编码和码率迁入
   `media_probe_metadata` 的类型化字段；完整 `probe_json` 继续保留轨道、章节和
   未单独投影的 ffprobe 信息。
-- `media` 主表不再保存上述重复技术字段；扫描文件自身的大小、mtime、指纹和
-  STRM 地址仍属于主表扫描信息。
+- 删除 `media` 主表的上述重复技术列；扫描文件自身的大小、mtime、指纹和 STRM 地址仍
+  属于主表扫描信息。扁平 API 字段仅作为 probe 查询投影，不映射回主表列。
 - PlaybackInfo、Emby Item 详情、播放进度校验、统计、存储分析、洗版比较和前端
   媒体展示切换到新的技术元数据来源。
 - PlaybackInfo 的时长继续放在标准位置 `MediaSources[].RunTimeTicks`；不增加非标准
   顶层 `RunTimeTicks`。direct-only 行为保持不变，不新增转码字段。
-- 从已有有效 `probe_json` 回填类型化技术摘要，优先以 ffprobe 文档为准；迁移过程
-  必须可回滚，且不能破坏尚未探测媒体的列表和播放错误处理。
+- 从已有有效 `probe_json` 回填类型化技术摘要，优先以 ffprobe 文档为准；迁移不能破坏
+  尚未探测媒体的列表和播放错误处理。
 - 没有有效 ffprobe 文档且重新探测失败的媒体，技术信息按未知处理；不得把 TMDB、
   scanner 或旧主表值写入 probe 表伪装成 ffprobe 结果。
 - 时长未知时，播放器进度接口不得因 `duration must be positive` 返回 400；可安全忽略
@@ -46,7 +47,8 @@
       ffprobe 时长完成记录，不再因 `duration must be positive` 返回 400。
 - [ ] 媒体技术摘要与完整 ffprobe 文档存储在 `media_probe_metadata`，新探测只通过
       ffprobe 持久化流程写入这些字段。
-- [ ] `media` 主表的重复技术字段完成兼容迁移并删除，扫描字段语义不变。
+- [ ] 所有运行时读写已切换到 `media_probe_metadata`；旧主表技术列已删除且不会被
+      AutoMigrate 重建，扫描字段语义不变。
 - [ ] 统计、存储分析、洗版比较、Emby API 和前端展示在迁移后保持现有可观察行为；
       未探测媒体以未知值安全返回，不伪造时长或轨道。
 - [ ] 无有效 probe 文档且重新探测失败的媒体不继承旧主表技术值；PlaybackInfo 返回
@@ -58,15 +60,3 @@
 - 新增转码能力或 `TranscodingUrl`。
 - 为缺少 ffprobe 结果的媒体伪造时长。
 - 重构与技术元数据迁移无关的扫描、刮削、播放器日志或前端页面。
-
-## Open Questions
-
-- 物理删列采用两阶段发布，还是在本次版本一次完成？项目只有启动时向前迁移，没有自动
-  schema rollback；一次删列后旧程序不能直接回滚。
-
-
-## Notes
-
-- Keep `prd.md` focused on requirements, constraints, and acceptance criteria.
-- Lightweight tasks can remain PRD-only.
-- For complex tasks, add `design.md` for technical design and `implement.md` for execution planning before `task.py start`.

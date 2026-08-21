@@ -40,8 +40,8 @@ func (d *DuplicateService) markDuplicateGroup(ctx context.Context, rep *Report, 
 	}
 	rep.Groups = append(rep.Groups, Group{
 		Hash:       key,
-		Primary:    primary,
-		Duplicates: dupes,
+		Primary:    newDuplicateMedia(primary),
+		Duplicates: newDuplicateMediaRows(dupes),
 	})
 }
 

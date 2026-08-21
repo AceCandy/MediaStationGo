@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	testdb "github.com/ShukeBta/MediaStationGo/internal/testdb"
 	"github.com/gin-gonic/gin"
@@ -22,7 +23,7 @@ func TestStatsSnapshotHidesAdultRecentlyAddedForUser(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := migrateMediaHandlerTestDB(db, &model.User{}, &model.Library{}, &model.Media{}, &model.Setting{}, &model.PlayProfile{}); err != nil {
+	if err := migrateMediaHandlerTestDB(db, &model.User{}, &model.Library{}, &model.Media{}, &model.MediaProbeMetadata{}, &model.Setting{}, &model.PlayProfile{}); err != nil {
 		t.Fatal(err)
 	}
 	repos := repository.New(db)
@@ -41,10 +42,18 @@ func TestStatsSnapshotHidesAdultRecentlyAddedForUser(t *testing.T) {
 	if err := repos.Setting.Set(t.Context(), service.AdultLibraryIDsSettingKey, `["`+adult.ID+`"]`); err != nil {
 		t.Fatal(err)
 	}
-	if err := db.Create(&model.Media{LibraryID: safe.ID, Title: "普通电影", Path: "/media/movie/a.mkv", SizeBytes: 100, DurationSec: 10}).Error; err != nil {
+	safeMedia := model.Media{LibraryID: safe.ID, Title: "普通电影", Path: "/media/movie/a.mkv"}
+	adultMedia := model.Media{LibraryID: adult.ID, Title: "成人影片", Path: "/media/9KG/a.mkv"}
+	if err := db.Create(&safeMedia).Error; err != nil {
 		t.Fatal(err)
 	}
-	if err := db.Create(&model.Media{LibraryID: adult.ID, Title: "成人影片", Path: "/media/9KG/a.mkv", SizeBytes: 200, DurationSec: 20}).Error; err != nil {
+	if err := db.Create(&adultMedia).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&[]model.MediaProbeMetadata{
+		{MediaID: safeMedia.ID, ProbeJSON: "{}", SchemaVersion: 1, SummaryVersion: 1, SizeBytes: 100, DurationMS: 10_000, ProbedAt: time.Now()},
+		{MediaID: adultMedia.ID, ProbeJSON: "{}", SchemaVersion: 1, SummaryVersion: 1, SizeBytes: 200, DurationMS: 20_000, ProbedAt: time.Now()},
+	}).Error; err != nil {
 		t.Fatal(err)
 	}
 	svc := &service.Container{Repo: repos}
@@ -71,7 +80,7 @@ func TestStatsLibrariesCountsEachLocalLibrary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := migrateMediaHandlerTestDB(db, &model.User{}, &model.Library{}, &model.Media{}, &model.Setting{}, &model.PlayProfile{}); err != nil {
+	if err := migrateMediaHandlerTestDB(db, &model.User{}, &model.Library{}, &model.Media{}, &model.MediaProbeMetadata{}, &model.Setting{}, &model.PlayProfile{}); err != nil {
 		t.Fatal(err)
 	}
 	repos := repository.New(db)
@@ -82,9 +91,16 @@ func TestStatsLibrariesCountsEachLocalLibrary(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := db.Create(&[]model.Media{
-		{LibraryID: primary.ID, Title: "电影一", Path: "/media/国产电影/one.mkv", SizeBytes: 100},
-		{LibraryID: secondary.ID, Title: "电影二", Path: "/media/国产电影-2/two.mkv", SizeBytes: 200},
+	mediaRows := []model.Media{
+		{LibraryID: primary.ID, Title: "电影一", Path: "/media/国产电影/one.mkv"},
+		{LibraryID: secondary.ID, Title: "电影二", Path: "/media/国产电影-2/two.mkv"},
+	}
+	if err := db.Create(&mediaRows).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&[]model.MediaProbeMetadata{
+		{MediaID: mediaRows[0].ID, ProbeJSON: "{}", SchemaVersion: 1, SummaryVersion: 1, SizeBytes: 100, ProbedAt: time.Now()},
+		{MediaID: mediaRows[1].ID, ProbeJSON: "{}", SchemaVersion: 1, SummaryVersion: 1, SizeBytes: 200, ProbedAt: time.Now()},
 	}).Error; err != nil {
 		t.Fatal(err)
 	}

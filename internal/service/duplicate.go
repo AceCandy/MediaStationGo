@@ -31,6 +31,15 @@ type DuplicateService struct {
 	hub  *Hub
 }
 
+// DuplicateMedia 是重复文件页面所需的最小媒体投影。
+type DuplicateMedia struct {
+	ID          string `json:"id"`
+	Title       string `json:"title"`
+	Path        string `json:"path"`
+	SizeBytes   int64  `json:"size_bytes"`
+	LibraryName string `json:"library_name,omitempty"`
+}
+
 // NewDuplicateService is the constructor.
 func NewDuplicateService(log *zap.Logger, repo *repository.Container, hub *Hub) *DuplicateService {
 	return &DuplicateService{log: log, repo: repo, hub: hub}
@@ -38,9 +47,9 @@ func NewDuplicateService(log *zap.Logger, repo *repository.Container, hub *Hub) 
 
 // Group describes one set of duplicates returned by Detect.
 type Group struct {
-	Hash       string        `json:"hash"`
-	Primary    model.Media   `json:"primary"`
-	Duplicates []model.Media `json:"duplicates"`
+	Hash       string           `json:"hash"`
+	Primary    DuplicateMedia   `json:"primary"`
+	Duplicates []DuplicateMedia `json:"duplicates"`
 }
 
 // Report is the summary the React UI displays.
@@ -63,6 +72,14 @@ func (d *DuplicateService) Detect(ctx context.Context, libraryID string) (*Repor
 	}
 	if err := q.Find(&rows).Error; err != nil {
 		return nil, err
+	}
+	ids := make([]string, len(rows))
+	for i := range rows {
+		ids[i] = rows[i].ID
+	}
+	sizes := d.probeSizes(ctx, ids)
+	for i := range rows {
+		rows[i].SizeBytes = sizes[rows[i].ID]
 	}
 
 	rep := &Report{Groups: []Group{}}
@@ -152,6 +169,14 @@ func (d *DuplicateService) Current(ctx context.Context, libraryID string) (*Repo
 	if err := q.Find(&rows).Error; err != nil {
 		return nil, err
 	}
+	ids := make([]string, 0, len(rows)*2)
+	for i := range rows {
+		ids = append(ids, rows[i].ID, rows[i].DuplicateOf)
+	}
+	sizes := d.probeSizes(ctx, ids)
+	for i := range rows {
+		rows[i].SizeBytes = sizes[rows[i].ID]
+	}
 	rep := &Report{TotalScanned: len(rows), Groups: []Group{}}
 	byPrimary := make(map[string][]model.Media)
 	for _, row := range rows {
@@ -165,18 +190,46 @@ func (d *DuplicateService) Current(ctx context.Context, libraryID string) (*Repo
 		if err != nil || primary == nil {
 			continue
 		}
+		primary.SizeBytes = sizes[primary.ID]
 		hash := primary.FileHash
 		if hash == "" && len(dupes) > 0 {
 			hash = dupes[0].FileHash
 		}
 		rep.Groups = append(rep.Groups, Group{
 			Hash:       hash,
-			Primary:    *primary,
-			Duplicates: dupes,
+			Primary:    newDuplicateMedia(*primary),
+			Duplicates: newDuplicateMediaRows(dupes),
 		})
 	}
 	rep.GroupsFound = len(rep.Groups)
 	return rep, nil
+}
+
+func (d *DuplicateService) probeSizes(ctx context.Context, mediaIDs []string) map[string]int64 {
+	rows, err := d.repo.MediaProbe.ListByMediaIDs(ctx, mediaIDs)
+	if err != nil {
+		return map[string]int64{}
+	}
+	sizes := make(map[string]int64, len(rows))
+	for id, row := range rows {
+		sizes[id] = row.SizeBytes
+	}
+	return sizes
+}
+
+func newDuplicateMedia(media model.Media) DuplicateMedia {
+	return DuplicateMedia{
+		ID: media.ID, Title: media.Title, Path: media.Path,
+		SizeBytes: media.SizeBytes, LibraryName: media.LibraryName,
+	}
+}
+
+func newDuplicateMediaRows(rows []model.Media) []DuplicateMedia {
+	out := make([]DuplicateMedia, len(rows))
+	for i := range rows {
+		out[i] = newDuplicateMedia(rows[i])
+	}
+	return out
 }
 
 func (d *DuplicateService) removeMissingRows(ctx context.Context, rows []model.Media, rep *Report) []model.Media {

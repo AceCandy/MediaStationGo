@@ -1,1 +1,8 @@
 {"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": ".trellis/spec/backend/index.md", "reason": "后端改动前检查清单与 Emby 同步要求"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "PostgreSQL schema、迁移与 STRM 扫描字段约束"}
+{"file": ".trellis/spec/backend/shared-media-metadata.md", "reason": "Probe 文档、MediaView、STRM 和 PlaybackInfo 现有契约"}
+{"file": ".trellis/spec/backend/playback-contracts.md", "reason": "进度、历史、事件与 204 no-op 边界"}
+{"file": ".trellis/spec/backend/emby-api-catalog-sync.md", "reason": "播放器可见状态变化的目录同步要求"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "数据库到 API/前端的投影一致性检查"}
+{"file": ".trellis/tasks/08-20-ffprobe-media-metadata/research/current-data-flow.md", "reason": "已核验的数据流、消费者与迁移风险"}

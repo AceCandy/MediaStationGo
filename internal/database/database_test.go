@@ -165,12 +165,19 @@ func TestRemoveUnusedLegacyColumns(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&model.Person{}, &model.UserDevice{}); err != nil {
+	if err := db.AutoMigrate(&model.Person{}, &model.UserDevice{}, &model.Media{}); err != nil {
 		t.Fatal(err)
 	}
 	for _, stmt := range []string{
 		`ALTER TABLE people ADD COLUMN profile_image_source text`,
 		`ALTER TABLE user_devices ADD COLUMN warnings integer`,
+		`ALTER TABLE media ADD COLUMN duration_sec integer`,
+		`ALTER TABLE media ADD COLUMN size_bytes bigint`,
+		`ALTER TABLE media ADD COLUMN container varchar(128)`,
+		`ALTER TABLE media ADD COLUMN width integer`,
+		`ALTER TABLE media ADD COLUMN height integer`,
+		`ALTER TABLE media ADD COLUMN video_codec varchar(32)`,
+		`ALTER TABLE media ADD COLUMN audio_codec varchar(32)`,
 	} {
 		if err := db.Exec(stmt).Error; err != nil {
 			t.Fatal(err)
@@ -186,6 +193,13 @@ func TestRemoveUnusedLegacyColumns(t *testing.T) {
 	}{
 		{table: "people", name: "profile_image_source"},
 		{table: "user_devices", name: "warnings"},
+		{table: "media", name: "duration_sec"},
+		{table: "media", name: "size_bytes"},
+		{table: "media", name: "container"},
+		{table: "media", name: "width"},
+		{table: "media", name: "height"},
+		{table: "media", name: "video_codec"},
+		{table: "media", name: "audio_codec"},
 	} {
 		var count int
 		if err := db.Raw(`
@@ -196,6 +210,22 @@ WHERE table_schema = current_schema() AND table_name = ? AND column_name = ?`, c
 		}
 		if count != 0 {
 			t.Fatalf("legacy column %s.%s still exists", column.table, column.name)
+		}
+	}
+	if err := db.AutoMigrate(&model.Media{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := removeUnusedLegacyColumns(db); err != nil {
+		t.Fatal(err)
+	}
+	for _, column := range []string{"duration_sec", "size_bytes", "container", "width", "height", "video_codec", "audio_codec"} {
+		if db.Migrator().HasColumn(&model.Media{}, column) {
+			t.Fatalf("AutoMigrate restored retired media column %s", column)
+		}
+	}
+	for _, column := range []string{"scan_file_size_bytes", "scan_file_mtime_ns"} {
+		if !db.Migrator().HasColumn(&model.Media{}, column) {
+			t.Fatalf("required media scan column %s is missing", column)
 		}
 	}
 }

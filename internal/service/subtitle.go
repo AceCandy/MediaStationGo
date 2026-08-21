@@ -88,13 +88,6 @@ func (s *SubtitleService) Selections(ctx context.Context, mediaID string, doc *P
 				})
 			}
 		}
-	} else if media, _ := s.repo.Media.FindByID(ctx, mediaID); media != nil {
-		if media.VideoCodec != "" || media.Width > 0 {
-			maxIndex = 0
-		}
-		if media.AudioCodec != "" {
-			maxIndex = 1
-		}
 	}
 	tracks, err := s.Discover(ctx, mediaID)
 	if err != nil {

@@ -322,7 +322,20 @@ func TestEmbyMetadataVersionsShareUserStateAndKeepSourceIDs(t *testing.T) {
 	if err := svc.SetFavorite(t.Context(), "user-1", metadata.ID, true); err != nil {
 		t.Fatalf("set favorite: %v", err)
 	}
-	if err := svc.RecordProgress(t.Context(), "user-1", metadata.ID, media1080.ID, "", 30_000*10_000, 120_000*10_000); err != nil {
+	if err := svc.RecordProgress(t.Context(), "user-1", metadata.ID, media1080.ID, "", 30_000*10_000, 0); err != nil {
+		t.Fatalf("unknown runtime should be ignored: %v", err)
+	}
+	var historyCount int64
+	if err := svc.repo.DB.Model(&model.PlaybackHistory{}).Where("user_id = ?", "user-1").Count(&historyCount).Error; err != nil || historyCount != 0 {
+		t.Fatalf("unknown runtime history count = %d, err = %v", historyCount, err)
+	}
+	if err := svc.repo.MediaProbe.Upsert(t.Context(), &model.MediaProbeMetadata{
+		MediaID: media1080.ID, ProbeJSON: `{"schema_version":1,"format":{"duration":120},"streams":[]}`,
+		SchemaVersion: ProbeDocumentSchemaVersion, SummaryVersion: ProbeSummaryVersion, DurationMS: 120_000, ProbedAt: time.Now(),
+	}); err != nil {
+		t.Fatalf("create probe summary: %v", err)
+	}
+	if err := svc.RecordProgress(t.Context(), "user-1", metadata.ID, media1080.ID, "", 30_000*10_000, 0); err != nil {
 		t.Fatalf("record progress: %v", err)
 	}
 	var favorite model.Favorite
@@ -338,6 +351,9 @@ func TestEmbyMetadataVersionsShareUserStateAndKeepSourceIDs(t *testing.T) {
 	}
 	if history.MetadataID != metadata.ID || history.MediaID != media1080.ID {
 		t.Fatalf("history should keep metadata and last source ids: %#v", history)
+	}
+	if history.DurationMs != 120_000 {
+		t.Fatalf("history duration = %d", history.DurationMs)
 	}
 	item, err := svc.Item(t.Context(), media2160.ID, "user-1")
 	if err != nil {

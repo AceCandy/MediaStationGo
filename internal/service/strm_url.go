@@ -40,7 +40,7 @@ func (s *STRMService) scopedSTRMPlaybackToken(ctx context.Context, media model.M
 	if claims.Purpose == ExternalPlaybackTokenPurpose && claims.MediaID != media.ID {
 		return ""
 	}
-	token, err := signExternalPlaybackToken(*claims, media.ID, media.DurationSec, s.cfg.Secrets.JWTSecret)
+	token, err := signExternalPlaybackToken(*claims, media.ID, s.probeDurationSec(ctx, media.ID), s.cfg.Secrets.JWTSecret)
 	if err != nil {
 		if s.log != nil {
 			s.log.Warn("sign strm playback token failed", zap.Error(err))
@@ -65,7 +65,7 @@ func (s *STRMService) defaultSTRMPlaybackToken(ctx context.Context, media model.
 		UserID: admin.ID,
 		Role:   admin.Role,
 		Tier:   admin.Tier,
-	}, media.ID, media.DurationSec, s.cfg.Secrets.JWTSecret)
+	}, media.ID, s.probeDurationSec(ctx, media.ID), s.cfg.Secrets.JWTSecret)
 	if err != nil {
 		if s.log != nil {
 			s.log.Warn("sign strm playback token failed", zap.Error(err))
@@ -73,6 +73,17 @@ func (s *STRMService) defaultSTRMPlaybackToken(ctx context.Context, media model.
 		return ""
 	}
 	return token
+}
+
+func (s *STRMService) probeDurationSec(ctx context.Context, mediaID string) int {
+	if s == nil || s.repo == nil || s.repo.MediaProbe == nil {
+		return 0
+	}
+	probe, _ := s.repo.MediaProbe.FindByMediaID(ctx, mediaID)
+	if probe == nil {
+		return 0
+	}
+	return int(probe.DurationMS / 1000)
 }
 
 func (s *STRMService) strmRelativePath(lib model.Library, media model.Media) string {

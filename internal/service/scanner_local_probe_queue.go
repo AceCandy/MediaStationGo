@@ -6,8 +6,6 @@ import (
 	"time"
 
 	"go.uber.org/zap"
-
-	"github.com/ShukeBta/MediaStationGo/internal/model"
 )
 
 func (s *ScannerService) localMediaProbeWorker() {
@@ -34,7 +32,7 @@ func (s *ScannerService) queueLocalMediaProbe(ctx context.Context, path, probePa
 }
 
 func (s *ScannerService) newLocalMediaProbeTask(path, probePath string) (localMediaProbeTask, bool) {
-	if s == nil || s.probe == nil {
+	if s == nil || (s.probe == nil && s.mediaProbe == nil) {
 		return localMediaProbeTask{}, false
 	}
 	task := localMediaProbeTask{path: strings.TrimSpace(path), probePath: strings.TrimSpace(probePath)}
@@ -96,48 +94,19 @@ func (s *ScannerService) logLocalMediaProbeQueueFull(task localMediaProbeTask) {
 
 func (s *ScannerService) probeLocalMediaAsync(task localMediaProbeTask) {
 	defer s.releaseLocalMediaProbe(task.path)
-	if s == nil || s.probe == nil || strings.TrimSpace(task.path) == "" {
+	if s == nil || s.mediaProbe == nil || strings.TrimSpace(task.path) == "" {
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	if s.mediaProbe != nil {
-		media, err := s.repo.Media.FindByPath(ctx, task.path)
-		if err == nil && media != nil {
-			probe, probeErr := s.mediaProbe.ProbeMedia(ctx, media.ID)
-			cancel()
-			if probeErr != nil {
-				if s.log != nil {
-					s.log.Debug("local media async probe failed", zap.String("path", task.path), zap.Error(probeErr))
-				}
-				return
-			}
-			s.publishLocalProbeResult(task.path, probe)
-			return
-		}
+	defer cancel()
+	media, err := s.repo.Media.FindByPath(ctx, task.path)
+	if err != nil || media == nil {
+		return
 	}
-	probe, err := s.probe.Probe(ctx, task.probePath)
-	cancel()
+	probe, err := s.mediaProbe.ProbeMedia(ctx, media.ID)
 	if err != nil {
 		if s.log != nil {
 			s.log.Debug("local media async probe failed", zap.String("path", task.path), zap.Error(err))
-		}
-		return
-	}
-	updates := localProbeResultUpdates(probe, task.probePath)
-	if len(updates) == 0 {
-		return
-	}
-	writeCtx, writeCancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer writeCancel()
-	if task.path != task.probePath {
-		var current model.Media
-		if err := s.repo.DB.WithContext(writeCtx).Where("path = ?", task.path).First(&current).Error; err != nil || localSTRMFileTarget(&current) != task.probePath {
-			return
-		}
-	}
-	if err := s.repo.DB.WithContext(writeCtx).Model(&model.Media{}).Where("path = ?", task.path).Updates(updates).Error; err != nil {
-		if s.log != nil {
-			s.log.Debug("update local media track metadata failed", zap.String("path", task.path), zap.Error(err))
 		}
 		return
 	}

@@ -217,12 +217,12 @@ func TestEnrichOneWritesTMDbEpisodeMetadata(t *testing.T) {
 	}
 
 	got := serviceTestMediaView(t, repos, media.ID)
-	// 单集专属信息(简介/剧照/评分/时长)应回填到该集行。
+	// 单集专属展示信息应回填到共享元数据，技术时长仍只来自 ffprobe。
 	if got.Overview != "单集剧情" {
 		t.Fatalf("episode overview not saved: overview=%q", got.Overview)
 	}
-	if got.BackdropURL == "" || got.DurationSec != 24*60 {
-		t.Fatalf("episode still/runtime not saved: backdrop=%q duration=%d", got.BackdropURL, got.DurationSec)
+	if got.BackdropURL == "" || got.DurationSec != 0 {
+		t.Fatalf("episode still/probe duration = %q/%d", got.BackdropURL, got.DurationSec)
 	}
 	if got.Rating < 9.09 || got.Rating > 9.11 {
 		t.Fatalf("episode rating = %v, want 9.1", got.Rating)
@@ -262,8 +262,8 @@ func TestEnrichOneSkipsTMDbEpisodeStillWhenDisabled(t *testing.T) {
 	}
 
 	got := serviceTestMediaView(t, repos, media.ID)
-	if got.Overview != "单集剧情" || got.DurationSec != 24*60 {
-		t.Fatalf("episode metadata should still be saved: overview=%q duration=%d", got.Overview, got.DurationSec)
+	if got.Overview != "单集剧情" || got.DurationSec != 0 {
+		t.Fatalf("episode metadata should not create technical duration: overview=%q duration=%d", got.Overview, got.DurationSec)
 	}
 	if got.Rating < 9.09 || got.Rating > 9.11 {
 		t.Fatalf("episode rating = %v, want 9.1", got.Rating)
@@ -318,8 +318,8 @@ func TestApplyManualMatchSkipsTMDbEpisodeStillWhenDisabled(t *testing.T) {
 		t.Fatal("manual match returned nil media")
 	}
 	view := serviceTestMediaView(t, repos, media.ID)
-	if view.Overview != "单集剧情" || view.DurationSec != 24*60 {
-		t.Fatalf("episode metadata should still be saved: overview=%q duration=%d", view.Overview, view.DurationSec)
+	if view.Overview != "单集剧情" || view.DurationSec != 0 {
+		t.Fatalf("episode metadata should not create technical duration: overview=%q duration=%d", view.Overview, view.DurationSec)
 	}
 	var stillCount int64
 	if view.MetadataID == "" {

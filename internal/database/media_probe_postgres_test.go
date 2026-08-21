@@ -28,6 +28,9 @@ func TestMediaProbeMetadataPostgresSchemaAndOptionalRoundTrip(t *testing.T) {
 	if dataType := db.Migrator().FullDataTypeOf(stmt.Schema.LookUpField("ProbeJSON")).SQL; !strings.Contains(strings.ToLower(dataType), "text") {
 		t.Fatalf("probe_json postgres type = %q", dataType)
 	}
+	if dataType := db.Migrator().FullDataTypeOf(stmt.Schema.LookUpField("DurationMS")).SQL; !strings.Contains(strings.ToLower(dataType), "bigint") {
+		t.Fatalf("duration_ms postgres type = %q", dataType)
+	}
 	constraint := stmt.Schema.Relationships.Relations["Media"].ParseConstraint()
 	if constraint == nil || constraint.OnDelete != "CASCADE" {
 		t.Fatalf("media foreign key constraint = %#v", constraint)
@@ -52,7 +55,12 @@ func TestMediaProbeMetadataPostgresSchemaAndOptionalRoundTrip(t *testing.T) {
 	if err := tx.Create(&media).Error; err != nil {
 		t.Fatal(err)
 	}
-	want := model.MediaProbeMetadata{MediaID: media.ID, ProbeJSON: `{"schema_version":1}`, SchemaVersion: 1, ProbedAt: time.Now().UTC()}
+	want := model.MediaProbeMetadata{
+		MediaID: media.ID, ProbeJSON: `{"schema_version":1}`, SchemaVersion: 1,
+		SummaryVersion: 1, DurationMS: 120_000, SizeBytes: 1_000_000,
+		Container: "matroska", BitRate: 8_000_000, Width: 3840, Height: 2160,
+		VideoCodec: "hevc", AudioCodec: "eac3", ProbedAt: time.Now().UTC(),
+	}
 	if err := tx.Create(&want).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -60,7 +68,9 @@ func TestMediaProbeMetadataPostgresSchemaAndOptionalRoundTrip(t *testing.T) {
 	if err := tx.First(&got, "media_id = ?", media.ID).Error; err != nil {
 		t.Fatal(err)
 	}
-	if got.ProbeJSON != want.ProbeJSON || got.SchemaVersion != want.SchemaVersion || got.ProbedAt.IsZero() {
+	if got.ProbeJSON != want.ProbeJSON || got.SchemaVersion != want.SchemaVersion || got.SummaryVersion != want.SummaryVersion ||
+		got.DurationMS != want.DurationMS || got.SizeBytes != want.SizeBytes || got.BitRate != want.BitRate ||
+		got.Container != want.Container || got.VideoCodec != want.VideoCodec || got.AudioCodec != want.AudioCodec || got.ProbedAt.IsZero() {
 		t.Fatalf("postgres round trip = %#v", got)
 	}
 }

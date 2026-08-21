@@ -74,7 +74,8 @@ func applyStatsVisibility(c *gin.Context, svc *service.Container, snap *service.
 	}
 	var sum sumRow
 	if err := applyActiveLibraryQuery(applyMediaVisibilityQuery(svc.Repo.DB.WithContext(c.Request.Context()).Model(&model.Media{}), visibility), activeLibraryIDs).
-		Select("COALESCE(SUM(size_bytes),0) as size, COALESCE(SUM(duration_sec),0) as seconds").
+		Joins("LEFT JOIN media_probe_metadata AS pm ON pm.media_id = media.id").
+		Select("COALESCE(SUM(pm.size_bytes),0) as size, COALESCE(SUM(pm.duration_ms),0) / 1000 as seconds").
 		Scan(&sum).Error; err != nil {
 		return err
 	}

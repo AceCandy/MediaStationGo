@@ -2,7 +2,7 @@
 //
 // StorageService aggregates "how much disk does each library use" for
 // the React Storage tab. Numbers are computed from the in-DB
-// media.size_bytes column so we never hit the disk on the hot path.
+// media_probe_metadata.size_bytes column so we never hit the disk on the hot path.
 package service
 
 import (
@@ -74,9 +74,10 @@ func (s *StorageService) Compute(ctx context.Context) (*Breakdown, error) {
 			Seconds int64
 		}{}
 		err := s.repo.DB.WithContext(ctx).
-			Table("media").
-			Where("library_id = ? AND deleted_at IS NULL", l.ID).
-			Select("COUNT(*) as count, COALESCE(SUM(size_bytes),0) as size, COALESCE(SUM(duration_sec),0) as seconds").
+			Table("media AS m").
+			Joins("LEFT JOIN media_probe_metadata AS pm ON pm.media_id = m.id").
+			Where("m.library_id = ? AND m.deleted_at IS NULL", l.ID).
+			Select("COUNT(*) as count, COALESCE(SUM(pm.size_bytes),0) as size, COALESCE(SUM(pm.duration_ms),0) / 1000 as seconds").
 			Scan(&row).Error
 		if err != nil {
 			return nil, err
@@ -112,10 +113,11 @@ func (s *StorageService) libraryDisplay(l model.Library) (string, string) {
 
 func (s *StorageService) containerStats(ctx context.Context) ([]ContainerStat, error) {
 	rows, err := s.repo.DB.WithContext(ctx).
-		Table("media").
-		Where("deleted_at IS NULL").
-		Select("COALESCE(NULLIF(container,''),'unknown') as container, COUNT(*) as count, COALESCE(SUM(size_bytes),0) as bytes").
-		Group("container").
+		Table("media AS m").
+		Joins("LEFT JOIN media_probe_metadata AS pm ON pm.media_id = m.id").
+		Where("m.deleted_at IS NULL").
+		Select("COALESCE(NULLIF(pm.container,''),'unknown') as container, COUNT(*) as count, COALESCE(SUM(pm.size_bytes),0) as bytes").
+		Group("pm.container").
 		Rows()
 	if err != nil {
 		return nil, err

@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"os"
 	"path/filepath"
 	"strings"
 
@@ -20,9 +19,6 @@ func (o *OrganizerService) persistOrganizedSourceMetadata(ctx context.Context, p
 		return
 	}
 	media := organizedSourceMediaFromPlan(libraryID, plan)
-	if info, err := os.Stat(plan.Target.Path); err == nil && !info.IsDir() {
-		media.SizeBytes = info.Size()
-	}
 	if fileID, ok := fileIdentity(plan.Target.Path); ok {
 		media.FileID = fileID
 	}

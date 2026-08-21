@@ -39,9 +39,9 @@ func (s *StreamService) withExternalPlaybackTokenForInternalRedirect(target stri
 		sourceMediaID = strings.TrimSpace(sourceMediaID)
 		if claims.Purpose != ExternalPlaybackTokenPurpose || claims.MediaID == sourceMediaID {
 			durationSec := 0
-			if s != nil && s.repo != nil && s.repo.Media != nil {
-				if media, findErr := s.repo.Media.FindByID(r.Context(), targetMediaID); findErr == nil && media != nil {
-					durationSec = media.DurationSec
+			if s != nil && s.repo != nil && s.repo.MediaProbe != nil {
+				if probe, findErr := s.repo.MediaProbe.FindByMediaID(r.Context(), targetMediaID); findErr == nil && probe != nil {
+					durationSec = int(probe.DurationMS / 1000)
 				}
 			}
 			if token, signErr := signExternalPlaybackToken(*claims, targetMediaID, durationSec, secret); signErr == nil {

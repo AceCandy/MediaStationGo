@@ -24,7 +24,7 @@ import (
 )
 
 func TestEmbyPlaybackInfoRoutesParseGETAndPOSTSelections(t *testing.T) {
-	router, mediaID, token, _ := newEmbyTrackRouteTest(t)
+	router, mediaID, token, _, _ := newEmbyTrackRouteTest(t)
 
 	get := httptest.NewRequest(http.MethodGet, "/emby/Items/"+mediaID+"/PlaybackInfo?AudioStreamIndex=0&SubtitleStreamIndex=-1", nil)
 	get.Header.Set("X-Emby-Token", token)
@@ -66,7 +66,7 @@ func TestEmbyPlaybackInfoRoutesParseGETAndPOSTSelections(t *testing.T) {
 }
 
 func TestEmbySubtitleDeliveryRoutesRediscoverSidecar(t *testing.T) {
-	router, mediaID, token, subtitlePath := newEmbyTrackRouteTest(t)
+	router, mediaID, token, subtitlePath, _ := newEmbyTrackRouteTest(t)
 	for _, path := range []string{
 		"/emby/Videos/" + mediaID + "/Subtitles/3/Stream.vtt",
 		"/videos/" + mediaID + "/subtitles/3/stream.vtt",
@@ -92,7 +92,45 @@ func TestEmbySubtitleDeliveryRoutesRediscoverSidecar(t *testing.T) {
 	}
 }
 
-func newEmbyTrackRouteTest(t *testing.T) (*gin.Engine, string, string, string) {
+func TestEmbyProgressRoutesUseProbeDurationAndIgnoreUnknownDuration(t *testing.T) {
+	router, mediaID, token, _, repos := newEmbyTrackRouteTest(t)
+	paths := []string{"/Sessions/Playing", "/Sessions/Playing/Progress", "/Sessions/Playing/Stopped"}
+	request := `{"ItemId":"` + mediaID + `","MediaSourceId":"` + mediaID + `","PositionTicks":300000000}`
+
+	for _, path := range paths {
+		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(request))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Emby-Token", token)
+		response := httptest.NewRecorder()
+		router.ServeHTTP(response, req)
+		if response.Code != http.StatusNoContent {
+			t.Fatalf("unknown duration %s status=%d body=%s", path, response.Code, response.Body.String())
+		}
+	}
+	var count int64
+	if err := repos.DB.Model(&model.PlaybackHistory{}).Count(&count).Error; err != nil || count != 0 {
+		t.Fatalf("unknown duration history count=%d err=%v", count, err)
+	}
+	if err := repos.DB.Model(&model.MediaProbeMetadata{}).Where("media_id = ?", mediaID).Update("duration_ms", 120_000).Error; err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range paths {
+		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(request))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Emby-Token", token)
+		response := httptest.NewRecorder()
+		router.ServeHTTP(response, req)
+		if response.Code != http.StatusNoContent {
+			t.Fatalf("probe duration %s status=%d body=%s", path, response.Code, response.Body.String())
+		}
+	}
+	var history model.PlaybackHistory
+	if err := repos.DB.First(&history).Error; err != nil || history.DurationMs != 120_000 {
+		t.Fatalf("probe duration history=%#v err=%v", history, err)
+	}
+}
+
+func newEmbyTrackRouteTest(t *testing.T) (*gin.Engine, string, string, string, *repository.Container) {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 	db, err := testdb.OpenPostgres(t, &gorm.Config{})
@@ -152,7 +190,7 @@ func newEmbyTrackRouteTest(t *testing.T) (*gin.Engine, string, string, string) {
 	const secret = "track-route-secret"
 	router := gin.New()
 	registerEmbyRoutes(router, secret, container)
-	return router, media.ID, signedTestToken(t, secret), subtitlePath
+	return router, media.ID, signedTestToken(t, secret), subtitlePath, repos
 }
 
 func assertPlaybackSelectionURL(t *testing.T, response *httptest.ResponseRecorder, audioIndex, subtitleIndex int) {

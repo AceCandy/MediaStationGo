@@ -104,14 +104,14 @@ func (s *StatsService) Compute(ctx context.Context, dataDir string) (*Snapshot, 
 		Seconds int64
 	}
 	var sum sumRow
-	sumQuery := s.repo.DB.Model(&model.Media{})
+	sumQuery := s.repo.DB.Model(&model.Media{}).Joins("LEFT JOIN media_probe_metadata AS pm ON pm.media_id = media.id")
 	if len(activeLibraryIDs) == 0 {
 		sumQuery = sumQuery.Where("1 = 0")
 	} else {
 		sumQuery = sumQuery.Where("library_id IN ?", activeLibraryIDs)
 	}
 	if err := sumQuery.
-		Select("COALESCE(SUM(size_bytes),0) as size, COALESCE(SUM(duration_sec),0) as seconds").
+		Select("COALESCE(SUM(pm.size_bytes),0) as size, COALESCE(SUM(pm.duration_ms),0) / 1000 as seconds").
 		Scan(&sum).Error; err != nil {
 		return nil, err
 	}

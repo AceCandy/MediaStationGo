@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"net/url"
 	"path/filepath"
 	"strings"
@@ -136,47 +137,6 @@ func (e *EmbyService) releaseTrackProbe(mediaID string) {
 	e.trackProbeMu.Unlock()
 }
 
-func (e *EmbyService) persistTrackMetadata(ctx context.Context, mediaID string, updates map[string]any) {
-	if len(updates) == 0 {
-		return
-	}
-	if err := e.repo.DB.WithContext(ctx).Model(&model.Media{}).Where("id = ?", mediaID).Updates(updates).Error; err != nil && e.log != nil {
-		e.log.Debug("persist playback track probe failed", zap.String("media_id", mediaID), zap.Error(err))
-	}
-}
-
-func mediaTrackMetadataMissing(m *model.Media) bool {
-	return m.DurationSec <= 0 ||
-		m.Width <= 0 ||
-		m.Height <= 0 ||
-		strings.TrimSpace(m.VideoCodec) == "" ||
-		strings.TrimSpace(m.AudioCodec) == ""
-}
-
-func applyProbeResultToMediaValue(m *model.Media, probe *ProbeResult) {
-	if m == nil || probe == nil {
-		return
-	}
-	if probe.DurationSec > 0 {
-		m.DurationSec = probe.DurationSec
-	}
-	if probe.Width > 0 {
-		m.Width = probe.Width
-	}
-	if probe.Height > 0 {
-		m.Height = probe.Height
-	}
-	if strings.TrimSpace(probe.VideoCodec) != "" {
-		m.VideoCodec = probe.VideoCodec
-	}
-	if strings.TrimSpace(probe.AudioCodec) != "" {
-		m.AudioCodec = probe.AudioCodec
-	}
-	if strings.TrimSpace(probe.Container) != "" {
-		m.Container = probe.Container
-	}
-}
-
 func (e *EmbyService) playableMedia(ctx context.Context, id, userID string) (*model.MediaView, error) {
 	if season, ok, err := e.findSeasonGroup(ctx, id, userID); err != nil {
 		return nil, err
@@ -239,7 +199,11 @@ func (e *EmbyService) mediaSourceWithProbe(ctx context.Context, m *model.Media, 
 }
 
 func (e *EmbyService) mediaSourceWithSelection(ctx context.Context, m *model.Media, displayName string, asEmbedded bool, doc *ProbeDocument, selection PlaybackSelection, liveSubtitles bool) map[string]any {
-	container := embyMediaContainer(m)
+	probeContainer := ""
+	if doc != nil {
+		probeContainer = doc.Format.Name
+	}
+	container := embyMediaContainer(m, probeContainer)
 	isLocalSTRM := localSTRMFileTarget(m) != ""
 	isRemote := strings.TrimSpace(m.STRMURL) != "" && !isLocalSTRM
 	playURL := embyDirectStreamURL(m.ID, container)
@@ -280,9 +244,13 @@ func (e *EmbyService) baseMediaSource(ctx context.Context, m *model.Media, displ
 	if strings.TrimSpace(displayName) == "" {
 		displayName = m.Title
 	}
-	size := m.SizeBytes
+	size := int64(0)
+	runTimeTicks := int64(0)
 	if doc != nil && doc.Format.Size > 0 {
 		size = doc.Format.Size
+	}
+	if doc != nil && doc.Format.Duration > 0 {
+		runTimeTicks = int64(math.Round(doc.Format.Duration * 10_000_000))
 	}
 	src := map[string]any{
 		"Id":                    m.ID,
@@ -301,16 +269,11 @@ func (e *EmbyService) baseMediaSource(ctx context.Context, m *model.Media, displ
 		"SupportsDirectStream":  !isRemote || playURL != "",
 		"SupportsDirectPlay":    !isRemote || playURL != "",
 		"SupportsProbing":       true,
-		"RunTimeTicks":          int64(m.DurationSec) * 10_000_000,
+		"RunTimeTicks":          runTimeTicks,
 		"MediaStreams":          e.mediaStreams(ctx, m, doc, liveSubtitles),
 	}
 	if doc != nil && doc.Format.BitRate > 0 {
 		src["Bitrate"] = doc.Format.BitRate
-	}
-	if bitrate := embyAverageBitrate(m); bitrate > 0 {
-		if _, ok := src["Bitrate"]; !ok {
-			src["Bitrate"] = bitrate
-		}
 	}
 	return src
 }
@@ -325,15 +288,8 @@ func embyMediaSourcePath(m *model.Media, playURL string, isLocalSTRM, isRemote b
 	return m.Path
 }
 
-func embyAverageBitrate(m *model.Media) int64 {
-	if m == nil || m.SizeBytes <= 0 || m.DurationSec <= 0 {
-		return 0
-	}
-	return m.SizeBytes * 8 / int64(m.DurationSec)
-}
-
-func embyMediaContainer(m *model.Media) string {
-	container := strings.Trim(strings.ToLower(m.Container), ". ")
+func embyMediaContainer(m *model.Media, probeContainer string) string {
+	container := strings.Trim(strings.ToLower(probeContainer), ". ")
 	if target := localSTRMFileTarget(m); target != "" {
 		if ext := strings.TrimPrefix(strings.ToLower(filepath.Ext(target)), "."); ext != "" {
 			return ext

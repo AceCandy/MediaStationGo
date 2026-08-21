@@ -1,1 +1,8 @@
 {"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": ".trellis/spec/backend/index.md", "reason": "后端最终质量门禁"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "PostgreSQL 迁移与 schema 复核"}
+{"file": ".trellis/spec/backend/shared-media-metadata.md", "reason": "技术元数据单一事实源与 STRM 契约复核"}
+{"file": ".trellis/spec/backend/playback-contracts.md", "reason": "播放进度兼容行为复核"}
+{"file": ".trellis/spec/backend/emby-api-catalog-sync.md", "reason": "Emby 管理目录同步复核"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "跨层读写链路复核"}
+{"file": ".trellis/tasks/08-20-ffprobe-media-metadata/research/current-data-flow.md", "reason": "对照现状核验遗漏消费者与旧列残留"}

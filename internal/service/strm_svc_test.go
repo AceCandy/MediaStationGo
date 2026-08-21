@@ -93,7 +93,7 @@ func TestGeneratedSTRMRecordRejectsProviderProtocol(t *testing.T) {
 }
 
 func TestGenerateSTRMForLibrarySignsDefaultPlaybackToken(t *testing.T) {
-	db := newServiceTestDB(t, &model.Library{}, &model.Media{}, &model.STRMRecord{}, &model.Setting{}, &model.User{})
+	db := newServiceTestDB(t, &model.Library{}, &model.Media{}, &model.MediaProbeMetadata{}, &model.STRMRecord{}, &model.Setting{}, &model.User{})
 	repos := repository.New(db)
 	admin := model.User{Username: "admin", PasswordHash: "x", Role: "admin", Tier: "plus", IsActive: true}
 	if err := repos.User.Create(t.Context(), &admin); err != nil {
@@ -105,6 +105,9 @@ func TestGenerateSTRMForLibrarySignsDefaultPlaybackToken(t *testing.T) {
 	}
 	media := model.Media{Base: model.Base{ID: "remote-media"}, LibraryID: lib.ID, Title: "远程电影", Year: 2026, Path: filepath.Join(lib.Path, "远程电影.strm"), Container: "strm", STRMURL: "https://cdn.example.test/remote-movie.mkv", DurationSec: 2 * 60 * 60}
 	if err := repos.DB.Create(&media).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := repos.DB.Create(&model.MediaProbeMetadata{MediaID: media.ID, ProbeJSON: "{}", SchemaVersion: 1, SummaryVersion: 1, DurationMS: 7_200_000, ProbedAt: time.Now()}).Error; err != nil {
 		t.Fatal(err)
 	}
 
@@ -142,7 +145,7 @@ func TestGenerateSTRMForLibrarySignsDefaultPlaybackToken(t *testing.T) {
 	if claims.Purpose != ExternalPlaybackTokenPurpose || claims.MediaID != media.ID {
 		t.Fatalf("claims = %#v, want external playback scope for %q", claims, media.ID)
 	}
-	wantTTL := ExternalPlaybackTokenDurationForMedia(media.DurationSec)
+	wantTTL := ExternalPlaybackTokenDurationForMedia(2 * 60 * 60)
 	if ttl := time.Until(claims.ExpiresAt.Time); ttl < wantTTL-time.Minute || ttl > wantTTL {
 		t.Fatalf("token ttl = %v, want close to %v", ttl, wantTTL)
 	}

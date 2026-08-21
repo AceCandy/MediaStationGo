@@ -15,9 +15,8 @@ var errCloudMediaPathUnsupported = errors.New("cloud media paths are no longer s
 
 // Upsert inserts or updates a media row keyed by Path (unique index).
 //
-// 重要：当一条行已经存在时，scanner 重扫只应该刷新文件级元数据
-// （时长、宽高、编码、容器、大小），不能把刮削器维护的字段（标题改写、
-// 海报、TMDb/Bangumi ID、scrape_status 等）覆盖回零值。
+// 重要：当一条行已经存在时，scanner 重扫只应该刷新扫描指纹、路径提示和关联字段，
+// 不能把刮削器维护的字段（标题改写、海报、provider ID、scrape_status 等）覆盖回零值。
 //
 // 之前用 Assign(*m).FirstOrCreate(m) 会把整张零值结构体写回，导致：
 //  1. scrape_status 从 'matched' / 'no_match' 被清空成 ”；
@@ -185,15 +184,8 @@ func mediaUpsertUpdates(existing, incoming model.Media) map[string]any {
 
 func addMediaFileScanUpdates(updates map[string]any, existing, incoming model.Media) {
 	// 已存在：仅刷新文件层面的字段。
-	setIfChanged(updates, "size_bytes", existing.SizeBytes, incoming.SizeBytes)
 	setIfChanged(updates, "scan_file_size_bytes", existing.ScanFileSizeBytes, incoming.ScanFileSizeBytes)
 	setIfChanged(updates, "scan_file_mtime_ns", existing.ScanFileMTimeNS, incoming.ScanFileMTimeNS)
-	setIfChanged(updates, "duration_sec", existing.DurationSec, incoming.DurationSec)
-	setIfChanged(updates, "width", existing.Width, incoming.Width)
-	setIfChanged(updates, "height", existing.Height, incoming.Height)
-	setIfChanged(updates, "video_codec", existing.VideoCodec, incoming.VideoCodec)
-	setIfChanged(updates, "audio_codec", existing.AudioCodec, incoming.AudioCodec)
-	setIfChanged(updates, "container", existing.Container, incoming.Container)
 	setIfChanged(updates, "local_metadata_hint", existing.LocalMetadataHint, incoming.LocalMetadataHint)
 	if existing.DeletedAt.Valid {
 		updates["deleted_at"] = nil

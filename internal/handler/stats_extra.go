@@ -152,8 +152,9 @@ func statsLibrariesHandler(svc *service.Container) gin.HandlerFunc {
 				Where("library_id = ?", l.ID).
 				Count(&count).Error
 			_ = applyMediaVisibilityQuery(svc.Repo.DB.Model(&model.Media{}), visibility).
+				Joins("LEFT JOIN media_probe_metadata AS pm ON pm.media_id = media.id").
 				Where("library_id = ?", l.ID).
-				Select("COALESCE(SUM(size_bytes),0)").Row().Scan(&size)
+				Select("COALESCE(SUM(pm.size_bytes),0)").Row().Scan(&size)
 			out = append(out, gin.H{
 				"library":    l,
 				"item_count": count,

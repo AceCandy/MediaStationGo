@@ -38,7 +38,7 @@ func readLocalSTRMTarget(path string) (string, error) {
 }
 
 func localSTRMFileTarget(m *model.Media) string {
-	if m == nil || (!strings.EqualFold(strings.TrimSpace(m.Container), "strm") && !strings.EqualFold(filepath.Ext(m.Path), ".strm")) {
+	if m == nil || !strings.EqualFold(filepath.Ext(m.Path), ".strm") {
 		return ""
 	}
 	target := strings.TrimSpace(m.STRMURL)
@@ -58,14 +58,6 @@ func isLocalSTRMMediaTarget(target string) bool {
 	ext := strings.ToLower(filepath.Ext(target))
 	_, ok := videoExtensions[ext]
 	return ok && ext != ".strm"
-}
-
-func localProbeResultUpdates(probe *ProbeResult, path string) map[string]any {
-	updates := probeResultUpdates(probe)
-	if stat, err := os.Stat(path); err == nil {
-		updates["size_bytes"] = stat.Size()
-	}
-	return updates
 }
 
 func (s *ScannerService) maybeGenerateSTRMAfterScan(libraryID string) {

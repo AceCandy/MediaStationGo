@@ -508,7 +508,7 @@ func TestEmbyMediaSourceUsesRemoteSTRMTargetContainerAndDate(t *testing.T) {
 		SizeBytes:   201,
 		DurationSec: 5_893,
 	}
-	doc := &ProbeDocument{Format: ProbeFormat{Size: 26_972_800_320}}
+	doc := &ProbeDocument{Format: ProbeFormat{Duration: 5930.112, Size: 26_972_800_320}}
 
 	src := svc.mediaSourceWithProbe(t.Context(), media, media.Title, false, doc)
 	if src["Container"] != "mkv" || src["IsRemote"] != true {
@@ -522,6 +522,27 @@ func TestEmbyMediaSourceUsesRemoteSTRMTargetContainerAndDate(t *testing.T) {
 	}
 	if src["Size"] != doc.Format.Size {
 		t.Fatalf("remote strm size = %#v, want %d", src["Size"], doc.Format.Size)
+	}
+	if src["RunTimeTicks"] != int64(59_301_120_000) {
+		t.Fatalf("remote strm runtime = %#v", src["RunTimeTicks"])
+	}
+}
+
+func TestEmbyMediaSourceDoesNotFallbackToLegacyTechnicalFields(t *testing.T) {
+	svc := newTestEmbyService(t)
+	media := &model.Media{
+		Base: model.Base{ID: "legacy-technical"}, Path: "/media/movie.mkv",
+		DurationSec: 120, SizeBytes: 1000, Container: "legacy",
+	}
+	src := svc.baseMediaSource(t.Context(), media, "Movie", embyMediaContainer(media, ""), false, "", nil, false)
+	if src["RunTimeTicks"] != int64(0) || src["Size"] != int64(0) {
+		t.Fatalf("legacy technical fields leaked into media source: %#v", src)
+	}
+	if src["Container"] != "mkv" {
+		t.Fatalf("playable path extension should remain available: %#v", src)
+	}
+	if _, ok := src["Bitrate"]; ok {
+		t.Fatalf("legacy bitrate fallback should be absent: %#v", src)
 	}
 }
 
@@ -610,18 +631,16 @@ func TestEmbyPlaybackInfoAsynchronouslyProbesLocalSTRMTarget(t *testing.T) {
 	if _, err := svc.PlaybackInfo(t.Context(), media.ID, "user-1"); err != nil {
 		t.Fatalf("playback info: %v", err)
 	}
-	var persisted model.Media
+	var persisted *model.MediaProbeMetadata
 	deadline := time.Now().Add(3 * time.Second)
 	for {
-		if err := svc.repo.DB.First(&persisted, "id = ?", media.ID).Error; err != nil {
-			t.Fatal(err)
-		}
-		if persisted.DurationSec > 0 || time.Now().After(deadline) {
+		persisted, _ = svc.repo.MediaProbe.FindByMediaID(t.Context(), media.ID)
+		if persisted != nil || time.Now().After(deadline) {
 			break
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	if prober.path != target || persisted.DurationSec != 3661 || persisted.SizeBytes != int64(len("target-video")) {
+	if prober.path != target || persisted == nil || persisted.DurationMS != 3_661_000 || persisted.SizeBytes != int64(len("target-video")) {
 		t.Fatalf("local playback probe path/media = %q/%#v", prober.path, persisted)
 	}
 	pb, err := svc.PlaybackInfo(t.Context(), media.ID, "user-1")
@@ -810,11 +829,11 @@ func TestEmbyLocalSTRMProbeDiscardsStaleTargetResult(t *testing.T) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	var persisted model.Media
-	if err := svc.repo.DB.First(&persisted, "id = ?", media.ID).Error; err != nil {
+	persisted, err := svc.repo.MediaProbe.FindByMediaID(t.Context(), media.ID)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if persisted.DurationSec != 0 {
+	if persisted != nil {
 		t.Fatalf("stale target metadata was persisted: %#v", persisted)
 	}
 }
@@ -899,18 +918,16 @@ func TestEmbyPlaybackInfoProbesMissingHTTPTrackMetadata(t *testing.T) {
 		t.Fatalf("playback info: %v", err)
 	}
 
-	var persisted model.Media
+	var persisted *model.MediaProbeMetadata
 	deadline := time.Now().Add(3 * time.Second)
 	for {
-		if err := svc.repo.DB.First(&persisted, "id = ?", "http-probe-1").Error; err != nil {
-			t.Fatalf("reload media: %v", err)
-		}
-		if persisted.DurationSec > 0 || time.Now().After(deadline) {
+		persisted, _ = svc.repo.MediaProbe.FindByMediaID(t.Context(), "http-probe-1")
+		if persisted != nil || time.Now().After(deadline) {
 			break
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	if persisted.DurationSec != 3661 || persisted.Width != 3840 || persisted.Height != 2160 || persisted.VideoCodec != "hevc" || persisted.AudioCodec != "eac3" {
+	if persisted == nil || persisted.DurationMS != 3_661_000 || persisted.Width != 3840 || persisted.Height != 2160 || persisted.VideoCodec != "hevc" || persisted.AudioCodec != "eac3" {
 		t.Fatalf("probe metadata not persisted: %#v", persisted)
 	}
 	if prober.rawURL != media.STRMURL {

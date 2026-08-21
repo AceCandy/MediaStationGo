@@ -35,7 +35,7 @@ func (s *stubMediaProbeRunner) ProbeHTTP(context.Context, string) (*ProbeResult,
 	return s.Probe(context.Background(), "")
 }
 
-func TestMediaProbePersistsScalarAndCompleteDocument(t *testing.T) {
+func TestMediaProbePersistsSummaryAndCompleteDocument(t *testing.T) {
 	db := newServiceTestDB(t, &model.Media{}, &model.MediaProbeMetadata{})
 	repos := repository.New(db)
 	metadata := createServiceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindMovie, Title: "Movie", Source: "local"})
@@ -52,9 +52,13 @@ func TestMediaProbePersistsScalarAndCompleteDocument(t *testing.T) {
 	if _, err := svc.ProbeMedia(t.Context(), media.ID); err != nil {
 		t.Fatal(err)
 	}
-	got, _ := repos.Media.FindByID(t.Context(), media.ID)
-	if got.VideoCodec != "hevc" || got.AudioCodec != "eac3" || got.Width != 3840 || got.DurationSec != 120 {
-		t.Fatalf("scalar projection = %#v", got)
+	got, _ := repos.MediaProbe.FindByMediaID(t.Context(), media.ID)
+	if got.VideoCodec != "hevc" || got.AudioCodec != "eac3" || got.Width != 3840 || got.DurationMS != 120_000 || got.BitRate != 8_000_000 {
+		t.Fatalf("probe summary = %#v", got)
+	}
+	legacy, _ := repos.Media.FindByID(t.Context(), media.ID)
+	if legacy.DurationSec != 0 || legacy.VideoCodec != "" {
+		t.Fatalf("legacy media summary was updated: %#v", legacy)
 	}
 	doc, ok := svc.Load(t.Context(), media.ID)
 	if !ok || len(doc.Streams) != 2 || doc.Streams[1].Index != 3 {
@@ -92,7 +96,7 @@ func TestMediaProbePersistsLocalSTRMTargetSize(t *testing.T) {
 	if _, err := NewMediaProbeService(repos, runner).ProbeMedia(t.Context(), media.ID); err != nil {
 		t.Fatal(err)
 	}
-	got, _ := repos.Media.FindByID(t.Context(), media.ID)
+	got, _ := repos.MediaProbe.FindByMediaID(t.Context(), media.ID)
 	if got.SizeBytes != int64(len(content)) {
 		t.Fatalf("size_bytes = %d, want target size %d", got.SizeBytes, len(content))
 	}
@@ -118,9 +122,48 @@ func TestMediaProbePersistsRemoteSTRMTargetSize(t *testing.T) {
 	if elapsed := time.Since(startedAt); elapsed < 2*time.Second {
 		t.Fatalf("remote probe delay = %v, want at least 2s", elapsed)
 	}
-	got, _ := repos.Media.FindByID(t.Context(), media.ID)
+	got, _ := repos.MediaProbe.FindByMediaID(t.Context(), media.ID)
 	if got.SizeBytes != result.Document.Format.Size {
 		t.Fatalf("size_bytes = %d, want remote target size %d", got.SizeBytes, result.Document.Format.Size)
+	}
+}
+
+func TestMediaProbeBackfillsSummaryFromValidDocumentOnly(t *testing.T) {
+	db := newServiceTestDB(t, &model.Media{}, &model.MediaProbeMetadata{})
+	repos := repository.New(db)
+	metadata := createServiceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindMovie, Title: "Movie", Source: "local"})
+	media := []model.Media{
+		{MetadataID: metadata.ID, LibraryID: "library", Title: "Valid", Path: "/valid.mkv", DurationSec: 999},
+		{MetadataID: metadata.ID, LibraryID: "library", Title: "Invalid", Path: "/invalid.mkv", DurationSec: 777},
+	}
+	if err := db.Create(&media).Error; err != nil {
+		t.Fatal(err)
+	}
+	probeJSON, err := MarshalProbeDocument(probeResultFixture().Document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows := []model.MediaProbeMetadata{
+		{MediaID: media[0].ID, ProbeJSON: probeJSON, SchemaVersion: ProbeDocumentSchemaVersion},
+		{MediaID: media[1].ID, ProbeJSON: "{}", SchemaVersion: ProbeDocumentSchemaVersion},
+	}
+	if err := db.Create(&rows).Error; err != nil {
+		t.Fatal(err)
+	}
+	svc := NewMediaProbeService(repos, nil)
+	if err := svc.BackfillSummaries(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.BackfillSummaries(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	valid, _ := repos.MediaProbe.FindByMediaID(t.Context(), media[0].ID)
+	invalid, _ := repos.MediaProbe.FindByMediaID(t.Context(), media[1].ID)
+	if valid.SummaryVersion != ProbeSummaryVersion || valid.DurationMS != 120_000 {
+		t.Fatalf("valid summary = %#v", valid)
+	}
+	if invalid.SummaryVersion != 0 || invalid.DurationMS != 0 {
+		t.Fatalf("invalid summary inherited legacy media values: %#v", invalid)
 	}
 }
 
@@ -494,9 +537,23 @@ func TestMediaProbeBackfillAllHonorsLimit(t *testing.T) {
 }
 
 func probeResultFixture() *ProbeResult {
-	doc := &ProbeDocument{SchemaVersion: ProbeDocumentSchemaVersion, Streams: []ProbeStream{
+	doc := &ProbeDocument{SchemaVersion: ProbeDocumentSchemaVersion, Format: ProbeFormat{
+		Name: "matroska", Duration: 120, Size: 1_000_000, BitRate: 8_000_000,
+	}, Streams: []ProbeStream{
 		{Index: 0, CodecType: "video", CodecName: "hevc", Width: 3840, Height: 2160},
 		{Index: 3, CodecType: "audio", CodecName: "eac3", Disposition: ProbeDisposition{Default: true}},
 	}}
 	return &ProbeResult{DurationSec: 120, Width: 3840, Height: 2160, VideoCodec: "hevc", AudioCodec: "eac3", Container: "matroska", Document: doc}
+}
+
+func TestProjectProbeSummaryClearsMissingValues(t *testing.T) {
+	row := model.MediaProbeMetadata{
+		DurationMS: 1, SizeBytes: 1, Container: "old", BitRate: 1,
+		Width: 1, Height: 1, VideoCodec: "old", AudioCodec: "old",
+	}
+	projectProbeSummary(&row, &ProbeDocument{SchemaVersion: ProbeDocumentSchemaVersion}, 0)
+	if row.DurationMS != 0 || row.SizeBytes != 0 || row.Container != "" || row.BitRate != 0 ||
+		row.Width != 0 || row.Height != 0 || row.VideoCodec != "" || row.AudioCodec != "" {
+		t.Fatalf("stale summary values were preserved: %#v", row)
+	}
 }

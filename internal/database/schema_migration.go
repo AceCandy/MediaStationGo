@@ -272,6 +272,13 @@ func removeUnusedLegacyColumns(db *gorm.DB) error {
 	for _, stmt := range []string{
 		`ALTER TABLE IF EXISTS people DROP COLUMN IF EXISTS profile_image_source`,
 		`ALTER TABLE IF EXISTS user_devices DROP COLUMN IF EXISTS warnings`,
+		`ALTER TABLE IF EXISTS media DROP COLUMN IF EXISTS duration_sec`,
+		`ALTER TABLE IF EXISTS media DROP COLUMN IF EXISTS size_bytes`,
+		`ALTER TABLE IF EXISTS media DROP COLUMN IF EXISTS container`,
+		`ALTER TABLE IF EXISTS media DROP COLUMN IF EXISTS width`,
+		`ALTER TABLE IF EXISTS media DROP COLUMN IF EXISTS height`,
+		`ALTER TABLE IF EXISTS media DROP COLUMN IF EXISTS video_codec`,
+		`ALTER TABLE IF EXISTS media DROP COLUMN IF EXISTS audio_codec`,
 	} {
 		if err := db.Exec(stmt).Error; err != nil {
 			return err
@@ -300,7 +307,6 @@ func ensureAPIConfigColumns(db *gorm.DB) error {
 
 func ensurePostgresColumnCompatibility(db *gorm.DB) error {
 	statements := []string{
-		`ALTER TABLE media ALTER COLUMN container TYPE varchar(128)`,
 		`ALTER TABLE media ALTER COLUMN series_hint TYPE varchar(128)`,
 		`ALTER TABLE media ALTER COLUMN duplicate_of TYPE varchar(128)`,
 		`ALTER TABLE media ALTER COLUMN metadata_id DROP NOT NULL`,

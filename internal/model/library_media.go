@@ -37,17 +37,18 @@ type Media struct {
 	EpisodeTitle  string        `gorm:"-" json:"-"`
 	Path          string        `gorm:"uniqueIndex;size:1024;not null" json:"path"`
 	RelativePath  string        `gorm:"size:1024" json:"relative_path,omitempty"`
-	SizeBytes     int64         `json:"size_bytes"`
+	// 以下技术字段仅承载 ffprobe 的扁平 API 投影，不映射到 media 主表。
+	SizeBytes int64 `gorm:"-" json:"size_bytes"`
 	// ScanFileSizeBytes 与 ScanFileMTimeNS 记录扫描路径自身的文件指纹。
-	// 对 .strm，它们描述边车文本文件，SizeBytes 仍可保存实际播放目标大小。
+	// 对 .strm，它们描述边车文本文件；目标媒体大小由 MediaProbeMetadata 保存。
 	ScanFileSizeBytes int64   `gorm:"column:scan_file_size_bytes" json:"-"`
 	ScanFileMTimeNS   int64   `gorm:"column:scan_file_mtime_ns" json:"-"`
-	DurationSec       int     `json:"duration_sec"`
-	Width             int     `json:"width"`
-	Height            int     `json:"height"`
-	VideoCodec        string  `gorm:"size:32" json:"video_codec,omitempty"`
-	AudioCodec        string  `gorm:"size:32" json:"audio_codec,omitempty"`
-	Container         string  `gorm:"size:128" json:"container,omitempty"`
+	DurationSec       int     `gorm:"-" json:"duration_sec"`
+	Width             int     `gorm:"-" json:"width"`
+	Height            int     `gorm:"-" json:"height"`
+	VideoCodec        string  `gorm:"-" json:"video_codec,omitempty"`
+	AudioCodec        string  `gorm:"-" json:"audio_codec,omitempty"`
+	Container         string  `gorm:"-" json:"container,omitempty"`
 	PosterURL         string  `gorm:"-" json:"poster_url,omitempty"`
 	BackdropURL       string  `gorm:"-" json:"backdrop_url,omitempty"`
 	Overview          string  `gorm:"-" json:"overview,omitempty"`

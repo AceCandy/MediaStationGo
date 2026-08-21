@@ -11,7 +11,7 @@ import (
 )
 
 func TestStorageBreakdownUsesCanonicalLibraryDisplay(t *testing.T) {
-	db := newServiceTestDB(t, &model.Library{}, &model.Media{})
+	db := newServiceTestDB(t, &model.Library{}, &model.Media{}, &model.MediaProbeMetadata{})
 	repos := repository.New(db)
 	libs := []model.Library{
 		{Name: "外语电影", Path: "/media/电影/外语电影", Type: "movie", Enabled: true},

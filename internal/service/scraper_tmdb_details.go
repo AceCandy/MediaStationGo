@@ -144,7 +144,7 @@ func applyTMDbEpisodeMetadataUpdates(item *model.MetadataItem, updates map[strin
 	}
 }
 
-func tmdbEpisodeMetadataUpdates(m *model.Media, episode *TMDbEpisodeDetails, matchYear int) (map[string]any, map[string]any) {
+func tmdbEpisodeMetadataUpdates(_ *model.Media, episode *TMDbEpisodeDetails, matchYear int) (map[string]any, map[string]any) {
 	metadataUpdates := map[string]any{}
 	mediaUpdates := map[string]any{}
 	if episode == nil {
@@ -161,9 +161,6 @@ func tmdbEpisodeMetadataUpdates(m *model.Media, episode *TMDbEpisodeDetails, mat
 	}
 	if episode.AirYear > 0 && matchYear <= 0 {
 		metadataUpdates["year"] = episode.AirYear
-	}
-	if m != nil && episode.Runtime > 0 && m.DurationSec <= 0 {
-		mediaUpdates["duration_sec"] = episode.Runtime * 60
 	}
 	return metadataUpdates, mediaUpdates
 }

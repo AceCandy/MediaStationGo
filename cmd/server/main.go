@@ -104,6 +104,9 @@ func main() {
 	service.ApplyRuntimeSettings(context.Background(), cfg, repos, logger)
 	applyCPUThreadLimit(cfg, logger)
 	services := service.New(cfg, logger, repos)
+	if err := services.MediaProbe.BackfillSummaries(context.Background()); err != nil {
+		logger.Fatal("media probe summary backfill failed", zap.Error(err))
+	}
 
 	if err := services.Auth.SeedAdmin(context.Background()); err != nil {
 		logger.Warn("seed admin failed", zap.Error(err))

@@ -33,7 +33,14 @@ m.*,
 	COALESCE(mi.kind, '') AS view_metadata_kind,
 	COALESCE(mi.source, '') AS view_metadata_source,
 	COALESCE(poster_asset.id, '') AS view_poster_asset_id,
-	COALESCE(still_asset.id, backdrop_asset.id, '') AS view_backdrop_asset_id`
+	COALESCE(still_asset.id, backdrop_asset.id, '') AS view_backdrop_asset_id,
+	COALESCE(pm.duration_ms, 0) AS view_probe_duration_ms,
+	COALESCE(pm.size_bytes, 0) AS view_probe_size_bytes,
+	COALESCE(pm.container, '') AS view_probe_container,
+	COALESCE(pm.width, 0) AS view_probe_width,
+	COALESCE(pm.height, 0) AS view_probe_height,
+	COALESCE(pm.video_codec, '') AS view_probe_video_codec,
+	COALESCE(pm.audio_codec, '') AS view_probe_audio_codec`
 
 // MediaViewRepository 对共享元数据完成 JOIN 后再执行权限、排序和分页。
 type MediaViewRepository struct {
@@ -50,6 +57,7 @@ func (r *MediaViewRepository) SetSearchBackend(backend MediaSearchBackend) {
 func (r *MediaViewRepository) query(ctx context.Context) *gorm.DB {
 	return r.db.WithContext(ctx).
 		Table("media AS m").
+		Joins("LEFT JOIN media_probe_metadata AS pm ON pm.media_id = m.id").
 		Joins("JOIN metadata_items AS mi ON mi.id = m.metadata_id AND mi.deleted_at IS NULL").
 		Joins("LEFT JOIN metadata_items AS season_metadata ON season_metadata.id = mi.parent_id AND mi.kind = 'episode' AND season_metadata.kind = 'season' AND season_metadata.deleted_at IS NULL").
 		Joins("LEFT JOIN metadata_items AS series_metadata ON series_metadata.id = CASE WHEN mi.kind = 'episode' THEN season_metadata.parent_id WHEN mi.kind = 'season' THEN mi.parent_id ELSE NULL END AND series_metadata.kind = 'series' AND series_metadata.deleted_at IS NULL").

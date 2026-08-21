@@ -119,7 +119,7 @@ Use this contract when changing local media discovery, media deletion, or the `m
 #### 3. Contracts
 
 - A local file is unchanged only when both scan fingerprint fields match and path-derived metadata needs no refresh.
-- For `.strm`, the fingerprint belongs to the local sidecar; `media.size_bytes` may describe the playback target and must not be reused.
+- For `.strm`, the fingerprint belongs to the local sidecar; playback-target size belongs to `media_probe_metadata.size_bytes` and must not be reused as the scan fingerprint.
 - The unchanged return occurs before media Upsert and probe scheduling, preserving `media.updated_at` and probe data.
 - Post-scan automatic STRM generation skips media whose source path or container is already `.strm`; skipped source paths remain protected from overwrite cleanup.
 - Every media deletion uses `Unscoped().Delete`; `media.deleted_at` remains only as a compatibility column.
@@ -136,7 +136,7 @@ Use this contract when changing local media discovery, media deletion, or the `m
 
 - Good: an unchanged `.strm` is skipped without reading or probing its target.
 - Base: a legacy row is updated once, then skipped on the next unchanged scan.
-- Bad: comparing `.strm` sidecar size with `media.size_bytes`, causing every scan to update.
+- Bad: comparing `.strm` sidecar size with `media_probe_metadata.size_bytes`, causing every scan to update.
 
 #### 6. Tests Required
 

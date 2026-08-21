@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -11,7 +12,6 @@ import (
 	"time"
 
 	"gorm.io/gorm"
-	"gorm.io/gorm/clause"
 
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 	"github.com/ShukeBta/MediaStationGo/internal/repository"
@@ -20,6 +20,8 @@ import (
 var ErrMediaProbeSourceChanged = errors.New("media probe source changed")
 
 const FFprobePathMappingsSettingKey = "ffprobe.path_mappings"
+
+const ProbeSummaryVersion = 1
 
 // ProbeBackfillResult 汇总一次完整轨道回填结果。
 type ProbeBackfillResult struct {
@@ -142,6 +144,41 @@ func (s *MediaProbeService) LoadMany(ctx context.Context, mediaIDs []string) map
 func (s *MediaProbeService) NeedsProbe(ctx context.Context, mediaID string) bool {
 	_, ok := s.Load(ctx, mediaID)
 	return !ok
+}
+
+// BackfillSummaries projects existing valid probe documents without probing media again.
+func (s *MediaProbeService) BackfillSummaries(ctx context.Context) error {
+	if s == nil || s.repo == nil || s.repo.DB == nil || s.repo.MediaProbe == nil {
+		return errors.New("media probe unavailable")
+	}
+	const pageSize = 100
+	lastID := ""
+	for {
+		var rows []model.MediaProbeMetadata
+		query := s.repo.DB.WithContext(ctx).
+			Where("COALESCE(summary_version, 0) <> ?", ProbeSummaryVersion).
+			Order("media_id").Limit(pageSize)
+		if lastID != "" {
+			query = query.Where("media_id > ?", lastID)
+		}
+		if err := query.Find(&rows).Error; err != nil {
+			return err
+		}
+		if len(rows) == 0 {
+			return nil
+		}
+		for i := range rows {
+			doc, err := UnmarshalProbeDocument(rows[i].ProbeJSON, rows[i].SchemaVersion)
+			if err != nil {
+				continue
+			}
+			projectProbeSummary(&rows[i], doc, 0)
+			if err := s.repo.MediaProbe.Upsert(ctx, &rows[i]); err != nil {
+				return err
+			}
+		}
+		lastID = rows[len(rows)-1].MediaID
+	}
 }
 
 // BackfillLibrary 回填指定媒体库中缺失或过期的完整探测文档，limit 为零时不限制探测数量。
@@ -270,7 +307,7 @@ func currentSourceIdentity(media *model.Media, rawMappings string) (string, erro
 // resolveRemoteProbeSource 仅将 STRM 远程地址映射为可访问的本地媒体文件。
 func resolveRemoteProbeSource(media *model.Media, rawURL, rawMappings string) mediaProbeSource {
 	remote := mediaProbeSource{identity: remoteProbeSourceIdentity(media, "http", rawURL), url: rawURL}
-	if !strings.EqualFold(strings.TrimSpace(media.Container), "strm") && !strings.EqualFold(filepath.Ext(media.Path), ".strm") {
+	if !strings.EqualFold(filepath.Ext(media.Path), ".strm") {
 		return remote
 	}
 	target := mapRemoteProbePath(rawMappings, rawURL)
@@ -370,40 +407,35 @@ func remoteProbeSourceIdentity(media *model.Media, kind, stableRef string) strin
 	return strings.Join([]string{kind, media.Path, media.STRMURL, stableRef}, "\x00")
 }
 
-func probeResultUpdates(probe *ProbeResult) map[string]any {
-	updates := map[string]any{}
-	if probe == nil {
-		return updates
+func projectProbeSummary(row *model.MediaProbeMetadata, doc *ProbeDocument, targetSize int64) {
+	row.SummaryVersion = ProbeSummaryVersion
+	row.DurationMS, row.SizeBytes, row.BitRate = 0, 0, 0
+	row.Width, row.Height = 0, 0
+	row.Container, row.VideoCodec, row.AudioCodec = "", "", ""
+	if doc.Format.Duration > 0 {
+		row.DurationMS = int64(math.Round(doc.Format.Duration * 1000))
 	}
-	if probe.Document != nil && probe.Document.Format.Size > 0 {
-		updates["size_bytes"] = probe.Document.Format.Size
+	row.SizeBytes = doc.Format.Size
+	if targetSize > 0 {
+		row.SizeBytes = targetSize
 	}
-	if probe.DurationSec > 0 {
-		updates["duration_sec"] = probe.DurationSec
+	row.Container = strings.TrimSpace(doc.Format.Name)
+	row.BitRate = doc.Format.BitRate
+	for _, stream := range doc.Streams {
+		switch stream.CodecType {
+		case "video":
+			if row.VideoCodec == "" {
+				row.VideoCodec, row.Width, row.Height = stream.CodecName, stream.Width, stream.Height
+			}
+		case "audio":
+			if row.AudioCodec == "" {
+				row.AudioCodec = stream.CodecName
+			}
+		}
 	}
-	if probe.Width > 0 {
-		updates["width"] = probe.Width
-	}
-	if probe.Height > 0 {
-		updates["height"] = probe.Height
-	}
-	if strings.TrimSpace(probe.VideoCodec) != "" {
-		updates["video_codec"] = probe.VideoCodec
-	}
-	if strings.TrimSpace(probe.AudioCodec) != "" {
-		updates["audio_codec"] = probe.AudioCodec
-	}
-	if probe.Container != "" {
-		updates["container"] = probe.Container
-	}
-	return updates
 }
 
 func (s *MediaProbeService) persist(ctx context.Context, mediaID string, source mediaProbeSource, result *ProbeResult) error {
-	updates := probeResultUpdates(result)
-	if source.local {
-		updates["size_bytes"] = source.size
-	}
 	var probeJSON string
 	if result != nil && result.Document != nil {
 		var err error
@@ -422,11 +454,6 @@ func (s *MediaProbeService) persist(ctx context.Context, mediaID string, source 
 		if err != nil || identity != source.identity {
 			return ErrMediaProbeSourceChanged
 		}
-		if len(updates) > 0 {
-			if err := tx.Model(&current).Updates(updates).Error; err != nil {
-				return err
-			}
-		}
 		if probeJSON == "" {
 			return nil
 		}
@@ -434,9 +461,11 @@ func (s *MediaProbeService) persist(ctx context.Context, mediaID string, source 
 			MediaID: mediaID, ProbeJSON: probeJSON,
 			SchemaVersion: ProbeDocumentSchemaVersion, ProbedAt: time.Now().UTC(),
 		}
-		return tx.Clauses(clause.OnConflict{
-			Columns:   []clause.Column{{Name: "media_id"}},
-			DoUpdates: clause.AssignmentColumns([]string{"probe_json", "schema_version", "probed_at"}),
-		}).Create(&row).Error
+		targetSize := int64(0)
+		if source.local {
+			targetSize = source.size
+		}
+		projectProbeSummary(&row, result.Document, targetSize)
+		return repository.New(tx).MediaProbe.Upsert(ctx, &row)
 	})
 }

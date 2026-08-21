@@ -87,6 +87,72 @@ func TestExternalURLUsesMediaScopedPlaybackToken(t *testing.T) {
 	}
 }
 
+func TestPlaybackInfoReturnsUnresolvedMediaWithProbeSummary(t *testing.T) {
+	router, _, secret := newPlaybackScopeTestRouter(t)
+	req := httptest.NewRequest(http.MethodGet, "http://nas.local/api/playback/media-1/info", nil)
+	req.Header.Set("Authorization", "Bearer "+signedTestToken(t, secret))
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", w.Code, w.Body.String())
+	}
+	var payload struct {
+		Media struct {
+			ID          string `json:"id"`
+			DurationSec int    `json:"duration_sec"`
+			SizeBytes   int64  `json:"size_bytes"`
+			Container   string `json:"container"`
+			Width       int    `json:"width"`
+			Height      int    `json:"height"`
+			VideoCodec  string `json:"video_codec"`
+			AudioCodec  string `json:"audio_codec"`
+		} `json:"media"`
+		StreamURL string `json:"stream_url"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Media.ID != "media-1" || payload.Media.DurationSec != 7200 || payload.Media.SizeBytes != 8_000_000_000 {
+		t.Fatalf("unexpected media projection: %+v", payload.Media)
+	}
+	if payload.Media.Container != "matroska" || payload.Media.Width != 3840 || payload.Media.Height != 2160 || payload.Media.VideoCodec != "hevc" || payload.Media.AudioCodec != "eac3" {
+		t.Fatalf("unexpected probe fields: %+v", payload.Media)
+	}
+	if !strings.HasPrefix(payload.StreamURL, "/api/stream/media-1?") {
+		t.Fatalf("stream_url = %q", payload.StreamURL)
+	}
+}
+
+func TestPlaybackInfoUnresolvedWithoutProbeDoesNotUseLegacyTechnicalFields(t *testing.T) {
+	router, _, secret := newPlaybackScopeTestRouter(t)
+	req := httptest.NewRequest(http.MethodGet, "http://nas.local/api/playback/media-2/info", nil)
+	req.Header.Set("Authorization", "Bearer "+signedTestToken(t, secret))
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", w.Code, w.Body.String())
+	}
+	var payload struct {
+		Media struct {
+			DurationSec int    `json:"duration_sec"`
+			SizeBytes   int64  `json:"size_bytes"`
+			Container   string `json:"container"`
+			Width       int    `json:"width"`
+			Height      int    `json:"height"`
+			VideoCodec  string `json:"video_codec"`
+			AudioCodec  string `json:"audio_codec"`
+		} `json:"media"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Media.DurationSec != 0 || payload.Media.SizeBytes != 0 || payload.Media.Container != "" || payload.Media.Width != 0 || payload.Media.Height != 0 || payload.Media.VideoCodec != "" || payload.Media.AudioCodec != "" {
+		t.Fatalf("legacy technical fields leaked into PlaybackInfo: %+v", payload.Media)
+	}
+}
+
 func TestStreamMissingLocalMediaReturnsNotFound(t *testing.T) {
 	router, _, secret := newPlaybackScopeTestRouter(t)
 	loginToken := signedTestToken(t, secret)
@@ -362,6 +428,7 @@ func newPlaybackScopeTestRouter(t *testing.T) (*gin.Engine, *service.Container, 
 		&model.Setting{},
 		&model.Library{},
 		&model.Media{},
+		&model.MediaProbeMetadata{},
 		&model.PlayProfile{},
 	); err != nil {
 		t.Fatal(err)
@@ -400,15 +467,22 @@ func newPlaybackScopeTestRouter(t *testing.T) (*gin.Engine, *service.Container, 
 			LibraryID:   lib.ID,
 			Title:       "Movie 1",
 			Path:        filepath.Join(libraryRoot, "Movie.mkv"),
-			DurationSec: 2 * 60 * 60,
+			DurationSec: 1,
 			STRMURL:     playbackScopeRemoteURL,
 		},
 		{
-			Base:      model.Base{ID: "media-2"},
-			LibraryID: lib.ID,
-			Title:     "Movie 2",
-			Path:      filepath.Join(libraryRoot, "Other.mkv"),
-			STRMURL:   "https://cdn.example.test/Movies/Other.mkv",
+			Base:        model.Base{ID: "media-2"},
+			LibraryID:   lib.ID,
+			Title:       "Movie 2",
+			Path:        filepath.Join(libraryRoot, "Other.mkv"),
+			DurationSec: 123,
+			SizeBytes:   456,
+			Container:   "legacy",
+			Width:       640,
+			Height:      360,
+			VideoCodec:  "legacy-video",
+			AudioCodec:  "legacy-audio",
+			STRMURL:     "https://cdn.example.test/Movies/Other.mkv",
 		},
 		{
 			Base:      model.Base{ID: "media-missing-strm"},
@@ -420,10 +494,18 @@ func newPlaybackScopeTestRouter(t *testing.T) (*gin.Engine, *service.Container, 
 	if err := repos.DB.Create(&rows).Error; err != nil {
 		t.Fatal(err)
 	}
+	if err := repos.DB.Create(&model.MediaProbeMetadata{
+		MediaID: "media-1", ProbeJSON: "{}", SchemaVersion: 1, SummaryVersion: 1,
+		DurationMS: 7_200_000, SizeBytes: 8_000_000_000, Container: "matroska",
+		Width: 3840, Height: 2160, VideoCodec: "hevc", AudioCodec: "eac3", ProbedAt: time.Now(),
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
 
 	router := gin.New()
 	api := router.Group("/api")
 	api.Use(middleware.AuthRequired(cfg.Secrets.JWTSecret))
+	api.GET("/playback/:id/info", playbackInfoHandler(svc))
 	api.GET("/playback/:id/external-url", externalURLHandler(svc))
 	api.GET("/playback/:id/external-players", externalPlayersHandler(svc))
 	api.GET("/stream/:id", streamHandler(svc))

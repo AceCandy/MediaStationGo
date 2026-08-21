@@ -205,8 +205,8 @@ func TestEnrichLibrarySkipsDeferredEpisodeStillWhenDisabled(t *testing.T) {
 	}
 
 	got := serviceTestMediaView(t, repos, media.ID)
-	if got.Overview != "单集剧情" || got.DurationSec != 24*60 {
-		t.Fatalf("deferred episode text metadata should still be saved: overview=%q duration=%d", got.Overview, got.DurationSec)
+	if got.Overview != "单集剧情" || got.DurationSec != 0 {
+		t.Fatalf("deferred episode text metadata should not create technical duration: overview=%q duration=%d", got.Overview, got.DurationSec)
 	}
 	var stillCount int64
 	if got.MetadataID == "" {

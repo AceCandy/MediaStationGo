@@ -41,13 +41,9 @@ func (e *EmbyService) MarkPlayed(ctx context.Context, userID, itemID string, pla
 			Where("user_id = ? AND metadata_id = ?", userID, target.MetadataID).
 			Delete(&model.PlaybackHistory{}).Error
 	}
-	m, err := e.repo.Media.FindByID(ctx, target.MediaID)
-	if err != nil || m == nil {
-		return errors.New("media not found")
-	}
-	dur := int64(m.DurationSec) * 1000
-	if dur <= 0 {
-		dur = 1
+	dur := int64(0)
+	if probe, _ := e.repo.MediaProbe.FindByMediaID(ctx, target.MediaID); probe != nil {
+		dur = probe.DurationMS
 	}
 	return e.repo.History.Upsert(ctx, &model.PlaybackHistory{
 		UserID:     userID,
@@ -82,10 +78,12 @@ func (e *EmbyService) RecordProgress(ctx context.Context, userID, itemID, mediaS
 	pos := positionTicks / 10_000
 	dur := runtimeTicks / 10_000
 	if dur <= 0 {
-		// runtimeTicks 缺失时回退到 media.DurationSec
-		if m, _ := e.repo.Media.FindByID(ctx, target.MediaID); m != nil {
-			dur = int64(m.DurationSec) * 1000
+		if probe, _ := e.repo.MediaProbe.FindByMediaID(ctx, target.MediaID); probe != nil {
+			dur = probe.DurationMS
 		}
+	}
+	if dur <= 0 {
+		return nil
 	}
 	if err := validatePlaybackProgress(pos, dur); err != nil {
 		return err

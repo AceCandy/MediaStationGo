@@ -104,8 +104,8 @@ func TestScanLibraryImportsISOImage(t *testing.T) {
 	if err := repos.DB.First(&media).Error; err != nil {
 		t.Fatal(err)
 	}
-	if media.Path != isoPath || media.Container != "iso" {
-		t.Fatalf("ISO media = %#v, want path %q and container iso", media, isoPath)
+	if media.Path != isoPath {
+		t.Fatalf("ISO media = %#v, want path %q", media, isoPath)
 	}
 }
 
@@ -236,7 +236,7 @@ func TestScanLibraryReadsLocalSTRMTarget(t *testing.T) {
 	if err := repos.DB.First(&media).Error; err != nil {
 		t.Fatal(err)
 	}
-	if media.Container != "strm" || media.STRMURL != "https://cdn.example.com/movie.mkv" {
+	if media.STRMURL != "https://cdn.example.com/movie.mkv" {
 		t.Fatalf("strm media not parsed: %#v", media)
 	}
 }

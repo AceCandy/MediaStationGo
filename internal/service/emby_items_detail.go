@@ -225,8 +225,8 @@ func (e *EmbyService) itemPayloadWithRelations(ctx context.Context, m *model.Med
 		backdropTags = append(backdropTags, itemID+"-bd")
 	}
 
-	runTimeTicks := int64(m.DurationSec) * 10_000_000
-	durationMs := int64(m.DurationSec) * 1000
+	durationMs := m.ProbeDurationMS
+	runTimeTicks := durationMs * 10_000
 	played := playbackCompleted(posMs, durationMs)
 	pct := 0.0
 	if durationMs > 0 {
@@ -238,7 +238,7 @@ func (e *EmbyService) itemPayloadWithRelations(ctx context.Context, m *model.Med
 			pct = 100
 		}
 	}
-	container := embyMediaContainer(&m.Media)
+	container := embyMediaContainer(&m.Media, m.ProbeContainer)
 	isLocalSTRM := localSTRMFileTarget(&m.Media) != ""
 	isRemote := strings.TrimSpace(m.STRMURL) != "" && !isLocalSTRM
 	playURL := embyDirectStreamURL(m.ID, container)

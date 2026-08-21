@@ -549,18 +549,18 @@ func TestStreamProbeUsesLocalSTRMTarget(t *testing.T) {
 	if prober.path != target {
 		t.Fatalf("probed path = %q, want STRM target %q", prober.path, target)
 	}
-	var persisted model.Media
-	if err := repos.DB.First(&persisted, "id = ?", media.ID).Error; err != nil {
+	persisted, err := repos.MediaProbe.FindByMediaID(t.Context(), media.ID)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if persisted.DurationSec != 120 || persisted.SizeBytes != int64(len("target-video")) {
+	if persisted == nil || persisted.DurationMS != 120_000 || persisted.SizeBytes != int64(len("target-video")) {
 		t.Fatalf("probe metadata not persisted: %#v", persisted)
 	}
 }
 
 func newStreamTestRepo(t *testing.T) *repository.Container {
 	t.Helper()
-	db := newServiceTestDB(t, &model.Media{}, &model.Setting{})
+	db := newServiceTestDB(t, &model.Media{}, &model.MediaProbeMetadata{}, &model.Setting{})
 	return repository.New(db)
 }
 
