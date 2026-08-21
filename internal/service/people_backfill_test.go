@@ -10,18 +10,18 @@ import (
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 )
 
-func TestManualPeopleBackfillRecordsEmptyRun(t *testing.T) {
+func TestPeopleBackfillRecordsManualButNotScheduledEmptyRun(t *testing.T) {
 	scraper, _, closeUpstream := newTestScraper(t)
 	defer closeUpstream()
 	tasks := NewTaskTrackerService(nil, nil)
 	tasks.ConfigurePersistence(nil, t.TempDir())
 	scraper.SetTaskTracker(tasks)
 
-	if err := scraper.runPeopleBackfillPass(t.Context(), TaskTriggerEvent); err != nil {
+	if err := scraper.runPeopleBackfillPass(t.Context(), TaskTriggerScheduled); err != nil {
 		t.Fatal(err)
 	}
 	if snapshot := tasks.Snapshot(); len(snapshot.Recent) != 0 {
-		t.Fatalf("event snapshot = %+v, want no empty execution", snapshot)
+		t.Fatalf("scheduled snapshot = %+v, want no empty execution", snapshot)
 	}
 	if err := scraper.runPeopleBackfillPass(t.Context(), TaskTriggerManual); err != nil {
 		t.Fatal(err)

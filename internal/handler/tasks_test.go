@@ -103,11 +103,57 @@ func TestTaskDefinitionRunHandlerRejectsTaskWithoutAction(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)
-	ctx.Params = gin.Params{{Key: "key", Value: service.TaskDefinitionPeopleTranslation}}
+	ctx.Params = gin.Params{{Key: "key", Value: service.TaskDefinitionLibraryWatch}}
 
 	taskDefinitionRunHandler(&service.Container{})(ctx)
 
 	if recorder.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestTaskDefinitionRunHandlerRejectsUnknownDefinition(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Params = gin.Params{{Key: "key", Value: "unknown"}}
+
+	taskDefinitionRunHandler(&service.Container{})(ctx)
+
+	if recorder.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestTaskDefinitionRunHandlerAcceptsScheduledManualTask(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	scheduler := service.NewSchedulerService(zap.NewNop(), nil, nil, nil, nil)
+	scheduler.Start(t.Context())
+	t.Cleanup(scheduler.Stop)
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/api/tasks/definitions/people_translation/run", nil)
+	ctx.Params = gin.Params{{Key: "key", Value: service.TaskDefinitionPeopleTranslation}}
+
+	taskDefinitionRunHandler(&service.Container{Scheduler: scheduler})(ctx)
+
+	if recorder.Code != http.StatusAccepted {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestPeopleBackfillCompatibilityHandlerUsesScheduler(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	scheduler := service.NewSchedulerService(zap.NewNop(), nil, nil, nil, nil)
+	scheduler.Start(t.Context())
+	t.Cleanup(scheduler.Stop)
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/api/tasks/people-backfill", nil)
+
+	peopleBackfillHandler(&service.Container{Scheduler: scheduler})(ctx)
+
+	if recorder.Code != http.StatusAccepted {
 		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
 	}
 }

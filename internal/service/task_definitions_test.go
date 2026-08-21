@@ -108,6 +108,35 @@ func TestProbeBackfillDefinitionSupportsManualExecution(t *testing.T) {
 	t.Fatal("probe backfill definition not found")
 }
 
+func TestScheduledTaskDefinitionsSupportManualExecution(t *testing.T) {
+	definitions, err := NewTaskTrackerService(nil, nil).Definitions(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]bool{
+		TaskDefinitionOrganize:          true,
+		TaskDefinitionLibraryScan:       true,
+		TaskDefinitionPeopleBackfill:    true,
+		TaskDefinitionPeopleTranslation: true,
+		TaskDefinitionAccountCleanup:    true,
+	}
+	for _, definition := range definitions {
+		if !want[definition.Key] {
+			continue
+		}
+		if definition.Action != "scheduler" || definition.Trigger != "定时 / 手动" {
+			t.Fatalf("definition %s = %#v", definition.Key, definition)
+		}
+		if _, ok := TaskDefinitionSchedulerJob(definition.Key); !ok {
+			t.Fatalf("scheduler job missing for %s", definition.Key)
+		}
+		delete(want, definition.Key)
+	}
+	if len(want) != 0 {
+		t.Fatalf("missing scheduled definitions: %v", want)
+	}
+}
+
 func TestTaskDefinitionsSeparateCurrentStateFromLatestResult(t *testing.T) {
 	tracker := NewTaskTrackerService(nil, nil)
 	startFinishedTask(t, tracker, TaskKindPeople, "人物信息补齐", TaskUpdate{Stage: "people"})

@@ -9,8 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"go.uber.org/zap"
-
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 )
 
@@ -30,58 +28,6 @@ type peopleBackfillCandidate struct {
 	MetadataID string
 	Kind       string
 	ExternalID string
-}
-
-func (s *ScraperService) StartPeopleBackfillWorker(ctx context.Context) {
-	if s == nil {
-		return
-	}
-	s.peopleBackfillOnce.Do(func() {
-		s.peopleBackfillWG.Add(1)
-		go s.runPeopleBackfillWorker(ctx)
-		s.queuePeopleBackfill()
-	})
-}
-
-func (s *ScraperService) WaitPeopleBackfillWorker() {
-	if s != nil {
-		s.peopleBackfillWG.Wait()
-	}
-}
-
-func (s *ScraperService) TriggerPeopleBackfill() {
-	if s != nil {
-		s.peopleBackfillManual.Store(true)
-		s.queuePeopleBackfill()
-	}
-}
-
-func (s *ScraperService) queuePeopleBackfill() {
-	if s == nil {
-		return
-	}
-	select {
-	case s.peopleBackfillWake <- struct{}{}:
-	default:
-	}
-}
-
-func (s *ScraperService) runPeopleBackfillWorker(ctx context.Context) {
-	defer s.peopleBackfillWG.Done()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-s.peopleBackfillWake:
-		}
-		trigger := TaskTriggerEvent
-		if s.peopleBackfillManual.Swap(false) {
-			trigger = TaskTriggerManual
-		}
-		if err := s.runPeopleBackfillPass(ctx, trigger); err != nil && ctx.Err() == nil && s.log != nil {
-			s.log.Warn("people backfill pass failed", zap.Error(err))
-		}
-	}
 }
 
 func (s *ScraperService) runPeopleBackfillPass(ctx context.Context, trigger string) error {

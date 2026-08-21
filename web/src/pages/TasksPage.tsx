@@ -4,6 +4,7 @@ import { Activity, ChevronLeft, ChevronRight, FileText, Play, RefreshCw, Setting
 
 import { libraryAPI } from '../api/library'
 import { tasksAPI, type BackgroundTask, type TaskDefinition, type TaskLog } from '../api/tasks'
+import { confirmAction } from '../components/confirmAction'
 import { ModalShell } from '../components/ModalShell'
 import type { Library } from '../types'
 
@@ -349,6 +350,7 @@ export function TasksPage() {
 	const [libraries, setLibraries] = useState<Library[]>([])
 	const [probeLibraryID, setProbeLibraryID] = useState('')
 	const [probeLimit, setProbeLimit] = useState('')
+	const runPending = useRef(false)
 
 	const refresh = () => tasksAPI.snapshot(1, 1).then((value) => { setDefinitions(value.definitions ?? []); setLoadError(false) })
   useEffect(() => {
@@ -363,9 +365,16 @@ export function TasksPage() {
   }, [])
 
   const run = async (definition: TaskDefinition) => {
-    if (running || definition.current_state === 'running') return
+		if (runPending.current || running || definition.current_state === 'running') return
+		runPending.current = true
     setRunning(definition.key)
     try {
+			if (definition.key === 'account_cleanup' && !await confirmAction({
+				title: '确认执行账号清理巡检',
+				message: '将立即按当前保号规则检查并清理不符合条件的账号，请确认是否继续。',
+				confirmText: '确认执行',
+				danger: true,
+			})) return
       const limit = definition.action === 'probe_backfill' && probeLimit ? Number(probeLimit) : undefined
       if (limit !== undefined && (!Number.isInteger(limit) || limit < 1)) {
         toast.error('回填数量必须是正整数')
@@ -381,6 +390,7 @@ export function TasksPage() {
       const message = (err as { response?: { data?: { error?: string } } })?.response?.data?.error ?? '任务触发失败'
       toast.error(message)
     } finally {
+			runPending.current = false
       setRunning('')
     }
   }

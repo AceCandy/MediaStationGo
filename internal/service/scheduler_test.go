@@ -278,3 +278,13 @@ func TestSchedulerManualRunBypassesDisabledSchedule(t *testing.T) {
 		t.Fatalf("manual runs = %d, want 1", runs.Load())
 	}
 }
+
+func TestSchedulerTaskTrigger(t *testing.T) {
+	if got := schedulerTaskTrigger(t.Context()); got != TaskTriggerScheduled {
+		t.Fatalf("default trigger = %q, want %q", got, TaskTriggerScheduled)
+	}
+	ctx := context.WithValue(t.Context(), schedulerManualRunKey{}, true)
+	if got := schedulerTaskTrigger(ctx); got != TaskTriggerManual {
+		t.Fatalf("manual trigger = %q, want %q", got, TaskTriggerManual)
+	}
+}

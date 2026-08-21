@@ -1,0 +1,4 @@
+{"file":".trellis/spec/backend/background-task-execution.md","reason":"后台任务定义、调度、触发来源和日志契约"}
+{"file":".trellis/spec/frontend/design-system.md","reason":"复用现有危险确认对话框与前端组件规范"}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"任务定义 API 到任务中心动作的跨层一致性"}
+{"file":".trellis/spec/guides/code-reuse-thinking-guide.md","reason":"复用 scheduler 手动入口和 confirmAction，避免重复机制"}

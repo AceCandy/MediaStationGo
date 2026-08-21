@@ -2,7 +2,6 @@ package service
 
 import (
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"go.uber.org/zap"
@@ -32,10 +31,6 @@ type ScraperService struct {
 	ai      *AIService
 
 	peopleTranslationRunMu sync.Mutex
-	peopleBackfillWake     chan struct{}
-	peopleBackfillOnce     sync.Once
-	peopleBackfillWG       sync.WaitGroup
-	peopleBackfillManual   atomic.Bool
 	peopleBackfillRunMu    sync.Mutex
 
 	catalogHydrationWake chan struct{}
@@ -77,7 +72,6 @@ func NewScraperService(
 	return &ScraperService{
 		cfg: cfg, log: log, repo: repo,
 		tmdb: tmdb, bangumi: bangumi, thetvdb: thetvdb, fanart: fanart, adult: adultProvider, hub: hub,
-		peopleBackfillWake: make(chan struct{}, 1),
 	}
 }
 

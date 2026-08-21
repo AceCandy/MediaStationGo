@@ -149,13 +149,8 @@ func taskDefinitionRunHandler(svc *service.Container) gin.HandlerFunc {
 			c.JSON(http.StatusAccepted, gin.H{"status": "started"})
 			return
 		}
-		if key == service.TaskDefinitionPeopleBackfill {
-			if svc == nil || svc.Scraper == nil || svc.Tasks == nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "people backfill unavailable"})
-				return
-			}
-			svc.Scraper.TriggerPeopleBackfill()
-			c.JSON(http.StatusAccepted, gin.H{"status": "queued"})
+		if !service.TaskDefinitionExists(key) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "task definition not found"})
 			return
 		}
 		job, ok := service.TaskDefinitionSchedulerJob(key)

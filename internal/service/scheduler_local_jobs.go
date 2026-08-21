@@ -15,11 +15,9 @@ import (
 //
 // 定时开关和周期由 SchedulerService 统一管理；手动调用始终执行。
 func (s *SchedulerService) jobScanLibraries(ctx context.Context) error {
-	manual, _ := ctx.Value(schedulerManualRunKey{}).(bool)
-	trigger := TaskTriggerScheduled
+	trigger := schedulerTaskTrigger(ctx)
 	name := "定时媒体库扫描"
-	if manual {
-		trigger = TaskTriggerManual
+	if trigger == TaskTriggerManual {
 		name = "手动触发媒体库扫描"
 	}
 	var task *TaskHandle
@@ -136,14 +134,14 @@ func (s *SchedulerService) jobPeopleBackfill(ctx context.Context) error {
 	if s.scraper == nil {
 		return nil
 	}
-	return s.scraper.runPeopleBackfillPass(ctx, TaskTriggerScheduled)
+	return s.scraper.runPeopleBackfillPass(ctx, schedulerTaskTrigger(ctx))
 }
 
 func (s *SchedulerService) jobPeopleTranslation(ctx context.Context) error {
 	if s.scraper == nil {
 		return nil
 	}
-	return s.scraper.translatePendingPeopleScheduled(ctx)
+	return s.scraper.translatePendingPeople(ctx, schedulerTaskTrigger(ctx))
 }
 
 func (s *SchedulerService) jobAccountCleanup(ctx context.Context) error {
@@ -154,7 +152,7 @@ func (s *SchedulerService) jobAccountCleanup(ctx context.Context) error {
 		return errors.New("task tracker unavailable")
 	}
 	metrics := map[string]int64{"removed": 0}
-	task := s.tasks.StartTriggered(TaskKindCleanup, TaskTriggerScheduled, "账号清理巡检", TaskUpdate{
+	task := s.tasks.StartTriggered(TaskKindCleanup, schedulerTaskTrigger(ctx), "账号清理巡检", TaskUpdate{
 		Stage: "cleanup", Message: "账号清理巡检已启动", Metrics: metrics,
 	})
 	if task == nil {
@@ -173,6 +171,13 @@ func (s *SchedulerService) jobAccountCleanup(ctx context.Context) error {
 	}
 	task.Finish(nil, TaskUpdate{Stage: "completed", Message: "账号清理巡检完成", Metrics: metrics, Details: []string{detail}})
 	return nil
+}
+
+func schedulerTaskTrigger(ctx context.Context) string {
+	if manual, _ := ctx.Value(schedulerManualRunKey{}).(bool); manual {
+		return TaskTriggerManual
+	}
+	return TaskTriggerScheduled
 }
 
 // isMissingTableErr lets the test harness ignore "no such table" errors

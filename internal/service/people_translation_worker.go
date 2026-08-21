@@ -24,7 +24,7 @@ type pendingPeopleTranslation struct {
 	targets []repository.TranslationTarget
 }
 
-func (s *ScraperService) translatePendingPeopleScheduled(ctx context.Context) error {
+func (s *ScraperService) translatePendingPeople(ctx context.Context, trigger string) error {
 	if s == nil {
 		return nil
 	}
@@ -49,7 +49,7 @@ func (s *ScraperService) translatePendingPeopleScheduled(ctx context.Context) er
 		return fmt.Errorf("task tracker unavailable")
 	}
 	metrics := map[string]int64{"total": int64(len(groups))}
-	task := s.tasks.StartTriggered(TaskKindPeople, TaskTriggerScheduled, "人物翻译", TaskUpdate{Stage: "translation", Message: "人物翻译已启动", Metrics: metrics})
+	task := s.tasks.StartTriggered(TaskKindPeople, trigger, "人物翻译", TaskUpdate{Stage: "translation", Message: "人物翻译已启动", Metrics: metrics})
 	if task == nil {
 		return fmt.Errorf("create task execution failed")
 	}

@@ -52,7 +52,14 @@ history is observability only; business object state owns retry and recovery.
   library scan, source organization, people backfill, people translation, and
   account cleanup. Their intervals are whole seconds from 60 seconds through 30
   days. Saving a schedule persists both settings and resets the live countdown;
-  a disabled job has no next run and does not block manual or event entry points.
+  a disabled job has no next run and does not block its server-owned manual action.
+- Every administrator-visible scheduler job exposes a manual task-definition
+  action. `RunNowAsync` bypasses the schedule's enabled flag, preserves the
+  scheduler's per-job concurrency guard, and marks executions as `manual` via
+  the scheduler context; timer-driven runs remain `scheduled`.
+- The task center shows a danger confirmation before manually running account
+  cleanup. Canceling sends no request, and the complete confirm/run flow admits
+  only one pending action so rapid clicks cannot create duplicate dialogs or requests.
 - Schedule setting keys, defaults, and bounds are server-owned. The task-center UI
   only converts seconds into a numeric duration and unit and displays server errors.
 - A watcher debounce window creates at most one execution after directory and
@@ -105,11 +112,15 @@ history is observability only; business object state owns retry and recovery.
   queue; transient failures retain the identifier for retry. The worker releases
   the shared scrape lock after each metadata object so newly imported media can
   take priority before the next object.
+- People backfill runs only through its scheduler job, either periodically or
+  through the manual action. Service startup must not enqueue an event pass.
+  Legacy manual HTTP routes resolve to the same scheduler job.
 - People translation creates an execution only after it finds pending names or
   roles. Disabled AI, an empty sweep, and cache-only idle checks create no task.
-- People translation runs only through its configured periodic schedule. Each
-  execution processes at most the first 1,000 deduplicated translation groups;
-  remaining pending groups stay in business state for later executions.
+- People translation runs through its configured periodic schedule or the same
+  job's manual action. Each execution processes at most the first 1,000
+  deduplicated translation groups; remaining pending groups stay in business
+  state for later executions.
 - People-name translation caches by `Person.ID`. Role translation caches by the
   owning metadata context: an episode uses its season `ParentID`; movie, series,
   and season credits use their own `MetadataID`. The remaining cache identity is
@@ -124,7 +135,8 @@ history is observability only; business object state owns retry and recovery.
 | Definition has no configurable periodic job | Reject the schedule update; do not persist settings |
 | Schedule interval is below 60 seconds or above 30 days | Return 400; do not change persisted or live configuration |
 | Schedule persistence fails | Keep the current live interval and enabled state |
-| Schedule is disabled | Clear `next_run`; manual and event entry points remain available |
+| Schedule is disabled | Clear `next_run`; the manual task-definition action remains available |
+| Account cleanup confirmation is canceled | Do not call the manual execution API |
 | Invalid or unavailable `YYYY-MM-DD` date | Return 400; never resolve a client-provided path |
 | Task execution insert fails | Do not start the background work |
 | Watcher execution insert fails | Requeue every candidate path for a later debounce batch |
@@ -154,7 +166,8 @@ history is observability only; business object state owns retry and recovery.
   present, without adding generic start or finish lines.
 - Good: equal role source text in two episodes of the same season creates one
   translation group with two write-back targets.
-- Base: no work exists; the worker waits for a wake signal.
+- Base: no People work exists; scheduled passes stay silent, while a manual
+  People backfill records the empty completed run.
 - Base: a disabled periodic job reports no `next_run`; its manual action still runs.
 - Base: an unmarked summary is written with `ℹ️`; historical labeled lines are
   displayed without their label and remain unchanged on disk.
@@ -183,12 +196,16 @@ history is observability only; business object state owns retry and recovery.
   `running -> pending` media recovery.
 - API/UI contract plus manual, scheduled, and event trigger attribution.
 - Schedule tests assert persistence, live countdown reset, disabled `next_run`,
-  bounds rejection without mutation, and manual/event bypass behavior.
+  bounds rejection without mutation, and manual bypass behavior.
+- Task-center checks assert account cleanup cancellation sends no request and
+  confirmation sends exactly one request; other scheduler actions require no confirmation.
 - Watcher tests assert one execution per debounce batch, semantic per-path details,
   partial-failure continuation, create-failure requeue, and scan/watch isolation.
-- People translation tests assert scheduled-only execution, a 1,000-group pass
-  limit with the remainder left pending, same-season role reuse, and cross-season
-  isolation without changing person-name caching.
+- People backfill tests assert no startup/event worker remains, scheduled empty
+  passes stay silent, and manual empty passes remain observable.
+- People translation tests assert manual/scheduled trigger attribution, a
+  1,000-group pass limit with the remainder left pending, same-season role reuse,
+  and cross-season isolation without changing person-name caching.
 
 ### 7. Wrong vs Correct
 
@@ -246,4 +263,12 @@ repo.Setting.Set(ctx, intervalKey, value)
 if err := scheduler.UpdateSchedule(ctx, jobName, enabled, intervalSeconds); err != nil {
 	return err
 }
+```
+
+```go
+// Wrong: a manual RunNow execution is persisted as scheduled.
+task := tasks.StartTriggered(kind, TaskTriggerScheduled, name, update)
+
+// Correct: the scheduler context owns trigger attribution for the shared job.
+task := tasks.StartTriggered(kind, schedulerTaskTrigger(ctx), name, update)
 ```

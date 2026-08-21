@@ -77,7 +77,7 @@ func TestScheduledPeopleTranslationUsesContextAndCache(t *testing.T) {
 	}}); err != nil {
 		t.Fatal(err)
 	}
-	if err := scraper.translatePendingPeopleScheduled(t.Context()); err != nil {
+	if err := scraper.translatePendingPeople(t.Context(), TaskTriggerScheduled); err != nil {
 		t.Fatal(err)
 	}
 
@@ -100,7 +100,7 @@ func TestScheduledPeopleTranslationUsesContextAndCache(t *testing.T) {
 	if err := db.Model(&model.MetadataCredit{}).Where("metadata_id = ?", metadata.ID).Update("role", "Chan Wing-yan").Error; err != nil {
 		t.Fatal(err)
 	}
-	if err := scraper.translatePendingPeopleScheduled(t.Context()); err != nil {
+	if err := scraper.translatePendingPeople(t.Context(), TaskTriggerScheduled); err != nil {
 		t.Fatal(err)
 	}
 	waitForPeopleTranslation(t, db, "梁朝伟", "陈永仁")
@@ -157,7 +157,7 @@ func TestScheduledPeopleTranslationLimitsPassTo1000(t *testing.T) {
 	scraper := NewScraperService(cfg, zap.NewNop(), repos, nil, nil, nil, nil, nil).SetAI(NewAIService(cfg, zap.NewNop(), nil))
 	scraper.SetTaskTracker(NewTaskTrackerService(zap.NewNop(), nil))
 
-	if err := scraper.translatePendingPeopleScheduled(t.Context()); err != nil {
+	if err := scraper.translatePendingPeople(t.Context(), TaskTriggerScheduled); err != nil {
 		t.Fatal(err)
 	}
 	var pending int64
@@ -169,7 +169,7 @@ func TestScheduledPeopleTranslationLimitsPassTo1000(t *testing.T) {
 		t.Fatalf("received=%d pending=%d snapshot=%+v", received.Load(), pending, snapshot)
 	}
 
-	if err := scraper.translatePendingPeopleScheduled(t.Context()); err != nil {
+	if err := scraper.translatePendingPeople(t.Context(), TaskTriggerScheduled); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.Model(&model.Person{}).Where("name = original_name").Count(&pending).Error; err != nil {
@@ -200,7 +200,7 @@ func TestPeopleTranslationEmptyPassDoesNotCreateTask(t *testing.T) {
 	cfg := &config.Config{AI: config.AIConfig{Enabled: true, APIKey: "test-key"}}
 	scraper := NewScraperService(cfg, zap.NewNop(), repos, nil, nil, nil, nil, nil).SetAI(NewAIService(cfg, zap.NewNop(), nil))
 	scraper.SetTaskTracker(NewTaskTrackerService(zap.NewNop(), nil))
-	if err := scraper.translatePendingPeopleScheduled(t.Context()); err != nil {
+	if err := scraper.translatePendingPeople(t.Context(), TaskTriggerScheduled); err != nil {
 		t.Fatal(err)
 	}
 	snapshot := scraper.tasks.Snapshot()

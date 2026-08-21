@@ -10,11 +10,14 @@ import (
 
 func peopleBackfillHandler(svc *service.Container) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if svc == nil || svc.Scraper == nil || svc.Tasks == nil {
+		if svc == nil || svc.Scheduler == nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "people backfill unavailable"})
 			return
 		}
-		svc.Scraper.TriggerPeopleBackfill()
+		job, ok := service.TaskDefinitionSchedulerJob(service.TaskDefinitionPeopleBackfill)
+		if !ok || !triggerSchedulerJob(c, svc, job) {
+			return
+		}
 		c.JSON(http.StatusAccepted, gin.H{"status": "queued"})
 	}
 }

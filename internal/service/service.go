@@ -96,7 +96,6 @@ func (c *Container) Boot() {
 		c.Log.Warn("api config seed failed", zap.Error(err))
 	}
 	if c.Scraper != nil {
-		c.Scraper.StartPeopleBackfillWorker(c.stopCtx)
 		c.Scraper.StartCatalogHydrationWorker(c.stopCtx)
 	}
 	go c.warmMediaSearchIndex(c.stopCtx)
@@ -119,7 +118,6 @@ func (c *Container) Close() {
 		c.stopCancel()
 	}
 	if c.Scraper != nil {
-		c.Scraper.WaitPeopleBackfillWorker()
 		c.Scraper.WaitCatalogHydrationWorker()
 	}
 	if c.Scheduler != nil {
