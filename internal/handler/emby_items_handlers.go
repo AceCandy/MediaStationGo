@@ -138,7 +138,8 @@ func embyLatestItemsHandler(svc *service.Container) gin.HandlerFunc {
 			uid = embyUserID(c)
 		}
 		limit, _ := strconv.Atoi(embyFirstNonEmptyString(firstQueryValue(c, "Limit", "limit"), "20"))
-		out, err := svc.Emby.LatestItems(c.Request.Context(), uid, firstQueryValue(c, "ParentId", "parentId", "parentid"), limit)
+		isPlayed, _ := strconv.ParseBool(firstQueryValue(c, "IsPlayed", "isPlayed", "isplayed"))
+		out, err := svc.Emby.LatestItems(c.Request.Context(), uid, firstQueryValue(c, "ParentId", "parentId", "parentid"), limit, isPlayed)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return

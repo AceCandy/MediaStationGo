@@ -106,7 +106,7 @@ func TestEmbyItemsExposeSeriesSeasonEpisodeHierarchy(t *testing.T) {
 		t.Fatalf("episode identity not metadata-backed: %#v", episodeItems[0])
 	}
 
-	latest, err := svc.LatestItems(t.Context(), "user-1", lib.ID, 10)
+	latest, err := svc.LatestItems(t.Context(), "user-1", lib.ID, 10, false)
 	if err != nil {
 		t.Fatalf("latest items: %v", err)
 	}
@@ -195,7 +195,7 @@ func TestEmbySeriesGroupingPaginatesAfterFullLibraryGrouping(t *testing.T) {
 		t.Fatalf("first series episode count = %#v, want 40", rootItems[0]["RecursiveItemCount"])
 	}
 
-	latest, err := svc.LatestItems(t.Context(), "user-1", lib.ID, 25)
+	latest, err := svc.LatestItems(t.Context(), "user-1", lib.ID, 25, false)
 	if err != nil {
 		t.Fatalf("latest items: %v", err)
 	}

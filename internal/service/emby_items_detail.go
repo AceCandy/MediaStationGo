@@ -4,7 +4,8 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"time"
+
+	"gorm.io/gorm"
 
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 )
@@ -53,25 +54,17 @@ func (e *EmbyService) Item(ctx context.Context, mediaID, userID string) (map[str
 	return e.itemPayload(ctx, m, userID, fav, pos, true), nil
 }
 
-// LatestItems 最近添加，全库或指定库。
-func (e *EmbyService) LatestItems(ctx context.Context, userID, parentID string, limit int) ([]map[string]any, error) {
+// LatestItems 最近添加，全库或指定库，并按调用方指定的播放状态过滤。
+func (e *EmbyService) LatestItems(ctx context.Context, userID, parentID string, limit int, isPlayed bool) ([]map[string]any, error) {
 	if limit <= 0 || limit > 100 {
 		limit = 20
 	}
-	cacheKey := e.embyLatestCacheKey(userID, parentID, limit)
-	var cached embyLatestCacheValue
-	if e.cache != nil && e.cache.GetJSON(ctx, cacheKey, &cached) {
-		return cached.Items, nil
-	}
 	q := e.repo.DB.WithContext(ctx).Model(&model.Media{}).Where("media.deleted_at IS NULL")
 	q = e.applyUserMediaVisibility(ctx, q, userID)
+	q = e.applyLatestPlayedFilter(ctx, q, userID, isPlayed)
 	if parentID != "" {
 		if episodic, err := e.libraryIsEpisodic(ctx, parentID); err == nil && episodic {
-			out, err := e.latestSeriesItemsForLibrary(ctx, userID, parentID, limit)
-			if err == nil && e.cache != nil {
-				e.cache.SetJSON(ctx, cacheKey, embyLatestCacheValue{Items: out}, time.Duration(e.mediaCacheTTLSeconds())*time.Second)
-			}
-			return out, err
+			return e.latestSeriesItemsForLibrary(ctx, userID, parentID, limit, isPlayed)
 		}
 		q = q.Where("media.library_id IN ?", e.mergedLibraryIDs(ctx, parentID))
 	}
@@ -85,19 +78,29 @@ func (e *EmbyService) LatestItems(ctx context.Context, userID, parentID string, 
 			item["ParentId"] = parentID
 		}
 	}
-	if e.cache != nil {
-		e.cache.SetJSON(ctx, cacheKey, embyLatestCacheValue{Items: out}, time.Duration(e.mediaCacheTTLSeconds())*time.Second)
-	}
 	return out, nil
 }
 
-func (e *EmbyService) latestSeriesItemsForLibrary(ctx context.Context, userID, libraryID string, limit int) ([]map[string]any, error) {
+func (e *EmbyService) applyLatestPlayedFilter(ctx context.Context, q *gorm.DB, userID string, isPlayed bool) *gorm.DB {
+	completed := e.repo.DB.WithContext(ctx).Model(&model.PlaybackHistory{}).
+		Select("1").
+		Where("playback_histories.user_id = ?", userID).
+		Where("playback_histories.metadata_id = media.metadata_id").
+		Where("playback_histories.completed = ?", true)
+	if isPlayed {
+		return q.Where("EXISTS (?)", completed)
+	}
+	return q.Where("NOT EXISTS (?)", completed)
+}
+
+func (e *EmbyService) latestSeriesItemsForLibrary(ctx context.Context, userID, libraryID string, limit int, isPlayed bool) ([]map[string]any, error) {
 	if limit <= 0 || limit > 100 {
 		limit = 20
 	}
 	q := e.repo.DB.WithContext(ctx).Model(&model.Media{}).
 		Where("media.library_id IN ? AND (media.season_num > 0 OR media.episode_num > 0)", e.mergedLibraryIDs(ctx, libraryID))
 	q = e.applyUserMediaVisibility(ctx, q, userID)
+	q = e.applyLatestPlayedFilter(ctx, q, userID, isPlayed)
 	q = seriesScopeQuery(q)
 	groups, _, err := e.seriesMetadataPage(ctx, q, userID, ItemsParams{SortBy: "datecreated", SortOrder: "Descending"}, 0, limit)
 	if err != nil {

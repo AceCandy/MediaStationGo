@@ -41,7 +41,7 @@ func TestEmbyLatestItemsStayWithinRequestedLibrary(t *testing.T) {
 		}
 	}
 
-	latest, err := svc.LatestItems(t.Context(), "user-1", local.ID, 10)
+	latest, err := svc.LatestItems(t.Context(), "user-1", local.ID, 10, false)
 	if err != nil {
 		t.Fatalf("latest items: %v", err)
 	}
@@ -443,7 +443,7 @@ func TestEmbyLatestItemsCollapsesMovieVersions(t *testing.T) {
 		}
 	}
 
-	latest, err := svc.LatestItems(t.Context(), "user-1", lib.ID, 10)
+	latest, err := svc.LatestItems(t.Context(), "user-1", lib.ID, 10, false)
 	if err != nil {
 		t.Fatalf("latest items: %v", err)
 	}
@@ -490,7 +490,7 @@ func TestEmbyLatestItemsPaginatesMetadataBeforeLoadingVersions(t *testing.T) {
 		t.Fatalf("create latest versions: %v", err)
 	}
 
-	latest, err := svc.LatestItems(t.Context(), "", lib.ID, 2)
+	latest, err := svc.LatestItems(t.Context(), "", lib.ID, 2, false)
 	if err != nil {
 		t.Fatalf("latest items: %v", err)
 	}

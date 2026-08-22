@@ -263,7 +263,7 @@ func TestEmbyLatestItemsOrderByReleaseDate(t *testing.T) {
 		}
 	}
 
-	items, err := svc.LatestItems(t.Context(), "", lib.ID, 10)
+	items, err := svc.LatestItems(t.Context(), "", lib.ID, 10, false)
 	if err != nil {
 		t.Fatalf("latest items: %v", err)
 	}
