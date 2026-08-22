@@ -1012,3 +1012,24 @@ Committed the existing web UI redesign together with detailed background task lo
 ### Status
 
 [OK] **Completed**
+
+
+## Session 48: 优化发现页加载性能
+
+**Date**: 2026-08-22
+**Task**: 优化发现页加载性能
+**Branch**: `main`
+
+### Summary
+
+优化发现页缓存复用、按需图片加载、单栏翻页与请求取消，并完成真实浏览器性能复测
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `2082b37` | (see git log) |
+
+### Status
+
+[OK] **Completed**
