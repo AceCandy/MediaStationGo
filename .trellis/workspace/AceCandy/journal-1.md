@@ -1076,3 +1076,24 @@ Committed the existing web UI redesign together with detailed background task lo
 ### Status
 
 [OK] **Completed**
+
+
+## Session 51: 优化自动入库刮削吞吐
+
+**Date**: 2026-08-22
+**Task**: 优化自动入库刮削吞吐
+**Branch**: `main`
+
+### Summary
+
+固定三个自动媒体 worker，保持 catalog 串行和媒体优先；复用完整 TMDB 详情并增加分段耗时观测与测试。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `0e3d44a` | (see git log) |
+
+### Status
+
+[OK] **Completed**
