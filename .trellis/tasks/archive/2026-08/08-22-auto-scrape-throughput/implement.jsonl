@@ -1,0 +1,5 @@
+{"file":".trellis/spec/backend/index.md","reason":"后端改动入口与适用规范索引"}
+{"file":".trellis/spec/backend/shared-media-metadata.md","reason":"并发写入 canonical metadata、identifier 和 artwork 时必须保持共享元数据约束"}
+{"file":".trellis/spec/backend/background-task-execution.md","reason":"自动刮削 worker、任务状态、持久化日志和调度语义约束"}
+{"file":".trellis/spec/backend/database-guidelines.md","reason":"PostgreSQL 并发 claim 与集成测试约束"}
+{"file":".trellis/tasks/08-22-auto-scrape-throughput/research/source-findings.md","reason":"现有调用链、锁边界与重复请求证据"}
