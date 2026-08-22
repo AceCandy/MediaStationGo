@@ -991,3 +991,24 @@ Committed the existing web UI redesign together with detailed background task lo
 ### Status
 
 [OK] **Completed**
+
+
+## Session 47: 优化播放器查询链并统一 Web 播放逻辑
+
+**Date**: 2026-08-22
+**Task**: 优化播放器查询链并统一 Web 播放逻辑
+**Branch**: `main`
+
+### Summary
+
+复用 PlaybackInfo 请求内媒体、probe 与字幕数据，优化具体媒体 ID 和字幕交付查询链；Web 外部播放器改为单请求并复用返回路径逻辑。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `061e55b` | (see git log) |
+
+### Status
+
+[OK] **Completed**

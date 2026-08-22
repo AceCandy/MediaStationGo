@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 46
+- **Total Sessions**: 47
 - **Last Active**: 2026-08-22
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~993 | Active |
+| `journal-1.md` | ~1014 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 47 | 2026-08-22 | 优化播放器查询链并统一 Web 播放逻辑 | `061e55b` | `main` |
 | 46 | 2026-08-22 | Emby Latest 默认隐藏已播放项 | `1ff4b8a` | `main` |
 | 45 | 2026-08-21 | 统一定时任务手动触发 | `0030282` | `main` |
 | 44 | 2026-08-21 | 完善人物翻译日志与定时调度 | `26cfb2e` | `main` |
