@@ -286,7 +286,7 @@ db.Model(&credit).
   cache.
 - Emby stream endpoints may receive either a metadata item ID or a concrete media source ID. They must resolve the request to a visible playable `Media.ID` before serving unchanged bytes or returning the persisted protocol-neutral redirect.
 - Emby clients may call `/SearchHints`, `/Search/Hints`, and their user-scoped or lowercase variants; these routes must project shared metadata titles and IDs, not raw media scan fields.
-- Provider identifier projection must return at most one joined row per media. Aggregate or otherwise reduce identifiers before joining; never join the raw one-to-many identifier table into paginated media queries.
+- Provider identifier projection must return at most one joined row per media and must correlate the reduction to the current `mi.id` and `mi.kind` (for example with `LEFT JOIN LATERAL`). Never aggregate the full active identifier table before joining, and never join the raw one-to-many identifier table into paginated media queries.
 - Selected artwork is copied into `DataDir`; remote URLs and source paths are provenance only and are never served as the authoritative runtime image.
 - Series, Season, and Episode image projections are entity-owned. Series uses
   poster/backdrop, Season uses poster, and Episode uses still; MediaView, Emby
@@ -428,7 +428,7 @@ db.Model(&credit).
 - Identity: allow equal external IDs across provider or entity kind; deduplicate equal canonical identities.
 - Identity: replace a stale unowned identifier for the same provider/kind, preserve other provider identifiers, and reject an occupied identifier unless merge is explicitly authorized.
 - Merge: move multiple media versions, favorites, playlists and history; recursively merge Series children; assert duplicate user state is resolved and source metadata is physically gone.
-- Query: add multiple identifiers for one metadata/provider/kind and assert media count, page length, and order remain unchanged.
+- Query: add multiple identifiers for one metadata/provider/kind and assert media count, page length, and order remain unchanged; assert the generated query correlates identifier reduction to the current metadata and contains no global identifier `GROUP BY`.
 - Visibility: shared `NSFW` must hide list, search, detail, and PlaybackInfo results before pagination/response mapping.
 - Web PlaybackInfo: assert a visible unresolved media returns `200`, probe summary
   fields fill the non-persistent flat projection, and missing probe data returns zeros.
@@ -501,7 +501,11 @@ This expands a media row when an entity has multiple identifiers and corrupts co
 ```go
 repo.DB.Table("media AS m").
     Joins("JOIN metadata_items AS mi ON mi.id = m.metadata_id AND mi.deleted_at IS NULL").
-    Joins("LEFT JOIN (<one-row-per-metadata-and-kind identifier projection>) AS ids ON ...").
+    Joins(`LEFT JOIN LATERAL (
+        SELECT MIN(CASE WHEN mid.provider = 'tmdb' THEN mid.external_id END) AS tmdb_external_id
+        FROM metadata_identifiers AS mid
+        WHERE mid.metadata_id = mi.id AND mid.entity_kind = mi.kind AND mid.deleted_at IS NULL
+    ) AS ids ON TRUE`).
     Offset(offset).Limit(limit)
 ```
 

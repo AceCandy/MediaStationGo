@@ -61,16 +61,15 @@ func (r *MediaViewRepository) query(ctx context.Context) *gorm.DB {
 		Joins("JOIN metadata_items AS mi ON mi.id = m.metadata_id AND mi.deleted_at IS NULL").
 		Joins("LEFT JOIN metadata_items AS season_metadata ON season_metadata.id = mi.parent_id AND mi.kind = 'episode' AND season_metadata.kind = 'season' AND season_metadata.deleted_at IS NULL").
 		Joins("LEFT JOIN metadata_items AS series_metadata ON series_metadata.id = CASE WHEN mi.kind = 'episode' THEN season_metadata.parent_id WHEN mi.kind = 'season' THEN mi.parent_id ELSE NULL END AND series_metadata.kind = 'series' AND series_metadata.deleted_at IS NULL").
-		Joins(`LEFT JOIN (
-			SELECT metadata_id, entity_kind,
-				MIN(CASE WHEN provider = 'tmdb' THEN external_id END) AS tmdb_external_id,
-				MIN(CASE WHEN provider = 'bangumi' THEN external_id END) AS bangumi_external_id,
-				MIN(CASE WHEN provider = 'douban' THEN external_id END) AS douban_external_id,
-				MIN(CASE WHEN provider = 'thetvdb' THEN external_id END) AS thetvdb_external_id
-			FROM metadata_identifiers
-			WHERE deleted_at IS NULL
-			GROUP BY metadata_id, entity_kind
-		) AS identifiers ON identifiers.metadata_id = mi.id AND identifiers.entity_kind = mi.kind`).
+		Joins(`LEFT JOIN LATERAL (
+			SELECT
+				MIN(CASE WHEN mid.provider = 'tmdb' THEN mid.external_id END) AS tmdb_external_id,
+				MIN(CASE WHEN mid.provider = 'bangumi' THEN mid.external_id END) AS bangumi_external_id,
+				MIN(CASE WHEN mid.provider = 'douban' THEN mid.external_id END) AS douban_external_id,
+				MIN(CASE WHEN mid.provider = 'thetvdb' THEN mid.external_id END) AS thetvdb_external_id
+			FROM metadata_identifiers AS mid
+			WHERE mid.metadata_id = mi.id AND mid.entity_kind = mi.kind AND mid.deleted_at IS NULL
+		) AS identifiers ON TRUE`).
 		Joins("LEFT JOIN metadata_artworks AS poster ON poster.metadata_id = mi.id AND poster.artwork_type = 'poster' AND poster.deleted_at IS NULL").
 		Joins("LEFT JOIN artwork_assets AS poster_asset ON poster_asset.id = poster.asset_id AND poster_asset.deleted_at IS NULL").
 		Joins("LEFT JOIN metadata_artworks AS backdrop ON backdrop.metadata_id = mi.id AND backdrop.artwork_type = 'backdrop' AND backdrop.deleted_at IS NULL").

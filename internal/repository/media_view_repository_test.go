@@ -6,11 +6,31 @@ import (
 	"testing"
 
 	testdb "github.com/ShukeBta/MediaStationGo/internal/testdb"
+	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 
 	"github.com/ShukeBta/MediaStationGo/internal/database"
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 )
+
+func TestMediaViewIdentifierProjectionIsCorrelated(t *testing.T) {
+	db, err := gorm.Open(postgres.Open(""), &gorm.Config{DisableAutomaticPing: true, DryRun: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var rows []model.MediaView
+	stmt := (&MediaViewRepository{db: db}).query(t.Context()).
+		Where("m.id = ?", "media-1").Select(mediaViewSelect).Find(&rows).Statement
+	sql := strings.Join(strings.Fields(stmt.SQL.String()), " ")
+	for _, want := range []string{"LEFT JOIN LATERAL", "mid.metadata_id = mi.id", "mid.entity_kind = mi.kind"} {
+		if !strings.Contains(sql, want) {
+			t.Fatalf("media view query missing %q: %s", want, sql)
+		}
+	}
+	if strings.Contains(sql, "GROUP BY metadata_id, entity_kind") {
+		t.Fatalf("media view query still aggregates all identifiers: %s", sql)
+	}
+}
 
 func TestMediaViewFiltersSortsAndPaginatesBySharedMetadata(t *testing.T) {
 	repos := newMediaViewTestRepositories(t)
