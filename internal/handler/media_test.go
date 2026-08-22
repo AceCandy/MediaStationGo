@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -401,9 +403,10 @@ func TestScanLibraryHandlerQueuesLocalScan(t *testing.T) {
 	}
 	log := zap.NewNop()
 	svc := &service.Container{
-		Log:  log,
-		Repo: repos,
-		Scan: service.NewScannerService(&config.Config{}, log, repos, service.NewHub(log), nil, nil),
+		Log:   log,
+		Repo:  repos,
+		Scan:  service.NewScannerService(&config.Config{}, log, repos, service.NewHub(log), nil, nil),
+		Tasks: service.NewTaskTrackerService(log, nil),
 	}
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -418,6 +421,67 @@ func TestScanLibraryHandlerQueuesLocalScan(t *testing.T) {
 	if !strings.Contains(w.Body.String(), `"queued":true`) {
 		t.Fatalf("body=%s, want queued local scan", w.Body.String())
 	}
+}
+
+func TestStartLibraryRootScanTaskTracksEventAndTargetsRoot(t *testing.T) {
+	db, err := testdb.OpenPostgres(t, &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := migrateMediaHandlerTestDB(db, &model.Library{}, &model.LibraryRoot{}, &model.Media{}, &model.Setting{}); err != nil {
+		t.Fatal(err)
+	}
+	rootA := t.TempDir()
+	rootB := t.TempDir()
+	if err := os.WriteFile(filepath.Join(rootA, "Movie.A.mkv"), []byte("a"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(rootB, "Movie.B.mkv"), []byte("b"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	repos := repository.New(db)
+	lib := model.Library{Name: "电影", Path: rootA, Type: "movie", Enabled: true}
+	roots := []model.LibraryRoot{{Path: rootA, Enabled: true}, {Path: rootB, Enabled: true}}
+	if err := repos.Library.CreateWithRoots(t.Context(), &lib, roots); err != nil {
+		t.Fatal(err)
+	}
+	persistedRoots, err := repos.Library.ListRoots(t.Context(), lib.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	log := zap.NewNop()
+	tracker := service.NewTaskTrackerService(log, nil)
+	svc := &service.Container{
+		Log:   log,
+		Repo:  repos,
+		Scan:  service.NewScannerService(&config.Config{}, log, repos, service.NewHub(log), nil, nil),
+		Tasks: tracker,
+	}
+
+	started, err := startLibraryRootScanTask(svc, lib.ID, persistedRoots[1].ID, lib.Name, persistedRoots[1].Path, service.TaskTriggerEvent, "新增路径自动扫描")
+	if err != nil || !started {
+		t.Fatalf("started = %v, err = %v", started, err)
+	}
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		recent := tracker.Snapshot().Recent
+		if len(recent) == 0 {
+			time.Sleep(time.Millisecond)
+			continue
+		}
+		if recent[0].Trigger != service.TaskTriggerEvent || recent[0].Status != service.TaskStatusCompleted {
+			t.Fatalf("task = %#v", recent[0])
+		}
+		var paths []string
+		if err := db.Model(&model.Media{}).Pluck("path", &paths).Error; err != nil {
+			t.Fatal(err)
+		}
+		if len(paths) != 1 || paths[0] != filepath.Join(rootB, "Movie.B.mkv") {
+			t.Fatalf("media paths = %#v, want only root B", paths)
+		}
+		return
+	}
+	t.Fatal("event scan task did not finish")
 }
 
 func TestScrapeOptionsFromRequestPreservesEpisodeImagesFalse(t *testing.T) {

@@ -19,18 +19,26 @@ func TestCreateLibraryWithRootsAppendsToExistingLogicalLibrary(t *testing.T) {
 	repos := repository.New(db)
 	svc := NewMediaService(&config.Config{}, zap.NewNop(), repos)
 
-	first, err := svc.CreateLibraryWithRoots(t.Context(), "欧美电影", "movie", []LibraryRootInput{
+	firstResult, err := svc.CreateLibraryWithRootsAndCover(t.Context(), "欧美电影", "movie", "", []LibraryRootInput{
 		{Name: "硬盘1", Path: rootA},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := svc.CreateLibraryWithRoots(t.Context(), "欧美电影", "movie", []LibraryRootInput{
+	if !firstResult.Created || len(firstResult.AddedRoots) != 1 {
+		t.Fatalf("first result = %#v, want created library with one root", firstResult)
+	}
+	first := firstResult.Library
+	secondResult, err := svc.CreateLibraryWithRootsAndCover(t.Context(), "欧美电影", "movie", "", []LibraryRootInput{
 		{Name: "硬盘2", Path: rootB},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
+	if secondResult.Created || len(secondResult.AddedRoots) != 1 || secondResult.AddedRoots[0].Path != filepath.Clean(rootB) {
+		t.Fatalf("second result = %#v, want one appended root", secondResult)
+	}
+	second := secondResult.Library
 	if second.ID != first.ID {
 		t.Fatalf("second library id = %q, want existing %q", second.ID, first.ID)
 	}
@@ -59,10 +67,11 @@ func TestCreateLibraryWithRootsStoresAndUpdatesCustomCover(t *testing.T) {
 	repos := repository.New(db)
 	svc := NewMediaService(&config.Config{}, zap.NewNop(), repos)
 
-	lib, err := svc.CreateLibraryWithRootsAndCover(t.Context(), "收藏", "movie", "https://example.com/cover.jpg", []LibraryRootInput{{Path: t.TempDir()}})
+	result, err := svc.CreateLibraryWithRootsAndCover(t.Context(), "收藏", "movie", "https://example.com/cover.jpg", []LibraryRootInput{{Path: t.TempDir()}})
 	if err != nil {
 		t.Fatal(err)
 	}
+	lib := result.Library
 	if lib.CoverURL != "https://example.com/cover.jpg" {
 		t.Fatalf("cover_url = %q", lib.CoverURL)
 	}

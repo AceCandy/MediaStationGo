@@ -122,12 +122,6 @@ function useEditableLibraryRootActions(refresh: () => Promise<void>, drafts: Edi
     await refresh()
   }
 
-  const scanLibraryRoot = async (libraryID: string, root: LibraryRoot) => {
-    if (!root.id) return
-    await libraryAPI.scanRoot(libraryID, root.id)
-    toast.success('路径扫描已加入后台任务')
-  }
-
   const toggleLibraryRoot = async (libraryID: string, root: LibraryRoot) => {
     const enabled = !drafts.editableRootDraft(libraryID, root).enabled
     drafts.setEditableRootDraft(libraryID, root, { enabled })
@@ -142,16 +136,10 @@ function useEditableLibraryRootActions(refresh: () => Promise<void>, drafts: Edi
     await refresh()
   }
 
-  return { saveLibraryRoot, scanLibraryRoot, toggleLibraryRoot, removeLibraryRoot }
+  return { saveLibraryRoot, toggleLibraryRoot, removeLibraryRoot }
 }
 
 function useLibraryActions(refresh: () => Promise<void>) {
-  const scanLibrary = async (library: Library) => {
-    const result = await libraryAPI.scan(library.id)
-    if (result.queued) toast.success('扫描已加入后台队列，会自动入库')
-    else toast.success(`扫描完成，新增 ${result.added}，更新 ${result.updated ?? 0}`)
-  }
-
   const removeLibrary = async (library: Library) => {
     if (!(await confirmAction({ title: '删除媒体库', message: `确定删除「${library.name}」?`, confirmText: '删除' }))) return
     await libraryAPI.remove(library.id)
@@ -176,5 +164,5 @@ function useLibraryActions(refresh: () => Promise<void>) {
     await refresh()
   }
 
-  return { scanLibrary, removeLibrary, addLibraryRoot, editLibraryCover }
+  return { removeLibrary, addLibraryRoot, editLibraryCover }
 }

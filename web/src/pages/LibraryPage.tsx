@@ -12,7 +12,6 @@ import { LibraryPageHeader } from './LibraryPageHeader'
 import { LibraryMediaSections } from './LibraryMediaSections'
 import { LibrarySeriesDetailSection } from './LibrarySeriesDetailSection'
 import { useLibraryData } from './useLibraryData'
-import { useLibraryScanStatus } from './useLibraryScanStatus'
 import { useLibrarySeriesSelection } from './useLibrarySeriesSelection'
 import { useLibraryAdminActions } from './useLibraryAdminActions'
 
@@ -90,16 +89,6 @@ export function LibraryPage() {
   }, [hasMore, loadMore, loadingMore, loadMoreError, selectedSeries])
 
   const {
-    scanning,
-    scanProgress,
-    handleScan,
-  } = useLibraryScanStatus({
-    libraryID: id,
-    isAdmin: role === 'admin',
-    onLibraryChanged: reloadCurrentLibrary,
-  })
-
-  const {
     selectedEpisodes,
     visibleEpisodes,
     selectedSeriesEpisodes,
@@ -165,16 +154,13 @@ export function LibraryPage() {
         library={library}
         itemCount={isSeries ? seriesCards.length : total}
         loadingAllText={loadingAllText}
-        scanProgress={scanProgress}
         isAdmin={role === 'admin'}
         scrapeEpisodeArtwork={scrapeEpisodeArtwork}
-        scanning={scanning}
         scraping={scraping}
         repairing={repairing}
         backfilling={backfilling}
         peopleBackfilling={peopleBackfilling}
         onScrapeEpisodeArtworkChange={setScrapeEpisodeArtwork}
-        onScan={handleScan}
         onScrape={handleScrape}
         onRepairRescrape={handleRepairRescrape}
         onProbeBackfill={handleProbeBackfill}

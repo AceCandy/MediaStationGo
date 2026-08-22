@@ -18,6 +18,12 @@ type LibraryRootInput struct {
 	SortOrder *int   `json:"sort_order,omitempty"`
 }
 
+type LibraryCreateResult struct {
+	Library    *model.Library
+	Created    bool
+	AddedRoots []model.LibraryRoot
+}
+
 var ErrCloudLibraryRootUnsupported = errors.New("cloud library roots are no longer supported")
 
 // CreateLibrary persists a library after validating that its path exists.
@@ -26,10 +32,14 @@ func (s *MediaService) CreateLibrary(ctx context.Context, name, path, kind strin
 }
 
 func (s *MediaService) CreateLibraryWithRoots(ctx context.Context, name, kind string, inputs []LibraryRootInput) (*model.Library, error) {
-	return s.CreateLibraryWithRootsAndCover(ctx, name, kind, "", inputs)
+	result, err := s.CreateLibraryWithRootsAndCover(ctx, name, kind, "", inputs)
+	if err != nil {
+		return nil, err
+	}
+	return result.Library, nil
 }
 
-func (s *MediaService) CreateLibraryWithRootsAndCover(ctx context.Context, name, kind, coverURL string, inputs []LibraryRootInput) (*model.Library, error) {
+func (s *MediaService) CreateLibraryWithRootsAndCover(ctx context.Context, name, kind, coverURL string, inputs []LibraryRootInput) (*LibraryCreateResult, error) {
 	if strings.TrimSpace(name) == "" {
 		return nil, errors.New("name required")
 	}
@@ -46,19 +56,19 @@ func (s *MediaService) CreateLibraryWithRootsAndCover(ctx context.Context, name,
 				return nil, err
 			}
 		}
-		lib, err := s.appendLibraryRoots(ctx, existing, roots)
+		lib, addedRoots, err := s.appendLibraryRoots(ctx, existing, roots)
 		if err != nil {
 			return nil, err
 		}
 		s.invalidateMediaCache(ctx)
-		return lib, nil
+		return &LibraryCreateResult{Library: lib, AddedRoots: addedRoots}, nil
 	}
 	lib := &model.Library{Name: strings.TrimSpace(name), Path: roots[0].Path, Type: kind, CoverURL: strings.TrimSpace(coverURL), Enabled: true}
 	if err := s.repo.Library.CreateWithRoots(ctx, lib, roots); err != nil {
 		return nil, err
 	}
 	s.invalidateMediaCache(ctx)
-	return lib, nil
+	return &LibraryCreateResult{Library: lib, Created: true, AddedRoots: roots}, nil
 }
 
 func (s *MediaService) UpdateLibraryCover(ctx context.Context, libraryID, coverURL string) error {
@@ -85,32 +95,35 @@ func (s *MediaService) findLogicalLibrary(ctx context.Context, name, kind string
 	return nil, nil
 }
 
-func (s *MediaService) appendLibraryRoots(ctx context.Context, lib *model.Library, roots []model.LibraryRoot) (*model.Library, error) {
+func (s *MediaService) appendLibraryRoots(ctx context.Context, lib *model.Library, roots []model.LibraryRoot) (*model.Library, []model.LibraryRoot, error) {
 	if lib == nil {
-		return nil, errors.New("library not found")
+		return nil, nil, errors.New("library not found")
 	}
 	if err := s.ensureLibraryRoots(ctx, lib.ID); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	existing, err := s.repo.Library.ListRoots(ctx, lib.ID)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
+	addedRoots := make([]model.LibraryRoot, 0, len(roots))
 	for i := range roots {
 		root := roots[i]
 		root.LibraryID = lib.ID
 		root.SortOrder = len(existing) + i
 		if err := s.ensureLibraryRootPathUnique(ctx, lib.ID, "", root.Path); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		if err := s.repo.Library.CreateRoot(ctx, &root); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
+		addedRoots = append(addedRoots, root)
 	}
 	if err := s.syncLibraryPrimaryRoot(ctx, lib.ID); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return s.repo.Library.FindByID(ctx, lib.ID)
+	updated, err := s.repo.Library.FindByID(ctx, lib.ID)
+	return updated, addedRoots, err
 }
 
 func normalizeLibraryRootInputs(inputs []LibraryRootInput, requirePath bool) ([]model.LibraryRoot, error) {

@@ -88,7 +88,7 @@ func createLibraryHandler(svc *service.Container) gin.HandlerFunc {
 		if len(roots) == 0 && strings.TrimSpace(req.Path) != "" {
 			roots = append(roots, service.LibraryRootInput{Path: req.Path})
 		}
-		l, err := svc.Media.CreateLibraryWithRootsAndCover(c.Request.Context(), req.Name, req.Type, req.CoverURL, roots)
+		result, err := svc.Media.CreateLibraryWithRootsAndCover(c.Request.Context(), req.Name, req.Type, req.CoverURL, roots)
 		if err != nil {
 			status := http.StatusInternalServerError
 			if errors.Is(err, service.ErrCloudLibraryRootUnsupported) {
@@ -97,10 +97,24 @@ func createLibraryHandler(svc *service.Container) gin.HandlerFunc {
 			c.JSON(status, gin.H{"error": err.Error()})
 			return
 		}
+		l := result.Library
 		uid, _ := c.Get("ctx_user_id")
 		svc.Audit.Record(c.Request.Context(), toString(uid), "library.create", l.ID, c.ClientIP(), l.Path)
 		// Refresh fsnotify watcher to pick up the new library root.
 		go func() { _ = svc.Watcher.Refresh(context.Background()) }()
+		if result.Created {
+			_, scanErr := startLibraryScanTask(svc, l, service.TaskTriggerEvent, "新增媒体库自动扫描")
+			logAutomaticScanStartError(svc, l.ID, scanErr)
+		} else {
+			for i := range result.AddedRoots {
+				root := result.AddedRoots[i]
+				if !root.Enabled {
+					continue
+				}
+				_, scanErr := startLibraryRootScanTask(svc, l.ID, root.ID, l.Name, root.Path, service.TaskTriggerEvent, "新增路径自动扫描")
+				logAutomaticScanStartError(svc, root.ID, scanErr)
+			}
+		}
 		c.JSON(http.StatusCreated, l)
 	}
 }

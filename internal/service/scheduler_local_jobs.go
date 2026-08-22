@@ -27,7 +27,7 @@ func (s *SchedulerService) jobScanLibraries(ctx context.Context) error {
 			return errors.New("create scan task execution failed")
 		}
 	}
-	libs, err := s.repo.Library.List(ctx)
+	libs, err := s.librariesForScanRun(ctx)
 	if err != nil {
 		if task != nil {
 			safeErr := sanitizeTaskLogError(err)
@@ -68,6 +68,21 @@ func (s *SchedulerService) jobScanLibraries(ctx context.Context) error {
 		task.Finish(nil, TaskUpdate{Stage: "completed", Message: "媒体库扫描结束", Metrics: metrics})
 	}
 	return nil
+}
+
+func (s *SchedulerService) librariesForScanRun(ctx context.Context) ([]model.Library, error) {
+	libraryID, _ := ctx.Value(schedulerLibraryScanIDKey{}).(string)
+	if libraryID == "" {
+		return s.repo.Library.List(ctx)
+	}
+	lib, err := s.repo.Library.FindByID(ctx, libraryID)
+	if err != nil {
+		return nil, err
+	}
+	if lib == nil {
+		return nil, errors.New("library not found")
+	}
+	return []model.Library{*lib}, nil
 }
 
 func libraryScanTaskDetail(l model.Library, res *ScanResult) string {

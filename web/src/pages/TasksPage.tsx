@@ -93,6 +93,8 @@ interface TaskRowProps {
   definition: TaskDefinition
   running: string
   libraries: Library[]
+  scanLibraryID: string
+  onScanLibraryChange: (value: string) => void
   probeLibraryID: string
   onProbeLibraryChange: (value: string) => void
   probeLimit: string
@@ -102,10 +104,24 @@ interface TaskRowProps {
   onSchedule: (definition: TaskDefinition) => void
 }
 
-function TaskActions({ definition, running, libraries, probeLibraryID, onProbeLibraryChange, probeLimit, onProbeLimitChange, onRun, onLog, onSchedule }: TaskRowProps) {
+function TaskActions({ definition, running, libraries, scanLibraryID, onScanLibraryChange, probeLibraryID, onProbeLibraryChange, probeLimit, onProbeLimitChange, onRun, onLog, onSchedule }: TaskRowProps) {
   const disabled = definition.current_state === 'running' || running === definition.key
+  const runDisabled = disabled || (definition.key === 'library_scan' && !scanLibraryID)
   return (
     <div className="flex flex-wrap items-center justify-end gap-1">
+      {definition.key === 'library_scan' && (
+        <select
+          value={scanLibraryID}
+          onChange={(event) => onScanLibraryChange(event.target.value)}
+          disabled={disabled}
+          aria-label="媒体库扫描媒体库"
+          title="选择要扫描的媒体库"
+          className="h-8 w-32 rounded border border-gray-200 px-2 text-xs text-ink-600"
+        >
+          <option value="">选择媒体库</option>
+          {libraries.map((library) => <option key={library.id} value={library.id}>{library.name}</option>)}
+        </select>
+      )}
       {definition.action === 'probe_backfill' && (
         <>
           <select
@@ -134,7 +150,7 @@ function TaskActions({ definition, running, libraries, probeLibraryID, onProbeLi
         </>
       )}
       {definition.action && (
-        <button type="button" className="rounded border border-gray-200 p-2 text-sand-500 hover:text-brand-500 disabled:cursor-not-allowed disabled:opacity-40" title={`立即执行${definition.name}`} aria-label={`立即执行${definition.name}`} disabled={disabled} onClick={() => onRun(definition)}>
+        <button type="button" className="rounded border border-gray-200 p-2 text-sand-500 hover:text-brand-500 disabled:cursor-not-allowed disabled:opacity-40" title={`立即执行${definition.name}`} aria-label={`立即执行${definition.name}`} disabled={runDisabled} onClick={() => onRun(definition)}>
           <Play size={16} />
         </button>
       )}
@@ -150,7 +166,7 @@ function TaskActions({ definition, running, libraries, probeLibraryID, onProbeLi
   )
 }
 
-function DefinitionTable(props: { definitions: TaskDefinition[]; running: string; libraries: Library[]; probeLibraryID: string; onProbeLibraryChange: TaskRowProps['onProbeLibraryChange']; probeLimit: string; onProbeLimitChange: TaskRowProps['onProbeLimitChange']; onRun: TaskRowProps['onRun']; onLog: TaskRowProps['onLog']; onSchedule: TaskRowProps['onSchedule'] }) {
+function DefinitionTable(props: { definitions: TaskDefinition[]; running: string; libraries: Library[]; scanLibraryID: string; onScanLibraryChange: TaskRowProps['onScanLibraryChange']; probeLibraryID: string; onProbeLibraryChange: TaskRowProps['onProbeLibraryChange']; probeLimit: string; onProbeLimitChange: TaskRowProps['onProbeLimitChange']; onRun: TaskRowProps['onRun']; onLog: TaskRowProps['onLog']; onSchedule: TaskRowProps['onSchedule'] }) {
   return (
     <>
 		<div className="hidden overflow-x-auto lg:block">
@@ -348,6 +364,7 @@ export function TasksPage() {
 	const [scheduleDefinition, setScheduleDefinition] = useState<TaskDefinition | null>(null)
 	const [running, setRunning] = useState('')
 	const [libraries, setLibraries] = useState<Library[]>([])
+	const [scanLibraryID, setScanLibraryID] = useState('')
 	const [probeLibraryID, setProbeLibraryID] = useState('')
 	const [probeLimit, setProbeLimit] = useState('')
 	const runPending = useRef(false)
@@ -380,10 +397,9 @@ export function TasksPage() {
         toast.error('回填数量必须是正整数')
         return
       }
-			await tasksAPI.run(definition.key, definition.action === 'probe_backfill' ? {
-        limit,
-        library_id: probeLibraryID || undefined,
-      } : undefined)
+			await tasksAPI.run(definition.key, definition.key === 'library_scan'
+        ? { library_id: scanLibraryID }
+        : definition.action === 'probe_backfill' ? { limit, library_id: probeLibraryID || undefined } : undefined)
 			toast.success(`${definition.name}已触发`)
 			await refresh().catch(() => setLoadError(true))
     } catch (err: unknown) {
@@ -399,7 +415,7 @@ export function TasksPage() {
     <div className="space-y-6">
       <header className="flex items-center gap-3"><Activity className="h-6 w-6 text-brand-500" /><div><h1 className="font-display text-3xl font-bold text-ink-600">任务中心</h1><p className="text-sm text-ink-50">查看后台任务状态、调度与最近执行结果。</p></div></header>
 		<section className="glass-panel">
-			{loadError && !definitions ? <div className="flex flex-col items-center gap-3 py-8 text-sm text-ink-50"><p>任务列表加载失败。</p><button type="button" className="rounded border border-gray-200 p-2 text-sand-600 hover:text-brand-500" title="重新加载" aria-label="重新加载" onClick={() => void refresh()}><RefreshCw size={16} /></button></div> : !definitions ? <p className="py-8 text-center text-ink-50">加载中...</p> : definitions.length === 0 ? <p className="py-8 text-center text-ink-50">暂无任务。</p> : <DefinitionTable definitions={definitions} running={running} libraries={libraries} probeLibraryID={probeLibraryID} onProbeLibraryChange={setProbeLibraryID} probeLimit={probeLimit} onProbeLimitChange={setProbeLimit} onRun={(definition) => void run(definition)} onLog={setLogDefinition} onSchedule={setScheduleDefinition} />}
+			{loadError && !definitions ? <div className="flex flex-col items-center gap-3 py-8 text-sm text-ink-50"><p>任务列表加载失败。</p><button type="button" className="rounded border border-gray-200 p-2 text-sand-600 hover:text-brand-500" title="重新加载" aria-label="重新加载" onClick={() => void refresh()}><RefreshCw size={16} /></button></div> : !definitions ? <p className="py-8 text-center text-ink-50">加载中...</p> : definitions.length === 0 ? <p className="py-8 text-center text-ink-50">暂无任务。</p> : <DefinitionTable definitions={definitions} running={running} libraries={libraries} scanLibraryID={scanLibraryID} onScanLibraryChange={setScanLibraryID} probeLibraryID={probeLibraryID} onProbeLibraryChange={setProbeLibraryID} probeLimit={probeLimit} onProbeLimitChange={setProbeLimit} onRun={(definition) => void run(definition)} onLog={setLogDefinition} onSchedule={setScheduleDefinition} />}
       </section>
       {logDefinition && <TaskLogDialog definition={logDefinition} onClose={() => setLogDefinition(null)} />}
       {scheduleDefinition && <TaskScheduleDialog definition={scheduleDefinition} onClose={() => setScheduleDefinition(null)} onSaved={() => refresh().catch(() => setLoadError(true))} />}

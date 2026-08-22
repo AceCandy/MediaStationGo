@@ -1,7 +1,7 @@
 import { api, BATCH_REQUEST_TIMEOUT, LONG_REQUEST_TIMEOUT } from './client'
 import { useAuthStore } from '../stores/auth'
 import { getActivePlayProfileId } from '../stores/playProfile'
-import type { Library, LibraryRoot, Media, MediaCredit, ScanResult } from '../types'
+import type { Library, LibraryRoot, Media, MediaCredit } from '../types'
 import type { SeriesCard } from '../utils/groupSeries'
 
 const recentRequests = new Map<string, Promise<SeriesCard[]>>()
@@ -134,12 +134,6 @@ export const libraryAPI = {
     api.patch<LibraryRoot>(`/libraries/${id}/roots/${rootID}`, root).then((r) => r.data),
 
   removeRoot: (id: string, rootID: string) => api.delete(`/libraries/${id}/roots/${rootID}`).then((r) => r.data),
-
-  scan: (id: string) =>
-    api.post<ScanResult>(`/libraries/${id}/scan`, null, { timeout: BATCH_REQUEST_TIMEOUT }).then((r) => r.data),
-
-  scanRoot: (id: string, rootID: string) =>
-    api.post<ScanResult>(`/libraries/${id}/roots/${rootID}/scan`, null, { timeout: BATCH_REQUEST_TIMEOUT }).then((r) => r.data),
 
   scrape: (id: string, options?: ScrapeOptions) =>
     api.post(`/libraries/${id}/scrape`, options ?? null, { timeout: BATCH_REQUEST_TIMEOUT }).then((r) => r.data),

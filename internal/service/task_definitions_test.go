@@ -124,7 +124,11 @@ func TestScheduledTaskDefinitionsSupportManualExecution(t *testing.T) {
 		if !want[definition.Key] {
 			continue
 		}
-		if definition.Action != "scheduler" || definition.Trigger != "定时 / 手动" {
+		expectedTrigger := "定时 / 手动"
+		if definition.Key == TaskDefinitionLibraryScan {
+			expectedTrigger = "定时 / 手动 / 新增后自动"
+		}
+		if definition.Action != "scheduler" || definition.Trigger != expectedTrigger {
 			t.Fatalf("definition %s = %#v", definition.Key, definition)
 		}
 		if _, ok := TaskDefinitionSchedulerJob(definition.Key); !ok {

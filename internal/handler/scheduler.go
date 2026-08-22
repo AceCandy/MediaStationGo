@@ -27,7 +27,15 @@ func schedulerRunHandler(svc *service.Container) gin.HandlerFunc {
 }
 
 func triggerSchedulerJob(c *gin.Context, svc *service.Container, name string) bool {
-	if err := svc.Scheduler.RunNowAsync(c.Request.Context(), name); err != nil {
+	return handleSchedulerRunResult(c, svc.Scheduler.RunNowAsync(c.Request.Context(), name))
+}
+
+func triggerLibraryScanJob(c *gin.Context, svc *service.Container, libraryID string) bool {
+	return handleSchedulerRunResult(c, svc.Scheduler.RunLibraryScanNowAsync(c.Request.Context(), libraryID))
+}
+
+func handleSchedulerRunResult(c *gin.Context, err error) bool {
+	if err != nil {
 		switch {
 		case errors.Is(err, service.ErrSchedulerJobAlreadyRunning):
 			c.JSON(http.StatusConflict, gin.H{"error": "任务正在运行，请稍后到实时任务查看进度"})

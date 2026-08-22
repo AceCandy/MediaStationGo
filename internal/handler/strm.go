@@ -270,7 +270,7 @@ func queueSTRMRefreshAfterChanges(ctx context.Context, svc *service.Container, o
 		if runOptions.ScrapeAfter {
 			refresh.ScrapeQueued = true
 		}
-		task := startScanHTTPTask(svc, options.TaskName, target.Name, target.Path)
+		task := startScanHTTPTask(svc, options.TaskName, target.Name, target.Path, service.TaskTriggerManual)
 		go runSTRMRefreshScan(svc, target, task, finishScan, runOptions)
 	}
 	if !refresh.Queued {

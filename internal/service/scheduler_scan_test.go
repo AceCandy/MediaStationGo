@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"path/filepath"
 	"testing"
 	"time"
@@ -83,5 +84,52 @@ func TestSchedulerManualLocalScanBypassesDisabledSchedule(t *testing.T) {
 	}
 	if got := countMedia(t, repos); got != 2 {
 		t.Fatalf("manual scan should bypass disabled schedule, media count = %d", got)
+	}
+}
+
+func TestSchedulerLibraryScanTargetsOneLibraryWhilePeriodicScansAll(t *testing.T) {
+	root := t.TempDir()
+	pathA := filepath.Join(root, "library-a")
+	pathB := filepath.Join(root, "library-b")
+	writeOrgFile(t, filepath.Join(pathA, "Movie.A.mkv"), "a")
+	writeOrgFile(t, filepath.Join(pathB, "Movie.B.mkv"), "b")
+
+	db := newServiceTestDB(t, &model.Library{}, &model.Media{}, &model.Setting{})
+	repos := repository.New(db)
+	libA := model.Library{Name: "媒体库 A", Path: pathA, Type: "movie", Enabled: true}
+	libB := model.Library{Name: "媒体库 B", Path: pathB, Type: "movie", Enabled: true}
+	if err := repos.Library.Create(t.Context(), &libA); err != nil {
+		t.Fatal(err)
+	}
+	if err := repos.Library.Create(t.Context(), &libB); err != nil {
+		t.Fatal(err)
+	}
+	log := zap.NewNop()
+	scanner := NewScannerService(&config.Config{}, log, repos, NewHub(log), nil, nil)
+	scheduler := NewSchedulerService(log, repos, scanner, nil, NewHub(log))
+
+	manualCtx := context.WithValue(t.Context(), schedulerLibraryScanIDKey{}, libA.ID)
+	if err := scheduler.jobScanLibraries(manualCtx); err != nil {
+		t.Fatal(err)
+	}
+	var countA, countB int64
+	if err := db.Model(&model.Media{}).Where("library_id = ?", libA.ID).Count(&countA).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Model(&model.Media{}).Where("library_id = ?", libB.ID).Count(&countB).Error; err != nil {
+		t.Fatal(err)
+	}
+	if countA != 1 || countB != 0 {
+		t.Fatalf("manual counts = (%d, %d), want (1, 0)", countA, countB)
+	}
+
+	if err := scheduler.jobScanLibraries(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Model(&model.Media{}).Where("library_id = ?", libB.ID).Count(&countB).Error; err != nil {
+		t.Fatal(err)
+	}
+	if countB != 1 {
+		t.Fatalf("periodic library B count = %d, want 1", countB)
 	}
 }

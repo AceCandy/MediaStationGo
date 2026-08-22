@@ -22,6 +22,9 @@ history is observability only; business object state owns retry and recovery.
   `interval_seconds`, `min_interval_seconds`, and `max_interval_seconds`.
 - `PUT /api/tasks/definitions/:key/schedule` accepts `enabled` and
   `interval_seconds`, then returns the refreshed task definition.
+- `POST /api/tasks/definitions/library_scan/run` requires
+  `{ "library_id": "<library UUID>" }`; this target applies only to the manual
+  execution and is not persisted into the periodic schedule.
 - `GET /api/tasks/definitions/:key/executions` returns paginated execution
   history for one validated task definition.
 - `GET /api/tasks/definitions/:key/log?date=YYYY-MM-DD&tail_bytes=` returns
@@ -57,6 +60,12 @@ history is observability only; business object state owns retry and recovery.
   action. `RunNowAsync` bypasses the schedule's enabled flag, preserves the
   scheduler's per-job concurrency guard, and marks executions as `manual` via
   the scheduler context; timer-driven runs remain `scheduled`.
+- A manual `library_scan` task scans only the selected library's enabled roots.
+  Timer-driven `library_scan` runs carry no target and continue scanning every
+  enabled library. Creating a library starts an `event` whole-library scan;
+  adding enabled roots to an existing library starts one `event` root scan per
+  newly added root. Scan startup failure is logged after persistence and never
+  rolls back or changes the successful library/root save response.
 - The task center shows a danger confirmation before manually running account
   cleanup. Canceling sends no request, and the complete confirm/run flow admits
   only one pending action so rapid clicks cannot create duplicate dialogs or requests.
@@ -132,6 +141,8 @@ history is observability only; business object state owns retry and recovery.
 | Condition | Required result |
 | --- | --- |
 | Unknown task definition key | Return 404; never use it as an unchecked filename |
+| Manual library scan omits `library_id` or sends invalid JSON | Return 400; do not start the scheduler job |
+| Manual library scan names a missing library | Return 404; do not start the scheduler job |
 | Definition has no configurable periodic job | Reject the schedule update; do not persist settings |
 | Schedule interval is below 60 seconds or above 30 days | Return 400; do not change persisted or live configuration |
 | Schedule persistence fails | Keep the current live interval and enabled state |
@@ -155,6 +166,11 @@ history is observability only; business object state owns retry and recovery.
 
 - Good: a two-episode series is claimed and completed as one unit, then the worker
   checks newly imported media before taking another catalog item.
+- Good: selecting library A in the task center scans A's enabled roots only;
+  the next timer-driven pass still scans enabled libraries A and B.
+- Base: adding a disabled root saves it without starting an event scan.
+- Bad: reuse the manual target for timer-driven runs, or fail a successful save
+  because its follow-up scan task could not be created.
 - Good: a scan change is written as `timestamp ➕ 新增 /media/a.strm`.
 - Good: enabling a two-hour library scan persists `7200`, resets its live timer,
   and immediately returns a definition whose `schedule_config.enabled` is true.
@@ -195,6 +211,9 @@ history is observability only; business object state owns retry and recovery.
 - Atomic whole-series claim, late-series-member exclusion, and
   `running -> pending` media recovery.
 - API/UI contract plus manual, scheduled, and event trigger attribution.
+- Library scan tests assert required target validation, manual single-library
+  isolation, periodic all-library scope, and event task visibility for new
+  libraries and newly added enabled roots.
 - Schedule tests assert persistence, live countdown reset, disabled `next_run`,
   bounds rejection without mutation, and manual bypass behavior.
 - Task-center checks assert account cleanup cancellation sends no request and
@@ -271,4 +290,12 @@ task := tasks.StartTriggered(kind, TaskTriggerScheduled, name, update)
 
 // Correct: the scheduler context owns trigger attribution for the shared job.
 task := tasks.StartTriggered(kind, schedulerTaskTrigger(ctx), name, update)
+```
+
+```go
+// Wrong: a task-center manual scan silently walks every library.
+scheduler.RunNowAsync(ctx, "library_scan")
+
+// Correct: the manual target is scoped to this detached run; timers stay global.
+scheduler.RunLibraryScanNowAsync(ctx, libraryID)
 ```

@@ -80,6 +80,7 @@ type scheduledJob struct {
 }
 
 type schedulerManualRunKey struct{}
+type schedulerLibraryScanIDKey struct{}
 
 const schedulerMaxInterval = 30 * 24 * time.Hour
 

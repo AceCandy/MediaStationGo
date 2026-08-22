@@ -142,6 +142,62 @@ func TestTaskDefinitionRunHandlerAcceptsScheduledManualTask(t *testing.T) {
 	}
 }
 
+func TestTaskDefinitionRunHandlerRequiresLibraryScanTarget(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db, err := testdb.OpenPostgres(t, &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(&model.Library{}); err != nil {
+		t.Fatal(err)
+	}
+	repos := repository.New(db)
+	svc := &service.Container{
+		Repo:      repos,
+		Scheduler: service.NewSchedulerService(zap.NewNop(), repos, nil, nil, nil),
+	}
+
+	for _, body := range []string{"", `{}`, `{invalid`} {
+		recorder := httptest.NewRecorder()
+		ctx, _ := gin.CreateTestContext(recorder)
+		ctx.Params = gin.Params{{Key: "key", Value: service.TaskDefinitionLibraryScan}}
+		ctx.Request = httptest.NewRequest(http.MethodPost, "/api/tasks/definitions/library_scan/run", bytes.NewBufferString(body))
+		ctx.Request.Header.Set("Content-Type", "application/json")
+
+		taskDefinitionRunHandler(svc)(ctx)
+
+		if recorder.Code != http.StatusBadRequest {
+			t.Fatalf("body %q: status = %d, response = %s", body, recorder.Code, recorder.Body.String())
+		}
+	}
+}
+
+func TestTaskDefinitionRunHandlerRejectsUnknownLibraryScanTarget(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db, err := testdb.OpenPostgres(t, &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(&model.Library{}); err != nil {
+		t.Fatal(err)
+	}
+	repos := repository.New(db)
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Params = gin.Params{{Key: "key", Value: service.TaskDefinitionLibraryScan}}
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/api/tasks/definitions/library_scan/run", bytes.NewBufferString(`{"library_id":"missing"}`))
+	ctx.Request.Header.Set("Content-Type", "application/json")
+
+	taskDefinitionRunHandler(&service.Container{
+		Repo:      repos,
+		Scheduler: service.NewSchedulerService(zap.NewNop(), repos, nil, nil, nil),
+	})(ctx)
+
+	if recorder.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+}
+
 func TestPeopleBackfillCompatibilityHandlerUsesScheduler(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	scheduler := service.NewSchedulerService(zap.NewNop(), nil, nil, nil, nil)

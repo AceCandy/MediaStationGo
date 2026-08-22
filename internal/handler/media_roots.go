@@ -38,6 +38,15 @@ func createLibraryRootHandler(svc *service.Container) gin.HandlerFunc {
 			return
 		}
 		go func() { _ = svc.Watcher.Refresh(context.Background()) }()
+		if root.Enabled {
+			lib, _ := svc.Repo.Library.FindByID(c.Request.Context(), c.Param("id"))
+			libraryName := c.Param("id")
+			if lib != nil {
+				libraryName = lib.Name
+			}
+			_, scanErr := startLibraryRootScanTask(svc, c.Param("id"), root.ID, libraryName, root.Path, service.TaskTriggerEvent, "新增路径自动扫描")
+			logAutomaticScanStartError(svc, root.ID, scanErr)
+		}
 		c.JSON(http.StatusCreated, root)
 	}
 }

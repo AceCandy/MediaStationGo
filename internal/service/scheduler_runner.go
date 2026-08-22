@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strconv"
+	"strings"
 	"time"
 
 	"go.uber.org/zap"
@@ -120,6 +121,18 @@ func (s *SchedulerService) RunNow(ctx context.Context, name string) error {
 // The job is detached from the HTTP request cancellation so a browser timeout,
 // route change, or reverse-proxy disconnect cannot kill long organize/scan work.
 func (s *SchedulerService) RunNowAsync(ctx context.Context, name string) error {
+	return s.runNowAsync(ctx, name)
+}
+
+func (s *SchedulerService) RunLibraryScanNowAsync(ctx context.Context, libraryID string) error {
+	libraryID = strings.TrimSpace(libraryID)
+	if libraryID == "" {
+		return errors.New("library id required")
+	}
+	return s.runNowAsync(context.WithValue(ctx, schedulerLibraryScanIDKey{}, libraryID), "library_scan")
+}
+
+func (s *SchedulerService) runNowAsync(ctx context.Context, name string) error {
 	j := s.jobByName(name)
 	if j == nil {
 		return ErrSchedulerJobNotFound

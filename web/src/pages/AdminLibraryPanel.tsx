@@ -49,10 +49,8 @@ export function AdminLibraryPanel() {
           editableRootDraft={editableRoots.editableRootDraft}
           onEditableRootChange={editableRoots.setEditableRootDraft}
           onSaveRoot={rootActions.saveLibraryRoot}
-          onScanRoot={rootActions.scanLibraryRoot}
           onToggleRoot={rootActions.toggleLibraryRoot}
           onRemoveRoot={rootActions.removeLibraryRoot}
-          onScanLibrary={libraryActions.scanLibrary}
           onRemoveLibrary={libraryActions.removeLibrary}
           onAddLibraryRoot={libraryActions.addLibraryRoot}
           onEditLibraryCover={libraryActions.editLibraryCover}

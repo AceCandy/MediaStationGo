@@ -9,7 +9,6 @@ import {
   Plus,
   Power,
   PowerOff,
-  RefreshCw,
   Save,
   Trash2,
   X,
@@ -36,10 +35,8 @@ type LibraryActionProps = {
   editableRootDraft: (libraryID: string, root: LibraryRoot) => RootDraft
   onEditableRootChange: (libraryID: string, root: LibraryRoot, patch: Partial<RootDraft>) => void
   onSaveRoot: (libraryID: string, root: LibraryRoot) => void
-  onScanRoot: (libraryID: string, root: LibraryRoot) => void
   onToggleRoot: (libraryID: string, root: LibraryRoot) => void
   onRemoveRoot: (library: Library, root: LibraryRoot) => void
-  onScanLibrary: (library: Library) => void
   onRemoveLibrary: (library: Library) => void
   onAddLibraryRoot: (library: Library) => void
   onEditLibraryCover: (library: Library) => void
@@ -191,9 +188,6 @@ export function LibraryDetailDialog({ library, onClose, ...actions }: LibraryDet
           >
             <Plus size={14} /> 添加来源
           </button>
-          <button className="btn-primary px-4 py-2" onClick={() => actions.onScanLibrary(library)}>
-            <RefreshCw size={14} /> 扫描媒体库
-          </button>
         </div>
       </div>
     </ModalShell>
@@ -299,13 +293,6 @@ function RootActionButtons({ library, root, draft, ...actions }: RootEditorProps
           保存
         </MenuButton>
       )}
-      <MenuButton
-        icon={<RefreshCw size={14} />}
-        label="扫描"
-        onClick={() => actions.onScanRoot(library.id, root)}
-      >
-        扫描
-      </MenuButton>
       {root.id && (
         <MenuButton
           icon={enabled ? <PowerOff size={14} /> : <Power size={14} />}

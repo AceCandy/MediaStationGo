@@ -79,6 +79,38 @@ func taskDefinitionHistoryHandler(svc *service.Container) gin.HandlerFunc {
 func taskDefinitionRunHandler(svc *service.Container) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		key := c.Param("key")
+		if key == service.TaskDefinitionLibraryScan {
+			if svc == nil || svc.Scheduler == nil || svc.Repo == nil || svc.Repo.Library == nil {
+				c.JSON(http.StatusServiceUnavailable, gin.H{"error": "library scan unavailable"})
+				return
+			}
+			var request struct {
+				LibraryID string `json:"library_id"`
+			}
+			if err := c.ShouldBindJSON(&request); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid library scan request"})
+				return
+			}
+			request.LibraryID = strings.TrimSpace(request.LibraryID)
+			if request.LibraryID == "" {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "library_id required"})
+				return
+			}
+			library, err := svc.Repo.Library.FindByID(c.Request.Context(), request.LibraryID)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load library"})
+				return
+			}
+			if library == nil {
+				c.JSON(http.StatusNotFound, gin.H{"error": "library not found"})
+				return
+			}
+			if !triggerLibraryScanJob(c, svc, request.LibraryID) {
+				return
+			}
+			c.JSON(http.StatusAccepted, gin.H{"status": "queued"})
+			return
+		}
 		if key == service.TaskDefinitionProbeBackfill {
 			if svc == nil || svc.MediaProbe == nil || svc.Tasks == nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "media probe backfill unavailable"})
