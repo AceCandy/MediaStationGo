@@ -33,6 +33,10 @@ history is observability only; business object state owns retry and recovery.
 - Task logs live at
   `<data_dir>/task-logs/YYYY-MM-DD/<task-definition-key>.log`.
 - Media scrape states include `pending`, `running`, `matched`, `no_match`, and `error`.
+- Automatic scrape execution uses exactly three media workers and one serial
+  catalog worker. `scrapeRunMu` is an `RWMutex`: automatic media groups hold a
+  read lock, while manual, whole-library, catalog, and people work hold the
+  write lock.
 - Watcher batches use `TaskKindWatch`, `TaskTriggerEvent`, and the stable
   `library_watch` definition; they never reuse the full-scan kind.
 
@@ -105,9 +109,15 @@ history is observability only; business object state owns retry and recovery.
 - Startup marks stale task executions `interrupted` and changes stale media
   scrape `running` rows back to `pending`. Neither task history nor log content is
   a resume checkpoint.
-- A worker atomically claims one complete movie or series by changing every
-  currently pending member to `running`. Library media is checked before catalog
-  hydration, and the current work is never preempted.
+- Each automatic worker atomically claims one complete movie or series by
+  changing every currently pending member to `running`. At most three distinct
+  groups run concurrently. The serial catalog worker must not claim a new job
+  while any media is `pending` or `running`; current catalog work is never
+  preempted.
+- Each completed automatic media group emits one structured timing record with
+  candidate generation, provider lookup, metadata persistence, artwork, TMDb
+  extended details, and total milliseconds. It must not contain a media path,
+  request URL, or API key.
 - A newly arrived member of a running series stays pending until that series
   finishes; it must not be claimed concurrently by another process.
 - Explicit rescrape resets the selected business objects to `pending` and wakes
@@ -159,7 +169,7 @@ history is observability only; business object state owns retry and recovery.
 | A historical line has a structured level label | Hide that label in the UI and render the corresponding fallback badge without rewriting the file |
 | Process exits with a media group running | Restore its rows to `pending` at startup |
 | Any member loses a claim race | Roll back the whole group claim |
-| Library media exists while catalog work is pending | Process one library work unit first |
+| Library media is `pending` or `running` while catalog work is pending | Keep the catalog job unclaimed until all active media work drains |
 | An episode role has no season parent | Fall back to the episode `MetadataID`; never merge unrelated orphan records |
 
 ### 5. Good / Base / Bad Cases
@@ -208,8 +218,11 @@ history is observability only; business object state owns retry and recovery.
   three legacy level labels.
 - UI lint/build checks cover all marker variants and structured legacy-label
   fallback while retaining newest-first display, refresh, and tail truncation.
-- Atomic whole-series claim, late-series-member exclusion, and
-  `running -> pending` media recovery.
+- Three-worker overlap with a maximum concurrency of three; atomic whole-series
+  claim, late-series-member exclusion, catalog deferral, worker cancellation,
+  and `running -> pending` media recovery.
+- Automatic scrape timing logs contain all six durations, keep every duration
+  between zero and total, and omit paths, URLs, and API keys.
 - API/UI contract plus manual, scheduled, and event trigger attribution.
 - Library scan tests assert required target validation, manual single-library
   isolation, periodic all-library scope, and event task visibility for new

@@ -34,9 +34,10 @@ type ScraperService struct {
 	peopleBackfillRunMu    sync.Mutex
 
 	catalogHydrationWake chan struct{}
+	mediaScrapeWake      chan struct{}
 	catalogHydrationOnce sync.Once
 	catalogHydrationWG   sync.WaitGroup
-	scrapeRunMu          sync.Mutex
+	scrapeRunMu          sync.RWMutex
 	tasks                *TaskTrackerService
 }
 
@@ -72,6 +73,8 @@ func NewScraperService(
 	return &ScraperService{
 		cfg: cfg, log: log, repo: repo,
 		tmdb: tmdb, bangumi: bangumi, thetvdb: thetvdb, fanart: fanart, adult: adultProvider, hub: hub,
+		catalogHydrationWake: make(chan struct{}, 1),
+		mediaScrapeWake:      make(chan struct{}, autoMediaScrapeWorkerCount),
 	}
 }
 

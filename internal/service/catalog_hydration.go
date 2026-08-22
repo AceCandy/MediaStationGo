@@ -14,7 +14,10 @@ import (
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 )
 
-const catalogRootBurst = 4
+const (
+	catalogRootBurst           = 4
+	autoMediaScrapeWorkerCount = 3
+)
 
 var catalogURLPattern = regexp.MustCompile(`https?://[^\s]+`)
 
@@ -26,6 +29,9 @@ func (s *ScraperService) StartCatalogHydrationWorker(ctx context.Context) {
 	s.catalogHydrationOnce.Do(func() {
 		if s.catalogHydrationWake == nil {
 			s.catalogHydrationWake = make(chan struct{}, 1)
+		}
+		if s.mediaScrapeWake == nil {
+			s.mediaScrapeWake = make(chan struct{}, autoMediaScrapeWorkerCount)
 		}
 		if err := s.recoverRunningMediaScrapes(ctx); err != nil {
 			if s.log != nil {
@@ -39,7 +45,7 @@ func (s *ScraperService) StartCatalogHydrationWorker(ctx context.Context) {
 			}
 			return
 		}
-		s.catalogHydrationWG.Add(1)
+		s.catalogHydrationWG.Add(autoMediaScrapeWorkerCount + 1)
 		go s.runCatalogHydrationWorker(ctx)
 	})
 }
@@ -73,13 +79,7 @@ func (s *ScraperService) QueueCatalogHydrationContext(ctx context.Context, items
 	if !queued {
 		return nil
 	}
-	if s.catalogHydrationWake == nil {
-		s.catalogHydrationWake = make(chan struct{}, 1)
-	}
-	select {
-	case s.catalogHydrationWake <- struct{}{}:
-	default:
-	}
+	s.wakeCatalogHydration()
 	return nil
 }
 
@@ -87,6 +87,24 @@ func (s *ScraperService) WakeScrapeWorker() {
 	if s == nil {
 		return
 	}
+	s.wakeMediaScrapeWorkers()
+	s.wakeCatalogHydration()
+}
+
+func (s *ScraperService) wakeMediaScrapeWorkers() {
+	if s.mediaScrapeWake == nil {
+		s.mediaScrapeWake = make(chan struct{}, autoMediaScrapeWorkerCount)
+	}
+	for range autoMediaScrapeWorkerCount {
+		select {
+		case s.mediaScrapeWake <- struct{}{}:
+		default:
+			return
+		}
+	}
+}
+
+func (s *ScraperService) wakeCatalogHydration() {
 	if s.catalogHydrationWake == nil {
 		s.catalogHydrationWake = make(chan struct{}, 1)
 	}
@@ -101,19 +119,25 @@ func (s *ScraperService) runCatalogHydrationWorker(ctx context.Context) {
 	if err := s.localizeTMDbCatalogSnapshots(ctx); err != nil && s.log != nil && ctx.Err() == nil {
 		s.log.Warn("catalog snapshot localization failed", zap.Error(err))
 	}
+	for range autoMediaScrapeWorkerCount {
+		go s.runMediaScrapeWorker(ctx)
+	}
 	rootStreak := 0
 	for ctx.Err() == nil {
-		processed, err := s.processNextMediaScrape(ctx)
+		active, err := s.hasActiveMediaScrapes(ctx)
 		if err != nil {
 			if s.log != nil && ctx.Err() == nil {
-				s.log.Warn("process pending media scrape failed", zap.Error(err))
+				s.log.Warn("check pending media scrape failed", zap.Error(err))
 			}
 			if !waitForContext(ctx, time.Second) {
 				return
 			}
 			continue
 		}
-		if processed {
+		if active {
+			if !s.waitForMediaScrapes(ctx) {
+				return
+			}
 			continue
 		}
 		job, err := s.claimNextCatalogJob(ctx, &rootStreak)
@@ -159,6 +183,31 @@ func (s *ScraperService) runCatalogHydrationWorker(ctx context.Context) {
 			if s.log != nil {
 				s.log.Warn("catalog hydration failed", zap.String("provider", job.Provider), zap.String("entity_kind", job.EntityKind), zap.String("external_id", job.ExternalID), zap.Error(safeErr))
 			}
+		}
+	}
+}
+
+func (s *ScraperService) runMediaScrapeWorker(ctx context.Context) {
+	defer s.catalogHydrationWG.Done()
+	for ctx.Err() == nil {
+		processed, err := s.processNextMediaScrape(ctx)
+		if err != nil {
+			if s.log != nil && ctx.Err() == nil {
+				s.log.Warn("process pending media scrape failed", zap.Error(err))
+			}
+			if !waitForContext(ctx, time.Second) {
+				return
+			}
+			continue
+		}
+		if processed {
+			s.wakeCatalogHydration()
+			continue
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-s.mediaScrapeWake:
 		}
 	}
 }
@@ -230,6 +279,19 @@ func (s *ScraperService) waitCatalogHydration(ctx context.Context) bool {
 	case <-s.catalogHydrationWake:
 		return true
 	case <-timerC:
+		return true
+	}
+}
+
+func (s *ScraperService) waitForMediaScrapes(ctx context.Context) bool {
+	timer := time.NewTimer(time.Second)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-s.catalogHydrationWake:
+		return true
+	case <-timer.C:
 		return true
 	}
 }

@@ -17,10 +17,11 @@ import (
 )
 
 type persistedMetadataMatch struct {
-	Target      *model.MetadataItem
-	Series      *model.MetadataItem
-	PosterURL   string
-	BackdropURL string
+	Target          *model.MetadataItem
+	Series          *model.MetadataItem
+	PosterURL       string
+	BackdropURL     string
+	ArtworkDuration time.Duration
 }
 
 func (s *ScraperService) persistProviderMetadata(ctx context.Context, media *model.Media, lib *model.Library, match *Match) (*persistedMetadataMatch, error) {
@@ -47,10 +48,12 @@ func (s *ScraperService) persistProviderMetadata(ctx context.Context, media *mod
 	if entityKind == model.MetadataKindSeries {
 		result.Series = canonical
 	}
+	artworkStartedAt := time.Now()
 	seriesPoster, seriesBackdrop, err := s.persistMetadataArtwork(ctx, canonical.ID, source, match.PosterURL, match.BackdropURL)
 	if err != nil {
 		return nil, err
 	}
+	result.ArtworkDuration = time.Since(artworkStartedAt)
 	result.PosterURL, result.BackdropURL = seriesPoster, seriesBackdrop
 	if err := s.persistCredits(ctx, canonical.ID, match.LoadedCreditTypes, match.Credits); err != nil {
 		return nil, err

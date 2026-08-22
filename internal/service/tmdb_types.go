@@ -25,6 +25,8 @@ type Match struct {
 	Aliases       []string `json:"aliases,omitempty"`
 	NSFW          bool     `json:"nsfw,omitempty"`
 	SearchKeyword string   `json:"-"`
+	// TMDbDetailsLoaded 表示匹配已包含语言、国家和类型等完整详情字段。
+	TMDbDetailsLoaded bool `json:"-"`
 	// AllowIdentifierMerge 仅用于 provider 明确 crosswalk 或用户确认的匹配。
 	AllowIdentifierMerge bool                `json:"-"`
 	Credits              []PersonCredit      `json:"-"`

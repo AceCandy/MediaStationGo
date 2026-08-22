@@ -6,6 +6,23 @@ import (
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 )
 
+func TestGroupScrapeCandidateRowsUsesStableIdentity(t *testing.T) {
+	rows := []model.Media{
+		{Base: model.Base{ID: "series-1-a"}, SeriesID: "series-1"},
+		{Base: model.Base{ID: "series-1-b"}, SeriesID: "series-1"},
+		{Base: model.Base{ID: "metadata-1-a"}, MetadataID: "metadata-1"},
+		{Base: model.Base{ID: "metadata-1-b"}, MetadataID: "metadata-1"},
+		{Base: model.Base{ID: "media-1"}},
+	}
+	groups, err := groupScrapeCandidateRows(rows)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(groups) != 3 || len(groups[0].MediaIDs) != 2 || len(groups[1].MediaIDs) != 2 || len(groups[2].MediaIDs) != 1 {
+		t.Fatalf("groups = %#v, want series/metadata/media groups with sizes 2/2/1", groups)
+	}
+}
+
 func TestClaimNextPendingMediaGroupClaimsWholeSeries(t *testing.T) {
 	scraper, repos, closeUpstream := newTestScraper(t)
 	defer closeUpstream()
@@ -47,6 +64,55 @@ func TestClaimNextPendingMediaGroupClaimsWholeSeries(t *testing.T) {
 	}
 	if group != nil {
 		t.Fatalf("claimed late episode while series is running: %#v", group)
+	}
+}
+
+func TestClaimNextPendingMediaGroupConcurrentSingleClaim(t *testing.T) {
+	scraper, repos, closeUpstream := newTestScraper(t)
+	defer closeUpstream()
+
+	library := model.Library{Name: "TV", Path: "/media/tv", Type: "tv", Enabled: true}
+	if err := repos.DB.Create(&library).Error; err != nil {
+		t.Fatal(err)
+	}
+	rows := []model.Media{
+		{LibraryID: library.ID, SeriesID: "series-concurrent", Title: "Show", Path: "/media/tv/show-s01e01.mkv", SeasonNum: 1, EpisodeNum: 1, ScrapeStatus: "pending"},
+		{LibraryID: library.ID, SeriesID: "series-concurrent", Title: "Show", Path: "/media/tv/show-s01e02.mkv", SeasonNum: 1, EpisodeNum: 2, ScrapeStatus: "pending"},
+	}
+	if err := repos.DB.Create(&rows).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	type claimResult struct {
+		group *scrapeCandidateGroup
+		err   error
+	}
+	start := make(chan struct{})
+	results := make(chan claimResult, autoMediaScrapeWorkerCount)
+	for range autoMediaScrapeWorkerCount {
+		go func() {
+			<-start
+			group, err := scraper.claimNextPendingMediaGroup(t.Context())
+			results <- claimResult{group: group, err: err}
+		}()
+	}
+	close(start)
+
+	claimed := 0
+	for range autoMediaScrapeWorkerCount {
+		result := <-results
+		if result.err != nil {
+			t.Fatal(result.err)
+		}
+		if result.group != nil {
+			claimed++
+			if len(result.group.MediaIDs) != len(rows) {
+				t.Fatalf("claimed %d rows, want %d", len(result.group.MediaIDs), len(rows))
+			}
+		}
+	}
+	if claimed != 1 {
+		t.Fatalf("successful claims = %d, want 1", claimed)
 	}
 }
 

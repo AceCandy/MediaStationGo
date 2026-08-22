@@ -184,6 +184,10 @@ db.Model(&credit).
   eligible local persistence fills the link after scan.
 - A reliable provider ID resolves by `(provider, entity_kind, external_id)`. TMDb is optional; Douban-only and provider-less manual metadata are valid.
 - Provider match enriches one canonical `MetadataItem`, its identifiers and managed artwork, then links every matching file through `Media.MetadataID`.
+- `TMDbProvider.GetMovieMatch` and `GetTVMatch` mark their `Match` as containing
+  complete TMDb details. Persistence saves languages, countries, and genres
+  from that match without issuing a duplicate `GetDetails` request. Search-only
+  matches remain unmarked and still fetch extended details once.
 - Before regular provider scraping, an existing media link is revalidated by the current provider identifiers. If the exact movie or `Series -> Season -> Episode` metadata resolves to the same canonical ID, the media is marked `scrape_status=matched` without provider calls or writes to `metadata_items` and related canonical tables. `IncludeMatched` and `RefreshWeakMatched` bypass this shortcut.
 - Series and Season metadata only locate an existing Episode; a newly discovered Episode is scraped independently. An existing Episode with a generated placeholder title (for example `第 1 集` or `Episode 1`) is reusable for seven days after `metadata_items.updated_at`; after that it must be scraped again. Missing or incomplete episode hierarchy always continues through provider scraping.
 - Provider no-match may import existing NFO and sidecar images. Provider error or timeout must set an error state and must not fall back to local metadata.
@@ -483,6 +487,9 @@ db.Model(&credit).
 - Playback/Emby: assert Series and Season Episode counts collapse multiple Media
   versions of one Episode Metadata to one logical Episode.
 - Scrape state: test provider match, definitive no-match with local fallback, and provider error without fallback.
+- TMDb request reuse: known movie/Series IDs make one detail request and retain
+  languages, countries, and genres; search-only matches make one search plus one
+  extended-details request and retain the same fields.
 - Scrape provider boundary: assert regular enrichment, `provider=all` manual search, and non-adult organize make zero adult-provider requests; retain positive coverage for explicit adult manual search and adult organize.
 - Manual apply API: assert the response contains the newly persisted shared title while the media path and library ID remain unchanged.
 - Artwork: delete/ignore cache and remote source after import; `/api/artwork/:assetID` must still serve the DataDir copy.

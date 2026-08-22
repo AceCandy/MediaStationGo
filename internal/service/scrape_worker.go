@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"go.uber.org/zap"
 	"gorm.io/gorm"
@@ -14,15 +15,16 @@ import (
 
 var errMediaScrapeClaimConflict = errors.New("media scrape claim conflict")
 
-// processNextMediaScrape 每次只处理一部电影或一部电视剧，完成后由主循环
-// 重新检查高优先级媒体待办，再决定是否处理发现目录。
+// processNextMediaScrape 每次只处理一部电影或一部电视剧。
 func (s *ScraperService) processNextMediaScrape(ctx context.Context) (bool, error) {
 	group, err := s.claimNextPendingMediaGroup(ctx)
 	if err != nil || group == nil {
 		return false, err
 	}
-	s.scrapeRunMu.Lock()
-	defer s.scrapeRunMu.Unlock()
+	s.wakeMediaScrapeWorkers()
+	startedAt := time.Now()
+	s.scrapeRunMu.RLock()
+	defer s.scrapeRunMu.RUnlock()
 
 	name := strings.TrimSpace(group.Representative.Title)
 	if name == "" {
@@ -44,6 +46,7 @@ func (s *ScraperService) processNextMediaScrape(ctx context.Context) (bool, erro
 	}
 	options := skipEpisodeArtworkOptions(false)
 	options.DeferEpisodeDetails = true
+	options.timings = &scrapeTimings{}
 	err = s.enrichCandidateGroup(ctx, *group, options)
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		_ = s.resetScrapeGroupPending(context.Background(), *group)
@@ -62,6 +65,18 @@ func (s *ScraperService) processNextMediaScrape(ctx context.Context) (bool, erro
 		media, _ := s.repo.Media.FindByID(ctx, group.Representative.ID)
 		safeErr := sanitizeTaskLogError(err)
 		task.Finish(safeErr, TaskUpdate{Stage: "completed", Message: "已入库媒体刮削结束", Metrics: metrics, Details: []string{mediaScrapeTaskDetail(*group, media, safeErr)}})
+	}
+	if s.log != nil {
+		s.log.Info("auto media scrape timing",
+			zap.String("media_id", group.Representative.ID),
+			zap.Int("file_count", len(group.MediaIDs)),
+			zap.Int64("candidate_generation_ms", options.timings.CandidateGeneration.Milliseconds()),
+			zap.Int64("provider_lookup_ms", options.timings.ProviderLookup.Milliseconds()),
+			zap.Int64("metadata_persist_ms", options.timings.MetadataPersist.Milliseconds()),
+			zap.Int64("artwork_ms", options.timings.Artwork.Milliseconds()),
+			zap.Int64("tmdb_extended_details_ms", options.timings.TMDbExtendedDetails.Milliseconds()),
+			zap.Int64("total_ms", time.Since(startedAt).Milliseconds()),
+			zap.Bool("success", err == nil))
 	}
 	return true, nil
 }
@@ -142,6 +157,15 @@ func (s *ScraperService) recoverRunningMediaScrapes(ctx context.Context) error {
 	return s.repo.DB.WithContext(ctx).Model(&model.Media{}).
 		Where("scrape_status = ?", "running").
 		Update("scrape_status", "pending").Error
+}
+
+func (s *ScraperService) hasActiveMediaScrapes(ctx context.Context) (bool, error) {
+	var active bool
+	err := s.repo.DB.WithContext(ctx).Model(&model.Media{}).
+		Select("COUNT(*) > 0").
+		Where("scrape_status IS NULL OR scrape_status = '' OR scrape_status IN ?", []string{"pending", "running"}).
+		Scan(&active).Error
+	return active, err
 }
 
 func (s *ScraperService) resetScrapeGroupPending(ctx context.Context, group scrapeCandidateGroup) error {

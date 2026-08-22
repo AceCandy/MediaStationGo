@@ -59,15 +59,16 @@ func (t *TMDbProvider) GetMovieMatch(ctx context.Context, tmdbID int) (*Match, e
 		return nil, err
 	}
 	m := &Match{
-		TMDbID:       r.ID,
-		MediaType:    "movie",
-		Title:        r.Title,
-		OriginalName: r.OriginalTitle,
-		Overview:     r.Overview,
-		Rating:       r.VoteAverage,
-		Languages:    nonEmptyStrings(r.OriginalLanguage),
-		IMDbID:       strings.TrimSpace(r.ExternalIDs.IMDbID),
-		RawJSON:      raw,
+		TMDbID:            r.ID,
+		TMDbDetailsLoaded: true,
+		MediaType:         "movie",
+		Title:             r.Title,
+		OriginalName:      r.OriginalTitle,
+		Overview:          r.Overview,
+		Rating:            r.VoteAverage,
+		Languages:         nonEmptyStrings(r.OriginalLanguage),
+		IMDbID:            strings.TrimSpace(r.ExternalIDs.IMDbID),
+		RawJSON:           raw,
 	}
 	if m.Title == "" {
 		m.Title = r.OriginalTitle
@@ -157,16 +158,17 @@ func (t *TMDbProvider) GetTVMatch(ctx context.Context, tmdbID int) (*Match, erro
 		return nil, err
 	}
 	m := &Match{
-		TMDbID:       r.ID,
-		MediaType:    "tv",
-		Title:        r.Name,
-		OriginalName: r.OriginalName,
-		Overview:     r.Overview,
-		Rating:       r.VoteAverage,
-		Languages:    nonEmptyStrings(r.OriginalLanguage),
-		Countries:    deduplicate(r.OriginCountry),
-		IMDbID:       strings.TrimSpace(r.ExternalIDs.IMDbID),
-		RawJSON:      raw,
+		TMDbID:            r.ID,
+		TMDbDetailsLoaded: true,
+		MediaType:         "tv",
+		Title:             r.Name,
+		OriginalName:      r.OriginalName,
+		Overview:          r.Overview,
+		Rating:            r.VoteAverage,
+		Languages:         nonEmptyStrings(r.OriginalLanguage),
+		Countries:         deduplicate(r.OriginCountry),
+		IMDbID:            strings.TrimSpace(r.ExternalIDs.IMDbID),
+		RawJSON:           raw,
 	}
 	if r.ExternalIDs.TVDBID > 0 {
 		m.TheTVDBID = strconv.Itoa(r.ExternalIDs.TVDBID)

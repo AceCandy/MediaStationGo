@@ -73,7 +73,11 @@ func (s *ScraperService) enrichOneWithOptions(ctx context.Context, m *model.Medi
 	year := mediaYearHint(&lookupMedia)
 	var lookupErrors []error
 
+	lookupStartedAt := time.Now()
 	externalResult := s.matchFromMediaExternalIDsWithOutcome(ctx, &lookupMedia, lib)
+	if options.timings != nil {
+		options.timings.ProviderLookup += time.Since(lookupStartedAt)
+	}
 	if match := externalResult.Match; match != nil {
 		mergeLocalCreditsIntoMatch(match, local)
 		s.applyFanartArtwork(ctx, match)
@@ -83,12 +87,20 @@ func (s *ScraperService) enrichOneWithOptions(ctx context.Context, m *model.Medi
 		lookupErrors = append(lookupErrors, externalResult.Err)
 	}
 
+	candidateStartedAt := time.Now()
 	candidates := scrapeQueryCandidatesWithRecognition(ctx, s.repo, &lookupMedia, lib)
+	if options.timings != nil {
+		options.timings.CandidateGeneration += time.Since(candidateStartedAt)
+	}
 	var query string
 	match := (*Match)(nil)
 	for _, candidate := range candidates {
 		query = candidate
+		lookupStartedAt = time.Now()
 		lookupResult := s.lookupWithOutcome(ctx, lib, &lookupMedia, candidate, year)
+		if options.timings != nil {
+			options.timings.ProviderLookup += time.Since(lookupStartedAt)
+		}
 		if lookupResult.Err != nil {
 			lookupErrors = append(lookupErrors, lookupResult.Err)
 		}
@@ -212,7 +224,16 @@ func (s *ScraperService) applyProviderMatch(ctx context.Context, m *model.Media,
 }
 
 func (s *ScraperService) applyProviderMatchWithOptions(ctx context.Context, m *model.Media, lib *model.Library, match *Match, options ScrapeOptions) error {
+	persistStartedAt := time.Now()
 	persisted, err := s.persistProviderMetadata(ctx, m, lib, match)
+	if options.timings != nil {
+		persistDuration := time.Since(persistStartedAt)
+		if persisted != nil {
+			options.timings.Artwork += persisted.ArtworkDuration
+			persistDuration -= persisted.ArtworkDuration
+		}
+		options.timings.MetadataPersist += persistDuration
+	}
 	if err != nil {
 		return s.markScrapeError(ctx, m.ID, err)
 	}
@@ -254,7 +275,13 @@ func (s *ScraperService) applyProviderMatchWithOptions(ctx context.Context, m *m
 		if persisted.Series != nil {
 			detailsMetadataID = persisted.Series.ID
 		}
-		s.fetchAndSaveTMDbExtendedMetadata(ctx, detailsMetadataID, match.TMDbID, mediaType)
+		if !match.TMDbDetailsLoaded {
+			detailsStartedAt := time.Now()
+			s.fetchAndSaveTMDbExtendedMetadata(ctx, detailsMetadataID, match.TMDbID, mediaType)
+			if options.timings != nil {
+				options.timings.TMDbExtendedDetails += time.Since(detailsStartedAt)
+			}
+		}
 		if mediaType == "tv" && !options.DeferEpisodeDetails {
 			s.fetchAndSaveTMDbEpisodeDetails(ctx, m, persisted.Target.ID, match.TMDbID, match.Year, options)
 		}
