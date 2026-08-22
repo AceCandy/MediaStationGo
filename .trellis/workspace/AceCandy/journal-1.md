@@ -1033,3 +1033,25 @@ Committed the existing web UI redesign together with detailed background task lo
 ### Status
 
 [OK] **Completed**
+
+
+## Session 49: 优化播放重定向缓存与错误日志
+
+**Date**: 2026-08-22
+**Task**: 优化播放重定向缓存与错误日志
+**Branch**: `main`
+
+### Summary
+
+完成播放重定向缓存键与本地回退、失败响应正文日志、取消请求 499、播放链路媒体复用及 Emby 播放进度查询优化
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `15b80db` | (see git log) |
+| `e00326e` | (see git log) |
+
+### Status
+
+[OK] **Completed**
