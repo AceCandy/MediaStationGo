@@ -25,6 +25,10 @@ per-user, per-metadata history state but playback events are append-only.
 - Automatic progress below 20 seconds is ignored. At 20 seconds or later it
   updates history; a non-empty session ID also creates one event in the same
   transaction.
+- Emby progress with both metadata `ItemId` and concrete `MediaSourceId` must
+  resolve the visible media directly and verify `media.metadata_id == ItemId`.
+  Do not load a full `MediaView`; mismatched or legacy IDs retain the generic
+  compatibility resolver.
 - Reject a negative position, non-positive duration, or `position > duration`.
   Clamp read-side progress percentages to 0 through 100.
 - Manual watched writes completed state without an event. Manual unwatched
@@ -47,6 +51,7 @@ per-user, per-metadata history state but playback events are append-only.
 | Condition | Result |
 | --- | --- |
 | Invalid progress bounds | Request is rejected; no history or event is written |
+| `MediaSourceId` belongs to another `ItemId` | Ignore the mismatched source and retain generic item resolution |
 | Position below 20 seconds | Successful no-op for automatic progress |
 | Invisible media | Request is rejected; no history or event is written |
 | Non-admin explicit different user ID | `403` |
@@ -59,6 +64,10 @@ per-user, per-metadata history state but playback events are append-only.
 
 - Good: a 20-second Web update with a UUID creates or updates history and one
   event; duplicate updates with that UUID do not increment the count.
+- Good: Emby `ItemId + MediaSourceId` resolves one visible media row without a
+  `metadata_identifiers` projection.
+- Base: a mismatched Emby `MediaSourceId` never changes another item's history
+  target and follows the compatibility resolver.
 - Good: two episodes from one season contribute to one season ranking row,
   while two files sharing movie metadata contribute to one movie row.
 - Base: a legacy client without a session ID still saves valid history but does
@@ -74,6 +83,8 @@ per-user, per-metadata history state but playback events are append-only.
 
 - Cover the ten-minute completion boundary, invalid bounds, 20-second boundary,
   manual watched/unwatched behavior, and percentage clamping.
+- Cover the Emby concrete-source fast path with a query callback asserting no
+  SQL contains `metadata_identifiers`, plus a mismatched-source ownership case.
 - Cover same-user, non-admin cross-user, and administrator explicit-target
   behavior for every user-scoped Emby route and `/Sessions`.
 - With `MEDIASTATION_TEST_POSTGRES_DSN`, assert concurrent history upsert,
@@ -96,6 +107,9 @@ history.Completed = request.Completed
 repo.History.Upsert(ctx, history)
 repo.PlaybackEvent.Insert(ctx, event)
 
+// A progress ping does not need artwork, identifiers, or display projection.
+repo.MediaView.FindByIDs(ctx, []string{mediaSourceID}, filter)
+
 // Reusing this statement after Group/Order leaks aggregation state.
 q.Select("DATE_TRUNC(...) AS period").Group("period").Order("period")
 q.Select("pe.id").Scan(&details)
@@ -110,6 +124,11 @@ return repo.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 	if err := repos.History.Upsert(ctx, history); err != nil { return err }
 	return repos.PlaybackEvent.Insert(ctx, event)
 })
+
+// Resolve the visible concrete source and verify it belongs to ItemId.
+query := repo.DB.Model(&model.Media{}).Where("media.id = ?", mediaSourceID)
+var media model.Media
+err := applyUserMediaVisibility(ctx, query, userID).Take(&media).Error
 
 // Build each statistics branch from a clean common-filter statement.
 buckets := playbackStatsQuery(ctx, filter).Group("period")

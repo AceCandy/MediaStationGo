@@ -58,18 +58,34 @@ func (e *EmbyService) MarkPlayed(ctx context.Context, userID, itemID string, pla
 
 // RecordProgress 记录播放进度（来自 Emby 客户端的 /Sessions/Playing/Progress）。
 func (e *EmbyService) RecordProgress(ctx context.Context, userID, itemID, mediaSourceID, sessionID string, positionTicks, runtimeTicks int64) error {
-	target, err := e.itemTarget(ctx, itemID, userID)
-	if err != nil {
-		return err
-	}
-	if strings.TrimSpace(mediaSourceID) != "" {
-		sourceTarget, sourceErr := e.itemTarget(ctx, mediaSourceID, userID)
-		if sourceErr != nil {
+	itemID = strings.TrimSpace(itemID)
+	mediaSourceID = strings.TrimSpace(mediaSourceID)
+	target := embyItemTarget{}
+	if mediaSourceID != "" {
+		var source model.Media
+		query := e.repo.DB.WithContext(ctx).Model(&model.Media{}).Where("media.id = ?", mediaSourceID)
+		sourceErr := e.applyUserMediaVisibility(ctx, query, userID).Take(&source).Error
+		if sourceErr == nil && (itemID == source.ID || itemID == source.MetadataID) {
+			target = embyItemTarget{ItemID: source.MetadataID, MetadataID: source.MetadataID, MediaID: source.ID}
+		} else if sourceErr != nil && !errors.Is(sourceErr, gorm.ErrRecordNotFound) {
 			return sourceErr
 		}
-		sameItem := target.MetadataID != "" && sourceTarget.MetadataID == target.MetadataID
-		if sourceTarget.MediaID != "" && sameItem {
-			target.MediaID = sourceTarget.MediaID
+	}
+	if target.MediaID == "" {
+		var err error
+		target, err = e.itemTarget(ctx, itemID, userID)
+		if err != nil {
+			return err
+		}
+		if mediaSourceID != "" {
+			sourceTarget, sourceErr := e.itemTarget(ctx, mediaSourceID, userID)
+			if sourceErr != nil {
+				return sourceErr
+			}
+			sameItem := target.MetadataID != "" && sourceTarget.MetadataID == target.MetadataID
+			if sourceTarget.MediaID != "" && sameItem {
+				target.MediaID = sourceTarget.MediaID
+			}
 		}
 	}
 	if target.MetadataID == "" || target.MediaID == "" {

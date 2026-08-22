@@ -4,10 +4,12 @@ import (
 	"fmt"
 	"sort"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
 	"go.uber.org/zap"
+	"gorm.io/gorm"
 
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 )
@@ -335,8 +337,30 @@ func TestEmbyMetadataVersionsShareUserStateAndKeepSourceIDs(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("create probe summary: %v", err)
 	}
+	fullViewQueries := 0
+	callbackName := "test:record-progress-media-source-fast-path"
+	if err := svc.repo.DB.Callback().Query().After("gorm:query").Register(callbackName, func(tx *gorm.DB) {
+		if strings.Contains(tx.Statement.SQL.String(), "metadata_identifiers") {
+			fullViewQueries++
+		}
+	}); err != nil {
+		t.Fatalf("register query callback: %v", err)
+	}
+	if view, err := svc.repo.MediaView.FindByID(t.Context(), media1080.ID); err != nil || view == nil {
+		t.Fatalf("load full media view control: %#v, %v", view, err)
+	}
+	if fullViewQueries == 0 {
+		t.Fatal("query callback did not detect the full media view control")
+	}
+	fullViewQueries = 0
 	if err := svc.RecordProgress(t.Context(), "user-1", metadata.ID, media1080.ID, "", 30_000*10_000, 0); err != nil {
 		t.Fatalf("record progress: %v", err)
+	}
+	if err := svc.repo.DB.Callback().Query().Remove(callbackName); err != nil {
+		t.Fatalf("remove query callback: %v", err)
+	}
+	if fullViewQueries != 0 {
+		t.Fatalf("record progress full media view queries = %d, want 0", fullViewQueries)
 	}
 	var favorite model.Favorite
 	if err := svc.repo.DB.Where("user_id = ?", "user-1").First(&favorite).Error; err != nil {
@@ -354,6 +378,27 @@ func TestEmbyMetadataVersionsShareUserStateAndKeepSourceIDs(t *testing.T) {
 	}
 	if history.DurationMs != 120_000 {
 		t.Fatalf("history duration = %d", history.DurationMs)
+	}
+	unrelatedMetadata := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{
+		Base: model.Base{ID: "metadata-unrelated-progress"}, Kind: model.MetadataKindMovie,
+		Title: "其他电影", Source: "tmdb",
+	})
+	unrelatedMedia := model.Media{
+		Base: model.Base{ID: "media-unrelated-progress"}, LibraryID: lib.ID, MetadataID: unrelatedMetadata.ID,
+		Title: "其他电影", Path: `/media/movies/unrelated.mkv`, DurationSec: 120,
+	}
+	if err := svc.repo.DB.Create(&unrelatedMedia).Error; err != nil {
+		t.Fatalf("create unrelated media: %v", err)
+	}
+	if err := svc.RecordProgress(t.Context(), "user-2", metadata.ID, unrelatedMedia.ID, "", 30_000*10_000, 120_000*10_000); err != nil {
+		t.Fatalf("record progress with mismatched source: %v", err)
+	}
+	var mismatchedHistory model.PlaybackHistory
+	if err := svc.repo.DB.Where("user_id = ?", "user-2").First(&mismatchedHistory).Error; err != nil {
+		t.Fatalf("find mismatched-source history: %v", err)
+	}
+	if mismatchedHistory.MetadataID != metadata.ID || mismatchedHistory.MediaID == unrelatedMedia.ID {
+		t.Fatalf("mismatched source changed progress target: %#v", mismatchedHistory)
 	}
 	item, err := svc.Item(t.Context(), media2160.ID, "user-1")
 	if err != nil {
