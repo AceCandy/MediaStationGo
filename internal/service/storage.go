@@ -77,7 +77,7 @@ func (s *StorageService) Compute(ctx context.Context) (*Breakdown, error) {
 			Table("media AS m").
 			Joins("LEFT JOIN media_probe_metadata AS pm ON pm.media_id = m.id").
 			Where("m.library_id = ? AND m.deleted_at IS NULL", l.ID).
-			Select("COUNT(*) as count, COALESCE(SUM(pm.size_bytes),0) as size, COALESCE(SUM(pm.duration_ms),0) / 1000 as seconds").
+			Select("COUNT(*) as count, COALESCE(SUM(pm.size_bytes),0) as size, COALESCE(SUM(pm.duration_ms),0)::bigint / 1000 as seconds").
 			Scan(&row).Error
 		if err != nil {
 			return nil, err

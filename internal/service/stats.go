@@ -111,7 +111,7 @@ func (s *StatsService) Compute(ctx context.Context, dataDir string) (*Snapshot, 
 		sumQuery = sumQuery.Where("library_id IN ?", activeLibraryIDs)
 	}
 	if err := sumQuery.
-		Select("COALESCE(SUM(pm.size_bytes),0) as size, COALESCE(SUM(pm.duration_ms),0) / 1000 as seconds").
+		Select("COALESCE(SUM(pm.size_bytes),0) as size, COALESCE(SUM(pm.duration_ms),0)::bigint / 1000 as seconds").
 		Scan(&sum).Error; err != nil {
 		return nil, err
 	}

@@ -34,7 +34,7 @@ func TestStatsComputeFiltersDisabledLibraries(t *testing.T) {
 		}
 	}
 	if err := db.Create(&[]model.MediaProbeMetadata{
-		{MediaID: mediaRows[0].ID, ProbeJSON: "{}", SchemaVersion: 1, SummaryVersion: 1, SizeBytes: 100, ProbedAt: time.Now()},
+		{MediaID: mediaRows[0].ID, ProbeJSON: "{}", SchemaVersion: 1, SummaryVersion: 1, DurationMS: 1500, SizeBytes: 100, ProbedAt: time.Now()},
 		{MediaID: mediaRows[1].ID, ProbeJSON: "{}", SchemaVersion: 1, SummaryVersion: 1, SizeBytes: 900, ProbedAt: time.Now()},
 	}).Error; err != nil {
 		t.Fatal(err)
@@ -44,7 +44,7 @@ func TestStatsComputeFiltersDisabledLibraries(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if snap.Libraries != 1 || snap.MediaCount != 1 || snap.TotalSizeBytes != 100 {
-		t.Fatalf("stats = libraries=%d media=%d size=%d, want 1/1/100", snap.Libraries, snap.MediaCount, snap.TotalSizeBytes)
+	if snap.Libraries != 1 || snap.MediaCount != 1 || snap.TotalSizeBytes != 100 || snap.TotalSeconds != 1 {
+		t.Fatalf("stats = libraries=%d media=%d size=%d seconds=%d, want 1/1/100/1", snap.Libraries, snap.MediaCount, snap.TotalSizeBytes, snap.TotalSeconds)
 	}
 }

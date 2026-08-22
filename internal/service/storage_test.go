@@ -22,13 +22,19 @@ func TestStorageBreakdownUsesCanonicalLibraryDisplay(t *testing.T) {
 		if err := repos.Library.Create(t.Context(), &libs[i]); err != nil {
 			t.Fatal(err)
 		}
-		if err := repos.Media.Upsert(t.Context(), &model.Media{
+		media := &model.Media{
 			LibraryID: libs[i].ID,
 			Title:     libs[i].Name,
 			Path:      libs[i].Path + "/item.mkv",
 			SizeBytes: 1024,
-		}); err != nil {
+		}
+		if err := repos.Media.Upsert(t.Context(), media); err != nil {
 			t.Fatal(err)
+		}
+		if i == 0 {
+			if err := db.Create(&model.MediaProbeMetadata{MediaID: media.ID, ProbeJSON: "{}", SchemaVersion: 1, DurationMS: 1500}).Error; err != nil {
+				t.Fatal(err)
+			}
 		}
 	}
 
@@ -47,5 +53,8 @@ func TestStorageBreakdownUsesCanonicalLibraryDisplay(t *testing.T) {
 	}
 	if want := []string{"movie", "anime", "adult"}; !slices.Equal(gotTypes, want) {
 		t.Fatalf("library types = %#v, want %#v", gotTypes, want)
+	}
+	if breakdown.TotalSeconds != 1 {
+		t.Fatalf("total seconds = %d, want 1", breakdown.TotalSeconds)
 	}
 }

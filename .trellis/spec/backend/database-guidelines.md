@@ -65,6 +65,14 @@ Correct: use Responses for People translation without tools; reserve `web_search
 
 ## Query Patterns
 
+### Integer Duration Aggregates
+
+PostgreSQL `SUM(bigint)` returns `numeric`. Before scanning a duration aggregate
+into a Go integer, cast the coalesced millisecond sum to `bigint` before integer
+division: `COALESCE(SUM(duration_ms), 0)::bigint / 1000`. When fixing this
+pattern, search every equivalent aggregate and use a non-whole-second value in
+the PostgreSQL regression test so an uncast expression fails.
+
 ### Rebuild GORM Statements After Aggregation
 
 Do not reuse a `*gorm.DB` statement after adding `Select`, `Group`, `Order`,

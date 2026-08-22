@@ -51,7 +51,7 @@ func TestStatsSnapshotHidesAdultRecentlyAddedForUser(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := db.Create(&[]model.MediaProbeMetadata{
-		{MediaID: safeMedia.ID, ProbeJSON: "{}", SchemaVersion: 1, SummaryVersion: 1, SizeBytes: 100, DurationMS: 10_000, ProbedAt: time.Now()},
+		{MediaID: safeMedia.ID, ProbeJSON: "{}", SchemaVersion: 1, SummaryVersion: 1, SizeBytes: 100, DurationMS: 10_500, ProbedAt: time.Now()},
 		{MediaID: adultMedia.ID, ProbeJSON: "{}", SchemaVersion: 1, SummaryVersion: 1, SizeBytes: 200, DurationMS: 20_000, ProbedAt: time.Now()},
 	}).Error; err != nil {
 		t.Fatal(err)
