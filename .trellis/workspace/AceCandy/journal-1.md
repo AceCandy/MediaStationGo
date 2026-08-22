@@ -970,3 +970,24 @@ Committed the existing web UI redesign together with detailed background task lo
 ### Status
 
 [OK] **Completed**
+
+
+## Session 46: Emby Latest 默认隐藏已播放项
+
+**Date**: 2026-08-22
+**Task**: Emby Latest 默认隐藏已播放项
+**Branch**: `main`
+
+### Summary
+
+为 Emby Latest 增加按用户和作品播放完成状态过滤，默认隐藏已播放项，显式支持 IsPlayed，并移除会产生陈旧播放状态的 Latest 缓存；补充电影、剧集和用户隔离测试及 API 目录说明。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `1ff4b8a` | (see git log) |
+
+### Status
+
+[OK] **Completed**

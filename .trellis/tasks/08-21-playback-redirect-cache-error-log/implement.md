@@ -15,8 +15,12 @@
    - Web 使用已经完成权限校验的媒体记录直接播放。
    - Emby 直接按 concrete media ID 使用同一入口，删除视频流 handler 中的通用 ID 解析。
    - 回归可见性、scoped token、本地文件、STRM，并确认非 concrete ID 返回 404。
-5. 同步前端播放器日志详情和 Emby API 目录状态说明。
-6. 验证与独立复核。
+5. 消除 Emby 播放进度的重复完整视图查询。
+   - `MediaSourceId` 有效且属于 `ItemId` 时，直接使用轻量可见 media 查询结果。
+   - 无效、不匹配或旧式输入继续走现有通用解析。
+   - 定向测试确认快路不查询 `metadata_identifiers` 完整投影。
+6. 同步前端播放器日志详情和 Emby API 目录状态说明。
+7. 验证与独立复核。
    - 运行受影响 Go 包的定向测试。
    - 运行前端 lint/build 或项目现有最小等价检查。
    - 运行 `git diff --check`，检查敏感信息、响应流兼容及未相关改动。

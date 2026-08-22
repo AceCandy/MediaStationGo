@@ -27,6 +27,7 @@
 12. Web 与 Emby 播放入口必须保留用户可见性、播放配置限制及外部播放 token 的 media scope 校验。
 13. 上游 302 预解析返回 HTTP 500 时，若 `ffprobe.path_mappings` 能映射到现有普通文件，则改为本地 Range 播放。
 14. 成功的 500 本地回退按同一 `mediaId + User-Agent` 缓存 1 小时；其他预解析错误仍不缓存并回退原地址 302。
+15. Emby 播放进度请求同时提供作品 `ItemId` 与具体 `MediaSourceId` 时，必须直接使用已校验归属关系的 media 记录，不得为两个 ID 重复构建完整 `MediaView`。
 
 ## Acceptance Criteria
 
@@ -42,6 +43,7 @@
 - [ ] 已加载媒体记录进入流服务后不再执行 `Media.FindByID`，本地文件和远程 STRM 行为保持不变。
 - [ ] 上游预解析 500 且本地映射文件存在时返回本地媒体内容，同键后续请求不再访问上游。
 - [ ] 非 500、映射未命中或本地文件不存在时仍返回原地址 302，且失败不缓存。
+- [ ] Emby 进度请求的有效 `ItemId + MediaSourceId` 快路只做轻量媒体可见性与归属校验，不查询完整 `MediaView`；无效或旧式输入保留现有兼容解析。
 - [ ] 相关 Go 定向测试、前端类型检查或构建检查以及 `git diff --check` 通过；不要求全量后端测试。
 
 ## Out of Scope
