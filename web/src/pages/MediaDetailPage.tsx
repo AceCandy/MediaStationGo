@@ -1,7 +1,6 @@
 import { useNavigate, useParams } from 'react-router-dom'
 
 import { useAuthStore } from '../stores/auth'
-import { useLayoutPermissions } from '../components/useLayoutPermissions'
 import { MediaDetailBackdrop } from './MediaDetailArtwork'
 import {
   MediaDetailBackButton,
@@ -16,7 +15,6 @@ export function MediaDetailPage() {
   const { id = '' } = useParams()
   const navigate = useNavigate()
   const user = useAuthStore((s) => s.user)
-  const permissions = useLayoutPermissions(user)
   const detail = useMediaDetailPageState({ id, navigate })
 
   if (detail.loading) return <MediaDetailLoading />
@@ -38,7 +36,6 @@ export function MediaDetailPage() {
         mediaInfoLoading={detail.mediaInfoLoading}
         probing={detail.probing}
         probeError={detail.probeError}
-        canCast={permissions.can('can_cast')}
         favourite={detail.favourite}
         scrapeEpisodeArtwork={detail.scrapeEpisodeArtwork}
         onVersionChange={detail.selectVersion}

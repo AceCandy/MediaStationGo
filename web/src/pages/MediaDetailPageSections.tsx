@@ -1,4 +1,4 @@
-import { ArrowLeft, Cast, Play } from 'lucide-react'
+import { ArrowLeft, Play } from 'lucide-react'
 import { Link } from 'react-router-dom'
 
 import { ExternalPlayerButton } from '../components/ExternalPlayerButton'
@@ -15,7 +15,6 @@ import { mediaDetailScrapeMediaType } from './MediaDetailPageModel'
 
 interface MediaDetailPlaybackActionsProps {
   media: Media
-  canCast: boolean
 }
 
 interface MediaDetailMainContentProps extends MediaDetailPlaybackActionsProps {
@@ -94,7 +93,6 @@ export function MediaDetailBackButton({ onBack }: { onBack: () => void }) {
 
 export function MediaDetailPlaybackActions({
   media,
-  canCast,
 }: MediaDetailPlaybackActionsProps) {
   return (
     <div className="flex flex-wrap gap-3">
@@ -104,17 +102,6 @@ export function MediaDetailPlaybackActions({
       </Link>
 
       <ExternalPlayerButton mediaId={media.id} />
-
-      {canCast && (
-        <Link
-          to={`/dlna?media=${encodeURIComponent(media.id)}`}
-          className="btn-outline gap-2"
-          aria-label={`投屏播放 ${media.title}`}
-        >
-          <Cast size={14} />
-          <span>投屏</span>
-        </Link>
-      )}
     </div>
   )
 }
@@ -128,7 +115,6 @@ export function MediaDetailMainContent({
   mediaInfoLoading,
   probing,
   probeError,
-  canCast,
   favourite,
   scrapeEpisodeArtwork,
   onVersionChange,
@@ -165,7 +151,6 @@ export function MediaDetailMainContent({
           <div className="flex flex-wrap items-center gap-3">
             <MediaDetailPlaybackActions
               media={displayMedia ?? media}
-              canCast={canCast}
             />
             {isAdmin && (
               <MediaDetailAdminMenu

@@ -46,6 +46,7 @@ function navigationItems(scope: NavigationScope): LayoutNavItem[] {
 }
 
 export const VIEWER_NAV_ITEMS = navigationItems('viewer')
+export const HEADER_NAV_ITEMS = navigationItems('header')
 const FILE_NAV_ITEMS = navigationItems('files')
 const MANAGEMENT_NAV_ITEMS = navigationItems('management')
 

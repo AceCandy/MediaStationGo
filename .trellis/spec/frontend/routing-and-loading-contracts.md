@@ -16,9 +16,10 @@ Required behavior:
 - Model top-level layout spaces separately from destination routes. A space is
   an expandable button without a route or `aria-current`; only a visible leaf
   route is a navigation link and may receive `aria-current="page"`.
-- `AppRouteNavigation.scope` is `viewer | files | management`. Render those
+- `AppRouteNavigation.scope` is `viewer | files | management | header`. Render the first three
   spaces in that order as `观看空间`, `文件空间`, and `管理空间`; `files` and
-  `management` are administrator-only layout groups.
+  `management` are administrator-only layout groups. Render `header` leaves as
+  global header actions using their inherited access metadata.
 - Project leaves for each scope directly from the manifest after applying
   inherited access metadata. Do not add a second-level `group` field or a
   separately maintained leaf list.

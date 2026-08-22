@@ -6,8 +6,6 @@ import { mediaAPI } from '../api/library'
 import { streamURL } from '../api/client'
 import { playbackAPI } from '../api/playback'
 import { subtitlesAPI, type SubtitleTrack } from '../api/subtitles'
-import { useLayoutPermissions } from '../components/useLayoutPermissions'
-import { useAuthStore } from '../stores/auth'
 import type { Media } from '../types'
 import { getSeriesKey, isEpisodeLike } from '../utils/groupSeries'
 import { PlayerTopBar } from './PlayerTopBar'
@@ -21,8 +19,6 @@ export function PlayerPage() {
   const { id = '' } = useParams()
   const navigate = useNavigate()
   const location = useLocation()
-  const user = useAuthStore((state) => state.user)
-  const permissions = useLayoutPermissions(user)
 
   const ref = useRef<HTMLVideoElement>(null)
   const lastSentRef = useRef(0)
@@ -129,10 +125,7 @@ export function PlayerPage() {
 
   return (
     <div className="relative -m-6 flex min-h-screen flex-col overflow-hidden bg-black md:-m-8">
-      <PlayerTopBar
-        onBack={goBack}
-        castTo={media && permissions.can('can_cast') ? `/dlna?media=${encodeURIComponent(media.id)}` : undefined}
-      />
+      <PlayerTopBar onBack={goBack} />
       <PlayerVideoStage
         media={media}
         playerError={playerError}

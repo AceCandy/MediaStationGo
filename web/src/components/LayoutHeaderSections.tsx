@@ -1,7 +1,8 @@
-import { Link } from 'react-router-dom'
-import { Cast, Menu, Search } from 'lucide-react'
+import { Link, NavLink } from 'react-router-dom'
+import { Menu, Search } from 'lucide-react'
 
 import type { PlayProfile, User } from '../types'
+import { HEADER_NAV_ITEMS } from './layoutNavigation'
 import { LayoutSearchBox } from './LayoutSearchBox'
 import { LayoutThemeToggle } from './LayoutThemeToggle'
 import { LayoutUserMenu } from './LayoutUserMenu'
@@ -150,6 +151,10 @@ function LayoutHeaderActions({
 }
 
 function LayoutQuickActions({ permissions }: { permissions: LayoutPermissionState }) {
+  const headerItems = HEADER_NAV_ITEMS.filter(
+    (item) => (!item.adminOnly || permissions.isAdmin) && (!item.permission || permissions.can(item.permission)),
+  )
+
   return (
     <>
       <Link
@@ -158,16 +163,25 @@ function LayoutQuickActions({ permissions }: { permissions: LayoutPermissionStat
       >
         <Search size={18} />
       </Link>
-      {permissions.can('can_cast') && (
-        <Link
-          to="/dlna"
-          title="DLNA 投屏"
-          aria-label="打开 DLNA 投屏"
-          className="relative min-h-11 min-w-11 rounded-xl p-2.5 text-[var(--app-muted)] transition-all duration-300 hover:bg-[var(--app-hover)] hover:text-[var(--app-text)]"
-        >
-          <Cast size={18} />
-        </Link>
-      )}
+      {headerItems.map((item) => {
+        const Icon = item.icon
+        return (
+          <NavLink
+            key={item.to}
+            to={item.to!}
+            end={item.end}
+            title={item.label}
+            aria-label={`打开${item.label}`}
+            className={({ isActive }) =>
+              `relative min-h-11 min-w-11 rounded-xl p-2.5 transition-all duration-300 hover:bg-[var(--app-hover)] hover:text-[var(--app-text)] ${
+                isActive ? 'bg-[var(--app-brand-soft)] text-[var(--app-brand-text)]' : 'text-[var(--app-muted)]'
+              }`
+            }
+          >
+            <Icon size={18} aria-hidden="true" />
+          </NavLink>
+        )
+      })}
     </>
   )
 }

@@ -40,7 +40,6 @@ const AdminEmbyAPIsPage = lazy(() =>
 const ProfilePage = lazy(() => import('./pages/ProfilePage').then((m) => ({ default: m.ProfilePage })))
 const DiscoverPage = lazy(() => import('./pages/DiscoverPage').then((m) => ({ default: m.DiscoverPage })))
 const TasksPage = lazy(() => import('./pages/TasksPage').then((m) => ({ default: m.TasksPage })))
-const DlnaPage = lazy(() => import('./pages/DlnaPage').then((m) => ({ default: m.DlnaPage })))
 const FileManagerPage = lazy(() =>
   import('./pages/FileManagerPage').then((m) => ({ default: m.FileManagerPage })),
 )
@@ -64,7 +63,7 @@ const PlaybackStatsPage = lazy(() =>
   import('./pages/PlaybackStatsPage').then((m) => ({ default: m.PlaybackStatsPage })),
 )
 
-export type NavigationScope = 'viewer' | 'files' | 'management'
+export type NavigationScope = 'viewer' | 'files' | 'management' | 'header'
 
 export type AppRouteNavigation = {
   scope: NavigationScope
@@ -197,13 +196,6 @@ export const appRoutes: AppRoute[] = [
       end: true,
     },
   },
-  {
-    id: 'dlna',
-    path: 'dlna',
-    element: <DlnaPage />,
-    permission: 'can_cast',
-    deniedTo: '/',
-  },
   { id: 'play-profiles', path: 'play-profiles', element: <ProfileManagementPage /> },
   {
     id: 'player-request-logs',
@@ -268,7 +260,7 @@ export const appRoutes: AppRoute[] = [
         id: 'admin-tasks',
         path: 'tasks',
         element: <TasksPage />,
-        navigation: { scope: 'files', label: '任务中心', icon: ListChecks, to: '/admin/tasks', order: 60, end: true },
+        navigation: { scope: 'header', label: '任务中心', icon: ListChecks, to: '/admin/tasks', order: 60, end: true },
       },
       {
         id: 'admin-tasks-scheduler',
