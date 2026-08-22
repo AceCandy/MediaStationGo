@@ -1055,3 +1055,24 @@ Committed the existing web UI redesign together with detailed background task lo
 ### Status
 
 [OK] **Completed**
+
+
+## Session 50: 调整媒体库扫描入口与自动触发
+
+**Date**: 2026-08-22
+**Task**: 调整媒体库扫描入口与自动触发
+**Branch**: `main`
+
+### Summary
+
+任务中心手动扫描改为必选单库；新增媒体库或路径后按最小范围自动创建 event 扫描任务；移除管理页与详情页重复扫描入口，并补齐后端回归测试与任务契约。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `9b43a70` | (see git log) |
+
+### Status
+
+[OK] **Completed**
