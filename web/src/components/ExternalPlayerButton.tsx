@@ -22,12 +22,9 @@ export function ExternalPlayerButton({
   const load = async () => {
     setLoading(true)
     try {
-      const [playerData, urlData] = await Promise.all([
-        playbackAPI.externalPlayers(mediaId),
-        playbackAPI.externalURL(mediaId),
-      ])
+      const playerData = await playbackAPI.externalPlayers(mediaId)
       setPlayers(playerData.players ?? [])
-      setStreamURL(urlData.url)
+      setStreamURL(playerData.url ?? '')
       setOpen(true)
     } catch (err: unknown) {
       const msg =

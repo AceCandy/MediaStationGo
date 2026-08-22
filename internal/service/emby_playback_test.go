@@ -5,11 +5,14 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/ShukeBta/MediaStationGo/internal/model"
+	"go.uber.org/zap"
+	"gorm.io/gorm"
 )
 
 type recordingLocalPlaybackProber struct {
@@ -425,6 +428,120 @@ func TestEmbyPlaybackInfoUsesSourceNameAndSharedVisibility(t *testing.T) {
 	}
 }
 
+func TestEmbyPlaybackInfoReusesVersionProbeAndSubtitleData(t *testing.T) {
+	svc := newTestEmbyService(t)
+	lib := model.Library{Name: "电影", Path: "/media/movies", Type: "movie", Enabled: true}
+	if err := svc.repo.Library.Create(t.Context(), &lib); err != nil {
+		t.Fatal(err)
+	}
+	metadata := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{
+		Kind: model.MetadataKindMovie, Title: "多版本电影", Source: "local",
+	})
+	dir := t.TempDir()
+	media := []model.Media{
+		{Base: model.Base{ID: "reuse-version-a", CreatedAt: time.Now()}, LibraryID: lib.ID, MetadataID: metadata.ID, Title: metadata.Title, Path: filepath.Join(dir, "movie-a.mkv")},
+		{Base: model.Base{ID: "reuse-version-b", CreatedAt: time.Now().Add(-time.Minute)}, LibraryID: lib.ID, MetadataID: metadata.ID, Title: metadata.Title, Path: filepath.Join(dir, "movie-b.mkv")},
+	}
+	doc := &ProbeDocument{SchemaVersion: ProbeDocumentSchemaVersion, Streams: []ProbeStream{
+		{Index: 0, CodecType: "video", CodecName: "h264"},
+		{Index: 1, CodecType: "audio", CodecName: "aac", Disposition: ProbeDisposition{Default: true}},
+	}}
+	probeJSON, err := MarshalProbeDocument(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range media {
+		if err := os.WriteFile(media[i].Path, []byte("media"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		base := strings.TrimSuffix(media[i].Path, filepath.Ext(media[i].Path))
+		if err := os.WriteFile(base+".zh.srt", []byte("subtitle"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := svc.repo.DB.Create(&media[i]).Error; err != nil {
+			t.Fatal(err)
+		}
+		if err := svc.repo.DB.Create(&model.MediaProbeMetadata{
+			MediaID: media[i].ID, ProbeJSON: probeJSON, SchemaVersion: ProbeDocumentSchemaVersion,
+		}).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	mediaProbe := NewMediaProbeService(svc.repo, nil)
+	subtitles := NewSubtitleService(zap.NewNop(), svc.repo)
+	subtitles.SetMediaProbe(mediaProbe)
+	svc.SetMediaProbe(mediaProbe)
+	svc.SetSubtitle(subtitles)
+
+	var singleProbeReads, batchProbeReads, singleMediaReads, mediaListReads int
+	if err := svc.repo.DB.Callback().Query().Before("gorm:query").Register("test:count-playback-info-reuse", func(tx *gorm.DB) {
+		switch tx.Statement.Dest.(type) {
+		case *model.MediaProbeMetadata:
+			singleProbeReads++
+		case *[]model.MediaProbeMetadata:
+			batchProbeReads++
+		case *model.Media:
+			singleMediaReads++
+		case *[]model.Media:
+			mediaListReads++
+		}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	subtitleIndex := 2
+	out, err := svc.PlaybackInfoWithOptions(t.Context(), metadata.ID, "", PlaybackSelection{
+		MediaSourceID: media[0].ID, SubtitleStreamIndex: &subtitleIndex,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sources := out["MediaSources"].([]map[string]any); len(sources) != len(media) {
+		t.Fatalf("media sources = %#v, want %d versions", sources, len(media))
+	}
+	if singleProbeReads != 0 || batchProbeReads != 1 {
+		t.Fatalf("probe reads: single=%d batch=%d, want single=0 batch=1", singleProbeReads, batchProbeReads)
+	}
+	if singleMediaReads != 0 || mediaListReads != 1 {
+		t.Fatalf("media reads: single=%d list=%d, want single=0 siblings=1", singleMediaReads, mediaListReads)
+	}
+}
+
+func TestEmbyPlayableMediaSkipsGroupQueriesForConcreteID(t *testing.T) {
+	svc := newTestEmbyService(t)
+	lib := model.Library{Name: "电影", Path: "/media/movies", Type: "movie", Enabled: true}
+	if err := svc.repo.Library.Create(t.Context(), &lib); err != nil {
+		t.Fatal(err)
+	}
+	metadata := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{
+		Kind: model.MetadataKindMovie, Title: "普通电影", Source: "local",
+	})
+	media := model.Media{Base: model.Base{ID: "concrete-playable"}, LibraryID: lib.ID, MetadataID: metadata.ID, Title: metadata.Title, Path: "/media/movies/movie.mkv"}
+	if err := svc.repo.DB.Create(&media).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	groupQueries := 0
+	callbackName := "test:count-playable-media-group-queries"
+	if err := svc.repo.DB.Callback().Query().After("gorm:query").Register(callbackName, func(tx *gorm.DB) {
+		sql := tx.Statement.SQL.String()
+		if strings.Contains(sql, "emby_metadata.parent_id") || strings.Contains(sql, "scope_series.id") {
+			groupQueries++
+		}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := svc.PlayableMediaID(t.Context(), media.ID, "")
+	if removeErr := svc.repo.DB.Callback().Query().Remove(callbackName); removeErr != nil {
+		t.Fatal(removeErr)
+	}
+	if err != nil || resolved != media.ID {
+		t.Fatalf("resolved media = %q, err=%v", resolved, err)
+	}
+	if groupQueries != 0 {
+		t.Fatalf("concrete media executed %d season/series queries", groupQueries)
+	}
+}
+
 func TestEmbyPlaybackInfoKeepsRemoteSTRMBehindStreamEndpoint(t *testing.T) {
 	svc := newTestEmbyService(t)
 	lib := model.Library{Name: "电影", Path: `/media/movies`, Type: "movie", Enabled: true}
@@ -534,7 +651,7 @@ func TestEmbyMediaSourceDoesNotFallbackToLegacyTechnicalFields(t *testing.T) {
 		Base: model.Base{ID: "legacy-technical"}, Path: "/media/movie.mkv",
 		DurationSec: 120, SizeBytes: 1000, Container: "legacy",
 	}
-	src := svc.baseMediaSource(t.Context(), media, "Movie", embyMediaContainer(media, ""), false, "", nil, false)
+	src := svc.baseMediaSource(t.Context(), media, "Movie", embyMediaContainer(media, ""), false, "", nil, false, nil)
 	if src["RunTimeTicks"] != int64(0) || src["Size"] != int64(0) {
 		t.Fatalf("legacy technical fields leaked into media source: %#v", src)
 	}

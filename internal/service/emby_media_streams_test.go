@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"go.uber.org/zap"
+	"gorm.io/gorm"
 
 	"github.com/ShukeBta/MediaStationGo/internal/config"
 	"github.com/ShukeBta/MediaStationGo/internal/model"
@@ -46,7 +47,7 @@ func TestEmbyMediaStreamsMapCompleteProbeAndLiveSidecar(t *testing.T) {
 	emby := NewEmbyService(&config.Config{}, zap.NewNop(), repos)
 	emby.SetMediaProbe(mediaProbe)
 	emby.SetSubtitle(subtitles)
-	streams := emby.mediaStreams(t.Context(), &media, doc, true)
+	streams := emby.mediaStreams(t.Context(), &media, doc, true, nil)
 	if len(streams) != 4 {
 		t.Fatalf("streams = %#v", streams)
 	}
@@ -66,11 +67,25 @@ func TestEmbyMediaStreamsMapCompleteProbeAndLiveSidecar(t *testing.T) {
 		t.Fatalf("sidecar stream mapped incorrectly: %#v", streams[3])
 	}
 	var out bytes.Buffer
+	singleMediaReads := 0
+	if err := db.Callback().Query().Before("gorm:query").Register("test:count-subtitle-media", func(tx *gorm.DB) {
+		if _, ok := tx.Statement.Dest.(*model.Media); ok {
+			singleMediaReads++
+		}
+	}); err != nil {
+		t.Fatal(err)
+	}
 	if err := subtitles.ServeByIndex(t.Context(), media.ID, 5, &out); err != nil {
 		t.Fatal(err)
 	}
+	if singleMediaReads != 1 {
+		t.Fatalf("subtitle service loaded media %d times, want once", singleMediaReads)
+	}
 	if got := out.String(); !strings.HasPrefix(got, "WEBVTT") {
 		t.Fatalf("subtitle output = %q", got)
+	}
+	if err := subtitles.Serve(t.Context(), media.ID, filepath.Join(dir, "..", "escape.srt"), &bytes.Buffer{}); err == nil {
+		t.Fatal("subtitle path escape was accepted")
 	}
 	if err := os.Remove(filepath.Join(dir, "movie.zh.srt")); err != nil {
 		t.Fatal(err)

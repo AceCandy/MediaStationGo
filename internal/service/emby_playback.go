@@ -22,31 +22,42 @@ func (e *EmbyService) PlaybackInfo(ctx context.Context, mediaID, userID string) 
 }
 
 func (e *EmbyService) PlaybackInfoWithOptions(ctx context.Context, mediaID, userID string, selection PlaybackSelection) (map[string]any, error) {
-	m, err := e.playableMedia(ctx, mediaID, userID)
+	m, siblings, err := e.playableMediaWithSiblings(ctx, mediaID, userID)
 	if err != nil || m == nil {
 		return nil, err
 	}
-	siblings := e.mediaVersionSiblings(ctx, m, userID)
 	if len(siblings) == 0 {
 		siblings = []model.MediaView{*m}
 	}
 	if strings.TrimSpace(selection.MediaSourceID) == "" {
 		selection.MediaSourceID = m.ID
 	}
+	ids := make([]string, 0, len(siblings))
 	for i := range siblings {
-		e.ensureTrackMetadata(ctx, &siblings[i].Media)
+		ids = append(ids, siblings[i].ID)
 	}
-	if err := e.validatePlaybackSelection(ctx, siblings, m.ID, selection); err != nil {
+	documents := map[string]*ProbeDocument{}
+	if e.mediaProbe != nil {
+		documents = e.mediaProbe.LoadMany(ctx, ids)
+	}
+	subtitles := map[string][]SubtitleSelection{}
+	for i := range siblings {
+		e.ensureTrackMetadataLoaded(&siblings[i].Media, documents[siblings[i].ID])
+		if e.subtitle != nil {
+			subtitles[siblings[i].ID] = e.subtitle.selectionsForMedia(&siblings[i].Media, documents[siblings[i].ID])
+		}
+	}
+	if err := e.validatePlaybackSelection(siblings, m.ID, selection, documents, subtitles); err != nil {
 		return nil, err
 	}
 	return map[string]any{
-		"MediaSources":  e.mediaSourcesFromViewsWithSelection(ctx, siblings, false, selection),
+		"MediaSources":  e.mediaSourcesFromViewsWithData(ctx, siblings, false, selection, documents, subtitles),
 		"PlaySessionId": uuid.NewString(),
 		"DateCreated":   formatEmbyDateTime(m.CreatedAt),
 	}, nil
 }
 
-func (e *EmbyService) validatePlaybackSelection(ctx context.Context, siblings []model.MediaView, fallbackID string, selection PlaybackSelection) error {
+func (e *EmbyService) validatePlaybackSelection(siblings []model.MediaView, fallbackID string, selection PlaybackSelection, documents map[string]*ProbeDocument, subtitles map[string][]SubtitleSelection) error {
 	if err := validatePlaybackSelectionValues(selection); err != nil {
 		return err
 	}
@@ -54,35 +65,32 @@ func (e *EmbyService) validatePlaybackSelection(ctx context.Context, siblings []
 	if targetID == "" {
 		targetID = fallbackID
 	}
-	var target *model.Media
+	found := false
 	for i := range siblings {
 		if siblings[i].ID == targetID {
-			target = &siblings[i].Media
+			found = true
 			break
 		}
 	}
-	if target == nil {
+	if !found {
 		return ErrInvalidStreamIndex
 	}
-	var doc *ProbeDocument
-	if e.mediaProbe != nil {
-		doc, _ = e.mediaProbe.Load(ctx, targetID)
-	}
+	doc := documents[targetID]
 	if selection.AudioStreamIndex != nil && *selection.AudioStreamIndex >= 0 {
 		if _, err := resolveAudioStreamIndex(doc, selection.AudioStreamIndex); err != nil {
 			return err
 		}
 	}
 	if selection.SubtitleStreamIndex != nil && *selection.SubtitleStreamIndex >= 0 &&
-		!e.hasSubtitleSelection(ctx, target, doc, *selection.SubtitleStreamIndex) {
+		!hasSubtitleSelection(doc, subtitles[targetID], *selection.SubtitleStreamIndex) {
 		return ErrInvalidStreamIndex
 	}
 	return nil
 }
 
-func (e *EmbyService) hasSubtitleSelection(ctx context.Context, media *model.Media, doc *ProbeDocument, index int) bool {
-	if e.subtitle != nil {
-		for _, selection := range e.subtitle.Selections(ctx, media.ID, doc) {
+func hasSubtitleSelection(doc *ProbeDocument, subtitles []SubtitleSelection, index int) bool {
+	if subtitles != nil {
+		for _, selection := range subtitles {
 			if selection.Index == index {
 				return true
 			}
@@ -101,12 +109,18 @@ func (e *EmbyService) hasSubtitleSelection(ctx context.Context, media *model.Med
 
 // ensureTrackMetadata 在后台补齐本地、HTTP/HTTPS 或 STRM 媒体的轨道元数据。
 func (e *EmbyService) ensureTrackMetadata(ctx context.Context, m *model.Media) {
-	if e != nil && m != nil && e.mediaProbe != nil {
-		if !e.mediaProbe.NeedsProbe(ctx, m.ID) || !e.reserveTrackProbe(m.ID) {
-			return
-		}
-		go e.probeTrackMetadata(m.ID)
+	if e == nil || m == nil || e.mediaProbe == nil {
+		return
 	}
+	doc, _ := e.mediaProbe.Load(ctx, m.ID)
+	e.ensureTrackMetadataLoaded(m, doc)
+}
+
+func (e *EmbyService) ensureTrackMetadataLoaded(m *model.Media, doc *ProbeDocument) {
+	if e == nil || m == nil || e.mediaProbe == nil || doc != nil || !e.reserveTrackProbe(m.ID) {
+		return
+	}
+	go e.probeTrackMetadata(m.ID)
 }
 
 func (e *EmbyService) probeTrackMetadata(mediaID string) {
@@ -138,21 +152,36 @@ func (e *EmbyService) releaseTrackProbe(mediaID string) {
 }
 
 func (e *EmbyService) playableMedia(ctx context.Context, id, userID string) (*model.MediaView, error) {
+	m, _, err := e.playableMediaWithSiblings(ctx, id, userID)
+	return m, err
+}
+
+func (e *EmbyService) playableMediaWithSiblings(ctx context.Context, id, userID string) (*model.MediaView, []model.MediaView, error) {
+	views, err := e.mediaViewsForItemID(ctx, id, userID)
+	if err != nil {
+		return nil, nil, err
+	}
+	if len(views) > 0 {
+		if len(views) == 1 && views[0].ID == id {
+			return &views[0], e.mediaVersionSiblings(ctx, &views[0], userID), nil
+		}
+		siblings := orderMediaVersionSiblings(views, "")
+		m := e.preferredPlayableView(ctx, userID, siblings)
+		return m, orderMediaVersionSiblings(siblings, m.ID), nil
+	}
 	if season, ok, err := e.findSeasonGroup(ctx, id, userID); err != nil {
-		return nil, err
+		return nil, nil, err
 	} else if ok && len(season.Episodes) > 0 {
-		return e.preferredPlayableView(ctx, userID, season.Episodes), nil
+		m := e.preferredPlayableView(ctx, userID, season.Episodes)
+		return m, e.mediaVersionSiblings(ctx, m, userID), nil
 	}
 	if series, ok, err := e.findSeriesGroup(ctx, id, userID); err != nil {
-		return nil, err
+		return nil, nil, err
 	} else if ok && len(series.Episodes) > 0 {
-		return e.preferredPlayableView(ctx, userID, series.Episodes), nil
+		m := e.preferredPlayableView(ctx, userID, series.Episodes)
+		return m, e.mediaVersionSiblings(ctx, m, userID), nil
 	}
-	m, err := e.mediaViewForItemID(ctx, id, userID)
-	if err != nil || m == nil || m.ID == id {
-		return m, err
-	}
-	return e.preferredPlayableView(ctx, userID, e.mediaVersionSiblings(ctx, m, userID)), nil
+	return nil, nil, nil
 }
 
 func (e *EmbyService) preferredPlayableView(ctx context.Context, userID string, views []model.MediaView) *model.MediaView {
@@ -195,10 +224,10 @@ func (e *EmbyService) mediaSource(ctx context.Context, m *model.Media, displayNa
 }
 
 func (e *EmbyService) mediaSourceWithProbe(ctx context.Context, m *model.Media, displayName string, asEmbedded bool, doc *ProbeDocument) map[string]any {
-	return e.mediaSourceWithSelection(ctx, m, displayName, asEmbedded, doc, PlaybackSelection{}, true)
+	return e.mediaSourceWithSelection(ctx, m, displayName, asEmbedded, doc, PlaybackSelection{}, true, nil)
 }
 
-func (e *EmbyService) mediaSourceWithSelection(ctx context.Context, m *model.Media, displayName string, asEmbedded bool, doc *ProbeDocument, selection PlaybackSelection, liveSubtitles bool) map[string]any {
+func (e *EmbyService) mediaSourceWithSelection(ctx context.Context, m *model.Media, displayName string, asEmbedded bool, doc *ProbeDocument, selection PlaybackSelection, liveSubtitles bool, subtitles []SubtitleSelection) map[string]any {
 	probeContainer := ""
 	if doc != nil {
 		probeContainer = doc.Format.Name
@@ -210,7 +239,7 @@ func (e *EmbyService) mediaSourceWithSelection(ctx context.Context, m *model.Med
 	if strings.TrimSpace(selection.MediaSourceID) == m.ID {
 		playURL = appendPlaybackSelection(playURL, selection.AudioStreamIndex, selection.SubtitleStreamIndex)
 	}
-	src := e.baseMediaSource(ctx, m, displayName, container, isRemote, playURL, doc, liveSubtitles)
+	src := e.baseMediaSource(ctx, m, displayName, container, isRemote, playURL, doc, liveSubtitles, subtitles)
 	if !asEmbedded && playURL != "" {
 		src["DirectStreamUrl"] = playURL
 	}
@@ -240,7 +269,7 @@ func appendPlaybackSelection(raw string, audioIndex, subtitleIndex *int) string 
 	return u.String()
 }
 
-func (e *EmbyService) baseMediaSource(ctx context.Context, m *model.Media, displayName, container string, isRemote bool, playURL string, doc *ProbeDocument, liveSubtitles bool) map[string]any {
+func (e *EmbyService) baseMediaSource(ctx context.Context, m *model.Media, displayName, container string, isRemote bool, playURL string, doc *ProbeDocument, liveSubtitles bool, subtitles []SubtitleSelection) map[string]any {
 	if strings.TrimSpace(displayName) == "" {
 		displayName = m.Title
 	}
@@ -270,7 +299,7 @@ func (e *EmbyService) baseMediaSource(ctx context.Context, m *model.Media, displ
 		"SupportsDirectPlay":    !isRemote || playURL != "",
 		"SupportsProbing":       true,
 		"RunTimeTicks":          runTimeTicks,
-		"MediaStreams":          e.mediaStreams(ctx, m, doc, liveSubtitles),
+		"MediaStreams":          e.mediaStreams(ctx, m, doc, liveSubtitles, subtitles),
 	}
 	if doc != nil && doc.Format.BitRate > 0 {
 		src["Bitrate"] = doc.Format.BitRate

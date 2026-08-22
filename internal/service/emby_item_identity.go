@@ -85,23 +85,7 @@ func (e *EmbyService) PlayableMediaID(ctx context.Context, id, userID string) (s
 
 // mediaViewForItemID 同时接受作品 ID 和具体 MediaSource ID。
 func (e *EmbyService) mediaViewForItemID(ctx context.Context, id, userID string) (*model.MediaView, error) {
-	id = strings.TrimSpace(id)
-	if id == "" {
-		return nil, nil
-	}
-	if rows, err := e.repo.MediaView.FindByIDs(ctx, []string{id}, e.mediaQueryFilter(ctx, userID)); err != nil {
-		return nil, err
-	} else if len(rows) > 0 {
-		return &rows[0], nil
-	}
-
-	q := e.repo.DB.WithContext(ctx).Model(&model.Media{}).Where("media.metadata_id = ?", id)
-	q = e.applyUserMediaVisibility(ctx, q, userID)
-	var rows []model.Media
-	if err := q.Find(&rows).Error; err != nil || len(rows) == 0 {
-		return nil, err
-	}
-	views, err := e.mediaViewsForRows(ctx, rows, userID)
+	views, err := e.mediaViewsForItemID(ctx, id, userID)
 	if err != nil || len(views) == 0 {
 		return nil, err
 	}
@@ -112,6 +96,27 @@ func (e *EmbyService) mediaViewForItemID(ctx context.Context, id, userID string)
 		}
 	}
 	return &preferred, nil
+}
+
+func (e *EmbyService) mediaViewsForItemID(ctx context.Context, id, userID string) ([]model.MediaView, error) {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return nil, nil
+	}
+	if rows, err := e.repo.MediaView.FindByIDs(ctx, []string{id}, e.mediaQueryFilter(ctx, userID)); err != nil {
+		return nil, err
+	} else if len(rows) > 0 {
+		return rows, nil
+	}
+
+	q := e.repo.DB.WithContext(ctx).Model(&model.Media{}).Where("media.metadata_id = ?", id)
+	q = e.applyUserMediaVisibility(ctx, q, userID)
+	var rows []model.Media
+	if err := q.Find(&rows).Error; err != nil || len(rows) == 0 {
+		return nil, err
+	}
+	views, err := e.mediaViewsForRows(ctx, rows, userID)
+	return views, err
 }
 
 func (e *EmbyService) itemTarget(ctx context.Context, id, userID string) (embyItemTarget, error) {

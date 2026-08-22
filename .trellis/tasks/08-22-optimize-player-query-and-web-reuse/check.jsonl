@@ -1,0 +1,4 @@
+{"file":".trellis/spec/backend/shared-media-metadata.md","reason":"Verify PlaybackInfo, subtitle, MediaView visibility, and concrete media identity contracts remain intact."}
+{"file":".trellis/spec/backend/emby-api-catalog-sync.md","reason":"Verify the diff is internal-only or update the catalog if an external Emby contract changes."}
+{"file":".trellis/spec/frontend/routing-and-loading-contracts.md","reason":"Verify PlayerPage navigation remains consistent with shared route ownership."}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"Check backend response and Web consumer remain aligned across the API boundary."}

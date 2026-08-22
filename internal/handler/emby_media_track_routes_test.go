@@ -66,10 +66,23 @@ func TestEmbyPlaybackInfoRoutesParseGETAndPOSTSelections(t *testing.T) {
 }
 
 func TestEmbySubtitleDeliveryRoutesRediscoverSidecar(t *testing.T) {
-	router, mediaID, token, subtitlePath, _ := newEmbyTrackRouteTest(t)
+	router, mediaID, token, subtitlePath, repos := newEmbyTrackRouteTest(t)
+	media, err := repos.Media.FindByID(t.Context(), mediaID)
+	if err != nil || media == nil {
+		t.Fatalf("find media: %#v %v", media, err)
+	}
+	singleMediaReads := 0
+	if err := repos.DB.Callback().Query().Before("gorm:query").Register("test:count-emby-subtitle-media", func(tx *gorm.DB) {
+		if _, ok := tx.Statement.Dest.(*model.Media); ok {
+			singleMediaReads++
+		}
+	}); err != nil {
+		t.Fatal(err)
+	}
 	for _, path := range []string{
 		"/emby/Videos/" + mediaID + "/Subtitles/3/Stream.vtt",
 		"/videos/" + mediaID + "/subtitles/3/stream.vtt",
+		"/emby/Videos/" + media.MetadataID + "/Subtitles/3/Stream.vtt",
 	} {
 		req := httptest.NewRequest(http.MethodGet, path, nil)
 		req.Header.Set("X-Emby-Token", token)
@@ -78,6 +91,9 @@ func TestEmbySubtitleDeliveryRoutesRediscoverSidecar(t *testing.T) {
 		if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "WEBVTT") {
 			t.Fatalf("GET %s status=%d body=%s", path, response.Code, response.Body.String())
 		}
+	}
+	if singleMediaReads != 0 {
+		t.Fatalf("subtitle route reloaded concrete media %d times", singleMediaReads)
 	}
 
 	if err := os.Remove(subtitlePath); err != nil {
@@ -89,6 +105,48 @@ func TestEmbySubtitleDeliveryRoutesRediscoverSidecar(t *testing.T) {
 	router.ServeHTTP(staleResponse, stale)
 	if staleResponse.Code != http.StatusNotFound {
 		t.Fatalf("stale subtitle status = %d body=%s", staleResponse.Code, staleResponse.Body.String())
+	}
+}
+
+func TestEmbySubtitleDeliveryKeepsSeriesAndSeasonCompatibility(t *testing.T) {
+	router, _, token, _, repos := newEmbyTrackRouteTest(t)
+	var library model.Library
+	if err := repos.DB.First(&library).Error; err != nil {
+		t.Fatal(err)
+	}
+	series := model.MetadataItem{Base: model.Base{ID: "subtitle-series"}, Kind: model.MetadataKindSeries, Title: "Series", Source: "local"}
+	if err := repos.DB.Create(&series).Error; err != nil {
+		t.Fatal(err)
+	}
+	season := model.MetadataItem{Base: model.Base{ID: "subtitle-season"}, Kind: model.MetadataKindSeason, ParentID: &series.ID, SeasonNum: 1, Title: "Season 1", Source: "local"}
+	if err := repos.DB.Create(&season).Error; err != nil {
+		t.Fatal(err)
+	}
+	episode := model.MetadataItem{Base: model.Base{ID: "subtitle-episode"}, Kind: model.MetadataKindEpisode, ParentID: &season.ID, EpisodeNum: 1, Title: "Episode 1", Source: "local"}
+	if err := repos.DB.Create(&episode).Error; err != nil {
+		t.Fatal(err)
+	}
+	mediaPath := filepath.Join(library.Path, "series-s01e01.mkv")
+	if err := os.WriteFile(mediaPath, []byte("media"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(library.Path, "series-s01e01.zh.srt"), []byte("subtitle"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := repos.DB.Create(&model.Media{
+		Base: model.Base{ID: "subtitle-episode-media"}, LibraryID: library.ID, MetadataID: episode.ID,
+		Title: episode.Title, Path: mediaPath, SeasonNum: 1, EpisodeNum: 1,
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{series.ID, season.ID} {
+		req := httptest.NewRequest(http.MethodGet, "/emby/Videos/"+id+"/Subtitles/0/Stream.vtt", nil)
+		req.Header.Set("X-Emby-Token", token)
+		response := httptest.NewRecorder()
+		router.ServeHTTP(response, req)
+		if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "WEBVTT") {
+			t.Fatalf("subtitle %s status=%d body=%s", id, response.Code, response.Body.String())
+		}
 	}
 }
 

@@ -27,6 +27,7 @@ import (
 
 	"go.uber.org/zap"
 
+	"github.com/ShukeBta/MediaStationGo/internal/model"
 	"github.com/ShukeBta/MediaStationGo/internal/repository"
 )
 
@@ -72,6 +73,11 @@ type SubtitleSelection struct {
 }
 
 func (s *SubtitleService) Selections(ctx context.Context, mediaID string, doc *ProbeDocument) []SubtitleSelection {
+	m, _ := s.repo.Media.FindByID(ctx, mediaID)
+	return s.selectionsForMedia(m, doc)
+}
+
+func (s *SubtitleService) selectionsForMedia(m *model.Media, doc *ProbeDocument) []SubtitleSelection {
 	selections := make([]SubtitleSelection, 0)
 	maxIndex := -1
 	if doc != nil {
@@ -89,7 +95,7 @@ func (s *SubtitleService) Selections(ctx context.Context, mediaID string, doc *P
 			}
 		}
 	}
-	tracks, err := s.Discover(ctx, mediaID)
+	tracks, err := s.discoverMedia(m)
 	if err != nil {
 		return selections
 	}
@@ -109,16 +115,28 @@ func (s *SubtitleService) Selections(ctx context.Context, mediaID string, doc *P
 }
 
 func (s *SubtitleService) ServeByIndex(ctx context.Context, mediaID string, index int, w io.Writer) error {
+	m, err := s.repo.Media.FindByID(ctx, mediaID)
+	if err != nil || m == nil {
+		return errors.New("media not found")
+	}
+	return s.ServeMediaByIndex(ctx, m, index, w)
+}
+
+// ServeMediaByIndex 使用已加载的媒体记录重新发现并交付当前字幕索引。
+func (s *SubtitleService) ServeMediaByIndex(ctx context.Context, m *model.Media, index int, w io.Writer) error {
+	if m == nil {
+		return errors.New("media not found")
+	}
 	var doc *ProbeDocument
 	if s.mediaProbe != nil {
-		doc, _ = s.mediaProbe.Load(ctx, mediaID)
+		doc, _ = s.mediaProbe.Load(ctx, m.ID)
 	}
-	for _, selection := range s.Selections(ctx, mediaID, doc) {
+	for _, selection := range s.selectionsForMedia(m, doc) {
 		if selection.Index != index {
 			continue
 		}
 		if selection.External {
-			return s.Serve(ctx, mediaID, selection.source, w)
+			return s.serveMedia(m, selection.source, w)
 		}
 		return errors.New("embedded subtitles are selected from the original media source")
 	}
@@ -141,6 +159,13 @@ func (s *SubtitleService) Discover(ctx context.Context, mediaID string) ([]Subti
 	if err != nil {
 		return nil, err
 	}
+	if m == nil {
+		return nil, errors.New("media not found")
+	}
+	return s.discoverMedia(m)
+}
+
+func (s *SubtitleService) discoverMedia(m *model.Media) ([]SubtitleTrack, error) {
 	if m == nil {
 		return nil, errors.New("media not found")
 	}
@@ -210,6 +235,10 @@ func (s *SubtitleService) Serve(ctx context.Context, mediaID, sub string, w io.W
 	if err != nil || m == nil {
 		return errors.New("media not found")
 	}
+	return s.serveMedia(m, sub, w)
+}
+
+func (s *SubtitleService) serveMedia(m *model.Media, sub string, w io.Writer) error {
 	abs, err := filepath.Abs(sub)
 	if err != nil {
 		return err

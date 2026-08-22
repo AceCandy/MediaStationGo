@@ -7,7 +7,7 @@ import { streamURL } from '../api/client'
 import { playbackAPI } from '../api/playback'
 import { subtitlesAPI, type SubtitleTrack } from '../api/subtitles'
 import type { Media } from '../types'
-import { getSeriesKey, isEpisodeLike } from '../utils/groupSeries'
+import { mediaLibraryBackTarget } from './MediaDetailPageModel'
 import { PlayerTopBar } from './PlayerTopBar'
 import { PlayerVideoStage } from './PlayerVideoStage'
 
@@ -32,8 +32,9 @@ export function PlayerPage() {
   const backTarget = useCallback(() => {
     const state = location.state as { from?: string } | null
     if (state?.from) return state.from
-    if (media && isEpisodeLike(media) && media.library_id) {
-      return `/library/${encodeURIComponent(media.display_library_id || media.library_id)}?series=${encodeURIComponent(getSeriesKey(media))}`
+    if (media) {
+      const target = mediaLibraryBackTarget(media)
+      if (target) return target
     }
     const target = media?.id || id
     return target ? `/media/${target}` : '/'

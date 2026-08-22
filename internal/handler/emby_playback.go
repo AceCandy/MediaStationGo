@@ -163,11 +163,32 @@ func embyAttachTokenToSubtitleStreams(streams []map[string]any, token string) {
 
 func embySubtitleHandler(svc *service.Container) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		uid := embyUserID(c)
-		mediaID, err := svc.Emby.PlayableMediaID(c.Request.Context(), c.Param("id"), uid)
-		if err != nil || mediaID == "" || svc.Subtitle == nil {
+		if svc.Subtitle == nil {
 			c.Status(http.StatusNotFound)
 			return
+		}
+		uid := embyUserID(c)
+		view, err := svc.Repo.MediaView.FindByID(c.Request.Context(), c.Param("id"))
+		if err != nil {
+			c.Status(http.StatusNotFound)
+			return
+		}
+		if view != nil {
+			if !mediaViewVisibleForRequest(c, svc, view) {
+				c.Status(http.StatusNotFound)
+				return
+			}
+		} else {
+			mediaID, err := svc.Emby.PlayableMediaID(c.Request.Context(), c.Param("id"), uid)
+			if err != nil || mediaID == "" {
+				c.Status(http.StatusNotFound)
+				return
+			}
+			view, err = svc.Repo.MediaView.FindByID(c.Request.Context(), mediaID)
+			if err != nil || view == nil || !mediaViewVisibleForRequest(c, svc, view) {
+				c.Status(http.StatusNotFound)
+				return
+			}
 		}
 		index, err := strconv.Atoi(c.Param("index"))
 		if err != nil || index < 0 {
@@ -176,7 +197,7 @@ func embySubtitleHandler(svc *service.Container) gin.HandlerFunc {
 		}
 		c.Header("Content-Type", "text/vtt; charset=utf-8")
 		c.Header("Cache-Control", "no-store")
-		if err := svc.Subtitle.ServeByIndex(c.Request.Context(), mediaID, index, c.Writer); err != nil && !c.Writer.Written() {
+		if err := svc.Subtitle.ServeMediaByIndex(c.Request.Context(), &view.Media, index, c.Writer); err != nil && !c.Writer.Written() {
 			c.Status(http.StatusNotFound)
 		}
 	}

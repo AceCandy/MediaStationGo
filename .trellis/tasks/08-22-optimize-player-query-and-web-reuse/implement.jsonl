@@ -1,0 +1,4 @@
+{"file":".trellis/spec/backend/shared-media-metadata.md","reason":"Defines MediaView, PlaybackInfo, probe batching, subtitle discovery, visibility, and Emby media identity contracts."}
+{"file":".trellis/spec/backend/emby-api-catalog-sync.md","reason":"Requires checking whether player-visible Emby behavior changes need catalog synchronization."}
+{"file":".trellis/spec/frontend/routing-and-loading-contracts.md","reason":"Defines shared route and navigation ownership for PlayerPage return-target reuse."}
+{"file":".trellis/spec/guides/code-reuse-thinking-guide.md","reason":"Guides reuse of existing Web and backend logic without speculative abstractions."}

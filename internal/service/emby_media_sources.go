@@ -31,7 +31,7 @@ func (e *EmbyService) mediaSourcesForViews(ctx context.Context, siblings []model
 	sources := make([]map[string]any, 0, len(siblings))
 	for i := range siblings {
 		name := embyMediaVersionName(&siblings[i].Media, siblings[i].Title)
-		sources = append(sources, e.mediaSourceWithSelection(ctx, &siblings[i].Media, name, asEmbedded, nil, PlaybackSelection{}, false))
+		sources = append(sources, e.mediaSourceWithSelection(ctx, &siblings[i].Media, name, asEmbedded, nil, PlaybackSelection{}, false, nil))
 	}
 	return sources
 }
@@ -49,10 +49,14 @@ func (e *EmbyService) mediaSourcesFromViewsWithSelection(ctx context.Context, si
 	if e.mediaProbe != nil {
 		documents = e.mediaProbe.LoadMany(ctx, ids)
 	}
+	return e.mediaSourcesFromViewsWithData(ctx, siblings, asEmbedded, selection, documents, nil)
+}
+
+func (e *EmbyService) mediaSourcesFromViewsWithData(ctx context.Context, siblings []model.MediaView, asEmbedded bool, selection PlaybackSelection, documents map[string]*ProbeDocument, subtitles map[string][]SubtitleSelection) []map[string]any {
 	sources := make([]map[string]any, 0, len(siblings))
 	for i := range siblings {
 		name := embyMediaVersionName(&siblings[i].Media, siblings[i].Title)
-		sources = append(sources, e.mediaSourceWithSelection(ctx, &siblings[i].Media, name, asEmbedded, documents[siblings[i].ID], selection, true))
+		sources = append(sources, e.mediaSourceWithSelection(ctx, &siblings[i].Media, name, asEmbedded, documents[siblings[i].ID], selection, true, subtitles[siblings[i].ID]))
 	}
 	return sources
 }
@@ -235,9 +239,14 @@ func embyDirectStreamURL(mediaID, container string) string {
 	return "/Videos/" + mediaID + "/stream." + container
 }
 
-func (e *EmbyService) mediaStreams(ctx context.Context, m *model.Media, doc *ProbeDocument, liveSubtitles bool) []map[string]any {
+func (e *EmbyService) mediaStreams(ctx context.Context, m *model.Media, doc *ProbeDocument, liveSubtitles bool, subtitles []SubtitleSelection) []map[string]any {
+	if !liveSubtitles {
+		subtitles = nil
+	} else if e.subtitle != nil && subtitles == nil {
+		subtitles = e.subtitle.Selections(ctx, m.ID, doc)
+	}
 	if doc == nil {
-		return e.scalarMediaStreams(ctx, m, liveSubtitles)
+		return e.scalarMediaStreams(m, subtitles)
 	}
 	streams := []map[string]any{}
 	for _, stream := range doc.Streams {
@@ -249,18 +258,16 @@ func (e *EmbyService) mediaStreams(ctx context.Context, m *model.Media, doc *Pro
 			streams = append(streams, mapped)
 		}
 	}
-	if liveSubtitles && e.subtitle != nil {
-		for _, subtitle := range e.subtitle.Selections(ctx, m.ID, doc) {
-			streams = append(streams, mapSubtitleSelection(m.ID, subtitle))
-		}
+	for _, subtitle := range subtitles {
+		streams = append(streams, mapSubtitleSelection(m.ID, subtitle))
 	}
 	if len(streams) == 0 {
-		return e.scalarMediaStreams(ctx, m, liveSubtitles)
+		return e.scalarMediaStreams(m, subtitles)
 	}
 	return streams
 }
 
-func (e *EmbyService) scalarMediaStreams(ctx context.Context, m *model.Media, liveSubtitles bool) []map[string]any {
+func (e *EmbyService) scalarMediaStreams(m *model.Media, subtitles []SubtitleSelection) []map[string]any {
 	streams := []map[string]any{}
 	if m.VideoCodec != "" || m.Width > 0 {
 		streams = append(streams, map[string]any{
@@ -286,10 +293,8 @@ func (e *EmbyService) scalarMediaStreams(ctx context.Context, m *model.Media, li
 			"IsExternal": false,
 		})
 	}
-	if liveSubtitles && e.subtitle != nil {
-		for _, subtitle := range e.subtitle.Selections(ctx, m.ID, nil) {
-			streams = append(streams, mapSubtitleSelection(m.ID, subtitle))
-		}
+	for _, subtitle := range subtitles {
+		streams = append(streams, mapSubtitleSelection(m.ID, subtitle))
 	}
 	if len(streams) == 0 {
 		streams = append(streams, map[string]any{

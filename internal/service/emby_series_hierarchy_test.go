@@ -125,6 +125,14 @@ func TestEmbyItemsExposeSeriesSeasonEpisodeHierarchy(t *testing.T) {
 	if sources[0]["DirectStreamUrl"] != "/Videos/ep-1/stream.mkv" {
 		t.Fatalf("playback should use Emby-compatible stream URL: %#v", sources[0])
 	}
+	seasonPlayback, err := svc.PlaybackInfo(t.Context(), season.ID, "user-1")
+	if err != nil {
+		t.Fatalf("season playback fallback: %v", err)
+	}
+	seasonSources := seasonPlayback["MediaSources"].([]map[string]any)
+	if seasonSources[0]["Id"] != "ep-1" {
+		t.Fatalf("season playback should fall back to first episode: %#v", seasonSources)
+	}
 }
 
 func TestEmbySeriesGroupingPaginatesAfterFullLibraryGrouping(t *testing.T) {

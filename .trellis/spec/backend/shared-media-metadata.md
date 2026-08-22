@@ -222,6 +222,10 @@ db.Model(&credit).
 - Emby `PlaybackInfo` must enumerate every visible sibling `Media` version before scheduling asynchronous track repair. The playback-layer in-flight map deduplicates by `Media.ID`; the `FFprobeService` limiter remains the only actual probe concurrency limit.
 - Emby `PlaybackInfo.DateCreated` must be present at the response top level as well as on each `MediaSource`. Compatibility fields must be verified at the exact JSON layer consumed by the client; a same-named field on the item or nested source does not satisfy a top-level contract.
 - Emby detail and PlaybackInfo batch-load valid probe documents and map every embedded video/audio/subtitle by its absolute ffprobe stream index. Sidecar subtitles are rediscovered and deterministically indexed after the highest embedded index on every response.
+- One PlaybackInfo request reuses its visible sibling views, one batch probe read,
+  and one sidecar discovery per sibling for both selection validation and
+  `MediaSources` mapping. Reuse is request-local; never cache these
+  user-filtered views or filesystem results across requests.
 - `GET /api/media/:id` attaches an optional `tracks` array through `MediaService.GetMedia` only. Each `MediaTrack` is a typed whitelist projection of video/audio/subtitle facts with the original absolute `index`; it excludes probe paths, URLs, headers, credentials, arbitrary tags, and unsupported stream types. Missing or invalid probe data omits the array, while list/search responses do not load or expose it.
 - Emby paginated browse/list payloads use scalar media fields only: they do not load complete probe documents, scan sidecar subtitles, or schedule lazy track repair.
 - Embedded subtitles remain non-external `MediaStreams` and receive no extraction `DeliveryUrl`. Supported external SRT/ASS/SSA/VTT sidecars receive a controlled token-aware `DeliveryUrl`; delivery revalidates the current stream/index and never accepts a caller-supplied filesystem path.
@@ -436,6 +440,9 @@ db.Model(&credit).
   only the `DuplicateMedia` whitelist.
 - Playback/Emby: assert item display `Name` comes from shared metadata while each `MediaSource.Name` comes from the real source filename with title, year, season/episode markers, and extension removed; source path comes from `Media`, while technical container/codecs come from the probe row.
 - Playback/Emby: assert multiple media versions expose one metadata item ID, share user state, and retain distinct media source IDs.
+- Playback/Emby: count request reads and assert metadata/concrete PlaybackInfo
+  performs one sibling resolution, one batch probe read, no per-media probe or
+  media reload, and still returns the same selected indexes and sources.
 - Playback/Emby: JSON-round-trip PlaybackInfo and assert top-level `DateCreated` is present, non-null, parseable, and equal to the selected concrete media's creation time.
 - Playback/Emby: assert `/Videos/{metadata_id}/{stream,original}` resolves to a concrete visible media source ID before serving bytes, and assert all HLS/transcode route variants are absent.
 - Playback/Emby: assert local STRM scan, manual reprobe, and missing-metadata PlaybackInfo use the real target, persist target size/track facts only in the probe row, deduplicate and bound background probes, and reject stale target results.
