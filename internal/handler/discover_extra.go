@@ -53,6 +53,7 @@ type discoverSectionJob struct {
 	key      string
 	provider string
 	page     int
+	refresh  bool
 }
 
 type discoverSectionResult struct {
@@ -91,11 +92,12 @@ func discoverFeedHandler(svc *service.Container) gin.HandlerFunc {
 		if page < 1 {
 			page = 1
 		}
+		refresh := c.Query("refresh") == "1"
 		keys := strings.Split(rawSections, ",")
 		out := gin.H{}
 		meta := gin.H{}
 		artworkItems := []service.ExternalMediaResult{}
-		for _, result := range loadDiscoverSections(c.Request.Context(), svc, keys, page) {
+		for _, result := range loadDiscoverSections(c.Request.Context(), svc, keys, page, refresh) {
 			out[result.key] = result.items
 			meta[result.key] = result.meta
 			artworkItems = append(artworkItems, result.items...)
@@ -113,7 +115,7 @@ func discoverFeedHandler(svc *service.Container) gin.HandlerFunc {
 	}
 }
 
-func loadDiscoverSections(parent context.Context, svc *service.Container, keys []string, page int) []discoverSectionResult {
+func loadDiscoverSections(parent context.Context, svc *service.Container, keys []string, page int, refresh bool) []discoverSectionResult {
 	providerLocks := make(map[string]*sync.Mutex)
 	for _, provider := range []string{"tmdb", "douban", "bangumi"} {
 		providerLocks[provider] = &sync.Mutex{}
@@ -139,7 +141,7 @@ func loadDiscoverSections(parent context.Context, svc *service.Container, keys [
 			})
 			continue
 		}
-		jobs = append(jobs, discoverSectionJob{index: index, key: k, provider: provider, page: page})
+		jobs = append(jobs, discoverSectionJob{index: index, key: k, provider: provider, page: page, refresh: refresh})
 	}
 	results := append(immediate, runDiscoverProviderGroups(parent, jobs, discoverProviderWorkerCount, func(ctx context.Context, job discoverSectionJob) discoverSectionResult {
 		return loadDiscoverSection(ctx, svc, job)
@@ -207,9 +209,23 @@ func runDiscoverProviderGroups(
 }
 
 func loadDiscoverSection(parent context.Context, svc *service.Container, job discoverSectionJob) discoverSectionResult {
+	started := time.Now()
+	if !job.refresh {
+		if items, ok := cachedDiscoverSection(svc, job.key, job.page); ok {
+			return discoverSectionResult{
+				index: job.index,
+				key:   job.key,
+				items: items,
+				meta: gin.H{
+					"page":        job.page,
+					"has_next":    discoverSectionHasNext(job.key, len(items)),
+					"duration_ms": time.Since(started).Milliseconds(),
+				},
+			}
+		}
+	}
 	sectionTimeout := discoverSectionTimeout(job.key)
 	sectionCtx, cancel := context.WithTimeout(parent, sectionTimeout)
-	started := time.Now()
 	items, err := loadDiscoverSectionItems(sectionCtx, svc, job.provider, job.key, job.page)
 	elapsed := time.Since(started)
 	cancel()

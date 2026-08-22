@@ -24,6 +24,7 @@ This directory contains guidelines for backend development. Fill in each file wi
 | [Emby API Catalog Synchronization](./emby-api-catalog-sync.md) | Required backend-to-frontend catalog updates for player-visible Emby contract changes | Active |
 | [Playback History and Statistics Contracts](./playback-contracts.md) | Shared progress, UserData isolation, events, and statistics contract | Active |
 | [Player Request Logging and Redirect Cache](./player-request-logging.md) | Playback redirect cache identity, failed-response logging, and cancellation status | Active |
+| [Discover Feed Loading Contract](../frontend/discover-feed-loading.md) | Discover section cache, explicit refresh, fallback, and Web request boundaries | Active |
 
 ---
 
@@ -32,10 +33,12 @@ This directory contains guidelines for backend development. Fill in each file wi
 - [ ] If changing a player-visible Emby route, authentication rule, parameter, response, stream behavior, or support level, read the [Emby API Catalog Synchronization](./emby-api-catalog-sync.md) contract before editing.
 - [ ] If changing playback progress, resume, UserData, or playback statistics, read the [Playback History and Statistics Contracts](./playback-contracts.md).
 - [ ] If changing playback redirects or player request persistence, read [Player Request Logging and Redirect Cache](./player-request-logging.md).
+- [ ] If changing the discover feed handler, Providers, or section cache, read the [Discover Feed Loading Contract](../frontend/discover-feed-loading.md).
 
 ## Quality Check
 
 - [ ] Player-visible Emby contract changes update `web/src/pages/embyApiCatalog.ts` in the same task and pass the synchronization contract's validation steps.
+- [ ] Discover feed changes preserve keyed response metadata, cache/fallback order, and Provider scheduling.
 
 ---
 

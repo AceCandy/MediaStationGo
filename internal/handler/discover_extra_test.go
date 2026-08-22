@@ -2,12 +2,19 @@ package handler
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/ShukeBta/MediaStationGo/internal/config"
 	testdb "github.com/ShukeBta/MediaStationGo/internal/testdb"
+	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest/observer"
 	"gorm.io/gorm"
@@ -125,6 +132,110 @@ func TestRunDiscoverProviderGroupsSerializesProvidersAndRunsGroupsInParallel(t *
 	}
 }
 
+func TestDiscoverSectionCacheHitSkipsProvider(t *testing.T) {
+	svc, calls := newDiscoverTMDbTestService(t, http.StatusOK, "fresh")
+	svc.Discover.RememberSection("tmdb_popular_movie", 1, []service.ExternalMediaResult{{Title: "cached"}})
+
+	result := loadDiscoverSection(t.Context(), svc, discoverSectionJob{
+		key: "tmdb_popular_movie", provider: "tmdb", page: 1,
+	})
+
+	if calls.Load() != 0 {
+		t.Fatalf("provider calls = %d, want 0", calls.Load())
+	}
+	if len(result.items) != 1 || result.items[0].Title != "cached" {
+		t.Fatalf("items = %#v", result.items)
+	}
+}
+
+func TestDiscoverSectionsMixedCacheHitStillLoadsMissesInOrder(t *testing.T) {
+	svc, calls := newDiscoverTMDbTestService(t, http.StatusOK, "fresh")
+	svc.Discover.RememberSection("tmdb_popular_movie", 1, []service.ExternalMediaResult{{Title: "cached"}})
+
+	results := loadDiscoverSections(t.Context(), svc, []string{
+		"tmdb_popular_movie",
+		"tmdb_top_rated_movie",
+	}, 1, false)
+
+	if calls.Load() != 1 {
+		t.Fatalf("provider calls = %d, want 1", calls.Load())
+	}
+	if len(results) != 2 || results[0].key != "tmdb_popular_movie" || results[1].key != "tmdb_top_rated_movie" {
+		t.Fatalf("results order = %#v", results)
+	}
+	if len(results[0].items) != 1 || results[0].items[0].Title != "cached" || len(results[1].items) != 1 || results[1].items[0].Title != "fresh" {
+		t.Fatalf("results items = %#v", results)
+	}
+}
+
+func TestDiscoverFeedRefreshQueryCallsProviderAndUpdatesCache(t *testing.T) {
+	svc, calls := newDiscoverTMDbTestService(t, http.StatusOK, "fresh")
+	svc.Discover.RememberSection("tmdb_popular_movie", 1, []service.ExternalMediaResult{{Title: "cached"}})
+	request := func(target string) *httptest.ResponseRecorder {
+		recorder := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(recorder)
+		c.Request = httptest.NewRequest(http.MethodGet, target, nil)
+		discoverFeedHandler(svc)(c)
+		return recorder
+	}
+	assertFreshResponse := func(recorder *httptest.ResponseRecorder) {
+		t.Helper()
+		if recorder.Code != http.StatusOK {
+			t.Fatalf("status = %d, want %d", recorder.Code, http.StatusOK)
+		}
+		var response map[string]json.RawMessage
+		if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+			t.Fatal(err)
+		}
+		var items []service.ExternalMediaResult
+		if err := json.Unmarshal(response["tmdb_popular_movie"], &items); err != nil {
+			t.Fatal(err)
+		}
+		var meta map[string]map[string]any
+		if err := json.Unmarshal(response["_meta"], &meta); err != nil {
+			t.Fatal(err)
+		}
+		if len(items) != 1 || items[0].Title != "fresh" {
+			t.Fatalf("items = %#v", items)
+		}
+		if _, ok := meta["tmdb_popular_movie"]["has_next"]; !ok {
+			t.Fatalf("meta = %#v", meta)
+		}
+	}
+
+	assertFreshResponse(request("/discover/feed?sections=tmdb_popular_movie&refresh=1"))
+	if calls.Load() != 1 {
+		t.Fatalf("provider calls = %d, want 1", calls.Load())
+	}
+	assertFreshResponse(request("/discover/feed?sections=tmdb_popular_movie"))
+	if calls.Load() != 1 {
+		t.Fatalf("cached request called provider; calls = %d", calls.Load())
+	}
+}
+
+func TestDiscoverSectionRefreshFailureReturnsCachedItems(t *testing.T) {
+	svc, calls := newDiscoverTMDbTestService(t, http.StatusServiceUnavailable, "")
+	cached := make([]service.ExternalMediaResult, 20)
+	for i := range cached {
+		cached[i].Title = "cached"
+	}
+	svc.Discover.RememberSection("tmdb_popular_movie", 1, cached)
+
+	result := loadDiscoverSection(t.Context(), svc, discoverSectionJob{
+		key: "tmdb_popular_movie", provider: "tmdb", page: 1, refresh: true,
+	})
+
+	if calls.Load() != 1 {
+		t.Fatalf("provider calls = %d, want 1", calls.Load())
+	}
+	if len(result.items) != len(cached) || result.meta["stale"] != true || result.meta["has_next"] != true {
+		t.Fatalf("result = %#v", result)
+	}
+	if _, ok := result.meta["fallback"]; ok {
+		t.Fatalf("fallback should not run when cache is available: %#v", result.meta)
+	}
+}
+
 func TestDiscoverSlowFetchLogIncludesSectionTiming(t *testing.T) {
 	core, observed := observer.New(zap.InfoLevel)
 	logger := zap.New(core)
@@ -224,4 +335,26 @@ func TestFallbackDiscoverSectionKeyUsesTMDbForDoubanRails(t *testing.T) {
 			t.Fatalf("fallbackDiscoverSectionKey(%q) = %q, want %q", key, got, want)
 		}
 	}
+}
+
+func newDiscoverTMDbTestService(t *testing.T, status int, title string) (*service.Container, *atomic.Int32) {
+	t.Helper()
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls.Add(1)
+		if status >= http.StatusBadRequest {
+			w.WriteHeader(status)
+			return
+		}
+		_, _ = io.WriteString(w, `{"results":[{"id":1,"title":"`+title+`"}]}`)
+	}))
+	t.Cleanup(server.Close)
+	cfg := &config.Config{}
+	cfg.Secrets.TMDbAPIKey = "test-key"
+	cfg.Secrets.TMDbAPIProxy = server.URL
+	tmdb := service.NewTMDbProvider(cfg, zap.NewNop(), nil)
+	return &service.Container{
+		Discover: service.NewDiscoverService(zap.NewNop(), tmdb),
+		Log:      zap.NewNop(),
+	}, &calls
 }

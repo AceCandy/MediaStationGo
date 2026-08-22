@@ -10,8 +10,6 @@ export function ContentRow({
   items,
   page = 1,
   canNext = false,
-  imageVersion,
-  refreshImageVersion,
   onPageChange,
   onSelect,
 }: {
@@ -19,8 +17,6 @@ export function ContentRow({
   items: DiscoverItem[]
   page?: number
   canNext?: boolean
-  imageVersion?: string
-  refreshImageVersion?: string
   onPageChange?: (delta: number) => void
   onSelect: (item: DiscoverItem) => void
 }) {
@@ -57,8 +53,6 @@ export function ContentRow({
           <DiscoverCard
             key={discoverKey(item, index)}
             item={item}
-            imageVersion={imageVersion}
-            refreshImageVersion={refreshImageVersion}
             onSelect={onSelect}
           />
         ))}
@@ -93,13 +87,9 @@ export function DiscoverSkeleton() {
 
 function DiscoverCard({
   item,
-  imageVersion,
-  refreshImageVersion,
   onSelect,
 }: {
   item: DiscoverItem
-  imageVersion?: string
-  refreshImageVersion?: string
   onSelect: (item: DiscoverItem) => void
 }) {
   const source = discoverItemSource(item)
@@ -113,25 +103,22 @@ function DiscoverCard({
   const [imageIndex, setImageIndex] = useState(0)
   const [posterRetry, setPosterRetry] = useState(0)
   const [posterUnavailable, setPosterUnavailable] = useState(false)
-  const posterVersion = [imageVersion, posterRetry > 0 ? `r${posterRetry}` : ''].filter(Boolean).join('-')
+  const posterVersion = posterRetry > 0 ? `r${posterRetry}` : undefined
   const activeImage = imageCandidates[imageIndex] ?? ''
-  const shouldRefreshCache = Boolean(
-    (imageVersion && refreshImageVersion === imageVersion) || posterRetry > 0,
-  )
   const posterSrc = useMemo(
     () =>
       imageURL(activeImage, posterVersion, {
-        refreshCache: shouldRefreshCache,
+        refreshCache: posterRetry > 0,
         retryFailed: true,
       }),
-    [activeImage, posterVersion, shouldRefreshCache],
+    [activeImage, posterRetry, posterVersion],
   )
 
   useEffect(() => {
     setImageIndex(0)
     setPosterRetry(0)
     setPosterUnavailable(false)
-  }, [item.poster_url, item.backdrop_url, imageVersion])
+  }, [item.poster_url, item.backdrop_url])
 
   useEffect(() => {
     if (!posterUnavailable) return
@@ -166,7 +153,7 @@ function DiscoverCard({
           <img
             src={posterSrc}
             alt={item.title}
-            loading="eager"
+            loading="lazy"
             decoding="async"
             referrerPolicy="no-referrer"
             onError={markPosterUnavailable}

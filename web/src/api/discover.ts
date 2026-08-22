@@ -73,10 +73,11 @@ export const discoverAPI = {
     sectionsRequest = { key, promise }
     return promise
   },
-  feed: (sectionKeys: string[], page = 1): Promise<DiscoverFeedResult> =>
+  feed: (sectionKeys: string[], page = 1, refresh = false, signal?: AbortSignal): Promise<DiscoverFeedResult> =>
     api
       .get<Record<string, DiscoverItem[] | DiscoverFeedMeta | Record<string, DiscoverFeedMeta> | null>>('/discover/feed', {
-        params: { sections: sectionKeys.join(','), page },
+        params: { sections: sectionKeys.join(','), page, refresh: refresh ? 1 : undefined },
+        signal,
       })
       .then((r) => {
         const raw = r.data

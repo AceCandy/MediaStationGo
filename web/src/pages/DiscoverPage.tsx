@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { discoverAPI, type DiscoverItem, type DiscoverSection } from '../api/discover'
 import { DiscoverSkeleton } from './DiscoverContentRow'
@@ -24,9 +24,8 @@ export function DiscoverPage() {
   const [sectionsReady, setSectionsReady] = useState(false)
   const [loading, setLoading] = useState(false)
   const [activeItem, setActiveItem] = useState<DiscoverItem | null>(null)
-  const [reloadSeq, setReloadSeq] = useState(0)
-  const [imageVersion, setImageVersion] = useState(() => String(Date.now()))
-  const [refreshImageVersion, setRefreshImageVersion] = useState<string>()
+  const rowPagesRef = useRef<Record<string, number>>({})
+  const activeFeedRef = useRef<AbortController | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -41,8 +40,10 @@ export function DiscoverPage() {
         const fallback = defaultSections.filter((key) => available.has(key))
         const nextSelected = saved.length > 0 ? saved : fallback
         const cached = readCachedDiscoverRows(nextSelected)
+        const nextPages = Object.fromEntries(nextSelected.map((key) => [key, 1]))
         setSelected(nextSelected)
-        setRowPages(Object.fromEntries(nextSelected.map((key) => [key, 1])))
+        rowPagesRef.current = nextPages
+        setRowPages(nextPages)
         setRows(cached.rows)
         setRowCanNext(cached.rowCanNext)
         setSectionsReady(true)
@@ -58,6 +59,117 @@ export function DiscoverPage() {
     }
   }, [])
 
+  const loadRows = useCallback((targets: Record<string, number>, refresh = false) => {
+    const targetEntries = Object.entries(targets)
+    if (targetEntries.length === 0) return null
+
+    activeFeedRef.current?.abort()
+    const controller = new AbortController()
+    activeFeedRef.current = controller
+    const targetKeys = targetEntries.map(([key]) => key)
+    setLoading(true)
+    setRowLoading(Object.fromEntries(targetKeys.map((key) => [key, true])))
+    setRowErrors((current) => {
+      const next = { ...current }
+      for (const key of targetKeys) delete next[key]
+      return next
+    })
+
+    const requests = new Map<number, string[]>()
+    for (const [key, page] of targetEntries) {
+      requests.set(page, [...(requests.get(page) ?? []), key])
+    }
+    const pending = Array.from(requests, async ([page, keys]) => {
+      try {
+        const feed = await discoverAPI.feed(keys, page, refresh, controller.signal)
+        if (controller.signal.aborted || activeFeedRef.current !== controller) return
+        setRows((current) => {
+          const next = { ...current }
+          for (const key of keys) {
+            const error = feed.meta[key]?.error
+            const nextItems = feed.items[key] ?? []
+            if (!(error && nextItems.length === 0 && (current[key]?.length ?? 0) > 0)) {
+              next[key] = nextItems
+            }
+          }
+          return next
+        })
+        setRowCanNext((current) => {
+          const next = { ...current }
+          for (const key of keys) {
+            const error = feed.meta[key]?.error
+            const nextItems = feed.items[key] ?? []
+            if (!(error && nextItems.length === 0 && key in current)) {
+              next[key] = Boolean(feed.meta[key]?.has_next)
+            }
+          }
+          return next
+        })
+        setRowErrors((current) => {
+          let next = current
+          for (const key of keys) {
+            next = updateDiscoverRowError(next, key, feed.meta[key]?.error)
+          }
+          return next
+        })
+        for (const key of keys) {
+          if (!feed.meta[key]?.error) {
+            writeCachedDiscoverRow(
+              key,
+              page,
+              feed.items[key] ?? [],
+              Boolean(feed.meta[key]?.has_next),
+            )
+          }
+        }
+      } catch (err) {
+        if (controller.signal.aborted || activeFeedRef.current !== controller) return
+        const message = discoverRequestErrorMessage(err)
+        setRows((current) => {
+          const next = { ...current }
+          for (const key of keys) {
+            if ((current[key]?.length ?? 0) === 0) next[key] = []
+          }
+          return next
+        })
+        setRowCanNext((current) => {
+          const next = { ...current }
+          for (const key of keys) {
+            if (!(key in current)) next[key] = false
+          }
+          return next
+        })
+        setRowErrors((current) => {
+          const next = { ...current }
+          for (const key of keys) next[key] = message
+          return next
+        })
+      } finally {
+        if (activeFeedRef.current === controller) {
+          setRowLoading((current) => {
+            const next = { ...current }
+            for (const key of keys) next[key] = false
+            return next
+          })
+        }
+      }
+    })
+    void Promise.all(pending).then(() => {
+      if (activeFeedRef.current !== controller) return
+      activeFeedRef.current = null
+      setLoading(false)
+    })
+    return controller
+  }, [])
+
+  useEffect(
+    () => () => {
+      activeFeedRef.current?.abort()
+      activeFeedRef.current = null
+    },
+    [],
+  )
+
   useEffect(() => {
     if (!sectionsReady) return
     const available = new Set(sections.map((section) => section.key))
@@ -67,6 +179,8 @@ export function DiscoverPage() {
       return
     }
     if (selected.length === 0) {
+      activeFeedRef.current?.abort()
+      activeFeedRef.current = null
       setRows({})
       setRowLoading({})
       setRowCanNext({})
@@ -74,10 +188,7 @@ export function DiscoverPage() {
       setLoading(false)
       return
     }
-    let cancelled = false
-    setLoading(true)
     setRowErrors({})
-    setRowLoading(Object.fromEntries(selected.map((key) => [key, true])))
     setRows((current) => {
       const next: Record<string, DiscoverItem[]> = {}
       for (const key of selected) {
@@ -86,68 +197,15 @@ export function DiscoverPage() {
       return next
     })
     window.localStorage.setItem(discoverStorageKey, serializeSavedSections(selected))
-
-    const requests = new Map<number, string[]>()
-    for (const key of selected) {
-      const page = rowPages[key] ?? 1
-      requests.set(page, [...(requests.get(page) ?? []), key])
-    }
-    let pending = requests.size
-    const markDone = () => {
-      pending -= 1
-      if (!cancelled && pending <= 0) setLoading(false)
-    }
-    for (const [page, keys] of requests) {
-      discoverAPI
-        .feed(keys, page)
-        .then((feed) => {
-          if (cancelled) return
-          for (const key of keys) {
-            const error = feed.meta[key]?.error
-            const nextItems = feed.items[key] ?? []
-            const nextCanNext = Boolean(feed.meta[key]?.has_next)
-            setRows((current) => {
-              if (error && nextItems.length === 0 && (current[key]?.length ?? 0) > 0) {
-                return current
-              }
-              return { ...current, [key]: nextItems }
-            })
-            setRowCanNext((current) => {
-              if (error && nextItems.length === 0 && key in current) {
-                return current
-              }
-              return { ...current, [key]: nextCanNext }
-            })
-            if (!error) {
-              writeCachedDiscoverRow(key, page, nextItems, nextCanNext)
-            }
-            setRowErrors((current) => updateDiscoverRowError(current, key, error))
-          }
-        })
-        .catch((err) => {
-          if (cancelled) return
-          const message = discoverRequestErrorMessage(err)
-          for (const key of keys) {
-            setRows((current) => ((current[key]?.length ?? 0) > 0 ? current : { ...current, [key]: [] }))
-            setRowCanNext((current) => (key in current ? current : { ...current, [key]: false }))
-            setRowErrors((current) => ({ ...current, [key]: message }))
-          }
-        })
-        .finally(() => {
-          if (!cancelled) {
-            setRowLoading((current) => {
-              const next = { ...current }
-              for (const key of keys) next[key] = false
-              return next
-            })
-          }
-          markDone()
-        })
-    }
+    const targets = Object.fromEntries(
+      selected.map((key) => [key, rowPagesRef.current[key] ?? 1]),
+    )
+    const controller = loadRows(targets)
     return () => {
-      cancelled = true
+      controller?.abort()
+      if (activeFeedRef.current === controller) activeFeedRef.current = null
     }
-  }, [sections, sectionsReady, selected, rowPages, reloadSeq])
+  }, [loadRows, sections, sectionsReady, selected])
 
   const sectionMap = useMemo(
     () => new Map(sections.map((section) => [section.key, section])),
@@ -163,22 +221,26 @@ export function DiscoverPage() {
       }
       return [...current, key]
     })
-    setRowPages((current) => ({ ...current, [key]: current[key] ?? 1 }))
+    const nextPages = { ...rowPagesRef.current, [key]: rowPagesRef.current[key] ?? 1 }
+    rowPagesRef.current = nextPages
+    setRowPages(nextPages)
   }
 
   const changeDiscoverPage = (key: string, delta: number) => {
-    setRowPages((current) => {
-      const nextPage = Math.max(1, (current[key] ?? 1) + delta)
-      if (nextPage === (current[key] ?? 1)) return current
-      return { ...current, [key]: nextPage }
-    })
+    const currentPage = rowPagesRef.current[key] ?? 1
+    const nextPage = Math.max(1, currentPage + delta)
+    if (nextPage === currentPage) return
+    const nextPages = { ...rowPagesRef.current, [key]: nextPage }
+    rowPagesRef.current = nextPages
+    setRowPages(nextPages)
+    loadRows({ [key]: nextPage })
   }
 
   const refreshDiscover = () => {
-    const nextImageVersion = String(Date.now())
-    setImageVersion(nextImageVersion)
-    setRefreshImageVersion(nextImageVersion)
-    setReloadSeq((current) => current + 1)
+    loadRows(
+      Object.fromEntries(selected.map((key) => [key, rowPagesRef.current[key] ?? 1])),
+      true,
+    )
   }
 
   return (
@@ -208,8 +270,6 @@ export function DiscoverPage() {
           rowCanNext={rowCanNext}
           loading={loading}
           hasContent={hasContent}
-          imageVersion={imageVersion}
-          refreshImageVersion={refreshImageVersion}
           sectionLabel={sectionLabel}
           onPageChange={changeDiscoverPage}
           onSelect={setActiveItem}

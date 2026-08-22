@@ -88,8 +88,6 @@ export function DiscoverResults({
   rowCanNext,
   loading,
   hasContent,
-  imageVersion,
-  refreshImageVersion,
   sectionLabel,
   onPageChange,
   onSelect,
@@ -102,8 +100,6 @@ export function DiscoverResults({
   rowCanNext: Record<string, boolean>
   loading: boolean
   hasContent: boolean
-  imageVersion: string
-  refreshImageVersion?: string
   sectionLabel: SectionLabel
   onPageChange: (key: string, delta: number) => void
   onSelect: (item: DiscoverItem) => void
@@ -127,8 +123,6 @@ export function DiscoverResults({
             items={items}
             page={rowPages[key] ?? 1}
             canNext={Boolean(rowCanNext[key])}
-            imageVersion={imageVersion}
-            refreshImageVersion={refreshImageVersion}
             onPageChange={(delta) => onPageChange(key, delta)}
             onSelect={onSelect}
           />
