@@ -1097,3 +1097,24 @@ Committed the existing web UI redesign together with detailed background task lo
 ### Status
 
 [OK] **Completed**
+
+
+## Session 52: 完善媒体入库刮削策略与失败处置
+
+**Date**: 2026-08-23
+**Task**: 完善媒体入库刮削策略与失败处置
+**Branch**: `main`
+
+### Summary
+
+新增单库及整库手动刮削、扫描后默认自动刮削、NFO-only 非常规媒体库、统一成功来源日志与失败处置页面，并兼容 legacy show 类型。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `6413e49` | (see git log) |
+
+### Status
+
+[OK] **Completed**

@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 51
-- **Last Active**: 2026-08-22
+- **Total Sessions**: 52
+- **Last Active**: 2026-08-23
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~1099 | Active |
+| `journal-1.md` | ~1120 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 52 | 2026-08-23 | 完善媒体入库刮削策略与失败处置 | `6413e49` | `main` |
 | 51 | 2026-08-22 | 优化自动入库刮削吞吐 | `0e3d44a` | `main` |
 | 50 | 2026-08-22 | 调整媒体库扫描入口与自动触发 | `9b43a70` | `main` |
 | 49 | 2026-08-22 | 优化播放重定向缓存与错误日志 | `15b80db`, `e00326e` | `main` |
