@@ -1118,3 +1118,24 @@ Committed the existing web UI redesign together with detailed background task lo
 ### Status
 
 [OK] **Completed**
+
+
+## Session 53: 统一元数据搜索与后台任务修复
+
+**Date**: 2026-08-24
+**Task**: 统一元数据搜索与后台任务修复
+**Branch**: `main`
+
+### Summary
+
+统一 Web 与 Emby 顶层 Metadata 搜索及 OpenSearch 同步；修复未入库媒体删除、刮削路径展示和人物翻译无效结果重复请求。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `dd76a84` | (see git log) |
+
+### Status
+
+[OK] **Completed**
