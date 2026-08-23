@@ -185,10 +185,11 @@ func (s *ScraperService) markMetadataMatched(ctx context.Context, media, lookup 
 	if err := s.repo.DB.WithContext(ctx).Model(&model.Media{}).Where("id = ?", media.ID).Updates(updates).Error; err != nil {
 		return err
 	}
+	oldMetadataID := media.MetadataID
 	media.MetadataID = metadataID
 	media.SeriesID = lookup.SeriesID
 	media.ScrapeStatus = "matched"
-	s.repo.MediaView.ReindexMediaIDs(ctx, media.ID)
+	s.repo.MediaView.RefreshMetadataIDs(ctx, oldMetadataID, media.MetadataID)
 	s.invalidateMediaCache(ctx)
 	return nil
 }
@@ -267,12 +268,13 @@ func (s *ScraperService) applyProviderMatchWithOptions(ctx context.Context, m *m
 		Updates(updates).Error; err != nil {
 		return err
 	}
+	oldMetadataID := m.MetadataID
 	m.MetadataID = persisted.Target.ID
 	m.TMDbID = match.TMDbID
 	m.BangumiID = match.BangumiID
 	m.DoubanID = match.DoubanID
 	m.TheTVDBID = match.TheTVDBID
-	s.repo.MediaView.ReindexMediaIDs(ctx, m.ID)
+	s.repo.MediaView.RefreshMetadataIDs(ctx, oldMetadataID, m.MetadataID)
 
 	// Fetch extended metadata after the selected match is already saved.
 	// Manual and batch applies must not fail just because an optional provider

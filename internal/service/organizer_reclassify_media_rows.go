@@ -34,14 +34,26 @@ func (o *OrganizerService) updateReclassifiedMediaRow(ctx context.Context, oldPa
 	} else if req.Episode > 0 {
 		updates["episode_num"] = req.Episode
 	}
-	return o.repo.DB.WithContext(ctx).Model(&model.Media{}).Where("path = ?", oldPath).Updates(updates).Error
+	var metadataIDs []string
+	if err := o.repo.DB.WithContext(ctx).Model(&model.Media{}).Where("path = ?", oldPath).Where("metadata_id IS NOT NULL").Pluck("metadata_id", &metadataIDs).Error; err != nil {
+		return err
+	}
+	if err := o.repo.DB.WithContext(ctx).Model(&model.Media{}).Where("path = ?", oldPath).Updates(updates).Error; err != nil {
+		return err
+	}
+	o.repo.MediaView.RefreshMetadataIDs(ctx, metadataIDs...)
+	return nil
 }
 
 func (o *OrganizerService) deleteMediaRowForPath(ctx context.Context, path string) {
 	if o == nil || o.repo == nil || o.repo.DB == nil {
 		return
 	}
-	_ = o.repo.DB.WithContext(ctx).Unscoped().Where("path = ?", path).Delete(&model.Media{}).Error
+	var metadataIDs []string
+	_ = o.repo.DB.WithContext(ctx).Model(&model.Media{}).Where("path = ?", path).Where("metadata_id IS NOT NULL").Pluck("metadata_id", &metadataIDs).Error
+	if err := o.repo.DB.WithContext(ctx).Unscoped().Where("path = ?", path).Delete(&model.Media{}).Error; err == nil {
+		o.repo.MediaView.RefreshMetadataIDs(ctx, metadataIDs...)
+	}
 }
 
 func (o *OrganizerService) mediaPathExists(ctx context.Context, path string) bool {

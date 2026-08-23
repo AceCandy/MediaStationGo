@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"strings"
+	"sync"
 
 	"gorm.io/gorm"
 
@@ -46,6 +47,9 @@ m.*,
 type MediaViewRepository struct {
 	db            *gorm.DB
 	searchBackend MediaSearchBackend
+	searchMu      sync.Mutex
+	searchRebuild bool
+	searchDirty   map[string]struct{}
 }
 
 func (r *MediaViewRepository) SetSearchBackend(backend MediaSearchBackend) {
@@ -255,76 +259,20 @@ func (r *MediaViewRepository) SearchFilteredPage(ctx context.Context, query stri
 	if limit <= 0 {
 		limit = 50
 	}
-	query = strings.TrimSpace(query)
-	if query != "" && r.searchBackend != nil {
-		if rows, total, ok := r.searchFilteredBackend(ctx, query, offset, limit, filter); ok {
-			return rows, total, nil
-		}
+	searchFilter := MetadataSearchFilter{
+		MediaQueryFilter: filter,
+		Fields:           MetadataSearchFieldsWeb,
+		Kinds:            []string{model.MetadataKindMovie, model.MetadataKindSeries},
 	}
-	q := applyMediaViewFilter(r.query(ctx), filter)
-	q = applyMediaViewLIKEFilter(q, query)
-	var total int64
-	if err := q.Count(&total).Error; err != nil {
-		return nil, 0, err
-	}
-	if query != "" {
-		prefix := escapeLike(query) + "%"
-		q = q.Order(gorm.Expr("CASE WHEN mi.title = ? THEN 0 WHEN mi.original_name = ? THEN 1 WHEN mi.title LIKE ? ESCAPE '\\' THEN 2 WHEN mi.original_name LIKE ? ESCAPE '\\' THEN 3 ELSE 4 END, m.created_at DESC", query, query, prefix, prefix))
-	} else {
-		q = q.Order("m.created_at DESC")
-	}
-	var rows []model.MediaView
-	if err := scanMediaViews(q.Offset(offset).Limit(limit), &rows); err != nil {
-		return nil, 0, err
-	}
-	return rows, total, nil
-}
-
-func (r *MediaViewRepository) searchFilteredBackend(ctx context.Context, query string, offset, limit int, filter MediaQueryFilter) ([]model.MediaView, int64, bool) {
-	ids, total, err := r.searchBackend.SearchMediaIDs(ctx, query, offset, limit, filter)
+	ids, total, err := r.SearchMetadataIDs(ctx, query, offset, limit, searchFilter)
 	if err != nil {
-		return nil, 0, false
+		return nil, 0, err
 	}
-	rows, err := r.FindByIDs(ctx, ids, filter)
-	if err != nil || (len(rows) == 0 && total > 0) {
-		return nil, 0, false
-	}
-	return rows, total, true
-}
-
-func applyMediaViewLIKEFilter(q *gorm.DB, query string) *gorm.DB {
-	for _, term := range mediaSearchTerms(query) {
-		like := "%" + escapeLike(term) + "%"
-		q = q.Where("(mi.title LIKE ? ESCAPE '\\' OR mi.original_name LIKE ? ESCAPE '\\' OR mi.overview LIKE ? ESCAPE '\\' OR mi.genres LIKE ? ESCAPE '\\' OR m.scan_title LIKE ? ESCAPE '\\' OR m.path LIKE ? ESCAPE '\\')",
-			like, like, like, like, like, like)
-	}
-	return q
+	rows, err := r.FindMetadataSearchRepresentatives(ctx, ids, filter)
+	return rows, total, err
 }
 
 func (r *MediaViewRepository) SearchFiltered(ctx context.Context, query string, limit int, filter MediaQueryFilter) ([]model.MediaView, error) {
 	rows, _, err := r.SearchFilteredPage(ctx, query, 0, limit, filter)
 	return rows, err
-}
-
-func (r *MediaViewRepository) reindexMetadataBestEffort(ctx context.Context, metadataID string) {
-	if r == nil || r.db == nil || strings.TrimSpace(metadataID) == "" {
-		return
-	}
-	var ids []string
-	err := r.db.WithContext(ctx).
-		Table("media AS m").
-		Select("m.id").
-		Joins("JOIN metadata_items AS mi ON mi.id = m.metadata_id AND mi.deleted_at IS NULL").
-		Joins("LEFT JOIN metadata_items AS season_metadata ON season_metadata.id = mi.parent_id AND mi.kind = 'episode' AND season_metadata.deleted_at IS NULL").
-		Where("m.deleted_at IS NULL AND (m.metadata_id = ? OR mi.parent_id = ? OR season_metadata.parent_id = ?)", metadataID, metadataID, metadataID).
-		Find(&ids).Error
-	if err == nil {
-		r.indexMediaIDsBestEffort(ctx, ids)
-	}
-}
-
-// ReindexMediaIDs refreshes external-search documents after a media row gains
-// or changes its shared metadata link.
-func (r *MediaViewRepository) ReindexMediaIDs(ctx context.Context, ids ...string) {
-	r.indexMediaIDsBestEffort(ctx, ids)
 }

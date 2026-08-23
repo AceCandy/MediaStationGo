@@ -113,6 +113,65 @@ func TestScheduledPeopleTranslationUsesContextAndCache(t *testing.T) {
 	}
 }
 
+func TestScheduledPeopleTranslationCachesInvalidResults(t *testing.T) {
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls.Add(1)
+		_ = json.NewEncoder(w).Encode(map[string]any{"output": []any{map[string]any{
+			"type": "message", "content": []any{map[string]any{"type": "output_text", "text": `{"translation:0":"Q"}`}},
+		}}})
+	}))
+	t.Cleanup(server.Close)
+
+	db := newServiceTestDB(t, &model.MetadataItem{}, &model.Person{}, &model.MetadataCredit{}, &model.TranslationCache{}, &model.Setting{})
+	repos := repository.New(db)
+	if err := repos.Setting.Set(t.Context(), peopleAITranslateSettingKey, "true"); err != nil {
+		t.Fatal(err)
+	}
+	metadata := model.MetadataItem{Kind: model.MetadataKindMovie, Title: "Test", Source: "tmdb"}
+	person := model.Person{Name: "演员", OriginalName: "演员", NormalizedName: "actor", Source: "tmdb"}
+	if err := db.Create(&metadata).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&person).Error; err != nil {
+		t.Fatal(err)
+	}
+	credit := model.MetadataCredit{MetadataID: metadata.ID, PersonID: person.ID, Type: model.CreditTypeActor, OriginalRole: "Q", Role: "Q"}
+	if err := db.Create(&credit).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := &config.Config{AI: config.AIConfig{Enabled: true, APIKey: "test-key", APIBase: server.URL + "/v1", Model: "test-model"}}
+	scraper := NewScraperService(cfg, zap.NewNop(), repos, nil, nil, nil, nil, nil).SetAI(NewAIService(cfg, zap.NewNop(), nil))
+	scraper.SetTaskTracker(NewTaskTrackerService(zap.NewNop(), nil))
+	if err := scraper.translatePendingPeople(t.Context(), TaskTriggerScheduled); err != nil {
+		t.Fatal(err)
+	}
+	if err := scraper.translatePendingPeople(t.Context(), TaskTriggerScheduled); err != nil {
+		t.Fatal(err)
+	}
+
+	var cache model.TranslationCache
+	if err := db.First(&cache).Error; err != nil {
+		t.Fatal(err)
+	}
+	if got := calls.Load(); got != 1 {
+		t.Fatalf("AI request count = %d, want 1", got)
+	}
+	if cache.TranslatedText != "" {
+		t.Fatalf("negative cache translated text = %q, want empty", cache.TranslatedText)
+	}
+	if err := db.First(&credit, "id = ?", credit.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if credit.Role != "Q" {
+		t.Fatalf("role = %q, want original Q", credit.Role)
+	}
+	if recent := scraper.tasks.Snapshot().Recent; len(recent) != 1 {
+		t.Fatalf("people translation task count = %d, want 1", len(recent))
+	}
+}
+
 func TestScheduledPeopleTranslationLimitsPassTo1000(t *testing.T) {
 	var received atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -210,7 +269,7 @@ func TestPeopleTranslationEmptyPassDoesNotCreateTask(t *testing.T) {
 }
 
 func TestPendingRoleTranslationsShareSeasonContext(t *testing.T) {
-	db := newServiceTestDB(t, &model.MetadataItem{}, &model.Person{}, &model.MetadataCredit{})
+	db := newServiceTestDB(t, &model.MetadataItem{}, &model.Person{}, &model.MetadataCredit{}, &model.TranslationCache{})
 	repos := repository.New(db)
 	series := model.MetadataItem{Kind: model.MetadataKindSeries, Title: "Series", Source: "tmdb"}
 	if err := db.Create(&series).Error; err != nil {

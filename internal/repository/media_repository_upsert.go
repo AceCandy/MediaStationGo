@@ -27,13 +27,21 @@ func (r *MediaRepository) Upsert(ctx context.Context, m *model.Media) error {
 	if m != nil && strings.HasPrefix(strings.ToLower(strings.TrimSpace(m.Path)), "cloud://") {
 		return errCloudMediaPathUnsupported
 	}
-	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	var previousMetadataID string
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		txRepo := &MediaRepository{db: tx}
 		if err := txRepo.ResolveMetadata(ctx, m); err != nil {
 			return err
 		}
-		return txRepo.upsert(ctx, m)
+		var err error
+		previousMetadataID, err = txRepo.upsert(ctx, m)
+		return err
 	})
+	if err != nil {
+		return err
+	}
+	r.refreshMetadataBestEffort(ctx, previousMetadataID, m.MetadataID)
+	return nil
 }
 
 // ResolveMetadata 只按已入库的精确 provider 标识补充 metadata 关联，不创建占位元数据。
@@ -137,18 +145,17 @@ func mediaMetadataIdentifiers(media *model.Media, entityKind string) []model.Met
 	return identifiers
 }
 
-func (r *MediaRepository) upsert(ctx context.Context, m *model.Media) error {
+func (r *MediaRepository) upsert(ctx context.Context, m *model.Media) (string, error) {
 	existing, created, err := r.findOrCreateMediaByPath(ctx, m)
 	if err != nil {
-		return err
+		return "", err
 	}
 	if created {
-		r.indexMediaBestEffort(ctx, *m)
-		return nil
+		return "", nil
 	}
 
 	updates := mediaUpsertUpdates(existing, *m)
-	return r.applyMediaUpsertUpdates(ctx, m, existing, updates)
+	return existing.MetadataID, r.applyMediaUpsertUpdates(ctx, m, existing, updates)
 }
 
 func (r *MediaRepository) findOrCreateMediaByPath(ctx context.Context, m *model.Media) (model.Media, bool, error) {
@@ -307,7 +314,6 @@ func (r *MediaRepository) applyMediaUpsertUpdates(ctx context.Context, m *model.
 	*m = existing
 	if fresh, err := r.FindByID(ctx, existing.ID); err == nil && fresh != nil {
 		*m = *fresh
-		r.indexMediaBestEffort(ctx, *fresh)
 	}
 	return nil
 }

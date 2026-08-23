@@ -708,6 +708,21 @@ func TestRemovePathDeletesVanishedMedia(t *testing.T) {
 	if countMedia(t, repos) != 1 {
 		t.Fatal("expected 1 media before removal")
 	}
+	var unresolved int64
+	if err := repos.DB.Model(&model.Media{}).Where("metadata_id IS NULL").Count(&unresolved).Error; err != nil {
+		t.Fatal(err)
+	}
+	if unresolved != 1 {
+		t.Fatalf("unresolved media = %d, want 1", unresolved)
+	}
+	if err := repos.DB.Model(&model.Media{}).Where("path = ?", file).Update("scrape_status", "error").Error; err != nil {
+		t.Fatal(err)
+	}
+	mediaService := NewMediaService(&config.Config{}, zap.NewNop(), repos)
+	issues, err := mediaService.ListScrapeIssues(t.Context(), lib.ID, nil, 1, 10)
+	if err != nil || issues.Total != 1 {
+		t.Fatalf("scrape issues before removal = %#v, err = %v", issues, err)
+	}
 	cache.SetJSON(t.Context(), "media:list:test", map[string]string{"state": "stale"}, time.Minute)
 	var cached map[string]string
 	if !cache.GetJSON(t.Context(), "media:list:test", &cached) {
@@ -732,6 +747,10 @@ func TestRemovePathDeletesVanishedMedia(t *testing.T) {
 	}
 	if countMedia(t, repos) != 0 {
 		t.Fatal("expected 0 media after removal")
+	}
+	issues, err = mediaService.ListScrapeIssues(t.Context(), lib.ID, nil, 1, 10)
+	if err != nil || issues.Total != 0 {
+		t.Fatalf("scrape issues after removal = %#v, err = %v", issues, err)
 	}
 	if cache.GetJSON(t.Context(), "media:list:test", &cached) {
 		t.Fatal("vanished media removal should invalidate media cache")

@@ -57,11 +57,17 @@ func TestEmbySearchHintsReturnsSharedMetadata(t *testing.T) {
 		Repo: repos,
 		Emby: emby,
 	})
-	for _, path := range []string{
-		"/SearchHints?SearchTerm=可搜索",
-		"/Users/user-1/SearchHints?SearchTerm=Searchable",
-		"/search/hints?SearchTerm=可搜索",
-	} {
+	tests := []struct {
+		path      string
+		wantMatch bool
+	}{
+		{path: "/SearchHints?SearchTerm=可搜索", wantMatch: true},
+		{path: "/Users/user-1/SearchHints?SearchTerm=Searchable", wantMatch: true},
+		{path: "/search/hints?SearchTerm=可+电影", wantMatch: true},
+		{path: "/SearchHints?SearchTerm=%25"},
+	}
+	for _, tc := range tests {
+		path := tc.path
 		req := httptest.NewRequest(http.MethodGet, path, nil)
 		req.Header.Set("X-Emby-Token", signedTestToken(t, secret))
 		w := httptest.NewRecorder()
@@ -75,6 +81,12 @@ func TestEmbySearchHintsReturnsSharedMetadata(t *testing.T) {
 		}
 		if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
 			t.Fatalf("%s decode: %v", path, err)
+		}
+		if !tc.wantMatch {
+			if len(body.Hints) != 0 {
+				t.Fatalf("%s hints=%#v, want no match", path, body.Hints)
+			}
+			continue
 		}
 		if len(body.Hints) != 1 || body.Hints[0]["ItemId"] != metadata.ID || body.Hints[0]["Name"] != metadata.Title {
 			t.Fatalf("%s hints=%#v", path, body.Hints)

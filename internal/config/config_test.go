@@ -43,7 +43,7 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.Cache.MediaTTLSeconds != 15 {
 		t.Fatalf("expected default media cache ttl 15, got %d", cfg.Cache.MediaTTLSeconds)
 	}
-	if cfg.Search.Index != "mediastation_media" {
+	if cfg.Search.Index != defaultSearchIndex {
 		t.Fatalf("expected default search index, got %q", cfg.Search.Index)
 	}
 	if cfg.AI.Timeout != DefaultAITimeoutSeconds {

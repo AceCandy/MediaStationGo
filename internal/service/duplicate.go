@@ -252,6 +252,7 @@ func (d *DuplicateService) removeMissingRows(ctx context.Context, rows []model.M
 			continue
 		}
 		rep.MissingRemoved += res.RowsAffected
+		d.repo.MediaView.RefreshMetadataIDs(ctx, row.MetadataID)
 	}
 	return kept
 }

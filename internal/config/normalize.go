@@ -43,7 +43,7 @@ func (c *Config) normalize() error {
 	}
 	c.Search.Backend = strings.ToLower(strings.TrimSpace(c.Search.Backend))
 	if c.Search.Index == "" {
-		c.Search.Index = "mediastation_media"
+		c.Search.Index = defaultSearchIndex
 	}
 	if c.Secrets.JWTSecret == "" {
 		// 持久化自动生成的密钥以在操作员忘记配置时保持会话稳定。

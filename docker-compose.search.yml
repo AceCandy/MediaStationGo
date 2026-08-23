@@ -94,7 +94,7 @@ services:
       # OpenSearch 只做搜索索引，主数据仍以 PostgreSQL 为准。
       MEDIASTATION_SEARCH_BACKEND: opensearch
       MEDIASTATION_SEARCH_OPENSEARCH_URL: http://opensearch:9200
-      MEDIASTATION_SEARCH_INDEX: mediastation_media
+      MEDIASTATION_SEARCH_INDEX: mediastation_metadata
 
       # 默认推荐在网页里使用容器路径 /media。
       # 如果旧媒体库已经保存了宿主机路径 /vol1/1000/Media，

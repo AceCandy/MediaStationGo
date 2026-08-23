@@ -265,7 +265,7 @@ func (s *ScraperService) syncScrapeCandidateGroup(ctx context.Context, group scr
 		Where("id IN ?", mediaIDs).Updates(updates).Error; err != nil {
 		return err
 	}
-	s.repo.MediaView.ReindexMediaIDs(ctx, mediaIDs...)
+	s.repo.MediaView.RefreshMetadataIDs(ctx, metadataIDs...)
 	return nil
 }
 

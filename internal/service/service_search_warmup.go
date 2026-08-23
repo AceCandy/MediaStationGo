@@ -29,31 +29,13 @@ func (c *Container) warmMediaSearchIndex(ctx context.Context) {
 	case <-time.After(mediaSearchWarmupDelay(ctx, c.Repo)):
 	}
 	batchSize := mediaSearchWarmupBatchSize(ctx, c.Repo)
-	pause := mediaSearchWarmupPause(ctx, c.Repo)
-	total := int64(0)
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		default:
-		}
-		n, err := c.Repo.MediaView.BackfillSearchIndex(ctx, batchSize)
-		if err != nil {
-			c.Log.Debug("media search index warmup stopped", zap.Error(err))
-			return
-		}
-		if n == 0 {
-			if total > 0 {
-				c.Log.Info("media search index warmed", zap.Int64("indexed", total))
-			}
-			return
-		}
-		total += n
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(pause):
-		}
+	total, err := c.Repo.MediaView.BackfillSearchIndex(ctx, batchSize)
+	if err != nil {
+		c.Log.Debug("metadata search index warmup stopped", zap.Error(err))
+		return
+	}
+	if total > 0 {
+		c.Log.Info("metadata search index warmed", zap.Int64("indexed", total))
 	}
 }
 

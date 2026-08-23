@@ -182,6 +182,7 @@ func (o *OrganizerService) applyOrganizeMedia(ctx context.Context, req organizeM
 		Updates(updates).Error; err != nil {
 		return dst.path, err
 	}
+	o.repo.MediaView.RefreshMetadataIDs(ctx, m.MetadataID)
 	o.log.Info("organized",
 		zap.String("media", m.ID),
 		zap.String("from", m.Path),

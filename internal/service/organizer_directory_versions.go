@@ -195,7 +195,11 @@ func (o *OrganizerService) replaceVersions(ctx context.Context, src string, exis
 			return fmt.Errorf("remove existing %s: %w", e, err)
 		}
 		if o.repo != nil && o.repo.DB != nil {
-			_ = o.repo.DB.WithContext(ctx).Unscoped().Where("path = ?", e).Delete(&model.Media{}).Error
+			var metadataIDs []string
+			_ = o.repo.DB.WithContext(ctx).Model(&model.Media{}).Where("path = ?", e).Where("metadata_id IS NOT NULL").Pluck("metadata_id", &metadataIDs).Error
+			if err := o.repo.DB.WithContext(ctx).Unscoped().Where("path = ?", e).Delete(&model.Media{}).Error; err == nil {
+				o.repo.MediaView.RefreshMetadataIDs(ctx, metadataIDs...)
+			}
 		}
 	}
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil { // #nosec G301 -- organized media directories must remain readable by NAS/player users.

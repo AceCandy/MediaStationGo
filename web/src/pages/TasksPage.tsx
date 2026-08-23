@@ -483,6 +483,7 @@ function ScrapeIssuesPanel({ libraries }: { libraries: Library[] }) {
                         <span className={issue.scrape_status === 'error' ? 'text-xs text-red-500' : 'text-xs text-orange-600'}>{issue.scrape_status === 'error' ? '刮削失败' : '未匹配'}</span>
                       </div>
                       <p className="mt-1 break-words text-xs text-ink-50">{issue.library_name} · {issue.reason}</p>
+                      <p className="mt-1 break-words text-xs text-ink-50">原始路径：{issue.path}</p>
                       {nfoOnly && <p className="mt-1 text-xs text-ink-50">请补充或修复本地 NFO 后重试。</p>}
                     </div>
                     <div className="flex shrink-0 flex-wrap items-center gap-2">

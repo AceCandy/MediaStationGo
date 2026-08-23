@@ -13,6 +13,9 @@ func (s *MediaService) SearchMedia(ctx context.Context, query string, limit int)
 }
 
 func (s *MediaService) SearchMediaVisible(ctx context.Context, query string, limit int, visibility MediaVisibility) ([]model.MediaView, error) {
+	if visibility.LibraryRestricted && len(visibility.AllowedLibraryIDs) == 0 {
+		return []model.MediaView{}, nil
+	}
 	if limit <= 0 {
 		limit = 50
 	} else if limit > maxMediaSearchLimit {
@@ -36,14 +39,17 @@ func (s *MediaService) SearchMediaVisibleGrouped(ctx context.Context, query stri
 	} else if limit > maxMediaSearchLimit {
 		limit = maxMediaSearchLimit
 	}
-	items, err := s.SearchMediaVisible(ctx, query, maxMediaSearchLimit, visibility)
+	items, _, err := s.SearchMediaVisiblePage(ctx, query, 1, limit, visibility)
 	if err != nil {
 		return nil, err
 	}
-	return firstMediaItems(groupMediaVersions(mediaViewsAsMedia(items)), limit), nil
+	return groupMediaVersions(mediaViewsAsMedia(items)), nil
 }
 
 func (s *MediaService) SearchMediaVisiblePage(ctx context.Context, query string, page, pageSize int, visibility MediaVisibility) ([]model.MediaView, int64, error) {
+	if visibility.LibraryRestricted && len(visibility.AllowedLibraryIDs) == 0 {
+		return []model.MediaView{}, 0, nil
+	}
 	if pageSize <= 0 {
 		pageSize = 50
 	}
@@ -67,10 +73,9 @@ func (s *MediaService) SearchMediaVisiblePage(ctx context.Context, query string,
 
 func (s *MediaService) SearchMediaVisiblePageGrouped(ctx context.Context, query string, page, pageSize int, visibility MediaVisibility) ([]MediaItem, int64, error) {
 	page, pageSize = normalizeGroupedMediaPage(page, pageSize)
-	items, err := s.SearchMediaVisible(ctx, query, maxMediaSearchLimit, visibility)
+	items, total, err := s.SearchMediaVisiblePage(ctx, query, page, pageSize, visibility)
 	if err != nil {
 		return nil, 0, err
 	}
-	grouped := groupMediaVersions(mediaViewsAsMedia(items))
-	return paginateMediaItems(grouped, page, pageSize), int64(len(grouped)), nil
+	return groupMediaVersions(mediaViewsAsMedia(items)), total, nil
 }

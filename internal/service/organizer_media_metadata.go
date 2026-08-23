@@ -93,9 +93,10 @@ func (o *OrganizerService) persistOrganizerMatch(ctx context.Context, media *mod
 	if err := o.repo.DB.WithContext(ctx).Model(&model.Media{}).Where("id = ?", media.ID).Updates(updates).Error; err != nil {
 		return err
 	}
+	oldMetadataID := media.MetadataID
 	media.MetadataID = persisted.Target.ID
 	media.ScrapeStatus = "matched"
-	o.repo.MediaView.ReindexMediaIDs(ctx, media.ID)
+	o.repo.MediaView.RefreshMetadataIDs(ctx, oldMetadataID, media.MetadataID)
 	return nil
 }
 

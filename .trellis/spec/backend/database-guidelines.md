@@ -100,6 +100,17 @@ return &value.Time, nil
 Regression tests must assert that an empty matched set returns `(nil, nil)` and
 that a populated set returns the expected aggregate value.
 
+### Nullable Scalar Projections
+
+Do not scan a nullable scalar column into a non-nullable Go slice such as
+`[]string`. When collecting non-null `media.metadata_id` values for downstream
+invalidation, add `metadata_id IS NOT NULL` to the projection query without
+narrowing the separate media update or delete query. If callers need to retain
+null rows, scan into `sql.Null*` values instead.
+
+Regression tests must include a row whose projected column is SQL `NULL` and
+assert that the primary update or delete still succeeds.
+
 ## Runtime Configuration Defaults
 
 - Define each runtime default once in the owning config package. Constructors

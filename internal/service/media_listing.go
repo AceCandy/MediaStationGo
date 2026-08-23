@@ -19,6 +19,7 @@ var ErrInvalidScrapeIssueStatus = errors.New("invalid scrape issue status")
 type MediaScrapeIssue struct {
 	ID          string `json:"id"`
 	Title       string `json:"title"`
+	Path        string `json:"path"`
 	Year        int    `json:"year"`
 	SeasonNum   int    `json:"season_num"`
 	EpisodeNum  int    `json:"episode_num"`
@@ -74,7 +75,7 @@ func (s *MediaService) ListScrapeIssues(ctx context.Context, libraryID string, s
 		return MediaScrapeIssuePage{}, err
 	}
 	items := make([]MediaScrapeIssue, 0)
-	if err := query().Select(`m.id, m.scan_title AS title, m.scan_year AS year,
+	if err := query().Select(`m.id, m.scan_title AS title, m.path, m.scan_year AS year,
 		m.season_num, m.episode_num, m.library_id, l.name AS library_name,
 		l.type AS library_type, m.scrape_status AS status, m.scrape_error AS reason`).
 		Order("m.updated_at DESC, m.id DESC").Offset((page - 1) * pageSize).Limit(pageSize).Scan(&items).Error; err != nil {

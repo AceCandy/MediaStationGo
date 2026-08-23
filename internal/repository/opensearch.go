@@ -4,86 +4,87 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/ShukeBta/MediaStationGo/internal/config"
-	"github.com/ShukeBta/MediaStationGo/internal/model"
+)
+
+const (
+	defaultMetadataSearchAlias = "mediastation_metadata"
+	metadataSearchSchema       = 1
 )
 
 type OpenSearchMediaBackend struct {
 	baseURL  string
-	index    string
+	alias    string
 	username string
 	password string
 	client   *http.Client
+
+	readyMu sync.RWMutex
+	ready   bool
 }
 
 func NewOpenSearchMediaBackend(cfg config.SearchConfig) *OpenSearchMediaBackend {
 	if strings.TrimSpace(cfg.Backend) != "opensearch" || strings.TrimSpace(cfg.OpenSearchURL) == "" {
 		return nil
 	}
-	index := strings.TrimSpace(cfg.Index)
-	if index == "" {
-		index = "mediastation_media"
+	alias := strings.TrimSpace(cfg.Index)
+	if alias == "" || alias == "mediastation_media" {
+		alias = defaultMetadataSearchAlias
 	}
 	return &OpenSearchMediaBackend{
 		baseURL:  strings.TrimRight(strings.TrimSpace(cfg.OpenSearchURL), "/"),
-		index:    index,
+		alias:    alias,
 		username: strings.TrimSpace(cfg.Username),
 		password: cfg.Password,
 		client:   &http.Client{Timeout: 4 * time.Second},
 	}
 }
 
-func (b *OpenSearchMediaBackend) SearchMediaIDs(ctx context.Context, query string, offset, limit int, filter MediaQueryFilter) ([]string, int64, error) {
-	if b == nil || b.client == nil || b.baseURL == "" || b.index == "" {
-		return nil, 0, fmt.Errorf("opensearch backend not configured")
+func (b *OpenSearchMediaBackend) SearchMetadataIDs(ctx context.Context, query string, offset, limit int, filter MetadataSearchFilter) ([]string, int64, error) {
+	if err := b.ensureReady(ctx); err != nil {
+		return nil, 0, err
 	}
 	if limit <= 0 {
 		limit = 50
 	}
-	must := []any{
-		map[string]any{
+	terms := MediaSearchTerms(query)
+	if len(terms) == 0 || len(filter.Kinds) == 0 || (filter.LibraryRestricted && len(filter.VisibleLibraryIDs) == 0) {
+		return []string{}, 0, nil
+	}
+	fields := []string{"title^4", "original_name^3"}
+	if filter.Fields != MetadataSearchFieldsTitle {
+		fields = append(fields, "overview^2", "genres^2")
+	}
+	must := make([]any, 0, len(terms))
+	for _, term := range terms {
+		must = append(must, map[string]any{
 			"multi_match": map[string]any{
-				"query":     query,
-				"fields":    []string{"title^4", "original_name^3", "overview^2", "genres^2", "path", "scan_title"},
-				"type":      "best_fields",
-				"operator":  "and",
-				"fuzziness": "AUTO",
+				"query": term, "fields": fields, "type": "best_fields", "fuzziness": "AUTO",
 			},
-		},
+		})
 	}
-	filters := []any{
-		map[string]any{"term": map[string]any{"deleted": false}},
-	}
+	filters := []any{map[string]any{"terms": map[string]any{"kind": filter.Kinds}}}
 	if !filter.IncludeNSFW {
 		filters = append(filters, map[string]any{"term": map[string]any{"nsfw": false}})
 	}
-	if len(filter.AllowedLibraryIDs) > 0 {
-		filters = append(filters, map[string]any{"terms": map[string]any{"library_id": filter.AllowedLibraryIDs}})
-	}
-	if len(filter.HiddenLibraryIDs) > 0 {
-		filters = append(filters, map[string]any{"bool": map[string]any{
-			"must_not": []any{map[string]any{"terms": map[string]any{"library_id": filter.HiddenLibraryIDs}}},
-		}})
+	if filter.LibraryRestricted {
+		filters = append(filters, map[string]any{"terms": map[string]any{"library_ids": filter.VisibleLibraryIDs}})
 	}
 	body := map[string]any{
-		"from": offset,
-		"size": limit,
-		"_source": []string{
-			"id",
-		},
-		"query": map[string]any{
-			"bool": map[string]any{
-				"must":   must,
-				"filter": filters,
-			},
-		},
+		"from":    offset,
+		"size":    limit,
+		"_source": []string{"id"},
+		"query":   map[string]any{"bool": map[string]any{"must": must, "filter": filters}},
 	}
 	var resp struct {
 		Hits struct {
@@ -96,7 +97,7 @@ func (b *OpenSearchMediaBackend) SearchMediaIDs(ctx context.Context, query strin
 			} `json:"hits"`
 		} `json:"hits"`
 	}
-	if err := b.doJSON(ctx, http.MethodPost, "/"+url.PathEscape(b.index)+"/_search", body, &resp); err != nil {
+	if err := b.doJSON(ctx, http.MethodPost, "/"+url.PathEscape(b.alias)+"/_search", body, &resp); err != nil {
 		return nil, 0, err
 	}
 	ids := make([]string, 0, len(resp.Hits.Hits))
@@ -112,57 +113,200 @@ func (b *OpenSearchMediaBackend) SearchMediaIDs(ctx context.Context, query strin
 	return ids, openSearchTotal(resp.Hits.Total), nil
 }
 
-func (b *OpenSearchMediaBackend) EnsureIndex(ctx context.Context) error {
-	if err := b.do(ctx, http.MethodHead, "/"+url.PathEscape(b.index), nil, "", nil); err == nil {
-		return nil
+func (b *OpenSearchMediaBackend) PrepareMetadataIndex(ctx context.Context) (string, error) {
+	if b == nil || b.client == nil || b.baseURL == "" || b.alias == "" {
+		return "", errors.New("opensearch backend not configured")
 	}
+	b.discardOrphanedMetadataIndices(ctx)
+	index := fmt.Sprintf("%s_v%d_%d", b.alias, metadataSearchSchema, time.Now().UTC().UnixNano())
 	mapping := map[string]any{
 		"mappings": map[string]any{
+			"_meta": map[string]any{
+				"schema_version": metadataSearchSchema,
+				"document_type":  "metadata",
+			},
 			"properties": map[string]any{
 				"id":            map[string]any{"type": "keyword"},
-				"library_id":    map[string]any{"type": "keyword"},
+				"kind":          map[string]any{"type": "keyword"},
 				"title":         map[string]any{"type": "text"},
 				"original_name": map[string]any{"type": "text"},
 				"overview":      map[string]any{"type": "text"},
-				"path":          map[string]any{"type": "text"},
-				"scan_title":    map[string]any{"type": "text"},
 				"genres":        map[string]any{"type": "text"},
 				"nsfw":          map[string]any{"type": "boolean"},
-				"deleted":       map[string]any{"type": "boolean"},
-				"created_at":    map[string]any{"type": "date"},
+				"library_ids":   map[string]any{"type": "keyword"},
 			},
 		},
 	}
-	return b.doJSON(ctx, http.MethodPut, "/"+url.PathEscape(b.index), mapping, nil)
+	if err := b.doJSON(ctx, http.MethodPut, "/"+url.PathEscape(index), mapping, nil); err != nil {
+		return "", err
+	}
+	return index, nil
 }
 
-func (b *OpenSearchMediaBackend) IndexMedia(ctx context.Context, rows []model.MediaView) error {
+func (b *OpenSearchMediaBackend) IndexMetadata(ctx context.Context, index string, rows []MetadataSearchDocument) error {
 	if len(rows) == 0 {
 		return nil
+	}
+	index = strings.TrimSpace(index)
+	if index == "" {
+		return errors.New("opensearch target index required")
 	}
 	var bulk bytes.Buffer
 	enc := json.NewEncoder(&bulk)
 	for _, row := range rows {
-		if err := enc.Encode(map[string]any{"index": map[string]any{"_index": b.index, "_id": row.ID}}); err != nil {
+		if err := enc.Encode(map[string]any{"index": map[string]any{"_index": index, "_id": row.ID}}); err != nil {
 			return err
 		}
-		if err := enc.Encode(map[string]any{
-			"id":            row.ID,
-			"library_id":    row.LibraryID,
-			"title":         row.Title,
-			"original_name": row.OriginalName,
-			"overview":      row.Overview,
-			"path":          row.Path,
-			"scan_title":    row.Media.Title,
-			"genres":        row.Genres,
-			"nsfw":          row.NSFW,
-			"deleted":       row.DeletedAt.Valid,
-			"created_at":    row.CreatedAt,
-		}); err != nil {
+		if err := enc.Encode(row); err != nil {
 			return err
 		}
 	}
-	return b.do(ctx, http.MethodPost, "/_bulk", &bulk, "application/x-ndjson", nil)
+	var response struct {
+		Errors bool `json:"errors"`
+	}
+	if err := b.do(ctx, http.MethodPost, "/_bulk", &bulk, "application/x-ndjson", &response); err != nil {
+		return err
+	}
+	if response.Errors {
+		return errors.New("opensearch bulk metadata indexing failed")
+	}
+	return nil
+}
+
+func (b *OpenSearchMediaBackend) ActivateMetadataIndex(ctx context.Context, index string) error {
+	if err := b.do(ctx, http.MethodPost, "/"+url.PathEscape(index)+"/_refresh", nil, "", nil); err != nil {
+		return err
+	}
+	indices, err := b.aliasIndices(ctx)
+	if err != nil {
+		return err
+	}
+	actions := make([]any, 0, len(indices)+1)
+	for _, old := range indices {
+		if old != index {
+			actions = append(actions, map[string]any{"remove": map[string]any{"index": old, "alias": b.alias}})
+		}
+	}
+	actions = append(actions, map[string]any{"add": map[string]any{"index": index, "alias": b.alias, "is_write_index": true}})
+	if err := b.doJSON(ctx, http.MethodPost, "/_aliases", map[string]any{"actions": actions}, nil); err != nil {
+		return err
+	}
+	b.readyMu.Lock()
+	b.ready = true
+	b.readyMu.Unlock()
+	return nil
+}
+
+func (b *OpenSearchMediaBackend) DiscardMetadataIndex(ctx context.Context, index string) error {
+	if strings.TrimSpace(index) == "" {
+		return nil
+	}
+	err := b.do(ctx, http.MethodDelete, "/"+url.PathEscape(index), nil, "", nil)
+	if isOpenSearchStatus(err, http.StatusNotFound) {
+		return nil
+	}
+	return err
+}
+
+func (b *OpenSearchMediaBackend) UpsertMetadata(ctx context.Context, row MetadataSearchDocument) error {
+	if err := b.ensureReady(ctx); err != nil {
+		return err
+	}
+	return b.doJSON(ctx, http.MethodPut, "/"+url.PathEscape(b.alias)+"/_doc/"+url.PathEscape(row.ID), row, nil)
+}
+
+func (b *OpenSearchMediaBackend) DeleteMetadata(ctx context.Context, id string) error {
+	if err := b.ensureReady(ctx); err != nil {
+		return err
+	}
+	return b.DeleteMetadataFromIndex(ctx, b.alias, id)
+}
+
+func (b *OpenSearchMediaBackend) DeleteMetadataFromIndex(ctx context.Context, index, id string) error {
+	if strings.TrimSpace(index) == "" || strings.TrimSpace(id) == "" {
+		return nil
+	}
+	err := b.do(ctx, http.MethodDelete, "/"+url.PathEscape(index)+"/_doc/"+url.PathEscape(id), nil, "", nil)
+	if isOpenSearchStatus(err, http.StatusNotFound) {
+		return nil
+	}
+	return err
+}
+
+func (b *OpenSearchMediaBackend) ensureReady(ctx context.Context) error {
+	if b == nil || b.client == nil || b.baseURL == "" || b.alias == "" {
+		return errors.New("opensearch backend not configured")
+	}
+	b.readyMu.RLock()
+	ready := b.ready
+	b.readyMu.RUnlock()
+	if ready {
+		return nil
+	}
+	var mappings map[string]struct {
+		Mappings struct {
+			Meta map[string]any `json:"_meta"`
+		} `json:"mappings"`
+	}
+	if err := b.doJSON(ctx, http.MethodGet, "/"+url.PathEscape(b.alias)+"/_mapping", nil, &mappings); err != nil {
+		return err
+	}
+	for _, mapping := range mappings {
+		if schemaVersion(mapping.Mappings.Meta["schema_version"]) == metadataSearchSchema && mapping.Mappings.Meta["document_type"] == "metadata" {
+			b.readyMu.Lock()
+			b.ready = true
+			b.readyMu.Unlock()
+			return nil
+		}
+	}
+	return errors.New("opensearch metadata alias is not ready")
+}
+
+func schemaVersion(value any) int {
+	switch v := value.(type) {
+	case float64:
+		return int(v)
+	case int:
+		return v
+	case string:
+		n, _ := strconv.Atoi(v)
+		return n
+	default:
+		return 0
+	}
+}
+
+func (b *OpenSearchMediaBackend) aliasIndices(ctx context.Context) ([]string, error) {
+	var aliases map[string]json.RawMessage
+	err := b.doJSON(ctx, http.MethodGet, "/_alias/"+url.PathEscape(b.alias), nil, &aliases)
+	if isOpenSearchStatus(err, http.StatusNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	indices := make([]string, 0, len(aliases))
+	for index := range aliases {
+		indices = append(indices, index)
+	}
+	return indices, nil
+}
+
+func (b *OpenSearchMediaBackend) discardOrphanedMetadataIndices(ctx context.Context) {
+	prefix := fmt.Sprintf("%s_v%d_", b.alias, metadataSearchSchema)
+	var indices map[string]struct {
+		Aliases map[string]any `json:"aliases"`
+	}
+	err := b.doJSON(ctx, http.MethodGet, "/"+url.PathEscape(prefix)+"*/_alias", nil, &indices)
+	if err != nil {
+		return
+	}
+	for index, state := range indices {
+		if _, active := state.Aliases[b.alias]; active {
+			continue
+		}
+		_ = b.DiscardMetadataIndex(ctx, index)
+	}
 }
 
 func (b *OpenSearchMediaBackend) doJSON(ctx context.Context, method, path string, body any, out any) error {
@@ -175,6 +319,21 @@ func (b *OpenSearchMediaBackend) doJSON(ctx context.Context, method, path string
 		reader = bytes.NewReader(raw)
 	}
 	return b.do(ctx, method, path, reader, "application/json", out)
+}
+
+type openSearchHTTPError struct {
+	method string
+	path   string
+	status int
+}
+
+func (e *openSearchHTTPError) Error() string {
+	return fmt.Sprintf("opensearch %s %s returned %d", e.method, e.path, e.status)
+}
+
+func isOpenSearchStatus(err error, status int) bool {
+	var httpErr *openSearchHTTPError
+	return errors.As(err, &httpErr) && httpErr.status == status
 }
 
 func (b *OpenSearchMediaBackend) do(ctx context.Context, method, path string, body io.Reader, contentType string, out any) error {
@@ -194,7 +353,8 @@ func (b *OpenSearchMediaBackend) do(ctx context.Context, method, path string, bo
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 400 {
-		return fmt.Errorf("opensearch %s %s returned %d", method, path, resp.StatusCode)
+		_, _ = io.Copy(io.Discard, resp.Body)
+		return &openSearchHTTPError{method: method, path: path, status: resp.StatusCode}
 	}
 	if out == nil {
 		_, _ = io.Copy(io.Discard, resp.Body)

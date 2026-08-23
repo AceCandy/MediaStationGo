@@ -16,13 +16,18 @@ type MediaRepository struct {
 }
 
 type MediaSearchBackend interface {
-	SearchMediaIDs(ctx context.Context, query string, offset, limit int, filter MediaQueryFilter) ([]string, int64, error)
+	SearchMetadataIDs(ctx context.Context, query string, offset, limit int, filter MetadataSearchFilter) ([]string, int64, error)
 }
 
 type MediaSearchSyncBackend interface {
 	MediaSearchBackend
-	EnsureIndex(ctx context.Context) error
-	IndexMedia(ctx context.Context, rows []model.MediaView) error
+	PrepareMetadataIndex(ctx context.Context) (string, error)
+	IndexMetadata(ctx context.Context, index string, rows []MetadataSearchDocument) error
+	ActivateMetadataIndex(ctx context.Context, index string) error
+	DiscardMetadataIndex(ctx context.Context, index string) error
+	UpsertMetadata(ctx context.Context, row MetadataSearchDocument) error
+	DeleteMetadata(ctx context.Context, id string) error
+	DeleteMetadataFromIndex(ctx context.Context, index, id string) error
 }
 
 func (r *MediaRepository) SetSearchBackend(backend MediaSearchBackend) {
@@ -39,12 +44,46 @@ type MediaQueryFilter struct {
 	HiddenLibraryIDs  []string
 }
 
-func (r *MediaRepository) indexMediaBestEffort(ctx context.Context, media model.Media) {
+type MetadataSearchFields string
+
+const (
+	MetadataSearchFieldsWeb   MetadataSearchFields = "web"
+	MetadataSearchFieldsTitle MetadataSearchFields = "title"
+)
+
+// MetadataSearchFilter describes only candidate-work search constraints.
+// Response projection and playback-version loading remain consumer-owned.
+type MetadataSearchFilter struct {
+	MediaQueryFilter
+	Fields            MetadataSearchFields
+	Kinds             []string
+	LibraryRestricted bool
+	VisibleLibraryIDs []string
+	PersonIDs         []string
+	FavoriteUserID    string
+	ResumableUserID   string
+	ForcePostgres     bool
+}
+
+// MetadataSearchDocument is the complete OpenSearch projection for one
+// searchable top-level work. LibraryIDs is the only Media-derived field.
+type MetadataSearchDocument struct {
+	ID           string   `json:"id"`
+	Kind         string   `json:"kind"`
+	Title        string   `json:"title"`
+	OriginalName string   `json:"original_name"`
+	Overview     string   `json:"overview"`
+	Genres       string   `json:"genres"`
+	NSFW         bool     `json:"nsfw"`
+	LibraryIDs   []string `json:"library_ids"`
+}
+
+func (r *MediaRepository) refreshMetadataBestEffort(ctx context.Context, metadataIDs ...string) {
 	viewRepo := r.viewRepository()
 	if viewRepo == nil {
 		return
 	}
-	viewRepo.indexMediaIDsBestEffort(ctx, []string{media.ID})
+	viewRepo.RefreshMetadataIDs(ctx, metadataIDs...)
 }
 
 func (r *MediaRepository) viewRepository() *MediaViewRepository {
@@ -102,13 +141,29 @@ func (r *MediaRepository) ListByLibrariesFiltered(ctx context.Context, libraryID
 
 // DeleteByLibrary purges all media tied to a library.
 func (r *MediaRepository) DeleteByLibrary(ctx context.Context, libraryID string) error {
-	// FTS 行由 media 表上的触发器同步清理。
-	return r.db.WithContext(ctx).Unscoped().Where("library_id = ?", libraryID).Delete(&model.Media{}).Error
+	var metadataIDs []string
+	if err := r.db.WithContext(ctx).Model(&model.Media{}).Where("library_id = ?", libraryID).Where("metadata_id IS NOT NULL").Pluck("metadata_id", &metadataIDs).Error; err != nil {
+		return err
+	}
+	if err := r.db.WithContext(ctx).Unscoped().Where("library_id = ?", libraryID).Delete(&model.Media{}).Error; err != nil {
+		return err
+	}
+	r.refreshMetadataBestEffort(ctx, metadataIDs...)
+	return nil
 }
 
 func (r *MediaRepository) DeleteByLibraryRoot(ctx context.Context, libraryID, rootID string) error {
-	return r.db.WithContext(ctx).
+	var metadataIDs []string
+	q := r.db.WithContext(ctx).Model(&model.Media{}).Where("library_id = ? AND library_root_id = ?", libraryID, rootID)
+	if err := q.Where("metadata_id IS NOT NULL").Pluck("metadata_id", &metadataIDs).Error; err != nil {
+		return err
+	}
+	if err := r.db.WithContext(ctx).
 		Unscoped().
 		Where("library_id = ? AND library_root_id = ?", libraryID, rootID).
-		Delete(&model.Media{}).Error
+		Delete(&model.Media{}).Error; err != nil {
+		return err
+	}
+	r.refreshMetadataBestEffort(ctx, metadataIDs...)
+	return nil
 }

@@ -447,7 +447,7 @@ type fakeMediaSearchBackend struct {
 	err error
 }
 
-func (f fakeMediaSearchBackend) SearchMediaIDs(context.Context, string, int, int, MediaQueryFilter) ([]string, int64, error) {
+func (f fakeMediaSearchBackend) SearchMetadataIDs(context.Context, string, int, int, MetadataSearchFilter) ([]string, int64, error) {
 	if f.err != nil {
 		return nil, 0, f.err
 	}
@@ -468,16 +468,15 @@ func TestMediaSearchUsesExternalBackendAndFallsBack(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, row := range []model.Media{
-		{Base: model.Base{ID: "m-1"}, LibraryID: lib.ID, Title: "Alpha", Path: "/media/a.mkv"},
-		{Base: model.Base{ID: "m-2"}, LibraryID: lib.ID, Title: "Beta", Path: "/media/b.mkv"},
+		{Base: model.Base{ID: "m-1"}, LibraryID: lib.ID, MetadataID: "metadata-1", Title: "Alpha", Path: "/media/a.mkv"},
+		{Base: model.Base{ID: "m-2"}, LibraryID: lib.ID, MetadataID: "metadata-2", Title: "Beta", Path: "/media/b.mkv"},
 	} {
-		metadata := createTestMetadata(t, repos, model.MetadataItem{Kind: model.MetadataKindMovie, Title: row.Title, Source: "local"})
-		row.MetadataID = metadata.ID
+		createTestMetadata(t, repos, model.MetadataItem{Base: model.Base{ID: row.MetadataID}, Kind: model.MetadataKindMovie, Title: row.Title, Source: "local"})
 		if err := repos.DB.Create(&row).Error; err != nil {
 			t.Fatal(err)
 		}
 	}
-	repos.Media.SetSearchBackend(fakeMediaSearchBackend{ids: []string{"m-2", "m-1"}})
+	repos.Media.SetSearchBackend(fakeMediaSearchBackend{ids: []string{"metadata-2", "metadata-1"}})
 	items, total, err := repos.Media.SearchFilteredPage(t.Context(), "anything", 0, 10, MediaQueryFilter{IncludeNSFW: true})
 	if err != nil {
 		t.Fatal(err)
@@ -516,12 +515,22 @@ func TestMediaSearchFilteredSupportsChineseFuzzyTerms(t *testing.T) {
 		{"m-ashes", "metadata-ashes", "翘楚", "Ashes to Crown", "/media/国产剧/翘楚/S01E01.mkv", "剧情"},
 	}
 	for _, row := range testRows {
-		metadata := createTestMetadata(t, repos, model.MetadataItem{
+		series := createTestMetadata(t, repos, model.MetadataItem{
 			Base: model.Base{ID: row.metadataID}, Kind: model.MetadataKindSeries,
 			Title: row.title, OriginalName: row.originalName, Genres: row.genres, Source: "tmdb",
 		})
+		seriesID := series.ID
+		season := createTestMetadata(t, repos, model.MetadataItem{
+			Base: model.Base{ID: row.metadataID + "-season"}, Kind: model.MetadataKindSeason,
+			ParentID: &seriesID, SeasonNum: 1, Title: "Season 1", Source: "tmdb",
+		})
+		seasonID := season.ID
+		episode := createTestMetadata(t, repos, model.MetadataItem{
+			Base: model.Base{ID: row.metadataID + "-episode"}, Kind: model.MetadataKindEpisode,
+			ParentID: &seasonID, EpisodeNum: 1, Title: row.title, Source: "tmdb",
+		})
 		media := model.Media{
-			Base: model.Base{ID: row.mediaID}, LibraryID: lib.ID, MetadataID: metadata.ID,
+			Base: model.Base{ID: row.mediaID}, LibraryID: lib.ID, MetadataID: episode.ID,
 			Title: row.title, Path: row.path, ScrapeStatus: "matched",
 		}
 		if err := repos.Media.Upsert(t.Context(), &media); err != nil {

@@ -32,6 +32,31 @@ func TestMediaViewIdentifierProjectionIsCorrelated(t *testing.T) {
 	}
 }
 
+func TestMetadataSearchSpecialCharactersDoNotMatchEverything(t *testing.T) {
+	db, err := gorm.Open(postgres.Open(""), &gorm.Config{DisableAutomaticPing: true, DryRun: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var rows []model.MetadataItem
+	for input, want := range map[string]string{"%": `%\%%`, "_": `%\_%`, `\`: `%\\%`} {
+		stmt := applyMetadataSearchLIKEFilter(
+			db.Table("metadata_items AS search_metadata"),
+			MediaSearchTerms(input),
+			MetadataSearchFieldsWeb,
+		).Find(&rows).Statement
+		sql := strings.Join(strings.Fields(stmt.SQL.String()), " ")
+		if !strings.Contains(sql, "LIKE") || !strings.Contains(sql, "ESCAPE") || len(stmt.Vars) == 0 || stmt.Vars[0] != want {
+			t.Fatalf("LIKE metacharacter %q must be matched literally: sql=%s vars=%#v", input, sql, stmt.Vars)
+		}
+		if strings.Contains(sql, "scan_title") || strings.Contains(sql, "path") {
+			t.Fatalf("metadata search must not inspect media fields: %s", sql)
+		}
+	}
+	if terms := MediaSearchTerms("..."); len(terms) != 0 {
+		t.Fatalf("delimiter-only search terms = %#v, want empty", terms)
+	}
+}
+
 func TestMediaViewFiltersSortsAndPaginatesBySharedMetadata(t *testing.T) {
 	repos := newMediaViewTestRepositories(t)
 	library := model.Library{Name: "Movies", Path: "/media/movies", Type: "movie", Enabled: true}

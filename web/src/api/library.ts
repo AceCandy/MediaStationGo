@@ -35,6 +35,7 @@ export interface MediaSearchPage {
 export interface MediaScrapeIssue {
   id: string
   title: string
+  path: string
   year: number
   season_num: number
   episode_num: number

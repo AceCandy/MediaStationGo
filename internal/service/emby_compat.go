@@ -14,6 +14,7 @@ package service
 import (
 	"context"
 	"regexp"
+	"strings"
 	"sync"
 	"time"
 
@@ -148,6 +149,9 @@ func (e *EmbyService) Items(ctx context.Context, p ItemsParams) (map[string]any,
 			}
 		}
 		return map[string]any{"Items": items, "TotalRecordCount": len(items), "StartIndex": 0}, nil
+	}
+	if strings.TrimSpace(p.SearchTerm) != "" {
+		return e.searchTopLevelItems(ctx, p)
 	}
 
 	if containsOnlyFolderItemTypes(p.IncludeItemTypes) {

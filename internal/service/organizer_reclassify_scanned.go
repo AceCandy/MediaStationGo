@@ -298,6 +298,7 @@ func (o *OrganizerService) reclassifyScannedMediaLibraryOnly(ctx context.Context
 		Updates(updates).Error; err != nil {
 		return false, err
 	}
+	o.repo.MediaView.RefreshMetadataIDs(ctx, media.MetadataID)
 	if o.log != nil {
 		o.log.Info("media library reclassified by metadata",
 			zap.String("media", media.ID),

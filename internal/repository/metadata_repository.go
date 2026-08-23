@@ -128,7 +128,10 @@ func (r *MetadataRepository) UpsertCanonical(ctx context.Context, item *model.Me
 	if err := normalizeMetadataIdentifiers(identifiers); err != nil {
 		return nil, err
 	}
-	var saved model.MetadataItem
+	var (
+		saved     model.MetadataItem
+		oldTopIDs []string
+	)
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := validateMetadataParent(tx, item); err != nil {
 			return err
@@ -159,6 +162,9 @@ func (r *MetadataRepository) UpsertCanonical(ctx context.Context, item *model.Me
 			var existing model.MetadataItem
 			if err := tx.First(&existing, "id = ?", metadataID).Error; err != nil {
 				return err
+			}
+			if r.view != nil {
+				oldTopIDs, _ = (&MediaViewRepository{db: tx}).topMetadataIDsForMetadataIDs(ctx, []string{existing.ID})
 			}
 			if err := tx.Model(&model.MetadataItem{}).Where("id = ?", metadataID).
 				Updates(metadataItemUpdates(item)).Error; err != nil {
@@ -193,7 +199,7 @@ func (r *MetadataRepository) UpsertCanonical(ctx context.Context, item *model.Me
 		return nil, err
 	}
 	if r.view != nil {
-		r.view.reindexMetadataBestEffort(ctx, saved.ID)
+		r.view.RefreshMetadataIDs(ctx, append(oldTopIDs, saved.ID)...)
 	}
 	return &saved, nil
 }
@@ -207,7 +213,10 @@ func (r *MetadataRepository) UpsertCanonicalWithMerge(ctx context.Context, item 
 		return nil, err
 	}
 	preferredID = strings.TrimSpace(preferredID)
-	var saved *model.MetadataItem
+	var (
+		saved     *model.MetadataItem
+		oldTopIDs []string
+	)
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		targetID := preferredID
 		resolved := map[string]struct{}{}
@@ -233,6 +242,14 @@ func (r *MetadataRepository) UpsertCanonicalWithMerge(ctx context.Context, item 
 			var err error
 			saved, err = (&MetadataRepository{db: tx}).UpsertCanonical(ctx, item, identifiers, "")
 			return err
+		}
+		if r.view != nil {
+			affected := make([]string, 0, len(resolved)+1)
+			for id := range resolved {
+				affected = append(affected, id)
+			}
+			affected = append(affected, targetID)
+			oldTopIDs, _ = (&MediaViewRepository{db: tx}).topMetadataIDsForMetadataIDs(ctx, affected)
 		}
 		merged := false
 		for sourceID := range resolved {
@@ -262,16 +279,26 @@ func (r *MetadataRepository) UpsertCanonicalWithMerge(ctx context.Context, item 
 		return nil, err
 	}
 	if r.view != nil && saved != nil {
-		r.view.reindexMetadataBestEffort(ctx, saved.ID)
+		r.view.RefreshMetadataIDs(ctx, append(oldTopIDs, saved.ID)...)
 	}
 	return saved, nil
 }
 
 // Merge 将 source 的全部引用迁移到 target，并物理删除无引用的 source。
 func (r *MetadataRepository) Merge(ctx context.Context, sourceID, targetID string) error {
-	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		return mergeMetadataGraph(tx, strings.TrimSpace(sourceID), strings.TrimSpace(targetID))
+	sourceID = strings.TrimSpace(sourceID)
+	targetID = strings.TrimSpace(targetID)
+	var oldTopIDs []string
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if r.view != nil {
+			oldTopIDs, _ = (&MediaViewRepository{db: tx}).topMetadataIDsForMetadataIDs(ctx, []string{sourceID, targetID})
+		}
+		return mergeMetadataGraph(tx, sourceID, targetID)
 	})
+	if err == nil && r.view != nil {
+		r.view.RefreshMetadataIDs(ctx, append(oldTopIDs, targetID)...)
+	}
+	return err
 }
 
 func (r *MetadataRepository) UpsertSeason(ctx context.Context, item *model.MetadataItem) (*model.MetadataItem, error) {
@@ -328,11 +355,15 @@ func (r *MetadataRepository) Update(ctx context.Context, item *model.MetadataIte
 	if err := validateMetadataItem(item); err != nil {
 		return err
 	}
+	var oldTopIDs []string
+	if r.view != nil {
+		oldTopIDs, _ = r.view.topMetadataIDsForMetadataIDs(ctx, []string{item.ID})
+	}
 	if err := r.db.WithContext(ctx).Save(item).Error; err != nil {
 		return err
 	}
 	if r.view != nil {
-		r.view.reindexMetadataBestEffort(ctx, item.ID)
+		r.view.RefreshMetadataIDs(ctx, append(oldTopIDs, item.ID)...)
 	}
 	return nil
 }

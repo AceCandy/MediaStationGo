@@ -202,6 +202,20 @@ func TestEmbyMovieLibraryGroupsEpisodicContentIntoSeries(t *testing.T) {
 	if movieCount != 1 {
 		t.Fatalf("real movie should stay as one Movie item, got %d: %#v", movieCount, items)
 	}
+	search, err := svc.Items(t.Context(), ItemsParams{ParentID: lib.ID, SearchTerm: "普通 电影", Limit: 50})
+	if err != nil {
+		t.Fatalf("search mixed movie library: %v", err)
+	}
+	if got := search["Items"].([]map[string]any); len(got) != 1 || got[0]["Id"] != rows[2].ID {
+		t.Fatalf("mixed movie library search = %#v, want matching movie", search)
+	}
+	search, err = svc.Items(t.Context(), ItemsParams{ParentID: lib.ID, SearchTerm: "%", Limit: 50})
+	if err != nil {
+		t.Fatalf("search mixed movie library with LIKE metacharacter: %v", err)
+	}
+	if got := search["Items"].([]map[string]any); len(got) != 0 {
+		t.Fatalf("LIKE metacharacter must not match every mixed library item: %#v", search)
+	}
 	// 两个媒体版本共享同一系列身份，集数应为 2。
 	if got := seriesPayload["RecursiveItemCount"]; got != 2 {
 		t.Fatalf("series should contain both episodes despite differing tmdb ids, got RecursiveItemCount=%v", got)

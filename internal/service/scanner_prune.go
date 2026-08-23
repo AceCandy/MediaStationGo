@@ -15,11 +15,16 @@ func (s *ScannerService) RemovePath(ctx context.Context, path string) (int64, er
 	if _, err := os.Stat(path); err == nil {
 		return 0, nil // still exists; nothing to remove
 	}
+	var metadataIDs []string
+	if err := s.repo.DB.WithContext(ctx).Model(&model.Media{}).Where("path = ?", path).Where("metadata_id IS NOT NULL").Pluck("metadata_id", &metadataIDs).Error; err != nil {
+		return 0, err
+	}
 	res := s.repo.DB.WithContext(ctx).
 		Unscoped().
 		Where("path = ?", path).
 		Delete(&model.Media{})
 	if res.Error == nil && res.RowsAffected > 0 {
+		s.repo.MediaView.RefreshMetadataIDs(ctx, metadataIDs...)
 		s.invalidateMediaCache(ctx)
 	}
 	return res.RowsAffected, res.Error
@@ -119,11 +124,16 @@ func (s *ScannerService) deleteMediaByIDs(ctx context.Context, ids []string) (in
 		if end > len(ids) {
 			end = len(ids)
 		}
+		var metadataIDs []string
+		if err := s.repo.DB.WithContext(ctx).Model(&model.Media{}).Where("id IN ?", ids[i:end]).Where("metadata_id IS NOT NULL").Pluck("metadata_id", &metadataIDs).Error; err != nil {
+			return removed, err
+		}
 		res := s.repo.DB.WithContext(ctx).Unscoped().Where("id IN ?", ids[i:end]).Delete(&model.Media{})
 		if res.Error != nil {
 			return removed, res.Error
 		}
 		removed += res.RowsAffected
+		s.repo.MediaView.RefreshMetadataIDs(ctx, metadataIDs...)
 	}
 	return removed, nil
 }

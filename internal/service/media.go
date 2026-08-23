@@ -23,6 +23,7 @@ type MediaVisibility struct {
 	IncludeNSFW       bool
 	AllowedLibraryIDs []string
 	HiddenLibraryIDs  []string
+	LibraryRestricted bool
 }
 
 const maxMediaSearchLimit = 50000
@@ -52,6 +53,9 @@ func (v MediaVisibility) allows(libraryID string, nsfw bool) bool {
 		}
 	}
 	if len(v.AllowedLibraryIDs) == 0 {
+		if v.LibraryRestricted {
+			return false
+		}
 		return true
 	}
 	for _, id := range v.AllowedLibraryIDs {

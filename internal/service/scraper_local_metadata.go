@@ -215,7 +215,7 @@ func (s *ScraperService) applyLocalMetadataMatch(ctx context.Context, m *model.M
 		Where("id = ?", m.ID).Updates(updates).Error; err != nil {
 		return err
 	}
-	s.repo.MediaView.ReindexMediaIDs(ctx, m.ID)
+	s.repo.MediaView.RefreshMetadataIDs(ctx, m.MetadataID, persisted.Target.ID)
 	s.invalidateMediaCache(ctx)
 	s.hub.Publish("scrape", map[string]any{
 		"media_id": m.ID,

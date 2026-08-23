@@ -61,6 +61,7 @@ func UserDefaultMediaVisibility(ctx context.Context, repo *repository.Container,
 		if !row.IsDefault {
 			continue
 		}
+		visibility.LibraryRestricted = true
 		visibility.IncludeNSFW = visibility.IncludeNSFW && row.AllowAdult
 		visibility.AllowedLibraryIDs = DecodeAllowedLibraryIDs(row.AllowedLibraryIDs)
 		visibility.HiddenLibraryIDs = hiddenAdultLibraryIDs(ctx, repo, visibility.IncludeNSFW)

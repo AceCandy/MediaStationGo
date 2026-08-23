@@ -155,7 +155,8 @@ history is observability only; business object state owns retry and recovery.
   through the manual action. Service startup must not enqueue an event pass.
   Legacy manual HTTP routes resolve to the same scheduler job.
 - People translation creates an execution only after it finds pending names or
-  roles. Disabled AI, an empty sweep, and cache-only idle checks create no task.
+  roles without a negative cache. Disabled AI, an empty sweep, and cache-only
+  idle checks create no task.
 - People translation runs through its configured periodic schedule or the same
   job's manual action. Each execution processes at most the first 1,000
   deduplicated translation groups; remaining pending groups stay in business
@@ -165,6 +166,8 @@ history is observability only; business object state owns retry and recovery.
   and season credits use their own `MetadataID`. The remaining cache identity is
   the source text, target language, and prompt version, so equal roles in one
   season share one translation while different seasons remain isolated.
+- A successful AI request without a valid Chinese result saves an empty cache
+  for that prompt version. Later sweeps skip it; request errors are not cached.
 
 ### 4. Validation & Error Matrix
 
@@ -277,7 +280,8 @@ history is observability only; business object state owns retry and recovery.
   passes stay silent, and manual empty passes remain observable.
 - People translation tests assert manual/scheduled trigger attribution, a
   1,000-group pass limit with the remainder left pending, same-season role reuse,
-  and cross-season isolation without changing person-name caching.
+  cross-season isolation, and invalid-result negative caching without changing
+  person-name caching.
 
 ### 7. Wrong vs Correct
 

@@ -40,12 +40,14 @@
 - Person-name translation carries up to three related works. Role translation
   carries the current title, original title, year, and media kind. Requests use
   Responses API without tools and contain at most 100 unique entries per batch.
-- Cache hits apply without an AI request. Cache misses save only non-empty
-  Chinese results. Writes update a target only while its original and display
-  values still equal the request snapshot.
-- AI failure, malformed output, timeout, or partial output never rolls back or
-  fails the authoritative metadata scrape. Pending rows remain for a later
-  periodic sweep.
+- Cache hits apply without an AI request. A successful request that returns no
+  valid Chinese text for an entry saves an empty negative cache under the same
+  prompt-versioned identity; later sweeps skip its request and write-back.
+  Writes update a target only while its original and display values still equal
+  the request snapshot.
+- AI request failure, malformed top-level output, or timeout never saves a
+  cache, rolls back, or fails the authoritative metadata scrape. Pending rows
+  remain for a later periodic sweep.
 
 ### 4. Validation & Error Matrix
 
@@ -58,6 +60,7 @@
 | Provider type is non-empty and NFO also has rows | Keep provider rows; do not union guessed identities |
 | Season/Episode has no credit rows for one type | Keep that type empty; do not query an ancestor |
 | AI is disabled/unconfigured or request fails | Keep original display values and let scraping succeed |
+| AI request succeeds but one entry has no valid Chinese result | Keep its original display value and negative-cache the entry until the prompt version changes |
 | Original changes while AI request is running | Reject the stale conditional write |
 | Provider role exceeds 255 characters | Persist and cache it without truncation |
 
@@ -87,7 +90,8 @@
   verify task progress and request-independent service context.
 - Translation: scheduled-only discovery, cache hit without AI, 100-entry
   splitting, a 1,000-group execution limit with pending remainder, work context,
-  valid Chinese filtering, cancellation, and stale-write rejection.
+  valid Chinese filtering, invalid-result negative caching, cancellation, and
+  stale-write rejection.
 - PostgreSQL: assert role/cache fields resolve to `text`; when a test DSN is
   available, migrate legacy `varchar(255)` columns and round-trip a long role.
 
@@ -679,6 +683,94 @@ source["TranscodingUrl"] = "/Videos/" + media.ID + "/master.m3u8"
 source["SupportsTranscoding"] = false
 delete(source, "TranscodingUrl")
 source["DirectStreamUrl"] = "/Videos/" + media.ID + "/stream." + container
+```
+
+## Scenario: Top-Level Metadata Search
+
+### 1. Scope / Trigger
+
+- Apply when changing Web search, Emby `SearchTerm`, OpenSearch mappings,
+  searchable-media eligibility, or Media/Metadata index synchronization.
+
+### 2. Signatures
+
+- Candidate boundary:
+  `SearchMetadataIDs(ctx, query, offset, limit, MetadataSearchFilter) -> metadata IDs, total`.
+- OpenSearch document ID is the top-level `MetadataItem.ID`; its fields are
+  `id`, `kind`, `title`, `original_name`, `overview`, `genres`, `nsfw`, and
+  derived `library_ids`.
+- The active OpenSearch alias is `mediastation_metadata`; versioned concrete
+  indexes are built before an atomic alias switch.
+
+### 3. Contracts
+
+- Search candidates, totals, offsets, and limits use top-level Movie/Series
+  Metadata. Media IDs, paths, scan titles, streams, and playback-version facts
+  never enter the search contract or index.
+- A Movie is eligible only while at least one active Media directly references
+  it. A Series is eligible only through an active
+  `Series -> Season -> Episode -> Media` chain. Season, Episode, unresolved
+  Media, and Metadata without playable content are not candidates.
+- `library_ids` is the only Media-derived document field. Restricted searches
+  require an intersection with visible libraries; an explicitly restricted
+  empty library set returns no candidates.
+- Web searches `title`, `original_name`, `overview`, and `genres`. Emby searches
+  only `title` and `original_name`; every normalized term must match, and
+  PostgreSQL LIKE metacharacters are escaped literally.
+- Emby `SearchTerm` returns only Movie/Series. A Series/Season `ParentId`, or an
+  `IncludeItemTypes` set containing only Season/Episode, returns an empty search
+  envelope without changing ordinary no-term hierarchy browsing.
+- OpenSearch hits are revalidated through PostgreSQL before response mapping.
+  Stale total counts are allowed during the synchronization window, but stale,
+  invisible, or unplayable current-page items are never returned.
+- Media create, delete, rebind, and library move refresh both old and new
+  top-level IDs after commit. Metadata content, parent, and merge changes do the
+  same. A full rebuild replays dirty IDs before switching the alias; it does not
+  delete the retired Media index.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required result |
+| --- | --- |
+| OpenSearch alias is missing, incompatible, or the request fails | Use PostgreSQL Metadata search |
+| Restricted visibility resolves to no library | Return empty IDs, items, and total |
+| Movie loses its last Media | Delete its search document |
+| Series loses its last playable Episode Media | Delete its search document |
+| Media changes Metadata or library | Refresh old and new top-level projections after commit |
+| OpenSearch returns a stale/invisible ID | Omit it during PostgreSQL revalidation |
+| Search requests only Season/Episode | Return an empty Emby search envelope |
+
+### 5. Good / Base / Bad Cases
+
+- Good: two 1080p/4K Media versions produce one Movie hit and consume one page
+  slot; one Series with many Episodes also produces one Series hit.
+- Base: OpenSearch is unavailable; PostgreSQL returns the same Metadata-grained
+  eligibility and total.
+- Bad: index one document per Media and collapse versions after pagination.
+- Bad: make a catalog-only Metadata searchable or match a Media path/scan title.
+
+### 6. Tests Required
+
+- OpenSearch HTTP mocks assert the exact mapping, Metadata `_id`, Web/Emby field
+  sets, term AND, `kind`, `library_ids`, restricted-empty, readiness, bulk,
+  delete, and alias-switch payloads contain no Media fields.
+- PostgreSQL tests assert Movie multi-version and Series multi-Episode collapse,
+  no-Media exclusion, unresolved-Media exclusion, library visibility, NSFW,
+  logical total, ordering, and pagination.
+- Synchronization tests assert create, last-Media delete, rebind, library move,
+  Metadata parent change, and graph merge refresh every affected top-level ID.
+- Emby tests assert Movie/Series results, Season/Episode empty search, ParentId
+  behavior, multi-term AND, literal `\\`/`%`/`_`, SearchHints, and logical total.
+
+### 7. Wrong vs Correct
+
+```go
+// Wrong: physical versions own search identity and pagination.
+mediaIDs, total := searchBackend.SearchMediaIDs(ctx, query, offset, limit, filter)
+
+// Correct: top-level works own search identity; versions load after the page.
+metadataIDs, total := searchBackend.SearchMetadataIDs(ctx, query, offset, limit, filter)
+views, err := mediaViewRepo.FindMetadataSearchRepresentatives(ctx, metadataIDs, visibility)
 ```
 
 ## Scenario: NFO-Only Library Metadata

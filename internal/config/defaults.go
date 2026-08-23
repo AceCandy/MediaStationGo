@@ -7,6 +7,7 @@ const DefaultAITimeoutSeconds = 120
 const (
 	defaultDatabaseMaxOpenConns = 4
 	defaultDatabaseMaxIdleConns = 2
+	defaultSearchIndex          = "mediastation_metadata"
 )
 
 func setDefaults(v *viper.Viper) {
@@ -42,7 +43,7 @@ func setDefaults(v *viper.Viper) {
 
 	v.SetDefault("search.backend", "")
 	v.SetDefault("search.opensearch_url", "")
-	v.SetDefault("search.index", "mediastation_media")
+	v.SetDefault("search.index", defaultSearchIndex)
 	v.SetDefault("search.username", "")
 	v.SetDefault("search.password", "")
 

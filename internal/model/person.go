@@ -41,7 +41,7 @@ type MetadataCredit struct {
 	Metadata     MetadataItem `gorm:"foreignKey:MetadataID;references:ID;constraint:OnUpdate:CASCADE,OnDelete:RESTRICT" json:"-"`
 }
 
-// TranslationCache 保存带业务上下文的有效中文译文，供异步人物翻译复用。
+// TranslationCache 保存带业务上下文的人物译文；空译文表示当前提示词版本未得到有效中文结果。
 type TranslationCache struct {
 	Base
 	Kind           string `gorm:"size:32;not null;uniqueIndex:uidx_translation_cache,priority:1" json:"kind"`

@@ -39,9 +39,6 @@ func (e *EmbyService) movieLibraryItems(ctx context.Context, p ItemsParams) (map
 	apply := func(q *gorm.DB) *gorm.DB {
 		q = e.applyUserMediaVisibility(ctx, q, p.UserID)
 		q = q.Where("media.library_id IN ?", libIDs)
-		if p.SearchTerm != "" {
-			q = q.Where("COALESCE(emby_metadata.title, media.scan_title) LIKE ? OR COALESCE(emby_metadata.original_name, '') LIKE ?", "%"+p.SearchTerm+"%", "%"+p.SearchTerm+"%")
-		}
 		if containsEmbyFilter(p.Filters, "IsFavorite") {
 			if strings.TrimSpace(p.UserID) == "" {
 				return nil

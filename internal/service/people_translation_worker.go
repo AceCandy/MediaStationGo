@@ -126,7 +126,33 @@ func (s *ScraperService) pendingPeopleTranslationGroups(ctx context.Context) ([]
 			Context: &AITranslationContext{Title: role.Metadata.Title, OriginalTitle: role.Metadata.OriginalName, Year: role.Metadata.Year, MediaKind: role.Metadata.Kind},
 		}, repository.TranslationTarget{Kind: "role", ID: role.ID, OriginalText: role.OriginalRole})
 	}
-	return groups, nil
+	if len(groups) == 0 {
+		return groups, nil
+	}
+	lookups := make([]repository.TranslationCacheLookup, 0, len(groups))
+	for _, group := range groups {
+		lookups = append(lookups, group.lookup)
+	}
+	cachedRows, err := s.repo.Person.ListTranslationCaches(ctx, lookups)
+	if err != nil {
+		return nil, err
+	}
+	negative := make(map[string]struct{})
+	for _, row := range cachedRows {
+		if !containsChinese(row.TranslatedText) {
+			negative[translationCacheKey(cacheLookup(row))] = struct{}{}
+		}
+	}
+	if len(negative) == 0 {
+		return groups, nil
+	}
+	pending := groups[:0]
+	for _, group := range groups {
+		if _, found := negative[translationCacheKey(group.lookup)]; !found {
+			pending = append(pending, group)
+		}
+	}
+	return pending, nil
 }
 
 func (s *ScraperService) translatePeopleWindow(ctx context.Context, groups []*pendingPeopleTranslation) (int, []string, error) {
@@ -142,14 +168,15 @@ func (s *ScraperService) translatePeopleWindow(ctx context.Context, groups []*pe
 	}
 	cached := make(map[string]string, len(cachedRows))
 	for _, row := range cachedRows {
-		lookup := repository.TranslationCacheLookup{Kind: row.Kind, ContextKey: row.ContextKey, SourceText: row.SourceText, TargetLanguage: row.TargetLanguage, PromptVersion: row.PromptVersion}
-		if containsChinese(row.TranslatedText) {
-			cached[translationCacheKey(lookup)] = row.TranslatedText
-		}
+		cached[translationCacheKey(cacheLookup(row))] = row.TranslatedText
 	}
 	misses := make([]*pendingPeopleTranslation, 0, len(groups))
 	for _, group := range groups {
-		if translated := cached[translationCacheKey(group.lookup)]; translated != "" {
+		translated, found := cached[translationCacheKey(group.lookup)]
+		if found {
+			if !containsChinese(translated) {
+				continue
+			}
 			if err := s.repo.Person.ApplyCachedTranslation(ctx, group.targets, translated); err != nil {
 				return applied, appendPeopleTranslationFailures(details, []*pendingPeopleTranslation{group}, err), err
 			}
@@ -171,14 +198,18 @@ func (s *ScraperService) translatePeopleWindow(ctx context.Context, groups []*pe
 		status := s.ai.Status(ctx)
 		for _, group := range batch {
 			translated := translations[group.entry.Key]
-			if !containsChinese(translated) {
-				details = append(details, peopleTranslationDetail(group, "", "AI 未返回有效中文译文"))
-				continue
-			}
 			cache := model.TranslationCache{
 				Kind: group.lookup.Kind, ContextKey: group.lookup.ContextKey, SourceText: group.lookup.SourceText,
 				TargetLanguage: group.lookup.TargetLanguage, PromptVersion: group.lookup.PromptVersion,
 				TranslatedText: translated, Provider: status.Provider, Model: status.Model,
+			}
+			if !containsChinese(translated) {
+				cache.TranslatedText = ""
+				if err := s.repo.Person.SaveAndApplyTranslation(ctx, cache, nil); err != nil {
+					return applied, appendPeopleTranslationFailures(details, []*pendingPeopleTranslation{group}, err), err
+				}
+				details = append(details, peopleTranslationDetail(group, "", "AI 未返回有效中文译文"))
+				continue
 			}
 			if err := s.repo.Person.SaveAndApplyTranslation(ctx, cache, group.targets); err != nil {
 				return applied, appendPeopleTranslationFailures(details, []*pendingPeopleTranslation{group}, err), err
@@ -286,6 +317,10 @@ func personKnownFor(rows []repository.PersonWorkContext) map[string][]string {
 
 func newTranslationCacheLookup(kind, contextKey, sourceText string) repository.TranslationCacheLookup {
 	return repository.TranslationCacheLookup{Kind: kind, ContextKey: contextKey, SourceText: sourceText, TargetLanguage: peopleTranslationTargetLanguage, PromptVersion: peopleTranslationPromptVersion}
+}
+
+func cacheLookup(row model.TranslationCache) repository.TranslationCacheLookup {
+	return repository.TranslationCacheLookup{Kind: row.Kind, ContextKey: row.ContextKey, SourceText: row.SourceText, TargetLanguage: row.TargetLanguage, PromptVersion: row.PromptVersion}
 }
 
 func translationCacheKey(lookup repository.TranslationCacheLookup) string {

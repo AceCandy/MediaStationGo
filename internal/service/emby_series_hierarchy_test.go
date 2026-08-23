@@ -75,6 +75,13 @@ func TestEmbyItemsExposeSeriesSeasonEpisodeHierarchy(t *testing.T) {
 	if rootItems[0]["Type"] != "Series" || rootItems[0]["IsFolder"] != true || rootItems[0]["Name"] != "间谍过家家" {
 		t.Fatalf("unexpected series payload: %#v", rootItems[0])
 	}
+	seriesSearch, err := svc.Items(t.Context(), ItemsParams{ParentID: lib.ID, IncludeItemTypes: []string{"Series"}, SearchTerm: "间谍 家家", Limit: 50})
+	if err != nil {
+		t.Fatalf("search series: %v", err)
+	}
+	if items := seriesSearch["Items"].([]map[string]any); len(items) != 1 || items[0]["Id"] != series.ID {
+		t.Fatalf("series search = %#v, want matching series", seriesSearch)
+	}
 
 	seasons, err := svc.Items(t.Context(), ItemsParams{ParentID: seriesID, Limit: 50})
 	if err != nil {
@@ -104,6 +111,20 @@ func TestEmbyItemsExposeSeriesSeasonEpisodeHierarchy(t *testing.T) {
 	}
 	if episodeItems[0]["Id"] != episodeMetadata[0].ID || episodeItems[0]["SeasonId"] != season.ID {
 		t.Fatalf("episode identity not metadata-backed: %#v", episodeItems[0])
+	}
+	episodeSearch, err := svc.Items(t.Context(), ItemsParams{ParentID: season.ID, IncludeItemTypes: []string{"Episode"}, SearchTerm: "任务 猫", Recursive: true, Limit: 50})
+	if err != nil {
+		t.Fatalf("search episodes: %v", err)
+	}
+	if items := episodeSearch["Items"].([]map[string]any); len(items) != 0 || episodeSearch["TotalRecordCount"] != 0 {
+		t.Fatalf("episode search = %#v, want no top-level results", episodeSearch)
+	}
+	seasonSearch, err := svc.Items(t.Context(), ItemsParams{ParentID: series.ID, IncludeItemTypes: []string{"Season"}, SearchTerm: "第一季", Limit: 50})
+	if err != nil {
+		t.Fatalf("search seasons: %v", err)
+	}
+	if items := seasonSearch["Items"].([]map[string]any); len(items) != 0 || seasonSearch["TotalRecordCount"] != 0 {
+		t.Fatalf("season search = %#v, want no top-level results", seasonSearch)
 	}
 
 	latest, err := svc.LatestItems(t.Context(), "user-1", lib.ID, 10, false)

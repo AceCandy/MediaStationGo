@@ -20,9 +20,6 @@ func (e *EmbyService) mediaItems(ctx context.Context, p ItemsParams) (map[string
 	if p.ParentID != "" {
 		q = q.Where("media.library_id IN ?", e.mergedLibraryIDs(ctx, p.ParentID))
 	}
-	if p.SearchTerm != "" {
-		q = q.Where("COALESCE(emby_metadata.title, media.scan_title) LIKE ? OR COALESCE(emby_metadata.original_name, '') LIKE ?", "%"+p.SearchTerm+"%", "%"+p.SearchTerm+"%")
-	}
 	if len(p.PersonIDs) > 0 {
 		credits := e.repo.DB.WithContext(ctx).Model(&model.MetadataCredit{}).Select("metadata_id").Where("person_id IN ?", p.PersonIDs)
 		q = q.Where("media.metadata_id IN (?)", credits)
@@ -85,16 +82,6 @@ func (e *EmbyService) mediaItems(ctx context.Context, p ItemsParams) (map[string
 
 func (e *EmbyService) episodeItems(ctx context.Context, rows []model.MediaView, p ItemsParams) (map[string]any, error) {
 	rows = e.collapseMediaVersionViews(ctx, rows)
-	if p.SearchTerm != "" {
-		filtered := rows[:0]
-		needle := strings.ToLower(p.SearchTerm)
-		for _, row := range rows {
-			if strings.Contains(strings.ToLower(row.Title), needle) || strings.Contains(strings.ToLower(row.OriginalName), needle) {
-				filtered = append(filtered, row)
-			}
-		}
-		rows = filtered
-	}
 	sort.SliceStable(rows, func(i, j int) bool {
 		if rows[i].SeasonNum != rows[j].SeasonNum {
 			return rows[i].SeasonNum < rows[j].SeasonNum
@@ -274,9 +261,6 @@ func (e *EmbyService) seriesItemsForLibrary(ctx context.Context, libraryID strin
 	q = seriesScopeQuery(q)
 	if libraryID != "" {
 		q = q.Where("media.library_id IN ?", e.mergedLibraryIDs(ctx, libraryID))
-	}
-	if p.SearchTerm != "" {
-		q = q.Where("scope_series.title LIKE ? OR COALESCE(scope_series.original_name, '') LIKE ?", "%"+p.SearchTerm+"%", "%"+p.SearchTerm+"%")
 	}
 	if len(p.PersonIDs) > 0 {
 		credits := e.repo.DB.WithContext(ctx).Model(&model.MetadataCredit{}).Select("metadata_id").Where("person_id IN ?", p.PersonIDs)

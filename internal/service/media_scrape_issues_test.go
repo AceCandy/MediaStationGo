@@ -45,6 +45,9 @@ func TestListScrapeIssuesFiltersAndSanitizesReasons(t *testing.T) {
 	for _, item := range page.Items {
 		byID[item.ID] = item
 	}
+	if got := byID[rows[0].ID].Path; got != rows[0].Path {
+		t.Fatalf("media path = %q, want %q", got, rows[0].Path)
+	}
 	if got := byID[rows[0].ID].Reason; strings.Contains(got, "token=secret") || !strings.Contains(got, "[redacted-url]") {
 		t.Fatalf("unsanitized reason = %q", got)
 	}

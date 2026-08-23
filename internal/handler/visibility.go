@@ -26,6 +26,7 @@ func mediaVisibilityForRequest(c *gin.Context, svc *service.Container) service.M
 		return service.MediaVisibility{
 			IncludeNSFW:       false,
 			AllowedLibraryIDs: []string{"__locked__"},
+			LibraryRestricted: true,
 		}
 	}
 	if profile == nil {
@@ -33,6 +34,7 @@ func mediaVisibilityForRequest(c *gin.Context, svc *service.Container) service.M
 	}
 	visibility.IncludeNSFW = adultEnabled && profile.AllowAdult && !userHidesAdult
 	visibility.AllowedLibraryIDs = profileAllowedLibraryIDs(*profile)
+	visibility.LibraryRestricted = true
 	if !visibility.IncludeNSFW {
 		visibility.HiddenLibraryIDs = service.AdultLibraryIDs(c.Request.Context(), svc.Repo)
 	} else {
