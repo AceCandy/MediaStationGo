@@ -1139,3 +1139,24 @@ Committed the existing web UI redesign together with detailed background task lo
 ### Status
 
 [OK] **Completed**
+
+
+## Session 54: 完善搜索匹配与统一排序
+
+**Date**: 2026-08-24
+**Task**: 完善搜索匹配与统一排序
+**Branch**: `main`
+
+### Summary
+
+统一 OpenSearch/PostgreSQL 的 100 条候选召回与 Go 排序，支持 0–100 数字双向等价、完整数字段匹配和内存分页。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `d9cffcc` | (see git log) |
+
+### Status
+
+[OK] **Completed**
