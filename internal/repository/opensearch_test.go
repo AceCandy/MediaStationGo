@@ -57,7 +57,7 @@ func TestOpenSearchMetadataSearchQuery(t *testing.T) {
 	if total != 2 || len(ids) != 2 || ids[0] != "metadata-1" || ids[1] != "metadata-2" {
 		t.Fatalf("ids=%#v total=%d", ids, total)
 	}
-	if len(searchBodies) != 1 || searchBodies[0]["from"] != float64(5) || searchBodies[0]["size"] != float64(10) {
+	if len(searchBodies) != 1 || searchBodies[0]["from"] != float64(0) || searchBodies[0]["size"] != float64(maxMetadataSearchCandidates) {
 		t.Fatalf("search bodies = %#v", searchBodies)
 	}
 	titleQuery, _ := json.Marshal(searchBodies[0])
@@ -73,6 +73,29 @@ func TestOpenSearchMetadataSearchQuery(t *testing.T) {
 	if strings.Count(titleJSON, `"multi_match"`) != 2 {
 		t.Fatalf("multi-word search must require every term: %s", titleJSON)
 	}
+	if !strings.Contains(titleJSON, `"operator":"and"`) || strings.Contains(titleJSON, "fuzziness") {
+		t.Fatalf("search must require all analyzed tokens without fuzzy matching: %s", titleJSON)
+	}
+
+	_, _, err = backend.SearchMetadataIDs(t.Context(), "44", 8, 1, MetadataSearchFilter{
+		Fields: MetadataSearchFieldsTitle,
+		Kinds:  []string{"movie", "series"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	numericJSON := mustJSON(t, searchBodies[1])
+	for _, want := range []string{`"query":"44"`, `"query":"四十四"`, `"minimum_should_match":1`, `"type":"phrase"`} {
+		if !strings.Contains(numericJSON, want) {
+			t.Fatalf("numeric-equivalent search missing %q: %s", want, numericJSON)
+		}
+	}
+	if strings.Count(numericJSON, `"multi_match"`) != 2 {
+		t.Fatalf("numeric equivalents must be alternatives in one term group: %s", numericJSON)
+	}
+	if !strings.Contains(numericJSON, `"_score":"desc"`) || !strings.Contains(numericJSON, `"id":"asc"`) {
+		t.Fatalf("candidate selection must be stable: %s", numericJSON)
+	}
 
 	_, _, err = backend.SearchMetadataIDs(t.Context(), "宇宙", 0, 20, MetadataSearchFilter{
 		Fields: MetadataSearchFieldsWeb,
@@ -81,7 +104,7 @@ func TestOpenSearchMetadataSearchQuery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	webQuery, _ := json.Marshal(searchBodies[1])
+	webQuery, _ := json.Marshal(searchBodies[2])
 	for _, want := range []string{"title^4", "original_name^3", "overview^2", "genres^2"} {
 		if !strings.Contains(string(webQuery), want) {
 			t.Fatalf("Web search query missing %q: %s", want, webQuery)

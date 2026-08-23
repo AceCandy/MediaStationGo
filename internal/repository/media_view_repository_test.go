@@ -41,7 +41,7 @@ func TestMetadataSearchSpecialCharactersDoNotMatchEverything(t *testing.T) {
 	for input, want := range map[string]string{"%": `%\%%`, "_": `%\_%`, `\`: `%\\%`} {
 		stmt := applyMetadataSearchLIKEFilter(
 			db.Table("metadata_items AS search_metadata"),
-			MediaSearchTerms(input),
+			buildMetadataSearchTermGroups(MediaSearchTerms(input)),
 			MetadataSearchFieldsWeb,
 		).Find(&rows).Statement
 		sql := strings.Join(strings.Fields(stmt.SQL.String()), " ")
@@ -54,6 +54,42 @@ func TestMetadataSearchSpecialCharactersDoNotMatchEverything(t *testing.T) {
 	}
 	if terms := MediaSearchTerms("..."); len(terms) != 0 {
 		t.Fatalf("delimiter-only search terms = %#v, want empty", terms)
+	}
+}
+
+func TestMetadataSearchLIKEFilterRequiresChineseTokensAndKeepsNumbersAtomic(t *testing.T) {
+	db, err := gorm.Open(postgres.Open(""), &gorm.Config{DisableAutomaticPing: true, DryRun: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var rows []model.MetadataItem
+	stmt := applyMetadataSearchLIKEFilter(
+		db.Table("metadata_items AS search_metadata"),
+		buildMetadataSearchTermGroups(MediaSearchTerms("死神 44")),
+		MetadataSearchFieldsTitle,
+	).Find(&rows).Statement
+	sql := strings.Join(strings.Fields(stmt.SQL.String()), " ")
+	if !strings.Contains(sql, " AND ") || !strings.Contains(sql, " OR ") {
+		t.Fatalf("grouped LIKE query = %s", sql)
+	}
+	vars := make(map[any]bool, len(stmt.Vars))
+	for _, value := range stmt.Vars {
+		vars[value] = true
+	}
+	for _, want := range []string{
+		"%死%", "%神%",
+		"(^|[^0-9])44([^0-9]|$)",
+		"(^|[^零一二三四五六七八九十百])四十四([^零一二三四五六七八九十百]|$)",
+	} {
+		if !vars[want] {
+			t.Fatalf("grouped search vars=%#v, missing %q", stmt.Vars, want)
+		}
+	}
+	if vars["%44%"] || vars["%四十四%"] || vars["%四%"] || vars["%十%"] {
+		t.Fatalf("numeric equivalents must stay atomic: %#v", stmt.Vars)
+	}
+	if !strings.Contains(sql, " ~ ") {
+		t.Fatalf("numeric equivalents must use whole-run matching: %s", sql)
 	}
 }
 

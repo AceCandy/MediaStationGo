@@ -50,26 +50,33 @@ func NewOpenSearchMediaBackend(cfg config.SearchConfig) *OpenSearchMediaBackend 
 	}
 }
 
-func (b *OpenSearchMediaBackend) SearchMetadataIDs(ctx context.Context, query string, offset, limit int, filter MetadataSearchFilter) ([]string, int64, error) {
+func (b *OpenSearchMediaBackend) SearchMetadataIDs(ctx context.Context, query string, _, _ int, filter MetadataSearchFilter) ([]string, int64, error) {
 	if err := b.ensureReady(ctx); err != nil {
 		return nil, 0, err
 	}
-	if limit <= 0 {
-		limit = 50
-	}
-	terms := MediaSearchTerms(query)
-	if len(terms) == 0 || len(filter.Kinds) == 0 || (filter.LibraryRestricted && len(filter.VisibleLibraryIDs) == 0) {
+	groups := buildMetadataSearchTermGroups(MediaSearchTerms(query))
+	if len(groups) == 0 || len(filter.Kinds) == 0 || (filter.LibraryRestricted && len(filter.VisibleLibraryIDs) == 0) {
 		return []string{}, 0, nil
 	}
 	fields := []string{"title^4", "original_name^3"}
 	if filter.Fields != MetadataSearchFieldsTitle {
 		fields = append(fields, "overview^2", "genres^2")
 	}
-	must := make([]any, 0, len(terms))
-	for _, term := range terms {
+	must := make([]any, 0, len(groups))
+	for _, group := range groups {
+		should := make([]any, 0, len(group.variants))
+		for _, variant := range group.variants {
+			multiMatch := map[string]any{"query": variant.value, "fields": fields, "type": "best_fields", "operator": "and"}
+			if group.numeric {
+				multiMatch = map[string]any{"query": variant.value, "fields": fields, "type": "phrase"}
+			}
+			should = append(should, map[string]any{
+				"multi_match": multiMatch,
+			})
+		}
 		must = append(must, map[string]any{
-			"multi_match": map[string]any{
-				"query": term, "fields": fields, "type": "best_fields", "fuzziness": "AUTO",
+			"bool": map[string]any{
+				"should": should, "minimum_should_match": 1,
 			},
 		})
 	}
@@ -81,10 +88,11 @@ func (b *OpenSearchMediaBackend) SearchMetadataIDs(ctx context.Context, query st
 		filters = append(filters, map[string]any{"terms": map[string]any{"library_ids": filter.VisibleLibraryIDs}})
 	}
 	body := map[string]any{
-		"from":    offset,
-		"size":    limit,
+		"from":    0,
+		"size":    maxMetadataSearchCandidates,
 		"_source": []string{"id"},
 		"query":   map[string]any{"bool": map[string]any{"must": must, "filter": filters}},
+		"sort":    []any{map[string]any{"_score": "desc"}, map[string]any{"id": "asc"}},
 	}
 	var resp struct {
 		Hits struct {

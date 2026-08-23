@@ -154,6 +154,7 @@ func (r *MediaViewRepository) SearchMetadataIDs(ctx context.Context, query strin
 	if query != "" && len(terms) == 0 {
 		return []string{}, 0, nil
 	}
+	groups := buildMetadataSearchTermGroups(terms)
 	prepared, err := r.prepareMetadataSearchFilter(ctx, filter)
 	if err != nil {
 		return nil, 0, err
@@ -161,13 +162,20 @@ func (r *MediaViewRepository) SearchMetadataIDs(ctx context.Context, query strin
 	if prepared.LibraryRestricted && len(prepared.VisibleLibraryIDs) == 0 {
 		return []string{}, 0, nil
 	}
+	if query == "" {
+		return r.searchMetadataIDsPostgres(ctx, query, groups, offset, limit, prepared)
+	}
 	complex := len(prepared.PersonIDs) > 0 || prepared.FavoriteUserID != "" || prepared.ResumableUserID != ""
-	if query != "" && r.searchBackend != nil && !prepared.ForcePostgres && !complex {
-		if ids, total, searchErr := r.searchBackend.SearchMetadataIDs(ctx, query, offset, limit, prepared); searchErr == nil {
-			return ids, total, nil
+	if r.searchBackend != nil && !prepared.ForcePostgres && !complex {
+		if ids, _, searchErr := r.searchBackend.SearchMetadataIDs(ctx, query, 0, maxMetadataSearchCandidates, prepared); searchErr == nil {
+			return r.rankMetadataSearchIDs(ctx, query, groups, ids, offset, limit, prepared)
 		}
 	}
-	return r.searchMetadataIDsPostgres(ctx, query, terms, offset, limit, prepared)
+	ids, _, err := r.searchMetadataIDsPostgres(ctx, query, groups, 0, maxMetadataSearchCandidates, prepared)
+	if err != nil {
+		return nil, 0, err
+	}
+	return r.rankMetadataSearchIDs(ctx, query, groups, ids, offset, limit, prepared)
 }
 
 func (r *MediaViewRepository) prepareMetadataSearchFilter(ctx context.Context, filter MetadataSearchFilter) (MetadataSearchFilter, error) {
@@ -302,24 +310,49 @@ func (r *MediaViewRepository) metadataSearchQuery(ctx context.Context, filter Me
 	return q
 }
 
-func applyMetadataSearchLIKEFilter(q *gorm.DB, terms []string, fields MetadataSearchFields) *gorm.DB {
-	for _, term := range terms {
-		like := "%" + EscapeLike(term) + "%"
-		if fields == MetadataSearchFieldsTitle {
-			q = q.Where("(search_metadata.title LIKE ? ESCAPE '\\' OR search_metadata.original_name LIKE ? ESCAPE '\\')", like, like)
-			continue
+func applyMetadataSearchLIKEFilter(q *gorm.DB, groups []metadataSearchTermGroup, fields MetadataSearchFields) *gorm.DB {
+	searchFields := []string{"search_metadata.title", "search_metadata.original_name"}
+	if fields != MetadataSearchFieldsTitle {
+		searchFields = append(searchFields, "search_metadata.overview", "search_metadata.genres")
+	}
+	for _, group := range groups {
+		var (
+			alternatives []string
+			args         []any
+		)
+		for _, variant := range group.variants {
+			for _, field := range searchFields {
+				if group.numeric {
+					numberRunes := "0-9"
+					if isMetadataSearchChineseNumberRune([]rune(variant.value)[0]) {
+						numberRunes = "零一二三四五六七八九十百"
+					}
+					alternatives = append(alternatives, "("+field+" ~ ?)")
+					args = append(args, "(^|[^"+numberRunes+"])"+variant.value+"([^"+numberRunes+"]|$)")
+					continue
+				}
+				predicates := make([]string, 0, len(variant.tokens))
+				for _, token := range variant.tokens {
+					predicates = append(predicates, field+" LIKE ? ESCAPE '\\'")
+					args = append(args, "%"+EscapeLike(token)+"%")
+				}
+				alternatives = append(alternatives, "("+strings.Join(predicates, " AND ")+")")
+			}
 		}
-		q = q.Where("(search_metadata.title LIKE ? ESCAPE '\\' OR search_metadata.original_name LIKE ? ESCAPE '\\' OR search_metadata.overview LIKE ? ESCAPE '\\' OR search_metadata.genres LIKE ? ESCAPE '\\')",
-			like, like, like, like)
+		q = q.Where("("+strings.Join(alternatives, " OR ")+")", args...)
 	}
 	return q
 }
 
-func (r *MediaViewRepository) searchMetadataIDsPostgres(ctx context.Context, query string, terms []string, offset, limit int, filter MetadataSearchFilter) ([]string, int64, error) {
-	q := applyMetadataSearchLIKEFilter(r.metadataSearchQuery(ctx, filter), terms, filter.Fields)
+func (r *MediaViewRepository) searchMetadataIDsPostgres(ctx context.Context, query string, groups []metadataSearchTermGroup, offset, limit int, filter MetadataSearchFilter) ([]string, int64, error) {
+	q := applyMetadataSearchLIKEFilter(r.metadataSearchQuery(ctx, filter), groups, filter.Fields)
 	var total int64
-	if err := q.Session(&gorm.Session{}).Count(&total).Error; err != nil {
-		return nil, 0, err
+	if query == "" {
+		if err := q.Session(&gorm.Session{}).Count(&total).Error; err != nil {
+			return nil, 0, err
+		}
+	} else {
+		offset, limit = 0, maxMetadataSearchCandidates
 	}
 	type metadataIDRow struct {
 		ID string `gorm:"column:id"`
@@ -339,7 +372,32 @@ func (r *MediaViewRepository) searchMetadataIDsPostgres(ctx context.Context, que
 	for _, row := range rows {
 		ids = append(ids, row.ID)
 	}
+	if query != "" {
+		total = int64(len(ids))
+	}
 	return ids, total, nil
+}
+
+// rankMetadataSearchIDs 从数据库复核候选字段，统一排序后才应用调用方分页。
+func (r *MediaViewRepository) rankMetadataSearchIDs(ctx context.Context, query string, groups []metadataSearchTermGroup, ids []string, offset, limit int, filter MetadataSearchFilter) ([]string, int64, error) {
+	ids = uniqueNonEmptyStrings(ids)
+	if len(ids) > maxMetadataSearchCandidates {
+		ids = ids[:maxMetadataSearchCandidates]
+	}
+	if len(ids) == 0 {
+		return []string{}, 0, nil
+	}
+	var candidates []metadataSearchCandidate
+	err := r.metadataSearchQuery(ctx, filter).
+		Where("search_metadata.id IN ?", ids).
+		Select("search_metadata.id, search_metadata.title, search_metadata.original_name, search_metadata.overview, search_metadata.genres, search_metadata.year").
+		Scan(&candidates).Error
+	if err != nil {
+		return nil, 0, err
+	}
+	ranked := rankMetadataSearchCandidates(query, groups, candidates, filter.Fields)
+	page, total := pageMetadataSearchCandidates(ranked, offset, limit)
+	return page, total, nil
 }
 
 type metadataSearchPresentation struct {

@@ -443,11 +443,19 @@ func TestMediaUpsertKeepsLocalLibraryIDOnRescan(t *testing.T) {
 }
 
 type fakeMediaSearchBackend struct {
-	ids []string
-	err error
+	ids             []string
+	err             error
+	requestedOffset *int
+	requestedLimit  *int
 }
 
-func (f fakeMediaSearchBackend) SearchMetadataIDs(context.Context, string, int, int, MetadataSearchFilter) ([]string, int64, error) {
+func (f *fakeMediaSearchBackend) SearchMetadataIDs(_ context.Context, _ string, offset, limit int, _ MetadataSearchFilter) ([]string, int64, error) {
+	if f.requestedOffset != nil {
+		*f.requestedOffset = offset
+	}
+	if f.requestedLimit != nil {
+		*f.requestedLimit = limit
+	}
 	if f.err != nil {
 		return nil, 0, f.err
 	}
@@ -476,16 +484,22 @@ func TestMediaSearchUsesExternalBackendAndFallsBack(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	repos.Media.SetSearchBackend(fakeMediaSearchBackend{ids: []string{"metadata-2", "metadata-1"}})
-	items, total, err := repos.Media.SearchFilteredPage(t.Context(), "anything", 0, 10, MediaQueryFilter{IncludeNSFW: true})
+	requestedOffset, requestedLimit := -1, -1
+	repos.Media.SetSearchBackend(&fakeMediaSearchBackend{
+		ids: []string{"metadata-2", "metadata-1"}, requestedOffset: &requestedOffset, requestedLimit: &requestedLimit,
+	})
+	items, total, err := repos.Media.SearchFilteredPage(t.Context(), "a", 0, 10, MediaQueryFilter{IncludeNSFW: true})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if total != 2 || len(items) != 2 || items[0].ID != "m-2" || items[1].ID != "m-1" {
+	if total != 2 || len(items) != 2 || items[0].ID != "m-1" || items[1].ID != "m-2" {
 		t.Fatalf("external search result total=%d items=%#v", total, items)
 	}
+	if requestedOffset != 0 || requestedLimit != maxMetadataSearchCandidates {
+		t.Fatalf("external candidate request offset=%d limit=%d", requestedOffset, requestedLimit)
+	}
 
-	repos.Media.SetSearchBackend(fakeMediaSearchBackend{err: errors.New("opensearch down")})
+	repos.Media.SetSearchBackend(&fakeMediaSearchBackend{err: errors.New("opensearch down")})
 	items, total, err = repos.Media.SearchFilteredPage(t.Context(), "Alpha", 0, 10, MediaQueryFilter{IncludeNSFW: true})
 	if err != nil {
 		t.Fatal(err)

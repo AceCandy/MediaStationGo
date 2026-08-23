@@ -696,6 +696,7 @@ source["DirectStreamUrl"] = "/Videos/" + media.ID + "/stream." + container
 
 - Candidate boundary:
   `SearchMetadataIDs(ctx, query, offset, limit, MetadataSearchFilter) -> metadata IDs, total`.
+- Non-empty search candidate cap: `maxMetadataSearchCandidates = 100`.
 - OpenSearch document ID is the top-level `MetadataItem.ID`; its fields are
   `id`, `kind`, `title`, `original_name`, `overview`, `genres`, `nsfw`, and
   derived `library_ids`.
@@ -717,12 +718,30 @@ source["DirectStreamUrl"] = "/Videos/" + media.ID + "/stream." + container
 - Web searches `title`, `original_name`, `overview`, and `genres`. Emby searches
   only `title` and `original_name`; every normalized term must match, and
   PostgreSQL LIKE metacharacters are escaped literally.
+- Non-empty queries always ask OpenSearch or PostgreSQL for candidates at
+  `offset=0`, capped at 100. PostgreSQL revalidates the candidate IDs and loads
+  current title, original name, overview, genres, and year; one shared Go
+  comparator sorts the complete candidate set before applying the caller's
+  offset/limit. The returned total is the revalidated candidate count and is
+  therefore at most 100. Empty-query browsing keeps database pagination and its
+  uncapped logical total.
+- Search terms use AND between term groups and OR only between one term's
+  equivalent forms. Standard decimal integers and canonical Chinese numbers
+  from 0 through 100 expand both ways; numeric forms are atomic. Other Han text
+  requires every analyzed Han token in one field, so `死神` cannot match a title
+  containing only `死` or only `神`.
+- Final rank tiers are exact title/original match, ordered full containment in
+  one title/original field, then other all-token matches. Exact matches sort by
+  year and Metadata ID. The other tiers sort by shared field coverage, match
+  position/span, the last valid 0–100 title number descending, year descending,
+  and Metadata ID. OpenSearch `_score` only selects its finite candidate set;
+  it is not a cross-backend final score.
 - Emby `SearchTerm` returns only Movie/Series. A Series/Season `ParentId`, or an
   `IncludeItemTypes` set containing only Season/Episode, returns an empty search
   envelope without changing ordinary no-term hierarchy browsing.
-- OpenSearch hits are revalidated through PostgreSQL before response mapping.
-  Stale total counts are allowed during the synchronization window, but stale,
-  invisible, or unplayable current-page items are never returned.
+- OpenSearch hits are revalidated through PostgreSQL before ranking and response
+  mapping. Stale, invisible, unplayable, or no-longer-matching candidates are
+  omitted before the capped total and page are computed.
 - Media create, delete, rebind, and library move refresh both old and new
   top-level IDs after commit. Metadata content, parent, and merge changes do the
   same. A full rebuild replays dirty IDs before switching the alias; it does not
@@ -738,25 +757,36 @@ source["DirectStreamUrl"] = "/Videos/" + media.ID + "/stream." + container
 | Series loses its last playable Episode Media | Delete its search document |
 | Media changes Metadata or library | Refresh old and new top-level projections after commit |
 | OpenSearch returns a stale/invisible ID | Omit it during PostgreSQL revalidation |
+| Non-empty search has more than 100 backend matches | Rank and expose only the selected 100 candidates; total is capped at 100 |
+| Search is `44` or `四十四` | Match both complete numeric forms; do not match `四十` as a numeric alias |
+| Requested offset is outside the candidate set | Return an empty page with the capped total |
 | Search requests only Season/Episode | Return an empty Emby search envelope |
 
 ### 5. Good / Base / Bad Cases
 
 - Good: two 1080p/4K Media versions produce one Movie hit and consume one page
   slot; one Series with many Episodes also produces one Series hit.
+- Good: `死神2` outranks a less relevant `新死神10`; equal-relevance
+  `死神10`, `死神9`, and `死神2` use descending title numbers.
 - Base: OpenSearch is unavailable; PostgreSQL returns the same Metadata-grained
-  eligibility and total.
+  eligibility and applies the same Go ranking to its finite candidate set.
 - Bad: index one document per Media and collapse versions after pagination.
+- Bad: page OpenSearch/PostgreSQL first and reorder only the returned page, or
+  compare OpenSearch `_score` with a separate PostgreSQL score.
 - Bad: make a catalog-only Metadata searchable or match a Media path/scan title.
 
 ### 6. Tests Required
 
 - OpenSearch HTTP mocks assert the exact mapping, Metadata `_id`, Web/Emby field
-  sets, term AND, `kind`, `library_ids`, restricted-empty, readiness, bulk,
-  delete, and alias-switch payloads contain no Media fields.
+  sets, term AND, numeric OR/phrase, fixed 0/100 candidates, stable score/ID
+  selection, `kind`, `library_ids`, restricted-empty, readiness, bulk, delete,
+  and alias-switch payloads contain no Media fields.
 - PostgreSQL tests assert Movie multi-version and Series multi-Episode collapse,
   no-Media exclusion, unresolved-Media exclusion, library visibility, NSFW,
-  logical total, ordering, and pagination.
+  token-group filtering, capped total, ordering, and in-memory pagination.
+- Pure ranking tests assert canonical 0–100 conversion, whole numeric runs,
+  strict tier order, relevance before title number, number/year/ID tie-breaks,
+  irrelevant single-token exclusion, and safe page boundaries.
 - Synchronization tests assert create, last-Media delete, rebind, library move,
   Metadata parent change, and graph merge refresh every affected top-level ID.
 - Emby tests assert Movie/Series results, Season/Episode empty search, ParentId
@@ -765,11 +795,16 @@ source["DirectStreamUrl"] = "/Videos/" + media.ID + "/stream." + container
 ### 7. Wrong vs Correct
 
 ```go
-// Wrong: physical versions own search identity and pagination.
-mediaIDs, total := searchBackend.SearchMediaIDs(ctx, query, offset, limit, filter)
-
-// Correct: top-level works own search identity; versions load after the page.
+// Wrong: paginate backend hits and then reorder only one page.
 metadataIDs, total := searchBackend.SearchMetadataIDs(ctx, query, offset, limit, filter)
+sortCurrentPage(metadataIDs)
+
+// Correct: rank the capped, revalidated Metadata candidate set before paging.
+candidates, _, err := searchBackend.SearchMetadataIDs(ctx, query, 0, 100, filter)
+groups := buildMetadataSearchTermGroups(MediaSearchTerms(query))
+metadataIDs, total, err := mediaViewRepo.rankMetadataSearchIDs(
+    ctx, query, groups, candidates, offset, limit, filter,
+)
 views, err := mediaViewRepo.FindMetadataSearchRepresentatives(ctx, metadataIDs, visibility)
 ```
 
