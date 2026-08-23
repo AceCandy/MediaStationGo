@@ -5,11 +5,35 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 
 	"github.com/ShukeBta/MediaStationGo/internal/service"
 )
+
+func scrapeIssuesHandler(svc *service.Container) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if svc == nil || svc.Media == nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "media scrape issues unavailable"})
+			return
+		}
+		page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+		pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "30"))
+		statuses := strings.Split(c.DefaultQuery("status", "error,no_match"), ",")
+		result, err := svc.Media.ListScrapeIssues(c.Request.Context(), c.Query("library_id"), statuses, page, pageSize)
+		if errors.Is(err, service.ErrInvalidScrapeIssueStatus) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "status must be error or no_match"})
+			return
+		}
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list media scrape issues"})
+			return
+		}
+		c.JSON(http.StatusOK, result)
+	}
+}
 
 func imageProxyHandler(svc *service.Container) gin.HandlerFunc {
 	return func(c *gin.Context) {

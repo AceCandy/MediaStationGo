@@ -175,3 +175,62 @@ func TestResetMediaScrapeResetsCompleteSeries(t *testing.T) {
 		t.Fatalf("pending rows = %d, want complete two-episode series", pending)
 	}
 }
+
+func TestResetLibraryScrapeQueuesOnlyUnfinishedRowsUnlessMatchedRequested(t *testing.T) {
+	scraper, repos, closeUpstream := newTestScraper(t)
+	defer closeUpstream()
+	library := model.Library{Name: "Movies", Path: "/media/movies", Type: "movie", Enabled: true}
+	if err := repos.DB.Create(&library).Error; err != nil {
+		t.Fatal(err)
+	}
+	rows := make([]model.Media, 7)
+	for i := range rows {
+		rows[i] = model.Media{LibraryID: library.ID, Title: "Movie", Path: "/media/movies/movie-" + string(rune('a'+i)) + ".mkv", ScrapeStatus: "pending", ScrapeError: "old", ScrapeTrigger: TaskTriggerEvent}
+	}
+	if err := repos.DB.Create(&rows).Error; err != nil {
+		t.Fatal(err)
+	}
+	statuses := []any{nil, "", "pending", "error", "no_match", "matched", "running"}
+	for i, status := range statuses {
+		if err := repos.DB.Model(&model.Media{}).Where("id = ?", rows[i].ID).Update("scrape_status", status).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	queued, err := scraper.ResetLibraryScrape(t.Context(), library.ID, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if queued != 5 {
+		t.Fatalf("queued = %d, want 5 unfinished rows", queued)
+	}
+	var stored []model.Media
+	if err := repos.DB.Order("path").Find(&stored).Error; err != nil {
+		t.Fatal(err)
+	}
+	for i := range stored {
+		if i < 5 {
+			if stored[i].ScrapeStatus != "pending" || stored[i].ScrapeTrigger != TaskTriggerManual || stored[i].ScrapeError != "" {
+				t.Fatalf("unfinished row %d = %#v", i, stored[i])
+			}
+			continue
+		}
+		if stored[i].ScrapeStatus != statuses[i] || stored[i].ScrapeTrigger != TaskTriggerEvent || stored[i].ScrapeError != "old" {
+			t.Fatalf("completed/running row %d changed: %#v", i, stored[i])
+		}
+	}
+
+	queued, err = scraper.ResetLibraryScrape(t.Context(), library.ID, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if queued != 6 {
+		t.Fatalf("includeMatched queued = %d, want all except running", queued)
+	}
+	if err := repos.DB.First(&stored[5], "id = ?", rows[5].ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if stored[5].ScrapeStatus != "pending" || stored[5].ScrapeTrigger != TaskTriggerManual {
+		t.Fatalf("matched row was not explicitly requeued: %#v", stored[5])
+	}
+}

@@ -123,7 +123,28 @@ func librarySupportsSeasons(lib *model.Library) bool {
 		return false
 	}
 	switch strings.ToLower(strings.TrimSpace(lib.Type)) {
-	case "tv", "anime", "variety", "show", "shows":
+	case "tv", "anime", "variety", "show", "shows", model.LibraryTypeNFOTV:
+		return true
+	default:
+		return false
+	}
+}
+
+func libraryUsesNFOOnly(lib *model.Library) bool {
+	if lib == nil {
+		return false
+	}
+	switch strings.ToLower(strings.TrimSpace(lib.Type)) {
+	case model.LibraryTypeNFOMovie, model.LibraryTypeNFOTV:
+		return true
+	default:
+		return false
+	}
+}
+
+func LibraryTypeSupportsMetadataScrape(libraryType string) bool {
+	switch strings.ToLower(strings.TrimSpace(libraryType)) {
+	case "movie", "tv", "anime", "variety", "show", "shows", model.LibraryTypeNFOMovie, model.LibraryTypeNFOTV:
 		return true
 	default:
 		return false

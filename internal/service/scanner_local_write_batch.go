@@ -78,7 +78,7 @@ func (b *localMediaWriteBatch) Flush() {
 			continue
 		}
 		wasExisting := b.mediaPathExists(item.media.Path)
-		if err := b.scanner.repo.Media.Upsert(b.ctx, item.media); err != nil {
+		if err := b.scanner.upsertLocalScanMedia(b.ctx, item.media); err != nil {
 			addScanError(b.res, item.path, err)
 			b.scanner.log.Warn("upsert media failed", zap.String("path", item.path), zap.Error(err))
 			continue
@@ -131,7 +131,7 @@ func (b *localMediaWriteBatch) upsertExistingItem(item localMediaWriteItem) {
 	if item.media == nil {
 		return
 	}
-	if err := b.scanner.repo.Media.Upsert(b.ctx, item.media); err != nil {
+	if err := b.scanner.upsertLocalScanMedia(b.ctx, item.media); err != nil {
 		addScanError(b.res, item.path, err)
 		b.scanner.log.Warn("upsert media failed", zap.String("path", item.path), zap.Error(err))
 		return

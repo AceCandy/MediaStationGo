@@ -48,6 +48,9 @@ func (s *ScraperService) ApplyManualMatchWithOptions(ctx context.Context, mediaI
 		return nil, errors.New("media not found")
 	}
 	lib, _ := s.repo.Library.FindByID(ctx, media.LibraryID)
+	if libraryUsesNFOOnly(lib) {
+		return nil, errors.New("NFO-only library does not support provider matching")
+	}
 	match, err := s.manualRequestMatch(ctx, req)
 	if err != nil {
 		return nil, err

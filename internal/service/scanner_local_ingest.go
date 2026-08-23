@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -100,8 +101,10 @@ func (s *ScannerService) readLocalScanMetadata(lib *model.Library, root *model.L
 	if err != nil {
 		s.log.Warn("read local metadata failed", zap.String("path", path), zap.Error(err))
 	}
-	_, hints := pathHintMetadata(path, seriesLike)
-	localMeta = hints.applyToLocalMetadata(localMeta)
+	if !libraryUsesNFOOnly(lib) {
+		_, hints := pathHintMetadata(path, seriesLike)
+		localMeta = hints.applyToLocalMetadata(localMeta)
+	}
 	return localMeta
 }
 
@@ -199,7 +202,11 @@ func (s *ScannerService) buildLocalScanMedia(in localScanMediaInput) *model.Medi
 		}
 	}
 	if in.localMeta != nil {
-		applyLocalScanHints(media, in.localMeta)
+		if libraryUsesNFOOnly(in.lib) {
+			applyLocalEpisodeMetadata(media, in.localMeta)
+		} else {
+			applyLocalScanHints(media, in.localMeta)
+		}
 		media.LocalMetadataHint = encodeLocalMetadataHint(in.localMeta)
 	}
 	if media.EpisodeNum > 0 {
@@ -237,7 +244,7 @@ func (s *ScannerService) writeLocalScanMedia(in localScanWriteInput) {
 		in.writeBatch.AddWithAfter(in.path, in.media, in.after, in.updateReason)
 		return
 	}
-	if err := s.repo.Media.Upsert(in.ctx, in.media); err != nil {
+	if err := s.upsertLocalScanMedia(in.ctx, in.media); err != nil {
 		addScanError(in.res, in.path, err)
 		s.log.Warn("upsert media failed", zap.String("path", in.path), zap.Error(err))
 		return
@@ -253,6 +260,75 @@ func (s *ScannerService) writeLocalScanMedia(in localScanWriteInput) {
 		in.res.addChange(ScanChangeUpdated, in.path, in.updateReason)
 	}
 	s.publishLocalScanProgress(in.path, in.res)
+}
+
+func (s *ScannerService) upsertLocalScanMedia(ctx context.Context, media *model.Media) error {
+	task, expectedMetadataID, err := s.startExistingMetadataMatchTask(ctx, media)
+	if err != nil {
+		return err
+	}
+	err = s.repo.Media.Upsert(ctx, media)
+	if task == nil {
+		return err
+	}
+	if err == nil && (media.ScrapeStatus != "matched" || media.MetadataID != expectedMetadataID) {
+		err = errors.New("existing metadata binding did not complete")
+	}
+	safeErr := sanitizeTaskLogError(err)
+	detail := "✅ " + existingMetadataMatchName(media) + "：命中已有元数据"
+	stage, message := "completed", "已入库媒体命中已有元数据"
+	if safeErr != nil {
+		stage, message = "scrape", "已有元数据绑定失败"
+		detail = "❌ " + existingMetadataMatchName(media) + "：绑定失败: " + safeErr.Error()
+	}
+	metrics := map[string]int64{"processed": 1}
+	if safeErr == nil {
+		metrics["matched"] = 1
+	}
+	task.Finish(safeErr, TaskUpdate{Stage: stage, Message: message, Metrics: metrics, Details: []string{detail}})
+	return err
+}
+
+func (s *ScannerService) startExistingMetadataMatchTask(ctx context.Context, media *model.Media) (*TaskHandle, string, error) {
+	if s == nil || media == nil || s.repo == nil || s.repo.Media == nil || s.repo.DB == nil {
+		return nil, "", nil
+	}
+	var existing model.Media
+	result := s.repo.DB.WithContext(ctx).Unscoped().
+		Select("metadata_id", "scrape_status").Where("path = ?", media.Path).Limit(1).Find(&existing)
+	if result.Error != nil {
+		return nil, "", result.Error
+	}
+	if result.RowsAffected > 0 && (strings.TrimSpace(existing.MetadataID) != "" || strings.TrimSpace(existing.ScrapeStatus) == "matched") {
+		return nil, "", nil
+	}
+	exact, err := s.repo.Media.FindExactMetadata(ctx, media)
+	if err != nil || exact == nil {
+		return nil, "", err
+	}
+	if s.scraper == nil || s.scraper.tasks == nil {
+		return nil, exact.ID, nil
+	}
+	task := s.scraper.tasks.StartTriggered(TaskKindScrape, TaskTriggerEvent, "媒体入库刮削："+existingMetadataMatchName(media), TaskUpdate{
+		Stage: "scrape", SourcePath: media.Path, Message: "正在绑定已有元数据",
+	})
+	if task == nil {
+		return nil, exact.ID, nil
+	}
+	return task, exact.ID, nil
+}
+
+func existingMetadataMatchName(media *model.Media) string {
+	if media == nil {
+		return "媒体"
+	}
+	if name := strings.TrimSpace(media.Title); name != "" {
+		return name
+	}
+	if name := strings.TrimSpace(media.ID); name != "" {
+		return name
+	}
+	return "媒体"
 }
 
 func (s *ScannerService) publishLocalScanProgress(path string, res *ScanResult) {

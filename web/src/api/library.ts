@@ -32,6 +32,26 @@ export interface MediaSearchPage {
   page_size?: number
 }
 
+export interface MediaScrapeIssue {
+  id: string
+  title: string
+  year: number
+  season_num: number
+  episode_num: number
+  library_id: string
+  library_name: string
+  library_type: string
+  scrape_status: 'error' | 'no_match'
+  reason: string
+}
+
+export interface MediaScrapeIssuePage {
+  items: MediaScrapeIssue[]
+  total: number
+  page: number
+  page_size: number
+}
+
 export interface SeriesPage {
   items: SeriesCard[]
   total: number
@@ -209,6 +229,18 @@ export const mediaAPI = {
       .then((r) => r.data),
 
   get: (id: string) => api.get<Media>(`/media/${id}`).then((r) => r.data),
+
+  listScrapeIssues: (options: { libraryID?: string; status?: 'error' | 'no_match'; page?: number; pageSize?: number }) =>
+    api.get<MediaScrapeIssuePage>('/media/scrape-issues', {
+      params: {
+        library_id: options.libraryID || undefined,
+        status: options.status || undefined,
+        page: options.page ?? 1,
+        page_size: options.pageSize ?? 30,
+      },
+    }).then((r) => r.data),
+
+  retryScrape: (id: string) => api.post<{ status: string }>(`/media/${id}/scrape`).then((r) => r.data),
 
   delete: (id: string) => api.delete(`/media/${id}`).then((r) => r.data),
 

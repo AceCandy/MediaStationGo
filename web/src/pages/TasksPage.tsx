@@ -1,12 +1,20 @@
 import { useEffect, useRef, useState } from 'react'
 import toast from 'react-hot-toast'
-import { Activity, ChevronLeft, ChevronRight, FileText, Play, RefreshCw, Settings, X } from 'lucide-react'
+import { Activity, ChevronLeft, ChevronRight, FileText, Play, RefreshCw, Search, Settings, X } from 'lucide-react'
 
-import { libraryAPI } from '../api/library'
+import { libraryAPI, mediaAPI, type MediaScrapeIssue } from '../api/library'
 import { tasksAPI, type BackgroundTask, type TaskDefinition, type TaskLog } from '../api/tasks'
 import { confirmAction } from '../components/confirmAction'
+import { ManualScrapeDialog } from '../components/ManualScrapeDialog'
 import { ModalShell } from '../components/ModalShell'
-import type { Library } from '../types'
+import type { Library, Media } from '../types'
+import { isSeriesLibraryType } from './librariesPageModel'
+
+const scrapeLibraryTypes = new Set(['movie', 'tv', 'anime', 'variety', 'show', 'shows', 'nfo_movie', 'nfo_tv'])
+
+function scrapeableLibraries(libraries: Library[]) {
+  return libraries.filter((library) => scrapeLibraryTypes.has(library.type))
+}
 
 function hasTaskIssues(task?: BackgroundTask): boolean {
   return Boolean(task?.metrics?.errors || task?.metrics?.scan_errors || task?.metrics?.scrape_errors || task?.metrics?.failed)
@@ -99,12 +107,14 @@ interface TaskRowProps {
   onProbeLibraryChange: (value: string) => void
   probeLimit: string
   onProbeLimitChange: (value: string) => void
+  scrapeLibraryID: string
+  onScrapeLibraryChange: (value: string) => void
   onRun: (definition: TaskDefinition) => void
   onLog: (definition: TaskDefinition) => void
   onSchedule: (definition: TaskDefinition) => void
 }
 
-function TaskActions({ definition, running, libraries, scanLibraryID, onScanLibraryChange, probeLibraryID, onProbeLibraryChange, probeLimit, onProbeLimitChange, onRun, onLog, onSchedule }: TaskRowProps) {
+function TaskActions({ definition, running, libraries, scanLibraryID, onScanLibraryChange, probeLibraryID, onProbeLibraryChange, probeLimit, onProbeLimitChange, scrapeLibraryID, onScrapeLibraryChange, onRun, onLog, onSchedule }: TaskRowProps) {
   const disabled = definition.current_state === 'running' || running === definition.key
   const runDisabled = disabled || (definition.key === 'library_scan' && !scanLibraryID)
   return (
@@ -149,6 +159,19 @@ function TaskActions({ definition, running, libraries, scanLibraryID, onScanLibr
           />
         </>
       )}
+      {definition.action === 'media_scrape' && (
+        <select
+          value={scrapeLibraryID}
+          onChange={(event) => onScrapeLibraryChange(event.target.value)}
+          disabled={disabled}
+          aria-label="媒体入库刮削范围"
+          title="选择要处理的媒体库"
+          className="h-8 w-32 rounded border border-gray-200 px-2 text-xs text-ink-600"
+        >
+          <option value="">全部媒体库</option>
+          {scrapeableLibraries(libraries).map((library) => <option key={library.id} value={library.id}>{library.name}</option>)}
+        </select>
+      )}
       {definition.action && (
         <button type="button" className="rounded border border-gray-200 p-2 text-sand-500 hover:text-brand-500 disabled:cursor-not-allowed disabled:opacity-40" title={`立即执行${definition.name}`} aria-label={`立即执行${definition.name}`} disabled={runDisabled} onClick={() => onRun(definition)}>
           <Play size={16} />
@@ -166,7 +189,7 @@ function TaskActions({ definition, running, libraries, scanLibraryID, onScanLibr
   )
 }
 
-function DefinitionTable(props: { definitions: TaskDefinition[]; running: string; libraries: Library[]; scanLibraryID: string; onScanLibraryChange: TaskRowProps['onScanLibraryChange']; probeLibraryID: string; onProbeLibraryChange: TaskRowProps['onProbeLibraryChange']; probeLimit: string; onProbeLimitChange: TaskRowProps['onProbeLimitChange']; onRun: TaskRowProps['onRun']; onLog: TaskRowProps['onLog']; onSchedule: TaskRowProps['onSchedule'] }) {
+function DefinitionTable(props: { definitions: TaskDefinition[]; running: string; libraries: Library[]; scanLibraryID: string; onScanLibraryChange: TaskRowProps['onScanLibraryChange']; probeLibraryID: string; onProbeLibraryChange: TaskRowProps['onProbeLibraryChange']; probeLimit: string; onProbeLimitChange: TaskRowProps['onProbeLimitChange']; scrapeLibraryID: string; onScrapeLibraryChange: TaskRowProps['onScrapeLibraryChange']; onRun: TaskRowProps['onRun']; onLog: TaskRowProps['onLog']; onSchedule: TaskRowProps['onSchedule'] }) {
   return (
     <>
 		<div className="hidden overflow-x-auto lg:block">
@@ -357,6 +380,147 @@ function formatDateKey(value: string): string {
   return new Date(year, month - 1, day).toLocaleDateString()
 }
 
+function ScrapeIssuesPanel({ libraries }: { libraries: Library[] }) {
+  const [items, setItems] = useState<MediaScrapeIssue[]>([])
+  const [total, setTotal] = useState(0)
+  const [libraryID, setLibraryID] = useState('')
+  const [status, setStatus] = useState<'' | 'error' | 'no_match'>('')
+  const [page, setPage] = useState(1)
+  const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState(false)
+  const [refreshVersion, setRefreshVersion] = useState(0)
+  const [retrying, setRetrying] = useState('')
+  const [openingManual, setOpeningManual] = useState('')
+  const [manualTarget, setManualTarget] = useState<{ media: Media; mediaType: string } | null>(null)
+  const pageSize = 20
+
+  useEffect(() => {
+    let active = true
+    setLoading(true)
+    setLoadError(false)
+    mediaAPI.listScrapeIssues({ libraryID, status: status || undefined, page, pageSize })
+      .then((value) => {
+        if (!active) return
+        setItems(value.items ?? [])
+        setTotal(value.total ?? 0)
+      })
+      .catch(() => {
+        if (active) setLoadError(true)
+      })
+      .finally(() => {
+        if (active) setLoading(false)
+      })
+    return () => { active = false }
+  }, [libraryID, page, refreshVersion, status])
+
+  const refreshIssues = () => setRefreshVersion((value) => value + 1)
+  const retry = async (issue: MediaScrapeIssue) => {
+    setRetrying(issue.id)
+    try {
+      await mediaAPI.retryScrape(issue.id)
+      toast.success('已加入媒体入库刮削队列')
+      refreshIssues()
+    } catch {
+      toast.error('重新刮削触发失败')
+    } finally {
+      setRetrying('')
+    }
+  }
+  const openManualMatch = async (issue: MediaScrapeIssue) => {
+    setOpeningManual(issue.id)
+    try {
+      const media = await mediaAPI.get(issue.id)
+      const mediaType = isSeriesLibraryType(issue.library_type) ? 'tv' : 'movie'
+      setManualTarget({ media, mediaType })
+    } catch {
+      toast.error('媒体信息加载失败')
+    } finally {
+      setOpeningManual('')
+    }
+  }
+  const pageCount = Math.max(1, Math.ceil(total / pageSize))
+
+  return (
+    <div className="mt-6 border-t border-gray-200 pt-5">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h2 className="font-display text-lg font-semibold text-ink-600">媒体入库刮削待处理</h2>
+          <p className="mt-1 text-xs text-ink-50">统一显示刮削失败和未匹配记录；成功来源请在上方任务日志中查看。</p>
+        </div>
+        <button type="button" className="icon-btn" title="刷新待处理记录" aria-label="刷新待处理记录" disabled={loading} onClick={refreshIssues}>
+          <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
+        </button>
+      </div>
+      <div className="mt-4 grid gap-2 sm:grid-cols-2">
+        <label>
+          <span className="mb-1 block text-xs text-ink-50">媒体库</span>
+          <select className="input-field" value={libraryID} onChange={(event) => { setLibraryID(event.target.value); setPage(1) }}>
+            <option value="">全部媒体库</option>
+            {scrapeableLibraries(libraries).map((library) => <option key={library.id} value={library.id}>{library.name}</option>)}
+          </select>
+        </label>
+        <label>
+          <span className="mb-1 block text-xs text-ink-50">状态</span>
+          <select className="input-field" value={status} onChange={(event) => { setStatus(event.target.value as typeof status); setPage(1) }}>
+            <option value="">全部待处理</option>
+            <option value="error">刮削失败</option>
+            <option value="no_match">未匹配</option>
+          </select>
+        </label>
+      </div>
+      <div className="mt-4 space-y-2">
+        {loading && items.length === 0 ? <p className="py-6 text-center text-sm text-ink-50">加载中...</p>
+          : loadError ? <p className="py-6 text-center text-sm text-red-500">待处理记录加载失败。</p>
+            : items.length === 0 ? <p className="py-6 text-center text-sm text-ink-50">当前没有刮削失败或未匹配记录。</p>
+              : items.map((issue) => {
+                const nfoOnly = issue.library_type === 'nfo_movie' || issue.library_type === 'nfo_tv'
+                const episode = issue.episode_num > 0 ? ` · S${String(issue.season_num).padStart(2, '0')}E${String(issue.episode_num).padStart(2, '0')}` : ''
+                return (
+                  <article key={issue.id} className="flex min-w-0 flex-col gap-3 rounded border border-gray-200 p-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h3 className="break-words text-sm font-medium text-ink-600">{issue.title || issue.id}{issue.year > 0 ? ` (${issue.year})` : ''}{episode}</h3>
+                        <span className={issue.scrape_status === 'error' ? 'text-xs text-red-500' : 'text-xs text-orange-600'}>{issue.scrape_status === 'error' ? '刮削失败' : '未匹配'}</span>
+                      </div>
+                      <p className="mt-1 break-words text-xs text-ink-50">{issue.library_name} · {issue.reason}</p>
+                      {nfoOnly && <p className="mt-1 text-xs text-ink-50">请补充或修复本地 NFO 后重试。</p>}
+                    </div>
+                    <div className="flex shrink-0 flex-wrap items-center gap-2">
+                      {issue.scrape_status === 'no_match' && !nfoOnly && (
+                        <button type="button" className="btn-outline px-3 py-2 text-xs" disabled={Boolean(openingManual)} onClick={() => void openManualMatch(issue)}>
+                          <Search size={14} /> {openingManual === issue.id ? '加载中...' : '手动匹配'}
+                        </button>
+                      )}
+                      <button type="button" className="btn-outline px-3 py-2 text-xs" disabled={Boolean(retrying)} onClick={() => void retry(issue)}>
+                        <RefreshCw size={14} className={retrying === issue.id ? 'animate-spin' : ''} /> {retrying === issue.id ? '排队中...' : '重试'}
+                      </button>
+                    </div>
+                  </article>
+                )
+              })}
+      </div>
+      {total > pageSize && (
+        <div className="mt-4 flex items-center justify-between text-xs text-ink-50">
+          <span>共 {total} 条</span>
+          <div className="flex items-center gap-2">
+            <button type="button" className="icon-btn" title="上一页" aria-label="上一页" disabled={page <= 1 || loading} onClick={() => setPage((value) => value - 1)}><ChevronLeft size={16} /></button>
+            <span>{page} / {pageCount}</span>
+            <button type="button" className="icon-btn" title="下一页" aria-label="下一页" disabled={page >= pageCount || loading} onClick={() => setPage((value) => value + 1)}><ChevronRight size={16} /></button>
+          </div>
+        </div>
+      )}
+      <ManualScrapeDialog
+        open={Boolean(manualTarget)}
+        media={manualTarget?.media ?? null}
+        defaultQuery={manualTarget?.media.title}
+        mediaType={manualTarget?.mediaType}
+        onClose={() => setManualTarget(null)}
+        onApplied={() => { setManualTarget(null); refreshIssues() }}
+      />
+    </div>
+  )
+}
+
 export function TasksPage() {
 	const [definitions, setDefinitions] = useState<TaskDefinition[] | null>(null)
 	const [loadError, setLoadError] = useState(false)
@@ -367,6 +531,7 @@ export function TasksPage() {
 	const [scanLibraryID, setScanLibraryID] = useState('')
 	const [probeLibraryID, setProbeLibraryID] = useState('')
 	const [probeLimit, setProbeLimit] = useState('')
+	const [scrapeLibraryID, setScrapeLibraryID] = useState('')
 	const runPending = useRef(false)
 
 	const refresh = () => tasksAPI.snapshot(1, 1).then((value) => { setDefinitions(value.definitions ?? []); setLoadError(false) })
@@ -399,7 +564,8 @@ export function TasksPage() {
       }
 			await tasksAPI.run(definition.key, definition.key === 'library_scan'
         ? { library_id: scanLibraryID }
-        : definition.action === 'probe_backfill' ? { limit, library_id: probeLibraryID || undefined } : undefined)
+        : definition.action === 'probe_backfill' ? { limit, library_id: probeLibraryID || undefined }
+          : definition.action === 'media_scrape' ? (scrapeLibraryID ? { library_id: scrapeLibraryID } : { all_libraries: true }) : undefined)
 			toast.success(`${definition.name}已触发`)
 			await refresh().catch(() => setLoadError(true))
     } catch (err: unknown) {
@@ -415,7 +581,7 @@ export function TasksPage() {
     <div className="space-y-6">
       <header className="flex items-center gap-3"><Activity className="h-6 w-6 text-brand-500" /><div><h1 className="font-display text-3xl font-bold text-ink-600">任务中心</h1><p className="text-sm text-ink-50">查看后台任务状态、调度与最近执行结果。</p></div></header>
 		<section className="glass-panel">
-			{loadError && !definitions ? <div className="flex flex-col items-center gap-3 py-8 text-sm text-ink-50"><p>任务列表加载失败。</p><button type="button" className="rounded border border-gray-200 p-2 text-sand-600 hover:text-brand-500" title="重新加载" aria-label="重新加载" onClick={() => void refresh()}><RefreshCw size={16} /></button></div> : !definitions ? <p className="py-8 text-center text-ink-50">加载中...</p> : definitions.length === 0 ? <p className="py-8 text-center text-ink-50">暂无任务。</p> : <DefinitionTable definitions={definitions} running={running} libraries={libraries} scanLibraryID={scanLibraryID} onScanLibraryChange={setScanLibraryID} probeLibraryID={probeLibraryID} onProbeLibraryChange={setProbeLibraryID} probeLimit={probeLimit} onProbeLimitChange={setProbeLimit} onRun={(definition) => void run(definition)} onLog={setLogDefinition} onSchedule={setScheduleDefinition} />}
+			{loadError && !definitions ? <div className="flex flex-col items-center gap-3 py-8 text-sm text-ink-50"><p>任务列表加载失败。</p><button type="button" className="rounded border border-gray-200 p-2 text-sand-600 hover:text-brand-500" title="重新加载" aria-label="重新加载" onClick={() => void refresh()}><RefreshCw size={16} /></button></div> : !definitions ? <p className="py-8 text-center text-ink-50">加载中...</p> : definitions.length === 0 ? <p className="py-8 text-center text-ink-50">暂无任务。</p> : <><DefinitionTable definitions={definitions} running={running} libraries={libraries} scanLibraryID={scanLibraryID} onScanLibraryChange={setScanLibraryID} probeLibraryID={probeLibraryID} onProbeLibraryChange={setProbeLibraryID} probeLimit={probeLimit} onProbeLimitChange={setProbeLimit} scrapeLibraryID={scrapeLibraryID} onScrapeLibraryChange={setScrapeLibraryID} onRun={(definition) => void run(definition)} onLog={setLogDefinition} onSchedule={setScheduleDefinition} /><ScrapeIssuesPanel libraries={libraries} /></>}
       </section>
       {logDefinition && <TaskLogDialog definition={logDefinition} onClose={() => setLogDefinition(null)} />}
       {scheduleDefinition && <TaskScheduleDialog definition={scheduleDefinition} onClose={() => setScheduleDefinition(null)} onSaved={() => refresh().catch(() => setLoadError(true))} />}

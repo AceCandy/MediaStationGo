@@ -357,7 +357,7 @@ func (w *WatcherService) processPath(ctx context.Context, d duePath) ([]string, 
 	}
 	if res != nil && res.Added+res.Updated > 0 {
 		w.log.Info("watcher ingested media", zap.String("path", d.path))
-		if w.scanner.scraper != nil && w.scanner.autoScrapeEnabled(ctx) {
+		if w.scanner.scraper != nil {
 			w.scanner.scraper.WakeScrapeWorker()
 		}
 		details := res.ChangeDetails()

@@ -1,11 +1,16 @@
 package model
 
+const (
+	LibraryTypeNFOMovie = "nfo_movie"
+	LibraryTypeNFOTV    = "nfo_tv"
+)
+
 // Library 表示一个逻辑媒体库。Path 保留为兼容字段，指向第一条 LibraryRoot。
 type Library struct {
 	Base
 	Name     string        `gorm:"size:128;not null" json:"name"`
 	Path     string        `gorm:"size:1024;not null" json:"path"`
-	Type     string        `gorm:"size:16;not null;default:movie" json:"type"` // movie / tv / anime / music
+	Type     string        `gorm:"size:16;not null;default:movie" json:"type"` // movie / tv / anime / music / nfo_movie / nfo_tv
 	CoverURL string        `gorm:"size:1024" json:"cover_url,omitempty"`
 	Enabled  bool          `gorm:"default:true" json:"enabled"`
 	Roots    []LibraryRoot `gorm:"foreignKey:LibraryID" json:"roots,omitempty"`

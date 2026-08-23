@@ -16,6 +16,8 @@ const TYPE_ICONS: Record<string, ReactNode> = {
   variety: <Tv size={18} />,
   music: <Music size={18} />,
   adult: <Film size={18} />,
+  nfo_movie: <Film size={18} />,
+  nfo_tv: <Tv size={18} />,
 }
 
 const TYPE_LABELS: Record<string, string> = {
@@ -25,6 +27,8 @@ const TYPE_LABELS: Record<string, string> = {
   variety: '综艺',
   music: '音乐',
   adult: '成人',
+  nfo_movie: '非常规电影',
+  nfo_tv: '非常规剧集',
 }
 
 export function LibrariesHeader({

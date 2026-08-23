@@ -225,7 +225,7 @@ func (s *ScannerService) finishLocalLibraryScan(ctx context.Context, lib *model.
 	s.invalidateMediaCache(ctx)
 	s.maybeGenerateSTRMAfterScan(lib.ID)
 
-	if (res.Added > 0 || res.Updated > 0 || res.Removed > 0) && autoScrape && s.scraper != nil && s.scraper.AnyEnabled() && s.autoScrapeEnabled(ctx) {
+	if (res.Added > 0 || res.Updated > 0 || res.Removed > 0) && autoScrape && s.scraper != nil {
 		s.startAutoScrape(ctx, lib.ID)
 	}
 }

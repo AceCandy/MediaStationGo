@@ -143,7 +143,7 @@ func (e *EmbyService) Views(ctx context.Context, userID string) (map[string]any,
 func (e *EmbyService) libraryAsView(l *model.Library) map[string]any {
 	collectionType := "movies"
 	switch l.Type {
-	case "tv":
+	case "tv", "show", "shows", model.LibraryTypeNFOTV:
 		collectionType = "tvshows"
 	case "anime":
 		collectionType = "tvshows" // Emby 没有专门的 anime CollectionType

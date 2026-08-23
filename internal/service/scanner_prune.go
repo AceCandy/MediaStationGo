@@ -6,8 +6,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"go.uber.org/zap"
-
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 )
 
@@ -128,21 +126,4 @@ func (s *ScannerService) deleteMediaByIDs(ctx context.Context, ids []string) (in
 		removed += res.RowsAffected
 	}
 	return removed, nil
-}
-
-func (s *ScannerService) autoScrapeEnabled(ctx context.Context) bool {
-	if s.repo == nil || s.repo.Setting == nil {
-		return false
-	}
-	value, err := s.repo.Setting.Get(ctx, "scrape.auto_on_scan")
-	if err != nil {
-		s.log.Warn("read scrape.auto_on_scan failed", zap.Error(err))
-		return false
-	}
-	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "1", "true", "yes", "on", "enabled":
-		return true
-	default:
-		return false
-	}
 }

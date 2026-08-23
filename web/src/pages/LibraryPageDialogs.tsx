@@ -2,6 +2,7 @@ import { ManualScrapeDialog } from '../components/ManualScrapeDialog'
 import { MetadataEditDialog } from '../components/MetadataEditDialog'
 import type { Media } from '../types'
 import { seriesTitle, type SeriesCard } from '../utils/groupSeries'
+import { isSeriesLibraryType } from './librariesPageModel'
 
 type LibraryPageDialogsProps = {
   manualSeriesScrapeOpen: boolean
@@ -58,5 +59,7 @@ function scrapeMediaType(libraryType: string | undefined, media: Media): string 
   if ((media.season_num ?? 0) > 0 || (media.episode_num ?? 0) > 0) {
     return 'tv'
   }
+  if (isSeriesLibraryType(libraryType)) return 'tv'
+  if (libraryType === 'nfo_movie') return 'movie'
   return libraryType || 'movie'
 }

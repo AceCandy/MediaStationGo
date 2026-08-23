@@ -10,9 +10,9 @@ import (
 
 func organizeLibraryModelType(mediaType string) string {
 	switch normalizeOrganizeMediaType(mediaType) {
-	case "tv", "anime", "variety":
+	case "tv", "anime", "variety", model.LibraryTypeNFOTV:
 		return "tv"
-	case "adult", "movie":
+	case "adult", "movie", model.LibraryTypeNFOMovie:
 		return "movie"
 	default:
 		return "movie"
@@ -21,7 +21,7 @@ func organizeLibraryModelType(mediaType string) string {
 
 func organizeLibraryTypeName(mediaType string) string {
 	switch normalizeOrganizeMediaType(mediaType) {
-	case "tv":
+	case "tv", model.LibraryTypeNFOTV:
 		return "电视剧"
 	case "anime":
 		return "动漫"

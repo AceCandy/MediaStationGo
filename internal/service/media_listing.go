@@ -2,18 +2,101 @@ package service
 
 import (
 	"context"
+	"errors"
 	"sort"
+	"strings"
 	"time"
 
 	"go.uber.org/zap"
+	"gorm.io/gorm"
 
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 	"github.com/ShukeBta/MediaStationGo/internal/repository"
 )
 
+var ErrInvalidScrapeIssueStatus = errors.New("invalid scrape issue status")
+
+type MediaScrapeIssue struct {
+	ID          string `json:"id"`
+	Title       string `json:"title"`
+	Year        int    `json:"year"`
+	SeasonNum   int    `json:"season_num"`
+	EpisodeNum  int    `json:"episode_num"`
+	LibraryID   string `json:"library_id"`
+	LibraryName string `json:"library_name"`
+	LibraryType string `json:"library_type"`
+	Status      string `json:"scrape_status"`
+	Reason      string `json:"reason"`
+}
+
+type MediaScrapeIssuePage struct {
+	Items    []MediaScrapeIssue `json:"items"`
+	Total    int64              `json:"total"`
+	Page     int                `json:"page"`
+	PageSize int                `json:"page_size"`
+}
+
 // ListMedia paginates media items inside a library.
 func (s *MediaService) ListMedia(ctx context.Context, libraryID string, page, pageSize int) ([]model.MediaView, int64, error) {
 	return s.ListMediaVisible(ctx, libraryID, page, pageSize, MediaVisibility{IncludeNSFW: true})
+}
+
+func (s *MediaService) ListScrapeIssues(ctx context.Context, libraryID string, statuses []string, page, pageSize int) (MediaScrapeIssuePage, error) {
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 {
+		pageSize = 30
+	}
+	if pageSize > 100 {
+		pageSize = 100
+	}
+	if len(statuses) == 0 || len(statuses) == 1 && strings.TrimSpace(statuses[0]) == "" {
+		statuses = []string{"error", "no_match"}
+	}
+	for i := range statuses {
+		statuses[i] = strings.ToLower(strings.TrimSpace(statuses[i]))
+		if statuses[i] != "error" && statuses[i] != "no_match" {
+			return MediaScrapeIssuePage{}, ErrInvalidScrapeIssueStatus
+		}
+	}
+	query := func() *gorm.DB {
+		q := s.repo.DB.WithContext(ctx).Table("media AS m").
+			Joins("JOIN libraries AS l ON l.id = m.library_id AND l.deleted_at IS NULL").
+			Where("m.deleted_at IS NULL AND m.scrape_status IN ?", statuses)
+		if strings.TrimSpace(libraryID) != "" {
+			q = q.Where("m.library_id = ?", strings.TrimSpace(libraryID))
+		}
+		return q
+	}
+	var total int64
+	if err := query().Count(&total).Error; err != nil {
+		return MediaScrapeIssuePage{}, err
+	}
+	items := make([]MediaScrapeIssue, 0)
+	if err := query().Select(`m.id, m.scan_title AS title, m.scan_year AS year,
+		m.season_num, m.episode_num, m.library_id, l.name AS library_name,
+		l.type AS library_type, m.scrape_status AS status, m.scrape_error AS reason`).
+		Order("m.updated_at DESC, m.id DESC").Offset((page - 1) * pageSize).Limit(pageSize).Scan(&items).Error; err != nil {
+		return MediaScrapeIssuePage{}, err
+	}
+	for i := range items {
+		items[i].Reason = scrapeIssueReason(items[i])
+	}
+	return MediaScrapeIssuePage{Items: items, Total: total, Page: page, PageSize: pageSize}, nil
+}
+
+func scrapeIssueReason(issue MediaScrapeIssue) string {
+	if reason := strings.TrimSpace(issue.Reason); reason != "" {
+		return sanitizeTaskLogError(errors.New(reason)).Error()
+	}
+	if issue.Status == "no_match" {
+		if issue.LibraryType == model.LibraryTypeNFOMovie || issue.LibraryType == model.LibraryTypeNFOTV {
+			return "未找到本地 NFO"
+		}
+		return "未找到匹配元数据"
+	}
+	return "刮削失败，请重试"
 }
 
 func (s *MediaService) ListMediaVisible(ctx context.Context, libraryID string, page, pageSize int, visibility MediaVisibility) ([]model.MediaView, int64, error) {

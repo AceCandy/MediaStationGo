@@ -9,7 +9,7 @@ export type LibraryPreview = {
 }
 
 export function isSeriesLibraryType(type?: string) {
-  return type === 'tv' || type === 'anime' || type === 'variety'
+  return type === 'tv' || type === 'anime' || type === 'variety' || type === 'show' || type === 'shows' || type === 'nfo_tv'
 }
 
 export function latestLibraryCards(items: Media[]): SeriesCard[] {

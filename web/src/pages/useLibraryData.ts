@@ -4,6 +4,7 @@ import toast from 'react-hot-toast'
 import { libraryAPI } from '../api/library'
 import type { Library, Media } from '../types'
 import { groupSeries, isEpisodeLike, type SeriesCard } from '../utils/groupSeries'
+import { isSeriesLibraryType } from './librariesPageModel'
 
 const LIBRARY_PAGE_SIZE = 50
 
@@ -158,10 +159,6 @@ export function useLibraryData(libraryID: string, selectedSeries: SeriesCard | n
     loadMore,
     reloadCurrentLibrary,
   }
-}
-
-function isSeriesLibraryType(type?: string) {
-  return type === 'tv' || type === 'anime' || type === 'variety'
 }
 
 async function loadLibraryPage(libraryID: string, series: boolean, page: number) {

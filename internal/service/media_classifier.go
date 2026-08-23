@@ -164,9 +164,13 @@ func classifyMediaCategory(input mediaClassifyInput, categories map[string]strin
 func normalizeMediaType(mediaType, title, category string) string {
 	raw := strings.ToLower(strings.TrimSpace(mediaType))
 	switch raw {
+	case model.LibraryTypeNFOMovie:
+		return "movie"
+	case model.LibraryTypeNFOTV:
+		return "tv"
 	case "movie", "film":
 		return "movie"
-	case "tv", "series", "show", "drama":
+	case "tv", "series", "show", "shows", "drama":
 		return "tv"
 	case "anime", "animation":
 		return "anime"

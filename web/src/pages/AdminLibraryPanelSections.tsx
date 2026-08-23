@@ -71,6 +71,8 @@ export function AdminLibraryCreateDialog({
                 <option value="variety">综艺</option>
                 <option value="anime">动漫</option>
                 <option value="music">音乐</option>
+                <option value="nfo_movie">非常规电影</option>
+                <option value="nfo_tv">非常规剧集</option>
               </select>
             </div>
           </div>

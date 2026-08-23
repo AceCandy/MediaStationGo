@@ -110,7 +110,6 @@ export function AutoOrganizeScrapeTab({ config, onConfigChange }: AutoOrganizeTa
     <>
       <div className="flex flex-wrap items-center gap-3">
         <BooleanSetting config={config} settingKey="scrapeAfter" label="整理后自动刮削" onConfigChange={onConfigChange} />
-        <BooleanSetting config={config} settingKey="scrapeAutoOnScan" label="扫描后自动刮削" onConfigChange={onConfigChange} />
       </div>
       <div className="grid gap-3 lg:grid-cols-[1fr_160px_160px_160px]">
         <TextSetting

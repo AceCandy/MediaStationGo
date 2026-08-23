@@ -681,6 +681,70 @@ delete(source, "TranscodingUrl")
 source["DirectStreamUrl"] = "/Videos/" + media.ID + "/stream." + container
 ```
 
+## Scenario: NFO-Only Library Metadata
+
+### 1. Scope / Trigger
+
+- Apply when scanning, scraping, manually matching, or grouping media from
+  `nfo_movie` and `nfo_tv` libraries.
+
+### 2. Signatures
+
+- Library types: `LibraryTypeNFOMovie = "nfo_movie"` and
+  `LibraryTypeNFOTV = "nfo_tv"`.
+- Policy owner: `libraryUsesNFOOnly(*model.Library) bool`.
+- Persistence path: `ReadLocalMetadata` -> `applyLocalMetadataMatch`.
+
+### 3. Contracts
+
+- Scanner may persist the encoded local metadata hint and episode position, but
+  must not merge path hints or copy NFO provider IDs into `Media.lookup_*`.
+  Therefore an NFO provider ID cannot bind existing network canonical metadata.
+- Scraper accepts only a valid NFO. Missing NFO becomes `no_match`; parse or
+  persistence failure becomes `error`; neither condition falls back to a provider.
+- `nfo_tv` processes every media file with its own episode NFO. A representative
+  episode's metadata must never be synchronized across the candidate group.
+- Provider manual search/apply is rejected server-side. Recovery is to repair or
+  add the NFO and reset the existing media row to `pending`.
+- Local persistence retains the existing Movie and Series/Season/Episode kinds
+  and never edits playable files or sidecars.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required result |
+| --- | --- |
+| Valid movie or episode NFO | Persist local canonical metadata and mark `matched` with source `local_nfo` |
+| NFO is absent | Mark `no_match`; make zero provider requests |
+| NFO cannot be parsed or persisted | Mark `error`; preserve a safe reason |
+| NFO or path contains a provider ID | Keep it out of scanner canonical lookup fields |
+| Provider manual search/apply is requested | Reject before any provider call |
+
+### 5. Good / Base / Bad Cases
+
+- Good: two episodes read two different episode NFO files and retain distinct
+  titles, positions, and canonical Episode rows.
+- Base: a personal clip has no NFO and remains visible as `no_match` for repair.
+- Bad: copy TMDb IDs from an NFO into scanner lookup fields or synchronize one
+  representative Episode across an NFO series group.
+
+### 6. Tests Required
+
+- Cover absent, malformed, and valid movie NFO plus show and per-episode NFO.
+- Assert path/NFO provider IDs do not bind network metadata and provider call
+  counts remain zero.
+- Assert provider manual search/apply is rejected for both NFO-only types.
+
+### 7. Wrong vs Correct
+
+```go
+// Wrong: turns an NFO external ID into a network canonical binding during scan.
+applyLocalScanHints(media, localNFO)
+
+// Correct: keep local NFO as scraper input and copy only episode position.
+applyLocalEpisodeMetadata(media, localNFO)
+media.LocalMetadataHint = encodeLocalMetadataHint(localNFO)
+```
+
 ## Scenario: Web Media Detail Version Display
 
 ### 1. Scope / Trigger

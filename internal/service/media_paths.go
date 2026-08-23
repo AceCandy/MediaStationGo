@@ -6,10 +6,15 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/ShukeBta/MediaStationGo/internal/model"
 )
 
 func inferLibraryKind(name, path, requested string) string {
 	requested = normalizeOrganizeMediaType(requested)
+	if requested == model.LibraryTypeNFOMovie || requested == model.LibraryTypeNFOTV {
+		return requested
+	}
 	text := strings.ToLower(name + " " + filepath.ToSlash(path))
 	switch {
 	case containsAnyText(text, "成人", "番号", "jav", "9kg", "adult", "nsfw"):

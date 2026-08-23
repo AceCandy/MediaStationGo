@@ -174,7 +174,7 @@ func (e *EmbyService) mediaShouldBeEpisode(ctx context.Context, m *model.Media) 
 
 func embyLibraryTypeIsEpisodic(typ string) bool {
 	switch strings.ToLower(strings.TrimSpace(typ)) {
-	case "tv", "anime", "variety":
+	case "tv", "anime", "variety", "show", "shows", model.LibraryTypeNFOTV:
 		return true
 	default:
 		return false

@@ -47,6 +47,7 @@ func (s *ScraperService) processNextMediaScrape(ctx context.Context) (bool, erro
 	options := skipEpisodeArtworkOptions(false)
 	options.DeferEpisodeDetails = true
 	options.timings = &scrapeTimings{}
+	options.result = &scrapeResult{}
 	err = s.enrichCandidateGroup(ctx, *group, options)
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		_ = s.resetScrapeGroupPending(context.Background(), *group)
@@ -64,7 +65,7 @@ func (s *ScraperService) processNextMediaScrape(ctx context.Context) (bool, erro
 	if task != nil {
 		media, _ := s.repo.Media.FindByID(ctx, group.Representative.ID)
 		safeErr := sanitizeTaskLogError(err)
-		task.Finish(safeErr, TaskUpdate{Stage: "completed", Message: "已入库媒体刮削结束", Metrics: metrics, Details: []string{mediaScrapeTaskDetail(*group, media, safeErr)}})
+		task.Finish(safeErr, TaskUpdate{Stage: "completed", Message: "已入库媒体刮削结束", Metrics: metrics, Details: []string{mediaScrapeTaskDetail(*group, media, options.result.Source, safeErr)}})
 	}
 	if s.log != nil {
 		s.log.Info("auto media scrape timing",
@@ -81,7 +82,7 @@ func (s *ScraperService) processNextMediaScrape(ctx context.Context) (bool, erro
 	return true, nil
 }
 
-func mediaScrapeTaskDetail(group scrapeCandidateGroup, media *model.Media, scrapeErr error) string {
+func mediaScrapeTaskDetail(group scrapeCandidateGroup, media *model.Media, source string, scrapeErr error) string {
 	current := group.Representative
 	if media != nil {
 		current = *media
@@ -96,10 +97,16 @@ func mediaScrapeTaskDetail(group scrapeCandidateGroup, media *model.Media, scrap
 	}
 	switch current.ScrapeStatus {
 	case "matched":
-		if current.TMDbID > 0 {
-			return fmt.Sprintf("✅ %s: 已匹配 TMDB %d", prefix, current.TMDbID)
+		switch source {
+		case "existing_metadata":
+			return "✅ " + prefix + ": 命中已有元数据"
+		case "local_nfo":
+			return "✅ " + prefix + ": 本地 NFO 入库"
+		case "":
+			return "✅ " + prefix + ": 已匹配元数据"
+		default:
+			return fmt.Sprintf("✅ %s: 网络刮削（%s）", prefix, scrapeProviderLabel(source))
 		}
-		return "✅ " + prefix + ": 已匹配元数据"
 	case "no_match":
 		return "⚠️ " + prefix + ": 未找到匹配元数据"
 	case "error":
@@ -109,6 +116,23 @@ func mediaScrapeTaskDetail(group scrapeCandidateGroup, media *model.Media, scrap
 		return "❌ " + prefix + ": 刮削失败"
 	default:
 		return fmt.Sprintf("ℹ️ %s: 刮削状态 %s", prefix, current.ScrapeStatus)
+	}
+}
+
+func scrapeProviderLabel(source string) string {
+	switch strings.ToLower(strings.TrimSpace(source)) {
+	case "tmdb":
+		return "TMDB"
+	case "douban":
+		return "豆瓣"
+	case "bangumi":
+		return "Bangumi"
+	case "thetvdb":
+		return "TheTVDB"
+	case "adult":
+		return "成人数据源"
+	default:
+		return source
 	}
 }
 
@@ -181,8 +205,31 @@ func (s *ScraperService) resetScrapeGroupPending(ctx context.Context, group scra
 }
 
 func (s *ScraperService) enrichCandidateGroup(ctx context.Context, group scrapeCandidateGroup, options ScrapeOptions) error {
+	lib, err := s.repo.Library.FindByID(ctx, group.Representative.LibraryID)
+	if err != nil {
+		return err
+	}
+	// NFO 剧集的每个文件都有独立单集 NFO，不能把代表集的 metadata 同步给整组。
+	if libraryUsesNFOOnly(lib) {
+		var scrapeErrors []error
+		for _, mediaID := range group.MediaIDs {
+			media, err := s.repo.Media.FindByID(ctx, mediaID)
+			if err != nil {
+				scrapeErrors = append(scrapeErrors, err)
+				continue
+			}
+			if media == nil {
+				scrapeErrors = append(scrapeErrors, fmt.Errorf("media %s not found", mediaID))
+				continue
+			}
+			if err := s.enrichOneWithOptions(ctx, media, options); err != nil {
+				scrapeErrors = append(scrapeErrors, err)
+			}
+		}
+		return errors.Join(scrapeErrors...)
+	}
 	representative := &group.Representative
-	err := s.enrichOneWithOptions(ctx, representative, options)
+	err = s.enrichOneWithOptions(ctx, representative, options)
 	if syncErr := s.syncScrapeCandidateGroup(ctx, group); syncErr != nil {
 		return syncErr
 	}
@@ -191,12 +238,12 @@ func (s *ScraperService) enrichCandidateGroup(ctx context.Context, group scrapeC
 
 // ResetLibraryScrape 将目标库重新置为待刮削并唤醒统一 worker。
 func (s *ScraperService) ResetLibraryScrape(ctx context.Context, libraryID string, includeMatched bool) (int64, error) {
-	statuses := []string{"no_match", "error"}
+	statuses := []string{"pending", "no_match", "error"}
 	if includeMatched {
 		statuses = append(statuses, "matched")
 	}
 	res := s.repo.DB.WithContext(ctx).Model(&model.Media{}).
-		Where("library_id = ? AND scrape_status IN ?", libraryID, statuses).
+		Where("library_id = ? AND (scrape_status IS NULL OR scrape_status = '' OR scrape_status IN ?)", libraryID, statuses).
 		Updates(map[string]any{"scrape_status": "pending", "scrape_trigger": TaskTriggerManual, "scrape_error": ""})
 	if res.Error == nil {
 		s.WakeScrapeWorker()

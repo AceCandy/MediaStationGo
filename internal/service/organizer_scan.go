@@ -43,9 +43,6 @@ func OrganizeScrapeAfterEnabled(ctx context.Context, repo *repository.Container)
 	if value, err := repo.Setting.Get(ctx, "organize.scrape_after"); err == nil && strings.TrimSpace(value) != "" {
 		return parseBoolSetting(value, true)
 	}
-	if value, err := repo.Setting.Get(ctx, "scrape.auto_on_scan"); err == nil && strings.TrimSpace(value) != "" {
-		return parseBoolSetting(value, true)
-	}
 	return true
 }
 

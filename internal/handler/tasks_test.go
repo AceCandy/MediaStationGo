@@ -13,6 +13,7 @@ import (
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 
+	"github.com/ShukeBta/MediaStationGo/internal/config"
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 	"github.com/ShukeBta/MediaStationGo/internal/repository"
 	"github.com/ShukeBta/MediaStationGo/internal/service"
@@ -195,6 +196,93 @@ func TestTaskDefinitionRunHandlerRejectsUnknownLibraryScanTarget(t *testing.T) {
 
 	if recorder.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestTaskDefinitionRunHandlerQueuesSingleAndAllMediaLibraries(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db, err := testdb.OpenPostgres(t, &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := migrateMediaHandlerTestDB(db, &model.Library{}, &model.Media{}); err != nil {
+		t.Fatal(err)
+	}
+	repos := repository.New(db)
+	libraries := []model.Library{
+		{Name: "电影", Path: "/media/movie", Type: "movie", Enabled: true},
+		{Name: "个人短片", Path: "/media/clips", Type: model.LibraryTypeNFOMovie, Enabled: true},
+		{Name: "音乐", Path: "/media/music", Type: "music", Enabled: true},
+	}
+	if err := db.Create(&libraries).Error; err != nil {
+		t.Fatal(err)
+	}
+	rows := []model.Media{
+		{LibraryID: libraries[0].ID, Title: "电影", Path: "/media/movie/a.mkv", ScrapeStatus: "error"},
+		{LibraryID: libraries[1].ID, Title: "短片", Path: "/media/clips/a.mkv", ScrapeStatus: "no_match"},
+		{LibraryID: libraries[2].ID, Title: "歌曲", Path: "/media/music/a.flac", ScrapeStatus: "error"},
+	}
+	if err := db.Create(&rows).Error; err != nil {
+		t.Fatal(err)
+	}
+	log := zap.NewNop()
+	scraper := service.NewScraperService(&config.Config{}, log, repos, nil, nil, nil, nil, service.NewHub(log))
+	svc := &service.Container{Repo: repos, Scraper: scraper}
+
+	runMediaScrapeAction := func(body string) *httptest.ResponseRecorder {
+		recorder := httptest.NewRecorder()
+		ctx, _ := gin.CreateTestContext(recorder)
+		ctx.Params = gin.Params{{Key: "key", Value: service.TaskDefinitionMediaScrape}}
+		ctx.Request = httptest.NewRequest(http.MethodPost, "/api/tasks/definitions/media_scrape/run", bytes.NewBufferString(body))
+		ctx.Request.Header.Set("Content-Type", "application/json")
+		taskDefinitionRunHandler(svc)(ctx)
+		return recorder
+	}
+
+	if recorder := runMediaScrapeAction(`{"library_id":"` + libraries[0].ID + `"}`); recorder.Code != http.StatusAccepted {
+		t.Fatalf("single status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	var stored model.Media
+	if err := db.First(&stored, "id = ?", rows[1].ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if stored.ScrapeStatus != "no_match" {
+		t.Fatalf("single-library action changed another library: %#v", stored)
+	}
+	if err := db.Model(&model.Media{}).Where("id = ?", rows[0].ID).Update("scrape_status", "error").Error; err != nil {
+		t.Fatal(err)
+	}
+
+	recorder := runMediaScrapeAction(`{"all_libraries":true}`)
+	if recorder.Code != http.StatusAccepted {
+		t.Fatalf("all status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	var response struct {
+		Count     int64 `json:"count"`
+		Libraries int   `json:"libraries"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if response.Count != 2 || response.Libraries != 2 {
+		t.Fatalf("all response = %#v", response)
+	}
+	if err := db.First(&stored, "id = ?", rows[2].ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if stored.ScrapeStatus != "error" {
+		t.Fatalf("unsupported music library was queued: %#v", stored)
+	}
+
+	for body, want := range map[string]int{
+		`{}`: http.StatusBadRequest,
+		`{"library_id":"` + libraries[0].ID + `","all_libraries":true}`: http.StatusBadRequest,
+		`{"library_id":"` + libraries[2].ID + `"}`:                      http.StatusBadRequest,
+		`{"library_id":"missing"}`:                                      http.StatusNotFound,
+	} {
+		if recorder := runMediaScrapeAction(body); recorder.Code != want {
+			t.Fatalf("body %s: status = %d, want %d; response = %s", body, recorder.Code, want, recorder.Body.String())
+		}
 	}
 }
 

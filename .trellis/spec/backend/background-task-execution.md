@@ -25,6 +25,11 @@ history is observability only; business object state owns retry and recovery.
 - `POST /api/tasks/definitions/library_scan/run` requires
   `{ "library_id": "<library UUID>" }`; this target applies only to the manual
   execution and is not persisted into the periodic schedule.
+- `POST /api/tasks/definitions/media_scrape/run` accepts exactly one target:
+  `{ "library_id": "<library UUID>" }` or `{ "all_libraries": true }`.
+- `GET /api/media/scrape-issues?library_id=&status=error,no_match&page=&page_size=`
+  returns administrator-visible unresolved raw media; an empty `status` uses
+  both supported states. `POST /api/media/:id/scrape` resets one item for retry.
 - `GET /api/tasks/definitions/:key/executions` returns paginated execution
   history for one validated task definition.
 - `GET /api/tasks/definitions/:key/log?date=YYYY-MM-DD&tail_bytes=` returns
@@ -122,6 +127,21 @@ history is observability only; business object state owns retry and recovery.
   finishes; it must not be claimed concurrently by another process.
 - Explicit rescrape resets the selected business objects to `pending` and wakes
   the worker. Catalog checkpoints remain the catalog recovery authority.
+- Manual `media_scrape` resets only NULL/empty, `pending`, `error`, and
+  `no_match` rows in the selected supported libraries. It clears old errors,
+  sets trigger `manual`, preserves `matched`/`running`, and reuses the existing
+  worker. All-library scope loops through the same per-library operation and
+  skips music, adult, and unknown types.
+- Scanner and watcher changes wake media scraping by default. The retired
+  `scrape.auto_on_scan` setting has no runtime reader; organizer retains only
+  its independent `organize.scrape_after` policy.
+- Media scrape success details use one history definition and identify exactly
+  one source: existing canonical metadata, a named network provider, or local
+  NFO. Scanner direct binding emits the existing-metadata detail only on the
+  first exact binding; an already matched rescan emits no duplicate execution.
+- Scrape issue remediation queries `media.scrape_status` and sanitized
+  `scrape_error`, never task logs. Network libraries may use provider manual
+  matching for `no_match`; NFO-only libraries require sidecar repair and retry.
 - Global People backfill selects TMDB movie/series metadata with missing credits
   and `people_hydrated_at IS NULL`, but only when TMDB is the metadata's current
   source and the identifier kind matches the metadata kind. A successful
@@ -171,6 +191,11 @@ history is observability only; business object state owns retry and recovery.
 | Any member loses a claim race | Roll back the whole group claim |
 | Library media is `pending` or `running` while catalog work is pending | Keep the catalog job unclaimed until all active media work drains |
 | An episode role has no season parent | Fall back to the episode `MetadataID`; never merge unrelated orphan records |
+| Manual media scrape supplies both or neither target | Return 400 and queue nothing |
+| Manual media scrape names a missing library | Return 404 and queue nothing |
+| Manual media scrape names an unsupported type | Return 400; all-library mode skips it |
+| Scrape issue status is omitted or empty | Query both `error` and `no_match` |
+| Scrape issue status contains another value | Return 400 |
 
 ### 5. Good / Base / Bad Cases
 
@@ -198,6 +223,14 @@ history is observability only; business object state owns retry and recovery.
 - Base: an unmarked summary is written with `ℹ️`; historical labeled lines are
   displayed without their label and remain unchanged on disk.
 - Base: equal role source text in different seasons remains two translation groups.
+- Good: all-library media scrape loops through supported libraries while an
+  existing matched item and a running group remain unchanged.
+- Good: task details distinguish `命中已有元数据`, `网络刮削（TMDB）`, and
+  `本地 NFO 入库` under the same media scrape definition.
+- Base: an unresolved row remains recoverable from the scrape-issues endpoint
+  even when it is excluded from `MediaView`.
+- Bad: parse task log text to discover retry candidates or create a second
+  scrape queue for manual execution.
 - Bad: select pending rows without a conditional update, or resume from an old
   task execution/log after restart.
 - Bad: keep a second ticker inside a periodic worker, or update a setting without
@@ -224,6 +257,13 @@ history is observability only; business object state owns retry and recovery.
 - Automatic scrape timing logs contain all six durations, keep every duration
   between zero and total, and omit paths, URLs, and API keys.
 - API/UI contract plus manual, scheduled, and event trigger attribution.
+- Media scrape action tests cover single/all scope, target exclusivity,
+  supported-type filtering, and the NULL/empty/pending/error/no_match versus
+  matched/running state matrix.
+- Scrape issue tests cover status/library filters, pagination/count parity,
+  empty status defaults, safe error redaction, and NFO-specific reasons.
+- Media scrape detail tests cover existing metadata, each provider label, local
+  NFO, no-match, and sanitized error output without duplicate matched rescans.
 - Library scan tests assert required target validation, manual single-library
   isolation, periodic all-library scope, and event task visibility for new
   libraries and newly added enabled roots.
@@ -311,4 +351,12 @@ scheduler.RunNowAsync(ctx, "library_scan")
 
 // Correct: the manual target is scoped to this detached run; timers stay global.
 scheduler.RunLibraryScanNowAsync(ctx, libraryID)
+```
+
+```go
+// Wrong: task history becomes retry state and matched rows are reset incidentally.
+ids := parseFailedMediaIDsFromTaskLog(log)
+
+// Correct: business state selects unfinished rows and the shared worker owns retry.
+scraper.ResetLibraryScrape(ctx, libraryID, false)
 ```

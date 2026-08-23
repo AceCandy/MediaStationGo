@@ -16,6 +16,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/ShukeBta/MediaStationGo/internal/model"
 	"github.com/ShukeBta/MediaStationGo/internal/service"
 )
 
@@ -79,6 +80,65 @@ func taskDefinitionHistoryHandler(svc *service.Container) gin.HandlerFunc {
 func taskDefinitionRunHandler(svc *service.Container) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		key := c.Param("key")
+		if key == service.TaskDefinitionMediaScrape {
+			if svc == nil || svc.Scraper == nil || svc.Repo == nil || svc.Repo.Library == nil {
+				c.JSON(http.StatusServiceUnavailable, gin.H{"error": "media scrape unavailable"})
+				return
+			}
+			var request struct {
+				LibraryID    string `json:"library_id"`
+				AllLibraries bool   `json:"all_libraries"`
+			}
+			if err := c.ShouldBindJSON(&request); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid media scrape request"})
+				return
+			}
+			request.LibraryID = strings.TrimSpace(request.LibraryID)
+			if (request.LibraryID == "") == !request.AllLibraries {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "choose exactly one of library_id or all_libraries"})
+				return
+			}
+			libraries, err := svc.Repo.Library.List(c.Request.Context())
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load libraries"})
+				return
+			}
+			if request.LibraryID != "" {
+				found := false
+				for _, library := range libraries {
+					if library.ID != request.LibraryID {
+						continue
+					}
+					found = true
+					if !service.LibraryTypeSupportsMetadataScrape(library.Type) {
+						c.JSON(http.StatusBadRequest, gin.H{"error": "library type does not support media scrape"})
+						return
+					}
+					libraries = []model.Library{library}
+					break
+				}
+				if !found {
+					c.JSON(http.StatusNotFound, gin.H{"error": "library not found"})
+					return
+				}
+			}
+			var queued int64
+			processedLibraries := 0
+			for _, library := range libraries {
+				if !service.LibraryTypeSupportsMetadataScrape(library.Type) {
+					continue
+				}
+				count, err := svc.Scraper.ResetLibraryScrape(c.Request.Context(), library.ID, false)
+				if err != nil {
+					c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to queue media scrape"})
+					return
+				}
+				queued += count
+				processedLibraries++
+			}
+			c.JSON(http.StatusAccepted, gin.H{"status": "queued", "count": queued, "libraries": processedLibraries})
+			return
+		}
 		if key == service.TaskDefinitionLibraryScan {
 			if svc == nil || svc.Scheduler == nil || svc.Repo == nil || svc.Repo.Library == nil {
 				c.JSON(http.StatusServiceUnavailable, gin.H{"error": "library scan unavailable"})

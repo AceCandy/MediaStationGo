@@ -12,10 +12,16 @@ import (
 func TestMediaScrapeTaskDetail(t *testing.T) {
 	group := scrapeCandidateGroup{Representative: model.Media{Base: model.Base{ID: "media-1"}, Title: "无间道"}, MediaIDs: []string{"media-1"}}
 	matched := model.Media{Base: model.Base{ID: "media-1"}, Title: "无间道", ScrapeStatus: "matched", TMDbID: 111}
-	if got := mediaScrapeTaskDetail(group, &matched, nil); !strings.HasPrefix(got, "✅ ") || !strings.Contains(got, "无间道") || !strings.Contains(got, "TMDB 111") {
+	if got := mediaScrapeTaskDetail(group, &matched, "tmdb", nil); !strings.HasPrefix(got, "✅ ") || !strings.Contains(got, "无间道") || !strings.Contains(got, "网络刮削（TMDB）") {
 		t.Fatalf("matched detail = %q", got)
 	}
-	if got := mediaScrapeTaskDetail(group, nil, errors.New("provider unavailable")); !strings.HasPrefix(got, "❌ ") || !strings.Contains(got, "刮削失败: provider unavailable") {
+	if got := mediaScrapeTaskDetail(group, &matched, "existing_metadata", nil); !strings.Contains(got, "命中已有元数据") {
+		t.Fatalf("existing metadata detail = %q", got)
+	}
+	if got := mediaScrapeTaskDetail(group, &matched, "local_nfo", nil); !strings.Contains(got, "本地 NFO 入库") {
+		t.Fatalf("local NFO detail = %q", got)
+	}
+	if got := mediaScrapeTaskDetail(group, nil, "", errors.New("provider unavailable")); !strings.HasPrefix(got, "❌ ") || !strings.Contains(got, "刮削失败: provider unavailable") {
 		t.Fatalf("error detail = %q", got)
 	}
 }
@@ -102,7 +108,7 @@ func TestTaskLogErrorRedactsURLs(t *testing.T) {
 	}
 	group := scrapeCandidateGroup{Representative: model.Media{Base: model.Base{ID: "media-1"}}, MediaIDs: []string{"media-1"}}
 	media := model.Media{Base: model.Base{ID: "media-1"}, ScrapeStatus: "error", ScrapeError: "request https://example.test/path?token=secret failed"}
-	if got := mediaScrapeTaskDetail(group, &media, nil); strings.Contains(got, "token=secret") || !strings.Contains(got, "[redacted-url]") {
+	if got := mediaScrapeTaskDetail(group, &media, "", nil); strings.Contains(got, "token=secret") || !strings.Contains(got, "[redacted-url]") {
 		t.Fatalf("media detail = %q", got)
 	}
 }

@@ -161,7 +161,7 @@ func (s *ScraperService) determineMediaTypeForMedia(lib *model.Library, media *m
 	}
 	if lib != nil {
 		switch lib.Type {
-		case "tv", "anime", "variety", "show", "shows":
+		case "tv", "anime", "variety", "show", "shows", model.LibraryTypeNFOTV:
 			return "tv"
 		}
 	}

@@ -46,6 +46,18 @@ func (s *ScraperService) enrichOneWithOptions(ctx context.Context, m *model.Medi
 			s.log.Warn("read local metadata before scrape failed", zap.String("media_id", m.ID), zap.Error(err))
 		}
 	}
+	if libraryUsesNFOOnly(lib) {
+		if localErr != nil {
+			return s.markScrapeError(ctx, m.ID, localErr)
+		}
+		if local == nil || !local.HasNFO {
+			return s.markScrapeNoMatch(ctx, m.ID, "")
+		}
+		if strings.TrimSpace(local.Title) == "" {
+			local.Title = strings.TrimSpace(m.Title)
+		}
+		return recordScrapeSource(options, "local_nfo", s.applyLocalMetadataMatch(ctx, m, local))
+	}
 	if hinted, _ := pathHintMetadata(m.Path, seriesLike); hinted != nil {
 		local = mergeScrapePathHintMetadata(local, hinted)
 	}
@@ -66,7 +78,7 @@ func (s *ScraperService) enrichOneWithOptions(ctx context.Context, m *model.Medi
 			if err := s.markMetadataMatched(ctx, m, &lookupMedia, exact.ID); err != nil {
 				return err
 			}
-			return nil
+			return recordScrapeSource(options, "existing_metadata", nil)
 		}
 	}
 
@@ -81,7 +93,7 @@ func (s *ScraperService) enrichOneWithOptions(ctx context.Context, m *model.Medi
 	if match := externalResult.Match; match != nil {
 		mergeLocalCreditsIntoMatch(match, local)
 		s.applyFanartArtwork(ctx, match)
-		return s.applyProviderMatchWithOptions(ctx, m, lib, match, options)
+		return recordScrapeSource(options, metadataMatchSource(match), s.applyProviderMatchWithOptions(ctx, m, lib, match, options))
 	}
 	if externalResult.Err != nil {
 		lookupErrors = append(lookupErrors, externalResult.Err)
@@ -138,28 +150,24 @@ func (s *ScraperService) enrichOneWithOptions(ctx context.Context, m *model.Medi
 			if strings.TrimSpace(local.Title) == "" {
 				local.Title = strings.TrimSpace(m.Title)
 			}
-			return s.applyLocalMetadataMatch(ctx, m, local)
+			return recordScrapeSource(options, "local_nfo", s.applyLocalMetadataMatch(ctx, m, local))
 		}
-		if err := s.repo.DB.WithContext(ctx).Model(&model.Media{}).Where("id = ?", m.ID).
-			Updates(map[string]any{"scrape_status": "no_match", "scrape_error": "", "local_metadata_hint": ""}).Error; err != nil {
-			return err
-		}
-		s.invalidateMediaCache(ctx)
-		s.log.Info("metadata scrape no match",
-			zap.String("media_id", m.ID),
-			zap.String("query", query),
-			zap.String("library_type", func() string {
-				if lib != nil {
-					return lib.Type
-				}
-				return ""
-			}()))
-		return nil
+		return s.markScrapeNoMatch(ctx, m.ID, query)
 	}
 	mergeLocalCreditsIntoMatch(match, local)
 	s.applyFanartArtwork(ctx, match)
 
-	return s.applyProviderMatchWithOptions(ctx, m, lib, match, options)
+	return recordScrapeSource(options, metadataMatchSource(match), s.applyProviderMatchWithOptions(ctx, m, lib, match, options))
+}
+
+func (s *ScraperService) markScrapeNoMatch(ctx context.Context, mediaID, query string) error {
+	if err := s.repo.DB.WithContext(ctx).Model(&model.Media{}).Where("id = ?", mediaID).
+		Updates(map[string]any{"scrape_status": "no_match", "scrape_error": "", "local_metadata_hint": ""}).Error; err != nil {
+		return err
+	}
+	s.invalidateMediaCache(ctx)
+	s.log.Info("metadata scrape no match", zap.String("media_id", mediaID), zap.String("query", query))
+	return nil
 }
 
 func (s *ScraperService) markMetadataMatched(ctx context.Context, media, lookup *model.Media, metadataID string) error {

@@ -119,9 +119,13 @@ func shouldSkipOrganizeSourceVideo(path, sourceRoot string) (bool, string) {
 
 func normalizeOrganizeMediaType(mediaType string) string {
 	switch strings.ToLower(strings.TrimSpace(mediaType)) {
+	case model.LibraryTypeNFOMovie:
+		return model.LibraryTypeNFOMovie
+	case model.LibraryTypeNFOTV:
+		return model.LibraryTypeNFOTV
 	case "movie", "film":
 		return "movie"
-	case "tv", "series", "show", "drama":
+	case "tv", "series", "show", "shows", "drama":
 		return "tv"
 	case "anime", "animation":
 		return "anime"

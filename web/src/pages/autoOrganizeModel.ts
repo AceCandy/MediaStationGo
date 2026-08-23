@@ -12,7 +12,6 @@ export type AutoOrganizeConfig = {
   movieFormat: string
   tvFormat: string
   animeFormat: string
-  scrapeAutoOnScan: string
   scrapeProviders: string
   scrapeLanguage: string
   scrapeDelayMinMs: string
@@ -31,7 +30,6 @@ export const AUTO_ORGANIZE_DEFAULTS: AutoOrganizeConfig = {
   movieFormat: '{title} ({year})/{title} ({year})',
   tvFormat: '{title} ({year})/Season {season:02}/{title} S{season:02}E{episode:02}',
   animeFormat: '{title}/Season {season:02}/{title} S{season:02}E{episode:02}',
-  scrapeAutoOnScan: 'false',
   scrapeProviders: 'tmdb,douban,bangumi,thetvdb,fanart',
   scrapeLanguage: 'zh-CN',
   scrapeDelayMinMs: '250',
@@ -50,7 +48,6 @@ export const AUTO_ORGANIZE_KEYS: Record<keyof AutoOrganizeConfig, string> = {
   movieFormat: 'organize.movie_format',
   tvFormat: 'organize.tv_format',
   animeFormat: 'organize.anime_format',
-  scrapeAutoOnScan: 'scrape.auto_on_scan',
   scrapeProviders: 'scrape.providers',
   scrapeLanguage: 'scrape.language',
   scrapeDelayMinMs: 'scrape.delay_min_ms',
@@ -73,7 +70,6 @@ export function mergeAutoOrganizeSettings(rows: Setting[]): AutoOrganizeConfig {
     movieFormat: idx[AUTO_ORGANIZE_KEYS.movieFormat] ?? AUTO_ORGANIZE_DEFAULTS.movieFormat,
     tvFormat: idx[AUTO_ORGANIZE_KEYS.tvFormat] ?? AUTO_ORGANIZE_DEFAULTS.tvFormat,
     animeFormat: idx[AUTO_ORGANIZE_KEYS.animeFormat] ?? AUTO_ORGANIZE_DEFAULTS.animeFormat,
-    scrapeAutoOnScan: idx[AUTO_ORGANIZE_KEYS.scrapeAutoOnScan] ?? AUTO_ORGANIZE_DEFAULTS.scrapeAutoOnScan,
     scrapeProviders: idx[AUTO_ORGANIZE_KEYS.scrapeProviders] ?? AUTO_ORGANIZE_DEFAULTS.scrapeProviders,
     scrapeLanguage: idx[AUTO_ORGANIZE_KEYS.scrapeLanguage] ?? AUTO_ORGANIZE_DEFAULTS.scrapeLanguage,
     scrapeDelayMinMs: idx[AUTO_ORGANIZE_KEYS.scrapeDelayMinMs] ?? AUTO_ORGANIZE_DEFAULTS.scrapeDelayMinMs,

@@ -327,6 +327,20 @@ func TestNormalizeMediaTypeAcceptsChineseLibraryTypes(t *testing.T) {
 	}
 }
 
+func TestLegacyShowLibraryTypesRemainEpisodic(t *testing.T) {
+	for _, libraryType := range []string{"show", "shows"} {
+		if got := normalizeMediaType(libraryType, "", ""); got != "tv" {
+			t.Fatalf("normalizeMediaType(%q) = %q, want tv", libraryType, got)
+		}
+		if got := normalizeOrganizeMediaType(libraryType); got != "tv" {
+			t.Fatalf("normalizeOrganizeMediaType(%q) = %q, want tv", libraryType, got)
+		}
+		if !embyLibraryTypeIsEpisodic(libraryType) {
+			t.Fatalf("embyLibraryTypeIsEpisodic(%q) = false", libraryType)
+		}
+	}
+}
+
 func TestNormalizeMediaTypeDoesNotTreatReleaseTokensAsTV(t *testing.T) {
 	tests := []string{
 		"They Will Kill You 2026 1080p HDTV x264",

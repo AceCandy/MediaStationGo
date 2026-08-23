@@ -10,6 +10,10 @@ type scrapeTimings struct {
 	TMDbExtendedDetails time.Duration
 }
 
+type scrapeResult struct {
+	Source string
+}
+
 type ScrapeOptions struct {
 	RetryNoMatch        bool
 	IncludeMatched      bool
@@ -17,6 +21,14 @@ type ScrapeOptions struct {
 	EpisodeArtwork      *bool
 	DeferEpisodeDetails bool
 	timings             *scrapeTimings
+	result              *scrapeResult
+}
+
+func recordScrapeSource(options ScrapeOptions, source string, err error) error {
+	if err == nil && options.result != nil {
+		options.result.Source = source
+	}
+	return err
 }
 
 func (o ScrapeOptions) episodeArtworkEnabled() bool {
