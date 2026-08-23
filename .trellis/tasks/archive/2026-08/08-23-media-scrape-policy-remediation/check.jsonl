@@ -1,0 +1,6 @@
+{"file": ".trellis/spec/backend/background-task-execution.md", "reason": "复核统一日志、手动 action、重试状态与 worker 并发"}
+{"file": ".trellis/tasks/08-23-media-scrape-policy-remediation/research/contract-extract.md", "reason": "复核 canonical、NFO、MediaView 和文件不可变约束"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "复核退休设置键清理的精确性与幂等性"}
+{"file": ".trellis/spec/frontend/design-system.md", "reason": "复核任务中心 UI 的主题与组件规范"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "复核 API/DTO/TS/UI 跨层一致性"}
+{"file": ".trellis/tasks/08-23-media-scrape-policy-remediation/research/code-facts.md", "reason": "按代码证据核验范围和遗漏点"}

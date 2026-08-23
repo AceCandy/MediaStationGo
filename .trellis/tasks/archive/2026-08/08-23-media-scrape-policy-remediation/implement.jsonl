@@ -1,0 +1,6 @@
+{"file": ".trellis/spec/backend/background-task-execution.md", "reason": "实现任务执行、统一日志、状态重试与并发约束"}
+{"file": ".trellis/tasks/08-23-media-scrape-policy-remediation/research/contract-extract.md", "reason": "实现 scanner/scraper/NFO/MediaView 与文件不可变边界"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "移除退休设置键时遵守精确幂等清理规范"}
+{"file": ".trellis/spec/frontend/design-system.md", "reason": "任务中心待处理 UI 复用现有组件和主题规范"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "校验状态、DTO、API 与 Web 动作的跨层闭环"}
+{"file": ".trellis/tasks/08-23-media-scrape-policy-remediation/research/code-facts.md", "reason": "已核验的现状、调用链与最小复用边界"}
