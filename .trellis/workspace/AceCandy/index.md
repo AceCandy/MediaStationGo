@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 55
+- **Total Sessions**: 56
 - **Last Active**: 2026-08-24
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~1183 | Active |
+| `journal-1.md` | ~1204 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 56 | 2026-08-24 | 完成 Emby Jellyfin 多 Part 支持 | `ac24bf956b8bd856da3a00f8e942f65017753ee0` | `main` |
 | 55 | 2026-08-24 | Emby 人物与媒体并列搜索 | `565d7d8` | `main` |
 | 54 | 2026-08-24 | 完善搜索匹配与统一排序 | `d9cffcc` | `main` |
 | 53 | 2026-08-24 | 统一元数据搜索与后台任务修复 | `dd76a84` | `main` |

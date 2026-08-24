@@ -1181,3 +1181,24 @@ Committed the existing web UI redesign together with detailed background task lo
 ### Status
 
 [OK] **Completed**
+
+
+## Session 56: 完成 Emby Jellyfin 多 Part 支持
+
+**Date**: 2026-08-24
+**Task**: 完成 Emby Jellyfin 多 Part 支持
+**Branch**: `main`
+
+### Summary
+
+实现多 Part 文件识别与扫描调和、版本折叠、PartCount 和 AdditionalParts API，并确保后续 Part 使用独立媒体 ID、轨道、播放地址和进度；补齐测试、API 目录及后端规范。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `ac24bf956b8bd856da3a00f8e942f65017753ee0` | (see git log) |
+
+### Status
+
+[OK] **Completed**
