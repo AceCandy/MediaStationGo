@@ -1160,3 +1160,24 @@ Committed the existing web UI redesign together with detailed background task lo
 ### Status
 
 [OK] **Completed**
+
+
+## Session 55: Emby 人物与媒体并列搜索
+
+**Date**: 2026-08-24
+**Task**: Emby 人物与媒体并列搜索
+**Branch**: `main`
+
+### Summary
+
+支持非空搜索中 Person、Movie、Series 按 OR 合并；人物仅走 PostgreSQL，媒体保留 OpenSearch 优先与 PostgreSQL 回退；统一排序、100 条上限和内存分页，并补充类型组合、SearchHints、去重及分页测试。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `565d7d8` | (see git log) |
+
+### Status
+
+[OK] **Completed**

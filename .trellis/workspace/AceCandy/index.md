@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 54
+- **Total Sessions**: 55
 - **Last Active**: 2026-08-24
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~1162 | Active |
+| `journal-1.md` | ~1183 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 55 | 2026-08-24 | Emby 人物与媒体并列搜索 | `565d7d8` | `main` |
 | 54 | 2026-08-24 | 完善搜索匹配与统一排序 | `d9cffcc` | `main` |
 | 53 | 2026-08-24 | 统一元数据搜索与后台任务修复 | `dd76a84` | `main` |
 | 52 | 2026-08-23 | 完善媒体入库刮削策略与失败处置 | `6413e49` | `main` |
