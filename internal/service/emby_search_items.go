@@ -16,6 +16,9 @@ func (e *EmbyService) searchTopLevelItems(ctx context.Context, p ItemsParams) (m
 		// Yamby/Emby 播放器只输入一个字符时会自动追加 `%`，此处去掉通配后缀再搜索。
 		p.SearchTerm = string(searchTerm[0])
 	}
+	if containsItemType(p.IncludeItemTypes, "Person") {
+		return e.searchPersonAndMediaItems(ctx, p)
+	}
 	kinds := embySearchKinds(p.IncludeItemTypes)
 	if len(kinds) == 0 {
 		return emptyItemsEnvelope(p.StartIndex), nil
@@ -115,6 +118,56 @@ func (e *EmbyService) searchTopLevelItems(ctx context.Context, p ItemsParams) (m
 		}
 	}
 	return map[string]any{"Items": items, "TotalRecordCount": total, "StartIndex": p.StartIndex}, nil
+}
+
+func (e *EmbyService) searchPersonAndMediaItems(ctx context.Context, p ItemsParams) (map[string]any, error) {
+	candidates := make([]repository.MetadataSearchCandidate, 0, repository.MetadataSearchCandidateLimit*2)
+	payloadByKey := make(map[string]map[string]any, repository.MetadataSearchCandidateLimit*2)
+	if kinds := embySearchKinds(p.IncludeItemTypes); len(kinds) > 0 {
+		mediaParams := p
+		mediaParams.IncludeItemTypes = kinds
+		mediaParams.StartIndex = 0
+		mediaParams.Limit = repository.MetadataSearchCandidateLimit
+		result, err := e.searchTopLevelItems(ctx, mediaParams)
+		if err != nil {
+			return nil, err
+		}
+		for _, item := range result["Items"].([]map[string]any) {
+			id, _ := item["Id"].(string)
+			name, _ := item["Name"].(string)
+			originalName, _ := item["OriginalTitle"].(string)
+			kind, _ := item["Type"].(string)
+			year, _ := item["ProductionYear"].(int)
+			candidate := repository.MetadataSearchCandidate{
+				Kind: strings.ToLower(kind), ID: id, Title: name, OriginalName: originalName, Year: year,
+			}
+			candidates = append(candidates, candidate)
+			payloadByKey[embySearchCandidateKey(candidate.Kind, id)] = item
+		}
+	}
+	people, _, err := e.repo.Person.List(ctx, p.SearchTerm, nil, 0, repository.MetadataSearchCandidateLimit)
+	if err != nil {
+		return nil, err
+	}
+	for _, person := range people {
+		candidate := repository.MetadataSearchCandidate{
+			Kind: "person", ID: person.ID, Title: person.Name, OriginalName: person.OriginalName,
+		}
+		candidates = append(candidates, candidate)
+		payloadByKey[embySearchCandidateKey(candidate.Kind, candidate.ID)] = personPayload(person)
+	}
+	ranked, total := repository.RankMetadataSearchCandidatePage(p.SearchTerm, candidates, p.StartIndex, p.Limit)
+	items := make([]map[string]any, 0, len(ranked))
+	for _, candidate := range ranked {
+		if item, ok := payloadByKey[embySearchCandidateKey(candidate.Kind, candidate.ID)]; ok {
+			items = append(items, item)
+		}
+	}
+	return map[string]any{"Items": items, "TotalRecordCount": total, "StartIndex": p.StartIndex}, nil
+}
+
+func embySearchCandidateKey(kind, id string) string {
+	return strings.ToLower(kind) + "\x00" + id
 }
 
 func embySearchKinds(includeItemTypes []string) []string {

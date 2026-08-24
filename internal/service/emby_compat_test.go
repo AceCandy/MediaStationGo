@@ -142,6 +142,106 @@ func TestEmbyUnsupportedFavoriteItemTypesAreEmpty(t *testing.T) {
 	}
 }
 
+func TestEmbySearchCombinesPersonAndMediaItemTypes(t *testing.T) {
+	svc := newTestEmbyService(t)
+	library := model.Library{Name: "Movies", Path: "/media/movies", Type: "movie", Enabled: true}
+	if err := svc.repo.Library.Create(t.Context(), &library); err != nil {
+		t.Fatal(err)
+	}
+	person := model.Person{
+		Base: model.Base{ID: "person-stephen-chow"}, Name: "周星驰", OriginalName: "Stephen Chow",
+		NormalizedName: "周星驰", Source: "tmdb",
+	}
+	if err := svc.repo.DB.Create(&person).Error; err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range []model.MetadataItem{
+		{Base: model.Base{ID: "metadata-chow-story"}, Kind: model.MetadataKindMovie, Title: "周星驰传", Year: 2024, Source: "tmdb"},
+		{Base: model.Base{ID: "metadata-unrelated-credit"}, Kind: model.MetadataKindMovie, Title: "喜剧之王", Year: 1999, Source: "tmdb"},
+	} {
+		metadata := createServiceTestMetadata(t, svc.repo.DB, item)
+		if err := svc.repo.DB.Create(&model.Media{
+			Base: model.Base{ID: "media-" + metadata.ID}, MetadataID: metadata.ID, LibraryID: library.ID,
+			Title: metadata.Title, Path: "/media/movies/" + metadata.ID + ".mkv",
+		}).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := svc.repo.DB.Create(&model.MetadataCredit{
+		MetadataID: "metadata-unrelated-credit", PersonID: person.ID, Type: model.CreditTypeActor,
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	out, err := svc.Items(t.Context(), ItemsParams{
+		SearchTerm: "周星驰", IncludeItemTypes: []string{"Person", "Movie"}, Limit: 10,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	items := out["Items"].([]map[string]any)
+	if len(items) != 2 || out["TotalRecordCount"] != int64(2) {
+		t.Fatalf("mixed search = %#v, want Person and matching Movie", out)
+	}
+	if items[0]["Type"] != "Person" || items[0]["Id"] != person.ID || items[1]["Id"] != "metadata-chow-story" {
+		t.Fatalf("mixed search order = %#v, want exact Person before containing Movie", items)
+	}
+	for _, item := range items {
+		if item["Id"] == "metadata-unrelated-credit" {
+			t.Fatalf("person credit expanded into unrelated movie: %#v", items)
+		}
+	}
+	hints, err := svc.SearchHints(t.Context(), ItemsParams{
+		SearchTerm: "周星驰", IncludeItemTypes: []string{"Person", "Movie"}, Limit: 10,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	searchHints := hints["SearchHints"].([]map[string]any)
+	if len(searchHints) != 2 || searchHints[0]["Type"] != "Person" || searchHints[0]["ItemId"] != person.ID {
+		t.Fatalf("mixed search hints = %#v, want exact Person first", hints)
+	}
+
+	peopleOnly, err := svc.Items(t.Context(), ItemsParams{
+		SearchTerm: "周星驰", IncludeItemTypes: []string{"Person", "MusicAlbum"}, Limit: 10,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := peopleOnly["Items"].([]map[string]any); len(got) != 1 || got[0]["Id"] != person.ID {
+		t.Fatalf("Person + unsupported type = %#v, want Person", peopleOnly)
+	}
+
+	unsupported, err := svc.Items(t.Context(), ItemsParams{
+		SearchTerm: "周星驰", IncludeItemTypes: []string{"MusicAlbum"}, Limit: 10,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := unsupported["Items"].([]map[string]any); len(got) != 0 {
+		t.Fatalf("unsupported-only search = %#v, want empty", unsupported)
+	}
+	mediaWithUnsupported, err := svc.Items(t.Context(), ItemsParams{
+		SearchTerm: "周星驰", IncludeItemTypes: []string{"Movie", "MusicAlbum"}, Limit: 10,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := mediaWithUnsupported["Items"].([]map[string]any); len(got) != 1 || got[0]["Id"] != "metadata-chow-story" {
+		t.Fatalf("Movie + unsupported type = %#v, want matching Movie", mediaWithUnsupported)
+	}
+
+	browse, err := svc.Items(t.Context(), ItemsParams{IncludeItemTypes: []string{"Person", "Movie"}, Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range browse["Items"].([]map[string]any) {
+		if item["Type"] == "Person" {
+			t.Fatalf("no-term browse unexpectedly merged people: %#v", browse)
+		}
+	}
+}
+
 func TestEmbyItemsFilterByPerson(t *testing.T) {
 	svc := newTestEmbyService(t)
 	library := model.Library{Name: "Movies", Path: "/media/movies", Type: "movie", Enabled: true}

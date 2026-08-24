@@ -134,7 +134,10 @@ func (e *EmbyService) Items(ctx context.Context, p ItemsParams) (map[string]any,
 		return e.Persons(ctx, p)
 	}
 	if len(p.IncludeItemTypes) > 0 && !containsSupportedEmbyItemType(p.IncludeItemTypes) {
-		return emptyItemsEnvelope(p.StartIndex), nil
+		personSearch := len(p.IDs) == 0 && strings.TrimSpace(p.SearchTerm) != "" && containsItemType(p.IncludeItemTypes, "Person")
+		if !personSearch {
+			return emptyItemsEnvelope(p.StartIndex), nil
+		}
 	}
 
 	if len(p.IDs) > 0 {

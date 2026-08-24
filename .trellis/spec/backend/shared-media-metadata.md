@@ -739,9 +739,12 @@ source["DirectStreamUrl"] = "/Videos/" + media.ID + "/stream." + container
   position/span, the last valid 0–100 title number descending, year descending,
   and Metadata ID. OpenSearch `_score` only selects its finite candidate set;
   it is not a cross-backend final score.
-- Emby `SearchTerm` returns only Movie/Series. A Series/Season `ParentId`, or an
-  `IncludeItemTypes` set containing only Season/Episode, returns an empty search
-  envelope without changing ordinary no-term hierarchy browsing.
+- Emby `SearchTerm` treats supported `IncludeItemTypes` as an OR set. Movie and
+  Series keep the OpenSearch/PostgreSQL media path; Person candidates come only
+  from PostgreSQL name/original-name search and never expand to credited works.
+  Unsupported types are ignored beside a supported type and return an empty
+  envelope when requested alone. Mixed candidates use the shared rank, cap of
+  100, and in-memory pagination. No-term hierarchy browsing remains unchanged.
 - OpenSearch hits are revalidated through PostgreSQL before ranking and response
   mapping. Stale, invisible, unplayable, or no-longer-matching candidates are
   omitted before the capped total and page are computed.
@@ -763,6 +766,8 @@ source["DirectStreamUrl"] = "/Videos/" + media.ID + "/stream." + container
 | Non-empty search has more than 100 backend matches | Rank and expose only the selected 100 candidates; total is capped at 100 |
 | Search is `44` or `四十四` | Match both complete numeric forms; do not match `四十` as a numeric alias |
 | Emby player sends a one-character term such as `古%` | Normalize it to `古`; keep standalone or multi-character `%` terms literal |
+| Search requests `Person,Movie` | Return matching Person and Movie items in one ranked page; do not return unrelated credited works |
+| Search requests `Person,MusicAlbum` | Ignore unsupported MusicAlbum and return matching Person items |
 | Requested offset is outside the candidate set | Return an empty page with the capped total |
 | Search requests only Season/Episode | Return an empty Emby search envelope |
 
@@ -774,6 +779,8 @@ source["DirectStreamUrl"] = "/Videos/" + media.ID + "/stream." + container
   `死神10`, `死神9`, and `死神2` use descending title numbers.
 - Good: Yamby/Emby sends `古%` after one-character input and receives the same
   results as `古` without changing other literal `%` searches.
+- Good: `Person,Movie` search for an exact person name ranks that Person ahead
+  of a containing movie title without expanding the person's credits.
 - Base: OpenSearch is unavailable; PostgreSQL returns the same Metadata-grained
   eligibility and applies the same Go ranking to its finite candidate set.
 - Bad: index one document per Media and collapse versions after pagination.
@@ -795,9 +802,10 @@ source["DirectStreamUrl"] = "/Videos/" + media.ID + "/stream." + container
   irrelevant single-token exclusion, and safe page boundaries.
 - Synchronization tests assert create, last-Media delete, rebind, library move,
   Metadata parent change, and graph merge refresh every affected top-level ID.
-- Emby tests assert Movie/Series results, Season/Episode empty search, ParentId
-  behavior, multi-term AND, one-character `%` suffix normalization, other
-  literal `\\`/`%`/`_` terms, SearchHints, and logical total.
+- Emby tests assert Movie/Series/Person OR results, unsupported-type ignoring,
+  no credit expansion, no-term browse stability, Season/Episode empty search,
+  ParentId behavior, multi-term AND, one-character `%` suffix normalization,
+  other literal `\\`/`%`/`_` terms, SearchHints, and logical total.
 
 ### 7. Wrong vs Correct
 

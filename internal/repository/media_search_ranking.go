@@ -7,7 +7,11 @@ import (
 	"unicode"
 )
 
-const maxMetadataSearchCandidates = 100
+const (
+	maxMetadataSearchCandidates = 100
+	// MetadataSearchCandidateLimit 是所有搜索后端和内存合并共享的候选上限。
+	MetadataSearchCandidateLimit = maxMetadataSearchCandidates
+)
 
 type metadataSearchVariant struct {
 	value  string
@@ -20,7 +24,9 @@ type metadataSearchTermGroup struct {
 	numeric  bool
 }
 
-type metadataSearchCandidate struct {
+// MetadataSearchCandidate 是媒体与人物共用的最小搜索排序投影。
+type MetadataSearchCandidate struct {
+	Kind         string `gorm:"-"`
 	ID           string `gorm:"column:id"`
 	Title        string `gorm:"column:title"`
 	OriginalName string `gorm:"column:original_name"`
@@ -28,6 +34,8 @@ type metadataSearchCandidate struct {
 	Genres       string `gorm:"column:genres"`
 	Year         int    `gorm:"column:year"`
 }
+
+type metadataSearchCandidate = MetadataSearchCandidate
 
 type metadataSearchFieldRank struct {
 	coverage int
@@ -195,7 +203,7 @@ func rankMetadataSearchCandidates(query string, groups []metadataSearchTermGroup
 			if left.candidate.Year != right.candidate.Year {
 				return left.candidate.Year > right.candidate.Year
 			}
-			return left.candidate.ID < right.candidate.ID
+			return metadataSearchCandidateLess(left.candidate, right.candidate)
 		}
 		for field := range left.fields {
 			if left.fields[field].coverage != right.fields[field].coverage {
@@ -214,13 +222,57 @@ func rankMetadataSearchCandidates(query string, groups []metadataSearchTermGroup
 		if left.candidate.Year != right.candidate.Year {
 			return left.candidate.Year > right.candidate.Year
 		}
-		return left.candidate.ID < right.candidate.ID
+		return metadataSearchCandidateLess(left.candidate, right.candidate)
 	})
 	result := make([]metadataSearchCandidate, len(ranked))
 	for index := range ranked {
 		result[index] = ranked[index].candidate
 	}
 	return result
+}
+
+func metadataSearchCandidateLess(left, right metadataSearchCandidate) bool {
+	if left.Kind != right.Kind {
+		return left.Kind < right.Kind
+	}
+	return left.ID < right.ID
+}
+
+// RankMetadataSearchCandidatePage 对异构候选去重、统一排序、截断后再分页。
+func RankMetadataSearchCandidatePage(query string, candidates []MetadataSearchCandidate, offset, limit int) ([]MetadataSearchCandidate, int64) {
+	terms := MediaSearchTerms(strings.TrimSpace(query))
+	if len(terms) == 0 {
+		return []MetadataSearchCandidate{}, 0
+	}
+	seen := make(map[string]struct{}, len(candidates))
+	unique := make([]metadataSearchCandidate, 0, len(candidates))
+	for _, candidate := range candidates {
+		key := candidate.Kind + "\x00" + candidate.ID
+		if candidate.ID == "" {
+			continue
+		}
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		seen[key] = struct{}{}
+		unique = append(unique, candidate)
+	}
+	ranked := rankMetadataSearchCandidates(query, buildMetadataSearchTermGroups(terms), unique, MetadataSearchFieldsTitle)
+	if len(ranked) > maxMetadataSearchCandidates {
+		ranked = ranked[:maxMetadataSearchCandidates]
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	if limit <= 0 {
+		limit = 50
+	}
+	total := int64(len(ranked))
+	if offset >= len(ranked) {
+		return []MetadataSearchCandidate{}, total
+	}
+	end := min(offset+limit, len(ranked))
+	return ranked[offset:end], total
 }
 
 func pageMetadataSearchCandidates(ranked []metadataSearchCandidate, offset, limit int) ([]string, int64) {

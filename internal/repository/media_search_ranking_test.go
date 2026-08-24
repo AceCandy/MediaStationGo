@@ -134,6 +134,34 @@ func TestPageMetadataSearchCandidates(t *testing.T) {
 	}
 }
 
+func TestRankMetadataSearchCandidatePageKeepsKindsAndPagesAfterRanking(t *testing.T) {
+	candidates := []MetadataSearchCandidate{
+		{Kind: "movie", ID: "same-id", Title: "周星驰传", Year: 2024},
+		{Kind: "person", ID: "same-id", Title: "周星驰"},
+		{Kind: "person", ID: "same-id", Title: "重复候选"},
+	}
+	ranked, total := RankMetadataSearchCandidatePage("周星驰", candidates, 0, 1)
+	if total != 2 || len(ranked) != 1 {
+		t.Fatalf("ranked len=%d total=%d, want 1/2", len(ranked), total)
+	}
+	if ranked[0].Kind != "person" || ranked[0].ID != "same-id" || ranked[0].Title != "周星驰" {
+		t.Fatalf("first candidate = %#v, want exact Person", ranked[0])
+	}
+}
+
+func TestRankMetadataSearchCandidatePageCapsBeforePaging(t *testing.T) {
+	candidates := make([]MetadataSearchCandidate, 101)
+	for index := range candidates {
+		candidates[index] = MetadataSearchCandidate{
+			Kind: "movie", ID: string(rune(index + 1)), Title: "周星驰外传",
+		}
+	}
+	ranked, total := RankMetadataSearchCandidatePage("周星驰", candidates, 98, 10)
+	if total != 100 || len(ranked) != 2 {
+		t.Fatalf("ranked len=%d total=%d, want 2/100", len(ranked), total)
+	}
+}
+
 func metadataSearchCandidateIDs(candidates []metadataSearchCandidate) []string {
 	ids := make([]string, len(candidates))
 	for index := range candidates {
