@@ -412,7 +412,7 @@ export const EMBY_API_ENDPOINTS: readonly EmbyApiEndpoint[] = [
       { name: 'ParentId', location: 'query', type: 'string', description: '父级媒体库、剧集或季 ID。' },
       { name: 'Ids', location: 'query', type: 'string', description: '逗号分隔的媒体 ID。' },
       { name: 'PersonIds', location: 'query', type: 'string', description: '逗号分隔的人物 ID，仅返回这些人物参与的作品。' },
-      { name: 'SearchTerm', location: 'query', type: 'string', description: '仅搜索顶层 Movie/Series 的标题与原名；所有关键词均需命中，0–100 的阿拉伯数字与标准中文数字可双向匹配；统一排序后最多返回 100 条，Season/Episode 不参与搜索。' },
+      { name: 'SearchTerm', location: 'query', type: 'string', description: '仅搜索顶层 Movie/Series 的标题与原名；所有关键词均需命中，0–100 的阿拉伯数字与标准中文数字可双向匹配；兼容播放器为单字符自动追加的 %；统一排序后最多返回 100 条，Season/Episode 不参与搜索。' },
       { name: 'IncludeItemTypes', location: 'query', type: 'string', description: '搜索时仅 Movie/Series 生效；只请求 Season/Episode 时返回空结果。' },
       { name: 'Filters', location: 'query', type: 'string', description: '逗号分隔的过滤条件；IsFavorite 仅支持 Movie 和 Series。' },
       { name: 'Fields', location: 'query', type: 'string', description: '可选字段列表；指定后仅按需返回 People、ProviderIds 和 MediaSources，省略时保持完整兼容响应。' },
@@ -434,7 +434,7 @@ export const EMBY_API_ENDPOINTS: readonly EmbyApiEndpoint[] = [
     support: 'implemented',
     parameters: [
       tokenHeader,
-      { name: 'SearchTerm', location: 'query', type: 'string', required: true, description: '仅搜索顶层 Movie/Series 的标题与原名；所有关键词均需命中，0–100 的阿拉伯数字与标准中文数字可双向匹配；统一排序后最多返回 100 条，Season/Episode 不参与搜索，为空时返回空数组。' },
+      { name: 'SearchTerm', location: 'query', type: 'string', required: true, description: '仅搜索顶层 Movie/Series 的标题与原名；所有关键词均需命中，0–100 的阿拉伯数字与标准中文数字可双向匹配；兼容播放器为单字符自动追加的 %；统一排序后最多返回 100 条，Season/Episode 不参与搜索，为空时返回空数组。' },
       { name: 'IncludeItemTypes', location: 'query', type: 'string', description: '搜索时仅 Movie/Series 生效；只请求 Season/Episode 时返回空结果。' },
       { name: 'Limit / StartIndex', location: 'query', type: 'number', description: '在最多 100 条搜索候选内按顶层 Metadata 分页。' },
     ],

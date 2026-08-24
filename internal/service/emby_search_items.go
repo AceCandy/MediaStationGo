@@ -11,6 +11,11 @@ import (
 // searchTopLevelItems handles every non-empty Emby SearchTerm before the
 // Series -> Season -> Episode browse branches can consume it.
 func (e *EmbyService) searchTopLevelItems(ctx context.Context, p ItemsParams) (map[string]any, error) {
+	searchTerm := []rune(strings.TrimSpace(p.SearchTerm))
+	if len(searchTerm) == 2 && searchTerm[0] != '%' && searchTerm[1] == '%' {
+		// Yamby/Emby 播放器只输入一个字符时会自动追加 `%`，此处去掉通配后缀再搜索。
+		p.SearchTerm = string(searchTerm[0])
+	}
 	kinds := embySearchKinds(p.IncludeItemTypes)
 	if len(kinds) == 0 {
 		return emptyItemsEnvelope(p.StartIndex), nil

@@ -730,6 +730,9 @@ source["DirectStreamUrl"] = "/Videos/" + media.ID + "/stream." + container
   from 0 through 100 expand both ways; numeric forms are atomic. Other Han text
   requires every analyzed Han token in one field, so `死神` cannot match a title
   containing only `死` or only `神`.
+- Emby compatibility normalizes a `SearchTerm` made of exactly one Unicode
+  character followed by `%` to that character because Yamby/Emby players append
+  this wildcard automatically. Every other `%` remains a literal search term.
 - Final rank tiers are exact title/original match, ordered full containment in
   one title/original field, then other all-token matches. Exact matches sort by
   year and Metadata ID. The other tiers sort by shared field coverage, match
@@ -759,6 +762,7 @@ source["DirectStreamUrl"] = "/Videos/" + media.ID + "/stream." + container
 | OpenSearch returns a stale/invisible ID | Omit it during PostgreSQL revalidation |
 | Non-empty search has more than 100 backend matches | Rank and expose only the selected 100 candidates; total is capped at 100 |
 | Search is `44` or `四十四` | Match both complete numeric forms; do not match `四十` as a numeric alias |
+| Emby player sends a one-character term such as `古%` | Normalize it to `古`; keep standalone or multi-character `%` terms literal |
 | Requested offset is outside the candidate set | Return an empty page with the capped total |
 | Search requests only Season/Episode | Return an empty Emby search envelope |
 
@@ -768,6 +772,8 @@ source["DirectStreamUrl"] = "/Videos/" + media.ID + "/stream." + container
   slot; one Series with many Episodes also produces one Series hit.
 - Good: `死神2` outranks a less relevant `新死神10`; equal-relevance
   `死神10`, `死神9`, and `死神2` use descending title numbers.
+- Good: Yamby/Emby sends `古%` after one-character input and receives the same
+  results as `古` without changing other literal `%` searches.
 - Base: OpenSearch is unavailable; PostgreSQL returns the same Metadata-grained
   eligibility and applies the same Go ranking to its finite candidate set.
 - Bad: index one document per Media and collapse versions after pagination.
@@ -790,7 +796,8 @@ source["DirectStreamUrl"] = "/Videos/" + media.ID + "/stream." + container
 - Synchronization tests assert create, last-Media delete, rebind, library move,
   Metadata parent change, and graph merge refresh every affected top-level ID.
 - Emby tests assert Movie/Series results, Season/Episode empty search, ParentId
-  behavior, multi-term AND, literal `\\`/`%`/`_`, SearchHints, and logical total.
+  behavior, multi-term AND, one-character `%` suffix normalization, other
+  literal `\\`/`%`/`_` terms, SearchHints, and logical total.
 
 ### 7. Wrong vs Correct
 

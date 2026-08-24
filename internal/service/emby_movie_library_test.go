@@ -209,6 +209,13 @@ func TestEmbyMovieLibraryGroupsEpisodicContentIntoSeries(t *testing.T) {
 	if got := search["Items"].([]map[string]any); len(got) != 1 || got[0]["Id"] != rows[2].ID {
 		t.Fatalf("mixed movie library search = %#v, want matching movie", search)
 	}
+	search, err = svc.Items(t.Context(), ItemsParams{ParentID: lib.ID, SearchTerm: "普%", Limit: 50})
+	if err != nil {
+		t.Fatalf("search mixed movie library with player wildcard: %v", err)
+	}
+	if got := search["Items"].([]map[string]any); len(got) != 1 || got[0]["Id"] != rows[2].ID {
+		t.Fatalf("single-character player wildcard search = %#v, want matching movie", search)
+	}
 	search, err = svc.Items(t.Context(), ItemsParams{ParentID: lib.ID, SearchTerm: "%", Limit: 50})
 	if err != nil {
 		t.Fatalf("search mixed movie library with LIKE metacharacter: %v", err)
