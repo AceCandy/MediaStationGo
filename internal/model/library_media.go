@@ -42,6 +42,9 @@ type Media struct {
 	EpisodeTitle  string        `gorm:"-" json:"-"`
 	Path          string        `gorm:"uniqueIndex;size:1024;not null" json:"path"`
 	RelativePath  string        `gorm:"size:1024" json:"relative_path,omitempty"`
+	// PartGroupKey 与 PartIndex 标识同一播放版本下的有序物理文件。
+	PartGroupKey string `gorm:"index;size:64" json:"-"`
+	PartIndex    int    `gorm:"default:0" json:"-"`
 	// 以下技术字段仅承载 ffprobe 的扁平 API 投影，不映射到 media 主表。
 	SizeBytes int64 `gorm:"-" json:"size_bytes"`
 	// ScanFileSizeBytes 与 ScanFileMTimeNS 记录扫描路径自身的文件指纹。

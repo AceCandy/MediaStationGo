@@ -54,6 +54,48 @@ func (e *EmbyService) Item(ctx context.Context, mediaID, userID string) (map[str
 	return e.itemPayload(ctx, m, userID, fav, pos, true), nil
 }
 
+// AdditionalParts 返回当前播放版本除首 Part 外的物理文件。
+func (e *EmbyService) AdditionalParts(ctx context.Context, mediaID, userID string) (map[string]any, error) {
+	m, _, err := e.playableMediaWithSiblings(ctx, mediaID, userID)
+	if err != nil || m == nil {
+		return map[string]any{"Items": []map[string]any{}, "TotalRecordCount": 0}, err
+	}
+	parts, err := e.mediaPartViews(ctx, m, userID)
+	if err != nil {
+		return nil, err
+	}
+	if len(parts) < 2 {
+		return map[string]any{"Items": []map[string]any{}, "TotalRecordCount": 0}, nil
+	}
+	parts = parts[1:]
+	favorites, _ := e.userDataForMetadataIDs(ctx, userID, []string{m.MetadataID})
+	positions := map[string]int64{}
+	if strings.TrimSpace(userID) != "" {
+		ids := make([]string, 0, len(parts))
+		for i := range parts {
+			ids = append(ids, parts[i].ID)
+		}
+		var histories []model.PlaybackHistory
+		if err := e.repo.DB.WithContext(ctx).Where("user_id = ? AND media_id IN ?", userID, ids).Find(&histories).Error; err == nil {
+			for _, history := range histories {
+				positions[history.MediaID] = history.PositionMs
+			}
+		}
+	}
+	relations := e.itemRelationsForViews(ctx, parts, userID, embyListFields{people: true, providerIDs: true})
+	items := make([]map[string]any, 0, len(parts))
+	for i := range parts {
+		part := &parts[i]
+		itemID := embyItemID(part)
+		item := e.itemPayloadWithRelations(ctx, part, userID, favorites[itemID], positions[part.ID], false, relations)
+		item["Id"] = part.ID
+		item["MediaSources"] = e.mediaSourcesForViews(ctx, []model.MediaView{*part}, false, true)
+		delete(item, "PartCount")
+		items = append(items, item)
+	}
+	return map[string]any{"Items": items, "TotalRecordCount": len(items)}, nil
+}
+
 // LatestItems 最近添加，全库或指定库，并按调用方指定的播放状态过滤。
 func (e *EmbyService) LatestItems(ctx context.Context, userID, parentID string, limit int, isPlayed bool) ([]map[string]any, error) {
 	if limit <= 0 || limit > 100 {
@@ -136,11 +178,21 @@ func (e *EmbyService) ResumeItems(ctx context.Context, userID string, limit int)
 	if err != nil {
 		return nil, err
 	}
+	preferredPartGroupByMetadata := make(map[string]string, len(hist))
+	for _, view := range versions {
+		if view.ID == lastMediaByMetadata[view.MetadataID] {
+			preferredPartGroupByMetadata[view.MetadataID] = view.PartGroupKey
+		}
+	}
+	versions = collapseMediaPartViews(versions)
 	viewsByMetadata := make(map[string]model.MediaView, len(hist))
 	for _, view := range versions {
 		current, ok := viewsByMetadata[view.MetadataID]
 		preferredID := lastMediaByMetadata[view.MetadataID]
-		if !ok || view.ID == preferredID || (current.ID != preferredID && preferMediaVersion(view.Media, current.Media)) {
+		preferredPartGroup := preferredPartGroupByMetadata[view.MetadataID]
+		viewIsPreferred := view.ID == preferredID || (preferredPartGroup != "" && view.PartGroupKey == preferredPartGroup)
+		currentIsPreferred := current.ID == preferredID || (preferredPartGroup != "" && current.PartGroupKey == preferredPartGroup)
+		if !ok || viewIsPreferred || (!currentIsPreferred && preferMediaVersion(view.Media, current.Media)) {
 			viewsByMetadata[view.MetadataID] = view
 		}
 	}
@@ -170,13 +222,18 @@ func (e *EmbyService) itemPayloadWithRelations(ctx context.Context, m *model.Med
 	var people []model.EmbyPerson
 	var providerIDs map[string]string
 	var mediaSources []map[string]any
+	partCount := 0
 	if relations == nil {
 		episode = e.mediaShouldBeEpisode(ctx, &m.Media)
 		people = e.peopleForMetadata(ctx, m.MetadataID)
 		providerIDs = e.metadataProviderIDs(ctx, m.MetadataID)
 		mediaSources = e.mediaSourcesForView(ctx, m, userID, true, completeStreams)
+		if parts, err := e.mediaPartViews(ctx, m, userID); err == nil {
+			partCount = len(parts)
+		}
 	} else {
 		episode = relations.episodeByMediaID[m.ID]
+		partCount = relations.partCountByGroupKey[m.PartGroupKey]
 		if relations.fields.people {
 			people = []model.EmbyPerson{}
 			if loaded, ok := relations.peopleByMetadataID[m.MetadataID]; ok {
@@ -289,6 +346,9 @@ func (e *EmbyService) itemPayloadWithRelations(ctx context.Context, m *model.Med
 	}
 	if relations == nil || relations.fields.mediaSources {
 		item["MediaSources"] = mediaSources
+	}
+	if partCount > 1 {
+		item["PartCount"] = partCount
 	}
 	if premiered, ok := embyPremiereDate(m.ReleaseDate); ok {
 		item["PremiereDate"] = premiered

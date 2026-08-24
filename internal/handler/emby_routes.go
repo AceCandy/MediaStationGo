@@ -194,6 +194,7 @@ func registerEmbyAuthenticatedPlaybackRoutes(auth *gin.RouterGroup, prefix strin
 	auth.POST("/Items/:id/PlaybackInfo", embyPlaybackInfoHandler(svc))
 	auth.GET("/Users/:userId/Items/:id/PlaybackInfo", embyPlaybackInfoHandler(svc))
 	auth.POST("/Users/:userId/Items/:id/PlaybackInfo", embyPlaybackInfoHandler(svc))
+	auth.GET("/Videos/:id/AdditionalParts", embyAdditionalPartsHandler(svc))
 
 	registerEmbyVideoStreamRoutes(auth, svc, "/Videos")
 	if prefix == "/emby" {

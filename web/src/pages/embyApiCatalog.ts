@@ -68,6 +68,7 @@ const itemFields: readonly EmbyApiField[] = [
   { name: 'Type', type: 'string', description: 'Movie、Series、Season、Episode 等 Emby 类型。' },
   { name: 'MediaType', type: 'string', description: 'Video 等媒体类型。' },
   { name: 'RunTimeTicks', type: 'number', description: '以 100ns 为单位的时长。' },
+  { name: 'PartCount', type: 'number', description: '当前播放版本的物理 Part 数量；单文件省略。' },
   { name: 'ImageTags', type: 'object', description: '图片类型与缓存标识。' },
   { name: 'UserData', type: 'object', description: '收藏、已播放和进度等用户状态。' },
   { name: 'MediaSources', type: 'array', description: '可播放媒体源及流地址。' },
@@ -481,6 +482,39 @@ export const EMBY_API_ENDPOINTS: readonly EmbyApiEndpoint[] = [
 }` },
       { status: '404', contentType: 'application/json', description: '媒体项不存在。' },
     ],
+  },
+  {
+    id: 'additional-parts',
+    category: '媒体项',
+    name: '媒体附加 Part',
+    description: '返回当前首选播放版本除首 Part 外的物理文件；每项使用自己的媒体源 ID、时长、轨道和直接播放地址。',
+    methods: ['GET'],
+    path: '/Videos/:id/AdditionalParts',
+    aliases: ['/videos/:id/additionalparts'],
+    auth: 'token',
+    support: 'implemented',
+    parameters: [
+      tokenHeader,
+      { name: 'id', location: 'path', type: 'string', required: true, description: '媒体项 ID 或具体媒体源 ID。' },
+    ],
+    responses: [{
+      status: '200',
+      contentType: 'application/json',
+      description: '按 Part 顺序返回后续物理文件；无附加 Part 时 Items 为空。',
+      fields: itemsEnvelopeFields,
+      example: `{
+  "Items": [{
+    "Id": "media-part-2",
+    "Name": "示例影片",
+    "Type": "Movie",
+    "MediaSources": [{
+      "Id": "media-part-2",
+      "DirectStreamUrl": "/Videos/media-part-2/stream.mkv?api_key=example.jwt.token"
+    }]
+  }],
+  "TotalRecordCount": 1
+}`,
+    }],
   },
   {
     id: 'items-latest',

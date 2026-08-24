@@ -163,11 +163,29 @@ func (e *EmbyService) playableMediaWithSiblings(ctx context.Context, id, userID 
 	}
 	if len(views) > 0 {
 		if len(views) == 1 && views[0].ID == id {
-			return &views[0], e.mediaVersionSiblings(ctx, &views[0], userID), nil
+			siblings := e.mediaVersionSiblings(ctx, &views[0], userID)
+			for i := range siblings {
+				if siblings[i].ID == id {
+					return &views[0], siblings, nil
+				}
+			}
+			return &views[0], []model.MediaView{views[0]}, nil
 		}
-		siblings := orderMediaVersionSiblings(views, "")
-		m := e.preferredPlayableView(ctx, userID, siblings)
-		return m, orderMediaVersionSiblings(siblings, m.ID), nil
+		m := e.preferredPlayableView(ctx, userID, views)
+		if m.PartGroupKey != "" {
+			for i := range views {
+				if views[i].PartGroupKey == m.PartGroupKey && views[i].PartIndex > 0 && (m.PartIndex <= 0 || views[i].PartIndex < m.PartIndex) {
+					m = &views[i]
+				}
+			}
+		}
+		siblings := orderMediaVersionSiblings(views, m.ID)
+		for i := range siblings {
+			if siblings[i].ID == m.ID {
+				return &siblings[i], siblings, nil
+			}
+		}
+		return m, siblings, nil
 	}
 	if season, ok, err := e.findSeasonGroup(ctx, id, userID); err != nil {
 		return nil, nil, err

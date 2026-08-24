@@ -70,6 +70,18 @@ func embyPlaybackInfoHandler(svc *service.Container) gin.HandlerFunc {
 	}
 }
 
+func embyAdditionalPartsHandler(svc *service.Container) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		out, err := svc.Emby.AdditionalParts(c.Request.Context(), c.Param("id"), embyUserID(c))
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		embyAttachRequestTokenToMediaSources(c, out)
+		c.JSON(http.StatusOK, out)
+	}
+}
+
 func embyPlaybackSelection(c *gin.Context) (service.PlaybackSelection, string, error) {
 	selection, err := service.PlaybackSelectionFromQuery(c.Request.URL.Query())
 	if err != nil {

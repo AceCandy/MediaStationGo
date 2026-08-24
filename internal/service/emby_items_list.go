@@ -108,6 +108,7 @@ type embyItemRelations struct {
 	peopleByMetadataID      map[string][]model.EmbyPerson
 	providerIDsByMetadataID map[string]map[string]string
 	versionsByMetadataID    map[string][]model.MediaView
+	partCountByGroupKey     map[string]int
 	episodeByMediaID        map[string]bool
 	fields                  embyListFields
 }
@@ -163,6 +164,7 @@ func (e *EmbyService) itemRelationsForViews(ctx context.Context, views []model.M
 		peopleByMetadataID:      map[string][]model.EmbyPerson{},
 		providerIDsByMetadataID: map[string]map[string]string{},
 		versionsByMetadataID:    map[string][]model.MediaView{},
+		partCountByGroupKey:     map[string]int{},
 		episodeByMediaID:        map[string]bool{},
 		fields:                  fields,
 	}
@@ -206,10 +208,15 @@ func (e *EmbyService) itemRelationsForViews(ctx context.Context, views []model.M
 			}
 		}
 	}
-	if fields.mediaSources && e.repo.MediaView != nil {
+	if e.repo.MediaView != nil {
 		if rows, err := e.repo.MediaView.FindByMetadataIDs(ctx, metadataIDs, e.mediaQueryFilter(ctx, userID)); err == nil {
 			for _, row := range rows {
-				relations.versionsByMetadataID[row.MetadataID] = append(relations.versionsByMetadataID[row.MetadataID], row)
+				if row.PartGroupKey != "" && row.PartIndex > 0 {
+					relations.partCountByGroupKey[row.PartGroupKey]++
+				}
+				if fields.mediaSources {
+					relations.versionsByMetadataID[row.MetadataID] = append(relations.versionsByMetadataID[row.MetadataID], row)
+				}
 			}
 		}
 	}
@@ -232,6 +239,7 @@ func (e *EmbyService) itemRelationsForViews(ctx context.Context, views []model.M
 }
 
 func (e *EmbyService) collapseMediaVersionViews(ctx context.Context, rows []model.MediaView) []model.MediaView {
+	rows = collapseMediaPartViews(rows)
 	if len(rows) < 2 {
 		return rows
 	}

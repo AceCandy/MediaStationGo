@@ -15,6 +15,13 @@ func (s *ScannerService) RemovePath(ctx context.Context, path string) (int64, er
 	if _, err := os.Stat(path); err == nil {
 		return 0, nil // still exists; nothing to remove
 	}
+	var removedMedia model.Media
+	if err := s.repo.DB.WithContext(ctx).Select("id", "library_id", "path").Where("path = ?", path).Find(&removedMedia).Error; err != nil {
+		return 0, err
+	}
+	if removedMedia.ID == "" {
+		return 0, nil
+	}
 	var metadataIDs []string
 	if err := s.repo.DB.WithContext(ctx).Model(&model.Media{}).Where("path = ?", path).Where("metadata_id IS NOT NULL").Pluck("metadata_id", &metadataIDs).Error; err != nil {
 		return 0, err
@@ -25,6 +32,9 @@ func (s *ScannerService) RemovePath(ctx context.Context, path string) (int64, er
 		Delete(&model.Media{})
 	if res.Error == nil && res.RowsAffected > 0 {
 		s.repo.MediaView.RefreshMetadataIDs(ctx, metadataIDs...)
+		if _, err := s.reconcileMediaParts(ctx, removedMedia.LibraryID, filepath.Dir(removedMedia.Path)); err != nil {
+			return res.RowsAffected, err
+		}
 		s.invalidateMediaCache(ctx)
 	}
 	return res.RowsAffected, res.Error

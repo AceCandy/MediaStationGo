@@ -150,6 +150,7 @@ func (e *EmbyService) mediaVersionSiblings(ctx context.Context, m *model.MediaVi
 }
 
 func orderMediaVersionSiblings(views []model.MediaView, currentID string) []model.MediaView {
+	views = collapseMediaPartViews(views)
 	views = collapseExactPathViews(views)
 	sort.SliceStable(views, func(i, j int) bool {
 		if views[i].ID == currentID {

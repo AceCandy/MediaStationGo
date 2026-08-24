@@ -137,6 +137,12 @@ func (s *ScannerService) scanLibrary(ctx context.Context, libraryID string, auto
 	if scanErr != nil && scannedRoots == 0 {
 		return res, scanErr
 	}
+	if changed, err := s.reconcileMediaParts(ctx, lib.ID, ""); err != nil {
+		addScanError(res, "", err)
+		s.log.Warn("reconcile media parts failed", zap.String("library_id", lib.ID), zap.Error(err))
+	} else {
+		recordMediaPartScanChanges(res, changed)
+	}
 
 	s.finishLocalLibraryScan(ctx, lib, res, autoScrape)
 	return res, nil
@@ -170,6 +176,12 @@ func (s *ScannerService) scanLocalLibraryRoot(ctx context.Context, lib *model.Li
 		for _, path := range removedPaths {
 			res.addChange(ScanChangeRemoved, path, "")
 		}
+	}
+	if changed, err := s.reconcileMediaParts(ctx, lib.ID, root.Path); err != nil {
+		addScanError(res, root.Path, err)
+		s.log.Warn("reconcile media parts failed", zap.String("library_id", lib.ID), zap.String("root_id", root.ID), zap.Error(err))
+	} else {
+		recordMediaPartScanChanges(res, changed)
 	}
 	s.finishLocalLibraryScan(ctx, lib, res, autoScrape)
 	return res, nil
@@ -269,6 +281,11 @@ func (s *ScannerService) IngestPathResult(ctx context.Context, libraryID, path s
 	}
 	res := &ScanResult{LibraryID: lib.ID}
 	s.ingestFile(ctx, lib, root, path, fi.Size(), fi.ModTime().UnixNano(), make(map[string]string), nil, nil, res)
+	changed, reconcileErr := s.reconcileMediaParts(ctx, lib.ID, filepath.Dir(path))
+	if reconcileErr != nil {
+		return res, reconcileErr
+	}
+	recordMediaPartScanChanges(res, changed)
 	if res.Added+res.Updated > 0 {
 		s.invalidateMediaCache(ctx)
 	}

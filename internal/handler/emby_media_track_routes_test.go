@@ -188,6 +188,85 @@ func TestEmbyProgressRoutesUseProbeDurationAndIgnoreUnknownDuration(t *testing.T
 	}
 }
 
+func TestEmbyAdditionalPartsRoutesAttachTokenAndKeepProgressMediaID(t *testing.T) {
+	router, part1ID, token, _, repos := newEmbyTrackRouteTest(t)
+	var part1 model.Media
+	if err := repos.DB.Where("id = ?", part1ID).Take(&part1).Error; err != nil {
+		t.Fatal(err)
+	}
+	const groupKey = "handler-multipart"
+	if err := repos.DB.Model(&model.Media{}).Where("id = ?", part1.ID).Updates(map[string]any{
+		"part_group_key": groupKey,
+		"part_index":     1,
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	part2Path := filepath.Join(filepath.Dir(part1.Path), "track-movie-part2.mkv")
+	if err := os.WriteFile(part2Path, []byte("media-part-2"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	part2 := model.Media{
+		Base: model.Base{ID: "track-movie-part-2"}, LibraryID: part1.LibraryID, MetadataID: part1.MetadataID,
+		Title: part1.Title, Path: part2Path, PartGroupKey: groupKey, PartIndex: 2,
+	}
+	if err := repos.DB.Create(&part2).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := repos.DB.Create(&model.MediaProbeMetadata{
+		MediaID: part2.ID, ProbeJSON: `{"schema_version":1,"format":{"duration":120},"streams":[]}`,
+		SchemaVersion: service.ProbeDocumentSchemaVersion, SummaryVersion: service.ProbeSummaryVersion,
+		DurationMS: 120_000, Container: "matroska", ProbedAt: time.Now().UTC(),
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	for _, path := range []string{
+		"/emby/Videos/" + part1.MetadataID + "/AdditionalParts",
+		"/Videos/" + part1.MetadataID + "/AdditionalParts",
+		"/videos/" + part1.MetadataID + "/additionalparts",
+	} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		req.Header.Set("X-Emby-Token", token)
+		response := httptest.NewRecorder()
+		router.ServeHTTP(response, req)
+		if response.Code != http.StatusOK {
+			t.Fatalf("GET %s status=%d body=%s", path, response.Code, response.Body.String())
+		}
+		var payload struct {
+			Items []struct {
+				ID           string `json:"Id"`
+				MediaSources []struct {
+					ID              string `json:"Id"`
+					DirectStreamURL string `json:"DirectStreamUrl"`
+				} `json:"MediaSources"`
+			} `json:"Items"`
+			TotalRecordCount int `json:"TotalRecordCount"`
+		}
+		if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil || payload.TotalRecordCount != 1 || len(payload.Items) != 1 || len(payload.Items[0].MediaSources) != 1 {
+			t.Fatalf("decode %s: payload=%#v err=%v", path, payload, err)
+		}
+		source := payload.Items[0].MediaSources[0]
+		streamURL, err := url.Parse(source.DirectStreamURL)
+		if err != nil || payload.Items[0].ID != part2.ID || source.ID != part2.ID || streamURL.Path != "/Videos/"+part2.ID+"/stream.mkv" || streamURL.Query().Get("api_key") != token {
+			t.Fatalf("additional part %s: payload=%#v url=%#v err=%v", path, payload, streamURL, err)
+		}
+	}
+
+	body := `{"ItemId":"` + part1.MetadataID + `","MediaSourceId":"` + part2.ID + `","PositionTicks":300000000,"RunTimeTicks":1200000000}`
+	req := httptest.NewRequest(http.MethodPost, "/Sessions/Playing/Progress", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Emby-Token", token)
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, req)
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("progress status=%d body=%s", response.Code, response.Body.String())
+	}
+	var history model.PlaybackHistory
+	if err := repos.DB.Where("metadata_id = ?", part1.MetadataID).Take(&history).Error; err != nil || history.MediaID != part2.ID {
+		t.Fatalf("part progress history=%#v err=%v", history, err)
+	}
+}
+
 func newEmbyTrackRouteTest(t *testing.T) (*gin.Engine, string, string, string, *repository.Container) {
 	t.Helper()
 	gin.SetMode(gin.TestMode)

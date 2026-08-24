@@ -89,6 +89,9 @@ func (e *EmbyService) mediaViewForItemID(ctx context.Context, id, userID string)
 	if err != nil || len(views) == 0 {
 		return nil, err
 	}
+	if len(views) != 1 || views[0].ID != id {
+		views = collapseMediaPartViews(views)
+	}
 	preferred := views[0]
 	for i := 1; i < len(views); i++ {
 		if preferMediaVersion(views[i].Media, preferred.Media) {

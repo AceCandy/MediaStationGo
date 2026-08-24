@@ -61,6 +61,7 @@ func firstMediaItems(items []MediaItem, limit int) []MediaItem {
 }
 
 func groupMediaVersions(items []model.Media) []MediaItem {
+	items = collapseMediaParts(items)
 	if len(items) == 0 {
 		return nil
 	}

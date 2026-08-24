@@ -61,6 +61,7 @@ func (e *EmbyService) metadataPage(ctx context.Context, q *gorm.DB, userID, orde
 }
 
 func preferredMetadataViews(views []model.MediaView, metadataIDs []string) []model.MediaView {
+	views = collapseMediaPartViews(views)
 	byMetadata := make(map[string]model.MediaView, len(metadataIDs))
 	for _, view := range views {
 		id := strings.TrimSpace(view.MetadataID)

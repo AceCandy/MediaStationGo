@@ -185,6 +185,7 @@ func mediaUpsertUpdates(existing, incoming model.Media) map[string]any {
 	addMediaExternalIDUpdates(updates, existing, incoming)
 	addMatchedMediaStatusUpdate(updates, existing, incoming)
 	addMediaPlacementUpdates(updates, existing, incoming)
+	addMediaPartUpdates(updates, existing, incoming)
 	addMediaSTRMUpdate(updates, existing, incoming)
 	return updates
 }
@@ -272,6 +273,11 @@ func addMediaPlacementUpdates(updates map[string]any, existing, incoming model.M
 	if strings.TrimSpace(existing.ScrapeStatus) == "no_match" && incoming.ScrapeStatus != "matched" && (seasonChanged || episodeChanged) {
 		updates["scrape_status"] = "pending"
 	}
+}
+
+func addMediaPartUpdates(updates map[string]any, existing, incoming model.Media) {
+	setIfChanged(updates, "part_group_key", existing.PartGroupKey, incoming.PartGroupKey)
+	setIfChanged(updates, "part_index", existing.PartIndex, incoming.PartIndex)
 }
 
 func addMediaSTRMUpdate(updates map[string]any, existing, incoming model.Media) {

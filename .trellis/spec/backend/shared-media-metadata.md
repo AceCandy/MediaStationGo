@@ -685,6 +685,94 @@ delete(source, "TranscodingUrl")
 source["DirectStreamUrl"] = "/Videos/" + media.ID + "/stream." + container
 ```
 
+## Scenario: Emby Multipart Media
+
+### 1. Scope / Trigger
+
+- Apply when changing local scan naming, media-version grouping, Emby item or
+  PlaybackInfo projection, direct playback identity, or playback progress for
+  files split into multiple physical parts.
+
+### 2. Signatures
+
+- Persistent file relation: `Media{PartGroupKey string, PartIndex int}`.
+- Player discovery: `GET /Videos/:id/AdditionalParts` plus `/emby` and lowercase
+  route variants.
+- Item projection: `PartCount` is present only for an active group with more
+  than one visible Part.
+
+### 3. Contracts
+
+- One `Media` row continues to represent one independently playable physical
+  file. Part count and the primary Part are derived; no parent ID or count is
+  persisted.
+- Only a trailing `cd|dvd|part|pt|disc|disk` marker followed by a positive
+  number or `a-d` is a candidate. A group requires the same library, real
+  case-sensitive directory, normalized base name and marker type, at least two
+  members, and unique indexes. A singleton remains ordinary media.
+- Version collections collapse each active Part group to its lowest visible
+  `PartIndex` before choosing or exposing versions. A concrete request for a
+  later Part returns only that physical source; a logical item or primary Part
+  may still enumerate all version primaries.
+- AdditionalParts selects the current/preferred version, returns only members
+  after its primary Part in index order, and uses each member's concrete
+  `Media.ID`, duration, streams and `DirectStreamUrl`.
+- Visibility filtering applies before PartCount and AdditionalParts output.
+  Playback progress keeps the request `MediaSourceId`; a Part DTO reuses a
+  stored position only when that history row belongs to the same concrete ID.
+- Full scans, root scans, path ingest and file removal reconcile affected
+  groups. Removing all but one member clears the remaining Part fields.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required result |
+| --- | --- |
+| One candidate file | Keep `PartGroupKey=''`, `PartIndex=0`, and the unstripped scan title |
+| Duplicate index in one candidate group | Reject the whole group |
+| Same spelling under case-distinct Linux directories | Keep separate groups |
+| Logical item has several versions with Parts | Expose one MediaSource per version primary |
+| AdditionalParts target has no active visible group | Return `{Items: [], TotalRecordCount: 0}` |
+| PlaybackInfo targets a later Part ID | Return exactly that concrete source |
+| Progress names a visible later Part as `MediaSourceId` | Persist that Part's `Media.ID` without cross-Part position conversion |
+
+### 5. Good / Base / Bad Cases
+
+- Good: 1080p and 2160p each have Part 1/2; the item exposes two MediaSources,
+  `PartCount=2`, and AdditionalParts for the preferred version returns its Part 2.
+- Base: `Movie Part 1.mkv` exists alone and behaves like an ordinary file.
+- Bad: expose Part 2 as another version, merge files from `/Media` and `/media`,
+  or copy Part 1's position into Part 2's DTO.
+
+### 6. Tests Required
+
+- Pure parsing covers marker variants, separators, case, numbers, `a-d`, bad
+  boundaries, duplicate indexes, and case-distinct directory group keys.
+- Scanner tests cover grouping, singleton restoration, nested root scans,
+  deletion reconciliation, and unchanged movie/episode identity.
+- Emby service tests cover multi-version x multipart MediaSources, PartCount,
+  ordered AdditionalParts, concrete URLs, logical versus concrete PlaybackInfo,
+  and concrete progress identity.
+- Handler tests cover `/emby`, unprefixed and lowercase routes plus token
+  attachment to each additional Part's direct stream URL.
+
+### 7. Wrong vs Correct
+
+```go
+// Wrong: every physical Part becomes an alternate version.
+sources := mediaSourcesForViews(ctx, visibleViews, true, false)
+
+// Correct: version projection keeps only the primary member of each Part group.
+sources := mediaSourcesForViews(ctx, collapseMediaPartViews(visibleViews), true, false)
+```
+
+```go
+// Wrong: a request for Part 2 expands back to all versions.
+return mediaVersionSiblings(ctx, part2, userID)
+
+// Correct: a later concrete Part remains one independently playable source.
+return []model.MediaView{*part2}
+```
+
 ## Scenario: Top-Level Metadata Search
 
 ### 1. Scope / Trigger

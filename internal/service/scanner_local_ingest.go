@@ -175,9 +175,14 @@ type localScanMediaInput struct {
 }
 
 func (s *ScannerService) buildLocalScanMedia(in localScanMediaInput) *model.Media {
-	title, year := CleanQueryWithRecognition(context.Background(), s.repo, in.path)
+	titlePath := in.path
+	part, partGroupKey, multipart := activeMediaPartCandidate(in.lib.ID, in.path)
+	if multipart {
+		titlePath = mediaPartBasePath(in.path, part)
+	}
+	title, year := CleanQueryWithRecognition(context.Background(), s.repo, titlePath)
 	if title == "" {
-		title = strings.TrimSuffix(filepath.Base(in.path), in.ext)
+		title = strings.TrimSuffix(filepath.Base(titlePath), filepath.Ext(titlePath))
 	}
 	title, year = preferISOParentScrapeIdentity(in.path, in.lib.Path, title, year)
 
@@ -193,6 +198,10 @@ func (s *ScannerService) buildLocalScanMedia(in localScanMediaInput) *model.Medi
 		FileID:            in.fileID,
 		SeasonNum:         in.parsedSeason,
 		EpisodeNum:        in.parsedEpisode,
+		PartGroupKey:      partGroupKey,
+	}
+	if multipart {
+		media.PartIndex = part.index
 	}
 	if in.ext == ".strm" {
 		if targetURL, err := readLocalSTRMTarget(in.path); err == nil && targetURL != "" {
