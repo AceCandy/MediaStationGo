@@ -53,14 +53,39 @@ func (s *ArtworkStore) ImportRemote(ctx context.Context, metadataID, artworkType
 	return s.save(ctx, metadataID, artworkType, provider, sourceURL, data, mimeType)
 }
 
-func (s *ArtworkStore) importCatalogRemote(ctx context.Context, metadataID, artworkType, provider, sourceURL string) (*model.ArtworkAsset, error) {
+func (s *ArtworkStore) importCatalogRemote(ctx context.Context, metadataID, artworkType, provider, sourceURL string) (*model.ArtworkAsset, bool, error) {
+	if s.repo != nil {
+		if selected, err := s.repo.FindSelection(ctx, metadataID, artworkType); err != nil || selected != nil {
+			return selected, true, err
+		}
+	}
 	if s.imageProxy == nil {
-		return nil, errors.New("image proxy is unavailable")
+		return nil, false, errors.New("image proxy is unavailable")
 	}
 	if err := s.imageProxy.RemoveFailed(sourceURL); err != nil {
-		return nil, err
+		return nil, false, err
 	}
-	return s.ImportRemote(ctx, metadataID, artworkType, provider, sourceURL)
+	data, mimeType, err := s.imageProxy.Fetch(ctx, sourceURL)
+	if err != nil {
+		return nil, false, err
+	}
+	asset, selected, err := s.saveCatalog(ctx, metadataID, artworkType, provider, sourceURL, data, mimeType)
+	return asset, !selected, err
+}
+
+func (s *ArtworkStore) importRemoteCandidate(ctx context.Context, metadataID, artworkType, provider, sourceURL string) (*model.ArtworkAsset, bool, error) {
+	if s.imageProxy == nil {
+		return nil, false, errors.New("image proxy is unavailable")
+	}
+	data, _, err := s.imageProxy.Fetch(ctx, sourceURL)
+	if err != nil {
+		return nil, false, err
+	}
+	asset, err := s.prepareAsset(metadataID, artworkType, data)
+	if err != nil {
+		return nil, false, err
+	}
+	return s.repo.SaveCandidate(ctx, metadataID, artworkType, provider, sourceURL, asset)
 }
 
 func (s *ArtworkStore) ImportLocal(ctx context.Context, metadataID, artworkType, sourcePath string) (*model.ArtworkAsset, error) {
@@ -87,6 +112,22 @@ func (s *ArtworkStore) ImportLocal(ctx context.Context, metadataID, artworkType,
 }
 
 func (s *ArtworkStore) save(ctx context.Context, metadataID, artworkType, provider, sourceURL string, data []byte, _ string) (*model.ArtworkAsset, error) {
+	asset, err := s.prepareAsset(metadataID, artworkType, data)
+	if err != nil {
+		return nil, err
+	}
+	return s.repo.SaveSelection(ctx, metadataID, artworkType, provider, sourceURL, asset)
+}
+
+func (s *ArtworkStore) saveCatalog(ctx context.Context, metadataID, artworkType, provider, sourceURL string, data []byte, _ string) (*model.ArtworkAsset, bool, error) {
+	asset, err := s.prepareAsset(metadataID, artworkType, data)
+	if err != nil {
+		return nil, false, err
+	}
+	return s.repo.SaveCatalogSelection(ctx, metadataID, artworkType, provider, sourceURL, asset)
+}
+
+func (s *ArtworkStore) prepareAsset(metadataID, artworkType string, data []byte) (*model.ArtworkAsset, error) {
 	if strings.TrimSpace(metadataID) == "" {
 		return nil, errors.New("metadata id is required")
 	}
@@ -111,7 +152,7 @@ func (s *ArtworkStore) save(ctx context.Context, metadataID, artworkType, provid
 	if s.repo == nil {
 		return nil, errors.New("artwork repository is unavailable")
 	}
-	return s.repo.SaveSelection(ctx, metadataID, artworkType, provider, sourceURL, asset)
+	return asset, nil
 }
 
 func (s *ArtworkStore) write(path string, data []byte) error {
@@ -124,6 +165,45 @@ func (s *ArtworkStore) write(path string, data []byte) error {
 		return err
 	}
 	return writeStoredImage(path, data, ".artwork-*.tmp")
+}
+
+func (s *ArtworkStore) invalidateMissingLocalAsset(ctx context.Context, asset *model.ArtworkAsset) (bool, int64, error) {
+	if s == nil || asset == nil || s.repo == nil {
+		return false, 0, errors.New("artwork asset repository is required")
+	}
+	path, err := s.pathForStorageKey(asset.StorageKey)
+	if err != nil {
+		return false, 0, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	available, err := localArtworkFileAvailable(path)
+	if err != nil || available {
+		return false, 0, err
+	}
+	invalidated, err := s.repo.InvalidateSelectionsForMissingAsset(ctx, asset.ID)
+	return true, invalidated, err
+}
+
+func localArtworkFileAvailable(path string) (bool, error) {
+	stat, err := os.Stat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if !stat.Mode().IsRegular() {
+		return false, errors.New("artwork storage path is not a regular file")
+	}
+	file, err := os.Open(path) // #nosec G304 -- path is constrained to the managed artwork root.
+	if err != nil {
+		return false, err
+	}
+	if err := file.Close(); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func (s *ArtworkStore) Serve(ctx context.Context, w http.ResponseWriter, r *http.Request, assetID string) error {

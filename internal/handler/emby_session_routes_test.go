@@ -48,10 +48,10 @@ func TestEmbyMarkPlayedRefreshesPlaybackDevice(t *testing.T) {
 		t.Fatalf("create library: %v", err)
 	}
 	if err := repos.DB.Create(&model.Media{
-		Base:      model.Base{ID: "media-1"},
-		LibraryID: lib.ID,
-		Title:     "Watched Movie",
-		Path:      `/media/movies/Watched Movie.mkv`,
+		PermanentBase: model.PermanentBase{ID: "media-1"},
+		LibraryID:     lib.ID,
+		Title:         "Watched Movie",
+		Path:          `/media/movies/Watched Movie.mkv`,
 	}).Error; err != nil {
 		t.Fatalf("create media: %v", err)
 	}

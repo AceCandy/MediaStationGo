@@ -37,12 +37,12 @@ func createEmbyArtworkFixture(t *testing.T, db *gorm.DB, cfg *config.Config, med
 		t.Fatalf("write artwork: %v", err)
 	}
 	if err := db.Create(&model.MetadataItem{
-		Base: model.Base{ID: metadataID}, Kind: model.MetadataKindMovie, Title: "Artwork Test", Source: "test",
+		PermanentBase: model.PermanentBase{ID: metadataID}, Kind: model.MetadataKindMovie, Title: "Artwork Test", Source: "test",
 	}).Error; err != nil {
 		t.Fatalf("create metadata: %v", err)
 	}
 	if err := db.Create(&model.ArtworkAsset{
-		Base: model.Base{ID: assetID}, SHA256: strings.Repeat("a", 64), StorageKey: storageKey,
+		PermanentBase: model.PermanentBase{ID: assetID}, SHA256: strings.Repeat("a", 64), StorageKey: storageKey,
 		MimeType: mimeType, SizeBytes: int64(len(data)),
 	}).Error; err != nil {
 		t.Fatalf("create artwork asset: %v", err)
@@ -53,7 +53,7 @@ func createEmbyArtworkFixture(t *testing.T, db *gorm.DB, cfg *config.Config, med
 		t.Fatalf("create metadata artwork: %v", err)
 	}
 	if err := db.Create(&model.Media{
-		Base: model.Base{ID: mediaID}, MetadataID: metadataID, Title: "Artwork Test", Path: "/media/" + mediaID + ".mp4",
+		PermanentBase: model.PermanentBase{ID: mediaID}, MetadataID: metadataID, Title: "Artwork Test", Path: "/media/" + mediaID + ".mp4",
 	}).Error; err != nil {
 		t.Fatalf("create media: %v", err)
 	}
@@ -226,7 +226,7 @@ func TestEmbyUserItemByIDRouteReturnsJSON(t *testing.T) {
 		t.Fatalf("create library: %v", err)
 	}
 	media := model.Media{
-		Base: model.Base{
+		PermanentBase: model.PermanentBase{
 			ID:        "episode-1",
 			CreatedAt: time.Date(2026, time.August, 6, 20, 9, 14, 746_854_000, time.FixedZone("UTC+8", 8*60*60)),
 		},

@@ -186,7 +186,7 @@ func TestPersistCreditsStoresAndPreservesPersonImageKey(t *testing.T) {
 	if err := os.WriteFile(source, testArtworkPNG(t, 3, 3), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	metadata := model.MetadataItem{Base: model.Base{ID: "metadata-people-image"}, Kind: model.MetadataKindMovie, Title: "Film", Source: "local"}
+	metadata := model.MetadataItem{PermanentBase: model.PermanentBase{ID: "metadata-people-image"}, Kind: model.MetadataKindMovie, Title: "Film", Source: "local"}
 	if err := repos.DB.Create(&metadata).Error; err != nil {
 		t.Fatal(err)
 	}

@@ -56,6 +56,12 @@ type TranslationTarget struct {
 // PersonRepository 管理共享人物和作品演职员关系。
 type PersonRepository struct{ db *gorm.DB }
 
+type metadataCreditKey struct {
+	PersonID     string
+	Type         string
+	OriginalRole string
+}
+
 func (r *PersonRepository) ReplaceCredits(ctx context.Context, metadataID string, loadedTypes []string, inputs []CreditInput) error {
 	metadataID = strings.TrimSpace(metadataID)
 	if metadataID == "" {
@@ -69,6 +75,14 @@ func (r *PersonRepository) ReplaceCredits(ctx context.Context, metadataID string
 		return nil
 	}
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var existing []model.MetadataCredit
+		if err := tx.Where("metadata_id = ? AND type IN ?", metadataID, types).Find(&existing).Error; err != nil {
+			return err
+		}
+		preservedRoles := make(map[metadataCreditKey]string, len(existing))
+		for _, credit := range existing {
+			preservedRoles[metadataCreditKey{PersonID: credit.PersonID, Type: credit.Type, OriginalRole: credit.OriginalRole}] = credit.Role
+		}
 		if err := tx.Where("metadata_id = ? AND type IN ?", metadataID, types).Delete(&model.MetadataCredit{}).Error; err != nil {
 			return err
 		}
@@ -84,7 +98,7 @@ func (r *PersonRepository) ReplaceCredits(ctx context.Context, metadataID string
 			if person == nil {
 				continue
 			}
-			if err := restoreOrCreateCredit(tx, metadataID, person.ID, input); err != nil {
+			if err := saveCredit(tx, metadataID, person.ID, input, preservedRoles); err != nil {
 				return err
 			}
 		}
@@ -135,8 +149,8 @@ func (r *PersonRepository) ListPersonWorkContexts(ctx context.Context, personIDs
 	var rows []PersonWorkContext
 	err := r.db.WithContext(ctx).Table("metadata_credits AS mc").
 		Select("mc.person_id, mi.id AS metadata_id, mi.kind, mi.title, mi.original_name, mi.year, mi.release_date").
-		Joins("JOIN metadata_items AS mi ON mi.id = mc.metadata_id AND mi.deleted_at IS NULL").
-		Where("mc.deleted_at IS NULL AND mc.person_id IN ? AND mi.kind IN ?", personIDs, []string{model.MetadataKindMovie, model.MetadataKindSeries}).
+		Joins("JOIN metadata_items AS mi ON mi.id = mc.metadata_id").
+		Where("mc.person_id IN ? AND mi.kind IN ?", personIDs, []string{model.MetadataKindMovie, model.MetadataKindSeries}).
 		Order("mc.person_id, mi.release_date DESC, mi.year DESC, mi.id DESC").
 		Scan(&rows).Error
 	return rows, err
@@ -285,12 +299,16 @@ func personSourceUpdates(person model.Person, input CreditInput, source string) 
 	return map[string]any{"name": displayName, "original_name": name, "normalized_name": normalizePersonName(name), "overview": input.Overview, "profile_url": input.ProfileURL, "profile_image_key": key, "source": source, "deleted_at": nil, "updated_at": time.Now()}
 }
 
-func restoreOrCreateCredit(tx *gorm.DB, metadataID, personID string, input CreditInput) error {
+func saveCredit(tx *gorm.DB, metadataID, personID string, input CreditInput, preservedRoles map[metadataCreditKey]string) error {
 	originalRole := strings.TrimSpace(input.OriginalRole)
 	var credit model.MetadataCredit
-	err := tx.Unscoped().Where("metadata_id = ? AND person_id = ? AND type = ? AND original_role = ?", metadataID, personID, input.Type, originalRole).First(&credit).Error
+	err := tx.Where("metadata_id = ? AND person_id = ? AND type = ? AND original_role = ?", metadataID, personID, input.Type, originalRole).First(&credit).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return tx.Create(&model.MetadataCredit{MetadataID: metadataID, PersonID: personID, Type: input.Type, OriginalRole: originalRole, Role: originalRole, SortOrder: input.SortOrder}).Error
+		role := preservedRoles[metadataCreditKey{PersonID: personID, Type: input.Type, OriginalRole: originalRole}]
+		if strings.TrimSpace(role) == "" {
+			role = originalRole
+		}
+		return tx.Create(&model.MetadataCredit{MetadataID: metadataID, PersonID: personID, Type: input.Type, OriginalRole: originalRole, Role: role, SortOrder: input.SortOrder}).Error
 	}
 	if err != nil {
 		return err
@@ -299,7 +317,7 @@ func restoreOrCreateCredit(tx *gorm.DB, metadataID, personID string, input Credi
 	if credit.OriginalRole != originalRole || strings.TrimSpace(role) == "" {
 		role = originalRole
 	}
-	return tx.Unscoped().Model(&credit).Updates(map[string]any{"role": role, "original_role": originalRole, "sort_order": input.SortOrder, "deleted_at": nil, "updated_at": time.Now()}).Error
+	return tx.Model(&credit).Updates(map[string]any{"role": role, "original_role": originalRole, "sort_order": input.SortOrder, "updated_at": time.Now()}).Error
 }
 
 func normalizeCreditTypes(values []string) ([]string, error) {

@@ -62,9 +62,9 @@ func (r *MediaViewRepository) query(ctx context.Context) *gorm.DB {
 	return r.db.WithContext(ctx).
 		Table("media AS m").
 		Joins("LEFT JOIN media_probe_metadata AS pm ON pm.media_id = m.id").
-		Joins("JOIN metadata_items AS mi ON mi.id = m.metadata_id AND mi.deleted_at IS NULL").
-		Joins("LEFT JOIN metadata_items AS season_metadata ON season_metadata.id = mi.parent_id AND mi.kind = 'episode' AND season_metadata.kind = 'season' AND season_metadata.deleted_at IS NULL").
-		Joins("LEFT JOIN metadata_items AS series_metadata ON series_metadata.id = CASE WHEN mi.kind = 'episode' THEN season_metadata.parent_id WHEN mi.kind = 'season' THEN mi.parent_id ELSE NULL END AND series_metadata.kind = 'series' AND series_metadata.deleted_at IS NULL").
+		Joins("JOIN metadata_items AS mi ON mi.id = m.metadata_id").
+		Joins("LEFT JOIN metadata_items AS season_metadata ON season_metadata.id = mi.parent_id AND mi.kind = 'episode' AND season_metadata.kind = 'season'").
+		Joins("LEFT JOIN metadata_items AS series_metadata ON series_metadata.id = CASE WHEN mi.kind = 'episode' THEN season_metadata.parent_id WHEN mi.kind = 'season' THEN mi.parent_id ELSE NULL END AND series_metadata.kind = 'series'").
 		Joins(`LEFT JOIN LATERAL (
 			SELECT
 				MIN(CASE WHEN mid.provider = 'tmdb' THEN mid.external_id END) AS tmdb_external_id,
@@ -72,15 +72,14 @@ func (r *MediaViewRepository) query(ctx context.Context) *gorm.DB {
 				MIN(CASE WHEN mid.provider = 'douban' THEN mid.external_id END) AS douban_external_id,
 				MIN(CASE WHEN mid.provider = 'thetvdb' THEN mid.external_id END) AS thetvdb_external_id
 			FROM metadata_identifiers AS mid
-			WHERE mid.metadata_id = mi.id AND mid.entity_kind = mi.kind AND mid.deleted_at IS NULL
+			WHERE mid.metadata_id = mi.id AND mid.entity_kind = mi.kind
 		) AS identifiers ON TRUE`).
-		Joins("LEFT JOIN metadata_artworks AS poster ON poster.metadata_id = mi.id AND poster.artwork_type = 'poster' AND poster.deleted_at IS NULL").
-		Joins("LEFT JOIN artwork_assets AS poster_asset ON poster_asset.id = poster.asset_id AND poster_asset.deleted_at IS NULL").
-		Joins("LEFT JOIN metadata_artworks AS backdrop ON backdrop.metadata_id = mi.id AND backdrop.artwork_type = 'backdrop' AND backdrop.deleted_at IS NULL").
-		Joins("LEFT JOIN artwork_assets AS backdrop_asset ON backdrop_asset.id = backdrop.asset_id AND backdrop_asset.deleted_at IS NULL").
-		Joins("LEFT JOIN metadata_artworks AS still ON still.metadata_id = mi.id AND still.artwork_type = 'still' AND still.deleted_at IS NULL").
-		Joins("LEFT JOIN artwork_assets AS still_asset ON still_asset.id = still.asset_id AND still_asset.deleted_at IS NULL").
-		Where("m.deleted_at IS NULL")
+		Joins("LEFT JOIN metadata_artworks AS poster ON poster.metadata_id = mi.id AND poster.artwork_type = 'poster'").
+		Joins("LEFT JOIN artwork_assets AS poster_asset ON poster_asset.id = poster.asset_id").
+		Joins("LEFT JOIN metadata_artworks AS backdrop ON backdrop.metadata_id = mi.id AND backdrop.artwork_type = 'backdrop'").
+		Joins("LEFT JOIN artwork_assets AS backdrop_asset ON backdrop_asset.id = backdrop.asset_id").
+		Joins("LEFT JOIN metadata_artworks AS still ON still.metadata_id = mi.id AND still.artwork_type = 'still'").
+		Joins("LEFT JOIN artwork_assets AS still_asset ON still_asset.id = still.asset_id")
 }
 
 func applyMediaViewFilter(q *gorm.DB, filter MediaQueryFilter) *gorm.DB {
@@ -190,11 +189,10 @@ func (r *MediaViewRepository) ListFavoriteCards(ctx context.Context, userID stri
 	logicalID := "CASE WHEN mi.kind IN ('episode', 'season') THEN COALESCE(series_metadata.id, mi.id) ELSE mi.id END"
 	base := r.db.WithContext(ctx).
 		Table("media AS m").
-		Joins("JOIN metadata_items AS mi ON mi.id = m.metadata_id AND mi.deleted_at IS NULL").
-		Joins("LEFT JOIN metadata_items AS season_metadata ON season_metadata.id = mi.parent_id AND mi.kind = 'episode' AND season_metadata.kind = 'season' AND season_metadata.deleted_at IS NULL").
-		Joins("LEFT JOIN metadata_items AS series_metadata ON series_metadata.id = CASE WHEN mi.kind = 'episode' THEN season_metadata.parent_id WHEN mi.kind = 'season' THEN mi.parent_id ELSE NULL END AND series_metadata.kind = 'series' AND series_metadata.deleted_at IS NULL").
-		Joins("JOIN favorites AS f ON f.user_id = ? AND f.deleted_at IS NULL AND (m.metadata_id = f.metadata_id OR "+logicalID+" = f.metadata_id)", userID).
-		Where("m.deleted_at IS NULL")
+		Joins("JOIN metadata_items AS mi ON mi.id = m.metadata_id").
+		Joins("LEFT JOIN metadata_items AS season_metadata ON season_metadata.id = mi.parent_id AND mi.kind = 'episode' AND season_metadata.kind = 'season'").
+		Joins("LEFT JOIN metadata_items AS series_metadata ON series_metadata.id = CASE WHEN mi.kind = 'episode' THEN season_metadata.parent_id WHEN mi.kind = 'season' THEN mi.parent_id ELSE NULL END AND series_metadata.kind = 'series'").
+		Joins("JOIN favorites AS f ON f.user_id = ? AND f.deleted_at IS NULL AND (m.metadata_id = f.metadata_id OR "+logicalID+" = f.metadata_id)", userID)
 	base = applyMediaViewFilter(base, filter)
 	type favoriteCard struct {
 		MediaID string `gorm:"column:media_id"`

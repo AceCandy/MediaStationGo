@@ -24,8 +24,8 @@ func TestGenerateSTRMForLibraryWritesFilesAndRecords(t *testing.T) {
 		t.Fatal(err)
 	}
 	rows := []model.Media{
-		{Base: model.Base{ID: "remote-media"}, LibraryID: lib.ID, Title: "远程电影", Year: 2026, Path: filepath.Join(lib.Path, "远程电影.strm"), Container: "strm", STRMURL: "https://cdn.example.test/remote-movie.mkv"},
-		{Base: model.Base{ID: "local-media"}, LibraryID: lib.ID, Title: "本地电影", Year: 2025, Path: filepath.Join(t.TempDir(), "本地电影.mkv")},
+		{PermanentBase: model.PermanentBase{ID: "remote-media"}, LibraryID: lib.ID, Title: "远程电影", Year: 2026, Path: filepath.Join(lib.Path, "远程电影.strm"), Container: "strm", STRMURL: "https://cdn.example.test/remote-movie.mkv"},
+		{PermanentBase: model.PermanentBase{ID: "local-media"}, LibraryID: lib.ID, Title: "本地电影", Year: 2025, Path: filepath.Join(t.TempDir(), "本地电影.mkv")},
 	}
 	for i := range rows {
 		if err := repos.DB.Create(&rows[i]).Error; err != nil {
@@ -86,7 +86,7 @@ func TestGenerateSTRMForLibraryWritesFilesAndRecords(t *testing.T) {
 
 func TestGeneratedSTRMRecordRejectsProviderProtocol(t *testing.T) {
 	svc := &STRMService{}
-	err := svc.upsertGeneratedRecord(t.Context(), model.Media{Base: model.Base{ID: "media-1"}}, "/tmp/movie.strm", "openlist://movie", "movie")
+	err := svc.upsertGeneratedRecord(t.Context(), model.Media{PermanentBase: model.PermanentBase{ID: "media-1"}}, "/tmp/movie.strm", "openlist://movie", "movie")
 	if err == nil {
 		t.Fatal("provider-backed STRM protocol should be rejected")
 	}
@@ -103,7 +103,7 @@ func TestGenerateSTRMForLibrarySignsDefaultPlaybackToken(t *testing.T) {
 	if err := repos.Library.Create(t.Context(), &lib); err != nil {
 		t.Fatal(err)
 	}
-	media := model.Media{Base: model.Base{ID: "remote-media"}, LibraryID: lib.ID, Title: "远程电影", Year: 2026, Path: filepath.Join(lib.Path, "远程电影.strm"), Container: "strm", STRMURL: "https://cdn.example.test/remote-movie.mkv", DurationSec: 2 * 60 * 60}
+	media := model.Media{PermanentBase: model.PermanentBase{ID: "remote-media"}, LibraryID: lib.ID, Title: "远程电影", Year: 2026, Path: filepath.Join(lib.Path, "远程电影.strm"), Container: "strm", STRMURL: "https://cdn.example.test/remote-movie.mkv", DurationSec: 2 * 60 * 60}
 	if err := repos.DB.Create(&media).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -156,7 +156,7 @@ func TestSTRMPlaybackURLScopesProvidedAccountToken(t *testing.T) {
 	svc := NewSTRMService(zap.NewNop(), nil, cfg)
 	accountToken := signStreamTestToken(t, Claims{UserID: "admin-1", Role: "admin", Tier: "plus"})
 	got := svc.strmPlaybackURL(t.Context(), model.Media{
-		Base: model.Base{ID: "media-1"}, DurationSec: 2 * 60 * 60,
+		PermanentBase: model.PermanentBase{ID: "media-1"}, DurationSec: 2 * 60 * 60,
 	}, "http://nas.example:18080", accountToken)
 	u, err := url.Parse(got)
 	if err != nil {
@@ -190,7 +190,7 @@ func TestSTRMPlaybackURLRejectsUnusableProvidedTokens(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := svc.strmPlaybackURL(t.Context(), model.Media{Base: model.Base{ID: "media-1"}}, "http://nas.example:18080", tt.token)
+			got := svc.strmPlaybackURL(t.Context(), model.Media{PermanentBase: model.PermanentBase{ID: "media-1"}}, "http://nas.example:18080", tt.token)
 			u, err := url.Parse(got)
 			if err != nil {
 				t.Fatal(err)
@@ -209,7 +209,7 @@ func TestGenerateSTRMForLibraryCleanupStaleFilesAndRecords(t *testing.T) {
 	if err := repos.Library.Create(t.Context(), &lib); err != nil {
 		t.Fatal(err)
 	}
-	media := model.Media{Base: model.Base{ID: "remote-media"}, LibraryID: lib.ID, Title: "远程电影", Year: 2026, Path: filepath.Join(lib.Path, "远程电影.strm"), Container: "strm", STRMURL: "https://cdn.example.test/remote-movie.mkv"}
+	media := model.Media{PermanentBase: model.PermanentBase{ID: "remote-media"}, LibraryID: lib.ID, Title: "远程电影", Year: 2026, Path: filepath.Join(lib.Path, "远程电影.strm"), Container: "strm", STRMURL: "https://cdn.example.test/remote-movie.mkv"}
 	if err := repos.DB.Create(&media).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -319,7 +319,7 @@ func TestGenerateSTRMForLibraryUsesCategoryDefaultOutputDir(t *testing.T) {
 	if err := repos.Library.Create(t.Context(), &lib); err != nil {
 		t.Fatal(err)
 	}
-	media := model.Media{Base: model.Base{ID: "show-1"}, LibraryID: lib.ID, Title: "第一集", Path: filepath.Join(lib.Path, "Show", "S01E01.strm"), Container: "strm", STRMURL: "https://cdn.example.test/show-s01e01.mkv", SeasonNum: 1, EpisodeNum: 1}
+	media := model.Media{PermanentBase: model.PermanentBase{ID: "show-1"}, LibraryID: lib.ID, Title: "第一集", Path: filepath.Join(lib.Path, "Show", "S01E01.strm"), Container: "strm", STRMURL: "https://cdn.example.test/show-s01e01.mkv", SeasonNum: 1, EpisodeNum: 1}
 	if err := repos.DB.Create(&media).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -349,13 +349,13 @@ func TestGenerateSTRMRemapsLegacyAppDataOutputDir(t *testing.T) {
 		t.Fatal(err)
 	}
 	media := model.Media{
-		Base:      model.Base{ID: "remote-media"},
-		LibraryID: lib.ID,
-		Title:     "远程电影",
-		Year:      2026,
-		Path:      filepath.Join(lib.Path, "远程电影.strm"),
-		Container: "strm",
-		STRMURL:   "https://cdn.example.test/remote-movie.mkv",
+		PermanentBase: model.PermanentBase{ID: "remote-media"},
+		LibraryID:     lib.ID,
+		Title:         "远程电影",
+		Year:          2026,
+		Path:          filepath.Join(lib.Path, "远程电影.strm"),
+		Container:     "strm",
+		STRMURL:       "https://cdn.example.test/remote-movie.mkv",
 	}
 	if err := repos.DB.Create(&media).Error; err != nil {
 		t.Fatal(err)
@@ -390,8 +390,8 @@ func TestGenerateSTRMForLibraryUsesPathEpisodeFallback(t *testing.T) {
 		t.Fatal(err)
 	}
 	rows := []model.Media{
-		{Base: model.Base{ID: "ep-1"}, LibraryID: lib.ID, Title: "南部档案", Path: filepath.Join(lib.Path, "南部档案", "Season 01", "Archives.The.Nanyang.Mystery.S01E01.strm"), Container: "strm", STRMURL: "https://cdn.example.test/ep1.mkv"},
-		{Base: model.Base{ID: "ep-2"}, LibraryID: lib.ID, Title: "南部档案", Path: filepath.Join(lib.Path, "南部档案", "Season 01", "Archives.The.Nanyang.Mystery.S01E02.strm"), Container: "strm", STRMURL: "https://cdn.example.test/ep2.mkv"},
+		{PermanentBase: model.PermanentBase{ID: "ep-1"}, LibraryID: lib.ID, Title: "南部档案", Path: filepath.Join(lib.Path, "南部档案", "Season 01", "Archives.The.Nanyang.Mystery.S01E01.strm"), Container: "strm", STRMURL: "https://cdn.example.test/ep1.mkv"},
+		{PermanentBase: model.PermanentBase{ID: "ep-2"}, LibraryID: lib.ID, Title: "南部档案", Path: filepath.Join(lib.Path, "南部档案", "Season 01", "Archives.The.Nanyang.Mystery.S01E02.strm"), Container: "strm", STRMURL: "https://cdn.example.test/ep2.mkv"},
 	}
 	for i := range rows {
 		if err := repos.DB.Create(&rows[i]).Error; err != nil {
@@ -426,12 +426,12 @@ func TestGenerateSTRMForLibraryPreservesSourceTree(t *testing.T) {
 		t.Fatal(err)
 	}
 	media := model.Media{
-		Base:      model.Base{ID: "ep-1"},
-		LibraryID: lib.ID,
-		Title:     "南部档案",
-		Path:      filepath.Join(lib.Path, "南部档案", "Season 01", "Archives.The.Nanyang.Mystery.S01E01.strm"),
-		Container: "strm",
-		STRMURL:   "https://cdn.example.test/ep1.mkv",
+		PermanentBase: model.PermanentBase{ID: "ep-1"},
+		LibraryID:     lib.ID,
+		Title:         "南部档案",
+		Path:          filepath.Join(lib.Path, "南部档案", "Season 01", "Archives.The.Nanyang.Mystery.S01E01.strm"),
+		Container:     "strm",
+		STRMURL:       "https://cdn.example.test/ep1.mkv",
 	}
 	if err := repos.DB.Create(&media).Error; err != nil {
 		t.Fatal(err)
@@ -467,8 +467,8 @@ func TestGenerateSTRMForLibraryCanSkipLocalMedia(t *testing.T) {
 		t.Fatal(err)
 	}
 	rows := []model.Media{
-		{Base: model.Base{ID: "remote-media"}, LibraryID: lib.ID, Title: "远程电影", Year: 2026, Path: filepath.Join(lib.Path, "远程电影.strm"), Container: "strm", STRMURL: "https://cdn.example.test/remote-movie.mkv"},
-		{Base: model.Base{ID: "local-media"}, LibraryID: lib.ID, Title: "本地电影", Year: 2025, Path: filepath.Join(t.TempDir(), "本地电影.mkv")},
+		{PermanentBase: model.PermanentBase{ID: "remote-media"}, LibraryID: lib.ID, Title: "远程电影", Year: 2026, Path: filepath.Join(lib.Path, "远程电影.strm"), Container: "strm", STRMURL: "https://cdn.example.test/remote-movie.mkv"},
+		{PermanentBase: model.PermanentBase{ID: "local-media"}, LibraryID: lib.ID, Title: "本地电影", Year: 2025, Path: filepath.Join(t.TempDir(), "本地电影.mkv")},
 	}
 	for i := range rows {
 		if err := repos.DB.Create(&rows[i]).Error; err != nil {
@@ -508,8 +508,8 @@ func TestGenerateSTRMForAllLibrariesWritesPerLibraryFolders(t *testing.T) {
 		t.Fatal(err)
 	}
 	rows := []model.Media{
-		{Base: model.Base{ID: "movie-1"}, LibraryID: movieLib.ID, Title: "远程电影", Year: 2026, Path: filepath.Join(movieLib.Path, "远程电影.strm"), Container: "strm", STRMURL: "https://cdn.example.test/remote-movie.mkv"},
-		{Base: model.Base{ID: "show-1"}, LibraryID: tvLib.ID, Title: "第一集", Path: filepath.Join(tvLib.Path, "Show", "S01E01.strm"), Container: "strm", STRMURL: "https://cdn.example.test/show-s01e01.mkv", SeasonNum: 1, EpisodeNum: 1},
+		{PermanentBase: model.PermanentBase{ID: "movie-1"}, LibraryID: movieLib.ID, Title: "远程电影", Year: 2026, Path: filepath.Join(movieLib.Path, "远程电影.strm"), Container: "strm", STRMURL: "https://cdn.example.test/remote-movie.mkv"},
+		{PermanentBase: model.PermanentBase{ID: "show-1"}, LibraryID: tvLib.ID, Title: "第一集", Path: filepath.Join(tvLib.Path, "Show", "S01E01.strm"), Container: "strm", STRMURL: "https://cdn.example.test/show-s01e01.mkv", SeasonNum: 1, EpisodeNum: 1},
 	}
 	for i := range rows {
 		if err := repos.DB.Create(&rows[i]).Error; err != nil {

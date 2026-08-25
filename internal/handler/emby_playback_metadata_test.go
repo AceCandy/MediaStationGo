@@ -36,14 +36,14 @@ func TestEmbyVideoStreamRejectsMetadataID(t *testing.T) {
 		t.Fatalf("create library: %v", err)
 	}
 	metadata := model.MetadataItem{
-		Base: model.Base{ID: "metadata-playback"}, Kind: model.MetadataKindMovie,
+		PermanentBase: model.PermanentBase{ID: "metadata-playback"}, Kind: model.MetadataKindMovie,
 		Title: "Metadata Playback", Source: "tmdb",
 	}
 	if err := db.Create(&metadata).Error; err != nil {
 		t.Fatalf("create metadata: %v", err)
 	}
 	if err := db.Create(&model.Media{
-		Base: model.Base{ID: "media-playback"}, LibraryID: lib.ID, MetadataID: metadata.ID,
+		PermanentBase: model.PermanentBase{ID: "media-playback"}, LibraryID: lib.ID, MetadataID: metadata.ID,
 		Title: metadata.Title, Path: "/unused/movie.mp4", Container: "mp4",
 	}).Error; err != nil {
 		t.Fatalf("create media: %v", err)

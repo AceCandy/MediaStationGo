@@ -17,7 +17,7 @@ func newMetadataMergeTestRepository(t *testing.T) *Container {
 		t.Fatal(err)
 	}
 	if err := db.AutoMigrate(
-		&model.MetadataItem{}, &model.MetadataIdentifier{}, &model.ArtworkAsset{}, &model.MetadataArtwork{},
+		&model.MetadataItem{}, &model.MetadataIdentifier{}, &model.MetadataProviderSnapshot{}, &model.ArtworkAsset{}, &model.MetadataArtwork{}, &model.MetadataArtworkCandidate{},
 		&model.Person{}, &model.PersonIdentifier{}, &model.MetadataCredit{},
 		&model.Media{}, &model.PlaybackHistory{}, &model.Favorite{}, &model.Playlist{}, &model.PlaylistItem{},
 	); err != nil {
@@ -33,10 +33,13 @@ func TestUpsertCanonicalExplicitMergeMovesMovieReferences(t *testing.T) {
 	target := createTestMetadata(t, repos, model.MetadataItem{Kind: model.MetadataKindMovie, Title: "Canonical", Source: "tmdb"},
 		model.MetadataIdentifier{Provider: "tmdb", EntityKind: model.MetadataKindMovie, ExternalID: "200"})
 	media := []model.Media{
-		{Base: model.Base{ID: "media-source"}, MetadataID: source.ID, Title: "Local", Path: "/source.mkv"},
-		{Base: model.Base{ID: "media-target"}, MetadataID: target.ID, Title: "Canonical", Path: "/target.mkv"},
+		{PermanentBase: model.PermanentBase{ID: "media-source"}, MetadataID: source.ID, Title: "Local", Path: "/source.mkv"},
+		{PermanentBase: model.PermanentBase{ID: "media-target"}, MetadataID: target.ID, Title: "Canonical", Path: "/target.mkv"},
 	}
 	if err := repos.DB.Create(&media).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := repos.Metadata.UpsertProviderSnapshot(t.Context(), source.ID, "douban", []byte(`{"subject":{"id":"0100"}}`), time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	playlist := model.Playlist{UserID: "user", Name: "List"}
@@ -92,6 +95,9 @@ func TestUpsertCanonicalExplicitMergeMovesMovieReferences(t *testing.T) {
 	var history model.PlaybackHistory
 	if err := repos.DB.First(&history, "metadata_id = ?", target.ID).Error; err != nil || history.PositionMs != 200 {
 		t.Fatalf("newer history not preserved: %#v err=%v", history, err)
+	}
+	if snapshot, err := repos.Metadata.FindProviderSnapshot(t.Context(), target.ID, "douban"); err != nil || snapshot == nil {
+		t.Fatalf("douban snapshot not moved: %#v err=%v", snapshot, err)
 	}
 }
 

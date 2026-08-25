@@ -39,6 +39,9 @@ func (s *ScraperService) matchFromMediaExternalIDsWithOutcome(ctx context.Contex
 				if s.mediaExternalIDMatchTrusted(m, lib, match, "tmdb") {
 					match.Source = "tmdb"
 					match.AllowIdentifierMerge = true
+					if !mediaIsEpisodic(m, lib) {
+						match.DoubanID = strings.TrimSpace(m.DoubanID)
+					}
 					preferExistingLocalizedEpisodeTitle(m, lib, match)
 					result.Match = match
 					return result

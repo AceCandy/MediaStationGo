@@ -124,7 +124,7 @@ func (o *OrganizerService) OrganizeLibraryWithOptions(ctx context.Context, libra
 	}
 	var rows []model.Media
 	if err := o.repo.DB.WithContext(ctx).
-		Where("library_id = ? AND deleted_at IS NULL", libraryID).
+		Where("library_id = ?", libraryID).
 		Find(&rows).Error; err != nil {
 		return nil, err
 	}

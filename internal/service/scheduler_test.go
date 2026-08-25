@@ -67,6 +67,44 @@ func TestSchedulerRunNowAsyncSurvivesCallerCancellation(t *testing.T) {
 	}
 }
 
+func TestSchedulerRegistersDisabledMetadataArtworkBackfill(t *testing.T) {
+	scheduler := NewSchedulerService(zap.NewNop(), nil, nil, nil, nil)
+	ctx, cancel := context.WithCancel(t.Context())
+	scheduler.Start(ctx)
+	defer func() {
+		cancel()
+		scheduler.Stop()
+	}()
+	for _, status := range scheduler.Status() {
+		if status.Name == "metadata_artwork_backfill" {
+			if status.Enabled || status.IntervalSeconds != int64((24*time.Hour)/time.Second) {
+				t.Fatalf("artwork backfill status = %#v", status)
+			}
+			return
+		}
+	}
+	t.Fatal("metadata artwork backfill scheduler job is missing")
+}
+
+func TestSchedulerRegistersDisabledDoubanMovieEnrichment(t *testing.T) {
+	scheduler := NewSchedulerService(zap.NewNop(), nil, nil, nil, nil)
+	ctx, cancel := context.WithCancel(t.Context())
+	scheduler.Start(ctx)
+	defer func() {
+		cancel()
+		scheduler.Stop()
+	}()
+	for _, status := range scheduler.Status() {
+		if status.Name == "douban_movie_enrichment" {
+			if status.Enabled || status.IntervalSeconds != int64((24*time.Hour)/time.Second) {
+				t.Fatalf("douban enrichment status = %#v", status)
+			}
+			return
+		}
+	}
+	t.Fatal("douban movie enrichment scheduler job is missing")
+}
+
 func TestSchedulerRunNowAsyncRejectsDuplicateRun(t *testing.T) {
 	scheduler := NewSchedulerService(zap.NewNop(), nil, nil, nil, nil)
 	started := make(chan struct{})

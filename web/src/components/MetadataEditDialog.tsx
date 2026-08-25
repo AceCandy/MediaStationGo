@@ -29,8 +29,6 @@ export function MetadataEditDialog({
     title: '',
     original_name: '',
     overview: '',
-    poster_url: '',
-    backdrop_url: '',
     year: '',
     release_date: '',
     rating: '',
@@ -53,8 +51,6 @@ export function MetadataEditDialog({
       title: media.title || '',
       original_name: media.original_name || '',
       overview: media.overview || '',
-      poster_url: media.poster_url || '',
-      backdrop_url: media.backdrop_url || '',
       year: media.year > 0 ? String(media.year) : '',
       release_date: media.release_date || '',
       rating: media.rating > 0 ? String(media.rating) : '',
@@ -89,8 +85,6 @@ export function MetadataEditDialog({
     const payload: MediaMetadataUpdate = {
       title: form.title,
       overview: form.overview,
-      poster_url: form.poster_url,
-      backdrop_url: form.backdrop_url,
       year: Math.trunc(toNumber(form.year)),
       release_date: form.release_date,
       rating: toNumber(form.rating),
@@ -151,8 +145,6 @@ export function MetadataEditDialog({
         <div className="grid flex-1 gap-4 overflow-y-auto p-5 md:grid-cols-2">
           <Field label="标题" value={form.title} onChange={(value) => set('title', value)} />
           {!isSeries && <Field label="原名 / 单集名" value={form.original_name} onChange={(value) => set('original_name', value)} />}
-          <Field label="海报 URL" value={form.poster_url} onChange={(value) => set('poster_url', value)} />
-          <Field label="背景 / 单集剧照 URL" value={form.backdrop_url} onChange={(value) => set('backdrop_url', value)} />
           <Field label="年份" value={form.year} onChange={(value) => set('year', value)} inputMode="numeric" />
           <Field label="上映日期" value={form.release_date} onChange={(value) => set('release_date', value)} type="date" />
           <Field label="评分" value={form.rating} onChange={(value) => set('rating', value)} inputMode="decimal" />

@@ -20,7 +20,7 @@ func (s *MediaService) DeleteLibrary(ctx context.Context, id string) error {
 		if err := tx.Model(&model.Media{}).Where("library_id = ?", id).Where("metadata_id IS NOT NULL").Pluck("metadata_id", &metadataIDs).Error; err != nil {
 			return err
 		}
-		if err := tx.Unscoped().Where("library_id = ?", id).Delete(&model.Media{}).Error; err != nil {
+		if err := tx.Where("library_id = ?", id).Delete(&model.Media{}).Error; err != nil {
 			return err
 		}
 		if err := hardDeleteLibraryRoots(ctx, tx, id); err != nil {

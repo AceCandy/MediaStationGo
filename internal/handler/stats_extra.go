@@ -90,7 +90,7 @@ func statsTopContentHandler(svc *service.Container) gin.HandlerFunc {
 		visibility := mediaVisibilityForRequest(c, svc)
 		var rows []row
 		q := svc.Repo.DB.Table("playback_histories").
-			Joins("JOIN media ON media.id = playback_histories.media_id AND media.deleted_at IS NULL")
+			Joins("JOIN media ON media.id = playback_histories.media_id")
 		q = applyMediaVisibilityQuery(q, visibility)
 		_ = q.Select("playback_histories.media_id, COUNT(*) as play_count, MAX(playback_histories.watched_at) as last_played").
 			Group("playback_histories.media_id").

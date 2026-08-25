@@ -134,7 +134,7 @@ func migrateScraperTestModels(t *testing.T, db *gorm.DB, extra ...any) error {
 	models := []any{
 		&model.Library{}, &model.MetadataItem{}, &model.MetadataIdentifier{},
 		&model.MetadataProviderSnapshot{}, &model.CatalogHydrationJob{},
-		&model.ArtworkAsset{}, &model.MetadataArtwork{}, &model.Media{},
+		&model.ArtworkAsset{}, &model.MetadataArtwork{}, &model.MetadataArtworkCandidate{}, &model.Media{},
 		&model.Favorite{}, &model.PlaybackHistory{}, &model.PlaylistItem{},
 		&model.Person{}, &model.PersonIdentifier{}, &model.MetadataCredit{},
 	}

@@ -98,7 +98,7 @@ func (r *MediaRepository) BackfillSearchIndex(ctx context.Context, batchLimit in
 const metadataPlayableExistsSQL = `(
 	(search_metadata.kind = 'movie' AND EXISTS (
 		SELECT 1 FROM media AS playable_media
-		WHERE playable_media.metadata_id = search_metadata.id AND playable_media.deleted_at IS NULL
+		WHERE playable_media.metadata_id = search_metadata.id
 	))
 	OR
 	(search_metadata.kind = 'series' AND EXISTS (
@@ -107,13 +107,10 @@ const metadataPlayableExistsSQL = `(
 		JOIN metadata_items AS playable_episode
 			ON playable_episode.parent_id = playable_season.id
 			AND playable_episode.kind = 'episode'
-			AND playable_episode.deleted_at IS NULL
 		JOIN media AS playable_media
 			ON playable_media.metadata_id = playable_episode.id
-			AND playable_media.deleted_at IS NULL
 		WHERE playable_season.parent_id = search_metadata.id
 			AND playable_season.kind = 'season'
-			AND playable_season.deleted_at IS NULL
 	))
 )`
 
@@ -121,7 +118,6 @@ const metadataPlayableInLibrariesSQL = `(
 	(search_metadata.kind = 'movie' AND EXISTS (
 		SELECT 1 FROM media AS playable_media
 		WHERE playable_media.metadata_id = search_metadata.id
-			AND playable_media.deleted_at IS NULL
 			AND playable_media.library_id IN ?
 	))
 	OR
@@ -131,14 +127,11 @@ const metadataPlayableInLibrariesSQL = `(
 		JOIN metadata_items AS playable_episode
 			ON playable_episode.parent_id = playable_season.id
 			AND playable_episode.kind = 'episode'
-			AND playable_episode.deleted_at IS NULL
 		JOIN media AS playable_media
 			ON playable_media.metadata_id = playable_episode.id
-			AND playable_media.deleted_at IS NULL
 			AND playable_media.library_id IN ?
 		WHERE playable_season.parent_id = search_metadata.id
 			AND playable_season.kind = 'season'
-			AND playable_season.deleted_at IS NULL
 	))
 )`
 
@@ -202,7 +195,7 @@ func (r *MediaViewRepository) prepareMetadataSearchFilter(ctx context.Context, f
 		return filter, nil
 	}
 	filter.LibraryRestricted = true
-	q := r.db.WithContext(ctx).Table("media").Distinct("library_id").Where("deleted_at IS NULL")
+	q := r.db.WithContext(ctx).Table("media").Distinct("library_id")
 	q = q.Where("library_id NOT IN ?", filter.HiddenLibraryIDs)
 	if err := q.Pluck("library_id", &filter.VisibleLibraryIDs).Error; err != nil {
 		return filter, err
@@ -255,7 +248,6 @@ func stringSet(values []string) map[string]struct{} {
 func (r *MediaViewRepository) metadataSearchQuery(ctx context.Context, filter MetadataSearchFilter) *gorm.DB {
 	q := r.db.WithContext(ctx).
 		Table("metadata_items AS search_metadata").
-		Where("search_metadata.deleted_at IS NULL").
 		Where("search_metadata.kind IN ?", filter.Kinds).
 		Where(metadataPlayableExistsSQL)
 	if !filter.IncludeNSFW {
@@ -271,7 +263,6 @@ func (r *MediaViewRepository) metadataSearchQuery(ctx context.Context, filter Me
 		q = q.Where(`EXISTS (
 			SELECT 1 FROM metadata_credits AS search_credit
 			WHERE search_credit.metadata_id = search_metadata.id
-				AND search_credit.deleted_at IS NULL
 				AND search_credit.person_id IN ?
 		)`, filter.PersonIDs)
 	}
@@ -297,11 +288,9 @@ func (r *MediaViewRepository) metadataSearchQuery(ctx context.Context, filter Me
 						FROM metadata_items AS history_episode
 						JOIN metadata_items AS history_season
 							ON history_season.id = history_episode.parent_id
-							AND history_season.kind = 'season'
-							AND history_season.deleted_at IS NULL
-						WHERE history_episode.id = search_history.metadata_id
-							AND history_episode.kind = 'episode'
-							AND history_episode.deleted_at IS NULL
+								AND history_season.kind = 'season'
+							WHERE history_episode.id = search_history.metadata_id
+								AND history_episode.kind = 'episode'
 							AND history_season.parent_id = search_metadata.id
 					))
 				)
@@ -433,10 +422,9 @@ func (r *MediaViewRepository) FindMetadataSearchRepresentatives(ctx context.Cont
 	topNSFW := "CASE WHEN attached_metadata.kind = 'movie' THEN attached_metadata.nsfw WHEN attached_metadata.kind = 'episode' THEN top_series.nsfw ELSE TRUE END"
 	base := r.db.WithContext(ctx).
 		Table("media AS search_media").
-		Joins("JOIN metadata_items AS attached_metadata ON attached_metadata.id = search_media.metadata_id AND attached_metadata.deleted_at IS NULL").
-		Joins("LEFT JOIN metadata_items AS top_season ON top_season.id = attached_metadata.parent_id AND attached_metadata.kind = 'episode' AND top_season.kind = 'season' AND top_season.deleted_at IS NULL").
-		Joins("LEFT JOIN metadata_items AS top_series ON top_series.id = top_season.parent_id AND top_series.kind = 'series' AND top_series.deleted_at IS NULL").
-		Where("search_media.deleted_at IS NULL").
+		Joins("JOIN metadata_items AS attached_metadata ON attached_metadata.id = search_media.metadata_id").
+		Joins("LEFT JOIN metadata_items AS top_season ON top_season.id = attached_metadata.parent_id AND attached_metadata.kind = 'episode' AND top_season.kind = 'season'").
+		Joins("LEFT JOIN metadata_items AS top_series ON top_series.id = top_season.parent_id AND top_series.kind = 'series'").
 		Where(topID+" IN ?", metadataIDs)
 	if !filter.IncludeNSFW {
 		base = base.Where("COALESCE(" + topNSFW + ", TRUE) = FALSE")
@@ -517,14 +505,13 @@ func (r *MediaViewRepository) metadataSearchPresentations(ctx context.Context, m
 				MIN(CASE WHEN provider = 'bangumi' THEN external_id END) AS bangumi_external_id,
 				MIN(CASE WHEN provider = 'douban' THEN external_id END) AS douban_external_id,
 				MIN(CASE WHEN provider = 'thetvdb' THEN external_id END) AS thetvdb_external_id
-			FROM metadata_identifiers
-			WHERE metadata_id = search_metadata.id
-				AND entity_kind = search_metadata.kind
-				AND deleted_at IS NULL
-		) AS search_identifiers ON TRUE`).
-		Joins("LEFT JOIN metadata_artworks AS search_poster ON search_poster.metadata_id = search_metadata.id AND search_poster.artwork_type = 'poster' AND search_poster.deleted_at IS NULL").
-		Joins("LEFT JOIN metadata_artworks AS search_backdrop ON search_backdrop.metadata_id = search_metadata.id AND search_backdrop.artwork_type = 'backdrop' AND search_backdrop.deleted_at IS NULL").
-		Where("search_metadata.id IN ? AND search_metadata.deleted_at IS NULL", metadataIDs).
+				FROM metadata_identifiers
+				WHERE metadata_id = search_metadata.id
+					AND entity_kind = search_metadata.kind
+			) AS search_identifiers ON TRUE`).
+		Joins("LEFT JOIN metadata_artworks AS search_poster ON search_poster.metadata_id = search_metadata.id AND search_poster.artwork_type = 'poster'").
+		Joins("LEFT JOIN metadata_artworks AS search_backdrop ON search_backdrop.metadata_id = search_metadata.id AND search_backdrop.artwork_type = 'backdrop'").
+		Where("search_metadata.id IN ?", metadataIDs).
 		Scan(&rows).Error
 	if err != nil {
 		return nil, err
@@ -693,15 +680,15 @@ func (r *MediaViewRepository) metadataSearchDocuments(ctx context.Context, metad
 	err := r.db.WithContext(ctx).Raw(`
 		SELECT movie_metadata.id AS metadata_id, movie_media.library_id
 		FROM metadata_items AS movie_metadata
-		JOIN media AS movie_media ON movie_media.metadata_id = movie_metadata.id AND movie_media.deleted_at IS NULL
-		WHERE movie_metadata.id IN ? AND movie_metadata.kind = 'movie' AND movie_metadata.deleted_at IS NULL
+		JOIN media AS movie_media ON movie_media.metadata_id = movie_metadata.id
+			WHERE movie_metadata.id IN ? AND movie_metadata.kind = 'movie'
 		UNION
 		SELECT series_metadata.id AS metadata_id, episode_media.library_id
 		FROM metadata_items AS series_metadata
-		JOIN metadata_items AS season_metadata ON season_metadata.parent_id = series_metadata.id AND season_metadata.kind = 'season' AND season_metadata.deleted_at IS NULL
-		JOIN metadata_items AS episode_metadata ON episode_metadata.parent_id = season_metadata.id AND episode_metadata.kind = 'episode' AND episode_metadata.deleted_at IS NULL
-		JOIN media AS episode_media ON episode_media.metadata_id = episode_metadata.id AND episode_media.deleted_at IS NULL
-		WHERE series_metadata.id IN ? AND series_metadata.kind = 'series' AND series_metadata.deleted_at IS NULL
+		JOIN metadata_items AS season_metadata ON season_metadata.parent_id = series_metadata.id AND season_metadata.kind = 'season'
+		JOIN metadata_items AS episode_metadata ON episode_metadata.parent_id = season_metadata.id AND episode_metadata.kind = 'episode'
+		JOIN media AS episode_media ON episode_media.metadata_id = episode_metadata.id
+			WHERE series_metadata.id IN ? AND series_metadata.kind = 'series'
 	`, metadataIDs, metadataIDs).Scan(&libraries).Error
 	if err != nil {
 		return nil, err

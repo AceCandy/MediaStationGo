@@ -94,7 +94,7 @@ func embySeriesReleaseSortTime(group embySeriesGroup) time.Time {
 	return mediaReleaseSortTime(model.Media{
 		ReleaseDate: group.ReleaseDate,
 		Year:        group.Year,
-		Base: model.Base{
+		PermanentBase: model.PermanentBase{
 			CreatedAt: group.CreatedAt,
 			UpdatedAt: group.CreatedAt,
 		},

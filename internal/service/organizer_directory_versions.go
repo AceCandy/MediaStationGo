@@ -93,8 +93,7 @@ func (o *OrganizerService) existingByIdentity(ctx context.Context, destRoot, tit
 		return nil
 	}
 	q := o.repo.DB.WithContext(ctx).Table("media AS m").
-		Joins("LEFT JOIN metadata_items AS mi ON mi.id = m.metadata_id AND mi.deleted_at IS NULL").
-		Where("m.deleted_at IS NULL").
+		Joins("LEFT JOIN metadata_items AS mi ON mi.id = m.metadata_id").
 		Where("LOWER(COALESCE(mi.title, m.scan_title)) = ?", strings.ToLower(title))
 	if season > 0 || episode > 0 {
 		q = q.Where("COALESCE(NULLIF(mi.season_num, 0), m.season_num) = ? AND COALESCE(NULLIF(mi.episode_num, 0), m.episode_num) = ?", season, episode)
@@ -140,9 +139,8 @@ func (o *OrganizerService) existingByExternalIdentity(ctx context.Context, destR
 		return nil
 	}
 	q := o.repo.DB.WithContext(ctx).Table("media AS m").
-		Joins("LEFT JOIN metadata_items AS mi ON mi.id = m.metadata_id AND mi.deleted_at IS NULL").
-		Joins("LEFT JOIN metadata_identifiers AS mid ON mid.metadata_id = COALESCE(mi.parent_id, mi.id) AND mid.deleted_at IS NULL").
-		Where("m.deleted_at IS NULL").
+		Joins("LEFT JOIN metadata_items AS mi ON mi.id = m.metadata_id").
+		Joins("LEFT JOIN metadata_identifiers AS mid ON mid.metadata_id = COALESCE(mi.parent_id, mi.id)").
 		Where("("+strings.Join(conds, " OR ")+")", args...)
 	if season > 0 || episode > 0 {
 		q = q.Where("COALESCE(NULLIF(mi.season_num, 0), m.season_num) = ? AND COALESCE(NULLIF(mi.episode_num, 0), m.episode_num) = ?", season, episode)
@@ -197,7 +195,7 @@ func (o *OrganizerService) replaceVersions(ctx context.Context, src string, exis
 		if o.repo != nil && o.repo.DB != nil {
 			var metadataIDs []string
 			_ = o.repo.DB.WithContext(ctx).Model(&model.Media{}).Where("path = ?", e).Where("metadata_id IS NOT NULL").Pluck("metadata_id", &metadataIDs).Error
-			if err := o.repo.DB.WithContext(ctx).Unscoped().Where("path = ?", e).Delete(&model.Media{}).Error; err == nil {
+			if err := o.repo.DB.WithContext(ctx).Where("path = ?", e).Delete(&model.Media{}).Error; err == nil {
 				o.repo.MediaView.RefreshMetadataIDs(ctx, metadataIDs...)
 			}
 		}

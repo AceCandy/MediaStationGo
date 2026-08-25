@@ -13,8 +13,6 @@ type MediaMetadataUpdate struct {
 	Title        *string  `json:"title"`
 	OriginalName *string  `json:"original_name"`
 	Overview     *string  `json:"overview"`
-	PosterURL    *string  `json:"poster_url"`
-	BackdropURL  *string  `json:"backdrop_url"`
 	Year         *int     `json:"year"`
 	ReleaseDate  *string  `json:"release_date"`
 	Rating       *float32 `json:"rating"`
@@ -85,13 +83,6 @@ func (s *MediaService) UpdateMetadata(ctx context.Context, id string, req MediaM
 	if err := s.replaceManualIdentifiers(ctx, target, media, req, isNew); err != nil {
 		return nil, err
 	}
-	if err := s.updateManualArtwork(ctx, target.ID, model.ArtworkTypePoster, req.PosterURL, view.PosterURL); err != nil {
-		return nil, err
-	}
-	if err := s.updateManualArtwork(ctx, target.ID, model.ArtworkTypeBackdrop, req.BackdropURL, view.BackdropURL); err != nil {
-		return nil, err
-	}
-
 	updates := map[string]any{
 		"metadata_id": target.ID, "scrape_status": "matched", "scrape_error": "", "local_metadata_hint": "",
 	}
@@ -208,6 +199,9 @@ func (s *MediaService) replaceManualIdentifiers(ctx context.Context, item *model
 		{provider: "thetvdb", value: manualStringIdentifier(req.TheTVDBID, media.TheTVDBID), set: req.TheTVDBID != nil || (isNew && strings.TrimSpace(media.TheTVDBID) != "")},
 	}
 	for _, entry := range values {
+		if entry.provider == "douban" && item.Kind != model.MetadataKindMovie {
+			continue
+		}
 		if entry.set {
 			if err := s.repo.Metadata.ReplaceIdentifier(ctx, item.ID, entry.provider, item.Kind, entry.value); err != nil {
 				return err
@@ -235,31 +229,6 @@ func manualStringIdentifier(value *string, fallback string) string {
 		return strings.TrimSpace(*value)
 	}
 	return strings.TrimSpace(fallback)
-}
-
-func (s *MediaService) updateManualArtwork(ctx context.Context, metadataID, artworkType string, requested *string, current string) error {
-	if requested == nil {
-		return nil
-	}
-	value := strings.TrimSpace(*requested)
-	if value == strings.TrimSpace(current) {
-		return nil
-	}
-	if value == "" {
-		return s.repo.Artwork.DeleteSelection(ctx, metadataID, artworkType)
-	}
-	if s.artwork == nil {
-		return errors.New("artwork store unavailable")
-	}
-	if isHTTPish(value) {
-		_, err := s.artwork.ImportRemote(ctx, metadataID, artworkType, "manual", value)
-		return err
-	}
-	if strings.HasPrefix(value, "/api/artwork/") {
-		return errors.New("managed artwork URL cannot be reassigned")
-	}
-	_, err := s.artwork.ImportLocal(ctx, metadataID, artworkType, value)
-	return err
 }
 
 func normalizeMetadataCSV(value string) string {

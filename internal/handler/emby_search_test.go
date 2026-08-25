@@ -37,14 +37,14 @@ func TestEmbySearchHintsReturnsSharedMetadata(t *testing.T) {
 		t.Fatalf("create library: %v", err)
 	}
 	metadata := model.MetadataItem{
-		Base: model.Base{ID: "metadata-search"}, Kind: model.MetadataKindMovie,
+		PermanentBase: model.PermanentBase{ID: "metadata-search"}, Kind: model.MetadataKindMovie,
 		Title: "可搜索电影", OriginalName: "Searchable Movie", Source: "tmdb",
 	}
 	if err := db.Create(&metadata).Error; err != nil {
 		t.Fatalf("create metadata: %v", err)
 	}
 	if err := db.Create(&model.Media{
-		Base: model.Base{ID: "media-search"}, LibraryID: lib.ID, MetadataID: metadata.ID,
+		PermanentBase: model.PermanentBase{ID: "media-search"}, LibraryID: lib.ID, MetadataID: metadata.ID,
 		Title: "扫描提示", Path: "/media/searchable.mkv",
 	}).Error; err != nil {
 		t.Fatalf("create media: %v", err)

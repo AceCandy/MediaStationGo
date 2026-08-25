@@ -181,13 +181,13 @@ func TestEmbyMultipartKeepsVersionsAndConcretePartPlayback(t *testing.T) {
 		t.Fatal(err)
 	}
 	metadata := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{
-		Base: model.Base{ID: "multipart-metadata"}, Kind: model.MetadataKindMovie, Title: "Multipart Movie", Source: "local",
+		PermanentBase: model.PermanentBase{ID: "multipart-metadata"}, Kind: model.MetadataKindMovie, Title: "Multipart Movie", Source: "local",
 	})
 	media := []model.Media{
-		{Base: model.Base{ID: "multipart-1080-1"}, LibraryID: library.ID, MetadataID: metadata.ID, Title: metadata.Title, Path: "/media/movies/Movie.1080p-part1.mkv", PartGroupKey: "multipart-1080", PartIndex: 1},
-		{Base: model.Base{ID: "multipart-1080-2"}, LibraryID: library.ID, MetadataID: metadata.ID, Title: metadata.Title, Path: "/media/movies/Movie.1080p-part2.mkv", PartGroupKey: "multipart-1080", PartIndex: 2},
-		{Base: model.Base{ID: "multipart-2160-1"}, LibraryID: library.ID, MetadataID: metadata.ID, Title: metadata.Title, Path: "/media/movies/Movie.2160p-part1.mkv", PartGroupKey: "multipart-2160", PartIndex: 1},
-		{Base: model.Base{ID: "multipart-2160-2"}, LibraryID: library.ID, MetadataID: metadata.ID, Title: metadata.Title, Path: "/media/movies/Movie.2160p-part2.mkv", PartGroupKey: "multipart-2160", PartIndex: 2},
+		{PermanentBase: model.PermanentBase{ID: "multipart-1080-1"}, LibraryID: library.ID, MetadataID: metadata.ID, Title: metadata.Title, Path: "/media/movies/Movie.1080p-part1.mkv", PartGroupKey: "multipart-1080", PartIndex: 1},
+		{PermanentBase: model.PermanentBase{ID: "multipart-1080-2"}, LibraryID: library.ID, MetadataID: metadata.ID, Title: metadata.Title, Path: "/media/movies/Movie.1080p-part2.mkv", PartGroupKey: "multipart-1080", PartIndex: 2},
+		{PermanentBase: model.PermanentBase{ID: "multipart-2160-1"}, LibraryID: library.ID, MetadataID: metadata.ID, Title: metadata.Title, Path: "/media/movies/Movie.2160p-part1.mkv", PartGroupKey: "multipart-2160", PartIndex: 1},
+		{PermanentBase: model.PermanentBase{ID: "multipart-2160-2"}, LibraryID: library.ID, MetadataID: metadata.ID, Title: metadata.Title, Path: "/media/movies/Movie.2160p-part2.mkv", PartGroupKey: "multipart-2160", PartIndex: 2},
 	}
 	if err := svc.repo.DB.Create(&media).Error; err != nil {
 		t.Fatal(err)

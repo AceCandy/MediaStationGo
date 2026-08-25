@@ -149,7 +149,7 @@ Use this contract when changing local media discovery, media deletion, or the `m
 - For `.strm`, the fingerprint belongs to the local sidecar; playback-target size belongs to `media_probe_metadata.size_bytes` and must not be reused as the scan fingerprint.
 - The unchanged return occurs before media Upsert and probe scheduling, preserving `media.updated_at` and probe data.
 - Post-scan automatic STRM generation skips media whose source path or container is already `.strm`; skipped source paths remain protected from overwrite cleanup.
-- Every media deletion uses `Unscoped().Delete`; `media.deleted_at` remains only as a compatibility column.
+- `Media` uses `PermanentBase`; every media deletion is physical and the `media` table has no `deleted_at` column.
 - Hard delete retains shared metadata and user state while the existing foreign key cascades `media_probe_metadata`.
 
 #### 4. Validation & Error Matrix
@@ -170,7 +170,7 @@ Use this contract when changing local media discovery, media deletion, or the `m
 - Assert unchanged regular files and `.strm` files are skipped and keep `updated_at` unchanged.
 - Assert a size or nanosecond-mtime change updates the row.
 - Assert hard delete removes probe metadata but retains shared metadata and user-state rows.
-- Run migration twice and assert historical soft-deleted media stays absent while `media.deleted_at` remains.
+- Run migration twice and assert historical soft-deleted media stays absent, active media remains, and `media.deleted_at` is removed.
 
 #### 7. Wrong vs Correct
 

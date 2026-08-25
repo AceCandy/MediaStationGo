@@ -43,7 +43,7 @@ func (e *EmbyService) movieLibraryItems(ctx context.Context, p ItemsParams) (map
 			if strings.TrimSpace(p.UserID) == "" {
 				return nil
 			}
-			q = q.Joins("LEFT JOIN metadata_items AS favorite_season ON favorite_season.id = emby_metadata.parent_id AND emby_metadata.kind = 'episode' AND favorite_season.kind = 'season' AND favorite_season.deleted_at IS NULL").
+			q = q.Joins("LEFT JOIN metadata_items AS favorite_season ON favorite_season.id = emby_metadata.parent_id AND emby_metadata.kind = 'episode' AND favorite_season.kind = 'season'").
 				Joins("JOIN favorites ON favorites.user_id = ? AND favorites.deleted_at IS NULL AND favorites.metadata_id = CASE WHEN emby_metadata.kind = 'episode' THEN favorite_season.parent_id ELSE media.metadata_id END", p.UserID)
 		}
 		return q

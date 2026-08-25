@@ -57,6 +57,39 @@ func positiveIntFromMap(values map[string]any, keys ...string) int {
 	return 0
 }
 
+func stringsFromMap(values map[string]any, keys ...string) []string {
+	for _, key := range keys {
+		value, ok := values[key]
+		if !ok {
+			continue
+		}
+		var out []string
+		switch v := value.(type) {
+		case string:
+			out = strings.FieldsFunc(v, func(r rune) bool { return r == ',' || r == '，' || r == '/' })
+		case []any:
+			for _, item := range v {
+				switch typed := item.(type) {
+				case string:
+					out = append(out, typed)
+				case map[string]any:
+					out = append(out, firstStringFromMap(typed, "name", "title"))
+				}
+			}
+		}
+		clean := out[:0]
+		for _, item := range out {
+			if item = strings.TrimSpace(item); item != "" {
+				clean = append(clean, item)
+			}
+		}
+		if len(clean) > 0 {
+			return clean
+		}
+	}
+	return nil
+}
+
 func doubanEpisodeCountFromValue(value any) int {
 	switch v := value.(type) {
 	case float64:

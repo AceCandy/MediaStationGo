@@ -26,6 +26,12 @@ func AutoMigrate(db *gorm.DB) error {
 	if err := migrateLegacyEpisodeTitle(db); err != nil {
 		return err
 	}
+	if err := retireMetadataSoftDeletes(db); err != nil {
+		return err
+	}
+	if err := retireMediaAndCreditSoftDeletes(db); err != nil {
+		return err
+	}
 	if err := ensureAPIConfigColumns(db); err != nil {
 		return err
 	}
@@ -60,6 +66,124 @@ func AutoMigrate(db *gorm.DB) error {
 		return err
 	}
 	return nil
+}
+
+// retireMetadataSoftDeletes removes recycle-bin semantics from the canonical
+// metadata graph without silently discarding externally referenced metadata.
+func retireMetadataSoftDeletes(db *gorm.DB) error {
+	if !db.Migrator().HasColumn(&model.MetadataItem{}, "deleted_at") {
+		return nil
+	}
+	return db.Transaction(func(tx *gorm.DB) error {
+		var referenced int64
+		if err := tx.Raw(`
+SELECT COUNT(*)
+FROM metadata_items AS retired
+WHERE retired.deleted_at IS NOT NULL
+  AND (
+    EXISTS (SELECT 1 FROM metadata_items child WHERE child.parent_id = retired.id AND child.deleted_at IS NULL)
+    OR EXISTS (SELECT 1 FROM media WHERE metadata_id = retired.id)
+    OR EXISTS (SELECT 1 FROM playback_histories WHERE metadata_id = retired.id)
+    OR EXISTS (SELECT 1 FROM playback_events WHERE metadata_id = retired.id)
+    OR EXISTS (SELECT 1 FROM favorites WHERE metadata_id = retired.id)
+    OR EXISTS (SELECT 1 FROM playlist_items WHERE metadata_id = retired.id)
+    OR EXISTS (SELECT 1 FROM metadata_credits WHERE metadata_id = retired.id AND deleted_at IS NULL)
+  )`).Scan(&referenced).Error; err != nil {
+			return err
+		}
+		if referenced > 0 {
+			return fmt.Errorf("cannot retire metadata soft deletes: %d metadata items are still referenced", referenced)
+		}
+
+		statements := []string{
+			`DELETE FROM metadata_credits WHERE deleted_at IS NOT NULL`,
+			`UPDATE artwork_assets SET deleted_at = NULL WHERE deleted_at IS NOT NULL`,
+			`UPDATE metadata_items AS mi
+SET catalog_artwork_hydrated_at = NULL
+WHERE EXISTS (
+    SELECT 1 FROM metadata_artworks AS ma
+    LEFT JOIN artwork_assets AS aa ON aa.id = ma.asset_id
+    WHERE ma.metadata_id = mi.id
+      AND (ma.deleted_at IS NOT NULL OR aa.id IS NULL)
+)`,
+			`DELETE FROM metadata_artworks AS ma WHERE ma.deleted_at IS NOT NULL OR NOT EXISTS (SELECT 1 FROM artwork_assets AS aa WHERE aa.id = ma.asset_id)`,
+			`DELETE FROM metadata_identifiers WHERE deleted_at IS NOT NULL`,
+			`DELETE FROM metadata_provider_snapshots WHERE deleted_at IS NOT NULL`,
+			`DELETE FROM catalog_hydration_jobs WHERE deleted_at IS NOT NULL`,
+			`DELETE FROM metadata_identifiers WHERE metadata_id IN (SELECT id FROM metadata_items WHERE deleted_at IS NOT NULL)`,
+			`DELETE FROM metadata_artworks WHERE metadata_id IN (SELECT id FROM metadata_items WHERE deleted_at IS NOT NULL)`,
+			`DELETE FROM metadata_provider_snapshots WHERE metadata_id IN (SELECT id FROM metadata_items WHERE deleted_at IS NOT NULL)`,
+			`UPDATE catalog_hydration_jobs SET metadata_id = NULL WHERE metadata_id IN (SELECT id FROM metadata_items WHERE deleted_at IS NOT NULL)`,
+			`DELETE FROM metadata_items WHERE deleted_at IS NOT NULL`,
+			`DROP INDEX IF EXISTS uidx_metadata_season`,
+			`DROP INDEX IF EXISTS uidx_metadata_episode`,
+			`DROP INDEX IF EXISTS idx_metadata_kind_release_active`,
+			`DROP INDEX IF EXISTS idx_metadata_parent_season_active`,
+			`DROP INDEX IF EXISTS idx_metadata_parent_episode_active`,
+			`DROP INDEX IF EXISTS idx_metadata_title_active`,
+			`DROP INDEX IF EXISTS idx_metadata_original_name_active`,
+		}
+		for _, stmt := range statements {
+			if err := tx.Exec(stmt).Error; err != nil {
+				return err
+			}
+		}
+		for _, table := range []string{
+			"metadata_items", "metadata_identifiers", "metadata_provider_snapshots",
+			"catalog_hydration_jobs", "metadata_artworks", "artwork_assets",
+		} {
+			if err := tx.Exec("ALTER TABLE " + table + " DROP COLUMN IF EXISTS deleted_at").Error; err != nil {
+				return err
+			}
+		}
+		for _, stmt := range []string{
+			`CREATE UNIQUE INDEX uidx_metadata_season ON metadata_items(parent_id, season_num) WHERE kind = 'season'`,
+			`CREATE UNIQUE INDEX uidx_metadata_episode ON metadata_items(parent_id, episode_num) WHERE kind = 'episode'`,
+			`CREATE INDEX idx_metadata_kind_release_active ON metadata_items(kind, release_date DESC, year DESC)`,
+			`CREATE INDEX idx_metadata_parent_season_active ON metadata_items(parent_id, season_num) WHERE kind = 'season'`,
+			`CREATE INDEX idx_metadata_parent_episode_active ON metadata_items(parent_id, episode_num) WHERE kind = 'episode'`,
+			`CREATE INDEX idx_metadata_title_active ON metadata_items(title)`,
+			`CREATE INDEX idx_metadata_original_name_active ON metadata_items(original_name)`,
+		} {
+			if err := tx.Exec(stmt).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+// retireMediaAndCreditSoftDeletes removes compatibility tombstones after all
+// media deletion paths and metadata credit replacement have moved to hard delete.
+func retireMediaAndCreditSoftDeletes(db *gorm.DB) error {
+	hasMedia := db.Migrator().HasColumn(&model.Media{}, "deleted_at")
+	hasCredits := db.Migrator().HasColumn(&model.MetadataCredit{}, "deleted_at")
+	if !hasMedia && !hasCredits {
+		return nil
+	}
+	return db.Transaction(func(tx *gorm.DB) error {
+		if hasMedia {
+			if err := tx.Exec("DELETE FROM media WHERE deleted_at IS NOT NULL").Error; err != nil {
+				return err
+			}
+			if err := tx.Exec("ALTER TABLE media DROP COLUMN deleted_at").Error; err != nil {
+				return err
+			}
+		}
+		if hasCredits {
+			for _, stmt := range []string{
+				"DELETE FROM metadata_credits WHERE deleted_at IS NOT NULL",
+				"DROP INDEX IF EXISTS uidx_metadata_credit",
+				"ALTER TABLE metadata_credits DROP COLUMN deleted_at",
+				"CREATE UNIQUE INDEX uidx_metadata_credit ON metadata_credits(metadata_id, person_id, type, original_role)",
+			} {
+				if err := tx.Exec(stmt).Error; err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	})
 }
 
 func purgeRetiredMediaRecycleRows(db *gorm.DB) error {
@@ -340,15 +464,15 @@ func ensurePostgresColumnCompatibility(db *gorm.DB) error {
 
 func ensurePerformanceIndexes(db *gorm.DB) error {
 	statements := []string{
-		`CREATE INDEX IF NOT EXISTS idx_media_library_created_active ON media(library_id, created_at DESC) WHERE deleted_at IS NULL`,
-		`CREATE INDEX IF NOT EXISTS idx_media_library_scan_year_active ON media(library_id, scan_year DESC) WHERE deleted_at IS NULL`,
-		`CREATE INDEX IF NOT EXISTS idx_media_library_episode_active ON media(library_id, season_num, episode_num, created_at DESC) WHERE deleted_at IS NULL`,
-		`CREATE INDEX IF NOT EXISTS idx_media_library_root_active ON media(library_id, library_root_id) WHERE deleted_at IS NULL`,
-		`CREATE INDEX IF NOT EXISTS idx_media_metadata_active ON media(metadata_id, library_id) WHERE deleted_at IS NULL`,
-		`CREATE INDEX IF NOT EXISTS idx_media_series_hint_active ON media(series_hint, season_num, episode_num) WHERE deleted_at IS NULL`,
-		`CREATE INDEX IF NOT EXISTS idx_metadata_kind_release_active ON metadata_items(kind, release_date DESC, year DESC) WHERE deleted_at IS NULL`,
-		`CREATE INDEX IF NOT EXISTS idx_metadata_parent_season_active ON metadata_items(parent_id, season_num) WHERE deleted_at IS NULL AND kind = 'season'`,
-		`CREATE INDEX IF NOT EXISTS idx_metadata_parent_episode_active ON metadata_items(parent_id, episode_num) WHERE deleted_at IS NULL AND kind = 'episode'`,
+		`CREATE INDEX IF NOT EXISTS idx_media_library_created_active ON media(library_id, created_at DESC)`,
+		`CREATE INDEX IF NOT EXISTS idx_media_library_scan_year_active ON media(library_id, scan_year DESC)`,
+		`CREATE INDEX IF NOT EXISTS idx_media_library_episode_active ON media(library_id, season_num, episode_num, created_at DESC)`,
+		`CREATE INDEX IF NOT EXISTS idx_media_library_root_active ON media(library_id, library_root_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_media_metadata_active ON media(metadata_id, library_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_media_series_hint_active ON media(series_hint, season_num, episode_num)`,
+		`CREATE INDEX IF NOT EXISTS idx_metadata_kind_release_active ON metadata_items(kind, release_date DESC, year DESC)`,
+		`CREATE INDEX IF NOT EXISTS idx_metadata_parent_season_active ON metadata_items(parent_id, season_num) WHERE kind = 'season'`,
+		`CREATE INDEX IF NOT EXISTS idx_metadata_parent_episode_active ON metadata_items(parent_id, episode_num) WHERE kind = 'episode'`,
 		`CREATE INDEX IF NOT EXISTS idx_favorites_user_media_active ON favorites(user_id, media_id) WHERE deleted_at IS NULL`,
 		`CREATE UNIQUE INDEX IF NOT EXISTS uniq_favorites_user_metadata_active ON favorites(user_id, metadata_id) WHERE deleted_at IS NULL`,
 		`CREATE INDEX IF NOT EXISTS idx_playback_histories_user_media_active ON playback_histories(user_id, media_id, watched_at DESC) WHERE deleted_at IS NULL`,
@@ -364,9 +488,9 @@ func ensurePerformanceIndexes(db *gorm.DB) error {
 		)
 	}
 	statements = append(statements,
-		`CREATE INDEX IF NOT EXISTS idx_metadata_title_active ON metadata_items(title) WHERE deleted_at IS NULL`,
-		`CREATE INDEX IF NOT EXISTS idx_metadata_original_name_active ON metadata_items(original_name) WHERE deleted_at IS NULL`,
-		`CREATE INDEX IF NOT EXISTS idx_media_scan_title_active ON media(scan_title) WHERE deleted_at IS NULL`,
+		`CREATE INDEX IF NOT EXISTS idx_metadata_title_active ON metadata_items(title)`,
+		`CREATE INDEX IF NOT EXISTS idx_metadata_original_name_active ON metadata_items(original_name)`,
+		`CREATE INDEX IF NOT EXISTS idx_media_scan_title_active ON media(scan_title)`,
 	)
 	for _, stmt := range statements {
 		if err := db.Exec(stmt).Error; err != nil {

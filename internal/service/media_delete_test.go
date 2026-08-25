@@ -16,9 +16,9 @@ func TestDeleteMediaPermanentlyRemovesRowAndInvalidatesCache(t *testing.T) {
 	db := newServiceTestDB(t, &model.Media{})
 	repos := repository.New(db)
 	media := model.Media{
-		Base:  model.Base{ID: "local-media"},
-		Title: "Cached Movie",
-		Path:  filepath.Join(t.TempDir(), "Cached Movie.mkv"),
+		PermanentBase: model.PermanentBase{ID: "local-media"},
+		Title:         "Cached Movie",
+		Path:          filepath.Join(t.TempDir(), "Cached Movie.mkv"),
 	}
 	if err := repos.DB.Create(&media).Error; err != nil {
 		t.Fatal(err)

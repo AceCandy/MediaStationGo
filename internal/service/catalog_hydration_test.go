@@ -317,8 +317,8 @@ func TestLocalizeTMDbCatalogSnapshotsSkipsBadItemAndContinuesNextPage(t *testing
 	scraper, repos, closeUpstream := newTestScraper(t)
 	defer closeUpstream()
 
-	series := model.MetadataItem{Base: model.Base{ID: "backfill-series"}, Kind: model.MetadataKindSeries, Title: "Backfill Series", Source: "tmdb"}
-	season := model.MetadataItem{Base: model.Base{ID: "backfill-season"}, Kind: model.MetadataKindSeason, ParentID: &series.ID, SeasonNum: 1, Title: "Season", Source: "tmdb"}
+	series := model.MetadataItem{PermanentBase: model.PermanentBase{ID: "backfill-series"}, Kind: model.MetadataKindSeries, Title: "Backfill Series", Source: "tmdb"}
+	season := model.MetadataItem{PermanentBase: model.PermanentBase{ID: "backfill-season"}, Kind: model.MetadataKindSeason, ParentID: &series.ID, SeasonNum: 1, Title: "Season", Source: "tmdb"}
 	if err := repos.DB.Create(&series).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -334,7 +334,7 @@ func TestLocalizeTMDbCatalogSnapshotsSkipsBadItemAndContinuesNextPage(t *testing
 		episodeNum := i + 1
 		metadataID := "backfill-episode-" + suffix
 		items = append(items, model.MetadataItem{
-			Base: model.Base{ID: metadataID}, Kind: model.MetadataKindEpisode, ParentID: &season.ID,
+			PermanentBase: model.PermanentBase{ID: metadataID}, Kind: model.MetadataKindEpisode, ParentID: &season.ID,
 			EpisodeNum: episodeNum, Title: "第 " + strconv.Itoa(episodeNum) + " 集", Source: "tmdb",
 		})
 		payload := `{"name":"Episode ` + strconv.Itoa(episodeNum) + `","translations":{"translations":[{"iso_3166_1":"US","iso_639_1":"en","data":{"name":"Localized ` + strconv.Itoa(episodeNum) + `"}}]}}`
@@ -342,7 +342,7 @@ func TestLocalizeTMDbCatalogSnapshotsSkipsBadItemAndContinuesNextPage(t *testing
 			payload = `{"name":123}`
 		}
 		snapshots = append(snapshots, model.MetadataProviderSnapshot{
-			Base: model.Base{ID: "backfill-snapshot-" + suffix}, MetadataID: metadataID,
+			PermanentBase: model.PermanentBase{ID: "backfill-snapshot-" + suffix}, MetadataID: metadataID,
 			Provider: "tmdb", Payload: payload, FetchedAt: now,
 		})
 	}

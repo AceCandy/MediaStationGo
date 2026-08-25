@@ -136,7 +136,7 @@ func TestEmbyItemsUseScalarStreamsWhileItemUsesCompleteProbeDocument(t *testing.
 		t.Fatal(err)
 	}
 	media := model.Media{
-		Base: model.Base{ID: "media-stream-list"}, MetadataID: metadata.ID, LibraryID: lib.ID,
+		PermanentBase: model.PermanentBase{ID: "media-stream-list"}, MetadataID: metadata.ID, LibraryID: lib.ID,
 		Title: "Movie", Path: mediaPath, VideoCodec: "h264", AudioCodec: "aac", Width: 1920, Height: 1080,
 	}
 	if err := svc.repo.DB.Create(&media).Error; err != nil {
@@ -190,7 +190,7 @@ func TestEmbyItemsDoNotScheduleLazyProbe(t *testing.T) {
 	if err := os.WriteFile(path, []byte("media"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	media := model.Media{Base: model.Base{ID: "media-list-probe"}, MetadataID: metadata.ID, LibraryID: lib.ID, Title: "Movie", Path: path}
+	media := model.Media{PermanentBase: model.PermanentBase{ID: "media-list-probe"}, MetadataID: metadata.ID, LibraryID: lib.ID, Title: "Movie", Path: path}
 	if err := svc.repo.DB.Create(&media).Error; err != nil {
 		t.Fatal(err)
 	}

@@ -25,16 +25,16 @@ func TestEmbyLatestItemsStayWithinRequestedLibrary(t *testing.T) {
 	}
 	media := []model.Media{
 		{
-			Base:      model.Base{ID: "local-movie", CreatedAt: time.Now().Add(-time.Minute)},
-			LibraryID: local.ID,
-			Title:     "本地版本",
-			Path:      `/media/国产电影/local.mkv`,
+			PermanentBase: model.PermanentBase{ID: "local-movie", CreatedAt: time.Now().Add(-time.Minute)},
+			LibraryID:     local.ID,
+			Title:         "本地版本",
+			Path:          `/media/国产电影/local.mkv`,
 		},
 		{
-			Base:      model.Base{ID: "other-movie", CreatedAt: time.Now()},
-			LibraryID: other.ID,
-			Title:     "其他版本",
-			Path:      `/media/其他电影/other.mkv`,
+			PermanentBase: model.PermanentBase{ID: "other-movie", CreatedAt: time.Now()},
+			LibraryID:     other.ID,
+			Title:         "其他版本",
+			Path:          `/media/其他电影/other.mkv`,
 		},
 	}
 	for i := range media {
@@ -69,25 +69,25 @@ func TestEmbyLocalAndHTTPMovieVersionsShareMediaSources(t *testing.T) {
 	})
 	for _, media := range []model.Media{
 		{
-			Base:       model.Base{ID: "local-version", CreatedAt: time.Now()},
-			LibraryID:  local.ID,
-			MetadataID: metadata.ID,
-			Title:      "流浪地球",
-			Year:       2019,
-			Path:       `/media/国产电影/流浪地球.2019.1080p.mkv`,
-			Container:  "mkv",
-			Width:      1920,
+			PermanentBase: model.PermanentBase{ID: "local-version", CreatedAt: time.Now()},
+			LibraryID:     local.ID,
+			MetadataID:    metadata.ID,
+			Title:         "流浪地球",
+			Year:          2019,
+			Path:          `/media/国产电影/流浪地球.2019.1080p.mkv`,
+			Container:     "mkv",
+			Width:         1920,
 		},
 		{
-			Base:       model.Base{ID: "remote-version", CreatedAt: time.Now().Add(time.Minute)},
-			LibraryID:  remote.ID,
-			MetadataID: metadata.ID,
-			Title:      "流浪地球",
-			Year:       2019,
-			Path:       `https://example.invalid/流浪地球.2019.2160p.mkv`,
-			Container:  "mkv",
-			STRMURL:    "https://example.invalid/流浪地球.2019.2160p.mkv",
-			Width:      3840,
+			PermanentBase: model.PermanentBase{ID: "remote-version", CreatedAt: time.Now().Add(time.Minute)},
+			LibraryID:     remote.ID,
+			MetadataID:    metadata.ID,
+			Title:         "流浪地球",
+			Year:          2019,
+			Path:          `https://example.invalid/流浪地球.2019.2160p.mkv`,
+			Container:     "mkv",
+			STRMURL:       "https://example.invalid/流浪地球.2019.2160p.mkv",
+			Width:         3840,
 		},
 	} {
 		if err := svc.repo.DB.Create(&media).Error; err != nil {
@@ -128,12 +128,12 @@ func TestEmbyCountsSharedMetadataOnce(t *testing.T) {
 		t.Fatalf("create library: %v", err)
 	}
 	metadata := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{
-		Base: model.Base{ID: "metadata-counted-once"}, Kind: model.MetadataKindMovie,
+		PermanentBase: model.PermanentBase{ID: "metadata-counted-once"}, Kind: model.MetadataKindMovie,
 		Title: "同一作品", Source: "tmdb",
 	})
 	for _, media := range []model.Media{
-		{Base: model.Base{ID: "count-version-1"}, LibraryID: lib.ID, MetadataID: metadata.ID, Title: "同一作品", Path: `/media/movies/same-1080p.mkv`},
-		{Base: model.Base{ID: "count-version-2"}, LibraryID: lib.ID, MetadataID: metadata.ID, Title: "同一作品", Path: `/media/movies/same-2160p.mkv`},
+		{PermanentBase: model.PermanentBase{ID: "count-version-1"}, LibraryID: lib.ID, MetadataID: metadata.ID, Title: "同一作品", Path: `/media/movies/same-1080p.mkv`},
+		{PermanentBase: model.PermanentBase{ID: "count-version-2"}, LibraryID: lib.ID, MetadataID: metadata.ID, Title: "同一作品", Path: `/media/movies/same-2160p.mkv`},
 	} {
 		if err := svc.repo.DB.Create(&media).Error; err != nil {
 			t.Fatalf("create media version: %v", err)
@@ -166,17 +166,17 @@ func TestEmbyVersionPaginationFillsLogicalPage(t *testing.T) {
 		t.Fatalf("create library: %v", err)
 	}
 	first := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{
-		Base: model.Base{ID: "metadata-many-versions"}, Kind: model.MetadataKindMovie,
+		PermanentBase: model.PermanentBase{ID: "metadata-many-versions"}, Kind: model.MetadataKindMovie,
 		Title: "多版本作品", Source: "tmdb",
 	})
 	second := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{
-		Base: model.Base{ID: "metadata-second-work"}, Kind: model.MetadataKindMovie,
+		PermanentBase: model.PermanentBase{ID: "metadata-second-work"}, Kind: model.MetadataKindMovie,
 		Title: "第二部作品", Source: "tmdb",
 	})
 	for i := 0; i < 9; i++ {
 		media := model.Media{
-			Base:      model.Base{ID: "many-version-" + strconv.Itoa(i), CreatedAt: time.Now().Add(time.Duration(i) * time.Minute)},
-			LibraryID: lib.ID, MetadataID: first.ID, Title: first.Title,
+			PermanentBase: model.PermanentBase{ID: "many-version-" + strconv.Itoa(i), CreatedAt: time.Now().Add(time.Duration(i) * time.Minute)},
+			LibraryID:     lib.ID, MetadataID: first.ID, Title: first.Title,
 			Path: fmt.Sprintf(`/media/movies/many-%d.mkv`, i),
 		}
 		if err := svc.repo.DB.Create(&media).Error; err != nil {
@@ -184,8 +184,8 @@ func TestEmbyVersionPaginationFillsLogicalPage(t *testing.T) {
 		}
 	}
 	if err := svc.repo.DB.Create(&model.Media{
-		Base:      model.Base{ID: "second-work-version", CreatedAt: time.Now().Add(-time.Hour)},
-		LibraryID: lib.ID, MetadataID: second.ID, Title: second.Title, Path: `/media/movies/second.mkv`,
+		PermanentBase: model.PermanentBase{ID: "second-work-version", CreatedAt: time.Now().Add(-time.Hour)},
+		LibraryID:     lib.ID, MetadataID: second.ID, Title: second.Title, Path: `/media/movies/second.mkv`,
 	}).Error; err != nil {
 		t.Fatalf("create second media: %v", err)
 	}
@@ -215,16 +215,16 @@ func TestEmbySharedMetadataAcrossIndependentLibrariesUsesOneGlobalItemAndVisible
 		}
 	}
 	metadata := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{
-		Base: model.Base{ID: "metadata-cross-library"}, Kind: model.MetadataKindMovie,
+		PermanentBase: model.PermanentBase{ID: "metadata-cross-library"}, Kind: model.MetadataKindMovie,
 		Title: "跨库作品", Source: "tmdb",
 	})
 	createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{
-		Base: model.Base{ID: "metadata-catalog-only"}, Kind: model.MetadataKindMovie,
+		PermanentBase: model.PermanentBase{ID: "metadata-catalog-only"}, Kind: model.MetadataKindMovie,
 		Title: metadata.Title, Source: "tmdb",
 	})
 	versions := []model.Media{
-		{Base: model.Base{ID: "cross-library-a"}, LibraryID: firstLibrary.ID, MetadataID: metadata.ID, Title: metadata.Title, Path: `/media/movies-a/work.1080p.mkv`},
-		{Base: model.Base{ID: "cross-library-b"}, LibraryID: secondLibrary.ID, MetadataID: metadata.ID, Title: metadata.Title, Path: `/media/movies-b/work.2160p.mkv`},
+		{PermanentBase: model.PermanentBase{ID: "cross-library-a"}, LibraryID: firstLibrary.ID, MetadataID: metadata.ID, Title: metadata.Title, Path: `/media/movies-a/work.1080p.mkv`},
+		{PermanentBase: model.PermanentBase{ID: "cross-library-b"}, LibraryID: secondLibrary.ID, MetadataID: metadata.ID, Title: metadata.Title, Path: `/media/movies-b/work.2160p.mkv`},
 	}
 	if err := svc.repo.DB.Create(&versions).Error; err != nil {
 		t.Fatalf("create versions: %v", err)
@@ -288,15 +288,15 @@ func TestEmbyMetadataVersionsShareUserStateAndKeepSourceIDs(t *testing.T) {
 		t.Fatalf("create library: %v", err)
 	}
 	metadata := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{
-		Base: model.Base{ID: "metadata-shared-movie"}, Kind: model.MetadataKindMovie,
+		PermanentBase: model.PermanentBase{ID: "metadata-shared-movie"}, Kind: model.MetadataKindMovie,
 		Title: "共享电影", Source: "tmdb",
 	})
 	media1080 := model.Media{
-		Base: model.Base{ID: "shared-1080"}, LibraryID: lib.ID, MetadataID: metadata.ID,
+		PermanentBase: model.PermanentBase{ID: "shared-1080"}, LibraryID: lib.ID, MetadataID: metadata.ID,
 		Title: "共享电影", Path: `/media/movies/shared.1080p.mkv`, Width: 1920, DurationSec: 120,
 	}
 	media2160 := model.Media{
-		Base: model.Base{ID: "shared-2160"}, LibraryID: lib.ID, MetadataID: metadata.ID,
+		PermanentBase: model.PermanentBase{ID: "shared-2160"}, LibraryID: lib.ID, MetadataID: metadata.ID,
 		Title: "共享电影", Path: `/media/movies/shared.2160p.mkv`, Width: 3840, DurationSec: 120,
 	}
 	if err := svc.repo.DB.Create(&[]model.Media{media1080, media2160}).Error; err != nil {
@@ -380,11 +380,11 @@ func TestEmbyMetadataVersionsShareUserStateAndKeepSourceIDs(t *testing.T) {
 		t.Fatalf("history duration = %d", history.DurationMs)
 	}
 	unrelatedMetadata := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{
-		Base: model.Base{ID: "metadata-unrelated-progress"}, Kind: model.MetadataKindMovie,
+		PermanentBase: model.PermanentBase{ID: "metadata-unrelated-progress"}, Kind: model.MetadataKindMovie,
 		Title: "其他电影", Source: "tmdb",
 	})
 	unrelatedMedia := model.Media{
-		Base: model.Base{ID: "media-unrelated-progress"}, LibraryID: lib.ID, MetadataID: unrelatedMetadata.ID,
+		PermanentBase: model.PermanentBase{ID: "media-unrelated-progress"}, LibraryID: lib.ID, MetadataID: unrelatedMetadata.ID,
 		Title: "其他电影", Path: `/media/movies/unrelated.mkv`, DurationSec: 120,
 	}
 	if err := svc.repo.DB.Create(&unrelatedMedia).Error; err != nil {
@@ -454,32 +454,32 @@ func TestEmbyLatestItemsCollapsesMovieVersions(t *testing.T) {
 	now := time.Now()
 	media := []model.Media{
 		{
-			Base:      model.Base{ID: "dune-1080", CreatedAt: now.Add(time.Minute)},
-			LibraryID: lib.ID,
-			Title:     "Dune",
-			Year:      2021,
-			TMDbID:    438631,
-			Path:      `/media/movies/Dune.2021.1080p.mkv`,
-			Width:     1920,
-			SizeBytes: 100,
+			PermanentBase: model.PermanentBase{ID: "dune-1080", CreatedAt: now.Add(time.Minute)},
+			LibraryID:     lib.ID,
+			Title:         "Dune",
+			Year:          2021,
+			TMDbID:        438631,
+			Path:          `/media/movies/Dune.2021.1080p.mkv`,
+			Width:         1920,
+			SizeBytes:     100,
 		},
 		{
-			Base:      model.Base{ID: "dune-2160", CreatedAt: now.Add(2 * time.Minute)},
-			LibraryID: lib.ID,
-			Title:     "Dune",
-			Year:      2021,
-			TMDbID:    438631,
-			Path:      `/media/movies/Dune.2021.2160p.mkv`,
-			Width:     3840,
-			SizeBytes: 200,
+			PermanentBase: model.PermanentBase{ID: "dune-2160", CreatedAt: now.Add(2 * time.Minute)},
+			LibraryID:     lib.ID,
+			Title:         "Dune",
+			Year:          2021,
+			TMDbID:        438631,
+			Path:          `/media/movies/Dune.2021.2160p.mkv`,
+			Width:         3840,
+			SizeBytes:     200,
 		},
 		{
-			Base:      model.Base{ID: "matrix", CreatedAt: now},
-			LibraryID: lib.ID,
-			Title:     "The Matrix",
-			Year:      1999,
-			TMDbID:    603,
-			Path:      `/media/movies/The.Matrix.1999.mkv`,
+			PermanentBase: model.PermanentBase{ID: "matrix", CreatedAt: now},
+			LibraryID:     lib.ID,
+			Title:         "The Matrix",
+			Year:          1999,
+			TMDbID:        603,
+			Path:          `/media/movies/The.Matrix.1999.mkv`,
 		},
 	}
 	for i := range media {
@@ -511,25 +511,25 @@ func TestEmbyLatestItemsPaginatesMetadataBeforeLoadingVersions(t *testing.T) {
 		t.Fatalf("create library: %v", err)
 	}
 	first := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{
-		Base: model.Base{ID: "metadata-latest-many"}, Kind: model.MetadataKindMovie,
+		PermanentBase: model.PermanentBase{ID: "metadata-latest-many"}, Kind: model.MetadataKindMovie,
 		Title: "多版本新片", ReleaseDate: "2026-08-08", Source: "tmdb",
 	})
 	second := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{
-		Base: model.Base{ID: "metadata-latest-second"}, Kind: model.MetadataKindMovie,
+		PermanentBase: model.PermanentBase{ID: "metadata-latest-second"}, Kind: model.MetadataKindMovie,
 		Title: "第二部新片", ReleaseDate: "2026-08-07", Source: "tmdb",
 	})
 	now := time.Now()
 	versions := make([]model.Media, 101, 102)
 	for i := range versions {
 		versions[i] = model.Media{
-			Base:      model.Base{ID: fmt.Sprintf("latest-many-%03d", i), CreatedAt: now.Add(time.Duration(i) * time.Second)},
-			LibraryID: lib.ID, MetadataID: first.ID, Title: first.Title,
+			PermanentBase: model.PermanentBase{ID: fmt.Sprintf("latest-many-%03d", i), CreatedAt: now.Add(time.Duration(i) * time.Second)},
+			LibraryID:     lib.ID, MetadataID: first.ID, Title: first.Title,
 			Path: fmt.Sprintf(`/media/latest/many-%03d.mkv`, i),
 		}
 	}
 	versions = append(versions, model.Media{
-		Base:      model.Base{ID: "latest-second", CreatedAt: now.Add(-time.Hour)},
-		LibraryID: lib.ID, MetadataID: second.ID, Title: second.Title, Path: `/media/latest/second.mkv`,
+		PermanentBase: model.PermanentBase{ID: "latest-second", CreatedAt: now.Add(-time.Hour)},
+		LibraryID:     lib.ID, MetadataID: second.ID, Title: second.Title, Path: `/media/latest/second.mkv`,
 	})
 	if err := svc.repo.DB.Create(&versions).Error; err != nil {
 		t.Fatalf("create latest versions: %v", err)

@@ -75,7 +75,7 @@ func TestRetainedPlaybackWorkflowsNeverStartFFmpeg(t *testing.T) {
 		t.Fatal(err)
 	}
 	media := model.Media{
-		Base: model.Base{ID: "sentinel-media"}, LibraryID: library.ID, MetadataID: metadata.ID,
+		PermanentBase: model.PermanentBase{ID: "sentinel-media"}, LibraryID: library.ID, MetadataID: metadata.ID,
 		Title: "Sentinel Movie", Path: mediaPath, Container: "matroska",
 	}
 	if err := db.Create(&media).Error; err != nil {

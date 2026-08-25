@@ -48,19 +48,19 @@ func TestMetadataSearchCountsPlayableTopLevelWorks(t *testing.T) {
 	if err := repos.Library.Create(t.Context(), &library); err != nil {
 		t.Fatal(err)
 	}
-	movie := createTestMetadata(t, repos, model.MetadataItem{Base: model.Base{ID: "search-movie"}, Kind: model.MetadataKindMovie, Title: "Searchable Work", Source: "local"})
-	series := createTestMetadata(t, repos, model.MetadataItem{Base: model.Base{ID: "search-series"}, Kind: model.MetadataKindSeries, Title: "Searchable Series", Source: "local"})
+	movie := createTestMetadata(t, repos, model.MetadataItem{PermanentBase: model.PermanentBase{ID: "search-movie"}, Kind: model.MetadataKindMovie, Title: "Searchable Work", Source: "local"})
+	series := createTestMetadata(t, repos, model.MetadataItem{PermanentBase: model.PermanentBase{ID: "search-series"}, Kind: model.MetadataKindSeries, Title: "Searchable Series", Source: "local"})
 	seriesID := series.ID
-	season := createTestMetadata(t, repos, model.MetadataItem{Base: model.Base{ID: "search-season"}, Kind: model.MetadataKindSeason, ParentID: &seriesID, SeasonNum: 1, Title: "Season 1", Source: "local"})
+	season := createTestMetadata(t, repos, model.MetadataItem{PermanentBase: model.PermanentBase{ID: "search-season"}, Kind: model.MetadataKindSeason, ParentID: &seriesID, SeasonNum: 1, Title: "Season 1", Source: "local"})
 	seasonID := season.ID
-	episode := createTestMetadata(t, repos, model.MetadataItem{Base: model.Base{ID: "search-episode"}, Kind: model.MetadataKindEpisode, ParentID: &seasonID, EpisodeNum: 1, Title: "Episode 1", Source: "local"})
-	createTestMetadata(t, repos, model.MetadataItem{Base: model.Base{ID: "search-empty"}, Kind: model.MetadataKindMovie, Title: "Searchable Empty", Source: "local"})
+	episode := createTestMetadata(t, repos, model.MetadataItem{PermanentBase: model.PermanentBase{ID: "search-episode"}, Kind: model.MetadataKindEpisode, ParentID: &seasonID, EpisodeNum: 1, Title: "Episode 1", Source: "local"})
+	createTestMetadata(t, repos, model.MetadataItem{PermanentBase: model.PermanentBase{ID: "search-empty"}, Kind: model.MetadataKindMovie, Title: "Searchable Empty", Source: "local"})
 
 	rows := []model.Media{
-		{Base: model.Base{ID: "movie-1080"}, LibraryID: library.ID, MetadataID: movie.ID, Path: "/media/search/movie-1080.mkv"},
-		{Base: model.Base{ID: "movie-4k"}, LibraryID: library.ID, MetadataID: movie.ID, Path: "/media/search/movie-4k.mkv"},
-		{Base: model.Base{ID: "episode-media"}, LibraryID: library.ID, MetadataID: episode.ID, Path: "/media/search/episode.mkv"},
-		{Base: model.Base{ID: "orphan-media"}, LibraryID: library.ID, Title: "Searchable Orphan", Path: "/media/search/orphan.mkv"},
+		{PermanentBase: model.PermanentBase{ID: "movie-1080"}, LibraryID: library.ID, MetadataID: movie.ID, Path: "/media/search/movie-1080.mkv"},
+		{PermanentBase: model.PermanentBase{ID: "movie-4k"}, LibraryID: library.ID, MetadataID: movie.ID, Path: "/media/search/movie-4k.mkv"},
+		{PermanentBase: model.PermanentBase{ID: "episode-media"}, LibraryID: library.ID, MetadataID: episode.ID, Path: "/media/search/episode.mkv"},
+		{PermanentBase: model.PermanentBase{ID: "orphan-media"}, LibraryID: library.ID, Title: "Searchable Orphan", Path: "/media/search/orphan.mkv"},
 	}
 	if err := repos.DB.Create(&rows).Error; err != nil {
 		t.Fatal(err)
@@ -89,9 +89,9 @@ func TestMetadataSearchRefreshesMediaAndMetadataChanges(t *testing.T) {
 	if err := repos.Library.Create(t.Context(), &library); err != nil {
 		t.Fatal(err)
 	}
-	first := createTestMetadata(t, repos, model.MetadataItem{Base: model.Base{ID: "metadata-first"}, Kind: model.MetadataKindMovie, Title: "First", Source: "local"})
-	second := createTestMetadata(t, repos, model.MetadataItem{Base: model.Base{ID: "metadata-second"}, Kind: model.MetadataKindMovie, Title: "Second", Source: "local"})
-	media := model.Media{Base: model.Base{ID: "media-1"}, LibraryID: library.ID, MetadataID: first.ID, Path: "/media/search/movie.mkv", ScrapeStatus: "matched"}
+	first := createTestMetadata(t, repos, model.MetadataItem{PermanentBase: model.PermanentBase{ID: "metadata-first"}, Kind: model.MetadataKindMovie, Title: "First", Source: "local"})
+	second := createTestMetadata(t, repos, model.MetadataItem{PermanentBase: model.PermanentBase{ID: "metadata-second"}, Kind: model.MetadataKindMovie, Title: "Second", Source: "local"})
+	media := model.Media{PermanentBase: model.PermanentBase{ID: "media-1"}, LibraryID: library.ID, MetadataID: first.ID, Path: "/media/search/movie.mkv", ScrapeStatus: "matched"}
 	if err := repos.Media.Upsert(t.Context(), &media); err != nil {
 		t.Fatal(err)
 	}

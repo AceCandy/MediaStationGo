@@ -1,0 +1,6 @@
+{"file":".trellis/spec/backend/index.md","reason":"后端规范入口与任务相关规范路由"}
+{"file":".trellis/spec/backend/database-guidelines.md","reason":"PostgreSQL、GORM、事务迁移、索引与 repository 约束"}
+{"file":".trellis/spec/backend/shared-media-metadata.md","reason":"canonical metadata、media 边界、图片归属与层级契约"}
+{"file":".trellis/spec/backend/background-task-execution.md","reason":"scheduler、durable job、TaskExecution、重试与恢复约束"}
+{"file":".trellis/spec/backend/logging-guidelines.md","reason":"后台任务统计、错误与远程 URL 脱敏"}
+{"file":".trellis/tasks/08-25-metadata-artwork-backfill-design/research/README.md","reason":"现有 catalog hydration、任务中心、删除语义和性能事实索引"}

@@ -31,7 +31,7 @@ func TestServeMediaUsesLoadedRecord(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/Videos/media-not-in-repository/stream", nil)
 	w := httptest.NewRecorder()
 
-	if err := svc.ServeMedia(w, req, &model.Media{Base: model.Base{ID: "media-not-in-repository"}, Path: path}); err != nil {
+	if err := svc.ServeMedia(w, req, &model.Media{PermanentBase: model.PermanentBase{ID: "media-not-in-repository"}, Path: path}); err != nil {
 		t.Fatal(err)
 	}
 	if w.Code != http.StatusOK || w.Body.String() != "loaded-media" {
@@ -103,8 +103,8 @@ func TestSameOriginAbsoluteInternalURLUsesMediaScopedToken(t *testing.T) {
 func TestServeFileRedirectsInternalSTRMAsAbsoluteURLWithToken(t *testing.T) {
 	repos := newStreamTestRepo(t)
 	rows := []model.Media{
-		{Base: model.Base{ID: "internal-strm"}, Title: "Internal STRM", Path: "/media/Internal.strm", Container: "strm", STRMURL: "/api/stream/source-1?quality=source&token=stored-token&api_key=stored-key"},
-		{Base: model.Base{ID: "source-1"}, Path: "/media/Source.mkv", DurationSec: 2 * 60 * 60},
+		{PermanentBase: model.PermanentBase{ID: "internal-strm"}, Title: "Internal STRM", Path: "/media/Internal.strm", Container: "strm", STRMURL: "/api/stream/source-1?quality=source&token=stored-token&api_key=stored-key"},
+		{PermanentBase: model.PermanentBase{ID: "source-1"}, Path: "/media/Source.mkv", DurationSec: 2 * 60 * 60},
 	}
 	for i := range rows {
 		if err := repos.DB.Create(&rows[i]).Error; err != nil {
@@ -144,8 +144,8 @@ func TestServeFileRedirectsInternalSTRMAsAbsoluteURLWithToken(t *testing.T) {
 func TestServeFileRedirectUsesForwardedTunnelHost(t *testing.T) {
 	repos := newStreamTestRepo(t)
 	rows := []model.Media{
-		{Base: model.Base{ID: "internal-strm"}, Title: "Internal STRM", Path: "/media/Internal.strm", Container: "strm", STRMURL: "/api/stream/source-1?quality=source"},
-		{Base: model.Base{ID: "source-1"}, Path: "/media/Source.mkv"},
+		{PermanentBase: model.PermanentBase{ID: "internal-strm"}, Title: "Internal STRM", Path: "/media/Internal.strm", Container: "strm", STRMURL: "/api/stream/source-1?quality=source"},
+		{PermanentBase: model.PermanentBase{ID: "source-1"}, Path: "/media/Source.mkv"},
 	}
 	for i := range rows {
 		if err := repos.DB.Create(&rows[i]).Error; err != nil {
@@ -283,11 +283,11 @@ func TestServeFileRedirectsExternalHTTPSTRMURLUnchanged(t *testing.T) {
 	repos := newStreamTestRepo(t)
 	target := "https://cdn.example.test/%E5%AF%92%E6%88%98.mkv?quality=source"
 	if err := repos.DB.Create(&model.Media{
-		Base:      model.Base{ID: "remote-http"},
-		Title:     "Remote HTTP",
-		Path:      "/media/寒战.strm",
-		Container: "strm",
-		STRMURL:   target,
+		PermanentBase: model.PermanentBase{ID: "remote-http"},
+		Title:         "Remote HTTP",
+		Path:          "/media/寒战.strm",
+		Container:     "strm",
+		STRMURL:       target,
 	}).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -331,7 +331,7 @@ func TestServeFileLogsLocalFilePath(t *testing.T) {
 	if err := os.WriteFile(target, []byte("video"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := repos.DB.Create(&model.Media{Base: model.Base{ID: "local-file"}, Path: target}).Error; err != nil {
+	if err := repos.DB.Create(&model.Media{PermanentBase: model.PermanentBase{ID: "local-file"}, Path: target}).Error; err != nil {
 		t.Fatal(err)
 	}
 	core, observed := observer.New(zap.InfoLevel)
@@ -362,7 +362,7 @@ func TestServeFileRedirectsMappedLocalPathUsingLongestPrefix(t *testing.T) {
 	if err := repos.Setting.Set(t.Context(), PlaybackPathMappingsSettingKey, mappings); err != nil {
 		t.Fatal(err)
 	}
-	if err := repos.DB.Create(&model.Media{Base: model.Base{ID: "mapped-local"}, Path: localPath}).Error; err != nil {
+	if err := repos.DB.Create(&model.Media{PermanentBase: model.PermanentBase{ID: "mapped-local"}, Path: localPath}).Error; err != nil {
 		t.Fatal(err)
 	}
 	core, observed := observer.New(zap.InfoLevel)
@@ -407,10 +407,10 @@ func TestServeFileRedirectsMappedLocalSTRMTarget(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := repos.DB.Create(&model.Media{
-		Base:      model.Base{ID: "mapped-local-strm"},
-		Path:      "/data/strm/测试影片 (2026).strm",
-		Container: "strm",
-		STRMURL:   localTarget,
+		PermanentBase: model.PermanentBase{ID: "mapped-local-strm"},
+		Path:          "/data/strm/测试影片 (2026).strm",
+		Container:     "strm",
+		STRMURL:       localTarget,
 	}).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -458,7 +458,7 @@ func TestServeFileIgnoresInvalidOrNonMatchingPathMappings(t *testing.T) {
 	if err := repos.Setting.Set(t.Context(), PlaybackPathMappingsSettingKey, mappings); err != nil {
 		t.Fatal(err)
 	}
-	if err := repos.DB.Create(&model.Media{Base: model.Base{ID: "local-fallback"}, Path: target}).Error; err != nil {
+	if err := repos.DB.Create(&model.Media{PermanentBase: model.PermanentBase{ID: "local-fallback"}, Path: target}).Error; err != nil {
 		t.Fatal(err)
 	}
 	svc := NewStreamService(&config.Config{}, zap.NewNop(), repos)
@@ -476,11 +476,11 @@ func TestServeFileRedirectsLocalSTRMFileTargetByDefault(t *testing.T) {
 	repos := newStreamTestRepo(t)
 	target := "https://cdn.example.test/LocalMovie.mkv?quality=source"
 	if err := repos.DB.Create(&model.Media{
-		Base:      model.Base{ID: "local-strm"},
-		Title:     "Local STRM",
-		Path:      "D:/media/LocalMovie.strm",
-		Container: "strm",
-		STRMURL:   target,
+		PermanentBase: model.PermanentBase{ID: "local-strm"},
+		Title:         "Local STRM",
+		Path:          "D:/media/LocalMovie.strm",
+		Container:     "strm",
+		STRMURL:       target,
 	}).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -511,10 +511,10 @@ func TestServeFileReadsLocalPathFromLegacySTRMRecord(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := repos.DB.Create(&model.Media{
-		Base:      model.Base{ID: "local-path-strm"},
-		Title:     "Local STRM",
-		Path:      strmPath,
-		Container: "strm",
+		PermanentBase: model.PermanentBase{ID: "local-path-strm"},
+		Title:         "Local STRM",
+		Path:          strmPath,
+		Container:     "strm",
 	}).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -551,7 +551,7 @@ func TestStreamProbeUsesLocalSTRMTarget(t *testing.T) {
 	if err := os.WriteFile(strmPath, []byte(target), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	media := model.Media{Base: model.Base{ID: "local-probe-strm"}, Path: strmPath, Container: "strm"}
+	media := model.Media{PermanentBase: model.PermanentBase{ID: "local-probe-strm"}, Path: strmPath, Container: "strm"}
 	if err := repos.DB.Create(&media).Error; err != nil {
 		t.Fatal(err)
 	}

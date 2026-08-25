@@ -37,12 +37,12 @@ func TestAutoGenerateSTRMAfterScanUsesAllScopeRoot(t *testing.T) {
 		t.Fatal(err)
 	}
 	media := model.Media{
-		Base:       model.Base{ID: "show-1"},
-		LibraryID:  lib.ID,
-		Title:      "第一集",
-		Path:       filepath.Join(lib.Path, "Show", "Season 01", "Show.S01E01.mkv"),
-		SeasonNum:  1,
-		EpisodeNum: 1,
+		PermanentBase: model.PermanentBase{ID: "show-1"},
+		LibraryID:     lib.ID,
+		Title:         "第一集",
+		Path:          filepath.Join(lib.Path, "Show", "Season 01", "Show.S01E01.mkv"),
+		SeasonNum:     1,
+		EpisodeNum:    1,
 	}
 	if err := repos.DB.Create(&media).Error; err != nil {
 		t.Fatal(err)
@@ -80,12 +80,12 @@ func TestAutoGenerateSTRMSkipsExistingSTRMSource(t *testing.T) {
 		t.Fatal(err)
 	}
 	media := model.Media{
-		Base:      model.Base{ID: "remote-media"},
-		LibraryID: lib.ID,
-		Title:     "Remote",
-		Path:      source,
-		Container: "strm",
-		STRMURL:   "https://cdn.example.test/remote.mkv",
+		PermanentBase: model.PermanentBase{ID: "remote-media"},
+		LibraryID:     lib.ID,
+		Title:         "Remote",
+		Path:          source,
+		Container:     "strm",
+		STRMURL:       "https://cdn.example.test/remote.mkv",
 	}
 	if err := repos.DB.Create(&media).Error; err != nil {
 		t.Fatal(err)

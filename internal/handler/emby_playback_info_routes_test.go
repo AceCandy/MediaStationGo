@@ -44,11 +44,11 @@ func TestEmbyLowercasePlaybackInfoRouteReturnsJSON(t *testing.T) {
 		t.Fatalf("create library: %v", err)
 	}
 	if err := db.Create(&model.Media{
-		Base:      model.Base{ID: "media-1"},
-		LibraryID: lib.ID,
-		Title:     "Lowercase Playback",
-		Path:      filepath.Join(lib.Path, "lowercase-playback.mp4"),
-		Container: "mp4",
+		PermanentBase: model.PermanentBase{ID: "media-1"},
+		LibraryID:     lib.ID,
+		Title:         "Lowercase Playback",
+		Path:          filepath.Join(lib.Path, "lowercase-playback.mp4"),
+		Container:     "mp4",
 	}).Error; err != nil {
 		t.Fatalf("create media: %v", err)
 	}
@@ -117,12 +117,12 @@ func TestEmbyPlaybackInfoDoesNotExposeTokenInRemotePath(t *testing.T) {
 		t.Fatalf("create library: %v", err)
 	}
 	if err := db.Create(&model.Media{
-		Base:      model.Base{ID: "remote-1"},
-		LibraryID: lib.ID,
-		Title:     "Remote Movie",
-		Path:      "https://example.invalid/Movies/Movie.mkv",
-		STRMURL:   "https://example.invalid/Movies/Movie.mkv",
-		Container: "mkv",
+		PermanentBase: model.PermanentBase{ID: "remote-1"},
+		LibraryID:     lib.ID,
+		Title:         "Remote Movie",
+		Path:          "https://example.invalid/Movies/Movie.mkv",
+		STRMURL:       "https://example.invalid/Movies/Movie.mkv",
+		Container:     "mkv",
 	}).Error; err != nil {
 		t.Fatalf("create media: %v", err)
 	}
@@ -191,12 +191,12 @@ func TestEmbyItemsDoNotExposeTokenInEmbeddedRemotePath(t *testing.T) {
 		t.Fatalf("create library: %v", err)
 	}
 	if err := db.Create(&model.Media{
-		Base:      model.Base{ID: "remote-1"},
-		LibraryID: lib.ID,
-		Title:     "Remote Movie",
-		Path:      "https://example.invalid/Movies/Movie.mkv",
-		STRMURL:   "https://example.invalid/Movies/Movie.mkv",
-		Container: "mkv",
+		PermanentBase: model.PermanentBase{ID: "remote-1"},
+		LibraryID:     lib.ID,
+		Title:         "Remote Movie",
+		Path:          "https://example.invalid/Movies/Movie.mkv",
+		STRMURL:       "https://example.invalid/Movies/Movie.mkv",
+		Container:     "mkv",
 	}).Error; err != nil {
 		t.Fatalf("create media: %v", err)
 	}

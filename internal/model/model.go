@@ -21,8 +21,23 @@ type Base struct {
 	DeletedAt gorm.DeletedAt `gorm:"index" json:"-"`
 }
 
+// PermanentBase 用于只允许硬删除的持久化实体。
+type PermanentBase struct {
+	ID        string    `gorm:"primaryKey;type:varchar(36)" json:"id"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
 // BeforeCreate 如果调用者未提供则生成 UUID。
 func (b *Base) BeforeCreate(_ *gorm.DB) error {
+	if b.ID == "" {
+		b.ID = uuid.NewString()
+	}
+	return nil
+}
+
+// BeforeCreate 如果调用者未提供则生成 UUID。
+func (b *PermanentBase) BeforeCreate(_ *gorm.DB) error {
 	if b.ID == "" {
 		b.ID = uuid.NewString()
 	}
@@ -46,6 +61,7 @@ func AllModels() []interface{} {
 		&TranslationCache{},
 		&ArtworkAsset{},
 		&MetadataArtwork{},
+		&MetadataArtworkCandidate{},
 		&Media{},
 		&MediaProbeMetadata{},
 		&PlaybackHistory{},

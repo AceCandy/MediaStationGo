@@ -10,8 +10,8 @@ import (
 )
 
 func TestMediaScrapeTaskDetail(t *testing.T) {
-	group := scrapeCandidateGroup{Representative: model.Media{Base: model.Base{ID: "media-1"}, Title: "无间道"}, MediaIDs: []string{"media-1"}}
-	matched := model.Media{Base: model.Base{ID: "media-1"}, Title: "无间道", ScrapeStatus: "matched", TMDbID: 111}
+	group := scrapeCandidateGroup{Representative: model.Media{PermanentBase: model.PermanentBase{ID: "media-1"}, Title: "无间道"}, MediaIDs: []string{"media-1"}}
+	matched := model.Media{PermanentBase: model.PermanentBase{ID: "media-1"}, Title: "无间道", ScrapeStatus: "matched", TMDbID: 111}
 	if got := mediaScrapeTaskDetail(group, &matched, "tmdb", nil); !strings.HasPrefix(got, "✅ ") || !strings.Contains(got, "无间道") || !strings.Contains(got, "网络刮削（TMDB）") {
 		t.Fatalf("matched detail = %q", got)
 	}
@@ -106,8 +106,8 @@ func TestTaskLogErrorRedactsURLs(t *testing.T) {
 	if got := err.Error(); got != "request [redacted-url] failed" {
 		t.Fatalf("sanitized error = %q", got)
 	}
-	group := scrapeCandidateGroup{Representative: model.Media{Base: model.Base{ID: "media-1"}}, MediaIDs: []string{"media-1"}}
-	media := model.Media{Base: model.Base{ID: "media-1"}, ScrapeStatus: "error", ScrapeError: "request https://example.test/path?token=secret failed"}
+	group := scrapeCandidateGroup{Representative: model.Media{PermanentBase: model.PermanentBase{ID: "media-1"}}, MediaIDs: []string{"media-1"}}
+	media := model.Media{PermanentBase: model.PermanentBase{ID: "media-1"}, ScrapeStatus: "error", ScrapeError: "request https://example.test/path?token=secret failed"}
 	if got := mediaScrapeTaskDetail(group, &media, "", nil); strings.Contains(got, "token=secret") || !strings.Contains(got, "[redacted-url]") {
 		t.Fatalf("media detail = %q", got)
 	}

@@ -118,6 +118,8 @@ func TestScheduledTaskDefinitionsSupportManualExecution(t *testing.T) {
 		TaskDefinitionLibraryScan:       true,
 		TaskDefinitionPeopleBackfill:    true,
 		TaskDefinitionPeopleTranslation: true,
+		TaskDefinitionArtworkBackfill:   true,
+		TaskDefinitionDoubanEnrichment:  true,
 		TaskDefinitionAccountCleanup:    true,
 	}
 	for _, definition := range definitions {

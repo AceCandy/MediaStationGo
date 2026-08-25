@@ -28,6 +28,9 @@ func TestReplaceCreditsIsIdempotentAndReplacesLoadedType(t *testing.T) {
 	if err := repo.ReplaceCredits(t.Context(), metadata.ID, []string{model.CreditTypeActor}, credits); err != nil {
 		t.Fatal(err)
 	}
+	if err := db.Model(&model.MetadataCredit{}).Where("metadata_id = ?", metadata.ID).Update("role", "英雄").Error; err != nil {
+		t.Fatal(err)
+	}
 	if err := repo.ReplaceCredits(t.Context(), metadata.ID, []string{model.CreditTypeActor}, credits); err != nil {
 		t.Fatal(err)
 	}
@@ -35,12 +38,19 @@ func TestReplaceCreditsIsIdempotentAndReplacesLoadedType(t *testing.T) {
 	if err := db.Model(&model.MetadataCredit{}).Where("metadata_id = ?", metadata.ID).Count(&count).Error; err != nil || count != 1 {
 		t.Fatalf("credit count = %d, err=%v", count, err)
 	}
+	var preserved model.MetadataCredit
+	if err := db.First(&preserved, "metadata_id = ?", metadata.ID).Error; err != nil || preserved.Role != "英雄" {
+		t.Fatalf("preserved credit = %#v, err=%v", preserved, err)
+	}
 	credits[0].OriginalRole = "Villain"
 	if err := repo.ReplaceCredits(t.Context(), metadata.ID, []string{model.CreditTypeActor}, credits); err != nil {
 		t.Fatal(err)
 	}
-	if err := db.Model(&model.MetadataCredit{}).Where("metadata_id = ? AND deleted_at IS NULL", metadata.ID).Count(&count).Error; err != nil || count != 1 {
-		t.Fatalf("active credit count = %d, err=%v", count, err)
+	if err := db.Model(&model.MetadataCredit{}).Where("metadata_id = ?", metadata.ID).Count(&count).Error; err != nil || count != 1 {
+		t.Fatalf("credit count after replacement = %d, err=%v", count, err)
+	}
+	if err := db.Model(&model.MetadataCredit{}).Where("id = ?", preserved.ID).Count(&count).Error; err != nil || count != 0 {
+		t.Fatalf("replaced credit count = %d, err=%v", count, err)
 	}
 	var personCount int64
 	if err := db.Model(&model.PersonIdentifier{}).Where("provider = ? AND external_id = ?", "tmdb", "1").Count(&personCount).Error; err != nil || personCount != 1 {
@@ -105,7 +115,7 @@ func TestTranslationCacheIsContextScopedAndRejectsStaleTargets(t *testing.T) {
 	if err := db.AutoMigrate(&model.MetadataItem{}, &model.Person{}, &model.MetadataCredit{}, &model.TranslationCache{}); err != nil {
 		t.Fatal(err)
 	}
-	metadata := model.MetadataItem{Base: model.Base{ID: "metadata-1"}, Kind: model.MetadataKindMovie, Title: "Film", Source: "tmdb"}
+	metadata := model.MetadataItem{PermanentBase: model.PermanentBase{ID: "metadata-1"}, Kind: model.MetadataKindMovie, Title: "Film", Source: "tmdb"}
 	if err := db.Create(&metadata).Error; err != nil {
 		t.Fatal(err)
 	}

@@ -145,7 +145,7 @@ func (r *MediaRepository) DeleteByLibrary(ctx context.Context, libraryID string)
 	if err := r.db.WithContext(ctx).Model(&model.Media{}).Where("library_id = ?", libraryID).Where("metadata_id IS NOT NULL").Pluck("metadata_id", &metadataIDs).Error; err != nil {
 		return err
 	}
-	if err := r.db.WithContext(ctx).Unscoped().Where("library_id = ?", libraryID).Delete(&model.Media{}).Error; err != nil {
+	if err := r.db.WithContext(ctx).Where("library_id = ?", libraryID).Delete(&model.Media{}).Error; err != nil {
 		return err
 	}
 	r.refreshMetadataBestEffort(ctx, metadataIDs...)
@@ -159,7 +159,6 @@ func (r *MediaRepository) DeleteByLibraryRoot(ctx context.Context, libraryID, ro
 		return err
 	}
 	if err := r.db.WithContext(ctx).
-		Unscoped().
 		Where("library_id = ? AND library_root_id = ?", libraryID, rootID).
 		Delete(&model.Media{}).Error; err != nil {
 		return err

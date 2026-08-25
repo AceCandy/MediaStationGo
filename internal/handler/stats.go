@@ -136,7 +136,7 @@ func boolString(value bool) string {
 }
 
 func applyMediaVisibilityQuery(q *gorm.DB, visibility service.MediaVisibility) *gorm.DB {
-	q = q.Joins("LEFT JOIN metadata_items AS stats_metadata ON stats_metadata.id = media.metadata_id AND stats_metadata.deleted_at IS NULL")
+	q = q.Joins("LEFT JOIN metadata_items AS stats_metadata ON stats_metadata.id = media.metadata_id")
 	if !visibility.IncludeNSFW {
 		q = q.Where("COALESCE(stats_metadata.nsfw, FALSE) = FALSE")
 	}

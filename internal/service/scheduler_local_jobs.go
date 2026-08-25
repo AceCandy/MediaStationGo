@@ -159,6 +159,20 @@ func (s *SchedulerService) jobPeopleTranslation(ctx context.Context) error {
 	return s.scraper.translatePendingPeople(ctx, schedulerTaskTrigger(ctx))
 }
 
+func (s *SchedulerService) jobMetadataArtworkBackfill(ctx context.Context) error {
+	if s.scraper == nil {
+		return nil
+	}
+	return s.scraper.runMetadataArtworkBackfill(ctx, schedulerTaskTrigger(ctx))
+}
+
+func (s *SchedulerService) jobDoubanMovieEnrichment(ctx context.Context) error {
+	if s.scraper == nil {
+		return nil
+	}
+	return s.scraper.runDoubanMovieEnrichment(ctx, schedulerTaskTrigger(ctx))
+}
+
 func (s *SchedulerService) jobAccountCleanup(ctx context.Context) error {
 	if s.device == nil {
 		return nil

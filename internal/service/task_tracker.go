@@ -32,6 +32,7 @@ const (
 	TaskKindWatch    = "watch"
 	TaskKindScrape   = "scrape"
 	TaskKindPeople   = "people"
+	TaskKindArtwork  = "artwork"
 	TaskKindCleanup  = "cleanup"
 )
 

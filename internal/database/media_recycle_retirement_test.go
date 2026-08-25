@@ -18,6 +18,9 @@ func TestAutoMigratePurgesRetiredMediaRecycleRows(t *testing.T) {
 	if err := AutoMigrate(db); err != nil {
 		t.Fatal(err)
 	}
+	if err := db.Exec("ALTER TABLE media ADD COLUMN deleted_at timestamptz").Error; err != nil {
+		t.Fatal(err)
+	}
 	active := model.Media{Title: "Active", Path: "/active.mkv"}
 	deleted := model.Media{Title: "Deleted", Path: "/deleted.mkv"}
 	if err := db.Create(&active).Error; err != nil {
@@ -32,7 +35,7 @@ func TestAutoMigratePurgesRetiredMediaRecycleRows(t *testing.T) {
 	if err := db.Create(&probe).Error; err != nil {
 		t.Fatal(err)
 	}
-	if err := db.Delete(&deleted).Error; err != nil {
+	if err := db.Exec("UPDATE media SET deleted_at = ? WHERE id = ?", time.Now().UTC(), deleted.ID).Error; err != nil {
 		t.Fatal(err)
 	}
 
@@ -48,7 +51,7 @@ func TestAutoMigratePurgesRetiredMediaRecycleRows(t *testing.T) {
 	if !db.Migrator().HasColumn(&model.Media{}, "scan_file_size_bytes") || !db.Migrator().HasColumn(&model.Media{}, "scan_file_mtime_ns") {
 		t.Fatal("scan fingerprint columns were not migrated")
 	}
-	if !db.Migrator().HasColumn(&model.Media{}, "deleted_at") {
-		t.Fatal("media deleted_at compatibility column should be retained")
+	if db.Migrator().HasColumn(&model.Media{}, "deleted_at") {
+		t.Fatal("media deleted_at compatibility column should be removed")
 	}
 }

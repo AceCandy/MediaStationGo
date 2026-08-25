@@ -160,7 +160,7 @@ func TestServeFileResolvesAndCachesConfiguredSTRMRedirect(t *testing.T) {
 	}
 	source := upstream.URL + "/d/Movie.mkv?access=source-secret"
 	if err := repos.DB.Create(&model.Media{
-		Base: model.Base{ID: "resolved-strm"}, Path: "/media/Movie.strm", Container: "strm", STRMURL: source,
+		PermanentBase: model.PermanentBase{ID: "resolved-strm"}, Path: "/media/Movie.strm", Container: "strm", STRMURL: source,
 	}).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -242,7 +242,7 @@ func TestServeFileResolvesMappedURLBeforeRedirect(t *testing.T) {
 	}
 	for _, item := range media {
 		if err := repos.DB.Create(&model.Media{
-			Base: model.Base{ID: item.id}, Path: item.path,
+			PermanentBase: model.PermanentBase{ID: item.id}, Path: item.path,
 		}).Error; err != nil {
 			t.Fatal(err)
 		}
@@ -317,7 +317,7 @@ func TestServeFileFallsBackWhenRedirectResolutionFails(t *testing.T) {
 				t.Fatal(err)
 			}
 			if err := repos.DB.Create(&model.Media{
-				Base: model.Base{ID: "fallback"}, Path: "/media/Movie.strm", Container: "strm", STRMURL: source,
+				PermanentBase: model.PermanentBase{ID: "fallback"}, Path: "/media/Movie.strm", Container: "strm", STRMURL: source,
 			}).Error; err != nil {
 				t.Fatal(err)
 			}
@@ -370,7 +370,7 @@ func TestServeFileCachesMappedLocalFallbackAfterUpstream500(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := repos.DB.Create(&model.Media{
-		Base: model.Base{ID: "mapped-500"}, Path: "/media/Movie.strm", Container: "strm", STRMURL: source,
+		PermanentBase: model.PermanentBase{ID: "mapped-500"}, Path: "/media/Movie.strm", Container: "strm", STRMURL: source,
 	}).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -429,7 +429,7 @@ func TestServeFileUsesLocalFallbackAfterPlaybackPathMapping500(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := repos.DB.Create(&model.Media{
-		Base: model.Base{ID: "path-mapped-500"}, Path: "/virtual/media/archive/Movie.mkv",
+		PermanentBase: model.PermanentBase{ID: "path-mapped-500"}, Path: "/virtual/media/archive/Movie.mkv",
 	}).Error; err != nil {
 		t.Fatal(err)
 	}

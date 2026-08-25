@@ -514,7 +514,7 @@ func TestMediaProbeBackfillAllHonorsLimit(t *testing.T) {
 		if err := os.WriteFile(path, []byte("media"), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		media[i] = model.Media{Base: model.Base{ID: fmt.Sprintf("00000000-0000-0000-0000-%012d", i+1)}, MetadataID: metadata.ID, LibraryID: "library", Title: "Movie", Path: path}
+		media[i] = model.Media{PermanentBase: model.PermanentBase{ID: fmt.Sprintf("00000000-0000-0000-0000-%012d", i+1)}, MetadataID: metadata.ID, LibraryID: "library", Title: "Movie", Path: path}
 		if err := db.Create(&media[i]).Error; err != nil {
 			t.Fatal(err)
 		}

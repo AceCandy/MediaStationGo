@@ -199,27 +199,27 @@ func TestListMediaGroupsMultipleVersionsByDefault(t *testing.T) {
 	}
 	if err := repos.DB.Create(&[]model.Media{
 		{
-			Base:       model.Base{ID: "movie-1080", CreatedAt: time.Now().Add(-time.Minute)},
-			LibraryID:  lib.ID,
-			MetadataID: metadata.ID,
-			Title:      "流浪地球",
-			Path:       "/media/movies/The.Wandering.Earth.2019.1080p.mkv",
-			Year:       2019,
-			Width:      1920,
-			Height:     1080,
-			SizeBytes:  100,
+			PermanentBase: model.PermanentBase{ID: "movie-1080", CreatedAt: time.Now().Add(-time.Minute)},
+			LibraryID:     lib.ID,
+			MetadataID:    metadata.ID,
+			Title:         "流浪地球",
+			Path:          "/media/movies/The.Wandering.Earth.2019.1080p.mkv",
+			Year:          2019,
+			Width:         1920,
+			Height:        1080,
+			SizeBytes:     100,
 		},
 		{
-			Base:       model.Base{ID: "movie-2160", CreatedAt: time.Now()},
-			LibraryID:  lib.ID,
-			MetadataID: metadata.ID,
-			Title:      "流浪地球",
-			Path:       "/media/movies/The.Wandering.Earth.2019.2160p.strm",
-			STRMURL:    "https://media.example.test/The.Wandering.Earth.2019.2160p.mkv",
-			Year:       2019,
-			Width:      3840,
-			Height:     2160,
-			SizeBytes:  200,
+			PermanentBase: model.PermanentBase{ID: "movie-2160", CreatedAt: time.Now()},
+			LibraryID:     lib.ID,
+			MetadataID:    metadata.ID,
+			Title:         "流浪地球",
+			Path:          "/media/movies/The.Wandering.Earth.2019.2160p.strm",
+			STRMURL:       "https://media.example.test/The.Wandering.Earth.2019.2160p.mkv",
+			Year:          2019,
+			Width:         3840,
+			Height:        2160,
+			SizeBytes:     200,
 		},
 	}).Error; err != nil {
 		t.Fatal(err)
@@ -278,9 +278,9 @@ func TestListMediaVersionsReturnsOnlyVisibleSiblings(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := repos.DB.Create(&[]model.Media{
-		{Base: model.Base{ID: "version-safe-1"}, LibraryID: safe.ID, MetadataID: metadata.ID, Title: metadata.Title, Path: "/media/movies/version-1.mkv"},
-		{Base: model.Base{ID: "version-safe-2"}, LibraryID: safe.ID, MetadataID: metadata.ID, Title: metadata.Title, Path: "/media/movies/version-2.mkv"},
-		{Base: model.Base{ID: "version-hidden"}, LibraryID: hidden.ID, MetadataID: metadata.ID, Title: metadata.Title, Path: "/media/hidden/version-3.mkv"},
+		{PermanentBase: model.PermanentBase{ID: "version-safe-1"}, LibraryID: safe.ID, MetadataID: metadata.ID, Title: metadata.Title, Path: "/media/movies/version-1.mkv"},
+		{PermanentBase: model.PermanentBase{ID: "version-safe-2"}, LibraryID: safe.ID, MetadataID: metadata.ID, Title: metadata.Title, Path: "/media/movies/version-2.mkv"},
+		{PermanentBase: model.PermanentBase{ID: "version-hidden"}, LibraryID: hidden.ID, MetadataID: metadata.ID, Title: metadata.Title, Path: "/media/hidden/version-3.mkv"},
 	}).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -329,11 +329,11 @@ func TestListLibrarySeriesDoesNotTruncateLargeEpisodeLibraries(t *testing.T) {
 	if err := repos.Library.Create(t.Context(), &lib); err != nil {
 		t.Fatal(err)
 	}
-	seriesMetadata := model.MetadataItem{Base: model.Base{ID: "series-large"}, Kind: model.MetadataKindSeries, Title: "大剧", Source: "local"}
+	seriesMetadata := model.MetadataItem{PermanentBase: model.PermanentBase{ID: "series-large"}, Kind: model.MetadataKindSeries, Title: "大剧", Source: "local"}
 	if err := repos.DB.Create(&seriesMetadata).Error; err != nil {
 		t.Fatal(err)
 	}
-	seasonMetadata := model.MetadataItem{Base: model.Base{ID: "season-large"}, Kind: model.MetadataKindSeason, ParentID: &seriesMetadata.ID, SeasonNum: 1, Title: "Season 1", Source: "local"}
+	seasonMetadata := model.MetadataItem{PermanentBase: model.PermanentBase{ID: "season-large"}, Kind: model.MetadataKindSeason, ParentID: &seriesMetadata.ID, SeasonNum: 1, Title: "Season 1", Source: "local"}
 	if err := repos.DB.Create(&seasonMetadata).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -342,17 +342,17 @@ func TestListLibrarySeriesDoesNotTruncateLargeEpisodeLibraries(t *testing.T) {
 	for i := 1; i <= 2001; i++ {
 		episodeID := fmt.Sprintf("episode-%04d", i)
 		episodeMetadata = append(episodeMetadata, model.MetadataItem{
-			Base: model.Base{ID: episodeID}, Kind: model.MetadataKindEpisode, ParentID: &seasonMetadata.ID,
+			PermanentBase: model.PermanentBase{ID: episodeID}, Kind: model.MetadataKindEpisode, ParentID: &seasonMetadata.ID,
 			EpisodeNum: i, Title: fmt.Sprintf("Episode %d", i), Source: "local",
 		})
 		rows = append(rows, model.Media{
-			Base:       model.Base{ID: fmt.Sprintf("ep-%04d", i), CreatedAt: time.Now().Add(time.Duration(i) * time.Second)},
-			LibraryID:  lib.ID,
-			MetadataID: episodeID,
-			Title:      "大剧",
-			Path:       fmt.Sprintf("/media/anime/大剧 (2026) {tmdb-123}/Season 1/大剧.S01E%04d.mkv", i),
-			SeasonNum:  1,
-			EpisodeNum: i,
+			PermanentBase: model.PermanentBase{ID: fmt.Sprintf("ep-%04d", i), CreatedAt: time.Now().Add(time.Duration(i) * time.Second)},
+			LibraryID:     lib.ID,
+			MetadataID:    episodeID,
+			Title:         "大剧",
+			Path:          fmt.Sprintf("/media/anime/大剧 (2026) {tmdb-123}/Season 1/大剧.S01E%04d.mkv", i),
+			SeasonNum:     1,
+			EpisodeNum:    i,
 		})
 	}
 	if err := repos.DB.CreateInBatches(episodeMetadata, 500).Error; err != nil {

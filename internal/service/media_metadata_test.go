@@ -17,7 +17,7 @@ func TestUpdateMediaMetadataMarksManualMatch(t *testing.T) {
 	if err := repos.Library.Create(t.Context(), &lib); err != nil {
 		t.Fatal(err)
 	}
-	media := model.Media{Base: model.Base{ID: "custom-media"}, LibraryID: lib.ID, Title: "raw", Path: "/media/custom/raw.mp4", ScrapeStatus: "no_match"}
+	media := model.Media{PermanentBase: model.PermanentBase{ID: "custom-media"}, LibraryID: lib.ID, Title: "raw", Path: "/media/custom/raw.mp4", ScrapeStatus: "no_match"}
 	if err := repos.DB.Create(&media).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -60,7 +60,7 @@ func TestUpdateEpisodeMetadataDoesNotModifyParentIdentityOrArtwork(t *testing.T)
 		t.Fatal(err)
 	}
 	media := model.Media{
-		Base: model.Base{ID: "episode-media"}, LibraryID: lib.ID, Title: "Show", EpisodeTitle: "Episode 1",
+		PermanentBase: model.PermanentBase{ID: "episode-media"}, LibraryID: lib.ID, Title: "Show", EpisodeTitle: "Episode 1",
 		Path: "/media/series/show-s01e01.mkv", SeasonNum: 1, EpisodeNum: 1,
 	}
 	if err := repos.DB.Create(&media).Error; err != nil {
@@ -76,14 +76,13 @@ func TestUpdateEpisodeMetadataDoesNotModifyParentIdentityOrArtwork(t *testing.T)
 
 	title := "Own episode title"
 	tmdbID := 9876
-	emptyArtwork := ""
 	updated, err := NewMediaService(&config.Config{}, zap.NewNop(), repos).UpdateMetadata(t.Context(), media.ID, MediaMetadataUpdate{
-		Title: &title, TMDbID: &tmdbID, PosterURL: &emptyArtwork,
+		Title: &title, TMDbID: &tmdbID,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if updated.Title != title || updated.TMDbID != tmdbID || updated.PosterURL != "" {
+	if updated.Title != title || updated.TMDbID != tmdbID || updated.PosterURL == "" {
 		t.Fatalf("episode metadata not updated on the episode: %#v", updated)
 	}
 	if item, findErr := repos.Metadata.FindByIdentifier(t.Context(), "tmdb", model.MetadataKindEpisode, "9876"); findErr != nil || item == nil || item.ID != episode.ID {
@@ -92,7 +91,7 @@ func TestUpdateEpisodeMetadataDoesNotModifyParentIdentityOrArtwork(t *testing.T)
 	if item, findErr := repos.Metadata.FindByIdentifier(t.Context(), "tmdb", model.MetadataKindSeason, "9876"); findErr != nil || item != nil {
 		t.Fatalf("parent received episode identifier: %#v, err = %v", item, findErr)
 	}
-	if asset, findErr := repos.Artwork.FindSelection(t.Context(), episode.ID, model.ArtworkTypePoster); findErr != nil || asset != nil {
+	if asset, findErr := repos.Artwork.FindSelection(t.Context(), episode.ID, model.ArtworkTypePoster); findErr != nil || asset == nil || asset.ID != "episode-poster" {
 		t.Fatalf("episode poster = %#v, err = %v", asset, findErr)
 	}
 	if asset, findErr := repos.Artwork.FindSelection(t.Context(), seasonID, model.ArtworkTypePoster); findErr != nil || asset == nil || asset.ID != "season-poster" {

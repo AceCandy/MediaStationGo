@@ -171,7 +171,7 @@ func TestEnrichOneReusesRecentGeneratedEpisodeMetadata(t *testing.T) {
 	}
 	episode := model.MetadataItem{
 		Kind: model.MetadataKindEpisode, SeasonNum: 2, EpisodeNum: 1, Title: "第 1 集", Source: "tmdb",
-		Base: model.Base{UpdatedAt: time.Now().UTC().Add(-6 * 24 * time.Hour)},
+		PermanentBase: model.PermanentBase{UpdatedAt: time.Now().UTC().Add(-6 * 24 * time.Hour)},
 	}
 	series := createServiceTestEpisodeMetadata(t, repos.DB,
 		model.MetadataItem{Kind: model.MetadataKindSeries, Title: "Show", Source: "tmdb"}, episode,
@@ -217,7 +217,7 @@ func TestEnrichOneRefreshesStaleGeneratedEpisodeMetadata(t *testing.T) {
 	}
 	episode := model.MetadataItem{
 		Kind: model.MetadataKindEpisode, SeasonNum: 2, EpisodeNum: 1, Title: "第 1 集", Source: "tmdb",
-		Base: model.Base{UpdatedAt: time.Now().UTC().Add(-8 * 24 * time.Hour)},
+		PermanentBase: model.PermanentBase{UpdatedAt: time.Now().UTC().Add(-8 * 24 * time.Hour)},
 	}
 	series := createServiceTestEpisodeMetadata(t, repos.DB,
 		model.MetadataItem{Kind: model.MetadataKindSeries, Title: "Show", Source: "tmdb"}, episode,
@@ -300,20 +300,20 @@ func TestScrapeCandidateRowsPrioritizeLibraryArtworkBeforeEpisodes(t *testing.T)
 	}
 	rows := []model.Media{
 		{
-			Base:         model.Base{ID: "001-episode"},
-			LibraryID:    lib.ID,
-			Title:        "间谍过家家 第 1 集",
-			Path:         filepath.Join(lib.Path, "间谍过家家 - S02E01.mkv"),
-			SeasonNum:    2,
-			EpisodeNum:   1,
-			ScrapeStatus: "pending",
+			PermanentBase: model.PermanentBase{ID: "001-episode"},
+			LibraryID:     lib.ID,
+			Title:         "间谍过家家 第 1 集",
+			Path:          filepath.Join(lib.Path, "间谍过家家 - S02E01.mkv"),
+			SeasonNum:     2,
+			EpisodeNum:    1,
+			ScrapeStatus:  "pending",
 		},
 		{
-			Base:         model.Base{ID: "999-series"},
-			LibraryID:    lib.ID,
-			Title:        "间谍过家家",
-			Path:         filepath.Join(lib.Path, "间谍过家家.mkv"),
-			ScrapeStatus: "pending",
+			PermanentBase: model.PermanentBase{ID: "999-series"},
+			LibraryID:     lib.ID,
+			Title:         "间谍过家家",
+			Path:          filepath.Join(lib.Path, "间谍过家家.mkv"),
+			ScrapeStatus:  "pending",
 		},
 	}
 	if err := repos.DB.Create(&rows).Error; err != nil {

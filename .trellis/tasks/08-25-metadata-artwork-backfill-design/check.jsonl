@@ -1,0 +1,7 @@
+{"file":".trellis/spec/backend/index.md","reason":"质量审查的后端规范入口"}
+{"file":".trellis/spec/backend/database-guidelines.md","reason":"复核 PostgreSQL migration、索引、查询与事务安全"}
+{"file":".trellis/spec/backend/shared-media-metadata.md","reason":"复核 metadata/media 边界和图片类型契约"}
+{"file":".trellis/spec/backend/background-task-execution.md","reason":"复核调度、任务状态、重试、恢复与可观察性"}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"复核测试、数据流、兼容性和最小 diff"}
+{"file":".trellis/spec/backend/logging-guidelines.md","reason":"复核日志脱敏和后台任务指标"}
+{"file":".trellis/tasks/08-25-metadata-artwork-backfill-design/research/README.md","reason":"按只读研究事实检查实现是否漂移"}

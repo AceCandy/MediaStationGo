@@ -10,7 +10,7 @@ import (
 
 func (e *EmbyService) ItemCounts(ctx context.Context, userID string) (map[string]any, error) {
 	base := func() *gorm.DB {
-		q := e.repo.DB.WithContext(ctx).Model(&model.Media{}).Where("media.deleted_at IS NULL")
+		q := e.repo.DB.WithContext(ctx).Model(&model.Media{})
 		return e.applyUserMediaVisibility(ctx, q, userID)
 	}
 

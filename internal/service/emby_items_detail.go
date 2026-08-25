@@ -101,7 +101,7 @@ func (e *EmbyService) LatestItems(ctx context.Context, userID, parentID string, 
 	if limit <= 0 || limit > 100 {
 		limit = 20
 	}
-	q := e.repo.DB.WithContext(ctx).Model(&model.Media{}).Where("media.deleted_at IS NULL")
+	q := e.repo.DB.WithContext(ctx).Model(&model.Media{})
 	q = e.applyUserMediaVisibility(ctx, q, userID)
 	q = e.applyLatestPlayedFilter(ctx, q, userID, isPlayed)
 	if parentID != "" {

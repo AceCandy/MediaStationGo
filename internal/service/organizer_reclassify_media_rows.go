@@ -51,7 +51,7 @@ func (o *OrganizerService) deleteMediaRowForPath(ctx context.Context, path strin
 	}
 	var metadataIDs []string
 	_ = o.repo.DB.WithContext(ctx).Model(&model.Media{}).Where("path = ?", path).Where("metadata_id IS NOT NULL").Pluck("metadata_id", &metadataIDs).Error
-	if err := o.repo.DB.WithContext(ctx).Unscoped().Where("path = ?", path).Delete(&model.Media{}).Error; err == nil {
+	if err := o.repo.DB.WithContext(ctx).Where("path = ?", path).Delete(&model.Media{}).Error; err == nil {
 		o.repo.MediaView.RefreshMetadataIDs(ctx, metadataIDs...)
 	}
 }
@@ -61,7 +61,7 @@ func (o *OrganizerService) mediaPathExists(ctx context.Context, path string) boo
 		return false
 	}
 	var count int64
-	if err := o.repo.DB.WithContext(ctx).Unscoped().Model(&model.Media{}).Where("path = ?", path).Count(&count).Error; err != nil {
+	if err := o.repo.DB.WithContext(ctx).Model(&model.Media{}).Where("path = ?", path).Count(&count).Error; err != nil {
 		return false
 	}
 	return count > 0

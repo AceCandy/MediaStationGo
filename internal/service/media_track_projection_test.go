@@ -18,7 +18,7 @@ func TestGetMediaAddsCompleteTracksButListsStayScalar(t *testing.T) {
 		t.Fatal(err)
 	}
 	metadata := createServiceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindMovie, Title: "Movie", Source: "local"})
-	media := model.Media{Base: model.Base{ID: "media-track-detail"}, MetadataID: metadata.ID, LibraryID: lib.ID, Title: "Movie", Path: "/media/movies/movie.mkv"}
+	media := model.Media{PermanentBase: model.PermanentBase{ID: "media-track-detail"}, MetadataID: metadata.ID, LibraryID: lib.ID, Title: "Movie", Path: "/media/movies/movie.mkv"}
 	if err := db.Create(&media).Error; err != nil {
 		t.Fatal(err)
 	}

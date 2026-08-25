@@ -22,12 +22,12 @@ func TestEmbyLatestItemsFilterPlayedBeforeLimitAndByUser(t *testing.T) {
 	now := time.Now()
 	for i, id := range []string{"newest", "next", "oldest"} {
 		metadata := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{
-			Base: model.Base{ID: "metadata-" + id}, Kind: model.MetadataKindMovie,
+			PermanentBase: model.PermanentBase{ID: "metadata-" + id}, Kind: model.MetadataKindMovie,
 			Title: id, Source: "local",
 		})
 		if err := svc.repo.DB.Create(&model.Media{
-			Base:      model.Base{ID: "media-" + id, CreatedAt: now.Add(-time.Duration(i) * time.Hour)},
-			LibraryID: lib.ID, MetadataID: metadata.ID, Title: id, Path: "/media/movies/" + id + ".mkv",
+			PermanentBase: model.PermanentBase{ID: "media-" + id, CreatedAt: now.Add(-time.Duration(i) * time.Hour)},
+			LibraryID:     lib.ID, MetadataID: metadata.ID, Title: id, Path: "/media/movies/" + id + ".mkv",
 		}).Error; err != nil {
 			t.Fatal(err)
 		}
@@ -73,20 +73,20 @@ func TestEmbyLatestSeriesFiltersEpisodesBeforeGrouping(t *testing.T) {
 	now := time.Now()
 	for i, state := range []string{"played", "unplayed"} {
 		series := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{
-			Base: model.Base{ID: "series-" + state}, Kind: model.MetadataKindSeries,
+			PermanentBase: model.PermanentBase{ID: "series-" + state}, Kind: model.MetadataKindSeries,
 			Title: state, Source: "local",
 		})
 		season := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{
-			Base: model.Base{ID: "season-" + state}, Kind: model.MetadataKindSeason,
+			PermanentBase: model.PermanentBase{ID: "season-" + state}, Kind: model.MetadataKindSeason,
 			ParentID: &series.ID, SeasonNum: 1, Title: "Season 1", Source: "local",
 		})
 		episode := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{
-			Base: model.Base{ID: "episode-" + state}, Kind: model.MetadataKindEpisode,
+			PermanentBase: model.PermanentBase{ID: "episode-" + state}, Kind: model.MetadataKindEpisode,
 			ParentID: &season.ID, SeasonNum: 1, EpisodeNum: 1, Title: "Episode 1", Source: "local",
 		})
 		if err := svc.repo.DB.Create(&model.Media{
-			Base:      model.Base{ID: "media-" + state, CreatedAt: now.Add(-time.Duration(i) * time.Hour)},
-			LibraryID: lib.ID, MetadataID: episode.ID, Title: series.Title,
+			PermanentBase: model.PermanentBase{ID: "media-" + state, CreatedAt: now.Add(-time.Duration(i) * time.Hour)},
+			LibraryID:     lib.ID, MetadataID: episode.ID, Title: series.Title,
 			Path: fmt.Sprintf("/media/tv/%s/S01E01.mkv", state), SeasonNum: 1, EpisodeNum: 1,
 		}).Error; err != nil {
 			t.Fatal(err)

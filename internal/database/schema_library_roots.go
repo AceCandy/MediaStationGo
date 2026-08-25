@@ -44,8 +44,7 @@ func ensureLibraryRootsCompatibility(db *gorm.DB) error {
 
 func backfillLibraryRootMedia(db *gorm.DB, lib model.Library, root model.LibraryRoot) error {
 	var rows []model.Media
-	if err := db.Unscoped().
-		Model(&model.Media{}).
+	if err := db.Model(&model.Media{}).
 		Select("id", "path").
 		Where("library_id = ? AND (library_root_id = '' OR library_root_id IS NULL)", lib.ID).
 		Find(&rows).Error; err != nil {
@@ -57,7 +56,7 @@ func backfillLibraryRootMedia(db *gorm.DB, lib model.Library, root model.Library
 		if !ok {
 			continue
 		}
-		if err := db.Unscoped().Model(&model.Media{}).Where("id = ?", row.ID).Updates(map[string]any{
+		if err := db.Model(&model.Media{}).Where("id = ?", row.ID).Updates(map[string]any{
 			"library_root_id": root.ID,
 			"relative_path":   rel,
 		}).Error; err != nil {

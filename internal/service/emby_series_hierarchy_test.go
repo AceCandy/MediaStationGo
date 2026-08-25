@@ -15,44 +15,44 @@ func TestEmbyItemsExposeSeriesSeasonEpisodeHierarchy(t *testing.T) {
 		t.Fatalf("create library: %v", err)
 	}
 	series := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{
-		Base: model.Base{ID: "metadata-series"}, Kind: model.MetadataKindSeries,
+		PermanentBase: model.PermanentBase{ID: "metadata-series"}, Kind: model.MetadataKindSeries,
 		Title: "间谍过家家", OriginalName: "SPY×FAMILY", Source: "tmdb",
 	})
 	season := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{
-		Base: model.Base{ID: "metadata-season-2"}, Kind: model.MetadataKindSeason,
+		PermanentBase: model.PermanentBase{ID: "metadata-season-2"}, Kind: model.MetadataKindSeason,
 		ParentID: &series.ID, SeasonNum: 2, Title: "第 2 季", Source: "tmdb",
 	})
 	episodeMetadata := []model.MetadataItem{
-		{Base: model.Base{ID: "metadata-episode-1"}, Kind: model.MetadataKindEpisode, ParentID: &season.ID, Title: "任务代号: 猫", EpisodeNum: 1, Source: "tmdb"},
-		{Base: model.Base{ID: "metadata-episode-2"}, Kind: model.MetadataKindEpisode, ParentID: &season.ID, Title: "接近目标", EpisodeNum: 2, Source: "tmdb"},
+		{PermanentBase: model.PermanentBase{ID: "metadata-episode-1"}, Kind: model.MetadataKindEpisode, ParentID: &season.ID, Title: "任务代号: 猫", EpisodeNum: 1, Source: "tmdb"},
+		{PermanentBase: model.PermanentBase{ID: "metadata-episode-2"}, Kind: model.MetadataKindEpisode, ParentID: &season.ID, Title: "接近目标", EpisodeNum: 2, Source: "tmdb"},
 	}
 	if err := svc.repo.DB.Create(&episodeMetadata).Error; err != nil {
 		t.Fatalf("create episodes: %v", err)
 	}
 	for i, media := range []model.Media{
 		{
-			Base:         model.Base{ID: "ep-1"},
-			LibraryID:    lib.ID,
-			MetadataID:   episodeMetadata[0].ID,
-			Title:        "间谍过家家",
-			OriginalName: "SPY×FAMILY",
-			EpisodeTitle: "第 1 集",
-			Path:         `F:\downloads\日番\剧集\间谍过家家\Season 02\间谍过家家 - S02E01.mkv`,
-			PosterURL:    `F:\poster.jpg`,
-			SeasonNum:    2,
-			EpisodeNum:   1,
+			PermanentBase: model.PermanentBase{ID: "ep-1"},
+			LibraryID:     lib.ID,
+			MetadataID:    episodeMetadata[0].ID,
+			Title:         "间谍过家家",
+			OriginalName:  "SPY×FAMILY",
+			EpisodeTitle:  "第 1 集",
+			Path:          `F:\downloads\日番\剧集\间谍过家家\Season 02\间谍过家家 - S02E01.mkv`,
+			PosterURL:     `F:\poster.jpg`,
+			SeasonNum:     2,
+			EpisodeNum:    1,
 		},
 		{
-			Base:         model.Base{ID: "ep-2"},
-			LibraryID:    lib.ID,
-			MetadataID:   episodeMetadata[1].ID,
-			Title:        "间谍过家家",
-			OriginalName: "SPY×FAMILY",
-			EpisodeTitle: "第 2 集",
-			Path:         `F:\downloads\日番\剧集\间谍过家家\Season 02\间谍过家家 - S02E02.mkv`,
-			PosterURL:    `F:\poster.jpg`,
-			SeasonNum:    2,
-			EpisodeNum:   2,
+			PermanentBase: model.PermanentBase{ID: "ep-2"},
+			LibraryID:     lib.ID,
+			MetadataID:    episodeMetadata[1].ID,
+			Title:         "间谍过家家",
+			OriginalName:  "SPY×FAMILY",
+			EpisodeTitle:  "第 2 集",
+			Path:          `F:\downloads\日番\剧集\间谍过家家\Season 02\间谍过家家 - S02E02.mkv`,
+			PosterURL:     `F:\poster.jpg`,
+			SeasonNum:     2,
+			EpisodeNum:    2,
 		},
 	} {
 		if err := svc.repo.DB.Create(&media).Error; err != nil {
@@ -172,27 +172,27 @@ func TestEmbySeriesGroupingPaginatesAfterFullLibraryGrouping(t *testing.T) {
 		seasonID := fmt.Sprintf("season-%02d", series)
 		title := fmt.Sprintf("测试番 %02d", series)
 		seriesMetadata = append(seriesMetadata, model.MetadataItem{
-			Base: model.Base{ID: seriesID}, Kind: model.MetadataKindSeries, Title: title, Source: "local",
+			PermanentBase: model.PermanentBase{ID: seriesID}, Kind: model.MetadataKindSeries, Title: title, Source: "local",
 		})
 		seasonMetadata = append(seasonMetadata, model.MetadataItem{
-			Base: model.Base{ID: seasonID}, Kind: model.MetadataKindSeason, ParentID: &seriesID,
+			PermanentBase: model.PermanentBase{ID: seasonID}, Kind: model.MetadataKindSeason, ParentID: &seriesID,
 			SeasonNum: 1, Title: "Season 1", Source: "local",
 		})
 		for episode := 1; episode <= 40; episode++ {
 			episodeID := fmt.Sprintf("episode-%02d-%02d", series, episode)
 			episodeMetadata = append(episodeMetadata, model.MetadataItem{
-				Base: model.Base{ID: episodeID}, Kind: model.MetadataKindEpisode, ParentID: &seasonID,
+				PermanentBase: model.PermanentBase{ID: episodeID}, Kind: model.MetadataKindEpisode, ParentID: &seasonID,
 				EpisodeNum: episode, Title: fmt.Sprintf("Episode %d", episode), Source: "local",
 			})
 			created := now.Add(time.Duration(series*1000+episode) * time.Second)
 			rows = append(rows, model.Media{
-				Base:       model.Base{ID: fmt.Sprintf("show-%02d-ep-%02d", series, episode), CreatedAt: created, UpdatedAt: created},
-				LibraryID:  lib.ID,
-				MetadataID: episodeID,
-				Title:      title,
-				Path:       fmt.Sprintf(`/media/anime/测试番 %02d/Season 01/测试番 %02d.S01E%02d.mkv`, series, series, episode),
-				SeasonNum:  1,
-				EpisodeNum: episode,
+				PermanentBase: model.PermanentBase{ID: fmt.Sprintf("show-%02d-ep-%02d", series, episode), CreatedAt: created, UpdatedAt: created},
+				LibraryID:     lib.ID,
+				MetadataID:    episodeID,
+				Title:         title,
+				Path:          fmt.Sprintf(`/media/anime/测试番 %02d/Season 01/测试番 %02d.S01E%02d.mkv`, series, series, episode),
+				SeasonNum:     1,
+				EpisodeNum:    episode,
 			})
 		}
 	}
@@ -248,20 +248,20 @@ func TestEmbySeriesHierarchyCountsEpisodeMetadataOnceAcrossVersions(t *testing.T
 		t.Fatalf("create library: %v", err)
 	}
 	series := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{
-		Base: model.Base{ID: "series-version-count"}, Kind: model.MetadataKindSeries,
+		PermanentBase: model.PermanentBase{ID: "series-version-count"}, Kind: model.MetadataKindSeries,
 		Title: "版本计数", Source: "tmdb",
 	})
 	season := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{
-		Base: model.Base{ID: "season-version-count"}, Kind: model.MetadataKindSeason,
+		PermanentBase: model.PermanentBase{ID: "season-version-count"}, Kind: model.MetadataKindSeason,
 		ParentID: &series.ID, SeasonNum: 1, Title: series.Title, Source: "tmdb",
 	})
 	episode := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{
-		Base: model.Base{ID: "episode-version-count"}, Kind: model.MetadataKindEpisode,
+		PermanentBase: model.PermanentBase{ID: "episode-version-count"}, Kind: model.MetadataKindEpisode,
 		ParentID: &season.ID, EpisodeNum: 1, Title: "第一集", Source: "tmdb",
 	})
 	versions := []model.Media{
-		{Base: model.Base{ID: "episode-version-1080"}, LibraryID: lib.ID, MetadataID: episode.ID, Title: series.Title, Path: `/media/anime-versions/show/Season 01/show.S01E01.1080p.mkv`, SeasonNum: 1, EpisodeNum: 1},
-		{Base: model.Base{ID: "episode-version-2160"}, LibraryID: lib.ID, MetadataID: episode.ID, Title: series.Title, Path: `/media/anime-versions/show/Season 01/show.S01E01.2160p.mkv`, SeasonNum: 1, EpisodeNum: 1},
+		{PermanentBase: model.PermanentBase{ID: "episode-version-1080"}, LibraryID: lib.ID, MetadataID: episode.ID, Title: series.Title, Path: `/media/anime-versions/show/Season 01/show.S01E01.1080p.mkv`, SeasonNum: 1, EpisodeNum: 1},
+		{PermanentBase: model.PermanentBase{ID: "episode-version-2160"}, LibraryID: lib.ID, MetadataID: episode.ID, Title: series.Title, Path: `/media/anime-versions/show/Season 01/show.S01E01.2160p.mkv`, SeasonNum: 1, EpisodeNum: 1},
 	}
 	if err := svc.repo.DB.Create(&versions).Error; err != nil {
 		t.Fatalf("create episode versions: %v", err)
@@ -292,25 +292,25 @@ func TestEmbyItemsKeepSpecialsInSeasonZero(t *testing.T) {
 		t.Fatalf("create library: %v", err)
 	}
 	series := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{
-		Base: model.Base{ID: "metadata-specials-series"}, Kind: model.MetadataKindSeries, Title: "间谍过家家", Source: "tmdb",
+		PermanentBase: model.PermanentBase{ID: "metadata-specials-series"}, Kind: model.MetadataKindSeries, Title: "间谍过家家", Source: "tmdb",
 	})
 	season := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{
-		Base: model.Base{ID: "metadata-specials-season"}, Kind: model.MetadataKindSeason,
+		PermanentBase: model.PermanentBase{ID: "metadata-specials-season"}, Kind: model.MetadataKindSeason,
 		ParentID: &series.ID, SeasonNum: 0, Title: "特别篇", Source: "tmdb",
 	})
 	episode := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{
-		Base: model.Base{ID: "metadata-specials-episode"}, Kind: model.MetadataKindEpisode,
+		PermanentBase: model.PermanentBase{ID: "metadata-specials-episode"}, Kind: model.MetadataKindEpisode,
 		ParentID: &season.ID, Title: "间谍过家家", EpisodeNum: 1, Source: "tmdb",
 	})
 	createServiceTestArtwork(t, svc.repo.DB, episode.ID, model.ArtworkTypeStill, "asset-special-still")
 	media := model.Media{
-		Base:       model.Base{ID: "sp-1"},
-		LibraryID:  lib.ID,
-		MetadataID: episode.ID,
-		Title:      "间谍过家家",
-		Path:       `F:\downloads\日番\间谍过家家\Specials\间谍过家家 - S00E01.mkv`,
-		SeasonNum:  0,
-		EpisodeNum: 1,
+		PermanentBase: model.PermanentBase{ID: "sp-1"},
+		LibraryID:     lib.ID,
+		MetadataID:    episode.ID,
+		Title:         "间谍过家家",
+		Path:          `F:\downloads\日番\间谍过家家\Specials\间谍过家家 - S00E01.mkv`,
+		SeasonNum:     0,
+		EpisodeNum:    1,
 	}
 	if err := svc.repo.DB.Create(&media).Error; err != nil {
 		t.Fatalf("create media: %v", err)
@@ -360,19 +360,19 @@ func TestEmbyEpisodeStillIsPrimaryImageNotArt(t *testing.T) {
 		t.Fatalf("create library: %v", err)
 	}
 	episode := createServiceTestEpisodeMetadata(t, svc.repo.DB,
-		model.MetadataItem{Base: model.Base{ID: "metadata-still-series"}, Kind: model.MetadataKindSeries, Title: "间谍过家家", Source: "tmdb"},
-		model.MetadataItem{Base: model.Base{ID: "metadata-still-episode"}, Kind: model.MetadataKindEpisode,
+		model.MetadataItem{PermanentBase: model.PermanentBase{ID: "metadata-still-series"}, Kind: model.MetadataKindSeries, Title: "间谍过家家", Source: "tmdb"},
+		model.MetadataItem{PermanentBase: model.PermanentBase{ID: "metadata-still-episode"}, Kind: model.MetadataKindEpisode,
 			Title: "间谍过家家", SeasonNum: 2, EpisodeNum: 1, Source: "tmdb",
 		})
 	wantStill := createServiceTestArtwork(t, svc.repo.DB, episode.ID, model.ArtworkTypeStill, "asset-episode-still")
 	media := model.Media{
-		Base:       model.Base{ID: "ep-still"},
-		LibraryID:  lib.ID,
-		MetadataID: episode.ID,
-		Title:      "间谍过家家",
-		Path:       `/media/tv/间谍过家家/Season 02/间谍过家家 - S02E01.mkv`,
-		SeasonNum:  2,
-		EpisodeNum: 1,
+		PermanentBase: model.PermanentBase{ID: "ep-still"},
+		LibraryID:     lib.ID,
+		MetadataID:    episode.ID,
+		Title:         "间谍过家家",
+		Path:          `/media/tv/间谍过家家/Season 02/间谍过家家 - S02E01.mkv`,
+		SeasonNum:     2,
+		EpisodeNum:    1,
 	}
 	if err := svc.repo.DB.Create(&media).Error; err != nil {
 		t.Fatalf("create media: %v", err)
@@ -413,20 +413,20 @@ func TestEmbySeriesArtworkUsesSharedMetadata(t *testing.T) {
 	}
 	seriesID := "metadata-cache-series"
 	episode := createServiceTestEpisodeMetadata(t, svc.repo.DB,
-		model.MetadataItem{Base: model.Base{ID: seriesID}, Kind: model.MetadataKindSeries, Title: "剑来", Source: "tmdb"},
-		model.MetadataItem{Base: model.Base{ID: "metadata-cache-episode"}, Kind: model.MetadataKindEpisode,
+		model.MetadataItem{PermanentBase: model.PermanentBase{ID: seriesID}, Kind: model.MetadataKindSeries, Title: "剑来", Source: "tmdb"},
+		model.MetadataItem{PermanentBase: model.PermanentBase{ID: "metadata-cache-episode"}, Kind: model.MetadataKindEpisode,
 			Title: "剑来", SeasonNum: 1, EpisodeNum: 1, Source: "tmdb",
 		})
 	wantPoster := createServiceTestArtwork(t, svc.repo.DB, seriesID, model.ArtworkTypePoster, "asset-cache-poster")
 	wantBackdrop := createServiceTestArtwork(t, svc.repo.DB, seriesID, model.ArtworkTypeBackdrop, "asset-cache-backdrop")
 	media := model.Media{
-		Base:       model.Base{ID: "ep-1"},
-		LibraryID:  lib.ID,
-		MetadataID: episode.ID,
-		Title:      "剑来",
-		Path:       `/media/anime/剑来/Season 01/剑来 - S01E01.mkv`,
-		SeasonNum:  1,
-		EpisodeNum: 1,
+		PermanentBase: model.PermanentBase{ID: "ep-1"},
+		LibraryID:     lib.ID,
+		MetadataID:    episode.ID,
+		Title:         "剑来",
+		Path:          `/media/anime/剑来/Season 01/剑来 - S01E01.mkv`,
+		SeasonNum:     1,
+		EpisodeNum:    1,
 	}
 	if err := svc.repo.DB.Create(&media).Error; err != nil {
 		t.Fatalf("create media: %v", err)
@@ -458,8 +458,8 @@ func TestEmbySeasonAndEpisodeDoNotInheritSeriesArtworkOrPeople(t *testing.T) {
 	svc := newTestEmbyService(t)
 	seriesID := "metadata-no-inherit-series"
 	episode := createServiceTestEpisodeMetadata(t, svc.repo.DB,
-		model.MetadataItem{Base: model.Base{ID: seriesID}, Kind: model.MetadataKindSeries, Title: "独立元数据", Source: "tmdb"},
-		model.MetadataItem{Base: model.Base{ID: "metadata-no-inherit-episode"}, Kind: model.MetadataKindEpisode, Title: "独立元数据", SeasonNum: 1, EpisodeNum: 1, Source: "tmdb"},
+		model.MetadataItem{PermanentBase: model.PermanentBase{ID: seriesID}, Kind: model.MetadataKindSeries, Title: "独立元数据", Source: "tmdb"},
+		model.MetadataItem{PermanentBase: model.PermanentBase{ID: "metadata-no-inherit-episode"}, Kind: model.MetadataKindEpisode, Title: "独立元数据", SeasonNum: 1, EpisodeNum: 1, Source: "tmdb"},
 	)
 	if episode.ParentID == nil {
 		t.Fatal("episode season parent is missing")
@@ -494,24 +494,24 @@ func TestEmbyAnimeUsesCanonicalSeriesMetadata(t *testing.T) {
 	}
 	for _, media := range []model.Media{
 		{
-			Base:         model.Base{ID: "anime-ep-1"},
-			LibraryID:    lib.ID,
-			SeriesID:     "local-jianlai",
-			Title:        "剑来",
-			EpisodeTitle: "04",
-			Path:         `/media/anime/剑来/第二季/04.mkv`,
-			SeasonNum:    2,
-			EpisodeNum:   4,
+			PermanentBase: model.PermanentBase{ID: "anime-ep-1"},
+			LibraryID:     lib.ID,
+			SeriesID:      "local-jianlai",
+			Title:         "剑来",
+			EpisodeTitle:  "04",
+			Path:          `/media/anime/剑来/第二季/04.mkv`,
+			SeasonNum:     2,
+			EpisodeNum:    4,
 		},
 		{
-			Base:         model.Base{ID: "anime-ep-2"},
-			LibraryID:    lib.ID,
-			SeriesID:     "local-jianlai",
-			Title:        "剑来",
-			EpisodeTitle: "05",
-			Path:         `/media/anime/剑来/第二季/05.mkv`,
-			SeasonNum:    2,
-			EpisodeNum:   5,
+			PermanentBase: model.PermanentBase{ID: "anime-ep-2"},
+			LibraryID:     lib.ID,
+			SeriesID:      "local-jianlai",
+			Title:         "剑来",
+			EpisodeTitle:  "05",
+			Path:          `/media/anime/剑来/第二季/05.mkv`,
+			SeasonNum:     2,
+			EpisodeNum:    5,
 		},
 	} {
 		if err := svc.repo.DB.Create(&media).Error; err != nil {

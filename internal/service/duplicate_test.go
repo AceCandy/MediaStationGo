@@ -88,8 +88,8 @@ func TestDuplicateCurrentUsesProbeSizes(t *testing.T) {
 	if err := repos.Library.Create(t.Context(), &lib); err != nil {
 		t.Fatal(err)
 	}
-	primary := model.Media{Base: model.Base{ID: "primary"}, LibraryID: lib.ID, Title: "主版本", Path: filepath.Join(lib.Path, "primary.mkv"), SizeBytes: 11, FileHash: "same"}
-	duplicate := model.Media{Base: model.Base{ID: "duplicate"}, LibraryID: lib.ID, Title: "重复版本", Path: filepath.Join(lib.Path, "duplicate.mkv"), SizeBytes: 22, FileHash: "same", IsDuplicate: true, DuplicateOf: primary.ID}
+	primary := model.Media{PermanentBase: model.PermanentBase{ID: "primary"}, LibraryID: lib.ID, Title: "主版本", Path: filepath.Join(lib.Path, "primary.mkv"), SizeBytes: 11, FileHash: "same"}
+	duplicate := model.Media{PermanentBase: model.PermanentBase{ID: "duplicate"}, LibraryID: lib.ID, Title: "重复版本", Path: filepath.Join(lib.Path, "duplicate.mkv"), SizeBytes: 22, FileHash: "same", IsDuplicate: true, DuplicateOf: primary.ID}
 	if err := repos.DB.Create([]model.Media{primary, duplicate}).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -113,7 +113,7 @@ func TestDuplicateCurrentUsesProbeSizes(t *testing.T) {
 
 func TestDuplicateMediaJSONExposesOnlyPageFields(t *testing.T) {
 	payload, err := json.Marshal(newDuplicateMedia(model.Media{
-		Base: model.Base{ID: "media"}, Title: "标题", Path: "/media/movie.mkv", SizeBytes: 10,
+		PermanentBase: model.PermanentBase{ID: "media"}, Title: "标题", Path: "/media/movie.mkv", SizeBytes: 10,
 		DurationSec: 20, Container: "mkv", STRMURL: "https://secret.example/movie", FileHash: "hash",
 	}))
 	if err != nil {

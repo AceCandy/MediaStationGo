@@ -70,7 +70,7 @@ func (o *OrganizerService) lookupOrganizeSourceMedia(ctx context.Context, path s
 	var media model.Media
 	if err := o.repo.DB.WithContext(ctx).
 		Select("id").
-		Where("path = ? AND deleted_at IS NULL", path).
+		Where("path = ?", path).
 		Limit(1).
 		Take(&media).Error; err != nil {
 		return nil

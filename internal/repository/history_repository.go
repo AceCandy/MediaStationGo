@@ -42,8 +42,8 @@ func (r *HistoryRepository) ListByUser(ctx context.Context, userID string, limit
 func (r *HistoryRepository) ListByUserFiltered(ctx context.Context, userID string, limit int, completed *bool, filter MediaQueryFilter) ([]model.PlaybackHistory, error) {
 	q := r.db.WithContext(ctx).
 		Table("playback_histories AS ph").
-		Joins("JOIN media AS m ON m.metadata_id = ph.metadata_id AND m.deleted_at IS NULL").
-		Joins("JOIN metadata_items AS mi ON mi.id = ph.metadata_id AND mi.deleted_at IS NULL").
+		Joins("JOIN media AS m ON m.metadata_id = ph.metadata_id").
+		Joins("JOIN metadata_items AS mi ON mi.id = ph.metadata_id").
 		Where("ph.deleted_at IS NULL AND ph.user_id = ?", userID)
 	q = applyMediaViewFilter(q, filter)
 	if completed != nil {

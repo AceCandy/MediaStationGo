@@ -29,10 +29,29 @@ func (s *ScraperService) persistProviderMetadata(ctx context.Context, media *mod
 		return nil, errors.New("metadata persistence is unavailable")
 	}
 	source := metadataMatchSource(match)
+	doubanDetailAttempted := false
+	if source == "douban" && len(match.RawJSON) == 0 && strings.TrimSpace(match.DoubanID) != "" && s.douban != nil {
+		doubanDetailAttempted = true
+		details, detailErr := s.douban.GetMatchByID(ctx, match.DoubanID)
+		if detailErr != nil {
+			if s.log != nil {
+				s.log.Warn("douban detail snapshot unavailable", zap.String("douban_id", match.DoubanID), zap.Error(detailErr))
+			}
+		} else if details != nil {
+			match.RawJSON = details.RawJSON
+			if match.TMDbID == 0 {
+				match.TMDbID = details.TMDbID
+			}
+			match.AllowIdentifierMerge = match.AllowIdentifierMerge || details.AllowIdentifierMerge
+		}
+	}
 	mediaType := s.determineMediaTypeForMedia(lib, media, match)
 	entityKind := model.MetadataKindMovie
 	if mediaType == "tv" {
 		entityKind = model.MetadataKindSeries
+	}
+	if entityKind == model.MetadataKindMovie && strings.TrimSpace(match.DoubanID) == "" {
+		match.DoubanID = strings.TrimSpace(media.DoubanID)
 	}
 	identifiers := metadataIdentifiersFromMatch(match, entityKind)
 	base := metadataItemFromMatch(match, entityKind, source)
@@ -44,12 +63,21 @@ func (s *ScraperService) persistProviderMetadata(ctx context.Context, media *mod
 	if err != nil {
 		return nil, err
 	}
+	if source == "douban" && len(match.RawJSON) > 0 {
+		if err := s.repo.Metadata.UpsertProviderSnapshot(ctx, canonical.ID, "douban", match.RawJSON, time.Now().UTC()); err != nil {
+			return nil, err
+		}
+	}
 	result := &persistedMetadataMatch{Target: canonical}
 	if entityKind == model.MetadataKindSeries {
 		result.Series = canonical
 	}
 	artworkStartedAt := time.Now()
-	seriesPoster, seriesBackdrop, err := s.persistMetadataArtwork(ctx, canonical.ID, source, match.PosterURL, match.BackdropURL)
+	posterSource, backdropSource := match.PosterURL, match.BackdropURL
+	if source == "douban" && entityKind == model.MetadataKindMovie {
+		posterSource, backdropSource = "", ""
+	}
+	seriesPoster, seriesBackdrop, err := s.persistMetadataArtwork(ctx, canonical.ID, source, posterSource, backdropSource)
 	if err != nil {
 		return nil, err
 	}
@@ -57,6 +85,13 @@ func (s *ScraperService) persistProviderMetadata(ctx context.Context, media *mod
 	result.PosterURL, result.BackdropURL = seriesPoster, seriesBackdrop
 	if err := s.persistCredits(ctx, canonical.ID, match.LoadedCreditTypes, match.Credits); err != nil {
 		return nil, err
+	}
+	if entityKind == model.MetadataKindMovie && strings.TrimSpace(match.DoubanID) != "" && s.douban != nil && (!doubanDetailAttempted || len(match.RawJSON) > 0) {
+		if _, err := s.enrichMovieFromDouban(ctx, canonical.ID); err != nil && s.log != nil {
+			s.log.Warn("douban movie enrichment failed", zap.String("metadata_id", canonical.ID), zap.Error(err))
+		} else if refreshed, findErr := s.repo.Metadata.FindByID(ctx, canonical.ID); findErr == nil && refreshed != nil {
+			result.Target = refreshed
+		}
 	}
 
 	if entityKind != model.MetadataKindSeries || media.EpisodeNum <= 0 {
@@ -267,7 +302,7 @@ func metadataIdentifiersFromMatch(match *Match, entityKind string) []model.Metad
 	if match.BangumiID > 0 {
 		out = append(out, model.MetadataIdentifier{Provider: "bangumi", EntityKind: entityKind, ExternalID: strconv.Itoa(match.BangumiID)})
 	}
-	if value := strings.TrimSpace(match.DoubanID); value != "" {
+	if value := strings.TrimSpace(match.DoubanID); value != "" && entityKind == model.MetadataKindMovie {
 		out = append(out, model.MetadataIdentifier{Provider: "douban", EntityKind: entityKind, ExternalID: value})
 	}
 	if value := strings.TrimSpace(match.TheTVDBID); value != "" {

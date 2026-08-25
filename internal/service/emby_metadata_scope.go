@@ -98,8 +98,8 @@ func preferredMetadataViewsInOrder(views []model.MediaView) []model.MediaView {
 
 func seriesScopeQuery(q *gorm.DB) *gorm.DB {
 	return q.
-		Joins("JOIN metadata_items AS scope_season ON scope_season.id = emby_metadata.parent_id AND scope_season.kind = 'season' AND scope_season.deleted_at IS NULL").
-		Joins("JOIN metadata_items AS scope_series ON scope_series.id = scope_season.parent_id AND scope_series.kind = 'series' AND scope_series.deleted_at IS NULL")
+		Joins("JOIN metadata_items AS scope_season ON scope_season.id = emby_metadata.parent_id AND scope_season.kind = 'season'").
+		Joins("JOIN metadata_items AS scope_series ON scope_series.id = scope_season.parent_id AND scope_series.kind = 'series'")
 }
 
 func (e *EmbyService) seriesMetadataPage(ctx context.Context, q *gorm.DB, userID string, p ItemsParams, start, limit int) ([]embySeriesGroup, int64, error) {

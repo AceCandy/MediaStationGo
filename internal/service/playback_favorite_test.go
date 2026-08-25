@@ -54,8 +54,8 @@ func TestListFavouritesChoosesVisibleSeriesRepresentative(t *testing.T) {
 	season := createServiceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindSeason, ParentID: &series.ID, SeasonNum: 1, Title: series.Title, Source: "test"})
 	visibleEpisode := createServiceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindEpisode, ParentID: &season.ID, EpisodeNum: 1, Title: "Visible", Source: "test"})
 	hiddenEpisode := createServiceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindEpisode, ParentID: &season.ID, EpisodeNum: 2, Title: "Hidden", Source: "test", NSFW: true})
-	visibleMedia := model.Media{Base: model.Base{CreatedAt: time.Now().Add(-time.Minute)}, LibraryID: lib.ID, MetadataID: visibleEpisode.ID, Path: "/shows/series/s01e01.mkv"}
-	hiddenMedia := model.Media{Base: model.Base{CreatedAt: time.Now()}, LibraryID: lib.ID, MetadataID: hiddenEpisode.ID, Path: "/shows/series/s01e02.mkv"}
+	visibleMedia := model.Media{PermanentBase: model.PermanentBase{CreatedAt: time.Now().Add(-time.Minute)}, LibraryID: lib.ID, MetadataID: visibleEpisode.ID, Path: "/shows/series/s01e01.mkv"}
+	hiddenMedia := model.Media{PermanentBase: model.PermanentBase{CreatedAt: time.Now()}, LibraryID: lib.ID, MetadataID: hiddenEpisode.ID, Path: "/shows/series/s01e02.mkv"}
 	if err := db.Create(&[]model.Media{visibleMedia, hiddenMedia}).Error; err != nil {
 		t.Fatal(err)
 	}

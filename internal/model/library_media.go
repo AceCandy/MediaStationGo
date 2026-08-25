@@ -30,7 +30,7 @@ type LibraryRoot struct {
 // 刮削完成前允许暂时没有该关联。
 // Title、Year、provider ID 和 SeriesID 仅是扫描/匹配提示，不是权威元数据。
 type Media struct {
-	Base
+	PermanentBase
 	LibraryID     string        `gorm:"index;size:36" json:"library_id"`
 	LibraryRootID string        `gorm:"index;size:36" json:"library_root_id,omitempty"`
 	MetadataID    string        `gorm:"index;size:36;default:null" json:"metadata_id"`

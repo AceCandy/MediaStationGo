@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -125,6 +126,7 @@ func (d *DoubanProvider) SearchMatch(ctx context.Context, query string) (*Match,
 		mediaType = normalizeMediaType(got.Type, got.Title, "")
 	}
 	match := &Match{
+		Source:    "douban",
 		DoubanID:  got.DoubanID,
 		MediaType: mediaType,
 		Title:     got.Title,
@@ -156,8 +158,16 @@ func (d *DoubanProvider) GetMatchByID(ctx context.Context, doubanID string) (*Ma
 	if resp.StatusCode >= 400 {
 		return nil, fmt.Errorf("douban detail: %d", resp.StatusCode)
 	}
+	rawJSON, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return doubanMatchFromRawJSON(doubanID, rawJSON)
+}
+
+func doubanMatchFromRawJSON(doubanID string, rawJSON []byte) (*Match, error) {
 	var raw map[string]any
-	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
+	if err := json.Unmarshal(rawJSON, &raw); err != nil {
 		return nil, err
 	}
 	subject := raw
@@ -172,13 +182,20 @@ func (d *DoubanProvider) GetMatchByID(ctx context.Context, doubanID string) (*Ma
 		_, _ = fmt.Sscanf(y[:4], "%d", &year)
 	}
 	m := &Match{
-		DoubanID:  doubanID,
-		TMDbID:    positiveIntFromMap(subject, "tmdb_id", "tmdbid"),
-		Title:     title,
-		Overview:  firstStringFromMap(subject, "short_comment", "intro", "summary", "abstract"),
-		PosterURL: firstStringFromMap(subject, "pic", "img", "cover", "cover_url"),
-		Year:      year,
-		Rating:    float32FromMap(subject, "rate", "rating"),
+		Source:       "douban",
+		DoubanID:     strings.TrimSpace(doubanID),
+		TMDbID:       positiveIntFromMap(subject, "tmdb_id", "tmdbid"),
+		Title:        title,
+		OriginalName: firstStringFromMap(subject, "original_title", "original_name"),
+		Overview:     firstStringFromMap(subject, "short_comment", "intro", "summary", "abstract"),
+		PosterURL:    firstStringFromMap(subject, "pic", "img", "cover", "cover_url"),
+		Year:         year,
+		ReleaseDate:  normalizeReleaseDate(firstStringFromMap(subject, "release_date", "pubdate")),
+		Rating:       float32FromMap(subject, "rate", "rating"),
+		Languages:    stringsFromMap(subject, "languages", "language"),
+		Countries:    stringsFromMap(subject, "countries", "country", "regions"),
+		Genres:       stringsFromMap(subject, "genres", "genre"),
+		RawJSON:      rawJSON,
 	}
 	if m.TMDbID == 0 {
 		m.TMDbID = positiveIntFromMap(raw, "tmdb_id", "tmdbid")

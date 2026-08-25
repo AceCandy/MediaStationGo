@@ -114,7 +114,6 @@ func (b *localMediaWriteBatch) existingPaths(items []localMediaWriteItem) map[st
 	}
 	var rows []string
 	if err := b.scanner.repo.DB.WithContext(b.ctx).
-		Unscoped().
 		Model(&model.Media{}).
 		Where("path IN ?", paths).
 		Pluck("path", &rows).Error; err != nil {
@@ -149,7 +148,6 @@ func (b *localMediaWriteBatch) mediaPathExists(path string) bool {
 	}
 	var count int64
 	err := b.scanner.repo.DB.WithContext(b.ctx).
-		Unscoped().
 		Model(&model.Media{}).
 		Where("path = ?", path).
 		Count(&count).Error

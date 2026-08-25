@@ -49,11 +49,11 @@ func TestEmbyLowercaseVideoStreamRouteServesMedia(t *testing.T) {
 		t.Fatalf("create library: %v", err)
 	}
 	if err := db.Create(&model.Media{
-		Base:      model.Base{ID: "media-1"},
-		LibraryID: lib.ID,
-		Title:     "Lowercase Stream",
-		Path:      mediaPath,
-		Container: "mp4",
+		PermanentBase: model.PermanentBase{ID: "media-1"},
+		LibraryID:     lib.ID,
+		Title:         "Lowercase Stream",
+		Path:          mediaPath,
+		Container:     "mp4",
 	}).Error; err != nil {
 		t.Fatalf("create media: %v", err)
 	}
@@ -109,11 +109,11 @@ func TestEmbyPrefixedAPIStreamRouteServesMedia(t *testing.T) {
 		t.Fatalf("create library: %v", err)
 	}
 	if err := db.Create(&model.Media{
-		Base:      model.Base{ID: "media-1"},
-		LibraryID: lib.ID,
-		Title:     "Prefixed API Stream",
-		Path:      mediaPath,
-		Container: "mp4",
+		PermanentBase: model.PermanentBase{ID: "media-1"},
+		LibraryID:     lib.ID,
+		Title:         "Prefixed API Stream",
+		Path:          mediaPath,
+		Container:     "mp4",
 	}).Error; err != nil {
 		t.Fatalf("create media: %v", err)
 	}
@@ -169,11 +169,11 @@ func TestEmbyLowercaseOriginalHeadRouteServesHeaders(t *testing.T) {
 		t.Fatalf("create library: %v", err)
 	}
 	if err := db.Create(&model.Media{
-		Base:      model.Base{ID: "media-1"},
-		LibraryID: lib.ID,
-		Title:     "Lowercase Original",
-		Path:      mediaPath,
-		Container: "mp4",
+		PermanentBase: model.PermanentBase{ID: "media-1"},
+		LibraryID:     lib.ID,
+		Title:         "Lowercase Original",
+		Path:          mediaPath,
+		Container:     "mp4",
 	}).Error; err != nil {
 		t.Fatalf("create media: %v", err)
 	}

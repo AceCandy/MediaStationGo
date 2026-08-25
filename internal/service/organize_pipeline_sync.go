@@ -85,7 +85,7 @@ func (p *OrganizePipelineService) mediaByPath(ctx context.Context, path string) 
 	}
 	var media model.Media
 	if err := p.repo.DB.WithContext(ctx).
-		Where("path = ? AND deleted_at IS NULL", path).
+		Where("path = ?", path).
 		Limit(1).
 		Take(&media).Error; err != nil {
 		return nil

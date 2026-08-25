@@ -56,7 +56,7 @@ func (o *OrganizerService) ReclassifyMisclassifiedMedia(ctx context.Context, opt
 		return res, nil
 	}
 
-	query := o.repo.DB.WithContext(ctx).Model(&model.Media{}).Where("deleted_at IS NULL")
+	query := o.repo.DB.WithContext(ctx).Model(&model.Media{})
 	if len(filter) > 0 {
 		query = query.Where("library_id IN ?", filterIDs)
 	}

@@ -42,8 +42,8 @@ func TestEmbyItemsPayloadQueriesDoNotScaleWithPageSize(t *testing.T) {
 	for i, mediaID := range mediaIDs {
 		suffix := strconv.Itoa(i + 1)
 		metadata := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{
-			Base: model.Base{ID: "metadata-query-" + suffix},
-			Kind: model.MetadataKindMovie, Title: "Movie " + suffix, Source: "tmdb",
+			PermanentBase: model.PermanentBase{ID: "metadata-query-" + suffix},
+			Kind:          model.MetadataKindMovie, Title: "Movie " + suffix, Source: "tmdb",
 		},
 			model.MetadataIdentifier{Provider: "tmdb", EntityKind: model.MetadataKindMovie, ExternalID: suffix},
 			model.MetadataIdentifier{Provider: "imdb", EntityKind: model.MetadataKindMovie, ExternalID: "tt-query-" + suffix},
@@ -54,7 +54,7 @@ func TestEmbyItemsPayloadQueriesDoNotScaleWithPageSize(t *testing.T) {
 			t.Fatal(err)
 		}
 		if err := svc.repo.DB.Create(&model.Media{
-			Base: model.Base{ID: mediaID}, MetadataID: metadata.ID, LibraryID: lib.ID,
+			PermanentBase: model.PermanentBase{ID: mediaID}, MetadataID: metadata.ID, LibraryID: lib.ID,
 			Title: metadata.Title, Path: "/media/movies/" + mediaID + ".mkv",
 		}).Error; err != nil {
 			t.Fatal(err)
@@ -156,12 +156,12 @@ func TestEmbySearchCombinesPersonAndMediaItemTypes(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, item := range []model.MetadataItem{
-		{Base: model.Base{ID: "metadata-chow-story"}, Kind: model.MetadataKindMovie, Title: "周星驰传", Year: 2024, Source: "tmdb"},
-		{Base: model.Base{ID: "metadata-unrelated-credit"}, Kind: model.MetadataKindMovie, Title: "喜剧之王", Year: 1999, Source: "tmdb"},
+		{PermanentBase: model.PermanentBase{ID: "metadata-chow-story"}, Kind: model.MetadataKindMovie, Title: "周星驰传", Year: 2024, Source: "tmdb"},
+		{PermanentBase: model.PermanentBase{ID: "metadata-unrelated-credit"}, Kind: model.MetadataKindMovie, Title: "喜剧之王", Year: 1999, Source: "tmdb"},
 	} {
 		metadata := createServiceTestMetadata(t, svc.repo.DB, item)
 		if err := svc.repo.DB.Create(&model.Media{
-			Base: model.Base{ID: "media-" + metadata.ID}, MetadataID: metadata.ID, LibraryID: library.ID,
+			PermanentBase: model.PermanentBase{ID: "media-" + metadata.ID}, MetadataID: metadata.ID, LibraryID: library.ID,
 			Title: metadata.Title, Path: "/media/movies/" + metadata.ID + ".mkv",
 		}).Error; err != nil {
 			t.Fatal(err)
@@ -253,8 +253,8 @@ func TestEmbyItemsFilterByPerson(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, id := range []string{"related", "unrelated"} {
-		metadata := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{Base: model.Base{ID: "metadata-" + id}, Kind: model.MetadataKindMovie, Title: id, Source: "tmdb"})
-		if err := svc.repo.DB.Create(&model.Media{Base: model.Base{ID: "media-" + id}, MetadataID: metadata.ID, LibraryID: library.ID, Title: id, Path: "/media/movies/" + id + ".mkv"}).Error; err != nil {
+		metadata := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{PermanentBase: model.PermanentBase{ID: "metadata-" + id}, Kind: model.MetadataKindMovie, Title: id, Source: "tmdb"})
+		if err := svc.repo.DB.Create(&model.Media{PermanentBase: model.PermanentBase{ID: "media-" + id}, MetadataID: metadata.ID, LibraryID: library.ID, Title: id, Path: "/media/movies/" + id + ".mkv"}).Error; err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -272,10 +272,10 @@ func TestEmbyItemsFilterByPerson(t *testing.T) {
 	}
 
 	for _, id := range []string{"related-series", "unrelated-series"} {
-		series := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{Base: model.Base{ID: id}, Kind: model.MetadataKindSeries, Title: id, Source: "tmdb"})
-		season := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{Base: model.Base{ID: id + "-season"}, Kind: model.MetadataKindSeason, ParentID: &series.ID, SeasonNum: 1, Title: "Season 1", Source: "tmdb"})
-		episode := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{Base: model.Base{ID: id + "-episode"}, Kind: model.MetadataKindEpisode, ParentID: &season.ID, SeasonNum: 1, EpisodeNum: 1, Title: "Episode 1", Source: "tmdb"})
-		if err := svc.repo.DB.Create(&model.Media{Base: model.Base{ID: "media-" + id}, MetadataID: episode.ID, LibraryID: library.ID, Title: id, Path: "/media/shows/" + id + "/S01E01.mkv", SeasonNum: 1, EpisodeNum: 1}).Error; err != nil {
+		series := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{PermanentBase: model.PermanentBase{ID: id}, Kind: model.MetadataKindSeries, Title: id, Source: "tmdb"})
+		season := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{PermanentBase: model.PermanentBase{ID: id + "-season"}, Kind: model.MetadataKindSeason, ParentID: &series.ID, SeasonNum: 1, Title: "Season 1", Source: "tmdb"})
+		episode := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{PermanentBase: model.PermanentBase{ID: id + "-episode"}, Kind: model.MetadataKindEpisode, ParentID: &season.ID, SeasonNum: 1, EpisodeNum: 1, Title: "Episode 1", Source: "tmdb"})
+		if err := svc.repo.DB.Create(&model.Media{PermanentBase: model.PermanentBase{ID: "media-" + id}, MetadataID: episode.ID, LibraryID: library.ID, Title: id, Path: "/media/shows/" + id + "/S01E01.mkv", SeasonNum: 1, EpisodeNum: 1}).Error; err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -299,11 +299,11 @@ func TestEmbyFolderPayloadQueriesDoNotScaleWithPageSize(t *testing.T) {
 	for i := 1; i <= 3; i++ {
 		suffix := strconv.Itoa(i)
 		series := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{
-			Base: model.Base{ID: "series-query-" + suffix}, Kind: model.MetadataKindSeries,
+			PermanentBase: model.PermanentBase{ID: "series-query-" + suffix}, Kind: model.MetadataKindSeries,
 			Title: "Series " + suffix, Source: "tmdb",
 		})
 		season := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{
-			Base: model.Base{ID: "season-query-" + suffix}, Kind: model.MetadataKindSeason,
+			PermanentBase: model.PermanentBase{ID: "season-query-" + suffix}, Kind: model.MetadataKindSeason,
 			ParentID: &series.ID, SeasonNum: 1, Title: "Season 1", Source: "tmdb",
 		})
 		group := embySeriesGroup{ID: series.ID, Name: series.Title}
@@ -351,11 +351,11 @@ func TestEmbyLatestItemsOrderByReleaseDate(t *testing.T) {
 	}
 	for _, row := range testRows {
 		metadata := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{
-			Base: model.Base{ID: "metadata-" + row.id}, Kind: model.MetadataKindMovie,
+			PermanentBase: model.PermanentBase{ID: "metadata-" + row.id}, Kind: model.MetadataKindMovie,
 			Title: row.title, Year: 2026, ReleaseDate: row.releaseDate, Source: "tmdb",
 		})
 		media := model.Media{
-			Base: model.Base{ID: row.id, CreatedAt: row.createdAt}, LibraryID: lib.ID, MetadataID: metadata.ID,
+			PermanentBase: model.PermanentBase{ID: row.id, CreatedAt: row.createdAt}, LibraryID: lib.ID, MetadataID: metadata.ID,
 			Title: row.title, Path: row.path, Year: 2026, ScrapeStatus: "matched",
 		}
 		if err := svc.repo.DB.Create(&media).Error; err != nil {

@@ -126,8 +126,8 @@ func LibraryVisibleForUser(ctx context.Context, repo *repository.Container, lib 
 	if repo != nil && repo.DB != nil {
 		var count int64
 		_ = repo.DB.WithContext(ctx).Table("media AS m").
-			Joins("JOIN metadata_items AS mi ON mi.id = m.metadata_id AND mi.deleted_at IS NULL").
-			Where("m.deleted_at IS NULL AND m.library_id = ? AND mi.nsfw = ?", lib.ID, true).
+			Joins("JOIN metadata_items AS mi ON mi.id = m.metadata_id").
+			Where("m.library_id = ? AND mi.nsfw = ?", lib.ID, true).
 			Count(&count).Error
 		if count > 0 {
 			return false

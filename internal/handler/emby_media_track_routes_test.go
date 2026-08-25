@@ -114,15 +114,15 @@ func TestEmbySubtitleDeliveryKeepsSeriesAndSeasonCompatibility(t *testing.T) {
 	if err := repos.DB.First(&library).Error; err != nil {
 		t.Fatal(err)
 	}
-	series := model.MetadataItem{Base: model.Base{ID: "subtitle-series"}, Kind: model.MetadataKindSeries, Title: "Series", Source: "local"}
+	series := model.MetadataItem{PermanentBase: model.PermanentBase{ID: "subtitle-series"}, Kind: model.MetadataKindSeries, Title: "Series", Source: "local"}
 	if err := repos.DB.Create(&series).Error; err != nil {
 		t.Fatal(err)
 	}
-	season := model.MetadataItem{Base: model.Base{ID: "subtitle-season"}, Kind: model.MetadataKindSeason, ParentID: &series.ID, SeasonNum: 1, Title: "Season 1", Source: "local"}
+	season := model.MetadataItem{PermanentBase: model.PermanentBase{ID: "subtitle-season"}, Kind: model.MetadataKindSeason, ParentID: &series.ID, SeasonNum: 1, Title: "Season 1", Source: "local"}
 	if err := repos.DB.Create(&season).Error; err != nil {
 		t.Fatal(err)
 	}
-	episode := model.MetadataItem{Base: model.Base{ID: "subtitle-episode"}, Kind: model.MetadataKindEpisode, ParentID: &season.ID, EpisodeNum: 1, Title: "Episode 1", Source: "local"}
+	episode := model.MetadataItem{PermanentBase: model.PermanentBase{ID: "subtitle-episode"}, Kind: model.MetadataKindEpisode, ParentID: &season.ID, EpisodeNum: 1, Title: "Episode 1", Source: "local"}
 	if err := repos.DB.Create(&episode).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -134,7 +134,7 @@ func TestEmbySubtitleDeliveryKeepsSeriesAndSeasonCompatibility(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := repos.DB.Create(&model.Media{
-		Base: model.Base{ID: "subtitle-episode-media"}, LibraryID: library.ID, MetadataID: episode.ID,
+		PermanentBase: model.PermanentBase{ID: "subtitle-episode-media"}, LibraryID: library.ID, MetadataID: episode.ID,
 		Title: episode.Title, Path: mediaPath, SeasonNum: 1, EpisodeNum: 1,
 	}).Error; err != nil {
 		t.Fatal(err)
@@ -206,7 +206,7 @@ func TestEmbyAdditionalPartsRoutesAttachTokenAndKeepProgressMediaID(t *testing.T
 		t.Fatal(err)
 	}
 	part2 := model.Media{
-		Base: model.Base{ID: "track-movie-part-2"}, LibraryID: part1.LibraryID, MetadataID: part1.MetadataID,
+		PermanentBase: model.PermanentBase{ID: "track-movie-part-2"}, LibraryID: part1.LibraryID, MetadataID: part1.MetadataID,
 		Title: part1.Title, Path: part2Path, PartGroupKey: groupKey, PartIndex: 2,
 	}
 	if err := repos.DB.Create(&part2).Error; err != nil {

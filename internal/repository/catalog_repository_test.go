@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -9,6 +10,140 @@ import (
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 	"github.com/ShukeBta/MediaStationGo/internal/testdb"
 )
+
+func TestListMissingCatalogArtworkWithoutMediaTable(t *testing.T) {
+	db, err := testdb.OpenPostgres(t, &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(&model.MetadataItem{}, &model.MetadataIdentifier{}, &model.ArtworkAsset{}, &model.MetadataArtwork{}, &model.CatalogHydrationJob{}); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	series := model.MetadataItem{PermanentBase: model.PermanentBase{ID: "00000000-0000-0000-0000-000000000100"}, Kind: model.MetadataKindSeries, Title: "Series", Source: "tmdb", CatalogMetadataHydratedAt: &now, CatalogArtworkHydratedAt: &now, CatalogHydratedAt: &now}
+	if err := db.Create(&series).Error; err != nil {
+		t.Fatal(err)
+	}
+	season := model.MetadataItem{PermanentBase: model.PermanentBase{ID: "00000000-0000-0000-0000-000000000200"}, Kind: model.MetadataKindSeason, ParentID: &series.ID, SeasonNum: 1, Title: "Season", Source: "tmdb", CatalogMetadataHydratedAt: &now}
+	if err := db.Create(&season).Error; err != nil {
+		t.Fatal(err)
+	}
+	episode := model.MetadataItem{PermanentBase: model.PermanentBase{ID: "00000000-0000-0000-0000-000000000300"}, Kind: model.MetadataKindEpisode, ParentID: &season.ID, EpisodeNum: 1, Title: "Episode", Source: "tmdb", CatalogMetadataHydratedAt: &now}
+	if err := db.Create(&episode).Error; err != nil {
+		t.Fatal(err)
+	}
+	identifiers := []model.MetadataIdentifier{
+		{MetadataID: series.ID, Provider: "tmdb", EntityKind: model.MetadataKindSeries, ExternalID: "100"},
+		{MetadataID: season.ID, Provider: "tmdb", EntityKind: model.MetadataKindSeason, ExternalID: "101"},
+		{MetadataID: episode.ID, Provider: "tmdb", EntityKind: model.MetadataKindEpisode, ExternalID: "102"},
+	}
+	if err := db.Create(&identifiers).Error; err != nil {
+		t.Fatal(err)
+	}
+	repo := New(db).Metadata
+	items, err := repo.ListMissingCatalogArtworkAfter(t.Context(), "", 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 2 || items[0].MetadataID != season.ID || !items[0].MissingPoster || items[0].MissingBackdrop || items[0].MissingStill ||
+		items[1].MetadataID != episode.ID || !items[1].MissingStill || items[1].MissingPoster || items[1].MissingBackdrop {
+		t.Fatalf("missing items = %#v", items)
+	}
+	roots, err := repo.ListMissingCatalogArtworkRootsAfter(t.Context(), "", 20, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(roots) != 1 || roots[0].MetadataID != series.ID || roots[0].ExternalID != "100" {
+		t.Fatalf("missing roots = %#v", roots)
+	}
+}
+
+func TestEnsureCatalogArtworkJobRespectsTerminalState(t *testing.T) {
+	db, err := testdb.OpenPostgres(t, &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(&model.MetadataItem{}, &model.CatalogHydrationJob{}); err != nil {
+		t.Fatal(err)
+	}
+	repo := New(db).Metadata
+	metadata := model.MetadataItem{PermanentBase: model.PermanentBase{ID: "metadata-1"}, Kind: model.MetadataKindMovie, Title: "Movie", Source: "tmdb"}
+	if err := db.Create(&metadata).Error; err != nil {
+		t.Fatal(err)
+	}
+	candidate := CatalogArtworkCandidate{MetadataID: metadata.ID, EntityKind: model.MetadataKindMovie, ExternalID: "10"}
+	if got, err := repo.EnsureCatalogArtworkJob(t.Context(), candidate, false); err != nil || got != CatalogJobCreated {
+		t.Fatalf("create = %q, %v", got, err)
+	}
+	if err := db.Model(&model.CatalogHydrationJob{}).Where("external_id = ?", "10").Updates(map[string]any{"status": model.CatalogJobStatusCompleted, "attempts": 5}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if got, err := repo.EnsureCatalogArtworkJob(t.Context(), candidate, false); err != nil || got != CatalogJobRequeued {
+		t.Fatalf("completed requeue = %q, %v", got, err)
+	}
+	var job model.CatalogHydrationJob
+	if err := db.First(&job, "external_id = ?", "10").Error; err != nil {
+		t.Fatal(err)
+	}
+	if job.Status != model.CatalogJobStatusPending || job.Stage != model.CatalogJobStageRoot || job.Attempts != 0 {
+		t.Fatalf("requeued job = %#v", job)
+	}
+	if err := db.Model(&job).Update("status", model.CatalogJobStatusFailed).Error; err != nil {
+		t.Fatal(err)
+	}
+	if got, err := repo.EnsureCatalogArtworkJob(t.Context(), candidate, false); err != nil || got != CatalogJobUnchanged {
+		t.Fatalf("scheduled failed = %q, %v", got, err)
+	}
+	if got, err := repo.EnsureCatalogArtworkJob(context.Background(), candidate, true); err != nil || got != CatalogJobRequeued {
+		t.Fatalf("manual failed = %q, %v", got, err)
+	}
+	for _, status := range []string{model.CatalogJobStatusPending, model.CatalogJobStatusRunning, model.CatalogJobStatusRetry} {
+		next := time.Now().UTC().Add(time.Hour).Truncate(time.Microsecond)
+		if err := db.Model(&job).Updates(map[string]any{"status": status, "stage": model.CatalogJobStageSeasons, "attempts": 4, "next_attempt_at": next}).Error; err != nil {
+			t.Fatal(err)
+		}
+		if got, err := repo.EnsureCatalogArtworkJob(t.Context(), candidate, true); err != nil || got != CatalogJobUnchanged {
+			t.Fatalf("active %s = %q, %v", status, got, err)
+		}
+		var unchanged model.CatalogHydrationJob
+		if err := db.First(&unchanged, "id = ?", job.ID).Error; err != nil {
+			t.Fatal(err)
+		}
+		if unchanged.Stage != model.CatalogJobStageSeasons || unchanged.Attempts != 4 || unchanged.NextAttemptAt == nil || !unchanged.NextAttemptAt.Equal(next) {
+			t.Fatalf("active %s was reset: %#v", status, unchanged)
+		}
+	}
+}
+
+func TestFindIncompleteCatalogChildIncludesArtworkOnlyDescendant(t *testing.T) {
+	db, err := testdb.OpenPostgres(t, &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(&model.MetadataItem{}); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	series := model.MetadataItem{Kind: model.MetadataKindSeries, Title: "Series", Source: "tmdb", CatalogMetadataHydratedAt: &now, CatalogArtworkHydratedAt: &now, CatalogHydratedAt: &now}
+	if err := db.Create(&series).Error; err != nil {
+		t.Fatal(err)
+	}
+	season := model.MetadataItem{Kind: model.MetadataKindSeason, ParentID: &series.ID, SeasonNum: 1, Title: "Season", Source: "tmdb", CatalogMetadataHydratedAt: &now, CatalogArtworkHydratedAt: &now, CatalogHydratedAt: &now}
+	if err := db.Create(&season).Error; err != nil {
+		t.Fatal(err)
+	}
+	episode := model.MetadataItem{Kind: model.MetadataKindEpisode, ParentID: &season.ID, EpisodeNum: 1, Title: "Episode", Source: "tmdb", CatalogMetadataHydratedAt: &now}
+	if err := db.Create(&episode).Error; err != nil {
+		t.Fatal(err)
+	}
+	found, err := New(db).Metadata.FindIncompleteCatalogChild(t.Context(), series.ID, model.MetadataKindSeason)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if found == nil || found.ID != season.ID {
+		t.Fatalf("season with incomplete episode artwork was skipped: %#v", found)
+	}
+}
 
 func TestNextCatalogAttemptAtHandlesEmptyAggregate(t *testing.T) {
 	db, err := testdb.OpenPostgres(t, &gorm.Config{})

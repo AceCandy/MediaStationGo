@@ -8,11 +8,11 @@ import (
 
 func TestGroupScrapeCandidateRowsUsesStableIdentity(t *testing.T) {
 	rows := []model.Media{
-		{Base: model.Base{ID: "series-1-a"}, SeriesID: "series-1"},
-		{Base: model.Base{ID: "series-1-b"}, SeriesID: "series-1"},
-		{Base: model.Base{ID: "metadata-1-a"}, MetadataID: "metadata-1"},
-		{Base: model.Base{ID: "metadata-1-b"}, MetadataID: "metadata-1"},
-		{Base: model.Base{ID: "media-1"}},
+		{PermanentBase: model.PermanentBase{ID: "series-1-a"}, SeriesID: "series-1"},
+		{PermanentBase: model.PermanentBase{ID: "series-1-b"}, SeriesID: "series-1"},
+		{PermanentBase: model.PermanentBase{ID: "metadata-1-a"}, MetadataID: "metadata-1"},
+		{PermanentBase: model.PermanentBase{ID: "metadata-1-b"}, MetadataID: "metadata-1"},
+		{PermanentBase: model.PermanentBase{ID: "media-1"}},
 	}
 	groups, err := groupScrapeCandidateRows(rows)
 	if err != nil {
@@ -154,8 +154,8 @@ func TestResetMediaScrapeResetsCompleteSeries(t *testing.T) {
 		{LibraryID: library.ID, MetadataID: "episode-2", SeriesID: "series-1", Title: "Show", Path: "/media/tv/show-s01e02.mkv", SeasonNum: 1, EpisodeNum: 2, ScrapeStatus: "matched"},
 	}
 	metadata := []model.MetadataItem{
-		{Base: model.Base{ID: "episode-1"}, Kind: model.MetadataKindMovie, Title: "Episode 1", Source: "test"},
-		{Base: model.Base{ID: "episode-2"}, Kind: model.MetadataKindMovie, Title: "Episode 2", Source: "test"},
+		{PermanentBase: model.PermanentBase{ID: "episode-1"}, Kind: model.MetadataKindMovie, Title: "Episode 1", Source: "test"},
+		{PermanentBase: model.PermanentBase{ID: "episode-2"}, Kind: model.MetadataKindMovie, Title: "Episode 2", Source: "test"},
 	}
 	if err := repos.DB.Create(&metadata).Error; err != nil {
 		t.Fatal(err)

@@ -51,7 +51,7 @@ func (r *MediaRepository) ResolveMetadata(ctx context.Context, media *model.Medi
 	}
 	if strings.TrimSpace(media.MetadataID) == "" {
 		var existing model.Media
-		err := r.db.WithContext(ctx).Unscoped().Where("path = ?", media.Path).First(&existing).Error
+		err := r.db.WithContext(ctx).Where("path = ?", media.Path).First(&existing).Error
 		if err == nil && strings.TrimSpace(existing.MetadataID) != "" {
 			media.MetadataID = existing.MetadataID
 		} else if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
@@ -160,7 +160,7 @@ func (r *MediaRepository) upsert(ctx context.Context, m *model.Media) (string, e
 
 func (r *MediaRepository) findOrCreateMediaByPath(ctx context.Context, m *model.Media) (model.Media, bool, error) {
 	var existing model.Media
-	err := r.db.WithContext(ctx).Unscoped().Where("path = ?", m.Path).First(&existing).Error
+	err := r.db.WithContext(ctx).Where("path = ?", m.Path).First(&existing).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		// 新行：保证 scrape_status 走 GORM default:pending（即留空让数据库填）。
 		if m.ScrapeStatus == "" {
@@ -168,7 +168,7 @@ func (r *MediaRepository) findOrCreateMediaByPath(ctx context.Context, m *model.
 		}
 		if createErr := r.db.WithContext(ctx).Create(m).Error; createErr == nil {
 			return *m, true, nil
-		} else if retryErr := r.db.WithContext(ctx).Unscoped().Where("path = ?", m.Path).First(&existing).Error; retryErr != nil {
+		} else if retryErr := r.db.WithContext(ctx).Where("path = ?", m.Path).First(&existing).Error; retryErr != nil {
 			return model.Media{}, false, createErr
 		}
 	}
@@ -195,9 +195,6 @@ func addMediaFileScanUpdates(updates map[string]any, existing, incoming model.Me
 	setIfChanged(updates, "scan_file_size_bytes", existing.ScanFileSizeBytes, incoming.ScanFileSizeBytes)
 	setIfChanged(updates, "scan_file_mtime_ns", existing.ScanFileMTimeNS, incoming.ScanFileMTimeNS)
 	setIfChanged(updates, "local_metadata_hint", existing.LocalMetadataHint, incoming.LocalMetadataHint)
-	if existing.DeletedAt.Valid {
-		updates["deleted_at"] = nil
-	}
 	// 回填硬链接身份标识，便于后续扫描去重（避免重复识别/多倍占用）。
 	if incoming.FileID != "" && incoming.FileID != existing.FileID {
 		updates["file_id"] = incoming.FileID
@@ -312,7 +309,7 @@ func (r *MediaRepository) applyMediaUpsertUpdates(ctx context.Context, m *model.
 		*m = existing
 		return nil
 	}
-	if err := r.db.WithContext(ctx).Unscoped().Model(&model.Media{}).
+	if err := r.db.WithContext(ctx).Model(&model.Media{}).
 		Where("id = ?", existing.ID).Updates(updates).Error; err != nil {
 		return err
 	}

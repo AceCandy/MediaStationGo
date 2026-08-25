@@ -196,7 +196,7 @@ func (s *MediaProbeService) backfill(ctx context.Context, libraryID string, limi
 	if s == nil || s.repo == nil || s.repo.DB == nil {
 		return result, errors.New("media probe unavailable")
 	}
-	countQuery := s.repo.DB.WithContext(ctx).Model(&model.Media{}).Where("deleted_at IS NULL")
+	countQuery := s.repo.DB.WithContext(ctx).Model(&model.Media{})
 	if libraryID != "" {
 		countQuery = countQuery.Where("library_id = ?", libraryID)
 	}
@@ -219,7 +219,6 @@ func (s *MediaProbeService) backfill(ctx context.Context, libraryID string, limi
 		query := s.repo.DB.WithContext(ctx).Table("media AS m").
 			Select("m.id AS media_id, m.path, p.probe_json, p.schema_version").
 			Joins("LEFT JOIN media_probe_metadata AS p ON p.media_id = m.id").
-			Where("m.deleted_at IS NULL").
 			Order("m.id").Limit(pageSize)
 		if libraryID != "" {
 			query = query.Where("m.library_id = ?", libraryID)

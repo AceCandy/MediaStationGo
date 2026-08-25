@@ -101,8 +101,6 @@ export interface MediaMetadataUpdate {
   title?: string
   original_name?: string
   overview?: string
-  poster_url?: string
-  backdrop_url?: string
   year?: number
   release_date?: string
   rating?: number

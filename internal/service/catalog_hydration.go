@@ -16,6 +16,7 @@ import (
 
 const (
 	catalogRootBurst           = 4
+	catalogMaxAttempts         = 8
 	autoMediaScrapeWorkerCount = 3
 )
 
@@ -166,25 +167,44 @@ func (s *ScraperService) runCatalogHydrationWorker(ctx context.Context) {
 				Stage: "scrape", SourcePath: "catalog", Message: "正在补全发现目录元数据",
 			})
 			if task == nil {
-				next := time.Now().UTC().Add(catalogRetryDelay(job.Attempts))
-				_ = s.repo.Metadata.RetryCatalogJob(ctx, job.ID, "create scrape task execution failed", next)
+				_ = s.finishCatalogFailure(ctx, job, errors.New("create scrape task execution failed"))
 				continue
 			}
 		}
-		runErr := s.processCatalogJob(ctx, job)
+		artworkMetrics := &catalogArtworkMetrics{}
+		runErr := s.processCatalogJobWithMetrics(ctx, job, artworkMetrics)
 		if task != nil {
 			safeErr := sanitizeCatalogError(runErr)
-			task.Finish(safeErr, TaskUpdate{Stage: "completed", Message: "发现目录刮削结束", Metrics: map[string]int64{"processed": 1}, Details: []string{s.catalogScrapeTaskDetail(ctx, job, safeErr)}})
+			metrics := map[string]int64{
+				"processed":     1,
+				"artwork_saved": artworkMetrics.Saved, "artwork_existing": artworkMetrics.Existing,
+				"artwork_source_missing": artworkMetrics.SourceMissing,
+			}
+			if runErr != nil {
+				if job.Attempts >= catalogMaxAttempts {
+					metrics["failed"] = 1
+				} else {
+					metrics["retry"] = 1
+				}
+			}
+			task.Finish(safeErr, TaskUpdate{Stage: "completed", Message: "发现目录刮削结束", Metrics: metrics, Details: []string{s.catalogScrapeTaskDetail(ctx, job, safeErr)}})
 		}
 		if runErr != nil && ctx.Err() == nil {
 			safeErr := sanitizeCatalogError(runErr)
-			next := time.Now().UTC().Add(catalogRetryDelay(job.Attempts))
-			_ = s.repo.Metadata.RetryCatalogJob(ctx, job.ID, safeErr.Error(), next)
+			_ = s.finishCatalogFailure(ctx, job, safeErr)
 			if s.log != nil {
 				s.log.Warn("catalog hydration failed", zap.String("provider", job.Provider), zap.String("entity_kind", job.EntityKind), zap.String("external_id", job.ExternalID), zap.Error(safeErr))
 			}
 		}
 	}
+}
+
+func (s *ScraperService) finishCatalogFailure(ctx context.Context, job *model.CatalogHydrationJob, err error) error {
+	message := sanitizeCatalogError(err).Error()
+	if job != nil && job.Attempts >= catalogMaxAttempts {
+		return s.repo.Metadata.FailCatalogJob(ctx, job.ID, message)
+	}
+	return s.repo.Metadata.RetryCatalogJob(ctx, job.ID, message, time.Now().UTC().Add(catalogRetryDelay(job.Attempts)))
 }
 
 func (s *ScraperService) runMediaScrapeWorker(ctx context.Context) {
@@ -308,6 +328,10 @@ func waitForContext(ctx context.Context, delay time.Duration) bool {
 }
 
 func (s *ScraperService) processCatalogJob(ctx context.Context, job *model.CatalogHydrationJob) error {
+	return s.processCatalogJobWithMetrics(ctx, job, nil)
+}
+
+func (s *ScraperService) processCatalogJobWithMetrics(ctx context.Context, job *model.CatalogHydrationJob, metrics *catalogArtworkMetrics) error {
 	if job == nil || job.Provider != "tmdb" {
 		return errors.New("unsupported catalog hydration job")
 	}
@@ -318,14 +342,14 @@ func (s *ScraperService) processCatalogJob(ctx context.Context, job *model.Catal
 	s.scrapeRunMu.Lock()
 	defer s.scrapeRunMu.Unlock()
 	if job.EntityKind == model.MetadataKindSeries {
-		return s.hydrateCatalogSeries(ctx, job, tmdbID)
+		return s.hydrateCatalogSeries(ctx, job, tmdbID, metrics)
 	}
-	return s.hydrateCatalogRoot(ctx, job, tmdbID)
+	return s.hydrateCatalogRoot(ctx, job, tmdbID, metrics)
 }
 
-func (s *ScraperService) hydrateCatalogSeries(ctx context.Context, job *model.CatalogHydrationJob, tmdbID int) error {
+func (s *ScraperService) hydrateCatalogSeries(ctx context.Context, job *model.CatalogHydrationJob, tmdbID int, metrics *catalogArtworkMetrics) error {
 	if job.Stage != model.CatalogJobStageSeasons {
-		if err := s.hydrateCatalogSeriesRoot(ctx, job, tmdbID); err != nil {
+		if err := s.hydrateCatalogSeriesRoot(ctx, job, tmdbID, metrics); err != nil {
 			return err
 		}
 	}
@@ -341,7 +365,7 @@ func (s *ScraperService) hydrateCatalogSeries(ctx context.Context, job *model.Ca
 		if season == nil {
 			break
 		}
-		if err := s.hydrateCatalogSeason(ctx, series, season, tmdbID); err != nil {
+		if err := s.hydrateCatalogSeason(ctx, series, season, tmdbID, metrics); err != nil {
 			return err
 		}
 	}
@@ -352,8 +376,8 @@ func (s *ScraperService) hydrateCatalogSeries(ctx context.Context, job *model.Ca
 	return s.repo.Metadata.CompleteCatalogJob(ctx, job.ID, series.ID, now)
 }
 
-func (s *ScraperService) hydrateCatalogSeriesRoot(ctx context.Context, job *model.CatalogHydrationJob, tmdbID int) error {
-	if err := s.hydrateCatalogRootData(ctx, job, tmdbID); err != nil {
+func (s *ScraperService) hydrateCatalogSeriesRoot(ctx context.Context, job *model.CatalogHydrationJob, tmdbID int, metrics *catalogArtworkMetrics) error {
+	if err := s.hydrateCatalogRootData(ctx, job, tmdbID, metrics); err != nil {
 		return err
 	}
 	item, err := s.repo.Metadata.FindByIdentifier(ctx, job.Provider, job.EntityKind, job.ExternalID)
@@ -371,8 +395,8 @@ func (s *ScraperService) hydrateCatalogSeriesRoot(ctx context.Context, job *mode
 	return nil
 }
 
-func (s *ScraperService) hydrateCatalogRoot(ctx context.Context, job *model.CatalogHydrationJob, tmdbID int) error {
-	if err := s.hydrateCatalogRootData(ctx, job, tmdbID); err != nil {
+func (s *ScraperService) hydrateCatalogRoot(ctx context.Context, job *model.CatalogHydrationJob, tmdbID int, metrics *catalogArtworkMetrics) error {
+	if err := s.hydrateCatalogRootData(ctx, job, tmdbID, metrics); err != nil {
 		return err
 	}
 	item, err := s.repo.Metadata.FindByIdentifier(ctx, job.Provider, job.EntityKind, job.ExternalID)
@@ -388,7 +412,7 @@ func (s *ScraperService) hydrateCatalogRoot(ctx context.Context, job *model.Cata
 	return s.repo.Metadata.RequeueCatalogJob(ctx, job.ID, model.CatalogJobStageSeasons, &item.ID)
 }
 
-func (s *ScraperService) hydrateCatalogRootData(ctx context.Context, job *model.CatalogHydrationJob, tmdbID int) error {
+func (s *ScraperService) hydrateCatalogRootData(ctx context.Context, job *model.CatalogHydrationJob, tmdbID int, metrics *catalogArtworkMetrics) error {
 	if s.tmdb == nil {
 		return errors.New("tmdb catalog provider is unavailable")
 	}
@@ -444,7 +468,7 @@ func (s *ScraperService) hydrateCatalogRootData(ctx context.Context, job *model.
 		}
 	}
 	if item.CatalogArtworkHydratedAt == nil {
-		if err := s.persistCatalogArtwork(ctx, item.ID, map[string]string{model.ArtworkTypePoster: match.CatalogPosterURL, model.ArtworkTypeBackdrop: match.CatalogBackdropURL}); err != nil {
+		if err := s.persistCatalogArtworkWithMetrics(ctx, item.ID, map[string]string{model.ArtworkTypePoster: match.CatalogPosterURL, model.ArtworkTypeBackdrop: match.CatalogBackdropURL}, metrics); err != nil {
 			return err
 		}
 		if err := s.repo.Metadata.MarkCatalogCheckpoint(ctx, item.ID, "catalog_artwork_hydrated_at", now); err != nil {
@@ -480,7 +504,7 @@ func (s *ScraperService) catalogJobMetadata(ctx context.Context, job *model.Cata
 	return item, nil
 }
 
-func (s *ScraperService) hydrateCatalogSeason(ctx context.Context, series, season *model.MetadataItem, tmdbID int) error {
+func (s *ScraperService) hydrateCatalogSeason(ctx context.Context, series, season *model.MetadataItem, tmdbID int, metrics *catalogArtworkMetrics) error {
 	var details *TMDbSeasonDetails
 	var err error
 	if season.CatalogMetadataHydratedAt == nil || season.CatalogArtworkHydratedAt == nil {
@@ -515,7 +539,7 @@ func (s *ScraperService) hydrateCatalogSeason(ctx context.Context, series, seaso
 		}
 	}
 	if season.CatalogArtworkHydratedAt == nil {
-		if err := s.persistCatalogArtwork(ctx, season.ID, map[string]string{model.ArtworkTypePoster: details.PosterURL}); err != nil {
+		if err := s.persistCatalogArtworkWithMetrics(ctx, season.ID, map[string]string{model.ArtworkTypePoster: details.PosterURL}, metrics); err != nil {
 			return err
 		}
 		if err := s.repo.Metadata.MarkCatalogCheckpoint(ctx, season.ID, "catalog_artwork_hydrated_at", now); err != nil {
@@ -530,14 +554,14 @@ func (s *ScraperService) hydrateCatalogSeason(ctx context.Context, series, seaso
 		if episode == nil {
 			break
 		}
-		if err := s.hydrateCatalogEpisode(ctx, season, episode, tmdbID); err != nil {
+		if err := s.hydrateCatalogEpisode(ctx, season, episode, tmdbID, metrics); err != nil {
 			return err
 		}
 	}
 	return s.repo.Metadata.MarkCatalogCheckpoint(ctx, season.ID, "catalog_hydrated_at", time.Now().UTC())
 }
 
-func (s *ScraperService) hydrateCatalogEpisode(ctx context.Context, season, episode *model.MetadataItem, tmdbID int) error {
+func (s *ScraperService) hydrateCatalogEpisode(ctx context.Context, season, episode *model.MetadataItem, tmdbID int, metrics *catalogArtworkMetrics) error {
 	if episode.CatalogMetadataHydratedAt != nil && episode.CatalogArtworkHydratedAt != nil {
 		return s.repo.Metadata.MarkCatalogCheckpoint(ctx, episode.ID, "catalog_hydrated_at", time.Now().UTC())
 	}
@@ -568,7 +592,7 @@ func (s *ScraperService) hydrateCatalogEpisode(ctx context.Context, season, epis
 		}
 	}
 	if episode.CatalogArtworkHydratedAt == nil {
-		if err := s.persistCatalogArtwork(ctx, episode.ID, map[string]string{model.ArtworkTypeStill: details.CatalogStillURL}); err != nil {
+		if err := s.persistCatalogArtworkWithMetrics(ctx, episode.ID, map[string]string{model.ArtworkTypeStill: details.CatalogStillURL}, metrics); err != nil {
 			return err
 		}
 		if err := s.repo.Metadata.MarkCatalogCheckpoint(ctx, episode.ID, "catalog_artwork_hydrated_at", now); err != nil {
@@ -646,16 +670,37 @@ func firstPositive(values ...int) int {
 }
 
 func (s *ScraperService) persistCatalogArtwork(ctx context.Context, metadataID string, sources map[string]string) error {
+	return s.persistCatalogArtworkWithMetrics(ctx, metadataID, sources, nil)
+}
+
+type catalogArtworkMetrics struct {
+	Saved         int64
+	Existing      int64
+	SourceMissing int64
+}
+
+func (s *ScraperService) persistCatalogArtworkWithMetrics(ctx context.Context, metadataID string, sources map[string]string, metrics *catalogArtworkMetrics) error {
 	for _, artworkType := range []string{model.ArtworkTypePoster, model.ArtworkTypeBackdrop, model.ArtworkTypeStill} {
 		source, ok := sources[artworkType]
 		if !ok || strings.TrimSpace(source) == "" {
+			if ok && metrics != nil {
+				metrics.SourceMissing++
+			}
 			continue
 		}
 		if s.artwork == nil {
 			return errors.New("catalog artwork store is unavailable")
 		}
-		if _, err := s.artwork.importCatalogRemote(ctx, metadataID, artworkType, "tmdb", source); err != nil {
+		_, existing, err := s.artwork.importCatalogRemote(ctx, metadataID, artworkType, "tmdb", source)
+		if err != nil {
 			return err
+		}
+		if metrics != nil {
+			if existing {
+				metrics.Existing++
+			} else {
+				metrics.Saved++
+			}
 		}
 	}
 	return nil

@@ -101,22 +101,22 @@ func TestEnrichLibraryDefersEpisodeDetailsUntilMainMetadataFinishes(t *testing.T
 	}
 	rows := []model.Media{
 		{
-			Base:         model.Base{ID: "episode-1"},
-			LibraryID:    lib.ID,
-			Title:        "间谍过家家",
-			Path:         filepath.Join(lib.Path, "间谍过家家 - S02E01.mkv"),
-			SeasonNum:    2,
-			EpisodeNum:   1,
-			ScrapeStatus: "pending",
+			PermanentBase: model.PermanentBase{ID: "episode-1"},
+			LibraryID:     lib.ID,
+			Title:         "间谍过家家",
+			Path:          filepath.Join(lib.Path, "间谍过家家 - S02E01.mkv"),
+			SeasonNum:     2,
+			EpisodeNum:    1,
+			ScrapeStatus:  "pending",
 		},
 		{
-			Base:         model.Base{ID: "episode-2"},
-			LibraryID:    lib.ID,
-			Title:        "间谍过家家",
-			Path:         filepath.Join(lib.Path, "间谍过家家 - S02E02.mkv"),
-			SeasonNum:    2,
-			EpisodeNum:   2,
-			ScrapeStatus: "pending",
+			PermanentBase: model.PermanentBase{ID: "episode-2"},
+			LibraryID:     lib.ID,
+			Title:         "间谍过家家",
+			Path:          filepath.Join(lib.Path, "间谍过家家 - S02E02.mkv"),
+			SeasonNum:     2,
+			EpisodeNum:    2,
+			ScrapeStatus:  "pending",
 		},
 	}
 	if err := repos.DB.Create(&rows).Error; err != nil {

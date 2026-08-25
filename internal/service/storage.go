@@ -76,7 +76,7 @@ func (s *StorageService) Compute(ctx context.Context) (*Breakdown, error) {
 		err := s.repo.DB.WithContext(ctx).
 			Table("media AS m").
 			Joins("LEFT JOIN media_probe_metadata AS pm ON pm.media_id = m.id").
-			Where("m.library_id = ? AND m.deleted_at IS NULL", l.ID).
+			Where("m.library_id = ?", l.ID).
 			Select("COUNT(*) as count, COALESCE(SUM(pm.size_bytes),0) as size, COALESCE(SUM(pm.duration_ms),0)::bigint / 1000 as seconds").
 			Scan(&row).Error
 		if err != nil {
@@ -115,7 +115,6 @@ func (s *StorageService) containerStats(ctx context.Context) ([]ContainerStat, e
 	rows, err := s.repo.DB.WithContext(ctx).
 		Table("media AS m").
 		Joins("LEFT JOIN media_probe_metadata AS pm ON pm.media_id = m.id").
-		Where("m.deleted_at IS NULL").
 		Select("COALESCE(NULLIF(pm.container,''),'unknown') as container, COUNT(*) as count, COALESCE(SUM(pm.size_bytes),0) as bytes").
 		Group("pm.container").
 		Rows()

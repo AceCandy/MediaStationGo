@@ -64,7 +64,7 @@ func (s *MediaService) ListScrapeIssues(ctx context.Context, libraryID string, s
 	query := func() *gorm.DB {
 		q := s.repo.DB.WithContext(ctx).Table("media AS m").
 			Joins("JOIN libraries AS l ON l.id = m.library_id AND l.deleted_at IS NULL").
-			Where("m.deleted_at IS NULL AND m.scrape_status IN ?", statuses)
+			Where("m.scrape_status IN ?", statuses)
 		if strings.TrimSpace(libraryID) != "" {
 			q = q.Where("m.library_id = ?", strings.TrimSpace(libraryID))
 		}

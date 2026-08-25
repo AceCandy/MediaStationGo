@@ -30,11 +30,11 @@ type PersonIdentifier struct {
 
 // MetadataCredit 保存人物在具体作品中的类型、角色与展示顺序。
 type MetadataCredit struct {
-	Base
-	MetadataID   string       `gorm:"size:36;not null;index;uniqueIndex:uidx_metadata_credit,priority:1,where:deleted_at IS NULL" json:"metadata_id"`
-	PersonID     string       `gorm:"size:36;not null;index;uniqueIndex:uidx_metadata_credit,priority:2,where:deleted_at IS NULL" json:"person_id"`
-	Type         string       `gorm:"size:32;not null;index;uniqueIndex:uidx_metadata_credit,priority:3,where:deleted_at IS NULL" json:"type"`
-	OriginalRole string       `gorm:"type:text;uniqueIndex:uidx_metadata_credit,priority:4,where:deleted_at IS NULL" json:"original_role,omitempty"`
+	PermanentBase
+	MetadataID   string       `gorm:"size:36;not null;index;uniqueIndex:uidx_metadata_credit,priority:1" json:"metadata_id"`
+	PersonID     string       `gorm:"size:36;not null;index;uniqueIndex:uidx_metadata_credit,priority:2" json:"person_id"`
+	Type         string       `gorm:"size:32;not null;index;uniqueIndex:uidx_metadata_credit,priority:3" json:"type"`
+	OriginalRole string       `gorm:"type:text;uniqueIndex:uidx_metadata_credit,priority:4" json:"original_role,omitempty"`
 	Role         string       `gorm:"type:text" json:"role,omitempty"`
 	SortOrder    int          `gorm:"not null;default:0;index" json:"sort_order"`
 	Person       Person       `gorm:"foreignKey:PersonID;references:ID;constraint:OnUpdate:CASCADE,OnDelete:RESTRICT" json:"person"`

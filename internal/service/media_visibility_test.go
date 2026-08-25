@@ -222,10 +222,10 @@ func TestSearchMediaVisibleCanReturnHugeLibraryResultsWhenRequested(t *testing.T
 	}
 	const total = 2505
 	series := createServiceTestMetadata(t, db, model.MetadataItem{
-		Base: model.Base{ID: "huge-series"}, Kind: model.MetadataKindSeries, Title: "海量剧集", Source: "local",
+		PermanentBase: model.PermanentBase{ID: "huge-series"}, Kind: model.MetadataKindSeries, Title: "海量剧集", Source: "local",
 	})
 	season := createServiceTestMetadata(t, db, model.MetadataItem{
-		Base: model.Base{ID: "huge-season"}, Kind: model.MetadataKindSeason,
+		PermanentBase: model.PermanentBase{ID: "huge-season"}, Kind: model.MetadataKindSeason,
 		ParentID: &series.ID, SeasonNum: 1, Title: "Season 1", Source: "local",
 	})
 	episodes := make([]model.MetadataItem, total)
@@ -234,7 +234,7 @@ func TestSearchMediaVisibleCanReturnHugeLibraryResultsWhenRequested(t *testing.T
 		title := fmt.Sprintf("海量剧集 %04d", i)
 		episodeID := fmt.Sprintf("huge-episode-%04d", i)
 		episodes[i] = model.MetadataItem{
-			Base: model.Base{ID: episodeID}, Kind: model.MetadataKindEpisode, ParentID: &season.ID,
+			PermanentBase: model.PermanentBase{ID: episodeID}, Kind: model.MetadataKindEpisode, ParentID: &season.ID,
 			EpisodeNum: i + 1, Title: title, Source: "local",
 		}
 		rows[i] = model.Media{

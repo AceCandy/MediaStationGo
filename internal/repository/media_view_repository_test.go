@@ -101,19 +101,19 @@ func TestMediaViewFiltersSortsAndPaginatesBySharedMetadata(t *testing.T) {
 	}
 
 	publicMetadata := model.MetadataItem{
-		Base: model.Base{ID: "metadata-public"}, Kind: model.MetadataKindMovie,
+		PermanentBase: model.PermanentBase{ID: "metadata-public"}, Kind: model.MetadataKindMovie,
 		Title: "Shared Public", ReleaseDate: "2025-01-01", Year: 2025, Source: "tmdb",
 	}
 	adultMetadata := model.MetadataItem{
-		Base: model.Base{ID: "metadata-adult"}, Kind: model.MetadataKindMovie,
+		PermanentBase: model.PermanentBase{ID: "metadata-adult"}, Kind: model.MetadataKindMovie,
 		Title: "Shared Adult", ReleaseDate: "2026-01-01", Year: 2026, NSFW: true, Source: "tmdb",
 	}
 	if err := repos.DB.Create(&[]model.MetadataItem{publicMetadata, adultMetadata}).Error; err != nil {
 		t.Fatal(err)
 	}
 	media := []model.Media{
-		{Base: model.Base{ID: "media-public"}, LibraryID: library.ID, MetadataID: publicMetadata.ID, Title: "Raw Public", Path: "/media/movies/public.mkv"},
-		{Base: model.Base{ID: "media-adult"}, LibraryID: library.ID, MetadataID: adultMetadata.ID, Title: "Raw Adult", Path: "/media/movies/adult.mkv"},
+		{PermanentBase: model.PermanentBase{ID: "media-public"}, LibraryID: library.ID, MetadataID: publicMetadata.ID, Title: "Raw Public", Path: "/media/movies/public.mkv"},
+		{PermanentBase: model.PermanentBase{ID: "media-adult"}, LibraryID: library.ID, MetadataID: adultMetadata.ID, Title: "Raw Adult", Path: "/media/movies/adult.mkv"},
 	}
 	if err := repos.DB.Create(&media).Error; err != nil {
 		t.Fatal(err)
@@ -159,18 +159,18 @@ func TestMediaViewProjectsEpisodeArtworkAndParentIdentifiers(t *testing.T) {
 	}
 
 	series := model.MetadataItem{
-		Base: model.Base{ID: "metadata-series"}, Kind: model.MetadataKindSeries,
+		PermanentBase: model.PermanentBase{ID: "metadata-series"}, Kind: model.MetadataKindSeries,
 		Title: "Shared Series", Source: "tmdb",
 	}
 	seriesID := series.ID
 	season := model.MetadataItem{
-		Base: model.Base{ID: "metadata-season-1"}, Kind: model.MetadataKindSeason,
+		PermanentBase: model.PermanentBase{ID: "metadata-season-1"}, Kind: model.MetadataKindSeason,
 		ParentID: &seriesID, SeasonNum: 1, Title: "Season 1", Source: "tmdb",
 	}
 	seasonID := season.ID
 	episodes := []model.MetadataItem{
-		{Base: model.Base{ID: "metadata-episode-1"}, Kind: model.MetadataKindEpisode, ParentID: &seasonID, EpisodeNum: 1, Title: "Pilot", Source: "tmdb"},
-		{Base: model.Base{ID: "metadata-episode-2"}, Kind: model.MetadataKindEpisode, ParentID: &seasonID, EpisodeNum: 2, Title: "Second", Source: "tmdb"},
+		{PermanentBase: model.PermanentBase{ID: "metadata-episode-1"}, Kind: model.MetadataKindEpisode, ParentID: &seasonID, EpisodeNum: 1, Title: "Pilot", Source: "tmdb"},
+		{PermanentBase: model.PermanentBase{ID: "metadata-episode-2"}, Kind: model.MetadataKindEpisode, ParentID: &seasonID, EpisodeNum: 2, Title: "Second", Source: "tmdb"},
 	}
 	if err := repos.DB.Create(&series).Error; err != nil {
 		t.Fatal(err)
@@ -182,21 +182,21 @@ func TestMediaViewProjectsEpisodeArtworkAndParentIdentifiers(t *testing.T) {
 		t.Fatal(err)
 	}
 	identifiers := []model.MetadataIdentifier{
-		{Base: model.Base{ID: "identifier-tmdb"}, MetadataID: series.ID, Provider: "tmdb", EntityKind: model.MetadataKindSeries, ExternalID: "123"},
-		{Base: model.Base{ID: "identifier-tmdb-alias"}, MetadataID: series.ID, Provider: "tmdb", EntityKind: model.MetadataKindSeries, ExternalID: "456"},
-		{Base: model.Base{ID: "identifier-tmdb-movie"}, MetadataID: series.ID, Provider: "tmdb", EntityKind: model.MetadataKindMovie, ExternalID: "999"},
-		{Base: model.Base{ID: "identifier-douban"}, MetadataID: series.ID, Provider: "douban", EntityKind: model.MetadataKindSeries, ExternalID: "db-123"},
-		{Base: model.Base{ID: "identifier-episode-tmdb"}, MetadataID: episodes[0].ID, Provider: "tmdb", EntityKind: model.MetadataKindEpisode, ExternalID: "601"},
-		{Base: model.Base{ID: "identifier-episode-douban"}, MetadataID: episodes[0].ID, Provider: "douban", EntityKind: model.MetadataKindEpisode, ExternalID: "db-601"},
+		{PermanentBase: model.PermanentBase{ID: "identifier-tmdb"}, MetadataID: series.ID, Provider: "tmdb", EntityKind: model.MetadataKindSeries, ExternalID: "123"},
+		{PermanentBase: model.PermanentBase{ID: "identifier-tmdb-alias"}, MetadataID: series.ID, Provider: "tmdb", EntityKind: model.MetadataKindSeries, ExternalID: "456"},
+		{PermanentBase: model.PermanentBase{ID: "identifier-tmdb-movie"}, MetadataID: series.ID, Provider: "tmdb", EntityKind: model.MetadataKindMovie, ExternalID: "999"},
+		{PermanentBase: model.PermanentBase{ID: "identifier-douban"}, MetadataID: series.ID, Provider: "douban", EntityKind: model.MetadataKindSeries, ExternalID: "db-123"},
+		{PermanentBase: model.PermanentBase{ID: "identifier-episode-tmdb"}, MetadataID: episodes[0].ID, Provider: "tmdb", EntityKind: model.MetadataKindEpisode, ExternalID: "601"},
+		{PermanentBase: model.PermanentBase{ID: "identifier-episode-douban"}, MetadataID: episodes[0].ID, Provider: "douban", EntityKind: model.MetadataKindEpisode, ExternalID: "db-601"},
 	}
 	if err := repos.DB.Create(&identifiers).Error; err != nil {
 		t.Fatal(err)
 	}
 
 	assets := []model.ArtworkAsset{
-		{Base: model.Base{ID: "asset-poster"}, SHA256: strings.Repeat("1", 64), StorageKey: "poster.jpg", MimeType: "image/jpeg"},
-		{Base: model.Base{ID: "asset-backdrop"}, SHA256: strings.Repeat("2", 64), StorageKey: "backdrop.jpg", MimeType: "image/jpeg"},
-		{Base: model.Base{ID: "asset-still"}, SHA256: strings.Repeat("3", 64), StorageKey: "still.jpg", MimeType: "image/jpeg"},
+		{PermanentBase: model.PermanentBase{ID: "asset-poster"}, SHA256: strings.Repeat("1", 64), StorageKey: "poster.jpg", MimeType: "image/jpeg"},
+		{PermanentBase: model.PermanentBase{ID: "asset-backdrop"}, SHA256: strings.Repeat("2", 64), StorageKey: "backdrop.jpg", MimeType: "image/jpeg"},
+		{PermanentBase: model.PermanentBase{ID: "asset-still"}, SHA256: strings.Repeat("3", 64), StorageKey: "still.jpg", MimeType: "image/jpeg"},
 	}
 	if err := repos.DB.Create(&assets).Error; err != nil {
 		t.Fatal(err)
@@ -211,8 +211,8 @@ func TestMediaViewProjectsEpisodeArtworkAndParentIdentifiers(t *testing.T) {
 	}
 
 	media := []model.Media{
-		{Base: model.Base{ID: "media-episode-1"}, LibraryID: library.ID, MetadataID: episodes[0].ID, Title: "Raw Show", Path: "/media/tv/S01E01.mkv", SeasonNum: 1, EpisodeNum: 1},
-		{Base: model.Base{ID: "media-episode-2"}, LibraryID: library.ID, MetadataID: episodes[1].ID, Title: "Raw Show", Path: "/media/tv/S01E02.mkv", SeasonNum: 1, EpisodeNum: 2},
+		{PermanentBase: model.PermanentBase{ID: "media-episode-1"}, LibraryID: library.ID, MetadataID: episodes[0].ID, Title: "Raw Show", Path: "/media/tv/S01E01.mkv", SeasonNum: 1, EpisodeNum: 1},
+		{PermanentBase: model.PermanentBase{ID: "media-episode-2"}, LibraryID: library.ID, MetadataID: episodes[1].ID, Title: "Raw Show", Path: "/media/tv/S01E02.mkv", SeasonNum: 1, EpisodeNum: 2},
 	}
 	if err := repos.DB.Create(&media).Error; err != nil {
 		t.Fatal(err)

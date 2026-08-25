@@ -110,6 +110,8 @@ func (s *SchedulerService) Start(ctx context.Context) {
 		s.configuredJob(ctx, "organize_source", "organize.auto", "organize.interval_seconds", false, 5*time.Minute, s.jobOrganizeSource),
 		s.configuredJob(ctx, "people_backfill_periodic", "people.backfill_periodic_enabled", "people.backfill_interval_seconds", true, 10*time.Minute, s.jobPeopleBackfill),
 		s.configuredJob(ctx, "people_translation_periodic", "people.translation_periodic_enabled", "people.translation_interval_seconds", true, 10*time.Minute, s.jobPeopleTranslation),
+		s.configuredJob(ctx, "metadata_artwork_backfill", "metadata.artwork_backfill_enabled", "metadata.artwork_backfill_interval_seconds", false, 24*time.Hour, s.jobMetadataArtworkBackfill),
+		s.configuredJob(ctx, "douban_movie_enrichment", "metadata.douban_movie_enrichment_enabled", "metadata.douban_movie_enrichment_interval_seconds", false, 24*time.Hour, s.jobDoubanMovieEnrichment),
 		s.configuredJob(ctx, "account_cleanup", SettingAccountCleanupEnabled, "device.account_cleanup_interval_seconds", false, 24*time.Hour, s.jobAccountCleanup),
 	}
 	for _, j := range s.jobs {

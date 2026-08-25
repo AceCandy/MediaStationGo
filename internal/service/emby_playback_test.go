@@ -89,7 +89,7 @@ func TestEmbyFolderItemQueryExposesLibrariesForHome(t *testing.T) {
 	if err := svc.repo.Library.Create(t.Context(), &lib); err != nil {
 		t.Fatalf("create library: %v", err)
 	}
-	if err := svc.repo.DB.Create(&model.Media{Base: model.Base{ID: "movie-1"}, LibraryID: lib.ID, Title: "不应出现在文件夹查询", Path: `/media/movies/a.mkv`}).Error; err != nil {
+	if err := svc.repo.DB.Create(&model.Media{PermanentBase: model.PermanentBase{ID: "movie-1"}, LibraryID: lib.ID, Title: "不应出现在文件夹查询", Path: `/media/movies/a.mkv`}).Error; err != nil {
 		t.Fatalf("create media: %v", err)
 	}
 
@@ -115,7 +115,7 @@ func TestEmbyUnsupportedItemTypesDoNotLeakAllMedia(t *testing.T) {
 	if err := svc.repo.Library.Create(t.Context(), &lib); err != nil {
 		t.Fatalf("create library: %v", err)
 	}
-	if err := svc.repo.DB.Create(&model.Media{Base: model.Base{ID: "movie-1"}, LibraryID: lib.ID, Title: "普通电影", Path: `/media/movies/a.mkv`}).Error; err != nil {
+	if err := svc.repo.DB.Create(&model.Media{PermanentBase: model.PermanentBase{ID: "movie-1"}, LibraryID: lib.ID, Title: "普通电影", Path: `/media/movies/a.mkv`}).Error; err != nil {
 		t.Fatalf("create media: %v", err)
 	}
 
@@ -148,8 +148,8 @@ func TestEmbyItemsFiltersFavorites(t *testing.T) {
 	if err := svc.repo.Library.Create(t.Context(), &lib); err != nil {
 		t.Fatalf("create library: %v", err)
 	}
-	favorite := model.Media{Base: model.Base{ID: "fav-1"}, LibraryID: lib.ID, Title: "收藏电影", Path: `/media/movies/fav.mkv`}
-	normal := model.Media{Base: model.Base{ID: "normal-1"}, LibraryID: lib.ID, Title: "普通电影", Path: `/media/movies/normal.mkv`}
+	favorite := model.Media{PermanentBase: model.PermanentBase{ID: "fav-1"}, LibraryID: lib.ID, Title: "收藏电影", Path: `/media/movies/fav.mkv`}
+	normal := model.Media{PermanentBase: model.PermanentBase{ID: "normal-1"}, LibraryID: lib.ID, Title: "普通电影", Path: `/media/movies/normal.mkv`}
 	if err := svc.repo.DB.Create(&favorite).Error; err != nil {
 		t.Fatalf("create favorite media: %v", err)
 	}
@@ -198,7 +198,7 @@ func TestEmbySetFavoriteInvalidatesItemsCache(t *testing.T) {
 		Kind: model.MetadataKindMovie, Title: "收藏电影", Source: "local",
 	})
 	media := model.Media{
-		Base: model.Base{ID: "movie-1"}, LibraryID: lib.ID, MetadataID: metadata.ID,
+		PermanentBase: model.PermanentBase{ID: "movie-1"}, LibraryID: lib.ID, MetadataID: metadata.ID,
 		Title: "收藏电影", Path: `/media/movies/favorite.mkv`,
 	}
 	if err := svc.repo.DB.Create(&media).Error; err != nil {
@@ -252,8 +252,8 @@ func TestEmbyItemsFiltersResumableForHome(t *testing.T) {
 	if err := svc.repo.Library.Create(t.Context(), &lib); err != nil {
 		t.Fatalf("create library: %v", err)
 	}
-	resumable := model.Media{Base: model.Base{ID: "resume-1"}, LibraryID: lib.ID, Title: "继续观看", Path: `/media/movies/resume.mkv`, DurationSec: 120}
-	normal := model.Media{Base: model.Base{ID: "normal-1"}, LibraryID: lib.ID, Title: "普通电影", Path: `/media/movies/normal.mkv`, DurationSec: 120}
+	resumable := model.Media{PermanentBase: model.PermanentBase{ID: "resume-1"}, LibraryID: lib.ID, Title: "继续观看", Path: `/media/movies/resume.mkv`, DurationSec: 120}
+	normal := model.Media{PermanentBase: model.PermanentBase{ID: "normal-1"}, LibraryID: lib.ID, Title: "普通电影", Path: `/media/movies/normal.mkv`, DurationSec: 120}
 	if err := svc.repo.DB.Create(&resumable).Error; err != nil {
 		t.Fatalf("create resumable media: %v", err)
 	}
@@ -369,7 +369,7 @@ func TestEmbyPlaybackInfoIsAlwaysDirectOnly(t *testing.T) {
 	if err := svc.repo.Library.Create(t.Context(), &lib); err != nil {
 		t.Fatalf("create library: %v", err)
 	}
-	media := model.Media{Base: model.Base{ID: "m-1"}, LibraryID: lib.ID, Title: "Inception", Path: `/media/movies/inception.mkv`}
+	media := model.Media{PermanentBase: model.PermanentBase{ID: "m-1"}, LibraryID: lib.ID, Title: "Inception", Path: `/media/movies/inception.mkv`}
 	if err := svc.repo.DB.Create(&media).Error; err != nil {
 		t.Fatalf("create media: %v", err)
 	}
@@ -404,7 +404,7 @@ func TestEmbyPlaybackInfoUsesSourceNameAndSharedVisibility(t *testing.T) {
 		Kind: model.MetadataKindMovie, Title: "共享标题", NSFW: true, Source: "tmdb",
 	})
 	media := model.Media{
-		Base: model.Base{ID: "shared-playback"}, LibraryID: lib.ID, MetadataID: metadata.ID,
+		PermanentBase: model.PermanentBase{ID: "shared-playback"}, LibraryID: lib.ID, MetadataID: metadata.ID,
 		Title: "扫描文件名", Path: `/media/movies/shared.mkv`,
 	}
 	if err := svc.repo.DB.Create(&media).Error; err != nil {
@@ -439,8 +439,8 @@ func TestEmbyPlaybackInfoReusesVersionProbeAndSubtitleData(t *testing.T) {
 	})
 	dir := t.TempDir()
 	media := []model.Media{
-		{Base: model.Base{ID: "reuse-version-a", CreatedAt: time.Now()}, LibraryID: lib.ID, MetadataID: metadata.ID, Title: metadata.Title, Path: filepath.Join(dir, "movie-a.mkv")},
-		{Base: model.Base{ID: "reuse-version-b", CreatedAt: time.Now().Add(-time.Minute)}, LibraryID: lib.ID, MetadataID: metadata.ID, Title: metadata.Title, Path: filepath.Join(dir, "movie-b.mkv")},
+		{PermanentBase: model.PermanentBase{ID: "reuse-version-a", CreatedAt: time.Now()}, LibraryID: lib.ID, MetadataID: metadata.ID, Title: metadata.Title, Path: filepath.Join(dir, "movie-a.mkv")},
+		{PermanentBase: model.PermanentBase{ID: "reuse-version-b", CreatedAt: time.Now().Add(-time.Minute)}, LibraryID: lib.ID, MetadataID: metadata.ID, Title: metadata.Title, Path: filepath.Join(dir, "movie-b.mkv")},
 	}
 	doc := &ProbeDocument{SchemaVersion: ProbeDocumentSchemaVersion, Streams: []ProbeStream{
 		{Index: 0, CodecType: "video", CodecName: "h264"},
@@ -515,7 +515,7 @@ func TestEmbyPlayableMediaSkipsGroupQueriesForConcreteID(t *testing.T) {
 	metadata := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{
 		Kind: model.MetadataKindMovie, Title: "普通电影", Source: "local",
 	})
-	media := model.Media{Base: model.Base{ID: "concrete-playable"}, LibraryID: lib.ID, MetadataID: metadata.ID, Title: metadata.Title, Path: "/media/movies/movie.mkv"}
+	media := model.Media{PermanentBase: model.PermanentBase{ID: "concrete-playable"}, LibraryID: lib.ID, MetadataID: metadata.ID, Title: metadata.Title, Path: "/media/movies/movie.mkv"}
 	if err := svc.repo.DB.Create(&media).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -549,11 +549,11 @@ func TestEmbyPlaybackInfoKeepsRemoteSTRMBehindStreamEndpoint(t *testing.T) {
 		t.Fatalf("create library: %v", err)
 	}
 	media := model.Media{
-		Base:      model.Base{ID: "remote-1"},
-		LibraryID: lib.ID,
-		Title:     "Remote Movie",
-		Path:      `/media/movies/remote.strm`,
-		STRMURL:   `https://media.example.test/Movies/f1.mkv?token=temporary`,
+		PermanentBase: model.PermanentBase{ID: "remote-1"},
+		LibraryID:     lib.ID,
+		Title:         "Remote Movie",
+		Path:          `/media/movies/remote.strm`,
+		STRMURL:       `https://media.example.test/Movies/f1.mkv?token=temporary`,
 	}
 	if err := svc.repo.DB.Create(&media).Error; err != nil {
 		t.Fatalf("create media: %v", err)
@@ -591,11 +591,11 @@ func TestEmbyMediaSourceUsesLocalSTRMTargetContainer(t *testing.T) {
 		t.Fatal(err)
 	}
 	media := &model.Media{
-		Base:        model.Base{ID: "local-path-strm"},
-		Title:       "Local STRM",
-		Path:        strmPath,
-		SizeBytes:   8_000,
-		DurationSec: 10,
+		PermanentBase: model.PermanentBase{ID: "local-path-strm"},
+		Title:         "Local STRM",
+		Path:          strmPath,
+		SizeBytes:     8_000,
+		DurationSec:   10,
 	}
 
 	src := svc.mediaSource(t.Context(), media, media.Title, false)
@@ -617,13 +617,13 @@ func TestEmbyMediaSourceUsesRemoteSTRMTargetContainerAndDate(t *testing.T) {
 	svc := newTestEmbyService(t)
 	createdAt := time.Date(2026, time.August, 6, 20, 9, 14, 746_854_000, time.FixedZone("UTC+8", 8*60*60))
 	media := &model.Media{
-		Base:        model.Base{ID: "remote-path-strm", CreatedAt: createdAt},
-		Title:       "Remote STRM",
-		Path:        "/virtual/movie.strm",
-		STRMURL:     "https://media.example.test/Movie.mkv?sign=temporary",
-		Container:   "matroska,webm",
-		SizeBytes:   201,
-		DurationSec: 5_893,
+		PermanentBase: model.PermanentBase{ID: "remote-path-strm", CreatedAt: createdAt},
+		Title:         "Remote STRM",
+		Path:          "/virtual/movie.strm",
+		STRMURL:       "https://media.example.test/Movie.mkv?sign=temporary",
+		Container:     "matroska,webm",
+		SizeBytes:     201,
+		DurationSec:   5_893,
 	}
 	doc := &ProbeDocument{Format: ProbeFormat{Duration: 5930.112, Size: 26_972_800_320}}
 
@@ -648,7 +648,7 @@ func TestEmbyMediaSourceUsesRemoteSTRMTargetContainerAndDate(t *testing.T) {
 func TestEmbyMediaSourceDoesNotFallbackToLegacyTechnicalFields(t *testing.T) {
 	svc := newTestEmbyService(t)
 	media := &model.Media{
-		Base: model.Base{ID: "legacy-technical"}, Path: "/media/movie.mkv",
+		PermanentBase: model.PermanentBase{ID: "legacy-technical"}, Path: "/media/movie.mkv",
 		DurationSec: 120, SizeBytes: 1000, Container: "legacy",
 	}
 	src := svc.baseMediaSource(t.Context(), media, "Movie", embyMediaContainer(media, ""), false, "", nil, false, nil)
@@ -734,7 +734,7 @@ func TestEmbyPlaybackInfoAsynchronouslyProbesLocalSTRMTarget(t *testing.T) {
 		t.Fatal(err)
 	}
 	media := model.Media{
-		Base: model.Base{ID: "local-playback-probe"}, Title: "Local STRM",
+		PermanentBase: model.PermanentBase{ID: "local-playback-probe"}, Title: "Local STRM",
 		Path: strmPath, Container: "strm",
 	}
 	if err := svc.repo.DB.Create(&media).Error; err != nil {
@@ -793,7 +793,7 @@ func TestEmbyPlaybackInfoProbesAllLocalSTRMVersions(t *testing.T) {
 			t.Fatal(err)
 		}
 		row := model.Media{
-			Base: model.Base{ID: "local-version-" + string(rune('a'+i))}, LibraryID: lib.ID, MetadataID: metadata.ID,
+			PermanentBase: model.PermanentBase{ID: "local-version-" + string(rune('a'+i))}, LibraryID: lib.ID, MetadataID: metadata.ID,
 			Title: metadata.Title, Path: strmPath, Container: "strm",
 		}
 		if err := svc.repo.DB.Create(&row).Error; err != nil {
@@ -866,7 +866,7 @@ func TestEmbyItemUsesLocalSTRMMediaSourceContainerAndPath(t *testing.T) {
 		t.Fatal(err)
 	}
 	media := model.Media{
-		Base: model.Base{ID: "local-item-strm"}, LibraryID: lib.ID, MetadataID: metadata.ID,
+		PermanentBase: model.PermanentBase{ID: "local-item-strm"}, LibraryID: lib.ID, MetadataID: metadata.ID,
 		Title: metadata.Title, Path: strmPath, Container: "strm",
 	}
 	if err := svc.repo.DB.Create(&media).Error; err != nil {
@@ -915,7 +915,7 @@ func TestEmbyLocalSTRMProbeDiscardsStaleTargetResult(t *testing.T) {
 		t.Fatal(err)
 	}
 	media := model.Media{
-		Base: model.Base{ID: "local-stale-probe"}, Path: filepath.Join(dir, "Movie.strm"),
+		PermanentBase: model.PermanentBase{ID: "local-stale-probe"}, Path: filepath.Join(dir, "Movie.strm"),
 		Container: "strm", STRMURL: targetA,
 	}
 	if err := svc.repo.DB.Create(&media).Error; err != nil {
@@ -963,12 +963,12 @@ func TestEmbyPlaybackInfoUsesVideoStreamForRemoteSTRM(t *testing.T) {
 		t.Fatalf("create library: %v", err)
 	}
 	media := model.Media{
-		Base:      model.Base{ID: "remote-302", CreatedAt: createdAt},
-		LibraryID: lib.ID,
-		Title:     "Remote 302 Movie",
-		Path:      `/media/movies/Movie.strm`,
-		STRMURL:   `https://media.example.test/Movies/Movie.mkv?token=temporary`,
-		Container: "mkv",
+		PermanentBase: model.PermanentBase{ID: "remote-302", CreatedAt: createdAt},
+		LibraryID:     lib.ID,
+		Title:         "Remote 302 Movie",
+		Path:          `/media/movies/Movie.strm`,
+		STRMURL:       `https://media.example.test/Movies/Movie.mkv?token=temporary`,
+		Container:     "mkv",
 	}
 	if err := svc.repo.DB.Create(&media).Error; err != nil {
 		t.Fatalf("create media: %v", err)
@@ -1010,11 +1010,11 @@ func TestEmbyPlaybackInfoProbesMissingHTTPTrackMetadata(t *testing.T) {
 		t.Fatalf("create library: %v", err)
 	}
 	media := model.Media{
-		Base:      model.Base{ID: "http-probe-1"},
-		LibraryID: lib.ID,
-		Title:     "远程电影",
-		Path:      `/media/movies/Movie.strm`,
-		STRMURL:   `http://cdn.example.test/Movie.mkv?token=temporary`,
+		PermanentBase: model.PermanentBase{ID: "http-probe-1"},
+		LibraryID:     lib.ID,
+		Title:         "远程电影",
+		Path:          `/media/movies/Movie.strm`,
+		STRMURL:       `http://cdn.example.test/Movie.mkv?token=temporary`,
 	}
 	if err := svc.repo.DB.Create(&media).Error; err != nil {
 		t.Fatalf("create media: %v", err)

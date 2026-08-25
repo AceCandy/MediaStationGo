@@ -79,11 +79,11 @@ func (s *ScraperService) pendingPeopleBackfillCandidates(ctx context.Context) ([
 	var candidates []peopleBackfillCandidate
 	err := s.repo.DB.WithContext(ctx).Table("metadata_items AS mi").
 		Select("DISTINCT mi.id AS metadata_id, mi.kind, mid.external_id").
-		Joins("JOIN metadata_identifiers AS mid ON mid.metadata_id = mi.id AND mid.deleted_at IS NULL AND mid.provider = ? AND mid.entity_kind = mi.kind", "tmdb").
-		Where("mi.deleted_at IS NULL AND mi.kind IN ?", []string{model.MetadataKindMovie, model.MetadataKindSeries}).
+		Joins("JOIN metadata_identifiers AS mid ON mid.metadata_id = mi.id AND mid.provider = ? AND mid.entity_kind = mi.kind", "tmdb").
+		Where("mi.kind IN ?", []string{model.MetadataKindMovie, model.MetadataKindSeries}).
 		Where("mi.source = ?", "tmdb").
 		Where("mi.people_hydrated_at IS NULL").
-		Where("NOT EXISTS (SELECT 1 FROM metadata_credits mc WHERE mc.metadata_id = mi.id AND mc.deleted_at IS NULL)").
+		Where("NOT EXISTS (SELECT 1 FROM metadata_credits mc WHERE mc.metadata_id = mi.id)").
 		Order("mi.kind, mi.id").Scan(&candidates).Error
 	return candidates, err
 }

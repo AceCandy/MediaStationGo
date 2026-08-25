@@ -14,18 +14,18 @@ func TestEmbyMovieLibrarySeasonNumbersStayMovies(t *testing.T) {
 		t.Fatalf("create library: %v", err)
 	}
 	metadata := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{
-		Base: model.Base{ID: "metadata-movie-with-episode-numbers"}, Kind: model.MetadataKindMovie,
+		PermanentBase: model.PermanentBase{ID: "metadata-movie-with-episode-numbers"}, Kind: model.MetadataKindMovie,
 		Title: "Movie Mistaken S01E01", Source: "tmdb",
 	})
 	createServiceTestArtwork(t, svc.repo.DB, metadata.ID, model.ArtworkTypePoster, "asset-movie-poster")
 	media := model.Media{
-		Base:       model.Base{ID: "movie-with-episode-numbers"},
-		LibraryID:  lib.ID,
-		MetadataID: metadata.ID,
-		Title:      "Movie Mistaken S01E01",
-		Path:       `/media/movies/animation/Movie.Mistaken.S01E01.mkv`,
-		SeasonNum:  1,
-		EpisodeNum: 1,
+		PermanentBase: model.PermanentBase{ID: "movie-with-episode-numbers"},
+		LibraryID:     lib.ID,
+		MetadataID:    metadata.ID,
+		Title:         "Movie Mistaken S01E01",
+		Path:          `/media/movies/animation/Movie.Mistaken.S01E01.mkv`,
+		SeasonNum:     1,
+		EpisodeNum:    1,
 	}
 	if err := svc.repo.DB.Create(&media).Error; err != nil {
 		t.Fatalf("create media: %v", err)
@@ -88,18 +88,18 @@ func TestEmbyMovieLibraryFiltersMisplacedSeriesPaths(t *testing.T) {
 		t.Fatalf("create library: %v", err)
 	}
 	show := model.Media{
-		Base:       model.Base{ID: "misplaced-show"},
-		LibraryID:  lib.ID,
-		Title:      "错放剧集",
-		Path:       `/media/movies/国产剧/错放剧集/Season 01/错放剧集 - S01E01.mkv`,
-		SeasonNum:  1,
-		EpisodeNum: 1,
+		PermanentBase: model.PermanentBase{ID: "misplaced-show"},
+		LibraryID:     lib.ID,
+		Title:         "错放剧集",
+		Path:          `/media/movies/国产剧/错放剧集/Season 01/错放剧集 - S01E01.mkv`,
+		SeasonNum:     1,
+		EpisodeNum:    1,
 	}
 	movie := model.Media{
-		Base:      model.Base{ID: "movie"},
-		LibraryID: lib.ID,
-		Title:     "普通电影",
-		Path:      `/media/movies/普通电影.2026.mkv`,
+		PermanentBase: model.PermanentBase{ID: "movie"},
+		LibraryID:     lib.ID,
+		Title:         "普通电影",
+		Path:          `/media/movies/普通电影.2026.mkv`,
 	}
 	if err := svc.repo.DB.Create(&show).Error; err != nil {
 		t.Fatalf("create show: %v", err)
@@ -140,32 +140,32 @@ func TestEmbyMovieLibraryGroupsEpisodicContentIntoSeries(t *testing.T) {
 	// 剧集结构内容：两个文件通过明确的本地系列身份绑定同一 Series metadata。
 	rows := []model.Media{
 		{
-			Base:       model.Base{ID: "gundam-e13", CreatedAt: base.Add(2 * time.Minute)},
-			LibraryID:  lib.ID,
-			SeriesID:   "local-gundam-movie-series",
-			Title:      "高达剧场版",
-			Path:       `/media/动画电影/高达剧场版/Season 01/高达剧场版 - S01E13.mkv`,
-			PosterURL:  `/poster.jpg`,
-			SeasonNum:  1,
-			EpisodeNum: 13,
+			PermanentBase: model.PermanentBase{ID: "gundam-e13", CreatedAt: base.Add(2 * time.Minute)},
+			LibraryID:     lib.ID,
+			SeriesID:      "local-gundam-movie-series",
+			Title:         "高达剧场版",
+			Path:          `/media/动画电影/高达剧场版/Season 01/高达剧场版 - S01E13.mkv`,
+			PosterURL:     `/poster.jpg`,
+			SeasonNum:     1,
+			EpisodeNum:    13,
 		},
 		{
-			Base:       model.Base{ID: "gundam-e14", CreatedAt: base.Add(3 * time.Minute)},
-			LibraryID:  lib.ID,
-			SeriesID:   "local-gundam-movie-series",
-			Title:      "高达剧场版",
-			Path:       `/media/动画电影/高达剧场版/Season 01/高达剧场版 - S01E14.mkv`,
-			PosterURL:  `/poster.jpg`,
-			SeasonNum:  1,
-			EpisodeNum: 14,
+			PermanentBase: model.PermanentBase{ID: "gundam-e14", CreatedAt: base.Add(3 * time.Minute)},
+			LibraryID:     lib.ID,
+			SeriesID:      "local-gundam-movie-series",
+			Title:         "高达剧场版",
+			Path:          `/media/动画电影/高达剧场版/Season 01/高达剧场版 - S01E14.mkv`,
+			PosterURL:     `/poster.jpg`,
+			SeasonNum:     1,
+			EpisodeNum:    14,
 		},
 		// 真正的电影。
 		{
-			Base:      model.Base{ID: "real-movie", CreatedAt: base.Add(1 * time.Minute)},
-			LibraryID: lib.ID,
-			Title:     "普通动画电影",
-			Path:      `/media/动画电影/普通动画电影.2024.mkv`,
-			PosterURL: `/poster.jpg`,
+			PermanentBase: model.PermanentBase{ID: "real-movie", CreatedAt: base.Add(1 * time.Minute)},
+			LibraryID:     lib.ID,
+			Title:         "普通动画电影",
+			Path:          `/media/动画电影/普通动画电影.2024.mkv`,
+			PosterURL:     `/poster.jpg`,
 		},
 	}
 	for i := range rows {

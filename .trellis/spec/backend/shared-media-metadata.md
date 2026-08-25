@@ -28,8 +28,10 @@
 - A loaded credit type is an authoritative snapshot, including an explicitly
   empty snapshot. A type absent from `LoadedCreditTypes` must preserve existing
   rows. NFO may fill only a provider-loaded type whose provider snapshot is empty.
-- Credit replacement is transactional and idempotent. Metadata graph merge
-  moves and deduplicates credits before deleting the source metadata.
+- Credit replacement is transactional and idempotent. `MetadataCredit` uses
+  `PermanentBase`; removed relationships are physically deleted, while an
+  unchanged source role preserves its translated display role. Metadata graph
+  merge moves and deduplicates credits before deleting the source metadata.
 - Movie, Series, Season, and Episode expose only their own ordered credits.
   An empty entity-owned credit type stays empty and never inherits an ancestor.
 - Credit source/display roles and translation source/display values use `text`;
@@ -81,7 +83,8 @@
 ### 6. Tests Required
 
 - Repository: provider-ID reuse, local-name isolation, loaded-type replacement,
-  empty snapshots, soft-delete restoration, merge deduplication, and long roles.
+  empty snapshots, hard deletion without tombstones, merge deduplication,
+  translated-role preservation, and long roles.
 - Provider/NFO: movie/Series cast and crew, Episode guest stars and crew, and
   provider-empty versus provider-missing type behavior.
 - Emby: item `People`, no Season/Episode inheritance, Persons pagination/search,
@@ -408,7 +411,7 @@ db.Model(&credit).
 - Bad: reuse or reverse `playback.path_mappings`, apply a track mapping to a
   non-STRM media row, or build a local filename from URL query values.
 - Good: task-center global backfill repairs missing documents across libraries,
-  skips valid documents and soft-deleted media, and keeps
+  skips valid documents while hard-deleted media is absent, and keeps
   `total = completed + skipped + failed`.
 - Good: a limit of 500 skips any number of valid documents and attempts at most
   500 missing, outdated, or invalid documents; a later run continues to the
@@ -518,11 +521,11 @@ This expands a media row when an entity has multiple identifiers and corrupts co
 
 ```go
 repo.DB.Table("media AS m").
-    Joins("JOIN metadata_items AS mi ON mi.id = m.metadata_id AND mi.deleted_at IS NULL").
+    Joins("JOIN metadata_items AS mi ON mi.id = m.metadata_id").
     Joins(`LEFT JOIN LATERAL (
         SELECT MIN(CASE WHEN mid.provider = 'tmdb' THEN mid.external_id END) AS tmdb_external_id
         FROM metadata_identifiers AS mid
-        WHERE mid.metadata_id = mi.id AND mid.entity_kind = mi.kind AND mid.deleted_at IS NULL
+        WHERE mid.metadata_id = mi.id AND mid.entity_kind = mi.kind
     ) AS ids ON TRUE`).
     Offset(offset).Limit(limit)
 ```
@@ -1029,6 +1032,114 @@ setMedia(selectedVersion)
 setSelectedMedia(selectedVersion)
 ```
 
+## Scenario: Douban Movie Secondary Enrichment
+
+### 1. Scope / Trigger
+
+- Apply when persisting a Movie with a Douban ID, running historical Douban
+  enrichment, storing provider snapshots, or editing canonical metadata.
+- Douban enrichment applies only to `MetadataKindMovie`; Series, Season, and
+  Episode never enter this flow.
+
+### 2. Signatures
+
+- Raw detail carrier: `Match.RawJSON []byte`.
+- Douban detail boundary: `DoubanProvider.GetMatchByID(ctx, doubanID) (*Match, error)`.
+- Snapshot write: `UpsertProviderSnapshot(ctx, metadataID, provider, payload, fetchedAt)`.
+- Snapshot identity is `(metadata_id, provider)` and payload storage is JSONB.
+- Candidate discovery:
+  `ListDoubanMovieEnrichmentAfter(ctx, afterID, limit) []DoubanMovieEnrichmentCandidate`.
+- Candidate artwork:
+  `MetadataArtworkCandidate{MetadataID, AssetID, ArtworkType, SourceProvider, SourceURL}`
+  is unique on `(metadata_id, artwork_type, source_provider)`.
+- Periodic job: `douban_movie_enrichment`; settings
+  `metadata.douban_movie_enrichment_enabled` (default `false`) and
+  `metadata.douban_movie_enrichment_interval_seconds` (default 86,400).
+- Metadata edit payload `MediaMetadataUpdate` contains no `poster_url` or
+  `backdrop_url` fields; the web edit dialog neither renders nor submits them.
+
+### 3. Contracts
+
+- `GetMatchByID` preserves the complete valid response, including unknown
+  fields, and marks the match source as `douban`.
+- Search results never trigger secondary enrichment. The canonical metadata must
+  already own exactly one `(douban, movie)` identifier; no search, title guess,
+  Series ID, or ambiguous identifier is accepted.
+- TMDb remains primary. Douban fills only empty canonical overview,
+  original-name, rating, year, release-date, languages, countries, and genres.
+  Title is the sole precedence exception: a Chinese Douban title may replace a
+  non-Chinese title, preserving the old title as original name when needed.
+  Source, NSFW, existing non-empty fields, and provider IDs stay unchanged.
+- If both sources provide a TMDb ID and it conflicts with the canonical TMDb
+  identifier, skip the entire Douban write, including snapshot and artwork.
+- Save the complete valid Douban response before field projection. Repeated
+  enrichment reuses the snapshot and performs no provider request.
+- Canonical graph merge moves provider snapshots and artwork candidates to the
+  surviving metadata; when the same provider/candidate key already exists, the
+  surviving target row wins before the source metadata is hard-deleted.
+- A Douban poster is downloaded immediately to managed local artwork and saved
+  as a provider candidate. Existing selection always wins; only an absent
+  selection is atomically promoted. Public responses continue to use only
+  `/api/artwork/:assetID`, never a remote URL.
+- Historical passes use metadata-ID keyset pagination, a maximum batch of 20,
+  serial processing, a two-second inter-item delay, and a persisted cursor.
+  They never join `media`; per-item provider/image failures are counted and do
+  not stop later candidates.
+- Artwork URL removal is enforced at both UI and backend DTO boundaries, so
+  metadata editing cannot clear or replace the current selection.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required result |
+| --- | --- |
+| Search candidate is returned but not accepted | Write no provider snapshot |
+| Canonical item is not a Movie | Skip without provider or artwork I/O |
+| Movie has zero or multiple Douban Movie IDs | Skip as ambiguous |
+| Movie has one Douban ID and no snapshot | Fetch details once, then store the full response |
+| Detail contains unknown fields | Preserve them in the valid JSONB document |
+| Detail TMDb ID conflicts with canonical TMDb ID | Skip snapshot, fields, and artwork |
+| Canonical field is non-empty | Preserve it, except for the Chinese-title rule |
+| Current artwork selection exists | Save local candidate and preserve selection |
+| Current artwork selection is absent | Atomically promote the local candidate |
+| Detail or image request fails during normal TMDb persistence | Keep TMDb persistence successful; log metadata ID only |
+| Edit payload includes legacy image URL keys | Ignore them because the typed DTO has no matching fields |
+
+### 5. Good / Base / Bad Cases
+
+- Good: a TMDb Movie with one Douban ID stores the raw Douban response, fills a
+  missing Chinese title/overview, localizes its poster as a candidate, and keeps
+  the existing TMDb selection.
+- Base: all canonical fields and artwork are already complete; snapshot reuse
+  produces an idempotent no-op without network access.
+- Bad: query Douban by title, enrich a Series, overwrite a non-empty overview or
+  current image, expose a remote image URL, or scan history with offset pages.
+
+### 6. Tests Required
+
+- Provider unit: source, IDs, projected lists, and unknown raw fields survive
+  detail parsing.
+- Repository/PostgreSQL: Movie-only unique-ID keyset discovery, ambiguity skip,
+  supporting provider/kind/metadata index, candidate uniqueness, and atomic
+  selection preservation/promotion.
+- Service: fill-only fields, Chinese-title replacement, TMDb mismatch rejection,
+  snapshot reuse, per-item failure isolation, bounded cursor progress, and no
+  Series/Season/Episode enrichment.
+- API/web: editing ordinary metadata preserves artwork; TypeScript build proves
+  the edit form and payload contain no artwork URL fields.
+
+### 7. Wrong vs Correct
+
+```go
+// Wrong: a secondary provider overwrites authoritative non-empty fields.
+metadata.Overview = doubanDetail.Overview
+repo.SaveSelection(ctx, metadata.ID, "poster", "douban", source, asset)
+
+// Correct: keep the raw response, fill only gaps, and retain local candidate bytes.
+repo.UpsertProviderSnapshot(ctx, metadata.ID, "douban", detail.RawJSON, fetchedAt)
+fillMissingDoubanMovieFields(ctx, metadata.ID, detail)
+repo.SaveCandidate(ctx, metadata.ID, "poster", "douban", source, asset)
+```
+
 ## Scenario: Durable TMDb Catalog Hydration
 
 ### 1. Scope / Trigger
@@ -1054,6 +1165,24 @@ setSelectedMedia(selectedVersion)
 - Snapshot backfill boundary:
   `ListProviderSnapshotsAfter(context.Context, provider, kinds, afterID, limit)`
   keyset-pages provider snapshots and their owned metadata.
+- Artwork diagnostics:
+  `ListMissingCatalogArtworkAfter(context.Context, afterID, limit)` keyset-pages
+  TMDb-owned Movie/Series/Season/Episode metadata and reports the applicable
+  missing poster, backdrop, or still flags without reading `media`.
+- Artwork scheduling:
+  `ListMissingCatalogArtworkRootsAfter(context.Context, afterID, limit, manual)`
+  returns one Movie/Series root per missing graph, and
+  `EnsureCatalogArtworkJob(context.Context, candidate, manual)` atomically
+  returns `created`, `requeued`, or `unchanged`.
+- Local artwork integrity:
+  `ListSelectedAssetsAfter(context.Context, afterID, limit)` keyset-pages shared
+  selected-or-candidate assets, while
+  `InvalidateSelectionsForMissingAsset(context.Context, assetID)` removes every
+  referencing candidate and selection and reopens affected metadata artwork
+  checkpoints without deleting the asset.
+- Periodic job: `metadata_artwork_backfill`, disabled by default with a 24-hour
+  interval; one pass scans at most 1,000 roots and creates or requeues at most
+  200 jobs.
 
 ### 3. Contracts
 
@@ -1106,6 +1235,32 @@ setSelectedMedia(selectedVersion)
   credentials.
 - Catalog-only metadata creates no `Media` and stays outside physical Emby
   library membership until a visible Media links to it.
+- Artwork completeness is entity-owned: Movie/Series require poster and
+  backdrop, Season requires poster, and Episode requires still. A candidate
+  must have its own valid TMDb identifier, an empty artwork checkpoint, and a
+  missing selection-to-asset join. Parent fallback images never satisfy it.
+- The artwork scheduler reads only the canonical metadata graph and reuses the
+  durable catalog worker. Scheduled passes exclude pending/running/retry/failed
+  jobs; manual passes may revive failed jobs. Completed or manually revived
+  jobs restart at root with attempts zero, while stage advancement never resets
+  attempts. Attempt eight becomes terminal `failed`.
+- Catalog image persistence is insert-if-absent. An existing valid selection
+  from any source wins both the pre-download check and the transactional write
+  race; explicit manual import keeps overwrite behavior. Metadata editing does
+  not accept artwork URLs and cannot clear a selection.
+- Before metadata discovery, the same pass checks at most 1,000 selected or candidate local
+  assets in 200-row ID-keyset pages. The internal artwork-integrity cursor
+  resumes the next pass and resets at the end. A missing file invalidates all
+  selections sharing that asset; a path, permission, or other I/O error aborts
+  without changing selections. The asset row and all disk files remain.
+- `media`, `metadata_items`, `metadata_identifiers`,
+  `metadata_provider_snapshots`, `catalog_hydration_jobs`,
+  `metadata_artworks`, `artwork_assets`, and `metadata_credits` use
+  `PermanentBase` and hard deletion. Upgrade removes their legacy `deleted_at`
+  columns transactionally, rejects referenced metadata tombstones, purges media
+  and credit tombstones, restores tombstoned assets as ordinary assets,
+  detaches surviving catalog jobs from retired metadata, and never deletes
+  image files.
 
 ### 4. Validation & Error Matrix
 
@@ -1126,6 +1281,12 @@ setSelectedMedia(selectedVersion)
 | Legacy Episode has a non-blank `episode_title` | Trim it into `title`, then remove the legacy column atomically |
 | Legacy `episode_title` is blank or belongs to a non-Episode | Preserve the current `title` |
 | Legacy column is already absent | Skip the compatibility migration successfully |
+| A scheduled artwork pass sees a failed job | Exclude it; preserve attempts and error until a manual pass |
+| An active artwork job is rediscovered | Return `unchanged`; preserve stage, attempts, and retry time |
+| A catalog image write races with a manual/local selection | Preserve the manual/local selection; the downloaded asset may remain unselected |
+| A selected or candidate local asset file is missing | Remove every referencing candidate/selection, clear affected metadata artwork checkpoints, then let the same pass rediscover eligible TMDb roots |
+| A selected asset path is invalid, unreadable, or fails for a non-missing I/O reason | Fail the pass and preserve every selection |
+| Legacy soft-deleted metadata still has Media, user-state, credit, event, or active-child references | Abort and roll back the schema migration |
 
 ### 5. Good / Base / Bad Cases
 
@@ -1143,6 +1304,14 @@ setSelectedMedia(selectedVersion)
   `OriginalName`, overview, or provider IDs into an Episode projection.
 - Bad: a browser-facing image failure marker suppresses the durable job's own
   scheduled retry for the full negative-cache TTL.
+- Good: one Series with many missing Season/Episode images produces one root
+  job and later fills only each entity's own image.
+- Good: one missing shared local file is checked once, invalidates all of its
+  selections, and becomes recoverable through the existing TMDb job.
+- Bad: join `media`, use offset/distinct, revive failed jobs every day, or let
+  catalog upsert overwrite a manual selection.
+- Bad: trust the selection-to-asset join without checking the managed local
+  file, or use the remote source URL as the display fallback.
 
 ### 6. Tests Required
 
@@ -1165,6 +1334,13 @@ setSelectedMedia(selectedVersion)
 - MediaView/Emby: Episode-owned title and identifiers, parent `SeriesTitle`, own
   Episode stills, own Season posters/people, no virtual cache fallback, and
   catalog-only exclusion from physical libraries.
+- Artwork backfill: PostgreSQL tests cover metadata-ID keyset pages without a
+  `media` table, root deduplication, active/terminal job transitions, artwork-only
+  descendants, selection races, edit-time artwork preservation, shared missing assets,
+  local-file error preservation, cursor resume/reset, and legacy `deleted_at`
+  removal with reference rollback and repeated migration.
+- Run both artwork queries with `EXPLAIN (ANALYZE, BUFFERS)` on production-scale
+  PostgreSQL data before adding any new index.
 
 ### 7. Wrong vs Correct
 
@@ -1182,6 +1358,14 @@ seasonPoster := series.PosterURL
 
 // Correct: missing own Season artwork remains empty.
 seasonPoster := metadataArtworkURL(ctx, season.ID, model.ArtworkTypePoster)
+```
+
+```go
+// Wrong: automatic catalog import overwrites the current selection.
+repo.SaveSelection(ctx, metadataID, artworkType, "tmdb", source, asset)
+
+// Correct: automatic work only fills an absent or dangling selection.
+repo.SaveCatalogSelection(ctx, metadataID, artworkType, "tmdb", source, asset)
 ```
 
 ```go

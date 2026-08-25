@@ -25,7 +25,7 @@ func newServiceTestDB(t *testing.T, models ...any) *gorm.DB {
 	if len(models) > 0 {
 		models = append(models,
 			&model.MetadataItem{}, &model.MetadataIdentifier{},
-			&model.ArtworkAsset{}, &model.MetadataArtwork{},
+			&model.ArtworkAsset{}, &model.MetadataArtwork{}, &model.MetadataArtworkCandidate{},
 		)
 		if err := db.AutoMigrate(models...); err != nil {
 			t.Fatal(err)
@@ -78,7 +78,7 @@ func serviceTestMediaForUpsert(media *model.Media) *model.Media {
 func createServiceTestArtwork(t *testing.T, db *gorm.DB, metadataID, artworkType, assetID string) string {
 	t.Helper()
 	if err := db.Create(&model.ArtworkAsset{
-		Base: model.Base{ID: assetID}, SHA256: assetID, StorageKey: "test/" + assetID + ".jpg", MimeType: "image/jpeg",
+		PermanentBase: model.PermanentBase{ID: assetID}, SHA256: assetID, StorageKey: "test/" + assetID + ".jpg", MimeType: "image/jpeg",
 	}).Error; err != nil {
 		t.Fatalf("create artwork asset: %v", err)
 	}

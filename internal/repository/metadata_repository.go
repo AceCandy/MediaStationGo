@@ -20,6 +20,12 @@ type MetadataRepository struct {
 	view *MediaViewRepository
 }
 
+// DoubanMovieEnrichmentCandidate 是具有唯一豆瓣电影标识的补齐候选。
+type DoubanMovieEnrichmentCandidate struct {
+	MetadataID string
+	DoubanID   string
+}
+
 func (r *MetadataRepository) FindByID(ctx context.Context, id string) (*model.MetadataItem, error) {
 	var item model.MetadataItem
 	if err := r.db.WithContext(ctx).First(&item, "id = ?", id).Error; err != nil {
@@ -49,8 +55,8 @@ func (r *MetadataRepository) FindByIdentifier(ctx context.Context, provider, ent
 	var item model.MetadataItem
 	err := r.db.WithContext(ctx).
 		Table("metadata_items AS mi").
-		Joins("JOIN metadata_identifiers AS mid ON mid.metadata_id = mi.id AND mid.deleted_at IS NULL").
-		Where("mi.deleted_at IS NULL AND mid.provider = ? AND mid.entity_kind = ? AND mid.external_id = ?", identifier.Provider, identifier.EntityKind, identifier.ExternalID).
+		Joins("JOIN metadata_identifiers AS mid ON mid.metadata_id = mi.id").
+		Where("mid.provider = ? AND mid.entity_kind = ? AND mid.external_id = ?", identifier.Provider, identifier.EntityKind, identifier.ExternalID).
 		First(&item).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, nil
@@ -187,7 +193,7 @@ func (r *MetadataRepository) UpsertCanonical(ctx context.Context, item *model.Me
 			if err := tx.Clauses(clause.OnConflict{
 				Columns: []clause.Column{{Name: "provider"}, {Name: "entity_kind"}, {Name: "external_id"}},
 				DoUpdates: clause.Assignments(map[string]any{
-					"metadata_id": metadataID, "updated_at": time.Now(), "deleted_at": nil,
+					"metadata_id": metadataID, "updated_at": time.Now(),
 				}),
 			}).Create(&identifiers).Error; err != nil {
 				return err
@@ -381,7 +387,7 @@ func (r *MetadataRepository) UpsertIdentifiers(ctx context.Context, metadataID s
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		for i := range identifiers {
 			var existing model.MetadataIdentifier
-			err := tx.Unscoped().Where("provider = ? AND entity_kind = ? AND external_id = ?",
+			err := tx.Where("provider = ? AND entity_kind = ? AND external_id = ?",
 				identifiers[i].Provider, identifiers[i].EntityKind, identifiers[i].ExternalID).First(&existing).Error
 			switch {
 			case errors.Is(err, gorm.ErrRecordNotFound):
@@ -392,10 +398,6 @@ func (r *MetadataRepository) UpsertIdentifiers(ctx context.Context, metadataID s
 				return err
 			case existing.MetadataID != metadataID:
 				return fmt.Errorf("%s %s id %s already belongs to another metadata item", identifiers[i].Provider, identifiers[i].EntityKind, identifiers[i].ExternalID)
-			default:
-				if err := tx.Unscoped().Model(&existing).Updates(map[string]any{"deleted_at": nil, "updated_at": time.Now()}).Error; err != nil {
-					return err
-				}
 			}
 		}
 		return nil
@@ -404,6 +406,28 @@ func (r *MetadataRepository) UpsertIdentifiers(ctx context.Context, metadataID s
 
 func (r *MetadataRepository) ListIdentifiers(ctx context.Context, metadataID string) ([]model.MetadataIdentifier, error) {
 	return r.ListIdentifiersByMetadataIDs(ctx, []string{metadataID})
+}
+
+// ListDoubanMovieEnrichmentAfter 按元数据 ID 分页返回确定的豆瓣电影标识。
+func (r *MetadataRepository) ListDoubanMovieEnrichmentAfter(ctx context.Context, afterID string, limit int) ([]DoubanMovieEnrichmentCandidate, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	limit = min(limit, 100)
+	var candidates []DoubanMovieEnrichmentCandidate
+	err := r.db.WithContext(ctx).Raw(`
+SELECT mi.id AS metadata_id, MIN(mid.external_id) AS douban_id
+FROM metadata_items AS mi
+JOIN metadata_identifiers AS mid ON mid.metadata_id = mi.id
+WHERE mi.kind = ?
+  AND mid.provider = 'douban'
+  AND mid.entity_kind = ?
+  AND mi.id > ?
+GROUP BY mi.id
+HAVING COUNT(*) = 1
+ORDER BY mi.id ASC
+LIMIT ?`, model.MetadataKindMovie, model.MetadataKindMovie, strings.TrimSpace(afterID), limit).Scan(&candidates).Error
+	return candidates, err
 }
 
 // ListIdentifiersByMetadataIDs 批量返回多个作品自身的 provider 标识。
@@ -441,14 +465,12 @@ func (r *MetadataRepository) ReplaceIdentifier(ctx context.Context, metadataID, 
 			return err
 		}
 		var existing model.MetadataIdentifier
-		err := tx.Unscoped().Where("provider = ? AND entity_kind = ? AND external_id = ?", provider, entityKind, externalID).First(&existing).Error
+		err := tx.Where("provider = ? AND entity_kind = ? AND external_id = ?", provider, entityKind, externalID).First(&existing).Error
 		if err == nil {
-			if !existing.DeletedAt.Valid && existing.MetadataID != metadataID {
+			if existing.MetadataID != metadataID {
 				return fmt.Errorf("%s %s id %s already belongs to another metadata item", provider, entityKind, externalID)
 			}
-			return tx.Unscoped().Model(&existing).Updates(map[string]any{
-				"metadata_id": metadataID, "deleted_at": nil, "updated_at": time.Now(),
-			}).Error
+			return nil
 		}
 		if !errors.Is(err, gorm.ErrRecordNotFound) {
 			return err

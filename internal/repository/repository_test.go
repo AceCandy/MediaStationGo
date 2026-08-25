@@ -210,7 +210,7 @@ func TestMediaUpsertMatchedIncomingRefreshesScrapedMetadata(t *testing.T) {
 		t.Fatal(err)
 	}
 	series := createTestMetadata(t, repos, model.MetadataItem{
-		Base: model.Base{ID: "metadata-series-1"}, Kind: model.MetadataKindSeries,
+		PermanentBase: model.PermanentBase{ID: "metadata-series-1"}, Kind: model.MetadataKindSeries,
 		Title: "中文剧名", OriginalName: "Original Show", Source: "tmdb",
 	},
 		model.MetadataIdentifier{Provider: "tmdb", EntityKind: model.MetadataKindSeries, ExternalID: "123"},
@@ -219,11 +219,11 @@ func TestMediaUpsertMatchedIncomingRefreshesScrapedMetadata(t *testing.T) {
 		model.MetadataIdentifier{Provider: "thetvdb", EntityKind: model.MetadataKindSeries, ExternalID: "tvdb-1"},
 	)
 	season := createTestMetadata(t, repos, model.MetadataItem{
-		Base: model.Base{ID: "metadata-season-1"}, Kind: model.MetadataKindSeason, ParentID: &series.ID,
+		PermanentBase: model.PermanentBase{ID: "metadata-season-1"}, Kind: model.MetadataKindSeason, ParentID: &series.ID,
 		Title: "第一季", SeasonNum: 1, Source: "tmdb",
 	})
 	episode := createTestMetadata(t, repos, model.MetadataItem{
-		Base: model.Base{ID: "metadata-episode-1"}, Kind: model.MetadataKindEpisode, ParentID: &season.ID,
+		PermanentBase: model.PermanentBase{ID: "metadata-episode-1"}, Kind: model.MetadataKindEpisode, ParentID: &season.ID,
 		Title: "第一集", OriginalName: "Episode One", Overview: "剧情简介",
 		Rating: 8.6, Year: 2026, EpisodeNum: 1, Languages: "zh,en", Countries: "CN",
 		Genres: "剧情,悬疑", NSFW: true, Source: "tmdb",
@@ -234,7 +234,7 @@ func TestMediaUpsertMatchedIncomingRefreshesScrapedMetadata(t *testing.T) {
 		model.MetadataIdentifier{Provider: "thetvdb", EntityKind: model.MetadataKindEpisode, ExternalID: "tvdb-e1"},
 	)
 	assets := []model.ArtworkAsset{
-		{Base: model.Base{ID: "asset-backdrop-1"}, SHA256: "backdrop-hash-1", StorageKey: "sha256/ba/backdrop.jpg", MimeType: "image/jpeg"},
+		{PermanentBase: model.PermanentBase{ID: "asset-backdrop-1"}, SHA256: "backdrop-hash-1", StorageKey: "sha256/ba/backdrop.jpg", MimeType: "image/jpeg"},
 	}
 	if err := repos.DB.Create(&assets).Error; err != nil {
 		t.Fatal(err)
@@ -305,7 +305,7 @@ func TestListByLibraryOrdersByReleaseDate(t *testing.T) {
 	}
 	for _, row := range testRows {
 		metadata := createTestMetadata(t, repos, model.MetadataItem{
-			Base: model.Base{ID: row.id}, Kind: model.MetadataKindSeries, Title: row.title,
+			PermanentBase: model.PermanentBase{ID: row.id}, Kind: model.MetadataKindSeries, Title: row.title,
 			Year: row.year, ReleaseDate: row.releaseDate, Source: "tmdb",
 		})
 		media := model.Media{LibraryID: lib.ID, MetadataID: metadata.ID, Title: row.title, Path: row.path, Year: row.year, ScrapeStatus: "matched"}
@@ -341,7 +341,7 @@ func TestMediaUpsertScanDoesNotClearMatchedMetadata(t *testing.T) {
 	}
 	path := "/media/tv/间谍过家家/Season 01/间谍过家家 - S01E01.mkv"
 	series := createTestMetadata(t, repos, model.MetadataItem{
-		Base: model.Base{ID: "metadata-spy-series"}, Kind: model.MetadataKindSeries,
+		PermanentBase: model.PermanentBase{ID: "metadata-spy-series"}, Kind: model.MetadataKindSeries,
 		Title: "间谍过家家", OriginalName: "SPY×FAMILY", Overview: "剧情简介", Year: 2022, Source: "tmdb",
 	},
 		model.MetadataIdentifier{Provider: "tmdb", EntityKind: model.MetadataKindSeries, ExternalID: "12345"},
@@ -350,11 +350,11 @@ func TestMediaUpsertScanDoesNotClearMatchedMetadata(t *testing.T) {
 		model.MetadataIdentifier{Provider: "thetvdb", EntityKind: model.MetadataKindSeries, ExternalID: "tvdb-spy"},
 	)
 	season := createTestMetadata(t, repos, model.MetadataItem{
-		Base: model.Base{ID: "metadata-spy-season"}, Kind: model.MetadataKindSeason, ParentID: &series.ID,
+		PermanentBase: model.PermanentBase{ID: "metadata-spy-season"}, Kind: model.MetadataKindSeason, ParentID: &series.ID,
 		Title: "第一季", SeasonNum: 1, Source: "tmdb",
 	})
 	episode := createTestMetadata(t, repos, model.MetadataItem{
-		Base: model.Base{ID: "metadata-spy-episode"}, Kind: model.MetadataKindEpisode, ParentID: &season.ID,
+		PermanentBase: model.PermanentBase{ID: "metadata-spy-episode"}, Kind: model.MetadataKindEpisode, ParentID: &season.ID,
 		Title: "行动代号〈梟〉", OriginalName: "OPERATION STRIX", Overview: "第一集简介", Year: 2022,
 		EpisodeNum: 1, Source: "tmdb",
 	})
@@ -476,10 +476,10 @@ func TestMediaSearchUsesExternalBackendAndFallsBack(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, row := range []model.Media{
-		{Base: model.Base{ID: "m-1"}, LibraryID: lib.ID, MetadataID: "metadata-1", Title: "Alpha", Path: "/media/a.mkv"},
-		{Base: model.Base{ID: "m-2"}, LibraryID: lib.ID, MetadataID: "metadata-2", Title: "Beta", Path: "/media/b.mkv"},
+		{PermanentBase: model.PermanentBase{ID: "m-1"}, LibraryID: lib.ID, MetadataID: "metadata-1", Title: "Alpha", Path: "/media/a.mkv"},
+		{PermanentBase: model.PermanentBase{ID: "m-2"}, LibraryID: lib.ID, MetadataID: "metadata-2", Title: "Beta", Path: "/media/b.mkv"},
 	} {
-		createTestMetadata(t, repos, model.MetadataItem{Base: model.Base{ID: row.MetadataID}, Kind: model.MetadataKindMovie, Title: row.Title, Source: "local"})
+		createTestMetadata(t, repos, model.MetadataItem{PermanentBase: model.PermanentBase{ID: row.MetadataID}, Kind: model.MetadataKindMovie, Title: row.Title, Source: "local"})
 		if err := repos.DB.Create(&row).Error; err != nil {
 			t.Fatal(err)
 		}
@@ -530,21 +530,21 @@ func TestMediaSearchFilteredSupportsChineseFuzzyTerms(t *testing.T) {
 	}
 	for _, row := range testRows {
 		series := createTestMetadata(t, repos, model.MetadataItem{
-			Base: model.Base{ID: row.metadataID}, Kind: model.MetadataKindSeries,
+			PermanentBase: model.PermanentBase{ID: row.metadataID}, Kind: model.MetadataKindSeries,
 			Title: row.title, OriginalName: row.originalName, Genres: row.genres, Source: "tmdb",
 		})
 		seriesID := series.ID
 		season := createTestMetadata(t, repos, model.MetadataItem{
-			Base: model.Base{ID: row.metadataID + "-season"}, Kind: model.MetadataKindSeason,
+			PermanentBase: model.PermanentBase{ID: row.metadataID + "-season"}, Kind: model.MetadataKindSeason,
 			ParentID: &seriesID, SeasonNum: 1, Title: "Season 1", Source: "tmdb",
 		})
 		seasonID := season.ID
 		episode := createTestMetadata(t, repos, model.MetadataItem{
-			Base: model.Base{ID: row.metadataID + "-episode"}, Kind: model.MetadataKindEpisode,
+			PermanentBase: model.PermanentBase{ID: row.metadataID + "-episode"}, Kind: model.MetadataKindEpisode,
 			ParentID: &seasonID, EpisodeNum: 1, Title: row.title, Source: "tmdb",
 		})
 		media := model.Media{
-			Base: model.Base{ID: row.mediaID}, LibraryID: lib.ID, MetadataID: episode.ID,
+			PermanentBase: model.PermanentBase{ID: row.mediaID}, LibraryID: lib.ID, MetadataID: episode.ID,
 			Title: row.title, Path: row.path, ScrapeStatus: "matched",
 		}
 		if err := repos.Media.Upsert(t.Context(), &media); err != nil {

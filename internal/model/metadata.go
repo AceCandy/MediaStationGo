@@ -16,6 +16,7 @@ const (
 	CatalogJobStatusRunning   = "running"
 	CatalogJobStatusRetry     = "retry"
 	CatalogJobStatusCompleted = "completed"
+	CatalogJobStatusFailed    = "failed"
 
 	CatalogJobStageRoot    = "root"
 	CatalogJobStageSeasons = "seasons"
@@ -23,11 +24,11 @@ const (
 
 // MetadataItem 保存可由多个媒体文件共享的作品、剧集或单集元数据。
 type MetadataItem struct {
-	Base
+	PermanentBase
 	Kind         string        `gorm:"size:16;not null;index;check:chk_metadata_identity_season_zero,(kind = 'season' AND parent_id IS NOT NULL AND parent_id <> '' AND season_num >= 0 AND episode_num = 0) OR (kind = 'episode' AND parent_id IS NOT NULL AND parent_id <> '' AND season_num = 0 AND episode_num > 0) OR (kind IN ('movie','series') AND parent_id IS NULL AND season_num = 0 AND episode_num = 0)" json:"kind"`
-	ParentID     *string       `gorm:"size:36;index;uniqueIndex:uidx_metadata_season,priority:1,where:kind = 'season' AND deleted_at IS NULL;uniqueIndex:uidx_metadata_episode,priority:1,where:kind = 'episode' AND deleted_at IS NULL" json:"parent_id,omitempty"`
-	SeasonNum    int           `gorm:"uniqueIndex:uidx_metadata_season,priority:2,where:kind = 'season' AND deleted_at IS NULL" json:"season_num"`
-	EpisodeNum   int           `gorm:"uniqueIndex:uidx_metadata_episode,priority:2,where:kind = 'episode' AND deleted_at IS NULL" json:"episode_num"`
+	ParentID     *string       `gorm:"size:36;index;uniqueIndex:uidx_metadata_season,priority:1,where:kind = 'season';uniqueIndex:uidx_metadata_episode,priority:1,where:kind = 'episode'" json:"parent_id,omitempty"`
+	SeasonNum    int           `gorm:"uniqueIndex:uidx_metadata_season,priority:2,where:kind = 'season'" json:"season_num"`
+	EpisodeNum   int           `gorm:"uniqueIndex:uidx_metadata_episode,priority:2,where:kind = 'episode'" json:"episode_num"`
 	Title        string        `gorm:"size:255;not null" json:"title"`
 	OriginalName string        `gorm:"size:255" json:"original_name,omitempty"`
 	Overview     string        `gorm:"type:text" json:"overview,omitempty"`
@@ -54,16 +55,16 @@ type MetadataItem struct {
 
 // MetadataIdentifier 保存 provider 外部标识；同一数字在不同 provider 或实体类型下互不冲突。
 type MetadataIdentifier struct {
-	Base
-	MetadataID string `gorm:"size:36;not null;index" json:"metadata_id"`
-	Provider   string `gorm:"size:32;not null;uniqueIndex:uidx_metadata_identifier,priority:1" json:"provider"`
-	EntityKind string `gorm:"size:16;not null;uniqueIndex:uidx_metadata_identifier,priority:2" json:"entity_kind"`
+	PermanentBase
+	MetadataID string `gorm:"size:36;not null;index;index:idx_metadata_identifier_provider_kind_metadata,priority:3" json:"metadata_id"`
+	Provider   string `gorm:"size:32;not null;uniqueIndex:uidx_metadata_identifier,priority:1;index:idx_metadata_identifier_provider_kind_metadata,priority:1" json:"provider"`
+	EntityKind string `gorm:"size:16;not null;uniqueIndex:uidx_metadata_identifier,priority:2;index:idx_metadata_identifier_provider_kind_metadata,priority:2" json:"entity_kind"`
 	ExternalID string `gorm:"size:128;not null;uniqueIndex:uidx_metadata_identifier,priority:3" json:"external_id"`
 }
 
 // ArtworkAsset 描述 DataDir 中按内容哈希保存的一份权威原图。
 type ArtworkAsset struct {
-	Base
+	PermanentBase
 	SHA256     string `gorm:"size:64;not null;uniqueIndex" json:"sha256"`
 	StorageKey string `gorm:"size:255;not null;uniqueIndex" json:"storage_key"`
 	MimeType   string `gorm:"size:64;not null" json:"mime_type"`
@@ -74,7 +75,7 @@ type ArtworkAsset struct {
 
 // MetadataArtwork 将共享元数据关联到当前选中的一张权威图片。
 type MetadataArtwork struct {
-	Base
+	PermanentBase
 	MetadataID     string `gorm:"size:36;not null;index;uniqueIndex:uidx_metadata_artwork,priority:1" json:"metadata_id"`
 	AssetID        string `gorm:"size:36;not null;index" json:"asset_id"`
 	ArtworkType    string `gorm:"size:16;not null;uniqueIndex:uidx_metadata_artwork,priority:2" json:"artwork_type"`
@@ -82,9 +83,21 @@ type MetadataArtwork struct {
 	SourceURL      string `gorm:"size:2048" json:"source_url,omitempty"`
 }
 
+// MetadataArtworkCandidate 保存已本地化但尚未成为当前选择的 provider 图片。
+type MetadataArtworkCandidate struct {
+	PermanentBase
+	MetadataID     string       `gorm:"size:36;not null;index;uniqueIndex:uidx_metadata_artwork_candidate,priority:1" json:"metadata_id"`
+	AssetID        string       `gorm:"size:36;not null;index" json:"asset_id"`
+	ArtworkType    string       `gorm:"size:16;not null;uniqueIndex:uidx_metadata_artwork_candidate,priority:2" json:"artwork_type"`
+	SourceProvider string       `gorm:"size:32;not null;uniqueIndex:uidx_metadata_artwork_candidate,priority:3" json:"source_provider"`
+	SourceURL      string       `gorm:"size:2048" json:"source_url,omitempty"`
+	Metadata       MetadataItem `gorm:"foreignKey:MetadataID;references:ID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE" json:"-"`
+	Asset          ArtworkAsset `gorm:"foreignKey:AssetID;references:ID;constraint:OnUpdate:CASCADE,OnDelete:RESTRICT" json:"-"`
+}
+
 // MetadataProviderSnapshot 保存 provider 返回的完整实体详情，避免未投影字段丢失。
 type MetadataProviderSnapshot struct {
-	Base
+	PermanentBase
 	MetadataID string       `gorm:"size:36;not null;uniqueIndex:uidx_metadata_provider_snapshot,priority:1" json:"metadata_id"`
 	Provider   string       `gorm:"size:32;not null;uniqueIndex:uidx_metadata_provider_snapshot,priority:2" json:"provider"`
 	Payload    string       `gorm:"type:jsonb;not null" json:"payload"`
@@ -94,7 +107,7 @@ type MetadataProviderSnapshot struct {
 
 // CatalogHydrationJob 是发现页目录抓取的持久化调度状态。
 type CatalogHydrationJob struct {
-	Base
+	PermanentBase
 	Provider      string        `gorm:"size:32;not null;uniqueIndex:uidx_catalog_hydration_job,priority:1" json:"provider"`
 	EntityKind    string        `gorm:"size:16;not null;uniqueIndex:uidx_catalog_hydration_job,priority:2" json:"entity_kind"`
 	ExternalID    string        `gorm:"size:128;not null;uniqueIndex:uidx_catalog_hydration_job,priority:3" json:"external_id"`

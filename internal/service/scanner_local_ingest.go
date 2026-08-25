@@ -123,7 +123,7 @@ func (s *ScannerService) localMediaScanState(in localMediaScanStateInput) (bool,
 	var exists bool
 	if in.existingMedia == nil {
 		var media model.Media
-		query := s.repo.DB.WithContext(in.ctx).Unscoped().
+		query := s.repo.DB.WithContext(in.ctx).
 			Select("scan_file_size_bytes", "scan_file_mtime_ns").
 			Where("library_id = ? AND path = ?", in.libraryID, in.path).
 			Limit(1).Find(&media)
@@ -303,7 +303,7 @@ func (s *ScannerService) startExistingMetadataMatchTask(ctx context.Context, med
 		return nil, "", nil
 	}
 	var existing model.Media
-	result := s.repo.DB.WithContext(ctx).Unscoped().
+	result := s.repo.DB.WithContext(ctx).
 		Select("metadata_id", "scrape_status").Where("path = ?", media.Path).Limit(1).Find(&existing)
 	if result.Error != nil {
 		return nil, "", result.Error

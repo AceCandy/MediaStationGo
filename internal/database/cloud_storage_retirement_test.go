@@ -35,7 +35,7 @@ func TestRemoveCloudStorageSchemaPreservesLocalAndSharedData(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	metadata := model.MetadataItem{Base: model.Base{ID: "metadata-1"}, Kind: model.MetadataKindMovie, Title: "Movie"}
+	metadata := model.MetadataItem{PermanentBase: model.PermanentBase{ID: "metadata-1"}, Kind: model.MetadataKindMovie, Title: "Movie"}
 	if err := db.Create(&metadata).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -64,11 +64,11 @@ func TestRemoveCloudStorageSchemaPreservesLocalAndSharedData(t *testing.T) {
 		}
 	}
 	media := []model.Media{
-		{Base: model.Base{ID: "cloud-media"}, LibraryID: "cloud-lib", LibraryRootID: "cloud-root", MetadataID: metadata.ID, Path: "cloud://openlist/movies/Movie.mkv"},
-		{Base: model.Base{ID: "local-media"}, LibraryID: "local-lib", LibraryRootID: "local-root", MetadataID: metadata.ID, Path: "/media/Movie.mkv", STRMURL: "https://cdn.example.test/Movie.mkv?token=keep"},
-		{Base: model.Base{ID: "legacy-provider-media"}, LibraryID: "local-lib", LibraryRootID: "local-root", MetadataID: metadata.ID, Path: "/media/LegacyProvider.mkv"},
-		{Base: model.Base{ID: "mixed-cloud-media"}, LibraryID: "mixed-lib", LibraryRootID: "mixed-cloud-root", MetadataID: metadata.ID, Path: " CLOUD://WEBDAV/mixed/Movie.mkv "},
-		{Base: model.Base{ID: "mixed-local-media"}, LibraryID: "mixed-lib", LibraryRootID: "mixed-local-root-a", MetadataID: metadata.ID, Path: "/mixed-a/Movie.mkv"},
+		{PermanentBase: model.PermanentBase{ID: "cloud-media"}, LibraryID: "cloud-lib", LibraryRootID: "cloud-root", MetadataID: metadata.ID, Path: "cloud://openlist/movies/Movie.mkv"},
+		{PermanentBase: model.PermanentBase{ID: "local-media"}, LibraryID: "local-lib", LibraryRootID: "local-root", MetadataID: metadata.ID, Path: "/media/Movie.mkv", STRMURL: "https://cdn.example.test/Movie.mkv?token=keep"},
+		{PermanentBase: model.PermanentBase{ID: "legacy-provider-media"}, LibraryID: "local-lib", LibraryRootID: "local-root", MetadataID: metadata.ID, Path: "/media/LegacyProvider.mkv"},
+		{PermanentBase: model.PermanentBase{ID: "mixed-cloud-media"}, LibraryID: "mixed-lib", LibraryRootID: "mixed-cloud-root", MetadataID: metadata.ID, Path: " CLOUD://WEBDAV/mixed/Movie.mkv "},
+		{PermanentBase: model.PermanentBase{ID: "mixed-local-media"}, LibraryID: "mixed-lib", LibraryRootID: "mixed-local-root-a", MetadataID: metadata.ID, Path: "/mixed-a/Movie.mkv"},
 	}
 	for i := range media {
 		if err := db.Create(&media[i]).Error; err != nil {
@@ -104,16 +104,16 @@ func TestRemoveCloudStorageSchemaPreservesLocalAndSharedData(t *testing.T) {
 	if err := db.Create(&model.PlaylistItem{Base: model.Base{ID: "playlist-item-1"}, PlaylistID: "playlist-1", MetadataID: metadata.ID, MediaID: "cloud-media"}).Error; err != nil {
 		t.Fatal(err)
 	}
-	if err := db.Create(&model.ArtworkAsset{Base: model.Base{ID: "artwork-1"}, SHA256: "artwork-1", StorageKey: "test/artwork.jpg", MimeType: "image/jpeg"}).Error; err != nil {
+	if err := db.Create(&model.ArtworkAsset{PermanentBase: model.PermanentBase{ID: "artwork-1"}, SHA256: "artwork-1", StorageKey: "test/artwork.jpg", MimeType: "image/jpeg"}).Error; err != nil {
 		t.Fatal(err)
 	}
-	if err := db.Create(&model.MetadataArtwork{Base: model.Base{ID: "metadata-artwork-1"}, MetadataID: metadata.ID, AssetID: "artwork-1", ArtworkType: "poster"}).Error; err != nil {
+	if err := db.Create(&model.MetadataArtwork{PermanentBase: model.PermanentBase{ID: "metadata-artwork-1"}, MetadataID: metadata.ID, AssetID: "artwork-1", ArtworkType: "poster"}).Error; err != nil {
 		t.Fatal(err)
 	}
 	if err := db.Create(&model.Person{Base: model.Base{ID: "person-1"}, Name: "Actor", OriginalName: "Actor", NormalizedName: "actor", Source: "local"}).Error; err != nil {
 		t.Fatal(err)
 	}
-	if err := db.Create(&model.MetadataCredit{Base: model.Base{ID: "credit-1"}, MetadataID: metadata.ID, PersonID: "person-1", Type: model.CreditTypeActor}).Error; err != nil {
+	if err := db.Create(&model.MetadataCredit{PermanentBase: model.PermanentBase{ID: "credit-1"}, MetadataID: metadata.ID, PersonID: "person-1", Type: model.CreditTypeActor}).Error; err != nil {
 		t.Fatal(err)
 	}
 	for key, value := range map[string]string{
@@ -187,10 +187,10 @@ func TestRemoveCloudStorageSchemaRollsBackUnsafeMixedLibrary(t *testing.T) {
 	if err := db.Create(&model.LibraryRoot{Base: model.Base{ID: "unsafe-cloud-root"}, LibraryID: "unsafe-lib", Path: "cloud://openlist"}).Error; err != nil {
 		t.Fatal(err)
 	}
-	if err := db.Create(&model.Media{Base: model.Base{ID: "cloud-media"}, LibraryID: "unsafe-lib", LibraryRootID: "unsafe-cloud-root", Path: "cloud://openlist/Movie.mkv"}).Error; err != nil {
+	if err := db.Create(&model.Media{PermanentBase: model.PermanentBase{ID: "cloud-media"}, LibraryID: "unsafe-lib", LibraryRootID: "unsafe-cloud-root", Path: "cloud://openlist/Movie.mkv"}).Error; err != nil {
 		t.Fatal(err)
 	}
-	if err := db.Create(&model.Media{Base: model.Base{ID: "local-media"}, LibraryID: "unsafe-lib", Path: "/local/Movie.mkv"}).Error; err != nil {
+	if err := db.Create(&model.Media{PermanentBase: model.PermanentBase{ID: "local-media"}, LibraryID: "unsafe-lib", Path: "/local/Movie.mkv"}).Error; err != nil {
 		t.Fatal(err)
 	}
 	if err := db.Create(&model.Setting{Key: "cloud.auto_sync_enabled", Value: "true"}).Error; err != nil {

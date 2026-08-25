@@ -16,7 +16,7 @@ func (e *EmbyService) applyUserMediaVisibility(ctx context.Context, q *gorm.DB, 
 	// Persisted media must always point at a live metadata row. Keep this join
 	// aligned with MediaView so counts and payloads cannot disagree on orphaned
 	// media rows.
-	q = q.Joins("JOIN metadata_items AS emby_metadata ON emby_metadata.id = media.metadata_id AND emby_metadata.deleted_at IS NULL")
+	q = q.Joins("JOIN metadata_items AS emby_metadata ON emby_metadata.id = media.metadata_id")
 	if !visibility.IncludeNSFW {
 		q = q.Where("COALESCE(emby_metadata.nsfw, FALSE) = FALSE")
 		if hidden := visibility.HiddenLibraryIDs; len(hidden) > 0 {

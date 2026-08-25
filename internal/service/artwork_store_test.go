@@ -91,6 +91,38 @@ func TestArtworkStorePersistsAndDeduplicatesLocalImages(t *testing.T) {
 	}
 }
 
+func TestArtworkStoreLocalAssetAvailable(t *testing.T) {
+	store := NewArtworkStore(&config.Config{App: config.AppConfig{DataDir: t.TempDir()}}, nil, nil)
+	path, err := store.pathForStorageKey("sha256/aa/bb/image.jpg")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("image"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	if available, err := localArtworkFileAvailable(path); err != nil || !available {
+		t.Fatalf("existing asset available = %v, %v", available, err)
+	}
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	if available, err := localArtworkFileAvailable(path); err != nil || available {
+		t.Fatalf("missing asset available = %v, %v", available, err)
+	}
+	if err := os.Mkdir(path, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := localArtworkFileAvailable(path); err == nil {
+		t.Fatal("expected non-regular storage path error")
+	}
+	if _, err := store.pathForStorageKey("../outside.jpg"); err == nil {
+		t.Fatal("expected invalid storage key error")
+	}
+}
+
 func testArtworkPNG(t *testing.T, width, height int) []byte {
 	t.Helper()
 	img := image.NewRGBA(image.Rect(0, 0, width, height))

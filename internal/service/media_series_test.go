@@ -30,23 +30,23 @@ func TestListRecentSeriesCardsCountsAllEpisodesInSeries(t *testing.T) {
 		}
 		episode := createServiceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindEpisode, ParentID: &season.ID, EpisodeNum: i, Title: fmt.Sprintf("第 %d 集", i), Source: "test"})
 		rows = append(rows, model.Media{
-			Base:       model.Base{ID: fmt.Sprintf("recent-ep-%02d", i), CreatedAt: created, UpdatedAt: created},
-			LibraryID:  lib.ID,
-			MetadataID: episode.ID,
-			Title:      "史上最强炼体老祖",
-			Path:       fmt.Sprintf("/media/anime/国漫/史上最强炼体老祖/Season 01/史上最强炼体老祖.S01E%02d.mkv", i),
-			SeasonNum:  1,
-			EpisodeNum: i,
+			PermanentBase: model.PermanentBase{ID: fmt.Sprintf("recent-ep-%02d", i), CreatedAt: created, UpdatedAt: created},
+			LibraryID:     lib.ID,
+			MetadataID:    episode.ID,
+			Title:         "史上最强炼体老祖",
+			Path:          fmt.Sprintf("/media/anime/国漫/史上最强炼体老祖/Season 01/史上最强炼体老祖.S01E%02d.mkv", i),
+			SeasonNum:     1,
+			EpisodeNum:    i,
 		})
 		if i == 1 {
 			rows = append(rows, model.Media{
-				Base:       model.Base{ID: "recent-ep-01-alt", CreatedAt: created.Add(time.Second), UpdatedAt: created.Add(time.Second)},
-				LibraryID:  lib.ID,
-				MetadataID: episode.ID,
-				Title:      series.Title,
-				Path:       "/media/anime/国漫/史上最强炼体老祖/Season 01/史上最强炼体老祖.S01E01.2160p.mkv",
-				SeasonNum:  1,
-				EpisodeNum: 1,
+				PermanentBase: model.PermanentBase{ID: "recent-ep-01-alt", CreatedAt: created.Add(time.Second), UpdatedAt: created.Add(time.Second)},
+				LibraryID:     lib.ID,
+				MetadataID:    episode.ID,
+				Title:         series.Title,
+				Path:          "/media/anime/国漫/史上最强炼体老祖/Season 01/史上最强炼体老祖.S01E01.2160p.mkv",
+				SeasonNum:     1,
+				EpisodeNum:    1,
 			})
 		}
 	}
@@ -92,28 +92,28 @@ func TestMediaSeriesKeyCollapsesNestedSpecialFolders(t *testing.T) {
 func TestGroupMediaSeriesCardsSortsByLatestEpisodeTime(t *testing.T) {
 	now := time.Date(2026, 7, 2, 12, 0, 0, 0, time.UTC)
 	newerFirstEpisode := model.Media{
-		Base:       model.Base{CreatedAt: now.Add(-72 * time.Hour), UpdatedAt: now.Add(-72 * time.Hour)},
-		LibraryID:  "lib-tv",
-		Title:      "更新合集",
-		Path:       `F:\media\电视剧\国产剧\更新合集\Season 01\更新合集.S01E01.mkv`,
-		SeasonNum:  1,
-		EpisodeNum: 1,
+		PermanentBase: model.PermanentBase{CreatedAt: now.Add(-72 * time.Hour), UpdatedAt: now.Add(-72 * time.Hour)},
+		LibraryID:     "lib-tv",
+		Title:         "更新合集",
+		Path:          `F:\media\电视剧\国产剧\更新合集\Season 01\更新合集.S01E01.mkv`,
+		SeasonNum:     1,
+		EpisodeNum:    1,
 	}
 	newerLatestEpisode := model.Media{
-		Base:       model.Base{CreatedAt: now, UpdatedAt: now},
-		LibraryID:  "lib-tv",
-		Title:      "更新合集",
-		Path:       `F:\media\电视剧\国产剧\更新合集\Season 01\更新合集.S01E02.mkv`,
-		SeasonNum:  1,
-		EpisodeNum: 2,
+		PermanentBase: model.PermanentBase{CreatedAt: now, UpdatedAt: now},
+		LibraryID:     "lib-tv",
+		Title:         "更新合集",
+		Path:          `F:\media\电视剧\国产剧\更新合集\Season 01\更新合集.S01E02.mkv`,
+		SeasonNum:     1,
+		EpisodeNum:    2,
 	}
 	olderSeries := model.Media{
-		Base:       model.Base{CreatedAt: now.Add(-24 * time.Hour), UpdatedAt: now.Add(-24 * time.Hour)},
-		LibraryID:  "lib-tv",
-		Title:      "较早合集",
-		Path:       `F:\media\电视剧\国产剧\较早合集\Season 01\较早合集.S01E01.mkv`,
-		SeasonNum:  1,
-		EpisodeNum: 1,
+		PermanentBase: model.PermanentBase{CreatedAt: now.Add(-24 * time.Hour), UpdatedAt: now.Add(-24 * time.Hour)},
+		LibraryID:     "lib-tv",
+		Title:         "较早合集",
+		Path:          `F:\media\电视剧\国产剧\较早合集\Season 01\较早合集.S01E01.mkv`,
+		SeasonNum:     1,
+		EpisodeNum:    1,
 	}
 
 	cards := groupMediaSeriesCards([]model.Media{olderSeries, newerFirstEpisode, newerLatestEpisode})
@@ -391,18 +391,18 @@ func TestGroupMediaSeriesCardsMergesPollutedEpisodeFoldersBySharedShowID(t *test
 func TestGroupMediaSeriesCardsKeepsMovieVersionsAsOneMovie(t *testing.T) {
 	items := []model.Media{
 		{
-			Base:      model.Base{ID: "movie-copy-a"},
-			LibraryID: "foreign-movies",
-			Title:     "杀的就是你",
-			Path:      `F:\media\电影\外语电影\They Will Kill You (2026)\movie-a.mkv`,
-			TMDbID:    1292695,
+			PermanentBase: model.PermanentBase{ID: "movie-copy-a"},
+			LibraryID:     "foreign-movies",
+			Title:         "杀的就是你",
+			Path:          `F:\media\电影\外语电影\They Will Kill You (2026)\movie-a.mkv`,
+			TMDbID:        1292695,
 		},
 		{
-			Base:      model.Base{ID: "movie-copy-b"},
-			LibraryID: "western-movies",
-			Title:     "杀的就是你",
-			Path:      `F:\media\电影\欧美电影\They Will Kill You (2026)\movie-b.mkv`,
-			TMDbID:    1292695,
+			PermanentBase: model.PermanentBase{ID: "movie-copy-b"},
+			LibraryID:     "western-movies",
+			Title:         "杀的就是你",
+			Path:          `F:\media\电影\欧美电影\They Will Kill You (2026)\movie-b.mkv`,
+			TMDbID:        1292695,
 		},
 	}
 
@@ -417,20 +417,20 @@ func TestGroupMediaSeriesCardsKeepsMovieVersionsAsOneMovie(t *testing.T) {
 
 func TestGroupMediaSeriesCardsDoesNotCollideMovieAndTVExternalIDs(t *testing.T) {
 	movie := model.Media{
-		Base:      model.Base{ID: "movie"},
-		LibraryID: "movies",
-		Title:     "同号电影",
-		Path:      `/media/电影/同号电影 (2026)/movie.mkv`,
-		TMDbID:    12345,
+		PermanentBase: model.PermanentBase{ID: "movie"},
+		LibraryID:     "movies",
+		Title:         "同号电影",
+		Path:          `/media/电影/同号电影 (2026)/movie.mkv`,
+		TMDbID:        12345,
 	}
 	episode := model.Media{
-		Base:       model.Base{ID: "episode"},
-		LibraryID:  "tv",
-		Title:      "同号剧集",
-		Path:       `/media/tv/同号剧集/episode.mkv`,
-		SeasonNum:  1,
-		EpisodeNum: 1,
-		TMDbID:     12345,
+		PermanentBase: model.PermanentBase{ID: "episode"},
+		LibraryID:     "tv",
+		Title:         "同号剧集",
+		Path:          `/media/tv/同号剧集/episode.mkv`,
+		SeasonNum:     1,
+		EpisodeNum:    1,
+		TMDbID:        12345,
 	}
 
 	cards := groupMediaSeriesCards([]model.Media{movie, episode})
