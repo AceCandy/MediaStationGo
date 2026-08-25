@@ -1202,3 +1202,24 @@ Committed the existing web UI redesign together with detailed background task lo
 ### Status
 
 [OK] **Completed**
+
+
+## Session 57: Metadata 图片与豆瓣电影补齐
+
+**Date**: 2026-08-26
+**Task**: Metadata 图片与豆瓣电影补齐
+**Branch**: `main`
+
+### Summary
+
+完成 metadata 图硬删除迁移、TMDb 缺图巡检、豆瓣电影第二数据源与慢速历史补齐，并移除元数据编辑中的图片 URL。Go 回归、前端构建和 lint 已通过；PostgreSQL 集成测试与生产规模 EXPLAIN 留作部署验证。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `b04862a` | (see git log) |
+
+### Status
+
+[OK] **Completed**
