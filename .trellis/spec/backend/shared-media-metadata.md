@@ -206,18 +206,28 @@ db.Model(&credit).
 - Graph merge recursively pairs Series children by season and episode number, moves media and metadata-owned state, deduplicates user relations, then hard-deletes the unreferenced source metadata.
 - Lists, permissions, pagination, search, playback display text, and Emby display text read `MediaView`. File identity, path, scan fingerprint, and STRM URL read the embedded `Media`; duration, target size, real container, bitrate, dimensions, and codecs read `MediaProbeMetadata`.
 - A local `.strm` keeps the sidecar in `Media.Path` and its supported absolute media target in `Media.STRMURL`. Scan, manual reprobe, and asynchronous PlaybackInfo repair probe the target while persisting technical facts to its one-to-one probe row; stale target results must be discarded.
+- STRM HTTP(S) targets treat every raw `#` as a legacy unescaped path character
+  and normalize it to `%23` before persistence or consumption. Existing `%23`
+  and query values remain unchanged. This normalization is shared by scanning,
+  probing, path mapping, direct playback redirects, and Emby target-container
+  projection so historical rows require no migration.
 - Only a `Media` whose path ends in `.strm` may
   apply `ffprobe.path_mappings`. Rules require a credential-free HTTP(S)
   prefix with a host and an absolute local prefix. Matching compares scheme,
-  host, and complete decoded URL path segments; query and fragment values
-  never enter the local path. The longest matching URL path wins, and the
+  host, and complete decoded URL path segments; query values never enter the
+  local path. After the STRM compatibility normalization above, no raw fragment
+  remains. The longest matching URL path wins, and the
   joined path must remain below its configured local prefix.
-- A mapped readable file uses the existing local `Probe` path without remote
+- A mapped readable regular file uses the existing local `Probe` path without remote
   delay. Invalid/unmatched rules and unavailable mapped files preserve the
   original URL, delay, and `ProbeHTTP` behavior. Source validation rereads the
   mapping after ffprobe and before opening the persistence transaction; do not
   query the regular setting repository from inside that transaction.
 - A successful full probe atomically upserts the complete document and its typed summary after rechecking the source identity. Projection first clears every typed summary value, then derives all fields from the current document and local target identity so absent values become unknown instead of retaining stale facts. Scanner, scraper, organizer, and playback never persist technical facts on `media`. Failed, partial, or stale probes must not replace the previous valid complete document, and probe failure must never fall back to `ffmpeg -i`.
+- An ffprobe execution failure may include a bounded single-line stderr summary
+  after replacing its exact local path or remote URL and applying task-log URL
+  sanitization. It retains the original execution error for classification and
+  never exposes a signed query or grows one task detail without a fixed limit.
 - Global track backfill scans every non-deleted `Media` across libraries, probes
   only missing, outdated, or invalid complete documents, and skips valid current
   documents. A positive `limit` caps actual probe attempts; valid skipped rows
@@ -346,7 +356,7 @@ db.Model(&credit).
 | Probe JSON is malformed, outdated, or fails structural validation | Treat technical facts as unknown and schedule lazy repair without copying legacy `media` values |
 | Probe source changes while ffprobe is running | Reject the result transactionally; update neither typed summary nor complete JSON |
 | STRM URL matches a valid track probe mapping and the local file is readable | Probe the mapped local file immediately and persist its local size |
-| Track probe mapping is invalid, unmatched, escapes its local prefix, or maps to an unavailable file | Preserve the original URL and use the existing delayed remote probe |
+| Track probe mapping is invalid, unmatched, escapes its local prefix, or maps to an unavailable/non-regular file | Preserve the normalized URL and use the existing delayed remote probe |
 | Track probe mapping changes while ffprobe is running | Reject the stale result; update neither typed summary nor complete JSON |
 | FFprobe is missing, times out, or returns invalid output | Return a probe error, preserve the previous valid document, and never start FFmpeg |
 | A probe task is already active when global backfill is requested | Return `409`; do not create another global execution |
@@ -407,10 +417,16 @@ db.Model(&credit).
 - Good: a two-version local STRM item schedules both target files, persists each document and typed summary to its probe row, and exposes matching target container/path/name/bitrate.
 - Good: a signed remote STRM URL maps by its decoded path to a mounted local
   file; the query signature is ignored and the local probe starts immediately.
+- Good: a historical STRM target containing raw `#` in directory and file names
+  is normalized to `%23` before scan persistence, probe mapping, direct redirect,
+  and Emby container projection; its signed query remains unchanged.
+- Base: a correctly encoded `%23` target passes through without double encoding.
 - Base: no track probe mapping matches, or the mounted file is temporarily
   unavailable; the existing delayed remote probe remains usable.
 - Bad: reuse or reverse `playback.path_mappings`, apply a track mapping to a
   non-STRM media row, or build a local filename from URL query values.
+- Bad: parse a raw-`#` STRM target before compatibility normalization, or accept
+  a mapped directory merely because `os.Stat` succeeds.
 - Good: task-center global backfill repairs missing documents across libraries,
   skips valid documents while hard-deleted media is absent, and keeps
   `total = completed + skipped + failed`.
@@ -479,9 +495,13 @@ db.Model(&credit).
 - Probe execution: assert remote delay samples are whole seconds in the inclusive
   two-to-five-second range and local probing has no delay.
 - Probe path mapping: assert schema exposure, scheme/host/path-segment matching,
-  longest-prefix selection, decoded path joining, query exclusion, traversal
-  rejection, STRM-only gating, unavailable-file remote fallback, local runner
-  selection, and source rejection after a mapping change.
+  longest-prefix selection, decoded path joining, raw-`#` normalization without
+  `%23` double encoding, query exclusion, traversal rejection, STRM-only gating,
+  unavailable/non-regular-file remote fallback, local runner selection, and
+  source rejection after a mapping change.
+- Probe execution failures: assert stderr is bounded to one line, keeps a useful
+  reason and the wrapped execution error, and omits local source paths, remote
+  URLs, and signed query values.
 - Playback/Emby: assert all visible sibling versions are scheduled, duplicate media IDs are not probed concurrently, bitrate is omitted when the probe value is missing, and target-derived source name/container/path never expose the STRM sidecar.
 - Scanner queue: assert a full local probe queue waits for capacity and a canceled context releases the reserved path without enqueuing a stale task.
 - Playback/Emby: assert `/Items` totals, `/Items/Counts`, and `/SearchHints` count shared metadata once while still exposing every concrete version as a `MediaSource`.
@@ -647,6 +667,16 @@ probe := ffprobeDirectly(media.Path)
 
 // Correct: global selection changes only scope; each candidate uses the shared owner.
 probe, err := mediaProbe.ProbeMedia(ctx, media.ID)
+```
+
+Legacy STRM URL compatibility must precede every path parse or redirect:
+
+```go
+// Wrong: url.Parse treats the first raw # and everything after it as a fragment.
+target, err := url.Parse(media.STRMURL)
+
+// Correct: normalize once through the shared STRM rule, then parse or redirect.
+target, err := url.Parse(normalizeSTRMHTTPURL(media.STRMURL))
 ```
 
 Track probe source validation must not open a second database connection from

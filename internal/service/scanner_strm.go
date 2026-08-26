@@ -31,7 +31,7 @@ func readLocalSTRMTarget(path string) (string, error) {
 		}
 		switch strings.ToLower(u.Scheme) {
 		case "http", "https":
-			return candidate, nil
+			return normalizeSTRMHTTPURL(candidate), nil
 		}
 	}
 	return "", nil

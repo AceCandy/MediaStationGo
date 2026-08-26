@@ -2,8 +2,10 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -98,6 +100,50 @@ func TestFFprobeFailureDoesNotStartFFmpeg(t *testing.T) {
 	}
 	if _, err := os.Stat(marker); !os.IsNotExist(err) {
 		t.Fatalf("ffmpeg sentinel was executed: %v", err)
+	}
+}
+
+func TestFFprobeFailureIncludesSanitizedStderr(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell fixture is POSIX-only")
+	}
+	dir := t.TempDir()
+	ffprobePath := filepath.Join(dir, "ffprobe")
+	localPath := filepath.Join(dir, "private movie.mkv")
+	remoteURL := "https://media.example.test/private%20movie.mkv?token=secret"
+	stderr := "cannot open " + localPath + "\n" + strings.Repeat("x", 2000)
+	if err := os.WriteFile(ffprobePath, []byte("#!/bin/sh\nprintf '%b' "+fmt.Sprintf("%q", stderr)+" >&2\nexit 1\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	svc := NewFFprobeService(&config.Config{App: config.AppConfig{FFprobePath: ffprobePath}}, zap.NewNop())
+
+	_, err := svc.Probe(t.Context(), localPath)
+	if err == nil {
+		t.Fatal("local ffprobe failure should be returned")
+	}
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) {
+		t.Fatalf("wrapped error should retain exec.ExitError: %v", err)
+	}
+	if !errors.Is(err, exitErr) {
+		t.Fatalf("wrapped error should retain the original execution error: %v", err)
+	}
+	message := err.Error()
+	if !strings.Contains(message, "cannot open [redacted-path]") || strings.Contains(message, localPath) || strings.Contains(message, "\n") || len(message) > 700 {
+		t.Fatalf("unsafe local ffprobe error: %q", message)
+	}
+
+	remoteScript := "#!/bin/sh\nprintf '%s' " + fmt.Sprintf("%q", "request "+remoteURL+" failed") + " >&2\nexit 1\n"
+	if err := os.WriteFile(ffprobePath, []byte(remoteScript), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	_, err = svc.ProbeHTTP(t.Context(), remoteURL)
+	if err == nil {
+		t.Fatal("remote ffprobe failure should be returned")
+	}
+	message = err.Error()
+	if !strings.Contains(message, "remote ffprobe failed") || !strings.Contains(message, "[redacted-url]") || strings.Contains(message, "secret") || strings.Contains(message, remoteURL) || strings.Contains(message, "\n") {
+		t.Fatalf("unsafe remote ffprobe error: %q", message)
 	}
 }
 

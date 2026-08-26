@@ -46,7 +46,7 @@ func (s *StreamService) ServeMedia(w http.ResponseWriter, r *http.Request, m *mo
 		}
 		return s.serveLocalMediaFile(w, r, mediaID, target, "local_strm")
 	}
-	if target := strings.TrimSpace(m.STRMURL); playableSTRMTarget(target) {
+	if target := normalizeSTRMHTTPURL(m.STRMURL); playableSTRMTarget(target) {
 		resolution := s.resolveConfiguredPlaybackRedirect(r.Context(), mediaID, target, r.UserAgent())
 		if resolution.local {
 			return s.serveLocalMediaFile(w, r, mediaID, resolution.target, "redirect_resolve_local_fallback")

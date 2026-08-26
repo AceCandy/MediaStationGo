@@ -355,7 +355,7 @@ func embyMediaContainer(m *model.Media, probeContainer string) string {
 }
 
 func embyRemoteSTRMContainer(raw string) string {
-	target := strings.TrimSpace(raw)
+	target := normalizeSTRMHTTPURL(raw)
 	if target == "" {
 		return ""
 	}

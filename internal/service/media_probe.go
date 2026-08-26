@@ -281,7 +281,7 @@ func (s *MediaProbeService) resolveSource(ctx context.Context, media *model.Medi
 	if target := localSTRMFileTarget(media); target != "" {
 		return localMediaProbeSource(media, target)
 	}
-	if rawURL := strings.TrimSpace(media.STRMURL); isHTTPPlaybackTarget(rawURL) {
+	if rawURL := normalizeSTRMHTTPURL(media.STRMURL); isHTTPPlaybackTarget(rawURL) {
 		return resolveRemoteProbeSource(media, rawURL, s.probePathMappings(ctx)), nil
 	}
 	if strings.EqualFold(filepath.Ext(media.Path), ".strm") {
@@ -296,7 +296,7 @@ func currentSourceIdentity(media *model.Media, rawMappings string) (string, erro
 		source, err := localMediaProbeSource(media, target)
 		return source.identity, err
 	}
-	if rawURL := strings.TrimSpace(media.STRMURL); isHTTPPlaybackTarget(rawURL) {
+	if rawURL := normalizeSTRMHTTPURL(media.STRMURL); isHTTPPlaybackTarget(rawURL) {
 		return resolveRemoteProbeSource(media, rawURL, rawMappings).identity, nil
 	}
 	source, err := localMediaProbeSource(media, media.Path)
@@ -305,6 +305,7 @@ func currentSourceIdentity(media *model.Media, rawMappings string) (string, erro
 
 // resolveRemoteProbeSource 仅将 STRM 远程地址映射为可访问的本地媒体文件。
 func resolveRemoteProbeSource(media *model.Media, rawURL, rawMappings string) mediaProbeSource {
+	rawURL = normalizeSTRMHTTPURL(rawURL)
 	remote := mediaProbeSource{identity: remoteProbeSourceIdentity(media, "http", rawURL), url: rawURL}
 	if !strings.EqualFold(filepath.Ext(media.Path), ".strm") {
 		return remote
@@ -333,7 +334,8 @@ func (s *MediaProbeService) probePathMappings(ctx context.Context) string {
 
 // mapRemoteProbePath 将 URL 路径剩余部分拼接到本地前缀，并拒绝跨出前缀目录的结果。
 func mapRemoteProbePath(rawMappings, rawURL string) string {
-	target, err := url.Parse(strings.TrimSpace(rawURL))
+	rawURL = normalizeSTRMHTTPURL(rawURL)
+	target, err := url.Parse(rawURL)
 	if err != nil || target.Host == "" || !isHTTPPlaybackTarget(rawURL) {
 		return ""
 	}
@@ -394,6 +396,9 @@ func localMediaProbeSource(media *model.Media, target string) (mediaProbeSource,
 	stat, err := os.Stat(target)
 	if err != nil {
 		return mediaProbeSource{}, err
+	}
+	if !stat.Mode().IsRegular() {
+		return mediaProbeSource{}, errors.New("media probe source is not a regular file")
 	}
 	target = filepath.Clean(target)
 	return mediaProbeSource{

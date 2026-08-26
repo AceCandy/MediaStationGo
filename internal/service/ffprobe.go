@@ -19,6 +19,8 @@ import (
 	"github.com/ShukeBta/MediaStationGo/internal/config"
 )
 
+const ffprobeErrorDetailMaxRunes = 512
+
 // FFprobeService wraps the external ffprobe binary.
 type FFprobeService struct {
 	cfg     *config.Config
@@ -95,7 +97,7 @@ func (f *FFprobeService) Probe(ctx context.Context, path string) (*ProbeResult, 
 		if f.log != nil {
 			f.log.Debug("ffprobe failed", zap.String("path", path), zap.Error(err))
 		}
-		return nil, fmt.Errorf("ffprobe failed: %w", err)
+		return nil, formatFFprobeExecError("ffprobe failed", path, err)
 	}
 	return parseProbeJSON(out)
 }
@@ -105,7 +107,7 @@ func (f *FFprobeService) ProbeHTTP(ctx context.Context, rawURL string) (*ProbeRe
 	if f == nil {
 		return nil, errors.New("ffprobe service nil")
 	}
-	rawURL = strings.TrimSpace(rawURL)
+	rawURL = normalizeSTRMHTTPURL(rawURL)
 	if rawURL == "" {
 		return nil, errors.New("empty probe url")
 	}
@@ -128,9 +130,43 @@ func (f *FFprobeService) ProbeHTTP(ctx context.Context, rawURL string) (*ProbeRe
 		if f.log != nil {
 			f.log.Debug("remote ffprobe failed", zap.Error(err))
 		}
-		return nil, fmt.Errorf("remote ffprobe failed: %w", err)
+		return nil, formatFFprobeExecError("remote ffprobe failed", rawURL, err)
 	}
 	return parseProbeJSON(out)
+}
+
+// formatFFprobeExecError 提取有限且脱敏的 stderr，保留原始执行错误供上层分类。
+func formatFFprobeExecError(prefix, source string, err error) error {
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) || len(exitErr.Stderr) == 0 {
+		return fmt.Errorf("%s: %w", prefix, err)
+	}
+	detail := strings.TrimSpace(string(exitErr.Stderr))
+	redactedSource := "[redacted-path]"
+	if isHTTPPlaybackTarget(source) {
+		redactedSource = "[redacted-url]"
+	}
+	if source = strings.TrimSpace(source); source != "" {
+		detail = strings.ReplaceAll(detail, source, redactedSource)
+	}
+	detail = sanitizeTaskLogError(errors.New(detail)).Error()
+	if redactedSource == "[redacted-url]" {
+		lower := strings.ToLower(detail)
+		for _, scheme := range []string{"http://", "https://"} {
+			if i := strings.Index(lower, scheme); i >= 0 {
+				detail = detail[:i] + redactedSource
+				break
+			}
+		}
+	}
+	detail = strings.Join(strings.Fields(detail), " ")
+	if runes := []rune(detail); len(runes) > ffprobeErrorDetailMaxRunes {
+		detail = string(runes[:ffprobeErrorDetailMaxRunes]) + "…"
+	}
+	if detail == "" {
+		return fmt.Errorf("%s: %w", prefix, err)
+	}
+	return fmt.Errorf("%s: %s: %w", prefix, detail, err)
 }
 
 func (f *FFprobeService) acquire(ctx context.Context) (chan struct{}, error) {

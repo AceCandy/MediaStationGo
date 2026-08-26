@@ -13,6 +13,15 @@ import (
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 )
 
+// normalizeSTRMHTTPURL 兼容把 URL 路径中的 # 原样写入 STRM 的历史文件。
+func normalizeSTRMHTTPURL(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if !isHTTPPlaybackTarget(raw) {
+		return raw
+	}
+	return strings.ReplaceAll(raw, "#", "%23")
+}
+
 func (s *STRMService) strmPlaybackURL(ctx context.Context, media model.Media, baseURL, playbackToken string) string {
 	if media.ID == "" {
 		return ""
