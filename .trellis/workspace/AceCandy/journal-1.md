@@ -1280,3 +1280,24 @@ Committed the existing web UI redesign together with detailed background task lo
 ### Status
 
 [OK] **Completed**
+
+
+## Session 60: TMDb 集信息补全复查
+
+**Date**: 2026-08-27
+**Task**: TMDb 集信息补全复查
+**Branch**: `main`
+
+### Summary
+
+新增仅针对有媒体 Episode 的 TMDb 集信息补全/复查任务，覆盖标题、简介、播出日期、评分、年份、演职员和 still，加入 72 小时冷却、全量 keyset 扫描、独立调度与脱敏日志，并从无图复查移除 Episode。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `8f27aa1` | (see git log) |
+
+### Status
+
+[OK] **Completed**
