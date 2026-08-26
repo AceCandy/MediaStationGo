@@ -112,6 +112,7 @@ func (s *SchedulerService) Start(ctx context.Context) {
 		s.configuredJob(ctx, "people_translation_periodic", "people.translation_periodic_enabled", "people.translation_interval_seconds", true, 10*time.Minute, s.jobPeopleTranslation),
 		s.configuredJob(ctx, "tmdb_artwork_local_repair", "metadata.tmdb_artwork_local_repair_enabled", "metadata.tmdb_artwork_local_repair_interval_seconds", false, 24*time.Hour, s.jobTMDbArtworkLocalRepair),
 		s.configuredJob(ctx, "tmdb_artwork_missing_recheck", "metadata.tmdb_artwork_missing_recheck_enabled", "metadata.tmdb_artwork_missing_recheck_interval_seconds", false, 24*time.Hour, s.jobTMDbArtworkMissingRecheck),
+		s.configuredJob(ctx, "tmdb_episode_metadata_recheck", "metadata.tmdb_episode_metadata_recheck_enabled", "metadata.tmdb_episode_metadata_recheck_interval_seconds", false, 24*time.Hour, s.jobTMDbEpisodeMetadataRecheck),
 		s.configuredJob(ctx, "douban_movie_enrichment", "metadata.douban_movie_enrichment_enabled", "metadata.douban_movie_enrichment_interval_seconds", false, 24*time.Hour, s.jobDoubanMovieEnrichment),
 		s.configuredJob(ctx, "account_cleanup", SettingAccountCleanupEnabled, "device.account_cleanup_interval_seconds", false, 24*time.Hour, s.jobAccountCleanup),
 	}

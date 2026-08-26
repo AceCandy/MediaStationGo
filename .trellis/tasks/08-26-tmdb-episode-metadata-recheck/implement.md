@@ -4,15 +4,15 @@
 
 - 在 `MetadataItem` 和 schema 测试中加入 nullable `tmdb_episode_checked_at`。
 - metadata graph merge 保留较新的 Episode 检查时间。
-- 在适当 Repository 增加按 ID 分页的候选查询：只取有 media、字段缺失、冷却到期且具备 Series TMDb identity 的 Episode。
-- Repository 测试覆盖：无 media、字段完整、3 天冷却、生成标题、缺 still、重复 media 版本和分页。
+- 在适当 Repository 增加按 ID 分页的候选查询：只取有 media，且标题、简介、播出日期或 still 缺失，冷却到期并具备 Series TMDb identity 的 Episode。
+- Repository 测试覆盖：无 media、四项字段完整、3 天冷却、生成标题、缺播出日期、缺 still、重复 media 版本和分页。
 
 ## 2. Episode 同步
 
 - 将现有 `fetchAndSaveTMDbEpisodeDetails` 整理为可报告 provider 成功、实际更新字段和失败的共享内部同步逻辑。
 - 成功后写 checkpoint；任一持久化失败不写 checkpoint。
 - 复用现有标题生成判断、credits 替换和 ArtworkStore 并发保护。
-- Service 测试覆盖覆盖更新、仍缺字段冷却、失败重试、图片保存和日志静默/详情。
+- Service 测试覆盖标题/简介/播出日期等非空覆盖、仍缺字段冷却、失败重试、图片保存和日志静默/详情。
 
 ## 3. 任务与调度
 

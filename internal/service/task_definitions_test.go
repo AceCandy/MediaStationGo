@@ -117,14 +117,15 @@ func TestScheduledTaskDefinitionsSupportManualExecution(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := map[string]bool{
-		TaskDefinitionOrganize:                  true,
-		TaskDefinitionLibraryScan:               true,
-		TaskDefinitionPeopleBackfill:            true,
-		TaskDefinitionPeopleTranslation:         true,
-		TaskDefinitionTMDbArtworkLocalRepair:    true,
-		TaskDefinitionTMDbArtworkMissingRecheck: true,
-		TaskDefinitionDoubanEnrichment:          true,
-		TaskDefinitionAccountCleanup:            true,
+		TaskDefinitionOrganize:                   true,
+		TaskDefinitionLibraryScan:                true,
+		TaskDefinitionPeopleBackfill:             true,
+		TaskDefinitionPeopleTranslation:          true,
+		TaskDefinitionTMDbArtworkLocalRepair:     true,
+		TaskDefinitionTMDbArtworkMissingRecheck:  true,
+		TaskDefinitionTMDbEpisodeMetadataRecheck: true,
+		TaskDefinitionDoubanEnrichment:           true,
+		TaskDefinitionAccountCleanup:             true,
 	}
 	for _, definition := range definitions {
 		if !want[definition.Key] {

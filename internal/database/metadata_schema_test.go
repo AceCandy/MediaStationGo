@@ -49,6 +49,9 @@ func TestCatalogMetadataSnapshotAndJobSchema(t *testing.T) {
 	if !db.Migrator().HasColumn(&model.MetadataItem{}, "PeopleHydratedAt") {
 		t.Fatal("metadata items people_hydrated_at column is missing")
 	}
+	if !db.Migrator().HasColumn(&model.MetadataItem{}, "TMDbEpisodeCheckedAt") {
+		t.Fatal("metadata items tmdb_episode_checked_at column is missing")
+	}
 	metadata := model.MetadataItem{Kind: model.MetadataKindSeries, Title: "Series", Source: "tmdb"}
 	if err := db.Create(&metadata).Error; err != nil {
 		t.Fatal(err)

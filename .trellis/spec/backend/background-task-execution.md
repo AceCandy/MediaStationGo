@@ -44,9 +44,9 @@ history is observability only; business object state owns retry and recovery.
   write lock.
 - Watcher batches use `TaskKindWatch`, `TaskTriggerEvent`, and the stable
   `library_watch` definition; they never reuse the full-scan kind.
-- Artwork definitions `tmdb_artwork_local_repair` and
-  `tmdb_artwork_missing_recheck` use separate default-off 24-hour scheduler
-  jobs, settings, histories, and daily logs.
+- TMDb maintenance definitions `tmdb_artwork_local_repair`,
+  `tmdb_artwork_missing_recheck`, and `tmdb_episode_metadata_recheck` use
+  separate default-off 24-hour scheduler jobs, settings, histories, and daily logs.
 
 ### 3. Contracts
 
@@ -81,6 +81,10 @@ history is observability only; business object state owns retry and recovery.
 - TMDb missing-artwork recheck scans only metadata with direct media or playable
   Episode descendants. Metadata without media is outside this task, and the
   same execution continues by metadata ID until all current candidates are scanned.
+- TMDb Episode metadata recheck scans only Episodes with direct media and a
+  missing/generated title, missing overview, missing release date, or missing
+  still. It keyset-pages the full current candidate set without a persisted
+  cursor; successful checks use the business checkpoint for a 72-hour cooldown.
 - A manual `library_scan` task scans only the selected library's enabled roots.
   Timer-driven `library_scan` runs carry no target and continue scanning every
   enabled library. Creating a library starts an `event` whole-library scan;
@@ -294,6 +298,9 @@ history is observability only; business object state owns retry and recovery.
   1,000-group pass limit with the remainder left pending, same-season role reuse,
   cross-season isolation, and invalid-result negative caching without changing
   person-name caching.
+- Episode metadata recheck tests cover default-off scheduling, definition
+  registration, candidate filtering/keyset pagination, 72-hour cooldown, and
+  non-empty TMDb field projection including release date.
 
 ### 7. Wrong vs Correct
 

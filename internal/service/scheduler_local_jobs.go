@@ -173,6 +173,13 @@ func (s *SchedulerService) jobTMDbArtworkMissingRecheck(ctx context.Context) err
 	return s.scraper.runTMDbArtworkMissingRecheck(ctx, schedulerTaskTrigger(ctx))
 }
 
+func (s *SchedulerService) jobTMDbEpisodeMetadataRecheck(ctx context.Context) error {
+	if s.scraper == nil {
+		return nil
+	}
+	return s.scraper.runTMDbEpisodeMetadataRecheck(ctx, schedulerTaskTrigger(ctx))
+}
+
 func (s *SchedulerService) jobDoubanMovieEnrichment(ctx context.Context) error {
 	if s.scraper == nil {
 		return nil

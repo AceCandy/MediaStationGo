@@ -1421,6 +1421,89 @@ episode.Title = localizedEpisodeTitle
 view.SeriesTitle = parentSeries.Title
 ```
 
+## Scenario: TMDb Episode Metadata Recheck
+
+### 1. Scope / Trigger
+
+- Apply when changing the periodic/manual repair of historical Episode title,
+  overview, release date, credits, or still artwork.
+
+### 2. Signatures
+
+- Checkpoint: `MetadataItem.TMDbEpisodeCheckedAt *time.Time` maps to indexed,
+  nullable `metadata_items.tmdb_episode_checked_at`.
+- Candidate boundary:
+  `ListTMDbEpisodeMetadataRecheckAfter(ctx, afterID, checkedBefore, limit)`.
+- Provider boundary:
+  `GetTVEpisodeDetails(ctx, seriesTMDbID, seasonNum, episodeNum)`.
+- Scheduler job: `tmdb_episode_metadata_recheck`, default disabled, default 24 hours.
+
+### 3. Contracts
+
+- Candidates are Episode metadata with direct `media`, one valid Series TMDb
+  identifier, an expired/null checkpoint, and at least one missing requirement:
+  empty/generated title, empty overview, empty release date, or absent valid still.
+- One execution keyset-pages every candidate in batches of 200 without a
+  persisted cursor or request cap. Manual runs obey the same 72-hour cooldown.
+- One provider response supplies non-empty title, overview, release date,
+  rating, year, loaded credit scopes, and still. Non-empty provider values may
+  overwrite current values; empty values never clear stored values.
+- A successful provider and persistence flow writes the checkpoint even if
+  required fields remain missing. Provider, credits, artwork, metadata, or
+  checkpoint failure leaves it unchanged; already-written partial results remain
+  and are retried idempotently.
+- Automatic still persistence uses `SaveCatalogSelection` semantics. A
+  concurrent manual/local selection wins and counts as a satisfied still.
+- Episode is excluded from `tmdb_artwork_missing_recheck` but remains eligible
+  for `tmdb_artwork_local_repair` when an existing selected still loses its file.
+- Detail logs contain only updates, still-missing results, concurrent skips, or
+  failures and identify Series/SxxExx/TMDb ID without paths, URLs, or credentials.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required result |
+| --- | --- |
+| Episode has no direct media | Exclude it |
+| Title, overview, release date, and still are complete | Send no provider request |
+| Last successful check is within 72 hours | Exclude it for scheduled and manual runs |
+| Provider returns nil, 404, network, limit, or decode error | Record a sanitized failure and do not advance the checkpoint |
+| Provider returns a successful response with some empty fields | Preserve stored non-empty fields, log remaining gaps, and advance the checkpoint |
+| Any persistence step fails | Keep completed partial writes, do not advance the checkpoint, and continue later candidates |
+| Still save races with a manual/local selection | Preserve the concurrent selection and treat still as satisfied |
+| Metadata graphs merge | Preserve the newer Episode checkpoint |
+
+### 5. Good / Base / Bad Cases
+
+- Good: an Episode with `Episode 1`, no release date, and direct media receives
+  one details request; concrete fields and still are saved, then it cools for 72 hours.
+- Base: TMDb still has no overview or still; the successful response advances
+  the checkpoint and logs only those remaining gaps.
+- Bad: scan metadata without media, persist a cross-execution cursor, call the
+  discovery catalog worker, or overwrite a concurrent manual still.
+
+### 6. Tests Required
+
+- PostgreSQL: direct-media filter, four-field completeness, generated title,
+  missing release date/still, valid Series identity, cooldown, deduplication,
+  keyset pagination, schema column, and newer-checkpoint merge.
+- Service: non-empty overwrite including release date/year, remaining-gap
+  detection, checkpoint success/failure behavior, still concurrency, per-item
+  failure isolation, sanitized detail logs, and normal no-change silence.
+- Scheduler/definition: stable key, default disabled, 24-hour interval, and
+  manual action mapping.
+
+### 7. Wrong vs Correct
+
+```go
+// Wrong: send Episode repair through catalog discovery and overwrite selections.
+queueCatalogHydration(episode)
+repo.SaveSelection(ctx, episode.ID, model.ArtworkTypeStill, "tmdb", source, asset)
+
+// Correct: query only repair candidates and let concurrent selections win.
+candidates := repo.ListTMDbEpisodeMetadataRecheckAfter(ctx, afterID, checkedBefore, 200)
+repo.SaveCatalogSelection(ctx, episode.ID, model.ArtworkTypeStill, "tmdb", source, asset)
+```
+
 ## Scenario: Persisted Emby People Images
 
 ### 1. Scope / Trigger

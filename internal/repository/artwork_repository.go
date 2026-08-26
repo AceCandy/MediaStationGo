@@ -254,7 +254,7 @@ func (r *ArtworkRepository) ListTMDbArtworkRecheckMetadataAfter(ctx context.Cont
 	}
 	limit = min(limit, 1000)
 	q := r.db.WithContext(ctx).Table("metadata_items AS mi").
-		Where("mi.kind IN ?", []string{model.MetadataKindMovie, model.MetadataKindSeries, model.MetadataKindSeason, model.MetadataKindEpisode}).
+		Where("mi.kind IN ?", []string{model.MetadataKindMovie, model.MetadataKindSeries, model.MetadataKindSeason}).
 		Where(tmdbArtworkRecheckHasMediaSQL).
 		Where("mi.catalog_artwork_hydrated_at IS NOT NULL OR EXISTS (SELECT 1 FROM metadata_artwork_rechecks mar WHERE mar.metadata_id = mi.id)").
 		Where("EXISTS (SELECT 1 FROM metadata_identifiers mid WHERE mid.metadata_id = mi.id AND mid.provider = 'tmdb' AND mid.entity_kind = mi.kind AND btrim(mid.external_id) <> '')").
@@ -262,8 +262,7 @@ func (r *ArtworkRepository) ListTMDbArtworkRecheckMetadataAfter(ctx context.Cont
 OR (mi.kind IN ('movie','series') AND (
   NOT EXISTS (SELECT 1 FROM metadata_artworks ma JOIN artwork_assets aa ON aa.id = ma.asset_id WHERE ma.metadata_id = mi.id AND ma.artwork_type = 'poster')
   OR NOT EXISTS (SELECT 1 FROM metadata_artworks ma JOIN artwork_assets aa ON aa.id = ma.asset_id WHERE ma.metadata_id = mi.id AND ma.artwork_type = 'backdrop')))
-OR (mi.kind = 'season' AND NOT EXISTS (SELECT 1 FROM metadata_artworks ma JOIN artwork_assets aa ON aa.id = ma.asset_id WHERE ma.metadata_id = mi.id AND ma.artwork_type = 'poster'))
-OR (mi.kind = 'episode' AND NOT EXISTS (SELECT 1 FROM metadata_artworks ma JOIN artwork_assets aa ON aa.id = ma.asset_id WHERE ma.metadata_id = mi.id AND ma.artwork_type = 'still'))`)
+OR (mi.kind = 'season' AND NOT EXISTS (SELECT 1 FROM metadata_artworks ma JOIN artwork_assets aa ON aa.id = ma.asset_id WHERE ma.metadata_id = mi.id AND ma.artwork_type = 'poster'))`)
 	if afterID = strings.TrimSpace(afterID); afterID != "" {
 		q = q.Where("mi.id > ?", afterID)
 	}
