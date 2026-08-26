@@ -1223,3 +1223,39 @@ Committed the existing web UI redesign together with detailed background task lo
 ### Status
 
 [OK] **Completed**
+
+
+## Session 58: 拆分 TMDb 图片修复与复查任务
+
+**Date**: 2026-08-26
+**Task**: 拆分 TMDb 图片修复与复查任务
+**Branch**: `main`
+
+### Summary
+
+完成 TMDb 图片本地化修复与无图复查拆分、全量 keyset 扫描、豆瓣无快照候选收缩和媒体轨道失败路径日志；归档已完成任务，保留 Episode 信息复查规划。
+
+### Main Changes
+
+- TMDb 图片本地化与无图复查改为独立任务并单次扫描全部候选
+- 豆瓣补齐只处理已有唯一豆瓣 ID 且无详情快照的电影
+- 媒体轨道回填失败详情增加 STRM 路径
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `05f9021` | (see git log) |
+| `f8abafd` | (see git log) |
+
+### Testing
+
+- [OK] 聚焦 Go 测试与 git diff --check 通过；PostgreSQL 集成用例因缺少 MEDIASTATION_TEST_POSTGRES_DSN 跳过
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 确认后实施 TMDb 集信息补全/复查规划
