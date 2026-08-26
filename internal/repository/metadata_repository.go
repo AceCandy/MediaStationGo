@@ -408,7 +408,7 @@ func (r *MetadataRepository) ListIdentifiers(ctx context.Context, metadataID str
 	return r.ListIdentifiersByMetadataIDs(ctx, []string{metadataID})
 }
 
-// ListDoubanMovieEnrichmentAfter 按元数据 ID 分页返回确定的豆瓣电影标识。
+// ListDoubanMovieEnrichmentAfter 按元数据 ID 分页返回尚未获取豆瓣详情的确定电影标识。
 func (r *MetadataRepository) ListDoubanMovieEnrichmentAfter(ctx context.Context, afterID string, limit int) ([]DoubanMovieEnrichmentCandidate, error) {
 	if limit <= 0 {
 		limit = 20
@@ -423,6 +423,10 @@ WHERE mi.kind = ?
   AND mid.provider = 'douban'
   AND mid.entity_kind = ?
   AND mi.id > ?
+  AND NOT EXISTS (
+    SELECT 1 FROM metadata_provider_snapshots AS mps
+    WHERE mps.metadata_id = mi.id AND mps.provider = 'douban'
+  )
 GROUP BY mi.id
 HAVING COUNT(*) = 1
 ORDER BY mi.id ASC

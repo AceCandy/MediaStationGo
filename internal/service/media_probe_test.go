@@ -426,11 +426,11 @@ func TestMediaProbeBackfillLibraryAccountsForResults(t *testing.T) {
 	if !strings.Contains(joinedDetails, fmt.Sprintf("✅️ %s %s", media[2].ID, media[2].Path)) {
 		t.Fatalf("success detail missing from %q", joinedDetails)
 	}
-	if !strings.Contains(joinedDetails, fmt.Sprintf("❌️ %s probe failed for [redacted-path]", media[3].ID)) {
+	if !strings.Contains(joinedDetails, fmt.Sprintf("❌️ %s %s probe failed for [redacted-path]", media[3].ID, media[3].Path)) {
 		t.Fatalf("failure detail missing from %q", joinedDetails)
 	}
-	if strings.Contains(joinedDetails, media[3].Path) || strings.Contains(joinedDetails, media[4].Path) {
-		t.Fatalf("failure detail contains path: %q", joinedDetails)
+	if strings.Contains(joinedDetails, media[4].Path) {
+		t.Fatalf("failure detail contains unrelated path: %q", joinedDetails)
 	}
 	for _, path := range probed {
 		if path == "other.mkv" {

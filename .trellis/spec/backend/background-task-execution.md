@@ -44,6 +44,9 @@ history is observability only; business object state owns retry and recovery.
   write lock.
 - Watcher batches use `TaskKindWatch`, `TaskTriggerEvent`, and the stable
   `library_watch` definition; they never reuse the full-scan kind.
+- Artwork definitions `tmdb_artwork_local_repair` and
+  `tmdb_artwork_missing_recheck` use separate default-off 24-hour scheduler
+  jobs, settings, histories, and daily logs.
 
 ### 3. Contracts
 
@@ -69,6 +72,15 @@ history is observability only; business object state owns retry and recovery.
   action. `RunNowAsync` bypasses the schedule's enabled flag, preserves the
   scheduler's per-job concurrency guard, and marks executions as `manual` via
   the scheduler context; timer-driven runs remain `scheduled`.
+- TMDb artwork repair jobs append sanitized details only for an actionable image
+  type: missing file, repair, no-image result, concurrent skip, or failure.
+  Normal local files contribute only to summary metrics. Action details contain
+  title, metadata kind, TMDb ID, image type, action, and result; the jobs use
+  artwork business state and in-memory keyset pagination and never derive work
+  from task history or catalog hydration jobs.
+- TMDb missing-artwork recheck scans only metadata with direct media or playable
+  Episode descendants. Metadata without media is outside this task, and the
+  same execution continues by metadata ID until all current candidates are scanned.
 - A manual `library_scan` task scans only the selected library's enabled roots.
   Timer-driven `library_scan` runs carry no target and continue scanning every
   enabled library. Creating a library starts an `event` whole-library scan;

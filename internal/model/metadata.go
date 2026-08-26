@@ -83,6 +83,15 @@ type MetadataArtwork struct {
 	SourceURL      string `gorm:"size:2048" json:"source_url,omitempty"`
 }
 
+// MetadataArtworkRecheck 记录 TMDb 最近一次明确未提供某类图片的时间。
+type MetadataArtworkRecheck struct {
+	PermanentBase
+	MetadataID    string       `gorm:"size:36;not null;index;uniqueIndex:uidx_metadata_artwork_recheck,priority:1" json:"metadata_id"`
+	ArtworkType   string       `gorm:"size:16;not null;uniqueIndex:uidx_metadata_artwork_recheck,priority:2" json:"artwork_type"`
+	LastNoImageAt time.Time    `gorm:"not null;index" json:"last_no_image_at"`
+	Metadata      MetadataItem `gorm:"foreignKey:MetadataID;references:ID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE" json:"-"`
+}
+
 // MetadataArtworkCandidate 保存已本地化但尚未成为当前选择的 provider 图片。
 type MetadataArtworkCandidate struct {
 	PermanentBase

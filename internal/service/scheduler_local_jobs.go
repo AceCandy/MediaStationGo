@@ -159,11 +159,18 @@ func (s *SchedulerService) jobPeopleTranslation(ctx context.Context) error {
 	return s.scraper.translatePendingPeople(ctx, schedulerTaskTrigger(ctx))
 }
 
-func (s *SchedulerService) jobMetadataArtworkBackfill(ctx context.Context) error {
+func (s *SchedulerService) jobTMDbArtworkLocalRepair(ctx context.Context) error {
 	if s.scraper == nil {
 		return nil
 	}
-	return s.scraper.runMetadataArtworkBackfill(ctx, schedulerTaskTrigger(ctx))
+	return s.scraper.runTMDbArtworkLocalRepair(ctx, schedulerTaskTrigger(ctx))
+}
+
+func (s *SchedulerService) jobTMDbArtworkMissingRecheck(ctx context.Context) error {
+	if s.scraper == nil {
+		return nil
+	}
+	return s.scraper.runTMDbArtworkMissingRecheck(ctx, schedulerTaskTrigger(ctx))
 }
 
 func (s *SchedulerService) jobDoubanMovieEnrichment(ctx context.Context) error {

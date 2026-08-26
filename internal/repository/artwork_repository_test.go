@@ -1,14 +1,22 @@
 package repository
 
 import (
+	"sync"
 	"testing"
 	"time"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/schema"
 
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 	"github.com/ShukeBta/MediaStationGo/internal/testdb"
 )
+
+func TestTMDbArtworkRecheckCandidateIsNotORMRelation(t *testing.T) {
+	if _, err := schema.Parse(&TMDbArtworkRecheckCandidate{}, &sync.Map{}, schema.NamingStrategy{}); err != nil {
+		t.Fatalf("parse TMDb artwork recheck candidate: %v", err)
+	}
+}
 
 func TestSaveCatalogSelectionPreservesExistingSelection(t *testing.T) {
 	db, err := testdb.OpenPostgres(t, &gorm.Config{})
@@ -51,56 +59,117 @@ func TestSaveCatalogSelectionPreservesExistingSelection(t *testing.T) {
 	}
 }
 
-func TestInvalidateSelectionsForMissingAssetPreservesSharedAsset(t *testing.T) {
+func TestRepairTMDbSelectionPreservesConcurrentManualSelection(t *testing.T) {
 	db, err := testdb.OpenPostgres(t, &gorm.Config{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&model.MetadataItem{}, &model.ArtworkAsset{}, &model.MetadataArtwork{}, &model.MetadataArtworkCandidate{}); err != nil {
+	if err := db.AutoMigrate(&model.MetadataItem{}, &model.ArtworkAsset{}, &model.MetadataArtwork{}); err != nil {
 		t.Fatal(err)
 	}
-	now := time.Now().UTC()
+	metadata := model.MetadataItem{Kind: model.MetadataKindMovie, Title: "Movie", Source: "tmdb"}
+	if err := db.Create(&metadata).Error; err != nil {
+		t.Fatal(err)
+	}
+	old := model.ArtworkAsset{SHA256: "old", StorageKey: "old.jpg", MimeType: "image/jpeg"}
+	manual := model.ArtworkAsset{SHA256: "manual-race", StorageKey: "manual-race.jpg", MimeType: "image/jpeg"}
+	if err := db.Create(&old).Error; err != nil {
+		t.Fatal(err)
+	}
+	selection := model.MetadataArtwork{MetadataID: metadata.ID, ArtworkType: model.ArtworkTypePoster, AssetID: old.ID, SourceProvider: "tmdb", SourceURL: "https://old.test/poster.jpg"}
+	if err := db.Create(&selection).Error; err != nil {
+		t.Fatal(err)
+	}
+	snapshot := TMDbArtworkSelection{SelectionID: selection.ID, MetadataID: metadata.ID, ArtworkType: model.ArtworkTypePoster, AssetID: old.ID, SourceURL: selection.SourceURL}
+	repo := New(db).Artwork
+	if _, err := repo.SaveSelection(t.Context(), metadata.ID, model.ArtworkTypePoster, "manual", "manual.jpg", &manual); err != nil {
+		t.Fatal(err)
+	}
+	replacement := model.ArtworkAsset{SHA256: "replacement", StorageKey: "replacement.jpg", MimeType: "image/jpeg"}
+	if _, updated, err := repo.RepairTMDbSelection(t.Context(), snapshot, "https://new.test/poster.jpg", &replacement); err != nil || updated {
+		t.Fatalf("conditional repair updated=%v err=%v", updated, err)
+	}
+	selected, err := repo.FindSelection(t.Context(), metadata.ID, model.ArtworkTypePoster)
+	if err != nil || selected == nil || selected.ID != manual.ID {
+		t.Fatalf("selection after repair race = %#v, %v", selected, err)
+	}
+}
+
+func TestArtworkRecheckExcludesNeverHydratedWithoutState(t *testing.T) {
+	db, err := testdb.OpenPostgres(t, &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(&model.MetadataItem{}, &model.MetadataIdentifier{}, &model.Media{}, &model.ArtworkAsset{}, &model.MetadataArtwork{}, &model.MetadataArtworkRecheck{}); err != nil {
+		t.Fatal(err)
+	}
 	items := []model.MetadataItem{
-		{Kind: model.MetadataKindMovie, Title: "One", Source: "tmdb", CatalogArtworkHydratedAt: &now},
-		{Kind: model.MetadataKindMovie, Title: "Two", Source: "tmdb", CatalogArtworkHydratedAt: &now},
+		{Kind: model.MetadataKindMovie, Title: "Never hydrated", Source: "tmdb"},
+		{Kind: model.MetadataKindMovie, Title: "Task handoff", Source: "tmdb"},
 	}
 	if err := db.Create(&items).Error; err != nil {
 		t.Fatal(err)
 	}
-	asset := model.ArtworkAsset{SHA256: "shared", StorageKey: "shared.jpg", MimeType: "image/jpeg"}
-	if err := db.Create(&asset).Error; err != nil {
+	for i := range items {
+		if err := db.Create(&model.MetadataIdentifier{MetadataID: items[i].ID, Provider: "tmdb", EntityKind: model.MetadataKindMovie, ExternalID: string(rune('1' + i))}).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	repo := New(db).Artwork
+	if err := repo.UpsertArtworkRecheck(t.Context(), items[1].ID, model.ArtworkTypePoster, time.Now().UTC()); err != nil {
 		t.Fatal(err)
 	}
-	selections := []model.MetadataArtwork{
-		{MetadataID: items[0].ID, ArtworkType: model.ArtworkTypePoster, AssetID: asset.ID},
-		{MetadataID: items[1].ID, ArtworkType: model.ArtworkTypePoster, AssetID: asset.ID},
+	if err := db.Create(&model.Media{MetadataID: items[1].ID, Path: "/library/task-handoff.mkv"}).Error; err != nil {
+		t.Fatal(err)
 	}
-	if err := db.Create(&selections).Error; err != nil {
+	rows, err := repo.ListTMDbArtworkRecheckMetadataAfter(t.Context(), "", 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || rows[0].MetadataID != items[1].ID {
+		t.Fatalf("recheck candidates = %#v", rows)
+	}
+}
+
+func TestArtworkRecheckExcludesMetadataWithoutMedia(t *testing.T) {
+	db, err := testdb.OpenPostgres(t, &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(&model.MetadataItem{}, &model.MetadataIdentifier{}, &model.Media{}, &model.ArtworkAsset{}, &model.MetadataArtwork{}, &model.MetadataArtworkRecheck{}); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	withoutMedia := model.MetadataItem{PermanentBase: model.PermanentBase{ID: "00000000-0000-0000-0000-000000000001"}, Kind: model.MetadataKindMovie, Title: "Without media", Source: "tmdb", CatalogArtworkHydratedAt: &now}
+	series := model.MetadataItem{PermanentBase: model.PermanentBase{ID: "00000000-0000-0000-0000-000000000002"}, Kind: model.MetadataKindSeries, Title: "With episode media", Source: "tmdb", CatalogArtworkHydratedAt: &now}
+	season := model.MetadataItem{PermanentBase: model.PermanentBase{ID: "00000000-0000-0000-0000-000000000003"}, Kind: model.MetadataKindSeason, ParentID: &series.ID, SeasonNum: 1, Title: "Season 1", Source: "tmdb"}
+	episode := model.MetadataItem{PermanentBase: model.PermanentBase{ID: "00000000-0000-0000-0000-000000000004"}, Kind: model.MetadataKindEpisode, ParentID: &season.ID, EpisodeNum: 1, Title: "Episode 1", Source: "tmdb"}
+	if err := db.Create(&[]model.MetadataItem{withoutMedia, series, season, episode}).Error; err != nil {
+		t.Fatal(err)
+	}
+	identifiers := []model.MetadataIdentifier{
+		{MetadataID: withoutMedia.ID, Provider: "tmdb", EntityKind: model.MetadataKindMovie, ExternalID: "1"},
+		{MetadataID: series.ID, Provider: "tmdb", EntityKind: model.MetadataKindSeries, ExternalID: "2"},
+	}
+	if err := db.Create(&identifiers).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&model.Media{MetadataID: episode.ID, Path: "/library/show/season-1/episode-1.mkv"}).Error; err != nil {
 		t.Fatal(err)
 	}
 	repo := New(db).Artwork
-	assets, err := repo.ListSelectedAssetsAfter(t.Context(), "", 20)
-	if err != nil || len(assets) != 1 || assets[0].ID != asset.ID {
-		t.Fatalf("selected assets = %#v, %v", assets, err)
-	}
-	invalidated, err := repo.InvalidateSelectionsForMissingAsset(t.Context(), asset.ID)
-	if err != nil || invalidated != 2 {
-		t.Fatalf("invalidated selections = %d, %v", invalidated, err)
-	}
-	var assetCount, selectionCount int64
-	if err := db.Model(&model.ArtworkAsset{}).Where("id = ?", asset.ID).Count(&assetCount).Error; err != nil {
+	first, err := repo.ListTMDbArtworkRecheckMetadataAfter(t.Context(), "", 1)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.Model(&model.MetadataArtwork{}).Where("asset_id = ?", asset.ID).Count(&selectionCount).Error; err != nil {
+	if len(first) != 1 || first[0].MetadataID != series.ID {
+		t.Fatalf("first recheck page = %#v", first)
+	}
+	second, err := repo.ListTMDbArtworkRecheckMetadataAfter(t.Context(), first[0].MetadataID, 1)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if assetCount != 1 || selectionCount != 0 {
-		t.Fatalf("asset/selection counts = %d/%d, want 1/0", assetCount, selectionCount)
-	}
-	for _, item := range items {
-		var updated model.MetadataItem
-		if err := db.First(&updated, "id = ?", item.ID).Error; err != nil || updated.CatalogArtworkHydratedAt != nil {
-			t.Fatalf("metadata checkpoint after invalidation = %#v, %v", updated, err)
-		}
+	if len(second) != 0 {
+		t.Fatalf("second recheck page = %#v", second)
 	}
 }

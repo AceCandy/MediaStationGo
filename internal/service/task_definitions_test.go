@@ -109,18 +109,22 @@ func TestProbeBackfillDefinitionSupportsManualExecution(t *testing.T) {
 }
 
 func TestScheduledTaskDefinitionsSupportManualExecution(t *testing.T) {
+	if TaskDefinitionExists("metadata_artwork_backfill") {
+		t.Fatal("retired metadata artwork backfill definition still exists")
+	}
 	definitions, err := NewTaskTrackerService(nil, nil).Definitions(nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	want := map[string]bool{
-		TaskDefinitionOrganize:          true,
-		TaskDefinitionLibraryScan:       true,
-		TaskDefinitionPeopleBackfill:    true,
-		TaskDefinitionPeopleTranslation: true,
-		TaskDefinitionArtworkBackfill:   true,
-		TaskDefinitionDoubanEnrichment:  true,
-		TaskDefinitionAccountCleanup:    true,
+		TaskDefinitionOrganize:                  true,
+		TaskDefinitionLibraryScan:               true,
+		TaskDefinitionPeopleBackfill:            true,
+		TaskDefinitionPeopleTranslation:         true,
+		TaskDefinitionTMDbArtworkLocalRepair:    true,
+		TaskDefinitionTMDbArtworkMissingRecheck: true,
+		TaskDefinitionDoubanEnrichment:          true,
+		TaskDefinitionAccountCleanup:            true,
 	}
 	for _, definition := range definitions {
 		if !want[definition.Key] {

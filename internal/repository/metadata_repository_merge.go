@@ -59,6 +59,9 @@ func mergeMetadataGraph(tx *gorm.DB, sourceID, targetID string) error {
 	if err := mergeMetadataArtworkCandidates(tx, source.ID, target.ID); err != nil {
 		return err
 	}
+	if err := mergeMetadataArtworkRechecks(tx, source.ID, target.ID); err != nil {
+		return err
+	}
 	if err := mergeMetadataProviderSnapshots(tx, source.ID, target.ID); err != nil {
 		return err
 	}
@@ -69,6 +72,35 @@ func mergeMetadataGraph(tx *gorm.DB, sourceID, targetID string) error {
 		return err
 	}
 	return tx.Delete(&source).Error
+}
+
+func mergeMetadataArtworkRechecks(tx *gorm.DB, sourceID, targetID string) error {
+	var rows []model.MetadataArtworkRecheck
+	if err := tx.Where("metadata_id = ?", sourceID).Find(&rows).Error; err != nil {
+		return err
+	}
+	for i := range rows {
+		var existing model.MetadataArtworkRecheck
+		err := tx.Where("metadata_id = ? AND artwork_type = ?", targetID, rows[i].ArtworkType).First(&existing).Error
+		if err == nil {
+			if rows[i].LastNoImageAt.After(existing.LastNoImageAt) {
+				if err := tx.Model(&existing).Update("last_no_image_at", rows[i].LastNoImageAt).Error; err != nil {
+					return err
+				}
+			}
+			if err := tx.Delete(&rows[i]).Error; err != nil {
+				return err
+			}
+			continue
+		}
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return err
+		}
+		if err := tx.Model(&rows[i]).Update("metadata_id", targetID).Error; err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func mergeMetadataProviderSnapshots(tx *gorm.DB, sourceID, targetID string) error {

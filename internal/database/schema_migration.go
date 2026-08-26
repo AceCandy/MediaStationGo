@@ -398,7 +398,14 @@ func removeSystemUpdateSettings(db *gorm.DB) error {
 }
 
 func removeRetiredScrapeSettings(db *gorm.DB) error {
-	return db.Exec(`DELETE FROM settings WHERE key = 'scrape.auto_on_scan'`).Error
+	return db.Exec(`DELETE FROM settings WHERE key IN (
+'scrape.auto_on_scan',
+'metadata.artwork_backfill_enabled',
+'metadata.artwork_backfill_interval_seconds',
+'internal.metadata_artwork_integrity_cursor',
+'internal.tmdb_artwork_local_repair_cursor',
+'internal.tmdb_artwork_missing_recheck_cursor'
+)`).Error
 }
 
 // removeUnusedLegacyColumns removes columns that have no current model or

@@ -196,3 +196,38 @@ func TestNextCatalogAttemptAtHandlesEmptyAggregate(t *testing.T) {
 	}
 	assertNext(&earlier)
 }
+
+func TestListDoubanMovieEnrichmentAfterExcludesExistingSnapshot(t *testing.T) {
+	db, err := testdb.OpenPostgres(t, &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(&model.MetadataItem{}, &model.MetadataIdentifier{}, &model.MetadataProviderSnapshot{}); err != nil {
+		t.Fatal(err)
+	}
+	items := []model.MetadataItem{
+		{PermanentBase: model.PermanentBase{ID: "00000000-0000-0000-0000-000000000100"}, Kind: model.MetadataKindMovie, Title: "Pending"},
+		{PermanentBase: model.PermanentBase{ID: "00000000-0000-0000-0000-000000000200"}, Kind: model.MetadataKindMovie, Title: "Fetched"},
+	}
+	if err := db.Create(&items).Error; err != nil {
+		t.Fatal(err)
+	}
+	identifiers := []model.MetadataIdentifier{
+		{MetadataID: items[0].ID, Provider: "douban", EntityKind: model.MetadataKindMovie, ExternalID: "100"},
+		{MetadataID: items[1].ID, Provider: "douban", EntityKind: model.MetadataKindMovie, ExternalID: "200"},
+	}
+	if err := db.Create(&identifiers).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&model.MetadataProviderSnapshot{MetadataID: items[1].ID, Provider: "douban", Payload: `{"subject":{"id":"200"}}`, FetchedAt: time.Now().UTC()}).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	candidates, err := New(db).Metadata.ListDoubanMovieEnrichmentAfter(t.Context(), "", 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(candidates) != 1 || candidates[0].MetadataID != items[0].ID || candidates[0].DoubanID != "100" {
+		t.Fatalf("douban enrichment candidates = %#v", candidates)
+	}
+}

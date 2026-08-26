@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 
@@ -16,6 +17,19 @@ import (
 type remoteImageFetchClient struct {
 	name   string
 	client *http.Client
+}
+
+type remoteImageHTTPStatusError struct {
+	StatusCode int
+}
+
+func (e *remoteImageHTTPStatusError) Error() string {
+	return "upstream image returned status " + strconv.Itoa(e.StatusCode)
+}
+
+func isRemoteImageHTTPStatus(err error, statusCode int) bool {
+	var statusErr *remoteImageHTTPStatusError
+	return errors.As(err, &statusErr) && statusErr.StatusCode == statusCode
 }
 
 func (p *ImageProxy) remoteImageFetchClients() []remoteImageFetchClient {
@@ -61,7 +75,7 @@ func (p *ImageProxy) fetchRemoteImageOnce(ctx context.Context, raw, host string,
 	defer resp.Body.Close()
 	if resp.StatusCode >= 400 {
 		p.log.Warn("imageproxy: upstream returned non-OK", zap.String("host", host), zap.String("client", candidate.name), zap.String("status", resp.Status))
-		return nil, "", "", errors.New("upstream returned " + resp.Status)
+		return nil, "", "", &remoteImageHTTPStatusError{StatusCode: resp.StatusCode}
 	}
 	data, err := io.ReadAll(io.LimitReader(resp.Body, 32<<20))
 	if err != nil || len(data) == 0 {

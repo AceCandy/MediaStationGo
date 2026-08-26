@@ -253,7 +253,7 @@ func (s *MediaProbeService) backfill(ctx context.Context, libraryID string, limi
 					if row.Path != "" {
 						reason = strings.ReplaceAll(reason, row.Path, "[redacted-path]")
 					}
-					result.Details = []string{fmt.Sprintf("❌️ %s %s", row.MediaID, reason)}
+					result.Details = []string{fmt.Sprintf("❌️ %s %s %s", row.MediaID, row.Path, reason)}
 				} else {
 					result.Completed++
 					result.Details = []string{fmt.Sprintf("✅️ %s %s", row.MediaID, row.Path)}

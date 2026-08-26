@@ -165,8 +165,9 @@ db.Model(&credit).
   `{limit: positive integer, library_id: string}`.
   Both report `total`, `completed`, `skipped`, and `failed` metrics.
   Each attempted item appends one marked task detail: `✅ <media-id> <media.path>`
-  on success or `❌ <media-id> <sanitized-error>` on failure. Failure details
-  never include the media path or remote URL.
+  on success or `❌ <media-id> <media.path> <sanitized-error>` on failure. The
+  path identifies the administrator-visible local media target; errors never
+  include a remote URL.
 - Manual apply API: `POST /api/media/:id/scrape/apply` accepts `ManualScrapeRequest`, persists metadata through `ScraperService.ApplyManualMatch`, then returns the refreshed `MediaView` from `MediaService.GetMedia`.
 - Artwork response: `/api/artwork/:assetID`; originals live under `App.DataDir/artwork/sha256/...`.
 - Library deletion: `DELETE /api/libraries/:id` -> `MediaService.DeleteLibrary(ctx, id)`.
@@ -1081,10 +1082,11 @@ setSelectedMedia(selectedVersion)
   as a provider candidate. Existing selection always wins; only an absent
   selection is atomically promoted. Public responses continue to use only
   `/api/artwork/:assetID`, never a remote URL.
-- Historical passes use metadata-ID keyset pagination, a maximum batch of 20,
-  serial processing, a two-second inter-item delay, and a persisted cursor.
-  They never join `media`; per-item provider/image failures are counted and do
-  not stop later candidates.
+- Historical passes admit only movies with one Douban Movie identifier and no
+  Douban provider snapshot. They use metadata-ID keyset pagination, a maximum
+  batch of 20, serial processing, a two-second inter-item delay, and a persisted
+  cursor. They never join `media`; per-item provider/image failures are counted
+  and do not stop later candidates.
 - Artwork URL removal is enforced at both UI and backend DTO boundaries, so
   metadata editing cannot clear or replace the current selection.
 
@@ -1169,20 +1171,21 @@ repo.SaveCandidate(ctx, metadata.ID, "poster", "douban", source, asset)
   `ListMissingCatalogArtworkAfter(context.Context, afterID, limit)` keyset-pages
   TMDb-owned Movie/Series/Season/Episode metadata and reports the applicable
   missing poster, backdrop, or still flags without reading `media`.
-- Artwork scheduling:
-  `ListMissingCatalogArtworkRootsAfter(context.Context, afterID, limit, manual)`
-  returns one Movie/Series root per missing graph, and
-  `EnsureCatalogArtworkJob(context.Context, candidate, manual)` atomically
-  returns `created`, `requeued`, or `unchanged`.
-- Local artwork integrity:
-  `ListSelectedAssetsAfter(context.Context, afterID, limit)` keyset-pages shared
-  selected-or-candidate assets, while
-  `InvalidateSelectionsForMissingAsset(context.Context, assetID)` removes every
-  referencing candidate and selection and reopens affected metadata artwork
-  checkpoints without deleting the asset.
-- Periodic job: `metadata_artwork_backfill`, disabled by default with a 24-hour
-  interval; one pass scans at most 1,000 roots and creates or requeues at most
-  200 jobs.
+- Missing-image state:
+  `MetadataArtworkRecheck{MetadataID, ArtworkType, LastNoImageAt}` is unique per
+  metadata/type and records only a successful TMDb response with no owned image.
+- Local repair boundary:
+  `ListTMDbArtworkSelectionsAfter(context.Context, afterSelectionID, limit)`
+  keyset-pages current TMDb selections. A repaired asset replaces the selection
+  only while its ID, asset, provider, and source URL still match the snapshot.
+- Missing-image recheck boundary:
+  `ListTMDbArtworkRecheckMetadataAfter(context.Context, afterMetadataID, limit)`
+  admits metadata with an artwork checkpoint or per-type state and excludes
+  never-hydrated metadata with neither.
+- Periodic jobs: `tmdb_artwork_local_repair` and
+  `tmdb_artwork_missing_recheck`; both are disabled by default with independent
+  24-hour schedules. Each execution keyset-pages all current candidates without
+  a persisted cursor or a total scan/request cap.
 
 ### 3. Contracts
 
@@ -1239,20 +1242,26 @@ repo.SaveCandidate(ctx, metadata.ID, "poster", "douban", source, asset)
   backdrop, Season requires poster, and Episode requires still. A candidate
   must have its own valid TMDb identifier, an empty artwork checkpoint, and a
   missing selection-to-asset join. Parent fallback images never satisfy it.
-- The artwork scheduler reads only the canonical metadata graph and reuses the
-  durable catalog worker. Scheduled passes exclude pending/running/retry/failed
-  jobs; manual passes may revive failed jobs. Completed or manually revived
-  jobs restart at root with attempts zero, while stage advancement never resets
-  attempts. Attempt eight becomes terminal `failed`.
+- Artwork repair jobs read only the canonical metadata graph and never create,
+  claim, revive, or wake `catalog_hydration_jobs`. First-time artwork hydration
+  remains owned by the catalog ingestion worker.
 - Catalog image persistence is insert-if-absent. An existing valid selection
   from any source wins both the pre-download check and the transactional write
   race; explicit manual import keeps overwrite behavior. Metadata editing does
   not accept artwork URLs and cannot clear a selection.
-- Before metadata discovery, the same pass checks at most 1,000 selected or candidate local
-  assets in 200-row ID-keyset pages. The internal artwork-integrity cursor
-  resumes the next pass and resets at the end. A missing file invalidates all
-  selections sharing that asset; a path, permission, or other I/O error aborts
-  without changing selections. The asset row and all disk files remain.
+- Local repair scans only current TMDb selections with HTTP(S) source URLs. A
+  missing file is downloaded from its saved URL first; only an exact HTTP 404
+  permits one TMDb detail lookup. Other HTTP statuses, connection failures,
+  timeouts, invalid content, and fresh negative-cache results remain retryable
+  failures and preserve the selection.
+- Missing-image recheck is per metadata/type with a 24-hour cooldown. Movie and
+  Series share one detail request for due poster/backdrop types; Season owns its
+  poster and Episode owns its still. A successful empty result advances only
+  the affected type; provider or download failure never advances the timestamp.
+- Automatic writes use insert-if-absent for an empty selection and conditional
+  replacement for a dangling TMDb selection. A concurrent manual/local choice
+  always wins. Neither repair job changes catalog checkpoints or non-artwork
+  metadata.
 - `media`, `metadata_items`, `metadata_identifiers`,
   `metadata_provider_snapshots`, `catalog_hydration_jobs`,
   `metadata_artworks`, `artwork_assets`, and `metadata_credits` use
@@ -1281,11 +1290,14 @@ repo.SaveCandidate(ctx, metadata.ID, "poster", "douban", source, asset)
 | Legacy Episode has a non-blank `episode_title` | Trim it into `title`, then remove the legacy column atomically |
 | Legacy `episode_title` is blank or belongs to a non-Episode | Preserve the current `title` |
 | Legacy column is already absent | Skip the compatibility migration successfully |
-| A scheduled artwork pass sees a failed job | Exclude it; preserve attempts and error until a manual pass |
-| An active artwork job is rediscovered | Return `unchanged`; preserve stage, attempts, and retry time |
+| A saved TMDb image URL returns 404 | Query TMDb for that metadata and image type only |
+| A saved image URL returns 403, 429, another 4xx/5xx, or a network error | Preserve the selection and record a retryable failure; do not query TMDb |
+| TMDb successfully returns no owned image | Upsert the per-type no-image time and wait 24 hours |
+| Metadata has no artwork checkpoint and no per-type state | Exclude it from missing-image recheck |
 | A catalog image write races with a manual/local selection | Preserve the manual/local selection; the downloaded asset may remain unselected |
-| A selected or candidate local asset file is missing | Remove every referencing candidate/selection, clear affected metadata artwork checkpoints, then let the same pass rediscover eligible TMDb roots |
-| A selected asset path is invalid, unreadable, or fails for a non-missing I/O reason | Fail the pass and preserve every selection |
+| An automatic repair races with a manual/local selection | Preserve the manual/local selection; the downloaded asset may remain unselected |
+| A selected TMDb local file is missing | Preserve the relationship until validated bytes are stored and a conditional replacement succeeds |
+| A selected asset path is invalid, unreadable, or fails for a non-missing I/O reason | Record a per-item retryable failure and preserve the selection |
 | Legacy soft-deleted metadata still has Media, user-state, credit, event, or active-child references | Abort and roll back the schema migration |
 
 ### 5. Good / Base / Bad Cases
@@ -1306,10 +1318,12 @@ repo.SaveCandidate(ctx, metadata.ID, "poster", "douban", source, asset)
   scheduled retry for the full negative-cache TTL.
 - Good: one Series with many missing Season/Episode images produces one root
   job and later fills only each entity's own image.
-- Good: one missing shared local file is checked once, invalidates all of its
-  selections, and becomes recoverable through the existing TMDb job.
-- Bad: join `media`, use offset/distinct, revive failed jobs every day, or let
-  catalog upsert overwrite a manual selection.
+- Good: an available saved URL restores its missing local file without a TMDb
+  metadata request; a 404 may refresh only that image source.
+- Good: a per-type empty TMDb result is retried after 24 hours without admitting
+  never-hydrated metadata.
+- Bad: join `media`, use offset pagination, enqueue catalog work, or let an
+  automatic repair overwrite a manual selection.
 - Bad: trust the selection-to-asset join without checking the managed local
   file, or use the remote source URL as the display fallback.
 
@@ -1334,11 +1348,11 @@ repo.SaveCandidate(ctx, metadata.ID, "poster", "douban", source, asset)
 - MediaView/Emby: Episode-owned title and identifiers, parent `SeriesTitle`, own
   Episode stills, own Season posters/people, no virtual cache fallback, and
   catalog-only exclusion from physical libraries.
-- Artwork backfill: PostgreSQL tests cover metadata-ID keyset pages without a
-  `media` table, root deduplication, active/terminal job transitions, artwork-only
-  descendants, selection races, edit-time artwork preservation, shared missing assets,
-  local-file error preservation, cursor resume/reset, and legacy `deleted_at`
-  removal with reference rollback and repeated migration.
+- Artwork repair/recheck: PostgreSQL tests cover both keyset scans without a
+  `media` table, never-hydrated exclusion, task-one state handoff, per-type
+  cooldown, conditional selection races, full-sweep pagination, and exact retired
+  setting cleanup. Service tests cover old-URL success without TMDb, exact 404
+  detection, one request for multiple due types, and item-local failures.
 - Run both artwork queries with `EXPLAIN (ANALYZE, BUFFERS)` on production-scale
   PostgreSQL data before adding any new index.
 

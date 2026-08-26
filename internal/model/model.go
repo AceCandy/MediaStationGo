@@ -61,6 +61,7 @@ func AllModels() []interface{} {
 		&TranslationCache{},
 		&ArtworkAsset{},
 		&MetadataArtwork{},
+		&MetadataArtworkRecheck{},
 		&MetadataArtworkCandidate{},
 		&Media{},
 		&MediaProbeMetadata{},

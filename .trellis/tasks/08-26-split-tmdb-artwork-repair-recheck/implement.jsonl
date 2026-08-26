@@ -1,0 +1,6 @@
+{"file":".trellis/spec/backend/index.md","reason":"Backend pre-development index and active contract routing."}
+{"file":".trellis/spec/backend/shared-media-metadata.md","reason":"Canonical metadata, managed artwork, TMDb catalog hydration, entity-owned image, and race-safety contracts."}
+{"file":".trellis/spec/backend/background-task-execution.md","reason":"Scheduler definitions, manual runs, TaskTracker details, daily logs, error redaction, and business-state ownership."}
+{"file":".trellis/spec/backend/database-guidelines.md","reason":"PostgreSQL migration, exact retired-setting cleanup, and database test requirements."}
+{"file":".trellis/spec/guides/code-reuse-thinking-guide.md","reason":"Reuse existing provider, storage, scheduler, and repository paths without parallel abstractions."}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"Verify database-to-service-to-task-center contracts and error/state boundaries."}

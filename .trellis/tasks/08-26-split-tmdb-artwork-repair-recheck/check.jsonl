@@ -1,0 +1,6 @@
+{"file":".trellis/spec/backend/index.md","reason":"Backend quality gate and active contract routing."}
+{"file":".trellis/spec/backend/shared-media-metadata.md","reason":"Review artwork ownership, local authority, TMDb hydration isolation, merge behavior, and compatibility."}
+{"file":".trellis/spec/backend/background-task-execution.md","reason":"Review definition isolation, trigger attribution, append-only details, log redaction, and scheduler behavior."}
+{"file":".trellis/spec/backend/database-guidelines.md","reason":"Review PostgreSQL-only migrations, idempotence, and exact retired-key deletion."}
+{"file":".trellis/spec/guides/code-reuse-thinking-guide.md","reason":"Check for duplicate helpers, queues, downloaders, or task frameworks."}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"Check the persisted state, service decisions, task API, and generic UI data flow end to end."}

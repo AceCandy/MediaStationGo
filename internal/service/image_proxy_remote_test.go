@@ -51,6 +51,22 @@ func TestImageProxyCachesFailedRemoteImageFetch(t *testing.T) {
 	}
 }
 
+func TestRemoteImageHTTPStatusOnlyMatchesExact404(t *testing.T) {
+	for _, status := range []int{http.StatusNotFound, http.StatusForbidden, http.StatusTooManyRequests, http.StatusBadGateway} {
+		proxy := NewImageProxy(&config.Config{Cache: config.CacheConfig{CacheDir: filepath.Join(t.TempDir(), "cache")}}, zap.NewNop())
+		proxy.client = &http.Client{Transport: imageRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+			return &http.Response{StatusCode: status, Status: http.StatusText(status), Header: make(http.Header), Body: io.NopCloser(strings.NewReader("failed")), Request: req}, nil
+		})}
+		_, _, err := proxy.Fetch(t.Context(), "https://image.tmdb.org/t/p/original/status.jpg")
+		if got := isRemoteImageHTTPStatus(err, http.StatusNotFound); got != (status == http.StatusNotFound) {
+			t.Fatalf("status %d matched 404 = %v, err=%v", status, got, err)
+		}
+		if err != nil && strings.Contains(err.Error(), "image.tmdb.org") {
+			t.Fatalf("status error leaked URL: %v", err)
+		}
+	}
+}
+
 func TestImageProxyRemoveFailedAllowsRetry(t *testing.T) {
 	var calls int32
 	proxy := NewImageProxy(&config.Config{Cache: config.CacheConfig{CacheDir: filepath.Join(t.TempDir(), "cache")}}, zap.NewNop())

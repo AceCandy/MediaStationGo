@@ -4,124 +4,343 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
+	"net/url"
+	"strconv"
+	"strings"
+	"time"
 
+	"github.com/ShukeBta/MediaStationGo/internal/model"
 	"github.com/ShukeBta/MediaStationGo/internal/repository"
 )
 
 const (
-	artworkBackfillPageLimit    = 200
-	artworkBackfillScanLimit    = 1000
-	artworkBackfillEnqueueLimit = 200
-	artworkIntegrityCursorKey   = "internal.metadata_artwork_integrity_cursor"
+	artworkRepairPageLimit = 200
+	artworkRecheckCooldown = 24 * time.Hour
 )
 
-func (s *ScraperService) runMetadataArtworkBackfill(ctx context.Context, trigger string) error {
-	if s == nil || s.repo == nil || s.repo.Metadata == nil || s.repo.Artwork == nil || s.repo.Setting == nil || s.artwork == nil {
-		return errors.New("artwork backfill dependencies unavailable")
+func (s *ScraperService) runTMDbArtworkLocalRepair(ctx context.Context, trigger string) error {
+	if s == nil || s.repo == nil || s.repo.Artwork == nil || s.artwork == nil {
+		return errors.New("TMDb artwork local repair dependencies unavailable")
 	}
 	metrics := map[string]int64{}
-	var task *TaskHandle
-	if s.tasks != nil {
-		task = s.tasks.StartTriggered(TaskKindArtwork, trigger, "元数据图片补齐", TaskUpdate{
-			Stage: "discover", Message: "正在查找缺少 TMDb 图片的元数据", Metrics: metrics,
-		})
-		if task == nil {
-			return errors.New("create artwork backfill task execution failed")
-		}
-	}
-	if err := s.scanSelectedArtworkAssets(ctx, metrics); err != nil {
-		if task != nil {
-			task.Finish(err, TaskUpdate{Stage: "failed", Message: "本地图片完整性巡检失败", Metrics: metrics})
-		}
+	task, err := s.startArtworkTask(trigger, "TMDb 图片本地化修复", "正在检查 TMDb 图片本地文件", metrics)
+	if err != nil {
 		return err
 	}
-	manual := trigger == TaskTriggerManual
 	afterID := ""
-	queued := int64(0)
-	for metrics["roots_scanned"] < artworkBackfillScanLimit && queued < artworkBackfillEnqueueLimit {
-		page, err := s.repo.Metadata.ListMissingCatalogArtworkRootsAfter(ctx, afterID, artworkBackfillPageLimit, manual)
+	for {
+		page, err := s.repo.Artwork.ListTMDbArtworkSelectionsAfter(ctx, afterID, artworkRepairPageLimit)
 		if err != nil {
-			if task != nil {
-				task.Finish(err, TaskUpdate{Stage: "failed", Message: "元数据图片补齐巡检失败", Metrics: metrics})
-			}
-			return err
+			return finishArtworkTask(task, err, "TMDb 图片本地化修复失败", metrics)
 		}
 		if len(page) == 0 {
 			break
 		}
-		for _, candidate := range page {
-			metrics["roots_scanned"]++
-			metrics["missing_roots"]++
-			result, err := s.repo.Metadata.EnsureCatalogArtworkJob(ctx, candidate, manual)
-			if err != nil {
-				if task != nil {
-					task.Finish(err, TaskUpdate{Stage: "failed", Message: "元数据图片补齐排队失败", Metrics: metrics})
-				}
-				return err
+		for _, item := range page {
+			metrics["scanned"]++
+			detail, failed := s.repairTMDbArtworkSelection(ctx, item, metrics)
+			if failed {
+				metrics["failed"]++
 			}
-			switch result {
-			case repository.CatalogJobCreated:
-				metrics["jobs_created"]++
-				queued++
-			case repository.CatalogJobRequeued:
-				metrics["jobs_requeued"]++
-				queued++
-			default:
-				metrics["jobs_unchanged"]++
+			if task != nil && detail != "" {
+				task.Update(TaskUpdate{Stage: "repair", Metrics: metrics, Details: []string{detail}})
 			}
-			afterID = candidate.MetadataID
-			if metrics["roots_scanned"] >= artworkBackfillScanLimit || queued >= artworkBackfillEnqueueLimit {
-				break
-			}
+			afterID = item.SelectionID
 		}
-		if len(page) < artworkBackfillPageLimit {
+		if len(page) < artworkRepairPageLimit {
 			break
 		}
 	}
-	if queued > 0 {
-		s.wakeCatalogHydration()
+	if metrics["failed"] > 0 {
+		return finishArtworkTask(task, fmt.Errorf("%d TMDb artwork repairs failed", metrics["failed"]), "TMDb 图片本地化修复完成，但存在失败", metrics)
 	}
-	if task != nil {
-		task.Finish(nil, TaskUpdate{
-			Stage: "completed", Message: "元数据图片补齐巡检完成", Metrics: metrics,
-			Details: []string{fmt.Sprintf("ℹ️ 检查 %d 个本地资产，缺失 %d，清除选择 %d；扫描 %d 个缺图根，新增 %d，重排 %d，保持 %d", metrics["assets_scanned"], metrics["assets_missing"], metrics["selections_invalidated"], metrics["roots_scanned"], metrics["jobs_created"], metrics["jobs_requeued"], metrics["jobs_unchanged"])},
-		})
-	}
-	return nil
+	return finishArtworkTask(task, nil, "TMDb 图片本地化修复完成", metrics)
 }
 
-func (s *ScraperService) scanSelectedArtworkAssets(ctx context.Context, metrics map[string]int64) error {
-	afterID, err := s.repo.Setting.Get(ctx, artworkIntegrityCursorKey)
+func (s *ScraperService) repairTMDbArtworkSelection(ctx context.Context, item repository.TMDbArtworkSelection, metrics map[string]int64) (string, bool) {
+	subject := artworkTaskSubject(item.Title, item.Kind, item.TMDbID, item.ArtworkType)
+	available, err := s.artwork.tmdbSelectionFileAvailable(item)
+	if err != nil {
+		return "❌ " + subject + "，动作=检查本地文件，结果=失败：" + sanitizeTaskLogError(err).Error(), true
+	}
+	if available {
+		metrics["available"]++
+		return "", false
+	}
+	metrics["missing"]++
+	if !validRemoteArtworkURL(item.SourceURL) {
+		return "❌ " + subject + "，动作=按旧链接修复，结果=无效 TMDb 图片链接", true
+	}
+	_, updated, err := s.artwork.repairTMDbRemote(ctx, item, item.SourceURL, false)
+	if err == nil {
+		if !updated {
+			metrics["concurrent_skipped"]++
+			return "⏭️ " + subject + "，动作=按旧链接修复，结果=选择已并发变更", false
+		}
+		_ = s.repo.Artwork.DeleteArtworkRecheck(ctx, item.MetadataID, item.ArtworkType)
+		metrics["old_url_repaired"]++
+		return "✅ " + subject + "，动作=按旧链接修复，结果=已保存到本地", false
+	}
+	if !isRemoteImageHTTPStatus(err, http.StatusNotFound) {
+		return "❌ " + subject + "，动作=按旧链接修复，结果=可重试失败：" + sanitizeTaskLogError(err).Error(), true
+	}
+	metrics["old_url_404"]++
+	urls, err := s.tmdbArtworkURLs(ctx, item.Kind, item.TMDbID, item.SeriesTMDbID, item.SeasonNum, item.EpisodeNum)
+	if err != nil {
+		return "❌ " + subject + "，动作=404 后重查 TMDb，结果=可重试失败：" + sanitizeTaskLogError(err).Error(), true
+	}
+	newURL := strings.TrimSpace(urls[item.ArtworkType])
+	if newURL == "" {
+		if err := s.repo.Artwork.UpsertArtworkRecheck(ctx, item.MetadataID, item.ArtworkType, time.Now().UTC()); err != nil {
+			return "❌ " + subject + "，动作=404 后重查 TMDb，结果=状态保存失败：" + sanitizeTaskLogError(err).Error(), true
+		}
+		metrics["still_missing"]++
+		return "⚠️ " + subject + "，动作=404 后重查 TMDb，结果=TMDb 仍无图，24 小时后复查", false
+	}
+	_, updated, err = s.artwork.repairTMDbRemote(ctx, item, newURL, true)
+	if err != nil {
+		return "❌ " + subject + "，动作=使用 TMDb 新链接修复，结果=可重试失败：" + sanitizeTaskLogError(err).Error(), true
+	}
+	if !updated {
+		metrics["concurrent_skipped"]++
+		return "⏭️ " + subject + "，动作=使用 TMDb 新链接修复，结果=选择已并发变更", false
+	}
+	_ = s.repo.Artwork.DeleteArtworkRecheck(ctx, item.MetadataID, item.ArtworkType)
+	metrics["tmdb_repaired"]++
+	return "✅ " + subject + "，动作=使用 TMDb 新链接修复，结果=已保存到本地", false
+}
+
+func (s *ScraperService) runTMDbArtworkMissingRecheck(ctx context.Context, trigger string) error {
+	if s == nil || s.repo == nil || s.repo.Artwork == nil || s.artwork == nil {
+		return errors.New("TMDb artwork missing recheck dependencies unavailable")
+	}
+	metrics := map[string]int64{}
+	task, err := s.startArtworkTask(trigger, "TMDb 无图复查", "正在复查 TMDb 仍无图片的元数据", metrics)
 	if err != nil {
 		return err
 	}
-	for metrics["assets_scanned"] < artworkBackfillScanLimit {
-		limit := min(artworkBackfillPageLimit, artworkBackfillScanLimit-int(metrics["assets_scanned"]))
-		assets, err := s.repo.Artwork.ListSelectedAssetsAfter(ctx, afterID, limit)
+	afterID := ""
+	now := time.Now().UTC()
+	for {
+		page, err := s.repo.Artwork.ListTMDbArtworkRecheckMetadataAfter(ctx, afterID, artworkRepairPageLimit)
 		if err != nil {
-			return err
+			return finishArtworkTask(task, err, "TMDb 无图复查失败", metrics)
 		}
-		if len(assets) == 0 {
-			return s.repo.Setting.Set(ctx, artworkIntegrityCursorKey, "")
+		if len(page) == 0 {
+			break
 		}
-		for i := range assets {
-			metrics["assets_scanned"]++
-			missing, invalidated, err := s.artwork.invalidateMissingLocalAsset(ctx, &assets[i])
-			if err != nil {
-				return fmt.Errorf("check local artwork asset %s: %w", assets[i].ID, err)
+		for _, item := range page {
+			metrics["scanned"]++
+			details, requested, failures := s.recheckTMDbArtwork(ctx, item, now, metrics)
+			if requested {
+				metrics["requests"]++
 			}
-			if missing {
-				metrics["assets_missing"]++
-				metrics["selections_invalidated"] += invalidated
+			metrics["failed"] += failures
+			if task != nil && len(details) > 0 {
+				task.Update(TaskUpdate{Stage: "recheck", Metrics: metrics, Details: details})
 			}
-			afterID = assets[i].ID
+			afterID = item.MetadataID
 		}
-		if err := s.repo.Setting.Set(ctx, artworkIntegrityCursorKey, afterID); err != nil {
-			return err
-		}
-		if len(assets) < limit {
-			return s.repo.Setting.Set(ctx, artworkIntegrityCursorKey, "")
+		if len(page) < artworkRepairPageLimit {
+			break
 		}
 	}
-	return nil
+	if metrics["failed"] > 0 {
+		return finishArtworkTask(task, fmt.Errorf("%d TMDb artwork rechecks failed", metrics["failed"]), "TMDb 无图复查完成，但存在失败", metrics)
+	}
+	return finishArtworkTask(task, nil, "TMDb 无图复查完成", metrics)
+}
+
+func (s *ScraperService) recheckTMDbArtwork(ctx context.Context, item repository.TMDbArtworkRecheckCandidate, now time.Time, metrics map[string]int64) ([]string, bool, int64) {
+	details := make([]string, 0, len(item.Types))
+	due := make([]repository.TMDbArtworkRecheckType, 0, len(item.Types))
+	var failures int64
+	for _, typ := range item.Types {
+		// 没有实体 checkpoint 时，只处理已有逐类型无图状态，避免接管首次入库刮削。
+		if item.CatalogArtworkHydratedAt == nil && typ.LastNoImageAt == nil {
+			continue
+		}
+		subject := artworkTaskSubject(item.Title, item.Kind, item.TMDbID, typ.ArtworkType)
+		if typ.SelectionID != "" {
+			if typ.StorageKey != "" {
+				path, err := s.artwork.pathForStorageKey(typ.StorageKey)
+				if err != nil {
+					failures++
+					details = append(details, "❌ "+subject+"，动作=检查当前选择，结果=失败："+sanitizeTaskLogError(err).Error())
+					continue
+				}
+				available, err := localArtworkFileAvailable(path)
+				if err != nil {
+					failures++
+					details = append(details, "❌ "+subject+"，动作=检查当前选择，结果=失败："+sanitizeTaskLogError(err).Error())
+					continue
+				}
+				if available {
+					_ = s.repo.Artwork.DeleteArtworkRecheck(ctx, item.MetadataID, typ.ArtworkType)
+					metrics["existing_skipped"]++
+					continue
+				}
+			}
+			if typ.SourceProvider != "tmdb" {
+				_ = s.repo.Artwork.DeleteArtworkRecheck(ctx, item.MetadataID, typ.ArtworkType)
+				metrics["existing_skipped"]++
+				details = append(details, "⏭️ "+subject+"，动作=检查当前选择，结果=非 TMDb 选择不处理")
+				continue
+			}
+		}
+		baseline := item.CatalogArtworkHydratedAt
+		if typ.LastNoImageAt != nil {
+			baseline = typ.LastNoImageAt
+		}
+		if baseline != nil && now.Sub(*baseline) < artworkRecheckCooldown {
+			metrics["cooldown_skipped"]++
+			details = append(details, "⏭️ "+subject+"，动作=检查复查冷却，结果=24 小时内不再查询")
+			continue
+		}
+		due = append(due, typ)
+	}
+	if len(due) == 0 {
+		return details, false, failures
+	}
+	urls, err := s.tmdbArtworkURLs(ctx, item.Kind, item.TMDbID, item.SeriesTMDbID, item.SeasonNum, item.EpisodeNum)
+	if err != nil {
+		safeErr := sanitizeTaskLogError(err)
+		for _, typ := range due {
+			details = append(details, "❌ "+artworkTaskSubject(item.Title, item.Kind, item.TMDbID, typ.ArtworkType)+"，动作=重查 TMDb，结果=可重试失败："+safeErr.Error())
+		}
+		return details, true, failures + int64(len(due))
+	}
+	for _, typ := range due {
+		subject := artworkTaskSubject(item.Title, item.Kind, item.TMDbID, typ.ArtworkType)
+		sourceURL := strings.TrimSpace(urls[typ.ArtworkType])
+		if sourceURL == "" {
+			if err := s.repo.Artwork.UpsertArtworkRecheck(ctx, item.MetadataID, typ.ArtworkType, now); err != nil {
+				failures++
+				details = append(details, "❌ "+subject+"，动作=重查 TMDb，结果=状态保存失败："+sanitizeTaskLogError(err).Error())
+				continue
+			}
+			metrics["still_missing"]++
+			details = append(details, "⚠️ "+subject+"，动作=重查 TMDb，结果=仍无图片，24 小时后再查")
+			continue
+		}
+		if typ.SelectionID != "" {
+			snapshot := repository.TMDbArtworkSelection{SelectionID: typ.SelectionID, MetadataID: item.MetadataID, ArtworkType: typ.ArtworkType, AssetID: typ.AssetID, SourceURL: typ.SourceURL}
+			_, updated, err := s.artwork.repairTMDbRemote(ctx, snapshot, sourceURL, true)
+			if err != nil {
+				failures++
+				details = append(details, "❌ "+subject+"，动作=保存复查图片，结果=可重试失败："+sanitizeTaskLogError(err).Error())
+				continue
+			}
+			if !updated {
+				metrics["concurrent_skipped"]++
+				details = append(details, "⏭️ "+subject+"，动作=保存复查图片，结果=选择已并发变更")
+				continue
+			}
+		} else {
+			_, existing, err := s.artwork.importCatalogRemote(ctx, item.MetadataID, typ.ArtworkType, "tmdb", sourceURL)
+			if err != nil {
+				failures++
+				details = append(details, "❌ "+subject+"，动作=保存复查图片，结果=可重试失败："+sanitizeTaskLogError(err).Error())
+				continue
+			}
+			if existing {
+				metrics["concurrent_skipped"]++
+				details = append(details, "⏭️ "+subject+"，动作=保存复查图片，结果=已有并发选择")
+				continue
+			}
+		}
+		_ = s.repo.Artwork.DeleteArtworkRecheck(ctx, item.MetadataID, typ.ArtworkType)
+		metrics["saved"]++
+		details = append(details, "✅ "+subject+"，动作=保存复查图片，结果=已保存到本地")
+	}
+	return details, true, failures
+}
+
+func (s *ScraperService) tmdbArtworkURLs(ctx context.Context, kind, tmdbID, seriesTMDbID string, seasonNum, episodeNum int) (map[string]string, error) {
+	if s.tmdb == nil {
+		return nil, errors.New("TMDb provider unavailable")
+	}
+	id, err := strconv.Atoi(strings.TrimSpace(tmdbID))
+	if err != nil || id <= 0 {
+		return nil, errors.New("invalid TMDb identity")
+	}
+	urls := map[string]string{}
+	switch kind {
+	case model.MetadataKindMovie:
+		match, err := s.tmdb.GetMovieMatch(ctx, id)
+		if err != nil || match == nil {
+			return nil, tmdbArtworkLookupError(err)
+		}
+		urls[model.ArtworkTypePoster], urls[model.ArtworkTypeBackdrop] = match.CatalogPosterURL, match.CatalogBackdropURL
+	case model.MetadataKindSeries:
+		match, err := s.tmdb.GetTVMatch(ctx, id)
+		if err != nil || match == nil {
+			return nil, tmdbArtworkLookupError(err)
+		}
+		urls[model.ArtworkTypePoster], urls[model.ArtworkTypeBackdrop] = match.CatalogPosterURL, match.CatalogBackdropURL
+	case model.MetadataKindSeason, model.MetadataKindEpisode:
+		seriesID, err := strconv.Atoi(strings.TrimSpace(seriesTMDbID))
+		if err != nil || seriesID <= 0 {
+			return nil, errors.New("invalid parent Series TMDb identity")
+		}
+		if kind == model.MetadataKindSeason {
+			details, err := s.tmdb.GetTVSeasonDetails(ctx, seriesID, seasonNum)
+			if err != nil || details == nil {
+				return nil, tmdbArtworkLookupError(err)
+			}
+			urls[model.ArtworkTypePoster] = details.PosterURL
+		} else {
+			details, err := s.tmdb.GetTVEpisodeDetails(ctx, seriesID, seasonNum, episodeNum)
+			if err != nil || details == nil {
+				return nil, tmdbArtworkLookupError(err)
+			}
+			urls[model.ArtworkTypeStill] = details.CatalogStillURL
+		}
+	default:
+		return nil, errors.New("unsupported metadata kind")
+	}
+	return urls, nil
+}
+
+func tmdbArtworkLookupError(err error) error {
+	if err != nil {
+		return err
+	}
+	return errors.New("TMDb details unavailable")
+}
+
+func validRemoteArtworkURL(raw string) bool {
+	u, err := url.ParseRequestURI(strings.TrimSpace(raw))
+	return err == nil && (u.Scheme == "http" || u.Scheme == "https") && u.Host != ""
+}
+
+func artworkTaskSubject(title, kind, tmdbID, artworkType string) string {
+	if strings.TrimSpace(tmdbID) == "" {
+		tmdbID = "-"
+	}
+	return fmt.Sprintf("%s，kind=%s，TMDb=%s，图片类型=%s", strings.TrimSpace(title), kind, tmdbID, artworkType)
+}
+
+func (s *ScraperService) startArtworkTask(trigger, name, message string, metrics map[string]int64) (*TaskHandle, error) {
+	if s.tasks == nil {
+		return nil, nil
+	}
+	task := s.tasks.StartTriggered(TaskKindArtwork, trigger, name, TaskUpdate{Stage: "scan", Message: message, Metrics: metrics})
+	if task == nil {
+		return nil, errors.New("create artwork task execution failed")
+	}
+	return task, nil
+}
+
+func finishArtworkTask(task *TaskHandle, err error, message string, metrics map[string]int64) error {
+	if task != nil {
+		safeErr := sanitizeTaskLogError(err)
+		stage := "completed"
+		if err != nil {
+			stage = "failed"
+		}
+		task.Finish(safeErr, TaskUpdate{Stage: stage, Message: message, Metrics: metrics})
+	}
+	return err
 }

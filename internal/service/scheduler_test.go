@@ -67,7 +67,7 @@ func TestSchedulerRunNowAsyncSurvivesCallerCancellation(t *testing.T) {
 	}
 }
 
-func TestSchedulerRegistersDisabledMetadataArtworkBackfill(t *testing.T) {
+func TestSchedulerRegistersDisabledTMDbArtworkJobs(t *testing.T) {
 	scheduler := NewSchedulerService(zap.NewNop(), nil, nil, nil, nil)
 	ctx, cancel := context.WithCancel(t.Context())
 	scheduler.Start(ctx)
@@ -75,15 +75,22 @@ func TestSchedulerRegistersDisabledMetadataArtworkBackfill(t *testing.T) {
 		cancel()
 		scheduler.Stop()
 	}()
+	want := map[string]bool{"tmdb_artwork_local_repair": true, "tmdb_artwork_missing_recheck": true}
 	for _, status := range scheduler.Status() {
 		if status.Name == "metadata_artwork_backfill" {
-			if status.Enabled || status.IntervalSeconds != int64((24*time.Hour)/time.Second) {
-				t.Fatalf("artwork backfill status = %#v", status)
-			}
-			return
+			t.Fatal("retired metadata artwork backfill scheduler job still exists")
 		}
+		if !want[status.Name] {
+			continue
+		}
+		if status.Enabled || status.IntervalSeconds != int64((24*time.Hour)/time.Second) {
+			t.Fatalf("artwork job status = %#v", status)
+		}
+		delete(want, status.Name)
 	}
-	t.Fatal("metadata artwork backfill scheduler job is missing")
+	if len(want) != 0 {
+		t.Fatalf("missing TMDb artwork scheduler jobs: %v", want)
+	}
 }
 
 func TestSchedulerRegistersDisabledDoubanMovieEnrichment(t *testing.T) {

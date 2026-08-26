@@ -127,6 +127,37 @@ func (s *ArtworkStore) saveCatalog(ctx context.Context, metadataID, artworkType,
 	return s.repo.SaveCatalogSelection(ctx, metadataID, artworkType, provider, sourceURL, asset)
 }
 
+func (s *ArtworkStore) repairTMDbRemote(ctx context.Context, snapshot repository.TMDbArtworkSelection, sourceURL string, clearFailure bool) (*model.ArtworkAsset, bool, error) {
+	if s == nil || s.imageProxy == nil || s.repo == nil {
+		return nil, false, errors.New("artwork repair dependencies unavailable")
+	}
+	if clearFailure {
+		if err := s.imageProxy.RemoveFailed(sourceURL); err != nil {
+			return nil, false, err
+		}
+	}
+	data, _, err := s.imageProxy.Fetch(ctx, sourceURL)
+	if err != nil {
+		return nil, false, err
+	}
+	asset, err := s.prepareAsset(snapshot.MetadataID, snapshot.ArtworkType, data)
+	if err != nil {
+		return nil, false, err
+	}
+	return s.repo.RepairTMDbSelection(ctx, snapshot, sourceURL, asset)
+}
+
+func (s *ArtworkStore) tmdbSelectionFileAvailable(snapshot repository.TMDbArtworkSelection) (bool, error) {
+	if s == nil {
+		return false, errors.New("artwork store is unavailable")
+	}
+	path, err := s.pathForStorageKey(snapshot.StorageKey)
+	if err != nil {
+		return false, err
+	}
+	return localArtworkFileAvailable(path)
+}
+
 func (s *ArtworkStore) prepareAsset(metadataID, artworkType string, data []byte) (*model.ArtworkAsset, error) {
 	if strings.TrimSpace(metadataID) == "" {
 		return nil, errors.New("metadata id is required")
@@ -165,24 +196,6 @@ func (s *ArtworkStore) write(path string, data []byte) error {
 		return err
 	}
 	return writeStoredImage(path, data, ".artwork-*.tmp")
-}
-
-func (s *ArtworkStore) invalidateMissingLocalAsset(ctx context.Context, asset *model.ArtworkAsset) (bool, int64, error) {
-	if s == nil || asset == nil || s.repo == nil {
-		return false, 0, errors.New("artwork asset repository is required")
-	}
-	path, err := s.pathForStorageKey(asset.StorageKey)
-	if err != nil {
-		return false, 0, err
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	available, err := localArtworkFileAvailable(path)
-	if err != nil || available {
-		return false, 0, err
-	}
-	invalidated, err := s.repo.InvalidateSelectionsForMissingAsset(ctx, asset.ID)
-	return true, invalidated, err
 }
 
 func localArtworkFileAvailable(path string) (bool, error) {
