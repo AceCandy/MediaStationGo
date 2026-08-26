@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 58
-- **Last Active**: 2026-08-26
+- **Total Sessions**: 59
+- **Last Active**: 2026-08-27
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~1261 | Active |
+| `journal-1.md` | ~1282 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 59 | 2026-08-27 | 修复 STRM 保留字符探测失败 | `ff48b40` | `main` |
 | 58 | 2026-08-26 | 拆分 TMDb 图片修复与复查任务 | `05f9021`, `f8abafd` | `main` |
 | 57 | 2026-08-26 | Metadata 图片与豆瓣电影补齐 | `b04862a` | `main` |
 | 56 | 2026-08-24 | 完成 Emby Jellyfin 多 Part 支持 | `ac24bf956b8bd856da3a00f8e942f65017753ee0` | `main` |

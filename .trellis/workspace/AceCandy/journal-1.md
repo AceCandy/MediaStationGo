@@ -1259,3 +1259,24 @@ Committed the existing web UI redesign together with detailed background task lo
 ### Next Steps
 
 - 确认后实施 TMDb 集信息补全/复查规划
+
+
+## Session 59: 修复 STRM 保留字符探测失败
+
+**Date**: 2026-08-27
+**Task**: 修复 STRM 保留字符探测失败
+**Branch**: `main`
+
+### Summary
+
+统一规范化 STRM HTTP(S) URL 中的 raw #，拒绝目录探测源，并补充安全的 ffprobe stderr 摘要与回归测试。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `ff48b40` | (see git log) |
+
+### Status
+
+[OK] **Completed**
