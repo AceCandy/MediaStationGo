@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 60
+- **Total Sessions**: 61
 - **Last Active**: 2026-08-27
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~1303 | Active |
+| `journal-1.md` | ~1324 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 61 | 2026-08-27 | 统一 Web 自定义下拉框 | `6a70b92` | `main` |
 | 60 | 2026-08-27 | TMDb 集信息补全复查 | `8f27aa1` | `main` |
 | 59 | 2026-08-27 | 修复 STRM 保留字符探测失败 | `ff48b40` | `main` |
 | 58 | 2026-08-26 | 拆分 TMDb 图片修复与复查任务 | `05f9021`, `f8abafd` | `main` |

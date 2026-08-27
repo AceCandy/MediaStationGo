@@ -1301,3 +1301,24 @@ Committed the existing web UI redesign together with detailed background task lo
 ### Status
 
 [OK] **Completed**
+
+
+## Session 61: 统一 Web 自定义下拉框
+
+**Date**: 2026-08-27
+**Task**: 统一 Web 自定义下拉框
+**Branch**: `main`
+
+### Summary
+
+新增主题化共享 Select，替换 Web 产品代码中 29 处原生下拉框，并完成 lint、build、浏览器交互验证与独立复核。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `6a70b92` | (see git log) |
+
+### Status
+
+[OK] **Completed**
