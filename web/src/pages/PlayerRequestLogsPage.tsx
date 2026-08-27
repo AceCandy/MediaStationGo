@@ -4,6 +4,7 @@ import { useSearchParams } from 'react-router-dom'
 
 import { adminAPI, type PlayerRequestLog, type PlayerRequestLogPage } from '../api/admin'
 import { ModalShell } from '../components/ModalShell'
+import { Select } from '../components/Select'
 import { useSSE } from '../hooks/useSSE'
 
 const PAGE_SIZE = 50
@@ -120,7 +121,7 @@ export function PlayerRequestLogsPage() {
 
       <form className="glass-panel grid gap-3 md:grid-cols-[10rem_9rem_8rem_minmax(0,1fr)_auto]" onSubmit={(event) => { event.preventDefault(); const parsedStatus = positiveInt(statusDraft, 0); updateParams({ path: pathDraft.trim() || undefined, status: parsedStatus >= 100 && parsedStatus <= 599 ? String(parsedStatus) : undefined, page: undefined }) }}>
         <label className="text-xs text-ink-50">月份<input className="input-base mt-1" type="month" value={month} onChange={(event) => updateParams({ month: event.target.value, page: undefined })} /></label>
-        <label className="text-xs text-ink-50">方法<select className="input-base mt-1" value={method} onChange={(event) => updateParams({ method: event.target.value || undefined, page: undefined })}>{methods.map((value) => <option key={value || 'all'} value={value}>{value || '全部'}</option>)}</select></label>
+        <label className="text-xs text-ink-50">方法<Select className="input-base mt-1" value={method} onChange={(value) => updateParams({ method: value || undefined, page: undefined })}>{methods.map((value) => <option key={value || 'all'} value={value}>{value || '全部'}</option>)}</Select></label>
         <label className="text-xs text-ink-50">状态码<input className="input-base mt-1" type="number" min="100" max="599" value={statusDraft} placeholder="全部" onChange={(event) => setStatusDraft(event.target.value)} /></label>
         <label className="text-xs text-ink-50">路径<input className="input-base mt-1" value={pathDraft} maxLength={512} placeholder="筛选路由路径" onChange={(event) => setPathDraft(event.target.value)} /></label>
         <div className="flex items-end gap-2"><button type="submit" className="btn-primary">筛选</button><button type="button" className="icon-btn" aria-label="刷新" title="刷新" onClick={() => void load()}><RefreshCw size={17} /></button></div>

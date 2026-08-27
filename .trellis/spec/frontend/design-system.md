@@ -27,6 +27,7 @@
 
 - `.btn-primary` = violet gradient + glow shadow + hover sheen sweep (`::after` highlight); `.btn-danger` = red gradient variant for destructive confirms; `.btn-outline`, `.btn-ghost` for secondary actions; `.icon-btn` = 36px square ghost button (dialog close, toolbar slots).
 - `.card` / `.glass-panel`, `.input-field`, `.badge-brand|sage|gold|neutral`, `.data-table`, `.skeleton`, `.text-gradient-brand`.
+- **Selects**: use `Select` (`web/src/components/Select.tsx`) instead of native `<select>`. Keep options as `<option>` children and pass the existing string value to `onChange`; the shared component owns the themed Portal menu, keyboard navigation, disabled/required behavior, and focus return.
 - **Modals**: every dialog uses `ModalShell` (`web/src/components/ModalShell.tsx`) — framer-motion spring entrance (scale 0.94 → 1, `stiffness 420, damping 32`, respects `prefers-reduced-motion`), theme-aware `.modal-backdrop` (`--app-overlay` + 10px blur), `.modal-panel`, `.modal-header`, `.modal-footer`, `.modal-icon` (`--danger`/`--gold` variants), body scroll lock. Pass `onClose` to enable backdrop-click + Escape close; omit it for dirty forms. Set `zIndex` for stacked dialogs (confirm 100, password/PIN 110).
 - Toasts (react-hot-toast in `main.tsx`) read `--app-glass`/`--app-text` vars; success icon violet, error red. Don't add per-call `className` overrides.
 - Backward-compatible aliases (`surface-card`, `field-input`, `amber-btn--solid`, …) map to the new primitives — keep them working.
@@ -34,5 +35,6 @@
 ## Quality Check
 
 - [ ] New UI uses CSS variables / brand scales, not hardcoded hex.
+- [ ] Product UI does not introduce native `<select>` elements; dropdowns reuse the shared `Select`.
 - [ ] Dark and light themes both verified with screenshots.
 - [ ] Hover/focus states carry the violet glow language.

@@ -23,6 +23,7 @@ import {
 } from '../api/admin'
 import { imageURL } from '../api/client'
 import { libraryAPI } from '../api/library'
+import { Select } from '../components/Select'
 import type { Library, User } from '../types'
 
 const DETAIL_PAGE_SIZE = 20
@@ -190,11 +191,11 @@ export function PlaybackStatsPage() {
           <button type="button" className="btn-outline inline-flex items-center gap-2 !px-3.5 !py-2" onClick={() => void load()} disabled={loading}><RefreshCw size={15} className={loading ? 'animate-spin' : ''} />刷新</button>
         </div>
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-          <label className="text-xs text-ink-50">粒度<select className="input-base mt-1" value={grain} onChange={(event) => setGrain(event.target.value as PlaybackStatsQuery['grain'])}><option value="day">每日</option><option value="week">每周</option><option value="month">每月</option></select></label>
+          <label className="text-xs text-ink-50">粒度<Select className="input-base mt-1" value={grain} onChange={(value) => setGrain(value as PlaybackStatsQuery['grain'])}><option value="day">每日</option><option value="week">每周</option><option value="month">每月</option></Select></label>
           <label className="text-xs text-ink-50">开始日期<input className="input-base mt-1" type="date" value={from} max={to} onChange={(event) => changeFrom(event.target.value)} /></label>
           <label className="text-xs text-ink-50">结束日期<input className="input-base mt-1" type="date" value={to} min={from} onChange={(event) => changeTo(event.target.value)} /></label>
-          <label className="text-xs text-ink-50">账户<select className="input-base mt-1" value={userID} onChange={(event) => { setUserID(event.target.value); setPage(1) }}><option value="">全部账户</option>{users.map((user) => <option key={user.id} value={user.id}>{user.nickname || user.username}</option>)}</select></label>
-          <label className="text-xs text-ink-50">媒体类型<select className="input-base mt-1" value={mediaType} onChange={(event) => { setMediaType(event.target.value as '' | 'movie' | 'tv'); setPage(1) }}><option value="">全部类型</option><option value="movie">电影</option><option value="tv">电视剧</option></select></label>
+          <label className="text-xs text-ink-50">账户<Select className="input-base mt-1" value={userID} onChange={(value) => { setUserID(value); setPage(1) }}><option value="">全部账户</option>{users.map((user) => <option key={user.id} value={user.id}>{user.nickname || user.username}</option>)}</Select></label>
+          <label className="text-xs text-ink-50">媒体类型<Select className="input-base mt-1" value={mediaType} onChange={(value) => { setMediaType(value as '' | 'movie' | 'tv'); setPage(1) }}><option value="">全部类型</option><option value="movie">电影</option><option value="tv">电视剧</option></Select></label>
         </div>
         <fieldset>
           <legend className="text-xs text-ink-50">媒体库（不选表示全部）</legend>

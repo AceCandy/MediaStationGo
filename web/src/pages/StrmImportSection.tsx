@@ -1,6 +1,7 @@
 import type { FormEvent } from 'react'
 import { Plus } from 'lucide-react'
 
+import { Select } from '../components/Select'
 import type { Library } from '../types'
 
 type StrmImportSectionProps = {
@@ -30,11 +31,11 @@ export function StrmImportSection({
     <section className="glass-panel space-y-4">
       <h2 className="font-display text-lg font-semibold text-ink-600">导入 STRM 条目</h2>
       <form onSubmit={onImport} className="grid gap-3 md:grid-cols-4">
-        <select
+        <Select
           required
           className="input-base"
           value={libraryID}
-          onChange={(e) => setLibraryID(e.target.value)}
+          onChange={setLibraryID}
         >
           <option value="" disabled>
             选择媒体库
@@ -44,7 +45,7 @@ export function StrmImportSection({
               {library.name} ({library.type})
             </option>
           ))}
-        </select>
+        </Select>
         <input
           required
           className="input-base"

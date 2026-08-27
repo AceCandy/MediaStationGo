@@ -2,6 +2,7 @@ import {
   type AutoOrganizeConfig,
   settingOn,
 } from './autoOrganizeModel'
+import { Select } from '../components/Select'
 
 type ConfigChangeHandler = (key: keyof AutoOrganizeConfig, value: string) => void
 
@@ -60,16 +61,16 @@ export function AutoOrganizeBasicTab({
         </label>
         <label className="space-y-1">
           <span className="text-xs text-ink-50">默认整理方式</span>
-          <select
+          <Select
             className="input-base w-full"
             value={config.transferMode}
-            onChange={(event) => onConfigChange('transferMode', event.target.value)}
+            onChange={(value) => onConfigChange('transferMode', value)}
           >
             <option value="hardlink">硬链接</option>
             <option value="move">移动</option>
             <option value="copy">复制</option>
             <option value="symlink">软链接</option>
-          </select>
+          </Select>
         </label>
         <label className="space-y-1">
           <span className="text-xs text-ink-50">检查间隔（秒）</span>

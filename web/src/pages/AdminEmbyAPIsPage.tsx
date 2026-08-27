@@ -1,6 +1,7 @@
 import { ChevronDown, Code2, Copy, Globe2, Search, ShieldCheck } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
 import toast from 'react-hot-toast'
+import { Select } from '../components/Select'
 import {
   EMBY_API_CATEGORIES,
   EMBY_API_ENDPOINTS,
@@ -69,10 +70,10 @@ export function AdminEmbyAPIsPage() {
         </label>
         <label>
           <span className="sr-only">按接口分类筛选</span>
-          <select className="input-base" value={category} onChange={(event) => setCategory(event.target.value)}>
+          <Select className="input-base" value={category} onChange={setCategory}>
             <option value="all">全部分类</option>
             {EMBY_API_CATEGORIES.map((item) => <option key={item} value={item}>{item}</option>)}
-          </select>
+          </Select>
         </label>
       </section>
 

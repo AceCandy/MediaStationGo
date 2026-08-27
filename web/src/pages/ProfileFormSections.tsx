@@ -2,6 +2,7 @@ import type { ReactNode } from 'react'
 import { Loader2 } from 'lucide-react'
 
 import type { PlayProfileInput } from '../api/play_profiles'
+import { Select } from '../components/Select'
 import type { Library, PlayProfile } from '../types'
 
 type ProfileFormUpdate = (patch: Partial<PlayProfileInput>) => void
@@ -36,10 +37,10 @@ export function ProfileIdentityFields({
       />
 
       <Field label="内容分级限制">
-        <select
+        <Select
           className="input-base"
           value={form.content_rating_limit ?? ''}
-          onChange={(event) => update({ content_rating_limit: event.target.value })}
+          onChange={(value) => update({ content_rating_limit: value })}
         >
           <option value="">不限制</option>
           <option value="G">G</option>
@@ -47,7 +48,7 @@ export function ProfileIdentityFields({
           <option value="PG-13">PG-13</option>
           <option value="R">R</option>
           <option value="NC-17">NC-17</option>
-        </select>
+        </Select>
       </Field>
 
       <Toggle
@@ -90,29 +91,29 @@ export function ProfilePreferenceFields({
     <>
       <div className="grid grid-cols-2 gap-3">
         <Field label="首选字幕">
-          <select
+          <Select
             className="input-base"
             value={form.preferred_subtitle_lang ?? ''}
-            onChange={(event) => update({ preferred_subtitle_lang: event.target.value })}
+            onChange={(value) => update({ preferred_subtitle_lang: value })}
           >
             <option value="">跟随系统</option>
             <option value="zh">中文</option>
             <option value="zh-CN">简体中文</option>
             <option value="en">English</option>
             <option value="ja">日语</option>
-          </select>
+          </Select>
         </Field>
         <Field label="首选音轨">
-          <select
+          <Select
             className="input-base"
             value={form.preferred_audio_lang ?? ''}
-            onChange={(event) => update({ preferred_audio_lang: event.target.value })}
+            onChange={(value) => update({ preferred_audio_lang: value })}
           >
             <option value="">跟随系统</option>
             <option value="zh">中文</option>
             <option value="ja">日语</option>
             <option value="en">English</option>
-          </select>
+          </Select>
         </Field>
       </div>
 

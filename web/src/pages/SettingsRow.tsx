@@ -1,4 +1,5 @@
 import type { Library } from '../types'
+import { Select } from '../components/Select'
 
 export interface SettingDef {
   key: string
@@ -61,14 +62,14 @@ export function SettingRow({ def, value, onChange, libraries = [] }: SettingsRow
           />
         )}
         {def.type === 'select' && (
-          <select className="input-base" value={value} onChange={(event) => onChange(event.target.value)}>
+          <Select className="input-base" value={value} onChange={onChange}>
             <option value="">(未设置)</option>
             {def.options?.map((option) => (
               <option key={option.value} value={option.value}>
                 {option.label}
               </option>
             ))}
-          </select>
+          </Select>
         )}
         {def.type === 'toggle' && (
           <label className="flex cursor-pointer items-center gap-2">

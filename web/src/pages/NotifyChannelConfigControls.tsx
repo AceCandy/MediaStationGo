@@ -1,4 +1,5 @@
 import { Field } from './NotifyChannelFormField'
+import { Select } from '../components/Select'
 
 type ConfigControlProps = {
   config: Record<string, string>
@@ -53,17 +54,17 @@ export function ConfigSelect({
 }: ConfigSelectProps) {
   return (
     <Field label={label}>
-      <select
+      <Select
         className="input-base"
         value={config[name] ?? defaultValue}
-        onChange={(event) => updateConfig(name, event.target.value)}
+        onChange={(value) => updateConfig(name, value)}
       >
         {options.map((option) => (
           <option key={option.value} value={option.value}>
             {option.label}
           </option>
         ))}
-      </select>
+      </Select>
     </Field>
   )
 }

@@ -5,6 +5,7 @@ import toast from 'react-hot-toast'
 import { toolsAPI, type OrganizeOverrides } from '../api/tools'
 import type { Media } from '../types'
 import { ModalShell } from './ModalShell'
+import { Select } from './Select'
 
 interface OrganizeMediaDialogProps {
   open: boolean
@@ -88,9 +89,9 @@ export function OrganizeMediaDialog({ open, media, onClose, onOrganized }: Organ
         <div className="grid flex-1 gap-4 overflow-y-auto p-5 md:grid-cols-2">
           <label>
             <span className="mb-1 block text-xs font-bold text-gray-500">类型（留空自动识别）</span>
-            <select
+            <Select
               value={form.media_type}
-              onChange={(e) => set('media_type', e.target.value)}
+              onChange={(value) => set('media_type', value)}
               className="input-field h-11 px-3 py-2 font-semibold"
             >
               <option value="">自动识别</option>
@@ -99,7 +100,7 @@ export function OrganizeMediaDialog({ open, media, onClose, onOrganized }: Organ
               <option value="anime">动漫</option>
               <option value="variety">综艺</option>
               <option value="adult">成人</option>
-            </select>
+            </Select>
           </label>
           <Field
             label="二级分类（留空自动识别）"
@@ -115,16 +116,16 @@ export function OrganizeMediaDialog({ open, media, onClose, onOrganized }: Organ
           />
           <label>
             <span className="mb-1 block text-xs font-bold text-gray-500">转移方式</span>
-            <select
+            <Select
               value={form.transfer_mode}
-              onChange={(e) => set('transfer_mode', e.target.value)}
+              onChange={(value) => set('transfer_mode', value)}
               className="input-field h-11 px-3 py-2 font-semibold"
             >
               <option value="hardlink">硬链接</option>
               <option value="symlink">软链接</option>
               <option value="copy">复制</option>
               <option value="move">移动</option>
-            </select>
+            </Select>
           </label>
           <label className="flex h-11 items-center gap-2 rounded-xl border border-gray-200 px-3 text-sm font-semibold text-gray-700">
             <input

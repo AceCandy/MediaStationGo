@@ -7,6 +7,7 @@ import { tasksAPI, type BackgroundTask, type TaskDefinition, type TaskLog } from
 import { confirmAction } from '../components/confirmAction'
 import { ManualScrapeDialog } from '../components/ManualScrapeDialog'
 import { ModalShell } from '../components/ModalShell'
+import { Select } from '../components/Select'
 import type { Library, Media } from '../types'
 import { isSeriesLibraryType } from './librariesPageModel'
 
@@ -120,9 +121,9 @@ function TaskActions({ definition, running, libraries, scanLibraryID, onScanLibr
   return (
     <div className="flex flex-wrap items-center justify-end gap-1">
       {definition.key === 'library_scan' && (
-        <select
+        <Select
           value={scanLibraryID}
-          onChange={(event) => onScanLibraryChange(event.target.value)}
+          onChange={onScanLibraryChange}
           disabled={disabled}
           aria-label="媒体库扫描媒体库"
           title="选择要扫描的媒体库"
@@ -130,13 +131,13 @@ function TaskActions({ definition, running, libraries, scanLibraryID, onScanLibr
         >
           <option value="">选择媒体库</option>
           {libraries.map((library) => <option key={library.id} value={library.id}>{library.name}</option>)}
-        </select>
+        </Select>
       )}
       {definition.action === 'probe_backfill' && (
         <>
-          <select
+          <Select
             value={probeLibraryID}
-            onChange={(event) => onProbeLibraryChange(event.target.value)}
+            onChange={onProbeLibraryChange}
             disabled={disabled}
             aria-label="媒体轨道回填媒体库"
             title="选择回填范围"
@@ -144,7 +145,7 @@ function TaskActions({ definition, running, libraries, scanLibraryID, onScanLibr
           >
             <option value="">全部媒体库</option>
             {libraries.map((library) => <option key={library.id} value={library.id}>{library.name}</option>)}
-          </select>
+          </Select>
           <input
             type="number"
             min="1"
@@ -160,9 +161,9 @@ function TaskActions({ definition, running, libraries, scanLibraryID, onScanLibr
         </>
       )}
       {definition.action === 'media_scrape' && (
-        <select
+        <Select
           value={scrapeLibraryID}
-          onChange={(event) => onScrapeLibraryChange(event.target.value)}
+          onChange={onScrapeLibraryChange}
           disabled={disabled}
           aria-label="媒体入库刮削范围"
           title="选择要处理的媒体库"
@@ -170,7 +171,7 @@ function TaskActions({ definition, running, libraries, scanLibraryID, onScanLibr
         >
           <option value="">全部媒体库</option>
           {scrapeableLibraries(libraries).map((library) => <option key={library.id} value={library.id}>{library.name}</option>)}
-        </select>
+        </Select>
       )}
       {definition.action && (
         <button type="button" className="rounded border border-gray-200 p-2 text-sand-500 hover:text-brand-500 disabled:cursor-not-allowed disabled:opacity-40" title={`立即执行${definition.name}`} aria-label={`立即执行${definition.name}`} disabled={runDisabled} onClick={() => onRun(definition)}>
@@ -273,7 +274,7 @@ function TaskScheduleDialog({ definition, onClose, onSaved }: { definition: Task
       <label className="mt-5 flex items-center justify-between gap-4 text-sm text-ink-600"><span>启用定时执行</span><input type="checkbox" checked={enabled} disabled={saving} onChange={(event) => setEnabled(event.target.checked)} /></label>
       <div className="mt-4 grid grid-cols-[minmax(0,1fr)_7rem] gap-2">
         <label><span className="mb-1 block text-xs text-ink-50">执行周期</span><input className="input-field" type="number" min={Math.ceil(config.min_interval_seconds / unitSeconds)} max={Math.floor(config.max_interval_seconds / unitSeconds)} step="1" required value={value} disabled={saving} onChange={(event) => setValue(event.target.value)} /></label>
-        <label><span className="mb-1 block text-xs text-ink-50">单位</span><select className="input-field" value={unit} disabled={saving} onChange={(event) => setUnit(event.target.value as ScheduleUnit)}>{Object.entries(scheduleUnits).map(([key, item]) => <option key={key} value={key}>{item.label}</option>)}</select></label>
+        <label><span className="mb-1 block text-xs text-ink-50">单位</span><Select className="input-field" value={unit} disabled={saving} onChange={(value) => setUnit(value as ScheduleUnit)}>{Object.entries(scheduleUnits).map(([key, item]) => <option key={key} value={key}>{item.label}</option>)}</Select></label>
       </div>
       <p className="mt-2 text-xs text-ink-50">支持范围：{formatInterval(config.min_interval_seconds)} 至 {formatInterval(config.max_interval_seconds)}</p>
       {error && <p className="mt-3 text-sm text-red-500" role="alert">{error}</p>}
@@ -454,18 +455,18 @@ function ScrapeIssuesPanel({ libraries }: { libraries: Library[] }) {
       <div className="mt-4 grid gap-2 sm:grid-cols-2">
         <label>
           <span className="mb-1 block text-xs text-ink-50">媒体库</span>
-          <select className="input-field" value={libraryID} onChange={(event) => { setLibraryID(event.target.value); setPage(1) }}>
+          <Select className="input-field" value={libraryID} onChange={(value) => { setLibraryID(value); setPage(1) }}>
             <option value="">全部媒体库</option>
             {scrapeableLibraries(libraries).map((library) => <option key={library.id} value={library.id}>{library.name}</option>)}
-          </select>
+          </Select>
         </label>
         <label>
           <span className="mb-1 block text-xs text-ink-50">状态</span>
-          <select className="input-field" value={status} onChange={(event) => { setStatus(event.target.value as typeof status); setPage(1) }}>
+          <Select className="input-field" value={status} onChange={(value) => { setStatus(value as typeof status); setPage(1) }}>
             <option value="">全部待处理</option>
             <option value="error">刮削失败</option>
             <option value="no_match">未匹配</option>
-          </select>
+          </Select>
         </label>
       </div>
       <div className="mt-4 space-y-2">

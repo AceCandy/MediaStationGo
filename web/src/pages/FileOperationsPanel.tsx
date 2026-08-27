@@ -1,6 +1,7 @@
 import { Copy, GitBranch, Move, Pencil, Plus, Trash2 } from 'lucide-react'
 
 import type { FileEntry } from '../api/files'
+import { Select } from '../components/Select'
 
 type FileOperationsPanelProps = {
   selected: FileEntry | null
@@ -89,16 +90,16 @@ export function FileOperationsPanel({
                     value={destPath}
                     onChange={(event) => onDestPathChange(event.target.value)}
                   />
-                  <select
+                  <Select
                     className="input-base"
                     value={transferMode}
-                    onChange={(event) => onTransferModeChange(event.target.value)}
+                    onChange={onTransferModeChange}
                   >
                     <option value="copy">复制</option>
                     <option value="move">移动</option>
                     <option value="hardlink">硬链接</option>
                     <option value="symlink">软链接</option>
-                  </select>
+                  </Select>
                   <button className="neon-button" disabled={busy === 'transfer' || !destPath.trim()} onClick={onTransferSelected}>
                     {transferIcon(transferMode)}
                     转移

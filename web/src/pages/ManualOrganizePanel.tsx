@@ -1,4 +1,5 @@
 import type { Library } from '../types'
+import { Select } from '../components/Select'
 
 type PreviewItem = {
   source: string
@@ -77,10 +78,10 @@ export function ManualOrganizePanel({
       <div className="grid gap-3 lg:grid-cols-[1.2fr_1fr_150px_150px]">
         <label className="space-y-1">
           <span className="text-xs text-ink-50">目标媒体库 / 存储</span>
-          <select
+          <Select
             className="input-base w-full"
             value={organizeLibraryID}
-            onChange={(event) => onLibraryChange(event.target.value)}
+            onChange={onLibraryChange}
           >
             <option value="">手动填写目的路径</option>
             {localLibraries.map((library) => (
@@ -88,7 +89,7 @@ export function ManualOrganizePanel({
                 {library.name}（{library.type}）— {library.path}
               </option>
             ))}
-          </select>
+          </Select>
           <span className="text-[11px] text-sand-500">
             手动整理只写入本地可写媒体库。
           </span>
@@ -104,23 +105,23 @@ export function ManualOrganizePanel({
         </label>
         <label className="space-y-1">
           <span className="text-xs text-ink-50">类型</span>
-          <select className="input-base w-full" value={organizeMediaType} onChange={(event) => onMediaTypeChange(event.target.value)}>
+          <Select className="input-base w-full" value={organizeMediaType} onChange={onMediaTypeChange}>
             <option value="auto">自动识别</option>
             <option value="movie">电影</option>
             <option value="tv">剧集</option>
             <option value="anime">动漫</option>
             <option value="variety">综艺</option>
             <option value="adult">成人</option>
-          </select>
+          </Select>
         </label>
         <label className="space-y-1">
           <span className="text-xs text-ink-50">整理方式</span>
-          <select className="input-base w-full" value={organizeTransferMode} onChange={(event) => onTransferModeChange(event.target.value)}>
+          <Select className="input-base w-full" value={organizeTransferMode} onChange={onTransferModeChange}>
             <option value="hardlink">硬链接</option>
             <option value="move">移动</option>
             <option value="copy">复制</option>
             <option value="symlink">软链接</option>
-          </select>
+          </Select>
         </label>
       </div>
 

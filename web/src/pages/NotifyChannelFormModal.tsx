@@ -19,6 +19,7 @@ import {
 } from './notifyChannelsModel'
 import { Field } from './NotifyChannelFormField'
 import { ModalShell } from '../components/ModalShell'
+import { Select } from '../components/Select'
 import { NotifyChannelEventFields } from './NotifyChannelEventFields'
 import {
   BarkFields,
@@ -130,17 +131,17 @@ export function NotifyChannelFormModal({
           </Field>
 
           <Field label="渠道类型">
-            <select
+            <Select
               className="input-base"
               value={type}
-              onChange={(e) => onTypeChange(e.target.value as NotifyChannel['type'])}
+              onChange={(value) => onTypeChange(value as NotifyChannel['type'])}
             >
               <option value="telegram">Telegram</option>
               <option value="wechat">企业微信 / Server酱</option>
               <option value="bark">Bark (iOS)</option>
               <option value="webhook">Webhook</option>
               <option value="email">Email (SMTP)</option>
-            </select>
+            </Select>
           </Field>
 
           {type === 'telegram' && <TelegramFields config={config} updateConfig={updateConfig} />}

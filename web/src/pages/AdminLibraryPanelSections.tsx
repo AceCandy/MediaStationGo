@@ -2,6 +2,7 @@ import { FormEvent } from 'react'
 import { ChevronDown, FolderOpen, FolderPlus, Plus, Settings2, Trash2 } from 'lucide-react'
 
 import { ModalShell } from '../components/ModalShell'
+import { Select } from '../components/Select'
 import type { RootDraft } from './adminLibraryPanelModel'
 
 type CreateDialogProps = {
@@ -65,7 +66,7 @@ export function AdminLibraryCreateDialog({
             </div>
             <div>
               <label className="input-label">类型</label>
-              <select className="input-base" value={type} onChange={(e) => onTypeChange(e.target.value)}>
+              <Select className="input-base" value={type} onChange={onTypeChange}>
                 <option value="movie">电影</option>
                 <option value="tv">电视剧</option>
                 <option value="variety">综艺</option>
@@ -73,7 +74,7 @@ export function AdminLibraryCreateDialog({
                 <option value="music">音乐</option>
                 <option value="nfo_movie">非常规电影</option>
                 <option value="nfo_tv">非常规剧集</option>
-              </select>
+              </Select>
             </div>
           </div>
 

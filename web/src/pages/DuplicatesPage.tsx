@@ -19,6 +19,7 @@ import {
 } from '../api/duplicates'
 import { libraryAPI } from '../api/library'
 import { confirmAction } from '../components/confirmAction'
+import { Select } from '../components/Select'
 import type { Library } from '../types'
 
 function fmtBytes(n: number): string {
@@ -195,10 +196,10 @@ export function DuplicatesPage() {
       <div className="glass-panel flex flex-col gap-3 md:flex-row md:items-end">
         <div className="min-w-0 flex-1">
           <label className="input-label">媒体库</label>
-          <select
+          <Select
             className="input-base"
             value={libID}
-            onChange={(e) => setLibID(e.target.value)}
+            onChange={setLibID}
           >
             <option value="">所有媒体库</option>
             {libs.map((l) => (
@@ -206,7 +207,7 @@ export function DuplicatesPage() {
                 {l.name}
               </option>
             ))}
-          </select>
+          </Select>
         </div>
         <div className="flex gap-2">
           <button onClick={scan} disabled={scanning} className="btn-primary flex-1 md:flex-none">

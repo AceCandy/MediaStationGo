@@ -1,6 +1,7 @@
 import { Loader2, Wand2 } from 'lucide-react'
 
 import type { GenerateSTRMResult, STRMRefreshResult } from '../api/strm'
+import { Select } from '../components/Select'
 import type { Library } from '../types'
 import { currentOrigin } from './strmPageModel'
 import type { StrmGenerateSectionProps } from './StrmGenerateSection'
@@ -143,11 +144,11 @@ type LibrarySelectProps = {
 
 function LibrarySelect({ libraries, value, onChange }: LibrarySelectProps) {
   return (
-    <select
+    <Select
       required
       className="input-base"
       value={value}
-      onChange={(e) => onChange(e.target.value)}
+      onChange={onChange}
     >
       <option value="" disabled>
         选择媒体库
@@ -158,7 +159,7 @@ function LibrarySelect({ libraries, value, onChange }: LibrarySelectProps) {
           {library.name} ({library.type})
         </option>
       ))}
-    </select>
+    </Select>
   )
 }
 

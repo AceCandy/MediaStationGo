@@ -1,4 +1,5 @@
 import type { STRMOutputPreset } from '../api/strm'
+import { Select } from '../components/Select'
 
 type StrmOutputDirPickerProps = {
   className?: string
@@ -31,11 +32,11 @@ export function StrmOutputDirPicker({
         value={value}
         onChange={(e) => onChange(e.target.value)}
       />
-      <select
+      <Select
         className="input-base"
         value={selectedPreset}
-        onChange={(e) => {
-          if (e.target.value) onChange(e.target.value)
+        onChange={(value) => {
+          if (value) onChange(value)
         }}
       >
         <option value="">选择输出目录</option>
@@ -44,7 +45,7 @@ export function StrmOutputDirPicker({
             {preset.kind === 'library' ? `${preset.label} - ${preset.path}` : preset.label}
           </option>
         ))}
-      </select>
+      </Select>
     </div>
   )
 }
