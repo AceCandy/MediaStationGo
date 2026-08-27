@@ -1322,3 +1322,24 @@ Committed the existing web UI redesign together with detailed background task lo
 ### Status
 
 [OK] **Completed**
+
+
+## Session 62: 修复 TMDb 集复查列名迁移
+
+**Date**: 2026-08-27
+**Task**: 修复 TMDb 集复查列名迁移
+**Branch**: `main`
+
+### Summary
+
+显式固定 TMDb 集复查检查点列名，迁移并清理旧列，补充 PostgreSQL 回归测试与规范。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `f05a144` | (see git log) |
+
+### Status
+
+[OK] **Completed**
