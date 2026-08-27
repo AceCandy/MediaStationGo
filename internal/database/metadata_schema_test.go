@@ -38,6 +38,14 @@ type legacyEpisodeTitleMetadataItem struct {
 	Source       string `gorm:"size:32;not null"`
 }
 
+type legacyTMDbEpisodeCheckedMetadataItem struct {
+	ID                   string     `gorm:"primaryKey;size:36"`
+	Kind                 string     `gorm:"size:16;not null"`
+	Title                string     `gorm:"size:255;not null"`
+	Source               string     `gorm:"size:32;not null"`
+	TMDbEpisodeCheckedAt *time.Time `gorm:"index"`
+}
+
 func TestCatalogMetadataSnapshotAndJobSchema(t *testing.T) {
 	db, err := testdb.OpenPostgres(t, &gorm.Config{})
 	if err != nil {
@@ -49,8 +57,11 @@ func TestCatalogMetadataSnapshotAndJobSchema(t *testing.T) {
 	if !db.Migrator().HasColumn(&model.MetadataItem{}, "PeopleHydratedAt") {
 		t.Fatal("metadata items people_hydrated_at column is missing")
 	}
-	if !db.Migrator().HasColumn(&model.MetadataItem{}, "TMDbEpisodeCheckedAt") {
+	if !db.Migrator().HasColumn("metadata_items", "tmdb_episode_checked_at") {
 		t.Fatal("metadata items tmdb_episode_checked_at column is missing")
+	}
+	if db.Migrator().HasColumn("metadata_items", "tm_db_episode_checked_at") {
+		t.Fatal("metadata items legacy tm_db_episode_checked_at column exists")
 	}
 	metadata := model.MetadataItem{Kind: model.MetadataKindSeries, Title: "Series", Source: "tmdb"}
 	if err := db.Create(&metadata).Error; err != nil {
@@ -132,6 +143,59 @@ func (legacyRequiredMedia) TableName() string { return "media" }
 func (legacyPositiveSeasonMetadataItem) TableName() string { return "metadata_items" }
 
 func (legacyEpisodeTitleMetadataItem) TableName() string { return "metadata_items" }
+
+func (legacyTMDbEpisodeCheckedMetadataItem) TableName() string { return "metadata_items" }
+
+func TestAutoMigratePreservesLegacyTMDbEpisodeCheckedAt(t *testing.T) {
+	db, err := testdb.OpenPostgres(t, &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(&legacyTMDbEpisodeCheckedMetadataItem{}); err != nil {
+		t.Fatal(err)
+	}
+	legacyOnly := time.Date(2026, 8, 26, 1, 2, 3, 0, time.UTC)
+	legacyConflict := legacyOnly.Add(time.Hour)
+	canonicalConflict := legacyOnly.Add(2 * time.Hour)
+	rows := []legacyTMDbEpisodeCheckedMetadataItem{
+		{ID: "legacy-check-only", Kind: model.MetadataKindSeries, Title: "Legacy", Source: "tmdb", TMDbEpisodeCheckedAt: &legacyOnly},
+		{ID: "legacy-check-conflict", Kind: model.MetadataKindSeries, Title: "Conflict", Source: "tmdb", TMDbEpisodeCheckedAt: &legacyConflict},
+	}
+	if err := db.Create(&rows).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec(`ALTER TABLE metadata_items ADD COLUMN tmdb_episode_checked_at timestamptz`).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec(`UPDATE metadata_items SET tmdb_episode_checked_at = ? WHERE id = ?`, canonicalConflict, "legacy-check-conflict").Error; err != nil {
+		t.Fatal(err)
+	}
+
+	if err := AutoMigrate(db); err != nil {
+		t.Fatal(err)
+	}
+	if db.Migrator().HasColumn("metadata_items", "tm_db_episode_checked_at") {
+		t.Fatal("legacy tm_db_episode_checked_at column still exists")
+	}
+	for id, want := range map[string]time.Time{
+		"legacy-check-only":     legacyOnly,
+		"legacy-check-conflict": canonicalConflict,
+	} {
+		var got time.Time
+		if err := db.Model(&model.MetadataItem{}).Select("tmdb_episode_checked_at").Where("id = ?", id).Scan(&got).Error; err != nil {
+			t.Fatal(err)
+		}
+		if !got.Equal(want) {
+			t.Fatalf("metadata %s checked at = %v, want %v", id, got, want)
+		}
+	}
+	if err := AutoMigrate(db); err != nil {
+		t.Fatalf("repeated migration failed: %v", err)
+	}
+	if db.Migrator().HasColumn("metadata_items", "tm_db_episode_checked_at") {
+		t.Fatal("repeated migration restored legacy tm_db_episode_checked_at column")
+	}
+}
 
 func TestAutoMigrateBackfillsAndRemovesLegacyEpisodeTitle(t *testing.T) {
 	db, err := testdb.OpenPostgres(t, &gorm.Config{})

@@ -1431,7 +1431,8 @@ view.SeriesTitle = parentSeries.Title
 ### 2. Signatures
 
 - Checkpoint: `MetadataItem.TMDbEpisodeCheckedAt *time.Time` maps to indexed,
-  nullable `metadata_items.tmdb_episode_checked_at`.
+  nullable `metadata_items.tmdb_episode_checked_at` through the explicit GORM
+  tag `column:tmdb_episode_checked_at`; do not rely on acronym inference.
 - Candidate boundary:
   `ListTMDbEpisodeMetadataRecheckAfter(ctx, afterID, checkedBefore, limit)`.
 - Provider boundary:
@@ -1458,6 +1459,9 @@ view.SeriesTitle = parentSeries.Title
   for `tmdb_artwork_local_repair` when an existing selected still loses its file.
 - Detail logs contain only updates, still-missing results, concurrent skips, or
   failures and identify Series/SxxExx/TMDb ID without paths, URLs, or credentials.
+- Startup migration copies `tm_db_episode_checked_at` into the canonical column
+  only when the canonical value is null, then drops the legacy column in the
+  same transaction. An absent legacy column is an idempotent no-op.
 
 ### 4. Validation & Error Matrix
 
@@ -1471,6 +1475,9 @@ view.SeriesTitle = parentSeries.Title
 | Any persistence step fails | Keep completed partial writes, do not advance the checkpoint, and continue later candidates |
 | Still save races with a manual/local selection | Preserve the concurrent selection and treat still as satisfied |
 | Metadata graphs merge | Preserve the newer Episode checkpoint |
+| Only `tm_db_episode_checked_at` exists | Preserve its values in `tmdb_episode_checked_at`, then drop the legacy column |
+| Both checkpoint columns contain values | Preserve the canonical `tmdb_episode_checked_at` value |
+| Legacy checkpoint column is absent | Complete startup migration without schema changes |
 
 ### 5. Good / Base / Bad Cases
 
@@ -1478,14 +1485,20 @@ view.SeriesTitle = parentSeries.Title
   one details request; concrete fields and still are saved, then it cools for 72 hours.
 - Base: TMDb still has no overview or still; the successful response advances
   the checkpoint and logs only those remaining gaps.
+- Good: upgrading a database with the legacy GORM-derived checkpoint column
+  preserves its values and leaves only the canonical indexed column.
 - Bad: scan metadata without media, persist a cross-execution cursor, call the
   discovery catalog worker, or overwrite a concurrent manual still.
+- Bad: depend on GORM to infer `TMDb` as one acronym or leave both checkpoint
+  columns active after migration.
 
 ### 6. Tests Required
 
 - PostgreSQL: direct-media filter, four-field completeness, generated title,
   missing release date/still, valid Series identity, cooldown, deduplication,
-  keyset pagination, schema column, and newer-checkpoint merge.
+  keyset pagination, exact canonical schema column, legacy value preservation,
+  canonical-value precedence, legacy-column removal, repeated migration, and
+  newer-checkpoint merge.
 - Service: non-empty overwrite including release date/year, remaining-gap
   detection, checkpoint success/failure behavior, still concurrency, per-item
   failure isolation, sanitized detail logs, and normal no-change silence.
@@ -1502,6 +1515,14 @@ repo.SaveSelection(ctx, episode.ID, model.ArtworkTypeStill, "tmdb", source, asse
 // Correct: query only repair candidates and let concurrent selections win.
 candidates := repo.ListTMDbEpisodeMetadataRecheckAfter(ctx, afterID, checkedBefore, 200)
 repo.SaveCatalogSelection(ctx, episode.ID, model.ArtworkTypeStill, "tmdb", source, asset)
+```
+
+```go
+// Wrong: GORM splits the unrecognized TMDb acronym into tm_db.
+TMDbEpisodeCheckedAt *time.Time `gorm:"index"`
+
+// Correct: the model and hand-written SQL share one explicit column name.
+TMDbEpisodeCheckedAt *time.Time `gorm:"column:tmdb_episode_checked_at;index"`
 ```
 
 ## Scenario: Persisted Emby People Images

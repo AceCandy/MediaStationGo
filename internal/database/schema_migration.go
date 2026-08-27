@@ -14,6 +14,9 @@ func AutoMigrate(db *gorm.DB) error {
 	if err := db.AutoMigrate(model.AllModels()...); err != nil {
 		return err
 	}
+	if err := migrateLegacyTMDbEpisodeCheckedAt(db); err != nil {
+		return err
+	}
 	if err := purgeRetiredMediaRecycleRows(db); err != nil {
 		return err
 	}
@@ -66,6 +69,23 @@ func AutoMigrate(db *gorm.DB) error {
 		return err
 	}
 	return nil
+}
+
+// migrateLegacyTMDbEpisodeCheckedAt 保留 GORM 错误拆分 TMDb 缩写时写入的检查时间。
+func migrateLegacyTMDbEpisodeCheckedAt(db *gorm.DB) error {
+	if !db.Migrator().HasColumn("metadata_items", "tm_db_episode_checked_at") {
+		return nil
+	}
+	return db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Exec(`
+UPDATE metadata_items
+SET tmdb_episode_checked_at = COALESCE(tmdb_episode_checked_at, tm_db_episode_checked_at)
+WHERE tm_db_episode_checked_at IS NOT NULL
+`).Error; err != nil {
+			return err
+		}
+		return tx.Exec(`ALTER TABLE metadata_items DROP COLUMN tm_db_episode_checked_at`).Error
+	})
 }
 
 // retireMetadataSoftDeletes removes recycle-bin semantics from the canonical
