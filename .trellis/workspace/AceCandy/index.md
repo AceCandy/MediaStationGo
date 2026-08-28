@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 65
+- **Total Sessions**: 66
 - **Last Active**: 2026-08-28
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~1408 | Active |
+| `journal-1.md` | ~1430 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 66 | 2026-08-28 | 完善媒体详情标签图标和发布日期 | `ce2432b` | `main` |
 | 65 | 2026-08-28 | 豆瓣移动端详情与来源状态 | `b4bcf62` | `main` |
 | 64 | 2026-08-28 | 详情页来源链接与豆瓣缺失补齐 | `e09696b` | `main` |
 | 63 | 2026-08-28 | 媒体库缺失元数据筛选与入口精简 | `14d706b` | `main` |

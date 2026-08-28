@@ -1406,3 +1406,25 @@ Committed the existing web UI redesign together with detailed background task lo
 ### Status
 
 [OK] **Completed**
+
+
+## Session 66: 完善媒体详情标签图标和发布日期
+<!-- trellis-session: v=2 fp=7dd8c08245dcbc20 -->
+
+**Date**: 2026-08-28
+**Task**: 完善媒体详情标签图标和发布日期
+**Branch**: `main`
+
+### Summary
+
+为媒体详情的分辨率、时长、大小和格式补充图标，加入豆瓣与 TMDB 品牌资源，并优先显示完整发布日期。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `ce2432b` | feat(media): add metadata badge icons and release dates |
+
+### Status
+
+[OK] **Completed**
