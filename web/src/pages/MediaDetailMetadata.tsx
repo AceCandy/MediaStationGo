@@ -1,4 +1,4 @@
-import { Calendar, Circle, CircleAlert, CircleCheck, Heart, Star } from 'lucide-react'
+import { Calendar, Circle, CircleAlert, CircleCheck, Clock, FileVideo, HardDrive, Heart, Monitor, Star } from 'lucide-react'
 import { motion } from 'framer-motion'
 
 import type { Media } from '../types'
@@ -55,25 +55,29 @@ export function MediaDetailMetadata({ media, favourite, onToggleFavourite }: Med
             <Star size={12} fill="currentColor" className="mr-1" />
             {media.rating > 0 ? media.rating.toFixed(1) : '-'}
           </span>
-          {media.year > 0 && (
+          {(media.release_date || media.year > 0) && (
             <span className="inline-flex items-center gap-1.5 rounded-xl border border-[var(--app-border)] bg-[var(--app-panel)]/70 px-3 py-1.5 text-[var(--app-text)] backdrop-blur">
               <Calendar size={13} className="text-brand-500" />
-              <span>{media.year} 年</span>
+              <span>{media.release_date || `${media.year} 年`}</span>
             </span>
           )}
           {media.width > 0 && (
-            <span className="rounded-xl border border-[var(--app-brand-border)] bg-[var(--app-brand-soft)] px-3 py-1.5 uppercase text-[var(--app-brand-text)] backdrop-blur">
+            <span className="inline-flex items-center gap-1.5 rounded-xl border border-[var(--app-brand-border)] bg-[var(--app-brand-soft)] px-3 py-1.5 uppercase text-[var(--app-brand-text)] backdrop-blur">
+              <Monitor size={13} aria-hidden="true" />
               {media.width} × {media.height}
             </span>
           )}
-          <span className="rounded-xl border border-[var(--app-border)] bg-[var(--app-panel)]/70 px-3 py-1.5 text-[var(--app-subtle)] backdrop-blur">
+          <span className="inline-flex items-center gap-1.5 rounded-xl border border-[var(--app-border)] bg-[var(--app-panel)]/70 px-3 py-1.5 text-[var(--app-subtle)] backdrop-blur">
+            <Clock size={13} aria-hidden="true" />
             {fmtDuration(media.duration_sec)}
           </span>
-          <span className="rounded-xl border border-[var(--app-border)] bg-[var(--app-panel)]/70 px-3 py-1.5 text-[var(--app-subtle)] backdrop-blur">
+          <span className="inline-flex items-center gap-1.5 rounded-xl border border-[var(--app-border)] bg-[var(--app-panel)]/70 px-3 py-1.5 text-[var(--app-subtle)] backdrop-blur">
+            <HardDrive size={13} aria-hidden="true" />
             {fmtSize(media.size_bytes)}
           </span>
           {media.container && (
-            <span className="rounded-xl border border-[var(--app-border)] bg-[var(--app-panel)]/70 px-3 py-1.5 font-mono text-[10px] uppercase text-[var(--app-subtle)] backdrop-blur">
+            <span className="inline-flex items-center gap-1.5 rounded-xl border border-[var(--app-border)] bg-[var(--app-panel)]/70 px-3 py-1.5 font-mono text-[10px] uppercase text-[var(--app-subtle)] backdrop-blur">
+              <FileVideo size={13} aria-hidden="true" />
               {media.container}
             </span>
           )}
@@ -81,7 +85,7 @@ export function MediaDetailMetadata({ media, favourite, onToggleFavourite }: Med
             <ProviderLink
               href={tmdbHref}
               label="TMDb"
-              monogram="TM"
+              iconSrc="/brand/tmdb.svg"
               status={providerStatus(media.tmdb_status, media.tmdb_snapshot)}
             />
           )}
@@ -89,7 +93,7 @@ export function MediaDetailMetadata({ media, favourite, onToggleFavourite }: Med
             <ProviderLink
               href={`https://movie.douban.com/subject/${encodeURIComponent(media.douban_id)}/`}
               label="豆瓣"
-              monogram="豆"
+              iconSrc="/brand/douban.svg"
               status={providerStatus(media.douban_status, media.douban_snapshot)}
             />
           )}
@@ -128,7 +132,7 @@ function providerStatus(status: ProviderStatus | undefined, snapshot: boolean | 
   return status ?? (snapshot ? 'partial' : 'missing')
 }
 
-function ProviderLink({ href, label, monogram, status }: { href: string; label: string; monogram: string; status: ProviderStatus }) {
+function ProviderLink({ href, label, iconSrc, status }: { href: string; label: string; iconSrc: string; status: ProviderStatus }) {
   const statusLabel = providerStatusLabels[status]
   const StatusIcon = status === 'complete' ? CircleCheck : status === 'partial' ? CircleAlert : Circle
   const statusClass = status === 'complete' ? 'text-emerald-600' : status === 'partial' ? 'text-amber-600' : 'text-[var(--app-muted)]'
@@ -141,7 +145,7 @@ function ProviderLink({ href, label, monogram, status }: { href: string; label: 
       aria-label={`${label}：${statusLabel}，点击打开`}
       className="inline-flex items-center gap-1.5 rounded-xl border border-[var(--app-border)] bg-[var(--app-panel)]/70 px-2.5 py-1.5 text-[var(--app-text)] backdrop-blur hover:border-[var(--app-brand-border)] hover:text-[var(--app-brand-text)]"
     >
-      <span aria-hidden="true" className="font-black tracking-tight">{monogram}</span>
+      <img src={iconSrc} alt="" aria-hidden="true" className="h-4 w-auto shrink-0" />
       <StatusIcon size={13} aria-hidden="true" className={statusClass} />
       <span className="sr-only">{statusLabel}</span>
     </a>
