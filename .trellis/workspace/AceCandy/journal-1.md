@@ -1364,3 +1364,24 @@ Committed the existing web UI redesign together with detailed background task lo
 ### Status
 
 [OK] **Completed**
+
+
+## Session 64: 详情页来源链接与豆瓣缺失补齐
+
+**Date**: 2026-08-28
+**Task**: 详情页来源链接与豆瓣缺失补齐
+**Branch**: `main`
+
+### Summary
+
+详情页展示 canonical 豆瓣/TMDb 外链与本地快照标识；豆瓣电影补齐支持刷新超过 24 小时且缺海报、简介或中文标题的快照，失败不推进冷却，并区分更新与无变化指标。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `e09696b` | (see git log) |
+
+### Status
+
+[OK] **Completed**
