@@ -408,8 +408,8 @@ func (r *MetadataRepository) ListIdentifiers(ctx context.Context, metadataID str
 	return r.ListIdentifiersByMetadataIDs(ctx, []string{metadataID})
 }
 
-// ListDoubanMovieEnrichmentAfter 按元数据 ID 分页返回尚未获取豆瓣详情的确定电影标识。
-func (r *MetadataRepository) ListDoubanMovieEnrichmentAfter(ctx context.Context, afterID string, limit int) ([]DoubanMovieEnrichmentCandidate, error) {
+// ListDoubanMovieEnrichmentAfter 按元数据 ID 分页返回需要首次获取或刷新豆瓣详情的确定电影标识。
+func (r *MetadataRepository) ListDoubanMovieEnrichmentAfter(ctx context.Context, afterID string, refreshBefore time.Time, limit int) ([]DoubanMovieEnrichmentCandidate, error) {
 	if limit <= 0 {
 		limit = 20
 	}
@@ -423,14 +423,31 @@ WHERE mi.kind = ?
   AND mid.provider = 'douban'
   AND mid.entity_kind = ?
   AND mi.id > ?
-  AND NOT EXISTS (
-    SELECT 1 FROM metadata_provider_snapshots AS mps
-    WHERE mps.metadata_id = mi.id AND mps.provider = 'douban'
+  AND (
+    NOT EXISTS (
+      SELECT 1 FROM metadata_provider_snapshots AS mps
+      WHERE mps.metadata_id = mi.id AND mps.provider = 'douban'
+    )
+    OR (
+      EXISTS (
+        SELECT 1 FROM metadata_provider_snapshots AS mps
+        WHERE mps.metadata_id = mi.id AND mps.provider = 'douban' AND mps.fetched_at < ?
+      )
+      AND (
+        btrim(COALESCE(mi.overview, '')) = ''
+        OR mi.title !~ '[㐀-䶿一-鿿豈-﫿]'
+        OR NOT EXISTS (
+          SELECT 1 FROM metadata_artworks AS ma
+          JOIN artwork_assets AS aa ON aa.id = ma.asset_id
+          WHERE ma.metadata_id = mi.id AND ma.artwork_type = 'poster'
+        )
+      )
+    )
   )
 GROUP BY mi.id
 HAVING COUNT(*) = 1
 ORDER BY mi.id ASC
-LIMIT ?`, model.MetadataKindMovie, model.MetadataKindMovie, strings.TrimSpace(afterID), limit).Scan(&candidates).Error
+LIMIT ?`, model.MetadataKindMovie, model.MetadataKindMovie, strings.TrimSpace(afterID), refreshBefore.UTC(), limit).Scan(&candidates).Error
 	return candidates, err
 }
 

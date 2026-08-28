@@ -53,16 +53,7 @@ func (s *ScraperService) enrichMovieFromDouban(ctx context.Context, metadataID s
 		return result, nil
 	}
 
-	var details *Match
-	snapshot, err := s.repo.Metadata.FindProviderSnapshot(ctx, metadataID, "douban")
-	if err != nil {
-		return result, err
-	}
-	if snapshot != nil {
-		details, err = doubanMatchFromRawJSON(doubanID, []byte(snapshot.Payload))
-	} else {
-		details, err = s.douban.GetMatchByID(ctx, doubanID)
-	}
+	details, err := s.douban.GetMatchByID(ctx, doubanID)
 	if err != nil || details == nil {
 		return result, err
 	}
@@ -72,30 +63,29 @@ func (s *ScraperService) enrichMovieFromDouban(ctx context.Context, metadataID s
 			return result, nil
 		}
 	}
-	if snapshot == nil && len(details.RawJSON) > 0 {
-		if err := s.repo.Metadata.UpsertProviderSnapshot(ctx, metadataID, "douban", details.RawJSON, time.Now().UTC()); err != nil {
-			return result, err
-		}
-		result.SnapshotSaved = true
-	}
-
 	result.FieldsFilled, err = s.fillMissingDoubanMovieFields(ctx, metadataID, details)
 	if err != nil {
 		return result, err
 	}
-	if strings.TrimSpace(details.PosterURL) == "" || s.artwork == nil || s.repo.Artwork == nil {
-		return result, nil
+	if strings.TrimSpace(details.PosterURL) != "" && s.artwork != nil && s.repo.Artwork != nil {
+		hasCandidate, err := s.repo.Artwork.HasCandidate(ctx, metadataID, model.ArtworkTypePoster, "douban")
+		if err != nil {
+			return result, err
+		}
+		if !hasCandidate {
+			_, promoted, err := s.artwork.importRemoteCandidate(ctx, metadataID, model.ArtworkTypePoster, "douban", details.PosterURL)
+			if err != nil {
+				return result, err
+			}
+			result.CandidateSaved = true
+			result.CandidatePromoted = promoted
+		}
 	}
-	hasCandidate, err := s.repo.Artwork.HasCandidate(ctx, metadataID, model.ArtworkTypePoster, "douban")
-	if err != nil || hasCandidate {
+	if err := s.repo.Metadata.UpsertProviderSnapshot(ctx, metadataID, "douban", details.RawJSON, time.Now().UTC()); err != nil {
 		return result, err
 	}
-	_, promoted, err := s.artwork.importRemoteCandidate(ctx, metadataID, model.ArtworkTypePoster, "douban", details.PosterURL)
-	if err == nil {
-		result.CandidateSaved = true
-		result.CandidatePromoted = promoted
-	}
-	return result, err
+	result.SnapshotSaved = true
+	return result, nil
 }
 
 func uniqueIdentifier(identifiers []model.MetadataIdentifier, provider, entityKind string) (string, bool) {
@@ -180,7 +170,7 @@ func (s *ScraperService) runDoubanMovieEnrichment(ctx context.Context, trigger s
 	if err != nil {
 		return fail(err)
 	}
-	candidates, err := s.repo.Metadata.ListDoubanMovieEnrichmentAfter(ctx, afterID, doubanMovieEnrichmentBatchLimit)
+	candidates, err := s.repo.Metadata.ListDoubanMovieEnrichmentAfter(ctx, afterID, time.Now().UTC().Add(-24*time.Hour), doubanMovieEnrichmentBatchLimit)
 	if err != nil {
 		return fail(err)
 	}
@@ -192,7 +182,6 @@ func (s *ScraperService) runDoubanMovieEnrichment(ctx context.Context, trigger s
 		} else if result.Skipped {
 			metrics["ambiguous_skipped"]++
 		} else {
-			metrics["enriched"]++
 			metrics["fields_filled"] += result.FieldsFilled
 			if result.SnapshotSaved {
 				metrics["snapshot_saved"]++
@@ -202,6 +191,11 @@ func (s *ScraperService) runDoubanMovieEnrichment(ctx context.Context, trigger s
 			}
 			if result.CandidatePromoted {
 				metrics["candidate_promoted"]++
+			}
+			if result.FieldsFilled > 0 || result.CandidateSaved || result.CandidatePromoted {
+				metrics["updated"]++
+			} else {
+				metrics["unchanged"]++
 			}
 		}
 		afterID = candidate.MetadataID
@@ -224,7 +218,7 @@ func (s *ScraperService) runDoubanMovieEnrichment(ctx context.Context, trigger s
 		}
 	}
 	if task != nil {
-		task.Finish(nil, TaskUpdate{Stage: "completed", Message: "豆瓣电影信息补齐完成", Metrics: metrics, Details: []string{fmt.Sprintf("ℹ️ 扫描 %d，补齐 %d，跳过 %d，失败 %d", metrics["scanned"], metrics["enriched"], metrics["ambiguous_skipped"], metrics["failed"])}})
+		task.Finish(nil, TaskUpdate{Stage: "completed", Message: "豆瓣电影信息补齐完成", Metrics: metrics, Details: []string{fmt.Sprintf("ℹ️ 扫描 %d，更新 %d，无变化 %d，跳过 %d，失败 %d", metrics["scanned"], metrics["updated"], metrics["unchanged"], metrics["ambiguous_skipped"], metrics["failed"])}})
 	}
 	return nil
 }

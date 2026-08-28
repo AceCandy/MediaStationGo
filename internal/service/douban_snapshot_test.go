@@ -103,7 +103,14 @@ func TestDoubanDetailFailureKeepsAcceptedMatchWithoutSnapshot(t *testing.T) {
 func TestDoubanMovieEnrichmentOnlyFillsMissingFields(t *testing.T) {
 	scraper, repos, closeServer := newTestScraper(t)
 	defer closeServer()
-	scraper.douban = NewDoubanProvider(&config.Config{}, zap.NewNop())
+	provider := NewDoubanProvider(&config.Config{}, zap.NewNop())
+	requests := 0
+	provider.client = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		requests++
+		body := `{"subject":{"title":"中文标题","summary":"中文简介","year":"1997","rating":9.4,"languages":["汉语","英语"],"tmdb_id":603}}`
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(body)), Request: req}, nil
+	})}
+	scraper.douban = provider
 	metadata := model.MetadataItem{
 		Kind: model.MetadataKindMovie, Title: "English title", Rating: 8.1, Source: "tmdb",
 	}
@@ -113,8 +120,9 @@ func TestDoubanMovieEnrichmentOnlyFillsMissingFields(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	raw := []byte(`{"subject":{"title":"中文标题","summary":"中文简介","year":"1997","rating":9.4,"languages":["汉语","英语"],"tmdb_id":603}}`)
-	if err := repos.Metadata.UpsertProviderSnapshot(t.Context(), metadata.ID, "douban", raw, time.Now()); err != nil {
+	raw := []byte(`{"subject":{"title":"旧标题"}}`)
+	previousFetchedAt := time.Now().UTC().Add(-48 * time.Hour).Truncate(time.Microsecond)
+	if err := repos.Metadata.UpsertProviderSnapshot(t.Context(), metadata.ID, "douban", raw, previousFetchedAt); err != nil {
 		t.Fatal(err)
 	}
 	result, err := scraper.enrichMovieFromDouban(t.Context(), metadata.ID)
@@ -128,8 +136,79 @@ func TestDoubanMovieEnrichmentOnlyFillsMissingFields(t *testing.T) {
 	if updated.Title != "中文标题" || updated.OriginalName != "English title" || updated.Overview != "中文简介" || updated.Year != 1997 {
 		t.Fatalf("enriched metadata = %#v", updated)
 	}
-	if updated.Rating != 8.1 || updated.Source != "tmdb" || result.SnapshotSaved {
+	if updated.Rating != 8.1 || updated.Source != "tmdb" || !result.SnapshotSaved || requests != 1 {
 		t.Fatalf("existing fields or snapshot changed: metadata=%#v result=%#v", updated, result)
+	}
+	snapshot, err := repos.Metadata.FindProviderSnapshot(t.Context(), metadata.ID, "douban")
+	if err != nil || snapshot == nil || !snapshot.FetchedAt.After(previousFetchedAt) || !strings.Contains(snapshot.Payload, `"中文简介"`) {
+		t.Fatalf("refreshed snapshot = %#v, err = %v", snapshot, err)
+	}
+}
+
+func TestDoubanMovieEnrichmentFailureDoesNotAdvanceSnapshotCooldown(t *testing.T) {
+	scraper, repos, closeServer := newTestScraper(t)
+	defer closeServer()
+	provider := NewDoubanProvider(&config.Config{}, zap.NewNop())
+	provider.client = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: http.StatusServiceUnavailable, Body: io.NopCloser(strings.NewReader("unavailable")), Request: req}, nil
+	})}
+	scraper.douban = provider
+	metadata := model.MetadataItem{Kind: model.MetadataKindMovie, Title: "English title", Source: "tmdb"}
+	if err := repos.Metadata.Create(t.Context(), &metadata, []model.MetadataIdentifier{{Provider: "douban", EntityKind: model.MetadataKindMovie, ExternalID: "1295644"}}); err != nil {
+		t.Fatal(err)
+	}
+	fetchedAt := time.Now().UTC().Add(-48 * time.Hour).Truncate(time.Microsecond)
+	if err := repos.Metadata.UpsertProviderSnapshot(t.Context(), metadata.ID, "douban", []byte(`{"subject":{}}`), fetchedAt); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := scraper.enrichMovieFromDouban(t.Context(), metadata.ID); err == nil {
+		t.Fatal("expected douban request failure")
+	}
+	snapshot, err := repos.Metadata.FindProviderSnapshot(t.Context(), metadata.ID, "douban")
+	if err != nil || snapshot == nil || !snapshot.FetchedAt.Equal(fetchedAt) {
+		t.Fatalf("snapshot cooldown changed after failure: %#v, err = %v", snapshot, err)
+	}
+}
+
+func TestDoubanMovieEnrichmentMetricsDistinguishUpdatedAndUnchanged(t *testing.T) {
+	scraper, repos, closeServer := newTestScraper(t)
+	defer closeServer()
+	if err := repos.DB.AutoMigrate(&model.Setting{}); err != nil {
+		t.Fatal(err)
+	}
+	provider := NewDoubanProvider(&config.Config{}, zap.NewNop())
+	provider.client = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		title, summary := "已有中文标题", "已有简介"
+		if req.URL.Query().Get("subject_id") == "2" {
+			title, summary = "补齐中文标题", "补齐简介"
+		}
+		body := `{"subject":{"title":"` + title + `","summary":"` + summary + `"}}`
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(body)), Request: req}, nil
+	})}
+	scraper.douban = provider
+	for _, item := range []struct {
+		title, overview, doubanID string
+	}{
+		{title: "已有中文标题", overview: "已有简介", doubanID: "1"},
+		{title: "English", doubanID: "2"},
+	} {
+		metadata := model.MetadataItem{Kind: model.MetadataKindMovie, Title: item.title, Overview: item.overview, Source: "tmdb"}
+		if err := repos.Metadata.Create(t.Context(), &metadata, []model.MetadataIdentifier{{Provider: "douban", EntityKind: model.MetadataKindMovie, ExternalID: item.doubanID}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	tasks := NewTaskTrackerService(zap.NewNop(), nil)
+	scraper.SetTaskTracker(tasks)
+	previousDelay := doubanMovieEnrichmentDelay
+	doubanMovieEnrichmentDelay = 0
+	defer func() { doubanMovieEnrichmentDelay = previousDelay }()
+
+	if err := scraper.runDoubanMovieEnrichment(t.Context(), TaskTriggerManual); err != nil {
+		t.Fatal(err)
+	}
+	snapshot := tasks.Snapshot()
+	if len(snapshot.Recent) != 1 || snapshot.Recent[0].Metrics["updated"] != 1 || snapshot.Recent[0].Metrics["unchanged"] != 1 {
+		t.Fatalf("douban enrichment metrics = %#v", snapshot.Recent)
 	}
 }
 

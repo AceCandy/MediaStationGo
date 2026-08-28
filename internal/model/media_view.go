@@ -29,6 +29,9 @@ type MediaView struct {
 	NSFW           bool    `gorm:"column:view_nsfw" json:"nsfw"`
 	MetadataKind   string  `gorm:"column:view_metadata_kind" json:"metadata_kind,omitempty"`
 	MetadataSource string  `gorm:"column:view_metadata_source" json:"metadata_source,omitempty"`
+	TMDbSnapshot   bool    `gorm:"-" json:"tmdb_snapshot,omitempty"`
+	DoubanSnapshot bool    `gorm:"-" json:"douban_snapshot,omitempty"`
+	SeriesTMDbID   int     `gorm:"-" json:"series_tmdb_id,omitempty"`
 
 	PosterAssetID     string `gorm:"column:view_poster_asset_id" json:"-"`
 	BackdropAssetID   string `gorm:"column:view_backdrop_asset_id" json:"-"`

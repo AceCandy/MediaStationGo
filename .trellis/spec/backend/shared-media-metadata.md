@@ -1102,6 +1102,65 @@ setMedia(selectedVersion)
 setSelectedMedia(selectedVersion)
 ```
 
+## Scenario: Media Detail Provider Links
+
+### 1. Scope / Trigger
+
+- Apply when changing the single-media detail projection or provider links in
+  the Web detail page. List, search, and Emby projections remain unchanged.
+
+### 2. Signatures
+
+- `GET /api/media/:id` may add `metadata_kind`, `tmdb_snapshot`,
+  `douban_snapshot`, and `series_tmdb_id` to the existing canonical
+  `tmdb_id` / `douban_id` fields.
+- Snapshot flags and `series_tmdb_id` are `gorm:"-"` detail-only fields.
+
+### 3. Contracts
+
+- IDs come from canonical `MetadataIdentifier` rows, never `Media.lookup_*`
+  scan hints. Snapshot flags mean only that the matching provider snapshot
+  exists; they do not claim projected fields are complete.
+- Movie links use `/movie/{tmdb_id}`; Series links use `/tv/{tmdb_id}`.
+  Season/Episode links display the entity's own TMDb ID but use the canonical
+  Series TMDb ID plus season/episode numbers in the `/tv/...` deep link.
+- Missing required IDs omit the link. External links open a new window with
+  `noopener noreferrer`.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required result |
+| --- | --- |
+| Provider ID is absent | Omit that provider link |
+| Provider snapshot is absent | Show the ID without a check mark |
+| Provider snapshot exists | Show the ID with `✅` |
+| Season/Episode Series TMDb ID is absent | Omit the TMDb deep link |
+| Snapshot or identifier lookup fails | Fail the detail request; do not report a false state |
+
+### 5. Good / Base / Bad Cases
+
+- Good: an Episode displays its own TMDb ID and opens its Series/season/episode
+  deep link; a local Episode snapshot controls only its own check mark.
+- Base: a provider ID exists without a snapshot; the clickable ID has no mark.
+- Bad: infer snapshot presence from an ID, use an Episode ID as `/tv/{id}`, or
+  add provider snapshot joins to shared list queries.
+
+### 6. Tests Required
+
+- Service: provider snapshot true/false state and Series TMDb ID projection.
+- Web: Movie/Series/Season/Episode link construction, omitted IDs, safe external
+  attributes, lint, and TypeScript production build.
+
+### 7. Wrong vs Correct
+
+```go
+// Wrong: scan hints and current Episode ID are not the Series website identity.
+media.SeriesTMDbID = media.LookupTMDbID
+
+// Correct: resolve the canonical Series identifier only for detail projection.
+identifiers := repo.Metadata.ListIdentifiers(ctx, media.SeriesID)
+```
+
 ## Scenario: Douban Movie Secondary Enrichment
 
 ### 1. Scope / Trigger
@@ -1118,7 +1177,7 @@ setSelectedMedia(selectedVersion)
 - Snapshot write: `UpsertProviderSnapshot(ctx, metadataID, provider, payload, fetchedAt)`.
 - Snapshot identity is `(metadata_id, provider)` and payload storage is JSONB.
 - Candidate discovery:
-  `ListDoubanMovieEnrichmentAfter(ctx, afterID, limit) []DoubanMovieEnrichmentCandidate`.
+  `ListDoubanMovieEnrichmentAfter(ctx, afterID, refreshBefore, limit) []DoubanMovieEnrichmentCandidate`.
 - Candidate artwork:
   `MetadataArtworkCandidate{MetadataID, AssetID, ArtworkType, SourceProvider, SourceURL}`
   is unique on `(metadata_id, artwork_type, source_provider)`.
@@ -1142,8 +1201,10 @@ setSelectedMedia(selectedVersion)
   Source, NSFW, existing non-empty fields, and provider IDs stay unchanged.
 - If both sources provide a TMDb ID and it conflicts with the canonical TMDb
   identifier, skip the entire Douban write, including snapshot and artwork.
-- Save the complete valid Douban response before field projection. Repeated
-  enrichment reuses the snapshot and performs no provider request.
+- A historical candidate always performs a real provider request. Save the
+  complete valid response and advance `fetched_at` only after field and artwork
+  persistence succeed. Request, parsing, field, artwork, or snapshot failures
+  do not advance the cooldown.
 - Canonical graph merge moves provider snapshots and artwork candidates to the
   surviving metadata; when the same provider/candidate key already exists, the
   surviving target row wins before the source metadata is hard-deleted.
@@ -1151,11 +1212,15 @@ setSelectedMedia(selectedVersion)
   as a provider candidate. Existing selection always wins; only an absent
   selection is atomically promoted. Public responses continue to use only
   `/api/artwork/:assetID`, never a remote URL.
-- Historical passes admit only movies with one Douban Movie identifier and no
-  Douban provider snapshot. They use metadata-ID keyset pagination, a maximum
-  batch of 20, serial processing, a two-second inter-item delay, and a persisted
-  cursor. They never join `media`; per-item provider/image failures are counted
-  and do not stop later candidates.
+- Historical passes admit movies with one Douban Movie identifier when no
+  snapshot exists, or when the snapshot is older than 24 hours and canonical
+  data lacks a selected valid poster, overview, or Chinese title. Other empty
+  fields are filled only during such a request and never trigger one alone.
+  Passes use metadata-ID keyset pagination, a maximum batch of 20, serial
+  processing, a two-second inter-item delay, and a persisted cursor. They never
+  join `media`; per-item provider/image failures are counted and do not stop
+  later candidates. Metrics classify successful results as `updated` or
+  `unchanged`; failures remain separate.
 - Artwork URL removal is enforced at both UI and backend DTO boundaries, so
   metadata editing cannot clear or replace the current selection.
 
@@ -1167,6 +1232,10 @@ setSelectedMedia(selectedVersion)
 | Canonical item is not a Movie | Skip without provider or artwork I/O |
 | Movie has zero or multiple Douban Movie IDs | Skip as ambiguous |
 | Movie has one Douban ID and no snapshot | Fetch details once, then store the full response |
+| Snapshot is less than 24 hours old | Make no provider request |
+| Stale snapshot and poster, overview, and Chinese title are complete | Make no provider request |
+| Stale snapshot lacks poster, overview, or Chinese title | Refresh and fill only missing data |
+| Refresh or persistence fails | Preserve the previous `fetched_at` |
 | Detail contains unknown fields | Preserve them in the valid JSONB document |
 | Detail TMDb ID conflicts with canonical TMDb ID | Skip snapshot, fields, and artwork |
 | Canonical field is non-empty | Preserve it, except for the Chinese-title rule |
@@ -1180,8 +1249,8 @@ setSelectedMedia(selectedVersion)
 - Good: a TMDb Movie with one Douban ID stores the raw Douban response, fills a
   missing Chinese title/overview, localizes its poster as a candidate, and keeps
   the existing TMDb selection.
-- Base: all canonical fields and artwork are already complete; snapshot reuse
-  produces an idempotent no-op without network access.
+- Base: all three trigger fields are complete, or the latest successful check is
+  less than 24 hours old; no network request is made.
 - Bad: query Douban by title, enrich a Series, overwrite a non-empty overview or
   current image, expose a remote image URL, or scan history with offset pages.
 
@@ -1190,11 +1259,12 @@ setSelectedMedia(selectedVersion)
 - Provider unit: source, IDs, projected lists, and unknown raw fields survive
   detail parsing.
 - Repository/PostgreSQL: Movie-only unique-ID keyset discovery, ambiguity skip,
-  supporting provider/kind/metadata index, candidate uniqueness, and atomic
-  selection preservation/promotion.
+  no-snapshot admission, 24-hour exclusion, stale incomplete admission,
+  complete exclusion, candidate uniqueness, and atomic selection
+  preservation/promotion.
 - Service: fill-only fields, Chinese-title replacement, TMDb mismatch rejection,
-  snapshot reuse, per-item failure isolation, bounded cursor progress, and no
-  Series/Season/Episode enrichment.
+  real refresh, failure without cooldown advancement, `updated` / `unchanged`,
+  per-item failure isolation, bounded cursor progress, and no Series/Season/Episode enrichment.
 - API/web: editing ordinary metadata preserves artwork; TypeScript build proves
   the edit form and payload contain no artwork URL fields.
 
@@ -1205,10 +1275,10 @@ setSelectedMedia(selectedVersion)
 metadata.Overview = doubanDetail.Overview
 repo.SaveSelection(ctx, metadata.ID, "poster", "douban", source, asset)
 
-// Correct: keep the raw response, fill only gaps, and retain local candidate bytes.
-repo.UpsertProviderSnapshot(ctx, metadata.ID, "douban", detail.RawJSON, fetchedAt)
+// Correct: fill gaps and persist artwork before advancing the successful-check time.
 fillMissingDoubanMovieFields(ctx, metadata.ID, detail)
 repo.SaveCandidate(ctx, metadata.ID, "poster", "douban", source, asset)
+repo.UpsertProviderSnapshot(ctx, metadata.ID, "douban", detail.RawJSON, fetchedAt)
 ```
 
 ## Scenario: Durable TMDb Catalog Hydration

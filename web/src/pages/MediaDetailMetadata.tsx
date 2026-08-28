@@ -18,6 +18,7 @@ const rise = (delay: number) => ({
 export function MediaDetailMetadata({ media, favourite, onToggleFavourite }: MediaDetailMetadataProps) {
   const heading = media.title
   const seriesContext = media.series_title?.trim()
+  const tmdbHref = tmdbURL(media)
 
   return (
     <>
@@ -78,6 +79,26 @@ export function MediaDetailMetadata({ media, favourite, onToggleFavourite }: Med
               {media.container}
             </span>
           )}
+          {tmdbHref && (
+            <a
+              href={tmdbHref}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="rounded-xl border border-[var(--app-border)] bg-[var(--app-panel)]/70 px-3 py-1.5 text-[var(--app-text)] backdrop-blur hover:border-[var(--app-brand-border)] hover:text-[var(--app-brand-text)]"
+            >
+              TMDb {media.tmdb_id}{media.tmdb_snapshot && <span title="本地已有详情快照"> ✅</span>}
+            </a>
+          )}
+          {media.douban_id && (
+            <a
+              href={`https://movie.douban.com/subject/${encodeURIComponent(media.douban_id)}/`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="rounded-xl border border-[var(--app-border)] bg-[var(--app-panel)]/70 px-3 py-1.5 text-[var(--app-text)] backdrop-blur hover:border-[var(--app-brand-border)] hover:text-[var(--app-brand-text)]"
+            >
+              豆瓣 {media.douban_id}{media.douban_snapshot && <span title="本地已有详情快照"> ✅</span>}
+            </a>
+          )}
         </motion.div>
       </div>
 
@@ -99,6 +120,19 @@ export function MediaDetailMetadata({ media, favourite, onToggleFavourite }: Med
       </motion.div>
     </>
   )
+}
+
+function tmdbURL(media: Media): string | null {
+  if (!media.tmdb_id) return null
+  const base = 'https://www.themoviedb.org'
+  if (media.metadata_kind === 'movie') return `${base}/movie/${media.tmdb_id}`
+  if (media.metadata_kind === 'series') return `${base}/tv/${media.tmdb_id}`
+  if (!media.series_tmdb_id) return null
+  if (media.metadata_kind === 'season') return `${base}/tv/${media.series_tmdb_id}/season/${media.season_num}`
+  if (media.metadata_kind === 'episode' && media.episode_num > 0) {
+    return `${base}/tv/${media.series_tmdb_id}/season/${media.season_num}/episode/${media.episode_num}`
+  }
+  return null
 }
 
 function MetadataTags({ label, values, primary = false }: { label: string; values: string[]; primary?: boolean }) {

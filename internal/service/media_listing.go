@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -207,12 +208,46 @@ func (s *MediaService) getMedia(ctx context.Context, id string, visibility Media
 	items := []model.MediaView{*media}
 	s.attachLibraryMetadataViews(ctx, items)
 	*media = items[0]
+	if err := s.attachMediaProviderDetails(ctx, media); err != nil {
+		return nil, err
+	}
 	if s.probe != nil {
 		if doc, ok := s.probe.Load(ctx, media.ID); ok {
 			media.Tracks = projectProbeTracks(doc)
 		}
 	}
 	return media, nil
+}
+
+func (s *MediaService) attachMediaProviderDetails(ctx context.Context, media *model.MediaView) error {
+	if media == nil || strings.TrimSpace(media.MetadataID) == "" {
+		return nil
+	}
+	if media.TMDbID > 0 {
+		snapshot, err := s.repo.Metadata.FindProviderSnapshot(ctx, media.MetadataID, "tmdb")
+		if err != nil {
+			return err
+		}
+		media.TMDbSnapshot = snapshot != nil
+	}
+	if media.DoubanID != "" {
+		snapshot, err := s.repo.Metadata.FindProviderSnapshot(ctx, media.MetadataID, "douban")
+		if err != nil {
+			return err
+		}
+		media.DoubanSnapshot = snapshot != nil
+	}
+	if media.MetadataKind != model.MetadataKindSeason && media.MetadataKind != model.MetadataKindEpisode {
+		return nil
+	}
+	identifiers, err := s.repo.Metadata.ListIdentifiers(ctx, media.SeriesID)
+	if err != nil {
+		return err
+	}
+	if externalID, ok := uniqueIdentifier(identifiers, "tmdb", model.MetadataKindSeries); ok {
+		media.SeriesTMDbID, _ = strconv.Atoi(externalID)
+	}
+	return nil
 }
 
 // ListMediaVersions 返回当前用户可见的同作品媒体版本。

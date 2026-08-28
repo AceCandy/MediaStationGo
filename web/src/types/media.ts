@@ -38,6 +38,10 @@ export interface Media {
   countries?: string
   genres?: string
   nsfw: boolean
+  metadata_kind?: string
+  tmdb_snapshot?: boolean
+  douban_snapshot?: boolean
+  series_tmdb_id?: number
   strm_url?: string
   file_hash?: string
   file_id?: string
