@@ -1385,3 +1385,24 @@ Committed the existing web UI redesign together with detailed background task lo
 ### Status
 
 [OK] **Completed**
+
+
+## Session 65: 豆瓣移动端详情与来源状态
+
+**Date**: 2026-08-28
+**Task**: 豆瓣移动端详情与来源状态
+**Branch**: `main`
+
+### Summary
+
+豆瓣按 ID 详情和集数切换到移动端 JSON 并保留摘要降级；旧或缺字段快照按 24 小时冷却刷新；详情页展示 provider 三态图标和评分占位。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `b4bcf62` | (see git log) |
+
+### Status
+
+[OK] **Completed**
