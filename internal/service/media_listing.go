@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"sort"
 	"strconv"
@@ -16,6 +17,12 @@ import (
 )
 
 var ErrInvalidScrapeIssueStatus = errors.New("invalid scrape issue status")
+
+const (
+	providerStatusMissing  = "missing"
+	providerStatusPartial  = "partial"
+	providerStatusComplete = "complete"
+)
 
 type MediaScrapeIssue struct {
 	ID          string `json:"id"`
@@ -224,18 +231,40 @@ func (s *MediaService) attachMediaProviderDetails(ctx context.Context, media *mo
 		return nil
 	}
 	if media.TMDbID > 0 {
+		media.TMDbStatus = providerStatusMissing
 		snapshot, err := s.repo.Metadata.FindProviderSnapshot(ctx, media.MetadataID, "tmdb")
 		if err != nil {
 			return err
 		}
 		media.TMDbSnapshot = snapshot != nil
+		if snapshot != nil {
+			media.TMDbStatus = providerStatusPartial
+			hasArtwork, err := s.repo.Artwork.HasProviderArtwork(ctx, media.MetadataID, providerArtworkType(media.MetadataKind), "tmdb")
+			if err != nil {
+				return err
+			}
+			if hasArtwork {
+				media.TMDbStatus = providerStatusComplete
+			}
+		}
 	}
 	if media.DoubanID != "" {
+		media.DoubanStatus = providerStatusMissing
 		snapshot, err := s.repo.Metadata.FindProviderSnapshot(ctx, media.MetadataID, "douban")
 		if err != nil {
 			return err
 		}
 		media.DoubanSnapshot = snapshot != nil
+		if snapshot != nil {
+			media.DoubanStatus = providerStatusPartial
+			hasArtwork, err := s.repo.Artwork.HasProviderArtwork(ctx, media.MetadataID, providerArtworkType(media.MetadataKind), "douban")
+			if err != nil {
+				return err
+			}
+			if hasArtwork && doubanSnapshotIsCurrent([]byte(snapshot.Payload)) {
+				media.DoubanStatus = providerStatusComplete
+			}
+		}
 	}
 	if media.MetadataKind != model.MetadataKindSeason && media.MetadataKind != model.MetadataKindEpisode {
 		return nil
@@ -248,6 +277,27 @@ func (s *MediaService) attachMediaProviderDetails(ctx context.Context, media *mo
 		media.SeriesTMDbID, _ = strconv.Atoi(externalID)
 	}
 	return nil
+}
+
+func providerArtworkType(metadataKind string) string {
+	if metadataKind == model.MetadataKindEpisode {
+		return model.ArtworkTypeStill
+	}
+	return model.ArtworkTypePoster
+}
+
+func doubanSnapshotIsCurrent(payload []byte) bool {
+	var raw map[string]any
+	if json.Unmarshal(payload, &raw) != nil || raw == nil {
+		return false
+	}
+	if _, ok := raw["subject"].(map[string]any); ok {
+		return false
+	}
+	if _, ok := raw["data"].(map[string]any); ok {
+		return false
+	}
+	return true
 }
 
 // ListMediaVersions 返回当前用户可见的同作品媒体版本。

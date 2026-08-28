@@ -1,4 +1,4 @@
-import { Calendar, Heart, Star } from 'lucide-react'
+import { Calendar, Circle, CircleAlert, CircleCheck, Heart, Star } from 'lucide-react'
 import { motion } from 'framer-motion'
 
 import type { Media } from '../types'
@@ -51,12 +51,10 @@ export function MediaDetailMetadata({ media, favourite, onToggleFavourite }: Med
         </motion.div>
 
         <motion.div {...rise(0.08)} className="flex flex-wrap items-center gap-2.5 text-xs font-bold tracking-wide">
-          {media.rating > 0 && (
-            <span className="badge-gold !px-3 !py-1.5 !text-xs shadow-glow-gold">
-              <Star size={12} fill="currentColor" className="mr-1" />
-              {media.rating.toFixed(1)}
-            </span>
-          )}
+          <span className="badge-gold !px-3 !py-1.5 !text-xs shadow-glow-gold">
+            <Star size={12} fill="currentColor" className="mr-1" />
+            {media.rating > 0 ? media.rating.toFixed(1) : '-'}
+          </span>
           {media.year > 0 && (
             <span className="inline-flex items-center gap-1.5 rounded-xl border border-[var(--app-border)] bg-[var(--app-panel)]/70 px-3 py-1.5 text-[var(--app-text)] backdrop-blur">
               <Calendar size={13} className="text-brand-500" />
@@ -80,24 +78,20 @@ export function MediaDetailMetadata({ media, favourite, onToggleFavourite }: Med
             </span>
           )}
           {tmdbHref && (
-            <a
+            <ProviderLink
               href={tmdbHref}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="rounded-xl border border-[var(--app-border)] bg-[var(--app-panel)]/70 px-3 py-1.5 text-[var(--app-text)] backdrop-blur hover:border-[var(--app-brand-border)] hover:text-[var(--app-brand-text)]"
-            >
-              TMDb {media.tmdb_id}{media.tmdb_snapshot && <span title="本地已有详情快照"> ✅</span>}
-            </a>
+              label="TMDb"
+              monogram="TM"
+              status={providerStatus(media.tmdb_status, media.tmdb_snapshot)}
+            />
           )}
           {media.douban_id && (
-            <a
+            <ProviderLink
               href={`https://movie.douban.com/subject/${encodeURIComponent(media.douban_id)}/`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="rounded-xl border border-[var(--app-border)] bg-[var(--app-panel)]/70 px-3 py-1.5 text-[var(--app-text)] backdrop-blur hover:border-[var(--app-brand-border)] hover:text-[var(--app-brand-text)]"
-            >
-              豆瓣 {media.douban_id}{media.douban_snapshot && <span title="本地已有详情快照"> ✅</span>}
-            </a>
+              label="豆瓣"
+              monogram="豆"
+              status={providerStatus(media.douban_status, media.douban_snapshot)}
+            />
           )}
         </motion.div>
       </div>
@@ -119,6 +113,38 @@ export function MediaDetailMetadata({ media, favourite, onToggleFavourite }: Med
         </div>
       </motion.div>
     </>
+  )
+}
+
+type ProviderStatus = 'missing' | 'partial' | 'complete'
+
+const providerStatusLabels: Record<ProviderStatus, string> = {
+  missing: '本地未缓存',
+  partial: '本地数据不完整',
+  complete: '本地详情和图片完整',
+}
+
+function providerStatus(status: ProviderStatus | undefined, snapshot: boolean | undefined): ProviderStatus {
+  return status ?? (snapshot ? 'partial' : 'missing')
+}
+
+function ProviderLink({ href, label, monogram, status }: { href: string; label: string; monogram: string; status: ProviderStatus }) {
+  const statusLabel = providerStatusLabels[status]
+  const StatusIcon = status === 'complete' ? CircleCheck : status === 'partial' ? CircleAlert : Circle
+  const statusClass = status === 'complete' ? 'text-emerald-600' : status === 'partial' ? 'text-amber-600' : 'text-[var(--app-muted)]'
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      title={`${label}：${statusLabel}`}
+      aria-label={`${label}：${statusLabel}，点击打开`}
+      className="inline-flex items-center gap-1.5 rounded-xl border border-[var(--app-border)] bg-[var(--app-panel)]/70 px-2.5 py-1.5 text-[var(--app-text)] backdrop-blur hover:border-[var(--app-brand-border)] hover:text-[var(--app-brand-text)]"
+    >
+      <span aria-hidden="true" className="font-black tracking-tight">{monogram}</span>
+      <StatusIcon size={13} aria-hidden="true" className={statusClass} />
+      <span className="sr-only">{statusLabel}</span>
+    </a>
   )
 }
 

@@ -57,6 +57,12 @@ func TestSaveCatalogSelectionPreservesExistingSelection(t *testing.T) {
 	if exists, err := repo.HasCandidate(t.Context(), metadata.ID, model.ArtworkTypePoster, "douban"); err != nil || !exists {
 		t.Fatalf("douban candidate exists=%v err=%v", exists, err)
 	}
+	if exists, err := repo.HasProviderArtwork(t.Context(), metadata.ID, model.ArtworkTypePoster, "douban"); err != nil || !exists {
+		t.Fatalf("douban provider artwork exists=%v err=%v", exists, err)
+	}
+	if exists, err := repo.HasProviderArtwork(t.Context(), metadata.ID, model.ArtworkTypePoster, "tmdb"); err != nil || exists {
+		t.Fatalf("tmdb provider artwork exists=%v err=%v", exists, err)
+	}
 }
 
 func TestRepairTMDbSelectionPreservesConcurrentManualSelection(t *testing.T) {

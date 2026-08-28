@@ -31,6 +31,8 @@ type MediaView struct {
 	MetadataSource string  `gorm:"column:view_metadata_source" json:"metadata_source,omitempty"`
 	TMDbSnapshot   bool    `gorm:"-" json:"tmdb_snapshot,omitempty"`
 	DoubanSnapshot bool    `gorm:"-" json:"douban_snapshot,omitempty"`
+	TMDbStatus     string  `gorm:"-" json:"tmdb_status,omitempty"`
+	DoubanStatus   string  `gorm:"-" json:"douban_status,omitempty"`
 	SeriesTMDbID   int     `gorm:"-" json:"series_tmdb_id,omitempty"`
 
 	PosterAssetID     string `gorm:"column:view_poster_asset_id" json:"-"`

@@ -204,6 +204,22 @@ func (r *ArtworkRepository) HasCandidate(ctx context.Context, metadataID, artwor
 	return count > 0, err
 }
 
+// HasProviderArtwork 返回指定 provider 是否已有可用的本地图片选择或候选。
+func (r *ArtworkRepository) HasProviderArtwork(ctx context.Context, metadataID, artworkType, sourceProvider string) (bool, error) {
+	var exists bool
+	err := r.db.WithContext(ctx).Raw(`
+SELECT EXISTS (
+  SELECT 1 FROM metadata_artworks AS ma
+  JOIN artwork_assets AS aa ON aa.id = ma.asset_id
+  WHERE ma.metadata_id = ? AND ma.artwork_type = ? AND ma.source_provider = ?
+  UNION ALL
+  SELECT 1 FROM metadata_artwork_candidates AS mac
+  JOIN artwork_assets AS aa ON aa.id = mac.asset_id
+  WHERE mac.metadata_id = ? AND mac.artwork_type = ? AND mac.source_provider = ?
+)`, metadataID, artworkType, sourceProvider, metadataID, artworkType, sourceProvider).Scan(&exists).Error
+	return exists, err
+}
+
 // ListSelectionsByMetadataIDs 批量返回作品当前有效的图片选择。
 func (r *ArtworkRepository) ListSelectionsByMetadataIDs(ctx context.Context, metadataIDs []string) ([]model.MetadataArtwork, error) {
 	if len(metadataIDs) == 0 {

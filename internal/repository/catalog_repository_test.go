@@ -203,7 +203,7 @@ func TestListDoubanMovieEnrichmentAfterRefreshesOnlyStaleIncompleteMovies(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&model.MetadataItem{}, &model.MetadataIdentifier{}, &model.MetadataProviderSnapshot{}, &model.ArtworkAsset{}, &model.MetadataArtwork{}); err != nil {
+	if err := db.AutoMigrate(&model.MetadataItem{}, &model.MetadataIdentifier{}, &model.MetadataProviderSnapshot{}, &model.ArtworkAsset{}, &model.MetadataArtwork{}, &model.MetadataArtworkCandidate{}); err != nil {
 		t.Fatal(err)
 	}
 	now := time.Now().UTC()
@@ -212,6 +212,8 @@ func TestListDoubanMovieEnrichmentAfterRefreshesOnlyStaleIncompleteMovies(t *tes
 		{PermanentBase: model.PermanentBase{ID: "00000000-0000-0000-0000-000000000100"}, Kind: model.MetadataKindMovie, Title: "Pending"},
 		{PermanentBase: model.PermanentBase{ID: "00000000-0000-0000-0000-000000000200"}, Kind: model.MetadataKindMovie, Title: "Recent"},
 		{PermanentBase: model.PermanentBase{ID: "00000000-0000-0000-0000-000000000300"}, Kind: model.MetadataKindMovie, Title: "完整标题", Overview: "完整简介"},
+		{PermanentBase: model.PermanentBase{ID: "00000000-0000-0000-0000-000000000325"}, Kind: model.MetadataKindMovie, Title: "快照缺字段", Overview: "已有简介"},
+		{PermanentBase: model.PermanentBase{ID: "00000000-0000-0000-0000-000000000350"}, Kind: model.MetadataKindMovie, Title: "旧快照完整标题", Overview: "完整简介"},
 		{PermanentBase: model.PermanentBase{ID: "00000000-0000-0000-0000-000000000400"}, Kind: model.MetadataKindMovie, Title: "缺海报", Overview: "已有简介"},
 		{PermanentBase: model.PermanentBase{ID: "00000000-0000-0000-0000-000000000500"}, Kind: model.MetadataKindMovie, Title: "缺简介"},
 		{PermanentBase: model.PermanentBase{ID: "00000000-0000-0000-0000-000000000600"}, Kind: model.MetadataKindMovie, Title: "English", Overview: "已有简介"},
@@ -234,20 +236,27 @@ func TestListDoubanMovieEnrichmentAfterRefreshesOnlyStaleIncompleteMovies(t *tes
 	snapshots := make([]model.MetadataProviderSnapshot, 0, len(items)-1)
 	for i := 1; i < len(items)-1; i++ {
 		fetchedAt := refreshBefore.Add(-time.Hour)
+		payload := `{"title":"移动端详情","intro":"完整简介","cover_url":"https://image.test/poster.jpg"}`
 		if i == 1 {
 			fetchedAt = now
 		}
-		snapshots = append(snapshots, model.MetadataProviderSnapshot{MetadataID: items[i].ID, Provider: "douban", Payload: `{"subject":{}}`, FetchedAt: fetchedAt})
+		if i == 1 || i == 4 {
+			payload = `{"subject":{}}`
+		}
+		if i == 3 {
+			payload = `{"title":"移动端缺失详情"}`
+		}
+		snapshots = append(snapshots, model.MetadataProviderSnapshot{MetadataID: items[i].ID, Provider: "douban", Payload: payload, FetchedAt: fetchedAt})
 	}
 	if err := db.Create(&snapshots).Error; err != nil {
 		t.Fatal(err)
 	}
-	for _, index := range []int{2, 4, 5} {
+	for _, index := range []int{2, 3, 4, 6, 7} {
 		asset := model.ArtworkAsset{PermanentBase: model.PermanentBase{ID: fmt.Sprintf("asset-%d", index)}, SHA256: fmt.Sprintf("sha-%d", index), StorageKey: fmt.Sprintf("test/%d.jpg", index), MimeType: "image/jpeg"}
 		if err := db.Create(&asset).Error; err != nil {
 			t.Fatal(err)
 		}
-		if err := db.Create(&model.MetadataArtwork{MetadataID: items[index].ID, AssetID: asset.ID, ArtworkType: model.ArtworkTypePoster}).Error; err != nil {
+		if err := db.Create(&model.MetadataArtwork{MetadataID: items[index].ID, AssetID: asset.ID, ArtworkType: model.ArtworkTypePoster, SourceProvider: "douban"}).Error; err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -256,7 +265,7 @@ func TestListDoubanMovieEnrichmentAfterRefreshesOnlyStaleIncompleteMovies(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantIDs := []string{items[0].ID, items[3].ID, items[4].ID, items[5].ID}
+	wantIDs := []string{items[0].ID, items[3].ID, items[4].ID, items[5].ID, items[6].ID, items[7].ID}
 	if len(candidates) != len(wantIDs) {
 		t.Fatalf("douban enrichment candidates = %#v", candidates)
 	}

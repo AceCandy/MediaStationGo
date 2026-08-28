@@ -434,12 +434,29 @@ WHERE mi.kind = ?
         WHERE mps.metadata_id = mi.id AND mps.provider = 'douban' AND mps.fetched_at < ?
       )
       AND (
-        btrim(COALESCE(mi.overview, '')) = ''
+        EXISTS (
+          SELECT 1 FROM metadata_provider_snapshots AS mps
+          WHERE mps.metadata_id = mi.id AND mps.provider = 'douban'
+            AND (jsonb_exists(mps.payload, 'subject') OR jsonb_exists(mps.payload, 'data'))
+        )
+        OR EXISTS (
+          SELECT 1 FROM metadata_provider_snapshots AS mps
+          WHERE mps.metadata_id = mi.id AND mps.provider = 'douban'
+            AND (
+              btrim(COALESCE(mps.payload ->> 'intro', '')) = ''
+              OR NOT (jsonb_exists(mps.payload, 'cover_url') OR jsonb_exists(mps.payload, 'pic'))
+            )
+        )
+        OR btrim(COALESCE(mi.overview, '')) = ''
         OR mi.title !~ '[㐀-䶿一-鿿豈-﫿]'
         OR NOT EXISTS (
+          SELECT 1 FROM metadata_artwork_candidates AS mac
+          JOIN artwork_assets AS aa ON aa.id = mac.asset_id
+          WHERE mac.metadata_id = mi.id AND mac.artwork_type = 'poster' AND mac.source_provider = 'douban'
+          UNION ALL
           SELECT 1 FROM metadata_artworks AS ma
           JOIN artwork_assets AS aa ON aa.id = ma.asset_id
-          WHERE ma.metadata_id = mi.id AND ma.artwork_type = 'poster'
+          WHERE ma.metadata_id = mi.id AND ma.artwork_type = 'poster' AND ma.source_provider = 'douban'
         )
       )
     )

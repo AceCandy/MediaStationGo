@@ -30,6 +30,10 @@ func (s *ScraperService) persistProviderMetadata(ctx context.Context, media *mod
 	}
 	source := metadataMatchSource(match)
 	doubanDetailAttempted := false
+	var doubanDetails *Match
+	if source == "douban" && len(match.RawJSON) > 0 {
+		doubanDetails = match
+	}
 	if source == "douban" && len(match.RawJSON) == 0 && strings.TrimSpace(match.DoubanID) != "" && s.douban != nil {
 		doubanDetailAttempted = true
 		details, detailErr := s.douban.GetMatchByID(ctx, match.DoubanID)
@@ -38,6 +42,7 @@ func (s *ScraperService) persistProviderMetadata(ctx context.Context, media *mod
 				s.log.Warn("douban detail snapshot unavailable", zap.String("douban_id", match.DoubanID), zap.Error(detailErr))
 			}
 		} else if details != nil {
+			doubanDetails = details
 			match.RawJSON = details.RawJSON
 			if match.TMDbID == 0 {
 				match.TMDbID = details.TMDbID
@@ -87,8 +92,14 @@ func (s *ScraperService) persistProviderMetadata(ctx context.Context, media *mod
 		return nil, err
 	}
 	if entityKind == model.MetadataKindMovie && strings.TrimSpace(match.DoubanID) != "" && s.douban != nil && (!doubanDetailAttempted || len(match.RawJSON) > 0) {
-		if _, err := s.enrichMovieFromDouban(ctx, canonical.ID); err != nil && s.log != nil {
-			s.log.Warn("douban movie enrichment failed", zap.String("metadata_id", canonical.ID), zap.Error(err))
+		var enrichmentErr error
+		if doubanDetails != nil {
+			_, enrichmentErr = s.enrichMovieFromDoubanDetails(ctx, canonical.ID, doubanDetails)
+		} else {
+			_, enrichmentErr = s.enrichMovieFromDouban(ctx, canonical.ID)
+		}
+		if enrichmentErr != nil && s.log != nil {
+			s.log.Warn("douban movie enrichment failed", zap.String("metadata_id", canonical.ID), zap.Error(enrichmentErr))
 		} else if refreshed, findErr := s.repo.Metadata.FindByID(ctx, canonical.ID); findErr == nil && refreshed != nil {
 			result.Target = refreshed
 		}

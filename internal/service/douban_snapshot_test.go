@@ -16,10 +16,10 @@ import (
 func TestDoubanGetMatchByIDPreservesRawJSON(t *testing.T) {
 	provider := NewDoubanProvider(&config.Config{}, zap.NewNop())
 	provider.client = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
-		if req.URL.Path != "/j/subject_abstract" || req.URL.Query().Get("subject_id") != "1295644" {
+		if req.URL.Path != "/rexxar/api/v2/movie/1295644" || req.Header.Get("Referer") != "https://m.douban.com/subject/1295644/" {
 			t.Fatalf("request = %s", req.URL.String())
 		}
-		body := `{"subject":{"title":"豆瓣详情","tmdb_id":603,"rating":9.4},"future_field":{"kept":true}}`
+		body := `{"title":"豆瓣详情","original_title":"Original","intro":"完整简介","cover_url":"https://img.test/poster.jpg","tmdb_id":603,"rating":{"value":9.4},"future_field":{"kept":true}}`
 		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(body)), Request: req}, nil
 	})}
 
@@ -27,7 +27,7 @@ func TestDoubanGetMatchByIDPreservesRawJSON(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if match == nil || match.Source != "douban" || match.DoubanID != "1295644" || match.TMDbID != 603 {
+	if match == nil || match.Source != "douban" || match.DoubanID != "1295644" || match.TMDbID != 603 || match.Overview != "完整简介" || match.PosterURL != "https://img.test/poster.jpg" || match.Rating != 9.4 {
 		t.Fatalf("match = %#v", match)
 	}
 	if !strings.Contains(string(match.RawJSON), `"future_field":{"kept":true}`) {
@@ -35,12 +35,50 @@ func TestDoubanGetMatchByIDPreservesRawJSON(t *testing.T) {
 	}
 }
 
+func TestDoubanGetMatchByIDFallsBackToSubjectAbstract(t *testing.T) {
+	provider := NewDoubanProvider(&config.Config{}, zap.NewNop())
+	requests := 0
+	provider.client = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		requests++
+		if requests == 1 {
+			return &http.Response{StatusCode: http.StatusServiceUnavailable, Body: io.NopCloser(strings.NewReader("unavailable")), Request: req}, nil
+		}
+		if req.URL.Path != "/j/subject_abstract" || req.URL.Query().Get("subject_id") != "1295644" {
+			t.Fatalf("fallback request = %s", req.URL.String())
+		}
+		body := `{"subject":{"title":"摘要详情","rating":8.8}}`
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(body)), Request: req}, nil
+	})}
+
+	match, err := provider.GetMatchByID(t.Context(), "1295644")
+	if err != nil || match == nil || match.Title != "摘要详情" || requests != 2 {
+		t.Fatalf("match = %#v, requests = %d, err = %v", match, requests, err)
+	}
+}
+
+func TestDoubanGetEpisodeCountByIDUsesMobileDetail(t *testing.T) {
+	provider := NewDoubanProvider(&config.Config{}, zap.NewNop())
+	provider.client = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Path != "/rexxar/api/v2/movie/35588177" {
+			t.Fatalf("request = %s", req.URL.String())
+		}
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{"type":"tv","episodes_count":12}`)), Request: req}, nil
+	})}
+
+	count, err := provider.GetEpisodeCountByID(t.Context(), "35588177")
+	if err != nil || count != 12 {
+		t.Fatalf("episode count = %d, err = %v", count, err)
+	}
+}
+
 func TestDoubanProviderMatchPersistsSnapshotWithoutFusingDetailFields(t *testing.T) {
 	scraper, repos, closeServer := newTestScraper(t)
 	defer closeServer()
 	provider := NewDoubanProvider(&config.Config{}, zap.NewNop())
+	requests := 0
 	provider.client = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
-		body := `{"subject":{"title":"详情标题","tmdb_id":603,"rating":9.4},"future_field":{"kept":true}}`
+		requests++
+		body := `{"title":"详情标题","tmdb_id":603,"rating":{"value":9.4},"future_field":{"kept":true}}`
 		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(body)), Request: req}, nil
 	})}
 	scraper.douban = provider
@@ -57,6 +95,9 @@ func TestDoubanProviderMatchPersistsSnapshotWithoutFusingDetailFields(t *testing
 	}
 	if match.TMDbID != 603 {
 		t.Fatalf("tmdb crosswalk = %d", match.TMDbID)
+	}
+	if requests != 1 {
+		t.Fatalf("douban detail requests = %d", requests)
 	}
 	snapshot, err := repos.Metadata.FindProviderSnapshot(t.Context(), persisted.Target.ID, "douban")
 	if err != nil {
@@ -107,7 +148,7 @@ func TestDoubanMovieEnrichmentOnlyFillsMissingFields(t *testing.T) {
 	requests := 0
 	provider.client = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
 		requests++
-		body := `{"subject":{"title":"中文标题","summary":"中文简介","year":"1997","rating":9.4,"languages":["汉语","英语"],"tmdb_id":603}}`
+		body := `{"title":"中文标题","intro":"中文简介","year":"1997","rating":{"value":9.4},"languages":["汉语","英语"],"tmdb_id":603}`
 		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(body)), Request: req}, nil
 	})}
 	scraper.douban = provider
@@ -179,10 +220,10 @@ func TestDoubanMovieEnrichmentMetricsDistinguishUpdatedAndUnchanged(t *testing.T
 	provider := NewDoubanProvider(&config.Config{}, zap.NewNop())
 	provider.client = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
 		title, summary := "已有中文标题", "已有简介"
-		if req.URL.Query().Get("subject_id") == "2" {
+		if strings.HasSuffix(req.URL.Path, "/2") {
 			title, summary = "补齐中文标题", "补齐简介"
 		}
-		body := `{"subject":{"title":"` + title + `","summary":"` + summary + `"}}`
+		body := `{"title":"` + title + `","intro":"` + summary + `"}`
 		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(body)), Request: req}, nil
 	})}
 	scraper.douban = provider

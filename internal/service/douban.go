@@ -10,7 +10,7 @@
 //
 // And the detail endpoint at:
 //
-//	https://movie.douban.com/j/subject_abstract?subject_id=...
+//	https://m.douban.com/rexxar/api/v2/movie/...
 //
 // The provider is used as a supplemental source: after TMDb matches we
 // attempt a Douban lookup to grab a localized Chinese title + overview.
@@ -144,25 +144,49 @@ func (d *DoubanProvider) GetMatchByID(ctx context.Context, doubanID string) (*Ma
 	if doubanID == "" {
 		return nil, nil
 	}
-	u := "https://movie.douban.com/j/subject_abstract?subject_id=" + url.QueryEscape(doubanID)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
-	if err != nil {
-		return nil, err
-	}
-	d.setHeaders(req)
-	resp, err := d.client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode >= 400 {
-		return nil, fmt.Errorf("douban detail: %d", resp.StatusCode)
-	}
-	rawJSON, err := io.ReadAll(resp.Body)
+	rawJSON, err := d.getDetailRawJSON(ctx, doubanID)
 	if err != nil {
 		return nil, err
 	}
 	return doubanMatchFromRawJSON(doubanID, rawJSON)
+}
+
+func (d *DoubanProvider) getDetailRawJSON(ctx context.Context, doubanID string) ([]byte, error) {
+	escapedID := url.PathEscape(doubanID)
+	requests := []struct {
+		url     string
+		referer string
+	}{
+		{"https://m.douban.com/rexxar/api/v2/movie/" + escapedID, "https://m.douban.com/subject/" + escapedID + "/"},
+		{"https://movie.douban.com/j/subject_abstract?subject_id=" + url.QueryEscape(doubanID), "https://movie.douban.com/"},
+	}
+	var lastErr error
+	for _, request := range requests {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, request.url, nil)
+		if err != nil {
+			return nil, err
+		}
+		d.setHeaders(req)
+		req.Header.Set("Referer", request.referer)
+		resp, err := d.client.Do(req)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		rawJSON, readErr := io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+		switch {
+		case resp.StatusCode >= 400:
+			lastErr = fmt.Errorf("douban detail: %d", resp.StatusCode)
+		case readErr != nil:
+			lastErr = readErr
+		case !json.Valid(rawJSON):
+			lastErr = fmt.Errorf("douban detail: invalid json")
+		default:
+			return rawJSON, nil
+		}
+	}
+	return nil, lastErr
 }
 
 func doubanMatchFromRawJSON(doubanID string, rawJSON []byte) (*Match, error) {
@@ -220,23 +244,12 @@ func (d *DoubanProvider) GetEpisodeCountByID(ctx context.Context, doubanID strin
 	if doubanID == "" {
 		return 0, nil
 	}
-	u := "https://movie.douban.com/j/subject_abstract?subject_id=" + url.QueryEscape(doubanID)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	rawJSON, err := d.getDetailRawJSON(ctx, doubanID)
 	if err != nil {
 		return 0, err
-	}
-	d.setHeaders(req)
-
-	resp, err := d.client.Do(req)
-	if err != nil {
-		return 0, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode >= 400 {
-		return 0, fmt.Errorf("douban detail: %d", resp.StatusCode)
 	}
 	var raw map[string]any
-	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
+	if err := json.Unmarshal(rawJSON, &raw); err != nil {
 		return 0, err
 	}
 	for _, key := range []string{"episode_count", "episodes_count", "episodes", "eps"} {

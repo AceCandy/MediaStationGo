@@ -1112,53 +1112,73 @@ setSelectedMedia(selectedVersion)
 ### 2. Signatures
 
 - `GET /api/media/:id` may add `metadata_kind`, `tmdb_snapshot`,
-  `douban_snapshot`, and `series_tmdb_id` to the existing canonical
-  `tmdb_id` / `douban_id` fields.
-- Snapshot flags and `series_tmdb_id` are `gorm:"-"` detail-only fields.
+  `douban_snapshot`, `tmdb_status`, `douban_status`, and `series_tmdb_id` to
+  the existing canonical `tmdb_id` / `douban_id` fields.
+- Snapshot flags, provider statuses, and `series_tmdb_id` are `gorm:"-"`
+  detail-only fields. Status values are `missing`, `partial`, or `complete`.
 
 ### 3. Contracts
 
 - IDs come from canonical `MetadataIdentifier` rows, never `Media.lookup_*`
-  scan hints. Snapshot flags mean only that the matching provider snapshot
-  exists; they do not claim projected fields are complete.
+  scan hints. Snapshot flags remain compatibility fields that mean only that
+  the matching provider snapshot exists.
+- `missing` means no snapshot; `partial` means a snapshot exists without that
+  provider's local entity-owned image, or a Douban snapshot still uses the
+  legacy/fallback wrapper; `complete` means the current snapshot and provider
+  image both exist. Status describes local cache coverage, not every optional
+  upstream field.
 - Movie links use `/movie/{tmdb_id}`; Series links use `/tv/{tmdb_id}`.
   Season/Episode links display the entity's own TMDb ID but use the canonical
   Series TMDb ID plus season/episode numbers in the `/tv/...` deep link.
 - Missing required IDs omit the link. External links open a new window with
   `noopener noreferrer`.
+- Web links hide the raw ID, use compact provider monograms plus distinct
+  status icons, and expose the provider/status through `title`, `aria-label`,
+  and screen-reader text. Rating is always visible and uses `-` when non-positive.
 
 ### 4. Validation & Error Matrix
 
 | Condition | Required result |
 | --- | --- |
 | Provider ID is absent | Omit that provider link |
-| Provider snapshot is absent | Show the ID without a check mark |
-| Provider snapshot exists | Show the ID with `✅` |
+| Provider snapshot is absent | Return/show `missing` with an empty-circle icon |
+| Snapshot exists but provider image is absent | Return/show `partial` with a warning icon |
+| Current snapshot and provider image exist | Return/show `complete` with a checked-circle icon |
+| Douban snapshot uses a `subject` / `data` wrapper | Keep it `partial` even when a Douban image exists |
 | Season/Episode Series TMDb ID is absent | Omit the TMDb deep link |
 | Snapshot or identifier lookup fails | Fail the detail request; do not report a false state |
 
 ### 5. Good / Base / Bad Cases
 
-- Good: an Episode displays its own TMDb ID and opens its Series/season/episode
-  deep link; a local Episode snapshot controls only its own check mark.
-- Base: a provider ID exists without a snapshot; the clickable ID has no mark.
+- Good: an Episode opens its Series/season/episode deep link while its own
+  snapshot and still determine the TMDb cache status.
+- Base: a provider ID exists without a snapshot; its compact link shows the
+  missing icon and no raw ID.
 - Bad: infer snapshot presence from an ID, use an Episode ID as `/tv/{id}`, or
   add provider snapshot joins to shared list queries.
 
 ### 6. Tests Required
 
-- Service: provider snapshot true/false state and Series TMDb ID projection.
-- Web: Movie/Series/Season/Episode link construction, omitted IDs, safe external
+- Service: provider snapshot compatibility flags, all three statuses, legacy
+  Douban classification, provider-owned image state, and Series TMDb ID projection.
+- Web: Movie/Series/Season/Episode link construction, omitted/raw-hidden IDs,
+  three accessible status icons, missing-rating fallback, safe external
   attributes, lint, and TypeScript production build.
 
 ### 7. Wrong vs Correct
 
 ```go
-// Wrong: scan hints and current Episode ID are not the Series website identity.
+// Wrong: scan hints and current Episode ID are not the Series website identity;
+// snapshot existence alone is not cache completeness.
 media.SeriesTMDbID = media.LookupTMDbID
+media.TMDbStatus = "complete"
 
-// Correct: resolve the canonical Series identifier only for detail projection.
+// Correct: resolve canonical identity and provider-owned local cache state.
 identifiers := repo.Metadata.ListIdentifiers(ctx, media.SeriesID)
+media.TMDbStatus = "partial"
+if providerArtwork {
+    media.TMDbStatus = "complete"
+}
 ```
 
 ## Scenario: Douban Movie Secondary Enrichment
@@ -1174,6 +1194,10 @@ identifiers := repo.Metadata.ListIdentifiers(ctx, media.SeriesID)
 
 - Raw detail carrier: `Match.RawJSON []byte`.
 - Douban detail boundary: `DoubanProvider.GetMatchByID(ctx, doubanID) (*Match, error)`.
+- Primary detail endpoint: `https://m.douban.com/rexxar/api/v2/movie/{doubanID}`;
+  `subject_abstract` is fallback only.
+- Episode count boundary: `GetEpisodeCountByID` reads `episodes_count` from the
+  same mobile detail response.
 - Snapshot write: `UpsertProviderSnapshot(ctx, metadataID, provider, payload, fetchedAt)`.
 - Snapshot identity is `(metadata_id, provider)` and payload storage is JSONB.
 - Candidate discovery:
@@ -1191,6 +1215,11 @@ identifiers := repo.Metadata.ListIdentifiers(ctx, media.SeriesID)
 
 - `GetMatchByID` preserves the complete valid response, including unknown
   fields, and marks the match source as `douban`.
+- Mobile detail is tried first. HTTP/read/invalid-JSON failure falls back to
+  `subject_abstract`; its `subject` / `data` wrapper remains identifiable as a
+  partial snapshot and becomes retryable after 24 hours.
+- Normal persistence passes an already-fetched Douban detail into enrichment;
+  it must not issue the same detail request again just to save fields/artwork.
 - Search results never trigger secondary enrichment. The canonical metadata must
   already own exactly one `(douban, movie)` identifier; no search, title guess,
   Series ID, or ambiguous identifier is accepted.
@@ -1213,8 +1242,9 @@ identifiers := repo.Metadata.ListIdentifiers(ctx, media.SeriesID)
   selection is atomically promoted. Public responses continue to use only
   `/api/artwork/:assetID`, never a remote URL.
 - Historical passes admit movies with one Douban Movie identifier when no
-  snapshot exists, or when the snapshot is older than 24 hours and canonical
-  data lacks a selected valid poster, overview, or Chinese title. Other empty
+  snapshot exists, or when the snapshot is older than 24 hours and is a legacy
+  wrapper, lacks mobile `intro` / image fields, lacks Douban-owned local poster
+  artwork, or canonical data lacks overview or a Chinese title. Other empty
   fields are filled only during such a request and never trigger one alone.
   Passes use metadata-ID keyset pagination, a maximum batch of 20, serial
   processing, a two-second inter-item delay, and a persisted cursor. They never
@@ -1233,8 +1263,9 @@ identifiers := repo.Metadata.ListIdentifiers(ctx, media.SeriesID)
 | Movie has zero or multiple Douban Movie IDs | Skip as ambiguous |
 | Movie has one Douban ID and no snapshot | Fetch details once, then store the full response |
 | Snapshot is less than 24 hours old | Make no provider request |
-| Stale snapshot and poster, overview, and Chinese title are complete | Make no provider request |
-| Stale snapshot lacks poster, overview, or Chinese title | Refresh and fill only missing data |
+| Stale current snapshot, Douban poster, overview, and Chinese title are complete | Make no provider request |
+| Stale snapshot is legacy or lacks intro/image/Douban artwork | Refresh and fill only missing canonical data |
+| Mobile detail fails but abstract succeeds | Save the wrapper as partial and retry only after 24 hours |
 | Refresh or persistence fails | Preserve the previous `fetched_at` |
 | Detail contains unknown fields | Preserve them in the valid JSONB document |
 | Detail TMDb ID conflicts with canonical TMDb ID | Skip snapshot, fields, and artwork |
@@ -1246,7 +1277,7 @@ identifiers := repo.Metadata.ListIdentifiers(ctx, media.SeriesID)
 
 ### 5. Good / Base / Bad Cases
 
-- Good: a TMDb Movie with one Douban ID stores the raw Douban response, fills a
+- Good: a TMDb Movie with one Douban ID stores the mobile raw Douban response, fills a
   missing Chinese title/overview, localizes its poster as a candidate, and keeps
   the existing TMDb selection.
 - Base: all three trigger fields are complete, or the latest successful check is
@@ -1256,8 +1287,9 @@ identifiers := repo.Metadata.ListIdentifiers(ctx, media.SeriesID)
 
 ### 6. Tests Required
 
-- Provider unit: source, IDs, projected lists, and unknown raw fields survive
-  detail parsing.
+- Provider unit: mobile URL/Referer, abstract fallback, nested rating/image,
+  episode count, source, IDs, projected lists, and unknown raw fields survive
+  detail parsing; normal persistence makes one detail request.
 - Repository/PostgreSQL: Movie-only unique-ID keyset discovery, ambiguity skip,
   no-snapshot admission, 24-hour exclusion, stale incomplete admission,
   complete exclusion, candidate uniqueness, and atomic selection
@@ -1271,11 +1303,14 @@ identifiers := repo.Metadata.ListIdentifiers(ctx, media.SeriesID)
 ### 7. Wrong vs Correct
 
 ```go
-// Wrong: a secondary provider overwrites authoritative non-empty fields.
+// Wrong: a secondary provider overwrites authoritative non-empty fields or
+// fetches the same accepted detail twice.
 metadata.Overview = doubanDetail.Overview
+douban.GetMatchByID(ctx, doubanID)
 repo.SaveSelection(ctx, metadata.ID, "poster", "douban", source, asset)
 
-// Correct: fill gaps and persist artwork before advancing the successful-check time.
+// Correct: reuse the accepted detail, fill gaps, and persist artwork before
+// advancing the successful-check time.
 fillMissingDoubanMovieFields(ctx, metadata.ID, detail)
 repo.SaveCandidate(ctx, metadata.ID, "poster", "douban", source, asset)
 repo.UpsertProviderSnapshot(ctx, metadata.ID, "douban", detail.RawJSON, fetchedAt)

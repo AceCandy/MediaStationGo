@@ -53,7 +53,7 @@ func TestGetMediaAddsCompleteTracksButListsStayScalar(t *testing.T) {
 }
 
 func TestGetMediaAddsProviderSnapshotStateAndSeriesTMDbID(t *testing.T) {
-	db := newServiceTestDB(t, &model.Library{}, &model.Media{}, &model.MetadataProviderSnapshot{})
+	db := newServiceTestDB(t, &model.Library{}, &model.Media{}, &model.MetadataProviderSnapshot{}, &model.ArtworkAsset{}, &model.MetadataArtwork{}, &model.MetadataArtworkCandidate{})
 	repos := repository.New(db)
 	lib := model.Library{Name: "Series", Path: "/media/series", Type: "tv", Enabled: true}
 	if err := repos.Library.Create(t.Context(), &lib); err != nil {
@@ -70,6 +70,9 @@ func TestGetMediaAddsProviderSnapshotStateAndSeriesTMDbID(t *testing.T) {
 	if err := db.Create(&model.MetadataProviderSnapshot{MetadataID: episode.ID, Provider: "tmdb", Payload: `{"id":200}`, FetchedAt: time.Now().UTC()}).Error; err != nil {
 		t.Fatal(err)
 	}
+	if _, err := repos.Artwork.SaveSelection(t.Context(), episode.ID, model.ArtworkTypeStill, "tmdb", "https://image.test/still.jpg", &model.ArtworkAsset{SHA256: "tmdb-still", StorageKey: "tmdb/still.jpg", MimeType: "image/jpeg"}); err != nil {
+		t.Fatal(err)
+	}
 	media := model.Media{PermanentBase: model.PermanentBase{ID: "media-provider-detail"}, MetadataID: episode.ID, LibraryID: lib.ID, Title: "Episode", Path: "/media/series/s01e02.mkv"}
 	if err := db.Create(&media).Error; err != nil {
 		t.Fatal(err)
@@ -79,7 +82,7 @@ func TestGetMediaAddsProviderSnapshotStateAndSeriesTMDbID(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if detail.MetadataKind != model.MetadataKindEpisode || detail.TMDbID != 200 || detail.SeriesTMDbID != 100 || !detail.TMDbSnapshot || detail.DoubanSnapshot {
+	if detail.MetadataKind != model.MetadataKindEpisode || detail.TMDbID != 200 || detail.SeriesTMDbID != 100 || !detail.TMDbSnapshot || detail.TMDbStatus != providerStatusComplete || detail.DoubanSnapshot || detail.DoubanStatus != "" {
 		t.Fatalf("provider detail = %#v", detail)
 	}
 
@@ -89,12 +92,34 @@ func TestGetMediaAddsProviderSnapshotStateAndSeriesTMDbID(t *testing.T) {
 	if err := db.Create(&model.MetadataProviderSnapshot{MetadataID: movie.ID, Provider: "douban", Payload: `{"subject":{}}`, FetchedAt: time.Now().UTC()}).Error; err != nil {
 		t.Fatal(err)
 	}
+	if _, _, err := repos.Artwork.SaveCandidate(t.Context(), movie.ID, model.ArtworkTypePoster, "douban", "https://image.test/poster.jpg", &model.ArtworkAsset{SHA256: "douban-poster", StorageKey: "douban/poster.jpg", MimeType: "image/jpeg"}); err != nil {
+		t.Fatal(err)
+	}
 	movieMedia := model.Media{PermanentBase: model.PermanentBase{ID: "movie-provider-detail"}, MetadataID: movie.ID, LibraryID: lib.ID, Title: "Movie", Path: "/media/movie.mkv"}
 	if err := db.Create(&movieMedia).Error; err != nil {
 		t.Fatal(err)
 	}
 	movieDetail, err := NewMediaService(&config.Config{}, zap.NewNop(), repos).GetMedia(t.Context(), movieMedia.ID)
-	if err != nil || movieDetail == nil || !movieDetail.DoubanSnapshot || movieDetail.DoubanID != "1295644" {
+	if err != nil || movieDetail == nil || !movieDetail.DoubanSnapshot || movieDetail.DoubanID != "1295644" || movieDetail.DoubanStatus != providerStatusPartial {
 		t.Fatalf("douban provider detail = %#v, err = %v", movieDetail, err)
+	}
+	if err := repos.Metadata.UpsertProviderSnapshot(t.Context(), movie.ID, "douban", []byte(`{"title":"移动端详情"}`), time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	movieDetail, err = NewMediaService(&config.Config{}, zap.NewNop(), repos).GetMedia(t.Context(), movieMedia.ID)
+	if err != nil || movieDetail == nil || movieDetail.DoubanStatus != providerStatusComplete {
+		t.Fatalf("complete douban provider detail = %#v, err = %v", movieDetail, err)
+	}
+
+	missing := createServiceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindMovie, Title: "Missing", Source: "local"},
+		model.MetadataIdentifier{Provider: "douban", EntityKind: model.MetadataKindMovie, ExternalID: "missing"},
+	)
+	missingMedia := model.Media{PermanentBase: model.PermanentBase{ID: "missing-provider-detail"}, MetadataID: missing.ID, LibraryID: lib.ID, Title: "Missing", Path: "/media/missing.mkv"}
+	if err := db.Create(&missingMedia).Error; err != nil {
+		t.Fatal(err)
+	}
+	missingDetail, err := NewMediaService(&config.Config{}, zap.NewNop(), repos).GetMedia(t.Context(), missingMedia.ID)
+	if err != nil || missingDetail == nil || missingDetail.DoubanStatus != providerStatusMissing || missingDetail.DoubanSnapshot {
+		t.Fatalf("missing douban provider detail = %#v, err = %v", missingDetail, err)
 	}
 }

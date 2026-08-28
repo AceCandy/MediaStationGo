@@ -1,0 +1,3 @@
+{"file": ".trellis/spec/backend/shared-media-metadata.md", "reason": "豆瓣快照、历史补齐、managed artwork 与详情 provider 状态契约"}
+{"file": ".trellis/spec/frontend/design-system.md", "reason": "详情图标、主题、状态和无障碍展示规范"}
+{"file": ".trellis/tasks/08-28-douban-mobile-snapshot-provider-status/research/current-evidence.md", "reason": "运行数据、接口响应和当前代码路径证据"}

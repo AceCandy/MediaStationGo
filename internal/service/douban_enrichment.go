@@ -31,6 +31,10 @@ type doubanEnrichmentResult struct {
 
 // enrichMovieFromDouban 只消费 canonical 上唯一且明确的豆瓣电影标识。
 func (s *ScraperService) enrichMovieFromDouban(ctx context.Context, metadataID string) (doubanEnrichmentResult, error) {
+	return s.enrichMovieFromDoubanDetails(ctx, metadataID, nil)
+}
+
+func (s *ScraperService) enrichMovieFromDoubanDetails(ctx context.Context, metadataID string, details *Match) (doubanEnrichmentResult, error) {
 	result := doubanEnrichmentResult{}
 	if s == nil || s.repo == nil || s.repo.Metadata == nil || s.douban == nil {
 		return result, errors.New("douban movie enrichment dependencies unavailable")
@@ -53,9 +57,11 @@ func (s *ScraperService) enrichMovieFromDouban(ctx context.Context, metadataID s
 		return result, nil
 	}
 
-	details, err := s.douban.GetMatchByID(ctx, doubanID)
-	if err != nil || details == nil {
-		return result, err
+	if details == nil {
+		details, err = s.douban.GetMatchByID(ctx, doubanID)
+		if err != nil || details == nil {
+			return result, err
+		}
 	}
 	if details.TMDbID > 0 {
 		if tmdbID, exists := uniqueIdentifier(identifiers, "tmdb", model.MetadataKindMovie); exists && tmdbID != strconv.Itoa(details.TMDbID) {
