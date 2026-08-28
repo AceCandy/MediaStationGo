@@ -1343,3 +1343,24 @@ Committed the existing web UI redesign together with detailed background task lo
 ### Status
 
 [OK] **Completed**
+
+
+## Session 63: 媒体库缺失元数据筛选与入口精简
+
+**Date**: 2026-08-28
+**Task**: 媒体库缺失元数据筛选与入口精简
+**Branch**: `main`
+
+### Summary
+
+完成单库缺失海报/中文名筛选，移除失效或危险的批量入口，并统一每集图片默认开启行为；相关 Go 测试、前端 lint/build 与静态检查通过。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `14d706b` | (see git log) |
+
+### Status
+
+[OK] **Completed**

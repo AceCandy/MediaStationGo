@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 62
-- **Last Active**: 2026-08-27
+- **Total Sessions**: 63
+- **Last Active**: 2026-08-28
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~1345 | Active |
+| `journal-1.md` | ~1366 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 63 | 2026-08-28 | 媒体库缺失元数据筛选与入口精简 | `14d706b` | `main` |
 | 62 | 2026-08-27 | 修复 TMDb 集复查列名迁移 | `f05a144` | `main` |
 | 61 | 2026-08-27 | 统一 Web 自定义下拉框 | `6a70b92` | `main` |
 | 60 | 2026-08-27 | TMDb 集信息补全复查 | `8f27aa1` | `main` |
