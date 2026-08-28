@@ -4,7 +4,6 @@ import { Link, Navigate, useSearchParams } from 'react-router-dom'
 import clsx from 'clsx'
 
 import { libraryAPI } from '../api/library'
-import { toolsAPI } from '../api/tools'
 import { useAuthStore } from '../stores/auth'
 import {
   LibrariesContent,
@@ -23,23 +22,6 @@ export function LibrariesPage() {
   const [previews, setPreviews] = useState<LibraryPreview[]>([])
   const [libraryCount, setLibraryCount] = useState(0)
   const [loading, setLoading] = useState(true)
-  const [repairing, setRepairing] = useState(false)
-  const [repairEpisodeArtwork, setRepairEpisodeArtwork] = useState(false)
-  const [repairMsg, setRepairMsg] = useState('')
-
-  async function handleRepairRescrape() {
-    if (repairing) return
-    setRepairing(true)
-    setRepairMsg('')
-    try {
-      await toolsAPI.repairAndRescrapeAll({ episode_images: repairEpisodeArtwork, refresh_matched: true })
-      setRepairMsg('已开始全库修复+重刮，进度可在任务中查看。')
-    } catch {
-      setRepairMsg('启动失败，请稍后重试。')
-    } finally {
-      setRepairing(false)
-    }
-  }
 
   useEffect(() => {
     if (!validView || view !== 'library') return undefined
@@ -103,11 +85,6 @@ export function LibrariesPage() {
                 isAdmin={isAdmin}
                 previewCount={libraryCount}
                 total={total}
-                repairMsg={repairMsg}
-                repairEpisodeArtwork={repairEpisodeArtwork}
-                repairing={repairing}
-                onRepairEpisodeArtworkChange={setRepairEpisodeArtwork}
-                onRepairRescrape={handleRepairRescrape}
               />
               {previews.length === 0 && !loading ? <LibrariesEmptyState /> : previews.length > 0 && <LibrariesContent previews={previews} />}
               {loading && <p className="px-2 text-sm text-sand-500">媒体库内容加载中…</p>}

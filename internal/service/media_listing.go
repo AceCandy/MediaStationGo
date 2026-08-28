@@ -112,9 +112,11 @@ func (s *MediaService) ListMediaVisible(ctx context.Context, libraryID string, p
 	}
 	libraryIDs := []string{libraryID}
 	filter := repository.MediaQueryFilter{
-		IncludeNSFW:       visibility.IncludeNSFW,
-		AllowedLibraryIDs: visibility.AllowedLibraryIDs,
-		HiddenLibraryIDs:  visibility.HiddenLibraryIDs,
+		IncludeNSFW:         visibility.IncludeNSFW,
+		AllowedLibraryIDs:   visibility.AllowedLibraryIDs,
+		HiddenLibraryIDs:    visibility.HiddenLibraryIDs,
+		MissingPoster:       visibility.MissingPoster,
+		MissingChineseTitle: visibility.MissingChineseTitle,
 	}
 	cacheKey := s.mediaListCacheKey(libraryID, libraryIDs, page, pageSize, filter)
 	var cached mediaListCacheValue
@@ -146,9 +148,11 @@ func (s *MediaService) ListMediaVisibleGrouped(ctx context.Context, libraryID st
 func (s *MediaService) listMediaVisibleForGrouping(ctx context.Context, libraryID string, visibility MediaVisibility) ([]model.MediaView, error) {
 	libraryIDs := []string{libraryID}
 	filter := repository.MediaQueryFilter{
-		IncludeNSFW:       visibility.IncludeNSFW,
-		AllowedLibraryIDs: visibility.AllowedLibraryIDs,
-		HiddenLibraryIDs:  visibility.HiddenLibraryIDs,
+		IncludeNSFW:         visibility.IncludeNSFW,
+		AllowedLibraryIDs:   visibility.AllowedLibraryIDs,
+		HiddenLibraryIDs:    visibility.HiddenLibraryIDs,
+		MissingPoster:       visibility.MissingPoster,
+		MissingChineseTitle: visibility.MissingChineseTitle,
 	}
 	cacheKey := s.mediaListCacheKey(libraryID, libraryIDs, 0, maxMediaSearchLimit, filter) + ":group-source"
 	var cached mediaListCacheValue

@@ -1,5 +1,4 @@
 import type { Library } from '../types'
-import { EpisodeArtworkToggle } from '../components/EpisodeArtworkToggle'
 import { libraryDisplayPath } from './libraryDisplayModel'
 
 type LibraryPageHeaderProps = {
@@ -7,16 +6,10 @@ type LibraryPageHeaderProps = {
   itemCount: number
   loadingAllText: string
   isAdmin: boolean
-  scrapeEpisodeArtwork: boolean
-  scraping: boolean
-  repairing: boolean
-  backfilling: boolean
-  peopleBackfilling: boolean
-  onScrapeEpisodeArtworkChange: (checked: boolean) => void
-  onScrape: () => void
-  onRepairRescrape: () => void
-  onProbeBackfill: () => void
-  onPeopleBackfill: () => void
+  missingPoster: boolean
+  missingChineseTitle: boolean
+  onMissingPosterChange: (checked: boolean) => void
+  onMissingChineseTitleChange: (checked: boolean) => void
 }
 
 export function LibraryPageHeader({
@@ -24,16 +17,10 @@ export function LibraryPageHeader({
   itemCount,
   loadingAllText,
   isAdmin,
-  scrapeEpisodeArtwork,
-  scraping,
-  repairing,
-  backfilling,
-  peopleBackfilling,
-  onScrapeEpisodeArtworkChange,
-  onScrape,
-  onRepairRescrape,
-  onProbeBackfill,
-  onPeopleBackfill,
+  missingPoster,
+  missingChineseTitle,
+  onMissingPosterChange,
+  onMissingChineseTitleChange,
 }: LibraryPageHeaderProps) {
   const displayPath = library ? libraryDisplayPath(library.path) : ''
 
@@ -49,38 +36,21 @@ export function LibraryPageHeader({
       </div>
       {isAdmin && (
         <div className="flex flex-wrap items-center gap-2">
-          <EpisodeArtworkToggle
-            checked={scrapeEpisodeArtwork}
-            onChange={onScrapeEpisodeArtworkChange}
-            title="关闭后仍会获取主海报和每集文字元数据，只跳过每集图片"
-            className="h-10"
-          />
-          <button onClick={onScrape} disabled={scraping} className="btn-outline">
-            {scraping ? '刮削中…' : '刮削元数据'}
+          <button
+            type="button"
+            aria-pressed={missingPoster}
+            onClick={() => onMissingPosterChange(!missingPoster)}
+            className={`btn-outline ${missingPoster ? 'border-brand-500 text-brand-500' : ''}`}
+          >
+            无海报
           </button>
           <button
-            onClick={onRepairRescrape}
-            disabled={repairing}
-            className="btn-outline"
-            title="回填本库占位符外部 ID 并重刮，修正空 ID / 拆集问题"
+            type="button"
+            aria-pressed={missingChineseTitle}
+            onClick={() => onMissingChineseTitleChange(!missingChineseTitle)}
+            className={`btn-outline ${missingChineseTitle ? 'border-brand-500 text-brand-500' : ''}`}
           >
-            {repairing ? '修复中…' : '修复+重刮本库'}
-          </button>
-          <button
-            onClick={onProbeBackfill}
-            disabled={backfilling}
-            className="btn-outline"
-            title="仅为缺失或版本过期的媒体回填完整音视频与字幕轨道"
-          >
-            {backfilling ? '回填中…' : '回填媒体轨道'}
-          </button>
-          <button
-            onClick={onPeopleBackfill}
-            disabled={peopleBackfilling}
-            className="btn-outline"
-            title="仅为没有人物关系且已有 TMDb ID 的电影和剧集回填演职员"
-          >
-            {peopleBackfilling ? '回填中…' : '回填人物信息'}
+            无中文名
           </button>
         </div>
       )}

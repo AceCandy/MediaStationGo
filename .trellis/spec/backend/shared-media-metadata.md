@@ -140,6 +140,9 @@ db.Model(&credit).
   non-null value has a restrictive foreign key to `MetadataItem.ID`.
 - Metadata-owned state: `Favorite.MetadataID`, `PlaybackHistory.MetadataID`, and `PlaylistItem.MetadataID` are non-null; `MediaID` only selects a concrete playable version.
 - Read model: `MediaViewRepository.FindByID`, `FindByIDs`, `ListByLibrariesFiltered`, and `SearchFilteredPage`.
+- Library missing-metadata filters: `GET /api/libraries/:id/media` and
+  `GET /api/libraries/:id/series` accept `missing_poster=1` and
+  `missing_chinese_title=1`; omitted values leave the corresponding filter off.
 - Emby logical-page boundary: `metadataPage` selects and paginates distinct
   `MetadataItem.ID` values, batch-loads visible `MediaView` versions for only
   that page, then `preferredMetadataViews` selects one representative view per
@@ -171,7 +174,11 @@ db.Model(&credit).
 - Manual apply API: `POST /api/media/:id/scrape/apply` accepts `ManualScrapeRequest`, persists metadata through `ScraperService.ApplyManualMatch`, then returns the refreshed `MediaView` from `MediaService.GetMedia`.
 - Artwork response: `/api/artwork/:assetID`; originals live under `App.DataDir/artwork/sha256/...`.
 - Library deletion: `DELETE /api/libraries/:id` -> `MediaService.DeleteLibrary(ctx, id)`.
-- Scrape entrypoints (`POST /api/media/:id/scrape`, `POST /api/libraries/:id/scrape`, manual apply, scan auto-scrape, STRM refresh, and repair-rescrape) enrich metadata only and never invoke `OrganizerService`.
+- Scrape entrypoints (`POST /api/media/:id/scrape`, manual apply, scan
+  auto-scrape, STRM refresh, and task-center `media_scrape`) enrich metadata
+  only and never invoke `OrganizerService`. The former library-wide forced
+  rescrape routes, including `POST /api/libraries/:id/scrape` and
+  `repair-rescrape`, are retired and must remain unregistered.
 - Regular scrape entrypoints never infer an adult code or call `AdultProvider`. `ScraperService.AnyEnabled` reports regular provider availability and excludes the adult provider.
 - Adult network lookup requires an explicit adult operation: manual search whose provider set contains `adult`, manual apply with `source=adult`, or organize with `mediaType=adult`. Manual search with an empty provider or `provider=all` is not an explicit adult operation.
 
@@ -280,6 +287,15 @@ db.Model(&credit).
 - `MediaView` uses an inner join to `metadata_items`; persisted unresolved media
   remains in the raw `media` table but is absent from metadata-backed display
   reads, and scan hints never replace canonical display identity.
+- A missing-poster filter selects an item only when its selected poster has no
+  valid `ArtworkAsset`. A missing-Chinese-title filter evaluates the final
+  displayed title and selects it only when that title contains no Han character.
+  Movie filters run before count and pagination. Series/anime filters run after
+  complete Series-card aggregation against the representative card, so they
+  never select or count individual Episodes. When both filters are enabled,
+  both conditions must match.
+- The task-center `media_scrape` action may reset only unfinished scrape states;
+  it must not expose a bulk option that resets successfully matched media.
 - Web PlaybackInfo may locally fall back to a visible raw `Media` when that inner
   join excludes an unresolved row. It fills the non-persistent flat technical
   projection only from `MediaProbeMetadata`; missing probe data stays unknown.
@@ -344,6 +360,10 @@ db.Model(&credit).
 | Artwork import fails | Return the error and keep the currently selected managed asset |
 | Provider metadata implies a different category/library | Persist metadata and artwork only; preserve the media path and library ID |
 | User cannot view NSFW/library | Filter in `MediaView` query before pagination or playback response creation |
+| `missing_poster=1` and the selected poster asset is absent | Include the final Movie or Series card |
+| `missing_chinese_title=1` and the final displayed title contains no Han character | Include the final Movie or Series card |
+| Both missing-metadata filters are enabled | Include only cards satisfying both conditions |
+| `POST /api/libraries/:id/scrape` or a `repair-rescrape` route is requested | Return route-not-found; do not reset matched media |
 | Catalog Metadata has no valid Media | Keep it persisted, but exclude it from physical Emby library results |
 | Local media size and nonzero nanosecond mtime both match | Count it as skipped; do not read local/derived metadata, upsert, probe, or emit an update detail |
 | Local media fingerprint is missing or differs | Continue the normal scan write and report the fingerprint reason |
@@ -413,6 +433,10 @@ db.Model(&credit).
   which creates an update/scrape/hint-clear loop for unchanged media.
 - Bad: using GORM's scoped `Delete` for a library or its media and leaving rows in the recycle bin.
 - Good: a scan or scrape changes title, identifiers, artwork and scrape status while the playable file path and library ID remain unchanged.
+- Good: a Series whose representative card has no poster and an English-only
+  final title appears once when both missing-metadata filters are enabled.
+- Bad: filter Episodes before Series aggregation, combine the two filters with
+  OR, or reintroduce a library-wide endpoint that resets matched media.
 - Bad: calling `ReclassifyMisclassifiedMedia` after a scrape and silently moving or deleting a local media/STRM file.
 - Good: a two-version local STRM item schedules both target files, persists each document and typed summary to its probe row, and exposes matching target container/path/name/bitrate.
 - Good: a signed remote STRM URL maps by its decoded path to a mounted local
@@ -462,6 +486,11 @@ db.Model(&credit).
 - Merge: move multiple media versions, favorites, playlists and history; recursively merge Series children; assert duplicate user state is resolved and source metadata is physically gone.
 - Query: add multiple identifiers for one metadata/provider/kind and assert media count, page length, and order remain unchanged; assert the generated query correlates identifier reduction to the current metadata and contains no global identifier `GROUP BY`.
 - Visibility: shared `NSFW` must hide list, search, detail, and PlaybackInfo results before pagination/response mapping.
+- Library missing metadata: assert missing-poster, missing-Chinese-title, and
+  combined filtering keep rows and total consistent; assert Series/anime are
+  filtered and counted only after aggregation.
+- Scrape routes: assert the library-wide scrape and repair-rescrape routes are
+  absent, while task-center scraping resets only unfinished rows.
 - Web PlaybackInfo: assert a visible unresolved media returns `200`, probe summary
   fields fill the non-persistent flat projection, and missing probe data returns zeros.
 - Duplicate report: assert Detect and Current use probe sizes and JSON exposes
@@ -629,6 +658,16 @@ if err == nil && result.Processed > 0 {
 
 // Correct: scraping owns metadata and managed artwork only.
 _, err := scraper.EnrichLibraryDetailedWithOptions(ctx, libraryID, options)
+```
+
+Library-wide repair must not be exposed as a forced matched reset:
+
+```go
+// Wrong: a page action can silently queue every successfully matched item again.
+authed.POST("/libraries/:id/scrape", scrapeLibraryHandler(svc))
+
+// Correct: normal scans and task-center media_scrape own automatic/retry work;
+// the forced library-wide route remains absent.
 ```
 
 Adult scraping must also remain explicit:

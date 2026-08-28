@@ -67,6 +67,29 @@ func TestListRecentSeriesCardsCountsAllEpisodesInSeries(t *testing.T) {
 	}
 }
 
+func TestFilterLibrarySeriesCardsUsesSeriesCardMetadata(t *testing.T) {
+	cards := func() []SeriesCard {
+		return []SeriesCard{
+			{Rep: model.Media{SeriesTitle: "中文剧集"}},
+			{Rep: model.Media{SeriesTitle: "English Missing"}},
+			{Rep: model.Media{SeriesTitle: "English Poster", PosterURL: "/api/artwork/poster"}},
+		}
+	}
+
+	filtered := filterLibrarySeriesCards(cards(), MediaVisibility{MissingPoster: true})
+	if len(filtered) != 2 || filtered[0].Rep.SeriesTitle != "中文剧集" || filtered[1].Rep.SeriesTitle != "English Missing" {
+		t.Fatalf("missing poster cards = %#v", filtered)
+	}
+	filtered = filterLibrarySeriesCards(cards(), MediaVisibility{MissingChineseTitle: true})
+	if len(filtered) != 2 || filtered[0].Rep.SeriesTitle != "English Missing" || filtered[1].Rep.SeriesTitle != "English Poster" {
+		t.Fatalf("missing Chinese title cards = %#v", filtered)
+	}
+	filtered = filterLibrarySeriesCards(cards(), MediaVisibility{MissingPoster: true, MissingChineseTitle: true})
+	if len(filtered) != 1 || filtered[0].Rep.SeriesTitle != "English Missing" {
+		t.Fatalf("combined cards = %#v", filtered)
+	}
+}
+
 func TestMediaSeriesKeyCollapsesNestedSpecialFolders(t *testing.T) {
 	main := model.Media{
 		LibraryID:  "lib-tv",

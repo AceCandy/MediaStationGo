@@ -37,10 +37,8 @@ export function MediaDetailPage() {
         probing={detail.probing}
         probeError={detail.probeError}
         favourite={detail.favourite}
-        scrapeEpisodeArtwork={detail.scrapeEpisodeArtwork}
         onVersionChange={detail.selectVersion}
         onToggleFavourite={detail.toggleFavourite}
-        onScrapeEpisodeArtworkChange={detail.setScrapeEpisodeArtwork}
         onSmartScrape={detail.rescrape}
         onManualScrape={() => detail.setManualScrapeOpen(true)}
         onMetadataEdit={() => detail.setMetadataEditOpen(true)}
@@ -53,7 +51,6 @@ export function MediaDetailPage() {
         manualScrapeOpen={detail.manualScrapeOpen}
         metadataEditOpen={detail.metadataEditOpen}
         organizeOpen={detail.organizeOpen}
-        scrapeEpisodeArtwork={detail.scrapeEpisodeArtwork}
         onManualScrapeClose={() => detail.setManualScrapeOpen(false)}
         onMetadataEditClose={() => detail.setMetadataEditOpen(false)}
         onOrganizeClose={() => detail.setOrganizeOpen(false)}

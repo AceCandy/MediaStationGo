@@ -25,12 +25,34 @@ type seriesCardGroup struct {
 }
 
 func (s *MediaService) ListLibrarySeriesCards(ctx context.Context, libraryID string, visibility MediaVisibility) ([]SeriesCard, int64, error) {
-	rows, _, err := s.listAllMediaVisible(ctx, libraryID, visibility)
+	mediaVisibility := visibility
+	mediaVisibility.MissingPoster = false
+	mediaVisibility.MissingChineseTitle = false
+	rows, _, err := s.listAllMediaVisible(ctx, libraryID, mediaVisibility)
 	if err != nil {
 		return nil, 0, err
 	}
 	cards := groupMediaSeriesCards(mediaViewsAsMedia(rows))
+	cards = filterLibrarySeriesCards(cards, visibility)
 	return cards, int64(len(cards)), nil
+}
+
+func filterLibrarySeriesCards(cards []SeriesCard, visibility MediaVisibility) []SeriesCard {
+	if !visibility.MissingPoster && !visibility.MissingChineseTitle {
+		return cards
+	}
+	filtered := cards[:0]
+	for _, card := range cards {
+		if visibility.MissingPoster && strings.TrimSpace(card.Rep.PosterURL) != "" {
+			continue
+		}
+		title := firstNonEmpty(card.Rep.SeriesTitle, card.Rep.Title, card.Rep.OriginalName)
+		if visibility.MissingChineseTitle && containsCJK(title) {
+			continue
+		}
+		filtered = append(filtered, card)
+	}
+	return filtered
 }
 
 func seriesCardMetadataID(card SeriesCard) string {

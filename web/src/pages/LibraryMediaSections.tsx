@@ -10,6 +10,7 @@ type LibraryMediaSectionsProps = {
   seriesCards: SeriesCard[]
   selectedSeries: SeriesCard | null
   loading: boolean
+  filtered: boolean
   favouriteIds: ReadonlySet<string>
   onToggleFavourite: (media: Media) => void
   onSeriesClick: (series: SeriesCard) => void
@@ -24,6 +25,7 @@ export function LibraryMediaSections({
   seriesCards,
   selectedSeries,
   loading,
+  filtered,
   favouriteIds,
   onToggleFavourite,
   onSeriesClick,
@@ -45,7 +47,7 @@ export function LibraryMediaSections({
       )}
 
       {!isSeries && items.length === 0 && (
-        <LibraryEmptyState message="该媒体库暂无内容，触发一次扫描后再来看看" />
+        <LibraryEmptyState filtered={filtered} message={filtered ? '没有符合当前筛选条件的媒体' : '该媒体库暂无内容，触发一次扫描后再来看看'} />
       )}
 
       {isSeries && seriesCards.length > 0 && !selectedSeries && (
@@ -63,13 +65,13 @@ export function LibraryMediaSections({
       )}
 
       {isSeries && seriesCards.length === 0 && !loading && (
-        <LibraryEmptyState message="该库尚未发现任何剧集，触发一次扫描后再来看看" />
+        <LibraryEmptyState filtered={filtered} message={filtered ? '没有符合当前筛选条件的剧集' : '该库尚未发现任何剧集，触发一次扫描后再来看看'} />
       )}
     </>
   )
 }
 
-function LibraryEmptyState({ message }: { message: string }) {
+function LibraryEmptyState({ message, filtered }: { message: string; filtered: boolean }) {
   return (
     <div className="relative flex flex-col items-center justify-center overflow-hidden rounded-3xl border border-[var(--app-border)] bg-[var(--app-panel)] py-24 text-center">
       <div aria-hidden="true" className="pointer-events-none absolute -top-16 left-1/2 h-40 w-80 -translate-x-1/2 rounded-full bg-brand-500/10 blur-3xl" />
@@ -77,7 +79,9 @@ function LibraryEmptyState({ message }: { message: string }) {
         <Film size={30} className="stroke-[1.5]" />
       </div>
       <p className="relative font-display text-lg font-extrabold tracking-tight text-[var(--app-text)]">{message}</p>
-      <p className="relative mt-2 text-sm text-[var(--app-muted)]">扫描完成后，海报墙会自动出现在这里</p>
+      <p className="relative mt-2 text-sm text-[var(--app-muted)]">
+        {filtered ? '请调整或关闭筛选条件' : '扫描完成后，海报墙会自动出现在这里'}
+      </p>
     </div>
   )
 }

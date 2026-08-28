@@ -92,6 +92,12 @@ func applyMediaViewFilter(q *gorm.DB, filter MediaQueryFilter) *gorm.DB {
 	if len(filter.AllowedLibraryIDs) > 0 {
 		q = q.Where("m.library_id IN ?", filter.AllowedLibraryIDs)
 	}
+	if filter.MissingPoster {
+		q = q.Where("poster_asset.id IS NULL")
+	}
+	if filter.MissingChineseTitle {
+		q = q.Where(`COALESCE(NULLIF(mi.title, ''), m.scan_title) !~ '[㐀-䶿一-鿿豈-﫿]'`)
+	}
 	return q
 }
 

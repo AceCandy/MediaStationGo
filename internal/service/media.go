@@ -20,10 +20,12 @@ type MediaService struct {
 }
 
 type MediaVisibility struct {
-	IncludeNSFW       bool
-	AllowedLibraryIDs []string
-	HiddenLibraryIDs  []string
-	LibraryRestricted bool
+	IncludeNSFW         bool
+	AllowedLibraryIDs   []string
+	HiddenLibraryIDs    []string
+	LibraryRestricted   bool
+	MissingPoster       bool
+	MissingChineseTitle bool
 }
 
 const maxMediaSearchLimit = 50000

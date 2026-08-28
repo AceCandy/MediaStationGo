@@ -116,25 +116,6 @@ func scrapeOneHandler(svc *service.Container) gin.HandlerFunc {
 	}
 }
 
-// scrapeLibraryHandler manually refreshes every scrapeable row in a library.
-func scrapeLibraryHandler(svc *service.Container) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		libID := c.Param("id")
-		options, err := scrapeOptionsFromRequest(c, true)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid scrape options"})
-			return
-		}
-		options.IncludeMatched = true
-		queued, err := svc.Scraper.ResetLibraryScrape(c.Request.Context(), libID, options.IncludeMatched)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-		c.JSON(http.StatusAccepted, gin.H{"status": "queued", "count": queued})
-	}
-}
-
 // reprobeHandler re-runs ffprobe against a single media. Admin-only.
 func reprobeHandler(svc *service.Container) gin.HandlerFunc {
 	return func(c *gin.Context) {

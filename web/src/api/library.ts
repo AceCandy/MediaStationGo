@@ -97,6 +97,11 @@ export interface ScrapeOptions {
 
 export type ManualScrapeApplyOptions = ScrapeOptions
 
+export interface LibraryMediaFilters {
+  missingPoster?: boolean
+  missingChineseTitle?: boolean
+}
+
 export interface MediaMetadataUpdate {
   title?: string
   original_name?: string
@@ -154,33 +159,31 @@ export const libraryAPI = {
 
   removeRoot: (id: string, rootID: string) => api.delete(`/libraries/${id}/roots/${rootID}`).then((r) => r.data),
 
-  scrape: (id: string, options?: ScrapeOptions) =>
-    api.post(`/libraries/${id}/scrape`, options ?? null, { timeout: BATCH_REQUEST_TIMEOUT }).then((r) => r.data),
-
-  probeTracks: (id: string) =>
-    api.post<{ status: string }>(`/libraries/${id}/probe`).then((r) => r.data),
-
-  backfillPeople: (id: string) =>
-    api.post<{ status: string }>(`/libraries/${id}/people-backfill`).then((r) => r.data),
-
-  listMedia: (id: string, page = 1, pageSize = 50, options?: { groupVersions?: boolean }) =>
-    libraryRequest(`media:${id}:${page}:${pageSize}:${options?.groupVersions === false ? 0 : 1}`, () =>
+  listMedia: (id: string, page = 1, pageSize = 50, options?: LibraryMediaFilters & { groupVersions?: boolean }) =>
+    libraryRequest(`media:${id}:${page}:${pageSize}:${options?.groupVersions === false ? 0 : 1}:${options?.missingPoster ? 1 : 0}:${options?.missingChineseTitle ? 1 : 0}`, () =>
       api
         .get<MediaPage>(`/libraries/${id}/media`, {
           params: {
             page,
             page_size: pageSize,
             group_versions: options?.groupVersions === false ? 0 : undefined,
+            missing_poster: options?.missingPoster ? 1 : undefined,
+            missing_chinese_title: options?.missingChineseTitle ? 1 : undefined,
           },
           timeout: LONG_REQUEST_TIMEOUT,
         })
         .then((r) => r.data)),
 
-  listSeries: (id: string, page = 1, pageSize = 500) =>
-    libraryRequest(`series:${id}:${page}:${pageSize}`, () =>
+  listSeries: (id: string, page = 1, pageSize = 500, options?: LibraryMediaFilters) =>
+    libraryRequest(`series:${id}:${page}:${pageSize}:${options?.missingPoster ? 1 : 0}:${options?.missingChineseTitle ? 1 : 0}`, () =>
       api
         .get<SeriesPage>(`/libraries/${id}/series`, {
-          params: { page, page_size: pageSize },
+          params: {
+            page,
+            page_size: pageSize,
+            missing_poster: options?.missingPoster ? 1 : undefined,
+            missing_chinese_title: options?.missingChineseTitle ? 1 : undefined,
+          },
           timeout: LONG_REQUEST_TIMEOUT,
         })
         .then((r) => r.data)),

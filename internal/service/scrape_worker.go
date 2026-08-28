@@ -44,7 +44,7 @@ func (s *ScraperService) processNextMediaScrape(ctx context.Context) (bool, erro
 			return false, errors.New("create scrape task execution failed")
 		}
 	}
-	options := skipEpisodeArtworkOptions(false)
+	options := ScrapeOptions{}
 	options.DeferEpisodeDetails = true
 	options.timings = &scrapeTimings{}
 	options.result = &scrapeResult{}

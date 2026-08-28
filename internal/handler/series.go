@@ -71,7 +71,10 @@ func listLibrarySeriesHandler(svc *service.Container) gin.HandlerFunc {
 				return
 			}
 		}
-		items, total, err := svc.Media.ListLibrarySeriesCards(c.Request.Context(), libID, mediaVisibilityForRequest(c, svc))
+		visibility := mediaVisibilityForRequest(c, svc)
+		visibility.MissingPoster = c.Query("missing_poster") == "1"
+		visibility.MissingChineseTitle = c.Query("missing_chinese_title") == "1"
+		items, total, err := svc.Media.ListLibrarySeriesCards(c.Request.Context(), libID, visibility)
 		if err != nil {
 			writeInternalOrCanceled(c, err)
 			return

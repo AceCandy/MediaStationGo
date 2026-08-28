@@ -23,6 +23,8 @@ export function LibraryPage() {
 
   const [manualSeriesScrapeOpen, setManualSeriesScrapeOpen] = useState(false)
   const [seriesMetadataEditOpen, setSeriesMetadataEditOpen] = useState(false)
+  const [missingPoster, setMissingPoster] = useState(false)
+  const [missingChineseTitle, setMissingChineseTitle] = useState(false)
 
   // 网格卡片收藏：整页拉一次收藏列表（API 层有 5s 缓存），本地维护 id 集合
   const [favouriteIds, setFavouriteIds] = useState<ReadonlySet<string>>(() => new Set())
@@ -75,7 +77,7 @@ export function LibraryPage() {
     hasMore,
     loadMore,
     reloadCurrentLibrary,
-  } = useLibraryData(id, selectedSeries)
+  } = useLibraryData(id, selectedSeries, { missingPoster, missingChineseTitle })
   const loadMoreRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -112,24 +114,13 @@ export function LibraryPage() {
   })
 
   const {
-    scraping,
-    scrapeEpisodeArtwork,
-    repairing,
-    backfilling,
-    peopleBackfilling,
     seriesToolBusy,
-    setScrapeEpisodeArtwork,
-    handleScrape,
-    handleRepairRescrape,
-    handleProbeBackfill,
-    handlePeopleBackfill,
     handleSeriesSmartScrape,
     handleSeriesProbe,
     handleEpisodeProbe,
     handleSeriesOrganize,
     handleSeriesSoftDelete,
   } = useLibraryAdminActions({
-    libraryID: id,
     library,
     selectedSeries,
     selectedSeriesEpisodes,
@@ -152,19 +143,13 @@ export function LibraryPage() {
     <div className="space-y-6">
       <LibraryPageHeader
         library={library}
-        itemCount={isSeries ? seriesCards.length : total}
+        itemCount={isSeriesLibrary ? total : isSeries ? seriesCards.length : total}
         loadingAllText={loadingAllText}
         isAdmin={role === 'admin'}
-        scrapeEpisodeArtwork={scrapeEpisodeArtwork}
-        scraping={scraping}
-        repairing={repairing}
-        backfilling={backfilling}
-        peopleBackfilling={peopleBackfilling}
-        onScrapeEpisodeArtworkChange={setScrapeEpisodeArtwork}
-        onScrape={handleScrape}
-        onRepairRescrape={handleRepairRescrape}
-        onProbeBackfill={handleProbeBackfill}
-        onPeopleBackfill={handlePeopleBackfill}
+        missingPoster={missingPoster}
+        missingChineseTitle={missingChineseTitle}
+        onMissingPosterChange={setMissingPoster}
+        onMissingChineseTitleChange={setMissingChineseTitle}
       />
 
       <LibraryMediaSections
@@ -173,6 +158,7 @@ export function LibraryPage() {
         seriesCards={seriesCards}
         selectedSeries={selectedSeries}
         loading={loading}
+        filtered={missingPoster || missingChineseTitle}
         favouriteIds={favouriteIds}
         onToggleFavourite={handleToggleFavourite}
         onSeriesClick={handleSeriesClick}
@@ -215,7 +201,6 @@ export function LibraryPage() {
         selectedSeries={selectedSeries}
         selectedSeriesMediaIDs={selectedSeriesMediaIDs}
         libraryType={library?.type}
-        scrapeEpisodeArtwork={scrapeEpisodeArtwork}
         onCloseManualSeriesScrape={() => setManualSeriesScrapeOpen(false)}
         onCloseSeriesMetadataEdit={() => setSeriesMetadataEditOpen(false)}
         onApplied={reloadCurrentLibrary}

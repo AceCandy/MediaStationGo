@@ -1,9 +1,8 @@
 import type { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { ArrowRight, Film, Library as LibraryIcon, Music, PlayCircle, RefreshCw, Tv } from 'lucide-react'
+import { ArrowRight, Film, Library as LibraryIcon, Music, PlayCircle, Tv } from 'lucide-react'
 
-import { EpisodeArtworkToggle } from '../components/EpisodeArtworkToggle'
 import { MediaCard } from '../components/MediaCard'
 import { seriesCardLink } from '../utils/groupSeries'
 import { libraryDisplayPath } from './libraryDisplayModel'
@@ -35,20 +34,10 @@ export function LibrariesHeader({
   isAdmin,
   previewCount,
   total,
-  repairMsg,
-  repairEpisodeArtwork,
-  repairing,
-  onRepairEpisodeArtworkChange,
-  onRepairRescrape,
 }: {
   isAdmin: boolean
   previewCount: number
   total: number
-  repairMsg: string
-  repairEpisodeArtwork: boolean
-  repairing: boolean
-  onRepairEpisodeArtworkChange: (value: boolean) => void
-  onRepairRescrape: () => void
 }) {
   return (
     <div className="flex flex-wrap items-end justify-between gap-4">
@@ -59,24 +48,7 @@ export function LibrariesHeader({
         </p>
       </div>
       {isAdmin && (
-        <div className="flex flex-wrap items-center gap-3">
-          {repairMsg && <span className="text-xs text-ink-50">{repairMsg}</span>}
-          <EpisodeArtworkToggle
-            checked={repairEpisodeArtwork}
-            onChange={onRepairEpisodeArtworkChange}
-            title="关闭后仍会获取主海报和每集文字元数据，只跳过每集图片"
-            className="h-10"
-          />
-          <button
-            type="button"
-            onClick={onRepairRescrape}
-            disabled={repairing}
-            className="btn-outline disabled:cursor-not-allowed disabled:opacity-60"
-            title="从媒体路径回填缺失/错误的外部 ID，再批量重刮整库"
-          >
-            <RefreshCw size={14} className={repairing ? 'animate-spin' : ''} />
-            {repairing ? '正在启动…' : '全库修复+重刮'}
-          </button>
+        <div>
           <Link to="/admin/media" className="btn-outline">
             管理媒体库
             <ArrowRight size={14} />

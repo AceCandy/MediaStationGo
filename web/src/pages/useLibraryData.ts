@@ -1,14 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import toast from 'react-hot-toast'
 
-import { libraryAPI } from '../api/library'
+import { libraryAPI, type LibraryMediaFilters } from '../api/library'
 import type { Library, Media } from '../types'
 import { groupSeries, isEpisodeLike, type SeriesCard } from '../utils/groupSeries'
 import { isSeriesLibraryType } from './librariesPageModel'
 
 const LIBRARY_PAGE_SIZE = 50
 
-export function useLibraryData(libraryID: string, selectedSeries: SeriesCard | null) {
+export function useLibraryData(libraryID: string, selectedSeries: SeriesCard | null, filters: LibraryMediaFilters) {
+  const { missingPoster = false, missingChineseTitle = false } = filters
   const [library, setLibrary] = useState<Library | null>(null)
   const [items, setItems] = useState<Media[]>([])
   const [serverSeriesCards, setServerSeriesCards] = useState<SeriesCard[]>([])
@@ -68,7 +69,7 @@ export function useLibraryData(libraryID: string, selectedSeries: SeriesCard | n
     setServerSeriesCards([])
     setSeriesEpisodeItems([])
 
-    loadLibraryPage(libraryID, isSeriesLibrary, 1)
+    loadLibraryPage(libraryID, isSeriesLibrary, 1, { missingPoster, missingChineseTitle })
       .then((page) => {
         if (cancelled) return
         setTotal(page.total)
@@ -82,7 +83,7 @@ export function useLibraryData(libraryID: string, selectedSeries: SeriesCard | n
         if (!cancelled) setLoading(false)
       })
     return () => { cancelled = true }
-  }, [libraryID, library, isSeriesLibrary])
+  }, [missingChineseTitle, missingPoster, libraryID, library, isSeriesLibrary])
 
   const loadedCount = isSeriesLibrary ? serverSeriesCards.length : items.length
   const hasMore = loadedCount < total
@@ -93,7 +94,7 @@ export function useLibraryData(libraryID: string, selectedSeries: SeriesCard | n
     setLoadingMore(true)
     setLoadMoreError(false)
     try {
-      const page = await loadLibraryPage(libraryID, isSeriesLibrary, nextPage)
+      const page = await loadLibraryPage(libraryID, isSeriesLibrary, nextPage, { missingPoster, missingChineseTitle })
       if (loadVersion !== loadVersionRef.current) return
       setTotal(page.items.length === 0 ? loadedCount : page.total)
       if (page.kind === 'series') setServerSeriesCards((current) => current.concat(page.items))
@@ -110,7 +111,7 @@ export function useLibraryData(libraryID: string, selectedSeries: SeriesCard | n
         setLoadingMore(false)
       }
     }
-  }, [hasMore, isSeriesLibrary, library, libraryID, loadedCount, nextPage])
+  }, [missingChineseTitle, missingPoster, hasMore, isSeriesLibrary, library, libraryID, loadedCount, nextPage])
 
   useEffect(() => {
     if (!libraryID || !isSeriesLibrary || !selectedSeries) {
@@ -161,13 +162,13 @@ export function useLibraryData(libraryID: string, selectedSeries: SeriesCard | n
   }
 }
 
-async function loadLibraryPage(libraryID: string, series: boolean, page: number) {
+async function loadLibraryPage(libraryID: string, series: boolean, page: number, filters: LibraryMediaFilters) {
   if (series) {
-    const data = await libraryAPI.listSeries(libraryID, page, LIBRARY_PAGE_SIZE)
+    const data = await libraryAPI.listSeries(libraryID, page, LIBRARY_PAGE_SIZE, filters)
     const items = data.items ?? []
     return { kind: 'series' as const, items, total: data.total ?? items.length }
   }
-  const data = await libraryAPI.listMedia(libraryID, page, LIBRARY_PAGE_SIZE)
+  const data = await libraryAPI.listMedia(libraryID, page, LIBRARY_PAGE_SIZE, filters)
   const items = data.items ?? []
   return { kind: 'media' as const, items, total: data.total ?? items.length }
 }

@@ -34,8 +34,3 @@ func recordScrapeSource(options ScrapeOptions, source string, err error) error {
 func (o ScrapeOptions) episodeArtworkEnabled() bool {
 	return o.EpisodeArtwork == nil || *o.EpisodeArtwork
 }
-
-func skipEpisodeArtworkOptions(retryNoMatch bool) ScrapeOptions {
-	episodeArtwork := false
-	return ScrapeOptions{RetryNoMatch: retryNoMatch, EpisodeArtwork: &episodeArtwork}
-}

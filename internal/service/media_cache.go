@@ -27,7 +27,7 @@ func (s *MediaService) mediaListCacheKey(libraryID string, libraryIDs []string, 
 	sum := sha1.Sum([]byte(strings.Join([]string{
 		libraryID,
 		strings.Join(libs, ","),
-		fmt.Sprintf("%d:%d:%t", page, pageSize, filter.IncludeNSFW),
+		fmt.Sprintf("%d:%d:%t:%t:%t", page, pageSize, filter.IncludeNSFW, filter.MissingPoster, filter.MissingChineseTitle),
 		strings.Join(allowed, ","),
 		strings.Join(hidden, ","),
 	}, "|")))

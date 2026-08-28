@@ -39,9 +39,11 @@ func (r *MediaRepository) SetSearchBackend(backend MediaSearchBackend) {
 // MediaQueryFilter is applied to user-facing media queries so NSFW items and
 // profile-restricted libraries are filtered in SQL instead of only in React.
 type MediaQueryFilter struct {
-	IncludeNSFW       bool
-	AllowedLibraryIDs []string
-	HiddenLibraryIDs  []string
+	IncludeNSFW         bool
+	AllowedLibraryIDs   []string
+	HiddenLibraryIDs    []string
+	MissingPoster       bool
+	MissingChineseTitle bool
 }
 
 type MetadataSearchFields string

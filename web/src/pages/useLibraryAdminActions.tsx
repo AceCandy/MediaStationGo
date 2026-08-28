@@ -2,7 +2,7 @@ import { useState } from 'react'
 import toast from 'react-hot-toast'
 
 import { api } from '../api/client'
-import { libraryAPI, mediaAPI } from '../api/library'
+import { mediaAPI } from '../api/library'
 import { toolsAPI } from '../api/tools'
 import { confirmAction } from '../components/confirmAction'
 import type { Library, Media } from '../types'
@@ -10,7 +10,6 @@ import { seriesTitle, type SeriesCard } from '../utils/groupSeries'
 import { seriesSourceRoot } from './libraryPageModel'
 
 type UseLibraryAdminActionsOptions = {
-  libraryID: string
   library: Library | null
   selectedSeries: SeriesCard | null
   selectedSeriesEpisodes: Media[]
@@ -19,70 +18,13 @@ type UseLibraryAdminActionsOptions = {
 }
 
 export function useLibraryAdminActions({
-  libraryID,
   library,
   selectedSeries,
   selectedSeriesEpisodes,
   reloadCurrentLibrary,
   clearSelectedSeries,
 }: UseLibraryAdminActionsOptions) {
-  const [scraping, setScraping] = useState(false)
-  const [scrapeEpisodeArtwork, setScrapeEpisodeArtwork] = useState(false)
-  const [repairing, setRepairing] = useState(false)
-  const [backfilling, setBackfilling] = useState(false)
-	const [peopleBackfilling, setPeopleBackfilling] = useState(false)
   const [seriesToolBusy, setSeriesToolBusy] = useState('')
-
-  const handleScrape = async () => {
-    setScraping(true)
-    try {
-      await libraryAPI.scrape(libraryID, { episode_images: scrapeEpisodeArtwork, refresh_matched: true })
-      toast.success('刮削已加入后台队列')
-    } catch {
-      toast.error('刮削失败')
-    } finally {
-      setScraping(false)
-    }
-  }
-
-  const handleRepairRescrape = async () => {
-    if (repairing) return
-    setRepairing(true)
-    try {
-      await toolsAPI.repairAndRescrapeLibrary(libraryID, { episode_images: scrapeEpisodeArtwork, refresh_matched: true })
-      toast.success('本库修复+重刮已加入后台队列，进度可在任务中查看')
-    } catch {
-      toast.error('修复+重刮启动失败')
-    } finally {
-      setRepairing(false)
-    }
-  }
-
-  const handleProbeBackfill = async () => {
-    if (backfilling) return
-    setBackfilling(true)
-    try {
-      await libraryAPI.probeTracks(libraryID)
-      toast.success('媒体轨道回填已加入后台队列，进度可在任务中查看')
-    } catch {
-      toast.error('媒体轨道回填启动失败')
-    } finally {
-      setBackfilling(false)
-    }
-  }
-
-  const handlePeopleBackfill = async () => {
-    if (peopleBackfilling) return
-    setPeopleBackfilling(true)
-    try {
-      await libraryAPI.backfillPeople(libraryID)
-      toast.success('人物信息回填已加入后台队列，进度可在任务中查看')
-    } catch {
-      toast.error('人物信息回填启动失败')
-    } finally {
-      setPeopleBackfilling(false)
-    }
-  }
 
   const runSeriesTool = async (key: string, label: string, action: (media: Media) => Promise<unknown>) => {
     if (selectedSeriesEpisodes.length === 0) return
@@ -103,7 +45,7 @@ export function useLibraryAdminActions({
 
   const handleSeriesSmartScrape = () => {
     runSeriesTool('scrape', '整剧智能刮削', (media) =>
-      api.post(`/media/${media.id}/scrape`, smartScrapeOptions(scrapeEpisodeArtwork)),
+      api.post(`/media/${media.id}/scrape`, smartScrapeOptions()),
     )
   }
 
@@ -180,17 +122,7 @@ export function useLibraryAdminActions({
   }
 
   return {
-    scraping,
-    scrapeEpisodeArtwork,
-    repairing,
-    backfilling,
-    peopleBackfilling,
     seriesToolBusy,
-    setScrapeEpisodeArtwork,
-    handleScrape,
-    handleRepairRescrape,
-    handleProbeBackfill,
-    handlePeopleBackfill,
     handleSeriesSmartScrape,
     handleSeriesProbe,
     handleEpisodeProbe,
@@ -199,9 +131,9 @@ export function useLibraryAdminActions({
   }
 }
 
-function smartScrapeOptions(episodeImages: boolean) {
+function smartScrapeOptions() {
   return {
-    episode_images: episodeImages,
+    episode_images: true,
     refresh_matched: true,
     include_matched: true,
   }

@@ -163,8 +163,11 @@ func listMediaHandler(svc *service.Container) gin.HandlerFunc {
 		page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 		size, _ := strconv.Atoi(c.DefaultQuery("page_size", "50"))
 		groupVersions := c.DefaultQuery("group_versions", "1") != "0"
+		visibility := mediaVisibilityForRequest(c, svc)
+		visibility.MissingPoster = c.Query("missing_poster") == "1"
+		visibility.MissingChineseTitle = c.Query("missing_chinese_title") == "1"
 		if !groupVersions {
-			items, total, err := svc.Media.ListMediaVisible(c.Request.Context(), id, page, size, mediaVisibilityForRequest(c, svc))
+			items, total, err := svc.Media.ListMediaVisible(c.Request.Context(), id, page, size, visibility)
 			if err != nil {
 				writeInternalOrCanceled(c, err)
 				return
@@ -180,7 +183,7 @@ func listMediaHandler(svc *service.Container) gin.HandlerFunc {
 			})
 			return
 		}
-		items, total, err := svc.Media.ListMediaVisibleGrouped(c.Request.Context(), id, page, size, mediaVisibilityForRequest(c, svc))
+		items, total, err := svc.Media.ListMediaVisibleGrouped(c.Request.Context(), id, page, size, visibility)
 		if err != nil {
 			writeInternalOrCanceled(c, err)
 			return

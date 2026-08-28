@@ -151,6 +151,63 @@ func TestMediaViewFiltersSortsAndPaginatesBySharedMetadata(t *testing.T) {
 	}
 }
 
+func TestMediaViewFiltersMissingPosterAndChineseTitle(t *testing.T) {
+	repos := newMediaViewTestRepositories(t)
+	library := model.Library{Name: "Movies", Path: "/media/movies", Type: "movie", Enabled: true}
+	if err := repos.Library.Create(t.Context(), &library); err != nil {
+		t.Fatal(err)
+	}
+	metadata := []model.MetadataItem{
+		{PermanentBase: model.PermanentBase{ID: "metadata-chinese"}, Kind: model.MetadataKindMovie, Title: "中文电影", Source: "tmdb"},
+		{PermanentBase: model.PermanentBase{ID: "metadata-english-no-poster"}, Kind: model.MetadataKindMovie, Title: "English Missing", Source: "tmdb"},
+		{PermanentBase: model.PermanentBase{ID: "metadata-english-poster"}, Kind: model.MetadataKindMovie, Title: "English Poster", Source: "tmdb"},
+	}
+	if err := repos.DB.Create(&metadata).Error; err != nil {
+		t.Fatal(err)
+	}
+	media := []model.Media{
+		{PermanentBase: model.PermanentBase{ID: "media-chinese"}, LibraryID: library.ID, MetadataID: metadata[0].ID, Title: metadata[0].Title, Path: "/media/movies/chinese.mkv"},
+		{PermanentBase: model.PermanentBase{ID: "media-english-no-poster"}, LibraryID: library.ID, MetadataID: metadata[1].ID, Title: metadata[1].Title, Path: "/media/movies/english-missing.mkv"},
+		{PermanentBase: model.PermanentBase{ID: "media-english-poster"}, LibraryID: library.ID, MetadataID: metadata[2].ID, Title: metadata[2].Title, Path: "/media/movies/english-poster.mkv"},
+	}
+	if err := repos.DB.Create(&media).Error; err != nil {
+		t.Fatal(err)
+	}
+	asset := model.ArtworkAsset{PermanentBase: model.PermanentBase{ID: "asset-filter-poster"}, SHA256: strings.Repeat("a", 64), StorageKey: "poster.jpg", MimeType: "image/jpeg"}
+	if err := repos.DB.Create(&asset).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := repos.DB.Create(&model.MetadataArtwork{MetadataID: metadata[2].ID, AssetID: asset.ID, ArtworkType: model.ArtworkTypePoster}).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		name   string
+		filter MediaQueryFilter
+		want   map[string]bool
+	}{
+		{name: "missing poster", filter: MediaQueryFilter{IncludeNSFW: true, MissingPoster: true}, want: map[string]bool{"media-chinese": true, "media-english-no-poster": true}},
+		{name: "missing Chinese title", filter: MediaQueryFilter{IncludeNSFW: true, MissingChineseTitle: true}, want: map[string]bool{"media-english-no-poster": true, "media-english-poster": true}},
+		{name: "combined", filter: MediaQueryFilter{IncludeNSFW: true, MissingPoster: true, MissingChineseTitle: true}, want: map[string]bool{"media-english-no-poster": true}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rows, total, err := repos.MediaView.ListByLibrariesFiltered(t.Context(), []string{library.ID}, 0, 10, tt.filter)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if total != int64(len(tt.want)) || len(rows) != len(tt.want) {
+				t.Fatalf("total=%d rows=%#v, want %d", total, rows, len(tt.want))
+			}
+			for _, row := range rows {
+				if !tt.want[row.ID] {
+					t.Fatalf("unexpected row %q in %#v", row.ID, rows)
+				}
+			}
+		})
+	}
+}
+
 func TestMediaViewProjectsEpisodeArtworkAndParentIdentifiers(t *testing.T) {
 	repos := newMediaViewTestRepositories(t)
 	library := model.Library{Name: "TV", Path: "/media/tv", Type: "tv", Enabled: true}

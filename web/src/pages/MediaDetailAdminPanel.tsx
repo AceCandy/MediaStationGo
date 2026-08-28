@@ -1,11 +1,6 @@
-import { Check, Database, FolderInput, Image, MoreHorizontal, Pencil, Search, Sparkles, Trash2, type LucideIcon } from 'lucide-react'
-
-import type { Media } from '../types'
+import { Database, FolderInput, MoreHorizontal, Pencil, Search, Sparkles, Trash2, type LucideIcon } from 'lucide-react'
 
 type MediaDetailAdminMenuProps = {
-  media: Media
-  scrapeEpisodeArtwork: boolean
-  onScrapeEpisodeArtworkChange: (checked: boolean) => void
   onSmartScrape: () => void
   onManualScrape: () => void
   onMetadataEdit: () => void
@@ -16,9 +11,6 @@ type MediaDetailAdminMenuProps = {
 
 // MediaDetailAdminMenu 管理操作收敛进播放操作排的「更多操作」下拉菜单。
 export function MediaDetailAdminMenu({
-  media,
-  scrapeEpisodeArtwork,
-  onScrapeEpisodeArtworkChange,
   onSmartScrape,
   onManualScrape,
   onMetadataEdit,
@@ -57,22 +49,6 @@ export function MediaDetailAdminMenu({
         aria-label="管理操作"
         className="absolute right-0 top-full z-50 mt-2 w-64 overflow-hidden rounded-xl border border-[var(--app-border)] bg-[var(--app-panel)] p-1.5 shadow-xl"
       >
-        {isEpisodeArtworkTarget(media) && (
-          <button
-            type="button"
-            role="menuitemcheckbox"
-            aria-checked={scrapeEpisodeArtwork}
-            className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left text-sm font-semibold text-[var(--app-text)] transition-colors hover:bg-[var(--app-hover)]"
-            onClick={(event) => {
-              onScrapeEpisodeArtworkChange(!scrapeEpisodeArtwork)
-              close(event.currentTarget)
-            }}
-          >
-            <Image size={15} className="shrink-0 text-[var(--app-gold)]" />
-            <span className="min-w-0 flex-1">刮削每集图片</span>
-            {scrapeEpisodeArtwork && <Check size={15} className="shrink-0 text-brand-500" />}
-          </button>
-        )}
         <AdminMenuItem icon={Sparkles} iconClass="text-[var(--app-gold)]" label="智能刮削 (TMDB)" onClick={onSmartScrape} onClose={close} />
         <AdminMenuItem icon={Search} iconClass="text-[var(--app-gold)]" label="手动匹配刮削" onClick={onManualScrape} onClose={close} />
         <AdminMenuItem icon={Pencil} iconClass="text-[var(--app-muted)]" label="编辑元数据" onClick={onMetadataEdit} onClose={close} />
@@ -116,8 +92,4 @@ function AdminMenuItem({
       <span className="min-w-0 flex-1 truncate">{label}</span>
     </button>
   )
-}
-
-function isEpisodeArtworkTarget(media: Media): boolean {
-  return media.season_num > 0 || media.episode_num > 0
 }

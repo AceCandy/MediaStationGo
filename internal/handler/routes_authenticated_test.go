@@ -28,6 +28,7 @@ func TestAuthenticatedRouteSurfacesAreRegistered(t *testing.T) {
 		"GET /api/auth/permissions",
 		"GET /api/libraries",
 		"POST /api/libraries/:id/probe",
+		"POST /api/libraries/:id/people-backfill",
 		"GET /api/media",
 		"GET /api/media/:id/versions",
 		"POST /api/media/:id/probe/ensure",
@@ -64,6 +65,7 @@ func TestAuthenticatedRouteSurfacesAreRegistered(t *testing.T) {
 		"GET /api/sites/:id/resource",
 		"GET /api/sites/:id/userdata",
 		"GET /api/search/sites",
+		"POST /api/libraries/:id/scrape",
 	} {
 		if routes[forbidden] {
 			t.Fatalf("retired route is still registered: %s", forbidden)
