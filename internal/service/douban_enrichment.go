@@ -22,7 +22,8 @@ const (
 var doubanMovieEnrichmentDelay = 2 * time.Second
 
 type doubanEnrichmentResult struct {
-	FieldsFilled      int64
+	Subject           string
+	UpdatedFields     []string
 	SnapshotSaved     bool
 	CandidateSaved    bool
 	CandidatePromoted bool
@@ -35,7 +36,7 @@ func (s *ScraperService) enrichMovieFromDouban(ctx context.Context, metadataID s
 }
 
 func (s *ScraperService) enrichMovieFromDoubanDetails(ctx context.Context, metadataID string, details *Match) (doubanEnrichmentResult, error) {
-	result := doubanEnrichmentResult{}
+	result := doubanEnrichmentResult{Subject: metadataID}
 	if s == nil || s.repo == nil || s.repo.Metadata == nil || s.douban == nil {
 		return result, errors.New("douban movie enrichment dependencies unavailable")
 	}
@@ -46,6 +47,9 @@ func (s *ScraperService) enrichMovieFromDoubanDetails(ctx context.Context, metad
 	if item.Kind != model.MetadataKindMovie {
 		result.Skipped = true
 		return result, nil
+	}
+	if title := strings.TrimSpace(item.Title); title != "" {
+		result.Subject = fmt.Sprintf("《%s》（%s）", title, metadataID)
 	}
 	identifiers, err := s.repo.Metadata.ListIdentifiers(ctx, metadataID)
 	if err != nil {
@@ -63,13 +67,16 @@ func (s *ScraperService) enrichMovieFromDoubanDetails(ctx context.Context, metad
 			return result, err
 		}
 	}
+	if title := strings.TrimSpace(details.Title); title != "" {
+		result.Subject = fmt.Sprintf("《%s》（%s）", title, metadataID)
+	}
 	if details.TMDbID > 0 {
 		if tmdbID, exists := uniqueIdentifier(identifiers, "tmdb", model.MetadataKindMovie); exists && tmdbID != strconv.Itoa(details.TMDbID) {
 			result.Skipped = true
 			return result, nil
 		}
 	}
-	result.FieldsFilled, err = s.fillMissingDoubanMovieFields(ctx, metadataID, details)
+	result.UpdatedFields, err = s.fillMissingDoubanMovieFields(ctx, metadataID, details)
 	if err != nil {
 		return result, err
 	}
@@ -107,46 +114,46 @@ func uniqueIdentifier(identifiers []model.MetadataIdentifier, provider, entityKi
 }
 
 // fillMissingDoubanMovieFields 在行锁内重新判断空值，避免覆盖并发写入的人工元数据。
-func (s *ScraperService) fillMissingDoubanMovieFields(ctx context.Context, metadataID string, details *Match) (int64, error) {
-	var filled int64
+func (s *ScraperService) fillMissingDoubanMovieFields(ctx context.Context, metadataID string, details *Match) ([]string, error) {
+	updatedFields := []string{}
 	err := s.repo.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var current model.MetadataItem
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&current, "id = ? AND kind = ?", metadataID, model.MetadataKindMovie).Error; err != nil {
 			return err
 		}
 		updates := map[string]any{}
-		setString := func(column, currentValue, incoming string) {
+		setString := func(column, label, currentValue, incoming string) {
 			if _, exists := updates[column]; exists {
 				return
 			}
 			if strings.TrimSpace(currentValue) == "" && strings.TrimSpace(incoming) != "" {
 				updates[column] = strings.TrimSpace(incoming)
-				filled++
+				updatedFields = append(updatedFields, label)
 			}
 		}
 		if incoming := strings.TrimSpace(details.Title); incoming != "" && !containsCJK(current.Title) && containsCJK(incoming) {
 			updates["title"] = incoming
-			filled++
+			updatedFields = append(updatedFields, "标题")
 			if strings.TrimSpace(current.OriginalName) == "" {
 				updates["original_name"] = firstNonEmpty(strings.TrimSpace(details.OriginalName), strings.TrimSpace(current.Title))
-				filled++
+				updatedFields = append(updatedFields, "原名")
 			}
 		} else {
-			setString("title", current.Title, details.Title)
+			setString("title", "标题", current.Title, details.Title)
 		}
-		setString("original_name", current.OriginalName, details.OriginalName)
-		setString("overview", current.Overview, details.Overview)
-		setString("release_date", current.ReleaseDate, details.ReleaseDate)
-		setString("languages", current.Languages, strings.Join(details.Languages, ","))
-		setString("countries", current.Countries, strings.Join(details.Countries, ","))
-		setString("genres", current.Genres, strings.Join(details.Genres, ","))
+		setString("original_name", "原名", current.OriginalName, details.OriginalName)
+		setString("overview", "简介", current.Overview, details.Overview)
+		setString("release_date", "上映日期", current.ReleaseDate, details.ReleaseDate)
+		setString("languages", "语言", current.Languages, strings.Join(details.Languages, ","))
+		setString("countries", "国家/地区", current.Countries, strings.Join(details.Countries, ","))
+		setString("genres", "类型", current.Genres, strings.Join(details.Genres, ","))
 		if current.Rating == 0 && details.Rating > 0 {
 			updates["rating"] = details.Rating
-			filled++
+			updatedFields = append(updatedFields, "评分")
 		}
 		if current.Year == 0 && details.Year > 0 {
 			updates["year"] = details.Year
-			filled++
+			updatedFields = append(updatedFields, "年份")
 		}
 		if len(updates) == 0 {
 			return nil
@@ -154,7 +161,7 @@ func (s *ScraperService) fillMissingDoubanMovieFields(ctx context.Context, metad
 		updates["updated_at"] = time.Now().UTC()
 		return tx.Model(&model.MetadataItem{}).Where("id = ?", metadataID).Updates(updates).Error
 	})
-	return filled, err
+	return updatedFields, err
 }
 
 func (s *ScraperService) runDoubanMovieEnrichment(ctx context.Context, trigger string) error {
@@ -162,13 +169,14 @@ func (s *ScraperService) runDoubanMovieEnrichment(ctx context.Context, trigger s
 		return errors.New("douban movie enrichment dependencies unavailable")
 	}
 	metrics := map[string]int64{}
+	details := []string{}
 	var task *TaskHandle
 	if s.tasks != nil {
 		task = s.tasks.StartTriggered(TaskKindArtwork, trigger, "豆瓣电影信息补齐", TaskUpdate{Stage: "enrich", Message: "正在缓慢补齐豆瓣电影信息", Metrics: metrics})
 	}
 	fail := func(err error) error {
 		if task != nil {
-			task.Finish(err, TaskUpdate{Stage: "failed", Message: "豆瓣电影信息补齐失败", Metrics: metrics})
+			task.Finish(sanitizeTaskLogError(err), TaskUpdate{Stage: "failed", Message: "豆瓣电影信息补齐失败", Metrics: metrics, Details: details})
 		}
 		return err
 	}
@@ -185,10 +193,11 @@ func (s *ScraperService) runDoubanMovieEnrichment(ctx context.Context, trigger s
 		result, enrichErr := s.enrichMovieFromDouban(ctx, candidate.MetadataID)
 		if enrichErr != nil {
 			metrics["failed"]++
+			details = append(details, fmt.Sprintf("❌ %s：%v", result.Subject, sanitizeTaskLogError(enrichErr)))
 		} else if result.Skipped {
 			metrics["ambiguous_skipped"]++
 		} else {
-			metrics["fields_filled"] += result.FieldsFilled
+			metrics["fields_filled"] += int64(len(result.UpdatedFields))
 			if result.SnapshotSaved {
 				metrics["snapshot_saved"]++
 			}
@@ -198,9 +207,19 @@ func (s *ScraperService) runDoubanMovieEnrichment(ctx context.Context, trigger s
 			if result.CandidatePromoted {
 				metrics["candidate_promoted"]++
 			}
-			if result.FieldsFilled > 0 || result.CandidateSaved || result.CandidatePromoted {
+			if len(result.UpdatedFields) > 0 {
 				metrics["updated"]++
-			} else {
+				details = append(details, fmt.Sprintf("🔄 更新 %s：%s", result.Subject, strings.Join(result.UpdatedFields, "、")))
+			}
+			if result.CandidateSaved {
+				metrics["added"]++
+				posterDetail := "豆瓣海报"
+				if result.CandidatePromoted {
+					posterDetail += "（已设为当前海报）"
+				}
+				details = append(details, fmt.Sprintf("➕ 新增 %s：%s", result.Subject, posterDetail))
+			}
+			if len(result.UpdatedFields) == 0 && !result.CandidateSaved {
 				metrics["unchanged"]++
 			}
 		}
@@ -224,7 +243,22 @@ func (s *ScraperService) runDoubanMovieEnrichment(ctx context.Context, trigger s
 		}
 	}
 	if task != nil {
-		task.Finish(nil, TaskUpdate{Stage: "completed", Message: "豆瓣电影信息补齐完成", Metrics: metrics, Details: []string{fmt.Sprintf("ℹ️ 扫描 %d，更新 %d，无变化 %d，跳过 %d，失败 %d", metrics["scanned"], metrics["updated"], metrics["unchanged"], metrics["ambiguous_skipped"], metrics["failed"])}})
+		summary := "本次无变更"
+		if metrics["added"] > 0 || metrics["updated"] > 0 {
+			parts := []string{}
+			if metrics["added"] > 0 {
+				parts = append(parts, fmt.Sprintf("新增 %d", metrics["added"]))
+			}
+			if metrics["updated"] > 0 {
+				parts = append(parts, fmt.Sprintf("更新 %d", metrics["updated"]))
+			}
+			summary = strings.Join(parts, "，")
+		}
+		if metrics["failed"] > 0 {
+			summary += fmt.Sprintf("，失败 %d", metrics["failed"])
+		}
+		details = append(details, "ℹ️ "+summary)
+		task.Finish(nil, TaskUpdate{Stage: "completed", Message: "豆瓣电影信息补齐完成", Metrics: metrics, Details: details})
 	}
 	return nil
 }

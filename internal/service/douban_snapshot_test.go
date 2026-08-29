@@ -211,7 +211,7 @@ func TestDoubanMovieEnrichmentFailureDoesNotAdvanceSnapshotCooldown(t *testing.T
 	}
 }
 
-func TestDoubanMovieEnrichmentMetricsDistinguishUpdatedAndUnchanged(t *testing.T) {
+func TestDoubanMovieEnrichmentLogsActualChangesAndIdleRun(t *testing.T) {
 	scraper, repos, closeServer := newTestScraper(t)
 	defer closeServer()
 	if err := repos.DB.AutoMigrate(&model.Setting{}); err != nil {
@@ -219,11 +219,11 @@ func TestDoubanMovieEnrichmentMetricsDistinguishUpdatedAndUnchanged(t *testing.T
 	}
 	provider := NewDoubanProvider(&config.Config{}, zap.NewNop())
 	provider.client = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
-		title, summary := "已有中文标题", "已有简介"
+		title, summary, poster := "已有中文标题", "已有简介", ""
 		if strings.HasSuffix(req.URL.Path, "/2") {
-			title, summary = "补齐中文标题", "补齐简介"
+			title, summary, poster = "补齐中文标题", "补齐简介", `,"cover_url":"https://img.test/poster.jpg"`
 		}
-		body := `{"title":"` + title + `","intro":"` + summary + `"}`
+		body := `{"title":"` + title + `","intro":"` + summary + `"` + poster + `}`
 		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(body)), Request: req}, nil
 	})}
 	scraper.douban = provider
@@ -239,6 +239,7 @@ func TestDoubanMovieEnrichmentMetricsDistinguishUpdatedAndUnchanged(t *testing.T
 		}
 	}
 	tasks := NewTaskTrackerService(zap.NewNop(), nil)
+	tasks.ConfigurePersistence(nil, t.TempDir())
 	scraper.SetTaskTracker(tasks)
 	previousDelay := doubanMovieEnrichmentDelay
 	doubanMovieEnrichmentDelay = 0
@@ -248,8 +249,36 @@ func TestDoubanMovieEnrichmentMetricsDistinguishUpdatedAndUnchanged(t *testing.T
 		t.Fatal(err)
 	}
 	snapshot := tasks.Snapshot()
-	if len(snapshot.Recent) != 1 || snapshot.Recent[0].Metrics["updated"] != 1 || snapshot.Recent[0].Metrics["unchanged"] != 1 {
+	if len(snapshot.Recent) != 1 || snapshot.Recent[0].Metrics["added"] != 1 || snapshot.Recent[0].Metrics["updated"] != 1 || snapshot.Recent[0].Metrics["unchanged"] != 1 {
 		t.Fatalf("douban enrichment metrics = %#v", snapshot.Recent)
+	}
+	logResult, err := tasks.ReadDefinitionLog(TaskDefinitionDoubanEnrichment, "", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"ℹ️ 新增 1，更新 1",
+		"🔄 更新 《补齐中文标题》（",
+		"：标题、原名、简介",
+		"➕ 新增 《补齐中文标题》（",
+		"：豆瓣海报（已设为当前海报）",
+	} {
+		if !strings.Contains(logResult.Content, want) {
+			t.Fatalf("task log missing %q:\n%s", want, logResult.Content)
+		}
+	}
+	for _, unwanted := range []string{"扫描 2", "无变化", "跳过"} {
+		if strings.Contains(logResult.Content, unwanted) {
+			t.Fatalf("task log contains %q:\n%s", unwanted, logResult.Content)
+		}
+	}
+
+	if err := scraper.runDoubanMovieEnrichment(t.Context(), TaskTriggerManual); err != nil {
+		t.Fatal(err)
+	}
+	logResult, err = tasks.ReadDefinitionLog(TaskDefinitionDoubanEnrichment, "", 0)
+	if err != nil || !strings.Contains(logResult.Content, "ℹ️ 本次无变更") {
+		t.Fatalf("idle task log = %q, err = %v", logResult.Content, err)
 	}
 }
 
