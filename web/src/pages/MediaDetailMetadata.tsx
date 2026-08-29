@@ -38,64 +38,78 @@ export function MediaDetailMetadata({ media, favourite, onToggleFavourite }: Med
             type="button"
             onClick={onToggleFavourite}
             aria-pressed={favourite}
+            aria-label={favourite ? '取消收藏' : '加入收藏'}
             className={
-              'btn-outline shrink-0 gap-2 ' +
+              'group btn-outline shrink-0 overflow-hidden !gap-0 !px-3 hover:!gap-2 focus-visible:!gap-2 ' +
               (favourite
                 ? '!border-red-200 !bg-red-50 !text-red-600 hover:!bg-red-100/50'
                 : 'hover:border-red-200 hover:text-red-600 hover:bg-red-50/50')
             }
           >
-            <Heart size={14} fill={favourite ? 'currentColor' : 'none'} aria-hidden="true" />
-            <span>{favourite ? '取消收藏' : '加入收藏'}</span>
+            <Heart size={18} fill={favourite ? 'currentColor' : 'none'} aria-hidden="true" />
+            <span
+              aria-hidden="true"
+              className="max-w-0 translate-x-1 overflow-hidden whitespace-nowrap opacity-0 transition-all duration-300 ease-smooth group-hover:max-w-24 group-hover:translate-x-0 group-hover:opacity-100 group-focus-visible:max-w-24 group-focus-visible:translate-x-0 group-focus-visible:opacity-100"
+            >
+              {favourite ? '取消收藏' : '加入收藏'}
+            </span>
           </button>
         </motion.div>
 
-        <motion.div {...rise(0.08)} className="flex flex-wrap items-center gap-2.5 text-xs font-bold tracking-wide">
-          <span className="badge-gold !px-3 !py-1.5 !text-xs shadow-glow-gold">
-            <Star size={12} fill="currentColor" className="mr-1" />
-            {media.rating > 0 ? media.rating.toFixed(1) : '-'}
-          </span>
-          {(media.release_date || media.year > 0) && (
-            <span className="inline-flex items-center gap-1.5 rounded-xl border border-[var(--app-border)] bg-[var(--app-panel)]/70 px-3 py-1.5 text-[var(--app-text)] backdrop-blur">
-              <Calendar size={13} className="text-brand-500" />
-              <span>{media.release_date || `${media.year} 年`}</span>
+        <motion.div {...rise(0.08)} className="space-y-2.5 text-xs font-bold tracking-wide">
+          <div className="flex flex-wrap items-center gap-2.5">
+            <span className="badge-gold !px-3 !py-1.5 !text-xs shadow-glow-gold">
+              <Star size={12} fill="currentColor" className="mr-1" />
+              {media.rating > 0 ? media.rating.toFixed(1) : '-'}
             </span>
-          )}
-          {media.width > 0 && (
-            <span className="inline-flex items-center gap-1.5 rounded-xl border border-[var(--app-brand-border)] bg-[var(--app-brand-soft)] px-3 py-1.5 uppercase text-[var(--app-brand-text)] backdrop-blur">
-              <Monitor size={13} aria-hidden="true" />
-              {media.width} × {media.height}
+            {(media.release_date || media.year > 0) && (
+              <span className="inline-flex items-center gap-1.5 rounded-xl border border-[var(--app-border)] bg-[var(--app-panel)]/70 px-3 py-1.5 text-[var(--app-text)] backdrop-blur">
+                <Calendar size={13} className="text-brand-500" />
+                <span>{media.release_date || `${media.year} 年`}</span>
+              </span>
+            )}
+            <span className="inline-flex items-center gap-1.5 rounded-xl border border-[var(--app-border)] bg-[var(--app-panel)]/70 px-3 py-1.5 text-[var(--app-subtle)] backdrop-blur">
+              <Clock size={13} aria-hidden="true" />
+              {fmtDuration(media.duration_sec)}
             </span>
-          )}
-          <span className="inline-flex items-center gap-1.5 rounded-xl border border-[var(--app-border)] bg-[var(--app-panel)]/70 px-3 py-1.5 text-[var(--app-subtle)] backdrop-blur">
-            <Clock size={13} aria-hidden="true" />
-            {fmtDuration(media.duration_sec)}
-          </span>
-          <span className="inline-flex items-center gap-1.5 rounded-xl border border-[var(--app-border)] bg-[var(--app-panel)]/70 px-3 py-1.5 text-[var(--app-subtle)] backdrop-blur">
-            <HardDrive size={13} aria-hidden="true" />
-            {fmtSize(media.size_bytes)}
-          </span>
-          {media.container && (
-            <span className="inline-flex items-center gap-1.5 rounded-xl border border-[var(--app-border)] bg-[var(--app-panel)]/70 px-3 py-1.5 font-mono text-[10px] uppercase text-[var(--app-subtle)] backdrop-blur">
-              <FileVideo size={13} aria-hidden="true" />
-              {media.container}
+          </div>
+          <div className="flex flex-wrap items-center gap-2.5">
+            {media.width > 0 && (
+              <span className="inline-flex items-center gap-1.5 rounded-xl border border-[var(--app-brand-border)] bg-[var(--app-brand-soft)] px-3 py-1.5 uppercase text-[var(--app-brand-text)] backdrop-blur">
+                <Monitor size={13} aria-hidden="true" />
+                {media.width} × {media.height}
+              </span>
+            )}
+            <span className="inline-flex items-center gap-1.5 rounded-xl border border-[var(--app-border)] bg-[var(--app-panel)]/70 px-3 py-1.5 text-[var(--app-subtle)] backdrop-blur">
+              <HardDrive size={13} aria-hidden="true" />
+              {fmtSize(media.size_bytes)}
             </span>
-          )}
-          {tmdbHref && (
-            <ProviderLink
-              href={tmdbHref}
-              label="TMDb"
-              iconSrc="/brand/tmdb.svg"
-              status={providerStatus(media.tmdb_status, media.tmdb_snapshot)}
-            />
-          )}
-          {media.douban_id && (
-            <ProviderLink
-              href={`https://movie.douban.com/subject/${encodeURIComponent(media.douban_id)}/`}
-              label="豆瓣"
-              iconSrc="/brand/douban.svg"
-              status={providerStatus(media.douban_status, media.douban_snapshot)}
-            />
+            {media.container && (
+              <span className="inline-flex items-center gap-1.5 rounded-xl border border-[var(--app-border)] bg-[var(--app-panel)]/70 px-3 py-1.5 font-mono text-[10px] uppercase text-[var(--app-subtle)] backdrop-blur">
+                <FileVideo size={13} aria-hidden="true" />
+                {media.container}
+              </span>
+            )}
+          </div>
+          {(tmdbHref || media.douban_id) && (
+            <div className="flex flex-wrap items-center gap-2.5">
+              {tmdbHref && (
+                <ProviderLink
+                  href={tmdbHref}
+                  label="TMDb"
+                  iconSrc="/brand/tmdb.svg"
+                  status={providerStatus(media.tmdb_status, media.tmdb_snapshot)}
+                />
+              )}
+              {media.douban_id && (
+                <ProviderLink
+                  href={`https://movie.douban.com/subject/${encodeURIComponent(media.douban_id)}/`}
+                  label="豆瓣"
+                  iconSrc="/brand/douban.svg"
+                  status={providerStatus(media.douban_status, media.douban_snapshot)}
+                />
+              )}
+            </div>
           )}
         </motion.div>
       </div>
