@@ -1473,3 +1473,25 @@ Persist complete TMDB detail snapshots across scrape and manual-ID flows, add on
 ### Status
 
 [OK] **Completed**
+
+
+## Session 69: 优化媒体库扫描与轨道回填
+<!-- trellis-session: v=2 fp=c3bf7ace4f2ee807 -->
+
+**Date**: 2026-08-29
+**Task**: 优化媒体库扫描与轨道回填
+**Branch**: `main`
+
+### Summary
+
+解耦扫描入库与 ffprobe，统一可见轨道回填任务，补充多路径进度、路径级提交、有界详情和唤醒合并，并完成定向验证。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `0a648eb` | feat(media): decouple library scan and track backfill |
+
+### Status
+
+[OK] **Completed**
