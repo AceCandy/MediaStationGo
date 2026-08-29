@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/backend/shared-media-metadata.md", "reason": "TMDB canonical metadata、provider identity 与 snapshot 持久化边界"}
+{"file": ".trellis/spec/backend/background-task-execution.md", "reason": "一次性后台任务、TaskExecution metrics、日志脱敏与恢复契约"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "PostgreSQL repository 查询和数据库测试约束"}
+{"file": ".trellis/spec/frontend/design-system.md", "reason": "任务中心通用进度展示与主题规范"}
+{"file": ".trellis/tasks/08-29-tmdb-snapshot-persistence-backfill/research/current-evidence.md", "reason": "当前缺失规模、快照调用链与一次性任务复用证据"}

@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/backend/shared-media-metadata.md", "reason": "复核四种 metadata kind 的快照与 identity 语义"}
+{"file": ".trellis/spec/backend/background-task-execution.md", "reason": "复核任务状态、互斥、metrics、历史和脱敏日志"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "复核候选查询和 PostgreSQL 测试覆盖"}
+{"file": ".trellis/spec/frontend/design-system.md", "reason": "复核任务中心进度展示和主题一致性"}
+{"file": ".trellis/tasks/08-29-tmdb-snapshot-persistence-backfill/research/current-evidence.md", "reason": "按现状证据检查根因、一次性范围和数据覆盖"}
