@@ -1428,3 +1428,26 @@ Committed the existing web UI redesign together with detailed background task lo
 ### Status
 
 [OK] **Completed**
+
+
+## Session 67: TMDB snapshot persistence and backfill
+<!-- trellis-session: v=2 fp=65051ee1bb576e69 -->
+
+**Date**: 2026-08-29
+**Task**: TMDB snapshot persistence and backfill
+**Branch**: `main`
+
+### Summary
+
+Persist complete TMDB detail snapshots across scrape and manual-ID flows, add one-time resumable historical backfill with task-center progress and manual retry, and document the executable contract.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `677d2b9` | feat(metadata): persist and backfill TMDB snapshots |
+| `ed94099` | docs(spec): record TMDB snapshot persistence contract |
+
+### Status
+
+[OK] **Completed**
