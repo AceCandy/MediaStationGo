@@ -22,6 +22,7 @@ const (
 	TaskDefinitionTMDbEpisodeMetadataRecheck = "tmdb_episode_metadata_recheck"
 	TaskDefinitionDoubanEnrichment           = "douban_movie_enrichment"
 	TaskDefinitionAccountCleanup             = "account_cleanup"
+	TaskDefinitionTMDbSnapshotBackfill       = "tmdb_snapshot_backfill"
 )
 
 var ErrTaskDefinitionNotFound = errors.New("task definition not found")
@@ -35,6 +36,7 @@ type TaskDefinition struct {
 	CurrentState   string              `json:"current_state"`
 	NextRun        *time.Time          `json:"next_run,omitempty"`
 	Action         string              `json:"action,omitempty"`
+	Current        *BackgroundTask     `json:"current,omitempty"`
 	Latest         *BackgroundTask     `json:"latest,omitempty"`
 	ScheduleConfig *TaskScheduleConfig `json:"schedule_config,omitempty"`
 }
@@ -57,6 +59,7 @@ var taskDefinitionSpecs = []taskDefinitionSpec{
 	{TaskDefinition: TaskDefinition{Key: TaskDefinitionLibraryScan, Name: "媒体库扫描", Description: "扫描媒体库并同步入库变化", Trigger: "定时 / 手动 / 新增后自动", Action: "scheduler"}, filter: repository.TaskExecutionFilter{Kind: TaskKindScan}, schedulerJob: "library_scan"},
 	{TaskDefinition: TaskDefinition{Key: TaskDefinitionLibraryWatch, Name: "媒体库变更监听", Description: "监听本地媒体文件变化并增量同步入库", Trigger: "文件事件"}, filter: repository.TaskExecutionFilter{Kind: TaskKindWatch}},
 	{TaskDefinition: TaskDefinition{Key: TaskDefinitionProbeBackfill, Name: "媒体轨道回填", Description: "遍历并补充缺少完整探测信息的媒体轨道", Trigger: "全库手动触发", Action: "probe_backfill"}, filter: repository.TaskExecutionFilter{Kind: TaskKindProbe}},
+	{TaskDefinition: TaskDefinition{Key: TaskDefinitionTMDbSnapshotBackfill, Name: "TMDB 快照回填", Description: "补齐有 TMDB 标识但缺少原始详情快照的元数据", Trigger: "一次性自动 / 手动", Action: "tmdb_snapshot_backfill"}, filter: repository.TaskExecutionFilter{Kind: TaskKindTMDbSnapshotBackfill}},
 	{TaskDefinition: TaskDefinition{Key: TaskDefinitionMediaScrape, Name: "媒体入库刮削", Description: "处理已入库但尚未成功刮削的媒体", Trigger: "事件 / 手动", Action: "media_scrape"}, filter: repository.TaskExecutionFilter{Kind: TaskKindScrape, ExcludeNamePrefix: "发现目录刮削："}},
 	{TaskDefinition: TaskDefinition{Key: TaskDefinitionCatalogScrape, Name: "发现目录刮削", Description: "后台补全发现目录中的电影和电视剧", Trigger: "事件触发"}, filter: repository.TaskExecutionFilter{Kind: TaskKindScrape, NamePrefix: "发现目录刮削："}},
 	{TaskDefinition: TaskDefinition{Key: TaskDefinitionPeopleBackfill, Name: "人物信息补齐", Description: "补齐尚未获取演职员信息的元数据", Trigger: "定时 / 手动", Action: "scheduler"}, filter: repository.TaskExecutionFilter{Kind: TaskKindPeople, Name: "人物信息补齐"}, schedulerJob: "people_backfill_periodic"},
@@ -117,6 +120,8 @@ func (t *TaskTrackerService) Definitions(scheduler []JobStatus) ([]TaskDefinitio
 		for _, task := range active {
 			if taskMatchesFilter(task, spec.filter) {
 				definition.CurrentState = TaskStatusRunning
+				current := task
+				definition.Current = &current
 				break
 			}
 		}

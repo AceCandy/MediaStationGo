@@ -73,6 +73,9 @@ func (s *ScraperService) persistProviderMetadata(ctx context.Context, media *mod
 			return nil, err
 		}
 	}
+	if source == "tmdb" {
+		s.persistTMDbSnapshot(ctx, canonical.ID, match.RawJSON)
+	}
 	result := &persistedMetadataMatch{Target: canonical}
 	if entityKind == model.MetadataKindSeries {
 		result.Series = canonical

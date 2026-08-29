@@ -233,6 +233,9 @@ func TestEnrichOneWritesTMDbEpisodeMetadata(t *testing.T) {
 	if got.OriginalName != "" {
 		t.Fatalf("episode original_name must not inherit series metadata, got %q", got.OriginalName)
 	}
+	assertServiceTestTMDbSnapshot(t, repos, got.SeriesID)
+	assertServiceTestTMDbSnapshot(t, repos, got.SeasonID)
+	assertServiceTestTMDbSnapshot(t, repos, got.MetadataID)
 }
 
 func TestEnrichOneSkipsTMDbEpisodeStillWhenDisabled(t *testing.T) {

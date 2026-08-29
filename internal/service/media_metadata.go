@@ -2,9 +2,12 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 )
@@ -68,6 +71,19 @@ func (s *MediaService) UpdateMetadata(ctx context.Context, id string, req MediaM
 		}
 		target.ParentID = &parent.ID
 	}
+	var tmdbSnapshot json.RawMessage
+	tmdbID := 0
+	if req.TMDbID != nil {
+		tmdbID = clampNonNegativeInt(*req.TMDbID)
+	} else if isNew {
+		tmdbID = media.TMDbID
+	}
+	if tmdbID > 0 {
+		tmdbSnapshot, err = s.fetchManualTMDbSnapshot(ctx, target, tmdbID)
+		if err != nil {
+			return nil, err
+		}
+	}
 	if isNew {
 		if target.Kind == model.MetadataKindEpisode {
 			target, err = s.repo.Metadata.UpsertEpisode(ctx, target)
@@ -80,7 +96,7 @@ func (s *MediaService) UpdateMetadata(ctx context.Context, id string, req MediaM
 	if err != nil {
 		return nil, err
 	}
-	if err := s.replaceManualIdentifiers(ctx, target, media, req, isNew); err != nil {
+	if err := s.replaceManualIdentifiers(ctx, target, media, req, isNew, tmdbSnapshot); err != nil {
 		return nil, err
 	}
 	updates := map[string]any{
@@ -187,7 +203,7 @@ func applyManualMetadataUpdate(item *model.MetadataItem, req MediaMetadataUpdate
 	}
 }
 
-func (s *MediaService) replaceManualIdentifiers(ctx context.Context, item *model.MetadataItem, media *model.Media, req MediaMetadataUpdate, isNew bool) error {
+func (s *MediaService) replaceManualIdentifiers(ctx context.Context, item *model.MetadataItem, media *model.Media, req MediaMetadataUpdate, isNew bool, tmdbSnapshot json.RawMessage) error {
 	values := []struct {
 		provider string
 		value    string
@@ -203,12 +219,105 @@ func (s *MediaService) replaceManualIdentifiers(ctx context.Context, item *model
 			continue
 		}
 		if entry.set {
+			if entry.provider == "tmdb" && entry.value != "" {
+				if err := s.repo.Metadata.ReplaceIdentifierWithSnapshot(ctx, item.ID, entry.provider, item.Kind, entry.value, tmdbSnapshot, time.Now().UTC()); err != nil {
+					return err
+				}
+				continue
+			}
 			if err := s.repo.Metadata.ReplaceIdentifier(ctx, item.ID, entry.provider, item.Kind, entry.value); err != nil {
 				return err
 			}
 		}
 	}
 	return nil
+}
+
+func (s *MediaService) fetchManualTMDbSnapshot(ctx context.Context, item *model.MetadataItem, tmdbID int) (json.RawMessage, error) {
+	if s == nil || s.tmdb == nil || item == nil || tmdbID <= 0 {
+		return nil, errors.New("TMDB details unavailable")
+	}
+	var payload json.RawMessage
+	switch item.Kind {
+	case model.MetadataKindMovie:
+		match, err := s.tmdb.GetMovieMatch(ctx, tmdbID)
+		if err != nil {
+			return nil, err
+		}
+		if match == nil || match.TMDbID != tmdbID {
+			return nil, errors.New("TMDB movie details unavailable")
+		}
+		payload = match.RawJSON
+	case model.MetadataKindSeries:
+		match, err := s.tmdb.GetTVMatch(ctx, tmdbID)
+		if err != nil {
+			return nil, err
+		}
+		if match == nil || match.TMDbID != tmdbID {
+			return nil, errors.New("TMDB series details unavailable")
+		}
+		payload = match.RawJSON
+	case model.MetadataKindSeason, model.MetadataKindEpisode:
+		seriesTMDbID, seasonNum, err := s.manualTMDbSeriesCoordinates(ctx, item)
+		if err != nil {
+			return nil, err
+		}
+		if item.Kind == model.MetadataKindSeason {
+			details, detailErr := s.tmdb.GetTVSeasonDetails(ctx, seriesTMDbID, seasonNum)
+			if detailErr != nil {
+				return nil, detailErr
+			}
+			if details == nil || details.ID != tmdbID {
+				return nil, errors.New("TMDB season details unavailable")
+			}
+			payload = details.RawJSON
+		} else {
+			details, detailErr := s.tmdb.GetTVEpisodeDetails(ctx, seriesTMDbID, seasonNum, item.EpisodeNum)
+			if detailErr != nil {
+				return nil, detailErr
+			}
+			if details == nil || details.ID != tmdbID {
+				return nil, errors.New("TMDB episode details unavailable")
+			}
+			payload = details.RawJSON
+		}
+	default:
+		return nil, fmt.Errorf("unsupported metadata kind %q", item.Kind)
+	}
+	if !json.Valid(payload) {
+		return nil, errors.New("TMDB details returned invalid JSON")
+	}
+	return payload, nil
+}
+
+func (s *MediaService) manualTMDbSeriesCoordinates(ctx context.Context, item *model.MetadataItem) (int, int, error) {
+	if item == nil || item.ParentID == nil {
+		return 0, 0, errors.New("TMDB series identity unavailable")
+	}
+	seriesID, seasonNum := *item.ParentID, item.SeasonNum
+	if item.Kind == model.MetadataKindEpisode {
+		season, err := s.repo.Metadata.FindByID(ctx, *item.ParentID)
+		if err != nil {
+			return 0, 0, err
+		}
+		if season == nil || season.Kind != model.MetadataKindSeason || season.ParentID == nil {
+			return 0, 0, errors.New("TMDB season hierarchy unavailable")
+		}
+		seriesID, seasonNum = *season.ParentID, season.SeasonNum
+	}
+	identifiers, err := s.repo.Metadata.ListIdentifiers(ctx, seriesID)
+	if err != nil {
+		return 0, 0, err
+	}
+	for _, identifier := range identifiers {
+		if identifier.Provider == "tmdb" && identifier.EntityKind == model.MetadataKindSeries {
+			value, parseErr := strconv.Atoi(identifier.ExternalID)
+			if parseErr == nil && value > 0 {
+				return value, seasonNum, nil
+			}
+		}
+	}
+	return 0, 0, errors.New("TMDB series identity unavailable")
 }
 
 func manualIntIdentifier(value *int, fallback int) string {

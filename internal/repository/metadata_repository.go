@@ -481,6 +481,12 @@ func (r *MetadataRepository) ListIdentifiersByMetadataIDs(ctx context.Context, m
 // ReplaceIdentifier replaces one provider identity while preserving the global
 // provider/kind/external-ID uniqueness contract.
 func (r *MetadataRepository) ReplaceIdentifier(ctx context.Context, metadataID, provider, entityKind, externalID string) error {
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		return replaceMetadataIdentifier(tx, metadataID, provider, entityKind, externalID)
+	})
+}
+
+func replaceMetadataIdentifier(tx *gorm.DB, metadataID, provider, entityKind, externalID string) error {
 	metadataID = strings.TrimSpace(metadataID)
 	identifier := model.MetadataIdentifier{Provider: provider, EntityKind: entityKind, ExternalID: externalID}
 	if strings.TrimSpace(externalID) == "" {
@@ -494,29 +500,27 @@ func (r *MetadataRepository) ReplaceIdentifier(ctx context.Context, metadataID, 
 	if externalID != "" {
 		externalID = identifier.ExternalID
 	}
-	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		q := tx.Where("metadata_id = ? AND provider = ? AND entity_kind = ?", metadataID, provider, entityKind)
-		if externalID == "" {
-			return q.Delete(&model.MetadataIdentifier{}).Error
+	q := tx.Where("metadata_id = ? AND provider = ? AND entity_kind = ?", metadataID, provider, entityKind)
+	if externalID == "" {
+		return q.Delete(&model.MetadataIdentifier{}).Error
+	}
+	if err := q.Where("external_id <> ?", externalID).Delete(&model.MetadataIdentifier{}).Error; err != nil {
+		return err
+	}
+	var existing model.MetadataIdentifier
+	err := tx.Where("provider = ? AND entity_kind = ? AND external_id = ?", provider, entityKind, externalID).First(&existing).Error
+	if err == nil {
+		if existing.MetadataID != metadataID {
+			return fmt.Errorf("%s %s id %s already belongs to another metadata item", provider, entityKind, externalID)
 		}
-		if err := q.Where("external_id <> ?", externalID).Delete(&model.MetadataIdentifier{}).Error; err != nil {
-			return err
-		}
-		var existing model.MetadataIdentifier
-		err := tx.Where("provider = ? AND entity_kind = ? AND external_id = ?", provider, entityKind, externalID).First(&existing).Error
-		if err == nil {
-			if existing.MetadataID != metadataID {
-				return fmt.Errorf("%s %s id %s already belongs to another metadata item", provider, entityKind, externalID)
-			}
-			return nil
-		}
-		if !errors.Is(err, gorm.ErrRecordNotFound) {
-			return err
-		}
-		return tx.Create(&model.MetadataIdentifier{
-			MetadataID: metadataID, Provider: provider, EntityKind: entityKind, ExternalID: externalID,
-		}).Error
-	})
+		return nil
+	}
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return err
+	}
+	return tx.Create(&model.MetadataIdentifier{
+		MetadataID: metadataID, Provider: provider, EntityKind: entityKind, ExternalID: externalID,
+	}).Error
 }
 
 // InvalidateTMDbIdentifier 移除失效作品标识，并将关联电影或整部电视剧交回统一刮削队列。

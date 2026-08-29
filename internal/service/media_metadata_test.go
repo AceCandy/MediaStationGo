@@ -1,7 +1,11 @@
 package service
 
 import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"testing"
+	"time"
 
 	"go.uber.org/zap"
 
@@ -10,8 +14,18 @@ import (
 	"github.com/ShukeBta/MediaStationGo/internal/repository"
 )
 
+func newMediaMetadataTMDbProvider(t *testing.T, handler http.HandlerFunc) *TMDbProvider {
+	t.Helper()
+	upstream := httptest.NewServer(handler)
+	t.Cleanup(upstream.Close)
+	cfg := &config.Config{}
+	cfg.Secrets.TMDbAPIKey = "test-key"
+	cfg.Secrets.TMDbAPIProxy = upstream.URL
+	return NewTMDbProvider(cfg, zap.NewNop(), nil)
+}
+
 func TestUpdateMediaMetadataMarksManualMatch(t *testing.T) {
-	db := newServiceTestDB(t, &model.Library{}, &model.Media{})
+	db := newServiceTestDB(t, &model.Library{}, &model.Media{}, &model.MetadataProviderSnapshot{})
 	repos := repository.New(db)
 	lib := model.Library{Name: "自采集", Path: "/media/custom", Type: "movie", Enabled: true}
 	if err := repos.Library.Create(t.Context(), &lib); err != nil {
@@ -21,20 +35,23 @@ func TestUpdateMediaMetadataMarksManualMatch(t *testing.T) {
 	if err := repos.DB.Create(&media).Error; err != nil {
 		t.Fatal(err)
 	}
-	svc := NewMediaService(&config.Config{}, zap.NewNop(), repos)
+	tmdb := newMediaMetadataTMDbProvider(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/movie/12345" {
+			http.NotFound(w, r)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"id": 12345, "title": "手动标题", "future_field": true})
+	})
+	svc := NewMediaService(&config.Config{}, zap.NewNop(), repos).SetTMDbProvider(tmdb)
 	title := "手动标题"
 	overview := "手动简介"
 	releaseDate := "2026-06-23"
-	season := 0
-	episode := 1
 	tmdbID := 12345
 	nsfw := true
 	updated, err := svc.UpdateMetadata(t.Context(), media.ID, MediaMetadataUpdate{
 		Title:       &title,
 		Overview:    &overview,
 		ReleaseDate: &releaseDate,
-		SeasonNum:   &season,
-		EpisodeNum:  &episode,
 		TMDbID:      &tmdbID,
 		NSFW:        &nsfw,
 	})
@@ -44,16 +61,19 @@ func TestUpdateMediaMetadataMarksManualMatch(t *testing.T) {
 	if updated.Title != title || updated.Overview != overview || updated.ScrapeStatus != "matched" {
 		t.Fatalf("metadata not saved: %#v", updated)
 	}
-	if updated.SeasonNum != 0 || updated.EpisodeNum != 1 || updated.TMDbID != tmdbID || !updated.NSFW {
+	if updated.TMDbID != tmdbID || !updated.NSFW {
 		t.Fatalf("ids/episode metadata not saved: %#v", updated)
 	}
 	if updated.ReleaseDate != releaseDate {
 		t.Fatalf("release date = %q, want %q", updated.ReleaseDate, releaseDate)
 	}
+	if snapshot, findErr := repos.Metadata.FindProviderSnapshot(t.Context(), updated.MetadataID, "tmdb"); findErr != nil || snapshot == nil || snapshot.Payload == "" {
+		t.Fatalf("TMDB snapshot = %#v, err = %v", snapshot, findErr)
+	}
 }
 
 func TestUpdateEpisodeMetadataDoesNotModifyParentIdentityOrArtwork(t *testing.T) {
-	db := newServiceTestDB(t, &model.Library{}, &model.Media{})
+	db := newServiceTestDB(t, &model.Library{}, &model.Media{}, &model.MetadataProviderSnapshot{})
 	repos := repository.New(db)
 	lib := model.Library{Name: "Series", Path: "/media/series", Type: "tv", Enabled: true}
 	if err := repos.Library.Create(t.Context(), &lib); err != nil {
@@ -71,12 +91,26 @@ func TestUpdateEpisodeMetadataDoesNotModifyParentIdentityOrArtwork(t *testing.T)
 		t.Fatalf("episode metadata = %#v, err = %v", episode, err)
 	}
 	seasonID := *episode.ParentID
+	season, err := repos.Metadata.FindByID(t.Context(), seasonID)
+	if err != nil || season == nil || season.ParentID == nil {
+		t.Fatalf("season metadata = %#v, err = %v", season, err)
+	}
+	if err := repos.Metadata.ReplaceIdentifier(t.Context(), *season.ParentID, "tmdb", model.MetadataKindSeries, "500"); err != nil {
+		t.Fatal(err)
+	}
 	createServiceTestArtwork(t, db, episode.ID, model.ArtworkTypePoster, "episode-poster")
 	createServiceTestArtwork(t, db, seasonID, model.ArtworkTypePoster, "season-poster")
 
 	title := "Own episode title"
 	tmdbID := 9876
-	updated, err := NewMediaService(&config.Config{}, zap.NewNop(), repos).UpdateMetadata(t.Context(), media.ID, MediaMetadataUpdate{
+	tmdb := newMediaMetadataTMDbProvider(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/tv/500/season/1/episode/1" {
+			http.NotFound(w, r)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"id": 9876, "name": "Own episode title", "future_field": true})
+	})
+	updated, err := NewMediaService(&config.Config{}, zap.NewNop(), repos).SetTMDbProvider(tmdb).UpdateMetadata(t.Context(), media.ID, MediaMetadataUpdate{
 		Title: &title, TMDbID: &tmdbID,
 	})
 	if err != nil {
@@ -96,6 +130,44 @@ func TestUpdateEpisodeMetadataDoesNotModifyParentIdentityOrArtwork(t *testing.T)
 	}
 	if asset, findErr := repos.Artwork.FindSelection(t.Context(), seasonID, model.ArtworkTypePoster); findErr != nil || asset == nil || asset.ID != "season-poster" {
 		t.Fatalf("parent poster changed: %#v, err = %v", asset, findErr)
+	}
+	if snapshot, findErr := repos.Metadata.FindProviderSnapshot(t.Context(), episode.ID, "tmdb"); findErr != nil || snapshot == nil {
+		t.Fatalf("episode TMDB snapshot = %#v, err = %v", snapshot, findErr)
+	}
+}
+
+func TestUpdateMediaMetadataRejectsTMDbIDWhenDetailsFail(t *testing.T) {
+	db := newServiceTestDB(t, &model.Library{}, &model.Media{}, &model.MetadataProviderSnapshot{})
+	repos := repository.New(db)
+	lib := model.Library{Name: "Movies", Path: "/media/movies", Type: "movie", Enabled: true}
+	if err := repos.Library.Create(t.Context(), &lib); err != nil {
+		t.Fatal(err)
+	}
+	media := model.Media{LibraryID: lib.ID, Title: "Original", Path: "/media/movies/original.mkv", TMDbID: 111}
+	if err := repos.DB.Create(&media).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := repos.Metadata.UpsertProviderSnapshot(t.Context(), media.MetadataID, "tmdb", []byte(`{"id":111,"kept":true}`), time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	tmdb := newMediaMetadataTMDbProvider(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{`))
+	})
+	newID := 222
+	if _, err := NewMediaService(&config.Config{}, zap.NewNop(), repos).SetTMDbProvider(tmdb).UpdateMetadata(t.Context(), media.ID, MediaMetadataUpdate{TMDbID: &newID}); err == nil {
+		t.Fatal("invalid TMDB details must reject metadata update")
+	}
+	if old, _ := repos.Metadata.FindByIdentifier(t.Context(), "tmdb", model.MetadataKindMovie, "111"); old == nil || old.ID != media.MetadataID {
+		t.Fatalf("old TMDB identifier changed: %#v", old)
+	}
+	if next, _ := repos.Metadata.FindByIdentifier(t.Context(), "tmdb", model.MetadataKindMovie, "222"); next != nil {
+		t.Fatalf("failed TMDB identifier persisted: %#v", next)
+	}
+	snapshot, err := repos.Metadata.FindProviderSnapshot(t.Context(), media.MetadataID, "tmdb")
+	var payload map[string]any
+	if err != nil || snapshot == nil || json.Unmarshal([]byte(snapshot.Payload), &payload) != nil || payload["id"] != float64(111) || payload["kept"] != true {
+		t.Fatalf("old TMDB snapshot changed: %#v, err = %v", snapshot, err)
 	}
 }
 

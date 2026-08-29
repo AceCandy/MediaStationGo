@@ -52,6 +52,12 @@ function scheduleText(definition: TaskDefinition): string {
   return `${config.enabled ? '已启用' : '已关闭'} · 每 ${formatInterval(config.interval_seconds)}`
 }
 
+function taskProgressText(definition: TaskDefinition): string {
+  const metrics = (definition.current ?? definition.latest)?.metrics
+  if (!metrics || !['processed', 'total', 'succeeded', 'failed', 'remaining'].every((key) => typeof metrics[key] === 'number')) return ''
+  return `已处理 ${metrics.processed} / ${metrics.total} · 成功 ${metrics.succeeded} · 失败 ${metrics.failed} · 剩余 ${metrics.remaining}`
+}
+
 function reverseLogLines(content: string): string {
   const trailingNewline = content.endsWith('\n')
   const lines = content.split('\n')
@@ -201,7 +207,7 @@ function DefinitionTable(props: { definitions: TaskDefinition[]; running: string
           <tbody>
             {props.definitions.map((definition) => (
               <tr key={definition.key} className="border-t border-gray-200 align-top">
-				<td className="max-w-xs py-3"><div className="font-medium text-ink-600">{definition.name}</div><div className="mt-0.5 text-xs text-ink-50">{definition.description}</div></td>
+				<td className="max-w-xs py-3"><div className="font-medium text-ink-600">{definition.name}</div><div className="mt-0.5 text-xs text-ink-50">{definition.description}</div>{taskProgressText(definition) && <div className="mt-1 text-xs text-ink-100">{taskProgressText(definition)}</div>}</td>
 				<td className="py-3 text-ink-100"><div>{definition.trigger}</div>{scheduleText(definition) && <div className="mt-0.5 text-xs text-ink-50">{scheduleText(definition)}</div>}</td>
                 <td className="py-3"><CurrentState state={definition.current_state} /></td>
                 <td className="py-3"><LatestResult task={definition.latest} /></td>
@@ -215,7 +221,7 @@ function DefinitionTable(props: { definitions: TaskDefinition[]; running: string
 		<div className="divide-y divide-gray-200 lg:hidden">
         {props.definitions.map((definition) => (
           <section key={definition.key} className="py-4 first:pt-0 last:pb-0">
-			<div className="flex items-start justify-between gap-3"><div><h2 className="font-medium text-ink-600">{definition.name}</h2><p className="mt-0.5 text-xs text-ink-50">{definition.description}</p></div><TaskActions {...props} definition={definition} /></div>
+			<div className="flex items-start justify-between gap-3"><div><h2 className="font-medium text-ink-600">{definition.name}</h2><p className="mt-0.5 text-xs text-ink-50">{definition.description}</p>{taskProgressText(definition) && <p className="mt-1 text-xs text-ink-100">{taskProgressText(definition)}</p>}</div><TaskActions {...props} definition={definition} /></div>
             <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
 			<div><dt className="text-ink-50">触发方式</dt><dd className="mt-0.5 text-ink-100">{definition.trigger}{scheduleText(definition) ? ` · ${scheduleText(definition)}` : ''}</dd></div>
 			<div><dt className="text-ink-50">当前状态</dt><dd className="mt-0.5"><CurrentState state={definition.current_state} /></dd></div>

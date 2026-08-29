@@ -170,6 +170,9 @@ func TestTaskDefinitionsSeparateCurrentStateFromLatestResult(t *testing.T) {
 		if definition.Latest == nil || definition.Latest.Status != TaskStatusCompleted {
 			t.Fatalf("latest = %#v", definition.Latest)
 		}
+		if definition.Current == nil || definition.Current.Status != TaskStatusRunning {
+			t.Fatalf("current = %#v", definition.Current)
+		}
 		return
 	}
 	t.Fatal("people backfill definition not found")

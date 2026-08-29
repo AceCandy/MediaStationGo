@@ -127,6 +127,10 @@ func TestKnownTMDbIDReusesLoadedDetails(t *testing.T) {
 	}
 	assertMetadataDetails(t, repos.Metadata, model.MetadataKindMovie, "41", "en,fr", "US", "Drama")
 	assertMetadataDetails(t, repos.Metadata, model.MetadataKindSeries, "42", "ja,en", "JP", "Animation")
+	movieMetadata, _ := repos.Metadata.FindByIdentifier(t.Context(), "tmdb", model.MetadataKindMovie, "41")
+	seriesMetadata, _ := repos.Metadata.FindByIdentifier(t.Context(), "tmdb", model.MetadataKindSeries, "42")
+	assertServiceTestTMDbSnapshot(t, repos, movieMetadata.ID)
+	assertServiceTestTMDbSnapshot(t, repos, seriesMetadata.ID)
 }
 
 func TestSearchTMDbMatchStillLoadsExtendedDetails(t *testing.T) {
@@ -174,6 +178,8 @@ func TestSearchTMDbMatchStillLoadsExtendedDetails(t *testing.T) {
 		t.Fatalf("TMDb calls search=%d details=%d, want one each", searchCalls.Load(), detailCalls.Load())
 	}
 	assertMetadataDetails(t, repos.Metadata, model.MetadataKindMovie, "43", "en,fr", "US", "Drama")
+	metadata, _ := repos.Metadata.FindByIdentifier(t.Context(), "tmdb", model.MetadataKindMovie, "43")
+	assertServiceTestTMDbSnapshot(t, repos, metadata.ID)
 }
 
 func TestAutoMediaScrapeUsesThreeWorkersAndReportsTiming(t *testing.T) {

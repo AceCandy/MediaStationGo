@@ -25,6 +25,17 @@ type CatalogArtworkCandidate struct {
 	MissingStill    bool
 }
 
+// TMDbSnapshotBackfillCandidate 是具有合法 TMDb 标识且缺少原始快照的元数据。
+type TMDbSnapshotBackfillCandidate struct {
+	MetadataID   string
+	Title        string
+	EntityKind   string
+	TMDbID       int `gorm:"column:tmdb_id"`
+	SeriesTMDbID int `gorm:"column:series_tmdb_id"`
+	SeasonNum    int
+	EpisodeNum   int
+}
+
 type CatalogJobEnsureResult string
 
 const (
@@ -182,6 +193,79 @@ func (r *MetadataRepository) UpsertProviderSnapshot(ctx context.Context, metadat
 		Columns:   []clause.Column{{Name: "metadata_id"}, {Name: "provider"}},
 		DoUpdates: clause.Assignments(map[string]any{"payload": payloadText, "fetched_at": fetchedAt, "updated_at": time.Now()}),
 	}).Create(&snapshot).Error
+}
+
+// ReplaceIdentifierWithSnapshot 在同一事务中更新 provider 标识和对应原始快照。
+func (r *MetadataRepository) ReplaceIdentifierWithSnapshot(ctx context.Context, metadataID, provider, entityKind, externalID string, payload json.RawMessage, fetchedAt time.Time) error {
+	if !json.Valid(payload) {
+		return errors.New("valid metadata provider snapshot is required")
+	}
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := replaceMetadataIdentifier(tx, metadataID, provider, entityKind, externalID); err != nil {
+			return err
+		}
+		txRepo := &MetadataRepository{db: tx}
+		return txRepo.UpsertProviderSnapshot(ctx, metadataID, provider, payload, fetchedAt)
+	})
+}
+
+func (r *MetadataRepository) missingTMDbSnapshotQuery(ctx context.Context) *gorm.DB {
+	return r.db.WithContext(ctx).Table("metadata_items AS mi").
+		Joins(`JOIN LATERAL (
+            SELECT CASE WHEN mid.external_id ~ '^[1-9][0-9]{0,9}$' THEN mid.external_id::bigint END AS tmdb_id
+            FROM metadata_identifiers AS mid
+            WHERE mid.metadata_id = mi.id
+              AND mid.provider = 'tmdb'
+              AND mid.entity_kind = mi.kind
+              AND mid.external_id ~ '^[1-9][0-9]{0,9}$'
+            ORDER BY LENGTH(mid.external_id), mid.external_id, mid.id
+            LIMIT 1
+        ) AS own_tmdb ON own_tmdb.tmdb_id BETWEEN 1 AND 2147483647`).
+		Where("mi.kind IN ?", []string{model.MetadataKindMovie, model.MetadataKindSeries, model.MetadataKindSeason, model.MetadataKindEpisode}).
+		Where(`NOT EXISTS (
+            SELECT 1 FROM metadata_provider_snapshots AS snapshot
+            WHERE snapshot.metadata_id = mi.id AND snapshot.provider = 'tmdb'
+        )`)
+}
+
+// CountMissingTMDbSnapshots 返回当前全库缺失 TMDb 快照的合法候选数。
+func (r *MetadataRepository) CountMissingTMDbSnapshots(ctx context.Context) (int64, error) {
+	var total int64
+	err := r.missingTMDbSnapshotQuery(ctx).Count(&total).Error
+	return total, err
+}
+
+// ListMissingTMDbSnapshotsAfter 按 metadata ID 分页，且不依赖 media 关联。
+func (r *MetadataRepository) ListMissingTMDbSnapshotsAfter(ctx context.Context, afterID string, limit int) ([]TMDbSnapshotBackfillCandidate, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	limit = min(limit, 200)
+	var candidates []TMDbSnapshotBackfillCandidate
+	err := r.missingTMDbSnapshotQuery(ctx).
+		Select(`mi.id AS metadata_id, mi.title, mi.kind AS entity_kind,
+            own_tmdb.tmdb_id, COALESCE(series_tmdb.tmdb_id, 0) AS series_tmdb_id,
+            CASE WHEN mi.kind = 'season' THEN mi.season_num WHEN mi.kind = 'episode' THEN season.season_num ELSE 0 END AS season_num,
+            mi.episode_num`).
+		Joins("LEFT JOIN metadata_items AS season ON mi.kind = 'episode' AND season.id = mi.parent_id AND season.kind = 'season'").
+		Joins(`LEFT JOIN metadata_items AS series ON series.kind = 'series' AND series.id = CASE
+            WHEN mi.kind = 'season' THEN mi.parent_id
+            WHEN mi.kind = 'episode' THEN season.parent_id
+            ELSE NULL
+        END`).
+		Joins(`LEFT JOIN LATERAL (
+            SELECT CASE WHEN mid.external_id ~ '^[1-9][0-9]{0,9}$' THEN mid.external_id::bigint END AS tmdb_id
+            FROM metadata_identifiers AS mid
+            WHERE mid.metadata_id = series.id
+              AND mid.provider = 'tmdb'
+              AND mid.entity_kind = 'series'
+              AND mid.external_id ~ '^[1-9][0-9]{0,9}$'
+            ORDER BY LENGTH(mid.external_id), mid.external_id, mid.id
+            LIMIT 1
+        ) AS series_tmdb ON series_tmdb.tmdb_id BETWEEN 1 AND 2147483647`).
+		Where("mi.id > ?", strings.TrimSpace(afterID)).
+		Order("mi.id ASC").Limit(limit).Scan(&candidates).Error
+	return candidates, err
 }
 
 func (r *MetadataRepository) FindProviderSnapshot(ctx context.Context, metadataID, provider string) (*model.MetadataProviderSnapshot, error) {

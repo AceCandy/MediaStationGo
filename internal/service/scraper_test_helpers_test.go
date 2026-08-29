@@ -56,12 +56,17 @@ func newTestScraper(t *testing.T) (*ScraperService, *repository.Container, func(
 			})
 		case r.URL.Path == "/tv/12345/season/2/episode/1":
 			_ = json.NewEncoder(w).Encode(map[string]any{
+				"id":           2234501,
 				"name":         "任务代号: 猫",
 				"overview":     "单集剧情",
 				"still_path":   "/still.jpg",
 				"air_date":     "2023-10-07",
 				"vote_average": 9.1,
 				"runtime":      24,
+			})
+		case r.URL.Path == "/tv/12345/season/2":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"id": 22345, "season_number": 2, "name": "第 2 季", "future_field": true,
 			})
 		case r.URL.Path == "/tv/12345/credits":
 			_ = json.NewEncoder(w).Encode(map[string]any{
@@ -127,6 +132,14 @@ func newTestScraper(t *testing.T) (*ScraperService, *repository.Container, func(
 	scraper.SetArtworkStore(NewArtworkStore(cfg, repos.Artwork, images))
 
 	return scraper, repos, upstream.Close
+}
+
+func assertServiceTestTMDbSnapshot(t *testing.T, repos *repository.Container, metadataID string) {
+	t.Helper()
+	snapshot, err := repos.Metadata.FindProviderSnapshot(t.Context(), metadataID, "tmdb")
+	if err != nil || snapshot == nil || !json.Valid([]byte(snapshot.Payload)) {
+		t.Fatalf("TMDB snapshot for %q = %#v, err = %v", metadataID, snapshot, err)
+	}
 }
 
 func migrateScraperTestModels(t *testing.T, db *gorm.DB, extra ...any) error {

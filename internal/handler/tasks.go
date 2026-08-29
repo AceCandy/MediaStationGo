@@ -241,6 +241,25 @@ func taskDefinitionRunHandler(svc *service.Container) gin.HandlerFunc {
 			c.JSON(http.StatusAccepted, gin.H{"status": "started"})
 			return
 		}
+		if key == service.TaskDefinitionTMDbSnapshotBackfill {
+			if svc == nil || svc.Scraper == nil {
+				c.JSON(http.StatusServiceUnavailable, gin.H{"error": "TMDB snapshot backfill unavailable"})
+				return
+			}
+			if err := svc.Scraper.StartTMDbSnapshotBackfill(svc.Context(), false); err != nil {
+				switch {
+				case errors.Is(err, service.ErrTMDbSnapshotBackfillRunning):
+					c.JSON(http.StatusConflict, gin.H{"error": "TMDB snapshot backfill already running"})
+				case errors.Is(err, service.ErrTMDbSnapshotBackfillUnavailable):
+					c.JSON(http.StatusServiceUnavailable, gin.H{"error": "TMDB snapshot backfill unavailable"})
+				default:
+					c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to start TMDB snapshot backfill"})
+				}
+				return
+			}
+			c.JSON(http.StatusAccepted, gin.H{"status": "started"})
+			return
+		}
 		if !service.TaskDefinitionExists(key) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "task definition not found"})
 			return

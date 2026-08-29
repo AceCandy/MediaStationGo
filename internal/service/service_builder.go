@@ -107,7 +107,7 @@ func (b *serviceContainerBuilder) initContentServices() {
 	b.c.NotifyChannels = NewNotifyChannelService(b.log, b.repos)
 	b.c.Scan.SetNotifyChannels(b.c.NotifyChannels)
 	b.c.Scraper.SetNotifyChannels(b.c.NotifyChannels)
-	b.c.Media = NewMediaService(b.cfg, b.log, b.repos).SetRuntimeCache(b.c.Cache)
+	b.c.Media = NewMediaService(b.cfg, b.log, b.repos).SetRuntimeCache(b.c.Cache).SetTMDbProvider(b.c.TMDb)
 	b.c.Stream = NewStreamService(b.cfg, b.log, b.repos)
 	b.c.Playback = NewPlaybackService(b.log, b.repos)
 	b.c.Subtitle = NewSubtitleService(b.log, b.repos)

@@ -13,7 +13,13 @@ import (
 
 func (s *ScraperService) fetchAndSaveTMDbExtendedMetadata(ctx context.Context, metadataID string, tmdbID int, mediaType string) {
 	detailCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), tmdbDetailsTimeout)
-	details, err := s.tmdb.GetDetails(detailCtx, tmdbID, mediaType)
+	var details *Match
+	var err error
+	if mediaType == "tv" {
+		details, err = s.tmdb.GetTVMatch(detailCtx, tmdbID)
+	} else {
+		details, err = s.tmdb.GetMovieMatch(detailCtx, tmdbID)
+	}
 	cancel()
 	if err != nil {
 		s.log.Warn("failed to get details from tmdb",
@@ -25,6 +31,7 @@ func (s *ScraperService) fetchAndSaveTMDbExtendedMetadata(ctx context.Context, m
 	if details == nil {
 		return
 	}
+	s.persistTMDbSnapshot(ctx, metadataID, details.RawJSON)
 	updates := map[string]any{}
 	if len(details.Languages) > 0 {
 		updates["languages"] = strings.Join(details.Languages, ",")
@@ -63,10 +70,32 @@ func (s *ScraperService) fetchAndSaveTMDbExtendedMetadata(ctx context.Context, m
 		zap.Strings("genres", details.Genres))
 }
 
+func (s *ScraperService) fetchAndSaveTMDbSeasonSnapshot(ctx context.Context, episodeMetadataID string, tmdbID, seasonNum int) bool {
+	item, err := s.repo.Metadata.FindByID(ctx, episodeMetadataID)
+	if err != nil || item == nil || item.ParentID == nil {
+		return false
+	}
+	seasonID := *item.ParentID
+	if snapshot, findErr := s.repo.Metadata.FindProviderSnapshot(ctx, seasonID, "tmdb"); findErr == nil && snapshot != nil {
+		return false
+	}
+	seasonCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), tmdbDetailsTimeout)
+	details, err := s.tmdb.GetTVSeasonDetails(seasonCtx, tmdbID, seasonNum)
+	cancel()
+	if err != nil || details == nil || details.SeasonNumber != seasonNum {
+		if err != nil && s.log != nil {
+			s.log.Debug("failed to get tmdb season details", zap.String("metadata_id", seasonID), zap.Error(err))
+		}
+		return false
+	}
+	return s.persistTMDbSnapshot(ctx, seasonID, details.RawJSON)
+}
+
 func (s *ScraperService) fetchAndSaveTMDbEpisodeDetails(ctx context.Context, m *model.Media, metadataID string, tmdbID int, matchYear int, options ScrapeOptions) bool {
 	if s == nil || s.tmdb == nil || !s.tmdb.Enabled() || m == nil || metadataID == "" || tmdbID <= 0 || m.EpisodeNum <= 0 {
 		return false
 	}
+	seasonSnapshotUpdated := s.fetchAndSaveTMDbSeasonSnapshot(ctx, metadataID, tmdbID, m.SeasonNum)
 	episodeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), tmdbDetailsTimeout)
 	episode, err := s.tmdb.GetTVEpisodeDetails(episodeCtx, tmdbID, m.SeasonNum, m.EpisodeNum)
 	cancel()
@@ -77,11 +106,12 @@ func (s *ScraperService) fetchAndSaveTMDbEpisodeDetails(ctx context.Context, m *
 			zap.Int("season", m.SeasonNum),
 			zap.Int("episode", m.EpisodeNum),
 			zap.Error(err))
-		return false
+		return seasonSnapshotUpdated
 	}
 	if episode == nil {
-		return false
+		return seasonSnapshotUpdated
 	}
+	episodeSnapshotUpdated := s.persistTMDbSnapshot(ctx, metadataID, episode.RawJSON)
 	creditsUpdated := false
 	if len(episode.LoadedCreditTypes) > 0 {
 		if err := s.persistCredits(ctx, metadataID, episode.LoadedCreditTypes, episode.Credits); err != nil {
@@ -99,7 +129,7 @@ func (s *ScraperService) fetchAndSaveTMDbEpisodeDetails(ctx context.Context, m *
 			artworkUpdated = true
 		}
 	}
-	if len(metadataUpdates) == 0 && len(mediaUpdates) == 0 && !artworkUpdated && !creditsUpdated {
+	if len(metadataUpdates) == 0 && len(mediaUpdates) == 0 && !artworkUpdated && !creditsUpdated && !seasonSnapshotUpdated && !episodeSnapshotUpdated {
 		return false
 	}
 	if len(metadataUpdates) > 0 {
@@ -111,7 +141,7 @@ func (s *ScraperService) fetchAndSaveTMDbEpisodeDetails(ctx context.Context, m *
 		if updateErr != nil {
 			s.log.Warn("failed to save tmdb episode metadata",
 				zap.String("media_id", m.ID), zap.String("metadata_id", metadataID), zap.Error(updateErr))
-			return false
+			return seasonSnapshotUpdated || episodeSnapshotUpdated
 		}
 	}
 	if len(mediaUpdates) > 0 {
@@ -122,7 +152,7 @@ func (s *ScraperService) fetchAndSaveTMDbEpisodeDetails(ctx context.Context, m *
 				zap.Int("season", m.SeasonNum),
 				zap.Int("episode", m.EpisodeNum),
 				zap.Error(err))
-			return false
+			return seasonSnapshotUpdated || episodeSnapshotUpdated
 		}
 	}
 	return true

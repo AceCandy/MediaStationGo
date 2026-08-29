@@ -17,6 +17,7 @@ type MediaService struct {
 	cache   *RuntimeCacheService
 	artwork *ArtworkStore
 	probe   *MediaProbeService
+	tmdb    *TMDbProvider
 }
 
 type MediaVisibility struct {
@@ -90,6 +91,13 @@ func (s *MediaService) SetMediaProbe(probe *MediaProbeService) *MediaService {
 func (s *MediaService) SetArtworkStore(artwork *ArtworkStore) *MediaService {
 	if s != nil {
 		s.artwork = artwork
+	}
+	return s
+}
+
+func (s *MediaService) SetTMDbProvider(tmdb *TMDbProvider) *MediaService {
+	if s != nil {
+		s.tmdb = tmdb
 	}
 	return s
 }

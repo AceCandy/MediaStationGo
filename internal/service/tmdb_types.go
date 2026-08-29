@@ -104,10 +104,3 @@ type TMDbExternalIDs struct {
 	IMDbID string
 	TVDBID int
 }
-
-// TMDbDetails holds extended metadata from the /movie/{id} or /tv/{id} endpoints.
-type TMDbDetails struct {
-	Languages []string `json:"languages"`
-	Countries []string `json:"countries"`
-	Genres    []string `json:"genres"`
-}
