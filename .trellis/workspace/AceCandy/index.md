@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 67
+- **Total Sessions**: 68
 - **Last Active**: 2026-08-29
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~1453 | Active |
+| `journal-1.md` | ~1475 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 68 | 2026-08-29 | 精简豆瓣电影补齐日志 | `facec9f` | `main` |
 | 67 | 2026-08-29 | TMDB snapshot persistence and backfill | `677d2b9`, `ed94099` | `main` |
 | 66 | 2026-08-28 | 完善媒体详情标签图标和发布日期 | `ce2432b` | `main` |
 | 65 | 2026-08-28 | 豆瓣移动端详情与来源状态 | `b4bcf62` | `main` |

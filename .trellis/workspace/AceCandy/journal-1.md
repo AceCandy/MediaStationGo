@@ -1451,3 +1451,25 @@ Persist complete TMDB detail snapshots across scrape and manual-ID flows, add on
 ### Status
 
 [OK] **Completed**
+
+
+## Session 68: 精简豆瓣电影补齐日志
+<!-- trellis-session: v=2 fp=31c309b11d3c9704 -->
+
+**Date**: 2026-08-29
+**Task**: 精简豆瓣电影补齐日志
+**Branch**: `main`
+
+### Summary
+
+豆瓣电影信息补齐日志改为仅展示实际新增、更新和失败详情，空跑显示本次无变更；补充回归测试并通过 service 包测试。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `facec9f` | fix(metadata): show actionable Douban enrichment details |
+
+### Status
+
+[OK] **Completed**
