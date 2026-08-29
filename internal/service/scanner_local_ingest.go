@@ -63,7 +63,6 @@ func (s *ScannerService) ingestFile(ctx context.Context, lib *model.Library, roo
 		isNewMedia:   isNewMedia,
 		updateReason: updateReason,
 		writeBatch:   writeBatch,
-		after:        s.localProbeAfter(ctx, media, path, ext),
 		res:          res,
 	})
 }
@@ -224,19 +223,6 @@ func (s *ScannerService) buildLocalScanMedia(in localScanMediaInput) *model.Medi
 	return media
 }
 
-func (s *ScannerService) localProbeAfter(ctx context.Context, media *model.Media, path, ext string) func() {
-	probePath := path
-	if ext == ".strm" {
-		probePath = localSTRMFileTarget(media)
-	}
-	if probePath == "" || !mediaExtensionSupportsProbe(strings.ToLower(filepath.Ext(probePath))) || s.probe == nil {
-		return nil
-	}
-	return func() {
-		s.queueLocalMediaProbe(ctx, path, probePath)
-	}
-}
-
 type localScanWriteInput struct {
 	ctx          context.Context
 	path         string
@@ -244,22 +230,23 @@ type localScanWriteInput struct {
 	isNewMedia   bool
 	updateReason string
 	writeBatch   *localMediaWriteBatch
-	after        func()
 	res          *ScanResult
 }
 
 func (s *ScannerService) writeLocalScanMedia(in localScanWriteInput) {
 	if in.isNewMedia && in.writeBatch != nil {
-		in.writeBatch.AddWithAfter(in.path, in.media, in.after, in.updateReason)
+		in.writeBatch.AddWithReason(in.path, in.media, in.updateReason)
+		return
+	}
+	if err := s.invalidateChangedMediaProbe(in.ctx, in.path, in.updateReason); err != nil {
+		addScanError(in.res, in.path, err)
+		s.log.Warn("invalidate changed media probe failed", zap.String("path", in.path), zap.Error(err))
 		return
 	}
 	if err := s.upsertLocalScanMedia(in.ctx, in.media); err != nil {
 		addScanError(in.res, in.path, err)
 		s.log.Warn("upsert media failed", zap.String("path", in.path), zap.Error(err))
 		return
-	}
-	if in.after != nil {
-		in.after()
 	}
 	if in.isNewMedia {
 		in.res.Added++
@@ -269,6 +256,17 @@ func (s *ScannerService) writeLocalScanMedia(in localScanWriteInput) {
 		in.res.addChange(ScanChangeUpdated, in.path, in.updateReason)
 	}
 	s.publishLocalScanProgress(in.path, in.res)
+}
+
+func (s *ScannerService) invalidateChangedMediaProbe(ctx context.Context, path, updateReason string) error {
+	if strings.TrimSpace(updateReason) == "" || s.repo == nil || s.repo.MediaProbe == nil || s.repo.Media == nil {
+		return nil
+	}
+	media, err := s.repo.Media.FindByPath(ctx, path)
+	if err != nil || media == nil {
+		return err
+	}
+	return s.repo.MediaProbe.DeleteByMediaID(ctx, media.ID)
 }
 
 func (s *ScannerService) upsertLocalScanMedia(ctx context.Context, media *model.Media) error {

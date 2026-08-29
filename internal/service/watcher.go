@@ -310,9 +310,15 @@ func (w *WatcherService) processBatch(ctx context.Context, due []duePath) {
 	}
 	if metrics["failed"] > 0 {
 		task.Finish(errors.New("部分文件变更处理失败"), TaskUpdate{Stage: "watch", Message: "媒体库变更处理失败", Metrics: metrics})
+		if metrics["added"]+metrics["updated"] > 0 {
+			w.scanner.WakeProbeBackfill()
+		}
 		return
 	}
 	task.Finish(nil, TaskUpdate{Stage: "completed", Message: "媒体库变更处理完成", Metrics: metrics})
+	if metrics["added"]+metrics["updated"] > 0 {
+		w.scanner.WakeProbeBackfill()
+	}
 }
 
 func (w *WatcherService) requeue(paths []duePath) {

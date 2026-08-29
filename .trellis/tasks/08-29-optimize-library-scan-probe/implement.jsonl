@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/backend/background-task-execution.md", "reason": "后台任务、日志、扫描与回填调度契约"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "扫描、任务跟踪与数据库状态的数据流边界"}

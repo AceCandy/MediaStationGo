@@ -17,7 +17,19 @@ func (s *ScannerService) ScanLibrary(ctx context.Context, libraryID string) (*Sc
 	return s.scanLibrary(ctx, libraryID, true)
 }
 
+func (s *ScannerService) ScanLibraryWithProgress(ctx context.Context, libraryID string, progress ScanProgressFunc) (*ScanResult, error) {
+	return s.scanLibraryWithProgress(ctx, libraryID, true, progress)
+}
+
 func (s *ScannerService) ScanLibraryRoot(ctx context.Context, libraryID, rootID string) (*ScanResult, error) {
+	return s.scanLibraryRootWithProgress(ctx, libraryID, rootID, nil)
+}
+
+func (s *ScannerService) ScanLibraryRootWithProgress(ctx context.Context, libraryID, rootID string, progress ScanProgressFunc) (*ScanResult, error) {
+	return s.scanLibraryRootWithProgress(ctx, libraryID, rootID, progress)
+}
+
+func (s *ScannerService) scanLibraryRootWithProgress(ctx context.Context, libraryID, rootID string, progress ScanProgressFunc) (*ScanResult, error) {
 	lib, err := s.repo.Library.FindByID(ctx, libraryID)
 	if err != nil {
 		return nil, err
@@ -35,7 +47,7 @@ func (s *ScannerService) ScanLibraryRoot(ctx context.Context, libraryID, rootID 
 	if isRetiredCloudPath(root.Path) {
 		return nil, errors.New("library root path is no longer supported")
 	}
-	return s.scanLocalLibraryRoot(ctx, lib, root, true)
+	return s.scanLocalLibraryRootWithProgress(ctx, lib, root, true, progress)
 }
 
 // ScanLibraryWithoutAutoScrape walks a library without kicking off online
@@ -66,6 +78,10 @@ func (s *ScannerService) TryBeginLocalScan(libraryID string) (func(), bool) {
 }
 
 func (s *ScannerService) scanLibrary(ctx context.Context, libraryID string, autoScrape bool) (*ScanResult, error) {
+	return s.scanLibraryWithProgress(ctx, libraryID, autoScrape, nil)
+}
+
+func (s *ScannerService) scanLibraryWithProgress(ctx context.Context, libraryID string, autoScrape bool, progress ScanProgressFunc) (*ScanResult, error) {
 	lib, err := s.repo.Library.FindByID(ctx, libraryID)
 	if err != nil {
 		return nil, err
@@ -95,6 +111,7 @@ func (s *ScannerService) scanLibrary(ctx context.Context, libraryID string, auto
 	scannedRoots := 0
 	for i := range roots {
 		root := roots[i]
+		s.emitScanProgress(progress, ScanProgressRootStarted, &root, i+1, len(roots), scannedRoots, res)
 		if err := s.resolveLocalLibraryRootPath(ctx, lib, &root); err != nil {
 			// 优雅降级：路径不可达时只跳过该 root，并保留该库已入库的旧媒体（下方 prune 不会执行），
 			// 同时输出可操作诊断（候选路径 + 宿主机/容器映射状态），方便定位旧库在容器内扫不出媒体的原因。
@@ -112,14 +129,17 @@ func (s *ScannerService) scanLibrary(ctx context.Context, libraryID string, auto
 			if scanErr == nil {
 				scanErr = err
 			}
+			s.emitScanProgress(progress, ScanProgressRootFailed, &root, i+1, len(roots), scannedRoots, res)
 			continue
 		}
-		seen, walkErr := s.scanLocalLibraryFiles(ctx, lib, &root, existingMedia, writeBatch, res)
+		seen, walkErr := s.scanLocalLibraryFiles(ctx, lib, &root, existingMedia, writeBatch, res, progress, i+1, len(roots), scannedRoots)
+		writeBatch.Flush()
 		if walkErr != nil {
 			addScanError(res, root.Path, walkErr)
 			if scanErr == nil {
 				scanErr = walkErr
 			}
+			s.emitScanProgress(progress, ScanProgressRootFailed, &root, i+1, len(roots), scannedRoots, res)
 			continue
 		}
 		scannedRoots++
@@ -132,8 +152,8 @@ func (s *ScannerService) scanLibrary(ctx context.Context, libraryID string, auto
 				res.addChange(ScanChangeRemoved, path, "")
 			}
 		}
+		s.emitScanProgress(progress, ScanProgressRootFinished, &root, i+1, len(roots), scannedRoots, res)
 	}
-	writeBatch.Flush()
 	if scanErr != nil && scannedRoots == 0 {
 		return res, scanErr
 	}
@@ -149,11 +169,17 @@ func (s *ScannerService) scanLibrary(ctx context.Context, libraryID string, auto
 }
 
 func (s *ScannerService) scanLocalLibraryRoot(ctx context.Context, lib *model.Library, root *model.LibraryRoot, autoScrape bool) (*ScanResult, error) {
+	return s.scanLocalLibraryRootWithProgress(ctx, lib, root, autoScrape, nil)
+}
+
+func (s *ScannerService) scanLocalLibraryRootWithProgress(ctx context.Context, lib *model.Library, root *model.LibraryRoot, autoScrape bool, progress ScanProgressFunc) (*ScanResult, error) {
 	res := &ScanResult{LibraryID: lib.ID}
 	if root == nil || !root.Enabled {
 		return res, errors.New("library root disabled or not found")
 	}
+	s.emitScanProgress(progress, ScanProgressRootStarted, root, 1, 1, 0, res)
 	if err := s.resolveLocalLibraryRootPath(ctx, lib, root); err != nil {
+		s.emitScanProgress(progress, ScanProgressRootFailed, root, 1, 1, 0, res)
 		return res, err
 	}
 	writeBatch := newLocalMediaWriteBatch(s, ctx, res, 100)
@@ -162,10 +188,11 @@ func (s *ScannerService) scanLocalLibraryRoot(ctx context.Context, lib *model.Li
 		s.log.Warn("load existing local media snapshot failed", zap.String("library_id", lib.ID), zap.Error(err))
 		existingMedia = nil
 	}
-	seen, walkErr := s.scanLocalLibraryFiles(ctx, lib, root, existingMedia, writeBatch, res)
+	seen, walkErr := s.scanLocalLibraryFiles(ctx, lib, root, existingMedia, writeBatch, res, progress, 1, 1, 0)
 	writeBatch.Flush()
 	if walkErr != nil {
 		addScanError(res, root.Path, walkErr)
+		s.emitScanProgress(progress, ScanProgressRootFailed, root, 1, 1, 0, res)
 		return res, walkErr
 	}
 	removed, removedPaths, err := s.pruneMissingMediaForRoot(ctx, lib.ID, root.ID, root.Path, seen)
@@ -183,11 +210,12 @@ func (s *ScannerService) scanLocalLibraryRoot(ctx context.Context, lib *model.Li
 	} else {
 		recordMediaPartScanChanges(res, changed)
 	}
+	s.emitScanProgress(progress, ScanProgressRootFinished, root, 1, 1, 1, res)
 	s.finishLocalLibraryScan(ctx, lib, res, autoScrape)
 	return res, nil
 }
 
-func (s *ScannerService) scanLocalLibraryFiles(ctx context.Context, lib *model.Library, root *model.LibraryRoot, existingMedia map[string]existingLocalMedia, writeBatch *localMediaWriteBatch, res *ScanResult) (map[string]struct{}, error) {
+func (s *ScannerService) scanLocalLibraryFiles(ctx context.Context, lib *model.Library, root *model.LibraryRoot, existingMedia map[string]existingLocalMedia, writeBatch *localMediaWriteBatch, res *ScanResult, progress ScanProgressFunc, rootIndex, rootTotal, rootsCompleted int) (map[string]struct{}, error) {
 	seen := make(map[string]struct{})
 	seenInodes := existingLocalMediaFileIDs(existingMedia)
 	walkFn := func(path string, info walkInfo) error {
@@ -205,9 +233,33 @@ func (s *ScannerService) scanLocalLibraryFiles(ctx context.Context, lib *model.L
 		}
 		seen[filepath.Clean(path)] = struct{}{}
 		s.ingestFile(ctx, lib, root, path, info.size, info.modTimeNS, seenInodes, existingMedia, writeBatch, res)
+		if res.Visited%scanProgressEvery == 0 {
+			s.emitScanProgress(progress, ScanProgressRunning, root, rootIndex, rootTotal, rootsCompleted, res)
+		}
 		return nil
 	}
 	return seen, walk(root.Path, walkFn)
+}
+
+func (s *ScannerService) emitScanProgress(progress ScanProgressFunc, phase string, root *model.LibraryRoot, rootIndex, rootTotal, rootsCompleted int, res *ScanResult) {
+	if progress == nil || res == nil {
+		return
+	}
+	item := ScanProgress{
+		Phase: phase, RootIndex: rootIndex, RootTotal: rootTotal, RootsCompleted: rootsCompleted,
+		Visited: res.Visited, Added: res.Added, Updated: res.Updated, Skipped: res.Skipped,
+		LocalMetadata: res.LocalMetadata, Removed: res.Removed, Errors: res.ErrorCount,
+	}
+	if root != nil {
+		item.RootID, item.RootPath = root.ID, root.Path
+	}
+	progress(item)
+}
+
+func (s *ScannerService) WakeProbeBackfill() {
+	if s != nil && s.mediaProbe != nil {
+		s.mediaProbe.WakeBackfill()
+	}
 }
 
 func existingLocalMediaFileIDs(existingMedia map[string]existingLocalMedia) map[string]string {
@@ -252,7 +304,11 @@ func (s *ScannerService) IngestPath(ctx context.Context, libraryID, path string)
 	if err != nil || res == nil {
 		return false, err
 	}
-	return res.Added+res.Updated > 0, nil
+	changed := res.Added+res.Updated > 0
+	if changed {
+		s.WakeProbeBackfill()
+	}
+	return changed, nil
 }
 
 // IngestPathResult returns the single-file scan details used by watcher task logs.

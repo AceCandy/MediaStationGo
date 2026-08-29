@@ -210,34 +210,14 @@ func taskDefinitionRunHandler(svc *service.Container) gin.HandlerFunc {
 				taskName += "：" + library.Name
 				sourcePath = library.Path
 			}
-			task := svc.Tasks.StartTriggeredIfKindIdle(service.TaskKindProbe, service.TaskTriggerManual, taskName, service.TaskUpdate{
-				Stage: "probe", SourcePath: sourcePath, Message: "媒体轨道回填已启动", Metrics: service.ProbeBackfillResult{}.Metrics(),
-			})
-			if task == nil {
-				if svc.Tasks.IsKindRunning(service.TaskKindProbe) {
-					c.JSON(http.StatusConflict, gin.H{"error": "media probe backfill already running"})
-				} else {
-					c.JSON(http.StatusInternalServerError, gin.H{"error": "create task execution failed"})
+			if err := startProbeBackfill(svc, service.TaskTriggerManual, taskName, sourcePath, request.LibraryID, request.Limit); err != nil {
+				status := http.StatusInternalServerError
+				if errors.Is(err, service.ErrMediaProbeBackfillRunning) {
+					status = http.StatusConflict
 				}
+				c.JSON(status, gin.H{"error": err.Error()})
 				return
 			}
-			go func() {
-				progress := func(current service.ProbeBackfillResult) {
-					task.Update(service.TaskUpdate{Stage: "probe", Metrics: current.Metrics(), Details: current.Details, DetailsWithoutLevel: true})
-				}
-				var result service.ProbeBackfillResult
-				var err error
-				if request.LibraryID == "" {
-					result, err = svc.MediaProbe.BackfillAll(svc.Context(), request.Limit, progress)
-				} else {
-					result, err = svc.MediaProbe.BackfillLibrary(svc.Context(), request.LibraryID, request.Limit, progress)
-				}
-				stage, message := "completed", "媒体轨道回填完成"
-				if err != nil {
-					stage, message = "probe", "媒体轨道回填失败"
-				}
-				finishHTTPTask(task, err, stage, message, result.Metrics(), nil, false)
-			}()
 			c.JSON(http.StatusAccepted, gin.H{"status": "started"})
 			return
 		}

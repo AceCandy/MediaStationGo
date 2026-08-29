@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -91,12 +92,14 @@ func startLibraryScanTask(svc *service.Container, lib *model.Library, trigger, n
 	}
 	go func() {
 		defer finishScan()
-		res, err := svc.Scan.ScanLibrary(context.Background(), lib.ID)
+		res, err := svc.Scan.ScanLibraryWithProgress(context.Background(), lib.ID, scanTaskProgress(task))
 		if err != nil {
 			finishHTTPTask(task, err, "scan", name+"失败", scanTaskMetrics(res), scanTaskDetails(res, 20), true)
+			wakeProbeBackfillAfterScan(svc, res)
 			return
 		}
 		finishHTTPTask(task, nil, "completed", name+"结束", scanTaskMetrics(res), scanTaskDetails(res, 20), true)
+		wakeProbeBackfillAfterScan(svc, res)
 	}()
 	return true, nil
 }
@@ -113,14 +116,40 @@ func startLibraryRootScanTask(svc *service.Container, libraryID, rootID, library
 	}
 	go func() {
 		defer finishScan()
-		res, err := svc.Scan.ScanLibraryRoot(context.Background(), libraryID, rootID)
+		res, err := svc.Scan.ScanLibraryRootWithProgress(context.Background(), libraryID, rootID, scanTaskProgress(task))
 		if err != nil {
 			finishHTTPTask(task, err, "scan", name+"失败", scanTaskMetrics(res), scanTaskDetails(res, 20), true)
+			wakeProbeBackfillAfterScan(svc, res)
 			return
 		}
 		finishHTTPTask(task, nil, "completed", name+"结束", scanTaskMetrics(res), scanTaskDetails(res, 20), true)
+		wakeProbeBackfillAfterScan(svc, res)
 	}()
 	return true, nil
+}
+
+func scanTaskProgress(task *service.TaskHandle) service.ScanProgressFunc {
+	return func(progress service.ScanProgress) {
+		if task == nil {
+			return
+		}
+		message := "正在扫描媒体库路径"
+		switch progress.Phase {
+		case service.ScanProgressRootStarted:
+			message = fmt.Sprintf("正在扫描路径 %d/%d：%s", progress.RootIndex, progress.RootTotal, progress.RootPath)
+		case service.ScanProgressRootFinished:
+			message = fmt.Sprintf("路径 %d/%d 扫描完成：%s", progress.RootIndex, progress.RootTotal, progress.RootPath)
+		case service.ScanProgressRootFailed:
+			message = fmt.Sprintf("路径 %d/%d 扫描失败：%s", progress.RootIndex, progress.RootTotal, progress.RootPath)
+		}
+		task.Update(service.TaskUpdate{Stage: "scan", SourcePath: progress.RootPath, Message: message, Metrics: progress.Metrics()})
+	}
+}
+
+func wakeProbeBackfillAfterScan(svc *service.Container, res *service.ScanResult) {
+	if svc != nil && svc.Scan != nil && res != nil && res.Added+res.Updated > 0 {
+		svc.Scan.WakeProbeBackfill()
+	}
 }
 
 func startScanHTTPTask(svc *service.Container, name, libraryName, path, trigger string) *service.TaskHandle {

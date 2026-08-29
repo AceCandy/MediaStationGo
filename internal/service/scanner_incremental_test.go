@@ -202,6 +202,44 @@ func TestScanLibraryReturnsNotFoundForMissingLibrary(t *testing.T) {
 	}
 }
 
+func TestScanLibraryInvalidatesProbeDocumentWhenFileChanges(t *testing.T) {
+	scanner, repos := newScannerTestEnv(t)
+	root := t.TempDir()
+	library := model.Library{Name: "Movies", Path: root, Type: "movie", Enabled: true}
+	if err := repos.Library.Create(t.Context(), &library); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(root, "movie.mkv")
+	if err := os.WriteFile(path, []byte("old"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := scanner.ScanLibrary(t.Context(), library.ID); err != nil {
+		t.Fatal(err)
+	}
+	media, err := repos.Media.FindByPath(t.Context(), path)
+	if err != nil || media == nil {
+		t.Fatalf("media = %#v, err = %v", media, err)
+	}
+	probeJSON, err := MarshalProbeDocument(probeResultFixture().Document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repos.MediaProbe.Upsert(t.Context(), &model.MediaProbeMetadata{
+		MediaID: media.ID, ProbeJSON: probeJSON, SchemaVersion: ProbeDocumentSchemaVersion,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("changed-size"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := scanner.ScanLibrary(t.Context(), library.ID); err != nil {
+		t.Fatal(err)
+	}
+	if probe, err := repos.MediaProbe.FindByMediaID(t.Context(), media.ID); err != nil || probe != nil {
+		t.Fatalf("probe after changed scan = %#v, err = %v, want nil", probe, err)
+	}
+}
+
 func TestIngestPathReturnsNotFoundForMissingLibrary(t *testing.T) {
 	sc, _ := newScannerTestEnv(t)
 
@@ -596,7 +634,6 @@ func TestScanLibrarySkipsUnchangedExistingLocalMediaWithMissingTrackMetadata(t *
 		t.Fatalf("first scan = %#v, want added=1", first)
 	}
 
-	sc.probe = NewFFprobeService(&config.Config{}, zap.NewNop())
 	second, err := sc.ScanLibrary(t.Context(), lib.ID)
 	if err != nil {
 		t.Fatalf("second scan: %v", err)
@@ -608,7 +645,6 @@ func TestScanLibrarySkipsUnchangedExistingLocalMediaWithMissingTrackMetadata(t *
 
 func TestScanLibraryImportsNewLocalMediaWithoutSynchronousProbe(t *testing.T) {
 	sc, repos := newScannerTestEnv(t)
-	sc.probe = NewFFprobeService(&config.Config{}, zap.NewNop())
 	root := t.TempDir()
 	lib := model.Library{Name: "Movies", Path: root, Type: "movie", Enabled: true}
 	if err := repos.Library.Create(t.Context(), &lib); err != nil {

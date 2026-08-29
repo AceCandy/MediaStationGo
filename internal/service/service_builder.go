@@ -37,6 +37,7 @@ func newServiceContainer(cfg *config.Config, log *zap.Logger, repos *repository.
 	builder.initIdentityServices()
 	builder.initImageProxy()
 	builder.attachRuntimeContext()
+	builder.c.MediaProbe.SetTaskTracker(log, builder.c.Tasks, builder.c.stopCtx)
 	return builder.c
 }
 

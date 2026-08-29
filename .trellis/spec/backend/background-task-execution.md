@@ -383,3 +383,100 @@ ids := parseFailedMediaIDsFromTaskLog(log)
 // Correct: business state selects unfinished rows and the shared worker owns retry.
 scraper.ResetLibraryScrape(ctx, libraryID, false)
 ```
+
+## Scenario: Library Scan and Media Probe Backfill Separation
+
+### 1. Scope / Trigger
+
+Apply this contract when changing local library scans, watcher ingestion, scan
+progress, complete probe-document invalidation, or automatic track backfill.
+
+### 2. Signatures
+
+- `ScanLibraryWithProgress(ctx, libraryID, ScanProgressFunc)` and
+  `ScanLibraryRootWithProgress(ctx, libraryID, rootID, ScanProgressFunc)` expose
+  `roots_total`, `roots_completed`, `visited`, `added`, `updated`, `skipped`,
+  `removed`, and `errors` through task metrics.
+- `MediaProbeService.StartBackfill(trigger, name, sourcePath, libraryID, limit)`
+  starts the shared visible probe execution.
+- `MediaProbeService.WakeBackfill()` requests a coalesced automatic pass.
+- Missing, malformed, or non-current `media_probe_metadata` is the durable
+  backfill state; task executions and in-memory wake flags are not checkpoints.
+
+### 3. Contracts
+
+- A library scan discovers and persists media only. It never calls ffprobe or
+  enqueues per-file probe work in a hidden queue.
+- Enabled roots are scanned serially in configured order. Each root flushes its
+  pending writes before pruning missing media. A failed root is not pruned and
+  does not stop later roots.
+- Root start, bounded running progress, root finish, and root failure update the
+  existing scan task. Per-file change details retain at most 200 rows and add an
+  omitted-count summary without changing aggregate metrics.
+- A changed local file deletes its previous complete probe document before the
+  media fingerprint update. If deletion fails, that media update is rejected so
+  stale tracks are never presented as current.
+- Scan, watcher, STRM refresh, and organizer batches request probe backfill only
+  after their ingestion work settles and only when at least one media row was
+  added or updated. Partial-success error paths still request backfill.
+- Automatic and manual backfill share `TaskKindProbe` and the same executor.
+  Automatic executions use trigger `event`; a wake received while probe work is
+  active is coalesced and checked again after the active execution settles.
+- Startup may wake the coordinator, but the database query decides whether work
+  exists. Valid current documents are never probed again. ISO images and STRM
+  rows without a supported local or HTTP(S) target are skipped without invoking
+  ffprobe or consuming a positive probe-attempt limit.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required result |
+| --- | --- |
+| Root cannot be resolved or walked completely | Record a path failure, flush successful writes, preserve existing rows for that root, continue later roots |
+| Probe document invalidation fails | Record a scan error and do not update that media row |
+| Scan partially persists media and then returns an error | Finish the scan error path and still wake probe backfill for the persisted additions/updates |
+| Another probe task is active | Manual start returns `ErrMediaProbeBackfillRunning`; automatic wake remains pending without parallel work |
+| Automatic wake finds no missing/outdated document | Create no probe execution |
+| ffprobe fails | Record one bounded failure detail; leave database state eligible for a later explicit wake |
+| STRM has no supported target | Count it as skipped; do not call ffprobe and do not consume `limit` |
+
+### 5. Good / Base / Bad Cases
+
+- Good: two roots scan in order; root A writes are visible before root A prune,
+  then root B starts, and one event probe task handles the resulting missing rows.
+- Base: all media have current documents; startup or scan wakes settle without a
+  probe task.
+- Bad: starting an untracked goroutine per media file, pruning an incompletely
+  walked root, or using task history as the probe retry queue.
+
+### 6. Tests Required
+
+- Assert serial root start/finish order, write visibility at root finish, and no
+  prune after a failed root.
+- Assert file-size/mtime changes remove the old probe document while unchanged
+  files retain it.
+- Assert automatic execution is visible as one event task, duplicate/running
+  wakes coalesce, and manual/automatic executions cannot overlap.
+- Assert scan details are capped with an omitted count while final metrics stay
+  exact, including `skipped` and `errors`.
+- Assert unsupported STRM rows are skipped without a probe call or limit use.
+
+### 7. Wrong vs Correct
+
+```go
+// Wrong: scan completion depends on an invisible per-file ffprobe queue.
+queueLocalMediaProbe(path)
+
+// Correct: persist scan results, finish the batch, then request shared work.
+scanner.WakeProbeBackfill()
+```
+
+```go
+// Wrong: prune after an incomplete walk and delete media that may still exist.
+pruneMissingMediaForRoot(seen)
+
+// Correct: flush first and prune only after a successful complete walk.
+writeBatch.Flush()
+if walkErr == nil {
+	pruneMissingMediaForRoot(seen)
+}
+```

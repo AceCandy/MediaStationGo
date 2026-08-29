@@ -286,6 +286,7 @@ func runSTRMRefreshScan(svc *service.Container, target service.STRMRefreshTarget
 		res *service.ScanResult
 		err error
 	)
+	defer func() { wakeProbeBackfillAfterScan(svc, res) }()
 	if target.RootID != "" {
 		res, err = svc.Scan.ScanLibraryRoot(context.Background(), target.LibraryID, target.RootID)
 	} else {

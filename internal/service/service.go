@@ -95,6 +95,9 @@ func (c *Container) Boot() {
 	if err := c.APIConfig.SeedDefaults(c.stopCtx); err != nil {
 		c.Log.Warn("api config seed failed", zap.Error(err))
 	}
+	if c.MediaProbe != nil {
+		c.MediaProbe.WakeBackfill()
+	}
 	if c.Scraper != nil {
 		if err := c.Scraper.StartTMDbSnapshotBackfill(c.stopCtx, true); err != nil {
 			c.Log.Warn("start TMDB snapshot backfill failed", zap.Error(err))

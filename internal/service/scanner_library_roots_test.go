@@ -3,6 +3,7 @@ package service
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 
 	"go.uber.org/zap"
@@ -69,6 +70,51 @@ func TestScanLibraryScansMultipleRootsAndPrunesPerRoot(t *testing.T) {
 	}
 	if len(rows) != 1 || rows[0].Path != fileB {
 		t.Fatalf("remaining rows = %#v, want offline root media preserved", rows)
+	}
+}
+
+func TestScanLibraryReportsRootsInSerialOrderAfterWritesFlush(t *testing.T) {
+	rootA := t.TempDir()
+	rootB := t.TempDir()
+	writeTestFile(t, filepath.Join(rootA, "a.mkv"), "a")
+	writeTestFile(t, filepath.Join(rootB, "b.mkv"), "b")
+
+	db := newServiceTestDB(t, &model.Library{}, &model.LibraryRoot{}, &model.Media{}, &model.Setting{})
+	repos := repository.New(db)
+	lib := &model.Library{Name: "电影", Path: rootA, Type: "movie", Enabled: true}
+	if err := repos.Library.CreateWithRoots(t.Context(), lib, []model.LibraryRoot{
+		{Path: rootA, Enabled: true, SortOrder: 0},
+		{Path: rootB, Enabled: true, SortOrder: 1},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	scanner := NewScannerService(nil, zap.NewNop(), repos, NewHub(zap.NewNop()), nil, nil)
+	var phases []string
+	_, err := scanner.ScanLibraryWithProgress(t.Context(), lib.ID, func(progress ScanProgress) {
+		phases = append(phases, progress.Phase+":"+progress.RootPath)
+		if progress.Phase != ScanProgressRootFinished {
+			return
+		}
+		var count int64
+		if err := db.Model(&model.Media{}).Where("library_root_id = ?", progress.RootID).Count(&count).Error; err != nil {
+			t.Fatal(err)
+		}
+		if count != 1 {
+			t.Fatalf("root %s media count at finish = %d, want 1", progress.RootPath, count)
+		}
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		ScanProgressRootStarted + ":" + rootA,
+		ScanProgressRootFinished + ":" + rootA,
+		ScanProgressRootStarted + ":" + rootB,
+		ScanProgressRootFinished + ":" + rootB,
+	}
+	if !reflect.DeepEqual(phases, want) {
+		t.Fatalf("progress phases = %#v, want %#v", phases, want)
 	}
 }
 

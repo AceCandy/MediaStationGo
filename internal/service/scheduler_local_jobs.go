@@ -36,6 +36,7 @@ func (s *SchedulerService) jobScanLibraries(ctx context.Context) error {
 		return err
 	}
 	metrics := map[string]int64{}
+	needsProbeBackfill := false
 	for _, l := range libs {
 		if !l.Enabled {
 			continue
@@ -44,9 +45,32 @@ func (s *SchedulerService) jobScanLibraries(ctx context.Context) error {
 			continue
 		}
 		metrics["libraries"]++
-		res, err := s.scanner.ScanLibrary(ctx, l.ID)
+		res, err := s.scanner.ScanLibraryWithProgress(ctx, l.ID, func(progress ScanProgress) {
+			if task == nil {
+				return
+			}
+			current := make(map[string]int64, len(metrics)+len(progress.Metrics()))
+			for key, value := range metrics {
+				current[key] = value
+			}
+			for key, value := range progress.Metrics() {
+				current[key] += value
+			}
+			task.Update(TaskUpdate{Stage: "scan", Message: fmt.Sprintf("正在扫描媒体库 %s：%s", l.Name, progress.RootPath), Metrics: current})
+		})
+		if res != nil {
+			metrics["visited"] += int64(res.Visited)
+			metrics["added"] += int64(res.Added)
+			metrics["updated"] += int64(res.Updated)
+			metrics["skipped"] += int64(res.Skipped)
+			metrics["removed"] += res.Removed
+			metrics["errors"] += int64(res.ErrorCount)
+			needsProbeBackfill = needsProbeBackfill || res.Added+res.Updated > 0
+		}
 		if err != nil {
-			metrics["errors"]++
+			if res == nil || res.ErrorCount == 0 {
+				metrics["errors"]++
+			}
 			if task != nil {
 				task.Update(TaskUpdate{Stage: "scan", Metrics: metrics, Details: []string{fmt.Sprintf("❌ 媒体库 %s（%s）: 扫描失败: %v", l.Name, l.ID, sanitizeTaskLogError(err))}, DetailsWithoutLevel: true})
 			}
@@ -54,18 +78,15 @@ func (s *SchedulerService) jobScanLibraries(ctx context.Context) error {
 				zap.String("library", l.ID), zap.Error(err))
 			continue
 		}
-		if res != nil {
-			metrics["visited"] += int64(res.Visited)
-			metrics["added"] += int64(res.Added)
-			metrics["updated"] += int64(res.Updated)
-			metrics["removed"] += res.Removed
-		}
 		if task != nil {
 			task.Update(TaskUpdate{Stage: "scan", Metrics: metrics, Details: libraryScanTaskDetails(l, res), DetailsWithoutLevel: true})
 		}
 	}
 	if task != nil {
 		task.Finish(nil, TaskUpdate{Stage: "completed", Message: "媒体库扫描结束", Metrics: metrics})
+	}
+	if needsProbeBackfill {
+		s.scanner.WakeProbeBackfill()
 	}
 	return nil
 }

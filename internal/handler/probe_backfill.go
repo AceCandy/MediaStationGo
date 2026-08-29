@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"errors"
 	"net/http"
 	"strings"
 
@@ -26,25 +27,22 @@ func probeLibraryHandler(svc *service.Container) gin.HandlerFunc {
 			return
 		}
 
-		task := svc.Tasks.StartTriggered(service.TaskKindProbe, service.TaskTriggerManual, "媒体轨道回填："+library.Name, service.TaskUpdate{
-			Stage: "probe", SourcePath: library.Path,
-			Message: "媒体轨道回填已启动",
-			Metrics: service.ProbeBackfillResult{}.Metrics(),
-		})
-		if task == nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "create task execution failed"})
+		if err := startProbeBackfill(svc, service.TaskTriggerManual, "媒体轨道回填："+library.Name, library.Path, libraryID, 0); err != nil {
+			status := http.StatusInternalServerError
+			if errors.Is(err, service.ErrMediaProbeBackfillRunning) {
+				status = http.StatusConflict
+			}
+			c.JSON(status, gin.H{"error": err.Error()})
 			return
 		}
-		go func() {
-			result, err := svc.MediaProbe.BackfillLibrary(svc.Context(), libraryID, 0, func(current service.ProbeBackfillResult) {
-				task.Update(service.TaskUpdate{Stage: "probe", Metrics: current.Metrics(), Details: current.Details, DetailsWithoutLevel: true})
-			})
-			stage, message := "completed", "媒体轨道回填完成"
-			if err != nil {
-				stage, message = "probe", "媒体轨道回填失败"
-			}
-			finishHTTPTask(task, err, stage, message, result.Metrics(), nil, false)
-		}()
 		c.JSON(http.StatusAccepted, gin.H{"status": "started"})
 	}
+}
+
+func startProbeBackfill(svc *service.Container, trigger, name, sourcePath, libraryID string, limit int) error {
+	if svc == nil || svc.MediaProbe == nil || svc.Tasks == nil {
+		return service.ErrMediaProbeBackfillUnavailable
+	}
+	svc.MediaProbe.SetTaskTracker(svc.Log, svc.Tasks, svc.Context())
+	return svc.MediaProbe.StartBackfill(trigger, name, sourcePath, libraryID, limit)
 }

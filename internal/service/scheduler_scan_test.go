@@ -30,6 +30,8 @@ func TestSchedulerPeriodicLocalScanRunsEveryInvocation(t *testing.T) {
 	log := zap.NewNop()
 	scanner := NewScannerService(&config.Config{}, log, repos, NewHub(log), nil, nil)
 	scheduler := NewSchedulerService(log, repos, scanner, nil, NewHub(log))
+	tracker := NewTaskTrackerService(log, nil)
+	scheduler.SetTaskTracker(tracker)
 	scheduler.now = func() time.Time {
 		return time.Date(2026, 6, 20, 10, 0, 0, 0, time.Local)
 	}
@@ -47,6 +49,9 @@ func TestSchedulerPeriodicLocalScanRunsEveryInvocation(t *testing.T) {
 	}
 	if got := countMedia(t, repos); got != 2 {
 		t.Fatalf("media count after second scan = %d, want 2", got)
+	}
+	if got := tracker.Snapshot().Recent[0].Metrics["skipped"]; got != 1 {
+		t.Fatalf("second scan skipped metric = %d, want 1", got)
 	}
 }
 

@@ -20,7 +20,6 @@ type localMediaWriteBatch struct {
 type localMediaWriteItem struct {
 	path         string
 	media        *model.Media
-	after        func()
 	updateReason string
 }
 
@@ -32,10 +31,10 @@ func newLocalMediaWriteBatch(scanner *ScannerService, ctx context.Context, res *
 }
 
 func (b *localMediaWriteBatch) Add(path string, media *model.Media) {
-	b.AddWithAfter(path, media, nil, "")
+	b.AddWithReason(path, media, "")
 }
 
-func (b *localMediaWriteBatch) AddWithAfter(path string, media *model.Media, after func(), updateReason string) {
+func (b *localMediaWriteBatch) AddWithReason(path string, media *model.Media, updateReason string) {
 	if b == nil || b.scanner == nil || media == nil {
 		return
 	}
@@ -45,7 +44,7 @@ func (b *localMediaWriteBatch) AddWithAfter(path string, media *model.Media, aft
 	if media.ScrapeTrigger == "" {
 		media.ScrapeTrigger = TaskTriggerEvent
 	}
-	b.items = append(b.items, localMediaWriteItem{path: path, media: media, after: after, updateReason: updateReason})
+	b.items = append(b.items, localMediaWriteItem{path: path, media: media, updateReason: updateReason})
 	if len(b.items) >= b.limit {
 		b.Flush()
 	}
@@ -78,6 +77,11 @@ func (b *localMediaWriteBatch) Flush() {
 			continue
 		}
 		wasExisting := b.mediaPathExists(item.media.Path)
+		if err := b.scanner.invalidateChangedMediaProbe(b.ctx, item.path, item.updateReason); err != nil {
+			addScanError(b.res, item.path, err)
+			b.scanner.log.Warn("invalidate changed media probe failed", zap.String("path", item.path), zap.Error(err))
+			continue
+		}
 		if err := b.scanner.upsertLocalScanMedia(b.ctx, item.media); err != nil {
 			addScanError(b.res, item.path, err)
 			b.scanner.log.Warn("upsert media failed", zap.String("path", item.path), zap.Error(err))
@@ -89,9 +93,6 @@ func (b *localMediaWriteBatch) Flush() {
 		} else {
 			b.res.Added++
 			b.res.addChange(ScanChangeAdded, item.path, "")
-		}
-		if item.after != nil {
-			item.after()
 		}
 	}
 	b.publish()
@@ -130,6 +131,11 @@ func (b *localMediaWriteBatch) upsertExistingItem(item localMediaWriteItem) {
 	if item.media == nil {
 		return
 	}
+	if err := b.scanner.invalidateChangedMediaProbe(b.ctx, item.path, item.updateReason); err != nil {
+		addScanError(b.res, item.path, err)
+		b.scanner.log.Warn("invalidate changed media probe failed", zap.String("path", item.path), zap.Error(err))
+		return
+	}
 	if err := b.scanner.upsertLocalScanMedia(b.ctx, item.media); err != nil {
 		addScanError(b.res, item.path, err)
 		b.scanner.log.Warn("upsert media failed", zap.String("path", item.path), zap.Error(err))
@@ -137,9 +143,6 @@ func (b *localMediaWriteBatch) upsertExistingItem(item localMediaWriteItem) {
 	}
 	b.res.Updated++
 	b.res.addChange(ScanChangeUpdated, item.path, item.updateReason)
-	if item.after != nil {
-		item.after()
-	}
 }
 
 func (b *localMediaWriteBatch) mediaPathExists(path string) bool {

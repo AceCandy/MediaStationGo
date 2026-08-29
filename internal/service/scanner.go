@@ -1,9 +1,8 @@
 // Package service — filesystem scanner.
 //
-// ScannerService walks the configured library roots looking for video
-// files, then upserts a model.Media row per file. Each upsert also runs
-// ffprobe (when available) and queues a metadata lookup for newly added
-// rows.
+// ScannerService walks the configured library roots looking for video files,
+// then upserts a model.Media row per file. Track probing runs separately after
+// the scan so slow ffprobe work cannot block library ingestion.
 //
 // When a filename exposes season + episode numbers we store them on the
 // Media row for every library type, so variety shows and other episodic
@@ -12,6 +11,7 @@ package service
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 
@@ -45,17 +45,12 @@ var videoExtensions = map[string]struct{}{
 	".strm": {},
 }
 
-func mediaExtensionSupportsProbe(ext string) bool {
-	return ext != ".strm" && ext != ".iso"
-}
-
 // ScannerService walks libraries on disk and upserts model.Media rows.
 type ScannerService struct {
 	cfg        *config.Config
 	log        *zap.Logger
 	repo       *repository.Container
 	hub        *Hub
-	probe      *FFprobeService
 	mediaProbe *MediaProbeService
 	scraper    *ScraperService
 	cache      *RuntimeCacheService
@@ -63,12 +58,8 @@ type ScannerService struct {
 
 	imageProxy *ImageProxy
 
-	localMediaProbeOnce  sync.Once
-	localMediaProbeQueue chan localMediaProbeTask
-	localMediaProbeMu    sync.Mutex
-	localMediaProbing    map[string]struct{}
-	localScanMu          sync.Mutex
-	localScans           map[string]struct{}
+	localScanMu sync.Mutex
+	localScans  map[string]struct{}
 }
 
 func (s *ScannerService) SetMediaProbe(mediaProbe *MediaProbeService) {
@@ -83,16 +74,13 @@ func NewScannerService(
 	log *zap.Logger,
 	repo *repository.Container,
 	hub *Hub,
-	probe *FFprobeService,
+	_ *FFprobeService,
 	scraper *ScraperService,
 ) *ScannerService {
 	return &ScannerService{
 		cfg: cfg, log: log, repo: repo, hub: hub,
-		probe:                probe,
-		scraper:              scraper,
-		localMediaProbeQueue: make(chan localMediaProbeTask, 1024),
-		localMediaProbing:    make(map[string]struct{}),
-		localScans:           make(map[string]struct{}),
+		scraper:    scraper,
+		localScans: make(map[string]struct{}),
 	}
 }
 
@@ -114,17 +102,59 @@ func (s *ScannerService) SetImageProxy(imageProxy *ImageProxy) {
 
 // ScanResult summarises a scan run.
 type ScanResult struct {
-	LibraryID     string       `json:"library_id"`
-	Visited       int          `json:"visited"`
-	Added         int          `json:"added"`
-	Updated       int          `json:"updated"`
-	Skipped       int          `json:"skipped"`
-	Probed        int          `json:"probed"`
-	LocalMetadata int          `json:"local_metadata"`
-	Removed       int64        `json:"removed"`
-	ErrorCount    int          `json:"error_count,omitempty"`
-	Errors        []string     `json:"errors,omitempty"`
-	Changes       []ScanChange `json:"changes,omitempty"`
+	LibraryID      string       `json:"library_id"`
+	Visited        int          `json:"visited"`
+	Added          int          `json:"added"`
+	Updated        int          `json:"updated"`
+	Skipped        int          `json:"skipped"`
+	Probed         int          `json:"probed"`
+	LocalMetadata  int          `json:"local_metadata"`
+	Removed        int64        `json:"removed"`
+	ErrorCount     int          `json:"error_count,omitempty"`
+	Errors         []string     `json:"errors,omitempty"`
+	Changes        []ScanChange `json:"changes,omitempty"`
+	OmittedChanges int          `json:"omitted_changes,omitempty"`
+}
+
+type ScanProgress struct {
+	Phase          string
+	RootID         string
+	RootPath       string
+	RootIndex      int
+	RootTotal      int
+	RootsCompleted int
+	Visited        int
+	Added          int
+	Updated        int
+	Skipped        int
+	LocalMetadata  int
+	Removed        int64
+	Errors         int
+}
+
+type ScanProgressFunc func(ScanProgress)
+
+const (
+	ScanProgressRootStarted  = "root_started"
+	ScanProgressRunning      = "running"
+	ScanProgressRootFinished = "root_finished"
+	ScanProgressRootFailed   = "root_failed"
+	maxScanChangeDetails     = 200
+	scanProgressEvery        = 100
+)
+
+func (p ScanProgress) Metrics() map[string]int64 {
+	return map[string]int64{
+		"roots_total":     int64(p.RootTotal),
+		"roots_completed": int64(p.RootsCompleted),
+		"visited":         int64(p.Visited),
+		"added":           int64(p.Added),
+		"updated":         int64(p.Updated),
+		"skipped":         int64(p.Skipped),
+		"local_metadata":  int64(p.LocalMetadata),
+		"removed":         p.Removed,
+		"errors":          int64(p.Errors),
+	}
 }
 
 type ScanChangeAction string
@@ -149,6 +179,10 @@ func (res *ScanResult) addChange(action ScanChangeAction, path, reason string) {
 	if action == ScanChangeUpdated && strings.TrimSpace(reason) == "" {
 		reason = "已有记录重新入库"
 	}
+	if len(res.Changes) >= maxScanChangeDetails {
+		res.OmittedChanges++
+		return
+	}
 	res.Changes = append(res.Changes, ScanChange{Action: action, Path: path, Reason: reason})
 }
 
@@ -166,6 +200,9 @@ func (res *ScanResult) ChangeDetails() []string {
 		case ScanChangeRemoved:
 			out = append(out, "🗑️ 删除 "+change.Path)
 		}
+	}
+	if res.OmittedChanges > 0 {
+		out = append(out, fmt.Sprintf("ℹ️ 另有 %d 条媒体变化未展开", res.OmittedChanges))
 	}
 	return out
 }
@@ -188,11 +225,6 @@ func addScanError(res *ScanResult, path string, err error) {
 		msg = path + ": " + msg
 	}
 	res.Errors = append(res.Errors, msg)
-}
-
-type localMediaProbeTask struct {
-	path      string
-	probePath string
 }
 
 type existingLocalMedia struct {

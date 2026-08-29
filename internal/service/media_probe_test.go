@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"go.uber.org/zap"
+
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 	"github.com/ShukeBta/MediaStationGo/internal/repository"
 )
@@ -533,6 +535,101 @@ func TestMediaProbeBackfillAllHonorsLimit(t *testing.T) {
 	}
 	if result.Total != 2 || result.Completed != 1 || result.Skipped != 1 || result.Failed != 0 {
 		t.Fatalf("result = %#v", result)
+	}
+}
+
+func TestMediaProbeBackfillSkipsUnavailableSTRMWithoutConsumingLimit(t *testing.T) {
+	db := newServiceTestDB(t, &model.Media{}, &model.MediaProbeMetadata{})
+	repos := repository.New(db)
+	dir := t.TempDir()
+	strmPath := filepath.Join(dir, "unsupported.strm")
+	mediaPath := filepath.Join(dir, "movie.mkv")
+	if err := os.WriteFile(strmPath, []byte("unsupported target\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(mediaPath, []byte("media"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	rows := []model.Media{
+		{PermanentBase: model.PermanentBase{ID: "00000000-0000-0000-0000-000000000001"}, LibraryID: "library", Title: "Unsupported", Path: strmPath},
+		{PermanentBase: model.PermanentBase{ID: "00000000-0000-0000-0000-000000000002"}, LibraryID: "library", Title: "Movie", Path: mediaPath},
+	}
+	if err := db.Create(&rows).Error; err != nil {
+		t.Fatal(err)
+	}
+	probed := 0
+	runner := &stubMediaProbeRunner{result: probeResultFixture(), onProbe: func() { probed++ }}
+	result, err := NewMediaProbeService(repos, runner).BackfillAll(t.Context(), 1, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Total != 2 || result.Completed != 1 || result.Skipped != 1 || result.Failed != 0 || probed != 1 {
+		t.Fatalf("result = %#v, probe calls = %d", result, probed)
+	}
+}
+
+func TestMediaProbeAutomaticBackfillCreatesVisibleEventTaskAndCoalescesWake(t *testing.T) {
+	db := newServiceTestDB(t, &model.Media{}, &model.MediaProbeMetadata{})
+	repos := repository.New(db)
+	path := filepath.Join(t.TempDir(), "movie.mkv")
+	if err := os.WriteFile(path, []byte("media"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	media := model.Media{LibraryID: "library", Title: "Movie", Path: path}
+	if err := db.Create(&media).Error; err != nil {
+		t.Fatal(err)
+	}
+	started := make(chan struct{})
+	release := make(chan struct{})
+	runner := &stubMediaProbeRunner{result: probeResultFixture(), onProbe: func() {
+		select {
+		case <-started:
+		default:
+			close(started)
+		}
+		<-release
+	}}
+	tracker := NewTaskTrackerService(zap.NewNop(), nil)
+	probe := NewMediaProbeService(repos, runner).SetTaskTracker(zap.NewNop(), tracker, t.Context())
+
+	probe.WakeBackfill()
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("automatic probe backfill did not start")
+	}
+	probe.WakeBackfill()
+	close(release)
+
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		snapshot := tracker.Snapshot()
+		if len(snapshot.Recent) == 1 && len(snapshot.Active) == 0 {
+			task := snapshot.Recent[0]
+			if task.Kind != TaskKindProbe || task.Trigger != TaskTriggerEvent || task.Status != TaskStatusCompleted {
+				t.Fatalf("automatic probe task = %#v", task)
+			}
+			if task.Metrics["completed"] != 1 || task.Metrics["failed"] != 0 {
+				t.Fatalf("automatic probe metrics = %#v", task.Metrics)
+			}
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatalf("automatic probe tasks did not settle: %#v", tracker.Snapshot())
+}
+
+func TestScanResultBoundsChangeDetails(t *testing.T) {
+	result := &ScanResult{}
+	for i := 0; i < maxScanChangeDetails+3; i++ {
+		result.addChange(ScanChangeAdded, fmt.Sprintf("/media/%d.mkv", i), "")
+	}
+	if len(result.Changes) != maxScanChangeDetails || result.OmittedChanges != 3 {
+		t.Fatalf("changes = %d omitted = %d", len(result.Changes), result.OmittedChanges)
+	}
+	details := result.ChangeDetails()
+	if got := details[len(details)-1]; got != "ℹ️ 另有 3 条媒体变化未展开" {
+		t.Fatalf("last detail = %q", got)
 	}
 }
 

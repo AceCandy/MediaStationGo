@@ -51,3 +51,7 @@ func (r *MediaProbeRepository) Upsert(ctx context.Context, row *model.MediaProbe
 		}),
 	}).Create(row).Error
 }
+
+func (r *MediaProbeRepository) DeleteByMediaID(ctx context.Context, mediaID string) error {
+	return r.db.WithContext(ctx).Where("media_id = ?", mediaID).Delete(&model.MediaProbeMetadata{}).Error
+}

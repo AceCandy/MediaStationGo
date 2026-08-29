@@ -9,15 +9,25 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
+	"go.uber.org/zap"
 	"gorm.io/gorm"
 
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 	"github.com/ShukeBta/MediaStationGo/internal/repository"
 )
 
-var ErrMediaProbeSourceChanged = errors.New("media probe source changed")
+var (
+	ErrMediaProbeSourceChanged     = errors.New("media probe source changed")
+	errMediaProbeSourceUnavailable = errors.New("media probe source unavailable")
+)
+
+var (
+	ErrMediaProbeBackfillRunning     = errors.New("media probe backfill already running")
+	ErrMediaProbeBackfillUnavailable = errors.New("media probe backfill unavailable")
+)
 
 const FFprobePathMappingsSettingKey = "ffprobe.path_mappings"
 
@@ -54,9 +64,15 @@ type mediaProbeSource struct {
 
 // MediaProbeService 是完整探测文档的唯一写入入口。
 type MediaProbeService struct {
-	repo  *repository.Container
-	probe mediaProbeRunner
-	cache *RuntimeCacheService
+	repo        *repository.Container
+	probe       mediaProbeRunner
+	cache       *RuntimeCacheService
+	log         *zap.Logger
+	tasks       *TaskTrackerService
+	backfillCtx context.Context
+	autoMu      sync.Mutex
+	autoPending bool
+	autoRunning bool
 }
 
 func NewMediaProbeService(repo *repository.Container, probe mediaProbeRunner) *MediaProbeService {
@@ -66,6 +82,17 @@ func NewMediaProbeService(repo *repository.Container, probe mediaProbeRunner) *M
 func (s *MediaProbeService) SetRuntimeCache(cache *RuntimeCacheService) *MediaProbeService {
 	if s != nil {
 		s.cache = cache
+	}
+	return s
+}
+
+func (s *MediaProbeService) SetTaskTracker(log *zap.Logger, tasks *TaskTrackerService, ctx context.Context) *MediaProbeService {
+	if s != nil {
+		s.log, s.tasks = log, tasks
+		if ctx == nil {
+			ctx = context.Background()
+		}
+		s.backfillCtx = ctx
 	}
 	return s
 }
@@ -183,22 +210,25 @@ func (s *MediaProbeService) BackfillSummaries(ctx context.Context) error {
 
 // BackfillLibrary 回填指定媒体库中缺失或过期的完整探测文档，limit 为零时不限制探测数量。
 func (s *MediaProbeService) BackfillLibrary(ctx context.Context, libraryID string, limit int, progress func(ProbeBackfillResult)) (ProbeBackfillResult, error) {
-	return s.backfill(ctx, strings.TrimSpace(libraryID), limit, progress)
+	return s.backfill(ctx, strings.TrimSpace(libraryID), limit, progress, false)
 }
 
 // BackfillAll 为所有缺少当前完整探测文档的媒体执行回填，limit 为零时不限制探测数量。
 func (s *MediaProbeService) BackfillAll(ctx context.Context, limit int, progress func(ProbeBackfillResult)) (ProbeBackfillResult, error) {
-	return s.backfill(ctx, "", limit, progress)
+	return s.backfill(ctx, "", limit, progress, false)
 }
 
-func (s *MediaProbeService) backfill(ctx context.Context, libraryID string, limit int, progress func(ProbeBackfillResult)) (ProbeBackfillResult, error) {
+func (s *MediaProbeService) backfill(ctx context.Context, libraryID string, limit int, progress func(ProbeBackfillResult), pendingOnly bool) (ProbeBackfillResult, error) {
 	var result ProbeBackfillResult
 	if s == nil || s.repo == nil || s.repo.DB == nil {
 		return result, errors.New("media probe unavailable")
 	}
-	countQuery := s.repo.DB.WithContext(ctx).Model(&model.Media{})
+	countQuery := s.repo.DB.WithContext(ctx).Table("media AS m")
+	if pendingOnly {
+		countQuery = pendingProbeQuery(countQuery.Joins("LEFT JOIN media_probe_metadata AS p ON p.media_id = m.id"))
+	}
 	if libraryID != "" {
-		countQuery = countQuery.Where("library_id = ?", libraryID)
+		countQuery = countQuery.Where("m.library_id = ?", libraryID)
 	}
 	if limit == 0 {
 		if err := countQuery.Count(&result.Total).Error; err != nil {
@@ -220,6 +250,9 @@ func (s *MediaProbeService) backfill(ctx context.Context, libraryID string, limi
 			Select("m.id AS media_id, m.path, p.probe_json, p.schema_version").
 			Joins("LEFT JOIN media_probe_metadata AS p ON p.media_id = m.id").
 			Order("m.id").Limit(pageSize)
+		if pendingOnly {
+			query = pendingProbeQuery(query)
+		}
 		if libraryID != "" {
 			query = query.Where("m.library_id = ?", libraryID)
 		}
@@ -240,8 +273,11 @@ func (s *MediaProbeService) backfill(ctx context.Context, libraryID string, limi
 			if _, err := UnmarshalProbeDocument(row.ProbeJSON, row.SchemaVersion); err == nil {
 				result.Skipped++
 			} else {
-				probeAttempts++
-				if probed, err := s.ProbeMedia(ctx, row.MediaID); err != nil || probed == nil || probed.Document == nil {
+				probed, err := s.ProbeMedia(ctx, row.MediaID)
+				if errors.Is(err, errMediaProbeSourceUnavailable) {
+					result.Skipped++
+				} else if err != nil || probed == nil || probed.Document == nil {
+					probeAttempts++
 					result.Failed++
 					if err == nil {
 						err = errors.New("complete probe document unavailable")
@@ -255,6 +291,7 @@ func (s *MediaProbeService) backfill(ctx context.Context, libraryID string, limi
 					}
 					result.Details = []string{fmt.Sprintf("❌️ %s %s %s", row.MediaID, row.Path, reason)}
 				} else {
+					probeAttempts++
 					result.Completed++
 					result.Details = []string{fmt.Sprintf("✅️ %s %s", row.MediaID, row.Path)}
 				}
@@ -274,6 +311,143 @@ func (s *MediaProbeService) backfill(ctx context.Context, libraryID string, limi
 	return result, nil
 }
 
+func pendingProbeQuery(query *gorm.DB) *gorm.DB {
+	return query.Where("(p.media_id IS NULL OR p.probe_json = '' OR p.schema_version <> ?) AND LOWER(m.path) NOT LIKE ?", ProbeDocumentSchemaVersion, "%.iso")
+}
+
+func (s *MediaProbeService) hasPendingProbe(ctx context.Context) (bool, error) {
+	if s == nil || s.repo == nil || s.repo.DB == nil {
+		return false, ErrMediaProbeBackfillUnavailable
+	}
+	var mediaID string
+	err := pendingProbeQuery(s.repo.DB.WithContext(ctx).Table("media AS m").Joins("LEFT JOIN media_probe_metadata AS p ON p.media_id = m.id")).
+		Select("m.id").Limit(1).Scan(&mediaID).Error
+	return mediaID != "", err
+}
+
+// StartBackfill 启动任务中心可见的手动或事件轨道回填，所有入口共享同类任务互斥。
+func (s *MediaProbeService) StartBackfill(trigger, name, sourcePath, libraryID string, limit int) error {
+	if s == nil || s.tasks == nil {
+		return ErrMediaProbeBackfillUnavailable
+	}
+	task := s.tasks.StartTriggeredIfKindIdle(TaskKindProbe, trigger, name, TaskUpdate{
+		Stage: "probe", SourcePath: sourcePath, Message: "媒体轨道回填已启动", Metrics: ProbeBackfillResult{}.Metrics(),
+	})
+	if task == nil {
+		if s.tasks.IsKindRunning(TaskKindProbe) {
+			return ErrMediaProbeBackfillRunning
+		}
+		return ErrMediaProbeBackfillUnavailable
+	}
+	go s.runBackfillTask(task, strings.TrimSpace(libraryID), limit, trigger == TaskTriggerEvent)
+	return nil
+}
+
+// WakeBackfill 合并自动唤醒；当前回填结束前到达的唤醒会在之后重新检查数据库待办。
+func (s *MediaProbeService) WakeBackfill() {
+	if s == nil || s.tasks == nil {
+		return
+	}
+	s.autoMu.Lock()
+	s.autoPending = true
+	if s.autoRunning {
+		s.autoMu.Unlock()
+		return
+	}
+	s.autoRunning = true
+	s.autoMu.Unlock()
+	go s.runAutomaticBackfill()
+}
+
+func (s *MediaProbeService) runAutomaticBackfill() {
+	for s.takeAutomaticWake() {
+		ctx := s.backfillContext()
+		for s.tasks.IsKindRunning(TaskKindProbe) {
+			select {
+			case <-ctx.Done():
+				s.stopAutomaticBackfill()
+				return
+			case <-time.After(100 * time.Millisecond):
+			}
+		}
+		pending, err := s.hasPendingProbe(ctx)
+		if err != nil {
+			s.logBackfillError("check automatic media probe backfill failed", err)
+			continue
+		}
+		if !pending {
+			continue
+		}
+		if err := s.StartBackfill(TaskTriggerEvent, "媒体轨道回填", "", "", 0); err != nil {
+			if errors.Is(err, ErrMediaProbeBackfillRunning) {
+				s.requeueAutomaticWake()
+				continue
+			}
+			s.logBackfillError("start automatic media probe backfill failed", err)
+		}
+	}
+}
+
+func (s *MediaProbeService) takeAutomaticWake() bool {
+	s.autoMu.Lock()
+	defer s.autoMu.Unlock()
+	if !s.autoPending {
+		s.autoRunning = false
+		return false
+	}
+	s.autoPending = false
+	return true
+}
+
+func (s *MediaProbeService) requeueAutomaticWake() {
+	s.autoMu.Lock()
+	s.autoPending = true
+	s.autoMu.Unlock()
+}
+
+func (s *MediaProbeService) stopAutomaticBackfill() {
+	s.autoMu.Lock()
+	s.autoRunning = false
+	s.autoMu.Unlock()
+}
+
+func (s *MediaProbeService) backfillContext() context.Context {
+	if s != nil && s.backfillCtx != nil {
+		return s.backfillCtx
+	}
+	return context.Background()
+}
+
+func (s *MediaProbeService) runBackfillTask(task *TaskHandle, libraryID string, limit int, pendingOnly bool) {
+	ctx := s.backfillContext()
+	lastFailed := int64(0)
+	progress := func(current ProbeBackfillResult) {
+		update := TaskUpdate{Stage: "probe", Metrics: current.Metrics(), DetailsWithoutLevel: true}
+		if pendingOnly {
+			update.Message = "正在自动回填媒体轨道"
+			if current.Failed > lastFailed {
+				update.Details = current.Details
+				lastFailed = current.Failed
+			}
+		} else {
+			update.Details = current.Details
+		}
+		task.Update(update)
+	}
+	result, err := s.backfill(ctx, libraryID, limit, progress, pendingOnly)
+	stage, message := "completed", "媒体轨道回填完成"
+	if err != nil {
+		stage, message = "probe", "媒体轨道回填失败"
+	}
+	task.Finish(err, TaskUpdate{Stage: stage, Message: message, Metrics: result.Metrics()})
+}
+
+func (s *MediaProbeService) logBackfillError(message string, err error) {
+	if s != nil && s.log != nil {
+		s.log.Warn(message, zap.Error(err))
+	}
+}
+
 func (s *MediaProbeService) resolveSource(ctx context.Context, media *model.Media) (mediaProbeSource, error) {
 	if media == nil {
 		return mediaProbeSource{}, ErrMediaNotFound
@@ -285,7 +459,7 @@ func (s *MediaProbeService) resolveSource(ctx context.Context, media *model.Medi
 		return resolveRemoteProbeSource(media, rawURL, s.probePathMappings(ctx)), nil
 	}
 	if strings.EqualFold(filepath.Ext(media.Path), ".strm") {
-		return mediaProbeSource{}, errors.New("media probe source unavailable")
+		return mediaProbeSource{}, errMediaProbeSourceUnavailable
 	}
 	return localMediaProbeSource(media, media.Path)
 }
