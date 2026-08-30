@@ -1495,3 +1495,25 @@ Persist complete TMDB detail snapshots across scrape and manual-ID flows, add on
 ### Status
 
 [OK] **Completed**
+
+
+## Session 70: 修复电影库剧集误判
+<!-- trellis-session: v=2 fp=bbd98eef02f83a2c -->
+
+**Date**: 2026-08-30
+**Task**: 修复电影库剧集误判
+**Branch**: `main`
+
+### Summary
+
+按媒体库类型判定电影与剧集，电视剧扫描仅识别 SxxExx，并在电影库重扫时纠正历史季集脏数据。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `b5f1cf1` | fix(media): prevent movie episode misclassification |
+
+### Status
+
+[OK] **Completed**

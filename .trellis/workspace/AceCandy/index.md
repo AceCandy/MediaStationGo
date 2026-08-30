@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 69
-- **Last Active**: 2026-08-29
+- **Total Sessions**: 70
+- **Last Active**: 2026-08-30
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~1497 | Active |
+| `journal-1.md` | ~1519 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 70 | 2026-08-30 | 修复电影库剧集误判 | `b5f1cf1` | `main` |
 | 69 | 2026-08-29 | 优化媒体库扫描与轨道回填 | `0a648eb` | `main` |
 | 68 | 2026-08-29 | 精简豆瓣电影补齐日志 | `facec9f` | `main` |
 | 67 | 2026-08-29 | TMDB snapshot persistence and backfill | `677d2b9`, `ed94099` | `main` |
