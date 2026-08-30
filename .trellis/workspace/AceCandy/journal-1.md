@@ -1517,3 +1517,25 @@ Persist complete TMDB detail snapshots across scrape and manual-ID flows, add on
 ### Status
 
 [OK] **Completed**
+
+
+## Session 71: Fix PostgreSQL parameter overflow
+<!-- trellis-session: v=2 fp=001f28d8cce6619d -->
+
+**Date**: 2026-08-30
+**Task**: Fix PostgreSQL parameter overflow
+**Branch**: `main`
+
+### Summary
+
+Audited unbounded PostgreSQL collection bindings, replaced risky slice expansion with array parameters, batched metadata identifier inserts, and added regression coverage.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `edcd134` | fix(database): prevent PostgreSQL parameter overflow |
+
+### Status
+
+[OK] **Completed**
