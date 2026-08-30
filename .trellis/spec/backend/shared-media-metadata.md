@@ -188,6 +188,18 @@ db.Model(&credit).
   creates local metadata. An exact movie identity binds the Movie; an episodic
   identity binds only when its stored `Series -> Season -> Episode` hierarchy
   already contains that episode.
+- Library type is authoritative for movie-versus-episode classification.
+  `movie` and `nfo_movie` never become episodic because of persisted or parsed
+  `season_num`, `episode_num`, or `series_hint` values. Filename scanning in
+  `tv`, `nfo_tv`, `show`, and `shows` libraries accepts only case-insensitive
+  `S` plus one or two season digits followed by `E` plus one to three episode
+  digits; `anime` and `variety` retain the compatibility episode parser.
+- After successfully walking a movie-library root, scanner transactionally
+  clears dirty episodic fields for media under that root. A Movie metadata link
+  is preserved; a non-Movie link is removed and requeued; `error` and
+  `no_match` rows are reset to pending. The reconciliation count is reported in
+  scan progress, task metrics, logs, and notifications. Do not perform this as
+  a startup migration or across unscanned libraries or roots.
 - An existing local media row is unchanged only when its persisted
   `ScanFileSizeBytes` and nonzero `ScanFileMTimeNS` equal the current file.
   This check runs before NFO, sidecar, path-derived metadata, or STRM target
@@ -355,6 +367,8 @@ db.Model(&credit).
 | Explicit provider crosswalk or user-confirmed identity resolves to another metadata | Transactionally merge references and hierarchy, then hard-delete the unreferenced source |
 | Provider returns no match | Try read-only local fallback; otherwise set `no_match` |
 | Provider request fails | Set `error`; preserve existing canonical data and do not import local fallback |
+| Movie-library media contains historical season/episode/series hints | Classify it as Movie; after a successful root scan clear the hints, preserve a Movie link, and unlink/requeue a non-Movie link |
+| TV-library filename lacks a case-insensitive `SxxExx` marker | Keep season and episode hints at zero; do not apply compatibility episode patterns |
 | A regular scrape path or `provider=all` query resembles an adult code | Do not call `AdultProvider`; continue regular external-ID and provider lookup |
 | An explicit adult manual/organize operation has a valid code | Allow `AdultProvider` lookup and persist the selected adult match normally |
 | Artwork import fails | Return the error and keep the currently selected managed asset |
@@ -478,6 +492,11 @@ db.Model(&credit).
 - Scanner identity: assert exact movie and existing episode identities bind
   without mutating canonical metadata; assert unresolved scans create no local
   metadata row and remain absent from `MediaView`.
+- Scanner classification: assert movie libraries ignore episodic fields and use
+  movie provider routes; TV libraries accept only the bounded `SxxExx` marker;
+  anime/variety retain compatibility parsing. Assert a successful movie-root
+  rescan reconciles dirty fields and reports the count while preserving correct
+  Movie links and requeueing incorrect or failed bindings.
 - Scanner fingerprint: assert unchanged `.strm` and ordinary files skip without
   touching `updated_at`; NFO-only changes still skip; size/mtime changes update
   with the matching reason; a zero legacy mtime is backfilled once.

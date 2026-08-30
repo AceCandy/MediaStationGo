@@ -142,6 +142,12 @@ func (s *ScannerService) scanLibraryWithProgress(ctx context.Context, libraryID 
 			s.emitScanProgress(progress, ScanProgressRootFailed, &root, i+1, len(roots), scannedRoots, res)
 			continue
 		}
+		if reconciled, reconcileErr := s.reconcileMovieLibraryEpisodes(ctx, lib, root.ID); reconcileErr != nil {
+			addScanError(res, root.Path, reconcileErr)
+			s.log.Warn("reconcile movie library episodes failed", zap.String("library_id", lib.ID), zap.String("root_id", root.ID), zap.Error(reconcileErr))
+		} else {
+			res.Reconciled += reconciled
+		}
 		scannedRoots++
 		removed, removedPaths, err := s.pruneMissingMediaForRoot(ctx, lib.ID, root.ID, root.Path, seen)
 		if err != nil {
@@ -194,6 +200,12 @@ func (s *ScannerService) scanLocalLibraryRootWithProgress(ctx context.Context, l
 		addScanError(res, root.Path, walkErr)
 		s.emitScanProgress(progress, ScanProgressRootFailed, root, 1, 1, 0, res)
 		return res, walkErr
+	}
+	if reconciled, reconcileErr := s.reconcileMovieLibraryEpisodes(ctx, lib, root.ID); reconcileErr != nil {
+		addScanError(res, root.Path, reconcileErr)
+		s.log.Warn("reconcile movie library episodes failed", zap.String("library_id", lib.ID), zap.String("root_id", root.ID), zap.Error(reconcileErr))
+	} else {
+		res.Reconciled = reconciled
 	}
 	removed, removedPaths, err := s.pruneMissingMediaForRoot(ctx, lib.ID, root.ID, root.Path, seen)
 	if err != nil {
@@ -248,7 +260,7 @@ func (s *ScannerService) emitScanProgress(progress ScanProgressFunc, phase strin
 	item := ScanProgress{
 		Phase: phase, RootIndex: rootIndex, RootTotal: rootTotal, RootsCompleted: rootsCompleted,
 		Visited: res.Visited, Added: res.Added, Updated: res.Updated, Skipped: res.Skipped,
-		LocalMetadata: res.LocalMetadata, Removed: res.Removed, Errors: res.ErrorCount,
+		LocalMetadata: res.LocalMetadata, Reconciled: res.Reconciled, Removed: res.Removed, Errors: res.ErrorCount,
 	}
 	if root != nil {
 		item.RootID, item.RootPath = root.ID, root.Path
@@ -281,6 +293,7 @@ func (s *ScannerService) finishLocalLibraryScan(ctx context.Context, lib *model.
 		"updated":     res.Updated,
 		"probed":      res.Probed,
 		"local_meta":  res.LocalMetadata,
+		"reconciled":  res.Reconciled,
 		"removed":     res.Removed,
 		"error_count": res.ErrorCount,
 		"errors":      res.Errors,
@@ -289,7 +302,7 @@ func (s *ScannerService) finishLocalLibraryScan(ctx context.Context, lib *model.
 	s.invalidateMediaCache(ctx)
 	s.maybeGenerateSTRMAfterScan(lib.ID)
 
-	if (res.Added > 0 || res.Updated > 0 || res.Removed > 0) && autoScrape && s.scraper != nil {
+	if (res.Added > 0 || res.Updated > 0 || res.Removed > 0 || res.Reconciled > 0) && autoScrape && s.scraper != nil {
 		s.startAutoScrape(ctx, lib.ID)
 	}
 }

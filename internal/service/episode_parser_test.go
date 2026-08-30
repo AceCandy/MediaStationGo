@@ -1,6 +1,10 @@
 package service
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/ShukeBta/MediaStationGo/internal/model"
+)
 
 func TestParseEpisode(t *testing.T) {
 	cases := []struct {
@@ -39,6 +43,48 @@ func TestParseEpisode(t *testing.T) {
 					tc.in, s, e, tc.wantS, tc.wantE)
 			}
 		})
+	}
+}
+
+func TestParseStandardEpisode(t *testing.T) {
+	tests := []struct {
+		path       string
+		season, ep int
+	}{
+		{"Show.S01E36.strm", 1, 36},
+		{"Show.s1e2.strm", 1, 2},
+		{"Show.E36.strm", 0, 0},
+		{"Show.1x36.strm", 0, 0},
+		{"Show - 36.strm", 0, 0},
+		{"第36集.strm", 0, 0},
+	}
+	for _, test := range tests {
+		season, episode := parseStandardEpisode(test.path)
+		if season != test.season || episode != test.ep {
+			t.Fatalf("parseStandardEpisode(%q) = (%d, %d), want (%d, %d)", test.path, season, episode, test.season, test.ep)
+		}
+	}
+}
+
+func TestScanEpisodeNumbersByLibraryType(t *testing.T) {
+	tests := []struct {
+		libraryType string
+		path        string
+		season, ep  int
+	}{
+		{"movie", "Movie.S01E36.strm", 0, 0},
+		{model.LibraryTypeNFOMovie, "Movie.S01E36.strm", 0, 0},
+		{"tv", "Show.S01E36.strm", 1, 36},
+		{"tv", "Show.E36.strm", 0, 0},
+		{model.LibraryTypeNFOTV, "Show.1x36.strm", 0, 0},
+		{"anime", "Anime.E12.strm", 1, 12},
+		{"variety", "综艺 第4期下.strm", 1, 4},
+	}
+	for _, test := range tests {
+		season, episode := scanEpisodeNumbers(&model.Library{Type: test.libraryType}, test.path)
+		if season != test.season || episode != test.ep {
+			t.Fatalf("scanEpisodeNumbers(%q, %q) = (%d, %d), want (%d, %d)", test.libraryType, test.path, season, episode, test.season, test.ep)
+		}
 	}
 }
 

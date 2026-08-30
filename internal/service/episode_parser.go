@@ -41,13 +41,11 @@ var (
 // ParseEpisode tries to extract (season, episode) from an arbitrary filename.
 // Returns (0, 0) when nothing recognisable is found.
 func ParseEpisode(path string) (season, episode int) {
-	name := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
-
-	if m := patSEnE.FindStringSubmatch(name); len(m) == 3 {
-		season = mustAtoi(m[1])
-		episode = mustAtoi(m[2])
+	if season, episode = parseStandardEpisode(path); season > 0 || episode > 0 {
 		return
 	}
+
+	name := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
 	if m := patNxE.FindStringSubmatch(name); len(m) == 3 {
 		season = mustAtoi(m[1])
 		episode = mustAtoi(m[2])
@@ -86,6 +84,15 @@ func ParseEpisode(path string) (season, episode int) {
 			episode = mustAtoi(m[1])
 			return
 		}
+	}
+	return 0, 0
+}
+
+// parseStandardEpisode 只识别电视剧库约定的 SxxExx 文件名标记。
+func parseStandardEpisode(path string) (season, episode int) {
+	name := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
+	if m := patSEnE.FindStringSubmatch(name); len(m) == 3 {
+		return mustAtoi(m[1]), mustAtoi(m[2])
 	}
 	return 0, 0
 }

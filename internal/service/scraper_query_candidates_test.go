@@ -10,7 +10,7 @@ import (
 func TestScrapeQueryCandidatesPreferSeriesFolderAndCJKTitle(t *testing.T) {
 	lib := &model.Library{
 		Path: `F:\downloads\国产剧`,
-		Type: "movie",
+		Type: "tv",
 	}
 	media := &model.Media{
 		Title:      "亏成首富从游戏开始 the ri est in game",
@@ -36,7 +36,7 @@ func TestScrapeQueryCandidatesPreferSeriesFolderAndCJKTitle(t *testing.T) {
 func TestScrapeQueryCandidatesUseSeriesFolder(t *testing.T) {
 	lib := &model.Library{
 		Path: "/media/tv",
-		Type: "movie",
+		Type: "tv",
 	}
 	media := &model.Media{
 		Title:      "折腰 S01E01",
@@ -102,7 +102,7 @@ func TestSeriesTitleFromMediaPathIgnoresEpisodeOnlyFolder(t *testing.T) {
 	}
 }
 
-func TestMediaIsEpisodicUsesEpisodePatternInPath(t *testing.T) {
+func TestMediaIsEpisodicHonorsMovieLibraryType(t *testing.T) {
 	lib := &model.Library{
 		Path: `/media/movies`,
 		Type: "movie",
@@ -112,8 +112,8 @@ func TestMediaIsEpisodicUsesEpisodePatternInPath(t *testing.T) {
 		Path:  `/media/movies/折腰/Season 01/折腰.S01E01.mkv`,
 	}
 
-	if !mediaIsEpisodic(media, lib) {
-		t.Fatal("media with an SxxEyy path should be treated as episodic even in a movie library")
+	if mediaIsEpisodic(media, lib) {
+		t.Fatal("movie library media must not be treated as episodic")
 	}
 }
 

@@ -57,6 +57,7 @@ func TestTaskDefinitionRunHandlerReportsTMDbSnapshotBackfillUnavailable(t *testi
 
 func TestScanTaskDetailsKeepsAllChangesAndLimitsOnlyErrors(t *testing.T) {
 	res := &service.ScanResult{
+		Reconciled: 2,
 		Changes: []service.ScanChange{
 			{Action: service.ScanChangeAdded, Path: "/media/a.strm"},
 			{Action: service.ScanChangeUpdated, Path: "/media/b.strm", Reason: "mtime_ns 变化"},
@@ -64,8 +65,11 @@ func TestScanTaskDetailsKeepsAllChangesAndLimitsOnlyErrors(t *testing.T) {
 		Errors: []string{"first", "second"},
 	}
 	details := scanTaskDetails(res, 1)
-	if len(details) != 3 || details[0] != "➕ 新增 /media/a.strm" || details[1] != "🔄 更新 /media/b.strm（mtime_ns 变化）" || details[2] != "错误: first" {
+	if len(details) != 4 || details[0] != "🧹 纠正 2 条电影库季集脏数据" || details[1] != "➕ 新增 /media/a.strm" || details[2] != "🔄 更新 /media/b.strm（mtime_ns 变化）" || details[3] != "错误: first" {
 		t.Fatalf("details = %#v", details)
+	}
+	if got := scanTaskMetrics(res)["reconciled"]; got != 2 {
+		t.Fatalf("reconciled metric = %d, want 2", got)
 	}
 }
 

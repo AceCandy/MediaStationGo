@@ -183,6 +183,7 @@ func scanTaskMetrics(res *service.ScanResult) map[string]int64 {
 		"skipped":        int64(res.Skipped),
 		"probed":         int64(res.Probed),
 		"local_metadata": int64(res.LocalMetadata),
+		"reconciled":     int64(res.Reconciled),
 		"removed":        res.Removed,
 		"errors":         int64(res.ErrorCount),
 	}

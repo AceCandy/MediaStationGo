@@ -481,7 +481,7 @@ function ScrapeIssuesPanel({ libraries }: { libraries: Library[] }) {
             : items.length === 0 ? <p className="py-6 text-center text-sm text-ink-50">当前没有刮削失败或未匹配记录。</p>
               : items.map((issue) => {
                 const nfoOnly = issue.library_type === 'nfo_movie' || issue.library_type === 'nfo_tv'
-                const episode = issue.episode_num > 0 ? ` · S${String(issue.season_num).padStart(2, '0')}E${String(issue.episode_num).padStart(2, '0')}` : ''
+                const episode = isSeriesLibraryType(issue.library_type) && issue.episode_num > 0 ? ` · S${String(issue.season_num).padStart(2, '0')}E${String(issue.episode_num).padStart(2, '0')}` : ''
                 return (
                   <article key={issue.id} className="flex min-w-0 flex-col gap-3 rounded border border-gray-200 p-3 sm:flex-row sm:items-center sm:justify-between">
                     <div className="min-w-0">

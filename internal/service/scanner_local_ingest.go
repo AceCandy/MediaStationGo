@@ -38,7 +38,7 @@ func (s *ScannerService) ingestFile(ctx context.Context, lib *model.Library, roo
 		return
 	}
 
-	parsedSeason, parsedEpisode := ParseEpisode(path)
+	parsedSeason, parsedEpisode := scanEpisodeNumbers(lib, path)
 	localMeta := s.readLocalScanMetadata(lib, root, path, parsedSeason, parsedEpisode)
 	media := s.buildLocalScanMedia(localScanMediaInput{
 		lib:           lib,
@@ -65,6 +65,19 @@ func (s *ScannerService) ingestFile(ctx context.Context, lib *model.Library, roo
 		writeBatch:   writeBatch,
 		res:          res,
 	})
+}
+
+func scanEpisodeNumbers(lib *model.Library, path string) (int, int) {
+	if libraryIsMovieType(lib) {
+		return 0, 0
+	}
+	if lib != nil {
+		switch strings.ToLower(strings.TrimSpace(lib.Type)) {
+		case "tv", "show", "shows", model.LibraryTypeNFOTV:
+			return parseStandardEpisode(path)
+		}
+	}
+	return ParseEpisode(path)
 }
 
 func (s *ScannerService) recordLocalFileIdentity(ctx context.Context, path string, seenInodes map[string]string, existingMedia map[string]existingLocalMedia, res *ScanResult) (string, bool) {
@@ -216,6 +229,11 @@ func (s *ScannerService) buildLocalScanMedia(in localScanMediaInput) *model.Medi
 			applyLocalScanHints(media, in.localMeta)
 		}
 		media.LocalMetadataHint = encodeLocalMetadataHint(in.localMeta)
+	}
+	if libraryIsMovieType(in.lib) {
+		media.SeasonNum = 0
+		media.EpisodeNum = 0
+		media.SeriesID = ""
 	}
 	if media.EpisodeNum > 0 {
 		media.SeriesID = localSeriesIdentity(media)

@@ -20,10 +20,10 @@ func (s *ScannerService) notifyScanFinished(lib *model.Library, res *ScanResult,
 		}()
 		return
 	}
-	if res.Added+res.Updated <= 0 {
+	if res.Added+res.Updated+res.Reconciled <= 0 {
 		return
 	}
-	body := fmt.Sprintf("本地媒体库：%s\n新增：%d\n更新：%d\n跳过：%d\n移除：%d", lib.Name, res.Added, res.Updated, res.Skipped, res.Removed)
+	body := fmt.Sprintf("本地媒体库：%s\n新增：%d\n更新：%d\n纠正：%d\n跳过：%d\n移除：%d", lib.Name, res.Added, res.Updated, res.Reconciled, res.Skipped, res.Removed)
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()

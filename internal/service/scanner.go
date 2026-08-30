@@ -109,6 +109,7 @@ type ScanResult struct {
 	Skipped        int          `json:"skipped"`
 	Probed         int          `json:"probed"`
 	LocalMetadata  int          `json:"local_metadata"`
+	Reconciled     int          `json:"reconciled"`
 	Removed        int64        `json:"removed"`
 	ErrorCount     int          `json:"error_count,omitempty"`
 	Errors         []string     `json:"errors,omitempty"`
@@ -128,6 +129,7 @@ type ScanProgress struct {
 	Updated        int
 	Skipped        int
 	LocalMetadata  int
+	Reconciled     int
 	Removed        int64
 	Errors         int
 }
@@ -152,6 +154,7 @@ func (p ScanProgress) Metrics() map[string]int64 {
 		"updated":         int64(p.Updated),
 		"skipped":         int64(p.Skipped),
 		"local_metadata":  int64(p.LocalMetadata),
+		"reconciled":      int64(p.Reconciled),
 		"removed":         p.Removed,
 		"errors":          int64(p.Errors),
 	}
@@ -190,7 +193,10 @@ func (res *ScanResult) ChangeDetails() []string {
 	if res == nil {
 		return nil
 	}
-	out := make([]string, 0, len(res.Changes))
+	out := make([]string, 0, len(res.Changes)+1)
+	if res.Reconciled > 0 {
+		out = append(out, fmt.Sprintf("🧹 纠正 %d 条电影库季集脏数据", res.Reconciled))
+	}
 	for _, change := range res.Changes {
 		switch change.Action {
 		case ScanChangeAdded:

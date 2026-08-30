@@ -110,7 +110,7 @@ func TestKnownTMDbIDReusesLoadedDetails(t *testing.T) {
 		t.Fatal(err)
 	}
 	media := []model.Media{
-		{LibraryID: movieLibrary.ID, Title: "Known Movie", Path: "/media/movies/known.mkv", TMDbID: 41, ScrapeStatus: "pending"},
+		{LibraryID: movieLibrary.ID, Title: "Known Movie", Path: "/media/movies/known.mkv", TMDbID: 41, SeasonNum: 20, EpisodeNum: 24, ScrapeStatus: "pending"},
 		{LibraryID: tvLibrary.ID, Title: "Known Series", Path: "/media/tv/known.mkv", TMDbID: 42, ScrapeStatus: "pending"},
 	}
 	if err := repos.DB.Create(&media).Error; err != nil {
@@ -124,6 +124,13 @@ func TestKnownTMDbIDReusesLoadedDetails(t *testing.T) {
 	}
 	if movieCalls.Load() != 1 || tvCalls.Load() != 1 {
 		t.Fatalf("TMDb detail calls movie=%d tv=%d, want one each", movieCalls.Load(), tvCalls.Load())
+	}
+	var storedMovie model.Media
+	if err := repos.DB.First(&storedMovie, "id = ?", media[0].ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if storedMovie.SeasonNum != 0 || storedMovie.EpisodeNum != 0 {
+		t.Fatalf("matched movie kept dirty season/episode: %+v", storedMovie)
 	}
 	assertMetadataDetails(t, repos.Metadata, model.MetadataKindMovie, "41", "en,fr", "US", "Drama")
 	assertMetadataDetails(t, repos.Metadata, model.MetadataKindSeries, "42", "ja,en", "JP", "Animation")

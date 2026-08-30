@@ -110,7 +110,7 @@ func libraryScanTaskDetail(l model.Library, res *ScanResult) string {
 	if res == nil {
 		return fmt.Sprintf("ℹ️ 媒体库 %s（%s）: 扫描完成，无结果统计", l.Name, l.ID)
 	}
-	return fmt.Sprintf("ℹ️ 媒体库 %s（%s）: 访问 %d，新增 %d，更新 %d，移除 %d，跳过 %d，错误 %d", l.Name, l.ID, res.Visited, res.Added, res.Updated, res.Removed, res.Skipped, res.ErrorCount)
+	return fmt.Sprintf("ℹ️ 媒体库 %s（%s）: 访问 %d，新增 %d，更新 %d，纠正 %d，移除 %d，跳过 %d，错误 %d", l.Name, l.ID, res.Visited, res.Added, res.Updated, res.Reconciled, res.Removed, res.Skipped, res.ErrorCount)
 }
 
 func libraryScanTaskDetails(l model.Library, res *ScanResult) []string {

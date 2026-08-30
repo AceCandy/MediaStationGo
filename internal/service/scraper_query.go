@@ -106,6 +106,12 @@ func containsCJK(s string) bool {
 }
 
 func mediaIsEpisodic(m *model.Media, lib *model.Library) bool {
+	if librarySupportsSeasons(lib) {
+		return true
+	}
+	if libraryIsMovieType(lib) {
+		return false
+	}
 	if m != nil && (m.SeasonNum > 0 || m.EpisodeNum > 0) {
 		return true
 	}
@@ -115,7 +121,19 @@ func mediaIsEpisodic(m *model.Media, lib *model.Library) bool {
 			return true
 		}
 	}
-	return librarySupportsSeasons(lib)
+	return false
+}
+
+func libraryIsMovieType(lib *model.Library) bool {
+	if lib == nil {
+		return false
+	}
+	switch strings.ToLower(strings.TrimSpace(lib.Type)) {
+	case "movie", model.LibraryTypeNFOMovie:
+		return true
+	default:
+		return false
+	}
 }
 
 func librarySupportsSeasons(lib *model.Library) bool {

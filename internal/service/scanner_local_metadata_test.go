@@ -145,7 +145,7 @@ func TestScanLibraryRefreshesArtworkOnlyMetadata(t *testing.T) {
 	}
 }
 
-func TestScanLibraryParsesEpisodesForMovieTypedLibrary(t *testing.T) {
+func TestScanLibraryDoesNotParseEpisodesForMovieTypedLibrary(t *testing.T) {
 	root := t.TempDir()
 	seasonDir := filepath.Join(root, "哈哈哈哈哈 (2020)", "Season 06")
 	if err := os.MkdirAll(seasonDir, 0o755); err != nil {
@@ -171,8 +171,71 @@ func TestScanLibraryParsesEpisodesForMovieTypedLibrary(t *testing.T) {
 	if err := db.First(&media, "path = ?", mediaPath).Error; err != nil {
 		t.Fatal(err)
 	}
-	if media.SeasonNum != 6 || media.EpisodeNum != 17 {
-		t.Fatalf("season/episode = %d/%d, want 6/17", media.SeasonNum, media.EpisodeNum)
+	if media.SeasonNum != 0 || media.EpisodeNum != 0 {
+		t.Fatalf("season/episode = %d/%d, want 0/0", media.SeasonNum, media.EpisodeNum)
+	}
+}
+
+func TestScanLibraryReconcilesDirtyMovieEpisodes(t *testing.T) {
+	root := t.TempDir()
+	paths := []string{
+		filepath.Join(root, "correct-movie.mkv"),
+		filepath.Join(root, "wrong-series.mkv"),
+		filepath.Join(root, "failed-movie.mkv"),
+	}
+	for _, path := range paths {
+		if err := os.WriteFile(path, []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	db := newServiceTestDB(t, &model.Library{}, &model.MetadataItem{}, &model.Media{}, &model.Setting{})
+	repos := repository.New(db)
+	lib := model.Library{Name: "Movies", Path: root, Type: "movie", Enabled: true}
+	movieMetadata := model.MetadataItem{Kind: model.MetadataKindMovie, Title: "Correct Movie"}
+	seriesMetadata := model.MetadataItem{Kind: model.MetadataKindSeries, Title: "Wrong Series"}
+	if err := repos.Library.Create(t.Context(), &lib); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&[]model.MetadataItem{movieMetadata, seriesMetadata}).Error; err != nil {
+		t.Fatal(err)
+	}
+	rows := []model.Media{
+		{LibraryID: lib.ID, MetadataID: movieMetadata.ID, SeriesID: "stale", Title: "Correct Movie", Path: paths[0], SeasonNum: 20, EpisodeNum: 24, ScrapeStatus: "matched"},
+		{LibraryID: lib.ID, MetadataID: seriesMetadata.ID, SeriesID: seriesMetadata.ID, Title: "Wrong Series", Path: paths[1], SeasonNum: 1, EpisodeNum: 36, ScrapeStatus: "matched"},
+		{LibraryID: lib.ID, SeriesID: "stale", Title: "Failed Movie", Path: paths[2], SeasonNum: 1, EpisodeNum: 2, ScrapeStatus: "error", ScrapeError: "old failure"},
+	}
+	if err := db.Create(&rows).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	scanner := NewScannerService(&config.Config{}, zap.NewNop(), repos, NewHub(zap.NewNop()), nil, nil)
+	res, err := scanner.ScanLibrary(t.Context(), lib.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Reconciled != 3 {
+		t.Fatalf("Reconciled = %d, want 3", res.Reconciled)
+	}
+	var got []model.Media
+	if err := db.Order("path").Find(&got).Error; err != nil {
+		t.Fatal(err)
+	}
+	byPath := make(map[string]model.Media, len(got))
+	for _, media := range got {
+		byPath[media.Path] = media
+		if media.SeasonNum != 0 || media.EpisodeNum != 0 || media.SeriesID != "" {
+			t.Fatalf("dirty episode fields remain: %+v", media)
+		}
+	}
+	if media := byPath[paths[0]]; media.MetadataID != movieMetadata.ID || media.ScrapeStatus != "matched" {
+		t.Fatalf("correct movie binding changed: %+v", media)
+	}
+	if media := byPath[paths[1]]; media.MetadataID != "" || media.ScrapeStatus != "pending" {
+		t.Fatalf("wrong series binding not reset: %+v", media)
+	}
+	if media := byPath[paths[2]]; media.ScrapeStatus != "pending" || media.ScrapeError != "" {
+		t.Fatalf("failed movie not requeued: %+v", media)
 	}
 }
 
