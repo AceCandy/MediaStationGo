@@ -412,7 +412,7 @@ func TestMediaProbeBackfillLibraryAccountsForResults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Total != 4 || result.Completed != 1 || result.Skipped != 1 || result.Failed != 2 {
+	if result.Total != 3 || result.Completed != 1 || result.Skipped != 0 || result.Failed != 2 {
 		t.Fatalf("result = %#v", result)
 	}
 	if latest.Total != result.Total || latest.Completed != result.Completed || latest.Skipped != result.Skipped || latest.Failed != result.Failed {
@@ -500,8 +500,33 @@ func TestMediaProbeBackfillAllCoversLibrariesAndSkipsValidDocuments(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Total != 2 || result.Completed != 1 || result.Skipped != 1 || result.Failed != 0 {
+	if result.Total != 1 || result.Completed != 1 || result.Skipped != 0 || result.Failed != 0 {
 		t.Fatalf("result = %#v", result)
+	}
+}
+
+func TestMediaProbeBackfillAllReturnsImmediatelyWhenNothingPending(t *testing.T) {
+	db := newServiceTestDB(t, &model.Media{}, &model.MediaProbeMetadata{})
+	repos := repository.New(db)
+	metadata := createServiceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindMovie, Title: "Movie", Source: "local"})
+	media := model.Media{MetadataID: metadata.ID, LibraryID: "library", Title: "Movie", Path: filepath.Join(t.TempDir(), "movie.mkv")}
+	if err := db.Create(&media).Error; err != nil {
+		t.Fatal(err)
+	}
+	validJSON, err := MarshalProbeDocument(probeResultFixture().Document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&model.MediaProbeMetadata{MediaID: media.ID, ProbeJSON: validJSON, SchemaVersion: ProbeDocumentSchemaVersion}).Error; err != nil {
+		t.Fatal(err)
+	}
+	probed := 0
+	result, err := NewMediaProbeService(repos, &stubMediaProbeRunner{onProbe: func() { probed++ }}).BackfillAll(t.Context(), 0, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Total != 0 || result.Completed != 0 || result.Skipped != 0 || result.Failed != 0 || len(result.Details) != 0 || probed != 0 {
+		t.Fatalf("result = %#v, probe calls = %d", result, probed)
 	}
 }
 
@@ -533,7 +558,7 @@ func TestMediaProbeBackfillAllHonorsLimit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Total != 2 || result.Completed != 1 || result.Skipped != 1 || result.Failed != 0 {
+	if result.Total != 1 || result.Completed != 1 || result.Skipped != 0 || result.Failed != 0 {
 		t.Fatalf("result = %#v", result)
 	}
 }

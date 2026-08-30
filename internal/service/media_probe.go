@@ -210,29 +210,30 @@ func (s *MediaProbeService) BackfillSummaries(ctx context.Context) error {
 
 // BackfillLibrary 回填指定媒体库中缺失或过期的完整探测文档，limit 为零时不限制探测数量。
 func (s *MediaProbeService) BackfillLibrary(ctx context.Context, libraryID string, limit int, progress func(ProbeBackfillResult)) (ProbeBackfillResult, error) {
-	return s.backfill(ctx, strings.TrimSpace(libraryID), limit, progress, false)
+	return s.backfill(ctx, strings.TrimSpace(libraryID), limit, progress)
 }
 
 // BackfillAll 为所有缺少当前完整探测文档的媒体执行回填，limit 为零时不限制探测数量。
 func (s *MediaProbeService) BackfillAll(ctx context.Context, limit int, progress func(ProbeBackfillResult)) (ProbeBackfillResult, error) {
-	return s.backfill(ctx, "", limit, progress, false)
+	return s.backfill(ctx, "", limit, progress)
 }
 
-func (s *MediaProbeService) backfill(ctx context.Context, libraryID string, limit int, progress func(ProbeBackfillResult), pendingOnly bool) (ProbeBackfillResult, error) {
+func (s *MediaProbeService) backfill(ctx context.Context, libraryID string, limit int, progress func(ProbeBackfillResult)) (ProbeBackfillResult, error) {
 	var result ProbeBackfillResult
 	if s == nil || s.repo == nil || s.repo.DB == nil {
 		return result, errors.New("media probe unavailable")
 	}
-	countQuery := s.repo.DB.WithContext(ctx).Table("media AS m")
-	if pendingOnly {
-		countQuery = pendingProbeQuery(countQuery.Joins("LEFT JOIN media_probe_metadata AS p ON p.media_id = m.id"))
-	}
+	countQuery := pendingProbeQuery(s.repo.DB.WithContext(ctx).Table("media AS m").
+		Joins("LEFT JOIN media_probe_metadata AS p ON p.media_id = m.id"))
 	if libraryID != "" {
 		countQuery = countQuery.Where("m.library_id = ?", libraryID)
 	}
 	if limit == 0 {
 		if err := countQuery.Count(&result.Total).Error; err != nil {
 			return result, err
+		}
+		if result.Total == 0 {
+			return result, nil
 		}
 	}
 	type probeBackfillRow struct {
@@ -246,13 +247,10 @@ func (s *MediaProbeService) backfill(ctx context.Context, libraryID string, limi
 	probeAttempts := 0
 	for {
 		var rows []probeBackfillRow
-		query := s.repo.DB.WithContext(ctx).Table("media AS m").
+		query := pendingProbeQuery(s.repo.DB.WithContext(ctx).Table("media AS m").
 			Select("m.id AS media_id, m.path, p.probe_json, p.schema_version").
 			Joins("LEFT JOIN media_probe_metadata AS p ON p.media_id = m.id").
-			Order("m.id").Limit(pageSize)
-		if pendingOnly {
-			query = pendingProbeQuery(query)
-		}
+			Order("m.id").Limit(pageSize))
 		if libraryID != "" {
 			query = query.Where("m.library_id = ?", libraryID)
 		}
@@ -418,12 +416,12 @@ func (s *MediaProbeService) backfillContext() context.Context {
 	return context.Background()
 }
 
-func (s *MediaProbeService) runBackfillTask(task *TaskHandle, libraryID string, limit int, pendingOnly bool) {
+func (s *MediaProbeService) runBackfillTask(task *TaskHandle, libraryID string, limit int, automatic bool) {
 	ctx := s.backfillContext()
 	lastFailed := int64(0)
 	progress := func(current ProbeBackfillResult) {
 		update := TaskUpdate{Stage: "probe", Metrics: current.Metrics(), DetailsWithoutLevel: true}
-		if pendingOnly {
+		if automatic {
 			update.Message = "正在自动回填媒体轨道"
 			if current.Failed > lastFailed {
 				update.Details = current.Details
@@ -434,7 +432,7 @@ func (s *MediaProbeService) runBackfillTask(task *TaskHandle, libraryID string, 
 		}
 		task.Update(update)
 	}
-	result, err := s.backfill(ctx, libraryID, limit, progress, pendingOnly)
+	result, err := s.backfill(ctx, libraryID, limit, progress)
 	stage, message := "completed", "媒体轨道回填完成"
 	if err != nil {
 		stage, message = "probe", "媒体轨道回填失败"
