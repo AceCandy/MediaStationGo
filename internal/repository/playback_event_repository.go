@@ -184,7 +184,7 @@ func (r *PlaybackEventRepository) playbackStatsQuery(ctx context.Context, filter
 		q = q.Where("pe.user_id = ?", filter.UserID)
 	}
 	if len(filter.LibraryIDs) > 0 {
-		q = q.Where("pe.library_id IN ?", filter.LibraryIDs)
+		q = q.Where("pe.library_id = ANY(?)", &filter.LibraryIDs)
 	}
 	switch filter.MediaType {
 	case "movie":

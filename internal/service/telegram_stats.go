@@ -158,7 +158,7 @@ func (s *TelegramBotService) mediaStatsQuery(libraryIDs []string) *gorm.DB {
 	if len(libraryIDs) == 0 {
 		return q.Where("1 = 0")
 	}
-	return q.Where("media.library_id IN ?", libraryIDs)
+	return q.Where("media.library_id = ANY(?)", &libraryIDs)
 }
 
 // formatSize 格式化字节数为可读字符串。

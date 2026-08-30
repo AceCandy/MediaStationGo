@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -124,6 +125,27 @@ func TestUpsertCanonicalReplacesUnownedProviderIdentifier(t *testing.T) {
 	if len(identifiers) != 2 || identifiers[0].Provider != "douban" || identifiers[0].ExternalID != "42" ||
 		identifiers[1].Provider != "tmdb" || identifiers[1].ExternalID != "296753" {
 		t.Fatalf("identifiers = %#v", identifiers)
+	}
+}
+
+func TestCreateMetadataBatchesLargeIdentifierSet(t *testing.T) {
+	repos := newMetadataMergeTestRepository(t)
+	identifiers := make([]model.MetadataIdentifier, 10000)
+	for i := range identifiers {
+		identifiers[i] = model.MetadataIdentifier{
+			Provider: "tmdb", EntityKind: model.MetadataKindMovie, ExternalID: fmt.Sprintf("%d", i+1),
+		}
+	}
+	item := model.MetadataItem{Kind: model.MetadataKindMovie, Title: "Large Identifier Set", Source: "tmdb"}
+	if err := repos.Metadata.Create(t.Context(), &item, identifiers); err != nil {
+		t.Fatal(err)
+	}
+	var count int64
+	if err := repos.DB.Model(&model.MetadataIdentifier{}).Where("metadata_id = ?", item.ID).Count(&count).Error; err != nil {
+		t.Fatal(err)
+	}
+	if count != int64(len(identifiers)) {
+		t.Fatalf("identifier count = %d, want %d", count, len(identifiers))
 	}
 }
 

@@ -43,7 +43,7 @@ func (r *MetadataRepository) FindByIDs(ctx context.Context, ids []string) ([]mod
 		return []model.MetadataItem{}, nil
 	}
 	var items []model.MetadataItem
-	err := r.db.WithContext(ctx).Where("id IN ?", ids).Find(&items).Error
+	err := r.db.WithContext(ctx).Where("id = ANY(?)", &ids).Find(&items).Error
 	return items, err
 }
 
@@ -119,7 +119,7 @@ func (r *MetadataRepository) Create(ctx context.Context, item *model.MetadataIte
 		if len(identifiers) == 0 {
 			return nil
 		}
-		return tx.Create(&identifiers).Error
+		return tx.CreateInBatches(&identifiers, 500).Error
 	})
 }
 
@@ -195,7 +195,7 @@ func (r *MetadataRepository) UpsertCanonical(ctx context.Context, item *model.Me
 				DoUpdates: clause.Assignments(map[string]any{
 					"metadata_id": metadataID, "updated_at": time.Now(),
 				}),
-			}).Create(&identifiers).Error; err != nil {
+			}).CreateInBatches(&identifiers, 500).Error; err != nil {
 				return err
 			}
 		}
@@ -474,7 +474,7 @@ func (r *MetadataRepository) ListIdentifiersByMetadataIDs(ctx context.Context, m
 		return []model.MetadataIdentifier{}, nil
 	}
 	var identifiers []model.MetadataIdentifier
-	err := r.db.WithContext(ctx).Where("metadata_id IN ?", metadataIDs).Order("metadata_id, provider, entity_kind, external_id").Find(&identifiers).Error
+	err := r.db.WithContext(ctx).Where("metadata_id = ANY(?)", &metadataIDs).Order("metadata_id, provider, entity_kind, external_id").Find(&identifiers).Error
 	return identifiers, err
 }
 

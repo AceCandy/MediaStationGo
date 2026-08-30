@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -107,6 +108,18 @@ func TestPeopleTranslationPostgresTextColumns(t *testing.T) {
 	}
 }
 
+func TestPostgresArrayParameterIsNotExpanded(t *testing.T) {
+	db, err := gorm.Open(postgres.Open(""), &gorm.Config{DisableAutomaticPing: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids := []string{"one", "two"}
+	stmt := db.Session(&gorm.Session{DryRun: true}).Where("id = ANY(?)", &ids).Find(&model.Person{}).Statement
+	if len(stmt.Vars) != 1 {
+		t.Fatalf("bind variables = %d, want 1", len(stmt.Vars))
+	}
+}
+
 func TestTranslationCacheIsContextScopedAndRejectsStaleTargets(t *testing.T) {
 	db, err := testdb.OpenPostgres(t, &gorm.Config{})
 	if err != nil {
@@ -163,5 +176,57 @@ func TestTranslationCacheIsContextScopedAndRejectsStaleTargets(t *testing.T) {
 	}
 	if person.Name != "New Name" || credit.Role != "New Role" {
 		t.Fatalf("stale translation overwrote current values: person=%q role=%q", person.Name, credit.Role)
+	}
+}
+
+func TestListPersonWorkContextsAcceptsMoreThanPostgresParameterLimit(t *testing.T) {
+	db, err := testdb.OpenPostgres(t, &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(&model.MetadataItem{}, &model.Person{}, &model.MetadataCredit{}); err != nil {
+		t.Fatal(err)
+	}
+	personIDs := make([]string, 65536)
+	for i := range personIDs {
+		personIDs[i] = fmt.Sprintf("person-%05d", i)
+	}
+	rows, err := (&PersonRepository{db: db}).ListPersonWorkContexts(t.Context(), personIDs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 0 {
+		t.Fatalf("work contexts = %d, want 0", len(rows))
+	}
+}
+
+func TestListTranslationCachesAcceptsMoreThanPostgresParameterLimit(t *testing.T) {
+	db, err := testdb.OpenPostgres(t, &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(&model.TranslationCache{}); err != nil {
+		t.Fatal(err)
+	}
+	cache := model.TranslationCache{
+		Kind: "role", ContextKey: "context-00000", SourceText: "source-00000",
+		TargetLanguage: "zh-CN", PromptVersion: "v1", TranslatedText: "译文",
+	}
+	if err := db.Create(&cache).Error; err != nil {
+		t.Fatal(err)
+	}
+	lookups := make([]TranslationCacheLookup, 33000)
+	for i := range lookups {
+		lookups[i] = TranslationCacheLookup{
+			Kind: "role", ContextKey: fmt.Sprintf("context-%05d", i), SourceText: fmt.Sprintf("source-%05d", i),
+			TargetLanguage: "zh-CN", PromptVersion: "v1",
+		}
+	}
+	rows, err := (&PersonRepository{db: db}).ListTranslationCaches(t.Context(), lookups)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || rows[0].ID != cache.ID {
+		t.Fatalf("translation caches = %#v, want cache %q", rows, cache.ID)
 	}
 }

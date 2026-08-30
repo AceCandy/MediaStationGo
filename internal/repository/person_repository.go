@@ -122,7 +122,7 @@ func (r *PersonRepository) ListCreditsWithPeopleByMetadataIDs(ctx context.Contex
 		return []model.MetadataCredit{}, nil
 	}
 	var rows []model.MetadataCredit
-	err := r.db.WithContext(ctx).Preload("Person").Where("metadata_id IN ?", metadataIDs).Order("metadata_id, sort_order, id").Find(&rows).Error
+	err := r.db.WithContext(ctx).Preload("Person").Where("metadata_id = ANY(?)", &metadataIDs).Order("metadata_id, sort_order, id").Find(&rows).Error
 	return rows, err
 }
 
@@ -150,7 +150,7 @@ func (r *PersonRepository) ListPersonWorkContexts(ctx context.Context, personIDs
 	err := r.db.WithContext(ctx).Table("metadata_credits AS mc").
 		Select("mc.person_id, mi.id AS metadata_id, mi.kind, mi.title, mi.original_name, mi.year, mi.release_date").
 		Joins("JOIN metadata_items AS mi ON mi.id = mc.metadata_id").
-		Where("mc.person_id IN ? AND mi.kind IN ?", personIDs, []string{model.MetadataKindMovie, model.MetadataKindSeries}).
+		Where("mc.person_id = ANY(?) AND mi.kind IN ?", &personIDs, []string{model.MetadataKindMovie, model.MetadataKindSeries}).
 		Order("mc.person_id, mi.release_date DESC, mi.year DESC, mi.id DESC").
 		Scan(&rows).Error
 	return rows, err
@@ -170,7 +170,7 @@ func (r *PersonRepository) ListTranslationCaches(ctx context.Context, lookups []
 	}
 	var rows []model.TranslationCache
 	err := r.db.WithContext(ctx).
-		Where("kind IN ? AND context_key IN ? AND source_text IN ? AND target_language = ? AND prompt_version = ?", kinds, contexts, sources, lookups[0].TargetLanguage, lookups[0].PromptVersion).
+		Where("kind = ANY(?) AND context_key = ANY(?) AND source_text = ANY(?) AND target_language = ? AND prompt_version = ?", &kinds, &contexts, &sources, lookups[0].TargetLanguage, lookups[0].PromptVersion).
 		Find(&rows).Error
 	return rows, err
 }
@@ -208,7 +208,7 @@ func (r *PersonRepository) List(ctx context.Context, search string, ids []string
 		q = q.Where("LOWER(name) LIKE ? OR LOWER(original_name) LIKE ?", "%"+strings.ToLower(search)+"%", "%"+strings.ToLower(search)+"%")
 	}
 	if len(ids) > 0 {
-		q = q.Where("id IN ?", ids)
+		q = q.Where("id = ANY(?)", &ids)
 	}
 	var total int64
 	if err := q.Count(&total).Error; err != nil {

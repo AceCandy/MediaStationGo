@@ -211,7 +211,7 @@ func (e *EmbyService) preferredPlayableView(ctx context.Context, userID string, 
 		mediaIDs = append(mediaIDs, view.ID)
 	}
 	var history model.PlaybackHistory
-	if userID != "" && e.repo.DB.WithContext(ctx).Where("user_id = ? AND media_id IN ?", userID, mediaIDs).
+	if userID != "" && e.repo.DB.WithContext(ctx).Where("user_id = ? AND media_id = ANY(?)", userID, &mediaIDs).
 		Order("watched_at DESC").Limit(1).Find(&history).Error == nil && history.ID != "" {
 		for i := range views {
 			if views[i].ID == history.MediaID {

@@ -118,7 +118,7 @@ const metadataPlayableInLibrariesSQL = `(
 	(search_metadata.kind = 'movie' AND EXISTS (
 		SELECT 1 FROM media AS playable_media
 		WHERE playable_media.metadata_id = search_metadata.id
-			AND playable_media.library_id IN ?
+			AND playable_media.library_id = ANY(?)
 	))
 	OR
 	(search_metadata.kind = 'series' AND EXISTS (
@@ -129,7 +129,7 @@ const metadataPlayableInLibrariesSQL = `(
 			AND playable_episode.kind = 'episode'
 		JOIN media AS playable_media
 			ON playable_media.metadata_id = playable_episode.id
-			AND playable_media.library_id IN ?
+			AND playable_media.library_id = ANY(?)
 		WHERE playable_season.parent_id = search_metadata.id
 			AND playable_season.kind = 'season'
 	))
@@ -196,7 +196,7 @@ func (r *MediaViewRepository) prepareMetadataSearchFilter(ctx context.Context, f
 	}
 	filter.LibraryRestricted = true
 	q := r.db.WithContext(ctx).Table("media").Distinct("library_id")
-	q = q.Where("library_id NOT IN ?", filter.HiddenLibraryIDs)
+	q = q.Where("library_id <> ALL(?)", &filter.HiddenLibraryIDs)
 	if err := q.Pluck("library_id", &filter.VisibleLibraryIDs).Error; err != nil {
 		return filter, err
 	}
@@ -257,14 +257,14 @@ func (r *MediaViewRepository) metadataSearchQuery(ctx context.Context, filter Me
 		if len(filter.VisibleLibraryIDs) == 0 {
 			return q.Where("FALSE")
 		}
-		q = q.Where(metadataPlayableInLibrariesSQL, filter.VisibleLibraryIDs, filter.VisibleLibraryIDs)
+		q = q.Where(metadataPlayableInLibrariesSQL, &filter.VisibleLibraryIDs, &filter.VisibleLibraryIDs)
 	}
 	if len(filter.PersonIDs) > 0 {
 		q = q.Where(`EXISTS (
 			SELECT 1 FROM metadata_credits AS search_credit
 			WHERE search_credit.metadata_id = search_metadata.id
-				AND search_credit.person_id IN ?
-		)`, filter.PersonIDs)
+				AND search_credit.person_id = ANY(?)
+		)`, &filter.PersonIDs)
 	}
 	if filter.FavoriteUserID != "" {
 		q = q.Where(`EXISTS (
@@ -430,10 +430,10 @@ func (r *MediaViewRepository) FindMetadataSearchRepresentatives(ctx context.Cont
 		base = base.Where("COALESCE(" + topNSFW + ", TRUE) = FALSE")
 	}
 	if len(filter.HiddenLibraryIDs) > 0 {
-		base = base.Where("search_media.library_id NOT IN ?", filter.HiddenLibraryIDs)
+		base = base.Where("search_media.library_id <> ALL(?)", &filter.HiddenLibraryIDs)
 	}
 	if len(filter.AllowedLibraryIDs) > 0 {
-		base = base.Where("search_media.library_id IN ?", filter.AllowedLibraryIDs)
+		base = base.Where("search_media.library_id = ANY(?)", &filter.AllowedLibraryIDs)
 	}
 	type representativeRow struct {
 		MetadataID string `gorm:"column:metadata_id"`

@@ -87,10 +87,10 @@ func applyMediaViewFilter(q *gorm.DB, filter MediaQueryFilter) *gorm.DB {
 		q = q.Where("COALESCE(mi.nsfw, FALSE) = FALSE")
 	}
 	if len(filter.HiddenLibraryIDs) > 0 {
-		q = q.Where("m.library_id NOT IN ?", filter.HiddenLibraryIDs)
+		q = q.Where("m.library_id <> ALL(?)", &filter.HiddenLibraryIDs)
 	}
 	if len(filter.AllowedLibraryIDs) > 0 {
-		q = q.Where("m.library_id IN ?", filter.AllowedLibraryIDs)
+		q = q.Where("m.library_id = ANY(?)", &filter.AllowedLibraryIDs)
 	}
 	if filter.MissingPoster {
 		q = q.Where("poster_asset.id IS NULL")
@@ -245,7 +245,7 @@ func (r *MediaViewRepository) ListByLibrariesFiltered(ctx context.Context, libra
 	if len(libraryIDs) == 0 {
 		return []model.MediaView{}, 0, nil
 	}
-	q := applyMediaViewFilter(r.query(ctx).Where("m.library_id IN ?", libraryIDs), filter)
+	q := applyMediaViewFilter(r.query(ctx).Where("m.library_id = ANY(?)", &libraryIDs), filter)
 	var total int64
 	if err := q.Count(&total).Error; err != nil {
 		return nil, 0, err

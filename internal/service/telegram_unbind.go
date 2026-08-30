@@ -99,7 +99,7 @@ func (s *TelegramBotService) cmdUnbindDuplicates(ctx context.Context) telegramCo
 	if len(removeIDs) == 0 {
 		return telegramCommandReply{Text: "未发现重复或无效绑定。"}
 	}
-	n, err := s.deleteTelegramBindings(ctx, "id IN ?", removeIDs)
+	n, err := s.deleteTelegramBindings(ctx, "id = ANY(?)", &removeIDs)
 	if err != nil {
 		return telegramCommandReply{Text: "清理失败：" + err.Error()}
 	}
@@ -147,7 +147,7 @@ func (s *TelegramBotService) cmdUnbindInactive(ctx context.Context, args []strin
 	if len(userIDs) == 0 {
 		return telegramCommandReply{Text: fmt.Sprintf("未发现 %d 天未登录且已绑定 Bot 的普通用户。", days)}
 	}
-	n, err := s.deleteTelegramBindings(ctx, "user_id IN ?", userIDs)
+	n, err := s.deleteTelegramBindings(ctx, "user_id = ANY(?)", &userIDs)
 	if err != nil {
 		return telegramCommandReply{Text: "解绑失败：" + err.Error()}
 	}

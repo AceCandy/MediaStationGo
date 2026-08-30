@@ -111,6 +111,63 @@ null rows, scan into `sql.Null*` values instead.
 Regression tests must include a row whose projected column is SQL `NULL` and
 assert that the primary update or delete still succeeds.
 
+## Scenario: PostgreSQL Collection Parameter Limits
+
+### 1. Scope / Trigger
+
+Apply this contract when a production query binds a collection whose size can
+grow with database state, persisted configuration, or request input.
+
+### 2. Signatures
+
+- Positive string membership: `column = ANY(?)` with `&values`.
+- Negative string membership: `column <> ALL(?)` with `&values`.
+- Unbounded multi-row inserts: `CreateInBatches(&rows, 500)`.
+
+### 3. Contracts
+
+- Runtime prepared statements remain enabled; do not switch to simple protocol
+  to avoid PostgreSQL's 65,535 extended-protocol parameter limit.
+- Pass a pointer to the Go slice so GORM binds one value and pgx encodes the
+  dereferenced slice as a PostgreSQL array.
+- Preserve existing empty-slice guards, ordering, pagination, transaction
+  boundaries, and row-count conflict checks.
+- Fixed enum lists and collections already bounded by a local page or batch may
+  continue using `IN ?`.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required result |
+| --- | --- |
+| Unbounded string collection | Bind one array parameter with `ANY` or `ALL` |
+| Empty collection with defined no-op behavior | Return before executing SQL |
+| Unbounded bulk insert | Use a fixed batch size far below 65,535 parameters |
+| Fixed enum or locally bounded batch | Existing `IN ?` is allowed |
+
+### 5. Good / Base / Bad Cases
+
+- Good: 65,536 IDs execute through one array parameter without changing result order.
+- Base: a 500-row scanner batch keeps its existing bounded `IN ?` query.
+- Bad: truncate an unbounded filter or move a worker limit earlier, changing
+  selection, pagination, cache, or atomic claim semantics.
+
+### 6. Tests Required
+
+- Assert in GORM dry-run mode that a slice pointer produces one bind variable.
+- With `MEDIASTATION_TEST_POSTGRES_DSN`, execute a collection larger than
+  65,535 values and assert the real pgx query succeeds.
+- Exercise any batched insert across more than one batch and verify the final row count.
+
+### 7. Wrong vs Correct
+
+```go
+// Wrong: GORM expands ids into one bind parameter per element.
+db.Where("id IN ?", ids)
+
+// Correct: pgx receives one PostgreSQL array parameter.
+db.Where("id = ANY(?)", &ids)
+```
+
 ## Runtime Configuration Defaults
 
 - Define each runtime default once in the owning config package. Constructors

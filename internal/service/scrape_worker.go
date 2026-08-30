@@ -159,7 +159,7 @@ func (s *ScraperService) claimNextPendingMediaGroup(ctx context.Context) (*scrap
 		}
 		group := groups[0]
 		res := tx.Model(&model.Media{}).
-			Where("id IN ? AND (scrape_status IS NULL OR scrape_status = '' OR scrape_status = ?)", group.MediaIDs, "pending").
+			Where("id = ANY(?) AND (scrape_status IS NULL OR scrape_status = '' OR scrape_status = ?)", &group.MediaIDs, "pending").
 			Update("scrape_status", "running")
 		if res.Error != nil {
 			return res.Error
@@ -199,7 +199,7 @@ func (s *ScraperService) resetScrapeGroupPending(ctx context.Context, group scra
 	} else if strings.TrimSpace(group.MetadataID) != "" {
 		q = q.Where("metadata_id = ?", group.MetadataID)
 	} else {
-		q = q.Where("id IN ?", group.MediaIDs)
+		q = q.Where("id = ANY(?)", &group.MediaIDs)
 	}
 	return q.Updates(map[string]any{"scrape_status": "pending", "scrape_error": ""}).Error
 }

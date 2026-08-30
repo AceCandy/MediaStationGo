@@ -141,10 +141,10 @@ func applyMediaVisibilityQuery(q *gorm.DB, visibility service.MediaVisibility) *
 		q = q.Where("COALESCE(stats_metadata.nsfw, FALSE) = FALSE")
 	}
 	if len(visibility.HiddenLibraryIDs) > 0 {
-		q = q.Where("media.library_id NOT IN ?", visibility.HiddenLibraryIDs)
+		q = q.Where("media.library_id <> ALL(?)", &visibility.HiddenLibraryIDs)
 	}
 	if len(visibility.AllowedLibraryIDs) > 0 {
-		q = q.Where("media.library_id IN ?", visibility.AllowedLibraryIDs)
+		q = q.Where("media.library_id = ANY(?)", &visibility.AllowedLibraryIDs)
 	}
 	return q
 }
@@ -153,5 +153,5 @@ func applyActiveLibraryQuery(q *gorm.DB, libraryIDs []string) *gorm.DB {
 	if len(libraryIDs) == 0 {
 		return q.Where("1 = 0")
 	}
-	return q.Where("media.library_id IN ?", libraryIDs)
+	return q.Where("media.library_id = ANY(?)", &libraryIDs)
 }

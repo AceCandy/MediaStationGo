@@ -21,7 +21,7 @@ func (e *EmbyService) mediaItems(ctx context.Context, p ItemsParams) (map[string
 		q = q.Where("media.library_id IN ?", e.mergedLibraryIDs(ctx, p.ParentID))
 	}
 	if len(p.PersonIDs) > 0 {
-		credits := e.repo.DB.WithContext(ctx).Model(&model.MetadataCredit{}).Select("metadata_id").Where("person_id IN ?", p.PersonIDs)
+		credits := e.repo.DB.WithContext(ctx).Model(&model.MetadataCredit{}).Select("metadata_id").Where("person_id = ANY(?)", &p.PersonIDs)
 		q = q.Where("media.metadata_id IN (?)", credits)
 	}
 	if containsEmbyFilter(p.Filters, "IsFavorite") {
@@ -271,7 +271,7 @@ func (e *EmbyService) seriesItemsForLibrary(ctx context.Context, libraryID strin
 		q = q.Where("media.library_id IN ?", e.mergedLibraryIDs(ctx, libraryID))
 	}
 	if len(p.PersonIDs) > 0 {
-		credits := e.repo.DB.WithContext(ctx).Model(&model.MetadataCredit{}).Select("metadata_id").Where("person_id IN ?", p.PersonIDs)
+		credits := e.repo.DB.WithContext(ctx).Model(&model.MetadataCredit{}).Select("metadata_id").Where("person_id = ANY(?)", &p.PersonIDs)
 		q = q.Where("scope_series.id IN (?)", credits)
 	}
 	if containsEmbyFilter(p.Filters, "IsFavorite") {

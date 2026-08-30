@@ -91,7 +91,7 @@ func (s *StatsService) Compute(ctx context.Context, dataDir string) (*Snapshot, 
 	if len(activeLibraryIDs) == 0 {
 		mediaQuery = mediaQuery.Where("1 = 0")
 	} else {
-		mediaQuery = mediaQuery.Where("library_id IN ?", activeLibraryIDs)
+		mediaQuery = mediaQuery.Where("library_id = ANY(?)", &activeLibraryIDs)
 	}
 	if err := mediaQuery.Count(&snap.MediaCount).Error; err != nil {
 		return nil, err
@@ -108,7 +108,7 @@ func (s *StatsService) Compute(ctx context.Context, dataDir string) (*Snapshot, 
 	if len(activeLibraryIDs) == 0 {
 		sumQuery = sumQuery.Where("1 = 0")
 	} else {
-		sumQuery = sumQuery.Where("library_id IN ?", activeLibraryIDs)
+		sumQuery = sumQuery.Where("library_id = ANY(?)", &activeLibraryIDs)
 	}
 	if err := sumQuery.
 		Select("COALESCE(SUM(pm.size_bytes),0) as size, COALESCE(SUM(pm.duration_ms),0)::bigint / 1000 as seconds").

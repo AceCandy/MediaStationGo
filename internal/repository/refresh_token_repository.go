@@ -60,7 +60,7 @@ func (r *RefreshTokenRepository) RevokeOldestActiveByUserID(ctx context.Context,
 		ids = append(ids, token.ID)
 	}
 	return r.db.WithContext(ctx).Model(&model.RefreshToken{}).
-		Where("id IN ?", ids).Update("revoked", true).Error
+		Where("id = ANY(?)", &ids).Update("revoked", true).Error
 }
 
 // DeleteExpired removes all expired refresh tokens.

@@ -20,11 +20,11 @@ func (e *EmbyService) applyUserMediaVisibility(ctx context.Context, q *gorm.DB, 
 	if !visibility.IncludeNSFW {
 		q = q.Where("COALESCE(emby_metadata.nsfw, FALSE) = FALSE")
 		if hidden := visibility.HiddenLibraryIDs; len(hidden) > 0 {
-			q = q.Where("media.library_id NOT IN ?", hidden)
+			q = q.Where("media.library_id <> ALL(?)", &hidden)
 		}
 	}
 	if len(visibility.AllowedLibraryIDs) > 0 {
-		q = q.Where("media.library_id IN ?", visibility.AllowedLibraryIDs)
+		q = q.Where("media.library_id = ANY(?)", &visibility.AllowedLibraryIDs)
 	}
 	return q
 }

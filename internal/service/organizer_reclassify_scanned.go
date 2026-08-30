@@ -58,10 +58,10 @@ func (o *OrganizerService) ReclassifyMisclassifiedMedia(ctx context.Context, opt
 
 	query := o.repo.DB.WithContext(ctx).Model(&model.Media{})
 	if len(filter) > 0 {
-		query = query.Where("library_id IN ?", filterIDs)
+		query = query.Where("library_id = ANY(?)", &filterIDs)
 	}
 	if len(mediaIDs) > 0 {
-		query = query.Where("id IN ?", mediaIDs)
+		query = query.Where("id = ANY(?)", &mediaIDs)
 	}
 	var rows []model.Media
 	err = query.FindInBatches(&rows, 500, func(_ *gorm.DB, _ int) error {

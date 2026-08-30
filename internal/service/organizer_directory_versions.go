@@ -74,7 +74,7 @@ func (o *OrganizerService) allExistingPathsInDB(ctx context.Context, paths []str
 	var count int64
 	if err := o.repo.DB.WithContext(ctx).
 		Model(&model.Media{}).
-		Where("path IN ?", cleaned).
+		Where("path = ANY(?)", &cleaned).
 		Count(&count).Error; err != nil {
 		return false
 	}

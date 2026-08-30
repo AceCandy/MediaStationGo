@@ -242,9 +242,9 @@ func (s *ScraperService) syncScrapeCandidateGroup(ctx context.Context, group scr
 	mediaIDs := make([]string, 0, len(group.MediaIDs))
 	mediaQuery := s.repo.DB.WithContext(ctx).Model(&model.Media{})
 	if len(metadataIDs) > 0 {
-		mediaQuery = mediaQuery.Where("metadata_id IN ? OR id IN ?", metadataIDs, group.MediaIDs)
+		mediaQuery = mediaQuery.Where("metadata_id IN ? OR id = ANY(?)", metadataIDs, &group.MediaIDs)
 	} else {
-		mediaQuery = mediaQuery.Where("id IN ?", group.MediaIDs)
+		mediaQuery = mediaQuery.Where("id = ANY(?)", &group.MediaIDs)
 	}
 	if err := mediaQuery.Pluck("id", &mediaIDs).Error; err != nil {
 		return err
@@ -262,7 +262,7 @@ func (s *ScraperService) syncScrapeCandidateGroup(ctx context.Context, group scr
 		updates["metadata_id"] = fresh.MetadataID
 	}
 	if err := s.repo.DB.WithContext(ctx).Model(&model.Media{}).
-		Where("id IN ?", mediaIDs).Updates(updates).Error; err != nil {
+		Where("id = ANY(?)", &mediaIDs).Updates(updates).Error; err != nil {
 		return err
 	}
 	s.repo.MediaView.RefreshMetadataIDs(ctx, metadataIDs...)

@@ -183,7 +183,7 @@ func (e *EmbyService) filterMovieItems(ctx context.Context, q *gorm.DB) *gorm.DB
 	if len(episodicIDs) == 0 {
 		return filterLikelyEpisodicPathsFromMovieQuery(q)
 	}
-	q = q.Where("(media.season_num = 0 AND media.episode_num = 0) OR media.library_id NOT IN ?", episodicIDs)
+	q = q.Where("(media.season_num = 0 AND media.episode_num = 0) OR media.library_id <> ALL(?)", &episodicIDs)
 	return filterLikelyEpisodicPathsFromMovieQuery(q)
 }
 
@@ -192,7 +192,7 @@ func (e *EmbyService) filterEpisodeItems(ctx context.Context, q *gorm.DB) *gorm.
 	if len(episodicIDs) == 0 {
 		return q.Where("1 = 0")
 	}
-	return q.Where("media.library_id IN ? AND (media.season_num > 0 OR media.episode_num > 0)", episodicIDs)
+	return q.Where("media.library_id = ANY(?) AND (media.season_num > 0 OR media.episode_num > 0)", &episodicIDs)
 }
 
 func (e *EmbyService) episodicLibraryIDs(ctx context.Context) []string {
