@@ -47,7 +47,7 @@ func (s *ScannerService) reconcileMovieLibraryEpisodes(ctx context.Context, lib 
 	}
 	query := s.repo.DB.WithContext(ctx).Table("media AS m").
 		Select("m.id, m.metadata_id, COALESCE(mi.kind, '') AS metadata_kind, m.scrape_status").
-		Joins("LEFT JOIN metadata_items AS mi ON mi.id = m.metadata_id AND mi.deleted_at IS NULL").
+		Joins("LEFT JOIN metadata_items AS mi ON mi.id = m.metadata_id").
 		Where("m.library_id = ? AND (m.season_num <> 0 OR m.episode_num <> 0)", lib.ID)
 	if strings.TrimSpace(rootID) != "" {
 		query = query.Where("(m.library_root_id = ? OR m.library_root_id = '')", rootID)

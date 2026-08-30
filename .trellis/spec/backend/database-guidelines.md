@@ -65,6 +65,26 @@ Correct: use Responses for People translation without tools; reserve `web_search
 
 ## Query Patterns
 
+### Hard-Delete Tables in Hand-Written SQL
+
+Models embedding `PermanentBase` have no `deleted_at` column. Before adding a
+raw SQL or string-based GORM condition, verify the model base type; joins to a
+hard-delete table must not copy the `deleted_at IS NULL` filter used by soft-delete
+tables. When a model changes to `PermanentBase`, search production SQL for both
+the table name and its aliases. Compatibility migrations may reference the
+retired column only behind an explicit `HasColumn` guard.
+
+```go
+// Wrong: metadata_items uses PermanentBase.
+Joins("LEFT JOIN metadata_items AS mi ON mi.id = m.metadata_id AND mi.deleted_at IS NULL")
+
+// Correct: row absence already represents deletion.
+Joins("LEFT JOIN metadata_items AS mi ON mi.id = m.metadata_id")
+```
+
+PostgreSQL regression tests for hand-written queries count as verified only when
+`MEDIASTATION_TEST_POSTGRES_DSN` is configured and the test is not skipped.
+
 ### Integer Duration Aggregates
 
 PostgreSQL `SUM(bigint)` returns `numeric`. Before scanning a duration aggregate
