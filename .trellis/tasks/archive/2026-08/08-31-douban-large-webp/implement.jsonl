@@ -1,0 +1,4 @@
+{"file":".trellis/spec/backend/douban-cookie-config.md","reason":"豆瓣图片域名逐请求解析、JSON API 与 Cookie 边界及历史修复契约"}
+{"file":".trellis/spec/backend/shared-media-metadata.md","reason":"托管图片真实 MIME 校验、本地落盘和候选修复安全契约"}
+{"file":".trellis/spec/frontend/discover-feed-loading.md","reason":"发现页六小时缓存、响应结构、预热及海报 URL 稳定性契约"}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"核对豆瓣来源、缓存、后端响应、图片代理与下载的完整数据流"}

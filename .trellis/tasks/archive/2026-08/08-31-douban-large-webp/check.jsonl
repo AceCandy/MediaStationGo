@@ -1,0 +1,4 @@
+{"file":".trellis/spec/backend/douban-cookie-config.md","reason":"复核图片域名/WebP 改写没有影响豆瓣 API、Cookie 和配置热更新"}
+{"file":".trellis/spec/backend/shared-media-metadata.md","reason":"复核 WebP 下载仍按真实内容校验且历史修复不破坏旧资产"}
+{"file":".trellis/spec/frontend/discover-feed-loading.md","reason":"复核缓存命中、stale fallback、响应与预热都使用当前豆瓣图片配置"}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"独立检查搜索、发现、详情和本地化修复没有遗漏或重复转换"}
