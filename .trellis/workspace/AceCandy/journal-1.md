@@ -1605,3 +1605,25 @@ Audited unbounded PostgreSQL collection bindings, replaced risky slice expansion
 ### Status
 
 [OK] **Completed**
+
+
+## Session 75: 豆瓣大图与 WebP 统一
+<!-- trellis-session: v=2 fp=66a2edd37a13756c -->
+
+**Date**: 2026-08-31
+**Task**: 豆瓣大图与 WebP 统一
+**Branch**: `main`
+
+### Summary
+
+统一豆瓣搜索、详情、发现、补齐和历史修复的大图 URL；配置图片域名时改用 WebP，并让发现缓存即时应用最新配置。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `e8ae4d0` | feat: use large WebP images for Douban artwork |
+
+### Status
+
+[OK] **Completed**
