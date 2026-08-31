@@ -32,6 +32,18 @@ type TMDbArtworkSelection struct {
 	StorageKey   string
 }
 
+type DoubanArtworkCandidate struct {
+	CandidateID     string
+	MetadataID      string
+	Title           string
+	ArtworkType     string
+	SourceURL       string
+	AssetID         string
+	StorageKey      string
+	Width           int
+	SnapshotPayload string
+}
+
 type TMDbArtworkRecheckType struct {
 	ArtworkType    string
 	SelectionID    string
@@ -263,6 +275,28 @@ COALESCE((SELECT external_id FROM metadata_identifiers WHERE metadata_id = CASE
 	return rows, err
 }
 
+// ListDoubanArtworkCandidatesAfter 返回豆瓣海报候选及其详情快照，供本地化修复任务分页扫描。
+func (r *ArtworkRepository) ListDoubanArtworkCandidatesAfter(ctx context.Context, afterID string, limit int) ([]DoubanArtworkCandidate, error) {
+	if limit <= 0 {
+		limit = 200
+	}
+	limit = min(limit, 1000)
+	q := r.db.WithContext(ctx).Table("metadata_artwork_candidates AS mac").
+		Joins("JOIN metadata_items AS mi ON mi.id = mac.metadata_id").
+		Joins("JOIN artwork_assets AS aa ON aa.id = mac.asset_id").
+		Joins("LEFT JOIN metadata_provider_snapshots AS mps ON mps.metadata_id = mac.metadata_id AND mps.provider = 'douban'").
+		Where("mac.source_provider = 'douban' AND mac.artwork_type = ?", model.ArtworkTypePoster)
+	if afterID = strings.TrimSpace(afterID); afterID != "" {
+		q = q.Where("mac.id > ?", afterID)
+	}
+	var rows []DoubanArtworkCandidate
+	err := q.Select(`mac.id AS candidate_id, mac.metadata_id, mi.title, mac.artwork_type,
+mac.source_url, mac.asset_id, aa.storage_key, aa.width,
+COALESCE(mps.payload::text, '') AS snapshot_payload`).
+		Order("mac.id ASC").Limit(limit).Scan(&rows).Error
+	return rows, err
+}
+
 // ListTMDbArtworkRecheckMetadataAfter 返回已完成过图片处理且仍有缺图状态的元数据。
 func (r *ArtworkRepository) ListTMDbArtworkRecheckMetadataAfter(ctx context.Context, afterID string, limit int) ([]TMDbArtworkRecheckCandidate, error) {
 	if limit <= 0 {
@@ -356,6 +390,33 @@ func (r *ArtworkRepository) RepairTMDbSelection(ctx context.Context, snapshot TM
 			Updates(map[string]any{"asset_id": saved.ID, "source_url": sourceURL, "updated_at": time.Now().UTC()})
 		updated = res.RowsAffected > 0
 		return res.Error
+	})
+	return &saved, updated, err
+}
+
+// RepairDoubanCandidate 仅在候选仍与扫描快照一致时切换资产，并同步仍指向同一豆瓣旧资产的当前选择。
+func (r *ArtworkRepository) RepairDoubanCandidate(ctx context.Context, snapshot DoubanArtworkCandidate, sourceURL string, asset *model.ArtworkAsset) (*model.ArtworkAsset, bool, error) {
+	var saved model.ArtworkAsset
+	updated := false
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "sha256"}}, DoNothing: true}).Create(asset).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("sha256 = ?", asset.SHA256).First(&saved).Error; err != nil {
+			return err
+		}
+		res := tx.Model(&model.MetadataArtworkCandidate{}).
+			Where("id = ? AND metadata_id = ? AND artwork_type = ? AND asset_id = ?", snapshot.CandidateID, snapshot.MetadataID, snapshot.ArtworkType, snapshot.AssetID).
+			Where("source_provider = 'douban' AND source_url = ?", snapshot.SourceURL).
+			Updates(map[string]any{"asset_id": saved.ID, "source_url": sourceURL, "updated_at": time.Now().UTC()})
+		if res.Error != nil || res.RowsAffected == 0 {
+			return res.Error
+		}
+		updated = true
+		return tx.Model(&model.MetadataArtwork{}).
+			Where("metadata_id = ? AND artwork_type = ? AND asset_id = ?", snapshot.MetadataID, snapshot.ArtworkType, snapshot.AssetID).
+			Where("source_provider = 'douban'").
+			Updates(map[string]any{"asset_id": saved.ID, "source_url": sourceURL, "updated_at": time.Now().UTC()}).Error
 	})
 	return &saved, updated, err
 }

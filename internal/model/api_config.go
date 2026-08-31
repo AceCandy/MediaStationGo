@@ -32,7 +32,7 @@ type ApiProvider struct {
 func PredefinedProviders() []ApiProvider {
 	return []ApiProvider{
 		{ID: "tmdb", Name: "TMDb", Description: "The Movie Database - 电影/剧集元数据", HasAPIKey: true, HasBaseURL: true},
-		{ID: "douban", Name: "豆瓣", Description: "豆瓣电影/音乐/书籍数据", HasAPIKey: true, HasBaseURL: false},
+		{ID: "douban", Name: "豆瓣", Description: "豆瓣电影/音乐/书籍数据", HasAPIKey: true, HasBaseURL: true},
 		{ID: "bangumi", Name: "Bangumi", Description: "番剧/动漫数据库", HasAPIKey: true, HasBaseURL: false},
 		{ID: "thetvdb", Name: "TheTVDB", Description: "TV Series Database", HasAPIKey: true, HasBaseURL: false},
 		{ID: "fanart", Name: "Fanart.tv", Description: "影视海报/背景图", HasAPIKey: true, HasBaseURL: false},

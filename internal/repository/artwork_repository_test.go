@@ -101,6 +101,73 @@ func TestRepairTMDbSelectionPreservesConcurrentManualSelection(t *testing.T) {
 	}
 }
 
+func TestRepairDoubanCandidatePreservesOtherSelectionAndUpdatesMatchingSelection(t *testing.T) {
+	db, err := testdb.OpenPostgres(t, &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(&model.MetadataItem{}, &model.MetadataProviderSnapshot{}, &model.ArtworkAsset{}, &model.MetadataArtwork{}, &model.MetadataArtworkCandidate{}); err != nil {
+		t.Fatal(err)
+	}
+	items := []model.MetadataItem{
+		{Kind: model.MetadataKindMovie, Title: "Manual current", Source: "tmdb"},
+		{Kind: model.MetadataKindMovie, Title: "Douban current", Source: "douban"},
+	}
+	if err := db.Create(&items).Error; err != nil {
+		t.Fatal(err)
+	}
+	repo := New(db).Artwork
+	old := &model.ArtworkAsset{SHA256: "douban-old", StorageKey: "douban-old.jpg", MimeType: "image/jpeg", Width: 270}
+	manual := &model.ArtworkAsset{SHA256: "manual-current", StorageKey: "manual-current.jpg", MimeType: "image/jpeg"}
+	if _, err := repo.SaveSelection(t.Context(), items[0].ID, model.ArtworkTypePoster, "manual", "manual.jpg", manual); err != nil {
+		t.Fatal(err)
+	}
+	oldURL := "https://img.test/view/photo/s_ratio_poster/public/old.jpg"
+	for i := range items {
+		if _, _, err := repo.SaveCandidate(t.Context(), items[i].ID, model.ArtworkTypePoster, "douban", oldURL, old); err != nil {
+			t.Fatal(err)
+		}
+		payload := `{"cover":{"image":{"large":{"url":"https://img.test/view/photo/l/public/new.jpg"}}}}`
+		if err := db.Create(&model.MetadataProviderSnapshot{MetadataID: items[i].ID, Provider: "douban", Payload: payload, FetchedAt: time.Now().UTC()}).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := db.Model(&model.MetadataArtwork{}).
+		Where("metadata_id = ? AND artwork_type = ?", items[1].ID, model.ArtworkTypePoster).
+		Update("source_url", "https://normalized.test/old.jpg").Error; err != nil {
+		t.Fatal(err)
+	}
+
+	rows, err := repo.ListDoubanArtworkCandidatesAfter(t.Context(), "", 20)
+	if err != nil || len(rows) != 2 {
+		t.Fatalf("Douban candidates = %#v, err = %v", rows, err)
+	}
+	byMetadata := map[string]DoubanArtworkCandidate{}
+	for _, row := range rows {
+		byMetadata[row.MetadataID] = row
+	}
+	newURL := "https://img.test/view/photo/l/public/new.jpg"
+	for i := range items {
+		replacement := &model.ArtworkAsset{SHA256: "douban-new-" + items[i].ID, StorageKey: "douban-new-" + items[i].ID + ".jpg", MimeType: "image/jpeg", Width: 1066}
+		if _, updated, err := repo.RepairDoubanCandidate(t.Context(), byMetadata[items[i].ID], newURL, replacement); err != nil || !updated {
+			t.Fatalf("repair candidate %d updated=%v err=%v", i, updated, err)
+		}
+	}
+
+	selected, err := repo.FindSelection(t.Context(), items[0].ID, model.ArtworkTypePoster)
+	if err != nil || selected == nil || selected.ID != manual.ID {
+		t.Fatalf("manual selection changed: %#v, %v", selected, err)
+	}
+	selected, err = repo.FindSelection(t.Context(), items[1].ID, model.ArtworkTypePoster)
+	if err != nil || selected == nil || selected.ID == old.ID || selected.Width != 1066 {
+		t.Fatalf("matching Douban selection was not updated: %#v, %v", selected, err)
+	}
+	stale := byMetadata[items[1].ID]
+	if _, updated, err := repo.RepairDoubanCandidate(t.Context(), stale, newURL, &model.ArtworkAsset{SHA256: "stale", StorageKey: "stale.jpg", MimeType: "image/jpeg"}); err != nil || updated {
+		t.Fatalf("stale repair updated=%v err=%v", updated, err)
+	}
+}
+
 func TestArtworkRecheckExcludesNeverHydratedWithoutState(t *testing.T) {
 	db, err := testdb.OpenPostgres(t, &gorm.Config{})
 	if err != nil {

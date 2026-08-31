@@ -286,7 +286,7 @@ func doubanMatchFromRawJSON(doubanID string, rawJSON []byte) (*Match, error) {
 		Title:        title,
 		OriginalName: firstStringFromMap(subject, "original_title", "original_name"),
 		Overview:     firstStringFromMap(subject, "short_comment", "intro", "summary", "abstract"),
-		PosterURL:    firstStringFromMap(subject, "pic", "img", "cover", "cover_url"),
+		PosterURL:    doubanPosterURL(subject),
 		Year:         year,
 		ReleaseDate:  normalizeReleaseDate(firstStringFromMap(subject, "release_date", "pubdate")),
 		Rating:       float32FromMap(subject, "rate", "rating"),
@@ -303,6 +303,64 @@ func doubanMatchFromRawJSON(doubanID string, rawJSON []byte) (*Match, error) {
 		m.Title = firstStringFromMap(raw, "title")
 	}
 	return m, nil
+}
+
+func doubanPosterURL(subject map[string]any) string {
+	for _, path := range [][]string{
+		{"cover", "image", "large", "url"},
+		{"pic", "large"},
+		{"pic", "normal"},
+	} {
+		if value := stringFromMapPath(subject, path...); validRemoteArtworkURL(value) {
+			return value
+		}
+	}
+	for _, key := range []string{"pic", "img", "cover", "cover_url"} {
+		if value := firstStringFromMap(subject, key); validRemoteArtworkURL(value) {
+			return value
+		}
+	}
+	return ""
+}
+
+func stringFromMapPath(values map[string]any, path ...string) string {
+	var current any = values
+	for _, key := range path {
+		nested, ok := current.(map[string]any)
+		if !ok {
+			return ""
+		}
+		current = nested[key]
+	}
+	switch value := current.(type) {
+	case string:
+		return strings.TrimSpace(value)
+	case map[string]any:
+		return firstStringFromMap(value, "url", "large", "normal", "small")
+	default:
+		return ""
+	}
+}
+
+func (d *DoubanProvider) resolveArtworkURL(ctx context.Context, raw string) string {
+	sourceURL := strings.TrimSpace(raw)
+	if d == nil || d.apiConfig == nil || sourceURL == "" {
+		return sourceURL
+	}
+	resolved, err := d.apiConfig.Resolve(ctx, "douban")
+	if err != nil || !resolved.Enabled || strings.TrimSpace(resolved.BaseURL) == "" {
+		return sourceURL
+	}
+	origin, err := url.Parse(resolved.BaseURL)
+	if err != nil || origin.Host == "" {
+		return sourceURL
+	}
+	target, err := url.Parse(sourceURL)
+	if err != nil || target.Host == "" || (target.Scheme != "http" && target.Scheme != "https") {
+		return sourceURL
+	}
+	target.Scheme, target.Host, target.User = origin.Scheme, origin.Host, nil
+	return target.String()
 }
 
 func (d *DoubanProvider) GetEpisodeCount(ctx context.Context, query string) (int, error) {

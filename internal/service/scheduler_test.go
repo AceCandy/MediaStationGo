@@ -75,7 +75,7 @@ func TestSchedulerRegistersDisabledTMDbArtworkJobs(t *testing.T) {
 		cancel()
 		scheduler.Stop()
 	}()
-	want := map[string]bool{"tmdb_artwork_local_repair": true, "tmdb_artwork_missing_recheck": true, "tmdb_episode_metadata_recheck": true}
+	want := map[string]bool{"tmdb_artwork_local_repair": true, "tmdb_artwork_missing_recheck": true, "douban_artwork_local_repair": true, "tmdb_episode_metadata_recheck": true}
 	for _, status := range scheduler.Status() {
 		if status.Name == "metadata_artwork_backfill" {
 			t.Fatal("retired metadata artwork backfill scheduler job still exists")
@@ -89,7 +89,7 @@ func TestSchedulerRegistersDisabledTMDbArtworkJobs(t *testing.T) {
 		delete(want, status.Name)
 	}
 	if len(want) != 0 {
-		t.Fatalf("missing TMDb maintenance scheduler jobs: %v", want)
+		t.Fatalf("missing artwork maintenance scheduler jobs: %v", want)
 	}
 }
 

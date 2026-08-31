@@ -112,7 +112,8 @@ func (s *ScraperService) enrichMovieFromDoubanDetailsMode(ctx context.Context, m
 			return result, err
 		}
 		if !hasCandidate {
-			_, promoted, err := s.artwork.importRemoteCandidate(ctx, metadataID, model.ArtworkTypePoster, "douban", details.PosterURL)
+			sourceURL := s.douban.resolveArtworkURL(ctx, details.PosterURL)
+			_, promoted, err := s.artwork.importRemoteCandidate(ctx, metadataID, model.ArtworkTypePoster, "douban", sourceURL)
 			if err != nil {
 				return result, err
 			}

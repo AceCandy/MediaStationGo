@@ -68,6 +68,82 @@ func TestTMDbArtworkLocalRepairRestoresOldURLWithoutCatalogOrTMDb(t *testing.T) 
 	}
 }
 
+func TestDoubanArtworkLocalRepairUpgradesCandidateWithoutReplacingManualSelection(t *testing.T) {
+	db := newServiceTestDB(t, &model.APIConfig{}, &model.MetadataProviderSnapshot{})
+	repos := repository.New(db)
+	metadata := model.MetadataItem{Kind: model.MetadataKindMovie, Title: "Movie", Source: "tmdb"}
+	if err := db.Create(&metadata).Error; err != nil {
+		t.Fatal(err)
+	}
+	manual := &model.ArtworkAsset{SHA256: "manual-douban-repair", StorageKey: "manual-douban-repair.jpg", MimeType: "image/jpeg"}
+	if _, err := repos.Artwork.SaveSelection(t.Context(), metadata.ID, model.ArtworkTypePoster, "manual", "manual.jpg", manual); err != nil {
+		t.Fatal(err)
+	}
+	old := &model.ArtworkAsset{SHA256: "douban-small", StorageKey: "sha256/do/ub/douban-small.jpg", MimeType: "image/jpeg", Width: 270, Height: 400}
+	oldURL := "https://img9.doubanio.com/view/photo/s_ratio_poster/public/p123.jpg"
+	if _, _, err := repos.Artwork.SaveCandidate(t.Context(), metadata.ID, model.ArtworkTypePoster, "douban", oldURL, old); err != nil {
+		t.Fatal(err)
+	}
+	payload := `{"cover":{"image":{"large":{"url":"https://img9.doubanio.com/view/photo/l/public/p123.jpg"}}}}`
+	if err := db.Create(&model.MetadataProviderSnapshot{MetadataID: metadata.ID, Provider: "douban", Payload: payload, FetchedAt: time.Now().UTC()}).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	root := t.TempDir()
+	cfg := &config.Config{App: config.AppConfig{DataDir: root}, Cache: config.CacheConfig{CacheDir: filepath.Join(root, "cache")}}
+	proxy := NewImageProxy(cfg, zap.NewNop())
+	requestedHost := ""
+	proxy.client = &http.Client{Transport: imageRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		requestedHost = req.URL.Host
+		return &http.Response{StatusCode: http.StatusOK, Status: "200 OK", Header: http.Header{"Content-Type": []string{"image/jpeg"}}, Body: io.NopCloser(bytes.NewReader(testJPEG)), Request: req}, nil
+	})}
+	store := NewArtworkStore(cfg, repos.Artwork, proxy)
+	oldPath, err := store.pathForStorageKey(old.StorageKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(oldPath), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(oldPath, []byte("old-small"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	apiConfig := NewAPIConfigService(zap.NewNop(), repos, NewCryptoService("test-secret", zap.NewNop()))
+	origin := "http://db-pic1.acecandy.cn/"
+	if _, err := apiConfig.Update(t.Context(), "douban", APIConfigPatch{BaseURL: &origin}); err != nil {
+		t.Fatal(err)
+	}
+	svc := &ScraperService{repo: repos, artwork: store, douban: NewDoubanProvider(apiConfig)}
+	if err := svc.runDoubanArtworkLocalRepair(t.Context(), TaskTriggerManual); err != nil {
+		t.Fatal(err)
+	}
+	if requestedHost != "db-pic1.acecandy.cn" {
+		t.Fatalf("Douban artwork host = %q", requestedHost)
+	}
+	selected, err := repos.Artwork.FindSelection(t.Context(), metadata.ID, model.ArtworkTypePoster)
+	if err != nil || selected == nil || selected.ID != manual.ID {
+		t.Fatalf("manual selection changed: %#v, %v", selected, err)
+	}
+	var candidate model.MetadataArtworkCandidate
+	if err := db.First(&candidate, "metadata_id = ? AND artwork_type = ? AND source_provider = 'douban'", metadata.ID, model.ArtworkTypePoster).Error; err != nil {
+		t.Fatal(err)
+	}
+	if candidate.AssetID == old.ID || candidate.SourceURL != "http://db-pic1.acecandy.cn/view/photo/l/public/p123.jpg" {
+		t.Fatalf("repaired candidate = %#v", candidate)
+	}
+	if _, err := os.Stat(oldPath); err != nil {
+		t.Fatalf("old small artwork was removed: %v", err)
+	}
+}
+
+func TestDoubanRepairPosterURLDerivesKnownPhotoVariant(t *testing.T) {
+	payload := `{"pic":{"large":"https://img9.doubanio.com/view/photo/m_ratio_poster/public/p123.jpg?x=1"}}`
+	if got := doubanRepairPosterURL(payload, ""); got != "https://img9.doubanio.com/view/photo/l/public/p123.jpg?x=1" {
+		t.Fatalf("derived Douban poster URL = %q", got)
+	}
+}
+
 func TestTMDbArtworkLocalRepairOmitsHealthyFileDetail(t *testing.T) {
 	store := NewArtworkStore(&config.Config{App: config.AppConfig{DataDir: t.TempDir()}}, nil, nil)
 	item := repository.TMDbArtworkSelection{StorageKey: "sha256/aa/bb/healthy.jpg"}

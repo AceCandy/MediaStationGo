@@ -106,6 +106,73 @@ func TestDoubanProviderResolvesCookiePerRequest(t *testing.T) {
 	}
 }
 
+func TestDoubanArtworkURLUsesLiveConfiguredOrigin(t *testing.T) {
+	db := newServiceTestDB(t, &model.APIConfig{})
+	apiConfig := NewAPIConfigService(zap.NewNop(), &repository.Container{DB: db}, NewCryptoService("test-secret", zap.NewNop()))
+	provider := NewDoubanProvider(apiConfig)
+	sourceURL := "https://img9.doubanio.com/view/photo/l/public/p123.jpg?x=1"
+
+	if got := provider.resolveArtworkURL(t.Context(), sourceURL); got != sourceURL {
+		t.Fatalf("unconfigured artwork URL = %q", got)
+	}
+	origin := "http://db-pic1.acecandy.cn/"
+	if _, err := apiConfig.Update(t.Context(), "douban", APIConfigPatch{BaseURL: &origin}); err != nil {
+		t.Fatal(err)
+	}
+	if got := provider.resolveArtworkURL(t.Context(), sourceURL); got != "http://db-pic1.acecandy.cn/view/photo/l/public/p123.jpg?x=1" {
+		t.Fatalf("configured artwork URL = %q", got)
+	}
+
+	invalid := "ftp://db-pic1.acecandy.cn/"
+	if _, err := apiConfig.Update(t.Context(), "douban", APIConfigPatch{BaseURL: &invalid}); err == nil {
+		t.Fatal("expected invalid Douban image domain rejection")
+	}
+	if got := provider.resolveArtworkURL(t.Context(), sourceURL); got != "http://db-pic1.acecandy.cn/view/photo/l/public/p123.jpg?x=1" {
+		t.Fatalf("invalid update changed artwork URL = %q", got)
+	}
+}
+
+func TestNormalizeDoubanImageOrigin(t *testing.T) {
+	for _, tt := range []struct {
+		raw, want string
+		valid     bool
+	}{
+		{"", "", true},
+		{"http://db-pic1.acecandy.cn/", "http://db-pic1.acecandy.cn", true},
+		{"https://db-pic1.acecandy.cn", "https://db-pic1.acecandy.cn", true},
+		{"ftp://db-pic1.acecandy.cn/", "", false},
+		{"https://user@example.com/", "", false},
+		{"https://example.com/path", "", false},
+	} {
+		got, err := normalizeDoubanImageOrigin(tt.raw)
+		if (err == nil) != tt.valid || got != tt.want {
+			t.Fatalf("normalize %q = %q, %v", tt.raw, got, err)
+		}
+	}
+}
+
+func TestDoubanPosterURLPrefersLargestSnapshotField(t *testing.T) {
+	tests := []struct {
+		name string
+		raw  string
+		want string
+	}{
+		{"cover large", `{"cover":{"image":{"large":{"url":"https://img.test/view/photo/l/public/1.jpg"}}},"pic":{"large":"https://img.test/m.jpg","normal":"https://img.test/s.jpg"}}`, "https://img.test/view/photo/l/public/1.jpg"},
+		{"invalid cover large", `{"cover":{"image":{"large":{"url":"not-a-url"}}},"pic":{"large":"https://img.test/m.jpg","normal":"https://img.test/s.jpg"}}`, "https://img.test/m.jpg"},
+		{"pic large", `{"pic":{"large":"https://img.test/m.jpg","normal":"https://img.test/s.jpg"}}`, "https://img.test/m.jpg"},
+		{"pic normal", `{"pic":{"normal":"https://img.test/s.jpg"}}`, "https://img.test/s.jpg"},
+		{"legacy cover", `{"cover_url":"https://img.test/legacy.jpg"}`, "https://img.test/legacy.jpg"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			match, err := doubanMatchFromRawJSON("1", []byte(tt.raw))
+			if err != nil || match.PosterURL != tt.want {
+				t.Fatalf("poster URL = %q, err = %v", match.PosterURL, err)
+			}
+		})
+	}
+}
+
 func TestDoubanGetMatchByIDPreservesRawJSON(t *testing.T) {
 	provider := NewDoubanProvider(nil)
 	provider.client = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {

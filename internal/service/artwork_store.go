@@ -147,7 +147,36 @@ func (s *ArtworkStore) repairTMDbRemote(ctx context.Context, snapshot repository
 	return s.repo.RepairTMDbSelection(ctx, snapshot, sourceURL, asset)
 }
 
+func (s *ArtworkStore) repairDoubanCandidate(ctx context.Context, snapshot repository.DoubanArtworkCandidate, sourceURL string) (*model.ArtworkAsset, bool, error) {
+	if s == nil || s.imageProxy == nil || s.repo == nil {
+		return nil, false, errors.New("artwork repair dependencies unavailable")
+	}
+	if err := s.imageProxy.RemoveFailed(sourceURL); err != nil {
+		return nil, false, err
+	}
+	data, _, err := s.imageProxy.Fetch(ctx, sourceURL)
+	if err != nil {
+		return nil, false, err
+	}
+	asset, err := s.prepareAsset(snapshot.MetadataID, snapshot.ArtworkType, data)
+	if err != nil {
+		return nil, false, err
+	}
+	return s.repo.RepairDoubanCandidate(ctx, snapshot, sourceURL, asset)
+}
+
 func (s *ArtworkStore) tmdbSelectionFileAvailable(snapshot repository.TMDbArtworkSelection) (bool, error) {
+	if s == nil {
+		return false, errors.New("artwork store is unavailable")
+	}
+	path, err := s.pathForStorageKey(snapshot.StorageKey)
+	if err != nil {
+		return false, err
+	}
+	return localArtworkFileAvailable(path)
+}
+
+func (s *ArtworkStore) doubanCandidateFileAvailable(snapshot repository.DoubanArtworkCandidate) (bool, error) {
 	if s == nil {
 		return false, errors.New("artwork store is unavailable")
 	}

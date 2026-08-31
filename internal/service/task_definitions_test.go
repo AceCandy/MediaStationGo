@@ -123,6 +123,7 @@ func TestScheduledTaskDefinitionsSupportManualExecution(t *testing.T) {
 		TaskDefinitionPeopleTranslation:          true,
 		TaskDefinitionTMDbArtworkLocalRepair:     true,
 		TaskDefinitionTMDbArtworkMissingRecheck:  true,
+		TaskDefinitionDoubanArtworkLocalRepair:   true,
 		TaskDefinitionTMDbEpisodeMetadataRecheck: true,
 		TaskDefinitionDoubanEnrichment:           true,
 		TaskDefinitionAccountCleanup:             true,

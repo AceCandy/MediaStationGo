@@ -11,6 +11,7 @@ package service
 import (
 	"context"
 	"errors"
+	"net/url"
 	"strings"
 	"time"
 
@@ -177,7 +178,15 @@ func (s *APIConfigService) Update(ctx context.Context, provider string, patch AP
 		}
 	}
 	if patch.BaseURL != nil {
-		updates["base_url"] = *patch.BaseURL
+		baseURL := strings.TrimSpace(*patch.BaseURL)
+		if provider == "douban" {
+			var err error
+			baseURL, err = normalizeDoubanImageOrigin(baseURL)
+			if err != nil {
+				return nil, err
+			}
+		}
+		updates["base_url"] = baseURL
 	}
 	if patch.Model != nil {
 		updates["model"] = strings.TrimSpace(*patch.Model)
@@ -205,6 +214,17 @@ func (s *APIConfigService) Update(ctx context.Context, provider string, patch AP
 	row, _ = s.findByProvider(ctx, provider)
 	v := s.toPublic(row)
 	return &v, nil
+}
+
+func normalizeDoubanImageOrigin(raw string) (string, error) {
+	if raw == "" {
+		return "", nil
+	}
+	u, err := url.ParseRequestURI(raw)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || (u.Path != "" && u.Path != "/") {
+		return "", errors.New("douban image domain must be an HTTP(S) origin")
+	}
+	return u.Scheme + "://" + u.Host, nil
 }
 
 // Delete clears a provider's API key (the row stays so the masked

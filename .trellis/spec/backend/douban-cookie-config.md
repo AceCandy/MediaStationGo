@@ -1,4 +1,4 @@
-# Douban Cookie Configuration Contract
+# Douban Configuration and Artwork Contract
 
 ## 1. Scope / Trigger
 
@@ -70,4 +70,74 @@ resolved, err := apiConfig.Resolve(ctx, "douban")
 if err == nil && resolved.Enabled && strings.TrimSpace(resolved.APIKey) != "" {
 	req.Header.Set("Cookie", strings.TrimSpace(resolved.APIKey))
 }
+```
+
+## Scenario: Configurable Douban Artwork Origin and Large Poster Repair
+
+### 1. Scope / Trigger
+
+- Apply this contract when changing Douban poster parsing, `api_configs.base_url` for Douban, managed Douban artwork candidates, or the Douban artwork repair task.
+
+### 2. Signatures
+
+- Configuration: `PUT /api/admin/api-configs/douban` with optional `{"base_url":"http://db-pic1.acecandy.cn/"}`.
+- Runtime resolution: `APIConfigService.Resolve(ctx, "douban").BaseURL`.
+- Manual task definition: `douban_artwork_local_repair`, displayed as `豆瓣图片本地化修复`.
+- Candidate repair CAS identity: candidate ID plus metadata ID, artwork type, old asset ID, provider, and old source URL; current-selection synchronization is guarded by metadata ID, artwork type, old asset ID, and Douban provider.
+
+### 3. Contracts
+
+- Douban `base_url` is an optional image origin. It never changes the Douban JSON API host or Cookie behavior.
+- Resolve it for each image download. When configured, replace only the returned image URL's scheme and host; preserve path and query. An empty value keeps the original image URL.
+- Select new posters in this order: `cover.image.large.url`, `pic.large`, `pic.normal`, then compatible legacy fields. A non-HTTP(S) value is invalid and must not block the next fallback.
+- Managed image bytes still pass through `ImageProxy.Fetch` and `ArtworkStore`, including content validation, the 32 MiB limit, dimensions, SHA-256 deduplication, and DataDir storage.
+- The repair task scans Douban poster candidates. A missing local file, `s_ratio_poster` source, or asset width at most 300 is repairable. Known `/view/photo/<variant>/public/<file>` paths may be changed to `/view/photo/l/public/<file>` for historical repair.
+- Download and prepare the replacement before a transactional candidate CAS. Update the current selection only when it still points to the same old Douban asset. Never delete the old asset row or file in this task.
+- The scheduler job exists for task-center execution but is disabled by default. Saving `base_url` never starts repair work.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required result |
+| --- | --- |
+| Empty Douban `base_url` | Keep the upstream image origin. |
+| Absolute HTTP(S) origin with no credentials, query, fragment, or non-root path | Normalize and save its scheme and host. |
+| Invalid/non-HTTP(S) origin | Return HTTP 400 from the admin update and keep the previous effective value. |
+| Preferred poster field is invalid | Continue to the next poster field. |
+| Replacement download/content validation fails | Keep candidate, current selection, old asset row, and old file unchanged. |
+| Candidate changes during download | CAS updates zero rows; record a concurrent skip. |
+| Current selection belongs to another provider or asset | Update only the Douban candidate; preserve the current selection. |
+| Current selection still matches the old Douban candidate | Switch candidate and current selection in the same transaction. |
+
+### 5. Good / Base / Bad Cases
+
+- Good: a configured mirror downloads `/view/photo/l/public/p123.jpg` from the mirror while the Douban detail request still uses `m.douban.com`.
+- Base: no image origin is configured; large posters download from the URL returned by Douban.
+- Good: 713 non-selected Douban candidates upgrade without changing their other-provider current posters, while a matching selected Douban poster follows its upgraded candidate.
+- Bad: rewrite the Douban JSON API base URL, derive every new poster by blind string replacement, or delete the small file before the large image is safely stored.
+
+### 6. Tests Required
+
+- Unit-test poster field priority, invalid-field fallback, origin validation/normalization, scheme-host replacement, and historical `/l/public/` derivation.
+- Repository-test keyset candidate projection and CAS behavior for stale candidates, other-provider current selections, and matching Douban current selections.
+- Service-test a small or missing candidate through download, DataDir storage, configured origin use, candidate switch, and old-file preservation.
+- Assert task definition and disabled scheduler registration; run `go vet`, focused service/repository tests, and `git diff --check`.
+
+### 7. Wrong vs Correct
+
+```go
+// Wrong: the first non-empty object value selects pic.normal and keeps a small poster.
+poster := firstStringFromMap(subject, "pic", "cover")
+
+// Correct: validate each explicitly sized field and fall back in size order.
+poster := doubanPosterURL(subject)
+```
+
+```go
+// Wrong: change the candidate before the replacement image is validated.
+updateCandidate(newURL)
+download(newURL)
+
+// Correct: prepare bytes first, then use the old candidate snapshot as the CAS guard.
+asset := prepareDownloadedArtwork(newURL)
+repairDoubanCandidate(snapshot, newURL, asset)
 ```

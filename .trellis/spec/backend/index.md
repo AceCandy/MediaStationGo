@@ -24,7 +24,7 @@ This directory contains guidelines for backend development. Fill in each file wi
 | [Emby API Catalog Synchronization](./emby-api-catalog-sync.md) | Required backend-to-frontend catalog updates for player-visible Emby contract changes | Active |
 | [Playback History and Statistics Contracts](./playback-contracts.md) | Shared progress, UserData isolation, events, and statistics contract | Active |
 | [Player Request Logging and Redirect Cache](./player-request-logging.md) | Playback redirect cache identity, failed-response logging, and cancellation status | Active |
-| [Douban Cookie Configuration](./douban-cookie-config.md) | Database-owned Douban Cookie storage and outbound request behavior | Active |
+| [Douban Configuration and Artwork](./douban-cookie-config.md) | Database-owned Cookie, configurable image origin, and managed poster repair | Active |
 | [Discover Feed Loading Contract](../frontend/discover-feed-loading.md) | Discover section cache, explicit refresh, fallback, and Web request boundaries | Active |
 
 ---

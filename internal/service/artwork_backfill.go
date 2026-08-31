@@ -19,6 +19,113 @@ const (
 	artworkRecheckCooldown = 24 * time.Hour
 )
 
+func (s *ScraperService) runDoubanArtworkLocalRepair(ctx context.Context, trigger string) error {
+	if s == nil || s.repo == nil || s.repo.Artwork == nil || s.artwork == nil || s.douban == nil {
+		return errors.New("Douban artwork local repair dependencies unavailable")
+	}
+	metrics := map[string]int64{}
+	task, err := s.startArtworkTask(trigger, "豆瓣图片本地化修复", "正在检查豆瓣海报候选", metrics)
+	if err != nil {
+		return err
+	}
+	afterID := ""
+	for {
+		page, err := s.repo.Artwork.ListDoubanArtworkCandidatesAfter(ctx, afterID, artworkRepairPageLimit)
+		if err != nil {
+			return finishArtworkTask(task, err, "豆瓣图片本地化修复失败", metrics)
+		}
+		if len(page) == 0 {
+			break
+		}
+		for _, item := range page {
+			metrics["scanned"]++
+			detail, failed := s.repairDoubanArtworkCandidate(ctx, item, metrics)
+			if failed {
+				metrics["failed"]++
+			}
+			if task != nil && detail != "" {
+				task.Update(TaskUpdate{Stage: "repair", Metrics: metrics, Details: []string{detail}})
+			}
+			afterID = item.CandidateID
+		}
+		if len(page) < artworkRepairPageLimit {
+			break
+		}
+	}
+	if metrics["failed"] > 0 {
+		return finishArtworkTask(task, fmt.Errorf("%d Douban artwork repairs failed", metrics["failed"]), "豆瓣图片本地化修复完成，但存在失败", metrics)
+	}
+	return finishArtworkTask(task, nil, "豆瓣图片本地化修复完成", metrics)
+}
+
+func (s *ScraperService) repairDoubanArtworkCandidate(ctx context.Context, item repository.DoubanArtworkCandidate, metrics map[string]int64) (string, bool) {
+	subject := fmt.Sprintf("《%s》（%s）", strings.TrimSpace(item.Title), item.MetadataID)
+	available, err := s.artwork.doubanCandidateFileAvailable(item)
+	if err != nil {
+		return "❌ " + subject + "，动作=检查本地文件，结果=失败：" + sanitizeTaskLogError(err).Error(), true
+	}
+	small := strings.Contains(item.SourceURL, "s_ratio_poster") || item.Width <= 300
+	if available && !small {
+		metrics["large_skipped"]++
+		return "", false
+	}
+	if available {
+		metrics["small"]++
+	} else {
+		metrics["missing"]++
+	}
+	sourceURL := doubanRepairPosterURL(item.SnapshotPayload, item.SourceURL)
+	if !validRemoteArtworkURL(sourceURL) {
+		return "❌ " + subject + "，动作=选择豆瓣大图，结果=没有可用图片链接", true
+	}
+	sourceURL = s.douban.resolveArtworkURL(ctx, sourceURL)
+	_, updated, err := s.artwork.repairDoubanCandidate(ctx, item, sourceURL)
+	if err != nil {
+		return "❌ " + subject + "，动作=下载豆瓣大图，结果=可重试失败：" + sanitizeTaskLogError(err).Error(), true
+	}
+	if !updated {
+		metrics["concurrent_skipped"]++
+		return "⏭️ " + subject + "，动作=切换豆瓣大图，结果=候选已并发变更", false
+	}
+	metrics["repaired"]++
+	return "✅ " + subject + "，动作=切换豆瓣大图，结果=已保存到本地", false
+}
+
+func doubanRepairPosterURL(snapshotPayload, fallbackURL string) string {
+	sourceURL := ""
+	if strings.TrimSpace(snapshotPayload) != "" {
+		if match, err := doubanMatchFromRawJSON("", []byte(snapshotPayload)); err == nil && match != nil {
+			sourceURL = strings.TrimSpace(match.PosterURL)
+		}
+	}
+	if sourceURL == "" {
+		sourceURL = strings.TrimSpace(fallbackURL)
+	}
+	if largeURL := deriveDoubanLargePosterURL(sourceURL); largeURL != "" {
+		return largeURL
+	}
+	return sourceURL
+}
+
+func deriveDoubanLargePosterURL(raw string) string {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return ""
+	}
+	const prefix = "/view/photo/"
+	if !strings.HasPrefix(u.Path, prefix) {
+		return ""
+	}
+	rest := strings.TrimPrefix(u.Path, prefix)
+	publicAt := strings.Index(rest, "/public/")
+	if publicAt <= 0 {
+		return ""
+	}
+	u.Path = prefix + "l" + rest[publicAt:]
+	u.RawPath = ""
+	return u.String()
+}
+
 func (s *ScraperService) runTMDbArtworkLocalRepair(ctx context.Context, trigger string) error {
 	if s == nil || s.repo == nil || s.repo.Artwork == nil || s.artwork == nil {
 		return errors.New("TMDb artwork local repair dependencies unavailable")
