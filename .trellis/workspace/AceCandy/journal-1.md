@@ -1583,3 +1583,25 @@ Audited unbounded PostgreSQL collection bindings, replaced risky slice expansion
 ### Status
 
 [OK] **Completed**
+
+
+## Session 74: 豆瓣大图与图片本地化修复
+<!-- trellis-session: v=2 fp=79282238d7c28c34 -->
+
+**Date**: 2026-08-31
+**Task**: 豆瓣大图与图片本地化修复
+**Branch**: `main`
+
+### Summary
+
+支持豆瓣图片 origin 配置、大图字段优先级和安全的历史候选本地化修复任务；聚焦测试与 go vet 通过，PostgreSQL 集成测试因无独立测试 DSN 跳过。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `60bd0cc` | feat: support configurable Douban artwork repair |
+
+### Status
+
+[OK] **Completed**
