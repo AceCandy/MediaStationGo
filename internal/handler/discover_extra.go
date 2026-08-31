@@ -98,6 +98,13 @@ func discoverFeedHandler(svc *service.Container) gin.HandlerFunc {
 		meta := gin.H{}
 		artworkItems := []service.ExternalMediaResult{}
 		for _, result := range loadDiscoverSections(c.Request.Context(), svc, keys, page, refresh) {
+			if svc != nil && svc.Douban != nil {
+				for i := range result.items {
+					if result.items[i].Source == "douban" {
+						result.items[i].PosterURL = svc.Douban.ResolveArtworkURL(c.Request.Context(), result.items[i].PosterURL)
+					}
+				}
+			}
 			out[result.key] = result.items
 			meta[result.key] = result.meta
 			artworkItems = append(artworkItems, result.items...)

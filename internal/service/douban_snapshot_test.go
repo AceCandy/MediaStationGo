@@ -110,25 +110,67 @@ func TestDoubanArtworkURLUsesLiveConfiguredOrigin(t *testing.T) {
 	db := newServiceTestDB(t, &model.APIConfig{})
 	apiConfig := NewAPIConfigService(zap.NewNop(), &repository.Container{DB: db}, NewCryptoService("test-secret", zap.NewNop()))
 	provider := NewDoubanProvider(apiConfig)
-	sourceURL := "https://img9.doubanio.com/view/photo/l/public/p123.jpg?x=1"
+	sourceURL := "https://img9.doubanio.com/view/photo/s_ratio_poster/public/p123.jpg?imageView2/2/q/80/w/600/h/3000/format/jpg"
+	largeURL := "https://img9.doubanio.com/view/photo/l/public/p123.jpg?imageView2/2/q/80/w/600/h/3000/format/jpg"
 
-	if got := provider.resolveArtworkURL(t.Context(), sourceURL); got != sourceURL {
+	if got := provider.ResolveArtworkURL(t.Context(), sourceURL); got != largeURL {
 		t.Fatalf("unconfigured artwork URL = %q", got)
 	}
 	origin := "http://db-pic1.acecandy.cn/"
 	if _, err := apiConfig.Update(t.Context(), "douban", APIConfigPatch{BaseURL: &origin}); err != nil {
 		t.Fatal(err)
 	}
-	if got := provider.resolveArtworkURL(t.Context(), sourceURL); got != "http://db-pic1.acecandy.cn/view/photo/l/public/p123.jpg?x=1" {
+	want := "http://db-pic1.acecandy.cn/view/photo/l/public/p123.webp?imageView2/2/q/80/w/600/h/3000/format/webp"
+	if got := provider.ResolveArtworkURL(t.Context(), sourceURL); got != want {
 		t.Fatalf("configured artwork URL = %q", got)
+	}
+	if got := provider.ResolveArtworkURL(t.Context(), want); got != want {
+		t.Fatalf("re-resolved artwork URL = %q", got)
+	}
+	if got := provider.ResolveArtworkURL(t.Context(), "https://img9.doubanio.com/custom/poster"); got != "http://db-pic1.acecandy.cn/custom/poster" {
+		t.Fatalf("extensionless artwork URL = %q", got)
+	}
+	provider.client = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		body := `{"title":"详情","cover":{"image":{"large":{"url":"https://img9.doubanio.com/view/photo/l/public/p456.jpg"}}}}`
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(body)), Request: req}, nil
+	})}
+	match, err := provider.GetMatchByID(t.Context(), "456")
+	if err != nil || match == nil || match.PosterURL != "http://db-pic1.acecandy.cn/view/photo/l/public/p456.webp" {
+		t.Fatalf("detail match = %#v, %v", match, err)
 	}
 
 	invalid := "ftp://db-pic1.acecandy.cn/"
 	if _, err := apiConfig.Update(t.Context(), "douban", APIConfigPatch{BaseURL: &invalid}); err == nil {
 		t.Fatal("expected invalid Douban image domain rejection")
 	}
-	if got := provider.resolveArtworkURL(t.Context(), sourceURL); got != "http://db-pic1.acecandy.cn/view/photo/l/public/p123.jpg?x=1" {
+	if got := provider.ResolveArtworkURL(t.Context(), sourceURL); got != want {
 		t.Fatalf("invalid update changed artwork URL = %q", got)
+	}
+}
+
+func TestDoubanSearchAndDiscoverDeriveLargePosters(t *testing.T) {
+	provider := NewDoubanProvider(nil)
+	provider.client = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		body := `[{"id":"1","title":"搜索","img":"https://img1.doubanio.com/view/photo/s_ratio_poster/public/p1.jpg"}]`
+		if req.URL.Path == "/j/search_subjects" {
+			body = `{"subjects":[{"id":"2","title":"发现","cover":"https://img2.doubanio.com/view/photo/s_ratio_poster/public/p2.jpg"}]}`
+		}
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(body)), Request: req}, nil
+	})}
+
+	match, err := provider.Search(t.Context(), "测试")
+	if err != nil || match == nil || match.Img != "https://img1.doubanio.com/view/photo/l/public/p1.jpg" {
+		t.Fatalf("search match = %#v, %v", match, err)
+	}
+	items, err := provider.Discover(t.Context(), "douban_hot_movie")
+	if err != nil || len(items) != 1 || items[0].PosterURL != "https://img2.doubanio.com/view/photo/l/public/p2.jpg" {
+		t.Fatalf("discover items = %#v, %v", items, err)
+	}
+}
+
+func TestDeriveDoubanLargePosterURLRejectsMissingFile(t *testing.T) {
+	if got := deriveDoubanLargePosterURL("https://img1.doubanio.com/view/photo/s_ratio_poster/public/"); got != "" {
+		t.Fatalf("missing-file poster URL = %q", got)
 	}
 }
 
@@ -160,8 +202,9 @@ func TestDoubanPosterURLPrefersLargestSnapshotField(t *testing.T) {
 		{"cover large", `{"cover":{"image":{"large":{"url":"https://img.test/view/photo/l/public/1.jpg"}}},"pic":{"large":"https://img.test/m.jpg","normal":"https://img.test/s.jpg"}}`, "https://img.test/view/photo/l/public/1.jpg"},
 		{"invalid cover large", `{"cover":{"image":{"large":{"url":"not-a-url"}}},"pic":{"large":"https://img.test/m.jpg","normal":"https://img.test/s.jpg"}}`, "https://img.test/m.jpg"},
 		{"pic large", `{"pic":{"large":"https://img.test/m.jpg","normal":"https://img.test/s.jpg"}}`, "https://img.test/m.jpg"},
-		{"pic normal", `{"pic":{"normal":"https://img.test/s.jpg"}}`, "https://img.test/s.jpg"},
-		{"legacy cover", `{"cover_url":"https://img.test/legacy.jpg"}`, "https://img.test/legacy.jpg"},
+		{"nested small in large field", `{"pic":{"large":{"small":"https://img.test/s.jpg"}}}`, ""},
+		{"pic normal", `{"pic":{"normal":"https://img.test/s.jpg"}}`, ""},
+		{"legacy cover", `{"cover_url":"https://img.test/legacy.jpg"}`, ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -179,7 +222,7 @@ func TestDoubanGetMatchByIDPreservesRawJSON(t *testing.T) {
 		if req.URL.Path != "/rexxar/api/v2/movie/1295644" || req.Header.Get("Referer") != "https://m.douban.com/subject/1295644/" {
 			t.Fatalf("request = %s", req.URL.String())
 		}
-		body := `{"title":"豆瓣详情","original_title":"Original","intro":"完整简介","cover_url":"https://img.test/poster.jpg","tmdb_id":603,"rating":{"value":9.4},"future_field":{"kept":true}}`
+		body := `{"title":"豆瓣详情","original_title":"Original","intro":"完整简介","cover":{"image":{"large":{"url":"https://img.test/poster.jpg"}}},"tmdb_id":603,"rating":{"value":9.4},"future_field":{"kept":true}}`
 		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(body)), Request: req}, nil
 	})}
 
@@ -583,7 +626,7 @@ func TestDoubanMovieEnrichmentLogsActualChangesAndIdleRun(t *testing.T) {
 	provider.client = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
 		title, summary, poster := "已有中文标题", "已有简介", ""
 		if strings.HasSuffix(req.URL.Path, "/2") {
-			title, summary, poster = "补齐中文标题", "补齐简介", `,"cover_url":"https://img.test/poster.jpg"`
+			title, summary, poster = "补齐中文标题", "补齐简介", `,"cover":{"image":{"large":{"url":"https://img.test/poster.jpg"}}}`
 		}
 		body := `{"title":"` + title + `","intro":"` + summary + `"` + poster + `}`
 		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(body)), Request: req}, nil

@@ -24,6 +24,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"path"
 	"strings"
 	"time"
 )
@@ -112,7 +113,7 @@ func (d *DoubanProvider) Search(ctx context.Context, query string) (*DoubanMatch
 		DoubanID: r.ID,
 		Title:    r.Title,
 		Year:     r.Year,
-		Img:      r.Img,
+		Img:      d.ResolveArtworkURL(ctx, deriveDoubanLargePosterURL(r.Img)),
 		Type:     r.Type,
 	}, nil
 }
@@ -149,7 +150,11 @@ func (d *DoubanProvider) GetMatchByID(ctx context.Context, doubanID string) (*Ma
 	if err != nil {
 		return nil, err
 	}
-	return doubanMatchFromRawJSON(doubanID, rawJSON)
+	match, err := doubanMatchFromRawJSON(doubanID, rawJSON)
+	if match != nil {
+		match.PosterURL = d.ResolveArtworkURL(ctx, match.PosterURL)
+	}
+	return match, err
 }
 
 // GetEnrichmentMatchByID 只使用移动详情接口，供需要完整快照的补齐流程调用。
@@ -166,6 +171,7 @@ func (d *DoubanProvider) GetEnrichmentMatchByID(ctx context.Context, doubanID st
 	if err != nil {
 		return nil, ErrDoubanTemporarilyUnavailable
 	}
+	match.PosterURL = d.ResolveArtworkURL(ctx, match.PosterURL)
 	return match, nil
 }
 
@@ -309,14 +315,8 @@ func doubanPosterURL(subject map[string]any) string {
 	for _, path := range [][]string{
 		{"cover", "image", "large", "url"},
 		{"pic", "large"},
-		{"pic", "normal"},
 	} {
 		if value := stringFromMapPath(subject, path...); validRemoteArtworkURL(value) {
-			return value
-		}
-	}
-	for _, key := range []string{"pic", "img", "cover", "cover_url"} {
-		if value := firstStringFromMap(subject, key); validRemoteArtworkURL(value) {
 			return value
 		}
 	}
@@ -332,19 +332,20 @@ func stringFromMapPath(values map[string]any, path ...string) string {
 		}
 		current = nested[key]
 	}
-	switch value := current.(type) {
-	case string:
-		return strings.TrimSpace(value)
-	case map[string]any:
-		return firstStringFromMap(value, "url", "large", "normal", "small")
-	default:
-		return ""
-	}
+	value, _ := current.(string)
+	return strings.TrimSpace(value)
 }
 
-func (d *DoubanProvider) resolveArtworkURL(ctx context.Context, raw string) string {
+// ResolveArtworkURL applies the current Douban image origin and format without changing the JSON API endpoint.
+func (d *DoubanProvider) ResolveArtworkURL(ctx context.Context, raw string) string {
 	sourceURL := strings.TrimSpace(raw)
-	if d == nil || d.apiConfig == nil || sourceURL == "" {
+	if sourceURL == "" {
+		return ""
+	}
+	if largeURL := deriveDoubanLargePosterURL(sourceURL); largeURL != "" {
+		sourceURL = largeURL
+	}
+	if d == nil || d.apiConfig == nil {
 		return sourceURL
 	}
 	resolved, err := d.apiConfig.Resolve(ctx, "douban")
@@ -360,7 +361,34 @@ func (d *DoubanProvider) resolveArtworkURL(ctx context.Context, raw string) stri
 		return sourceURL
 	}
 	target.Scheme, target.Host, target.User = origin.Scheme, origin.Host, nil
+	if ext := path.Ext(target.Path); ext != "" {
+		target.Path = strings.TrimSuffix(target.Path, ext) + ".webp"
+		target.RawPath = ""
+	}
+	target.RawQuery = strings.NewReplacer(
+		"/format/jpg", "/format/webp",
+		"/format/jpeg", "/format/webp",
+	).Replace(target.RawQuery)
 	return target.String()
+}
+
+func deriveDoubanLargePosterURL(raw string) string {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return ""
+	}
+	const prefix = "/view/photo/"
+	if !strings.HasPrefix(u.Path, prefix) {
+		return ""
+	}
+	rest := strings.TrimPrefix(u.Path, prefix)
+	publicAt := strings.Index(rest, "/public/")
+	if publicAt <= 0 || strings.TrimSpace(rest[publicAt+len("/public/"):]) == "" {
+		return ""
+	}
+	u.Path = prefix + "l" + rest[publicAt:]
+	u.RawPath = ""
+	return u.String()
 }
 
 func (d *DoubanProvider) GetEpisodeCount(ctx context.Context, query string) (int, error) {

@@ -148,6 +148,64 @@ func TestDiscoverSectionCacheHitSkipsProvider(t *testing.T) {
 	}
 }
 
+func TestDiscoverFeedAppliesLiveDoubanArtworkOriginToCachedItems(t *testing.T) {
+	db, err := testdb.OpenPostgres(t, &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(&model.APIConfig{}); err != nil {
+		t.Fatal(err)
+	}
+	repos := repository.New(db)
+	apiConfig := service.NewAPIConfigService(zap.NewNop(), repos, service.NewCryptoService("", zap.NewNop()))
+	origin := "http://images-one.test/"
+	if _, err := apiConfig.Update(t.Context(), "douban", service.APIConfigPatch{BaseURL: &origin}); err != nil {
+		t.Fatal(err)
+	}
+	svc := &service.Container{
+		APIConfig: apiConfig,
+		Douban:    service.NewDoubanProvider(apiConfig),
+		Discover:  service.NewDiscoverService(zap.NewNop(), nil),
+		Log:       zap.NewNop(),
+	}
+	rawPoster := "https://img9.doubanio.com/view/photo/l/public/p123.jpg"
+	svc.Discover.RememberSection("douban_hot_movie", 1, []service.ExternalMediaResult{{
+		Source: "douban", Title: "cached", PosterURL: rawPoster,
+	}})
+
+	requestPoster := func() string {
+		t.Helper()
+		recorder := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(recorder)
+		c.Request = httptest.NewRequest(http.MethodGet, "/discover/feed?sections=douban_hot_movie", nil)
+		discoverFeedHandler(svc)(c)
+		var response map[string]json.RawMessage
+		if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+			t.Fatal(err)
+		}
+		var items []service.ExternalMediaResult
+		if err := json.Unmarshal(response["douban_hot_movie"], &items); err != nil || len(items) != 1 {
+			t.Fatalf("items = %#v, %v", items, err)
+		}
+		return items[0].PosterURL
+	}
+
+	if got := requestPoster(); got != "http://images-one.test/view/photo/l/public/p123.webp" {
+		t.Fatalf("first poster URL = %q", got)
+	}
+	origin = "https://images-two.test/"
+	if _, err := apiConfig.Update(t.Context(), "douban", service.APIConfigPatch{BaseURL: &origin}); err != nil {
+		t.Fatal(err)
+	}
+	if got := requestPoster(); got != "https://images-two.test/view/photo/l/public/p123.webp" {
+		t.Fatalf("updated poster URL = %q", got)
+	}
+	items, ok := svc.Discover.CachedSection("douban_hot_movie", 1)
+	if !ok || len(items) != 1 || items[0].PosterURL != rawPoster {
+		t.Fatalf("cached items changed = %#v", items)
+	}
+}
+
 func TestDiscoverSectionsMixedCacheHitStillLoadsMissesInOrder(t *testing.T) {
 	svc, calls := newDiscoverTMDbTestService(t, http.StatusOK, "fresh")
 	svc.Discover.RememberSection("tmdb_popular_movie", 1, []service.ExternalMediaResult{{Title: "cached"}})

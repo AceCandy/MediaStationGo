@@ -92,9 +92,9 @@ func TestDoubanArtworkLocalRepairUpgradesCandidateWithoutReplacingManualSelectio
 	root := t.TempDir()
 	cfg := &config.Config{App: config.AppConfig{DataDir: root}, Cache: config.CacheConfig{CacheDir: filepath.Join(root, "cache")}}
 	proxy := NewImageProxy(cfg, zap.NewNop())
-	requestedHost := ""
+	requestedURL := ""
 	proxy.client = &http.Client{Transport: imageRoundTripFunc(func(req *http.Request) (*http.Response, error) {
-		requestedHost = req.URL.Host
+		requestedURL = req.URL.String()
 		return &http.Response{StatusCode: http.StatusOK, Status: "200 OK", Header: http.Header{"Content-Type": []string{"image/jpeg"}}, Body: io.NopCloser(bytes.NewReader(testJPEG)), Request: req}, nil
 	})}
 	store := NewArtworkStore(cfg, repos.Artwork, proxy)
@@ -118,8 +118,8 @@ func TestDoubanArtworkLocalRepairUpgradesCandidateWithoutReplacingManualSelectio
 	if err := svc.runDoubanArtworkLocalRepair(t.Context(), TaskTriggerManual); err != nil {
 		t.Fatal(err)
 	}
-	if requestedHost != "db-pic1.acecandy.cn" {
-		t.Fatalf("Douban artwork host = %q", requestedHost)
+	if requestedURL != "http://db-pic1.acecandy.cn/view/photo/l/public/p123.webp" {
+		t.Fatalf("Douban artwork URL = %q", requestedURL)
 	}
 	selected, err := repos.Artwork.FindSelection(t.Context(), metadata.ID, model.ArtworkTypePoster)
 	if err != nil || selected == nil || selected.ID != manual.ID {
@@ -129,7 +129,7 @@ func TestDoubanArtworkLocalRepairUpgradesCandidateWithoutReplacingManualSelectio
 	if err := db.First(&candidate, "metadata_id = ? AND artwork_type = ? AND source_provider = 'douban'", metadata.ID, model.ArtworkTypePoster).Error; err != nil {
 		t.Fatal(err)
 	}
-	if candidate.AssetID == old.ID || candidate.SourceURL != "http://db-pic1.acecandy.cn/view/photo/l/public/p123.jpg" {
+	if candidate.AssetID == old.ID || candidate.SourceURL != "http://db-pic1.acecandy.cn/view/photo/l/public/p123.webp" {
 		t.Fatalf("repaired candidate = %#v", candidate)
 	}
 	if _, err := os.Stat(oldPath); err != nil {

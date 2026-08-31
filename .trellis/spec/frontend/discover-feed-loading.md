@@ -29,6 +29,7 @@ loadDiscoverSections(parent context.Context, svc *service.Container, keys []stri
 - `refresh=1` bypasses only the pre-request cache fast path. Provider failure still resolves in this order: section cache -> configured Provider fallback -> per-section error.
 - Responses keep `items[sectionKey]` and `_meta[sectionKey]`; metadata includes `page` and `has_next`, with `stale`, `fallback`, `warning`, `error`, or `disabled` only when applicable.
 - Same-Provider jobs remain serial; different Provider groups use the existing bounded worker count. Cache hits do not alter input ordering.
+- Douban cache entries keep an origin-independent large poster URL. Before response and preheat, cloned Douban items apply the current configured image origin and WebP format; changing that administrator configuration takes effect on the next cached response without clearing or mutating the section cache.
 - The Web page groups sections by page for initial load and refresh. A row page change requests only that section and target page.
 - Starting a new feed batch aborts the previous controller. Aborted batches must not update rows, errors, loading state, or localStorage cache.
 - Discover poster URLs stay stable across mounts and manual data refresh. Use native `loading="lazy"`; only a failed individual image retry may add `v=r1` through `v=r3` and `refresh=1`.
@@ -39,7 +40,7 @@ loadDiscoverSections(parent context.Context, svc *service.Container, keys []stri
 | --- | --- |
 | `page < 1` or invalid | Normalize to page `1`. |
 | Unknown section key | Drop it without failing other sections. |
-| Ordinary request with valid non-empty cache | Return cached items; do not call Provider. |
+| Ordinary request with valid non-empty cache | Return cached items; do not call Provider. Apply the current Douban image configuration to the cloned response only. |
 | Ordinary request with empty or expired cache | Call Provider through existing scheduling. |
 | `refresh=1`, Provider succeeds | Return fresh items and replace the section cache when non-empty. |
 | `refresh=1`, Provider fails, cache exists | Return cache with `stale=true`, correct `has_next`, and do not call fallback. |
@@ -59,6 +60,7 @@ loadDiscoverSections(parent context.Context, svc *service.Container, keys []stri
 - Handler: mixed cache hit/miss preserves order and still loads misses.
 - Handler: `refresh=1` calls Provider, returns fresh data, and a following ordinary request reuses that data.
 - Handler: refresh failure with cache asserts items, `stale=true`, `has_next`, and absence of `fallback`.
+- Handler: update the Douban image origin between two cache-hit requests; assert the second response uses the new WebP origin and the stored cache keeps the origin-independent URL.
 - Web checks: lint and build pass; browser verification observes one section on row pagination, `refresh=1` on manual refresh, an actual abort during rapid actions, stable poster URLs, and `r1`-`r3` only on failed-image retry.
 
 ## 7. Wrong vs Correct

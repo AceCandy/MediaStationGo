@@ -82,14 +82,19 @@ if err == nil && resolved.Enabled && strings.TrimSpace(resolved.APIKey) != "" {
 
 - Configuration: `PUT /api/admin/api-configs/douban` with optional `{"base_url":"http://db-pic1.acecandy.cn/"}`.
 - Runtime resolution: `APIConfigService.Resolve(ctx, "douban").BaseURL`.
+- Artwork projection: `DoubanProvider.ResolveArtworkURL(ctx, sourceURL)`.
 - Manual task definition: `douban_artwork_local_repair`, displayed as `豆瓣图片本地化修复`.
 - Candidate repair CAS identity: candidate ID plus metadata ID, artwork type, old asset ID, provider, and old source URL; current-selection synchronization is guarded by metadata ID, artwork type, old asset ID, and Douban provider.
 
 ### 3. Contracts
 
 - Douban `base_url` is an optional image origin. It never changes the Douban JSON API host or Cookie behavior.
-- Resolve it for each image download. When configured, replace only the returned image URL's scheme and host; preserve path and query. An empty value keeps the original image URL.
-- Select new posters in this order: `cover.image.large.url`, `pic.large`, `pic.normal`, then compatible legacy fields. A non-HTTP(S) value is invalid and must not block the next fallback.
+- Known `/view/photo/<variant>/public/<file>` paths resolve to `/view/photo/l/public/<file>`. Search `img` and discover `cover` are thumbnail fields and must be omitted when this known large path cannot be derived.
+- Select detail posters only in this order: `cover.image.large.url`, then `pic.large`. A non-HTTP(S) value is invalid and must not block the next large field; `pic.normal` and compatible thumbnail fields are not fallbacks.
+- Resolve the current image origin for search display, discover display/preheat, enrichment downloads, and repair downloads. When configured and enabled, replace the image URL's scheme and host, change the final path extension to `.webp`, and change observed Qiniu `/format/jpg` or `/format/jpeg` query segments to `/format/webp`. An extensionless valid large URL changes origin only.
+- An empty/disabled/unavailable image-origin configuration keeps the upstream origin and format, but known photo paths still use the `/l/` variant.
+- Discover section cache stores the origin-independent large URL. Apply `ResolveArtworkURL` to cloned results before response, image preheat, and catalog hydration so a configuration update is visible on the next cached response without cache invalidation.
+- Artwork URL projection is idempotent. Reprocessing an `/l/`, configured-origin, `.webp` URL does not change it again.
 - Managed image bytes still pass through `ImageProxy.Fetch` and `ArtworkStore`, including content validation, the 32 MiB limit, dimensions, SHA-256 deduplication, and DataDir storage.
 - The repair task scans Douban poster candidates. A missing local file, `s_ratio_poster` source, or asset width at most 300 is repairable. Known `/view/photo/<variant>/public/<file>` paths may be changed to `/view/photo/l/public/<file>` for historical repair.
 - Download and prepare the replacement before a transactional candidate CAS. Update the current selection only when it still points to the same old Douban asset. Never delete the old asset row or file in this task.
@@ -99,10 +104,16 @@ if err == nil && resolved.Enabled && strings.TrimSpace(resolved.APIKey) != "" {
 
 | Condition | Required result |
 | --- | --- |
-| Empty Douban `base_url` | Keep the upstream image origin. |
+| Empty, disabled, or unreadable Douban `base_url` | Keep the upstream image origin and file format; still derive known `/l/` paths. |
 | Absolute HTTP(S) origin with no credentials, query, fragment, or non-root path | Normalize and save its scheme and host. |
 | Invalid/non-HTTP(S) origin | Return HTTP 400 from the admin update and keep the previous effective value. |
-| Preferred poster field is invalid | Continue to the next poster field. |
+| `cover.image.large.url` is invalid | Continue to `pic.large`. |
+| Only detail thumbnail/legacy fields exist | Return no poster; never download the thumbnail. |
+| Search/discover thumbnail has a known photo path | Derive `/view/photo/l/public/<file>`; apply current origin/WebP only when returning it. |
+| Search/discover thumbnail has no known large path | Return an empty poster URL. |
+| Configured-origin URL ends in an image extension and query format is JPEG | Change the path extension and observed query format to WebP. |
+| Valid configured-origin detail large URL has no extension | Change origin only; do not guess or append an extension. |
+| Discover cache predates an image-origin update | Keep the cached origin-independent URL and project the new origin on the next response/preheat. |
 | Replacement download/content validation fails | Keep candidate, current selection, old asset row, and old file unchanged. |
 | Candidate changes during download | CAS updates zero rows; record a concurrent skip. |
 | Current selection belongs to another provider or asset | Update only the Douban candidate; preserve the current selection. |
@@ -110,14 +121,16 @@ if err == nil && resolved.Enabled && strings.TrimSpace(resolved.APIKey) != "" {
 
 ### 5. Good / Base / Bad Cases
 
-- Good: a configured mirror downloads `/view/photo/l/public/p123.jpg` from the mirror while the Douban detail request still uses `m.douban.com`.
-- Base: no image origin is configured; large posters download from the URL returned by Douban.
+- Good: a configured mirror displays and downloads `/view/photo/l/public/p123.webp` while the Douban detail request still uses `m.douban.com`.
+- Good: changing the mirror immediately changes a cached discover response and its preheat URL without another Douban request.
+- Base: no image origin is configured; search/discover use the upstream `/l/` JPEG and detail uses a validated large field.
 - Good: 713 non-selected Douban candidates upgrade without changing their other-provider current posters, while a matching selected Douban poster follows its upgraded candidate.
-- Bad: rewrite the Douban JSON API base URL, derive every new poster by blind string replacement, or delete the small file before the large image is safely stored.
+- Bad: rewrite the Douban JSON API base URL, return `pic.normal`, cache the configured mirror URL for six hours, derive a non-standard thumbnail by guesswork, or delete the small file before the large image is safely stored.
 
 ### 6. Tests Required
 
-- Unit-test poster field priority, invalid-field fallback, origin validation/normalization, scheme-host replacement, and historical `/l/public/` derivation.
+- Unit-test large-only poster field priority, invalid-field fallback, nested thumbnail rejection, origin validation, `/l/public/` derivation boundaries, WebP path/query rewriting, extensionless behavior, and idempotency.
+- Provider/handler-test search and discover thumbnail derivation plus live image-origin projection on cached results; assert the cache retains its origin-independent URL.
 - Repository-test keyset candidate projection and CAS behavior for stale candidates, other-provider current selections, and matching Douban current selections.
 - Service-test a small or missing candidate through download, DataDir storage, configured origin use, candidate switch, and old-file preservation.
 - Assert task definition and disabled scheduler registration; run `go vet`, focused service/repository tests, and `git diff --check`.
@@ -128,7 +141,7 @@ if err == nil && resolved.Enabled && strings.TrimSpace(resolved.APIKey) != "" {
 // Wrong: the first non-empty object value selects pic.normal and keeps a small poster.
 poster := firstStringFromMap(subject, "pic", "cover")
 
-// Correct: validate each explicitly sized field and fall back in size order.
+// Correct: validate only explicitly large fields and never fall back to a thumbnail.
 poster := doubanPosterURL(subject)
 ```
 

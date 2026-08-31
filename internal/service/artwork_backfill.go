@@ -78,7 +78,7 @@ func (s *ScraperService) repairDoubanArtworkCandidate(ctx context.Context, item 
 	if !validRemoteArtworkURL(sourceURL) {
 		return "❌ " + subject + "，动作=选择豆瓣大图，结果=没有可用图片链接", true
 	}
-	sourceURL = s.douban.resolveArtworkURL(ctx, sourceURL)
+	sourceURL = s.douban.ResolveArtworkURL(ctx, sourceURL)
 	_, updated, err := s.artwork.repairDoubanCandidate(ctx, item, sourceURL)
 	if err != nil {
 		return "❌ " + subject + "，动作=下载豆瓣大图，结果=可重试失败：" + sanitizeTaskLogError(err).Error(), true
@@ -105,25 +105,6 @@ func doubanRepairPosterURL(snapshotPayload, fallbackURL string) string {
 		return largeURL
 	}
 	return sourceURL
-}
-
-func deriveDoubanLargePosterURL(raw string) string {
-	u, err := url.Parse(strings.TrimSpace(raw))
-	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
-		return ""
-	}
-	const prefix = "/view/photo/"
-	if !strings.HasPrefix(u.Path, prefix) {
-		return ""
-	}
-	rest := strings.TrimPrefix(u.Path, prefix)
-	publicAt := strings.Index(rest, "/public/")
-	if publicAt <= 0 {
-		return ""
-	}
-	u.Path = prefix + "l" + rest[publicAt:]
-	u.RawPath = ""
-	return u.String()
 }
 
 func (s *ScraperService) runTMDbArtworkLocalRepair(ctx context.Context, trigger string) error {
