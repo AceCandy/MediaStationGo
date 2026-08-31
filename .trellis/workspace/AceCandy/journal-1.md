@@ -1539,3 +1539,25 @@ Audited unbounded PostgreSQL collection bindings, replaced risky slice expansion
 ### Status
 
 [OK] **Completed**
+
+
+## Session 72: 豆瓣 Cookie 与信息补齐
+<!-- trellis-session: v=2 fp=37317d7a7e35e8f3 -->
+
+**Date**: 2026-08-31
+**Task**: 豆瓣 Cookie 与信息补齐
+**Branch**: `main`
+
+### Summary
+
+将豆瓣 Cookie 收口到外部 API 配置，扩宽凭据列，并新增只走移动详情的单媒体与批量补齐、限流停批和同条重试。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `07cabd1` | feat(douban): centralize cookie and make enrichment retry-safe |
+
+### Status
+
+[OK] **Completed**
