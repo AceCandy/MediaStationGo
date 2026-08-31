@@ -1627,3 +1627,25 @@ Audited unbounded PostgreSQL collection bindings, replaced risky slice expansion
 ### Status
 
 [OK] **Completed**
+
+
+## Session 76: 豆瓣图片直连与 curl 兜底
+<!-- trellis-session: v=2 fp=ef23f679fd3c4659 -->
+
+**Date**: 2026-09-01
+**Task**: 豆瓣图片直连与 curl 兜底
+**Branch**: `main`
+
+### Summary
+
+在外部 API 豆瓣配置中增加图片直连开关；开启后官方或当前自定义图片域名按直连到 curl 获取，保留非豆瓣旧行为并隔离失败缓存。补齐迁移、配置、请求顺序、域名隔离和缓存回归测试。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `ce1f956` | feat: add Douban image direct fallback |
+
+### Status
+
+[OK] **Completed**

@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 75
-- **Last Active**: 2026-08-31
+- **Total Sessions**: 76
+- **Last Active**: 2026-09-01
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~1629 | Active |
+| `journal-1.md` | ~1651 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 76 | 2026-09-01 | 豆瓣图片直连与 curl 兜底 | `ce1f956` | `main` |
 | 75 | 2026-08-31 | 豆瓣大图与 WebP 统一 | `e8ae4d0` | `main` |
 | 74 | 2026-08-31 | 豆瓣大图与图片本地化修复 | `60bd0cc` | `main` |
 | 73 | 2026-08-31 | 归档电影扫描 deleted_at 修复任务 | `345a100` | `main` |
