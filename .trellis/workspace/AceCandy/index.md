@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 72
+- **Total Sessions**: 73
 - **Last Active**: 2026-08-31
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~1563 | Active |
+| `journal-1.md` | ~1585 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 73 | 2026-08-31 | 归档电影扫描 deleted_at 修复任务 | `345a100` | `main` |
 | 72 | 2026-08-31 | 豆瓣 Cookie 与信息补齐 | `07cabd1` | `main` |
 | 71 | 2026-08-30 | Fix PostgreSQL parameter overflow | `edcd134` | `main` |
 | 70 | 2026-08-30 | 修复电影库剧集误判 | `b5f1cf1` | `main` |

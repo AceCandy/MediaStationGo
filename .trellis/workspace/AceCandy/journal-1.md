@@ -1561,3 +1561,25 @@ Audited unbounded PostgreSQL collection bindings, replaced risky slice expansion
 ### Status
 
 [OK] **Completed**
+
+
+## Session 73: 归档电影扫描 deleted_at 修复任务
+<!-- trellis-session: v=2 fp=3578dfc3edc2f603 -->
+
+**Date**: 2026-08-31
+**Task**: 归档电影扫描 deleted_at 修复任务
+**Branch**: `main`
+
+### Summary
+
+电影扫描 deleted_at 根因修复已完成，用户确认 PostgreSQL 专项验收通过，任务已归档。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `345a100` | fix(scanner): remove retired metadata soft-delete filter |
+
+### Status
+
+[OK] **Completed**
