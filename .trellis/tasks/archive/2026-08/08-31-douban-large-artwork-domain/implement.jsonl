@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/backend/douban-cookie-config.md", "reason": "豆瓣外部 API 配置与逐请求解析契约"}
+{"file": ".trellis/spec/backend/shared-media-metadata.md", "reason": "托管图片、本地落盘和当前选择安全契约"}
+{"file": ".trellis/spec/backend/background-task-execution.md", "reason": "任务中心、调度和执行记录契约"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "事务、CAS 与 PostgreSQL 查询规范"}

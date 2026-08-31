@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/backend/douban-cookie-config.md", "reason": "复核配置热更新与敏感信息边界"}
+{"file": ".trellis/spec/backend/shared-media-metadata.md", "reason": "复核图片落盘、选择保护与回滚"}
+{"file": ".trellis/spec/backend/background-task-execution.md", "reason": "复核任务定义、互斥和指标"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "复核事务与查询边界"}
