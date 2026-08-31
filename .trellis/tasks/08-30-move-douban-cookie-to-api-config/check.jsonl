@@ -1,0 +1,3 @@
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"复核 Cookie 从管理页到出站请求的完整数据流"}
+{"file":".trellis/spec/backend/database-guidelines.md","reason":"复核数据库配置即时读取、错误回退和无 schema 变更"}
+{"file":".trellis/spec/frontend/design-system.md","reason":"复核 Douban 专用文案未破坏现有外部 API UI 约定"}

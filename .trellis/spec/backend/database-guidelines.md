@@ -205,6 +205,10 @@ db.Where("id = ANY(?)", &ids)
 
 - Store provider/NFO/AI free-form text as `text` unless the upstream contract
   defines a real maximum. Do not infer `varchar(255)` from typical samples.
+- When multiple GORM models map to the same table, every shared column must use
+  the same type tag. Search `AllModels()` and both explicit and default table
+  names before changing one model; a later model can otherwise undo the first
+  model's migration in the same `AutoMigrate` call.
 - When changing a PostgreSQL column type, include an idempotent compatibility
   statement and a PostgreSQL schema assertion.
 

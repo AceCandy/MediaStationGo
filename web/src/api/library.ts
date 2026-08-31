@@ -244,6 +244,9 @@ export const mediaAPI = {
 
   retryScrape: (id: string) => api.post<{ status: string }>(`/media/${id}/scrape`).then((r) => r.data),
 
+  enrichDouban: (id: string) =>
+    api.post<{ status: string }>(`/media/${id}/douban-enrichment`, null, { timeout: LONG_REQUEST_TIMEOUT }).then((r) => r.data),
+
   delete: (id: string) => api.delete(`/media/${id}`).then((r) => r.data),
 
   listVersions: (id: string) => api.get<Media[]>(`/media/${id}/versions`).then((r) => r.data),

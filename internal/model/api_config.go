@@ -10,7 +10,7 @@ import (
 type ApiConfig struct {
 	Base
 	Provider     string     `gorm:"size:64;uniqueIndex;not null" json:"provider"`
-	APIKey       string     `gorm:"size:512" json:"-"`
+	APIKey       string     `gorm:"type:text" json:"-"`
 	BaseURL      string     `gorm:"size:512" json:"base_url,omitempty"`
 	Extra        string     `gorm:"type:text" json:"extra,omitempty"`
 	Enabled      bool       `gorm:"default:true" json:"enabled"`

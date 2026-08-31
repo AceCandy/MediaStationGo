@@ -1,8 +1,10 @@
-import { Database, FolderInput, MoreHorizontal, Pencil, Search, Sparkles, Trash2, type LucideIcon } from 'lucide-react'
+import { Database, FolderInput, MoreHorizontal, Pencil, RefreshCw, Search, Sparkles, Trash2, type LucideIcon } from 'lucide-react'
 
 type MediaDetailAdminMenuProps = {
   onSmartScrape: () => void
   onManualScrape: () => void
+  onDoubanEnrich?: () => void
+  doubanEnrichmentPending: boolean
   onMetadataEdit: () => void
   onOrganize: () => void
   onProbe: () => void
@@ -13,6 +15,8 @@ type MediaDetailAdminMenuProps = {
 export function MediaDetailAdminMenu({
   onSmartScrape,
   onManualScrape,
+  onDoubanEnrich,
+  doubanEnrichmentPending,
   onMetadataEdit,
   onOrganize,
   onProbe,
@@ -51,6 +55,16 @@ export function MediaDetailAdminMenu({
       >
         <AdminMenuItem icon={Sparkles} iconClass="text-[var(--app-gold)]" label="智能刮削 (TMDB)" onClick={onSmartScrape} onClose={close} />
         <AdminMenuItem icon={Search} iconClass="text-[var(--app-gold)]" label="手动匹配刮削" onClick={onManualScrape} onClose={close} />
+        {onDoubanEnrich && (
+          <AdminMenuItem
+            icon={RefreshCw}
+            iconClass={`text-[var(--app-gold)] ${doubanEnrichmentPending ? 'animate-spin' : ''}`}
+            label={doubanEnrichmentPending ? '正在补齐豆瓣信息…' : '补齐豆瓣信息'}
+            disabled={doubanEnrichmentPending}
+            onClick={onDoubanEnrich}
+            onClose={close}
+          />
+        )}
         <AdminMenuItem icon={Pencil} iconClass="text-[var(--app-muted)]" label="编辑元数据" onClick={onMetadataEdit} onClose={close} />
         <AdminMenuItem icon={FolderInput} iconClass="text-[var(--app-gold)]" label="整理入库" onClick={onOrganize} onClose={close} />
         <AdminMenuItem icon={Database} iconClass="text-[var(--app-muted)]" label="强制探测媒体轨 (ffprobe)" onClick={onProbe} onClose={close} />
@@ -66,6 +80,7 @@ function AdminMenuItem({
   iconClass,
   label,
   danger = false,
+  disabled = false,
   onClick,
   onClose,
 }: {
@@ -73,6 +88,7 @@ function AdminMenuItem({
   iconClass: string
   label: string
   danger?: boolean
+  disabled?: boolean
   onClick: () => void
   onClose: (el: HTMLElement) => void
 }) {
@@ -80,9 +96,10 @@ function AdminMenuItem({
     <button
       type="button"
       role="menuitem"
+      disabled={disabled}
       className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left text-sm font-semibold transition-colors ${
         danger ? 'text-red-500 hover:bg-red-500/10' : 'text-[var(--app-text)] hover:bg-[var(--app-hover)]'
-      }`}
+      } disabled:cursor-not-allowed disabled:opacity-50`}
       onClick={(event) => {
         onClick()
         onClose(event.currentTarget)

@@ -30,6 +30,8 @@ interface MediaDetailMainContentProps extends MediaDetailPlaybackActionsProps {
   onToggleFavourite: () => void
   onSmartScrape: () => void
   onManualScrape: () => void
+  onDoubanEnrich: () => void
+  doubanEnrichmentPending: boolean
   onMetadataEdit: () => void
   onOrganize: () => void
   onProbe: () => void
@@ -116,6 +118,8 @@ export function MediaDetailMainContent({
   onToggleFavourite,
   onSmartScrape,
   onManualScrape,
+  onDoubanEnrich,
+  doubanEnrichmentPending,
   onMetadataEdit,
   onOrganize,
   onProbe,
@@ -150,6 +154,8 @@ export function MediaDetailMainContent({
               <MediaDetailAdminMenu
                 onSmartScrape={onSmartScrape}
                 onManualScrape={onManualScrape}
+                onDoubanEnrich={media.metadata_kind === 'movie' && media.douban_id ? onDoubanEnrich : undefined}
+                doubanEnrichmentPending={doubanEnrichmentPending}
                 onMetadataEdit={onMetadataEdit}
                 onOrganize={onOrganize}
                 onProbe={onProbe}

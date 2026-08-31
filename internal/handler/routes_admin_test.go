@@ -34,6 +34,7 @@ func TestAdminRouteSurfacesAreRegistered(t *testing.T) {
 		"GET /api/admin/organize/sources",
 		"GET /api/admin/api-configs",
 		"POST /api/admin/scheduler/:name/run",
+		"POST /api/media/:id/douban-enrichment",
 		"GET /api/tasks/definitions/:key/executions",
 		"POST /api/tasks/definitions/:key/run",
 		"PUT /api/tasks/definitions/:key/schedule",

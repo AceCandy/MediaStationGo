@@ -215,6 +215,41 @@ func getMediaHandler(svc *service.Container) gin.HandlerFunc {
 	}
 }
 
+func enrichMediaFromDoubanHandler(svc *service.Container) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		m, err := svc.Media.GetMediaVisible(c.Request.Context(), c.Param("id"), mediaVisibilityForRequest(c, svc))
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "豆瓣信息补齐失败"})
+			return
+		}
+		if m == nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+			return
+		}
+		if m.MetadataKind != model.MetadataKindMovie || strings.TrimSpace(m.DoubanID) == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "仅支持已绑定唯一豆瓣 ID 的电影"})
+			return
+		}
+		if svc.Scraper == nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "豆瓣信息补齐失败"})
+			return
+		}
+		err = svc.Scraper.EnrichMovieFromDouban(c.Request.Context(), m.MetadataID)
+		switch {
+		case errors.Is(err, service.ErrDoubanEnrichmentIneligible):
+			c.JSON(http.StatusBadRequest, gin.H{"error": "仅支持已绑定唯一豆瓣 ID 的电影"})
+		case errors.Is(err, service.ErrDoubanTemporarilyUnavailable):
+			c.JSON(http.StatusTooManyRequests, gin.H{"error": "豆瓣请求受限或暂时不可用，请稍后重试"})
+		case errors.Is(err, service.ErrDoubanSubjectNotFound):
+			c.JSON(http.StatusNotFound, gin.H{"error": "豆瓣条目不存在"})
+		case err != nil:
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "豆瓣信息补齐失败"})
+		default:
+			c.JSON(http.StatusOK, gin.H{"status": "completed"})
+		}
+	}
+}
+
 func listMediaVersionsHandler(svc *service.Container) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		uid, _ := c.Get(middleware.CtxUserID)

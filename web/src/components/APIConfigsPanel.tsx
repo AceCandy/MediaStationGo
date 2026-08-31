@@ -125,13 +125,19 @@ export function APIConfigsPanel() {
                         {item.has_key && (
                           <button
                             onClick={async () => {
-                              if (!(await confirmAction({ title: '清除 API Key', message: `确定清除 ${item.provider} 的 API Key?`, confirmText: '清除' }))) return
+                              if (!(await confirmAction({
+                                title: item.provider === 'douban' ? '清除 Cookie' : '清除 API Key',
+                                message: item.provider === 'douban'
+                                  ? `确定清除 ${item.provider} 的 Cookie?`
+                                  : `确定清除 ${item.provider} 的 API Key?`,
+                                confirmText: '清除',
+                              }))) return
                               await apiConfigsAPI.remove(item.provider)
                               toast.success('已清除')
                               refresh()
                             }}
                             className="rounded-lg p-1.5 text-ink-50 transition hover:bg-red-400/10 hover:text-red-400"
-                            title="清除密钥"
+                            title={item.provider === 'douban' ? '清除 Cookie' : '清除密钥'}
                           >
                             <Trash2 size={14} />
                           </button>
@@ -166,6 +172,7 @@ function EditingRow({
   const [webSearchEnabled, setWebSearchEnabled] = useState(item.web_search_enabled)
   const [saving, setSaving] = useState(false)
   const isAdult = item.provider === 'adult'
+  const isDouban = item.provider === 'douban'
   const isOpenAI = item.provider === 'openai'
 
   const submit = async (e: FormEvent) => {
@@ -200,11 +207,11 @@ function EditingRow({
             <span className="text-sm font-medium text-ink-600">{item.provider}</span>
             {!isAdult && (
               <label className="min-w-64 flex-1 text-xs text-ink-50">
-                API Key
+                {isDouban ? 'Cookie' : 'API Key'}
                 <input
                   className="input-base mt-1"
                   type="password"
-                  placeholder={item.has_key ? '•••••••••••• (留空保留原值)' : '输入密钥'}
+                  placeholder={item.has_key ? '•••••••••••• (留空保留原值)' : isDouban ? '输入 Cookie' : '输入密钥'}
                   value={apiKey}
                   onChange={(e) => setAPIKey(e.target.value)}
                 />

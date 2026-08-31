@@ -1212,9 +1212,13 @@ if providerArtwork {
 ### 2. Signatures
 
 - Raw detail carrier: `Match.RawJSON []byte`.
-- Douban detail boundary: `DoubanProvider.GetMatchByID(ctx, doubanID) (*Match, error)`.
+- Regular Douban detail boundary: `DoubanProvider.GetMatchByID(ctx, doubanID) (*Match, error)`.
+- Enrichment-only detail boundary:
+  `DoubanProvider.GetEnrichmentMatchByID(ctx, doubanID) (*Match, error)`.
 - Primary detail endpoint: `https://m.douban.com/rexxar/api/v2/movie/{doubanID}`;
-  `subject_abstract` is fallback only.
+  `subject_abstract` is fallback only for regular scraping and episode-count reads.
+- Single-item admin API: `POST /api/media/:id/douban-enrichment`; `:id` accepts
+  the same concrete Media or canonical Metadata identity as the detail API.
 - Episode count boundary: `GetEpisodeCountByID` reads `episodes_count` from the
   same mobile detail response.
 - Snapshot write: `UpsertProviderSnapshot(ctx, metadataID, provider, payload, fetchedAt)`.
@@ -1233,10 +1237,13 @@ if providerArtwork {
 ### 3. Contracts
 
 - `GetMatchByID` preserves the complete valid response, including unknown
-  fields, and marks the match source as `douban`.
-- Mobile detail is tried first. HTTP/read/invalid-JSON failure falls back to
-  `subject_abstract`; its `subject` / `data` wrapper remains identifiable as a
-  partial snapshot and becomes retryable after 24 hours.
+  fields, marks the match source as `douban`, and retains the existing
+  mobile-to-`subject_abstract` fallback for regular scraping compatibility.
+- Batch and single-item enrichment call `GetEnrichmentMatchByID` and never
+  request or save `subject_abstract`. Network/timeout failures, HTTP 403/429/5xx,
+  empty or invalid JSON, and HTTP 200 error objects such as
+  `subject_ip_rate_limit` are retryable upstream failures. An explicit 404 or
+  not-found error object is permanent.
 - Normal persistence passes an already-fetched Douban detail into enrichment;
   it must not issue the same detail request again just to save fields/artwork.
 - Search results never trigger secondary enrichment. The canonical metadata must
@@ -1249,7 +1256,7 @@ if providerArtwork {
   Source, NSFW, existing non-empty fields, and provider IDs stay unchanged.
 - If both sources provide a TMDb ID and it conflicts with the canonical TMDb
   identifier, skip the entire Douban write, including snapshot and artwork.
-- A historical candidate always performs a real provider request. Save the
+- A historical candidate always performs one mobile-detail provider request. Save the
   complete valid response and advance `fetched_at` only after field and artwork
   persistence succeed. Request, parsing, field, artwork, or snapshot failures
   do not advance the cooldown.
@@ -1267,9 +1274,16 @@ if providerArtwork {
   fields are filled only during such a request and never trigger one alone.
   Passes use metadata-ID keyset pagination, a maximum batch of 20, serial
   processing, a two-second inter-item delay, and a persisted cursor. They never
-  join `media`; per-item provider/image failures are counted and do not stop
-  later candidates. Metrics classify successful results as `updated` or
-  `unchanged`; failures remain separate.
+  join `media`. A retryable upstream failure stops the current execution before
+  the failed item's cursor write and before the short-page cursor reset; the
+  next execution therefore retries that same item first. Explicit not-found and
+  local permanent ambiguity advance the cursor and continue. Metrics and logs
+  distinguish requests, field updates, new posters, snapshot-only refreshes,
+  permanent failures/skips, and upstream pauses.
+- Single-item enrichment resolves the current detail view first, operates on
+  its canonical `MetadataID`, and never reads or changes the batch cursor.
+  Retryable upstream failures return HTTP 429; successful persistence refreshes
+  the detail page even when only the complete snapshot changed.
 - Artwork URL removal is enforced at both UI and backend DTO boundaries, so
   metadata editing cannot clear or replace the current selection.
 
@@ -1284,7 +1298,11 @@ if providerArtwork {
 | Snapshot is less than 24 hours old | Make no provider request |
 | Stale current snapshot, Douban poster, overview, and Chinese title are complete | Make no provider request |
 | Stale snapshot is legacy or lacks intro/image/Douban artwork | Refresh and fill only missing canonical data |
-| Mobile detail fails but abstract succeeds | Save the wrapper as partial and retry only after 24 hours |
+| Mobile detail fails during regular scraping but abstract succeeds | Save the wrapper as partial and retry only after 24 hours |
+| Mobile detail has a retryable failure during batch enrichment | Stop the batch before the current cursor write; request no later candidate |
+| The next batch runs after a retryable failure | Retry the same candidate first |
+| Mobile detail explicitly reports not found | Record a permanent failure, advance that candidate, and continue |
+| Single-item enrichment has a retryable upstream failure | Return HTTP 429 without changing the batch cursor |
 | Refresh or persistence fails | Preserve the previous `fetched_at` |
 | Detail contains unknown fields | Preserve them in the valid JSONB document |
 | Detail TMDb ID conflicts with canonical TMDb ID | Skip snapshot, fields, and artwork |
@@ -1306,7 +1324,8 @@ if providerArtwork {
 
 ### 6. Tests Required
 
-- Provider unit: mobile URL/Referer, abstract fallback, nested rating/image,
+- Provider unit: mobile URL/Referer, regular abstract fallback, enrichment-only
+  no-fallback behavior, typed retryable/not-found errors, nested rating/image,
   episode count, source, IDs, projected lists, and unknown raw fields survive
   detail parsing; normal persistence makes one detail request.
 - Repository/PostgreSQL: Movie-only unique-ID keyset discovery, ambiguity skip,
@@ -1314,10 +1333,13 @@ if providerArtwork {
   complete exclusion, candidate uniqueness, and atomic selection
   preservation/promotion.
 - Service: fill-only fields, Chinese-title replacement, TMDb mismatch rejection,
-  real refresh, failure without cooldown advancement, `updated` / `unchanged`,
-  per-item failure isolation, bounded cursor progress, and no Series/Season/Episode enrichment.
-- API/web: editing ordinary metadata preserves artwork; TypeScript build proves
-  the edit form and payload contain no artwork URL fields.
+  real refresh, failure without cooldown advancement, snapshot-only logging,
+  retryable stop/retry cursor behavior, permanent-not-found continuation,
+  bounded cursor progress, and no Series/Season/Episode enrichment.
+- API/web: editing ordinary metadata preserves artwork; the administrator-only
+  single-item action covers success, ineligible metadata, pending suppression,
+  refresh, and HTTP 429 messaging; TypeScript build proves the edit form and
+  payload contain no artwork URL fields.
 
 ### 7. Wrong vs Correct
 

@@ -21,9 +21,13 @@ const (
 
 var doubanMovieEnrichmentDelay = 2 * time.Second
 
+// ErrDoubanEnrichmentIneligible 表示元数据不是电影或没有唯一豆瓣电影标识。
+var ErrDoubanEnrichmentIneligible = errors.New("douban enrichment requires a movie with one douban identifier")
+
 type doubanEnrichmentResult struct {
 	Subject           string
 	UpdatedFields     []string
+	Requested         bool
 	SnapshotSaved     bool
 	CandidateSaved    bool
 	CandidatePromoted bool
@@ -32,10 +36,27 @@ type doubanEnrichmentResult struct {
 
 // enrichMovieFromDouban 只消费 canonical 上唯一且明确的豆瓣电影标识。
 func (s *ScraperService) enrichMovieFromDouban(ctx context.Context, metadataID string) (doubanEnrichmentResult, error) {
-	return s.enrichMovieFromDoubanDetails(ctx, metadataID, nil)
+	return s.enrichMovieFromDoubanDetailsMode(ctx, metadataID, nil, false)
 }
 
 func (s *ScraperService) enrichMovieFromDoubanDetails(ctx context.Context, metadataID string, details *Match) (doubanEnrichmentResult, error) {
+	return s.enrichMovieFromDoubanDetailsMode(ctx, metadataID, details, false)
+}
+
+func (s *ScraperService) enrichMovieFromDoubanMobile(ctx context.Context, metadataID string) (doubanEnrichmentResult, error) {
+	return s.enrichMovieFromDoubanDetailsMode(ctx, metadataID, nil, true)
+}
+
+// EnrichMovieFromDouban 立即补齐一个电影元数据，不读取或修改批量游标。
+func (s *ScraperService) EnrichMovieFromDouban(ctx context.Context, metadataID string) error {
+	result, err := s.enrichMovieFromDoubanMobile(ctx, metadataID)
+	if err == nil && result.Skipped {
+		return ErrDoubanEnrichmentIneligible
+	}
+	return err
+}
+
+func (s *ScraperService) enrichMovieFromDoubanDetailsMode(ctx context.Context, metadataID string, details *Match, mobileOnly bool) (doubanEnrichmentResult, error) {
 	result := doubanEnrichmentResult{Subject: metadataID}
 	if s == nil || s.repo == nil || s.repo.Metadata == nil || s.douban == nil {
 		return result, errors.New("douban movie enrichment dependencies unavailable")
@@ -62,7 +83,12 @@ func (s *ScraperService) enrichMovieFromDoubanDetails(ctx context.Context, metad
 	}
 
 	if details == nil {
-		details, err = s.douban.GetMatchByID(ctx, doubanID)
+		result.Requested = true
+		if mobileOnly {
+			details, err = s.douban.GetEnrichmentMatchByID(ctx, doubanID)
+		} else {
+			details, err = s.douban.GetMatchByID(ctx, doubanID)
+		}
 		if err != nil || details == nil {
 			return result, err
 		}
@@ -190,12 +216,29 @@ func (s *ScraperService) runDoubanMovieEnrichment(ctx context.Context, trigger s
 	}
 	for i, candidate := range candidates {
 		metrics["scanned"]++
-		result, enrichErr := s.enrichMovieFromDouban(ctx, candidate.MetadataID)
+		result, enrichErr := s.enrichMovieFromDoubanMobile(ctx, candidate.MetadataID)
+		if result.Requested {
+			metrics["requested"]++
+		}
 		if enrichErr != nil {
+			if errors.Is(enrichErr, ErrDoubanTemporarilyUnavailable) {
+				metrics["upstream_paused"]++
+				details = append(details, fmt.Sprintf("⚠️ 豆瓣接口异常，已暂停本批：%s；当前条目将在下次重试，未使用摘要降级", result.Subject))
+				if task != nil {
+					task.Finish(nil, TaskUpdate{Stage: "completed", Message: "豆瓣接口异常，补齐已暂停", Metrics: metrics, Details: details})
+				}
+				return nil
+			}
+			if !errors.Is(enrichErr, ErrDoubanSubjectNotFound) {
+				details = append(details, fmt.Sprintf("❌ %s：%v", result.Subject, sanitizeTaskLogError(enrichErr)))
+				return fail(enrichErr)
+			}
 			metrics["failed"]++
-			details = append(details, fmt.Sprintf("❌ %s：%v", result.Subject, sanitizeTaskLogError(enrichErr)))
+			metrics["permanent_failed"]++
+			details = append(details, fmt.Sprintf("❌ %s：豆瓣条目不存在，已跳过", result.Subject))
 		} else if result.Skipped {
 			metrics["ambiguous_skipped"]++
+			details = append(details, fmt.Sprintf("⏭️ 跳过 %s：不是电影或豆瓣标识缺失/不唯一", result.Subject))
 		} else {
 			metrics["fields_filled"] += int64(len(result.UpdatedFields))
 			if result.SnapshotSaved {
@@ -220,7 +263,8 @@ func (s *ScraperService) runDoubanMovieEnrichment(ctx context.Context, trigger s
 				details = append(details, fmt.Sprintf("➕ 新增 %s：%s", result.Subject, posterDetail))
 			}
 			if len(result.UpdatedFields) == 0 && !result.CandidateSaved {
-				metrics["unchanged"]++
+				metrics["snapshot_only"]++
+				details = append(details, fmt.Sprintf("✅ 刷新 %s：已保存完整豆瓣快照，未补到新的字段或海报", result.Subject))
 			}
 		}
 		afterID = candidate.MetadataID
@@ -243,19 +287,25 @@ func (s *ScraperService) runDoubanMovieEnrichment(ctx context.Context, trigger s
 		}
 	}
 	if task != nil {
-		summary := "本次无变更"
-		if metrics["added"] > 0 || metrics["updated"] > 0 {
-			parts := []string{}
-			if metrics["added"] > 0 {
-				parts = append(parts, fmt.Sprintf("新增 %d", metrics["added"]))
-			}
+		summary := "未发现待补齐项"
+		if len(candidates) > 0 {
+			parts := []string{fmt.Sprintf("请求 %d", metrics["requested"])}
 			if metrics["updated"] > 0 {
 				parts = append(parts, fmt.Sprintf("更新 %d", metrics["updated"]))
 			}
+			if metrics["added"] > 0 {
+				parts = append(parts, fmt.Sprintf("新增海报 %d", metrics["added"]))
+			}
+			if metrics["snapshot_only"] > 0 {
+				parts = append(parts, fmt.Sprintf("仅刷新完整快照 %d", metrics["snapshot_only"]))
+			}
+			if metrics["permanent_failed"] > 0 {
+				parts = append(parts, fmt.Sprintf("永久失败 %d", metrics["permanent_failed"]))
+			}
+			if metrics["ambiguous_skipped"] > 0 {
+				parts = append(parts, fmt.Sprintf("永久跳过 %d", metrics["ambiguous_skipped"]))
+			}
 			summary = strings.Join(parts, "，")
-		}
-		if metrics["failed"] > 0 {
-			summary += fmt.Sprintf("，失败 %d", metrics["failed"])
 		}
 		details = append(details, "ℹ️ "+summary)
 		task.Finish(nil, TaskUpdate{Stage: "completed", Message: "豆瓣电影信息补齐完成", Metrics: metrics, Details: details})

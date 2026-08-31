@@ -41,6 +41,8 @@ export function MediaDetailPage() {
         onToggleFavourite={detail.toggleFavourite}
         onSmartScrape={detail.rescrape}
         onManualScrape={() => detail.setManualScrapeOpen(true)}
+        onDoubanEnrich={detail.enrichDouban}
+        doubanEnrichmentPending={detail.doubanEnrichmentPending}
         onMetadataEdit={() => detail.setMetadataEditOpen(true)}
         onOrganize={() => detail.setOrganizeOpen(true)}
         onProbe={detail.reprobe}

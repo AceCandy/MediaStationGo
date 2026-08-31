@@ -56,7 +56,6 @@ type SecretsConfig struct {
 	BangumiToken   string `mapstructure:"bangumi_access_token"`
 	TheTVDBAPIKey  string `mapstructure:"thetvdb_api_key"`
 	FanartAPIKey   string `mapstructure:"fanart_tv_api_key"`
-	DoubanCookie   string `mapstructure:"douban_cookie"`
 	// 用于加密的密钥，如果为空则使用 JWTSecret
 	EncryptionKey string `mapstructure:"encryption_key"`
 }

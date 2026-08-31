@@ -450,8 +450,7 @@ func removeUnusedLegacyColumns(db *gorm.DB) error {
 }
 
 // ensureAPIConfigColumns covers databases created before the API config model
-// gained editable model and web-search fields. GORM's AutoMigrate can skip
-// this when the legacy duplicate config model already owns the table.
+// gained editable fields or allowed credentials longer than 512 characters.
 func ensureAPIConfigColumns(db *gorm.DB) error {
 	if !db.Migrator().HasTable(&model.APIConfig{}) {
 		return nil
@@ -464,7 +463,7 @@ func ensureAPIConfigColumns(db *gorm.DB) error {
 			return err
 		}
 	}
-	return nil
+	return db.Exec(`ALTER TABLE api_configs ALTER COLUMN api_key TYPE text`).Error
 }
 
 func ensurePostgresColumnCompatibility(db *gorm.DB) error {

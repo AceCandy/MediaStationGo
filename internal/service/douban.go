@@ -19,31 +19,26 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"strings"
 	"time"
-
-	"go.uber.org/zap"
-
-	"github.com/ShukeBta/MediaStationGo/internal/config"
 )
 
 // DoubanProvider talks to the unofficial Douban movie API.
 type DoubanProvider struct {
-	cfg    *config.Config
-	log    *zap.Logger
-	client *http.Client
+	apiConfig *APIConfigService
+	client    *http.Client
 }
 
 // NewDoubanProvider is the constructor.
-func NewDoubanProvider(cfg *config.Config, log *zap.Logger) *DoubanProvider {
+func NewDoubanProvider(apiConfig *APIConfigService) *DoubanProvider {
 	return &DoubanProvider{
-		cfg:    cfg,
-		log:    log,
-		client: NewExternalHTTPClient(15 * time.Second),
+		apiConfig: apiConfig,
+		client:    NewExternalHTTPClient(15 * time.Second),
 	}
 }
 
@@ -60,6 +55,12 @@ var userAgents = []string{
 	"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
 	"Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0",
 }
+
+// ErrDoubanTemporarilyUnavailable 表示移动详情接口应稍后重试。
+var ErrDoubanTemporarilyUnavailable = errors.New("douban temporarily unavailable")
+
+// ErrDoubanSubjectNotFound 表示豆瓣已明确确认条目不存在。
+var ErrDoubanSubjectNotFound = errors.New("douban subject not found")
 
 // DoubanMatch is the result of a Douban search hit.
 type DoubanMatch struct {
@@ -81,7 +82,7 @@ func (d *DoubanProvider) Search(ctx context.Context, query string) (*DoubanMatch
 	if err != nil {
 		return nil, err
 	}
-	d.setHeaders(req)
+	d.setHeaders(ctx, req)
 
 	resp, err := d.client.Do(req)
 	if err != nil {
@@ -151,42 +152,115 @@ func (d *DoubanProvider) GetMatchByID(ctx context.Context, doubanID string) (*Ma
 	return doubanMatchFromRawJSON(doubanID, rawJSON)
 }
 
-func (d *DoubanProvider) getDetailRawJSON(ctx context.Context, doubanID string) ([]byte, error) {
-	escapedID := url.PathEscape(doubanID)
-	requests := []struct {
-		url     string
-		referer string
-	}{
-		{"https://m.douban.com/rexxar/api/v2/movie/" + escapedID, "https://m.douban.com/subject/" + escapedID + "/"},
-		{"https://movie.douban.com/j/subject_abstract?subject_id=" + url.QueryEscape(doubanID), "https://movie.douban.com/"},
+// GetEnrichmentMatchByID 只使用移动详情接口，供需要完整快照的补齐流程调用。
+func (d *DoubanProvider) GetEnrichmentMatchByID(ctx context.Context, doubanID string) (*Match, error) {
+	doubanID = strings.TrimSpace(doubanID)
+	if doubanID == "" {
+		return nil, nil
 	}
-	var lastErr error
-	for _, request := range requests {
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, request.url, nil)
-		if err != nil {
+	rawJSON, err := d.getMobileDetailRawJSON(ctx, doubanID)
+	if err != nil {
+		return nil, err
+	}
+	match, err := doubanMatchFromRawJSON(doubanID, rawJSON)
+	if err != nil {
+		return nil, ErrDoubanTemporarilyUnavailable
+	}
+	return match, nil
+}
+
+func (d *DoubanProvider) getDetailRawJSON(ctx context.Context, doubanID string) ([]byte, error) {
+	if rawJSON, err := d.getMobileDetailRawJSON(ctx, doubanID); err == nil {
+		return rawJSON, nil
+	}
+	rawJSON, _, err := d.requestDetailRawJSON(
+		ctx,
+		"https://movie.douban.com/j/subject_abstract?subject_id="+url.QueryEscape(doubanID),
+		"https://movie.douban.com/",
+	)
+	return rawJSON, err
+}
+
+func (d *DoubanProvider) getMobileDetailRawJSON(ctx context.Context, doubanID string) ([]byte, error) {
+	escapedID := url.PathEscape(doubanID)
+	rawJSON, status, err := d.requestDetailRawJSON(
+		ctx,
+		"https://m.douban.com/rexxar/api/v2/movie/"+escapedID,
+		"https://m.douban.com/subject/"+escapedID+"/",
+	)
+	if status == http.StatusNotFound {
+		return nil, ErrDoubanSubjectNotFound
+	}
+	if err != nil {
+		if errors.Is(err, context.Canceled) {
 			return nil, err
 		}
-		d.setHeaders(req)
-		req.Header.Set("Referer", request.referer)
-		resp, err := d.client.Do(req)
-		if err != nil {
-			lastErr = err
-			continue
+		if status == 0 || status == http.StatusForbidden || status == http.StatusTooManyRequests || status >= 500 || status < 400 {
+			return nil, ErrDoubanTemporarilyUnavailable
 		}
-		rawJSON, readErr := io.ReadAll(resp.Body)
-		_ = resp.Body.Close()
-		switch {
-		case resp.StatusCode >= 400:
-			lastErr = fmt.Errorf("douban detail: %d", resp.StatusCode)
-		case readErr != nil:
-			lastErr = readErr
-		case !json.Valid(rawJSON):
-			lastErr = fmt.Errorf("douban detail: invalid json")
-		default:
-			return rawJSON, nil
-		}
+		return nil, err
 	}
-	return nil, lastErr
+	if notFound, failed := doubanDetailResponseFailure(rawJSON); failed {
+		if notFound {
+			return nil, ErrDoubanSubjectNotFound
+		}
+		return nil, ErrDoubanTemporarilyUnavailable
+	}
+	return rawJSON, nil
+}
+
+func (d *DoubanProvider) requestDetailRawJSON(ctx context.Context, requestURL, referer string) ([]byte, int, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, requestURL, nil)
+	if err != nil {
+		return nil, 0, err
+	}
+	d.setHeaders(ctx, req)
+	req.Header.Set("Referer", referer)
+	resp, err := d.client.Do(req)
+	if err != nil {
+		return nil, 0, err
+	}
+	rawJSON, readErr := io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	switch {
+	case resp.StatusCode >= 400:
+		return nil, resp.StatusCode, fmt.Errorf("douban detail: %d", resp.StatusCode)
+	case readErr != nil:
+		return nil, resp.StatusCode, readErr
+	case !json.Valid(rawJSON):
+		return nil, resp.StatusCode, errors.New("douban detail: invalid json")
+	default:
+		return rawJSON, resp.StatusCode, nil
+	}
+}
+
+func doubanDetailResponseFailure(rawJSON []byte) (notFound, failed bool) {
+	var raw map[string]any
+	if err := json.Unmarshal(rawJSON, &raw); err != nil || raw == nil {
+		return false, true
+	}
+	code := strings.ToLower(firstStringFromMap(raw, "code", "error_code"))
+	if code != "" {
+		return strings.Contains(code, "not_found") || strings.Contains(code, "not found") || strings.Contains(code, "not_exist"), true
+	}
+	value, ok := raw["error"]
+	if !ok {
+		return false, false
+	}
+	switch typed := value.(type) {
+	case nil:
+		return false, false
+	case bool:
+		return false, typed
+	case string:
+		typed = strings.ToLower(strings.TrimSpace(typed))
+		if typed == "" {
+			return false, false
+		}
+		return strings.Contains(typed, "not found") || strings.Contains(typed, "not_exist"), true
+	default:
+		return false, true
+	}
 }
 
 func doubanMatchFromRawJSON(doubanID string, rawJSON []byte) (*Match, error) {
@@ -269,12 +343,19 @@ func (d *DoubanProvider) GetEpisodeCountByID(ctx context.Context, doubanID strin
 	return 0, nil
 }
 
-func (d *DoubanProvider) setHeaders(req *http.Request) {
+func (d *DoubanProvider) setHeaders(ctx context.Context, req *http.Request) {
 	req.Header.Set("User-Agent", userAgents[secureRandomIntn(len(userAgents))])
 	req.Header.Set("Referer", "https://movie.douban.com/")
 	req.Header.Set("Accept", "application/json, text/plain, */*")
 	req.Header.Set("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
-	if cookie := strings.TrimSpace(d.cfg.Secrets.DoubanCookie); cookie != "" {
+	if d.apiConfig == nil {
+		return
+	}
+	resolved, err := d.apiConfig.Resolve(ctx, "douban")
+	if err != nil || !resolved.Enabled {
+		return
+	}
+	if cookie := strings.TrimSpace(resolved.APIKey); cookie != "" {
 		req.Header.Set("Cookie", cookie)
 	}
 }

@@ -44,7 +44,7 @@ func (d *DoubanProvider) Discover(ctx context.Context, key string, pages ...int)
 	if err != nil {
 		return nil, err
 	}
-	d.setHeaders(req)
+	d.setHeaders(ctx, req)
 	resp, err := d.client.Do(req)
 	if err != nil {
 		return nil, err

@@ -202,6 +202,8 @@ function useMediaDetailActions({
   refresh,
   setFavourite,
 }: MediaDetailActionsParams) {
+  const doubanEnrichmentPendingRef = useRef(false)
+  const [doubanEnrichmentPending, setDoubanEnrichmentPending] = useState(false)
   const goBack = useCallback(() => goBackFromMediaDetail(media, navigate), [media, navigate])
   const toggleFavourite = useCallback(
     () => toggleMediaFavourite(media, setFavourite),
@@ -212,11 +214,29 @@ function useMediaDetailActions({
     [media, refresh],
   )
   const reprobe = useCallback(() => reprobeMedia(media, refresh), [media, refresh])
+  const enrichDouban = useCallback(async () => {
+    if (!media || doubanEnrichmentPendingRef.current) return
+    doubanEnrichmentPendingRef.current = true
+    setDoubanEnrichmentPending(true)
+    try {
+      await mediaAPI.enrichDouban(media.id)
+      toast.success('豆瓣信息补齐完成')
+      await refresh()
+    } catch (err: unknown) {
+      const status = (err as { response?: { status?: number } })?.response?.status
+      toast.error(status === 429
+        ? '豆瓣请求受限或暂时不可用，请稍后重试'
+        : apiErrorMessage(err, '豆瓣信息补齐失败'))
+    } finally {
+      doubanEnrichmentPendingRef.current = false
+      setDoubanEnrichmentPending(false)
+    }
+  }, [media, refresh])
   const softDelete = useCallback(
     () => softDeleteMedia(media, navigate),
     [media, navigate],
   )
-  return { goBack, toggleFavourite, rescrape, reprobe, softDelete }
+  return { goBack, toggleFavourite, rescrape, enrichDouban, doubanEnrichmentPending, reprobe, softDelete }
 }
 
 function goBackFromMediaDetail(media: Media | null, navigate: NavigateFunction, replace = false): void {
