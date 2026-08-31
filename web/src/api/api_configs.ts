@@ -7,6 +7,7 @@ export interface APIConfig {
   model?: string
   extra?: string
   enabled: boolean
+  image_direct?: boolean
   web_search_enabled: boolean
   description?: string
   has_key: boolean
@@ -21,6 +22,7 @@ export interface APIConfigPatch {
   model?: string
   extra?: string
   enabled?: boolean
+  image_direct?: boolean
   web_search_enabled?: boolean
   description?: string
 }

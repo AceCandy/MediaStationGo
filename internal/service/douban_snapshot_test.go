@@ -117,8 +117,17 @@ func TestDoubanArtworkURLUsesLiveConfiguredOrigin(t *testing.T) {
 		t.Fatalf("unconfigured artwork URL = %q", got)
 	}
 	origin := "http://db-pic1.acecandy.cn/"
-	if _, err := apiConfig.Update(t.Context(), "douban", APIConfigPatch{BaseURL: &origin}); err != nil {
+	imageDirect := true
+	view, err := apiConfig.Update(t.Context(), "douban", APIConfigPatch{BaseURL: &origin, ImageDirect: &imageDirect})
+	if err != nil {
 		t.Fatal(err)
+	}
+	if !view.ImageDirect {
+		t.Fatal("public config did not preserve image_direct")
+	}
+	resolved, err := apiConfig.Resolve(t.Context(), "douban")
+	if err != nil || !resolved.ImageDirect {
+		t.Fatalf("resolved image_direct = %v, err = %v", resolved.ImageDirect, err)
 	}
 	want := "http://db-pic1.acecandy.cn/view/photo/l/public/p123.webp?imageView2/2/q/80/w/600/h/3000/format/webp"
 	if got := provider.ResolveArtworkURL(t.Context(), sourceURL); got != want {

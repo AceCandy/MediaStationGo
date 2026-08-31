@@ -49,6 +49,9 @@ func TestEnsureAPIConfigColumnsUpgradesLegacyTable(t *testing.T) {
 	if !db.Migrator().HasColumn(&model.APIConfig{}, "WebSearchEnabled") {
 		t.Fatal("web_search_enabled column was not added")
 	}
+	if !db.Migrator().HasColumn(&model.APIConfig{}, "ImageDirect") {
+		t.Fatal("image_direct column was not added")
+	}
 	columns, err := db.Migrator().ColumnTypes(&model.APIConfig{})
 	if err != nil {
 		t.Fatal(err)

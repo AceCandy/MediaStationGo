@@ -169,6 +169,7 @@ function EditingRow({
   const [model, setModel] = useState(item.model ?? '')
   const [extra, setExtra] = useState(item.extra ?? '')
   const [enabled, setEnabled] = useState(item.enabled)
+  const [imageDirect, setImageDirect] = useState(item.image_direct ?? false)
   const [webSearchEnabled, setWebSearchEnabled] = useState(item.web_search_enabled)
   const [saving, setSaving] = useState(false)
   const isAdult = item.provider === 'adult'
@@ -181,6 +182,7 @@ function EditingRow({
     try {
       const patch: APIConfigPatch = { base_url: baseURL, enabled }
       if (isAdult) patch.extra = extra
+      if (isDouban) patch.image_direct = imageDirect
       if (isOpenAI) {
         patch.model = model
         patch.web_search_enabled = webSearchEnabled
@@ -279,6 +281,16 @@ function EditingRow({
                     onChange={(e) => setWebSearchEnabled(e.target.checked)}
                   />
                   联网搜索
+                </label>
+              )}
+              {isDouban && (
+                <label className="flex items-center gap-2 text-xs text-ink-50 md:col-span-2">
+                  <input
+                    type="checkbox"
+                    checked={imageDirect}
+                    onChange={(e) => setImageDirect(e.target.checked)}
+                  />
+                  图片直连（失败后使用 curl）
                 </label>
               )}
             </div>

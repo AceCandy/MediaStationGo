@@ -72,6 +72,7 @@ type PublicView struct {
 	Model            string    `json:"model,omitempty"`
 	Extra            string    `json:"extra,omitempty"`
 	Enabled          bool      `json:"enabled"`
+	ImageDirect      bool      `json:"image_direct"`
 	WebSearchEnabled bool      `json:"web_search_enabled"`
 	Description      string    `json:"description,omitempty"`
 	HasKey           bool      `json:"has_key"`
@@ -112,6 +113,7 @@ type Resolved struct {
 	Model            string
 	Extra            string
 	Enabled          bool
+	ImageDirect      bool
 	WebSearchEnabled bool
 }
 
@@ -133,6 +135,7 @@ func (s *APIConfigService) Resolve(ctx context.Context, provider string) (Resolv
 		Model:            row.Model,
 		Extra:            row.Extra,
 		Enabled:          row.Enabled,
+		ImageDirect:      row.ImageDirect,
 		WebSearchEnabled: row.WebSearchEnabled,
 	}
 	return resolved, nil
@@ -146,6 +149,7 @@ type APIConfigPatch struct {
 	Model            *string `json:"model,omitempty"`
 	Extra            *string `json:"extra,omitempty"`
 	Enabled          *bool   `json:"enabled,omitempty"`
+	ImageDirect      *bool   `json:"image_direct,omitempty"`
 	WebSearchEnabled *bool   `json:"web_search_enabled,omitempty"`
 	Description      *string `json:"description,omitempty"`
 }
@@ -196,6 +200,9 @@ func (s *APIConfigService) Update(ctx context.Context, provider string, patch AP
 	}
 	if patch.Enabled != nil {
 		updates["enabled"] = *patch.Enabled
+	}
+	if patch.ImageDirect != nil {
+		updates["image_direct"] = *patch.ImageDirect
 	}
 	if patch.WebSearchEnabled != nil {
 		updates["web_search_enabled"] = *patch.WebSearchEnabled
@@ -261,6 +268,7 @@ func (s *APIConfigService) toPublic(r *model.APIConfig) PublicView {
 		Model:            r.Model,
 		Extra:            r.Extra,
 		Enabled:          r.Enabled,
+		ImageDirect:      r.ImageDirect,
 		WebSearchEnabled: r.WebSearchEnabled,
 		Description:      r.Description,
 		HasKey:           plain != "",

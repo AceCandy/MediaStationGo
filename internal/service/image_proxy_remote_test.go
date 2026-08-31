@@ -2,6 +2,7 @@ package service
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"io"
 	"net/http"
@@ -15,6 +16,8 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/ShukeBta/MediaStationGo/internal/config"
+	"github.com/ShukeBta/MediaStationGo/internal/model"
+	"github.com/ShukeBta/MediaStationGo/internal/repository"
 )
 
 func TestImageProxyCachesFailedRemoteImageFetch(t *testing.T) {
@@ -98,8 +101,20 @@ func TestImageProxyRemoveFailedAllowsRetry(t *testing.T) {
 	if rec.Body.Len() != len(transparent1x1PNG) {
 		t.Fatalf("first body length = %d, want placeholder %d", rec.Body.Len(), len(transparent1x1PNG))
 	}
+	_, _, failPath, err := proxy.remoteImageCachePaths(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(directImageFailPath(failPath), []byte("failed"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	if err := proxy.RemoveFailed(raw); err != nil {
 		t.Fatal(err)
+	}
+	for _, path := range []string{failPath, directImageFailPath(failPath)} {
+		if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("failure marker %q was not removed: %v", path, err)
+		}
 	}
 	rec = httptest.NewRecorder()
 	if err := proxy.Serve(t.Context(), rec, httptest.NewRequest(http.MethodGet, "/api/img?v=retry", nil), raw); err != nil {
@@ -137,6 +152,95 @@ func TestImageProxyPrefetchRemoteUsesProviderHeaders(t *testing.T) {
 	}
 }
 
+func TestImageProxyUsesDirectModeOnlyForConfiguredDoubanImages(t *testing.T) {
+	db := newServiceTestDB(t, &model.APIConfig{})
+	apiConfig := NewAPIConfigService(zap.NewNop(), &repository.Container{DB: db}, NewCryptoService("test-secret", zap.NewNop()))
+	proxy := NewImageProxy(&config.Config{Cache: config.CacheConfig{CacheDir: filepath.Join(t.TempDir(), "cache")}}, zap.NewNop())
+	proxy.setAPIConfigService(apiConfig)
+	origin := "http://db-pic1.acecandy.cn"
+	direct := true
+	if _, err := apiConfig.Update(t.Context(), "douban", APIConfigPatch{BaseURL: &origin, ImageDirect: &direct}); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, host := range []string{"img9.doubanio.com", "db-pic1.acecandy.cn"} {
+		if !proxy.useDoubanImageDirect(t.Context(), host) {
+			t.Fatalf("host %q did not use Douban direct mode", host)
+		}
+	}
+	for _, host := range []string{"image.tmdb.org", "doubanio.com.evil.example", "notdoubanio.com"} {
+		if proxy.useDoubanImageDirect(t.Context(), host) {
+			t.Fatalf("non-Douban host %q used direct mode", host)
+		}
+	}
+	direct = false
+	if _, err := apiConfig.Update(t.Context(), "douban", APIConfigPatch{ImageDirect: &direct}); err != nil {
+		t.Fatal(err)
+	}
+	if proxy.useDoubanImageDirect(t.Context(), "db-pic1.acecandy.cn") {
+		t.Fatal("disabled Douban image direct option was ignored")
+	}
+
+	clients := proxy.remoteImageFetchClients(false)
+	if len(clients) != 2 || clients[0].name != "default" || clients[1].name != "direct" {
+		t.Fatalf("default clients = %#v", clients)
+	}
+	clients = proxy.remoteImageFetchClients(true)
+	if len(clients) != 1 || clients[0].name != "direct" {
+		t.Fatalf("direct clients = %#v", clients)
+	}
+	transport, ok := clients[0].client.Transport.(*http.Transport)
+	if !ok || transport.Proxy != nil {
+		t.Fatal("direct client did not bypass proxy")
+	}
+	if !proxy.canUseExternalImageFallback(true, "db-pic1.acecandy.cn") {
+		t.Fatal("custom Douban image domain cannot use curl fallback")
+	}
+	if proxy.canUseExternalImageFallback(false, "db-pic1.acecandy.cn") {
+		t.Fatal("custom domain used curl fallback while direct mode was disabled")
+	}
+	if !proxy.canUseExternalImageFallback(false, "img9.doubanio.com") {
+		t.Fatal("existing official Douban curl fallback changed")
+	}
+	if directImageFailPath("poster.fail") == "poster.fail" {
+		t.Fatal("direct mode reused the default failure marker")
+	}
+}
+
+func TestImageProxyDirectFailureUsesCurlForCustomHost(t *testing.T) {
+	var directCalls int32
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		atomic.AddInt32(&directCalls, 1)
+		http.Error(w, "unavailable", http.StatusBadGateway)
+	}))
+	t.Cleanup(upstream.Close)
+
+	originalCurl := fetchRemoteImageWithCurl
+	t.Cleanup(func() { fetchRemoteImageWithCurl = originalCurl })
+	var curlCalls int32
+	fetchRemoteImageWithCurl = func(_ context.Context, raw, host string) ([]byte, string, string, error) {
+		atomic.AddInt32(&curlCalls, 1)
+		if raw != upstream.URL+"/poster.webp" || host != strings.TrimPrefix(upstream.URL, "http://") {
+			t.Fatalf("curl fallback received raw=%q host=%q", raw, host)
+		}
+		return testJPEG, "image/jpeg", "", nil
+	}
+
+	proxy := NewImageProxy(&config.Config{Cache: config.CacheConfig{CacheDir: filepath.Join(t.TempDir(), "cache")}}, zap.NewNop())
+	raw := upstream.URL + "/poster.webp"
+	host := strings.TrimPrefix(upstream.URL, "http://")
+	data, ctype, _, err := proxy.fetchRemoteImageUncached(t.Context(), raw, host, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(data, testJPEG) || ctype != "image/jpeg" {
+		t.Fatalf("curl fallback result = %x, %q", data, ctype)
+	}
+	if atomic.LoadInt32(&directCalls) != 1 || atomic.LoadInt32(&curlCalls) != 1 {
+		t.Fatalf("calls = direct %d, curl %d", directCalls, curlCalls)
+	}
+}
+
 func TestImageProxyRemoveCachedAllowsRefresh(t *testing.T) {
 	var calls int32
 	proxy := NewImageProxy(&config.Config{Cache: config.CacheConfig{CacheDir: filepath.Join(t.TempDir(), "cache")}}, zap.NewNop())
@@ -155,8 +259,18 @@ func TestImageProxyRemoveCachedAllowsRefresh(t *testing.T) {
 	if err := proxy.PrefetchRemote(t.Context(), raw); err != nil {
 		t.Fatal(err)
 	}
+	_, _, failPath, err := proxy.remoteImageCachePaths(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(directImageFailPath(failPath), []byte("failed"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	if err := proxy.RemoveCached(raw); err != nil {
 		t.Fatal(err)
+	}
+	if _, err := os.Stat(directImageFailPath(failPath)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("direct failure marker was not removed: %v", err)
 	}
 	if got := atomic.LoadInt32(&calls); got != 1 {
 		t.Fatalf("upstream calls before refresh = %d, want 1", got)

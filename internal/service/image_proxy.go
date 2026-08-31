@@ -25,11 +25,12 @@ import (
 
 // ImageProxy fetches and caches remote images on behalf of the browser.
 type ImageProxy struct {
-	cfg      *config.Config
-	log      *zap.Logger
-	client   *http.Client
-	cacheDir string
-	mu       sync.Mutex
+	cfg       *config.Config
+	log       *zap.Logger
+	client    *http.Client
+	cacheDir  string
+	mu        sync.Mutex
+	apiConfig *APIConfigService
 
 	// libraryRootsFn returns the configured media library roots so that
 	// sidecar poster/artwork files stored alongside media (under arbitrary
@@ -68,6 +69,10 @@ func NewImageProxy(cfg *config.Config, log *zap.Logger) *ImageProxy {
 // local-image locations.
 func (p *ImageProxy) SetLibraryRootsProvider(fn func() []string) {
 	p.libraryRootsFn = fn
+}
+
+func (p *ImageProxy) setAPIConfigService(apiConfig *APIConfigService) {
+	p.apiConfig = apiConfig
 }
 
 // libraryRoots returns the cached library roots, refreshing at most every

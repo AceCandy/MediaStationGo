@@ -35,6 +35,9 @@ func (p *ImageProxy) RemoveCached(raw string) error {
 	if err := os.Remove(failPath); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
+	if err := os.Remove(directImageFailPath(failPath)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
 	return nil
 }
 
@@ -49,7 +52,14 @@ func (p *ImageProxy) RemoveFailed(raw string) error {
 	if err := os.Remove(failPath); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
+	if err := os.Remove(directImageFailPath(failPath)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
 	return nil
+}
+
+func directImageFailPath(failPath string) string {
+	return failPath + ".direct"
 }
 
 // Serve writes the requested image to w. Caller is expected to validate
@@ -82,14 +92,18 @@ func (p *ImageProxy) serveRemoteImage(ctx context.Context, w http.ResponseWriter
 	host := strings.ToLower(u.Host)
 	key, cachePath, failPath := p.remoteImageCachePathsForValidated(raw)
 	forceRefresh := r.URL.Query().Get("refresh") != ""
-	p.removeUnusableImageCache(cachePath, failPath)
-	if !forceRefresh && serveCachedImageFile(w, r, key, cachePath) {
+	if !forceRefresh && hasUsableImageCache(cachePath) && serveCachedImageFile(w, r, key, cachePath) {
 		return nil
 	}
+	directOnly := p.useDoubanImageDirect(ctx, host)
+	if directOnly {
+		failPath = directImageFailPath(failPath)
+	}
+	p.removeUnusableImageCache(cachePath, failPath)
 	if !forceRefresh && p.serveFreshRemoteFailure(w, failPath) {
 		return nil
 	}
-	data, ctype, contentLength, err := p.fetchAndCacheRemoteImage(ctx, raw, host, cachePath, failPath)
+	data, ctype, contentLength, err := p.fetchAndCacheRemoteImage(ctx, raw, host, cachePath, failPath, directOnly)
 	if err != nil {
 		if forceRefresh && serveCachedImageFile(w, r, key, cachePath) {
 			return nil
@@ -115,6 +129,15 @@ func (p *ImageProxy) serveRemoteImage(ctx context.Context, w http.ResponseWriter
 	return nil
 }
 
+func hasUsableImageCache(cachePath string) bool {
+	data, err := os.ReadFile(cachePath) // #nosec G304 -- cachePath is SHA-derived under cacheDir.
+	if err != nil {
+		return false
+	}
+	ctype := detectContentType(data)
+	return len(data) > 0 && isImageContentType(ctype) && !isTransparentPlaceholderData(data)
+}
+
 func (p *ImageProxy) removeUnusableImageCache(cachePath, failPath string) {
 	data, err := os.ReadFile(cachePath) // #nosec G304 -- cachePath is SHA-derived under cacheDir.
 	if err != nil {
@@ -138,12 +161,12 @@ func (p *ImageProxy) serveFreshRemoteFailure(w http.ResponseWriter, failPath str
 	return false
 }
 
-func (p *ImageProxy) fetchAndCacheRemoteImage(ctx context.Context, raw, host, cachePath, failPath string) ([]byte, string, string, error) {
+func (p *ImageProxy) fetchAndCacheRemoteImage(ctx context.Context, raw, host, cachePath, failPath string, directOnly bool) ([]byte, string, string, error) {
 	if err := os.MkdirAll(p.cacheDir, 0o750); err != nil {
 		p.log.Warn("imageproxy: mkdir failed", zap.String("dir", p.cacheDir), zap.Error(err))
 		return nil, "", "", errImageProxyRequestSetup
 	}
-	data, ctype, contentLength, err := p.fetchRemoteImageUncached(ctx, raw, host)
+	data, ctype, contentLength, err := p.fetchRemoteImageUncached(ctx, raw, host, directOnly)
 	if err == nil {
 		p.writeImageCache(cachePath, failPath, "img-*.tmp", data)
 		return data, ctype, contentLength, nil
@@ -159,13 +182,13 @@ func (p *ImageProxy) fetchRemoteImageDirect(ctx context.Context, raw string) ([]
 	if err != nil {
 		return nil, "", err
 	}
-	data, ctype, _, err := p.fetchRemoteImageUncached(ctx, raw, strings.ToLower(u.Host))
+	data, ctype, _, err := p.fetchRemoteImageUncached(ctx, raw, strings.ToLower(u.Host), false)
 	return data, ctype, err
 }
 
-func (p *ImageProxy) fetchRemoteImageUncached(ctx context.Context, raw, host string) ([]byte, string, string, error) {
+func (p *ImageProxy) fetchRemoteImageUncached(ctx context.Context, raw, host string, directOnly bool) ([]byte, string, string, error) {
 	var lastErr error
-	for _, candidate := range p.remoteImageFetchClients() {
+	for _, candidate := range p.remoteImageFetchClients(directOnly) {
 		data, ctype, contentLength, err := p.fetchRemoteImageOnce(ctx, raw, host, candidate)
 		if err == nil {
 			return data, ctype, contentLength, nil
@@ -175,7 +198,7 @@ func (p *ImageProxy) fetchRemoteImageUncached(ctx context.Context, raw, host str
 		}
 		lastErr = err
 	}
-	if p.canUseExternalImageFallback() && isDoubanImageHost(host) {
+	if p.canUseExternalImageFallback(directOnly, host) {
 		data, ctype, contentLength, err := fetchRemoteImageWithCurl(ctx, raw, host)
 		if err == nil {
 			return data, ctype, contentLength, nil
@@ -197,21 +220,23 @@ func (p *ImageProxy) Fetch(ctx context.Context, raw string) ([]byte, string, err
 	}
 	host := strings.ToLower(u.Host)
 	_, cachePath, failPath := p.remoteImageCachePathsForValidated(raw)
-	p.removeUnusableImageCache(cachePath, failPath)
 	if data, err := os.ReadFile(cachePath); err == nil && len(data) > 0 { // #nosec G304 -- cachePath is SHA-derived under cacheDir.
 		ctype := detectContentType(data)
 		if isImageContentType(ctype) && !isTransparentPlaceholderData(data) {
 			return data, ctype, nil
 		}
-		_ = os.Remove(cachePath)
-		_ = os.Remove(failPath)
 	}
+	directOnly := p.useDoubanImageDirect(ctx, host)
+	if directOnly {
+		failPath = directImageFailPath(failPath)
+	}
+	p.removeUnusableImageCache(cachePath, failPath)
 	if stat, err := os.Stat(failPath); err == nil && time.Since(stat.ModTime()) < imageNegativeCacheTTL {
 		return nil, "", errors.New("recent image fetch failure")
 	} else if err == nil {
 		_ = os.Remove(failPath)
 	}
-	data, ctype, _, err := p.fetchAndCacheRemoteImage(ctx, raw, host, cachePath, failPath)
+	data, ctype, _, err := p.fetchAndCacheRemoteImage(ctx, raw, host, cachePath, failPath, directOnly)
 	return data, ctype, err
 }
 

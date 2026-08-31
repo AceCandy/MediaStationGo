@@ -154,6 +154,7 @@ func (b *serviceContainerBuilder) initIdentityServices() {
 
 func (b *serviceContainerBuilder) initImageProxy() {
 	b.c.ImageProxy = NewImageProxy(b.cfg, b.log)
+	b.c.ImageProxy.setAPIConfigService(b.c.APIConfig)
 	b.c.ImageProxy.SetLibraryRootsProvider(b.libraryRoots)
 	b.c.Artwork = NewArtworkStore(b.cfg, b.repos.Artwork, b.c.ImageProxy)
 	b.c.PeopleImages = NewPeopleImageStore(b.cfg, b.repos.Person, b.c.ImageProxy)

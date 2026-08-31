@@ -5,7 +5,9 @@ import (
 	"context"
 	"errors"
 	"io"
+	"net"
 	"net/http"
+	"net/url"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -32,31 +34,35 @@ func isRemoteImageHTTPStatus(err error, statusCode int) bool {
 	return errors.As(err, &statusErr) && statusErr.StatusCode == statusCode
 }
 
-func (p *ImageProxy) remoteImageFetchClients() []remoteImageFetchClient {
+func (p *ImageProxy) remoteImageFetchClients(directOnly bool) []remoteImageFetchClient {
 	client := p.client
 	if client == nil {
 		client = NewExternalHTTPClient(30 * time.Second)
 	}
+	timeout := client.Timeout
+	if timeout <= 0 {
+		timeout = 30 * time.Second
+	}
+	direct := remoteImageFetchClient{
+		name:   "direct",
+		client: &http.Client{Timeout: timeout, Transport: NewInternalTransport()},
+	}
+	if directOnly {
+		return []remoteImageFetchClient{direct}
+	}
 	clients := []remoteImageFetchClient{{name: "default", client: client}}
 	if _, ok := client.Transport.(*http.Transport); ok {
-		timeout := client.Timeout
-		if timeout <= 0 {
-			timeout = 30 * time.Second
-		}
-		clients = append(clients, remoteImageFetchClient{
-			name:   "direct",
-			client: &http.Client{Timeout: timeout, Transport: NewInternalTransport()},
-		})
+		clients = append(clients, direct)
 	}
 	return clients
 }
 
-func (p *ImageProxy) canUseExternalImageFallback() bool {
+func (p *ImageProxy) canUseExternalImageFallback(directOnly bool, host string) bool {
 	if p == nil || p.client == nil {
 		return false
 	}
 	_, ok := p.client.Transport.(*http.Transport)
-	return ok
+	return ok && (directOnly || isDoubanImageHost(host))
 }
 
 func (p *ImageProxy) fetchRemoteImageOnce(ctx context.Context, raw, host string, candidate remoteImageFetchClient) ([]byte, string, string, error) {
@@ -100,7 +106,7 @@ func applyRemoteImageHeaders(req *http.Request, host string) {
 	req.Header.Set("Cache-Control", "no-cache")
 	req.Header.Set("Pragma", "no-cache")
 	switch {
-	case strings.Contains(host, "doubanio.com"):
+	case isDoubanImageHost(host):
 		req.Header.Set("Referer", "https://movie.douban.com/")
 	case strings.Contains(host, "bgm.tv"):
 		req.Header.Set("Referer", "https://bgm.tv/")
@@ -108,10 +114,32 @@ func applyRemoteImageHeaders(req *http.Request, host string) {
 }
 
 func isDoubanImageHost(host string) bool {
-	return strings.Contains(strings.ToLower(host), "doubanio.com")
+	host = strings.TrimSuffix(strings.ToLower(strings.TrimSpace(host)), ".")
+	if name, _, err := net.SplitHostPort(host); err == nil {
+		host = name
+	}
+	return host == "doubanio.com" || strings.HasSuffix(host, ".doubanio.com")
 }
 
-func fetchRemoteImageWithCurl(ctx context.Context, raw, host string) ([]byte, string, string, error) {
+// useDoubanImageDirect 只把豆瓣官方源或当前配置的图片源切到直连模式。
+func (p *ImageProxy) useDoubanImageDirect(ctx context.Context, host string) bool {
+	if p == nil || p.apiConfig == nil {
+		return false
+	}
+	resolved, err := p.apiConfig.Resolve(ctx, "douban")
+	if err != nil || !resolved.ImageDirect {
+		return false
+	}
+	if isDoubanImageHost(host) {
+		return true
+	}
+	origin, err := url.Parse(resolved.BaseURL)
+	return err == nil && origin.Host != "" && strings.EqualFold(origin.Host, host)
+}
+
+var fetchRemoteImageWithCurl = fetchRemoteImageWithCurlCommand
+
+func fetchRemoteImageWithCurlCommand(ctx context.Context, raw, host string) ([]byte, string, string, error) {
 	bin, err := exec.LookPath("curl")
 	if err != nil {
 		return nil, "", "", err
