@@ -1693,3 +1693,25 @@ Added movie/tv permission fallback to subject, persisted degraded status, skippe
 ### Status
 
 [OK] **Completed**
+
+
+## Session 79: 豆瓣原图与 CDN 回源
+<!-- trellis-session: v=2 fp=d7d179bc187181b9 -->
+
+**Date**: 2026-09-01
+**Task**: 豆瓣原图与 CDN 回源
+**Branch**: `main`
+
+### Summary
+
+豆瓣海报改存官方原图 URL，下载时临时使用当前 CDN 并失败回源；仅最终官方 404 写负缓存，清理已确认的失败标记。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `3a4a3b5f0d7d25fb78726b1320e607c4f4c81e80` | fix: preserve original Douban artwork URLs |
+
+### Status
+
+[OK] **Completed**
