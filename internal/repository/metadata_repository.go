@@ -423,6 +423,10 @@ WHERE mi.kind = ?
   AND mid.provider = 'douban'
   AND mid.entity_kind = ?
   AND mi.id > ?
+  AND NOT EXISTS (
+    SELECT 1 FROM metadata_provider_snapshots AS mps
+    WHERE mps.metadata_id = mi.id AND mps.provider = 'douban' AND mps.degraded = TRUE
+  )
   AND (
     NOT EXISTS (
       SELECT 1 FROM metadata_provider_snapshots AS mps

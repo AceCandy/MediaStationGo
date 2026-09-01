@@ -226,18 +226,18 @@ func enrichMediaFromDoubanHandler(svc *service.Container) gin.HandlerFunc {
 			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
 			return
 		}
-		if m.MetadataKind != model.MetadataKindMovie || strings.TrimSpace(m.DoubanID) == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "仅支持已绑定唯一豆瓣 ID 的电影"})
+		if (m.MetadataKind != model.MetadataKindMovie && m.MetadataKind != model.MetadataKindSeries) || strings.TrimSpace(m.DoubanID) == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "仅支持已绑定唯一豆瓣 ID 的电影或电视剧"})
 			return
 		}
 		if svc.Scraper == nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "豆瓣信息补齐失败"})
 			return
 		}
-		err = svc.Scraper.EnrichMovieFromDouban(c.Request.Context(), m.MetadataID)
+		degraded, err := svc.Scraper.EnrichFromDouban(c.Request.Context(), m.MetadataID)
 		switch {
 		case errors.Is(err, service.ErrDoubanEnrichmentIneligible):
-			c.JSON(http.StatusBadRequest, gin.H{"error": "仅支持已绑定唯一豆瓣 ID 的电影"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "仅支持已绑定唯一豆瓣 ID 的电影或电视剧"})
 		case errors.Is(err, service.ErrDoubanTemporarilyUnavailable):
 			c.JSON(http.StatusTooManyRequests, gin.H{"error": "豆瓣请求受限或暂时不可用，请稍后重试"})
 		case errors.Is(err, service.ErrDoubanSubjectNotFound):
@@ -245,7 +245,11 @@ func enrichMediaFromDoubanHandler(svc *service.Container) gin.HandlerFunc {
 		case err != nil:
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "豆瓣信息补齐失败"})
 		default:
-			c.JSON(http.StatusOK, gin.H{"status": "completed"})
+			status := "complete"
+			if degraded {
+				status = "degraded"
+			}
+			c.JSON(http.StatusOK, gin.H{"status": status})
 		}
 	}
 }

@@ -5,6 +5,7 @@ type MediaDetailAdminMenuProps = {
   onManualScrape: () => void
   onDoubanEnrich?: () => void
   doubanEnrichmentPending: boolean
+  doubanDegraded: boolean
   onMetadataEdit: () => void
   onOrganize: () => void
   onProbe: () => void
@@ -17,6 +18,7 @@ export function MediaDetailAdminMenu({
   onManualScrape,
   onDoubanEnrich,
   doubanEnrichmentPending,
+  doubanDegraded,
   onMetadataEdit,
   onOrganize,
   onProbe,
@@ -59,7 +61,7 @@ export function MediaDetailAdminMenu({
           <AdminMenuItem
             icon={RefreshCw}
             iconClass={`text-[var(--app-gold)] ${doubanEnrichmentPending ? 'animate-spin' : ''}`}
-            label={doubanEnrichmentPending ? '正在补齐豆瓣信息…' : '补齐豆瓣信息'}
+            label={doubanEnrichmentPending ? '正在补齐豆瓣信息…' : doubanDegraded ? '重试完整豆瓣信息' : '补齐豆瓣信息'}
             disabled={doubanEnrichmentPending}
             onClick={onDoubanEnrich}
             onClose={close}

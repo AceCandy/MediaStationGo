@@ -106,12 +106,13 @@ type MetadataArtworkCandidate struct {
 	Asset          ArtworkAsset `gorm:"foreignKey:AssetID;references:ID;constraint:OnUpdate:CASCADE,OnDelete:RESTRICT" json:"-"`
 }
 
-// MetadataProviderSnapshot 保存 provider 返回的完整实体详情，避免未投影字段丢失。
+// MetadataProviderSnapshot 保存 provider 原始实体响应及其质量状态，避免未投影字段丢失。
 type MetadataProviderSnapshot struct {
 	PermanentBase
 	MetadataID string       `gorm:"size:36;not null;uniqueIndex:uidx_metadata_provider_snapshot,priority:1" json:"metadata_id"`
 	Provider   string       `gorm:"size:32;not null;uniqueIndex:uidx_metadata_provider_snapshot,priority:2" json:"provider"`
 	Payload    string       `gorm:"type:jsonb;not null" json:"payload"`
+	Degraded   bool         `gorm:"not null;default:false" json:"degraded"`
 	FetchedAt  time.Time    `gorm:"not null;index" json:"fetched_at"`
 	Metadata   MetadataItem `gorm:"foreignKey:MetadataID;references:ID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE" json:"-"`
 }

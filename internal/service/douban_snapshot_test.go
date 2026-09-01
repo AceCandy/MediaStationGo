@@ -2,6 +2,7 @@ package service
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"strconv"
@@ -268,7 +269,7 @@ func TestDoubanGetMatchByIDFallsBackToSubjectAbstract(t *testing.T) {
 	}
 }
 
-func TestDoubanGetEnrichmentMatchByIDNeverFallsBack(t *testing.T) {
+func TestDoubanGetEnrichmentMatchByIDDoesNotFallbackForRetryableErrors(t *testing.T) {
 	tests := []struct {
 		name   string
 		status int
@@ -276,7 +277,6 @@ func TestDoubanGetEnrichmentMatchByIDNeverFallsBack(t *testing.T) {
 		err    error
 	}{
 		{name: "network", err: errors.New("network unavailable")},
-		{name: "forbidden", status: http.StatusForbidden, body: `forbidden`},
 		{name: "rate limit", status: http.StatusTooManyRequests, body: `rate limited`},
 		{name: "server error", status: http.StatusServiceUnavailable, body: `unavailable`},
 		{name: "empty response", status: http.StatusOK},
@@ -298,11 +298,48 @@ func TestDoubanGetEnrichmentMatchByIDNeverFallsBack(t *testing.T) {
 				return &http.Response{StatusCode: tt.status, Body: io.NopCloser(strings.NewReader(tt.body)), Request: req}, nil
 			})}
 
-			if _, err := provider.GetEnrichmentMatchByID(t.Context(), "1295644"); !errors.Is(err, ErrDoubanTemporarilyUnavailable) {
+			if _, _, err := provider.GetEnrichmentMatchByID(t.Context(), "1295644", model.MetadataKindMovie); !errors.Is(err, ErrDoubanTemporarilyUnavailable) {
 				t.Fatalf("error = %v", err)
 			}
 			if requests != 1 {
 				t.Fatalf("requests = %d, want 1", requests)
+			}
+		})
+	}
+}
+
+func TestDoubanGetEnrichmentMatchByIDFallsBackForPermissionErrors(t *testing.T) {
+	for _, tt := range []struct {
+		name, kind, detailPath string
+		status                 int
+		body                   string
+	}{
+		{name: "movie forbidden", kind: model.MetadataKindMovie, detailPath: "/rexxar/api/v2/movie/1295644", status: http.StatusForbidden, body: `forbidden`},
+		{name: "series code 1000", kind: model.MetadataKindSeries, detailPath: "/rexxar/api/v2/tv/1295644", status: http.StatusOK, body: `{"code":1000}`},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			provider := NewDoubanProvider(nil)
+			requests := []string{}
+			provider.client = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+				requests = append(requests, req.URL.Path)
+				if len(requests) == 1 {
+					if req.URL.Path != tt.detailPath {
+						t.Fatalf("detail request = %s", req.URL.String())
+					}
+					return &http.Response{StatusCode: tt.status, Body: io.NopCloser(strings.NewReader(tt.body)), Request: req}, nil
+				}
+				if req.URL.Path != "/rexxar/api/v2/subject/1295644" {
+					t.Fatalf("subject request = %s", req.URL.String())
+				}
+				return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{"title":"降级标题"}`)), Request: req}, nil
+			})}
+
+			match, degraded, err := provider.GetEnrichmentMatchByID(t.Context(), "1295644", tt.kind)
+			if err != nil || match == nil || match.Title != "降级标题" || !degraded {
+				t.Fatalf("match = %#v, degraded = %v, err = %v", match, degraded, err)
+			}
+			if len(requests) != 2 {
+				t.Fatalf("requests = %v", requests)
 			}
 		})
 	}
@@ -316,7 +353,7 @@ func TestDoubanGetEnrichmentMatchByIDTreatsNotFoundAsPermanent(t *testing.T) {
 		return &http.Response{StatusCode: http.StatusNotFound, Body: io.NopCloser(strings.NewReader(`not found`)), Request: req}, nil
 	})}
 
-	if _, err := provider.GetEnrichmentMatchByID(t.Context(), "1295644"); !errors.Is(err, ErrDoubanSubjectNotFound) {
+	if _, _, err := provider.GetEnrichmentMatchByID(t.Context(), "1295644", model.MetadataKindMovie); !errors.Is(err, ErrDoubanSubjectNotFound) {
 		t.Fatalf("error = %v", err)
 	}
 	if requests != 1 {
@@ -525,6 +562,121 @@ func TestEnrichMovieFromDoubanDoesNotTouchBatchCursor(t *testing.T) {
 	cursor, err := repos.Setting.Get(t.Context(), doubanMovieEnrichmentCursorKey)
 	if err != nil || cursor != "keep-cursor" {
 		t.Fatalf("cursor = %q, err = %v", cursor, err)
+	}
+}
+
+func TestEnrichFromDoubanPersistsAndClearsSeriesDegradedSnapshot(t *testing.T) {
+	scraper, repos, closeServer := newTestScraper(t)
+	defer closeServer()
+	provider := NewDoubanProvider(nil)
+	restricted := true
+	subjectFails := true
+	provider.client = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		switch req.URL.Path {
+		case "/rexxar/api/v2/tv/35763827":
+			if restricted {
+				return &http.Response{StatusCode: http.StatusForbidden, Body: io.NopCloser(strings.NewReader(`forbidden`)), Request: req}, nil
+			}
+			return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{"title":"完整中文标题","intro":"完整简介"}`)), Request: req}, nil
+		case "/rexxar/api/v2/subject/35763827":
+			if subjectFails {
+				return &http.Response{StatusCode: http.StatusServiceUnavailable, Body: io.NopCloser(strings.NewReader(`unavailable`)), Request: req}, nil
+			}
+			return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{"title":"降级中文标题","intro":"降级简介"}`)), Request: req}, nil
+		default:
+			t.Fatalf("unexpected request = %s", req.URL.String())
+			return nil, nil
+		}
+	})}
+	scraper.douban = provider
+	metadata := model.MetadataItem{Kind: model.MetadataKindSeries, Title: "Existing title", Overview: "已有简介", Source: "tmdb"}
+	if err := repos.Metadata.Create(t.Context(), &metadata, []model.MetadataIdentifier{{Provider: "douban", EntityKind: model.MetadataKindSeries, ExternalID: "35763827"}}); err != nil {
+		t.Fatal(err)
+	}
+
+	degraded, err := scraper.EnrichFromDouban(t.Context(), metadata.ID)
+	if !errors.Is(err, ErrDoubanTemporarilyUnavailable) || degraded {
+		t.Fatalf("subject failure degraded = %v, err = %v", degraded, err)
+	}
+	snapshot, err := repos.Metadata.FindProviderSnapshot(t.Context(), metadata.ID, "douban")
+	if err != nil || snapshot != nil {
+		t.Fatalf("subject failure snapshot = %#v, err = %v", snapshot, err)
+	}
+	subjectFails = false
+
+	degraded, err = scraper.EnrichFromDouban(t.Context(), metadata.ID)
+	if err != nil || !degraded {
+		t.Fatalf("degraded = %v, err = %v", degraded, err)
+	}
+	updated, err := repos.Metadata.FindByID(t.Context(), metadata.ID)
+	if err != nil || updated.Title != "Existing title" || updated.Overview != "已有简介" {
+		t.Fatalf("degraded metadata = %#v, err = %v", updated, err)
+	}
+	snapshot, err = repos.Metadata.FindProviderSnapshot(t.Context(), metadata.ID, "douban")
+	if err != nil || snapshot == nil || !snapshot.Degraded || !strings.Contains(snapshot.Payload, "降级中文标题") {
+		t.Fatalf("degraded snapshot = %#v, err = %v", snapshot, err)
+	}
+
+	restricted = false
+	degraded, err = scraper.EnrichFromDouban(t.Context(), metadata.ID)
+	if err != nil || degraded {
+		t.Fatalf("restored degraded = %v, err = %v", degraded, err)
+	}
+	snapshot, err = repos.Metadata.FindProviderSnapshot(t.Context(), metadata.ID, "douban")
+	if err != nil || snapshot == nil || snapshot.Degraded || !strings.Contains(snapshot.Payload, "完整中文标题") {
+		t.Fatalf("restored snapshot = %#v, err = %v", snapshot, err)
+	}
+}
+
+func TestDoubanMovieEnrichmentContinuesAfterDegradedSnapshot(t *testing.T) {
+	scraper, repos, closeServer := newTestScraper(t)
+	defer closeServer()
+	if err := repos.DB.AutoMigrate(&model.Setting{}); err != nil {
+		t.Fatal(err)
+	}
+	for i, id := range []string{
+		"15000000-0000-0000-0000-000000000001",
+		"15000000-0000-0000-0000-000000000002",
+	} {
+		metadata := model.MetadataItem{PermanentBase: model.PermanentBase{ID: id}, Kind: model.MetadataKindMovie, Title: fmt.Sprintf("电影%d", i+1), Source: "tmdb"}
+		if err := repos.Metadata.Create(t.Context(), &metadata, []model.MetadataIdentifier{{Provider: "douban", EntityKind: model.MetadataKindMovie, ExternalID: strconv.Itoa(i + 1)}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	requests := []string{}
+	provider := NewDoubanProvider(nil)
+	provider.client = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		requests = append(requests, req.URL.Path)
+		switch req.URL.Path {
+		case "/rexxar/api/v2/movie/1":
+			return &http.Response{StatusCode: http.StatusForbidden, Body: io.NopCloser(strings.NewReader(`forbidden`)), Request: req}, nil
+		case "/rexxar/api/v2/subject/1":
+			return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{"title":"电影1"}`)), Request: req}, nil
+		case "/rexxar/api/v2/movie/2":
+			return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{"title":"电影2","intro":"简介"}`)), Request: req}, nil
+		default:
+			t.Fatalf("unexpected request = %s", req.URL.String())
+			return nil, nil
+		}
+	})}
+	scraper.douban = provider
+	previousDelay := doubanMovieEnrichmentDelay
+	doubanMovieEnrichmentDelay = 0
+	defer func() { doubanMovieEnrichmentDelay = previousDelay }()
+
+	if err := scraper.runDoubanMovieEnrichment(t.Context(), TaskTriggerManual); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(requests, ","); got != "/rexxar/api/v2/movie/1,/rexxar/api/v2/subject/1,/rexxar/api/v2/movie/2" {
+		t.Fatalf("requests = %s", got)
+	}
+	snapshot, err := repos.Metadata.FindProviderSnapshot(t.Context(), "15000000-0000-0000-0000-000000000001", "douban")
+	if err != nil || snapshot == nil || !snapshot.Degraded {
+		t.Fatalf("degraded snapshot = %#v, err = %v", snapshot, err)
+	}
+	candidates, err := repos.Metadata.ListDoubanMovieEnrichmentAfter(t.Context(), "", time.Now().UTC().Add(time.Hour), 20)
+	if err != nil || len(candidates) != 1 || candidates[0].MetadataID != "15000000-0000-0000-0000-000000000002" {
+		t.Fatalf("post-run candidates = %#v, err = %v", candidates, err)
 	}
 }
 

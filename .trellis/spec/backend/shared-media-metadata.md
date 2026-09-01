@@ -1134,7 +1134,8 @@ setSelectedMedia(selectedVersion)
   `douban_snapshot`, `tmdb_status`, `douban_status`, and `series_tmdb_id` to
   the existing canonical `tmdb_id` / `douban_id` fields.
 - Snapshot flags, provider statuses, and `series_tmdb_id` are `gorm:"-"`
-  detail-only fields. Status values are `missing`, `partial`, or `complete`.
+  detail-only fields. Douban status values are `missing`, `partial`,
+  `degraded`, or `complete`; TMDb retains the other three values.
 
 ### 3. Contracts
 
@@ -1146,6 +1147,10 @@ setSelectedMedia(selectedVersion)
   legacy/fallback wrapper; `complete` means the current snapshot and provider
   image both exist. Status describes local cache coverage, not every optional
   upstream field.
+- `degraded` means the stored Douban snapshot came from the explicit
+  `/subject/{id}` permission fallback. The persisted degraded flag takes
+  precedence over payload/artwork completeness and must not be inferred from
+  missing fields.
 - Movie links use `/movie/{tmdb_id}`; Series links use `/tv/{tmdb_id}`.
   Season/Episode links display the entity's own TMDb ID but use the canonical
   Series TMDb ID plus season/episode numbers in the `/tv/...` deep link.
@@ -1162,6 +1167,7 @@ setSelectedMedia(selectedVersion)
 | Provider ID is absent | Omit that provider link |
 | Provider snapshot is absent | Return/show `missing` with an empty-circle icon |
 | Snapshot exists but provider image is absent | Return/show `partial` with a warning icon |
+| Douban snapshot is explicitly degraded | Return/show `degraded` with a permission-limit warning, regardless of artwork |
 | Current snapshot and provider image exist | Return/show `complete` with a checked-circle icon |
 | Douban snapshot uses a `subject` / `data` wrapper | Keep it `partial` even when a Douban image exists |
 | Season/Episode Series TMDb ID is absent | Omit the TMDb deep link |
@@ -1171,6 +1177,8 @@ setSelectedMedia(selectedVersion)
 
 - Good: an Episode opens its Series/season/episode deep link while its own
   snapshot and still determine the TMDb cache status.
+- Good: a restricted Douban detail stores a usable subject snapshot, displays
+  an explicit degraded warning, and offers an administrator retry action.
 - Base: a provider ID exists without a snapshot; its compact link shows the
   missing icon and no raw ID.
 - Bad: infer snapshot presence from an ID, use an Episode ID as `/tv/{id}`, or
@@ -1178,11 +1186,12 @@ setSelectedMedia(selectedVersion)
 
 ### 6. Tests Required
 
-- Service: provider snapshot compatibility flags, all three statuses, legacy
-  Douban classification, provider-owned image state, and Series TMDb ID projection.
+- Service: provider snapshot compatibility flags, all four Douban statuses,
+  legacy Douban classification, explicit degraded precedence, provider-owned
+  image state, and Series TMDb ID projection.
 - Web: Movie/Series/Season/Episode link construction, omitted/raw-hidden IDs,
-  three accessible status icons, missing-rating fallback, safe external
-  attributes, lint, and TypeScript production build.
+  accessible status icons including the degraded warning, missing-rating
+  fallback, safe external attributes, lint, and TypeScript production build.
 
 ### 7. Wrong vs Correct
 
@@ -1192,11 +1201,12 @@ setSelectedMedia(selectedVersion)
 media.SeriesTMDbID = media.LookupTMDbID
 media.TMDbStatus = "complete"
 
-// Correct: resolve canonical identity and provider-owned local cache state.
-identifiers := repo.Metadata.ListIdentifiers(ctx, media.SeriesID)
-media.TMDbStatus = "partial"
-if providerArtwork {
-    media.TMDbStatus = "complete"
+// Correct: explicit snapshot quality takes precedence over artwork completeness.
+media.DoubanStatus = "partial"
+if snapshot.Degraded {
+    media.DoubanStatus = "degraded"
+} else if providerArtwork {
+    media.DoubanStatus = "complete"
 }
 ```
 
@@ -1205,8 +1215,10 @@ if providerArtwork {
 ### 1. Scope / Trigger
 
 - Apply when persisting a Movie with a Douban ID, running historical Douban
-  enrichment, storing provider snapshots, or editing canonical metadata.
-- Douban enrichment applies only to `MetadataKindMovie`; Series, Season, and
+  Movie enrichment, manually enriching a Movie or Series, storing provider
+  snapshots, or editing canonical metadata.
+- The periodic flow remains Movie-only. The administrator single-item flow
+  supports `MetadataKindMovie` and canonical `MetadataKindSeries`; Season and
   Episode never enter this flow.
 
 ### 2. Signatures
@@ -1214,15 +1226,22 @@ if providerArtwork {
 - Raw detail carrier: `Match.RawJSON []byte`.
 - Regular Douban detail boundary: `DoubanProvider.GetMatchByID(ctx, doubanID) (*Match, error)`.
 - Enrichment-only detail boundary:
-  `DoubanProvider.GetEnrichmentMatchByID(ctx, doubanID) (*Match, error)`.
-- Primary detail endpoint: `https://m.douban.com/rexxar/api/v2/movie/{doubanID}`;
-  `subject_abstract` is fallback only for regular scraping and episode-count reads.
+  `DoubanProvider.GetEnrichmentMatchByID(ctx, doubanID, entityKind) (*Match, degraded bool, error)`.
+- Primary enrichment endpoints are
+  `https://m.douban.com/rexxar/api/v2/movie/{doubanID}` for Movie and
+  `https://m.douban.com/rexxar/api/v2/tv/{doubanID}` for Series. Their explicit
+  permission fallback is `/rexxar/api/v2/subject/{doubanID}`;
+  `subject_abstract` remains fallback only for regular scraping and
+  episode-count reads.
 - Single-item admin API: `POST /api/media/:id/douban-enrichment`; `:id` accepts
   the same concrete Media or canonical Metadata identity as the detail API.
 - Episode count boundary: `GetEpisodeCountByID` reads `episodes_count` from the
   same mobile detail response.
-- Snapshot write: `UpsertProviderSnapshot(ctx, metadataID, provider, payload, fetchedAt)`.
-- Snapshot identity is `(metadata_id, provider)` and payload storage is JSONB.
+- Snapshot writes:
+  `UpsertProviderSnapshot(ctx, metadataID, provider, payload, fetchedAt)` and
+  `UpsertDegradedProviderSnapshot(ctx, metadataID, provider, payload, fetchedAt)`.
+- Snapshot identity is `(metadata_id, provider)`, payload storage is JSONB,
+  and `degraded` is a non-null boolean whose default is `false`.
 - Candidate discovery:
   `ListDoubanMovieEnrichmentAfter(ctx, afterID, refreshBefore, limit) []DoubanMovieEnrichmentCandidate`.
 - Candidate artwork:
@@ -1240,26 +1259,36 @@ if providerArtwork {
   fields, marks the match source as `douban`, and retains the existing
   mobile-to-`subject_abstract` fallback for regular scraping compatibility.
 - Batch and single-item enrichment call `GetEnrichmentMatchByID` and never
-  request or save `subject_abstract`. Network/timeout failures, HTTP 403/429/5xx,
-  empty or invalid JSON, and HTTP 200 error objects such as
-  `subject_ip_rate_limit` are retryable upstream failures. An explicit 404 or
-  not-found error object is permanent.
+  request or save `subject_abstract`. Only HTTP 403 or a valid JSON response
+  whose top-level `code` / `error_code` equals `1000` requests
+  `/subject/{id}`. A successful subject response is returned and persisted with
+  `degraded=true`. HTTP 404 remains permanent; HTTP 429, 5xx, network/timeout,
+  empty/invalid JSON, and other error objects remain retryable and never start
+  the subject fallback.
+- Subject requests use the same current Cookie resolution and error
+  classification without recursive fallback. A failed subject request writes
+  no fields, artwork, or snapshot and preserves its not-found/retryable result.
 - Normal persistence passes an already-fetched Douban detail into enrichment;
   it must not issue the same detail request again just to save fields/artwork.
-- Search results never trigger secondary enrichment. The canonical metadata must
-  already own exactly one `(douban, movie)` identifier; no search, title guess,
-  Series ID, or ambiguous identifier is accepted.
+- Search results never trigger secondary enrichment. A periodic candidate must
+  already own exactly one `(douban, movie)` identifier; a manual Series must
+  own exactly one `(douban, series)` identifier. No search, title guess,
+  cross-kind ID, or ambiguous identifier is accepted.
 - TMDb remains primary. Douban fills only empty canonical overview,
   original-name, rating, year, release-date, languages, countries, and genres.
   Title is the sole precedence exception: a Chinese Douban title may replace a
   non-Chinese title, preserving the old title as original name when needed.
   Source, NSFW, existing non-empty fields, and provider IDs stay unchanged.
+- A degraded subject response only fills empty canonical fields. It never uses
+  the Chinese-title precedence exception to replace a non-empty title and never
+  clears a field omitted from the subject payload.
 - If both sources provide a TMDb ID and it conflicts with the canonical TMDb
   identifier, skip the entire Douban write, including snapshot and artwork.
-- A historical candidate always performs one mobile-detail provider request. Save the
-  complete valid response and advance `fetched_at` only after field and artwork
-  persistence succeed. Request, parsing, field, artwork, or snapshot failures
-  do not advance the cooldown.
+- A historical candidate always starts with one Movie detail request. Save a
+  complete or degraded valid response and advance `fetched_at` only after field
+  and artwork persistence succeed. A successful permission fallback advances
+  the cursor and continues the batch; request, parsing, field, artwork, or
+  snapshot failures do not advance the cooldown.
 - Canonical graph merge moves provider snapshots and artwork candidates to the
   surviving metadata; when the same provider/candidate key already exists, the
   surviving target row wins before the source metadata is hard-deleted.
@@ -1267,7 +1296,8 @@ if providerArtwork {
   as a provider candidate. Existing selection always wins; only an absent
   selection is atomically promoted. Public responses continue to use only
   `/api/artwork/:assetID`, never a remote URL.
-- Historical passes admit movies with one Douban Movie identifier when no
+- Historical passes exclude every explicit `degraded=true` Douban snapshot.
+  Otherwise, they admit movies with one Douban Movie identifier when no
   snapshot exists, or when the snapshot is older than 24 hours and is a legacy
   wrapper, lacks mobile `intro` / image fields, lacks Douban-owned local poster
   artwork, or canonical data lacks overview or a Chinese title. Other empty
@@ -1278,12 +1308,14 @@ if providerArtwork {
   the failed item's cursor write and before the short-page cursor reset; the
   next execution therefore retries that same item first. Explicit not-found and
   local permanent ambiguity advance the cursor and continue. Metrics and logs
-  distinguish requests, field updates, new posters, snapshot-only refreshes,
-  permanent failures/skips, and upstream pauses.
+  distinguish requests, field updates, new posters, degraded snapshots,
+  snapshot-only refreshes, permanent failures/skips, and upstream pauses.
 - Single-item enrichment resolves the current detail view first, operates on
-  its canonical `MetadataID`, and never reads or changes the batch cursor.
-  Retryable upstream failures return HTTP 429; successful persistence refreshes
-  the detail page even when only the complete snapshot changed.
+  its canonical Movie/Series `MetadataID`, uses the matching Movie/TV endpoint,
+  and never reads or changes the batch cursor. It returns `status=complete` or
+  `status=degraded`; retryable upstream failures return HTTP 429. A complete
+  retry upserts `degraded=false`, while another permission fallback refreshes
+  the subject payload and keeps `degraded=true`.
 - Artwork URL removal is enforced at both UI and backend DTO boundaries, so
   metadata editing cannot clear or replace the current selection.
 
@@ -1292,9 +1324,16 @@ if providerArtwork {
 | Condition | Required result |
 | --- | --- |
 | Search candidate is returned but not accepted | Write no provider snapshot |
-| Canonical item is not a Movie | Skip without provider or artwork I/O |
+| Periodic candidate is not a Movie, or manual target is not a Movie/Series | Skip without provider or artwork I/O |
 | Movie has zero or multiple Douban Movie IDs | Skip as ambiguous |
+| Series has one Douban Series ID and is manually retried | Request `/tv/{id}` without touching the Movie batch cursor |
 | Movie has one Douban ID and no snapshot | Fetch details once, then store the full response |
+| Movie/TV detail returns HTTP 403 or JSON code `1000` | Request `/subject/{id}` once and persist a successful response with `degraded=true` |
+| Movie/TV detail returns 404, 429, 5xx, a network error, or another JSON error | Preserve not-found/retryable semantics and do not request subject |
+| Subject fallback fails | Persist no new fields, artwork, or snapshot; preserve the subject error classification |
+| Periodic candidate has `degraded=true` | Exclude it regardless of age, payload shape, artwork, or missing fields |
+| Manual retry gets a complete Movie/TV response | Replace the payload and clear `degraded` atomically |
+| Manual retry is still permission-restricted | Refresh the subject payload and keep `degraded=true` |
 | Snapshot is less than 24 hours old | Make no provider request |
 | Stale current snapshot, Douban poster, overview, and Chinese title are complete | Make no provider request |
 | Stale snapshot is legacy or lacks intro/image/Douban artwork | Refresh and fill only missing canonical data |
@@ -1306,7 +1345,7 @@ if providerArtwork {
 | Refresh or persistence fails | Preserve the previous `fetched_at` |
 | Detail contains unknown fields | Preserve them in the valid JSONB document |
 | Detail TMDb ID conflicts with canonical TMDb ID | Skip snapshot, fields, and artwork |
-| Canonical field is non-empty | Preserve it, except for the Chinese-title rule |
+| Canonical field is non-empty | Preserve it; only a complete response may use the Chinese-title rule |
 | Current artwork selection exists | Save local candidate and preserve selection |
 | Current artwork selection is absent | Atomically promote the local candidate |
 | Detail or image request fails during normal TMDb persistence | Keep TMDb persistence successful; log metadata ID only |
@@ -1317,44 +1356,56 @@ if providerArtwork {
 - Good: a TMDb Movie with one Douban ID stores the mobile raw Douban response, fills a
   missing Chinese title/overview, localizes its poster as a candidate, and keeps
   the existing TMDb selection.
+- Good: a restricted Movie/TV detail stores only the real subject response as
+  degraded; periodic Movie enrichment then skips it until an administrator
+  manually obtains a complete response.
 - Base: all three trigger fields are complete, or the latest successful check is
   less than 24 hours old; no network request is made.
-- Bad: query Douban by title, enrich a Series, overwrite a non-empty overview or
-  current image, expose a remote image URL, or scan history with offset pages.
+- Bad: query Douban by title, periodically scan Series, treat every upstream
+  failure as permission denial, infer degraded state from missing fields,
+  overwrite a non-empty field/current image, expose a remote image URL, or scan
+  history with offset pages.
 
 ### 6. Tests Required
 
-- Provider unit: mobile URL/Referer, regular abstract fallback, enrichment-only
-  no-fallback behavior, typed retryable/not-found errors, nested rating/image,
-  episode count, source, IDs, projected lists, and unknown raw fields survive
-  detail parsing; normal persistence makes one detail request.
+- Provider unit: Movie/TV URL and Referer, regular abstract fallback, exact
+  HTTP 403 / JSON code `1000` subject fallback, non-permission no-fallback,
+  subject-failure classification, typed retryable/not-found errors, nested
+  rating/image, episode count, source, IDs, projected lists, and unknown raw
+  fields survive detail parsing; normal persistence makes one detail request.
 - Repository/PostgreSQL: Movie-only unique-ID keyset discovery, ambiguity skip,
   no-snapshot admission, 24-hour exclusion, stale incomplete admission,
-  complete exclusion, candidate uniqueness, and atomic selection
-  preservation/promotion.
-- Service: fill-only fields, Chinese-title replacement, TMDb mismatch rejection,
-  real refresh, failure without cooldown advancement, snapshot-only logging,
-  retryable stop/retry cursor behavior, permanent-not-found continuation,
-  bounded cursor progress, and no Series/Season/Episode enrichment.
+  complete exclusion, explicit degraded exclusion, complete-upsert degraded
+  clearing, candidate uniqueness, and atomic selection preservation/promotion.
+- Service: complete and degraded fill-only rules, Chinese-title replacement,
+  subject failure without a snapshot, Movie/Series kind boundaries, TMDb
+  mismatch rejection, complete recovery, failure without cooldown advancement,
+  degraded continuation, snapshot-only logging, retryable stop/retry cursor
+  behavior, permanent-not-found continuation, and bounded cursor progress.
 - API/web: editing ordinary metadata preserves artwork; the administrator-only
-  single-item action covers success, ineligible metadata, pending suppression,
-  refresh, and HTTP 429 messaging; TypeScript build proves the edit form and
+  single-item action covers Movie/Series complete/degraded responses, ineligible
+  metadata, pending suppression, refresh, manual recovery, and HTTP 429
+  messaging; the detail view displays the accessible degraded warning and retry
+  label. TypeScript build proves both status enums and that the edit form and
   payload contain no artwork URL fields.
 
 ### 7. Wrong vs Correct
 
 ```go
 // Wrong: a secondary provider overwrites authoritative non-empty fields or
-// fetches the same accepted detail twice.
+// hides a permission fallback inside an apparently complete snapshot.
 metadata.Overview = doubanDetail.Overview
-douban.GetMatchByID(ctx, doubanID)
-repo.SaveSelection(ctx, metadata.ID, "poster", "douban", source, asset)
+repo.UpsertProviderSnapshot(ctx, metadata.ID, "douban", subject.RawJSON, fetchedAt)
 
-// Correct: reuse the accepted detail, fill gaps, and persist artwork before
-// advancing the successful-check time.
-fillMissingDoubanMovieFields(ctx, metadata.ID, detail)
+// Correct: reuse the accepted response, fill gaps, and persist its explicit
+// quality state only after field/artwork writes succeed.
+fillMissingDoubanFields(ctx, metadata.ID, metadata.Kind, detail, degraded)
 repo.SaveCandidate(ctx, metadata.ID, "poster", "douban", source, asset)
-repo.UpsertProviderSnapshot(ctx, metadata.ID, "douban", detail.RawJSON, fetchedAt)
+if degraded {
+    repo.UpsertDegradedProviderSnapshot(ctx, metadata.ID, "douban", detail.RawJSON, fetchedAt)
+} else {
+    repo.UpsertProviderSnapshot(ctx, metadata.ID, "douban", detail.RawJSON, fetchedAt)
+}
 ```
 
 ## Scenario: Durable TMDb Catalog Hydration

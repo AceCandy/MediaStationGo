@@ -134,11 +134,12 @@ export function MediaDetailMetadata({ media, favourite, onToggleFavourite }: Med
   )
 }
 
-type ProviderStatus = 'missing' | 'partial' | 'complete'
+type ProviderStatus = 'missing' | 'partial' | 'degraded' | 'complete'
 
 const providerStatusLabels: Record<ProviderStatus, string> = {
   missing: '本地未缓存',
   partial: '本地数据不完整',
+  degraded: '豆瓣接口受限，当前为降级数据',
   complete: '本地详情和图片完整',
 }
 
@@ -148,8 +149,9 @@ function providerStatus(status: ProviderStatus | undefined, snapshot: boolean | 
 
 function ProviderLink({ href, label, iconSrc, status }: { href: string; label: string; iconSrc: string; status: ProviderStatus }) {
   const statusLabel = providerStatusLabels[status]
-  const StatusIcon = status === 'complete' ? CircleCheck : status === 'partial' ? CircleAlert : Circle
-  const statusClass = status === 'complete' ? 'text-emerald-600' : status === 'partial' ? 'text-amber-600' : 'text-[var(--app-muted)]'
+  const warning = status === 'partial' || status === 'degraded'
+  const StatusIcon = status === 'complete' ? CircleCheck : warning ? CircleAlert : Circle
+  const statusClass = status === 'complete' ? 'text-emerald-600' : warning ? 'text-amber-600' : 'text-[var(--app-muted)]'
   return (
     <a
       href={href}

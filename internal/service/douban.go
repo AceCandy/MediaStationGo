@@ -157,22 +157,22 @@ func (d *DoubanProvider) GetMatchByID(ctx context.Context, doubanID string) (*Ma
 	return match, err
 }
 
-// GetEnrichmentMatchByID 只使用移动详情接口，供需要完整快照的补齐流程调用。
-func (d *DoubanProvider) GetEnrichmentMatchByID(ctx context.Context, doubanID string) (*Match, error) {
+// GetEnrichmentMatchByID 获取可持久化的完整详情；权限受限时显式回退 subject。
+func (d *DoubanProvider) GetEnrichmentMatchByID(ctx context.Context, doubanID, entityKind string) (*Match, bool, error) {
 	doubanID = strings.TrimSpace(doubanID)
 	if doubanID == "" {
-		return nil, nil
+		return nil, false, nil
 	}
-	rawJSON, err := d.getMobileDetailRawJSON(ctx, doubanID)
+	rawJSON, degraded, err := d.getEnrichmentDetailRawJSON(ctx, doubanID, entityKind)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	match, err := doubanMatchFromRawJSON(doubanID, rawJSON)
 	if err != nil {
-		return nil, ErrDoubanTemporarilyUnavailable
+		return nil, false, ErrDoubanTemporarilyUnavailable
 	}
 	match.PosterURL = d.ResolveArtworkURL(ctx, match.PosterURL)
-	return match, nil
+	return match, degraded, nil
 }
 
 func (d *DoubanProvider) getDetailRawJSON(ctx context.Context, doubanID string) ([]byte, error) {
@@ -194,25 +194,44 @@ func (d *DoubanProvider) getMobileDetailRawJSON(ctx context.Context, doubanID st
 		"https://m.douban.com/rexxar/api/v2/movie/"+escapedID,
 		"https://m.douban.com/subject/"+escapedID+"/",
 	)
-	if status == http.StatusNotFound {
-		return nil, ErrDoubanSubjectNotFound
-	}
-	if err != nil {
-		if errors.Is(err, context.Canceled) {
-			return nil, err
-		}
-		if status == 0 || status == http.StatusForbidden || status == http.StatusTooManyRequests || status >= 500 || status < 400 {
-			return nil, ErrDoubanTemporarilyUnavailable
-		}
-		return nil, err
-	}
-	if notFound, failed := doubanDetailResponseFailure(rawJSON); failed {
-		if notFound {
-			return nil, ErrDoubanSubjectNotFound
-		}
+	permissionDenied, err := classifyDoubanDetailResponse(rawJSON, status, err)
+	if permissionDenied {
 		return nil, ErrDoubanTemporarilyUnavailable
 	}
-	return rawJSON, nil
+	return rawJSON, err
+}
+
+func (d *DoubanProvider) getEnrichmentDetailRawJSON(ctx context.Context, doubanID, entityKind string) ([]byte, bool, error) {
+	detailType := "movie"
+	if entityKind == "series" {
+		detailType = "tv"
+	} else if entityKind != "movie" {
+		return nil, false, fmt.Errorf("unsupported douban entity kind %q", entityKind)
+	}
+	escapedID := url.PathEscape(doubanID)
+	referer := "https://m.douban.com/subject/" + escapedID + "/"
+	rawJSON, status, requestErr := d.requestDetailRawJSON(
+		ctx,
+		"https://m.douban.com/rexxar/api/v2/"+detailType+"/"+escapedID,
+		referer,
+	)
+	permissionDenied, err := classifyDoubanDetailResponse(rawJSON, status, requestErr)
+	if !permissionDenied {
+		return rawJSON, false, err
+	}
+	rawJSON, status, requestErr = d.requestDetailRawJSON(
+		ctx,
+		"https://m.douban.com/rexxar/api/v2/subject/"+escapedID,
+		referer,
+	)
+	permissionDenied, err = classifyDoubanDetailResponse(rawJSON, status, requestErr)
+	if permissionDenied {
+		err = ErrDoubanTemporarilyUnavailable
+	}
+	if err != nil {
+		return nil, false, err
+	}
+	return rawJSON, true, nil
 }
 
 func (d *DoubanProvider) requestDetailRawJSON(ctx context.Context, requestURL, referer string) ([]byte, int, error) {
@@ -240,32 +259,72 @@ func (d *DoubanProvider) requestDetailRawJSON(ctx context.Context, requestURL, r
 	}
 }
 
-func doubanDetailResponseFailure(rawJSON []byte) (notFound, failed bool) {
+func classifyDoubanDetailResponse(rawJSON []byte, status int, requestErr error) (permissionDenied bool, err error) {
+	if status == http.StatusNotFound {
+		return false, ErrDoubanSubjectNotFound
+	}
+	if requestErr != nil {
+		if errors.Is(requestErr, context.Canceled) {
+			return false, requestErr
+		}
+		if status == http.StatusForbidden {
+			return true, nil
+		}
+		if status == 0 || status == http.StatusTooManyRequests || status >= 500 || status < 400 {
+			return false, ErrDoubanTemporarilyUnavailable
+		}
+		return false, requestErr
+	}
+	if notFound, permissionDenied, failed := doubanDetailResponseFailure(rawJSON); failed {
+		if notFound {
+			return false, ErrDoubanSubjectNotFound
+		}
+		if permissionDenied {
+			return true, nil
+		}
+		return false, ErrDoubanTemporarilyUnavailable
+	}
+	return false, nil
+}
+
+func doubanDetailResponseFailure(rawJSON []byte) (notFound, permissionDenied, failed bool) {
 	var raw map[string]any
 	if err := json.Unmarshal(rawJSON, &raw); err != nil || raw == nil {
-		return false, true
+		return false, false, true
 	}
-	code := strings.ToLower(firstStringFromMap(raw, "code", "error_code"))
+	code := ""
+	for _, key := range []string{"code", "error_code"} {
+		switch value := raw[key].(type) {
+		case string:
+			code = strings.TrimSpace(value)
+		case float64:
+			code = fmt.Sprint(value)
+		}
+		if code != "" {
+			break
+		}
+	}
+	code = strings.ToLower(code)
 	if code != "" {
-		return strings.Contains(code, "not_found") || strings.Contains(code, "not found") || strings.Contains(code, "not_exist"), true
+		return strings.Contains(code, "not_found") || strings.Contains(code, "not found") || strings.Contains(code, "not_exist"), code == "1000", true
 	}
 	value, ok := raw["error"]
 	if !ok {
-		return false, false
+		return false, false, false
 	}
 	switch typed := value.(type) {
 	case nil:
-		return false, false
+		return false, false, false
 	case bool:
-		return false, typed
+		return false, false, typed
 	case string:
 		typed = strings.ToLower(strings.TrimSpace(typed))
 		if typed == "" {
-			return false, false
+			return false, false, false
 		}
-		return strings.Contains(typed, "not found") || strings.Contains(typed, "not_exist"), true
+		return strings.Contains(typed, "not found") || strings.Contains(typed, "not_exist"), false, true
 	default:
-		return false, true
+		return false, false, true
 	}
 }
 

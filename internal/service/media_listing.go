@@ -21,6 +21,7 @@ var ErrInvalidScrapeIssueStatus = errors.New("invalid scrape issue status")
 const (
 	providerStatusMissing  = "missing"
 	providerStatusPartial  = "partial"
+	providerStatusDegraded = "degraded"
 	providerStatusComplete = "complete"
 )
 
@@ -256,13 +257,17 @@ func (s *MediaService) attachMediaProviderDetails(ctx context.Context, media *mo
 		}
 		media.DoubanSnapshot = snapshot != nil
 		if snapshot != nil {
-			media.DoubanStatus = providerStatusPartial
-			hasArtwork, err := s.repo.Artwork.HasProviderArtwork(ctx, media.MetadataID, providerArtworkType(media.MetadataKind), "douban")
-			if err != nil {
-				return err
-			}
-			if hasArtwork && doubanSnapshotIsCurrent([]byte(snapshot.Payload)) {
-				media.DoubanStatus = providerStatusComplete
+			if snapshot.Degraded {
+				media.DoubanStatus = providerStatusDegraded
+			} else {
+				media.DoubanStatus = providerStatusPartial
+				hasArtwork, err := s.repo.Artwork.HasProviderArtwork(ctx, media.MetadataID, providerArtworkType(media.MetadataKind), "douban")
+				if err != nil {
+					return err
+				}
+				if hasArtwork && doubanSnapshotIsCurrent([]byte(snapshot.Payload)) {
+					media.DoubanStatus = providerStatusComplete
+				}
 			}
 		}
 	}

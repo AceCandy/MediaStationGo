@@ -184,14 +184,22 @@ RETURNING xmax = 0 AS created`, uuid.NewString(), now, now, candidate.EntityKind
 }
 
 func (r *MetadataRepository) UpsertProviderSnapshot(ctx context.Context, metadataID, provider string, payload json.RawMessage, fetchedAt time.Time) error {
+	return r.upsertProviderSnapshot(ctx, metadataID, provider, payload, fetchedAt, false)
+}
+
+func (r *MetadataRepository) UpsertDegradedProviderSnapshot(ctx context.Context, metadataID, provider string, payload json.RawMessage, fetchedAt time.Time) error {
+	return r.upsertProviderSnapshot(ctx, metadataID, provider, payload, fetchedAt, true)
+}
+
+func (r *MetadataRepository) upsertProviderSnapshot(ctx context.Context, metadataID, provider string, payload json.RawMessage, fetchedAt time.Time, degraded bool) error {
 	if strings.TrimSpace(metadataID) == "" || strings.TrimSpace(provider) == "" || !json.Valid(payload) {
 		return errors.New("valid metadata provider snapshot is required")
 	}
 	payloadText := string(payload)
-	snapshot := model.MetadataProviderSnapshot{MetadataID: metadataID, Provider: strings.ToLower(strings.TrimSpace(provider)), Payload: payloadText, FetchedAt: fetchedAt}
+	snapshot := model.MetadataProviderSnapshot{MetadataID: metadataID, Provider: strings.ToLower(strings.TrimSpace(provider)), Payload: payloadText, Degraded: degraded, FetchedAt: fetchedAt}
 	return r.db.WithContext(ctx).Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: "metadata_id"}, {Name: "provider"}},
-		DoUpdates: clause.Assignments(map[string]any{"payload": payloadText, "fetched_at": fetchedAt, "updated_at": time.Now()}),
+		DoUpdates: clause.Assignments(map[string]any{"payload": payloadText, "degraded": degraded, "fetched_at": fetchedAt, "updated_at": time.Now()}),
 	}).Create(&snapshot).Error
 }
 

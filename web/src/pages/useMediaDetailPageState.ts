@@ -219,8 +219,8 @@ function useMediaDetailActions({
     doubanEnrichmentPendingRef.current = true
     setDoubanEnrichmentPending(true)
     try {
-      await mediaAPI.enrichDouban(media.id)
-      toast.success('豆瓣信息补齐完成')
+      const result = await mediaAPI.enrichDouban(media.id)
+      toast.success(result.status === 'degraded' ? '豆瓣接口受限，已保存降级信息' : '豆瓣信息补齐完成')
       await refresh()
     } catch (err: unknown) {
       const status = (err as { response?: { status?: number } })?.response?.status

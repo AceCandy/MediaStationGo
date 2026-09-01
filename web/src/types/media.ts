@@ -42,7 +42,7 @@ export interface Media {
   tmdb_snapshot?: boolean
   douban_snapshot?: boolean
   tmdb_status?: 'missing' | 'partial' | 'complete'
-  douban_status?: 'missing' | 'partial' | 'complete'
+  douban_status?: 'missing' | 'partial' | 'degraded' | 'complete'
   series_tmdb_id?: number
   strm_url?: string
   file_hash?: string

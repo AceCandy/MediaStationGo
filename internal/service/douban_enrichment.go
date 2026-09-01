@@ -21,8 +21,8 @@ const (
 
 var doubanMovieEnrichmentDelay = 2 * time.Second
 
-// ErrDoubanEnrichmentIneligible 表示元数据不是电影或没有唯一豆瓣电影标识。
-var ErrDoubanEnrichmentIneligible = errors.New("douban enrichment requires a movie with one douban identifier")
+// ErrDoubanEnrichmentIneligible 表示元数据不是电影/电视剧或没有唯一豆瓣标识。
+var ErrDoubanEnrichmentIneligible = errors.New("douban enrichment requires a movie or series with one douban identifier")
 
 type doubanEnrichmentResult struct {
 	Subject           string
@@ -31,6 +31,7 @@ type doubanEnrichmentResult struct {
 	SnapshotSaved     bool
 	CandidateSaved    bool
 	CandidatePromoted bool
+	Degraded          bool
 	Skipped           bool
 }
 
@@ -49,11 +50,17 @@ func (s *ScraperService) enrichMovieFromDoubanMobile(ctx context.Context, metada
 
 // EnrichMovieFromDouban 立即补齐一个电影元数据，不读取或修改批量游标。
 func (s *ScraperService) EnrichMovieFromDouban(ctx context.Context, metadataID string) error {
+	_, err := s.EnrichFromDouban(ctx, metadataID)
+	return err
+}
+
+// EnrichFromDouban 立即补齐一个电影或电视剧元数据，不读取或修改批量游标。
+func (s *ScraperService) EnrichFromDouban(ctx context.Context, metadataID string) (bool, error) {
 	result, err := s.enrichMovieFromDoubanMobile(ctx, metadataID)
 	if err == nil && result.Skipped {
-		return ErrDoubanEnrichmentIneligible
+		return false, ErrDoubanEnrichmentIneligible
 	}
-	return err
+	return result.Degraded, err
 }
 
 func (s *ScraperService) enrichMovieFromDoubanDetailsMode(ctx context.Context, metadataID string, details *Match, mobileOnly bool) (doubanEnrichmentResult, error) {
@@ -65,7 +72,7 @@ func (s *ScraperService) enrichMovieFromDoubanDetailsMode(ctx context.Context, m
 	if err != nil || item == nil {
 		return result, err
 	}
-	if item.Kind != model.MetadataKindMovie {
+	if item.Kind != model.MetadataKindMovie && (!mobileOnly || item.Kind != model.MetadataKindSeries) {
 		result.Skipped = true
 		return result, nil
 	}
@@ -76,7 +83,7 @@ func (s *ScraperService) enrichMovieFromDoubanDetailsMode(ctx context.Context, m
 	if err != nil {
 		return result, err
 	}
-	doubanID, ok := uniqueIdentifier(identifiers, "douban", model.MetadataKindMovie)
+	doubanID, ok := uniqueIdentifier(identifiers, "douban", item.Kind)
 	if !ok {
 		result.Skipped = true
 		return result, nil
@@ -85,7 +92,7 @@ func (s *ScraperService) enrichMovieFromDoubanDetailsMode(ctx context.Context, m
 	if details == nil {
 		result.Requested = true
 		if mobileOnly {
-			details, err = s.douban.GetEnrichmentMatchByID(ctx, doubanID)
+			details, result.Degraded, err = s.douban.GetEnrichmentMatchByID(ctx, doubanID, item.Kind)
 		} else {
 			details, err = s.douban.GetMatchByID(ctx, doubanID)
 		}
@@ -97,12 +104,12 @@ func (s *ScraperService) enrichMovieFromDoubanDetailsMode(ctx context.Context, m
 		result.Subject = fmt.Sprintf("《%s》（%s）", title, metadataID)
 	}
 	if details.TMDbID > 0 {
-		if tmdbID, exists := uniqueIdentifier(identifiers, "tmdb", model.MetadataKindMovie); exists && tmdbID != strconv.Itoa(details.TMDbID) {
+		if tmdbID, exists := uniqueIdentifier(identifiers, "tmdb", item.Kind); exists && tmdbID != strconv.Itoa(details.TMDbID) {
 			result.Skipped = true
 			return result, nil
 		}
 	}
-	result.UpdatedFields, err = s.fillMissingDoubanMovieFields(ctx, metadataID, details)
+	result.UpdatedFields, err = s.fillMissingDoubanFields(ctx, metadataID, item.Kind, details, result.Degraded)
 	if err != nil {
 		return result, err
 	}
@@ -121,8 +128,14 @@ func (s *ScraperService) enrichMovieFromDoubanDetailsMode(ctx context.Context, m
 			result.CandidatePromoted = promoted
 		}
 	}
-	if err := s.repo.Metadata.UpsertProviderSnapshot(ctx, metadataID, "douban", details.RawJSON, time.Now().UTC()); err != nil {
-		return result, err
+	var snapshotErr error
+	if result.Degraded {
+		snapshotErr = s.repo.Metadata.UpsertDegradedProviderSnapshot(ctx, metadataID, "douban", details.RawJSON, time.Now().UTC())
+	} else {
+		snapshotErr = s.repo.Metadata.UpsertProviderSnapshot(ctx, metadataID, "douban", details.RawJSON, time.Now().UTC())
+	}
+	if snapshotErr != nil {
+		return result, snapshotErr
 	}
 	result.SnapshotSaved = true
 	return result, nil
@@ -140,12 +153,12 @@ func uniqueIdentifier(identifiers []model.MetadataIdentifier, provider, entityKi
 	return value, count == 1 && value != ""
 }
 
-// fillMissingDoubanMovieFields 在行锁内重新判断空值，避免覆盖并发写入的人工元数据。
-func (s *ScraperService) fillMissingDoubanMovieFields(ctx context.Context, metadataID string, details *Match) ([]string, error) {
+// fillMissingDoubanFields 在行锁内重新判断空值，避免覆盖并发写入的人工元数据。
+func (s *ScraperService) fillMissingDoubanFields(ctx context.Context, metadataID, entityKind string, details *Match, degraded bool) ([]string, error) {
 	updatedFields := []string{}
 	err := s.repo.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var current model.MetadataItem
-		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&current, "id = ? AND kind = ?", metadataID, model.MetadataKindMovie).Error; err != nil {
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&current, "id = ? AND kind = ?", metadataID, entityKind).Error; err != nil {
 			return err
 		}
 		updates := map[string]any{}
@@ -158,7 +171,7 @@ func (s *ScraperService) fillMissingDoubanMovieFields(ctx context.Context, metad
 				updatedFields = append(updatedFields, label)
 			}
 		}
-		if incoming := strings.TrimSpace(details.Title); incoming != "" && !containsCJK(current.Title) && containsCJK(incoming) {
+		if incoming := strings.TrimSpace(details.Title); !degraded && incoming != "" && !containsCJK(current.Title) && containsCJK(incoming) {
 			updates["title"] = incoming
 			updatedFields = append(updatedFields, "标题")
 			if strings.TrimSpace(current.OriginalName) == "" {
@@ -263,7 +276,10 @@ func (s *ScraperService) runDoubanMovieEnrichment(ctx context.Context, trigger s
 				}
 				details = append(details, fmt.Sprintf("➕ 新增 %s：%s", result.Subject, posterDetail))
 			}
-			if len(result.UpdatedFields) == 0 && !result.CandidateSaved {
+			if result.Degraded {
+				metrics["degraded"]++
+				details = append(details, fmt.Sprintf("⚠️ 降级 %s：豆瓣完整接口受限，已保存 subject 快照", result.Subject))
+			} else if len(result.UpdatedFields) == 0 && !result.CandidateSaved {
 				metrics["snapshot_only"]++
 				details = append(details, fmt.Sprintf("✅ 刷新 %s：已保存完整豆瓣快照，未补到新的字段或海报", result.Subject))
 			}
@@ -299,6 +315,9 @@ func (s *ScraperService) runDoubanMovieEnrichment(ctx context.Context, trigger s
 			}
 			if metrics["snapshot_only"] > 0 {
 				parts = append(parts, fmt.Sprintf("仅刷新完整快照 %d", metrics["snapshot_only"]))
+			}
+			if metrics["degraded"] > 0 {
+				parts = append(parts, fmt.Sprintf("降级 %d", metrics["degraded"]))
 			}
 			if metrics["permanent_failed"] > 0 {
 				parts = append(parts, fmt.Sprintf("永久失败 %d", metrics["permanent_failed"]))

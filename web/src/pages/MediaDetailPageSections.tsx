@@ -154,8 +154,9 @@ export function MediaDetailMainContent({
               <MediaDetailAdminMenu
                 onSmartScrape={onSmartScrape}
                 onManualScrape={onManualScrape}
-                onDoubanEnrich={media.metadata_kind === 'movie' && media.douban_id ? onDoubanEnrich : undefined}
+                onDoubanEnrich={(media.metadata_kind === 'movie' || media.metadata_kind === 'series') && media.douban_id ? onDoubanEnrich : undefined}
                 doubanEnrichmentPending={doubanEnrichmentPending}
+                doubanDegraded={media.douban_status === 'degraded'}
                 onMetadataEdit={onMetadataEdit}
                 onOrganize={onOrganize}
                 onProbe={onProbe}

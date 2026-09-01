@@ -103,6 +103,13 @@ func TestGetMediaAddsProviderSnapshotStateAndSeriesTMDbID(t *testing.T) {
 	if err != nil || movieDetail == nil || !movieDetail.DoubanSnapshot || movieDetail.DoubanID != "1295644" || movieDetail.DoubanStatus != providerStatusPartial {
 		t.Fatalf("douban provider detail = %#v, err = %v", movieDetail, err)
 	}
+	if err := repos.Metadata.UpsertDegradedProviderSnapshot(t.Context(), movie.ID, "douban", []byte(`{"title":"降级详情"}`), time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	movieDetail, err = NewMediaService(&config.Config{}, zap.NewNop(), repos).GetMedia(t.Context(), movieMedia.ID)
+	if err != nil || movieDetail == nil || movieDetail.DoubanStatus != providerStatusDegraded {
+		t.Fatalf("degraded douban provider detail = %#v, err = %v", movieDetail, err)
+	}
 	if err := repos.Metadata.UpsertProviderSnapshot(t.Context(), movie.ID, "douban", []byte(`{"title":"移动端详情"}`), time.Now().UTC()); err != nil {
 		t.Fatal(err)
 	}
