@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useState } from 'react'
 import toast from 'react-hot-toast'
-import { ChevronDown, ChevronUp, KeyRound, Pencil, Plus, Save, Trash2, X } from 'lucide-react'
+import { KeyRound, Pencil, Save, Trash2, X } from 'lucide-react'
 
 import {
   apiConfigsAPI,
@@ -323,10 +323,9 @@ function EditingRow({
   )
 }
 
-type EditableProxy = ProxyPoolItem & { url: string }
-
 function ProxyPoolPanel() {
-  const [items, setItems] = useState<EditableProxy[]>([])
+  const [items, setItems] = useState<ProxyPoolItem[]>([])
+  const [value, setValue] = useState('')
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [loadError, setLoadError] = useState('')
@@ -336,7 +335,8 @@ function ProxyPoolPanel() {
     setLoadError('')
     try {
       const loaded = await apiConfigsAPI.listProxyPool()
-      setItems(loaded.map((item) => ({ ...item, url: '' })))
+      setItems(loaded)
+      setValue(loaded.map((item) => item.display_url).join('\n'))
     } catch (err: unknown) {
       setLoadError(apiErrorMessage(err, '代理池加载失败'))
     } finally {
@@ -351,12 +351,25 @@ function ProxyPoolPanel() {
   const save = async () => {
     setSaving(true)
     try {
-      const input: ProxyPoolInput[] = items.map((item) => ({
-        ...(item.id ? { id: item.id } : {}),
-        ...(item.url.trim() ? { url: item.url.trim() } : {}),
-      }))
+      const retained = new Set<number>()
+      const input: ProxyPoolInput[] = value
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter((line) => line && line !== '!')
+        .map((line) => {
+          const replace = line.startsWith('!')
+          const url = replace ? line.slice(1).trim() : line
+          if (replace) return { url }
+          const index = items.findIndex((item, itemIndex) => (
+            !retained.has(itemIndex) && item.display_url === url
+          ))
+          if (index < 0) return { url }
+          retained.add(index)
+          return { id: items[index].id }
+        })
       const saved = await apiConfigsAPI.replaceProxyPool(input)
-      setItems(saved.map((item) => ({ ...item, url: '' })))
+      setItems(saved)
+      setValue(saved.map((item) => item.display_url).join('\n'))
       toast.success('代理池已保存')
     } catch (err: unknown) {
       toast.error(apiErrorMessage(err, '代理池保存失败'))
@@ -365,43 +378,21 @@ function ProxyPoolPanel() {
     }
   }
 
-  const move = (index: number, offset: number) => {
-    const target = index + offset
-    if (target < 0 || target >= items.length) return
-    setItems((current) => {
-      const next = [...current]
-      const moved = next[index]
-      next[index] = next[target]
-      next[target] = moved
-      return next
-    })
-  }
-
   return (
     <div className="glass-panel p-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <p className="font-medium text-ink-600">代理池</p>
-          <p className="text-xs text-sand-500">按列表顺序尝试；认证信息加密保存且不会回显。</p>
+          <p className="text-xs text-sand-500">每行一个代理，行顺序就是尝试顺序；空行会被忽略。</p>
         </div>
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => setItems((current) => [...current, { id: '', display_url: '', has_auth: false, url: '' }])}
-            disabled={loading || saving || Boolean(loadError)}
-            className="rounded-lg border border-sand-400/30 px-3 py-1.5 text-xs text-ink-50 hover:text-white disabled:opacity-50"
-          >
-            <Plus className="mr-1 inline" size={12} /> 新增
-          </button>
-          <button
-            type="button"
-            onClick={() => void save()}
-            disabled={loading || saving || Boolean(loadError) || items.some((item) => !item.id && !item.url.trim())}
-            className="neon-button !px-3 !py-1.5 !text-xs"
-          >
-            <Save size={12} /> 保存
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={() => void save()}
+          disabled={loading || saving || Boolean(loadError)}
+          className="neon-button !px-3 !py-1.5 !text-xs"
+        >
+          <Save size={12} /> 保存
+        </button>
       </div>
 
       {loading && <p className="py-5 text-center text-sm text-sand-500">加载中…</p>}
@@ -413,41 +404,22 @@ function ProxyPoolPanel() {
           </button>
         </div>
       )}
-      {!loading && !loadError && items.length === 0 && (
-        <p className="py-5 text-center text-sm text-sand-500">暂无代理节点</p>
-      )}
-      {!loading && !loadError && items.length > 0 && (
-        <div className="mt-3 space-y-2">
-          {items.map((item, index) => (
-            <div key={item.id || `new-${index}`} className="grid gap-2 border border-gray-200 p-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] md:items-center">
-              <div className="min-w-0 text-xs">
-                <p className="truncate font-mono text-ink-600">{item.display_url || `新节点 ${index + 1}`}</p>
-                {item.has_auth && <p className="mt-1 text-brand-500">已配置认证</p>}
-              </div>
-              <input
-                type="password"
-                aria-label={item.id ? `替换代理 ${index + 1}` : `新增代理 ${index + 1}`}
-                className="input-base"
-                placeholder={item.id ? '输入新地址以替换；留空保留' : 'http://user:pass@host:port'}
-                value={item.url}
-                onChange={(event) => setItems((current) => current.map((row, rowIndex) => (
-                  rowIndex === index ? { ...row, url: event.target.value } : row
-                )))}
-              />
-              <div className="flex items-center justify-end gap-1">
-                <button type="button" aria-label={`上移代理 ${index + 1}`} onClick={() => move(index, -1)} disabled={index === 0 || saving} className="rounded-lg p-1.5 text-ink-50 hover:bg-gray-50 hover:text-white disabled:opacity-30" title="上移">
-                  <ChevronUp size={14} />
-                </button>
-                <button type="button" aria-label={`下移代理 ${index + 1}`} onClick={() => move(index, 1)} disabled={index === items.length - 1 || saving} className="rounded-lg p-1.5 text-ink-50 hover:bg-gray-50 hover:text-white disabled:opacity-30" title="下移">
-                  <ChevronDown size={14} />
-                </button>
-                <button type="button" aria-label={`删除代理 ${index + 1}`} onClick={() => setItems((current) => current.filter((_, rowIndex) => rowIndex !== index))} disabled={saving} className="rounded-lg p-1.5 text-ink-50 hover:bg-red-400/10 hover:text-red-400 disabled:opacity-30" title="删除">
-                  <Trash2 size={14} />
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
+      {!loading && !loadError && (
+        <label className="mt-3 block text-xs text-ink-50">
+          代理地址
+          <textarea
+            className="input-base mt-1 min-h-40 resize-y font-mono text-xs"
+            placeholder={'http://user:pass@proxy.example:8080\nsocks5://proxy.example:1080'}
+            value={value}
+            onChange={(event) => setValue(event.target.value)}
+            autoComplete="off"
+            spellCheck={false}
+          />
+          <span className="mt-1 block text-sand-500">
+            已保存 {items.length} 个节点，其中 {items.filter((item) => item.has_auth).length} 个含认证；未改动的脱敏行会保留原认证。
+            需要强制替换或移除认证时，在该行开头加 !。
+          </span>
+        </label>
       )}
     </div>
   )

@@ -88,7 +88,7 @@ if err == nil && resolved.Enabled && strings.TrimSpace(resolved.APIKey) != "" {
 
 ### 3. Contracts
 
-- The Web proxy editor is below the Provider table. Existing entries submit only `id` unless replaced; new/replaced URLs use password inputs and are never filled from a response.
+- The Web proxy editor is one multiline textarea below the Provider table; every non-empty line is one ordered proxy. An unchanged `display_url` submits only its existing `id`, while a new line submits `url`. Prefix a line with `!` to force URL replacement, including replacing an authenticated entry with its credential-free display URL. Successful saves repopulate the textarea only with credential-free `display_url` values.
 - PUT replaces the complete ordered list transactionally. Missing existing IDs are physically deleted; retained IDs keep their encrypted URL.
 - Enabling the option starts on `NewInternalTransport()` (`Transport.Proxy=nil`), never on environment or system proxies. Disabling it keeps the original proxy-aware Douban client.
 - Only exact HTTP 400 reselects. Direct 400 tries proxies in configured order; the first non-400 HTTP response becomes sticky. A sticky proxy 400 restarts at direct. When all proxies return 400, try direct once more before returning.
@@ -103,6 +103,7 @@ if err == nil && resolved.Enabled && strings.TrimSpace(resolved.APIKey) != "" {
 | `http`, `https`, `socks5`, or `socks5h` URL with a hostname | Normalize, encrypt, and save it. |
 | Missing hostname, unsupported scheme, query, fragment, or non-root path | Reject the complete PUT without changing storage or the runtime snapshot. |
 | Unknown/duplicate retained ID | Return a positional validation error without echoing the URL or credentials. |
+| Textarea line equals an existing credential-free `display_url` | Submit its unused existing ID and preserve the encrypted URL; prefix `!` to force replacement instead. |
 | Proxy returns no HTTP response | Return the network error and do not make that proxy sticky. |
 | Proxy returns non-400 HTTP status but body reading fails | Keep that proxy sticky and preserve the caller's read error. |
 | Pool read/decrypt fails while enabled | Return a configuration error; never fall back to the environment proxy. |
@@ -116,6 +117,7 @@ if err == nil && resolved.Enabled && strings.TrimSpace(resolved.APIKey) != "" {
 ### 6. Tests Required
 
 - Assert encrypted persistence, physical deletion, stable ordering, transactional invalid-input failure, safe JSON/error projection, and all four accepted schemes.
+- Assert the multiline editor ignores empty lines, preserves unused IDs for unchanged display URLs, keeps duplicate display URLs distinct, and treats `!` lines as forced URL replacements.
 - Assert the option defaults false and update/public/resolve round-trips; same-value Douban saves must advance the runtime revision.
 - Exercise direct success, ordered proxy selection, sticky reuse, proxy-400 restart, all-400 final direct, empty-pool double direct, network/non-400 stops, generation/revision resets, and concurrent 400 serialization.
 - Exercise Search, Discover, ordinary Detail, and enrichment Detail without changing their existing status errors, parsing, Cookie, or permission fallback behavior.
