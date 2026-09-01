@@ -41,7 +41,7 @@ This directory contains guidelines for backend development. Fill in each file wi
 
 - [ ] Player-visible Emby contract changes update `web/src/pages/embyApiCatalog.ts` in the same task and pass the synchronization contract's validation steps.
 - [ ] Discover feed changes preserve keyed response metadata, cache/fallback order, and Provider scheduling.
-- [ ] Douban Cookie and proxy changes preserve encrypted database ownership, credential-free responses, per-request resolution, and exact-400-only route switching.
+- [ ] Douban Cookie and proxy changes preserve encrypted database ownership, credential-free responses, per-request resolution, and route switching only for exact HTTP 400 or `unexpected EOF`.
 
 ---
 

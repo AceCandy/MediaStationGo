@@ -282,14 +282,18 @@ func (d *DoubanProvider) requestJSON(ctx context.Context, requestURL, referer st
 	}
 	route := d.currentRoute(snapshot.generation, resolved.Revision)
 	result := attempt(d.clientForRoute(snapshot, route), resolved)
-	if result.status != http.StatusBadRequest {
+	if !shouldReselectDoubanRoute(result) {
 		return result.body, result.status, result.err
 	}
-	result = d.reselectAfter400(ctx, requestURL, referer, route, snapshot.generation, resolved.Revision)
+	result = d.reselectAfterRouteFailure(ctx, requestURL, referer, route, snapshot.generation, resolved.Revision)
 	return result.body, result.status, result.err
 }
 
-func (d *DoubanProvider) reselectAfter400(
+func shouldReselectDoubanRoute(result doubanHTTPResult) bool {
+	return result.status == http.StatusBadRequest || errors.Is(result.err, io.ErrUnexpectedEOF)
+}
+
+func (d *DoubanProvider) reselectAfterRouteFailure(
 	ctx context.Context,
 	requestURL string,
 	referer string,
@@ -312,7 +316,7 @@ func (d *DoubanProvider) reselectAfter400(
 	current := d.currentRoute(snapshot.generation, resolved.Revision)
 	if current != failedRoute || snapshot.generation != failedGeneration || resolved.Revision != failedRevision {
 		result := d.doJSONRequest(ctx, d.clientForRoute(snapshot, current), resolved, requestURL, referer)
-		if result.status != http.StatusBadRequest {
+		if !shouldReselectDoubanRoute(result) {
 			return result
 		}
 		failedRoute = current
@@ -321,14 +325,14 @@ func (d *DoubanProvider) reselectAfter400(
 	if failedRoute != doubanDirectRoute {
 		d.setRoute(snapshot.generation, resolved.Revision, doubanDirectRoute)
 		result := d.doJSONRequest(ctx, d.directClient, resolved, requestURL, referer)
-		if result.status != http.StatusBadRequest {
+		if !shouldReselectDoubanRoute(result) {
 			return result
 		}
 	}
 
 	for route, client := range snapshot.clients {
 		result := d.doJSONRequest(ctx, client, resolved, requestURL, referer)
-		if result.status == http.StatusBadRequest {
+		if shouldReselectDoubanRoute(result) {
 			continue
 		}
 		if result.status != 0 {

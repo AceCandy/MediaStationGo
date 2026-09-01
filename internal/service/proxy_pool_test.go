@@ -154,6 +154,27 @@ func TestAPIConfigUseProxyPoolRoundTripAndRevision(t *testing.T) {
 	}
 }
 
+func TestShouldReselectDoubanRoute(t *testing.T) {
+	tests := []struct {
+		name   string
+		result doubanHTTPResult
+		want   bool
+	}{
+		{name: "bad request", result: doubanHTTPResult{status: http.StatusBadRequest}, want: true},
+		{name: "unexpected EOF", result: doubanHTTPResult{err: io.ErrUnexpectedEOF}, want: true},
+		{name: "body unexpected EOF", result: doubanHTTPResult{status: http.StatusOK, err: errors.Join(io.ErrUnexpectedEOF)}, want: true},
+		{name: "other network error", result: doubanHTTPResult{err: errors.New("network unavailable")}},
+		{name: "server error", result: doubanHTTPResult{status: http.StatusServiceUnavailable}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := shouldReselectDoubanRoute(tt.result); got != tt.want {
+				t.Fatalf("shouldReselectDoubanRoute() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestDoubanProxyPoolRouting(t *testing.T) {
 	db := newServiceTestDB(t, &model.APIConfig{})
 	apiConfig := NewAPIConfigService(zap.NewNop(), &repository.Container{DB: db}, NewCryptoService("test-secret", zap.NewNop()))
@@ -235,6 +256,23 @@ func TestDoubanProxyPoolRouting(t *testing.T) {
 		}
 		if got := strings.Join(calls, ","); got != "proxy1" {
 			t.Fatalf("calls = %s", got)
+		}
+	})
+
+	t.Run("unexpected EOF switches routes", func(t *testing.T) {
+		calls := []string{}
+		provider := doubanProxyTestProvider(apiConfig,
+			scriptedDoubanClient(t, "direct", &calls, doubanTestOutcome{err: io.ErrUnexpectedEOF}),
+			scriptedDoubanClient(t, "proxy1", &calls, doubanTestOutcome{status: 200}),
+		)
+		if _, status, err := provider.requestJSON(t.Context(), "https://example.test/data", ""); err != nil || status != 200 {
+			t.Fatalf("status=%d err=%v", status, err)
+		}
+		if route := provider.currentRoute(1, resolved.Revision); route != 0 {
+			t.Fatalf("route = %d, want proxy1", route)
+		}
+		if got, want := strings.Join(calls, ","), "direct,proxy1"; got != want {
+			t.Fatalf("calls = %s, want %s", got, want)
 		}
 	})
 
