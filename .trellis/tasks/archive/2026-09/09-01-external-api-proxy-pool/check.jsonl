@@ -1,0 +1,10 @@
+{"file":".trellis/spec/backend/index.md","reason":"复核后端豆瓣与 Discover 变更前置契约"}
+{"file":".trellis/spec/backend/database-guidelines.md","reason":"复核新增表、同表字段与幂等迁移"}
+{"file":".trellis/spec/backend/douban-cookie-config.md","reason":"复核 Cookie/代理隔离和豆瓣请求实时配置"}
+{"file":".trellis/spec/backend/logging-guidelines.md","reason":"复核敏感信息未进入日志、响应和错误"}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"执行后端质量检查约定"}
+{"file":".trellis/spec/frontend/index.md","reason":"执行 Web lint、build 与响应式质量门"}
+{"file":".trellis/spec/frontend/design-system.md","reason":"复核新增管理控件的主题与交互一致性"}
+{"file":".trellis/spec/frontend/discover-feed-loading.md","reason":"复核 Discover 缓存与 fallback 行为未漂移"}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"核对 use_proxy_pool 和代理池契约跨层闭环"}
+{"file":".trellis/tasks/09-01-external-api-proxy-pool/research/code-paths.md","reason":"按已确认 file:line 路径抽查实现范围"}

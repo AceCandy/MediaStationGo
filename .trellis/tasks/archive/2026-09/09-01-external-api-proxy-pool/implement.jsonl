@@ -1,0 +1,9 @@
+{"file":".trellis/spec/backend/index.md","reason":"后端开发入口与豆瓣/Discover 变更前置契约"}
+{"file":".trellis/spec/backend/database-guidelines.md","reason":"APIConfig 同表模型、AutoMigrate 与兼容迁移约束"}
+{"file":".trellis/spec/backend/douban-cookie-config.md","reason":"豆瓣 Cookie 加密、安全投影、逐请求解析和图片边界"}
+{"file":".trellis/spec/backend/logging-guidelines.md","reason":"代理认证与 Cookie 不得进入日志或错误输出"}
+{"file":".trellis/spec/frontend/index.md","reason":"Web 变更质量门与响应式检查入口"}
+{"file":".trellis/spec/frontend/design-system.md","reason":"外部 API 页面新增控件需复用现有设计系统"}
+{"file":".trellis/spec/frontend/discover-feed-loading.md","reason":"修改 Douban Discover Provider 时保持缓存和失败边界"}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"数据库到管理 API、TypeScript、UI 和运行时的字段贯通"}
+{"file":".trellis/tasks/09-01-external-api-proxy-pool/research/code-paths.md","reason":"已核验的请求、配置、迁移和前端代码入口"}
