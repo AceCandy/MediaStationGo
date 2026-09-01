@@ -1649,3 +1649,25 @@ Audited unbounded PostgreSQL collection bindings, replaced risky slice expansion
 ### Status
 
 [OK] **Completed**
+
+
+## Session 77: Douban detail degradation fallback
+<!-- trellis-session: v=2 fp=cc2bf6ecd99b2320 -->
+
+**Date**: 2026-09-01
+**Task**: Douban detail degradation fallback
+**Branch**: `main`
+
+### Summary
+
+Added movie/tv permission fallback to subject, persisted degraded status, skipped periodic retries, and exposed manual recovery in media detail.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `bf69f83` | feat: add Douban detail degradation fallback |
+
+### Status
+
+[OK] **Completed**
