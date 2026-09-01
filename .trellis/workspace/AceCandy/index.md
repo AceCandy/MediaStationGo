@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 80
-- **Last Active**: 2026-09-01
+- **Total Sessions**: 81
+- **Last Active**: 2026-09-02
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~1739 | Active |
+| `journal-1.md` | ~1761 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 81 | 2026-09-02 | 豆瓣电影信息补齐持续执行 | `0dbef6b` | `main` |
 | 80 | 2026-09-01 | 外部 API 代理池 | `5b1edcf` | `main` |
 | 79 | 2026-09-01 | 豆瓣原图与 CDN 回源 | `3a4a3b5f0d7d25fb78726b1320e607c4f4c81e80` | `main` |
 | 78 | 2026-09-01 | 豆瓣补齐实时输出明细 | `7d6240d` | `main` |

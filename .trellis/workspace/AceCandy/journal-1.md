@@ -1737,3 +1737,25 @@ Added movie/tv permission fallback to subject, persisted degraded status, skippe
 ### Status
 
 [OK] **Completed**
+
+
+## Session 81: 豆瓣电影信息补齐持续执行
+<!-- trellis-session: v=2 fp=af9131a6443bdc54 -->
+
+**Date**: 2026-09-02
+**Task**: 豆瓣电影信息补齐持续执行
+**Branch**: `main`
+
+### Summary
+
+豆瓣电影信息补齐改为每批 100 条持续分页至耗尽，并在临时异常日志中保留脱敏后的具体原因。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `0dbef6b` | fix: complete Douban enrichment runs |
+
+### Status
+
+[OK] **Completed**
