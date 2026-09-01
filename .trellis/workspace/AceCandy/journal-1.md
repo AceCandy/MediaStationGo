@@ -1671,3 +1671,25 @@ Added movie/tv permission fallback to subject, persisted degraded status, skippe
 ### Status
 
 [OK] **Completed**
+
+
+## Session 78: 豆瓣补齐实时输出明细
+<!-- trellis-session: v=2 fp=52b4930846dfa738 -->
+
+**Date**: 2026-09-01
+**Task**: 豆瓣补齐实时输出明细
+**Branch**: `main`
+
+### Summary
+
+豆瓣电影信息补齐改为逐条增量写入任务日志，完成时仅写汇总，并增加实时可见与去重回归测试。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `7d6240d` | fix: stream Douban enrichment task details |
+
+### Status
+
+[OK] **Completed**

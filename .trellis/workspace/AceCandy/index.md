@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 77
+- **Total Sessions**: 78
 - **Last Active**: 2026-09-01
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~1673 | Active |
+| `journal-1.md` | ~1695 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 78 | 2026-09-01 | 豆瓣补齐实时输出明细 | `7d6240d` | `main` |
 | 77 | 2026-09-01 | Douban detail degradation fallback | `bf69f83` | `main` |
 | 76 | 2026-09-01 | 豆瓣图片直连与 curl 兜底 | `ce1f956` | `main` |
 | 75 | 2026-08-31 | 豆瓣大图与 WebP 统一 | `e8ae4d0` | `main` |
