@@ -783,8 +783,20 @@ func TestDoubanMovieEnrichmentLogsActualChangesAndIdleRun(t *testing.T) {
 	if err := repos.DB.AutoMigrate(&model.Setting{}); err != nil {
 		t.Fatal(err)
 	}
+	tasks := NewTaskTrackerService(zap.NewNop(), nil)
+	tasks.ConfigurePersistence(nil, t.TempDir())
+	var liveLog string
+	requests := 0
 	provider := NewDoubanProvider(nil)
 	provider.client = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		requests++
+		if requests == 2 {
+			logResult, err := tasks.ReadDefinitionLog(TaskDefinitionDoubanEnrichment, "", 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			liveLog = logResult.Content
+		}
 		title, summary, poster := "已有中文标题", "已有简介", ""
 		if strings.HasSuffix(req.URL.Path, "/2") {
 			title, summary, poster = "补齐中文标题", "补齐简介", `,"cover":{"image":{"large":{"url":"https://img.test/poster.jpg"}}}`
@@ -804,8 +816,6 @@ func TestDoubanMovieEnrichmentLogsActualChangesAndIdleRun(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	tasks := NewTaskTrackerService(zap.NewNop(), nil)
-	tasks.ConfigurePersistence(nil, t.TempDir())
 	scraper.SetTaskTracker(tasks)
 	previousDelay := doubanMovieEnrichmentDelay
 	doubanMovieEnrichmentDelay = 0
@@ -813,6 +823,12 @@ func TestDoubanMovieEnrichmentLogsActualChangesAndIdleRun(t *testing.T) {
 
 	if err := scraper.runDoubanMovieEnrichment(t.Context(), TaskTriggerManual); err != nil {
 		t.Fatal(err)
+	}
+	if !strings.Contains(liveLog, "✅ 刷新") && !strings.Contains(liveLog, "🔄 更新") {
+		t.Fatalf("first result was not logged before the second request:\n%s", liveLog)
+	}
+	if strings.Contains(liveLog, "请求 2") {
+		t.Fatalf("final summary was logged before completion:\n%s", liveLog)
 	}
 	snapshot := tasks.Snapshot()
 	if len(snapshot.Recent) != 1 || snapshot.Recent[0].Metrics["added"] != 1 || snapshot.Recent[0].Metrics["updated"] != 1 || snapshot.Recent[0].Metrics["snapshot_only"] != 1 {
@@ -838,6 +854,11 @@ func TestDoubanMovieEnrichmentLogsActualChangesAndIdleRun(t *testing.T) {
 	for _, unwanted := range []string{"扫描 2", "无变化", "跳过"} {
 		if strings.Contains(logResult.Content, unwanted) {
 			t.Fatalf("task log contains %q:\n%s", unwanted, logResult.Content)
+		}
+	}
+	for _, detail := range []string{"✅ 刷新 《已有中文标题》（", "🔄 更新 《补齐中文标题》（", "➕ 新增 《补齐中文标题》（"} {
+		if count := strings.Count(logResult.Content, detail); count != 1 {
+			t.Fatalf("task log contains %d copies of %q:\n%s", count, detail, logResult.Content)
 		}
 	}
 

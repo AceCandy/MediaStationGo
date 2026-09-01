@@ -288,6 +288,10 @@ func (s *ScraperService) runDoubanMovieEnrichment(ctx context.Context, trigger s
 		if err := s.repo.Setting.Set(ctx, doubanMovieEnrichmentCursorKey, afterID); err != nil {
 			return fail(err)
 		}
+		if task != nil {
+			task.Update(TaskUpdate{Stage: "enrich", Metrics: metrics, Details: details})
+		}
+		details = nil
 		if i+1 < len(candidates) && doubanMovieEnrichmentDelay > 0 {
 			timer := time.NewTimer(doubanMovieEnrichmentDelay)
 			select {
@@ -327,8 +331,7 @@ func (s *ScraperService) runDoubanMovieEnrichment(ctx context.Context, trigger s
 			}
 			summary = strings.Join(parts, "，")
 		}
-		details = append(details, "ℹ️ "+summary)
-		task.Finish(nil, TaskUpdate{Stage: "completed", Message: "豆瓣电影信息补齐完成", Metrics: metrics, Details: details})
+		task.Finish(nil, TaskUpdate{Stage: "completed", Message: "豆瓣电影信息补齐完成", Metrics: metrics, Details: []string{"ℹ️ " + summary}})
 	}
 	return nil
 }
