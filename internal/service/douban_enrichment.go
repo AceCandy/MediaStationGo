@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	doubanMovieEnrichmentBatchLimit = 20
+	doubanMovieEnrichmentBatchLimit = 100
 	doubanMovieEnrichmentCursorKey  = "internal.douban_movie_enrichment_cursor"
 )
 
@@ -224,92 +224,97 @@ func (s *ScraperService) runDoubanMovieEnrichment(ctx context.Context, trigger s
 	if err != nil {
 		return fail(err)
 	}
-	candidates, err := s.repo.Metadata.ListDoubanMovieEnrichmentAfter(ctx, afterID, time.Now().UTC().Add(-24*time.Hour), doubanMovieEnrichmentBatchLimit)
-	if err != nil {
-		return fail(err)
-	}
-	for i, candidate := range candidates {
-		metrics["scanned"]++
-		result, enrichErr := s.enrichMovieFromDoubanMobile(ctx, candidate.MetadataID)
-		if result.Requested {
-			metrics["requested"]++
+	refreshBefore := time.Now().UTC().Add(-24 * time.Hour)
+	for {
+		candidates, err := s.repo.Metadata.ListDoubanMovieEnrichmentAfter(ctx, afterID, refreshBefore, doubanMovieEnrichmentBatchLimit)
+		if err != nil {
+			return fail(err)
 		}
-		if enrichErr != nil {
-			if errors.Is(enrichErr, ErrDoubanTemporarilyUnavailable) {
-				metrics["upstream_paused"]++
-				details = append(details, fmt.Sprintf("⚠️ 豆瓣接口异常，已暂停本批：%s；当前条目将在下次重试，未使用摘要降级", result.Subject))
-				if task != nil {
-					task.Finish(nil, TaskUpdate{Stage: "completed", Message: "豆瓣接口异常，补齐已暂停", Metrics: metrics, Details: details})
+		for i, candidate := range candidates {
+			metrics["scanned"]++
+			result, enrichErr := s.enrichMovieFromDoubanMobile(ctx, candidate.MetadataID)
+			if result.Requested {
+				metrics["requested"]++
+			}
+			if enrichErr != nil {
+				if errors.Is(enrichErr, ErrDoubanTemporarilyUnavailable) {
+					metrics["upstream_paused"]++
+					reason := strings.TrimPrefix(sanitizeTaskLogError(enrichErr).Error(), ErrDoubanTemporarilyUnavailable.Error()+": ")
+					details = append(details, fmt.Sprintf("⚠️ 豆瓣接口异常，已暂停本批：%s；原因：%s；当前条目将在下次重试，未使用摘要降级", result.Subject, reason))
+					if task != nil {
+						task.Finish(nil, TaskUpdate{Stage: "completed", Message: "豆瓣接口异常，补齐已暂停", Metrics: metrics, Details: details})
+					}
+					return nil
 				}
-				return nil
-			}
-			if !errors.Is(enrichErr, ErrDoubanSubjectNotFound) {
-				details = append(details, fmt.Sprintf("❌ %s：%v", result.Subject, sanitizeTaskLogError(enrichErr)))
-				return fail(enrichErr)
-			}
-			metrics["failed"]++
-			metrics["permanent_failed"]++
-			details = append(details, fmt.Sprintf("❌ %s：豆瓣条目不存在，已跳过", result.Subject))
-		} else if result.Skipped {
-			metrics["ambiguous_skipped"]++
-			details = append(details, fmt.Sprintf("⏭️ 跳过 %s：不是电影或豆瓣标识缺失/不唯一", result.Subject))
-		} else {
-			metrics["fields_filled"] += int64(len(result.UpdatedFields))
-			if result.SnapshotSaved {
-				metrics["snapshot_saved"]++
-			}
-			if result.CandidateSaved {
-				metrics["candidate_saved"]++
-			}
-			if result.CandidatePromoted {
-				metrics["candidate_promoted"]++
-			}
-			if len(result.UpdatedFields) > 0 {
-				metrics["updated"]++
-				details = append(details, fmt.Sprintf("🔄 更新 %s：%s", result.Subject, strings.Join(result.UpdatedFields, "、")))
-			}
-			if result.CandidateSaved {
-				metrics["added"]++
-				posterDetail := "豆瓣海报"
+				if !errors.Is(enrichErr, ErrDoubanSubjectNotFound) {
+					details = append(details, fmt.Sprintf("❌ %s：%v", result.Subject, sanitizeTaskLogError(enrichErr)))
+					return fail(enrichErr)
+				}
+				metrics["failed"]++
+				metrics["permanent_failed"]++
+				details = append(details, fmt.Sprintf("❌ %s：豆瓣条目不存在，已跳过", result.Subject))
+			} else if result.Skipped {
+				metrics["ambiguous_skipped"]++
+				details = append(details, fmt.Sprintf("⏭️ 跳过 %s：不是电影或豆瓣标识缺失/不唯一", result.Subject))
+			} else {
+				metrics["fields_filled"] += int64(len(result.UpdatedFields))
+				if result.SnapshotSaved {
+					metrics["snapshot_saved"]++
+				}
+				if result.CandidateSaved {
+					metrics["candidate_saved"]++
+				}
 				if result.CandidatePromoted {
-					posterDetail += "（已设为当前海报）"
+					metrics["candidate_promoted"]++
 				}
-				details = append(details, fmt.Sprintf("➕ 新增 %s：%s", result.Subject, posterDetail))
+				if len(result.UpdatedFields) > 0 {
+					metrics["updated"]++
+					details = append(details, fmt.Sprintf("🔄 更新 %s：%s", result.Subject, strings.Join(result.UpdatedFields, "、")))
+				}
+				if result.CandidateSaved {
+					metrics["added"]++
+					posterDetail := "豆瓣海报"
+					if result.CandidatePromoted {
+						posterDetail += "（已设为当前海报）"
+					}
+					details = append(details, fmt.Sprintf("➕ 新增 %s：%s", result.Subject, posterDetail))
+				}
+				if result.Degraded {
+					metrics["degraded"]++
+					details = append(details, fmt.Sprintf("⚠️ 降级 %s：豆瓣完整接口受限，已保存 subject 快照", result.Subject))
+				} else if len(result.UpdatedFields) == 0 && !result.CandidateSaved {
+					metrics["snapshot_only"]++
+					details = append(details, fmt.Sprintf("✅ 刷新 %s：已保存完整豆瓣快照，未补到新的字段或海报", result.Subject))
+				}
 			}
-			if result.Degraded {
-				metrics["degraded"]++
-				details = append(details, fmt.Sprintf("⚠️ 降级 %s：豆瓣完整接口受限，已保存 subject 快照", result.Subject))
-			} else if len(result.UpdatedFields) == 0 && !result.CandidateSaved {
-				metrics["snapshot_only"]++
-				details = append(details, fmt.Sprintf("✅ 刷新 %s：已保存完整豆瓣快照，未补到新的字段或海报", result.Subject))
+			afterID = candidate.MetadataID
+			if err := s.repo.Setting.Set(ctx, doubanMovieEnrichmentCursorKey, afterID); err != nil {
+				return fail(err)
+			}
+			if task != nil {
+				task.Update(TaskUpdate{Stage: "enrich", Metrics: metrics, Details: details})
+			}
+			details = nil
+			if (i+1 < len(candidates) || len(candidates) == doubanMovieEnrichmentBatchLimit) && doubanMovieEnrichmentDelay > 0 {
+				timer := time.NewTimer(doubanMovieEnrichmentDelay)
+				select {
+				case <-ctx.Done():
+					timer.Stop()
+					return fail(ctx.Err())
+				case <-timer.C:
+				}
 			}
 		}
-		afterID = candidate.MetadataID
-		if err := s.repo.Setting.Set(ctx, doubanMovieEnrichmentCursorKey, afterID); err != nil {
-			return fail(err)
-		}
-		if task != nil {
-			task.Update(TaskUpdate{Stage: "enrich", Metrics: metrics, Details: details})
-		}
-		details = nil
-		if i+1 < len(candidates) && doubanMovieEnrichmentDelay > 0 {
-			timer := time.NewTimer(doubanMovieEnrichmentDelay)
-			select {
-			case <-ctx.Done():
-				timer.Stop()
-				return fail(ctx.Err())
-			case <-timer.C:
+		if len(candidates) < doubanMovieEnrichmentBatchLimit {
+			if err := s.repo.Setting.Set(ctx, doubanMovieEnrichmentCursorKey, ""); err != nil {
+				return fail(err)
 			}
-		}
-	}
-	if len(candidates) < doubanMovieEnrichmentBatchLimit {
-		if err := s.repo.Setting.Set(ctx, doubanMovieEnrichmentCursorKey, ""); err != nil {
-			return fail(err)
+			break
 		}
 	}
 	if task != nil {
 		summary := "未发现待补齐项"
-		if len(candidates) > 0 {
+		if metrics["scanned"] > 0 {
 			parts := []string{fmt.Sprintf("请求 %d", metrics["requested"])}
 			if metrics["updated"] > 0 {
 				parts = append(parts, fmt.Sprintf("更新 %d", metrics["updated"]))

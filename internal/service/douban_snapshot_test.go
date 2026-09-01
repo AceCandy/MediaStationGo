@@ -278,17 +278,16 @@ func TestDoubanGetMatchByIDFallsBackToSubjectAbstract(t *testing.T) {
 
 func TestDoubanGetEnrichmentMatchByIDDoesNotFallbackForRetryableErrors(t *testing.T) {
 	tests := []struct {
-		name   string
-		status int
-		body   string
-		err    error
+		name, body, wantError string
+		status                int
+		err                   error
 	}{
-		{name: "network", err: errors.New("network unavailable")},
-		{name: "rate limit", status: http.StatusTooManyRequests, body: `rate limited`},
-		{name: "server error", status: http.StatusServiceUnavailable, body: `unavailable`},
-		{name: "empty response", status: http.StatusOK},
-		{name: "invalid json", status: http.StatusOK, body: `{`},
-		{name: "error object", status: http.StatusOK, body: `{"code":"subject_ip_rate_limit"}`},
+		{name: "network", err: errors.New("network unavailable"), wantError: "network unavailable"},
+		{name: "rate limit", status: http.StatusTooManyRequests, body: `rate limited`, wantError: "HTTP 429"},
+		{name: "server error", status: http.StatusServiceUnavailable, body: `unavailable`, wantError: "HTTP 503"},
+		{name: "empty response", status: http.StatusOK, wantError: "invalid json"},
+		{name: "invalid json", status: http.StatusOK, body: `{`, wantError: "invalid json"},
+		{name: "error object", status: http.StatusOK, body: `{"code":"subject_ip_rate_limit"}`, wantError: `response code "subject_ip_rate_limit"`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -305,8 +304,15 @@ func TestDoubanGetEnrichmentMatchByIDDoesNotFallbackForRetryableErrors(t *testin
 				return &http.Response{StatusCode: tt.status, Body: io.NopCloser(strings.NewReader(tt.body)), Request: req}, nil
 			})}
 
-			if _, _, err := provider.GetEnrichmentMatchByID(t.Context(), "1295644", model.MetadataKindMovie); !errors.Is(err, ErrDoubanTemporarilyUnavailable) {
+			_, _, err := provider.GetEnrichmentMatchByID(t.Context(), "1295644", model.MetadataKindMovie)
+			if !errors.Is(err, ErrDoubanTemporarilyUnavailable) {
 				t.Fatalf("error = %v", err)
+			}
+			if !strings.Contains(err.Error(), tt.wantError) {
+				t.Fatalf("error = %v, want reason %q", err, tt.wantError)
+			}
+			if tt.err != nil && !errors.Is(err, tt.err) {
+				t.Fatalf("error = %v, want wrapped error %v", err, tt.err)
 			}
 			if requests != 1 {
 				t.Fatalf("requests = %d, want 1", requests)
@@ -733,7 +739,7 @@ func TestDoubanMovieEnrichmentPausesWithoutAdvancingFailedCursor(t *testing.T) {
 		t.Fatalf("cursor = %q, err = %v", cursor, err)
 	}
 	logResult, err := tasks.ReadDefinitionLog(TaskDefinitionDoubanEnrichment, "", 0)
-	if err != nil || !strings.Contains(logResult.Content, "豆瓣接口异常，已暂停本批") || !strings.Contains(logResult.Content, "当前条目将在下次重试，未使用摘要降级") {
+	if err != nil || !strings.Contains(logResult.Content, "豆瓣接口异常，已暂停本批") || !strings.Contains(logResult.Content, "原因：HTTP 503") || !strings.Contains(logResult.Content, "当前条目将在下次重试，未使用摘要降级") {
 		t.Fatalf("paused task log = %q, err = %v", logResult.Content, err)
 	}
 
@@ -781,6 +787,48 @@ func TestDoubanMovieEnrichmentContinuesAfterNotFound(t *testing.T) {
 	}
 	if strings.Join(requests, ",") != "1,2" {
 		t.Fatalf("requests = %v", requests)
+	}
+}
+
+func TestDoubanMovieEnrichmentPaginatesUntilExhausted(t *testing.T) {
+	scraper, repos, closeServer := newTestScraper(t)
+	defer closeServer()
+	if err := repos.DB.AutoMigrate(&model.Setting{}); err != nil {
+		t.Fatal(err)
+	}
+	for i := 1; i <= doubanMovieEnrichmentBatchLimit+1; i++ {
+		metadata := model.MetadataItem{
+			PermanentBase: model.PermanentBase{ID: fmt.Sprintf("30000000-0000-0000-0000-%012d", i)},
+			Kind:          model.MetadataKindMovie,
+			Title:         "电影",
+			Source:        "tmdb",
+		}
+		if err := repos.Metadata.Create(t.Context(), &metadata, []model.MetadataIdentifier{{
+			Provider: "douban", EntityKind: model.MetadataKindMovie, ExternalID: strconv.Itoa(i),
+		}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	requests := 0
+	provider := NewDoubanProvider(nil)
+	provider.client = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		requests++
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{"title":"电影","intro":"简介"}`)), Request: req}, nil
+	})}
+	scraper.douban = provider
+	previousDelay := doubanMovieEnrichmentDelay
+	doubanMovieEnrichmentDelay = 0
+	defer func() { doubanMovieEnrichmentDelay = previousDelay }()
+
+	if err := scraper.runDoubanMovieEnrichment(t.Context(), TaskTriggerManual); err != nil {
+		t.Fatal(err)
+	}
+	if requests != doubanMovieEnrichmentBatchLimit+1 {
+		t.Fatalf("requests = %d, want %d", requests, doubanMovieEnrichmentBatchLimit+1)
+	}
+	cursor, err := repos.Setting.Get(t.Context(), doubanMovieEnrichmentCursorKey)
+	if err != nil || cursor != "" {
+		t.Fatalf("cursor = %q, err = %v", cursor, err)
 	}
 }
 

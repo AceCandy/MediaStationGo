@@ -183,7 +183,7 @@ func (d *DoubanProvider) GetEnrichmentMatchByID(ctx context.Context, doubanID, e
 	}
 	match, err := doubanMatchFromRawJSON(doubanID, rawJSON)
 	if err != nil {
-		return nil, false, ErrDoubanTemporarilyUnavailable
+		return nil, false, fmt.Errorf("%w: invalid detail payload: %w", ErrDoubanTemporarilyUnavailable, err)
 	}
 	match.PosterURL = d.ResolveArtworkURL(ctx, match.PosterURL)
 	return match, degraded, nil
@@ -210,7 +210,7 @@ func (d *DoubanProvider) getMobileDetailRawJSON(ctx context.Context, doubanID st
 	)
 	permissionDenied, err := classifyDoubanDetailResponse(rawJSON, status, err)
 	if permissionDenied {
-		return nil, ErrDoubanTemporarilyUnavailable
+		return nil, err
 	}
 	return rawJSON, err
 }
@@ -239,9 +239,6 @@ func (d *DoubanProvider) getEnrichmentDetailRawJSON(ctx context.Context, doubanI
 		referer,
 	)
 	permissionDenied, err = classifyDoubanDetailResponse(rawJSON, status, requestErr)
-	if permissionDenied {
-		err = ErrDoubanTemporarilyUnavailable
-	}
 	if err != nil {
 		return nil, false, err
 	}
@@ -434,29 +431,33 @@ func classifyDoubanDetailResponse(rawJSON []byte, status int, requestErr error) 
 			return false, requestErr
 		}
 		if status == http.StatusForbidden {
-			return true, nil
+			return true, fmt.Errorf("%w: HTTP %d", ErrDoubanTemporarilyUnavailable, status)
 		}
-		if status == 0 || status == http.StatusTooManyRequests || status >= 500 || status < 400 {
-			return false, ErrDoubanTemporarilyUnavailable
+		if status == http.StatusTooManyRequests || status >= 500 {
+			return false, fmt.Errorf("%w: HTTP %d", ErrDoubanTemporarilyUnavailable, status)
+		}
+		if status == 0 || status < 400 {
+			return false, fmt.Errorf("%w: %w", ErrDoubanTemporarilyUnavailable, requestErr)
 		}
 		return false, requestErr
 	}
-	if notFound, permissionDenied, failed := doubanDetailResponseFailure(rawJSON); failed {
+	if notFound, permissionDenied, reason := doubanDetailResponseFailure(rawJSON); reason != "" {
 		if notFound {
 			return false, ErrDoubanSubjectNotFound
 		}
+		err := fmt.Errorf("%w: %s", ErrDoubanTemporarilyUnavailable, reason)
 		if permissionDenied {
-			return true, nil
+			return true, err
 		}
-		return false, ErrDoubanTemporarilyUnavailable
+		return false, err
 	}
 	return false, nil
 }
 
-func doubanDetailResponseFailure(rawJSON []byte) (notFound, permissionDenied, failed bool) {
+func doubanDetailResponseFailure(rawJSON []byte) (notFound, permissionDenied bool, reason string) {
 	var raw map[string]any
 	if err := json.Unmarshal(rawJSON, &raw); err != nil || raw == nil {
-		return false, false, true
+		return false, false, "invalid response"
 	}
 	code := ""
 	for _, key := range []string{"code", "error_code"} {
@@ -472,25 +473,28 @@ func doubanDetailResponseFailure(rawJSON []byte) (notFound, permissionDenied, fa
 	}
 	code = strings.ToLower(code)
 	if code != "" {
-		return strings.Contains(code, "not_found") || strings.Contains(code, "not found") || strings.Contains(code, "not_exist"), code == "1000", true
+		return strings.Contains(code, "not_found") || strings.Contains(code, "not found") || strings.Contains(code, "not_exist"), code == "1000", fmt.Sprintf("response code %q", code)
 	}
 	value, ok := raw["error"]
 	if !ok {
-		return false, false, false
+		return false, false, ""
 	}
 	switch typed := value.(type) {
 	case nil:
-		return false, false, false
+		return false, false, ""
 	case bool:
-		return false, false, typed
+		if !typed {
+			return false, false, ""
+		}
+		return false, false, "error response"
 	case string:
 		typed = strings.ToLower(strings.TrimSpace(typed))
 		if typed == "" {
-			return false, false, false
+			return false, false, ""
 		}
-		return strings.Contains(typed, "not found") || strings.Contains(typed, "not_exist"), false, true
+		return strings.Contains(typed, "not found") || strings.Contains(typed, "not_exist"), false, fmt.Sprintf("response error %q", typed)
 	default:
-		return false, false, true
+		return false, false, "error response"
 	}
 }
 
