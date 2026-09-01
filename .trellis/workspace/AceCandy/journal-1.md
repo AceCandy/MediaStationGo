@@ -1715,3 +1715,25 @@ Added movie/tv permission fallback to subject, persisted degraded status, skippe
 ### Status
 
 [OK] **Completed**
+
+
+## Session 80: 外部 API 代理池
+<!-- trellis-session: v=2 fp=04067b05b0809283 -->
+
+**Date**: 2026-09-01
+**Task**: 外部 API 代理池
+**Branch**: `main`
+
+### Summary
+
+新增加密静态代理池与管理界面，豆瓣 JSON 请求仅在 HTTP 400 时按顺序切换并粘性复用；完成针对性测试、静态检查和规格同步。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `5b1edcf` | feat: add Douban proxy pool |
+
+### Status
+
+[OK] **Completed**
