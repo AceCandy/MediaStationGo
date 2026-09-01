@@ -40,6 +40,19 @@ export interface ProxyPoolInput {
   url?: string
 }
 
+export interface ProxyPoolCheckResult {
+  total: number
+  available: number
+  unavailable: number
+  inconclusive: number
+  cleanup_token?: string
+}
+
+export interface ProxyPoolCleanupResult {
+  items: ProxyPoolItem[]
+  removed: number
+}
+
 export const apiConfigsAPI = {
   list: () => api.get<{ items: APIConfig[] }>('/admin/api-configs').then((r) => r.data.items),
   get: (provider: string) => api.get<APIConfig>(`/admin/api-configs/${provider}`).then((r) => r.data),
@@ -50,4 +63,8 @@ export const apiConfigsAPI = {
     api.get<{ items: ProxyPoolItem[] }>('/admin/api-proxy-pool').then((r) => r.data.items),
   replaceProxyPool: (items: ProxyPoolInput[]) =>
     api.put<{ items: ProxyPoolItem[] }>('/admin/api-proxy-pool', { items }).then((r) => r.data.items),
+  checkProxyPool: () =>
+    api.post<ProxyPoolCheckResult>('/admin/api-proxy-pool/check', undefined, { timeout: 180_000 }).then((r) => r.data),
+  cleanupProxyPool: (token: string) =>
+    api.post<ProxyPoolCleanupResult>('/admin/api-proxy-pool/cleanup', { token }).then((r) => r.data),
 }

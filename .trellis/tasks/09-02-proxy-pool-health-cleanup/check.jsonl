@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/backend/index.md", "reason": "核验后端实现与项目契约"}
+{"file": ".trellis/spec/backend/douban-cookie-config.md", "reason": "核验敏感信息、代理池和豆瓣行为兼容性"}
+{"file": ".trellis/spec/frontend/index.md", "reason": "核验前端交互与质量门"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "核验 API 与前端字段及取消/删除边界"}

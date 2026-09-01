@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/backend/index.md", "reason": "后端代理池与豆瓣配置规范入口"}
+{"file": ".trellis/spec/backend/douban-cookie-config.md", "reason": "代理池加密、脱敏、路由切换与测试契约"}
+{"file": ".trellis/spec/frontend/index.md", "reason": "前端管理页面质量与验证入口"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "定义后端检测结果到前端确认清理的数据边界"}

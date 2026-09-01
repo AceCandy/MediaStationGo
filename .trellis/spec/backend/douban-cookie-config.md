@@ -138,6 +138,64 @@ if !shouldReselectDoubanRoute(result) {
 return d.reselectAfterRouteFailure(...)
 ```
 
+## Scenario: Manual Proxy Pool Health Cleanup
+
+### 1. Scope / Trigger
+
+- Apply this contract when changing saved-proxy health checks, cleanup classification, or the administrator proxy-pool panel.
+- This is an explicit administrator action, not a scheduler, persistent health score, or provider-wide proxy fallback.
+
+### 2. Signatures
+
+- Check: `POST /api/admin/api-proxy-pool/check` with no request body.
+- Check response: `{"total":0,"available":0,"unavailable":0,"inconclusive":0,"cleanup_token":"..."}`; omit `cleanup_token` when no proxy is removable.
+- Cleanup: `POST /api/admin/api-proxy-pool/cleanup` with `{"token":"..."}`.
+- Cleanup response: `{"items":[<credential-free pool items>],"removed":1}`.
+
+### 3. Contracts
+
+- Check only persisted encrypted entries; unsaved textarea edits never participate.
+- First probe the same lightweight Douban JSON endpoint through a direct external client. If that baseline is not healthy, fail the complete check and issue no cleanup token.
+- Run saved proxies with bounded workers and a per-proxy timeout without holding `ProxyPoolService.mu` during network I/O.
+- A cleanup token is server-owned, single-use after successful cleanup, valid for five minutes, and bound to the unavailable IDs and current proxy-pool generation. Any pool save invalidates it.
+- Cleanup reuses transactional full replacement, preserves retained order and encrypted credentials, and returns the refreshed credential-free pool.
+- API errors and responses never include a complete proxy URL, Userinfo, ciphertext, Cookie, or upstream request URL.
+- While a check is running, disable pool editing and saving. If edits were already unsaved when the check began, warn that confirmed cleanup replaces the textarea with the saved result.
+
+### 4. Validation & Error Matrix
+
+| Condition | Classification / result |
+| --- | --- |
+| HTTP 200 with valid JSON | `available` |
+| Connection/transport failure, timeout, HTTP 407, exact HTTP 400, `unexpected EOF`, or HTTP 200 with invalid JSON | `unavailable` and eligible for the token |
+| HTTP 403, 429, 5xx, oversized body, or a body-read error other than `unexpected EOF` | `inconclusive`; never removable |
+| Direct baseline is not `available` | Fail the complete check and issue no token |
+| Request context is canceled | Stop taking work, return an error, and do not mutate the pool |
+| Missing, expired, unrelated, reused, or stale-generation token | Reject cleanup and require another check |
+
+### 5. Good / Base / Bad Cases
+
+- Good: the direct baseline succeeds, two dead proxies produce a token, the administrator confirms, and only those two persisted IDs are deleted.
+- Base: every saved proxy is available or inconclusive, so the UI shows the summary and performs no cleanup request.
+- Bad: accept proxy IDs from the browser, classify rate limiting as dead, keep a token valid after a save, or overwrite edits made while the health request is in flight.
+
+### 6. Tests Required
+
+- Service tests classify success, connection errors, 400, 407, `unexpected EOF`, invalid JSON, other read errors, 403, 429, 5xx, cancellation, and baseline failure.
+- Assert check does not change persistence, a concurrent save invalidates its result, and cleanup removes only token-bound IDs while preserving retained order.
+- Handler tests assert both administrator routes exist and cleanup errors cannot expose stored credentials.
+- Run `go test ./internal/service`, focused proxy-pool handler tests, `go vet ./internal/service ./internal/handler`, Web lint/build, and `git diff --check`.
+
+### 7. Wrong vs Correct
+
+```go
+// Wrong: the browser chooses arbitrary rows to delete.
+cleanup(request.UnavailableIDs)
+
+// Correct: the server resolves IDs from its short-lived generation-bound result.
+cleanup(request.Token)
+```
+
 ## Scenario: Configurable Douban Artwork Origin and Large Poster Repair
 
 ### 1. Scope / Trigger

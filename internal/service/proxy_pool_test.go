@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -9,7 +10,9 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
+	"github.com/google/uuid"
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 
@@ -123,6 +126,165 @@ func TestProxyPoolServiceReplaceEncryptsAndProjectsCredentials(t *testing.T) {
 	if err != nil || len(items) != 1 || items[0].DisplayURL != "socks5h://proxy-c.example:1080" {
 		t.Fatalf("failed update changed the proxy pool: %#v, %v", items, err)
 	}
+}
+
+func TestProbeProxyPoolHealthClassifiesSafeCleanupCandidates(t *testing.T) {
+	tests := []struct {
+		name    string
+		status  int
+		body    string
+		err     error
+		readErr error
+		want    proxyPoolHealthStatus
+	}{
+		{name: "available", status: http.StatusOK, body: `[]`, want: proxyPoolHealthAvailable},
+		{name: "invalid success body", status: http.StatusOK, body: `not-json`, want: proxyPoolHealthUnavailable},
+		{name: "bad request", status: http.StatusBadRequest, body: `{}`, want: proxyPoolHealthUnavailable},
+		{name: "proxy auth", status: http.StatusProxyAuthRequired, body: `{}`, want: proxyPoolHealthUnavailable},
+		{name: "unexpected eof", status: http.StatusOK, readErr: io.ErrUnexpectedEOF, want: proxyPoolHealthUnavailable},
+		{name: "other read error", status: http.StatusOK, readErr: errors.New("read failed"), want: proxyPoolHealthInconclusive},
+		{name: "network error", err: errors.New("connection failed"), want: proxyPoolHealthUnavailable},
+		{name: "forbidden", status: http.StatusForbidden, body: `{}`, want: proxyPoolHealthInconclusive},
+		{name: "rate limited", status: http.StatusTooManyRequests, body: `{}`, want: proxyPoolHealthInconclusive},
+		{name: "upstream error", status: http.StatusBadGateway, body: `{}`, want: proxyPoolHealthInconclusive},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+				if tt.err != nil {
+					return nil, tt.err
+				}
+				body := io.ReadCloser(io.NopCloser(strings.NewReader(tt.body)))
+				if tt.readErr != nil {
+					body = &doubanErrorReadCloser{err: tt.readErr}
+				}
+				return &http.Response{StatusCode: tt.status, Body: body, Request: req}, nil
+			})}
+			if got := probeProxyPoolHealth(t.Context(), client); got != tt.want {
+				t.Fatalf("status = %d, want %d", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestProxyPoolCheckSummarizesWithoutPersisting(t *testing.T) {
+	db := newServiceTestDB(t, &model.ProxyPoolEntry{})
+	svc := NewProxyPoolService(&repository.Container{DB: db}, NewCryptoService("proxy-health-test", zap.NewNop()))
+	for _, raw := range []string{"http://proxy-a.example:8080", "http://proxy-b.example:8080", "http://proxy-c.example:8080"} {
+		if _, err := svc.Replace(t.Context(), append(proxyInputsForItems(t, svc), ProxyPoolInput{URL: &raw})); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var calls atomic.Int64
+	result, err := svc.check(t.Context(), func(context.Context, *http.Client) proxyPoolHealthStatus {
+		switch calls.Add(1) {
+		case 1, 2:
+			return proxyPoolHealthAvailable
+		case 3:
+			return proxyPoolHealthUnavailable
+		default:
+			return proxyPoolHealthInconclusive
+		}
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Total != 3 || result.Available != 1 || result.Unavailable != 1 || result.Inconclusive != 1 || result.CleanupToken == "" {
+		t.Fatalf("check result = %#v", result)
+	}
+	var count int64
+	if err := db.Model(&model.ProxyPoolEntry{}).Count(&count).Error; err != nil || count != 3 {
+		t.Fatalf("check changed persistence: count=%d err=%v", count, err)
+	}
+	if _, err := svc.check(t.Context(), func(context.Context, *http.Client) proxyPoolHealthStatus {
+		return proxyPoolHealthInconclusive
+	}); err == nil {
+		t.Fatal("expected failed baseline to abort the check")
+	}
+
+	cancelCtx, cancel := context.WithCancel(t.Context())
+	calls.Store(0)
+	if _, err := svc.check(cancelCtx, func(context.Context, *http.Client) proxyPoolHealthStatus {
+		if calls.Add(1) > 1 {
+			cancel()
+		}
+		return proxyPoolHealthAvailable
+	}); !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled check error = %v", err)
+	}
+
+	retained := proxyInputsForItems(t, svc)
+	var once sync.Once
+	var replaceErr error
+	calls.Store(0)
+	if _, err := svc.check(t.Context(), func(context.Context, *http.Client) proxyPoolHealthStatus {
+		if calls.Add(1) > 1 {
+			once.Do(func() { _, replaceErr = svc.Replace(t.Context(), retained) })
+		}
+		return proxyPoolHealthAvailable
+	}); err == nil {
+		t.Fatal("expected concurrent pool update to invalidate check")
+	}
+	if replaceErr != nil {
+		t.Fatal(replaceErr)
+	}
+}
+
+func TestProxyPoolCleanupDeletesOnlyCurrentIDs(t *testing.T) {
+	db := newServiceTestDB(t, &model.ProxyPoolEntry{})
+	svc := NewProxyPoolService(&repository.Container{DB: db}, NewCryptoService("proxy-cleanup-test", zap.NewNop()))
+	urls := []string{"http://proxy-a.example:8080", "http://proxy-b.example:8080", "http://proxy-c.example:8080"}
+	input := make([]ProxyPoolInput, 0, len(urls))
+	for i := range urls {
+		input = append(input, ProxyPoolInput{URL: &urls[i]})
+	}
+	items, err := svc.Replace(t.Context(), input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	generation := svc.generation
+	token := uuid.NewString()
+	svc.pending = &proxyPoolPendingCleanup{
+		token: token, generation: generation, expiresAt: time.Now().Add(time.Minute),
+		ids: map[string]struct{}{items[1].ID: {}},
+	}
+	if _, err := svc.Cleanup(t.Context(), uuid.NewString()); err == nil {
+		t.Fatal("expected unrelated cleanup token to fail")
+	}
+	result, err := svc.Cleanup(t.Context(), token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Removed != 1 || len(result.Items) != 2 || result.Items[0].ID != items[0].ID || result.Items[1].ID != items[2].ID {
+		t.Fatalf("cleanup result = %#v", result)
+	}
+	if svc.generation != generation+1 {
+		t.Fatalf("generation = %d, want %d", svc.generation, generation+1)
+	}
+	svc.pending = &proxyPoolPendingCleanup{
+		token: token, generation: svc.generation, expiresAt: time.Now().Add(time.Minute),
+		ids: map[string]struct{}{items[0].ID: {}},
+	}
+	retained := []ProxyPoolInput{{ID: items[0].ID}, {ID: items[2].ID}}
+	if _, err := svc.Replace(t.Context(), retained); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Cleanup(t.Context(), token); err == nil {
+		t.Fatal("expected pool update to invalidate cleanup token")
+	}
+}
+
+func proxyInputsForItems(t *testing.T, svc *ProxyPoolService) []ProxyPoolInput {
+	t.Helper()
+	items, err := svc.List(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	input := make([]ProxyPoolInput, 0, len(items))
+	for _, item := range items {
+		input = append(input, ProxyPoolInput{ID: item.ID})
+	}
+	return input
 }
 
 func TestAPIConfigUseProxyPoolRoundTripAndRevision(t *testing.T) {

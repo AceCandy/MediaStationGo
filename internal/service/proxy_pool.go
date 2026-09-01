@@ -2,13 +2,17 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strings"
 	"sync"
+	"time"
 
+	"github.com/google/uuid"
 	"gorm.io/gorm"
 
 	"github.com/ShukeBta/MediaStationGo/internal/model"
@@ -16,6 +20,14 @@ import (
 )
 
 var errProxyPoolUnavailable = errors.New("proxy pool configuration is unavailable")
+
+const (
+	proxyPoolHealthCheckURL     = "https://movie.douban.com/j/subject_suggest?q=mediastation-proxy-health-check"
+	proxyPoolHealthCheckTimeout = 5 * time.Second
+	proxyPoolHealthCheckWorkers = 200
+	proxyPoolHealthMaxBodyBytes = 1 << 20
+	proxyPoolCleanupTokenTTL    = 5 * time.Minute
+)
 
 // ProxyPoolItem is the credential-free administrator projection of a proxy.
 type ProxyPoolItem struct {
@@ -28,6 +40,41 @@ type ProxyPoolItem struct {
 type ProxyPoolInput struct {
 	ID  string  `json:"id,omitempty"`
 	URL *string `json:"url,omitempty"`
+}
+
+// ProxyPoolCheckResult 汇总本次检测；清理令牌仅绑定本次确定不可用的代理。
+type ProxyPoolCheckResult struct {
+	Total        int    `json:"total"`
+	Available    int    `json:"available"`
+	Unavailable  int    `json:"unavailable"`
+	Inconclusive int    `json:"inconclusive"`
+	CleanupToken string `json:"cleanup_token,omitempty"`
+}
+
+// ProxyPoolCleanupResult 返回精确删除后的最新脱敏代理池。
+type ProxyPoolCleanupResult struct {
+	Items   []ProxyPoolItem `json:"items"`
+	Removed int             `json:"removed"`
+}
+
+type proxyPoolHealthStatus uint8
+
+const (
+	proxyPoolHealthAvailable proxyPoolHealthStatus = iota
+	proxyPoolHealthUnavailable
+	proxyPoolHealthInconclusive
+)
+
+type proxyPoolHealthTarget struct {
+	id     string
+	client *http.Client
+}
+
+type proxyPoolPendingCleanup struct {
+	token      string
+	generation uint64
+	expiresAt  time.Time
+	ids        map[string]struct{}
 }
 
 type proxyPoolSnapshot struct {
@@ -44,6 +91,7 @@ type ProxyPoolService struct {
 	loaded     bool
 	generation uint64
 	clients    []*http.Client
+	pending    *proxyPoolPendingCleanup
 }
 
 func NewProxyPoolService(repo *repository.Container, crypto *CryptoService) *ProxyPoolService {
@@ -74,7 +122,10 @@ func (s *ProxyPoolService) List(ctx context.Context) ([]ProxyPoolItem, error) {
 func (s *ProxyPoolService) Replace(ctx context.Context, input []ProxyPoolInput) ([]ProxyPoolItem, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return s.replaceLocked(ctx, input)
+}
 
+func (s *ProxyPoolService) replaceLocked(ctx context.Context, input []ProxyPoolInput) ([]ProxyPoolItem, error) {
 	existingRows, err := s.loadRows(ctx)
 	if err != nil {
 		return nil, err
@@ -146,6 +197,7 @@ func (s *ProxyPoolService) Replace(ctx context.Context, input []ProxyPoolInput) 
 	s.generation++
 	s.clients = clients
 	s.loaded = true
+	s.pending = nil
 	closeProxyPoolClients(oldClients)
 
 	items := make([]ProxyPoolItem, 0, len(rows))
@@ -153,6 +205,187 @@ func (s *ProxyPoolService) Replace(ctx context.Context, input []ProxyPoolInput) 
 		items = append(items, publicProxyPoolItem(rows[i].ID, parsedURLs[i]))
 	}
 	return items, nil
+}
+
+// Check 检测已保存代理；检测目标异常时不返回任何可删除代理。
+func (s *ProxyPoolService) Check(ctx context.Context) (ProxyPoolCheckResult, error) {
+	return s.check(ctx, probeProxyPoolHealth)
+}
+
+func (s *ProxyPoolService) check(ctx context.Context, probe func(context.Context, *http.Client) proxyPoolHealthStatus) (ProxyPoolCheckResult, error) {
+	direct := NewExternalHTTPClient(proxyPoolHealthCheckTimeout)
+	if probe(ctx, direct) != proxyPoolHealthAvailable {
+		if err := ctx.Err(); err != nil {
+			return ProxyPoolCheckResult{}, err
+		}
+		return ProxyPoolCheckResult{}, errors.New("proxy health check target unavailable")
+	}
+
+	if _, err := s.snapshot(ctx); err != nil {
+		return ProxyPoolCheckResult{}, err
+	}
+	targets, generation, err := s.healthTargets(ctx)
+	if err != nil {
+		return ProxyPoolCheckResult{}, err
+	}
+	defer func() {
+		for _, target := range targets {
+			target.client.CloseIdleConnections()
+		}
+	}()
+
+	result := ProxyPoolCheckResult{Total: len(targets)}
+	unavailableIDs := make([]string, 0)
+	jobs := make(chan proxyPoolHealthTarget, len(targets))
+	statuses := make(chan struct {
+		id     string
+		status proxyPoolHealthStatus
+	}, len(targets))
+	for _, target := range targets {
+		jobs <- target
+	}
+	close(jobs)
+
+	workers := min(proxyPoolHealthCheckWorkers, len(targets))
+	var wg sync.WaitGroup
+	wg.Add(workers)
+	for range workers {
+		go func() {
+			defer wg.Done()
+			for target := range jobs {
+				if ctx.Err() != nil {
+					return
+				}
+				statuses <- struct {
+					id     string
+					status proxyPoolHealthStatus
+				}{id: target.id, status: probe(ctx, target.client)}
+			}
+		}()
+	}
+	wg.Wait()
+	close(statuses)
+	if err := ctx.Err(); err != nil {
+		return ProxyPoolCheckResult{}, err
+	}
+	for checked := range statuses {
+		switch checked.status {
+		case proxyPoolHealthAvailable:
+			result.Available++
+		case proxyPoolHealthUnavailable:
+			result.Unavailable++
+			unavailableIDs = append(unavailableIDs, checked.id)
+		default:
+			result.Inconclusive++
+		}
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.pending = nil
+	if s.generation != generation {
+		return ProxyPoolCheckResult{}, errors.New("proxy pool changed during health check")
+	}
+	if len(unavailableIDs) > 0 {
+		result.CleanupToken = uuid.NewString()
+		ids := make(map[string]struct{}, len(unavailableIDs))
+		for _, id := range unavailableIDs {
+			ids[id] = struct{}{}
+		}
+		s.pending = &proxyPoolPendingCleanup{
+			token: result.CleanupToken, generation: generation,
+			expiresAt: time.Now().Add(proxyPoolCleanupTokenTTL), ids: ids,
+		}
+	}
+	return result, nil
+}
+
+func (s *ProxyPoolService) healthTargets(ctx context.Context) ([]proxyPoolHealthTarget, uint64, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	rows, err := s.loadRows(ctx)
+	if err != nil {
+		return nil, 0, err
+	}
+	targets := make([]proxyPoolHealthTarget, 0, len(rows))
+	for i := range rows {
+		parsed, err := s.decryptURL(rows[i].URL)
+		if err != nil {
+			for _, target := range targets {
+				target.client.CloseIdleConnections()
+			}
+			return nil, 0, err
+		}
+		transport := NewExternalTransport()
+		transport.Proxy = http.ProxyURL(parsed)
+		targets = append(targets, proxyPoolHealthTarget{
+			id: rows[i].ID, client: &http.Client{Timeout: proxyPoolHealthCheckTimeout, Transport: transport},
+		})
+	}
+	return targets, s.generation, nil
+}
+
+// Cleanup 使用一次性检测令牌删除确定不可用代理，并保留其他代理及其加密凭据。
+func (s *ProxyPoolService) Cleanup(ctx context.Context, token string) (ProxyPoolCleanupResult, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	token = strings.TrimSpace(token)
+	if token == "" || s.pending == nil || token != s.pending.token || time.Now().After(s.pending.expiresAt) || s.generation != s.pending.generation {
+		return ProxyPoolCleanupResult{}, errors.New("proxy cleanup token is invalid or expired")
+	}
+	remove := s.pending.ids
+	rows, err := s.loadRows(ctx)
+	if err != nil {
+		return ProxyPoolCleanupResult{}, err
+	}
+	retained := make([]ProxyPoolInput, 0, len(rows))
+	removed := 0
+	for i := range rows {
+		if _, found := remove[rows[i].ID]; found {
+			removed++
+			continue
+		}
+		retained = append(retained, ProxyPoolInput{ID: rows[i].ID})
+	}
+	items, err := s.replaceLocked(ctx, retained)
+	if err != nil {
+		return ProxyPoolCleanupResult{}, err
+	}
+	return ProxyPoolCleanupResult{Items: items, Removed: removed}, nil
+}
+
+func probeProxyPoolHealth(ctx context.Context, client *http.Client) proxyPoolHealthStatus {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, proxyPoolHealthCheckURL, nil)
+	if err != nil || client == nil {
+		return proxyPoolHealthUnavailable
+	}
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/125.0 Safari/537.36")
+	req.Header.Set("Referer", "https://movie.douban.com/")
+	resp, err := client.Do(req)
+	if err != nil {
+		return proxyPoolHealthUnavailable
+	}
+	body, readErr := io.ReadAll(io.LimitReader(resp.Body, proxyPoolHealthMaxBodyBytes+1))
+	_ = resp.Body.Close()
+	if readErr != nil {
+		if errors.Is(readErr, io.ErrUnexpectedEOF) {
+			return proxyPoolHealthUnavailable
+		}
+		return proxyPoolHealthInconclusive
+	}
+	if len(body) > proxyPoolHealthMaxBodyBytes {
+		return proxyPoolHealthInconclusive
+	}
+	switch resp.StatusCode {
+	case http.StatusOK:
+		if json.Valid(body) {
+			return proxyPoolHealthAvailable
+		}
+		return proxyPoolHealthUnavailable
+	case http.StatusBadRequest, http.StatusProxyAuthRequired:
+		return proxyPoolHealthUnavailable
+	default:
+		return proxyPoolHealthInconclusive
+	}
 }
 
 func (s *ProxyPoolService) snapshot(ctx context.Context) (proxyPoolSnapshot, error) {

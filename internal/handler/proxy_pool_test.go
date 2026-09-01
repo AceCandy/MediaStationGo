@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -33,6 +34,7 @@ func TestProxyPoolHandlersNeverReturnCredentials(t *testing.T) {
 	router := gin.New()
 	router.GET("/proxy-pool", listProxyPoolHandler(svc))
 	router.PUT("/proxy-pool", replaceProxyPoolHandler(svc))
+	router.POST("/proxy-pool/cleanup", cleanupProxyPoolHandler(svc))
 
 	const username = "handler-user"
 	const password = "handler-password"
@@ -51,6 +53,21 @@ func TestProxyPoolHandlersNeverReturnCredentials(t *testing.T) {
 	router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/proxy-pool", nil))
 	if response.Code != http.StatusOK {
 		t.Fatalf("GET status=%d body=%s", response.Code, response.Body.String())
+	}
+	assertProxyPoolResponseSafe(t, response.Body.String(), username, password)
+	var listed struct {
+		Items []service.ProxyPoolItem `json:"items"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &listed); err != nil || len(listed.Items) != 1 {
+		t.Fatalf("decode proxy pool: %#v, %v", listed, err)
+	}
+
+	request = httptest.NewRequest(http.MethodPost, "/proxy-pool/cleanup", strings.NewReader(`{"token":"invalid"}`))
+	request.Header.Set("Content-Type", "application/json")
+	response = httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("cleanup status=%d body=%s", response.Code, response.Body.String())
 	}
 	assertProxyPoolResponseSafe(t, response.Body.String(), username, password)
 

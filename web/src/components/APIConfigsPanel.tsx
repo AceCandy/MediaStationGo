@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useState } from 'react'
 import toast from 'react-hot-toast'
-import { KeyRound, Pencil, Save, Trash2, X } from 'lucide-react'
+import { Activity, KeyRound, Pencil, Save, Trash2, X } from 'lucide-react'
 
 import {
   apiConfigsAPI,
@@ -328,6 +328,7 @@ function ProxyPoolPanel() {
   const [value, setValue] = useState('')
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [checking, setChecking] = useState(false)
   const [loadError, setLoadError] = useState('')
 
   const refresh = async () => {
@@ -336,7 +337,7 @@ function ProxyPoolPanel() {
     try {
       const loaded = await apiConfigsAPI.listProxyPool()
       setItems(loaded)
-      setValue(loaded.map((item) => item.display_url).join('\n'))
+      setValue(proxyPoolText(loaded))
     } catch (err: unknown) {
       setLoadError(apiErrorMessage(err, '代理池加载失败'))
     } finally {
@@ -369,12 +370,42 @@ function ProxyPoolPanel() {
         })
       const saved = await apiConfigsAPI.replaceProxyPool(input)
       setItems(saved)
-      setValue(saved.map((item) => item.display_url).join('\n'))
+      setValue(proxyPoolText(saved))
       toast.success('代理池已保存')
     } catch (err: unknown) {
       toast.error(apiErrorMessage(err, '代理池保存失败'))
     } finally {
       setSaving(false)
+    }
+  }
+
+  const checkAndCleanup = async () => {
+    setChecking(true)
+    try {
+      const result = await apiConfigsAPI.checkProxyPool()
+      const summary = `共 ${result.total} 个：可用 ${result.available}，不可用 ${result.unavailable}，无法判定 ${result.inconclusive}`
+      if (result.unavailable === 0) {
+        toast.success(`检测完成，${summary}`)
+        return
+      }
+      const dirtyWarning = value === proxyPoolText(items)
+        ? ''
+        : ' 当前文本框有未保存修改，清理成功后将以服务端结果覆盖。'
+      const confirmed = await confirmAction({
+        title: '清理不可用代理',
+        message: `检测完成，${summary}。将永久删除 ${result.unavailable} 个确定不可用代理，此操作不可恢复。${dirtyWarning}`,
+        confirmText: '确认清理',
+      })
+      if (!confirmed) return
+      if (!result.cleanup_token) throw new Error('missing proxy cleanup token')
+      const cleaned = await apiConfigsAPI.cleanupProxyPool(result.cleanup_token)
+      setItems(cleaned.items)
+      setValue(proxyPoolText(cleaned.items))
+      toast.success(`已剔除 ${cleaned.removed} 个不可用代理`)
+    } catch (err: unknown) {
+      toast.error(apiErrorMessage(err, '代理池检测失败'))
+    } finally {
+      setChecking(false)
     }
   }
 
@@ -385,14 +416,24 @@ function ProxyPoolPanel() {
           <p className="font-medium text-ink-600">代理池</p>
           <p className="text-xs text-sand-500">每行一个代理，行顺序就是尝试顺序；空行会被忽略。</p>
         </div>
-        <button
-          type="button"
-          onClick={() => void save()}
-          disabled={loading || saving || Boolean(loadError)}
-          className="neon-button !px-3 !py-1.5 !text-xs"
-        >
-          <Save size={12} /> 保存
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => void checkAndCleanup()}
+            disabled={loading || saving || checking || Boolean(loadError) || items.length === 0}
+            className="btn-outline !px-3 !py-1.5 !text-xs"
+          >
+            <Activity size={12} /> {checking ? '检测中…' : '检测不可用代理'}
+          </button>
+          <button
+            type="button"
+            onClick={() => void save()}
+            disabled={loading || saving || checking || Boolean(loadError)}
+            className="neon-button !px-3 !py-1.5 !text-xs"
+          >
+            <Save size={12} /> 保存
+          </button>
+        </div>
       </div>
 
       {loading && <p className="py-5 text-center text-sm text-sand-500">加载中…</p>}
@@ -412,6 +453,7 @@ function ProxyPoolPanel() {
             placeholder={'http://user:pass@proxy.example:8080\nsocks5://proxy.example:1080'}
             value={value}
             onChange={(event) => setValue(event.target.value)}
+            disabled={checking}
             autoComplete="off"
             spellCheck={false}
           />
@@ -423,6 +465,10 @@ function ProxyPoolPanel() {
       )}
     </div>
   )
+}
+
+function proxyPoolText(items: ProxyPoolItem[]): string {
+  return items.map((item) => item.display_url).join('\n')
 }
 
 function apiErrorMessage(err: unknown, fallback: string): string {

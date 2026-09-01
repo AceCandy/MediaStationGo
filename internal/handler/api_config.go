@@ -92,3 +92,32 @@ func replaceProxyPoolHandler(svc *service.Container) gin.HandlerFunc {
 		c.JSON(http.StatusOK, gin.H{"items": items})
 	}
 }
+
+func checkProxyPoolHandler(svc *service.Container) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		result, err := svc.ProxyPool.Check(c.Request.Context())
+		if err != nil {
+			c.JSON(http.StatusBadGateway, gin.H{"error": "proxy pool check failed"})
+			return
+		}
+		c.JSON(http.StatusOK, result)
+	}
+}
+
+func cleanupProxyPoolHandler(svc *service.Container) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var request struct {
+			Token string `json:"token"`
+		}
+		if err := c.ShouldBindJSON(&request); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		result, err := svc.ProxyPool.Cleanup(c.Request.Context(), request.Token)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "proxy pool cleanup failed; run the check again"})
+			return
+		}
+		c.JSON(http.StatusOK, result)
+	}
+}
