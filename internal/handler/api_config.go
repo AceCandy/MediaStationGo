@@ -63,3 +63,32 @@ func deleteAPIConfigHandler(svc *service.Container) gin.HandlerFunc {
 		c.Status(http.StatusNoContent)
 	}
 }
+
+func listProxyPoolHandler(svc *service.Container) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		items, err := svc.ProxyPool.List(c.Request.Context())
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"items": items})
+	}
+}
+
+func replaceProxyPoolHandler(svc *service.Container) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var request struct {
+			Items []service.ProxyPoolInput `json:"items"`
+		}
+		if err := c.ShouldBindJSON(&request); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		items, err := svc.ProxyPool.Replace(c.Request.Context(), request.Items)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"items": items})
+	}
+}

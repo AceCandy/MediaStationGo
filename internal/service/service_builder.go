@@ -59,10 +59,12 @@ func (b *serviceContainerBuilder) initProviderServices() {
 
 	b.c.Crypto = NewCryptoService(b.cfg.Secrets.JWTSecret, b.log)
 	b.c.APIConfig = NewAPIConfigService(b.log, b.repos, b.c.Crypto)
+	b.c.ProxyPool = NewProxyPoolService(b.repos, b.c.Crypto)
 	b.c.TMDb = NewTMDbProvider(b.cfg, b.log, b.c.APIConfig)
 	b.c.Bangumi = NewBangumiProvider(b.cfg, b.log)
 	b.c.TheTVDB = NewTheTVDBProvider(b.cfg, b.log)
 	b.c.Douban = NewDoubanProvider(b.c.APIConfig)
+	b.c.Douban.setProxyPool(b.c.ProxyPool)
 	b.c.Fanart = NewFanartProvider(b.cfg, b.log)
 	b.c.RecognitionWords = NewRecognitionWordsService(b.log, b.repos)
 

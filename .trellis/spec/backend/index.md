@@ -24,7 +24,7 @@ This directory contains guidelines for backend development. Fill in each file wi
 | [Emby API Catalog Synchronization](./emby-api-catalog-sync.md) | Required backend-to-frontend catalog updates for player-visible Emby contract changes | Active |
 | [Playback History and Statistics Contracts](./playback-contracts.md) | Shared progress, UserData isolation, events, and statistics contract | Active |
 | [Player Request Logging and Redirect Cache](./player-request-logging.md) | Playback redirect cache identity, failed-response logging, and cancellation status | Active |
-| [Douban Configuration and Artwork](./douban-cookie-config.md) | Database-owned Cookie, configurable image origin, and managed poster repair | Active |
+| [Douban Configuration and Artwork](./douban-cookie-config.md) | Database-owned Cookie, explicit proxy pool, configurable image origin, and managed poster repair | Active |
 | [Discover Feed Loading Contract](../frontend/discover-feed-loading.md) | Discover section cache, explicit refresh, fallback, and Web request boundaries | Active |
 
 ---
@@ -41,7 +41,7 @@ This directory contains guidelines for backend development. Fill in each file wi
 
 - [ ] Player-visible Emby contract changes update `web/src/pages/embyApiCatalog.ts` in the same task and pass the synchronization contract's validation steps.
 - [ ] Discover feed changes preserve keyed response metadata, cache/fallback order, and Provider scheduling.
-- [ ] Douban Cookie changes preserve encrypted database ownership, masked responses, and per-request resolution.
+- [ ] Douban Cookie and proxy changes preserve encrypted database ownership, credential-free responses, per-request resolution, and exact-400-only route switching.
 
 ---
 

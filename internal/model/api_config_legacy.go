@@ -21,6 +21,7 @@ type APIConfig struct {
 	Extra            string `gorm:"type:text" json:"extra,omitempty"` // free-form JSON
 	Enabled          bool   `gorm:"default:true" json:"enabled"`
 	ImageDirect      bool   `gorm:"default:false" json:"image_direct"`
+	UseProxyPool     bool   `gorm:"default:false" json:"use_proxy_pool"`
 	WebSearchEnabled bool   `gorm:"default:false" json:"web_search_enabled"`
 	Description      string `gorm:"size:255" json:"description,omitempty"`
 }

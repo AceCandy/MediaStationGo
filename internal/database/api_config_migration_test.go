@@ -52,6 +52,16 @@ func TestEnsureAPIConfigColumnsUpgradesLegacyTable(t *testing.T) {
 	if !db.Migrator().HasColumn(&model.APIConfig{}, "ImageDirect") {
 		t.Fatal("image_direct column was not added")
 	}
+	if !db.Migrator().HasColumn(&model.APIConfig{}, "UseProxyPool") {
+		t.Fatal("use_proxy_pool column was not added")
+	}
+	var useProxyPool bool
+	if err := db.Raw(`SELECT use_proxy_pool FROM api_configs WHERE id = ?`, "existing-key").Scan(&useProxyPool).Error; err != nil {
+		t.Fatal(err)
+	}
+	if useProxyPool {
+		t.Fatal("legacy API config unexpectedly enabled proxy pool")
+	}
 	columns, err := db.Migrator().ColumnTypes(&model.APIConfig{})
 	if err != nil {
 		t.Fatal(err)

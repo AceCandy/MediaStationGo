@@ -72,6 +72,69 @@ if err == nil && resolved.Enabled && strings.TrimSpace(resolved.APIKey) != "" {
 }
 ```
 
+## Scenario: Explicit Douban Proxy Pool
+
+### 1. Scope / Trigger
+
+- Apply this contract when changing external API proxy storage, the Douban `use_proxy_pool` option, or Douban Search/Discover/Detail JSON transports.
+- The pool is not a global HTTP fallback: images, AI, and every other Provider keep their existing clients.
+
+### 2. Signatures
+
+- Configuration: `PUT /api/admin/api-configs/douban` with optional `{"use_proxy_pool":true}`.
+- Pool API: `GET|PUT /api/admin/api-proxy-pool`; PUT accepts `{"items":[{"id":"existing-id"},{"url":"http://user:pass@host:8080"}]}`.
+- Pool response item: `{"id":"...","display_url":"http://host:8080","has_auth":true}`.
+- Database: `api_configs.use_proxy_pool boolean DEFAULT false`; `proxy_pool_entries(url text, position integer)` where `url` is an AES-GCM ciphertext.
+
+### 3. Contracts
+
+- The Web proxy editor is below the Provider table. Existing entries submit only `id` unless replaced; new/replaced URLs use password inputs and are never filled from a response.
+- PUT replaces the complete ordered list transactionally. Missing existing IDs are physically deleted; retained IDs keep their encrypted URL.
+- Enabling the option starts on `NewInternalTransport()` (`Transport.Proxy=nil`), never on environment or system proxies. Disabling it keeps the original proxy-aware Douban client.
+- Only exact HTTP 400 reselects. Direct 400 tries proxies in configured order; the first non-400 HTTP response becomes sticky. A sticky proxy 400 restarts at direct. When all proxies return 400, try direct once more before returning.
+- A network error or any non-400 status returns immediately. Proxy generation and Douban configuration revision changes reset the next enabled request to direct.
+- Cookie resolution and headers remain per attempt; no Cookie, proxy Userinfo, complete credential URL, or ciphertext may enter logs, errors, task output, or API responses.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required result |
+| --- | --- |
+| Empty pool, direct returns 400 | Execute the final direct attempt, so direct runs twice. |
+| `http`, `https`, `socks5`, or `socks5h` URL with a hostname | Normalize, encrypt, and save it. |
+| Missing hostname, unsupported scheme, query, fragment, or non-root path | Reject the complete PUT without changing storage or the runtime snapshot. |
+| Unknown/duplicate retained ID | Return a positional validation error without echoing the URL or credentials. |
+| Proxy returns no HTTP response | Return the network error and do not make that proxy sticky. |
+| Proxy returns non-400 HTTP status but body reading fails | Keep that proxy sticky and preserve the caller's read error. |
+| Pool read/decrypt fails while enabled | Return a configuration error; never fall back to the environment proxy. |
+
+### 5. Good / Base / Bad Cases
+
+- Good: direct 400, proxy 1 returns 400, proxy 2 returns 200; later requests reuse proxy 2 until it returns 400.
+- Base: the option is false, so the pre-existing environment/system-proxy-aware client remains unchanged.
+- Bad: rotate on timeout/403/429/5xx, expose a masked credential as a replacement value, put proxy URLs in `APIConfig.Extra`, or share Douban's sticky route with another Provider.
+
+### 6. Tests Required
+
+- Assert encrypted persistence, physical deletion, stable ordering, transactional invalid-input failure, safe JSON/error projection, and all four accepted schemes.
+- Assert the option defaults false and update/public/resolve round-trips; same-value Douban saves must advance the runtime revision.
+- Exercise direct success, ordered proxy selection, sticky reuse, proxy-400 restart, all-400 final direct, empty-pool double direct, network/non-400 stops, generation/revision resets, and concurrent 400 serialization.
+- Exercise Search, Discover, ordinary Detail, and enrichment Detail without changing their existing status errors, parsing, Cookie, or permission fallback behavior.
+
+### 7. Wrong vs Correct
+
+```go
+// Wrong: a global transport silently rotates every external Provider on any failure.
+if err != nil || resp.StatusCode >= 400 {
+	useNextProxy()
+}
+
+// Correct: Douban owns its route and only exact HTTP 400 starts reselection.
+if result.status != http.StatusBadRequest {
+	return result
+}
+return d.reselectAfter400(...)
+```
+
 ## Scenario: Configurable Douban Artwork Origin and Large Poster Repair
 
 ### 1. Scope / Trigger

@@ -13,6 +13,7 @@ import (
 	"errors"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"go.uber.org/zap"
@@ -24,9 +25,10 @@ import (
 
 // APIConfigService coordinates third-party API key storage.
 type APIConfigService struct {
-	log    *zap.Logger
-	repo   *repository.Container
-	crypto *CryptoService
+	log      *zap.Logger
+	repo     *repository.Container
+	crypto   *CryptoService
+	revision atomic.Uint64
 }
 
 // NewAPIConfigService is the constructor.
@@ -73,6 +75,7 @@ type PublicView struct {
 	Extra            string    `json:"extra,omitempty"`
 	Enabled          bool      `json:"enabled"`
 	ImageDirect      bool      `json:"image_direct"`
+	UseProxyPool     bool      `json:"use_proxy_pool"`
 	WebSearchEnabled bool      `json:"web_search_enabled"`
 	Description      string    `json:"description,omitempty"`
 	HasKey           bool      `json:"has_key"`
@@ -114,7 +117,9 @@ type Resolved struct {
 	Extra            string
 	Enabled          bool
 	ImageDirect      bool
+	UseProxyPool     bool
 	WebSearchEnabled bool
+	Revision         uint64
 }
 
 // Resolve fetches the live configuration for a provider, decrypting the
@@ -136,7 +141,9 @@ func (s *APIConfigService) Resolve(ctx context.Context, provider string) (Resolv
 		Extra:            row.Extra,
 		Enabled:          row.Enabled,
 		ImageDirect:      row.ImageDirect,
+		UseProxyPool:     row.UseProxyPool,
 		WebSearchEnabled: row.WebSearchEnabled,
+		Revision:         s.revision.Load(),
 	}
 	return resolved, nil
 }
@@ -150,6 +157,7 @@ type APIConfigPatch struct {
 	Extra            *string `json:"extra,omitempty"`
 	Enabled          *bool   `json:"enabled,omitempty"`
 	ImageDirect      *bool   `json:"image_direct,omitempty"`
+	UseProxyPool     *bool   `json:"use_proxy_pool,omitempty"`
 	WebSearchEnabled *bool   `json:"web_search_enabled,omitempty"`
 	Description      *string `json:"description,omitempty"`
 }
@@ -204,6 +212,9 @@ func (s *APIConfigService) Update(ctx context.Context, provider string, patch AP
 	if patch.ImageDirect != nil {
 		updates["image_direct"] = *patch.ImageDirect
 	}
+	if patch.UseProxyPool != nil {
+		updates["use_proxy_pool"] = *patch.UseProxyPool
+	}
 	if patch.WebSearchEnabled != nil {
 		updates["web_search_enabled"] = *patch.WebSearchEnabled
 	}
@@ -218,7 +229,16 @@ func (s *APIConfigService) Update(ctx context.Context, provider string, patch AP
 			return nil, err
 		}
 	}
-	row, _ = s.findByProvider(ctx, provider)
+	if provider == "douban" {
+		s.revision.Add(1)
+	}
+	row, err = s.findByProvider(ctx, provider)
+	if err != nil {
+		return nil, err
+	}
+	if row == nil {
+		return nil, errors.New("updated API config not found")
+	}
 	v := s.toPublic(row)
 	return &v, nil
 }
@@ -237,14 +257,19 @@ func normalizeDoubanImageOrigin(raw string) (string, error) {
 // Delete clears a provider's API key (the row stays so the masked
 // description is still useful). Non-existent providers are a no-op.
 func (s *APIConfigService) Delete(ctx context.Context, provider string) error {
+	provider = strings.TrimSpace(strings.ToLower(provider))
 	row, err := s.findByProvider(ctx, provider)
 	if err != nil || row == nil {
 		return err
 	}
-	return s.repo.DB.WithContext(ctx).
+	err = s.repo.DB.WithContext(ctx).
 		Model(&model.APIConfig{}).
 		Where("id = ?", row.ID).
 		Update("api_key", "").Error
+	if err == nil && provider == "douban" {
+		s.revision.Add(1)
+	}
+	return err
 }
 
 func (s *APIConfigService) findByProvider(ctx context.Context, provider string) (*model.APIConfig, error) {
@@ -269,6 +294,7 @@ func (s *APIConfigService) toPublic(r *model.APIConfig) PublicView {
 		Extra:            r.Extra,
 		Enabled:          r.Enabled,
 		ImageDirect:      r.ImageDirect,
+		UseProxyPool:     r.UseProxyPool,
 		WebSearchEnabled: r.WebSearchEnabled,
 		Description:      r.Description,
 		HasKey:           plain != "",

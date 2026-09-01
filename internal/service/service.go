@@ -43,6 +43,7 @@ type Container struct {
 	Audit            *AuditService
 	AI               *AIService
 	APIConfig        *APIConfigService
+	ProxyPool        *ProxyPoolService
 	Crypto           *CryptoService
 	Duplicate        *DuplicateService
 	FileManager      *FileManagerService

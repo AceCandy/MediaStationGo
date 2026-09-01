@@ -8,6 +8,7 @@ export interface APIConfig {
   extra?: string
   enabled: boolean
   image_direct?: boolean
+  use_proxy_pool: boolean
   web_search_enabled: boolean
   description?: string
   has_key: boolean
@@ -23,8 +24,20 @@ export interface APIConfigPatch {
   extra?: string
   enabled?: boolean
   image_direct?: boolean
+  use_proxy_pool?: boolean
   web_search_enabled?: boolean
   description?: string
+}
+
+export interface ProxyPoolItem {
+  id: string
+  display_url: string
+  has_auth: boolean
+}
+
+export interface ProxyPoolInput {
+  id?: string
+  url?: string
 }
 
 export const apiConfigsAPI = {
@@ -33,4 +46,8 @@ export const apiConfigsAPI = {
   update: (provider: string, patch: APIConfigPatch) =>
     api.put<APIConfig>(`/admin/api-configs/${provider}`, patch).then((r) => r.data),
   remove: (provider: string) => api.delete(`/admin/api-configs/${provider}`).then((r) => r.data),
+  listProxyPool: () =>
+    api.get<{ items: ProxyPoolItem[] }>('/admin/api-proxy-pool').then((r) => r.data.items),
+  replaceProxyPool: (items: ProxyPoolInput[]) =>
+    api.put<{ items: ProxyPoolItem[] }>('/admin/api-proxy-pool', { items }).then((r) => r.data.items),
 }

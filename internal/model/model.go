@@ -73,6 +73,7 @@ func AllModels() []interface{} {
 		&Setting{},
 		&AccessLog{},
 		&APIConfig{},
+		&ProxyPoolEntry{},
 		&UserPermission{},
 		&RefreshToken{},
 		&ApiConfig{},

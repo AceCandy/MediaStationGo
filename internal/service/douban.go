@@ -26,21 +26,42 @@ import (
 	"net/url"
 	"path"
 	"strings"
+	"sync"
 	"time"
+)
+
+const (
+	doubanRequestTimeout = 15 * time.Second
+	doubanDirectRoute    = -1
 )
 
 // DoubanProvider talks to the unofficial Douban movie API.
 type DoubanProvider struct {
-	apiConfig *APIConfigService
-	client    *http.Client
+	apiConfig    *APIConfigService
+	proxyPool    *ProxyPoolService
+	client       *http.Client
+	directClient *http.Client
+
+	routeMu          sync.Mutex
+	reselectMu       sync.Mutex
+	routeInitialized bool
+	route            int
+	poolGeneration   uint64
+	configRevision   uint64
 }
 
 // NewDoubanProvider is the constructor.
 func NewDoubanProvider(apiConfig *APIConfigService) *DoubanProvider {
 	return &DoubanProvider{
-		apiConfig: apiConfig,
-		client:    NewExternalHTTPClient(15 * time.Second),
+		apiConfig:    apiConfig,
+		client:       NewExternalHTTPClient(doubanRequestTimeout),
+		directClient: &http.Client{Timeout: doubanRequestTimeout, Transport: NewInternalTransport()},
+		route:        doubanDirectRoute,
 	}
+}
+
+func (d *DoubanProvider) setProxyPool(proxyPool *ProxyPoolService) {
+	d.proxyPool = proxyPool
 }
 
 // Enabled reports whether Douban lookup is available. Public movie.douban.com
@@ -79,19 +100,12 @@ func (d *DoubanProvider) Search(ctx context.Context, query string) (*DoubanMatch
 		return nil, nil
 	}
 	u := "https://movie.douban.com/j/subject_suggest?q=" + url.QueryEscape(query)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	rawJSON, status, err := d.requestJSON(ctx, u, "https://movie.douban.com/")
+	if status >= 400 {
+		return nil, fmt.Errorf("douban search: %d", status)
+	}
 	if err != nil {
 		return nil, err
-	}
-	d.setHeaders(ctx, req)
-
-	resp, err := d.client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode >= 400 {
-		return nil, fmt.Errorf("douban search: %d", resp.StatusCode)
 	}
 
 	type suggestion struct {
@@ -102,7 +116,7 @@ func (d *DoubanProvider) Search(ctx context.Context, query string) (*DoubanMatch
 		Type  string `json:"type"`
 	}
 	var results []suggestion
-	if err := json.NewDecoder(resp.Body).Decode(&results); err != nil {
+	if err := json.Unmarshal(rawJSON, &results); err != nil {
 		return nil, err
 	}
 	if len(results) == 0 {
@@ -235,28 +249,180 @@ func (d *DoubanProvider) getEnrichmentDetailRawJSON(ctx context.Context, doubanI
 }
 
 func (d *DoubanProvider) requestDetailRawJSON(ctx context.Context, requestURL, referer string) ([]byte, int, error) {
+	rawJSON, status, readErr := d.requestJSON(ctx, requestURL, referer)
+	switch {
+	case status >= 400:
+		return nil, status, fmt.Errorf("douban detail: %d", status)
+	case readErr != nil:
+		return nil, status, readErr
+	case !json.Valid(rawJSON):
+		return nil, status, errors.New("douban detail: invalid json")
+	default:
+		return rawJSON, status, nil
+	}
+}
+
+type doubanHTTPResult struct {
+	body   []byte
+	status int
+	err    error
+}
+
+func (d *DoubanProvider) requestJSON(ctx context.Context, requestURL, referer string) ([]byte, int, error) {
+	resolved := d.resolveConfig(ctx)
+	attempt := func(client *http.Client, config Resolved) doubanHTTPResult {
+		return d.doJSONRequest(ctx, client, config, requestURL, referer)
+	}
+	if !resolved.UseProxyPool {
+		d.resetRoute(resolved.Revision)
+		result := attempt(d.client, resolved)
+		return result.body, result.status, result.err
+	}
+
+	snapshot, err := d.proxySnapshot(ctx)
+	if err != nil {
+		return nil, 0, err
+	}
+	route := d.currentRoute(snapshot.generation, resolved.Revision)
+	result := attempt(d.clientForRoute(snapshot, route), resolved)
+	if result.status != http.StatusBadRequest {
+		return result.body, result.status, result.err
+	}
+	result = d.reselectAfter400(ctx, requestURL, referer, route, snapshot.generation, resolved.Revision)
+	return result.body, result.status, result.err
+}
+
+func (d *DoubanProvider) reselectAfter400(
+	ctx context.Context,
+	requestURL string,
+	referer string,
+	failedRoute int,
+	failedGeneration uint64,
+	failedRevision uint64,
+) doubanHTTPResult {
+	d.reselectMu.Lock()
+	defer d.reselectMu.Unlock()
+
+	resolved := d.resolveConfig(ctx)
+	if !resolved.UseProxyPool {
+		d.resetRoute(resolved.Revision)
+		return d.doJSONRequest(ctx, d.client, resolved, requestURL, referer)
+	}
+	snapshot, err := d.proxySnapshot(ctx)
+	if err != nil {
+		return doubanHTTPResult{err: err}
+	}
+	current := d.currentRoute(snapshot.generation, resolved.Revision)
+	if current != failedRoute || snapshot.generation != failedGeneration || resolved.Revision != failedRevision {
+		result := d.doJSONRequest(ctx, d.clientForRoute(snapshot, current), resolved, requestURL, referer)
+		if result.status != http.StatusBadRequest {
+			return result
+		}
+		failedRoute = current
+	}
+
+	if failedRoute != doubanDirectRoute {
+		d.setRoute(snapshot.generation, resolved.Revision, doubanDirectRoute)
+		result := d.doJSONRequest(ctx, d.directClient, resolved, requestURL, referer)
+		if result.status != http.StatusBadRequest {
+			return result
+		}
+	}
+
+	for route, client := range snapshot.clients {
+		result := d.doJSONRequest(ctx, client, resolved, requestURL, referer)
+		if result.status == http.StatusBadRequest {
+			continue
+		}
+		if result.status != 0 {
+			d.setRoute(snapshot.generation, resolved.Revision, route)
+		}
+		return result
+	}
+
+	d.setRoute(snapshot.generation, resolved.Revision, doubanDirectRoute)
+	return d.doJSONRequest(ctx, d.directClient, resolved, requestURL, referer)
+}
+
+func (d *DoubanProvider) doJSONRequest(
+	ctx context.Context,
+	client *http.Client,
+	resolved Resolved,
+	requestURL string,
+	referer string,
+) doubanHTTPResult {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, requestURL, nil)
 	if err != nil {
-		return nil, 0, err
+		return doubanHTTPResult{err: err}
 	}
-	d.setHeaders(ctx, req)
-	req.Header.Set("Referer", referer)
-	resp, err := d.client.Do(req)
+	d.setHeaders(req, resolved)
+	if referer != "" {
+		req.Header.Set("Referer", referer)
+	}
+	if client == nil {
+		return doubanHTTPResult{err: errors.New("douban http client unavailable")}
+	}
+	requestClient := *client
+	if requestClient.Timeout <= 0 {
+		requestClient.Timeout = doubanRequestTimeout
+	}
+	resp, err := requestClient.Do(req)
 	if err != nil {
-		return nil, 0, err
+		return doubanHTTPResult{err: err}
 	}
-	rawJSON, readErr := io.ReadAll(resp.Body)
+	body, readErr := io.ReadAll(resp.Body)
 	_ = resp.Body.Close()
-	switch {
-	case resp.StatusCode >= 400:
-		return nil, resp.StatusCode, fmt.Errorf("douban detail: %d", resp.StatusCode)
-	case readErr != nil:
-		return nil, resp.StatusCode, readErr
-	case !json.Valid(rawJSON):
-		return nil, resp.StatusCode, errors.New("douban detail: invalid json")
-	default:
-		return rawJSON, resp.StatusCode, nil
+	return doubanHTTPResult{body: body, status: resp.StatusCode, err: readErr}
+}
+
+func (d *DoubanProvider) resolveConfig(ctx context.Context) Resolved {
+	if d.apiConfig == nil {
+		return Resolved{}
 	}
+	resolved, err := d.apiConfig.Resolve(ctx, "douban")
+	if err != nil {
+		return Resolved{}
+	}
+	return resolved
+}
+
+func (d *DoubanProvider) proxySnapshot(ctx context.Context) (proxyPoolSnapshot, error) {
+	if d.proxyPool == nil {
+		return proxyPoolSnapshot{}, nil
+	}
+	return d.proxyPool.snapshot(ctx)
+}
+
+func (d *DoubanProvider) currentRoute(generation, revision uint64) int {
+	d.routeMu.Lock()
+	defer d.routeMu.Unlock()
+	if !d.routeInitialized || d.poolGeneration != generation || d.configRevision != revision {
+		d.routeInitialized = true
+		d.route = doubanDirectRoute
+		d.poolGeneration = generation
+		d.configRevision = revision
+	}
+	return d.route
+}
+
+func (d *DoubanProvider) setRoute(generation, revision uint64, route int) {
+	d.routeMu.Lock()
+	d.routeInitialized = true
+	d.route = route
+	d.poolGeneration = generation
+	d.configRevision = revision
+	d.routeMu.Unlock()
+}
+
+func (d *DoubanProvider) resetRoute(revision uint64) {
+	d.setRoute(0, revision, doubanDirectRoute)
+}
+
+func (d *DoubanProvider) clientForRoute(snapshot proxyPoolSnapshot, route int) *http.Client {
+	if route >= 0 && route < len(snapshot.clients) {
+		return snapshot.clients[route]
+	}
+	return d.directClient
 }
 
 func classifyDoubanDetailResponse(rawJSON []byte, status int, requestErr error) (permissionDenied bool, err error) {
@@ -487,16 +653,12 @@ func (d *DoubanProvider) GetEpisodeCountByID(ctx context.Context, doubanID strin
 	return 0, nil
 }
 
-func (d *DoubanProvider) setHeaders(ctx context.Context, req *http.Request) {
+func (d *DoubanProvider) setHeaders(req *http.Request, resolved Resolved) {
 	req.Header.Set("User-Agent", userAgents[secureRandomIntn(len(userAgents))])
 	req.Header.Set("Referer", "https://movie.douban.com/")
 	req.Header.Set("Accept", "application/json, text/plain, */*")
 	req.Header.Set("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
-	if d.apiConfig == nil {
-		return
-	}
-	resolved, err := d.apiConfig.Resolve(ctx, "douban")
-	if err != nil || !resolved.Enabled {
+	if !resolved.Enabled {
 		return
 	}
 	if cookie := strings.TrimSpace(resolved.APIKey); cookie != "" {

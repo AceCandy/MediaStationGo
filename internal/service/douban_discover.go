@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
@@ -40,18 +39,12 @@ func (d *DoubanProvider) Discover(ctx context.Context, key string, pages ...int)
 	}
 	q.Set("page_start", strconv.Itoa((pageNumber-1)*24))
 	u := "https://movie.douban.com/j/search_subjects?" + q.Encode()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	rawJSON, status, err := d.requestJSON(ctx, u, "https://movie.douban.com/")
+	if status >= 400 {
+		return nil, fmt.Errorf("douban discover: %d", status)
+	}
 	if err != nil {
 		return nil, err
-	}
-	d.setHeaders(ctx, req)
-	resp, err := d.client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode >= 400 {
-		return nil, fmt.Errorf("douban discover: %d", resp.StatusCode)
 	}
 	var page struct {
 		Subjects []struct {
@@ -62,7 +55,7 @@ func (d *DoubanProvider) Discover(ctx context.Context, key string, pages ...int)
 			URL   string `json:"url"`
 		} `json:"subjects"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&page); err != nil {
+	if err := json.Unmarshal(rawJSON, &page); err != nil {
 		return nil, err
 	}
 	out := make([]ExternalMediaResult, 0, len(page.Subjects))
