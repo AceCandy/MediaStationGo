@@ -1,0 +1,5 @@
+{"file":".trellis/spec/backend/shared-media-metadata.md","reason":"实现 provider 快照、豆瓣补齐、详情状态与 canonical 字段保护契约"}
+{"file":".trellis/spec/backend/background-task-execution.md","reason":"保持定时任务游标、失败暂停、指标和日志语义"}
+{"file":".trellis/spec/backend/douban-cookie-config.md","reason":"复用数据库 Cookie、逐请求解析和敏感信息保护"}
+{"file":".trellis/spec/frontend/design-system.md","reason":"复用现有详情徽章、主题 token 与 toast 约束"}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"校验数据库、API 枚举、前端类型和展示的端到端契约"}

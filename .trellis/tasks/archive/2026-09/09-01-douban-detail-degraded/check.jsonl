@@ -1,0 +1,5 @@
+{"file":".trellis/spec/backend/shared-media-metadata.md","reason":"复核 movie/series 身份、快照状态、字段优先级和图片候选"}
+{"file":".trellis/spec/backend/background-task-execution.md","reason":"复核显式降级成功、临时异常暂停和游标推进"}
+{"file":".trellis/spec/backend/douban-cookie-config.md","reason":"复核所有新增详情请求继续安全携带当前 Cookie"}
+{"file":".trellis/spec/frontend/design-system.md","reason":"复核降级状态的可访问文案、图标和主题样式"}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"复核 Degraded 从数据库到详情 UI 的完整数据流"}
