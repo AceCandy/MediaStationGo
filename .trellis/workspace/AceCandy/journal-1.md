@@ -1759,3 +1759,25 @@ Added movie/tv permission fallback to subject, persisted degraded status, skippe
 ### Status
 
 [OK] **Completed**
+
+
+## Session 82: 豆瓣 unexpected EOF 自动切换代理
+<!-- trellis-session: v=2 fp=ec750fa950b0f4f1 -->
+
+**Date**: 2026-09-02
+**Task**: 豆瓣 unexpected EOF 自动切换代理
+**Branch**: `main`
+
+### Summary
+
+豆瓣代理路由在 exact HTTP 400 之外，新增 unexpected EOF 自动重选，并同步代理规范与边界测试。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `e410f1f` | fix: retry Douban routes on unexpected EOF |
+
+### Status
+
+[OK] **Completed**
