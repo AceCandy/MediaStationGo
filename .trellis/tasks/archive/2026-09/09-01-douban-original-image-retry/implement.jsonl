@@ -1,0 +1,6 @@
+{"file":".trellis/spec/backend/index.md","reason":"Backend pre-development and quality checklist for service changes."}
+{"file":".trellis/spec/backend/douban-cookie-config.md","reason":"Owns Douban artwork URL projection, image transport, and repair behavior."}
+{"file":".trellis/spec/backend/shared-media-metadata.md","reason":"Owns managed artwork persistence and Douban enrichment contracts."}
+{"file":".trellis/spec/frontend/discover-feed-loading.md","reason":"Defines stable Douban poster URLs and discover cache behavior."}
+{"file":".trellis/spec/guides/code-reuse-thinking-guide.md","reason":"Requires reuse of the shared URL projection path."}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"Covers provider-to-cache-to-persistence URL flow boundaries."}
