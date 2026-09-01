@@ -107,15 +107,19 @@ func TestDoubanProviderResolvesCookiePerRequest(t *testing.T) {
 	}
 }
 
-func TestDoubanArtworkURLUsesLiveConfiguredOrigin(t *testing.T) {
+func TestDoubanArtworkURLKeepsOfficialOriginAndProjectsCDNForDownload(t *testing.T) {
 	db := newServiceTestDB(t, &model.APIConfig{})
 	apiConfig := NewAPIConfigService(zap.NewNop(), &repository.Container{DB: db}, NewCryptoService("test-secret", zap.NewNop()))
 	provider := NewDoubanProvider(apiConfig)
 	sourceURL := "https://img9.doubanio.com/view/photo/s_ratio_poster/public/p123.jpg?imageView2/2/q/80/w/600/h/3000/format/jpg"
-	largeURL := "https://img9.doubanio.com/view/photo/l/public/p123.jpg?imageView2/2/q/80/w/600/h/3000/format/jpg"
+	largeURL := "https://img9.doubanio.com/view/photo/l/public/p123.jpg"
 
 	if got := provider.ResolveArtworkURL(t.Context(), sourceURL); got != largeURL {
-		t.Fatalf("unconfigured artwork URL = %q", got)
+		t.Fatalf("official artwork URL = %q", got)
+	}
+	unknownQueryURL := "https://img9.doubanio.com/view/photo/s_ratio_poster/public/p123.jpg?token=keep"
+	if got := provider.ResolveArtworkURL(t.Context(), unknownQueryURL); got != "https://img9.doubanio.com/view/photo/l/public/p123.jpg?token=keep" {
+		t.Fatalf("unknown artwork query changed = %q", got)
 	}
 	origin := "http://db-pic1.acecandy.cn/"
 	imageDirect := true
@@ -130,22 +134,25 @@ func TestDoubanArtworkURLUsesLiveConfiguredOrigin(t *testing.T) {
 	if err != nil || !resolved.ImageDirect {
 		t.Fatalf("resolved image_direct = %v, err = %v", resolved.ImageDirect, err)
 	}
-	want := "http://db-pic1.acecandy.cn/view/photo/l/public/p123.webp?imageView2/2/q/80/w/600/h/3000/format/webp"
-	if got := provider.ResolveArtworkURL(t.Context(), sourceURL); got != want {
-		t.Fatalf("configured artwork URL = %q", got)
+	if got := provider.ResolveArtworkURL(t.Context(), sourceURL); got != largeURL {
+		t.Fatalf("configured provider persisted artwork URL = %q", got)
 	}
-	if got := provider.ResolveArtworkURL(t.Context(), want); got != want {
-		t.Fatalf("re-resolved artwork URL = %q", got)
+	wantCDN := "http://db-pic1.acecandy.cn/view/photo/l/public/p123.webp"
+	if got := projectDoubanArtworkURL(largeURL, resolved.BaseURL); got != wantCDN {
+		t.Fatalf("projected CDN artwork URL = %q", got)
 	}
-	if got := provider.ResolveArtworkURL(t.Context(), "https://img9.doubanio.com/custom/poster"); got != "http://db-pic1.acecandy.cn/custom/poster" {
+	if got := provider.ResolveArtworkURL(t.Context(), "https://img9.doubanio.com/custom/poster?token=keep"); got != "https://img9.doubanio.com/custom/poster?token=keep" {
 		t.Fatalf("extensionless artwork URL = %q", got)
+	}
+	if got := projectDoubanArtworkURL("https://img9.doubanio.com/custom/poster?token=keep", resolved.BaseURL); got != "http://db-pic1.acecandy.cn/custom/poster?token=keep" {
+		t.Fatalf("extensionless CDN artwork URL = %q", got)
 	}
 	provider.client = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
 		body := `{"title":"详情","cover":{"image":{"large":{"url":"https://img9.doubanio.com/view/photo/l/public/p456.jpg"}}}}`
 		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(body)), Request: req}, nil
 	})}
 	match, err := provider.GetMatchByID(t.Context(), "456")
-	if err != nil || match == nil || match.PosterURL != "http://db-pic1.acecandy.cn/view/photo/l/public/p456.webp" {
+	if err != nil || match == nil || match.PosterURL != "https://img9.doubanio.com/view/photo/l/public/p456.jpg" {
 		t.Fatalf("detail match = %#v, %v", match, err)
 	}
 
@@ -153,7 +160,7 @@ func TestDoubanArtworkURLUsesLiveConfiguredOrigin(t *testing.T) {
 	if _, err := apiConfig.Update(t.Context(), "douban", APIConfigPatch{BaseURL: &invalid}); err == nil {
 		t.Fatal("expected invalid Douban image domain rejection")
 	}
-	if got := provider.ResolveArtworkURL(t.Context(), sourceURL); got != want {
+	if got := provider.ResolveArtworkURL(t.Context(), sourceURL); got != largeURL {
 		t.Fatalf("invalid update changed artwork URL = %q", got)
 	}
 }
@@ -161,9 +168,9 @@ func TestDoubanArtworkURLUsesLiveConfiguredOrigin(t *testing.T) {
 func TestDoubanSearchAndDiscoverDeriveLargePosters(t *testing.T) {
 	provider := NewDoubanProvider(nil)
 	provider.client = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
-		body := `[{"id":"1","title":"搜索","img":"https://img1.doubanio.com/view/photo/s_ratio_poster/public/p1.jpg"}]`
+		body := `[{"id":"1","title":"搜索","img":"https://img1.doubanio.com/view/photo/s_ratio_poster/public/p1.jpg?imageView2/2/w/600/format/jpg"}]`
 		if req.URL.Path == "/j/search_subjects" {
-			body = `{"subjects":[{"id":"2","title":"发现","cover":"https://img2.doubanio.com/view/photo/s_ratio_poster/public/p2.jpg"}]}`
+			body = `{"subjects":[{"id":"2","title":"发现","cover":"https://img2.doubanio.com/view/photo/s_ratio_poster/public/p2.jpg?imageView2/2/w/600/format/jpg"}]}`
 		}
 		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(body)), Request: req}, nil
 	})}

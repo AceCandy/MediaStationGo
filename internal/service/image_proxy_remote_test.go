@@ -26,10 +26,10 @@ func TestImageProxyCachesFailedRemoteImageFetch(t *testing.T) {
 	proxy.client = &http.Client{Transport: imageRoundTripFunc(func(req *http.Request) (*http.Response, error) {
 		atomic.AddInt32(&calls, 1)
 		return &http.Response{
-			StatusCode: http.StatusBadGateway,
-			Status:     "502 Bad Gateway",
+			StatusCode: http.StatusNotFound,
+			Status:     "404 Not Found",
 			Header:     make(http.Header),
-			Body:       io.NopCloser(strings.NewReader("upstream unavailable")),
+			Body:       io.NopCloser(strings.NewReader("not found")),
 			Request:    req,
 		}, nil
 	})}
@@ -51,6 +51,45 @@ func TestImageProxyCachesFailedRemoteImageFetch(t *testing.T) {
 	}
 	if got := atomic.LoadInt32(&calls); got != 1 {
 		t.Fatalf("upstream calls = %d, want 1 due to negative cache", got)
+	}
+}
+
+func TestImageProxyDoesNotCacheTransientRemoteImageFailures(t *testing.T) {
+	for _, tt := range []struct {
+		name   string
+		status int
+		err    error
+	}{
+		{name: "network", err: errors.New("network unavailable")},
+		{name: "server error", status: http.StatusBadGateway},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			var calls int32
+			proxy := NewImageProxy(&config.Config{Cache: config.CacheConfig{CacheDir: filepath.Join(t.TempDir(), "cache")}}, zap.NewNop())
+			proxy.client = &http.Client{Transport: imageRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+				atomic.AddInt32(&calls, 1)
+				if tt.err != nil {
+					return nil, tt.err
+				}
+				return &http.Response{StatusCode: tt.status, Status: http.StatusText(tt.status), Header: make(http.Header), Body: io.NopCloser(strings.NewReader("failed")), Request: req}, nil
+			})}
+			raw := "https://image.tmdb.org/t/p/original/transient.jpg"
+			for range 2 {
+				if _, _, err := proxy.Fetch(t.Context(), raw); err == nil {
+					t.Fatal("expected transient image fetch failure")
+				}
+			}
+			if got := atomic.LoadInt32(&calls); got != 2 {
+				t.Fatalf("upstream calls = %d, want 2 without negative cache", got)
+			}
+			_, _, failPath, err := proxy.remoteImageCachePaths(raw)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := os.Stat(failPath); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("transient failure marker exists: %v", err)
+			}
+		})
 	}
 }
 
@@ -77,10 +116,10 @@ func TestImageProxyRemoveFailedAllowsRetry(t *testing.T) {
 		call := atomic.AddInt32(&calls, 1)
 		if call == 1 {
 			return &http.Response{
-				StatusCode: http.StatusBadGateway,
-				Status:     "502 Bad Gateway",
+				StatusCode: http.StatusNotFound,
+				Status:     "404 Not Found",
 				Header:     make(http.Header),
-				Body:       io.NopCloser(strings.NewReader("upstream unavailable")),
+				Body:       io.NopCloser(strings.NewReader("not found")),
 				Request:    req,
 			}, nil
 		}
@@ -204,6 +243,80 @@ func TestImageProxyUsesDirectModeOnlyForConfiguredDoubanImages(t *testing.T) {
 	}
 	if directImageFailPath("poster.fail") == "poster.fail" {
 		t.Fatal("direct mode reused the default failure marker")
+	}
+}
+
+func TestImageProxyUsesLiveDoubanCDNAndFallsBackToOfficial(t *testing.T) {
+	db := newServiceTestDB(t, &model.APIConfig{})
+	apiConfig := NewAPIConfigService(zap.NewNop(), &repository.Container{DB: db}, NewCryptoService("test-secret", zap.NewNop()))
+	origin := "https://images-one.test"
+	if _, err := apiConfig.Update(t.Context(), "douban", APIConfigPatch{BaseURL: &origin}); err != nil {
+		t.Fatal(err)
+	}
+
+	proxy := NewImageProxy(&config.Config{Cache: config.CacheConfig{CacheDir: filepath.Join(t.TempDir(), "cache")}}, zap.NewNop())
+	proxy.setAPIConfigService(apiConfig)
+	requests := []string{}
+	proxy.client = &http.Client{Transport: imageRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		requests = append(requests, req.URL.String())
+		if req.URL.Host == "images-one.test" && strings.Contains(req.URL.Path, "p2.webp") {
+			return &http.Response{StatusCode: http.StatusNotFound, Status: "404 Not Found", Header: make(http.Header), Body: io.NopCloser(strings.NewReader("not found")), Request: req}, nil
+		}
+		if strings.Contains(req.URL.Path, "p4.") {
+			return &http.Response{StatusCode: http.StatusNotFound, Status: "404 Not Found", Header: make(http.Header), Body: io.NopCloser(strings.NewReader("not found")), Request: req}, nil
+		}
+		return &http.Response{StatusCode: http.StatusOK, Status: "200 OK", Header: http.Header{"Content-Type": []string{"image/jpeg"}}, Body: io.NopCloser(bytes.NewReader(testJPEG)), Request: req}, nil
+	})}
+
+	officialOne := "https://img9.doubanio.com/view/photo/l/public/p1.jpg"
+	if _, _, err := proxy.Fetch(t.Context(), officialOne); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := proxy.Fetch(t.Context(), officialOne); err != nil {
+		t.Fatal(err)
+	}
+	officialFallback := "https://img9.doubanio.com/view/photo/l/public/p2.jpg"
+	if _, _, err := proxy.Fetch(t.Context(), officialFallback); err != nil {
+		t.Fatal(err)
+	}
+	origin = "https://images-two.test"
+	if _, err := apiConfig.Update(t.Context(), "douban", APIConfigPatch{BaseURL: &origin}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := proxy.Fetch(t.Context(), "https://img9.doubanio.com/view/photo/l/public/p3.jpg"); err != nil {
+		t.Fatal(err)
+	}
+	officialMissing := "https://img9.doubanio.com/view/photo/l/public/p4.jpg"
+	for range 2 {
+		if _, _, err := proxy.Fetch(t.Context(), officialMissing); err == nil {
+			t.Fatal("expected missing official Douban artwork")
+		}
+	}
+
+	want := []string{
+		"https://images-one.test/view/photo/l/public/p1.webp",
+		"https://images-one.test/view/photo/l/public/p2.webp",
+		officialFallback,
+		"https://images-two.test/view/photo/l/public/p3.webp",
+		"https://images-two.test/view/photo/l/public/p4.webp",
+		officialMissing,
+	}
+	if strings.Join(requests, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("requests = %#v, want %#v", requests, want)
+	}
+	_, officialCache, _, err := proxy.remoteImageCachePaths(officialOne)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, cdnCache, _, err := proxy.remoteImageCachePaths(want[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(officialCache); err != nil {
+		t.Fatalf("official URL cache is missing: %v", err)
+	}
+	if _, err := os.Stat(cdnCache); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("CDN URL unexpectedly owns cache: %v", err)
 	}
 }
 
@@ -377,12 +490,14 @@ func TestImageProxyDoesNotCacheNonImageRemoteResponse(t *testing.T) {
 	})}
 
 	raw := "https://img1.doubanio.com/view/photo/s_ratio_poster/public/p-bad.jpg"
-	rec := httptest.NewRecorder()
-	if err := proxy.Serve(t.Context(), rec, httptest.NewRequest(http.MethodGet, "/api/img", nil), raw); err != nil {
-		t.Fatal(err)
-	}
-	if rec.Body.Len() != len(transparent1x1PNG) {
-		t.Fatalf("body length = %d, want placeholder %d", rec.Body.Len(), len(transparent1x1PNG))
+	for range 2 {
+		rec := httptest.NewRecorder()
+		if err := proxy.Serve(t.Context(), rec, httptest.NewRequest(http.MethodGet, "/api/img", nil), raw); err != nil {
+			t.Fatal(err)
+		}
+		if rec.Body.Len() != len(transparent1x1PNG) {
+			t.Fatalf("body length = %d, want placeholder %d", rec.Body.Len(), len(transparent1x1PNG))
+		}
 	}
 	_, cachePath, _, err := proxy.remoteImageCachePaths(raw)
 	if err != nil {
@@ -391,8 +506,8 @@ func TestImageProxyDoesNotCacheNonImageRemoteResponse(t *testing.T) {
 	if _, err := os.Stat(cachePath); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("non-image response should not be cached, stat err=%v", err)
 	}
-	if got := atomic.LoadInt32(&calls); got != 1 {
-		t.Fatalf("upstream calls = %d, want 1", got)
+	if got := atomic.LoadInt32(&calls); got != 2 {
+		t.Fatalf("upstream calls = %d, want 2 without negative cache", got)
 	}
 }
 
@@ -411,12 +526,14 @@ func TestImageProxyDoesNotCacheMislabeledRemoteResponse(t *testing.T) {
 	})}
 
 	raw := "https://img1.doubanio.com/view/photo/s_ratio_poster/public/p-mislabeled.jpg"
-	rec := httptest.NewRecorder()
-	if err := proxy.Serve(t.Context(), rec, httptest.NewRequest(http.MethodGet, "/api/img", nil), raw); err != nil {
-		t.Fatal(err)
-	}
-	if rec.Body.Len() != len(transparent1x1PNG) {
-		t.Fatalf("body length = %d, want placeholder %d", rec.Body.Len(), len(transparent1x1PNG))
+	for range 2 {
+		rec := httptest.NewRecorder()
+		if err := proxy.Serve(t.Context(), rec, httptest.NewRequest(http.MethodGet, "/api/img", nil), raw); err != nil {
+			t.Fatal(err)
+		}
+		if rec.Body.Len() != len(transparent1x1PNG) {
+			t.Fatalf("body length = %d, want placeholder %d", rec.Body.Len(), len(transparent1x1PNG))
+		}
 	}
 	_, cachePath, _, err := proxy.remoteImageCachePaths(raw)
 	if err != nil {
@@ -425,7 +542,7 @@ func TestImageProxyDoesNotCacheMislabeledRemoteResponse(t *testing.T) {
 	if _, err := os.Stat(cachePath); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("mislabeled non-image response should not be cached, stat err=%v", err)
 	}
-	if got := atomic.LoadInt32(&calls); got != 1 {
-		t.Fatalf("upstream calls = %d, want 1", got)
+	if got := atomic.LoadInt32(&calls); got != 2 {
+		t.Fatalf("upstream calls = %d, want 2 without negative cache", got)
 	}
 }

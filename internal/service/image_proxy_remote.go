@@ -166,12 +166,25 @@ func (p *ImageProxy) fetchAndCacheRemoteImage(ctx context.Context, raw, host, ca
 		p.log.Warn("imageproxy: mkdir failed", zap.String("dir", p.cacheDir), zap.Error(err))
 		return nil, "", "", errImageProxyRequestSetup
 	}
-	data, ctype, contentLength, err := p.fetchRemoteImageUncached(ctx, raw, host, directOnly)
+	fetchURL, fetchHost := raw, host
+	if isDoubanImageHost(host) && p.apiConfig != nil {
+		if resolved, resolveErr := p.apiConfig.Resolve(ctx, "douban"); resolveErr == nil && resolved.Enabled {
+			if projected := projectDoubanArtworkURL(raw, resolved.BaseURL); projected != "" && projected != raw {
+				if target, validateErr := p.validateURL(projected); validateErr == nil {
+					fetchURL, fetchHost = projected, strings.ToLower(target.Host)
+				}
+			}
+		}
+	}
+	data, ctype, contentLength, err := p.fetchRemoteImageUncached(ctx, fetchURL, fetchHost, directOnly)
+	if err != nil && fetchURL != raw {
+		data, ctype, contentLength, err = p.fetchRemoteImageUncached(ctx, raw, host, directOnly)
+	}
 	if err == nil {
 		p.writeImageCache(cachePath, failPath, "img-*.tmp", data)
 		return data, ctype, contentLength, nil
 	}
-	if !errors.Is(err, errImageProxyRequestSetup) {
+	if isRemoteImageHTTPStatus(err, http.StatusNotFound) {
 		p.markImageFetchFailed(failPath)
 	}
 	return nil, "", "", err
@@ -194,6 +207,9 @@ func (p *ImageProxy) fetchRemoteImageUncached(ctx context.Context, raw, host str
 			return data, ctype, contentLength, nil
 		}
 		if errors.Is(err, errImageProxyRequestSetup) {
+			return nil, "", "", err
+		}
+		if isRemoteImageHTTPStatus(err, http.StatusNotFound) {
 			return nil, "", "", err
 		}
 		lastErr = err

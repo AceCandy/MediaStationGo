@@ -84,23 +84,25 @@ if err == nil && resolved.Enabled && strings.TrimSpace(resolved.APIKey) != "" {
 - Public response: `PublicView.ImageDirect` serializes as `image_direct`; old rows default to `false`.
 - Runtime resolution: `APIConfigService.Resolve(ctx, "douban")` carries `BaseURL` and `ImageDirect`.
 - Artwork projection: `DoubanProvider.ResolveArtworkURL(ctx, sourceURL)`.
+- Download boundary: `ImageProxy.Fetch(ctx, officialSourceURL)`.
 - Manual task definition: `douban_artwork_local_repair`, displayed as `豆瓣图片本地化修复`.
 - Candidate repair CAS identity: candidate ID plus metadata ID, artwork type, old asset ID, provider, and old source URL; current-selection synchronization is guarded by metadata ID, artwork type, old asset ID, and Douban provider.
 
 ### 3. Contracts
 
-- Douban `base_url` is an optional image origin. It never changes the Douban JSON API host or Cookie behavior.
+- Douban `base_url` is an optional download CDN. It never changes the Douban JSON API host, Cookie behavior, API responses, discovery cache, or persisted artwork source URL.
 - Known `/view/photo/<variant>/public/<file>` paths resolve to `/view/photo/l/public/<file>`. Search `img` and discover `cover` are thumbnail fields and must be omitted when this known large path cannot be derived.
 - Select detail posters only in this order: `cover.image.large.url`, then `pic.large`. A non-HTTP(S) value is invalid and must not block the next large field; `pic.normal` and compatible thumbnail fields are not fallbacks.
-- Resolve the current image origin for search display, discover display/preheat, enrichment downloads, and repair downloads. When configured and enabled, replace the image URL's scheme and host, change the final path extension to `.webp`, and change observed Qiniu `/format/jpg` or `/format/jpeg` query segments to `/format/webp`. An extensionless valid large URL changes origin only.
-- An empty/disabled/unavailable image-origin configuration keeps the upstream origin and format, but known photo paths still use the `/l/` variant.
-- Discover section cache stores the origin-independent large URL. Apply `ResolveArtworkURL` to cloned results before response, image preheat, and catalog hydration so a configuration update is visible on the next cached response without cache invalidation.
-- Artwork URL projection is idempotent. Reprocessing an `/l/`, configured-origin, `.webp` URL does not change it again.
+- `ResolveArtworkURL` returns the stable official large URL. It removes a complete known `imageView2/...` processing query, preserves unknown queries, and never reads `base_url` or changes the source extension.
+- Search, discover, provider matches, managed candidate `source_url`, and the image cache key keep that official URL. A configured CDN URL is never persisted or returned.
+- On an official Douban cache miss, `ImageProxy` resolves the current enabled `base_url`, temporarily replaces scheme/host, and changes a final extension to `.webp`. An extensionless URL changes origin only; unknown queries remain unchanged.
+- Try the temporary CDN URL first and the official URL second. Either success writes bytes under the official URL's cache key, so changing `base_url` affects the next uncached download without database migration.
+- A failure marker is written only when the final official request returns exact HTTP 404. CDN 404, DNS/TLS/timeout, 429, 5xx, empty bodies, and non-image responses remain retryable and never create a six-hour marker.
 - Managed image bytes still pass through `ImageProxy.Fetch` and `ArtworkStore`, including content validation, the 32 MiB limit, dimensions, SHA-256 deduplication, and DataDir storage.
 - `image_direct` changes only Douban image transport. On a cache miss or explicit refresh, an enabled option applies to official `doubanio.com` hosts and the host of the current Douban `base_url`; it does not change Douban metadata requests or unrelated image hosts.
 - Direct image mode skips the proxy-aware default client, uses `NewInternalTransport`, then permits the existing curl fallback for the provider-scoped URL regardless of whether its host is official or configured. Normal mode keeps `default -> direct -> official-host curl`.
 - A configuration lookup error falls back to normal mode. A valid cached image is served without resolving transport configuration.
-- Normal and direct modes share successful image bytes but use separate six-hour failure markers. Enabling direct mode therefore bypasses an old normal-mode failure immediately; direct failures remain negatively cached. `RemoveFailed` and `RemoveCached` clear both markers.
+- Normal and direct modes share successful image bytes but use separate six-hour 404 markers. Enabling direct mode therefore bypasses an old normal-mode 404 immediately. `RemoveFailed` and `RemoveCached` clear both markers.
 - The repair task scans Douban poster candidates. A missing local file, `s_ratio_poster` source, or asset width at most 300 is repairable. Known `/view/photo/<variant>/public/<file>` paths may be changed to `/view/photo/l/public/<file>` for historical repair.
 - Download and prepare the replacement before a transactional candidate CAS. Update the current selection only when it still points to the same old Douban asset. Never delete the old asset row or file in this task.
 - The scheduler job exists for task-center execution but is disabled by default. Saving `base_url` never starts repair work.
@@ -109,16 +111,21 @@ if err == nil && resolved.Enabled && strings.TrimSpace(resolved.APIKey) != "" {
 
 | Condition | Required result |
 | --- | --- |
-| Empty, disabled, or unreadable Douban `base_url` | Keep the upstream image origin and file format; still derive known `/l/` paths. |
+| Empty, disabled, or unreadable Douban `base_url` | Return/store the official `/l/` URL and download it directly. |
 | Absolute HTTP(S) origin with no credentials, query, fragment, or non-root path | Normalize and save its scheme and host. |
 | Invalid/non-HTTP(S) origin | Return HTTP 400 from the admin update and keep the previous effective value. |
 | `cover.image.large.url` is invalid | Continue to `pic.large`. |
 | Only detail thumbnail/legacy fields exist | Return no poster; never download the thumbnail. |
-| Search/discover thumbnail has a known photo path | Derive `/view/photo/l/public/<file>`; apply current origin/WebP only when returning it. |
+| Search/discover thumbnail has a known photo path | Derive and return `/view/photo/l/public/<file>` on the official origin. |
 | Search/discover thumbnail has no known large path | Return an empty poster URL. |
-| Configured-origin URL ends in an image extension and query format is JPEG | Change the path extension and observed query format to WebP. |
-| Valid configured-origin detail large URL has no extension | Change origin only; do not guess or append an extension. |
-| Discover cache predates an image-origin update | Keep the cached origin-independent URL and project the new origin on the next response/preheat. |
+| Official URL has a complete `imageView2/...` query | Remove the complete query before response, persistence, and cache lookup. |
+| Official URL has an unknown query | Preserve the query unchanged. |
+| Configured CDN is enabled and the official URL ends in an extension | Request the current CDN with a temporary `.webp` path, then fall back to the official URL on any failure. |
+| Valid official large URL has no extension | Change origin only for the temporary CDN request; do not guess or append an extension. |
+| CDN returns 404 and official source succeeds | Return/cache the official result and write no failure marker. |
+| CDN and official source both fail, but official failure is not 404 | Return the final error and write no failure marker. |
+| Final official source returns exact 404 | Write the mode-specific six-hour failure marker under the official URL key. |
+| Discover cache predates an image-origin update | Keep returning the same official URL; the next image-cache miss uses the new CDN. |
 | `image_direct=false`, missing row, or configuration lookup error | Keep the existing proxy-aware image request order. |
 | `image_direct=true` with an official or current configured image host | Try only the proxy-free Go client, then curl if it fails. |
 | `image_direct=true` with an unrelated image host | Keep the existing request order; never broaden direct mode to that host. |
@@ -130,22 +137,23 @@ if err == nil && resolved.Enabled && strings.TrimSpace(resolved.APIKey) != "" {
 
 ### 5. Good / Base / Bad Cases
 
-- Good: a configured mirror displays and downloads `/view/photo/l/public/p123.webp` while the Douban detail request still uses `m.douban.com`.
-- Good: changing the mirror immediately changes a cached discover response and its preheat URL without another Douban request.
+- Good: a configured mirror downloads temporary `/view/photo/l/public/p123.webp`, while responses and candidate provenance keep the official `/view/photo/l/public/p123.jpg`.
+- Good: changing the mirror leaves cached discover data and database rows untouched; the next uncached download uses the new mirror.
+- Good: a mirror DNS failure falls back to the official URL in the same request and is retried on the next run if both paths fail transiently.
 - Good: a configured mirror that fails through the proxy is fetched with a proxy-free Go client and then curl, while TMDb images keep their existing transport order.
 - Base: no image origin is configured; search/discover use the upstream `/l/` JPEG and detail uses a validated large field.
 - Base: `image_direct` is absent or false and existing deployments keep the previous image behavior.
 - Good: 713 non-selected Douban candidates upgrade without changing their other-provider current posters, while a matching selected Douban poster follows its upgraded candidate.
-- Bad: infer provider identity only from `doubanio.com` after the URL was rewritten to a configured mirror, route every image through curl, rewrite the Douban JSON API base URL, return `pic.normal`, cache the configured mirror URL for six hours, derive a non-standard thumbnail by guesswork, or delete the small file before the large image is safely stored.
+- Bad: persist a configured CDN URL, use it as the cache key, negative-cache DNS/5xx/non-image failures, route every image through curl, rewrite the Douban JSON API base URL, return `pic.normal`, derive a non-standard thumbnail by guesswork, or delete the small file before the large image is safely stored.
 
 ### 6. Tests Required
 
-- Unit-test large-only poster field priority, invalid-field fallback, nested thumbnail rejection, origin validation, `/l/public/` derivation boundaries, WebP path/query rewriting, extensionless behavior, and idempotency.
-- Provider/handler-test search and discover thumbnail derivation plus live image-origin projection on cached results; assert the cache retains its origin-independent URL.
+- Unit-test large-only poster field priority, invalid-field fallback, nested thumbnail rejection, origin validation, `/l/public/` derivation boundaries, known-query removal, unknown-query preservation, and temporary WebP projection.
+- Provider/handler-test search and discover thumbnail derivation; assert responses and section cache retain the same official large URL across CDN configuration changes.
 - Repository-test keyset candidate projection and CAS behavior for stale candidates, other-provider current selections, and matching Douban current selections.
 - Service-test a small or missing candidate through download, DataDir storage, configured origin use, candidate switch, and old-file preservation.
 - Assert the `image_direct` database migration and API update/public/resolve round trip.
-- Image-proxy-test that enabled official/configured hosts select only a proxy-free direct client and allow curl, disabled/custom-unrelated hosts keep normal behavior, and cache cleanup covers both failure markers.
+- Image-proxy-test live CDN selection, CDN-to-official fallback, official cache identity, exact-404 negative caching, transient retryability, direct-client selection, and cleanup of both failure markers.
 - Assert task definition and disabled scheduler registration; run `go vet`, focused service/repository tests, and `git diff --check`.
 
 ### 7. Wrong vs Correct
@@ -169,15 +177,13 @@ repairDoubanCandidate(snapshot, newURL, asset)
 ```
 
 ```go
-// Wrong: a configured mirror no longer contains doubanio.com, so it never reaches curl.
-if isDoubanImageHost(host) {
-	fetchRemoteImageWithCurl(ctx, raw, host)
-}
+// Wrong: CDN configuration leaks into provenance and cache identity.
+candidate.SourceURL = projectDoubanArtworkURL(officialURL, baseURL)
 
-// Correct: first prove the URL belongs to the configured Douban image source,
-// then let direct mode use curl without a second fixed-host restriction.
-directOnly := imageProxy.useDoubanImageDirect(ctx, host)
-if imageProxy.canUseExternalImageFallback(directOnly, host) {
-	fetchRemoteImageWithCurl(ctx, raw, host)
+// Correct: persist the official URL; project CDN only inside a cache miss.
+candidate.SourceURL = officialURL
+data, err := imageProxy.Fetch(ctx, officialURL)
+if err != nil {
+	return err
 }
 ```

@@ -114,6 +114,7 @@ func TestDoubanArtworkLocalRepairUpgradesCandidateWithoutReplacingManualSelectio
 	if _, err := apiConfig.Update(t.Context(), "douban", APIConfigPatch{BaseURL: &origin}); err != nil {
 		t.Fatal(err)
 	}
+	proxy.setAPIConfigService(apiConfig)
 	svc := &ScraperService{repo: repos, artwork: store, douban: NewDoubanProvider(apiConfig)}
 	if err := svc.runDoubanArtworkLocalRepair(t.Context(), TaskTriggerManual); err != nil {
 		t.Fatal(err)
@@ -129,7 +130,7 @@ func TestDoubanArtworkLocalRepairUpgradesCandidateWithoutReplacingManualSelectio
 	if err := db.First(&candidate, "metadata_id = ? AND artwork_type = ? AND source_provider = 'douban'", metadata.ID, model.ArtworkTypePoster).Error; err != nil {
 		t.Fatal(err)
 	}
-	if candidate.AssetID == old.ID || candidate.SourceURL != "http://db-pic1.acecandy.cn/view/photo/l/public/p123.webp" {
+	if candidate.AssetID == old.ID || candidate.SourceURL != "https://img9.doubanio.com/view/photo/l/public/p123.jpg" {
 		t.Fatalf("repaired candidate = %#v", candidate)
 	}
 	if _, err := os.Stat(oldPath); err != nil {

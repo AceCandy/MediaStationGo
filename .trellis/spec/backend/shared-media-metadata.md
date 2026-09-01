@@ -1293,9 +1293,11 @@ if snapshot.Degraded {
   surviving metadata; when the same provider/candidate key already exists, the
   surviving target row wins before the source metadata is hard-deleted.
 - A Douban poster is downloaded immediately to managed local artwork and saved
-  as a provider candidate. Existing selection always wins; only an absent
-  selection is atomically promoted. Public responses continue to use only
-  `/api/artwork/:assetID`, never a remote URL.
+  as a provider candidate whose `SourceURL` is the normalized official large
+  image URL. A configured CDN is a temporary `ImageProxy` transport only.
+  Existing selection always wins; only an absent selection is atomically
+  promoted. Public responses continue to use only `/api/artwork/:assetID`,
+  never a remote URL.
 - Historical passes exclude every explicit `degraded=true` Douban snapshot.
   Otherwise, they admit movies with one Douban Movie identifier when no
   snapshot exists, or when the snapshot is older than 24 hours and is a legacy

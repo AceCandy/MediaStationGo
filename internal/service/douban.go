@@ -395,8 +395,8 @@ func stringFromMapPath(values map[string]any, path ...string) string {
 	return strings.TrimSpace(value)
 }
 
-// ResolveArtworkURL applies the current Douban image origin and format without changing the JSON API endpoint.
-func (d *DoubanProvider) ResolveArtworkURL(ctx context.Context, raw string) string {
+// ResolveArtworkURL 返回可稳定持久化的豆瓣官方大图地址。
+func (d *DoubanProvider) ResolveArtworkURL(_ context.Context, raw string) string {
 	sourceURL := strings.TrimSpace(raw)
 	if sourceURL == "" {
 		return ""
@@ -404,30 +404,29 @@ func (d *DoubanProvider) ResolveArtworkURL(ctx context.Context, raw string) stri
 	if largeURL := deriveDoubanLargePosterURL(sourceURL); largeURL != "" {
 		sourceURL = largeURL
 	}
-	if d == nil || d.apiConfig == nil {
-		return sourceURL
-	}
-	resolved, err := d.apiConfig.Resolve(ctx, "douban")
-	if err != nil || !resolved.Enabled || strings.TrimSpace(resolved.BaseURL) == "" {
-		return sourceURL
-	}
-	origin, err := url.Parse(resolved.BaseURL)
-	if err != nil || origin.Host == "" {
-		return sourceURL
-	}
 	target, err := url.Parse(sourceURL)
-	if err != nil || target.Host == "" || (target.Scheme != "http" && target.Scheme != "https") {
+	if err != nil || !strings.HasPrefix(target.RawQuery, "imageView2/") || strings.Contains(target.RawQuery, "&") {
 		return sourceURL
+	}
+	target.RawQuery = ""
+	target.ForceQuery = false
+	return target.String()
+}
+
+func projectDoubanArtworkURL(raw, baseURL string) string {
+	target, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || !isDoubanImageHost(target.Host) {
+		return ""
+	}
+	origin, err := url.Parse(strings.TrimSpace(baseURL))
+	if err != nil || origin.Host == "" || (origin.Scheme != "http" && origin.Scheme != "https") {
+		return ""
 	}
 	target.Scheme, target.Host, target.User = origin.Scheme, origin.Host, nil
 	if ext := path.Ext(target.Path); ext != "" {
 		target.Path = strings.TrimSuffix(target.Path, ext) + ".webp"
 		target.RawPath = ""
 	}
-	target.RawQuery = strings.NewReplacer(
-		"/format/jpg", "/format/webp",
-		"/format/jpeg", "/format/webp",
-	).Replace(target.RawQuery)
 	return target.String()
 }
 

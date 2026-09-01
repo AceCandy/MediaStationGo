@@ -148,7 +148,7 @@ func TestDiscoverSectionCacheHitSkipsProvider(t *testing.T) {
 	}
 }
 
-func TestDiscoverFeedAppliesLiveDoubanArtworkOriginToCachedItems(t *testing.T) {
+func TestDiscoverFeedKeepsOfficialDoubanArtworkURLInCachedItems(t *testing.T) {
 	db, err := testdb.OpenPostgres(t, &gorm.Config{})
 	if err != nil {
 		t.Fatal(err)
@@ -190,14 +190,14 @@ func TestDiscoverFeedAppliesLiveDoubanArtworkOriginToCachedItems(t *testing.T) {
 		return items[0].PosterURL
 	}
 
-	if got := requestPoster(); got != "http://images-one.test/view/photo/l/public/p123.webp" {
+	if got := requestPoster(); got != rawPoster {
 		t.Fatalf("first poster URL = %q", got)
 	}
 	origin = "https://images-two.test/"
 	if _, err := apiConfig.Update(t.Context(), "douban", service.APIConfigPatch{BaseURL: &origin}); err != nil {
 		t.Fatal(err)
 	}
-	if got := requestPoster(); got != "https://images-two.test/view/photo/l/public/p123.webp" {
+	if got := requestPoster(); got != rawPoster {
 		t.Fatalf("updated poster URL = %q", got)
 	}
 	items, ok := svc.Discover.CachedSection("douban_hot_movie", 1)

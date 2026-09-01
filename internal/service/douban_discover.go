@@ -79,7 +79,7 @@ func (d *DoubanProvider) Discover(ctx context.Context, key string, pages ...int)
 			Source:    "douban",
 			MediaType: mediaType,
 			Title:     subject.Title,
-			PosterURL: deriveDoubanLargePosterURL(subject.Cover),
+			PosterURL: d.ResolveArtworkURL(ctx, subject.Cover),
 			Rating:    float32(rating),
 			DoubanID:  subject.ID,
 		})
