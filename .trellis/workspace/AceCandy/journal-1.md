@@ -1781,3 +1781,25 @@ Added movie/tv permission fallback to subject, persisted degraded status, skippe
 ### Status
 
 [OK] **Completed**
+
+
+## Session 83: 代理池健康检测与清理
+<!-- trellis-session: v=2 fp=f83dabac9b07b4b1 -->
+
+**Date**: 2026-09-02
+**Task**: 代理池健康检测与清理
+**Branch**: `main`
+
+### Summary
+
+新增已保存代理的豆瓣健康检测、汇总确认和一次性令牌安全清理；补齐分类、取消、并发更新、凭据保护与前端交互验证。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `19ef3a1` | feat: add proxy pool health cleanup |
+
+### Status
+
+[OK] **Completed**
