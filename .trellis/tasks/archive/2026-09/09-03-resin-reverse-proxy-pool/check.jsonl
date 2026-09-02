@@ -1,0 +1,4 @@
+{"file":".trellis/spec/backend/douban-cookie-config.md","reason":"复核代理切换、凭据脱敏和兼容要求"}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"核验前后端字段、存储和运行时消费链路一致"}
+{"file":".trellis/tasks/09-03-resin-reverse-proxy-pool/prd.md","reason":"按验收标准进行独立复核"}
+{"file":".trellis/tasks/09-03-resin-reverse-proxy-pool/design.md","reason":"检查实现是否偏离全局配置与反向代理边界"}

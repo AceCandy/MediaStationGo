@@ -1,0 +1,4 @@
+{"file":".trellis/spec/backend/douban-cookie-config.md","reason":"豆瓣代理路由、凭据安全、普通代理池与 Resin 契约"}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"数据库、服务、HTTP API 与前端之间的配置数据流"}
+{"file":".trellis/spec/guides/code-reuse-thinking-guide.md","reason":"复用现有加密、校验、路由和代理池模式"}
+{"file":".trellis/tasks/09-03-resin-reverse-proxy-pool/design.md","reason":"已确认的全局代理池与 Resin URL 反向代理设计"}
