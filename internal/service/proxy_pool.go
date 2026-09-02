@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"gorm.io/gorm"
@@ -40,6 +41,30 @@ type ProxyPoolItem struct {
 type ProxyPoolInput struct {
 	ID  string  `json:"id,omitempty"`
 	URL *string `json:"url,omitempty"`
+}
+
+// ProxyPoolConfigView is the credential-free global proxy-pool configuration.
+type ProxyPoolConfigView struct {
+	ProxyPoolType      string `json:"proxy_pool_type"`
+	ResinProxyURL      string `json:"resin_proxy_url,omitempty"`
+	ResinAccount       string `json:"resin_account,omitempty"`
+	HasResinProxyToken bool   `json:"has_resin_proxy_token"`
+}
+
+// ProxyPoolConfigPatch updates the global proxy-pool mode and Resin gateway.
+type ProxyPoolConfigPatch struct {
+	ProxyPoolType   *string `json:"proxy_pool_type,omitempty"`
+	ResinProxyURL   *string `json:"resin_proxy_url,omitempty"`
+	ResinProxyToken *string `json:"resin_proxy_token,omitempty"`
+	ResinAccount    *string `json:"resin_account,omitempty"`
+}
+
+type resolvedProxyPoolConfig struct {
+	ProxyPoolType   string
+	ResinProxyURL   string
+	ResinProxyToken string
+	ResinAccount    string
+	Revision        uint64
 }
 
 // ProxyPoolCheckResult 汇总本次检测；清理令牌仅绑定本次确定不可用的代理。
@@ -78,8 +103,10 @@ type proxyPoolPendingCleanup struct {
 }
 
 type proxyPoolSnapshot struct {
-	generation uint64
-	clients    []*http.Client
+	generation     uint64
+	configRevision uint64
+	clients        []*http.Client
+	resin          *resolvedProxyPoolConfig
 }
 
 // ProxyPoolService owns encrypted proxy configuration and reusable transports.
@@ -87,15 +114,156 @@ type ProxyPoolService struct {
 	repo   *repository.Container
 	crypto *CryptoService
 
-	mu         sync.Mutex
-	loaded     bool
-	generation uint64
-	clients    []*http.Client
-	pending    *proxyPoolPendingCleanup
+	mu             sync.Mutex
+	loaded         bool
+	generation     uint64
+	configRevision uint64
+	clients        []*http.Client
+	pending        *proxyPoolPendingCleanup
 }
 
 func NewProxyPoolService(repo *repository.Container, crypto *CryptoService) *ProxyPoolService {
 	return &ProxyPoolService{repo: repo, crypto: crypto}
+}
+
+// GetConfig returns the global proxy-pool configuration without its token.
+func (s *ProxyPoolService) GetConfig(ctx context.Context) (ProxyPoolConfigView, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	config, err := s.resolveConfigLocked(ctx)
+	if err != nil {
+		return ProxyPoolConfigView{}, err
+	}
+	return publicProxyPoolConfig(config), nil
+}
+
+// UpdateConfig saves the global proxy-pool configuration atomically.
+func (s *ProxyPoolService) UpdateConfig(ctx context.Context, patch ProxyPoolConfigPatch) (ProxyPoolConfigView, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s == nil || s.repo == nil || s.repo.DB == nil || s.crypto == nil {
+		return ProxyPoolConfigView{}, errProxyPoolUnavailable
+	}
+
+	var row model.APIConfig
+	if err := s.repo.DB.WithContext(ctx).Where("provider = ?", "douban").First(&row).Error; err != nil {
+		return ProxyPoolConfigView{}, err
+	}
+	proxyPoolType, err := normalizeProxyPoolType(row.ProxyPoolType)
+	if err != nil {
+		return ProxyPoolConfigView{}, err
+	}
+	resinProxyURL, err := normalizeResinProxyOrigin(row.ResinProxyURL)
+	if err != nil {
+		return ProxyPoolConfigView{}, err
+	}
+	resinAccount := strings.TrimSpace(row.ResinAccount)
+	resinProxyToken := row.ResinProxyToken
+	if patch.ProxyPoolType != nil {
+		proxyPoolType, err = normalizeProxyPoolType(*patch.ProxyPoolType)
+		if err != nil {
+			return ProxyPoolConfigView{}, err
+		}
+	}
+	if patch.ResinProxyURL != nil {
+		resinProxyURL, err = normalizeResinProxyOrigin(*patch.ResinProxyURL)
+		if err != nil {
+			return ProxyPoolConfigView{}, err
+		}
+	}
+	if patch.ResinAccount != nil {
+		resinAccount = strings.TrimSpace(*patch.ResinAccount)
+	}
+	if utf8.RuneCountInString(resinAccount) > 128 {
+		return ProxyPoolConfigView{}, errors.New("resin account must be at most 128 characters")
+	}
+	if patch.ResinProxyToken != nil {
+		value := strings.TrimSpace(*patch.ResinProxyToken)
+		switch value {
+		case "":
+		case "<clear>":
+			resinProxyToken = ""
+		default:
+			resinProxyToken = s.crypto.Encrypt(value)
+			if !s.crypto.IsEncrypted(resinProxyToken) {
+				return ProxyPoolConfigView{}, errProxyPoolUnavailable
+			}
+		}
+	}
+	if resinProxyToken != "" && !s.crypto.IsEncrypted(resinProxyToken) {
+		return ProxyPoolConfigView{}, errProxyPoolUnavailable
+	}
+	if proxyPoolType == ProxyPoolTypeResin && (resinProxyURL == "" || resinProxyToken == "") {
+		return ProxyPoolConfigView{}, errors.New("resin proxy address and token are required")
+	}
+	if err := s.repo.DB.WithContext(ctx).Model(&row).Updates(map[string]any{
+		"proxy_pool_type":   proxyPoolType,
+		"resin_proxy_url":   resinProxyURL,
+		"resin_proxy_token": resinProxyToken,
+		"resin_account":     resinAccount,
+	}).Error; err != nil {
+		return ProxyPoolConfigView{}, err
+	}
+	s.configRevision++
+	return ProxyPoolConfigView{
+		ProxyPoolType:      proxyPoolType,
+		ResinProxyURL:      resinProxyURL,
+		ResinAccount:       resinAccount,
+		HasResinProxyToken: resinProxyToken != "",
+	}, nil
+}
+
+func (s *ProxyPoolService) resolveConfig(ctx context.Context) (resolvedProxyPoolConfig, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.resolveConfigLocked(ctx)
+}
+
+func (s *ProxyPoolService) resolveConfigLocked(ctx context.Context) (resolvedProxyPoolConfig, error) {
+	if s == nil || s.repo == nil || s.repo.DB == nil || s.crypto == nil {
+		return resolvedProxyPoolConfig{}, errProxyPoolUnavailable
+	}
+	var row model.APIConfig
+	if err := s.repo.DB.WithContext(ctx).Where("provider = ?", "douban").First(&row).Error; err != nil {
+		return resolvedProxyPoolConfig{}, err
+	}
+	proxyPoolType, err := normalizeProxyPoolType(row.ProxyPoolType)
+	if err != nil {
+		return resolvedProxyPoolConfig{}, err
+	}
+	resinProxyURL, err := normalizeResinProxyOrigin(row.ResinProxyURL)
+	if err != nil {
+		return resolvedProxyPoolConfig{}, err
+	}
+	resinAccount := strings.TrimSpace(row.ResinAccount)
+	if utf8.RuneCountInString(resinAccount) > 128 {
+		return resolvedProxyPoolConfig{}, errProxyPoolUnavailable
+	}
+	config := resolvedProxyPoolConfig{
+		ProxyPoolType: proxyPoolType,
+		ResinProxyURL: resinProxyURL,
+		ResinAccount:  resinAccount,
+		Revision:      s.configRevision,
+	}
+	if row.ResinProxyToken != "" {
+		if !s.crypto.IsEncrypted(row.ResinProxyToken) {
+			return resolvedProxyPoolConfig{}, errProxyPoolUnavailable
+		}
+		config.ResinProxyToken = s.crypto.Decrypt(row.ResinProxyToken)
+		if config.ResinProxyToken == row.ResinProxyToken {
+			return resolvedProxyPoolConfig{}, errProxyPoolUnavailable
+		}
+	}
+	return config, nil
+}
+
+func publicProxyPoolConfig(config resolvedProxyPoolConfig) ProxyPoolConfigView {
+	return ProxyPoolConfigView{
+		ProxyPoolType:      config.ProxyPoolType,
+		ResinProxyURL:      config.ResinProxyURL,
+		ResinAccount:       config.ResinAccount,
+		HasResinProxyToken: config.ResinProxyToken != "",
+	}
 }
 
 // List returns the ordered proxy list without authentication information.

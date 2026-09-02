@@ -2,12 +2,11 @@ package service
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
-	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -373,7 +372,7 @@ func TestAPIConfigUseProxyPoolRoundTripAndRevision(t *testing.T) {
 	}
 	svc := NewAPIConfigService(zap.NewNop(), &repository.Container{DB: db}, NewCryptoService("test-secret", zap.NewNop()))
 	resolved, err := svc.Resolve(t.Context(), "douban")
-	if err != nil || resolved.UseProxyPool || resolved.ProxyPoolType != ProxyPoolTypeNormal || resolved.Revision != 0 {
+	if err != nil || resolved.UseProxyPool || resolved.Revision != 0 {
 		t.Fatalf("default resolved config = %#v, %v", resolved, err)
 	}
 
@@ -381,6 +380,15 @@ func TestAPIConfigUseProxyPoolRoundTripAndRevision(t *testing.T) {
 	view, err := svc.Update(t.Context(), "douban", APIConfigPatch{UseProxyPool: &enabled})
 	if err != nil || !view.UseProxyPool {
 		t.Fatalf("public config = %#v, %v", view, err)
+	}
+	publicJSON, err := json.Marshal(view)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, forbidden := range []string{"proxy_pool_type", "resin_proxy_url", "resin_proxy_token", "resin_account"} {
+		if strings.Contains(string(publicJSON), forbidden) {
+			t.Fatalf("Douban API config still exposes %s", forbidden)
+		}
 	}
 	resolved, err = svc.Resolve(t.Context(), "douban")
 	if err != nil || !resolved.UseProxyPool || resolved.Revision != 1 {
@@ -423,20 +431,24 @@ func TestNormalizeResinProxySettings(t *testing.T) {
 	}
 }
 
-func TestAPIConfigResinProxyRoundTrip(t *testing.T) {
+func TestProxyPoolConfigRoundTrip(t *testing.T) {
 	db := newServiceTestDB(t, &model.APIConfig{})
 	if err := db.Create(&model.APIConfig{Provider: "douban", Enabled: true}).Error; err != nil {
 		t.Fatal(err)
 	}
 	crypto := NewCryptoService("test-secret", zap.NewNop())
-	svc := NewAPIConfigService(zap.NewNop(), &repository.Container{DB: db}, crypto)
-	enabled := true
+	svc := NewProxyPoolService(&repository.Container{DB: db}, crypto)
 	proxyType := ProxyPoolTypeResin
 	proxyURL := "http://resin.internal:2260/"
 	token := "proxy-secret"
 	account := " douban-main "
-	view, err := svc.Update(t.Context(), "douban", APIConfigPatch{
-		UseProxyPool:    &enabled,
+	if _, err := svc.UpdateConfig(t.Context(), ProxyPoolConfigPatch{
+		ProxyPoolType: &proxyType,
+		ResinProxyURL: &proxyURL,
+	}); err == nil {
+		t.Fatal("expected Resin mode without a token to fail")
+	}
+	view, err := svc.UpdateConfig(t.Context(), ProxyPoolConfigPatch{
 		ProxyPoolType:   &proxyType,
 		ResinProxyURL:   &proxyURL,
 		ResinProxyToken: &token,
@@ -462,56 +474,73 @@ func TestAPIConfigResinProxyRoundTrip(t *testing.T) {
 	if !crypto.IsEncrypted(row.ResinProxyToken) || strings.Contains(row.ResinProxyToken, token) {
 		t.Fatal("Resin token was not encrypted")
 	}
-	resolved, err := svc.Resolve(t.Context(), "douban")
+	resolved, err := svc.resolveConfig(t.Context())
 	if err != nil || resolved.ResinProxyToken != token || resolved.ResinAccount != "douban-main" {
 		t.Fatalf("resolved config = %#v, %v", resolved, err)
 	}
+	emptyToken := ""
+	if _, err := svc.UpdateConfig(t.Context(), ProxyPoolConfigPatch{ResinProxyToken: &emptyToken}); err != nil {
+		t.Fatal(err)
+	}
+	resolved, err = svc.resolveConfig(t.Context())
+	if err != nil || resolved.ResinProxyToken != token || resolved.Revision != 2 {
+		t.Fatalf("empty token did not preserve config: %#v, %v", resolved, err)
+	}
 
 	invalidType := "other"
-	if _, err := svc.Update(t.Context(), "douban", APIConfigPatch{ProxyPoolType: &invalidType}); err == nil {
+	if _, err := svc.UpdateConfig(t.Context(), ProxyPoolConfigPatch{ProxyPoolType: &invalidType}); err == nil {
 		t.Fatal("expected invalid proxy pool type to fail")
 	}
 	invalidURL := "http://user:do-not-leak@resin.internal:2260"
-	if _, err := svc.Update(t.Context(), "douban", APIConfigPatch{ResinProxyURL: &invalidURL}); err == nil || strings.Contains(err.Error(), "do-not-leak") {
+	if _, err := svc.UpdateConfig(t.Context(), ProxyPoolConfigPatch{ResinProxyURL: &invalidURL}); err == nil || strings.Contains(err.Error(), "do-not-leak") {
 		t.Fatalf("unsafe Resin URL error: %v", err)
 	}
 }
 
-func TestResinProxyClientAuthentication(t *testing.T) {
+func TestProxyPoolConfigReadsExistingResinSettings(t *testing.T) {
+	db := newServiceTestDB(t, &model.APIConfig{})
+	crypto := NewCryptoService("test-secret", zap.NewNop())
+	if err := db.Create(&model.APIConfig{
+		Provider:        "douban",
+		ProxyPoolType:   ProxyPoolTypeResin,
+		ResinProxyURL:   "https://resin.example",
+		ResinProxyToken: crypto.Encrypt("existing-token"),
+		ResinAccount:    "existing-account",
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	svc := NewProxyPoolService(&repository.Container{DB: db}, crypto)
+	view, err := svc.GetConfig(t.Context())
+	if err != nil || view.ProxyPoolType != ProxyPoolTypeResin || view.ResinProxyURL != "https://resin.example" || view.ResinAccount != "existing-account" || !view.HasResinProxyToken {
+		t.Fatalf("existing Resin config = %#v, %v", view, err)
+	}
+}
+
+func TestBuildResinReverseURL(t *testing.T) {
 	for _, tt := range []struct {
-		name       string
-		account    string
-		credential string
+		name    string
+		account string
+		want    string
 	}{
-		{name: "random routing", credential: ":proxy-secret"},
-		{name: "sticky routing", account: "douban-main", credential: "Default.douban-main:proxy-secret"},
+		{name: "random routing", want: "https://resin.example/proxy%2Fsecret/./https/movie.douban.com/a%2Fb?q=x%20y"},
+		{name: "sticky routing", account: "douban/main", want: "https://resin.example/proxy%2Fsecret/Default.douban%2Fmain/https/movie.douban.com/a%2Fb?q=x%20y"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			wantAuth := "Basic " + base64.StdEncoding.EncodeToString([]byte(tt.credential))
-			proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				if r.Header.Get("Proxy-Authorization") != wantAuth {
-					t.Fatal("unexpected Resin proxy authentication")
-				}
-				w.Header().Set("Content-Type", "application/json")
-				_, _ = w.Write([]byte(`[]`))
-			}))
-			defer proxy.Close()
-
-			client, err := newResinProxyClient(Resolved{
-				ResinProxyURL:   proxy.URL,
-				ResinProxyToken: "proxy-secret",
+			got, err := buildResinReverseURL(resolvedProxyPoolConfig{
+				ResinProxyURL:   "https://resin.example",
+				ResinProxyToken: "proxy/secret",
 				ResinAccount:    tt.account,
-			})
-			if err != nil {
-				t.Fatal(err)
+			}, "https://movie.douban.com/a%2Fb?q=x%20y")
+			if err != nil || got != tt.want {
+				t.Fatalf("reverse URL = %q, %v; want %q", got, err, tt.want)
 			}
-			defer client.CloseIdleConnections()
-			resp, err := client.Get("http://example.test/data")
-			if err != nil {
-				t.Fatal(err)
-			}
-			_ = resp.Body.Close()
 		})
+	}
+
+	secretURL := "https://resin.example/secret/./https/movie.douban.com/data"
+	err := redactResinRequestError(&url.Error{Op: "Get", URL: secretURL, Err: io.ErrUnexpectedEOF})
+	if !errors.Is(err, io.ErrUnexpectedEOF) || strings.Contains(err.Error(), "secret") || !strings.Contains(err.Error(), "[redacted-url]") {
+		t.Fatalf("unsafe Resin error: %v", err)
 	}
 }
 
@@ -568,7 +597,7 @@ func TestDoubanProxyPoolRouting(t *testing.T) {
 		if got, want := strings.Join(calls, ","), "direct,proxy1,proxy2,proxy2,proxy2,direct"; got != want {
 			t.Fatalf("calls = %s, want %s", got, want)
 		}
-		if route := provider.currentRoute(1, resolved.Revision); route != doubanDirectRoute {
+		if route := provider.currentRoute(1, 0, resolved.Revision); route != doubanDirectRoute {
 			t.Fatalf("route = %d, want direct", route)
 		}
 	})
@@ -608,11 +637,11 @@ func TestDoubanProxyPoolRouting(t *testing.T) {
 			scriptedDoubanClient(t, "direct", &calls),
 			scriptedDoubanClient(t, "proxy1", &calls, doubanTestOutcome{err: proxyErr}),
 		)
-		provider.setRoute(1, resolved.Revision, 0)
+		provider.setRoute(1, 0, resolved.Revision, 0)
 		if _, status, err := provider.requestJSON(t.Context(), "https://example.test/data", ""); !errors.Is(err, proxyErr) || status != 0 {
 			t.Fatalf("status=%d err=%v", status, err)
 		}
-		if route := provider.currentRoute(1, resolved.Revision); route != 0 {
+		if route := provider.currentRoute(1, 0, resolved.Revision); route != 0 {
 			t.Fatalf("route changed to %d", route)
 		}
 		if got := strings.Join(calls, ","); got != "proxy1" {
@@ -629,7 +658,7 @@ func TestDoubanProxyPoolRouting(t *testing.T) {
 		if _, status, err := provider.requestJSON(t.Context(), "https://example.test/data", ""); err != nil || status != 200 {
 			t.Fatalf("status=%d err=%v", status, err)
 		}
-		if route := provider.currentRoute(1, resolved.Revision); route != 0 {
+		if route := provider.currentRoute(1, 0, resolved.Revision); route != 0 {
 			t.Fatalf("route = %d, want proxy1", route)
 		}
 		if got, want := strings.Join(calls, ","), "direct,proxy1"; got != want {
@@ -724,31 +753,38 @@ func TestDoubanProxyPoolRouting(t *testing.T) {
 	})
 
 	t.Run("resin source does not use normal pool", func(t *testing.T) {
-		proxyType := ProxyPoolTypeResin
-		proxyURL := "http://resin.internal:2260"
-		if _, err := apiConfig.Update(t.Context(), "douban", APIConfigPatch{ProxyPoolType: &proxyType, ResinProxyURL: &proxyURL}); err != nil {
-			t.Fatal(err)
-		}
-		resolved, err := apiConfig.Resolve(t.Context(), "douban")
-		if err != nil {
-			t.Fatal(err)
-		}
 		calls := []string{}
 		provider := doubanProxyTestProvider(apiConfig,
-			scriptedDoubanClient(t, "direct", &calls, doubanTestOutcome{status: 400}),
+			scriptedDoubanClient(t, "direct", &calls, doubanTestOutcome{status: 400}, doubanTestOutcome{status: 200}),
 			scriptedDoubanClient(t, "normal", &calls),
 		)
-		provider.resinClient = scriptedDoubanClient(t, "resin", &calls, doubanTestOutcome{status: 200})
-		provider.resinRevision = resolved.Revision
+		provider.resinClient = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			calls = append(calls, "resin")
+			if got, want := req.URL.String(), "http://resin.internal:2260/proxy-secret/./https/example.test/data"; got != want {
+				t.Fatalf("Resin request URL = %q, want %q", got, want)
+			}
+			return doubanTestResponse(req, http.StatusOK), nil
+		})}
+		proxyType := ProxyPoolTypeResin
+		proxyURL := "http://resin.internal:2260"
+		token := "proxy-secret"
+		if _, err := provider.proxyPool.UpdateConfig(t.Context(), ProxyPoolConfigPatch{
+			ProxyPoolType: &proxyType, ResinProxyURL: &proxyURL, ResinProxyToken: &token,
+		}); err != nil {
+			t.Fatal(err)
+		}
 		if _, status, err := provider.requestJSON(t.Context(), "https://example.test/data", ""); err != nil || status != 200 {
 			t.Fatalf("status=%d err=%v", status, err)
 		}
-		if got, want := strings.Join(calls, ","), "direct,resin"; got != want {
-			t.Fatalf("calls = %s, want %s", got, want)
-		}
-		normalType := ProxyPoolTypeNormal
-		if _, err := apiConfig.Update(t.Context(), "douban", APIConfigPatch{ProxyPoolType: &normalType}); err != nil {
+		account := "douban-main"
+		if _, err := provider.proxyPool.UpdateConfig(t.Context(), ProxyPoolConfigPatch{ResinAccount: &account}); err != nil {
 			t.Fatal(err)
+		}
+		if _, status, err := provider.requestJSON(t.Context(), "https://example.test/data", ""); err != nil || status != 200 {
+			t.Fatalf("reset status=%d err=%v", status, err)
+		}
+		if got, want := strings.Join(calls, ","), "direct,resin,direct"; got != want {
+			t.Fatalf("calls = %s, want %s", got, want)
 		}
 	})
 
@@ -836,7 +872,10 @@ func doubanTestResponse(req *http.Request, status int) *http.Response {
 func doubanProxyTestProvider(apiConfig *APIConfigService, direct *http.Client, proxies ...*http.Client) *DoubanProvider {
 	provider := NewDoubanProvider(apiConfig)
 	provider.directClient = direct
-	provider.proxyPool = &ProxyPoolService{loaded: true, generation: 1, clients: proxies}
+	provider.proxyPool = NewProxyPoolService(apiConfig.repo, apiConfig.crypto)
+	provider.proxyPool.loaded = true
+	provider.proxyPool.generation = 1
+	provider.proxyPool.clients = proxies
 	return provider
 }
 

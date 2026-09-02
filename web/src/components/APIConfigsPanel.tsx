@@ -6,6 +6,7 @@ import {
   apiConfigsAPI,
   type APIConfig,
   type APIConfigPatch,
+  type ProxyPoolConfig,
   type ProxyPoolInput,
   type ProxyPoolItem,
 } from '../api/api_configs'
@@ -180,10 +181,6 @@ function EditingRow({
   const [enabled, setEnabled] = useState(item.enabled)
   const [imageDirect, setImageDirect] = useState(item.image_direct ?? false)
   const [useProxyPool, setUseProxyPool] = useState(item.use_proxy_pool ?? false)
-  const [proxyPoolType, setProxyPoolType] = useState<'normal' | 'resin'>(item.proxy_pool_type ?? 'normal')
-  const [resinProxyURL, setResinProxyURL] = useState(item.resin_proxy_url ?? '')
-  const [resinProxyToken, setResinProxyToken] = useState('')
-  const [resinAccount, setResinAccount] = useState(item.resin_account ?? '')
   const [webSearchEnabled, setWebSearchEnabled] = useState(item.web_search_enabled)
   const [saving, setSaving] = useState(false)
   const isAdult = item.provider === 'adult'
@@ -199,12 +196,6 @@ function EditingRow({
       if (isDouban) {
         patch.image_direct = imageDirect
         patch.use_proxy_pool = useProxyPool
-        patch.proxy_pool_type = proxyPoolType
-        if (proxyPoolType === 'resin') {
-          patch.resin_proxy_url = resinProxyURL
-          patch.resin_account = resinAccount
-          if (resinProxyToken.trim()) patch.resin_proxy_token = resinProxyToken.trim()
-        }
       }
       if (isOpenAI) {
         patch.model = model
@@ -316,54 +307,6 @@ function EditingRow({
                     />
                     使用代理（HTTP 400 或 unexpected EOF 时切换）
                   </label>
-                  {useProxyPool && (
-                    <label className="text-xs text-ink-50">
-                      代理类型
-                      <Select
-                        className="input-base mt-1 w-full"
-                        value={proxyPoolType}
-                        onChange={(value) => setProxyPoolType(value as 'normal' | 'resin')}
-                      >
-                        <option value="normal">普通代理池</option>
-                        <option value="resin">Resin 代理池</option>
-                      </Select>
-                    </label>
-                  )}
-                  {useProxyPool && proxyPoolType === 'resin' && (
-                    <>
-                      <label className="text-xs text-ink-50">
-                        Resin 实例地址
-                        <input
-                          className="input-base mt-1"
-                          type="url"
-                          required
-                          placeholder="http://resin:2260"
-                          value={resinProxyURL}
-                          onChange={(e) => setResinProxyURL(e.target.value)}
-                        />
-                      </label>
-                      <label className="text-xs text-ink-50">
-                        RESIN_PROXY_TOKEN
-                        <input
-                          className="input-base mt-1"
-                          type="password"
-                          placeholder={item.has_resin_proxy_token ? '•••••••••••• (留空保留原值)' : '输入代理 Token'}
-                          value={resinProxyToken}
-                          onChange={(e) => setResinProxyToken(e.target.value)}
-                        />
-                      </label>
-                      <label className="text-xs text-ink-50 md:col-span-2">
-                        粘性标识（可选）
-                        <input
-                          className="input-base mt-1"
-                          maxLength={128}
-                          placeholder="留空时由 Resin 随机调度"
-                          value={resinAccount}
-                          onChange={(e) => setResinAccount(e.target.value)}
-                        />
-                      </label>
-                    </>
-                  )}
                   <label className="flex items-center gap-2 text-xs text-ink-50 md:col-span-2">
                     <input
                       type="checkbox"
@@ -385,6 +328,13 @@ function EditingRow({
 function ProxyPoolPanel() {
   const [items, setItems] = useState<ProxyPoolItem[]>([])
   const [value, setValue] = useState('')
+  const [config, setConfig] = useState<ProxyPoolConfig>({
+    proxy_pool_type: 'normal',
+    has_resin_proxy_token: false,
+  })
+  const [resinProxyURL, setResinProxyURL] = useState('')
+  const [resinProxyToken, setResinProxyToken] = useState('')
+  const [resinAccount, setResinAccount] = useState('')
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [checking, setChecking] = useState(false)
@@ -394,9 +344,16 @@ function ProxyPoolPanel() {
     setLoading(true)
     setLoadError('')
     try {
-      const loaded = await apiConfigsAPI.listProxyPool()
+      const [loaded, loadedConfig] = await Promise.all([
+        apiConfigsAPI.listProxyPool(),
+        apiConfigsAPI.getProxyPoolConfig(),
+      ])
       setItems(loaded)
       setValue(proxyPoolText(loaded))
+      setConfig(loadedConfig)
+      setResinProxyURL(loadedConfig.resin_proxy_url ?? '')
+      setResinAccount(loadedConfig.resin_account ?? '')
+      setResinProxyToken('')
     } catch (err: unknown) {
       setLoadError(apiErrorMessage(err, '代理池加载失败'))
     } finally {
@@ -411,25 +368,38 @@ function ProxyPoolPanel() {
   const save = async () => {
     setSaving(true)
     try {
-      const retained = new Set<number>()
-      const input: ProxyPoolInput[] = value
-        .split(/\r?\n/)
-        .map((line) => line.trim())
-        .filter((line) => line && line !== '!')
-        .map((line) => {
-          const replace = line.startsWith('!')
-          const url = replace ? line.slice(1).trim() : line
-          if (replace) return { url }
-          const index = items.findIndex((item, itemIndex) => (
-            !retained.has(itemIndex) && item.display_url === url
-          ))
-          if (index < 0) return { url }
-          retained.add(index)
-          return { id: items[index].id }
-        })
-      const saved = await apiConfigsAPI.replaceProxyPool(input)
-      setItems(saved)
-      setValue(proxyPoolText(saved))
+      const patch = {
+        proxy_pool_type: config.proxy_pool_type,
+        resin_proxy_url: resinProxyURL,
+        resin_account: resinAccount,
+        ...(resinProxyToken.trim() ? { resin_proxy_token: resinProxyToken.trim() } : {}),
+      }
+      const savedConfig = await apiConfigsAPI.updateProxyPoolConfig(patch)
+      setConfig(savedConfig)
+      setResinProxyURL(savedConfig.resin_proxy_url ?? '')
+      setResinAccount(savedConfig.resin_account ?? '')
+      setResinProxyToken('')
+      if (config.proxy_pool_type === 'normal') {
+        const retained = new Set<number>()
+        const input: ProxyPoolInput[] = value
+          .split(/\r?\n/)
+          .map((line) => line.trim())
+          .filter((line) => line && line !== '!')
+          .map((line) => {
+            const replace = line.startsWith('!')
+            const url = replace ? line.slice(1).trim() : line
+            if (replace) return { url }
+            const index = items.findIndex((item, itemIndex) => (
+              !retained.has(itemIndex) && item.display_url === url
+            ))
+            if (index < 0) return { url }
+            retained.add(index)
+            return { id: items[index].id }
+          })
+        const saved = await apiConfigsAPI.replaceProxyPool(input)
+        setItems(saved)
+        setValue(proxyPoolText(saved))
+      }
       toast.success('代理池已保存')
     } catch (err: unknown) {
       toast.error(apiErrorMessage(err, '代理池保存失败'))
@@ -473,21 +443,30 @@ function ProxyPoolPanel() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <p className="font-medium text-ink-600">代理池</p>
-          <p className="text-xs text-sand-500">每行一个代理，行顺序就是尝试顺序；空行会被忽略。</p>
+          <p className="text-xs text-sand-500">
+            {config.proxy_pool_type === 'normal'
+              ? '每行一个代理，行顺序就是尝试顺序；空行会被忽略。'
+              : 'Resin 通过 URL 反向代理统一调度内部节点。'}
+          </p>
         </div>
         <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => void checkAndCleanup()}
-            disabled={loading || saving || checking || Boolean(loadError) || items.length === 0}
-            className="btn-outline !px-3 !py-1.5 !text-xs"
-          >
-            <Activity size={12} /> {checking ? '检测中…' : '检测不可用代理'}
-          </button>
+          {config.proxy_pool_type === 'normal' && (
+            <button
+              type="button"
+              onClick={() => void checkAndCleanup()}
+              disabled={loading || saving || checking || Boolean(loadError) || items.length === 0}
+              className="btn-outline !px-3 !py-1.5 !text-xs"
+            >
+              <Activity size={12} /> {checking ? '检测中…' : '检测不可用代理'}
+            </button>
+          )}
           <button
             type="button"
             onClick={() => void save()}
-            disabled={loading || saving || checking || Boolean(loadError)}
+            disabled={loading || saving || checking || Boolean(loadError) || (
+              config.proxy_pool_type === 'resin'
+              && (!resinProxyURL.trim() || (!config.has_resin_proxy_token && !resinProxyToken.trim()))
+            )}
             className="neon-button !px-3 !py-1.5 !text-xs"
           >
             <Save size={12} /> 保存
@@ -505,22 +484,70 @@ function ProxyPoolPanel() {
         </div>
       )}
       {!loading && !loadError && (
-        <label className="mt-3 block text-xs text-ink-50">
-          代理地址
-          <textarea
-            className="input-base mt-1 min-h-40 resize-y font-mono text-xs"
-            placeholder={'http://user:pass@proxy.example:8080\nsocks5://proxy.example:1080'}
-            value={value}
-            onChange={(event) => setValue(event.target.value)}
-            disabled={checking}
-            autoComplete="off"
-            spellCheck={false}
-          />
-          <span className="mt-1 block text-sand-500">
-            已保存 {items.length} 个节点，其中 {items.filter((item) => item.has_auth).length} 个含认证；未改动的脱敏行会保留原认证。
-            需要强制替换或移除认证时，在该行开头加 !。
-          </span>
-        </label>
+        <div className="mt-3 space-y-3">
+          <label className="block text-xs text-ink-50">
+            代理类型
+            <Select
+              className="input-base mt-1 w-full"
+              value={config.proxy_pool_type}
+              onChange={(proxyPoolType) => setConfig({ ...config, proxy_pool_type: proxyPoolType as 'normal' | 'resin' })}
+            >
+              <option value="normal">普通代理池</option>
+              <option value="resin">Resin 代理池</option>
+            </Select>
+          </label>
+          {config.proxy_pool_type === 'normal' ? (
+            <label className="block text-xs text-ink-50">
+              代理地址
+              <textarea
+                className="input-base mt-1 min-h-40 resize-y font-mono text-xs"
+                placeholder={'http://user:pass@proxy.example:8080\nsocks5://proxy.example:1080'}
+                value={value}
+                onChange={(event) => setValue(event.target.value)}
+                disabled={checking}
+                autoComplete="off"
+                spellCheck={false}
+              />
+              <span className="mt-1 block text-sand-500">
+                已保存 {items.length} 个节点，其中 {items.filter((item) => item.has_auth).length} 个含认证；未改动的脱敏行会保留原认证。
+                需要强制替换或移除认证时，在该行开头加 !。
+              </span>
+            </label>
+          ) : (
+            <div className="grid gap-3 md:grid-cols-2">
+              <label className="text-xs text-ink-50">
+                Resin 实例地址
+                <input
+                  className="input-base mt-1"
+                  type="url"
+                  placeholder="https://resin.example.com"
+                  value={resinProxyURL}
+                  onChange={(event) => setResinProxyURL(event.target.value)}
+                />
+              </label>
+              <label className="text-xs text-ink-50">
+                RESIN_PROXY_TOKEN
+                <input
+                  className="input-base mt-1"
+                  type="password"
+                  placeholder={config.has_resin_proxy_token ? '•••••••••••• (留空保留原值)' : '输入代理 Token'}
+                  value={resinProxyToken}
+                  onChange={(event) => setResinProxyToken(event.target.value)}
+                />
+              </label>
+              <label className="text-xs text-ink-50 md:col-span-2">
+                粘性标识（可选）
+                <input
+                  className="input-base mt-1"
+                  maxLength={128}
+                  placeholder="留空时由 Resin 随机调度"
+                  value={resinAccount}
+                  onChange={(event) => setResinAccount(event.target.value)}
+                />
+              </label>
+            </div>
+          )}
+        </div>
       )}
     </div>
   )

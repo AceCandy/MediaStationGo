@@ -9,10 +9,6 @@ export interface APIConfig {
   enabled: boolean
   image_direct?: boolean
   use_proxy_pool: boolean
-  proxy_pool_type: 'normal' | 'resin'
-  resin_proxy_url?: string
-  resin_account?: string
-  has_resin_proxy_token: boolean
   web_search_enabled: boolean
   description?: string
   has_key: boolean
@@ -29,10 +25,6 @@ export interface APIConfigPatch {
   enabled?: boolean
   image_direct?: boolean
   use_proxy_pool?: boolean
-  proxy_pool_type?: 'normal' | 'resin'
-  resin_proxy_url?: string
-  resin_proxy_token?: string
-  resin_account?: string
   web_search_enabled?: boolean
   description?: string
 }
@@ -46,6 +38,20 @@ export interface ProxyPoolItem {
 export interface ProxyPoolInput {
   id?: string
   url?: string
+}
+
+export interface ProxyPoolConfig {
+  proxy_pool_type: 'normal' | 'resin'
+  resin_proxy_url?: string
+  resin_account?: string
+  has_resin_proxy_token: boolean
+}
+
+export interface ProxyPoolConfigPatch {
+  proxy_pool_type: 'normal' | 'resin'
+  resin_proxy_url?: string
+  resin_proxy_token?: string
+  resin_account?: string
 }
 
 export interface ProxyPoolCheckResult {
@@ -71,6 +77,10 @@ export const apiConfigsAPI = {
     api.get<{ items: ProxyPoolItem[] }>('/admin/api-proxy-pool').then((r) => r.data.items),
   replaceProxyPool: (items: ProxyPoolInput[]) =>
     api.put<{ items: ProxyPoolItem[] }>('/admin/api-proxy-pool', { items }).then((r) => r.data.items),
+  getProxyPoolConfig: () =>
+    api.get<ProxyPoolConfig>('/admin/api-proxy-pool/config').then((r) => r.data),
+  updateProxyPoolConfig: (patch: ProxyPoolConfigPatch) =>
+    api.put<ProxyPoolConfig>('/admin/api-proxy-pool/config', patch).then((r) => r.data),
   checkProxyPool: () =>
     api.post<ProxyPoolCheckResult>('/admin/api-proxy-pool/check', undefined, { timeout: 180_000 }).then((r) => r.data),
   cleanupProxyPool: (token: string) =>

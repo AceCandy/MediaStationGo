@@ -74,6 +74,8 @@ func registerAdminOrganizerRoutes(admin *gin.RouterGroup, svc *service.Container
 func registerAdminAPIConfigRoutes(admin *gin.RouterGroup, svc *service.Container) {
 	admin.GET("/api-proxy-pool", listProxyPoolHandler(svc))
 	admin.PUT("/api-proxy-pool", replaceProxyPoolHandler(svc))
+	admin.GET("/api-proxy-pool/config", getProxyPoolConfigHandler(svc))
+	admin.PUT("/api-proxy-pool/config", updateProxyPoolConfigHandler(svc))
 	admin.POST("/api-proxy-pool/check", checkProxyPoolHandler(svc))
 	admin.POST("/api-proxy-pool/cleanup", cleanupProxyPoolHandler(svc))
 	admin.GET("/api-configs", listAPIConfigsHandler(svc))

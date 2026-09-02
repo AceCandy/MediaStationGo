@@ -35,6 +35,8 @@ func TestAdminRouteSurfacesAreRegistered(t *testing.T) {
 		"GET /api/admin/api-configs",
 		"GET /api/admin/api-proxy-pool",
 		"PUT /api/admin/api-proxy-pool",
+		"GET /api/admin/api-proxy-pool/config",
+		"PUT /api/admin/api-proxy-pool/config",
 		"POST /api/admin/api-proxy-pool/check",
 		"POST /api/admin/api-proxy-pool/cleanup",
 		"POST /api/admin/scheduler/:name/run",
