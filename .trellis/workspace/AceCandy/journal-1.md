@@ -1825,3 +1825,25 @@ Added movie/tv permission fallback to subject, persisted degraded status, skippe
 ### Status
 
 [OK] **Completed**
+
+
+## Session 85: 接入 Resin 代理池
+<!-- trellis-session: v=2 fp=3323b62102b50b6d -->
+
+**Date**: 2026-09-02
+**Task**: 接入 Resin 代理池
+**Branch**: `main`
+
+### Summary
+
+为豆瓣新增普通代理池与 Resin 代理池选择，支持加密 Token、可选粘性 Account、配置热更新及前端管理，并补充迁移与路由测试。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `2161354` | feat: add Resin proxy pool support |
+
+### Status
+
+[OK] **Completed**
