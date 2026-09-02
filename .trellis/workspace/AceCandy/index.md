@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 85
-- **Last Active**: 2026-09-02
+- **Total Sessions**: 86
+- **Last Active**: 2026-09-03
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~1849 | Active |
+| `journal-1.md` | ~1871 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 86 | 2026-09-03 | 调整 Resin 为统一反向代理池 | `8e39318` | `main` |
 | 85 | 2026-09-02 | 接入 Resin 代理池 | `2161354` | `main` |
 | 84 | 2026-09-02 | 代理池保存去重 | `0c1eaac` | `main` |
 | 83 | 2026-09-02 | 代理池健康检测与清理 | `19ef3a1` | `main` |

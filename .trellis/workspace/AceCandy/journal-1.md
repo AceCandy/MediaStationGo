@@ -1847,3 +1847,25 @@ Added movie/tv permission fallback to subject, persisted degraded status, skippe
 ### Status
 
 [OK] **Completed**
+
+
+## Session 86: 调整 Resin 为统一反向代理池
+<!-- trellis-session: v=2 fp=d5dbdff623098ab0 -->
+
+**Date**: 2026-09-03
+**Task**: 调整 Resin 为统一反向代理池
+**Branch**: `main`
+
+### Summary
+
+将 Resin 配置归入统一代理池，改用 URL 反向代理，保留旧加密配置与普通代理数据，并补充配置、路由和安全测试。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `8e39318` | fix: use Resin reverse proxy pool |
+
+### Status
+
+[OK] **Completed**
