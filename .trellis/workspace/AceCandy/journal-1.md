@@ -1803,3 +1803,25 @@ Added movie/tv permission fallback to subject, persisted degraded status, skippe
 ### Status
 
 [OK] **Completed**
+
+
+## Session 84: 代理池保存去重
+<!-- trellis-session: v=2 fp=b611f3d84ac21b80 -->
+
+**Date**: 2026-09-02
+**Task**: 代理池保存去重
+**Branch**: `main`
+
+### Summary
+
+代理池 PUT 保存按规范化完整 URL 保留首项，保持不同认证账户独立，并确保健康清理只删除令牌绑定项；补充回归测试与豆瓣代理规范。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `0c1eaac` | fix: deduplicate proxy pool entries |
+
+### Status
+
+[OK] **Completed**
