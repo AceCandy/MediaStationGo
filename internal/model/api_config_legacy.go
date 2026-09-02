@@ -22,6 +22,10 @@ type APIConfig struct {
 	Enabled          bool   `gorm:"default:true" json:"enabled"`
 	ImageDirect      bool   `gorm:"default:false" json:"image_direct"`
 	UseProxyPool     bool   `gorm:"default:false" json:"use_proxy_pool"`
+	ProxyPoolType    string `gorm:"size:16;default:normal" json:"proxy_pool_type"`
+	ResinProxyURL    string `gorm:"size:512" json:"resin_proxy_url,omitempty"`
+	ResinProxyToken  string `gorm:"type:text" json:"-"`
+	ResinAccount     string `gorm:"size:128" json:"resin_account,omitempty"`
 	WebSearchEnabled bool   `gorm:"default:false" json:"web_search_enabled"`
 	Description      string `gorm:"size:255" json:"description,omitempty"`
 }

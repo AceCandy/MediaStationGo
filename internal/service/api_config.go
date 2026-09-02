@@ -15,12 +15,18 @@ import (
 	"strings"
 	"sync/atomic"
 	"time"
+	"unicode/utf8"
 
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 	"github.com/ShukeBta/MediaStationGo/internal/repository"
+)
+
+const (
+	ProxyPoolTypeNormal = "normal"
+	ProxyPoolTypeResin  = "resin"
 )
 
 // APIConfigService coordinates third-party API key storage.
@@ -68,20 +74,24 @@ func (s *APIConfigService) SeedDefaults(ctx context.Context) error {
 // PublicView is the safe-to-display projection of an API config row.
 // The plaintext key is never returned — only a mask.
 type PublicView struct {
-	ID               string    `json:"id"`
-	Provider         string    `json:"provider"`
-	BaseURL          string    `json:"base_url,omitempty"`
-	Model            string    `json:"model,omitempty"`
-	Extra            string    `json:"extra,omitempty"`
-	Enabled          bool      `json:"enabled"`
-	ImageDirect      bool      `json:"image_direct"`
-	UseProxyPool     bool      `json:"use_proxy_pool"`
-	WebSearchEnabled bool      `json:"web_search_enabled"`
-	Description      string    `json:"description,omitempty"`
-	HasKey           bool      `json:"has_key"`
-	MaskedKey        string    `json:"masked_key,omitempty"`
-	CreatedAt        time.Time `json:"created_at"`
-	UpdatedAt        time.Time `json:"updated_at"`
+	ID                 string    `json:"id"`
+	Provider           string    `json:"provider"`
+	BaseURL            string    `json:"base_url,omitempty"`
+	Model              string    `json:"model,omitempty"`
+	Extra              string    `json:"extra,omitempty"`
+	Enabled            bool      `json:"enabled"`
+	ImageDirect        bool      `json:"image_direct"`
+	UseProxyPool       bool      `json:"use_proxy_pool"`
+	ProxyPoolType      string    `json:"proxy_pool_type"`
+	ResinProxyURL      string    `json:"resin_proxy_url,omitempty"`
+	ResinAccount       string    `json:"resin_account,omitempty"`
+	HasResinProxyToken bool      `json:"has_resin_proxy_token"`
+	WebSearchEnabled   bool      `json:"web_search_enabled"`
+	Description        string    `json:"description,omitempty"`
+	HasKey             bool      `json:"has_key"`
+	MaskedKey          string    `json:"masked_key,omitempty"`
+	CreatedAt          time.Time `json:"created_at"`
+	UpdatedAt          time.Time `json:"updated_at"`
 }
 
 // List returns every API config row (with masked keys).
@@ -118,6 +128,10 @@ type Resolved struct {
 	Enabled          bool
 	ImageDirect      bool
 	UseProxyPool     bool
+	ProxyPoolType    string
+	ResinProxyURL    string
+	ResinProxyToken  string
+	ResinAccount     string
 	WebSearchEnabled bool
 	Revision         uint64
 }
@@ -142,6 +156,10 @@ func (s *APIConfigService) Resolve(ctx context.Context, provider string) (Resolv
 		Enabled:          row.Enabled,
 		ImageDirect:      row.ImageDirect,
 		UseProxyPool:     row.UseProxyPool,
+		ProxyPoolType:    effectiveProxyPoolType(row.ProxyPoolType),
+		ResinProxyURL:    row.ResinProxyURL,
+		ResinProxyToken:  s.crypto.Decrypt(row.ResinProxyToken),
+		ResinAccount:     row.ResinAccount,
 		WebSearchEnabled: row.WebSearchEnabled,
 		Revision:         s.revision.Load(),
 	}
@@ -158,6 +176,10 @@ type APIConfigPatch struct {
 	Enabled          *bool   `json:"enabled,omitempty"`
 	ImageDirect      *bool   `json:"image_direct,omitempty"`
 	UseProxyPool     *bool   `json:"use_proxy_pool,omitempty"`
+	ProxyPoolType    *string `json:"proxy_pool_type,omitempty"`
+	ResinProxyURL    *string `json:"resin_proxy_url,omitempty"`
+	ResinProxyToken  *string `json:"resin_proxy_token,omitempty"`
+	ResinAccount     *string `json:"resin_account,omitempty"`
 	WebSearchEnabled *bool   `json:"web_search_enabled,omitempty"`
 	Description      *string `json:"description,omitempty"`
 }
@@ -181,6 +203,12 @@ func (s *APIConfigService) Update(ctx context.Context, provider string, patch AP
 	}
 
 	updates := map[string]any{}
+	proxyPoolType, err := normalizeProxyPoolType(row.ProxyPoolType)
+	if err != nil {
+		return nil, err
+	}
+	resinProxyURL := row.ResinProxyURL
+	useProxyPool := row.UseProxyPool
 	if patch.APIKey != nil {
 		v := strings.TrimSpace(*patch.APIKey)
 		if v == "" || v == "<clear>" {
@@ -214,12 +242,45 @@ func (s *APIConfigService) Update(ctx context.Context, provider string, patch AP
 	}
 	if patch.UseProxyPool != nil {
 		updates["use_proxy_pool"] = *patch.UseProxyPool
+		useProxyPool = *patch.UseProxyPool
+	}
+	if patch.ProxyPoolType != nil {
+		proxyPoolType, err = normalizeProxyPoolType(*patch.ProxyPoolType)
+		if err != nil {
+			return nil, err
+		}
+		updates["proxy_pool_type"] = proxyPoolType
+	}
+	if patch.ResinProxyURL != nil {
+		resinProxyURL, err = normalizeResinProxyOrigin(*patch.ResinProxyURL)
+		if err != nil {
+			return nil, err
+		}
+		updates["resin_proxy_url"] = resinProxyURL
+	}
+	if patch.ResinProxyToken != nil {
+		v := strings.TrimSpace(*patch.ResinProxyToken)
+		if v == "" || v == "<clear>" {
+			updates["resin_proxy_token"] = ""
+		} else {
+			updates["resin_proxy_token"] = s.crypto.Encrypt(v)
+		}
+	}
+	if patch.ResinAccount != nil {
+		v := strings.TrimSpace(*patch.ResinAccount)
+		if utf8.RuneCountInString(v) > 128 {
+			return nil, errors.New("resin account must be at most 128 characters")
+		}
+		updates["resin_account"] = v
 	}
 	if patch.WebSearchEnabled != nil {
 		updates["web_search_enabled"] = *patch.WebSearchEnabled
 	}
 	if patch.Description != nil {
 		updates["description"] = *patch.Description
+	}
+	if provider == "douban" && useProxyPool && proxyPoolType == ProxyPoolTypeResin && resinProxyURL == "" {
+		return nil, errors.New("resin proxy address is required")
 	}
 	if len(updates) > 0 {
 		if err := s.repo.DB.WithContext(ctx).
@@ -250,6 +311,34 @@ func normalizeDoubanImageOrigin(raw string) (string, error) {
 	u, err := url.ParseRequestURI(raw)
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || (u.Path != "" && u.Path != "/") {
 		return "", errors.New("douban image domain must be an HTTP(S) origin")
+	}
+	return u.Scheme + "://" + u.Host, nil
+}
+
+func effectiveProxyPoolType(raw string) string {
+	value := strings.ToLower(strings.TrimSpace(raw))
+	if value == "" {
+		return ProxyPoolTypeNormal
+	}
+	return value
+}
+
+func normalizeProxyPoolType(raw string) (string, error) {
+	value := effectiveProxyPoolType(raw)
+	if value != ProxyPoolTypeNormal && value != ProxyPoolTypeResin {
+		return "", errors.New("proxy pool type must be normal or resin")
+	}
+	return value, nil
+}
+
+func normalizeResinProxyOrigin(raw string) (string, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", nil
+	}
+	u, err := url.ParseRequestURI(raw)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || (u.Path != "" && u.Path != "/") {
+		return "", errors.New("resin proxy address must be an HTTP(S) origin")
 	}
 	return u.Scheme + "://" + u.Host, nil
 }
@@ -287,19 +376,23 @@ func (s *APIConfigService) findByProvider(ctx context.Context, provider string) 
 func (s *APIConfigService) toPublic(r *model.APIConfig) PublicView {
 	plain := s.crypto.Decrypt(r.APIKey)
 	pv := PublicView{
-		ID:               r.ID,
-		Provider:         r.Provider,
-		BaseURL:          r.BaseURL,
-		Model:            r.Model,
-		Extra:            r.Extra,
-		Enabled:          r.Enabled,
-		ImageDirect:      r.ImageDirect,
-		UseProxyPool:     r.UseProxyPool,
-		WebSearchEnabled: r.WebSearchEnabled,
-		Description:      r.Description,
-		HasKey:           plain != "",
-		CreatedAt:        r.CreatedAt,
-		UpdatedAt:        r.UpdatedAt,
+		ID:                 r.ID,
+		Provider:           r.Provider,
+		BaseURL:            r.BaseURL,
+		Model:              r.Model,
+		Extra:              r.Extra,
+		Enabled:            r.Enabled,
+		ImageDirect:        r.ImageDirect,
+		UseProxyPool:       r.UseProxyPool,
+		ProxyPoolType:      effectiveProxyPoolType(r.ProxyPoolType),
+		ResinProxyURL:      r.ResinProxyURL,
+		ResinAccount:       r.ResinAccount,
+		HasResinProxyToken: s.crypto.Decrypt(r.ResinProxyToken) != "",
+		WebSearchEnabled:   r.WebSearchEnabled,
+		Description:        r.Description,
+		HasKey:             plain != "",
+		CreatedAt:          r.CreatedAt,
+		UpdatedAt:          r.UpdatedAt,
 	}
 	if pv.HasKey {
 		pv.MaskedKey = MaskAPIKey(plain)

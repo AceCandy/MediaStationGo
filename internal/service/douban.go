@@ -41,13 +41,16 @@ type DoubanProvider struct {
 	proxyPool    *ProxyPoolService
 	client       *http.Client
 	directClient *http.Client
+	resinClient  *http.Client
 
 	routeMu          sync.Mutex
 	reselectMu       sync.Mutex
+	resinMu          sync.Mutex
 	routeInitialized bool
 	route            int
 	poolGeneration   uint64
 	configRevision   uint64
+	resinRevision    uint64
 }
 
 // NewDoubanProvider is the constructor.
@@ -276,7 +279,7 @@ func (d *DoubanProvider) requestJSON(ctx context.Context, requestURL, referer st
 		return result.body, result.status, result.err
 	}
 
-	snapshot, err := d.proxySnapshot(ctx)
+	snapshot, err := d.proxySnapshot(ctx, resolved)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -309,7 +312,7 @@ func (d *DoubanProvider) reselectAfterRouteFailure(
 		d.resetRoute(resolved.Revision)
 		return d.doJSONRequest(ctx, d.client, resolved, requestURL, referer)
 	}
-	snapshot, err := d.proxySnapshot(ctx)
+	snapshot, err := d.proxySnapshot(ctx, resolved)
 	if err != nil {
 		return doubanHTTPResult{err: err}
 	}
@@ -387,11 +390,59 @@ func (d *DoubanProvider) resolveConfig(ctx context.Context) Resolved {
 	return resolved
 }
 
-func (d *DoubanProvider) proxySnapshot(ctx context.Context) (proxyPoolSnapshot, error) {
-	if d.proxyPool == nil {
-		return proxyPoolSnapshot{}, nil
+func (d *DoubanProvider) proxySnapshot(ctx context.Context, resolved Resolved) (proxyPoolSnapshot, error) {
+	switch resolved.ProxyPoolType {
+	case ProxyPoolTypeNormal:
+		if d.proxyPool == nil {
+			return proxyPoolSnapshot{}, nil
+		}
+		return d.proxyPool.snapshot(ctx)
+	case ProxyPoolTypeResin:
+		return d.resinProxySnapshot(resolved)
+	default:
+		return proxyPoolSnapshot{}, errors.New("invalid douban proxy pool type")
 	}
-	return d.proxyPool.snapshot(ctx)
+}
+
+func (d *DoubanProvider) resinProxySnapshot(resolved Resolved) (proxyPoolSnapshot, error) {
+	d.resinMu.Lock()
+	defer d.resinMu.Unlock()
+	if d.resinClient == nil || d.resinRevision != resolved.Revision {
+		client, err := newResinProxyClient(resolved)
+		if err != nil {
+			return proxyPoolSnapshot{}, err
+		}
+		oldClient := d.resinClient
+		d.resinClient = client
+		d.resinRevision = resolved.Revision
+		if oldClient != nil {
+			oldClient.CloseIdleConnections()
+		}
+	}
+	return proxyPoolSnapshot{generation: resolved.Revision, clients: []*http.Client{d.resinClient}}, nil
+}
+
+func newResinProxyClient(resolved Resolved) (*http.Client, error) {
+	origin, err := normalizeResinProxyOrigin(resolved.ResinProxyURL)
+	if err != nil || origin == "" {
+		return nil, errors.New("invalid resin proxy configuration")
+	}
+	proxyURL, err := url.Parse(origin)
+	if err != nil {
+		return nil, errors.New("invalid resin proxy configuration")
+	}
+	account := strings.TrimSpace(resolved.ResinAccount)
+	username := ""
+	if account != "" {
+		username = "Default." + account
+	}
+	token := strings.TrimSpace(resolved.ResinProxyToken)
+	if username != "" || token != "" {
+		proxyURL.User = url.UserPassword(username, token)
+	}
+	transport := NewExternalTransport()
+	transport.Proxy = http.ProxyURL(proxyURL)
+	return &http.Client{Timeout: doubanRequestTimeout, Transport: transport}, nil
 }
 
 func (d *DoubanProvider) currentRoute(generation, revision uint64) int {

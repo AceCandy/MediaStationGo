@@ -140,6 +140,49 @@ if !shouldReselectDoubanRoute(result) {
 return d.reselectAfterRouteFailure(...)
 ```
 
+## Scenario: Resin Proxy Gateway
+
+### 1. Scope / Trigger
+
+- Apply this contract when changing the Douban proxy type selector, Resin gateway configuration, or Resin HTTP proxy client.
+- Resin is one standard HTTP forward-proxy gateway. Its internal nodes, health checks, scheduling, and circuit breaking remain owned by Resin.
+
+### 2. Signatures
+
+- Configuration: `PUT /api/admin/api-configs/douban` with `use_proxy_pool`, `proxy_pool_type` (`normal` or `resin`), `resin_proxy_url`, optional `resin_proxy_token`, and optional `resin_account`.
+- Public response returns `proxy_pool_type`, credential-free `resin_proxy_url`, `resin_account`, and `has_resin_proxy_token`; it never returns the token.
+- Database: `api_configs.proxy_pool_type`, `resin_proxy_url`, encrypted `resin_proxy_token`, and `resin_account`.
+
+### 3. Contracts
+
+- Historical rows and an empty `proxy_pool_type` resolve to `normal`; existing manual pool behavior stays unchanged.
+- `resin_proxy_url` is an HTTP(S) origin without Userinfo, path, query, or fragment. Store `resin_proxy_token` with the existing AES-GCM service.
+- Resin mode creates one reusable `http.Client` whose transport uses `http.ProxyURL`; do not call Resin control-plane APIs or copy Resin nodes into `proxy_pool_entries`.
+- An empty Account sends an empty Basic username and lets Resin randomly route within `Default`. A non-empty Account sends `Default.<account>` and enables Resin sticky routing. The password is the decrypted `RESIN_PROXY_TOKEN`.
+- Keep Douban's existing direct-first routing and exact HTTP 400 / `unexpected EOF` reselection. Never fall back from Resin mode to the manual pool.
+- A Douban configuration revision rebuilds the Resin client and resets routing to direct. Close the old client's idle connections.
+- Resin Token, authenticated proxy URL, Cookie, and upstream request URL never enter API responses, logs, or errors. Account may appear in the administrator response but not logs or errors.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required result |
+| --- | --- |
+| Proxy type omitted or empty | Use `normal`. |
+| Proxy type is neither `normal` nor `resin` | Reject without changing the row. |
+| Resin selected and enabled with no address | Reject without changing the row. |
+| Invalid or credential-bearing Resin address | Reject without echoing the input. |
+| Account empty | Use Default-platform random routing. |
+| Account configured | Authenticate as `Default.<account>:RESIN_PROXY_TOKEN`. |
+| Resin configuration/client construction fails | Return a credential-free configuration error; do not use the manual pool. |
+
+### 5. Tests Required
+
+- Assert migration defaults old rows to `normal` and preserves existing data.
+- Assert Resin Token encryption, safe public projection, address/type validation, and live resolved configuration.
+- Exercise empty and configured Account authentication through an HTTP forward proxy.
+- Assert Resin selection uses only the Resin client after direct failure, while all manual proxy routing tests remain green.
+- Run Web lint/build, focused Go tests, `go vet ./internal/service ./internal/handler`, and `git diff --check`.
+
 ## Scenario: Manual Proxy Pool Health Cleanup
 
 ### 1. Scope / Trigger

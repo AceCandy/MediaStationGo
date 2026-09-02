@@ -9,6 +9,10 @@ export interface APIConfig {
   enabled: boolean
   image_direct?: boolean
   use_proxy_pool: boolean
+  proxy_pool_type: 'normal' | 'resin'
+  resin_proxy_url?: string
+  resin_account?: string
+  has_resin_proxy_token: boolean
   web_search_enabled: boolean
   description?: string
   has_key: boolean
@@ -25,6 +29,10 @@ export interface APIConfigPatch {
   enabled?: boolean
   image_direct?: boolean
   use_proxy_pool?: boolean
+  proxy_pool_type?: 'normal' | 'resin'
+  resin_proxy_url?: string
+  resin_proxy_token?: string
+  resin_account?: string
   web_search_enabled?: boolean
   description?: string
 }

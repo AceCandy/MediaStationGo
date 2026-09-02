@@ -455,7 +455,16 @@ func ensureAPIConfigColumns(db *gorm.DB) error {
 	if !db.Migrator().HasTable(&model.APIConfig{}) {
 		return nil
 	}
-	for _, column := range []string{"Model", "ImageDirect", "UseProxyPool", "WebSearchEnabled"} {
+	for _, column := range []string{
+		"Model",
+		"ImageDirect",
+		"UseProxyPool",
+		"ProxyPoolType",
+		"ResinProxyURL",
+		"ResinProxyToken",
+		"ResinAccount",
+		"WebSearchEnabled",
+	} {
 		if db.Migrator().HasColumn(&model.APIConfig{}, column) {
 			continue
 		}

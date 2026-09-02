@@ -55,12 +55,21 @@ func TestEnsureAPIConfigColumnsUpgradesLegacyTable(t *testing.T) {
 	if !db.Migrator().HasColumn(&model.APIConfig{}, "UseProxyPool") {
 		t.Fatal("use_proxy_pool column was not added")
 	}
+	for _, column := range []string{"ProxyPoolType", "ResinProxyURL", "ResinProxyToken", "ResinAccount"} {
+		if !db.Migrator().HasColumn(&model.APIConfig{}, column) {
+			t.Fatalf("%s column was not added", column)
+		}
+	}
 	var useProxyPool bool
-	if err := db.Raw(`SELECT use_proxy_pool FROM api_configs WHERE id = ?`, "existing-key").Scan(&useProxyPool).Error; err != nil {
+	var proxyPoolType string
+	if err := db.Raw(`SELECT use_proxy_pool, proxy_pool_type FROM api_configs WHERE id = ?`, "existing-key").Row().Scan(&useProxyPool, &proxyPoolType); err != nil {
 		t.Fatal(err)
 	}
 	if useProxyPool {
 		t.Fatal("legacy API config unexpectedly enabled proxy pool")
+	}
+	if proxyPoolType != "normal" {
+		t.Fatalf("legacy proxy_pool_type = %q, want normal", proxyPoolType)
 	}
 	columns, err := db.Migrator().ColumnTypes(&model.APIConfig{})
 	if err != nil {

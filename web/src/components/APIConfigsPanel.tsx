@@ -9,6 +9,7 @@ import {
   type ProxyPoolInput,
   type ProxyPoolItem,
 } from '../api/api_configs'
+import { Select } from './Select'
 import { confirmAction } from './confirmAction'
 
 // Compact inline-editable provider table for the External API management page.
@@ -179,6 +180,10 @@ function EditingRow({
   const [enabled, setEnabled] = useState(item.enabled)
   const [imageDirect, setImageDirect] = useState(item.image_direct ?? false)
   const [useProxyPool, setUseProxyPool] = useState(item.use_proxy_pool ?? false)
+  const [proxyPoolType, setProxyPoolType] = useState<'normal' | 'resin'>(item.proxy_pool_type ?? 'normal')
+  const [resinProxyURL, setResinProxyURL] = useState(item.resin_proxy_url ?? '')
+  const [resinProxyToken, setResinProxyToken] = useState('')
+  const [resinAccount, setResinAccount] = useState(item.resin_account ?? '')
   const [webSearchEnabled, setWebSearchEnabled] = useState(item.web_search_enabled)
   const [saving, setSaving] = useState(false)
   const isAdult = item.provider === 'adult'
@@ -194,6 +199,12 @@ function EditingRow({
       if (isDouban) {
         patch.image_direct = imageDirect
         patch.use_proxy_pool = useProxyPool
+        patch.proxy_pool_type = proxyPoolType
+        if (proxyPoolType === 'resin') {
+          patch.resin_proxy_url = resinProxyURL
+          patch.resin_account = resinAccount
+          if (resinProxyToken.trim()) patch.resin_proxy_token = resinProxyToken.trim()
+        }
       }
       if (isOpenAI) {
         patch.model = model
@@ -303,8 +314,56 @@ function EditingRow({
                       checked={useProxyPool}
                       onChange={(e) => setUseProxyPool(e.target.checked)}
                     />
-                    使用代理池（仅 HTTP 400 时切换）
+                    使用代理（HTTP 400 或 unexpected EOF 时切换）
                   </label>
+                  {useProxyPool && (
+                    <label className="text-xs text-ink-50">
+                      代理类型
+                      <Select
+                        className="input-base mt-1 w-full"
+                        value={proxyPoolType}
+                        onChange={(value) => setProxyPoolType(value as 'normal' | 'resin')}
+                      >
+                        <option value="normal">普通代理池</option>
+                        <option value="resin">Resin 代理池</option>
+                      </Select>
+                    </label>
+                  )}
+                  {useProxyPool && proxyPoolType === 'resin' && (
+                    <>
+                      <label className="text-xs text-ink-50">
+                        Resin 实例地址
+                        <input
+                          className="input-base mt-1"
+                          type="url"
+                          required
+                          placeholder="http://resin:2260"
+                          value={resinProxyURL}
+                          onChange={(e) => setResinProxyURL(e.target.value)}
+                        />
+                      </label>
+                      <label className="text-xs text-ink-50">
+                        RESIN_PROXY_TOKEN
+                        <input
+                          className="input-base mt-1"
+                          type="password"
+                          placeholder={item.has_resin_proxy_token ? '•••••••••••• (留空保留原值)' : '输入代理 Token'}
+                          value={resinProxyToken}
+                          onChange={(e) => setResinProxyToken(e.target.value)}
+                        />
+                      </label>
+                      <label className="text-xs text-ink-50 md:col-span-2">
+                        粘性标识（可选）
+                        <input
+                          className="input-base mt-1"
+                          maxLength={128}
+                          placeholder="留空时由 Resin 随机调度"
+                          value={resinAccount}
+                          onChange={(e) => setResinAccount(e.target.value)}
+                        />
+                      </label>
+                    </>
+                  )}
                   <label className="flex items-center gap-2 text-xs text-ink-50 md:col-span-2">
                     <input
                       type="checkbox"
