@@ -89,7 +89,7 @@ if err == nil && resolved.Enabled && strings.TrimSpace(resolved.APIKey) != "" {
 ### 3. Contracts
 
 - The Web proxy editor is one multiline textarea below the Provider table; every non-empty line is one ordered proxy. An unchanged `display_url` submits only its existing `id`, while a new line submits `url`. Prefix a line with `!` to force URL replacement, including replacing an authenticated entry with its credential-free display URL. Successful saves repopulate the textarea only with credential-free `display_url` values.
-- PUT replaces the complete ordered list transactionally. Missing existing IDs are physically deleted; retained IDs keep their encrypted URL.
+- PUT replaces the complete ordered list transactionally. Missing existing IDs are physically deleted; retained IDs keep their encrypted URL. After validating and normalizing every item, it keeps the first occurrence of each complete URL and silently drops later duplicates. The comparison includes scheme and Userinfo, so distinct credentials for the same endpoint remain separate proxies.
 - Enabling the option starts on `NewInternalTransport()` (`Transport.Proxy=nil`), never on environment or system proxies. Disabling it keeps the original proxy-aware Douban client.
 - Exact HTTP 400 or `unexpected EOF` reselects. A failed direct route tries proxies in configured order; the first response with neither failure becomes sticky. A failed sticky proxy restarts at direct. When every route fails this way, try direct once more before returning.
 - Every result other than exact HTTP 400 or `unexpected EOF` returns immediately. Proxy generation and Douban configuration revision changes reset the next enabled request to direct.
@@ -103,6 +103,7 @@ if err == nil && resolved.Enabled && strings.TrimSpace(resolved.APIKey) != "" {
 | `http`, `https`, `socks5`, or `socks5h` URL with a hostname | Normalize, encrypt, and save it. |
 | Missing hostname, unsupported scheme, query, fragment, or non-root path | Reject the complete PUT without changing storage or the runtime snapshot. |
 | Unknown/duplicate retained ID | Return a positional validation error without echoing the URL or credentials. |
+| Multiple items normalize to the same complete URL | Keep the first item, drop later duplicates, and compact stored positions. |
 | Textarea line equals an existing credential-free `display_url` | Submit its unused existing ID and preserve the encrypted URL; prefix `!` to force replacement instead. |
 | Proxy returns no HTTP response | Reselect on `unexpected EOF`; return every other network error without making that proxy sticky. |
 | Proxy response body ends with `unexpected EOF` | Reselect without making that proxy sticky. |
@@ -111,13 +112,14 @@ if err == nil && resolved.Enabled && strings.TrimSpace(resolved.APIKey) != "" {
 
 ### 5. Good / Base / Bad Cases
 
+- Good: repeated saves containing the same normalized complete URL persist one ordered entry, while the same endpoint with different credentials remains separate.
 - Good: direct 400, proxy 1 returns 400, proxy 2 returns 200; later requests reuse proxy 2 until it returns 400.
 - Base: the option is false, so the pre-existing environment/system-proxy-aware client remains unchanged.
-- Bad: rotate on timeout/403/429/5xx or network errors other than `unexpected EOF`, expose a masked credential as a replacement value, put proxy URLs in `APIConfig.Extra`, or share Douban's sticky route with another Provider.
+- Bad: persist a normalized complete URL more than once, deduplicate by credential-free `display_url`, rotate on timeout/403/429/5xx or network errors other than `unexpected EOF`, expose a masked credential as a replacement value, put proxy URLs in `APIConfig.Extra`, or share Douban's sticky route with another Provider.
 
 ### 6. Tests Required
 
-- Assert encrypted persistence, physical deletion, stable ordering, transactional invalid-input failure, safe JSON/error projection, and all four accepted schemes.
+- Assert encrypted persistence, physical deletion, stable ordering, normalized complete-URL deduplication, preservation of credential-distinct URLs, transactional invalid-input failure, safe JSON/error projection, and all four accepted schemes.
 - Assert the multiline editor ignores empty lines, preserves unused IDs for unchanged display URLs, keeps duplicate display URLs distinct, and treats `!` lines as forced URL replacements.
 - Assert the option defaults false and update/public/resolve round-trips; same-value Douban saves must advance the runtime revision.
 - Exercise direct success, ordered proxy selection, sticky reuse, proxy-failure restart, all-failed final direct, empty-pool double direct, `unexpected EOF` reselection, other network/non-400 stops, generation/revision resets, and concurrent failure serialization.
@@ -159,6 +161,7 @@ return d.reselectAfterRouteFailure(...)
 - Run saved proxies with bounded workers and a per-proxy timeout without holding `ProxyPoolService.mu` during network I/O.
 - A cleanup token is server-owned, single-use after successful cleanup, valid for five minutes, and bound to the unavailable IDs and current proxy-pool generation. Any pool save invalidates it.
 - Cleanup reuses transactional full replacement, preserves retained order and encrypted credentials, and returns the refreshed credential-free pool.
+- Cleanup bypasses PUT's URL deduplication so a token removes only its bound IDs and never collapses unrelated historical duplicates.
 - API errors and responses never include a complete proxy URL, Userinfo, ciphertext, Cookie, or upstream request URL.
 - While a check is running, disable pool editing and saving. If edits were already unsaved when the check began, warn that confirmed cleanup replaces the textarea with the saved result.
 
@@ -182,7 +185,7 @@ return d.reselectAfterRouteFailure(...)
 ### 6. Tests Required
 
 - Service tests classify success, connection errors, 400, 407, `unexpected EOF`, invalid JSON, other read errors, 403, 429, 5xx, cancellation, and baseline failure.
-- Assert check does not change persistence, a concurrent save invalidates its result, and cleanup removes only token-bound IDs while preserving retained order.
+- Assert check does not change persistence, a concurrent save invalidates its result, and cleanup removes only token-bound IDs while preserving retained order and unrelated historical duplicates.
 - Handler tests assert both administrator routes exist and cleanup errors cannot expose stored credentials.
 - Run `go test ./internal/service`, focused proxy-pool handler tests, `go vet ./internal/service ./internal/handler`, Web lint/build, and `git diff --check`.
 

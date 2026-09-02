@@ -128,6 +128,75 @@ func TestProxyPoolServiceReplaceEncryptsAndProjectsCredentials(t *testing.T) {
 	}
 }
 
+func TestProxyPoolServiceReplaceDeduplicatesURLs(t *testing.T) {
+	db := newServiceTestDB(t, &model.ProxyPoolEntry{})
+	crypto := NewCryptoService("proxy-pool-deduplicate-test", zap.NewNop())
+	svc := NewProxyPoolService(&repository.Container{DB: db}, crypto)
+	legacyURL := "http://legacy-proxy.example:8080"
+	legacyCipherA, err := svc.encryptURL(legacyURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacyCipherB, err := svc.encryptURL(legacyURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacyRows := []model.ProxyPoolEntry{
+		{URL: legacyCipherA, Position: 0},
+		{URL: legacyCipherB, Position: 1},
+	}
+	if err := db.Create(&legacyRows).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	items, err := svc.Replace(t.Context(), []ProxyPoolInput{{ID: legacyRows[0].ID}, {ID: legacyRows[1].ID}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 || items[0].ID != legacyRows[0].ID {
+		t.Fatalf("legacy duplicates were not reduced to the first item: %#v", items)
+	}
+
+	plainURL := "proxy.example:8080"
+	explicitURL := "http://proxy.example:8080/"
+	authURLA := "http://account:credential-a@proxy.example:8080"
+	authURLB := "http://account:credential-b@proxy.example:8080"
+	items, err = svc.Replace(t.Context(), []ProxyPoolInput{
+		{URL: &plainURL},
+		{URL: &explicitURL},
+		{URL: &authURLA},
+		{URL: &authURLA},
+		{URL: &authURLB},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 3 || items[0].HasAuth || !items[1].HasAuth || !items[2].HasAuth {
+		t.Fatalf("normalized duplicates or distinct credentials were handled incorrectly: %#v", items)
+	}
+	var stored []model.ProxyPoolEntry
+	if err := db.Order("position asc").Find(&stored).Error; err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		"http://proxy.example:8080",
+		authURLA,
+		authURLB,
+	}
+	if len(stored) != len(want) {
+		t.Fatalf("stored proxy count = %d, want %d", len(stored), len(want))
+	}
+	for i := range stored {
+		parsed, err := svc.decryptURL(stored[i].URL)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if stored[i].Position != i || parsed.String() != want[i] {
+			t.Fatal("stored proxies did not preserve the first normalized URL and distinct credentials")
+		}
+	}
+}
+
 func TestProbeProxyPoolHealthClassifiesSafeCleanupCandidates(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -242,6 +311,14 @@ func TestProxyPoolCleanupDeletesOnlyCurrentIDs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	duplicateURL, err := svc.encryptURL(urls[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacyDuplicate := model.ProxyPoolEntry{URL: duplicateURL, Position: len(items)}
+	if err := db.Create(&legacyDuplicate).Error; err != nil {
+		t.Fatal(err)
+	}
 	generation := svc.generation
 	token := uuid.NewString()
 	svc.pending = &proxyPoolPendingCleanup{
@@ -255,7 +332,7 @@ func TestProxyPoolCleanupDeletesOnlyCurrentIDs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Removed != 1 || len(result.Items) != 2 || result.Items[0].ID != items[0].ID || result.Items[1].ID != items[2].ID {
+	if result.Removed != 1 || len(result.Items) != 3 || result.Items[0].ID != items[0].ID || result.Items[1].ID != items[2].ID || result.Items[2].ID != legacyDuplicate.ID {
 		t.Fatalf("cleanup result = %#v", result)
 	}
 	if svc.generation != generation+1 {

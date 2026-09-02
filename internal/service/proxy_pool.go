@@ -122,10 +122,10 @@ func (s *ProxyPoolService) List(ctx context.Context) ([]ProxyPoolItem, error) {
 func (s *ProxyPoolService) Replace(ctx context.Context, input []ProxyPoolInput) ([]ProxyPoolItem, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.replaceLocked(ctx, input)
+	return s.replaceLocked(ctx, input, true)
 }
 
-func (s *ProxyPoolService) replaceLocked(ctx context.Context, input []ProxyPoolInput) ([]ProxyPoolItem, error) {
+func (s *ProxyPoolService) replaceLocked(ctx context.Context, input []ProxyPoolInput, deduplicateURLs bool) ([]ProxyPoolItem, error) {
 	existingRows, err := s.loadRows(ctx)
 	if err != nil {
 		return nil, err
@@ -137,7 +137,8 @@ func (s *ProxyPoolService) replaceLocked(ctx context.Context, input []ProxyPoolI
 
 	rows := make([]model.ProxyPoolEntry, 0, len(input))
 	parsedURLs := make([]*url.URL, 0, len(input))
-	seen := make(map[string]struct{}, len(input))
+	seenIDs := make(map[string]struct{}, len(input))
+	seenURLs := make(map[string]struct{}, len(input))
 	for i, item := range input {
 		id := strings.TrimSpace(item.ID)
 		row, found := existing[id]
@@ -145,10 +146,10 @@ func (s *ProxyPoolService) replaceLocked(ctx context.Context, input []ProxyPoolI
 			if !found {
 				return nil, proxyPoolInputError(i, "unknown id")
 			}
-			if _, duplicate := seen[id]; duplicate {
+			if _, duplicate := seenIDs[id]; duplicate {
 				return nil, proxyPoolInputError(i, "duplicate id")
 			}
-			seen[id] = struct{}{}
+			seenIDs[id] = struct{}{}
 		} else {
 			row = model.ProxyPoolEntry{}
 		}
@@ -161,14 +162,24 @@ func (s *ProxyPoolService) replaceLocked(ctx context.Context, input []ProxyPoolI
 			parsed, err = s.decryptURL(row.URL)
 		} else {
 			parsed, err = normalizeProxyPoolURL(*item.URL)
-			if err == nil {
-				row.URL, err = s.encryptURL(parsed.String())
-			}
 		}
 		if err != nil {
 			return nil, proxyPoolInputError(i, err.Error())
 		}
-		row.Position = i
+		normalized := parsed.String()
+		if deduplicateURLs {
+			if _, duplicate := seenURLs[normalized]; duplicate {
+				continue
+			}
+			seenURLs[normalized] = struct{}{}
+		}
+		if item.URL != nil {
+			row.URL, err = s.encryptURL(normalized)
+			if err != nil {
+				return nil, proxyPoolInputError(i, err.Error())
+			}
+		}
+		row.Position = len(rows)
 		rows = append(rows, row)
 		parsedURLs = append(parsedURLs, parsed)
 	}
@@ -346,7 +357,7 @@ func (s *ProxyPoolService) Cleanup(ctx context.Context, token string) (ProxyPool
 		}
 		retained = append(retained, ProxyPoolInput{ID: rows[i].ID})
 	}
-	items, err := s.replaceLocked(ctx, retained)
+	items, err := s.replaceLocked(ctx, retained, false)
 	if err != nil {
 		return ProxyPoolCleanupResult{}, err
 	}
