@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/frontend/index.md", "reason": "Web lint、build 与响应式质量门禁"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "核验上传数据往返、鉴权和错误边界"}
