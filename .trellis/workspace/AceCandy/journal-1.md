@@ -1935,3 +1935,25 @@ Added movie/tv permission fallback to subject, persisted degraded status, skippe
 ### Status
 
 [OK] **Completed**
+
+
+## Session 90: Remove media library root names
+<!-- trellis-session: v=2 fp=dba2495f85c371bc -->
+
+**Date**: 2026-09-04
+**Task**: Remove media library root names
+**Branch**: `main`
+
+### Summary
+
+Removed LibraryRoot name from backend and frontend contracts, UI, services, compatibility initialization, and tests; retained path-only behavior.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `6a4e85f` | refactor: remove media library root names |
+
+### Status
+
+[OK] **Completed**
