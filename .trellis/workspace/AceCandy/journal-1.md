@@ -1913,3 +1913,25 @@ Added movie/tv permission fallback to subject, persisted degraded status, skippe
 ### Status
 
 [OK] **Completed**
+
+
+## Session 89: 优化媒体库表单交互
+<!-- trellis-session: v=2 fp=bc2a490a139895bd -->
+
+**Date**: 2026-09-04
+**Task**: 优化媒体库表单交互
+**Branch**: `main`
+
+### Summary
+
+统一新建与编辑媒体库的路径输入，新增内联路径添加与本地封面上传、清除能力，并补充聚焦验证。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `bbe9bc1` | feat: improve media library form interactions |
+
+### Status
+
+[OK] **Completed**
