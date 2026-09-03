@@ -143,6 +143,70 @@ func updateLibraryHandler(svc *service.Container) gin.HandlerFunc {
 	}
 }
 
+func uploadLibraryCoverHandler(svc *service.Container) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, service.MaxLibraryCoverRequestBytes)
+		header, err := c.FormFile("cover")
+		if err != nil {
+			status := http.StatusBadRequest
+			var maxBytesError *http.MaxBytesError
+			if errors.As(err, &maxBytesError) {
+				status = http.StatusRequestEntityTooLarge
+			}
+			c.JSON(status, gin.H{"error": "valid cover image is required"})
+			return
+		}
+		if c.Request.MultipartForm != nil {
+			defer c.Request.MultipartForm.RemoveAll()
+		}
+		file, err := header.Open()
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		defer file.Close()
+		lib, err := svc.Media.SaveLibraryCover(c.Request.Context(), c.Param("id"), file)
+		if err != nil {
+			status := http.StatusInternalServerError
+			if errors.Is(err, service.ErrInvalidLibraryCover) {
+				status = http.StatusBadRequest
+			} else if errors.Is(err, service.ErrLibraryNotFound) {
+				status = http.StatusNotFound
+			}
+			c.JSON(status, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, lib)
+	}
+}
+
+func serveLibraryCoverHandler(svc *service.Container) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if err := svc.Media.ServeLibraryCover(c.Request.Context(), c.Writer, c.Request, c.Param("id")); err != nil {
+			if errors.Is(err, service.ErrLibraryCoverNotFound) {
+				c.Status(http.StatusNotFound)
+				return
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		}
+	}
+}
+
+func clearLibraryCoverHandler(svc *service.Container) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		lib, err := svc.Media.ClearLibraryCover(c.Request.Context(), c.Param("id"))
+		if err != nil {
+			status := http.StatusInternalServerError
+			if errors.Is(err, service.ErrLibraryNotFound) {
+				status = http.StatusNotFound
+			}
+			c.JSON(status, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, lib)
+	}
+}
+
 func deleteLibraryHandler(svc *service.Container) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id := c.Param("id")

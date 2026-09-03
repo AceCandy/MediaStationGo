@@ -62,6 +62,28 @@ func TestCreateLibraryWithRootsAppendsToExistingLogicalLibrary(t *testing.T) {
 	}
 }
 
+func TestUpdateLibraryRootCanClearOptionalName(t *testing.T) {
+	db := newServiceTestDB(t, &model.Library{}, &model.LibraryRoot{}, &model.Media{})
+	repos := repository.New(db)
+	svc := NewMediaService(&config.Config{}, zap.NewNop(), repos)
+	result, err := svc.CreateLibraryWithRoots(t.Context(), "电影", "movie", []LibraryRootInput{{Name: "硬盘", Path: t.TempDir()}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	roots, err := repos.Library.ListRoots(t.Context(), result.ID)
+	if err != nil || len(roots) != 1 {
+		t.Fatalf("roots = %#v, err = %v", roots, err)
+	}
+	root := roots[0]
+	updated, err := svc.UpdateLibraryRoot(t.Context(), result.ID, root.ID, LibraryRootInput{NameSet: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Name != "" {
+		t.Fatalf("root name = %q, want empty", updated.Name)
+	}
+}
+
 func TestCreateLibraryWithRootsStoresAndUpdatesCustomCover(t *testing.T) {
 	db := newServiceTestDB(t, &model.Library{}, &model.LibraryRoot{}, &model.Media{})
 	repos := repository.New(db)

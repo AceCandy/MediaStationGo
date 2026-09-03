@@ -13,6 +13,7 @@ import (
 type LibraryRootInput struct {
 	ID        string `json:"id,omitempty"`
 	Name      string `json:"name,omitempty"`
+	NameSet   bool   `json:"-"`
 	Path      string `json:"path"`
 	Enabled   *bool  `json:"enabled,omitempty"`
 	SortOrder *int   `json:"sort_order,omitempty"`
@@ -210,7 +211,7 @@ func (s *MediaService) UpdateLibraryRoot(ctx context.Context, libraryID, rootID 
 		return root, err
 	}
 	updates := map[string]any{}
-	if input.Name != "" {
+	if input.NameSet || input.Name != "" {
 		updates["name"] = strings.TrimSpace(input.Name)
 	}
 	if strings.TrimSpace(input.Path) != "" {

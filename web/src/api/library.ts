@@ -141,11 +141,19 @@ export const libraryAPI = {
   create: (name: string, path: string, type: string) =>
     api.post<Library>('/libraries', { name, path, type }).then((r) => r.data),
 
-  createWithRoots: (name: string, type: string, roots: LibraryRootInput[], coverURL = '') =>
-    api.post<Library>('/libraries', { name, type, roots, cover_url: coverURL }).then((r) => r.data),
+  createWithRoots: (name: string, type: string, roots: LibraryRootInput[]) =>
+    api.post<Library>('/libraries', { name, type, roots }).then((r) => r.data),
 
   update: (id: string, payload: { cover_url: string }) =>
     api.patch<Library>(`/libraries/${id}`, payload).then((r) => r.data),
+
+  uploadCover: (id: string, cover: File) => {
+    const form = new FormData()
+    form.append('cover', cover)
+    return api.put<Library>(`/libraries/${id}/cover`, form).then((r) => r.data)
+  },
+
+  clearCover: (id: string) => api.delete<Library>(`/libraries/${id}/cover`).then((r) => r.data),
 
   remove: (id: string) => api.delete(`/libraries/${id}`).then((r) => r.data),
 

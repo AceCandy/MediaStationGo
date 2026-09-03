@@ -1,4 +1,4 @@
-import type { MouseEvent, ReactNode } from 'react'
+import { useState, type MouseEvent, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import {
   ChevronRight,
@@ -16,9 +16,11 @@ import {
 } from 'lucide-react'
 
 import { ModalShell } from '../components/ModalShell'
+import { imageURL } from '../api/client'
 import type { Library, LibraryRoot } from '../types'
 import type { RootDraft } from './adminLibraryPanelModel'
-import { displayLibraryRootName, displayLibraryRootPath, fallbackLibraryRoot } from './adminLibraryPanelModel'
+import { displayLibraryRootName, displayLibraryRootPath, emptyRootDraft, fallbackLibraryRoot } from './adminLibraryPanelModel'
+import { LibraryRootFields } from './AdminLibraryPanelSections'
 
 const LIBRARY_TYPE_LABELS: Record<string, string> = {
   movie: '电影',
@@ -41,8 +43,9 @@ type LibraryActionProps = {
   onToggleRoot: (libraryID: string, root: LibraryRoot) => void
   onRemoveRoot: (library: Library, root: LibraryRoot) => void
   onRemoveLibrary: (library: Library) => void
-  onAddLibraryRoot: (library: Library) => void
-  onEditLibraryCover: (library: Library) => void
+  onAddLibraryRoot: (library: Library, root: RootDraft) => Promise<boolean>
+  onUploadLibraryCover: (library: Library, cover: File) => Promise<void>
+  onClearLibraryCover: (library: Library) => Promise<void>
 }
 
 /* ── 媒体库卡片网格 ── */
@@ -109,7 +112,7 @@ function LibraryGridCard({
       >
         {library.cover_url ? (
           <img
-            src={library.cover_url}
+            src={imageURL(library.cover_url)}
             alt=""
             className="h-full w-full object-cover transition duration-300 group-hover:scale-105"
           />
@@ -148,6 +151,12 @@ type LibraryDetailDialogProps = LibraryActionProps & {
 
 export function LibraryDetailDialog({ library, onClose, ...actions }: LibraryDetailDialogProps) {
   const roots = library.roots?.length ? library.roots : [fallbackLibraryRoot(library)]
+  const [newRoot, setNewRoot] = useState<RootDraft | null>(null)
+
+  const saveNewRoot = async () => {
+    if (newRoot && await actions.onAddLibraryRoot(library, newRoot)) setNewRoot(null)
+  }
+
   return (
     <ModalShell
       onClose={onClose}
@@ -159,7 +168,7 @@ export function LibraryDetailDialog({ library, onClose, ...actions }: LibraryDet
         <div className="flex min-w-0 items-center gap-3">
           {library.cover_url ? (
             <img
-              src={library.cover_url}
+              src={imageURL(library.cover_url)}
               alt=""
               className="h-14 w-11 shrink-0 rounded-lg border border-gray-200/80 object-cover"
             />
@@ -187,28 +196,71 @@ export function LibraryDetailDialog({ library, onClose, ...actions }: LibraryDet
         {roots.map((root) => (
           <ExistingRootEditor key={root.id || root.path} library={library} root={root} {...actions} />
         ))}
+        {newRoot ? (
+          <div className="flex flex-col gap-2 rounded-xl border border-brand-300/60 bg-brand-50 p-2.5 lg:flex-row lg:items-center">
+            <div className="flex min-w-0 flex-1 items-start gap-2">
+              <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-gray-200 bg-white/80 text-ink-50">
+                <FolderOpen size={14} />
+              </div>
+              <LibraryRootFields
+                root={newRoot}
+                pathRequired
+                onChange={(patch) => setNewRoot((root) => (root ? { ...root, ...patch } : root))}
+              />
+            </div>
+            <div className="flex justify-end gap-2">
+              <button type="button" className="btn-outline px-3 py-2 shadow-none" onClick={() => setNewRoot(null)}>
+                取消
+              </button>
+              <button type="button" className="btn-primary px-3 py-2" onClick={() => void saveNewRoot()}>
+                <Save size={14} /> 保存路径
+              </button>
+            </div>
+          </div>
+        ) : (
+          <button
+            type="button"
+            className="flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-gray-300 px-3 py-2.5 text-sm font-semibold text-ink-50 transition hover:border-brand-400 hover:text-brand-500"
+            onClick={() => setNewRoot(emptyRootDraft())}
+          >
+            <Plus size={15} /> 添加路径
+          </button>
+        )}
       </div>
 
-      <div className="modal-footer !justify-between">
+      <div className="modal-footer flex-wrap !justify-between">
         <button
           className="btn-ghost !text-red-500 hover:!bg-red-50 hover:!text-red-600"
           onClick={() => actions.onRemoveLibrary(library)}
         >
           <Trash2 size={14} /> 删除媒体库
         </button>
-        <div className="flex flex-wrap justify-end gap-2">
-          <button
-            className="btn-outline px-3 py-2 shadow-none"
-            onClick={() => actions.onEditLibraryCover(library)}
-          >
-            <Image size={14} /> 封面
-          </button>
-          <button
-            className="btn-outline px-3 py-2 shadow-none"
-            onClick={() => actions.onAddLibraryRoot(library)}
-          >
-            <Plus size={14} /> 添加来源
-          </button>
+        <div className="flex flex-col items-end gap-1.5">
+          <span className="text-2xs text-ink-50">封面推荐 16:9，支持 JPG、PNG、WebP、GIF、BMP</span>
+          <div className="flex flex-wrap justify-end gap-2">
+            {library.cover_url && (
+              <button
+                type="button"
+                className="btn-outline px-3 py-2 shadow-none"
+                onClick={() => void actions.onClearLibraryCover(library)}
+              >
+                清除封面
+              </button>
+            )}
+            <label className="btn-outline relative cursor-pointer overflow-hidden px-3 py-2 shadow-none focus-within:ring-2 focus-within:ring-brand-200">
+              <Image size={14} /> 上传封面
+              <input
+                type="file"
+                className="absolute inset-0 cursor-pointer opacity-0"
+                accept="image/jpeg,image/png,image/webp,image/gif,image/bmp"
+                onChange={(event) => {
+                  const cover = event.target.files?.[0]
+                  event.target.value = ''
+                  if (cover) void actions.onUploadLibraryCover(library, cover)
+                }}
+              />
+            </label>
+          </div>
         </div>
       </div>
     </ModalShell>
@@ -264,25 +316,7 @@ function ReadonlyRootFields({ root }: { root: LibraryRoot }) {
 
 function EditableRootFields({ library, root, draft, onEditableRootChange }: RootEditorProps & { draft: RootDraft }) {
   return (
-    <div className="min-w-0 space-y-1.5">
-      <input
-        className="h-9 w-full rounded-lg border border-gray-200 bg-white/80 px-3 font-mono text-xs text-gray-900 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100/60"
-        placeholder="真实路径"
-        value={draft.path}
-        onChange={(e) => onEditableRootChange(library.id, root, { path: e.target.value })}
-      />
-      <details className="group">
-        <summary className="flex cursor-pointer list-none items-center gap-1 text-2xs font-semibold text-ink-50 [&::-webkit-details-marker]:hidden">
-          路径高级设置
-        </summary>
-        <input
-          className="mt-1.5 h-9 w-full rounded-lg border border-gray-200 bg-white/80 px-3 text-xs text-gray-900 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100/60"
-          placeholder="路径名称（可选）"
-          value={draft.name ?? ''}
-          onChange={(e) => onEditableRootChange(library.id, root, { name: e.target.value })}
-        />
-      </details>
-    </div>
+    <LibraryRootFields root={draft} onChange={(patch) => onEditableRootChange(library.id, root, patch)} />
   )
 }
 

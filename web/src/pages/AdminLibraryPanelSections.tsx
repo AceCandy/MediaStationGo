@@ -1,5 +1,5 @@
 import { FormEvent } from 'react'
-import { ChevronDown, FolderOpen, FolderPlus, Plus, Settings2, Trash2 } from 'lucide-react'
+import { FolderOpen, FolderPlus, Plus, Trash2 } from 'lucide-react'
 
 import { ModalShell } from '../components/ModalShell'
 import { Select } from '../components/Select'
@@ -8,11 +8,9 @@ import type { RootDraft } from './adminLibraryPanelModel'
 type CreateDialogProps = {
   name: string
   type: string
-  coverURL: string
   roots: RootDraft[]
   onNameChange: (value: string) => void
   onTypeChange: (value: string) => void
-  onCoverURLChange: (value: string) => void
   onRootChange: (index: number, patch: Partial<RootDraft>) => void
   onAddRoot: () => void
   onRemoveRoot: (index: number) => void
@@ -23,11 +21,9 @@ type CreateDialogProps = {
 export function AdminLibraryCreateDialog({
   name,
   type,
-  coverURL,
   roots,
   onNameChange,
   onTypeChange,
-  onCoverURLChange,
   onRootChange,
   onAddRoot,
   onRemoveRoot,
@@ -77,23 +73,6 @@ export function AdminLibraryCreateDialog({
               </Select>
             </div>
           </div>
-
-          <details className="group rounded-xl border border-gray-200/80 bg-gray-50/50 px-3 py-2.5">
-            <summary className="flex cursor-pointer list-none items-center gap-2 text-sm font-semibold text-ink-100 [&::-webkit-details-marker]:hidden">
-              <Settings2 size={14} className="text-ink-50" />
-              高级设置
-              <ChevronDown size={14} className="ml-auto text-ink-50 transition group-open:rotate-180" />
-            </summary>
-            <div className="pt-3">
-              <label className="input-label">自定义封面 URL（可选）</label>
-              <input
-                className="input-base"
-                placeholder="https://…"
-                value={coverURL}
-                onChange={(e) => onCoverURLChange(e.target.value)}
-              />
-            </div>
-          </details>
 
           <div className="space-y-2">
             <label className="input-label !mb-0">入库路径</label>
@@ -145,41 +124,51 @@ type CreateRootRowProps = {
 
 function CreateRootRow({ root, index, canRemove, onChange, onRemove }: CreateRootRowProps) {
   return (
-    <div className="space-y-2 rounded-xl border border-gray-200/80 bg-gray-50/60 p-2.5">
-      <div className="flex items-center gap-2">
-        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-gray-200 bg-white/80 text-ink-50">
-          <FolderOpen size={15} />
-        </div>
-        <input
-          required={index === 0}
-          className="input-base !py-2"
-          placeholder="容器路径，如 /media/电视剧/国产剧"
-          value={root.path}
-          onChange={(e) => onChange(index, { path: e.target.value })}
-        />
-        <button
-          type="button"
-          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-red-300/60 text-red-400 transition hover:bg-red-50 disabled:opacity-40"
-          disabled={!canRemove}
-          onClick={() => onRemove(index)}
-          title="删除路径"
-        >
-          <Trash2 size={15} />
-        </button>
+    <div className="flex items-center gap-2 rounded-xl border border-gray-200/80 bg-gray-50/60 p-2.5">
+      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-gray-200 bg-white/80 text-ink-50">
+        <FolderOpen size={15} />
       </div>
-      <details className="group">
-        <summary className="flex cursor-pointer list-none items-center gap-1.5 text-xs font-semibold text-ink-50 [&::-webkit-details-marker]:hidden">
-          <Settings2 size={12} />
-          路径高级设置
-          <ChevronDown size={12} className="transition group-open:rotate-180" />
-        </summary>
-        <input
-          className="input-base mt-2 !py-2"
-          placeholder="路径名称（可选）"
-          value={root.name ?? ''}
-          onChange={(e) => onChange(index, { name: e.target.value })}
-        />
-      </details>
+      <LibraryRootFields root={root} pathRequired={index === 0} onChange={(patch) => onChange(index, patch)} />
+      <button
+        type="button"
+        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-red-300/60 text-red-400 transition hover:bg-red-50 disabled:opacity-40"
+        disabled={!canRemove}
+        onClick={() => onRemove(index)}
+        title="删除路径"
+        aria-label="删除路径"
+      >
+        <Trash2 size={15} />
+      </button>
+    </div>
+  )
+}
+
+export function LibraryRootFields({
+  root,
+  pathRequired = false,
+  onChange,
+}: {
+  root: RootDraft
+  pathRequired?: boolean
+  onChange: (patch: Partial<RootDraft>) => void
+}) {
+  return (
+    <div className="grid min-w-0 flex-1 gap-2 sm:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
+      <input
+        className="input-base !py-2"
+        aria-label="路径名称（可选）"
+        placeholder="路径名称（可选）"
+        value={root.name ?? ''}
+        onChange={(e) => onChange({ name: e.target.value })}
+      />
+      <input
+        required={pathRequired}
+        className="input-base !py-2 font-mono"
+        aria-label="路径"
+        placeholder="容器路径，如 /media/电视剧/国产剧"
+        value={root.path}
+        onChange={(e) => onChange({ path: e.target.value })}
+      />
     </div>
   )
 }

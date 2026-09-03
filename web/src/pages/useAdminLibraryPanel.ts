@@ -4,7 +4,7 @@ import toast from 'react-hot-toast'
 import { libraryAPI } from '../api/library'
 import type { Library, LibraryRoot } from '../types'
 import { confirmAction } from '../components/confirmAction'
-import { apiErrorMessage, createRootPayload, displayLibraryRootName, displayLibraryRootPath, emptyRootDraft, rootDraftKey, type RootDraft } from './adminLibraryPanelModel'
+import { apiErrorMessage, createRootPayload, displayLibraryRootPath, emptyRootDraft, rootDraftKey, type RootDraft } from './adminLibraryPanelModel'
 
 export function useAdminLibraryPanel() {
   const { libs, refresh } = useAdminLibraryList()
@@ -31,7 +31,6 @@ function useCreateLibraryForm(refresh: () => Promise<void>) {
   const [name, setName] = useState('')
   const [roots, setRoots] = useState<RootDraft[]>([emptyRootDraft()])
   const [type, setType] = useState('movie')
-  const [coverURL, setCoverURL] = useState('')
 
   const handleCreate = async (e: FormEvent): Promise<boolean> => {
     e.preventDefault()
@@ -41,11 +40,10 @@ function useCreateLibraryForm(refresh: () => Promise<void>) {
         toast.error('请至少填写一个路径')
         return false
       }
-      await libraryAPI.createWithRoots(name, type, payload, coverURL.trim())
+      await libraryAPI.createWithRoots(name, type, payload)
       toast.success('媒体库已保存')
       setName('')
       setRoots([emptyRootDraft()])
-      setCoverURL('')
       await refresh()
       return true
     } catch (err: unknown) {
@@ -61,11 +59,9 @@ function useCreateLibraryForm(refresh: () => Promise<void>) {
   return {
     name,
     type,
-    coverURL,
     roots,
     setName,
     setType,
-    setCoverURL,
     updateRoot,
     addRoot: () => setRoots((prev) => [...prev, emptyRootDraft()]),
     removeRoot: (index: number) => setRoots((prev) => (prev.length <= 1 ? prev : prev.filter((_, i) => i !== index))),
@@ -79,7 +75,7 @@ function useEditableRootDrafts() {
   const editableRootDraft = (libraryID: string, root: LibraryRoot): RootDraft => {
     const key = rootDraftKey(libraryID, root.id)
     return rootDrafts[key] ?? {
-      name: displayLibraryRootName(root.name, root.path),
+      name: root.name ?? '',
       path: displayLibraryRootPath(root.path),
       enabled: root.enabled,
       sort_order: root.sort_order,
@@ -147,22 +143,41 @@ function useLibraryActions(refresh: () => Promise<void>) {
     await refresh()
   }
 
-  const addLibraryRoot = async (library: Library) => {
-    const path = window.prompt(`为「${library.name}」添加来源目录：`)
-    if (!path?.trim()) return
-    const name = window.prompt('来源名称（可选）：') ?? ''
-    await libraryAPI.addRoot(library.id, { path: path.trim(), name: name.trim(), enabled: true })
-    toast.success('来源目录已添加')
-    await refresh()
+  const addLibraryRoot = async (library: Library, root: RootDraft): Promise<boolean> => {
+    if (!root.path.trim()) {
+      toast.error('请填写路径')
+      return false
+    }
+    try {
+      await libraryAPI.addRoot(library.id, { path: root.path.trim(), name: root.name?.trim(), enabled: true })
+      toast.success('来源目录已添加')
+      await refresh()
+      return true
+    } catch (err: unknown) {
+      toast.error(apiErrorMessage(err, '添加路径失败'))
+      return false
+    }
   }
 
-  const editLibraryCover = async (library: Library) => {
-    const coverURL = window.prompt('自定义封面 URL（留空可清除）：', library.cover_url ?? '')
-    if (coverURL === null) return
-    await libraryAPI.update(library.id, { cover_url: coverURL.trim() })
-    toast.success(coverURL.trim() ? '媒体库封面已保存' : '媒体库封面已清除')
-    await refresh()
+  const uploadLibraryCover = async (library: Library, cover: File) => {
+    try {
+      await libraryAPI.uploadCover(library.id, cover)
+      toast.success('媒体库封面已保存')
+      await refresh()
+    } catch (err: unknown) {
+      toast.error(apiErrorMessage(err, '上传封面失败'))
+    }
   }
 
-  return { removeLibrary, addLibraryRoot, editLibraryCover }
+  const clearLibraryCover = async (library: Library) => {
+    try {
+      await libraryAPI.clearCover(library.id)
+      toast.success('媒体库封面已清除')
+      await refresh()
+    } catch (err: unknown) {
+      toast.error(apiErrorMessage(err, '清除封面失败'))
+    }
+  }
+
+  return { removeLibrary, addLibraryRoot, uploadLibraryCover, clearLibraryCover }
 }

@@ -30,11 +30,9 @@ export function AdminLibraryPanel() {
         <AdminLibraryCreateDialog
           name={createForm.name}
           type={createForm.type}
-          coverURL={createForm.coverURL}
           roots={createForm.roots}
           onNameChange={createForm.setName}
           onTypeChange={createForm.setType}
-          onCoverURLChange={createForm.setCoverURL}
           onRootChange={createForm.updateRoot}
           onAddRoot={createForm.addRoot}
           onRemoveRoot={createForm.removeRoot}
@@ -45,6 +43,7 @@ export function AdminLibraryPanel() {
 
       {activeLib && (
         <LibraryDetailDialog
+          key={activeLib.id}
           library={activeLib}
           editableRootDraft={editableRoots.editableRootDraft}
           onEditableRootChange={editableRoots.setEditableRootDraft}
@@ -53,7 +52,8 @@ export function AdminLibraryPanel() {
           onRemoveRoot={rootActions.removeLibraryRoot}
           onRemoveLibrary={libraryActions.removeLibrary}
           onAddLibraryRoot={libraryActions.addLibraryRoot}
-          onEditLibraryCover={libraryActions.editLibraryCover}
+          onUploadLibraryCover={libraryActions.uploadLibraryCover}
+          onClearLibraryCover={libraryActions.clearLibraryCover}
           onClose={() => setActiveID(null)}
         />
       )}
