@@ -547,18 +547,23 @@ func TestBuildResinReverseURL(t *testing.T) {
 func TestShouldReselectDoubanRoute(t *testing.T) {
 	tests := []struct {
 		name   string
+		route  int
 		result doubanHTTPResult
 		want   bool
 	}{
-		{name: "bad request", result: doubanHTTPResult{status: http.StatusBadRequest}, want: true},
-		{name: "unexpected EOF", result: doubanHTTPResult{err: io.ErrUnexpectedEOF}, want: true},
-		{name: "body unexpected EOF", result: doubanHTTPResult{status: http.StatusOK, err: errors.Join(io.ErrUnexpectedEOF)}, want: true},
-		{name: "other network error", result: doubanHTTPResult{err: errors.New("network unavailable")}},
-		{name: "server error", result: doubanHTTPResult{status: http.StatusServiceUnavailable}},
+		{name: "direct bad request", route: doubanDirectRoute, result: doubanHTTPResult{status: http.StatusBadRequest}, want: true},
+		{name: "direct unexpected EOF", route: doubanDirectRoute, result: doubanHTTPResult{err: io.ErrUnexpectedEOF}, want: true},
+		{name: "direct body unexpected EOF", route: doubanDirectRoute, result: doubanHTTPResult{status: http.StatusOK, err: errors.Join(io.ErrUnexpectedEOF)}, want: true},
+		{name: "direct other network error", route: doubanDirectRoute, result: doubanHTTPResult{err: errors.New("network unavailable")}},
+		{name: "direct server error", route: doubanDirectRoute, result: doubanHTTPResult{status: http.StatusServiceUnavailable}},
+		{name: "proxy network error", route: 0, result: doubanHTTPResult{err: errors.New("network unavailable")}, want: true},
+		{name: "proxy body error", route: 0, result: doubanHTTPResult{status: http.StatusOK, err: errors.New("read failed")}, want: true},
+		{name: "proxy server error", route: 0, result: doubanHTTPResult{status: http.StatusServiceUnavailable}, want: true},
+		{name: "proxy success", route: 0, result: doubanHTTPResult{status: http.StatusOK}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := shouldReselectDoubanRoute(tt.result); got != tt.want {
+			if got := shouldReselectDoubanRoute(tt.route, tt.result); got != tt.want {
 				t.Fatalf("shouldReselectDoubanRoute() = %v, want %v", got, tt.want)
 			}
 		})
@@ -577,13 +582,13 @@ func TestDoubanProxyPoolRouting(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	t.Run("ordered selection and sticky reset", func(t *testing.T) {
+	t.Run("sticky proxy failure returns direct", func(t *testing.T) {
 		calls := []string{}
 		direct := scriptedDoubanClient(t, "direct", &calls,
-			doubanTestOutcome{status: 400}, doubanTestOutcome{status: 200}, doubanTestOutcome{status: 200})
-		proxy1 := scriptedDoubanClient(t, "proxy1", &calls, doubanTestOutcome{status: 400})
-		proxy2 := scriptedDoubanClient(t, "proxy2", &calls,
-			doubanTestOutcome{status: 200}, doubanTestOutcome{status: 200}, doubanTestOutcome{status: 400})
+			doubanTestOutcome{status: 400}, doubanTestOutcome{status: 200})
+		proxy1 := scriptedDoubanClient(t, "proxy1", &calls,
+			doubanTestOutcome{status: 200}, doubanTestOutcome{status: 503})
+		proxy2 := scriptedDoubanClient(t, "proxy2", &calls)
 		provider := doubanProxyTestProvider(apiConfig, direct, proxy1, proxy2)
 
 		for range 2 {
@@ -591,10 +596,7 @@ func TestDoubanProxyPoolRouting(t *testing.T) {
 				t.Fatalf("request status=%d err=%v", status, err)
 			}
 		}
-		if _, status, err := provider.requestJSON(t.Context(), "https://example.test/data", ""); err != nil || status != 200 {
-			t.Fatalf("proxy reset status=%d err=%v", status, err)
-		}
-		if got, want := strings.Join(calls, ","), "direct,proxy1,proxy2,proxy2,proxy2,direct"; got != want {
+		if got, want := strings.Join(calls, ","), "direct,proxy1,proxy1,direct"; got != want {
 			t.Fatalf("calls = %s, want %s", got, want)
 		}
 		if route := provider.currentRoute(1, 0, resolved.Revision); route != doubanDirectRoute {
@@ -602,17 +604,32 @@ func TestDoubanProxyPoolRouting(t *testing.T) {
 		}
 	})
 
-	t.Run("all proxies then final direct", func(t *testing.T) {
+	t.Run("failed proxy skips remaining pool", func(t *testing.T) {
 		calls := []string{}
 		provider := doubanProxyTestProvider(apiConfig,
 			scriptedDoubanClient(t, "direct", &calls, doubanTestOutcome{status: 400}, doubanTestOutcome{status: 200}),
-			scriptedDoubanClient(t, "proxy1", &calls, doubanTestOutcome{status: 400}),
-			scriptedDoubanClient(t, "proxy2", &calls, doubanTestOutcome{status: 400}),
+			scriptedDoubanClient(t, "proxy1", &calls, doubanTestOutcome{status: 503}),
+			scriptedDoubanClient(t, "proxy2", &calls),
 		)
 		if _, status, err := provider.requestJSON(t.Context(), "https://example.test/data", ""); err != nil || status != 200 {
 			t.Fatalf("status=%d err=%v", status, err)
 		}
-		if got, want := strings.Join(calls, ","), "direct,proxy1,proxy2,direct"; got != want {
+		if got, want := strings.Join(calls, ","), "direct,proxy1,direct"; got != want {
+			t.Fatalf("calls = %s, want %s", got, want)
+		}
+	})
+
+	t.Run("failed final direct stops routing", func(t *testing.T) {
+		calls := []string{}
+		provider := doubanProxyTestProvider(apiConfig,
+			scriptedDoubanClient(t, "direct", &calls, doubanTestOutcome{status: 400}, doubanTestOutcome{status: 400}),
+			scriptedDoubanClient(t, "proxy1", &calls, doubanTestOutcome{status: 503}),
+			scriptedDoubanClient(t, "proxy2", &calls),
+		)
+		if _, status, err := provider.requestJSON(t.Context(), "https://example.test/data", ""); err != nil || status != 400 {
+			t.Fatalf("status=%d err=%v", status, err)
+		}
+		if got, want := strings.Join(calls, ","), "direct,proxy1,direct"; got != want {
 			t.Fatalf("calls = %s, want %s", got, want)
 		}
 	})
@@ -630,21 +647,21 @@ func TestDoubanProxyPoolRouting(t *testing.T) {
 		}
 	})
 
-	t.Run("network error does not change sticky proxy", func(t *testing.T) {
+	t.Run("proxy network error returns direct", func(t *testing.T) {
 		calls := []string{}
 		proxyErr := errors.New("proxy network failure")
 		provider := doubanProxyTestProvider(apiConfig,
-			scriptedDoubanClient(t, "direct", &calls),
+			scriptedDoubanClient(t, "direct", &calls, doubanTestOutcome{status: 200}),
 			scriptedDoubanClient(t, "proxy1", &calls, doubanTestOutcome{err: proxyErr}),
 		)
 		provider.setRoute(1, 0, resolved.Revision, 0)
-		if _, status, err := provider.requestJSON(t.Context(), "https://example.test/data", ""); !errors.Is(err, proxyErr) || status != 0 {
+		if _, status, err := provider.requestJSON(t.Context(), "https://example.test/data", ""); err != nil || status != 200 {
 			t.Fatalf("status=%d err=%v", status, err)
 		}
-		if route := provider.currentRoute(1, 0, resolved.Revision); route != 0 {
+		if route := provider.currentRoute(1, 0, resolved.Revision); route != doubanDirectRoute {
 			t.Fatalf("route changed to %d", route)
 		}
-		if got := strings.Join(calls, ","); got != "proxy1" {
+		if got := strings.Join(calls, ","); got != "proxy1,direct" {
 			t.Fatalf("calls = %s", got)
 		}
 	})
@@ -707,23 +724,17 @@ func TestDoubanProxyPoolRouting(t *testing.T) {
 		}
 	})
 
-	t.Run("proxy response status becomes sticky even when body read fails", func(t *testing.T) {
+	t.Run("proxy body read failure returns direct", func(t *testing.T) {
 		calls := []string{}
 		readErr := errors.New("read failed")
 		provider := doubanProxyTestProvider(apiConfig,
-			scriptedDoubanClient(t, "direct", &calls, doubanTestOutcome{status: 400}),
-			scriptedDoubanClient(t, "proxy1", &calls,
-				doubanTestOutcome{status: 200, readErr: readErr},
-				doubanTestOutcome{status: 200},
-			),
+			scriptedDoubanClient(t, "direct", &calls, doubanTestOutcome{status: 400}, doubanTestOutcome{status: 200}),
+			scriptedDoubanClient(t, "proxy1", &calls, doubanTestOutcome{status: 200, readErr: readErr}),
 		)
-		if _, status, err := provider.requestJSON(t.Context(), "https://example.test/data", ""); !errors.Is(err, readErr) || status != 200 {
+		if _, status, err := provider.requestJSON(t.Context(), "https://example.test/data", ""); err != nil || status != 200 {
 			t.Fatalf("status=%d err=%v", status, err)
 		}
-		if _, status, err := provider.requestJSON(t.Context(), "https://example.test/data", ""); err != nil || status != 200 {
-			t.Fatalf("sticky request status=%d err=%v", status, err)
-		}
-		if got, want := strings.Join(calls, ","), "direct,proxy1,proxy1"; got != want {
+		if got, want := strings.Join(calls, ","), "direct,proxy1,direct"; got != want {
 			t.Fatalf("calls = %s, want %s", got, want)
 		}
 	})
@@ -755,15 +766,23 @@ func TestDoubanProxyPoolRouting(t *testing.T) {
 	t.Run("resin source does not use normal pool", func(t *testing.T) {
 		calls := []string{}
 		provider := doubanProxyTestProvider(apiConfig,
-			scriptedDoubanClient(t, "direct", &calls, doubanTestOutcome{status: 400}, doubanTestOutcome{status: 200}),
+			scriptedDoubanClient(t, "direct", &calls, doubanTestOutcome{status: 400}, doubanTestOutcome{status: 200}, doubanTestOutcome{status: 200}),
 			scriptedDoubanClient(t, "normal", &calls),
 		)
+		resinCalls := 0
 		provider.resinClient = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
 			calls = append(calls, "resin")
-			if got, want := req.URL.String(), "http://resin.internal:2260/proxy-secret/./https/example.test/data"; got != want {
-				t.Fatalf("Resin request URL = %q, want %q", got, want)
+			resinCalls++
+			wantURL := "http://resin.internal:2260/proxy-secret/./https/example.test/data"
+			status := http.StatusOK
+			if resinCalls == 2 {
+				wantURL = "http://resin.internal:2260/proxy-secret/Default.douban-main/https/example.test/data"
+				status = http.StatusServiceUnavailable
 			}
-			return doubanTestResponse(req, http.StatusOK), nil
+			if got := req.URL.String(); got != wantURL {
+				t.Fatalf("Resin request URL = %q, want %q", got, wantURL)
+			}
+			return doubanTestResponse(req, status), nil
 		})}
 		proxyType := ProxyPoolTypeResin
 		proxyURL := "http://resin.internal:2260"
@@ -783,7 +802,15 @@ func TestDoubanProxyPoolRouting(t *testing.T) {
 		if _, status, err := provider.requestJSON(t.Context(), "https://example.test/data", ""); err != nil || status != 200 {
 			t.Fatalf("reset status=%d err=%v", status, err)
 		}
-		if got, want := strings.Join(calls, ","), "direct,resin,direct"; got != want {
+		config, err := provider.proxyPool.resolveConfig(t.Context())
+		if err != nil {
+			t.Fatal(err)
+		}
+		provider.setRoute(0, config.Revision, resolved.Revision, 0)
+		if _, status, err := provider.requestJSON(t.Context(), "https://example.test/data", ""); err != nil || status != 200 {
+			t.Fatalf("Resin fallback status=%d err=%v", status, err)
+		}
+		if got, want := strings.Join(calls, ","), "direct,resin,direct,resin,direct"; got != want {
 			t.Fatalf("calls = %s, want %s", got, want)
 		}
 	})

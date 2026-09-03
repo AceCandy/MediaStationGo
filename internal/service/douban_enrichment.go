@@ -208,6 +208,7 @@ func (s *ScraperService) runDoubanMovieEnrichment(ctx context.Context, trigger s
 	if s == nil || s.repo == nil || s.repo.Metadata == nil || s.repo.Setting == nil || s.douban == nil {
 		return errors.New("douban movie enrichment dependencies unavailable")
 	}
+	ctx = withDoubanTaskRouteReset(ctx)
 	metrics := map[string]int64{}
 	details := []string{}
 	var task *TaskHandle

@@ -268,6 +268,14 @@ type doubanHTTPResult struct {
 	err    error
 }
 
+type doubanTaskRouteReset struct{ once sync.Once }
+type doubanTaskRouteResetKey struct{}
+
+// withDoubanTaskRouteReset 保证同一补齐任务的首个豆瓣请求从直连开始。
+func withDoubanTaskRouteReset(ctx context.Context) context.Context {
+	return context.WithValue(ctx, doubanTaskRouteResetKey{}, &doubanTaskRouteReset{})
+}
+
 func (d *DoubanProvider) requestJSON(ctx context.Context, requestURL, referer string) ([]byte, int, error) {
 	resolved := d.resolveConfig(ctx)
 	attempt := func(client *http.Client, config Resolved) doubanHTTPResult {
@@ -284,15 +292,24 @@ func (d *DoubanProvider) requestJSON(ctx context.Context, requestURL, referer st
 		return nil, 0, err
 	}
 	route := d.currentRoute(snapshot.generation, snapshot.configRevision, resolved.Revision)
+	if reset, _ := ctx.Value(doubanTaskRouteResetKey{}).(*doubanTaskRouteReset); reset != nil {
+		reset.once.Do(func() {
+			route = doubanDirectRoute
+			d.setRoute(snapshot.generation, snapshot.configRevision, resolved.Revision, route)
+		})
+	}
 	result := d.doJSONRequestForRoute(ctx, snapshot, route, resolved, requestURL, referer)
-	if !shouldReselectDoubanRoute(result) {
+	if !shouldReselectDoubanRoute(route, result) {
 		return result.body, result.status, result.err
 	}
 	result = d.reselectAfterRouteFailure(ctx, requestURL, referer, route, snapshot.generation, snapshot.configRevision, resolved.Revision)
 	return result.body, result.status, result.err
 }
 
-func shouldReselectDoubanRoute(result doubanHTTPResult) bool {
+func shouldReselectDoubanRoute(route int, result doubanHTTPResult) bool {
+	if route != doubanDirectRoute {
+		return result.status >= http.StatusBadRequest || result.err != nil
+	}
 	return result.status == http.StatusBadRequest || errors.Is(result.err, io.ErrUnexpectedEOF)
 }
 
@@ -320,7 +337,10 @@ func (d *DoubanProvider) reselectAfterRouteFailure(
 	current := d.currentRoute(snapshot.generation, snapshot.configRevision, resolved.Revision)
 	if current != failedRoute || snapshot.generation != failedGeneration || snapshot.configRevision != failedProxyConfigRevision || resolved.Revision != failedRevision {
 		result := d.doJSONRequestForRoute(ctx, snapshot, current, resolved, requestURL, referer)
-		if !shouldReselectDoubanRoute(result) {
+		if failedRoute != doubanDirectRoute && current == doubanDirectRoute {
+			return result
+		}
+		if !shouldReselectDoubanRoute(current, result) {
 			return result
 		}
 		failedRoute = current
@@ -328,25 +348,23 @@ func (d *DoubanProvider) reselectAfterRouteFailure(
 
 	if failedRoute != doubanDirectRoute {
 		d.setRoute(snapshot.generation, snapshot.configRevision, resolved.Revision, doubanDirectRoute)
-		result := d.doJSONRequest(ctx, d.directClient, resolved, requestURL, referer)
-		if !shouldReselectDoubanRoute(result) {
-			return result
-		}
+		return d.doJSONRequest(ctx, d.directClient, resolved, requestURL, referer)
 	}
 
-	for route := range snapshot.clients {
-		result := d.doJSONRequestForRoute(ctx, snapshot, route, resolved, requestURL, referer)
-		if shouldReselectDoubanRoute(result) {
-			continue
-		}
-		if result.status != 0 {
-			d.setRoute(snapshot.generation, snapshot.configRevision, resolved.Revision, route)
-		}
-		return result
+	if len(snapshot.clients) == 0 {
+		d.setRoute(snapshot.generation, snapshot.configRevision, resolved.Revision, doubanDirectRoute)
+		return d.doJSONRequest(ctx, d.directClient, resolved, requestURL, referer)
 	}
 
-	d.setRoute(snapshot.generation, snapshot.configRevision, resolved.Revision, doubanDirectRoute)
-	return d.doJSONRequest(ctx, d.directClient, resolved, requestURL, referer)
+	result := d.doJSONRequestForRoute(ctx, snapshot, 0, resolved, requestURL, referer)
+	if shouldReselectDoubanRoute(0, result) {
+		d.setRoute(snapshot.generation, snapshot.configRevision, resolved.Revision, doubanDirectRoute)
+		return d.doJSONRequest(ctx, d.directClient, resolved, requestURL, referer)
+	}
+	if result.status != 0 {
+		d.setRoute(snapshot.generation, snapshot.configRevision, resolved.Revision, 0)
+	}
+	return result
 }
 
 func (d *DoubanProvider) doJSONRequestForRoute(

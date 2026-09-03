@@ -693,6 +693,57 @@ func TestDoubanMovieEnrichmentContinuesAfterDegradedSnapshot(t *testing.T) {
 	}
 }
 
+func TestDoubanMovieEnrichmentStartsEachTaskDirect(t *testing.T) {
+	scraper, repos, closeServer := newTestScraper(t)
+	defer closeServer()
+	if err := repos.DB.AutoMigrate(&model.Setting{}, &model.APIConfig{}); err != nil {
+		t.Fatal(err)
+	}
+	createCandidate := func(id, externalID string) {
+		metadata := model.MetadataItem{PermanentBase: model.PermanentBase{ID: id}, Kind: model.MetadataKindMovie, Title: "电影", Source: "tmdb"}
+		if err := repos.Metadata.Create(t.Context(), &metadata, []model.MetadataIdentifier{{Provider: "douban", EntityKind: model.MetadataKindMovie, ExternalID: externalID}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	createCandidate("16000000-0000-0000-0000-000000000001", "1")
+
+	apiConfig := NewAPIConfigService(zap.NewNop(), repos, NewCryptoService("test-secret", zap.NewNop()))
+	enabled := true
+	if _, err := apiConfig.Update(t.Context(), "douban", APIConfigPatch{UseProxyPool: &enabled}); err != nil {
+		t.Fatal(err)
+	}
+	calls := []string{}
+	directCalls := 0
+	direct := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		calls = append(calls, "direct")
+		directCalls++
+		status := http.StatusOK
+		if directCalls == 1 {
+			status = http.StatusBadRequest
+		}
+		return &http.Response{StatusCode: status, Body: io.NopCloser(strings.NewReader(`{"title":"电影"}`)), Request: req}, nil
+	})}
+	proxy := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		calls = append(calls, "proxy")
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{"title":"电影"}`)), Request: req}, nil
+	})}
+	scraper.douban = doubanProxyTestProvider(apiConfig, direct, proxy)
+	previousDelay := doubanMovieEnrichmentDelay
+	doubanMovieEnrichmentDelay = 0
+	defer func() { doubanMovieEnrichmentDelay = previousDelay }()
+
+	if err := scraper.runDoubanMovieEnrichment(t.Context(), TaskTriggerManual); err != nil {
+		t.Fatal(err)
+	}
+	createCandidate("16000000-0000-0000-0000-000000000002", "2")
+	if err := scraper.runDoubanMovieEnrichment(t.Context(), TaskTriggerManual); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := strings.Join(calls, ","), "direct,proxy,direct"; got != want {
+		t.Fatalf("calls = %s, want %s", got, want)
+	}
+}
+
 func TestDoubanMovieEnrichmentPausesWithoutAdvancingFailedCursor(t *testing.T) {
 	scraper, repos, closeServer := newTestScraper(t)
 	defer closeServer()
