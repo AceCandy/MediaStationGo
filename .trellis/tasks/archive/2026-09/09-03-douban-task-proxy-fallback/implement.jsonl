@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/backend/index.md", "reason": "后端变更入口与质量约束"}
+{"file": ".trellis/spec/backend/douban-cookie-config.md", "reason": "豆瓣代理路由与敏感信息契约"}
