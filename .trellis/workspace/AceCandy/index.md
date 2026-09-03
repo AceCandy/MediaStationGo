@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 87
-- **Last Active**: 2026-09-03
+- **Total Sessions**: 88
+- **Last Active**: 2026-09-04
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~1893 | Active |
+| `journal-1.md` | ~1915 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 88 | 2026-09-04 | 合并观看空间媒体库入口 | `fe1c512` | `main` |
 | 87 | 2026-09-03 | 修正豆瓣代理回退顺序 | `0d6f4bc` | `main` |
 | 86 | 2026-09-03 | 调整 Resin 为统一反向代理池 | `8e39318` | `main` |
 | 85 | 2026-09-02 | 接入 Resin 代理池 | `2161354` | `main` |

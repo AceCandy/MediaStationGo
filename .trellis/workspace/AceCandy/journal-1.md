@@ -1891,3 +1891,25 @@ Added movie/tv permission fallback to subject, persisted degraded status, skippe
 ### Status
 
 [OK] **Completed**
+
+
+## Session 88: 合并观看空间媒体库入口
+<!-- trellis-session: v=2 fp=cdf78b1383c87798 -->
+
+**Date**: 2026-09-04
+**Task**: 合并观看空间媒体库入口
+**Branch**: `main`
+
+### Summary
+
+将媒体库浏览与管理合并到观看空间，复用现有设置弹窗并移除文件空间的媒体库管理导航。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `fe1c512` | feat: merge library browsing and management |
+
+### Status
+
+[OK] **Completed**
