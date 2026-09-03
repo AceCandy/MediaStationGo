@@ -1869,3 +1869,25 @@ Added movie/tv permission fallback to subject, persisted degraded status, skippe
 ### Status
 
 [OK] **Completed**
+
+
+## Session 87: 修正豆瓣代理回退顺序
+<!-- trellis-session: v=2 fp=0b36c32f26d43cc9 -->
+
+**Date**: 2026-09-03
+**Task**: 修正豆瓣代理回退顺序
+**Branch**: `main`
+
+### Summary
+
+每次豆瓣补齐任务从直连开始，直连仅在 400 或 unexpected EOF 时尝试一条代理，代理任意请求失败后只回退直连一次，并补充普通代理与 Resin 回归测试。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `0d6f4bc` | fix: enforce Douban proxy fallback sequence |
+
+### Status
+
+[OK] **Completed**
