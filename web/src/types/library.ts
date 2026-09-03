@@ -1,7 +1,6 @@
 export interface LibraryRoot {
   id: string
   library_id: string
-  name?: string
   path: string
   enabled: boolean
   sort_order: number

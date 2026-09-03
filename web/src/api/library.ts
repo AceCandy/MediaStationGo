@@ -61,7 +61,6 @@ export interface SeriesPage {
 }
 
 export interface LibraryRootInput {
-  name?: string
   path: string
   enabled?: boolean
   sort_order?: number

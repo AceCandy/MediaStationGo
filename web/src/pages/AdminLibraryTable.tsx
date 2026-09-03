@@ -19,8 +19,8 @@ import { ModalShell } from '../components/ModalShell'
 import { imageURL } from '../api/client'
 import type { Library, LibraryRoot } from '../types'
 import type { RootDraft } from './adminLibraryPanelModel'
-import { displayLibraryRootName, displayLibraryRootPath, emptyRootDraft, fallbackLibraryRoot } from './adminLibraryPanelModel'
-import { LibraryRootFields } from './AdminLibraryPanelSections'
+import { displayLibraryRootPath, emptyRootDraft, fallbackLibraryRoot } from './adminLibraryPanelModel'
+import { LibraryRootPathField } from './AdminLibraryPanelSections'
 
 const LIBRARY_TYPE_LABELS: Record<string, string> = {
   movie: '电影',
@@ -202,7 +202,7 @@ export function LibraryDetailDialog({ library, onClose, ...actions }: LibraryDet
               <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-gray-200 bg-white/80 text-ink-50">
                 <FolderOpen size={14} />
               </div>
-              <LibraryRootFields
+              <LibraryRootPathField
                 root={newRoot}
                 pathRequired
                 onChange={(patch) => setNewRoot((root) => (root ? { ...root, ...patch } : root))}
@@ -300,23 +300,18 @@ function ExistingRootEditor({ library, root, ...actions }: RootEditorProps) {
 
 function ReadonlyRootFields({ root }: { root: LibraryRoot }) {
   return (
-    <div className="min-w-0 space-y-1">
-      <span className="block truncate rounded-md bg-white/80 px-2.5 py-1.5 text-xs text-ink-600">
-        {displayLibraryRootName(root.name, root.path)}
-      </span>
-      <span
-        className="block min-w-0 truncate rounded-md bg-white/80 px-2.5 py-1.5 font-mono text-2xs text-ink-100"
-        title={displayLibraryRootPath(root.path)}
-      >
-        {displayLibraryRootPath(root.path)}
-      </span>
-    </div>
+    <span
+      className="block min-w-0 truncate rounded-md bg-white/80 px-2.5 py-1.5 font-mono text-2xs text-ink-100"
+      title={displayLibraryRootPath(root.path)}
+    >
+      {displayLibraryRootPath(root.path)}
+    </span>
   )
 }
 
 function EditableRootFields({ library, root, draft, onEditableRootChange }: RootEditorProps & { draft: RootDraft }) {
   return (
-    <LibraryRootFields root={draft} onChange={(patch) => onEditableRootChange(library.id, root, patch)} />
+    <LibraryRootPathField root={draft} onChange={(patch) => onEditableRootChange(library.id, root, patch)} />
   )
 }
 

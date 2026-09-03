@@ -24,8 +24,8 @@ func TestScanLibraryScansMultipleRootsAndPrunesPerRoot(t *testing.T) {
 	repos := repository.New(db)
 	lib := &model.Library{Name: "电影", Path: rootA, Type: "movie", Enabled: true}
 	roots := []model.LibraryRoot{
-		{Name: "硬盘1", Path: rootA, Enabled: true, SortOrder: 0},
-		{Name: "硬盘2", Path: rootB, Enabled: true, SortOrder: 1},
+		{Path: rootA, Enabled: true, SortOrder: 0},
+		{Path: rootB, Enabled: true, SortOrder: 1},
 	}
 	if err := repos.Library.CreateWithRoots(t.Context(), lib, roots); err != nil {
 		t.Fatal(err)

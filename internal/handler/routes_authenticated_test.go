@@ -1,7 +1,6 @@
 package handler
 
 import (
-	"encoding/json"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -10,16 +9,6 @@ import (
 	"github.com/ShukeBta/MediaStationGo/internal/config"
 	"github.com/ShukeBta/MediaStationGo/internal/service"
 )
-
-func TestUpdateLibraryRootRequestTracksEmptyName(t *testing.T) {
-	var req updateLibraryRootReq
-	if err := json.Unmarshal([]byte(`{"name":"","enabled":true}`), &req); err != nil {
-		t.Fatal(err)
-	}
-	if req.Name == nil || *req.Name != "" {
-		t.Fatalf("name = %#v, want explicit empty value", req.Name)
-	}
-}
 
 func TestAuthenticatedRouteSurfacesAreRegistered(t *testing.T) {
 	gin.SetMode(gin.TestMode)

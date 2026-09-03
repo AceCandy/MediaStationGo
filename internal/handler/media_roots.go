@@ -10,11 +10,6 @@ import (
 	"github.com/ShukeBta/MediaStationGo/internal/service"
 )
 
-type updateLibraryRootReq struct {
-	service.LibraryRootInput
-	Name *string `json:"name"`
-}
-
 func listLibraryRootsHandler(svc *service.Container) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		roots, err := svc.Media.ListLibraryRoots(c.Request.Context(), c.Param("id"))
@@ -58,16 +53,12 @@ func createLibraryRootHandler(svc *service.Container) gin.HandlerFunc {
 
 func updateLibraryRootHandler(svc *service.Container) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		var req updateLibraryRootReq
+		var req service.LibraryRootInput
 		if err := c.ShouldBindJSON(&req); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
-		if req.Name != nil {
-			req.LibraryRootInput.Name = *req.Name
-			req.LibraryRootInput.NameSet = true
-		}
-		root, err := svc.Media.UpdateLibraryRoot(c.Request.Context(), c.Param("id"), c.Param("root_id"), req.LibraryRootInput)
+		root, err := svc.Media.UpdateLibraryRoot(c.Request.Context(), c.Param("id"), c.Param("root_id"), req)
 		if err != nil {
 			status := http.StatusInternalServerError
 			if errors.Is(err, service.ErrCloudLibraryRootUnsupported) {

@@ -27,7 +27,6 @@ func ensureLibraryRootsCompatibility(db *gorm.DB) error {
 		}
 		root := model.LibraryRoot{
 			LibraryID: lib.ID,
-			Name:      firstLibraryRootLabel(lib.Path),
 			Path:      lib.Path,
 			Enabled:   lib.Enabled,
 			SortOrder: 0,
@@ -89,22 +88,4 @@ func relativePathWithinRoot(pathValue, root string) (string, bool) {
 		return "", false
 	}
 	return rel, true
-}
-
-func firstLibraryRootLabel(pathValue string) string {
-	pathValue = strings.TrimSpace(pathValue)
-	if pathValue == "" {
-		return ""
-	}
-	if strings.HasPrefix(strings.ToLower(pathValue), "cloud://") {
-		parts := strings.Split(strings.Trim(pathValue, "/"), "/")
-		if len(parts) > 0 {
-			return parts[len(parts)-1]
-		}
-	}
-	base := filepath.Base(filepath.Clean(pathValue))
-	if base == "." || base == string(filepath.Separator) {
-		return pathValue
-	}
-	return base
 }

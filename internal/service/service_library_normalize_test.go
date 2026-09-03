@@ -22,7 +22,6 @@ func TestNormalizeLocalLibraryPathsRewritesRelativeDockerMediaRoot(t *testing.T)
 	repos := repository.New(db)
 	lib := model.Library{Name: "国产剧", Path: filepath.Join("media", "电视剧", "国产剧"), Type: "tv", Enabled: true}
 	if err := repos.Library.CreateWithRoots(t.Context(), &lib, []model.LibraryRoot{{
-		Name:    "国产剧",
 		Path:    filepath.Join("media", "电视剧", "国产剧"),
 		Enabled: true,
 	}}); err != nil {

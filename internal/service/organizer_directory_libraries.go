@@ -242,7 +242,6 @@ func (o *OrganizerService) ensureOrganizeLibraryForRoot(ctx context.Context, roo
 		Enabled: true,
 	}
 	if err := o.repo.Library.CreateWithRoots(ctx, &lib, []model.LibraryRoot{{
-		Name:      name,
 		Path:      root,
 		Enabled:   true,
 		SortOrder: 0,

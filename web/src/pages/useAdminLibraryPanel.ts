@@ -75,7 +75,6 @@ function useEditableRootDrafts() {
   const editableRootDraft = (libraryID: string, root: LibraryRoot): RootDraft => {
     const key = rootDraftKey(libraryID, root.id)
     return rootDrafts[key] ?? {
-      name: root.name ?? '',
       path: displayLibraryRootPath(root.path),
       enabled: root.enabled,
       sort_order: root.sort_order,
@@ -108,7 +107,6 @@ function useEditableLibraryRootActions(refresh: () => Promise<void>, drafts: Edi
       return
     }
     await libraryAPI.updateRoot(libraryID, root.id, {
-      name: draft.name?.trim(),
       path: draft.path.trim(),
       enabled: draft.enabled,
       sort_order: draft.sort_order,
@@ -149,7 +147,7 @@ function useLibraryActions(refresh: () => Promise<void>) {
       return false
     }
     try {
-      await libraryAPI.addRoot(library.id, { path: root.path.trim(), name: root.name?.trim(), enabled: true })
+      await libraryAPI.addRoot(library.id, { path: root.path.trim(), enabled: true })
       toast.success('来源目录已添加')
       await refresh()
       return true

@@ -128,7 +128,7 @@ function CreateRootRow({ root, index, canRemove, onChange, onRemove }: CreateRoo
       <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-gray-200 bg-white/80 text-ink-50">
         <FolderOpen size={15} />
       </div>
-      <LibraryRootFields root={root} pathRequired={index === 0} onChange={(patch) => onChange(index, patch)} />
+      <LibraryRootPathField root={root} pathRequired={index === 0} onChange={(patch) => onChange(index, patch)} />
       <button
         type="button"
         className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-red-300/60 text-red-400 transition hover:bg-red-50 disabled:opacity-40"
@@ -143,7 +143,7 @@ function CreateRootRow({ root, index, canRemove, onChange, onRemove }: CreateRoo
   )
 }
 
-export function LibraryRootFields({
+export function LibraryRootPathField({
   root,
   pathRequired = false,
   onChange,
@@ -153,14 +153,7 @@ export function LibraryRootFields({
   onChange: (patch: Partial<RootDraft>) => void
 }) {
   return (
-    <div className="grid min-w-0 flex-1 gap-2 sm:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
-      <input
-        className="input-base !py-2"
-        aria-label="路径名称（可选）"
-        placeholder="路径名称（可选）"
-        value={root.name ?? ''}
-        onChange={(e) => onChange({ name: e.target.value })}
-      />
+    <div className="min-w-0 flex-1">
       <input
         required={pathRequired}
         className="input-base !py-2 font-mono"

@@ -20,7 +20,6 @@ type Library struct {
 type LibraryRoot struct {
 	Base
 	LibraryID string `gorm:"index;size:36;not null" json:"library_id"`
-	Name      string `gorm:"size:128" json:"name,omitempty"`
 	Path      string `gorm:"size:1024;not null" json:"path"`
 	Enabled   bool   `gorm:"default:true" json:"enabled"`
 	SortOrder int    `gorm:"default:0" json:"sort_order"`

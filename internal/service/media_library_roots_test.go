@@ -20,7 +20,7 @@ func TestCreateLibraryWithRootsAppendsToExistingLogicalLibrary(t *testing.T) {
 	svc := NewMediaService(&config.Config{}, zap.NewNop(), repos)
 
 	firstResult, err := svc.CreateLibraryWithRootsAndCover(t.Context(), "欧美电影", "movie", "", []LibraryRootInput{
-		{Name: "硬盘1", Path: rootA},
+		{Path: rootA},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -30,7 +30,7 @@ func TestCreateLibraryWithRootsAppendsToExistingLogicalLibrary(t *testing.T) {
 	}
 	first := firstResult.Library
 	secondResult, err := svc.CreateLibraryWithRootsAndCover(t.Context(), "欧美电影", "movie", "", []LibraryRootInput{
-		{Name: "硬盘2", Path: rootB},
+		{Path: rootB},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -59,28 +59,6 @@ func TestCreateLibraryWithRootsAppendsToExistingLogicalLibrary(t *testing.T) {
 	}
 	if roots[0].Path != filepath.Clean(rootA) || roots[1].Path != filepath.Clean(rootB) {
 		t.Fatalf("root paths = %#v, want %q then %q", roots, filepath.Clean(rootA), filepath.Clean(rootB))
-	}
-}
-
-func TestUpdateLibraryRootCanClearOptionalName(t *testing.T) {
-	db := newServiceTestDB(t, &model.Library{}, &model.LibraryRoot{}, &model.Media{})
-	repos := repository.New(db)
-	svc := NewMediaService(&config.Config{}, zap.NewNop(), repos)
-	result, err := svc.CreateLibraryWithRoots(t.Context(), "电影", "movie", []LibraryRootInput{{Name: "硬盘", Path: t.TempDir()}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	roots, err := repos.Library.ListRoots(t.Context(), result.ID)
-	if err != nil || len(roots) != 1 {
-		t.Fatalf("roots = %#v, err = %v", roots, err)
-	}
-	root := roots[0]
-	updated, err := svc.UpdateLibraryRoot(t.Context(), result.ID, root.ID, LibraryRootInput{NameSet: true})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if updated.Name != "" {
-		t.Fatalf("root name = %q, want empty", updated.Name)
 	}
 }
 
@@ -137,7 +115,6 @@ func TestCreateLibraryWithRootsRejectsCloudRoot(t *testing.T) {
 	svc := NewMediaService(&config.Config{}, zap.NewNop(), repos)
 
 	_, err := svc.CreateLibraryWithRoots(t.Context(), "国漫", "anime", []LibraryRootInput{{
-		Name: "OpenList",
 		Path: "cloud://openlist/动漫/国漫?dir=国漫&auto_category=1",
 	}})
 	if !errors.Is(err, ErrCloudLibraryRootUnsupported) {

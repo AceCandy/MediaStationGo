@@ -87,10 +87,7 @@ func (s *FileManagerService) allowedRoots() (map[string]string, error) {
 						if !root.Enabled {
 							continue
 						}
-						label := strings.TrimSpace(root.Name)
-						if label == "" {
-							label = fmt.Sprintf("路径%d", i+1)
-						}
+						label := fmt.Sprintf("路径%d", i+1)
 						add("library:"+l.Name+":"+label, resolveMappedDestinationPath(root.Path))
 					}
 					continue

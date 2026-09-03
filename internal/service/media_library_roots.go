@@ -12,8 +12,6 @@ import (
 
 type LibraryRootInput struct {
 	ID        string `json:"id,omitempty"`
-	Name      string `json:"name,omitempty"`
-	NameSet   bool   `json:"-"`
 	Path      string `json:"path"`
 	Enabled   *bool  `json:"enabled,omitempty"`
 	SortOrder *int   `json:"sort_order,omitempty"`
@@ -152,7 +150,6 @@ func normalizeLibraryRootInputs(inputs []LibraryRootInput, requirePath bool) ([]
 			enabled = *input.Enabled
 		}
 		roots = append(roots, model.LibraryRoot{
-			Name:    strings.TrimSpace(input.Name),
 			Path:    abs,
 			Enabled: enabled,
 		})
@@ -211,9 +208,6 @@ func (s *MediaService) UpdateLibraryRoot(ctx context.Context, libraryID, rootID 
 		return root, err
 	}
 	updates := map[string]any{}
-	if input.NameSet || input.Name != "" {
-		updates["name"] = strings.TrimSpace(input.Name)
-	}
 	if strings.TrimSpace(input.Path) != "" {
 		roots, err := normalizeLibraryRootInputs([]LibraryRootInput{input}, true)
 		if err != nil {
@@ -273,7 +267,6 @@ func (s *MediaService) ensureLibraryRoots(ctx context.Context, libraryID string)
 	}
 	root := &model.LibraryRoot{
 		LibraryID: libraryID,
-		Name:      libraryRootNameForPath(lib.Path),
 		Path:      lib.Path,
 		Enabled:   lib.Enabled,
 		SortOrder: 0,
@@ -317,8 +310,4 @@ func normalizeLibraryRootPath(rawPath string) (string, error) {
 
 func libraryRootPathKey(pathValue string) string {
 	return strings.ToLower(filepath.Clean(strings.TrimSpace(pathValue)))
-}
-
-func libraryRootNameForPath(pathValue string) string {
-	return filepath.Base(filepath.Clean(pathValue))
 }

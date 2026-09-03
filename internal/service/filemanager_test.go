@@ -211,8 +211,8 @@ func TestFileManagerIncludesAllLibraryRoots(t *testing.T) {
 	repos := repository.New(db)
 	lib := &model.Library{Name: "电影", Path: rootA, Type: "movie", Enabled: true}
 	if err := repos.Library.CreateWithRoots(t.Context(), lib, []model.LibraryRoot{
-		{Name: "硬盘1", Path: rootA, Enabled: true},
-		{Name: "硬盘2", Path: rootB, Enabled: true, SortOrder: 1},
+		{Path: rootA, Enabled: true},
+		{Path: rootB, Enabled: true, SortOrder: 1},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -229,10 +229,10 @@ func TestFileManagerIncludesAllLibraryRoots(t *testing.T) {
 	for _, root := range listing.Roots {
 		got[root.Label] = root.Path
 	}
-	if got["library:电影:硬盘1"] != filepath.Clean(rootA) {
+	if got["library:电影:路径1"] != filepath.Clean(rootA) {
 		t.Fatalf("root A missing from listing: %#v", listing.Roots)
 	}
-	if got["library:电影:硬盘2"] != filepath.Clean(rootB) {
+	if got["library:电影:路径2"] != filepath.Clean(rootB) {
 		t.Fatalf("root B missing from listing: %#v", listing.Roots)
 	}
 	if _, err := svc.List(nestedB, 100); err != nil {
