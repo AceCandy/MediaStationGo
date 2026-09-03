@@ -1,4 +1,5 @@
 import type { MouseEvent, ReactNode } from 'react'
+import { Link } from 'react-router-dom'
 import {
   ChevronRight,
   Film,
@@ -51,7 +52,7 @@ export function AdminLibraryGrid({
   onSelect,
 }: {
   libs: Library[]
-  onSelect: (library: Library) => void
+  onSelect?: (library: Library) => void
 }) {
   if (!libs.length) {
     return (
@@ -60,7 +61,9 @@ export function AdminLibraryGrid({
           <LibraryBig size={20} />
         </div>
         <p className="font-medium text-ink-600">还没有媒体库</p>
-        <p className="text-sm text-ink-50">点击右上角「新建媒体库」创建第一个媒体库。</p>
+        <p className="text-sm text-ink-50">
+          {onSelect ? '点击右上角「新建媒体库」创建第一个媒体库。' : '暂无可浏览的媒体库。'}
+        </p>
       </div>
     )
   }
@@ -78,16 +81,32 @@ function LibraryGridCard({
   onSelect,
 }: {
   library: Library
-  onSelect: (library: Library) => void
+  onSelect?: (library: Library) => void
 }) {
   const rootCount = library.roots?.length || 1
+  const details = (
+    <>
+      <div className="min-w-0">
+        <h3 className="truncate font-display text-base font-bold text-ink-600">{library.name}</h3>
+        <p className="mt-0.5 flex items-center gap-1 text-xs text-ink-50">
+          <FolderOpen size={12} /> {rootCount} 个路径来源
+        </p>
+      </div>
+      {onSelect && (
+        <ChevronRight
+          size={16}
+          className="shrink-0 text-ink-50 transition group-hover:translate-x-0.5 group-hover:text-brand-500"
+        />
+      )}
+    </>
+  )
   return (
-    <button
-      type="button"
-      onClick={() => onSelect(library)}
-      className="card-hover group overflow-hidden !p-0 text-left"
-    >
-      <div className="relative flex h-32 items-center justify-center overflow-hidden bg-brand-50">
+    <article className="card-hover group overflow-hidden !p-0 text-left">
+      <Link
+        to={`/library/${library.id}`}
+        aria-label={`浏览媒体库 ${library.name}`}
+        className="relative flex h-32 items-center justify-center overflow-hidden bg-brand-50"
+      >
         {library.cover_url ? (
           <img
             src={library.cover_url}
@@ -103,20 +122,20 @@ function LibraryGridCard({
         {!library.enabled && (
           <span className="badge-neutral absolute right-3 top-3 shadow-sm">已禁用</span>
         )}
-      </div>
-      <div className="flex items-center justify-between gap-2 p-4">
-        <div className="min-w-0">
-          <h3 className="truncate font-display text-base font-bold text-ink-600">{library.name}</h3>
-          <p className="mt-0.5 flex items-center gap-1 text-xs text-ink-50">
-            <FolderOpen size={12} /> {rootCount} 个路径来源
-          </p>
-        </div>
-        <ChevronRight
-          size={16}
-          className="shrink-0 text-ink-50 transition group-hover:translate-x-0.5 group-hover:text-brand-500"
-        />
-      </div>
-    </button>
+      </Link>
+      {onSelect ? (
+        <button
+          type="button"
+          onClick={() => onSelect(library)}
+          aria-label={`设置媒体库 ${library.name}`}
+          className="flex w-full items-center justify-between gap-2 p-4 text-left"
+        >
+          {details}
+        </button>
+      ) : (
+        <div className="flex items-center justify-between gap-2 p-4">{details}</div>
+      )}
+    </article>
   )
 }
 

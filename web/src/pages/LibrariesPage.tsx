@@ -1,16 +1,13 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { GalleryHorizontalEnd, LayoutGrid } from 'lucide-react'
 import { Link, Navigate, useSearchParams } from 'react-router-dom'
 import clsx from 'clsx'
 
 import { libraryAPI } from '../api/library'
 import { useAuthStore } from '../stores/auth'
-import {
-  LibrariesContent,
-  LibrariesEmptyState,
-  LibrariesHeader,
-} from './LibrariesPageSections'
-import { isSeriesLibraryType, latestLibraryCards, type LibraryPreview } from './librariesPageModel'
+import type { Library } from '../types'
+import { AdminLibraryPanel } from './AdminLibraryPanel'
+import { AdminLibraryGrid } from './AdminLibraryTable'
 import { PosterWallPage } from './PosterWallPage'
 
 export function LibrariesPage() {
@@ -19,54 +16,6 @@ export function LibrariesPage() {
   const viewValues = searchParams.getAll('view')
   const view = viewValues[0] ?? 'library'
   const validView = viewValues.length <= 1 && (view === 'library' || view === 'poster')
-  const [previews, setPreviews] = useState<LibraryPreview[]>([])
-  const [libraryCount, setLibraryCount] = useState(0)
-  const [loading, setLoading] = useState(true)
-
-  useEffect(() => {
-    if (!validView || view !== 'library') return undefined
-    let cancelled = false
-    async function load() {
-      setLoading(true)
-      setPreviews([])
-      setLibraryCount(0)
-      try {
-        const libs = await libraryAPI.list()
-        if (cancelled) return
-        setLibraryCount(libs.length)
-        const previewByID = new Map<string, LibraryPreview>()
-        const publish = () => {
-          if (cancelled) return
-          setPreviews(libs.map((library) => previewByID.get(library.id)).filter((preview): preview is LibraryPreview => Boolean(preview)))
-        }
-        await Promise.all(libs.map(async (library) => {
-          let preview: LibraryPreview
-          try {
-            if (isSeriesLibraryType(library.type)) {
-              const [seriesPage, mediaPage] = await Promise.all([
-                libraryAPI.listSeries(library.id, 1, 10),
-                libraryAPI.listMedia(library.id, 1, 1, { groupVersions: false }),
-              ])
-              preview = { library, items: [], total: mediaPage.total, cards: seriesPage.items ?? [] }
-            } else {
-              const page = await libraryAPI.listMedia(library.id, 1, 160, { groupVersions: false })
-              preview = { library, items: page.items, total: page.total, cards: latestLibraryCards(page.items) }
-            }
-          } catch {
-            preview = { library, items: [], total: 0, cards: [] }
-          }
-          previewByID.set(library.id, preview)
-          publish()
-        }))
-      } finally {
-        if (!cancelled) setLoading(false)
-      }
-    }
-    load()
-    return () => { cancelled = true }
-  }, [validView, view])
-
-  const total = useMemo(() => previews.reduce((sum, preview) => sum + preview.total, 0), [previews])
 
   if (!validView) return <Navigate to="/libraries" replace />
 
@@ -76,24 +25,28 @@ export function LibrariesPage() {
       {view === 'poster' ? (
         <PosterWallPage />
       ) : (
-        <>
-          {loading && previews.length === 0 ? (
-            <p className="px-2 py-8 text-sm text-sand-500">媒体库加载中…</p>
-          ) : (
-            <>
-              <LibrariesHeader
-                isAdmin={isAdmin}
-                previewCount={libraryCount}
-                total={total}
-              />
-              {previews.length === 0 && !loading ? <LibrariesEmptyState /> : previews.length > 0 && <LibrariesContent previews={previews} />}
-              {loading && <p className="px-2 text-sm text-sand-500">媒体库内容加载中…</p>}
-            </>
-          )}
-        </>
+        <section className="space-y-5">
+          <h1 className="font-display text-3xl font-bold text-ink-600">媒体库</h1>
+          {isAdmin ? <AdminLibraryPanel /> : <ViewerLibraryGrid />}
+        </section>
       )}
     </div>
   )
+}
+
+function ViewerLibraryGrid() {
+  const [libs, setLibs] = useState<Library[] | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    libraryAPI.list()
+      .then((items) => { if (!cancelled) setLibs(items) })
+      .catch(() => { if (!cancelled) setLibs([]) })
+    return () => { cancelled = true }
+  }, [])
+
+  if (!libs) return <p className="px-2 py-8 text-sm text-sand-500">媒体库加载中…</p>
+  return <AdminLibraryGrid libs={libs} />
 }
 
 function LibrariesViewSwitcher({ view }: { view: string }) {

@@ -230,7 +230,6 @@ export const appRoutes: AppRoute[] = [
         id: 'admin-media',
         path: 'media',
         element: <AdminMediaPage />,
-        navigation: { scope: 'files', label: '媒体库管理', icon: Library, to: '/admin/media', order: 10, end: true },
       },
       {
         id: 'admin-media-files',
