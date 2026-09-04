@@ -6,7 +6,7 @@ import { AdminLibraryGrid, LibraryDetailDialog } from './AdminLibraryTable'
 import { useAdminLibraryPanel } from './useAdminLibraryPanel'
 
 export function AdminLibraryPanel() {
-  const { libs, createForm, editableRoots, rootActions, libraryActions } = useAdminLibraryPanel()
+  const { libs, createForm, rootActions, libraryActions } = useAdminLibraryPanel()
   const [createOpen, setCreateOpen] = useState(false)
   const [activeID, setActiveID] = useState<string | null>(null)
   const activeLib = activeID ? libs.find((l) => l.id === activeID) ?? null : null
@@ -45,9 +45,6 @@ export function AdminLibraryPanel() {
         <LibraryDetailDialog
           key={activeLib.id}
           library={activeLib}
-          editableRootDraft={editableRoots.editableRootDraft}
-          onEditableRootChange={editableRoots.setEditableRootDraft}
-          onSaveRoot={rootActions.saveLibraryRoot}
           onToggleRoot={rootActions.toggleLibraryRoot}
           onRemoveRoot={rootActions.removeLibraryRoot}
           onRemoveLibrary={libraryActions.removeLibrary}

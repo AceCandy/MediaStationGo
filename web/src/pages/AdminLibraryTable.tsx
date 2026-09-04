@@ -1,4 +1,4 @@
-import { useState, type MouseEvent, type ReactNode } from 'react'
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   ChevronRight,
@@ -6,10 +6,7 @@ import {
   FolderOpen,
   Image,
   LibraryBig,
-  MoreVertical,
   Plus,
-  Power,
-  PowerOff,
   Save,
   Trash2,
   X,
@@ -37,9 +34,6 @@ function libraryTypeLabel(type: string): string {
 }
 
 type LibraryActionProps = {
-  editableRootDraft: (libraryID: string, root: LibraryRoot) => RootDraft
-  onEditableRootChange: (libraryID: string, root: LibraryRoot, patch: Partial<RootDraft>) => void
-  onSaveRoot: (libraryID: string, root: LibraryRoot) => void
   onToggleRoot: (libraryID: string, root: LibraryRoot) => void
   onRemoveRoot: (library: Library, root: LibraryRoot) => void
   onRemoveLibrary: (library: Library) => void
@@ -71,7 +65,7 @@ export function AdminLibraryGrid({
     )
   }
   return (
-    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+    <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
       {libs.map((library) => (
         <LibraryGridCard key={library.id} library={library} onSelect={onSelect} />
       ))}
@@ -90,36 +84,31 @@ function LibraryGridCard({
   const details = (
     <>
       <div className="min-w-0">
-        <h3 className="truncate font-display text-base font-bold text-ink-600">{library.name}</h3>
-        <p className="mt-0.5 flex items-center gap-1 text-xs text-ink-50">
+        <h3 className="truncate font-display text-base font-bold text-white">{library.name}</h3>
+        <p className="mt-0.5 flex items-center gap-1 text-xs text-gray-300">
           <FolderOpen size={12} /> {rootCount} 个路径来源
         </p>
       </div>
-      {onSelect && (
-        <ChevronRight
-          size={16}
-          className="shrink-0 text-ink-50 transition group-hover:translate-x-0.5 group-hover:text-brand-500"
-        />
-      )}
+      {onSelect && <ChevronRight size={16} className="shrink-0 text-gray-300" />}
     </>
   )
   return (
-    <article className="card-hover group overflow-hidden !p-0 text-left">
+    <article className="card-hover group relative aspect-video overflow-hidden !p-0 text-left">
       <Link
         to={`/library/${library.id}`}
         aria-label={`浏览媒体库 ${library.name}`}
-        className="relative flex h-32 items-center justify-center overflow-hidden bg-brand-50"
+        className="absolute inset-0 flex items-center justify-center bg-brand-50"
       >
         {library.cover_url ? (
           <img
             src={imageURL(library.cover_url)}
             alt=""
-            className="h-full w-full object-cover transition duration-300 group-hover:scale-105"
+            className="h-full w-full object-cover object-center transition duration-300 group-hover:scale-105"
           />
         ) : (
           <Film size={32} className="text-brand-300" />
         )}
-        <span className="badge-sage absolute left-3 top-3 shadow-sm">
+        <span className="badge-sage absolute left-3 top-3 opacity-100 shadow-sm transition-opacity [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 [@media(hover:hover)]:group-focus-within:opacity-100">
           {libraryTypeLabel(library.type)}
         </span>
         {!library.enabled && (
@@ -131,12 +120,14 @@ function LibraryGridCard({
           type="button"
           onClick={() => onSelect(library)}
           aria-label={`设置媒体库 ${library.name}`}
-          className="flex w-full items-center justify-between gap-2 p-4 text-left"
+          className="absolute inset-x-0 bottom-0 z-10 flex h-1/3 items-center justify-between gap-2 bg-black/70 px-4 text-left opacity-100 backdrop-blur-sm transition-opacity [@media(hover:hover)]:pointer-events-none [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:pointer-events-auto [@media(hover:hover)]:group-hover:opacity-100 [@media(hover:hover)]:group-focus-within:pointer-events-auto [@media(hover:hover)]:group-focus-within:opacity-100"
         >
           {details}
         </button>
       ) : (
-        <div className="flex items-center justify-between gap-2 p-4">{details}</div>
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 flex h-1/3 items-center justify-between gap-2 bg-black/70 px-4 opacity-100 backdrop-blur-sm transition-opacity [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 [@media(hover:hover)]:group-focus-within:opacity-100">
+          {details}
+        </div>
       )}
     </article>
   )
@@ -166,17 +157,42 @@ export function LibraryDetailDialog({ library, onClose, ...actions }: LibraryDet
     >
       <div className="modal-header">
         <div className="flex min-w-0 items-center gap-3">
-          {library.cover_url ? (
-            <img
-              src={imageURL(library.cover_url)}
-              alt=""
-              className="h-14 w-11 shrink-0 rounded-lg border border-gray-200/80 object-cover"
-            />
-          ) : (
-            <div className="modal-icon">
-              <Film size={20} />
-            </div>
-          )}
+          <div className="group/cover relative h-14 w-11 shrink-0">
+            <label
+              className="block h-full w-full cursor-pointer overflow-hidden rounded-lg border border-gray-200/80 focus-within:ring-2 focus-within:ring-brand-200"
+              title="上传封面"
+            >
+              {library.cover_url ? (
+                <img src={imageURL(library.cover_url)} alt="" className="h-full w-full object-cover" />
+              ) : (
+                <span className="flex h-full w-full items-center justify-center text-ink-50">
+                  <Image size={20} />
+                </span>
+              )}
+              <input
+                type="file"
+                className="absolute inset-0 cursor-pointer opacity-0"
+                aria-label="上传媒体库封面"
+                accept="image/jpeg,image/png,image/webp,image/gif,image/bmp"
+                onChange={(event) => {
+                  const cover = event.target.files?.[0]
+                  event.target.value = ''
+                  if (cover) void actions.onUploadLibraryCover(library, cover)
+                }}
+              />
+            </label>
+            {library.cover_url && (
+              <button
+                type="button"
+                className="absolute -right-1.5 -top-1.5 z-10 flex h-5 w-5 items-center justify-center rounded-full bg-black/70 text-white opacity-100 shadow transition-opacity [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover/cover:opacity-100 focus:opacity-100"
+                title="清除封面"
+                aria-label="清除媒体库封面"
+                onClick={() => void actions.onClearLibraryCover(library)}
+              >
+                <X size={12} />
+              </button>
+            )}
+          </div>
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
               <h3 className="truncate font-display text-lg font-bold text-ink-600">{library.name}</h3>
@@ -228,40 +244,13 @@ export function LibraryDetailDialog({ library, onClose, ...actions }: LibraryDet
         )}
       </div>
 
-      <div className="modal-footer flex-wrap !justify-between">
+      <div className="modal-footer !justify-start">
         <button
           className="btn-ghost !text-red-500 hover:!bg-red-50 hover:!text-red-600"
           onClick={() => actions.onRemoveLibrary(library)}
         >
           <Trash2 size={14} /> 删除媒体库
         </button>
-        <div className="flex flex-col items-end gap-1.5">
-          <span className="text-2xs text-ink-50">封面推荐 16:9，支持 JPG、PNG、WebP、GIF、BMP</span>
-          <div className="flex flex-wrap justify-end gap-2">
-            {library.cover_url && (
-              <button
-                type="button"
-                className="btn-outline px-3 py-2 shadow-none"
-                onClick={() => void actions.onClearLibraryCover(library)}
-              >
-                清除封面
-              </button>
-            )}
-            <label className="btn-outline relative cursor-pointer overflow-hidden px-3 py-2 shadow-none focus-within:ring-2 focus-within:ring-brand-200">
-              <Image size={14} /> 上传封面
-              <input
-                type="file"
-                className="absolute inset-0 cursor-pointer opacity-0"
-                accept="image/jpeg,image/png,image/webp,image/gif,image/bmp"
-                onChange={(event) => {
-                  const cover = event.target.files?.[0]
-                  event.target.value = ''
-                  if (cover) void actions.onUploadLibraryCover(library, cover)
-                }}
-              />
-            </label>
-          </div>
-        </div>
       </div>
     </ModalShell>
   )
@@ -275,7 +264,6 @@ type RootEditorProps = Omit<LibraryDetailDialogProps, 'library' | 'onClose'> & {
 }
 
 function ExistingRootEditor({ library, root, ...actions }: RootEditorProps) {
-  const draft = actions.editableRootDraft(library.id, root)
   return (
     <div className="flex flex-col gap-2 rounded-xl border border-gray-200/80 bg-gray-50/60 p-2.5 lg:flex-row lg:items-center">
       <div className="flex min-w-0 flex-1 items-start gap-2">
@@ -283,16 +271,11 @@ function ExistingRootEditor({ library, root, ...actions }: RootEditorProps) {
           <FolderOpen size={14} />
         </div>
         <div className="min-w-0 flex-1">
-          {root.id ? (
-            <EditableRootFields library={library} root={root} draft={draft} {...actions} />
-          ) : (
-            <ReadonlyRootFields root={root} />
-          )}
+          <ReadonlyRootFields root={root} />
         </div>
       </div>
       <div className="flex items-center justify-end gap-2">
-        <RootStatus enabled={draft.enabled ?? root.enabled} />
-        <RootActionButtons library={library} root={root} draft={draft} {...actions} />
+        <RootActionButtons library={library} root={root} {...actions} />
       </div>
     </div>
   )
@@ -301,7 +284,7 @@ function ExistingRootEditor({ library, root, ...actions }: RootEditorProps) {
 function ReadonlyRootFields({ root }: { root: LibraryRoot }) {
   return (
     <span
-      className="block min-w-0 truncate rounded-md bg-white/80 px-2.5 py-1.5 font-mono text-2xs text-ink-100"
+      className="block min-w-0 truncate rounded-md bg-white/80 px-2.5 py-1.5 font-mono text-sm text-ink-100"
       title={displayLibraryRootPath(root.path)}
     >
       {displayLibraryRootPath(root.path)}
@@ -309,106 +292,47 @@ function ReadonlyRootFields({ root }: { root: LibraryRoot }) {
   )
 }
 
-function EditableRootFields({ library, root, draft, onEditableRootChange }: RootEditorProps & { draft: RootDraft }) {
-  return (
-    <LibraryRootPathField root={draft} onChange={(patch) => onEditableRootChange(library.id, root, patch)} />
-  )
-}
-
-function RootStatus({ enabled }: { enabled: boolean }) {
-  return (
-    <span
-      className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border px-2.5 py-1 text-2xs font-bold ${
-        enabled
-          ? 'border-emerald-300/60 bg-emerald-50 text-emerald-600'
-          : 'border-gray-300 bg-gray-100 text-ink-50'
-      }`}
-    >
+function RootStatus({ enabled, onClick }: { enabled: boolean; onClick?: () => void }) {
+  const action = enabled ? '禁用' : '启用'
+  const className = `inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border px-2.5 py-1 text-2xs font-bold ${
+    enabled
+      ? 'border-emerald-300/60 bg-emerald-50 text-emerald-600'
+      : 'border-gray-300 bg-gray-100 text-ink-50'
+  }`
+  const content = (
+    <>
       <span className={`h-1.5 w-1.5 rounded-full ${enabled ? 'bg-emerald-500' : 'bg-gray-400'}`} />
       {enabled ? '启用' : '禁用'}
-    </span>
+    </>
   )
-}
-
-function RootActionButtons({ library, root, draft, ...actions }: RootEditorProps & { draft: RootDraft }) {
-  const enabled = draft.enabled ?? root.enabled
-  return (
-    <ActionMenu label="路径操作">
-      {root.id && (
-        <MenuButton
-          icon={<Save size={14} />}
-          label="保存"
-          onClick={() => actions.onSaveRoot(library.id, root)}
-        >
-          保存
-        </MenuButton>
-      )}
-      {root.id && (
-        <MenuButton
-          icon={enabled ? <PowerOff size={14} /> : <Power size={14} />}
-          label={enabled ? '禁用' : '启用'}
-          onClick={() => actions.onToggleRoot(library.id, root)}
-        >
-          {enabled ? '禁用' : '启用'}
-        </MenuButton>
-      )}
-      {root.id && (
-        <MenuButton
-          danger
-          icon={<Trash2 size={14} />}
-          label="删除"
-          onClick={() => actions.onRemoveRoot(library, root)}
-        >
-          删除
-        </MenuButton>
-      )}
-    </ActionMenu>
-  )
-}
-
-function ActionMenu({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <details className="group relative inline-flex justify-end">
-      <summary
-        className="flex h-8 w-8 cursor-pointer list-none items-center justify-center rounded-lg border border-gray-200 bg-white text-ink-50 transition hover:border-primary-400/50 hover:text-brand-500 [&::-webkit-details-marker]:hidden"
-        title={label}
-      >
-        <MoreVertical size={16} />
-      </summary>
-      <div className="absolute right-0 top-9 z-30 min-w-28 rounded-lg border border-gray-200 bg-white p-1 shadow-lg">
-        {children}
-      </div>
-    </details>
-  )
-}
-
-function MenuButton({
-  icon,
-  label,
-  danger,
-  onClick,
-  children,
-}: {
-  icon: ReactNode
-  label: string
-  danger?: boolean
-  onClick: () => void
-  children: ReactNode
-}) {
-  const handleClick = (event: MouseEvent<HTMLButtonElement>) => {
-    event.currentTarget.closest('details')?.removeAttribute('open')
-    onClick()
-  }
+  if (!onClick) return <span className={className}>{content}</span>
   return (
     <button
-      className={`flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-xs transition ${
-        danger ? 'text-red-500 hover:bg-red-50' : 'text-ink-100 hover:bg-gray-50 hover:text-brand-500'
-      }`}
-      title={label}
-      onClick={handleClick}
+      type="button"
+      className={`${className} transition hover:border-brand-400`}
+      title={`${action}路径`}
+      aria-label={`${action}路径`}
+      onClick={onClick}
     >
-      {icon}
-      <span>{children}</span>
+      {content}
     </button>
+  )
+}
+
+function RootActionButtons({ library, root, ...actions }: RootEditorProps) {
+  if (!root.id) return <RootStatus enabled={root.enabled} />
+  return (
+    <>
+      <RootStatus enabled={root.enabled} onClick={() => actions.onToggleRoot(library.id, root)} />
+      <button
+        type="button"
+        className="flex h-8 w-8 items-center justify-center rounded-lg border border-red-300/60 text-red-500 transition hover:bg-red-50"
+        title="删除路径"
+        aria-label="删除路径"
+        onClick={() => actions.onRemoveRoot(library, root)}
+      >
+        <Trash2 size={14} />
+      </button>
+    </>
   )
 }

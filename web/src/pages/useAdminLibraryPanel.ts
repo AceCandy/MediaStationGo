@@ -4,16 +4,15 @@ import toast from 'react-hot-toast'
 import { libraryAPI } from '../api/library'
 import type { Library, LibraryRoot } from '../types'
 import { confirmAction } from '../components/confirmAction'
-import { apiErrorMessage, createRootPayload, displayLibraryRootPath, emptyRootDraft, rootDraftKey, type RootDraft } from './adminLibraryPanelModel'
+import { apiErrorMessage, createRootPayload, displayLibraryRootPath, emptyRootDraft, type RootDraft } from './adminLibraryPanelModel'
 
 export function useAdminLibraryPanel() {
   const { libs, refresh } = useAdminLibraryList()
   const createForm = useCreateLibraryForm(refresh)
-  const editableRoots = useEditableRootDrafts()
-  const rootActions = useEditableLibraryRootActions(refresh, editableRoots)
+  const rootActions = useLibraryRootActions(refresh)
   const libraryActions = useLibraryActions(refresh)
 
-  return { libs, createForm, editableRoots, rootActions, libraryActions }
+  return { libs, createForm, rootActions, libraryActions }
 }
 
 function useAdminLibraryList() {
@@ -69,57 +68,18 @@ function useCreateLibraryForm(refresh: () => Promise<void>) {
   }
 }
 
-function useEditableRootDrafts() {
-  const [rootDrafts, setRootDrafts] = useState<Record<string, RootDraft>>({})
-
-  const editableRootDraft = (libraryID: string, root: LibraryRoot): RootDraft => {
-    const key = rootDraftKey(libraryID, root.id)
-    return rootDrafts[key] ?? {
-      path: displayLibraryRootPath(root.path),
-      enabled: root.enabled,
-      sort_order: root.sort_order,
-    }
-  }
-
-  const setEditableRootDraft = (libraryID: string, root: LibraryRoot, patch: Partial<RootDraft>) => {
-    const key = rootDraftKey(libraryID, root.id)
-    setRootDrafts((prev) => ({ ...prev, [key]: { ...editableRootDraft(libraryID, root), ...patch } }))
-  }
-
-  const clearEditableRootDraft = (libraryID: string, rootID: string) => {
-    setRootDrafts((prev) => {
-      const next = { ...prev }
-      delete next[rootDraftKey(libraryID, rootID)]
-      return next
-    })
-  }
-
-  return { editableRootDraft, setEditableRootDraft, clearEditableRootDraft }
-}
-
-type EditableRootDrafts = ReturnType<typeof useEditableRootDrafts>
-
-function useEditableLibraryRootActions(refresh: () => Promise<void>, drafts: EditableRootDrafts) {
-  const saveLibraryRoot = async (libraryID: string, root: LibraryRoot) => {
-    const draft = drafts.editableRootDraft(libraryID, root)
-    if (!draft.path?.trim()) {
-      toast.error('请填写路径')
-      return
-    }
-    await libraryAPI.updateRoot(libraryID, root.id, {
-      path: draft.path.trim(),
-      enabled: draft.enabled,
-      sort_order: draft.sort_order,
-    })
-    drafts.clearEditableRootDraft(libraryID, root.id)
-    toast.success('路径已保存')
-    await refresh()
-  }
-
+function useLibraryRootActions(refresh: () => Promise<void>) {
   const toggleLibraryRoot = async (libraryID: string, root: LibraryRoot) => {
-    const enabled = !drafts.editableRootDraft(libraryID, root).enabled
-    drafts.setEditableRootDraft(libraryID, root, { enabled })
+    const enabled = !root.enabled
+    const action = enabled ? '启用' : '禁用'
+    if (!(await confirmAction({
+      title: `${action}媒体库路径`,
+      message: `确定${action}「${displayLibraryRootPath(root.path)}」？`,
+      confirmText: action,
+      danger: !enabled,
+    }))) return
     await libraryAPI.updateRoot(libraryID, root.id, { enabled })
+    toast.success(`路径已${action}`)
     await refresh()
   }
 
@@ -130,7 +90,7 @@ function useEditableLibraryRootActions(refresh: () => Promise<void>, drafts: Edi
     await refresh()
   }
 
-  return { saveLibraryRoot, toggleLibraryRoot, removeLibraryRoot }
+  return { toggleLibraryRoot, removeLibraryRoot }
 }
 
 function useLibraryActions(refresh: () => Promise<void>) {

@@ -5,8 +5,6 @@ export type RootDraft = LibraryRootInput
 
 export const emptyRootDraft = (): RootDraft => ({ path: '', enabled: true })
 
-export const rootDraftKey = (libraryID: string, rootID: string) => `${libraryID}:${rootID}`
-
 export function displayLibraryRootPath(path: string) {
   return path
 }
