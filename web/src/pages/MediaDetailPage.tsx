@@ -40,7 +40,6 @@ export function MediaDetailPage() {
         onVersionChange={detail.selectVersion}
         onToggleFavourite={detail.toggleFavourite}
         onSmartScrape={detail.rescrape}
-        onManualScrape={() => detail.setManualScrapeOpen(true)}
         onDoubanEnrich={detail.enrichDouban}
         doubanEnrichmentPending={detail.doubanEnrichmentPending}
         onMetadataEdit={() => detail.setMetadataEditOpen(true)}
@@ -50,13 +49,10 @@ export function MediaDetailPage() {
       />
       <MediaDetailDialogs
         media={media}
-        manualScrapeOpen={detail.manualScrapeOpen}
         metadataEditOpen={detail.metadataEditOpen}
         organizeOpen={detail.organizeOpen}
-        onManualScrapeClose={() => detail.setManualScrapeOpen(false)}
         onMetadataEditClose={() => detail.setMetadataEditOpen(false)}
         onOrganizeClose={() => detail.setOrganizeOpen(false)}
-        onManualScrapeApplied={detail.refresh}
         onMetadataSaved={detail.handleMetadataSaved}
         onOrganized={detail.refresh}
       />

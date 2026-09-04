@@ -22,7 +22,6 @@ type LibrarySeriesDetailSectionProps = {
   seriesToolBusy: string
   onBack: () => void
   onSmartScrape: () => void
-  onManualScrape: () => void
   onMetadataEdit: () => void
   onProbe: () => void
   onEpisodeProbe: (media: Media) => void
@@ -43,7 +42,6 @@ export function LibrarySeriesDetailSection({
   seriesToolBusy,
   onBack,
   onSmartScrape,
-  onManualScrape,
   onMetadataEdit,
   onProbe,
   onEpisodeProbe,
@@ -69,7 +67,6 @@ export function LibrarySeriesDetailSection({
             seriesToolBusy={seriesToolBusy}
             onBack={onBack}
             onSmartScrape={onSmartScrape}
-            onManualScrape={onManualScrape}
             onMetadataEdit={onMetadataEdit}
             onProbe={onProbe}
             onOrganize={onOrganize}

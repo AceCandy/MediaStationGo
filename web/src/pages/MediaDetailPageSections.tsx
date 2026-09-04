@@ -2,7 +2,6 @@ import { ArrowLeft, Play } from 'lucide-react'
 import { Link } from 'react-router-dom'
 
 import { ExternalPlayerButton } from '../components/ExternalPlayerButton'
-import { ManualScrapeDialog } from '../components/ManualScrapeDialog'
 import { MetadataEditDialog } from '../components/MetadataEditDialog'
 import { OrganizeMediaDialog } from '../components/OrganizeMediaDialog'
 import type { Media } from '../types'
@@ -11,7 +10,6 @@ import { MediaDetailPoster } from './MediaDetailArtwork'
 import { MediaDetailCast } from './MediaDetailCast'
 import { MediaDetailMetadata } from './MediaDetailMetadata'
 import { MediaDetailTracks } from './MediaDetailTracks'
-import { mediaDetailScrapeMediaType } from './MediaDetailPageModel'
 
 interface MediaDetailPlaybackActionsProps {
   media: Media
@@ -29,7 +27,6 @@ interface MediaDetailMainContentProps extends MediaDetailPlaybackActionsProps {
   onVersionChange: (id: string) => void
   onToggleFavourite: () => void
   onSmartScrape: () => void
-  onManualScrape: () => void
   onDoubanEnrich: () => void
   doubanEnrichmentPending: boolean
   onMetadataEdit: () => void
@@ -40,22 +37,12 @@ interface MediaDetailMainContentProps extends MediaDetailPlaybackActionsProps {
 
 interface MediaDetailDialogsProps {
   media: Media
-  manualScrapeOpen: boolean
   metadataEditOpen: boolean
   organizeOpen: boolean
-  onManualScrapeClose: () => void
   onMetadataEditClose: () => void
   onOrganizeClose: () => void
-  onManualScrapeApplied: () => void
   onMetadataSaved: (media: Media) => void | Promise<void>
   onOrganized: () => void
-}
-
-interface MediaDetailManualScrapeDialogProps {
-  open: boolean
-  media: Media
-  onClose: () => void
-  onApplied: () => void
 }
 
 export function MediaDetailLoading() {
@@ -117,7 +104,6 @@ export function MediaDetailMainContent({
   onVersionChange,
   onToggleFavourite,
   onSmartScrape,
-  onManualScrape,
   onDoubanEnrich,
   doubanEnrichmentPending,
   onMetadataEdit,
@@ -153,7 +139,6 @@ export function MediaDetailMainContent({
             {isAdmin && (
               <MediaDetailAdminMenu
                 onSmartScrape={onSmartScrape}
-                onManualScrape={onManualScrape}
                 onDoubanEnrich={(media.metadata_kind === 'movie' || media.metadata_kind === 'series') && media.douban_id ? onDoubanEnrich : undefined}
                 doubanEnrichmentPending={doubanEnrichmentPending}
                 doubanDegraded={media.douban_status === 'degraded'}
@@ -177,24 +162,15 @@ export function MediaDetailMainContent({
 
 export function MediaDetailDialogs({
   media,
-  manualScrapeOpen,
   metadataEditOpen,
   organizeOpen,
-  onManualScrapeClose,
   onMetadataEditClose,
   onOrganizeClose,
-  onManualScrapeApplied,
   onMetadataSaved,
   onOrganized,
 }: MediaDetailDialogsProps) {
   return (
     <>
-      <MediaDetailManualScrapeDialog
-        open={manualScrapeOpen}
-        media={media}
-        onClose={onManualScrapeClose}
-        onApplied={onManualScrapeApplied}
-      />
       <MetadataEditDialog
         open={metadataEditOpen}
         media={media}
@@ -208,24 +184,5 @@ export function MediaDetailDialogs({
         onOrganized={onOrganized}
       />
     </>
-  )
-}
-
-function MediaDetailManualScrapeDialog({
-  open,
-  media,
-  onClose,
-  onApplied,
-}: MediaDetailManualScrapeDialogProps) {
-  return (
-    <ManualScrapeDialog
-      open={open}
-      media={media}
-      defaultQuery={media.title}
-      mediaType={mediaDetailScrapeMediaType(media)}
-      scopeLabel={media.title}
-      onClose={onClose}
-      onApplied={onApplied}
-    />
   )
 }

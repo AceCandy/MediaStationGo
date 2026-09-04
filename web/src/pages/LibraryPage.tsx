@@ -21,7 +21,6 @@ export function LibraryPage() {
   const location = useLocation()
   const role = useAuthStore((s) => s.user?.role)
 
-  const [manualSeriesScrapeOpen, setManualSeriesScrapeOpen] = useState(false)
   const [seriesMetadataEditOpen, setSeriesMetadataEditOpen] = useState(false)
   const [missingPoster, setMissingPoster] = useState(false)
   const [missingChineseTitle, setMissingChineseTitle] = useState(false)
@@ -186,7 +185,6 @@ export function LibraryPage() {
         seriesToolBusy={seriesToolBusy}
         onBack={clearSelectedSeries}
         onSmartScrape={handleSeriesSmartScrape}
-        onManualScrape={() => setManualSeriesScrapeOpen(true)}
         onMetadataEdit={() => setSeriesMetadataEditOpen(true)}
         onProbe={handleSeriesProbe}
         onEpisodeProbe={handleEpisodeProbe}
@@ -196,12 +194,9 @@ export function LibraryPage() {
       />
 
       <LibraryPageDialogs
-        manualSeriesScrapeOpen={manualSeriesScrapeOpen}
         seriesMetadataEditOpen={seriesMetadataEditOpen}
         selectedSeries={selectedSeries}
         selectedSeriesMediaIDs={selectedSeriesMediaIDs}
-        libraryType={library?.type}
-        onCloseManualSeriesScrape={() => setManualSeriesScrapeOpen(false)}
         onCloseSeriesMetadataEdit={() => setSeriesMetadataEditOpen(false)}
         onApplied={reloadCurrentLibrary}
       />

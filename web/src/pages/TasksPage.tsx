@@ -494,7 +494,7 @@ function ScrapeIssuesPanel({ libraries }: { libraries: Library[] }) {
                       {nfoOnly && <p className="mt-1 text-xs text-ink-50">请补充或修复本地 NFO 后重试。</p>}
                     </div>
                     <div className="flex shrink-0 flex-wrap items-center gap-2">
-                      {issue.scrape_status === 'no_match' && !nfoOnly && (
+                      {!nfoOnly && (
                         <button type="button" className="btn-outline px-3 py-2 text-xs" disabled={Boolean(openingManual)} onClick={() => void openManualMatch(issue)}>
                           <Search size={14} /> {openingManual === issue.id ? '加载中...' : '手动匹配'}
                         </button>

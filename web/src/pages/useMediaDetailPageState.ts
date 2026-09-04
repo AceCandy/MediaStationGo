@@ -42,7 +42,6 @@ export function useMediaDetailPageState({ id, navigate }: MediaDetailPageStatePa
   const [selectedMediaLoading, setSelectedMediaLoading] = useState(false)
   const [selectedMediaProbing, setSelectedMediaProbing] = useState(false)
   const [selectedMediaError, setSelectedMediaError] = useState('')
-  const [manualScrapeOpen, setManualScrapeOpen] = useState(false)
   const [metadataEditOpen, setMetadataEditOpen] = useState(false)
   const [organizeOpen, setOrganizeOpen] = useState(false)
 
@@ -149,12 +148,10 @@ export function useMediaDetailPageState({ id, navigate }: MediaDetailPageStatePa
     loading,
     probing: showingCurrentMedia ? probing : selectedMediaProbing,
     probeError: showingCurrentMedia ? probeError : selectedMediaError,
-    manualScrapeOpen,
     metadataEditOpen,
     organizeOpen,
     refresh,
     handleMetadataSaved,
-    setManualScrapeOpen,
     setMetadataEditOpen,
     setOrganizeOpen,
     selectVersion: setSelectedVersionID,

@@ -10,7 +10,3 @@ export function mediaLibraryBackTarget(media: Media): string {
   const target = `/library/${encodeURIComponent(libraryID)}`
   return seriesKey ? `${target}?series=${encodeURIComponent(seriesKey)}` : target
 }
-
-export function mediaDetailScrapeMediaType(media: Media): string | undefined {
-  return media.season_num > 0 || media.episode_num > 0 ? 'tv' : undefined
-}

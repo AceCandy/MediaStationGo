@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom'
-import { ArrowLeft, Database, Film, FolderInput, Pencil, Play, Search, Sparkles, Trash2 } from 'lucide-react'
+import { ArrowLeft, Database, Film, FolderInput, Pencil, Play, Sparkles, Trash2 } from 'lucide-react'
 
 import { imageURL } from '../api/client'
 import { ExternalPlayerButton } from '../components/ExternalPlayerButton'
@@ -15,7 +15,6 @@ type LibrarySeriesDetailHeaderProps = {
   seriesToolBusy: string
   onBack: () => void
   onSmartScrape: () => void
-  onManualScrape: () => void
   onMetadataEdit: () => void
   onProbe: () => void
   onOrganize: () => void
@@ -31,7 +30,6 @@ export function LibrarySeriesDetailHeader({
   seriesToolBusy,
   onBack,
   onSmartScrape,
-  onManualScrape,
   onMetadataEdit,
   onProbe,
   onOrganize,
@@ -89,10 +87,6 @@ export function LibrarySeriesDetailHeader({
                 <button onClick={onSmartScrape} disabled={!!seriesToolBusy} className="btn-outline px-3.5 py-2 text-xs gap-1.5">
                   <Sparkles size={13} className="text-[#c9954a]" />
                   <span>{seriesToolBusy === 'scrape' ? '刮削中…' : '整剧智能刮削'}</span>
-                </button>
-                <button onClick={onManualScrape} disabled={!!seriesToolBusy} className="btn-outline px-3.5 py-2 text-xs gap-1.5">
-                  <Search size={13} className="text-[#c9954a]" />
-                  <span>手动匹配整剧</span>
                 </button>
                 <button onClick={onMetadataEdit} disabled={!!seriesToolBusy} className="btn-outline px-3.5 py-2 text-xs gap-1.5">
                   <Pencil size={13} />
