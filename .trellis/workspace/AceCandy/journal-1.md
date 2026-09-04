@@ -1957,3 +1957,25 @@ Removed LibraryRoot name from backend and frontend contracts, UI, services, comp
 ### Status
 
 [OK] **Completed**
+
+
+## Session 91: 修复豆瓣海报重复本地化
+<!-- trellis-session: v=2 fp=ee7dbbf56902c0ed -->
+
+**Date**: 2026-09-04
+**Task**: 修复豆瓣海报重复本地化
+**Branch**: `main`
+
+### Summary
+
+为豆瓣候选增加持久化大图检查点；成功但尺寸较小或官方大图 404 且小图可用时不再重复处理，临时错误和缺图仍重试。使用临时 PostgreSQL 完成聚焦回归测试，并同步豆瓣图片契约。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `a5d934e` | fix: stop repeated Douban artwork repairs |
+
+### Status
+
+[OK] **Completed**

@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 90
+- **Total Sessions**: 91
 - **Last Active**: 2026-09-04
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~1959 | Active |
+| `journal-1.md` | ~1981 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 91 | 2026-09-04 | 修复豆瓣海报重复本地化 | `a5d934e` | `main` |
 | 90 | 2026-09-04 | Remove media library root names | `6a4e85f` | `main` |
 | 89 | 2026-09-04 | 优化媒体库表单交互 | `bbe9bc1` | `main` |
 | 88 | 2026-09-04 | 合并观看空间媒体库入口 | `fe1c512` | `main` |
