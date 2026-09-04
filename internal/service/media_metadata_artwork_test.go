@@ -92,10 +92,13 @@ func TestDoubanArtworkLocalRepairUpgradesCandidateWithoutReplacingManualSelectio
 	root := t.TempDir()
 	cfg := &config.Config{App: config.AppConfig{DataDir: root}, Cache: config.CacheConfig{CacheDir: filepath.Join(root, "cache")}}
 	proxy := NewImageProxy(cfg, zap.NewNop())
+	imageData := testArtworkPNG(t, 270, 400)
 	requestedURL := ""
+	var requests atomic.Int32
 	proxy.client = &http.Client{Transport: imageRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		requests.Add(1)
 		requestedURL = req.URL.String()
-		return &http.Response{StatusCode: http.StatusOK, Status: "200 OK", Header: http.Header{"Content-Type": []string{"image/jpeg"}}, Body: io.NopCloser(bytes.NewReader(testJPEG)), Request: req}, nil
+		return &http.Response{StatusCode: http.StatusOK, Status: "200 OK", Header: http.Header{"Content-Type": []string{"image/png"}}, Body: io.NopCloser(bytes.NewReader(imageData)), Request: req}, nil
 	})}
 	store := NewArtworkStore(cfg, repos.Artwork, proxy)
 	oldPath, err := store.pathForStorageKey(old.StorageKey)
@@ -130,11 +133,134 @@ func TestDoubanArtworkLocalRepairUpgradesCandidateWithoutReplacingManualSelectio
 	if err := db.First(&candidate, "metadata_id = ? AND artwork_type = ? AND source_provider = 'douban'", metadata.ID, model.ArtworkTypePoster).Error; err != nil {
 		t.Fatal(err)
 	}
-	if candidate.AssetID == old.ID || candidate.SourceURL != "https://img9.doubanio.com/view/photo/l/public/p123.jpg" {
+	largeURL := "https://img9.doubanio.com/view/photo/l/public/p123.jpg"
+	if candidate.AssetID == old.ID || candidate.SourceURL != largeURL || candidate.RepairCheckedURL != largeURL {
 		t.Fatalf("repaired candidate = %#v", candidate)
+	}
+	rows, err := repos.Artwork.ListDoubanArtworkCandidatesAfter(t.Context(), "", 20)
+	if err != nil || len(rows) != 1 {
+		t.Fatalf("Douban candidates = %#v, err = %v", rows, err)
+	}
+	if detail, failed := svc.repairDoubanArtworkCandidate(t.Context(), rows[0], map[string]int64{}); failed || detail != "" {
+		t.Fatalf("second repair detail=%q failed=%v", detail, failed)
+	}
+	if requests.Load() != 1 {
+		t.Fatalf("Douban image requests = %d, want 1", requests.Load())
 	}
 	if _, err := os.Stat(oldPath); err != nil {
 		t.Fatalf("old small artwork was removed: %v", err)
+	}
+}
+
+func TestDoubanArtworkLocalRepairCheckpointsOnlyFinal404WithUsableSmallImage(t *testing.T) {
+	tests := []struct {
+		name        string
+		status      int
+		local       bool
+		wantFailed  bool
+		wantChecked bool
+		wantDetail  string
+	}{
+		{name: "available small image and 404", status: http.StatusNotFound, local: true, wantChecked: true, wantDetail: "大图不存在，保留现有小图"},
+		{name: "missing local image and 404", status: http.StatusNotFound, wantFailed: true, wantDetail: "可重试失败"},
+		{name: "temporary upstream failure", status: http.StatusInternalServerError, local: true, wantFailed: true, wantDetail: "可重试失败"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			db := newServiceTestDB(t, &model.MetadataProviderSnapshot{})
+			repos := repository.New(db)
+			metadata := model.MetadataItem{Kind: model.MetadataKindMovie, Title: "Movie", Source: "douban"}
+			if err := db.Create(&metadata).Error; err != nil {
+				t.Fatal(err)
+			}
+			old := &model.ArtworkAsset{SHA256: "douban-small-" + tt.name, StorageKey: "sha256/do/ub/" + strings.ReplaceAll(tt.name, " ", "-") + ".jpg", MimeType: "image/jpeg", Width: 270, Height: 400}
+			oldURL := "https://img9.doubanio.com/view/photo/s_ratio_poster/public/p123.jpg"
+			if _, _, err := repos.Artwork.SaveCandidate(t.Context(), metadata.ID, model.ArtworkTypePoster, "douban", oldURL, old); err != nil {
+				t.Fatal(err)
+			}
+			largeURL := "https://img9.doubanio.com/view/photo/l/public/p123.jpg"
+			payload := `{"cover":{"image":{"large":{"url":"` + largeURL + `"}}}}`
+			if err := db.Create(&model.MetadataProviderSnapshot{MetadataID: metadata.ID, Provider: "douban", Payload: payload, FetchedAt: time.Now().UTC()}).Error; err != nil {
+				t.Fatal(err)
+			}
+			root := t.TempDir()
+			cfg := &config.Config{App: config.AppConfig{DataDir: root}, Cache: config.CacheConfig{CacheDir: filepath.Join(root, "cache")}}
+			proxy := NewImageProxy(cfg, zap.NewNop())
+			var requests atomic.Int32
+			proxy.client = &http.Client{Transport: imageRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+				requests.Add(1)
+				return &http.Response{StatusCode: tt.status, Status: http.StatusText(tt.status), Header: make(http.Header), Body: io.NopCloser(strings.NewReader("failed")), Request: req}, nil
+			})}
+			store := NewArtworkStore(cfg, repos.Artwork, proxy)
+			if tt.local {
+				path, err := store.pathForStorageKey(old.StorageKey)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(path, []byte("small"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			svc := &ScraperService{repo: repos, artwork: store, douban: NewDoubanProvider(nil)}
+			rows, err := repos.Artwork.ListDoubanArtworkCandidatesAfter(t.Context(), "", 20)
+			if err != nil || len(rows) != 1 {
+				t.Fatalf("Douban candidates = %#v, err = %v", rows, err)
+			}
+			detail, failed := svc.repairDoubanArtworkCandidate(t.Context(), rows[0], map[string]int64{})
+			if failed != tt.wantFailed || !strings.Contains(detail, tt.wantDetail) {
+				t.Fatalf("repair detail=%q failed=%v", detail, failed)
+			}
+			var candidate model.MetadataArtworkCandidate
+			if err := db.First(&candidate, "metadata_id = ?", metadata.ID).Error; err != nil {
+				t.Fatal(err)
+			}
+			if (candidate.RepairCheckedURL != "") != tt.wantChecked {
+				t.Fatalf("repair checked URL = %q", candidate.RepairCheckedURL)
+			}
+			if !tt.wantChecked {
+				if tt.local {
+					detail, failed = svc.repairDoubanArtworkCandidate(t.Context(), rows[0], map[string]int64{})
+					if !failed || !strings.Contains(detail, tt.wantDetail) || requests.Load() != 2 {
+						t.Fatalf("retried repair detail=%q failed=%v requests=%d", detail, failed, requests.Load())
+					}
+				}
+				return
+			}
+			rows, err = repos.Artwork.ListDoubanArtworkCandidatesAfter(t.Context(), "", 20)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if detail, failed = svc.repairDoubanArtworkCandidate(t.Context(), rows[0], map[string]int64{}); failed || detail != "" {
+				t.Fatalf("checked repair detail=%q failed=%v", detail, failed)
+			}
+			if requests.Load() != 1 {
+				t.Fatalf("Douban image requests = %d, want 1", requests.Load())
+			}
+			newLargeURL := "https://img9.doubanio.com/view/photo/l/public/p456.jpg"
+			newPayload := `{"cover":{"image":{"large":{"url":"` + newLargeURL + `"}}}}`
+			if err := db.Model(&model.MetadataProviderSnapshot{}).
+				Where("metadata_id = ? AND provider = 'douban'", metadata.ID).
+				Update("payload", newPayload).Error; err != nil {
+				t.Fatal(err)
+			}
+			rows, err = repos.Artwork.ListDoubanArtworkCandidatesAfter(t.Context(), "", 20)
+			if err != nil {
+				t.Fatal(err)
+			}
+			detail, failed = svc.repairDoubanArtworkCandidate(t.Context(), rows[0], map[string]int64{})
+			if failed || !strings.Contains(detail, "大图不存在，保留现有小图") || requests.Load() != 2 {
+				t.Fatalf("changed URL repair detail=%q failed=%v requests=%d", detail, failed, requests.Load())
+			}
+			if err := db.First(&candidate, "metadata_id = ?", metadata.ID).Error; err != nil {
+				t.Fatal(err)
+			}
+			if candidate.RepairCheckedURL != newLargeURL {
+				t.Fatalf("changed repair checked URL = %q", candidate.RepairCheckedURL)
+			}
+		})
 	}
 }
 

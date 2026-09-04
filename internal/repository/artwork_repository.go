@@ -33,15 +33,16 @@ type TMDbArtworkSelection struct {
 }
 
 type DoubanArtworkCandidate struct {
-	CandidateID     string
-	MetadataID      string
-	Title           string
-	ArtworkType     string
-	SourceURL       string
-	AssetID         string
-	StorageKey      string
-	Width           int
-	SnapshotPayload string
+	CandidateID      string
+	MetadataID       string
+	Title            string
+	ArtworkType      string
+	SourceURL        string
+	AssetID          string
+	StorageKey       string
+	Width            int
+	RepairCheckedURL string
+	SnapshotPayload  string
 }
 
 type TMDbArtworkRecheckType struct {
@@ -291,7 +292,7 @@ func (r *ArtworkRepository) ListDoubanArtworkCandidatesAfter(ctx context.Context
 	}
 	var rows []DoubanArtworkCandidate
 	err := q.Select(`mac.id AS candidate_id, mac.metadata_id, mi.title, mac.artwork_type,
-mac.source_url, mac.asset_id, aa.storage_key, aa.width,
+mac.source_url, mac.asset_id, aa.storage_key, aa.width, mac.repair_checked_url,
 COALESCE(mps.payload::text, '') AS snapshot_payload`).
 		Order("mac.id ASC").Limit(limit).Scan(&rows).Error
 	return rows, err
@@ -394,6 +395,15 @@ func (r *ArtworkRepository) RepairTMDbSelection(ctx context.Context, snapshot TM
 	return &saved, updated, err
 }
 
+// MarkDoubanCandidateRepairChecked 仅在候选仍与扫描快照一致时记录已检查的大图 URL。
+func (r *ArtworkRepository) MarkDoubanCandidateRepairChecked(ctx context.Context, snapshot DoubanArtworkCandidate, sourceURL string) (bool, error) {
+	res := r.db.WithContext(ctx).Model(&model.MetadataArtworkCandidate{}).
+		Where("id = ? AND metadata_id = ? AND artwork_type = ? AND asset_id = ?", snapshot.CandidateID, snapshot.MetadataID, snapshot.ArtworkType, snapshot.AssetID).
+		Where("source_provider = 'douban' AND source_url = ?", snapshot.SourceURL).
+		Updates(map[string]any{"repair_checked_url": sourceURL, "updated_at": time.Now().UTC()})
+	return res.RowsAffected > 0, res.Error
+}
+
 // RepairDoubanCandidate 仅在候选仍与扫描快照一致时切换资产，并同步仍指向同一豆瓣旧资产的当前选择。
 func (r *ArtworkRepository) RepairDoubanCandidate(ctx context.Context, snapshot DoubanArtworkCandidate, sourceURL string, asset *model.ArtworkAsset) (*model.ArtworkAsset, bool, error) {
 	var saved model.ArtworkAsset
@@ -408,7 +418,7 @@ func (r *ArtworkRepository) RepairDoubanCandidate(ctx context.Context, snapshot 
 		res := tx.Model(&model.MetadataArtworkCandidate{}).
 			Where("id = ? AND metadata_id = ? AND artwork_type = ? AND asset_id = ?", snapshot.CandidateID, snapshot.MetadataID, snapshot.ArtworkType, snapshot.AssetID).
 			Where("source_provider = 'douban' AND source_url = ?", snapshot.SourceURL).
-			Updates(map[string]any{"asset_id": saved.ID, "source_url": sourceURL, "updated_at": time.Now().UTC()})
+			Updates(map[string]any{"asset_id": saved.ID, "source_url": sourceURL, "repair_checked_url": sourceURL, "updated_at": time.Now().UTC()})
 		if res.Error != nil || res.RowsAffected == 0 {
 			return res.Error
 		}

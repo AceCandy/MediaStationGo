@@ -259,6 +259,7 @@ cleanup(request.Token)
 - Download boundary: `ImageProxy.Fetch(ctx, officialSourceURL)`.
 - Manual task definition: `douban_artwork_local_repair`, displayed as `豆瓣图片本地化修复`.
 - Candidate repair CAS identity: candidate ID plus metadata ID, artwork type, old asset ID, provider, and old source URL; current-selection synchronization is guarded by metadata ID, artwork type, old asset ID, and Douban provider.
+- Candidate checkpoint: `metadata_artwork_candidates.repair_checked_url text NOT NULL DEFAULT ''`; `MarkDoubanCandidateRepairChecked` uses the same candidate CAS identity.
 
 ### 3. Contracts
 
@@ -276,6 +277,9 @@ cleanup(request.Token)
 - A configuration lookup error falls back to normal mode. A valid cached image is served without resolving transport configuration.
 - Normal and direct modes share successful image bytes but use separate six-hour 404 markers. Enabling direct mode therefore bypasses an old normal-mode 404 immediately. `RemoveFailed` and `RemoveCached` clear both markers.
 - The repair task scans Douban poster candidates. A missing local file, `s_ratio_poster` source, or asset width at most 300 is repairable. Known `/view/photo/<variant>/public/<file>` paths may be changed to `/view/photo/l/public/<file>` for historical repair.
+- `repair_checked_url` is business state, not task history. When the local candidate file is usable and the current resolved official repair URL equals this checkpoint, skip the candidate even when the stored image width is at most 300.
+- A successful replacement stores the official URL in both `source_url` and `repair_checked_url` within the candidate CAS. If the final official request returns exact 404 while the existing local image remains usable, keep that image and `source_url`, checkpoint only the attempted official URL, and finish that candidate without failure.
+- Exact 404 with no usable local image and every transient failure leave `repair_checked_url` unchanged and remain retryable. A different resolved official URL does not match the old checkpoint and is attempted normally.
 - Download and prepare the replacement before a transactional candidate CAS. Update the current selection only when it still points to the same old Douban asset. Never delete the old asset row or file in this task.
 - The scheduler job exists for task-center execution but is disabled by default. Saving `base_url` never starts repair work.
 
@@ -297,6 +301,11 @@ cleanup(request.Token)
 | CDN returns 404 and official source succeeds | Return/cache the official result and write no failure marker. |
 | CDN and official source both fail, but official failure is not 404 | Return the final error and write no failure marker. |
 | Final official source returns exact 404 | Write the mode-specific six-hour failure marker under the official URL key. |
+| Final official source returns exact 404 and the candidate's local image is usable | Keep the existing asset and provenance, CAS the official URL into `repair_checked_url`, and report a non-failing retained-small-image detail. |
+| Final official source returns exact 404 and the candidate's local image is missing | Report failure and do not checkpoint the URL. |
+| Checked official URL still matches and the local image is usable | Skip without another download or repeated success detail, regardless of stored width. |
+| Provider snapshot resolves to a different official URL | Ignore the old checkpoint and attempt the new URL. |
+| Image download fails with a non-404 error | Report a retryable failure and do not checkpoint the URL. |
 | Discover cache predates an image-origin update | Keep returning the same official URL; the next image-cache miss uses the new CDN. |
 | `image_direct=false`, missing row, or configuration lookup error | Keep the existing proxy-aware image request order. |
 | `image_direct=true` with an official or current configured image host | Try only the proxy-free Go client, then curl if it fails. |
@@ -316,6 +325,9 @@ cleanup(request.Token)
 - Base: no image origin is configured; search/discover use the upstream `/l/` JPEG and detail uses a validated large field.
 - Base: `image_direct` is absent or false and existing deployments keep the previous image behavior.
 - Good: 713 non-selected Douban candidates upgrade without changing their other-provider current posters, while a matching selected Douban poster follows its upgraded candidate.
+- Good: an official large URL returns a 270-pixel-wide image once; the local candidate is accepted and later runs skip the same checked URL.
+- Base: the official large URL returns 404 while a local thumbnail exists; retain the thumbnail and retry only after the resolved URL changes.
+- Bad: use width alone as completion state, permanently checkpoint a transient failure, or change the thumbnail's provenance to a URL whose bytes were never downloaded.
 - Bad: persist a configured CDN URL, use it as the cache key, negative-cache DNS/5xx/non-image failures, route every image through curl, rewrite the Douban JSON API base URL, return `pic.normal`, derive a non-standard thumbnail by guesswork, or delete the small file before the large image is safely stored.
 
 ### 6. Tests Required
@@ -324,6 +336,7 @@ cleanup(request.Token)
 - Provider/handler-test search and discover thumbnail derivation; assert responses and section cache retain the same official large URL across CDN configuration changes.
 - Repository-test keyset candidate projection and CAS behavior for stale candidates, other-provider current selections, and matching Douban current selections.
 - Service-test a small or missing candidate through download, DataDir storage, configured origin use, candidate switch, and old-file preservation.
+- Assert a successful replacement whose width remains at most 300 is skipped on the second pass; assert usable-small-image 404 checkpointing, missing-file 404 failure, transient retryability, URL-change retry, and stale-candidate CAS rejection.
 - Assert the `image_direct` database migration and API update/public/resolve round trip.
 - Image-proxy-test live CDN selection, CDN-to-official fallback, official cache identity, exact-404 negative caching, transient retryability, direct-client selection, and cleanup of both failure markers.
 - Assert task definition and disabled scheduler registration; run `go vet`, focused service/repository tests, and `git diff --check`.
@@ -357,5 +370,17 @@ candidate.SourceURL = officialURL
 data, err := imageProxy.Fetch(ctx, officialURL)
 if err != nil {
 	return err
+}
+```
+
+```go
+// Wrong: width alone makes a valid best-available poster download forever.
+if candidate.Width <= 300 {
+	downloadAgain(candidate)
+}
+
+// Correct: durable business state stops only the same completed URL attempt.
+if localAvailable && candidate.RepairCheckedURL == resolvedOfficialURL {
+	return nil
 }
 ```

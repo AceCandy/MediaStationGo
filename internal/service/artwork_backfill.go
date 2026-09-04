@@ -69,18 +69,34 @@ func (s *ScraperService) repairDoubanArtworkCandidate(ctx context.Context, item 
 		metrics["large_skipped"]++
 		return "", false
 	}
-	if available {
-		metrics["small"]++
-	} else {
-		metrics["missing"]++
-	}
 	sourceURL := doubanRepairPosterURL(item.SnapshotPayload, item.SourceURL)
 	if !validRemoteArtworkURL(sourceURL) {
 		return "❌ " + subject + "，动作=选择豆瓣大图，结果=没有可用图片链接", true
 	}
 	sourceURL = s.douban.ResolveArtworkURL(ctx, sourceURL)
+	if available && strings.TrimSpace(item.RepairCheckedURL) == sourceURL {
+		metrics["checked_skipped"]++
+		return "", false
+	}
+	if available {
+		metrics["small"]++
+	} else {
+		metrics["missing"]++
+	}
 	_, updated, err := s.artwork.repairDoubanCandidate(ctx, item, sourceURL)
 	if err != nil {
+		if available && isRemoteImageHTTPStatus(err, http.StatusNotFound) {
+			updated, saveErr := s.repo.Artwork.MarkDoubanCandidateRepairChecked(ctx, item, sourceURL)
+			if saveErr != nil {
+				return "❌ " + subject + "，动作=记录豆瓣大图状态，结果=失败：" + sanitizeTaskLogError(saveErr).Error(), true
+			}
+			if !updated {
+				metrics["concurrent_skipped"]++
+				return "⏭️ " + subject + "，动作=记录豆瓣大图状态，结果=候选已并发变更", false
+			}
+			metrics["small_retained"]++
+			return "⏭️ " + subject + "，动作=检查豆瓣大图，结果=大图不存在，保留现有小图", false
+		}
 		return "❌ " + subject + "，动作=下载豆瓣大图，结果=可重试失败：" + sanitizeTaskLogError(err).Error(), true
 	}
 	if !updated {

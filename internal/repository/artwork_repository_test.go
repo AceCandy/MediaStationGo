@@ -106,8 +106,14 @@ func TestRepairDoubanCandidatePreservesOtherSelectionAndUpdatesMatchingSelection
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&model.MetadataItem{}, &model.MetadataProviderSnapshot{}, &model.ArtworkAsset{}, &model.MetadataArtwork{}, &model.MetadataArtworkCandidate{}); err != nil {
-		t.Fatal(err)
+	models := []any{&model.MetadataItem{}, &model.MetadataProviderSnapshot{}, &model.ArtworkAsset{}, &model.MetadataArtwork{}, &model.MetadataArtworkCandidate{}}
+	for range 2 {
+		if err := db.AutoMigrate(models...); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if !db.Migrator().HasColumn(&model.MetadataArtworkCandidate{}, "repair_checked_url") {
+		t.Fatal("missing repair_checked_url column")
 	}
 	items := []model.MetadataItem{
 		{Kind: model.MetadataKindMovie, Title: "Manual current", Source: "tmdb"},
@@ -147,6 +153,25 @@ func TestRepairDoubanCandidatePreservesOtherSelectionAndUpdatesMatchingSelection
 		byMetadata[row.MetadataID] = row
 	}
 	newURL := "https://img.test/view/photo/l/public/new.jpg"
+	if updated, err := repo.MarkDoubanCandidateRepairChecked(t.Context(), byMetadata[items[0].ID], newURL); err != nil || !updated {
+		t.Fatalf("mark candidate checked updated=%v err=%v", updated, err)
+	}
+	checkedRows, err := repo.ListDoubanArtworkCandidatesAfter(t.Context(), "", 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	checked := false
+	for _, row := range checkedRows {
+		if row.MetadataID == items[0].ID {
+			checked = true
+			if row.RepairCheckedURL != newURL {
+				t.Fatalf("repair checked URL = %q", row.RepairCheckedURL)
+			}
+		}
+	}
+	if !checked {
+		t.Fatal("marked Douban candidate not returned")
+	}
 	for i := range items {
 		replacement := &model.ArtworkAsset{SHA256: "douban-new-" + items[i].ID, StorageKey: "douban-new-" + items[i].ID + ".jpg", MimeType: "image/jpeg", Width: 1066}
 		if _, updated, err := repo.RepairDoubanCandidate(t.Context(), byMetadata[items[i].ID], newURL, replacement); err != nil || !updated {
@@ -162,9 +187,19 @@ func TestRepairDoubanCandidatePreservesOtherSelectionAndUpdatesMatchingSelection
 	if err != nil || selected == nil || selected.ID == old.ID || selected.Width != 1066 {
 		t.Fatalf("matching Douban selection was not updated: %#v, %v", selected, err)
 	}
+	var repaired model.MetadataArtworkCandidate
+	if err := db.First(&repaired, "metadata_id = ?", items[1].ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if repaired.RepairCheckedURL != newURL {
+		t.Fatalf("repaired candidate checked URL = %q", repaired.RepairCheckedURL)
+	}
 	stale := byMetadata[items[1].ID]
 	if _, updated, err := repo.RepairDoubanCandidate(t.Context(), stale, newURL, &model.ArtworkAsset{SHA256: "stale", StorageKey: "stale.jpg", MimeType: "image/jpeg"}); err != nil || updated {
 		t.Fatalf("stale repair updated=%v err=%v", updated, err)
+	}
+	if updated, err := repo.MarkDoubanCandidateRepairChecked(t.Context(), stale, newURL); err != nil || updated {
+		t.Fatalf("stale checked update=%v err=%v", updated, err)
 	}
 }
 

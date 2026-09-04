@@ -1,0 +1,4 @@
+{"file":".trellis/spec/backend/douban-cookie-config.md","reason":"复核豆瓣图片回退、404 分类和修复行为矩阵"}
+{"file":".trellis/spec/backend/shared-media-metadata.md","reason":"复核资产持久化、候选 CAS 和手工选择保护"}
+{"file":".trellis/spec/backend/background-task-execution.md","reason":"复核重试状态归属、指标与任务日志语义"}
+{"file":".trellis/spec/backend/database-guidelines.md","reason":"复核 PostgreSQL 迁移和数据库测试约束"}

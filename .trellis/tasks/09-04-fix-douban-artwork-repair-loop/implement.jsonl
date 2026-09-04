@@ -1,0 +1,4 @@
+{"file":".trellis/spec/backend/douban-cookie-config.md","reason":"豆瓣大图派生、CDN 到官方源回退、精确 404 与修复任务契约"}
+{"file":".trellis/spec/backend/shared-media-metadata.md","reason":"候选图片、持久化资产、来源信息与选择同步约束"}
+{"file":".trellis/spec/backend/background-task-execution.md","reason":"业务状态必须拥有重试检查点及任务详情日志规范"}
+{"file":".trellis/spec/backend/database-guidelines.md","reason":"PostgreSQL 模型迁移与仓储测试约束"}

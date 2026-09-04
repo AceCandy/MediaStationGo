@@ -97,13 +97,15 @@ type MetadataArtworkRecheck struct {
 // MetadataArtworkCandidate 保存已本地化但尚未成为当前选择的 provider 图片。
 type MetadataArtworkCandidate struct {
 	PermanentBase
-	MetadataID     string       `gorm:"size:36;not null;index;uniqueIndex:uidx_metadata_artwork_candidate,priority:1" json:"metadata_id"`
-	AssetID        string       `gorm:"size:36;not null;index" json:"asset_id"`
-	ArtworkType    string       `gorm:"size:16;not null;uniqueIndex:uidx_metadata_artwork_candidate,priority:2" json:"artwork_type"`
-	SourceProvider string       `gorm:"size:32;not null;uniqueIndex:uidx_metadata_artwork_candidate,priority:3" json:"source_provider"`
-	SourceURL      string       `gorm:"size:2048" json:"source_url,omitempty"`
-	Metadata       MetadataItem `gorm:"foreignKey:MetadataID;references:ID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE" json:"-"`
-	Asset          ArtworkAsset `gorm:"foreignKey:AssetID;references:ID;constraint:OnUpdate:CASCADE,OnDelete:RESTRICT" json:"-"`
+	MetadataID     string `gorm:"size:36;not null;index;uniqueIndex:uidx_metadata_artwork_candidate,priority:1" json:"metadata_id"`
+	AssetID        string `gorm:"size:36;not null;index" json:"asset_id"`
+	ArtworkType    string `gorm:"size:16;not null;uniqueIndex:uidx_metadata_artwork_candidate,priority:2" json:"artwork_type"`
+	SourceProvider string `gorm:"size:32;not null;uniqueIndex:uidx_metadata_artwork_candidate,priority:3" json:"source_provider"`
+	SourceURL      string `gorm:"size:2048" json:"source_url,omitempty"`
+	// RepairCheckedURL 记录已得到可接受终态的豆瓣官方大图 URL。
+	RepairCheckedURL string       `gorm:"type:text;not null;default:''" json:"-"`
+	Metadata         MetadataItem `gorm:"foreignKey:MetadataID;references:ID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE" json:"-"`
+	Asset            ArtworkAsset `gorm:"foreignKey:AssetID;references:ID;constraint:OnUpdate:CASCADE,OnDelete:RESTRICT" json:"-"`
 }
 
 // MetadataProviderSnapshot 保存 provider 原始实体响应及其质量状态，避免未投影字段丢失。
