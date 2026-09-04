@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/frontend/index.md", "reason": "Web lint/build 与界面检查要求"}
+{"file": ".trellis/spec/backend/shared-media-metadata.md", "reason": "确认未改变 metadata 合并语义"}
