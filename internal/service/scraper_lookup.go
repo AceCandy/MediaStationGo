@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 
 	"go.uber.org/zap"
@@ -32,7 +33,7 @@ func (s *ScraperService) matchFromMediaExternalIDsWithOutcome(ctx context.Contex
 		if s.tmdb != nil && s.tmdb.Enabled() {
 			result.Tried = true
 			match, err := s.tmdbMatchByID(ctx, m.TMDbID, normalizeMediaType(mediaType, m.Title, ""))
-			if err != nil {
+			if err != nil && !isTMDbHTTPStatus(err, http.StatusNotFound) {
 				lookupErrors = append(lookupErrors, fmt.Errorf("tmdb id %d: %w", m.TMDbID, err))
 			}
 			if match != nil {
@@ -109,7 +110,7 @@ func (s *ScraperService) tmdbMatchByID(ctx context.Context, id int, mediaType st
 }
 
 func (s *ScraperService) mediaExternalIDMatchTrusted(m *model.Media, lib *model.Library, match *Match, source string) bool {
-	if match == nil || strings.TrimSpace(match.Title) == "" {
+	if match == nil || strings.TrimSpace(match.Title) == "" || !mediaExternalIDSourceMatches(m, match, source) {
 		return false
 	}
 	if mediaPathHintMatchesExternalID(m, lib, match, source) {

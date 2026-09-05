@@ -18,26 +18,20 @@ func TestOrganizeDirectoryCleansReleaseNoiseBeforeMetadataClassify(t *testing.T)
 	var queries []string
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		if r.URL.Path != "/search/tv" {
+		if r.URL.Path != "/tv/219630" {
 			http.NotFound(w, r)
 			return
 		}
-		query := r.URL.Query().Get("query")
-		queries = append(queries, query)
-		if query != "motherhood of taihang" {
-			_ = json.NewEncoder(w).Encode(map[string]any{"results": []any{}})
-			return
-		}
+		queries = append(queries, r.URL.Path)
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"results": []map[string]any{{
-				"id":                219630,
-				"name":              "太行之脊",
-				"original_name":     "Motherhood of Taihang",
-				"original_language": "zh",
-				"origin_country":    []string{"CN"},
-				"genre_ids":         []int{18},
-				"first_air_date":    "2020-08-26",
-			}},
+
+			"id":                219630,
+			"name":              "太行之脊",
+			"original_name":     "Motherhood of Taihang",
+			"original_language": "zh",
+			"origin_country":    []string{"CN"},
+			"genres":            []map[string]any{{"name": "Drama"}},
+			"first_air_date":    "2020-08-26",
 		})
 	}))
 	defer upstream.Close()
@@ -53,6 +47,7 @@ func TestOrganizeDirectoryCleansReleaseNoiseBeforeMetadataClassify(t *testing.T)
 	srcRoot := filepath.Join(root, "downloads")
 	dest := filepath.Join(root, "media")
 	sourceFile := filepath.Join(srcRoot, "Motherhood Of Taihang Aac2 Mweb", "Motherhood Of Taihang Aac2 Mweb - S01E01-Aac2.Mweb - 第 1 集.mkv")
+	sourceFile = filepath.Join(filepath.Dir(sourceFile), "Known series {tmdb-219630}", filepath.Base(sourceFile))
 	writeOrgFile(t, sourceFile, "episode")
 
 	euusLib := model.Library{Name: "欧美剧", Path: filepath.Join(dest, "电视剧", "欧美剧"), Type: "tv", Enabled: true}
@@ -81,7 +76,7 @@ func TestOrganizeDirectoryCleansReleaseNoiseBeforeMetadataClassify(t *testing.T)
 	if _, err := os.Stat(want); err != nil {
 		t.Fatalf("organized media missing at %q: %v; items=%#v queries=%v", want, err, res.Items, queries)
 	}
-	if len(queries) == 0 || queries[0] != "motherhood of taihang" {
-		t.Fatalf("first metadata query = %q, want cleaned title; all queries=%v", firstQuery(queries), queries)
+	if len(queries) == 0 || queries[0] != "/tv/219630" {
+		t.Fatalf("first metadata query = %q, want explicit series ID; all queries=%v", firstQuery(queries), queries)
 	}
 }

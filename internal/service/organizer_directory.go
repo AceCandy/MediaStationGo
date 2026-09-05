@@ -61,7 +61,6 @@ func (o *OrganizerService) OrganizeDirectory(ctx context.Context, opts OrganizeO
 	}
 	mode := o.resolveTransferMode(ctx, opts.TransferMode)
 	res := &OrganizeResult{SourcePath: source, DestPath: dest, DryRun: opts.DryRun}
-	metadataCache := map[string]*Match{}
 	if !info.IsDir() {
 		ext := strings.ToLower(filepath.Ext(source))
 		if _, ok := videoExtensions[ext]; !ok {
@@ -82,7 +81,6 @@ func (o *OrganizerService) OrganizeDirectory(ctx context.Context, opts OrganizeO
 			MediaCategoryOverride: mediaCategoryOverride,
 			DryRun:                opts.DryRun,
 			AllowReplaceExisting:  opts.AllowReplaceExisting,
-			MetadataCache:         metadataCache,
 			Result:                res,
 		}); err != nil {
 			res.Errors = append(res.Errors, fmt.Sprintf("%s: %s", filepath.Base(source), err.Error()))
@@ -113,7 +111,6 @@ func (o *OrganizerService) OrganizeDirectory(ctx context.Context, opts OrganizeO
 			MediaCategoryOverride: mediaCategoryOverride,
 			DryRun:                opts.DryRun,
 			AllowReplaceExisting:  opts.AllowReplaceExisting,
-			MetadataCache:         metadataCache,
 			Result:                res,
 		}); err != nil {
 			res.Errors = append(res.Errors, fmt.Sprintf("%s: %s", filepath.Base(path), err.Error()))

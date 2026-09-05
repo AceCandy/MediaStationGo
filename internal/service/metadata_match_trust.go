@@ -104,26 +104,6 @@ func metadataTrustLocalizedSearchKeyword(queryKey string, match *Match) bool {
 	return false
 }
 
-func preferLocalizedSearchTitle(query string, match *Match) {
-	if match == nil || containsCJK(match.Title) {
-		return
-	}
-	if !metadataTrustLocalizedSearchKeyword(metadataTrustKey(query), match) {
-		return
-	}
-	localized := strings.TrimSpace(match.SearchKeyword)
-	if localized == "" {
-		localized = strings.TrimSpace(query)
-	}
-	if localized == "" {
-		return
-	}
-	if strings.TrimSpace(match.OriginalName) == "" {
-		match.OriginalName = strings.TrimSpace(match.Title)
-	}
-	match.Title = localized
-}
-
 func metadataTrustStrongCJKQuery(queryKey string) bool {
 	cjk := 0
 	for _, r := range queryKey {

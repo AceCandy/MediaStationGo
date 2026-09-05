@@ -93,19 +93,17 @@ func TestOrganizeDirectoryUsesAdultMetadataBeforeRename(t *testing.T) {
 
 func TestOrganizeDirectoryUsesBangumiForAnimeRename(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/search/subject/frieren" {
+		if r.URL.Path != "/v0/subjects/889" {
 			http.NotFound(w, r)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"results": 1,
-			"list": []map[string]any{{
-				"id":       889,
-				"name":     "Frieren",
-				"name_cn":  "葬送的芙莉莲",
-				"air_date": "2023-09-29",
-			}},
+
+			"id":      889,
+			"name":    "Frieren",
+			"name_cn": "葬送的芙莉莲",
+			"date":    "2023-09-29",
 		})
 	}))
 	defer upstream.Close()
@@ -120,6 +118,7 @@ func TestOrganizeDirectoryUsesBangumiForAnimeRename(t *testing.T) {
 	src := filepath.Join(root, "downloads")
 	dest := filepath.Join(root, "media")
 	sourceFile := filepath.Join(src, "Frieren.S01E01.1080p.mkv")
+	sourceFile = filepath.Join(filepath.Dir(sourceFile), "Known series {bangumi-889}", filepath.Base(sourceFile))
 	writeOrgFile(t, sourceFile, "episode")
 
 	organizer := NewOrganizerService(cfg, zap.NewNop(), repos)

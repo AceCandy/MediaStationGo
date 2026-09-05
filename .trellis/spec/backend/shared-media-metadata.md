@@ -262,6 +262,16 @@ db.Model(&credit).
   `metadata_id = NULL`, scan hints, and `scrape_status=pending`. Provider or
   eligible local persistence fills the link after scan.
 - A reliable provider ID resolves by `(provider, entity_kind, external_id)`. TMDb is optional; Douban-only and provider-less manual metadata are valid.
+- Automatic scraping (including retries and organize-time lookup) requires the
+  corresponding explicit provider ID from media scan hints, NFO, or path tags.
+  Use `matchFromMediaExternalIDsWithOutcome`; never search by title/year or
+  automatically select a search candidate. A failed ID lookup can try another
+  provider only when that provider has its own explicit ID. Returned IDs must
+  match the requested provider ID. TMDb detail 404 means no match; other
+  provider errors preserve the error state. No match preserves the media row.
+- Manual search and explicit user-selected apply remain available. Local NFO
+  fallback, NFO-only libraries, and explicitly requested adult-code operations
+  remain separate from automatic provider name matching.
 - Provider match enriches one canonical `MetadataItem`, its identifiers and managed artwork, then links every matching file through `Media.MetadataID`.
 - `TMDbProvider.GetMovieMatch` and `GetTVMatch` mark their `Match` as containing
   complete TMDb details. Persistence saves languages, countries, and genres
@@ -623,6 +633,9 @@ db.Model(&credit).
 - Playback/Emby: assert Series and Season Episode counts collapse multiple Media
   versions of one Episode Metadata to one logical Episode.
 - Scrape state: test provider match, definitive no-match with local fallback, and provider error without fallback.
+- Automatic identity: assert zero provider requests for title-only media and
+  organize input; direct-ID success, failure without name fallback, explicit
+  second-provider ID fallback, TMDb 404, and mismatched returned-ID rejection.
 - TMDb request reuse: known movie/Series IDs make one detail request and retain
   languages, countries, and genres; search-only matches make one search plus one
   extended-details request and retain the same fields.

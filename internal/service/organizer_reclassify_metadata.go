@@ -18,7 +18,13 @@ func (o *OrganizerService) lookupReclassifyMetadata(ctx context.Context, media m
 		title, _ = CleanQuery(media.Path)
 	}
 	for _, typ := range reclassifyMetadataLookupTypes(mediaType, media) {
-		if match := o.lookupOrganizeMetadata(ctx, media.Path, lib.Path, typ, title, media.Year, media.SeasonNum, media.EpisodeNum, nil); match != nil {
+		match := o.lookupOrganizeMetadata(ctx, media.Path, lib.Path, typ, title, media.Year, media.SeasonNum, media.EpisodeNum)
+		if match == nil {
+			lookupLibrary := lib
+			lookupLibrary.Type = typ
+			match = o.scraper.matchFromMediaExternalIDs(ctx, &media, &lookupLibrary)
+		}
+		if match != nil {
 			if o.log != nil {
 				o.log.Info("metadata category reclassify filled missing metadata",
 					zap.String("media", media.ID),

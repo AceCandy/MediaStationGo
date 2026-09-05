@@ -19,17 +19,16 @@ func TestOrganizeDirectoryClassifiesScraperMatchBeforeRename(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch {
-		case r.URL.Path == "/search/movie":
+		case r.URL.Path == "/movie/45745":
 			_ = json.NewEncoder(w).Encode(map[string]any{
-				"results": []map[string]any{{
-					"id":                45745,
-					"title":             "寻龙记",
-					"original_title":    "Sintel",
-					"original_language": "en",
-					"genre_ids":         []int{16, 14},
-					"release_date":      "2010-09-27",
-					"vote_average":      7.4,
-				}},
+
+				"id":                45745,
+				"title":             "寻龙记",
+				"original_title":    "Sintel",
+				"original_language": "en",
+				"genres":            []map[string]any{{"name": "Animation"}},
+				"release_date":      "2010-09-27",
+				"vote_average":      7.4,
 			})
 		default:
 			http.NotFound(w, r)
@@ -48,6 +47,7 @@ func TestOrganizeDirectoryClassifiesScraperMatchBeforeRename(t *testing.T) {
 	src := filepath.Join(root, "downloads")
 	dest := filepath.Join(root, "media")
 	sourceFile := filepath.Join(src, "Sintel.2010.1080p.CodexVerify.mp4")
+	sourceFile = filepath.Join(filepath.Dir(sourceFile), "Known series {tmdb-45745}", filepath.Base(sourceFile))
 	writeOrgFile(t, sourceFile, "movie")
 
 	organizer := NewOrganizerService(cfg, zap.NewNop(), repos)
@@ -77,18 +77,17 @@ func TestOrganizeDirectoryMetadataCategoryOverridesDownloadFolder(t *testing.T) 
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch {
-		case r.URL.Path == "/search/tv":
+		case r.URL.Path == "/tv/12345":
 			_ = json.NewEncoder(w).Encode(map[string]any{
-				"results": []map[string]any{{
-					"id":                12345,
-					"name":              "间谍过家家",
-					"original_name":     "SPY×FAMILY",
-					"original_language": "ja",
-					"origin_country":    []string{"JP"},
-					"genre_ids":         []int{16, 35},
-					"first_air_date":    "2022-04-09",
-					"vote_average":      8.6,
-				}},
+
+				"id":                12345,
+				"name":              "间谍过家家",
+				"original_name":     "SPY×FAMILY",
+				"original_language": "ja",
+				"origin_country":    []string{"JP"},
+				"genres":            []map[string]any{{"name": "Animation"}},
+				"first_air_date":    "2022-04-09",
+				"vote_average":      8.6,
 			})
 		default:
 			http.NotFound(w, r)
@@ -107,6 +106,7 @@ func TestOrganizeDirectoryMetadataCategoryOverridesDownloadFolder(t *testing.T) 
 	srcRoot := filepath.Join(root, "downloads")
 	dest := filepath.Join(root, "media")
 	sourceFile := filepath.Join(srcRoot, "国产剧", "Spy.x.Family.S01E01.2022.1080p.mkv")
+	sourceFile = filepath.Join(filepath.Dir(sourceFile), "Known series {tmdb-12345}", filepath.Base(sourceFile))
 	writeOrgFile(t, sourceFile, "episode")
 
 	organizer := NewOrganizerService(cfg, zap.NewNop(), repos)
@@ -137,29 +137,27 @@ func TestOrganizeDirectoryMovieMetadataOverridesWrongTVFolder(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		paths = append(paths, r.URL.Path)
 		switch {
-		case r.URL.Path == "/search/movie":
+		case r.URL.Path == "/movie/1292695":
 			_ = json.NewEncoder(w).Encode(map[string]any{
-				"results": []map[string]any{{
-					"id":                1292695,
-					"title":             "杀的就是你",
-					"original_title":    "They Will Kill You",
-					"original_language": "en",
-					"genre_ids":         []int{27, 53},
-					"release_date":      "2026-01-16",
-					"vote_average":      6.3,
-				}},
+
+				"id":                1292695,
+				"title":             "杀的就是你",
+				"original_title":    "They Will Kill You",
+				"original_language": "en",
+				"genres":            []map[string]any{{"name": "Drama"}},
+				"release_date":      "2026-01-16",
+				"vote_average":      6.3,
 			})
 		case r.URL.Path == "/search/tv":
 			_ = json.NewEncoder(w).Encode(map[string]any{
-				"results": []map[string]any{{
-					"id":                1198994,
-					"name":              "请求救援",
-					"original_name":     "They Will Kill You",
-					"original_language": "en",
-					"origin_country":    []string{"US"},
-					"genre_ids":         []int{18},
-					"first_air_date":    "2026-01-01",
-				}},
+
+				"id":                1198994,
+				"name":              "请求救援",
+				"original_name":     "They Will Kill You",
+				"original_language": "en",
+				"origin_country":    []string{"US"},
+				"genres":            []map[string]any{{"name": "Drama"}},
+				"first_air_date":    "2026-01-01",
 			})
 		default:
 			http.NotFound(w, r)
@@ -178,6 +176,7 @@ func TestOrganizeDirectoryMovieMetadataOverridesWrongTVFolder(t *testing.T) {
 	srcRoot := filepath.Join(root, "downloads")
 	dest := filepath.Join(root, "media")
 	sourceFile := filepath.Join(srcRoot, "欧美剧", "They.Will.Kill.You.2026.1080p.HDTV.x264-HiDt.mkv")
+	sourceFile = filepath.Join(filepath.Dir(sourceFile), "Known series {tmdb-1292695}", filepath.Base(sourceFile))
 	writeOrgFile(t, sourceFile, "movie")
 
 	organizer := NewOrganizerService(cfg, zap.NewNop(), repos)
@@ -197,8 +196,8 @@ func TestOrganizeDirectoryMovieMetadataOverridesWrongTVFolder(t *testing.T) {
 	if _, err := os.Stat(want); err != nil {
 		t.Fatalf("movie in wrong TV folder should organize as movie at %q: %v; items=%#v paths=%v", want, err, res.Items, paths)
 	}
-	if len(paths) == 0 || paths[0] != "/search/movie" {
-		t.Fatalf("first metadata search path = %q, want /search/movie; all=%v", firstQuery(paths), paths)
+	if len(paths) == 0 || paths[0] != "/movie/1292695" {
+		t.Fatalf("first metadata search path = %q, want /movie/1292695; all=%v", firstQuery(paths), paths)
 	}
 	if len(res.Items) != 1 || res.Items[0].MediaType != "movie" || res.Items[0].Category != "欧美电影" {
 		t.Fatalf("organize item = %#v, want movie/欧美电影", res.Items)
@@ -369,36 +368,12 @@ func TestOrganizeDirectoryDoesNotScrapeByDownloadCategoryFolder(t *testing.T) {
 	var queries []string
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		if r.URL.Path != "/search/tv" {
+		if r.URL.Path != "/tv/289271" {
 			http.NotFound(w, r)
 			return
 		}
-		query := r.URL.Query().Get("query")
-		queries = append(queries, query)
-		switch {
-		case query == "国产剧":
-			_ = json.NewEncoder(w).Encode(map[string]any{
-				"results": []map[string]any{{
-					"id":             843248,
-					"name":           "高达 G之复国运动 剧场版III 来自宇宙的遗产",
-					"first_air_date": "2021-07-22",
-				}},
-			})
-		case strings.EqualFold(query, "ashes to crown"):
-			_ = json.NewEncoder(w).Encode(map[string]any{
-				"results": []map[string]any{{
-					"id":                289271,
-					"name":              "翘楚",
-					"original_name":     "Ashes to Crown",
-					"original_language": "zh",
-					"origin_country":    []string{"CN"},
-					"genre_ids":         []int{18},
-					"first_air_date":    "2026-06-01",
-				}},
-			})
-		default:
-			_ = json.NewEncoder(w).Encode(map[string]any{"results": []map[string]any{}})
-		}
+		queries = append(queries, r.URL.Path)
+		_ = json.NewEncoder(w).Encode(map[string]any{"id": 289271, "name": "翘楚", "original_name": "Ashes to Crown", "original_language": "zh", "origin_country": []string{"CN"}, "first_air_date": "2026-06-01"})
 	}))
 	defer upstream.Close()
 
@@ -412,6 +387,7 @@ func TestOrganizeDirectoryDoesNotScrapeByDownloadCategoryFolder(t *testing.T) {
 	root := t.TempDir()
 	dest := filepath.Join(root, "media")
 	sourceFile := filepath.Join(root, "downloads", "国产剧", "Ashes.to.Crown.S01.1080p.YOUKU.WEB-DL.AAC2.0.H.264-MWeb", "Ashes.to.Crown.S01E06.1080p.YOUKU.WEB-DL.AAC2.0.H.264-MWeb.mkv")
+	sourceFile = filepath.Join(filepath.Dir(sourceFile), "Known series {tmdb-289271}", filepath.Base(sourceFile))
 	writeOrgFile(t, sourceFile, "episode")
 
 	organizer := NewOrganizerService(cfg, zap.NewNop(), repos)
@@ -434,8 +410,8 @@ func TestOrganizeDirectoryDoesNotScrapeByDownloadCategoryFolder(t *testing.T) {
 	if _, err := os.Stat(want); err != nil {
 		t.Fatalf("organized file should use release title metadata, not category query, at %q: %v; items=%#v queries=%#v", want, err, res.Items, queries)
 	}
-	if len(queries) == 0 || queries[0] == "国产剧" {
-		t.Fatalf("first scrape query = %#v, want release title before category folder", queries)
+	if len(queries) != 1 || queries[0] != "/tv/289271" {
+		t.Fatalf("first scrape query = %#v, want explicit series ID", queries)
 	}
 	if len(res.Items) != 1 || res.Items[0].Title != "翘楚" || res.Items[0].Category != "国产剧" {
 		t.Fatalf("organize item = %#v, want title 翘楚 in category 国产剧", res.Items)
@@ -523,25 +499,23 @@ func TestOrganizeDirectoryEpisodeMarkerOverridesMovieSourceFolder(t *testing.T) 
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch {
-		case r.URL.Path == "/search/tv":
+		case r.URL.Path == "/tv/100088":
 			_ = json.NewEncoder(w).Encode(map[string]any{
-				"results": []map[string]any{{
-					"id":                100088,
-					"name":              "The Last of Us",
-					"original_language": "en",
-					"origin_country":    []string{"US"},
-					"genre_ids":         []int{18},
-					"first_air_date":    "2023-01-15",
-					"vote_average":      8.7,
-				}},
+
+				"id":                100088,
+				"name":              "The Last of Us",
+				"original_language": "en",
+				"origin_country":    []string{"US"},
+				"genres":            []map[string]any{{"name": "Drama"}},
+				"first_air_date":    "2023-01-15",
+				"vote_average":      8.7,
 			})
 		case r.URL.Path == "/search/movie":
 			_ = json.NewEncoder(w).Encode(map[string]any{
-				"results": []map[string]any{{
-					"id":           999,
-					"title":        "Wrong Movie",
-					"release_date": "2023-01-01",
-				}},
+
+				"id":           999,
+				"title":        "Wrong Movie",
+				"release_date": "2023-01-01",
 			})
 		default:
 			http.NotFound(w, r)
@@ -560,6 +534,7 @@ func TestOrganizeDirectoryEpisodeMarkerOverridesMovieSourceFolder(t *testing.T) 
 	srcRoot := filepath.Join(root, "downloads")
 	dest := filepath.Join(root, "media")
 	sourceFile := filepath.Join(srcRoot, "欧美电影", "The.Last.of.Us.S01E01.2023.1080p.mkv")
+	sourceFile = filepath.Join(filepath.Dir(sourceFile), "Known series {tmdb-100088}", filepath.Base(sourceFile))
 	writeOrgFile(t, sourceFile, "episode")
 
 	organizer := NewOrganizerService(cfg, zap.NewNop(), repos)

@@ -18,7 +18,7 @@ func TestManualEnrichLibraryRetriesNoMatchAndCountsRealMatches(t *testing.T) {
 	}
 	mediaPath := filepath.Join(lib.Path, "间谍过家家 - S02E02.mkv")
 	if err := repos.DB.Create(&model.Media{
-		LibraryID:    lib.ID,
+		LibraryID: lib.ID, TMDbID: 12345,
 		Title:        "间谍过家家",
 		Path:         mediaPath,
 		SeasonNum:    2,
@@ -48,7 +48,7 @@ func TestEnrichLibraryBindsUnresolvedMediaAfterProviderMatch(t *testing.T) {
 		t.Fatal(err)
 	}
 	media := model.Media{
-		LibraryID: lib.ID, Title: "间谍过家家",
+		LibraryID: lib.ID, TMDbID: 12345, Title: "间谍过家家",
 		Path:      filepath.Join(lib.Path, "间谍过家家 - S02E02.mkv"),
 		SeasonNum: 2, EpisodeNum: 2, ScrapeStatus: "pending",
 	}
@@ -259,7 +259,7 @@ func TestManualEnrichLibraryCanRefreshAlreadyMatchedRows(t *testing.T) {
 		t.Fatal(err)
 	}
 	media := model.Media{
-		LibraryID:    lib.ID,
+		LibraryID: lib.ID, TMDbID: 12345,
 		Title:        "间谍过家家",
 		Path:         filepath.Join(lib.Path, "间谍过家家 - S02E02.mkv"),
 		SeasonNum:    2,
@@ -387,7 +387,7 @@ func TestEnrichLibraryScrapesSharedMetadataOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	first := model.Media{
-		LibraryID:    lib.ID,
+		LibraryID: lib.ID, TMDbID: 12345,
 		Title:        "间谍过家家",
 		Path:         filepath.Join(lib.Path, "1080p", "间谍过家家 - S02E02.mkv"),
 		SeasonNum:    2,
@@ -398,7 +398,7 @@ func TestEnrichLibraryScrapesSharedMetadataOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	second := model.Media{
-		LibraryID:    lib.ID,
+		LibraryID: lib.ID, TMDbID: 12345,
 		MetadataID:   first.MetadataID,
 		SeriesID:     first.SeriesID,
 		Title:        first.Title,

@@ -149,7 +149,7 @@ func TestOrganizeDirectoryDedupsByExternalIDBeforeRename(t *testing.T) {
 	root := t.TempDir()
 	src := filepath.Join(root, "downloads")
 	dest := filepath.Join(root, "media")
-	sourceFile := filepath.Join(src, "Spy.x.Family.S01E01.2022.2160p.mkv")
+	sourceFile := filepath.Join(src, "Spy x Family {tmdb-12345}", "Spy.x.Family.S01E01.2022.2160p.mkv")
 	writeOrgFile(t, sourceFile, "episode")
 
 	existingPath := filepath.Join(dest, "电视剧", "旧错误名", "Season 01", "旧错误名 - S01E01.mkv")

@@ -1,7 +1,7 @@
 // Package service — scraper orchestrator.
 //
 // ScraperService takes a Media row and tries to enrich it with metadata from
-// local NFO first, then TMDb -> Douban -> Bangumi -> TheTVDB. Fanart.tv is
+// explicit provider IDs after reading local NFO hints. Fanart.tv is
 // artwork-only and upgrades poster/backdrop after a metadata match.
 package service
 
@@ -82,9 +82,6 @@ func (s *ScraperService) enrichOneWithOptions(ctx context.Context, m *model.Medi
 		}
 	}
 
-	year := mediaYearHint(&lookupMedia)
-	var lookupErrors []error
-
 	lookupStartedAt := time.Now()
 	externalResult := s.matchFromMediaExternalIDsWithOutcome(ctx, &lookupMedia, lib)
 	if options.timings != nil {
@@ -96,68 +93,18 @@ func (s *ScraperService) enrichOneWithOptions(ctx context.Context, m *model.Medi
 		return recordScrapeSource(options, metadataMatchSource(match), s.applyProviderMatchWithOptions(ctx, m, lib, match, options))
 	}
 	if externalResult.Err != nil {
-		lookupErrors = append(lookupErrors, externalResult.Err)
+		return s.markScrapeError(ctx, m.ID, externalResult.Err)
 	}
-
-	candidateStartedAt := time.Now()
-	candidates := scrapeQueryCandidatesWithRecognition(ctx, s.repo, &lookupMedia, lib)
-	if options.timings != nil {
-		options.timings.CandidateGeneration += time.Since(candidateStartedAt)
+	if localErr != nil {
+		return s.markScrapeError(ctx, m.ID, localErr)
 	}
-	var query string
-	match := (*Match)(nil)
-	for _, candidate := range candidates {
-		query = candidate
-		lookupStartedAt = time.Now()
-		lookupResult := s.lookupWithOutcome(ctx, lib, &lookupMedia, candidate, year)
-		if options.timings != nil {
-			options.timings.ProviderLookup += time.Since(lookupStartedAt)
+	if localMetadataEligibleForFallback(local) {
+		if strings.TrimSpace(local.Title) == "" {
+			local.Title = strings.TrimSpace(m.Title)
 		}
-		if lookupResult.Err != nil {
-			lookupErrors = append(lookupErrors, lookupResult.Err)
-		}
-		candidateMatch := lookupResult.Match
-		if candidateMatch == nil {
-			continue
-		}
-		if !organizeMetadataMatchTrusted(candidate, year, candidateMatch) {
-			s.log.Warn("metadata scrape match rejected",
-				zap.String("media_id", m.ID),
-				zap.String("query", candidate),
-				zap.String("title", candidateMatch.Title),
-				zap.Int("source_year", year),
-				zap.Int("match_year", candidateMatch.Year),
-				zap.Int("tmdb_id", candidateMatch.TMDbID),
-				zap.Int("bangumi_id", candidateMatch.BangumiID),
-				zap.String("douban_id", candidateMatch.DoubanID),
-				zap.String("thetvdb_id", candidateMatch.TheTVDBID))
-			continue
-		}
-		preferLocalizedSearchTitle(candidate, candidateMatch)
-		match = candidateMatch
-		if match != nil {
-			break
-		}
+		return recordScrapeSource(options, "local_nfo", s.applyLocalMetadataMatch(ctx, m, local))
 	}
-	if match == nil {
-		if len(lookupErrors) > 0 {
-			return s.markScrapeError(ctx, m.ID, errors.Join(lookupErrors...))
-		}
-		if localErr != nil {
-			return s.markScrapeError(ctx, m.ID, localErr)
-		}
-		if localMetadataEligibleForFallback(local) {
-			if strings.TrimSpace(local.Title) == "" {
-				local.Title = strings.TrimSpace(m.Title)
-			}
-			return recordScrapeSource(options, "local_nfo", s.applyLocalMetadataMatch(ctx, m, local))
-		}
-		return s.markScrapeNoMatch(ctx, m.ID, query)
-	}
-	mergeLocalCreditsIntoMatch(match, local)
-	s.applyFanartArtwork(ctx, match)
-
-	return recordScrapeSource(options, metadataMatchSource(match), s.applyProviderMatchWithOptions(ctx, m, lib, match, options))
+	return s.markScrapeNoMatch(ctx, m.ID, "")
 }
 
 func (s *ScraperService) markScrapeNoMatch(ctx context.Context, mediaID, query string) error {

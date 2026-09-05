@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -12,78 +11,11 @@ import (
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 )
 
-// lookup runs the provider chain after local NFO has been considered:
-// TMDb -> Douban -> Bangumi -> TheTVDB. Douban and Bangumi do not require API
-// keys; providers that are unavailable or return an error are skipped.
+// providerLookupResult records direct provider-ID lookup outcomes.
 type providerLookupResult struct {
 	Match *Match
 	Err   error
 	Tried bool
-}
-
-func (s *ScraperService) lookup(ctx context.Context, lib *model.Library, media *model.Media, query string, year int) *Match {
-	return s.lookupWithOutcome(ctx, lib, media, query, year).Match
-}
-
-func (s *ScraperService) lookupWithOutcome(ctx context.Context, lib *model.Library, media *model.Media, query string, year int) providerLookupResult {
-	kind := ""
-	if lib != nil {
-		kind = lib.Type
-	}
-	// An explicit movie lookup is used to repair filenames whose release year
-	// was previously polluted into S01E20x. Do not let the dirty path override
-	// that caller-supplied media type; TV/anime libraries still force TV below.
-	explicitEpisode := media != nil && (media.SeasonNum > 0 || media.EpisodeNum > 0)
-	if (normalizeOrganizeMediaType(kind) != "movie" || explicitEpisode) && mediaIsEpisodic(media, lib) {
-		kind = "tv"
-	}
-	result := providerLookupResult{}
-	var lookupErrors []error
-	if s.tmdb != nil && s.tmdb.Enabled() {
-		result.Tried = true
-		if match, err := s.lookupAutomaticTMDbWithError(ctx, kind, query, year); match != nil {
-			match.Source = "tmdb"
-			result.Match = match
-			return result
-		} else if err != nil {
-			lookupErrors = append(lookupErrors, fmt.Errorf("tmdb: %w", err))
-		}
-	}
-	if s.douban != nil && s.douban.Enabled() {
-		result.Tried = true
-		if m, err := s.douban.SearchMatch(ctx, query); err == nil && m != nil && metadataMatchCompatibleWithType(kind, m) {
-			m.Source = "douban"
-			result.Match = m
-			return result
-		} else if err != nil {
-			s.log.Debug("douban search failed", zap.String("query", query), zap.Error(err))
-			lookupErrors = append(lookupErrors, fmt.Errorf("douban: %w", err))
-		}
-	}
-	if s.bangumi != nil && s.bangumi.Enabled() {
-		result.Tried = true
-		if m, err := s.bangumi.Search(ctx, query); err == nil && m != nil && metadataMatchCompatibleWithType(kind, m) {
-			m.Source = "bangumi"
-			result.Match = m
-			return result
-		} else if err != nil {
-			s.log.Debug("bangumi search failed", zap.String("query", query), zap.Error(err))
-			lookupErrors = append(lookupErrors, fmt.Errorf("bangumi: %w", err))
-		}
-	}
-	if (kind == "anime" || kind == "tv" || kind == "variety" || kind == "show" || kind == "shows") && s.thetvdb != nil && s.thetvdb.Enabled() {
-		result.Tried = true
-		if m, err := s.thetvdb.SearchSeries(ctx, query); err == nil && m != nil && metadataMatchCompatibleWithType(kind, m) {
-			m.Source = "thetvdb"
-			result.Match = m
-			return result
-		} else if err != nil {
-			s.log.Debug("thetvdb search failed", zap.String("query", query), zap.Error(err))
-			lookupErrors = append(lookupErrors, fmt.Errorf("thetvdb: %w", err))
-		}
-	}
-	result.Err = errors.Join(lookupErrors...)
-	return result
 }
 
 func isTVMetadataKind(kind string) bool {

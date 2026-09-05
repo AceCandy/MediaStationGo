@@ -17,20 +17,19 @@ import (
 func TestOrganizeDirectoryReclassifiesExistingWrongCategoryMedia(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		if r.URL.Path != "/search/tv" {
+		if r.URL.Path != "/tv/292696" {
 			http.NotFound(w, r)
 			return
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"results": []map[string]any{{
-				"id":                292696,
-				"name":              "莫离",
-				"original_name":     "The First Jasmine",
-				"original_language": "zh",
-				"origin_country":    []string{"CN"},
-				"genre_ids":         []int{18},
-				"first_air_date":    "2026-06-23",
-			}},
+
+			"id":                292696,
+			"name":              "莫离",
+			"original_name":     "The First Jasmine",
+			"original_language": "zh",
+			"origin_country":    []string{"CN"},
+			"genres":            []map[string]any{{"name": "Drama"}},
+			"first_air_date":    "2026-06-23",
 		})
 	}))
 	defer upstream.Close()
@@ -46,6 +45,7 @@ func TestOrganizeDirectoryReclassifiesExistingWrongCategoryMedia(t *testing.T) {
 	srcRoot := filepath.Join(root, "downloads")
 	dest := filepath.Join(root, "media")
 	sourceFile := filepath.Join(srcRoot, "欧美剧", "The.First.Jasmine.S01.1080p.TX.WEB-DL.AAC2.0.H.264-MWeb", "The.First.Jasmine.S01E01.1080p.TX.WEB-DL.AAC2.0.H.264-MWeb.mkv")
+	sourceFile = filepath.Join(filepath.Dir(sourceFile), "Known series {tmdb-292696}", filepath.Base(sourceFile))
 	writeOrgFile(t, sourceFile, "episode")
 
 	euusLib := model.Library{Name: "欧美剧", Path: filepath.Join(dest, "电视剧", "欧美剧"), Type: "tv", Enabled: true}

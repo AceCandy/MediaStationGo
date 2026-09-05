@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"fmt"
 	"path/filepath"
 	"strings"
 
@@ -118,8 +117,4 @@ func applyOrganizeMetadataMatch(match *Match, title, parsedTitle *string, year *
 	if match.Year > 0 {
 		*year = match.Year
 	}
-}
-
-func organizeMetadataCacheKey(mediaType, query string, year int) string {
-	return strings.ToLower(strings.TrimSpace(mediaType)) + "|" + fmt.Sprint(year) + "|" + strings.ToLower(strings.TrimSpace(query))
 }

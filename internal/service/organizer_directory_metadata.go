@@ -10,7 +10,7 @@ import (
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 )
 
-func (o *OrganizerService) lookupOrganizeMetadata(ctx context.Context, src, sourceRoot, mediaType, title string, year, season, episode int, cache map[string]*Match) *Match {
+func (o *OrganizerService) lookupOrganizeMetadata(ctx context.Context, src, sourceRoot, mediaType, title string, year, season, episode int) *Match {
 	normalizedType := normalizeOrganizeMediaType(mediaType)
 	lookupSeason, lookupEpisode := season, episode
 	if normalizedType == "movie" {
@@ -30,75 +30,7 @@ func (o *OrganizerService) lookupOrganizeMetadata(ctx context.Context, src, sour
 	if o == nil || o.scraper == nil || !o.scraper.AnyEnabled() {
 		return nil
 	}
-	if match := o.lookupOrganizeMetadataByPathHints(ctx, src, sourceRoot, normalizedType, title, year, lookupSeason, lookupEpisode, seriesLike); match != nil {
-		return match
-	}
-	libType := normalizeOrganizeMediaType(mediaType)
-	if libType == "" {
-		libType = organizeLibraryModelType(mediaType)
-	}
-	lib := &model.Library{Path: sourceRoot, Type: libType, Enabled: true}
-	media := &model.Media{
-		Title:      title,
-		Year:       year,
-		Path:       src,
-		SeasonNum:  lookupSeason,
-		EpisodeNum: lookupEpisode,
-	}
-	for _, candidate := range scrapeQueryCandidatesWithRecognition(ctx, o.repo, media, lib) {
-		key := organizeMetadataCacheKey(lib.Type, candidate, year)
-		if cache != nil {
-			if cached, ok := cache[key]; ok {
-				if cached != nil {
-					return cached
-				}
-				continue
-			}
-		}
-		match := o.scraper.lookup(ctx, lib, media, candidate, year)
-		if match != nil && strings.TrimSpace(match.Title) != "" {
-			if !organizeMetadataMatchTrusted(candidate, year, match) {
-				if cache != nil {
-					cache[key] = nil
-				}
-				if o.log != nil {
-					o.log.Warn("organize metadata match rejected before rename",
-						zap.String("source", src),
-						zap.String("query", candidate),
-						zap.String("title", match.Title),
-						zap.String("media_type", match.MediaType),
-						zap.Int("source_year", year),
-						zap.Int("match_year", match.Year),
-						zap.Int("tmdb_id", match.TMDbID),
-						zap.Int("bangumi_id", match.BangumiID),
-						zap.String("douban_id", match.DoubanID),
-						zap.String("thetvdb_id", match.TheTVDBID))
-				}
-				continue
-			}
-			preferLocalizedSearchTitle(candidate, match)
-			if cache != nil {
-				cache[key] = match
-			}
-			if o.log != nil {
-				o.log.Info("organize metadata matched before rename",
-					zap.String("source", src),
-					zap.String("query", candidate),
-					zap.String("title", match.Title),
-					zap.String("media_type", match.MediaType),
-					zap.Int("year", match.Year),
-					zap.Int("tmdb_id", match.TMDbID),
-					zap.Int("bangumi_id", match.BangumiID),
-					zap.String("douban_id", match.DoubanID),
-					zap.String("thetvdb_id", match.TheTVDBID))
-			}
-			return match
-		}
-		if cache != nil {
-			cache[key] = nil
-		}
-	}
-	return nil
+	return o.lookupOrganizeMetadataByPathHints(ctx, src, sourceRoot, normalizedType, title, year, lookupSeason, lookupEpisode, seriesLike)
 }
 
 func (o *OrganizerService) lookupOrganizeMetadataByPathHints(ctx context.Context, src, sourceRoot, mediaType, title string, year, season, episode int, seriesLike bool) *Match {

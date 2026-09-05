@@ -23,7 +23,6 @@ type organizeSourceFileRequest struct {
 	MediaCategoryOverride string
 	DryRun                bool
 	AllowReplaceExisting  bool
-	MetadataCache         map[string]*Match
 	Result                *OrganizeResult
 }
 
