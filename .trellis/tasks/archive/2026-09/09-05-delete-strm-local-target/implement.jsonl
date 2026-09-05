@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/backend/strm-target.md", "reason": "复用现有 STRM 实时读取与响应边界"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "约束后端预览/删除与前端动态路径保持一致"}

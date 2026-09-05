@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/backend/strm-target.md", "reason": "复核不泄露通用详情数据且不破坏现有目标接口"}
+{"file": ".trellis/spec/frontend/index.md", "reason": "复核 Web lint/build、权限与响应式 UI"}
