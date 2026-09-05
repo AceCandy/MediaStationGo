@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-2.md`
-- **Total Sessions**: 98
+- **Total Sessions**: 99
 - **Last Active**: 2026-09-05
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-2.md` | ~161 | Active |
+| `journal-2.md` | ~183 | Active |
 | `journal-1.md` | ~1981 | Archived |
 <!-- @@@/auto:active-documents -->
 
@@ -30,6 +30,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 99 | 2026-09-05 | 外部 ID 搜索与豆瓣状态区分 | `99b012b` | `main` |
 | 98 | 2026-09-05 | 详情页未关联豆瓣入口 | `b1b88f9` | `main` |
 | 97 | 2026-09-05 | 删除 STRM 本地目标 | `9904a7a` | `main` |
 | 96 | 2026-09-05 | 详情页显示 STRM 真实路径 | `e32ac25` | `main` |

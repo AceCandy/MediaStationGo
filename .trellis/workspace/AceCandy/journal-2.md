@@ -159,3 +159,25 @@ Refined media library cover cards and management dialog: 16:9 hover overlays, de
 ### Status
 
 [OK] **Completed**
+
+
+## Session 99: 外部 ID 搜索与豆瓣状态区分
+<!-- trellis-session: v=2 fp=3b53609268804ca4 -->
+
+**Date**: 2026-09-05
+**Task**: 外部 ID 搜索与豆瓣状态区分
+**Branch**: `main`
+
+### Summary
+
+元数据编辑弹窗为 TMDb、Bangumi、豆瓣和 TheTVDB 增加按当前标题搜索入口；豆瓣未关联改用灰色断链图标，与黄色不完整状态区分。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `99b012b` | feat: add external metadata search links |
+
+### Status
+
+[OK] **Completed**
