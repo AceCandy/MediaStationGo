@@ -1,7 +1,8 @@
-import { Database, FolderInput, MoreHorizontal, Pencil, RefreshCw, Sparkles, Trash2, type LucideIcon } from 'lucide-react'
+import { Database, FolderInput, MoreHorizontal, Pencil, RefreshCw, Trash2, type LucideIcon } from 'lucide-react'
 
 type MediaDetailAdminMenuProps = {
-  onSmartScrape: () => void
+  onTMDbRefresh: () => void
+  tmdbRefreshPending: boolean
   onDoubanEnrich?: () => void
   doubanEnrichmentPending: boolean
   doubanDegraded: boolean
@@ -13,7 +14,8 @@ type MediaDetailAdminMenuProps = {
 
 // MediaDetailAdminMenu 管理操作收敛进播放操作排的「更多操作」下拉菜单。
 export function MediaDetailAdminMenu({
-  onSmartScrape,
+  onTMDbRefresh,
+  tmdbRefreshPending,
   onDoubanEnrich,
   doubanEnrichmentPending,
   doubanDegraded,
@@ -53,7 +55,7 @@ export function MediaDetailAdminMenu({
         aria-label="管理操作"
         className="absolute right-0 top-full z-50 mt-2 w-64 overflow-hidden rounded-xl border border-[var(--app-border)] bg-[var(--app-panel)] p-1.5 shadow-xl"
       >
-        <AdminMenuItem icon={Sparkles} iconClass="text-[var(--app-gold)]" label="智能刮削 (TMDB)" onClick={onSmartScrape} onClose={close} />
+        <AdminMenuItem icon={RefreshCw} iconClass={`text-[var(--app-gold)] ${tmdbRefreshPending ? 'animate-spin' : ''}`} label={tmdbRefreshPending ? '正在刷新tmdb信息…' : '刷新tmdb信息'} disabled={tmdbRefreshPending} onClick={onTMDbRefresh} onClose={close} />
         {onDoubanEnrich && (
           <AdminMenuItem
             icon={RefreshCw}

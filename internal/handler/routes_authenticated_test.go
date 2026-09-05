@@ -33,6 +33,7 @@ func TestAuthenticatedRouteSurfacesAreRegistered(t *testing.T) {
 		"POST /api/libraries/:id/probe",
 		"POST /api/libraries/:id/people-backfill",
 		"GET /api/media",
+		"POST /api/metadata/:id/tmdb/refresh",
 		"GET /api/media/:id/versions",
 		"POST /api/media/:id/probe/ensure",
 		"GET /api/stream/:id",

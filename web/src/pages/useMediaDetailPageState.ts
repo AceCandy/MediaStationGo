@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateA
 import type { NavigateFunction } from 'react-router-dom'
 import toast from 'react-hot-toast'
 
-import { api } from '../api/client'
+import { api, LONG_REQUEST_TIMEOUT } from '../api/client'
 import { mediaAPI } from '../api/library'
 import { playbackAPI } from '../api/playback'
 import { confirmAction } from '../components/confirmAction'
@@ -203,6 +203,8 @@ function useMediaDetailActions({
   refresh,
   setFavourite,
 }: MediaDetailActionsParams) {
+  const tmdbRefreshPendingRef = useRef(false)
+  const [tmdbRefreshPending, setTMDbRefreshPending] = useState(false)
   const doubanEnrichmentPendingRef = useRef(false)
   const [doubanEnrichmentPending, setDoubanEnrichmentPending] = useState(false)
   const goBack = useCallback(() => goBackFromMediaDetail(media, navigate, backTarget), [backTarget, media, navigate])
@@ -210,10 +212,26 @@ function useMediaDetailActions({
     () => toggleMediaFavourite(media, setFavourite),
     [media, setFavourite],
   )
-  const rescrape = useCallback(
-    () => rescrapeMedia(media, refresh),
-    [media, refresh],
-  )
+  const refreshTMDb = useCallback(async () => {
+    if (!media || tmdbRefreshPendingRef.current) return
+    if (!media.metadata_id) {
+      toast.error('当前条目尚未关联元数据')
+      return
+    }
+    tmdbRefreshPendingRef.current = true
+    setTMDbRefreshPending(true)
+    const toastID = toast.loading('正在刷新 TMDB 信息，请稍候…')
+    try {
+      await api.post(`/metadata/${encodeURIComponent(media.metadata_id)}/tmdb/refresh`, undefined, { timeout: LONG_REQUEST_TIMEOUT })
+      await refresh()
+      toast.success('TMDB 信息已刷新', { id: toastID })
+    } catch (err: unknown) {
+      toast.error(apiErrorMessage(err, 'TMDB 信息刷新未完成，请稍后重试'), { id: toastID })
+    } finally {
+      tmdbRefreshPendingRef.current = false
+      setTMDbRefreshPending(false)
+    }
+  }, [media, refresh])
   const reprobe = useCallback(() => reprobeMedia(media, refresh), [media, refresh])
   const enrichDouban = useCallback(async () => {
     if (!media || doubanEnrichmentPendingRef.current) return
@@ -237,7 +255,7 @@ function useMediaDetailActions({
     () => softDeleteMedia(media, navigate, backTarget),
     [backTarget, media, navigate],
   )
-  return { goBack, toggleFavourite, rescrape, enrichDouban, doubanEnrichmentPending, reprobe, softDelete }
+  return { goBack, toggleFavourite, refreshTMDb, tmdbRefreshPending, enrichDouban, doubanEnrichmentPending, reprobe, softDelete }
 }
 
 function goBackFromMediaDetail(media: Media | null, navigate: NavigateFunction, preferredTarget = '', replace = false): void {
@@ -255,20 +273,6 @@ async function toggleMediaFavourite(
   const state = await playbackAPI.toggleFavourite(media.id)
   setFavourite(state)
   toast.success(state ? '已加入我的收藏' : '已取消收藏')
-}
-
-async function rescrapeMedia(
-  media: Media | null,
-  refresh: MediaDetailRefresh,
-): Promise<void> {
-  if (!media) return
-  await api.post(`/media/${media.id}/scrape`, {
-    episode_images: true,
-    refresh_matched: true,
-    include_matched: true,
-  })
-  toast.success('已触发重新刮削')
-  await refresh()
 }
 
 async function reprobeMedia(media: Media | null, refresh: MediaDetailRefresh): Promise<void> {

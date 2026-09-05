@@ -1,5 +1,56 @@
 # Shared Media Metadata Contract
 
+## Scenario: Explicit TMDb Metadata Refresh
+
+### 1. Scope / Trigger
+
+- The detail-page action `刷新tmdb信息` refreshes only its current canonical entity.
+
+### 2. Signatures
+
+- Admin-only `POST /api/metadata/:id/tmdb/refresh`, without a request body.
+- `ScraperService.RefreshMetadataTMDb(ctx, metadataID) error`.
+
+### 3. Contracts
+
+- Read the unique same-kind TMDb identifier from metadata, never Media scan hints.
+- Always fetch fresh details, regardless of existing snapshots or catalog checkpoints.
+- Validate the returned entity ID; Season/Episode coordinates come from canonical parents.
+- Update the current entity's display fields, loaded credit scopes, managed TMDb images,
+  and raw snapshot. Preserve identity, other provider identifiers, NSFW, and hierarchy.
+- Do not create children, enqueue catalog work, rematch, or write Media rows.
+- Explicit image refresh bypasses the source URL cache and replaces the selection only
+  after importing valid bytes. An absent upstream image preserves the old selection.
+- Snapshot freshness advances only after all writes succeed. A persistence failure can
+  leave partial field/credit/image updates; return an error and allow an explicit retry.
+- The Web action submits `metadata_id`, suppresses duplicate clicks, and reloads details
+  after `200 {"status":"complete"}`. Identity validation remains server-owned.
+- Show a loading toast and blocking themed modal immediately; retain them through detail
+  reload, then replace the toast with the outcome and restore page interaction.
+
+### 4. Validation & Error Matrix
+
+- Non-admin -> `403`; missing metadata -> `404`.
+- Missing/ambiguous TMDb identity, invalid hierarchy, or returned-ID mismatch -> `400`.
+- Provider or persistence failure -> `502` with no credentials or upstream URLs.
+
+### 5. Good / Base / Bad Cases
+
+- Good: refresh a catalog-only entity or a Movie with several media versions; Media stays unchanged.
+- Base: TMDb has no own image; refresh other information and retain the existing image.
+- Bad: reset Media to `pending`, reuse a completed catalog checkpoint, or refresh the whole Series tree.
+
+### 6. Tests Required
+
+- Four entity kinds, repeat network requests, unchanged Media, no new children, fresh images,
+  loaded-credit replacement, missing/mismatched identity, failed images without snapshot advancement,
+  admin gating, Web lint, and production build.
+
+### 7. Wrong vs Correct
+
+- Wrong: `POST /media/:id/scrape` to refresh already-bound canonical information.
+- Correct: `POST /metadata/:id/tmdb/refresh` with the detail's `metadata_id`.
+
 ## Scenario: People Credits and Localization
 
 ### 1. Scope / Trigger

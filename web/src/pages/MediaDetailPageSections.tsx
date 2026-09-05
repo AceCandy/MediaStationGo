@@ -26,7 +26,8 @@ interface MediaDetailMainContentProps extends MediaDetailPlaybackActionsProps {
   favourite: boolean
   onVersionChange: (id: string) => void
   onToggleFavourite: () => void
-  onSmartScrape: () => void
+  onTMDbRefresh: () => void
+  tmdbRefreshPending: boolean
   onDoubanEnrich: () => void
   doubanEnrichmentPending: boolean
   onMetadataEdit: () => void
@@ -103,7 +104,8 @@ export function MediaDetailMainContent({
   favourite,
   onVersionChange,
   onToggleFavourite,
-  onSmartScrape,
+  onTMDbRefresh,
+  tmdbRefreshPending,
   onDoubanEnrich,
   doubanEnrichmentPending,
   onMetadataEdit,
@@ -145,7 +147,8 @@ export function MediaDetailMainContent({
             />
             {isAdmin && (
               <MediaDetailAdminMenu
-                onSmartScrape={onSmartScrape}
+                onTMDbRefresh={onTMDbRefresh}
+                tmdbRefreshPending={tmdbRefreshPending}
                 onDoubanEnrich={(media.metadata_kind === 'movie' || media.metadata_kind === 'series') && media.douban_id ? onDoubanEnrich : undefined}
                 doubanEnrichmentPending={doubanEnrichmentPending}
                 doubanDegraded={media.douban_status === 'degraded'}
