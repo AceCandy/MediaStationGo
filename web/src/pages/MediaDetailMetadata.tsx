@@ -1,4 +1,4 @@
-import { AlertTriangle, Calendar, Circle, CircleAlert, CircleCheck, Clock, FileVideo, HardDrive, Heart, Monitor, Star, Trash2 } from 'lucide-react'
+import { AlertTriangle, Calendar, Circle, CircleAlert, CircleCheck, Clock, FileVideo, HardDrive, Heart, Monitor, Star, Trash2, Unlink } from 'lucide-react'
 import { motion } from 'framer-motion'
 import { useEffect, useState } from 'react'
 import toast from 'react-hot-toast'
@@ -273,8 +273,8 @@ function providerStatus(status: ProviderStatus | undefined, snapshot: boolean | 
 
 function ProviderBadge({ href, onClick, label, iconSrc, status }: { href?: string; onClick?: () => void; label: string; iconSrc: string; status: ProviderStatus }) {
   const statusLabel = providerStatusLabels[status]
-  const warning = status === 'unlinked' || status === 'partial' || status === 'degraded'
-  const StatusIcon = status === 'complete' ? CircleCheck : warning ? CircleAlert : Circle
+  const warning = status === 'partial' || status === 'degraded'
+  const StatusIcon = status === 'unlinked' ? Unlink : status === 'complete' ? CircleCheck : warning ? CircleAlert : Circle
   const statusClass = status === 'complete' ? 'text-emerald-600' : warning ? 'text-amber-600' : 'text-[var(--app-muted)]'
   const content = (
     <>

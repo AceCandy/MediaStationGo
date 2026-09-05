@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Save, X } from 'lucide-react'
+import { Save, Search, X } from 'lucide-react'
 import toast from 'react-hot-toast'
 
 import { mediaAPI, type MediaMetadataUpdate } from '../api/library'
@@ -71,6 +71,8 @@ export function MetadataEditDialog({
 
   const targetIds = Array.from(new Set((mediaIds && mediaIds.length > 0 ? mediaIds : [media.id]).filter(Boolean)))
   const isSeries = mode === 'series' && targetIds.length > 1
+  const searchTitle = form.title.trim()
+  const encodedSearchTitle = encodeURIComponent(searchTitle)
 
   const set = (key: keyof typeof form, value: string | boolean) => {
     setForm((prev) => ({ ...prev, [key]: value }))
@@ -150,10 +152,10 @@ export function MetadataEditDialog({
           <Field label="评分" value={form.rating} onChange={(value) => set('rating', value)} inputMode="decimal" />
           {!isSeries && <Field label="季" value={form.season_num} onChange={(value) => set('season_num', value)} inputMode="numeric" />}
           {!isSeries && <Field label="集" value={form.episode_num} onChange={(value) => set('episode_num', value)} inputMode="numeric" />}
-          <Field label="TMDb ID" value={form.tmdb_id} onChange={(value) => set('tmdb_id', value)} inputMode="numeric" />
-          <Field label="Bangumi ID" value={form.bangumi_id} onChange={(value) => set('bangumi_id', value)} inputMode="numeric" />
-          <Field label="豆瓣 ID" value={form.douban_id} onChange={(value) => set('douban_id', value)} />
-          <Field label="TheTVDB ID" value={form.thetvdb_id} onChange={(value) => set('thetvdb_id', value)} />
+          <Field label="TMDb ID" value={form.tmdb_id} onChange={(value) => set('tmdb_id', value)} inputMode="numeric" searchSite="TMDb" searchHref={searchTitle ? `https://www.themoviedb.org/search?query=${encodedSearchTitle}` : ''} />
+          <Field label="Bangumi ID" value={form.bangumi_id} onChange={(value) => set('bangumi_id', value)} inputMode="numeric" searchSite="Bangumi" searchHref={searchTitle ? `https://bgm.tv/subject_search/${encodedSearchTitle}?cat=all` : ''} />
+          <Field label="豆瓣 ID" value={form.douban_id} onChange={(value) => set('douban_id', value)} searchSite="豆瓣" searchHref={searchTitle ? `https://search.douban.com/movie/subject_search?search_text=${encodedSearchTitle}&cat=1002` : ''} />
+          <Field label="TheTVDB ID" value={form.thetvdb_id} onChange={(value) => set('thetvdb_id', value)} searchSite="TheTVDB" searchHref={searchTitle ? `https://thetvdb.com/search?query=${encodedSearchTitle}` : ''} />
           <Field label="语言" value={form.languages} onChange={(value) => set('languages', value)} placeholder="zh,en" />
           <Field label="国家/地区" value={form.countries} onChange={(value) => set('countries', value)} placeholder="CN,JP,US" />
           <Field label="类型" value={form.genres} onChange={(value) => set('genres', value)} placeholder="剧情,动画" />
@@ -194,6 +196,8 @@ function Field({
   placeholder,
   inputMode,
   type = 'text',
+  searchSite,
+  searchHref,
 }: {
   label: string
   value: string
@@ -201,18 +205,34 @@ function Field({
   placeholder?: string
   inputMode?: 'numeric' | 'decimal'
   type?: 'text' | 'date'
+  searchSite?: string
+  searchHref?: string
 }) {
   return (
-    <label>
-      <span className="mb-1 block text-xs font-bold text-gray-500">{label}</span>
-      <input
-        value={value}
-        type={type}
-        onChange={(event) => onChange(event.target.value)}
-        placeholder={placeholder}
-        inputMode={inputMode}
-        className="input-field h-11 px-3 py-2 font-semibold"
-      />
-    </label>
+    <div className="relative">
+      <label>
+        <span className="mb-1 block text-xs font-bold text-gray-500">{label}</span>
+        <input
+          value={value}
+          type={type}
+          onChange={(event) => onChange(event.target.value)}
+          placeholder={placeholder}
+          inputMode={inputMode}
+          className={`input-field h-11 px-3 py-2 font-semibold ${searchSite ? 'pr-12' : ''}`}
+        />
+      </label>
+      {searchSite && (
+        <button
+          type="button"
+          disabled={!searchHref}
+          onClick={() => window.open(searchHref, '_blank', 'noopener,noreferrer')}
+          aria-label={searchHref ? `在 ${searchSite} 搜索当前标题` : `在 ${searchSite} 搜索，请先填写标题`}
+          title={searchHref ? `在 ${searchSite} 搜索当前标题` : '请先填写标题'}
+          className="icon-btn absolute bottom-1 right-1 disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          <Search size={16} aria-hidden="true" />
+        </button>
+      )}
+    </div>
   )
 }
