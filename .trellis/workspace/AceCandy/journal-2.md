@@ -203,3 +203,25 @@ Refined media library cover cards and management dialog: 16:9 hover overlays, de
 ### Status
 
 [OK] **Completed**
+
+
+## Session 101: 保留媒体列表筛选状态
+<!-- trellis-session: v=2 fp=c3437c1b16e3e236 -->
+
+**Date**: 2026-09-05
+**Task**: 保留媒体列表筛选状态
+**Branch**: `main`
+
+### Summary
+
+将无海报和无中文名筛选保存到媒体库 URL，并让详情页返回恢复完整媒体库来源地址；完成前端 lint、构建及独立复核。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `56f371a` | fix: preserve media library filters on return |
+
+### Status
+
+[OK] **Completed**
