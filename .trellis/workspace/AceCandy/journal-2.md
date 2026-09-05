@@ -181,3 +181,25 @@ Refined media library cover cards and management dialog: 16:9 hover overlays, de
 ### Status
 
 [OK] **Completed**
+
+
+## Session 100: 豆瓣候选搜索并回填 ID
+<!-- trellis-session: v=2 fp=13b148c299e05b60 -->
+
+**Date**: 2026-09-05
+**Task**: 豆瓣候选搜索并回填 ID
+**Branch**: `main`
+
+### Summary
+
+复用手动刮削搜索链路返回多个豆瓣候选，在元数据编辑弹窗中选择并回填豆瓣 ID，保留原保存与详情外链行为。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `2b92b97` | feat: add Douban candidate ID picker |
+
+### Status
+
+[OK] **Completed**
