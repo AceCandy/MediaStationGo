@@ -594,7 +594,7 @@ func TestMediaProbeBackfillSkipsUnavailableSTRMWithoutConsumingLimit(t *testing.
 }
 
 func TestMediaProbeAutomaticBackfillCreatesVisibleEventTaskAndCoalescesWake(t *testing.T) {
-	db := newServiceTestDB(t, &model.Media{}, &model.MediaProbeMetadata{})
+	db := newServiceTestDB(t, &model.Media{}, &model.MediaProbeMetadata{}, &model.Library{})
 	repos := repository.New(db)
 	path := filepath.Join(t.TempDir(), "movie.mkv")
 	if err := os.WriteFile(path, []byte("media"), 0o600); err != nil {
@@ -642,6 +642,37 @@ func TestMediaProbeAutomaticBackfillCreatesVisibleEventTaskAndCoalescesWake(t *t
 		time.Sleep(time.Millisecond)
 	}
 	t.Fatalf("automatic probe tasks did not settle: %#v", tracker.Snapshot())
+}
+
+func TestMediaProbeAutomaticBackfillSkipsEpisodesButManualIncludesThem(t *testing.T) {
+	db := newServiceTestDB(t, &model.Media{}, &model.MediaProbeMetadata{}, &model.Library{})
+	dir := t.TempDir()
+	for _, libraryType := range []string{"movie", "tv", "anime", "variety", "show", "shows", model.LibraryTypeNFOTV} {
+		library := model.Library{Name: libraryType, Type: libraryType, Path: dir}
+		if err := db.Create(&library).Error; err != nil {
+			t.Fatal(err)
+		}
+		path := filepath.Join(dir, libraryType+".mkv")
+		if err := os.WriteFile(path, []byte("media"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := db.Create(&model.Media{LibraryID: library.ID, Path: path}).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	probe := NewMediaProbeService(repository.New(db), &stubMediaProbeRunner{result: probeResultFixture()})
+	result, err := probe.backfill(t.Context(), "", 0, nil, true)
+	if err != nil || result.Total != 1 || result.Completed != 1 {
+		t.Fatalf("automatic result = %#v, error = %v", result, err)
+	}
+	pending, err := probe.hasPendingProbe(t.Context())
+	if err != nil || pending {
+		t.Fatalf("episodes must not wake automatic backfill: pending=%v, error=%v", pending, err)
+	}
+	result, err = probe.BackfillAll(t.Context(), 0, nil)
+	if err != nil || result.Total != 6 || result.Completed != 6 {
+		t.Fatalf("manual result = %#v, error = %v", result, err)
+	}
 }
 
 func TestScanResultBoundsChangeDetails(t *testing.T) {

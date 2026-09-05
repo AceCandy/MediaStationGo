@@ -422,6 +422,9 @@ progress, complete probe-document invalidation, or automatic track backfill.
 - Automatic and manual backfill share `TaskKindProbe` and the same executor.
   Automatic executions use trigger `event`; a wake received while probe work is
   active is coalesced and checked again after the active execution settles.
+- Automatic probe checks, counts, and pages exclude episodic libraries
+  (`tv`, `anime`, `variety`, `show`, `shows`, `nfo_tv`), scanned episode numbers,
+  and series/season/episode metadata. Manual backfill still includes these rows.
 - Startup may wake the coordinator, but the database query decides whether work
   exists. Valid current documents are never probed again. ISO images and STRM
   rows without a supported local or HTTP(S) target are skipped without invoking
