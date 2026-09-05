@@ -93,3 +93,25 @@ Refined media library cover cards and management dialog: 16:9 hover overlays, de
 ### Status
 
 [OK] **Completed**
+
+
+## Session 96: 详情页显示 STRM 真实路径
+<!-- trellis-session: v=2 fp=f345a9fb18efb78a -->
+
+**Date**: 2026-09-05
+**Task**: 详情页显示 STRM 真实路径
+**Branch**: `main`
+
+### Summary
+
+新增独立 STRM 目标读取接口并校验媒体可见性；详情页仅对当前选中的 STRM 版本实时请求和展示目标路径。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `e32ac25` | feat: show STRM target on media details |
+
+### Status
+
+[OK] **Completed**
