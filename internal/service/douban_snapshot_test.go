@@ -216,12 +216,12 @@ func TestDoubanPosterURLPrefersLargestSnapshotField(t *testing.T) {
 		raw  string
 		want string
 	}{
-		{"cover large", `{"cover":{"image":{"large":{"url":"https://img.test/view/photo/l/public/1.jpg"}}},"pic":{"large":"https://img.test/m.jpg","normal":"https://img.test/s.jpg"}}`, "https://img.test/view/photo/l/public/1.jpg"},
-		{"invalid cover large", `{"cover":{"image":{"large":{"url":"not-a-url"}}},"pic":{"large":"https://img.test/m.jpg","normal":"https://img.test/s.jpg"}}`, "https://img.test/m.jpg"},
-		{"pic large", `{"pic":{"large":"https://img.test/m.jpg","normal":"https://img.test/s.jpg"}}`, "https://img.test/m.jpg"},
-		{"nested small in large field", `{"pic":{"large":{"small":"https://img.test/s.jpg"}}}`, ""},
-		{"pic normal", `{"pic":{"normal":"https://img.test/s.jpg"}}`, ""},
-		{"legacy cover", `{"cover_url":"https://img.test/legacy.jpg"}`, ""},
+		{"cover large", `{"title":"test","cover":{"image":{"large":{"url":"https://img.test/view/photo/l/public/1.jpg"}}},"pic":{"large":"https://img.test/m.jpg","normal":"https://img.test/s.jpg"}}`, "https://img.test/view/photo/l/public/1.jpg"},
+		{"invalid cover large", `{"title":"test","cover":{"image":{"large":{"url":"not-a-url"}}},"pic":{"large":"https://img.test/m.jpg","normal":"https://img.test/s.jpg"}}`, "https://img.test/m.jpg"},
+		{"pic large with root title fallback", `{"title":"test","subject":{"pic":{"large":"https://img.test/m.jpg","normal":"https://img.test/s.jpg"}}}`, "https://img.test/m.jpg"},
+		{"nested small in large field", `{"title":"test","pic":{"large":{"small":"https://img.test/s.jpg"}}}`, ""},
+		{"pic normal", `{"title":"test","pic":{"normal":"https://img.test/s.jpg"}}`, ""},
+		{"legacy cover", `{"title":"test","cover_url":"https://img.test/legacy.jpg"}`, ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

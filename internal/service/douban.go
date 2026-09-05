@@ -629,6 +629,12 @@ func doubanMatchFromRawJSON(doubanID string, rawJSON []byte) (*Match, error) {
 		subject = nested
 	}
 	title := firstStringFromMap(subject, "title", "name")
+	if strings.TrimSpace(title) == "" {
+		title = firstStringFromMap(raw, "title")
+	}
+	if strings.TrimSpace(title) == "" {
+		return nil, ErrDoubanSubjectNotFound
+	}
 	year := 0
 	if y := firstStringFromMap(subject, "year"); len(y) >= 4 {
 		_, _ = fmt.Sscanf(y[:4], "%d", &year)
@@ -653,9 +659,6 @@ func doubanMatchFromRawJSON(doubanID string, rawJSON []byte) (*Match, error) {
 		m.TMDbID = positiveIntFromMap(raw, "tmdb_id", "tmdbid")
 	}
 	m.AllowIdentifierMerge = true
-	if m.Title == "" {
-		m.Title = firstStringFromMap(raw, "title")
-	}
 	return m, nil
 }
 

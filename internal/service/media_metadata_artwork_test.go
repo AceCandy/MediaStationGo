@@ -265,7 +265,7 @@ func TestDoubanArtworkLocalRepairCheckpointsOnlyFinal404WithUsableSmallImage(t *
 }
 
 func TestDoubanRepairPosterURLDerivesKnownPhotoVariant(t *testing.T) {
-	payload := `{"pic":{"large":"https://img9.doubanio.com/view/photo/m_ratio_poster/public/p123.jpg?x=1"}}`
+	payload := `{"title":"test","pic":{"large":"https://img9.doubanio.com/view/photo/m_ratio_poster/public/p123.jpg?x=1"}}`
 	if got := doubanRepairPosterURL(payload, ""); got != "https://img9.doubanio.com/view/photo/l/public/p123.jpg?x=1" {
 		t.Fatalf("derived Douban poster URL = %q", got)
 	}

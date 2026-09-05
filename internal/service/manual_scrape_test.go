@@ -146,6 +146,29 @@ func TestManualDoubanMatchesReturnsAllCandidates(t *testing.T) {
 	}
 }
 
+func TestManualDoubanNumericTitleFallsBackToKeywordSearch(t *testing.T) {
+	suggestCalls := 0
+	provider := NewDoubanProvider(nil)
+	provider.client = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		status := http.StatusOK
+		body := `{"r":"error"}`
+		switch req.URL.Path {
+		case "/rexxar/api/v2/movie/2046":
+			status = http.StatusNotFound
+		case "/j/subject_suggest":
+			suggestCalls++
+			body = `[{"id":"1291555","title":"2046","year":"2004","type":"movie"}]`
+		}
+		return &http.Response{StatusCode: status, Body: io.NopCloser(strings.NewReader(body)), Request: req}, nil
+	})}
+	scraper := &ScraperService{douban: provider}
+
+	matches := scraper.manualDoubanMatches(t.Context(), "2046")
+	if suggestCalls != 1 || len(matches) != 1 || matches[0].DoubanID != "1291555" || matches[0].Title != "2046" {
+		t.Fatalf("manual Douban numeric-title fallback: calls=%d, matches=%#v", suggestCalls, matches)
+	}
+}
+
 func TestManualSearchFallsBackToMovieFolderForGenericQuery(t *testing.T) {
 	var queries []string
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
