@@ -1,6 +1,8 @@
 import { Calendar, Circle, CircleAlert, CircleCheck, Clock, FileVideo, HardDrive, Heart, Monitor, Star } from 'lucide-react'
 import { motion } from 'framer-motion'
+import { useEffect, useState } from 'react'
 
+import { mediaAPI } from '../api/library'
 import type { Media } from '../types'
 
 type MediaDetailMetadataProps = {
@@ -20,6 +22,18 @@ export function MediaDetailMetadata({ media, selectedMedia, favourite, onToggleF
   const heading = media.title
   const seriesContext = media.series_title?.trim()
   const tmdbHref = tmdbURL(media)
+  const [strmTarget, setSTRMTarget] = useState('')
+
+  useEffect(() => {
+    let cancelled = false
+    setSTRMTarget('')
+    if (selectedMedia.path.toLowerCase().endsWith('.strm')) {
+      mediaAPI.getSTRMTarget(selectedMedia.id)
+        .then((target) => { if (!cancelled) setSTRMTarget(target) })
+        .catch(() => undefined)
+    }
+    return () => { cancelled = true }
+  }, [selectedMedia.id, selectedMedia.path])
 
   return (
     <>
@@ -139,6 +153,12 @@ export function MediaDetailMetadata({ media, selectedMedia, favourite, onToggleF
             <span className="w-16 shrink-0 font-bold uppercase tracking-wider text-[var(--app-muted)]">本地路径</span>
             <span className="min-w-0 break-all font-mono text-[var(--app-subtle)]">{selectedMedia.path}</span>
           </div>
+          {strmTarget && (
+            <div className="flex min-w-0 gap-3">
+              <span className="w-16 shrink-0 font-bold uppercase tracking-wider text-[var(--app-muted)]">STRM 路径</span>
+              <span className="min-w-0 break-all font-mono text-[var(--app-subtle)]">{strmTarget}</span>
+            </div>
+          )}
         </div>
       </motion.div>
     </>

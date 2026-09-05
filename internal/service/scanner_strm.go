@@ -37,6 +37,15 @@ func readLocalSTRMTarget(path string) (string, error) {
 	return "", nil
 }
 
+// GetSTRMTargetVisible 实时读取用户可见媒体对应的本地 STRM 文件目标。
+func (s *MediaService) GetSTRMTargetVisible(ctx context.Context, id string, visibility MediaVisibility) (string, error) {
+	media, err := s.GetMediaVisible(ctx, id, visibility)
+	if err != nil || media == nil || media.ID != id || !strings.EqualFold(filepath.Ext(media.Path), ".strm") {
+		return "", err
+	}
+	return readLocalSTRMTarget(media.Path)
+}
+
 func localSTRMFileTarget(m *model.Media) string {
 	if m == nil || !strings.EqualFold(filepath.Ext(m.Path), ".strm") {
 		return ""

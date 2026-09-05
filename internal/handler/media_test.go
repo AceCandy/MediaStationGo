@@ -315,6 +315,80 @@ func TestListMediaVersionsReturnsOnlyVisibleSiblings(t *testing.T) {
 	requestMediaVersions(t, svc, viewer.ID, "missing", http.StatusNotFound)
 }
 
+func TestGetMediaSTRMTargetReturnsOnlyVisibleTarget(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db, err := testdb.OpenPostgres(t, &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := migrateMediaHandlerTestDB(db, &model.User{}, &model.Library{}, &model.Media{}, &model.Setting{}, &model.PlayProfile{}); err != nil {
+		t.Fatal(err)
+	}
+	repos := repository.New(db)
+	viewer := &model.User{Username: "viewer-strm-target", PasswordHash: "hash", Role: "user", HideAdult: true}
+	if err := repos.User.Create(t.Context(), viewer); err != nil {
+		t.Fatal(err)
+	}
+	safe := model.Library{Name: "电影", Path: t.TempDir(), Type: "movie", Enabled: true}
+	hidden := model.Library{Name: "隐藏库", Path: t.TempDir(), Type: "movie", Enabled: true}
+	for _, lib := range []*model.Library{&safe, &hidden} {
+		if err := repos.Library.Create(t.Context(), lib); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := repos.Setting.Set(t.Context(), service.AdultLibraryIDsSettingKey, `["`+hidden.ID+`"]`); err != nil {
+		t.Fatal(err)
+	}
+	metadata := model.MetadataItem{Kind: model.MetadataKindMovie, Title: "STRM 电影", Source: "local"}
+	if err := repos.DB.Create(&metadata).Error; err != nil {
+		t.Fatal(err)
+	}
+	target := "https://cdn.example.test/movie.mkv"
+	safePath := filepath.Join(safe.Path, "movie.strm")
+	hiddenPath := filepath.Join(hidden.Path, "hidden.strm")
+	for _, path := range []string{safePath, hiddenPath} {
+		if err := os.WriteFile(path, []byte("# comment\n"+target+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := repos.DB.Create(&[]model.Media{
+		{PermanentBase: model.PermanentBase{ID: "strm-visible"}, LibraryID: safe.ID, MetadataID: metadata.ID, Title: metadata.Title, Path: safePath},
+		{PermanentBase: model.PermanentBase{ID: "strm-hidden"}, LibraryID: hidden.ID, MetadataID: metadata.ID, Title: metadata.Title, Path: hiddenPath},
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	svc := &service.Container{Repo: repos, Media: service.NewMediaService(&config.Config{}, zap.NewNop(), repos)}
+
+	request := func(mediaID string) *httptest.ResponseRecorder {
+		w := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(w)
+		c.Set(middleware.CtxUserID, viewer.ID)
+		c.Set(middleware.CtxUserRole, "user")
+		c.Params = gin.Params{{Key: "id", Value: mediaID}}
+		c.Request = httptest.NewRequest(http.MethodGet, "/api/media/"+mediaID+"/strm-target", nil)
+		getMediaSTRMTargetHandler(svc)(c)
+		return w
+	}
+
+	w := request("strm-visible")
+	if w.Code != http.StatusOK {
+		t.Fatalf("visible STRM target status = %d body=%s", w.Code, w.Body.String())
+	}
+	var payload map[string]string
+	if err := json.Unmarshal(w.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if len(payload) != 1 || payload["target"] != target {
+		t.Fatalf("STRM target response = %#v", payload)
+	}
+	if w := request("strm-hidden"); w.Code != http.StatusNotFound {
+		t.Fatalf("hidden STRM target status = %d body=%s", w.Code, w.Body.String())
+	}
+	if w := request(metadata.ID); w.Code != http.StatusNotFound {
+		t.Fatalf("metadata ID STRM target status = %d body=%s", w.Code, w.Body.String())
+	}
+}
+
 func TestListLibrarySeriesDoesNotTruncateLargeEpisodeLibraries(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db, err := testdb.OpenPostgres(t, &gorm.Config{})

@@ -239,6 +239,9 @@ export const mediaAPI = {
 
   get: (id: string) => api.get<Media>(`/media/${id}`).then((r) => r.data),
 
+  getSTRMTarget: (id: string) =>
+    api.get<{ target: string }>(`/media/${id}/strm-target`).then((r) => r.data.target),
+
   listScrapeIssues: (options: { libraryID?: string; status?: 'error' | 'no_match'; page?: number; pageSize?: number }) =>
     api.get<MediaScrapeIssuePage>('/media/scrape-issues', {
       params: {

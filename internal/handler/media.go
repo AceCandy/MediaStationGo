@@ -279,6 +279,21 @@ func getMediaHandler(svc *service.Container) gin.HandlerFunc {
 	}
 }
 
+func getMediaSTRMTargetHandler(svc *service.Container) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		target, err := svc.Media.GetSTRMTargetVisible(c.Request.Context(), c.Param("id"), mediaVisibilityForRequest(c, svc))
+		if err != nil {
+			writeInternalOrCanceled(c, err)
+			return
+		}
+		if target == "" {
+			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"target": target})
+	}
+}
+
 func enrichMediaFromDoubanHandler(svc *service.Container) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		m, err := svc.Media.GetMediaVisible(c.Request.Context(), c.Param("id"), mediaVisibilityForRequest(c, svc))

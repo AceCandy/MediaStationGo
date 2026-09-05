@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/backend/strm-target.md", "reason": "Verify exact media identity, visibility, response shape, and tests"}
+{"file": ".trellis/spec/frontend/design-system.md", "reason": "Verify theme tokens and long-path layout"}
