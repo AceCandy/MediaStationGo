@@ -1,13 +1,16 @@
 import { FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
-import { Library as LibraryIcon, Search } from 'lucide-react'
+import { Library as LibraryIcon, Search, Sparkles } from 'lucide-react'
 import clsx from 'clsx'
 
 import { imageURL } from '../api/client'
 import { seriesCardLink, type SeriesCard } from '../utils/groupSeries'
 
 type LayoutSearchBoxProps = {
+  aiOn: boolean
+  aiAvailable: boolean
+  onToggleAI: () => void
   query: string
   focused: boolean
   loading: boolean
@@ -20,6 +23,9 @@ type LayoutSearchBoxProps = {
 }
 
 export function LayoutSearchBox({
+  aiOn,
+  aiAvailable,
+  onToggleAI,
   query,
   focused,
   loading,
@@ -33,12 +39,12 @@ export function LayoutSearchBox({
   const trimmedQuery = query.trim()
 
   return (
-    <form onSubmit={onSubmit} className="relative hidden w-full sm:block">
+    <form onSubmit={onSubmit} className="relative min-w-0 w-full">
       <span className={clsx(
-        'absolute left-4 top-1/2 -translate-y-1/2 transition-colors duration-200',
+        'absolute left-0 top-1/2 -translate-y-1/2 transition-colors duration-200',
         focused ? 'text-brand-500' : 'text-[var(--app-muted)]',
       )}>
-        <Search size={16} />
+        <button type="submit" aria-label="提交搜索" className="flex min-h-11 min-w-11 items-center justify-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"><Search size={16} /></button>
       </span>
       <input
         type="text"
@@ -51,16 +57,23 @@ export function LayoutSearchBox({
         onClick={() => onFocusedChange(true)}
         onFocus={() => onFocusedChange(true)}
         onBlur={() => window.setTimeout(() => onFocusedChange(false), 120)}
-        placeholder="搜索电影、电视剧、演员…"
+        placeholder={aiOn ? '描述想找的影片…' : '搜索电影、电视剧、演员…'}
         className="w-full rounded-full border border-[var(--app-border)] bg-[var(--app-control-bg)] py-2.5 pl-11 pr-12 text-sm text-[var(--app-text)] placeholder:text-[var(--app-muted)] outline-none transition-all duration-300 focus:border-[var(--app-accent-border)] focus:bg-[var(--app-panel)] focus:ring-4 focus:ring-brand-500/15"
       />
-      <div className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2">
-        <span className="rounded-xl border border-[var(--app-border)] bg-[var(--app-panel)] px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-[var(--app-muted)]">
-          Enter
-        </span>
-      </div>
+      {aiAvailable && (
+        <button
+          type="button"
+          aria-label={aiOn ? '关闭智能搜索' : '开启智能搜索'}
+          aria-pressed={aiOn}
+          title={aiOn ? '智能搜索已开启，点击关闭' : '开启智能搜索'}
+          onClick={onToggleAI}
+          className={clsx('absolute right-0 top-1/2 flex min-h-11 min-w-11 -translate-y-1/2 items-center justify-center rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500', aiOn ? 'bg-[var(--app-brand-soft)] text-brand-500' : 'text-[var(--app-muted)] hover:text-brand-500')}
+        >
+          <Sparkles size={18} aria-hidden="true" />
+        </button>
+      )}
       <AnimatePresence>
-        {focused && trimmedQuery && (
+        {focused && trimmedQuery && !aiOn && (
           <motion.div
             initial={{ opacity: 0, y: 8, scale: 0.98 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
@@ -101,7 +114,7 @@ export function LayoutSearchBox({
             >
               <span>查看全部搜索结果</span>
               <span className="text-xs text-[var(--app-muted)]">
-                {total > 0 ? `${total} 个条目` : 'Enter'}
+                {total > 0 ? `${total} 个条目` : ''}
               </span>
             </Link>
           </motion.div>

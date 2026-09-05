@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Info } from 'lucide-react'
+import { Info, Sparkles } from 'lucide-react'
 
 import type { ExternalMediaResult } from '../api/ai'
 import { imageURL } from '../api/client'
@@ -11,8 +11,14 @@ export function ExternalResults({ items }: { items: ExternalMediaResult[] }) {
   return (
     <section className="space-y-3">
       <div>
-        <h2 className="font-display text-xl font-semibold text-ink-600">外部数据源</h2>
-        <p className="text-xs text-ink-50">来自 TMDb / 豆瓣 / Bangumi 的普通搜索结果。</p>
+        <h2 className="flex items-center gap-2 font-display text-xl font-semibold text-ink-600">
+          外部数据源
+          <span title="AI 辅助搜索" className="inline-flex text-brand-500">
+            <Sparkles size={18} aria-hidden="true" />
+            <span className="sr-only">AI 辅助搜索</span>
+          </span>
+        </h2>
+        <p className="text-xs text-ink-50">AI 辅助搜索结果，影片资料来自 TMDb / 豆瓣 / Bangumi。</p>
       </div>
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
         {items.map((item) => {

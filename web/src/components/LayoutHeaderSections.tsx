@@ -1,5 +1,5 @@
-import { Link, NavLink } from 'react-router-dom'
-import { Menu, Search } from 'lucide-react'
+import { NavLink } from 'react-router-dom'
+import { Menu } from 'lucide-react'
 
 import type { PlayProfile, User } from '../types'
 import { HEADER_NAV_ITEMS } from './layoutNavigation'
@@ -70,7 +70,7 @@ function LayoutHeaderSearch({
   onOpenMobileDrawer: () => void
 }) {
   return (
-    <div className="flex items-center gap-3 flex-1 max-w-lg md:gap-4">
+    <div className="flex min-w-0 items-center gap-2 flex-1 max-w-lg mr-2 md:gap-4">
       <button
         onClick={onOpenMobileDrawer}
         aria-label="打开导航"
@@ -80,6 +80,9 @@ function LayoutHeaderSearch({
         <Menu size={18} />
       </button>
       <LayoutSearchBox
+        aiOn={search.aiOn}
+        aiAvailable={search.aiAvailable}
+        onToggleAI={search.toggleAI}
         query={search.query}
         focused={search.focused}
         loading={search.loading}
@@ -157,12 +160,6 @@ function LayoutQuickActions({ permissions }: { permissions: LayoutPermissionStat
 
   return (
     <>
-      <Link
-        to="/search"
-        className="min-h-11 min-w-11 rounded-xl p-2.5 text-[var(--app-muted)] transition-all duration-300 hover:bg-[var(--app-hover)] hover:text-[var(--app-text)] sm:hidden"
-      >
-        <Search size={18} />
-      </Link>
       {headerItems.map((item) => {
         const Icon = item.icon
         return (

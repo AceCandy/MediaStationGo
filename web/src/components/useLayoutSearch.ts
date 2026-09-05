@@ -4,6 +4,7 @@ import type { NavigateFunction } from 'react-router-dom'
 import { mediaAPI } from '../api/library'
 import type { Media } from '../types'
 import { groupSeries } from '../utils/groupSeries'
+import { useAISearchAvailability } from './useAISearchAvailability'
 
 type UseLayoutSearchOptions = {
   pathname: string
@@ -12,6 +13,9 @@ type UseLayoutSearchOptions = {
 }
 
 export function useLayoutSearch({ pathname, locationSearch, navigate }: UseLayoutSearchOptions) {
+  const { aiAvailable } = useAISearchAvailability()
+  const params = new URLSearchParams(locationSearch)
+  const aiOn = pathname === '/search' && params.getAll('mode').length === 1 && params.get('mode') === 'ai' && aiAvailable
   const [focused, setFocused] = useState(false)
   const [query, setQuery] = useState('')
   const [items, setItems] = useState<Media[]>([])
@@ -30,7 +34,7 @@ export function useLayoutSearch({ pathname, locationSearch, navigate }: UseLayou
   useEffect(() => {
     const trimmedQuery = query.trim()
     const seq = ++searchSeq.current
-    if (!focused || !trimmedQuery) {
+    if (!focused || !trimmedQuery || aiOn) {
       setItems([])
       setTotal(0)
       setError('')
@@ -60,18 +64,25 @@ export function useLayoutSearch({ pathname, locationSearch, navigate }: UseLayou
     }, 220)
 
     return () => window.clearTimeout(timer)
-  }, [focused, query])
+  }, [focused, query, aiOn])
 
   const submit = (event: FormEvent) => {
     event.preventDefault()
     const trimmedQuery = query.trim()
     if (trimmedQuery) {
-      navigate(`/search?q=${encodeURIComponent(trimmedQuery)}`)
+      navigate(`/search?q=${encodeURIComponent(trimmedQuery)}${aiOn ? '&mode=ai' : ''}`)
       setFocused(false)
     }
   }
 
   return {
+    aiAvailable,
+    aiOn,
+    toggleAI: () => {
+      if (!aiAvailable) return
+      navigate(`/search?q=${encodeURIComponent(query.trim())}${aiOn ? '' : '&mode=ai'}`)
+      setFocused(false)
+    },
     cards,
     error,
     focused,

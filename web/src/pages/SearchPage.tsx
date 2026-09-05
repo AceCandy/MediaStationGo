@@ -1,8 +1,6 @@
 import { Navigate } from 'react-router-dom'
 
 import { ExternalResults } from './SearchExternalResults'
-import { SearchHeader } from './SearchHeader'
-import { SearchInputBar } from './SearchInputBar'
 import { SearchLocalResults } from './SearchLocalResults'
 import { SearchStatusPanels } from './SearchStatusPanels'
 import { useSearchPage } from './useSearchPage'
@@ -14,25 +12,7 @@ export function SearchPage() {
 
   return (
     <div className="space-y-6">
-      <SearchHeader
-        aiOn={search.aiOn}
-        aiAvailable={search.aiAvailable}
-        onToggleAI={() => search.setSearchMode(search.aiOn ? 'default' : 'ai')}
-      />
-
-      <SearchInputBar
-        aiOn={search.aiOn}
-        query={search.q}
-        onQueryChange={search.setQ}
-        onAISubmit={search.onAISubmit}
-      />
-
-      {search.intent && (
-        <div className="glass-panel !p-3 text-xs text-ink-100">
-          AI 解析:
-          <span className="ml-2 font-mono text-brand-500">{JSON.stringify(search.intent)}</span>
-        </div>
-      )}
+      <h1 className="font-display text-3xl font-bold text-ink-600">搜索</h1>
 
       <SearchStatusPanels
         loading={search.loading}
@@ -41,18 +21,18 @@ export function SearchPage() {
         showEmpty={search.showEmpty}
       />
 
+      {search.externalItems.length > 0 && (
+        <ExternalResults
+          items={search.externalItems}
+        />
+      )}
+
       <SearchLocalResults
         localCards={search.localCards}
         itemCount={search.itemCount}
         searchTotal={search.searchTotal}
         loading={search.loading}
       />
-
-      {search.externalItems.length > 0 && (
-        <ExternalResults
-          items={search.externalItems}
-        />
-      )}
     </div>
   )
 }
