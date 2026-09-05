@@ -7,7 +7,7 @@ import (
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 )
 
-// ImageURL returns artwork for a media/series/season item id.
+// ImageURL returns artwork for a library/media/series/season item id.
 func (e *EmbyService) ImageURL(ctx context.Context, id, imageType string) (string, error) {
 	if e.repo != nil && e.repo.Person != nil {
 		person, personErr := e.repo.Person.FindByID(ctx, id)
@@ -15,6 +15,18 @@ func (e *EmbyService) ImageURL(ctx context.Context, id, imageType string) (strin
 			return "", personErr
 		}
 		if personErr == nil && person != nil {
+			return "", nil
+		}
+	}
+	if e.repo != nil && e.repo.Library != nil {
+		lib, err := e.repo.Library.FindByID(ctx, id)
+		if err != nil {
+			return "", err
+		}
+		if lib != nil {
+			if strings.EqualFold(imageType, "Primary") {
+				return strings.TrimSpace(lib.CoverURL), nil
+			}
 			return "", nil
 		}
 	}

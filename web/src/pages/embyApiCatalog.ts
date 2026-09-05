@@ -350,7 +350,7 @@ export const EMBY_API_ENDPOINTS: readonly EmbyApiEndpoint[] = [
       tokenHeader,
       { name: 'userId', location: 'path', type: 'string', required: true, description: '必须与令牌用户一致；管理员可显式指定其他账户。' },
     ],
-    responses: [{ status: '200', contentType: 'application/json', description: '返回 CollectionFolder 类型的 Items 分页结构。', fields: itemsEnvelopeFields, example: `{
+    responses: [{ status: '200', contentType: 'application/json', description: '返回 CollectionFolder 类型的 Items 分页结构；设置封面的媒体库包含 ImageTags.Primary，封面地址变化时更新缓存标识。', fields: itemsEnvelopeFields, example: `{
   "Items": [{ "Id": "library-1", "Name": "电影", "Type": "CollectionFolder", "CollectionType": "movies" }],
   "TotalRecordCount": 1,
   "StartIndex": 0
@@ -595,14 +595,14 @@ export const EMBY_API_ENDPOINTS: readonly EmbyApiEndpoint[] = [
     id: 'item-image',
     category: '图片与播放',
     name: '媒体图片',
-    description: '读取封面、背景图、人物图等媒体图片。',
+    description: '读取封面、背景图、人物图等媒体图片；媒体库 Primary 支持上传封面和外链封面。',
     methods: ['GET', 'HEAD'],
     path: '/Items/:id/Images/:type',
     aliases: ['/Items/:id/Images/:type/:index', '/items/:id/images/:type', '/items/:id/images/:type/:index'],
     auth: 'public',
     support: 'implemented',
     parameters: [
-      { name: 'id', location: 'path', type: 'string', required: true, description: '媒体项或人物 ID。' },
+      { name: 'id', location: 'path', type: 'string', required: true, description: '媒体库、媒体项或人物 ID。' },
       { name: 'type', location: 'path', type: 'string', required: true, description: 'Primary、Backdrop 等图片类型。' },
       { name: 'index', location: 'path', type: 'number', description: '多图类型的索引。' },
     ],

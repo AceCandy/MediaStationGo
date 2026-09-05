@@ -48,6 +48,12 @@ func embyItemImageHandler(svc *service.Container) gin.HandlerFunc {
 			embyServePlaceholderImage(c)
 			return
 		}
+		if strings.HasPrefix(raw, "/api/libraries/") {
+			if svc.Media == nil || svc.Media.ServeLibraryCover(ctx, c.Writer, req, id) != nil {
+				embyServePlaceholderImage(c)
+			}
+			return
+		}
 		if assetID := strings.TrimPrefix(raw, "/api/artwork/"); assetID != raw && assetID != "" {
 			if svc.Artwork == nil || svc.Artwork.Serve(ctx, c.Writer, req, assetID) != nil {
 				embyServePlaceholderImage(c)

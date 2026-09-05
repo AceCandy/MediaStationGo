@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"strings"
 
 	"github.com/ShukeBta/MediaStationGo/internal/model"
@@ -141,6 +143,11 @@ func (e *EmbyService) Views(ctx context.Context, userID string) (map[string]any,
 }
 
 func (e *EmbyService) libraryAsView(l *model.Library) map[string]any {
+	imageTags := map[string]string{}
+	if coverURL := strings.TrimSpace(l.CoverURL); coverURL != "" {
+		sum := sha256.Sum256([]byte(coverURL))
+		imageTags["Primary"] = hex.EncodeToString(sum[:])
+	}
 	collectionType := "movies"
 	switch l.Type {
 	case "tv", "show", "shows", model.LibraryTypeNFOTV:
@@ -176,7 +183,7 @@ func (e *EmbyService) libraryAsView(l *model.Library) map[string]any {
 		"ProviderIds":              map[string]string{},
 		"Genres":                   []string{},
 		"Tags":                     []string{},
-		"ImageTags":                map[string]string{},
+		"ImageTags":                imageTags,
 		"BackdropImageTags":        []string{},
 		"UserData": map[string]any{
 			"PlaybackPositionTicks": 0,
