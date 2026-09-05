@@ -72,6 +72,57 @@ if err == nil && resolved.Enabled && strings.TrimSpace(resolved.APIKey) != "" {
 }
 ```
 
+## Scenario: Manual Douban Candidate Selection
+
+### 1. Scope / Trigger
+
+- Apply this contract when changing Douban suggest parsing, manual provider search, or metadata-editor Douban ID selection.
+
+### 2. Signatures
+
+- Provider candidates: `DoubanProvider.SearchCandidates(ctx, query) ([]*DoubanMatch, error)`.
+- Compatibility lookup: `DoubanProvider.Search(ctx, query) (*DoubanMatch, error)` returns only the first candidate.
+- API: `GET /media/:id/scrape/search?provider=douban&query=<title>` returns `{"items":[ManualScrapeCandidate...]}`.
+
+### 3. Contracts
+
+- Parse the complete `subject_suggest` array for manual search; each candidate carries `title`, optional `year` and poster, and `douban_id`.
+- Keep automatic scraping and other existing `Search` / `SearchMatch` consumers on the first-result behavior.
+- Selecting a candidate only updates the metadata editor's local `douban_id`; persistence happens through the existing metadata Save action.
+- Ignore candidates without `douban_id`. Do not change TMDb, Bangumi, or TheTVDB search behavior.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required result |
+| --- | --- |
+| Empty title | Keep the Douban search action disabled. |
+| Empty suggest array | Show an empty-result state and leave the form unchanged. |
+| Search request or parsing fails | Show an error state and leave the form unchanged. |
+| Candidate has no `douban_id` | Do not offer or perform ID selection. |
+| A closed or superseded request completes | Ignore its result. |
+
+### 5. Good / Base / Bad Cases
+
+- Good: multiple same-title entries are shown and the administrator selects the correct year and ID before saving.
+- Base: no candidates are found and the existing form values remain intact.
+- Bad: auto-select the first result, persist on candidate click, or change automatic scraping to consume every suggestion.
+
+### 6. Tests Required
+
+- Assert that manual Douban lookup returns multiple candidates and handles an empty array.
+- Assert that legacy `Search` still returns the first candidate and preserves status-error behavior.
+- Run Web lint/build and verify selection changes only `douban_id`; review stale-response invalidation for the stacked modal.
+
+### 7. Wrong vs Correct
+
+```go
+// Wrong: changing Search to return a slice breaks automatic scraping callers.
+matches, err := provider.Search(ctx, query)
+
+// Correct: manual search opts into candidates while Search remains first-result compatible.
+matches, err := provider.SearchCandidates(ctx, query)
+```
+
 ## Scenario: Explicit Douban Proxy Pool
 
 ### 1. Scope / Trigger

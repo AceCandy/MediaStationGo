@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react'
-import { Save, Search, X } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { LoaderCircle, Save, Search, X } from 'lucide-react'
 import toast from 'react-hot-toast'
 
-import { mediaAPI, type MediaMetadataUpdate } from '../api/library'
+import { mediaAPI, type ManualScrapeCandidate, type MediaMetadataUpdate } from '../api/library'
 import type { Media } from '../types'
+import { ManualScrapeCandidateList } from './ManualScrapeDialogSections'
 import { ModalShell } from './ModalShell'
 
 interface MetadataEditDialogProps {
@@ -44,6 +45,11 @@ export function MetadataEditDialog({
     nsfw: false,
   })
   const [saving, setSaving] = useState(false)
+  const [doubanCandidates, setDoubanCandidates] = useState<ManualScrapeCandidate[]>([])
+  const [doubanSearchOpen, setDoubanSearchOpen] = useState(false)
+  const [doubanSearching, setDoubanSearching] = useState(false)
+  const [doubanSearchError, setDoubanSearchError] = useState('')
+  const doubanSearchRequest = useRef(0)
 
   useEffect(() => {
     if (!open || !media) return
@@ -65,6 +71,11 @@ export function MetadataEditDialog({
       genres: media.genres || '',
       nsfw: !!media.nsfw,
     })
+    setDoubanSearchOpen(false)
+    setDoubanCandidates([])
+    setDoubanSearchError('')
+    setDoubanSearching(false)
+    doubanSearchRequest.current += 1
   }, [open, media])
 
   if (!open || !media) return null
@@ -130,6 +141,35 @@ export function MetadataEditDialog({
       setSaving(false)
     }
   }
+  const searchDouban = async () => {
+    if (!searchTitle) return
+    const requestID = ++doubanSearchRequest.current
+    setDoubanSearchOpen(true)
+    setDoubanSearching(true)
+    setDoubanSearchError('')
+    try {
+      const items = await mediaAPI.manualScrapeSearch(media.id, { query: searchTitle, provider: 'douban' })
+      if (requestID !== doubanSearchRequest.current) return
+      setDoubanCandidates(items.filter((item) => !!item.douban_id))
+    } catch (err: unknown) {
+      if (requestID !== doubanSearchRequest.current) return
+      const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error || '豆瓣搜索失败'
+      setDoubanCandidates([])
+      setDoubanSearchError(msg)
+    } finally {
+      if (requestID === doubanSearchRequest.current) setDoubanSearching(false)
+    }
+  }
+  const closeDoubanSearch = () => {
+    doubanSearchRequest.current += 1
+    setDoubanSearchOpen(false)
+    setDoubanSearching(false)
+  }
+  const selectDouban = (item: ManualScrapeCandidate) => {
+    if (!item.douban_id) return
+    set('douban_id', item.douban_id)
+    closeDoubanSearch()
+  }
 
   return (
     <ModalShell maxWidth="max-w-5xl" className="flex max-h-[88vh] flex-col" ariaLabel={isSeries ? '编辑整剧元数据' : '编辑元数据'}>
@@ -154,7 +194,7 @@ export function MetadataEditDialog({
           {!isSeries && <Field label="集" value={form.episode_num} onChange={(value) => set('episode_num', value)} inputMode="numeric" />}
           <Field label="TMDb ID" value={form.tmdb_id} onChange={(value) => set('tmdb_id', value)} inputMode="numeric" searchSite="TMDb" searchHref={searchTitle ? `https://www.themoviedb.org/search?query=${encodedSearchTitle}` : ''} />
           <Field label="Bangumi ID" value={form.bangumi_id} onChange={(value) => set('bangumi_id', value)} inputMode="numeric" searchSite="Bangumi" searchHref={searchTitle ? `https://bgm.tv/subject_search/${encodedSearchTitle}?cat=all` : ''} />
-          <Field label="豆瓣 ID" value={form.douban_id} onChange={(value) => set('douban_id', value)} searchSite="豆瓣" searchHref={searchTitle ? `https://search.douban.com/movie/subject_search?search_text=${encodedSearchTitle}&cat=1002` : ''} />
+          <Field label="豆瓣 ID" value={form.douban_id} onChange={(value) => set('douban_id', value)} searchSite="豆瓣" onSearch={searchTitle ? searchDouban : undefined} />
           <Field label="TheTVDB ID" value={form.thetvdb_id} onChange={(value) => set('thetvdb_id', value)} searchSite="TheTVDB" searchHref={searchTitle ? `https://thetvdb.com/search?query=${encodedSearchTitle}` : ''} />
           <Field label="语言" value={form.languages} onChange={(value) => set('languages', value)} placeholder="zh,en" />
           <Field label="国家/地区" value={form.countries} onChange={(value) => set('countries', value)} placeholder="CN,JP,US" />
@@ -185,6 +225,37 @@ export function MetadataEditDialog({
           保存
         </button>
       </div>
+      {doubanSearchOpen && (
+        <ModalShell onClose={closeDoubanSearch} maxWidth="max-w-3xl" className="flex max-h-[80vh] flex-col" zIndex={100} ariaLabel="选择豆瓣条目">
+          <div className="modal-header">
+            <div>
+              <h3 className="font-display text-lg font-bold text-gray-900">选择豆瓣条目</h3>
+              <p className="mt-1 text-xs text-gray-500">搜索：{searchTitle}</p>
+            </div>
+            <button type="button" onClick={closeDoubanSearch} className="icon-btn" aria-label="关闭豆瓣候选">
+              <X size={16} />
+            </button>
+          </div>
+          <div className="flex-1 overflow-y-auto p-5">
+            {doubanSearching ? (
+              <div className="flex min-h-56 items-center justify-center gap-2 text-sm text-gray-500">
+                <LoaderCircle size={18} className="animate-spin" />
+                正在搜索豆瓣
+              </div>
+            ) : doubanSearchError ? (
+              <div className="flex min-h-56 items-center justify-center rounded-xl border border-dashed border-gray-200 text-sm text-gray-500">
+                {doubanSearchError}
+              </div>
+            ) : doubanCandidates.length === 0 ? (
+              <div className="flex min-h-56 items-center justify-center rounded-xl border border-dashed border-gray-200 text-sm text-gray-500">
+                没有找到豆瓣条目
+              </div>
+            ) : (
+              <ManualScrapeCandidateList items={doubanCandidates} applyingKey="" onApply={selectDouban} />
+            )}
+          </div>
+        </ModalShell>
+      )}
     </ModalShell>
   )
 }
@@ -198,6 +269,7 @@ function Field({
   type = 'text',
   searchSite,
   searchHref,
+  onSearch,
 }: {
   label: string
   value: string
@@ -207,7 +279,9 @@ function Field({
   type?: 'text' | 'date'
   searchSite?: string
   searchHref?: string
+  onSearch?: () => void
 }) {
+  const canSearch = !!(searchHref || onSearch)
   return (
     <div className="relative">
       <label>
@@ -224,10 +298,10 @@ function Field({
       {searchSite && (
         <button
           type="button"
-          disabled={!searchHref}
-          onClick={() => window.open(searchHref, '_blank', 'noopener,noreferrer')}
-          aria-label={searchHref ? `在 ${searchSite} 搜索当前标题` : `在 ${searchSite} 搜索，请先填写标题`}
-          title={searchHref ? `在 ${searchSite} 搜索当前标题` : '请先填写标题'}
+          disabled={!canSearch}
+          onClick={() => onSearch ? onSearch() : window.open(searchHref, '_blank', 'noopener,noreferrer')}
+          aria-label={canSearch ? `在 ${searchSite} 搜索当前标题` : `在 ${searchSite} 搜索，请先填写标题`}
+          title={canSearch ? `在 ${searchSite} 搜索当前标题` : '请先填写标题'}
           className="icon-btn absolute bottom-1 right-1 disabled:cursor-not-allowed disabled:opacity-40"
         >
           <Search size={16} aria-hidden="true" />

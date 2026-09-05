@@ -2,6 +2,7 @@ package service
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -118,6 +119,30 @@ func TestManualSearchReturnsTMDbCandidatePage(t *testing.T) {
 	}
 	if len(results) != 2 || results[0].TMDbID != 101 || results[1].TMDbID != 202 {
 		t.Fatalf("manual TMDb candidates = %#v", results)
+	}
+}
+
+func TestManualDoubanMatchesReturnsAllCandidates(t *testing.T) {
+	provider := NewDoubanProvider(nil)
+	provider.client = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		body := `[]`
+		if req.URL.Query().Get("q") == "同名电影" {
+			body = `[{"id":"101","title":"同名电影","year":"2021","img":"https://img9.doubanio.com/view/photo/s_ratio_poster/public/p101.jpg","type":"movie"},{"id":"202","title":"同名电影 第二版","year":"2024","img":"","type":"tv"}]`
+		}
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(body)), Request: req}, nil
+	})}
+	scraper := &ScraperService{douban: provider}
+
+	matches := scraper.manualDoubanMatches(t.Context(), "同名电影")
+	if len(matches) != 2 || matches[0].DoubanID != "101" || matches[0].Year != 2021 || matches[1].DoubanID != "202" || matches[1].MediaType != "tv" {
+		t.Fatalf("manual Douban candidates = %#v", matches)
+	}
+	top, err := provider.Search(t.Context(), "同名电影")
+	if err != nil || top == nil || top.DoubanID != "101" {
+		t.Fatalf("top Douban candidate = %#v, err = %v", top, err)
+	}
+	if empty := scraper.manualDoubanMatches(t.Context(), "没有结果"); len(empty) != 0 {
+		t.Fatalf("empty Douban candidates = %#v", empty)
 	}
 }
 

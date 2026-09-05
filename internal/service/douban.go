@@ -99,6 +99,15 @@ type DoubanMatch struct {
 
 // Search runs a Douban subject_suggest query and returns the top match.
 func (d *DoubanProvider) Search(ctx context.Context, query string) (*DoubanMatch, error) {
+	results, err := d.SearchCandidates(ctx, query)
+	if err != nil || len(results) == 0 {
+		return nil, err
+	}
+	return results[0], nil
+}
+
+// SearchCandidates 返回豆瓣联想搜索的全部候选，供需要人工选择的流程使用。
+func (d *DoubanProvider) SearchCandidates(ctx context.Context, query string) ([]*DoubanMatch, error) {
 	if !d.Enabled() || query == "" {
 		return nil, nil
 	}
@@ -122,17 +131,17 @@ func (d *DoubanProvider) Search(ctx context.Context, query string) (*DoubanMatch
 	if err := json.Unmarshal(rawJSON, &results); err != nil {
 		return nil, err
 	}
-	if len(results) == 0 {
-		return nil, nil
+	matches := make([]*DoubanMatch, 0, len(results))
+	for _, result := range results {
+		matches = append(matches, &DoubanMatch{
+			DoubanID: result.ID,
+			Title:    result.Title,
+			Year:     result.Year,
+			Img:      d.ResolveArtworkURL(ctx, deriveDoubanLargePosterURL(result.Img)),
+			Type:     result.Type,
+		})
 	}
-	r := results[0]
-	return &DoubanMatch{
-		DoubanID: r.ID,
-		Title:    r.Title,
-		Year:     r.Year,
-		Img:      d.ResolveArtworkURL(ctx, deriveDoubanLargePosterURL(r.Img)),
-		Type:     r.Type,
-	}, nil
+	return matches, nil
 }
 
 func (d *DoubanProvider) SearchMatch(ctx context.Context, query string) (*Match, error) {
@@ -140,6 +149,10 @@ func (d *DoubanProvider) SearchMatch(ctx context.Context, query string) (*Match,
 	if err != nil || got == nil {
 		return nil, err
 	}
+	return doubanSearchMatch(got), nil
+}
+
+func doubanSearchMatch(got *DoubanMatch) *Match {
 	mediaType := ""
 	if strings.TrimSpace(got.Type) != "" {
 		mediaType = normalizeMediaType(got.Type, got.Title, "")
@@ -155,7 +168,7 @@ func (d *DoubanProvider) SearchMatch(ctx context.Context, query string) (*Match,
 	if len(got.Year) >= 4 {
 		_, _ = fmt.Sscanf(got.Year[:4], "%d", &match.Year)
 	}
-	return match, nil
+	return match
 }
 
 func (d *DoubanProvider) GetMatchByID(ctx context.Context, doubanID string) (*Match, error) {
