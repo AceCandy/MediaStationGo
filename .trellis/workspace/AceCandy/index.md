@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-2.md`
-- **Total Sessions**: 93
+- **Total Sessions**: 94
 - **Last Active**: 2026-09-05
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-2.md` | ~51 | Active |
+| `journal-2.md` | ~73 | Active |
 | `journal-1.md` | ~1981 | Archived |
 <!-- @@@/auto:active-documents -->
 
@@ -30,6 +30,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 94 | 2026-09-05 | 修复待处理媒体手动匹配加载失败 | `d8bb6f8` | `main` |
 | 93 | 2026-09-05 | 集中媒体刮入库失败手动匹配入口 | `41ce3fe` | `main` |
 | 92 | 2026-09-04 | Refine media library management UI | `fd2198b` | `main` |
 | 91 | 2026-09-04 | 修复豆瓣海报重复本地化 | `a5d934e` | `main` |

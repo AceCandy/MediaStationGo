@@ -49,3 +49,25 @@ Refined media library cover cards and management dialog: 16:9 hover overlays, de
 ### Status
 
 [OK] **Completed**
+
+
+## Session 94: 修复待处理媒体手动匹配加载失败
+<!-- trellis-session: v=2 fp=f72092c28786a3db -->
+
+**Date**: 2026-09-05
+**Task**: 修复待处理媒体手动匹配加载失败
+**Branch**: `main`
+
+### Summary
+
+任务中心手动匹配直接使用待处理记录的媒体 ID 与标题，避免依赖 metadata 详情加载。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `d8bb6f8` | fix: open manual scrape without metadata view |
+
+### Status
+
+[OK] **Completed**
