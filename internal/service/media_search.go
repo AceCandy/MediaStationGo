@@ -39,11 +39,8 @@ func (s *MediaService) SearchMediaVisibleGrouped(ctx context.Context, query stri
 	} else if limit > maxMediaSearchLimit {
 		limit = maxMediaSearchLimit
 	}
-	items, _, err := s.SearchMediaVisiblePage(ctx, query, 1, limit, visibility)
-	if err != nil {
-		return nil, err
-	}
-	return groupMediaVersions(mediaViewsAsMedia(items)), nil
+	items, _, err := s.SearchMediaVisiblePageGrouped(ctx, query, 1, limit, visibility)
+	return items, err
 }
 
 func (s *MediaService) SearchMediaVisiblePage(ctx context.Context, query string, page, pageSize int, visibility MediaVisibility) ([]model.MediaView, int64, error) {
@@ -77,5 +74,11 @@ func (s *MediaService) SearchMediaVisiblePageGrouped(ctx context.Context, query 
 	if err != nil {
 		return nil, 0, err
 	}
-	return groupMediaVersions(mediaViewsAsMedia(items)), total, nil
+	// 搜索已按 metadata 去重和排序，此处只转换响应，避免版本分组重排结果。
+	rows := mediaViewsAsMedia(items)
+	result := make([]MediaItem, len(rows))
+	for i, row := range rows {
+		result[i] = MediaItem{Media: row}
+	}
+	return result, total, nil
 }

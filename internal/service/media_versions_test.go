@@ -171,14 +171,22 @@ func TestListMediaVisibleGroupedPaginatesAfterVersionGrouping(t *testing.T) {
 	}
 }
 
-func TestSearchMediaVisiblePageGroupedPaginatesAfterVersionGrouping(t *testing.T) {
-	db := newServiceTestDB(t, &model.Media{})
-	repos := repository.New(db)
+func TestSearchMediaVisiblePageGroupedReturnsOneMetadataRepresentative(t *testing.T) {
+	emby := newTestEmbyService(t)
+	db, repos := emby.repo.DB, emby.repo
+	lib := model.Library{Name: "Movies", Path: "/media/movies", Type: "movie", Enabled: true}
+	if err := repos.Library.Create(t.Context(), &lib); err != nil {
+		t.Fatal(err)
+	}
+	metadata := createServiceTestMetadata(t, db, model.MetadataItem{
+		Kind: model.MetadataKindMovie, Title: "沙丘", Year: 2021, Source: "local",
+	})
 	now := time.Now()
 	rows := []model.Media{
 		{
 			PermanentBase: model.PermanentBase{CreatedAt: now.Add(time.Hour), UpdatedAt: now.Add(time.Hour)},
-			LibraryID:     "movies",
+			LibraryID:     lib.ID,
+			MetadataID:    metadata.ID,
 			Title:         "Dune 2021 2160p WEB-DL H265",
 			Path:          "/media/movies/Dune.2021.2160p.WEB-DL.H265.mkv",
 			TMDbID:        438631,
@@ -189,7 +197,8 @@ func TestSearchMediaVisiblePageGroupedPaginatesAfterVersionGrouping(t *testing.T
 		},
 		{
 			PermanentBase: model.PermanentBase{CreatedAt: now, UpdatedAt: now},
-			LibraryID:     "movies",
+			LibraryID:     lib.ID,
+			MetadataID:    metadata.ID,
 			Title:         "Dune 2021 1080p BluRay x264",
 			Path:          "/media/movies/Dune.2021.1080p.BluRay.x264.mkv",
 			TMDbID:        438631,
@@ -204,15 +213,15 @@ func TestSearchMediaVisiblePageGroupedPaginatesAfterVersionGrouping(t *testing.T
 	}
 
 	svc := NewMediaService(&config.Config{}, zap.NewNop(), repos)
-	page, total, err := svc.SearchMediaVisiblePageGrouped(t.Context(), "Dune", 1, 1, MediaVisibility{IncludeNSFW: true})
+	page, total, err := svc.SearchMediaVisiblePageGrouped(t.Context(), "沙丘", 1, 1, MediaVisibility{IncludeNSFW: true})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if total != 1 {
 		t.Fatalf("grouped total = %d, want 1", total)
 	}
-	if len(page) != 1 || len(page[0].Versions) != 2 {
-		t.Fatalf("search page should contain merged Dune versions, got %#v", page)
+	if len(page) != 1 || len(page[0].Versions) != 0 {
+		t.Fatalf("search page should contain one metadata representative without regrouping versions, got %#v", page)
 	}
 	if page[0].Media.Path != rows[0].Path {
 		t.Fatalf("primary version = %q, want %q", page[0].Media.Path, rows[0].Path)

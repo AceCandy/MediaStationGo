@@ -992,6 +992,10 @@ return []model.MediaView{*part2}
   position/span, the last valid 0–100 title number descending, year descending,
   and Metadata ID. OpenSearch `_score` only selects its finite candidate set;
   it is not a cross-backend final score.
+- Web search pages and suggestions preserve the ranked Metadata order after
+  loading one playable representative per Metadata. Do not pass these results
+  through `groupMediaVersions`: its creation-time sort overwrites relevance.
+  Regression coverage must make title matches older than overview-only matches.
 - Emby `SearchTerm` treats supported `IncludeItemTypes` as an OR set. Movie and
   Series keep the OpenSearch/PostgreSQL media path; Person candidates come only
   from PostgreSQL name/original-name search and never expand to credited works.
