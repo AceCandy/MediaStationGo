@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-2.md`
-- **Total Sessions**: 96
+- **Total Sessions**: 97
 - **Last Active**: 2026-09-05
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-2.md` | ~117 | Active |
+| `journal-2.md` | ~139 | Active |
 | `journal-1.md` | ~1981 | Archived |
 <!-- @@@/auto:active-documents -->
 
@@ -30,6 +30,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 97 | 2026-09-05 | 删除 STRM 本地目标 | `9904a7a` | `main` |
 | 96 | 2026-09-05 | 详情页显示 STRM 真实路径 | `e32ac25` | `main` |
 | 95 | 2026-09-05 | 详情页显示选中媒体版本信息 | `895df25` | `main` |
 | 94 | 2026-09-05 | 修复待处理媒体手动匹配加载失败 | `d8bb6f8` | `main` |

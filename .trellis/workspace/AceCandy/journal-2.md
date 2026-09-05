@@ -115,3 +115,25 @@ Refined media library cover cards and management dialog: 16:9 hover overlays, de
 ### Status
 
 [OK] **Completed**
+
+
+## Session 97: 删除 STRM 本地目标
+<!-- trellis-session: v=2 fp=3b305b34df11a833 -->
+
+**Date**: 2026-09-05
+**Task**: 删除 STRM 本地目标
+**Branch**: `main`
+
+### Summary
+
+在详情页增加管理员 STRM 本地目标删除；支持 URL 路径映射、动态父目录确认与安全根校验，保留 sidecar 和 Media 记录。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `9904a7a` | feat: add safe STRM target deletion |
+
+### Status
+
+[OK] **Completed**
