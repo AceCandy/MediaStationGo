@@ -29,6 +29,10 @@ type fileTransferReq struct {
 	TransferMode string `json:"transfer_mode"`
 }
 
+type strmDeleteReq struct {
+	DeleteParent bool `json:"delete_parent"`
+}
+
 func browseFilesHandler(svc *service.Container) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		path := c.Query("path")
@@ -75,6 +79,25 @@ func deleteFileHandler(svc *service.Container) gin.HandlerFunc {
 	}
 }
 
+func getSTRMDeleteTargetHandler(svc *service.Container) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		result, err := svc.FileManager.ResolveSTRMDeleteTarget(c.Request.Context(), c.Param("id"))
+		writeSTRMDeleteResponse(c, result, err)
+	}
+}
+
+func deleteSTRMTargetHandler(svc *service.Container) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req strmDeleteReq
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		path, err := svc.FileManager.DeleteSTRMTarget(c.Request.Context(), c.Param("id"), req.DeleteParent)
+		writeSTRMDeleteResponse(c, gin.H{"removed": true, "path": path}, err)
+	}
+}
+
 func transferFileHandler(svc *service.Container) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req fileTransferReq
@@ -97,4 +120,12 @@ func writeFileManagerResponse(c *gin.Context, payload any, err error) {
 		return
 	}
 	c.JSON(http.StatusOK, payload)
+}
+
+func writeSTRMDeleteResponse(c *gin.Context, payload any, err error) {
+	if errors.Is(err, service.ErrMediaNotFound) {
+		c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+		return
+	}
+	writeFileManagerResponse(c, payload, err)
 }

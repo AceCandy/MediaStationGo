@@ -133,6 +133,7 @@ export function MediaDetailMainContent({
           <MediaDetailMetadata
             media={media}
             selectedMedia={displayMedia ?? versions.find((version) => version.id === selectedVersionID) ?? media}
+            isAdmin={isAdmin}
             favourite={favourite}
             onToggleFavourite={onToggleFavourite}
           />

@@ -7,6 +7,7 @@
 package service
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -65,6 +66,15 @@ var ErrPathOutOfBounds = errors.New("path is outside the allowed roots")
 
 // ErrRootMutation protects configured roots such as /media and /downloads.
 var ErrRootMutation = errors.New("refusing to mutate an allowed root")
+
+// ErrSTRMTargetNotDeletable 表示 STRM 未解析到可信根内现存的本地普通文件。
+var ErrSTRMTargetNotDeletable = errors.New("STRM target is not a deletable local file")
+
+// STRMDeleteTarget 是删除确认框展示的服务端实时解析结果。
+type STRMDeleteTarget struct {
+	TargetPath string `json:"target_path"`
+	ParentPath string `json:"parent_path,omitempty"`
+}
 
 // List enumerates a directory under one of the allowed roots, returning up to
 // maxEntries items sorted by (dir-first, path). Recursive listing is capped by
@@ -178,6 +188,133 @@ func (s *FileManagerService) Delete(path string) error {
 		return err
 	}
 	return os.RemoveAll(target)
+}
+
+// ResolveSTRMDeleteTarget 从具体媒体的 sidecar 和当前路径映射解析可安全删除的本地目标。
+func (s *FileManagerService) ResolveSTRMDeleteTarget(ctx context.Context, mediaID string) (*STRMDeleteTarget, error) {
+	if s == nil || s.repo == nil || s.repo.Media == nil {
+		return nil, ErrMediaNotFound
+	}
+	media, err := s.repo.Media.FindByID(ctx, strings.TrimSpace(mediaID))
+	if err != nil {
+		return nil, err
+	}
+	if media == nil {
+		return nil, ErrMediaNotFound
+	}
+	if !strings.EqualFold(filepath.Ext(media.Path), ".strm") {
+		return nil, ErrSTRMTargetNotDeletable
+	}
+	rawTarget, err := readLocalSTRMTarget(media.Path)
+	if err != nil {
+		return nil, err
+	}
+
+	var target string
+	var trustedRoots []string
+	if isLocalSTRMMediaTarget(rawTarget) {
+		target = rawTarget
+		roots, _, rootsErr := s.allowedRootList()
+		if rootsErr != nil {
+			return nil, rootsErr
+		}
+		for _, root := range roots {
+			trustedRoots = append(trustedRoots, root)
+		}
+	} else if isHTTPPlaybackTarget(rawTarget) {
+		rawMappings := ""
+		if s.repo.Setting != nil {
+			rawMappings, _ = s.repo.Setting.Get(ctx, FFprobePathMappingsSettingKey)
+		}
+		var mappingRoot string
+		target, mappingRoot = mapRemoteProbePathWithRoot(rawMappings, rawTarget)
+		if mappingRoot != "" {
+			trustedRoots = []string{mappingRoot}
+		}
+	}
+	if target == "" || len(trustedRoots) == 0 {
+		return nil, ErrSTRMTargetNotDeletable
+	}
+
+	target, trustedRoot, err := secureSTRMDeleteTarget(target, trustedRoots)
+	if err != nil {
+		return nil, err
+	}
+	result := &STRMDeleteTarget{TargetPath: target}
+	parent := filepath.Dir(target)
+	sidecar, _ := filepath.Abs(media.Path)
+	realSidecar, _ := filepath.EvalSymlinks(sidecar)
+	sidecarInsideParent := pathWithin(sidecar, parent) || (realSidecar != "" && pathWithin(realSidecar, parent))
+	if parent != target && !strings.EqualFold(parent, trustedRoot) && pathWithin(parent, trustedRoot) && !sidecarInsideParent {
+		result.ParentPath = parent
+	}
+	return result, nil
+}
+
+// DeleteSTRMTarget 只删除 STRM 指向的本地文件或其父目录，不修改 sidecar 和数据库。
+func (s *FileManagerService) DeleteSTRMTarget(ctx context.Context, mediaID string, deleteParent bool) (string, error) {
+	resolved, err := s.ResolveSTRMDeleteTarget(ctx, mediaID)
+	if err != nil {
+		return "", err
+	}
+	if !deleteParent {
+		info, err := os.Lstat(resolved.TargetPath)
+		if err != nil || !info.Mode().IsRegular() {
+			if err != nil {
+				return "", err
+			}
+			return "", ErrSTRMTargetNotDeletable
+		}
+		return resolved.TargetPath, os.Remove(resolved.TargetPath)
+	}
+	if resolved.ParentPath == "" {
+		return "", ErrRootMutation
+	}
+	return resolved.ParentPath, os.RemoveAll(resolved.ParentPath)
+}
+
+func secureSTRMDeleteTarget(target string, trustedRoots []string) (string, string, error) {
+	absTarget, err := filepath.Abs(strings.TrimSpace(target))
+	if err != nil {
+		return "", "", err
+	}
+	info, err := os.Lstat(absTarget)
+	if err != nil || info.Mode()&os.ModeSymlink != 0 {
+		if err != nil {
+			return "", "", err
+		}
+		return "", "", ErrPathOutOfBounds
+	}
+	realTarget, err := filepath.EvalSymlinks(absTarget)
+	if err != nil {
+		return "", "", err
+	}
+	info, err = os.Stat(realTarget)
+	if err != nil || !info.Mode().IsRegular() {
+		if err != nil {
+			return "", "", err
+		}
+		return "", "", ErrSTRMTargetNotDeletable
+	}
+
+	bestRoot := ""
+	for _, root := range trustedRoots {
+		absRoot, err := filepath.Abs(strings.TrimSpace(root))
+		if err != nil {
+			continue
+		}
+		realRoot, err := filepath.EvalSymlinks(absRoot)
+		if err != nil || filepath.Dir(realRoot) == realRoot || !pathWithin(realTarget, realRoot) {
+			continue
+		}
+		if len(realRoot) > len(bestRoot) {
+			bestRoot = filepath.Clean(realRoot)
+		}
+	}
+	if bestRoot == "" {
+		return "", "", ErrPathOutOfBounds
+	}
+	return filepath.Clean(realTarget), bestRoot, nil
 }
 
 func (s *FileManagerService) Transfer(sourcePath, destDir string, mode TransferMode) (*FileOperationResult, error) {

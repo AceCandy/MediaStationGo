@@ -93,6 +93,223 @@ func TestFileManagerRecursiveListAndMutations(t *testing.T) {
 	}
 }
 
+func TestFileManagerDeletesOnlyResolvedSTRMTarget(t *testing.T) {
+	root := t.TempDir()
+	svc, repos := newFileManagerTestServiceWithRepo(t, root)
+	dir := filepath.Join(root, "Movie")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(dir, "Movie.mkv")
+	strmPath := filepath.Join(root, "Movie.strm")
+	if err := os.WriteFile(target, []byte("video"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(strmPath, []byte(target), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	media := &model.Media{PermanentBase: model.PermanentBase{ID: "strm-delete-file"}, Title: "Movie", Path: strmPath}
+	if err := repos.DB.Create(media).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	resolved, err := svc.ResolveSTRMDeleteTarget(t.Context(), media.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolved.TargetPath != target || resolved.ParentPath != dir {
+		t.Fatalf("resolved target = %#v", resolved)
+	}
+	deleted, err := svc.DeleteSTRMTarget(t.Context(), media.ID, false)
+	if err != nil || deleted != target {
+		t.Fatalf("deleted path/error = %q/%v", deleted, err)
+	}
+	if _, err := os.Stat(target); !os.IsNotExist(err) {
+		t.Fatalf("target still exists: %v", err)
+	}
+	if _, err := os.Stat(strmPath); err != nil {
+		t.Fatalf("STRM sidecar was removed: %v", err)
+	}
+	if stored, err := repos.Media.FindByID(t.Context(), media.ID); err != nil || stored == nil {
+		t.Fatalf("media record was removed: %#v, %v", stored, err)
+	}
+}
+
+func TestFileManagerDeletesResolvedSTRMTargetParent(t *testing.T) {
+	root := t.TempDir()
+	svc, repos := newFileManagerTestServiceWithRepo(t, root)
+	dir := filepath.Join(root, "Show", "Season 01")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(dir, "Show.S01E01.mkv")
+	strmPath := filepath.Join(root, "Show.strm")
+	if err := os.WriteFile(target, []byte("video"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(strmPath, []byte(target), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	media := &model.Media{PermanentBase: model.PermanentBase{ID: "strm-delete-parent"}, Title: "Show", Path: strmPath}
+	if err := repos.DB.Create(media).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	deleted, err := svc.DeleteSTRMTarget(t.Context(), media.ID, true)
+	if err != nil || deleted != dir {
+		t.Fatalf("deleted path/error = %q/%v", deleted, err)
+	}
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Fatalf("parent directory still exists: %v", err)
+	}
+	if _, err := os.Stat(strmPath); err != nil {
+		t.Fatalf("STRM sidecar was removed: %v", err)
+	}
+	if stored, err := repos.Media.FindByID(t.Context(), media.ID); err != nil || stored == nil {
+		t.Fatalf("media record was removed: %#v, %v", stored, err)
+	}
+}
+
+func TestFileManagerResolvesMappedSTRMTargetOutsideFileRoots(t *testing.T) {
+	root := t.TempDir()
+	svc, repos := newFileManagerTestServiceWithRepo(t, root)
+	mappingRoot := t.TempDir()
+	target := filepath.Join(mappingRoot, "Mapped.mkv")
+	strmPath := filepath.Join(root, "Mapped.strm")
+	if err := os.WriteFile(target, []byte("video"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(strmPath, []byte("https://media.example.test/archive/Mapped.mkv"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := repos.Setting.Set(t.Context(), FFprobePathMappingsSettingKey, "https://media.example.test/archive/ => "+mappingRoot); err != nil {
+		t.Fatal(err)
+	}
+	media := &model.Media{PermanentBase: model.PermanentBase{ID: "strm-delete-mapped"}, Title: "Mapped", Path: strmPath}
+	if err := repos.DB.Create(media).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	resolved, err := svc.ResolveSTRMDeleteTarget(t.Context(), media.ID)
+	if err != nil || resolved.TargetPath != target {
+		t.Fatalf("resolved target/error = %#v/%v", resolved, err)
+	}
+	if _, err := svc.DeleteSTRMTarget(t.Context(), media.ID, false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(target); !os.IsNotExist(err) {
+		t.Fatalf("mapped target still exists: %v", err)
+	}
+}
+
+func TestFileManagerRejectsUnsafeSTRMDeleteTargets(t *testing.T) {
+	root := t.TempDir()
+	svc, repos := newFileManagerTestServiceWithRepo(t, root)
+
+	t.Run("unmapped remote URL", func(t *testing.T) {
+		strmPath := filepath.Join(root, "Remote.strm")
+		if err := os.WriteFile(strmPath, []byte("https://media.example.test/Remote.mkv"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		media := &model.Media{PermanentBase: model.PermanentBase{ID: "strm-delete-remote"}, Title: "Remote", Path: strmPath}
+		if err := repos.DB.Create(media).Error; err != nil {
+			t.Fatal(err)
+		}
+		if _, err := svc.ResolveSTRMDeleteTarget(t.Context(), media.ID); !errors.Is(err, ErrSTRMTargetNotDeletable) {
+			t.Fatalf("error = %v, want ErrSTRMTargetNotDeletable", err)
+		}
+	})
+
+	t.Run("allowed root parent", func(t *testing.T) {
+		target := filepath.Join(root, "RootMovie.mkv")
+		strmPath := filepath.Join(root, "RootMovie.strm")
+		if err := os.WriteFile(target, []byte("video"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(strmPath, []byte(target), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		media := &model.Media{PermanentBase: model.PermanentBase{ID: "strm-delete-root"}, Title: "Root", Path: strmPath}
+		if err := repos.DB.Create(media).Error; err != nil {
+			t.Fatal(err)
+		}
+		resolved, err := svc.ResolveSTRMDeleteTarget(t.Context(), media.ID)
+		if err != nil || resolved.ParentPath != "" {
+			t.Fatalf("resolved target/error = %#v/%v", resolved, err)
+		}
+		if _, err := svc.DeleteSTRMTarget(t.Context(), media.ID, true); !errors.Is(err, ErrRootMutation) {
+			t.Fatalf("error = %v, want ErrRootMutation", err)
+		}
+		if _, err := os.Stat(target); err != nil {
+			t.Fatalf("protected target was removed: %v", err)
+		}
+	})
+
+	t.Run("parent containing sidecar", func(t *testing.T) {
+		dir := filepath.Join(root, "Together")
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		target := filepath.Join(dir, "Together.mkv")
+		strmPath := filepath.Join(dir, "Together.strm")
+		if err := os.WriteFile(target, []byte("video"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(strmPath, []byte(target), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		media := &model.Media{PermanentBase: model.PermanentBase{ID: "strm-delete-together"}, Title: "Together", Path: strmPath}
+		if err := repos.DB.Create(media).Error; err != nil {
+			t.Fatal(err)
+		}
+		resolved, err := svc.ResolveSTRMDeleteTarget(t.Context(), media.ID)
+		if err != nil || resolved.ParentPath != "" {
+			t.Fatalf("resolved target/error = %#v/%v", resolved, err)
+		}
+		if _, err := svc.DeleteSTRMTarget(t.Context(), media.ID, true); !errors.Is(err, ErrRootMutation) {
+			t.Fatalf("error = %v, want ErrRootMutation", err)
+		}
+		if _, err := os.Stat(strmPath); err != nil {
+			t.Fatalf("STRM sidecar was removed: %v", err)
+		}
+	})
+
+	t.Run("symlink target", func(t *testing.T) {
+		outside := filepath.Join(t.TempDir(), "Outside.mkv")
+		link := filepath.Join(root, "Linked.mkv")
+		strmPath := filepath.Join(root, "Linked.strm")
+		if err := os.WriteFile(outside, []byte("video"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(outside, link); err != nil {
+			t.Skipf("symlink unavailable: %v", err)
+		}
+		if err := os.WriteFile(strmPath, []byte(link), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		media := &model.Media{PermanentBase: model.PermanentBase{ID: "strm-delete-link"}, Title: "Link", Path: strmPath}
+		if err := repos.DB.Create(media).Error; err != nil {
+			t.Fatal(err)
+		}
+		if _, err := svc.ResolveSTRMDeleteTarget(t.Context(), media.ID); !errors.Is(err, ErrPathOutOfBounds) {
+			t.Fatalf("error = %v, want ErrPathOutOfBounds", err)
+		}
+		if _, err := os.Stat(outside); err != nil {
+			t.Fatalf("symlink target was removed: %v", err)
+		}
+	})
+
+	t.Run("filesystem root", func(t *testing.T) {
+		target := filepath.Join(root, "RootMapped.mkv")
+		if err := os.WriteFile(target, []byte("video"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if _, _, err := secureSTRMDeleteTarget(target, []string{string(filepath.Separator)}); !errors.Is(err, ErrPathOutOfBounds) {
+			t.Fatalf("error = %v, want ErrPathOutOfBounds", err)
+		}
+	})
+}
+
 func TestFileManagerTransferDirectoryHardlinksFiles(t *testing.T) {
 	root := t.TempDir()
 	if hardlinksUnsupported(t, root) {

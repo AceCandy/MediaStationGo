@@ -21,6 +21,8 @@ func registerAdminRoutes(api *gin.RouterGroup, cfg *config.Config, svc *service.
 	registerAdminAPIConfigRoutes(admin, svc)
 	registerAdminSchedulerRoutes(admin, svc)
 	registerAdminRecognitionWordRoutes(admin, svc)
+	admin.GET("/media/:id/strm-delete-target", getSTRMDeleteTargetHandler(svc))
+	admin.DELETE("/media/:id/strm-delete-target", deleteSTRMTargetHandler(svc))
 	admin.GET("/player-request-logs", playerRequestLogsHandler(svc))
 	admin.GET("/playback-stats", adminPlaybackStatsHandler(svc))
 }

@@ -46,6 +46,11 @@ export interface MediaScrapeIssue {
   reason: string
 }
 
+export interface STRMDeleteTarget {
+  target_path: string
+  parent_path?: string
+}
+
 export interface MediaScrapeIssuePage {
   items: MediaScrapeIssue[]
   total: number
@@ -241,6 +246,14 @@ export const mediaAPI = {
 
   getSTRMTarget: (id: string) =>
     api.get<{ target: string }>(`/media/${id}/strm-target`).then((r) => r.data.target),
+
+  getSTRMDeleteTarget: (id: string) =>
+    api.get<STRMDeleteTarget>(`/admin/media/${id}/strm-delete-target`).then((r) => r.data),
+
+  deleteSTRMTarget: (id: string, deleteParent: boolean) =>
+    api.delete<{ removed: boolean; path: string }>(`/admin/media/${id}/strm-delete-target`, {
+      data: { delete_parent: deleteParent },
+    }).then((r) => r.data),
 
   listScrapeIssues: (options: { libraryID?: string; status?: 'error' | 'no_match'; page?: number; pageSize?: number }) =>
     api.get<MediaScrapeIssuePage>('/media/scrape-issues', {

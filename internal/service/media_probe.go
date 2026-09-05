@@ -506,12 +506,17 @@ func (s *MediaProbeService) probePathMappings(ctx context.Context) string {
 
 // mapRemoteProbePath 将 URL 路径剩余部分拼接到本地前缀，并拒绝跨出前缀目录的结果。
 func mapRemoteProbePath(rawMappings, rawURL string) string {
+	path, _ := mapRemoteProbePathWithRoot(rawMappings, rawURL)
+	return path
+}
+
+func mapRemoteProbePathWithRoot(rawMappings, rawURL string) (string, string) {
 	rawURL = normalizeSTRMHTTPURL(rawURL)
 	target, err := url.Parse(rawURL)
 	if err != nil || target.Host == "" || !isHTTPPlaybackTarget(rawURL) {
-		return ""
+		return "", ""
 	}
-	bestPrefixLength, bestPath := -1, ""
+	bestPrefixLength, bestPath, bestRoot := -1, "", ""
 	for _, line := range strings.Split(rawMappings, "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" || strings.HasPrefix(line, "#") {
@@ -538,9 +543,9 @@ func mapRemoteProbePath(rawMappings, rawURL string) string {
 		if err != nil || relativeLocalPath == ".." || strings.HasPrefix(relativeLocalPath, ".."+string(filepath.Separator)) {
 			continue
 		}
-		bestPrefixLength, bestPath = prefixLength, candidate
+		bestPrefixLength, bestPath, bestRoot = prefixLength, candidate, localPrefix
 	}
-	return bestPath
+	return bestPath, bestRoot
 }
 
 // relativeURLPath 只在完整 URL 路径段边界上匹配前缀。
