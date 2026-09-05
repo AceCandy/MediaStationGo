@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-2.md`
-- **Total Sessions**: 101
+- **Total Sessions**: 102
 - **Last Active**: 2026-09-05
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-2.md` | ~227 | Active |
+| `journal-2.md` | ~249 | Active |
 | `journal-1.md` | ~1981 | Archived |
 <!-- @@@/auto:active-documents -->
 
@@ -30,6 +30,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 102 | 2026-09-05 | 修复纯数字豆瓣搜索回退 | `6c44adc` | `main` |
 | 101 | 2026-09-05 | 保留媒体列表筛选状态 | `56f371a` | `main` |
 | 100 | 2026-09-05 | 豆瓣候选搜索并回填 ID | `2b92b97` | `main` |
 | 99 | 2026-09-05 | 外部 ID 搜索与豆瓣状态区分 | `99b012b` | `main` |

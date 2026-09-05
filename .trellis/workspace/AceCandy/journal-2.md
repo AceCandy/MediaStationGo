@@ -225,3 +225,25 @@ Refined media library cover cards and management dialog: 16:9 hover overlays, de
 ### Status
 
 [OK] **Completed**
+
+
+## Session 102: 修复纯数字豆瓣搜索回退
+<!-- trellis-session: v=2 fp=af45d7119e0845c5 -->
+
+**Date**: 2026-09-05
+**Task**: 修复纯数字豆瓣搜索回退
+**Branch**: `main`
+
+### Summary
+
+拒绝无标题豆瓣详情匹配，使无效裸数字 ID 回退到关键词候选搜索，并补充回归测试。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `6c44adc` | fix: fall back from invalid Douban numeric IDs |
+
+### Status
+
+[OK] **Completed**
