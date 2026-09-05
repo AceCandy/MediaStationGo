@@ -33,6 +33,7 @@ export interface Media {
   tmdb_id: number
   bangumi_id: number
   douban_id?: string
+  douban_rating?: number
   thetvdb_id?: string
   languages?: string
   countries?: string

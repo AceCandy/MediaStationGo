@@ -122,12 +122,20 @@ export const MediaCard = ({
           )}
 
           {/* Rating Badge — 星光金 */}
-          {displayRating > 0 && (
-            <span className="absolute left-2.5 top-2.5 inline-flex items-center gap-1 rounded-lg border border-white/15 bg-black/55 px-2 py-1 text-[10px] font-bold text-gold-400 backdrop-blur-md">
-              <Star size={10} fill="currentColor" />
-              <span>{displayRating.toFixed(1)}</span>
-            </span>
-          )}
+          <div className="absolute left-2.5 top-2.5 flex flex-col items-start gap-1">
+            {displayRating > 0 && (
+              <span className="inline-flex items-center gap-1 rounded-lg border border-white/15 bg-black/55 px-2 py-1 text-[10px] font-bold text-gold-400 backdrop-blur-md">
+                <Star size={10} fill="currentColor" />
+                <span>{displayRating.toFixed(1)}</span>
+              </span>
+            )}
+            {media.douban_id && (
+              <span title="豆瓣评分" className="inline-flex items-center gap-1 rounded-lg border border-white/15 bg-black/55 px-2 py-1 text-[10px] font-bold text-white backdrop-blur-md">
+                <img src="/brand/douban.svg" alt="豆瓣" className="h-2.5 w-2.5" />
+                <span>{media.douban_rating && media.douban_rating > 0 ? media.douban_rating.toFixed(1) : '-'}</span>
+              </span>
+            )}
+          </div>
 
           {/* Hover Overlay */}
           <div className="absolute inset-0 flex flex-col justify-end bg-gradient-to-t from-black/90 via-black/35 to-transparent p-4 opacity-0 transition-opacity duration-300 group-hover:opacity-100">

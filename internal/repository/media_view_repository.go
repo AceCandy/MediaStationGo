@@ -108,7 +108,7 @@ func scanMediaViews(q *gorm.DB, views *[]model.MediaView) error {
 	for i := range *views {
 		(*views)[i].Normalize()
 	}
-	return nil
+	return attachMediaViewDoubanRatings(q.Session(&gorm.Session{NewDB: true}), *views)
 }
 
 func (r *MediaViewRepository) FindByID(ctx context.Context, id string) (*model.MediaView, error) {

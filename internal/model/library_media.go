@@ -60,6 +60,7 @@ type Media struct {
 	BackdropURL       string  `gorm:"-" json:"backdrop_url,omitempty"`
 	Overview          string  `gorm:"-" json:"overview,omitempty"`
 	Rating            float32 `gorm:"-" json:"rating"`
+	DoubanRating      float32 `gorm:"-" json:"douban_rating,omitempty"`
 	Year              int     `gorm:"column:scan_year" json:"year"`
 	ReleaseDate       string  `gorm:"-" json:"release_date,omitempty"`
 	SeasonNum         int     `json:"season_num"`

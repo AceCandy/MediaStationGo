@@ -475,7 +475,7 @@ func (r *MediaViewRepository) FindMetadataSearchRepresentatives(ctx context.Cont
 			out = append(out, view)
 		}
 	}
-	return out, nil
+	return out, attachMediaViewDoubanRatings(r.db.WithContext(ctx), out)
 }
 
 func (r *MediaViewRepository) metadataSearchPresentations(ctx context.Context, metadataIDs []string) (map[string]metadataSearchPresentation, error) {
