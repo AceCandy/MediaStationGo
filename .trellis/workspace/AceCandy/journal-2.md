@@ -137,3 +137,25 @@ Refined media library cover cards and management dialog: 16:9 hover overlays, de
 ### Status
 
 [OK] **Completed**
+
+
+## Session 98: 详情页未关联豆瓣入口
+<!-- trellis-session: v=2 fp=5f238629fc1e576c -->
+
+**Date**: 2026-09-05
+**Task**: 详情页未关联豆瓣入口
+**Branch**: `main`
+
+### Summary
+
+未关联豆瓣时展示提示态图标；管理员点击复用元数据编辑弹窗设置豆瓣 ID，普通用户只读；保留已关联外链行为。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `b1b88f9` | feat: add missing Douban link entry |
+
+### Status
+
+[OK] **Completed**
