@@ -40,7 +40,7 @@ export function LibraryPageHeader({
             type="button"
             aria-pressed={missingPoster}
             onClick={() => onMissingPosterChange(!missingPoster)}
-            className={`btn-outline ${missingPoster ? 'border-brand-500 text-brand-500' : ''}`}
+            className={`btn-outline ${missingPoster ? '!border-brand-500 !bg-brand-500 !text-white' : ''}`}
           >
             无海报
           </button>
@@ -48,7 +48,7 @@ export function LibraryPageHeader({
             type="button"
             aria-pressed={missingChineseTitle}
             onClick={() => onMissingChineseTitleChange(!missingChineseTitle)}
-            className={`btn-outline ${missingChineseTitle ? 'border-brand-500 text-brand-500' : ''}`}
+            className={`btn-outline ${missingChineseTitle ? '!border-brand-500 !bg-brand-500 !text-white' : ''}`}
           >
             无中文名
           </button>
