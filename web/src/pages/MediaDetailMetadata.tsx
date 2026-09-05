@@ -13,6 +13,7 @@ type MediaDetailMetadataProps = {
   isAdmin: boolean
   favourite: boolean
   onToggleFavourite: () => void
+  onMetadataEdit: () => void
 }
 
 const rise = (delay: number) => ({
@@ -21,7 +22,7 @@ const rise = (delay: number) => ({
   transition: { duration: 0.5, delay, ease: [0.21, 0.47, 0.32, 0.98] as const },
 })
 
-export function MediaDetailMetadata({ media, selectedMedia, isAdmin, favourite, onToggleFavourite }: MediaDetailMetadataProps) {
+export function MediaDetailMetadata({ media, selectedMedia, isAdmin, favourite, onToggleFavourite, onMetadataEdit }: MediaDetailMetadataProps) {
   const heading = media.title
   const seriesContext = media.series_title?.trim()
   const tmdbHref = tmdbURL(media)
@@ -141,26 +142,23 @@ export function MediaDetailMetadata({ media, selectedMedia, isAdmin, favourite, 
               </span>
             )}
           </div>
-          {(tmdbHref || media.douban_id) && (
-            <div className="flex flex-wrap items-center gap-2.5">
-              {tmdbHref && (
-                <ProviderLink
-                  href={tmdbHref}
-                  label="TMDb"
-                  iconSrc="/brand/tmdb.svg"
-                  status={providerStatus(media.tmdb_status, media.tmdb_snapshot)}
-                />
-              )}
-              {media.douban_id && (
-                <ProviderLink
-                  href={`https://movie.douban.com/subject/${encodeURIComponent(media.douban_id)}/`}
-                  label="豆瓣"
-                  iconSrc="/brand/douban.svg"
-                  status={providerStatus(media.douban_status, media.douban_snapshot)}
-                />
-              )}
-            </div>
-          )}
+          <div className="flex flex-wrap items-center gap-2.5">
+            {tmdbHref && (
+              <ProviderBadge
+                href={tmdbHref}
+                label="TMDb"
+                iconSrc="/brand/tmdb.svg"
+                status={providerStatus(media.tmdb_status, media.tmdb_snapshot)}
+              />
+            )}
+            <ProviderBadge
+              href={media.douban_id ? `https://movie.douban.com/subject/${encodeURIComponent(media.douban_id)}/` : undefined}
+              onClick={!media.douban_id && isAdmin ? onMetadataEdit : undefined}
+              label="豆瓣"
+              iconSrc="/brand/douban.svg"
+              status={media.douban_id ? providerStatus(media.douban_status, media.douban_snapshot) : 'unlinked'}
+            />
+          </div>
         </motion.div>
       </div>
 
@@ -259,9 +257,10 @@ export function MediaDetailMetadata({ media, selectedMedia, isAdmin, favourite, 
   )
 }
 
-type ProviderStatus = 'missing' | 'partial' | 'degraded' | 'complete'
+type ProviderStatus = 'unlinked' | 'missing' | 'partial' | 'degraded' | 'complete'
 
 const providerStatusLabels: Record<ProviderStatus, string> = {
+  unlinked: '没有豆瓣信息',
   missing: '本地未缓存',
   partial: '本地数据不完整',
   degraded: '豆瓣接口受限，当前为降级数据',
@@ -272,23 +271,35 @@ function providerStatus(status: ProviderStatus | undefined, snapshot: boolean | 
   return status ?? (snapshot ? 'partial' : 'missing')
 }
 
-function ProviderLink({ href, label, iconSrc, status }: { href: string; label: string; iconSrc: string; status: ProviderStatus }) {
+function ProviderBadge({ href, onClick, label, iconSrc, status }: { href?: string; onClick?: () => void; label: string; iconSrc: string; status: ProviderStatus }) {
   const statusLabel = providerStatusLabels[status]
-  const warning = status === 'partial' || status === 'degraded'
+  const warning = status === 'unlinked' || status === 'partial' || status === 'degraded'
   const StatusIcon = status === 'complete' ? CircleCheck : warning ? CircleAlert : Circle
   const statusClass = status === 'complete' ? 'text-emerald-600' : warning ? 'text-amber-600' : 'text-[var(--app-muted)]'
+  const content = (
+    <>
+      <img src={iconSrc} alt="" aria-hidden="true" className="h-4 w-auto shrink-0" />
+      <StatusIcon size={13} aria-hidden="true" className={statusClass} />
+      <span className="sr-only">{statusLabel}</span>
+    </>
+  )
+  const className = 'inline-flex items-center gap-1.5 rounded-xl border border-[var(--app-border)] bg-[var(--app-panel)]/70 px-2.5 py-1.5 text-[var(--app-text)] backdrop-blur' +
+    (href || onClick ? ' hover:border-[var(--app-brand-border)] hover:text-[var(--app-brand-text)]' : '')
+  const title = `${label}：${statusLabel}`
+  if (!href) {
+    if (!onClick) return <span title={title} aria-label={title} className={className}>{content}</span>
+    return <button type="button" onClick={onClick} title={`${title}，点击设置豆瓣 ID`} aria-label={`${title}，点击设置豆瓣 ID`} className={className}>{content}</button>
+  }
   return (
     <a
       href={href}
       target="_blank"
       rel="noopener noreferrer"
-      title={`${label}：${statusLabel}`}
-      aria-label={`${label}：${statusLabel}，点击打开`}
-      className="inline-flex items-center gap-1.5 rounded-xl border border-[var(--app-border)] bg-[var(--app-panel)]/70 px-2.5 py-1.5 text-[var(--app-text)] backdrop-blur hover:border-[var(--app-brand-border)] hover:text-[var(--app-brand-text)]"
+      title={title}
+      aria-label={`${title}，点击打开`}
+      className={className}
     >
-      <img src={iconSrc} alt="" aria-hidden="true" className="h-4 w-auto shrink-0" />
-      <StatusIcon size={13} aria-hidden="true" className={statusClass} />
-      <span className="sr-only">{statusLabel}</span>
+      {content}
     </a>
   )
 }

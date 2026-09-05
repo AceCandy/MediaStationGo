@@ -136,6 +136,7 @@ export function MediaDetailMainContent({
             isAdmin={isAdmin}
             favourite={favourite}
             onToggleFavourite={onToggleFavourite}
+            onMetadataEdit={onMetadataEdit}
           />
           <div className="divider border-gray-200/60" />
           <div className="flex flex-wrap items-center gap-3">
