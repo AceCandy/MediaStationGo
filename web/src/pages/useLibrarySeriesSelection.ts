@@ -2,6 +2,7 @@ import { useEffect, useMemo } from 'react'
 
 import type { Media } from '../types'
 import { getSeriesKey, type SeriesCard } from '../utils/groupSeries'
+import { distinctEpisodes } from './seriesDetailModel'
 
 type SeasonEpisodes = {
   season: number
@@ -19,8 +20,6 @@ type UseLibrarySeriesSelectionOptions = {
   setSearchParams: (params: URLSearchParams) => void
   selectedSeries: SeriesCard | null
   setSelectedSeries: (series: SeriesCard | null) => void
-  selectedSeason: number | null
-  setSelectedSeason: (season: number | null) => void
   onClearSeriesState?: () => void
 }
 
@@ -35,11 +34,9 @@ export function useLibrarySeriesSelection({
   setSearchParams,
   selectedSeries,
   setSelectedSeries,
-  selectedSeason,
-  setSelectedSeason,
   onClearSeriesState,
 }: UseLibrarySeriesSelectionOptions) {
-  const selectedEpisodes = useMemo(() => {
+  const allSeasons = useMemo(() => {
     const sourceItems = isSeriesLibrary ? seriesEpisodeItems : items
     if (!selectedSeries || sourceItems.length === 0) return []
     const eps = isSeriesLibrary
@@ -59,26 +56,17 @@ export function useLibrarySeriesSelection({
       .map(([season, episodes]) => ({ season, episodes }))
   }, [isSeriesLibrary, selectedSeries, items, seriesEpisodeItems])
 
-  const visibleEpisodes = useMemo(() => {
-    if (selectedSeason == null) return selectedEpisodes[0]?.episodes ?? []
-    return selectedEpisodes.find((s) => s.season === selectedSeason)?.episodes ?? []
-  }, [selectedEpisodes, selectedSeason])
+  const selectedEpisodes = useMemo(() => allSeasons.map((group) => ({ ...group, episodes: distinctEpisodes(group.episodes) })), [allSeasons])
 
   const selectedSeriesEpisodes = useMemo(
-    () => selectedEpisodes.flatMap((season: SeasonEpisodes) => season.episodes),
-    [selectedEpisodes],
-  )
-
-  const selectedSeriesMediaIDs = useMemo(
-    () => selectedSeriesEpisodes.map((ep) => ep.id),
-    [selectedSeriesEpisodes],
+    () => allSeasons.flatMap((season: SeasonEpisodes) => season.episodes),
+    [allSeasons],
   )
 
   useEffect(() => {
     if (loading) return
     if (!isSeries) {
       setSelectedSeries(null)
-      setSelectedSeason(null)
       return
     }
 
@@ -91,21 +79,23 @@ export function useLibrarySeriesSelection({
 
     const next = seriesCards.find((card) => seriesID ? card.rep.series_id === seriesID : card.key === key)
     setSelectedSeries(next ?? null)
-  }, [isSeries, loading, searchParams, seriesCards, setSelectedSeason, setSelectedSeries])
+  }, [isSeries, loading, searchParams, seriesCards, setSelectedSeries])
 
-  useEffect(() => {
-    if (!selectedSeries || selectedEpisodes.length === 0) {
-      setSelectedSeason(null)
-      return
-    }
-    if (selectedSeason == null || !selectedEpisodes.some((s) => s.season === selectedSeason)) {
-      setSelectedSeason(selectedEpisodes[0].season)
-    }
-  }, [selectedSeries, selectedEpisodes, selectedSeason, setSelectedSeason])
+  const handleSeasonChange = (season: number) => {
+    const next = new URLSearchParams(searchParams)
+    next.set('season', String(season))
+    next.delete('episode')
+    next.delete('version')
+    setSearchParams(next)
+  }
 
   const handleSeriesClick = (card: SeriesCard) => {
     setSelectedSeries(card)
     const next = new URLSearchParams(searchParams)
+    next.delete('series_id')
+    next.delete('season')
+    next.delete('episode')
+    next.delete('version')
     next.set('series', card.key)
     setSearchParams(next)
     window.scrollTo({ top: 0, behavior: 'smooth' })
@@ -113,20 +103,21 @@ export function useLibrarySeriesSelection({
 
   const clearSelectedSeries = () => {
     setSelectedSeries(null)
-    setSelectedSeason(null)
     onClearSeriesState?.()
     const next = new URLSearchParams(searchParams)
     next.delete('series')
     next.delete('series_id')
+    next.delete('season')
+    next.delete('episode')
+    next.delete('version')
     setSearchParams(next)
   }
 
   return {
     selectedEpisodes,
-    visibleEpisodes,
     selectedSeriesEpisodes,
-    selectedSeriesMediaIDs,
     handleSeriesClick,
+    handleSeasonChange,
     clearSelectedSeries,
   }
 }

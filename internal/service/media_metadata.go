@@ -13,6 +13,8 @@ import (
 )
 
 type MediaMetadataUpdate struct {
+	// Scope 为 series 时只修改可播放文件所属的整剧，不改分集与文件关系。
+	Scope        string   `json:"scope,omitempty"`
 	Title        *string  `json:"title"`
 	OriginalName *string  `json:"original_name"`
 	Overview     *string  `json:"overview"`
@@ -38,6 +40,12 @@ func (s *MediaService) UpdateMetadata(ctx context.Context, id string, req MediaM
 	id = strings.TrimSpace(id)
 	if id == "" {
 		return nil, errors.New("media id required")
+	}
+	if req.Scope != "" && req.Scope != "series" {
+		return nil, errors.New("invalid metadata scope")
+	}
+	if req.Scope == "series" && (req.SeasonNum != nil || req.EpisodeNum != nil) {
+		return nil, errors.New("series metadata cannot change episode coordinates")
 	}
 	media, err := s.repo.Media.FindByID(ctx, id)
 	if err != nil {
@@ -99,6 +107,11 @@ func (s *MediaService) UpdateMetadata(ctx context.Context, id string, req MediaM
 	if err := s.replaceManualIdentifiers(ctx, target, media, req, isNew, tmdbSnapshot); err != nil {
 		return nil, err
 	}
+	if req.Scope == "series" {
+		s.repo.MediaView.RefreshMetadataIDs(ctx, target.ID)
+		s.invalidateMediaCache(ctx)
+		return s.GetMediaSeriesVisible(ctx, media.ID, MediaVisibility{IncludeNSFW: true})
+	}
 	updates := map[string]any{
 		"metadata_id": target.ID, "scrape_status": "matched", "scrape_error": "", "local_metadata_hint": "",
 	}
@@ -117,6 +130,19 @@ func (s *MediaService) UpdateMetadata(ctx context.Context, id string, req MediaM
 }
 
 func (s *MediaService) manualMetadataTarget(ctx context.Context, media *model.Media, view *model.MediaView, req MediaMetadataUpdate) (*model.MetadataItem, bool, error) {
+	if req.Scope == "series" {
+		if view.SeriesID == "" {
+			return nil, false, errors.New("series metadata not found")
+		}
+		item, err := s.repo.Metadata.FindByID(ctx, view.SeriesID)
+		if err != nil {
+			return nil, false, err
+		}
+		if item == nil || item.Kind != model.MetadataKindSeries {
+			return nil, false, errors.New("series metadata not found")
+		}
+		return item, false, nil
+	}
 	if strings.TrimSpace(media.MetadataID) != "" {
 		item, err := s.repo.Metadata.FindByID(ctx, media.MetadataID)
 		if err != nil || item != nil {
@@ -215,7 +241,7 @@ func (s *MediaService) replaceManualIdentifiers(ctx context.Context, item *model
 		{provider: "thetvdb", value: manualStringIdentifier(req.TheTVDBID, media.TheTVDBID), set: req.TheTVDBID != nil || (isNew && strings.TrimSpace(media.TheTVDBID) != "")},
 	}
 	for _, entry := range values {
-		if entry.provider == "douban" && item.Kind != model.MetadataKindMovie {
+		if entry.provider == "douban" && item.Kind != model.MetadataKindMovie && item.Kind != model.MetadataKindSeries {
 			continue
 		}
 		if entry.set {

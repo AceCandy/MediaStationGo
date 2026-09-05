@@ -48,6 +48,18 @@ func listMediaCreditsHandler(svc *service.Container) gin.HandlerFunc {
 			return
 		}
 		credits := []mediaCredit{}
+		if c.Query("scope") == "series" {
+			series, err := svc.Media.GetMediaSeriesVisible(c.Request.Context(), m.ID, mediaVisibilityForRequest(c, svc))
+			if err != nil {
+				writeInternalOrCanceled(c, err)
+				return
+			}
+			if series == nil {
+				c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+				return
+			}
+			m = series
+		}
 		if m.MetadataID != "" {
 			rows, err := svc.Repo.Person.ListCreditsWithPeople(c.Request.Context(), m.MetadataID)
 			if err != nil {

@@ -65,15 +65,16 @@ export function LibraryPage() {
 
   // 剧集模式：选中某个剧集后展开详情
   const [selectedSeries, setSelectedSeries] = useState<SeriesCard | null>(null)
-  const [selectedSeason, setSelectedSeason] = useState<number | null>(null)
 
   const {
     library,
     items,
     seriesEpisodeItems,
+    seriesHistory,
     total,
     loading,
     loadingSeriesEpisodes,
+    seriesEpisodesError,
     isSeriesLibrary,
     isSeries,
     seriesCards,
@@ -98,10 +99,9 @@ export function LibraryPage() {
 
   const {
     selectedEpisodes,
-    visibleEpisodes,
     selectedSeriesEpisodes,
-    selectedSeriesMediaIDs,
     handleSeriesClick,
+    handleSeasonChange,
     clearSelectedSeries,
   } = useLibrarySeriesSelection({
     items,
@@ -114,8 +114,6 @@ export function LibraryPage() {
     setSearchParams,
     selectedSeries,
     setSelectedSeries,
-    selectedSeason,
-    setSelectedSeason,
     onClearSeriesState: () => setSeriesMetadataEditOpen(false),
   })
 
@@ -123,7 +121,6 @@ export function LibraryPage() {
     seriesToolBusy,
     handleSeriesSmartScrape,
     handleSeriesProbe,
-    handleEpisodeProbe,
     handleSeriesOrganize,
     handleSeriesSoftDelete,
   } = useLibraryAdminActions({
@@ -145,9 +142,13 @@ export function LibraryPage() {
     )
   }
 
+  if ((searchParams.has('series_id') || searchParams.has('series')) && !selectedSeries) {
+    return <div className="space-y-4 rounded-2xl border border-[var(--app-border)] p-6"><p role="status" className="text-[var(--app-muted)]">剧集不存在、加载失败或当前账号无权查看。</p><div className="flex gap-3"><button className="btn-outline" onClick={reloadCurrentLibrary}>重试</button><button className="btn-ghost" onClick={clearSelectedSeries}>返回媒体库</button></div></div>
+  }
+
   return (
     <div className="space-y-6">
-      <LibraryPageHeader
+      {!selectedSeries && <LibraryPageHeader
         library={library}
         itemCount={isSeriesLibrary ? total : isSeries ? seriesCards.length : total}
         loadingAllText={loadingAllText}
@@ -156,7 +157,7 @@ export function LibraryPage() {
         missingChineseTitle={missingChineseTitle}
         onMissingPosterChange={(enabled) => setFilter('missing_poster', enabled)}
         onMissingChineseTitleChange={(enabled) => setFilter('missing_chinese_title', enabled)}
-      />
+      />}
 
       <LibraryMediaSections
         isSeries={isSeries}
@@ -182,12 +183,13 @@ export function LibraryPage() {
       )}
 
       <LibrarySeriesDetailSection
+        key={selectedSeries?.key}
         selectedSeries={selectedSeries}
         selectedEpisodes={selectedEpisodes}
-        selectedSeason={selectedSeason}
-        visibleEpisodes={visibleEpisodes}
         allEpisodes={selectedSeriesEpisodes}
+        history={seriesHistory}
         loadingEpisodes={loadingSeriesEpisodes}
+        episodesError={seriesEpisodesError}
         playbackFrom={`${location.pathname}${location.search}`}
         isAdmin={role === 'admin'}
         seriesToolBusy={seriesToolBusy}
@@ -195,16 +197,15 @@ export function LibraryPage() {
         onSmartScrape={handleSeriesSmartScrape}
         onMetadataEdit={() => setSeriesMetadataEditOpen(true)}
         onProbe={handleSeriesProbe}
-        onEpisodeProbe={handleEpisodeProbe}
+        onChanged={reloadCurrentLibrary}
         onOrganize={handleSeriesOrganize}
         onSoftDelete={handleSeriesSoftDelete}
-        onSeasonChange={setSelectedSeason}
+        onSeasonChange={handleSeasonChange}
       />
 
       <LibraryPageDialogs
         seriesMetadataEditOpen={seriesMetadataEditOpen}
         selectedSeries={selectedSeries}
-        selectedSeriesMediaIDs={selectedSeriesMediaIDs}
         onCloseSeriesMetadataEdit={() => setSeriesMetadataEditOpen(false)}
         onApplied={reloadCurrentLibrary}
       />

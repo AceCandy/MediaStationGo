@@ -1,24 +1,37 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import toast from 'react-hot-toast'
+import { useSearchParams } from 'react-router-dom'
+import { useAuthStore } from '../stores/auth'
+import { usePlayProfileStore } from '../stores/playProfile'
 
 import { libraryAPI, type LibraryMediaFilters } from '../api/library'
 import type { Library, Media } from '../types'
+import type { HistoryItem } from '../types/history'
 import { groupSeries, isEpisodeLike, type SeriesCard } from '../utils/groupSeries'
 import { isSeriesLibraryType } from './librariesPageModel'
 
 const LIBRARY_PAGE_SIZE = 50
 
 export function useLibraryData(libraryID: string, selectedSeries: SeriesCard | null, filters: LibraryMediaFilters) {
+  const [searchParams] = useSearchParams()
+  const userID = useAuthStore((state) => state.user?.id)
+  const profileID = usePlayProfileStore((state) => state.activeProfileId)
+  const seriesID = searchParams.get('series_id') || ''
+  const seriesKey = seriesID ? '' : searchParams.get('series') || ''
+  const target = `${userID}:${profileID}:${libraryID}:${seriesID}:${seriesKey}`
+  const [linkedSeries, setLinkedSeries] = useState<{ target: string; card: SeriesCard | null } | null>(null)
   const { missingPoster = false, missingChineseTitle = false } = filters
   const [library, setLibrary] = useState<Library | null>(null)
   const [items, setItems] = useState<Media[]>([])
   const [serverSeriesCards, setServerSeriesCards] = useState<SeriesCard[]>([])
   const [seriesEpisodeItems, setSeriesEpisodeItems] = useState<Media[]>([])
+  const [seriesHistory, setSeriesHistory] = useState<HistoryItem[]>([])
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(true)
   const [loadingMore, setLoadingMore] = useState(false)
   const [loadMoreError, setLoadMoreError] = useState(false)
   const [loadingSeriesEpisodes, setLoadingSeriesEpisodes] = useState(false)
+  const [seriesEpisodesError, setSeriesEpisodesError] = useState(false)
   const [nextPage, setNextPage] = useState(2)
   const loadingMoreRef = useRef(false)
   const loadVersionRef = useRef(0)
@@ -28,10 +41,27 @@ export function useLibraryData(libraryID: string, selectedSeries: SeriesCard | n
   const isSeries = isSeriesLibrary || serverSeriesCards.length > 0 || hasEpisodicItems
 
   const seriesCards = useMemo(() => {
-    if (isSeriesLibrary) return serverSeriesCards
+    if (isSeriesLibrary) {
+      const card = linkedSeries?.target === target ? linkedSeries.card : null
+      return card && !serverSeriesCards.some((item) => item.key === card.key) ? [...serverSeriesCards, card] : serverSeriesCards
+    }
     if (!isSeries || items.length === 0) return []
     return groupSeries(items)
-  }, [isSeries, isSeriesLibrary, items, serverSeriesCards])
+  }, [isSeries, isSeriesLibrary, items, serverSeriesCards, linkedSeries, target])
+
+  useEffect(() => {
+    if (!library || !isSeriesLibrary || (!seriesID && !seriesKey)) return
+    let cancelled = false
+    libraryAPI.listSeries(libraryID, 1, 1, { seriesID, key: seriesKey })
+      .then((result) => { if (!cancelled) setLinkedSeries({ target, card: result.items[0] ?? null }) })
+      .catch(() => {
+        if (!cancelled) {
+          setLinkedSeries({ target, card: null })
+          toast.error('剧集详情加载失败，请刷新重试')
+        }
+      })
+    return () => { cancelled = true }
+  }, [library, libraryID, isSeriesLibrary, seriesID, seriesKey, target])
 
   useEffect(() => {
     if (!libraryID) return
@@ -53,7 +83,7 @@ export function useLibraryData(libraryID: string, selectedSeries: SeriesCard | n
         }
       })
     return () => { cancelled = true }
-  }, [libraryID])
+  }, [libraryID, userID, profileID])
 
   useEffect(() => {
     if (!libraryID || !library) return
@@ -114,6 +144,8 @@ export function useLibraryData(libraryID: string, selectedSeries: SeriesCard | n
   }, [missingChineseTitle, missingPoster, hasMore, isSeriesLibrary, library, libraryID, loadedCount, nextPage])
 
   useEffect(() => {
+    setSeriesHistory([])
+    setSeriesEpisodesError(false)
     if (!libraryID || !isSeriesLibrary || !selectedSeries) {
       setSeriesEpisodeItems([])
       setLoadingSeriesEpisodes(false)
@@ -124,16 +156,22 @@ export function useLibraryData(libraryID: string, selectedSeries: SeriesCard | n
     setSeriesEpisodeItems([])
     libraryAPI.listSeriesEpisodes(libraryID, selectedSeries.key)
       .then((r) => {
-        if (!cancelled) setSeriesEpisodeItems(r.items ?? [])
+        if (!cancelled) {
+          setSeriesEpisodeItems(r.items ?? [])
+          setSeriesHistory(r.history ?? [])
+        }
       })
       .catch(() => {
-        if (!cancelled) toast.error('剧集列表加载失败')
+        if (!cancelled) {
+          setSeriesEpisodesError(true)
+          toast.error('剧集列表加载失败')
+        }
       })
       .finally(() => {
         if (!cancelled) setLoadingSeriesEpisodes(false)
       })
     return () => { cancelled = true }
-  }, [libraryID, isSeriesLibrary, selectedSeries])
+  }, [libraryID, isSeriesLibrary, selectedSeries, userID, profileID])
 
   const reloadCurrentLibrary = useCallback(() => {
     setLibrary((current) => (current ? { ...current } : current))
@@ -147,9 +185,11 @@ export function useLibraryData(libraryID: string, selectedSeries: SeriesCard | n
     library,
     items,
     seriesEpisodeItems,
+    seriesHistory,
     total,
-    loading,
+    loading: loading || (isSeriesLibrary && !!(seriesID || seriesKey) && linkedSeries?.target !== target),
     loadingSeriesEpisodes,
+    seriesEpisodesError,
     isSeriesLibrary,
     isSeries,
     seriesCards,

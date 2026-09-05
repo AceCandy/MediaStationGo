@@ -13,6 +13,7 @@ interface MediaDetailPageStateParams {
   id: string
   navigate: NavigateFunction
   backTarget: string
+  singleVersion?: boolean
 }
 
 interface MediaDetailRefreshParams {
@@ -32,7 +33,7 @@ interface MediaDetailActionsParams {
 
 type MediaDetailRefresh = () => Promise<Media | null>
 
-export function useMediaDetailPageState({ id, navigate, backTarget }: MediaDetailPageStateParams) {
+export function useMediaDetailPageState({ id, navigate, backTarget, singleVersion = false }: MediaDetailPageStateParams) {
   const [media, setMedia] = useState<Media | null>(null)
   const [versions, setVersions] = useState<Media[]>([])
   const [selectedVersionID, setSelectedVersionID] = useState(id)
@@ -68,7 +69,7 @@ export function useMediaDetailPageState({ id, navigate, backTarget }: MediaDetai
         if (cancelled || !nextMedia) return
         setVersions([nextMedia])
         setSelectedVersionID(nextMedia.id)
-        void mediaAPI.listVersions(id).catch(() => [nextMedia]).then((items) => {
+        if (!singleVersion) void mediaAPI.listVersions(id).catch(() => [nextMedia]).then((items) => {
           if (cancelled || items.length === 0) return
           setVersions(items)
           setSelectedVersionID(items[0].id)
@@ -90,7 +91,7 @@ export function useMediaDetailPageState({ id, navigate, backTarget }: MediaDetai
       })
       .catch(() => undefined)
     return () => { cancelled = true }
-  }, [id, refresh])
+  }, [id, refresh, singleVersion])
 
   useEffect(() => {
     const currentMediaID = media?.id
@@ -292,17 +293,18 @@ async function reprobeMedia(media: Media | null, refresh: MediaDetailRefresh): P
   }
 }
 
-async function softDeleteMedia(media: Media | null, navigate: NavigateFunction, backTarget: string): Promise<void> {
-  if (!media) return
+async function softDeleteMedia(media: Media | null, navigate: NavigateFunction, backTarget: string): Promise<boolean> {
+  if (!media) return false
   const confirmed = await confirmAction({
     title: '永久删除媒体',
     message: `将永久删除「${media.title}」的数据库记录；磁盘文件保留，此操作不可恢复。`,
     confirmText: '永久删除',
   })
-  if (!confirmed) return
+  if (!confirmed) return false
   await mediaAPI.delete(media.id)
   toast.success('已永久删除')
   goBackFromMediaDetail(media, navigate, backTarget, true)
+  return true
 }
 
 function apiErrorMessage(err: unknown, fallback: string): string {

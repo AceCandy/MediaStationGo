@@ -13,6 +13,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
+	"github.com/ShukeBta/MediaStationGo/internal/middleware"
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 	"github.com/ShukeBta/MediaStationGo/internal/service"
 )
@@ -80,6 +81,15 @@ func listLibrarySeriesHandler(svc *service.Container) gin.HandlerFunc {
 			return
 		}
 		page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+		if seriesID, key := c.Query("series_id"), c.Query("key"); seriesID != "" || key != "" {
+			filtered := []service.SeriesCard{}
+			for _, card := range items {
+				if (seriesID != "" && card.Rep.SeriesID == seriesID) || (seriesID == "" && card.Key == key) {
+					filtered = append(filtered, card)
+				}
+			}
+			items, total = filtered, int64(len(filtered))
+		}
 		size, _ := strconv.Atoi(c.DefaultQuery("page_size", "500"))
 		if page < 1 {
 			page = 1
@@ -128,6 +138,16 @@ func listLibrarySeriesEpisodesHandler(svc *service.Container) gin.HandlerFunc {
 			writeInternalOrCanceled(c, err)
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"items": items, "total": len(items)})
+		ids := make([]string, 0, len(items))
+		for _, item := range items {
+			ids = append(ids, item.MetadataID)
+		}
+		uid, _ := c.Get(middleware.CtxUserID)
+		history, err := svc.Repo.History.ListByUserMetadataIDs(c.Request.Context(), toString(uid), ids)
+		if err != nil {
+			writeInternalOrCanceled(c, err)
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"items": items, "total": len(items), "history": history})
 	}
 }

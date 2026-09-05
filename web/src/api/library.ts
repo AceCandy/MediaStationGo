@@ -3,6 +3,7 @@ import { useAuthStore } from '../stores/auth'
 import { getActivePlayProfileId } from '../stores/playProfile'
 import type { Library, LibraryRoot, Media, MediaCredit } from '../types'
 import type { SeriesCard } from '../utils/groupSeries'
+import type { HistoryItem } from '../types/history'
 
 const recentRequests = new Map<string, Promise<SeriesCard[]>>()
 const libraryRequests = new Map<string, Promise<unknown>>()
@@ -107,6 +108,7 @@ export interface LibraryMediaFilters {
 }
 
 export interface MediaMetadataUpdate {
+  scope?: 'series'
   title?: string
   original_name?: string
   overview?: string
@@ -186,11 +188,13 @@ export const libraryAPI = {
         })
         .then((r) => r.data)),
 
-  listSeries: (id: string, page = 1, pageSize = 500, options?: LibraryMediaFilters) =>
-    libraryRequest(`series:${id}:${page}:${pageSize}:${options?.missingPoster ? 1 : 0}:${options?.missingChineseTitle ? 1 : 0}`, () =>
+  listSeries: (id: string, page = 1, pageSize = 500, options?: LibraryMediaFilters & { seriesID?: string; key?: string }) =>
+    libraryRequest(`series:${id}:${page}:${pageSize}:${options?.missingPoster ? 1 : 0}:${options?.missingChineseTitle ? 1 : 0}:${options?.seriesID ?? ''}:${options?.key ?? ''}`, () =>
       api
         .get<SeriesPage>(`/libraries/${id}/series`, {
           params: {
+            series_id: options?.seriesID,
+            key: options?.key,
             page,
             page_size: pageSize,
             missing_poster: options?.missingPoster ? 1 : undefined,
@@ -203,7 +207,7 @@ export const libraryAPI = {
   listSeriesEpisodes: (id: string, key: string) =>
     libraryRequest(`episodes:${id}:${key}`, () =>
       api
-        .get<{ items: Media[]; total: number }>(`/libraries/${id}/series/episodes`, {
+        .get<{ items: Media[]; total: number; history: HistoryItem[] }>(`/libraries/${id}/series/episodes`, {
           params: { key },
           timeout: LONG_REQUEST_TIMEOUT,
         })
@@ -274,8 +278,10 @@ export const mediaAPI = {
 
   listVersions: (id: string) => api.get<Media[]>(`/media/${id}/versions`).then((r) => r.data),
 
-  listCredits: (id: string) =>
-    api.get<{ items: MediaCredit[] }>(`/media/${id}/credits`).then((r) => r.data.items ?? []),
+  series: (id: string) => api.get<{ series: Media; favourite: boolean }>(`/media/${id}/series`).then((r) => r.data),
+
+  listCredits: (id: string, scope?: 'series') =>
+    api.get<{ items: MediaCredit[] }>(`/media/${id}/credits`, { params: { scope } }).then((r) => r.data.items ?? []),
 
   ensureProbe: (id: string) =>
     api.post<Media>(`/media/${id}/probe/ensure`, null, { timeout: LONG_REQUEST_TIMEOUT }).then((r) => r.data),

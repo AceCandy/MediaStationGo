@@ -12,6 +12,70 @@ import (
 	"github.com/ShukeBta/MediaStationGo/internal/repository"
 )
 
+func TestMediaSeriesDetailOwnsMetadataAndUserScope(t *testing.T) {
+	db := newServiceTestDB(t, &model.Library{}, &model.Media{}, &model.MediaProbeMetadata{}, &model.MetadataProviderSnapshot{}, &model.PlaybackHistory{}, &model.Favorite{})
+	repos := repository.New(db)
+	lib := model.Library{Name: "剧集", Path: "/media/series-detail-check", Type: "tv", Enabled: true}
+	if err := repos.Library.Create(t.Context(), &lib); err != nil {
+		t.Fatal(err)
+	}
+	series := createServiceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindSeries, Title: "整剧标题", Overview: "整剧简介", Source: "test"})
+	season := createServiceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindSeason, Title: "特别篇", ParentID: &series.ID, SeasonNum: 0, Source: "test"})
+	episode := createServiceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindEpisode, Title: "单集标题", Overview: "单集简介", ParentID: &season.ID, EpisodeNum: 1, Source: "test"})
+	media := model.Media{LibraryID: lib.ID, MetadataID: episode.ID, Path: lib.Path + "/S00E01.mkv"}
+	if err := db.Create(&media).Error; err != nil {
+		t.Fatal(err)
+	}
+	svc := NewMediaService(&config.Config{}, zap.NewNop(), repos)
+	view, err := svc.GetMediaSeriesVisible(t.Context(), media.ID, MediaVisibility{IncludeNSFW: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if view == nil || view.ID != series.ID || view.MetadataID != series.ID || view.Title != series.Title || view.Overview != series.Overview || view.MetadataKind != model.MetadataKindSeries || view.Path != "" || view.DurationSec != 0 || view.EpisodeNum != 0 || view.SeasonID != "" {
+		t.Fatalf("wrong Series projection: %#v", view)
+	}
+	newTitle, doubanID := "整剧新标题", "series-douban"
+	updated, err := svc.UpdateMetadata(t.Context(), media.ID, MediaMetadataUpdate{Scope: "series", Title: &newTitle, DoubanID: &doubanID})
+	if err != nil || updated == nil || updated.Title != newTitle || updated.DoubanID != doubanID {
+		t.Fatalf("Series edit: %#v, %v", updated, err)
+	}
+	preserved, err := repos.MediaView.FindByID(t.Context(), media.ID)
+	if err != nil || preserved == nil || preserved.MetadataID != episode.ID || preserved.Title != episode.Title || preserved.Overview != episode.Overview {
+		t.Fatalf("Series edit changed Episode: %#v, %v", preserved, err)
+	}
+	for _, visibility := range []MediaVisibility{{HiddenLibraryIDs: []string{lib.ID}}, {LibraryRestricted: true}, {AllowedLibraryIDs: []string{"other-library"}}} {
+		got, err := svc.GetMediaSeriesVisible(t.Context(), media.ID, visibility)
+		if err != nil || got != nil {
+			t.Fatalf("invisible Series returned: %#v, %v", got, err)
+		}
+	}
+	if _, err := repos.Favorite.SetByIdentity(t.Context(), "viewer", series.ID, media.ID, true); err != nil {
+		t.Fatal(err)
+	}
+	for _, identity := range []struct {
+		user, metadata string
+		want           bool
+	}{{"viewer", series.ID, true}, {"viewer", episode.ID, false}, {"other", series.ID, false}} {
+		got, err := repos.Favorite.IsFavoriteByIdentity(t.Context(), identity.user, identity.metadata, "")
+		if err != nil || got != identity.want {
+			t.Fatalf("favorite scope: %v, %v", got, err)
+		}
+	}
+	for _, user := range []string{"viewer", "other"} {
+		if err := db.Create(&model.PlaybackHistory{UserID: user, MetadataID: episode.ID, MediaID: media.ID, PositionMs: 100_000, DurationMs: 900_000, WatchedAt: time.Now()}).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	history, err := repos.History.ListByUserMetadataIDs(t.Context(), "viewer", []string{episode.ID})
+	if err != nil || len(history) != 1 || history[0].UserID != "viewer" {
+		t.Fatalf("history scope: %#v, %v", history, err)
+	}
+	history, err = repos.History.ListByUserMetadataIDs(t.Context(), "viewer", nil)
+	if err != nil || len(history) != 0 {
+		t.Fatalf("empty history: %#v, %v", history, err)
+	}
+}
+
 func TestListRecentSeriesCardsCountsAllEpisodesInSeries(t *testing.T) {
 	db := newServiceTestDB(t, &model.Library{}, &model.Media{})
 	repos := repository.New(db)

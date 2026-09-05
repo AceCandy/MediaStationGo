@@ -9,10 +9,11 @@ import type { Media } from '../types'
 
 type MediaDetailMetadataProps = {
   media: Media
-  selectedMedia: Media
+  selectedMedia?: Media
+  scope?: 'series' | 'episode'
   isAdmin: boolean
-  favourite: boolean
-  onToggleFavourite: () => void
+  favourite?: boolean
+  onToggleFavourite?: () => void
   onMetadataEdit: () => void
 }
 
@@ -22,7 +23,7 @@ const rise = (delay: number) => ({
   transition: { duration: 0.5, delay, ease: [0.21, 0.47, 0.32, 0.98] as const },
 })
 
-export function MediaDetailMetadata({ media, selectedMedia, isAdmin, favourite, onToggleFavourite, onMetadataEdit }: MediaDetailMetadataProps) {
+export function MediaDetailMetadata({ media, selectedMedia, scope, isAdmin, favourite, onToggleFavourite, onMetadataEdit }: MediaDetailMetadataProps) {
   const heading = media.title
   const seriesContext = media.series_title?.trim()
   const tmdbHref = tmdbURL(media)
@@ -38,7 +39,7 @@ export function MediaDetailMetadata({ media, selectedMedia, isAdmin, favourite, 
     setDeleteTarget(null)
     setDeleteOpen(false)
     setDeleteParent(false)
-    if (selectedMedia.path.toLowerCase().endsWith('.strm')) {
+    if (selectedMedia?.path.toLowerCase().endsWith('.strm')) {
       mediaAPI.getSTRMTarget(selectedMedia.id)
         .then((target) => { if (!cancelled) setSTRMTarget(target) })
         .catch(() => undefined)
@@ -49,14 +50,14 @@ export function MediaDetailMetadata({ media, selectedMedia, isAdmin, favourite, 
       }
     }
     return () => { cancelled = true }
-  }, [isAdmin, selectedMedia.id, selectedMedia.path])
+  }, [isAdmin, selectedMedia?.id, selectedMedia?.path])
 
   const deletePath = deleteTarget
     ? (deleteParent && deleteTarget.parent_path ? deleteTarget.parent_path : deleteTarget.target_path)
     : ''
 
   const handleDelete = async () => {
-    if (!deleteTarget) return
+    if (!deleteTarget || !selectedMedia) return
     setDeleting(true)
     try {
       await mediaAPI.deleteSTRMTarget(selectedMedia.id, deleteParent)
@@ -76,16 +77,18 @@ export function MediaDetailMetadata({ media, selectedMedia, isAdmin, favourite, 
       <div className="space-y-4">
         <motion.div {...rise(0)} className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0 space-y-2">
-            <h1 className="break-words text-pretty font-display text-[clamp(1.75rem,3.4vw,2.75rem)] font-extrabold tracking-tight text-gray-900 leading-[1.15]">
-              {heading}
-            </h1>
-            {seriesContext && (
+            {scope === 'episode' ? (
+              <h2 className="break-words font-display text-xl font-extrabold text-[var(--app-text)]">{heading}</h2>
+            ) : (
+              <h1 className="break-words text-pretty font-display text-[clamp(1.75rem,3.4vw,2.75rem)] font-extrabold tracking-tight text-[var(--app-text)] leading-[1.15]">{heading}</h1>
+            )}
+            {!scope && seriesContext && (
               <p className="text-sm font-semibold text-gray-500">
                 {seriesContext}
               </p>
             )}
           </div>
-          <button
+          {onToggleFavourite && <button
             type="button"
             onClick={onToggleFavourite}
             aria-pressed={favourite}
@@ -104,7 +107,7 @@ export function MediaDetailMetadata({ media, selectedMedia, isAdmin, favourite, 
             >
               {favourite ? '取消收藏' : '加入收藏'}
             </span>
-          </button>
+          </button>}
         </motion.div>
 
         <motion.div {...rise(0.08)} className="space-y-2.5 text-xs font-bold tracking-wide">
@@ -119,12 +122,12 @@ export function MediaDetailMetadata({ media, selectedMedia, isAdmin, favourite, 
                 <span>{media.release_date || `${media.year} 年`}</span>
               </span>
             )}
-            <span className="inline-flex items-center gap-1.5 rounded-xl border border-[var(--app-border)] bg-[var(--app-panel)]/70 px-3 py-1.5 text-[var(--app-subtle)] backdrop-blur">
+            {scope !== 'series' && <span className="inline-flex items-center gap-1.5 rounded-xl border border-[var(--app-border)] bg-[var(--app-panel)]/70 px-3 py-1.5 text-[var(--app-subtle)] backdrop-blur">
               <Clock size={13} aria-hidden="true" />
               {fmtDuration(media.duration_sec)}
-            </span>
+            </span>}
           </div>
-          <div className="flex flex-wrap items-center gap-2.5">
+          {scope !== 'series' && <div className="flex flex-wrap items-center gap-2.5">
             {media.width > 0 && (
               <span className="inline-flex items-center gap-1.5 rounded-xl border border-[var(--app-brand-border)] bg-[var(--app-brand-soft)] px-3 py-1.5 uppercase text-[var(--app-brand-text)] backdrop-blur">
                 <Monitor size={13} aria-hidden="true" />
@@ -141,7 +144,7 @@ export function MediaDetailMetadata({ media, selectedMedia, isAdmin, favourite, 
                 {media.container}
               </span>
             )}
-          </div>
+          </div>}
           <div className="flex flex-wrap items-center gap-2.5">
             {tmdbHref && (
               <ProviderBadge
@@ -172,12 +175,12 @@ export function MediaDetailMetadata({ media, selectedMedia, isAdmin, favourite, 
       )}
 
       <motion.div {...rise(0.22)} className="space-y-4">
-        <MetadataTags label="类型流派" values={parseCSV(media.genres)} primary />
-        <div className="grid gap-4 sm:grid-cols-2">
+        {scope !== 'episode' && <MetadataTags label="类型流派" values={parseCSV(media.genres)} primary />}
+        {scope !== 'episode' && <div className="grid gap-4 sm:grid-cols-2">
           <MetadataTags label="国家/地区" values={localizedCSV(media.countries, 'region')} />
           <MetadataTags label="语言" values={localizedCSV(media.languages, 'language')} />
-        </div>
-        <div className="space-y-3 rounded-2xl border border-[var(--app-border)] bg-[var(--app-panel)]/50 p-4 text-xs">
+        </div>}
+        {selectedMedia && <div className="space-y-3 rounded-2xl border border-[var(--app-border)] bg-[var(--app-panel)]/50 p-4 text-xs">
           <div className="flex min-w-0 gap-3">
             <span className="w-16 shrink-0 font-bold uppercase tracking-wider text-[var(--app-muted)]">Media ID</span>
             <span className="min-w-0 break-all font-mono text-[var(--app-subtle)]">{selectedMedia.id}</span>
@@ -207,7 +210,7 @@ export function MediaDetailMetadata({ media, selectedMedia, isAdmin, favourite, 
               )}
             </div>
           )}
-        </div>
+        </div>}
       </motion.div>
 
       {deleteOpen && deleteTarget && (

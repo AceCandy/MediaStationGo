@@ -1,122 +1,80 @@
+import { useEffect, useRef } from 'react'
 import { Link } from 'react-router-dom'
-import { Database, Play } from 'lucide-react'
+import { Play } from 'lucide-react'
 
 import { imageURL } from '../api/client'
-import { ExternalPlayerButton } from '../components/ExternalPlayerButton'
+import { Select } from '../components/Select'
 import type { Media } from '../types'
+import type { HistoryItem } from '../types/history'
 import { seriesTitleFromPath } from '../utils/groupSeries'
-import { formatSize } from './libraryPageModel'
-
-type SeasonGroup = {
-  season: number
-  episodes: Media[]
-}
+import { episodeIdentity } from './seriesDetailModel'
 
 type LibrarySeriesEpisodesProps = {
   loading: boolean
-  selectedEpisodes: SeasonGroup[]
-  selectedSeason: number | null
+  selectedEpisodes: { season: number; episodes: Media[] }[]
+  selectedSeason: number
   visibleEpisodes: Media[]
+  selectedEpisodeID: string
+  selectedVersionID?: string
+  history: HistoryItem[]
   playbackFrom: string
   onSeasonChange: (season: number) => void
-  isAdmin: boolean
-  seriesToolBusy: string
-  onEpisodeProbe: (media: Media) => void
+  onEpisodeSelect: (media: Media) => void
 }
 
-export function LibrarySeriesEpisodes({
-  loading,
-  selectedEpisodes,
-  selectedSeason,
-  visibleEpisodes,
-  playbackFrom,
-  onSeasonChange,
-  isAdmin,
-  seriesToolBusy,
-  onEpisodeProbe,
-}: LibrarySeriesEpisodesProps) {
-  if (loading) {
-    return (
-      <div className="rounded-2xl bg-white/75 p-6 text-center text-sm text-sand-500 shadow-soft">
-        正在加载剧集…
-      </div>
-    )
-  }
-
-  const displaySeason = selectedSeason ?? selectedEpisodes[0]?.season ?? 1
-
+export function LibrarySeriesEpisodes({ loading, selectedEpisodes, selectedSeason, visibleEpisodes, selectedEpisodeID, selectedVersionID, history, playbackFrom, onSeasonChange, onEpisodeSelect }: LibrarySeriesEpisodesProps) {
+  const stripRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const strip = stripRef.current
+    const selected = strip?.querySelector<HTMLElement>('[aria-pressed="true"]')
+    if (strip && selected) strip.scrollTo({ left: Math.max(0, selected.offsetLeft - strip.offsetLeft - 8), behavior: 'instant' })
+  }, [selectedEpisodeID])
+  if (loading) return <p role="status" className="p-6 text-sm text-[var(--app-muted)]">正在加载季与分集…</p>
+  if (selectedEpisodes.length === 0) return <p className="p-6 text-sm text-[var(--app-muted)]">暂无可播放分集</p>
   return (
-    <>
-      <div className="flex flex-wrap items-center gap-2">
-        {selectedEpisodes.map(({ season, episodes }) => (
-          <button
-            key={season}
-            onClick={() => onSeasonChange(season)}
-            className={
-              'rounded-xl border px-4 py-2 text-sm font-semibold transition ' +
-              (selectedSeason === season
-                ? 'border-brand-300 bg-brand-50 text-brand-700'
-                : 'border-sand-200 bg-white text-ink-100 hover:border-brand-200 hover:text-brand-600')
-            }
-          >
-            {season === 0 ? '特别篇' : `第 ${season} 季`} · {episodes.length} 集
-          </button>
-        ))}
+    <section className="min-w-0 space-y-4" aria-label="季与分集">
+      <div className="flex flex-wrap items-center gap-3">
+        <h2 className="mr-auto font-display text-xl font-bold text-[var(--app-text)]">选集</h2>
+        <Select aria-label="选择季" className="btn-outline min-w-36" value={selectedSeason} onChange={(value) => onSeasonChange(Number(value))}>
+          {selectedEpisodes.map(({ season, episodes }) => <option key={season} value={season}>{season === 0 ? '特别篇' : `第 ${season} 季`} · {episodes.length} 集</option>)}
+        </Select>
+        {visibleEpisodes.length > 12 && <Select aria-label="快速定位分集" className="btn-outline max-w-60" value={selectedEpisodeID} onChange={(value) => { const ep = visibleEpisodes.find((item) => episodeIdentity(item) === value); if (ep) onEpisodeSelect(ep) }}>
+          {visibleEpisodes.map((ep) => <option key={ep.id} value={episodeIdentity(ep)}>第 {ep.episode_num} 集 · {episodeDisplayTitle(ep, visibleEpisodes)}</option>)}
+        </Select>}
       </div>
-
-      <div>
-        <h3 className="mb-3 font-display text-lg font-semibold text-ink-600">
-          {displaySeason === 0 ? '特别篇' : `第 ${displaySeason} 季`}
-        </h3>
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
-          {visibleEpisodes.map((ep) => (
-            <div
-              key={ep.id}
-              className="group flex items-center gap-3 rounded-xl border border-sand-200 bg-white p-3 shadow-card transition-all hover:border-brand-300 hover:shadow-card-hover"
-            >
-              <Link to={`/play/${ep.id}`} state={{ from: playbackFrom }} className="flex min-w-0 flex-1 items-center gap-3">
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-brand-50 text-brand-600 font-semibold text-sm">
-                  {ep.backdrop_url || ep.poster_url ? (
-                    <img
-                      src={imageURL(ep.backdrop_url || ep.poster_url || '', ep.updated_at)}
-                      alt=""
-                      className="h-full w-full object-cover"
-                      referrerPolicy="no-referrer"
-                    />
-                  ) : (
-                    ep.episode_num || '—'
-                  )}
+      <div ref={stripRef} className="relative flex gap-3 overflow-x-auto pb-3" aria-label="分集列表">
+        {visibleEpisodes.map((ep) => {
+          const active = episodeIdentity(ep) === selectedEpisodeID
+          const playID = active && selectedVersionID ? selectedVersionID : ep.id
+          const progress = history.find((row) => row.metadata_id === ep.metadata_id)
+          const percent = progress?.duration_ms ? Math.max(0, Math.min(100, progress.position_ms / progress.duration_ms * 100)) : 0
+          const from = new URL(playbackFrom, window.location.origin)
+          from.searchParams.set('season', String(selectedSeason))
+          from.searchParams.set('episode', episodeIdentity(ep))
+          from.searchParams.set('version', playID)
+          return (
+            <article key={episodeIdentity(ep)} className={`w-52 shrink-0 overflow-hidden rounded-2xl border bg-[var(--app-panel)] transition sm:w-60 ${active ? 'border-brand-500 ring-2 ring-brand-500/20' : 'border-[var(--app-border)]'}`}>
+              <button type="button" aria-pressed={active} onClick={() => onEpisodeSelect(ep)} className="block w-full text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-500">
+                <div className="relative flex aspect-video items-center justify-center bg-[var(--app-hover)] text-[var(--app-muted)]">
+                  {ep.backdrop_url ? <img src={imageURL(ep.backdrop_url, ep.updated_at)} alt="" loading="lazy" className="h-full w-full object-cover" referrerPolicy="no-referrer" /> : <span>第 {ep.episode_num} 集</span>}
+                  <span className="absolute bottom-2 left-2 rounded-lg bg-black/65 px-2 py-1 text-xs font-bold text-white">E{ep.episode_num}</span>
+                  {progress && <span className="absolute right-2 top-2 rounded-lg bg-black/65 px-2 py-1 text-xs text-white">{progress.completed ? '已看完' : '观看中'}</span>}
+                  {progress && <div className="absolute inset-x-0 bottom-0 h-1 bg-black/20"><div className="h-full bg-brand-500" style={{ width: `${progress.completed ? 100 : percent}%` }} /></div>}
                 </div>
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium text-ink-600">
-                    {episodeDisplayTitle(ep, visibleEpisodes)}
-                  </p>
-                  <p className="text-xs text-sand-500">
-                    {ep.duration_sec > 0
-                      ? `${Math.floor(ep.duration_sec / 60)} 分钟`
-                      : formatSize(ep.size_bytes)}
-                  </p>
+                <div className="space-y-1 px-3 pt-3">
+                  <p className="truncate text-sm font-bold text-[var(--app-text)]">{episodeDisplayTitle(ep, visibleEpisodes)}</p>
+                  <p className="text-xs text-[var(--app-muted)]">{ep.release_date || '日期待补充'}{ep.duration_sec > 0 ? ` · ${Math.floor(ep.duration_sec / 60)} 分钟` : ''}</p>
                 </div>
-                <Play size={14} className="shrink-0 text-gray-500 opacity-0 transition-opacity group-hover:opacity-100 group-hover:text-brand-500" />
-              </Link>
-              <ExternalPlayerButton mediaId={ep.id} label="外部" compact />
-              {isAdmin && (
-                <button
-                  type="button"
-                  className="icon-btn"
-                  title="强制探测单集并覆盖已有媒体轨道"
-                  aria-label={`强制探测${episodeDisplayTitle(ep, visibleEpisodes)}媒体轨道`}
-                  disabled={!!seriesToolBusy}
-                  onClick={() => onEpisodeProbe(ep)}
-                >
-                  <Database size={14} />
-                </button>
-              )}
-            </div>
-          ))}
-        </div>
+              </button>
+              <div className="flex items-center justify-between px-3 py-2">
+                <span className="text-xs text-brand-500">{active ? '当前选中' : '点击查看详情'}</span>
+                <Link aria-label={`播放第 ${ep.episode_num} 集`} to={`/play/${playID}`} state={{ from: from.pathname + from.search }} className="icon-btn min-h-11 min-w-11"><Play size={16} /></Link>
+              </div>
+            </article>
+          )
+        })}
       </div>
-    </>
+    </section>
   )
 }
 

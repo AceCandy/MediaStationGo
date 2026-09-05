@@ -14,6 +14,16 @@ import (
 // HistoryRepository persists model.PlaybackHistory entries by metadata identity.
 type HistoryRepository struct{ db *gorm.DB }
 
+// ListByUserMetadataIDs 读取已由调用方过滤可见性的分集进度，不截断为最近若干条。
+func (r *HistoryRepository) ListByUserMetadataIDs(ctx context.Context, userID string, metadataIDs []string) ([]model.PlaybackHistory, error) {
+	rows := []model.PlaybackHistory{}
+	if len(metadataIDs) == 0 {
+		return rows, nil
+	}
+	err := r.db.WithContext(ctx).Where("user_id = ? AND metadata_id = ANY(?)", userID, &metadataIDs).Order("watched_at DESC").Find(&rows).Error
+	return rows, err
+}
+
 // Upsert atomically inserts/updates the resume position.
 func (r *HistoryRepository) Upsert(ctx context.Context, h *model.PlaybackHistory) error {
 	if h == nil || strings.TrimSpace(h.MetadataID) == "" {

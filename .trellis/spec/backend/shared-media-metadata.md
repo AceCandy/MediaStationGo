@@ -2077,3 +2077,52 @@ afterID := latestTask.Metrics["cursor"]
 // Correct: snapshot existence checkpoints items; one setting checkpoints the pass.
 candidates := repo.ListMissingTMDbSnapshotsAfter(ctx, afterID, pageSize)
 ```
+
+## Scenario: Web Series Detail Hierarchy
+
+### 1. Scope / Trigger
+
+Series detail separates canonical Series presentation from selected Episode and concrete playback file. Cross-layer reads, favorites and manual edits must preserve these identities.
+
+### 2. Signatures
+
+- `GET /api/media/:id/series` returns `{series, favourite}`.
+- `PUT /api/media/:id/series/favorite` accepts `{favourite: boolean}`.
+- `GET /api/media/:id/credits?scope=series` reads Series credits.
+- Manual metadata updates accept optional `scope: "series"`.
+- Library Series listing accepts exact `series_id` or `key`; episode responses include user-scoped `history`.
+
+### 3. Contracts
+
+- Media route IDs are visible concrete file IDs, never the returned Series metadata ID. Series presentation contains its own title, overview, providers and artwork, without representative-file technical fields.
+- Series edits update canonical Series metadata once; they must not rewrite Episode titles, coordinates or file linkage. Default movie/episode updates remain unchanged.
+- History covers all visible episode identities, not only the recent-history page. Administrative actions retain all concrete files even when episode cards are deduplicated.
+- URL season/episode/version selects the current file; version must belong to the selected logical episode. Series version selection retargets playback, unlike the existing movie display-only version contract.
+
+### 4. Validation & Error Matrix
+
+| Condition | Result |
+| --- | --- |
+| Missing, hidden, restricted or non-Series file scope | No Series result; scoped handler returns 404 |
+| Missing favorite boolean | 400; explicit false is valid |
+| Unknown edit scope or Series edit with season/episode coordinates | Reject update |
+| History/database read fails | Return error, not an empty successful episode response |
+| Invalid URL selection | Normalize to available season/episode/version |
+| Selected file detail fails | Show retry; do not display or play the previous file |
+
+### 5. Good/Base/Bad Cases
+
+- Good: edit the Series overview while preserving every Episode overview and file binding.
+- Base: without history, start at the first regular-season episode; use specials only when no regular season exists.
+- Bad: use representative Episode metadata as Series content, or pass a Series metadata ID to playback.
+
+### 6. Tests Required
+
+- `TestMediaSeriesDetailOwnsMetadataAndUserScope`: canonical metadata, visibility, edit isolation, favorite identity and user-scoped history. Requires `MEDIASTATION_TEST_POSTGRES_DSN`; a skip is not database validation.
+- `node web/scripts/check-series-detail.mjs`: deduplication, URL selection, specials, resume and concrete-version identity.
+- Browser checks: refresh/back restoration, version failure isolation, mobile overflow and theme contrast.
+
+### 7. Wrong vs Correct
+
+- Wrong: loop through all episode files and save the Series edit payload to each.
+- Correct: submit one visible file ID with `scope: "series"`, resolve its canonical Series, and leave episode/file linkage untouched.

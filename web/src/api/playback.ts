@@ -123,6 +123,12 @@ export const playbackAPI = {
       .get<{ favourite: boolean }>(`/media/${mediaId}/favorite/status`)
       .then((r) => r.data.favourite),
 
+  setSeriesFavourite: (mediaId: string, favourite: boolean) =>
+    api.put<{ favourite: boolean }>(`/media/${mediaId}/series/favorite`, { favourite }).then((r) => {
+      invalidateFavouritesCache()
+      return r.data.favourite
+    }),
+
   listFavourites,
 
   listPlaylists: () => {

@@ -1,15 +1,22 @@
+import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { ArrowLeft, Database, Film, FolderInput, Pencil, Play, Sparkles, Trash2 } from 'lucide-react'
+import { ArrowLeft, Play } from 'lucide-react'
+import toast from 'react-hot-toast'
 
-import { imageURL } from '../api/client'
-import { ExternalPlayerButton } from '../components/ExternalPlayerButton'
+import { mediaAPI } from '../api/library'
+import { playbackAPI } from '../api/playback'
 import type { Media } from '../types'
+import type { HistoryItem } from '../types/history'
 import { seriesTitle, type SeriesCard } from '../utils/groupSeries'
+import { MediaDetailBackdrop, MediaDetailPoster } from './MediaDetailArtwork'
+import { MediaDetailMetadata } from './MediaDetailMetadata'
+import { MediaDetailAdminMenu } from './MediaDetailAdminPanel'
+import { seriesResumeEpisode } from './seriesDetailModel'
 
 type LibrarySeriesDetailHeaderProps = {
   series: SeriesCard
-  visibleEpisodes: Media[]
   allEpisodes: Media[]
+  history: HistoryItem[]
   playbackFrom: string
   isAdmin: boolean
   seriesToolBusy: string
@@ -21,103 +28,63 @@ type LibrarySeriesDetailHeaderProps = {
   onSoftDelete: () => void
 }
 
-export function LibrarySeriesDetailHeader({
-  series,
-  visibleEpisodes,
-  allEpisodes,
-  playbackFrom,
-  isAdmin,
-  seriesToolBusy,
-  onBack,
-  onSmartScrape,
-  onMetadataEdit,
-  onProbe,
-  onOrganize,
-  onSoftDelete,
-}: LibrarySeriesDetailHeaderProps) {
-  const firstEpisode = firstPlayableEpisode(visibleEpisodes.length > 0 ? visibleEpisodes : allEpisodes)
+export function LibrarySeriesDetailHeader({ series, allEpisodes, history, playbackFrom, isAdmin, seriesToolBusy, onBack, onSmartScrape, onMetadataEdit, onProbe, onOrganize, onSoftDelete }: LibrarySeriesDetailHeaderProps) {
+  const [data, setData] = useState<{ series: Media; favourite: boolean } | null>(null)
+  const [failed, setFailed] = useState(false)
+  const [revision, setRevision] = useState(0)
+  const favouritePending = useRef(false)
+  useEffect(() => {
+    let cancelled = false
+    setData(null)
+    setFailed(false)
+    mediaAPI.series(series.rep.id)
+      .then((result) => { if (!cancelled) setData(result) })
+      .catch(() => { if (!cancelled) setFailed(true) })
+    return () => { cancelled = true }
+  }, [series.rep.id, revision])
+
+  const toggleFavourite = async () => {
+    if (!data || favouritePending.current) return
+    favouritePending.current = true
+    try {
+      const favourite = await playbackAPI.setSeriesFavourite(series.rep.id, !data.favourite)
+      setData((current) => current ? { ...current, favourite } : current)
+      toast.success(favourite ? '已收藏整剧' : '已取消整剧收藏')
+    } catch { toast.error('整剧收藏操作失败') }
+    finally { favouritePending.current = false }
+  }
+  const resume = seriesResumeEpisode(allEpisodes, history)
+  const resumeHistory = history.find((row) => row.metadata_id === resume?.metadata_id)
+  const continuing = resumeHistory && !resumeHistory.completed && resumeHistory.position_ms >= 20_000
+  const resumeFrom = () => {
+    const url = new URL(playbackFrom, window.location.origin)
+    if (resume) {
+      url.searchParams.set('season', String(resume.season_num))
+      url.searchParams.set('episode', resume.metadata_id || resume.id)
+      url.searchParams.set('version', resume.id)
+    }
+    return url.pathname + url.search
+  }
 
   return (
-    <>
-      <div className="flex items-center gap-4">
-        <button onClick={onBack} className="btn-ghost gap-2">
-          <ArrowLeft size={16} />
-          返回列表
-        </button>
-        <h2 className="truncate font-display text-2xl font-bold text-ink-600">
-          {seriesTitle(series.rep)}
-        </h2>
-        <span className="text-sm text-sand-500">共 {series.count} 集</span>
-      </div>
-
-      <div className="flex flex-col gap-6 sm:flex-row">
-        <div className="w-40 shrink-0 overflow-hidden rounded-xl bg-sand-200 shadow-card">
-          {series.rep.poster_url ? (
-            <img
-              src={imageURL(series.rep.poster_url, series.rep.updated_at)}
-              alt={seriesTitle(series.rep)}
-              className="aspect-[2/3] w-full object-cover"
-              referrerPolicy="no-referrer"
-            />
-          ) : (
-            <div className="flex aspect-[2/3] items-center justify-center text-gray-500">
-              <Film size={40} />
+    <div className="relative isolate rounded-3xl border border-[var(--app-border)] bg-[var(--app-panel)]">
+      <div className="pointer-events-none absolute inset-0 -z-10 overflow-hidden rounded-3xl">{data && <MediaDetailBackdrop media={data.series} />}</div>
+      <div className="p-5 sm:p-8">
+        <button type="button" onClick={onBack} className="btn-ghost gap-2"><ArrowLeft size={16} />返回媒体库</button>
+        <div className="mt-8 flex flex-col gap-8 md:flex-row lg:gap-12">
+          {data && <div className="mx-auto w-48 shrink-0 md:mx-0 lg:w-64"><MediaDetailPoster media={data.series} playable={false} /></div>}
+          <div className="min-w-0 flex-1 space-y-6">
+            {data ? <MediaDetailMetadata media={data.series} scope="series" isAdmin={isAdmin} favourite={data.favourite} onToggleFavourite={toggleFavourite} onMetadataEdit={onMetadataEdit} /> : (
+              <><h1 className="font-display text-3xl font-bold text-[var(--app-text)]">{seriesTitle(series.rep)}</h1><p role="status" className="text-sm text-[var(--app-muted)]">{failed ? '整剧信息暂不可用，仍可在下方选集。' : '正在加载整剧信息…'}</p>{failed && <button className="btn-outline" onClick={() => setRevision((value) => value + 1)}>重试整剧信息</button>}</>
+            )}
+            <p className="text-sm text-[var(--app-muted)]">共 {series.count} 集 · 在下方切季选集</p>
+            <div className="flex flex-wrap items-center gap-3">
+              {resume && <Link to={`/play/${resume.id}`} state={{ from: resumeFrom() }} className="btn-primary"><Play size={16} fill="currentColor" />{continuing ? '继续观看' : '播放'} · S{resume.season_num} E{resume.episode_num}</Link>}
+              {isAdmin && allEpisodes.length > 0 && <MediaDetailAdminMenu label="整剧更多操作" refreshLabel="整剧智能刮削" disabled={!!seriesToolBusy} onTMDbRefresh={onSmartScrape} tmdbRefreshPending={seriesToolBusy === 'scrape'} doubanEnrichmentPending={false} doubanDegraded={false} onMetadataEdit={onMetadataEdit} onOrganize={onOrganize} onProbe={onProbe} onSoftDelete={onSoftDelete} />}
             </div>
-          )}
-        </div>
-        <div className="flex-1 space-y-3">
-          <p className="text-sm leading-relaxed text-ink-50">
-            {series.rep.overview || '暂无简介'}
-          </p>
-
-          {firstEpisode && (
-            <div className="flex flex-wrap gap-2">
-              <Link to={`/play/${firstEpisode.id}`} state={{ from: playbackFrom }} className="btn-primary inline-flex">
-                <Play size={16} fill="currentColor" />
-                从第一集开始播放
-              </Link>
-              <ExternalPlayerButton mediaId={firstEpisode.id} label="外部播放器播放" />
-            </div>
-          )}
-
-          {isAdmin && allEpisodes.length > 0 && (
-            <div className="rounded-2xl border border-sand-200 bg-white/80 p-4 shadow-sm">
-              <p className="mb-3 text-[10px] font-bold uppercase tracking-[0.2em] text-[#c9954a]">系统后台高级控制面板</p>
-              <div className="flex flex-wrap gap-2">
-                <button onClick={onSmartScrape} disabled={!!seriesToolBusy} className="btn-outline px-3.5 py-2 text-xs gap-1.5">
-                  <Sparkles size={13} className="text-[#c9954a]" />
-                  <span>{seriesToolBusy === 'scrape' ? '刮削中…' : '整剧智能刮削'}</span>
-                </button>
-                <button onClick={onMetadataEdit} disabled={!!seriesToolBusy} className="btn-outline px-3.5 py-2 text-xs gap-1.5">
-                  <Pencil size={13} />
-                  <span>编辑元数据</span>
-                </button>
-                <button onClick={onProbe} disabled={!!seriesToolBusy} title="强制重新探测并覆盖整剧已有媒体轨道" className="btn-outline px-3.5 py-2 text-xs gap-1.5">
-                  <Database size={13} />
-                  <span>{seriesToolBusy === 'probe' ? '探测中…' : '整剧强制探测'}</span>
-                </button>
-                <button onClick={onOrganize} disabled={!!seriesToolBusy} className="btn-outline px-3.5 py-2 text-xs gap-1.5">
-                  <FolderInput size={13} />
-                  <span>{seriesToolBusy === 'organize' ? '整理中…' : '整理当前合集'}</span>
-                </button>
-                <button onClick={onSoftDelete} disabled={!!seriesToolBusy} className="btn-outline px-3.5 py-2 text-xs gap-1.5 !border-red-100 !text-red-500 hover:!border-red-200 hover:!bg-red-50">
-                  <Trash2 size={13} />
-                  <span>{seriesToolBusy === 'delete' ? '处理中…' : '永久删除'}</span>
-                </button>
-              </div>
-            </div>
-          )}
+          </div>
         </div>
       </div>
-    </>
+    </div>
   )
-}
-
-function firstPlayableEpisode(episodes: Media[]): Media | null {
-  const sorted = [...episodes]
-  sorted.sort((a, b) =>
-    (a.season_num || 0) - (b.season_num || 0)
-    || (a.episode_num || 0) - (b.episode_num || 0),
-  )
-  return sorted[0] ?? null
 }

@@ -80,8 +80,8 @@ export function MetadataEditDialog({
 
   if (!open || !media) return null
 
-  const targetIds = Array.from(new Set((mediaIds && mediaIds.length > 0 ? mediaIds : [media.id]).filter(Boolean)))
-  const isSeries = mode === 'series' && targetIds.length > 1
+  const isSeries = mode === 'series'
+  const targetIds = Array.from(new Set((!isSeries && mediaIds && mediaIds.length > 0 ? mediaIds : [media.id]).filter(Boolean)))
   const searchTitle = form.title.trim()
   const encodedSearchTitle = encodeURIComponent(searchTitle)
 
@@ -96,6 +96,7 @@ export function MetadataEditDialog({
   }
   const buildPayload = (): MediaMetadataUpdate => {
     const payload: MediaMetadataUpdate = {
+      scope: isSeries ? 'series' : undefined,
       title: form.title,
       overview: form.overview,
       year: Math.trunc(toNumber(form.year)),
@@ -131,7 +132,7 @@ export function MetadataEditDialog({
         if (!next || id === media.id) next = updated
       }
       if (!next) next = await mediaAPI.updateMetadata(media.id, payload)
-      toast.success(isSeries ? `整剧元数据已保存：${targetIds.length} 集` : '元数据已保存')
+      toast.success(isSeries ? '整剧元数据已保存，分集信息保持不变' : '元数据已保存')
       await onSaved(next)
       onClose()
     } catch (err: unknown) {

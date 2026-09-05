@@ -7,17 +7,17 @@ import { mediaAPI } from '../api/library'
 import type { MediaCredit } from '../types'
 
 // MediaDetailCast 详情页演职员横滚：圆形头像 + 名字 + 角色，演员在前主创在后。
-export function MediaDetailCast({ mediaId }: { mediaId: string }) {
+export function MediaDetailCast({ mediaId, scope }: { mediaId: string; scope?: 'series' }) {
   const [credits, setCredits] = useState<MediaCredit[] | null>(null)
 
   useEffect(() => {
     let cancelled = false
     setCredits(null)
-    mediaAPI.listCredits(mediaId)
+    mediaAPI.listCredits(mediaId, scope)
       .then((items) => { if (!cancelled) setCredits(items) })
       .catch(() => { if (!cancelled) setCredits([]) })
     return () => { cancelled = true }
-  }, [mediaId])
+  }, [mediaId, scope])
 
   if (!credits || credits.length === 0) return null
 

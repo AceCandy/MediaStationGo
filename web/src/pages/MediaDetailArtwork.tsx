@@ -55,7 +55,7 @@ export function MediaDetailBackdrop({ media }: MediaDetailArtworkProps) {
   )
 }
 
-export function MediaDetailPoster({ media }: MediaDetailArtworkProps) {
+export function MediaDetailPoster({ media, playable = true }: MediaDetailArtworkProps & { playable?: boolean }) {
   const posterSrc = media.poster_url ? imageURL(media.poster_url, media.updated_at) : ''
   const ambient = useDominantColor(posterSrc || null)
 
@@ -92,7 +92,7 @@ export function MediaDetailPoster({ media }: MediaDetailArtworkProps) {
             </div>
           )}
 
-          <Link
+          {playable && <Link
             to={`/play/${media.id}`}
             className="absolute inset-0 flex items-center justify-center bg-black/45 opacity-0 backdrop-blur-[2px] transition-opacity duration-300 group-hover:opacity-100"
           >
@@ -100,7 +100,7 @@ export function MediaDetailPoster({ media }: MediaDetailArtworkProps) {
               style={{ background: 'linear-gradient(135deg, #8b5cf6 0%, #7c3aed 60%, #6d28d9 100%)' }}>
               <Play size={26} fill="currentColor" />
             </div>
-          </Link>
+          </Link>}
         </div>
       </motion.div>
     </div>

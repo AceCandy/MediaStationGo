@@ -18,6 +18,34 @@ type SeriesCard struct {
 	Count     int         `json:"count"`
 }
 
+// GetMediaSeriesVisible 从可见文件定位整剧，复用 canonical 展示投影而非分集信息。
+func (s *MediaService) GetMediaSeriesVisible(ctx context.Context, mediaID string, visibility MediaVisibility) (*model.MediaView, error) {
+	media, err := s.repo.MediaView.FindByID(ctx, mediaID)
+	if err != nil || media == nil || !visibility.AllowsView(media) || media.SeriesID == "" {
+		return nil, err
+	}
+	rows, err := s.repo.MediaView.FindMetadataSearchRepresentatives(ctx, []string{media.SeriesID}, repository.MediaQueryFilter{
+		IncludeNSFW:       visibility.IncludeNSFW,
+		AllowedLibraryIDs: []string{media.LibraryID},
+		HiddenLibraryIDs:  visibility.HiddenLibraryIDs,
+	})
+	if err != nil || len(rows) == 0 {
+		return nil, err
+	}
+	series := rows[0]
+	if series.MetadataKind != model.MetadataKindSeries {
+		return nil, nil
+	}
+	// 整剧不是可播放文件，不暴露代表集的技术和路径信息。
+	series.Media = model.Media{PermanentBase: model.PermanentBase{ID: series.MetadataID}, MetadataID: series.MetadataID}
+	series.SeasonNum, series.EpisodeNum = 0, 0
+	series.SeasonID = ""
+	if err := s.attachMediaProviderDetails(ctx, &series); err != nil {
+		return nil, err
+	}
+	return &series, nil
+}
+
 type seriesCardGroup struct {
 	card       SeriesCard
 	latest     time.Time
