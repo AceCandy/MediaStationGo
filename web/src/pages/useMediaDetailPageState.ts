@@ -12,6 +12,7 @@ import { mediaLibraryBackTarget } from './MediaDetailPageModel'
 interface MediaDetailPageStateParams {
   id: string
   navigate: NavigateFunction
+  backTarget: string
 }
 
 interface MediaDetailRefreshParams {
@@ -24,13 +25,14 @@ interface MediaDetailRefreshParams {
 interface MediaDetailActionsParams {
   media: Media | null
   navigate: NavigateFunction
+  backTarget: string
   refresh: MediaDetailRefresh
   setFavourite: Dispatch<SetStateAction<boolean>>
 }
 
 type MediaDetailRefresh = () => Promise<Media | null>
 
-export function useMediaDetailPageState({ id, navigate }: MediaDetailPageStateParams) {
+export function useMediaDetailPageState({ id, navigate, backTarget }: MediaDetailPageStateParams) {
   const [media, setMedia] = useState<Media | null>(null)
   const [versions, setVersions] = useState<Media[]>([])
   const [selectedVersionID, setSelectedVersionID] = useState(id)
@@ -49,6 +51,7 @@ export function useMediaDetailPageState({ id, navigate }: MediaDetailPageStatePa
   const actions = useMediaDetailActions({
     media,
     navigate,
+    backTarget,
     refresh,
     setFavourite,
   })
@@ -196,12 +199,13 @@ function useMediaDetailRefresh({
 function useMediaDetailActions({
   media,
   navigate,
+  backTarget,
   refresh,
   setFavourite,
 }: MediaDetailActionsParams) {
   const doubanEnrichmentPendingRef = useRef(false)
   const [doubanEnrichmentPending, setDoubanEnrichmentPending] = useState(false)
-  const goBack = useCallback(() => goBackFromMediaDetail(media, navigate), [media, navigate])
+  const goBack = useCallback(() => goBackFromMediaDetail(media, navigate, backTarget), [backTarget, media, navigate])
   const toggleFavourite = useCallback(
     () => toggleMediaFavourite(media, setFavourite),
     [media, setFavourite],
@@ -230,15 +234,15 @@ function useMediaDetailActions({
     }
   }, [media, refresh])
   const softDelete = useCallback(
-    () => softDeleteMedia(media, navigate),
-    [media, navigate],
+    () => softDeleteMedia(media, navigate, backTarget),
+    [backTarget, media, navigate],
   )
   return { goBack, toggleFavourite, rescrape, enrichDouban, doubanEnrichmentPending, reprobe, softDelete }
 }
 
-function goBackFromMediaDetail(media: Media | null, navigate: NavigateFunction, replace = false): void {
+function goBackFromMediaDetail(media: Media | null, navigate: NavigateFunction, preferredTarget = '', replace = false): void {
   if (!media) return
-  const backTarget = mediaLibraryBackTarget(media)
+  const backTarget = preferredTarget || mediaLibraryBackTarget(media)
   if (backTarget) navigate(backTarget, replace ? { replace: true } : undefined)
   else navigate(-1)
 }
@@ -284,7 +288,7 @@ async function reprobeMedia(media: Media | null, refresh: MediaDetailRefresh): P
   }
 }
 
-async function softDeleteMedia(media: Media | null, navigate: NavigateFunction): Promise<void> {
+async function softDeleteMedia(media: Media | null, navigate: NavigateFunction, backTarget: string): Promise<void> {
   if (!media) return
   const confirmed = await confirmAction({
     title: '永久删除媒体',
@@ -294,7 +298,7 @@ async function softDeleteMedia(media: Media | null, navigate: NavigateFunction):
   if (!confirmed) return
   await mediaAPI.delete(media.id)
   toast.success('已永久删除')
-  goBackFromMediaDetail(media, navigate, true)
+  goBackFromMediaDetail(media, navigate, backTarget, true)
 }
 
 function apiErrorMessage(err: unknown, fallback: string): string {

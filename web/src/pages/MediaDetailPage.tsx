@@ -1,4 +1,4 @@
-import { useNavigate, useParams } from 'react-router-dom'
+import { useLocation, useNavigate, useParams } from 'react-router-dom'
 
 import { useAuthStore } from '../stores/auth'
 import { MediaDetailBackdrop } from './MediaDetailArtwork'
@@ -14,8 +14,11 @@ import { useMediaDetailPageState } from './useMediaDetailPageState'
 export function MediaDetailPage() {
   const { id = '' } = useParams()
   const navigate = useNavigate()
+  const location = useLocation()
   const user = useAuthStore((s) => s.user)
-  const detail = useMediaDetailPageState({ id, navigate })
+  const state = location.state as { from?: unknown } | null
+  const backTarget = typeof state?.from === 'string' && state.from.startsWith('/library/') ? state.from : ''
+  const detail = useMediaDetailPageState({ id, navigate, backTarget })
 
   if (detail.loading) return <MediaDetailLoading />
   if (!detail.media) return <MediaDetailMissing />

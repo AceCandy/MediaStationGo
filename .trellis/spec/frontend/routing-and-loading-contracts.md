@@ -56,6 +56,10 @@ reusing administrator navigation or route access.
 Viewer composition state is URL owned:
 
 - Libraries: `view=library|poster`, default `library`.
+- Library detail filters: `missing_poster=1` and `missing_chinese_title=1`; an
+  absent flag means the filter is disabled. Media detail links opened from
+  this list carry the complete library URL as router state so “返回媒体库”
+  restores these filters.
 - Me: `tab=favourites|playlists|history`, default `favourites`.
 - Search: `mode=ai` when both permission and provider state allow it; otherwise
   ordinary search.

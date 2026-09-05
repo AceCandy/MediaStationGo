@@ -7,13 +7,14 @@ import type { Media } from '../types'
 import { mediaDetailLink } from '../utils/groupSeries'
 
 export const MediaCard = ({
-  media, progress, count, rating, linkTo, onClick, favourite, onToggleFavourite, staggerIndex,
+  media, progress, count, rating, linkTo, linkState, onClick, favourite, onToggleFavourite, staggerIndex,
 }: {
   media: Media
   progress?: number
   count?: number
   rating?: number
   linkTo?: string
+  linkState?: { from: string }
   onClick?: () => void
   // 收藏角标：传入 onToggleFavourite 才渲染，favourite 控制红心跳常显
   favourite?: boolean
@@ -207,7 +208,7 @@ export const MediaCard = ({
   if (favouriteButton) {
     return (
       <div className="group relative block">
-        <Link to={href} className="block">
+        <Link to={href} state={linkState} className="block">
           {card}
         </Link>
         {favouriteButton}
@@ -216,7 +217,7 @@ export const MediaCard = ({
   }
 
   return (
-    <Link to={href} className="group block">
+    <Link to={href} state={linkState} className="group block">
         {card}
     </Link>
   )

@@ -22,8 +22,15 @@ export function LibraryPage() {
   const role = useAuthStore((s) => s.user?.role)
 
   const [seriesMetadataEditOpen, setSeriesMetadataEditOpen] = useState(false)
-  const [missingPoster, setMissingPoster] = useState(false)
-  const [missingChineseTitle, setMissingChineseTitle] = useState(false)
+  const missingPoster = searchParams.get('missing_poster') === '1'
+  const missingChineseTitle = searchParams.get('missing_chinese_title') === '1'
+
+  const setFilter = (key: 'missing_poster' | 'missing_chinese_title', enabled: boolean) => {
+    const next = new URLSearchParams(searchParams)
+    if (enabled) next.set(key, '1')
+    else next.delete(key)
+    setSearchParams(next)
+  }
 
   // 网格卡片收藏：整页拉一次收藏列表（API 层有 5s 缓存），本地维护 id 集合
   const [favouriteIds, setFavouriteIds] = useState<ReadonlySet<string>>(() => new Set())
@@ -147,8 +154,8 @@ export function LibraryPage() {
         isAdmin={role === 'admin'}
         missingPoster={missingPoster}
         missingChineseTitle={missingChineseTitle}
-        onMissingPosterChange={setMissingPoster}
-        onMissingChineseTitleChange={setMissingChineseTitle}
+        onMissingPosterChange={(enabled) => setFilter('missing_poster', enabled)}
+        onMissingChineseTitleChange={(enabled) => setFilter('missing_chinese_title', enabled)}
       />
 
       <LibraryMediaSections
@@ -158,6 +165,7 @@ export function LibraryPage() {
         selectedSeries={selectedSeries}
         loading={loading}
         filtered={missingPoster || missingChineseTitle}
+        detailFrom={`${location.pathname}${location.search}`}
         favouriteIds={favouriteIds}
         onToggleFavourite={handleToggleFavourite}
         onSeriesClick={handleSeriesClick}

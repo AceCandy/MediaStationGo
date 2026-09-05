@@ -11,6 +11,7 @@ type LibraryMediaSectionsProps = {
   selectedSeries: SeriesCard | null
   loading: boolean
   filtered: boolean
+  detailFrom: string
   favouriteIds: ReadonlySet<string>
   onToggleFavourite: (media: Media) => void
   onSeriesClick: (series: SeriesCard) => void
@@ -26,6 +27,7 @@ export function LibraryMediaSections({
   selectedSeries,
   loading,
   filtered,
+  detailFrom,
   favouriteIds,
   onToggleFavourite,
   onSeriesClick,
@@ -40,6 +42,7 @@ export function LibraryMediaSections({
               media={media}
               favourite={favouriteIds.has(media.id)}
               onToggleFavourite={() => onToggleFavourite(media)}
+              linkState={{ from: detailFrom }}
               staggerIndex={index}
             />
           ))}
