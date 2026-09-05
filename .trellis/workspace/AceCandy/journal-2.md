@@ -71,3 +71,25 @@ Refined media library cover cards and management dialog: 16:9 hover overlays, de
 ### Status
 
 [OK] **Completed**
+
+
+## Session 95: 详情页显示选中媒体版本信息
+<!-- trellis-session: v=2 fp=4e6c7ee80bebb152 -->
+
+**Date**: 2026-09-05
+**Task**: 详情页显示选中媒体版本信息
+**Branch**: `main`
+
+### Summary
+
+详情页在国家地区与语言下方显示当前选中媒体版本的 Media ID 和本地路径，并在版本切换期间保持信息准确。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `895df25` | feat: show selected media details |
+
+### Status
+
+[OK] **Completed**
