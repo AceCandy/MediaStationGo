@@ -1,15 +1,14 @@
-import type { Media } from '../types'
 import { ModalShell } from './ModalShell'
 import {
   ManualScrapeCandidateList,
   ManualScrapeDialogHeader,
   ManualScrapeSearchControls,
 } from './ManualScrapeDialogSections'
-import { useManualScrapeDialogState } from './useManualScrapeDialogState'
+import { useManualScrapeDialogState, type ManualScrapeTarget } from './useManualScrapeDialogState'
 
 interface ManualScrapeDialogProps {
   open: boolean
-  media: Media | null
+  media: ManualScrapeTarget | null
   mediaIds?: string[]
   defaultQuery?: string
   mediaType?: string

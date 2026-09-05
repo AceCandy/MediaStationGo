@@ -172,6 +172,7 @@ db.Model(&credit).
   path identifies the administrator-visible local media target; errors never
   include a remote URL.
 - Manual apply API: `POST /api/media/:id/scrape/apply` accepts `ManualScrapeRequest`, persists metadata through `ScraperService.ApplyManualMatch`, then returns the refreshed `MediaView` from `MediaService.GetMedia`.
+- Task-center manual recovery target: `MediaScrapeIssue{id, title}` identifies the raw `Media` row used by manual search and apply; opening the dialog does not require `GET /api/media/:id`.
 - Artwork response: `/api/artwork/:assetID`; originals live under `App.DataDir/artwork/sha256/...`.
 - Library deletion: `DELETE /api/libraries/:id` -> `MediaService.DeleteLibrary(ctx, id)`.
 - Scrape entrypoints (`POST /api/media/:id/scrape`, manual apply, scan
@@ -299,6 +300,9 @@ db.Model(&credit).
 - `MediaView` uses an inner join to `metadata_items`; persisted unresolved media
   remains in the raw `media` table but is absent from metadata-backed display
   reads, and scan hints never replace canonical display identity.
+- Pending/error recovery flows must use their raw-media DTO and `Media.ID`
+  directly. They must not prefetch `MediaView`, because the unresolved target is
+  intentionally absent until a successful apply binds canonical metadata.
 - A missing-poster filter selects an item only when its selected poster has no
   valid `ArtworkAsset`. A missing-Chinese-title filter evaluates the final
   displayed title and selects it only when that title contains no Han character.
@@ -358,6 +362,7 @@ db.Model(&credit).
 | Episode has no Season parent, nonzero season position, or non-positive episode | Repository validation error and database CHECK rejection |
 | Movie/Series has a parent or season/episode identity | Repository validation error and database CHECK rejection |
 | Pending media has no metadata ID | Store SQL `NULL`; keep it out of `MediaView` until enrichment binds metadata |
+| Task-center manual recovery targets unresolved media | Open from `MediaScrapeIssue.id/title`; do not require a metadata-backed detail read |
 | Web PlaybackInfo targets a visible pending media | Return raw file identity plus probe technical fields; do not add it to normal MediaView lists |
 | Duplicate report has no probe summary | Return `size_bytes=0`; do not serialize legacy technical fields or the complete Media model |
 | Media has a non-null unknown metadata ID | Database foreign-key rejection |
@@ -419,6 +424,10 @@ db.Model(&credit).
 - Base: an unresolved file has `metadata_id = NULL` and remains absent from
   `MediaView` until provider or eligible local persistence binds canonical
   metadata.
+- Good: task-center manual recovery opens from the issue DTO, then search and
+  apply submit its real `Media.ID`.
+- Bad: opening manual recovery calls `GET /api/media/:id` first and fails before
+  the user can select a provider match.
 - Good: Web PlaybackInfo can still return a stream URL for that unresolved file,
   while its duration, size, container, dimensions, and codecs come only from probe.
 - Bad: change the global metadata join to `LEFT JOIN` to fix Web PlaybackInfo,
@@ -568,6 +577,8 @@ db.Model(&credit).
   extended-details request and retain the same fields.
 - Scrape provider boundary: assert regular enrichment, `provider=all` manual search, and non-adult organize make zero adult-provider requests; retain positive coverage for explicit adult manual search and adult organize.
 - Manual apply API: assert the response contains the newly persisted shared title while the media path and library ID remain unchanged.
+- Task-center manual recovery: assert an unresolved issue opens without a media
+  detail request and both search and apply submit the issue's `Media.ID`.
 - Artwork: delete/ignore cache and remote source after import; `/api/artwork/:assetID` must still serve the DataDir copy.
 - Sidecars: snapshot NFO/poster/fanart/thumb before scan/scrape/organize and assert content and paths are unchanged afterward.
 - Media files: snapshot playable paths before every scrape entrypoint and assert file existence, path, library ID and bytes are unchanged afterward.
@@ -608,6 +619,17 @@ Web PlaybackInfo is the narrow exception: fall back in that handler to raw file
 identity and probe summary. Do not weaken the shared join or return raw technical
 columns. Duplicate reports likewise return a dedicated whitelist DTO rather than
 `model.Media`.
+
+Task-center manual recovery is another explicit raw-media boundary:
+
+```typescript
+// Wrong: unresolved media is intentionally absent from MediaView.
+const media = await mediaAPI.get(issue.id)
+setManualTarget(media)
+
+// Correct: the issue DTO already carries the required raw Media identity.
+setManualTarget(issue)
+```
 
 Emby logical pagination must also happen before version loading:
 

@@ -8,7 +8,7 @@ import { confirmAction } from '../components/confirmAction'
 import { ManualScrapeDialog } from '../components/ManualScrapeDialog'
 import { ModalShell } from '../components/ModalShell'
 import { Select } from '../components/Select'
-import type { Library, Media } from '../types'
+import type { Library } from '../types'
 import { isSeriesLibraryType } from './librariesPageModel'
 
 const scrapeLibraryTypes = new Set(['movie', 'tv', 'anime', 'variety', 'show', 'shows', 'nfo_movie', 'nfo_tv'])
@@ -397,8 +397,7 @@ function ScrapeIssuesPanel({ libraries }: { libraries: Library[] }) {
   const [loadError, setLoadError] = useState(false)
   const [refreshVersion, setRefreshVersion] = useState(0)
   const [retrying, setRetrying] = useState('')
-  const [openingManual, setOpeningManual] = useState('')
-  const [manualTarget, setManualTarget] = useState<{ media: Media; mediaType: string } | null>(null)
+  const [manualTarget, setManualTarget] = useState<MediaScrapeIssue | null>(null)
   const pageSize = 20
 
   useEffect(() => {
@@ -431,18 +430,6 @@ function ScrapeIssuesPanel({ libraries }: { libraries: Library[] }) {
       toast.error('重新刮削触发失败')
     } finally {
       setRetrying('')
-    }
-  }
-  const openManualMatch = async (issue: MediaScrapeIssue) => {
-    setOpeningManual(issue.id)
-    try {
-      const media = await mediaAPI.get(issue.id)
-      const mediaType = isSeriesLibraryType(issue.library_type) ? 'tv' : 'movie'
-      setManualTarget({ media, mediaType })
-    } catch {
-      toast.error('媒体信息加载失败')
-    } finally {
-      setOpeningManual('')
     }
   }
   const pageCount = Math.max(1, Math.ceil(total / pageSize))
@@ -495,8 +482,8 @@ function ScrapeIssuesPanel({ libraries }: { libraries: Library[] }) {
                     </div>
                     <div className="flex shrink-0 flex-wrap items-center gap-2">
                       {!nfoOnly && (
-                        <button type="button" className="btn-outline px-3 py-2 text-xs" disabled={Boolean(openingManual)} onClick={() => void openManualMatch(issue)}>
-                          <Search size={14} /> {openingManual === issue.id ? '加载中...' : '手动匹配'}
+                        <button type="button" className="btn-outline px-3 py-2 text-xs" onClick={() => setManualTarget(issue)}>
+                          <Search size={14} /> 手动匹配
                         </button>
                       )}
                       <button type="button" className="btn-outline px-3 py-2 text-xs" disabled={Boolean(retrying)} onClick={() => void retry(issue)}>
@@ -519,9 +506,9 @@ function ScrapeIssuesPanel({ libraries }: { libraries: Library[] }) {
       )}
       <ManualScrapeDialog
         open={Boolean(manualTarget)}
-        media={manualTarget?.media ?? null}
-        defaultQuery={manualTarget?.media.title}
-        mediaType={manualTarget?.mediaType}
+        media={manualTarget}
+        defaultQuery={manualTarget?.title}
+        mediaType={manualTarget && isSeriesLibraryType(manualTarget.library_type) ? 'tv' : 'movie'}
         onClose={() => setManualTarget(null)}
         onApplied={() => { setManualTarget(null); refreshIssues() }}
       />

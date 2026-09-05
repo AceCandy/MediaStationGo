@@ -9,9 +9,11 @@ import {
   mergeManualCandidates,
 } from './ManualScrapeDialogModel'
 
+export type ManualScrapeTarget = Pick<Media, 'id' | 'title'>
+
 interface ManualScrapeDialogStateOptions {
   open: boolean
-  media: Media | null
+  media: ManualScrapeTarget | null
   mediaIds?: string[]
   defaultQuery?: string
   mediaType?: string
@@ -20,7 +22,7 @@ interface ManualScrapeDialogStateOptions {
 }
 
 interface SearchManualScrapeParams {
-  media: Media | null
+  media: ManualScrapeTarget | null
   mediaType?: string
   query: string
   selectedProviders: string[]
@@ -39,7 +41,7 @@ interface ManualScrapeDialogResetParams {
 }
 
 interface ApplyManualScrapeActionParams {
-  media: Media | null
+  media: ManualScrapeTarget | null
   targetIds: string[]
   setApplyingKey: Dispatch<SetStateAction<string>>
   onClose: () => void
@@ -167,7 +169,7 @@ function useManualScrapeApplyAction({
   }), [media, onApplied, onClose, setApplyingKey, targetIds])
 }
 
-function manualScrapeTargetIds(media: Media | null, mediaIds?: string[]): string[] {
+function manualScrapeTargetIds(media: ManualScrapeTarget | null, mediaIds?: string[]): string[] {
   const ids = (mediaIds && mediaIds.length > 0 ? mediaIds : media ? [media.id] : []).filter(Boolean)
   return Array.from(new Set(ids))
 }
