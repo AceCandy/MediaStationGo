@@ -130,7 +130,12 @@ export function MediaDetailMainContent({
 
         {/* 右列：元信息 → 播放操作（管理操作收敛进「更多操作」） */}
         <div className="min-w-0 flex-1 space-y-7">
-          <MediaDetailMetadata media={media} favourite={favourite} onToggleFavourite={onToggleFavourite} />
+          <MediaDetailMetadata
+            media={media}
+            selectedMedia={displayMedia ?? versions.find((version) => version.id === selectedVersionID) ?? media}
+            favourite={favourite}
+            onToggleFavourite={onToggleFavourite}
+          />
           <div className="divider border-gray-200/60" />
           <div className="flex flex-wrap items-center gap-3">
             <MediaDetailPlaybackActions

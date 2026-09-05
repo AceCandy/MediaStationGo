@@ -5,6 +5,7 @@ import type { Media } from '../types'
 
 type MediaDetailMetadataProps = {
   media: Media
+  selectedMedia: Media
   favourite: boolean
   onToggleFavourite: () => void
 }
@@ -15,7 +16,7 @@ const rise = (delay: number) => ({
   transition: { duration: 0.5, delay, ease: [0.21, 0.47, 0.32, 0.98] as const },
 })
 
-export function MediaDetailMetadata({ media, favourite, onToggleFavourite }: MediaDetailMetadataProps) {
+export function MediaDetailMetadata({ media, selectedMedia, favourite, onToggleFavourite }: MediaDetailMetadataProps) {
   const heading = media.title
   const seriesContext = media.series_title?.trim()
   const tmdbHref = tmdbURL(media)
@@ -128,6 +129,16 @@ export function MediaDetailMetadata({ media, favourite, onToggleFavourite }: Med
         <div className="grid gap-4 sm:grid-cols-2">
           <MetadataTags label="国家/地区" values={localizedCSV(media.countries, 'region')} />
           <MetadataTags label="语言" values={localizedCSV(media.languages, 'language')} />
+        </div>
+        <div className="space-y-3 rounded-2xl border border-[var(--app-border)] bg-[var(--app-panel)]/50 p-4 text-xs">
+          <div className="flex min-w-0 gap-3">
+            <span className="w-16 shrink-0 font-bold uppercase tracking-wider text-[var(--app-muted)]">Media ID</span>
+            <span className="min-w-0 break-all font-mono text-[var(--app-subtle)]">{selectedMedia.id}</span>
+          </div>
+          <div className="flex min-w-0 gap-3">
+            <span className="w-16 shrink-0 font-bold uppercase tracking-wider text-[var(--app-muted)]">本地路径</span>
+            <span className="min-w-0 break-all font-mono text-[var(--app-subtle)]">{selectedMedia.path}</span>
+          </div>
         </div>
       </motion.div>
     </>
