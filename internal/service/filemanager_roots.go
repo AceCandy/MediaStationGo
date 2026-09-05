@@ -69,6 +69,7 @@ func (s *FileManagerService) allowedRoots() (map[string]string, error) {
 	add("anime", s.cfg.Media.AnimeDir)
 	add("downloads", envOrDefault("MEDIASTATION_DOWNLOAD_CONTAINER_DIR", "/downloads"))
 	add("media", envOrDefault("MEDIASTATION_MEDIA_CONTAINER_DIR", "/media"))
+	add("mnt-all", "/mnt/all")
 	if s.repo != nil && s.repo.Setting != nil {
 		addSetting := func(label, key string) {
 			if value, err := s.repo.Setting.Get(context.Background(), key); err == nil {
