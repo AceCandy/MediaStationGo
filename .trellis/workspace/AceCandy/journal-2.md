@@ -247,3 +247,25 @@ Refined media library cover cards and management dialog: 16:9 hover overlays, de
 ### Status
 
 [OK] **Completed**
+
+
+## Session 103: 信任 /mnt/all STRM 删除根目录
+<!-- trellis-session: v=2 fp=f579a7fd6cc5b4e8 -->
+
+**Date**: 2026-09-05
+**Task**: 信任 /mnt/all STRM 删除根目录
+**Branch**: `main`
+
+### Summary
+
+将固定目录 /mnt/all 纳入 FileManager 可信根，保留现有路径、符号链接与普通文件安全校验，并完成后端测试与独立复核。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `087e65a` | fix: trust /mnt/all for STRM deletion |
+
+### Status
+
+[OK] **Completed**
