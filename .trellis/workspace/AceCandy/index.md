@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-2.md`
-- **Total Sessions**: 103
-- **Last Active**: 2026-09-05
+- **Total Sessions**: 104
+- **Last Active**: 2026-09-06
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-2.md` | ~271 | Active |
+| `journal-2.md` | ~304 | Active |
 | `journal-1.md` | ~1981 | Archived |
 <!-- @@@/auto:active-documents -->
 
@@ -30,6 +30,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 104 | 2026-09-06 | 归档自动刮削与剧集详情优化任务 | `d50a091`, `b2e52cb`, `289e010`, `4b7a562` | `main` |
 | 103 | 2026-09-05 | 信任 /mnt/all STRM 删除根目录 | `087e65a` | `main` |
 | 102 | 2026-09-05 | 修复纯数字豆瓣搜索回退 | `6c44adc` | `main` |
 | 101 | 2026-09-05 | 保留媒体列表筛选状态 | `56f371a` | `main` |

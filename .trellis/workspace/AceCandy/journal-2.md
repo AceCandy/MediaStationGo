@@ -269,3 +269,36 @@ Refined media library cover cards and management dialog: 16:9 hover overlays, de
 ### Status
 
 [OK] **Completed**
+
+
+## Session 104: 归档自动刮削与剧集详情优化任务
+<!-- trellis-session: v=2 fp=b4829945ee8ec25c -->
+
+**Date**: 2026-09-06
+**Task**: 归档自动刮削与剧集详情优化任务
+**Branch**: `main`
+
+### Summary
+
+完成并归档明确来源 ID 自动刮削及剧集详情优化任务，保留资料纠正、第 0 季 NFO、人物头像复用与并发请求修复的验证记录。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `d50a091` | fix: 自动刮削仅使用明确来源 ID |
+| `b2e52cb` | feat: 优化剧集详情层级与页内选集 |
+| `289e010` | fix: 完善剧集详情与刮削恢复并复用人物头像 |
+| `4b7a562` | fix: 合并图片并发请求并减少重复失败获取 |
+
+### Testing
+
+- [OK] 定向 PostgreSQL 回归、图片竞态检测、前端 lint/build、展示脚本及 Go 构建通过；历史全套测试失败保留在任务记录中。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 部署后的真实任务重试、播放器行为和长剧刮削耗时仍需线上验证。
