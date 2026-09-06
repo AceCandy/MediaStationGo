@@ -97,11 +97,11 @@ func (e *EmbyService) searchTopLevelItems(ctx context.Context, p ItemsParams) (m
 		}
 	}
 	if len(seriesIDs) > 0 {
-		rows, loadErr := e.repo.MediaView.FindByLogicalMetadataIDs(ctx, seriesIDs, viewFilter)
+		q := seriesScopeQuery(e.applyUserMediaVisibility(ctx, e.repo.DB.WithContext(ctx).Model(&model.Media{}), p.UserID))
+		groups, loadErr := e.seriesSummaries(ctx, q, seriesIDs)
 		if loadErr != nil {
 			return nil, loadErr
 		}
-		groups := e.seriesGroupsFromMedia(preferredMetadataViewsInOrder(rows))
 		for _, item := range e.seriesPayloadsWithFields(ctx, groups, p.UserID, p.Fields) {
 			if id, _ := item["Id"].(string); id != "" {
 				payloadByID[id] = item

@@ -23,6 +23,13 @@ type embySeriesGroup struct {
 	BangumiID   int
 	CreatedAt   time.Time
 	Episodes    []model.MediaView
+	// Summary 保存列表页的可见分集/季计数；详情仍持有完整 Episodes。
+	Summary *embySeriesSummary
+}
+
+type embySeriesSummary struct {
+	EpisodeCount int
+	SeasonCount  int
 }
 
 type embySeasonGroup struct {
@@ -33,6 +40,8 @@ type embySeasonGroup struct {
 	SeasonNum int
 	Series    embySeriesGroup
 	Episodes  []model.MediaView
+	// EpisodeCount 用于不加载文件详情的季列表摘要。
+	EpisodeCount int
 }
 
 func (e *EmbyService) findSeriesGroup(ctx context.Context, id, userID string) (embySeriesGroup, bool, error) {

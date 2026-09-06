@@ -27,7 +27,7 @@ export const MediaCard = ({
   const [posterFit, setPosterFit] = useState<'cover' | 'contain'>('cover')
   const posterSrc = imageURL(media.poster_url, media.updated_at)
   const displayRating = rating ?? media.rating
-  const versionCount = media.versions?.length ?? 0
+  const versionCount = media.version_count ?? media.versions?.length ?? 0
   const entranceDelay = staggerIndex === undefined ? 0 : Math.min(staggerIndex, 14) * 0.035
   // 入场结束后清零 delay，避免拖慢后续 hover 弹簧
   const [motionDelay, setMotionDelay] = useState(entranceDelay)

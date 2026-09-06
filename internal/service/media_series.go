@@ -54,38 +54,62 @@ type seriesCardGroup struct {
 	episodeIDs map[string]struct{}
 }
 
-func (s *MediaService) ListLibrarySeriesCards(ctx context.Context, libraryID string, visibility MediaVisibility) ([]SeriesCard, int64, error) {
-	mediaVisibility := visibility
-	mediaVisibility.MissingPoster = false
-	mediaVisibility.MissingChineseTitle = false
-	rows, _, err := s.listAllMediaVisible(ctx, libraryID, mediaVisibility)
+func (s *MediaService) ListLibrarySeriesCards(ctx context.Context, libraryID string, page, pageSize int, seriesID, key string, visibility MediaVisibility) ([]SeriesCard, int64, error) {
+	page, pageSize = normalizeGroupedMediaPage(page, pageSize)
+	if !visibility.allows(libraryID, false) {
+		return []SeriesCard{}, 0, nil
+	}
+	if seriesID == "" && key != "" {
+		var err error
+		seriesID, err = s.resolveLibrarySeriesKey(ctx, libraryID, key, visibility)
+		if err != nil {
+			return nil, 0, err
+		}
+		if seriesID == "" {
+			return []SeriesCard{}, 0, nil
+		}
+	}
+	filter := repository.MediaQueryFilter{IncludeNSFW: visibility.IncludeNSFW, AllowedLibraryIDs: visibility.AllowedLibraryIDs, HiddenLibraryIDs: visibility.HiddenLibraryIDs, MissingPoster: visibility.MissingPoster, MissingChineseTitle: visibility.MissingChineseTitle}
+	rows, summaries, total, err := s.repo.MediaView.ListLibraryMetadataPage(ctx, libraryID, model.MetadataKindSeries, seriesID, (page-1)*pageSize, pageSize, filter)
 	if err != nil {
 		return nil, 0, err
 	}
-	cards := groupMediaSeriesCards(mediaViewsAsMedia(rows))
+	s.attachLibraryMetadataViews(ctx, rows)
+	byID := make(map[string]model.Media, len(rows))
+	for _, row := range mediaViewsAsMedia(rows) {
+		byID[row.ID] = row
+	}
+	cards := make([]SeriesCard, 0, len(summaries))
+	for _, summary := range summaries {
+		if row, ok := byID[summary.MediaID]; ok {
+			row.SeriesID = summary.MetadataID
+			cards = append(cards, SeriesCard{Key: "metadata:" + summary.MetadataID, Rep: row, LinkMedia: row, Count: summary.Count})
+		}
+	}
 	if err := s.attachSeriesCardPresentations(ctx, cards, visibility); err != nil {
 		return nil, 0, err
 	}
-	cards = filterLibrarySeriesCards(cards, visibility)
-	return cards, int64(len(cards)), nil
+	if key != "" && len(cards) == 1 {
+		cards[0].Key = key
+	}
+	return cards, total, nil
 }
 
-func filterLibrarySeriesCards(cards []SeriesCard, visibility MediaVisibility) []SeriesCard {
-	if !visibility.MissingPoster && !visibility.MissingChineseTitle {
-		return cards
+// resolveLibrarySeriesKey 接受 canonical ID；旧哈希链接只扫描作品 ID，不读取分集。
+func (s *MediaService) resolveLibrarySeriesKey(ctx context.Context, libraryID, key string, visibility MediaVisibility) (string, error) {
+	if strings.HasPrefix(key, "metadata:") {
+		return strings.TrimPrefix(key, "metadata:"), nil
 	}
-	filtered := cards[:0]
-	for _, card := range cards {
-		if visibility.MissingPoster && strings.TrimSpace(card.Rep.PosterURL) != "" {
-			continue
-		}
-		title := firstNonEmpty(card.Rep.SeriesTitle, card.Rep.Title, card.Rep.OriginalName)
-		if visibility.MissingChineseTitle && containsCJK(title) {
-			continue
-		}
-		filtered = append(filtered, card)
+	ids, err := s.repo.MediaView.LibrarySeriesMetadataIDs(ctx, libraryID, repository.MediaQueryFilter{IncludeNSFW: visibility.IncludeNSFW, AllowedLibraryIDs: visibility.AllowedLibraryIDs, HiddenLibraryIDs: visibility.HiddenLibraryIDs})
+	if err != nil {
+		return "", err
 	}
-	return filtered
+	for _, id := range ids {
+		if key == compactSeriesKey("series:"+id) || key == compactSeriesKey("metadata:"+id) {
+			return id, nil
+		}
+	}
+	return "", nil
 }
 
 func seriesCardMetadataID(card SeriesCard) string {
@@ -161,49 +185,22 @@ func (s *MediaService) attachSeriesCardPresentations(ctx context.Context, cards 
 }
 
 func (s *MediaService) ListLibrarySeriesEpisodes(ctx context.Context, libraryID, key string, visibility MediaVisibility) ([]model.MediaView, error) {
-	rows, _, err := s.listAllMediaVisible(ctx, libraryID, visibility)
+	if !visibility.allows(libraryID, false) {
+		return []model.MediaView{}, nil
+	}
+	id, err := s.resolveLibrarySeriesKey(ctx, libraryID, key, visibility)
 	if err != nil {
 		return nil, err
 	}
-	out := make([]model.MediaView, 0)
-	groupingRows := mediaViewsAsMedia(rows)
-	resolver := newMediaSeriesKeyResolver(groupingRows)
-	for i, row := range rows {
-		if resolver.key(groupingRows[i]) == key {
-			out = append(out, row)
-		}
+	if id == "" {
+		return []model.MediaView{}, nil
 	}
-	sort.SliceStable(out, func(i, j int) bool {
-		if out[i].SeasonNum != out[j].SeasonNum {
-			return out[i].SeasonNum < out[j].SeasonNum
-		}
-		if out[i].EpisodeNum != out[j].EpisodeNum {
-			return out[i].EpisodeNum < out[j].EpisodeNum
-		}
-		return out[i].CreatedAt.Before(out[j].CreatedAt)
-	})
-	return out, nil
-}
-
-func (s *MediaService) listAllMediaVisible(ctx context.Context, libraryID string, visibility MediaVisibility) ([]model.MediaView, int64, error) {
-	const pageSize = 2000
-	var all []model.MediaView
-	var total int64
-	for page := 1; ; page++ {
-		rows, n, err := s.ListMediaVisible(ctx, libraryID, page, pageSize, visibility)
-		if err != nil {
-			return nil, 0, err
-		}
-		if page == 1 {
-			total = n
-			all = make([]model.MediaView, 0, minInt64(n, pageSize))
-		}
-		all = append(all, rows...)
-		if int64(len(all)) >= n || len(rows) < pageSize {
-			break
-		}
+	rows, err := s.repo.MediaView.ListLibrarySeriesViews(ctx, libraryID, id, repository.MediaQueryFilter{IncludeNSFW: visibility.IncludeNSFW, AllowedLibraryIDs: visibility.AllowedLibraryIDs, HiddenLibraryIDs: visibility.HiddenLibraryIDs})
+	if err != nil {
+		return nil, err
 	}
-	return all, total, nil
+	s.attachLibraryMetadataViews(ctx, rows)
+	return rows, nil
 }
 
 func groupMediaSeriesCards(items []model.Media) []SeriesCard {
@@ -339,14 +336,4 @@ func seriesArtworkScore(media model.Media) int {
 		return 20
 	}
 	return 30
-}
-
-func minInt64(a int64, b int) int {
-	if a <= 0 {
-		return 0
-	}
-	if a > int64(b) {
-		return b
-	}
-	return int(a)
 }

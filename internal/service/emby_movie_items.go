@@ -2,9 +2,7 @@ package service
 
 import (
 	"context"
-	"sort"
 	"strings"
-	"time"
 
 	"gorm.io/gorm"
 
@@ -49,87 +47,73 @@ func (e *EmbyService) movieLibraryItems(ctx context.Context, p ItemsParams) (map
 		return q
 	}
 
-	// 剧集结构内容 -> Series 卡片。
+	// 先合并两类作品的 ID 与排序字段，统一分页后才加载展示信息。
 	clause, args := embyLikelyEpisodicPathSQL()
-	var seriesGroups []embySeriesGroup
-	if clause != "" {
-		epQ := apply(e.repo.DB.WithContext(ctx).Model(&model.Media{}))
-		if epQ == nil {
-			return map[string]any{"Items": []map[string]any{}, "TotalRecordCount": 0, "StartIndex": p.StartIndex}, nil
-		}
-		epQ = seriesScopeQuery(epQ.Where("(media.season_num > 0 OR media.episode_num > 0) AND ("+clause+")", args...))
-		var err error
-		seriesGroups, _, err = e.seriesMetadataPage(ctx, epQ, p.UserID, p, 0, 0)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	// 真正的电影 -> Movie 项(剔除剧集结构行)。
 	movieQ := apply(e.repo.DB.WithContext(ctx).Model(&model.Media{}))
 	if movieQ == nil {
 		return map[string]any{"Items": []map[string]any{}, "TotalRecordCount": 0, "StartIndex": p.StartIndex}, nil
 	}
 	movieQ = filterLikelyEpisodicPathsFromMovieQuery(movieQ)
-	movieViews, _, err := e.metadataPage(ctx, movieQ, p.UserID, metadataOrderSQL(p, false), 0, 0)
+	epQ := seriesScopeQuery(apply(e.repo.DB.WithContext(ctx).Model(&model.Media{})))
+	if clause == "" {
+		epQ = epQ.Where("1 = 0")
+	} else {
+		epQ = epQ.Where("(media.season_num > 0 OR media.episode_num > 0) AND ("+clause+")", args...)
+	}
+	query := func() *gorm.DB {
+		movies := movieQ.Session(&gorm.Session{}).Select("media.metadata_id AS id, 'movie' AS kind, " + embyReleaseOrderSQL("emby_metadata") + " AS sort_at").Group("media.metadata_id")
+		series := epQ.Session(&gorm.Session{}).Select("scope_series.id AS id, 'series' AS kind, " + embyReleaseOrderSQL("emby_metadata") + " AS sort_at").Group("scope_series.id")
+		return e.repo.DB.WithContext(ctx).Table("(? UNION ALL ?) AS works", movies, series)
+	}
+	var total int64
+	if err := query().Count(&total).Error; err != nil {
+		return nil, err
+	}
+	var page []struct {
+		ID   string
+		Kind string
+	}
+	if err := query().Select("id, kind").Order("sort_at DESC, kind DESC, id DESC").Offset(p.StartIndex).Limit(p.Limit).Scan(&page).Error; err != nil {
+		return nil, err
+	}
+	movieIDs, seriesIDs := []string{}, []string{}
+	for _, row := range page {
+		if row.Kind == "series" {
+			seriesIDs = append(seriesIDs, row.ID)
+		} else {
+			movieIDs = append(movieIDs, row.ID)
+		}
+	}
+	byID := make(map[string]map[string]any, len(page))
+	if len(movieIDs) > 0 {
+		views, _, err := e.metadataPage(ctx, movieQ.Where("media.metadata_id IN ?", movieIDs), p.UserID, metadataOrderSQL(p, false), 0, len(movieIDs))
+		if err != nil {
+			return nil, err
+		}
+		for _, item := range e.payloadsForViewsWithFields(ctx, views, p.UserID, p.Fields) {
+			byID[item["Id"].(string)] = item
+		}
+	}
+	groups, err := e.seriesSummaries(ctx, epQ, seriesIDs)
 	if err != nil {
 		return nil, err
 	}
-	movieItems := e.payloadsForViewsWithFields(ctx, movieViews, p.UserID, p.Fields)
-
-	// 合并: Series 卡片 + Movie 项, 统一按首播/上映日期倒序。
-	type entry struct {
-		sortAt  time.Time
-		payload map[string]any
+	for _, item := range e.seriesPayloadsWithFields(ctx, groups, p.UserID, p.Fields) {
+		byID[item["Id"].(string)] = item
 	}
-	entries := make([]entry, 0, len(seriesGroups)+len(movieItems))
-	seriesItems := e.seriesPayloadsWithFields(ctx, seriesGroups, p.UserID, p.Fields)
-	for i, item := range seriesItems {
-		item["ParentId"] = p.ParentID
-		entries = append(entries, entry{sortAt: embySeriesReleaseSortTime(seriesGroups[i]), payload: item})
+	items := make([]map[string]any, 0, len(page))
+	for _, row := range page {
+		if item, ok := byID[row.ID]; ok {
+			item["ParentId"] = p.ParentID
+			items = append(items, item)
+		}
 	}
-	for _, item := range movieItems {
-		item["ParentId"] = p.ParentID
-		entries = append(entries, entry{sortAt: embyPayloadReleaseSortTime(item), payload: item})
-	}
-	sort.SliceStable(entries, func(i, j int) bool {
-		return entries[i].sortAt.After(entries[j].sortAt)
-	})
-	total := len(entries)
-	paged := pageSlice(entries, p.StartIndex, p.Limit)
-	items := make([]map[string]any, 0, len(paged))
-	for _, en := range paged {
-		items = append(items, en.payload)
-	}
-	return map[string]any{"Items": items, "TotalRecordCount": total, "StartIndex": p.StartIndex}, nil
+	return map[string]any{"Items": items, "TotalRecordCount": int(total), "StartIndex": p.StartIndex}, nil
 }
 
-// embyPayloadCreatedAt 从 item payload 里取 DateCreated,用于合并排序。
-func embyPayloadCreatedAt(item map[string]any) time.Time {
-	if item == nil {
-		return time.Time{}
-	}
-	if v, ok := item["DateCreated"].(time.Time); ok {
-		return v
-	}
-	if v, ok := item["DateCreated"].(string); ok {
-		parsed, _ := time.Parse(time.RFC3339Nano, v)
-		return parsed
-	}
-	return time.Time{}
-}
-
-func embyPayloadReleaseSortTime(item map[string]any) time.Time {
-	if item == nil {
-		return time.Time{}
-	}
-	if v, ok := item["PremiereDate"].(time.Time); ok {
-		return v
-	}
-	if year, ok := item["ProductionYear"].(int); ok && year > 0 {
-		return time.Date(year, time.December, 31, 0, 0, 0, 0, time.UTC)
-	}
-	return embyPayloadCreatedAt(item)
+// embyReleaseOrderSQL 保留上映日期、年份和入库时间的降级顺序，仅由内部别名组成。
+func embyReleaseOrderSQL(metadataAlias string) string {
+	return "MAX(CASE WHEN COALESCE(" + metadataAlias + ".release_date, '') <> '' THEN " + metadataAlias + ".release_date WHEN COALESCE(" + metadataAlias + ".year, 0) > 0 THEN LPAD(" + metadataAlias + ".year::text, 4, '0') || '-12-31' ELSE to_char(media.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS.US') END)"
 }
 
 func (e *EmbyService) libraryIsEpisodic(ctx context.Context, libraryID string) (bool, error) {

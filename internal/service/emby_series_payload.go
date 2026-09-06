@@ -135,7 +135,13 @@ func (e *EmbyService) seriesPayloadWithRelations(ctx context.Context, group emby
 			}
 		}
 	}
-	e.rememberSeriesGroup(group)
+	episodeCount, seasonCount := len(group.Episodes), 0
+	if group.Summary != nil {
+		episodeCount, seasonCount = group.Summary.EpisodeCount, group.Summary.SeasonCount
+	} else {
+		seasonCount = len(e.seasonsForSeries(group))
+		e.rememberSeriesGroup(group)
+	}
 	userData := emptyUserData()
 	userData["IsFavorite"] = favorite
 	userData["PlaybackPositionTicks"] = positionMs * 10_000
@@ -158,8 +164,8 @@ func (e *EmbyService) seriesPayloadWithRelations(ctx context.Context, group emby
 		"ProductionYear":     group.Year,
 		"Overview":           group.Overview,
 		"CommunityRating":    group.Rating,
-		"RecursiveItemCount": len(group.Episodes),
-		"ChildCount":         len(e.seasonsForSeries(group)),
+		"RecursiveItemCount": episodeCount,
+		"ChildCount":         seasonCount,
 		"DateCreated":        formatEmbyDateTime(group.CreatedAt),
 		"ImageTags":          imageTags,
 		"BackdropImageTags":  backdropTags,
@@ -238,7 +244,11 @@ func (e *EmbyService) seasonPayloadWithRelations(ctx context.Context, season emb
 			}
 		}
 	}
-	e.rememberSeasonGroup(season)
+	episodeCount := season.EpisodeCount
+	if season.Episodes != nil {
+		episodeCount = len(season.Episodes)
+		e.rememberSeasonGroup(season)
+	}
 	userData := emptyUserData()
 	userData["IsFavorite"] = favorite
 	userData["PlaybackPositionTicks"] = positionMs * 10_000
@@ -259,7 +269,7 @@ func (e *EmbyService) seasonPayloadWithRelations(ctx context.Context, season emb
 		"IndexNumber":       season.SeasonNum,
 		"Overview":          overview,
 		"CommunityRating":   rating,
-		"ChildCount":        len(season.Episodes),
+		"ChildCount":        episodeCount,
 		"ImageTags":         imageTags,
 		"BackdropImageTags": []string{},
 		"UserData":          userData,

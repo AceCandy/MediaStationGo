@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"go.uber.org/zap"
 	"gorm.io/gorm"
 
 	"github.com/ShukeBta/MediaStationGo/internal/model"
@@ -146,16 +145,9 @@ func (s *MediaService) ListMediaVisible(ctx context.Context, libraryID string, p
 
 func (s *MediaService) ListMediaVisibleGrouped(ctx context.Context, libraryID string, page, pageSize int, visibility MediaVisibility) ([]MediaItem, int64, error) {
 	page, pageSize = normalizeGroupedMediaPage(page, pageSize)
-	items, err := s.listMediaVisibleForGrouping(ctx, libraryID, visibility)
-	if err != nil {
-		return nil, 0, err
+	if !visibility.allows(libraryID, false) {
+		return []MediaItem{}, 0, nil
 	}
-	grouped := groupMediaVersions(mediaViewsAsMedia(items))
-	return paginateMediaItems(grouped, page, pageSize), int64(len(grouped)), nil
-}
-
-func (s *MediaService) listMediaVisibleForGrouping(ctx context.Context, libraryID string, visibility MediaVisibility) ([]model.MediaView, error) {
-	libraryIDs := []string{libraryID}
 	filter := repository.MediaQueryFilter{
 		IncludeNSFW:         visibility.IncludeNSFW,
 		AllowedLibraryIDs:   visibility.AllowedLibraryIDs,
@@ -163,27 +155,22 @@ func (s *MediaService) listMediaVisibleForGrouping(ctx context.Context, libraryI
 		MissingPoster:       visibility.MissingPoster,
 		MissingChineseTitle: visibility.MissingChineseTitle,
 	}
-	cacheKey := s.mediaListCacheKey(libraryID, libraryIDs, 0, maxMediaSearchLimit, filter) + ":group-source"
-	var cached mediaListCacheValue
-	if s.cache != nil && s.cache.GetJSON(ctx, cacheKey, &cached) {
-		s.attachLibraryMetadataViews(ctx, cached.Items)
-		return cached.Items, nil
-	}
-	items, total, err := s.repo.MediaView.ListByLibrariesFiltered(ctx, libraryIDs, 0, maxMediaSearchLimit, filter)
+	items, summaries, total, err := s.repo.MediaView.ListLibraryMetadataPage(ctx, libraryID, model.MetadataKindMovie, "", (page-1)*pageSize, pageSize, filter)
 	if err != nil {
-		return nil, err
-	}
-	if total > int64(len(items)) && s.log != nil {
-		s.log.Warn("media version grouping truncated by safety limit",
-			zap.String("library_id", libraryID),
-			zap.Int64("total", total),
-			zap.Int("limit", maxMediaSearchLimit))
+		return nil, 0, err
 	}
 	s.attachLibraryMetadataViews(ctx, items)
-	if s.cache != nil {
-		s.cache.SetJSON(ctx, cacheKey, mediaListCacheValue{Items: items, Total: total}, time.Duration(s.mediaCacheTTLSeconds())*time.Second)
+	byID := make(map[string]model.Media, len(items))
+	for _, item := range mediaViewsAsMedia(items) {
+		byID[item.ID] = item
 	}
-	return items, nil
+	out := make([]MediaItem, 0, len(summaries))
+	for _, summary := range summaries {
+		if item, ok := byID[summary.MediaID]; ok {
+			out = append(out, MediaItem{Media: item, VersionCount: summary.VersionCount})
+		}
+	}
+	return out, total, nil
 }
 
 // GetMedia 返回包含共享元数据的统一媒体视图。

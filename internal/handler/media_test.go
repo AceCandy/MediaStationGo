@@ -236,11 +236,8 @@ func TestListMediaGroupsMultipleVersionsByDefault(t *testing.T) {
 	if grouped.Items[0].ID != "movie-1080" {
 		t.Fatalf("primary id = %q, want local version to remain primary", grouped.Items[0].ID)
 	}
-	if len(grouped.Items[0].Versions) != 2 {
-		t.Fatalf("versions = %#v, want both versions", grouped.Items[0].Versions)
-	}
-	if grouped.Items[0].Versions[0].ID != "movie-1080" || grouped.Items[0].Versions[1].ID != "movie-2160" {
-		t.Fatalf("versions should keep local before remote: %#v", grouped.Items[0].Versions)
+	if grouped.Items[0].VersionCount != 2 || len(grouped.Items[0].Versions) != 0 {
+		t.Fatalf("list should report version count without expanding files: %#v", grouped.Items[0])
 	}
 
 	raw := requestMediaList(t, svc, "/api/libraries/"+lib.ID+"/media?group_versions=0", lib.ID)
@@ -255,7 +252,7 @@ func TestListMediaVersionsReturnsOnlyVisibleSiblings(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := migrateMediaHandlerTestDB(db, &model.User{}, &model.Library{}, &model.Media{}, &model.Setting{}, &model.PlayProfile{}); err != nil {
+	if err := migrateMediaHandlerTestDB(db, &model.User{}, &model.Library{}, &model.Media{}, &model.PlaybackHistory{}, &model.Setting{}, &model.PlayProfile{}); err != nil {
 		t.Fatal(err)
 	}
 	repos := repository.New(db)
@@ -293,9 +290,9 @@ func TestListMediaVersionsReturnsOnlyVisibleSiblings(t *testing.T) {
 	if len(items) != 2 {
 		t.Fatalf("visible versions = %#v, want two safe versions", items)
 	}
-	if err := repos.History.Upsert(t.Context(), &model.PlaybackHistory{
+	if err := repos.DB.Create(&model.PlaybackHistory{
 		UserID: viewer.ID, MetadataID: metadata.ID, MediaID: "version-safe-1", PositionMs: 30_000, DurationMs: 120_000,
-	}); err != nil {
+	}).Error; err != nil {
 		t.Fatal(err)
 	}
 	items = requestMediaVersions(t, svc, viewer.ID, metadata.ID, http.StatusOK)
@@ -395,7 +392,7 @@ func TestListLibrarySeriesDoesNotTruncateLargeEpisodeLibraries(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := migrateMediaHandlerTestDB(db, &model.User{}, &model.Library{}, &model.Media{}, &model.Setting{}, &model.PlayProfile{}); err != nil {
+	if err := migrateMediaHandlerTestDB(db, &model.User{}, &model.Library{}, &model.Media{}, &model.PlaybackHistory{}, &model.Setting{}, &model.PlayProfile{}); err != nil {
 		t.Fatal(err)
 	}
 	repos := repository.New(db)
@@ -447,10 +444,8 @@ func TestListLibrarySeriesDoesNotTruncateLargeEpisodeLibraries(t *testing.T) {
 	if series.Items[0].Count != 2001 {
 		t.Fatalf("series count = %d, want 2001", series.Items[0].Count)
 	}
-	if !strings.HasPrefix(series.Items[0].Key, "series:") ||
-		strings.Contains(series.Items[0].Key, "lib:") ||
-		strings.Contains(series.Items[0].Key, "show:") {
-		t.Fatalf("series key = %q, want compact non-raw key", series.Items[0].Key)
+	if series.Items[0].Key != "metadata:series-large" {
+		t.Fatalf("series key = %q, want canonical metadata key", series.Items[0].Key)
 	}
 	episodes := requestLibrarySeriesEpisodes(t, svc, "/api/libraries/"+lib.ID+"/series/episodes?key="+url.QueryEscape(series.Items[0].Key), lib.ID)
 	if episodes.Total != 2001 || len(episodes.Items) != 2001 {
@@ -787,6 +782,7 @@ func TestEmptyLibraryListsReturnEmptyArraysNotNull(t *testing.T) {
 
 func migrateMediaHandlerTestDB(db *gorm.DB, models ...any) error {
 	models = append(models,
+		&model.MediaProbeMetadata{},
 		&model.MetadataItem{}, &model.MetadataIdentifier{},
 		&model.ArtworkAsset{}, &model.MetadataArtwork{},
 		&model.Person{}, &model.MetadataCredit{},

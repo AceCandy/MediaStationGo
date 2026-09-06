@@ -1,5 +1,48 @@
 # Shared Media Metadata Contract
 
+## Scenario: Library Metadata Pagination
+
+### 1. Scope / Trigger
+
+- Web library cards and Emby Movie/Series/Season/Episode browsing must paginate logical metadata before loading file views.
+
+### 2. Signatures
+
+- `MediaViewRepository.ListLibraryMetadataPage(ctx, libraryID, kind, metadataID, offset, limit, filter)` returns page representatives, summaries and logical total.
+- `ListLibrarySeriesCards(ctx, libraryID, page, pageSize, seriesID, key, visibility)` applies target filters before pagination.
+- Emby uses `seriesSummaries`, `movieLibraryItems` and `hierarchyItems`; detail/playback retain their complete loaders.
+
+### 3. Contracts
+
+- File associations establish library membership and visibility; unlinked catalog metadata does not enter library cards.
+- Web movie cards return `version_count`, not expanded `versions`. Concrete `id` remains usable for operations; `metadata_id` owns movie navigation and favorite display identity.
+- Series cards use `metadata:<series-id>` keys, preserve concrete `rep.id`/`linkMedia.id`, and display Series-owned metadata. Explicit old hashed links resolve using only Series IDs.
+- Count, filtering and page selection share one scoped query. Missing-poster/title filters apply to the displayed work, not its representative episode.
+- Emby summary counts must never overwrite complete Series/Season group caches. Load current-page movie/episode versions only where payload compatibility requires them.
+- SQL still scans/aggregates matching associations for totals and ordering; bounded file hydration is not a constant-time database guarantee.
+
+### 4. Validation & Error Matrix
+
+- Restricted empty scope -> empty page and zero total; out-of-range page -> empty page with matching total.
+- Hidden or NSFW work -> excluded before count/page; query failure -> error, not a successful empty response.
+
+### 5. Good/Base/Bad Cases
+
+- Good: one Series card reads one Web representative or zero Emby file views.
+- Base: a multipart movie contributes one version for its visible primary part.
+- Bad: load every episode/version, build all payloads, then slice in memory.
+
+### 6. Tests Required
+
+- `TestLibraryMetadataPaginationBoundsFileReads`: page-sized file reads, logical totals, cross-library isolation, filters, NSFW, old links, multipart counts, empty pages and complete detail after summaries.
+- `TestListLibrarySeriesDoesNotTruncateLargeEpisodeLibraries`: all 2001 episodes remain available when selecting that Series.
+- Run PostgreSQL tests with `MEDIASTATION_TEST_POSTGRES_DSN`, Web lint/build and both Series check scripts; skipped database tests do not count as validation.
+
+### 7. Wrong vs Correct
+
+- Wrong: `loadAllFiles -> group -> payload -> pageSlice`.
+- Correct: `scoped logical count/page SQL -> current-page metadata/representatives -> payload`.
+
 ## Scenario: Explicit TMDb Metadata Refresh
 
 ### 1. Scope / Trigger

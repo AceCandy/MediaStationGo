@@ -28,7 +28,7 @@ func TestLibrarySeriesCardsUseSeriesPresentationAndKeepEpisodeTarget(t *testing.
 		t.Fatal(err)
 	}
 	svc := NewMediaService(&config.Config{}, zap.NewNop(), repos)
-	cards, total, err := svc.ListLibrarySeriesCards(t.Context(), lib.ID, MediaVisibility{})
+	cards, total, err := svc.ListLibrarySeriesCards(t.Context(), lib.ID, 1, 50, "", "", MediaVisibility{})
 	if err != nil || total != 1 || len(cards) != 1 {
 		t.Fatalf("cards=%+v total=%d err=%v", cards, total, err)
 	}
@@ -39,10 +39,10 @@ func TestLibrarySeriesCardsUseSeriesPresentationAndKeepEpisodeTarget(t *testing.
 	if card.Rep.ID != media.ID || card.Rep.MetadataID != episode.ID || card.LinkMedia.ID != media.ID || card.LinkMedia.MetadataID != episode.ID || card.LinkMedia.Title != episode.Title {
 		t.Fatalf("card changed episode target: %+v", card)
 	}
-	if card.Key != mediaSeriesKey(card.LinkMedia) {
+	if card.Key != "metadata:"+series.ID {
 		t.Fatal("presentation changed navigation key")
 	}
-	missing, n, err := svc.ListLibrarySeriesCards(t.Context(), lib.ID, MediaVisibility{MissingPoster: true})
+	missing, n, err := svc.ListLibrarySeriesCards(t.Context(), lib.ID, 1, 50, "", "", MediaVisibility{MissingPoster: true})
 	if err != nil || n != 0 || len(missing) != 0 {
 		t.Fatalf("series with poster reported missing: %+v %v", missing, err)
 	}
@@ -51,7 +51,7 @@ func TestLibrarySeriesCardsUseSeriesPresentationAndKeepEpisodeTarget(t *testing.
 		t.Fatalf("episode projection changed: %+v %v", view, err)
 	}
 	for _, visibility := range []MediaVisibility{{HiddenLibraryIDs: []string{lib.ID}}, {AllowedLibraryIDs: []string{"other-library"}}} {
-		cards, n, err := svc.ListLibrarySeriesCards(t.Context(), lib.ID, visibility)
+		cards, n, err := svc.ListLibrarySeriesCards(t.Context(), lib.ID, 1, 50, "", "", visibility)
 		if err != nil || n != 0 || len(cards) != 0 {
 			t.Fatalf("hidden library leaked: %+v %v", cards, err)
 		}
@@ -60,7 +60,7 @@ func TestLibrarySeriesCardsUseSeriesPresentationAndKeepEpisodeTarget(t *testing.
 		t.Fatal(err)
 	}
 	createServiceTestArtwork(t, db, episode.ID, model.ArtworkTypePoster, "episode-card-poster")
-	cards, n, err = svc.ListLibrarySeriesCards(t.Context(), lib.ID, MediaVisibility{MissingPoster: true})
+	cards, n, err = svc.ListLibrarySeriesCards(t.Context(), lib.ID, 1, 50, "", "", MediaVisibility{MissingPoster: true})
 	if err != nil || n != 1 || cards[0].Rep.PosterURL != "" {
 		t.Fatalf("episode artwork substituted for series: %+v %v", cards, err)
 	}
@@ -294,29 +294,6 @@ func TestListRecentSeriesCardsCountsAllEpisodesInSeries(t *testing.T) {
 	}
 	if cards[0].Rep.Title != series.Title {
 		t.Fatalf("recent card title = %q", cards[0].Rep.Title)
-	}
-}
-
-func TestFilterLibrarySeriesCardsUsesSeriesCardMetadata(t *testing.T) {
-	cards := func() []SeriesCard {
-		return []SeriesCard{
-			{Rep: model.Media{SeriesTitle: "中文剧集"}},
-			{Rep: model.Media{SeriesTitle: "English Missing"}},
-			{Rep: model.Media{SeriesTitle: "English Poster", PosterURL: "/api/artwork/poster"}},
-		}
-	}
-
-	filtered := filterLibrarySeriesCards(cards(), MediaVisibility{MissingPoster: true})
-	if len(filtered) != 2 || filtered[0].Rep.SeriesTitle != "中文剧集" || filtered[1].Rep.SeriesTitle != "English Missing" {
-		t.Fatalf("missing poster cards = %#v", filtered)
-	}
-	filtered = filterLibrarySeriesCards(cards(), MediaVisibility{MissingChineseTitle: true})
-	if len(filtered) != 2 || filtered[0].Rep.SeriesTitle != "English Missing" || filtered[1].Rep.SeriesTitle != "English Poster" {
-		t.Fatalf("missing Chinese title cards = %#v", filtered)
-	}
-	filtered = filterLibrarySeriesCards(cards(), MediaVisibility{MissingPoster: true, MissingChineseTitle: true})
-	if len(filtered) != 1 || filtered[0].Rep.SeriesTitle != "English Missing" {
-		t.Fatalf("combined cards = %#v", filtered)
 	}
 }
 

@@ -111,7 +111,7 @@ func TestGroupMediaVersionsCleansCodecPunctuation(t *testing.T) {
 }
 
 func TestListMediaVisibleGroupedPaginatesAfterVersionGrouping(t *testing.T) {
-	db := newServiceTestDB(t, &model.Library{}, &model.Media{})
+	db := newServiceTestDB(t, &model.Library{}, &model.Media{}, &model.MediaProbeMetadata{})
 	repos := repository.New(db)
 	lib := model.Library{Name: "电影", Path: "/media/movies", Type: "movie", Enabled: true}
 	if err := repos.Library.Create(t.Context(), &lib); err != nil {
@@ -163,7 +163,7 @@ func TestListMediaVisibleGroupedPaginatesAfterVersionGrouping(t *testing.T) {
 	if total != 2 {
 		t.Fatalf("grouped total = %d, want 2", total)
 	}
-	if len(page) != 1 || len(page[0].Versions) != 2 {
+	if len(page) != 1 || page[0].VersionCount != 2 || len(page[0].Versions) != 0 {
 		t.Fatalf("first page should contain merged Inception versions, got %#v", page)
 	}
 	if page[0].Media.Path != rows[0].Path {

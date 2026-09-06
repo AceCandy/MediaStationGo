@@ -52,6 +52,7 @@ export interface Media {
   duplicate_of?: string
   tracks?: MediaTrack[]
   versions?: Media[]
+  version_count?: number
   created_at: string
   updated_at: string
 }

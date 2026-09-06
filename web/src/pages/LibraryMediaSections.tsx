@@ -38,9 +38,10 @@ export function LibraryMediaSections({
         <div className={gridClass}>
           {items.map((media, index) => (
             <MediaCard
-              key={media.id}
+              key={media.metadata_id || media.id}
               media={media}
-              favourite={favouriteIds.has(media.id)}
+              linkTo={`/media/${media.metadata_id || media.id}`}
+              favourite={favouriteIds.has(media.metadata_id || media.id)}
               onToggleFavourite={() => onToggleFavourite(media)}
               linkState={{ from: detailFrom }}
               staggerIndex={index}

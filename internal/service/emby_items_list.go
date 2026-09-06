@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"sort"
 	"strings"
 	"time"
 
@@ -78,22 +77,6 @@ func (e *EmbyService) mediaItems(ctx context.Context, p ItemsParams) (map[string
 		e.cache.SetJSON(ctx, cacheKey, embyItemsCacheValue{Items: items, TotalRecordCount: total, StartIndex: p.StartIndex}, time.Duration(e.mediaCacheTTLSeconds())*time.Second)
 	}
 	return out, nil
-}
-
-func (e *EmbyService) episodeItems(ctx context.Context, rows []model.MediaView, p ItemsParams) (map[string]any, error) {
-	rows = e.collapseMediaVersionViews(ctx, rows)
-	sort.SliceStable(rows, func(i, j int) bool {
-		if rows[i].SeasonNum != rows[j].SeasonNum {
-			return rows[i].SeasonNum < rows[j].SeasonNum
-		}
-		if rows[i].EpisodeNum != rows[j].EpisodeNum {
-			return rows[i].EpisodeNum < rows[j].EpisodeNum
-		}
-		return rows[i].CreatedAt.Before(rows[j].CreatedAt)
-	})
-	total := len(rows)
-	items := e.payloadsForViewsWithFields(ctx, pageSlice(rows, p.StartIndex, p.Limit), p.UserID, p.Fields)
-	return map[string]any{"Items": items, "TotalRecordCount": total, "StartIndex": p.StartIndex}, nil
 }
 
 func (e *EmbyService) payloadsForMedia(ctx context.Context, rows []model.Media, userID string) ([]map[string]any, error) {

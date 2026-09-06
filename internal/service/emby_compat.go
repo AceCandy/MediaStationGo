@@ -173,21 +173,10 @@ func (e *EmbyService) Items(ctx context.Context, p ItemsParams) (map[string]any,
 		return e.Views(ctx, p.UserID)
 	}
 
-	if season, ok, err := e.findSeasonGroup(ctx, p.ParentID, p.UserID); err != nil {
+	if result, ok, err := e.hierarchyItems(ctx, p); err != nil {
 		return nil, err
 	} else if ok {
-		return e.episodeItems(ctx, season.Episodes, p)
-	}
-
-	if series, ok, err := e.findSeriesGroup(ctx, p.ParentID, p.UserID); err != nil {
-		return nil, err
-	} else if ok {
-		if p.Recursive || containsItemType(p.IncludeItemTypes, "Episode") {
-			return e.episodeItems(ctx, series.Episodes, p)
-		}
-		seasons := e.seasonsForSeries(series)
-		items := e.seasonPayloadsWithFields(ctx, pageSlice(seasons, p.StartIndex, p.Limit), p.UserID, p.Fields)
-		return map[string]any{"Items": items, "TotalRecordCount": len(seasons), "StartIndex": p.StartIndex}, nil
+		return result, nil
 	}
 
 	if p.ParentID != "" {

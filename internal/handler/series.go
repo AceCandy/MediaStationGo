@@ -75,21 +75,7 @@ func listLibrarySeriesHandler(svc *service.Container) gin.HandlerFunc {
 		visibility := mediaVisibilityForRequest(c, svc)
 		visibility.MissingPoster = c.Query("missing_poster") == "1"
 		visibility.MissingChineseTitle = c.Query("missing_chinese_title") == "1"
-		items, total, err := svc.Media.ListLibrarySeriesCards(c.Request.Context(), libID, visibility)
-		if err != nil {
-			writeInternalOrCanceled(c, err)
-			return
-		}
 		page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
-		if seriesID, key := c.Query("series_id"), c.Query("key"); seriesID != "" || key != "" {
-			filtered := []service.SeriesCard{}
-			for _, card := range items {
-				if (seriesID != "" && card.Rep.SeriesID == seriesID) || (seriesID == "" && card.Key == key) {
-					filtered = append(filtered, card)
-				}
-			}
-			items, total = filtered, int64(len(filtered))
-		}
 		size, _ := strconv.Atoi(c.DefaultQuery("page_size", "500"))
 		if page < 1 {
 			page = 1
@@ -97,21 +83,17 @@ func listLibrarySeriesHandler(svc *service.Container) gin.HandlerFunc {
 		if size <= 0 || size > 1000 {
 			size = 500
 		}
-		start := (page - 1) * size
-		if start > len(items) {
-			start = len(items)
+		items, total, err := svc.Media.ListLibrarySeriesCards(c.Request.Context(), libID, page, size, c.Query("series_id"), c.Query("key"), visibility)
+		if err != nil {
+			writeInternalOrCanceled(c, err)
+			return
 		}
-		end := start + size
-		if end > len(items) {
-			end = len(items)
-		}
-		pageItems := items[start:end]
-		if pageItems == nil {
+		if items == nil {
 			// 非 nil 空切片，避免空库返回 "items": null 触发前端崩溃。
-			pageItems = []service.SeriesCard{}
+			items = []service.SeriesCard{}
 		}
 		c.JSON(http.StatusOK, gin.H{
-			"items":     pageItems,
+			"items":     items,
 			"total":     total,
 			"page":      page,
 			"page_size": size,

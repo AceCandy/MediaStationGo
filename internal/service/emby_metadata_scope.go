@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"gorm.io/gorm"
 
@@ -136,29 +137,41 @@ func (e *EmbyService) seriesMetadataPage(ctx context.Context, q *gorm.DB, userID
 		return []embySeriesGroup{}, total, nil
 	}
 
-	var mediaRows []model.Media
-	if err := q.Session(&gorm.Session{}).
-		Where("scope_series.id IN ?", seriesIDs).
-		Order("scope_series.id, scope_season.season_num, emby_metadata.episode_num, media.created_at DESC, media.id DESC").
-		Find(&mediaRows).Error; err != nil {
-		return nil, 0, err
+	groups, err := e.seriesSummaries(ctx, q, seriesIDs)
+	return groups, total, err
+}
+
+// seriesSummaries 只统计当前页可见关联，不读取分集文件或探测数据。
+func (e *EmbyService) seriesSummaries(ctx context.Context, q *gorm.DB, seriesIDs []string) ([]embySeriesGroup, error) {
+	if len(seriesIDs) == 0 {
+		return []embySeriesGroup{}, nil
 	}
-	views, err := e.mediaViewsForRows(ctx, mediaRows, userID)
+	var rows []struct {
+		ID           string
+		LibraryID    string
+		CreatedAt    time.Time
+		EpisodeCount int
+		SeasonCount  int
+	}
+	err := q.Session(&gorm.Session{}).Where("scope_series.id IN ?", seriesIDs).
+		Select(`scope_series.id AS id, MIN(media.library_id) AS library_id,
+			MAX(media.created_at) AS created_at, COUNT(DISTINCT media.metadata_id) AS episode_count,
+			COUNT(DISTINCT scope_season.id) AS season_count`).Group("scope_series.id").Scan(&rows).Error
 	if err != nil {
-		return nil, 0, err
+		return nil, err
 	}
-	groups := e.seriesGroupsFromMedia(preferredMetadataViewsInOrder(views))
-	byID := make(map[string]embySeriesGroup, len(groups))
-	for _, group := range groups {
-		byID[group.ID] = group
+	byID := make(map[string]embySeriesGroup, len(rows))
+	for _, row := range rows {
+		byID[row.ID] = embySeriesGroup{ID: row.ID, LibraryID: row.LibraryID, CreatedAt: row.CreatedAt,
+			Summary: &embySeriesSummary{EpisodeCount: row.EpisodeCount, SeasonCount: row.SeasonCount}}
 	}
-	ordered := make([]embySeriesGroup, 0, len(seriesIDs))
+	groups := make([]embySeriesGroup, 0, len(rows))
 	for _, id := range seriesIDs {
 		if group, ok := byID[id]; ok {
-			ordered = append(ordered, group)
+			groups = append(groups, group)
 		}
 	}
-	return ordered, total, nil
+	return groups, nil
 }
 
 func seriesOrderSQL(p ItemsParams) string {

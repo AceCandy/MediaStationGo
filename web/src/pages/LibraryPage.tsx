@@ -40,7 +40,7 @@ export function LibraryPage() {
     playbackAPI
       .listFavourites()
       .then((list) => {
-        if (!cancelled) setFavouriteIds(new Set(list.map((item) => item.id)))
+        if (!cancelled) setFavouriteIds(new Set(list.map((item) => item.metadata_id || item.id)))
       })
       .catch(() => {})
     return () => {
@@ -54,8 +54,8 @@ export function LibraryPage() {
       .then((state) => {
         setFavouriteIds((prev) => {
           const next = new Set(prev)
-          if (state) next.add(media.id)
-          else next.delete(media.id)
+          if (state) next.add(media.metadata_id || media.id)
+          else next.delete(media.metadata_id || media.id)
           return next
         })
         toast.success(state ? '已加入我的收藏' : '已取消收藏')
