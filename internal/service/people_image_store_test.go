@@ -165,6 +165,87 @@ func TestPeopleImageStoreDoesNotDownloadDuringServe(t *testing.T) {
 	}
 }
 
+func TestPersistCreditsReusesRemoteProfile(t *testing.T) {
+	store, repos, cfg := newPeopleImageStoreTest(t)
+	want := testArtworkPNG(t, 3, 2)
+	var calls int32
+	var reject atomic.Bool
+	var lastMetadataID string
+	store.imageProxy.client = &http.Client{Transport: imageRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		atomic.AddInt32(&calls, 1)
+		if reject.Load() {
+			return &http.Response{StatusCode: http.StatusNotFound, Header: http.Header{}, Body: io.NopCloser(strings.NewReader("not found")), Request: req}, nil
+		}
+		return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": []string{"image/png"}}, Body: io.NopCloser(bytes.NewReader(want)), Request: req}, nil
+	})}
+	scraper := &ScraperService{repo: repos, people: store, log: zap.NewNop()}
+	credits := []PersonCredit{{Provider: "tmdb", ExternalID: "123", Name: "Actor", ProfileURL: "https://image.tmdb.org/t/p/original/actor.png", Type: model.CreditTypeActor}}
+	for i := 0; i < 2; i++ {
+		item := model.MetadataItem{Kind: model.MetadataKindMovie, Title: "Work", Source: "tmdb"}
+		if err := repos.DB.Create(&item).Error; err != nil {
+			t.Fatal(err)
+		}
+		if err := scraper.persistCredits(t.Context(), item.ID, []string{model.CreditTypeActor}, credits); err != nil {
+			t.Fatal(err)
+		}
+		lastMetadataID = item.ID
+	}
+	if got := atomic.LoadInt32(&calls); got != 1 {
+		t.Fatalf("shared profile downloads = %d, want 1", got)
+	}
+	var person model.Person
+	if err := repos.DB.First(&person).Error; err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(cfg.App.DataDir, "people", filepath.FromSlash(person.ProfileImageKey))
+	// 有效但内容不同的图片也不能冒充缓存键对应的原图。
+	if err := os.WriteFile(path, testArtworkPNG(t, 4, 2), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	key, err := store.ImportCached(t.Context(), credits[0].ProfileURL)
+	if err != nil || key != person.ProfileImageKey {
+		t.Fatalf("repair key=%q err=%v", key, err)
+	}
+	if got := atomic.LoadInt32(&calls); got != 2 {
+		t.Fatalf("repair downloads = %d, want 2", got)
+	}
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.ImportCached(t.Context(), credits[0].ProfileURL); err != nil {
+		t.Fatal(err)
+	}
+	if got := atomic.LoadInt32(&calls); got != 3 {
+		t.Fatalf("missing image downloads = %d, want 3", got)
+	}
+	if err := scraper.persistCredits(t.Context(), lastMetadataID, []string{model.CreditTypeActor}, credits, true); err != nil {
+		t.Fatal(err)
+	}
+	if got := atomic.LoadInt32(&calls); got != 4 {
+		t.Fatalf("explicit import downloads = %d, want 4", got)
+	}
+	reject.Store(true)
+	changedURL := "https://image.tmdb.org/t/p/original/changed.png"
+	for i := 0; i < 2; i++ {
+		if _, err := store.ImportCached(t.Context(), changedURL); err == nil {
+			t.Fatal("expected upstream failure")
+		}
+	}
+	if got := atomic.LoadInt32(&calls); got != 6 {
+		t.Fatalf("failed import retries = %d, want 6", got)
+	}
+	reject.Store(false)
+	if _, err := store.ImportCached(t.Context(), changedURL); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.ImportCached(t.Context(), changedURL); err != nil {
+		t.Fatal(err)
+	}
+	if got := atomic.LoadInt32(&calls); got != 7 {
+		t.Fatalf("changed source downloads = %d, want 7", got)
+	}
+}
+
 func TestEmbyPersonImageURLDoesNotExposeProfileSource(t *testing.T) {
 	_, repos, cfg := newPeopleImageStoreTest(t)
 	person := model.Person{Base: model.Base{ID: "person-source-only"}, Name: "Actor", OriginalName: "Actor", NormalizedName: "actor-source-only", ProfileURL: "https://image.tmdb.org/t/p/w500/source-only.png", Source: "tmdb"}

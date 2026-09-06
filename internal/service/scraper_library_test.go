@@ -39,6 +39,9 @@ func TestManualEnrichLibraryRetriesNoMatchAndCountsRealMatches(t *testing.T) {
 func TestEnrichLibraryBindsUnresolvedMediaAfterProviderMatch(t *testing.T) {
 	scraper, repos, closeServer := newTestScraper(t)
 	defer closeServer()
+	if err := repos.DB.AutoMigrate(&model.MediaProbeMetadata{}); err != nil {
+		t.Fatal(err)
+	}
 	if err := repos.DB.Callback().Create().Remove("testutil:media-metadata"); err != nil {
 		t.Fatal(err)
 	}
@@ -52,6 +55,7 @@ func TestEnrichLibraryBindsUnresolvedMediaAfterProviderMatch(t *testing.T) {
 		Path:      filepath.Join(lib.Path, "间谍过家家 - S02E02.mkv"),
 		SeasonNum: 2, EpisodeNum: 2, ScrapeStatus: "pending",
 	}
+	media.SeriesID = localSeriesIdentity(&media)
 	if err := repos.DB.Create(&media).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -72,6 +76,10 @@ func TestEnrichLibraryBindsUnresolvedMediaAfterProviderMatch(t *testing.T) {
 	}
 	if got == nil || got.MetadataID == "" || got.ScrapeStatus != "matched" {
 		t.Fatalf("media after provider lookup = %#v", got)
+	}
+	view, err := repos.MediaView.FindByID(t.Context(), media.ID)
+	if err != nil || view == nil || view.MetadataKind != model.MetadataKindEpisode || view.SeriesID == "" || view.SeasonID == "" || view.SeasonNum != 2 || view.EpisodeNum != 2 {
+		t.Fatalf("canonical episode view = %#v, err = %v", view, err)
 	}
 }
 

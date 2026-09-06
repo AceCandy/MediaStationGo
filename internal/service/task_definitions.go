@@ -24,6 +24,7 @@ const (
 	TaskDefinitionDoubanEnrichment           = "douban_movie_enrichment"
 	TaskDefinitionAccountCleanup             = "account_cleanup"
 	TaskDefinitionTMDbSnapshotBackfill       = "tmdb_snapshot_backfill"
+	TaskDefinitionSeriesLocalCorrection      = "series_local_correction"
 )
 
 var ErrTaskDefinitionNotFound = errors.New("task definition not found")
@@ -56,6 +57,7 @@ type taskDefinitionSpec struct {
 }
 
 var taskDefinitionSpecs = []taskDefinitionSpec{
+	{TaskDefinition: TaskDefinition{Key: TaskDefinitionSeriesLocalCorrection, Name: "剧集本地资料纠正", Description: "用已有 TMDb 快照纠正季与集的名称、简介，跳过手工及并发修改，不联网", Trigger: "规则更新后一次 / 手动", Action: "series_local_correction"}, filter: repository.TaskExecutionFilter{Kind: TaskKindSeriesLocalCorrection}},
 	{TaskDefinition: TaskDefinition{Key: TaskDefinitionOrganize, Name: "媒体整理", Description: "整理、重命名并入库下载目录内容", Trigger: "定时 / 手动", Action: "scheduler"}, filter: repository.TaskExecutionFilter{Kind: TaskKindOrganize}, schedulerJob: "organize_source"},
 	{TaskDefinition: TaskDefinition{Key: TaskDefinitionLibraryScan, Name: "媒体库扫描", Description: "扫描媒体库并同步入库变化", Trigger: "定时 / 手动 / 新增后自动", Action: "scheduler"}, filter: repository.TaskExecutionFilter{Kind: TaskKindScan}, schedulerJob: "library_scan"},
 	{TaskDefinition: TaskDefinition{Key: TaskDefinitionLibraryWatch, Name: "媒体库变更监听", Description: "监听本地媒体文件变化并增量同步入库", Trigger: "文件事件"}, filter: repository.TaskExecutionFilter{Kind: TaskKindWatch}},

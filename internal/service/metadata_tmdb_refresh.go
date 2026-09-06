@@ -117,7 +117,7 @@ func (s *ScraperService) RefreshMetadataTMDb(ctx context.Context, metadataID str
 		return err
 	}
 	defer s.invalidateMediaCache(ctx)
-	if err := s.persistCredits(ctx, item.ID, loaded, credits); err != nil {
+	if err := s.persistCredits(ctx, item.ID, loaded, credits, true); err != nil {
 		return err
 	}
 	for kind, source := range artwork {

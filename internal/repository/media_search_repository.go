@@ -390,6 +390,7 @@ func (r *MediaViewRepository) rankMetadataSearchIDs(ctx context.Context, query s
 }
 
 type metadataSearchPresentation struct {
+	SeasonNum         int     `gorm:"column:season_num"`
 	ID                string  `gorm:"column:id"`
 	Kind              string  `gorm:"column:kind"`
 	Title             string  `gorm:"column:title"`
@@ -409,6 +410,64 @@ type metadataSearchPresentation struct {
 	TheTVDBExternalID string  `gorm:"column:thetvdb_external_id"`
 	PosterAssetID     string  `gorm:"column:poster_asset_id"`
 	BackdropAssetID   string  `gorm:"column:backdrop_asset_id"`
+}
+
+// FindSeriesPresentation 读取整剧自身的展示资料；调用方必须先验证关联文件可见性。
+// 不要求存在分集文件，允许文件直接关联整剧或季。
+func (r *MediaViewRepository) FindSeriesPresentation(ctx context.Context, metadataID string, includeNSFW bool) (*model.MediaView, error) {
+	rows, err := r.FindSeriesPresentations(ctx, []string{metadataID}, includeNSFW)
+	if err != nil {
+		return nil, err
+	}
+	row, ok := rows[metadataID]
+	if !ok {
+		return nil, nil
+	}
+	return &row, nil
+}
+
+// FindSeasonPresentation 读取季自身的资料与图片；调用方必须先验证所属文件可见性。
+func (r *MediaViewRepository) FindSeasonPresentation(ctx context.Context, metadataID string, includeNSFW bool) (*model.MediaView, error) {
+	rows, err := r.metadataSearchPresentations(ctx, []string{metadataID})
+	if err != nil {
+		return nil, err
+	}
+	row, ok := rows[metadataID]
+	if !ok || row.Kind != model.MetadataKindSeason || (row.NSFW && !includeNSFW) {
+		return nil, nil
+	}
+	view := model.MediaView{Media: model.Media{PermanentBase: model.PermanentBase{ID: metadataID}}}
+	applyMetadataSearchPresentation(&view, row)
+	view.SeasonNum = row.SeasonNum
+	return &view, nil
+}
+
+// FindSeriesPresentations 批量读取整剧展示字段；调用方只可传入已验证文件可见性的整剧 ID。
+func (r *MediaViewRepository) FindSeriesPresentations(ctx context.Context, metadataIDs []string, includeNSFW bool) (map[string]model.MediaView, error) {
+	out := make(map[string]model.MediaView)
+	if len(metadataIDs) == 0 {
+		return out, nil
+	}
+	rows, err := r.metadataSearchPresentations(ctx, metadataIDs)
+	if err != nil {
+		return nil, err
+	}
+	views := make([]model.MediaView, 0, len(rows))
+	for id, row := range rows {
+		if row.Kind != model.MetadataKindSeries || (row.NSFW && !includeNSFW) {
+			continue
+		}
+		view := model.MediaView{Media: model.Media{PermanentBase: model.PermanentBase{ID: id}}}
+		applyMetadataSearchPresentation(&view, row)
+		views = append(views, view)
+	}
+	if err := attachMediaViewDoubanRatings(r.db.WithContext(ctx), views); err != nil {
+		return nil, err
+	}
+	for _, view := range views {
+		out[view.ID] = view
+	}
+	return out, nil
 }
 
 // FindMetadataSearchRepresentatives revalidates current visibility and returns
@@ -483,6 +542,7 @@ func (r *MediaViewRepository) metadataSearchPresentations(ctx context.Context, m
 	err := r.db.WithContext(ctx).
 		Table("metadata_items AS search_metadata").
 		Select(`search_metadata.id, search_metadata.kind, search_metadata.title,
+			COALESCE(search_metadata.season_num, 0) AS season_num,
 			COALESCE(search_metadata.original_name, '') AS original_name,
 			COALESCE(search_metadata.overview, '') AS overview,
 			COALESCE(search_metadata.rating, 0) AS rating,

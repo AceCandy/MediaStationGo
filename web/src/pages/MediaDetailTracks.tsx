@@ -12,6 +12,7 @@ type MediaDetailTracksProps = {
   probing: boolean
   probeError: string
   onVersionChange: (id: string) => void
+  readOnlyTracks?: boolean
 }
 
 export function MediaDetailTracks({
@@ -22,6 +23,7 @@ export function MediaDetailTracks({
   probing,
   probeError,
   onVersionChange,
+  readOnlyTracks = false,
 }: MediaDetailTracksProps) {
   const tracks = media?.tracks ?? []
   const unavailableText = loading
@@ -51,10 +53,23 @@ export function MediaDetailTracks({
           onChange={onVersionChange}
         />
 
+        {readOnlyTracks ? (['video', 'audio', 'subtitle'] as const).map((type) => type === 'subtitle' ? <TrackSelect key={type} type={type} label="字幕" mediaID={media?.id} tracks={tracks} unavailableText={unavailableText} /> : <MediaInfoPicker
+          key={type}
+          icon={trackStyles[type].icon}
+          label={type === 'video' ? '视频' : '音频'}
+          shellClass={trackStyles[type].shell}
+          textClass={trackStyles[type].text}
+          options={tracks.filter((track) => track.type === type).map((track) => ({ value: String(track.index), label: trackLabel(track) }))}
+          value=""
+          placeholder={unavailableText || '暂无轨道'}
+          readOnly
+        />) : <>
         <TrackSelect type="video" label="视频" mediaID={media?.id} tracks={tracks} unavailableText={unavailableText} />
         <TrackSelect type="audio" label="音频" mediaID={media?.id} tracks={tracks} unavailableText={unavailableText} />
         <TrackSelect type="subtitle" label="字幕" mediaID={media?.id} tracks={tracks} unavailableText={unavailableText} />
+        </>}
       </div>
+      {readOnlyTracks && <p className="text-xs text-[var(--app-muted)]">实际音轨与字幕请在播放器中选择。</p>}
 
       {(loading || probing || probeError) && (
         <div className="flex items-center gap-2 text-sm font-semibold text-gray-500" aria-live="polite">
@@ -111,6 +126,7 @@ function MediaInfoPicker({
   value,
   placeholder,
   onChange,
+  readOnly = false,
 }: {
   icon: LucideIcon
   label: string
@@ -119,7 +135,8 @@ function MediaInfoPicker({
   options: Array<{ value: string; label: string }>
   value: string
   placeholder: string
-  onChange: (value: string) => void
+  onChange?: (value: string) => void
+  readOnly?: boolean
 }) {
   const selected = options.find((option) => option.value === value) ?? options[0]
   const selectable = options.length > 1
@@ -133,7 +150,9 @@ function MediaInfoPicker({
       </span>
       <span className={`shrink-0 text-xs font-bold ${textClass}`}>{label}</span>
 
-      {selectable ? (
+      {readOnly ? <div className="min-w-0 flex-1 space-y-1 break-words py-3 text-sm font-semibold text-[var(--app-text)]">
+        {options.length > 0 ? options.map((option) => <p key={option.value}>{option.label}</p>) : <p className="text-[var(--app-muted)]">{placeholder}</p>}
+      </div> : selectable ? (
         <details
           className="group min-w-0 flex-1"
           onBlur={(event) => {
@@ -167,7 +186,7 @@ function MediaInfoPicker({
                   aria-pressed={active}
                   className={`flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-left text-sm font-semibold transition-colors ${active ? 'bg-brand-500/15 text-brand-500' : 'text-[var(--app-text)] hover:bg-[var(--app-hover)]'}`}
                   onClick={(event) => {
-                    onChange(option.value)
+                    onChange?.(option.value)
                     const details = event.currentTarget.closest('details')
                     if (details) details.open = false
                     details?.querySelector('summary')?.focus()

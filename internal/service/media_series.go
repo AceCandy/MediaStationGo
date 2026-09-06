@@ -24,26 +24,28 @@ func (s *MediaService) GetMediaSeriesVisible(ctx context.Context, mediaID string
 	if err != nil || media == nil || !visibility.AllowsView(media) || media.SeriesID == "" {
 		return nil, err
 	}
-	rows, err := s.repo.MediaView.FindMetadataSearchRepresentatives(ctx, []string{media.SeriesID}, repository.MediaQueryFilter{
-		IncludeNSFW:       visibility.IncludeNSFW,
-		AllowedLibraryIDs: []string{media.LibraryID},
-		HiddenLibraryIDs:  visibility.HiddenLibraryIDs,
-	})
-	if err != nil || len(rows) == 0 {
+	series, err := s.repo.MediaView.FindSeriesPresentation(ctx, media.SeriesID, visibility.IncludeNSFW)
+	if err != nil || series == nil {
 		return nil, err
 	}
-	series := rows[0]
-	if series.MetadataKind != model.MetadataKindSeries {
-		return nil, nil
-	}
-	// 整剧不是可播放文件，不暴露代表集的技术和路径信息。
-	series.Media = model.Media{PermanentBase: model.PermanentBase{ID: series.MetadataID}, MetadataID: series.MetadataID}
-	series.SeasonNum, series.EpisodeNum = 0, 0
-	series.SeasonID = ""
-	if err := s.attachMediaProviderDetails(ctx, &series); err != nil {
+	if err := s.attachMediaProviderDetails(ctx, series); err != nil {
 		return nil, err
 	}
-	return &series, nil
+	return series, nil
+}
+
+// GetMediaSeasonVisible 仅沿可见文件的真实关联读取季，不按扫描季号猜测归属。
+func (s *MediaService) GetMediaSeasonVisible(ctx context.Context, mediaID string, visibility MediaVisibility) (*model.MediaView, error) {
+	media, err := s.repo.MediaView.FindByID(ctx, mediaID)
+	if err != nil || media == nil || !visibility.AllowsView(media) || media.SeasonID == "" {
+		return nil, err
+	}
+	season, err := s.repo.MediaView.FindSeasonPresentation(ctx, media.SeasonID, visibility.IncludeNSFW)
+	if season != nil {
+		season.SeasonID = media.SeasonID
+		season.SeriesID = media.SeriesID
+	}
+	return season, err
 }
 
 type seriesCardGroup struct {
@@ -61,6 +63,9 @@ func (s *MediaService) ListLibrarySeriesCards(ctx context.Context, libraryID str
 		return nil, 0, err
 	}
 	cards := groupMediaSeriesCards(mediaViewsAsMedia(rows))
+	if err := s.attachSeriesCardPresentations(ctx, cards, visibility); err != nil {
+		return nil, 0, err
+	}
 	cards = filterLibrarySeriesCards(cards, visibility)
 	return cards, int64(len(cards)), nil
 }
@@ -107,6 +112,9 @@ func (s *MediaService) ListRecentSeriesCards(ctx context.Context, limit int, vis
 	}
 	s.attachLibraryMetadataViews(ctx, rows)
 	cards := groupMediaSeriesCards(mediaViewsAsMedia(rows))
+	if err := s.attachSeriesCardPresentations(ctx, cards, visibility); err != nil {
+		return nil, err
+	}
 	recentAt := make(map[string]time.Time, len(cards))
 	for _, row := range rows {
 		id := row.MetadataID
@@ -127,6 +135,29 @@ func (s *MediaService) ListRecentSeriesCards(ctx context.Context, limit int, vis
 		cards = cards[:limit]
 	}
 	return cards, nil
+}
+
+// attachSeriesCardPresentations 仅替换整剧卡片的展示字段，保留文件身份、技术信息和播放目标。
+func (s *MediaService) attachSeriesCardPresentations(ctx context.Context, cards []SeriesCard, visibility MediaVisibility) error {
+	ids := make([]string, 0, len(cards))
+	for _, card := range cards {
+		if card.Rep.SeriesID != "" {
+			ids = append(ids, card.Rep.SeriesID)
+		}
+	}
+	presentations, err := s.repo.MediaView.FindSeriesPresentations(ctx, ids, visibility.IncludeNSFW)
+	if err != nil {
+		return err
+	}
+	for i := range cards {
+		if view, ok := presentations[cards[i].Rep.SeriesID]; ok {
+			doubanRating := view.DoubanRating
+			view.Media = cards[i].Rep
+			view.DoubanRating = doubanRating
+			cards[i].Rep = mediaViewsAsMedia([]model.MediaView{view})[0]
+		}
+	}
+	return nil
 }
 
 func (s *MediaService) ListLibrarySeriesEpisodes(ctx context.Context, libraryID, key string, visibility MediaVisibility) ([]model.MediaView, error) {

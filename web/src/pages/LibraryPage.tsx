@@ -119,12 +119,9 @@ export function LibraryPage() {
 
   const {
     seriesToolBusy,
-    handleSeriesSmartScrape,
     handleSeriesProbe,
-    handleSeriesOrganize,
     handleSeriesSoftDelete,
   } = useLibraryAdminActions({
-    library,
     selectedSeries,
     selectedSeriesEpisodes,
     reloadCurrentLibrary,
@@ -194,11 +191,9 @@ export function LibraryPage() {
         isAdmin={role === 'admin'}
         seriesToolBusy={seriesToolBusy}
         onBack={clearSelectedSeries}
-        onSmartScrape={handleSeriesSmartScrape}
         onMetadataEdit={() => setSeriesMetadataEditOpen(true)}
         onProbe={handleSeriesProbe}
         onChanged={reloadCurrentLibrary}
-        onOrganize={handleSeriesOrganize}
         onSoftDelete={handleSeriesSoftDelete}
         onSeasonChange={handleSeasonChange}
       />

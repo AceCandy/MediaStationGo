@@ -116,7 +116,7 @@ type nfoDocument struct {
 	Art           nfoArt        `xml:"art"`
 	TMDbID        nfoInt        `xml:"tmdbid"`
 	UniqueIDs     []nfoUniqueID `xml:"uniqueid"`
-	Season        nfoInt        `xml:"season"`
+	Season        string        `xml:"season"`
 	Episode       nfoInt        `xml:"episode"`
 	Genres        []string      `xml:"genre"`
 	Tags          []string      `xml:"tag"`

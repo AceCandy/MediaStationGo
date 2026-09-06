@@ -60,9 +60,9 @@ func (s *ScraperService) persistProviderMetadata(ctx context.Context, media *mod
 	}
 	identifiers := metadataIdentifiersFromMatch(match, entityKind)
 	base := metadataItemFromMatch(match, entityKind, source)
-	preferredID := media.MetadataID
-	if entityKind == model.MetadataKindSeries {
-		preferredID = media.SeriesID
+	preferredID, err := s.preferredScrapeMetadataID(ctx, media, entityKind)
+	if err != nil {
+		return nil, err
 	}
 	canonical, err := s.repo.Metadata.UpsertCanonicalWithMerge(ctx, base, identifiers, preferredID, match.AllowIdentifierMerge)
 	if err != nil {
@@ -152,9 +152,9 @@ func (s *ScraperService) persistLocalMetadata(ctx context.Context, media *model.
 			Provider: "local", EntityKind: model.MetadataKindSeries, ExternalID: localSeriesIdentity(media),
 		})
 	}
-	preferredID := media.MetadataID
-	if entityKind == model.MetadataKindSeries {
-		preferredID = media.SeriesID
+	preferredID, err := s.preferredScrapeMetadataID(ctx, media, entityKind)
+	if err != nil {
+		return nil, err
 	}
 	base := metadataItemFromMatch(match, entityKind, "local")
 	canonical, err := s.repo.Metadata.UpsertCanonical(ctx, base, identifiers, preferredID)
@@ -216,7 +216,32 @@ func (s *ScraperService) persistLocalMetadata(ctx context.Context, media *model.
 	return result, nil
 }
 
-func (s *ScraperService) persistCredits(ctx context.Context, metadataID string, loaded []string, credits []PersonCredit) error {
+// preferredScrapeMetadataID 只沿文件的权威关联定位整剧，扫描分组提示不能作为元数据主键。
+func (s *ScraperService) preferredScrapeMetadataID(ctx context.Context, media *model.Media, kind string) (string, error) {
+	if kind != model.MetadataKindSeries {
+		return media.MetadataID, nil
+	}
+	id := media.MetadataID
+	for depth := 0; id != "" && depth < 3; depth++ {
+		item, err := s.repo.Metadata.FindByID(ctx, id)
+		if err != nil {
+			return "", err
+		}
+		if item == nil {
+			return "", errors.New("linked metadata not found")
+		}
+		if item.Kind == model.MetadataKindSeries {
+			return item.ID, nil
+		}
+		if (item.Kind != model.MetadataKindEpisode && item.Kind != model.MetadataKindSeason) || item.ParentID == nil {
+			return "", nil
+		}
+		id = *item.ParentID
+	}
+	return "", nil
+}
+
+func (s *ScraperService) persistCredits(ctx context.Context, metadataID string, loaded []string, credits []PersonCredit, refreshImages ...bool) error {
 	if s == nil || s.repo == nil || s.repo.Person == nil || len(loaded) == 0 {
 		return nil
 	}
@@ -224,7 +249,11 @@ func (s *ScraperService) persistCredits(ctx context.Context, metadataID string, 
 	for _, credit := range credits {
 		input := repository.CreditInput{Provider: credit.Provider, ExternalID: credit.ExternalID, Name: credit.Name, Overview: credit.Overview, ProfileURL: credit.ProfileURL, Type: credit.Type, OriginalRole: credit.OriginalRole, SortOrder: credit.SortOrder}
 		if s.people != nil && strings.TrimSpace(credit.ProfileURL) != "" {
-			if key, err := s.people.Import(ctx, credit.ProfileURL); err != nil {
+			importImage := s.people.ImportCached
+			if len(refreshImages) > 0 && refreshImages[0] {
+				importImage = s.people.Import
+			}
+			if key, err := importImage(ctx, credit.ProfileURL); err != nil {
 				if s.log != nil {
 					s.log.Warn("people image localization failed during scrape", zap.String("person", credit.Name), zap.Error(err))
 				}

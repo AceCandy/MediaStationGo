@@ -1,16 +1,15 @@
-import { Database, FolderInput, MoreHorizontal, Pencil, RefreshCw, Trash2, type LucideIcon } from 'lucide-react'
+import { Database, MoreHorizontal, Pencil, RefreshCw, Trash2, type LucideIcon } from 'lucide-react'
 
 type MediaDetailAdminMenuProps = {
   label?: string
   refreshLabel?: string
   disabled?: boolean
-  onTMDbRefresh: () => void
+  onTMDbRefresh?: () => void
   tmdbRefreshPending: boolean
   onDoubanEnrich?: () => void
   doubanEnrichmentPending: boolean
   doubanDegraded: boolean
   onMetadataEdit: () => void
-  onOrganize: () => void
   onProbe: () => void
   onSoftDelete: () => void
 }
@@ -26,7 +25,6 @@ export function MediaDetailAdminMenu({
   doubanEnrichmentPending,
   doubanDegraded,
   onMetadataEdit,
-  onOrganize,
   onProbe,
   onSoftDelete,
 }: MediaDetailAdminMenuProps) {
@@ -61,7 +59,7 @@ export function MediaDetailAdminMenu({
         aria-label="管理操作"
         className="absolute left-0 top-full z-50 mt-2 w-64 max-w-[calc(100vw-4rem)] overflow-hidden rounded-xl border border-[var(--app-border)] bg-[var(--app-panel)] p-1.5 shadow-xl"
       >
-        <AdminMenuItem icon={RefreshCw} iconClass={`text-[var(--app-gold)] ${tmdbRefreshPending ? 'animate-spin' : ''}`} label={tmdbRefreshPending ? '处理中…' : refreshLabel} disabled={tmdbRefreshPending} onClick={onTMDbRefresh} onClose={close} />
+        {onTMDbRefresh && <AdminMenuItem icon={RefreshCw} iconClass={`text-[var(--app-gold)] ${tmdbRefreshPending ? 'animate-spin' : ''}`} label={tmdbRefreshPending ? '处理中…' : refreshLabel} disabled={tmdbRefreshPending} onClick={onTMDbRefresh} onClose={close} />}
         {onDoubanEnrich && (
           <AdminMenuItem
             icon={RefreshCw}
@@ -73,7 +71,6 @@ export function MediaDetailAdminMenu({
           />
         )}
         <AdminMenuItem icon={Pencil} iconClass="text-[var(--app-muted)]" label="编辑元数据" onClick={onMetadataEdit} onClose={close} />
-        <AdminMenuItem icon={FolderInput} iconClass="text-[var(--app-gold)]" label="整理入库" onClick={onOrganize} onClose={close} />
         <AdminMenuItem icon={Database} iconClass="text-[var(--app-muted)]" label="强制探测媒体轨 (ffprobe)" onClick={onProbe} onClose={close} />
         <div className="mx-2 my-1.5 border-t border-[var(--app-border)]" />
         <AdminMenuItem icon={Trash2} iconClass="text-red-500" label="永久删除" danger onClick={onSoftDelete} onClose={close} />

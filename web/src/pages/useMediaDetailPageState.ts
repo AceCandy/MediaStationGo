@@ -46,7 +46,6 @@ export function useMediaDetailPageState({ id, navigate, backTarget, singleVersio
   const [selectedMediaProbing, setSelectedMediaProbing] = useState(false)
   const [selectedMediaError, setSelectedMediaError] = useState('')
   const [metadataEditOpen, setMetadataEditOpen] = useState(false)
-  const [organizeOpen, setOrganizeOpen] = useState(false)
 
   const refresh = useMediaDetailRefresh({ id, setMedia, setFavourite, setLoading })
   const actions = useMediaDetailActions({
@@ -153,11 +152,9 @@ export function useMediaDetailPageState({ id, navigate, backTarget, singleVersio
     probing: showingCurrentMedia ? probing : selectedMediaProbing,
     probeError: showingCurrentMedia ? probeError : selectedMediaError,
     metadataEditOpen,
-    organizeOpen,
     refresh,
     handleMetadataSaved,
     setMetadataEditOpen,
-    setOrganizeOpen,
     selectVersion: setSelectedVersionID,
     ...actions,
   }

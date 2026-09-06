@@ -23,8 +23,6 @@ func (s *ScraperService) processNextMediaScrape(ctx context.Context) (bool, erro
 	}
 	s.wakeMediaScrapeWorkers()
 	startedAt := time.Now()
-	s.scrapeRunMu.RLock()
-	defer s.scrapeRunMu.RUnlock()
 
 	name := strings.TrimSpace(group.Representative.Title)
 	if name == "" {
@@ -37,13 +35,21 @@ func (s *ScraperService) processNextMediaScrape(ctx context.Context) (bool, erro
 	var task *TaskHandle
 	if s.tasks != nil {
 		task = s.tasks.StartTriggered(TaskKindScrape, trigger, "媒体入库刮削："+name, TaskUpdate{
-			Stage: "scrape", SourcePath: group.Representative.Path, Message: "正在处理已入库媒体刮削",
+			Stage: "waiting", SourcePath: group.Representative.Path, Message: "已领取入库任务，等待刮削资源",
 		})
 		if task == nil {
 			_ = s.resetScrapeGroupPending(context.Background(), *group)
 			return false, errors.New("create scrape task execution failed")
 		}
 	}
+	s.scrapeRunMu.RLock()
+	defer s.scrapeRunMu.RUnlock()
+	if ctx.Err() != nil {
+		_ = s.resetScrapeGroupPending(context.Background(), *group)
+		task.Finish(ctx.Err(), TaskUpdate{Stage: "completed", Message: "入库任务已取消"})
+		return false, ctx.Err()
+	}
+	task.Update(TaskUpdate{Stage: "scrape", Message: "正在处理已入库媒体刮削"})
 	options := ScrapeOptions{}
 	options.DeferEpisodeDetails = true
 	options.timings = &scrapeTimings{}

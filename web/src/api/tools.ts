@@ -28,11 +28,6 @@ export interface OrganizeSource {
 }
 
 export const toolsAPI = {
-  organizeMedia: (mediaID: string, opts?: OrganizeOverrides) =>
-    api
-      .post<{ path: string }>(`/admin/media/${mediaID}/organize`, opts ?? {})
-      .then((r) => r.data),
-
   organizeLibrary: (libraryID: string, opts?: OrganizeOverrides) =>
     api
       .post<Record<string, unknown>>(

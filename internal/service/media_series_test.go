@@ -12,6 +12,169 @@ import (
 	"github.com/ShukeBta/MediaStationGo/internal/repository"
 )
 
+func TestLibrarySeriesCardsUseSeriesPresentationAndKeepEpisodeTarget(t *testing.T) {
+	db := newServiceTestDB(t, &model.Library{}, &model.Media{}, &model.MediaProbeMetadata{}, &model.MetadataProviderSnapshot{})
+	repos := repository.New(db)
+	lib := model.Library{Name: "剧库", Path: "/fixture/series-cards", Type: "tv", Enabled: true}
+	if err := repos.Library.Create(t.Context(), &lib); err != nil {
+		t.Fatal(err)
+	}
+	series := createServiceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindSeries, Title: "以吾之名", Overview: "整剧简介", Year: 2021, Rating: 8.3})
+	season := createServiceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindSeason, ParentID: &series.ID, SeasonNum: 1, Title: "第一季"})
+	episode := createServiceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindEpisode, ParentID: &season.ID, EpisodeNum: 1, Title: "复仇", Overview: "单集简介", Rating: 9.1})
+	poster := createServiceTestArtwork(t, db, series.ID, model.ArtworkTypePoster, "series-card-poster")
+	media := model.Media{LibraryID: lib.ID, MetadataID: episode.ID, Path: lib.Path + "/以吾之名/Season 1/S01E01.mkv", SeasonNum: 1, EpisodeNum: 1, ScrapeStatus: "matched"}
+	if err := db.Create(&media).Error; err != nil {
+		t.Fatal(err)
+	}
+	svc := NewMediaService(&config.Config{}, zap.NewNop(), repos)
+	cards, total, err := svc.ListLibrarySeriesCards(t.Context(), lib.ID, MediaVisibility{})
+	if err != nil || total != 1 || len(cards) != 1 {
+		t.Fatalf("cards=%+v total=%d err=%v", cards, total, err)
+	}
+	card := cards[0]
+	if card.Rep.Title != series.Title || card.Rep.PosterURL != poster || card.Rep.Year != 2021 || card.Rep.Rating != series.Rating || card.Rep.Overview != series.Overview {
+		t.Fatalf("wrong card presentation: %+v", card.Rep)
+	}
+	if card.Rep.ID != media.ID || card.Rep.MetadataID != episode.ID || card.LinkMedia.ID != media.ID || card.LinkMedia.MetadataID != episode.ID || card.LinkMedia.Title != episode.Title {
+		t.Fatalf("card changed episode target: %+v", card)
+	}
+	if card.Key != mediaSeriesKey(card.LinkMedia) {
+		t.Fatal("presentation changed navigation key")
+	}
+	missing, n, err := svc.ListLibrarySeriesCards(t.Context(), lib.ID, MediaVisibility{MissingPoster: true})
+	if err != nil || n != 0 || len(missing) != 0 {
+		t.Fatalf("series with poster reported missing: %+v %v", missing, err)
+	}
+	view, err := repos.MediaView.FindByID(t.Context(), media.ID)
+	if err != nil || view.Title != episode.Title || view.PosterURL != "" || view.Year != 0 {
+		t.Fatalf("episode projection changed: %+v %v", view, err)
+	}
+	for _, visibility := range []MediaVisibility{{HiddenLibraryIDs: []string{lib.ID}}, {AllowedLibraryIDs: []string{"other-library"}}} {
+		cards, n, err := svc.ListLibrarySeriesCards(t.Context(), lib.ID, visibility)
+		if err != nil || n != 0 || len(cards) != 0 {
+			t.Fatalf("hidden library leaked: %+v %v", cards, err)
+		}
+	}
+	if err := db.Where("metadata_id = ?", series.ID).Delete(&model.MetadataArtwork{}).Error; err != nil {
+		t.Fatal(err)
+	}
+	createServiceTestArtwork(t, db, episode.ID, model.ArtworkTypePoster, "episode-card-poster")
+	cards, n, err = svc.ListLibrarySeriesCards(t.Context(), lib.ID, MediaVisibility{MissingPoster: true})
+	if err != nil || n != 1 || cards[0].Rep.PosterURL != "" {
+		t.Fatalf("episode artwork substituted for series: %+v %v", cards, err)
+	}
+}
+
+func TestMediaSeasonDetailUsesCanonicalArtworkAndVisibility(t *testing.T) {
+	db := newServiceTestDB(t, &model.Library{}, &model.Media{}, &model.MediaProbeMetadata{})
+	repos := repository.New(db)
+	lib := model.Library{Name: "季封面", Path: "/fixture/season", Type: "tv", Enabled: true}
+	if err := repos.Library.Create(t.Context(), &lib); err != nil {
+		t.Fatal(err)
+	}
+	series := createServiceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindSeries, Title: "整剧"})
+	season := createServiceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindSeason, ParentID: &series.ID, SeasonNum: 2, Title: "第二季"})
+	episode := createServiceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindEpisode, ParentID: &season.ID, EpisodeNum: 1, Title: "第一集"})
+	poster := createServiceTestArtwork(t, db, season.ID, model.ArtworkTypePoster, "season-poster")
+	createServiceTestArtwork(t, db, series.ID, model.ArtworkTypePoster, "series-poster")
+	svc := NewMediaService(&config.Config{}, zap.NewNop(), repos)
+	for _, target := range []*model.MetadataItem{episode, season, series} {
+		media := model.Media{LibraryID: lib.ID, MetadataID: target.ID, Path: lib.Path + "/" + target.Kind + ".mkv", SeasonNum: 99}
+		if err := db.Create(&media).Error; err != nil {
+			t.Fatal(err)
+		}
+		got, err := svc.GetMediaSeasonVisible(t.Context(), media.ID, MediaVisibility{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if target == series {
+			if got != nil {
+				t.Fatalf("invented season: %+v", got)
+			}
+			continue
+		}
+		if got == nil || got.ID != season.ID || got.SeasonNum != 2 || got.Title != season.Title || got.PosterURL != poster || got.Path != "" {
+			t.Fatalf("wrong season presentation: %+v", got)
+		}
+		for _, visibility := range []MediaVisibility{{LibraryRestricted: true}, {HiddenLibraryIDs: []string{lib.ID}}, {AllowedLibraryIDs: []string{"other"}}} {
+			got, err = svc.GetMediaSeasonVisible(t.Context(), media.ID, visibility)
+			if err != nil || got != nil {
+				t.Fatalf("visibility leak: %+v %v", got, err)
+			}
+		}
+		if err := db.Model(season).Update("nsfw", true).Error; err != nil {
+			t.Fatal(err)
+		}
+		got, err = svc.GetMediaSeasonVisible(t.Context(), media.ID, MediaVisibility{})
+		if err != nil || got != nil {
+			t.Fatalf("NSFW season leak: %+v %v", got, err)
+		}
+		got, err = svc.GetMediaSeasonVisible(t.Context(), media.ID, MediaVisibility{IncludeNSFW: true})
+		if err != nil || got == nil {
+			t.Fatalf("NSFW opt-in failed: %+v %v", got, err)
+		}
+		if err := db.Model(season).Update("nsfw", false).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := svc.GetMediaSeasonVisible(t.Context(), season.ID, MediaVisibility{})
+	if err != nil || got != nil {
+		t.Fatalf("metadata ID accepted as file: %+v %v", got, err)
+	}
+}
+
+func TestMediaSeriesDetailSupportsEveryAttachmentLevel(t *testing.T) {
+	db := newServiceTestDB(t, &model.Library{}, &model.Media{}, &model.MediaProbeMetadata{}, &model.MetadataProviderSnapshot{})
+	repos := repository.New(db)
+	lib := model.Library{Name: "剧集关联测试", Path: "/fixture/series-attachment", Type: "tv", Enabled: true}
+	if err := repos.Library.Create(t.Context(), &lib); err != nil {
+		t.Fatal(err)
+	}
+	series := createServiceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindSeries, Title: "整剧", Overview: "整剧简介"})
+	svc := NewMediaService(&config.Config{}, zap.NewNop(), repos)
+	check := func(target *model.MetadataItem) {
+		t.Helper()
+		media := model.Media{LibraryID: lib.ID, MetadataID: target.ID, Path: lib.Path + "/" + target.Kind + ".mkv"}
+		if err := db.Create(&media).Error; err != nil {
+			t.Fatal(err)
+		}
+		got, err := svc.GetMediaSeriesVisible(t.Context(), media.ID, MediaVisibility{})
+		if err != nil || got == nil || got.ID != series.ID || got.Title != series.Title || got.Overview != series.Overview || got.Path != "" {
+			t.Fatalf("%s attachment: %#v, %v", target.Kind, got, err)
+		}
+		for _, visibility := range []MediaVisibility{{LibraryRestricted: true}, {HiddenLibraryIDs: []string{lib.ID}}, {AllowedLibraryIDs: []string{"other"}}} {
+			got, err := svc.GetMediaSeriesVisible(t.Context(), media.ID, visibility)
+			if err != nil || got != nil {
+				t.Fatalf("visibility leak: %#v, %v", got, err)
+			}
+		}
+		if err := db.Model(series).Update("nsfw", true).Error; err != nil {
+			t.Fatal(err)
+		}
+		got, err = svc.GetMediaSeriesVisible(t.Context(), media.ID, MediaVisibility{})
+		if err != nil || got != nil {
+			t.Fatalf("NSFW Series leaked: %#v, %v", got, err)
+		}
+		got, err = svc.GetMediaSeriesVisible(t.Context(), media.ID, MediaVisibility{IncludeNSFW: true})
+		if err != nil || got == nil {
+			t.Fatalf("NSFW opt-in failed: %#v, %v", got, err)
+		}
+		if err := db.Model(series).Update("nsfw", false).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	check(series) // 尚无季、集时，也必须能读取整剧。
+	season := createServiceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindSeason, ParentID: &series.ID, SeasonNum: 1, Title: "第一季"})
+	check(season)
+	episode := createServiceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindEpisode, ParentID: &season.ID, EpisodeNum: 1, Title: "第一集"})
+	check(episode)
+	got, err := svc.GetMediaSeriesVisible(t.Context(), series.ID, MediaVisibility{IncludeNSFW: true})
+	if err != nil || got != nil {
+		t.Fatalf("metadata ID accepted as file: %#v, %v", got, err)
+	}
+}
+
 func TestMediaSeriesDetailOwnsMetadataAndUserScope(t *testing.T) {
 	db := newServiceTestDB(t, &model.Library{}, &model.Media{}, &model.MediaProbeMetadata{}, &model.MetadataProviderSnapshot{}, &model.PlaybackHistory{}, &model.Favorite{})
 	repos := repository.New(db)
@@ -77,7 +240,7 @@ func TestMediaSeriesDetailOwnsMetadataAndUserScope(t *testing.T) {
 }
 
 func TestListRecentSeriesCardsCountsAllEpisodesInSeries(t *testing.T) {
-	db := newServiceTestDB(t, &model.Library{}, &model.Media{})
+	db := newServiceTestDB(t, &model.Library{}, &model.Media{}, &model.MediaProbeMetadata{})
 	repos := repository.New(db)
 	lib := model.Library{Name: "国漫", Path: "/media/anime", Type: "anime", Enabled: true}
 	if err := repos.Library.Create(t.Context(), &lib); err != nil {
@@ -128,6 +291,9 @@ func TestListRecentSeriesCardsCountsAllEpisodesInSeries(t *testing.T) {
 	}
 	if cards[0].Count != 40 {
 		t.Fatalf("recent series count = %d, want full 40 episodes", cards[0].Count)
+	}
+	if cards[0].Rep.Title != series.Title {
+		t.Fatalf("recent card title = %q", cards[0].Rep.Title)
 	}
 }
 
@@ -444,6 +610,63 @@ func TestMediaSeriesKeyUsesSeriesDirectoryExternalID(t *testing.T) {
 	}
 	if got, want := mediaSeriesKey(episodeIDOnly), mediaSeriesKey(cleanFolder); got != want {
 		t.Fatalf("episode filename tmdb id should not split clean folder key=%q, want %q", got, want)
+	}
+}
+
+func TestGroupMediaSeriesCardsPrioritizesCanonicalSeriesOverEpisodeHints(t *testing.T) {
+	var items []model.Media
+	for _, show := range []struct {
+		id                 string
+		episodes, versions int
+	}{{"series-one", 167, 2}, {"series-three", 123, 1}} {
+		for episode := 1; episode <= show.episodes; episode++ {
+			for version := 0; version < show.versions; version++ {
+				item := model.Media{
+					PermanentBase: model.PermanentBase{ID: fmt.Sprintf("%s-%d-%d", show.id, episode, version)},
+					LibraryID:     "tv", SeriesID: show.id, MetadataID: fmt.Sprintf("%s-episode-%d", show.id, episode),
+					SeriesTitle: "相同展示名", Title: fmt.Sprintf("第 %d 集", episode),
+					Path:      fmt.Sprintf("/media/tv/%s/version-%d/S01E%03d.mkv", show.id, version, episode),
+					SeasonNum: 1, EpisodeNum: episode, TMDbID: 1000 + episode, ScrapeStatus: "matched",
+				}
+				if episode <= 36 {
+					item.Year = 2011
+				}
+				items = append(items, item)
+			}
+		}
+	}
+	cards := groupMediaSeriesCards(items)
+	if len(cards) != 2 {
+		t.Fatalf("got %d cards, want two canonical Series", len(cards))
+	}
+	resolver := newMediaSeriesKeyResolver(items)
+	for _, card := range cards {
+		want := 167
+		if card.Rep.SeriesID == "series-three" {
+			want = 123
+		}
+		if card.Count != want {
+			t.Fatalf("%s count=%d, want %d", card.Rep.SeriesID, card.Count, want)
+		}
+		files := 0
+		for _, item := range items {
+			if resolver.key(item) == card.Key {
+				files++
+				if item.SeriesID != card.Rep.SeriesID {
+					t.Fatal("different Series merged through shared hints")
+				}
+				if newMediaSeriesKeyResolver([]model.Media{item}).key(item) != card.Key {
+					t.Fatal("group key depends on page contents")
+				}
+			}
+		}
+		wantFiles := want
+		if card.Rep.SeriesID == "series-one" {
+			wantFiles *= 2
+		}
+		if files != wantFiles {
+			t.Fatalf("selection returned %d files, want %d", files, wantFiles)
+		}
 	}
 }
 

@@ -104,6 +104,9 @@ func (c *Container) Boot() {
 			c.Log.Warn("start TMDB snapshot backfill failed", zap.Error(err))
 		}
 		c.Scraper.StartCatalogHydrationWorker(c.stopCtx)
+		if err := c.Scraper.StartSeriesLocalCorrection(c.stopCtx, true); err != nil {
+			c.Log.Warn("start series local correction failed", zap.Error(err))
+		}
 	}
 	go c.warmMediaSearchIndex(c.stopCtx)
 

@@ -273,6 +273,14 @@ db.Model(&credit).
   fallback, NFO-only libraries, and explicitly requested adult-code operations
   remain separate from automatic provider name matching.
 - Provider match enriches one canonical `MetadataItem`, its identifiers and managed artwork, then links every matching file through `Media.MetadataID`.
+- `Media.SeriesID` maps to `series_hint` and may contain a directory hash; never
+  pass it as `UpsertCanonical`'s preferred primary key. Provider and local
+  persistence use `preferredScrapeMetadataID`: resolve existing Series ownership
+  only through `Media.MetadataID` and its Season/Episode parent chain. Unlinked
+  files resolve/create by provider or local identifiers. Database errors propagate.
+  PostgreSQL regressions must use a real `localSeriesIdentity` hint, no automatic
+  metadata fixtures, and verify canonical episode visibility plus idempotent
+  rescraping of direct Series, Season, and Episode attachments.
 - `TMDbProvider.GetMovieMatch` and `GetTVMatch` mark their `Match` as containing
   complete TMDb details. Persistence saves languages, countries, and genres
   from that match without issuing a duplicate `GetDetails` request. Search-only
@@ -282,6 +290,12 @@ db.Model(&credit).
 - Provider no-match may import existing NFO and sidecar images. Provider error or timeout must set an error state and must not fall back to local metadata.
 - Movie and series identifiers include `EntityKind`; equal numeric IDs across kinds or providers must not collide.
 - Season rows require a parent Series, `season_num >= 0`, and `episode_num = 0`. Episode rows require a parent Season, `season_num = 0`, and `episode_num > 0`. Movie and Series rows have no parent or episodic position.
+- NFO season parsing preserves the raw field: explicit integer `0` is a valid
+  Special season, not an omitted value. `mergeEpisodeMetadata` accepts only
+  explicit nonnegative integers; empty, absent, invalid and negative values do
+  not override an existing season. Regression fixtures must combine an actual
+  `tvshow.nfo` season -1 with an episode NFO season 0 and exercise scrape retry,
+  not merely repair a database row before the later NFO read.
 - An unowned provider identifier may be attached to the current metadata. A corrected ID from the same provider/kind replaces the stale ID on that metadata in the same transaction.
 - If an identifier already belongs to another metadata, automatic graph merge requires an explicit provider crosswalk or user confirmation. Title/year/similarity evidence alone must not authorize merge.
 - Graph merge recursively pairs Series children by season and episode number, moves media and metadata-owned state, deduplicates user relations, then hard-deletes the unreferenced source metadata.
@@ -1556,9 +1570,15 @@ if degraded {
 - Series details create every Season shell, including Season 0. One seasons
   turn hydrates one Season and all Episodes listed by that Season response,
   then yields to another job.
-- Season and Episode shells keep `Overview` empty. Only the entity's own detail
-  response may populate it during full hydration; inventory summaries and
-  ancestor descriptions are never copied into child metadata.
+- Season inventory may populate each Episode's own title, overview, air date,
+  rating and runtime before full hydration. Reuse persisted Season snapshots
+  and request each missing Season once per ingestion group; do not mark basic
+  inventory as full metadata/artwork completion or overwrite completed/local fields.
+  Ancestor descriptions are never copied into child metadata.
+- Series group synchronization binds each file by its own season/episode coordinates;
+  only versions of the same Episode share its attachment. Failed matching preserves
+  existing attachments; conflicting provider IDs and unknown season coordinates
+  must not silently inherit the representative's Episode ID.
 - Every TMDb Series, Season, and Episode stores its own TMDb identifier, typed
   display fields, credits, complete provider response JSONB, and selected
   original image bytes. Episode runtime is seconds on `MetadataItem`.
@@ -1568,22 +1588,53 @@ if degraded {
   from Series or Season. NFO/scanner episode-title hints are internal input and
   must be normalized into `MetadataItem.Title`, never serialized as a second
   API field.
+- Library and recent Series cards are a separate presentation boundary:
+  `FindSeriesPresentations` batch-loads the visible cards' canonical Series
+  fields, then `attachSeriesCardPresentations` replaces only `SeriesCard.Rep`
+  display fields. Preserve file identity, technical facts, grouping key, count
+  and the unmodified `LinkMedia` playback target. Apply missing-poster/title
+  filters after this projection. Never copy ancestor fields into Episode rows
+  or use an Episode poster when the Series has no poster.
+- `mediaSeriesKeyResolver.key` must honor an existing canonical Series ID before
+  heuristic external-ID/title/year grouping. Episode provider IDs can repeat
+  across file versions, and Episode years can be missing or differ within one
+  Series; neither may split or merge confirmed Series identities. The same
+  resolver serves card grouping and episode selection. Regression:
+  `TestGroupMediaSeriesCardsPrioritizesCanonicalSeriesOverEpisodeHints` checks
+  167 two-version Episodes and 123 mixed-year Episodes form two cards, with
+  complete file selection and subset-independent keys.
+- Regression: `TestLibrarySeriesCardsUseSeriesPresentationAndKeepEpisodeTarget`
+  must cover owned title/year/rating/artwork, unchanged Episode detail/playback
+  identity, library visibility and missing-poster filtering. Recent cards must
+  retain complete logical-episode counts and show the Series title.
 - Startup compatibility migration copies each non-blank legacy Episode
   `episode_title` into `title` before dropping the column. A blank legacy value
   preserves the existing title, non-Episode rows are unchanged, and repeated
   startup skips the absent column.
 - Season/Episode title and overview localization considers only that entity's
   TMDb response and translations. Prefer a concrete top-level Chinese value,
-  then `zh-CN`, `zh-SG/HK/TW`, other Chinese, `en-US`, and other translations.
+  then `zh-CN`, `zh-SG/HK/TW`, other Chinese, `en-US`, and other English.
+  Title candidates must have a `zh` or `en` language tag; never select an
+  arbitrary-language translation (e.g. Thai `ซีซั่น 1`) over `第 1 季`.
+  Preserve a concrete upstream title when no allowed translation exists.
+  Overview fallback may still use other languages; do not narrow it as a
+  side effect of title repair.
   Generated labels such as `Episode 1`, `第 1 集`, `Season 1`, and `Specials`
   do not beat a concrete translation; generate a numbered fallback only when
   no concrete entity-owned title exists.
-- Worker startup keyset-pages TMDb Season/Episode JSONB snapshots in batches
-  and reapplies the same localization rules without network requests. It
-  updates only `source=tmdb` metadata, never manual metadata, and skips writes
-  when the owned display fields are already current. A malformed or failed
-  individual snapshot is logged by metadata ID and skipped so later rows and
-  pages still run; list-query or context errors terminate the pass.
+  Regression: `TestPreferredTMDbEntityTitleRejectsUnrelatedTranslationLanguage`
+  covers numbered Season/Episode fallbacks and preserved concrete titles;
+  `TestLocalizeTMDbCatalogSnapshotsRepairsUnrelatedSeasonTranslation` checks
+  historical repair from the original snapshot and repeat execution.
+- `series_local_correction` keyset-pages TMDb Season/Episode JSONB snapshots
+  without network requests. Startup runs it asynchronously once per successful
+  rules version; manual execution bypasses the version marker. It does not gate
+  media/catalog worker startup. Only `source=tmdb` rows are selected. Writes
+  atomically require both `source=tmdb` and the read-time `updated_at`, and update
+  only title, overview and original_name. A concurrent edit is skipped, never
+  overwritten; unchanged display fields do not write. Malformed/failed items
+  are logged by metadata ID while later pages continue, but any failure prevents
+  recording completion. List-query/context errors terminate the pass.
 - Own metadata and own artwork checkpoints advance independently. Episode full
   completion requires both; Season waits for all expected Episodes; Series and
   its job wait for all expected Seasons. Explicitly absent image paths satisfy
@@ -1870,6 +1921,9 @@ TMDbEpisodeCheckedAt *time.Time `gorm:"column:tmdb_episode_checked_at;index"`
   `sha256/ab/cd/<hash>.jpg`.
 - `PeopleImageStore.Import(ctx, source) (key, error)` validates and atomically
   stores image bytes.
+- `PeopleImageStore.ImportCached(ctx, source)` reuses successful remote imports
+  through a private bounded in-process `RuntimeCacheService` for 24 hours.
+  Explicit TMDb refresh uses direct Import via `persistCredits(..., true)`.
 - `PeopleImageStore.ServePerson(ctx, writer, request, personID)` serves only a
   validated local key and reports whether the ID belongs to a person.
 - Public image contract remains `GET /Items/{id}/Images/Primary` and its
@@ -1882,6 +1936,12 @@ TMDbEpisodeCheckedAt *time.Time `gorm:"column:tmdb_episode_checked_at;index"`
 - Profile downloads happen before credit persistence writes the person and
   bypass `cache/images`; image network errors are warnings and do not fail the
   authoritative scrape.
+- Normal credit persistence reuses a successful remote URL only while the local
+  file is valid and its computed storage key matches the cached key. Cache expiry,
+  eviction or process restart causes another direct import. Local source files
+  are always reread; failures never create a success mapping. Do not infer a
+  successful URL/key mapping from Person alone: a failed refresh can retain an
+  old key alongside a new source URL.
 - A successful refresh replaces the key only after validation and atomic write;
   a failed refresh preserves the prior key and file.
 - There is no startup image migration or request-time lazy download. The
@@ -1902,6 +1962,8 @@ TMDbEpisodeCheckedAt *time.Time `gorm:"column:tmdb_episode_checked_at;index"`
 | Profile source changes | Import the new image before updating the key/source pair |
 | Key escapes the people root | Reject it and serve the placeholder |
 | Person has no usable local key | Serve the placeholder without network I/O |
+| Successful source is cached and local bytes match its hash key | Reuse without a network request |
+| Cached local bytes are missing, corrupt, or belong to another image | Download and atomically repair before returning the key |
 | `cache/images` contains bytes or a failure marker for the source | Ignore it and perform direct import |
 
 ### 5. Good / Base / Bad Cases
@@ -1923,6 +1985,9 @@ TMDbEpisodeCheckedAt *time.Time `gorm:"column:tmdb_episode_checked_at;index"`
   failed refresh preservation.
 - Remote import: assert no image or failure marker is created under
   `cache/images`.
+- `TestPersistCreditsReusesRemoteProfile`: separate works reuse one download;
+  missing/wrong local bytes are repaired, explicit refresh downloads again,
+  source changes are fetched and failed downloads remain retryable.
 - Emby: local bytes for GET and HEAD, `/Items` and `/emby/Items` prefixes,
   uppercase/lowercase route variants, and transparent placeholder on failure.
 - Compatibility: existing movie/series artwork tests and cache cleanup behavior
@@ -2087,6 +2152,11 @@ Series detail separates canonical Series presentation from selected Episode and 
 ### 2. Signatures
 
 - `GET /api/media/:id/series` returns `{series, favourite}`.
+- `GET /api/media/:id/season` returns `{season}` (nullable). Resolve only through
+  the visible file's canonical `MediaView.SeasonID`, validate Season kind/NSFW,
+  and return Season-owned title, season number and managed artwork. Missing,
+  hidden or unbound media returns no Season; never use scan hints or substitute
+  Series/Episode artwork. This is read-only and never creates metadata.
 - `PUT /api/media/:id/series/favorite` accepts `{favourite: boolean}`.
 - `GET /api/media/:id/credits?scope=series` reads Series credits.
 - Manual metadata updates accept optional `scope: "series"`.
@@ -2096,6 +2166,8 @@ Series detail separates canonical Series presentation from selected Episode and 
 
 - Media route IDs are visible concrete file IDs, never the returned Series metadata ID. Series presentation contains its own title, overview, providers and artwork, without representative-file technical fields.
 - Series edits update canonical Series metadata once; they must not rewrite Episode titles, coordinates or file linkage. Default movie/episode updates remain unchanged.
+- Resolve Series through the validated file's `MediaView.SeriesID`, which supports direct Series, Season and Episode attachments. Read own metadata with `FindSeriesPresentation`; do not require an Episode representative from the search query. Validate both file visibility and Series NSFW status. A direct Series attachment may legitimately have no Season/Episode rows.
+- Missing episode coordinates are displayed as an associated file, not `E0` or episode zero. Do not create hierarchy records just to satisfy detail-page rendering.
 - History covers all visible episode identities, not only the recent-history page. Administrative actions retain all concrete files even when episode cards are deduplicated.
 - URL season/episode/version selects the current file; version must belong to the selected logical episode. Series version selection retargets playback, unlike the existing movie display-only version contract.
 
@@ -2119,6 +2191,7 @@ Series detail separates canonical Series presentation from selected Episode and 
 ### 6. Tests Required
 
 - `TestMediaSeriesDetailOwnsMetadataAndUserScope`: canonical metadata, visibility, edit isolation, favorite identity and user-scoped history. Requires `MEDIASTATION_TEST_POSTGRES_DSN`; a skip is not database validation.
+- `TestMediaSeriesDetailSupportsEveryAttachmentLevel`: Series-only fixture before any Season/Episode exists, then Season and Episode attachments, library restrictions, Series NSFW, and rejection of metadata IDs as concrete file IDs.
 - `node web/scripts/check-series-detail.mjs`: deduplication, URL selection, specials, resume and concrete-version identity.
 - Browser checks: refresh/back restoration, version failure isolation, mobile overflow and theme contrast.
 
@@ -2126,3 +2199,4 @@ Series detail separates canonical Series presentation from selected Episode and 
 
 - Wrong: loop through all episode files and save the Series edit payload to each.
 - Correct: submit one visible file ID with `scope: "series"`, resolve its canonical Series, and leave episode/file linkage untouched.
+- Wrong: reuse Episode-only search representative eligibility to decide whether Series detail exists. Correct: validate the current file, resolve its existing parent chain, and project the Series record directly.

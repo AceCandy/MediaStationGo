@@ -1,10 +1,37 @@
 package service
 
 import (
+	"encoding/xml"
 	"os"
 	"path/filepath"
 	"testing"
 )
+
+func TestMergeEpisodeMetadataExplicitSpecialSeason(t *testing.T) {
+	for _, tc := range []struct {
+		name, season string
+		want         int
+	}{
+		{"special", "<season>0</season>", 0},
+		{"regular", "<season>2</season>", 2},
+		{"omitted", "", -1},
+		{"empty", "<season></season>", -1},
+		{"unknown", "<season>-1</season>", -1},
+		{"none", "<season>None</season>", -1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var doc nfoDocument
+			if err := xml.Unmarshal([]byte("<episodedetails>"+tc.season+"<episode>25</episode></episodedetails>"), &doc); err != nil {
+				t.Fatal(err)
+			}
+			dst := &LocalMetadata{SeasonNum: -1}
+			mergeEpisodeMetadata(dst, metadataFromDoc(&doc, "", true), &doc)
+			if dst.SeasonNum != tc.want || dst.EpisodeNum != 25 {
+				t.Fatalf("coordinates = %d/%d, want %d/25", dst.SeasonNum, dst.EpisodeNum, tc.want)
+			}
+		})
+	}
+}
 
 func TestReadLocalMovieMetadata(t *testing.T) {
 	dir := t.TempDir()

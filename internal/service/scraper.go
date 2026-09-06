@@ -34,6 +34,11 @@ func (s *ScraperService) enrichOneWithOptions(ctx context.Context, m *model.Medi
 	}
 
 	seriesLike := mediaIsEpisodic(m, lib)
+	if seriesLike {
+		if err := s.repairInvalidScrapeSeason(ctx, m); err != nil {
+			return s.markScrapeError(ctx, m.ID, err)
+		}
+	}
 	var local *LocalMetadata
 	var localErr error
 	if isHTTPish(m.Path) {

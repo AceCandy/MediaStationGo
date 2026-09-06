@@ -81,6 +81,10 @@ type TMDbEpisodeSummary struct {
 	ID            int
 	EpisodeNumber int
 	Name          string
+	Overview      string
+	AirDate       string
+	Rating        float32
+	Runtime       int
 }
 
 // TMDbSeasonDetails 保存一季自身详情及其完整 Episode 清单。

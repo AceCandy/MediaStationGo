@@ -234,6 +234,7 @@ func addScanError(res *ScanResult, path string, err error) {
 }
 
 type existingLocalMedia struct {
+	SeasonNum         int
 	ScanFileSizeBytes int64
 	ScanFileMTimeNS   int64
 	FileID            string

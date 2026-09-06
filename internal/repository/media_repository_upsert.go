@@ -270,6 +270,10 @@ func addMediaPlacementUpdates(updates map[string]any, existing, incoming model.M
 	if strings.TrimSpace(existing.ScrapeStatus) == "no_match" && incoming.ScrapeStatus != "matched" && (seasonChanged || episodeChanged) {
 		updates["scrape_status"] = "pending"
 	}
+	if seasonChanged && existing.SeasonNum < 0 && incoming.SeasonNum >= 0 && incoming.EpisodeNum > 0 && existing.ScrapeStatus == "error" && incoming.ScrapeStatus != "matched" {
+		updates["scrape_status"] = "pending"
+		updates["scrape_error"] = ""
+	}
 }
 
 func addMediaPartUpdates(updates map[string]any, existing, incoming model.Media) {

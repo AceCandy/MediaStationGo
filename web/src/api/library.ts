@@ -279,6 +279,7 @@ export const mediaAPI = {
   listVersions: (id: string) => api.get<Media[]>(`/media/${id}/versions`).then((r) => r.data),
 
   series: (id: string) => api.get<{ series: Media; favourite: boolean }>(`/media/${id}/series`).then((r) => r.data),
+  season: (id: string) => api.get<{ season: Media | null }>(`/media/${id}/season`).then((r) => r.data.season),
 
   listCredits: (id: string, scope?: 'series') =>
     api.get<{ items: MediaCredit[] }>(`/media/${id}/credits`, { params: { scope } }).then((r) => r.data.items ?? []),

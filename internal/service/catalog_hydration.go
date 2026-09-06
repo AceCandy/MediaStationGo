@@ -117,9 +117,6 @@ func (s *ScraperService) wakeCatalogHydration() {
 
 func (s *ScraperService) runCatalogHydrationWorker(ctx context.Context) {
 	defer s.catalogHydrationWG.Done()
-	if err := s.localizeTMDbCatalogSnapshots(ctx); err != nil && s.log != nil && ctx.Err() == nil {
-		s.log.Warn("catalog snapshot localization failed", zap.Error(err))
-	}
 	for range autoMediaScrapeWorkerCount {
 		go s.runMediaScrapeWorker(ctx)
 	}
@@ -171,7 +168,7 @@ func (s *ScraperService) runCatalogHydrationWorker(ctx context.Context) {
 				continue
 			}
 		}
-		artworkMetrics := &catalogArtworkMetrics{}
+		artworkMetrics := &catalogArtworkMetrics{task: task}
 		runErr := s.processCatalogJobWithMetrics(ctx, job, artworkMetrics)
 		if task != nil {
 			safeErr := sanitizeCatalogError(runErr)
@@ -331,6 +328,31 @@ func (s *ScraperService) processCatalogJob(ctx context.Context, job *model.Catal
 	return s.processCatalogJobWithMetrics(ctx, job, nil)
 }
 
+// yieldCatalogToMedia 在实体边界让出目录补全持有的写锁，保留当前任务与已完成检查点。
+// 调用方必须持有 scrapeRunMu 写锁；返回前重新取得锁，维持外层解锁约定。
+func (s *ScraperService) yieldCatalogToMedia(ctx context.Context, metrics *catalogArtworkMetrics) error {
+	active, err := s.hasActiveMediaScrapes(ctx)
+	if err != nil || !active {
+		return err
+	}
+	s.scrapeRunMu.Unlock()
+	defer s.scrapeRunMu.Lock()
+	if metrics != nil {
+		metrics.task.Update(TaskUpdate{Stage: "waiting", Message: "暂停目录补全，优先处理媒体入库"})
+	}
+	s.wakeMediaScrapeWorkers()
+	for active {
+		if !s.waitForMediaScrapes(ctx) {
+			return ctx.Err()
+		}
+		active, err = s.hasActiveMediaScrapes(ctx)
+		if err != nil {
+			return err
+		}
+	}
+	return ctx.Err()
+}
+
 func (s *ScraperService) processCatalogJobWithMetrics(ctx context.Context, job *model.CatalogHydrationJob, metrics *catalogArtworkMetrics) error {
 	if job == nil || job.Provider != "tmdb" {
 		return errors.New("unsupported catalog hydration job")
@@ -358,12 +380,18 @@ func (s *ScraperService) hydrateCatalogSeries(ctx context.Context, job *model.Ca
 		return err
 	}
 	for {
+		if err := s.yieldCatalogToMedia(ctx, metrics); err != nil {
+			return err
+		}
 		season, err := s.repo.Metadata.FindIncompleteCatalogChild(ctx, series.ID, model.MetadataKindSeason)
 		if err != nil {
 			return err
 		}
 		if season == nil {
 			break
+		}
+		if metrics != nil {
+			metrics.task.Update(TaskUpdate{Stage: "seasons", Message: fmt.Sprintf("正在补全第 %d 季", season.SeasonNum)})
 		}
 		if err := s.hydrateCatalogSeason(ctx, series, season, tmdbID, metrics); err != nil {
 			return err
@@ -547,12 +575,18 @@ func (s *ScraperService) hydrateCatalogSeason(ctx context.Context, series, seaso
 		}
 	}
 	for {
+		if err := s.yieldCatalogToMedia(ctx, metrics); err != nil {
+			return err
+		}
 		episode, err := s.repo.Metadata.FindIncompleteCatalogChild(ctx, season.ID, model.MetadataKindEpisode)
 		if err != nil {
 			return err
 		}
 		if episode == nil {
 			break
+		}
+		if metrics != nil {
+			metrics.task.Update(TaskUpdate{Stage: "episodes", Message: fmt.Sprintf("正在补全第 %d 季第 %d 集", season.SeasonNum, episode.EpisodeNum)})
 		}
 		if err := s.hydrateCatalogEpisode(ctx, season, episode, tmdbID, metrics); err != nil {
 			return err
@@ -608,12 +642,34 @@ func (s *ScraperService) upsertCatalogSeasonShell(ctx context.Context, series *m
 		title = seasonName(summary.SeasonNumber)
 	}
 	item := &model.MetadataItem{Kind: model.MetadataKindSeason, ParentID: &series.ID, SeasonNum: summary.SeasonNumber, Title: title, ReleaseDate: normalizeReleaseDate(summary.AirDate), Source: "tmdb"}
+	existing, err := s.repo.Metadata.FindSeason(ctx, series.ID, summary.SeasonNumber)
+	if err != nil {
+		return nil, err
+	}
+	if existing != nil {
+		if existing.Source != "tmdb" || existing.CatalogMetadataHydratedAt != nil {
+			return existing, nil
+		}
+		preserveMissingLocalEpisodeDetails(item, existing)
+	}
 	return s.repo.Metadata.UpsertSeasonWithIdentifiers(ctx, item, catalogIdentifiers(model.MetadataKindSeason, summary.ID, TMDbExternalIDs{}))
 }
 
 func (s *ScraperService) upsertCatalogEpisodeShell(ctx context.Context, season *model.MetadataItem, summary TMDbEpisodeSummary) (*model.MetadataItem, error) {
 	title := preferredTMDbEntityTitle(summary.Name, nil, model.MetadataKindEpisode, summary.EpisodeNumber)
-	item := &model.MetadataItem{Kind: model.MetadataKindEpisode, ParentID: &season.ID, EpisodeNum: summary.EpisodeNumber, Title: title, Source: "tmdb"}
+	item := &model.MetadataItem{Kind: model.MetadataKindEpisode, ParentID: &season.ID, EpisodeNum: summary.EpisodeNumber, Title: title, Overview: summary.Overview, ReleaseDate: summary.AirDate, Rating: summary.Rating, RuntimeSec: summary.Runtime * 60, Source: "tmdb"}
+	if season.ParentID != nil {
+		existing, err := s.repo.Metadata.FindEpisode(ctx, *season.ParentID, season.SeasonNum, summary.EpisodeNumber)
+		if err != nil {
+			return nil, err
+		}
+		if existing != nil {
+			if existing.Source != "tmdb" || existing.CatalogMetadataHydratedAt != nil {
+				return existing, nil
+			}
+			preserveMissingLocalEpisodeDetails(item, existing)
+		}
+	}
 	return s.repo.Metadata.UpsertEpisodeWithIdentifiers(ctx, item, catalogIdentifiers(model.MetadataKindEpisode, summary.ID, TMDbExternalIDs{}))
 }
 
@@ -674,6 +730,7 @@ func (s *ScraperService) persistCatalogArtwork(ctx context.Context, metadataID s
 }
 
 type catalogArtworkMetrics struct {
+	task          *TaskHandle
 	Saved         int64
 	Existing      int64
 	SourceMissing int64

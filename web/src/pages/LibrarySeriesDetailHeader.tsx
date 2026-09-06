@@ -11,7 +11,7 @@ import { seriesTitle, type SeriesCard } from '../utils/groupSeries'
 import { MediaDetailBackdrop, MediaDetailPoster } from './MediaDetailArtwork'
 import { MediaDetailMetadata } from './MediaDetailMetadata'
 import { MediaDetailAdminMenu } from './MediaDetailAdminPanel'
-import { seriesResumeEpisode } from './seriesDetailModel'
+import { episodeLabel, seriesResumeEpisode } from './seriesDetailModel'
 
 type LibrarySeriesDetailHeaderProps = {
   series: SeriesCard
@@ -21,14 +21,12 @@ type LibrarySeriesDetailHeaderProps = {
   isAdmin: boolean
   seriesToolBusy: string
   onBack: () => void
-  onSmartScrape: () => void
   onMetadataEdit: () => void
   onProbe: () => void
-  onOrganize: () => void
   onSoftDelete: () => void
 }
 
-export function LibrarySeriesDetailHeader({ series, allEpisodes, history, playbackFrom, isAdmin, seriesToolBusy, onBack, onSmartScrape, onMetadataEdit, onProbe, onOrganize, onSoftDelete }: LibrarySeriesDetailHeaderProps) {
+export function LibrarySeriesDetailHeader({ series, allEpisodes, history, playbackFrom, isAdmin, seriesToolBusy, onBack, onMetadataEdit, onProbe, onSoftDelete }: LibrarySeriesDetailHeaderProps) {
   const [data, setData] = useState<{ series: Media; favourite: boolean } | null>(null)
   const [failed, setFailed] = useState(false)
   const [revision, setRevision] = useState(0)
@@ -65,23 +63,26 @@ export function LibrarySeriesDetailHeader({ series, allEpisodes, history, playba
     }
     return url.pathname + url.search
   }
+  const actions = <div className="space-y-3">
+    <p className="text-sm text-[var(--app-muted)]">共 {series.count} {allEpisodes.some((ep) => ep.episode_num <= 0) ? '项' : '集'}</p>
+    <div className="flex flex-wrap items-center gap-3">
+      {resume && <Link to={`/play/${resume.id}`} state={{ from: resumeFrom() }} className="btn-primary"><Play size={16} fill="currentColor" aria-hidden="true" />{continuing ? '继续观看' : '播放'} · {resume.episode_num > 0 ? `S${resume.season_num} E${resume.episode_num}` : episodeLabel(resume)}</Link>}
+      {isAdmin && allEpisodes.length > 0 && <MediaDetailAdminMenu label="整剧更多操作" disabled={!!seriesToolBusy} tmdbRefreshPending={false} doubanEnrichmentPending={false} doubanDegraded={false} onMetadataEdit={onMetadataEdit} onProbe={onProbe} onSoftDelete={onSoftDelete} />}
+    </div>
+  </div>
 
   return (
     <div className="relative isolate rounded-3xl border border-[var(--app-border)] bg-[var(--app-panel)]">
       <div className="pointer-events-none absolute inset-0 -z-10 overflow-hidden rounded-3xl">{data && <MediaDetailBackdrop media={data.series} />}</div>
       <div className="p-5 sm:p-8">
         <button type="button" onClick={onBack} className="btn-ghost gap-2"><ArrowLeft size={16} />返回媒体库</button>
-        <div className="mt-8 flex flex-col gap-8 md:flex-row lg:gap-12">
-          {data && <div className="mx-auto w-48 shrink-0 md:mx-0 lg:w-64"><MediaDetailPoster media={data.series} playable={false} /></div>}
-          <div className="min-w-0 flex-1 space-y-6">
-            {data ? <MediaDetailMetadata media={data.series} scope="series" isAdmin={isAdmin} favourite={data.favourite} onToggleFavourite={toggleFavourite} onMetadataEdit={onMetadataEdit} /> : (
+        <div className="mt-5 flex items-start gap-4 sm:gap-8 lg:gap-12">
+          {data && <div className="w-20 shrink-0 sm:w-36 md:w-48 lg:w-56"><MediaDetailPoster media={data.series} playable={false} /></div>}
+          <div className="min-w-0 flex-1 space-y-4">
+            {data ? <MediaDetailMetadata media={data.series} scope="series" isAdmin={isAdmin} favourite={data.favourite} onToggleFavourite={toggleFavourite} onMetadataEdit={onMetadataEdit} actions={actions} /> : (
               <><h1 className="font-display text-3xl font-bold text-[var(--app-text)]">{seriesTitle(series.rep)}</h1><p role="status" className="text-sm text-[var(--app-muted)]">{failed ? '整剧信息暂不可用，仍可在下方选集。' : '正在加载整剧信息…'}</p>{failed && <button className="btn-outline" onClick={() => setRevision((value) => value + 1)}>重试整剧信息</button>}</>
             )}
-            <p className="text-sm text-[var(--app-muted)]">共 {series.count} 集 · 在下方切季选集</p>
-            <div className="flex flex-wrap items-center gap-3">
-              {resume && <Link to={`/play/${resume.id}`} state={{ from: resumeFrom() }} className="btn-primary"><Play size={16} fill="currentColor" />{continuing ? '继续观看' : '播放'} · S{resume.season_num} E{resume.episode_num}</Link>}
-              {isAdmin && allEpisodes.length > 0 && <MediaDetailAdminMenu label="整剧更多操作" refreshLabel="整剧智能刮削" disabled={!!seriesToolBusy} onTMDbRefresh={onSmartScrape} tmdbRefreshPending={seriesToolBusy === 'scrape'} doubanEnrichmentPending={false} doubanDegraded={false} onMetadataEdit={onMetadataEdit} onOrganize={onOrganize} onProbe={onProbe} onSoftDelete={onSoftDelete} />}
-            </div>
+            {!data && actions}
           </div>
         </div>
       </div>

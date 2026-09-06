@@ -37,6 +37,10 @@ func newMediaSeriesKeyResolver(items []model.Media) mediaSeriesKeyResolver {
 }
 
 func (r mediaSeriesKeyResolver) key(media model.Media) string {
+	// 已确认的整剧身份优先；单集外部 ID 和年份不能覆盖它。
+	if strings.TrimSpace(media.SeriesID) != "" {
+		return mediaSeriesKey(media)
+	}
 	if mediaLooksEpisodicForGrouping(media) {
 		if key := mediaSeriesRawKey(media); strings.HasPrefix(key, "library-path") && r.pathCounts[key] > 1 {
 			return compactSeriesKey(key)

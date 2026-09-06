@@ -1,6 +1,6 @@
 import { AlertTriangle, Calendar, Circle, CircleAlert, CircleCheck, Clock, FileVideo, HardDrive, Heart, Monitor, Star, Trash2, Unlink } from 'lucide-react'
 import { motion } from 'framer-motion'
-import { useEffect, useState } from 'react'
+import { Fragment, useEffect, useState, type ReactNode } from 'react'
 import toast from 'react-hot-toast'
 
 import { mediaAPI, type STRMDeleteTarget } from '../api/library'
@@ -15,6 +15,7 @@ type MediaDetailMetadataProps = {
   favourite?: boolean
   onToggleFavourite?: () => void
   onMetadataEdit: () => void
+  actions?: ReactNode
 }
 
 const rise = (delay: number) => ({
@@ -23,7 +24,9 @@ const rise = (delay: number) => ({
   transition: { duration: 0.5, delay, ease: [0.21, 0.47, 0.32, 0.98] as const },
 })
 
-export function MediaDetailMetadata({ media, selectedMedia, scope, isAdmin, favourite, onToggleFavourite, onMetadataEdit }: MediaDetailMetadataProps) {
+export function MediaDetailMetadata({ media, selectedMedia, scope, isAdmin, favourite, onToggleFavourite, onMetadataEdit, actions }: MediaDetailMetadataProps) {
+  const Details = scope ? 'div' : Fragment
+  const isEpisode = scope === 'episode' || media.metadata_kind === 'episode'
   const heading = media.title
   const seriesContext = media.series_title?.trim()
   const tmdbHref = tmdbURL(media)
@@ -112,10 +115,10 @@ export function MediaDetailMetadata({ media, selectedMedia, scope, isAdmin, favo
 
         <motion.div {...rise(0.08)} className="space-y-2.5 text-xs font-bold tracking-wide">
           <div className="flex flex-wrap items-center gap-2.5">
-            <span className="badge-gold !px-3 !py-1.5 !text-xs shadow-glow-gold">
+            {!isEpisode && <span className="badge-gold !px-3 !py-1.5 !text-xs shadow-glow-gold">
               <Star size={12} fill="currentColor" className="mr-1" />
               {media.rating > 0 ? media.rating.toFixed(1) : '-'}
-            </span>
+            </span>}
             {(media.release_date || media.year > 0) && (
               <span className="inline-flex items-center gap-1.5 rounded-xl border border-[var(--app-border)] bg-[var(--app-panel)]/70 px-3 py-1.5 text-[var(--app-text)] backdrop-blur">
                 <Calendar size={13} className="text-brand-500" />
@@ -145,7 +148,7 @@ export function MediaDetailMetadata({ media, selectedMedia, scope, isAdmin, favo
               </span>
             )}
           </div>}
-          <div className="flex flex-wrap items-center gap-2.5">
+          {(tmdbHref || !isEpisode) && <div className="flex flex-wrap items-center gap-2.5">
             {tmdbHref && (
               <ProviderBadge
                 href={tmdbHref}
@@ -154,19 +157,21 @@ export function MediaDetailMetadata({ media, selectedMedia, scope, isAdmin, favo
                 status={providerStatus(media.tmdb_status, media.tmdb_snapshot)}
               />
             )}
-            <ProviderBadge
+            {!isEpisode && <ProviderBadge
               href={media.douban_id ? `https://movie.douban.com/subject/${encodeURIComponent(media.douban_id)}/` : undefined}
               onClick={!media.douban_id && isAdmin ? onMetadataEdit : undefined}
               label="豆瓣"
               iconSrc="/brand/douban.svg"
               status={media.douban_id ? providerStatus(media.douban_status, media.douban_snapshot) : 'unlinked'}
-            />
-          </div>
+            />}
+          </div>}
         </motion.div>
       </div>
 
+      {actions}
+      <Details {...(scope ? { className: 'space-y-4 text-[var(--app-subtle)]' } : {})}>
       {media.overview && (
-        <motion.div {...rise(0.16)} className="glass-panel !rounded-2xl !p-5 sm:!p-6 space-y-2.5">
+        <motion.div {...rise(0.16)} className={scope ? 'space-y-2.5' : 'glass-panel !rounded-2xl !p-5 sm:!p-6 space-y-2.5'}>
           <h3 className="text-xs font-bold uppercase tracking-[0.2em] text-brand-500">剧情简介</h3>
           <p className="max-w-3xl text-[15px] leading-7 text-[var(--app-subtle)] font-medium">
             {media.overview}
@@ -212,6 +217,7 @@ export function MediaDetailMetadata({ media, selectedMedia, scope, isAdmin, favo
           )}
         </div>}
       </motion.div>
+      </Details>
 
       {deleteOpen && deleteTarget && (
         <ModalShell

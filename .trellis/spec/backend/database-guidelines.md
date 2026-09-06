@@ -227,6 +227,22 @@ Use this contract when changing local media discovery, media deletion, or the `m
 #### 3. Contracts
 
 - A local file is unchanged only when both scan fingerprint fields match and path-derived metadata needs no refresh.
+- Both direct and snapshot scanner reads include the stored season number.
+  A negative season with an explicit filename SxxExx marker bypasses unchanged
+  fingerprint skipping. Reparse the coordinates (including Season 0); never
+  coerce every negative value to 0 or infer a correction from an unknown name.
+  Updating a negative season on an error row to valid coordinates returns it
+  to pending and clears the stale scrape error, unless already matched by the
+  incoming canonical attachment. `TestScanRepairsExplicitNegativeSeasonWithoutFileChanges`
+  verifies both read paths, persisted repair, unknown-name preservation and
+  subsequent unchanged-scan skipping against PostgreSQL.
+- Scrape retries do not run the scanner. Shared enrichment and Series sibling
+  binding also call `repairInvalidScrapeSeason` before creating Season metadata.
+  It reparses explicit SxxExx only for negative stored seasons, and conditionally
+  updates the original ID/path/coordinates to avoid overwriting a concurrent
+  edit. Unknown filenames and nonnegative seasons remain unchanged. Regression:
+  `TestScrapeRetryRepairsSpecialSeasonWithoutRescan` covers library and single
+  retries binding S00E01/S00E25 to canonical Special Episodes without scanning.
 - For `.strm`, the fingerprint belongs to the local sidecar; playback-target size belongs to `media_probe_metadata.size_bytes` and must not be reused as the scan fingerprint.
 - The unchanged return occurs before media Upsert and probe scheduling, preserving `media.updated_at` and probe data.
 - Post-scan automatic STRM generation skips media whose source path or container is already `.strm`; skipped source paths remain protected from overwrite cleanup.

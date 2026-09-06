@@ -3,14 +3,11 @@ import toast from 'react-hot-toast'
 
 import { api } from '../api/client'
 import { mediaAPI } from '../api/library'
-import { toolsAPI } from '../api/tools'
 import { confirmAction } from '../components/confirmAction'
-import type { Library, Media } from '../types'
+import type { Media } from '../types'
 import { seriesTitle, type SeriesCard } from '../utils/groupSeries'
-import { seriesSourceRoot } from './libraryPageModel'
 
 type UseLibraryAdminActionsOptions = {
-  library: Library | null
   selectedSeries: SeriesCard | null
   selectedSeriesEpisodes: Media[]
   reloadCurrentLibrary: () => void
@@ -18,7 +15,6 @@ type UseLibraryAdminActionsOptions = {
 }
 
 export function useLibraryAdminActions({
-  library,
   selectedSeries,
   selectedSeriesEpisodes,
   reloadCurrentLibrary,
@@ -41,12 +37,6 @@ export function useLibraryAdminActions({
     } finally {
       setSeriesToolBusy('')
     }
-  }
-
-  const handleSeriesSmartScrape = () => {
-    runSeriesTool('scrape', '整剧智能刮削', (media) =>
-      api.post(`/media/${media.id}/scrape`, smartScrapeOptions()),
-    )
   }
 
   const handleSeriesProbe = async () => {
@@ -77,39 +67,6 @@ export function useLibraryAdminActions({
     }
   }
 
-  const handleSeriesOrganize = async () => {
-    if (!selectedSeries || selectedSeriesEpisodes.length === 0 || !library) return
-    const source = seriesSourceRoot(selectedSeriesEpisodes)
-    if (!source) {
-      toast.error('当前合集不是本地文件夹，无法使用本地整理入库')
-      return
-    }
-    if (!(await confirmAction({
-      title: '整理当前合集',
-      message: `来源：${source}\n目标：自动按元数据选择正确分类库，当前库仅作为就近解析范围。`,
-      confirmText: '开始整理',
-    }))) return
-
-    setSeriesToolBusy('organize')
-    try {
-      const result = await toolsAPI.organizeDirectory({
-        source_path: source,
-        dest_path: library.path,
-        scan_after: true,
-        scrape_after: true,
-      })
-      const replaced = result.replaced ?? 0
-      const reclassified = result.reclassified ?? 0
-      toast.success(`合集整理完成：新增 ${result.organized ?? 0} · 替换 ${replaced} · 纠偏 ${reclassified} · 跳过 ${result.skipped ?? 0}`)
-      reloadCurrentLibrary()
-    } catch (err: unknown) {
-      const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error || '合集整理失败'
-      toast.error(msg)
-    } finally {
-      setSeriesToolBusy('')
-    }
-  }
-
   const handleSeriesSoftDelete = async () => {
     if (!selectedSeries || selectedSeriesEpisodes.length === 0) return
     if (!(await confirmAction({
@@ -123,18 +80,8 @@ export function useLibraryAdminActions({
 
   return {
     seriesToolBusy,
-    handleSeriesSmartScrape,
     handleSeriesProbe,
     handleEpisodeProbe,
-    handleSeriesOrganize,
     handleSeriesSoftDelete,
-  }
-}
-
-function smartScrapeOptions() {
-  return {
-    episode_images: true,
-    refresh_matched: true,
-    include_matched: true,
   }
 }

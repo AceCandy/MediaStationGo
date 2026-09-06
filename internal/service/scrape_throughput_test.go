@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -192,6 +193,12 @@ func TestSearchTMDbMatchStillLoadsExtendedDetails(t *testing.T) {
 func TestAutoMediaScrapeUsesThreeWorkersAndReportsTiming(t *testing.T) {
 	scraper, repos, closeDefaultUpstream := newTestScraper(t)
 	defer closeDefaultUpstream()
+	if err := repos.DB.Callback().Create().Remove("testutil:media-metadata"); err != nil {
+		t.Fatal(err)
+	}
+	if err := repos.DB.AutoMigrate(&model.MediaProbeMetadata{}, &model.MetadataArtworkRecheck{}); err != nil {
+		t.Fatal(err)
+	}
 
 	core, observed := observer.New(zap.InfoLevel)
 	log := zap.New(core)
@@ -205,7 +212,7 @@ func TestAutoMediaScrapeUsesThreeWorkersAndReportsTiming(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch {
-		case r.URL.Path == "/search/movie":
+		case r.URL.Path == "/movie/101" || r.URL.Path == "/movie/102" || r.URL.Path == "/movie/103":
 			active := activeSearches.Add(1)
 			for {
 				current := maxSearches.Load()
@@ -222,9 +229,9 @@ func TestAutoMediaScrapeUsesThreeWorkersAndReportsTiming(t *testing.T) {
 				return
 			}
 			activeSearches.Add(-1)
-			query := r.URL.Query().Get("query")
-			id := map[string]int{"Alpha": 101, "Bravo": 102, "Charlie": 103}[query]
-			_ = json.NewEncoder(w).Encode(map[string]any{"results": []map[string]any{{"id": id, "title": query, "original_title": query}}})
+			id, _ := strconv.Atoi(strings.TrimPrefix(r.URL.Path, "/movie/"))
+			name := map[int]string{101: "Alpha", 102: "Bravo", 103: "Charlie"}[id]
+			_ = json.NewEncoder(w).Encode(map[string]any{"id": id, "title": name, "original_title": name})
 		case strings.HasPrefix(r.URL.Path, "/movie/999"):
 			catalogCalls.Add(1)
 			_ = json.NewEncoder(w).Encode(map[string]any{"id": 999, "title": "Catalog Movie"})
@@ -248,9 +255,9 @@ func TestAutoMediaScrapeUsesThreeWorkersAndReportsTiming(t *testing.T) {
 		t.Fatal(err)
 	}
 	rows := []model.Media{
-		{LibraryID: library.ID, Title: "Alpha", Path: "/media/movies/alpha.mkv", ScrapeStatus: "pending"},
-		{LibraryID: library.ID, Title: "Bravo", Path: "/media/movies/bravo.mkv", ScrapeStatus: "pending"},
-		{LibraryID: library.ID, Title: "Charlie", Path: "/media/movies/charlie.mkv", ScrapeStatus: "pending"},
+		{LibraryID: library.ID, Title: "Alpha", Path: "/media/movies/alpha.mkv", TMDbID: 101, ScrapeStatus: "pending"},
+		{LibraryID: library.ID, Title: "Bravo", Path: "/media/movies/bravo.mkv", TMDbID: 102, ScrapeStatus: "pending"},
+		{LibraryID: library.ID, Title: "Charlie", Path: "/media/movies/charlie.mkv", TMDbID: 103, ScrapeStatus: "pending"},
 	}
 	if err := repos.DB.Create(&rows).Error; err != nil {
 		t.Fatal(err)

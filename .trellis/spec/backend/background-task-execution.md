@@ -50,6 +50,26 @@ history is observability only; business object state owns retry and recovery.
 
 ### 3. Contracts
 
+- `series_local_correction` (剧集本地资料纠正) is a separate definition/kind;
+  `POST /api/tasks/definitions/series_local_correction/run` returns 202, 409
+  when already running, or 503 when unavailable. It reuses administrator task
+  authorization, history, daily logs and the generic action UI. No scheduler
+  toggle or network provider is involved.
+- Startup invokes `StartSeriesLocalCorrection(ctx, true)` independently of
+  ingestion. The setting `internal.series_local_correction_version` skips a
+  successful rules version; manual runs ignore it. Only an entirely successful
+  pass writes the version. Failure/cancellation remains retryable, and the
+  existing worker wait group joins the correction on shutdown.
+- Correction progress includes total, processed, succeeded, failed, remaining,
+  updated and skipped. Succeeded includes unchanged/concurrently skipped rows;
+  messages distinguish actual corrections from skips. Counts reflect the live
+  candidate set, with the final total reconciled after keyset exhaustion.
+- Regression: `TestSeriesLocalCorrectionProtectsConcurrentEdits` asserts source
+  and timestamp conflict protection. `TestSeriesLocalCorrectionTaskVersionAndRetry`
+  asserts failed-version retry, completion gating, manual execution, duplicate
+  rejection and per-definition logs. A stale snapshot must not overwrite a Web
+  save; writing only after a source/timestamp comparison in SQL is required.
+
 - Triggers are `manual`, `scheduled`, or `event`; terminal execution statuses are
   `completed`, `failed`, or `interrupted`.
 - The task-center root view lists task definitions, not one row per execution.
@@ -133,8 +153,11 @@ history is observability only; business object state owns retry and recovery.
 - Each automatic worker atomically claims one complete movie or series by
   changing every currently pending member to `running`. At most three distinct
   groups run concurrently. The serial catalog worker must not claim a new job
-  while any media is `pending` or `running`; current catalog work is never
-  preempted.
+  while any media is `pending` or `running`. Running series catalog work releases
+  its write lock at season/episode boundaries until pending/running media clears,
+  then resumes the same durable job. In-flight entity requests are not interrupted.
+  Media execution records enter `waiting` before acquiring the read lock, so
+  contention is visible in task logs. Cancellation restores pending media work.
 - Each completed automatic media group emits one structured timing record with
   candidate generation, provider lookup, metadata persistence, artwork, TMDb
   extended details, and total milliseconds. It must not contain a media path,

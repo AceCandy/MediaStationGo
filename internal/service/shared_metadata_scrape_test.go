@@ -20,6 +20,9 @@ import (
 func TestProviderMatchesShareMovieMetadataAcrossPaths(t *testing.T) {
 	scraper, repos, closeServer := newTestScraper(t)
 	defer closeServer()
+	if err := repos.DB.AutoMigrate(&model.MetadataArtworkRecheck{}); err != nil {
+		t.Fatal(err)
+	}
 	lib := model.Library{Name: "Movies", Path: t.TempDir(), Type: "movie", Enabled: true}
 	if err := repos.DB.Create(&lib).Error; err != nil {
 		t.Fatal(err)
@@ -104,6 +107,7 @@ func TestEpisodeShellsDoNotInheritParentMetadata(t *testing.T) {
 		t.Fatal(err)
 	}
 	media := model.Media{LibraryID: lib.ID, Title: "Show", EpisodeTitle: "Own episode", Path: filepath.Join(lib.Path, "show-s01e01.mkv"), SeasonNum: 1, EpisodeNum: 1}
+	media.SeriesID = localSeriesIdentity(&media)
 	match := &Match{
 		Source: "tmdb", MediaType: "tv", TMDbID: 888, Title: "Parent show", OriginalName: "Parent original",
 		Overview: "Parent overview", Rating: 8.8, Year: 2024, ReleaseDate: "2024-01-02",
@@ -134,6 +138,7 @@ func TestEpisodeShellsDoNotInheritParentMetadata(t *testing.T) {
 	if err := repos.Metadata.Update(t.Context(), persisted.Target); err != nil {
 		t.Fatal(err)
 	}
+	media.MetadataID = persisted.Target.ID
 	persisted, err = scraper.persistProviderMetadata(t.Context(), &media, &lib, match)
 	if err != nil {
 		t.Fatal(err)
@@ -155,6 +160,7 @@ func TestLocalEpisodePersistsOnlyEntityOwnedMetadata(t *testing.T) {
 		t.Fatal(err)
 	}
 	media := model.Media{LibraryID: lib.ID, Title: "Show", Path: filepath.Join(lib.Path, "show-s01e01.mkv"), SeasonNum: 1, EpisodeNum: 1}
+	media.SeriesID = localSeriesIdentity(&media)
 	local := &LocalMetadata{
 		Title: "Parent show", OriginalName: "Parent original", Overview: "Parent overview", Rating: 8.8,
 		Year: 2024, ReleaseDate: "2024-01-02", Languages: "ja", Countries: "JP", Genres: "Parent genre", NSFW: true,
@@ -170,6 +176,16 @@ func TestLocalEpisodePersistsOnlyEntityOwnedMetadata(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertChildOwnMetadata(t, persisted.Target, "Own episode", "Own overview", 7.7, 2025, "2025-02-03", "ko", "KR", "Own genre", false)
+	for _, linkedID := range []string{persisted.Series.ID, *persisted.Target.ParentID, persisted.Target.ID} {
+		media.MetadataID = linkedID
+		again, err := scraper.persistLocalMetadata(t.Context(), &media, &lib, local)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if again.Series.ID != persisted.Series.ID || again.Target.ID != persisted.Target.ID {
+			t.Fatal("rescrape changed canonical series or episode identity")
+		}
+	}
 	if asset, findErr := repos.Artwork.FindSelection(t.Context(), persisted.Target.ID, model.ArtworkTypeStill); findErr != nil || asset == nil {
 		t.Fatalf("episode own still = %#v, err = %v", asset, findErr)
 	}

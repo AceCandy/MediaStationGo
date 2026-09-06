@@ -164,6 +164,19 @@ func (s *ScraperService) syncScrapeCandidateGroup(ctx context.Context, group scr
 	if fresh == nil {
 		return fmt.Errorf("representative media %s not found after scrape", group.Representative.ID)
 	}
+	if fresh.ScrapeStatus != "matched" {
+		return s.repo.DB.WithContext(ctx).Model(&model.Media{}).Where("id = ANY(?)", &group.MediaIDs).
+			Updates(map[string]any{"scrape_status": fresh.ScrapeStatus, "scrape_error": fresh.ScrapeError}).Error
+	}
+	if fresh.MetadataID != "" {
+		seriesID, err := s.preferredScrapeMetadataID(ctx, fresh, model.MetadataKindSeries)
+		if err != nil {
+			return err
+		}
+		if seriesID != "" {
+			return s.syncScrapeSeriesGroup(ctx, group, fresh, seriesID)
+		}
+	}
 	metadataIDs := make([]string, 0, 2)
 	if group.MetadataID != "" {
 		metadataIDs = append(metadataIDs, group.MetadataID)

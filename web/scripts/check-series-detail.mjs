@@ -10,7 +10,11 @@ const exports = {}
 vm.runInNewContext(ts.transpileModule(readFileSync(new URL('../src/pages/seriesDetailModel.ts', import.meta.url), 'utf8'), {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
 }).outputText, { exports })
-const { distinctEpisodes, resolveSeriesSelection, seriesResumeEpisode } = exports
+const { distinctEpisodes, resolveSeriesSelection, seriesResumeEpisode, episodeLabel } = exports
+assert.equal(episodeLabel({ metadata_kind: 'series', episode_num: 0 }), '整剧关联文件')
+assert.equal(episodeLabel({ metadata_kind: 'season', episode_num: 0 }), '季关联文件')
+assert.equal(episodeLabel({ episode_num: 0 }), '未识别集号')
+assert.equal(episodeLabel({ metadata_kind: 'episode', season_num: 0, episode_num: 1 }), '第 1 集')
 const ep = (id, metadata_id, season_num, episode_num) => ({ id, metadata_id, season_num, episode_num })
 const special = ep('special-file', 'special', 0, 1)
 const first = ep('first-file', 'first', 1, 1)

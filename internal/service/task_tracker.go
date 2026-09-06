@@ -26,15 +26,16 @@ const (
 	TaskTriggerScheduled = "scheduled"
 	TaskTriggerEvent     = "event"
 
-	TaskKindOrganize             = "organize"
-	TaskKindProbe                = "probe"
-	TaskKindScan                 = "scan"
-	TaskKindWatch                = "watch"
-	TaskKindScrape               = "scrape"
-	TaskKindPeople               = "people"
-	TaskKindArtwork              = "artwork"
-	TaskKindCleanup              = "cleanup"
-	TaskKindTMDbSnapshotBackfill = "tmdb_snapshot_backfill"
+	TaskKindOrganize              = "organize"
+	TaskKindProbe                 = "probe"
+	TaskKindScan                  = "scan"
+	TaskKindWatch                 = "watch"
+	TaskKindScrape                = "scrape"
+	TaskKindPeople                = "people"
+	TaskKindArtwork               = "artwork"
+	TaskKindCleanup               = "cleanup"
+	TaskKindTMDbSnapshotBackfill  = "tmdb_snapshot_backfill"
+	TaskKindSeriesLocalCorrection = "series_local_correction"
 )
 
 // BackgroundTask 是任务中心展示的一次后台执行摘要。

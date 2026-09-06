@@ -52,6 +52,8 @@ func TestParseStandardEpisode(t *testing.T) {
 		season, ep int
 	}{
 		{"Show.S01E36.strm", 1, 36},
+		{"孤独的美食家.S00E25.1080p.strm", 0, 25},
+		{"Last Man - 全盲搜查官.S00E01.1080p.strm", 0, 1},
 		{"Show.s1e2.strm", 1, 2},
 		{"Show.E36.strm", 0, 0},
 		{"Show.1x36.strm", 0, 0},
@@ -93,6 +95,10 @@ func TestEpisodeRefsFromTitleParsesRanges(t *testing.T) {
 		name string
 		want []episodeRef
 	}{
+		{name: "Show.S00E25.strm", want: []episodeRef{{Season: 0, Episode: 25}}},
+		{name: "Show.S00E01-E02.strm", want: []episodeRef{{Season: 0, Episode: 1}, {Season: 0, Episode: 2}}},
+		{name: "Show.S00E01-S00E02.strm", want: []episodeRef{{Season: 0, Episode: 1}, {Season: 0, Episode: 2}}},
+		{name: "Show/Season 0/第1-2集.mkv", want: []episodeRef{{Season: 0, Episode: 1}, {Season: 0, Episode: 2}}},
 		{
 			name: "Archives The Nanyang Mystery 2026 S01E07-S01E08 2160p",
 			want: []episodeRef{{Season: 1, Episode: 7}, {Season: 1, Episode: 8}},

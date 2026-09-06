@@ -287,7 +287,7 @@ func TestLocalizeTMDbCatalogSnapshotsBackfillsProviderOwnedChildren(t *testing.T
 		t.Fatal(err)
 	}
 
-	if err := scraper.localizeTMDbCatalogSnapshots(t.Context()); err != nil {
+	if err := scraper.localizeTMDbCatalogSnapshots(t.Context(), nil); err != nil {
 		t.Fatal(err)
 	}
 	seasonAfter, _ := repos.Metadata.FindByID(t.Context(), season.ID)
@@ -304,12 +304,38 @@ func TestLocalizeTMDbCatalogSnapshotsBackfillsProviderOwnedChildren(t *testing.T
 	}
 
 	updatedAt := episodeAfter.UpdatedAt
-	if err := scraper.localizeTMDbCatalogSnapshots(t.Context()); err != nil {
+	if err := scraper.localizeTMDbCatalogSnapshots(t.Context(), nil); err != nil {
 		t.Fatal(err)
 	}
 	episodeAfter, _ = repos.Metadata.FindByID(t.Context(), episode.ID)
 	if episodeAfter == nil || !episodeAfter.UpdatedAt.Equal(updatedAt) {
 		t.Fatalf("idempotent backfill changed updated_at: before=%v after=%#v", updatedAt, episodeAfter)
+	}
+}
+
+func TestLocalizeTMDbCatalogSnapshotsRepairsUnrelatedSeasonTranslation(t *testing.T) {
+	scraper, repos, closeUpstream := newTestScraper(t)
+	defer closeUpstream()
+	series := model.MetadataItem{Kind: model.MetadataKindSeries, Title: "死亡笔记", Source: "tmdb"}
+	if err := repos.DB.Create(&series).Error; err != nil {
+		t.Fatal(err)
+	}
+	season := model.MetadataItem{Kind: model.MetadataKindSeason, ParentID: &series.ID, SeasonNum: 1, Title: "ซีซั่น 1", Source: "tmdb"}
+	if err := repos.DB.Create(&season).Error; err != nil {
+		t.Fatal(err)
+	}
+	payload := json.RawMessage(`{"name":"第 1 季","season_number":1,"translations":{"translations":[{"iso_639_1":"th","iso_3166_1":"TH","data":{"name":"ซีซั่น 1"}}]}}`)
+	if err := repos.Metadata.UpsertProviderSnapshot(t.Context(), season.ID, "tmdb", payload, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 2; i++ {
+		if err := scraper.localizeTMDbCatalogSnapshots(t.Context(), nil); err != nil {
+			t.Fatal(err)
+		}
+		after, err := repos.Metadata.FindByID(t.Context(), season.ID)
+		if err != nil || after == nil || after.Title != "第 1 季" {
+			t.Fatalf("repaired season = %#v, err = %v", after, err)
+		}
 	}
 }
 
@@ -353,8 +379,8 @@ func TestLocalizeTMDbCatalogSnapshotsSkipsBadItemAndContinuesNextPage(t *testing
 		t.Fatal(err)
 	}
 
-	if err := scraper.localizeTMDbCatalogSnapshots(t.Context()); err != nil {
-		t.Fatal(err)
+	if err := scraper.localizeTMDbCatalogSnapshots(t.Context(), nil); err == nil {
+		t.Fatal("bad snapshot must make the run retryable")
 	}
 	badAfter, _ := repos.Metadata.FindByID(t.Context(), "backfill-episode-1000")
 	lastAfter, _ := repos.Metadata.FindByID(t.Context(), "backfill-episode-1200")

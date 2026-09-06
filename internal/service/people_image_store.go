@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/ShukeBta/MediaStationGo/internal/config"
 	"github.com/ShukeBta/MediaStationGo/internal/repository"
@@ -23,6 +24,7 @@ type PeopleImageStore struct {
 	repo       *repository.PersonRepository
 	imageProxy *ImageProxy
 	mu         sync.Mutex
+	sources    *RuntimeCacheService
 }
 
 func NewPeopleImageStore(cfg *config.Config, repo *repository.PersonRepository, imageProxy *ImageProxy) *PeopleImageStore {
@@ -30,7 +32,23 @@ func NewPeopleImageStore(cfg *config.Config, repo *repository.PersonRepository, 
 		root:       filepath.Join(cfg.App.DataDir, "people"),
 		repo:       repo,
 		imageProxy: imageProxy,
+		sources:    NewRuntimeCacheService(nil, nil),
 	}
+}
+
+// ImportCached 复用近期成功导入的远程头像；文件缺失或损坏时重新下载。
+func (s *PeopleImageStore) ImportCached(ctx context.Context, source string) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	source = strings.TrimSpace(source)
+	if s != nil && isHTTPish(source) {
+		var key string
+		if s.sources.GetJSON(ctx, source, &key) && s.hasUsableImage(key) {
+			return key, nil
+		}
+	}
+	return s.Import(ctx, source)
 }
 
 // Import fetches and stores one profile image, returning its content-hash key.
@@ -38,7 +56,8 @@ func (s *PeopleImageStore) Import(ctx context.Context, source string) (string, e
 	if s == nil {
 		return "", ErrPeopleImageNotFound
 	}
-	data, err := s.readSource(ctx, strings.TrimSpace(source))
+	source = strings.TrimSpace(source)
+	data, err := s.readSource(ctx, source)
 	if err != nil {
 		return "", err
 	}
@@ -52,13 +71,20 @@ func (s *PeopleImageStore) Import(ctx context.Context, source string) (string, e
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	matches := false
 	if stat, statErr := os.Stat(path); statErr == nil && stat.Size() == stored.SizeBytes {
 		if existing, readErr := os.ReadFile(path); readErr == nil && bytes.Equal(existing, data) {
-			return stored.StorageKey, nil
+			matches = true
 		}
 	}
-	if err := writeStoredImage(path, data, ".people-*.tmp"); err != nil {
-		return "", err
+	if !matches {
+		if err := writeStoredImage(path, data, ".people-*.tmp"); err != nil {
+			return "", err
+		}
+	}
+	if isHTTPish(source) {
+		// 仅缓存成功来源，重启或过期后重新下载一次；图片本身仍独立持久保存。
+		s.sources.SetJSON(ctx, source, stored.StorageKey, 24*time.Hour)
 	}
 	return stored.StorageKey, nil
 }
@@ -145,6 +171,6 @@ func (s *PeopleImageStore) hasUsableImage(key string) bool {
 	if err != nil || len(data) > maxArtworkBytes {
 		return false
 	}
-	_, err = prepareStoredImage(data)
-	return err == nil
+	stored, err := prepareStoredImage(data)
+	return err == nil && stored.StorageKey == key
 }

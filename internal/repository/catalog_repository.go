@@ -285,6 +285,28 @@ func (r *MetadataRepository) FindProviderSnapshot(ctx context.Context, metadataI
 	return &snapshot, err
 }
 
+// UpdateLocalizedMetadata 仅在读取后未变化且仍属 TMDb 时写入展示字段，保护并发手工编辑。
+func (r *MetadataRepository) UpdateLocalizedMetadata(ctx context.Context, item *model.MetadataItem) (bool, error) {
+	result := r.db.WithContext(ctx).Model(&model.MetadataItem{}).
+		Where("id = ? AND source = ? AND updated_at = ?", item.ID, "tmdb", item.UpdatedAt).
+		Updates(map[string]any{"title": item.Title, "overview": item.Overview, "original_name": item.OriginalName})
+	if result.Error != nil || result.RowsAffected == 0 {
+		return false, result.Error
+	}
+	if r.view != nil {
+		r.view.RefreshMetadataIDs(ctx, item.ID)
+	}
+	return true, nil
+}
+
+func (r *MetadataRepository) CountLocalCorrectionSnapshots(ctx context.Context) (int64, error) {
+	var count int64
+	err := r.db.WithContext(ctx).Model(&model.MetadataProviderSnapshot{}).
+		Joins("JOIN metadata_items AS m ON m.id = metadata_provider_snapshots.metadata_id").
+		Where("metadata_provider_snapshots.provider = ? AND m.source = ? AND m.kind IN ?", "tmdb", "tmdb", []string{model.MetadataKindSeason, model.MetadataKindEpisode}).Count(&count).Error
+	return count, err
+}
+
 func (r *MetadataRepository) ListProviderSnapshotsAfter(ctx context.Context, provider string, kinds []string, afterID string, limit int) ([]model.MetadataProviderSnapshot, error) {
 	provider = strings.ToLower(strings.TrimSpace(provider))
 	if provider == "" || len(kinds) == 0 {

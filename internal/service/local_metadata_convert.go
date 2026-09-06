@@ -25,7 +25,7 @@ func metadataFromDoc(doc *nfoDocument, baseDir string, seriesLike bool) *LocalMe
 		BangumiID:    mustAtoi(externalIDFromUniqueIDs(doc.UniqueIDs, "bangumi", "bgm")),
 		DoubanID:     externalIDFromUniqueIDs(doc.UniqueIDs, "douban"),
 		TheTVDBID:    externalIDFromUniqueIDs(doc.UniqueIDs, "thetvdb", "tvdb"),
-		SeasonNum:    int(doc.Season),
+		SeasonNum:    mustAtoi(cleanXMLText(doc.Season)),
 		EpisodeNum:   int(doc.Episode),
 		Genres:       joinNFOValues(adultAwareGenres(doc)),
 		Countries:    joinNFOValues(doc.Countries),
@@ -154,8 +154,9 @@ func mergeEpisodeMetadata(dst, episode *LocalMetadata, doc *nfoDocument) {
 	}
 
 	// 整剧外部 id: 单集 NFO 的 id 都是单集级,绝不写入整剧字段(见上方说明)。
-	if episode.SeasonNum > 0 {
-		dst.SeasonNum = episode.SeasonNum
+	// 明确的 0 是特别篇；缺失、空值和负数不能覆盖已有季号。
+	if season, err := strconv.Atoi(cleanXMLText(doc.Season)); err == nil && season >= 0 {
+		dst.SeasonNum = season
 	}
 	if episode.EpisodeNum > 0 {
 		dst.EpisodeNum = episode.EpisodeNum

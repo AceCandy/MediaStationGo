@@ -82,6 +82,11 @@ func preferredTMDbEntityTitle(current string, translations []tmdbTranslation, ki
 		return current
 	}
 	if translated := preferredTMDbTranslationText(translations, func(translation tmdbTranslation) string {
+		// 标题只采用中英文翻译，不能把其他语言的通用季集名误当成正式标题。
+		language := strings.ToLower(strings.TrimSpace(translation.Language))
+		if language != "zh" && language != "en" {
+			return ""
+		}
 		return firstNonEmpty(translation.Data.Name, translation.Data.Title)
 	}, func(value string) bool {
 		return !tmdbEntityTitleIsGenerated(value, kind)

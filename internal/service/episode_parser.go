@@ -114,7 +114,7 @@ func episodeRefsFromTitle(path string) []episodeRef {
 	if episode <= 0 {
 		return nil
 	}
-	if season <= 0 {
+	if season < 0 {
 		season = 1
 	}
 	return []episodeRef{{Season: season, Episode: episode}}
@@ -130,7 +130,7 @@ func parseSEpisodeRange(name string) []episodeRef {
 	if m[3] != "" {
 		endSeason = mustAtoi(m[3])
 	}
-	if season <= 0 || endSeason != season {
+	if season < 0 || endSeason != season {
 		return nil
 	}
 	start := mustAtoi(m[2])
@@ -151,7 +151,7 @@ func parseCNEpisodeRange(name, path string) []episodeRef {
 }
 
 func buildEpisodeRefRange(season, start, end int) []episodeRef {
-	if season <= 0 {
+	if season < 0 {
 		season = 1
 	}
 	if start <= 0 || end <= 0 || end < start || end-start > 200 {

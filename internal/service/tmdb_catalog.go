@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/url"
 	"strings"
@@ -23,6 +24,15 @@ func (t *TMDbProvider) GetTVSeasonDetails(ctx context.Context, tmdbID, seasonNum
 	q.Set("language", "zh-CN")
 	q.Set("append_to_response", "external_ids,credits,translations,videos")
 	u := t.resolveBaseURL(ctx) + "/tv/" + fmt.Sprint(tmdbID) + "/season/" + fmt.Sprint(seasonNumber) + "?" + q.Encode()
+	raw, err := t.getJSONRaw(ctx, u, &json.RawMessage{})
+	if err != nil {
+		return nil, err
+	}
+	return t.parseTVSeasonDetails(raw)
+}
+
+// parseTVSeasonDetails 让网络响应与已保存的整季快照使用相同的字段投影。
+func (t *TMDbProvider) parseTVSeasonDetails(raw []byte) (*TMDbSeasonDetails, error) {
 	var response struct {
 		ID           int     `json:"id"`
 		SeasonNumber int     `json:"season_number"`
@@ -40,13 +50,16 @@ func (t *TMDbProvider) GetTVSeasonDetails(ctx context.Context, tmdbID, seasonNum
 			Translations []tmdbTranslation `json:"translations"`
 		} `json:"translations"`
 		Episodes []struct {
-			ID            int    `json:"id"`
-			EpisodeNumber int    `json:"episode_number"`
-			Name          string `json:"name"`
+			ID            int     `json:"id"`
+			EpisodeNumber int     `json:"episode_number"`
+			Name          string  `json:"name"`
+			Overview      string  `json:"overview"`
+			AirDate       string  `json:"air_date"`
+			Rating        float32 `json:"vote_average"`
+			Runtime       int     `json:"runtime"`
 		} `json:"episodes"`
 	}
-	raw, err := t.getJSONRaw(ctx, u, &response)
-	if err != nil {
+	if err := json.Unmarshal(raw, &response); err != nil {
 		return nil, err
 	}
 	details := &TMDbSeasonDetails{
@@ -60,7 +73,7 @@ func (t *TMDbProvider) GetTVSeasonDetails(ctx context.Context, tmdbID, seasonNum
 	details.Credits, details.LoadedCreditTypes = tmdbCreditsToPersonCredits(response.Credits, t.imgCDN, false)
 	for _, episode := range response.Episodes {
 		if episode.EpisodeNumber > 0 {
-			details.Episodes = append(details.Episodes, TMDbEpisodeSummary{ID: episode.ID, EpisodeNumber: episode.EpisodeNumber, Name: strings.TrimSpace(episode.Name)})
+			details.Episodes = append(details.Episodes, TMDbEpisodeSummary{ID: episode.ID, EpisodeNumber: episode.EpisodeNumber, Name: strings.TrimSpace(episode.Name), Overview: strings.TrimSpace(episode.Overview), AirDate: normalizeReleaseDate(episode.AirDate), Rating: episode.Rating, Runtime: episode.Runtime})
 		}
 	}
 	return details, nil

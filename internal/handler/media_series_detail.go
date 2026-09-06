@@ -30,6 +30,18 @@ func getMediaSeriesHandler(svc *service.Container) gin.HandlerFunc {
 	}
 }
 
+// getMediaSeasonHandler 返回关联季的只读展示资料，不提供文件播放身份。
+func getMediaSeasonHandler(svc *service.Container) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		season, err := svc.Media.GetMediaSeasonVisible(c.Request.Context(), c.Param("id"), mediaVisibilityForRequest(c, svc))
+		if err != nil {
+			writeInternalOrCanceled(c, err)
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"season": season})
+	}
+}
+
 // setMediaSeriesFavoriteHandler 收藏整剧身份，不把代表文件收藏成单集。
 func setMediaSeriesFavoriteHandler(svc *service.Container) gin.HandlerFunc {
 	return func(c *gin.Context) {

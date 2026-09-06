@@ -60,6 +60,32 @@ func TestPreferredTMDbEntityTitlePrefersChineseTranslationOverOriginalFallback(t
 	}
 }
 
+func TestPreferredTMDbEntityTitleRejectsUnrelatedTranslationLanguage(t *testing.T) {
+	thai := tmdbTranslation{Country: "TH", Language: "th"}
+	thai.Data.Name = "ซีซั่น 1"
+	for _, tc := range []struct {
+		current, kind, want string
+		number              int
+	}{
+		{"第 1 季", model.MetadataKindSeason, "第 1 季", 1},
+		{"", model.MetadataKindSeason, "第 1 季", 1},
+		{"Specials", model.MetadataKindSeason, "特别篇", 0},
+		{"第 1 集", model.MetadataKindEpisode, "第 1 集", 1},
+		{"京都篇", model.MetadataKindSeason, "京都篇", 1},
+		{"再会", model.MetadataKindEpisode, "再会", 1},
+		{"The Crossing", model.MetadataKindEpisode, "The Crossing", 1},
+	} {
+		if got := preferredTMDbEntityTitle(tc.current, []tmdbTranslation{thai}, tc.kind, tc.number); got != tc.want {
+			t.Errorf("%s %q: got %q, want %q", tc.kind, tc.current, got, tc.want)
+		}
+	}
+	provider := NewTMDbProvider(&config.Config{}, zap.NewNop(), nil)
+	details, err := provider.parseTVSeasonDetails([]byte(`{"name":"第 1 季","season_number":1,"translations":{"translations":[{"iso_639_1":"zh","iso_3166_1":"CN","data":{"name":""}},{"iso_639_1":"en","iso_3166_1":"US","data":{"name":""}},{"iso_639_1":"th","iso_3166_1":"TH","data":{"name":"ซีซั่น 1"}}]}}`))
+	if err != nil || details.Name != "第 1 季" {
+		t.Fatalf("season snapshot = %#v, err = %v", details, err)
+	}
+}
+
 func TestPreferredTMDbEntityTextFallsBackWithoutParentMetadata(t *testing.T) {
 	translation := tmdbTranslation{Country: "US", Language: "en"}
 	translation.Data.Overview = "Episode-specific overview"

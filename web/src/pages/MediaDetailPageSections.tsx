@@ -3,7 +3,6 @@ import { Link } from 'react-router-dom'
 
 import { ExternalPlayerButton } from '../components/ExternalPlayerButton'
 import { MetadataEditDialog } from '../components/MetadataEditDialog'
-import { OrganizeMediaDialog } from '../components/OrganizeMediaDialog'
 import type { Media } from '../types'
 import { MediaDetailAdminMenu } from './MediaDetailAdminPanel'
 import { MediaDetailPoster } from './MediaDetailArtwork'
@@ -31,7 +30,6 @@ interface MediaDetailMainContentProps extends MediaDetailPlaybackActionsProps {
   onDoubanEnrich: () => void
   doubanEnrichmentPending: boolean
   onMetadataEdit: () => void
-  onOrganize: () => void
   onProbe: () => void
   onSoftDelete: () => void
 }
@@ -39,11 +37,8 @@ interface MediaDetailMainContentProps extends MediaDetailPlaybackActionsProps {
 interface MediaDetailDialogsProps {
   media: Media
   metadataEditOpen: boolean
-  organizeOpen: boolean
   onMetadataEditClose: () => void
-  onOrganizeClose: () => void
   onMetadataSaved: (media: Media) => void | Promise<void>
-  onOrganized: () => void
 }
 
 export function MediaDetailLoading() {
@@ -109,7 +104,6 @@ export function MediaDetailMainContent({
   onDoubanEnrich,
   doubanEnrichmentPending,
   onMetadataEdit,
-  onOrganize,
   onProbe,
   onSoftDelete,
 }: MediaDetailMainContentProps) {
@@ -153,7 +147,6 @@ export function MediaDetailMainContent({
                 doubanEnrichmentPending={doubanEnrichmentPending}
                 doubanDegraded={media.douban_status === 'degraded'}
                 onMetadataEdit={onMetadataEdit}
-                onOrganize={onOrganize}
                 onProbe={onProbe}
                 onSoftDelete={onSoftDelete}
               />
@@ -173,11 +166,8 @@ export function MediaDetailMainContent({
 export function MediaDetailDialogs({
   media,
   metadataEditOpen,
-  organizeOpen,
   onMetadataEditClose,
-  onOrganizeClose,
   onMetadataSaved,
-  onOrganized,
 }: MediaDetailDialogsProps) {
   return (
     <>
@@ -186,12 +176,6 @@ export function MediaDetailDialogs({
         media={media}
         onClose={onMetadataEditClose}
         onSaved={onMetadataSaved}
-      />
-      <OrganizeMediaDialog
-        open={organizeOpen}
-        media={media}
-        onClose={onOrganizeClose}
-        onOrganized={onOrganized}
       />
     </>
   )

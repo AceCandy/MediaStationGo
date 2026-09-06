@@ -136,7 +136,7 @@ func (s *ScannerService) localMediaScanState(in localMediaScanStateInput) (bool,
 	if in.existingMedia == nil {
 		var media model.Media
 		query := s.repo.DB.WithContext(in.ctx).
-			Select("scan_file_size_bytes", "scan_file_mtime_ns").
+			Select("season_num", "scan_file_size_bytes", "scan_file_mtime_ns").
 			Where("library_id = ? AND path = ?", in.libraryID, in.path).
 			Limit(1).Find(&media)
 		if query.Error != nil {
@@ -146,6 +146,7 @@ func (s *ScannerService) localMediaScanState(in localMediaScanStateInput) (bool,
 			return true, false, ""
 		}
 		existing = existingLocalMedia{
+			SeasonNum:         media.SeasonNum,
 			ScanFileSizeBytes: media.ScanFileSizeBytes,
 			ScanFileMTimeNS:   media.ScanFileMTimeNS,
 		}
@@ -156,6 +157,12 @@ func (s *ScannerService) localMediaScanState(in localMediaScanStateInput) (bool,
 	isNewMedia := !exists
 	if !exists {
 		return true, false, ""
+	}
+	// 旧负数季号不能因文件未变而永久跳过；仅按明确的 SxxExx 标记修复。
+	if existing.SeasonNum < 0 {
+		if season, episode := parseStandardEpisode(in.path); season >= 0 && episode > 0 {
+			return false, false, "按文件名纠正异常季号"
+		}
 	}
 	if existing.ScanFileMTimeNS != 0 && existing.ScanFileSizeBytes == in.size && existing.ScanFileMTimeNS == in.modTimeNS {
 		return false, true, ""

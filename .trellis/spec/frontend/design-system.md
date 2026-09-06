@@ -38,3 +38,14 @@
 - [ ] Product UI does not introduce native `<select>` elements; dropdowns reuse the shared `Select`.
 - [ ] Dark and light themes both verified with screenshots.
 - [ ] Hover/focus states carry the violet glow language.
+
+## Series Detail: Watching First
+
+- Whole-series detail management exposes metadata editing, track probing and record deletion, not smart scraping or filesystem organizing. Movie and Episode detail menus also omit filesystem organizing; use dedicated organizing tools instead. Optional shared menu actions are rendered only when the corresponding callback is supplied.
+- Series owns the main hero. Season context, episode selection and selected Episode share a content surface. Episode details use a landscape still and technical column beside metadata/actions on desktop, with metadata before tracks in mobile reading order. A single season needs no selector; season counts refer to playable logical episodes, not file versions. Do not invent Season synopsis from Series/Episode fields.
+- Place Series/Episode playback actions before secondary metadata using `MediaDetailMetadata.actions`. Synopsis, file/library facts and read-only tracks are directly visible, without disclosure panels; movie metadata remains expanded. Season and version selectors remain interactive choices, not content disclosures.
+- Use `MediaDetailTracks readOnlyTracks` for Series episode details: version selection changes the playback file, while video/audio/subtitle tracks are explicitly read-only text. Do not present informational tracks as playback settings.
+- Episode metadata omits ratings and Douban association (including standalone Episode pages); keep the Episode TMDb link. Read-only tracks reuse movie information-row shells/icons; subtitles use the compact movie chooser to inspect one track at a time, not to configure playback. Desktop artwork rows must not grow with the adjacent synopsis; keep the technical rows directly below artwork.
+- Show a small Season-owned cover/title alongside the season controls. Load from a visible file through `/media/:id/season`; key asynchronous results to that file and reject mismatched season numbers. Missing artwork uses a placeholder, not Series/Episode artwork; failed reads offer retry.
+- Keep episode-card playback explicit. Selecting an already visible card must not unnecessarily reposition the horizontal strip.
+- Verify primary-action reachability with long synopsis content, not only absence of overflow. Check directly visible metadata, selected-file links and refresh restoration. Run `node web/scripts/check-series-presentation.mjs` alongside the selection regression check.

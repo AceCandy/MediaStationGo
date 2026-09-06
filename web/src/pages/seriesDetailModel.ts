@@ -3,6 +3,10 @@ import type { HistoryItem } from '../types/history'
 
 export const episodeIdentity = (media: Media): string => media.metadata_id || media.id
 
+export const episodeLabel = (media: Media): string => media.episode_num > 0
+  ? `第 ${media.episode_num} 集`
+  : media.metadata_kind === 'series' ? '整剧关联文件' : media.metadata_kind === 'season' ? '季关联文件' : '未识别集号'
+
 export function distinctEpisodes(items: Media[]): Media[] {
   return [...new Map(items.map((item) => [episodeIdentity(item), item])).values()]
 }

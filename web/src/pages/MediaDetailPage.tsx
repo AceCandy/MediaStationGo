@@ -64,18 +64,14 @@ export function MediaDetailPage() {
             onDoubanEnrich={detail.enrichDouban}
             doubanEnrichmentPending={detail.doubanEnrichmentPending}
             onMetadataEdit={() => detail.setMetadataEditOpen(true)}
-            onOrganize={() => detail.setOrganizeOpen(true)}
             onProbe={detail.reprobe}
             onSoftDelete={detail.softDelete}
           />
           <MediaDetailDialogs
             media={media}
             metadataEditOpen={detail.metadataEditOpen}
-            organizeOpen={detail.organizeOpen}
             onMetadataEditClose={() => detail.setMetadataEditOpen(false)}
-            onOrganizeClose={() => detail.setOrganizeOpen(false)}
             onMetadataSaved={detail.handleMetadataSaved}
-            onOrganized={detail.refresh}
           />
         </div>
       )}

@@ -37,8 +37,8 @@ func TestTasksHandlerReturnsStableDefinitions(t *testing.T) {
 	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
 		t.Fatal(err)
 	}
-	if len(response.Definitions) != 14 {
-		t.Fatalf("definitions = %d, want 14", len(response.Definitions))
+	if len(response.Definitions) != 16 {
+		t.Fatalf("definitions = %d, want 16", len(response.Definitions))
 	}
 }
 
@@ -50,6 +50,17 @@ func TestTaskDefinitionRunHandlerReportsTMDbSnapshotBackfillUnavailable(t *testi
 
 	taskDefinitionRunHandler(&service.Container{})(ctx)
 
+	if recorder.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestTaskDefinitionRunHandlerReportsSeriesLocalCorrectionUnavailable(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Params = gin.Params{{Key: "key", Value: service.TaskDefinitionSeriesLocalCorrection}}
+	taskDefinitionRunHandler(&service.Container{})(ctx)
 	if recorder.Code != http.StatusServiceUnavailable {
 		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
 	}
