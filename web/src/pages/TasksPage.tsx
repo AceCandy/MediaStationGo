@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import toast from 'react-hot-toast'
 import { Activity, ChevronLeft, ChevronRight, FileText, Play, RefreshCw, Search, Settings, Trash2, X } from 'lucide-react'
 
@@ -59,11 +59,13 @@ function taskProgressText(definition: TaskDefinition): string {
   return `已处理 ${metrics.processed} / ${metrics.total} · 成功 ${metrics.succeeded} · 失败 ${metrics.failed} · 剩余 ${metrics.remaining}`
 }
 
-function reverseLogLines(content: string): string {
-  const trailingNewline = content.endsWith('\n')
+const taskLogPageSize = 200
+
+function reverseLogLines(content: string): string[] {
+  if (!content) return []
   const lines = content.split('\n')
-  if (trailingNewline) lines.pop()
-  return lines.reverse().join('\n') + (trailingNewline ? '\n' : '')
+  if (content.endsWith('\n')) lines.pop()
+  return lines.reverse()
 }
 
 const taskLogBadges = {
@@ -82,8 +84,7 @@ const taskLogBadges = {
 const taskLogMarkerPattern = /(🔺|🔻|➕|🗑️?|🔄|✅|❌|⏭️?|⚠️?|ℹ️?)/u
 const legacyTaskLogPattern = /^(\S+\s+)\[(INFO|DETAIL|ERROR)\]\s+(.*)$/u
 
-function renderLogContent(content: string) {
-  const lines = reverseLogLines(content).split('\n')
+function renderLogContent(lines: string[]) {
   return lines.map((line, index) => {
     const legacy = legacyTaskLogPattern.exec(line)
     const visibleLine = legacy ? legacy[1] + legacy[3] : line
@@ -292,10 +293,14 @@ function TaskScheduleDialog({ definition, onClose, onSaved }: { definition: Task
 
 function TaskLogDialog({ definition, onClose }: { definition: TaskDefinition; onClose: () => void }) {
   const [log, setLog] = useState<TaskLog | null>(null)
+  const [page, setPage] = useState(1)
   const [month, setMonth] = useState(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1))
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const requestID = useRef(0)
+  const lines = useMemo(() => reverseLogLines(log?.content ?? ''), [log?.content])
+  const pageCount = Math.max(1, Math.ceil(lines.length / taskLogPageSize))
+  const renderedLog = useMemo(() => renderLogContent(lines.slice((page - 1) * taskLogPageSize, page * taskLogPageSize)), [lines, page])
 
   useEffect(() => {
     let active = true
@@ -303,6 +308,7 @@ function TaskLogDialog({ definition, onClose }: { definition: TaskDefinition; on
     setError('')
     setLoading(true)
     setLog(null)
+    setPage(1)
     tasksAPI.log(definition.key)
       .then((value) => {
         if (!active || requestID.current !== currentRequest) return
@@ -319,7 +325,7 @@ function TaskLogDialog({ definition, onClose }: { definition: TaskDefinition; on
     setError('')
     setLoading(true)
     tasksAPI.log(definition.key, date)
-      .then((value) => { if (requestID.current === currentRequest) setLog(value) })
+      .then((value) => { if (requestID.current === currentRequest) { setLog(value); setPage(1) } })
       .catch(() => { if (requestID.current === currentRequest) setError('任务日志读取失败') })
       .finally(() => { if (requestID.current === currentRequest) setLoading(false) })
   }
@@ -334,7 +340,17 @@ function TaskLogDialog({ definition, onClose }: { definition: TaskDefinition; on
             <span>{log?.date ? formatDateKey(log.date) : ''}</span>
             <button type="button" className="icon-btn" title="刷新日志" aria-label="刷新日志" disabled={loading} onClick={() => loadLog(log?.date)}><RefreshCw size={16} className={loading ? 'animate-spin' : ''} /></button>
           </div>
-          <pre className="min-h-56 flex-1 overflow-auto whitespace-pre-wrap break-words rounded border border-gray-200 bg-gray-950 p-3 font-mono text-xs leading-relaxed text-gray-100">{loading ? '加载日志中...' : error ? error : log?.content ? renderLogContent(log.content) : '该任务暂无日志。'}</pre>
+          <pre key={`${log?.date}-${page}`} className="min-h-56 flex-1 overflow-auto whitespace-pre-wrap break-words rounded border border-gray-200 bg-gray-950 p-3 font-mono text-xs leading-relaxed text-gray-100">{loading ? '加载日志中...' : error ? error : log?.content ? renderedLog : '该任务暂无日志。'}</pre>
+          {!loading && !error && pageCount > 1 && (
+            <div className="mt-2 flex shrink-0 flex-wrap items-center justify-between gap-2 text-xs text-ink-50">
+              <span>已加载 {lines.length} 行 · 每页 {taskLogPageSize} 行</span>
+              <div className="flex items-center gap-2">
+                <button type="button" className="icon-btn" title="上一页" aria-label="日志上一页" disabled={page <= 1} onClick={() => setPage((value) => value - 1)}><ChevronLeft size={16} /></button>
+                <span>{page} / {pageCount}</span>
+                <button type="button" className="icon-btn" title="下一页" aria-label="日志下一页" disabled={page >= pageCount} onClick={() => setPage((value) => value + 1)}><ChevronRight size={16} /></button>
+              </div>
+            </div>
+          )}
           {log?.truncated && <p className="mt-1 text-xs text-orange-600">日志过长，当前显示末尾内容。</p>}
         </div>
       </div>
