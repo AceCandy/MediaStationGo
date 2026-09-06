@@ -1939,7 +1939,10 @@ TMDbEpisodeCheckedAt *time.Time `gorm:"column:tmdb_episode_checked_at;index"`
 - Normal credit persistence reuses a successful remote URL only while the local
   file is valid and its computed storage key matches the cached key. Cache expiry,
   eviction or process restart causes another direct import. Local source files
-  are always reread; failures never create a success mapping. Do not infer a
+  are always reread; failures never create a success mapping. Automatic remote
+  import failures instead cache a failure flag for one minute; caller cancellation
+  does not. Explicit Import bypasses cooldown, and success replaces the flag.
+  Cache hits never extend failure expiry. Do not infer a
   successful URL/key mapping from Person alone: a failed refresh can retain an
   old key alongside a new source URL.
 - A successful refresh replaces the key only after validation and atomic write;
@@ -1987,7 +1990,26 @@ TMDbEpisodeCheckedAt *time.Time `gorm:"column:tmdb_episode_checked_at;index"`
   `cache/images`.
 - `TestPersistCreditsReusesRemoteProfile`: separate works reuse one download;
   missing/wrong local bytes are repaired, explicit refresh downloads again,
-  source changes are fetched and failed downloads remain retryable.
+  source changes are fetched, failure cooldown suppresses repeat requests,
+  expiry restores automatic requests and explicit recovery bypasses cooldown.
+
+### Shared remote fetch and provider routing
+
+- `ImageProxy.fetchRemoteImageUncached` coalesces only overlapping network
+  requests by exact URL and `directOnly`. It does not cache completed results,
+  change URL validation or mix direct-only and fallback-enabled routes. Every
+  waiter can cancel independently; an owner canceled by its caller releases
+  surviving waiters to retry. A transport timeout with a live caller is a shared
+  failure, not an instruction to retry indefinitely. No network-wide mutex.
+- `applyFanartArtwork(ctx, match, mediaType)` receives the resolved media kind.
+  Movie uses `/movies/{TMDbID}`; TV uses `/tv/{TVDBID}`. No TVDB ID means no TV
+  artwork request, never a Movie request with a Series TMDb ID.
+- Tests: `TestRemoteImageFetchCoalescesAndCancels` checks request sharing and
+  owner/waiter cancellation; `TestFanartArtworkUsesMatchingMediaKind` checks
+  mutually exclusive endpoints and missing-TVDB behavior. Run with `-race`.
+- Wrong: lock only the cache write after concurrent duplicate downloads, or
+  call Movie artwork whenever any TMDb ID exists. Correct: share the active
+  fetch before I/O and dispatch provider endpoints using the resolved kind.
 - Emby: local bytes for GET and HEAD, `/Items` and `/emby/Items` prefixes,
   uppercase/lowercase route variants, and transparent placeholder on failure.
 - Compatibility: existing movie/series artwork tests and cache cleanup behavior

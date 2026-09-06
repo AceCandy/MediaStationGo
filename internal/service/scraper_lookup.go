@@ -207,7 +207,7 @@ func preferExistingLocalizedEpisodeTitle(m *model.Media, lib *model.Library, mat
 	match.Title = title
 }
 
-func (s *ScraperService) applyFanartArtwork(ctx context.Context, match *Match) {
+func (s *ScraperService) applyFanartArtwork(ctx context.Context, match *Match, mediaType string) {
 	if s == nil || s.fanart == nil || !s.fanart.Enabled() || match == nil {
 		return
 	}
@@ -222,14 +222,14 @@ func (s *ScraperService) applyFanartArtwork(ctx context.Context, match *Match) {
 			match.BackdropURL = a.Backdrop
 		}
 	}
-	if match.TMDbID > 0 {
+	if mediaType == "movie" && match.TMDbID > 0 {
 		if a, err := s.fanart.MovieArtwork(ctx, match.TMDbID); err == nil {
 			apply(a)
 		} else {
 			s.log.Debug("fanart movie artwork failed", zap.Int("tmdb_id", match.TMDbID), zap.Error(err))
 		}
 	}
-	if strings.TrimSpace(match.TheTVDBID) != "" {
+	if mediaType == "tv" && strings.TrimSpace(match.TheTVDBID) != "" {
 		if a, err := s.fanart.TVArtwork(ctx, strings.TrimSpace(match.TheTVDBID)); err == nil {
 			apply(a)
 		} else {

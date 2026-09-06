@@ -94,7 +94,7 @@ func (s *ScraperService) enrichOneWithOptions(ctx context.Context, m *model.Medi
 	}
 	if match := externalResult.Match; match != nil {
 		mergeLocalCreditsIntoMatch(match, local)
-		s.applyFanartArtwork(ctx, match)
+		s.applyFanartArtwork(ctx, match, s.determineMediaTypeForMedia(lib, &lookupMedia, match))
 		return recordScrapeSource(options, metadataMatchSource(match), s.applyProviderMatchWithOptions(ctx, m, lib, match, options))
 	}
 	if externalResult.Err != nil {

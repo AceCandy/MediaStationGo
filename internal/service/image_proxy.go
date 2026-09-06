@@ -31,6 +31,8 @@ type ImageProxy struct {
 	cacheDir  string
 	mu        sync.Mutex
 	apiConfig *APIConfigService
+	fetchMu   sync.Mutex
+	fetches   map[remoteImageFetchKey]*remoteImageFetch
 
 	// libraryRootsFn returns the configured media library roots so that
 	// sidecar poster/artwork files stored alongside media (under arbitrary

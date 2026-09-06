@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	testdb "github.com/ShukeBta/MediaStationGo/internal/testdb"
 	"go.uber.org/zap"
@@ -231,18 +232,31 @@ func TestPersistCreditsReusesRemoteProfile(t *testing.T) {
 			t.Fatal("expected upstream failure")
 		}
 	}
-	if got := atomic.LoadInt32(&calls); got != 6 {
-		t.Fatalf("failed import retries = %d, want 6", got)
+	if got := atomic.LoadInt32(&calls); got != 5 {
+		t.Fatalf("failed import cooldown downloads = %d, want 5", got)
 	}
 	reject.Store(false)
+	if _, err := store.Import(t.Context(), changedURL); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := store.ImportCached(t.Context(), changedURL); err != nil {
 		t.Fatal(err)
 	}
+	if got := atomic.LoadInt32(&calls); got != 6 {
+		t.Fatalf("explicit recovery downloads = %d, want 6", got)
+	}
+	// 冷却到期后自动入口恢复请求，不需要重启或手动清理。
+	store.sources.SetJSON(t.Context(), changedURL, peopleImageSource{Failed: true}, time.Minute)
+	store.sources.mu.Lock()
+	entry := store.sources.memory[changedURL]
+	entry.expiresAt = time.Now().Add(-time.Second)
+	store.sources.memory[changedURL] = entry
+	store.sources.mu.Unlock()
 	if _, err := store.ImportCached(t.Context(), changedURL); err != nil {
 		t.Fatal(err)
 	}
 	if got := atomic.LoadInt32(&calls); got != 7 {
-		t.Fatalf("changed source downloads = %d, want 7", got)
+		t.Fatalf("expired cooldown downloads=%d, want 7", got)
 	}
 }
 

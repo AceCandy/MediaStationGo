@@ -1,5 +1,25 @@
 # Validation
 
+## Image request deduplication follow-up
+
+- Passed focused PostgreSQL-backed image/profile persistence, explicit TMDb
+  refresh, complete catalog hydration and image-proxy regressions with `-race`.
+- New request-count tests cover shared fetch, independently canceled waiter,
+  canceled owner with surviving waiter, one-minute failure cooldown, expiry,
+  explicit recovery, transport timeout cooldown and caller-cancellation exclusion.
+  Fanart tests verify one correct endpoint per kind and no Movie request for TV
+  without a TVDB ID. Pure concurrency/routing/timeout tests passed five repetitions
+  with `-race`; Go build and diff whitespace checks passed.
+- Independent review checked all network-fetch callers, exact URL/routing-policy
+  keys, channel publication, cleanup, no mutex held during I/O, non-cached terminal
+  flights and explicit refresh bypass. An initial test used direct-only routing,
+  which intentionally bypasses the injected mock transport; corrected the fixture
+  to test the normal mocked route. No service was started for debugging.
+- No production task runs, restart, provider credentials or user files changed.
+  Actual wall-clock speedup remains unmeasured. Cooldown is process-local and
+  lasts one minute; a later automatic request can retry a still-failing source.
+  Poster asset reuse and Fanart response caching were intentionally not changed.
+
 ## NFO specials and repeated profile imports
 
 - Before the fix, the explicit-zero merge regression returned -1/25, the

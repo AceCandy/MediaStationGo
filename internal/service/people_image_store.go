@@ -18,6 +18,11 @@ import (
 
 var ErrPeopleImageNotFound = errors.New("people image not found")
 
+type peopleImageSource struct {
+	Key    string
+	Failed bool
+}
+
 // PeopleImageStore 将人物头像持久化到 DataDir/people，并只从该目录对外服务。
 type PeopleImageStore struct {
 	root       string
@@ -43,12 +48,21 @@ func (s *PeopleImageStore) ImportCached(ctx context.Context, source string) (str
 	}
 	source = strings.TrimSpace(source)
 	if s != nil && isHTTPish(source) {
-		var key string
-		if s.sources.GetJSON(ctx, source, &key) && s.hasUsableImage(key) {
-			return key, nil
+		var cached peopleImageSource
+		if s.sources.GetJSON(ctx, source, &cached) {
+			if cached.Failed {
+				return "", errors.New("recent people image import failure; retry after cooldown")
+			}
+			if s.hasUsableImage(cached.Key) {
+				return cached.Key, nil
+			}
 		}
 	}
-	return s.Import(ctx, source)
+	key, err := s.Import(ctx, source)
+	if s != nil && isHTTPish(source) && err != nil && ctx.Err() == nil && !errors.Is(err, context.Canceled) {
+		s.sources.SetJSON(ctx, source, peopleImageSource{Failed: true}, time.Minute)
+	}
+	return key, err
 }
 
 // Import fetches and stores one profile image, returning its content-hash key.
@@ -84,7 +98,7 @@ func (s *PeopleImageStore) Import(ctx context.Context, source string) (string, e
 	}
 	if isHTTPish(source) {
 		// 仅缓存成功来源，重启或过期后重新下载一次；图片本身仍独立持久保存。
-		s.sources.SetJSON(ctx, source, stored.StorageKey, 24*time.Hour)
+		s.sources.SetJSON(ctx, source, peopleImageSource{Key: stored.StorageKey}, 24*time.Hour)
 	}
 	return stored.StorageKey, nil
 }

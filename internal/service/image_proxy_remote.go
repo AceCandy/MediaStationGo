@@ -200,11 +200,63 @@ func (p *ImageProxy) fetchRemoteImageDirect(ctx context.Context, raw string) ([]
 }
 
 func (p *ImageProxy) fetchRemoteImageUncached(ctx context.Context, raw, host string, directOnly bool) ([]byte, string, string, error) {
+	key := remoteImageFetchKey{raw, directOnly}
+	for {
+		if err := ctx.Err(); err != nil {
+			return nil, "", "", err
+		}
+		p.fetchMu.Lock()
+		if active := p.fetches[key]; active != nil {
+			p.fetchMu.Unlock()
+			select {
+			case <-ctx.Done():
+				return nil, "", "", ctx.Err()
+			case <-active.done:
+				// 首个请求取消不应永久中断仍然有效的等待者。
+				if active.canceled {
+					continue
+				}
+				return active.data, active.contentType, active.contentLength, active.err
+			}
+		}
+		active := &remoteImageFetch{done: make(chan struct{})}
+		if p.fetches == nil {
+			p.fetches = make(map[remoteImageFetchKey]*remoteImageFetch)
+		}
+		p.fetches[key] = active
+		p.fetchMu.Unlock()
+		active.data, active.contentType, active.contentLength, active.err = p.fetchRemoteImage(ctx, raw, host, directOnly)
+		active.canceled = ctx.Err() != nil
+		p.fetchMu.Lock()
+		delete(p.fetches, key)
+		close(active.done)
+		p.fetchMu.Unlock()
+		return active.data, active.contentType, active.contentLength, active.err
+	}
+}
+
+type remoteImageFetchKey struct {
+	url        string
+	directOnly bool
+}
+
+type remoteImageFetch struct {
+	done                       chan struct{}
+	data                       []byte
+	contentType, contentLength string
+	err                        error
+	canceled                   bool
+}
+
+func (p *ImageProxy) fetchRemoteImage(ctx context.Context, raw, host string, directOnly bool) ([]byte, string, string, error) {
 	var lastErr error
 	for _, candidate := range p.remoteImageFetchClients(directOnly) {
 		data, ctype, contentLength, err := p.fetchRemoteImageOnce(ctx, raw, host, candidate)
 		if err == nil {
 			return data, ctype, contentLength, nil
+		}
+		if ctx.Err() != nil {
+			return nil, "", "", ctx.Err()
 		}
 		if errors.Is(err, errImageProxyRequestSetup) {
 			return nil, "", "", err

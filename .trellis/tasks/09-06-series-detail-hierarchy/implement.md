@@ -1,5 +1,19 @@
 # Implementation
 
+## Approved image request deduplication follow-up
+
+Add a one-minute bounded in-process failure cooldown to automatic remote people
+imports; explicit Import bypasses it and successful import replaces it. Caller
+cancellation must not populate the cooldown. Coalesce overlapping network image
+requests in ImageProxy by exact URL and direct-only routing policy, retaining
+per-waiter cancellation and allowing surviving waiters to retry when the owner
+is canceled. Do not hold a global lock over network I/O or add worker concurrency.
+Route Fanart requests by the resolved media kind: Movie uses TMDb Movie ID,
+TV uses TVDB ID only. Missing TVDB ID must not query the Movie endpoint.
+Verify request counts, cancellation, failure expiry and explicit recovery with
+mock transports, focused PostgreSQL regressions and the race detector. Poster
+asset reuse and Fanart response caching remain outside this follow-up.
+
 ## Approved NFO specials and repeated profile downloads
 
 Fix NFO coordinate merging at its source: preserve the raw season field so an
