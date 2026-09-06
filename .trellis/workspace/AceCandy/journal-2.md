@@ -302,3 +302,25 @@ Refined media library cover cards and management dialog: 16:9 hover overlays, de
 ### Next Steps
 
 - 部署后的真实任务重试、播放器行为和长剧刮削耗时仍需线上验证。
+
+
+## Session 105: 媒体库与 Emby 元数据分页优化
+<!-- trellis-session: v=2 fp=ad798e709d526112 -->
+
+**Date**: 2026-09-07
+**Task**: 媒体库与 Emby 元数据分页优化
+**Branch**: `main`
+
+### Summary
+
+Web 电影与整剧按 metadata 分页，Emby 整剧摘要、混合库与子级列表下沉 SQL 分页。针对性 PostgreSQL 回归、Web lint/build 和选集脚本通过；扩展回归 14 项原有失败已在基线复现，未做真实播放器或线上耗时验证。用户确认提交归档，未部署。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `8b6b9d6` | perf: 媒体库与 Emby 列表按元数据分页 |
+
+### Status
+
+[OK] **Completed**
