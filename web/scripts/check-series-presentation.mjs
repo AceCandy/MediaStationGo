@@ -19,7 +19,7 @@ function load(name, mocks, exportName = name) {
   return exports[exportName]
 }
 
-const Metadata = load('MediaDetailMetadata', { '../api/library': {}, '../components/ModalShell': {} })
+const Metadata = load('MediaDetailMetadata', { '../api/library': {}, '../components/STRMDeleteDialog': {} })
 const AdminMenu = load('MediaDetailAdminPanel', {}, 'MediaDetailAdminMenu')
 const menuProps = { tmdbRefreshPending: false, doubanEnrichmentPending: false, doubanDegraded: false, onMetadataEdit() {}, onProbe() {}, onSoftDelete() {} }
 const seriesMenu = renderToStaticMarkup(createElement(AdminMenu, { ...menuProps, label: '整剧更多操作' }))

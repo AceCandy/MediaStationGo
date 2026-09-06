@@ -1,10 +1,9 @@
-import { AlertTriangle, Calendar, Circle, CircleAlert, CircleCheck, Clock, FileVideo, HardDrive, Heart, Monitor, Star, Trash2, Unlink } from 'lucide-react'
+import { Calendar, Circle, CircleAlert, CircleCheck, Clock, FileVideo, HardDrive, Heart, Monitor, Star, Trash2, Unlink } from 'lucide-react'
 import { motion } from 'framer-motion'
 import { Fragment, useEffect, useState, type ReactNode } from 'react'
-import toast from 'react-hot-toast'
 
 import { mediaAPI, type STRMDeleteTarget } from '../api/library'
-import { ModalShell } from '../components/ModalShell'
+import { STRMDeleteDialog } from '../components/STRMDeleteDialog'
 import type { Media } from '../types'
 
 type MediaDetailMetadataProps = {
@@ -35,15 +34,12 @@ export function MediaDetailMetadata({ media, selectedMedia, scope, isAdmin, favo
   const [strmTarget, setSTRMTarget] = useState('')
   const [deleteTarget, setDeleteTarget] = useState<STRMDeleteTarget | null>(null)
   const [deleteOpen, setDeleteOpen] = useState(false)
-  const [deleteParent, setDeleteParent] = useState(false)
-  const [deleting, setDeleting] = useState(false)
 
   useEffect(() => {
     let cancelled = false
     setSTRMTarget('')
     setDeleteTarget(null)
     setDeleteOpen(false)
-    setDeleteParent(false)
     if (selectedMedia?.path.toLowerCase().endsWith('.strm')) {
       mediaAPI.getSTRMTarget(selectedMedia.id)
         .then((target) => { if (!cancelled) setSTRMTarget(target) })
@@ -56,26 +52,6 @@ export function MediaDetailMetadata({ media, selectedMedia, scope, isAdmin, favo
     }
     return () => { cancelled = true }
   }, [isAdmin, selectedMedia?.id, selectedMedia?.path])
-
-  const deletePath = deleteTarget
-    ? (deleteParent && deleteTarget.parent_path ? deleteTarget.parent_path : deleteTarget.target_path)
-    : ''
-
-  const handleDelete = async () => {
-    if (!deleteTarget || !selectedMedia) return
-    setDeleting(true)
-    try {
-      await mediaAPI.deleteSTRMTarget(selectedMedia.id, deleteParent)
-      setDeleteOpen(false)
-      setDeleteTarget(null)
-      toast.success(deleteParent ? '父目录已删除' : '本地文件已删除')
-    } catch (err: unknown) {
-      const message = (err as { response?: { data?: { error?: string } } })?.response?.data?.error ?? '删除失败'
-      toast.error(message)
-    } finally {
-      setDeleting(false)
-    }
-  }
 
   return (
     <>
@@ -204,10 +180,7 @@ export function MediaDetailMetadata({ media, selectedMedia, scope, isAdmin, favo
                 <button
                   type="button"
                   className="btn-danger shrink-0 !px-2.5 !py-1.5"
-                  onClick={() => {
-                    setDeleteParent(false)
-                    setDeleteOpen(true)
-                  }}
+                  onClick={() => setDeleteOpen(true)}
                   aria-label="删除 STRM 本地目标"
                   title="删除 STRM 本地目标"
                 >
@@ -221,48 +194,14 @@ export function MediaDetailMetadata({ media, selectedMedia, scope, isAdmin, favo
       </motion.div>
       </Details>
 
-      {deleteOpen && deleteTarget && (
-        <ModalShell
-          onClose={deleting ? undefined : () => setDeleteOpen(false)}
-          maxWidth="max-w-lg"
-          zIndex={100}
-          ariaLabel="确认删除 STRM 本地目标"
-        >
-          <div className="flex gap-4 p-5">
-            <div className="modal-icon modal-icon--danger">
-              <AlertTriangle size={22} aria-hidden="true" />
-            </div>
-            <div className="min-w-0 flex-1">
-              <h3 className="font-display text-lg font-bold text-ink-600">确认删除本地路径</h3>
-              <p className="mt-2 text-sm leading-6 text-ink-50">此操作不可恢复，仅删除下面的本地路径。</p>
-              <p className="mt-4 text-xs font-bold text-[var(--app-muted)]">最终将删除的本地绝对路径</p>
-              <p className="mt-1 break-all rounded-xl border border-red-200 bg-red-50 p-3 font-mono text-xs text-red-700">
-                {deletePath}
-              </p>
-              <label className="mt-4 flex items-start gap-2 text-sm text-ink-100">
-                <input
-                  type="checkbox"
-                  className="mt-0.5"
-                  checked={deleteParent}
-                  disabled={!deleteTarget.parent_path || deleting}
-                  onChange={(event) => setDeleteParent(event.target.checked)}
-                />
-                <span>
-                  删除父目录
-                  {!deleteTarget.parent_path && <span className="ml-1 text-xs text-ink-50">（该父目录不可安全删除）</span>}
-                </span>
-              </label>
-            </div>
-          </div>
-          <div className="modal-footer">
-            <button type="button" className="btn-outline px-4 py-2 shadow-none" disabled={deleting} onClick={() => setDeleteOpen(false)}>
-              取消
-            </button>
-            <button type="button" className="btn-danger px-4 py-2" disabled={deleting} onClick={handleDelete}>
-              {deleting ? '删除中…' : '确认删除'}
-            </button>
-          </div>
-        </ModalShell>
+      {deleteOpen && deleteTarget && selectedMedia && (
+        <STRMDeleteDialog
+          key={selectedMedia.id}
+          mediaID={selectedMedia.id}
+          target={deleteTarget}
+          onClose={() => setDeleteOpen(false)}
+          onDeleted={() => { setDeleteOpen(false); setDeleteTarget(null) }}
+        />
       )}
     </>
   )

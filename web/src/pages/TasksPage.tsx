@@ -1,13 +1,14 @@
 import { useEffect, useRef, useState } from 'react'
 import toast from 'react-hot-toast'
-import { Activity, ChevronLeft, ChevronRight, FileText, Play, RefreshCw, Search, Settings, X } from 'lucide-react'
+import { Activity, ChevronLeft, ChevronRight, FileText, Play, RefreshCw, Search, Settings, Trash2, X } from 'lucide-react'
 
-import { libraryAPI, mediaAPI, type MediaScrapeIssue } from '../api/library'
+import { libraryAPI, mediaAPI, type MediaScrapeIssue, type STRMDeleteTarget } from '../api/library'
 import { tasksAPI, type BackgroundTask, type TaskDefinition, type TaskLog } from '../api/tasks'
 import { confirmAction } from '../components/confirmAction'
 import { ManualScrapeDialog } from '../components/ManualScrapeDialog'
 import { ModalShell } from '../components/ModalShell'
 import { Select } from '../components/Select'
+import { STRMDeleteDialog } from '../components/STRMDeleteDialog'
 import type { Library } from '../types'
 import { isSeriesLibraryType } from './librariesPageModel'
 
@@ -398,6 +399,9 @@ function ScrapeIssuesPanel({ libraries }: { libraries: Library[] }) {
   const [refreshVersion, setRefreshVersion] = useState(0)
   const [retrying, setRetrying] = useState('')
   const [manualTarget, setManualTarget] = useState<MediaScrapeIssue | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<{ mediaID: string; target: STRMDeleteTarget } | null>(null)
+  const [resolvingDelete, setResolvingDelete] = useState('')
+  const deletePreviewPending = useRef(false)
   const pageSize = 20
 
   useEffect(() => {
@@ -433,6 +437,22 @@ function ScrapeIssuesPanel({ libraries }: { libraries: Library[] }) {
     }
   }
   const pageCount = Math.max(1, Math.ceil(total / pageSize))
+
+  const previewDelete = async (issue: MediaScrapeIssue) => {
+    if (deletePreviewPending.current) return
+    deletePreviewPending.current = true
+    setResolvingDelete(issue.id)
+    try {
+      const target = await mediaAPI.getSTRMDeleteTarget(issue.id)
+      setDeleteTarget({ mediaID: issue.id, target })
+    } catch (err: unknown) {
+      const message = (err as { response?: { data?: { error?: string } } })?.response?.data?.error ?? '无法解析可删除的 STRM 本地目标'
+      toast.error(message)
+    } finally {
+      deletePreviewPending.current = false
+      setResolvingDelete('')
+    }
+  }
 
   return (
     <div className="mt-6 border-t border-gray-200 pt-5">
@@ -489,6 +509,11 @@ function ScrapeIssuesPanel({ libraries }: { libraries: Library[] }) {
                       <button type="button" className="btn-outline px-3 py-2 text-xs" disabled={Boolean(retrying)} onClick={() => void retry(issue)}>
                         <RefreshCw size={14} className={retrying === issue.id ? 'animate-spin' : ''} /> {retrying === issue.id ? '排队中...' : '重试'}
                       </button>
+                      {issue.path.toLowerCase().endsWith('.strm') && (
+                        <button type="button" className="btn-danger px-3 py-2 text-xs" disabled={Boolean(resolvingDelete) || Boolean(deleteTarget)} onClick={() => void previewDelete(issue)} aria-label="删除 STRM 本地目标">
+                          <Trash2 size={14} aria-hidden="true" /> {resolvingDelete === issue.id ? '解析中…' : '删除'}
+                        </button>
+                      )}
                     </div>
                   </article>
                 )
@@ -503,6 +528,15 @@ function ScrapeIssuesPanel({ libraries }: { libraries: Library[] }) {
             <button type="button" className="icon-btn" title="下一页" aria-label="下一页" disabled={page >= pageCount || loading} onClick={() => setPage((value) => value + 1)}><ChevronRight size={16} /></button>
           </div>
         </div>
+      )}
+      {deleteTarget && (
+        <STRMDeleteDialog
+          key={deleteTarget.mediaID}
+          mediaID={deleteTarget.mediaID}
+          target={deleteTarget.target}
+          onClose={() => setDeleteTarget(null)}
+          onDeleted={() => { setDeleteTarget(null); refreshIssues() }}
+        />
       )}
       <ManualScrapeDialog
         open={Boolean(manualTarget)}
