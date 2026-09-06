@@ -53,7 +53,7 @@ func TestGetMediaAddsCompleteTracksButListsStayScalar(t *testing.T) {
 }
 
 func TestGetMediaAddsProviderSnapshotStateAndSeriesTMDbID(t *testing.T) {
-	db := newServiceTestDB(t, &model.Library{}, &model.Media{}, &model.MetadataProviderSnapshot{}, &model.ArtworkAsset{}, &model.MetadataArtwork{}, &model.MetadataArtworkCandidate{})
+	db := newServiceTestDB(t, &model.Library{}, &model.Media{}, &model.MediaProbeMetadata{}, &model.MetadataProviderSnapshot{}, &model.ArtworkAsset{}, &model.MetadataArtwork{}, &model.MetadataArtworkCandidate{})
 	repos := repository.New(db)
 	lib := model.Library{Name: "Series", Path: "/media/series", Type: "tv", Enabled: true}
 	if err := repos.Library.Create(t.Context(), &lib); err != nil {

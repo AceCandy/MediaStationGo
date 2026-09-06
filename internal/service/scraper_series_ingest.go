@@ -102,11 +102,8 @@ func (s *ScraperService) syncScrapeSeriesGroup(ctx context.Context, group scrape
 					episode, err := s.repo.Metadata.FindEpisode(ctx, seriesID, row.SeasonNum, row.EpisodeNum)
 					bindErr = err
 					if bindErr == nil && episode == nil {
-						if tmdbID > 0 && s.tmdb != nil && s.tmdb.Enabled() {
-							bindErr = fmt.Errorf("episode S%02dE%02d is absent from season inventory", row.SeasonNum, row.EpisodeNum)
-						} else {
-							episode, bindErr = s.repo.Metadata.UpsertEpisode(ctx, &model.MetadataItem{Kind: model.MetadataKindEpisode, ParentID: &season.ID, EpisodeNum: row.EpisodeNum, Title: preferredTMDbEntityTitle(row.EpisodeTitle, nil, model.MetadataKindEpisode, row.EpisodeNum), Source: series.Source})
-						}
+						// 季清单可能滞后于本地文件；按季集号占位，不伪造单集 provider 标识或快照。
+						episode, bindErr = s.repo.Metadata.UpsertEpisode(ctx, &model.MetadataItem{Kind: model.MetadataKindEpisode, ParentID: &season.ID, EpisodeNum: row.EpisodeNum, Title: preferredTMDbEntityTitle(row.EpisodeTitle, nil, model.MetadataKindEpisode, row.EpisodeNum), Source: series.Source})
 					}
 					if bindErr == nil {
 						targetID = episode.ID

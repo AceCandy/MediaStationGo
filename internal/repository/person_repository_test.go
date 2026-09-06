@@ -1,9 +1,12 @@
 package repository
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	testdb "github.com/ShukeBta/MediaStationGo/internal/testdb"
 	"gorm.io/driver/postgres"
@@ -11,6 +14,91 @@ import (
 
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 )
+
+func TestReplaceCreditsConcurrentPersonCreation(t *testing.T) {
+	db, err := testdb.OpenPostgres(t, &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(&model.MetadataItem{}, &model.Person{}, &model.PersonIdentifier{}, &model.MetadataCredit{}); err != nil {
+		t.Fatal(err)
+	}
+	works := []model.MetadataItem{{Kind: model.MetadataKindSeries, Title: "First", Source: "tmdb"}, {Kind: model.MetadataKindSeries, Title: "Second", Source: "tmdb"}}
+	if err := db.Create(&works).Error; err != nil {
+		t.Fatal(err)
+	}
+	var schema string
+	if err := db.Raw("SELECT current_schema()").Scan(&schema).Error; err != nil {
+		t.Fatal(err)
+	}
+	pool, err := db.DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	pool.SetMaxOpenConns(2)
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	ready, release := make(chan struct{}, 2), make(chan struct{})
+	results := make(chan error, 2)
+	var verify *gorm.DB
+	for i := range works {
+		conn, err := pool.Conn(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer conn.Close()
+		if _, err := conn.ExecContext(ctx, `SET search_path TO "`+schema+`"`); err != nil {
+			t.Fatal(err)
+		}
+		worker, err := gorm.Open(postgres.New(postgres.Config{Conn: conn}), &gorm.Config{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		verify = worker
+		// 两个事务都确认标识不存在后才允许创建，稳定覆盖首次写入竞争。
+		if err := worker.Callback().Query().After("gorm:query").Register("test:person-create-race", func(tx *gorm.DB) {
+			if tx.Statement.Table == "person_identifiers" && errors.Is(tx.Error, gorm.ErrRecordNotFound) {
+				ready <- struct{}{}
+				select {
+				case <-release:
+				case <-ctx.Done():
+				}
+			}
+		}); err != nil {
+			t.Fatal(err)
+		}
+		go func() {
+			results <- (&PersonRepository{db: worker}).ReplaceCredits(ctx, works[i].ID, []string{model.CreditTypeActor}, []CreditInput{{Provider: "tmdb", ExternalID: "1924538", Name: "Shared Actor", Type: model.CreditTypeActor, OriginalRole: works[i].Title}})
+		}()
+	}
+	for range works {
+		select {
+		case <-ready:
+		case <-ctx.Done():
+			t.Fatal("concurrent lookups did not reach the barrier")
+		}
+	}
+	close(release)
+	for range works {
+		if err := <-results; err != nil {
+			t.Fatal(err)
+		}
+	}
+	var peopleCount, identifierCount int64
+	if err := verify.Model(&model.Person{}).Unscoped().Count(&peopleCount).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := verify.Model(&model.PersonIdentifier{}).Unscoped().Count(&identifierCount).Error; err != nil {
+		t.Fatal(err)
+	}
+	var credits []model.MetadataCredit
+	if err := verify.Order("metadata_id").Find(&credits).Error; err != nil {
+		t.Fatal(err)
+	}
+	if peopleCount != 1 || identifierCount != 1 || len(credits) != 2 || credits[0].PersonID != credits[1].PersonID || credits[0].OriginalRole == credits[1].OriginalRole {
+		t.Fatalf("want one shared person and separate credits: people=%d identifiers=%d credits=%+v", peopleCount, identifierCount, credits)
+	}
+}
 
 func TestReplaceCreditsIsIdempotentAndReplacesLoadedType(t *testing.T) {
 	db, err := testdb.OpenPostgres(t, &gorm.Config{})

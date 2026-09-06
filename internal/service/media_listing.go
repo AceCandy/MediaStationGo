@@ -231,7 +231,16 @@ func (s *MediaService) attachMediaProviderDetails(ctx context.Context, media *mo
 	if media == nil || strings.TrimSpace(media.MetadataID) == "" {
 		return nil
 	}
-	if media.TMDbID > 0 {
+	if media.MetadataKind == model.MetadataKindSeason || media.MetadataKind == model.MetadataKindEpisode {
+		identifiers, err := s.repo.Metadata.ListIdentifiers(ctx, media.SeriesID)
+		if err != nil {
+			return err
+		}
+		if externalID, ok := uniqueIdentifier(identifiers, "tmdb", model.MetadataKindSeries); ok {
+			media.SeriesTMDbID, _ = strconv.Atoi(externalID)
+		}
+	}
+	if media.TMDbID > 0 || (media.MetadataKind == model.MetadataKindEpisode && media.SeriesTMDbID > 0) {
 		media.TMDbStatus = providerStatusMissing
 		snapshot, err := s.repo.Metadata.FindProviderSnapshot(ctx, media.MetadataID, "tmdb")
 		if err != nil {
@@ -270,16 +279,6 @@ func (s *MediaService) attachMediaProviderDetails(ctx context.Context, media *mo
 				}
 			}
 		}
-	}
-	if media.MetadataKind != model.MetadataKindSeason && media.MetadataKind != model.MetadataKindEpisode {
-		return nil
-	}
-	identifiers, err := s.repo.Metadata.ListIdentifiers(ctx, media.SeriesID)
-	if err != nil {
-		return err
-	}
-	if externalID, ok := uniqueIdentifier(identifiers, "tmdb", model.MetadataKindSeries); ok {
-		media.SeriesTMDbID, _ = strconv.Atoi(externalID)
 	}
 	return nil
 }

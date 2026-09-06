@@ -91,7 +91,7 @@ func (s *ScraperService) recheckTMDbEpisodeMetadata(ctx context.Context, candida
 	episode, err := s.tmdb.GetTVEpisodeDetails(detailCtx, seriesTMDbID, candidate.SeasonNum, candidate.EpisodeNum)
 	cancel()
 	metrics["requests"]++
-	if err != nil || episode == nil {
+	if err != nil || episode == nil || episode.ID <= 0 {
 		if err == nil {
 			err = errors.New("TMDb episode details unavailable")
 		}
@@ -126,6 +126,10 @@ func (s *ScraperService) recheckTMDbEpisodeMetadata(ctx context.Context, candida
 	updates, _ := tmdbEpisodeMetadataUpdates(nil, episode, 0)
 	changed := changedTMDbEpisodeFields(item, updates)
 	applyTMDbEpisodeMetadataUpdates(item, updates)
+	// 补全占位集的真实标识和快照，让详情页缺失提示随成功补全恢复。
+	if err := s.repo.Metadata.ReplaceIdentifierWithSnapshot(ctx, item.ID, "tmdb", model.MetadataKindEpisode, strconv.Itoa(episode.ID), episode.RawJSON, now); err != nil {
+		return []string{"❌ " + subject + "，动作=保存集标识和快照，结果=可重试失败：" + sanitizeTaskLogError(err).Error()}, err
+	}
 	if item.TMDbEpisodeCheckedAt == nil || item.TMDbEpisodeCheckedAt.Before(now) {
 		item.TMDbEpisodeCheckedAt = &now
 	}

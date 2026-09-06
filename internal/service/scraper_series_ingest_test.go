@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/ShukeBta/MediaStationGo/internal/model"
+	"github.com/ShukeBta/MediaStationGo/internal/repository"
 )
 
 func TestSeriesInventoryBindsOwnEpisodesAndReusesSnapshot(t *testing.T) {
@@ -69,7 +70,7 @@ func TestSeriesInventoryBindsOwnEpisodesAndReusesSnapshot(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if i >= 4 {
+			if i == 4 || i == 6 {
 				if got.MetadataID != "" || got.ScrapeStatus != "error" {
 					t.Fatalf("invalid file bound: %+v", got)
 				}
@@ -156,6 +157,90 @@ func TestSeriesInventoryBindsOwnEpisodesAndReusesSnapshot(t *testing.T) {
 	after, err := repos.Media.FindByID(t.Context(), rows[1].ID)
 	if err != nil || after.MetadataID != other.MetadataID {
 		t.Fatal("failed representative overwrote sibling attachment", err)
+	}
+}
+
+func TestSeriesInventoryMissingEpisodesBindAndRecover(t *testing.T) {
+	s, repos, closeUpstream := newTestScraper(t)
+	defer closeUpstream()
+	if err := repos.DB.Callback().Create().Remove("testutil:media-metadata"); err != nil {
+		t.Fatal(err)
+	}
+	if err := repos.DB.AutoMigrate(&model.MediaProbeMetadata{}); err != nil {
+		t.Fatal(err)
+	}
+	var published atomic.Bool
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/tv/12345/season/1" {
+			fmt.Fprint(w, `{"id":101,"season_number":1,"episodes":[{"id":119,"episode_number":19,"name":"第十九集"}]}`)
+			return
+		}
+		if r.URL.Path == "/tv/12345/season/1/episode/20" && published.Load() {
+			fmt.Fprint(w, `{"id":120,"name":"新的开始","overview":"单集简介","air_date":"2026-09-06"}`)
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer upstream.Close()
+	s.tmdb.cfg.Secrets.TMDbAPIProxy = upstream.URL
+	series := createServiceTestMetadata(t, repos.DB, model.MetadataItem{Kind: model.MetadataKindSeries, Title: "剧", Source: "tmdb"},
+		model.MetadataIdentifier{Provider: "tmdb", EntityKind: model.MetadataKindSeries, ExternalID: "12345"})
+	lib := model.Library{Name: "剧库", Path: t.TempDir(), Type: "tv", Enabled: true}
+	if err := repos.Library.Create(t.Context(), &lib); err != nil {
+		t.Fatal(err)
+	}
+	group := scrapeCandidateGroup{}
+	for _, number := range []int{20, 21} {
+		row := model.Media{LibraryID: lib.ID, Path: filepath.Join(lib.Path, fmt.Sprintf("S01E%d.strm", number)), SeasonNum: 1, EpisodeNum: number, ScrapeStatus: "error"}
+		if err := repos.DB.Create(&row).Error; err != nil {
+			t.Fatal(err)
+		}
+		group.MediaIDs = append(group.MediaIDs, row.ID)
+	}
+	mediaService := NewMediaService(s.cfg, s.log, repos)
+	var placeholderID string
+	for round := 0; round < 2; round++ {
+		if err := s.syncScrapeSeriesGroup(t.Context(), group, &model.Media{TMDbID: 12345}, series.ID); err != nil {
+			t.Fatal(err)
+		}
+		for i, id := range group.MediaIDs {
+			detail, err := mediaService.GetMedia(t.Context(), id)
+			if err != nil || detail == nil {
+				t.Fatalf("placeholder detail: %v", err)
+			}
+			if detail.ScrapeStatus != "matched" || detail.EpisodeNum != 20+i || detail.SeriesTMDbID != 12345 || detail.TMDbID != 0 || detail.TMDbSnapshot || detail.TMDbStatus != providerStatusMissing || detail.Overview != "" {
+				t.Fatalf("unexpected placeholder: %+v", detail)
+			}
+			if i == 0 {
+				if round > 0 && placeholderID != detail.MetadataID {
+					t.Fatal("retry duplicated placeholder")
+				}
+				placeholderID = detail.MetadataID
+			}
+		}
+	}
+	candidates, err := repos.Metadata.ListTMDbEpisodeMetadataRecheckAfter(t.Context(), "", time.Now().UTC(), 200)
+	if err != nil || len(candidates) != 2 {
+		t.Fatalf("ID-less placeholders must be eligible for recheck: %d, %v", len(candidates), err)
+	}
+	candidate := repository.TMDbEpisodeMetadataRecheckCandidate{MetadataID: placeholderID, SeriesTMDbID: "12345", SeasonNum: 1, EpisodeNum: 20, StillMissing: true}
+	if _, err := s.recheckTMDbEpisodeMetadata(t.Context(), candidate, time.Now().UTC(), map[string]int64{}); err == nil {
+		t.Fatal("missing upstream episode must remain retryable")
+	}
+	item, err := repos.Metadata.FindByID(t.Context(), placeholderID)
+	if err != nil || item.TMDbEpisodeCheckedAt != nil {
+		t.Fatal("failed recheck advanced checkpoint", err)
+	}
+	published.Store(true)
+	if _, err := s.recheckTMDbEpisodeMetadata(t.Context(), candidate, time.Now().UTC(), map[string]int64{}); err != nil {
+		t.Fatal(err)
+	}
+	detail, err := mediaService.GetMedia(t.Context(), group.MediaIDs[0])
+	if err != nil || detail == nil {
+		t.Fatal("recovered detail missing", err)
+	}
+	if detail.MetadataID != placeholderID || detail.TMDbID != 120 || !detail.TMDbSnapshot || detail.TMDbStatus != providerStatusPartial || detail.Title != "新的开始" || detail.ScrapeStatus != "matched" {
+		t.Fatalf("placeholder did not recover in place: %+v", detail)
 	}
 }
 

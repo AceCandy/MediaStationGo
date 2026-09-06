@@ -56,6 +56,20 @@ for (const scope of [undefined, 'series', 'episode']) {
 }
 const standaloneEpisode = renderToStaticMarkup(createElement(Metadata, { media: { ...media, metadata_kind: 'episode' }, isAdmin: true }))
 assert.doesNotMatch(standaloneEpisode, /badge-gold|douban.svg/, 'standalone episode uses the same metadata rules')
+const placeholder = { ...media, metadata_kind: 'episode', tmdb_id: 0, series_tmdb_id: 2, season_num: 1, episode_num: 20, tmdb_status: 'missing', tmdb_snapshot: false }
+for (const scope of [undefined, 'episode']) {
+  const missing = renderToStaticMarkup(createElement(Metadata, { media: placeholder, scope, isAdmin: false }))
+  assert.match(missing, /border-red-500/, 'missing episode has a red provider border')
+  assert.match(missing, /未获取到 TMDB 单集信息/)
+  assert.match(missing, /可能尚未收录或分集编号不同/)
+  assert.doesNotMatch(missing, /href="https:\/\/www.themoviedb.org/, 'placeholder does not invent a provider link')
+  for (const status of ['partial', 'complete']) {
+    const recovered = renderToStaticMarkup(createElement(Metadata, { media: { ...placeholder, tmdb_id: 120, tmdb_snapshot: true, tmdb_status: status }, scope, isAdmin: false }))
+    assert.doesNotMatch(recovered, /border-red-500|未获取到 TMDB 单集信息/, 'successful recheck clears red warning even without artwork')
+    assert.match(recovered, /\/tv\/2\/season\/1\/episode\/20/)
+  }
+}
+assert.doesNotMatch(standaloneEpisode, /未获取到 TMDB 单集信息/, 'non-TMDb episodes are not mislabeled')
 const props = { media, versions: [media], selectedVersionID: media.id, loading: false, probing: false, probeError: '', onVersionChange() {} }
 const tracks = renderToStaticMarkup(createElement(Tracks, { ...props, readOnlyTracks: true }))
 assert.match(tracks, /媒体信息/)

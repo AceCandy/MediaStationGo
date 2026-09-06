@@ -30,6 +30,8 @@ export function MediaDetailMetadata({ media, selectedMedia, scope, isAdmin, favo
   const heading = media.title
   const seriesContext = media.series_title?.trim()
   const tmdbHref = tmdbURL(media)
+  const missingTMDbEpisode = isEpisode && (media.tmdb_id > 0 || (media.series_tmdb_id ?? 0) > 0) &&
+    providerStatus(media.tmdb_status, media.tmdb_snapshot) === 'missing'
   const [strmTarget, setSTRMTarget] = useState('')
   const [deleteTarget, setDeleteTarget] = useState<STRMDeleteTarget | null>(null)
   const [deleteOpen, setDeleteOpen] = useState(false)
@@ -148,13 +150,13 @@ export function MediaDetailMetadata({ media, selectedMedia, scope, isAdmin, favo
               </span>
             )}
           </div>}
-          {(tmdbHref || !isEpisode) && <div className="flex flex-wrap items-center gap-2.5">
-            {tmdbHref && (
+          {(tmdbHref || missingTMDbEpisode || !isEpisode) && <div className="flex flex-wrap items-center gap-2.5">
+            {(tmdbHref || missingTMDbEpisode) && (
               <ProviderBadge
-                href={tmdbHref}
+                href={tmdbHref ?? undefined}
                 label="TMDb"
                 iconSrc="/brand/tmdb.svg"
-                status={providerStatus(media.tmdb_status, media.tmdb_snapshot)}
+                status={missingTMDbEpisode ? 'episode_missing' : providerStatus(media.tmdb_status, media.tmdb_snapshot)}
               />
             )}
             {!isEpisode && <ProviderBadge
@@ -266,11 +268,12 @@ export function MediaDetailMetadata({ media, selectedMedia, scope, isAdmin, favo
   )
 }
 
-type ProviderStatus = 'unlinked' | 'missing' | 'partial' | 'degraded' | 'complete'
+type ProviderStatus = 'unlinked' | 'missing' | 'partial' | 'degraded' | 'complete' | 'episode_missing'
 
 const providerStatusLabels: Record<ProviderStatus, string> = {
   unlinked: '没有豆瓣信息',
   missing: '本地未缓存',
+  episode_missing: '未获取到 TMDB 单集信息',
   partial: '本地数据不完整',
   degraded: '豆瓣接口受限，当前为降级数据',
   complete: '本地详情和图片完整',
@@ -282,19 +285,21 @@ function providerStatus(status: ProviderStatus | undefined, snapshot: boolean | 
 
 function ProviderBadge({ href, onClick, label, iconSrc, status }: { href?: string; onClick?: () => void; label: string; iconSrc: string; status: ProviderStatus }) {
   const statusLabel = providerStatusLabels[status]
+  const missingEpisode = status === 'episode_missing'
   const warning = status === 'partial' || status === 'degraded'
-  const StatusIcon = status === 'unlinked' ? Unlink : status === 'complete' ? CircleCheck : warning ? CircleAlert : Circle
-  const statusClass = status === 'complete' ? 'text-emerald-600' : warning ? 'text-amber-600' : 'text-[var(--app-muted)]'
+  const StatusIcon = missingEpisode ? CircleAlert : status === 'unlinked' ? Unlink : status === 'complete' ? CircleCheck : warning ? CircleAlert : Circle
+  const statusClass = missingEpisode ? 'text-red-700' : status === 'complete' ? 'text-emerald-600' : warning ? 'text-amber-600' : 'text-[var(--app-muted)]'
   const content = (
     <>
       <img src={iconSrc} alt="" aria-hidden="true" className="h-4 w-auto shrink-0" />
       <StatusIcon size={13} aria-hidden="true" className={statusClass} />
-      <span className="sr-only">{statusLabel}</span>
+      <span className={missingEpisode ? 'text-red-700' : 'sr-only'}>{statusLabel}</span>
     </>
   )
-  const className = 'inline-flex items-center gap-1.5 rounded-xl border border-[var(--app-border)] bg-[var(--app-panel)]/70 px-2.5 py-1.5 text-[var(--app-text)] backdrop-blur' +
-    (href || onClick ? ' hover:border-[var(--app-brand-border)] hover:text-[var(--app-brand-text)]' : '')
-  const title = `${label}：${statusLabel}`
+  const className = 'inline-flex items-center gap-1.5 rounded-xl border px-2.5 py-1.5 text-[var(--app-text)] backdrop-blur ' +
+    (missingEpisode ? 'border-red-500 bg-[var(--app-danger-soft)]' : 'border-[var(--app-border)] bg-[var(--app-panel)]/70') +
+    (!missingEpisode && (href || onClick) ? ' hover:border-[var(--app-brand-border)] hover:text-[var(--app-brand-text)]' : '')
+  const title = `${label}：${statusLabel}` + (missingEpisode ? '；已按本地季集号入库，可能尚未收录或分集编号不同，也可能尚未完成补全' : '')
   if (!href) {
     if (!onClick) return <span title={title} aria-label={title} className={className}>{content}</span>
     return <button type="button" onClick={onClick} title={`${title}，点击设置豆瓣 ID`} aria-label={`${title}，点击设置豆瓣 ID`} className={className}>{content}</button>

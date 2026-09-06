@@ -76,6 +76,14 @@
 - TMDb people are reused only through TMDb person IDs. NFO-only people are
   reused by normalized local name and are never merged into TMDb people by
   name alone.
+- Concurrent first writes of the same `(provider, external_id)` use targeted
+  `ON CONFLICT DO NOTHING`. The losing transaction hard-deletes only its own
+  unlinked provisional Person, then reloads/reuses the winning identifier.
+  Do not catch a PostgreSQL unique violation and continue in the aborted
+  transaction, remove the unique index, or leave orphan/soft-deleted provisional
+  people. `TestReplaceCreditsConcurrentPersonCreation` synchronizes two real
+  connections after missing-ID reads and asserts both writes succeed, one
+  Person/identifier remains, and each work retains its own role.
 - A loaded credit type is an authoritative snapshot, including an explicitly
   empty snapshot. A type absent from `LoadedCreditTypes` must preserve existing
   rows. NFO may fill only a provider-loaded type whose provider snapshot is empty.
@@ -1260,6 +1268,12 @@ setSelectedMedia(selectedVersion)
   Series TMDb ID plus season/episode numbers in the `/tv/...` deep link.
 - Missing required IDs omit the link. External links open a new window with
   `noopener noreferrer`.
+- Episodes with a canonical Series TMDb ID expose their own snapshot status
+  even without an Episode TMDb ID. Missing Episode snapshots show a red badge
+  with visible text `未获取到 TMDB 单集信息`; do not infer upstream absence from
+  missing artwork or an ancestor snapshot. An ID-less placeholder has no deep
+  link. A successful Episode snapshot removes the red warning on detail reload;
+  missing artwork remains the ordinary `partial` warning.
 - Web links hide the raw ID, use compact provider monograms plus distinct
   status icons, and expose the provider/status through `title`, `aria-label`,
   and screen-reader text. Rating is always visible and uses `-` when non-positive.
@@ -1270,6 +1284,7 @@ setSelectedMedia(selectedVersion)
 | --- | --- |
 | Provider ID is absent | Omit that provider link |
 | Provider snapshot is absent | Return/show `missing` with an empty-circle icon |
+| Episode snapshot is absent and canonical TMDb context exists | Show a red badge and visible missing-information text, including when its own TMDb ID is absent |
 | Snapshot exists but provider image is absent | Return/show `partial` with a warning icon |
 | Douban snapshot is explicitly degraded | Return/show `degraded` with a permission-limit warning, regardless of artwork |
 | Current snapshot and provider image exist | Return/show `complete` with a checked-circle icon |
@@ -1293,6 +1308,10 @@ setSelectedMedia(selectedVersion)
 - Service: provider snapshot compatibility flags, all four Douban statuses,
   legacy Douban classification, explicit degraded precedence, provider-owned
   image state, and Series TMDb ID projection.
+- Placeholder regression: `TestSeriesInventoryMissingEpisodesBindAndRecover`
+  verifies ID-less detail status, retry reuse, 404 checkpoint preservation, and
+  in-place recovery to `partial`. `check-series-presentation.mjs` verifies the
+  red badge in standalone/embedded Episodes and removal after snapshot recovery.
 - Web: Movie/Series/Season/Episode link construction, omitted/raw-hidden IDs,
   accessible status icons including the degraded warning, missing-rating
   fallback, safe external attributes, lint, and TypeScript production build.
@@ -1579,6 +1598,12 @@ if degraded {
   only versions of the same Episode share its attachment. Failed matching preserves
   existing attachments; conflicting provider IDs and unknown season coordinates
   must not silently inherit the representative's Episode ID.
+- After a successful Season inventory load, a missing local Episode is created
+  by hierarchy/episode number without invented provider identifiers, snapshots,
+  or completion checkpoints; Media becomes `matched`. Season request failures,
+  invalid season coordinates and provider conflicts still fail. Trace group
+  synchronization as well as optional detail fetching when assessing ingestion;
+  optional-detail tolerance alone does not prove admission behavior.
 - Every TMDb Series, Season, and Episode stores its own TMDb identifier, typed
   display fields, credits, complete provider response JSONB, and selected
   original image bytes. Episode runtime is seconds on `MetadataItem`.
@@ -1832,6 +1857,11 @@ view.SeriesTitle = parentSeries.Title
   required fields remain missing. Provider, credits, artwork, metadata, or
   checkpoint failure leaves it unchanged; already-written partial results remain
   and are retried idempotently.
+- Episode recheck persists the returned positive TMDb Episode ID and raw detail
+  snapshot with `ReplaceIdentifierWithSnapshot` before advancing the checkpoint.
+  This also upgrades an existing hierarchy-only placeholder without replacing
+  its metadata ID or Media attachments; snapshot persistence failure remains
+  retryable.
 - Automatic still persistence uses `SaveCatalogSelection` semantics. A
   concurrent manual/local selection wins and counts as a satisfied still.
 - Episode is excluded from `tmdb_artwork_missing_recheck` but remains eligible

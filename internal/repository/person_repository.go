@@ -263,8 +263,18 @@ func upsertCreditPerson(tx *gorm.DB, input CreditInput) (*model.Person, error) {
 			return nil, err
 		}
 		identifier = model.PersonIdentifier{PersonID: person.ID, Provider: provider, ExternalID: externalID}
-		if err := tx.Create(&identifier).Error; err != nil {
-			return nil, err
+		result := tx.Clauses(clause.OnConflict{
+			Columns: []clause.Column{{Name: "provider"}, {Name: "external_id"}}, DoNothing: true,
+		}).Create(&identifier)
+		if result.Error != nil {
+			return nil, result.Error
+		}
+		if result.RowsAffected == 0 {
+			// 并发任务已创建同一标识；删除本事务的未关联人物，复用胜出的记录。
+			if err := tx.Unscoped().Delete(&person).Error; err != nil {
+				return nil, err
+			}
+			return upsertCreditPerson(tx, input)
 		}
 		return &person, nil
 	}
