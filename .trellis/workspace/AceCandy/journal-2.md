@@ -324,3 +324,25 @@ Web 电影与整剧按 metadata 分页，Emby 整剧摘要、混合库与子级�
 ### Status
 
 [OK] **Completed**
+
+
+## Session 106: 优化剧集列表与已观看联动
+<!-- trellis-session: v=2 fp=6f4c1d8fbbe5440f -->
+
+**Date**: 2026-09-07
+**Task**: 优化剧集列表与已观看联动
+**Branch**: `main`
+
+### Summary
+
+优化 Emby 与 Web 剧集分页查询；修复剧集和季的已观看回读，并按可见单集递归标记、取消及汇总；补充 PostgreSQL、接口、缓存、事务回滚和执行计划回归。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `9593ef4` | perf: 优化剧集列表并对齐已观看联动 |
+
+### Status
+
+[OK] **Completed**

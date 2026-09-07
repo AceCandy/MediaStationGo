@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-2.md`
-- **Total Sessions**: 105
+- **Total Sessions**: 106
 - **Last Active**: 2026-09-07
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-2.md` | ~326 | Active |
+| `journal-2.md` | ~348 | Active |
 | `journal-1.md` | ~1981 | Archived |
 <!-- @@@/auto:active-documents -->
 
@@ -30,6 +30,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 106 | 2026-09-07 | 优化剧集列表与已观看联动 | `9593ef4` | `main` |
 | 105 | 2026-09-07 | 媒体库与 Emby 元数据分页优化 | `8b6b9d6` | `main` |
 | 104 | 2026-09-06 | 归档自动刮削与剧集详情优化任务 | `d50a091`, `b2e52cb`, `289e010`, `4b7a562` | `main` |
 | 103 | 2026-09-05 | 信任 /mnt/all STRM 删除根目录 | `087e65a` | `main` |
