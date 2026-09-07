@@ -341,6 +341,20 @@ db.Model(&credit).
   fallback, NFO-only libraries, and explicitly requested adult-code operations
   remain separate from automatic provider name matching.
 - Provider match enriches one canonical `MetadataItem`, its identifiers and managed artwork, then links every matching file through `Media.MetadataID`.
+- For Movie and Series automatic TMDb matches, nonempty online fields win;
+  missing display fields retain canonical values before falling back to NFO.
+  `useCanonicalTMDbLookupIDs` restores confirmed same-kind TMDb canonical
+  cross-provider identifiers before exact reuse, so stale NFO cannot put old
+  IDs back into Media lookup hints. It does not rewrite NFO or force a network
+  refresh of reusable metadata. NFO-only libraries bypass this policy.
+- Series sibling binding tolerates auxiliary-ID differences only when both
+  files share the positive TMDb ID of the TMDb-owned canonical Series. It
+  preserves missing auxiliary values and still rejects different TMDb IDs;
+  non-TMDb groups keep the full conflict check. Regression tests:
+  `TestTMDbOnlinePriorityMoviesAndSeries` (online values, missing-value retention,
+  IMDb correction and stale-NFO retries) and
+  `TestSeriesInventoryBindsOwnEpisodesAndReusesSnapshot` (TVDB correction plus
+  different-TMDb rejection).
 - `Media.SeriesID` maps to `series_hint` and may contain a directory hash; never
   pass it as `UpsertCanonical`'s preferred primary key. Provider and local
   persistence use `preferredScrapeMetadataID`: resolve existing Series ownership

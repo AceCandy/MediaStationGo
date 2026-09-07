@@ -78,10 +78,12 @@ func (s *ScraperService) syncScrapeSeriesGroup(ctx context.Context, group scrape
 			return err
 		}
 		var bindErr error
+		// 同一已确认的 TMDB 整剧以在线编号为准；其他分组仍保留完整冲突检查。
+		sameTMDb := series.Source == "tmdb" && tmdbID > 0 && row.TMDbID == tmdbID && fresh.TMDbID == tmdbID
 		if row.TMDbID > 0 && fresh.TMDbID > 0 && row.TMDbID != fresh.TMDbID ||
-			row.DoubanID != "" && fresh.DoubanID != "" && row.DoubanID != fresh.DoubanID ||
-			row.BangumiID > 0 && fresh.BangumiID > 0 && row.BangumiID != fresh.BangumiID ||
-			row.TheTVDBID != "" && fresh.TheTVDBID != "" && row.TheTVDBID != fresh.TheTVDBID {
+			!sameTMDb && (row.DoubanID != "" && fresh.DoubanID != "" && row.DoubanID != fresh.DoubanID ||
+				row.BangumiID > 0 && fresh.BangumiID > 0 && row.BangumiID != fresh.BangumiID ||
+				row.TheTVDBID != "" && fresh.TheTVDBID != "" && row.TheTVDBID != fresh.TheTVDBID) {
 			bindErr = errors.New("series group has conflicting provider identifiers")
 		}
 		targetID := seriesID
@@ -116,6 +118,17 @@ func (s *ScraperService) syncScrapeSeriesGroup(ctx context.Context, group scrape
 			continue
 		}
 		lookup := *fresh
+		if sameTMDb {
+			if lookup.TheTVDBID == "" {
+				lookup.TheTVDBID = row.TheTVDBID
+			}
+			if lookup.DoubanID == "" {
+				lookup.DoubanID = row.DoubanID
+			}
+			if lookup.BangumiID == 0 {
+				lookup.BangumiID = row.BangumiID
+			}
+		}
 		lookup.SeriesID = row.SeriesID
 		if err := s.markMetadataMatched(ctx, row, &lookup, targetID); err != nil {
 			failures = append(failures, s.markScrapeError(ctx, row.ID, err))

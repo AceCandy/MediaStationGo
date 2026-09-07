@@ -56,61 +56,65 @@ func localAdultCode(local *LocalMetadata) string {
 	return local.AdultCode
 }
 
+// mergeLocalMetadataIntoMatch 仅用本地信息补齐在线缺失字段，不覆盖在线有效值。
 func mergeLocalMetadataIntoMatch(match *Match, local *LocalMetadata) {
 	if match == nil || local == nil {
+		return
+	}
+	if match.TMDbID > 0 && local.TMDbID > 0 && match.TMDbID != local.TMDbID {
 		return
 	}
 	if local.PathHint {
 		mergePathHintIDsIntoMatch(match, local)
 		return
 	}
-	if local.Title != "" {
+	if match.Title == "" && local.Title != "" {
 		match.Title = local.Title
 	}
-	if local.OriginalName != "" {
+	if match.OriginalName == "" && local.OriginalName != "" {
 		match.OriginalName = local.OriginalName
 	}
-	if local.AdultCode != "" {
+	if match.OriginalName == "" && local.AdultCode != "" {
 		match.OriginalName = local.AdultCode
 		match.NSFW = true
 	}
-	if local.Overview != "" {
+	if match.Overview == "" && local.Overview != "" {
 		match.Overview = local.Overview
 	}
-	if local.PosterURL != "" {
+	if match.PosterURL == "" && local.PosterURL != "" {
 		match.PosterURL = local.PosterURL
 	}
-	if local.BackdropURL != "" {
+	if match.BackdropURL == "" && local.BackdropURL != "" {
 		match.BackdropURL = local.BackdropURL
 	}
-	if local.Rating > 0 {
+	if match.Rating <= 0 && local.Rating > 0 {
 		match.Rating = local.Rating
 	}
-	if local.Year > 0 {
+	if match.Year <= 0 && local.Year > 0 {
 		match.Year = local.Year
 	}
-	if local.ReleaseDate != "" {
+	if match.ReleaseDate == "" && local.ReleaseDate != "" {
 		match.ReleaseDate = local.ReleaseDate
 	}
-	if local.TMDbID > 0 {
+	if match.TMDbID <= 0 && local.TMDbID > 0 {
 		match.TMDbID = local.TMDbID
 	}
-	if local.BangumiID > 0 {
+	if match.BangumiID <= 0 && local.BangumiID > 0 {
 		match.BangumiID = local.BangumiID
 	}
-	if local.DoubanID != "" {
+	if match.DoubanID == "" && local.DoubanID != "" {
 		match.DoubanID = local.DoubanID
 	}
-	if local.TheTVDBID != "" {
+	if match.TheTVDBID == "" && local.TheTVDBID != "" {
 		match.TheTVDBID = local.TheTVDBID
 	}
-	if local.Genres != "" {
+	if len(match.Genres) == 0 && local.Genres != "" {
 		match.Genres = splitNFOList(local.Genres)
 	}
-	if local.Countries != "" {
+	if len(match.Countries) == 0 && local.Countries != "" {
 		match.Countries = splitNFOList(local.Countries)
 	}
-	if local.Languages != "" {
+	if len(match.Languages) == 0 && local.Languages != "" {
 		match.Languages = splitNFOList(local.Languages)
 	}
 	if local.NSFW {
@@ -122,16 +126,16 @@ func mergePathHintIDsIntoMatch(match *Match, local *LocalMetadata) {
 	if match == nil || local == nil {
 		return
 	}
-	if local.TMDbID > 0 {
+	if match.TMDbID <= 0 && local.TMDbID > 0 {
 		match.TMDbID = local.TMDbID
 	}
-	if local.BangumiID > 0 {
+	if match.BangumiID <= 0 && local.BangumiID > 0 {
 		match.BangumiID = local.BangumiID
 	}
-	if local.DoubanID != "" {
+	if match.DoubanID == "" && local.DoubanID != "" {
 		match.DoubanID = local.DoubanID
 	}
-	if local.TheTVDBID != "" {
+	if match.TheTVDBID == "" && local.TheTVDBID != "" {
 		match.TheTVDBID = local.TheTVDBID
 	}
 	if match.Year <= 0 && local.Year > 0 {

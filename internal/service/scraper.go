@@ -74,6 +74,10 @@ func (s *ScraperService) enrichOneWithOptions(ctx context.Context, m *model.Medi
 		m.SeasonNum = lookupMedia.SeasonNum
 		m.EpisodeNum = lookupMedia.EpisodeNum
 	}
+	existing, err := s.useCanonicalTMDbLookupIDs(ctx, &lookupMedia, seriesLike)
+	if err != nil {
+		return s.markScrapeError(ctx, m.ID, err)
+	}
 	if !options.IncludeMatched && !options.RefreshWeakMatched {
 		exact, err := s.repo.Media.FindExactMetadata(ctx, &lookupMedia)
 		if err != nil {
@@ -93,6 +97,17 @@ func (s *ScraperService) enrichOneWithOptions(ctx context.Context, m *model.Medi
 		options.timings.ProviderLookup += time.Since(lookupStartedAt)
 	}
 	if match := externalResult.Match; match != nil {
+		if match.Source == "tmdb" && match.TMDbID == lookupMedia.TMDbID {
+			if existing != nil {
+				mergeLocalMetadataIntoMatch(match, &LocalMetadata{
+					Title: existing.Title, OriginalName: existing.OriginalName, Overview: existing.Overview,
+					Year: existing.Year, Rating: existing.Rating, ReleaseDate: existing.ReleaseDate,
+					Languages: existing.Languages, Countries: existing.Countries, Genres: existing.Genres, NSFW: existing.NSFW,
+				})
+			}
+			mergeLocalMetadataIntoMatch(match, &LocalMetadata{TMDbID: lookupMedia.TMDbID, BangumiID: lookupMedia.BangumiID, DoubanID: lookupMedia.DoubanID, TheTVDBID: lookupMedia.TheTVDBID, PathHint: true})
+			mergeLocalMetadataIntoMatch(match, local)
+		}
 		mergeLocalCreditsIntoMatch(match, local)
 		s.applyFanartArtwork(ctx, match, s.determineMediaTypeForMedia(lib, &lookupMedia, match))
 		return recordScrapeSource(options, metadataMatchSource(match), s.applyProviderMatchWithOptions(ctx, m, lib, match, options))

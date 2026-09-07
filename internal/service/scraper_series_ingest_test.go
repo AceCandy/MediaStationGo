@@ -61,6 +61,11 @@ func TestSeriesInventoryBindsOwnEpisodesAndReusesSnapshot(t *testing.T) {
 	fresh := rows[0]
 	fresh.MetadataID = series.ID
 	fresh.ScrapeStatus = "matched"
+	fresh.TheTVDBID = "477657"
+	if err := repos.DB.Model(&model.Media{}).Where("id = ANY(?)", &group.MediaIDs).
+		Update("lookup_thetvdb_id", "477126").Error; err != nil {
+		t.Fatal(err)
+	}
 	for round := 0; round < 2; round++ {
 		if err := s.syncScrapeSeriesGroup(t.Context(), group, &fresh, series.ID); err == nil {
 			t.Fatal("want invalid coordinates and provider conflict errors")
@@ -85,6 +90,9 @@ func TestSeriesInventoryBindsOwnEpisodesAndReusesSnapshot(t *testing.T) {
 			}
 			if got.SeriesID != "directory-hint" {
 				t.Fatal("binding changed scan grouping hint")
+			}
+			if got.TheTVDBID != "477657" {
+				t.Fatalf("file %d retained stale TVDB ID %q", i, got.TheTVDBID)
 			}
 			if ep.CatalogMetadataHydratedAt != nil || ep.CatalogHydratedAt != nil {
 				t.Fatal("inventory incorrectly marked complete")

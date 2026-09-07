@@ -5,12 +5,48 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"go.uber.org/zap"
 
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 )
+
+// useCanonicalTMDbLookupIDs 防止旧 NFO 在电影或剧集重试时覆盖已确认的来源编号。
+func (s *ScraperService) useCanonicalTMDbLookupIDs(ctx context.Context, media *model.Media, seriesLike bool) (*model.MetadataItem, error) {
+	if media.TMDbID <= 0 {
+		return nil, nil
+	}
+	kind := model.MetadataKindMovie
+	if seriesLike {
+		kind = model.MetadataKindSeries
+	}
+	item, err := s.repo.Metadata.FindByIdentifier(ctx, "tmdb", kind, strconv.Itoa(media.TMDbID))
+	if err != nil || item == nil || item.Source != "tmdb" {
+		return item, err
+	}
+	ids, err := s.repo.Metadata.ListIdentifiers(ctx, item.ID)
+	if err != nil {
+		return nil, err
+	}
+	for _, id := range ids {
+		if id.EntityKind != kind || strings.TrimSpace(id.ExternalID) == "" {
+			continue
+		}
+		switch id.Provider {
+		case "thetvdb":
+			media.TheTVDBID = id.ExternalID
+		case "douban":
+			media.DoubanID = id.ExternalID
+		case "bangumi":
+			if value, err := strconv.Atoi(id.ExternalID); err == nil && value > 0 {
+				media.BangumiID = value
+			}
+		}
+	}
+	return item, nil
+}
 
 func (s *ScraperService) matchFromMediaExternalIDs(ctx context.Context, m *model.Media, lib *model.Library) *Match {
 	return s.matchFromMediaExternalIDsWithOutcome(ctx, m, lib).Match

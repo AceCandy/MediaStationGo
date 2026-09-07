@@ -60,6 +60,18 @@ func (s *ScraperService) persistProviderMetadata(ctx context.Context, media *mod
 	}
 	identifiers := metadataIdentifiersFromMatch(match, entityKind)
 	base := metadataItemFromMatch(match, entityKind, source)
+	if source == "tmdb" && match.TMDbID > 0 {
+		existing, err := s.repo.Metadata.FindByIdentifier(ctx, "tmdb", entityKind, strconv.Itoa(match.TMDbID))
+		if err != nil {
+			return nil, err
+		}
+		if existing != nil {
+			preserveMissingLocalEpisodeDetails(base, existing)
+			if base.OriginalName == "" {
+				base.OriginalName = existing.OriginalName
+			}
+		}
+	}
 	preferredID, err := s.preferredScrapeMetadataID(ctx, media, entityKind)
 	if err != nil {
 		return nil, err
