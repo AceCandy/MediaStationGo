@@ -108,7 +108,7 @@ export interface LibraryMediaFilters {
 }
 
 export interface MediaMetadataUpdate {
-  scope?: 'series'
+  scope?: 'series' | 'season'
   title?: string
   original_name?: string
   overview?: string

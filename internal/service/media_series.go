@@ -41,11 +41,15 @@ func (s *MediaService) GetMediaSeasonVisible(ctx context.Context, mediaID string
 		return nil, err
 	}
 	season, err := s.repo.MediaView.FindSeasonPresentation(ctx, media.SeasonID, visibility.IncludeNSFW)
-	if season != nil {
-		season.SeasonID = media.SeasonID
-		season.SeriesID = media.SeriesID
+	if err != nil || season == nil {
+		return nil, err
 	}
-	return season, err
+	season.SeasonID = media.SeasonID
+	season.SeriesID = media.SeriesID
+	if err := s.attachMediaProviderDetails(ctx, season); err != nil {
+		return nil, err
+	}
+	return season, nil
 }
 
 type seriesCardGroup struct {

@@ -1674,8 +1674,14 @@ if degraded {
   must not silently inherit the representative's Episode ID.
 - After a successful Season inventory load, a missing local Episode is created
   by hierarchy/episode number without invented provider identifiers, snapshots,
-  or completion checkpoints; Media becomes `matched`. Season request failures,
-  invalid season coordinates and provider conflicts still fail. Trace group
+  or completion checkpoints; Media becomes `matched`. The only season-request
+  exception is HTTP 404 for Season 0 after Series identity is confirmed:
+  `ingestSeasonInventory` permits the same local placeholders without inventing
+  snapshots or completion checkpoints. Other seasons' 404 and all other errors
+  still fail. Catalog hydration remains retryable and is not marked complete.
+  `TestSeriesInventoryOnlySpecialsTolerateNotFound` covers this boundary, repeat
+  binding and recovery when the season becomes available. Invalid season
+  coordinates and provider conflicts still fail. Trace group
   synchronization as well as optional detail fetching when assessing ingestion;
   optional-detail tolerance alone does not prove admission behavior.
 - Every TMDb Series, Season, and Episode stores its own TMDb identifier, typed

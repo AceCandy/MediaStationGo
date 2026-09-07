@@ -13,7 +13,7 @@ import (
 )
 
 type MediaMetadataUpdate struct {
-	// Scope 为 series 时只修改可播放文件所属的整剧，不改分集与文件关系。
+	// Scope 为 series 或 season 时只修改所属整剧或季，不改分集与文件关系。
 	Scope        string   `json:"scope,omitempty"`
 	Title        *string  `json:"title"`
 	OriginalName *string  `json:"original_name"`
@@ -41,11 +41,11 @@ func (s *MediaService) UpdateMetadata(ctx context.Context, id string, req MediaM
 	if id == "" {
 		return nil, errors.New("media id required")
 	}
-	if req.Scope != "" && req.Scope != "series" {
+	if req.Scope != "" && req.Scope != "series" && req.Scope != "season" {
 		return nil, errors.New("invalid metadata scope")
 	}
-	if req.Scope == "series" && (req.SeasonNum != nil || req.EpisodeNum != nil) {
-		return nil, errors.New("series metadata cannot change episode coordinates")
+	if req.Scope != "" && (req.SeasonNum != nil || req.EpisodeNum != nil) {
+		return nil, fmt.Errorf("%s metadata cannot change episode coordinates", req.Scope)
 	}
 	media, err := s.repo.Media.FindByID(ctx, id)
 	if err != nil {
@@ -107,9 +107,12 @@ func (s *MediaService) UpdateMetadata(ctx context.Context, id string, req MediaM
 	if err := s.replaceManualIdentifiers(ctx, target, media, req, isNew, tmdbSnapshot); err != nil {
 		return nil, err
 	}
-	if req.Scope == "series" {
+	if req.Scope != "" {
 		s.repo.MediaView.RefreshMetadataIDs(ctx, target.ID)
 		s.invalidateMediaCache(ctx)
+		if req.Scope == "season" {
+			return s.GetMediaSeasonVisible(ctx, media.ID, MediaVisibility{IncludeNSFW: true})
+		}
 		return s.GetMediaSeriesVisible(ctx, media.ID, MediaVisibility{IncludeNSFW: true})
 	}
 	updates := map[string]any{
@@ -130,6 +133,19 @@ func (s *MediaService) UpdateMetadata(ctx context.Context, id string, req MediaM
 }
 
 func (s *MediaService) manualMetadataTarget(ctx context.Context, media *model.Media, view *model.MediaView, req MediaMetadataUpdate) (*model.MetadataItem, bool, error) {
+	if req.Scope == "season" {
+		if view.SeasonID == "" {
+			return nil, false, errors.New("season metadata not found")
+		}
+		item, err := s.repo.Metadata.FindByID(ctx, view.SeasonID)
+		if err != nil {
+			return nil, false, err
+		}
+		if item == nil || item.Kind != model.MetadataKindSeason {
+			return nil, false, errors.New("season metadata not found")
+		}
+		return item, false, nil
+	}
 	if req.Scope == "series" {
 		if view.SeriesID == "" {
 			return nil, false, errors.New("series metadata not found")

@@ -128,6 +128,7 @@ const Episodes = load('LibrarySeriesEpisodes', {
   '../components/Select': { Select: ({ children, ...rest }) => createElement('select', rest, children) },
   '../utils/groupSeries': { seriesTitleFromPath: () => '' },
   './seriesDetailModel': model,
+  './LibrarySeasonActions': { LibrarySeasonActions: () => createElement('button', {}, '整季更多操作') },
 })
 const firstEpisode = { ...media, episode_num: 1, season_num: 1 }
 const seasons = [{ season: 1, episodes: [firstEpisode] }]
@@ -138,18 +139,46 @@ assert.match(season, /可播放 1 集/)
 assert.doesNotMatch(season, /aria-label="选择季"/, 'a single season needs no redundant selector')
 const specials = renderToStaticMarkup(createElement(Episodes, { ...seasonProps, selectedSeason: 0, selectedEpisodes: [...seasons, { season: 0, episodes: [firstEpisode] }] }))
 assert.match(specials, /特别篇/)
-assert.match(specials, /aria-label="选择季"/, 'multiple seasons remain selectable')
+assert.doesNotMatch(specials, /aria-label="选择季"/, 'season dropdown is removed')
+assert.match(specials, /aria-label="完整季列表"/)
+assert.ok(specials.indexOf('特别篇') < specials.indexOf('第 1 季'), 'selected season comes first')
+const threeSeasons = [...seasons, { season: 2, episodes: [{ ...firstEpisode, id: 'second', season_num: 2 }] }, { season: 3, episodes: [{ ...firstEpisode, id: 'third', season_num: 3 }] }]
+const thirdSelected = renderToStaticMarkup(createElement(Episodes, { ...seasonProps, selectedEpisodes: threeSeasons, selectedSeason: 3, visibleEpisodes: threeSeasons[2].episodes }))
+assert.ok(thirdSelected.indexOf('第 3 季') < thirdSelected.indexOf('第 1 季'))
+assert.ok(thirdSelected.indexOf('第 1 季') < thirdSelected.indexOf('第 2 季'), 'other seasons retain their order')
+assert.deepEqual(threeSeasons.map(({ season }) => season), [1, 2, 3], 'render does not mutate season input')
+const fullList = thirdSelected.slice(thirdSelected.indexOf('aria-label="完整季列表"'), thirdSelected.indexOf('aria-label="分集列表"'))
+assert.ok(fullList.indexOf('第 1 季') < fullList.indexOf('第 2 季') && fullList.indexOf('第 2 季') < fullList.indexOf('第 3 季'), 'complete list includes selected season in season order')
+assert.doesNotMatch(thirdSelected, /当前选中|点击切换|点击查看详情|\/play\//, 'selection strips contain neither hints nor playback actions')
+assert.match(thirdSelected, /S3E1:/)
+assert.match(thirdSelected, /motion-reduce:transition-none/, 'accordion respects reduced motion')
+assert.match(fullList, /aria-label="第 3 季" aria-pressed="true"/, 'selected poster exposes its pressed state')
+assert.doesNotMatch(fullList, /可播放|transition-\[width\]|hover:w-/, 'poster stack never expands into a text card')
+assert.match(fullList, /-ml-12/, 'season posters overlap')
+assert.match(fullList, />S1<\/span>/)
+assert.match(fullList, />S2<\/span>/)
 seasonResponse = { mediaID: media.id, season: { title: '季独立标题', season_num: 1, poster_url: '/season-poster.jpg' }, failed: false }
 const withSeason = renderToStaticMarkup(createElement(Episodes, seasonProps))
+assert.doesNotMatch(withSeason, /整季更多操作/, 'viewer cannot manage season metadata')
+assert.match(renderToStaticMarkup(createElement(Episodes, { ...seasonProps, isAdmin: true })), /整季更多操作/, 'administrator can manage current season')
 assert.match(withSeason, /第 1 季 · 季独立标题/)
 assert.match(withSeason, /src="\/season-poster.jpg"/)
-assert.doesNotMatch(renderToStaticMarkup(createElement(Episodes, { ...seasonProps, selectedSeason: 0 })), /season-poster.jpg/, 'previous season poster never leaks across season changes')
+assert.doesNotMatch(renderToStaticMarkup(createElement(Episodes, { ...seasonProps, selectedSeason: 0, selectedEpisodes: [{ season: 0, episodes: [firstEpisode] }] })), /season-poster.jpg/, 'previous season poster never leaks across season changes')
 for (const title of ['第 1 季', '第1季', 'Season 1']) {
   seasonResponse = { mediaID: media.id, season: { title, season_num: 1 }, failed: false }
   const rendered = renderToStaticMarkup(createElement(Episodes, seasonProps))
   assert.match(rendered, />第 1 季<\/h2>/)
-  assert.doesNotMatch(rendered, /第 1 季 ·/)
+  assert.doesNotMatch(rendered, /第 1 季 · (?:第|Season)/)
+}
+for (const [status, label] of [['missing', '本地未缓存'], ['partial', '本地数据不完整'], ['complete', '本地详情和图片完整']]) {
+  seasonResponse = { mediaID: media.id, season: { title: '第 1 季', season_num: 1, overview: '季简介独立内容', rating: 8.5, tmdb_id: 123, series_tmdb_id: 456, tmdb_status: status }, failed: false }
+  const html = renderToStaticMarkup(createElement(Episodes, seasonProps))
+  assert.match(html, /季简介独立内容/)
+  assert.match(html, /评分 8.5/)
+  assert.ok(html.indexOf('评分 8.5') < html.indexOf('aria-label="季资料"'), 'rating belongs inside current-season summary')
+  assert.ok(html.includes(label))
+  assert.match(html, /https:\/\/www.themoviedb.org\/tv\/456\/season\/1/)
 }
 seasonResponse = { mediaID: media.id, season: { title: '番外故事', season_num: 0 }, failed: false }
-assert.match(renderToStaticMarkup(createElement(Episodes, { ...seasonProps, selectedSeason: 0 })), /特别篇 · 番外故事/)
+assert.match(renderToStaticMarkup(createElement(Episodes, { ...seasonProps, selectedSeason: 0, selectedEpisodes: [{ season: 0, episodes: [firstEpisode] }] })), /特别篇 · 番外故事/)
 console.log('Series playback order, expanded metadata and read-only tracks checks passed')

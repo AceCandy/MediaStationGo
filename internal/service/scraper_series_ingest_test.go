@@ -252,6 +252,99 @@ func TestSeriesInventoryMissingEpisodesBindAndRecover(t *testing.T) {
 	}
 }
 
+func TestSeriesInventoryOnlySpecialsTolerateNotFound(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		season int
+		status int
+	}{
+		{"specials_not_found", 0, http.StatusNotFound},
+		{"regular_not_found", 1, http.StatusNotFound},
+		{"specials_unauthorized", 0, http.StatusUnauthorized},
+		{"specials_server_error", 0, http.StatusInternalServerError},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s, repos, closeUpstream := newTestScraper(t)
+			defer closeUpstream()
+			if err := repos.DB.Callback().Create().Remove("testutil:media-metadata"); err != nil {
+				t.Fatal(err)
+			}
+			var published atomic.Bool
+			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != fmt.Sprintf("/tv/12345/season/%d", tc.season) {
+					t.Error("unexpected endpoint", r.URL.Path)
+				}
+				if published.Load() {
+					fmt.Fprint(w, `{"id":100,"season_number":0,"episodes":[{"id":101,"episode_number":1,"name":"特别篇上"},{"id":102,"episode_number":2,"name":"特别篇下"}]}`)
+					return
+				}
+				w.WriteHeader(tc.status)
+			}))
+			defer upstream.Close()
+			s.tmdb.cfg.Secrets.TMDbAPIProxy = upstream.URL
+			series := createServiceTestMetadata(t, repos.DB, model.MetadataItem{Kind: model.MetadataKindSeries, Title: "剧", Source: "tmdb"},
+				model.MetadataIdentifier{Provider: "tmdb", EntityKind: model.MetadataKindSeries, ExternalID: "12345"})
+			lib := model.Library{Name: "剧库", Path: t.TempDir(), Type: "tv", Enabled: true}
+			if err := repos.Library.Create(t.Context(), &lib); err != nil {
+				t.Fatal(err)
+			}
+			group := scrapeCandidateGroup{}
+			for number := 1; number <= 2; number++ {
+				row := model.Media{LibraryID: lib.ID, Path: filepath.Join(lib.Path, fmt.Sprintf("S%02dE%02d.strm", tc.season, number)), SeasonNum: tc.season, EpisodeNum: number, TMDbID: 12345, ScrapeStatus: "error"}
+				if err := repos.DB.Create(&row).Error; err != nil {
+					t.Fatal(err)
+				}
+				group.MediaIDs = append(group.MediaIDs, row.ID)
+			}
+			wantSuccess := tc.season == 0 && tc.status == http.StatusNotFound
+			ids := make([]string, 2)
+			for round := 0; round < 3; round++ {
+				published.Store(wantSuccess && round == 2)
+				err := s.syncScrapeSeriesGroup(t.Context(), group, &model.Media{TMDbID: 12345}, series.ID)
+				if wantSuccess && err != nil || !wantSuccess && !isTMDbHTTPStatus(err, tc.status) {
+					t.Fatalf("unexpected scrape result: %v", err)
+				}
+				for i, id := range group.MediaIDs {
+					row, err := repos.Media.FindByID(t.Context(), id)
+					if err != nil {
+						t.Fatal(err)
+					}
+					if !wantSuccess {
+						if row.ScrapeStatus != "error" || row.MetadataID != "" || row.ScrapeError == "" {
+							t.Fatal("failed season must remain unresolved")
+						}
+						continue
+					}
+					ep, err := repos.Metadata.FindEpisode(t.Context(), series.ID, 0, i+1)
+					if err != nil || ep == nil || row.MetadataID != ep.ID || row.ScrapeStatus != "matched" || row.ScrapeError != "" {
+						t.Fatalf("specials did not bind: %v", err)
+					}
+					if round > 0 && ep.ID != ids[i] {
+						t.Fatal("retry replaced the episode identity")
+					}
+					ids[i] = ep.ID
+					identifiers, err := repos.Metadata.ListIdentifiers(t.Context(), ep.ID)
+					if err != nil || round < 2 && len(identifiers) != 0 || round == 2 && len(identifiers) != 1 {
+						t.Fatal("unexpected episode provider identity", err)
+					}
+					for _, metadataID := range []string{ep.ID, *ep.ParentID} {
+						item, err := repos.Metadata.FindByID(t.Context(), metadataID)
+						if err != nil || item.CatalogMetadataHydratedAt != nil || item.CatalogHydratedAt != nil || item.CatalogArtworkHydratedAt != nil {
+							t.Fatal("inventory incorrectly marked complete", err)
+						}
+						if round < 2 {
+							snapshot, err := repos.Metadata.FindProviderSnapshot(t.Context(), metadataID, "tmdb")
+							if err != nil || snapshot != nil {
+								t.Fatal("404 must not create a snapshot", err)
+							}
+						}
+					}
+				}
+			}
+		})
+	}
+}
+
 func TestMediaScrapeRecordsWaitingBeforeLock(t *testing.T) {
 	s, repos, closeUpstream := newTestScraper(t)
 	defer closeUpstream()

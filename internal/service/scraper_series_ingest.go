@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"strconv"
 	"time"
 
@@ -185,6 +186,10 @@ func (s *ScraperService) ingestSeasonInventory(ctx context.Context, season *mode
 	}
 	if snapshot == nil {
 		details, err = s.tmdb.GetTVSeasonDetails(ctx, tmdbID, season.SeasonNum)
+		// 特别篇可能未被收录，允许调用方保留本地季集占位，不伪造快照。
+		if season.SeasonNum == 0 && isTMDbHTTPStatus(err, http.StatusNotFound) {
+			return nil
+		}
 	}
 	if err != nil {
 		return err

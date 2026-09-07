@@ -79,10 +79,11 @@ export function MediaDetailAdminMenu({
   )
 }
 
-function AdminMenuItem({
+export function AdminMenuItem({
   icon: Icon,
   iconClass,
   label,
+  title,
   danger = false,
   disabled = false,
   onClick,
@@ -91,6 +92,7 @@ function AdminMenuItem({
   icon: LucideIcon
   iconClass: string
   label: string
+  title?: string
   danger?: boolean
   disabled?: boolean
   onClick: () => void
@@ -100,6 +102,7 @@ function AdminMenuItem({
     <button
       type="button"
       role="menuitem"
+      title={title}
       disabled={disabled}
       className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left text-sm font-semibold transition-colors ${
         danger ? 'text-red-500 hover:bg-red-500/10' : 'text-[var(--app-text)] hover:bg-[var(--app-hover)]'

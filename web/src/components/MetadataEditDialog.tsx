@@ -11,7 +11,7 @@ interface MetadataEditDialogProps {
   open: boolean
   media: Media | null
   mediaIds?: string[]
-  mode?: 'media' | 'series'
+  mode?: 'media' | 'series' | 'season'
   scopeLabel?: string
   onClose: () => void
   onSaved: (media: Media) => void | Promise<void>
@@ -81,7 +81,10 @@ export function MetadataEditDialog({
   if (!open || !media) return null
 
   const isSeries = mode === 'series'
-  const targetIds = Array.from(new Set((!isSeries && mediaIds && mediaIds.length > 0 ? mediaIds : [media.id]).filter(Boolean)))
+  const isSeason = mode === 'season'
+  const isScoped = isSeries || isSeason
+  const dialogTitle = isSeason ? '编辑季元数据' : isSeries ? '编辑整剧元数据' : '编辑元数据'
+  const targetIds = Array.from(new Set((!isScoped && mediaIds && mediaIds.length > 0 ? mediaIds : [media.id]).filter(Boolean)))
   const searchTitle = form.title.trim()
   const encodedSearchTitle = encodeURIComponent(searchTitle)
 
@@ -96,7 +99,7 @@ export function MetadataEditDialog({
   }
   const buildPayload = (): MediaMetadataUpdate => {
     const payload: MediaMetadataUpdate = {
-      scope: isSeries ? 'series' : undefined,
+      scope: isSeason ? 'season' : isSeries ? 'series' : undefined,
       title: form.title,
       overview: form.overview,
       year: Math.trunc(toNumber(form.year)),
@@ -111,7 +114,7 @@ export function MetadataEditDialog({
       genres: form.genres,
       nsfw: form.nsfw,
     }
-    if (!isSeries) {
+    if (!isScoped) {
       payload.original_name = form.original_name
       payload.season_num = Math.trunc(toNumber(form.season_num))
       payload.episode_num = Math.trunc(toNumber(form.episode_num))
@@ -173,11 +176,11 @@ export function MetadataEditDialog({
   }
 
   return (
-    <ModalShell maxWidth="max-w-5xl" className="flex max-h-[88vh] flex-col" ariaLabel={isSeries ? '编辑整剧元数据' : '编辑元数据'}>
+    <ModalShell maxWidth="max-w-5xl" className="flex max-h-[88vh] flex-col" ariaLabel={dialogTitle}>
       <div className="modal-header">
         <div>
           <h2 className="font-display text-xl font-bold text-gray-900">
-            {isSeries ? '编辑整剧元数据' : '编辑元数据'}
+            {dialogTitle}
           </h2>
           <p className="mt-1 text-xs text-gray-500">{scopeLabel || '用于手动修正自采集或无法自动匹配的媒体。'}</p>
         </div>
@@ -187,15 +190,15 @@ export function MetadataEditDialog({
       </div>
         <div className="grid flex-1 gap-4 overflow-y-auto p-5 md:grid-cols-2">
           <Field label="标题" value={form.title} onChange={(value) => set('title', value)} />
-          {!isSeries && <Field label="原名 / 单集名" value={form.original_name} onChange={(value) => set('original_name', value)} />}
+          {!isScoped && <Field label="原名 / 单集名" value={form.original_name} onChange={(value) => set('original_name', value)} />}
           <Field label="年份" value={form.year} onChange={(value) => set('year', value)} inputMode="numeric" />
           <Field label="上映日期" value={form.release_date} onChange={(value) => set('release_date', value)} type="date" />
           <Field label="评分" value={form.rating} onChange={(value) => set('rating', value)} inputMode="decimal" />
-          {!isSeries && <Field label="季" value={form.season_num} onChange={(value) => set('season_num', value)} inputMode="numeric" />}
-          {!isSeries && <Field label="集" value={form.episode_num} onChange={(value) => set('episode_num', value)} inputMode="numeric" />}
+          {!isScoped && <Field label="季" value={form.season_num} onChange={(value) => set('season_num', value)} inputMode="numeric" />}
+          {!isScoped && <Field label="集" value={form.episode_num} onChange={(value) => set('episode_num', value)} inputMode="numeric" />}
           <Field label="TMDb ID" value={form.tmdb_id} onChange={(value) => set('tmdb_id', value)} inputMode="numeric" searchSite="TMDb" searchHref={searchTitle ? `https://www.themoviedb.org/search?query=${encodedSearchTitle}` : ''} />
           <Field label="Bangumi ID" value={form.bangumi_id} onChange={(value) => set('bangumi_id', value)} inputMode="numeric" searchSite="Bangumi" searchHref={searchTitle ? `https://bgm.tv/subject_search/${encodedSearchTitle}?cat=all` : ''} />
-          <Field label="豆瓣 ID" value={form.douban_id} onChange={(value) => set('douban_id', value)} searchSite="豆瓣" onSearch={searchTitle ? searchDouban : undefined} />
+          {!isSeason && <Field label="豆瓣 ID" value={form.douban_id} onChange={(value) => set('douban_id', value)} searchSite="豆瓣" onSearch={searchTitle ? searchDouban : undefined} />}
           <Field label="TheTVDB ID" value={form.thetvdb_id} onChange={(value) => set('thetvdb_id', value)} searchSite="TheTVDB" searchHref={searchTitle ? `https://thetvdb.com/search?query=${encodedSearchTitle}` : ''} />
           <Field label="语言" value={form.languages} onChange={(value) => set('languages', value)} placeholder="zh,en" />
           <Field label="国家/地区" value={form.countries} onChange={(value) => set('countries', value)} placeholder="CN,JP,US" />
