@@ -63,6 +63,9 @@ func TestCatalogMetadataSnapshotAndJobSchema(t *testing.T) {
 	if db.Migrator().HasColumn("metadata_items", "tm_db_episode_checked_at") {
 		t.Fatal("metadata items legacy tm_db_episode_checked_at column exists")
 	}
+	if !db.Migrator().HasColumn("metadata_items", "tmdb_season_checked_at") || db.Migrator().HasColumn("metadata_items", "tm_db_season_checked_at") {
+		t.Fatal("season recheck checkpoint must use the explicit canonical column")
+	}
 	metadata := model.MetadataItem{Kind: model.MetadataKindSeries, Title: "Series", Source: "tmdb"}
 	if err := db.Create(&metadata).Error; err != nil {
 		t.Fatal(err)

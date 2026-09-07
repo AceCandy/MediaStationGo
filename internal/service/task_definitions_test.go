@@ -17,6 +17,7 @@ func TestTaskDefinitionHistorySeparatesSharedKinds(t *testing.T) {
 	startFinishedTask(t, tracker, TaskKindPeople, "人物翻译", TaskUpdate{Stage: "translation"})
 	startFinishedTask(t, tracker, TaskKindScrape, "媒体入库刮削：本地电影", TaskUpdate{Stage: "scrape", SourcePath: "/media/movie.mkv"})
 	startFinishedTask(t, tracker, TaskKindScrape, "发现目录刮削：电影 1221950", TaskUpdate{Stage: "scrape"})
+	startFinishedTask(t, tracker, TaskKindArtwork, "TMDb 集信息补全/复查", TaskUpdate{Stage: "recheck"})
 
 	tests := []struct {
 		key  string
@@ -26,6 +27,7 @@ func TestTaskDefinitionHistorySeparatesSharedKinds(t *testing.T) {
 		{TaskDefinitionPeopleTranslation, "人物翻译"},
 		{TaskDefinitionMediaScrape, "媒体入库刮削：本地电影"},
 		{TaskDefinitionCatalogScrape, "发现目录刮削：电影 1221950"},
+		{TaskDefinitionTMDbEpisodeMetadataRecheck, "TMDb 集信息补全/复查"},
 	}
 	for _, tt := range tests {
 		page, err := tracker.DefinitionHistory(tt.key, 1, 30)
@@ -138,6 +140,9 @@ func TestScheduledTaskDefinitionsSupportManualExecution(t *testing.T) {
 		}
 		if definition.Action != "scheduler" || definition.Trigger != expectedTrigger {
 			t.Fatalf("definition %s = %#v", definition.Key, definition)
+		}
+		if definition.Key == TaskDefinitionTMDbEpisodeMetadataRecheck && definition.Name != "TMDb 季/集信息补全/复查" {
+			t.Fatalf("season/episode recheck display name = %q", definition.Name)
 		}
 		if _, ok := TaskDefinitionSchedulerJob(definition.Key); !ok {
 			t.Fatalf("scheduler job missing for %s", definition.Key)

@@ -90,7 +90,7 @@ assert.equal((subtitles.match(/<details\b/g) ?? []).length, 1, 'only subtitles n
 assert.match(loading, /正在加载媒体信息…/)
 assert.doesNotMatch(loading, /暂无轨道/, 'loading is not an empty result')
 const router = { useNavigate: () => () => {}, Link: ({ to, children, className, 'aria-label': label }) => createElement('a', { className, 'aria-label': label, href: to }, children) }
-const model = { episodeIdentity: (item) => item.metadata_id || item.id, episodeLabel: () => '第 1 集' }
+const model = { episodeIdentity: (item) => item.metadata_id || item.id, episodeLabel: (item) => `第 ${item.episode_num} 集` }
 const client = { imageURL: (url) => url }
 let episodeMedia = { ...media, episode_num: 1, season_num: 1, backdrop_url: '/episode-still.jpg' }
 const EpisodeDetail = load('LibrarySeriesEpisodeDetail', {
@@ -133,7 +133,16 @@ const Episodes = load('LibrarySeriesEpisodes', {
 const firstEpisode = { ...media, episode_num: 1, season_num: 1 }
 const seasons = [{ season: 1, episodes: [firstEpisode] }]
 const seasonProps = { loading: false, selectedEpisodes: seasons, selectedSeason: 1, visibleEpisodes: [firstEpisode], selectedEpisodeID: media.id, history: [], playbackFrom: '/library', onSeasonChange() {}, onEpisodeSelect() {} }
+const manyEpisodes = Array.from({ length: 17 }, (_, index) => ({ ...firstEpisode, id: `ep-${index + 1}`, episode_num: index + 1, title: `第 ${index + 1} 集` }))
+manyEpisodes[15].title = 'Breaking up…'
+for (const title of ['第 17 集', '第17集', '第十七集', 'Episode 17', '']) {
+  manyEpisodes[16].title = title
+  const html = renderToStaticMarkup(createElement(Episodes, { ...seasonProps, visibleEpisodes: manyEpisodes }))
+  assert.match(html, /<option value="ep-17">第 17 集<\/option>/, 'generic episode title is not repeated')
+  assert.match(html, /<option value="ep-16">第 16 集 · Breaking up…<\/option>/, 'real episode title is retained')
+}
 const season = renderToStaticMarkup(createElement(Episodes, seasonProps))
+assert.ok(season.includes('lg:grid-cols-[minmax(0,28rem)_minmax(0,1fr)]'), 'wide screens cap the current-season column and give remaining space to the season list')
 assert.match(season, /第 1 季/)
 assert.match(season, /可播放 1 集/)
 assert.doesNotMatch(season, /aria-label="选择季"/, 'a single season needs no redundant selector')

@@ -38,6 +38,11 @@ func mergeMetadataGraph(tx *gorm.DB, sourceID, targetID string) error {
 			return err
 		}
 	case model.MetadataKindSeason:
+		if source.TMDbSeasonCheckedAt != nil && (target.TMDbSeasonCheckedAt == nil || source.TMDbSeasonCheckedAt.After(*target.TMDbSeasonCheckedAt)) {
+			if err := tx.Model(&target).Update("tmdb_season_checked_at", source.TMDbSeasonCheckedAt).Error; err != nil {
+				return err
+			}
+		}
 		if err := mergeMetadataChildren(tx, source.ID, target.ID, model.MetadataKindEpisode, "episode_num"); err != nil {
 			return err
 		}

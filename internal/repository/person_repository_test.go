@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -120,8 +121,32 @@ func TestReplaceCreditsIsIdempotentAndReplacesLoadedType(t *testing.T) {
 	if err := db.Model(&model.MetadataCredit{}).Where("metadata_id = ?", metadata.ID).Update("role", "英雄").Error; err != nil {
 		t.Fatal(err)
 	}
+	before, err := repo.ListCreditsWithPeople(t.Context(), metadata.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	identifiers, err := repo.ListIdentifiers(t.Context(), before[0].PersonID)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := repo.ReplaceCredits(t.Context(), metadata.ID, []string{model.CreditTypeActor}, credits); err != nil {
 		t.Fatal(err)
+	}
+	after, err := repo.ListCreditsWithPeople(t.Context(), metadata.ID)
+	if err != nil || !reflect.DeepEqual(before, after) {
+		t.Fatalf("unchanged credits or people were rewritten: before=%+v after=%+v err=%v", before, after, err)
+	}
+	afterIdentifiers, err := repo.ListIdentifiers(t.Context(), before[0].PersonID)
+	if err != nil || !reflect.DeepEqual(identifiers, afterIdentifiers) {
+		t.Fatal("unchanged identifiers were rewritten", err)
+	}
+	credits[0].SortOrder = 5
+	if err := repo.ReplaceCredits(t.Context(), metadata.ID, []string{model.CreditTypeActor}, credits); err != nil {
+		t.Fatal(err)
+	}
+	after, err = repo.ListCreditsWithPeople(t.Context(), metadata.ID)
+	if err != nil || len(after) != 1 || after[0].ID != before[0].ID || after[0].Role != "英雄" || after[0].SortOrder != 5 || !reflect.DeepEqual(after[0].Person, before[0].Person) {
+		t.Fatal("sort change must preserve credit identity, translation and person", err)
 	}
 	var count int64
 	if err := db.Model(&model.MetadataCredit{}).Where("metadata_id = ?", metadata.ID).Count(&count).Error; err != nil || count != 1 {
@@ -144,6 +169,71 @@ func TestReplaceCreditsIsIdempotentAndReplacesLoadedType(t *testing.T) {
 	var personCount int64
 	if err := db.Model(&model.PersonIdentifier{}).Where("provider = ? AND external_id = ?", "tmdb", "1").Count(&personCount).Error; err != nil || personCount != 1 {
 		t.Fatalf("identifier count = %d, err=%v", personCount, err)
+	}
+	director := CreditInput{Provider: "tmdb", ExternalID: "2", Name: "Director", Type: model.CreditTypeDirector}
+	if err := repo.ReplaceCredits(t.Context(), metadata.ID, []string{model.CreditTypeDirector}, []CreditInput{director}); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.ReplaceCredits(t.Context(), metadata.ID, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := repo.ListCredits(t.Context(), metadata.ID)
+	if err != nil || len(rows) != 2 {
+		t.Fatal("unloaded scope must preserve all credits", err)
+	}
+	if err := repo.ReplaceCredits(t.Context(), metadata.ID, []string{model.CreditTypeActor}, nil); err != nil {
+		t.Fatal(err)
+	}
+	rows, err = repo.ListCredits(t.Context(), metadata.ID)
+	if err != nil || len(rows) != 1 || rows[0].Type != model.CreditTypeDirector {
+		t.Fatal("empty loaded scope must delete only its own credits", err)
+	}
+	if err := db.Delete(&model.Person{}, "id = ?", before[0].PersonID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Delete(&model.PersonIdentifier{}, "person_id = ?", before[0].PersonID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.ReplaceCredits(t.Context(), metadata.ID, []string{model.CreditTypeActor}, credits); err != nil {
+		t.Fatal("removed credit must be able to reappear", err)
+	}
+	person, err := repo.FindByID(t.Context(), before[0].PersonID)
+	if err != nil || person == nil {
+		t.Fatal("soft-deleted person was not restored", err)
+	}
+	afterIdentifiers, err = repo.ListIdentifiers(t.Context(), before[0].PersonID)
+	if err != nil || len(afterIdentifiers) != 1 || afterIdentifiers[0].ID != identifiers[0].ID {
+		t.Fatal("soft-deleted identifier was not restored", err)
+	}
+	rows, err = repo.ListCredits(t.Context(), metadata.ID)
+	if err != nil || len(rows) != 2 {
+		t.Fatal("reappearing credit duplicated or erased another scope", err)
+	}
+}
+
+func TestPersonSourceUpdatesOnlyChangesSourceFields(t *testing.T) {
+	person := model.Person{Name: "译名", OriginalName: "Actor", NormalizedName: "actor", Source: "tmdb", ProfileURL: "old-url", ProfileImageKey: "old-key"}
+	input := CreditInput{Name: "Actor", ProfileURL: "old-url"}
+	if updates := personSourceUpdates(person, input, "tmdb"); len(updates) != 0 {
+		t.Fatalf("unchanged source rewrites translation or image: %v", updates)
+	}
+	input.ProfileURL = "new-url"
+	if updates := personSourceUpdates(person, input, "tmdb"); !reflect.DeepEqual(updates, map[string]any{"profile_url": "new-url"}) {
+		t.Fatalf("failed image import must retain old key: %v", updates)
+	}
+	input.ProfileImageKey = "new-key"
+	if updates := personSourceUpdates(person, input, "tmdb"); updates["profile_image_key"] != "new-key" || len(updates) != 2 {
+		t.Fatalf("successful image import not applied: %v", updates)
+	}
+	input.ProfileURL = ""
+	if updates := personSourceUpdates(person, input, "tmdb"); updates["profile_image_key"] != "" {
+		t.Fatalf("removed profile retains key: %v", updates)
+	}
+	input.Name = "New Actor"
+	person.DeletedAt = gorm.DeletedAt{Time: time.Now(), Valid: true}
+	updates := personSourceUpdates(person, input, "tmdb")
+	if _, ok := updates["deleted_at"]; !ok || updates["name"] != "New Actor" || updates["original_name"] != "New Actor" {
+		t.Fatalf("source rename or soft-delete recovery lost: %v", updates)
 	}
 }
 

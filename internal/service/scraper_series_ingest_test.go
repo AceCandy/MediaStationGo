@@ -231,8 +231,8 @@ func TestSeriesInventoryMissingEpisodesBindAndRecover(t *testing.T) {
 	if err != nil || len(candidates) != 2 {
 		t.Fatalf("ID-less placeholders must be eligible for recheck: %d, %v", len(candidates), err)
 	}
-	candidate := repository.TMDbEpisodeMetadataRecheckCandidate{MetadataID: placeholderID, SeriesTMDbID: "12345", SeasonNum: 1, EpisodeNum: 20, StillMissing: true}
-	if _, err := s.recheckTMDbEpisodeMetadata(t.Context(), candidate, time.Now().UTC(), map[string]int64{}); err == nil {
+	candidate := repository.TMDbMetadataRecheckCandidate{Kind: model.MetadataKindEpisode, MetadataID: placeholderID, SeriesTMDbID: "12345", SeasonNum: 1, EpisodeNum: 20, ArtworkMissing: true}
+	if _, err := s.recheckTMDbMetadata(t.Context(), candidate, time.Now().UTC(), map[string]int64{}); err == nil {
 		t.Fatal("missing upstream episode must remain retryable")
 	}
 	item, err := repos.Metadata.FindByID(t.Context(), placeholderID)
@@ -240,7 +240,7 @@ func TestSeriesInventoryMissingEpisodesBindAndRecover(t *testing.T) {
 		t.Fatal("failed recheck advanced checkpoint", err)
 	}
 	published.Store(true)
-	if _, err := s.recheckTMDbEpisodeMetadata(t.Context(), candidate, time.Now().UTC(), map[string]int64{}); err != nil {
+	if _, err := s.recheckTMDbMetadata(t.Context(), candidate, time.Now().UTC(), map[string]int64{}); err != nil {
 		t.Fatal(err)
 	}
 	detail, err := mediaService.GetMedia(t.Context(), group.MediaIDs[0])

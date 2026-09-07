@@ -102,7 +102,7 @@ export function LibrarySeriesEpisodes({ loading, selectedEpisodes, selectedSeaso
   if (selectedEpisodes.length === 0) return <p className="p-6 text-sm text-[var(--app-muted)]">暂无可播放分集</p>
   return (
     <section className="min-w-0 space-y-4" aria-label="季与分集">
-      <div className="grid min-w-0 items-center gap-4 md:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
+      <div className="grid min-w-0 items-center gap-4 md:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)] lg:grid-cols-[minmax(0,28rem)_minmax(0,1fr)]">
         <SeasonCard selectedSeason={selectedSeason} visibleEpisodes={visibleEpisodes} active current isAdmin={isAdmin} onChanged={() => { setPosterRevision(value => value + 1); onChanged() }} onSeasonChange={onSeasonChange} />
         {selectedEpisodes.length > 1 && <div className="isolate order-2 flex min-w-0 overflow-x-auto px-3 py-4" aria-label="完整季列表">
           {selectedEpisodes.map(({ season, episodes }) => (
@@ -111,7 +111,11 @@ export function LibrarySeriesEpisodes({ loading, selectedEpisodes, selectedSeaso
         </div>}
       </div>
       {visibleEpisodes.length > 12 && <Select aria-label="快速定位分集" className="btn-outline max-w-60" value={selectedEpisodeID} onChange={(value) => { const ep = visibleEpisodes.find((item) => episodeIdentity(item) === value); if (ep) onEpisodeSelect(ep) }}>
-        {visibleEpisodes.map((ep) => <option key={ep.id} value={episodeIdentity(ep)}>{episodeLabel(ep)} · {episodeDisplayTitle(ep, visibleEpisodes)}</option>)}
+        {visibleEpisodes.map((ep) => {
+          const label = episodeLabel(ep)
+          const title = episodeDisplayTitle(ep, visibleEpisodes)
+          return <option key={ep.id} value={episodeIdentity(ep)}>{title === label ? label : `${label} · ${title}`}</option>
+        })}
       </Select>}
       <div ref={stripRef} className="relative flex gap-3 overflow-x-auto pb-3" aria-label="分集列表">
         {visibleEpisodes.map((ep) => {
@@ -141,7 +145,8 @@ export function LibrarySeriesEpisodes({ loading, selectedEpisodes, selectedSeaso
 
 function episodeDisplayTitle(ep: Media, siblings: Media[]): string {
   const title = ep.title?.trim()
-  if (title && !looksLikeSeriesTitle(ep, title, siblings)) {
+  const genericTitle = /^(?:第\s*[0-9一二三四五六七八九十百零〇两]+\s*集|episode[\s._-]*\d+)$/i.test(title ?? '')
+  if (title && !genericTitle && !looksLikeSeriesTitle(ep, title, siblings)) {
     return title
   }
 

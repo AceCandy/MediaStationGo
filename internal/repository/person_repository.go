@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"time"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -75,16 +74,18 @@ func (r *PersonRepository) ReplaceCredits(ctx context.Context, metadataID string
 		return nil
 	}
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// 同一作品的快照串行合并，避免并发差量同步留下已移除的关系。
+		var metadata model.MetadataItem
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Select("id").First(&metadata, "id = ?", metadataID).Error; err != nil {
+			return err
+		}
 		var existing []model.MetadataCredit
 		if err := tx.Where("metadata_id = ? AND type IN ?", metadataID, types).Find(&existing).Error; err != nil {
 			return err
 		}
-		preservedRoles := make(map[metadataCreditKey]string, len(existing))
+		remaining := make(map[metadataCreditKey]string, len(existing))
 		for _, credit := range existing {
-			preservedRoles[metadataCreditKey{PersonID: credit.PersonID, Type: credit.Type, OriginalRole: credit.OriginalRole}] = credit.Role
-		}
-		if err := tx.Where("metadata_id = ? AND type IN ?", metadataID, types).Delete(&model.MetadataCredit{}).Error; err != nil {
-			return err
+			remaining[metadataCreditKey{PersonID: credit.PersonID, Type: credit.Type, OriginalRole: credit.OriginalRole}] = credit.ID
 		}
 		for _, input := range inputs {
 			input.Type = normalizeCreditType(input.Type)
@@ -98,9 +99,17 @@ func (r *PersonRepository) ReplaceCredits(ctx context.Context, metadataID string
 			if person == nil {
 				continue
 			}
-			if err := saveCredit(tx, metadataID, person.ID, input, preservedRoles); err != nil {
+			if err := saveCredit(tx, metadataID, person.ID, input); err != nil {
 				return err
 			}
+			delete(remaining, metadataCreditKey{PersonID: person.ID, Type: input.Type, OriginalRole: strings.TrimSpace(input.OriginalRole)})
+		}
+		if len(remaining) > 0 {
+			ids := make([]string, 0, len(remaining))
+			for _, id := range remaining {
+				ids = append(ids, id)
+			}
+			return tx.Where("id = ANY(?)", &ids).Delete(&model.MetadataCredit{}).Error
 		}
 		return nil
 	})
@@ -247,11 +256,15 @@ func upsertCreditPerson(tx *gorm.DB, input CreditInput) (*model.Person, error) {
 				return nil, err
 			}
 			updates := personSourceUpdates(person, input, provider)
-			if err := tx.Unscoped().Model(&person).Updates(updates).Error; err != nil {
-				return nil, err
+			if len(updates) > 0 {
+				if err := tx.Unscoped().Model(&person).Updates(updates).Error; err != nil {
+					return nil, err
+				}
 			}
-			if err := tx.Unscoped().Model(&identifier).Updates(map[string]any{"deleted_at": nil, "updated_at": time.Now()}).Error; err != nil {
-				return nil, err
+			if identifier.DeletedAt.Valid {
+				if err := tx.Unscoped().Model(&identifier).Update("deleted_at", nil).Error; err != nil {
+					return nil, err
+				}
 			}
 			return &person, nil
 		}
@@ -288,8 +301,10 @@ func upsertCreditPerson(tx *gorm.DB, input CreditInput) (*model.Person, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := tx.Unscoped().Model(&person).Updates(personSourceUpdates(person, input, "local")).Error; err != nil {
-		return nil, err
+	if updates := personSourceUpdates(person, input, "local"); len(updates) > 0 {
+		if err := tx.Unscoped().Model(&person).Updates(updates).Error; err != nil {
+			return nil, err
+		}
 	}
 	return &person, nil
 }
@@ -306,28 +321,39 @@ func personSourceUpdates(person model.Person, input CreditInput, source string) 
 	} else if strings.TrimSpace(input.ProfileImageKey) != "" {
 		key = strings.TrimSpace(input.ProfileImageKey)
 	}
-	return map[string]any{"name": displayName, "original_name": name, "normalized_name": normalizePersonName(name), "overview": input.Overview, "profile_url": input.ProfileURL, "profile_image_key": key, "source": source, "deleted_at": nil, "updated_at": time.Now()}
+	updates := map[string]any{"name": displayName, "original_name": name, "normalized_name": normalizePersonName(name), "overview": input.Overview, "profile_url": input.ProfileURL, "profile_image_key": key, "source": source}
+	for field, current := range map[string]string{"name": person.Name, "original_name": person.OriginalName, "normalized_name": person.NormalizedName, "overview": person.Overview, "profile_url": person.ProfileURL, "profile_image_key": person.ProfileImageKey, "source": person.Source} {
+		if updates[field] == current {
+			delete(updates, field)
+		}
+	}
+	if person.DeletedAt.Valid {
+		updates["deleted_at"] = nil
+	}
+	return updates
 }
 
-func saveCredit(tx *gorm.DB, metadataID, personID string, input CreditInput, preservedRoles map[metadataCreditKey]string) error {
+func saveCredit(tx *gorm.DB, metadataID, personID string, input CreditInput) error {
 	originalRole := strings.TrimSpace(input.OriginalRole)
 	var credit model.MetadataCredit
 	err := tx.Where("metadata_id = ? AND person_id = ? AND type = ? AND original_role = ?", metadataID, personID, input.Type, originalRole).First(&credit).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
-		role := preservedRoles[metadataCreditKey{PersonID: personID, Type: input.Type, OriginalRole: originalRole}]
-		if strings.TrimSpace(role) == "" {
-			role = originalRole
-		}
-		return tx.Create(&model.MetadataCredit{MetadataID: metadataID, PersonID: personID, Type: input.Type, OriginalRole: originalRole, Role: role, SortOrder: input.SortOrder}).Error
+		return tx.Create(&model.MetadataCredit{MetadataID: metadataID, PersonID: personID, Type: input.Type, OriginalRole: originalRole, Role: originalRole, SortOrder: input.SortOrder}).Error
 	}
 	if err != nil {
 		return err
 	}
-	role := credit.Role
-	if credit.OriginalRole != originalRole || strings.TrimSpace(role) == "" {
-		role = originalRole
+	updates := map[string]any{}
+	if strings.TrimSpace(credit.Role) == "" && credit.Role != originalRole {
+		updates["role"] = originalRole
 	}
-	return tx.Model(&credit).Updates(map[string]any{"role": role, "original_role": originalRole, "sort_order": input.SortOrder, "updated_at": time.Now()}).Error
+	if credit.SortOrder != input.SortOrder {
+		updates["sort_order"] = input.SortOrder
+	}
+	if len(updates) == 0 {
+		return nil
+	}
+	return tx.Model(&credit).Updates(updates).Error
 }
 
 func normalizeCreditTypes(values []string) ([]string, error) {

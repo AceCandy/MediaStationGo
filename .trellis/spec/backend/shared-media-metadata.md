@@ -164,6 +164,14 @@
   `PermanentBase`; removed relationships are physically deleted, while an
   unchanged source role preserves its translated display role. Metadata graph
   merge moves and deduplicates credits before deleting the source metadata.
+- `ReplaceCredits` locks the owning metadata row and applies a delta within the
+  loaded scopes. Unchanged relationships retain IDs and timestamps; sorting
+  changes update the existing row. Only disappeared keys are deleted. Person
+  source updates write changed fields only, retain translated names and usable
+  image keys on import failure, and restore soft-deleted identities when needed.
+  Do not delete/recreate a whole scope or touch unchanged Person identifiers.
+  Verify with `TestReplaceCreditsIsIdempotentAndReplacesLoadedType` and
+  `TestPersonSourceUpdatesOnlyChangesSourceFields`.
 - Movie, Series, Season, and Episode expose only their own ordered credits.
   An empty entity-owned credit type stays empty and never inherits an ancestor.
 - Credit source/display roles and translation source/display values use `text`;
@@ -1918,31 +1926,64 @@ episode.Title = localizedEpisodeTitle
 view.SeriesTitle = parentSeries.Title
 ```
 
-## Scenario: TMDb Episode Metadata Recheck
+## Scenario: TMDb Season / Episode Metadata Recheck
 
 ### 1. Scope / Trigger
 
-- Apply when changing the periodic/manual repair of historical Episode title,
-  overview, release date, credits, or still artwork.
+- Apply when changing the periodic/manual repair of historical Season/Episode
+  title, overview, release date, credits, or own poster/still artwork.
 
 ### 2. Signatures
 
 - Checkpoint: `MetadataItem.TMDbEpisodeCheckedAt *time.Time` maps to indexed,
   nullable `metadata_items.tmdb_episode_checked_at` through the explicit GORM
   tag `column:tmdb_episode_checked_at`; do not rely on acronym inference.
+- Season checkpoint: `MetadataItem.TMDbSeasonCheckedAt *time.Time` maps to
+  indexed, nullable `metadata_items.tmdb_season_checked_at`. Seasons and Episodes
+  have independent 72-hour cooldowns; graph merge preserves the newer checkpoint.
 - Candidate boundary:
-  `ListTMDbEpisodeMetadataRecheckAfter(ctx, afterID, checkedBefore, limit)`.
+  `ListTMDbEpisodeMetadataRecheckAfter(ctx, afterID, checkedBefore, limit)` and
+  `ListTMDbSeasonMetadataRecheckAfter(ctx, afterID, checkedBefore, limit)` return
+  `TMDbMetadataRecheckCandidate` with the explicit entity kind.
 - Provider boundary:
   `GetTVEpisodeDetails(ctx, seriesTMDbID, seasonNum, episodeNum)`.
 - Scheduler job: `tmdb_episode_metadata_recheck`, default disabled, default 24 hours.
+- Task display: `TMDb 季/集信息补全/复查`; retain the existing definition key,
+  settings, execution name and history filter (`TMDb 集信息补全/复查`) for continuity.
 
 ### 3. Contracts
 
 - Candidates are Episode metadata with direct `media`, one valid Series TMDb
   identifier, an expired/null checkpoint, and at least one missing requirement:
-  empty/generated title, empty overview, empty release date, or absent valid still.
+  empty overview, empty release date, or absent valid still.
+- Independently scan Seasons with direct media or playable Episode descendants,
+  one valid Series TMDb ID and at most one own TMDb ID. Missing
+  overview, release date, poster, own identifier or own snapshot admits a Season
+  after its cooldown, even when all child Episodes are complete. Include Season 0;
+  exclude metadata without media and do not create missing hierarchy or inventory.
+- Empty/generated Season/Episode titles never trigger recheck or count toward
+  remaining-gap logs or incomplete metrics. Other gaps still trigger the same
+  request, which may update the title using the existing non-empty projection.
+- Season responses must have a positive ID, valid raw JSON, matching season number
+  and matching own ID when one is known. Reuse the non-empty field projection,
+  loaded-credit persistence, insert-if-absent artwork and identifier/snapshot
+  transaction. Do not change catalog checkpoints, file facts or Media attachments.
 - One execution keyset-pages every candidate in batches of 200 without a
   persisted cursor or request cap. Manual runs obey the same 72-hour cooldown.
+- Each page runs at most three complete rechecks concurrently. Workers own
+  separate metrics; one collector merges counters and emits completion-order
+  details. Cancellation stops queued work and drains in-flight results before
+  task completion; one failed item must not stop unrelated candidates.
+- `SaveTMDbMetadataRecheck(ctx, item)` accepts only Season/Episode with a check
+  time and writes only title, overview, release date, rating, year and that
+  kind's monotonic checkpoint. It must not save parent/coordinates/file facts
+  or refresh top-level search documents: those documents contain only
+  Movie/Series fields. Other metadata updates retain normal index synchronization.
+  Reject missing rows instead of recreating deleted metadata. Keep the existing
+  task-level media-cache invalidation after successful checks.
+  Verify the bounded/canceled worker flow and restricted persistence with
+  `TestTMDbMetadataRecheckPageBoundsConcurrencyAndCancellation` and
+  `TestSaveTMDbMetadataRecheckOnlyWritesChildDisplayFields`.
 - One provider response supplies non-empty title, overview, release date,
   rating, year, loaded credit scopes, and still. Non-empty provider values may
   overwrite current values; empty values never clear stored values.
@@ -1970,7 +2011,11 @@ view.SeriesTitle = parentSeries.Title
 | Condition | Required result |
 | --- | --- |
 | Episode has no direct media | Exclude it |
-| Title, overview, release date, and still are complete | Send no provider request |
+| Season has no direct media or playable Episode descendants | Exclude it |
+| Episodes are complete but their Season lacks fields, poster, ID or snapshot | Repair the Season independently |
+| Season response has a different number or known ID | Fail before persistence; retain the previous checkpoint |
+| Only a Season/Episode title is missing or generated | Send no provider request; do not count it as incomplete |
+| Episode overview, release date, and still are complete | Send no provider request |
 | Last successful check is within 72 hours | Exclude it for scheduled and manual runs |
 | Provider returns nil, 404, network, limit, or decode error | Record a sanitized failure and do not advance the checkpoint |
 | Provider returns a successful response with some empty fields | Preserve stored non-empty fields, log remaining gaps, and advance the checkpoint |
@@ -1985,6 +2030,8 @@ view.SeriesTitle = parentSeries.Title
 
 - Good: an Episode with `Episode 1`, no release date, and direct media receives
   one details request; concrete fields and still are saved, then it cools for 72 hours.
+- Good: a hierarchy-only Season 0 gains its own ID, snapshot and poster in place;
+  complete child Episodes make no requests and keep their Media attachments.
 - Base: TMDb still has no overview or still; the successful response advances
   the checkpoint and logs only those remaining gaps.
 - Good: upgrading a database with the legacy GORM-derived checkpoint column
@@ -1996,7 +2043,7 @@ view.SeriesTitle = parentSeries.Title
 
 ### 6. Tests Required
 
-- PostgreSQL: direct-media filter, four-field completeness, generated title,
+- PostgreSQL: direct-media filter, non-title completeness, title-only exclusion,
   missing release date/still, valid Series identity, cooldown, deduplication,
   keyset pagination, exact canonical schema column, legacy value preservation,
   canonical-value precedence, legacy-column removal, repeated migration, and
@@ -2006,6 +2053,13 @@ view.SeriesTitle = parentSeries.Title
   failure isolation, sanitized detail logs, and normal no-change silence.
 - Scheduler/definition: stable key, default disabled, 24-hour interval, and
   manual action mapping.
+- `TestListTMDbSeasonMetadataRecheckAfterFiltersAndPages`: complete-child Seasons,
+  direct Season attachments, special/generated/empty-title exclusion, NULL overview, missing
+  date/poster/snapshot/ID, cooldown, no-media/ambiguous exclusion and keyset pages.
+- `TestTMDbMetadataRecheckRepairsSeasonsAndEpisodes`: mixed success/failure,
+  Season identity/snapshot/credits/local poster, preserved existing fields/images,
+  unchanged Media/inventory, cooldown expiry, 404 retry, identity mismatch and
+  snapshot failure without checkpoint advancement.
 
 ### 7. Wrong vs Correct
 
@@ -2018,6 +2072,9 @@ repo.SaveSelection(ctx, episode.ID, model.ArtworkTypeStill, "tmdb", source, asse
 candidates := repo.ListTMDbEpisodeMetadataRecheckAfter(ctx, afterID, checkedBefore, 200)
 repo.SaveCatalogSelection(ctx, episode.ID, model.ArtworkTypeStill, "tmdb", source, asset)
 ```
+
+Season candidates use their own scan and poster type; deriving them only from
+the Episode candidate list misses Seasons whose Episodes are already complete.
 
 ```go
 // Wrong: GORM splits the unrecognized TMDb acronym into tm_db.

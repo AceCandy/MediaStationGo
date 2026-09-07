@@ -151,14 +151,17 @@ func TestCreateMetadataBatchesLargeIdentifierSet(t *testing.T) {
 
 func TestExplicitSeriesMergeRecursivelyMergesSeasonAndEpisode(t *testing.T) {
 	repos := newMetadataMergeTestRepository(t)
-	newerCheck := time.Now().UTC()
+	if err := repos.DB.AutoMigrate(&model.MetadataArtworkRecheck{}); err != nil {
+		t.Fatal(err)
+	}
+	newerCheck := time.Now().UTC().Truncate(time.Microsecond)
 	olderCheck := newerCheck.Add(-time.Hour)
 	sourceSeries := createTestMetadata(t, repos, model.MetadataItem{Kind: model.MetadataKindSeries, Title: "Local Show", Source: "local"},
 		model.MetadataIdentifier{Provider: "douban", EntityKind: model.MetadataKindSeries, ExternalID: "300"})
 	targetSeries := createTestMetadata(t, repos, model.MetadataItem{Kind: model.MetadataKindSeries, Title: "Canonical Show", Source: "tmdb"},
 		model.MetadataIdentifier{Provider: "tmdb", EntityKind: model.MetadataKindSeries, ExternalID: "400"})
-	sourceSeason := createTestMetadata(t, repos, model.MetadataItem{Kind: model.MetadataKindSeason, ParentID: &sourceSeries.ID, SeasonNum: 1, Title: "Season 1", Source: "local"})
-	targetSeason := createTestMetadata(t, repos, model.MetadataItem{Kind: model.MetadataKindSeason, ParentID: &targetSeries.ID, SeasonNum: 1, Title: "Season 1", Source: "tmdb"})
+	sourceSeason := createTestMetadata(t, repos, model.MetadataItem{Kind: model.MetadataKindSeason, ParentID: &sourceSeries.ID, SeasonNum: 1, Title: "Season 1", Source: "local", TMDbSeasonCheckedAt: &newerCheck})
+	targetSeason := createTestMetadata(t, repos, model.MetadataItem{Kind: model.MetadataKindSeason, ParentID: &targetSeries.ID, SeasonNum: 1, Title: "Season 1", Source: "tmdb", TMDbSeasonCheckedAt: &olderCheck})
 	sourceEpisode := createTestMetadata(t, repos, model.MetadataItem{Kind: model.MetadataKindEpisode, ParentID: &sourceSeason.ID, EpisodeNum: 1, Title: "Local Show", Source: "local", TMDbEpisodeCheckedAt: &newerCheck})
 	targetEpisode := createTestMetadata(t, repos, model.MetadataItem{Kind: model.MetadataKindEpisode, ParentID: &targetSeason.ID, EpisodeNum: 1, Title: "Canonical Show", Source: "tmdb", TMDbEpisodeCheckedAt: &olderCheck})
 	media := []model.Media{
@@ -193,6 +196,13 @@ func TestExplicitSeriesMergeRecursivelyMergesSeasonAndEpisode(t *testing.T) {
 	}
 	if seasons != 1 || episodes != 1 || versions != 2 {
 		t.Fatalf("merged graph seasons=%d episodes=%d versions=%d", seasons, episodes, versions)
+	}
+	var mergedSeason model.MetadataItem
+	if err := repos.DB.First(&mergedSeason, "id = ?", targetSeason.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if mergedSeason.TMDbSeasonCheckedAt == nil || !mergedSeason.TMDbSeasonCheckedAt.Equal(newerCheck) {
+		t.Fatalf("merged season check time = %v, want %v", mergedSeason.TMDbSeasonCheckedAt, newerCheck)
 	}
 	var mergedEpisode model.MetadataItem
 	if err := repos.DB.First(&mergedEpisode, "id = ?", targetEpisode.ID).Error; err != nil {

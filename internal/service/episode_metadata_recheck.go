@@ -2,10 +2,12 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/ShukeBta/MediaStationGo/internal/model"
@@ -22,9 +24,15 @@ func (s *ScraperService) runTMDbEpisodeMetadataRecheck(ctx context.Context, trig
 		return errors.New("TMDb episode metadata recheck dependencies unavailable")
 	}
 	metrics := map[string]int64{}
+	defer func() {
+		if metrics["checked"] > 0 {
+			s.invalidateMediaCache(ctx)
+		}
+	}()
 	var task *TaskHandle
 	if s.tasks != nil {
-		task = s.tasks.StartTriggered(TaskKindArtwork, trigger, "TMDb 集信息补全/复查", TaskUpdate{Stage: "scan", Message: "正在补全或复查 TMDb 集信息", Metrics: metrics})
+		// 执行名称沿用旧值，保持历史筛选及每日日志归属不变。
+		task = s.tasks.StartTriggered(TaskKindArtwork, trigger, "TMDb 集信息补全/复查", TaskUpdate{Stage: "scan", Message: "正在补全或复查 TMDb 季/集信息", Metrics: metrics})
 		if task == nil {
 			return errors.New("create TMDb episode metadata recheck task execution failed")
 		}
@@ -36,112 +44,161 @@ func (s *ScraperService) runTMDbEpisodeMetadataRecheck(ctx context.Context, trig
 		return err
 	}
 	now := time.Now().UTC()
-	afterID := ""
-	for {
-		page, err := s.repo.Metadata.ListTMDbEpisodeMetadataRecheckAfter(ctx, afterID, now.Add(-tmdbEpisodeMetadataRecheckCooldown), tmdbEpisodeMetadataRecheckPageLimit)
-		if err != nil {
-			return fail(err, "TMDb 集信息补全/复查失败")
-		}
-		if len(page) == 0 {
-			break
-		}
-		for _, candidate := range page {
-			afterID = candidate.MetadataID
-			if !tmdbEpisodeCandidateNeedsRecheck(candidate) {
-				continue
+	for _, list := range []func(context.Context, string, time.Time, int) ([]repository.TMDbMetadataRecheckCandidate, error){
+		s.repo.Metadata.ListTMDbSeasonMetadataRecheckAfter,
+		s.repo.Metadata.ListTMDbEpisodeMetadataRecheckAfter,
+	} {
+		afterID := ""
+		for {
+			if err := ctx.Err(); err != nil {
+				return fail(err, "TMDb 季/集信息补全/复查已取消")
 			}
-			metrics["scanned"]++
-			details, err := s.recheckTMDbEpisodeMetadata(ctx, candidate, now, metrics)
+			page, err := list(ctx, afterID, now.Add(-tmdbEpisodeMetadataRecheckCooldown), tmdbEpisodeMetadataRecheckPageLimit)
 			if err != nil {
-				metrics["failed"]++
+				return fail(err, "TMDb 季/集信息补全/复查失败")
 			}
-			if task != nil && len(details) > 0 {
-				task.Update(TaskUpdate{Stage: "recheck", Metrics: metrics, Details: details})
+			if len(page) == 0 {
+				break
 			}
-		}
-		if len(page) < tmdbEpisodeMetadataRecheckPageLimit {
-			break
+			afterID = page[len(page)-1].MetadataID
+			s.recheckTMDbMetadataPage(ctx, page, now, metrics, task)
+			if err := ctx.Err(); err != nil {
+				return fail(err, "TMDb 季/集信息补全/复查已取消")
+			}
+			if len(page) < tmdbEpisodeMetadataRecheckPageLimit {
+				break
+			}
 		}
 	}
 	if metrics["failed"] > 0 {
-		return fail(fmt.Errorf("%d TMDb episode metadata rechecks failed", metrics["failed"]), "TMDb 集信息补全/复查完成，但存在失败")
-	}
-	if metrics["checked"] > 0 {
-		s.invalidateMediaCache(ctx)
+		return fail(fmt.Errorf("%d TMDb metadata rechecks failed", metrics["failed"]), "TMDb 季/集信息补全/复查完成，但存在失败")
 	}
 	if task != nil {
-		task.Finish(nil, TaskUpdate{Stage: "completed", Message: "TMDb 集信息补全/复查完成", Metrics: metrics})
+		task.Finish(nil, TaskUpdate{Stage: "completed", Message: "TMDb 季/集信息补全/复查完成", Metrics: metrics})
 	}
 	return nil
 }
 
-func tmdbEpisodeCandidateNeedsRecheck(item repository.TMDbEpisodeMetadataRecheckCandidate) bool {
-	return strings.TrimSpace(item.Title) == "" || tmdbEntityTitleIsGenerated(item.Title, model.MetadataKindEpisode) ||
-		strings.TrimSpace(item.Overview) == "" || strings.TrimSpace(item.ReleaseDate) == "" || item.StillMissing
+// recheckTMDbMetadataPage 限制三条在途复查，只有收集端写入总指标和任务日志。
+func (s *ScraperService) recheckTMDbMetadataPage(ctx context.Context, page []repository.TMDbMetadataRecheckCandidate, now time.Time, metrics map[string]int64, task *TaskHandle) {
+	jobs := make(chan repository.TMDbMetadataRecheckCandidate, len(page))
+	for _, candidate := range page {
+		if tmdbMetadataCandidateNeedsRecheck(candidate) {
+			jobs <- candidate
+		}
+	}
+	close(jobs)
+	type result struct {
+		metrics map[string]int64
+		details []string
+	}
+	results := make(chan result, 3)
+	var workers sync.WaitGroup
+	for range min(3, len(jobs)) {
+		workers.Add(1)
+		go func() {
+			defer workers.Done()
+			for candidate := range jobs {
+				if ctx.Err() != nil {
+					return
+				}
+				local := map[string]int64{"scanned": 1}
+				details, err := s.recheckTMDbMetadata(ctx, candidate, now, local)
+				if err != nil {
+					local["failed"]++
+				}
+				results <- result{metrics: local, details: details}
+			}
+		}()
+	}
+	go func() { workers.Wait(); close(results) }()
+	for result := range results {
+		for key, count := range result.metrics {
+			metrics[key] += count
+		}
+		if task != nil {
+			task.Update(TaskUpdate{Stage: "recheck", Metrics: metrics, Details: result.details})
+		}
+	}
 }
 
-func (s *ScraperService) recheckTMDbEpisodeMetadata(ctx context.Context, candidate repository.TMDbEpisodeMetadataRecheckCandidate, now time.Time, metrics map[string]int64) ([]string, error) {
+func tmdbMetadataCandidateNeedsRecheck(item repository.TMDbMetadataRecheckCandidate) bool {
+	// 标题只随其他缺失信息顺带更新，不单独触发复查。
+	return strings.TrimSpace(item.Overview) == "" || strings.TrimSpace(item.ReleaseDate) == "" || item.ArtworkMissing ||
+		(item.Kind == model.MetadataKindSeason && (item.TMDbID == "" || item.SnapshotMissing))
+}
+
+func (s *ScraperService) recheckTMDbMetadata(ctx context.Context, candidate repository.TMDbMetadataRecheckCandidate, now time.Time, metrics map[string]int64) ([]string, error) {
 	subject := fmt.Sprintf("%s，S%02dE%02d，集=%s，TMDb=%s", strings.TrimSpace(candidate.SeriesTitle), candidate.SeasonNum, candidate.EpisodeNum, strings.TrimSpace(candidate.Title), candidate.SeriesTMDbID)
+	artworkType := model.ArtworkTypeStill
+	if candidate.Kind == model.MetadataKindSeason {
+		subject = fmt.Sprintf("%s，S%02d，季=%s，TMDb=%s", strings.TrimSpace(candidate.SeriesTitle), candidate.SeasonNum, strings.TrimSpace(candidate.Title), candidate.SeriesTMDbID)
+		artworkType = model.ArtworkTypePoster
+	}
 	seriesTMDbID, err := strconv.Atoi(candidate.SeriesTMDbID)
 	if err != nil || seriesTMDbID <= 0 {
 		err = errors.New("invalid Series TMDb identity")
 		return []string{"❌ " + subject + "，结果=失败：" + err.Error()}, err
 	}
 	detailCtx, cancel := context.WithTimeout(ctx, tmdbDetailsTimeout)
-	episode, err := s.tmdb.GetTVEpisodeDetails(detailCtx, seriesTMDbID, candidate.SeasonNum, candidate.EpisodeNum)
+	metadata, err := s.fetchTMDbMetadataRecheck(detailCtx, candidate, seriesTMDbID)
 	cancel()
 	metrics["requests"]++
-	if err != nil || episode == nil || episode.ID <= 0 {
+	if err != nil || metadata == nil || metadata.id <= 0 || !json.Valid(metadata.rawJSON) {
 		if err == nil {
-			err = errors.New("TMDb episode details unavailable")
+			err = errors.New("TMDb metadata details unavailable")
 		}
 		return []string{"❌ " + subject + "，结果=可重试失败：" + sanitizeTaskLogError(err).Error()}, err
 	}
-	if err := s.persistCredits(ctx, candidate.MetadataID, episode.LoadedCreditTypes, episode.Credits); err != nil {
+	if err := s.persistCredits(ctx, candidate.MetadataID, metadata.loadedCreditTypes, metadata.credits); err != nil {
 		return []string{"❌ " + subject + "，动作=保存演职员，结果=可重试失败：" + sanitizeTaskLogError(err).Error()}, err
 	}
 	details := []string{}
-	stillSatisfied := !candidate.StillMissing
-	if candidate.StillMissing && strings.TrimSpace(episode.CatalogStillURL) != "" {
-		_, existing, err := s.artwork.importCatalogRemote(ctx, candidate.MetadataID, model.ArtworkTypeStill, "tmdb", strings.TrimSpace(episode.CatalogStillURL))
+	artworkSatisfied := !candidate.ArtworkMissing
+	if candidate.ArtworkMissing && strings.TrimSpace(metadata.artworkURL) != "" {
+		_, existing, err := s.artwork.importCatalogRemote(ctx, candidate.MetadataID, artworkType, "tmdb", strings.TrimSpace(metadata.artworkURL))
 		if err != nil {
-			return []string{"❌ " + subject + "，动作=保存 still，结果=可重试失败：" + sanitizeTaskLogError(err).Error()}, err
+			return []string{"❌ " + subject + "，动作=保存 " + artworkType + "，结果=可重试失败：" + sanitizeTaskLogError(err).Error()}, err
 		}
-		stillSatisfied = true
+		artworkSatisfied = true
 		if existing {
 			metrics["concurrent_skipped"]++
-			details = append(details, "⏭️ "+subject+"，动作=保存 still，结果=已有并发选择")
+			details = append(details, "⏭️ "+subject+"，动作=保存 "+artworkType+"，结果=已有并发选择")
 		} else {
-			metrics["still_saved"]++
-			details = append(details, "✅ "+subject+"，动作=保存 still，结果=已保存到本地")
+			metrics[artworkType+"_saved"]++
+			details = append(details, "✅ "+subject+"，动作=保存 "+artworkType+"，结果=已保存到本地")
 		}
 	}
 	item, err := s.repo.Metadata.FindByID(ctx, candidate.MetadataID)
 	if err != nil || item == nil {
 		if err == nil {
-			err = errors.New("episode metadata unavailable")
+			err = errors.New("metadata unavailable")
 		}
-		return []string{"❌ " + subject + "，动作=保存集信息，结果=可重试失败：" + sanitizeTaskLogError(err).Error()}, err
+		return []string{"❌ " + subject + "，动作=保存信息，结果=可重试失败：" + sanitizeTaskLogError(err).Error()}, err
 	}
-	updates, _ := tmdbEpisodeMetadataUpdates(nil, episode, 0)
-	changed := changedTMDbEpisodeFields(item, updates)
-	applyTMDbEpisodeMetadataUpdates(item, updates)
-	// 补全占位集的真实标识和快照，让详情页缺失提示随成功补全恢复。
-	if err := s.repo.Metadata.ReplaceIdentifierWithSnapshot(ctx, item.ID, "tmdb", model.MetadataKindEpisode, strconv.Itoa(episode.ID), episode.RawJSON, now); err != nil {
-		return []string{"❌ " + subject + "，动作=保存集标识和快照，结果=可重试失败：" + sanitizeTaskLogError(err).Error()}, err
+	changed := changedTMDbMetadataFields(item, metadata.updates)
+	applyTMDbMetadataUpdates(item, metadata.updates)
+	// 补全占位季、集的真实标识和快照，保留原元数据 ID 与媒体关联。
+	if err := s.repo.Metadata.ReplaceIdentifierWithSnapshot(ctx, item.ID, "tmdb", candidate.Kind, strconv.Itoa(metadata.id), metadata.rawJSON, now); err != nil {
+		return []string{"❌ " + subject + "，动作=保存标识和快照，结果=可重试失败：" + sanitizeTaskLogError(err).Error()}, err
 	}
-	if item.TMDbEpisodeCheckedAt == nil || item.TMDbEpisodeCheckedAt.Before(now) {
-		item.TMDbEpisodeCheckedAt = &now
+	checkedAt := &item.TMDbEpisodeCheckedAt
+	if candidate.Kind == model.MetadataKindSeason {
+		checkedAt = &item.TMDbSeasonCheckedAt
 	}
-	if err := s.repo.Metadata.Update(ctx, item); err != nil {
-		return []string{"❌ " + subject + "，动作=保存集信息，结果=可重试失败：" + sanitizeTaskLogError(err).Error()}, err
+	if *checkedAt == nil || (*checkedAt).Before(now) {
+		*checkedAt = &now
+	}
+	if err := s.repo.Metadata.SaveTMDbMetadataRecheck(ctx, item); err != nil {
+		return []string{"❌ " + subject + "，动作=保存信息，结果=可重试失败：" + sanitizeTaskLogError(err).Error()}, err
 	}
 	metrics["checked"]++
+	metrics[candidate.Kind+"_checked"]++
 	if len(changed) > 0 {
 		metrics["updated"]++
 		details = append(details, "✅ "+subject+"，更新="+strings.Join(changed, "、"))
 	}
-	missing := missingTMDbEpisodeFields(item, stillSatisfied)
+	missing := missingTMDbMetadataFields(item, artworkSatisfied, artworkType)
 	if len(missing) > 0 {
 		metrics["incomplete"]++
 		details = append(details, "⚠️ "+subject+"，TMDb 仍缺="+strings.Join(missing, "、")+"，72 小时后再查")
@@ -149,7 +206,7 @@ func (s *ScraperService) recheckTMDbEpisodeMetadata(ctx context.Context, candida
 	return details, nil
 }
 
-func changedTMDbEpisodeFields(item *model.MetadataItem, updates map[string]any) []string {
+func changedTMDbMetadataFields(item *model.MetadataItem, updates map[string]any) []string {
 	changed := []string{}
 	if value, ok := updates["title"].(string); ok && item.Title != value {
 		changed = append(changed, "标题")
@@ -169,19 +226,56 @@ func changedTMDbEpisodeFields(item *model.MetadataItem, updates map[string]any) 
 	return changed
 }
 
-func missingTMDbEpisodeFields(item *model.MetadataItem, stillSatisfied bool) []string {
+func missingTMDbMetadataFields(item *model.MetadataItem, artworkSatisfied bool, artworkType string) []string {
 	missing := []string{}
-	if strings.TrimSpace(item.Title) == "" || tmdbEntityTitleIsGenerated(item.Title, model.MetadataKindEpisode) {
-		missing = append(missing, "标题")
-	}
 	if strings.TrimSpace(item.Overview) == "" {
 		missing = append(missing, "简介")
 	}
 	if strings.TrimSpace(item.ReleaseDate) == "" {
 		missing = append(missing, "播出日期")
 	}
-	if !stillSatisfied {
-		missing = append(missing, "still")
+	if !artworkSatisfied {
+		missing = append(missing, artworkType)
 	}
 	return missing
+}
+
+// tmdbMetadataRecheckDetails 将季、集响应投影到共用的补全保存流程。
+type tmdbMetadataRecheckDetails struct {
+	id                int
+	updates           map[string]any
+	credits           []PersonCredit
+	loadedCreditTypes []string
+	artworkURL        string
+	rawJSON           []byte
+}
+
+func (s *ScraperService) fetchTMDbMetadataRecheck(ctx context.Context, candidate repository.TMDbMetadataRecheckCandidate, seriesTMDbID int) (*tmdbMetadataRecheckDetails, error) {
+	if candidate.Kind == model.MetadataKindSeason {
+		season, err := s.tmdb.GetTVSeasonDetails(ctx, seriesTMDbID, candidate.SeasonNum)
+		if err != nil || season == nil {
+			return nil, err
+		}
+		if season.SeasonNumber != candidate.SeasonNum {
+			return nil, ErrTMDbRefreshIdentity
+		}
+		if candidate.TMDbID != "" {
+			id, err := strconv.Atoi(candidate.TMDbID)
+			if err != nil || id <= 0 || id != season.ID {
+				return nil, ErrTMDbRefreshIdentity
+			}
+		}
+		return &tmdbMetadataRecheckDetails{id: season.ID, updates: tmdbMetadataUpdates(catalogSeasonItem("", season)), credits: season.Credits,
+			loadedCreditTypes: season.LoadedCreditTypes, artworkURL: season.PosterURL, rawJSON: season.RawJSON}, nil
+	}
+	if candidate.Kind != model.MetadataKindEpisode {
+		return nil, ErrTMDbRefreshIdentity
+	}
+	episode, err := s.tmdb.GetTVEpisodeDetails(ctx, seriesTMDbID, candidate.SeasonNum, candidate.EpisodeNum)
+	if err != nil || episode == nil {
+		return nil, err
+	}
+	updates, _ := tmdbEpisodeMetadataUpdates(nil, episode, 0)
+	return &tmdbMetadataRecheckDetails{id: episode.ID, updates: updates, credits: episode.Credits,
+		loadedCreditTypes: episode.LoadedCreditTypes, artworkURL: episode.CatalogStillURL, rawJSON: episode.RawJSON}, nil
 }

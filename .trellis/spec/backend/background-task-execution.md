@@ -102,9 +102,19 @@ history is observability only; business object state owns retry and recovery.
   Episode descendants. Metadata without media is outside this task, and the
   same execution continues by metadata ID until all current candidates are scanned.
 - TMDb Episode metadata recheck scans only Episodes with direct media and a
-  missing/generated title, missing overview, missing release date, or missing
+  missing overview, missing release date, or missing
   still. It keyset-pages the full current candidate set without a persisted
   cursor; successful checks use the business checkpoint for a 72-hour cooldown.
+- The same job independently scans Seasons with direct media or playable Episode
+  descendants and missing fields, poster, own TMDb ID or snapshot. Seasons use
+  `tmdb_season_checked_at` for their own 72-hour cooldown. Display the definition
+  as `TMDb 季/集信息补全/复查`, preserving its old key, settings and execution-name
+  filter so historical executions and daily logs remain attached.
+- Season/Episode titles never trigger recheck or count as remaining gaps. A
+  request triggered by another gap may still update the title from TMDb.
+- Season/Episode recheck pages run at most three items concurrently, with
+  worker-local counters and a single task-progress collector. Cancellation
+  stops queued work and joins active workers; individual failures stay isolated.
 - A manual `library_scan` task scans only the selected library's enabled roots.
   Timer-driven `library_scan` runs carry no target and continue scanning every
   enabled library. Creating a library starts an `event` whole-library scan;

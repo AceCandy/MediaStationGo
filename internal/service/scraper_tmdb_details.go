@@ -135,7 +135,7 @@ func (s *ScraperService) fetchAndSaveTMDbEpisodeDetails(ctx context.Context, m *
 	if len(metadataUpdates) > 0 {
 		item, updateErr := s.repo.Metadata.FindByID(ctx, metadataID)
 		if updateErr == nil && item != nil {
-			applyTMDbEpisodeMetadataUpdates(item, metadataUpdates)
+			applyTMDbMetadataUpdates(item, metadataUpdates)
 			updateErr = s.repo.Metadata.Update(ctx, item)
 		}
 		if updateErr != nil {
@@ -158,7 +158,7 @@ func (s *ScraperService) fetchAndSaveTMDbEpisodeDetails(ctx context.Context, m *
 	return true
 }
 
-func applyTMDbEpisodeMetadataUpdates(item *model.MetadataItem, updates map[string]any) {
+func applyTMDbMetadataUpdates(item *model.MetadataItem, updates map[string]any) {
 	if value, ok := updates["title"].(string); ok {
 		item.Title = value
 		item.OriginalName = ""
@@ -178,27 +178,36 @@ func applyTMDbEpisodeMetadataUpdates(item *model.MetadataItem, updates map[strin
 }
 
 func tmdbEpisodeMetadataUpdates(_ *model.Media, episode *TMDbEpisodeDetails, matchYear int) (map[string]any, map[string]any) {
-	metadataUpdates := map[string]any{}
 	mediaUpdates := map[string]any{}
 	if episode == nil {
-		return metadataUpdates, mediaUpdates
+		return map[string]any{}, mediaUpdates
 	}
-	if strings.TrimSpace(episode.Name) != "" {
-		metadataUpdates["title"] = strings.TrimSpace(episode.Name)
+	item := &model.MetadataItem{Title: episode.Name, Overview: episode.Overview, Rating: episode.Rating, Year: episode.AirYear, ReleaseDate: episode.AirDate}
+	if matchYear > 0 {
+		item.Year = 0
 	}
-	if strings.TrimSpace(episode.Overview) != "" {
-		metadataUpdates["overview"] = strings.TrimSpace(episode.Overview)
+	return tmdbMetadataUpdates(item), mediaUpdates
+}
+
+// tmdbMetadataUpdates 只投影来源非空字段，季和集复查共用同一保存规则。
+func tmdbMetadataUpdates(item *model.MetadataItem) map[string]any {
+	metadataUpdates := map[string]any{}
+	if strings.TrimSpace(item.Title) != "" {
+		metadataUpdates["title"] = strings.TrimSpace(item.Title)
 	}
-	if episode.Rating > 0 {
-		metadataUpdates["rating"] = episode.Rating
+	if strings.TrimSpace(item.Overview) != "" {
+		metadataUpdates["overview"] = strings.TrimSpace(item.Overview)
 	}
-	if episode.AirYear > 0 && matchYear <= 0 {
-		metadataUpdates["year"] = episode.AirYear
+	if item.Rating > 0 {
+		metadataUpdates["rating"] = item.Rating
 	}
-	if strings.TrimSpace(episode.AirDate) != "" {
-		metadataUpdates["release_date"] = strings.TrimSpace(episode.AirDate)
+	if item.Year > 0 {
+		metadataUpdates["year"] = item.Year
 	}
-	return metadataUpdates, mediaUpdates
+	if strings.TrimSpace(item.ReleaseDate) != "" {
+		metadataUpdates["release_date"] = strings.TrimSpace(item.ReleaseDate)
+	}
+	return metadataUpdates
 }
 
 func (s *ScraperService) enrichDeferredEpisodeDetails(ctx context.Context, rows []model.Media, options ScrapeOptions) error {

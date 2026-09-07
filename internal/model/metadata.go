@@ -53,6 +53,8 @@ type MetadataItem struct {
 	CatalogHydratedAt *time.Time `gorm:"index" json:"catalog_hydrated_at,omitempty"`
 	// TMDbEpisodeCheckedAt 表示集信息最近一次由 TMDb 完整复查成功的时间。
 	TMDbEpisodeCheckedAt *time.Time `gorm:"column:tmdb_episode_checked_at;index" json:"tmdb_episode_checked_at,omitempty"`
+	// TMDbSeasonCheckedAt 表示季信息最近一次由 TMDb 完整复查成功的时间。
+	TMDbSeasonCheckedAt *time.Time `gorm:"column:tmdb_season_checked_at;index" json:"tmdb_season_checked_at,omitempty"`
 }
 
 // MetadataIdentifier 保存 provider 外部标识；同一数字在不同 provider 或实体类型下互不冲突。
