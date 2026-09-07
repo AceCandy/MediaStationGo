@@ -10,7 +10,12 @@
 
 - `MediaViewRepository.ListLibraryMetadataPage(ctx, libraryID, kind, metadataID, offset, limit, filter)` returns page representatives, summaries and logical total.
 - `ListLibrarySeriesCards(ctx, libraryID, page, pageSize, seriesID, key, visibility)` applies target filters before pagination.
-- Emby uses `seriesSummaries`, `movieLibraryItems` and `hierarchyItems`; detail/playback retain their complete loaders.
+- Emby uses `seriesSummaries`, `movieLibraryItems` and `hierarchyItems`; playback retains complete loaders.
+- Series/Season `Item` details use `containerDetail`: SQL collapses visible Parts
+  and versions, returns counts plus a representative ID, and hydrates at most one
+  file view. Preserve the original representative library, preferred-version
+  creation date, metadata-owned fields and user state. Never put a detail summary
+  into complete Series/Season caches or replace the playback loaders.
 
 ### 3. Contracts
 
@@ -20,6 +25,11 @@
 - Count, filtering and page selection share one scoped query. Missing-poster/title filters apply to the displayed work, not its representative episode.
 - Emby summary counts must never overwrite complete Series/Season group caches. Load current-page movie/episode versions only where payload compatibility requires them.
 - SQL still scans/aggregates matching associations for totals and ordering; bounded file hydration is not a constant-time database guarantee.
+- Web `ListLibrarySeriesViews` places scoped files inside a derived Media table
+  with `OFFSET 0` before joining display metadata. An outer `IN (subquery)` alone
+  can project the whole library before filtering a small series. Keep the single
+  statement, visibility scope, complete versions and ordering; verify identifier
+  lookup loops with `TestLibrarySeriesEpisodesScopesProjectionBeforeJoins`.
 - Web Series page aggregation without an explicit metadata ID uses a
   library-scoped Media derived table with `OFFSET 0`, preventing catalog-sized
   parameterized Media probes. Keep all outer visibility/filter predicates and
@@ -49,6 +59,9 @@
 
 - `TestLibraryMetadataPaginationBoundsFileReads`: page-sized file reads, logical totals, cross-library isolation, filters, NSFW, old links, multipart counts, empty pages and complete detail after summaries.
 - `TestListLibrarySeriesDoesNotTruncateLargeEpisodeLibraries`: all 2001 episodes remain available when selecting that Series.
+- `TestEmbyContainerDetailBoundsReadsAndPreservesPayload`: compare full legacy
+  payloads with bounded detail reads for large multi-version series, Parts,
+  specials, favorites, played state, hidden libraries and empty scopes.
 - `TestEmbySeriesPaginationDoesNotProbeFilesForWholeCatalog`: execute count/page
   EXPLAIN against a catalog larger than the playable set; Media probe loops must
   stay within file cardinality. Cover Yamby ordering, version collapse, empty

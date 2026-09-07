@@ -2,28 +2,91 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/ShukeBta/MediaStationGo/internal/model"
+	"github.com/ShukeBta/MediaStationGo/internal/repository"
 	"gorm.io/gorm/logger"
 )
 
 type paginationReadLog struct {
 	logger.Interface
 	fileRows int64
+	viewSQL  string
 }
 
 func (l *paginationReadLog) Trace(ctx context.Context, begin time.Time, fc func() (string, int64), err error) {
 	sql, rows := fc()
 	if strings.Contains(sql, "view_title") || strings.Contains(sql, `"media"."path"`) {
+		l.viewSQL = sql
 		if rows > 0 {
 			l.fileRows += rows
 		}
 	}
 	l.Interface.Trace(ctx, begin, func() (string, int64) { return sql, rows }, err)
+}
+
+func TestLibrarySeriesEpisodesScopesProjectionBeforeJoins(t *testing.T) {
+	emby := newTestEmbyService(t)
+	db := emby.repo.DB
+	for _, sql := range []string{
+		`INSERT INTO metadata_items (id, kind, title, source) VALUES ('bounded-series', 'series', 'Series', 'local')`,
+		`INSERT INTO metadata_items (id, kind, parent_id, title, source, season_num)
+		 VALUES ('bounded-season', 'season', 'bounded-series', 'Season', 'local', 1)`,
+		`INSERT INTO metadata_items (id, kind, parent_id, title, source, episode_num)
+		 SELECT 'bounded-episode-' || n, 'episode', 'bounded-season', 'Episode', 'local', n FROM generate_series(1,12) n`,
+		`INSERT INTO metadata_items (id, kind, title, source)
+		 SELECT 'other-metadata-' || n, 'movie', 'Other', 'local' FROM generate_series(1,10000) n`,
+		`INSERT INTO media (id, library_id, metadata_id, path, created_at, updated_at)
+		 SELECT 'other-file-' || n, 'bounded-library', 'other-metadata-' || n, '/fixture/other/' || n, NOW(), NOW() FROM generate_series(1,10000) n`,
+		`INSERT INTO media (id, library_id, metadata_id, path, season_num, episode_num, created_at, updated_at)
+		 SELECT 'bounded-file-' || n, 'bounded-library', 'bounded-episode-' || n, '/fixture/series/' || n, 1, n, NOW(), NOW() FROM generate_series(1,12) n`,
+		`ANALYZE media`,
+		`ANALYZE metadata_items`,
+	} {
+		if err := db.Exec(sql).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	reads := &paginationReadLog{Interface: db.Logger}
+	db.Logger = reads
+	rows, err := emby.repo.MediaView.ListLibrarySeriesViews(t.Context(), "bounded-library", "bounded-series", repository.MediaQueryFilter{IncludeNSFW: true})
+	if err != nil || len(rows) != 12 {
+		t.Fatalf("rows=%d err=%v", len(rows), err)
+	}
+	query := reads.viewSQL
+	for i, row := range rows {
+		if row.SeriesID != "bounded-series" || row.EpisodeNum != i+1 {
+			t.Fatal("series scope or episode order changed")
+		}
+	}
+	var raw string
+	if err := db.Raw("EXPLAIN (ANALYZE, FORMAT JSON) " + query).Row().Scan(&raw); err != nil {
+		t.Fatal(err)
+	}
+	type planNode struct {
+		Relation string     `json:"Relation Name"`
+		Loops    float64    `json:"Actual Loops"`
+		Plans    []planNode `json:"Plans"`
+	}
+	var plans []struct{ Plan planNode }
+	if err := json.Unmarshal([]byte(raw), &plans); err != nil || len(plans) != 1 {
+		t.Fatalf("invalid plan: %v", err)
+	}
+	var check func(planNode)
+	check = func(node planNode) {
+		if node.Relation == "metadata_identifiers" && node.Loops > float64(len(rows)) {
+			t.Errorf("identifier lookups expanded to %.0f for %d selected files", node.Loops, len(rows))
+		}
+		for _, child := range node.Plans {
+			check(child)
+		}
+	}
+	check(plans[0].Plan)
 }
 
 func TestLibraryMetadataPaginationBoundsFileReads(t *testing.T) {

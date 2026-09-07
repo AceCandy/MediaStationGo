@@ -23,7 +23,7 @@ type embySeriesGroup struct {
 	BangumiID   int
 	CreatedAt   time.Time
 	Episodes    []model.MediaView
-	// Summary 保存列表页的可见分集/季计数；详情仍持有完整 Episodes。
+	// Summary 保存列表及详情的可见分集/季计数；播放查询持有完整 Episodes。
 	Summary *embySeriesSummary
 }
 

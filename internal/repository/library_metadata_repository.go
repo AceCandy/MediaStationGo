@@ -94,6 +94,8 @@ func (r *MediaViewRepository) LibrarySeriesMetadataIDs(ctx context.Context, libr
 func (r *MediaViewRepository) ListLibrarySeriesViews(ctx context.Context, libraryID, metadataID string, filter MediaQueryFilter) ([]model.MediaView, error) {
 	ids := r.libraryMetadataScope(ctx, libraryID, model.MetadataKindSeries, metadataID, filter).Select("m.id")
 	var rows []model.MediaView
-	err := scanMediaViews(r.query(ctx).Where("m.id IN (?)", ids).Order("view_season_num, view_episode_num, m.created_at, m.id"), &rows)
+	// 先限定文件输入，再关联展示数据；OFFSET 0 阻止规划器将剧集过滤推迟到全库投影之后。
+	err := scanMediaViews(r.query(ctx).Table("(SELECT * FROM media WHERE id IN (?) OFFSET 0) AS m", ids).
+		Order("view_season_num, view_episode_num, m.created_at, m.id"), &rows)
 	return rows, err
 }

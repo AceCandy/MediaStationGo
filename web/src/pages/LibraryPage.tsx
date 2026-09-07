@@ -84,7 +84,7 @@ export function LibraryPage() {
     hasMore,
     loadMore,
     reloadCurrentLibrary,
-  } = useLibraryData(id, selectedSeries, { missingPoster, missingChineseTitle })
+  } = useLibraryData(id, { missingPoster, missingChineseTitle })
   const loadMoreRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {

@@ -12,7 +12,7 @@ import { isSeriesLibraryType } from './librariesPageModel'
 
 const LIBRARY_PAGE_SIZE = 50
 
-export function useLibraryData(libraryID: string, selectedSeries: SeriesCard | null, filters: LibraryMediaFilters) {
+export function useLibraryData(libraryID: string, filters: LibraryMediaFilters) {
   const [searchParams] = useSearchParams()
   const userID = useAuthStore((state) => state.user?.id)
   const profileID = usePlayProfileStore((state) => state.activeProfileId)
@@ -37,6 +37,8 @@ export function useLibraryData(libraryID: string, selectedSeries: SeriesCard | n
   const loadVersionRef = useRef(0)
 
   const isSeriesLibrary = isSeriesLibraryType(library?.type)
+  const episodeKey = seriesID ? `metadata:${seriesID}` : seriesKey
+  const isSeriesDetail = isSeriesLibrary && !!episodeKey
   const hasEpisodicItems = useMemo(() => items.some(isEpisodeLike), [items])
   const isSeries = isSeriesLibrary || serverSeriesCards.length > 0 || hasEpisodicItems
 
@@ -97,7 +99,11 @@ export function useLibraryData(libraryID: string, selectedSeries: SeriesCard | n
     setNextPage(2)
     setItems([])
     setServerSeriesCards([])
-    setSeriesEpisodeItems([])
+
+    if (isSeriesDetail) {
+      setLoading(false)
+      return
+    }
 
     loadLibraryPage(libraryID, isSeriesLibrary, 1, { missingPoster, missingChineseTitle })
       .then((page) => {
@@ -113,7 +119,7 @@ export function useLibraryData(libraryID: string, selectedSeries: SeriesCard | n
         if (!cancelled) setLoading(false)
       })
     return () => { cancelled = true }
-  }, [missingChineseTitle, missingPoster, libraryID, library, isSeriesLibrary])
+  }, [missingChineseTitle, missingPoster, libraryID, library, isSeriesLibrary, isSeriesDetail])
 
   const loadedCount = isSeriesLibrary ? serverSeriesCards.length : items.length
   const hasMore = loadedCount < total
@@ -146,7 +152,7 @@ export function useLibraryData(libraryID: string, selectedSeries: SeriesCard | n
   useEffect(() => {
     setSeriesHistory([])
     setSeriesEpisodesError(false)
-    if (!libraryID || !isSeriesLibrary || !selectedSeries) {
+    if (!libraryID || !isSeriesLibrary || !episodeKey) {
       setSeriesEpisodeItems([])
       setLoadingSeriesEpisodes(false)
       return
@@ -154,7 +160,7 @@ export function useLibraryData(libraryID: string, selectedSeries: SeriesCard | n
     let cancelled = false
     setLoadingSeriesEpisodes(true)
     setSeriesEpisodeItems([])
-    libraryAPI.listSeriesEpisodes(libraryID, selectedSeries.key)
+    libraryAPI.listSeriesEpisodes(libraryID, episodeKey)
       .then((r) => {
         if (!cancelled) {
           setSeriesEpisodeItems(r.items ?? [])
@@ -171,7 +177,7 @@ export function useLibraryData(libraryID: string, selectedSeries: SeriesCard | n
         if (!cancelled) setLoadingSeriesEpisodes(false)
       })
     return () => { cancelled = true }
-  }, [libraryID, isSeriesLibrary, selectedSeries, userID, profileID])
+  }, [libraryID, library, isSeriesLibrary, episodeKey, userID, profileID])
 
   const reloadCurrentLibrary = useCallback(() => {
     setLibrary((current) => (current ? { ...current } : current))

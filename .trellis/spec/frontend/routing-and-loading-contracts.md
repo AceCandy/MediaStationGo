@@ -87,6 +87,14 @@ under another component or helper name.
 
 ## Verification
 
+Series-library deep links (`series` or `series_id`) must skip the library
+catalogue page. After library type resolution, request the linked series card
+and its episodes independently using the URL identity. Card completion must
+not refetch episodes; season/version changes reuse them. Explicit refresh
+reloads both, stale responses are ignored, and returning to the catalogue
+restores 50-item pagination. Run `node scripts/check-series-loading.mjs` from
+`web` to verify this request lifecycle.
+
 For routing or layout changes, verify at least 390x844, 768x1024, 1440x900,
 and the exact responsive breakpoint affected by the change. Check canonical
 URLs, active navigation, keyboard focus return, control target sizes, document

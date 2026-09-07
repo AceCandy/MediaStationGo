@@ -31,15 +31,12 @@ func (e *EmbyService) Item(ctx context.Context, mediaID, userID string) (map[str
 		return nil, err
 	}
 	if m == nil {
-		if season, ok, err := e.findSeasonGroup(ctx, mediaID, userID); err != nil {
+		metadata, err := e.repo.Metadata.FindByID(ctx, mediaID)
+		if err != nil {
 			return nil, err
-		} else if ok {
-			return e.seasonPayload(ctx, season, userID), nil
 		}
-		if series, ok, err := e.findSeriesGroup(ctx, mediaID, userID); err != nil {
-			return nil, err
-		} else if ok {
-			return e.seriesPayload(ctx, series, userID), nil
+		if metadata != nil && (metadata.Kind == model.MetadataKindSeries || metadata.Kind == model.MetadataKindSeason) {
+			return e.containerDetail(ctx, metadata, userID)
 		}
 		return nil, nil
 	}
