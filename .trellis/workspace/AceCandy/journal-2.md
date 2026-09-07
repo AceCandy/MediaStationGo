@@ -346,3 +346,25 @@ Web 电影与整剧按 metadata 分页，Emby 整剧摘要、混合库与子级�
 ### Status
 
 [OK] **Completed**
+
+
+## Session 107: TMDB 在线元数据优先级
+<!-- trellis-session: v=2 fp=3ccd78549a139d69 -->
+
+**Date**: 2026-09-07
+**Task**: TMDB 在线元数据优先级
+**Branch**: `main`
+
+### Summary
+
+统一电影和剧集的 TMDB 在线信息优先规则，保留在线缺失字段，修复旧 NFO 辅助编号阻断剧集关联和重试，并补充 PostgreSQL 回归测试。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `5bd6a0e` | fix: TMDB 在线信息优先于本地旧元数据 |
+
+### Status
+
+[OK] **Completed**

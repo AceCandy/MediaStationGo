@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-2.md`
-- **Total Sessions**: 106
+- **Total Sessions**: 107
 - **Last Active**: 2026-09-07
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-2.md` | ~348 | Active |
+| `journal-2.md` | ~370 | Active |
 | `journal-1.md` | ~1981 | Archived |
 <!-- @@@/auto:active-documents -->
 
@@ -30,6 +30,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 107 | 2026-09-07 | TMDB 在线元数据优先级 | `5bd6a0e` | `main` |
 | 106 | 2026-09-07 | 优化剧集列表与已观看联动 | `9593ef4` | `main` |
 | 105 | 2026-09-07 | 媒体库与 Emby 元数据分页优化 | `8b6b9d6` | `main` |
 | 104 | 2026-09-06 | 归档自动刮削与剧集详情优化任务 | `d50a091`, `b2e52cb`, `289e010`, `4b7a562` | `main` |
