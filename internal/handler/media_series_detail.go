@@ -63,7 +63,7 @@ func setMediaSeriesFavoriteHandler(svc *service.Container) gin.HandlerFunc {
 		}
 		uid, _ := c.Get(middleware.CtxUserID)
 		if _, err := svc.Repo.Favorite.SetByIdentity(c.Request.Context(), toString(uid), series.MetadataID, c.Param("id"), *req.Favourite); err != nil {
-			writeInternalOrCanceled(c, err)
+			writeFavoriteError(c, err)
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"favourite": *req.Favourite})

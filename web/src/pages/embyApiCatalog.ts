@@ -778,7 +778,7 @@ export const EMBY_API_ENDPOINTS: readonly EmbyApiEndpoint[] = [
     id: 'favorite-item',
     category: '播放状态',
     name: '设置收藏状态',
-    description: 'POST 收藏媒体项，DELETE 取消收藏。',
+    description: 'POST 收藏电影或整剧，DELETE 取消收藏。不支持季或单集收藏，也不会自动转换成整剧收藏。',
     methods: ['POST', 'DELETE'],
     path: '/Users/:userId/FavoriteItems/:itemId',
     aliases: ['/users/:userId/favoriteitems/:itemId'],
@@ -789,7 +789,10 @@ export const EMBY_API_ENDPOINTS: readonly EmbyApiEndpoint[] = [
       { name: 'userId', location: 'path', type: 'string', required: true, description: '必须与令牌用户一致；管理员可显式指定其他账户。' },
       { name: 'itemId', location: 'path', type: 'string', required: true, description: '媒体项 ID。' },
     ],
-    responses: [{ status: '200', contentType: 'application/json', description: '返回更新后的 UserData；媒体无完整用户数据时至少返回 IsFavorite。', fields: userDataFields, example: `{ "IsFavorite": true }` }],
+    responses: [
+      { status: '200', contentType: 'application/json', description: '返回更新后的 UserData；媒体无完整用户数据时至少返回 IsFavorite。', fields: userDataFields, example: `{ "IsFavorite": true }` },
+      { status: '400', contentType: 'application/json', description: '收藏目标是季或单集，不支持该操作。' },
+    ],
   },
   {
     id: 'played-item',

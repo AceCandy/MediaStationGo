@@ -180,7 +180,7 @@ export const MediaCard = ({
 
   // 收藏角标：右上角；与「N 集 / N 版本」角标同存时下移避开。置于 Link/button 之外以拦截点击。
   const hasCountBadge = (count !== undefined && count > 1) || (count === undefined && versionCount > 1)
-  const favouriteButton = onToggleFavourite ? (
+  const favouriteButton = onToggleFavourite && !media.series_id && (!media.metadata_kind || media.metadata_kind === 'movie') ? (
     <button
       type="button"
       aria-label={favourite ? '取消收藏' : '加入收藏'}

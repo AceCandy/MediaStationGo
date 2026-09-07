@@ -68,7 +68,7 @@ func toggleFavouriteHandler(svc *service.Container) gin.HandlerFunc {
 			c.Request.Context(), uid.(string), c.Param("id"),
 		)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			writeFavoriteError(c, err)
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"favourite": state})

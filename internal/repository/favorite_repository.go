@@ -13,6 +13,9 @@ import (
 // FavoriteRepository persists model.Favorite records.
 type FavoriteRepository struct{ db *gorm.DB }
 
+// ErrFavoriteUnsupportedType 表示收藏目标不是电影或整剧。
+var ErrFavoriteUnsupportedType = errors.New("only movies and series can be favorited")
+
 // Toggle flips the favourite flag for (user, media). Returns the new state.
 func (r *FavoriteRepository) Toggle(ctx context.Context, userID, mediaID string) (bool, error) {
 	media, err := r.findMedia(ctx, mediaID)
@@ -21,6 +24,9 @@ func (r *FavoriteRepository) Toggle(ctx context.Context, userID, mediaID string)
 	}
 	var f model.Favorite
 	metadataID := mediaMetadataID(media)
+	if err := r.validateFavoriteMetadata(ctx, metadataID); err != nil {
+		return false, err
+	}
 	err = r.targetQuery(r.db.WithContext(ctx), userID, metadataID, mediaID).First(&f).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return r.Set(ctx, userID, mediaID, true)
@@ -42,8 +48,8 @@ func (r *FavoriteRepository) Set(ctx context.Context, userID, mediaID string, fa
 
 // SetByIdentity 保存作品身份，并保留一个具体媒体版本。
 func (r *FavoriteRepository) SetByIdentity(ctx context.Context, userID, metadataID, mediaID string, favorite bool) (bool, error) {
-	if strings.TrimSpace(metadataID) == "" {
-		return false, errors.New("metadata id is required")
+	if err := r.validateFavoriteMetadata(ctx, metadataID); err != nil {
+		return false, err
 	}
 	q := r.targetQuery(r.db.WithContext(ctx), userID, metadataID, mediaID)
 	if !favorite {
@@ -71,6 +77,21 @@ func (r *FavoriteRepository) SetByIdentity(ctx context.Context, userID, metadata
 		"media_id":    mediaID,
 		"deleted_at":  nil,
 	}).Error
+}
+
+// validateFavoriteMetadata 在共享写入边界限制收藏类型，不把季或单集隐式转换为整剧。
+func (r *FavoriteRepository) validateFavoriteMetadata(ctx context.Context, metadataID string) error {
+	if strings.TrimSpace(metadataID) == "" {
+		return errors.New("metadata id is required")
+	}
+	var metadata model.MetadataItem
+	if err := r.db.WithContext(ctx).Select("kind").Where("id = ?", metadataID).Take(&metadata).Error; err != nil {
+		return err
+	}
+	if metadata.Kind != model.MetadataKindMovie && metadata.Kind != model.MetadataKindSeries {
+		return ErrFavoriteUnsupportedType
+	}
+	return nil
 }
 
 func (r *FavoriteRepository) IsFavorite(ctx context.Context, userID, mediaID string) (bool, error) {

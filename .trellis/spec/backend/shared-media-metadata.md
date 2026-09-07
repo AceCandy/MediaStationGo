@@ -597,7 +597,7 @@ db.Model(&credit).
 - Good: one movie present in two physical libraries appears once in each scoped
   list and once in a global list; an unrestricted detail response includes both
   concrete MediaSources.
-- Good: two files for the same series/season/episode link to one Episode whose parent is a real Season whose parent is the Series; the Season can be favorited independently.
+- Good: two files for the same series/season/episode link to one Episode whose parent is a real Season whose parent is the Series; only the Series can be favorited, not the Season or Episode.
 - Good: a Douban-only movie creates/reuses metadata without a TMDb ID; a later explicit TMDb crosswalk either attaches the unowned ID or safely merges into its existing owner.
 - Base: an unresolved file has `metadata_id = NULL` and remains absent from
   `MediaView` until provider or eligible local persistence binds canonical

@@ -89,7 +89,7 @@ func embyFavoriteHandler(svc *service.Container, fav bool) gin.HandlerFunc {
 			return
 		}
 		if err := svc.Emby.SetFavorite(c.Request.Context(), uid, mid, fav); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			writeFavoriteError(c, err)
 			return
 		}
 		out, _ := svc.Emby.Item(c.Request.Context(), mid, uid)

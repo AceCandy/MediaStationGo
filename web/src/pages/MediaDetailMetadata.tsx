@@ -69,7 +69,7 @@ export function MediaDetailMetadata({ media, selectedMedia, scope, isAdmin, favo
               </p>
             )}
           </div>
-          {onToggleFavourite && <button
+          {onToggleFavourite && (media.metadata_kind === 'movie' || scope === 'series') && <button
             type="button"
             onClick={onToggleFavourite}
             aria-pressed={favourite}

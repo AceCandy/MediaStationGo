@@ -198,22 +198,49 @@ func (r *MediaViewRepository) ListFavoriteCards(ctx context.Context, userID stri
 		Joins("JOIN metadata_items AS mi ON mi.id = m.metadata_id").
 		Joins("LEFT JOIN metadata_items AS season_metadata ON season_metadata.id = mi.parent_id AND mi.kind = 'episode' AND season_metadata.kind = 'season'").
 		Joins("LEFT JOIN metadata_items AS series_metadata ON series_metadata.id = CASE WHEN mi.kind = 'episode' THEN season_metadata.parent_id WHEN mi.kind = 'season' THEN mi.parent_id ELSE NULL END AND series_metadata.kind = 'series'").
-		Joins("JOIN favorites AS f ON f.user_id = ? AND f.deleted_at IS NULL AND (m.metadata_id = f.metadata_id OR "+logicalID+" = f.metadata_id)", userID)
+		Joins("JOIN favorites AS f ON f.user_id = ? AND f.deleted_at IS NULL AND "+logicalID+" = f.metadata_id", userID).
+		Joins("JOIN metadata_items AS favorite_metadata ON favorite_metadata.id = f.metadata_id AND favorite_metadata.kind IN ('movie', 'series')")
 	base = applyMediaViewFilter(base, filter)
+	if !filter.IncludeNSFW {
+		base = base.Where("COALESCE(favorite_metadata.nsfw, FALSE) = FALSE")
+	}
 	type favoriteCard struct {
-		MediaID string `gorm:"column:media_id"`
+		MediaID    string `gorm:"column:media_id"`
+		MetadataID string `gorm:"column:metadata_id"`
 	}
 	var cards []favoriteCard
-	ranked := base.Select("m.id AS media_id, f.id AS favorite_id, f.created_at AS favorite_created_at, ROW_NUMBER() OVER (PARTITION BY f.id ORDER BY m.created_at DESC, m.id DESC) AS favorite_rank")
+	ranked := base.Select("m.id AS media_id, f.metadata_id, f.id AS favorite_id, f.created_at AS favorite_created_at, ROW_NUMBER() OVER (PARTITION BY f.id ORDER BY m.created_at DESC, m.id DESC) AS favorite_rank")
 	if err := r.db.WithContext(ctx).Table("(?) AS favorite_cards", ranked).
 		Where("favorite_rank = 1").Order("favorite_created_at DESC, favorite_id DESC").Scan(&cards).Error; err != nil {
 		return nil, err
 	}
 	ids := make([]string, 0, len(cards))
+	metadataIDs := make([]string, 0, len(cards))
+	metadataByMedia := make(map[string]string, len(cards))
 	for _, card := range cards {
 		ids = append(ids, card.MediaID)
+		metadataIDs = append(metadataIDs, card.MetadataID)
+		metadataByMedia[card.MediaID] = card.MetadataID
 	}
-	return r.FindByIDs(ctx, ids, filter)
+	views, err := r.FindByIDs(ctx, ids, filter)
+	if err != nil || len(views) == 0 {
+		return views, err
+	}
+	presentations, err := r.metadataSearchPresentations(ctx, metadataIDs)
+	if err != nil {
+		return nil, err
+	}
+	out := views[:0]
+	for _, view := range views {
+		if presentation, ok := presentations[metadataByMedia[view.ID]]; ok {
+			applyMetadataSearchPresentation(&view, presentation)
+			if presentation.Kind == model.MetadataKindSeries {
+				view.SeasonID, view.SeasonNum, view.EpisodeNum = "", 0, 0
+			}
+			out = append(out, view)
+		}
+	}
+	return out, attachMediaViewDoubanRatings(r.db.WithContext(ctx), out)
 }
 
 // ListRecentLogicalWorks selects the logical work page in SQL before loading

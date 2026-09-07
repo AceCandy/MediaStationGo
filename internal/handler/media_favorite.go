@@ -8,13 +8,23 @@
 package handler
 
 import (
+	"errors"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
 
 	"github.com/ShukeBta/MediaStationGo/internal/middleware"
+	"github.com/ShukeBta/MediaStationGo/internal/repository"
 	"github.com/ShukeBta/MediaStationGo/internal/service"
 )
+
+func writeFavoriteError(c *gin.Context, err error) {
+	status := http.StatusInternalServerError
+	if errors.Is(err, repository.ErrFavoriteUnsupportedType) {
+		status = http.StatusBadRequest
+	}
+	c.JSON(status, gin.H{"error": err.Error()})
+}
 
 // addMediaFavoriteHandler ensures the (user, media) row exists. If it
 // already does we return 200 with favourite=true so the call is
@@ -23,7 +33,7 @@ func addMediaFavoriteHandler(svc *service.Container) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		uid, _ := c.Get(middleware.CtxUserID)
 		if _, err := svc.Playback.SetFavourite(c.Request.Context(), toString(uid), c.Param("id"), true); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			writeFavoriteError(c, err)
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"favourite": true})
@@ -35,7 +45,7 @@ func removeMediaFavoriteHandler(svc *service.Container) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		uid, _ := c.Get(middleware.CtxUserID)
 		if _, err := svc.Playback.SetFavourite(c.Request.Context(), toString(uid), c.Param("id"), false); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			writeFavoriteError(c, err)
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"favourite": false})

@@ -3,13 +3,17 @@
 ## 1. Scope / Trigger
 
 Apply this contract when changing Web or Emby playback progress, manual watched
-state, resume results, or playback statistics. These paths share the same
+state, favorites, resume results, or playback statistics. These paths share the same
 per-user, per-metadata history state but playback events are append-only.
 
 ## 2. Signatures
 
 - `POST /api/history` and `POST /api/playback/:id/progress` accept media ID,
   position, duration, and optional `session_id`.
+- Favorites use `FavoriteRepository.SetByIdentity` and `Toggle`; Web exposes
+  `/api/favourites/:id`, `/api/media/:id/favorite`, and the explicit
+  `/api/media/:id/series/favorite` route. Emby uses
+  `/Users/:userId/FavoriteItems/:itemId`.
 - Emby `/Sessions/Playing`, `/Sessions/Playing/Progress`, and
   `/Sessions/Playing/Stopped` forward `PlaySessionId` as `session_id`.
 - `GET /api/admin/playback-stats` accepts `grain=day|week|month`, `from`, `to`,
@@ -20,6 +24,15 @@ per-user, per-metadata history state but playback events are append-only.
 
 ## 3. Contracts
 
+- Favorites accept only canonical Movie or Series metadata. The shared repository
+  rejects Season/Episode writes with `ErrFavoriteUnsupportedType`; Web and Emby
+  return `400`, without converting the target to its parent. Web hides unsupported
+  controls and retains the explicit whole-series favorite action. No historical
+  favorite migration or compatibility conversion is required before launch.
+- `ListFavoriteCards` returns each favorite's own metadata ID, kind, title,
+  artwork, and ratings. A Series card retains a visible concrete file/library for
+  navigation but clears season/episode coordinates. Apply both representative-file
+  and favorite-metadata visibility before selecting one file per favorite.
 - The service, not a request `completed` field, calculates completion:
   duration below ten minutes uses `duration - 30s`; otherwise use 90%.
 - Automatic progress below 20 seconds is ignored. At 20 seconds or later it
@@ -63,6 +76,7 @@ per-user, per-metadata history state but playback events are append-only.
 
 | Condition | Result |
 | --- | --- |
+| Favorite mutation targets Season/Episode | `400`; no favorite row or parent favorite is written |
 | Invalid progress bounds | Request is rejected; no history or event is written |
 | `MediaSourceId` belongs to another `ItemId` | Ignore the mismatched source and retain generic item resolution |
 | Position below 20 seconds | Successful no-op for automatic progress |
@@ -75,6 +89,8 @@ per-user, per-metadata history state but playback events are append-only.
 
 ## 5. Good / Base / Bad Cases
 
+- Good: a Series favorite displays its Series poster and links to the Series detail.
+- Bad: return the latest imported episode's title/poster as a whole-series favorite.
 - Good: a 20-second Web update with a UUID creates or updates history and one
   event; duplicate updates with that UUID do not increment the count.
 - Good: Emby `ItemId + MediaSourceId` resolves one visible media row without a
@@ -94,6 +110,10 @@ per-user, per-metadata history state but playback events are append-only.
 
 ## 6. Tests Required
 
+- `TestFavoritesOnlyMoviesAndSeries`, `TestFavoriteHandlersRejectEpisodes`, and
+  `TestListFavourites*` verify supported round-trips, unsupported writes, entity-owned
+  presentation, and visibility against PostgreSQL. The Web series-presentation check
+  verifies movie/series favorite controls and no season/episode controls.
 - Cover the ten-minute completion boundary, invalid bounds, 20-second boundary,
   manual watched/unwatched behavior, and percentage clamping.
 - `TestEmbySeriesAndSeasonPlayedState` covers Series/Season detail and list

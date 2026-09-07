@@ -44,6 +44,13 @@ for (const scope of ['series', 'episode']) {
 }
 const movie = renderToStaticMarkup(createElement(Metadata, { media, selectedMedia: media, isAdmin: false }))
 assert.doesNotMatch(movie, /<details/, 'movie metadata stays expanded')
+for (const kind of ['movie', 'series', 'season', 'episode']) {
+  const html = renderToStaticMarkup(createElement(Metadata, {
+    media: { ...media, metadata_kind: kind }, scope: kind === 'series' ? 'series' : undefined,
+    isAdmin: false, onToggleFavourite() {},
+  }))
+  assert.equal(html.includes('aria-label="加入收藏"'), kind === 'movie' || kind === 'series', `${kind} favorite control`)
+}
 for (const scope of [undefined, 'series', 'episode']) {
   const html = renderToStaticMarkup(createElement(Metadata, { media: { ...media, douban_id: 'fixture-douban', tmdb_id: 1, series_tmdb_id: 2, metadata_kind: scope ?? 'movie', season_num: 1, episode_num: 1 }, scope, isAdmin: true }))
   if (scope === 'episode') {
@@ -92,6 +99,11 @@ assert.doesNotMatch(loading, /暂无轨道/, 'loading is not an empty result')
 const router = { useNavigate: () => () => {}, Link: ({ to, children, className, 'aria-label': label }) => createElement('a', { className, 'aria-label': label, href: to }, children) }
 const model = { episodeIdentity: (item) => item.metadata_id || item.id, episodeLabel: (item) => `第 ${item.episode_num} 集` }
 const client = { imageURL: (url) => url }
+const Card = load('../components/MediaCard', { 'react-router-dom': router, '../api/client': client, '../utils/groupSeries': { mediaDetailLink: () => '/media/movie' } }, 'MediaCard')
+for (const [fields, supported] of [[{}, true], [{ metadata_kind: 'movie' }, true], [{ series_id: 'series' }, false], [{ metadata_kind: 'episode' }, false], [{ metadata_kind: 'season' }, false]]) {
+  const html = renderToStaticMarkup(createElement(Card, { media: { ...media, ...fields }, onToggleFavourite() {} }))
+  assert.equal(html.includes('aria-label="加入收藏"'), supported, 'grouped movies retain favorites; series and episodes use no file-level favorite control')
+}
 let episodeMedia = { ...media, episode_num: 1, season_num: 1, backdrop_url: '/episode-still.jpg' }
 const EpisodeDetail = load('LibrarySeriesEpisodeDetail', {
   'react-router-dom': router,
