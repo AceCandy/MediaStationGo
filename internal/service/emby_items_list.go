@@ -130,14 +130,14 @@ func (e *EmbyService) payloadsForViewsWithFields(ctx context.Context, views []mo
 	for i := range views {
 		metadataIDs = append(metadataIDs, views[i].MetadataID)
 	}
-	userFavs, userPos := e.userDataForMetadataIDs(ctx, userID, metadataIDs)
+	userFavs, userPos, userCompleted := e.userDataForMetadataIDs(ctx, userID, metadataIDs)
 
 	relations := e.itemRelationsForViews(ctx, views, userID, newEmbyListFields(requestedFields))
 	items := make([]map[string]any, 0, len(views))
 	for i := range views {
 		m := &views[i]
 		itemID := embyItemID(m)
-		items = append(items, e.itemPayloadWithRelations(ctx, m, userID, userFavs[itemID], userPos[itemID], false, relations))
+		items = append(items, e.itemPayloadWithRelations(ctx, m, userID, userFavs[itemID], userPos[itemID], userCompleted[itemID], false, relations))
 	}
 	return items
 }
@@ -249,7 +249,6 @@ func (e *EmbyService) collapseMediaVersionViews(ctx context.Context, rows []mode
 func (e *EmbyService) seriesItemsForLibrary(ctx context.Context, libraryID string, p ItemsParams) (map[string]any, error) {
 	q := e.repo.DB.WithContext(ctx).Model(&model.Media{}).Where("media.season_num > 0 OR media.episode_num > 0")
 	q = e.applyUserMediaVisibility(ctx, q, p.UserID)
-	q = seriesScopeQuery(q)
 	if libraryID != "" {
 		q = q.Where("media.library_id IN ?", e.mergedLibraryIDs(ctx, libraryID))
 	}
@@ -261,7 +260,9 @@ func (e *EmbyService) seriesItemsForLibrary(ctx context.Context, libraryID strin
 		if strings.TrimSpace(p.UserID) == "" {
 			return map[string]any{"Items": []map[string]any{}, "TotalRecordCount": 0, "StartIndex": p.StartIndex}, nil
 		}
-		q = q.Joins("JOIN favorites ON favorites.user_id = ? AND favorites.deleted_at IS NULL AND favorites.metadata_id = scope_series.id", p.UserID)
+		favorites := e.repo.DB.WithContext(ctx).Model(&model.Favorite{}).Select("1").
+			Where("favorites.user_id = ? AND favorites.metadata_id = scope_series.id", p.UserID)
+		q = q.Where("EXISTS (?)", favorites)
 	}
 	groups, total, err := e.seriesMetadataPage(ctx, q, p.UserID, p, p.StartIndex, p.Limit)
 	if err != nil {

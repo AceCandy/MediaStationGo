@@ -32,6 +32,9 @@ func TestEmbyMarkPlayedRefreshesPlaybackDevice(t *testing.T) {
 	if err := migrateMediaHandlerTestDB(db, model.AllModels()...); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
+	if err := db.Exec(`CREATE UNIQUE INDEX test_history_identity ON playback_histories (user_id, metadata_id) WHERE deleted_at IS NULL`).Error; err != nil {
+		t.Fatal(err)
+	}
 	repos := repository.New(db)
 	if err := repos.User.Create(t.Context(), &model.User{
 		Base:         model.Base{ID: "user-1"},
@@ -82,6 +85,38 @@ func TestEmbyMarkPlayedRefreshesPlaybackDevice(t *testing.T) {
 	}
 	if devices[0].DeviceID != "played-device" || devices[0].DeviceName != "iPhone" || devices[0].Client != "Infuse" {
 		t.Fatalf("playback device info not parsed: %#v", devices[0])
+	}
+	seriesID, seasonID, episodeID := "played-series", "played-season", "played-episode"
+	for _, row := range []model.MetadataItem{
+		{PermanentBase: model.PermanentBase{ID: seriesID}, Kind: model.MetadataKindSeries, Title: "Show", Source: "local"},
+		{PermanentBase: model.PermanentBase{ID: seasonID}, Kind: model.MetadataKindSeason, ParentID: &seriesID, SeasonNum: 1, Title: "Season", Source: "local"},
+		{PermanentBase: model.PermanentBase{ID: episodeID}, Kind: model.MetadataKindEpisode, ParentID: &seasonID, EpisodeNum: 1, Title: "Episode", Source: "local"},
+	} {
+		if err := db.Create(&row).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := db.Create(&model.Media{MetadataID: episodeID, LibraryID: lib.ID, Path: "/fixture/episode.mkv", SeasonNum: 1, EpisodeNum: 1}).Error; err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{seriesID, seasonID} {
+		for _, method := range []string{http.MethodPost, http.MethodDelete} {
+			req := httptest.NewRequest(method, "/emby/Users/user-1/PlayedItems/"+id, nil)
+			req.Header.Set("X-Emby-Token", token)
+			w := httptest.NewRecorder()
+			router.ServeHTTP(w, req)
+			var data struct{ Played bool }
+			if err := json.Unmarshal(w.Body.Bytes(), &data); err != nil || w.Code != http.StatusOK || data.Played != (method == http.MethodPost) {
+				t.Fatalf("%s %s: status=%d data=%s err=%v", method, id, w.Code, w.Body.String(), err)
+			}
+			var completed int64
+			if err := db.Model(&model.PlaybackHistory{}).Where("user_id = ? AND metadata_id = ? AND completed = TRUE", "user-1", episodeID).Count(&completed).Error; err != nil {
+				t.Fatal(err)
+			}
+			if (completed == 1) != data.Played {
+				t.Fatalf("parent response disagrees with episode history: %#v, %d", data, completed)
+			}
+		}
 	}
 }
 

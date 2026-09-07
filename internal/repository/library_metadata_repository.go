@@ -55,6 +55,10 @@ func (r *MediaViewRepository) ListLibraryMetadataPage(ctx context.Context, libra
 	priority := "CASE WHEN COALESCE(m.strm_url, '') ~* '^https?://' THEN 1 ELSE 0 END, COALESCE(probe.width, 0)::bigint * COALESCE(probe.height, 0) DESC, COALESCE(probe.size_bytes, 0) DESC, m.created_at DESC, m.id DESC"
 	order := "(ARRAY_AGG(m.created_at ORDER BY " + priority + "))[1] DESC, work.id DESC"
 	if kind == model.MetadataKindSeries {
+		if metadataID == "" {
+			// 保留库内文件输入边界，避免先展开整个目录再逐条探测媒体索引；不截断文件。
+			q = q.Table("(SELECT * FROM media WHERE library_id = ? OFFSET 0) AS m", libraryID)
+		}
 		priority = "COALESCE(season.season_num, mi.season_num, 0), COALESCE(mi.episode_num, 0), m.created_at, m.id"
 		order = "MAX(CASE WHEN COALESCE(mi.release_date, '') <> '' THEN mi.release_date WHEN COALESCE(mi.year, 0) > 0 THEN LPAD(mi.year::text, 4, '0') || '-12-31' ELSE to_char(GREATEST(m.updated_at, m.created_at) AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS.US') END) DESC, work.id DESC"
 	} else {

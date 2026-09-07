@@ -13,24 +13,25 @@ type embyItemTarget struct {
 	MediaID    string
 }
 
-func (e *EmbyService) userDataForTarget(ctx context.Context, userID string, target embyItemTarget) (bool, int64) {
+func (e *EmbyService) userDataForTarget(ctx context.Context, userID string, target embyItemTarget) (bool, int64, bool) {
 	if strings.TrimSpace(userID) == "" || target.ItemID == "" || target.MetadataID == "" {
-		return false, 0
+		return false, 0, false
 	}
 	favorite, _ := e.repo.Favorite.IsFavoriteByIdentity(ctx, userID, target.MetadataID, target.MediaID)
 	var history model.PlaybackHistory
 	q := e.repo.DB.WithContext(ctx).Where("user_id = ? AND metadata_id = ?", userID, target.MetadataID)
 	if err := q.Order("watched_at desc").First(&history).Error; err != nil {
-		return favorite, 0
+		return favorite, 0, false
 	}
-	return favorite, history.PositionMs
+	return favorite, history.PositionMs, history.Completed
 }
 
-func (e *EmbyService) userDataForMetadataIDs(ctx context.Context, userID string, metadataIDs []string) (map[string]bool, map[string]int64) {
+func (e *EmbyService) userDataForMetadataIDs(ctx context.Context, userID string, metadataIDs []string) (map[string]bool, map[string]int64, map[string]bool) {
 	favorites := map[string]bool{}
 	positions := map[string]int64{}
+	completed := map[string]bool{}
 	if e == nil || e.repo == nil || e.repo.DB == nil || strings.TrimSpace(userID) == "" || len(metadataIDs) == 0 {
-		return favorites, positions
+		return favorites, positions, completed
 	}
 	ids := make([]string, 0, len(metadataIDs))
 	seen := make(map[string]struct{}, len(metadataIDs))
@@ -46,7 +47,7 @@ func (e *EmbyService) userDataForMetadataIDs(ctx context.Context, userID string,
 		ids = append(ids, id)
 	}
 	if len(ids) == 0 {
-		return favorites, positions
+		return favorites, positions, completed
 	}
 	var favoriteRows []model.Favorite
 	if err := e.repo.DB.WithContext(ctx).Where("user_id = ? AND metadata_id IN ?", userID, ids).Find(&favoriteRows).Error; err == nil {
@@ -60,10 +61,11 @@ func (e *EmbyService) userDataForMetadataIDs(ctx context.Context, userID string,
 		for _, history := range historyRows {
 			if _, ok := positions[history.MetadataID]; !ok {
 				positions[history.MetadataID] = history.PositionMs
+				completed[history.MetadataID] = history.Completed
 			}
 		}
 	}
-	return favorites, positions
+	return favorites, positions, completed
 }
 
 func embyItemID(m *model.MediaView) string {

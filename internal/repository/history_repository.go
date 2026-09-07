@@ -26,8 +26,18 @@ func (r *HistoryRepository) ListByUserMetadataIDs(ctx context.Context, userID st
 
 // Upsert atomically inserts/updates the resume position.
 func (r *HistoryRepository) Upsert(ctx context.Context, h *model.PlaybackHistory) error {
-	if h == nil || strings.TrimSpace(h.MetadataID) == "" {
-		return errors.New("metadata id is required")
+	return r.UpsertBatch(ctx, []*model.PlaybackHistory{h})
+}
+
+// UpsertBatch 按用户和作品身份批量保存历史，调用方须先按作品去重。
+func (r *HistoryRepository) UpsertBatch(ctx context.Context, rows []*model.PlaybackHistory) error {
+	if len(rows) == 0 {
+		return nil
+	}
+	for _, row := range rows {
+		if row == nil || strings.TrimSpace(row.MetadataID) == "" {
+			return errors.New("metadata id is required")
+		}
 	}
 	return r.db.WithContext(ctx).Clauses(clause.OnConflict{
 		Columns: []clause.Column{{Name: "user_id"}, {Name: "metadata_id"}},
@@ -37,7 +47,7 @@ func (r *HistoryRepository) Upsert(ctx context.Context, h *model.PlaybackHistory
 		DoUpdates: clause.AssignmentColumns([]string{
 			"media_id", "position_ms", "duration_ms", "watched_at", "completed", "updated_at",
 		}),
-	}).Create(h).Error
+	}).CreateInBatches(rows, 200).Error
 }
 
 // ListByUser returns the most recent history rows for the user.

@@ -33,6 +33,19 @@ per-user, per-metadata history state but playback events are append-only.
   Clamp read-side progress percentages to 0 through 100.
 - Manual watched writes completed state without an event. Manual unwatched
   deletes the history row and preserves existing events.
+- Emby Series/Season manual watched/unwatched recursively updates visible,
+  file-backed episodes in one transaction, deduplicated by metadata ID. A
+  Season affects only its own episodes (including season zero). Missing and
+  invisible episodes and other users' history remain unchanged; no events
+  are added or deleted. Batch upserts use the active history identity index.
+- Series/Season `Played` is derived from all visible file-backed episodes,
+  not the container's legacy history row. New episodes start unplayed.
+  Detail and list payloads agree; lists use one current-page aggregate query,
+  never per-item history queries or whole-catalog file probes.
+- Movie/Episode payloads honor history `completed` even without probe duration.
+  Completed payloads return `Played=true`, `PlayCount=1`, and
+  `PlayedPercentage=100`; containers have no playback position of their own.
+  Successful manual watched/unwatched writes invalidate `media:emby:` caches.
 - Only the authenticated user may read or mutate UserData, history, favorites,
   and realtime sessions. An administrator may target another user only when an
   explicit user ID is supplied.
@@ -83,6 +96,12 @@ per-user, per-metadata history state but playback events are append-only.
 
 - Cover the ten-minute completion boundary, invalid bounds, 20-second boundary,
   manual watched/unwatched behavior, and percentage clamping.
+- `TestEmbySeriesAndSeasonPlayedState` covers Series/Season detail and list
+  readback, missing probe duration, repeated mark/unmark, user isolation,
+  and manual-write cache invalidation against PostgreSQL.
+- `TestEmbyPlayedHierarchyScopeAndRollback` covers season isolation, season
+  zero, multi-version deduplication, missing/hidden children, legacy parent
+  history, child-to-parent aggregation, and transactional rollback.
 - Cover the Emby concrete-source fast path with a query callback asserting no
   SQL contains `metadata_identifiers`, plus a mismatched-source ownership case.
 - Cover same-user, non-admin cross-user, and administrator explicit-target

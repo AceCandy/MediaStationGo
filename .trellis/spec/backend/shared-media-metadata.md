@@ -20,6 +20,19 @@
 - Count, filtering and page selection share one scoped query. Missing-poster/title filters apply to the displayed work, not its representative episode.
 - Emby summary counts must never overwrite complete Series/Season group caches. Load current-page movie/episode versions only where payload compatibility requires them.
 - SQL still scans/aggregates matching associations for totals and ordering; bounded file hydration is not a constant-time database guarantee.
+- Web Series page aggregation without an explicit metadata ID uses a
+  library-scoped Media derived table with `OFFSET 0`, preventing catalog-sized
+  parameterized Media probes. Keep all outer visibility/filter predicates and
+  representative ordering. Counts, explicit-Series reads and Movie pages retain
+  their existing scopes; no result rows are truncated at this boundary.
+- `seriesMetadataPage` receives the visible Media/episode scope without the
+  Season/Series joins. Count/page use a correlated Season `LATERAL` query with
+  `OFFSET 0` to prevent catalog-first join expansion. Keep parent-kind checks;
+  the offset is an optimizer boundary, not a row limit. Current-page summaries
+  retain ordinary `seriesScopeQuery` joins so explicit Series IDs stay selective.
+- Filters referencing Series IDs must not add a JOIN whose ON clause precedes
+  those parent aliases; use a correlated WHERE/EXISTS for favorites and preserve
+  user plus soft-delete predicates. Test combined filters after moving joins.
 
 ### 4. Validation & Error Matrix
 
@@ -36,6 +49,10 @@
 
 - `TestLibraryMetadataPaginationBoundsFileReads`: page-sized file reads, logical totals, cross-library isolation, filters, NSFW, old links, multipart counts, empty pages and complete detail after summaries.
 - `TestListLibrarySeriesDoesNotTruncateLargeEpisodeLibraries`: all 2001 episodes remain available when selecting that Series.
+- `TestEmbySeriesPaginationDoesNotProbeFilesForWholeCatalog`: execute count/page
+  EXPLAIN against a catalog larger than the playable set; Media probe loops must
+  stay within file cardinality. Cover Yamby ordering, version collapse, empty
+  pages, favorite/person/visibility filters and played-Series summaries.
 - Run PostgreSQL tests with `MEDIASTATION_TEST_POSTGRES_DSN`, Web lint/build and both Series check scripts; skipped database tests do not count as validation.
 
 ### 7. Wrong vs Correct

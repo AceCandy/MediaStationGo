@@ -104,7 +104,13 @@ func seriesScopeQuery(q *gorm.DB) *gorm.DB {
 }
 
 func (e *EmbyService) seriesMetadataPage(ctx context.Context, q *gorm.DB, userID string, p ItemsParams, start, limit int) ([]embySeriesGroup, int64, error) {
-	grouped := q.Session(&gorm.Session{}).
+	// 计数和分页先限定可见文件，再查父级；OFFSET 0 保留相关查询边界，
+	// 避免规划器从完整目录展开分集后逐条查文件。已选整剧的摘要仍走普通连接。
+	pageScope := q.Session(&gorm.Session{}).
+		Joins(`JOIN LATERAL (SELECT id, parent_id FROM metadata_items
+			WHERE id = emby_metadata.parent_id AND kind = 'season' OFFSET 0) AS scope_season ON TRUE`).
+		Joins("JOIN metadata_items AS scope_series ON scope_series.id = scope_season.parent_id AND scope_series.kind = 'series'")
+	grouped := pageScope.Session(&gorm.Session{}).
 		Select("scope_series.id").
 		Group("scope_series.id")
 	var total int64
@@ -116,7 +122,7 @@ func (e *EmbyService) seriesMetadataPage(ctx context.Context, q *gorm.DB, userID
 		SeriesID string `gorm:"column:series_id"`
 	}
 	var idRows []seriesIDRow
-	idQuery := q.Session(&gorm.Session{}).
+	idQuery := pageScope.Session(&gorm.Session{}).
 		Select("scope_series.id AS series_id").
 		Group("scope_series.id").
 		Order(seriesOrderSQL(p)).
@@ -137,7 +143,7 @@ func (e *EmbyService) seriesMetadataPage(ctx context.Context, q *gorm.DB, userID
 		return []embySeriesGroup{}, total, nil
 	}
 
-	groups, err := e.seriesSummaries(ctx, q, seriesIDs)
+	groups, err := e.seriesSummaries(ctx, seriesScopeQuery(q.Session(&gorm.Session{})), seriesIDs)
 	return groups, total, err
 }
 

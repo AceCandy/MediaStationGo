@@ -32,28 +32,44 @@ func (e *EmbyService) SetFavorite(ctx context.Context, userID, itemID string, fa
 
 // MarkPlayed 按作品身份标记已看，并保留当前具体版本。
 func (e *EmbyService) MarkPlayed(ctx context.Context, userID, itemID string, played bool) error {
+	metadata, err := e.repo.Metadata.FindByID(ctx, itemID)
+	if err != nil {
+		return err
+	}
+	if metadata != nil && (metadata.Kind == model.MetadataKindSeries || metadata.Kind == model.MetadataKindSeason) {
+		err = e.markContainerPlayed(ctx, userID, itemID, played)
+		if err == nil && e.cache != nil {
+			e.cache.DeletePrefix(ctx, embyItemsCachePrefix)
+		}
+		return err
+	}
 	target, err := e.itemTarget(ctx, itemID, userID)
 	if err != nil || target.MetadataID == "" || target.MediaID == "" {
 		return errors.New("media not found")
 	}
 	if !played {
-		return e.repo.DB.WithContext(ctx).
+		err = e.repo.DB.WithContext(ctx).
 			Where("user_id = ? AND metadata_id = ?", userID, target.MetadataID).
 			Delete(&model.PlaybackHistory{}).Error
+	} else {
+		dur := int64(0)
+		if probe, _ := e.repo.MediaProbe.FindByMediaID(ctx, target.MediaID); probe != nil {
+			dur = probe.DurationMS
+		}
+		err = e.repo.History.Upsert(ctx, &model.PlaybackHistory{
+			UserID:     userID,
+			MetadataID: target.MetadataID,
+			MediaID:    target.MediaID,
+			PositionMs: dur,
+			DurationMs: dur,
+			WatchedAt:  time.Now(),
+			Completed:  true,
+		})
 	}
-	dur := int64(0)
-	if probe, _ := e.repo.MediaProbe.FindByMediaID(ctx, target.MediaID); probe != nil {
-		dur = probe.DurationMS
+	if err == nil && e.cache != nil {
+		e.cache.DeletePrefix(ctx, embyItemsCachePrefix)
 	}
-	return e.repo.History.Upsert(ctx, &model.PlaybackHistory{
-		UserID:     userID,
-		MetadataID: target.MetadataID,
-		MediaID:    target.MediaID,
-		PositionMs: dur,
-		DurationMs: dur,
-		WatchedAt:  time.Now(),
-		Completed:  true,
-	})
+	return err
 }
 
 // RecordProgress 记录播放进度（来自 Emby 客户端的 /Sessions/Playing/Progress）。

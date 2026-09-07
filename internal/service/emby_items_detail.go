@@ -50,8 +50,8 @@ func (e *EmbyService) Item(ctx context.Context, mediaID, userID string) (map[str
 	if err != nil {
 		return nil, err
 	}
-	fav, pos := e.userDataForTarget(ctx, userID, target)
-	return e.itemPayload(ctx, m, userID, fav, pos, true), nil
+	fav, pos, completed := e.userDataForTarget(ctx, userID, target)
+	return e.itemPayloadWithRelations(ctx, m, userID, fav, pos, completed, true, nil), nil
 }
 
 // AdditionalParts 返回当前播放版本除首 Part 外的物理文件。
@@ -68,8 +68,9 @@ func (e *EmbyService) AdditionalParts(ctx context.Context, mediaID, userID strin
 		return map[string]any{"Items": []map[string]any{}, "TotalRecordCount": 0}, nil
 	}
 	parts = parts[1:]
-	favorites, _ := e.userDataForMetadataIDs(ctx, userID, []string{m.MetadataID})
+	favorites, _, _ := e.userDataForMetadataIDs(ctx, userID, []string{m.MetadataID})
 	positions := map[string]int64{}
+	completed := map[string]bool{}
 	if strings.TrimSpace(userID) != "" {
 		ids := make([]string, 0, len(parts))
 		for i := range parts {
@@ -79,6 +80,7 @@ func (e *EmbyService) AdditionalParts(ctx context.Context, mediaID, userID strin
 		if err := e.repo.DB.WithContext(ctx).Where("user_id = ? AND media_id IN ?", userID, ids).Find(&histories).Error; err == nil {
 			for _, history := range histories {
 				positions[history.MediaID] = history.PositionMs
+				completed[history.MediaID] = history.Completed
 			}
 		}
 	}
@@ -87,7 +89,7 @@ func (e *EmbyService) AdditionalParts(ctx context.Context, mediaID, userID strin
 	for i := range parts {
 		part := &parts[i]
 		itemID := embyItemID(part)
-		item := e.itemPayloadWithRelations(ctx, part, userID, favorites[itemID], positions[part.ID], false, relations)
+		item := e.itemPayloadWithRelations(ctx, part, userID, favorites[itemID], positions[part.ID], completed[part.ID], false, relations)
 		item["Id"] = part.ID
 		item["MediaSources"] = e.mediaSourcesForViews(ctx, []model.MediaView{*part}, false, true)
 		delete(item, "PartCount")
@@ -143,7 +145,6 @@ func (e *EmbyService) latestSeriesItemsForLibrary(ctx context.Context, userID, l
 		Where("media.library_id IN ? AND (media.season_num > 0 OR media.episode_num > 0)", e.mergedLibraryIDs(ctx, libraryID))
 	q = e.applyUserMediaVisibility(ctx, q, userID)
 	q = e.applyLatestPlayedFilter(ctx, q, userID, isPlayed)
-	q = seriesScopeQuery(q)
 	groups, _, err := e.seriesMetadataPage(ctx, q, userID, ItemsParams{SortBy: "datecreated", SortOrder: "Descending"}, 0, limit)
 	if err != nil {
 		return nil, err
@@ -208,16 +209,16 @@ func (e *EmbyService) ResumeItems(ctx context.Context, userID string, limit int)
 	items := make([]map[string]any, 0, len(views))
 	for i := range views {
 		view := &views[i]
-		items = append(items, e.itemPayloadWithRelations(ctx, view, userID, false, positions[view.MetadataID], false, relations))
+		items = append(items, e.itemPayloadWithRelations(ctx, view, userID, false, positions[view.MetadataID], false, false, relations))
 	}
 	return map[string]any{"Items": items, "TotalRecordCount": len(items)}, nil
 }
 
 func (e *EmbyService) itemPayload(ctx context.Context, m *model.MediaView, userID string, fav bool, posMs int64, completeStreams bool) map[string]any {
-	return e.itemPayloadWithRelations(ctx, m, userID, fav, posMs, completeStreams, nil)
+	return e.itemPayloadWithRelations(ctx, m, userID, fav, posMs, false, completeStreams, nil)
 }
 
-func (e *EmbyService) itemPayloadWithRelations(ctx context.Context, m *model.MediaView, userID string, fav bool, posMs int64, completeStreams bool, relations *embyItemRelations) map[string]any {
+func (e *EmbyService) itemPayloadWithRelations(ctx context.Context, m *model.MediaView, userID string, fav bool, posMs int64, completed, completeStreams bool, relations *embyItemRelations) map[string]any {
 	var episode bool
 	var people []model.EmbyPerson
 	var providerIDs map[string]string
@@ -287,7 +288,7 @@ func (e *EmbyService) itemPayloadWithRelations(ctx context.Context, m *model.Med
 
 	durationMs := m.ProbeDurationMS
 	runTimeTicks := durationMs * 10_000
-	played := playbackCompleted(posMs, durationMs)
+	played := completed || playbackCompleted(posMs, durationMs)
 	pct := 0.0
 	if durationMs > 0 {
 		pct = float64(posMs) / float64(durationMs) * 100
@@ -299,6 +300,9 @@ func (e *EmbyService) itemPayloadWithRelations(ctx context.Context, m *model.Med
 		}
 	}
 	container := embyMediaContainer(&m.Media, m.ProbeContainer)
+	if completed {
+		pct = 100
+	}
 	isLocalSTRM := localSTRMFileTarget(&m.Media) != ""
 	isRemote := strings.TrimSpace(m.STRMURL) != "" && !isLocalSTRM
 	playURL := embyDirectStreamURL(m.ID, container)

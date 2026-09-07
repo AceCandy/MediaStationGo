@@ -795,7 +795,7 @@ export const EMBY_API_ENDPOINTS: readonly EmbyApiEndpoint[] = [
     id: 'played-item',
     category: '播放状态',
     name: '设置已播放状态',
-    description: 'POST 标记已播放，DELETE 取消已播放。',
+    description: 'POST 标记已播放，DELETE 取消已播放。整剧和季递归更新当前用户可见且有文件的单集；剧/季状态按单集汇总，不预先标记缺失或未来入库的集。',
     methods: ['POST', 'DELETE'],
     path: '/Users/:userId/PlayedItems/:itemId',
     aliases: ['/users/:userId/playeditems/:itemId'],
