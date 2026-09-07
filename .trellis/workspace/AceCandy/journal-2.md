@@ -368,3 +368,31 @@ Web 电影与整剧按 metadata 分页，Emby 整剧摘要、混合库与子级�
 ### Status
 
 [OK] **Completed**
+
+
+## Session 108: 季详情展示、整季操作与特别篇容错收尾
+<!-- trellis-session: v=2 fp=496c61d681da011e -->
+
+**Date**: 2026-09-07
+**Task**: 季详情展示、整季操作与特别篇容错收尾
+**Branch**: `main`
+
+### Summary
+
+按用户确认合并提交季海报重叠列表、紧凑分集卡片、季元数据及整季刷新操作、统一管理菜单样式，以及第 0 季 TMDB 404 本地占位容错；已归档特别篇容错任务。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `d7bc03b` | feat: 优化季详情与管理操作并容错特别篇清单缺失 |
+
+### Testing
+
+- [OK] 此前前端三个回归脚本、lint、类型检查与构建通过；本轮提交前 diff 检查通过。
+- [OK] 特别篇任务 PRD 记录隔离 PostgreSQL 15 下 TestSeriesInventory 回归通过；提交收尾未重跑数据库测试。季元数据编辑数据库集成此前因缺少测试 DSN 未执行。
+- [OK] 本轮菜单样式未再次浏览器目测；未执行全仓测试、真实 TMDB 写操作或部署。
+
+### Status
+
+[OK] **Completed**
