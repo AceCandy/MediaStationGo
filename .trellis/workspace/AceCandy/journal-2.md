@@ -396,3 +396,26 @@ Web 电影与整剧按 metadata 分页，Emby 整剧摘要、混合库与子级�
 ### Status
 
 [OK] **Completed**
+
+
+## Session 109: 提交并归档元数据复查与查询优化
+<!-- trellis-session: v=2 fp=38ab903a9cb49ca6 -->
+
+**Date**: 2026-09-10
+**Task**: 提交并归档元数据复查与查询优化
+**Branch**: `main`
+
+### Summary
+
+提交元数据复查队列、豆瓣手动绑定、候选查询和慢 SQL 诊断等改动；同步后端与前端规范，并归档四个已完成任务。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `917d5dc` | perf: 优化扫描分段关系查询 |
+| `116526f` | feat: 完成元数据复查与查询优化 |
+
+### Status
+
+[OK] **Completed**
