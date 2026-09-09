@@ -138,10 +138,12 @@ export function ManualScrapeCandidateList({
   items,
   applyingKey,
   onApply,
+  requireDoubanType = false,
 }: {
   items: ManualScrapeCandidate[]
   applyingKey: string
   onApply: (item: ManualScrapeCandidate) => void
+  requireDoubanType?: boolean
 }) {
   if (items.length === 0) {
     return (
@@ -160,7 +162,8 @@ export function ManualScrapeCandidateList({
             key={key}
             item={item}
             applying={applyingKey === key}
-            disabled={!!applyingKey}
+            disabled={!!applyingKey || (requireDoubanType && !['movie', 'tv'].includes(item.media_type ?? ''))}
+            showDoubanType={requireDoubanType}
             onApply={onApply}
           />
         )
@@ -173,11 +176,13 @@ function ManualScrapeCandidateRow({
   item,
   applying,
   disabled,
+  showDoubanType,
   onApply,
 }: {
   item: ManualScrapeCandidate
   applying: boolean
   disabled: boolean
+  showDoubanType: boolean
   onApply: (item: ManualScrapeCandidate) => void
 }) {
   return (
@@ -193,6 +198,7 @@ function ManualScrapeCandidateRow({
         <div className="flex flex-wrap items-center gap-2">
           <h3 className="truncate font-semibold text-ink-600">{item.title}</h3>
           <span className="rounded-full bg-brand-50 px-2 py-0.5 text-[11px] font-bold uppercase text-brand-700">{item.source}</span>
+          {showDoubanType && <span className="badge-neutral">{item.media_type === 'tv' ? '电视剧' : item.media_type === 'movie' ? '电影' : '类型未确认'}</span>}
           {item.nsfw ? <span className="rounded-full bg-rose-50 px-2 py-0.5 text-[11px] font-bold text-rose-600">成人</span> : null}
           {item.year ? <span className="text-xs text-sand-500">{item.year}</span> : null}
         </div>

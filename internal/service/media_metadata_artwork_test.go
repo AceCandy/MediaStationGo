@@ -345,7 +345,7 @@ func TestTMDbArtworkLocalRepairRefreshesOnlyAfter404(t *testing.T) {
 }
 
 func TestTMDbArtworkMissingRecheckHonorsTaskHandoffCooldown(t *testing.T) {
-	db := newServiceTestDB(t, &model.MetadataArtworkRecheck{})
+	db := newServiceTestDB(t, &model.MetadataArtworkRecheck{}, &model.Media{})
 	repos := repository.New(db)
 	now := time.Now().UTC()
 	metadata := model.MetadataItem{Kind: model.MetadataKindMovie, Title: "Movie", Source: "tmdb"}
@@ -356,6 +356,9 @@ func TestTMDbArtworkMissingRecheckHonorsTaskHandoffCooldown(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := repos.Artwork.UpsertArtworkRecheck(t.Context(), metadata.ID, model.ArtworkTypePoster, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&model.Media{MetadataID: metadata.ID, Path: "/library/movie.mkv"}).Error; err != nil {
 		t.Fatal(err)
 	}
 	var calls atomic.Int32

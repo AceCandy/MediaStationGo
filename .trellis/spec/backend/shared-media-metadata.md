@@ -30,11 +30,27 @@
   can project the whole library before filtering a small series. Keep the single
   statement, visibility scope, complete versions and ordering; verify identifier
   lookup loops with `TestLibrarySeriesEpisodesScopesProjectionBeforeJoins`.
-- Web Series page aggregation without an explicit metadata ID uses a
+- Web Series page aggregation without filters or an explicit metadata ID uses a
   library-scoped Media derived table with `OFFSET 0`, preventing catalog-sized
-  parameterized Media probes. Keep all outer visibility/filter predicates and
-  representative ordering. Counts, explicit-Series reads and Movie pages retain
-  their existing scopes; no result rows are truncated at this boundary.
+  parameterized Media probes. Missing-poster/title filters instead materialize
+  matching Series candidates, then expand direct Series, Season and Episode
+  attachments through parent indexes using a lateral UNION ALL. Keep artwork
+  asset existence and title fallback semantics on the candidate Series.
+  For missing-title alone, filter Episode IDs through the library's Media
+  membership set with `(id IN (SELECT ...)) IS TRUE`: verify that PostgreSQL
+  builds one hashed subplan, rather than repeatedly aggregating the membership
+  set or probing files for every catalog episode. Missing-poster and combined
+  filters retain direct indexed file probes. Preserve outer visibility and
+  representative ordering. Web Series totals and pages share one materialized
+  association scope; group only the latest sort date before page selection,
+  then sort representative files and count versions for selected works only.
+  Preserve an aggregate total row through a LEFT JOIN when the page is empty.
+  Explicit-Series reads retain their selective scope and Movie pages retain
+  multipart/version preference rules; no file rows are truncated at the scope boundary.
+- Filtered Movie pages join Movie metadata directly, without Season/Series
+  hierarchy expansion. Keep the existing multipart primary selection and
+  preferred-version ordering. If the logical count is zero, skip the page and
+  file-view queries. Ordinary Movie browsing retains its existing query scope.
 - `seriesMetadataPage` receives the visible Media/episode scope without the
   Season/Series joins. Count/page use a correlated Season `LATERAL` query with
   `OFFSET 0` to prevent catalog-first join expansion. Keep parent-kind checks;
@@ -1428,15 +1444,58 @@ if snapshot.Degraded {
 }
 ```
 
-## Scenario: Douban Movie Secondary Enrichment
+## Scenario: Manual Douban Binding
+
+### 1. Scope / Trigger
+
+- Administrator-selected Movie/Series association with immediate enrichment; never reuse graph-merging scrape/apply for this action.
+
+### 2. Signatures
+
+- `GET /api/metadata/:id/douban/search?query=...` returns `{items: ExternalMediaResult[]}`.
+- `POST /api/metadata/:id/douban/bind` accepts `{douban_id, media_type: "movie" | "tv", force: boolean}` and returns `{status: "complete" | "degraded"}`.
+- `MetadataIdentifier.DoubanEntityKind` / `douban_entity_kind`: non-null varchar(16), default empty, added by AutoMigrate. Manual binding stores `movie` or `series`; the identifier's existing `entity_kind` remains the local kind.
+
+### 3. Contracts
+
+- Search defaults to the canonical title and allows at most 200 characters. Manual binding reads `window.__DATA__` JSON from `https://search.douban.com/movie/subject_search?cat=1002&search_text=...` without executing scripts, selecting at most five deduplicated `search_subject` entries. Never substitute `subject_suggest` for complete manual search: `卑微` has no suggestions but complete search finds `4049664`. Missing/malformed data or HTTP failure returns an explicit 502 search-unavailable error, not an empty result. Numeric IDs and official Douban `/subject/{id}` links bypass search; never fetch a user-supplied URL. Resolve candidates through `/subject/{id}` to confirm type; unresolved types remain visible but non-actionable with a retry notice.
+- Apply revalidates response ID, `type` and optional `is_tv`, then fetches the corresponding complete detail. Download images outside the transaction; lock canonical metadata and recheck its timestamp and identifiers before committing binding, fill-only fields, candidate and snapshot together.
+- Forced binding only relaxes the local/provider kind mismatch. Preserve local kind, children, coordinates, files, other provider IDs and existing selected artwork. Compare TMDb IDs only within the same kind.
+- Background enrichment uses the stored actual kind only for an explicitly confirmed manual association; empty values retain local-kind routing. Recheck binding under the metadata lock after network I/O; discard stale responses without updating cooldown.
+- Metadata editing rejects a changed `douban_id` before saving fields; unchanged legacy submissions remain compatible. Manual apply refreshes the media projection/cache after commit.
+
+### 4. Validation & Error Matrix
+
+- Non-admin: 403. Missing metadata: 404. Invalid ID (not 1–20 digits, leading zero), unknown/contradictory type or ineligible local kind: 400.
+- Actual type differs from selected type, unconfirmed cross-type request, occupied identifier or concurrent binding change: 409.
+- Missing provider entry: 404. Other fetch/save failure: 502; preserve the previous database association.
+
+### 5. Good / Base / Bad Cases
+
+- Good: explicitly force a local Series to a verified Douban movie and immediately store its snapshot without changing any Season/Episode.
+- Base: same-kind apply needs no confirmation and fills only gaps (including the existing complete-response Chinese-title precedence).
+- Bad: infer actual type from suggest, silently try the opposite type after a background 404, or save the new ID before fetching its data.
+
+### 6. Tests Required
+
+- `TestDoubanBindingImmediateAndForced`: all four local/provider combinations, network failure and transaction rollback, immediate fields/artwork/snapshot, child preservation and persisted background routing.
+- `TestDoubanBindingSearchUsesSubjectType`, `TestDoubanBindingRejectsUnknownAndChangedType`, `TestDoubanBackgroundRejectsResponseAfterRebind`, `TestDoubanBindingRequiresAdmin`.
+- `node web/scripts/check-douban-binding.mjs`: automatic search, unknown rejection, mismatch confirmation/cancel, force payload, pending suppression, error retention, refresh and abort.
+
+### 7. Wrong vs Correct
+
+- Wrong: write `douban_id`, wait for a later scan and treat suggest's `movie` label as verified.
+- Correct: verify subject type, require explicit cross-type confirmation, then atomically bind and enrich the canonical work.
+
+## Scenario: Douban Movie/Series Secondary Enrichment
 
 ### 1. Scope / Trigger
 
 - Apply when persisting a Movie with a Douban ID, running historical Douban
-  Movie enrichment, manually enriching a Movie or Series, storing provider
+  Movie/Series enrichment, manually enriching a Movie or Series, storing provider
   snapshots, or editing canonical metadata.
-- The periodic flow remains Movie-only. The administrator single-item flow
-  supports `MetadataKindMovie` and canonical `MetadataKindSeries`; Season and
+- The periodic and administrator single-item flows both
+  support `MetadataKindMovie` and canonical `MetadataKindSeries`; Season and
   Episode never enter this flow.
 
 ### 2. Signatures
@@ -1468,6 +1527,8 @@ if snapshot.Degraded {
 - Periodic job: `douban_movie_enrichment`; settings
   `metadata.douban_movie_enrichment_enabled` (default `false`) and
   `metadata.douban_movie_enrichment_interval_seconds` (default 86,400).
+- Display name: `豆瓣信息补齐`. Preserve the job/key, settings, cursor and
+  legacy execution name/filter `豆瓣电影信息补齐` for history continuity.
 - Metadata edit payload `MediaMetadataUpdate` contains no `poster_url` or
   `backdrop_url` fields; the web edit dialog neither renders nor submits them.
 
@@ -1489,8 +1550,8 @@ if snapshot.Degraded {
 - Normal persistence passes an already-fetched Douban detail into enrichment;
   it must not issue the same detail request again just to save fields/artwork.
 - Search results never trigger secondary enrichment. A periodic candidate must
-  already own exactly one `(douban, movie)` identifier; a manual Series must
-  own exactly one `(douban, series)` identifier. No search, title guess,
+  already own exactly one same-kind `(douban, movie)` or `(douban, series)`
+  identifier. No search, title guess,
   cross-kind ID, or ambiguous identifier is accepted.
 - TMDb remains primary. Douban fills only empty canonical overview,
   original-name, rating, year, release-date, languages, countries, and genres.
@@ -1500,9 +1561,11 @@ if snapshot.Degraded {
 - A degraded subject response only fills empty canonical fields. It never uses
   the Chinese-title precedence exception to replace a non-empty title and never
   clears a field omitted from the subject payload.
-- If both sources provide a TMDb ID and it conflicts with the canonical TMDb
+- If both sources have the same entity kind and provide a TMDb ID that conflicts with the canonical TMDb
   identifier, skip the entire Douban write, including snapshot and artwork.
-- A historical candidate always starts with one Movie detail request. Save a
+- A historical candidate starts with one Movie or TV detail request according
+  to its canonical kind, unless its identifier has an explicitly confirmed
+  `douban_entity_kind` from manual binding. Save a
   complete or degraded valid response and advance `fetched_at` only after field
   and artwork persistence succeed. A successful permission fallback advances
   the cursor and continues the batch; request, parsing, field, artwork, or
@@ -1517,12 +1580,12 @@ if snapshot.Degraded {
   promoted. Public responses continue to use only `/api/artwork/:assetID`,
   never a remote URL.
 - Historical passes exclude every explicit `degraded=true` Douban snapshot.
-  Otherwise, they admit movies with one Douban Movie identifier when no
+  Otherwise, they admit Movie/Series with one same-kind Douban identifier when no
   snapshot exists, or when the snapshot is older than 24 hours and is a legacy
   wrapper, lacks mobile `intro` / image fields, lacks Douban-owned local poster
   artwork, or canonical data lacks overview or a Chinese title. Other empty
   fields are filled only during such a request and never trigger one alone.
-  Passes use metadata-ID keyset pagination, a maximum batch of 20, serial
+  Passes use metadata-ID keyset pagination, a maximum batch of 100, serial
   processing, a two-second inter-item delay, and a persisted cursor. They never
   join `media`. A retryable upstream failure stops the current execution before
   the failed item's cursor write and before the short-page cursor reset; the
@@ -1530,6 +1593,9 @@ if snapshot.Degraded {
   local permanent ambiguity advance the cursor and continue. Metrics and logs
   distinguish requests, field updates, new posters, degraded snapshots,
   snapshot-only refreshes, permanent failures/skips, and upstream pauses.
+- Series enrichment writes only its own fields, poster candidate/selection and
+  Douban snapshot. Never change child metadata, identifiers, artwork, snapshots,
+  season/episode coordinates, hierarchy, inventory or Media attachments.
 - Single-item enrichment resolves the current detail view first, operates on
   its canonical Movie/Series `MetadataID`, uses the matching Movie/TV endpoint,
   and never reads or changes the batch cursor. It returns `status=complete` or
@@ -1544,8 +1610,8 @@ if snapshot.Degraded {
 | Condition | Required result |
 | --- | --- |
 | Search candidate is returned but not accepted | Write no provider snapshot |
-| Periodic candidate is not a Movie, or manual target is not a Movie/Series | Skip without provider or artwork I/O |
-| Movie has zero or multiple Douban Movie IDs | Skip as ambiguous |
+| Periodic or manual target is not a Movie/Series | Skip without provider or artwork I/O |
+| Movie/Series has zero or multiple same-kind Douban IDs | Skip as ambiguous |
 | Series has one Douban Series ID and is manually retried | Request `/tv/{id}` without touching the Movie batch cursor |
 | Movie has one Douban ID and no snapshot | Fetch details once, then store the full response |
 | Movie/TV detail returns HTTP 403 or JSON code `1000` | Request `/subject/{id}` once and persist a successful response with `degraded=true` |
@@ -1564,7 +1630,7 @@ if snapshot.Degraded {
 | Single-item enrichment has a retryable upstream failure | Return HTTP 429 without changing the batch cursor |
 | Refresh or persistence fails | Preserve the previous `fetched_at` |
 | Detail contains unknown fields | Preserve them in the valid JSONB document |
-| Detail TMDb ID conflicts with canonical TMDb ID | Skip snapshot, fields, and artwork |
+| Same-kind detail TMDb ID conflicts with canonical TMDb ID | Skip snapshot, fields, and artwork |
 | Canonical field is non-empty | Preserve it; only a complete response may use the Chinese-title rule |
 | Current artwork selection exists | Save local candidate and preserve selection |
 | Current artwork selection is absent | Atomically promote the local candidate |
@@ -1577,11 +1643,11 @@ if snapshot.Degraded {
   missing Chinese title/overview, localizes its poster as a candidate, and keeps
   the existing TMDb selection.
 - Good: a restricted Movie/TV detail stores only the real subject response as
-  degraded; periodic Movie enrichment then skips it until an administrator
+  degraded; periodic enrichment then skips it until an administrator
   manually obtains a complete response.
 - Base: all three trigger fields are complete, or the latest successful check is
   less than 24 hours old; no network request is made.
-- Bad: query Douban by title, periodically scan Series, treat every upstream
+- Bad: query Douban by title, enrich Season/Episode in this task, treat every upstream
   failure as permission denial, infer degraded state from missing fields,
   overwrite a non-empty field/current image, expose a remote image URL, or scan
   history with offset pages.
@@ -1593,7 +1659,7 @@ if snapshot.Degraded {
   subject-failure classification, typed retryable/not-found errors, nested
   rating/image, episode count, source, IDs, projected lists, and unknown raw
   fields survive detail parsing; normal persistence makes one detail request.
-- Repository/PostgreSQL: Movie-only unique-ID keyset discovery, ambiguity skip,
+- Repository/PostgreSQL: Movie/Series same-kind unique-ID keyset discovery, ambiguity skip,
   no-snapshot admission, 24-hour exclusion, stale incomplete admission,
   complete exclusion, explicit degraded exclusion, complete-upsert degraded
   clearing, candidate uniqueness, and atomic selection preservation/promotion.
@@ -1602,6 +1668,9 @@ if snapshot.Degraded {
   mismatch rejection, complete recovery, failure without cooldown advancement,
   degraded continuation, snapshot-only logging, retryable stop/retry cursor
   behavior, permanent-not-found continuation, and bounded cursor progress.
+- `TestDoubanEnrichmentBatchPreservesSeriesChildren` verifies the actual batch
+  uses the TV endpoint, fills Series fields/poster, respects cooldown, and
+  preserves all child metadata, identifiers, artwork, snapshots and Media rows.
 - API/web: editing ordinary metadata preserves artwork; the administrator-only
   single-item action covers Movie/Series complete/degraded responses, ineligible
   metadata, pending suppression, refresh, manual recovery, and HTTP 429
@@ -1789,9 +1858,10 @@ if degraded {
   permits one TMDb detail lookup. Other HTTP statuses, connection failures,
   timeouts, invalid content, and fresh negative-cache results remain retryable
   failures and preserve the selection.
-- Missing-image recheck is per metadata/type with a 24-hour cooldown. Movie and
-  Series share one detail request for due poster/backdrop types; Season owns its
-  poster and Episode owns its still. A successful empty result advances only
+- Missing-image recheck handles only Movie/Series, per metadata/type with a
+  24-hour cooldown and one detail request for due poster/backdrop types.
+  Season posters and Episode stills belong to Season/Episode metadata recheck.
+  A successful empty result advances only
   the affected type; provider or download failure never advances the timestamp.
 - Automatic writes use insert-if-absent for an empty selection and conditional
   replacement for a dangling TMDb selection. A concurrent manual/local choice
@@ -1998,8 +2068,8 @@ view.SeriesTitle = parentSeries.Title
   retryable.
 - Automatic still persistence uses `SaveCatalogSelection` semantics. A
   concurrent manual/local selection wins and counts as a satisfied still.
-- Episode is excluded from `tmdb_artwork_missing_recheck` but remains eligible
-  for `tmdb_artwork_local_repair` when an existing selected still loses its file.
+- Season and Episode are excluded from `tmdb_artwork_missing_recheck` but remain eligible
+  for `tmdb_artwork_local_repair` when an existing selected artwork loses its file.
 - Detail logs contain only updates, still-missing results, concurrent skips, or
   failures and identify Series/SxxExx/TMDb ID without paths, URLs, or credentials.
 - Startup migration copies `tm_db_episode_checked_at` into the canonical column

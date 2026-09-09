@@ -96,6 +96,15 @@ func main() {
 	if err != nil {
 		logger.Fatal("database open failed", zap.Error(err))
 	}
+	slowLog, err := newSlowSQLLogger(cfg)
+	if err != nil {
+		logger.Fatal("slow SQL logger init failed", zap.Error(err))
+	}
+	defer func() { _ = slowLog.Sync() }()
+	if cfg.Logging.SlowSQLThresholdMS > 0 {
+		db.Logger = slowSQLLogger{Interface: db.Logger, log: slowLog,
+			threshold: time.Duration(cfg.Logging.SlowSQLThresholdMS) * time.Millisecond}
+	}
 	if err := waitForDatabase(db, logger); err != nil {
 		logger.Fatal("database not ready after migration", zap.Error(err))
 	}

@@ -755,7 +755,7 @@ func TestRemovePathDeletesVanishedMedia(t *testing.T) {
 		t.Fatal(err)
 	}
 	mediaService := NewMediaService(&config.Config{}, zap.NewNop(), repos)
-	issues, err := mediaService.ListScrapeIssues(t.Context(), lib.ID, nil, 1, 10)
+	issues, err := mediaService.ListScrapeIssues(t.Context(), lib.ID, "", nil, 1, 10)
 	if err != nil || issues.Total != 1 {
 		t.Fatalf("scrape issues before removal = %#v, err = %v", issues, err)
 	}
@@ -784,7 +784,7 @@ func TestRemovePathDeletesVanishedMedia(t *testing.T) {
 	if countMedia(t, repos) != 0 {
 		t.Fatal("expected 0 media after removal")
 	}
-	issues, err = mediaService.ListScrapeIssues(t.Context(), lib.ID, nil, 1, 10)
+	issues, err = mediaService.ListScrapeIssues(t.Context(), lib.ID, "", nil, 1, 10)
 	if err != nil || issues.Total != 0 {
 		t.Fatalf("scrape issues after removal = %#v, err = %v", issues, err)
 	}

@@ -68,6 +68,10 @@ export interface TaskLog {
 }
 
 export const tasksAPI = {
+	recheckFiles: (id: string, page = 1, signal?: AbortSignal) =>
+		api.get<TMDbRecheckFilesPage>(`/tasks/definitions/tmdb_episode_metadata_recheck/pending/${encodeURIComponent(id)}/files`, { params: { page, page_size: 20 }, signal }).then((r) => r.data),
+	rechecks: (status = '', page = 1, signal?: AbortSignal, keyword = '', pageSize = 20) =>
+		api.get<TMDbRecheckPage>('/tasks/definitions/tmdb_episode_metadata_recheck/pending', { params: { status, keyword: keyword || undefined, page, page_size: pageSize }, signal }).then((r) => r.data),
   snapshot: (page = 1, pageSize = 30) =>
     api.get<TasksSnapshot>('/tasks', { params: { page, page_size: pageSize } }).then((r) => r.data),
   log: (key: string, date?: string) =>
@@ -81,4 +85,19 @@ export const tasksAPI = {
       enabled,
       interval_seconds: intervalSeconds,
     }).then((r) => r.data),
+}
+
+export interface TMDbRecheckPage {
+  items: { metadata_id: string; title: string; kind: string; series_title: string; season_num: number; episode_num: number; status: string; due_at: string | null; attempts: number; last_error: string }[]
+  counts: Record<string, number>
+  total: number
+  page: number
+  page_size: number
+  changes: number
+}
+
+export interface TMDbRecheckFilesPage {
+  items: { media_id: string; path: string; library_id: string; can_preview: boolean }[]
+  page: number
+  has_more: boolean
 }

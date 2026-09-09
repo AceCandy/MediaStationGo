@@ -199,7 +199,7 @@ func TestScheduledPeopleTranslationLimitsPassTo1000(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	db := newServiceTestDB(t, &model.Person{}, &model.TranslationCache{}, &model.Setting{})
+	db := newServiceTestDB(t, &model.Person{}, &model.MetadataCredit{}, &model.TranslationCache{}, &model.Setting{})
 	people := make([]model.Person, peopleTranslationPassLimit+1)
 	for i := range people {
 		name := fmt.Sprintf("Person %04d", i)
@@ -336,8 +336,61 @@ func TestTranslatePeopleWindowReturnsResultDetails(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if applied != 1 || !slices.Contains(details, "人物翻译 [缓存]: Tony Leung Chiu-wai -> 梁朝伟") {
+	if applied != 1 || !slices.Contains(details, "✅ 人物翻译 [缓存]: Tony Leung Chiu-wai -> 梁朝伟") {
 		t.Fatalf("applied=%d details=%v", applied, details)
+	}
+}
+
+func TestPendingRoleTranslationsCollectsTargetsAcrossPageAndGroupLimit(t *testing.T) {
+	db := newServiceTestDB(t, &model.Person{}, &model.MetadataCredit{}, &model.TranslationCache{})
+	people := make([]model.Person, peopleTranslationPassLimit-1)
+	for i := range people {
+		people[i] = model.Person{Name: fmt.Sprintf("Person %d", i), OriginalName: fmt.Sprintf("Person %d", i)}
+	}
+	if err := db.CreateInBatches(&people, 100).Error; err != nil {
+		t.Fatal(err)
+	}
+	series := model.MetadataItem{Kind: model.MetadataKindSeries, Title: "Series"}
+	if err := db.Create(&series).Error; err != nil {
+		t.Fatal(err)
+	}
+	season := model.MetadataItem{Kind: model.MetadataKindSeason, Title: "Season", ParentID: &series.ID}
+	if err := db.Create(&season).Error; err != nil {
+		t.Fatal(err)
+	}
+	episodes := []model.MetadataItem{
+		{PermanentBase: model.PermanentBase{ID: "episode-a"}, Kind: model.MetadataKindEpisode, Title: "First", ParentID: &season.ID, EpisodeNum: 1},
+		{PermanentBase: model.PermanentBase{ID: "episode-b"}, Kind: model.MetadataKindEpisode, Title: "Second", ParentID: &season.ID, EpisodeNum: 2},
+	}
+	if err := db.Create(&episodes).Error; err != nil {
+		t.Fatal(err)
+	}
+	credits := []model.MetadataCredit{{PermanentBase: model.PermanentBase{ID: "0000"}, MetadataID: episodes[0].ID, PersonID: people[0].ID, Type: model.CreditTypeActor, OriginalRole: "Shared", Role: "Shared"}}
+	for i := 1; i <= peopleTranslationBatchSize; i++ {
+		role := fmt.Sprintf("Role %d", i)
+		credits = append(credits, model.MetadataCredit{PermanentBase: model.PermanentBase{ID: fmt.Sprintf("%04d", i)}, MetadataID: episodes[0].ID, PersonID: people[0].ID, Type: model.CreditTypeActor, OriginalRole: role, Role: role})
+	}
+	credits = append(credits, model.MetadataCredit{MetadataID: episodes[1].ID, PersonID: people[0].ID, Type: model.CreditTypeGuestStar, OriginalRole: "Shared", Role: "Shared"})
+	if err := db.CreateInBatches(&credits, 100).Error; err != nil {
+		t.Fatal(err)
+	}
+	scraper := NewScraperService(&config.Config{}, zap.NewNop(), repository.New(db), nil, nil, nil, nil, nil)
+	groups, err := scraper.pendingPeopleTranslationGroups(t.Context())
+	if err != nil || len(groups) != peopleTranslationPassLimit {
+		t.Fatalf("groups = %d, err = %v", len(groups), err)
+	}
+	last := groups[len(groups)-1]
+	if last.lookup.ContextKey != season.ID || last.lookup.SourceText != "Shared" || len(last.targets) != 2 || last.entry.Context.Title != "First" {
+		t.Fatalf("last group = %+v", last)
+	}
+	// 当前季的负缓存排除两个跨页目标，不妨碍后面的其它角色进入最后一组。
+	cache := model.TranslationCache{Kind: "role", ContextKey: season.ID, SourceText: "Shared", TargetLanguage: peopleTranslationTargetLanguage, PromptVersion: peopleTranslationPromptVersion}
+	if err := db.Create(&cache).Error; err != nil {
+		t.Fatal(err)
+	}
+	groups, err = scraper.pendingPeopleTranslationGroups(t.Context())
+	if err != nil || len(groups) != peopleTranslationPassLimit || groups[len(groups)-1].lookup.SourceText != "Role 1" {
+		t.Fatalf("negative-cache groups = %d, err = %v", len(groups), err)
 	}
 }
 

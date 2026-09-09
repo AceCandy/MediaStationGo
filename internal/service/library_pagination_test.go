@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -13,14 +14,74 @@ import (
 	"gorm.io/gorm/logger"
 )
 
+func TestLibrarySeriesPagePreservesDirectFilesAndTies(t *testing.T) {
+	svc := newTestEmbyService(t)
+	db := svc.repo.DB
+	for _, sql := range []string{
+		`INSERT INTO metadata_items (id,kind,title,source,release_date) VALUES
+('page-a','series','A','local','2024-01-01'),('page-b','series','B','local','2024-01-01'),
+('page-c','series','C','local',''),('page-empty','series','Empty','local','')`,
+		`INSERT INTO metadata_items (id,kind,parent_id,title,source,season_num,release_date) VALUES
+('page-season','season','page-a','Season','local',0,'2024-01-01')`,
+		`INSERT INTO metadata_items (id,kind,parent_id,title,source,episode_num,year) VALUES
+('page-episode','episode','page-season','Episode','local',1,2023)`,
+		`INSERT INTO media (id,library_id,metadata_id,path,created_at,updated_at) VALUES
+('file-b','page-library','page-a','/fixture/page/b','2020-01-01','2020-01-01'),
+('file-a','page-library','page-a','/fixture/page/a','2020-01-01','2020-01-01'),
+('file-season','page-library','page-season','/fixture/page/season','2020-01-01','2020-01-01'),
+('file-episode','page-library','page-episode','/fixture/page/episode','2020-01-01','2020-01-01'),
+('file-other','page-other','page-episode','/fixture/page/other','2020-01-01','2025-01-01'),
+('file-show-b','page-library','page-b','/fixture/page/show-b','2020-01-01','2020-01-01'),
+('file-show-c','page-library','page-c','/fixture/page/show-c','2020-01-01','2025-01-01')`,
+	} {
+		if err := db.Exec(sql).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	// 文件时间兜底优先；相同发布日期按作品 ID 倒序；代表文件按 ID 正序打破平局。
+	want := []repository.LibraryMetadataSummary{
+		{MetadataID: "page-c", MediaID: "file-show-c", Count: 1, VersionCount: 1},
+		{MetadataID: "page-b", MediaID: "file-show-b", Count: 1, VersionCount: 1},
+		{MetadataID: "page-a", MediaID: "file-a", Count: 3, VersionCount: 4},
+	}
+	for _, filter := range []repository.MediaQueryFilter{
+		{IncludeNSFW: true},
+		{IncludeNSFW: true, MissingPoster: true},
+		{IncludeNSFW: true, MissingChineseTitle: true},
+		{IncludeNSFW: true, MissingPoster: true, MissingChineseTitle: true},
+	} {
+		for offset := 0; offset <= len(want); offset++ {
+			_, rows, total, err := svc.repo.MediaView.ListLibraryMetadataPage(t.Context(), "page-library", "series", "", offset, 1, filter)
+			if err != nil || total != int64(len(want)) {
+				t.Fatalf("offset=%d total=%d err=%v", offset, total, err)
+			}
+			if offset == len(want) {
+				if len(rows) != 0 {
+					t.Fatalf("past-end rows=%+v", rows)
+				}
+			} else if !reflect.DeepEqual(rows, want[offset:offset+1]) {
+				t.Fatalf("offset=%d rows=%+v want=%+v", offset, rows, want[offset:offset+1])
+			}
+		}
+	}
+}
+
 type paginationReadLog struct {
 	logger.Interface
-	fileRows int64
-	viewSQL  string
+	fileRows         int64
+	viewSQL          string
+	seriesSQL        string
+	moviePageQueries int
 }
 
 func (l *paginationReadLog) Trace(ctx context.Context, begin time.Time, fc func() (string, int64), err error) {
 	sql, rows := fc()
+	if strings.HasPrefix(sql, "WITH scoped AS MATERIALIZED") {
+		l.seriesSQL = sql
+	}
+	if strings.HasPrefix(sql, "SELECT work.id AS metadata_id") {
+		l.moviePageQueries++
+	}
 	if strings.Contains(sql, "view_title") || strings.Contains(sql, `"media"."path"`) {
 		l.viewSQL = sql
 		if rows > 0 {
@@ -130,6 +191,12 @@ func TestLibraryMetadataPaginationBoundsFileReads(t *testing.T) {
 		t.Fatalf("one card loaded %d file rows", reads.fileRows)
 	}
 	first := cards[0]
+	if empty, n, err := web.ListLibrarySeriesCards(t.Context(), lib.ID, 3, 1, "", "", visibility); err != nil || n != 2 || len(empty) != 0 {
+		t.Fatalf("past-end series page=%+v total=%d err=%v", empty, n, err)
+	}
+	if empty, n, err := web.ListLibrarySeriesCards(t.Context(), "missing-library", 1, 1, "", "", MediaVisibility{}); err != nil || n != 0 || len(empty) != 0 {
+		t.Fatalf("empty library page=%+v total=%d err=%v", empty, n, err)
+	}
 	cards, total, err = web.ListLibrarySeriesCards(t.Context(), lib.ID, 2, 1, "", "", visibility)
 	if err != nil || total != 2 || len(cards) != 1 || cards[0].Key == first.Key {
 		t.Fatalf("second page=%+v total=%d err=%v", cards, total, err)
@@ -152,6 +219,43 @@ func TestLibraryMetadataPaginationBoundsFileReads(t *testing.T) {
 		t.Fatal(err)
 	}
 	createServiceTestArtwork(t, db, first.Rep.SeriesID, model.ArtworkTypePoster, "pagination-poster")
+	for _, tc := range []struct {
+		name   string
+		filter MediaVisibility
+		total  int64
+	}{
+		{name: "ordinary", total: 2},
+		{name: "missing poster", filter: MediaVisibility{MissingPoster: true}, total: 1},
+		{name: "missing Chinese title", filter: MediaVisibility{MissingChineseTitle: true}, total: 2},
+		{name: "combined", filter: MediaVisibility{MissingPoster: true, MissingChineseTitle: true}, total: 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			reads.seriesSQL = ""
+			cards, total, err := web.ListLibrarySeriesCards(t.Context(), lib.ID, 1, 1, "", "", tc.filter)
+			if err != nil || total != tc.total || len(cards) != 1 {
+				t.Fatalf("cards=%+v total=%d err=%v", cards, total, err)
+			}
+			filtered := tc.filter.MissingPoster || tc.filter.MissingChineseTitle
+			if reads.seriesSQL == "" || strings.Contains(reads.seriesSQL, "WITH candidates AS MATERIALIZED") != filtered {
+				t.Fatal("unexpected series file query boundary")
+			}
+			if tc.filter.MissingChineseTitle && !tc.filter.MissingPoster {
+				var plan string
+				if err := db.Raw("EXPLAIN (ANALYZE, FORMAT JSON) " + reads.seriesSQL).Row().Scan(&plan); err != nil {
+					t.Fatal(err)
+				}
+				if !strings.Contains(plan, "hashed SubPlan") {
+					t.Fatal("missing-title query must hash library membership")
+				}
+			}
+			if filtered {
+				cards, total, err = web.ListLibrarySeriesCards(t.Context(), lib.ID, 1, 1, cards[0].Rep.SeriesID, "", tc.filter)
+				if err != nil || total != 1 || len(cards) != 1 {
+					t.Fatalf("explicit series cards=%+v total=%d err=%v", cards, total, err)
+				}
+			}
+		})
+	}
 	filtered, n, err := web.ListLibrarySeriesCards(t.Context(), lib.ID, 1, 1, "", "", MediaVisibility{MissingPoster: true, MissingChineseTitle: true})
 	if err != nil || n != 1 || len(filtered) != 1 || filtered[0].Rep.SeriesID == first.Rep.SeriesID {
 		t.Fatalf("filtered=%+v total=%d err=%v", filtered, n, err)
@@ -227,6 +331,29 @@ func TestLibraryMetadataPaginationBoundsFileReads(t *testing.T) {
 	if err != nil || count != 1 || len(movies) != 1 || movies[0].VersionCount != 4 || movies[0].PartIndex == 2 {
 		t.Fatalf("multipart cards=%+v total=%d err=%v", movies, count, err)
 	}
+	wantMovie := movies[0]
+	reads.moviePageQueries = 0
+	movies, count, err = web.ListMediaVisibleGrouped(t.Context(), lib.ID, 1, 1, MediaVisibility{MissingChineseTitle: true})
+	if err != nil || count != 0 || len(movies) != 0 || reads.moviePageQueries != 0 {
+		t.Fatalf("Chinese movie passed missing-title filter: count=%d err=%v", count, err)
+	}
+	if err := db.Model(&model.MetadataItem{}).Where("id = ?", movie.ID).Update("title", "Movie").Error; err != nil {
+		t.Fatal(err)
+	}
+	for _, filter := range []MediaVisibility{
+		{MissingPoster: true}, {MissingChineseTitle: true}, {MissingPoster: true, MissingChineseTitle: true},
+	} {
+		filter.AllowedLibraryIDs, filter.HiddenLibraryIDs = visibility.AllowedLibraryIDs, visibility.HiddenLibraryIDs
+		movies, count, err = web.ListMediaVisibleGrouped(t.Context(), lib.ID, 1, 1, filter)
+		if err != nil || count != 1 || len(movies) != 1 || movies[0].ID != wantMovie.ID || movies[0].VersionCount != 4 {
+			t.Fatalf("filtered multipart cards=%+v total=%d err=%v", movies, count, err)
+		}
+		filter.HiddenLibraryIDs = []string{lib.ID}
+		movies, count, err = web.ListMediaVisibleGrouped(t.Context(), lib.ID, 1, 1, filter)
+		if err != nil || count != 0 || len(movies) != 0 {
+			t.Fatalf("hidden filtered movies=%+v total=%d err=%v", movies, count, err)
+		}
+	}
 	reads.fileRows = 0
 	movies, count, err = web.ListMediaVisibleGrouped(t.Context(), lib.ID, 2, 1, visibility)
 	if err != nil || count != 1 || len(movies) != 0 || reads.fileRows != 0 {
@@ -238,5 +365,17 @@ func TestLibraryMetadataPaginationBoundsFileReads(t *testing.T) {
 	cards, total, err = web.ListLibrarySeriesCards(t.Context(), lib.ID, 1, 1, "", "", visibility)
 	if err != nil || total != 1 || len(cards) != 1 || cards[0].Rep.SeriesID == first.Rep.SeriesID {
 		t.Fatalf("hidden series=%+v total=%d err=%v", cards, total, err)
+	}
+	for _, filter := range []MediaVisibility{{MissingPoster: true}, {MissingChineseTitle: true}, {MissingPoster: true, MissingChineseTitle: true}} {
+		filter.AllowedLibraryIDs = visibility.AllowedLibraryIDs
+		cards, total, err = web.ListLibrarySeriesCards(t.Context(), lib.ID, 1, 1, "", "", filter)
+		if err != nil || total != 1 || len(cards) != 1 || cards[0].Rep.SeriesID == first.Rep.SeriesID {
+			t.Fatalf("filtered NSFW series=%+v total=%d err=%v", cards, total, err)
+		}
+		filter.HiddenLibraryIDs = []string{lib.ID}
+		cards, total, err = web.ListLibrarySeriesCards(t.Context(), lib.ID, 1, 1, "", "", filter)
+		if err != nil || total != 0 || len(cards) != 0 {
+			t.Fatalf("hidden filtered series=%+v total=%d err=%v", cards, total, err)
+		}
 	}
 }

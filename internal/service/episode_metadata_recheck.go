@@ -43,32 +43,8 @@ func (s *ScraperService) runTMDbEpisodeMetadataRecheck(ctx context.Context, trig
 		}
 		return err
 	}
-	now := time.Now().UTC()
-	for _, list := range []func(context.Context, string, time.Time, int) ([]repository.TMDbMetadataRecheckCandidate, error){
-		s.repo.Metadata.ListTMDbSeasonMetadataRecheckAfter,
-		s.repo.Metadata.ListTMDbEpisodeMetadataRecheckAfter,
-	} {
-		afterID := ""
-		for {
-			if err := ctx.Err(); err != nil {
-				return fail(err, "TMDb 季/集信息补全/复查已取消")
-			}
-			page, err := list(ctx, afterID, now.Add(-tmdbEpisodeMetadataRecheckCooldown), tmdbEpisodeMetadataRecheckPageLimit)
-			if err != nil {
-				return fail(err, "TMDb 季/集信息补全/复查失败")
-			}
-			if len(page) == 0 {
-				break
-			}
-			afterID = page[len(page)-1].MetadataID
-			s.recheckTMDbMetadataPage(ctx, page, now, metrics, task)
-			if err := ctx.Err(); err != nil {
-				return fail(err, "TMDb 季/集信息补全/复查已取消")
-			}
-			if len(page) < tmdbEpisodeMetadataRecheckPageLimit {
-				break
-			}
-		}
+	if err := s.runTMDbRecheckQueue(ctx, metrics, task); err != nil {
+		return fail(err, "TMDb 季/集信息补全/复查失败或已取消")
 	}
 	if metrics["failed"] > 0 {
 		return fail(fmt.Errorf("%d TMDb metadata rechecks failed", metrics["failed"]), "TMDb 季/集信息补全/复查完成，但存在失败")
@@ -130,10 +106,8 @@ func tmdbMetadataCandidateNeedsRecheck(item repository.TMDbMetadataRecheckCandid
 
 func (s *ScraperService) recheckTMDbMetadata(ctx context.Context, candidate repository.TMDbMetadataRecheckCandidate, now time.Time, metrics map[string]int64) ([]string, error) {
 	subject := fmt.Sprintf("%s，S%02dE%02d，集=%s，TMDb=%s", strings.TrimSpace(candidate.SeriesTitle), candidate.SeasonNum, candidate.EpisodeNum, strings.TrimSpace(candidate.Title), candidate.SeriesTMDbID)
-	artworkType := model.ArtworkTypeStill
 	if candidate.Kind == model.MetadataKindSeason {
 		subject = fmt.Sprintf("%s，S%02d，季=%s，TMDb=%s", strings.TrimSpace(candidate.SeriesTitle), candidate.SeasonNum, strings.TrimSpace(candidate.Title), candidate.SeriesTMDbID)
-		artworkType = model.ArtworkTypePoster
 	}
 	seriesTMDbID, err := strconv.Atoi(candidate.SeriesTMDbID)
 	if err != nil || seriesTMDbID <= 0 {
@@ -150,13 +124,36 @@ func (s *ScraperService) recheckTMDbMetadata(ctx context.Context, candidate repo
 		}
 		return []string{"❌ " + subject + "，结果=可重试失败：" + sanitizeTaskLogError(err).Error()}, err
 	}
-	if err := s.persistCredits(ctx, candidate.MetadataID, metadata.loadedCreditTypes, metadata.credits); err != nil {
+	return s.persistTMDbMetadataRecheck(ctx, candidate, now, metrics, metadata, nil, nil, false)
+}
+
+// persistTMDbMetadataRecheck 的队列路径只保存已下载内容，允许调用方持有短事务。
+func (s *ScraperService) persistTMDbMetadataRecheck(ctx context.Context, candidate repository.TMDbMetadataRecheckCandidate, now time.Time, metrics map[string]int64, metadata *tmdbMetadataRecheckDetails, prepared *model.ArtworkAsset, credits []repository.CreditInput, downloaded bool) ([]string, error) {
+	subject := fmt.Sprintf("%s，S%02dE%02d", candidate.SeriesTitle, candidate.SeasonNum, candidate.EpisodeNum)
+	artworkType := model.ArtworkTypeStill
+	if candidate.Kind == model.MetadataKindSeason {
+		artworkType = model.ArtworkTypePoster
+	}
+	var creditErr error
+	if downloaded {
+		creditErr = s.saveCreditInputs(ctx, candidate.MetadataID, metadata.loadedCreditTypes, credits)
+	} else {
+		creditErr = s.persistCredits(ctx, candidate.MetadataID, metadata.loadedCreditTypes, metadata.credits)
+	}
+	if err := creditErr; err != nil {
 		return []string{"❌ " + subject + "，动作=保存演职员，结果=可重试失败：" + sanitizeTaskLogError(err).Error()}, err
 	}
 	details := []string{}
 	artworkSatisfied := !candidate.ArtworkMissing
 	if candidate.ArtworkMissing && strings.TrimSpace(metadata.artworkURL) != "" {
-		_, existing, err := s.artwork.importCatalogRemote(ctx, candidate.MetadataID, artworkType, "tmdb", strings.TrimSpace(metadata.artworkURL))
+		var existing bool
+		var err error
+		if downloaded {
+			_, selected, saveErr := s.repo.Artwork.SaveCatalogSelection(ctx, candidate.MetadataID, artworkType, "tmdb", strings.TrimSpace(metadata.artworkURL), prepared)
+			existing, err = !selected, saveErr
+		} else {
+			_, existing, err = s.artwork.importCatalogRemote(ctx, candidate.MetadataID, artworkType, "tmdb", strings.TrimSpace(metadata.artworkURL))
+		}
 		if err != nil {
 			return []string{"❌ " + subject + "，动作=保存 " + artworkType + "，结果=可重试失败：" + sanitizeTaskLogError(err).Error()}, err
 		}

@@ -135,19 +135,37 @@ func (r *PersonRepository) ListCreditsWithPeopleByMetadataIDs(ctx context.Contex
 	return rows, err
 }
 
-func (r *PersonRepository) ListPendingPeopleTranslations(ctx context.Context) ([]model.Person, error) {
+// ListPendingPeopleTranslations 先排除中文和当前版本的无效缓存，再限制本轮人物数。
+func (r *PersonRepository) ListPendingPeopleTranslations(ctx context.Context, language, version string, limit int) ([]model.Person, error) {
 	var rows []model.Person
 	err := r.db.WithContext(ctx).
-		Where("original_name <> '' AND name = original_name").
-		Order("id").Find(&rows).Error
+		Select("id, original_name").
+		Where("original_name <> '' AND name = original_name AND original_name !~ '[一-鿿]'").
+		Where(`NOT EXISTS (SELECT 1 FROM translation_caches AS cache
+			WHERE cache.kind = 'person_name' AND cache.context_key = people.id
+			AND cache.source_text = people.original_name AND cache.target_language = ? AND cache.prompt_version = ?
+			AND cache.deleted_at IS NULL AND cache.translated_text !~ '[一-鿿]')`, language, version).
+		Order("id").Limit(limit).Find(&rows).Error
 	return rows, err
 }
 
-func (r *PersonRepository) ListPendingRoleTranslations(ctx context.Context) ([]model.MetadataCredit, error) {
+// ListPendingRoleTranslations 按作品和关系 ID 翻页；上下文只加载当前有效候选页。
+func (r *PersonRepository) ListPendingRoleTranslations(ctx context.Context, language, version, afterMetadataID, afterID string, limit int) ([]model.MetadataCredit, error) {
 	var rows []model.MetadataCredit
-	err := r.db.WithContext(ctx).Preload("Metadata").
-		Where("type IN ? AND original_role <> '' AND role = original_role", []string{model.CreditTypeActor, model.CreditTypeGuestStar}).
-		Order("metadata_id, id").Find(&rows).Error
+	err := r.db.WithContext(ctx).Model(&model.MetadataCredit{}).
+		Select("metadata_credits.id, metadata_credits.metadata_id, metadata_credits.original_role").
+		Joins("LEFT JOIN metadata_items AS work ON work.id = metadata_credits.metadata_id").
+		Preload("Metadata", func(db *gorm.DB) *gorm.DB {
+			return db.Select("id, kind, parent_id, title, original_name, year")
+		}).
+		Where("metadata_credits.type IN ? AND original_role <> '' AND role = original_role AND original_role !~ '[一-鿿]'", []string{model.CreditTypeActor, model.CreditTypeGuestStar}).
+		Where(`NOT EXISTS (SELECT 1 FROM translation_caches AS cache
+			WHERE cache.kind = 'role'
+			AND cache.context_key = CASE WHEN work.kind = 'episode' THEN COALESCE(work.parent_id, metadata_credits.metadata_id) ELSE metadata_credits.metadata_id END
+			AND cache.source_text = metadata_credits.original_role AND cache.target_language = ? AND cache.prompt_version = ?
+			AND cache.deleted_at IS NULL AND cache.translated_text !~ '[一-鿿]')`, language, version).
+		Where("(metadata_credits.metadata_id, metadata_credits.id) > (?, ?)", afterMetadataID, afterID).
+		Order("metadata_credits.metadata_id, metadata_credits.id").Limit(limit).Find(&rows).Error
 	return rows, err
 }
 

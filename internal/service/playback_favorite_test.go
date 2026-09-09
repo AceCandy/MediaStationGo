@@ -71,6 +71,28 @@ func TestListFavouritesChoosesVisibleSeriesRepresentative(t *testing.T) {
 	if len(items) != 1 || items[0].MetadataID != series.ID || items[0].Path != visibleMedia.Path {
 		t.Fatalf("favorites = %#v, want series identity with visible representative", items)
 	}
+	// 整剧和季也允许直接挂文件；同一时间用文件 ID 决定代表版本。
+	for _, metadataID := range []string{season.ID, series.ID} {
+		versions := []model.Media{
+			{PermanentBase: model.PermanentBase{ID: "favorite-version-a", CreatedAt: time.Now().Add(time.Hour)}, LibraryID: lib.ID, MetadataID: metadataID, Path: "/shows/direct-a.mkv"},
+			{PermanentBase: model.PermanentBase{ID: "favorite-version-b"}, LibraryID: lib.ID, MetadataID: metadataID, Path: "/shows/direct-b.mkv"},
+		}
+		versions[1].CreatedAt = versions[0].CreatedAt
+		if err := db.Create(&versions).Error; err != nil {
+			t.Fatal(err)
+		}
+		items, err = NewPlaybackService(zap.NewNop(), repos).ListFavourites(t.Context(), user.ID, MediaVisibility{AllowedLibraryIDs: []string{lib.ID}})
+		if err != nil || len(items) != 1 || items[0].ID != versions[1].ID || items[0].MetadataID != series.ID {
+			t.Fatalf("direct favorite representative = %#v, err = %v", items, err)
+		}
+		items, err = NewPlaybackService(zap.NewNop(), repos).ListFavourites(t.Context(), user.ID, MediaVisibility{HiddenLibraryIDs: []string{lib.ID}})
+		if err != nil || len(items) != 0 {
+			t.Fatalf("hidden library favorites = %#v, err = %v", items, err)
+		}
+		if err := db.Delete(&versions).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
 }
 
 func TestListFavouritesShowsSeriesMetadata(t *testing.T) {

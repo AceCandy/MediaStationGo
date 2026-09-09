@@ -98,21 +98,21 @@ history is observability only; business object state owns retry and recovery.
   title, metadata kind, TMDb ID, image type, action, and result; the jobs use
   artwork business state and in-memory keyset pagination and never derive work
   from task history or catalog hydration jobs.
-- TMDb missing-artwork recheck scans only metadata with direct media or playable
+- TMDb missing-artwork recheck scans only Movie/Series metadata with direct media or playable
   Episode descendants. Metadata without media is outside this task, and the
   same execution continues by metadata ID until all current candidates are scanned.
-- TMDb Episode metadata recheck scans only Episodes with direct media and a
-  missing overview, missing release date, or missing
-  still. It keyset-pages the full current candidate set without a persisted
-  cursor; successful checks use the business checkpoint for a 72-hour cooldown.
-- The same job independently scans Seasons with direct media or playable Episode
+- TMDb Episode metadata recheck consumes persistent due jobs for Episodes with
+  direct media and missing overview, release date, or still. Successful checks
+  use the business checkpoint for a 72-hour cooldown; ordinary executions do not
+  rerun the global candidate query. See the persistent queue contract below.
+- The same job handles Seasons with direct media or playable Episode
   descendants and missing fields, poster, own TMDb ID or snapshot. Seasons use
   `tmdb_season_checked_at` for their own 72-hour cooldown. Display the definition
   as `TMDb 季/集信息补全/复查`, preserving its old key, settings and execution-name
   filter so historical executions and daily logs remain attached.
 - Season/Episode titles never trigger recheck or count as remaining gaps. A
   request triggered by another gap may still update the title from TMDb.
-- Season/Episode recheck pages run at most three items concurrently, with
+- Season/Episode recheck workers claim at most three items concurrently, with
   worker-local counters and a single task-progress collector. Cancellation
   stops queued work and joins active workers; individual failures stay isolated.
 - A manual `library_scan` task scans only the selected library's enabled roots.
@@ -516,3 +516,95 @@ if walkErr == nil {
 	pruneMissingMediaForRoot(seen)
 }
 ```
+
+## Scenario: Persistent TMDb Season/Episode Recheck Queue
+
+### 1. Scope / Trigger
+
+Applies only to `tmdb_episode_metadata_recheck`, not People, Douban or other artwork tasks.
+
+### 2. Signatures
+
+- `tm_db_recheck_jobs`: one row per metadata ID, status, due time, attempts and private lease token/deadline.
+- `tm_db_recheck_changes`: persistent revisions, pending flag and descendant cursor.
+- `tm_db_recheck_asset_changes` and `tm_db_recheck_scans`: bounded asset expansion and file reconciliation checkpoints.
+- Admin-only `GET /api/tasks/definitions/tmdb_episode_metadata_recheck/pending?status=&keyword=&page=&page_size=` returns `items`, `counts`, `changes`, `total`, `page`, `page_size`.
+- Admin-only `GET /api/tasks/definitions/tmdb_episode_metadata_recheck/pending/:metadataID/files?page=&page_size=` returns `items` (`media_id`, local `path`, `library_id`, `can_preview`), `page`, `has_more`; only current `not_found` Season/Episode jobs qualify.
+
+### 3. Contracts
+
+- PostgreSQL triggers register media binding/deletion and relevant metadata, TMDb identity/snapshot and selected-artwork changes in the business transaction. No network or descendant scans in triggers. Snapshot payload-only updates do not register or convert JSON.
+- Parent/asset expansion and initial file reconciliation process at most 200 source rows per transaction. Persist cursors even if no candidates result. Reconciliation repeats at most every seven days after a completed pass; its total work still scales with files.
+- Due claims use `statement_timestamp()` and `FOR UPDATE SKIP LOCKED`. Three workers claim one item each, renew five-minute leases, and perform all provider/image work outside result transactions.
+- Result transactions validate the token, live lease and metadata/revision snapshot. Metadata/change lock contention uses NOWAIT; a transaction-local 100ms lock timeout also yields on busy business rows during saving. Contention reschedules instead of waiting in reverse order. Another episode's detail update must not dirty the common season revision.
+- Retain business 72-hour cooldown even on manual runs. Complete/no-file targets have no due time; incomplete success returns after 72 hours. Failures back off from five minutes to 24 hours. Invalid identities block for seven days or until a change is merged.
+- Only a typed HTTP 404 from the Season/Episode detail fetch becomes `not_found`, increments the separate `not_found` metric and returns after 72 hours, at the next task run. Image/download/save failures remain ordinary retries. Commit the classification under the same snapshot/token protection as successful results; never classify historical rows by parsing logs. Detail logs include Series title, S/E coordinates and Series TMDb ID.
+- Private `not_found_identity` records the request identity. Merging identity changes, no-file state or completed metadata wakes local validation; ordinary metadata/artwork events preserve 404 cooling. Business success cooldown remains authoritative.
+- The only write action exposed by the pending panel is explicit STRM local-target cleanup through the existing admin preview/delete endpoints and `STRMDeleteDialog` (see `strm-target.md`). Select a concrete version from an on-demand paginated file list; Season scope includes own files and direct Episode files. Never pass metadata IDs as media IDs or expose cached target URLs. No automatic deletion, renumbering, direct-video deletion or bulk Season/404 deletion; keep STRM/database records. Parent removal defaults off and requires explicit confirmation of all contents.
+- Events never directly start network work. Existing default-off schedule and manual task controls remain authoritative. No new perpetual worker/timer.
+- The Web pending dialog opens from the button beside the Season/Episode task name. A dedicated 404 category shares the scrape-issues card, Select and icon-button styling. Switching categories or submitting a keyword resets pagination; closing aborts requests and stale responses cannot replace the current view. Empty-keyword pages paginate jobs before joining page titles. Counts may scan queue state, not catalog candidates. Never return lease credentials or raw provider errors; row reasons are fixed safe messages and task errors use `sanitizeTaskLogError`.
+
+### 4. Validation & Error Matrix
+
+- Anonymous / non-admin: 401 / 403. Unknown definition: 404. Invalid status, page outside 1..1000000 or page size outside 1..100: 400.
+- Lost lease, changed snapshot or contended result locks: no callback writes; retain/requeue for a later task run.
+- Interrupted process: outstanding claims recover after expiry without startup resetting active leases.
+- File-list bounds match the pending-list bounds; non-404/missing targets return an empty page. Relative/non-local paths do not expose URLs or permit preview. `can_preview` only indicates local STRM syntax: the existing preview/delete service must resolve and validate the actual target each time.
+
+### 5. Good / Base / Bad Cases
+
+- Good: a media merge rolls back both graph mutations and change registration.
+- Base: a future-due idle queue performs an indexed job lookup without joining metadata/media.
+- Bad: read task logs for retry state, clear another worker's lease, or update stale provider results after a user edit.
+- Good: a 404 remains cooled through an ordinary overview edit but revalidates a changed Season number. Bad: infer that a file is wrong from 404 alone or delete all versions implicitly.
+
+### 6. Tests Required
+
+- `TestTMDbRecheck*`: transactional registration/merge rollback, distinct-connection SKIP LOCKED and commit contention, stale/expired tokens, empty-batch resume, asset/descendant batches and future-due index plan.
+- `TestTMDbMetadataRecheckRepairsSeasonsAndEpisodes`: service persistence, retry backoff and 72-hour behavior on real PostgreSQL.
+- `TestTMDbRecheckListAccessAndValidation`: real auth middleware, parameter rejection, pagination and no lease leakage. Web lint/build plus isolated panel interactions and responsive screenshots.
+- `TestTMDbRecheckNotFoundCooldownAndIdentity`, `TestTMDbRecheckOtherFailuresRemainRetry`: real PostgreSQL and mock HTTP prove 72-hour scheduling, due reclaims, ordinary-change preservation, identity wake-up and stale-404 rejection. `TestTMDbRecheckFilesVersionsAndPagination` proves concrete versions, kind constraints and URL redaction; existing STRM safety tests plus `TestFileManagerRevalidatesSTRMTargetAfterPreview` cover temporary-file deletion and revalidation. Browser checks verify cancel sends no DELETE and explicit parent confirmation addresses only the chosen media ID.
+
+### 7. Wrong vs Correct
+
+Wrong: rerun `ListTMDbSeasonMetadataRecheckAfter` over the full catalog on every maintenance execution.
+
+Correct: transactional change registration → bounded expansion → indexed due claim → single-target validation → conditional result commit.
+
+## Scenario: Task-Center Pending Search and Indicators
+
+### 1. Scope / Trigger
+
+Applies to the Season/Episode recheck and media-scrape issue dialogs shown from task names.
+
+### 2. Signatures
+
+- Recheck pending list accepts optional `keyword`; it matches item/Series titles, metadata ID and rendered S/E coordinates.
+- `GET /api/media/scrape-issues` accepts optional `keyword`; it matches scan title, path, library name and stored scrape error.
+
+### 3. Contracts
+
+- Keyword search is server-side and combines with status/library filters before count and pagination. Escape LIKE metacharacters so input is literal.
+- Search runs only on explicit form submission. Empty keyword retains the existing bounded fast path.
+- Recheck keyword results use one materialized match set for exact total and page selection; do not repeat the metadata joins and LIKE predicates for each. A LEFT JOIN from the total preserves out-of-range page totals without fabricating an item. Matching still scales with eligible jobs; this is not an indexed substring-search guarantee.
+- Task-center indicators request page size 1 once on page entry and again after closing a pending dialog. They do not join the three-second task snapshot poll. Recheck badges exclude `done`; non-zero counts use the gold warning treatment and show a capped `999+` label.
+
+### 4. Validation & Error Matrix
+
+- Empty/whitespace keyword: same result and plan shape as no keyword. No match: HTTP 200 with empty items and zero filtered total.
+- A failed indicator request leaves the neutral button available; it must not block task-center rendering.
+
+### 5. Good / Base / Bad Cases
+
+- Good: a title match on a later page is returned on page 1 of filtered results. Base: opening the task center performs two one-row indicator requests. Bad: filter only the currently rendered browser page or run counts every three seconds.
+
+### 6. Tests Required
+
+- PostgreSQL repository tests cover recheck title, coordinate and no-match searches; service tests cover scrape issue library/path and no-match searches.
+- Web checks cover keyword forwarding, task-name indicator styling, count capping, lint and build.
+
+### 7. Wrong vs Correct
+
+Wrong: debounce every keystroke into count-plus-page SQL or add pending counts to the frequent task snapshot.
+
+Correct: submit keyword explicitly and refresh lightweight one-row indicators only at task-page/panel lifecycle boundaries.

@@ -31,14 +31,14 @@ func TestListScrapeIssuesFiltersAndSanitizesReasons(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	page, err := service.ListScrapeIssues(t.Context(), "", nil, 1, 10)
+	page, err := service.ListScrapeIssues(t.Context(), "", "", nil, 1, 10)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if page.Total != 3 || len(page.Items) != 3 {
 		t.Fatalf("page = %#v, want 3 unresolved rows", page)
 	}
-	if emptyFilterPage, err := service.ListScrapeIssues(t.Context(), "", []string{""}, 1, 10); err != nil || emptyFilterPage.Total != page.Total {
+	if emptyFilterPage, err := service.ListScrapeIssues(t.Context(), "", "", []string{""}, 1, 10); err != nil || emptyFilterPage.Total != page.Total {
 		t.Fatalf("empty status filter page = %#v, err = %v", emptyFilterPage, err)
 	}
 	byID := make(map[string]MediaScrapeIssue, len(page.Items))
@@ -58,14 +58,23 @@ func TestListScrapeIssuesFiltersAndSanitizesReasons(t *testing.T) {
 		t.Fatalf("NFO no-match reason = %q", got)
 	}
 
-	page, err = service.ListScrapeIssues(t.Context(), normal.ID, []string{"error"}, 1, 1)
+	page, err = service.ListScrapeIssues(t.Context(), normal.ID, "", []string{"error"}, 1, 1)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if page.Total != 1 || len(page.Items) != 1 || page.Items[0].ID != rows[0].ID || page.PageSize != 1 {
 		t.Fatalf("filtered page = %#v", page)
 	}
-	if _, err := service.ListScrapeIssues(t.Context(), "", []string{"matched"}, 1, 10); !errors.Is(err, ErrInvalidScrapeIssueStatus) {
+	if page, err = service.ListScrapeIssues(t.Context(), "", "个人短片", nil, 1, 10); err != nil || page.Total != 1 || page.Items[0].ID != rows[2].ID {
+		t.Fatalf("library search page = %#v, err = %v", page, err)
+	}
+	if page, err = service.ListScrapeIssues(t.Context(), "", "no-match.mkv", nil, 1, 10); err != nil || page.Total != 1 || page.Items[0].ID != rows[1].ID {
+		t.Fatalf("path search page = %#v, err = %v", page, err)
+	}
+	if page, err = service.ListScrapeIssues(t.Context(), "", "missing", nil, 1, 10); err != nil || page.Total != 0 {
+		t.Fatalf("empty search page = %#v, err = %v", page, err)
+	}
+	if _, err := service.ListScrapeIssues(t.Context(), "", "", []string{"matched"}, 1, 10); !errors.Is(err, ErrInvalidScrapeIssueStatus) {
 		t.Fatalf("invalid status error = %v", err)
 	}
 }

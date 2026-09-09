@@ -34,6 +34,9 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.Logging.Level != "warn" || !cfg.Logging.EnableRotation || cfg.Logging.MaxSizeMB != 20 {
 		t.Fatalf("expected warn rotating logs by default, got level=%q rotation=%v max=%d", cfg.Logging.Level, cfg.Logging.EnableRotation, cfg.Logging.MaxSizeMB)
 	}
+	if cfg.Logging.SlowSQLThresholdMS != 0 {
+		t.Fatal("slow SQL logging should be disabled by default")
+	}
 	if cfg.Database.MaxOpenConns != defaultDatabaseMaxOpenConns {
 		t.Fatalf("expected default MaxOpenConns %d, got %d", defaultDatabaseMaxOpenConns, cfg.Database.MaxOpenConns)
 	}
@@ -81,6 +84,7 @@ func TestEnvOverride(t *testing.T) {
 	}
 
 	t.Setenv("MEDIASTATION_APP_PORT", "9090")
+	t.Setenv("MEDIASTATION_LOGGING_SLOW_SQL_THRESHOLD_MS", "100")
 	t.Setenv("MEDIASTATION_DATABASE_TYPE", "postgres")
 	t.Setenv("MEDIASTATION_DATABASE_DSN", "postgres://msgo:secret@postgres:5432/msgo?sslmode=disable")
 	t.Setenv("MEDIASTATION_CACHE_REDIS_URL", "redis://redis:6379/0")
@@ -93,6 +97,9 @@ func TestEnvOverride(t *testing.T) {
 	}
 	if cfg.App.Port != 9090 {
 		t.Fatalf("expected port 9090 from env, got %d", cfg.App.Port)
+	}
+	if cfg.Logging.SlowSQLThresholdMS != 100 {
+		t.Fatal("slow SQL threshold environment override was not loaded")
 	}
 	if cfg.Database.Type != "postgres" || cfg.Database.DSN == "" {
 		t.Fatalf("expected postgres database config from env, got type=%q dsn=%q", cfg.Database.Type, cfg.Database.DSN)

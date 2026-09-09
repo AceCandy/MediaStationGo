@@ -278,13 +278,22 @@ func TestEnsurePerformanceIndexesCreatesHotPathIndexes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&model.MetadataItem{}, &model.Media{}, &model.Favorite{}, &model.PlaybackHistory{}, &model.PlayProfile{}); err != nil {
+	if err := db.AutoMigrate(&model.MetadataItem{}, &model.MetadataCredit{}, &model.Media{}, &model.Favorite{}, &model.PlaybackHistory{}, &model.PlayProfile{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec(`CREATE INDEX idx_metadata_credits_pending_translation ON metadata_credits(metadata_id, id)
+		WHERE original_role <> '' AND role = original_role AND original_role !~ '[一-鿿]'`).Error; err != nil {
 		t.Fatal(err)
 	}
 	if err := ensurePerformanceIndexes(db); err != nil {
 		t.Fatal(err)
 	}
+	if err := ensurePerformanceIndexes(db); err != nil {
+		t.Fatalf("repeat migration: %v", err)
+	}
 	for _, name := range []string{
+		"idx_people_pending_translation",
+		"idx_metadata_credits_type_pending_translation",
 		"idx_media_library_created_active",
 		"idx_media_library_episode_active",
 		"idx_media_metadata_active",
@@ -301,4 +310,77 @@ func TestEnsurePerformanceIndexesCreatesHotPathIndexes(t *testing.T) {
 			t.Fatalf("index %s count = %d, want 1", name, count)
 		}
 	}
+	if db.Migrator().HasIndex(&model.MetadataCredit{}, "idx_metadata_credits_pending_translation") {
+		t.Fatal("obsolete pending translation index remains")
+	}
+	person := model.Person{Name: "演员", OriginalName: "演员"}
+	work := model.MetadataItem{Kind: model.MetadataKindMovie, Title: "电影"}
+	if err := db.Create(&person).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&work).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec(`INSERT INTO metadata_credits (id, metadata_id, person_id, type, original_role, role)
+		SELECT 'credit-' || lpad(i::text, 6, '0'), ?, ?,
+		CASE WHEN i <= 50 THEN 'Actor' WHEN i <= 100 THEN 'GuestStar' WHEN i <= 15000 THEN 'Director' ELSE 'Writer' END,
+		'Role ' || i, 'Role ' || i
+		FROM generate_series(1, 30000) AS i`, work.ID, person.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec("ANALYZE metadata_credits").Error; err != nil {
+		t.Fatal(err)
+	}
+	// 通用预编译计划不知道角色类型的绑定值，也必须能使用部分索引。
+	if err := db.Exec("SET plan_cache_mode = force_generic_plan").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec(`PREPARE pending_roles(text, text) AS
+		SELECT id, metadata_id, original_role FROM metadata_credits WHERE type IN ($1, $2)
+		AND original_role <> '' AND role = original_role AND original_role !~ '[一-鿿]'
+		AND (metadata_id, id) > ('', '') ORDER BY metadata_id, id LIMIT 100`).Error; err != nil {
+		t.Fatal(err)
+	}
+	var plan []string
+	if err := db.Raw("EXPLAIN (ANALYZE, BUFFERS) EXECUTE pending_roles('Actor', 'GuestStar')").Scan(&plan).Error; err != nil {
+		t.Fatal(err)
+	}
+	joined := strings.Join(plan, "\n")
+	if !strings.Contains(joined, "idx_metadata_credits_type_pending_translation") || strings.Contains(joined, "Seq Scan on metadata_credits") || !strings.Contains(joined, "Index Cond:") || strings.Contains(joined, "Rows Removed by Filter:") {
+		t.Fatalf("pending role query did not use partial index:\n%s", joined)
+	}
+	var candidates []model.MetadataCredit
+	if err := db.Raw("EXECUTE pending_roles('Actor', 'GuestStar')").Scan(&candidates).Error; err != nil || len(candidates) != 100 {
+		t.Fatalf("candidate count = %d, err = %v", len(candidates), err)
+	}
+	t.Log(joined)
+	if err := db.Exec(`INSERT INTO people (id, normalized_name, source, name, original_name)
+		SELECT 'person-' || lpad(i::text, 6, '0'),
+		'person-' || i, 'local',
+		CASE WHEN i <= 112 THEN 'Name ' || i ELSE '中文' END,
+		CASE WHEN i <= 112 THEN 'Name ' || i ELSE '中文' END
+		FROM generate_series(1, 30000) AS i`).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec("ANALYZE people").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec(`PREPARE pending_people(int) AS SELECT id, original_name FROM people
+		WHERE deleted_at IS NULL AND original_name <> '' AND name = original_name
+		AND original_name !~ '[一-鿿]' ORDER BY id LIMIT $1`).Error; err != nil {
+		t.Fatal(err)
+	}
+	plan = nil
+	if err := db.Raw("EXPLAIN (ANALYZE, BUFFERS) EXECUTE pending_people(1000)").Scan(&plan).Error; err != nil {
+		t.Fatal(err)
+	}
+	joined = strings.Join(plan, "\n")
+	if !strings.Contains(joined, "idx_people_pending_translation") || strings.Contains(joined, "Seq Scan on people") {
+		t.Fatalf("pending people query did not use partial index:\n%s", joined)
+	}
+	var people []model.Person
+	if err := db.Raw("EXECUTE pending_people(1000)").Scan(&people).Error; err != nil || len(people) != 112 {
+		t.Fatalf("people count = %d, err = %v", len(people), err)
+	}
+	t.Log(joined)
 }

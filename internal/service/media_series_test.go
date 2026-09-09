@@ -218,10 +218,25 @@ func TestMediaSeriesDetailOwnsMetadataAndUserScope(t *testing.T) {
 	if view == nil || view.ID != series.ID || view.MetadataID != series.ID || view.Title != series.Title || view.Overview != series.Overview || view.MetadataKind != model.MetadataKindSeries || view.Path != "" || view.DurationSec != 0 || view.EpisodeNum != 0 || view.SeasonID != "" {
 		t.Fatalf("wrong Series projection: %#v", view)
 	}
-	newTitle, doubanID := "整剧新标题", "series-douban"
+	newTitle, doubanID := "整剧新标题", "10508914"
+	if _, err := svc.UpdateMetadata(t.Context(), media.ID, MediaMetadataUpdate{Scope: "series", Title: &newTitle, DoubanID: &doubanID}); err == nil {
+		t.Fatal("metadata editing accepted a new Douban binding")
+	}
+	unchanged, err := repos.Metadata.FindByID(t.Context(), series.ID)
+	if err != nil || unchanged.Title != series.Title {
+		t.Fatalf("rejected binding changed title: %#v, %v", unchanged, err)
+	}
+	if err := db.Create(&model.MetadataIdentifier{MetadataID: series.ID, Provider: "douban", EntityKind: "series", ExternalID: doubanID, DoubanEntityKind: "movie"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	// 旧客户端提交相同 ID 仍能编辑普通字段，并保留人工类型例外。
 	updated, err := svc.UpdateMetadata(t.Context(), media.ID, MediaMetadataUpdate{Scope: "series", Title: &newTitle, DoubanID: &doubanID})
 	if err != nil || updated == nil || updated.Title != newTitle || updated.DoubanID != doubanID {
 		t.Fatalf("Series edit: %#v, %v", updated, err)
+	}
+	identifiers, err := repos.Metadata.ListIdentifiers(t.Context(), series.ID)
+	if err != nil || len(identifiers) != 1 || identifiers[0].DoubanEntityKind != "movie" {
+		t.Fatalf("Series edit lost manual Douban type: %#v, %v", identifiers, err)
 	}
 	seasonTitle, seasonOverview := "特别篇新标题", "特别篇新简介"
 	updated, err = svc.UpdateMetadata(t.Context(), media.ID, MediaMetadataUpdate{Scope: "season", Title: &seasonTitle, Overview: &seasonOverview})

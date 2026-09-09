@@ -69,6 +69,9 @@ type LoggingConfig struct {
 	MaxSizeMB      int    `mapstructure:"max_size_mb"`
 	MaxAgeDays     int    `mapstructure:"max_age_days"`
 	MaxBackups     int    `mapstructure:"max_backups"`
+
+	// SlowSQLThresholdMS 为慢查询阈值（毫秒）；小于等于 0 时关闭独立慢查询日志。
+	SlowSQLThresholdMS int `mapstructure:"slow_sql_threshold_ms"`
 }
 
 // CacheConfig 控制刮削与运行时缓存。

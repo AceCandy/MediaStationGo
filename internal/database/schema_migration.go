@@ -68,7 +68,7 @@ func AutoMigrate(db *gorm.DB) error {
 	if err := removeUnusedLegacyColumns(db); err != nil {
 		return err
 	}
-	return nil
+	return EnsureTMDbRecheckTriggers(db)
 }
 
 // migrateLegacyTMDbEpisodeCheckedAt 保留 GORM 错误拆分 TMDb 缩写时写入的检查时间。
@@ -500,6 +500,9 @@ func ensurePostgresColumnCompatibility(db *gorm.DB) error {
 func ensurePerformanceIndexes(db *gorm.DB) error {
 	statements := []string{
 		`CREATE INDEX IF NOT EXISTS idx_media_library_created_active ON media(library_id, created_at DESC)`,
+		`CREATE INDEX IF NOT EXISTS idx_people_pending_translation ON people(id) WHERE deleted_at IS NULL AND original_name <> '' AND name = original_name AND original_name !~ '[一-鿿]'`,
+		`CREATE INDEX IF NOT EXISTS idx_metadata_credits_type_pending_translation ON metadata_credits(type, metadata_id, id) WHERE original_role <> '' AND role = original_role AND original_role !~ '[一-鿿]'`,
+		`DROP INDEX IF EXISTS idx_metadata_credits_pending_translation`,
 		`CREATE INDEX IF NOT EXISTS idx_media_library_scan_year_active ON media(library_id, scan_year DESC)`,
 		`CREATE INDEX IF NOT EXISTS idx_media_library_episode_active ON media(library_id, season_num, episode_num, created_at DESC)`,
 		`CREATE INDEX IF NOT EXISTS idx_media_library_root_active ON media(library_id, library_root_id)`,

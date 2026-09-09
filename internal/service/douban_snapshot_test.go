@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"reflect"
 	"strconv"
 	"strings"
 	"testing"
@@ -638,6 +639,97 @@ func TestEnrichFromDoubanPersistsAndClearsSeriesDegradedSnapshot(t *testing.T) {
 	snapshot, err = repos.Metadata.FindProviderSnapshot(t.Context(), metadata.ID, "douban")
 	if err != nil || snapshot == nil || snapshot.Degraded || !strings.Contains(snapshot.Payload, "完整中文标题") {
 		t.Fatalf("restored snapshot = %#v, err = %v", snapshot, err)
+	}
+}
+
+func TestDoubanEnrichmentBatchPreservesSeriesChildren(t *testing.T) {
+	scraper, repos, closeServer := newTestScraper(t)
+	defer closeServer()
+	if err := repos.DB.AutoMigrate(&model.Setting{}); err != nil {
+		t.Fatal(err)
+	}
+	series := model.MetadataItem{Kind: model.MetadataKindSeries, Title: "Series", Source: "tmdb"}
+	if err := repos.Metadata.Create(t.Context(), &series, []model.MetadataIdentifier{{Provider: "douban", EntityKind: model.MetadataKindSeries, ExternalID: "35763827"}, {Provider: "tmdb", EntityKind: model.MetadataKindSeries, ExternalID: "12345"}}); err != nil {
+		t.Fatal(err)
+	}
+	season := model.MetadataItem{Kind: model.MetadataKindSeason, ParentID: &series.ID, SeasonNum: 1, Title: "Season", Source: "tmdb"}
+	if err := repos.Metadata.Create(t.Context(), &season, nil); err != nil {
+		t.Fatal(err)
+	}
+	episode := model.MetadataItem{Kind: model.MetadataKindEpisode, ParentID: &season.ID, EpisodeNum: 1, Title: "Episode", Source: "tmdb"}
+	if err := repos.Metadata.Create(t.Context(), &episode, nil); err != nil {
+		t.Fatal(err)
+	}
+	// 即使历史季/集留有豆瓣标识和信息缺口，也不能进入整剧补齐。
+	for i, child := range []model.MetadataItem{season, episode} {
+		if err := repos.DB.Create(&model.MetadataIdentifier{MetadataID: child.ID, Provider: "douban", EntityKind: child.Kind, ExternalID: strconv.Itoa(i + 1)}).Error; err != nil {
+			t.Fatal(err)
+		}
+		if err := repos.Metadata.UpsertProviderSnapshot(t.Context(), child.ID, "tmdb", []byte(`{"id":1}`), time.Now().UTC()); err != nil {
+			t.Fatal(err)
+		}
+		artType := model.ArtworkTypePoster
+		if child.Kind == model.MetadataKindEpisode {
+			artType = model.ArtworkTypeStill
+		}
+		if _, err := scraper.artwork.ImportRemote(t.Context(), child.ID, artType, "tmdb", "https://img.test/child.jpg"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	media := model.Media{MetadataID: episode.ID, Path: "/test/series/S01E01.mkv", Title: "Episode", SeasonNum: 1, EpisodeNum: 1}
+	if err := repos.DB.Create(&media).Error; err != nil {
+		t.Fatal(err)
+	}
+	// 比较持久化全行，覆盖字段、编号、归属、标识、图片和快照。
+	unchanged := func() []string {
+		t.Helper()
+		var rows []string
+		for _, table := range []string{"metadata_items", "metadata_identifiers", "metadata_provider_snapshots", "metadata_artworks", "metadata_artwork_candidates", "media"} {
+			column := "metadata_id"
+			if table == "metadata_items" {
+				column = "id"
+			}
+			var value string
+			if err := repos.DB.Raw("SELECT COALESCE(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text), '[]'::jsonb)::text FROM "+table+" t WHERE "+column+" IN (?, ?)", season.ID, episode.ID).Scan(&value).Error; err != nil {
+				t.Fatal(err)
+			}
+			rows = append(rows, value)
+		}
+		return rows
+	}
+	before := unchanged()
+	requests := 0
+	provider := NewDoubanProvider(nil)
+	provider.client = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		requests++
+		if req.URL.Path != "/rexxar/api/v2/tv/35763827" {
+			t.Fatalf("unexpected endpoint: %s", req.URL.Path)
+		}
+		body := `{"title":"整剧中文名","intro":"整剧简介","rating":{"value":8.5},"cover":{"image":{"large":{"url":"https://img.test/series.jpg"}}}}`
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(body)), Request: req}, nil
+	})}
+	scraper.douban = provider
+	previousDelay := doubanMovieEnrichmentDelay
+	doubanMovieEnrichmentDelay = 0
+	defer func() { doubanMovieEnrichmentDelay = previousDelay }()
+	for range 2 {
+		if err := scraper.runDoubanMovieEnrichment(t.Context(), TaskTriggerManual); err != nil {
+			t.Fatal(err)
+		}
+	}
+	updated, err := repos.Metadata.FindByID(t.Context(), series.ID)
+	if err != nil || updated == nil || updated.Title != "整剧中文名" || updated.Overview != "整剧简介" || updated.Rating != 8.5 || updated.Source != "tmdb" {
+		t.Fatalf("updated Series = %#v, err = %v", updated, err)
+	}
+	poster, err := repos.Artwork.FindSelection(t.Context(), series.ID, model.ArtworkTypePoster)
+	if err != nil || poster == nil {
+		t.Fatalf("Series poster = %#v, err = %v", poster, err)
+	}
+	if requests != 1 {
+		t.Fatalf("requests = %d, want 1 including cooldown rerun", requests)
+	}
+	if after := unchanged(); !reflect.DeepEqual(before, after) {
+		t.Fatal("Series enrichment modified child metadata or media")
 	}
 }
 

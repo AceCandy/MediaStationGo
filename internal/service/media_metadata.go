@@ -66,6 +66,16 @@ func (s *MediaService) UpdateMetadata(ctx context.Context, id string, req MediaM
 	if err != nil {
 		return nil, err
 	}
+	if req.DoubanID != nil {
+		identifiers, err := s.repo.Metadata.ListIdentifiers(ctx, target.ID)
+		if err != nil {
+			return nil, err
+		}
+		current, _ := uniqueIdentifier(identifiers, "douban", target.Kind)
+		if strings.TrimSpace(*req.DoubanID) != current {
+			return nil, errors.New("请通过豆瓣绑定按钮搜索并应用匹配，不能在元数据编辑中直接修改豆瓣 ID")
+		}
+	}
 	applyManualMetadataUpdate(target, req)
 	if strings.TrimSpace(target.Title) == "" {
 		return nil, errors.New("title required")

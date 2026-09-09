@@ -144,6 +144,9 @@ func TestScheduledTaskDefinitionsSupportManualExecution(t *testing.T) {
 		if definition.Key == TaskDefinitionTMDbEpisodeMetadataRecheck && definition.Name != "TMDb 季/集信息补全/复查" {
 			t.Fatalf("season/episode recheck display name = %q", definition.Name)
 		}
+		if definition.Key == TaskDefinitionDoubanEnrichment && definition.Name != "豆瓣信息补齐" {
+			t.Fatalf("douban enrichment display name = %q", definition.Name)
+		}
 		if _, ok := TaskDefinitionSchedulerJob(definition.Key); !ok {
 			t.Fatalf("scheduler job missing for %s", definition.Key)
 		}

@@ -11,6 +11,7 @@ import { Select } from '../components/Select'
 import { STRMDeleteDialog } from '../components/STRMDeleteDialog'
 import type { Library } from '../types'
 import { isSeriesLibraryType } from './librariesPageModel'
+import { TMDbRecheckPanel } from './TMDbRecheckPanel'
 
 const scrapeLibraryTypes = new Set(['movie', 'tv', 'anime', 'variety', 'show', 'shows', 'nfo_movie', 'nfo_tv'])
 
@@ -121,6 +122,8 @@ interface TaskRowProps {
   onRun: (definition: TaskDefinition) => void
   onLog: (definition: TaskDefinition) => void
   onSchedule: (definition: TaskDefinition) => void
+  onPending: (definition: TaskDefinition) => void
+  pendingCounts: PendingCounts
 }
 
 function TaskActions({ definition, running, libraries, scanLibraryID, onScanLibraryChange, probeLibraryID, onProbeLibraryChange, probeLimit, onProbeLimitChange, scrapeLibraryID, onScrapeLibraryChange, onRun, onLog, onSchedule }: TaskRowProps) {
@@ -198,7 +201,21 @@ function TaskActions({ definition, running, libraries, scanLibraryID, onScanLibr
   )
 }
 
-function DefinitionTable(props: { definitions: TaskDefinition[]; running: string; libraries: Library[]; scanLibraryID: string; onScanLibraryChange: TaskRowProps['onScanLibraryChange']; probeLibraryID: string; onProbeLibraryChange: TaskRowProps['onProbeLibraryChange']; probeLimit: string; onProbeLimitChange: TaskRowProps['onProbeLimitChange']; scrapeLibraryID: string; onScrapeLibraryChange: TaskRowProps['onScrapeLibraryChange']; onRun: TaskRowProps['onRun']; onLog: TaskRowProps['onLog']; onSchedule: TaskRowProps['onSchedule'] }) {
+interface PendingCounts {
+  rechecks: number
+  scrapeIssues: number
+}
+
+function TaskPendingButton({ definition, onPending, pendingCounts }: Pick<TaskRowProps, 'definition' | 'onPending' | 'pendingCounts'>) {
+  const title = definition.key === 'tmdb_episode_metadata_recheck'
+    ? '查看季/集复查待办'
+    : definition.action === 'media_scrape' ? '查看媒体入库刮削待处理' : ''
+  if (!title) return null
+  const count = definition.key === 'tmdb_episode_metadata_recheck' ? pendingCounts.rechecks : pendingCounts.scrapeIssues
+  return <button type="button" className={`icon-btn h-7 min-w-7 gap-1 px-1.5 ${count > 0 ? 'w-auto border border-gold-500/30 bg-gold-500/10 text-gold-500 shadow-glow-gold' : 'w-7'}`} title={title} aria-label={`${title}${count > 0 ? `，${count} 条` : ''}`} onClick={() => onPending(definition)}><Search size={15} />{count > 0 && <span className="text-[10px] font-bold">{count > 999 ? '999+' : count}</span>}</button>
+}
+
+function DefinitionTable(props: { definitions: TaskDefinition[]; running: string; libraries: Library[]; scanLibraryID: string; onScanLibraryChange: TaskRowProps['onScanLibraryChange']; probeLibraryID: string; onProbeLibraryChange: TaskRowProps['onProbeLibraryChange']; probeLimit: string; onProbeLimitChange: TaskRowProps['onProbeLimitChange']; scrapeLibraryID: string; onScrapeLibraryChange: TaskRowProps['onScrapeLibraryChange']; onRun: TaskRowProps['onRun']; onLog: TaskRowProps['onLog']; onSchedule: TaskRowProps['onSchedule']; onPending: TaskRowProps['onPending']; pendingCounts: PendingCounts }) {
   return (
     <>
 		<div className="hidden overflow-x-auto lg:block">
@@ -209,7 +226,7 @@ function DefinitionTable(props: { definitions: TaskDefinition[]; running: string
           <tbody>
             {props.definitions.map((definition) => (
               <tr key={definition.key} className="border-t border-gray-200 align-top">
-				<td className="max-w-xs py-3"><div className="font-medium text-ink-600">{definition.name}</div><div className="mt-0.5 text-xs text-ink-50">{definition.description}</div>{taskProgressText(definition) && <div className="mt-1 text-xs text-ink-100">{taskProgressText(definition)}</div>}</td>
+                <td className="max-w-xs py-3"><div className="flex items-center gap-1"><div className="font-medium text-ink-600">{definition.name}</div><TaskPendingButton definition={definition} onPending={props.onPending} pendingCounts={props.pendingCounts} /></div><div className="mt-0.5 text-xs text-ink-50">{definition.description}</div>{taskProgressText(definition) && <div className="mt-1 text-xs text-ink-100">{taskProgressText(definition)}</div>}</td>
 				<td className="py-3 text-ink-100"><div>{definition.trigger}</div>{scheduleText(definition) && <div className="mt-0.5 text-xs text-ink-50">{scheduleText(definition)}</div>}</td>
                 <td className="py-3"><CurrentState state={definition.current_state} /></td>
                 <td className="py-3"><LatestResult task={definition.latest} /></td>
@@ -223,7 +240,7 @@ function DefinitionTable(props: { definitions: TaskDefinition[]; running: string
 		<div className="divide-y divide-gray-200 lg:hidden">
         {props.definitions.map((definition) => (
           <section key={definition.key} className="py-4 first:pt-0 last:pb-0">
-			<div className="flex items-start justify-between gap-3"><div><h2 className="font-medium text-ink-600">{definition.name}</h2><p className="mt-0.5 text-xs text-ink-50">{definition.description}</p>{taskProgressText(definition) && <p className="mt-1 text-xs text-ink-100">{taskProgressText(definition)}</p>}</div><TaskActions {...props} definition={definition} /></div>
+            <div className="flex items-start justify-between gap-3"><div><div className="flex items-center gap-1"><h2 className="font-medium text-ink-600">{definition.name}</h2><TaskPendingButton definition={definition} onPending={props.onPending} pendingCounts={props.pendingCounts} /></div><p className="mt-0.5 text-xs text-ink-50">{definition.description}</p>{taskProgressText(definition) && <p className="mt-1 text-xs text-ink-100">{taskProgressText(definition)}</p>}</div><TaskActions {...props} definition={definition} /></div>
             <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
 			<div><dt className="text-ink-50">触发方式</dt><dd className="mt-0.5 text-ink-100">{definition.trigger}{scheduleText(definition) ? ` · ${scheduleText(definition)}` : ''}</dd></div>
 			<div><dt className="text-ink-50">当前状态</dt><dd className="mt-0.5"><CurrentState state={definition.current_state} /></dd></div>
@@ -404,11 +421,13 @@ function formatDateKey(value: string): string {
   return new Date(year, month - 1, day).toLocaleDateString()
 }
 
-function ScrapeIssuesPanel({ libraries }: { libraries: Library[] }) {
+function ScrapeIssuesPanel({ libraries, onClose }: { libraries: Library[]; onClose: () => void }) {
   const [items, setItems] = useState<MediaScrapeIssue[]>([])
   const [total, setTotal] = useState(0)
   const [libraryID, setLibraryID] = useState('')
   const [status, setStatus] = useState<'' | 'error' | 'no_match'>('')
+  const [query, setQuery] = useState('')
+  const [keyword, setKeyword] = useState('')
   const [page, setPage] = useState(1)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState(false)
@@ -424,7 +443,7 @@ function ScrapeIssuesPanel({ libraries }: { libraries: Library[] }) {
     let active = true
     setLoading(true)
     setLoadError(false)
-    mediaAPI.listScrapeIssues({ libraryID, status: status || undefined, page, pageSize })
+    mediaAPI.listScrapeIssues({ libraryID, status: status || undefined, keyword, page, pageSize })
       .then((value) => {
         if (!active) return
         setItems(value.items ?? [])
@@ -437,7 +456,7 @@ function ScrapeIssuesPanel({ libraries }: { libraries: Library[] }) {
         if (active) setLoading(false)
       })
     return () => { active = false }
-  }, [libraryID, page, refreshVersion, status])
+  }, [keyword, libraryID, page, refreshVersion, status])
 
   const refreshIssues = () => setRefreshVersion((value) => value + 1)
   const retry = async (issue: MediaScrapeIssue) => {
@@ -471,12 +490,24 @@ function ScrapeIssuesPanel({ libraries }: { libraries: Library[] }) {
   }
 
   return (
-    <div className="mt-6 border-t border-gray-200 pt-5">
-      <div className="flex flex-wrap items-end justify-between gap-3">
+    <ModalShell ariaLabel="媒体入库刮削待处理" maxWidth="max-w-5xl" className="flex max-h-[86vh] flex-col" onClose={manualTarget || deleteTarget ? undefined : onClose}>
+      <div className="modal-header">
         <div>
           <h2 className="font-display text-lg font-semibold text-ink-600">媒体入库刮削待处理</h2>
-          <p className="mt-1 text-xs text-ink-50">统一显示刮削失败和未匹配记录；成功来源请在上方任务日志中查看。</p>
+          <p className="mt-1 text-xs text-ink-50">统一显示刮削失败和未匹配记录；成功来源请在任务日志中查看。</p>
         </div>
+        <button type="button" className="icon-btn" title="关闭" aria-label="关闭媒体入库刮削待处理" onClick={onClose}><X size={18} /></button>
+      </div>
+      <div className="min-h-0 flex-1 overflow-y-auto p-5">
+      <div className="flex items-center gap-2">
+        <form className="flex min-w-0 flex-1 gap-2" onSubmit={(event) => { event.preventDefault(); const value = query.trim(); if (value === keyword) return; setKeyword(value); setPage(1) }}>
+          <label className="relative min-w-0 flex-1">
+            <span className="sr-only">搜索媒体入库刮削待处理</span>
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-50" />
+            <input type="search" className="input-field pl-10" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索标题、路径、媒体库或原因" />
+          </label>
+          <button type="submit" className="btn-outline px-3 py-2 text-xs">搜索</button>
+        </form>
         <button type="button" className="icon-btn" title="刷新待处理记录" aria-label="刷新待处理记录" disabled={loading} onClick={refreshIssues}>
           <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
         </button>
@@ -562,7 +593,8 @@ function ScrapeIssuesPanel({ libraries }: { libraries: Library[] }) {
         onClose={() => setManualTarget(null)}
         onApplied={() => { setManualTarget(null); refreshIssues() }}
       />
-    </div>
+      </div>
+    </ModalShell>
   )
 }
 
@@ -571,6 +603,8 @@ export function TasksPage() {
 	const [loadError, setLoadError] = useState(false)
   const [logDefinition, setLogDefinition] = useState<TaskDefinition | null>(null)
 	const [scheduleDefinition, setScheduleDefinition] = useState<TaskDefinition | null>(null)
+	const [pendingDefinition, setPendingDefinition] = useState<TaskDefinition | null>(null)
+	const [pendingCounts, setPendingCounts] = useState<PendingCounts>({ rechecks: 0, scrapeIssues: 0 })
 	const [running, setRunning] = useState('')
 	const [libraries, setLibraries] = useState<Library[]>([])
 	const [scanLibraryID, setScanLibraryID] = useState('')
@@ -590,6 +624,18 @@ export function TasksPage() {
   useEffect(() => {
     libraryAPI.list({ includeHidden: true }).then(setLibraries).catch(() => setLibraries([]))
   }, [])
+  const refreshPendingCounts = () => Promise.all([
+    tasksAPI.rechecks('', 1, undefined, '', 1),
+    mediaAPI.listScrapeIssues({ page: 1, pageSize: 1 }),
+  ]).then(([rechecks, scrapeIssues]) => setPendingCounts({
+    rechecks: Object.entries(rechecks.counts).reduce((total, [status, count]) => status === 'done' ? total : total + count, 0),
+    scrapeIssues: scrapeIssues.total,
+  }))
+  useEffect(() => { void refreshPendingCounts().catch(() => undefined) }, [])
+  const closePending = () => {
+    setPendingDefinition(null)
+    void refreshPendingCounts().catch(() => undefined)
+  }
 
   const run = async (definition: TaskDefinition) => {
 		if (runPending.current || running || definition.current_state === 'running') return
@@ -626,10 +672,12 @@ export function TasksPage() {
     <div className="space-y-6">
       <header className="flex items-center gap-3"><Activity className="h-6 w-6 text-brand-500" /><div><h1 className="font-display text-3xl font-bold text-ink-600">任务中心</h1><p className="text-sm text-ink-50">查看后台任务状态、调度与最近执行结果。</p></div></header>
 		<section className="glass-panel">
-			{loadError && !definitions ? <div className="flex flex-col items-center gap-3 py-8 text-sm text-ink-50"><p>任务列表加载失败。</p><button type="button" className="rounded border border-gray-200 p-2 text-sand-600 hover:text-brand-500" title="重新加载" aria-label="重新加载" onClick={() => void refresh()}><RefreshCw size={16} /></button></div> : !definitions ? <p className="py-8 text-center text-ink-50">加载中...</p> : definitions.length === 0 ? <p className="py-8 text-center text-ink-50">暂无任务。</p> : <><DefinitionTable definitions={definitions} running={running} libraries={libraries} scanLibraryID={scanLibraryID} onScanLibraryChange={setScanLibraryID} probeLibraryID={probeLibraryID} onProbeLibraryChange={setProbeLibraryID} probeLimit={probeLimit} onProbeLimitChange={setProbeLimit} scrapeLibraryID={scrapeLibraryID} onScrapeLibraryChange={setScrapeLibraryID} onRun={(definition) => void run(definition)} onLog={setLogDefinition} onSchedule={setScheduleDefinition} /><ScrapeIssuesPanel libraries={libraries} /></>}
+			{loadError && !definitions ? <div className="flex flex-col items-center gap-3 py-8 text-sm text-ink-50"><p>任务列表加载失败。</p><button type="button" className="rounded border border-gray-200 p-2 text-sand-600 hover:text-brand-500" title="重新加载" aria-label="重新加载" onClick={() => void refresh()}><RefreshCw size={16} /></button></div> : !definitions ? <p className="py-8 text-center text-ink-50">加载中...</p> : definitions.length === 0 ? <p className="py-8 text-center text-ink-50">暂无任务。</p> : <DefinitionTable definitions={definitions} running={running} libraries={libraries} scanLibraryID={scanLibraryID} onScanLibraryChange={setScanLibraryID} probeLibraryID={probeLibraryID} onProbeLibraryChange={setProbeLibraryID} probeLimit={probeLimit} onProbeLimitChange={setProbeLimit} scrapeLibraryID={scrapeLibraryID} onScrapeLibraryChange={setScrapeLibraryID} onRun={(definition) => void run(definition)} onLog={setLogDefinition} onSchedule={setScheduleDefinition} onPending={setPendingDefinition} pendingCounts={pendingCounts} />}
       </section>
       {logDefinition && <TaskLogDialog definition={logDefinition} onClose={() => setLogDefinition(null)} />}
       {scheduleDefinition && <TaskScheduleDialog definition={scheduleDefinition} onClose={() => setScheduleDefinition(null)} onSaved={() => refresh().catch(() => setLoadError(true))} />}
+      {pendingDefinition?.key === 'tmdb_episode_metadata_recheck' && <TMDbRecheckPanel onClose={closePending} />}
+      {pendingDefinition?.action === 'media_scrape' && <ScrapeIssuesPanel libraries={libraries} onClose={closePending} />}
     </div>
   )
 }

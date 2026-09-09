@@ -192,14 +192,23 @@ func (r *MediaViewRepository) FindByLogicalMetadataID(ctx context.Context, metad
 
 // ListFavoriteCards 为每条收藏只加载一个当前可见的媒体版本。
 func (r *MediaViewRepository) ListFavoriteCards(ctx context.Context, userID string, filter MediaQueryFilter) ([]model.MediaView, error) {
-	logicalID := "CASE WHEN mi.kind IN ('episode', 'season') THEN COALESCE(series_metadata.id, mi.id) ELSE mi.id END"
+	// 从收藏展开作品、季和集，避免先给整个元数据库反查媒体文件。
 	base := r.db.WithContext(ctx).
-		Table("media AS m").
-		Joins("JOIN metadata_items AS mi ON mi.id = m.metadata_id").
-		Joins("LEFT JOIN metadata_items AS season_metadata ON season_metadata.id = mi.parent_id AND mi.kind = 'episode' AND season_metadata.kind = 'season'").
-		Joins("LEFT JOIN metadata_items AS series_metadata ON series_metadata.id = CASE WHEN mi.kind = 'episode' THEN season_metadata.parent_id WHEN mi.kind = 'season' THEN mi.parent_id ELSE NULL END AND series_metadata.kind = 'series'").
-		Joins("JOIN favorites AS f ON f.user_id = ? AND f.deleted_at IS NULL AND "+logicalID+" = f.metadata_id", userID).
-		Joins("JOIN metadata_items AS favorite_metadata ON favorite_metadata.id = f.metadata_id AND favorite_metadata.kind IN ('movie', 'series')")
+		Table("favorites AS f").
+		Joins("JOIN metadata_items AS favorite_metadata ON favorite_metadata.id = f.metadata_id AND favorite_metadata.kind IN ('movie', 'series')").
+		Joins(`JOIN LATERAL (
+SELECT favorite_metadata.id
+UNION ALL
+SELECT s.id FROM metadata_items s
+WHERE favorite_metadata.kind = 'series' AND s.parent_id = favorite_metadata.id AND s.kind = 'season'
+UNION ALL
+SELECT e.id FROM metadata_items s
+JOIN metadata_items e ON e.parent_id = s.id AND e.kind = 'episode'
+WHERE favorite_metadata.kind = 'series' AND s.parent_id = favorite_metadata.id AND s.kind = 'season'
+) AS candidate ON TRUE`).
+		Joins("JOIN metadata_items AS mi ON mi.id = candidate.id").
+		Joins("JOIN media AS m ON m.metadata_id = mi.id").
+		Where("f.user_id = ? AND f.deleted_at IS NULL", userID)
 	base = applyMediaViewFilter(base, filter)
 	if !filter.IncludeNSFW {
 		base = base.Where("COALESCE(favorite_metadata.nsfw, FALSE) = FALSE")

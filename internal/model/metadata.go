@@ -64,6 +64,8 @@ type MetadataIdentifier struct {
 	Provider   string `gorm:"size:32;not null;uniqueIndex:uidx_metadata_identifier,priority:1;index:idx_metadata_identifier_provider_kind_metadata,priority:1" json:"provider"`
 	EntityKind string `gorm:"size:16;not null;uniqueIndex:uidx_metadata_identifier,priority:2;index:idx_metadata_identifier_provider_kind_metadata,priority:2" json:"entity_kind"`
 	ExternalID string `gorm:"size:128;not null;uniqueIndex:uidx_metadata_identifier,priority:3" json:"external_id"`
+	// DoubanEntityKind 仅记录人工确认的豆瓣实际类型；为空时仍按本地类型补齐。
+	DoubanEntityKind string `gorm:"size:16;not null;default:''" json:"-"`
 }
 
 // ArtworkAsset 描述 DataDir 中按内容哈希保存的一份权威原图。

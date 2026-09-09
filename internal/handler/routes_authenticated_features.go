@@ -12,6 +12,8 @@ func registerAuthedStatsDiscoveryAndAIRoutes(authed *gin.RouterGroup, svc *servi
 	authed.GET("/tasks", middleware.AdminRequired(), tasksHandler(svc))
 	authed.GET("/tasks/definitions/:key/executions", middleware.AdminRequired(), taskDefinitionHistoryHandler(svc))
 	authed.GET("/tasks/definitions/:key/log", middleware.AdminRequired(), taskDefinitionLogHandler(svc))
+	authed.GET("/tasks/definitions/:key/pending", middleware.AdminRequired(), tmdbRecheckListHandler(svc))
+	authed.GET("/tasks/definitions/:key/pending/:metadataID/files", middleware.AdminRequired(), tmdbRecheckListHandler(svc))
 	authed.POST("/tasks/definitions/:key/run", middleware.AdminRequired(), taskDefinitionRunHandler(svc))
 	authed.PUT("/tasks/definitions/:key/schedule", middleware.AdminRequired(), taskDefinitionScheduleHandler(svc))
 	authed.POST("/tasks/people-backfill", middleware.AdminRequired(), peopleBackfillHandler(svc))

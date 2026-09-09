@@ -50,7 +50,7 @@ func (s *MediaService) ListMedia(ctx context.Context, libraryID string, page, pa
 	return s.ListMediaVisible(ctx, libraryID, page, pageSize, MediaVisibility{IncludeNSFW: true})
 }
 
-func (s *MediaService) ListScrapeIssues(ctx context.Context, libraryID string, statuses []string, page, pageSize int) (MediaScrapeIssuePage, error) {
+func (s *MediaService) ListScrapeIssues(ctx context.Context, libraryID, keyword string, statuses []string, page, pageSize int) (MediaScrapeIssuePage, error) {
 	if page < 1 {
 		page = 1
 	}
@@ -69,12 +69,17 @@ func (s *MediaService) ListScrapeIssues(ctx context.Context, libraryID string, s
 			return MediaScrapeIssuePage{}, ErrInvalidScrapeIssueStatus
 		}
 	}
+	keyword = strings.TrimSpace(keyword)
 	query := func() *gorm.DB {
 		q := s.repo.DB.WithContext(ctx).Table("media AS m").
 			Joins("JOIN libraries AS l ON l.id = m.library_id AND l.deleted_at IS NULL").
 			Where("m.scrape_status IN ?", statuses)
 		if strings.TrimSpace(libraryID) != "" {
 			q = q.Where("m.library_id = ?", strings.TrimSpace(libraryID))
+		}
+		if keyword != "" {
+			pattern := "%" + strings.ToLower(repository.EscapeLike(keyword)) + "%"
+			q = q.Where(`LOWER(COALESCE(m.scan_title,'')) LIKE ? ESCAPE '\' OR LOWER(m.path) LIKE ? ESCAPE '\' OR LOWER(l.name) LIKE ? ESCAPE '\' OR LOWER(COALESCE(m.scrape_error,'')) LIKE ? ESCAPE '\'`, pattern, pattern, pattern, pattern)
 		}
 		return q
 	}

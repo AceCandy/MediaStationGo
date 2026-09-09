@@ -519,7 +519,7 @@ func TestEmbyLatestItemsPaginatesMetadataBeforeLoadingVersions(t *testing.T) {
 		Title: "第二部新片", ReleaseDate: "2026-08-07", Source: "tmdb",
 	})
 	now := time.Now()
-	versions := make([]model.Media, 101, 102)
+	versions := make([]model.Media, latestMediaCandidateBatchSize+1, latestMediaCandidateBatchSize+2)
 	for i := range versions {
 		versions[i] = model.Media{
 			PermanentBase: model.PermanentBase{ID: fmt.Sprintf("latest-many-%03d", i), CreatedAt: now.Add(time.Duration(i) * time.Second)},

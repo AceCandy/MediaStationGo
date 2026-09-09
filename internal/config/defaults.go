@@ -30,6 +30,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("secrets.jwt_secret", "")
 
 	v.SetDefault("logging.level", "warn")
+	v.SetDefault("logging.slow_sql_threshold_ms", 0)
 	v.SetDefault("logging.format", "console")
 	v.SetDefault("logging.enable_rotation", true)
 	v.SetDefault("logging.max_size_mb", 20)

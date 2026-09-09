@@ -252,17 +252,8 @@ func (e *EmbyService) seriesItemsForLibrary(ctx context.Context, libraryID strin
 	if libraryID != "" {
 		q = q.Where("media.library_id IN ?", e.mergedLibraryIDs(ctx, libraryID))
 	}
-	if len(p.PersonIDs) > 0 {
-		credits := e.repo.DB.WithContext(ctx).Model(&model.MetadataCredit{}).Select("metadata_id").Where("person_id = ANY(?)", &p.PersonIDs)
-		q = q.Where("scope_series.id IN (?)", credits)
-	}
-	if containsEmbyFilter(p.Filters, "IsFavorite") {
-		if strings.TrimSpace(p.UserID) == "" {
-			return map[string]any{"Items": []map[string]any{}, "TotalRecordCount": 0, "StartIndex": p.StartIndex}, nil
-		}
-		favorites := e.repo.DB.WithContext(ctx).Model(&model.Favorite{}).Select("1").
-			Where("favorites.user_id = ? AND favorites.metadata_id = scope_series.id", p.UserID)
-		q = q.Where("EXISTS (?)", favorites)
+	if containsEmbyFilter(p.Filters, "IsFavorite") && strings.TrimSpace(p.UserID) == "" {
+		return map[string]any{"Items": []map[string]any{}, "TotalRecordCount": 0, "StartIndex": p.StartIndex}, nil
 	}
 	groups, total, err := e.seriesMetadataPage(ctx, q, p.UserID, p, p.StartIndex, p.Limit)
 	if err != nil {

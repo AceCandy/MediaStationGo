@@ -236,6 +236,13 @@ func TestListTMDbSeasonMetadataRecheckAfterFiltersAndPages(t *testing.T) {
 				}
 			}
 		}
+		if scenario == "no-media" {
+			// 有集元数据但没有文件的季仍应排除。
+			child := model.MetadataItem{Kind: model.MetadataKindEpisode, ParentID: &season.ID, EpisodeNum: 1, Title: "No file", Source: "test"}
+			if err := db.Create(&child).Error; err != nil {
+				t.Fatal(err)
+			}
+		}
 		if i >= 2 && i < 8 {
 			want = append(want, season.ID)
 		}

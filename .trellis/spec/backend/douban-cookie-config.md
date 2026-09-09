@@ -72,7 +72,9 @@ if err == nil && resolved.Enabled && strings.TrimSpace(resolved.APIKey) != "" {
 }
 ```
 
-## Scenario: Manual Douban Candidate Selection
+## Scenario: Legacy Douban Candidate Selection
+
+The following signatures describe the legacy generic search interface. The metadata editor no longer binds Douban IDs: dedicated binding uses complete webpage search and immediate enrichment, as specified in [Manual Douban Binding](./shared-media-metadata.md#scenario-manual-douban-binding). Do not route dedicated manual binding back through suggest.
 
 ### 1. Scope / Trigger
 

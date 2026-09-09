@@ -28,6 +28,7 @@ interface MediaDetailMainContentProps extends MediaDetailPlaybackActionsProps {
   onTMDbRefresh: () => void
   tmdbRefreshPending: boolean
   onDoubanEnrich: () => void
+  onDoubanBound: () => void | Promise<void>
   doubanEnrichmentPending: boolean
   onMetadataEdit: () => void
   onProbe: () => void
@@ -102,6 +103,7 @@ export function MediaDetailMainContent({
   onTMDbRefresh,
   tmdbRefreshPending,
   onDoubanEnrich,
+  onDoubanBound,
   doubanEnrichmentPending,
   onMetadataEdit,
   onProbe,
@@ -133,6 +135,7 @@ export function MediaDetailMainContent({
             favourite={favourite}
             onToggleFavourite={onToggleFavourite}
             onMetadataEdit={onMetadataEdit}
+            onDoubanBound={onDoubanBound}
           />
           <div className="divider border-gray-200/60" />
           <div className="flex flex-wrap items-center gap-3">

@@ -96,7 +96,7 @@ func (e *EmbyService) AdditionalParts(ctx context.Context, mediaID, userID strin
 }
 
 // LatestItems 最近添加，全库或指定库，并按调用方指定的播放状态过滤。
-func (e *EmbyService) LatestItems(ctx context.Context, userID, parentID string, limit int, isPlayed bool) ([]map[string]any, error) {
+func (e *EmbyService) LatestItems(ctx context.Context, userID, parentID string, limit int, isPlayed bool, fields ...string) ([]map[string]any, error) {
 	if limit <= 0 || limit > 100 {
 		limit = 20
 	}
@@ -105,15 +105,21 @@ func (e *EmbyService) LatestItems(ctx context.Context, userID, parentID string, 
 	q = e.applyLatestPlayedFilter(ctx, q, userID, isPlayed)
 	if parentID != "" {
 		if episodic, err := e.libraryIsEpisodic(ctx, parentID); err == nil && episodic {
-			return e.latestSeriesItemsForLibrary(ctx, userID, parentID, limit, isPlayed)
+			return e.latestSeriesItemsForLibrary(ctx, userID, parentID, limit, isPlayed, fields)
 		}
 		q = q.Where("media.library_id IN ?", e.mergedLibraryIDs(ctx, parentID))
 	}
-	views, _, err := e.metadataPage(ctx, q, userID, metadataOrderSQL(ItemsParams{SortBy: "datecreated", SortOrder: "Descending"}, false), 0, limit)
+	var views []model.MediaView
+	var err error
+	if parentID != "" {
+		views, err = e.latestMetadataViews(ctx, q, userID, limit)
+	} else {
+		views, _, err = e.metadataPageWithCount(ctx, q, userID, metadataOrderSQL(ItemsParams{SortBy: "datecreated", SortOrder: "Descending"}, false), 0, limit, false)
+	}
 	if err != nil {
 		return nil, err
 	}
-	out := e.payloadsForViews(ctx, views, userID)
+	out := e.payloadsForViewsWithFields(ctx, views, userID, fields)
 	for _, item := range out {
 		if item["Type"] == "Movie" {
 			item["ParentId"] = parentID
@@ -134,7 +140,7 @@ func (e *EmbyService) applyLatestPlayedFilter(ctx context.Context, q *gorm.DB, u
 	return q.Where("NOT EXISTS (?)", completed)
 }
 
-func (e *EmbyService) latestSeriesItemsForLibrary(ctx context.Context, userID, libraryID string, limit int, isPlayed bool) ([]map[string]any, error) {
+func (e *EmbyService) latestSeriesItemsForLibrary(ctx context.Context, userID, libraryID string, limit int, isPlayed bool, fields []string) ([]map[string]any, error) {
 	if limit <= 0 || limit > 100 {
 		limit = 20
 	}
@@ -142,11 +148,11 @@ func (e *EmbyService) latestSeriesItemsForLibrary(ctx context.Context, userID, l
 		Where("media.library_id IN ? AND (media.season_num > 0 OR media.episode_num > 0)", e.mergedLibraryIDs(ctx, libraryID))
 	q = e.applyUserMediaVisibility(ctx, q, userID)
 	q = e.applyLatestPlayedFilter(ctx, q, userID, isPlayed)
-	groups, _, err := e.seriesMetadataPage(ctx, q, userID, ItemsParams{SortBy: "datecreated", SortOrder: "Descending"}, 0, limit)
+	groups, err := e.latestSeriesGroups(ctx, q, limit)
 	if err != nil {
 		return nil, err
 	}
-	items := e.seriesPayloadsWithFields(ctx, groups, userID, nil)
+	items := e.seriesPayloadsWithFields(ctx, groups, userID, fields)
 	for _, item := range items {
 		item["ParentId"] = libraryID
 	}

@@ -101,6 +101,142 @@ queries and produce invalid SQL or silently wrong results. Keep shared filters
 in a small query-builder method and call it separately for counts, aggregates,
 details, and rankings. A real PostgreSQL test must execute every branch.
 
+### Emby Series Pagination Query Boundary
+
+`seriesMetadataPageWithCount` materializes the visible file scope with
+`WITH scoped_media AS MATERIALIZED (...)` before joining seasons and series.
+A lateral season lookup with `OFFSET 0` does not prevent PostgreSQL from
+scanning the whole metadata catalog and probing `media` once per episode.
+Keep library, visibility and played filters inside the file scope; apply
+person and favorite filters through `applySeriesPageFilters` after the series
+alias exists, consistently for count, page and summary queries. Preserve
+`created_at` in the CTE for every supported sort. Latest skips the count.
+
+For `IsFavorite`, use `AS NOT MATERIALIZED` for both count and page so the
+planner can start from the user's favorites and look up only their files.
+Unconditional materialization makes a small favorites page scan the entire
+visible file scope. Keep ordinary browsing materialized; do not generalize
+this exception to other filters without execution-plan evidence.
+
+Library-scoped `LatestItems` must not apply a raw `LIMIT` before logical work
+grouping. Keyset-page file candidates by `(created_at, id)`, resolve metadata
+or series IDs, and scan through the selected page's final `created_at` boundary
+before applying the ID tie break. This keeps same-time ordering exact while
+letting the existing `(library_id, created_at DESC)` index avoid full-library
+aggregation. `TestEmbyLatestItemsPaginatesMetadataBeforeLoadingVersions` and
+`TestEmbyLatestSeriesItemsContinueThroughCandidateTimeTie` cover the batch and
+tie boundaries.
+
+`TestEmbySeriesPaginationDoesNotProbeFilesForWholeCatalog` must execute on
+PostgreSQL and check plan loops, totals, empty pages, sorting and filtered
+summaries. SQL shape alone is insufficient evidence of the join order.
+For plans involving PostgreSQL array parameters, retain SQL placeholders and
+bound values; GORM's interpolated log text (for example `'[hidden]'`) is not
+an executable PostgreSQL array literal and must not be replayed as SQL.
+
+### Favorite Cards and Season Recheck Scopes
+
+`ListFavoriteCards` expands each active user's Movie/Series favorite through a
+lateral UNION ALL of the work itself, its seasons and their episodes before
+joining files. Keep kind checks, file/library and favorite visibility before
+ranking by `(m.created_at DESC, m.id DESC)`. Direct Series/Season files are valid
+representatives. `TestListFavourites*` covers presentation, direct files, ties
+and hidden libraries. Do not restore a whole-catalog CASE-based favorite join.
+
+`ListTMDbSeasonMetadataRecheckAfter` uses a non-correlated membership set of
+file metadata IDs and file-backed episode parent IDs. The `OFFSET 0` media
+projection prevents per-episode file probes; this still scans the media scope
+per page. Preserve cooling time, missing-field checks, identity multiplicity,
+ID pagination and deduplication. `TestListTMDbSeasonMetadataRecheckAfterFiltersAndPages`
+must run on PostgreSQL, including seasons with metadata but no files.
+
+The runtime Season/Episode maintenance worker now uses the persistent recheck
+queue described in `background-task-execution.md`; the candidate methods remain
+for focused compatibility tests. Migrations register queue models before installing
+idempotent transaction triggers, and never run file reconciliation.
+Filter changed fields inside the trigger function, not through `UPDATE OF`:
+column-specific trigger dependencies block the existing repeated GORM type migration.
+Keep the due predicate nonvolatile (`statement_timestamp()`), otherwise PostgreSQL
+may filter the whole future queue instead of applying an index condition.
+
+### Search Index Backfill Batches
+
+For library membership in `metadataSearchDocuments`, count at most 1,025
+candidate episodes before choosing the media join. Up to 1,024 episodes keeps
+indexed point lookups; larger scopes use an `OFFSET 0` media projection to
+avoid thousands of failed per-episode probes. This projection scans the media
+index, so do not apply it unconditionally to small incremental updates. Recheck
+the crossover when media volume changes substantially. Preserve UNION pair
+deduplication and all movie/season/episode kind checks in both paths.
+
+`metadataSearchDocumentIDs` pages movie/series candidates by ID without the
+global playable `EXISTS` filter. `metadataSearchDocuments` validates playable
+library membership for those bounded IDs and omits empty works. Advance the
+cursor and decide completion using candidate IDs, never emitted documents:
+an entire candidate batch can have no files while later batches are playable.
+Do not reuse this unfiltered candidate enumeration for user-facing search.
+
+Startup warmup passes `search.index_warmup_pause_ms` to `BackfillSearchIndex`
+(default 2000 ms, minimum 250 ms). Waiting must honor cancellation, discard
+the unfinished index and retain the existing activation/dirty-update protocol.
+Tests cover empty batches, movie versions, series, inter-batch waiting and
+cancellation without activating the incomplete index.
+
+### Background Translation Candidate Queries
+
+`idx_people_pending_translation` indexes `people(id)` only for live rows with
+non-empty, unchanged, non-Chinese original names. Its predicate must match
+`ListPendingPeopleTranslations`; cache language/version remain runtime filters.
+Verify index use with a generic parameterized LIMIT and a mostly ineligible
+population. Startup creation is idempotent and may briefly block people writes.
+
+Filter untranslated names/roles and active negative translation caches in SQL
+before applying limits. Chinese detection must match `containsChinese` exactly
+(U+4E00 through U+9FFF), not the broader title-localization regex. Cache matching
+includes kind, context, source, target language and prompt version; deleted
+caches do not suppress work and positive caches remain eligible for write-back.
+
+People are selected first, up to 1,000 groups. Roles keyset-page by
+`(metadata_id, id)` with only page-local metadata context hydration. The limit
+counts groups, not rows: keep collecting targets for selected season-role groups
+after the group limit, including later episodes/pages. This still scans the
+eligible role set; bounded result hydration does not guarantee bounded table
+scanning without a matching index.
+
+Startup `ensurePerformanceIndexes` creates
+`idx_metadata_credits_type_pending_translation` on `(type, metadata_id, id)` where
+`original_role <> '' AND role = original_role AND original_role !~ '[一-鿿]'`.
+Do not put parameterized Actor/GuestStar values in the index predicate: generic
+prepared plans cannot prove that bound values imply that predicate. Do not add
+unbounded role text to B-tree keys or INCLUDE columns. Creation is idempotent;
+the initial non-concurrent startup build can delay startup and block concurrent
+credit writes. `TestEnsurePerformanceIndexesCreatesHotPathIndexes` verifies
+repeat migration and actual index use with `force_generic_plan`.
+Create the type-leading index before dropping the superseded
+`idx_metadata_credits_pending_translation`. Keep the mixed Actor/GuestStar/
+Director/Writer fixture: omitting type from the index key scans unrelated crew
+roles even when the partial index is used. The generic plan must use an index
+condition, not scan all entries and discard Director/Writer via a filter.
+
+`TestPendingPeopleTranslationsFiltersBeforeLimit` and
+`TestPendingRoleTranslationsCollectsTargetsAcrossPageAndGroupLimit` must run on
+PostgreSQL. Do not replace group-aware collection with a raw row LIMIT.
+
+### Douban Enrichment Snapshot Reuse
+
+`ListDoubanMovieEnrichmentAfter` relies on the unique `(metadata_id, provider)`
+snapshot constraint to replace repeated correlated EXISTS with one LEFT JOIN.
+Keep `degraded IS NOT TRUE` so absent snapshots remain eligible. A lateral
+`SELECT payload #> '{}' AS payload OFFSET 0` preserves the whole JSON value and
+lets field checks reuse its detoasted representation; plain aliasing can inline
+the expression and repeat decompression. Verify this boundary with real plans.
+
+JSON key presence is not the same as a non-null value: `pic: null` still counts
+as a present key. Preserve scalar/array/JSON-null behavior, stale cutoff, unique
+same-kind Movie/Series identifier counting and artwork asset existence checks.
+`TestDoubanEnrichmentCandidateJSONAndPagination` covers these JSON boundaries,
+pagination, cancellation and the snapshot uniqueness precondition.
+
 ### Nullable PostgreSQL Aggregates
 
 PostgreSQL aggregates such as `MIN` return SQL `NULL` when no row matches.

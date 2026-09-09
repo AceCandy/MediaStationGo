@@ -4,6 +4,7 @@ import (
 	"context"
 	"sort"
 	"strings"
+	"time"
 	"unicode"
 
 	"github.com/ShukeBta/MediaStationGo/internal/model"
@@ -92,7 +93,7 @@ func EscapeLike(value string) string {
 }
 
 func (r *MediaRepository) BackfillSearchIndex(ctx context.Context, batchLimit int) (int64, error) {
-	return r.viewRepository().BackfillSearchIndex(ctx, batchLimit)
+	return r.viewRepository().BackfillSearchIndex(ctx, batchLimit, 0)
 }
 
 const metadataPlayableExistsSQL = `(
@@ -610,7 +611,7 @@ func applyMetadataSearchPresentation(view *model.MediaView, row metadataSearchPr
 	view.Normalize()
 }
 
-func (r *MediaViewRepository) BackfillSearchIndex(ctx context.Context, batchLimit int) (total int64, err error) {
+func (r *MediaViewRepository) BackfillSearchIndex(ctx context.Context, batchLimit int, batchPause time.Duration) (total int64, err error) {
 	backend, ok := r.searchBackend.(MediaSearchSyncBackend)
 	if !ok {
 		return 0, nil
@@ -661,6 +662,15 @@ func (r *MediaViewRepository) BackfillSearchIndex(ctx context.Context, batchLimi
 		if len(ids) < batchLimit {
 			break
 		}
+		if batchPause > 0 {
+			timer := time.NewTimer(batchPause)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return total, ctx.Err()
+			case <-timer.C:
+			}
+		}
 	}
 
 	r.searchMu.Lock()
@@ -708,11 +718,9 @@ func (r *MediaViewRepository) finishSearchRebuild() {
 }
 
 func (r *MediaViewRepository) metadataSearchDocumentIDs(ctx context.Context, afterID string, limit int) ([]string, error) {
-	filter := MetadataSearchFilter{
-		MediaQueryFilter: MediaQueryFilter{IncludeNSFW: true},
-		Kinds:            []string{model.MetadataKindMovie, model.MetadataKindSeries},
-	}
-	q := r.metadataSearchQuery(ctx, filter).Select("search_metadata.id")
+	// 这里只分页候选，文档组装会按本批 ID 过滤无文件作品，避免每页重算全库可播放关系。
+	q := r.db.WithContext(ctx).Table("metadata_items AS search_metadata").
+		Where("search_metadata.kind IN ?", []string{model.MetadataKindMovie, model.MetadataKindSeries})
 	if afterID != "" {
 		q = q.Where("search_metadata.id > ?", afterID)
 	}
@@ -737,6 +745,23 @@ func (r *MediaViewRepository) metadataSearchDocuments(ctx context.Context, metad
 		LibraryID  string `gorm:"column:library_id"`
 	}
 	var libraries []libraryRow
+	// 分集很多而实际文件稀疏时，逐集探测 media 索引比扫描一次更贵。
+	// 有界计数保留小批增量更新的索引点查，避免每次更新都扫描全部媒体。
+	// ponytail: 1024 为当前数据规模的切换阈值；媒体规模显著增长时需重新对比执行计划。
+	var episodeCount int64
+	if err := r.db.WithContext(ctx).Raw(`SELECT count(*) FROM (
+		SELECT 1 FROM metadata_items AS series_metadata
+		JOIN metadata_items AS season_metadata ON season_metadata.parent_id = series_metadata.id AND season_metadata.kind = 'season'
+		JOIN metadata_items AS episode_metadata ON episode_metadata.parent_id = season_metadata.id AND episode_metadata.kind = 'episode'
+		WHERE series_metadata.id IN ? AND series_metadata.kind = 'series'
+		LIMIT 1025
+	) AS candidate_episodes`, metadataIDs).Scan(&episodeCount).Error; err != nil {
+		return nil, err
+	}
+	mediaSource := "media"
+	if episodeCount > 1024 {
+		mediaSource = "(SELECT metadata_id, library_id FROM media OFFSET 0)"
+	}
 	err := r.db.WithContext(ctx).Raw(`
 		SELECT movie_metadata.id AS metadata_id, movie_media.library_id
 		FROM metadata_items AS movie_metadata
@@ -747,7 +772,7 @@ func (r *MediaViewRepository) metadataSearchDocuments(ctx context.Context, metad
 		FROM metadata_items AS series_metadata
 		JOIN metadata_items AS season_metadata ON season_metadata.parent_id = series_metadata.id AND season_metadata.kind = 'season'
 		JOIN metadata_items AS episode_metadata ON episode_metadata.parent_id = season_metadata.id AND episode_metadata.kind = 'episode'
-		JOIN media AS episode_media ON episode_media.metadata_id = episode_metadata.id
+		JOIN `+mediaSource+` AS episode_media ON episode_media.metadata_id = episode_metadata.id
 			WHERE series_metadata.id IN ? AND series_metadata.kind = 'series'
 	`, metadataIDs, metadataIDs).Scan(&libraries).Error
 	if err != nil {

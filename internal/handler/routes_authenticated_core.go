@@ -42,6 +42,8 @@ func registerAuthedLibraryRoutes(authed *gin.RouterGroup, svc *service.Container
 
 func registerAuthedMediaRoutes(authed *gin.RouterGroup, svc *service.Container) {
 	authed.POST("/metadata/:id/tmdb/refresh", middleware.AdminRequired(), refreshMetadataTMDbHandler(svc))
+	authed.GET("/metadata/:id/douban/search", middleware.AdminRequired(), searchDoubanBindingHandler(svc))
+	authed.POST("/metadata/:id/douban/bind", middleware.AdminRequired(), bindDoubanHandler(svc))
 	authed.GET("/media/scrape-issues", middleware.AdminRequired(), scrapeIssuesHandler(svc))
 	authed.GET("/media/:id", getMediaHandler(svc))
 	authed.GET("/media/:id/series", getMediaSeriesHandler(svc))

@@ -20,7 +20,7 @@ type MetadataRepository struct {
 	view *MediaViewRepository
 }
 
-// DoubanMovieEnrichmentCandidate 是具有唯一豆瓣电影标识的补齐候选。
+// DoubanMovieEnrichmentCandidate 是具有唯一同类型豆瓣标识的电影/整剧补齐候选。
 type DoubanMovieEnrichmentCandidate struct {
 	MetadataID string
 	DoubanID   string
@@ -408,7 +408,7 @@ func (r *MetadataRepository) ListIdentifiers(ctx context.Context, metadataID str
 	return r.ListIdentifiersByMetadataIDs(ctx, []string{metadataID})
 }
 
-// ListDoubanMovieEnrichmentAfter 按元数据 ID 分页返回需要首次获取或刷新豆瓣详情的确定电影标识。
+// ListDoubanMovieEnrichmentAfter 按元数据 ID 分页返回需要首次获取或刷新豆瓣详情的电影/整剧。
 func (r *MetadataRepository) ListDoubanMovieEnrichmentAfter(ctx context.Context, afterID string, refreshBefore time.Time, limit int) ([]DoubanMovieEnrichmentCandidate, error) {
 	if limit <= 0 {
 		limit = 20
@@ -419,40 +419,24 @@ func (r *MetadataRepository) ListDoubanMovieEnrichmentAfter(ctx context.Context,
 SELECT mi.id AS metadata_id, MIN(mid.external_id) AS douban_id
 FROM metadata_items AS mi
 JOIN metadata_identifiers AS mid ON mid.metadata_id = mi.id
-WHERE mi.kind = ?
+LEFT JOIN metadata_provider_snapshots AS mps ON mps.metadata_id = mi.id AND mps.provider = 'douban'
+-- 空路径保留完整 JSON 值；阻止内联，让多个字段检查复用一次解压后的快照。
+LEFT JOIN LATERAL (SELECT mps.payload #> '{}' AS payload OFFSET 0) AS snapshot ON TRUE
+WHERE mi.kind IN ?
   AND mid.provider = 'douban'
-  AND mid.entity_kind = ?
+  AND mid.entity_kind = mi.kind
   AND mi.id > ?
-  AND NOT EXISTS (
-    SELECT 1 FROM metadata_provider_snapshots AS mps
-    WHERE mps.metadata_id = mi.id AND mps.provider = 'douban' AND mps.degraded = TRUE
-  )
+  AND mps.degraded IS NOT TRUE
   AND (
-    NOT EXISTS (
-      SELECT 1 FROM metadata_provider_snapshots AS mps
-      WHERE mps.metadata_id = mi.id AND mps.provider = 'douban'
-    )
+    mps.metadata_id IS NULL
     OR (
-      EXISTS (
-        SELECT 1 FROM metadata_provider_snapshots AS mps
-        WHERE mps.metadata_id = mi.id AND mps.provider = 'douban' AND mps.fetched_at < ?
-      )
+      mps.fetched_at < ?
       AND (
-        EXISTS (
-          SELECT 1 FROM metadata_provider_snapshots AS mps
-          WHERE mps.metadata_id = mi.id AND mps.provider = 'douban'
-            AND (jsonb_exists(mps.payload, 'subject') OR jsonb_exists(mps.payload, 'data'))
-        )
-        OR EXISTS (
-          SELECT 1 FROM metadata_provider_snapshots AS mps
-          WHERE mps.metadata_id = mi.id AND mps.provider = 'douban'
-            AND (
-              btrim(COALESCE(mps.payload ->> 'intro', '')) = ''
-              OR NOT (jsonb_exists(mps.payload, 'cover_url') OR jsonb_exists(mps.payload, 'pic'))
-            )
-        )
-        OR btrim(COALESCE(mi.overview, '')) = ''
+        btrim(COALESCE(mi.overview, '')) = ''
         OR mi.title !~ '[㐀-䶿一-鿿豈-﫿]'
+        OR jsonb_exists(snapshot.payload, 'subject') OR jsonb_exists(snapshot.payload, 'data')
+        OR btrim(COALESCE(snapshot.payload ->> 'intro', '')) = ''
+        OR NOT (jsonb_exists(snapshot.payload, 'cover_url') OR jsonb_exists(snapshot.payload, 'pic'))
         OR NOT EXISTS (
           SELECT 1 FROM metadata_artwork_candidates AS mac
           JOIN artwork_assets AS aa ON aa.id = mac.asset_id
@@ -468,7 +452,7 @@ WHERE mi.kind = ?
 GROUP BY mi.id
 HAVING COUNT(*) = 1
 ORDER BY mi.id ASC
-LIMIT ?`, model.MetadataKindMovie, model.MetadataKindMovie, strings.TrimSpace(afterID), refreshBefore.UTC(), limit).Scan(&candidates).Error
+LIMIT ?`, []string{model.MetadataKindMovie, model.MetadataKindSeries}, strings.TrimSpace(afterID), refreshBefore.UTC(), limit).Scan(&candidates).Error
 	return candidates, err
 }
 

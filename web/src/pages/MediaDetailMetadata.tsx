@@ -4,6 +4,7 @@ import { Fragment, useEffect, useState, type ReactNode } from 'react'
 
 import { mediaAPI, type STRMDeleteTarget } from '../api/library'
 import { STRMDeleteDialog } from '../components/STRMDeleteDialog'
+import { DoubanBindingDialog } from '../components/DoubanBindingDialog'
 import type { Media } from '../types'
 
 type MediaDetailMetadataProps = {
@@ -14,6 +15,7 @@ type MediaDetailMetadataProps = {
   favourite?: boolean
   onToggleFavourite?: () => void
   onMetadataEdit: () => void
+  onDoubanBound?: () => void | Promise<void>
   actions?: ReactNode
 }
 
@@ -23,7 +25,7 @@ const rise = (delay: number) => ({
   transition: { duration: 0.5, delay, ease: [0.21, 0.47, 0.32, 0.98] as const },
 })
 
-export function MediaDetailMetadata({ media, selectedMedia, scope, isAdmin, favourite, onToggleFavourite, onMetadataEdit, actions }: MediaDetailMetadataProps) {
+export function MediaDetailMetadata({ media, selectedMedia, scope, isAdmin, favourite, onToggleFavourite, onDoubanBound, actions }: MediaDetailMetadataProps) {
   const Details = scope ? 'div' : Fragment
   const isEpisode = scope === 'episode' || media.metadata_kind === 'episode'
   const heading = media.title
@@ -34,6 +36,8 @@ export function MediaDetailMetadata({ media, selectedMedia, scope, isAdmin, favo
   const [strmTarget, setSTRMTarget] = useState('')
   const [deleteTarget, setDeleteTarget] = useState<STRMDeleteTarget | null>(null)
   const [deleteOpen, setDeleteOpen] = useState(false)
+  const [doubanOpen, setDoubanOpen] = useState(false)
+  const canBindDouban = isAdmin && (media.metadata_kind === 'movie' || media.metadata_kind === 'series')
 
   useEffect(() => {
     let cancelled = false
@@ -136,8 +140,8 @@ export function MediaDetailMetadata({ media, selectedMedia, scope, isAdmin, favo
               />
             )}
             {!isEpisode && <ProviderBadge
-              href={media.douban_id ? `https://movie.douban.com/subject/${encodeURIComponent(media.douban_id)}/` : undefined}
-              onClick={!media.douban_id && isAdmin ? onMetadataEdit : undefined}
+              href={!canBindDouban && media.douban_id ? `https://movie.douban.com/subject/${encodeURIComponent(media.douban_id)}/` : undefined}
+              onClick={canBindDouban ? () => setDoubanOpen(true) : undefined}
               label="豆瓣"
               iconSrc="/brand/douban.svg"
               status={media.douban_id ? providerStatus(media.douban_status, media.douban_snapshot) : 'unlinked'}
@@ -147,6 +151,7 @@ export function MediaDetailMetadata({ media, selectedMedia, scope, isAdmin, favo
       </div>
 
       {actions}
+      {doubanOpen && canBindDouban && <DoubanBindingDialog key={media.metadata_id} media={media} onClose={() => setDoubanOpen(false)} onBound={onDoubanBound ?? (() => undefined)} />}
       <Details {...(scope ? { className: 'space-y-4 text-[var(--app-subtle)]' } : {})}>
       {media.overview && (
         <motion.div {...rise(0.16)} className={scope ? 'space-y-2.5' : 'glass-panel !rounded-2xl !p-5 sm:!p-6 space-y-2.5'}>
@@ -241,7 +246,7 @@ function ProviderBadge({ href, onClick, label, iconSrc, status }: { href?: strin
   const title = `${label}：${statusLabel}` + (missingEpisode ? '；已按本地季集号入库，可能尚未收录或分集编号不同，也可能尚未完成补全' : '')
   if (!href) {
     if (!onClick) return <span title={title} aria-label={title} className={className}>{content}</span>
-    return <button type="button" onClick={onClick} title={`${title}，点击设置豆瓣 ID`} aria-label={`${title}，点击设置豆瓣 ID`} className={className}>{content}</button>
+    return <button type="button" onClick={onClick} title={`${title}，点击搜索并绑定豆瓣`} aria-label={`${title}，点击搜索并绑定豆瓣`} className={className}>{content}</button>
   }
   return (
     <a

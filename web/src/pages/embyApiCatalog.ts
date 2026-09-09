@@ -531,6 +531,7 @@ export const EMBY_API_ENDPOINTS: readonly EmbyApiEndpoint[] = [
       { name: 'ParentId', location: 'query', type: 'string', description: '限制到指定媒体库。' },
       { name: 'Limit', location: 'query', type: 'number', description: '返回数量，默认 20，最大 100。' },
       { name: 'IsPlayed', location: 'query', type: 'boolean', description: '默认 false；true 只返回已播放完成作品，false 只返回未播放完成作品。' },
+      { name: 'Fields', location: 'query', type: 'string', description: '逗号分隔的附加字段；指定时按需加载 People、ProviderIds、MediaSources（或 MediaStreams）。未指定时保留默认完整字段。' },
     ],
     responses: [{ status: '200', contentType: 'application/json', description: '媒体项数组，不使用分页 envelope。', fields: itemFields, example: `[{ "Id": "media-42", "Name": "示例影片", "Type": "Movie" }]` }],
   },

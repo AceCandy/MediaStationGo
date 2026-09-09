@@ -298,14 +298,14 @@ COALESCE(mps.payload::text, '') AS snapshot_payload`).
 	return rows, err
 }
 
-// ListTMDbArtworkRecheckMetadataAfter 返回已完成过图片处理且仍有缺图状态的元数据。
+// ListTMDbArtworkRecheckMetadataAfter 只返回已完成过图片处理且仍有缺图状态的电影与整剧。
 func (r *ArtworkRepository) ListTMDbArtworkRecheckMetadataAfter(ctx context.Context, afterID string, limit int) ([]TMDbArtworkRecheckCandidate, error) {
 	if limit <= 0 {
 		limit = 200
 	}
 	limit = min(limit, 1000)
 	q := r.db.WithContext(ctx).Table("metadata_items AS mi").
-		Where("mi.kind IN ?", []string{model.MetadataKindMovie, model.MetadataKindSeries, model.MetadataKindSeason}).
+		Where("mi.kind IN ?", []string{model.MetadataKindMovie, model.MetadataKindSeries}).
 		Where(tmdbArtworkRecheckHasMediaSQL).
 		Where("mi.catalog_artwork_hydrated_at IS NOT NULL OR EXISTS (SELECT 1 FROM metadata_artwork_rechecks mar WHERE mar.metadata_id = mi.id)").
 		Where("EXISTS (SELECT 1 FROM metadata_identifiers mid WHERE mid.metadata_id = mi.id AND mid.provider = 'tmdb' AND mid.entity_kind = mi.kind AND btrim(mid.external_id) <> '')").

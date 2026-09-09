@@ -20,6 +20,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/ShukeBta/MediaStationGo/internal/config"
+	"github.com/ShukeBta/MediaStationGo/internal/database"
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 	"github.com/ShukeBta/MediaStationGo/internal/repository"
 )
@@ -133,6 +134,12 @@ func TestTMDbEpisodeRecheckUpdatesReleaseDateAndDetectsCandidates(t *testing.T) 
 
 func TestTMDbMetadataRecheckRepairsSeasonsAndEpisodes(t *testing.T) {
 	db := newServiceTestDB(t, &model.Media{}, &model.MetadataProviderSnapshot{}, &model.Person{}, &model.PersonIdentifier{}, &model.MetadataCredit{})
+	if err := db.AutoMigrate(&model.TMDbRecheckJob{}, &model.TMDbRecheckChange{}, &model.TMDbRecheckScan{}, &model.TMDbRecheckAssetChange{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.EnsureTMDbRecheckTriggers(db); err != nil {
+		t.Fatal(err)
+	}
 	repos := repository.New(db)
 	series := createServiceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindSeries, Title: "Series", Source: "tmdb"},
 		model.MetadataIdentifier{Provider: "tmdb", EntityKind: model.MetadataKindSeries, ExternalID: "42"})
@@ -195,7 +202,7 @@ func TestTMDbMetadataRecheckRepairsSeasonsAndEpisodes(t *testing.T) {
 			return
 		}
 		if number == 2 && mode.Load() == 0 {
-			http.NotFound(w, r)
+			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
 		returnedNumber := number
@@ -224,6 +231,7 @@ func TestTMDbMetadataRecheckRepairsSeasonsAndEpisodes(t *testing.T) {
 	})}
 	s.SetArtworkStore(NewArtworkStore(cfg, repos.Artwork, images))
 	s.tasks = NewTaskTrackerService(nil, nil)
+	s.tasks.ConfigurePersistence(nil, t.TempDir())
 	if err := s.runTMDbEpisodeMetadataRecheck(t.Context(), TaskTriggerManual); err == nil {
 		t.Fatal("one failed season must make the task fail")
 	}
@@ -231,6 +239,18 @@ func TestTMDbMetadataRecheckRepairsSeasonsAndEpisodes(t *testing.T) {
 		t.Fatalf("requests=%d images=%d; want three seasons, one episode and one missing poster", requests.Load(), imageRequests.Load())
 	}
 	metrics := s.tasks.Snapshot().Recent[0].Metrics
+	if metrics["scan_files"] == 0 || metrics["change_batches"] == 0 {
+		t.Fatalf("initialization progress missing: %v", metrics)
+	}
+	progressLog, err := s.tasks.ReadDefinitionLog("tmdb_episode_metadata_recheck", "", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, message := range []string{"图片资产归并完成", "文件核对结束，本次", "季集变更归并完成", "开始领取到期待办", "到期待办处理结束", "耗时"} {
+		if !strings.Contains(progressLog.Content, message) {
+			t.Fatalf("progress missing %q: %s", message, progressLog.Content)
+		}
+	}
 	if metrics["season_checked"] != 2 || metrics["episode_checked"] != 1 || metrics["failed"] != 1 {
 		t.Fatalf("task metrics = %v", metrics)
 	}
@@ -269,9 +289,15 @@ func TestTMDbMetadataRecheckRepairsSeasonsAndEpisodes(t *testing.T) {
 	}
 	failedSeason, err := repos.Metadata.FindByID(t.Context(), seasons[2].ID)
 	if err != nil || failedSeason.TMDbSeasonCheckedAt != nil {
-		t.Fatal("404 advanced season cooldown", err)
+		t.Fatal("failed request advanced season cooldown", err)
 	}
 	mode.Store(1)
+	if err := s.runTMDbEpisodeMetadataRecheck(t.Context(), TaskTriggerScheduled); err != nil || requests.Load() != 4 {
+		t.Fatalf("retry backoff bypassed: %d %v", requests.Load(), err)
+	}
+	if err := db.Model(&model.TMDbRecheckJob{}).Where("metadata_id=?", seasons[2].ID).Update("due_at", time.Now().Add(-time.Minute)).Error; err != nil {
+		t.Fatal(err)
+	}
 	if err := s.runTMDbEpisodeMetadataRecheck(t.Context(), TaskTriggerScheduled); err != nil || requests.Load() != 5 {
 		t.Fatalf("retry must request only the failed season: requests=%d, err=%v", requests.Load(), err)
 	}

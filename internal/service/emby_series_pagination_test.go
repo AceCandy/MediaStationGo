@@ -76,6 +76,11 @@ func TestEmbySeriesPaginationDoesNotProbeFilesForWholeCatalog(t *testing.T) {
 	if len(queries) != 2 {
 		t.Fatalf("count/page queries = %d", len(queries))
 	}
+	for _, query := range queries {
+		if !strings.Contains(query, "WITH scoped_media AS MATERIALIZED") || strings.Contains(query, "JOIN LATERAL") {
+			t.Fatalf("series pagination must materialize visible files before parent joins: %s", query)
+		}
+	}
 	if len(reads.playedQueries) != 1 {
 		t.Fatalf("played summary queries = %d, want one per page", len(reads.playedQueries))
 	}
@@ -116,6 +121,16 @@ func TestEmbySeriesPaginationDoesNotProbeFilesForWholeCatalog(t *testing.T) {
 		}
 		check(plans[0].Plan)
 	}
+	for _, sortBy := range []string{"SortName", "DateCreated", "PremiereDate"} {
+		p.SortBy, p.SortOrder, p.StartIndex = sortBy, "Ascending", 1
+		result, err = svc.Items(t.Context(), p)
+		if err != nil || result["TotalRecordCount"] != 20 || len(result["Items"].([]map[string]any)) != 3 {
+			t.Fatalf("sort %s page changed: %#v, %v", sortBy, result, err)
+		}
+		if sortBy == "SortName" && result["Items"].([]map[string]any)[0]["Id"] != "series-2" {
+			t.Fatalf("name sorting or offset changed: %#v", result)
+		}
+	}
 	p.StartIndex = 20
 	result, err = svc.Items(t.Context(), p)
 	if err != nil || result["TotalRecordCount"] != 20 || len(result["Items"].([]map[string]any)) != 0 {
@@ -141,6 +156,32 @@ func TestEmbySeriesPaginationDoesNotProbeFilesForWholeCatalog(t *testing.T) {
 		expiresAt:  time.Now().Add(time.Minute),
 	}
 	p.UserID, p.ParentID, p.StartIndex = "page-user", "", 0
+	p.Filters = []string{"IsFavorite"}
+	reads.queries = nil
+	result, err = svc.Items(t.Context(), p)
+	if err != nil || result["TotalRecordCount"] != 1 || len(result["Items"].([]map[string]any)) != 1 || result["Items"].([]map[string]any)[0]["RecursiveItemCount"] != 99 {
+		t.Fatalf("favorite-only page changed: %#v, %v", result, err)
+	}
+	favoriteQueries := append([]string(nil), reads.queries...)
+	if len(favoriteQueries) != 2 {
+		t.Fatalf("favorite count/page queries = %d", len(favoriteQueries))
+	}
+	for _, query := range favoriteQueries {
+		if !strings.Contains(query, "WITH scoped_media AS NOT MATERIALIZED") {
+			t.Fatalf("favorite filter cannot be pushed into file scope: %s", query)
+		}
+	}
+	p.StartIndex = 1
+	result, err = svc.Items(t.Context(), p)
+	if err != nil || result["TotalRecordCount"] != 1 || len(result["Items"].([]map[string]any)) != 0 {
+		t.Fatalf("favorite empty page changed: %#v, %v", result, err)
+	}
+	p.StartIndex, p.UserID = 0, "other-user"
+	result, err = svc.Items(t.Context(), p)
+	if err != nil || result["TotalRecordCount"] != 0 || len(result["Items"].([]map[string]any)) != 0 {
+		t.Fatalf("favorites leaked between users: %#v, %v", result, err)
+	}
+	p.UserID = "page-user"
 	p.PersonIDs, p.Filters = []string{"page-person"}, []string{"IsFavorite"}
 	result, err = svc.Items(t.Context(), p)
 	if err != nil {

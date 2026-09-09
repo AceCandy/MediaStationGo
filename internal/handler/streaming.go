@@ -22,7 +22,7 @@ func scrapeIssuesHandler(svc *service.Container) gin.HandlerFunc {
 		page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 		pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "30"))
 		statuses := strings.Split(c.DefaultQuery("status", "error,no_match"), ",")
-		result, err := svc.Media.ListScrapeIssues(c.Request.Context(), c.Query("library_id"), statuses, page, pageSize)
+		result, err := svc.Media.ListScrapeIssues(c.Request.Context(), c.Query("library_id"), c.Query("keyword"), statuses, page, pageSize)
 		if errors.Is(err, service.ErrInvalidScrapeIssueStatus) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "status must be error or no_match"})
 			return

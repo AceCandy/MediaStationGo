@@ -79,7 +79,7 @@ export function LibrarySeriesDetailHeader({ series, allEpisodes, history, playba
         <div className="mt-5 flex items-start gap-4 sm:gap-8 lg:gap-12">
           {data && <div className="w-20 shrink-0 sm:w-36 md:w-48 lg:w-56"><MediaDetailPoster media={data.series} playable={false} /></div>}
           <div className="min-w-0 flex-1 space-y-4">
-            {data ? <MediaDetailMetadata media={data.series} scope="series" isAdmin={isAdmin} favourite={data.favourite} onToggleFavourite={toggleFavourite} onMetadataEdit={onMetadataEdit} actions={actions} /> : (
+            {data ? <MediaDetailMetadata media={data.series} scope="series" isAdmin={isAdmin} favourite={data.favourite} onToggleFavourite={toggleFavourite} onMetadataEdit={onMetadataEdit} onDoubanBound={async () => { setData(await mediaAPI.series(series.rep.id)) }} actions={actions} /> : (
               <><h1 className="font-display text-3xl font-bold text-[var(--app-text)]">{seriesTitle(series.rep)}</h1><p role="status" className="text-sm text-[var(--app-muted)]">{failed ? '整剧信息暂不可用，仍可在下方选集。' : '正在加载整剧信息…'}</p>{failed && <button className="btn-outline" onClick={() => setRevision((value) => value + 1)}>重试整剧信息</button>}</>
             )}
             {!data && actions}

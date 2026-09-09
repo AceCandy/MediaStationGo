@@ -250,14 +250,16 @@ func TestArtworkRecheckExcludesMetadataWithoutMedia(t *testing.T) {
 	now := time.Now().UTC()
 	withoutMedia := model.MetadataItem{PermanentBase: model.PermanentBase{ID: "00000000-0000-0000-0000-000000000001"}, Kind: model.MetadataKindMovie, Title: "Without media", Source: "tmdb", CatalogArtworkHydratedAt: &now}
 	series := model.MetadataItem{PermanentBase: model.PermanentBase{ID: "00000000-0000-0000-0000-000000000002"}, Kind: model.MetadataKindSeries, Title: "With episode media", Source: "tmdb", CatalogArtworkHydratedAt: &now}
-	season := model.MetadataItem{PermanentBase: model.PermanentBase{ID: "00000000-0000-0000-0000-000000000003"}, Kind: model.MetadataKindSeason, ParentID: &series.ID, SeasonNum: 1, Title: "Season 1", Source: "tmdb"}
-	episode := model.MetadataItem{PermanentBase: model.PermanentBase{ID: "00000000-0000-0000-0000-000000000004"}, Kind: model.MetadataKindEpisode, ParentID: &season.ID, EpisodeNum: 1, Title: "Episode 1", Source: "tmdb"}
+	season := model.MetadataItem{PermanentBase: model.PermanentBase{ID: "00000000-0000-0000-0000-000000000003"}, Kind: model.MetadataKindSeason, ParentID: &series.ID, SeasonNum: 1, Title: "Season 1", Source: "tmdb", CatalogArtworkHydratedAt: &now}
+	episode := model.MetadataItem{PermanentBase: model.PermanentBase{ID: "00000000-0000-0000-0000-000000000004"}, Kind: model.MetadataKindEpisode, ParentID: &season.ID, EpisodeNum: 1, Title: "Episode 1", Source: "tmdb", CatalogArtworkHydratedAt: &now}
 	if err := db.Create(&[]model.MetadataItem{withoutMedia, series, season, episode}).Error; err != nil {
 		t.Fatal(err)
 	}
 	identifiers := []model.MetadataIdentifier{
 		{MetadataID: withoutMedia.ID, Provider: "tmdb", EntityKind: model.MetadataKindMovie, ExternalID: "1"},
 		{MetadataID: series.ID, Provider: "tmdb", EntityKind: model.MetadataKindSeries, ExternalID: "2"},
+		{MetadataID: season.ID, Provider: "tmdb", EntityKind: model.MetadataKindSeason, ExternalID: "3"},
+		{MetadataID: episode.ID, Provider: "tmdb", EntityKind: model.MetadataKindEpisode, ExternalID: "4"},
 	}
 	if err := db.Create(&identifiers).Error; err != nil {
 		t.Fatal(err)
@@ -266,6 +268,12 @@ func TestArtworkRecheckExcludesMetadataWithoutMedia(t *testing.T) {
 		t.Fatal(err)
 	}
 	repo := New(db).Artwork
+	// 历史无图记录和图片检查点都不能让季、集重新进入作品级复查。
+	for metadataID, artworkType := range map[string]string{season.ID: model.ArtworkTypePoster, episode.ID: model.ArtworkTypeStill} {
+		if err := repo.UpsertArtworkRecheck(t.Context(), metadataID, artworkType, now); err != nil {
+			t.Fatal(err)
+		}
+	}
 	first, err := repo.ListTMDbArtworkRecheckMetadataAfter(t.Context(), "", 1)
 	if err != nil {
 		t.Fatal(err)

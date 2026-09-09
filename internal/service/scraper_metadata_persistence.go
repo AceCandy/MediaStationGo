@@ -257,6 +257,10 @@ func (s *ScraperService) persistCredits(ctx context.Context, metadataID string, 
 	if s == nil || s.repo == nil || s.repo.Person == nil || len(loaded) == 0 {
 		return nil
 	}
+	return s.saveCreditInputs(ctx, metadataID, loaded, s.prepareCreditInputs(ctx, credits, refreshImages...))
+}
+
+func (s *ScraperService) prepareCreditInputs(ctx context.Context, credits []PersonCredit, refreshImages ...bool) []repository.CreditInput {
 	inputs := make([]repository.CreditInput, 0, len(credits))
 	for _, credit := range credits {
 		input := repository.CreditInput{Provider: credit.Provider, ExternalID: credit.ExternalID, Name: credit.Name, Overview: credit.Overview, ProfileURL: credit.ProfileURL, Type: credit.Type, OriginalRole: credit.OriginalRole, SortOrder: credit.SortOrder}
@@ -274,6 +278,13 @@ func (s *ScraperService) persistCredits(ctx context.Context, metadataID string, 
 			}
 		}
 		inputs = append(inputs, input)
+	}
+	return inputs
+}
+
+func (s *ScraperService) saveCreditInputs(ctx context.Context, metadataID string, loaded []string, inputs []repository.CreditInput) error {
+	if len(loaded) == 0 {
+		return nil
 	}
 	if err := s.repo.Person.ReplaceCredits(ctx, metadataID, loaded, inputs); err != nil {
 		return err

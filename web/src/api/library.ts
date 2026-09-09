@@ -259,11 +259,12 @@ export const mediaAPI = {
       data: { delete_parent: deleteParent },
     }).then((r) => r.data),
 
-  listScrapeIssues: (options: { libraryID?: string; status?: 'error' | 'no_match'; page?: number; pageSize?: number }) =>
+  listScrapeIssues: (options: { libraryID?: string; status?: 'error' | 'no_match'; keyword?: string; page?: number; pageSize?: number }) =>
     api.get<MediaScrapeIssuePage>('/media/scrape-issues', {
       params: {
         library_id: options.libraryID || undefined,
         status: options.status || undefined,
+        keyword: options.keyword || undefined,
         page: options.page ?? 1,
         page_size: options.pageSize ?? 30,
       },
@@ -273,6 +274,12 @@ export const mediaAPI = {
 
   enrichDouban: (id: string) =>
     api.post<{ status: 'complete' | 'degraded' }>(`/media/${id}/douban-enrichment`, null, { timeout: LONG_REQUEST_TIMEOUT }).then((r) => r.data),
+
+  searchDoubanBinding: (metadataID: string, query: string, signal?: AbortSignal) =>
+    api.get<{ items: ManualScrapeCandidate[] }>(`/metadata/${metadataID}/douban/search`, { params: { query }, signal, timeout: LONG_REQUEST_TIMEOUT }).then((r) => r.data.items),
+
+  bindDouban: (metadataID: string, payload: { douban_id: string; media_type: string; force: boolean }) =>
+    api.post<{ status: 'complete' | 'degraded' }>(`/metadata/${metadataID}/douban/bind`, payload, { timeout: LONG_REQUEST_TIMEOUT }).then((r) => r.data),
 
   delete: (id: string) => api.delete(`/media/${id}`).then((r) => r.data),
 

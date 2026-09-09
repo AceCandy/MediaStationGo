@@ -44,7 +44,6 @@ func (s *ScraperService) translatePendingPeople(ctx context.Context, trigger str
 	if len(groups) == 0 {
 		return nil
 	}
-	groups = groups[:min(len(groups), peopleTranslationPassLimit)]
 	if s.tasks == nil {
 		return fmt.Errorf("task tracker unavailable")
 	}
@@ -71,19 +70,13 @@ func (s *ScraperService) translatePendingPeople(ctx context.Context, trigger str
 }
 
 func (s *ScraperService) pendingPeopleTranslationGroups(ctx context.Context) ([]*pendingPeopleTranslation, error) {
-	people, err := s.repo.Person.ListPendingPeopleTranslations(ctx)
-	if err != nil {
-		return nil, err
-	}
-	roles, err := s.repo.Person.ListPendingRoleTranslations(ctx)
+	people, err := s.repo.Person.ListPendingPeopleTranslations(ctx, peopleTranslationTargetLanguage, peopleTranslationPromptVersion, peopleTranslationPassLimit)
 	if err != nil {
 		return nil, err
 	}
 	personIDs := make([]string, 0, len(people))
 	for _, person := range people {
-		if !containsChinese(person.OriginalName) {
-			personIDs = append(personIDs, person.ID)
-		}
+		personIDs = append(personIDs, person.ID)
 	}
 	works, err := s.repo.Person.ListPersonWorkContexts(ctx, personIDs)
 	if err != nil {
@@ -91,12 +84,15 @@ func (s *ScraperService) pendingPeopleTranslationGroups(ctx context.Context) ([]
 	}
 	knownFor := personKnownFor(works)
 
-	groups := make([]*pendingPeopleTranslation, 0, len(personIDs)+len(roles))
+	groups := make([]*pendingPeopleTranslation, 0, peopleTranslationPassLimit)
 	byCacheKey := make(map[string]*pendingPeopleTranslation)
 	add := func(lookup repository.TranslationCacheLookup, entry AITranslationEntry, target repository.TranslationTarget) {
 		cacheKey := translationCacheKey(lookup)
 		if existing := byCacheKey[cacheKey]; existing != nil {
 			existing.targets = append(existing.targets, target)
+			return
+		}
+		if len(groups) == peopleTranslationPassLimit {
 			return
 		}
 		entry.Key = fmt.Sprintf("translation:%d", len(groups))
@@ -105,54 +101,36 @@ func (s *ScraperService) pendingPeopleTranslationGroups(ctx context.Context) ([]
 		groups = append(groups, group)
 	}
 	for _, person := range people {
-		if person.OriginalName == "" || containsChinese(person.OriginalName) {
-			continue
-		}
 		add(newTranslationCacheLookup("person_name", person.ID, person.OriginalName), AITranslationEntry{
 			Kind: "person_name", Text: person.OriginalName,
 			Context: &AITranslationContext{KnownFor: knownFor[person.ID]},
 		}, repository.TranslationTarget{Kind: "person_name", ID: person.ID, OriginalText: person.OriginalName})
 	}
-	for _, role := range roles {
-		if role.OriginalRole == "" || containsChinese(role.OriginalRole) {
-			continue
-		}
-		contextKey := role.MetadataID
-		if role.Metadata.Kind == model.MetadataKindEpisode && role.Metadata.ParentID != nil {
-			contextKey = *role.Metadata.ParentID
-		}
-		add(newTranslationCacheLookup("role", contextKey, role.OriginalRole), AITranslationEntry{
-			Kind: "role", Text: role.OriginalRole,
-			Context: &AITranslationContext{Title: role.Metadata.Title, OriginalTitle: role.Metadata.OriginalName, Year: role.Metadata.Year, MediaKind: role.Metadata.Kind},
-		}, repository.TranslationTarget{Kind: "role", ID: role.ID, OriginalText: role.OriginalRole})
-	}
-	if len(groups) == 0 {
+	if len(groups) == peopleTranslationPassLimit {
 		return groups, nil
 	}
-	lookups := make([]repository.TranslationCacheLookup, 0, len(groups))
-	for _, group := range groups {
-		lookups = append(lookups, group.lookup)
-	}
-	cachedRows, err := s.repo.Person.ListTranslationCaches(ctx, lookups)
-	if err != nil {
-		return nil, err
-	}
-	negative := make(map[string]struct{})
-	for _, row := range cachedRows {
-		if !containsChinese(row.TranslatedText) {
-			negative[translationCacheKey(cacheLookup(row))] = struct{}{}
+	afterMetadataID, afterID := "", ""
+	for {
+		roles, err := s.repo.Person.ListPendingRoleTranslations(ctx, peopleTranslationTargetLanguage, peopleTranslationPromptVersion, afterMetadataID, afterID, peopleTranslationBatchSize)
+		if err != nil {
+			return nil, err
+		}
+		for _, role := range roles {
+			contextKey := role.MetadataID
+			if role.Metadata.Kind == model.MetadataKindEpisode && role.Metadata.ParentID != nil {
+				contextKey = *role.Metadata.ParentID
+			}
+			add(newTranslationCacheLookup("role", contextKey, role.OriginalRole), AITranslationEntry{
+				Kind: "role", Text: role.OriginalRole,
+				Context: &AITranslationContext{Title: role.Metadata.Title, OriginalTitle: role.Metadata.OriginalName, Year: role.Metadata.Year, MediaKind: role.Metadata.Kind},
+			}, repository.TranslationTarget{Kind: "role", ID: role.ID, OriginalText: role.OriginalRole})
+			afterMetadataID, afterID = role.MetadataID, role.ID
+		}
+		// ponytail: 仍遍历有效角色页以收齐已选组；有效候选规模增长时按选中上下文定向补取。
+		if len(roles) < peopleTranslationBatchSize {
+			return groups, nil
 		}
 	}
-	if len(negative) == 0 {
-		return groups, nil
-	}
-	pending := groups[:0]
-	for _, group := range groups {
-		if _, found := negative[translationCacheKey(group.lookup)]; !found {
-			pending = append(pending, group)
-		}
-	}
-	return pending, nil
 }
 
 func (s *ScraperService) translatePeopleWindow(ctx context.Context, groups []*pendingPeopleTranslation) (int, []string, error) {

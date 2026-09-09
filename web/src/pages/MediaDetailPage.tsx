@@ -62,6 +62,7 @@ export function MediaDetailPage() {
             onTMDbRefresh={detail.refreshTMDb}
             tmdbRefreshPending={detail.tmdbRefreshPending}
             onDoubanEnrich={detail.enrichDouban}
+            onDoubanBound={() => detail.handleMetadataSaved(media)}
             doubanEnrichmentPending={detail.doubanEnrichmentPending}
             onMetadataEdit={() => detail.setMetadataEditOpen(true)}
             onProbe={detail.reprobe}

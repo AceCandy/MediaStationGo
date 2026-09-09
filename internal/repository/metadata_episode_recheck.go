@@ -91,9 +91,13 @@ func (r *MetadataRepository) ListTMDbSeasonMetadataRecheckAfter(ctx context.Cont
 	q := r.db.WithContext(ctx).Table("metadata_items AS season").
 		Joins("JOIN metadata_items AS series ON series.id = season.parent_id AND series.kind = ?", model.MetadataKindSeries).
 		Where("season.kind = ?", model.MetadataKindSeason).
-		Where(`EXISTS (SELECT 1 FROM media m WHERE m.metadata_id = season.id)
-OR EXISTS (SELECT 1 FROM metadata_items episode JOIN media m ON m.metadata_id = episode.id
- WHERE episode.parent_id = season.id AND episode.kind = 'episode')`).
+		// 集合只构建一次；媒体投影阻止重新退化为逐集文件索引探测。
+		Where(`season.id IN (
+SELECT m.metadata_id FROM media m
+UNION
+SELECT episode.parent_id FROM (SELECT metadata_id FROM media OFFSET 0) m
+JOIN metadata_items episode ON episode.id = m.metadata_id AND episode.kind = 'episode'
+)`).
 		Where("season.tmdb_season_checked_at IS NULL OR season.tmdb_season_checked_at < ?", checkedBefore).
 		Where(`(COALESCE(btrim(season.overview), '') = '' OR COALESCE(btrim(season.release_date), '') = ''
 OR NOT EXISTS (SELECT 1 FROM metadata_artworks ma JOIN artwork_assets aa ON aa.id = ma.asset_id WHERE ma.metadata_id = season.id AND ma.artwork_type = 'poster')

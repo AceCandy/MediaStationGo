@@ -274,7 +274,7 @@ func TestNextCatalogAttemptAtHandlesEmptyAggregate(t *testing.T) {
 	assertNext(&earlier)
 }
 
-func TestListDoubanMovieEnrichmentAfterRefreshesOnlyStaleIncompleteMovies(t *testing.T) {
+func TestListDoubanMovieEnrichmentAfterRefreshesOnlyStaleIncompleteWorks(t *testing.T) {
 	db, err := testdb.OpenPostgres(t, &gorm.Config{})
 	if err != nil {
 		t.Fatal(err)
@@ -305,7 +305,7 @@ func TestListDoubanMovieEnrichmentAfterRefreshesOnlyStaleIncompleteMovies(t *tes
 			MetadataID: items[i].ID, Provider: "douban", EntityKind: items[i].Kind, ExternalID: fmt.Sprintf("%d00", i+1),
 		})
 	}
-	identifiers = append(identifiers, model.MetadataIdentifier{MetadataID: items[7].ID, Provider: "douban", EntityKind: model.MetadataKindMovie, ExternalID: "801"})
+	identifiers = append(identifiers, model.MetadataIdentifier{MetadataID: items[9].ID, Provider: "douban", EntityKind: model.MetadataKindMovie, ExternalID: "801"})
 	if err := db.Create(&identifiers).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -341,7 +341,7 @@ func TestListDoubanMovieEnrichmentAfterRefreshesOnlyStaleIncompleteMovies(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantIDs := []string{items[0].ID, items[3].ID, items[4].ID, items[5].ID, items[6].ID, items[7].ID}
+	wantIDs := []string{items[0].ID, items[3].ID, items[4].ID, items[5].ID, items[6].ID, items[7].ID, items[8].ID}
 	if len(candidates) != len(wantIDs) {
 		t.Fatalf("douban enrichment candidates = %#v", candidates)
 	}

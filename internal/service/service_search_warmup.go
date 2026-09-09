@@ -21,15 +21,14 @@ func (c *Container) warmMediaSearchIndex(ctx context.Context) {
 		}
 		return
 	}
-	// 错峰：FTS 正常由 media 表触发器实时维护，回填只是升级或异常后的
-	// 兜底。先让登录、首页等关键路径跑起来，再开始后台补索引。
+	// 先让登录、首页等关键路径跑起来，再分批重建外部搜索索引。
 	select {
 	case <-ctx.Done():
 		return
 	case <-time.After(mediaSearchWarmupDelay(ctx, c.Repo)):
 	}
 	batchSize := mediaSearchWarmupBatchSize(ctx, c.Repo)
-	total, err := c.Repo.MediaView.BackfillSearchIndex(ctx, batchSize)
+	total, err := c.Repo.MediaView.BackfillSearchIndex(ctx, batchSize, mediaSearchWarmupPause(ctx, c.Repo))
 	if err != nil {
 		c.Log.Debug("metadata search index warmup stopped", zap.Error(err))
 		return
