@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/ShukeBta/MediaStationGo/internal/model"
+	"github.com/ShukeBta/MediaStationGo/internal/repository"
 )
 
 var mediaPartPatterns = []*regexp.Regexp{
@@ -105,10 +106,18 @@ func activeMediaPartCandidate(libraryID, path string) (mediaPartCandidate, strin
 // reconcileMediaParts 根据扫描后的真实文件集合写入或清除 multipart 关系。
 func (s *ScannerService) reconcileMediaParts(ctx context.Context, libraryID, directory string) ([]string, error) {
 	var rows []model.Media
-	if err := s.repo.DB.WithContext(ctx).Where("library_id = ? AND path NOT LIKE ?", libraryID, "cloud://%").Find(&rows).Error; err != nil {
+	query := s.repo.DB.WithContext(ctx).
+		Select("id", "path", "part_group_key", "part_index", "local_metadata_hint", "scan_title", "scan_year", "scrape_status").
+		Where("library_id = ? AND path NOT LIKE ?", libraryID, "cloud://%")
+	directory = filepath.Clean(strings.TrimSpace(directory))
+	if directory != "." {
+		// SQL 先缩小目录候选，保留下面的路径判断及其大小写兼容行为。
+		prefix := strings.TrimRight(directory, string(filepath.Separator)) + string(filepath.Separator)
+		query = query.Where(`path ILIKE ? ESCAPE '\'`, repository.EscapeLike(prefix)+"%")
+	}
+	if err := query.Find(&rows).Error; err != nil {
 		return nil, err
 	}
-	directory = filepath.Clean(strings.TrimSpace(directory))
 	if directory != "" && directory != "." {
 		filtered := rows[:0]
 		for _, row := range rows {

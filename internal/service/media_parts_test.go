@@ -3,8 +3,11 @@ package service
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
+
+	"gorm.io/gorm"
 
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 	"github.com/ShukeBta/MediaStationGo/internal/repository"
@@ -90,6 +93,76 @@ func TestScannerReconcilesMediaPartsAndRestoresSingleton(t *testing.T) {
 	}
 	if first.Title == "Movie" {
 		t.Fatalf("remaining singleton title was not restored: %q", first.Title)
+	}
+}
+
+func TestReconcileMediaPartsQueryScope(t *testing.T) {
+	for _, directory := range []string{"", "/", `/Media/100%_done\set`, `/media/100%_done\set`} {
+		t.Run(directory, func(t *testing.T) {
+			scanner, repos := newScannerTestEnv(t)
+			library := model.Library{Name: "Parts", Path: "/", Enabled: true}
+			if err := repos.Library.Create(t.Context(), &library); err != nil {
+				t.Fatal(err)
+			}
+			paths := []string{
+				`/Media/100%_done\set/Movie-part1.mkv`,
+				`/Media/100%_done\set/Movie-part2.mkv`,
+				`/Media/100%_done\set/Nested/Movie-part1.mkv`,
+				`/Media/100%_done\set/Nested/Movie-part2.mkv`,
+				`/Media/100XXdone\set/Unrelated.mkv`,
+				`/Media/100%_done\set-extra/Unrelated.mkv`,
+				`cloud://remote/Unrelated.mkv`,
+			}
+			for _, path := range paths {
+				row := model.Media{LibraryID: library.ID, Path: path, Title: "Old", Year: 1999, ScrapeStatus: "no_match"}
+				if err := repos.DB.Create(&row).Error; err != nil {
+					t.Fatal(err)
+				}
+			}
+			var selected int64
+			var statement string
+			if err := repos.DB.Callback().Query().After("gorm:query").Register("test:parts-query", func(tx *gorm.DB) {
+				if tx.Statement.Table == "media" && strings.Contains(tx.Statement.SQL.String(), "path NOT LIKE") {
+					selected = tx.RowsAffected
+					statement = tx.Statement.SQL.String()
+				}
+			}); err != nil {
+				t.Fatal(err)
+			}
+			changed, err := scanner.reconcileMediaParts(t.Context(), library.ID, directory)
+			if err != nil {
+				t.Fatal(err)
+			}
+			wantSelected, wantChanged := int64(4), 4
+			if directory == "" || directory == "/" {
+				wantSelected = 6
+			}
+			if strings.HasPrefix(directory, "/media/") {
+				wantChanged = 2 // 原有判断兼容当前目录大小写，但不扩展到大小写不同的子目录。
+			}
+			if selected != wantSelected || len(changed) != wantChanged {
+				t.Fatalf("selected=%d changed=%d, want %d/%d", selected, len(changed), wantSelected, wantChanged)
+			}
+			if strings.Contains(statement, "SELECT *") || strings.Contains(statement, "strm_url") {
+				t.Fatalf("unexpected wide query: %s", statement)
+			}
+			for _, path := range changed {
+				row := loadMediaByPath(t, repos, path)
+				if row.PartGroupKey == "" || !strings.EqualFold(row.Title, "Movie") || row.Year != 0 || row.ScrapeStatus != "pending" {
+					t.Fatalf("incorrect part/title reconciliation for %s", path)
+				}
+			}
+			if err := repos.DB.Where("path = ?", paths[1]).Delete(&model.Media{}).Error; err != nil {
+				t.Fatal(err)
+			}
+			if _, err := scanner.reconcileMediaParts(t.Context(), library.ID, directory); err != nil {
+				t.Fatal(err)
+			}
+			remaining := loadMediaByPath(t, repos, paths[0])
+			if remaining.PartGroupKey != "" || remaining.PartIndex != 0 || strings.EqualFold(remaining.Title, "Movie") {
+				t.Fatal("remaining singleton kept its multipart relation or title")
+			}
+		})
 	}
 }
 
