@@ -18,5 +18,5 @@ export interface StorageBreakdown {
 }
 
 export const storageAPI = {
-  breakdown: () => api.get<StorageBreakdown>('/storage').then((r) => r.data),
+  breakdown: (signal?: AbortSignal) => api.get<StorageBreakdown>('/storage', { signal }).then((r) => r.data),
 }

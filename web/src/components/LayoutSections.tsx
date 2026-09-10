@@ -162,19 +162,17 @@ export function LayoutWorkspace({ routeKey }: LayoutWorkspaceProps) {
   return (
     <main id="main-content" tabIndex={-1} className="flex-1 overflow-y-auto px-4 py-6 md:px-8 md:py-8">
       <div className="mx-auto max-w-[1500px]">
-        <AnimatePresence initial={false}>
-          <motion.div
-            key={routeKey}
-            initial={{ opacity: 0, y: 14 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -8 }}
-            transition={{ duration: 0.15, ease: [0.21, 0.47, 0.32, 0.98] }}
-          >
-            <RouteErrorBoundary>
-              <Outlet />
-            </RouteErrorBoundary>
-          </motion.div>
-        </AnimatePresence>
+        {/* 旧 Outlet 会随路由更新，不保留退出中的容器，避免目标页重复挂载。 */}
+        <motion.div
+          key={routeKey}
+          initial={{ opacity: 0, y: 14 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.15, ease: [0.21, 0.47, 0.32, 0.98] }}
+        >
+          <RouteErrorBoundary>
+            <Outlet />
+          </RouteErrorBoundary>
+        </motion.div>
       </div>
     </main>
   )

@@ -30,8 +30,9 @@ export function StoragePage() {
 
   useEffect(() => {
     let cancelled = false
+    const controller = new AbortController()
     storageAPI
-      .breakdown()
+      .breakdown(controller.signal)
       .then((breakdown) => {
         if (!cancelled) setData(breakdown)
       })
@@ -43,6 +44,7 @@ export function StoragePage() {
       })
     return () => {
       cancelled = true
+      controller.abort()
     }
   }, [])
 
