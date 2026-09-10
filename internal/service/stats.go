@@ -70,7 +70,7 @@ func (s *StatsService) Compute(ctx context.Context, dataDir string) (*Snapshot, 
 		var cached Snapshot
 		if s.cache.GetJSON(ctx, cacheKey, &cached) {
 			cached.GeneratedAt = time.Now()
-			cached.Hardware = readHardware(dataDir)
+			cached.Hardware = ReadHardware(dataDir)
 			return &cached, nil
 		}
 	}
@@ -129,11 +129,12 @@ func (s *StatsService) Compute(ctx context.Context, dataDir string) (*Snapshot, 
 		cacheCopy.Hardware = Hardware{}
 		s.cache.SetJSON(ctx, cacheKey, cacheCopy, 10*time.Second)
 	}
-	snap.Hardware = readHardware(dataDir)
+	snap.Hardware = ReadHardware(dataDir)
 	return snap, nil
 }
 
-func readHardware(dataDir string) Hardware {
+// ReadHardware 只读取主机指标，不查询媒体数据库或统计缓存。
+func ReadHardware(dataDir string) Hardware {
 	hw := Hardware{
 		GoVersion:  runtime.Version(),
 		Goroutines: runtime.NumGoroutine(),

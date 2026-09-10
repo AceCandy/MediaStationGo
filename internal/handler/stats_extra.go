@@ -169,11 +169,6 @@ func statsLibrariesHandler(svc *service.Container) gin.HandlerFunc {
 // the Hardware portion of the snapshot but with a snappy schema.
 func statsMonitorHandler(svc *service.Container) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		snap, err := svc.Stats.Compute(c.Request.Context(), svc.Cfg.App.DataDir)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-		c.JSON(http.StatusOK, snap.Hardware)
+		c.JSON(http.StatusOK, service.ReadHardware(svc.Cfg.App.DataDir))
 	}
 }

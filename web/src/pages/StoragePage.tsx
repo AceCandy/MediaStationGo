@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Clock, Database, HardDrive, Library } from 'lucide-react'
+import { HardDrive, Library } from 'lucide-react'
 
 import { storageAPI, type StorageBreakdown } from '../api/storage'
 import { statsAPI } from '../api/stats'
@@ -16,12 +16,6 @@ function fmtBytes(n: number): string {
     i++
   }
   return `${v.toFixed(2)} ${u[i]}`
-}
-
-function fmtHours(seconds: number): string {
-  if (!seconds) return '—'
-  const h = Math.floor(seconds / 3600)
-  return `${h.toLocaleString()} h`
 }
 
 // StoragePage combines storage breakdowns with live host metrics.
@@ -54,27 +48,6 @@ export function StoragePage() {
 
   useEffect(() => {
     let cancelled = false
-    statsAPI
-      .snapshot()
-      .then((snapshot) => {
-        if (!cancelled) {
-          setHardware(snapshot.hardware)
-          setLastMonitorAt(snapshot.generated_at)
-        }
-      })
-      .catch((err: unknown) => {
-        if (!cancelled) setMonitorError((err as { message?: string })?.message ?? '实时监控暂不可用')
-      })
-      .finally(() => {
-        if (!cancelled) setMonitorLoading(false)
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [])
-
-  useEffect(() => {
-    let cancelled = false
     const tick = () =>
       statsAPI
         .monitor()
@@ -88,6 +61,9 @@ export function StoragePage() {
         .catch((err: unknown) => {
           if (!cancelled) setMonitorError((err as { message?: string })?.message ?? '实时监控暂不可用')
         })
+        .finally(() => {
+          if (!cancelled) setMonitorLoading(false)
+        })
     tick()
     const id = window.setInterval(tick, 2_000)
     return () => {
@@ -97,7 +73,6 @@ export function StoragePage() {
   }, [])
 
   const totalBytes = data?.total_bytes || 1
-  const mediaCount = data?.by_library.reduce((total, library) => total + library.media_count, 0) ?? 0
   const memPct = hardware && hardware.memory_total > 0
     ? (hardware.memory_used / hardware.memory_total) * 100
     : 0
@@ -117,11 +92,9 @@ export function StoragePage() {
           <p className="text-red-500">{storageError || '无法获取存储数据'}</p>
         ) : (
           <>
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="grid gap-4 sm:grid-cols-2">
               <Tile icon={<HardDrive size={20} />} label="总占用" value={fmtBytes(data.total_bytes)} />
               <Tile icon={<Library size={20} />} label="媒体库" value={`${data.by_library.length}`} />
-              <Tile icon={<Database size={20} />} label="媒体总数" value={mediaCount.toLocaleString()} />
-              <Tile icon={<Clock size={20} />} label="累计时长" value={fmtHours(data.total_seconds)} />
             </div>
 
             <div className="space-y-3">
@@ -132,7 +105,10 @@ export function StoragePage() {
                     <tr>
                       <th className="py-2">名称</th>
                       <th>类型</th>
-                      <th>媒体数</th>
+                      <th>电影数</th>
+                      <th>剧数</th>
+                      <th>季数</th>
+                      <th>集数</th>
                       <th>占用</th>
                       <th>占比</th>
                     </tr>
@@ -144,7 +120,10 @@ export function StoragePage() {
                         <tr key={library.library_id} className="border-t border-gray-200">
                           <td className="py-2 text-ink-600">{library.name}</td>
                           <td className="text-ink-100">{library.type}</td>
-                          <td className="text-ink-100">{library.media_count}</td>
+                          <td className="text-ink-100">{library.movie_count}</td>
+                          <td className="text-ink-100">{library.series_count}</td>
+                          <td className="text-ink-100">{library.season_count}</td>
+                          <td className="text-ink-100">{library.episode_count}</td>
                           <td className="text-ink-100">{fmtBytes(library.total_bytes)}</td>
                           <td>
                             <div className="flex items-center gap-2">
@@ -162,20 +141,6 @@ export function StoragePage() {
               </div>
             </div>
 
-            <div className="space-y-3">
-              <h2 className="font-display text-xl font-semibold text-ink-600">按容器格式</h2>
-              <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3">
-                {data.by_container.map((container) => (
-                  <div key={container.container} className="glass-panel flex items-center justify-between !p-4">
-                    <div>
-                      <p className="text-xs uppercase tracking-wider text-sand-500">{container.container}</p>
-                      <p className="font-display text-lg font-semibold text-ink-600">{container.count} 项</p>
-                    </div>
-                    <p className="text-sm text-ink-100">{fmtBytes(container.bytes)}</p>
-                  </div>
-                ))}
-              </div>
-            </div>
           </>
         )}
       </section>
