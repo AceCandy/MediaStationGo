@@ -257,6 +257,13 @@ func (s *ScraperService) persistCredits(ctx context.Context, metadataID string, 
 	if s == nil || s.repo == nil || s.repo.Person == nil || len(loaded) == 0 {
 		return nil
 	}
+	item, err := s.repo.Metadata.FindByID(ctx, metadataID)
+	if err != nil {
+		return err
+	}
+	if item != nil && item.Kind == model.MetadataKindEpisode {
+		return nil
+	}
 	return s.saveCreditInputs(ctx, metadataID, loaded, s.prepareCreditInputs(ctx, credits, refreshImages...))
 }
 

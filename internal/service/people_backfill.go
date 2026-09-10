@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -80,7 +81,7 @@ func (s *ScraperService) pendingPeopleBackfillCandidates(ctx context.Context) ([
 	err := s.repo.DB.WithContext(ctx).Table("metadata_items AS mi").
 		Select("DISTINCT mi.id AS metadata_id, mi.kind, mid.external_id").
 		Joins("JOIN metadata_identifiers AS mid ON mid.metadata_id = mi.id AND mid.provider = ? AND mid.entity_kind = mi.kind", "tmdb").
-		Where("mi.kind IN ?", []string{model.MetadataKindMovie, model.MetadataKindSeries}).
+		Where("mi.kind IN ?", []string{model.MetadataKindMovie, model.MetadataKindSeries, model.MetadataKindSeason}).
 		Where("mi.source = ?", "tmdb").
 		Where("mi.people_hydrated_at IS NULL").
 		Where("NOT EXISTS (SELECT 1 FROM metadata_credits mc WHERE mc.metadata_id = mi.id)").
@@ -100,7 +101,15 @@ func (s *ScraperService) backfillPeopleCandidates(ctx context.Context, candidate
 		default:
 		}
 		tmdbID, parseErr := strconv.Atoi(strings.TrimSpace(candidate.ExternalID))
-		if parseErr != nil || tmdbID <= 0 {
+		if candidate.Kind == model.MetadataKindSeason {
+			if err := s.backfillSeasonPeople(ctx, candidate.MetadataID); err != nil {
+				result.Failed++
+				result.Details = append(result.Details, "❌ "+candidate.MetadataID+": "+sanitizeTaskLogError(err).Error())
+			} else {
+				result.Completed++
+				result.Details = append(result.Details, "✅ "+candidate.MetadataID+": 季演职员已补齐")
+			}
+		} else if parseErr != nil || tmdbID <= 0 {
 			result.Skipped++
 			result.Details = append(result.Details, fmt.Sprintf("⏭️ %s %s: 跳过无效 TMDB ID %q", candidate.Kind, candidate.MetadataID, candidate.ExternalID))
 		} else {
@@ -153,6 +162,59 @@ func (s *ScraperService) backfillPeopleCandidates(ctx context.Context, candidate
 		}
 	}
 	return result, nil
+}
+
+// backfillSeasonPeople 优先使用历史季快照，缺少季演职员时才请求该季。
+func (s *ScraperService) backfillSeasonPeople(ctx context.Context, metadataID string) error {
+	season, err := s.repo.Metadata.FindByID(ctx, metadataID)
+	if err != nil {
+		return err
+	}
+	if season == nil || season.Kind != model.MetadataKindSeason || season.ParentID == nil {
+		return ErrTMDbRefreshIdentity
+	}
+	seasonID, err := s.metadataTMDbRefreshID(ctx, season)
+	if err != nil {
+		return err
+	}
+	if snapshot, err := s.repo.Metadata.FindProviderSnapshot(ctx, metadataID, "tmdb"); err != nil {
+		return err
+	} else if snapshot != nil {
+		var fields map[string]json.RawMessage
+		var credits map[string]json.RawMessage
+		if json.Unmarshal([]byte(snapshot.Payload), &fields) == nil && json.Unmarshal(fields["credits"], &credits) == nil && credits["cast"] != nil && credits["crew"] != nil {
+			details, err := s.tmdb.parseTVSeasonDetails([]byte(snapshot.Payload))
+			if err != nil {
+				return err
+			}
+			if details.ID != seasonID || details.SeasonNumber != season.SeasonNum {
+				return ErrTMDbRefreshIdentity
+			}
+			return s.persistCredits(ctx, metadataID, details.LoadedCreditTypes, details.Credits)
+		}
+	}
+	series, err := s.repo.Metadata.FindByID(ctx, *season.ParentID)
+	if err != nil {
+		return err
+	}
+	if series == nil || series.Kind != model.MetadataKindSeries {
+		return ErrTMDbRefreshIdentity
+	}
+	seriesID, err := s.metadataTMDbRefreshID(ctx, series)
+	if err != nil {
+		return err
+	}
+	details, err := s.tmdb.GetTVSeasonDetails(ctx, seriesID, season.SeasonNum)
+	if err != nil {
+		return err
+	}
+	if details == nil || details.ID != seasonID || details.SeasonNumber != season.SeasonNum {
+		return ErrTMDbRefreshIdentity
+	}
+	if err := s.repo.Metadata.UpsertProviderSnapshot(ctx, metadataID, "tmdb", details.RawJSON, time.Now().UTC()); err != nil {
+		return err
+	}
+	return s.persistCredits(ctx, metadataID, details.LoadedCreditTypes, details.Credits)
 }
 
 // BackfillLibraryPeople 保留旧调用兼容，实际按全局缺失对象补齐。

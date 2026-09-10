@@ -54,7 +54,7 @@ func TestTMDbSnapshotBackfillCoversAllKindsAndPersistsAutomaticCompletion(t *tes
 		case "/tv/20":
 			_ = json.NewEncoder(w).Encode(map[string]any{"id": 20, "name": "Remote series", "future_field": true})
 		case "/tv/20/season/1":
-			_ = json.NewEncoder(w).Encode(map[string]any{"id": 30, "season_number": 1, "name": "Remote season", "future_field": true})
+			_ = json.NewEncoder(w).Encode(map[string]any{"id": 30, "season_number": 1, "name": "Remote season", "future_field": true, "episodes": []any{map[string]any{"id": 40, "season_number": 1, "episode_number": 1, "name": "单集标题", "overview": "单集简介", "future_field": true}}})
 		case "/tv/20/season/1/episode/1":
 			_ = json.NewEncoder(w).Encode(map[string]any{"id": 40, "name": "Remote episode", "future_field": true})
 		case "/movie/50":
@@ -88,15 +88,15 @@ func TestTMDbSnapshotBackfillCoversAllKindsAndPersistsAutomaticCompletion(t *tes
 			t.Fatalf("metadata fields changed for %s: %#v, err = %v", item.ID, stored, findErr)
 		}
 	}
-	if requests.Load() != 5 {
-		t.Fatalf("TMDB requests = %d, want 5", requests.Load())
+	if requests.Load() != 4 {
+		t.Fatalf("TMDB requests = %d, want 4", requests.Load())
 	}
 
 	second, err := scraper.BackfillTMDbSnapshots(t.Context(), nil)
 	if err != nil || second.Total != 1 || second.Processed != 1 || second.Failed != 1 {
 		t.Fatalf("second backfill = %#v, err = %v", second, err)
 	}
-	if requests.Load() != 6 {
+	if requests.Load() != 5 {
 		t.Fatalf("successful snapshots were requested again: requests=%d", requests.Load())
 	}
 

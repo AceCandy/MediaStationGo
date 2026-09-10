@@ -169,6 +169,9 @@ func (t *TMDbProvider) getJSONRaw(ctx context.Context, rawURL string, out any) (
 }
 
 func (t *TMDbProvider) getJSONAttempt(ctx context.Context, rawURL string, out any) ([]byte, time.Duration, error) {
+	if batch := tmdbSeasonBatchFromContext(ctx); batch != nil {
+		batch.requests.Add(1)
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {
 		return nil, -1, errors.New("invalid tmdb request")

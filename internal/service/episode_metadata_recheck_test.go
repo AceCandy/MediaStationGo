@@ -190,8 +190,8 @@ func TestTMDbMetadataRecheckRepairsSeasonsAndEpisodes(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests.Add(1)
 		w.Header().Set("Content-Type", "application/json")
-		if r.URL.Path == "/tv/42/season/3/episode/1" {
-			_, _ = io.WriteString(w, `{"id":901,"name":"补全的单集","overview":"新的集简介","air_date":"2026-09-07"}`)
+		if r.URL.Path == "/tv/42/season/3" {
+			_, _ = io.WriteString(w, `{"id":203,"season_number":3,"episodes":[{"id":901,"season_number":3,"episode_number":1,"name":"补全的单集","overview":"新的集简介","air_date":"2026-09-07"}]}`)
 			return
 		}
 		seasonNum := map[string]int{"/tv/42/season/0": 0, "/tv/42/season/1": 1, "/tv/42/season/2": 2}
@@ -212,7 +212,7 @@ func TestTMDbMetadataRecheckRepairsSeasonsAndEpisodes(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"id": 200 + number, "season_number": returnedNumber, "name": "补全的季", "overview": "",
 			"air_date": "2026-09-07", "vote_average": 8, "poster_path": "/poster.png",
-			"episodes": []any{map[string]any{"id": 999, "episode_number": 99, "name": "不能创建的目录集"}},
+			"episodes": []any{map[string]any{"id": 999, "season_number": number, "episode_number": 99, "name": "不能创建的目录集", "overview": "目录集简介"}},
 			"credits":  map[string]any{"cast": []any{map[string]any{"id": 101, "name": "季演员", "character": "角色"}}, "crew": []any{}},
 		})
 	}))

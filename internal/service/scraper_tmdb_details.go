@@ -77,6 +77,10 @@ func (s *ScraperService) fetchAndSaveTMDbSeasonSnapshot(ctx context.Context, epi
 	}
 	seasonID := *item.ParentID
 	if snapshot, findErr := s.repo.Metadata.FindProviderSnapshot(ctx, seasonID, "tmdb"); findErr == nil && snapshot != nil {
+		season, err := s.repo.Metadata.FindByID(ctx, seasonID)
+		if err == nil && season != nil && season.PeopleHydratedAt == nil {
+			return s.backfillSeasonPeople(ctx, seasonID) == nil
+		}
 		return false
 	}
 	seasonCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), tmdbDetailsTimeout)
@@ -88,10 +92,14 @@ func (s *ScraperService) fetchAndSaveTMDbSeasonSnapshot(ctx context.Context, epi
 		}
 		return false
 	}
+	if err := s.persistCredits(ctx, seasonID, details.LoadedCreditTypes, details.Credits); err != nil {
+		return false
+	}
 	return s.persistTMDbSnapshot(ctx, seasonID, details.RawJSON)
 }
 
 func (s *ScraperService) fetchAndSaveTMDbEpisodeDetails(ctx context.Context, m *model.Media, metadataID string, tmdbID int, matchYear int, options ScrapeOptions) bool {
+	ctx = withTMDbSeasonBatch(ctx)
 	if s == nil || s.tmdb == nil || !s.tmdb.Enabled() || m == nil || metadataID == "" || tmdbID <= 0 || m.EpisodeNum <= 0 {
 		return false
 	}
@@ -211,6 +219,7 @@ func tmdbMetadataUpdates(item *model.MetadataItem) map[string]any {
 }
 
 func (s *ScraperService) enrichDeferredEpisodeDetails(ctx context.Context, rows []model.Media, options ScrapeOptions) error {
+	ctx = withTMDbSeasonBatch(ctx)
 	if s == nil || s.tmdb == nil || !s.tmdb.Enabled() {
 		return nil
 	}

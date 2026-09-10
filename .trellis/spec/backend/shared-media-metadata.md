@@ -1,5 +1,79 @@
 # Shared Media Metadata Contract
 
+## Scenario: Season-Batched Episode Metadata and Season-Owned Credits
+
+### 1. Scope / Trigger
+
+Background catalog hydration, deferred episode scraping, TMDb rechecks,
+snapshot backfill and artwork repair use Season inventories. This contract
+supersedes older requirements for per-Episode extended responses and credits.
+
+### 2. Signatures
+
+- `withTMDbSeasonBatch(ctx)` enables execution-local Season reuse.
+- `GetTVEpisodeDetails` splits `episodes[]` in that scope; outside it, manual
+  refresh and identity edits retain the original complete single-episode request.
+- `PersonRepository.ListCreditsWithPeopleByMetadataIDs` resolves Episode to
+  Season, but projects the requested metadata ID for existing batch consumers.
+- `retireEpisodeCredits` runs during `database.AutoMigrate`.
+
+### 3. Contracts
+
+- Fetch `zh-CN` first. Missing/generated/non-Chinese episode text can be filled
+  from the Series `original_language`, not an arbitrary English translation.
+  Keep usable Chinese text and match supplemental data by episode number and ID.
+- A cache fill performs at most two Season detail requests, excluding the Series
+  language lookup and HTTP retries. The cache retains at most 32 completed
+  Seasons / 16 MiB of raw JSON; eviction or a new execution permits fresh reads.
+  Concurrent requests for one Season share work; canceled waiters do not cancel
+  another owner's request. Errors are not retained.
+- Preserve the Episode's own image path and unknown JSON fields. Keep image
+  selection, download retries and per-Episode completion checkpoints independent.
+- A Season-derived Episode JSON must not overwrite a same-ID historical snapshot
+  containing extended objects. Preserve that snapshot and its fetch time; metadata
+  fields may still update. Full manual refresh or a changed identity can replace it.
+- Startup snapshot localization skips Episodes updated after the snapshot's
+  fetch time, so retained extended history cannot revert fresher Season text.
+- Web/Emby Episode credits come from its Season, never Series. Do not copy Season
+  rows into Episodes. Person filters must use the same ownership in single-file,
+  Series and search paths. Movie/Series/Season retain their own credit ownership.
+- Reject Episode writes at the shared repository boundary; skip profile imports
+  in the scraper. Backfill missing Season credits from a valid Season snapshot
+  first, otherwise fetch the Season. Migration removes only Episode credit rows;
+  shared people, identifiers, avatars, other works and raw snapshots remain.
+
+### 4. Validation & Error Matrix
+
+- Missing `episodes` or mismatched identity -> retryable invalid response.
+- Valid inventory without target Episode -> not-found recheck after 72 hours,
+  without claiming HTTP 404, requesting a single Episode, or deleting media.
+- Both languages lack text -> keep generated title/empty overview; no third language.
+- Missing Season credits -> return empty, never substitute Series credits.
+
+### 5. Good / Base / Bad Cases
+
+- Good: siblings reuse a Season response and expose one Season's actor list.
+- Base: a fresh execution refetches; a manual Episode refresh keeps full raw JSON.
+- Bad: delete shared people with Episode relationships, or clear extended history
+  because the current inventory omitted extension fields.
+
+### 6. Tests Required
+
+- `TestTMDbSeasonBatch*`: request count, language, raw fields, concurrency and cancellation.
+- `TestSeasonDerivedSnapshotPreservesFullEpisode`: same-ID preservation and changed ID.
+- `TestEpisodeCreditsReadSeasonWithoutWritingEpisode`, `TestListEpisodeCreditsUsesSeason`,
+  `TestEmbySeasonAndEpisodeDoNotInheritSeriesArtworkOrPeople`: read/write and batch/filter scope.
+- `TestRetireEpisodeCreditsPreservesPeopleAndOtherWorks`,
+  `TestBackfillSeasonPeopleUsesHistoricalSnapshot`: migration and historical Season population.
+- Database tests must execute with `MEDIASTATION_TEST_POSTGRES_DSN`; skips do not count.
+
+### 7. Wrong vs Correct
+
+- Wrong: request each Episode for extensions that the background workflow no longer needs.
+- Correct: split authoritative Season inventory; reserve complete single requests for manual operations.
+- Wrong: reuse Season actors by inserting one relationship per Episode.
+- Correct: persist Season relationships once and resolve them at read time.
+
 ## Scenario: Library Metadata Pagination
 
 ### 1. Scope / Trigger
@@ -188,8 +262,9 @@
   Do not delete/recreate a whole scope or touch unchanged Person identifiers.
   Verify with `TestReplaceCreditsIsIdempotentAndReplacesLoadedType` and
   `TestPersonSourceUpdatesOnlyChangesSourceFields`.
-- Movie, Series, Season, and Episode expose only their own ordered credits.
-  An empty entity-owned credit type stays empty and never inherits an ancestor.
+- Movie, Series and Season expose their own ordered credits. Episode reads
+  its Season's credits in Web and Emby (single and batch responses); it never
+  copies them into episode rows or falls back further to Series.
 - Credit source/display roles and translation source/display values use `text`;
   existing PostgreSQL columns must be upgraded explicitly during migration.
 - Credit persistence is independent from translation. The configured periodic
@@ -216,7 +291,8 @@
 | Loaded type has no credits | Remove stale credits of that type |
 | Type is not loaded | Preserve existing credits of that type |
 | Provider type is non-empty and NFO also has rows | Keep provider rows; do not union guessed identities |
-| Season/Episode has no credit rows for one type | Keep that type empty; do not query an ancestor |
+| Season has no credit rows for one type | Keep that type empty; do not query Series |
+| Episode credits requested | Read its Season; never create episode credit rows |
 | AI is disabled/unconfigured or request fails | Keep original display values and let scraping succeed |
 | AI request succeeds but one entry has no valid Chinese result | Keep its original display value and negative-cache the entry until the prompt version changes |
 | Original changes while AI request is running | Reject the stale conditional write |
@@ -1908,7 +1984,8 @@ if degraded {
 ### 5. Good / Base / Bad Cases
 
 - Good: discovering one Series eventually stores `Series -> Season 0/1 ->
-  Episode`, each with its own TMDb ID, raw JSON, credits, and original image.
+  Episode`, each with its own TMDb ID, JSON snapshot and original image;
+  Episodes reference Season credits instead of persisting their own.
 - Good: an Episode stores its localized name in `Title`, while clients receive
   the parent show name from `SeriesTitle`.
 - Base: a Series has no Seasons or an entity has no image path; explicit empty

@@ -16,9 +16,12 @@ import (
 )
 
 func (s *ScraperService) runTMDbRecheckQueue(ctx context.Context, metrics map[string]int64, task *TaskHandle) error {
+	ctx = withTMDbSeasonBatch(ctx)
+	defer func() { metrics["requests"] = tmdbSeasonBatchFromContext(ctx).requests.Load() }()
 	started, lastReport := time.Now(), time.Time{}
 	lastStage := ""
 	report := func(stage, message string, force bool, details []string) {
+		metrics["requests"] = tmdbSeasonBatchFromContext(ctx).requests.Load()
 		if task == nil {
 			return
 		}
@@ -183,10 +186,13 @@ func (s *ScraperService) fetchAndCommitTMDbRecheck(ctx, parent context.Context, 
 	data, err := s.fetchTMDbMetadataRecheck(requestCtx, state.TMDbMetadataRecheckCandidate, seriesID)
 	cancel()
 	metrics["requests"]++
-	if isTMDbHTTPStatus(err, http.StatusNotFound) {
+	if isTMDbHTTPStatus(err, http.StatusNotFound) || errors.Is(err, errTMDbEpisodeMissingFromSeason) {
 		next := time.Now().UTC().Add(tmdbEpisodeMetadataRecheckCooldown)
 		job.NotFoundIdentity = state.RequestIdentity()
-		const reason = "TMDb 上游未找到该季/集（404），3 天后复核；请核对剧集匹配及编号，勿仅凭 404 删除文件"
+		reason := "TMDb 上游未找到该季/集（404），3 天后复核；请核对剧集匹配及编号，勿仅凭 404 删除文件"
+		if errors.Is(err, errTMDbEpisodeMissingFromSeason) {
+			reason = "TMDb 整季清单未包含该集，3 天后复核；请核对匹配及编号，勿据此删除文件"
+		}
 		err = s.repo.Metadata.CommitTMDbRecheck(ctx, job, state, func(repos *repository.Container) error {
 			return repos.Metadata.FinishTMDbRecheck(ctx, job, "not_found", reason, &next, job.Attempts+1)
 		})

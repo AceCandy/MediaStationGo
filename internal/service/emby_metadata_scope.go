@@ -312,7 +312,9 @@ func (e *EmbyService) seriesMetadataPageWithCount(ctx context.Context, q *gorm.D
 // applySeriesPageFilters 在整剧别名可用后统一约束计数、分页和摘要。
 func (e *EmbyService) applySeriesPageFilters(ctx context.Context, q *gorm.DB, p ItemsParams) *gorm.DB {
 	if len(p.PersonIDs) > 0 {
-		credits := e.repo.DB.WithContext(ctx).Model(&model.MetadataCredit{}).Select("metadata_id").Where("person_id = ANY(?)", &p.PersonIDs)
+		credits := e.repo.DB.WithContext(ctx).Table("metadata_credits AS credit").
+			Select("CASE WHEN work.kind = 'season' THEN work.parent_id ELSE work.id END").
+			Joins("JOIN metadata_items AS work ON work.id = credit.metadata_id").Where("credit.person_id = ANY(?)", &p.PersonIDs)
 		q = q.Where("scope_series.id IN (?)", credits)
 	}
 	if containsEmbyFilter(p.Filters, "IsFavorite") {

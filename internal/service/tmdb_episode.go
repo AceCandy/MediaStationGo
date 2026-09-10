@@ -2,9 +2,9 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/url"
-	"strconv"
 	"strings"
 
 	"github.com/ShukeBta/MediaStationGo/internal/model"
@@ -13,6 +13,13 @@ import (
 func (t *TMDbProvider) GetTVEpisodeDetails(ctx context.Context, tmdbID, season, episode int) (*TMDbEpisodeDetails, error) {
 	if tmdbID <= 0 || episode <= 0 {
 		return nil, nil
+	}
+	if tmdbSeasonBatchFromContext(ctx) != nil {
+		details, err := t.GetTVSeasonDetails(ctx, tmdbID, season)
+		if err != nil || details == nil {
+			return nil, err
+		}
+		return t.episodeFromSeason(details.RawJSON, season, episode)
 	}
 	apiKey := t.resolveAPIKey(ctx)
 	if apiKey == "" {
@@ -24,6 +31,15 @@ func (t *TMDbProvider) GetTVEpisodeDetails(ctx context.Context, tmdbID, season, 
 	q.Set("language", "zh-CN")
 	q.Set("append_to_response", "external_ids,credits,translations,videos")
 	u := base + "/tv/" + fmt.Sprint(tmdbID) + "/season/" + fmt.Sprint(season) + "/episode/" + fmt.Sprint(episode) + "?" + q.Encode()
+	raw, err := t.getJSONRaw(ctx, u, &json.RawMessage{})
+	if err != nil {
+		return nil, err
+	}
+	return t.parseTVEpisodeDetails(raw, episode)
+}
+
+// parseTVEpisodeDetails 共用单集与整季拆分的字段投影；演职员只保存于季。
+func (t *TMDbProvider) parseTVEpisodeDetails(raw []byte, episode int) (*TMDbEpisodeDetails, error) {
 	var r struct {
 		Name        string  `json:"name"`
 		Overview    string  `json:"overview"`
@@ -36,27 +52,11 @@ func (t *TMDbProvider) GetTVEpisodeDetails(ctx context.Context, tmdbID, season, 
 			IMDbID string `json:"imdb_id"`
 			TVDBID int    `json:"tvdb_id"`
 		} `json:"external_ids"`
-		Credits      tmdbCredits `json:"credits"`
 		Translations struct {
 			Translations []tmdbTranslation `json:"translations"`
 		} `json:"translations"`
-		GuestStars []struct {
-			ID          int    `json:"id"`
-			Name        string `json:"name"`
-			Character   string `json:"character"`
-			Order       int    `json:"order"`
-			ProfilePath string `json:"profile_path"`
-		} `json:"guest_stars"`
-		Crew []struct {
-			ID          int    `json:"id"`
-			Name        string `json:"name"`
-			Job         string `json:"job"`
-			Order       int    `json:"order"`
-			ProfilePath string `json:"profile_path"`
-		} `json:"crew"`
 	}
-	raw, err := t.getJSONRaw(ctx, u, &r)
-	if err != nil {
+	if err := json.Unmarshal(raw, &r); err != nil {
 		return nil, err
 	}
 	details := &TMDbEpisodeDetails{
@@ -68,27 +68,6 @@ func (t *TMDbProvider) GetTVEpisodeDetails(ctx context.Context, tmdbID, season, 
 		Runtime:     r.Runtime,
 		ExternalIDs: TMDbExternalIDs{IMDbID: strings.TrimSpace(r.ExternalIDs.IMDbID), TVDBID: r.ExternalIDs.TVDBID},
 		RawJSON:     raw,
-	}
-	details.LoadedCreditTypes = []string{model.CreditTypeGuestStar, model.CreditTypeDirector, model.CreditTypeWriter}
-	for _, cast := range r.GuestStars {
-		if cast.ID > 0 && strings.TrimSpace(cast.Name) != "" {
-			details.Credits = append(details.Credits, PersonCredit{Provider: "tmdb", ExternalID: strconv.Itoa(cast.ID), Name: strings.TrimSpace(cast.Name), Type: model.CreditTypeGuestStar, OriginalRole: strings.TrimSpace(cast.Character), SortOrder: cast.Order, ProfileURL: tmdbProfileURL(t.imgCDN, cast.ProfilePath)})
-		}
-	}
-	for _, crew := range r.Crew {
-		typ := ""
-		switch strings.ToLower(strings.TrimSpace(crew.Job)) {
-		case "director":
-			typ = model.CreditTypeDirector
-		case "writer", "screenplay", "story", "teleplay":
-			typ = model.CreditTypeWriter
-		}
-		if typ != "" && crew.ID > 0 && strings.TrimSpace(crew.Name) != "" {
-			details.Credits = append(details.Credits, PersonCredit{Provider: "tmdb", ExternalID: strconv.Itoa(crew.ID), Name: strings.TrimSpace(crew.Name), Type: typ, OriginalRole: strings.TrimSpace(crew.Job), SortOrder: crew.Order, ProfileURL: tmdbProfileURL(t.imgCDN, crew.ProfilePath)})
-		}
-	}
-	if appended, _ := tmdbCreditsToPersonCredits(r.Credits, t.imgCDN, true); len(appended) > 0 {
-		details.Credits = appended
 	}
 	if r.StillPath != "" {
 		details.StillURL = t.imgCDN + "/w500" + r.StillPath

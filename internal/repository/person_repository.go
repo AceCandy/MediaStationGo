@@ -76,8 +76,12 @@ func (r *PersonRepository) ReplaceCredits(ctx context.Context, metadataID string
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		// 同一作品的快照串行合并，避免并发差量同步留下已移除的关系。
 		var metadata model.MetadataItem
-		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Select("id").First(&metadata, "id = ?", metadataID).Error; err != nil {
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Select("id", "kind").First(&metadata, "id = ?", metadataID).Error; err != nil {
 			return err
+		}
+		// 集只读取所属季的演职员，不建立独立人物关系。
+		if metadata.Kind == model.MetadataKindEpisode {
+			return nil
 		}
 		var existing []model.MetadataCredit
 		if err := tx.Where("metadata_id = ? AND type IN ?", metadataID, types).Find(&existing).Error; err != nil {
@@ -125,14 +129,49 @@ func (r *PersonRepository) ListCreditsWithPeople(ctx context.Context, metadataID
 	return r.ListCreditsWithPeopleByMetadataIDs(ctx, []string{metadataID})
 }
 
-// ListCreditsWithPeopleByMetadataIDs 批量返回多个作品各自的演职员关系。
+// ListCreditsWithPeopleByMetadataIDs 将集映射到所属季，返回的 MetadataID 仍对应请求项。
 func (r *PersonRepository) ListCreditsWithPeopleByMetadataIDs(ctx context.Context, metadataIDs []string) ([]model.MetadataCredit, error) {
 	if len(metadataIDs) == 0 {
 		return []model.MetadataCredit{}, nil
 	}
+	var scopes []struct {
+		ID       string
+		CreditID string
+	}
+	err := r.db.WithContext(ctx).Table("metadata_items AS item").
+		Select("item.id, CASE WHEN item.kind = 'episode' THEN COALESCE(season.id, '') ELSE item.id END AS credit_id").
+		Joins("LEFT JOIN metadata_items AS season ON season.id = item.parent_id AND season.kind = 'season'").
+		Where("item.id = ANY(?)", &metadataIDs).Order("item.id").Scan(&scopes).Error
+	if err != nil {
+		return nil, err
+	}
+	ids := make([]string, 0, len(scopes))
+	seen := make(map[string]bool)
+	for _, scope := range scopes {
+		if scope.CreditID != "" && !seen[scope.CreditID] {
+			ids = append(ids, scope.CreditID)
+			seen[scope.CreditID] = true
+		}
+	}
+	if len(ids) == 0 {
+		return []model.MetadataCredit{}, nil
+	}
 	var rows []model.MetadataCredit
-	err := r.db.WithContext(ctx).Preload("Person").Where("metadata_id = ANY(?)", &metadataIDs).Order("metadata_id, sort_order, id").Find(&rows).Error
-	return rows, err
+	if err := r.db.WithContext(ctx).Preload("Person").Where("metadata_id = ANY(?)", &ids).Order("metadata_id, sort_order, id").Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	grouped := make(map[string][]model.MetadataCredit)
+	for _, row := range rows {
+		grouped[row.MetadataID] = append(grouped[row.MetadataID], row)
+	}
+	result := make([]model.MetadataCredit, 0, len(rows))
+	for _, scope := range scopes {
+		for _, row := range grouped[scope.CreditID] {
+			row.MetadataID = scope.ID
+			result = append(result, row)
+		}
+	}
+	return result, nil
 }
 
 // ListPendingPeopleTranslations 先排除中文和当前版本的无效缓存，再限制本轮人物数。

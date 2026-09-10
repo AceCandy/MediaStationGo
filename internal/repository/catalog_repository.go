@@ -200,6 +200,14 @@ func (r *MetadataRepository) upsertProviderSnapshot(ctx context.Context, metadat
 	return r.db.WithContext(ctx).Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: "metadata_id"}, {Name: "provider"}},
 		DoUpdates: clause.Assignments(map[string]any{"payload": payloadText, "degraded": degraded, "fetched_at": fetchedAt, "updated_at": time.Now()}),
+		// 整季拆出的集数据不能覆盖同一集已有的扩展快照；更换身份或手动完整刷新仍可更新。
+		Where: clause.Where{Exprs: []clause.Expression{clause.Expr{SQL: `NOT COALESCE((
+			excluded.provider = 'tmdb'
+			AND excluded.payload ? 'episode_number'
+			AND NOT (excluded.payload ?| ARRAY['external_ids','translations','credits','videos'])
+			AND metadata_provider_snapshots.payload->>'id' = excluded.payload->>'id'
+			AND metadata_provider_snapshots.payload ?| ARRAY['external_ids','translations','credits','videos']
+		), FALSE)`}}},
 	}).Create(&snapshot).Error
 }
 

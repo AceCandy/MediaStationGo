@@ -533,6 +533,7 @@ func (s *ScraperService) catalogJobMetadata(ctx context.Context, job *model.Cata
 }
 
 func (s *ScraperService) hydrateCatalogSeason(ctx context.Context, series, season *model.MetadataItem, tmdbID int, metrics *catalogArtworkMetrics) error {
+	ctx = withTMDbSeasonBatch(ctx)
 	var details *TMDbSeasonDetails
 	var err error
 	if season.CatalogMetadataHydratedAt == nil || season.CatalogArtworkHydratedAt == nil {

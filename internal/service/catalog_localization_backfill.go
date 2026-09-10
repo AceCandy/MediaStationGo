@@ -132,6 +132,10 @@ func (s *ScraperService) localizeTMDbCatalogSnapshot(ctx context.Context, snapsh
 	if snapshot == nil || snapshot.Metadata.ID == "" || snapshot.Metadata.Source != "tmdb" {
 		return false, nil
 	}
+	// 完整历史快照可能刻意保留；不能覆盖之后从整季更新的集文字。
+	if snapshot.Metadata.Kind == model.MetadataKindEpisode && !snapshot.FetchedAt.IsZero() && snapshot.Metadata.UpdatedAt.After(snapshot.FetchedAt) {
+		return false, nil
+	}
 	var payload tmdbCatalogLocalizedSnapshot
 	if err := json.Unmarshal([]byte(snapshot.Payload), &payload); err != nil {
 		return false, fmt.Errorf("decode tmdb %s snapshot %s: %w", snapshot.Metadata.Kind, snapshot.MetadataID, err)

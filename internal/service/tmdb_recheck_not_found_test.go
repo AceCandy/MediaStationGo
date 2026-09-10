@@ -19,8 +19,12 @@ import (
 )
 
 func TestTMDbRecheckNotFoundCooldownAndIdentity(t *testing.T) {
-	for _, kind := range []string{"season", "episode"} {
-		t.Run(kind, func(t *testing.T) {
+	for _, source := range []string{"season", "episode", "season_inventory"} {
+		t.Run(source, func(t *testing.T) {
+			kind := source
+			if source == "season_inventory" {
+				kind = "episode"
+			}
 			db := newServiceTestDB(t, &model.Media{}, &model.MetadataProviderSnapshot{})
 			if err := db.AutoMigrate(&model.TMDbRecheckJob{}, &model.TMDbRecheckChange{}, &model.TMDbRecheckScan{}, &model.TMDbRecheckAssetChange{}); err != nil {
 				t.Fatal(err)
@@ -49,6 +53,15 @@ func TestTMDbRecheckNotFoundCooldownAndIdentity(t *testing.T) {
 						t.Error(err)
 					}
 				}
+				if source == "season_inventory" {
+					var seriesID, seasonNumber int
+					if strings.Contains(r.URL.Path, "/episode/") {
+						t.Errorf("unexpected single request: %s", r.URL.Path)
+					}
+					_, _ = fmt.Sscanf(r.URL.Path, "/tv/%d/season/%d", &seriesID, &seasonNumber)
+					fmt.Fprintf(w, `{"id":200,"season_number":%d,"episodes":[]}`, seasonNumber)
+					return
+				}
 				http.NotFound(w, r)
 			}))
 			defer upstream.Close()
@@ -62,7 +75,11 @@ func TestTMDbRecheckNotFoundCooldownAndIdentity(t *testing.T) {
 					t.Fatalf("claim=%+v %v", job, err)
 				}
 				metrics := map[string]int64{}
-				details, err := s.processTMDbRecheck(t.Context(), job, metrics)
+				ctx := t.Context()
+				if source == "season_inventory" {
+					ctx = withTMDbSeasonBatch(ctx)
+				}
+				details, err := s.processTMDbRecheck(ctx, job, metrics)
 				if err != nil {
 					t.Fatal(err)
 				}

@@ -484,6 +484,31 @@ func TestEmbySeasonAndEpisodeDoNotInheritSeriesArtworkOrPeople(t *testing.T) {
 			t.Fatalf("metadata %s inherited series people: %#v", id, people)
 		}
 	}
+	if err := svc.repo.DB.Create(&model.MetadataCredit{MetadataID: *episode.ParentID, PersonID: person.ID, Type: model.CreditTypeActor}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if people := svc.peopleForMetadata(t.Context(), episode.ID); len(people) != 1 || people[0].Id != person.ID {
+		t.Fatalf("episode season people = %#v", people)
+	}
+	relations := svc.itemRelationsForViews(t.Context(), []model.MediaView{{Media: model.Media{MetadataID: episode.ID}}}, "", embyListFields{people: true})
+	if people := relations.peopleByMetadataID[episode.ID]; len(people) != 1 || people[0].Id != person.ID {
+		t.Fatalf("batch episode season people = %#v", people)
+	}
+	library := model.Library{Name: "Season credit filter", Path: t.TempDir(), Type: "tv", Enabled: true}
+	if err := svc.repo.Library.Create(t.Context(), &library); err != nil {
+		t.Fatal(err)
+	}
+	media := model.Media{LibraryID: library.ID, MetadataID: episode.ID, SeasonNum: 1, EpisodeNum: 1, Path: "/test/season-credits.mkv"}
+	if err := svc.repo.DB.Create(&media).Error; err != nil {
+		t.Fatal(err)
+	}
+	out, err := svc.mediaItems(t.Context(), ItemsParams{PersonIDs: []string{person.ID}, IncludeItemTypes: []string{"Episode"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out["Items"].([]map[string]any)) != 1 {
+		t.Fatalf("season person filter did not find episode: %#v", out)
+	}
 }
 
 func TestEmbyAnimeUsesCanonicalSeriesMetadata(t *testing.T) {

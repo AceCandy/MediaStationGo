@@ -18,6 +18,62 @@ import (
 	"github.com/ShukeBta/MediaStationGo/internal/service"
 )
 
+func TestListEpisodeCreditsUsesSeason(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db, err := testdb.OpenPostgres(t, &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := migrateMediaHandlerTestDB(db, model.AllModels()...); err != nil {
+		t.Fatal(err)
+	}
+	repos := repository.New(db)
+	library := model.Library{Name: "TV", Path: t.TempDir(), Type: "tv", Enabled: true}
+	if err := repos.Library.Create(t.Context(), &library); err != nil {
+		t.Fatal(err)
+	}
+	series := model.MetadataItem{Kind: "series", Title: "Series", Source: "tmdb"}
+	if err := db.Create(&series).Error; err != nil {
+		t.Fatal(err)
+	}
+	season := model.MetadataItem{Kind: "season", ParentID: &series.ID, SeasonNum: 1, Title: "Season", Source: "tmdb"}
+	if err := db.Create(&season).Error; err != nil {
+		t.Fatal(err)
+	}
+	episode := model.MetadataItem{Kind: "episode", ParentID: &season.ID, EpisodeNum: 1, Title: "Episode", Source: "tmdb"}
+	if err := db.Create(&episode).Error; err != nil {
+		t.Fatal(err)
+	}
+	media := model.Media{LibraryID: library.ID, MetadataID: episode.ID, Title: "Episode", Path: "episode.mkv"}
+	if err := db.Create(&media).Error; err != nil {
+		t.Fatal(err)
+	}
+	person := model.Person{Name: "季演员", OriginalName: "季演员", NormalizedName: "季演员", Source: "tmdb"}
+	if err := db.Create(&person).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&model.MetadataCredit{MetadataID: season.ID, PersonID: person.ID, Type: model.CreditTypeActor}).Error; err != nil {
+		t.Fatal(err)
+	}
+	svc := &service.Container{Repo: repos, Media: service.NewMediaService(&config.Config{}, zap.NewNop(), repos)}
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Set(middleware.CtxUserID, "user-1")
+	c.Set(middleware.CtxUserRole, "admin")
+	c.Params = gin.Params{{Key: "id", Value: media.ID}}
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/media/"+media.ID+"/credits", nil)
+	listMediaCreditsHandler(svc)(c)
+	var response struct {
+		Items []mediaCredit `json:"items"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if w.Code != http.StatusOK || len(response.Items) != 1 || response.Items[0].PersonID != person.ID {
+		t.Fatalf("response=%s status=%d", w.Body.String(), w.Code)
+	}
+}
+
 func TestListMediaCreditsReturnsOrderedCast(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db, err := testdb.OpenPostgres(t, &gorm.Config{})

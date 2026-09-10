@@ -12,6 +12,13 @@ import (
 
 // GetTVSeasonDetails 返回一季自身详情和该季完整 Episode 清单。
 func (t *TMDbProvider) GetTVSeasonDetails(ctx context.Context, tmdbID, seasonNumber int) (*TMDbSeasonDetails, error) {
+	if batch := tmdbSeasonBatchFromContext(ctx); batch != nil {
+		return batch.season(ctx, t, tmdbID, seasonNumber)
+	}
+	return t.getTVSeasonDetails(ctx, tmdbID, seasonNumber, "zh-CN")
+}
+
+func (t *TMDbProvider) getTVSeasonDetails(ctx context.Context, tmdbID, seasonNumber int, language string) (*TMDbSeasonDetails, error) {
 	if tmdbID <= 0 || seasonNumber < 0 {
 		return nil, nil
 	}
@@ -21,7 +28,7 @@ func (t *TMDbProvider) GetTVSeasonDetails(ctx context.Context, tmdbID, seasonNum
 	}
 	q := url.Values{}
 	q.Set("api_key", apiKey)
-	q.Set("language", "zh-CN")
+	q.Set("language", language)
 	q.Set("append_to_response", "external_ids,credits,translations,videos")
 	u := t.resolveBaseURL(ctx) + "/tv/" + fmt.Sprint(tmdbID) + "/season/" + fmt.Sprint(seasonNumber) + "?" + q.Encode()
 	raw, err := t.getJSONRaw(ctx, u, &json.RawMessage{})

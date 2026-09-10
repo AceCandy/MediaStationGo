@@ -20,7 +20,10 @@ func (e *EmbyService) mediaItems(ctx context.Context, p ItemsParams) (map[string
 		q = q.Where("media.library_id IN ?", e.mergedLibraryIDs(ctx, p.ParentID))
 	}
 	if len(p.PersonIDs) > 0 {
-		credits := e.repo.DB.WithContext(ctx).Model(&model.MetadataCredit{}).Select("metadata_id").Where("person_id = ANY(?)", &p.PersonIDs)
+		credits := e.repo.DB.WithContext(ctx).Table("metadata_items AS work").Select("work.id").
+			Joins("LEFT JOIN metadata_items AS season ON season.id = work.parent_id AND season.kind = 'season'").
+			Joins("JOIN metadata_credits AS credit ON credit.metadata_id = CASE WHEN work.kind = 'episode' THEN season.id ELSE work.id END").
+			Where("credit.person_id = ANY(?)", &p.PersonIDs)
 		q = q.Where("media.metadata_id IN (?)", credits)
 	}
 	if containsEmbyFilter(p.Filters, "IsFavorite") {

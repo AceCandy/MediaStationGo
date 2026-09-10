@@ -35,6 +35,9 @@ func AutoMigrate(db *gorm.DB) error {
 	if err := retireMediaAndCreditSoftDeletes(db); err != nil {
 		return err
 	}
+	if err := retireEpisodeCredits(db); err != nil {
+		return err
+	}
 	if err := ensureAPIConfigColumns(db); err != nil {
 		return err
 	}
@@ -69,6 +72,12 @@ func AutoMigrate(db *gorm.DB) error {
 		return err
 	}
 	return EnsureTMDbRecheckTriggers(db)
+}
+
+// retireEpisodeCredits 只清理集级人物关系，保留共享人物和来源快照。
+func retireEpisodeCredits(db *gorm.DB) error {
+	return db.Exec(`DELETE FROM metadata_credits
+WHERE metadata_id IN (SELECT id FROM metadata_items WHERE kind = 'episode')`).Error
 }
 
 // migrateLegacyTMDbEpisodeCheckedAt 保留 GORM 错误拆分 TMDb 缩写时写入的检查时间。

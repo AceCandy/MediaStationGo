@@ -263,7 +263,9 @@ func (r *MediaViewRepository) metadataSearchQuery(ctx context.Context, filter Me
 	if len(filter.PersonIDs) > 0 {
 		q = q.Where(`EXISTS (
 			SELECT 1 FROM metadata_credits AS search_credit
-			WHERE search_credit.metadata_id = search_metadata.id
+			WHERE (search_credit.metadata_id = search_metadata.id OR search_credit.metadata_id IN (
+				SELECT id FROM metadata_items WHERE kind = 'season' AND parent_id = search_metadata.id
+			))
 				AND search_credit.person_id = ANY(?)
 		)`, &filter.PersonIDs)
 	}

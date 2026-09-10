@@ -153,9 +153,9 @@ func TestCatalogHydrationPersistsCompleteSeriesTree(t *testing.T) {
 		case "/tv/12345":
 			body = `{"id":12345,"name":"测试剧集","overview":"剧集简介","poster_path":"/series-poster.jpg","backdrop_path":"/series-backdrop.jpg","first_air_date":"2024-01-01","vote_average":8.5,"seasons":[{"id":500,"season_number":0,"name":"特别篇","overview":"清单特别篇简介"},{"id":501,"season_number":1,"name":"第一季","overview":"清单第一季简介"}]}`
 		case "/tv/12345/season/0":
-			body = `{"id":500,"season_number":0,"name":"特别篇","overview":"特别篇简介","poster_path":"/s0.jpg","episodes":[{"id":600,"episode_number":1,"name":"特别集"}]}`
+			body = `{"id":500,"season_number":0,"name":"特别篇","overview":"特别篇简介","poster_path":"/s0.jpg","episodes":[{"id":600,"season_number":0,"episode_number":1,"name":"特别集","overview":"特别集简介","still_path":"/e600.jpg","air_date":"2024-01-01","runtime":12,"vote_average":7.1}]}`
 		case "/tv/12345/season/1":
-			body = `{"id":501,"season_number":1,"name":"第 1 季","overview":"","poster_path":"/s1.jpg","translations":{"translations":[{"iso_3166_1":"US","iso_639_1":"en","data":{"name":"The First Mission","overview":"Season one overview"}}]},"episodes":[{"id":601,"episode_number":1,"name":"第 1 集"},{"id":602,"episode_number":2,"name":"第二集"}]}`
+			body = `{"id":501,"season_number":1,"name":"第 1 季","overview":"","poster_path":"/s1.jpg","translations":{"translations":[{"iso_3166_1":"US","iso_639_1":"en","data":{"name":"The First Mission","overview":"Season one overview"}}]},"episodes":[{"id":601,"season_number":1,"episode_number":1,"name":"Inside S1 E1","overview":"Episode one overview","still_path":"/e601.jpg","air_date":"2024-01-08","runtime":25,"vote_average":8.1},{"id":602,"season_number":1,"episode_number":2,"name":"第二集","overview":"第二集简介","still_path":"/e602.jpg","air_date":"2024-01-15","runtime":26,"vote_average":8.2}]}`
 		case "/tv/12345/season/0/episode/1":
 			body = `{"id":600,"name":"特别集","overview":"特别集简介","still_path":"/e600.jpg","air_date":"2024-01-01","runtime":12,"vote_average":7.1}`
 		case "/tv/12345/season/1/episode/1":
@@ -251,6 +251,16 @@ func TestCatalogHydrationPersistsCompleteSeriesTree(t *testing.T) {
 	var mediaCount int64
 	if err := repos.DB.Model(&model.Media{}).Count(&mediaCount).Error; err != nil || mediaCount != 0 {
 		t.Fatalf("media count = %d, err = %v", mediaCount, err)
+	}
+}
+
+func TestLocalizeTMDbCatalogSnapshotKeepsNewerEpisodeMetadata(t *testing.T) {
+	fetched := time.Now().Add(-time.Hour)
+	snapshot := &model.MetadataProviderSnapshot{FetchedAt: fetched, Payload: `{"name":"Old title","overview":"Old overview"}`,
+		Metadata: model.MetadataItem{PermanentBase: model.PermanentBase{ID: "episode", UpdatedAt: fetched.Add(time.Minute)}, Kind: model.MetadataKindEpisode, Source: "tmdb", Title: "新标题", Overview: "新简介"}}
+	changed, err := (&ScraperService{}).localizeTMDbCatalogSnapshot(t.Context(), snapshot)
+	if err != nil || changed || snapshot.Metadata.Title != "新标题" || snapshot.Metadata.Overview != "新简介" {
+		t.Fatalf("changed=%v err=%v metadata=%+v", changed, err, snapshot.Metadata)
 	}
 }
 
@@ -360,7 +370,7 @@ func TestLocalizeTMDbCatalogSnapshotsSkipsBadItemAndContinuesNextPage(t *testing
 		episodeNum := i + 1
 		metadataID := "backfill-episode-" + suffix
 		items = append(items, model.MetadataItem{
-			PermanentBase: model.PermanentBase{ID: metadataID}, Kind: model.MetadataKindEpisode, ParentID: &season.ID,
+			PermanentBase: model.PermanentBase{ID: metadataID, UpdatedAt: now.Add(-time.Minute)}, Kind: model.MetadataKindEpisode, ParentID: &season.ID,
 			EpisodeNum: episodeNum, Title: "第 " + strconv.Itoa(episodeNum) + " 集", Source: "tmdb",
 		})
 		payload := `{"name":"Episode ` + strconv.Itoa(episodeNum) + `","translations":{"translations":[{"iso_3166_1":"US","iso_639_1":"en","data":{"name":"Localized ` + strconv.Itoa(episodeNum) + `"}}]}}`

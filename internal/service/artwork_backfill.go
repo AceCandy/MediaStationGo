@@ -124,6 +124,7 @@ func doubanRepairPosterURL(snapshotPayload, fallbackURL string) string {
 }
 
 func (s *ScraperService) runTMDbArtworkLocalRepair(ctx context.Context, trigger string) error {
+	ctx = withTMDbSeasonBatch(ctx)
 	if s == nil || s.repo == nil || s.repo.Artwork == nil || s.artwork == nil {
 		return errors.New("TMDb artwork local repair dependencies unavailable")
 	}
@@ -216,6 +217,7 @@ func (s *ScraperService) repairTMDbArtworkSelection(ctx context.Context, item re
 }
 
 func (s *ScraperService) runTMDbArtworkMissingRecheck(ctx context.Context, trigger string) error {
+	ctx = withTMDbSeasonBatch(ctx)
 	if s == nil || s.repo == nil || s.repo.Artwork == nil || s.artwork == nil {
 		return errors.New("TMDb artwork missing recheck dependencies unavailable")
 	}

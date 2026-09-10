@@ -2,10 +2,12 @@ package service
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 )
@@ -67,6 +69,38 @@ func TestManualPeopleBackfillRecordsCandidateQueryFailure(t *testing.T) {
 	}
 	if !strings.Contains(log.Content, "人物信息补齐失败") {
 		t.Fatalf("task log = %q", log.Content)
+	}
+}
+
+func TestBackfillSeasonPeopleUsesHistoricalSnapshot(t *testing.T) {
+	scraper, repos, closeUpstream := newTestScraper(t)
+	defer closeUpstream()
+	series := createServiceTestMetadata(t, repos.DB, model.MetadataItem{Kind: "series", Title: "Series", Source: "tmdb"}, model.MetadataIdentifier{Provider: "tmdb", EntityKind: "series", ExternalID: "42"})
+	season := createServiceTestMetadata(t, repos.DB, model.MetadataItem{Kind: "season", ParentID: &series.ID, SeasonNum: 1, Title: "Season", Source: "tmdb"}, model.MetadataIdentifier{Provider: "tmdb", EntityKind: "season", ExternalID: "50"})
+	if err := repos.Metadata.UpsertProviderSnapshot(t.Context(), season.ID, "tmdb", []byte(`{"id":50,"season_number":1,"credits":{"cast":[{"id":123,"name":"季演员","character":"主角"}],"crew":[]}}`), time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	candidates, err := scraper.pendingPeopleBackfillCandidates(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, candidate := range candidates {
+		found = found || candidate.MetadataID == season.ID
+	}
+	if !found {
+		t.Fatal("season missing from people backfill")
+	}
+	scraper.tmdb.client = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		t.Errorf("unexpected network: %s", req.URL.Path)
+		return nil, errors.New("unexpected network")
+	})}
+	if err := scraper.backfillSeasonPeople(t.Context(), season.ID); err != nil {
+		t.Fatal(err)
+	}
+	credits, err := repos.Person.ListCreditsWithPeople(t.Context(), season.ID)
+	if err != nil || len(credits) != 1 || credits[0].Person.Name != "季演员" {
+		t.Fatalf("credits=%+v err=%v", credits, err)
 	}
 }
 

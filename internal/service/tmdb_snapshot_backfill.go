@@ -119,6 +119,7 @@ func (s *ScraperService) runTMDbSnapshotBackfill(ctx context.Context, task *Task
 
 // BackfillTMDbSnapshots 串行处理全库缺失快照，只写 provider snapshot。
 func (s *ScraperService) BackfillTMDbSnapshots(ctx context.Context, progress func(TMDbSnapshotBackfillResult, string)) (TMDbSnapshotBackfillResult, error) {
+	ctx = withTMDbSeasonBatch(ctx)
 	var result TMDbSnapshotBackfillResult
 	if s == nil || s.repo == nil || s.repo.Metadata == nil || s.tmdb == nil {
 		return result, ErrTMDbSnapshotBackfillUnavailable
