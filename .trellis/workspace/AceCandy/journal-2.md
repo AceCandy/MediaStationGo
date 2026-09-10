@@ -419,3 +419,40 @@ Web 电影与整剧按 metadata 分页，Emby 整剧摘要、混合库与子级�
 ### Status
 
 [OK] **Completed**
+
+
+## Session 110: 季集复查待办与 TMDb 整季优化收尾
+<!-- trellis-session: v=2 fp=ae343d3580e44816 -->
+
+**Date**: 2026-09-10
+**Task**: 季集复查待办与 TMDb 整季优化收尾
+**Branch**: `main`
+
+### Summary
+
+已提交待办媒体存在性过滤、后台整季请求复用、历史快照保护和季级演职员统一读取，并归档任务。未推送或部署。
+
+### Main Changes
+
+- 季集复查列表与计数过滤无媒体项；后台共用整季响应，手动单集刷新保持完整接口。
+- Web/Emby 集演职员读取所属季；启动迁移仅清理集级关联，不删除共享人物、头像与快照。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `201f980` | fix: 过滤已无媒体的季集复查待办 |
+| `1e4f64c` | feat: 复用 TMDb 整季数据并统一季级演职员 |
+
+### Testing
+
+- [OK] 此前重点 PostgreSQL 回归、整季并发竞态测试及前端 lint/build 通过；本次提交前 diff 检查通过。
+- [OK] 此前四包全量测试与基线同为 85 项失败，无新增失败；本次收尾未重跑测试。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 部署后核验真实 TMDb、Emby 客户端及迁移；当前未操作生产数据库。

@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-2.md`
-- **Total Sessions**: 109
+- **Total Sessions**: 110
 - **Last Active**: 2026-09-10
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-2.md` | ~421 | Active |
+| `journal-2.md` | ~458 | Active |
 | `journal-1.md` | ~1981 | Archived |
 <!-- @@@/auto:active-documents -->
 
@@ -30,6 +30,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 110 | 2026-09-10 | 季集复查待办与 TMDb 整季优化收尾 | `201f980`, `1e4f64c` | `main` |
 | 109 | 2026-09-10 | 提交并归档元数据复查与查询优化 | `917d5dc`, `116526f` | `main` |
 | 108 | 2026-09-07 | 季详情展示、整季操作与特别篇容错收尾 | `d7bc03b` | `main` |
 | 107 | 2026-09-07 | TMDB 在线元数据优先级 | `5bd6a0e` | `main` |
