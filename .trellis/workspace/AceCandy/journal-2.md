@@ -456,3 +456,25 @@ Web 电影与整剧按 metadata 分页，Emby 整剧摘要、混合库与子级�
 ### Next Steps
 
 - 部署后核验真实 TMDb、Emby 客户端及迁移；当前未操作生产数据库。
+
+
+## Session 111: 补全电视剧角色翻译上下文
+<!-- trellis-session: v=2 fp=2fae924f6a1adce7 -->
+
+**Date**: 2026-09-11
+**Task**: 补全电视剧角色翻译上下文
+**Branch**: `main`
+
+### Summary
+
+角色翻译按季补全所属电视剧标题，统一 AI 上下文与任务日志，并增加季级和集级回归测试。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `3df4cea` | fix: 补全电视剧角色翻译上下文 |
+
+### Status
+
+[OK] **Completed**
