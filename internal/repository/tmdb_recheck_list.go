@@ -78,7 +78,7 @@ type TMDbRecheckPage struct {
 	Changes  int64            `json:"changes"`
 }
 
-// ListTMDbRechecks 先分页待办，再加载该页标题；不重跑旧全库候选查询。
+// ListTMDbRechecks 按剧名、季号和集号排序后分页，不改变后台复查调度顺序。
 func (r *MetadataRepository) ListTMDbRechecks(ctx context.Context, status, keyword string, page, size int) (TMDbRecheckPage, error) {
 	out := TMDbRecheckPage{Items: []TMDbRecheckRow{}, Counts: map[string]int64{}, Page: page, PageSize: size}
 	if page < 1 || page > 1000000 || size < 1 || size > 100 {
@@ -125,15 +125,16 @@ AND (EXISTS (SELECT 1 FROM media m WHERE m.metadata_id=target.id)
 	if status != "" {
 		q = q.Where("jobs.status=?", status)
 	}
+	q = q.
+		Joins("LEFT JOIN metadata_items mi ON mi.id=jobs.metadata_id").
+		Joins("LEFT JOIN metadata_items season ON season.id=mi.parent_id AND season.kind='season' AND mi.kind='episode'").
+		Joins("LEFT JOIN metadata_items series ON series.id=CASE WHEN mi.kind='season' THEN mi.parent_id ELSE season.parent_id END AND series.kind='series'").
+		Select(`jobs.*, mi.title, mi.kind, series.title AS series_title,
+CASE WHEN mi.kind='season' THEN mi.season_num ELSE season.season_num END AS season_num, mi.episode_num`)
+	const displayOrder = "LOWER(COALESCE(NULLIF(series_title,''), title,'')), season_num, episode_num, metadata_id"
 	if keyword != "" {
 		pattern := "%" + strings.ToLower(EscapeLike(keyword)) + "%"
-		q = q.
-			Joins("LEFT JOIN metadata_items mi ON mi.id=jobs.metadata_id").
-			Joins("LEFT JOIN metadata_items season ON season.id=mi.parent_id AND season.kind='season' AND mi.kind='episode'").
-			Joins("LEFT JOIN metadata_items series ON series.id=CASE WHEN mi.kind='season' THEN mi.parent_id ELSE season.parent_id END AND series.kind='series'").
-			Where(`LOWER(COALESCE(mi.title,'')) LIKE ? ESCAPE '\' OR LOWER(COALESCE(series.title,'')) LIKE ? ESCAPE '\' OR LOWER(jobs.metadata_id) LIKE ? ESCAPE '\' OR LOWER(CONCAT('s',LPAD(CAST(CASE WHEN mi.kind='season' THEN mi.season_num ELSE season.season_num END AS text),2,'0'),'e',LPAD(CAST(mi.episode_num AS text),2,'0'))) LIKE ? ESCAPE '\'`, pattern, pattern, pattern, pattern)
-		q = q.Select(`jobs.*, mi.title, mi.kind, series.title AS series_title,
-CASE WHEN mi.kind='season' THEN mi.season_num ELSE season.season_num END AS season_num, mi.episode_num`)
+		q = q.Where(`LOWER(COALESCE(mi.title,'')) LIKE ? ESCAPE '\' OR LOWER(COALESCE(series.title,'')) LIKE ? ESCAPE '\' OR LOWER(jobs.metadata_id) LIKE ? ESCAPE '\' OR LOWER(CONCAT('s',LPAD(CAST(CASE WHEN mi.kind='season' THEN mi.season_num ELSE season.season_num END AS text),2,'0'),'e',LPAD(CAST(mi.episode_num AS text),2,'0'))) LIKE ? ESCAPE '\'`, pattern, pattern, pattern, pattern)
 		var rows []struct {
 			TMDbRecheckRow
 			SearchTotal int64
@@ -141,8 +142,8 @@ CASE WHEN mi.kind='season' THEN mi.season_num ELSE season.season_num END AS seas
 		// 匹配只执行一次；空页也返回精确总数，避免回退到第二次联表搜索。
 		err := r.db.WithContext(ctx).Raw(`WITH matched AS MATERIALIZED (?)
 SELECT page.*, totals.search_total FROM (SELECT count(*) AS search_total FROM matched) totals
-LEFT JOIN (SELECT * FROM matched ORDER BY due_at ASC NULLS LAST, metadata_id LIMIT ? OFFSET ?) page ON TRUE
-ORDER BY page.due_at ASC NULLS LAST, page.metadata_id`, q, size, (page-1)*size).Scan(&rows).Error
+LEFT JOIN (SELECT * FROM matched ORDER BY `+displayOrder+` LIMIT ? OFFSET ?) page ON TRUE
+ORDER BY `+displayOrder, q, size, (page-1)*size).Scan(&rows).Error
 		for _, row := range rows {
 			out.Total = row.SearchTotal
 			if row.MetadataID != "" {
@@ -151,13 +152,7 @@ ORDER BY page.due_at ASC NULLS LAST, page.metadata_id`, q, size, (page-1)*size).
 		}
 		return out, err
 	}
-	q = q.Order("due_at ASC NULLS LAST, metadata_id").Offset((page - 1) * size).Limit(size)
-	err := r.db.WithContext(ctx).Table("(?) AS jobs", q).
-		Select(`jobs.*, mi.title, mi.kind, series.title AS series_title,
-CASE WHEN mi.kind='season' THEN mi.season_num ELSE season.season_num END AS season_num, mi.episode_num`).
-		Joins("LEFT JOIN metadata_items mi ON mi.id=jobs.metadata_id").
-		Joins("LEFT JOIN metadata_items season ON season.id=mi.parent_id AND season.kind='season' AND mi.kind='episode'").
-		Joins("LEFT JOIN metadata_items series ON series.id=CASE WHEN mi.kind='season' THEN mi.parent_id ELSE season.parent_id END AND series.kind='series'").
-		Order("jobs.due_at ASC NULLS LAST, jobs.metadata_id").Scan(&out.Items).Error
+	err := r.db.WithContext(ctx).Table("(?) AS listed", q).
+		Order(displayOrder).Offset((page - 1) * size).Limit(size).Scan(&out.Items).Error
 	return out, err
 }

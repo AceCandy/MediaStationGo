@@ -2,11 +2,64 @@ package repository
 
 import (
 	"maps"
+	"slices"
 	"testing"
 	"time"
 
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 )
+
+func TestTMDbRecheckListOrdersEpisodesBeforePagination(t *testing.T) {
+	db := recheckQueueDB(t)
+	repo := New(db).Metadata
+	var want []string
+	for _, title := range []string{"Alpha", "Beta"} {
+		series := model.MetadataItem{Kind: "series", Title: title}
+		if err := db.Create(&series).Error; err != nil {
+			t.Fatal(err)
+		}
+		for _, seasonNum := range []int{2, 10} {
+			season := model.MetadataItem{Kind: "season", ParentID: &series.ID, SeasonNum: seasonNum}
+			if err := db.Create(&season).Error; err != nil {
+				t.Fatal(err)
+			}
+			for _, episodeNum := range []int{2, 10, 110} {
+				episode := model.MetadataItem{Kind: "episode", ParentID: &season.ID, EpisodeNum: episodeNum, Title: "Episode"}
+				if err := db.Create(&episode).Error; err != nil {
+					t.Fatal(err)
+				}
+				if err := db.Create(&model.Media{MetadataID: episode.ID, Path: "/recheck/" + episode.ID + ".strm"}).Error; err != nil {
+					t.Fatal(err)
+				}
+				// 到期时间与展示顺序相反，确保列表不再按调度时间排序。
+				due := time.Now().UTC().Add(-time.Duration(len(want)) * time.Hour)
+				if err := db.Create(&model.TMDbRecheckJob{MetadataID: episode.ID, Status: "not_found", DueAt: &due}).Error; err != nil {
+					t.Fatal(err)
+				}
+				want = append(want, episode.ID)
+			}
+		}
+	}
+	for _, keyword := range []string{"", "Episode", "Alpha"} {
+		expected := want
+		if keyword == "Alpha" {
+			expected = want[:6]
+		}
+		var got []string
+		for page := 1; page <= (len(expected)+1)/2+1; page++ {
+			out, err := repo.ListTMDbRechecks(t.Context(), "not_found", keyword, page, 2)
+			if err != nil || out.Total != int64(len(expected)) {
+				t.Fatalf("keyword=%q page=%d: total=%d err=%v", keyword, page, out.Total, err)
+			}
+			for _, row := range out.Items {
+				got = append(got, row.MetadataID)
+			}
+		}
+		if !slices.Equal(got, expected) {
+			t.Fatalf("keyword=%q: got=%v want=%v", keyword, got, expected)
+		}
+	}
+}
 
 func TestTMDbRecheckListTracksMediaDeletion(t *testing.T) {
 	db := recheckQueueDB(t)
