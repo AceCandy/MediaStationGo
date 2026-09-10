@@ -25,8 +25,16 @@ func TestTMDbRecheckListAccessAndValidation(t *testing.T) {
 	if err := db.AutoMigrate(&model.MetadataItem{}, &model.Media{}, &model.TMDbRecheckJob{}, &model.TMDbRecheckChange{}, &model.TMDbRecheckAssetChange{}); err != nil {
 		t.Fatal(err)
 	}
-	if err := db.Create(&model.TMDbRecheckJob{MetadataID: "test-job", Status: "done", LeaseToken: "private-lease"}).Error; err != nil {
-		t.Fatal(err)
+	series := model.MetadataItem{PermanentBase: model.PermanentBase{ID: "test-series"}, Kind: "series"}
+	for _, row := range []any{
+		&series,
+		&model.MetadataItem{PermanentBase: model.PermanentBase{ID: "test-job"}, Kind: "season", ParentID: &series.ID},
+		&model.Media{MetadataID: "test-job", Path: "/local/recheck.strm"},
+		&model.TMDbRecheckJob{MetadataID: "test-job", Status: "done", LeaseToken: "private-lease"},
+	} {
+		if err := db.Create(row).Error; err != nil {
+			t.Fatal(err)
+		}
 	}
 	svc := &service.Container{Repo: repository.New(db)}
 	for _, tc := range []struct {
@@ -65,6 +73,9 @@ func TestTMDbRecheckListAccessAndValidation(t *testing.T) {
 			}
 			if strings.Contains(rec.Body.String(), "private-lease") || strings.Contains(rec.Body.String(), "lease_token") {
 				t.Fatal("lease exposed")
+			}
+			if tc.path == "tmdb_episode_metadata_recheck/pending?status=done" && !strings.Contains(rec.Body.String(), `"metadata_id":"test-job"`) {
+				t.Fatalf("visible job missing: %s", rec.Body.String())
 			}
 			if tc.want == 200 && strings.Contains(tc.path, "page=2") && !strings.Contains(rec.Body.String(), `"items":[]`) {
 				t.Fatalf("pagination=%s", rec.Body.String())

@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/ShukeBta/MediaStationGo/internal/model"
+	"gorm.io/gorm"
 )
 
 var ErrTMDbRecheckFilter = errors.New("invalid recheck filter")
@@ -88,11 +89,21 @@ func (r *MetadataRepository) ListTMDbRechecks(ctx context.Context, status, keywo
 	default:
 		return out, ErrTMDbRecheckFilter
 	}
+	// 与关联文件列表使用相同范围；媒体删除后无需等待后台归并，统计与分页同步排除空待办。
+	query := func() *gorm.DB {
+		return r.db.WithContext(ctx).Table("tm_db_recheck_jobs AS jobs").Where(`EXISTS (
+SELECT 1 FROM metadata_items target
+WHERE target.id=jobs.metadata_id AND target.kind IN ('season','episode')
+AND (EXISTS (SELECT 1 FROM media m WHERE m.metadata_id=target.id)
+ OR (target.kind='season' AND EXISTS (
+  SELECT 1 FROM metadata_items child JOIN media m ON m.metadata_id=child.id
+  WHERE child.parent_id=target.id AND child.kind='episode'))))`)
+	}
 	var counts []struct {
 		Status string
 		N      int64
 	}
-	if err := r.db.WithContext(ctx).Model(&model.TMDbRecheckJob{}).Select("status, count(*) AS n").Group("status").Scan(&counts).Error; err != nil {
+	if err := query().Select("status, count(*) AS n").Group("status").Scan(&counts).Error; err != nil {
 		return out, err
 	}
 	for _, row := range counts {
@@ -110,20 +121,17 @@ func (r *MetadataRepository) ListTMDbRechecks(ctx context.Context, status, keywo
 	}
 	out.Changes += assets
 	keyword = strings.TrimSpace(keyword)
-	q := r.db.WithContext(ctx).Model(&model.TMDbRecheckJob{})
+	q := query()
 	if status != "" {
-		q = q.Where("status=?", status)
+		q = q.Where("jobs.status=?", status)
 	}
 	if keyword != "" {
 		pattern := "%" + strings.ToLower(EscapeLike(keyword)) + "%"
-		q = r.db.WithContext(ctx).Table("tm_db_recheck_jobs AS jobs").
+		q = q.
 			Joins("LEFT JOIN metadata_items mi ON mi.id=jobs.metadata_id").
 			Joins("LEFT JOIN metadata_items season ON season.id=mi.parent_id AND season.kind='season' AND mi.kind='episode'").
 			Joins("LEFT JOIN metadata_items series ON series.id=CASE WHEN mi.kind='season' THEN mi.parent_id ELSE season.parent_id END AND series.kind='series'").
 			Where(`LOWER(COALESCE(mi.title,'')) LIKE ? ESCAPE '\' OR LOWER(COALESCE(series.title,'')) LIKE ? ESCAPE '\' OR LOWER(jobs.metadata_id) LIKE ? ESCAPE '\' OR LOWER(CONCAT('s',LPAD(CAST(CASE WHEN mi.kind='season' THEN mi.season_num ELSE season.season_num END AS text),2,'0'),'e',LPAD(CAST(mi.episode_num AS text),2,'0'))) LIKE ? ESCAPE '\'`, pattern, pattern, pattern, pattern)
-		if status != "" {
-			q = q.Where("jobs.status=?", status)
-		}
 		q = q.Select(`jobs.*, mi.title, mi.kind, series.title AS series_title,
 CASE WHEN mi.kind='season' THEN mi.season_num ELSE season.season_num END AS season_num, mi.episode_num`)
 		var rows []struct {
