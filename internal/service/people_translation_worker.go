@@ -116,13 +116,24 @@ func (s *ScraperService) pendingPeopleTranslationGroups(ctx context.Context) ([]
 			return nil, err
 		}
 		for _, role := range roles {
+			metadata := role.Metadata
 			contextKey := role.MetadataID
-			if role.Metadata.Kind == model.MetadataKindEpisode && role.Metadata.ParentID != nil {
-				contextKey = *role.Metadata.ParentID
+			if metadata.Kind == model.MetadataKindEpisode && metadata.ParentID != nil {
+				contextKey = *metadata.ParentID
+				if metadata.Parent != nil {
+					metadata = *metadata.Parent
+				}
+			}
+			title := strings.TrimSpace(metadata.Title)
+			originalTitle := strings.TrimSpace(metadata.OriginalName)
+			if metadata.Kind == model.MetadataKindSeason && metadata.Parent != nil {
+				series := metadata.Parent
+				title = joinRoleTranslationTitle(series.Title, title)
+				originalTitle = joinRoleTranslationTitle(series.OriginalName, originalTitle)
 			}
 			add(newTranslationCacheLookup("role", contextKey, role.OriginalRole), AITranslationEntry{
 				Kind: "role", Text: role.OriginalRole,
-				Context: &AITranslationContext{Title: role.Metadata.Title, OriginalTitle: role.Metadata.OriginalName, Year: role.Metadata.Year, MediaKind: role.Metadata.Kind},
+				Context: &AITranslationContext{Title: title, OriginalTitle: originalTitle, Year: metadata.Year, MediaKind: metadata.Kind},
 			}, repository.TranslationTarget{Kind: "role", ID: role.ID, OriginalText: role.OriginalRole})
 			afterMetadataID, afterID = role.MetadataID, role.ID
 		}
@@ -131,6 +142,15 @@ func (s *ScraperService) pendingPeopleTranslationGroups(ctx context.Context) ([]
 			return groups, nil
 		}
 	}
+}
+
+func joinRoleTranslationTitle(seriesTitle, seasonTitle string) string {
+	seriesTitle = strings.TrimSpace(seriesTitle)
+	seasonTitle = strings.TrimSpace(seasonTitle)
+	if seriesTitle == "" || seasonTitle == "" {
+		return seriesTitle + seasonTitle
+	}
+	return seriesTitle + " / " + seasonTitle
 }
 
 func (s *ScraperService) translatePeopleWindow(ctx context.Context, groups []*pendingPeopleTranslation) (int, []string, error) {

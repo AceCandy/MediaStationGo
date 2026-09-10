@@ -203,6 +203,12 @@ after the group limit, including later episodes/pages. This still scans the
 eligible role set; bounded result hydration does not guarantee bounded table
 scanning without a matching index.
 
+Role context hydration must include the current metadata and at most two parent
+levels. Season and episode roles send `series title / season title` to both the
+translation request and task detail, while their cache context remains the season
+ID. Missing parents fall back to the current metadata title. Regression coverage
+must include credits attached directly to a season and through an episode.
+
 Startup `ensurePerformanceIndexes` creates
 `idx_metadata_credits_type_pending_translation` on `(type, metadata_id, id)` where
 `original_role <> '' AND role = original_role AND original_role !~ '[一-鿿]'`.

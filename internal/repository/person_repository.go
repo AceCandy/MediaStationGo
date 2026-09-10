@@ -197,6 +197,12 @@ func (r *PersonRepository) ListPendingRoleTranslations(ctx context.Context, lang
 		Preload("Metadata", func(db *gorm.DB) *gorm.DB {
 			return db.Select("id, kind, parent_id, title, original_name, year")
 		}).
+		Preload("Metadata.Parent", func(db *gorm.DB) *gorm.DB {
+			return db.Select("id, kind, parent_id, title, original_name, year")
+		}).
+		Preload("Metadata.Parent.Parent", func(db *gorm.DB) *gorm.DB {
+			return db.Select("id, kind, parent_id, title, original_name, year")
+		}).
 		Where("metadata_credits.type IN ? AND original_role <> '' AND role = original_role AND original_role !~ '[一-鿿]'", []string{model.CreditTypeActor, model.CreditTypeGuestStar}).
 		Where(`NOT EXISTS (SELECT 1 FROM translation_caches AS cache
 			WHERE cache.kind = 'role'

@@ -48,10 +48,10 @@ func TestPeopleTranslationDetail(t *testing.T) {
 			name: "series warning",
 			group: &pendingPeopleTranslation{
 				lookup: newTranslationCacheLookup("role", "metadata-2", "JB"),
-				entry:  AITranslationEntry{Context: &AITranslationContext{Title: "谜案追踪", MediaKind: model.MetadataKindSeries}},
+				entry:  AITranslationEntry{Context: &AITranslationContext{Title: "谜案追踪 / 第 2 季", MediaKind: model.MetadataKindSeason}},
 			},
 			source: "AI 未返回有效中文译文",
-			want:   "⚠️ 角色翻译 [AI 未返回有效中文译文] [电视剧: 谜案追踪]: JB",
+			want:   "⚠️ 角色翻译 [AI 未返回有效中文译文] [电视剧: 谜案追踪 / 第 2 季]: JB",
 		},
 		{
 			name:       "without context",

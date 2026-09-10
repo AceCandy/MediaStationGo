@@ -271,12 +271,12 @@ func TestPeopleTranslationEmptyPassDoesNotCreateTask(t *testing.T) {
 func TestPendingRoleTranslationsShareSeasonContext(t *testing.T) {
 	db := newServiceTestDB(t, &model.MetadataItem{}, &model.Person{}, &model.MetadataCredit{}, &model.TranslationCache{})
 	repos := repository.New(db)
-	series := model.MetadataItem{Kind: model.MetadataKindSeries, Title: "Series", Source: "tmdb"}
+	series := model.MetadataItem{Kind: model.MetadataKindSeries, Title: "Series", OriginalName: "Original Series", Source: "tmdb"}
 	if err := db.Create(&series).Error; err != nil {
 		t.Fatal(err)
 	}
-	season1 := model.MetadataItem{Kind: model.MetadataKindSeason, ParentID: &series.ID, SeasonNum: 1, Title: "Season 1", Source: "tmdb"}
-	season2 := model.MetadataItem{Kind: model.MetadataKindSeason, ParentID: &series.ID, SeasonNum: 2, Title: "Season 2", Source: "tmdb"}
+	season1 := model.MetadataItem{Kind: model.MetadataKindSeason, ParentID: &series.ID, SeasonNum: 1, Title: "Season 1", OriginalName: "Original Season 1", Source: "tmdb"}
+	season2 := model.MetadataItem{Kind: model.MetadataKindSeason, ParentID: &series.ID, SeasonNum: 2, Title: "Season 2", OriginalName: "Original Season 2", Source: "tmdb"}
 	if err := db.Create(&season1).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -301,21 +301,34 @@ func TestPendingRoleTranslationsShareSeasonContext(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	seasonCredit := model.MetadataCredit{MetadataID: season2.ID, PersonID: person.ID, Type: model.CreditTypeActor, OriginalRole: "Season Role", Role: "Season Role"}
+	if err := db.Create(&seasonCredit).Error; err != nil {
+		t.Fatal(err)
+	}
 
 	scraper := NewScraperService(&config.Config{}, zap.NewNop(), repos, nil, nil, nil, nil, nil)
 	groups, err := scraper.pendingPeopleTranslationGroups(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(groups) != 2 {
-		t.Fatalf("role translation groups = %d, want 2", len(groups))
+	if len(groups) != 3 {
+		t.Fatalf("role translation groups = %d, want 3", len(groups))
 	}
 	targetCounts := make(map[string]int, len(groups))
+	contexts := make(map[string]*AITranslationContext, len(groups))
 	for _, group := range groups {
-		targetCounts[group.lookup.ContextKey] = len(group.targets)
+		key := group.lookup.ContextKey + "\x00" + group.lookup.SourceText
+		targetCounts[key] = len(group.targets)
+		contexts[key] = group.entry.Context
 	}
-	if targetCounts[season1.ID] != 2 || targetCounts[season2.ID] != 1 {
+	season1Key := season1.ID + "\x00Same Role"
+	season2Key := season2.ID + "\x00Same Role"
+	seasonRoleKey := season2.ID + "\x00Season Role"
+	if targetCounts[season1Key] != 2 || targetCounts[season2Key] != 1 || targetCounts[seasonRoleKey] != 1 {
 		t.Fatalf("role translation target counts = %v", targetCounts)
+	}
+	if contexts[season1Key].Title != "Series / Season 1" || contexts[season1Key].OriginalTitle != "Original Series / Original Season 1" || contexts[season2Key].Title != "Series / Season 2" || contexts[seasonRoleKey].Title != "Series / Season 2" {
+		t.Fatalf("role translation contexts = %+v", contexts)
 	}
 }
 
@@ -380,7 +393,7 @@ func TestPendingRoleTranslationsCollectsTargetsAcrossPageAndGroupLimit(t *testin
 		t.Fatalf("groups = %d, err = %v", len(groups), err)
 	}
 	last := groups[len(groups)-1]
-	if last.lookup.ContextKey != season.ID || last.lookup.SourceText != "Shared" || len(last.targets) != 2 || last.entry.Context.Title != "First" {
+	if last.lookup.ContextKey != season.ID || last.lookup.SourceText != "Shared" || len(last.targets) != 2 || last.entry.Context.Title != "Series / Season" {
 		t.Fatalf("last group = %+v", last)
 	}
 	// 当前季的负缓存排除两个跨页目标，不妨碍后面的其它角色进入最后一组。
