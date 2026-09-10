@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"github.com/ShukeBta/MediaStationGo/internal/model"
 	"github.com/ShukeBta/MediaStationGo/internal/repository"
 )
 
@@ -38,21 +37,55 @@ type LibraryUsage struct {
 // Compute returns the full breakdown.
 func (s *StorageService) Compute(ctx context.Context) (*Breakdown, error) {
 	out := &Breakdown{ByLibrary: []LibraryUsage{}}
-	// 仅沿文件关联向上解析季、剧，避免把目录中尚无文件的子项计入收藏。
-	err := s.repo.DB.WithContext(ctx).Model(&model.Library{}).
-		Joins("LEFT JOIN media AS m ON m.library_id = libraries.id").
-		Joins("LEFT JOIN media_probe_metadata AS pm ON pm.media_id = m.id").
-		Joins("LEFT JOIN metadata_items AS mi ON mi.id = m.metadata_id").
-		Joins("LEFT JOIN metadata_items AS season ON season.id = CASE WHEN mi.kind = 'season' THEN mi.id WHEN mi.kind = 'episode' THEN mi.parent_id END AND season.kind = 'season'").
-		Joins("LEFT JOIN metadata_items AS series ON series.id = CASE WHEN mi.kind = 'series' THEN mi.id ELSE season.parent_id END AND series.kind = 'series'").
-		Select(`libraries.id AS library_id, libraries.name, libraries.type, libraries.path,
-			COUNT(DISTINCT CASE WHEN mi.kind = 'movie' THEN mi.id END) AS movie_count,
-			COUNT(DISTINCT series.id) AS series_count,
-			COUNT(DISTINCT season.id) AS season_count,
-			COUNT(DISTINCT CASE WHEN mi.kind = 'episode' THEN mi.id END) AS episode_count,
-			COALESCE(SUM(pm.size_bytes), 0) AS total_bytes`).
-		Group("libraries.id").Order("libraries.created_at ASC, libraries.id ASC").
-		Scan(&out.ByLibrary).Error
+	// 先按库去重 metadata，再将同季的集汇总；上级关联只处理季、剧集合。
+	// 容量独立按文件累加，未匹配 metadata 的文件也计入，目录中的无文件条目不计数。
+	err := s.repo.DB.WithContext(ctx).Raw(`
+		WITH linked AS (
+			SELECT DISTINCT library_id, metadata_id FROM media WHERE metadata_id IS NOT NULL
+		), items AS MATERIALIZED (
+			SELECT m.library_id, mi.kind,
+				CASE WHEN mi.kind = 'episode' THEN mi.parent_id
+					WHEN mi.kind IN ('season', 'series') THEN mi.id END AS id,
+				COUNT(*) AS item_count
+			FROM linked m JOIN metadata_items mi ON mi.id = m.metadata_id
+			GROUP BY m.library_id, mi.kind,
+				CASE WHEN mi.kind = 'episode' THEN mi.parent_id
+					WHEN mi.kind IN ('season', 'series') THEN mi.id END
+		), season_ids AS (
+			SELECT DISTINCT library_id, id FROM items WHERE kind IN ('season', 'episode')
+		), seasons AS MATERIALIZED (
+			SELECT s.library_id, mi.id, mi.parent_id
+			FROM season_ids s JOIN metadata_items mi ON mi.id = s.id AND mi.kind = 'season'
+		), series_ids AS (
+			SELECT library_id, id FROM items WHERE kind = 'series'
+			UNION SELECT library_id, parent_id FROM seasons
+		), counts AS (
+			SELECT library_id,
+				COALESCE(SUM(item_count) FILTER (WHERE kind = 'movie'), 0) AS movie_count,
+				0::bigint AS series_count, 0::bigint AS season_count,
+				COALESCE(SUM(item_count) FILTER (WHERE kind = 'episode'), 0) AS episode_count
+			FROM items GROUP BY library_id
+			UNION ALL SELECT library_id, 0, 0, COUNT(*), 0 FROM seasons GROUP BY library_id
+			UNION ALL
+			SELECT s.library_id, 0, COUNT(*), 0, 0
+			FROM series_ids s JOIN metadata_items mi ON mi.id = s.id AND mi.kind = 'series'
+			GROUP BY s.library_id
+		), totals AS (
+			SELECT library_id, SUM(movie_count) AS movie_count, SUM(series_count) AS series_count,
+				SUM(season_count) AS season_count, SUM(episode_count) AS episode_count
+			FROM counts GROUP BY library_id
+		), capacity AS (
+			SELECT m.library_id, SUM(pm.size_bytes) AS total_bytes
+			FROM media_probe_metadata pm JOIN media m ON m.id = pm.media_id GROUP BY m.library_id
+		)
+		SELECT l.id AS library_id, l.name, l.type, l.path,
+			COALESCE(c.movie_count, 0) AS movie_count, COALESCE(c.series_count, 0) AS series_count,
+			COALESCE(c.season_count, 0) AS season_count, COALESCE(c.episode_count, 0) AS episode_count,
+			COALESCE(p.total_bytes, 0) AS total_bytes
+		FROM libraries l LEFT JOIN totals c ON c.library_id = l.id
+		LEFT JOIN capacity p ON p.library_id = l.id
+		WHERE l.deleted_at IS NULL ORDER BY l.created_at, l.id
+	`).Scan(&out.ByLibrary).Error
 	if err != nil {
 		return nil, err
 	}
