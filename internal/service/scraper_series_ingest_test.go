@@ -124,7 +124,7 @@ func TestSeriesInventoryBindsOwnEpisodesAndReusesSnapshot(t *testing.T) {
 	if err := repos.DB.Model(ep).Updates(map[string]any{"overview": "完整简介", "catalog_metadata_hydrated_at": time.Now()}).Error; err != nil {
 		t.Fatal(err)
 	}
-	if err := s.ingestSeasonInventory(t.Context(), season, 12345); err != nil {
+	if _, err := s.ingestSeasonInventory(t.Context(), season, 12345); err != nil {
 		t.Fatal(err)
 	}
 	ep, err = repos.Metadata.FindEpisode(t.Context(), series.ID, 1, 1)
@@ -207,6 +207,7 @@ func TestSeriesInventoryMissingEpisodesBindAndRecover(t *testing.T) {
 	}
 	mediaService := NewMediaService(s.cfg, s.log, repos)
 	var placeholderID string
+	var firstDue time.Time
 	for round := 0; round < 2; round++ {
 		if err := s.syncScrapeSeriesGroup(t.Context(), group, &model.Media{TMDbID: 12345}, series.ID); err != nil {
 			t.Fatal(err)
@@ -224,6 +225,18 @@ func TestSeriesInventoryMissingEpisodesBindAndRecover(t *testing.T) {
 					t.Fatal("retry duplicated placeholder")
 				}
 				placeholderID = detail.MetadataID
+				var issue model.TMDbRecheckJob
+				if err := repos.DB.First(&issue, "metadata_id=?", placeholderID).Error; err != nil {
+					t.Fatal(err)
+				}
+				if issue.Status != "not_found" || issue.NotFoundIdentity == "" || issue.DueAt == nil || time.Until(*issue.DueAt) < 71*time.Hour {
+					t.Fatalf("missing inventory issue: %+v", issue)
+				}
+				if round == 0 {
+					firstDue = *issue.DueAt
+				} else if !firstDue.Equal(*issue.DueAt) {
+					t.Fatal("repeat ingestion extended cooldown")
+				}
 			}
 		}
 	}
@@ -240,8 +253,22 @@ func TestSeriesInventoryMissingEpisodesBindAndRecover(t *testing.T) {
 		t.Fatal("failed recheck advanced checkpoint", err)
 	}
 	published.Store(true)
-	if _, err := s.recheckTMDbMetadata(t.Context(), candidate, time.Now().UTC(), map[string]int64{}); err != nil {
+	if err := repos.DB.Model(&model.TMDbRecheckJob{}).Where("metadata_id=?", placeholderID).Update("due_at", time.Now().Add(-time.Minute)).Error; err != nil {
 		t.Fatal(err)
+	}
+	job, err := repos.Metadata.ClaimTMDbRecheck(t.Context())
+	if err != nil || job == nil || job.MetadataID != placeholderID {
+		t.Fatalf("claim=%+v err=%v", job, err)
+	}
+	if _, err := s.processTMDbRecheck(t.Context(), job, map[string]int64{}); err != nil {
+		t.Fatal(err)
+	}
+	var recovered model.TMDbRecheckJob
+	if err := repos.DB.First(&recovered, "metadata_id=?", placeholderID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if recovered.Status == "not_found" || recovered.NotFoundIdentity != "" {
+		t.Fatalf("stale issue: %+v", recovered)
 	}
 	detail, err := mediaService.GetMedia(t.Context(), group.MediaIDs[0])
 	if err != nil || detail == nil {
@@ -342,6 +369,31 @@ func TestSeriesInventoryOnlySpecialsTolerateNotFound(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestSeriesInventoryEmptyIsValidButMissingListIsNot(t *testing.T) {
+	s, repos, closeUpstream := newTestScraper(t)
+	defer closeUpstream()
+	series := createServiceTestMetadata(t, repos.DB, model.MetadataItem{Kind: "series"})
+	season := createServiceTestMetadata(t, repos.DB, model.MetadataItem{Kind: "season", ParentID: &series.ID, SeasonNum: 1})
+	for _, tc := range []struct {
+		raw   string
+		valid bool
+	}{
+		{`{"id":10,"season_number":1,"episodes":[]}`, true},
+		{`{"id":10,"season_number":1}`, false},
+		{`{"id":10,"season_number":1,"episodes":null}`, false},
+		{`{"id":10,"season_number":1,"episodes":[{"id":100,"episode_number":0}]}`, false},
+		{`{"id":10,"season_number":1,"episodes":[{"id":100,"episode_number":1},{"id":101,"episode_number":1}]}`, false},
+	} {
+		if err := repos.Metadata.UpsertProviderSnapshot(t.Context(), season.ID, "tmdb", []byte(tc.raw), time.Now()); err != nil {
+			t.Fatal(err)
+		}
+		inventory, err := s.ingestSeasonInventory(t.Context(), season, 42)
+		if tc.valid && (err != nil || inventory == nil) || !tc.valid && err == nil {
+			t.Fatalf("raw=%s inventory=%v err=%v", tc.raw, inventory, err)
+		}
 	}
 }
 

@@ -56,6 +56,10 @@ function scheduleText(definition: TaskDefinition): string {
 
 function taskProgressText(definition: TaskDefinition): string {
   const metrics = (definition.current ?? definition.latest)?.metrics
+  if (definition.key === 'tmdb_episode_metadata_recheck' && typeof metrics?.remaining === 'number') {
+    const seasons = typeof metrics.seasons_scanned === 'number' ? `已领取 ${metrics.seasons_scanned} 季 · ` : ''
+    return `${seasons}已核对 ${metrics.scanned ?? 0} 条元数据 · 剩余到期 ${metrics.remaining}（30 秒更新） · 失败待重试 ${metrics.failed ?? 0}`
+  }
   if (!metrics || !['processed', 'total', 'succeeded', 'failed', 'remaining'].every((key) => typeof metrics[key] === 'number')) return ''
   return `已处理 ${metrics.processed} / ${metrics.total} · 成功 ${metrics.succeeded} · 失败 ${metrics.failed} · 剩余 ${metrics.remaining}`
 }

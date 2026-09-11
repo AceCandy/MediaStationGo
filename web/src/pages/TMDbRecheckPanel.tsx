@@ -6,7 +6,7 @@ import { Select } from '../components/Select'
 import { ModalShell } from '../components/ModalShell'
 import { STRMDeleteDialog } from '../components/STRMDeleteDialog'
 
-const labels: Record<string, string> = { pending: '待检查', running: '处理中', not_found: '上游未找到（404）', retry: '等待重试', blocked: '标识阻塞', done: '已结束' }
+const labels: Record<string, string> = { pending: '待检查', running: '处理中', not_found: '上游未收录 / 待核对', retry: '等待重试', blocked: '标识阻塞', done: '已结束' }
 type DeleteTarget = { id: string; value: STRMDeleteTarget }
 
 export function TMDbRecheckPanel({ onClose }: { onClose: () => void }) {
@@ -37,11 +37,11 @@ export function TMDbRecheckPanel({ onClose }: { onClose: () => void }) {
       <button type="button" className="icon-btn" aria-label="关闭复查待办" disabled={!!target} onClick={onClose}><X size={18} /></button>
     </div>
     <div className="shrink-0 space-y-4 p-5 pb-0">
-      <p className="text-xs text-ink-50">到期后在下一次任务运行时检查；404 每 3 天复核，不代表文件一定错误。人工清理保留 STRM 和媒体记录。</p>
+      <p className="text-xs text-ink-50">到期后在下一次任务运行时检查；清单未收录或 404 每 3 天复核，不代表文件一定错误。人工清理保留 STRM 和媒体记录。</p>
       {deleted && <p role="status" className="text-xs text-ink-50">本地目标已删除，STRM 和媒体记录保留；待办仍按计划复核。</p>}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap gap-2" role="group" aria-label="待办分类">
-          {([['all', '复查待办'], ['not_found', '上游未找到（404）']] as const).map(([value, label]) => <button key={value} type="button" aria-pressed={tab === value} className={`rounded border px-3 py-2 text-sm ${tab === value ? 'border-brand-500 bg-brand-500/10 text-brand-500' : 'border-gray-200 text-ink-50 hover:text-brand-500'}`} onClick={() => { if (tab === value) return; reset(); setTab(value); setPage(1) }}>{label}</button>)}
+          {([['all', '复查待办'], ['not_found', labels.not_found]] as const).map(([value, label]) => <button key={value} type="button" aria-pressed={tab === value} className={`rounded border px-3 py-2 text-sm ${tab === value ? 'border-brand-500 bg-brand-500/10 text-brand-500' : 'border-gray-200 text-ink-50 hover:text-brand-500'}`} onClick={() => { if (tab === value) return; reset(); setTab(value); setPage(1) }}>{label}</button>)}
         </div>
         <button type="button" className="icon-btn" title="刷新复查待办" aria-label="刷新复查待办" disabled={loading} onClick={() => { reset(); setVersion(version + 1) }}><RefreshCw size={16} className={loading ? 'animate-spin' : ''} /></button>
       </div>
@@ -125,7 +125,7 @@ function TMDbRecheckFiles({ item, busy, pending, onTarget }: { item: TMDbRecheck
   const reset = () => { setData(null); setError('') }
   return <div className="space-y-2 text-xs">
         {error && <p role="alert" className="text-red-500">{error}</p>}
-        {!data ? !error && <p role="status">加载中…</p> : data.items.length === 0 ? <p>暂无关联文件，或待办已不再属于 404 分类。</p> : <ul className="divide-y divide-gray-200">
+        {!data ? !error && <p role="status">加载中…</p> : data.items.length === 0 ? <p>暂无关联文件，或待办已不再属于未收录分类。</p> : <ul className="divide-y divide-gray-200">
           {data.items.map((file) => <li key={file.media_id} className="flex min-w-0 flex-col gap-2 py-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="min-w-0">
               <p className="break-all text-ink-100">{file.path}</p>

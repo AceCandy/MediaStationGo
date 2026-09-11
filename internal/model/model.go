@@ -56,6 +56,7 @@ func AllModels() []interface{} {
 		&CatalogHydrationJob{},
 		&TaskExecution{},
 		&TMDbRecheckJob{},
+		&TMDbRecheckSeasonLease{},
 		&TMDbRecheckChange{},
 		&TMDbRecheckScan{},
 		&TMDbRecheckAssetChange{},

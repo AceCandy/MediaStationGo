@@ -121,7 +121,7 @@ func (r *MetadataRepository) ExpandTMDbRecheckChange(ctx context.Context) (bool,
 				if err != nil {
 					return err
 				}
-				if state == nil || !state.Playable || !state.NeedsData() || state.RequestIdentity() != missing[0].NotFoundIdentity {
+				if state == nil || !state.Playable || state.RequestIdentity() != missing[0].NotFoundIdentity {
 					if err := tx.Model(&model.TMDbRecheckJob{}).Where("metadata_id=? AND status='not_found'", item.ID).
 						Updates(map[string]any{"status": "pending", "due_at": gorm.Expr("clock_timestamp()"), "last_error": "", "not_found_identity": ""}).Error; err != nil {
 						return err
@@ -156,6 +156,20 @@ status = CASE WHEN tm_db_recheck_jobs.status IN ('done','blocked') THEN 'pending
 		return tx.Model(&change).Updates(map[string]any{"pending": false, "expand": false, "cursor": ""}).Error
 	})
 	return worked, err
+}
+
+// TMDbRecheckPassBoundary 在本地归并完成后固定本轮截止时间，避免新到期重试延长当前执行。
+func (r *MetadataRepository) TMDbRecheckPassBoundary(ctx context.Context) (time.Time, error) {
+	var cutoff time.Time
+	err := r.db.WithContext(ctx).Raw("SELECT statement_timestamp()").Scan(&cutoff).Error
+	return cutoff, err
+}
+
+// CountTMDbRechecksDue 只统计队列，不重复扫描媒体；包含仍在处理或等待租约到期的条目。
+func (r *MetadataRepository) CountTMDbRechecksDue(ctx context.Context, cutoff time.Time) (int64, error) {
+	var count int64
+	err := r.db.WithContext(ctx).Model(&model.TMDbRecheckJob{}).Where("due_at <= ?", cutoff).Count(&count).Error
+	return count, err
 }
 
 func (r *MetadataRepository) ClaimTMDbRecheck(ctx context.Context) (*model.TMDbRecheckJob, error) {
@@ -277,6 +291,11 @@ WHERE mi.id=ANY(?) AND mi.kind IN ('season','episode')`, &ids).Scan(&states).Err
 // CommitTMDbRecheck 锁定快照涉及的层级和变更行，再检查租约；回调中不得访问网络。
 func (r *MetadataRepository) CommitTMDbRecheck(ctx context.Context, job *model.TMDbRecheckJob, snapshot *TMDbRecheckState, save func(*Container) error) error {
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if job.SeasonLeaseID != "" {
+			if err := lockTMDbRecheckSeason(tx, job.SeasonLeaseID, job.LeaseToken); err != nil {
+				return err
+			}
+		}
 		ids := []string{job.MetadataID}
 		// 保存阶段也向业务写入退让，避免持变更行等待对方的标识/图片行。
 		if err := tx.Exec("SET LOCAL lock_timeout = '100ms'").Error; err != nil {
@@ -326,6 +345,17 @@ func (r *MetadataRepository) CommitTMDbRecheck(ctx context.Context, job *model.T
 
 // FinishTMDbRecheck 仅持有当前领取凭据的执行者能确认或延期。
 func (r *MetadataRepository) FinishTMDbRecheck(ctx context.Context, job *model.TMDbRecheckJob, status, reason string, due *time.Time, attempts int) error {
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if job.SeasonLeaseID != "" {
+			if err := lockTMDbRecheckSeason(tx, job.SeasonLeaseID, job.LeaseToken); err != nil {
+				return err
+			}
+		}
+		return New(tx).Metadata.finishTMDbRecheck(ctx, job, status, reason, due, attempts)
+	})
+}
+
+func (r *MetadataRepository) finishTMDbRecheck(ctx context.Context, job *model.TMDbRecheckJob, status, reason string, due *time.Time, attempts int) error {
 	identity := ""
 	if status == "not_found" {
 		identity = job.NotFoundIdentity

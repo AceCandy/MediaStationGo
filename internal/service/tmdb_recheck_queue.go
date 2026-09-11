@@ -79,7 +79,17 @@ func (s *ScraperService) runTMDbRecheckQueue(ctx context.Context, metrics map[st
 		report("expand", fmt.Sprintf("本次已处理季集变更登记 %d 次（非 TMDb 请求数）", metrics["change_batches"]), false, nil)
 	}
 	report("expand", fmt.Sprintf("季集变更归并完成，本次处理登记 %d 次", metrics["change_batches"]), true, nil)
-	report("recheck", "开始领取到期待办并检查 TMDb 季/集信息", true, nil)
+	cutoff, err := s.repo.Metadata.TMDbRecheckPassBoundary(ctx)
+	if err != nil {
+		return err
+	}
+	remaining, err := s.repo.Metadata.CountTMDbRechecksDue(ctx, cutoff)
+	if err != nil {
+		return err
+	}
+	metrics["total"], metrics["remaining"] = remaining, remaining
+	lastCount := time.Now()
+	report("recheck", fmt.Sprintf("开始检查 TMDb 季/集信息，本轮到期 %d 个；新到期重试留待下轮", remaining), true, nil)
 	type result struct {
 		metrics map[string]int64
 		details []string
@@ -92,17 +102,22 @@ func (s *ScraperService) runTMDbRecheckQueue(ctx context.Context, metrics map[st
 		go func() {
 			defer wg.Done()
 			for ctx.Err() == nil {
-				job, err := s.repo.Metadata.ClaimTMDbRecheck(ctx)
+				lease, err := s.repo.Metadata.ClaimTMDbRecheckSeason(ctx, cutoff)
 				if err != nil {
 					results <- result{err: err}
 					return
 				}
-				if job == nil {
+				if lease == nil {
 					return
 				}
-				local := map[string]int64{"scanned": 1}
-				details, err := s.processTMDbRecheck(ctx, job, local)
-				results <- result{metrics: local, details: details, err: err}
+				results <- result{metrics: map[string]int64{"seasons_scanned": 1}}
+				err = s.processTMDbRecheckSeason(ctx, lease, cutoff, func(local map[string]int64, details []string) {
+					results <- result{metrics: local, details: details}
+				})
+				if err != nil {
+					results <- result{err: err}
+					return
+				}
 			}
 		}()
 	}
@@ -115,9 +130,25 @@ func (s *ScraperService) runTMDbRecheckQueue(ctx context.Context, metrics map[st
 		if res.err != nil && firstErr == nil {
 			firstErr = res.err
 		}
-		report("recheck", fmt.Sprintf("本次已处理 %d 个待办，请求 %d 次，上游未找到 %d 个，失败 %d 个", metrics["scanned"], metrics["requests"], metrics["not_found"], metrics["failed"]), false, res.details)
+		if time.Since(lastCount) >= 30*time.Second {
+			remaining, countErr := s.repo.Metadata.CountTMDbRechecksDue(ctx, cutoff)
+			if countErr == nil {
+				metrics["remaining"] = remaining
+			} else {
+				res.details = append(res.details, "⚠️ 本轮剩余量更新失败，暂保留上次统计："+sanitizeTaskLogError(countErr).Error())
+			}
+			lastCount = time.Now()
+		}
+		metrics["requests"] = tmdbSeasonBatchFromContext(ctx).requests.Load()
+		report("recheck", fmt.Sprintf("本次已领取 %d 季、核对 %d 条元数据，本轮剩余 %d 条（每 30 秒更新），请求 %d 次，上游未找到 %d 条，失败待重试 %d 条", metrics["seasons_scanned"], metrics["scanned"], metrics["remaining"], metrics["requests"], metrics["not_found"], metrics["failed"]), false, res.details)
 	}
-	report("recheck", fmt.Sprintf("到期待办处理结束，本次 %d 个，请求 %d 次，上游未找到 %d 个，失败 %d 个", metrics["scanned"], metrics["requests"], metrics["not_found"], metrics["failed"]), true, nil)
+	if remaining, err := s.repo.Metadata.CountTMDbRechecksDue(ctx, cutoff); err == nil {
+		metrics["remaining"] = remaining
+	} else if firstErr == nil {
+		firstErr = err
+	}
+	report("recheck", fmt.Sprintf("本轮领取结束，已领取 %d 季、核对 %d 条元数据，剩余到期 %d 条，请求 %d 次，上游未找到 %d 条，失败待重试 %d 条；尚未释放的租约及后续到期条目留待下轮", metrics["seasons_scanned"], metrics["scanned"], metrics["remaining"], metrics["requests"], metrics["not_found"], metrics["failed"]), true, nil)
+	report("recheck", fmt.Sprintf("阶段累计耗时：详情 %dms（失败 %d 次），图片 %dms（失败 %d 次），数据库核对及保存 %dms（失败 %d 次）", metrics["details_ms"], metrics["details_failed"], metrics["image_ms"], metrics["image_failed"], metrics["save_ms"], metrics["save_failed"]), true, nil)
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
@@ -125,48 +156,40 @@ func (s *ScraperService) runTMDbRecheckQueue(ctx context.Context, metrics map[st
 }
 
 func (s *ScraperService) processTMDbRecheck(parent context.Context, job *model.TMDbRecheckJob, metrics map[string]int64) ([]string, error) {
-	ctx, cancel := context.WithCancel(parent)
-	defer cancel()
-	stopped := make(chan struct{})
-	defer func() { cancel(); <-stopped }()
-	go func() {
-		defer close(stopped)
-		ticker := time.NewTicker(repository.TMDbRecheckLease / 3)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				if s.repo.Metadata.RenewTMDbRecheck(ctx, job) != nil {
-					cancel()
-					return
-				}
-			}
-		}
-	}()
+	ctx := parent
+	stageStarted := time.Now()
 	state, err := s.repo.Metadata.TMDbRecheckState(ctx, job.MetadataID)
+	err = recordTMDbRecheckStage(metrics, "save", "数据库状态核对", stageStarted, err)
 	if err != nil {
 		return s.retryTMDbRecheck(parent, job, metrics, err)
 	}
+	if state != nil && job.NotFoundIdentity != "" && job.NotFoundIdentity != state.RequestIdentity() {
+		job.NotFoundIdentity = ""
+	}
 	finish := func(status, reason string, due *time.Time) error {
-		return s.repo.Metadata.CommitTMDbRecheck(ctx, job, state, func(repos *repository.Container) error {
+		started := time.Now()
+		err := s.repo.Metadata.CommitTMDbRecheck(ctx, job, state, func(repos *repository.Container) error {
 			return repos.Metadata.FinishTMDbRecheck(ctx, job, status, reason, due, 0)
 		})
+		return recordTMDbRecheckStage(metrics, "save", "数据库状态保存", started, err)
 	}
 	identityValid := state != nil && state.IdentityValid
 	if identityValid {
 		id, parseErr := strconv.Atoi(state.SeriesTMDbID)
 		identityValid = parseErr == nil && id > 0
 	}
-	if state == nil || !state.Playable || !tmdbMetadataCandidateNeedsRecheck(state.TMDbMetadataRecheckCandidate) {
+	if state == nil || !state.Playable || (!tmdbMetadataCandidateNeedsRecheck(state.TMDbMetadataRecheckCandidate) && job.NotFoundIdentity == "") {
 		err = finish("done", "", nil)
 	} else if !identityValid {
 		next := time.Now().UTC().Add(7 * 24 * time.Hour)
 		err = finish("blocked", "TMDb 标识缺失或不唯一", &next)
 	} else if state.CheckedAt != nil && state.CheckedAt.Add(tmdbEpisodeMetadataRecheckCooldown).After(time.Now()) {
 		next := state.CheckedAt.Add(tmdbEpisodeMetadataRecheckCooldown)
-		err = finish("pending", "成功检查后的 72 小时冷却", &next)
+		if job.NotFoundIdentity != "" {
+			err = finish("not_found", job.LastError, &next)
+		} else {
+			err = finish("pending", "成功检查后的 72 小时冷却", &next)
+		}
 	} else {
 		return s.fetchAndCommitTMDbRecheck(ctx, parent, job, state, metrics)
 	}
@@ -187,19 +210,23 @@ func (s *ScraperService) fetchAndCommitTMDbRecheck(ctx, parent context.Context, 
 		return s.retryTMDbRecheck(parent, job, metrics, errors.New("TMDb 整剧标识无效"))
 	}
 	requestCtx, cancel := context.WithTimeout(ctx, tmdbDetailsTimeout)
+	stageStarted := time.Now()
 	data, err := s.fetchTMDbMetadataRecheck(requestCtx, state.TMDbMetadataRecheckCandidate, seriesID)
 	cancel()
 	metrics["requests"]++
 	if isTMDbHTTPStatus(err, http.StatusNotFound) || errors.Is(err, errTMDbEpisodeMissingFromSeason) {
+		recordTMDbRecheckStage(metrics, "details", "详情请求", stageStarted, nil)
 		next := time.Now().UTC().Add(tmdbEpisodeMetadataRecheckCooldown)
 		job.NotFoundIdentity = state.RequestIdentity()
 		reason := "TMDb 上游未找到该季/集（404），3 天后复核；请核对剧集匹配及编号，勿仅凭 404 删除文件"
 		if errors.Is(err, errTMDbEpisodeMissingFromSeason) {
 			reason = "TMDb 整季清单未包含该集，3 天后复核；请核对匹配及编号，勿据此删除文件"
 		}
+		stageStarted = time.Now()
 		err = s.repo.Metadata.CommitTMDbRecheck(ctx, job, state, func(repos *repository.Container) error {
 			return repos.Metadata.FinishTMDbRecheck(ctx, job, "not_found", reason, &next, job.Attempts+1)
 		})
+		err = recordTMDbRecheckStage(metrics, "save", "数据库保存", stageStarted, err)
 		if err != nil {
 			return s.retryTMDbRecheck(parent, job, metrics, err)
 		}
@@ -209,15 +236,16 @@ func (s *ScraperService) fetchAndCommitTMDbRecheck(ctx, parent context.Context, 
 	if err == nil && (data == nil || data.id <= 0 || !json.Valid(data.rawJSON)) {
 		err = errors.New("TMDb 返回数据无效")
 	}
+	err = recordTMDbRecheckStage(metrics, "details", "详情请求", stageStarted, err)
 	if err != nil {
 		return s.retryTMDbRecheck(parent, job, metrics, err)
 	}
 	var asset *model.ArtworkAsset
 	if state.ArtworkMissing && strings.TrimSpace(data.artworkURL) != "" {
+		stageStarted = time.Now()
 		if s.artwork.imageProxy == nil {
-			return s.retryTMDbRecheck(parent, job, metrics, errors.New("图片服务不可用"))
-		}
-		if err = s.artwork.imageProxy.RemoveFailed(data.artworkURL); err == nil {
+			err = errors.New("图片服务不可用")
+		} else if err = s.artwork.imageProxy.RemoveFailed(data.artworkURL); err == nil {
 			var bytes []byte
 			bytes, _, err = s.artwork.imageProxy.Fetch(ctx, data.artworkURL)
 			if err == nil {
@@ -228,12 +256,14 @@ func (s *ScraperService) fetchAndCommitTMDbRecheck(ctx, parent context.Context, 
 				asset, err = s.artwork.prepareAsset(state.MetadataID, kind, bytes)
 			}
 		}
+		err = recordTMDbRecheckStage(metrics, "image", "图片下载及落盘", stageStarted, err)
 		if err != nil {
 			return s.retryTMDbRecheck(parent, job, metrics, err)
 		}
 	}
 	credits := s.prepareCreditInputs(ctx, data.credits)
 	savedMetrics := map[string]int64{}
+	stageStarted = time.Now()
 	err = s.repo.Metadata.CommitTMDbRecheck(ctx, job, state, func(repos *repository.Container) error {
 		local := &ScraperService{repo: repos, log: s.log}
 		now := time.Now().UTC()
@@ -255,6 +285,7 @@ func (s *ScraperService) fetchAndCommitTMDbRecheck(ctx, parent context.Context, 
 		}
 		return repos.Metadata.FinishTMDbRecheck(ctx, job, status, "", next, 0)
 	})
+	err = recordTMDbRecheckStage(metrics, "save", "数据库保存", stageStarted, err)
 	if err != nil {
 		return s.retryTMDbRecheck(parent, job, metrics, err)
 	}
@@ -262,6 +293,19 @@ func (s *ScraperService) fetchAndCommitTMDbRecheck(ctx, parent context.Context, 
 		metrics[k] += v
 	}
 	return details, nil
+}
+
+// recordTMDbRecheckStage 保留错误链用于冷却/取消分类；仅添加阶段与耗时，输出仍由任务日志统一脱敏。
+func recordTMDbRecheckStage(metrics map[string]int64, key, label string, started time.Time, err error) error {
+	elapsed := time.Since(started)
+	metrics[key+"_ms"] += elapsed.Milliseconds()
+	if err == nil {
+		return nil
+	}
+	if !errors.Is(err, context.Canceled) && !errors.Is(err, repository.ErrTMDbRecheckChanged) {
+		metrics[key+"_failed"]++
+	}
+	return fmt.Errorf("%s（耗时 %s）：%w", label, elapsed.Round(time.Millisecond), err)
 }
 
 func tmdbRecheckSubject(state *repository.TMDbRecheckState) string {

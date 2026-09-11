@@ -32,7 +32,7 @@ const react = {
   useEffect() {},
   useRef: () => ({ current: 0 }),
 }
-vm.runInNewContext(ts.transpileModule(`${source}\nexport { TaskLogDialog, reverseLogLines, CurrentState, DefinitionTable };`, {
+vm.runInNewContext(ts.transpileModule(`${source}\nexport { TaskLogDialog, reverseLogLines, CurrentState, DefinitionTable, taskProgressText };`, {
   compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX, target: ts.ScriptTarget.ES2022 },
 }).outputText, { exports, require: (id) => id === 'react' ? react : mocks[id] ?? (id.startsWith('.') ? {} : require(id)) })
 
@@ -82,6 +82,10 @@ for (const content of ['2026-09-07 ✅ done\n', '2026-09-07 [ERROR] failed\n']) 
   assert.ok(nodes(pre(render(content))).some((node) => node.props?.role === 'img'), 'log badges remain visible')
 }
 console.log('Task log pagination, ordering, badges and memo reuse checks passed')
+
+assert.equal(exports.taskProgressText({ key: 'tmdb_episode_metadata_recheck', current: { metrics: { scanned: 12, remaining: 30, failed: 2 } } }), '已核对 12 条元数据 · 剩余到期 30（30 秒更新） · 失败待重试 2')
+assert.equal(exports.taskProgressText({ key: 'tmdb_episode_metadata_recheck', current: { metrics: { seasons_scanned: 3, scanned: 12, remaining: 30, failed: 2 } } }), '已领取 3 季 · 已核对 12 条元数据 · 剩余到期 30（30 秒更新） · 失败待重试 2')
+assert.equal(exports.taskProgressText({ key: 'tmdb_episode_metadata_recheck', latest: { metrics: { scanned: 12 } } }), '')
 
 for (const [state, task, expected] of [
   ['idle', undefined, '空闲'],

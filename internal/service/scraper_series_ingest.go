@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -65,6 +66,7 @@ func (s *ScraperService) syncScrapeSeriesGroup(ctx context.Context, group scrape
 		}
 	}
 	seasons := make(map[int]*model.MetadataItem)
+	inventories := make(map[int]map[int]bool)
 	seasonErrors := make(map[int]error)
 	wanted := make(map[int][]int)
 	for _, row := range rows {
@@ -96,7 +98,7 @@ func (s *ScraperService) syncScrapeSeriesGroup(ctx context.Context, group scrape
 				if !loaded {
 					season, bindErr = s.upsertSeasonMetadata(ctx, series, row.SeasonNum, series.Source)
 					if bindErr == nil && tmdbID > 0 && s.tmdb != nil && s.tmdb.Enabled() {
-						bindErr = s.ingestSeasonInventory(ctx, season, tmdbID, wanted[row.SeasonNum]...)
+						inventories[row.SeasonNum], bindErr = s.ingestSeasonInventory(ctx, season, tmdbID, wanted[row.SeasonNum]...)
 					}
 					seasons[row.SeasonNum], seasonErrors[row.SeasonNum] = season, bindErr
 				}
@@ -133,6 +135,11 @@ func (s *ScraperService) syncScrapeSeriesGroup(ctx context.Context, group scrape
 		lookup.SeriesID = row.SeriesID
 		if err := s.markMetadataMatched(ctx, row, &lookup, targetID); err != nil {
 			failures = append(failures, s.markScrapeError(ctx, row.ID, err))
+		} else if inventory := inventories[row.SeasonNum]; row.EpisodeNum > 0 && inventory != nil && !inventory[row.EpisodeNum] {
+			// 保留占位及文件关联；问题属于共享元数据，不把网络失败当成编号错误。
+			if err := s.repo.Metadata.RecordTMDbInventoryMissing(ctx, targetID, seriesID, strconv.Itoa(tmdbID), row.SeasonNum, row.EpisodeNum); err != nil {
+				failures = append(failures, err)
+			}
 		}
 	}
 	return errors.Join(failures...)
@@ -161,16 +168,16 @@ func (s *ScraperService) repairInvalidScrapeSeason(ctx context.Context, media *m
 }
 
 // ingestSeasonInventory 每季读取一次快照或网络响应，只填基础信息，不推进完整补全检查点。
-func (s *ScraperService) ingestSeasonInventory(ctx context.Context, season *model.MetadataItem, tmdbID int, wanted ...int) error {
+func (s *ScraperService) ingestSeasonInventory(ctx context.Context, season *model.MetadataItem, tmdbID int, wanted ...int) (map[int]bool, error) {
 	snapshot, err := s.repo.Metadata.FindProviderSnapshot(ctx, season.ID, "tmdb")
 	if err != nil {
-		return err
+		return nil, err
 	}
 	var details *TMDbSeasonDetails
 	if snapshot != nil {
 		details, err = s.tmdb.parseTVSeasonDetails([]byte(snapshot.Payload))
 		if err != nil {
-			return err
+			return nil, err
 		}
 		available := make(map[int]bool, len(details.Episodes))
 		for _, episode := range details.Episodes {
@@ -188,41 +195,57 @@ func (s *ScraperService) ingestSeasonInventory(ctx context.Context, season *mode
 		details, err = s.tmdb.GetTVSeasonDetails(ctx, tmdbID, season.SeasonNum)
 		// 特别篇可能未被收录，允许调用方保留本地季集占位，不伪造快照。
 		if season.SeasonNum == 0 && isTMDbHTTPStatus(err, http.StatusNotFound) {
-			return nil
+			return nil, nil
 		}
 	}
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if details == nil || details.ID <= 0 || details.SeasonNumber != season.SeasonNum {
-		return fmt.Errorf("invalid season inventory for season %d", season.SeasonNum)
+		return nil, fmt.Errorf("invalid season inventory for season %d", season.SeasonNum)
+	}
+	var inventory struct {
+		Episodes []json.RawMessage `json:"episodes"`
+	}
+	if json.Unmarshal(details.RawJSON, &inventory) != nil || inventory.Episodes == nil {
+		return nil, errors.New("TMDb 整季响应缺少集清单")
+	}
+	if len(inventory.Episodes) != len(details.Episodes) {
+		return nil, errors.New("TMDb 整季响应包含无效集编号")
+	}
+	available := make(map[int]bool, len(details.Episodes))
+	for _, episode := range details.Episodes {
+		if episode.ID <= 0 || episode.EpisodeNumber <= 0 || available[episode.EpisodeNumber] {
+			return nil, errors.New("TMDb 整季响应集编号无效或重复")
+		}
+		available[episode.EpisodeNumber] = true
 	}
 	if snapshot == nil {
 		if err := s.repo.Metadata.UpsertProviderSnapshot(ctx, season.ID, "tmdb", details.RawJSON, time.Now().UTC()); err != nil {
-			return err
+			return nil, err
 		}
 	}
 	if season.Source == "tmdb" && season.CatalogMetadataHydratedAt == nil {
 		item := catalogSeasonItem(*season.ParentID, details)
 		preserveMissingLocalEpisodeDetails(item, season)
 		if _, err := s.repo.Metadata.UpsertSeasonWithIdentifiers(ctx, item, catalogIdentifiers(model.MetadataKindSeason, details.ID, details.ExternalIDs)); err != nil {
-			return err
+			return nil, err
 		}
 	}
 	for _, summary := range details.Episodes {
 		if _, err := s.upsertCatalogEpisodeShell(ctx, season, summary); err != nil {
-			return err
+			return nil, err
 		}
 	}
 	if season.CatalogHydratedAt != nil {
 		child, err := s.repo.Metadata.FindIncompleteCatalogChild(ctx, season.ID, model.MetadataKindEpisode)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		if child != nil {
-			return s.repo.DB.WithContext(ctx).Model(&model.MetadataItem{}).
+			return available, s.repo.DB.WithContext(ctx).Model(&model.MetadataItem{}).
 				Where("id IN ?", []string{season.ID, *season.ParentID}).Update("catalog_hydrated_at", nil).Error
 		}
 	}
-	return nil
+	return available, nil
 }

@@ -21,7 +21,9 @@ type tmdbSeasonBatch struct {
 	mu       sync.Mutex
 	entries  map[string]*tmdbSeasonEntry
 	bytes    int
-	requests atomic.Int64
+	requests *atomic.Int64
+	// 季级复查中，上游失败也由该季各目标共享，下一次季执行再重试。
+	keepFailures bool
 }
 
 type tmdbSeasonEntry struct {
@@ -36,7 +38,12 @@ func withTMDbSeasonBatch(ctx context.Context) context.Context {
 	if tmdbSeasonBatchFromContext(ctx) != nil {
 		return ctx
 	}
-	return context.WithValue(ctx, tmdbSeasonBatchKey{}, &tmdbSeasonBatch{entries: make(map[string]*tmdbSeasonEntry)})
+	return context.WithValue(ctx, tmdbSeasonBatchKey{}, &tmdbSeasonBatch{entries: make(map[string]*tmdbSeasonEntry), requests: new(atomic.Int64)})
+}
+
+func withTMDbRecheckSeason(ctx context.Context) context.Context {
+	ctx = withTMDbSeasonBatch(ctx)
+	return context.WithValue(ctx, tmdbSeasonBatchKey{}, &tmdbSeasonBatch{entries: make(map[string]*tmdbSeasonEntry), requests: tmdbSeasonBatchFromContext(ctx).requests, keepFailures: true})
 }
 
 func tmdbSeasonBatchFromContext(ctx context.Context) *tmdbSeasonBatch {
@@ -74,21 +81,29 @@ func (b *tmdbSeasonBatch) season(ctx context.Context, t *TMDbProvider, series, s
 		if entry.canceled {
 			entry.details, entry.err = nil, ctx.Err()
 		}
+		if b.keepFailures {
+			entry.canceled = false
+			if entry.details != nil && len(entry.details.RawJSON) > 16<<20 {
+				entry.details, entry.err = nil, errors.New("TMDb 整季响应超过 16 MiB，留待下次复查")
+			}
+		}
 		b.mu.Lock()
 		// ponytail: 执行内 32 季/16 MiB 整批淘汰；只有命中率不足时才引入 LRU。
 		if len(b.entries) > 32 || (entry.details != nil && b.bytes+len(entry.details.RawJSON) > 16<<20) {
 			for k, cached := range b.entries {
 				select {
 				case <-cached.done:
-					b.bytes -= len(cached.details.RawJSON)
+					if cached.details != nil {
+						b.bytes -= len(cached.details.RawJSON)
+					}
 					delete(b.entries, k)
 				default:
 				}
 			}
 		}
-		if entry.err != nil || entry.details == nil || len(entry.details.RawJSON) > 16<<20 {
+		if !b.keepFailures && (entry.err != nil || entry.details == nil || len(entry.details.RawJSON) > 16<<20) {
 			delete(b.entries, key)
-		} else {
+		} else if entry.details != nil {
 			b.bytes += len(entry.details.RawJSON)
 		}
 		close(entry.done)

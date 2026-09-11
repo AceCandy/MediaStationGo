@@ -9,9 +9,18 @@ type TMDbRecheckJob struct {
 	DueAt            *time.Time `gorm:"index:idx_tmdb_recheck_status_due,priority:2;index:idx_tmdb_recheck_due,where:due_at IS NOT NULL" json:"due_at"`
 	Attempts         int        `gorm:"not null;default:0" json:"attempts"`
 	LastError        string     `gorm:"type:text;not null;default:''" json:"last_error"`
-	LeaseToken       string     `gorm:"size:36;not null;default:''" json:"-"`
+	LeaseToken       string     `gorm:"size:36;not null;default:'';index:idx_tmdb_recheck_lease_token,where:lease_token <> ''" json:"-"`
 	LeaseUntil       *time.Time `json:"-"`
 	NotFoundIdentity string     `gorm:"type:text;not null;default:''" json:"-"`
+	// SeasonLeaseID 仅供本次领取校验，不写入目标结果或返回 API。
+	SeasonLeaseID string `gorm:"-" json:"-"`
+}
+
+// TMDbRecheckSeasonLease 保证一季仅由一个执行者处理，逐集结果仍保存在原任务表。
+type TMDbRecheckSeasonLease struct {
+	MetadataID string    `gorm:"primaryKey;size:36"`
+	LeaseToken string    `gorm:"size:36;not null"`
+	LeaseUntil time.Time `gorm:"not null"`
 }
 
 // TMDbRecheckChange 由业务事务登记，游标分批展开整剧/季的后代。

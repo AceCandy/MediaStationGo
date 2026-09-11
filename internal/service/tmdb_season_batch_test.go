@@ -13,6 +13,25 @@ import (
 	"time"
 )
 
+func TestTMDbSeasonBatchRecheckOversizedResponseDoesNotRefetch(t *testing.T) {
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls.Add(1)
+		fmt.Fprintf(w, `{"id":50,"season_number":1,"episodes":[],"extra":"%s"}`, strings.Repeat("x", 16<<20))
+	}))
+	defer server.Close()
+	provider := newTMDbTestProvider(server.URL)
+	ctx := withTMDbRecheckSeason(t.Context())
+	for range 2 {
+		if _, err := provider.GetTVSeasonDetails(ctx, 42, 1); err == nil || !strings.Contains(err.Error(), "16 MiB") {
+			t.Fatalf("oversized response: %v", err)
+		}
+	}
+	if calls.Load() != 1 || tmdbSeasonBatchFromContext(ctx).bytes != 0 {
+		t.Fatalf("calls=%d", calls.Load())
+	}
+}
+
 func TestTMDbSeasonBatchWaiterCancellationAndFailureRetry(t *testing.T) {
 	started, release := make(chan struct{}), make(chan struct{})
 	var calls atomic.Int32

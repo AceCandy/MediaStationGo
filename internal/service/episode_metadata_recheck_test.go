@@ -134,7 +134,7 @@ func TestTMDbEpisodeRecheckUpdatesReleaseDateAndDetectsCandidates(t *testing.T) 
 
 func TestTMDbMetadataRecheckRepairsSeasonsAndEpisodes(t *testing.T) {
 	db := newServiceTestDB(t, &model.Media{}, &model.MetadataProviderSnapshot{}, &model.Person{}, &model.PersonIdentifier{}, &model.MetadataCredit{})
-	if err := db.AutoMigrate(&model.TMDbRecheckJob{}, &model.TMDbRecheckChange{}, &model.TMDbRecheckScan{}, &model.TMDbRecheckAssetChange{}); err != nil {
+	if err := db.AutoMigrate(&model.TMDbRecheckJob{}, &model.TMDbRecheckSeasonLease{}, &model.TMDbRecheckChange{}, &model.TMDbRecheckScan{}, &model.TMDbRecheckAssetChange{}); err != nil {
 		t.Fatal(err)
 	}
 	if err := database.EnsureTMDbRecheckTriggers(db); err != nil {
@@ -246,12 +246,12 @@ func TestTMDbMetadataRecheckRepairsSeasonsAndEpisodes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, message := range []string{"图片资产归并完成", "文件核对结束，本次", "季集变更归并完成", "尚未开始请求 TMDb", "本次处理登记", "开始领取到期待办", "到期待办处理结束", "阶段耗时", "累计耗时"} {
+	for _, message := range []string{"图片资产归并完成", "文件核对结束，本次", "季集变更归并完成", "尚未开始请求 TMDb", "本次处理登记", "新到期重试留待下轮", "本轮领取结束", "条元数据", "剩余到期 0 条", "详情请求（耗时", "阶段累计耗时", "阶段耗时", "累计耗时"} {
 		if !strings.Contains(progressLog.Content, message) {
 			t.Fatalf("progress missing %q: %s", message, progressLog.Content)
 		}
 	}
-	if metrics["season_checked"] != 2 || metrics["episode_checked"] != 1 || metrics["failed"] != 1 {
+	if metrics["season_checked"] != 2 || metrics["episode_checked"] != 1 || metrics["failed"] != 1 || metrics["details_failed"] != 1 || metrics["remaining"] != 0 {
 		t.Fatalf("task metrics = %v", metrics)
 	}
 	for _, number := range []int{0, 1} {
