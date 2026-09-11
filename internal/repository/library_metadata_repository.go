@@ -19,8 +19,8 @@ type LibraryMetadataSummary struct {
 func (r *MediaViewRepository) libraryMetadataScope(ctx context.Context, libraryID, kind, metadataID string, filter MediaQueryFilter) *gorm.DB {
 	q := r.db.WithContext(ctx).Table("media AS m")
 	filtered := filter.MissingPoster || filter.MissingChineseTitle
-	if filtered && kind == model.MetadataKindSeries {
-		q = r.libraryFilteredSeriesScope(ctx, libraryID, metadataID, filter)
+	if filtered && kind == model.MetadataKindSeries && metadataID == "" {
+		q = r.libraryFilteredSeriesScope(ctx, libraryID)
 	} else {
 		q = q.Joins("JOIN metadata_items AS mi ON mi.id = m.metadata_id")
 		if filtered && kind == model.MetadataKindMovie {
@@ -43,9 +43,6 @@ func (r *MediaViewRepository) libraryMetadataScope(ctx context.Context, libraryI
 	if len(filter.HiddenLibraryIDs) > 0 {
 		q = q.Where("m.library_id <> ALL(?)", &filter.HiddenLibraryIDs)
 	}
-	if filtered && kind == model.MetadataKindSeries {
-		return q
-	}
 	return applyLibraryMetadataFilters(q, filter)
 }
 
@@ -59,28 +56,13 @@ func applyLibraryMetadataFilters(q *gorm.DB, filter MediaQueryFilter) *gorm.DB {
 	return q
 }
 
-// libraryFilteredSeriesScope 先筛整剧，再沿父子索引展开关联文件，避免逐文件检查整剧海报。
-func (r *MediaViewRepository) libraryFilteredSeriesScope(ctx context.Context, libraryID, metadataID string, filter MediaQueryFilter) *gorm.DB {
-	candidates := r.db.WithContext(ctx).Table("metadata_items AS work").Where("work.kind = 'series'")
-	if metadataID != "" {
-		candidates = candidates.Where("work.id = ?", metadataID)
-	}
-	candidates = applyLibraryMetadataFilters(candidates, filter)
-	episodes := `SELECT episode.* FROM metadata_items AS parent
-JOIN metadata_items AS episode ON episode.parent_id = parent.id AND episode.kind = 'episode'
-WHERE parent.parent_id = work.id AND parent.kind = 'season'`
-	var args []any
-	if filter.MissingChineseTitle && !filter.MissingPoster {
-		// IS TRUE 保留一次构建的库内文件哈希集合，避免每部剧重复聚合或逐集探测文件索引。
-		episodes += ` AND (episode.id IN (SELECT metadata_id FROM media WHERE library_id = ?)) IS TRUE`
-		args = append(args, libraryID)
-	}
-	return r.db.WithContext(ctx).Table("(WITH candidates AS MATERIALIZED (?) SELECT * FROM candidates) AS work", candidates).
-		Joins(`CROSS JOIN LATERAL (SELECT work.* UNION ALL
-SELECT child.* FROM metadata_items AS child WHERE child.parent_id = work.id AND child.kind = 'season'
-UNION ALL `+episodes+`) AS mi`, args...).
-		Joins("JOIN media AS m ON m.metadata_id = mi.id").
-		Joins("LEFT JOIN metadata_items AS season ON season.id = mi.parent_id AND mi.kind = 'episode' AND season.kind = 'season'")
+// libraryFilteredSeriesScope 从库内已关联文件逐级查找作品，避免新库统计滞后时反复展开全局目录。
+func (r *MediaViewRepository) libraryFilteredSeriesScope(ctx context.Context, libraryID string) *gorm.DB {
+	// 各级 OFFSET 0 保留相关主键查找边界，不截断文件，也不依赖优化器的行数估计。
+	return r.db.WithContext(ctx).Table("(SELECT * FROM media WHERE library_id = ? AND metadata_id IS NOT NULL OFFSET 0) AS m", libraryID).
+		Joins("JOIN LATERAL (SELECT * FROM metadata_items WHERE id = m.metadata_id OFFSET 0) AS mi ON TRUE").
+		Joins("LEFT JOIN LATERAL (SELECT * FROM metadata_items WHERE id = mi.parent_id AND mi.kind = 'episode' AND kind = 'season' OFFSET 0) AS season ON TRUE").
+		Joins("JOIN LATERAL (SELECT * FROM metadata_items WHERE id = CASE WHEN mi.kind = 'episode' THEN season.parent_id WHEN mi.kind = 'season' THEN mi.parent_id ELSE mi.id END OFFSET 0) AS work ON TRUE")
 }
 
 // ListLibraryMetadataPage 在数据库按作品统计、排序和分页，只读取当前页的一个操作文件。
@@ -124,7 +106,7 @@ func (r *MediaViewRepository) ListLibraryMetadataPage(ctx context.Context, libra
 
 // librarySeriesPage 共用一次文件范围计算总数与分页，只为选中作品排序代表文件。
 func (r *MediaViewRepository) librarySeriesPage(ctx context.Context, q *gorm.DB, libraryID, metadataID string, offset, limit int, filtered bool) ([]LibraryMetadataSummary, int64, error) {
-	// 普通浏览保留文件边界；缺失信息筛选已从候选整剧出发，不可覆盖其输入表。
+	// 普通浏览保留文件边界；缺失信息筛选已在共享范围内限定输入表。
 	if metadataID == "" && !filtered {
 		q = q.Table("(SELECT * FROM media WHERE library_id = ? OFFSET 0) AS m", libraryID)
 	}

@@ -22,7 +22,7 @@ func (l *seriesPageReadLog) Trace(ctx context.Context, begin time.Time, fc func(
 	if strings.Contains(sql, "BOOL_AND") {
 		l.playedQueries = append(l.playedQueries, sql)
 	}
-	if strings.Contains(sql, "AS scoped_series") || strings.Contains(sql, "AS series_id") || strings.Contains(sql, "ARRAY_AGG(m.id") {
+	if strings.Contains(sql, "AS scoped_series") || strings.Contains(sql, "AS series_id") || strings.Contains(sql, "ARRAY_AGG(m.id") || strings.HasPrefix(sql, "WITH scoped AS MATERIALIZED") {
 		l.queries = append(l.queries, sql)
 	}
 	l.Interface.Trace(ctx, begin, func() (string, int64) { return sql, rows }, err)

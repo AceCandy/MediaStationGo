@@ -106,15 +106,19 @@ supersedes older requirements for per-Episode extended responses and credits.
   lookup loops with `TestLibrarySeriesEpisodesScopesProjectionBeforeJoins`.
 - Web Series page aggregation without filters or an explicit metadata ID uses a
   library-scoped Media derived table with `OFFSET 0`, preventing catalog-sized
-  parameterized Media probes. Missing-poster/title filters instead materialize
-  matching Series candidates, then expand direct Series, Season and Episode
-  attachments through parent indexes using a lateral UNION ALL. Keep artwork
-  asset existence and title fallback semantics on the candidate Series.
-  For missing-title alone, filter Episode IDs through the library's Media
-  membership set with `(id IN (SELECT ...)) IS TRUE`: verify that PostgreSQL
-  builds one hashed subplan, rather than repeatedly aggregating the membership
-  set or probing files for every catalog episode. Missing-poster and combined
-  filters retain direct indexed file probes. Preserve outer visibility and
+  parameterized Media probes. Missing-poster/title filters start from current
+  library Media with non-null metadata IDs, then resolve its own metadata,
+  optional Season and displayed Series through correlated primary-key LATERAL
+  lookups with `OFFSET 0` at every level. Preserve direct Series/Season files,
+  artwork asset existence and title fallback semantics on the displayed Series.
+  Do not expand global Series candidates: a newly populated library can be
+  estimated as one file until statistics refresh, repeating the entire candidate
+  hierarchy for every real file even when a membership subplan is hashed.
+  `TestLibraryFilteredSeriesPageWithStaleStatistics` analyzes the old library
+  before inserting the new one, includes unlinked pending files, and checks
+  actual file scan and metadata traversal bounds for all three filter modes.
+  A plan containing a hash is not sufficient evidence of bounded work; do not
+  require scrape completion or change global planner settings. Preserve visibility and
   representative ordering. Web Series totals and pages share one materialized
   association scope; group only the latest sort date before page selection,
   then sort representative files and count versions for selected works only.
