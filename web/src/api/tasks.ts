@@ -79,7 +79,7 @@ export const tasksAPI = {
   history: (key: string, page = 1, pageSize = 20) =>
     api.get<TaskHistory>(`/tasks/definitions/${key}/executions`, { params: { page, page_size: pageSize } }).then((r) => r.data),
   run: (key: string, options?: { limit?: number; library_id?: string; all_libraries?: boolean }) =>
-    api.post<{ status: string }>(`/tasks/definitions/${key}/run`, options).then((r) => r.data),
+    api.post<{ status: string; count?: number; libraries?: number }>(`/tasks/definitions/${key}/run`, options).then((r) => r.data),
   updateSchedule: (key: string, enabled: boolean, intervalSeconds: number) =>
     api.put<TaskDefinition>(`/tasks/definitions/${key}/schedule`, {
       enabled,

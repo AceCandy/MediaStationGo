@@ -38,6 +38,15 @@ func TestTaskDefinitionHistorySeparatesSharedKinds(t *testing.T) {
 			t.Fatalf("history %s = %#v", tt.key, page)
 		}
 	}
+	definitions, err := tracker.Definitions(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, definition := range definitions {
+		if definition.Key == TaskDefinitionCatalogScrape && (definition.Name != "作品资料补全" || definition.Latest == nil || definition.Latest.Name != "发现目录刮削：电影 1221950") {
+			t.Fatalf("renamed catalog definition lost history: %+v", definition)
+		}
+	}
 }
 
 func TestTaskDefinitionLogsSeparateSharedKinds(t *testing.T) {
@@ -46,10 +55,10 @@ func TestTaskDefinitionLogsSeparateSharedKinds(t *testing.T) {
 	tracker.ConfigurePersistence(repository.New(db).TaskExecution, t.TempDir())
 	tracker.now = func() time.Time { return time.Date(2026, 8, 13, 19, 0, 0, 0, time.Local) }
 
-	startFinishedTask(t, tracker, TaskKindPeople, "人物信息补齐", TaskUpdate{Message: "backfill"})
-	startFinishedTask(t, tracker, TaskKindPeople, "人物翻译", TaskUpdate{Message: "translation"})
-	startFinishedTask(t, tracker, TaskKindScrape, "媒体入库刮削：本地电影", TaskUpdate{Message: "media scrape"})
-	startFinishedTask(t, tracker, TaskKindScrape, "发现目录刮削：电影 1221950", TaskUpdate{Message: "catalog scrape"})
+	startFinishedTask(t, tracker, TaskKindPeople, "人物信息补齐", TaskUpdate{Details: []string{"backfill"}})
+	startFinishedTask(t, tracker, TaskKindPeople, "人物翻译", TaskUpdate{Details: []string{"translation"}})
+	startFinishedTask(t, tracker, TaskKindScrape, "媒体入库刮削：本地电影", TaskUpdate{Details: []string{"media scrape"}})
+	startFinishedTask(t, tracker, TaskKindScrape, "发现目录刮削：电影 1221950", TaskUpdate{Details: []string{"catalog scrape"}})
 
 	tests := []struct {
 		key     string

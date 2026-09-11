@@ -396,6 +396,7 @@ func TestMediaScrapeRecordsWaitingBeforeLock(t *testing.T) {
 func TestCatalogYieldReleasesLockAndHandlesCancellation(t *testing.T) {
 	s, repos, closeUpstream := newTestScraper(t)
 	defer closeUpstream()
+	s.tasks = NewTaskTrackerService(nil, nil)
 	lib := model.Library{Name: "剧库", Path: t.TempDir(), Type: "tv", Enabled: true}
 	if err := repos.DB.Create(&lib).Error; err != nil {
 		t.Fatal(err)
@@ -409,6 +410,8 @@ func TestCatalogYieldReleasesLockAndHandlesCancellation(t *testing.T) {
 			t.Fatal(err)
 		}
 		ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+		task := s.tasks.StartTriggered(TaskKindScrape, TaskTriggerEvent, "发现目录刮削：电视剧 1", TaskUpdate{Stage: "episodes"})
+		metrics := &catalogArtworkMetrics{task: task}
 		s.scrapeRunMu.Lock()
 		done := make(chan error, 1)
 		go func() {
@@ -423,11 +426,20 @@ func TestCatalogYieldReleasesLockAndHandlesCancellation(t *testing.T) {
 			s.wakeCatalogHydration()
 			done <- err
 		}()
-		err := s.yieldCatalogToMedia(ctx, nil)
+		err := s.yieldCatalogToMedia(ctx, metrics)
 		s.scrapeRunMu.Unlock()
 		if cancelled && err != context.Canceled || !cancelled && err != nil {
 			t.Fatalf("yield cancelled=%v: %v", cancelled, err)
 		}
+		active := s.tasks.memorySnapshot().Active
+		wantStage := "scrape"
+		if cancelled {
+			wantStage = "waiting"
+		}
+		if len(active) != 1 || active[0].Stage != wantStage {
+			t.Fatalf("catalog state after yield: %+v, want %s", active, wantStage)
+		}
+		task.Finish(err, TaskUpdate{Stage: "completed"})
 		cancel()
 		if err := <-done; err != nil {
 			t.Fatal(err)

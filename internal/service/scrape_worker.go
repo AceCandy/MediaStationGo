@@ -251,8 +251,8 @@ func (s *ScraperService) ResetLibraryScrape(ctx context.Context, libraryID strin
 	res := s.repo.DB.WithContext(ctx).Model(&model.Media{}).
 		Where("library_id = ? AND (scrape_status IS NULL OR scrape_status = '' OR scrape_status IN ?)", libraryID, statuses).
 		Updates(map[string]any{"scrape_status": "pending", "scrape_trigger": TaskTriggerManual, "scrape_error": ""})
-	if res.Error == nil {
-		s.WakeScrapeWorker()
+	if res.Error == nil && res.RowsAffected > 0 {
+		s.wakeMediaScrapeWorkers()
 	}
 	return res.RowsAffected, res.Error
 }

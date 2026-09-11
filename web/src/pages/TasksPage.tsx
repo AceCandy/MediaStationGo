@@ -32,9 +32,9 @@ function LatestResult({ task }: { task?: BackgroundTask }) {
   return <span className="text-yellow-700">运行中</span>
 }
 
-function CurrentState({ state }: { state: TaskDefinition['current_state'] }) {
+function CurrentState({ state, task }: { state: TaskDefinition['current_state']; task?: BackgroundTask }) {
   return state === 'running'
-    ? <span className="inline-flex rounded border border-yellow-300 px-1.5 py-0.5 text-xs text-yellow-700">运行中</span>
+    ? <span title={task?.message} className="inline-flex rounded border border-yellow-300 px-1.5 py-0.5 text-xs text-yellow-700">{task?.stage === 'waiting' ? task.message || '等待刮削资源' : '运行中'}</span>
     : <span className="inline-flex rounded border border-gray-300 px-1.5 py-0.5 text-xs text-gray-600">空闲</span>
 }
 
@@ -228,7 +228,7 @@ function DefinitionTable(props: { definitions: TaskDefinition[]; running: string
               <tr key={definition.key} className="border-t border-gray-200 align-top">
                 <td className="max-w-xs py-3"><div className="flex items-center gap-1"><div className="font-medium text-ink-600">{definition.name}</div><TaskPendingButton definition={definition} onPending={props.onPending} pendingCounts={props.pendingCounts} /></div><div className="mt-0.5 text-xs text-ink-50">{definition.description}</div>{taskProgressText(definition) && <div className="mt-1 text-xs text-ink-100">{taskProgressText(definition)}</div>}</td>
 				<td className="py-3 text-ink-100"><div>{definition.trigger}</div>{scheduleText(definition) && <div className="mt-0.5 text-xs text-ink-50">{scheduleText(definition)}</div>}</td>
-                <td className="py-3"><CurrentState state={definition.current_state} /></td>
+                <td className="py-3"><CurrentState state={definition.current_state} task={definition.current} /></td>
                 <td className="py-3"><LatestResult task={definition.latest} /></td>
                 <td className="whitespace-nowrap py-3 text-ink-100"><div>最近 · {formatTime(definition.latest?.finished_at ?? definition.latest?.started_at)}</div><div className="mt-0.5 text-xs text-ink-50">下次 · {formatTime(definition.next_run)}</div></td>
                 <td className="py-3"><TaskActions {...props} definition={definition} /></td>
@@ -243,7 +243,7 @@ function DefinitionTable(props: { definitions: TaskDefinition[]; running: string
             <div className="flex items-start justify-between gap-3"><div><div className="flex items-center gap-1"><h2 className="font-medium text-ink-600">{definition.name}</h2><TaskPendingButton definition={definition} onPending={props.onPending} pendingCounts={props.pendingCounts} /></div><p className="mt-0.5 text-xs text-ink-50">{definition.description}</p>{taskProgressText(definition) && <p className="mt-1 text-xs text-ink-100">{taskProgressText(definition)}</p>}</div><TaskActions {...props} definition={definition} /></div>
             <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
 			<div><dt className="text-ink-50">触发方式</dt><dd className="mt-0.5 text-ink-100">{definition.trigger}{scheduleText(definition) ? ` · ${scheduleText(definition)}` : ''}</dd></div>
-			<div><dt className="text-ink-50">当前状态</dt><dd className="mt-0.5"><CurrentState state={definition.current_state} /></dd></div>
+			<div><dt className="text-ink-50">当前状态</dt><dd className="mt-0.5"><CurrentState state={definition.current_state} task={definition.current} /></dd></div>
 			<div><dt className="text-ink-50">最近结果</dt><dd className="mt-0.5"><LatestResult task={definition.latest} /></dd></div>
 			<div><dt className="text-ink-50">执行时间</dt><dd className="mt-0.5 text-ink-100"><div>最近 · {formatTime(definition.latest?.finished_at ?? definition.latest?.started_at)}</div>{definition.schedule_config && <div className="mt-0.5 text-ink-50">下次 · {formatTime(definition.next_run)}</div>}</dd></div>
             </dl>
@@ -653,11 +653,19 @@ export function TasksPage() {
         toast.error('回填数量必须是正整数')
         return
       }
-			await tasksAPI.run(definition.key, definition.key === 'library_scan'
+			const result = await tasksAPI.run(definition.key, definition.key === 'library_scan'
         ? { library_id: scanLibraryID }
         : definition.action === 'probe_backfill' ? { limit, library_id: probeLibraryID || undefined }
           : definition.action === 'media_scrape' ? (scrapeLibraryID ? { library_id: scrapeLibraryID } : { all_libraries: true }) : undefined)
-			toast.success(`${definition.name}已触发`)
+			if (definition.action === 'media_scrape' && result.count !== undefined) {
+				if (result.count === 0) {
+					toast('所选范围暂无待刮削媒体，已匹配或正在处理的内容不会重复入队')
+				} else {
+					toast.success(`已提交 ${result.count} 个媒体文件，后台按电影或整剧分组处理`)
+				}
+			} else {
+				toast.success(`${definition.name}已触发`)
+			}
 			await refresh().catch(() => setLoadError(true))
     } catch (err: unknown) {
       const message = (err as { response?: { data?: { error?: string } } })?.response?.data?.error ?? '任务触发失败'

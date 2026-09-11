@@ -5,6 +5,7 @@ import { createRequire } from 'node:module'
 import { URL } from 'node:url'
 import vm from 'node:vm'
 import console from 'node:console'
+import { setImmediate } from 'node:timers/promises'
 import ts from 'typescript'
 
 const require = createRequire(import.meta.url)
@@ -31,7 +32,7 @@ const react = {
   useEffect() {},
   useRef: () => ({ current: 0 }),
 }
-vm.runInNewContext(ts.transpileModule(`${source}\nexport { TaskLogDialog, reverseLogLines };`, {
+vm.runInNewContext(ts.transpileModule(`${source}\nexport { TaskLogDialog, reverseLogLines, CurrentState, DefinitionTable };`, {
   compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX, target: ts.ScriptTarget.ES2022 },
 }).outputText, { exports, require: (id) => id === 'react' ? react : mocks[id] ?? (id.startsWith('.') ? {} : require(id)) })
 
@@ -81,3 +82,54 @@ for (const content of ['2026-09-07 ✅ done\n', '2026-09-07 [ERROR] failed\n']) 
   assert.ok(nodes(pre(render(content))).some((node) => node.props?.role === 'img'), 'log badges remain visible')
 }
 console.log('Task log pagination, ordering, badges and memo reuse checks passed')
+
+for (const [state, task, expected] of [
+  ['idle', undefined, '空闲'],
+  ['running', undefined, '运行中'],
+  ['running', { stage: 'waiting', message: '等待媒体入库完成' }, '等待媒体入库完成'],
+  ['running', { stage: 'waiting' }, '等待刮削资源'],
+  ['running', { stage: 'scrape', message: '正在补全作品资料' }, '运行中'],
+]) {
+  assert.equal(exports.CurrentState({ state, task }).props.children, expected)
+}
+const definition = { key: 'media_scrape', name: '媒体入库刮削', action: 'media_scrape', current_state: 'idle' }
+const active = { ...definition, current_state: 'running', current: { stage: 'waiting', message: '等待刮削资源' } }
+const stateNodes = nodes(exports.DefinitionTable({ definitions: [active] })).filter((node) => node.type === exports.CurrentState)
+assert.equal(stateNodes.length, 2, 'desktop and mobile both display current task stage')
+assert.ok(stateNodes.every((node) => node.props.task === active.current))
+
+const notices = [], requests = []
+const toast = (message) => notices.push(['info', message])
+toast.success = (message) => notices.push(['success', message])
+toast.error = (message) => notices.push(['error', message])
+mocks['react-hot-toast'] = { default: toast }
+let runResult
+mocks['../api/tasks'].tasksAPI.run = async (...args) => { requests.push(args); return runResult }
+mocks['../api/tasks'].tasksAPI.snapshot = async () => ({ definitions: [definition] })
+// Re-evaluate so the page captures the toast mock; no network or effects run.
+vm.runInNewContext(ts.transpileModule(source, {
+  compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX, target: ts.ScriptTarget.ES2022 },
+}).outputText, { exports, require: (id) => id === 'react' ? react : mocks[id] ?? (id.startsWith('.') ? {} : require(id)) })
+for (const [count, libraryID] of [[0, 'library-a'], [12, 'library-a'], [0, ''], [12, ''], [undefined, '']]) {
+  states = []; memos = []; stateIndex = memoIndex = 0
+  states[0] = [definition]
+  states[11] = libraryID
+  notices.length = requests.length = 0
+  runResult = { status: 'queued', ...(count === undefined ? {} : { count }) }
+  const table = nodes(exports.TasksPage()).find((node) => node.type?.name === 'DefinitionTable')
+  table.props.onRun(definition)
+  await setImmediate()
+  assert.equal(requests.length, 1)
+  assert.equal(JSON.stringify(requests[0][1]), JSON.stringify(libraryID ? { library_id: libraryID } : { all_libraries: true }))
+  assert.equal(notices.length, 1)
+  if (count === 0) {
+    assert.equal(notices[0][0], 'info')
+    assert.match(notices[0][1], /暂无待刮削媒体/)
+  } else if (count !== undefined) {
+    assert.equal(notices[0][0], 'success')
+    assert.match(notices[0][1], /12 个媒体文件.*分组处理/)
+  } else {
+    assert.equal(notices[0][1], '媒体入库刮削已触发', 'older responses remain compatible')
+  }
+}
+console.log('Task queue feedback, target scope and waiting state checks passed')

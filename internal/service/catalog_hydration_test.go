@@ -53,6 +53,39 @@ func TestCatalogHydrationWorkerStopsOnCancel(t *testing.T) {
 	scraper.WaitCatalogHydrationWorker()
 }
 
+func TestCatalogHydrationRecordsWaitingBeforeLock(t *testing.T) {
+	s, _, closeUpstream := newTestScraper(t)
+	defer closeUpstream()
+	s.tasks = NewTaskTrackerService(nil, nil)
+	if err := s.QueueCatalogHydrationContext(t.Context(), []ExternalMediaResult{{Source: "tmdb", MediaType: "movie", TMDbID: 10}}); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	s.scrapeRunMu.Lock()
+	s.StartCatalogHydrationWorker(ctx)
+	found := false
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		active := s.tasks.memorySnapshot().Active
+		if len(active) == 1 {
+			found = active[0].Stage == "waiting" && active[0].Message == "等待刮削资源"
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	cancel()
+	s.scrapeRunMu.Unlock()
+	s.WaitCatalogHydrationWorker()
+	if !found {
+		t.Fatal("catalog task must report waiting before acquiring the lock")
+	}
+	for _, task := range s.tasks.memorySnapshot().Recent {
+		if task.Error != context.Canceled.Error() {
+			t.Fatalf("cancelled catalog work continued after acquiring the lock: %+v", task)
+		}
+	}
+}
+
 func TestCatalogHydrationRecoveryAndBoundedRootPriority(t *testing.T) {
 	scraper, repos, closeUpstream := newTestScraper(t)
 	defer closeUpstream()

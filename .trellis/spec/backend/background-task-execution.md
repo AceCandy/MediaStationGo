@@ -181,6 +181,16 @@ history is observability only; business object state owns retry and recovery.
   sets trigger `manual`, preserves `matched`/`running`, and reuses the existing
   worker. All-library scope loops through the same per-library operation and
   skips music, adult, and unknown types.
+- The manual library reset wakes media workers only when affected rows are
+  nonzero; it does not directly wake catalog work. Its response `count` counts
+  files, not grouped executions. The Web action displays this count and reports
+  zero work explicitly, without creating an empty execution/log.
+- Catalog work is displayed as `作品资料补全` for discover and ingested works.
+  Preserve `catalog_scrape` and the `发现目录刮削：` execution-name filter for
+  history/log compatibility. Catalog executions enter `waiting` before taking
+  the shared write lock, enter `scrape` after acquiring it, and restore active
+  progress after yielding to media. Both desktop and mobile task status render
+  the current execution's waiting message rather than a generic running label.
 - Scanner and watcher changes wake media scraping by default. The retired
   `scrape.auto_on_scan` setting has no runtime reader; organizer retains only
   its independent `organize.scrape_after` policy.

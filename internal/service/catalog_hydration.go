@@ -161,7 +161,7 @@ func (s *ScraperService) runCatalogHydrationWorker(ctx context.Context) {
 				kindName = "电视剧"
 			}
 			task = s.tasks.StartTriggered(TaskKindScrape, TaskTriggerEvent, "发现目录刮削："+kindName+" "+job.ExternalID, TaskUpdate{
-				Stage: "scrape", SourcePath: "catalog", Message: "正在补全发现目录元数据",
+				Stage: "waiting", SourcePath: "catalog", Message: "等待刮削资源",
 			})
 			if task == nil {
 				_ = s.finishCatalogFailure(ctx, job, errors.New("create scrape task execution failed"))
@@ -184,7 +184,7 @@ func (s *ScraperService) runCatalogHydrationWorker(ctx context.Context) {
 					metrics["retry"] = 1
 				}
 			}
-			task.Finish(safeErr, TaskUpdate{Stage: "completed", Message: "发现目录刮削结束", Metrics: metrics, Details: []string{s.catalogScrapeTaskDetail(ctx, job, safeErr)}})
+			task.Finish(safeErr, TaskUpdate{Stage: "completed", Message: "作品资料补全结束", Metrics: metrics, Details: []string{s.catalogScrapeTaskDetail(ctx, job, safeErr)}})
 		}
 		if runErr != nil && ctx.Err() == nil {
 			safeErr := sanitizeCatalogError(runErr)
@@ -336,9 +336,14 @@ func (s *ScraperService) yieldCatalogToMedia(ctx context.Context, metrics *catal
 		return err
 	}
 	s.scrapeRunMu.Unlock()
-	defer s.scrapeRunMu.Lock()
+	defer func() {
+		s.scrapeRunMu.Lock()
+		if ctx.Err() == nil && metrics != nil {
+			metrics.task.Update(TaskUpdate{Stage: "scrape", Message: "正在补全作品资料"})
+		}
+	}()
 	if metrics != nil {
-		metrics.task.Update(TaskUpdate{Stage: "waiting", Message: "暂停目录补全，优先处理媒体入库"})
+		metrics.task.Update(TaskUpdate{Stage: "waiting", Message: "等待媒体入库完成，暂停作品资料补全"})
 	}
 	s.wakeMediaScrapeWorkers()
 	for active {
@@ -363,6 +368,12 @@ func (s *ScraperService) processCatalogJobWithMetrics(ctx context.Context, job *
 	}
 	s.scrapeRunMu.Lock()
 	defer s.scrapeRunMu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if metrics != nil {
+		metrics.task.Update(TaskUpdate{Stage: "scrape", Message: "正在补全作品资料"})
+	}
 	if job.EntityKind == model.MetadataKindSeries {
 		return s.hydrateCatalogSeries(ctx, job, tmdbID, metrics)
 	}

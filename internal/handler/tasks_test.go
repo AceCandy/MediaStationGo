@@ -295,11 +295,19 @@ func TestTaskDefinitionRunHandlerQueuesSingleAndAllMediaLibraries(t *testing.T) 
 	if response.Count != 2 || response.Libraries != 2 {
 		t.Fatalf("all response = %#v", response)
 	}
+	stored = model.Media{}
 	if err := db.First(&stored, "id = ?", rows[2].ID).Error; err != nil {
 		t.Fatal(err)
 	}
 	if stored.ScrapeStatus != "error" {
 		t.Fatalf("unsupported music library was queued: %#v", stored)
+	}
+	if err := db.Model(&model.Media{}).Where("library_id = ?", libraries[0].ID).Update("scrape_status", "matched").Error; err != nil {
+		t.Fatal(err)
+	}
+	recorder = runMediaScrapeAction(`{"library_id":"` + libraries[0].ID + `"}`)
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil || recorder.Code != http.StatusAccepted || response.Count != 0 {
+		t.Fatalf("matched-only library response: %s, err=%v", recorder.Body.String(), err)
 	}
 
 	for body, want := range map[string]int{
