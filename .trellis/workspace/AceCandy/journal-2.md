@@ -530,3 +530,25 @@ Web 电影与整剧按 metadata 分页，Emby 整剧摘要、混合库与子级�
 ### Status
 
 [OK] **Completed**
+
+
+## Session 114: 季级元数据复查与未收录标记
+<!-- trellis-session: v=2 fp=b91bba7552335bfd -->
+
+**Date**: 2026-09-12
+**Task**: 季级元数据复查与未收录标记
+**Branch**: `main`
+
+### Summary
+
+按季互斥领取并分页核对，共享整季成功与失败结果，保留逐目标租约校验和冷却；入库未收录集保留关联并标记待核对。隔离 PostgreSQL 竞态测试、相关刮削回归、Go vet、前端 lint/build 及交互脚本通过。未部署或推送，测试容器及临时日志已清理。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `5d55cd2` | fix: 按季调度元数据复查并标记未收录剧集 |
+
+### Status
+
+[OK] **Completed**
