@@ -478,3 +478,33 @@ Web 电影与整剧按 metadata 分页，Emby 整剧摘要、混合库与子级�
 ### Status
 
 [OK] **Completed**
+
+
+## Session 112: 修正刮削任务反馈与等待状态
+<!-- trellis-session: v=2 fp=146c33185e51ce54 -->
+
+**Date**: 2026-09-11
+**Task**: 修正刮削任务反馈与等待状态
+**Branch**: `main`
+
+### Summary
+
+显示真实入队文件数，空跑不唤醒后台；作品资料补全保留历史标识并显示等待和恢复状态。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `9f6f029` | fix: 修正刮削任务入队反馈与等待状态 |
+
+### Testing
+
+- [OK] 针对性 Go PostgreSQL 测试、前端交互检查、lint、构建和差异检查通过；独立复核无阻塞问题。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 未重启运行服务；未进行浏览器视觉验证或全量 Go 测试。

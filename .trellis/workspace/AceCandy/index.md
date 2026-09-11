@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-2.md`
-- **Total Sessions**: 111
+- **Total Sessions**: 112
 - **Last Active**: 2026-09-11
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-2.md` | ~480 | Active |
+| `journal-2.md` | ~510 | Active |
 | `journal-1.md` | ~1981 | Archived |
 <!-- @@@/auto:active-documents -->
 
@@ -30,6 +30,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 112 | 2026-09-11 | 修正刮削任务反馈与等待状态 | `9f6f029` | `main` |
 | 111 | 2026-09-11 | 补全电视剧角色翻译上下文 | `3df4cea` | `main` |
 | 110 | 2026-09-10 | 季集复查待办与 TMDb 整季优化收尾 | `201f980`, `1e4f64c` | `main` |
 | 109 | 2026-09-10 | 提交并归档元数据复查与查询优化 | `917d5dc`, `116526f` | `main` |
