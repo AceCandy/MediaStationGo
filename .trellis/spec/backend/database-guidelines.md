@@ -159,6 +159,16 @@ column-specific trigger dependencies block the existing repeated GORM type migra
 Keep the due predicate nonvolatile (`statement_timestamp()`), otherwise PostgreSQL
 may filter the whole future queue instead of applying an index condition.
 
+Change expansion uses `idx_tmdb_recheck_changes_pending_id` on
+`tm_db_recheck_changes(metadata_id) WHERE pending`. A partial index on the boolean
+`pending` alone does not satisfy `ORDER BY metadata_id LIMIT 1`: PostgreSQL may
+repeatedly scan the processed primary-key prefix, making a draining queue slower.
+Create the replacement before dropping `idx_tmdb_recheck_changes_pending`.
+`TestTMDbRecheckPendingIndexSkipsProcessedPrefix` checks repeated migration and
+the generic prepared plan with `FOR UPDATE SKIP LOCKED` on a mostly processed
+queue. Existing deployments can build the new index concurrently before upgrade;
+startup model migration uses ordinary index creation.
+
 ### Search Index Backfill Batches
 
 For library membership in `metadataSearchDocuments`, count at most 1,025

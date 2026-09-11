@@ -16,9 +16,9 @@ type TMDbRecheckJob struct {
 
 // TMDbRecheckChange 由业务事务登记，游标分批展开整剧/季的后代。
 type TMDbRecheckChange struct {
-	MetadataID string `gorm:"primaryKey;size:36"`
+	MetadataID string `gorm:"primaryKey;size:36;index:idx_tmdb_recheck_changes_pending_id,where:pending"`
 	Revision   int64  `gorm:"not null;default:1"`
-	Pending    bool   `gorm:"not null;default:true;index:idx_tmdb_recheck_changes_pending,where:pending"`
+	Pending    bool   `gorm:"not null;default:true"`
 	Expand     bool   `gorm:"not null;default:false"`
 	Cursor     string `gorm:"size:36;not null;default:''"`
 }

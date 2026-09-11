@@ -15,6 +15,9 @@ func EnsureTMDbRecheckTriggers(db *gorm.DB) error {
 }
 
 var tmdbRecheckTriggerSQL = []string{
+	// 领取按 ID 排序，部分索引必须同序，避免反复跳过已处理的主键前缀。
+	`CREATE INDEX IF NOT EXISTS idx_tmdb_recheck_changes_pending_id ON tm_db_recheck_changes(metadata_id) WHERE pending`,
+	`DROP INDEX IF EXISTS idx_tmdb_recheck_changes_pending`,
 	`CREATE OR REPLACE FUNCTION tmdb_recheck_mark(target text, descendants boolean) RETURNS void
 LANGUAGE plpgsql AS $$
 BEGIN

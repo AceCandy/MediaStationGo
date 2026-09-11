@@ -32,6 +32,61 @@ func recheckQueueDB(t *testing.T) *gorm.DB {
 	return db
 }
 
+func TestTMDbRecheckPendingIndexSkipsProcessedPrefix(t *testing.T) {
+	db := recheckQueueDB(t)
+	// 模拟旧版本仅按布尔值索引，以及大部分较小 ID 已处理的队列。
+	for _, sql := range []string{
+		`DROP INDEX idx_tmdb_recheck_changes_pending_id`,
+		`CREATE INDEX idx_tmdb_recheck_changes_pending ON tm_db_recheck_changes(pending) WHERE pending`,
+		`INSERT INTO tm_db_recheck_changes(metadata_id,pending) SELECT lpad(i::text,8,'0'),i>30000 FROM generate_series(1,40000) i`,
+	} {
+		if err := db.Exec(sql).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	for range 2 {
+		if err := db.AutoMigrate(&model.TMDbRecheckChange{}); err != nil {
+			t.Fatal(err)
+		}
+		if err := database.EnsureTMDbRecheckTriggers(db); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if db.Migrator().HasIndex(&model.TMDbRecheckChange{}, "idx_tmdb_recheck_changes_pending") {
+		t.Fatal("obsolete pending-only index retained")
+	}
+	for _, sql := range []string{
+		`ANALYZE tm_db_recheck_changes`,
+		`SET plan_cache_mode = force_generic_plan`,
+		`PREPARE recheck_pending_plan(int) AS SELECT * FROM tm_db_recheck_changes WHERE pending ORDER BY metadata_id LIMIT $1 FOR UPDATE SKIP LOCKED`,
+	} {
+		if err := db.Exec(sql).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	var plan []struct {
+		Line string `gorm:"column:QUERY PLAN"`
+	}
+	if err := db.Raw(`EXPLAIN (ANALYZE, BUFFERS) EXECUTE recheck_pending_plan(1)`).Scan(&plan).Error; err != nil {
+		t.Fatal(err)
+	}
+	var lines []string
+	for _, row := range plan {
+		lines = append(lines, row.Line)
+	}
+	text := strings.Join(lines, "\n")
+	if !strings.Contains(text, "idx_tmdb_recheck_changes_pending_id") || strings.Contains(text, "Rows Removed by Filter") || strings.Contains(text, "Sort Key") {
+		t.Fatal(text)
+	}
+	if worked, err := New(db).Metadata.ExpandTMDbRecheckChange(t.Context()); err != nil || !worked {
+		t.Fatalf("claim after migration: worked=%v err=%v", worked, err)
+	}
+	var change model.TMDbRecheckChange
+	if err := db.First(&change, "metadata_id = ?", "00030001").Error; err != nil || change.Pending {
+		t.Fatalf("first pending change not consumed: %+v err=%v", change, err)
+	}
+}
+
 func TestTMDbRecheckConcurrentConnections(t *testing.T) {
 	db := recheckQueueDB(t)
 	series := model.MetadataItem{Kind: "series", Title: "Series", Source: "test"}

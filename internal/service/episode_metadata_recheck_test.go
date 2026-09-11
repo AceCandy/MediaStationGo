@@ -246,7 +246,7 @@ func TestTMDbMetadataRecheckRepairsSeasonsAndEpisodes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, message := range []string{"图片资产归并完成", "文件核对结束，本次", "季集变更归并完成", "开始领取到期待办", "到期待办处理结束", "耗时"} {
+	for _, message := range []string{"图片资产归并完成", "文件核对结束，本次", "季集变更归并完成", "尚未开始请求 TMDb", "本次处理登记", "开始领取到期待办", "到期待办处理结束", "阶段耗时", "累计耗时"} {
 		if !strings.Contains(progressLog.Content, message) {
 			t.Fatalf("progress missing %q: %s", message, progressLog.Content)
 		}

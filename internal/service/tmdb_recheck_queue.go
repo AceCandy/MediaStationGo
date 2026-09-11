@@ -19,6 +19,7 @@ func (s *ScraperService) runTMDbRecheckQueue(ctx context.Context, metrics map[st
 	ctx = withTMDbSeasonBatch(ctx)
 	defer func() { metrics["requests"] = tmdbSeasonBatchFromContext(ctx).requests.Load() }()
 	started, lastReport := time.Now(), time.Time{}
+	stageStarted := started
 	lastStage := ""
 	report := func(stage, message string, force bool, details []string) {
 		metrics["requests"] = tmdbSeasonBatchFromContext(ctx).requests.Load()
@@ -26,7 +27,10 @@ func (s *ScraperService) runTMDbRecheckQueue(ctx context.Context, metrics map[st
 			return
 		}
 		if force || stage != lastStage || time.Since(lastReport) >= 5*time.Second {
-			message = fmt.Sprintf("%s，耗时 %s", message, time.Since(started).Round(time.Second))
+			if stage != lastStage {
+				stageStarted = time.Now()
+			}
+			message = fmt.Sprintf("%s，阶段耗时 %s，累计耗时 %s", message, time.Since(stageStarted).Round(time.Second), time.Since(started).Round(time.Second))
 			lastReport, lastStage = time.Now(), stage
 		} else {
 			message = ""
@@ -62,7 +66,7 @@ func (s *ScraperService) runTMDbRecheckQueue(ctx context.Context, metrics map[st
 		}
 	}
 	report("scan", fmt.Sprintf("文件核对结束，本次 %d 个文件（低频核对未到期时跳过）", metrics["scan_files"]), true, nil)
-	report("expand", "正在归并季集待办变更", true, nil)
+	report("expand", "正在归并季集待办变更（本地登记处理，尚未开始请求 TMDb）", true, nil)
 	for {
 		more, err := s.repo.Metadata.ExpandTMDbRecheckChange(ctx)
 		if err != nil {
@@ -72,9 +76,9 @@ func (s *ScraperService) runTMDbRecheckQueue(ctx context.Context, metrics map[st
 			break
 		}
 		metrics["change_batches"]++
-		report("expand", fmt.Sprintf("本次已归并季集变更 %d 批", metrics["change_batches"]), false, nil)
+		report("expand", fmt.Sprintf("本次已处理季集变更登记 %d 次（非 TMDb 请求数）", metrics["change_batches"]), false, nil)
 	}
-	report("expand", fmt.Sprintf("季集变更归并完成，本次 %d 批", metrics["change_batches"]), true, nil)
+	report("expand", fmt.Sprintf("季集变更归并完成，本次处理登记 %d 次", metrics["change_batches"]), true, nil)
 	report("recheck", "开始领取到期待办并检查 TMDb 季/集信息", true, nil)
 	type result struct {
 		metrics map[string]int64
