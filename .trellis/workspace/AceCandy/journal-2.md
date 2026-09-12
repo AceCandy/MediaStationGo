@@ -552,3 +552,25 @@ Web 电影与整剧按 metadata 分页，Emby 整剧摘要、混合库与子级�
 ### Status
 
 [OK] **Completed**
+
+
+## Session 115: 作品资料与图片异步下载解耦
+<!-- trellis-session: v=2 fp=7410f5a71242014b -->
+
+**Date**: 2026-09-13
+**Task**: 作品资料与图片异步下载解耦
+**Branch**: `main`
+
+### Summary
+
+资料先入库，图片与头像由既有 TMDb 图片任务异步下载；支持持久化退避、重启恢复、合并待办转移和并发选图保护，保留旧任务历史映射。已同步规范；隔离 PostgreSQL 定向测试、race 检测和任务日志检查通过。测试环境已清理，未部署或推送，未运行全仓测试及真实下载测速。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `152d205` | feat: 将作品资料补全图片交给异步下载与修复 |
+
+### Status
+
+[OK] **Completed**
