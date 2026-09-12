@@ -71,7 +71,9 @@ export const tasksAPI = {
 	recheckFiles: (id: string, page = 1, signal?: AbortSignal) =>
 		api.get<TMDbRecheckFilesPage>(`/tasks/definitions/tmdb_episode_metadata_recheck/pending/${encodeURIComponent(id)}/files`, { params: { page, page_size: 20 }, signal }).then((r) => r.data),
 	rechecks: (status = '', page = 1, signal?: AbortSignal, keyword = '', pageSize = 20) =>
-		api.get<TMDbRecheckPage>('/tasks/definitions/tmdb_episode_metadata_recheck/pending', { params: { status, keyword: keyword || undefined, page, page_size: pageSize }, signal }).then((r) => r.data),
+		api.get<TMDbRecheckPage>('/tasks/definitions/tmdb_episode_metadata_recheck/pending', { params: { view: 'items', status, keyword: keyword || undefined, page, page_size: pageSize }, signal }).then((r) => r.data),
+	recheckSummary: (signal?: AbortSignal) =>
+		api.get<TMDbRecheckSummary>('/tasks/definitions/tmdb_episode_metadata_recheck/pending', { params: { view: 'summary' }, signal }).then((r) => r.data),
   snapshot: (page = 1, pageSize = 30) =>
     api.get<TasksSnapshot>('/tasks', { params: { page, page_size: pageSize } }).then((r) => r.data),
   log: (key: string, date?: string) =>
@@ -89,10 +91,13 @@ export const tasksAPI = {
 
 export interface TMDbRecheckPage {
   items: { metadata_id: string; title: string; kind: string; series_title: string; season_num: number; episode_num: number; status: string; due_at: string | null; attempts: number; last_error: string }[]
-  counts: Record<string, number>
   total: number
   page: number
   page_size: number
+}
+
+export interface TMDbRecheckSummary {
+  counts: Record<string, number>
   changes: number
 }
 

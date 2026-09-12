@@ -51,6 +51,14 @@ func TestTMDbRecheckListAccessAndValidation(t *testing.T) {
 		{"admin", "tmdb_episode_metadata_recheck/pending?status=done", 200},
 		{"admin", "tmdb_episode_metadata_recheck/pending?status=done&page=2", 200},
 		{"admin", "tmdb_episode_metadata_recheck/pending?status=not_found", 200},
+		{"", "tmdb_episode_metadata_recheck/pending?view=summary", 401},
+		{"user", "tmdb_episode_metadata_recheck/pending?view=summary", 403},
+		{"admin", "tmdb_episode_metadata_recheck/pending?view=invalid", 400},
+		{"admin", "tmdb_episode_metadata_recheck/pending?view=summary", 200},
+		{"admin", "tmdb_episode_metadata_recheck/pending?view=summary&page=0", 400},
+		{"admin", "tmdb_episode_metadata_recheck/pending?view=items&status=done", 200},
+		{"admin", "tmdb_episode_metadata_recheck/pending?view=items&status=invalid", 400},
+		{"admin", "tmdb_episode_metadata_recheck/pending?view=items&page=0", 400},
 		{"", "tmdb_episode_metadata_recheck/pending/job/files", 401},
 		{"user", "tmdb_episode_metadata_recheck/pending/job/files", 403},
 		{"admin", "unknown/pending/job/files", 404},
@@ -76,6 +84,19 @@ func TestTMDbRecheckListAccessAndValidation(t *testing.T) {
 			}
 			if tc.path == "tmdb_episode_metadata_recheck/pending?status=done" && !strings.Contains(rec.Body.String(), `"metadata_id":"test-job"`) {
 				t.Fatalf("visible job missing: %s", rec.Body.String())
+			}
+			if tc.want == 200 && strings.Contains(tc.path, "view=") {
+				var body map[string]json.RawMessage
+				if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+					t.Fatal(err)
+				}
+				if strings.Contains(tc.path, "view=summary") {
+					if _, ok := body["items"]; ok || string(body["counts"]) != `{"done":1}` {
+						t.Fatalf("summary=%s", rec.Body.String())
+					}
+				} else if string(body["total"]) != "1" || string(body["counts"]) != "{}" || !strings.Contains(rec.Body.String(), `"metadata_id":"test-job"`) {
+					t.Fatalf("items=%s", rec.Body.String())
+				}
 			}
 			if tc.want == 200 && strings.Contains(tc.path, "page=2") && !strings.Contains(rec.Body.String(), `"items":[]`) {
 				t.Fatalf("pagination=%s", rec.Body.String())

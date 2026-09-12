@@ -629,7 +629,7 @@ export function TasksPage() {
     libraryAPI.list({ includeHidden: true }).then(setLibraries).catch(() => setLibraries([]))
   }, [])
   const refreshPendingCounts = () => Promise.all([
-    tasksAPI.rechecks('', 1, undefined, '', 1),
+    tasksAPI.recheckSummary(),
     mediaAPI.listScrapeIssues({ page: 1, pageSize: 1 }),
   ]).then(([rechecks, scrapeIssues]) => setPendingCounts({
     rechecks: Object.entries(rechecks.counts).reduce((total, [status, count]) => status === 'done' ? total : total + count, 0),

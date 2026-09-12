@@ -6,7 +6,7 @@ import { URL } from 'node:url'
 import console from 'node:console'
 import ts from 'typescript'
 
-const slots = [], requests = [], fileRequests = [], previews = []
+const slots = [], requests = [], summaries = [], fileRequests = [], previews = []
 let cursor = 0, effects = [], tree
 const react = {
   useState(initial) {
@@ -46,6 +46,9 @@ assert.match(tasksPageSource, /ariaLabel="媒体入库刮削待处理"[\s\S]*max
 assert.match(tasksPageSource, /placeholder="搜索标题、路径、媒体库或原因"/, 'scrape issues expose keyword search')
 assert.match(tasksPageSource, /border-gold-500\/30[\s\S]*count > 999 \? '999\+' : count/, 'non-empty pending buttons use the gold count marker')
 assert.doesNotMatch(tasksPageSource, /setInterval\([^)]*refreshPendingCounts/, 'pending counts do not follow the three-second task polling loop')
+assert.match(tasksPageSource, /tasksAPI\.recheckSummary\(\)/, 'task badge requests only summary')
+assert.match(tasksAPISource, /view: 'items'/, 'pagination skips global summary')
+assert.match(tasksAPISource, /view: 'summary'/, 'summary skips list hydration')
 assert.match(tasksAPISource, /keyword: keyword \|\| undefined/, 'recheck API forwards keyword')
 assert.match(libraryAPISource, /keyword: options\.keyword \|\| undefined/, 'scrape issues API forwards keyword')
 vm.runInNewContext(ts.transpileModule(source + '\nexports.TMDbRecheckFiles = TMDbRecheckFiles', {
@@ -55,6 +58,7 @@ vm.runInNewContext(ts.transpileModule(source + '\nexports.TMDbRecheckFiles = TMD
   if (id === 'react/jsx-runtime') return { jsx: (type, props) => ({ type, props }), jsxs: (type, props) => ({ type, props }) }
   if (id === '../api/tasks') return { tasksAPI: {
     rechecks: (status, page, signal) => new Promise(resolve => requests.push({ status, page, signal, resolve })),
+    recheckSummary: signal => new Promise((resolve, reject) => summaries.push({ signal, resolve, reject })),
     recheckFiles: (id, page, signal) => new Promise(resolve => fileRequests.push({ id, page, signal, resolve })),
   } }
   if (id === '../api/library') return { mediaAPI: { getSTRMDeleteTarget: id => new Promise((resolve, reject) => previews.push({ id, resolve, reject })) } }
@@ -77,6 +81,7 @@ function click(text) {
 }
 await render()
 assert.equal(requests[0].status, 'pending')
+assert.equal(summaries.length, 1)
 const dialog = nodes().find(n => n.props?.ariaLabel === '季/集复查待办')
 assert.match(dialog.props.className, /max-h-\[86vh\]/)
 assert.ok(nodes().some(n => /min-h-0.*overflow-y-auto/.test(n.props?.className ?? '')), 'dialog body shrinks and scrolls inside the viewport')
@@ -84,6 +89,9 @@ click('上游未收录 / 待核对'); await render()
 assert.equal(requests[0].signal.aborted, true)
 assert.equal(requests[1].status, 'not_found')
 requests[1].resolve({ items: [{ metadata_id: 'episode-1', status: 'not_found', season_num: 1, episode_num: 1 }], counts: {}, total: 21, page_size: 20, changes: 0 }); await render()
+assert.ok(nodes().some(n => n.type === 'article'), 'list renders while summary is pending')
+assert.equal(summaries.length, 1, 'category change does not refetch global counts')
+summaries[0].resolve({ counts: { not_found: 21 }, changes: 3 }); await render()
 const scrollAreas = nodes().filter(n => /overflow-y-auto/.test(n.props?.className ?? ''))
 assert.equal(scrollAreas.length, 1, 'only the lower list scrolls')
 const scrollingNodes = nodes(scrollAreas[0])
@@ -103,6 +111,7 @@ confirmation.props.onClose(); await render()
 assert.ok(!nodes().some(n => n.props?.mediaID), 'cancelling dismisses confirmation')
 click('下一页'); await render()
 assert.equal(requests[2].page, 2)
+assert.equal(summaries.length, 1, 'pagination does not refetch global counts')
 click('复查待办'); await render()
 assert.equal(requests[3].page, 1)
 assert.equal(requests[3].status, 'pending')
@@ -113,8 +122,21 @@ click('复查待办'); await render()
 assert.equal(requests.length, 4, 'same tab does not reset or refetch')
 click('刷新复查待办'); await render()
 assert.equal(requests.length, 5)
+assert.equal(summaries.length, 2, 'explicit refresh reloads counts')
+summaries[1].reject(new Error('summary unavailable')); await render()
+requests[4].resolve({ items: [{ metadata_id: 'episode-2', status: 'pending', season_num: 1, episode_num: 2 }], total: 1, page_size: 20 }); await render()
+assert.ok(nodes().some(n => n.type === 'article'), 'summary failure does not discard loaded rows')
+assert.ok(nodes().some(n => n.props?.role === 'alert' && n.props.children === '统计加载失败，请点击刷新重试。'))
+click('刷新复查待办'); await render()
+assert.equal(summaries.length, 3, 'refresh retries failed summary')
+requests[5].resolve({ items: [], total: 0, page_size: 20 }); await render()
+click('刷新复查待办'); await render()
+assert.equal(summaries[2].signal.aborted, true, 'refresh cancels previous summary')
+summaries[2].resolve({ counts: { pending: 999 }, changes: 999 }); await render()
+assert.ok(!nodes().some(n => typeof n.props?.children === 'string' && n.props.children.includes('待检查 999')), 'stale summary is ignored')
 slots.forEach(slot => slot?.cleanup?.())
-assert.equal(requests[4].signal.aborted, true, 'closing cancels request')
+assert.equal(requests[6].signal.aborted, true, 'closing cancels request')
+assert.equal(summaries[3].signal.aborted, true, 'closing cancels summary')
 slots.length = 0
 let selected = null
 const pending = { current: false }

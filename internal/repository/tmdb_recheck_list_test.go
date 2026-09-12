@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"encoding/json"
 	"maps"
 	"slices"
 	"testing"
@@ -103,6 +104,10 @@ func TestTMDbRecheckListTracksMediaDeletion(t *testing.T) {
 		for _, status := range want {
 			counts[status]++
 		}
+		summary, err := repo.SummarizeTMDbRechecks(t.Context())
+		if err != nil || !maps.Equal(summary.Counts, counts) {
+			t.Fatalf("summary=%+v err=%v, want=%v", summary, err, counts)
+		}
 		for _, id := range []string{season.ID, episodes[0].ID} {
 			files, err := repo.ListTMDbRecheckFiles(t.Context(), id, 1, 100)
 			if err != nil || (len(files.Items) > 0) != (want[id] == "not_found") {
@@ -121,6 +126,10 @@ func TestTMDbRecheckListTracksMediaDeletion(t *testing.T) {
 				// 一条一页，覆盖过滤发生在分页前和末页为空时的总数。
 				for page := 1; page <= len(expected)+1; page++ {
 					out, err := repo.ListTMDbRechecks(t.Context(), status, keyword, page, 1)
+					items, itemsErr := repo.ListTMDbRecheckItems(t.Context(), status, keyword, page, 1)
+					if itemsErr != nil || items.Total != out.Total || !slices.EqualFunc(items.Items, out.Items, func(a, b TMDbRecheckRow) bool { return a.MetadataID == b.MetadataID }) || len(items.Counts) != 0 || items.Changes != 0 {
+						t.Fatalf("items-only differs: %+v err=%v, full=%+v", items, itemsErr, out)
+					}
 					if err != nil || out.Total != int64(len(expected)) || !maps.Equal(out.Counts, counts) {
 						t.Fatalf("status=%q keyword=%q page=%d: %+v err=%v, want=%v counts=%v", status, keyword, page, out, err, expected, counts)
 					}
@@ -166,5 +175,59 @@ func TestTMDbRecheckListTracksMediaDeletion(t *testing.T) {
 	}
 	if saved.Status != "not_found" || saved.DueAt == nil || !saved.DueAt.Equal(due) || saved.Attempts != 2 || saved.NotFoundIdentity != "unchanged" {
 		t.Fatalf("query changed recheck state: %+v", saved)
+	}
+}
+
+func TestTMDbRecheckListCountsAvoidPerEpisodeProbes(t *testing.T) {
+	db := recheckQueueDB(t)
+	for _, sql := range []string{
+		`INSERT INTO metadata_items(id,kind,title,source,season_num,episode_num) VALUES ('series','series','Series','tmdb',0,0)`,
+		`INSERT INTO metadata_items(id,kind,title,source,parent_id,season_num,episode_num) SELECT 's'||i,'season','Season','tmdb','series',i,0 FROM generate_series(1,3000) i`,
+		`INSERT INTO metadata_items(id,kind,title,source,parent_id,season_num,episode_num) SELECT 'e'||i,'episode','Episode','tmdb','s'||((i-1)/100+1),0,i FROM generate_series(1,30000) i`,
+		`INSERT INTO media(id,path,metadata_id) SELECT 'm'||i,'/test/'||i,'e'||i FROM generate_series(1,30000) i`,
+		`INSERT INTO tm_db_recheck_jobs(metadata_id,status) SELECT 'e'||i,'pending' FROM generate_series(1,30000) i`,
+		`INSERT INTO tm_db_recheck_jobs(metadata_id,status) SELECT 's'||i,'pending' FROM generate_series(1,30) i`,
+		`INSERT INTO tm_db_recheck_jobs(metadata_id,status) VALUES ('series','done'),('missing-target','done')`,
+		`ANALYZE metadata_items`, `ANALYZE media`, `ANALYZE tm_db_recheck_jobs`,
+	} {
+		if err := db.Exec(sql).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	summary, err := New(db).Metadata.SummarizeTMDbRechecks(t.Context())
+	if err != nil || summary.Counts["pending"] != 30030 || len(summary.Counts) != 1 {
+		t.Fatalf("summary=%+v err=%v", summary, err)
+	}
+	jobs := db.Table("tm_db_recheck_jobs").Select("metadata_id, status")
+	var raw string
+	if err := db.Raw("EXPLAIN (ANALYZE, FORMAT JSON, TIMING OFF) "+tmdbRecheckCountsSQL, jobs, jobs).Scan(&raw).Error; err != nil {
+		t.Fatal(err)
+	}
+	type node struct {
+		Relation string `json:"Relation Name"`
+		Loops    int    `json:"Actual Loops"`
+		Plans    []node `json:"Plans"`
+	}
+	var plans []struct{ Plan node }
+	if err := json.Unmarshal([]byte(raw), &plans); err != nil || len(plans) != 1 {
+		t.Fatalf("invalid plan: %s, err=%v", raw, err)
+	}
+	var check func(node)
+	check = func(n node) {
+		if (n.Relation == "media" || n.Relation == "metadata_items") && n.Loops > 1000 {
+			t.Fatalf("per-episode/catalog probes returned: %s", raw)
+		}
+		for _, child := range n.Plans {
+			check(child)
+		}
+	}
+	check(plans[0].Plan)
+	// 分页不依赖全状态统计或变更表；即使统计不可用，列表仍独立返回精确总数。
+	if err := db.Exec(`DROP TABLE tm_db_recheck_asset_changes`).Error; err != nil {
+		t.Fatal(err)
+	}
+	items, err := New(db).Metadata.ListTMDbRecheckItems(t.Context(), "pending", "", 1502, 20)
+	if err != nil || items.Total != 30030 || len(items.Items) != 10 {
+		t.Fatalf("items=%+v err=%v", items, err)
 	}
 }

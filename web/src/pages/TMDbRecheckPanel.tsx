@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { ChevronLeft, ChevronRight, RefreshCw, Search, Trash2, X } from 'lucide-react'
-import { tasksAPI, type TMDbRecheckPage, type TMDbRecheckFilesPage } from '../api/tasks'
+import { tasksAPI, type TMDbRecheckPage, type TMDbRecheckSummary, type TMDbRecheckFilesPage } from '../api/tasks'
 import { mediaAPI, type STRMDeleteTarget } from '../api/library'
 import { Select } from '../components/Select'
 import { ModalShell } from '../components/ModalShell'
@@ -18,6 +18,8 @@ export function TMDbRecheckPanel({ onClose }: { onClose: () => void }) {
   const [version, setVersion] = useState(0)
   const [data, setData] = useState<TMDbRecheckPage | null>(null)
   const [error, setError] = useState(false)
+  const [summary, setSummary] = useState<TMDbRecheckSummary | null>(null)
+  const [summaryError, setSummaryError] = useState(false)
   const [target, setTarget] = useState<DeleteTarget | null>(null)
   const [deleted, setDeleted] = useState(false)
   const previewPending = useRef(false)
@@ -28,6 +30,13 @@ export function TMDbRecheckPanel({ onClose }: { onClose: () => void }) {
     }).catch(() => { if (!controller.signal.aborted) setError(true) })
     return () => controller.abort()
   }, [tab, status, keyword, page, version])
+  useEffect(() => {
+    const controller = new AbortController()
+    tasksAPI.recheckSummary(controller.signal).then((value) => {
+      if (!controller.signal.aborted) setSummary(value)
+    }).catch(() => { if (!controller.signal.aborted) setSummaryError(true) })
+    return () => controller.abort()
+  }, [version])
   const reset = () => { setData(null); setError(false) }
   const loading = !data && !error
   return <>
@@ -43,7 +52,7 @@ export function TMDbRecheckPanel({ onClose }: { onClose: () => void }) {
         <div className="flex flex-wrap gap-2" role="group" aria-label="待办分类">
           {([['all', '复查待办'], ['not_found', labels.not_found]] as const).map(([value, label]) => <button key={value} type="button" aria-pressed={tab === value} className={`rounded border px-3 py-2 text-sm ${tab === value ? 'border-brand-500 bg-brand-500/10 text-brand-500' : 'border-gray-200 text-ink-50 hover:text-brand-500'}`} onClick={() => { if (tab === value) return; reset(); setTab(value); setPage(1) }}>{label}</button>)}
         </div>
-        <button type="button" className="icon-btn" title="刷新复查待办" aria-label="刷新复查待办" disabled={loading} onClick={() => { reset(); setVersion(version + 1) }}><RefreshCw size={16} className={loading ? 'animate-spin' : ''} /></button>
+        <button type="button" className="icon-btn" title="刷新复查待办" aria-label="刷新复查待办" disabled={loading} onClick={() => { reset(); setSummary(null); setSummaryError(false); setVersion(version + 1) }}><RefreshCw size={16} className={loading ? 'animate-spin' : ''} /></button>
       </div>
       <form className="flex gap-2" onSubmit={(event) => { event.preventDefault(); const value = query.trim(); if (value === keyword) return; reset(); setKeyword(value); setPage(1) }}>
         <label className="relative min-w-0 flex-1">
@@ -60,7 +69,7 @@ export function TMDbRecheckPanel({ onClose }: { onClose: () => void }) {
           {Object.entries(labels).filter(([value]) => value !== 'not_found').map(([value, label]) => <option key={value} value={value}>{label}</option>)}
         </Select>
       </label>}
-      {data && <p className="text-xs text-ink-50">{Object.entries(labels).map(([value, label]) => `${label} ${data.counts[value] ?? 0}`).join(' · ')} · 待归并变更 {data.changes}</p>}
+      {summaryError ? <p role="alert" className="text-xs text-red-500">统计加载失败，请点击刷新重试。</p> : summary ? <p className="text-xs text-ink-50">{Object.entries(labels).map(([value, label]) => `${label} ${summary.counts[value] ?? 0}`).join(' · ')} · 待归并变更 {summary.changes}</p> : <p role="status" className="text-xs text-ink-50">统计加载中…</p>}
     </div>
     <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-5">
       {error ? <p role="alert" className="py-6 text-center text-sm text-red-500">待办加载失败，请重试刷新。</p> : !data ? <p role="status" className="py-6 text-center text-sm text-ink-50">加载中…</p> : <>

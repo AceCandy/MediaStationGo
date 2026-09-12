@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/ShukeBta/MediaStationGo/internal/model"
-	"gorm.io/gorm"
 )
 
 var ErrTMDbRecheckFilter = errors.New("invalid recheck filter")
@@ -78,8 +77,67 @@ type TMDbRecheckPage struct {
 	Changes  int64            `json:"changes"`
 }
 
+// TMDbRecheckSummary 独立于分页加载，计数仍按当前媒体关联计算。
+type TMDbRecheckSummary struct {
+	Counts  map[string]int64 `json:"counts"`
+	Changes int64            `json:"changes"`
+}
+
+// 集的半连接可批量执行；季先限定到队列范围，避免为全库无待办的季检查文件。
+const tmdbRecheckCountsSQL = `SELECT status, count(*) AS n FROM (
+ SELECT jobs.status FROM (?) jobs
+ JOIN metadata_items target ON target.id=jobs.metadata_id AND target.kind='episode'
+ WHERE EXISTS (SELECT 1 FROM media m WHERE m.metadata_id=target.id)
+ UNION ALL
+ SELECT target.status FROM (
+  SELECT jobs.status, mi.id FROM (?) jobs
+  JOIN metadata_items mi ON mi.id=jobs.metadata_id AND mi.kind='season' OFFSET 0
+ ) target
+ WHERE EXISTS (SELECT 1 FROM media m WHERE m.metadata_id=target.id)
+ OR EXISTS (SELECT 1 FROM metadata_items child JOIN media m ON m.metadata_id=child.id
+  WHERE child.parent_id=target.id AND child.kind='episode')
+) visible GROUP BY status`
+
+func (r *MetadataRepository) tmdbRecheckCounts(ctx context.Context, status string) (map[string]int64, error) {
+	jobs := r.db.WithContext(ctx).Table("tm_db_recheck_jobs").Select("metadata_id, status")
+	if status != "" {
+		jobs = jobs.Where("status=?", status)
+	}
+	var rows []struct {
+		Status string
+		N      int64
+	}
+	err := r.db.WithContext(ctx).Raw(tmdbRecheckCountsSQL, jobs, jobs).Scan(&rows).Error
+	counts := map[string]int64{}
+	for _, row := range rows {
+		counts[row.Status] = row.N
+	}
+	return counts, err
+}
+
+func (r *MetadataRepository) SummarizeTMDbRechecks(ctx context.Context) (TMDbRecheckSummary, error) {
+	counts, err := r.tmdbRecheckCounts(ctx, "")
+	out := TMDbRecheckSummary{Counts: counts}
+	if err != nil {
+		return out, err
+	}
+	err = r.db.WithContext(ctx).Raw(`SELECT
+ (SELECT count(*) FROM tm_db_recheck_changes WHERE pending) +
+ (SELECT count(*) FROM tm_db_recheck_asset_changes)`).Scan(&out.Changes).Error
+	return out, err
+}
+
 // ListTMDbRechecks 按剧名、季号和集号排序后分页，不改变后台复查调度顺序。
 func (r *MetadataRepository) ListTMDbRechecks(ctx context.Context, status, keyword string, page, size int) (TMDbRecheckPage, error) {
+	return r.listTMDbRechecks(ctx, status, keyword, page, size, true)
+}
+
+// ListTMDbRecheckItems 只计算当前筛选总数，不随翻页重复查询全状态统计。
+func (r *MetadataRepository) ListTMDbRecheckItems(ctx context.Context, status, keyword string, page, size int) (TMDbRecheckPage, error) {
+	return r.listTMDbRechecks(ctx, status, keyword, page, size, false)
+}
+
+func (r *MetadataRepository) listTMDbRechecks(ctx context.Context, status, keyword string, page, size int, withSummary bool) (TMDbRecheckPage, error) {
 	out := TMDbRecheckPage{Items: []TMDbRecheckRow{}, Counts: map[string]int64{}, Page: page, PageSize: size}
 	if page < 1 || page > 1000000 || size < 1 || size > 100 {
 		return out, ErrTMDbRecheckFilter
@@ -90,38 +148,34 @@ func (r *MetadataRepository) ListTMDbRechecks(ctx context.Context, status, keywo
 		return out, ErrTMDbRecheckFilter
 	}
 	// 与关联文件列表使用相同范围；媒体删除后无需等待后台归并，统计与分页同步排除空待办。
-	query := func() *gorm.DB {
-		return r.db.WithContext(ctx).Table("tm_db_recheck_jobs AS jobs").Where(`EXISTS (
+	q := r.db.WithContext(ctx).Table("tm_db_recheck_jobs AS jobs").Where(`EXISTS (
 SELECT 1 FROM metadata_items target
 WHERE target.id=jobs.metadata_id AND target.kind IN ('season','episode')
 AND (EXISTS (SELECT 1 FROM media m WHERE m.metadata_id=target.id)
  OR (target.kind='season' AND EXISTS (
   SELECT 1 FROM metadata_items child JOIN media m ON m.metadata_id=child.id
   WHERE child.parent_id=target.id AND child.kind='episode'))))`)
-	}
-	var counts []struct {
-		Status string
-		N      int64
-	}
-	if err := query().Select("status, count(*) AS n").Group("status").Scan(&counts).Error; err != nil {
-		return out, err
-	}
-	for _, row := range counts {
-		out.Counts[row.Status] = row.N
-		if status == "" || row.Status == status {
-			out.Total += row.N
+	keyword = strings.TrimSpace(keyword)
+	if withSummary {
+		summary, err := r.SummarizeTMDbRechecks(ctx)
+		if err != nil {
+			return out, err
+		}
+		out.Counts, out.Changes = summary.Counts, summary.Changes
+		for key, n := range summary.Counts {
+			if status == "" || key == status {
+				out.Total += n
+			}
+		}
+	} else if keyword == "" {
+		counts, err := r.tmdbRecheckCounts(ctx, status)
+		if err != nil {
+			return out, err
+		}
+		for _, n := range counts {
+			out.Total += n
 		}
 	}
-	if err := r.db.WithContext(ctx).Model(&model.TMDbRecheckChange{}).Where("pending").Count(&out.Changes).Error; err != nil {
-		return out, err
-	}
-	var assets int64
-	if err := r.db.WithContext(ctx).Model(&model.TMDbRecheckAssetChange{}).Count(&assets).Error; err != nil {
-		return out, err
-	}
-	out.Changes += assets
-	keyword = strings.TrimSpace(keyword)
-	q := query()
 	if status != "" {
 		q = q.Where("jobs.status=?", status)
 	}

@@ -22,7 +22,7 @@ func tmdbRecheckListHandler(svc *service.Container) gin.HandlerFunc {
 		}
 		page, err1 := strconv.Atoi(c.DefaultQuery("page", "1"))
 		size, err2 := strconv.Atoi(c.DefaultQuery("page_size", "20"))
-		if err1 != nil || err2 != nil {
+		if err1 != nil || err2 != nil || page < 1 || page > 1000000 || size < 1 || size > 100 {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid pagination"})
 			return
 		}
@@ -31,7 +31,16 @@ func tmdbRecheckListHandler(svc *service.Container) gin.HandlerFunc {
 		if id := c.Param("metadataID"); id != "" {
 			out, err = svc.Repo.Metadata.ListTMDbRecheckFiles(c.Request.Context(), id, page, size)
 		} else {
-			out, err = svc.Repo.Metadata.ListTMDbRechecks(c.Request.Context(), c.Query("status"), c.Query("keyword"), page, size)
+			switch c.Query("view") {
+			case "summary":
+				out, err = svc.Repo.Metadata.SummarizeTMDbRechecks(c.Request.Context())
+			case "items":
+				out, err = svc.Repo.Metadata.ListTMDbRecheckItems(c.Request.Context(), c.Query("status"), c.Query("keyword"), page, size)
+			case "":
+				out, err = svc.Repo.Metadata.ListTMDbRechecks(c.Request.Context(), c.Query("status"), c.Query("keyword"), page, size)
+			default:
+				err = repository.ErrTMDbRecheckFilter
+			}
 		}
 		if errors.Is(err, repository.ErrTMDbRecheckFilter) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid recheck filter"})
