@@ -16,7 +16,9 @@ type Person struct {
 	Overview        string `gorm:"type:text" json:"overview,omitempty"`
 	ProfileURL      string `gorm:"size:2048" json:"profile_url,omitempty"`
 	ProfileImageKey string `gorm:"size:255" json:"-"`
-	Source          string `gorm:"size:32;not null;index;uniqueIndex:uidx_local_person_name,priority:1,where:source = 'local' AND deleted_at IS NULL" json:"source"`
+	// ProfileImageSourceURL 记录本地头像实际对应的来源，避免将失败刷新保留的旧图误认成新图。
+	ProfileImageSourceURL string `gorm:"size:2048" json:"-"`
+	Source                string `gorm:"size:32;not null;index;uniqueIndex:uidx_local_person_name,priority:1,where:source = 'local' AND deleted_at IS NULL" json:"source"`
 }
 
 // PersonIdentifier 保存人物的 provider 外部标识。

@@ -192,7 +192,7 @@ func TestEnsureCatalogArtworkJobRespectsTerminalState(t *testing.T) {
 	}
 }
 
-func TestFindIncompleteCatalogChildIncludesArtworkOnlyDescendant(t *testing.T) {
+func TestFindIncompleteCatalogChildWaitsForHandoffButNotArtwork(t *testing.T) {
 	db, err := testdb.OpenPostgres(t, &gorm.Config{})
 	if err != nil {
 		t.Fatal(err)
@@ -218,7 +218,14 @@ func TestFindIncompleteCatalogChildIncludesArtworkOnlyDescendant(t *testing.T) {
 		t.Fatal(err)
 	}
 	if found == nil || found.ID != season.ID {
-		t.Fatalf("season with incomplete episode artwork was skipped: %#v", found)
+		t.Fatalf("season with unfinished episode handoff was skipped: %#v", found)
+	}
+	if err := db.Model(&episode).Updates(map[string]any{"catalog_hydrated_at": now, "catalog_artwork_due_at": now}).Error; err != nil {
+		t.Fatal(err)
+	}
+	found, err = New(db).Metadata.FindIncompleteCatalogChild(t.Context(), series.ID, model.MetadataKindSeason)
+	if err != nil || found != nil {
+		t.Fatalf("pending image must not block catalog metadata: %#v, %v", found, err)
 	}
 }
 

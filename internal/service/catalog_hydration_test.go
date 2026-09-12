@@ -161,7 +161,7 @@ func TestCatalogHydrationDoesNotSkipLegacyRootOnlySeries(t *testing.T) {
 	if err != nil || seriesAfter == nil {
 		t.Fatalf("legacy series = %#v, err = %v", seriesAfter, err)
 	}
-	if seriesAfter.CatalogMetadataHydratedAt == nil || seriesAfter.CatalogArtworkHydratedAt == nil || seriesAfter.CatalogHydratedAt == nil {
+	if seriesAfter.CatalogMetadataHydratedAt == nil || seriesAfter.CatalogArtworkHydratedAt != nil || seriesAfter.CatalogArtworkDueAt == nil || seriesAfter.CatalogHydratedAt == nil {
 		t.Fatalf("legacy series own checkpoints = %#v", seriesAfter)
 	}
 	var seasons []model.MetadataItem
@@ -205,6 +205,9 @@ func TestCatalogHydrationPersistsCompleteSeriesTree(t *testing.T) {
 		t.Fatal(err)
 	}
 	processCatalogStage(t, scraper, model.CatalogJobStageRoot)
+	if err := scraper.runTMDbArtworkLocalRepair(t.Context(), TaskTriggerEvent); err != nil {
+		t.Fatal(err)
+	}
 	rootSeries, err := repos.Metadata.FindByIdentifier(t.Context(), "tmdb", model.MetadataKindSeries, "12345")
 	if err != nil || rootSeries == nil {
 		t.Fatalf("root series = %#v, err = %v", rootSeries, err)

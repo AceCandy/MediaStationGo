@@ -39,8 +39,9 @@ func TestTMDbArtworkLocalRepairRestoresOldURLWithoutCatalogOrTMDb(t *testing.T) 
 	}
 	root := t.TempDir()
 	proxy := NewImageProxy(&config.Config{Cache: config.CacheConfig{CacheDir: filepath.Join(root, "cache")}}, zap.NewNop())
+	imageData := testArtworkPNG(t, 4, 3)
 	proxy.client = &http.Client{Transport: imageRoundTripFunc(func(req *http.Request) (*http.Response, error) {
-		return &http.Response{StatusCode: http.StatusOK, Status: "200 OK", Header: http.Header{"Content-Type": []string{"image/jpeg"}}, Body: io.NopCloser(bytes.NewReader(testJPEG)), Request: req}, nil
+		return &http.Response{StatusCode: http.StatusOK, Status: "200 OK", Header: http.Header{"Content-Type": []string{"image/png"}}, Body: io.NopCloser(bytes.NewReader(imageData)), Request: req}, nil
 	})}
 	store := NewArtworkStore(&config.Config{App: config.AppConfig{DataDir: root}}, repos.Artwork, proxy)
 	svc := &ScraperService{repo: repos, artwork: store}
@@ -314,11 +315,12 @@ func TestTMDbArtworkLocalRepairRefreshesOnlyAfter404(t *testing.T) {
 		Secrets: config.SecretsConfig{TMDbAPIKey: "test", TMDbAPIProxy: "https://api.test", TMDbImageProxy: "https://img.test"},
 	}
 	proxy := NewImageProxy(cfg, zap.NewNop())
+	imageData := testArtworkPNG(t, 4, 3)
 	proxy.client = &http.Client{Transport: imageRoundTripFunc(func(req *http.Request) (*http.Response, error) {
 		if req.URL.Host == "old.test" {
 			return &http.Response{StatusCode: http.StatusNotFound, Status: "404 Not Found", Header: make(http.Header), Body: io.NopCloser(strings.NewReader("missing")), Request: req}, nil
 		}
-		return &http.Response{StatusCode: http.StatusOK, Status: "200 OK", Header: http.Header{"Content-Type": []string{"image/jpeg"}}, Body: io.NopCloser(bytes.NewReader(testJPEG)), Request: req}, nil
+		return &http.Response{StatusCode: http.StatusOK, Status: "200 OK", Header: http.Header{"Content-Type": []string{"image/png"}}, Body: io.NopCloser(bytes.NewReader(imageData)), Request: req}, nil
 	})}
 	var tmdbCalls atomic.Int32
 	tmdb := NewTMDbProvider(cfg, zap.NewNop(), nil)

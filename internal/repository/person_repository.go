@@ -335,6 +335,9 @@ func upsertCreditPerson(tx *gorm.DB, input CreditInput) (*model.Person, error) {
 			return nil, err
 		}
 		person := model.Person{Name: name, OriginalName: name, NormalizedName: normalizePersonName(name), Overview: input.Overview, ProfileURL: input.ProfileURL, ProfileImageKey: input.ProfileImageKey, Source: provider}
+		if input.ProfileImageKey != "" {
+			person.ProfileImageSourceURL = input.ProfileURL
+		}
 		if err := tx.Create(&person).Error; err != nil {
 			return nil, err
 		}
@@ -359,6 +362,9 @@ func upsertCreditPerson(tx *gorm.DB, input CreditInput) (*model.Person, error) {
 	err := tx.Unscoped().Where("source = ? AND normalized_name = ?", "local", normalizePersonName(name)).First(&person).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		person = model.Person{Name: name, OriginalName: name, NormalizedName: normalizePersonName(name), Overview: input.Overview, ProfileURL: input.ProfileURL, ProfileImageKey: input.ProfileImageKey, Source: "local"}
+		if input.ProfileImageKey != "" {
+			person.ProfileImageSourceURL = input.ProfileURL
+		}
 		return &person, tx.Create(&person).Error
 	}
 	if err != nil {
@@ -385,6 +391,11 @@ func personSourceUpdates(person model.Person, input CreditInput, source string) 
 		key = strings.TrimSpace(input.ProfileImageKey)
 	}
 	updates := map[string]any{"name": displayName, "original_name": name, "normalized_name": normalizePersonName(name), "overview": input.Overview, "profile_url": input.ProfileURL, "profile_image_key": key, "source": source}
+	if strings.TrimSpace(input.ProfileURL) == "" || strings.TrimSpace(input.ProfileImageKey) != "" {
+		if person.ProfileImageSourceURL != input.ProfileURL {
+			updates["profile_image_source_url"] = input.ProfileURL
+		}
+	}
 	for field, current := range map[string]string{"name": person.Name, "original_name": person.OriginalName, "normalized_name": person.NormalizedName, "overview": person.Overview, "profile_url": person.ProfileURL, "profile_image_key": person.ProfileImageKey, "source": person.Source} {
 		if updates[field] == current {
 			delete(updates, field)

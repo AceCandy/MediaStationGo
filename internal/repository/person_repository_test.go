@@ -222,7 +222,7 @@ func TestPersonSourceUpdatesOnlyChangesSourceFields(t *testing.T) {
 		t.Fatalf("failed image import must retain old key: %v", updates)
 	}
 	input.ProfileImageKey = "new-key"
-	if updates := personSourceUpdates(person, input, "tmdb"); updates["profile_image_key"] != "new-key" || len(updates) != 2 {
+	if updates := personSourceUpdates(person, input, "tmdb"); updates["profile_image_key"] != "new-key" || updates["profile_image_source_url"] != "new-url" || len(updates) != 3 {
 		t.Fatalf("successful image import not applied: %v", updates)
 	}
 	input.ProfileURL = ""

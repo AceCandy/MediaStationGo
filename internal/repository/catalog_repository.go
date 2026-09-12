@@ -447,11 +447,11 @@ func (r *MetadataRepository) MarkCatalogCheckpoint(ctx context.Context, id, colu
 func (r *MetadataRepository) FindIncompleteCatalogChild(ctx context.Context, parentID, kind string) (*model.MetadataItem, error) {
 	var item model.MetadataItem
 	q := r.db.WithContext(ctx).Where("parent_id = ? AND kind = ?", parentID, kind).
-		Where(`catalog_hydrated_at IS NULL OR catalog_metadata_hydrated_at IS NULL OR catalog_artwork_hydrated_at IS NULL
+		Where(`catalog_hydrated_at IS NULL OR catalog_metadata_hydrated_at IS NULL
 OR (? = 'season' AND EXISTS (
     SELECT 1 FROM metadata_items episode
     WHERE episode.parent_id = metadata_items.id AND episode.kind = 'episode'
-      AND (episode.catalog_hydrated_at IS NULL OR episode.catalog_metadata_hydrated_at IS NULL OR episode.catalog_artwork_hydrated_at IS NULL)
+      AND (episode.catalog_hydrated_at IS NULL OR episode.catalog_metadata_hydrated_at IS NULL)
 ))`, kind)
 	if kind == model.MetadataKindSeason {
 		q = q.Order("season_num ASC")

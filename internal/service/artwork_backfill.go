@@ -128,13 +128,21 @@ func (s *ScraperService) runTMDbArtworkLocalRepair(ctx context.Context, trigger 
 	if s == nil || s.repo == nil || s.repo.Artwork == nil || s.artwork == nil {
 		return errors.New("TMDb artwork local repair dependencies unavailable")
 	}
+	if !s.catalogArtworkRunMu.TryLock() {
+		return ErrSchedulerJobAlreadyRunning
+	}
+	defer s.catalogArtworkRunMu.Unlock()
+	defer s.invalidateMediaCache(ctx)
 	metrics := map[string]int64{}
-	task, err := s.startArtworkTask(trigger, "TMDb 图片本地化修复", "正在检查 TMDb 图片本地文件", metrics)
+	task, err := s.startArtworkTask(trigger, "TMDb 图片本地化修复", "正在下载与修复 TMDb 图片", metrics)
 	if err != nil {
 		return err
 	}
+	if err := s.downloadPendingCatalogArtwork(ctx, task, metrics); err != nil {
+		return finishArtworkTask(task, err, "TMDb 图片下载与修复失败", metrics)
+	}
 	afterID := ""
-	for {
+	for trigger != TaskTriggerEvent {
 		page, err := s.repo.Artwork.ListTMDbArtworkSelectionsAfter(ctx, afterID, artworkRepairPageLimit)
 		if err != nil {
 			return finishArtworkTask(task, err, "TMDb 图片本地化修复失败", metrics)
@@ -158,9 +166,9 @@ func (s *ScraperService) runTMDbArtworkLocalRepair(ctx context.Context, trigger 
 		}
 	}
 	if metrics["failed"] > 0 {
-		return finishArtworkTask(task, fmt.Errorf("%d TMDb artwork repairs failed", metrics["failed"]), "TMDb 图片本地化修复完成，但存在失败", metrics)
+		return finishArtworkTask(task, fmt.Errorf("%d TMDb artwork repairs failed", metrics["failed"]), "TMDb 图片下载与修复完成，但存在失败", metrics)
 	}
-	return finishArtworkTask(task, nil, "TMDb 图片本地化修复完成", metrics)
+	return finishArtworkTask(task, nil, "TMDb 图片下载与修复完成", metrics)
 }
 
 func (s *ScraperService) repairTMDbArtworkSelection(ctx context.Context, item repository.TMDbArtworkSelection, metrics map[string]int64) (string, bool) {

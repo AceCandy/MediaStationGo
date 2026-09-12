@@ -18,6 +18,7 @@ func TestTaskDefinitionHistorySeparatesSharedKinds(t *testing.T) {
 	startFinishedTask(t, tracker, TaskKindScrape, "媒体入库刮削：本地电影", TaskUpdate{Stage: "scrape", SourcePath: "/media/movie.mkv"})
 	startFinishedTask(t, tracker, TaskKindScrape, "发现目录刮削：电影 1221950", TaskUpdate{Stage: "scrape"})
 	startFinishedTask(t, tracker, TaskKindArtwork, "TMDb 集信息补全/复查", TaskUpdate{Stage: "recheck"})
+	startFinishedTask(t, tracker, TaskKindArtwork, "TMDb 图片本地化修复", TaskUpdate{Stage: "repair"})
 
 	tests := []struct {
 		key  string
@@ -28,6 +29,7 @@ func TestTaskDefinitionHistorySeparatesSharedKinds(t *testing.T) {
 		{TaskDefinitionMediaScrape, "媒体入库刮削：本地电影"},
 		{TaskDefinitionCatalogScrape, "发现目录刮削：电影 1221950"},
 		{TaskDefinitionTMDbEpisodeMetadataRecheck, "TMDb 集信息补全/复查"},
+		{TaskDefinitionTMDbArtworkLocalRepair, "TMDb 图片本地化修复"},
 	}
 	for _, tt := range tests {
 		page, err := tracker.DefinitionHistory(tt.key, 1, 30)
@@ -43,6 +45,9 @@ func TestTaskDefinitionHistorySeparatesSharedKinds(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, definition := range definitions {
+		if definition.Key == TaskDefinitionTMDbArtworkLocalRepair && (definition.Name != "TMDb 图片下载与修复" || definition.Latest == nil) {
+			t.Fatalf("renamed image definition lost history: %+v", definition)
+		}
 		if definition.Key == TaskDefinitionCatalogScrape && (definition.Name != "作品资料补全" || definition.Latest == nil || definition.Latest.Name != "发现目录刮削：电影 1221950") {
 			t.Fatalf("renamed catalog definition lost history: %+v", definition)
 		}

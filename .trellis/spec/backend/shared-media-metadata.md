@@ -1777,6 +1777,71 @@ if degraded {
 }
 ```
 
+## Scenario: Asynchronous Catalog Artwork Handoff
+
+### 1. Scope / Trigger
+
+Catalog hydration saves details, snapshots and credits before handing off images.
+Manual refresh and normal media scraping retain their existing behavior.
+
+### 2. Signatures
+
+- Private metadata fields: `CatalogArtworkDueAt *time.Time` (partial due index),
+  `CatalogArtworkAttempts int`; person field: `ProfileImageSourceURL string`.
+- Repository: `QueueCatalogArtwork(ctx, id) error`,
+  `SaveCatalogArtworkAsset(ctx, item, snapshot, kind, source, asset) (bool, error)`,
+  `CompleteCatalogArtwork(ctx, item, snapshot, missing) error`.
+- `StartCatalogArtworkWorker(ctx)` joins the existing shutdown wait group.
+
+### 3. Contracts
+
+- Queue after metadata completion, preserving existing due/backoff state.
+  `CatalogHydratedAt` means details and child handoffs finished, not image bytes.
+- Startup restores pending work from PostgreSQL; wake signals only reduce latency.
+  Passes consume a fixed cutoff in bounded pages. Failed entities back off with
+  `catalogRetryDelay`; cancellation leaves durable pending work unchanged.
+- First download parses saved snapshots without requesting TMDb details. Existing
+  selections win. Save/completion locks and validates source, kind, due time,
+  snapshot timestamp and same-kind provider identity after network work.
+- Profiles use current Series/Season credits, never duplicate Episode credits.
+  Save downloaded URL/key together, conditional on current URL and old key.
+  A matching persisted source and valid file avoid downloads after restart.
+- Clear due/attempts only after images and profiles succeed. Explicit missing
+  Movie/Series images enter existing no-image recheck state; Season/Episode missing
+  images remain owned by the media-scoped Season/Episode recheck.
+- Graph merge transfers the earlier pending due before deleting source.
+  Public image URLs remain local; no API fields or settings are added.
+
+### 4. Validation & Error Matrix
+
+- Download failure → preserve successful assets and retry; no detail retry.
+- Changed source/snapshot → `ErrCatalogArtworkChanged`; reject stale writes.
+- Concurrent manual selection → preserve selection, no overwrite.
+- Cancellation → cancel I/O and join; restart consumes remaining due work.
+
+### 5. Good / Base / Bad Cases
+
+- Good: blocked Episode still does not block Series metadata completion.
+- Base: empty upstream path completes handling without inventing an asset.
+- Bad: treat download failure as upstream absence or discard due work on restart.
+
+### 6. Tests Required
+
+- `TestCatalogArtworkMetadataFirstRetryAndRestart`: no image I/O during hydration,
+  cancellation/join, restart, isolated retry, no extra details and profile reuse.
+- `TestCatalogArtworkRejectsStaleSnapshotAndPreservesManualSelection`: stale result
+  rejection and manual-selection protection on PostgreSQL.
+- `TestCatalogArtworkMergeAndIdleWake`: merge preserves pending work; idle wake-up.
+- `TestFindIncompleteCatalogChildWaitsForHandoffButNotArtwork`: parent waits for
+  handoff, not downloads. Migration tests assert new fields and due index.
+
+### 7. Wrong vs Correct
+
+Wrong: download originals/avatars inside catalog hydration, then complete details.
+
+Correct: save details/credits → persist image due → complete catalog handoff;
+the artwork worker downloads and completes its own checkpoint independently.
+
 ## Scenario: Durable TMDb Catalog Hydration
 
 ### 1. Scope / Trigger
@@ -1911,9 +1976,10 @@ if degraded {
   are logged by metadata ID while later pages continue, but any failure prevents
   recording completion. List-query/context errors terminate the pass.
 - Own metadata and own artwork checkpoints advance independently. Episode full
-  completion requires both; Season waits for all expected Episodes; Series and
-  its job wait for all expected Seasons. Explicitly absent image paths satisfy
-  artwork completion, while a failed download does not.
+  completion requires metadata plus durable artwork handoff, not downloaded bytes;
+  Season waits for all expected Episodes; Series and its job wait for all expected
+  Seasons. Explicitly absent image paths satisfy artwork completion, while a failed
+  download does not. See the asynchronous handoff contract below.
 - A Catalog artwork retry removes only that source URL's fresh image-proxy
   failure marker before importing. It preserves successful cached bytes and
   does not change the generic browser proxy's negative-cache behavior.
@@ -1928,7 +1994,7 @@ if degraded {
   missing selection-to-asset join. Parent fallback images never satisfy it.
 - Artwork repair jobs read only the canonical metadata graph and never create,
   claim, revive, or wake `catalog_hydration_jobs`. First-time artwork hydration
-  remains owned by the catalog ingestion worker.
+  is handed off by catalog ingestion to the existing TMDb artwork task.
 - Catalog image persistence is insert-if-absent. An existing valid selection
   from any source wins both the pre-download check and the transactional write
   race; explicit manual import keeps overwrite behavior. Metadata editing does
@@ -1945,8 +2011,9 @@ if degraded {
   the affected type; provider or download failure never advances the timestamp.
 - Automatic writes use insert-if-absent for an empty selection and conditional
   replacement for a dangling TMDb selection. A concurrent manual/local choice
-  always wins. Neither repair job changes catalog checkpoints or non-artwork
-  metadata.
+  always wins. Repair scans and missing-image rechecks do not change catalog
+  checkpoints or non-artwork metadata; the first-download phase alone completes
+  the artwork checkpoint and persists downloaded person image keys.
 - `media`, `metadata_items`, `metadata_identifiers`,
   `metadata_provider_snapshots`, `catalog_hydration_jobs`,
   `metadata_artworks`, `artwork_assets`, and `metadata_credits` use
@@ -2264,7 +2331,7 @@ TMDbEpisodeCheckedAt *time.Time `gorm:"column:tmdb_episode_checked_at;index"`
 
 - Person bytes live at `App.DataDir/people/sha256/<first-two>/<next-two>/`;
   the key is content SHA-256 based and deduplicates identical bytes.
-- Profile downloads happen before credit persistence writes the person and
+- Outside catalog hydration, profile downloads happen before credit persistence writes the person and
   bypass `cache/images`; image network errors are warnings and do not fail the
   authoritative scrape.
 - Normal credit persistence reuses a successful remote URL only while the local
@@ -2274,12 +2341,14 @@ TMDbEpisodeCheckedAt *time.Time `gorm:"column:tmdb_episode_checked_at;index"`
   import failures instead cache a failure flag for one minute; caller cancellation
   does not. Explicit Import bypasses cooldown, and success replaces the flag.
   Cache hits never extend failure expiry. Do not infer a
-  successful URL/key mapping from Person alone: a failed refresh can retain an
-  old key alongside a new source URL.
+  successful URL/key mapping from `ProfileURL` and key alone: a failed refresh
+  can retain an old key alongside a new source URL. Catalog downloads additionally
+  require persisted `ProfileImageSourceURL == ProfileURL` and a usable local file.
 - A successful refresh replaces the key only after validation and atomic write;
   a failed refresh preserves the prior key and file.
 - There is no startup image migration or request-time lazy download. The
-  scraper persistence flow is the only remote person-image ingestion path.
+  scraper persistence and its asynchronous catalog artwork phase own remote
+  person-image ingestion.
 - The Emby JSON shape remains `ImageTags.Primary = person.ID`; the image handler
   serves local bytes directly. A missing, invalid, or failed image returns the
   existing transparent placeholder.

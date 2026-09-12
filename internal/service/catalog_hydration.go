@@ -368,6 +368,7 @@ func (s *ScraperService) processCatalogJobWithMetrics(ctx context.Context, job *
 	}
 	s.scrapeRunMu.Lock()
 	defer s.scrapeRunMu.Unlock()
+	defer s.invalidateMediaCache(ctx)
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -388,6 +389,10 @@ func (s *ScraperService) hydrateCatalogSeries(ctx context.Context, job *model.Ca
 	}
 	series, err := s.catalogJobMetadata(ctx, job)
 	if err != nil {
+		return err
+	}
+	// 兼容已推进到 seasons、但尚未交接根实体图片的历史任务。
+	if err := s.queueCatalogArtwork(ctx, series.ID); err != nil {
 		return err
 	}
 	for {
@@ -459,8 +464,8 @@ func (s *ScraperService) hydrateCatalogRootData(ctx context.Context, job *model.
 	if err != nil {
 		return err
 	}
-	if item != nil && item.CatalogMetadataHydratedAt != nil && item.CatalogArtworkHydratedAt != nil {
-		return nil
+	if item != nil && item.CatalogMetadataHydratedAt != nil {
+		return s.queueCatalogArtwork(ctx, item.ID)
 	}
 
 	var match *Match
@@ -492,7 +497,7 @@ func (s *ScraperService) hydrateCatalogRootData(ctx context.Context, job *model.
 		if err := s.repo.Metadata.UpsertProviderSnapshot(ctx, item.ID, "tmdb", match.RawJSON, now); err != nil {
 			return err
 		}
-		if err := s.persistCredits(ctx, item.ID, match.LoadedCreditTypes, match.Credits); err != nil {
+		if err := s.saveCreditInputs(ctx, item.ID, match.LoadedCreditTypes, creditInputs(match.Credits)); err != nil {
 			return err
 		}
 		if job.EntityKind == model.MetadataKindSeries {
@@ -506,15 +511,7 @@ func (s *ScraperService) hydrateCatalogRootData(ctx context.Context, job *model.
 			return err
 		}
 	}
-	if item.CatalogArtworkHydratedAt == nil {
-		if err := s.persistCatalogArtworkWithMetrics(ctx, item.ID, map[string]string{model.ArtworkTypePoster: match.CatalogPosterURL, model.ArtworkTypeBackdrop: match.CatalogBackdropURL}, metrics); err != nil {
-			return err
-		}
-		if err := s.repo.Metadata.MarkCatalogCheckpoint(ctx, item.ID, "catalog_artwork_hydrated_at", now); err != nil {
-			return err
-		}
-	}
-	return nil
+	return s.queueCatalogArtwork(ctx, item.ID)
 }
 
 func (s *ScraperService) completeCatalogLeafJob(ctx context.Context, job *model.CatalogHydrationJob, item *model.MetadataItem) error {
@@ -547,7 +544,7 @@ func (s *ScraperService) hydrateCatalogSeason(ctx context.Context, series, seaso
 	ctx = withTMDbSeasonBatch(ctx)
 	var details *TMDbSeasonDetails
 	var err error
-	if season.CatalogMetadataHydratedAt == nil || season.CatalogArtworkHydratedAt == nil {
+	if season.CatalogMetadataHydratedAt == nil {
 		details, err = s.tmdb.GetTVSeasonDetails(ctx, tmdbID, season.SeasonNum)
 		if err != nil {
 			return err
@@ -566,7 +563,7 @@ func (s *ScraperService) hydrateCatalogSeason(ctx context.Context, series, seaso
 		if err := s.repo.Metadata.UpsertProviderSnapshot(ctx, season.ID, "tmdb", details.RawJSON, now); err != nil {
 			return err
 		}
-		if err := s.persistCredits(ctx, season.ID, details.LoadedCreditTypes, details.Credits); err != nil {
+		if err := s.saveCreditInputs(ctx, season.ID, details.LoadedCreditTypes, creditInputs(details.Credits)); err != nil {
 			return err
 		}
 		for _, episode := range details.Episodes {
@@ -578,13 +575,8 @@ func (s *ScraperService) hydrateCatalogSeason(ctx context.Context, series, seaso
 			return err
 		}
 	}
-	if season.CatalogArtworkHydratedAt == nil {
-		if err := s.persistCatalogArtworkWithMetrics(ctx, season.ID, map[string]string{model.ArtworkTypePoster: details.PosterURL}, metrics); err != nil {
-			return err
-		}
-		if err := s.repo.Metadata.MarkCatalogCheckpoint(ctx, season.ID, "catalog_artwork_hydrated_at", now); err != nil {
-			return err
-		}
+	if err := s.queueCatalogArtwork(ctx, season.ID); err != nil {
+		return err
 	}
 	for {
 		if err := s.yieldCatalogToMedia(ctx, metrics); err != nil {
@@ -608,7 +600,10 @@ func (s *ScraperService) hydrateCatalogSeason(ctx context.Context, series, seaso
 }
 
 func (s *ScraperService) hydrateCatalogEpisode(ctx context.Context, season, episode *model.MetadataItem, tmdbID int, metrics *catalogArtworkMetrics) error {
-	if episode.CatalogMetadataHydratedAt != nil && episode.CatalogArtworkHydratedAt != nil {
+	if episode.CatalogMetadataHydratedAt != nil {
+		if err := s.queueCatalogArtwork(ctx, episode.ID); err != nil {
+			return err
+		}
 		return s.repo.Metadata.MarkCatalogCheckpoint(ctx, episode.ID, "catalog_hydrated_at", time.Now().UTC())
 	}
 	details, err := s.tmdb.GetTVEpisodeDetails(ctx, tmdbID, season.SeasonNum, episode.EpisodeNum)
@@ -630,20 +625,12 @@ func (s *ScraperService) hydrateCatalogEpisode(ctx context.Context, season, epis
 		if err := s.repo.Metadata.UpsertProviderSnapshot(ctx, episode.ID, "tmdb", details.RawJSON, now); err != nil {
 			return err
 		}
-		if err := s.persistCredits(ctx, episode.ID, details.LoadedCreditTypes, details.Credits); err != nil {
-			return err
-		}
 		if err := s.repo.Metadata.MarkCatalogCheckpoint(ctx, episode.ID, "catalog_metadata_hydrated_at", now); err != nil {
 			return err
 		}
 	}
-	if episode.CatalogArtworkHydratedAt == nil {
-		if err := s.persistCatalogArtworkWithMetrics(ctx, episode.ID, map[string]string{model.ArtworkTypeStill: details.CatalogStillURL}, metrics); err != nil {
-			return err
-		}
-		if err := s.repo.Metadata.MarkCatalogCheckpoint(ctx, episode.ID, "catalog_artwork_hydrated_at", now); err != nil {
-			return err
-		}
+	if err := s.queueCatalogArtwork(ctx, episode.ID); err != nil {
+		return err
 	}
 	return s.repo.Metadata.MarkCatalogCheckpoint(ctx, episode.ID, "catalog_hydrated_at", time.Now().UTC())
 }

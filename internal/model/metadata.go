@@ -49,7 +49,10 @@ type MetadataItem struct {
 	PeopleHydratedAt *time.Time `gorm:"index" json:"people_hydrated_at,omitempty"`
 	// CatalogArtworkHydratedAt 表示本实体要求的图片均已入库或 provider 明确未提供。
 	CatalogArtworkHydratedAt *time.Time `gorm:"index" json:"catalog_artwork_hydrated_at,omitempty"`
-	// CatalogHydratedAt 表示本实体及其全部目录子项均已完成入库。
+	// CatalogArtworkDueAt 是首次图片与头像本地化的持久化待办；空值表示未交接或已完成。
+	CatalogArtworkDueAt    *time.Time `gorm:"index:idx_catalog_artwork_due,where:catalog_artwork_due_at IS NOT NULL" json:"-"`
+	CatalogArtworkAttempts int        `gorm:"not null;default:0" json:"-"`
+	// CatalogHydratedAt 表示本实体及全部目录子项资料已入库，图片已交接给异步任务。
 	CatalogHydratedAt *time.Time `gorm:"index" json:"catalog_hydrated_at,omitempty"`
 	// TMDbEpisodeCheckedAt 表示集信息最近一次由 TMDb 完整复查成功的时间。
 	TMDbEpisodeCheckedAt *time.Time `gorm:"column:tmdb_episode_checked_at;index" json:"tmdb_episode_checked_at,omitempty"`

@@ -57,6 +57,9 @@ func TestCatalogMetadataSnapshotAndJobSchema(t *testing.T) {
 	if !db.Migrator().HasColumn(&model.MetadataItem{}, "PeopleHydratedAt") {
 		t.Fatal("metadata items people_hydrated_at column is missing")
 	}
+	if !db.Migrator().HasColumn(&model.MetadataItem{}, "CatalogArtworkDueAt") || !db.Migrator().HasColumn(&model.MetadataItem{}, "CatalogArtworkAttempts") || !db.Migrator().HasIndex(&model.MetadataItem{}, "idx_catalog_artwork_due") {
+		t.Fatal("catalog artwork durable handoff schema is missing")
+	}
 	if !db.Migrator().HasColumn("metadata_items", "tmdb_episode_checked_at") {
 		t.Fatal("metadata items tmdb_episode_checked_at column is missing")
 	}

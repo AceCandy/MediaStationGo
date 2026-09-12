@@ -92,6 +92,14 @@ history is observability only; business object state owns retry and recovery.
   action. `RunNowAsync` bypasses the schedule's enabled flag, preserves the
   scheduler's per-job concurrency guard, and marks executions as `manual` via
   the scheduler context; timer-driven runs remain `scheduled`.
+- TMDb first-download work shares `runTMDbArtworkLocalRepair` and its mutex with
+  manual/scheduled repair. Display `TMDb 图片下载与修复`, retaining execution name
+  `TMDb 图片本地化修复`, definition key and scheduler settings for log/history mapping.
+  Event runs consume only durable catalog image due work; manual/scheduled runs
+  additionally scan existing selections. The configurable schedule controls only
+  full repair scans, not initial downloads. The service-owned worker restores due
+  work at startup and cancels/joins at shutdown; it never reads history as a queue.
+  See the asynchronous handoff contract in `shared-media-metadata.md`.
 - TMDb artwork repair jobs append sanitized details only for an actionable image
   type: missing file, repair, no-image result, concurrent skip, or failure.
   Normal local files contribute only to summary metrics. Action details contain

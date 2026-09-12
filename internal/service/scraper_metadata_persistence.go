@@ -268,23 +268,31 @@ func (s *ScraperService) persistCredits(ctx context.Context, metadataID string, 
 }
 
 func (s *ScraperService) prepareCreditInputs(ctx context.Context, credits []PersonCredit, refreshImages ...bool) []repository.CreditInput {
-	inputs := make([]repository.CreditInput, 0, len(credits))
-	for _, credit := range credits {
-		input := repository.CreditInput{Provider: credit.Provider, ExternalID: credit.ExternalID, Name: credit.Name, Overview: credit.Overview, ProfileURL: credit.ProfileURL, Type: credit.Type, OriginalRole: credit.OriginalRole, SortOrder: credit.SortOrder}
-		if s.people != nil && strings.TrimSpace(credit.ProfileURL) != "" {
+	inputs := creditInputs(credits)
+	for i := range inputs {
+		input := &inputs[i]
+		if s.people != nil && strings.TrimSpace(input.ProfileURL) != "" {
 			importImage := s.people.ImportCached
 			if len(refreshImages) > 0 && refreshImages[0] {
 				importImage = s.people.Import
 			}
-			if key, err := importImage(ctx, credit.ProfileURL); err != nil {
+			if key, err := importImage(ctx, input.ProfileURL); err != nil {
 				if s.log != nil {
-					s.log.Warn("people image localization failed during scrape", zap.String("person", credit.Name), zap.Error(err))
+					s.log.Warn("people image localization failed during scrape", zap.String("person", input.Name), zap.Error(err))
 				}
 			} else {
 				input.ProfileImageKey = key
 			}
 		}
-		inputs = append(inputs, input)
+	}
+	return inputs
+}
+
+// creditInputs 只投影人物关系；目录资料入库不等待头像下载。
+func creditInputs(credits []PersonCredit) []repository.CreditInput {
+	inputs := make([]repository.CreditInput, 0, len(credits))
+	for _, credit := range credits {
+		inputs = append(inputs, repository.CreditInput{Provider: credit.Provider, ExternalID: credit.ExternalID, Name: credit.Name, Overview: credit.Overview, ProfileURL: credit.ProfileURL, Type: credit.Type, OriginalRole: credit.OriginalRole, SortOrder: credit.SortOrder})
 	}
 	return inputs
 }

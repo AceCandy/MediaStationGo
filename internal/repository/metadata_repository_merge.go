@@ -82,6 +82,12 @@ func mergeMetadataGraph(tx *gorm.DB, sourceID, targetID string) error {
 	if err := tx.Model(&model.MetadataIdentifier{}).Where("metadata_id = ?", source.ID).Update("metadata_id", target.ID).Error; err != nil {
 		return err
 	}
+	// 来源图像待办随资料图合并，不能随源实体删除而丢失。
+	if source.CatalogArtworkDueAt != nil && (target.CatalogArtworkDueAt == nil || source.CatalogArtworkDueAt.Before(*target.CatalogArtworkDueAt)) {
+		if err := tx.Model(&target).UpdateColumns(map[string]any{"catalog_artwork_due_at": source.CatalogArtworkDueAt, "catalog_artwork_attempts": 0}).Error; err != nil {
+			return err
+		}
+	}
 	return tx.Delete(&source).Error
 }
 
