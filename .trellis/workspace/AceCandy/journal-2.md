@@ -574,3 +574,37 @@ Web 电影与整剧按 metadata 分页，Emby 整剧摘要、混合库与子级�
 ### Status
 
 [OK] **Completed**
+
+
+## Session 116: 季集复查待办查询性能修复
+<!-- trellis-session: v=2 fp=49a5d3ff103168b3 -->
+
+**Date**: 2026-09-13
+**Task**: 季集复查待办查询性能修复
+**Branch**: `main`
+
+### Summary
+
+拆分季与集计数并独立加载统计和分页，保留实时媒体关联过滤、精确总数和排序。任务已归档。
+
+### Main Changes
+
+- 全状态计数实测从约2.7至3秒降至约1.17秒，not_found计数与列表SQL合计约0.35秒。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `e3cee45` | fix: 优化季集复查待办统计并分离分页加载 |
+
+### Testing
+
+- [OK] PostgreSQL复查回归及三万条计划测试、前端交互检查、lint/build、go vet和独立复核通过；本轮提交前diff检查通过。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 尚未部署；部署后核验浏览器端到端耗时，全部状态查询仍随数据量增长。
