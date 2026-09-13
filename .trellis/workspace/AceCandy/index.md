@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-2.md`
-- **Total Sessions**: 122
+- **Total Sessions**: 123
 - **Last Active**: 2026-09-14
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-2.md` | ~744 | Active |
+| `journal-2.md` | ~766 | Active |
 | `journal-1.md` | ~1981 | Archived |
 <!-- @@@/auto:active-documents -->
 
@@ -30,6 +30,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 123 | 2026-09-14 | 红果发现摘要与 404 暂缓 | `bfbd8cd` | `fix/tmdb-recheck-series-lock` |
 | 122 | 2026-09-14 | TMDb 季集坐标身份修复 | `5c9ccca` | `main` |
 | 121 | 2026-09-14 | 修复 TMDb 同剧复查锁竞争 | `6260180` | `main` |
 | 120 | 2026-09-14 | 统一榜单与红果页面布局 | `a22eb71` | `main` |

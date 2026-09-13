@@ -742,3 +742,25 @@ Web 电影与整剧按 metadata 分页，Emby 整剧摘要、混合库与子级�
 ### Status
 
 [OK] **Completed**
+
+
+## Session 123: 红果发现摘要与 404 暂缓
+<!-- trellis-session: v=2 fp=e08a65d4cb41b7fc -->
+
+**Date**: 2026-09-14
+**Task**: 红果发现摘要与 404 暂缓
+**Branch**: `fix/tmdb-recheck-series-lock`
+
+### Summary
+
+让发现摘要作为待补齐卡片展示并复用本地图片队列；详情 404 延迟 72 小时且不计批次失败，补充迁移、仓储、服务与 Web 回归检查。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `bfbd8cd` | fix: 支持红果发现摘要与 404 暂缓 |
+
+### Status
+
+[OK] **Completed**
