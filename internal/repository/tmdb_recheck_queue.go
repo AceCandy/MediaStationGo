@@ -291,6 +291,11 @@ WHERE mi.id=ANY(?) AND mi.kind IN ('season','episode')`, &ids).Scan(&states).Err
 // CommitTMDbRecheck 锁定快照涉及的层级和变更行，再检查租约；回调中不得访问网络。
 func (r *MetadataRepository) CommitTMDbRecheck(ctx context.Context, job *model.TMDbRecheckJob, snapshot *TMDbRecheckState, save func(*Container) error) error {
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if snapshot != nil && snapshot.SeriesID != "" {
+			if err := tx.Exec("SELECT pg_advisory_xact_lock(hashtextextended(?, 0))", snapshot.SeriesID).Error; err != nil {
+				return err
+			}
+		}
 		if job.SeasonLeaseID != "" {
 			if err := lockTMDbRecheckSeason(tx, job.SeasonLeaseID, job.LeaseToken); err != nil {
 				return err

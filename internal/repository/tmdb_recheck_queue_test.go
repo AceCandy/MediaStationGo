@@ -212,6 +212,87 @@ func TestTMDbRecheckConcurrentConnections(t *testing.T) {
 	}
 }
 
+func TestTMDbRecheckSerializesCommitsForOneSeries(t *testing.T) {
+	db := recheckSeasonConcurrentDB(t)
+	target := func(series *model.MetadataItem, seasonNumber int, lease string) (*model.TMDbRecheckJob, *TMDbRecheckState) {
+		if series.ID == "" {
+			series.Kind, series.Title, series.Source = "series", "Series", "test"
+			if err := db.Create(series).Error; err != nil {
+				t.Fatal(err)
+			}
+		}
+		season := model.MetadataItem{Kind: "season", Title: "Season", ParentID: &series.ID, SeasonNum: seasonNumber, Source: "test"}
+		if err := db.Create(&season).Error; err != nil {
+			t.Fatal(err)
+		}
+		episode := model.MetadataItem{Kind: "episode", Title: "Episode", ParentID: &season.ID, EpisodeNum: 1, Source: "test"}
+		if err := db.Create(&episode).Error; err != nil {
+			t.Fatal(err)
+		}
+		job := &model.TMDbRecheckJob{MetadataID: episode.ID, Status: "running", DueAt: ptrRecheckTime(time.Now()), LeaseToken: lease, LeaseUntil: ptrRecheckTime(time.Now().Add(time.Minute))}
+		if err := db.Create(job).Error; err != nil {
+			t.Fatal(err)
+		}
+		state, err := New(db).Metadata.TMDbRecheckState(t.Context(), episode.ID)
+		if err != nil || state == nil {
+			t.Fatalf("state: %+v %v", state, err)
+		}
+		return job, state
+	}
+	hold := func(job *model.TMDbRecheckJob, state *TMDbRecheckState) (chan struct{}, chan error) {
+		held, release, result := make(chan struct{}), make(chan struct{}), make(chan error, 1)
+		go func() {
+			result <- New(db).Metadata.CommitTMDbRecheck(t.Context(), job, state, func(*Container) error {
+				close(held)
+				<-release
+				return nil
+			})
+		}()
+		<-held
+		return release, result
+	}
+	commit := func(job *model.TMDbRecheckJob, state *TMDbRecheckState) chan error {
+		result := make(chan error, 1)
+		go func() {
+			result <- New(db).Metadata.CommitTMDbRecheck(t.Context(), job, state, func(*Container) error { return nil })
+		}()
+		return result
+	}
+
+	series := &model.MetadataItem{}
+	firstJob, firstState := target(series, 1, "lease-1")
+	secondJob, secondState := target(series, 2, "lease-2")
+	release, firstResult := hold(firstJob, firstState)
+	secondResult := commit(secondJob, secondState)
+	select {
+	case err := <-secondResult:
+		close(release)
+		t.Fatalf("same-series commit did not wait: %v (first: %v)", err, <-firstResult)
+	case <-time.After(200 * time.Millisecond):
+	}
+	close(release)
+	if err := <-firstResult; err != nil {
+		t.Fatal(err)
+	}
+	if err := <-secondResult; err != nil {
+		t.Fatal(err)
+	}
+
+	otherJob, otherState := target(&model.MetadataItem{}, 1, "other-lease")
+	release, firstResult = hold(firstJob, firstState)
+	otherResult := commit(otherJob, otherState)
+	select {
+	case err := <-otherResult:
+		close(release)
+		if firstErr := <-firstResult; err != nil || firstErr != nil {
+			t.Fatalf("different-series commits: other=%v first=%v", err, firstErr)
+		}
+	case <-time.After(time.Second):
+		close(release)
+		t.Fatalf("different-series commit waited: other=%v first=%v", <-otherResult, <-firstResult)
+	}
+}
+
 func TestTMDbRecheckCommitConsumesOnlySelfRegistration(t *testing.T) {
 	db := recheckQueueDB(t)
 	repo := New(db).Metadata
