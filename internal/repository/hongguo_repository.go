@@ -45,8 +45,16 @@ func (r *HongGuoRepository) SaveDetail(ctx context.Context, input hongguo.Work) 
 		work.Kind = model.MetadataKindMovie
 	}
 	err = r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&model.HongGuoDiscovery{}).Select("source_category").Where("source_id = ?", input.SourceID).Scan(&work.SourceCategory).Error; err != nil {
+			return err
+		}
+		if work.SourceCategory == "" {
+			if err := tx.Model(&model.HongGuoWork{}).Select("source_category").Where("source_id = ?", input.SourceID).Scan(&work.SourceCategory).Error; err != nil {
+				return err
+			}
+		}
 		// 冲突更新同时持有作品行锁，串行刷新其分集、人物与快照。
-		if err := tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "source_id"}}, DoUpdates: clause.AssignmentColumns([]string{"kind", "title", "overview", "tags", "episode_count", "total_episodes", "accessible_episodes", "update_text", "source_status", "completed", "first_visible_at", "rating", "rating_count", "refreshed_at", "updated_at"})}, clause.Returning{}).Create(&work).Error; err != nil {
+		if err := tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "source_id"}}, DoUpdates: clause.AssignmentColumns([]string{"source_category", "kind", "title", "overview", "tags", "episode_count", "total_episodes", "accessible_episodes", "update_text", "source_status", "completed", "first_visible_at", "rating", "rating_count", "refreshed_at", "updated_at"})}, clause.Returning{}).Create(&work).Error; err != nil {
 			return err
 		}
 		if work.Kind == model.MetadataKindMovie {
@@ -138,14 +146,32 @@ type HongGuoListWork struct {
 }
 
 // List 先分页作品，不在资料列表中加载全部分集、人物或图片原始地址。
-func (r *HongGuoRepository) List(ctx context.Context, search string, page, pageSize int) ([]HongGuoListWork, int64, error) {
+func (r *HongGuoRepository) List(ctx context.Context, search, sourceCategory, category, rank string, page, pageSize int) ([]HongGuoListWork, int64, error) {
 	if page < 1 || page > 1000000 || pageSize < 1 || pageSize > 100 {
 		return nil, 0, errors.New("分页参数无效")
 	}
+	if rank != "" && !hongguo.ValidRank(rank) {
+		return nil, 0, errors.New("榜单类型无效")
+	}
+	order := "hongguo_works.created_at DESC, hongguo_works.id DESC"
+	if rank != "" {
+		order = "rank_entry.position ASC, hongguo_works.id ASC"
+	}
 	query := func() *gorm.DB {
 		q := r.db.WithContext(ctx).Model(&model.HongGuoWork{})
+		if rank != "" {
+			q = q.Joins("JOIN hongguo_rank_entries rank_entry ON rank_entry.source_id = hongguo_works.source_id AND rank_entry.rank_key = ?", rank)
+		}
 		if search != "" {
 			q = q.Where("POSITION(LOWER(?) IN LOWER(title)) > 0 OR source_id = ?", search, search)
+		}
+		if sourceCategory != "" {
+			q = q.Where("source_category = ?", sourceCategory)
+		} else {
+			q = q.Where("source_category IS NULL OR source_category <> ?", "comic")
+		}
+		if category != "" {
+			q = q.Where("jsonb_exists(tags::jsonb, ?)", category)
 		}
 		return q
 	}
@@ -156,7 +182,7 @@ func (r *HongGuoRepository) List(ctx context.Context, search string, page, pageS
 	rows := make([]HongGuoListWork, 0)
 	err := query().Select("hongguo_works.*, COALESCE(a.id, '') AS artwork_id").
 		Joins("LEFT JOIN hongguo_artworks a ON a.work_id = hongguo_works.id").
-		Order("hongguo_works.created_at DESC, hongguo_works.id DESC").Offset((page - 1) * pageSize).Limit(pageSize).Scan(&rows).Error
+		Order(order).Offset((page - 1) * pageSize).Limit(pageSize).Scan(&rows).Error
 	if err != nil {
 		return nil, 0, err
 	}

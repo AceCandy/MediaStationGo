@@ -16,6 +16,16 @@ import (
 	"gorm.io/gorm"
 )
 
+var hongGuoWorkCategories = map[string]map[string]bool{
+	"real-drama": {
+		"爱情": true, "年代": true, "逆袭": true, "传奇": true, "成长": true, "家庭": true, "家族": true, "萌宝": true,
+		"悬疑": true, "惊悚": true, "恐怖": true, "志怪": true, "古装": true, "玄幻": true, "奇幻": true, "都市": true,
+		"青春": true, "喜剧": true, "科幻": true, "灾难": true, "动作冒险": true, "战争": true, "综艺": true, "剧情": true,
+	},
+	"comic-drama": {"脑洞": true, "玄幻": true, "剧情": true, "末世": true, "豪门": true, "奇幻": true, "科幻": true, "冒险": true},
+	"ai-drama":    {"脑洞": true, "玄幻": true, "剧情": true, "末世": true, "豪门": true, "奇幻": true, "科幻": true, "冒险": true},
+}
+
 func registerHongGuoRoutes(authed *gin.RouterGroup, svc *service.Container) {
 	group := authed.Group("/catalogs/hongguo")
 	group.Use(func(c *gin.Context) {
@@ -28,11 +38,14 @@ func registerHongGuoRoutes(authed *gin.RouterGroup, svc *service.Container) {
 	group.GET("/works", requirePermission(svc, "can_view_discover"), func(c *gin.Context) {
 		page, err := strconv.Atoi(c.DefaultQuery("page", "1"))
 		size, sizeErr := strconv.Atoi(c.DefaultQuery("page_size", "50"))
-		if err != nil || sizeErr != nil || page < 1 || page > 1000000 || size < 1 || size > 100 {
-			c.JSON(400, gin.H{"error": "分页参数无效"})
+		category := strings.TrimSpace(c.Query("category"))
+		sourceCategory := strings.TrimSpace(c.Query("source_category"))
+		rank := strings.TrimSpace(c.Query("rank"))
+		if err != nil || sizeErr != nil || page < 1 || page > 1000000 || size < 1 || size > 100 || c.Query("sort") != "" || (sourceCategory != "" && !hongguo.ValidCategory(sourceCategory)) || (category != "" && !hongGuoWorkCategories[sourceCategory][category]) || (rank != "" && !hongguo.ValidRank(rank)) || (rank != "" && (sourceCategory != "" || category != "")) {
+			c.JSON(400, gin.H{"error": "查询参数无效"})
 			return
 		}
-		rows, total, err := svc.Repo.HongGuo.List(c.Request.Context(), strings.TrimSpace(c.Query("keyword")), page, size)
+		rows, total, err := svc.Repo.HongGuo.List(c.Request.Context(), strings.TrimSpace(c.Query("keyword")), sourceCategory, category, rank, page, size)
 		if err != nil {
 			c.JSON(500, gin.H{"error": "红果资料读取失败"})
 			return

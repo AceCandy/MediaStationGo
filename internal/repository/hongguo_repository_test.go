@@ -29,6 +29,9 @@ func TestHongGuoDetailIsolationIdentityAndRollback(t *testing.T) {
 		t.Fatal(err)
 	}
 	r := New(db).HongGuo
+	if err := r.SaveDiscoveryPage(ctx, []hongguo.Work{{SourceID: "9000000000000000001", Title: "测试剧"}}, model.HongGuoSyncState{Category: "real-drama", NextPage: 1}); err != nil {
+		t.Fatal(err)
+	}
 	input := hongguo.Work{SourceID: "9000000000000000001", Title: "测试剧", Tags: []string{"短剧"}, EpisodeCount: 2, TotalEpisodes: 2, Completed: true, CoverURL: "https://example.invalid/cover", VideoIDs: []string{"9000000000000000002", "9000000000000000003"}, People: []hongguo.Person{{SourceID: "9000000000000000004", Name: "演员甲", Subtitle: "主演", AvatarURL: "https://example.invalid/avatar"}}, Snapshot: json.RawMessage(`{"series_name":"测试剧"}`)}
 	first, err := r.SaveDetail(ctx, input)
 	if err != nil {
@@ -73,7 +76,10 @@ func TestHongGuoDetailIsolationIdentityAndRollback(t *testing.T) {
 	if err := db.First(&old, "id = ?", legacy.ID).Error; err != nil || old.Title != legacy.Title {
 		t.Fatal("legacy data changed")
 	}
-	rows, total, err := r.List(ctx, "更新", 1, 1)
+	if first.SourceCategory != "real-drama" || second.SourceCategory != "real-drama" {
+		t.Fatal("source category was not carried into the hydrated work")
+	}
+	rows, total, err := r.List(ctx, "更新", "real-drama", "", "", 1, 1)
 	if err != nil || total != 1 || len(rows) != 1 {
 		t.Fatalf("list total=%d rows=%d err=%v", total, len(rows), err)
 	}
@@ -84,8 +90,31 @@ func TestHongGuoDetailIsolationIdentityAndRollback(t *testing.T) {
 	if err != nil || strings.Contains(string(payload), "example.invalid") || strings.Contains(string(payload), "source_url") {
 		t.Fatalf("poster list leaked upstream artwork: %s %v", payload, err)
 	}
-	rows, total, err = r.List(ctx, "更新", 2, 1)
+	rows, total, err = r.List(ctx, "更新", "real-drama", "", "", 2, 1)
 	if err != nil || total != 1 || len(rows) != 0 {
 		t.Fatal("empty page count incorrect")
+	}
+	rows, total, err = r.List(ctx, "", "", "短", "", 1, 1)
+	if err != nil || total != 0 || len(rows) != 0 {
+		t.Fatal("category filter used a partial tag match")
+	}
+	for _, row := range []model.HongGuoWork{
+		{SourceID: "9000000000000000005", SourceCategory: "comic", Kind: model.MetadataKindSeries, Title: "历史漫画", Tags: "[]", RefreshedAt: first.RefreshedAt},
+		{SourceID: "9000000000000000006", Kind: model.MetadataKindSeries, Title: "历史空分类", Tags: "[]", RefreshedAt: first.RefreshedAt},
+	} {
+		if err := db.Create(&row).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	rows, total, err = r.List(ctx, "", "", "", "", 1, 10)
+	if err != nil || total != 2 || len(rows) != 2 {
+		t.Fatalf("default list included comic: total=%d rows=%d err=%v", total, len(rows), err)
+	}
+	if err := r.ReplaceRank(ctx, "hot-drama", "", []hongguo.Work{{SourceID: "9000000000000000006", Title: "历史空分类"}, {SourceID: first.SourceID, Title: first.Title}}); err != nil {
+		t.Fatal(err)
+	}
+	rows, total, err = r.List(ctx, "", "", "", "hot-drama", 1, 10)
+	if err != nil || total != 2 || len(rows) != 2 || rows[0].SourceID != "9000000000000000006" || rows[1].SourceID != first.SourceID {
+		t.Fatalf("official rank order lost: total=%d rows=%+v err=%v", total, rows, err)
 	}
 }

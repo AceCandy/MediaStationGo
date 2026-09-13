@@ -22,6 +22,7 @@ function waitFor(code) { browser('wait', '--fn', code) }
 const titles = ['长风渡山河', '盛夏的第七封信', '月色不负归人', '山海之间', '许你万家灯火', '这一刻的重逢']
 const items = Array.from({ length: 18 }, (_, i) => ({
   id: `work-${i}`, source_id: `${90001 + i}`, title: titles[i % titles.length], kind: 'series',
+  source_category: 'real-drama',
   artwork_id: i === 2 ? '' : `poster-${i}`, tags: ['都市', '成长', '家庭'],
   update_text: `全${60 + i}集`, episode_count: 60 + i, rating: 8.5,
 }))
@@ -32,7 +33,8 @@ try {
   route('play-profiles', [])
   route('catalogs/hongguo/works?*', { items, total: 51 })
   route('catalogs/hongguo/status', { enabled: true })
-  route('discover/sections', { sections: [] })
+  route('discover/sections', { sections: [{ key: 'tmdb_trending_day', label: 'TMDb 今日趋势', provider: 'tmdb' }] })
+  route('discover/feed?*', { tmdb_trending_day: [], _meta: { tmdb_trending_day: { page: 1, has_next: false } } })
   // 模拟图片损坏，验证占位回退；真实本地图片另列部署验收。
   route('catalogs/hongguo/artwork/*', {})
   route('**', {})
@@ -51,6 +53,27 @@ try {
   assert.ok(!state.requests.some((url) => url.includes('/discover/sections') || url.includes('/discover/feed')))
   assert.ok(!state.requests.some((url) => /\/works\/\d+/.test(url)))
   waitFor(`document.querySelector('button[aria-label="查看长风渡山河"]').innerText.includes('暂无海报')`)
+  visit('/discover?system=hongguo&source=real-drama&category=都市')
+  waitFor(`performance.getEntriesByType('resource').some(r=>r.name.includes('source_category=real-drama')&&r.name.includes('category=%E9%83%BD%E5%B8%82')&&r.name.includes('page=1'))`)
+  assert.ok(evaluate(`document.querySelector('button[aria-label="查看长风渡山河"]').innerText.includes('真人剧')`))
+  browser('scrollintoview', '[data-testid="hongguo-load-more"]')
+  waitFor(`performance.getEntriesByType('resource').some(r=>r.name.includes('source_category=real-drama')&&r.name.includes('category=%E9%83%BD%E5%B8%82')&&r.name.includes('page=2'))`)
+  assert.ok(!evaluate(`document.body.innerText.includes('下一页')`))
+  assert.equal(evaluate(`[...document.querySelectorAll('button')].some(b=>b.innerText==='漫画')`), false)
+  browser('find', 'role', 'button', 'click', '--name', '漫剧', '--exact')
+  waitFor(`new URLSearchParams(location.search).get('source') === 'comic-drama' && !new URLSearchParams(location.search).has('category') && [...document.querySelectorAll('button')].some(b=>b.innerText==='脑洞') && ![...document.querySelectorAll('button')].some(b=>b.innerText==='都市')`)
+  assert.deepEqual(evaluate(`[...document.querySelectorAll('button')].filter(b=>['都市','脑洞'].includes(b.innerText)).map(b=>b.innerText)`), ['脑洞'])
+  browser('find', 'role', 'button', 'click', '--name', '脑洞', '--exact')
+  waitFor(`performance.getEntriesByType('resource').some(r=>r.name.includes('source_category=comic-drama')&&r.name.includes('category=%E8%84%91%E6%B4%9E'))`)
+  browser('find', 'role', 'button', 'click', '--name', 'AI剧', '--exact')
+  waitFor(`new URLSearchParams(location.search).get('source') === 'ai-drama' && !new URLSearchParams(location.search).has('category')`)
+  browser('find', 'role', 'button', 'click', '--name', '榜单', '--exact')
+  waitFor(`new URLSearchParams(location.search).get('section') === 'rank' && new URLSearchParams(location.search).get('rank') === 'hot-drama' && !new URLSearchParams(location.search).has('source') && performance.getEntriesByType('resource').some(r=>r.name.includes('rank=hot-drama'))`)
+  assert.ok(!evaluate(`performance.getEntriesByType('resource').filter(r=>r.name.includes('rank=hot-drama')).some(r=>r.name.includes('sort=')||r.name.includes('source_category='))`))
+  browser('find', 'role', 'button', 'click', '--name', '选择红果榜单', '--exact')
+  assert.deepEqual(evaluate(`[...document.querySelectorAll('[role="option"]')].map(o=>o.innerText)`), ['红果热播榜', '真人剧热播榜', 'AI剧热播榜', '漫剧热播榜'])
+  browser('find', 'role', 'option', 'click', '--name', 'AI剧热播榜', '--exact')
+  waitFor(`new URLSearchParams(location.search).get('rank') === 'hot-ai-drama' && performance.getEntriesByType('resource').some(r=>r.name.includes('rank=hot-ai-drama'))`)
 
   for (const theme of ['dark', 'light']) {
     evaluate(`document.documentElement.dataset.theme=${JSON.stringify(theme)}`)
@@ -60,8 +83,8 @@ try {
       if (process.env.DISCOVER_SCREENSHOT_DIR) browser('screenshot', `${process.env.DISCOVER_SCREENSHOT_DIR}/${theme}-${width}.png`)
     }
   }
-  browser('find', 'role', 'button', 'click', '--name', '现有资料体系', '--exact')
-  waitFor(`new URLSearchParams(location.search).get('system') === 'catalog' && document.body.innerText.includes('多源推荐')`)
+  browser('find', 'role', 'button', 'click', '--name', 'TMDB/豆瓣/Bangumi', '--exact')
+  waitFor(`new URLSearchParams(location.search).get('system') === 'catalog' && document.querySelector('button[aria-label="选择榜单"]') !== null`)
   assert.equal(evaluate(`document.querySelectorAll('button[aria-label^="查看"]').length`), 0)
   browser('find', 'role', 'button', 'click', '--name', '红果短剧', '--exact')
   waitFor(`document.querySelector('button[aria-label="查看长风渡山河"]') !== null`)

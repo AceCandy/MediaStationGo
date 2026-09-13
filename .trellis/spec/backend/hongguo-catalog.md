@@ -8,10 +8,13 @@ provider and not a source of remote playable streams.
 
 ## 2. Signatures
 
-- Catalog tables: `hongguo_discoveries`, `hongguo_works`, `hongguo_episodes`, `hongguo_people`,
+- Catalog tables: `hongguo_discoveries`, `hongguo_rank_entries`, `hongguo_works`, `hongguo_episodes`, `hongguo_people`,
   `hongguo_credits`, `hongguo_snapshots`, `hongguo_artworks`,
   `hongguo_sync_states`, `hongguo_sync_failures`, `hongguo_groups`,
   `hongguo_group_members`, `hongguo_media_bindings`.
+- `hongguo_discoveries.source_category` and `hongguo_works.source_category`
+  contain `real-drama|comic-drama|ai-drama`, or empty for legacy/direct-ID rows.
+  The former `comic` source is not collected or shown; existing rows are retained.
 - User-owned tables: `hongguo_user_states`, `hongguo_playback_events`.
 - Shared file: `media.catalog_source=hongguo`, `lookup_catalog_id` is the
   upstream string ID, `metadata_id` must remain NULL (database CHECK).
@@ -24,6 +27,11 @@ provider and not a source of remote playable streams.
 - `GET works` returns paginated `HongGuoListWork`: existing public work fields
   plus local `artwork_id` and parsed `tags`. One LEFT JOIN loads artwork IDs;
   do not fetch each work's full detail to build poster cards.
+- `GET works` accepts optional `source_category=real-drama|comic-drama|ai-drama`,
+  optional `category=<allowlisted exact tag for that source category>`, or one
+  official `rank=hot-drama|hot-real-drama|hot-ai-drama|hot-comic-drama`.
+  Rank cannot be combined with source/category filters. The retired local
+  `sort=latest|rating|hot` parameter is rejected.
 - `/api/admin/playback-stats?system=hongguo` uses the existing filter/DTO
   contract but only reads independent events; omitted system remains `catalog`.
 - Emby identities: `hg-work-`, `hg-group-`, `hg-season-`, `hg-episode-`,
@@ -47,9 +55,26 @@ provider and not a source of remote playable streams.
   `SaveDiscoveryPage` batch-upserts summaries and the next-page checkpoint in
   one transaction. It never calls detail HTTP, writes canonical works, generates
   episodes/artwork, or rebinds files. Task updates are emitted once per page.
+- `SaveDiscoveryPage` copies the current source category into every discovery
+  row. `SaveDetail` carries it into the hydrated work by source ID and preserves
+  an existing non-empty value for direct-ID refreshes. Never infer this field
+  from title or detail tags. Existing empty rows are populated after discovery
+  sees the source ID and that work is refreshed again.
+- Official ranks come from `/rank/hot-drama`, `/rank/hot-real-drama`,
+  `/rank/hot-ai-drama`, and `/rank/hot-comic-drama`. Parse the server-rendered
+  ordered list and `rel=next`; follow at most `MaxRankPage=100` pages. Replace
+  one rank atomically only after all its pages succeed, preserving the previous
+  rank on fetch/parse failure. `hongguo_rank_entries` stores `(rank_key,
+  source_id, position)` because one work may belong to multiple ranks. Rank
+  summaries enter the existing discovery/detail hydration queue; a rank update
+  may fill an empty source category but must not overwrite an established one.
 - Discovery continues from each category checkpoint until a valid empty page,
   without a 20-page per-run cap. A page containing only IDs already seen in
   this category during this run is a pagination-stall error, not completion.
+  After a category reaches its tail, `AfterID` records the first-page boundary;
+  later runs scan from page 1 and stop after reaching that boundary, preserving
+  full-scan behavior for categories without a boundary or with an interrupted
+  checkpoint.
   The Web source currently returns 24 raw entries per full page. Determine the
   last page from the raw `recommendList` length, not the filtered/deduplicated
   work count; save a short last page and reset its checkpoint atomically.
@@ -100,6 +125,12 @@ provider and not a source of remote playable streams.
   `/discover?system=hongguo`. Works/list/detail/episodes and group-detail GETs
   require `can_view_discover`; media, artwork and user-state routes retain
   existing authentication and file/profile visibility rules.
+- Category browsing applies exact JSON-array tag membership to hydrated works.
+  A tag filter requires a source category and must belong to that source's
+  allowlist; the unfiltered list excludes retained historical `comic` rows.
+  Category browsing defaults to local collection order. Rank browsing joins
+  `hongguo_rank_entries` and orders by the stored official position; never
+  derive a rank from local rating, rating count, or collection time.
 
 ## 4. Validation & Error Matrix
 
@@ -109,6 +140,7 @@ provider and not a source of remote playable streams.
 | No can_view_discover on works/list/detail/episodes or group-detail GET | 403 |
 | Non-admin import/group/status/cancel/pending/statistics | 403 |
 | Invalid source ID, pagination or stats system | 400 |
+| Unknown works source category, tag category or rank; rank mixed with category filters; retired sort parameter | 400; do not silently fall back to another list. |
 | Hidden file/library or locked profile playback | Not found; no state mutation |
 | Duplicate group season or movie member | Reject transaction |
 | Source file sent to old metadata writer | Reject before any old metadata insert |
@@ -131,13 +163,22 @@ provider and not a source of remote playable streams.
   redirect path. No remote video URL is extracted from the source website.
 - Good: one 24-item category page records summaries without 24 detail requests;
   a later refresh hydrates them before they become bindable catalog entries.
+- Base: `GET works?source_category=real-drama&category=都市` returns only hydrated works whose
+  tags contain the exact `都市` element. Bad: matching `都市剧` as `都市`, or
+  presenting local rating or collection order as the source site's hot chart.
+- Good: one source work appears in both `hot-drama` and its type rank with each
+  official position preserved. Bad: storing rank identity in the single-valued
+  `source_category`, or deleting the old rank before every source page succeeds.
+- Good: `GET works?source_category=ai-drama` filters the persisted upstream
+  category. Base: an old direct-ID work with an empty category remains visible
+  under 全部. Bad: guessing that work is AI-generated from its title or tags.
 
 ## 6. Tests Required
 
 - `internal/hongguo`: ID precision, movie evidence, count separation, snapshot
   whitelist, cancellation/HTTP bounds and explicit path IDs.
 - `TestHongGuoDetailIsolationIdentityAndRollback`: real migration twice,
-  stable IDs, old-data sentinel and transaction rollback.
+  stable IDs, old-data sentinel, transaction rollback and exact-tag list filtering.
 - `TestHongGuoBindingGroupingAndStableProgress`: pending/rebinding, grouping,
   disable rollback and stable user state.
 - `TestHongGuoRefreshRetriesAndShutdown`, `TestHongGuoArtworkLifecycle`:
@@ -148,16 +189,22 @@ provider and not a source of remote playable streams.
   page-level restart, more-than-100 pending hydration, no summary overwrite,
   regular cooldown and explicit-ID bypass.
 - `TestHongGuoDiscoveryCheckpointAndRetryIsolation`: atomic page rollback,
-  fixed cutoff, failure cooldown, durable pending recovery and no summary artwork.
-- `TestHongGuoDiscoveryScansUntilCategoryEnd`: all four categories pass page 20,
+  fixed cutoff, failure cooldown, durable pending recovery, source-category
+  propagation and no summary artwork.
+- `TestHongGuoDiscoveryScansUntilCategoryEnd`: all three collected categories pass page 20,
   short/empty-page termination, saved-next-page 404 recovery, first/middle 404
   preservation, repeated-page rejection and nonempty-limit failure.
 - `TestCategoryCompletionUsesSourceItemCount`: 23 raw entries complete the
   category; 24 raw entries remain a full page even if work projection deduplicates them.
+- `TestRankUsesOfficialPageOrderAndPagination`: all four official routes use
+  canonical pagination URLs, server-rendered order, and `rel=next`.
+- Repository tests cover atomic stale-entry replacement, multi-rank-capable
+  identity, established source-category preservation, and official position order.
 - `TestHongGuoEmbyPlayableIdentityAndUserState`: versions, logical identity,
   visibility, people, pagination, Fields and legacy writer rejection.
 - `TestHongGuoHTTPAccessAndStateIsolation`: JWT/admin/profile boundaries,
-  local Range, STRM redirect, source DTO redaction and statistics routing.
+  local Range, STRM redirect, source DTO redaction, source/category/sort query
+  validation and statistics routing.
 - `TestHongGuoPlaybackStatistics`: filters, grouping, date intersection,
   pagination, deleted media and old-event isolation.
 - PostgreSQL assertions count only with `MEDIASTATION_TEST_POSTGRES_DSN` set.
@@ -182,3 +229,12 @@ with 24. Either can skip later pages.
 
 Correct: use raw source item count for normal completion; recover an old 404
 checkpoint only after confirming its preceding page is short.
+
+Wrong: filter the serialized `tags` column with a substring search.
+
+Correct: query exact JSON-array membership so similarly named tags remain distinct.
+
+Wrong: derive `source_category` from hydrated detail tags.
+
+Correct: persist the category used by `Client.Category` on the discovery row and
+carry it by source ID when the authoritative detail becomes a work.

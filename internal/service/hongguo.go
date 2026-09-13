@@ -233,8 +233,13 @@ func (s *HongGuoService) discover(ctx context.Context, report func([]hongguo.Wor
 			return err
 		}
 		seen := make(map[string]bool)
+		incremental := state.NextPage == 1 && state.AfterID != ""
+		boundaryID := state.AfterID
 		for {
 			page := state.NextPage
+			if incremental {
+				page = 1
+			}
 			works, itemCount, err := s.client.Category(ctx, category, page)
 			if err != nil {
 				if page > 1 && errors.Is(err, hongguo.ErrNotFound) {
@@ -258,13 +263,39 @@ func (s *HongGuoService) discover(ctx context.Context, report func([]hongguo.Wor
 					added++
 				}
 			}
+			boundary := false
+			for _, work := range works {
+				if incremental && work.SourceID == boundaryID {
+					boundary = true
+				}
+			}
+			if page == 1 && len(works) > 0 {
+				state.AfterID = works[0].SourceID
+			}
 			if len(works) > 0 && added == 0 {
+				if incremental {
+					state.NextPage = 1
+					if err := s.repo.HongGuo.SaveDiscoveryPage(ctx, nil, state); err != nil {
+						return err
+					}
+					notice(fmt.Sprintf("ℹ️ 红果分类 %s 增量扫描至第 %d 页，未发现新作品", category, page))
+					break
+				}
 				return fmt.Errorf("红果分类 %s 第 %d 页重复返回本轮已见作品，分页未推进；保留检查点，未确认拉取完成", category, state.NextPage)
 			}
 			if complete {
 				state.NextPage = 1
 			} else if state.NextPage < hongguo.MaxCategoryPage {
 				state.NextPage++
+			}
+			if incremental && boundary {
+				state.NextPage = 1
+				if err := s.repo.HongGuo.SaveDiscoveryPage(ctx, works, state); err != nil {
+					return err
+				}
+				report(works)
+				notice(fmt.Sprintf("ℹ️ 红果分类 %s 增量扫描至第 %d 页，已追平上次检查点", category, page))
+				break
 			}
 			if err := s.repo.HongGuo.SaveDiscoveryPage(ctx, works, state); err != nil {
 				return err
@@ -278,6 +309,34 @@ func (s *HongGuoService) discover(ctx context.Context, report func([]hongguo.Wor
 				return fmt.Errorf("红果分类 %s 已达到 %d 页安全上限但仍有数据，未确认拉取完成", category, page)
 			}
 		}
+	}
+	for _, rank := range hongguo.Ranks {
+		works := []hongguo.Work{}
+		seen := map[string]bool{}
+		for page := 1; ; page++ {
+			rows, hasNext, err := s.client.Rank(ctx, rank.Key, page)
+			if err != nil {
+				return err
+			}
+			for _, work := range rows {
+				if seen[work.SourceID] {
+					return fmt.Errorf("红果榜单 %s 重复返回作品 %s，未替换现有榜单", rank.Key, work.SourceID)
+				}
+				seen[work.SourceID] = true
+				works = append(works, work)
+			}
+			if !hasNext {
+				break
+			}
+			if page == hongguo.MaxRankPage {
+				return fmt.Errorf("红果榜单 %s 已达到 %d 页安全上限但仍有下一页", rank.Key, page)
+			}
+		}
+		if err := s.repo.HongGuo.ReplaceRank(ctx, rank.Key, rank.SourceCategory, works); err != nil {
+			return err
+		}
+		report(works)
+		notice(fmt.Sprintf("ℹ️ %s已按官网名次更新，共 %d 项", rank.Label, len(works)))
 	}
 	return nil
 }

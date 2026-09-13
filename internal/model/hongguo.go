@@ -5,22 +5,34 @@ import "time"
 // HongGuoDiscovery 保存分类摘要；没有对应正式作品且不在失败冷却中的记录即为待补齐项。
 // 不作为可绑定媒体资料，避免列表集数和状态被误当作详情证据。
 type HongGuoDiscovery struct {
-	SourceID     string    `gorm:"primaryKey;size:32" json:"source_id"`
-	Title        string    `gorm:"type:text" json:"title"`
-	Overview     string    `gorm:"type:text" json:"overview"`
-	CoverURL     string    `gorm:"type:text" json:"-"`
-	EpisodeCount int       `json:"episode_count"`
-	UpdateText   string    `gorm:"type:text" json:"update_text"`
-	CreatedAt    time.Time `gorm:"index" json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
+	SourceID       string    `gorm:"primaryKey;size:32" json:"source_id"`
+	SourceCategory string    `gorm:"size:32;not null;default:'';index" json:"source_category"`
+	Title          string    `gorm:"type:text" json:"title"`
+	Overview       string    `gorm:"type:text" json:"overview"`
+	CoverURL       string    `gorm:"type:text" json:"-"`
+	EpisodeCount   int       `json:"episode_count"`
+	UpdateText     string    `gorm:"type:text" json:"update_text"`
+	CreatedAt      time.Time `gorm:"index" json:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
 }
 
 func (HongGuoDiscovery) TableName() string { return "hongguo_discoveries" }
+
+// HongGuoRankEntry 保存官网榜单中的作品名次；作品可同时属于总榜和类型榜。
+type HongGuoRankEntry struct {
+	RankKey   string    `gorm:"primaryKey;size:32" json:"rank_key"`
+	SourceID  string    `gorm:"primaryKey;size:32;index" json:"source_id"`
+	Position  int       `gorm:"not null" json:"position"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+func (HongGuoRankEntry) TableName() string { return "hongguo_rank_entries" }
 
 // HongGuoWork 是红果源作品，独立于现有 metadata_items；SourceID 不随人工聚合变化。
 type HongGuoWork struct {
 	PermanentBase
 	SourceID           string     `gorm:"size:32;not null;uniqueIndex" json:"source_id"`
+	SourceCategory     string     `gorm:"size:32;not null;default:'';index" json:"source_category"`
 	Kind               string     `gorm:"size:16;not null;index;check:chk_hongguo_work_kind,kind IN ('movie','series')" json:"kind"`
 	Title              string     `gorm:"type:text;not null" json:"title"`
 	Overview           string     `gorm:"type:text" json:"overview"`
@@ -97,7 +109,7 @@ type HongGuoArtwork struct {
 
 func (HongGuoArtwork) TableName() string { return "hongguo_artworks" }
 
-// HongGuoSyncState 持久化各分类的下一页；执行日志不承载业务游标。
+// HongGuoSyncState 持久化各分类的下一页与增量扫描边界；执行日志不承载业务游标。
 type HongGuoSyncState struct {
 	Category  string    `gorm:"primaryKey;size:32" json:"category"`
 	NextPage  int       `gorm:"not null;default:1" json:"next_page"`
@@ -150,5 +162,5 @@ func (HongGuoMediaBinding) TableName() string { return "hongguo_media_bindings" 
 
 // HongGuoModels 集中声明来源拥有的表，不包含公共文件和用户状态的生命周期。
 func HongGuoModels() []interface{} {
-	return []interface{}{&HongGuoDiscovery{}, &HongGuoWork{}, &HongGuoEpisode{}, &HongGuoPerson{}, &HongGuoCredit{}, &HongGuoSnapshot{}, &HongGuoArtwork{}, &HongGuoSyncState{}, &HongGuoSyncFailure{}, &HongGuoGroup{}, &HongGuoGroupMember{}, &HongGuoMediaBinding{}}
+	return []interface{}{&HongGuoDiscovery{}, &HongGuoRankEntry{}, &HongGuoWork{}, &HongGuoEpisode{}, &HongGuoPerson{}, &HongGuoCredit{}, &HongGuoSnapshot{}, &HongGuoArtwork{}, &HongGuoSyncState{}, &HongGuoSyncFailure{}, &HongGuoGroup{}, &HongGuoGroupMember{}, &HongGuoMediaBinding{}}
 }

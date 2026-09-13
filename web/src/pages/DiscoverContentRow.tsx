@@ -1,5 +1,4 @@
-import { useEffect, useMemo, useState, type CSSProperties } from 'react'
-import { ChevronLeft, ChevronRight, Info } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 
 import type { DiscoverItem } from '../api/discover'
 import { imageURL } from '../api/client'
@@ -8,46 +7,32 @@ import { discoverItemSource } from './discoverPageModel'
 export function ContentRow({
   title,
   items,
-  page = 1,
   canNext = false,
-  onPageChange,
+  loading = false,
+  onLoadMore,
   onSelect,
 }: {
   title: string
   items: DiscoverItem[]
-  page?: number
   canNext?: boolean
-  onPageChange?: (delta: number) => void
+  loading?: boolean
+  onLoadMore?: () => void
   onSelect: (item: DiscoverItem) => void
 }) {
+  const sentinelRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const sentinel = sentinelRef.current
+    if (!sentinel || !canNext || loading || !onLoadMore) return
+    const observer = new IntersectionObserver(([entry]) => {
+      if (entry.isIntersecting) onLoadMore()
+    }, { rootMargin: '320px' })
+    observer.observe(sentinel)
+    return () => observer.disconnect()
+  }, [canNext, loading, onLoadMore])
+
   return (
     <section className="space-y-4">
-      <div className="flex items-center justify-between gap-3">
-        <h2 className="pl-1 font-display text-2xl font-semibold text-ink-600">{title}</h2>
-        {onPageChange && (
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              aria-label={`${title} 上一页`}
-              disabled={page <= 1}
-              onClick={() => onPageChange(-1)}
-              className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-gray-200 bg-white text-ink-100 transition hover:border-primary-300 hover:text-brand-500 disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              <ChevronLeft size={16} />
-            </button>
-            <span className="min-w-10 text-center text-xs font-semibold text-sand-500">第 {page} 页</span>
-            <button
-              type="button"
-              aria-label={`${title} 下一页`}
-              disabled={!canNext}
-              onClick={() => onPageChange(1)}
-              className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-gray-200 bg-white text-ink-100 transition hover:border-primary-300 hover:text-brand-500 disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              <ChevronRight size={16} />
-            </button>
-          </div>
-        )}
-      </div>
+      <h2 className="pl-1 font-display text-2xl font-semibold text-ink-600">{title}</h2>
       <div className="grid grid-cols-3 gap-4 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-7 xl:grid-cols-8">
         {items.map((item, index) => (
           <DiscoverCard
@@ -57,6 +42,8 @@ export function ContentRow({
           />
         ))}
       </div>
+      <div ref={sentinelRef} className="h-px" aria-hidden="true" />
+      {loading && <p role="status" className="py-3 text-center text-sm text-ink-50">加载更多…</p>}
     </section>
   )
 }
@@ -181,10 +168,6 @@ function DiscoverCard({
         </p>
         <p className="text-[11px] text-sand-500">
           {[item.media_type, item.year && item.year > 0 ? item.year : ''].filter(Boolean).join(' · ') || '推荐'}
-        </p>
-        <p className="flex items-center gap-1 pt-1 text-[10px] font-semibold text-brand-500">
-          <Info size={10} />
-          查看详情
         </p>
       </div>
     </button>

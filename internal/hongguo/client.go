@@ -2,6 +2,7 @@
 package hongguo
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -13,6 +14,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"golang.org/x/net/html"
 )
 
 const BaseURL = "https://hongguoduanju.com"
@@ -22,6 +25,7 @@ const MaxCategoryPage = 10000
 
 // CategoryPageSize 是来源分类页的固定条数；不足一页表示该分类已到末页。
 const CategoryPageSize = 24
+const MaxRankPage = 100
 const maxResponseBytes = 8 << 20
 
 // ErrNotFound 表示固定红果资料路径返回 HTTP 404。
@@ -32,7 +36,40 @@ var routerAssignment = regexp.MustCompile(`(?:window\.)?_ROUTER_DATA\s*=\s*`)
 var finishedEpisodes = regexp.MustCompile(`^全\s*([0-9]+)\s*集$`)
 
 // Categories 是来源公开的分类路由，不能作为作品的跨季关系。
-var Categories = [...]string{"real-drama", "comic-drama", "ai-drama", "comic"}
+var Categories = [...]string{"real-drama", "comic-drama", "ai-drama"}
+
+type Rank struct {
+	Key            string
+	Label          string
+	SourceCategory string
+}
+
+var Ranks = [...]Rank{
+	{Key: "hot-drama", Label: "红果热播榜"},
+	{Key: "hot-real-drama", Label: "真人剧热播榜", SourceCategory: "real-drama"},
+	{Key: "hot-ai-drama", Label: "AI剧热播榜", SourceCategory: "ai-drama"},
+	{Key: "hot-comic-drama", Label: "漫剧热播榜", SourceCategory: "comic-drama"},
+}
+
+func ValidCategory(category string) bool {
+	for _, value := range Categories {
+		if category == value {
+			return true
+		}
+	}
+	return false
+}
+
+func rankByKey(key string) (Rank, bool) {
+	for _, rank := range Ranks {
+		if rank.Key == key {
+			return rank, true
+		}
+	}
+	return Rank{}, false
+}
+
+func ValidRank(key string) bool { _, ok := rankByKey(key); return ok }
 
 // Work 是来源详情的白名单投影。上线时间与首播时间不是同一个含义。
 type Work struct {
@@ -124,13 +161,7 @@ func (c *Client) Detail(ctx context.Context, id string) (Work, error) {
 
 // Category 返回一页分类摘要及原始条目数；摘要不能作为完整详情或作品下架的证据。
 func (c *Client) Category(ctx context.Context, category string, page int) ([]Work, int, error) {
-	valid := false
-	for _, value := range Categories {
-		if category == value {
-			valid = true
-		}
-	}
-	if !valid || page < 1 || page > MaxCategoryPage {
+	if !ValidCategory(category) || page < 1 || page > MaxCategoryPage {
 		return nil, 0, errors.New("红果分类或页码无效")
 	}
 	path := "/category/" + category
@@ -147,6 +178,27 @@ func (c *Client) Category(ctx context.Context, category string, page int) ([]Wor
 		return nil, 0, fmt.Errorf("红果分类 %s 第 %d 页（%s）解析失败：%w", category, page, path, err)
 	}
 	return works, itemCount, nil
+}
+
+// Rank 返回官网热播榜的一页摘要和是否存在下一页；切勿用本地评分或收录时间代替官网名次。
+func (c *Client) Rank(ctx context.Context, key string, page int) ([]Work, bool, error) {
+	rank, ok := rankByKey(key)
+	if !ok || page < 1 || page > MaxRankPage {
+		return nil, false, errors.New("红果榜单或页码无效")
+	}
+	path := "/rank/" + key
+	if page > 1 {
+		path += "?page=" + strconv.Itoa(page)
+	}
+	body, err := c.page(ctx, path)
+	if err != nil {
+		return nil, false, fmt.Errorf("红果榜单 %s 第 %d 页（%s）请求失败：%w", key, page, path, err)
+	}
+	works, hasNext, err := parseRank(body, rank.Label)
+	if err != nil {
+		return nil, false, fmt.Errorf("红果榜单 %s 第 %d 页（%s）解析失败：%w", key, page, path, err)
+	}
+	return works, hasNext, nil
 }
 
 func loader(body []byte, name string) (map[string]any, error) {
@@ -252,6 +304,92 @@ func parseCategory(body []byte) ([]Work, int, error) {
 		return nil, 0, errors.New("红果分类没有有效作品 ID")
 	}
 	return works, len(items), nil
+}
+
+func parseRank(body []byte, label string) ([]Work, bool, error) {
+	doc, err := html.Parse(bytes.NewReader(body))
+	if err != nil {
+		return nil, false, errors.New("红果榜单页面格式无效")
+	}
+	var list, pagination *html.Node
+	walkHTML(doc, func(node *html.Node) {
+		if node.Type != html.ElementNode {
+			return
+		}
+		if node.Data == "ol" && htmlAttr(node, "aria-label") == label {
+			list = node
+		}
+		if node.Data == "nav" && htmlAttr(node, "aria-label") == "榜单分页" {
+			pagination = node
+		}
+	})
+	if list == nil {
+		return nil, false, errors.New("红果榜单列表不存在")
+	}
+	works := []Work{}
+	seen := map[string]bool{}
+	for item := list.FirstChild; item != nil; item = item.NextSibling {
+		if item.Type != html.ElementNode || item.Data != "li" {
+			continue
+		}
+		var id, title, cover string
+		walkHTML(item, func(node *html.Node) {
+			if node.Type != html.ElementNode {
+				return
+			}
+			if node.Data == "h2" && strings.HasPrefix(htmlAttr(node, "id"), "rank-title-") {
+				id = strings.TrimPrefix(htmlAttr(node, "id"), "rank-title-")
+				title = strings.TrimSpace(htmlText(node))
+			}
+			if node.Data == "img" && cover == "" {
+				cover = htmlAttr(node, "src")
+			}
+		})
+		if !ValidID(id) || title == "" || seen[id] {
+			return nil, false, errors.New("红果榜单作品身份无效")
+		}
+		seen[id] = true
+		works = append(works, Work{SourceID: id, Title: title, CoverURL: cover})
+	}
+	if len(works) == 0 {
+		return nil, false, errors.New("红果榜单没有有效作品")
+	}
+	hasNext := false
+	if pagination != nil {
+		walkHTML(pagination, func(node *html.Node) {
+			if node.Type == html.ElementNode && node.Data == "a" && htmlAttr(node, "rel") == "next" {
+				hasNext = true
+			}
+		})
+	}
+	return works, hasNext, nil
+}
+
+func walkHTML(node *html.Node, visit func(*html.Node)) {
+	visit(node)
+	for child := node.FirstChild; child != nil; child = child.NextSibling {
+		walkHTML(child, visit)
+	}
+}
+
+func htmlAttr(node *html.Node, name string) string {
+	for _, attr := range node.Attr {
+		if attr.Key == name {
+			return strings.TrimSpace(attr.Val)
+		}
+	}
+	return ""
+}
+
+func htmlText(node *html.Node) string {
+	if node.Type == html.TextNode {
+		return node.Data
+	}
+	var value strings.Builder
+	for child := node.FirstChild; child != nil; child = child.NextSibling {
+		value.WriteString(htmlText(child))
+	}
+	return value.String()
 }
 
 // ParseDetail 严格校验请求身份，保留集号空位，不用可访问集数推断总集数。

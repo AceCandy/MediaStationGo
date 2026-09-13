@@ -17,7 +17,6 @@ export function DiscoverPage() {
   const [sections, setSections] = useState<DiscoverSection[]>([])
   const [selected, setSelected] = useState<string[]>([])
   const [rows, setRows] = useState<Record<string, DiscoverItem[]>>({})
-  const [rowPages, setRowPages] = useState<Record<string, number>>({})
   const [rowCanNext, setRowCanNext] = useState<Record<string, boolean>>({})
   const [rowLoading, setRowLoading] = useState<Record<string, boolean>>({})
   const [rowErrors, setRowErrors] = useState<Record<string, string>>({})
@@ -38,12 +37,12 @@ export function DiscoverPage() {
         const saved = readSavedSections(items)
         const available = new Set(items.map((item) => item.key))
         const fallback = defaultSections.filter((key) => available.has(key))
-        const nextSelected = saved.length > 0 ? saved : fallback
+        const firstSelected = saved[0] ?? fallback[0]
+        const nextSelected = firstSelected ? [firstSelected] : []
         const cached = readCachedDiscoverRows(nextSelected)
         const nextPages = Object.fromEntries(nextSelected.map((key) => [key, 1]))
         setSelected(nextSelected)
         rowPagesRef.current = nextPages
-        setRowPages(nextPages)
         setRows(cached.rows)
         setRowCanNext(cached.rowCanNext)
         setSectionsReady(true)
@@ -89,7 +88,7 @@ export function DiscoverPage() {
             const error = feed.meta[key]?.error
             const nextItems = feed.items[key] ?? []
             if (!(error && nextItems.length === 0 && (current[key]?.length ?? 0) > 0)) {
-              next[key] = nextItems
+              next[key] = page === 1 ? nextItems : Array.from(new Map([...(current[key] ?? []), ...nextItems].map((item) => [`${item.source}:${item.tmdb_id ?? item.douban_id ?? item.bangumi_id ?? item.title}`, item])).values())
             }
           }
           return next
@@ -214,33 +213,28 @@ export function DiscoverPage() {
   const hasContent = selected.some((key) => (rows[key] ?? []).length > 0)
   const sectionLabel = (key: string) => sectionMap.get(key)?.label ?? key
 
-  const toggleSection = (key: string) => {
-    setSelected((current) => {
-      if (current.includes(key)) {
-        return current.filter((item) => item !== key)
-      }
-      return [...current, key]
-    })
-    const nextPages = { ...rowPagesRef.current, [key]: rowPagesRef.current[key] ?? 1 }
+  const selectSection = (key: string) => {
+    if (selected[0] === key) return
+    setSelected([key])
+    const nextPages = { [key]: 1 }
     rowPagesRef.current = nextPages
-    setRowPages(nextPages)
   }
 
-  const changeDiscoverPage = (key: string, delta: number) => {
+  const loadMore = (key: string) => {
     const currentPage = rowPagesRef.current[key] ?? 1
-    const nextPage = Math.max(1, currentPage + delta)
-    if (nextPage === currentPage) return
+    if (rowLoading[key] || !rowCanNext[key] || activeFeedRef.current) return
+    const nextPage = currentPage + 1
     const nextPages = { ...rowPagesRef.current, [key]: nextPage }
     rowPagesRef.current = nextPages
-    setRowPages(nextPages)
     loadRows({ [key]: nextPage })
   }
 
   const refreshDiscover = () => {
-    loadRows(
-      Object.fromEntries(selected.map((key) => [key, rowPagesRef.current[key] ?? 1])),
-      true,
-    )
+    const key = selected[0]
+    if (!key) return
+    const nextPages = { [key]: 1 }
+    rowPagesRef.current = nextPages
+    loadRows(nextPages, true)
   }
 
   return (
@@ -251,7 +245,7 @@ export function DiscoverPage() {
         sectionsReady={sectionsReady}
         loading={loading}
         onRefresh={refreshDiscover}
-        onToggleSection={toggleSection}
+        onSelectSection={selectSection}
       />
 
       {!sectionsReady && <DiscoverSkeleton />}
@@ -266,12 +260,11 @@ export function DiscoverPage() {
           rows={rows}
           rowLoading={rowLoading}
           rowErrors={rowErrors}
-          rowPages={rowPages}
           rowCanNext={rowCanNext}
           loading={loading}
           hasContent={hasContent}
           sectionLabel={sectionLabel}
-          onPageChange={changeDiscoverPage}
+          onLoadMore={loadMore}
           onSelect={setActiveItem}
         />
       )}

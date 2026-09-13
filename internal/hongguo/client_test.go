@@ -88,6 +88,9 @@ func TestDynamicDataNodeIgnoresLayout(t *testing.T) {
 type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func TestCategoryUsesCanonicalPaginationURL(t *testing.T) {
+	if len(Categories) != 3 || Categories[0] != "real-drama" || Categories[1] != "comic-drama" || Categories[2] != "ai-drama" || ValidCategory("comic") {
+		t.Fatalf("unexpected discovery categories: %v", Categories)
+	}
 	for _, category := range Categories {
 		for _, page := range []int{1, 2, 10000} {
 			t.Run(fmt.Sprintf("%s/%d", category, page), func(t *testing.T) {
@@ -106,6 +109,34 @@ func TestCategoryUsesCanonicalPaginationURL(t *testing.T) {
 				ids, _, err := client.Category(t.Context(), category, page)
 				if err != nil || calls != 1 || len(ids) != 1 || ids[0].SourceID != testID {
 					t.Fatalf("ids=%v calls=%d err=%v", ids, calls, err)
+				}
+			})
+		}
+	}
+}
+
+func TestRankUsesOfficialPageOrderAndPagination(t *testing.T) {
+	for _, rank := range Ranks {
+		for _, page := range []int{1, 2} {
+			t.Run(fmt.Sprintf("%s/%d", rank.Key, page), func(t *testing.T) {
+				client := NewClient(&http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+					want := "/rank/" + rank.Key
+					if page > 1 {
+						want += "?page=2"
+					}
+					if r.URL.RequestURI() != want {
+						t.Fatalf("request URI = %q, want %q", r.URL.RequestURI(), want)
+					}
+					next := ""
+					if page == 1 {
+						next = `<a rel="next" href="` + want + `?page=2">下一页</a>`
+					}
+					body := `<html><body><ol aria-label="` + rank.Label + `"><li><article><img src="https://example.invalid/rank"><h2 id="rank-title-` + testID + `"> 榜单标题 </h2></article></li></ol><nav aria-label="榜单分页">` + next + `</nav></body></html>`
+					return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header), Request: r}, nil
+				})})
+				works, hasNext, err := client.Rank(t.Context(), rank.Key, page)
+				if err != nil || len(works) != 1 || works[0].SourceID != testID || works[0].Title != "榜单标题" || works[0].CoverURL != "https://example.invalid/rank" || hasNext != (page == 1) {
+					t.Fatalf("works=%+v next=%v err=%v", works, hasNext, err)
 				}
 			})
 		}
@@ -148,6 +179,9 @@ func TestClientRejectsInvalidInputAndHTTPFailure(t *testing.T) {
 	}
 	if _, _, err := client.Category(context.Background(), "../bad", 1); err == nil || calls != 0 {
 		t.Fatal("invalid category requested")
+	}
+	if _, _, err := client.Rank(context.Background(), "../bad", 1); err == nil || calls != 0 {
+		t.Fatal("invalid rank requested")
 	}
 	_, err := client.Detail(context.Background(), testID)
 	if err == nil || calls != 1 || !strings.Contains(err.Error(), "HTTP 403") || strings.Contains(fmt.Sprint(err), "private") {

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import toast from 'react-hot-toast'
 import { hongguoAPI, type HongGuoDetail, type HongGuoListWork, type HongGuoGroup, type HongGuoGroupInput, type HongGuoLibraryCard, type HongGuoPendingMedia } from '../api/hongguo'
@@ -7,7 +7,29 @@ import { imageURL } from '../api/client'
 import { useAuthStore } from '../stores/auth'
 import { useMediaAccessKey } from '../hooks/useMediaAccessKey'
 import { ConfirmDialog } from '../components/ConfirmDialog'
+import { Select } from '../components/Select'
 import type { Media } from '../types'
+
+const hongGuoCategories = {
+  'real-drama': ['', '爱情', '年代', '逆袭', '传奇', '成长', '家庭', '家族', '萌宝', '悬疑', '惊悚', '恐怖', '志怪', '古装', '玄幻', '奇幻', '都市', '青春', '喜剧', '科幻', '灾难', '动作冒险', '战争', '综艺', '剧情'],
+  'comic-drama': ['', '脑洞', '玄幻', '剧情', '末世', '豪门', '奇幻', '科幻', '冒险'],
+  'ai-drama': ['', '脑洞', '玄幻', '剧情', '末世', '豪门', '奇幻', '科幻', '冒险'],
+} as const
+const hongGuoSourceCategories = [
+  { value: '', label: '全部' },
+  { value: 'real-drama', label: '真人剧' },
+  { value: 'comic-drama', label: '漫剧' },
+  { value: 'ai-drama', label: 'AI剧' },
+] as const
+const hongGuoRanks = [
+  { value: 'hot-drama', label: '红果热播榜' },
+  { value: 'hot-real-drama', label: '真人剧热播榜' },
+  { value: 'hot-ai-drama', label: 'AI剧热播榜' },
+  { value: 'hot-comic-drama', label: '漫剧热播榜' },
+] as const
+type HongGuoRank = typeof hongGuoRanks[number]['value']
+type HongGuoSourceCategory = typeof hongGuoSourceCategories[number]['value']
+type HongGuoCategorySource = Exclude<HongGuoSourceCategory, ''>
 
 export function HongGuoLibraryView({ libraryID, title }: { libraryID: string; title: string }) {
   const accessKey = useMediaAccessKey()
@@ -47,25 +69,39 @@ export function HongGuoPage() {
   const [params, setParams] = useSearchParams()
   const keyword = params.get('keyword') ?? ''
   const sourceID = params.get('id') ?? ''
+  const section = params.get('section') === 'rank' ? 'rank' : 'category'
+  const rawSourceCategory = params.get('source') ?? ''
+  const sourceCategory = hongGuoSourceCategories.some((item) => item.value === rawSourceCategory) ? rawSourceCategory as HongGuoSourceCategory : ''
+  const rawCategory = params.get('category') ?? ''
+  const categories = sourceCategory ? hongGuoCategories[sourceCategory as HongGuoCategorySource] : ['']
+  const category = categories.some((item) => item === rawCategory) ? rawCategory : ''
+  const rawRank = params.get('rank') ?? 'hot-drama'
+  const rank = hongGuoRanks.some((item) => item.value === rawRank) ? rawRank as HongGuoRank : 'hot-drama'
   const rawPage = Number(params.get('page') ?? 1)
   const page = Number.isInteger(rawPage) && rawPage >= 1 && rawPage <= 1000000 ? rawPage : 1
   useEffect(() => {
     const next = new URLSearchParams(params)
-    for (const key of ['keyword', 'id', 'page']) {
+    for (const key of ['keyword', 'id', 'page', 'section', 'source', 'category', 'rank']) {
       const values = params.getAll(key)
       if (values.length > 1) next.set(key, values[0])
     }
     if (rawPage !== page) next.set('page', String(page))
+    if (params.get('section') && params.get('section') !== section) next.delete('section')
+    if (rawSourceCategory !== sourceCategory) next.delete('source')
+    if (rawCategory !== category) next.delete('category')
+    if (rawRank !== rank) next.delete('rank')
+    if (section === 'rank') { next.delete('source'); next.delete('category') }
+    else next.delete('rank')
     if (next.toString() !== params.toString()) setParams(next, { replace: true })
-  }, [params, setParams, rawPage, page])
-  return <HongGuoContent key={`${accessKey}:${sourceID}:${keyword}:${page}`} sourceID={sourceID} keyword={keyword} page={page} navigate={(changes) => {
+  }, [params, setParams, rawPage, page, section, rawSourceCategory, sourceCategory, rawCategory, category, rawRank, rank])
+  return <HongGuoContent key={`${accessKey}:${sourceID}:${keyword}:${section}:${sourceCategory}:${category}:${rank}:${page}`} sourceID={sourceID} keyword={keyword} section={section} sourceCategory={section === 'category' ? sourceCategory : ''} category={section === 'category' ? category : ''} rank={section === 'rank' ? rank : ''} page={page} navigate={(changes) => {
     const next = new URLSearchParams(params)
     for (const [key, value] of Object.entries(changes)) { if (value) next.set(key, value); else next.delete(key) }
     setParams(next)
   }} />
 }
 
-function HongGuoContent({ sourceID, keyword, page, navigate }: { sourceID: string; keyword: string; page: number; navigate: (changes: Record<string, string>) => void }) {
+function HongGuoContent({ sourceID, keyword, section, sourceCategory, category, rank, page, navigate }: { sourceID: string; keyword: string; section: 'category' | 'rank'; sourceCategory: HongGuoSourceCategory; category: string; rank: '' | HongGuoRank; page: number; navigate: (changes: Record<string, string>) => void }) {
   const [params] = useSearchParams()
   const admin = useAuthStore((s) => s.user?.role === 'admin')
   const [rows, setRows] = useState<HongGuoListWork[]>([])
@@ -78,19 +114,31 @@ function HongGuoContent({ sourceID, keyword, page, navigate }: { sourceID: strin
   const [importID, setImportID] = useState('')
   const [busy, setBusy] = useState(false)
   const [enabled, setEnabled] = useState<boolean | null>(null)
+  const [catalogPage, setCatalogPage] = useState(page)
+  const [hasMore, setHasMore] = useState(false)
+  const loadMoreRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
     const controller = new AbortController()
     const load = async () => {
       setLoading(true); setError(false)
       try {
         if (sourceID) { const data = await hongguoAPI.detail(sourceID, controller.signal); if (!controller.signal.aborted) setDetail(data) }
-        else { const data = await hongguoAPI.list(keyword, page, controller.signal); if (!controller.signal.aborted) { setRows(data.items); setTotal(data.total) } }
+        else { const data = await hongguoAPI.list(keyword, sourceCategory, category, rank, catalogPage, controller.signal); if (!controller.signal.aborted) { setRows((current) => catalogPage === page ? data.items : Array.from(new Map([...current, ...data.items].map((item) => [item.id, item])).values())); setTotal(data.total); setHasMore(catalogPage * 50 < data.total) } }
       } catch { if (!controller.signal.aborted) setError(true) }
       finally { if (!controller.signal.aborted) setLoading(false) }
     }
     void load()
     return () => controller.abort()
-  }, [sourceID, keyword, page, revision])
+  }, [sourceID, keyword, sourceCategory, category, rank, page, catalogPage, revision])
+  useEffect(() => {
+    const target = loadMoreRef.current
+    if (!target || sourceID || loading || !hasMore) return
+    const observer = new IntersectionObserver(([entry]) => {
+      if (entry.isIntersecting) setCatalogPage((current) => current + 1)
+    }, { rootMargin: '320px' })
+    observer.observe(target)
+    return () => observer.disconnect()
+  }, [hasMore, loading, sourceID])
   useEffect(() => { let active = true; void hongguoAPI.status().then((s) => { if (active) setEnabled(s.enabled) }).catch(() => undefined); return () => { active = false } }, [])
 
   const refresh = async (id: string) => {
@@ -109,14 +157,22 @@ function HongGuoContent({ sourceID, keyword, page, navigate }: { sourceID: strin
       <button className="btn-outline" disabled={enabled === null || busy} onClick={() => { if (enabled === null) return; setBusy(true); void hongguoAPI.setEnabled(!enabled).then(() => setEnabled(!enabled)).catch(() => toast.error('状态更新失败')).finally(() => setBusy(false)) }}>{enabled === false ? '启用采集' : '停用采集'}</button>
       <button className="btn-outline" onClick={() => void hongguoAPI.cancel().then(() => toast.success('已请求取消所有红果任务')).catch(() => toast.error('取消失败'))}>取消所有红果任务</button>
     </div><div className="mt-4"><HongGuoPending /></div></details>}
-    {sourceID ? <button className="btn-outline" onClick={() => navigate({ id: '', media_page: '' })}>返回资料列表</button> : <div className="flex flex-wrap items-center justify-between gap-3">
-      <p className="text-sm text-ink-50">全部作品 <span className="ml-2 font-semibold text-ink-600">{loading ? '…' : total}</span></p>
+    {sourceID ? <button className="btn-outline" onClick={() => navigate({ id: '', media_page: '' })}>返回资料列表</button> : <><div className="flex flex-wrap items-center justify-between gap-3">
+      <nav aria-label="红果发现模式" className="flex gap-2">
+        <button type="button" className={section === 'category' ? 'btn-primary' : 'btn-outline'} aria-pressed={section === 'category'} onClick={() => navigate({ section: '', category: '', rank: '', page: '1' })}>分类</button>
+        <button type="button" className={section === 'rank' ? 'btn-primary' : 'btn-outline'} aria-pressed={section === 'rank'} onClick={() => navigate({ section: 'rank', source: '', category: '', rank: 'hot-drama', page: '1' })}>榜单</button>
+      </nav>
       <form className="flex w-full gap-2 sm:w-auto" onSubmit={(e) => { e.preventDefault(); navigate({ keyword: query.trim(), page: '1' }) }}>
         <label className="relative min-w-0 flex-1"><Search size={16} aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ink-50" /><input type="search" className="input-field w-full pl-10 sm:w-72" aria-label="搜索红果资料" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="搜索标题或作品 ID" /></label><button className="btn-primary">搜索</button>
-        <button type="button" className="btn-outline px-3" aria-label="刷新红果目录" disabled={loading} onClick={() => setRevision((v) => v + 1)}><RefreshCw size={16} /></button>
+        <button type="button" className="btn-outline px-3" aria-label="刷新红果目录" disabled={loading} onClick={() => { setRows([]); setCatalogPage(page); setRevision((v) => v + 1) }}><RefreshCw size={16} /></button>
       </form>
-    </div>}
-    {loading ? <div role="status" aria-label="加载红果资料" className="grid grid-cols-2 gap-5 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6">{Array.from({ length: 12 }, (_, i) => <div key={i} className="skeleton aspect-[3/4] rounded-xl" />)}</div> : error ? <div role="alert"><p>资料读取失败。</p><button className="btn-outline" onClick={() => setRevision((v) => v + 1)}>重试</button></div> : detail ? <section className="glass-panel space-y-4">
+    </div>
+      <div className="space-y-3">
+        {section === 'category' && <div className="flex flex-wrap gap-2">{hongGuoSourceCategories.map((item) => <button key={item.value || 'all'} type="button" aria-pressed={sourceCategory === item.value} className={sourceCategory === item.value ? 'btn-primary' : 'btn-outline'} onClick={() => navigate({ source: item.value, category: '', page: '1' })}>{item.label}</button>)}</div>}
+        {section === 'category' && sourceCategory ? <div className="flex flex-wrap gap-2">{hongGuoCategories[sourceCategory as HongGuoCategorySource].map((item) => <button key={item || 'all'} type="button" aria-pressed={category === item} className={category === item ? 'btn-primary' : 'btn-outline'} onClick={() => navigate({ section: '', category: item, rank: '', page: '1' })}>{item || '全部'}</button>)}</div> : section === 'rank' ? <Select aria-label="选择红果榜单" className="input-field min-h-10 w-full sm:w-64" value={rank} onChange={(value) => navigate({ section: 'rank', source: '', category: '', rank: value, page: '1' })}>{hongGuoRanks.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</Select> : null}
+        <p className="text-sm text-ink-50">{section === 'category' ? `${hongGuoSourceCategories.find((item) => item.value === sourceCategory)?.label} · ${category || '全部'}分类` : hongGuoRanks.find((item) => item.value === rank)?.label} <span className="ml-2 font-semibold text-ink-600">{loading && rows.length === 0 ? '…' : total}</span></p>
+      </div></>}
+    {loading && (sourceID || rows.length === 0) ? <div role="status" aria-label="加载红果资料" className="grid grid-cols-3 gap-4 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-7 xl:grid-cols-8">{Array.from({ length: 16 }, (_, i) => <div key={i} className="skeleton aspect-[2/3] rounded-xl" />)}</div> : error && rows.length === 0 ? <div role="alert"><p>资料读取失败。</p><button className="btn-outline" onClick={() => setRevision((v) => v + 1)}>重试</button></div> : detail ? <section className="glass-panel space-y-4">
       <div className="flex flex-col gap-5 sm:flex-row">{poster && <img className="w-40 self-start rounded-lg" src={imageURL(hongguoAPI.artwork(poster.id))} alt={`${detail.title}海报`} />}<div className="min-w-0 space-y-3"><h2 className="text-2xl font-bold">{detail.title}</h2><p className="break-all text-sm text-ink-50">红果短剧 ID：{detail.source_id}</p><p>{detail.kind === 'movie' ? '电影' : '剧集'} · {detail.update_text || `已更新 ${detail.episode_count} 集`}</p><p>{detail.rating ? `评分 ${detail.rating}（${detail.rating_count} 人）` : '暂无评分'}</p><p>红果上线：{detail.first_visible_at ? new Date(detail.first_visible_at).toLocaleString() : '未知'}</p><p className="text-sm text-ink-50">上线时间不代表全网首播时间。</p><p>{detail.tags.join(' / ')}</p></div></div>
       <p className="whitespace-pre-wrap break-words">{detail.overview || '暂无简介'}</p>
       <HongGuoFiles key={`${detail.source_id}:${revision}`} sourceID={detail.source_id} />
@@ -126,9 +182,11 @@ function HongGuoContent({ sourceID, keyword, page, navigate }: { sourceID: strin
       <h3 className="text-lg font-semibold">演职员</h3><div className="grid grid-cols-2 gap-3 sm:grid-cols-4">{detail.credits.map((c) => { const avatar = detail.artwork.find((a) => a.person_id === c.person_id); return <div key={c.person_id} className="min-w-0">{avatar && <img className="h-20 w-20 rounded-full object-cover" loading="lazy" src={imageURL(hongguoAPI.artwork(avatar.id))} alt={c.person.name} />}<p>{c.person.name}</p><p className="break-words text-sm text-ink-50">{c.subtitle}</p></div> })}</div>
       <p className="break-all text-sm text-ink-50">匹配标识：[hongguo-{detail.source_id}]{detail.kind === 'series' ? ' / S01E001' : ''}</p>
     </section> : <>
-      <div className="grid grid-cols-2 gap-x-4 gap-y-7 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6">{rows.map((work) => <HongGuoPosterCard key={`${work.id}:${revision}`} work={work} onOpen={() => navigate({ id: work.source_id, media_page: '' })} />)}</div>
+      <div className="grid grid-cols-3 gap-4 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-7 xl:grid-cols-8">{rows.map((work) => <HongGuoPosterCard key={`${work.id}:${revision}`} work={work} onOpen={() => navigate({ id: work.source_id, media_page: '' })} />)}</div>
+      {error && <p role="alert" className="text-center text-sm text-red-500">加载更多失败 <button className="btn-outline ml-2" onClick={() => setRevision((v) => v + 1)}>重试</button></p>}
       {rows.length === 0 && <p className="py-12 text-center text-ink-50">{keyword ? '没有找到匹配的作品，试试其他标题或作品 ID。' : '暂无完整资料。管理员可按 ID 导入，或先运行作品发现，再运行资料刷新。'}</p>}
-      <div className="flex flex-wrap items-center gap-3"><button className="btn-outline" disabled={page <= 1} onClick={() => navigate({ page: String(page - 1) })}>上一页</button><span>第 {page} 页 · 共 {total} 项</span><button className="btn-outline" disabled={page * 50 >= total} onClick={() => navigate({ page: String(page + 1) })}>下一页</button></div>
+      <div ref={loadMoreRef} data-testid="hongguo-load-more" className="h-px" aria-hidden="true" />
+      {loading && <p role="status" className="py-3 text-center text-sm text-ink-50">加载更多…</p>}
     </>}
   </div>
 }
@@ -136,13 +194,13 @@ function HongGuoContent({ sourceID, keyword, page, navigate }: { sourceID: strin
 function HongGuoPosterCard({ work, onOpen }: { work: HongGuoListWork; onOpen: () => void }) {
   const [failed, setFailed] = useState(false)
   return <button type="button" onClick={onOpen} className="group min-w-0 rounded-xl text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-4" aria-label={`查看${work.title}`}>
-    <div className="relative aspect-[3/4] overflow-hidden rounded-xl bg-gray-100 transition-shadow group-hover:shadow-poster-hover">
+    <div className="relative aspect-[2/3] overflow-hidden rounded-xl bg-gray-100 transition-shadow group-hover:shadow-poster-hover">
       {work.artwork_id && !failed ? <img className="h-full w-full object-cover transition-transform duration-300 motion-safe:group-hover:scale-105" loading="lazy" decoding="async" src={imageURL(hongguoAPI.artwork(work.artwork_id))} alt={`${work.title}海报`} onError={() => setFailed(true)} /> : <div className="flex h-full flex-col items-center justify-center gap-3 px-4 text-center text-ink-50"><Film size={32} aria-hidden="true" /><span className="text-xs">暂无海报</span></div>}
       <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent px-3 pb-3 pt-10 text-right text-xs font-medium text-white">{work.update_text || (work.episode_count > 0 ? `已更新 ${work.episode_count} 集` : '集数未知')}</div>
       {work.rating > 0 && <span className="absolute left-2 top-2 rounded-md bg-black/55 px-2 py-1 text-xs font-semibold text-gold-300 backdrop-blur">{work.rating.toFixed(1)}</span>}
     </div>
     <h2 className="mt-3 truncate text-sm font-semibold text-ink-600 transition-colors group-hover:text-brand-500" title={work.title}>{work.title}</h2>
-    <p className="mt-1 truncate text-xs text-ink-50">{(work.tags ?? []).slice(0, 3).join(' · ') || (work.kind === 'movie' ? '电影' : '剧集')}</p>
+    <p className="mt-1 truncate text-xs text-ink-50">{[hongGuoSourceCategories.find((item) => item.value === work.source_category)?.label, ...(work.tags ?? []).slice(0, 2)].filter(Boolean).join(' · ') || (work.kind === 'movie' ? '电影' : '剧集')}</p>
   </button>
 }
 

@@ -39,8 +39,14 @@ func TestHongGuoHTTPAccessAndStateIsolation(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	work, err := repos.HongGuo.SaveDetail(ctx, hongguo.Work{SourceID: "9000000000000000001", Title: "HTTP 测试", EpisodeCount: 1, Completed: true, TotalEpisodes: 1, CoverURL: "https://example.com/private-image?signature=fixture", Snapshot: []byte(`{}`)})
+	if err := repos.HongGuo.SaveDiscoveryPage(ctx, []hongguo.Work{{SourceID: "9000000000000000001", Title: "HTTP 测试"}}, model.HongGuoSyncState{Category: "real-drama", NextPage: 1}); err != nil {
+		t.Fatal(err)
+	}
+	work, err := repos.HongGuo.SaveDetail(ctx, hongguo.Work{SourceID: "9000000000000000001", Title: "HTTP 测试", Tags: []string{"都市"}, EpisodeCount: 1, Completed: true, TotalEpisodes: 1, CoverURL: "https://example.com/private-image?signature=fixture", Snapshot: []byte(`{}`)})
 	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repos.HongGuo.ReplaceRank(ctx, "hot-drama", "", []hongguo.Work{{SourceID: work.SourceID, Title: work.Title}}); err != nil {
 		t.Fatal(err)
 	}
 	m := model.Media{LibraryID: library.ID, Path: filepath.Join(library.Path, "movie.mp4"), CatalogSource: model.TaskSystemHongGuo, LookupCatalogID: work.SourceID}
@@ -119,6 +125,15 @@ func TestHongGuoHTTPAccessAndStateIsolation(t *testing.T) {
 	if rec := request("GET", "/works", "admin", "", ""); rec.Code != 200 {
 		t.Fatalf("admin catalog access: %d", rec.Code)
 	}
+	if rec := request("GET", "/works?source_category=real-drama&category=都市", "admin", "", ""); rec.Code != 200 || !strings.Contains(rec.Body.String(), `"total":1`) {
+		t.Fatalf("category catalog: %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := request("GET", "/works?source_category=real-drama", "admin", "", ""); rec.Code != 200 || !strings.Contains(rec.Body.String(), `"total":1`) {
+		t.Fatalf("source category catalog: %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := request("GET", "/works?rank=hot-drama", "admin", "", ""); rec.Code != 200 || !strings.Contains(rec.Body.String(), `"total":1`) {
+		t.Fatalf("official rank catalog: %d %s", rec.Code, rec.Body.String())
+	}
 	if err := db.Model(&model.UserPermission{}).Where("user_id = ?", "user-1").Update("can_view_discover", true).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -132,6 +147,17 @@ func TestHongGuoHTTPAccessAndStateIsolation(t *testing.T) {
 		{"GET", "/admin/playback-stats?system=hongguo", "admin", "", 200},
 		{"GET", "/admin/playback-stats?system=other", "admin", "", 400},
 		{"GET", "/works?page=0", "user", "", 400},
+		{"GET", "/works?sort=unknown", "user", "", 400},
+		{"GET", "/works?rank=unknown", "user", "", 400},
+		{"GET", "/works?rank=hot-drama&source_category=real-drama", "user", "", 400},
+		{"GET", "/works?source_category=unknown", "user", "", 400},
+		{"GET", "/works?source_category=comic", "user", "", 400},
+		{"GET", "/works?category=都市", "user", "", 400},
+		{"GET", "/works?source_category=comic-drama&category=都市", "user", "", 400},
+		{"GET", "/works?source_category=real-drama&category=脑洞", "user", "", 400},
+		{"GET", "/works?source_category=comic-drama&category=脑洞", "user", "", 200},
+		{"GET", "/works?source_category=ai-drama&category=脑洞", "user", "", 200},
+		{"GET", "/works?category=未知", "user", "", 400},
 		{"GET", "/works/invalid", "user", "", 400},
 		{"GET", "/works/99999", "user", "", 404},
 		{"GET", "/works/" + work.SourceID, "user", "", 200},
