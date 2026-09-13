@@ -313,6 +313,13 @@ func (r *MetadataRepository) CommitTMDbRecheck(ctx context.Context, job *model.T
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE", Options: "NOWAIT"}).Where("metadata_id = ANY(?)", &ids).Order("metadata_id").Find(&changes).Error; err != nil {
 			return err
 		}
+		changeRevision := int64(0)
+		for _, change := range changes {
+			if change.MetadataID == job.MetadataID {
+				changeRevision = change.Revision
+				break
+			}
+		}
 		for _, item := range items {
 			if err := tx.Exec(`INSERT INTO tm_db_recheck_changes(metadata_id,revision,pending,expand,cursor) VALUES (?,0,false,false,'') ON CONFLICT DO NOTHING`, item.ID).Error; err != nil {
 				return err
@@ -334,7 +341,12 @@ func (r *MetadataRepository) CommitTMDbRecheck(ctx context.Context, job *model.T
 		if (current == nil) != (snapshot == nil) || (current != nil && (current.Fingerprint != snapshot.Fingerprint || current.Playable != snapshot.Playable || current.ArtworkMissing != snapshot.ArtworkMissing || current.IdentityValid != snapshot.IdentityValid || current.TMDbID != snapshot.TMDbID || current.SeriesTMDbID != snapshot.SeriesTMDbID || current.SnapshotMissing != snapshot.SnapshotMissing)) {
 			return ErrTMDbRecheckChanged
 		}
-		return save(repos)
+		if err := save(repos); err != nil {
+			return err
+		}
+		return tx.Model(&model.TMDbRecheckChange{}).
+			Where("metadata_id=? AND revision>? AND pending AND NOT expand", job.MetadataID, changeRevision).
+			Updates(map[string]any{"pending": false, "cursor": ""}).Error
 	})
 	var stateErr interface{ SQLState() string }
 	if errors.As(err, &stateErr) && stateErr.SQLState() == "55P03" {

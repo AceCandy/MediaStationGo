@@ -212,6 +212,132 @@ func TestTMDbRecheckConcurrentConnections(t *testing.T) {
 	}
 }
 
+func TestTMDbRecheckCommitConsumesOnlySelfRegistration(t *testing.T) {
+	db := recheckQueueDB(t)
+	repo := New(db).Metadata
+	series := model.MetadataItem{Kind: "series", Title: "Series", Source: "test"}
+	if err := db.Create(&series).Error; err != nil {
+		t.Fatal(err)
+	}
+	season := model.MetadataItem{Kind: "season", Title: "Season", ParentID: &series.ID, SeasonNum: 1, Source: "test"}
+	if err := db.Create(&season).Error; err != nil {
+		t.Fatal(err)
+	}
+	episode := model.MetadataItem{Kind: "episode", Title: "Episode", ParentID: &season.ID, EpisodeNum: 1, Source: "test"}
+	if err := db.Create(&episode).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&model.Media{MetadataID: episode.ID, Path: "/self-registration.mkv"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&model.MetadataIdentifier{MetadataID: series.ID, Provider: "tmdb", EntityKind: "series", ExternalID: "42"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec("UPDATE tm_db_recheck_changes SET pending=false, expand=false, cursor=''").Error; err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	leaseUntil := now.Add(time.Hour)
+	episodeJob := model.TMDbRecheckJob{MetadataID: episode.ID, Status: "running", DueAt: &now, LeaseToken: "episode-lease", LeaseUntil: &leaseUntil}
+	seasonJob := model.TMDbRecheckJob{MetadataID: season.ID, Status: "running", DueAt: &now, LeaseToken: "season-lease", LeaseUntil: &leaseUntil}
+	if err := db.Create([]*model.TMDbRecheckJob{&episodeJob, &seasonJob}).Error; err != nil {
+		t.Fatal(err)
+	}
+	episodeState, err := repo.TMDbRecheckState(t.Context(), episode.ID)
+	if err != nil || episodeState == nil {
+		t.Fatalf("episode state=%+v err=%v", episodeState, err)
+	}
+	var initial model.TMDbRecheckChange
+	if err := db.First(&initial, "metadata_id=?", episode.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	rollback := errors.New("rollback self registration")
+	err = repo.CommitTMDbRecheck(t.Context(), &episodeJob, episodeState, func(repos *Container) error {
+		if err := repos.DB.Model(&model.MetadataItem{}).Where("id=?", episode.ID).Update("overview", "rolled back").Error; err != nil {
+			return err
+		}
+		return rollback
+	})
+	if !errors.Is(err, rollback) {
+		t.Fatal(err)
+	}
+	var unchanged model.MetadataItem
+	if err := db.First(&unchanged, "id=?", episode.ID).Error; err != nil || unchanged.Overview != "" {
+		t.Fatalf("failed save persisted: %+v err=%v", unchanged, err)
+	}
+	var change model.TMDbRecheckChange
+	if err := db.First(&change, "metadata_id=?", episode.ID).Error; err != nil || change.Revision != initial.Revision || change.Pending {
+		t.Fatalf("failed save consumed change: %+v err=%v", change, err)
+	}
+	err = repo.CommitTMDbRecheck(t.Context(), &episodeJob, episodeState, func(repos *Container) error {
+		if err := repos.DB.Model(&model.MetadataItem{}).Where("id=?", episode.ID).Update("overview", "saved").Error; err != nil {
+			return err
+		}
+		return repos.Metadata.FinishTMDbRecheck(t.Context(), &episodeJob, "done", "", nil, 0)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.First(&change, "metadata_id=?", episode.ID).Error; err != nil || change.Revision != initial.Revision+1 || change.Pending || change.Expand {
+		t.Fatalf("self registration retained: %+v err=%v", change, err)
+	}
+	if err := db.Model(&episode).Update("release_date", "2026-09-13").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.First(&change, "metadata_id=?", episode.ID).Error; err != nil || change.Revision != initial.Revision+2 || !change.Pending {
+		t.Fatalf("later business change lost: %+v err=%v", change, err)
+	}
+	seasonState, err := repo.TMDbRecheckState(t.Context(), season.ID)
+	if err != nil || seasonState == nil {
+		t.Fatalf("season state=%+v err=%v", seasonState, err)
+	}
+	err = repo.CommitTMDbRecheck(t.Context(), &seasonJob, seasonState, func(repos *Container) error {
+		if err := repos.DB.Create(&model.MetadataIdentifier{MetadataID: season.ID, Provider: "tmdb", EntityKind: "season", ExternalID: "100"}).Error; err != nil {
+			return err
+		}
+		return repos.Metadata.FinishTMDbRecheck(t.Context(), &seasonJob, "done", "", nil, 0)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	change = model.TMDbRecheckChange{}
+	if err := db.First(&change, "metadata_id=?", season.ID).Error; err != nil || !change.Pending || !change.Expand {
+		t.Fatalf("descendant expansion consumed: %+v err=%v", change, err)
+	}
+	lateEpisode := model.MetadataItem{Kind: "episode", Title: "Late", ParentID: &season.ID, EpisodeNum: 2, Source: "test"}
+	if err := db.Create(&lateEpisode).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&model.Media{MetadataID: lateEpisode.ID, Path: "/late-registration.mkv"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Where("metadata_id=?", lateEpisode.ID).Delete(&model.TMDbRecheckChange{}).Error; err != nil {
+		t.Fatal(err)
+	}
+	lateJob := model.TMDbRecheckJob{MetadataID: lateEpisode.ID, Status: "running", DueAt: &now, LeaseToken: "late-lease", LeaseUntil: &leaseUntil}
+	if err := db.Create(&lateJob).Error; err != nil {
+		t.Fatal(err)
+	}
+	lateState, err := repo.TMDbRecheckState(t.Context(), lateEpisode.ID)
+	if err != nil || lateState == nil {
+		t.Fatalf("late state=%+v err=%v", lateState, err)
+	}
+	if err := db.Exec("SELECT tmdb_recheck_mark(?,false)", lateEpisode.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	err = repo.CommitTMDbRecheck(t.Context(), &lateJob, lateState, func(*Container) error {
+		t.Fatal("missing-row external change callback executed")
+		return nil
+	})
+	if !errors.Is(err, ErrTMDbRecheckChanged) {
+		t.Fatalf("missing-row external change accepted: %v", err)
+	}
+	change = model.TMDbRecheckChange{}
+	if err := db.First(&change, "metadata_id=?", lateEpisode.ID).Error; err != nil || change.Revision != 1 || !change.Pending {
+		t.Fatalf("missing-row external change lost: %+v err=%v", change, err)
+	}
+}
+
 func ptrRecheckTime(value time.Time) *time.Time { return &value }
 
 func TestTMDbRecheckScanBatchesStateReadsAndRegistration(t *testing.T) {

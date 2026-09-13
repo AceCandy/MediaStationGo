@@ -562,6 +562,7 @@ Applies only to `tmdb_episode_metadata_recheck`, not People, Douban or other art
 - Capture initial `total`; refresh `remaining` at pass start, at most every 30 seconds while collecting results, and at the end. Counts query only `tm_db_recheck_jobs.due_at <= cutoff`, without metadata/media membership joins. They include in-flight jobs and can lag between samples; on refresh failure log a sanitized warning and retain the last sample. A nonzero terminal remainder may represent outstanding leases, not lost jobs. The task table renders recheck-specific scanned/remaining/failed metrics; older executions without `remaining` keep their previous presentation.
 - Accumulate worker-local `details_ms`, `image_ms`, `save_ms` and corresponding `_failed` counters. Save timing includes initial database state validation and conditional state/result commits; image timing includes selected-artwork download and local preparation. Error details identify the precise stage and elapsed time while preserving the original error chain until existing log sanitization. Provider 404/inventory absence, cancellation and snapshot contention do not increment stage-failure counters. These are summed worker durations, not wall-clock run duration.
 - Result transactions lock and validate the Season lease before metadata/change/target rows, then validate target token, live lease and metadata/revision snapshot. Finish/retry also locks the Season lease, so an expired Season owner cannot write even while its target lease remains valid. Metadata/change lock contention uses NOWAIT; a transaction-local 100ms lock timeout also yields on busy business rows during saving. Another episode's detail update must not dirty the common season revision.
+- After a successful result save, consume only the current target's ordinary change registered by that same transaction: its revision remains incremented, but `pending` is cleared only when the revision advanced after the pre-save lock and `expand=false`. Preserve descendant expansion, failed-save rollback and external changes serialized before or after the result transaction; never clear parent/Series changes or suppress the registration triggers globally.
 - Retain business 72-hour cooldown even on manual runs. Complete/no-file targets have no due time; incomplete success returns after 72 hours. Failures back off from five minutes to 24 hours. Invalid identities block for seven days or until a change is merged.
 - A typed detail HTTP 404 or a valid Season inventory without the target Episode becomes `not_found`, increments the separate metric and returns after 72 hours at the next task run. Describe inventory absence separately from 404. Image/download/save failures remain ordinary retries. Commit under the same snapshot/token protection as successful results; never classify historical rows by parsing logs. Detail logs include Series title, S/E coordinates and Series TMDb ID.
 - Ingestion returns a validated inventory map (empty is valid; missing/null list is not), retains placeholders and Media attachments for unlisted Episodes, and registers their shared metadata issue under current identity/revision and Season snapshot checks. Repeat registration preserves the same identity's existing 72-hour due time. Local field completeness alone must not erase an inventory issue; successful upstream revalidation clears it. No valid inventory means no inventory-mismatch classification.
@@ -576,6 +577,7 @@ Applies only to `tmdb_episode_metadata_recheck`, not People, Douban or other art
 
 - Anonymous / non-admin: 401 / 403. Unknown definition: 404. Invalid status, page outside 1..1000000 or page size outside 1..100: 400.
 - Lost lease, changed snapshot or contended result locks: no callback writes; retain/requeue for a later task run.
+- A successful result triggers an ordinary target change: keep its new revision but clear its pending flag. If the trigger requests descendant expansion, the save fails, or an external transaction registers a later change, retain pending work.
 - Interrupted process: outstanding claims recover after expiry without startup resetting active leases.
 - A job due after the fixed cutoff is excluded even if wall-clock time has passed its due time; the next pass can claim it. Deleted targets use their own ID as a temporary lease key for cleanup. A held target lock is skipped; the rest of its Season can proceed.
 - File-list bounds match the pending-list bounds; non-404/missing targets return an empty page. Relative/non-local paths do not expose URLs or permit preview. `can_preview` only indicates local STRM syntax: the existing preview/delete service must resolve and validate the actual target each time.
@@ -585,12 +587,14 @@ Applies only to `tmdb_episode_metadata_recheck`, not People, Douban or other art
 - Good: a media merge rolls back both graph mutations and change registration.
 - Base: a future-due idle queue uses the due index before metadata/lease lookups; it never joins Media.
 - Good: interleaved Episodes from more than 32 Seasons reuse whole-Season responses when claimed by Season. Bad: keep extending the pass cutoff or run media-membership counts for every progress update.
+- Good: an Episode detail save consumes its own ordinary registration, while a Season identity save retains `expand=true` and a later external edit registers pending work again. Bad: disable triggers for the result transaction or unconditionally clear the target/parent change rows.
 - Bad: read task logs for retry state, clear another worker's lease, or update stale provider results after a user edit.
 - Good: a 404 remains cooled through an ordinary overview edit but revalidates a changed Season number. Bad: infer that a file is wrong from 404 alone or delete all versions implicitly.
 
 ### 6. Tests Required
 
 - `TestTMDbRecheck*`: transactional registration/merge rollback, distinct-connection SKIP LOCKED and commit contention, stale/expired tokens, empty-batch resume, asset/descendant batches and future-due index plan.
+- `TestTMDbRecheckCommitConsumesOnlySelfRegistration` verifies failed-save rollback, ordinary self-registration consumption, later business-change preservation and descendant-expansion preservation on PostgreSQL.
 - `TestTMDbRecheckSeasonPagesAndRecovery` verifies distinct-connection Season mutual exclusion, 205-target paging, group renewal, expired-owner rejection and cancellation-style release. `TestTMDbRecheckSeasonSharesFailuresAndReleasesCancellation` covers shared HTTP/timeout failures and cancellation. `TestTMDbRecheckInventoryIssuePreservesCompleteTargetsAndLeases` and `TestSeriesInventory*` cover valid-empty/malformed inventories, active-lease protection, unchanged cooling, retained files and recovery.
 - `TestTMDbRecheckPassGroupsSeasonsAndExcludesLaterRetries` checks Season grouping, fixed-cutoff counts and next-pass recovery. `TestTMDbRecheckSeasonClaimDoesNotScanOtherJobs` runs the production page and lookup SQL with generic prepared plans against 30,000 jobs and checks primary-key/due-index use. `TestTMDbRecheckPassReusesScatteredSeasons` verifies exactly 36 requests and zero remainder for 72 Episodes across 36 Seasons with complete Chinese text; `TestTMDbRecheckFailuresReportActualStage` and `TestTMDbRecheckStagePreservesClassificationAndRedaction` verify actual failure paths, retries, wrapped errors and redaction. `web/scripts/check-task-log.mjs` verifies Season count, metadata count and legacy progress rendering.
 - `TestTMDbRecheckListTracksMediaDeletion`: last-version deletion, Season own/direct Episode files, restored media, keyword/status filters, page boundaries and matching counts on PostgreSQL, without running the worker or changing cooldown state.
@@ -601,9 +605,9 @@ Applies only to `tmdb_episode_metadata_recheck`, not People, Douban or other art
 
 ### 7. Wrong vs Correct
 
-Wrong: rerun `ListTMDbSeasonMetadataRecheckAfter` over the full catalog on every maintenance execution.
+Wrong: rerun `ListTMDbSeasonMetadataRecheckAfter` over the full catalog on every maintenance execution, or disable transaction triggers while saving a recheck result.
 
-Correct: transactional change registration → bounded expansion → indexed due claim → single-target validation → conditional result commit.
+Correct: transactional change registration → bounded expansion → indexed due claim → single-target validation → conditional result commit that consumes only its newly registered ordinary target change.
 
 ## Scenario: Task-Center Pending Search and Indicators
 
