@@ -630,3 +630,27 @@ Web 电影与整剧按 metadata 分页，Emby 整剧摘要、混合库与子级�
 ### Status
 
 [OK] **Completed**
+
+
+## Session 118: 完成红果短剧独立资料体系
+<!-- trellis-session: v=2 fp=4ba29d200f4e2bbc -->
+
+**Date**: 2026-09-13
+**Task**: 完成红果短剧独立资料体系
+**Branch**: `main`
+
+### Summary
+
+建立独立红果资料、媒体绑定、用户状态和任务体系，接入 Web 与 Emby；修复分类短尾页 404 与检查点恢复，并补齐自动化验证和人工验收清单。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `f0f6030` | feat: 建立独立红果短剧资料体系 |
+| `8176732` | feat: 接入红果短剧 Web 与 Emby |
+| `255bcac` | docs: 补充红果短剧契约与验收记录 |
+
+### Status
+
+[OK] **Completed**
