@@ -676,3 +676,25 @@ Web 电影与整剧按 metadata 分页，Emby 整剧摘要、混合库与子级�
 ### Status
 
 [OK] **Completed**
+
+
+## Session 120: 统一榜单与红果页面布局
+<!-- trellis-session: v=2 fp=a79b15a45541c700 -->
+
+**Date**: 2026-09-14
+**Task**: 统一榜单与红果页面布局
+**Branch**: `main`
+
+### Summary
+
+精简任务中心和红果发现页冗余控件，榜单选择左对齐，并统一两套发现页为桌面五列海报布局；Web lint、build 与 diff 检查通过，浏览器检查因未启动本地服务未执行。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `a22eb71` | feat: 统一榜单与红果页面布局 |
+
+### Status
+
+[OK] **Completed**
