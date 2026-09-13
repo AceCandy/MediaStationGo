@@ -36,6 +36,8 @@ func newServiceContainer(cfg *config.Config, log *zap.Logger, repos *repository.
 	builder.initAccessAndStorageServices()
 	builder.initIdentityServices()
 	builder.initImageProxy()
+	builder.c.HongGuo = NewHongGuoService(repos, builder.c.Tasks, builder.c.ImageProxy, cfg.App.DataDir)
+	builder.c.Scheduler.hongguo = builder.c.HongGuo
 	builder.attachRuntimeContext()
 	builder.c.MediaProbe.SetTaskTracker(log, builder.c.Tasks, builder.c.stopCtx)
 	return builder.c

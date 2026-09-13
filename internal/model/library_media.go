@@ -3,6 +3,7 @@ package model
 const (
 	LibraryTypeNFOMovie = "nfo_movie"
 	LibraryTypeNFOTV    = "nfo_tv"
+	LibraryTypeHongGuo  = "hongguo"
 )
 
 // Library 表示一个逻辑媒体库。Path 保留为兼容字段，指向第一条 LibraryRoot。
@@ -30,17 +31,20 @@ type LibraryRoot struct {
 // Title、Year、provider ID 和 SeriesID 仅是扫描/匹配提示，不是权威元数据。
 type Media struct {
 	PermanentBase
-	LibraryID     string        `gorm:"index;size:36" json:"library_id"`
-	LibraryRootID string        `gorm:"index;size:36" json:"library_root_id,omitempty"`
-	MetadataID    string        `gorm:"index;size:36;default:null" json:"metadata_id"`
-	Metadata      *MetadataItem `gorm:"foreignKey:MetadataID;references:ID;constraint:OnUpdate:CASCADE,OnDelete:RESTRICT" json:"-"`
-	SeriesID      string        `gorm:"column:series_hint;index;size:128" json:"series_id,omitempty"`
-	SeriesTitle   string        `gorm:"-" json:"series_title,omitempty"`
-	Title         string        `gorm:"column:scan_title;size:255" json:"title"`
-	OriginalName  string        `gorm:"-" json:"original_name,omitempty"`
-	EpisodeTitle  string        `gorm:"-" json:"-"`
-	Path          string        `gorm:"uniqueIndex;size:1024;not null" json:"path"`
-	RelativePath  string        `gorm:"size:1024" json:"relative_path,omitempty"`
+	LibraryID     string `gorm:"index;size:36" json:"library_id"`
+	LibraryRootID string `gorm:"index;size:36" json:"library_root_id,omitempty"`
+	// CatalogSource 仅标识文件的资料归属；来源详情通过独立绑定表读取。
+	CatalogSource   string        `gorm:"size:16;not null;default:'';index;check:chk_media_catalog_binding,catalog_source = '' OR metadata_id IS NULL" json:"catalog_source,omitempty"`
+	LookupCatalogID string        `gorm:"size:32;index" json:"lookup_catalog_id,omitempty"`
+	MetadataID      string        `gorm:"index;size:36;default:null" json:"metadata_id"`
+	Metadata        *MetadataItem `gorm:"foreignKey:MetadataID;references:ID;constraint:OnUpdate:CASCADE,OnDelete:RESTRICT" json:"-"`
+	SeriesID        string        `gorm:"column:series_hint;index;size:128" json:"series_id,omitempty"`
+	SeriesTitle     string        `gorm:"-" json:"series_title,omitempty"`
+	Title           string        `gorm:"column:scan_title;size:255" json:"title"`
+	OriginalName    string        `gorm:"-" json:"original_name,omitempty"`
+	EpisodeTitle    string        `gorm:"-" json:"-"`
+	Path            string        `gorm:"uniqueIndex;size:1024;not null" json:"path"`
+	RelativePath    string        `gorm:"size:1024" json:"relative_path,omitempty"`
 	// PartGroupKey 与 PartIndex 标识同一播放版本下的有序物理文件。
 	PartGroupKey string `gorm:"index;size:64" json:"-"`
 	PartIndex    int    `gorm:"default:0" json:"-"`

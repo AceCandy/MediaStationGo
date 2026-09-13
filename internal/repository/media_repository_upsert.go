@@ -24,6 +24,9 @@ var errCloudMediaPathUnsupported = errors.New("cloud media paths are no longer s
 //     显式写入）。这两个问题都让 EnrichLibrary(WHERE scrape_status='pending')
 //     永远捞不到数据。
 func (r *MediaRepository) Upsert(ctx context.Context, m *model.Media) error {
+	if m != nil && m.CatalogSource == model.TaskSystemHongGuo {
+		return r.upsertHongGuoMedia(ctx, m)
+	}
 	if m != nil && strings.HasPrefix(strings.ToLower(strings.TrimSpace(m.Path)), "cloud://") {
 		return errCloudMediaPathUnsupported
 	}
@@ -49,10 +52,15 @@ func (r *MediaRepository) ResolveMetadata(ctx context.Context, media *model.Medi
 	if media == nil {
 		return errors.New("media is required")
 	}
+	if media.CatalogSource != "" {
+		return errors.New("独立资料媒体不能绑定现有资料体系")
+	}
 	if strings.TrimSpace(media.MetadataID) == "" {
 		var existing model.Media
 		err := r.db.WithContext(ctx).Where("path = ?", media.Path).First(&existing).Error
-		if err == nil && strings.TrimSpace(existing.MetadataID) != "" {
+		if err == nil && existing.CatalogSource != "" {
+			return errors.New("独立资料媒体不能绑定现有资料体系")
+		} else if err == nil && strings.TrimSpace(existing.MetadataID) != "" {
 			media.MetadataID = existing.MetadataID
 		} else if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 			return err
@@ -180,6 +188,11 @@ func (r *MediaRepository) findOrCreateMediaByPath(ctx context.Context, m *model.
 
 func mediaUpsertUpdates(existing, incoming model.Media) map[string]any {
 	updates := map[string]any{}
+	if existing.CatalogSource == model.TaskSystemHongGuo {
+		setIfChanged(updates, "lookup_catalog_id", existing.LookupCatalogID, incoming.LookupCatalogID)
+		setIfChanged(updates, "season_num", existing.SeasonNum, incoming.SeasonNum)
+		setIfChanged(updates, "episode_num", existing.EpisodeNum, incoming.EpisodeNum)
+	}
 	addMediaFileScanUpdates(updates, existing, incoming)
 	addMediaTitleUpdates(updates, existing, incoming)
 	addMediaExternalIDUpdates(updates, existing, incoming)

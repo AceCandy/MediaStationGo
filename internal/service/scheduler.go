@@ -31,6 +31,7 @@ type SchedulerService struct {
 	device           *DeviceService
 	hub              *Hub
 	tasks            *TaskTrackerService
+	hongguo          *HongGuoService
 	now              func() time.Time
 
 	mu         sync.Mutex
@@ -116,6 +117,15 @@ func (s *SchedulerService) Start(ctx context.Context) {
 		s.configuredJob(ctx, "tmdb_episode_metadata_recheck", "metadata.tmdb_episode_metadata_recheck_enabled", "metadata.tmdb_episode_metadata_recheck_interval_seconds", false, 24*time.Hour, s.jobTMDbEpisodeMetadataRecheck),
 		s.configuredJob(ctx, "douban_movie_enrichment", "metadata.douban_movie_enrichment_enabled", "metadata.douban_movie_enrichment_interval_seconds", false, 24*time.Hour, s.jobDoubanMovieEnrichment),
 		s.configuredJob(ctx, "account_cleanup", SettingAccountCleanupEnabled, "device.account_cleanup_interval_seconds", false, 24*time.Hour, s.jobAccountCleanup),
+	}
+	if s.hongguo != nil {
+		for _, kind := range []string{TaskKindHongGuoSync, TaskKindHongGuoRefresh, TaskKindHongGuoArtwork} {
+			interval := 24 * time.Hour
+			if kind == TaskKindHongGuoArtwork {
+				interval = time.Hour
+			}
+			s.jobs = append(s.jobs, s.configuredJob(ctx, kind, "hongguo."+kind+".enabled", "hongguo."+kind+".interval_seconds", kind != TaskKindHongGuoSync, interval, func(ctx context.Context) error { return s.hongguo.Run(ctx, kind, "") }))
+		}
 	}
 	for _, j := range s.jobs {
 		go s.loopWithInitialDelay(ctx, j, j.interval)

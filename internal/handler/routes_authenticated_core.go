@@ -41,6 +41,7 @@ func registerAuthedLibraryRoutes(authed *gin.RouterGroup, svc *service.Container
 }
 
 func registerAuthedMediaRoutes(authed *gin.RouterGroup, svc *service.Container) {
+	registerHongGuoRoutes(authed, svc)
 	authed.POST("/metadata/:id/tmdb/refresh", middleware.AdminRequired(), refreshMetadataTMDbHandler(svc))
 	authed.GET("/metadata/:id/douban/search", middleware.AdminRequired(), searchDoubanBindingHandler(svc))
 	authed.POST("/metadata/:id/douban/bind", middleware.AdminRequired(), bindDoubanHandler(svc))

@@ -37,8 +37,8 @@ func TestTasksHandlerReturnsStableDefinitions(t *testing.T) {
 	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
 		t.Fatal(err)
 	}
-	if len(response.Definitions) != 16 {
-		t.Fatalf("definitions = %d, want 16", len(response.Definitions))
+	if len(response.Definitions) != 19 {
+		t.Fatalf("definitions = %d, want 19", len(response.Definitions))
 	}
 }
 

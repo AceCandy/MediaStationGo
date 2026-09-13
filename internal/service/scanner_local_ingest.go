@@ -10,6 +10,7 @@ import (
 
 	"go.uber.org/zap"
 
+	"github.com/ShukeBta/MediaStationGo/internal/hongguo"
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 )
 
@@ -73,7 +74,7 @@ func scanEpisodeNumbers(lib *model.Library, path string) (int, int) {
 	}
 	if lib != nil {
 		switch strings.ToLower(strings.TrimSpace(lib.Type)) {
-		case "tv", "show", "shows", model.LibraryTypeNFOTV:
+		case "tv", "show", "shows", model.LibraryTypeNFOTV, model.LibraryTypeHongGuo:
 			return parseStandardEpisode(path)
 		}
 	}
@@ -104,6 +105,9 @@ func (s *ScannerService) recordLocalFileIdentity(ctx context.Context, path strin
 }
 
 func (s *ScannerService) readLocalScanMetadata(lib *model.Library, root *model.LibraryRoot, path string, parsedSeason, parsedEpisode int) *LocalMetadata {
+	if lib.Type == model.LibraryTypeHongGuo {
+		return nil
+	}
 	rootPath := lib.Path
 	if root != nil && strings.TrimSpace(root.Path) != "" {
 		rootPath = root.Path
@@ -244,6 +248,15 @@ func (s *ScannerService) buildLocalScanMedia(in localScanMediaInput) *model.Medi
 	}
 	if media.EpisodeNum > 0 {
 		media.SeriesID = localSeriesIdentity(media)
+	}
+	if in.lib.Type == model.LibraryTypeHongGuo {
+		media.CatalogSource = model.TaskSystemHongGuo
+		media.ScrapeStatus = "source_pending"
+		idPath := media.RelativePath
+		if idPath == "" {
+			idPath = in.path
+		}
+		media.LookupCatalogID, _ = hongguo.PathID(idPath)
 	}
 	return media
 }

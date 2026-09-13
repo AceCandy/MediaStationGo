@@ -14,6 +14,7 @@ import (
 type TaskExecutionRepository struct{ db *gorm.DB }
 
 type TaskExecutionFilter struct {
+	System            string
 	Kind              string
 	Name              string
 	NamePrefix        string
@@ -67,6 +68,20 @@ func (r *TaskExecutionRepository) FindLatestFiltered(ctx context.Context, filter
 
 func (r *TaskExecutionRepository) filtered(ctx context.Context, filter TaskExecutionFilter) *gorm.DB {
 	query := r.db.WithContext(ctx).Model(&model.TaskExecution{})
+	if filter.System != "" {
+		legacy := r.db.Where("system = ''")
+		switch filter.System {
+		case model.TaskSystemCommon:
+			legacy = legacy.Where("kind IN ?", model.CommonTaskKinds)
+		case model.TaskSystemHongGuo:
+			legacy = legacy.Where("LEFT(kind, 8) = ?", "hongguo_")
+		case model.TaskSystemCatalog:
+			legacy = legacy.Where("kind NOT IN ? AND LEFT(kind, 8) <> ?", model.CommonTaskKinds, "hongguo_")
+		default:
+			return query.Where("1 = 0")
+		}
+		query = query.Where(r.db.Where("system = ?", filter.System).Or(legacy))
+	}
 	if filter.Kind != "" {
 		query = query.Where("kind = ?", filter.Kind)
 	}

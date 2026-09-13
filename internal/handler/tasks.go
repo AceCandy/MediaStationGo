@@ -22,15 +22,22 @@ import (
 
 func tasksHandler(svc *service.Container) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		system := c.Query("system")
+		if system != "" && system != model.TaskSystemCommon && system != model.TaskSystemCatalog && system != model.TaskSystemHongGuo {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid task system"})
+			return
+		}
 		background := service.TaskSnapshot{}
 		page := service.TaskPage{Items: []service.BackgroundTask{}, Page: 1, PageSize: 30}
 		definitions := []service.TaskDefinition{}
 		if svc != nil && svc.Tasks != nil {
-			background = svc.Tasks.Snapshot()
+			if system == "" {
+				background = svc.Tasks.Snapshot()
+			}
 			pageNum, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 			pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "30"))
 			var err error
-			page, err = svc.Tasks.List(pageNum, pageSize)
+			page, err = svc.Tasks.ListSystem(system, pageNum, pageSize)
 			if err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list tasks"})
 				return
@@ -39,10 +46,21 @@ func tasksHandler(svc *service.Container) gin.HandlerFunc {
 			if svc.Scheduler != nil {
 				scheduler = svc.Scheduler.Status()
 			}
-			definitions, err = svc.Tasks.Definitions(scheduler)
+			definitions, err = svc.Tasks.DefinitionsForSystem(scheduler, system)
 			if err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list task definitions"})
 				return
+			}
+			if system != "" {
+				background.Active, background.Recent = []service.BackgroundTask{}, []service.BackgroundTask{}
+				for _, definition := range definitions {
+					if definition.Current != nil {
+						background.Active = append(background.Active, *definition.Current)
+					}
+					if definition.Latest != nil {
+						background.Recent = append(background.Recent, *definition.Latest)
+					}
+				}
 			}
 		}
 		c.JSON(http.StatusOK, gin.H{

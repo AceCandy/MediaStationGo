@@ -20,6 +20,7 @@ type Container struct {
 	WSHub            *Hub
 	SSEHub           *SSEHub
 	Tasks            *TaskTrackerService
+	HongGuo          *HongGuoService
 	Auth             *AuthService
 	Media            *MediaService
 	Scan             *ScannerService
@@ -127,6 +128,9 @@ func (c *Container) Context() context.Context {
 func (c *Container) Close() {
 	if c.stopCancel != nil {
 		c.stopCancel()
+	}
+	if c.HongGuo != nil {
+		c.HongGuo.Wait()
 	}
 	if c.Scraper != nil {
 		c.Scraper.WaitCatalogHydrationWorker()

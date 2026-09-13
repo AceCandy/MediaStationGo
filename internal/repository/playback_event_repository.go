@@ -57,6 +57,7 @@ type PlaybackStatsResult struct {
 
 // PlaybackStatsDetail 是一次真实播放事件的管理员展示投影。
 type PlaybackStatsDetail struct {
+	SourceID       string    `json:"source_id,omitempty"`
 	ID             string    `json:"id"`
 	PlayedAt       time.Time `json:"played_at"`
 	UserID         string    `json:"user_id"`

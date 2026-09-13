@@ -40,6 +40,7 @@ const (
 
 // BackgroundTask 是任务中心展示的一次后台执行摘要。
 type BackgroundTask struct {
+	System     string           `json:"system"`
 	ID         string           `json:"id"`
 	Kind       string           `json:"kind"`
 	Trigger    string           `json:"trigger"`
@@ -166,7 +167,8 @@ func (t *TaskTrackerService) startTriggered(kind, trigger, name string, update T
 	}
 	now := t.currentTime()
 	task := &BackgroundTask{
-		ID: uuid.NewString(), Kind: kind, Trigger: trigger, Name: name, Status: TaskStatusRunning,
+		System: model.TaskSystemForKind(kind),
+		ID:     uuid.NewString(), Kind: kind, Trigger: trigger, Name: name, Status: TaskStatusRunning,
 		Stage: update.Stage, SourcePath: update.SourcePath, DestPath: update.DestPath,
 		Message: update.Message, Metrics: cloneTaskMetrics(update.Metrics), StartedAt: now, UpdatedAt: now,
 	}
@@ -456,7 +458,8 @@ func applyTaskUpdate(task *BackgroundTask, update TaskUpdate) {
 func taskExecutionFromBackground(task BackgroundTask) model.TaskExecution {
 	metrics, _ := json.Marshal(task.Metrics)
 	return model.TaskExecution{
-		Base: model.Base{ID: task.ID}, Kind: task.Kind, Trigger: task.Trigger, Name: task.Name,
+		System: task.System,
+		Base:   model.Base{ID: task.ID}, Kind: task.Kind, Trigger: task.Trigger, Name: task.Name,
 		Status: task.Status, Stage: task.Stage, SourcePath: task.SourcePath, DestPath: task.DestPath,
 		Message: task.Message, Error: task.Error, Metrics: string(metrics), StartedAt: task.StartedAt,
 		FinishedAt: task.FinishedAt,
@@ -473,13 +476,17 @@ func taskExecutionUpdates(task BackgroundTask) map[string]any {
 }
 
 func backgroundFromTaskExecution(row model.TaskExecution) BackgroundTask {
+	if row.System == "" {
+		row.System = model.TaskSystemForKind(row.Kind)
+	}
 	metrics := map[string]int64{}
 	_ = json.Unmarshal([]byte(row.Metrics), &metrics)
 	if len(metrics) == 0 {
 		metrics = nil
 	}
 	return BackgroundTask{
-		ID: row.ID, Kind: row.Kind, Trigger: row.Trigger, Name: row.Name, Status: row.Status,
+		System: row.System,
+		ID:     row.ID, Kind: row.Kind, Trigger: row.Trigger, Name: row.Name, Status: row.Status,
 		Stage: row.Stage, SourcePath: row.SourcePath, DestPath: row.DestPath, Message: row.Message,
 		Error: row.Error, Metrics: metrics, StartedAt: row.StartedAt, UpdatedAt: row.UpdatedAt,
 		FinishedAt: row.FinishedAt,

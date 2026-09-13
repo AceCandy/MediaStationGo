@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ShukeBta/MediaStationGo/internal/model"
 	"github.com/ShukeBta/MediaStationGo/internal/repository"
 )
 
@@ -30,6 +31,7 @@ const (
 var ErrTaskDefinitionNotFound = errors.New("task definition not found")
 
 type TaskDefinition struct {
+	System         string              `json:"system"`
 	Key            string              `json:"key"`
 	Name           string              `json:"name"`
 	Description    string              `json:"description"`
@@ -57,6 +59,9 @@ type taskDefinitionSpec struct {
 }
 
 var taskDefinitionSpecs = []taskDefinitionSpec{
+	{TaskDefinition: TaskDefinition{Key: TaskKindHongGuoSync, Name: "红果作品发现", Description: "从检查点持续翻页至各分类结束，保存目录摘要；不抓详情，可与资料刷新并行", Trigger: "定时 / 手动", Action: "scheduler"}, filter: repository.TaskExecutionFilter{Kind: TaskKindHongGuoSync}, schedulerJob: TaskKindHongGuoSync},
+	{TaskDefinition: TaskDefinition{Key: TaskKindHongGuoRefresh, Name: "红果资料刷新", Description: "优先补齐本轮开始前的新作品，再重试失败和刷新超过 24 小时的已有资料", Trigger: "定时 / 手动", Action: "scheduler"}, filter: repository.TaskExecutionFilter{Kind: TaskKindHongGuoRefresh}, schedulerJob: TaskKindHongGuoRefresh},
+	{TaskDefinition: TaskDefinition{Key: TaskKindHongGuoArtwork, Name: "红果图片下载", Description: "下载海报和人物头像，失败保留独立重试状态", Trigger: "定时 / 手动", Action: "scheduler"}, filter: repository.TaskExecutionFilter{Kind: TaskKindHongGuoArtwork}, schedulerJob: TaskKindHongGuoArtwork},
 	{TaskDefinition: TaskDefinition{Key: TaskDefinitionSeriesLocalCorrection, Name: "剧集本地资料纠正", Description: "用已有 TMDb 快照纠正季与集的名称、简介，跳过手工及并发修改，不联网", Trigger: "规则更新后一次 / 手动", Action: "series_local_correction"}, filter: repository.TaskExecutionFilter{Kind: TaskKindSeriesLocalCorrection}},
 	{TaskDefinition: TaskDefinition{Key: TaskDefinitionOrganize, Name: "媒体整理", Description: "整理、重命名并入库下载目录内容", Trigger: "定时 / 手动", Action: "scheduler"}, filter: repository.TaskExecutionFilter{Kind: TaskKindOrganize}, schedulerJob: "organize_source"},
 	{TaskDefinition: TaskDefinition{Key: TaskDefinitionLibraryScan, Name: "媒体库扫描", Description: "扫描媒体库并同步入库变化", Trigger: "定时 / 手动 / 新增后自动", Action: "scheduler"}, filter: repository.TaskExecutionFilter{Kind: TaskKindScan}, schedulerJob: "library_scan"},
@@ -103,6 +108,10 @@ func taskDefinitionKeyForTask(task BackgroundTask) string {
 }
 
 func (t *TaskTrackerService) Definitions(scheduler []JobStatus) ([]TaskDefinition, error) {
+	return t.DefinitionsForSystem(scheduler, "")
+}
+
+func (t *TaskTrackerService) DefinitionsForSystem(scheduler []JobStatus, system string) ([]TaskDefinition, error) {
 	statuses := make(map[string]JobStatus, len(scheduler))
 	for _, status := range scheduler {
 		statuses[status.Name] = status
@@ -111,6 +120,10 @@ func (t *TaskTrackerService) Definitions(scheduler []JobStatus) ([]TaskDefinitio
 	active := t.memorySnapshot().Active
 	for _, spec := range taskDefinitionSpecs {
 		definition := spec.TaskDefinition
+		definition.System = model.TaskSystemForKind(spec.filter.Kind)
+		if system != "" && definition.System != system {
+			continue
+		}
 		definition.CurrentState = "idle"
 		latestFilter := spec.filter
 		latestFilter.ExcludeStatus = TaskStatusRunning
@@ -231,7 +244,11 @@ func (t *TaskTrackerService) listFiltered(filter repository.TaskExecutionFilter,
 }
 
 func taskMatchesFilter(task BackgroundTask, filter repository.TaskExecutionFilter) bool {
-	return (filter.Kind == "" || task.Kind == filter.Kind) &&
+	system := task.System
+	if system == "" {
+		system = model.TaskSystemForKind(task.Kind)
+	}
+	return (filter.System == "" || system == filter.System) && (filter.Kind == "" || task.Kind == filter.Kind) &&
 		(filter.Name == "" || task.Name == filter.Name) &&
 		(filter.NamePrefix == "" || strings.HasPrefix(task.Name, filter.NamePrefix)) &&
 		(filter.ExcludeNamePrefix == "" || !strings.HasPrefix(task.Name, filter.ExcludeNamePrefix)) &&
@@ -239,4 +256,8 @@ func taskMatchesFilter(task BackgroundTask, filter repository.TaskExecutionFilte
 		(filter.ExcludeStatus == "" || task.Status != filter.ExcludeStatus) &&
 		(filter.SourcePath == "" || task.SourcePath == filter.SourcePath) &&
 		(filter.ExcludeSourcePath == "" || task.SourcePath != filter.ExcludeSourcePath)
+}
+
+func (t *TaskTrackerService) ListSystem(system string, page, pageSize int) (TaskPage, error) {
+	return t.listFiltered(repository.TaskExecutionFilter{System: system}, page, pageSize)
 }

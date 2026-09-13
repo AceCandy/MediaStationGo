@@ -91,6 +91,12 @@ func (p *PlaybackService) RecordProgress(ctx context.Context, userID, mediaID, s
 	if err != nil {
 		return err
 	}
+	if len(rows) > 0 && rows[0].CatalogSource == model.TaskSystemHongGuo {
+		if !visibility.AllowsView(&rows[0]) {
+			return errors.New("media not found")
+		}
+		return p.repo.HongGuo.RecordProgress(ctx, userID, sessionID, rows[0], position, duration, playbackCompleted(position, duration))
+	}
 	if len(rows) == 0 || rows[0].MetadataID == "" {
 		return errors.New("media not found")
 	}

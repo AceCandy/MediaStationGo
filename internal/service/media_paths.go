@@ -11,6 +11,9 @@ import (
 )
 
 func inferLibraryKind(name, path, requested string) string {
+	if strings.TrimSpace(requested) == model.LibraryTypeHongGuo {
+		return model.LibraryTypeHongGuo
+	}
 	requested = normalizeOrganizeMediaType(requested)
 	if requested == model.LibraryTypeNFOMovie || requested == model.LibraryTypeNFOTV {
 		return requested

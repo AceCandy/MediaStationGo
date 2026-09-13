@@ -12,6 +12,9 @@ func (s *ScraperService) ManualSearch(ctx context.Context, media *model.Media, q
 	if s == nil || media == nil {
 		return nil, errors.New("media required")
 	}
+	if media.CatalogSource != "" {
+		return nil, errors.New("独立资料体系媒体不能使用旧体系搜索")
+	}
 	lib, _ := s.repo.Library.FindByID(ctx, media.LibraryID)
 	if libraryUsesNFOOnly(lib) {
 		return nil, errors.New("NFO-only library does not support provider search")

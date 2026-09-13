@@ -28,9 +28,15 @@ func (s *ScraperService) EnrichOneWithOptions(ctx context.Context, m *model.Medi
 }
 
 func (s *ScraperService) enrichOneWithOptions(ctx context.Context, m *model.Media, options ScrapeOptions) error {
+	if m != nil && m.CatalogSource != "" {
+		return errors.New("独立资料媒体请使用对应来源的刷新任务")
+	}
 	lib, err := s.repo.Library.FindByID(ctx, m.LibraryID)
 	if err != nil {
 		return err
+	}
+	if lib != nil && lib.Type == model.LibraryTypeHongGuo {
+		return errors.New("红果媒体库不能运行现有资料刮削")
 	}
 
 	seriesLike := mediaIsEpisodic(m, lib)

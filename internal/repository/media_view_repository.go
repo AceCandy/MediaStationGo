@@ -117,7 +117,11 @@ func (r *MediaViewRepository) FindByID(ctx context.Context, id string) (*model.M
 		return nil, err
 	}
 	if len(rows) == 0 {
-		return nil, nil
+		var err error
+		rows, err = r.hongGuoViewsByIDs(ctx, []string{id}, MediaQueryFilter{IncludeNSFW: true})
+		if err != nil || len(rows) == 0 {
+			return nil, err
+		}
 	}
 	return &rows[0], nil
 }
@@ -133,6 +137,19 @@ func (r *MediaViewRepository) FindByIDs(ctx context.Context, ids []string, filte
 	}
 	byID := make(map[string]model.MediaView, len(rows))
 	for _, row := range rows {
+		byID[row.ID] = row
+	}
+	missing := make([]string, 0)
+	for _, id := range ids {
+		if _, ok := byID[id]; !ok {
+			missing = append(missing, id)
+		}
+	}
+	sourceRows, err := r.hongGuoViewsByIDs(ctx, missing, filter)
+	if err != nil {
+		return nil, err
+	}
+	for _, row := range sourceRows {
 		byID[row.ID] = row
 	}
 	out := make([]model.MediaView, 0, len(rows))
