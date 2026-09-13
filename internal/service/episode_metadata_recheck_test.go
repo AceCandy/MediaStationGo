@@ -132,6 +132,54 @@ func TestTMDbEpisodeRecheckUpdatesReleaseDateAndDetectsCandidates(t *testing.T) 
 	}
 }
 
+func TestFetchTMDbMetadataRecheckUsesSeasonCoordinates(t *testing.T) {
+	var mode atomic.Int32
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/tv/42/season/1" {
+			t.Errorf("unexpected TMDb request: %s", r.URL.Path)
+			http.NotFound(w, r)
+			return
+		}
+		if mode.Load() == 3 {
+			_, _ = io.WriteString(w, `{`)
+			return
+		}
+		seasonNumber := 1
+		if mode.Load() == 1 {
+			seasonNumber++
+		}
+		id := 201
+		if mode.Load() == 2 {
+			id = 0
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"id": id, "season_number": seasonNumber})
+	}))
+	defer upstream.Close()
+	cfg := &config.Config{}
+	cfg.Secrets.TMDbAPIKey, cfg.Secrets.TMDbAPIProxy = "test-key", upstream.URL
+	s := &ScraperService{tmdb: NewTMDbProvider(cfg, zap.NewNop(), nil)}
+	for _, oldID := range []string{"999", "not-a-number"} {
+		candidate := repository.TMDbMetadataRecheckCandidate{Kind: model.MetadataKindSeason, SeasonNum: 1, TMDbID: oldID}
+		details, err := s.fetchTMDbMetadataRecheck(t.Context(), candidate, 42)
+		if err != nil || details == nil || details.id != 201 {
+			t.Fatalf("old season TMDb ID %q blocked coordinate lookup: details=%#v err=%v", oldID, details, err)
+		}
+	}
+	mode.Store(1)
+	candidate := repository.TMDbMetadataRecheckCandidate{Kind: model.MetadataKindSeason, SeasonNum: 1, TMDbID: "201"}
+	if _, err := s.fetchTMDbMetadataRecheck(t.Context(), candidate, 42); !errors.Is(err, ErrTMDbRefreshIdentity) {
+		t.Fatalf("mismatched season number error = %v", err)
+	}
+	candidate.SeriesTMDbID = "42"
+	for _, invalidMode := range []int32{2, 3} {
+		mode.Store(invalidMode)
+		details, err := s.recheckTMDbMetadata(t.Context(), candidate, time.Now().UTC(), map[string]int64{})
+		if err == nil || strings.Contains(strings.Join(details, " "), "动作=保存") {
+			t.Fatalf("invalid upstream response mode %d reached persistence: details=%v err=%v", invalidMode, details, err)
+		}
+	}
+}
+
 func TestTMDbMetadataRecheckRepairsSeasonsAndEpisodes(t *testing.T) {
 	db := newServiceTestDB(t, &model.Media{}, &model.MetadataProviderSnapshot{}, &model.Person{}, &model.PersonIdentifier{}, &model.MetadataCredit{})
 	if err := db.AutoMigrate(&model.TMDbRecheckJob{}, &model.TMDbRecheckSeasonLease{}, &model.TMDbRecheckChange{}, &model.TMDbRecheckScan{}, &model.TMDbRecheckAssetChange{}); err != nil {
@@ -154,7 +202,13 @@ func TestTMDbMetadataRecheckRepairsSeasonsAndEpisodes(t *testing.T) {
 			}
 		}
 		if i != 0 {
-			if err := db.Create(&model.MetadataIdentifier{MetadataID: season.ID, Provider: "tmdb", EntityKind: model.MetadataKindSeason, ExternalID: fmt.Sprint(200 + i)}).Error; err != nil {
+			externalID := fmt.Sprint(200 + i)
+			if i == 1 {
+				externalID = "701"
+			} else if i == 2 {
+				externalID = "not-a-number"
+			}
+			if err := db.Create(&model.MetadataIdentifier{MetadataID: season.ID, Provider: "tmdb", EntityKind: model.MetadataKindSeason, ExternalID: externalID}).Error; err != nil {
 				t.Fatal(err)
 			}
 			createServiceTestArtwork(t, db, season.ID, model.ArtworkTypePoster, fmt.Sprintf("season-poster-%d", i))
@@ -209,8 +263,12 @@ func TestTMDbMetadataRecheckRepairsSeasonsAndEpisodes(t *testing.T) {
 		if mode.Load() == 2 {
 			returnedNumber++
 		}
+		returnedID := 200 + number
+		if number == 0 && mode.Load() == 3 {
+			returnedID = 299
+		}
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"id": 200 + number, "season_number": returnedNumber, "name": "补全的季", "overview": "",
+			"id": returnedID, "season_number": returnedNumber, "name": "补全的季", "overview": "",
 			"air_date": "2026-09-07", "vote_average": 8, "poster_path": "/poster.png",
 			"episodes": []any{map[string]any{"id": 999, "season_number": number, "episode_number": 99, "name": "不能创建的目录集", "overview": "目录集简介"}},
 			"credits":  map[string]any{"cast": []any{map[string]any{"id": 101, "name": "季演员", "character": "角色"}}, "crew": []any{}},
@@ -265,8 +323,11 @@ func TestTMDbMetadataRecheckRepairsSeasonsAndEpisodes(t *testing.T) {
 		assertServiceTestTMDbSnapshot(t, repos, stored.ID)
 		identified, err := repos.Metadata.FindByIdentifier(t.Context(), "tmdb", model.MetadataKindSeason, fmt.Sprint(200+number))
 		if err != nil || identified == nil || identified.ID != stored.ID {
-			t.Fatal("season identity did not preserve the original metadata", err)
+			t.Fatal("season identity was not replaced on the original metadata", err)
 		}
+	}
+	if identified, err := repos.Metadata.FindByIdentifier(t.Context(), "tmdb", model.MetadataKindSeason, "701"); err != nil || identified != nil {
+		t.Fatalf("stale numeric season identity was retained: %#v, %v", identified, err)
 	}
 	poster, err := repos.Artwork.FindSelection(t.Context(), seasons[0].ID, model.ArtworkTypePoster)
 	if err != nil || poster == nil {
@@ -301,6 +362,17 @@ func TestTMDbMetadataRecheckRepairsSeasonsAndEpisodes(t *testing.T) {
 	if err := s.runTMDbEpisodeMetadataRecheck(t.Context(), TaskTriggerScheduled); err != nil || requests.Load() != 5 {
 		t.Fatalf("retry must request only the failed season: requests=%d, err=%v", requests.Load(), err)
 	}
+	repairedSeason, err := repos.Metadata.FindByID(t.Context(), seasons[2].ID)
+	if err != nil || repairedSeason.TMDbSeasonCheckedAt == nil {
+		t.Fatal("season with invalid old identity was not repaired", err)
+	}
+	identified, err := repos.Metadata.FindByIdentifier(t.Context(), "tmdb", model.MetadataKindSeason, "202")
+	if err != nil || identified == nil || identified.ID != seasons[2].ID {
+		t.Fatal("invalid old season identity was not replaced", err)
+	}
+	if identified, err := repos.Metadata.FindByIdentifier(t.Context(), "tmdb", model.MetadataKindSeason, "not-a-number"); err != nil || identified != nil {
+		t.Fatalf("invalid old season identity was retained: %#v, %v", identified, err)
+	}
 	if err := s.runTMDbEpisodeMetadataRecheck(t.Context(), TaskTriggerManual); err != nil || requests.Load() != 5 {
 		t.Fatalf("manual run bypassed cooldown: requests=%d, err=%v", requests.Load(), err)
 	}
@@ -325,11 +397,27 @@ func TestTMDbMetadataRecheckRepairsSeasonsAndEpisodes(t *testing.T) {
 		t.Fatalf("mismatched season number error = %v", err)
 	}
 	mode.Store(1)
-	wrongID := candidates[0]
-	wrongID.TMDbID = "999"
-	if _, err := s.recheckTMDbMetadata(t.Context(), wrongID, time.Now().UTC(), map[string]int64{}); !errors.Is(err, ErrTMDbRefreshIdentity) {
-		t.Fatalf("mismatched season ID error = %v", err)
+	conflict := createServiceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindSeason, ParentID: &series.ID, SeasonNum: 99, Title: "冲突季", Source: "tmdb"},
+		model.MetadataIdentifier{Provider: "tmdb", EntityKind: model.MetadataKindSeason, ExternalID: "299"})
+	beforeSnapshot, err := repos.Metadata.FindProviderSnapshot(t.Context(), seasons[0].ID, "tmdb")
+	if err != nil {
+		t.Fatal(err)
 	}
+	mode.Store(3)
+	if _, err := s.recheckTMDbMetadata(t.Context(), candidates[0], time.Now().UTC(), map[string]int64{}); err == nil {
+		t.Fatal("conflicting replacement identity must fail")
+	}
+	if identified, err := repos.Metadata.FindByIdentifier(t.Context(), "tmdb", model.MetadataKindSeason, "200"); err != nil || identified == nil || identified.ID != seasons[0].ID {
+		t.Fatalf("identity conflict did not roll back old identity: %#v, %v", identified, err)
+	}
+	if identified, err := repos.Metadata.FindByIdentifier(t.Context(), "tmdb", model.MetadataKindSeason, "299"); err != nil || identified == nil || identified.ID != conflict.ID {
+		t.Fatalf("identity conflict changed the owner: %#v, %v", identified, err)
+	}
+	afterSnapshot, err := repos.Metadata.FindProviderSnapshot(t.Context(), seasons[0].ID, "tmdb")
+	if err != nil || !reflect.DeepEqual(beforeSnapshot, afterSnapshot) {
+		t.Fatal("identity conflict changed the snapshot", err)
+	}
+	mode.Store(1)
 	if err := db.Exec(`CREATE FUNCTION reject_recheck_snapshot() RETURNS trigger AS $$ BEGIN RAISE EXCEPTION 'snapshot write failed'; END; $$ LANGUAGE plpgsql;
 CREATE TRIGGER reject_recheck_snapshot BEFORE INSERT OR UPDATE ON metadata_provider_snapshots FOR EACH ROW EXECUTE FUNCTION reject_recheck_snapshot()`).Error; err != nil {
 		t.Fatal(err)

@@ -256,12 +256,6 @@ func (s *ScraperService) fetchTMDbMetadataRecheck(ctx context.Context, candidate
 		if season.SeasonNumber != candidate.SeasonNum {
 			return nil, ErrTMDbRefreshIdentity
 		}
-		if candidate.TMDbID != "" {
-			id, err := strconv.Atoi(candidate.TMDbID)
-			if err != nil || id <= 0 || id != season.ID {
-				return nil, ErrTMDbRefreshIdentity
-			}
-		}
 		return &tmdbMetadataRecheckDetails{id: season.ID, updates: tmdbMetadataUpdates(catalogSeasonItem("", season)), credits: season.Credits,
 			loadedCreditTypes: season.LoadedCreditTypes, artworkURL: season.PosterURL, rawJSON: season.RawJSON}, nil
 	}
