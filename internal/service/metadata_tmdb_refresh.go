@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/ShukeBta/MediaStationGo/internal/model"
@@ -86,6 +87,9 @@ func (s *ScraperService) RefreshMetadataTMDb(ctx context.Context, metadataID str
 			next = catalogSeasonItem(series.ID, details)
 			payload, credits, loaded = details.RawJSON, details.Credits, details.LoadedCreditTypes
 			artwork[model.ArtworkTypePoster] = details.PosterURL
+			if err := s.refreshSeasonEpisodesFromDetails(ctx, season, details); err != nil {
+				return err
+			}
 		} else {
 			details, err := s.tmdb.GetTVEpisodeDetails(ctx, seriesID, season.SeasonNum, item.EpisodeNum)
 			if err != nil {
@@ -135,6 +139,48 @@ func (s *ScraperService) RefreshMetadataTMDb(ctx context.Context, metadataID str
 		}
 	}
 	return s.repo.Metadata.UpsertProviderSnapshot(ctx, item.ID, "tmdb", payload, time.Now().UTC())
+}
+
+// refreshSeasonEpisodesFromDetails 将季接口内的集摘要同步到已有本地单集。
+// 季接口没有集剧照原图，因此这里只更新详情、标识和快照，避免再次请求每一集。
+func (s *ScraperService) refreshSeasonEpisodesFromDetails(ctx context.Context, season *model.MetadataItem, details *TMDbSeasonDetails) error {
+	if season == nil || details == nil || season.ParentID == nil {
+		return nil
+	}
+	now := time.Now().UTC()
+	for _, summary := range details.Episodes {
+		if summary.EpisodeNumber <= 0 || summary.ID <= 0 {
+			continue
+		}
+		episode, err := s.repo.Metadata.FindEpisode(ctx, *season.ParentID, season.SeasonNum, summary.EpisodeNumber)
+		if err != nil {
+			return err
+		}
+		if episode == nil {
+			continue
+		}
+		episode.Title = strings.TrimSpace(summary.Name)
+		episode.Overview = strings.TrimSpace(summary.Overview)
+		episode.Rating = summary.Rating
+		episode.RuntimeSec = summary.Runtime * 60
+		episode.ReleaseDate = summary.AirDate
+		episode.Source = "tmdb"
+		if err := s.repo.Metadata.Update(ctx, episode); err != nil {
+			return err
+		}
+		epPayload, err := json.Marshal(map[string]any{
+			"id": summary.ID, "episode_number": summary.EpisodeNumber, "name": summary.Name,
+			"overview": summary.Overview, "air_date": summary.AirDate,
+			"vote_average": summary.Rating, "runtime": summary.Runtime,
+		})
+		if err != nil {
+			return err
+		}
+		if err := s.repo.Metadata.ReplaceIdentifierWithSnapshot(ctx, episode.ID, "tmdb", model.MetadataKindEpisode, strconv.Itoa(summary.ID), epPayload, now); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *ScraperService) metadataTMDbRefreshID(ctx context.Context, item *model.MetadataItem) (int, error) {
