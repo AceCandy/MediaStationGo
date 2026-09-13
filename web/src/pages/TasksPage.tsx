@@ -1,11 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Link, useSearchParams } from 'react-router-dom'
+import { useSearchParams } from 'react-router-dom'
 import toast from 'react-hot-toast'
 import { Activity, ChevronLeft, ChevronRight, FileText, Play, RefreshCw, Search, Settings, Trash2, X } from 'lucide-react'
 
 import { libraryAPI, mediaAPI, type MediaScrapeIssue, type STRMDeleteTarget } from '../api/library'
 import { tasksAPI, type BackgroundTask, type TaskDefinition, type TaskLog, type TaskSystem } from '../api/tasks'
-import { hongguoAPI } from '../api/hongguo'
 import { confirmAction } from '../components/confirmAction'
 import { ManualScrapeDialog } from '../components/ManualScrapeDialog'
 import { ModalShell } from '../components/ModalShell'
@@ -660,22 +659,6 @@ function TasksSystemPage({ system, onSystemChange }: { system: TaskSystem; onSys
     void refreshPendingCounts().catch(() => undefined)
   }
 
-  const cancelHongGuo = async () => {
-    if (runPending.current) return
-    runPending.current = true
-    setRunning('hongguo_cancel')
-    try {
-      await hongguoAPI.cancel()
-      toast.success('已请求取消所有红果任务，已保存的资料和检查点将保留')
-      await refresh().catch(() => setLoadError(true))
-    } catch {
-      toast.error('红果任务取消失败，请重试')
-    } finally {
-      runPending.current = false
-      setRunning('')
-    }
-  }
-
   const run = async (definition: TaskDefinition) => {
 		if (runPending.current || running || definition.current_state === 'running') return
 		runPending.current = true
@@ -726,8 +709,6 @@ function TasksSystemPage({ system, onSystemChange }: { system: TaskSystem; onSys
           </button>
         ))}
       </div>
-      {system === 'hongguo' && <button type="button" className="btn-outline" disabled={Boolean(running) || !definitions?.some((definition) => definition.current_state === 'running')} onClick={() => void cancelHongGuo()}>取消所有红果任务</button>}
-      {system === 'hongguo' && <Link className="btn-outline" to="/discover?system=hongguo&pending=1">查看红果待匹配文件</Link>}
 		<section className="glass-panel">
 			{loadError && !definitions ? <div className="flex flex-col items-center gap-3 py-8 text-sm text-ink-50"><p>任务列表加载失败。</p><button type="button" className="rounded border border-gray-200 p-2 text-sand-600 hover:text-brand-500" title="重新加载" aria-label="重新加载" onClick={() => void refresh()}><RefreshCw size={16} /></button></div> : !definitions ? <p className="py-8 text-center text-ink-50">加载中...</p> : definitions.length === 0 ? <p className="py-8 text-center text-ink-50">暂无任务。</p> : <DefinitionTable definitions={definitions} running={running} libraries={libraries} scanLibraryID={scanLibraryID} onScanLibraryChange={setScanLibraryID} probeLibraryID={probeLibraryID} onProbeLibraryChange={setProbeLibraryID} probeLimit={probeLimit} onProbeLimitChange={setProbeLimit} scrapeLibraryID={scrapeLibraryID} onScrapeLibraryChange={setScrapeLibraryID} onRun={(definition) => void run(definition)} onLog={setLogDefinition} onSchedule={setScheduleDefinition} onPending={setPendingDefinition} pendingCounts={pendingCounts} />}
       </section>

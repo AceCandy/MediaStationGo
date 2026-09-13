@@ -5,14 +5,12 @@ import { imageURL } from '../api/client'
 import { discoverItemSource } from './discoverPageModel'
 
 export function ContentRow({
-  title,
   items,
   canNext = false,
   loading = false,
   onLoadMore,
   onSelect,
 }: {
-  title: string
   items: DiscoverItem[]
   canNext?: boolean
   loading?: boolean
@@ -32,8 +30,7 @@ export function ContentRow({
 
   return (
     <section className="space-y-4">
-      <h2 className="pl-1 font-display text-2xl font-semibold text-ink-600">{title}</h2>
-      <div className="grid grid-cols-3 gap-4 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-7 xl:grid-cols-8">
+      <div className="grid grid-cols-3 gap-4 sm:grid-cols-4 md:grid-cols-5">
         {items.map((item, index) => (
           <DiscoverCard
             key={discoverKey(item, index)}
@@ -53,8 +50,7 @@ export function DiscoverSkeleton() {
     <div className="space-y-8">
       {[0, 1, 2].map((section) => (
         <section key={section} className="space-y-4">
-          <div className="skeleton h-8 w-48 rounded-xl" />
-          <div className="grid grid-cols-3 gap-4 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-7 xl:grid-cols-8">
+          <div className="grid grid-cols-3 gap-4 sm:grid-cols-4 md:grid-cols-5">
             {Array.from({ length: 8 }, (_, item) => (
               <div key={item} className="space-y-2">
                 <div

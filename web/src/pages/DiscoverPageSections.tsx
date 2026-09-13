@@ -22,7 +22,7 @@ export function DiscoverHeader({
   onSelectSection: (key: string) => void
 }) {
   return (
-    <header className="flex flex-wrap items-center justify-end gap-3">
+    <header className="flex flex-wrap items-center justify-start gap-3">
       <Select
         aria-label="选择榜单"
         className="input-field min-h-10 w-full sm:w-64"
@@ -84,14 +84,13 @@ export function DiscoverResults({
         const items = rows[key] ?? []
         if (items.length === 0) {
           if (rowLoading[key]) {
-            return <DiscoverRowSkeleton key={key} title={sectionLabel(key)} />
+            return <DiscoverRowSkeleton key={key} />
           }
           return null
         }
         return (
           <ContentRow
             key={key}
-            title={sectionLabel(key)}
             items={items}
             canNext={Boolean(rowCanNext[key])}
             loading={Boolean(rowLoading[key])}
@@ -140,11 +139,10 @@ function DiscoverNoContent() {
   )
 }
 
-function DiscoverRowSkeleton({ title }: { title: string }) {
+function DiscoverRowSkeleton() {
   return (
     <section className="space-y-4">
-      <h2 className="pl-1 font-display text-2xl font-semibold text-ink-600">{title}</h2>
-      <div className="grid grid-cols-3 gap-4 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-7 xl:grid-cols-8">
+      <div className="grid grid-cols-3 gap-4 sm:grid-cols-4 md:grid-cols-5">
         {[1, 2, 3, 4, 5, 6, 7, 8].map((item) => (
           <div key={item} className="aspect-[2/3] animate-pulse rounded-xl bg-gray-100" />
         ))}
