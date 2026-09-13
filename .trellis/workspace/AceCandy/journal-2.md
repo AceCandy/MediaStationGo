@@ -764,3 +764,25 @@ Web 电影与整剧按 metadata 分页，Emby 整剧摘要、混合库与子级�
 ### Status
 
 [OK] **Completed**
+
+
+## Session 124: 修复红果重复日志并回填来源分类
+<!-- trellis-session: v=2 fp=58083df9d8bb40cd -->
+
+**Date**: 2026-09-14
+**Task**: 修复红果重复日志并回填来源分类
+**Branch**: `main`
+
+### Summary
+
+修复红果发现通知重复落日志并补充回归测试；一次性关联回填 2285 条 source_category，官网三个分类各全量扫描 34 页后再补 1 条，最终剩余 142 条无可靠分类证据。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `367fb337541ece431051d10e52ad762f35b6a7d3` | fix: 修复红果任务重复日志并回填分类约束 |
+
+### Status
+
+[OK] **Completed**
