@@ -179,7 +179,7 @@ func (s *HongGuoService) Run(ctx context.Context, kind, sourceID string) error {
 			}
 			task.Update(TaskUpdate{Message: fmt.Sprintf("已记录 %d 项目录摘要，详情由资料刷新任务补齐", processed), Details: details, Metrics: map[string]int64{"processed": processed, "succeeded": processed}})
 		}, func(message string) {
-			task.Update(TaskUpdate{Message: message, Details: []string{message}, Metrics: map[string]int64{"processed": processed, "failed": failed, "succeeded": processed - failed}})
+			task.Update(TaskUpdate{Message: message, Metrics: map[string]int64{"processed": processed, "failed": failed, "succeeded": processed - failed}})
 		})
 	case TaskKindHongGuoRefresh:
 		if sourceID != "" {

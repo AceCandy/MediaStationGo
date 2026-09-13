@@ -269,11 +269,19 @@ func TestHongGuoDiscoveryIncrementalStopsAtSavedBoundary(t *testing.T) {
 	if err := repos.HongGuo.SaveSyncState(ctx, model.HongGuoSyncState{Category: "real-drama", NextPage: 1, AfterID: "100"}); err != nil {
 		t.Fatal(err)
 	}
-	s := NewHongGuoService(repos, NewTaskTrackerService(zap.NewNop(), nil), nil, t.TempDir())
+	tasks := NewTaskTrackerService(zap.NewNop(), nil)
+	tasks.ConfigurePersistence(nil, t.TempDir())
+	s := NewHongGuoService(repos, tasks, nil, t.TempDir())
 	t.Cleanup(s.Wait)
 	requests := []string{}
 	s.client = hongguo.NewClient(&http.Client{Transport: hongGuoTestTransport(func(r *http.Request) (*http.Response, error) {
 		requests = append(requests, r.URL.RequestURI())
+		for _, rank := range hongguo.Ranks {
+			if r.URL.Path == "/rank/"+rank.Key {
+				body := hongGuoRankTestPage(rank.Label, "200")
+				return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header), Request: r}, nil
+			}
+		}
 		page := r.URL.Query().Get("page")
 		items := []string{}
 		if page == "" {
@@ -285,8 +293,25 @@ func TestHongGuoDiscoveryIncrementalStopsAtSavedBoundary(t *testing.T) {
 	if err := s.Run(ctx, TaskKindHongGuoSync, ""); err != nil {
 		t.Fatal(err)
 	}
-	if len(requests) != 1 || requests[0] != "/category/real-drama" {
+	if len(requests) != 7 || requests[0] != "/category/real-drama" {
 		t.Fatalf("requests=%v", requests)
+	}
+	log, err := tasks.ReadDefinitionLog(TaskKindHongGuoSync, "", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, notice := range []string{
+		"ℹ️ 红果分类 real-drama 增量扫描至第 1 页，已追平上次检查点",
+		"ℹ️ 红果分类 comic-drama 第 1 页共 2 项，少于每页 24 项，目录已到末页并重置检查点",
+		"ℹ️ 红果分类 ai-drama 第 1 页共 2 项，少于每页 24 项，目录已到末页并重置检查点",
+		"ℹ️ 红果热播榜已按官网名次更新，共 1 项",
+		"ℹ️ 真人剧热播榜已按官网名次更新，共 1 项",
+		"ℹ️ AI剧热播榜已按官网名次更新，共 1 项",
+		"ℹ️ 漫剧热播榜已按官网名次更新，共 1 项",
+	} {
+		if count := strings.Count(log.Content, notice); count != 1 {
+			t.Fatalf("notice %q count=%d log=%q", notice, count, log.Content)
+		}
 	}
 	var count int64
 	if err := db.Model(&model.HongGuoDiscovery{}).Where("source_id = ?", "200").Count(&count).Error; err != nil || count != 1 {

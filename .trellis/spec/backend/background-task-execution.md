@@ -162,6 +162,10 @@ history is observability only; business object state owns retry and recovery.
   or a bracketed level label.
 - Progress messages are appended only when their text changes. Repeated updates
   still persist metrics and append new details without duplicating the same summary.
+- One update must not place the same text in both `Message` and `Details`:
+  `Message` is the progress line and `Details` are separate operator records.
+  A notice with no separate detail passes `Message` only; regression tests count
+  the resulting daily-log line exactly once.
 - Both `Details` and the error passed to `TaskHandle.Finish` are written to the
   per-task log. Provider errors must be sanitized before either value is passed;
   URLs and query strings are replaced with `[redacted-url]`.
