@@ -142,7 +142,6 @@ func (s *ScraperService) RefreshMetadataTMDb(ctx context.Context, metadataID str
 }
 
 // refreshSeasonEpisodesFromDetails 将季接口内的集摘要同步到已有本地单集。
-// 季接口没有集剧照原图，因此这里只更新详情、标识和快照，避免再次请求每一集。
 func (s *ScraperService) refreshSeasonEpisodesFromDetails(ctx context.Context, season *model.MetadataItem, details *TMDbSeasonDetails) error {
 	if season == nil || details == nil || season.ParentID == nil {
 		return nil
@@ -171,10 +170,21 @@ func (s *ScraperService) refreshSeasonEpisodesFromDetails(ctx context.Context, s
 		epPayload, err := json.Marshal(map[string]any{
 			"id": summary.ID, "episode_number": summary.EpisodeNumber, "name": summary.Name,
 			"overview": summary.Overview, "air_date": summary.AirDate,
-			"vote_average": summary.Rating, "runtime": summary.Runtime,
+			"vote_average": summary.Rating, "runtime": summary.Runtime, "still_path": summary.StillPath,
 		})
 		if err != nil {
 			return err
+		}
+		if source := tmdbOriginalImageURL(s.tmdb.imgCDN, summary.StillPath); source != "" {
+			if s.artwork == nil || s.artwork.imageProxy == nil {
+				return errors.New("artwork store unavailable")
+			}
+			if err := s.artwork.imageProxy.RemoveCached(source); err != nil {
+				return err
+			}
+			if _, err := s.artwork.ImportRemote(ctx, episode.ID, model.ArtworkTypeStill, "tmdb", source); err != nil {
+				return err
+			}
 		}
 		if err := s.repo.Metadata.ReplaceIdentifierWithSnapshot(ctx, episode.ID, "tmdb", model.MetadataKindEpisode, strconv.Itoa(summary.ID), epPayload, now); err != nil {
 			return err

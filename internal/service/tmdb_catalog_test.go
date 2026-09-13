@@ -27,7 +27,7 @@ func TestTMDbSeasonDetailsPreservesInventoryAndRawJSON(t *testing.T) {
 				t.Fatalf("append_to_response missing %s: %q", name, r.URL.RawQuery)
 			}
 		}
-		_, _ = io.WriteString(w, `{"id":99,"season_number":0,"name":"特别篇","overview":"","poster_path":"/season.jpg","external_ids":{"tvdb_id":123},"translations":{"translations":[{"iso_3166_1":"US","iso_639_1":"en","data":{"name":"Special Missions","overview":"Season-specific overview"}}]},"episodes":[{"id":1001,"episode_number":1,"name":"特别集"}],"future_field":{"kept":true}}`)
+		_, _ = io.WriteString(w, `{"id":99,"season_number":0,"name":"特别篇","overview":"","poster_path":"/season.jpg","external_ids":{"tvdb_id":123},"translations":{"translations":[{"iso_3166_1":"US","iso_639_1":"en","data":{"name":"Special Missions","overview":"Season-specific overview"}}]},"episodes":[{"id":1001,"episode_number":1,"name":"特别集","still_path":"/episode.jpg"}],"future_field":{"kept":true}}`)
 	}))
 	defer server.Close()
 	provider := newTMDbTestProvider(server.URL)
@@ -35,7 +35,7 @@ func TestTMDbSeasonDetailsPreservesInventoryAndRawJSON(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if details == nil || details.ID != 99 || details.SeasonNumber != 0 || len(details.Episodes) != 1 || details.Episodes[0].ID != 1001 {
+	if details == nil || details.ID != 99 || details.SeasonNumber != 0 || len(details.Episodes) != 1 || details.Episodes[0].ID != 1001 || details.Episodes[0].StillPath != "/episode.jpg" {
 		t.Fatalf("details = %#v", details)
 	}
 	if details.Name != "Special Missions" || details.Overview != "Season-specific overview" {

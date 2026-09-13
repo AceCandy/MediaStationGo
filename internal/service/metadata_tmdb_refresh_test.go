@@ -64,13 +64,17 @@ func TestRefreshMetadataTMDbOnlyUpdatesCurrentMetadata(t *testing.T) {
 		if requests == 1 {
 			cast = append(cast, map[string]any{"id": 100, "name": "演员", "character": "角色"})
 		}
-		_ = json.NewEncoder(w).Encode(map[string]any{
+		payload := map[string]any{
 			"id": id, "title": fmt.Sprintf("最新标题%d", requests), "name": fmt.Sprintf("最新标题%d", requests),
 			"overview": "最新简介", "runtime": 42, "season_number": 0, "vote_average": 8,
 			"release_date": "2026-09-06", "first_air_date": "2026-09-06", "air_date": "2026-09-06",
 			"credits":     map[string]any{"cast": cast, "crew": []any{}},
 			"poster_path": "/poster.png", "backdrop_path": "/backdrop.png", "still_path": "/still.png",
-		})
+		}
+		if r.URL.Path == "/tv/20/season/0" {
+			payload["episodes"] = []any{map[string]any{"id": 40, "episode_number": 1, "name": "季接口单集", "overview": "季接口简介", "air_date": "2026-09-07", "vote_average": 9, "runtime": 43, "still_path": "/episode.png"}}
+		}
+		_ = json.NewEncoder(w).Encode(payload)
 	}))
 	defer upstream.Close()
 	cfg := &config.Config{}
@@ -104,6 +108,17 @@ func TestRefreshMetadataTMDbOnlyUpdatesCurrentMetadata(t *testing.T) {
 			t.Fatalf("metadata identity or unrelated state changed: %#v", stored)
 		}
 		assertServiceTestTMDbSnapshot(t, repos, item.ID)
+		if item.ID == season.ID {
+			storedEpisode, err := repos.Metadata.FindByID(t.Context(), episode.ID)
+			if err != nil || storedEpisode == nil || storedEpisode.Title != "季接口单集" || storedEpisode.RuntimeSec != 43*60 {
+				t.Fatalf("season response did not refresh episode: %#v, err=%v", storedEpisode, err)
+			}
+			assertServiceTestTMDbSnapshot(t, repos, episode.ID)
+			hasStill, err := repos.Artwork.HasProviderArtwork(t.Context(), episode.ID, model.ArtworkTypeStill, "tmdb")
+			if err != nil || !hasStill {
+				t.Fatalf("season response did not refresh episode still: has=%v err=%v", hasStill, err)
+			}
+		}
 		if item.ID == movie.ID {
 			var creditCount int64
 			if err := db.Model(&model.MetadataCredit{}).Where("metadata_id = ?", item.ID).Count(&creditCount).Error; err != nil {
@@ -117,8 +132,8 @@ func TestRefreshMetadataTMDbOnlyUpdatesCurrentMetadata(t *testing.T) {
 	if requests != 5 {
 		t.Fatalf("requests = %d, want 5 including forced repeat", requests)
 	}
-	if imageRequests != 8 {
-		t.Fatalf("image requests = %d, want 8 including already-cached images", imageRequests)
+	if imageRequests != 9 {
+		t.Fatalf("image requests = %d, want 9 including season episode still and already-cached images", imageRequests)
 	}
 	afterMedia, err := repos.Media.FindByID(t.Context(), media.ID)
 	if err != nil || !reflect.DeepEqual(beforeMedia, afterMedia) {

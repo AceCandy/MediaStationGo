@@ -85,6 +85,7 @@ type TMDbEpisodeSummary struct {
 	AirDate       string
 	Rating        float32
 	Runtime       int
+	StillPath     string
 }
 
 // TMDbSeasonDetails 保存一季自身详情及其完整 Episode 清单。

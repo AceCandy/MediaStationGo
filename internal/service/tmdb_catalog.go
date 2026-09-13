@@ -64,6 +64,7 @@ func (t *TMDbProvider) parseTVSeasonDetails(raw []byte) (*TMDbSeasonDetails, err
 			AirDate       string  `json:"air_date"`
 			Rating        float32 `json:"vote_average"`
 			Runtime       int     `json:"runtime"`
+			StillPath     string  `json:"still_path"`
 		} `json:"episodes"`
 	}
 	if err := json.Unmarshal(raw, &response); err != nil {
@@ -80,7 +81,7 @@ func (t *TMDbProvider) parseTVSeasonDetails(raw []byte) (*TMDbSeasonDetails, err
 	details.Credits, details.LoadedCreditTypes = tmdbCreditsToPersonCredits(response.Credits, t.imgCDN, false)
 	for _, episode := range response.Episodes {
 		if episode.EpisodeNumber > 0 {
-			details.Episodes = append(details.Episodes, TMDbEpisodeSummary{ID: episode.ID, EpisodeNumber: episode.EpisodeNumber, Name: strings.TrimSpace(episode.Name), Overview: strings.TrimSpace(episode.Overview), AirDate: normalizeReleaseDate(episode.AirDate), Rating: episode.Rating, Runtime: episode.Runtime})
+			details.Episodes = append(details.Episodes, TMDbEpisodeSummary{ID: episode.ID, EpisodeNumber: episode.EpisodeNumber, Name: strings.TrimSpace(episode.Name), Overview: strings.TrimSpace(episode.Overview), AirDate: normalizeReleaseDate(episode.AirDate), Rating: episode.Rating, Runtime: episode.Runtime, StillPath: episode.StillPath})
 		}
 	}
 	return details, nil
