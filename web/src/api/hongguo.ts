@@ -27,7 +27,7 @@ export interface HongGuoDetail extends HongGuoWork {
   group?: { group_id: string; work_id: string; season_number: number }
 }
 
-export interface HongGuoListWork extends HongGuoWork { artwork_id: string; tags: string[] }
+export interface HongGuoListWork extends HongGuoWork { artwork_id: string; tags: string[]; hydrated: boolean }
 
 export interface HongGuoGroupInput { source_id: string; season_number: number }
 export interface HongGuoGroup { id: string; title: string; members: (HongGuoWork & { season_number: number })[] }

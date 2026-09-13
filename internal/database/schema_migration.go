@@ -11,8 +11,19 @@ import (
 
 // AutoMigrate creates tables for every model registered in the model package.
 func AutoMigrate(db *gorm.DB) error {
+	hadHongGuoArtwork := db.Migrator().HasTable(&model.HongGuoArtwork{})
+	if hadHongGuoArtwork {
+		if err := ensureHongGuoArtworkOwnership(db); err != nil {
+			return err
+		}
+	}
 	if err := db.AutoMigrate(model.AllModels()...); err != nil {
 		return err
+	}
+	if !hadHongGuoArtwork {
+		if err := ensureHongGuoArtworkOwnership(db); err != nil {
+			return err
+		}
 	}
 	if err := migrateLegacyTMDbEpisodeCheckedAt(db); err != nil {
 		return err
@@ -72,6 +83,57 @@ func AutoMigrate(db *gorm.DB) error {
 		return err
 	}
 	return EnsureTMDbRecheckTriggers(db)
+}
+
+// ensureHongGuoArtworkOwnership lets discovery posters enter the existing artwork queue.
+func ensureHongGuoArtworkOwnership(db *gorm.DB) error {
+	return db.Transaction(func(tx *gorm.DB) error {
+		if !tx.Migrator().HasColumn(&model.HongGuoArtwork{}, "SourceID") {
+			if err := tx.Exec(`ALTER TABLE hongguo_artworks ADD COLUMN source_id varchar(32)`).Error; err != nil {
+				return err
+			}
+		}
+		if err := tx.Exec(`UPDATE hongguo_artworks AS a
+SET source_id = w.source_id
+FROM hongguo_works AS w
+WHERE a.work_id = w.id AND a.source_id IS NULL`).Error; err != nil {
+			return err
+		}
+		var invalid int64
+		if err := tx.Raw(`SELECT COUNT(*) FROM hongguo_artworks
+WHERE person_id IS NULL AND work_id IS NOT NULL AND source_id IS NULL`).Scan(&invalid).Error; err != nil {
+			return err
+		}
+		if invalid > 0 {
+			return fmt.Errorf("cannot migrate hongguo artwork ownership: %d work posters lack a source ID", invalid)
+		}
+		var duplicates int64
+		if err := tx.Raw(`SELECT COUNT(*) FROM (
+  SELECT source_id FROM hongguo_artworks
+  WHERE source_id IS NOT NULL
+  GROUP BY source_id HAVING COUNT(*) > 1
+) AS duplicate_sources`).Scan(&duplicates).Error; err != nil {
+			return err
+		}
+		if duplicates > 0 {
+			return fmt.Errorf("cannot migrate hongguo artwork ownership: %d source IDs have duplicate posters", duplicates)
+		}
+		if err := tx.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS uidx_hongguo_artwork_source ON hongguo_artworks (source_id)`).Error; err != nil {
+			return err
+		}
+		if tx.Migrator().HasConstraint(&model.HongGuoArtwork{}, "chk_hongguo_artwork_owner") {
+			if err := tx.Migrator().DropConstraint(&model.HongGuoArtwork{}, "chk_hongguo_artwork_owner"); err != nil {
+				return err
+			}
+		}
+		if tx.Migrator().HasConstraint(&model.HongGuoArtwork{}, "chk_hongguo_artwork_owner_v2") {
+			return nil
+		}
+		return tx.Exec(`ALTER TABLE hongguo_artworks ADD CONSTRAINT chk_hongguo_artwork_owner_v2 CHECK (
+  (person_id IS NOT NULL AND work_id IS NULL AND source_id IS NULL)
+  OR (person_id IS NULL AND (source_id IS NOT NULL OR work_id IS NOT NULL))
+)`).Error
+	})
 }
 
 // retireEpisodeCredits 只清理集级人物关系，保留共享人物和来源快照。

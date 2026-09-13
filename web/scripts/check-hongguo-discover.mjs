@@ -24,7 +24,7 @@ const items = Array.from({ length: 18 }, (_, i) => ({
   id: `work-${i}`, source_id: `${90001 + i}`, title: titles[i % titles.length], kind: 'series',
   source_category: 'real-drama',
   artwork_id: i === 2 ? '' : `poster-${i}`, tags: ['都市', '成长', '家庭'],
-  update_text: `全${60 + i}集`, episode_count: 60 + i, rating: 8.5,
+  update_text: `全${60 + i}集`, episode_count: 60 + i, rating: 8.5, hydrated: i !== 0,
 }))
 
 try {
@@ -53,6 +53,11 @@ try {
   assert.ok(!state.requests.some((url) => url.includes('/discover/sections') || url.includes('/discover/feed')))
   assert.ok(!state.requests.some((url) => /\/works\/\d+/.test(url)))
   waitFor(`document.querySelector('button[aria-label="查看长风渡山河"]').innerText.includes('暂无海报')`)
+  assert.ok(evaluate(`document.querySelector('button[aria-label="查看长风渡山河"]').innerText.includes('待补齐')`))
+  const detailRequestsBefore = evaluate(`performance.getEntriesByType('resource').filter(r => r.name.includes('/catalogs/hongguo/works/')).length`)
+  browser('find', 'role', 'button', 'click', '--name', '查看长风渡山河', '--exact')
+  waitFor(`document.querySelector('[data-rht-toaster] [role="status"]')?.innerText.includes('红果资料不存在，已等待后续重试')`)
+  assert.equal(evaluate(`performance.getEntriesByType('resource').filter(r => r.name.includes('/catalogs/hongguo/works/')).length`), detailRequestsBefore)
   visit('/discover?system=hongguo&source=real-drama&category=都市')
   waitFor(`performance.getEntriesByType('resource').some(r=>r.name.includes('source_category=real-drama')&&r.name.includes('category=%E9%83%BD%E5%B8%82')&&r.name.includes('page=1'))`)
   assert.ok(evaluate(`document.querySelector('button[aria-label="查看长风渡山河"]').innerText.includes('真人剧')`))

@@ -14,6 +14,7 @@ import (
 // SaveDiscoveryPage 将整页摘要与下一页检查点一起提交；失败或取消不会跳过未保存的页。
 // 摘要只写发现表，不能覆盖详情、人物、图片或现有文件绑定。
 func (r *HongGuoRepository) SaveDiscoveryPage(ctx context.Context, works []hongguo.Work, state model.HongGuoSyncState) error {
+	now := time.Now().UTC()
 	rows := make([]model.HongGuoDiscovery, 0, len(works))
 	for _, work := range works {
 		if !hongguo.ValidID(work.SourceID) {
@@ -25,6 +26,11 @@ func (r *HongGuoRepository) SaveDiscoveryPage(ctx context.Context, works []hongg
 		if len(rows) > 0 {
 			if err := tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "source_id"}}, DoUpdates: clause.AssignmentColumns([]string{"source_category", "title", "overview", "cover_url", "episode_count", "update_text", "updated_at"})}).CreateInBatches(&rows, 100).Error; err != nil {
 				return err
+			}
+			for _, work := range works {
+				if err := saveHongGuoArtwork(tx, &work.SourceID, nil, nil, work.CoverURL, now); err != nil {
+					return err
+				}
 			}
 		}
 		return (&HongGuoRepository{db: tx}).SaveSyncState(ctx, state)
@@ -49,9 +55,15 @@ func (r *HongGuoRepository) ReplaceRank(ctx context.Context, rankKey, sourceCate
 	if sourceCategory != "" {
 		updates["source_category"] = gorm.Expr("CASE WHEN hongguo_discoveries.source_category = '' THEN EXCLUDED.source_category ELSE hongguo_discoveries.source_category END")
 	}
+	now := time.Now().UTC()
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "source_id"}}, DoUpdates: clause.Assignments(updates)}).CreateInBatches(&discoveries, 100).Error; err != nil {
 			return err
+		}
+		for _, work := range works {
+			if err := saveHongGuoArtwork(tx, &work.SourceID, nil, nil, work.CoverURL, now); err != nil {
+				return err
+			}
 		}
 		if err := tx.Where("rank_key = ?", rankKey).Delete(&model.HongGuoRankEntry{}).Error; err != nil {
 			return err

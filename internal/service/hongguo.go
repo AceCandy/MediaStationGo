@@ -18,6 +18,8 @@ const (
 	TaskKindHongGuoSync    = "hongguo_sync"
 	TaskKindHongGuoRefresh = "hongguo_refresh"
 	TaskKindHongGuoArtwork = "hongguo_artwork"
+	hongGuoRetryDelay      = time.Hour
+	hongGuoNotFoundDelay   = 72 * time.Hour
 )
 
 var ErrHongGuoRunning = errors.New("红果任务正在运行")
@@ -154,14 +156,18 @@ func (s *HongGuoService) Run(ctx context.Context, kind, sourceID string) error {
 	}
 	processed := int64(0)
 	failed := int64(0)
+	deferred := int64(0)
 	report := func(id string, itemErr error) {
 		processed++
 		detail := "✅ 红果 " + id
-		if itemErr != nil {
+		if errors.Is(itemErr, hongguo.ErrNotFound) {
+			deferred++
+			detail = fmt.Sprintf("⚠️ 红果 %s：资料不存在，已暂缓 3 天后重试", id)
+		} else if itemErr != nil {
 			failed++
 			detail = fmt.Sprintf("❌ 红果 %s：%v", id, sanitizeTaskLogError(itemErr))
 		}
-		task.Update(TaskUpdate{Message: fmt.Sprintf("已处理 %d 项，失败 %d 项", processed, failed), Details: []string{detail}, Metrics: map[string]int64{"processed": processed, "failed": failed, "succeeded": processed - failed}})
+		task.Update(TaskUpdate{Message: fmt.Sprintf("已处理 %d 项，失败 %d 项，暂缓 %d 项", processed, failed, deferred), Details: []string{detail}, Metrics: map[string]int64{"processed": processed, "failed": failed, "deferred": deferred, "succeeded": processed - failed - deferred}})
 	}
 	switch kind {
 	case TaskKindHongGuoSync:
@@ -191,14 +197,14 @@ func (s *HongGuoService) Run(ctx context.Context, kind, sourceID string) error {
 	if errors.Is(err, context.Canceled) {
 		finishErr = context.Canceled
 	}
-	message := fmt.Sprintf("本次处理 %d 项，失败 %d 项", processed, failed)
+	message := fmt.Sprintf("本次处理 %d 项，失败 %d 项，暂缓 %d 项", processed, failed, deferred)
 	if err != nil && !errors.Is(err, context.Canceled) {
 		message = fmt.Sprintf("任务失败：已处理 %d 项；具体原因见错误日志", processed)
 		if failed > 0 {
 			message = fmt.Sprintf("任务失败：已处理 %d 项，其中 %d 项失败", processed, failed)
 		}
 	}
-	task.Finish(finishErr, TaskUpdate{Message: message, Metrics: map[string]int64{"processed": processed, "failed": failed, "succeeded": processed - failed}})
+	task.Finish(finishErr, TaskUpdate{Message: message, Metrics: map[string]int64{"processed": processed, "failed": failed, "deferred": deferred, "succeeded": processed - failed - deferred}})
 	return err
 }
 
@@ -208,7 +214,11 @@ func (s *HongGuoService) refresh(ctx context.Context, id string) (err error) {
 			return
 		}
 		if err != nil {
-			if saveErr := s.repo.HongGuo.RecordSyncFailure(ctx, id); saveErr != nil {
+			delay := hongGuoRetryDelay
+			if errors.Is(err, hongguo.ErrNotFound) {
+				delay = hongGuoNotFoundDelay
+			}
+			if saveErr := s.repo.HongGuo.RecordSyncFailure(ctx, id, time.Now().Add(delay)); saveErr != nil {
 				err = errors.Join(errHongGuoCheckpoint, saveErr)
 			}
 		} else {
@@ -241,7 +251,7 @@ func (s *HongGuoService) discover(ctx context.Context, report func([]hongguo.Wor
 				page = 1
 			}
 			works, itemCount, err := s.client.Category(ctx, category, page)
-			if err != nil {
+			if err != nil && !errors.Is(err, hongguo.ErrNotFound) {
 				if page > 1 && errors.Is(err, hongguo.ErrNotFound) {
 					previous, previousCount, previousErr := s.client.Category(ctx, category, page-1)
 					if previousErr == nil && previousCount < hongguo.CategoryPageSize {
@@ -364,7 +374,7 @@ func (s *HongGuoService) refreshBatch(ctx context.Context, report func(string, e
 			if ctx.Err() != nil {
 				return ctx.Err()
 			}
-			if err != nil {
+			if err != nil && !errors.Is(err, hongguo.ErrNotFound) {
 				failures++
 			}
 			report(row.SourceID, err)
@@ -383,7 +393,9 @@ func (s *HongGuoService) refreshBatch(ctx context.Context, report func(string, e
 			if ctx.Err() != nil {
 				return ctx.Err()
 			}
-			failures++
+			if !errors.Is(err, hongguo.ErrNotFound) {
+				failures++
+			}
 			report(row.SourceID, err)
 		} else {
 			report(row.SourceID, nil)
@@ -407,7 +419,9 @@ func (s *HongGuoService) refreshBatch(ctx context.Context, report func(string, e
 			if ctx.Err() != nil {
 				return ctx.Err()
 			}
-			failures++
+			if !errors.Is(err, hongguo.ErrNotFound) {
+				failures++
+			}
 			report(work.SourceID, err)
 		} else {
 			report(work.SourceID, nil)

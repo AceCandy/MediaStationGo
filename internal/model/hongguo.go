@@ -94,10 +94,11 @@ type HongGuoSnapshot struct {
 
 func (HongGuoSnapshot) TableName() string { return "hongguo_snapshots" }
 
-// HongGuoArtwork 独立保存作品海报或人物头像及其下载待办，签名地址不向客户端公开。
+// HongGuoArtwork 独立保存发现/作品海报或人物头像及其下载待办，签名地址不向客户端公开。
 type HongGuoArtwork struct {
 	PermanentBase
-	WorkID        *string        `gorm:"size:36;uniqueIndex;check:chk_hongguo_artwork_owner,(work_id IS NULL) <> (person_id IS NULL)" json:"work_id,omitempty"`
+	SourceID      *string        `gorm:"size:32;uniqueIndex:uidx_hongguo_artwork_source" json:"-"`
+	WorkID        *string        `gorm:"size:36;uniqueIndex" json:"work_id,omitempty"`
 	PersonID      *string        `gorm:"size:36;uniqueIndex" json:"person_id,omitempty"`
 	SourceURL     string         `gorm:"type:text;not null" json:"-"`
 	LocalKey      string         `gorm:"type:text" json:"-"`

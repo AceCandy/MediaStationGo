@@ -44,7 +44,7 @@ func TestHongGuoDiscoveryCheckpointAndRetryIsolation(t *testing.T) {
 	if err != nil || len(rows) != 0 {
 		t.Fatalf("new rows crossed cutoff: %+v %v", rows, err)
 	}
-	if err := r.RecordSyncFailure(ctx, "96001"); err != nil {
+	if err := r.RecordSyncFailure(ctx, "96001", time.Now().Add(time.Hour)); err != nil {
 		t.Fatal(err)
 	}
 	if err := r.SaveDiscoveryPage(ctx, works, state); err != nil {
@@ -72,8 +72,8 @@ func TestHongGuoDiscoveryCheckpointAndRetryIsolation(t *testing.T) {
 	if err != nil || len(rows) != 0 {
 		t.Fatalf("completed queued again: %+v %v", rows, err)
 	}
-	if err := db.Model(&model.HongGuoArtwork{}).Count(&n).Error; err != nil || n != 0 {
-		t.Fatalf("summary created artwork: %d %v", n, err)
+	if err := db.Model(&model.HongGuoArtwork{}).Count(&n).Error; err != nil || n != 1 {
+		t.Fatalf("summary artwork missing or duplicated: %d %v", n, err)
 	}
 	if err := r.ReplaceRank(ctx, "hot-drama", "", []hongguo.Work{{SourceID: "96001", Title: "总榜摘要"}}); err != nil {
 		t.Fatal(err)

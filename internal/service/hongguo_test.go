@@ -337,3 +337,64 @@ func TestHongGuoRefreshRetriesAndShutdown(t *testing.T) {
 		t.Fatal("cancellation became a source failure")
 	}
 }
+
+func TestHongGuoNotFoundIsDeferredWithoutFailingBatch(t *testing.T) {
+	db, err := testdb.OpenPostgres(t, &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(model.AllModels()...); err != nil {
+		t.Fatal(err)
+	}
+	ctx := t.Context()
+	repos := repository.New(db)
+	if err := repos.HongGuo.SaveDiscoveryPage(ctx, []hongguo.Work{{SourceID: "92001", Title: "待补齐"}, {SourceID: "92002", Title: "可补齐"}}, model.HongGuoSyncState{Category: "real-drama", NextPage: 1}); err != nil {
+		t.Fatal(err)
+	}
+	tasks := NewTaskTrackerService(zap.NewNop(), nil)
+	tasks.ConfigurePersistence(repos.TaskExecution, t.TempDir())
+	s := NewHongGuoService(repos, tasks, nil, t.TempDir())
+	notFound := true
+	requests := map[string]int{}
+	s.client = hongguo.NewClient(&http.Client{Transport: hongGuoTestTransport(func(r *http.Request) (*http.Response, error) {
+		id := r.URL.Query().Get("series_id")
+		requests[id]++
+		if id == "92001" && notFound {
+			return &http.Response{StatusCode: http.StatusNotFound, Body: http.NoBody, Header: make(http.Header), Request: r}, nil
+		}
+		body := fmt.Sprintf(`_ROUTER_DATA={"loaderData":{"detail_page":{"seriesDetail":{"series_id":%q,"series_name":"补齐成功","episode_cnt":1}}}}`, id)
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header), Request: r}, nil
+	})})
+	retryStarted := time.Now()
+	if err := s.Run(ctx, TaskKindHongGuoRefresh, ""); err != nil {
+		t.Fatalf("404-only deferred item failed batch: %v", err)
+	}
+	if requests["92001"] != 1 || requests["92002"] != 1 {
+		t.Fatalf("404 blocked later work: %v", requests)
+	}
+	var failure model.HongGuoSyncFailure
+	if err := db.First(&failure, "source_id = ?", "92001").Error; err != nil || failure.RetryAt.Before(retryStarted.Add(72*time.Hour-time.Minute)) || failure.RetryAt.After(time.Now().Add(72*time.Hour+time.Minute)) {
+		t.Fatalf("404 retry is not about 72 hours later: %+v %v", failure, err)
+	}
+	if _, err := repos.HongGuo.FindBySourceID(ctx, "92001"); !errors.Is(err, gorm.ErrRecordNotFound) {
+		t.Fatalf("404 created a fake work: %v", err)
+	}
+	page, err := tasks.ListSystem(model.TaskSystemHongGuo, 1, 10)
+	if err != nil || len(page.Items) != 1 || page.Items[0].Status != TaskStatusCompleted || page.Items[0].Metrics["deferred"] != 1 || page.Items[0].Metrics["failed"] != 0 {
+		t.Fatalf("deferred task result: %+v %v", page, err)
+	}
+	if err := s.Run(ctx, TaskKindHongGuoRefresh, ""); err != nil || requests["92001"] != 1 {
+		t.Fatalf("72-hour cooldown ignored: %v %v", requests, err)
+	}
+	notFound = false
+	if err := db.Model(&failure).Update("retry_at", time.Now().Add(-time.Minute)).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Run(ctx, TaskKindHongGuoRefresh, ""); err != nil || requests["92001"] != 2 {
+		t.Fatalf("due 404 retry did not recover: %v %v", requests, err)
+	}
+	var failures int64
+	if err := db.Model(&model.HongGuoSyncFailure{}).Count(&failures).Error; err != nil || failures != 0 {
+		t.Fatalf("successful retry retained failure: %d %v", failures, err)
+	}
+}

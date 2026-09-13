@@ -25,7 +25,8 @@ provider and not a source of remote playable streams.
   `works/:id/media`, `groups`, `libraries/:id`, `me`, `pending`, `status`,
   `cancel`, and `artwork/:id` are registered in `handler/hongguo.go`.
 - `GET works` returns paginated `HongGuoListWork`: existing public work fields
-  plus local `artwork_id` and parsed `tags`. One LEFT JOIN loads artwork IDs;
+  plus local `artwork_id`, parsed `tags`, and `hydrated`. It merges canonical
+  works with discovery-only summaries by `source_id` before count/pagination;
   do not fetch each work's full detail to build poster cards.
 - `GET works` accepts optional `source_category=real-drama|comic-drama|ai-drama`,
   optional `category=<allowlisted exact tag for that source category>`, or one
@@ -52,9 +53,10 @@ provider and not a source of remote playable streams.
   exclude upstream image URLs and credentials. Retain an old image until its
   replacement succeeds. Missing local images enqueue repair.
 - `Client.Category` returns list summaries, not authoritative details.
-  `SaveDiscoveryPage` batch-upserts summaries and the next-page checkpoint in
-  one transaction. It never calls detail HTTP, writes canonical works, generates
-  episodes/artwork, or rebinds files. Task updates are emitted once per page.
+  `SaveDiscoveryPage` batch-upserts summaries, source-ID artwork download rows,
+  and the next-page checkpoint in one transaction. It never calls detail HTTP,
+  writes canonical works, generates episodes, or rebinds files. Empty cover URLs
+  create no artwork row. Task updates are emitted once per page.
 - `SaveDiscoveryPage` copies the current source category into every discovery
   row. `SaveDetail` carries it into the hydrated work by source ID and preserves
   an existing non-empty value for direct-ID refreshes. Never infer this field
@@ -93,8 +95,10 @@ provider and not a source of remote playable streams.
   up to 50 failures selected at start and refreshes up to 100 existing works
   older than 24 hours using the persistent refresh cursor. Later discoveries
   wait for the next run; explicit source-ID refresh bypasses that cooldown.
-  Only hydrated works appear in the existing Web/Emby catalog; discovery rows
-  cannot be grouped or bound. Repeated discovery cannot overwrite details.
+  Discovery-only rows appear as read-only Web cards with `hydrated=false`, but
+  remain absent from Emby, detail, grouping, playback, and binding projections.
+  Their click path reports that source details do not exist. Repeated discovery
+  cannot overwrite canonical details or a canonical work's poster URL.
 - Discovery, refresh and artwork each have independent task slots and may run
   together. Each slot rejects duplicate runs. Cancel, disable and shutdown
   cancel all three slots; shutdown joins all three before DB close.
@@ -104,6 +108,16 @@ provider and not a source of remote playable streams.
   business tables, not task logs. Normal refresh excludes failed IDs; only due
   retries request them. Successful due retries are not repeated in the same run.
   Cancellation retains `context.Canceled` identity and finishes interrupted.
+- Detail HTTP 404 records `retry_at` at about 72 hours from the completed attempt,
+  increments the task's `deferred` metric, and does not increment batch `failed`;
+  other detail errors retain the one-hour retry and failed-batch behavior. A
+  successful due retry clears the failure row. Existing works and episodes are
+  untouched until a new detail response is parsed and saved successfully.
+- Existing `hongguo_artworks` tables add/backfill/check/index `source_id` and
+  replace their owner constraint inside one transaction before generic
+  `AutoMigrate`; fresh databases add the owner constraint after table creation.
+  The compatible constraint accepts source-only discovery posters and legacy
+  work-only posters, but rejects ownerless rows.
 - Disabling stops source tasks and new bindings; a disabled file upsert rolls
   back rather than replacing an existing binding. Existing files, metadata and
   user state remain readable. No destructive uninstall is provided.
@@ -148,6 +162,8 @@ provider and not a source of remote playable streams.
 | Detail/image network failure | Preserve successful data; independent retry |
 | Discovery checkpoint write fails | Roll back the entire summary page |
 | Discovery repeats a failed or hydrated ID | Preserve failure cooldown and authoritative work |
+| Detail HTTP 404 | Keep the summary/previous work, retry after 72 hours, count as deferred, and continue the batch |
+| Other detail failure | Keep successful data, retry after one hour, and fail the batch after processing later items |
 | Discovery page has no unseen IDs this run, or nonempty page 10000 | Fail explicitly; do not claim full coverage or reset to page 1 |
 | Category page has fewer than 24 raw entries | Save summaries and reset that category to page 1 in one transaction |
 | Category page N > 1 is 404 and page N-1 is still short | Re-save the short page, reset to page 1, and log the recovery context |
@@ -169,6 +185,10 @@ provider and not a source of remote playable streams.
 - Good: one source work appears in both `hot-drama` and its type rank with each
   official position preserved. Bad: storing rank identity in the single-valued
   `source_category`, or deleting the old rank before every source page succeeds.
+- Good: a discovery-only summary shows its local poster and a pending badge;
+  clicking it reports missing source details without requesting or fabricating
+  detail/episodes. Base: a summary with no cover uses the existing placeholder.
+  Bad: treating the summary episode count as authoritative playable episodes.
 - Good: `GET works?source_category=ai-drama` filters the persisted upstream
   category. Base: an old direct-ID work with an empty category remains visible
   under 全部. Bad: guessing that work is AI-generated from its title or tags.
@@ -190,7 +210,12 @@ provider and not a source of remote playable streams.
   regular cooldown and explicit-ID bypass.
 - `TestHongGuoDiscoveryCheckpointAndRetryIsolation`: atomic page rollback,
   fixed cutoff, failure cooldown, durable pending recovery, source-category
-  propagation and no summary artwork.
+  propagation and one source-ID artwork row per summary cover.
+- `TestHongGuoArtworkOwnershipMigration`: legacy poster source-ID backfill,
+  duplicate-source rollback, idempotence, source-only/ownerless/work-only
+  constraint behavior.
+- `TestHongGuoNotFoundIsDeferredWithoutFailingBatch`: later-item continuation,
+  72-hour cooldown, deferred task metrics, no fake work, and due-retry recovery.
 - `TestHongGuoDiscoveryScansUntilCategoryEnd`: all three collected categories pass page 20,
   short/empty-page termination, saved-next-page 404 recovery, first/middle 404
   preservation, repeated-page rejection and nonempty-limit failure.
@@ -223,6 +248,12 @@ Wrong: call `SaveDetail` with a classification inferred from a category summary.
 
 Correct: save the summary in `hongguo_discoveries`; `PendingDiscoveries` hands
 the ID to the existing detail parser/transaction before media binding is allowed.
+
+Wrong: create a placeholder `hongguo_work` or episodes so a discovery summary can
+appear in Web lists.
+
+Correct: union the summary into the list projection with `hydrated=false`, reuse
+the source-ID artwork queue, and keep all detail/binding APIs canonical-only.
 
 Wrong: treat every page-N 404 as completion, or compare the filtered work count
 with 24. Either can skip later pages.

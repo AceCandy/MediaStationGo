@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/ShukeBta/MediaStationGo/internal/hongguo"
@@ -15,8 +16,8 @@ import (
 // HongGuoRepository 仅操作红果资料表；公共媒体通过独立绑定接入。
 type HongGuoRepository struct{ db *gorm.DB }
 
-func (r *HongGuoRepository) RecordSyncFailure(ctx context.Context, sourceID string) error {
-	row := model.HongGuoSyncFailure{SourceID: sourceID, Attempts: 1, RetryAt: time.Now().Add(time.Hour)}
+func (r *HongGuoRepository) RecordSyncFailure(ctx context.Context, sourceID string, retryAt time.Time) error {
+	row := model.HongGuoSyncFailure{SourceID: sourceID, Attempts: 1, RetryAt: retryAt}
 	return r.db.WithContext(ctx).Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "source_id"}}, DoUpdates: clause.Assignments(map[string]any{"attempts": gorm.Expr("hongguo_sync_failures.attempts + 1"), "retry_at": row.RetryAt, "updated_at": time.Now()})}).Create(&row).Error
 }
 
@@ -100,11 +101,11 @@ func (r *HongGuoRepository) SaveDetail(ctx context.Context, input hongguo.Work) 
 			if err := tx.Create(&credit).Error; err != nil {
 				return err
 			}
-			if err := saveHongGuoArtwork(tx, nil, &person.ID, p.AvatarURL, now); err != nil {
+			if err := saveHongGuoArtwork(tx, nil, nil, &person.ID, p.AvatarURL, now); err != nil {
 				return err
 			}
 		}
-		if err := saveHongGuoArtwork(tx, &work.ID, nil, input.CoverURL, now); err != nil {
+		if err := saveHongGuoArtwork(tx, &input.SourceID, &work.ID, nil, input.CoverURL, now); err != nil {
 			return err
 		}
 		snapshot := model.HongGuoSnapshot{WorkID: work.ID, Payload: string(input.Snapshot), FetchedAt: now}
@@ -116,20 +117,44 @@ func (r *HongGuoRepository) SaveDetail(ctx context.Context, input hongguo.Work) 
 	return &work, nil
 }
 
-func saveHongGuoArtwork(tx *gorm.DB, workID, personID *string, sourceURL string, now time.Time) error {
-	if sourceURL == "" {
-		return nil
-	}
-	owner := "work_id"
+func saveHongGuoArtwork(tx *gorm.DB, sourceID, workID, personID *string, sourceURL string, now time.Time) error {
 	if personID != nil {
-		owner = "person_id"
+		if sourceURL == "" {
+			return nil
+		}
+		asset := model.HongGuoArtwork{PersonID: personID, SourceURL: sourceURL, NextAttemptAt: &now}
+		return tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "person_id"}}, DoUpdates: clause.Assignments(hongGuoArtworkUpdates(sourceURL, now))}).Create(&asset).Error
 	}
-	asset := model.HongGuoArtwork{WorkID: workID, PersonID: personID, SourceURL: sourceURL, NextAttemptAt: &now}
-	return tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: owner}}, DoUpdates: clause.Assignments(map[string]any{
+	if sourceID == nil {
+		return errors.New("红果海报缺少来源 ID")
+	}
+	if sourceURL == "" {
+		if workID == nil {
+			return nil
+		}
+		return tx.Model(&model.HongGuoArtwork{}).Where("source_id = ?", *sourceID).Update("work_id", *workID).Error
+	}
+	asset := model.HongGuoArtwork{SourceID: sourceID, WorkID: workID, SourceURL: sourceURL, NextAttemptAt: &now}
+	updates := hongGuoArtworkUpdates(sourceURL, now)
+	if workID == nil {
+		updates = map[string]any{
+			"source_url":      gorm.Expr("CASE WHEN hongguo_artworks.work_id IS NULL THEN EXCLUDED.source_url ELSE hongguo_artworks.source_url END"),
+			"updated_at":      gorm.Expr("CASE WHEN hongguo_artworks.work_id IS NULL THEN EXCLUDED.updated_at ELSE hongguo_artworks.updated_at END"),
+			"next_attempt_at": gorm.Expr("CASE WHEN hongguo_artworks.work_id IS NULL AND (hongguo_artworks.source_url <> EXCLUDED.source_url OR hongguo_artworks.local_key = '') THEN EXCLUDED.next_attempt_at ELSE hongguo_artworks.next_attempt_at END"),
+			"attempts":        gorm.Expr("CASE WHEN hongguo_artworks.work_id IS NULL AND hongguo_artworks.source_url <> EXCLUDED.source_url THEN 0 ELSE hongguo_artworks.attempts END"),
+		}
+	} else {
+		updates["work_id"] = *workID
+	}
+	return tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "source_id"}}, DoUpdates: clause.Assignments(updates)}).Create(&asset).Error
+}
+
+func hongGuoArtworkUpdates(sourceURL string, now time.Time) map[string]any {
+	return map[string]any{
 		"source_url": sourceURL, "updated_at": now,
 		"next_attempt_at": gorm.Expr("CASE WHEN hongguo_artworks.source_url <> EXCLUDED.source_url OR hongguo_artworks.local_key = '' THEN EXCLUDED.next_attempt_at ELSE hongguo_artworks.next_attempt_at END"),
 		"attempts":        gorm.Expr("CASE WHEN hongguo_artworks.source_url <> EXCLUDED.source_url THEN 0 ELSE hongguo_artworks.attempts END"),
-	})}).Create(&asset).Error
+	}
 }
 
 func (r *HongGuoRepository) FindBySourceID(ctx context.Context, id string) (*model.HongGuoWork, error) {
@@ -143,9 +168,10 @@ type HongGuoListWork struct {
 	model.HongGuoWork
 	ArtworkID string   `json:"artwork_id"`
 	TagList   []string `gorm:"-" json:"tags"`
+	Hydrated  bool     `json:"hydrated"`
 }
 
-// List 先分页作品，不在资料列表中加载全部分集、人物或图片原始地址。
+// List 在数据库分页前合并正式作品和仅发现摘要，不加载分集、人物或图片原始地址。
 func (r *HongGuoRepository) List(ctx context.Context, search, sourceCategory, category, rank string, page, pageSize int) ([]HongGuoListWork, int64, error) {
 	if page < 1 || page > 1000000 || pageSize < 1 || pageSize > 100 {
 		return nil, 0, errors.New("分页参数无效")
@@ -153,36 +179,54 @@ func (r *HongGuoRepository) List(ctx context.Context, search, sourceCategory, ca
 	if rank != "" && !hongguo.ValidRank(rank) {
 		return nil, 0, errors.New("榜单类型无效")
 	}
-	order := "hongguo_works.created_at DESC, hongguo_works.id DESC"
+	order := "catalog.created_at DESC, catalog.id DESC"
 	if rank != "" {
-		order = "rank_entry.position ASC, hongguo_works.id ASC"
+		order = "rank_entry.position ASC, catalog.source_id ASC"
 	}
-	query := func() *gorm.DB {
-		q := r.db.WithContext(ctx).Model(&model.HongGuoWork{})
-		if rank != "" {
-			q = q.Joins("JOIN hongguo_rank_entries rank_entry ON rank_entry.source_id = hongguo_works.source_id AND rank_entry.rank_key = ?", rank)
-		}
-		if search != "" {
-			q = q.Where("POSITION(LOWER(?) IN LOWER(title)) > 0 OR source_id = ?", search, search)
-		}
-		if sourceCategory != "" {
-			q = q.Where("source_category = ?", sourceCategory)
-		} else {
-			q = q.Where("source_category IS NULL OR source_category <> ?", "comic")
-		}
-		if category != "" {
-			q = q.Where("jsonb_exists(tags::jsonb, ?)", category)
-		}
-		return q
+	const catalog = `WITH catalog AS (
+SELECT w.id, w.source_id, w.source_category, w.kind, w.title, w.overview, w.tags,
+       w.episode_count, w.total_episodes, w.accessible_episodes, w.update_text,
+       w.source_status, w.completed, w.first_visible_at, w.rating, w.rating_count,
+       w.refreshed_at, w.created_at, w.updated_at, TRUE AS hydrated
+FROM hongguo_works AS w
+UNION ALL
+SELECT d.source_id AS id, d.source_id, d.source_category, '' AS kind, d.title, d.overview, '[]' AS tags,
+       d.episode_count, 0 AS total_episodes, 0 AS accessible_episodes, d.update_text,
+       '' AS source_status, FALSE AS completed, NULL::timestamptz AS first_visible_at,
+       0::real AS rating, 0::bigint AS rating_count, TIMESTAMPTZ '0001-01-01 00:00:00+00' AS refreshed_at,
+       d.created_at, d.updated_at, FALSE AS hydrated
+FROM hongguo_discoveries AS d
+WHERE NOT EXISTS (SELECT 1 FROM hongguo_works AS w WHERE w.source_id = d.source_id)
+)`
+	joins := " FROM catalog"
+	args := []any{}
+	if rank != "" {
+		joins += " JOIN hongguo_rank_entries AS rank_entry ON rank_entry.source_id = catalog.source_id AND rank_entry.rank_key = ?"
+		args = append(args, rank)
 	}
+	conditions := []string{"(catalog.source_category IS NULL OR catalog.source_category <> 'comic')"}
+	if search != "" {
+		conditions = append(conditions, "(POSITION(LOWER(?) IN LOWER(catalog.title)) > 0 OR catalog.source_id = ?)")
+		args = append(args, search, search)
+	}
+	if sourceCategory != "" {
+		conditions = append(conditions, "catalog.source_category = ?")
+		args = append(args, sourceCategory)
+	}
+	if category != "" {
+		conditions = append(conditions, "catalog.hydrated AND jsonb_exists(catalog.tags::jsonb, ?)")
+		args = append(args, category)
+	}
+	where := " WHERE " + strings.Join(conditions, " AND ")
 	var total int64
-	if err := query().Count(&total).Error; err != nil {
+	if err := r.db.WithContext(ctx).Raw(catalog+" SELECT COUNT(*)"+joins+where, args...).Scan(&total).Error; err != nil {
 		return nil, 0, err
 	}
 	rows := make([]HongGuoListWork, 0)
-	err := query().Select("hongguo_works.*, COALESCE(a.id, '') AS artwork_id").
-		Joins("LEFT JOIN hongguo_artworks a ON a.work_id = hongguo_works.id").
-		Order(order).Offset((page - 1) * pageSize).Limit(pageSize).Scan(&rows).Error
+	listArgs := append(append([]any{}, args...), pageSize, (page-1)*pageSize)
+	err := r.db.WithContext(ctx).Raw(catalog+" SELECT catalog.*, COALESCE(a.id, '') AS artwork_id"+joins+
+		" LEFT JOIN hongguo_artworks AS a ON a.source_id = catalog.source_id"+where+
+		" ORDER BY "+order+" LIMIT ? OFFSET ?", listArgs...).Scan(&rows).Error
 	if err != nil {
 		return nil, 0, err
 	}
