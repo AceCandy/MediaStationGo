@@ -27,6 +27,7 @@ const LIBRARY_TYPE_LABELS: Record<string, string> = {
   music: '音乐',
   nfo_movie: '非常规电影',
   nfo_tv: '非常规剧集',
+  hongguo: '红果短剧',
 }
 
 function libraryTypeLabel(type: string): string {

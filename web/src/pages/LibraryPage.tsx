@@ -14,6 +14,7 @@ import { LibrarySeriesDetailSection } from './LibrarySeriesDetailSection'
 import { useLibraryData } from './useLibraryData'
 import { useLibrarySeriesSelection } from './useLibrarySeriesSelection'
 import { useLibraryAdminActions } from './useLibraryAdminActions'
+import { HongGuoLibraryView } from './HongGuoPage'
 
 export function LibraryPage() {
   const { id = '' } = useParams()
@@ -34,19 +35,6 @@ export function LibraryPage() {
 
   // 网格卡片收藏：整页拉一次收藏列表（API 层有 5s 缓存），本地维护 id 集合
   const [favouriteIds, setFavouriteIds] = useState<ReadonlySet<string>>(() => new Set())
-
-  useEffect(() => {
-    let cancelled = false
-    playbackAPI
-      .listFavourites()
-      .then((list) => {
-        if (!cancelled) setFavouriteIds(new Set(list.map((item) => item.metadata_id || item.id)))
-      })
-      .catch(() => {})
-    return () => {
-      cancelled = true
-    }
-  }, [])
 
   const handleToggleFavourite = (media: Media) => {
     playbackAPI
@@ -88,6 +76,15 @@ export function LibraryPage() {
   const loadMoreRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
+    if (!library || library.type === 'hongguo') return
+    let cancelled = false
+    playbackAPI.listFavourites().then((list) => {
+      if (!cancelled) setFavouriteIds(new Set(list.map((item) => item.metadata_id || item.id)))
+    }).catch(() => {})
+    return () => { cancelled = true }
+  }, [library])
+
+  useEffect(() => {
     const target = loadMoreRef.current
     if (!target || !hasMore || loadingMore || loadMoreError || selectedSeries) return
     const observer = new IntersectionObserver(([entry]) => {
@@ -127,6 +124,8 @@ export function LibraryPage() {
     reloadCurrentLibrary,
     clearSelectedSeries,
   })
+
+  if (library?.type === 'hongguo') return <HongGuoLibraryView key={library.id} libraryID={library.id} title={library.name} />
 
   if (loading) {
     return (

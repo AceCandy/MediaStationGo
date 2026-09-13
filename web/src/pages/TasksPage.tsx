@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { Link, useSearchParams } from 'react-router-dom'
 import toast from 'react-hot-toast'
 import { Activity, ChevronLeft, ChevronRight, FileText, Play, RefreshCw, Search, Settings, Trash2, X } from 'lucide-react'
 
 import { libraryAPI, mediaAPI, type MediaScrapeIssue, type STRMDeleteTarget } from '../api/library'
-import { tasksAPI, type BackgroundTask, type TaskDefinition, type TaskLog } from '../api/tasks'
+import { tasksAPI, type BackgroundTask, type TaskDefinition, type TaskLog, type TaskSystem } from '../api/tasks'
+import { hongguoAPI } from '../api/hongguo'
 import { confirmAction } from '../components/confirmAction'
 import { ManualScrapeDialog } from '../components/ManualScrapeDialog'
 import { ModalShell } from '../components/ModalShell'
@@ -56,6 +58,9 @@ function scheduleText(definition: TaskDefinition): string {
 
 function taskProgressText(definition: TaskDefinition): string {
   const metrics = (definition.current ?? definition.latest)?.metrics
+  if (definition.system === 'hongguo' && typeof metrics?.processed === 'number') {
+    return `已处理 ${metrics.processed}${typeof metrics.failed === 'number' ? ` · 失败待重试 ${metrics.failed}` : ''}`
+  }
   if (definition.key === 'tmdb_episode_metadata_recheck' && typeof metrics?.remaining === 'number') {
     const seasons = typeof metrics.seasons_scanned === 'number' ? `已领取 ${metrics.seasons_scanned} 季 · ` : ''
     return `${seasons}已核对 ${metrics.scanned ?? 0} 条元数据 · 剩余到期 ${metrics.remaining}（30 秒更新） · 失败待重试 ${metrics.failed ?? 0}`
@@ -603,6 +608,18 @@ function ScrapeIssuesPanel({ libraries, onClose }: { libraries: Library[]; onClo
 }
 
 export function TasksPage() {
+	const [params, setParams] = useSearchParams()
+	const values = params.getAll('system')
+	const system: TaskSystem = values.length === 1 && (values[0] === 'common' || values[0] === 'hongguo') ? values[0] : 'catalog'
+	useEffect(() => {
+		if (values.length > 1 || (values.length === 1 && values[0] !== system)) {
+			const next = new URLSearchParams(params); next.set('system', system); setParams(next, { replace: true })
+		}
+	}, [params, setParams, system, values])
+	return <TasksSystemPage key={system} system={system} onSystemChange={(value) => { const next = new URLSearchParams(params); next.set('system', value); setParams(next) }} />
+}
+
+function TasksSystemPage({ system, onSystemChange }: { system: TaskSystem; onSystemChange: (value: string) => void }) {
 	const [definitions, setDefinitions] = useState<TaskDefinition[] | null>(null)
 	const [loadError, setLoadError] = useState(false)
   const [logDefinition, setLogDefinition] = useState<TaskDefinition | null>(null)
@@ -617,17 +634,19 @@ export function TasksPage() {
 	const [scrapeLibraryID, setScrapeLibraryID] = useState('')
 	const runPending = useRef(false)
 
-	const refresh = () => tasksAPI.snapshot(1, 1).then((value) => { setDefinitions(value.definitions ?? []); setLoadError(false) })
+	const refresh = () => tasksAPI.snapshot(1, 1, system).then((value) => { setDefinitions(value.definitions ?? []); setLoadError(false) })
   useEffect(() => {
     let active = true
-		const tick = () => tasksAPI.snapshot(1, 1).then((value) => { if (active) { setDefinitions(value.definitions ?? []); setLoadError(false) } }).catch(() => { if (active) setLoadError(true) })
+		const controller = new AbortController()
+		const tick = () => tasksAPI.snapshot(1, 1, system, controller.signal).then((value) => { if (active) { setDefinitions(value.definitions ?? []); setLoadError(false) } }).catch(() => { if (active) setLoadError(true) })
     void tick()
     const id = window.setInterval(tick, 3_000)
-    return () => { active = false; window.clearInterval(id) }
-  }, [])
+    return () => { active = false; controller.abort(); window.clearInterval(id) }
+  }, [system])
   useEffect(() => {
+    if (system === 'hongguo') return
     libraryAPI.list({ includeHidden: true }).then(setLibraries).catch(() => setLibraries([]))
-  }, [])
+  }, [system])
   const refreshPendingCounts = () => Promise.all([
     tasksAPI.recheckSummary(),
     mediaAPI.listScrapeIssues({ page: 1, pageSize: 1 }),
@@ -635,10 +654,26 @@ export function TasksPage() {
     rechecks: Object.entries(rechecks.counts).reduce((total, [status, count]) => status === 'done' ? total : total + count, 0),
     scrapeIssues: scrapeIssues.total,
   }))
-  useEffect(() => { void refreshPendingCounts().catch(() => undefined) }, [])
+  useEffect(() => { if (system === 'catalog') void refreshPendingCounts().catch(() => undefined) }, [system])
   const closePending = () => {
     setPendingDefinition(null)
     void refreshPendingCounts().catch(() => undefined)
+  }
+
+  const cancelHongGuo = async () => {
+    if (runPending.current) return
+    runPending.current = true
+    setRunning('hongguo_cancel')
+    try {
+      await hongguoAPI.cancel()
+      toast.success('已请求取消所有红果任务，已保存的资料和检查点将保留')
+      await refresh().catch(() => setLoadError(true))
+    } catch {
+      toast.error('红果任务取消失败，请重试')
+    } finally {
+      runPending.current = false
+      setRunning('')
+    }
   }
 
   const run = async (definition: TaskDefinition) => {
@@ -683,6 +718,16 @@ export function TasksPage() {
   return (
     <div className="space-y-6">
       <header className="flex items-center gap-3"><Activity className="h-6 w-6 text-brand-500" /><div><h1 className="font-display text-3xl font-bold text-ink-600">任务中心</h1><p className="text-sm text-ink-50">查看后台任务状态、调度与最近执行结果。</p></div></header>
+      <div className="flex flex-wrap gap-2 border-b border-[var(--app-border)]" role="group" aria-label="任务体系">
+        {([['common', '公共任务'], ['catalog', '现有资料体系'], ['hongguo', '红果短剧']] as const).map(([value, label]) => (
+          <button key={value} type="button" aria-pressed={system === value} onClick={() => { if (system !== value) onSystemChange(value) }}
+            className={`min-h-11 border-b-2 px-3 py-2 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 ${system === value ? 'border-brand-500 text-brand-500' : 'border-transparent text-ink-50 hover:border-brand-500/40 hover:text-ink-600'}`}>
+            {label}
+          </button>
+        ))}
+      </div>
+      {system === 'hongguo' && <button type="button" className="btn-outline" disabled={Boolean(running) || !definitions?.some((definition) => definition.current_state === 'running')} onClick={() => void cancelHongGuo()}>取消所有红果任务</button>}
+      {system === 'hongguo' && <Link className="btn-outline" to="/discover?system=hongguo&pending=1">查看红果待匹配文件</Link>}
 		<section className="glass-panel">
 			{loadError && !definitions ? <div className="flex flex-col items-center gap-3 py-8 text-sm text-ink-50"><p>任务列表加载失败。</p><button type="button" className="rounded border border-gray-200 p-2 text-sand-600 hover:text-brand-500" title="重新加载" aria-label="重新加载" onClick={() => void refresh()}><RefreshCw size={16} /></button></div> : !definitions ? <p className="py-8 text-center text-ink-50">加载中...</p> : definitions.length === 0 ? <p className="py-8 text-center text-ink-50">暂无任务。</p> : <DefinitionTable definitions={definitions} running={running} libraries={libraries} scanLibraryID={scanLibraryID} onScanLibraryChange={setScanLibraryID} probeLibraryID={probeLibraryID} onProbeLibraryChange={setProbeLibraryID} probeLimit={probeLimit} onProbeLimitChange={setProbeLimit} scrapeLibraryID={scrapeLibraryID} onScrapeLibraryChange={setScrapeLibraryID} onRun={(definition) => void run(definition)} onLog={setLogDefinition} onSchedule={setScheduleDefinition} onPending={setPendingDefinition} pendingCounts={pendingCounts} />}
       </section>

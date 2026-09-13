@@ -235,7 +235,7 @@ func embySaveDisplayPreferencesHandler(_ *service.Container) gin.HandlerFunc {
 func embyShowSeasonsHandler(svc *service.Container) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		params := service.ItemsParams{
-			UserID:   firstQueryValue(c, "UserId", "userId"),
+			UserID:   embyFirstNonEmptyString(firstQueryValue(c, "UserId", "userId"), embyUserID(c)),
 			ParentID: c.Param("id"),
 			Limit:    500,
 		}
@@ -256,7 +256,7 @@ func embyShowEpisodesHandler(svc *service.Container) gin.HandlerFunc {
 			parentID = c.Param("id")
 		}
 		params := service.ItemsParams{
-			UserID:           firstQueryValue(c, "UserId", "userId"),
+			UserID:           embyFirstNonEmptyString(firstQueryValue(c, "UserId", "userId"), embyUserID(c)),
 			ParentID:         parentID,
 			IncludeItemTypes: []string{"Episode"},
 			Recursive:        true,

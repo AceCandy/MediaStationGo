@@ -62,6 +62,12 @@ func (e *EmbyService) Persons(ctx context.Context, p ItemsParams) (map[string]an
 	if containsEmbyFilter(p.Filters, "IsFavorite") {
 		return emptyItemsEnvelope(p.StartIndex), nil
 	}
+	if p.Limit <= 0 || p.Limit > 500 {
+		p.Limit = 50
+	}
+	if result, ok, err := e.hongGuoPersons(ctx, p); ok {
+		return result, err
+	}
 	people, total, err := e.repo.Person.List(ctx, p.SearchTerm, p.IDs, p.StartIndex, p.Limit)
 	if err != nil {
 		return nil, err

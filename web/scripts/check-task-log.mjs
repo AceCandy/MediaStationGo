@@ -14,6 +14,7 @@ const exports = {}
 let response = { content: 'fresh\n', date: '2026-09-06', dates: [] }
 const mocks = {
   '../components/ModalShell': { ModalShell: 'section' },
+  '../components/Select': { Select: 'select' },
   '../api/tasks': { tasksAPI: { log: async () => response } },
 }
 let states = [], memos = [], stateIndex = 0, memoIndex = 0
@@ -86,6 +87,8 @@ console.log('Task log pagination, ordering, badges and memo reuse checks passed'
 assert.equal(exports.taskProgressText({ key: 'tmdb_episode_metadata_recheck', current: { metrics: { scanned: 12, remaining: 30, failed: 2 } } }), '已核对 12 条元数据 · 剩余到期 30（30 秒更新） · 失败待重试 2')
 assert.equal(exports.taskProgressText({ key: 'tmdb_episode_metadata_recheck', current: { metrics: { seasons_scanned: 3, scanned: 12, remaining: 30, failed: 2 } } }), '已领取 3 季 · 已核对 12 条元数据 · 剩余到期 30（30 秒更新） · 失败待重试 2')
 assert.equal(exports.taskProgressText({ key: 'tmdb_episode_metadata_recheck', latest: { metrics: { scanned: 12 } } }), '')
+assert.equal(exports.taskProgressText({ system: 'hongguo', current: { metrics: { processed: 8 } } }), '已处理 8')
+assert.equal(exports.taskProgressText({ system: 'hongguo', latest: { metrics: { processed: 8, failed: 2 } } }), '已处理 8 · 失败待重试 2')
 
 for (const [state, task, expected] of [
   ['idle', undefined, '空闲'],
@@ -111,16 +114,27 @@ let runResult
 mocks['../api/tasks'].tasksAPI.run = async (...args) => { requests.push(args); return runResult }
 mocks['../api/tasks'].tasksAPI.snapshot = async () => ({ definitions: [definition] })
 // Re-evaluate so the page captures the toast mock; no network or effects run.
-vm.runInNewContext(ts.transpileModule(source, {
+vm.runInNewContext(ts.transpileModule(`${source}\nexport { TasksSystemPage };`, {
   compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX, target: ts.ScriptTarget.ES2022 },
 }).outputText, { exports, require: (id) => id === 'react' ? react : mocks[id] ?? (id.startsWith('.') ? {} : require(id)) })
+for (const system of ['common', 'catalog', 'hongguo']) {
+  states = []; memos = []; stateIndex = memoIndex = 0
+  const changes = []
+  const tree = exports.TasksSystemPage({ system, onSystemChange: (value) => changes.push(value) })
+  const group = nodes(tree).find((node) => node.props?.['aria-label'] === '任务体系')
+  const buttons = nodes(group).filter((node) => node.type === 'button')
+  assert.equal(buttons.length, 3)
+  assert.equal(buttons.filter((node) => node.props['aria-pressed']).length, 1)
+  buttons.forEach((button) => button.props.onClick())
+  assert.equal(JSON.stringify(changes), JSON.stringify(['common', 'catalog', 'hongguo'].filter((value) => value !== system)))
+}
 for (const [count, libraryID] of [[0, 'library-a'], [12, 'library-a'], [0, ''], [12, ''], [undefined, '']]) {
   states = []; memos = []; stateIndex = memoIndex = 0
   states[0] = [definition]
   states[11] = libraryID
   notices.length = requests.length = 0
   runResult = { status: 'queued', ...(count === undefined ? {} : { count }) }
-  const table = nodes(exports.TasksPage()).find((node) => node.type?.name === 'DefinitionTable')
+  const table = nodes(exports.TasksSystemPage({ system: 'catalog', onSystemChange() {} })).find((node) => node.type?.name === 'DefinitionTable')
   table.props.onRun(definition)
   await setImmediate()
   assert.equal(requests.length, 1)

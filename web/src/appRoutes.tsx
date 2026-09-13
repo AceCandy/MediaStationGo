@@ -38,7 +38,7 @@ const AdminEmbyAPIsPage = lazy(() =>
   import('./pages/AdminEmbyAPIsPage').then((m) => ({ default: m.AdminEmbyAPIsPage })),
 )
 const ProfilePage = lazy(() => import('./pages/ProfilePage').then((m) => ({ default: m.ProfilePage })))
-const DiscoverPage = lazy(() => import('./pages/DiscoverPage').then((m) => ({ default: m.DiscoverPage })))
+const DiscoverPage = lazy(() => import('./pages/DiscoverHubPage').then((m) => ({ default: m.DiscoverHubPage })))
 const TasksPage = lazy(() => import('./pages/TasksPage').then((m) => ({ default: m.TasksPage })))
 const FileManagerPage = lazy(() =>
   import('./pages/FileManagerPage').then((m) => ({ default: m.FileManagerPage })),
@@ -120,6 +120,13 @@ function AdminEntryPage() {
   return <Navigate to={target ?? '/admin/media'} replace />
 }
 
+function LegacyHongGuoPage() {
+  const [params] = useSearchParams()
+  const next = new URLSearchParams(params)
+  next.set('system', 'hongguo')
+  return <Navigate to={`/discover?${next.toString()}`} replace />
+}
+
 export const appRoutes: AppRoute[] = [
   {
     id: 'home',
@@ -164,6 +171,7 @@ export const appRoutes: AppRoute[] = [
     },
   },
   { id: 'search', path: 'search', element: <SearchPage /> },
+  { id: 'hongguo', path: 'hongguo', element: <LegacyHongGuoPage />, permission: 'can_view_discover' },
   {
     id: 'me',
     path: 'me',

@@ -9,6 +9,32 @@ import (
 
 // ImageURL returns artwork for a library/media/series/season item id.
 func (e *EmbyService) ImageURL(ctx context.Context, id, imageType string) (string, error) {
+	if strings.HasPrefix(id, "hg-person-") {
+		if !strings.EqualFold(imageType, "Primary") {
+			return "", nil
+		}
+		var rows []model.HongGuoArtwork
+		if err := e.repo.DB.WithContext(ctx).Where("person_id = ? AND local_key <> ''", strings.TrimPrefix(id, "hg-person-")).Limit(1).Find(&rows).Error; err != nil {
+			return "", err
+		}
+		if len(rows) == 0 {
+			return "", nil
+		}
+		return "/api/catalogs/hongguo/artwork/" + rows[0].ID, nil
+	}
+	if strings.HasPrefix(id, "hg-") {
+		if !strings.EqualFold(imageType, "Primary") {
+			return "", nil
+		}
+		var nodes []hongGuoNode
+		if err := e.hongGuoNodes(ctx, "", "").Where("id = ?", id).Limit(1).Scan(&nodes).Error; err != nil {
+			return "", err
+		}
+		if len(nodes) == 0 || nodes[0].ArtworkID == "" {
+			return "", nil
+		}
+		return "/api/catalogs/hongguo/artwork/" + nodes[0].ArtworkID, nil
+	}
 	if e.repo != nil && e.repo.Person != nil {
 		person, personErr := e.repo.Person.FindByID(ctx, id)
 		if personErr != nil && !isMissingPeopleTable(personErr) {

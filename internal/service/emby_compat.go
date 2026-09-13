@@ -154,7 +154,16 @@ func (e *EmbyService) Items(ctx context.Context, p ItemsParams) (map[string]any,
 		return map[string]any{"Items": items, "TotalRecordCount": len(items), "StartIndex": 0}, nil
 	}
 	if strings.TrimSpace(p.SearchTerm) != "" {
+		if result, ok, err := e.hongGuoHierarchyItems(ctx, p); ok {
+			return result, err
+		}
 		return e.searchTopLevelItems(ctx, p)
+	}
+	if result, ok, err := e.hongGuoHierarchyItems(ctx, p); ok {
+		return result, err
+	}
+	if result, ok, err := e.hongGuoGlobalItems(ctx, p); ok {
+		return result, err
 	}
 
 	if containsOnlyFolderItemTypes(p.IncludeItemTypes) {

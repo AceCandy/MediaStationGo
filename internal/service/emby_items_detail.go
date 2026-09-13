@@ -12,6 +12,26 @@ import (
 
 // Item 单条目详情。
 func (e *EmbyService) Item(ctx context.Context, mediaID, userID string) (map[string]any, error) {
+	if strings.HasPrefix(mediaID, "hg-person-") {
+		return e.hongGuoPersonItem(ctx, mediaID, userID)
+	}
+	if strings.HasPrefix(mediaID, "hg-") {
+		var nodes []hongGuoNode
+		if err := e.hongGuoNodes(ctx, userID, "").Where("id = ?", mediaID).Limit(1).Scan(&nodes).Error; err != nil {
+			return nil, err
+		}
+		if len(nodes) == 0 {
+			return nil, nil
+		}
+		if nodes[0].Kind == "Movie" || nodes[0].Kind == "Episode" {
+			return e.hongGuoNodePayload(ctx, nodes[0], userID)
+		}
+		items, err := e.hongGuoNodePayloads(ctx, nodes, userID, nil)
+		if err != nil || len(items) == 0 {
+			return nil, err
+		}
+		return items[0], nil
+	}
 	if person, err := e.personItem(ctx, mediaID); err != nil {
 		return nil, err
 	} else if person != nil {
@@ -96,7 +116,7 @@ func (e *EmbyService) AdditionalParts(ctx context.Context, mediaID, userID strin
 }
 
 // LatestItems 最近添加，全库或指定库，并按调用方指定的播放状态过滤。
-func (e *EmbyService) LatestItems(ctx context.Context, userID, parentID string, limit int, isPlayed bool, fields ...string) ([]map[string]any, error) {
+func (e *EmbyService) legacyLatestItems(ctx context.Context, userID, parentID string, limit int, isPlayed bool, fields ...string) ([]map[string]any, error) {
 	if limit <= 0 || limit > 100 {
 		limit = 20
 	}
@@ -160,7 +180,7 @@ func (e *EmbyService) latestSeriesItemsForLibrary(ctx context.Context, userID, l
 }
 
 // ResumeItems 列出有未完成播放进度的媒体。
-func (e *EmbyService) ResumeItems(ctx context.Context, userID string, limit int) (map[string]any, error) {
+func (e *EmbyService) legacyResumeItems(ctx context.Context, userID string, limit int) (map[string]any, error) {
 	if limit <= 0 || limit > 100 {
 		limit = 20
 	}
@@ -202,17 +222,21 @@ func (e *EmbyService) ResumeItems(ctx context.Context, userID string, limit int)
 	}
 	views := make([]model.MediaView, 0, len(hist))
 	positions := make(map[string]int64, len(hist))
+	lastPlayed := make(map[string]string, len(hist))
 	for _, history := range hist {
 		if view, ok := viewsByMetadata[history.MetadataID]; ok {
 			views = append(views, view)
 			positions[history.MetadataID] = history.PositionMs
+			lastPlayed[history.MetadataID] = formatEmbyDateTime(history.WatchedAt)
 		}
 	}
 	relations := e.itemRelationsForViews(ctx, views, userID, newEmbyListFields(nil))
 	items := make([]map[string]any, 0, len(views))
 	for i := range views {
 		view := &views[i]
-		items = append(items, e.itemPayloadWithRelations(ctx, view, userID, false, positions[view.MetadataID], false, false, relations))
+		item := e.itemPayloadWithRelations(ctx, view, userID, false, positions[view.MetadataID], false, false, relations)
+		item["UserData"].(map[string]any)["LastPlayedDate"] = lastPlayed[view.MetadataID]
+		items = append(items, item)
 	}
 	return map[string]any{"Items": items, "TotalRecordCount": len(items)}, nil
 }
@@ -227,7 +251,23 @@ func (e *EmbyService) itemPayloadWithRelations(ctx context.Context, m *model.Med
 	var providerIDs map[string]string
 	var mediaSources []map[string]any
 	partCount := 0
-	if relations == nil {
+	if m.CatalogSource == model.TaskSystemHongGuo {
+		episode = m.MetadataKind == model.MetadataKindEpisode
+		people = []model.EmbyPerson{}
+		if relations == nil {
+			if loaded, err := e.hongGuoPeople(ctx, []string{m.LookupCatalogID}); err == nil && loaded[m.LookupCatalogID] != nil {
+				people = loaded[m.LookupCatalogID]
+			}
+		} else if loaded := relations.peopleByMetadataID[m.LookupCatalogID]; loaded != nil {
+			people = loaded
+		}
+		providerIDs = map[string]string{"HongGuoDB": m.LookupCatalogID}
+		if relations == nil {
+			mediaSources = e.mediaSourcesForView(ctx, m, userID, true, completeStreams)
+		} else if relations.fields.mediaSources {
+			mediaSources = e.mediaSourcesForViews(ctx, relations.versionsByMetadataID[m.CatalogItemID], true, completeStreams)
+		}
+	} else if relations == nil {
 		episode = e.mediaShouldBeEpisode(ctx, &m.Media)
 		people = e.peopleForMetadata(ctx, m.MetadataID)
 		providerIDs = e.metadataProviderIDs(ctx, m.MetadataID)

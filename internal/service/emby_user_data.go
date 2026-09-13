@@ -14,9 +14,18 @@ import (
 
 // SetFavorite 按 Emby 作品身份保存收藏，MediaID 仅保留具体版本。
 func (e *EmbyService) SetFavorite(ctx context.Context, userID, itemID string, favorite bool) error {
+	if handled, err := e.hongGuoContainerMutation(ctx, userID, itemID, &favorite, nil); handled {
+		return err
+	}
 	target, err := e.itemTarget(ctx, itemID, userID)
 	if err != nil {
 		return err
+	}
+	if target.SourceID != "" {
+		if target.SourceEpisode > 0 {
+			return repository.ErrFavoriteUnsupportedType
+		}
+		return e.repo.HongGuo.SetFavorite(ctx, userID, target.SourceID, favorite)
 	}
 	if target.ItemID == "" || target.MetadataID == "" {
 		return errors.New("media not found")
@@ -32,6 +41,9 @@ func (e *EmbyService) SetFavorite(ctx context.Context, userID, itemID string, fa
 
 // MarkPlayed 按作品身份标记已看，并保留当前具体版本。
 func (e *EmbyService) MarkPlayed(ctx context.Context, userID, itemID string, played bool) error {
+	if handled, err := e.hongGuoContainerMutation(ctx, userID, itemID, nil, &played); handled {
+		return err
+	}
 	metadata, err := e.repo.Metadata.FindByID(ctx, itemID)
 	if err != nil {
 		return err
@@ -44,6 +56,16 @@ func (e *EmbyService) MarkPlayed(ctx context.Context, userID, itemID string, pla
 		return err
 	}
 	target, err := e.itemTarget(ctx, itemID, userID)
+	if err == nil && target.SourceID != "" {
+		media, err := e.mediaViewForItemID(ctx, target.MediaID, userID)
+		if err != nil {
+			return err
+		}
+		if media == nil {
+			return errors.New("media not found")
+		}
+		return e.repo.HongGuo.MarkPlayed(ctx, userID, *media, played)
+	}
 	if err != nil || target.MetadataID == "" || target.MediaID == "" {
 		return errors.New("media not found")
 	}
@@ -99,10 +121,25 @@ func (e *EmbyService) RecordProgress(ctx context.Context, userID, itemID, mediaS
 				return sourceErr
 			}
 			sameItem := target.MetadataID != "" && sourceTarget.MetadataID == target.MetadataID
+			if target.SourceID != "" {
+				sameItem = sourceTarget.SourceID == target.SourceID && sourceTarget.SourceEpisode == target.SourceEpisode
+			}
 			if sourceTarget.MediaID != "" && sameItem {
 				target.MediaID = sourceTarget.MediaID
 			}
 		}
+	}
+	if target.SourceID != "" && target.MediaID != "" {
+		dur := runtimeTicks / 10_000
+		if dur <= 0 {
+			if probe, _ := e.repo.MediaProbe.FindByMediaID(ctx, target.MediaID); probe != nil {
+				dur = probe.DurationMS
+			}
+		}
+		if dur <= 0 {
+			return nil
+		}
+		return NewPlaybackService(e.log, e.repo).RecordProgress(ctx, userID, target.MediaID, sessionID, positionTicks/10_000, dur, e.mediaVisibility(ctx, userID))
 	}
 	if target.MetadataID == "" || target.MediaID == "" {
 		return errors.New("media not found")

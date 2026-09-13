@@ -100,7 +100,7 @@ export function useLibraryData(libraryID: string, filters: LibraryMediaFilters) 
     setItems([])
     setServerSeriesCards([])
 
-    if (isSeriesDetail) {
+    if (isSeriesDetail || library.type === 'hongguo') {
       setLoading(false)
       return
     }

@@ -60,6 +60,12 @@ func embyItemImageHandler(svc *service.Container) gin.HandlerFunc {
 			}
 			return
 		}
+		if assetID := strings.TrimPrefix(raw, "/api/catalogs/hongguo/artwork/"); assetID != raw && assetID != "" {
+			if svc.HongGuo == nil || svc.HongGuo.ServeArtwork(ctx, c.Writer, req, assetID) != nil {
+				embyServePlaceholderImage(c)
+			}
+			return
+		}
 		if svc.ImageProxy == nil {
 			embyServePlaceholderImage(c)
 			return

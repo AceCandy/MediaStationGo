@@ -65,8 +65,14 @@ export function PlayerPage() {
     lastSentRef.current = 0
     lastPositionRef.current = -1
     video.src = streamURL(media.id)
+    const startMs = Number(new URLSearchParams(location.search).get('start_ms') ?? 0)
+    const restorePosition = () => {
+      if (Number.isFinite(startMs) && startMs > 0 && Number.isFinite(video.duration) && startMs / 1000 < video.duration) video.currentTime = startMs / 1000
+    }
+    video.addEventListener('loadedmetadata', restorePosition, { once: true })
     void video.play().catch(() => undefined)
-  }, [media])
+    return () => video.removeEventListener('loadedmetadata', restorePosition)
+  }, [media, location.search])
 
   // Persist periodically, then force the last distinct position on lifecycle boundaries.
   useEffect(() => {

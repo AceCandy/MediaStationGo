@@ -70,6 +70,7 @@ export function AdminLibraryCreateDialog({
                 <option value="music">音乐</option>
                 <option value="nfo_movie">非常规电影</option>
                 <option value="nfo_tv">非常规剧集</option>
+                <option value="hongguo">红果短剧（电影 / 剧集）</option>
               </Select>
             </div>
           </div>

@@ -31,6 +31,9 @@ func (e *EmbyService) applyUserMediaVisibility(ctx context.Context, q *gorm.DB, 
 
 func (e *EmbyService) mediaQueryFilter(ctx context.Context, userID string) repository.MediaQueryFilter {
 	visibility := e.mediaVisibility(ctx, userID)
+	if visibility.LibraryRestricted && len(visibility.AllowedLibraryIDs) == 0 {
+		visibility.AllowedLibraryIDs = []string{"__locked__"}
+	}
 	return repository.MediaQueryFilter{
 		IncludeNSFW:       visibility.IncludeNSFW,
 		AllowedLibraryIDs: visibility.AllowedLibraryIDs,

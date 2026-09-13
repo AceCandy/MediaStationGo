@@ -2,6 +2,7 @@ import { api } from './client'
 import type { AccessLog, Setting, User } from '../types'
 
 export interface PlaybackStatsQuery {
+  system?: 'catalog' | 'hongguo'
   grain: 'day' | 'week' | 'month'
   from: string
   to: string
@@ -15,6 +16,7 @@ export interface PlaybackStatsQuery {
 }
 
 export interface PlaybackStatsDetail {
+	source_id?: string
 	id: string
 	played_at: string
 	user_id: string

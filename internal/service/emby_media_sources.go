@@ -112,6 +112,13 @@ func (e *EmbyService) mediaVersionSiblings(ctx context.Context, m *model.MediaVi
 	if e == nil || e.repo == nil || e.repo.DB == nil || m == nil || strings.TrimSpace(m.ID) == "" {
 		return nil
 	}
+	if m.CatalogSource == model.TaskSystemHongGuo {
+		views, err := e.repo.MediaView.HongGuoItemViews(ctx, m.CatalogItemID, e.mediaQueryFilter(ctx, userID))
+		if err != nil {
+			return nil
+		}
+		return orderMediaVersionSiblings(views, m.ID)
+	}
 	q := e.repo.DB.WithContext(ctx).Model(&model.Media{})
 	if strings.TrimSpace(m.MetadataID) != "" {
 		q = q.Where("media.metadata_id = ?", m.MetadataID)

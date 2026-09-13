@@ -12,7 +12,7 @@ import {
   TrendingUp,
   Trophy,
 } from 'lucide-react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 
 import {
   adminAPI,
@@ -83,6 +83,23 @@ const MEDAL_CLASS = [
 ]
 
 export function PlaybackStatsPage() {
+  const [params, setParams] = useSearchParams()
+  const system = params.get('system') === 'hongguo' ? 'hongguo' : 'catalog'
+  useEffect(() => {
+    const values = params.getAll('system')
+    if (values.length > 1 || (values.length === 1 && values[0] !== 'hongguo' && values[0] !== 'catalog')) {
+      const next = new URLSearchParams(params)
+      next.set('system', system)
+      setParams(next, { replace: true })
+    }
+  }, [params, setParams, system])
+  return <div className="space-y-4">
+    <label className="block text-sm text-ink-50">资料体系<Select className="input-base mt-1" value={system} onChange={(value) => { const next = new URLSearchParams(params); next.set('system', value); setParams(next) }}><option value="catalog">现有资料体系</option><option value="hongguo">红果短剧</option></Select></label>
+    <PlaybackStatsSystemPage key={system} system={system} />
+  </div>
+}
+
+function PlaybackStatsSystemPage({ system }: { system: 'catalog' | 'hongguo' }) {
   const dates = useMemo(() => defaultDates(), [])
   const [grain, setGrain] = useState<PlaybackStatsQuery['grain']>('day')
   const [from, setFrom] = useState(dates.from)
@@ -105,16 +122,17 @@ export function PlaybackStatsPage() {
     void Promise.all([adminAPI.listUsers(), libraryAPI.list({ includeHidden: true })])
       .then(([userRows, libraryRows]) => {
         setUsers(userRows)
-        setLibraries(libraryRows)
+        setLibraries(libraryRows.filter((library) => (library.type === 'hongguo') === (system === 'hongguo')))
       })
       .catch(() => setFilterError('筛选项加载失败。'))
-  }, [])
+  }, [system])
 
   const load = useCallback(() => {
     const currentRequest = ++requestID.current
     setLoading(true)
     setError('')
     return adminAPI.playbackStats({
+      system,
       grain,
       from,
       to,
@@ -132,7 +150,7 @@ export function PlaybackStatsPage() {
     }).finally(() => {
       if (requestID.current === currentRequest) setLoading(false)
     })
-  }, [from, grain, libraryIDs, mediaType, page, rankDate, rankGrain, to, userID])
+  }, [from, grain, libraryIDs, mediaType, page, rankDate, rankGrain, to, userID, system])
 
   useEffect(() => { void load() }, [load])
 
@@ -309,9 +327,9 @@ export function PlaybackStatsPage() {
         {loading && !data ? <p className="py-10 text-center text-ink-50">明细加载中...</p> : error ? <p className="py-10 text-center text-red-500" role="alert">明细加载失败。</p> : !data?.details.items.length ? <p className="py-10 text-center text-ink-50">当前条件下暂无播放明细。</p> : (
           <>
             <div className="hidden overflow-x-auto lg:block">
-              <table className="data-table min-w-[760px]"><thead><tr><th>媒体</th><th>账户</th><th>媒体库</th><th>播放时间</th></tr></thead><tbody>{data.details.items.map((item) => <tr key={item.id}><td><div className="flex min-w-0 items-center gap-3"><StatsPoster src={item.poster_url} alt={detailTitle(item)} className="h-14 w-10 shrink-0 rounded-lg" /><div className="min-w-0">{item.media_available ? <Link to={`/media/${item.media_id}`} className="font-semibold text-ink-600 hover:text-brand-500">{detailTitle(item)}</Link> : <span className="font-semibold text-ink-600">{detailTitle(item)}</span>}{!item.media_available && <p className="mt-1 text-xs text-ink-50">媒体已不可用</p>}</div></div></td><td>{item.user_name}</td><td>{item.library_name}</td><td className="whitespace-nowrap">{new Date(item.played_at).toLocaleString()}</td></tr>)}</tbody></table>
+              <table className="data-table min-w-[760px]"><thead><tr><th>媒体</th><th>账户</th><th>媒体库</th><th>播放时间</th></tr></thead><tbody>{data.details.items.map((item) => <tr key={item.id}><td><div className="flex min-w-0 items-center gap-3"><StatsPoster src={item.poster_url} alt={detailTitle(item)} className="h-14 w-10 shrink-0 rounded-lg" /><div className="min-w-0">{item.media_available ? <Link to={item.source_id ? `/discover?system=hongguo&id=${encodeURIComponent(item.source_id)}` : `/media/${item.media_id}`} className="font-semibold text-ink-600 hover:text-brand-500">{detailTitle(item)}</Link> : <span className="font-semibold text-ink-600">{detailTitle(item)}</span>}{!item.media_available && <p className="mt-1 text-xs text-ink-50">媒体已不可用</p>}</div></div></td><td>{item.user_name}</td><td>{item.library_name}</td><td className="whitespace-nowrap">{new Date(item.played_at).toLocaleString()}</td></tr>)}</tbody></table>
             </div>
-            <div className="divide-y divide-[var(--app-border)] lg:hidden">{data.details.items.map((item) => <article key={item.id} className="flex gap-3 p-4"><StatsPoster src={item.poster_url} alt={detailTitle(item)} className="h-20 w-14 shrink-0 rounded-lg" /><div className="min-w-0 flex-1">{item.media_available ? <Link to={`/media/${item.media_id}`} className="font-semibold text-ink-600 hover:text-brand-500">{detailTitle(item)}</Link> : <p className="font-semibold text-ink-600">{detailTitle(item)}</p>}<p className="mt-2 text-sm text-ink-50">{item.user_name} · {item.library_name}</p><p className="mt-1 text-xs text-ink-50">{new Date(item.played_at).toLocaleString()}{!item.media_available ? ' · 媒体已不可用' : ''}</p></div></article>)}</div>
+            <div className="divide-y divide-[var(--app-border)] lg:hidden">{data.details.items.map((item) => <article key={item.id} className="flex gap-3 p-4"><StatsPoster src={item.poster_url} alt={detailTitle(item)} className="h-20 w-14 shrink-0 rounded-lg" /><div className="min-w-0 flex-1">{item.media_available ? <Link to={item.source_id ? `/discover?system=hongguo&id=${encodeURIComponent(item.source_id)}` : `/media/${item.media_id}`} className="font-semibold text-ink-600 hover:text-brand-500">{detailTitle(item)}</Link> : <p className="font-semibold text-ink-600">{detailTitle(item)}</p>}<p className="mt-2 text-sm text-ink-50">{item.user_name} · {item.library_name}</p><p className="mt-1 text-xs text-ink-50">{new Date(item.played_at).toLocaleString()}{!item.media_available ? ' · 媒体已不可用' : ''}</p></div></article>)}</div>
           </>
         )}
         <div className="flex items-center justify-between border-t border-[var(--app-border)] px-4 py-3 text-sm text-ink-50">
