@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-2.md`
-- **Total Sessions**: 116
+- **Total Sessions**: 117
 - **Last Active**: 2026-09-13
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-2.md` | ~610 | Active |
+| `journal-2.md` | ~632 | Active |
 | `journal-1.md` | ~1981 | Archived |
 <!-- @@@/auto:active-documents -->
 
@@ -30,6 +30,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 117 | 2026-09-13 | 修复 TMDb 季集复查重复登记 | `ea2cf51` | `main` |
 | 116 | 2026-09-13 | 季集复查待办查询性能修复 | `e3cee45` | `main` |
 | 115 | 2026-09-13 | 作品资料与图片异步下载解耦 | `152d205` | `main` |
 | 114 | 2026-09-12 | 季级元数据复查与未收录标记 | `5d55cd2` | `main` |

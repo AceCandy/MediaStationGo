@@ -608,3 +608,25 @@ Web 电影与整剧按 metadata 分页，Emby 整剧摘要、混合库与子级�
 ### Next Steps
 
 - 尚未部署；部署后核验浏览器端到端耗时，全部状态查询仍随数据量增长。
+
+
+## Session 117: 修复 TMDb 季集复查重复登记
+<!-- trellis-session: v=2 fp=6a7e91fe5b65f774 -->
+
+**Date**: 2026-09-13
+**Task**: 修复 TMDb 季集复查重复登记
+**Branch**: `main`
+
+### Summary
+
+成功复查仅消费同事务新增的普通目标登记，保留后代展开与外部并发变更；PostgreSQL 定向测试、race 与 go vet 通过。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `ea2cf51` | fix: 避免季集复查重复登记 |
+
+### Status
+
+[OK] **Completed**
