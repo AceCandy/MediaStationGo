@@ -61,6 +61,10 @@ Viewer composition state is URL owned:
   this list carry the complete library URL as router state so “返回媒体库”
   restores these filters.
 - Me: `tab=favourites|playlists|history`, default `favourites`.
+- Discover: `system=catalog|hongguo`, default `catalog`; mount only the selected
+  catalog and rebuild it on user/profile changes. `/hongguo` is a guarded
+  replace redirect to `/discover`, preserving query parameters and setting
+  `system=hongguo`. Both routes require `can_view_discover`.
 - Search: `mode=ai` when both permission and provider state allow it; otherwise
   ordinary search.
 
@@ -86,6 +90,11 @@ Do not restore the former unbounded or multi-thousand-item initial request
 under another component or helper name.
 
 ## Verification
+
+Run `node scripts/check-hongguo-discover.mjs` against a local Web preview on
+port 4179 (or `DISCOVER_TEST_URL`) for legacy query preservation, lazy catalog
+switching, discovery permission, image-failure fallback and responsive layouts.
+It uses mocked APIs; actual downloaded poster rendering remains deployment QA.
 
 Series-library deep links (`series` or `series_id`) must skip the library
 catalogue page. After library type resolution, request the linked series card
