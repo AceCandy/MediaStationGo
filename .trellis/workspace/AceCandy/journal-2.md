@@ -654,3 +654,25 @@ Web 电影与整剧按 metadata 分页，Emby 整剧摘要、混合库与子级�
 ### Status
 
 [OK] **Completed**
+
+
+## Session 119: 放宽 TMDb 季集复查超时
+<!-- trellis-session: v=2 fp=6c1924f78c29702d -->
+
+**Date**: 2026-09-13
+**Task**: 放宽 TMDb 季集复查超时
+**Branch**: `main`
+
+### Summary
+
+将后台 TMDb 季集复查的整季详情请求超时独立调整为 30 秒，保留普通详情请求 8 秒边界，并补充回归测试。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `e2c537e` | fix: 放宽 TMDb 季集复查超时 |
+
+### Status
+
+[OK] **Completed**
