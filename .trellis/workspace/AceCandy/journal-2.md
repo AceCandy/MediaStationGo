@@ -720,3 +720,25 @@ Web 电影与整剧按 metadata 分页，Emby 整剧摘要、混合库与子级�
 ### Status
 
 [OK] **Completed**
+
+
+## Session 122: TMDb 季集坐标身份修复
+<!-- trellis-session: v=2 fp=14b8da585b8c49bd -->
+
+**Date**: 2026-09-14
+**Task**: TMDb 季集坐标身份修复
+**Branch**: `main`
+
+### Summary
+
+自动季复查改为以整剧 TMDb ID 和季号定位，允许替换过期或非法季 ID；保留季号、响应有效性和唯一冲突保护，并补充回归测试与后台任务契约。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `5c9ccca` | fix: 季集复查按坐标修复 TMDb 标识 |
+
+### Status
+
+[OK] **Completed**
