@@ -15,6 +15,8 @@ import (
 	"github.com/ShukeBta/MediaStationGo/internal/repository"
 )
 
+const tmdbRecheckDetailsTimeout = 30 * time.Second
+
 func (s *ScraperService) runTMDbRecheckQueue(ctx context.Context, metrics map[string]int64, task *TaskHandle) error {
 	ctx = withTMDbSeasonBatch(ctx)
 	defer func() { metrics["requests"] = tmdbSeasonBatchFromContext(ctx).requests.Load() }()
@@ -209,7 +211,7 @@ func (s *ScraperService) fetchAndCommitTMDbRecheck(ctx, parent context.Context, 
 	if err != nil || seriesID <= 0 {
 		return s.retryTMDbRecheck(parent, job, metrics, errors.New("TMDb 整剧标识无效"))
 	}
-	requestCtx, cancel := context.WithTimeout(ctx, tmdbDetailsTimeout)
+	requestCtx, cancel := context.WithTimeout(ctx, tmdbRecheckDetailsTimeout)
 	stageStarted := time.Now()
 	data, err := s.fetchTMDbMetadataRecheck(requestCtx, state.TMDbMetadataRecheckCandidate, seriesID)
 	cancel()

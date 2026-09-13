@@ -17,6 +17,17 @@ import (
 	"github.com/ShukeBta/MediaStationGo/internal/repository"
 )
 
+func TestTMDbRecheckUsesDedicatedDetailsTimeout(t *testing.T) {
+	started := time.Now()
+	ctx, cancel := context.WithTimeout(t.Context(), tmdbRecheckDetailsTimeout)
+	defer cancel()
+	deadline, ok := ctx.Deadline()
+	got := deadline.Sub(started)
+	if !ok || got < 30*time.Second || got > 31*time.Second || tmdbDetailsTimeout != 8*time.Second {
+		t.Fatalf("deadline=%v timeout=%s shared_timeout=%s", ok, got, tmdbDetailsTimeout)
+	}
+}
+
 func TestTMDbRecheckPassReusesScatteredSeasons(t *testing.T) {
 	db := newServiceTestDB(t, &model.Media{}, &model.MetadataProviderSnapshot{}, &model.Person{}, &model.PersonIdentifier{}, &model.MetadataCredit{},
 		&model.TMDbRecheckJob{}, &model.TMDbRecheckSeasonLease{}, &model.TMDbRecheckChange{}, &model.TMDbRecheckScan{}, &model.TMDbRecheckAssetChange{})
