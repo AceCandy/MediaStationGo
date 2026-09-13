@@ -698,3 +698,25 @@ Web 电影与整剧按 metadata 分页，Emby 整剧摘要、混合库与子级�
 ### Status
 
 [OK] **Completed**
+
+
+## Session 121: 修复 TMDb 同剧复查锁竞争
+<!-- trellis-session: v=2 fp=95863938f5d66fb0 -->
+
+**Date**: 2026-09-14
+**Task**: 修复 TMDb 同剧复查锁竞争
+**Branch**: `main`
+
+### Summary
+
+按整剧 advisory lock 串行同剧不同季的短提交事务，保留不同剧并行与外部 NOWAIT 退让；新增并发回归测试和后台任务契约。真实 PostgreSQL 测试因未配置 DSN 未执行。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `6260180` | fix: 避免 TMDb 同剧复查锁竞争 |
+
+### Status
+
+[OK] **Completed**

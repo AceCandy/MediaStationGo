@@ -1,0 +1,4 @@
+{"file":".trellis/spec/backend/hongguo-catalog.md","reason":"红果发现、正式作品、图片、任务与 Web 投影的核心契约"}
+{"file":".trellis/spec/backend/background-task-execution.md","reason":"任务完成状态、指标和日志明细契约"}
+{"file":".trellis/spec/frontend/routing-and-loading-contracts.md","reason":"发现路由、URL 状态与前端加载错误行为"}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"数据库到 API 再到 Web 的跨层字段一致性"}

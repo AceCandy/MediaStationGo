@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-2.md`
-- **Total Sessions**: 120
+- **Total Sessions**: 121
 - **Last Active**: 2026-09-14
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-2.md` | ~700 | Active |
+| `journal-2.md` | ~722 | Active |
 | `journal-1.md` | ~1981 | Archived |
 <!-- @@@/auto:active-documents -->
 
@@ -30,6 +30,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 121 | 2026-09-14 | 修复 TMDb 同剧复查锁竞争 | `6260180` | `main` |
 | 120 | 2026-09-14 | 统一榜单与红果页面布局 | `a22eb71` | `main` |
 | 119 | 2026-09-13 | 放宽 TMDb 季集复查超时 | `e2c537e` | `main` |
 | 118 | 2026-09-13 | 完成红果短剧独立资料体系 | `f0f6030`, `8176732`, `255bcac` | `main` |
