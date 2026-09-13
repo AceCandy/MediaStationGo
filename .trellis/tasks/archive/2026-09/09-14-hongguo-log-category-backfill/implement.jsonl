@@ -1,0 +1,3 @@
+{"file":".trellis/spec/backend/background-task-execution.md","reason":"任务 Message/Details 日志语义与回归要求"}
+{"file":".trellis/spec/backend/hongguo-catalog.md","reason":"红果 source_category 权威来源与禁止推断约束"}
+{"file":".trellis/spec/backend/database-guidelines.md","reason":"PostgreSQL 查询与验证约定"}
