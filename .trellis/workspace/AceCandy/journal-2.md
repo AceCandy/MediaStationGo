@@ -786,3 +786,25 @@ Web 电影与整剧按 metadata 分页，Emby 整剧摘要、混合库与子级�
 ### Status
 
 [OK] **Completed**
+
+
+## Session 125: 统一剧集继续观看记录
+<!-- trellis-session: v=2 fp=80c24277402cd77c -->
+
+**Date**: 2026-09-14
+**Task**: 统一剧集继续观看记录
+**Branch**: `main`
+
+### Summary
+
+保留逐集播放历史，并统一 Web、Emby Resume、IsResumable 与红果继续观看的剧集级聚合。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `6bf73b8` | fix: 统一剧集继续观看记录 |
+
+### Status
+
+[OK] **Completed**
