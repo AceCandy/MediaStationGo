@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -126,12 +127,79 @@ func TestHongGuoDetailIsolationIdentityAndRollback(t *testing.T) {
 	if err != nil || total != 2 || len(rows) != 2 {
 		t.Fatalf("default list included comic: total=%d rows=%d err=%v", total, len(rows), err)
 	}
+	rows, total, err = r.List(ctx, "", "other", "", "", 1, 10)
+	if err != nil || total != 1 || len(rows) != 1 || rows[0].SourceID != "9000000000000000006" {
+		t.Fatalf("other category filter: total=%d rows=%+v err=%v", total, rows, err)
+	}
+	if err := r.SetSourceCategory(ctx, first.SourceID, "ai-drama"); err != nil {
+		t.Fatal(err)
+	}
+	var discovery model.HongGuoDiscovery
+	if err := db.First(&discovery, "source_id = ?", first.SourceID).Error; err != nil {
+		t.Fatal(err)
+	}
+	current, err = r.FindBySourceID(ctx, first.SourceID)
+	if err != nil || discovery.SourceCategory != "ai-drama" || current.SourceCategory != "ai-drama" {
+		t.Fatalf("source category tables diverged: discovery=%q work=%+v err=%v", discovery.SourceCategory, current, err)
+	}
+	if err := r.SetSourceCategory(ctx, first.SourceID, "real-drama"); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.SetSourceCategory(ctx, "99999", "ai-drama"); !errors.Is(err, gorm.ErrRecordNotFound) {
+		t.Fatalf("missing category target: %v", err)
+	}
 	if err := r.ReplaceRank(ctx, "hot-drama", "", []hongguo.Work{{SourceID: "9000000000000000006", Title: "历史空分类"}, {SourceID: first.SourceID, Title: first.Title}}); err != nil {
 		t.Fatal(err)
 	}
 	rows, total, err = r.List(ctx, "", "", "", "hot-drama", 1, 10)
 	if err != nil || total != 2 || len(rows) != 2 || rows[0].SourceID != "9000000000000000006" || rows[1].SourceID != first.SourceID {
 		t.Fatalf("official rank order lost: total=%d rows=%+v err=%v", total, rows, err)
+	}
+}
+
+func TestHongGuoListOrdersByFirstVisibleBeforePagination(t *testing.T) {
+	db, err := testdb.OpenPostgres(t, &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(&model.HongGuoWork{}, &model.HongGuoDiscovery{}, &model.HongGuoArtwork{}, &model.HongGuoRankEntry{}); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	older := now.Add(-24 * time.Hour)
+	works := []model.HongGuoWork{
+		{SourceID: "91001", SourceCategory: "ai-drama", Title: "较早上线", Tags: "[]", FirstVisibleAt: &older},
+		{SourceID: "91002", SourceCategory: "ai-drama", Title: "最近上线", Tags: "[]", FirstVisibleAt: &now},
+		{SourceID: "91003", SourceCategory: "ai-drama", Title: "未知上线", Tags: "[]"},
+	}
+	for i := range works {
+		works[i].CreatedAt = older.Add(-time.Duration(i) * time.Hour)
+		if err := db.Create(&works[i]).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	summary := model.HongGuoDiscovery{SourceID: "91004", SourceCategory: "ai-drama", Title: "新发现"}
+	summary.CreatedAt = now
+	if err := db.Create(&summary).Error; err != nil {
+		t.Fatal(err)
+	}
+	r := New(db).HongGuo
+	for _, category := range []string{"", "ai-drama"} {
+		for i, want := range []string{"91002", "91001", "91004", "91003"} {
+			rows, total, err := r.List(t.Context(), "", category, "", "", i+1, 1)
+			if err != nil || total != 4 || len(rows) != 1 || rows[0].SourceID != want {
+				t.Fatalf("category=%q page=%d want=%s total=%d rows=%+v err=%v", category, i+1, want, total, rows, err)
+			}
+		}
+	}
+	for i, id := range []string{"91001", "91002"} {
+		if err := db.Create(&model.HongGuoRankEntry{RankKey: "hot-ai-drama", SourceID: id, Position: i + 1}).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	rows, _, err := r.List(t.Context(), "", "", "", "hot-ai-drama", 1, 2)
+	if err != nil || len(rows) != 2 || rows[0].SourceID != "91001" || rows[1].SourceID != "91002" {
+		t.Fatalf("official rank changed: rows=%+v err=%v", rows, err)
 	}
 }
 

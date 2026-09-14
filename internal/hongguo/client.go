@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"golang.org/x/net/html"
 )
@@ -159,6 +160,61 @@ func (c *Client) Detail(ctx context.Context, id string) (Work, error) {
 	return ParseDetail(body, id)
 }
 
+// ValidSearch 限制官网关键词长度，作品 ID 仍按字符串处理。
+func ValidSearch(keyword string) bool {
+	return keyword != "" && keyword != "." && keyword != ".." && utf8.RuneCountInString(keyword) <= 100 && !strings.ContainsAny(keyword, "\x00\r\n")
+}
+
+// Search 读取官网搜索首屏；官网未提供已验证的分页链接，不能用总命中数伪造可翻页结果。
+func (c *Client) Search(ctx context.Context, keyword string) ([]Work, error) {
+	keyword = strings.TrimSpace(keyword)
+	if !ValidSearch(keyword) {
+		return nil, errors.New("红果搜索关键词无效")
+	}
+	if ValidID(keyword) {
+		work, err := c.Detail(ctx, keyword)
+		if errors.Is(err, ErrNotFound) {
+			return []Work{}, nil
+		}
+		if err != nil {
+			return nil, err
+		}
+		return []Work{work}, nil
+	}
+	body, err := c.page(ctx, "/search/"+url.PathEscape(keyword))
+	if err != nil {
+		return nil, err
+	}
+	data, err := loader(body, "search_(keyword)/page")
+	if err != nil {
+		return nil, err
+	}
+	items, ok := data["searchList"].([]any)
+	if !ok {
+		return nil, errors.New("红果搜索列表格式无效")
+	}
+	works := []Work{}
+	seen := map[string]bool{}
+	for _, item := range items {
+		data := object(object(item)["video_data"])
+		id, title := scalar(data["series_id"]), scalar(data["series_title"])
+		if !ValidID(id) || title == "" || seen[id] {
+			continue
+		}
+		seen[id] = true
+		tags := []string{}
+		if categories, ok := data["category_list"].([]any); ok {
+			for _, category := range categories {
+				if name := scalar(object(category)["name"]); name != "" {
+					tags = append(tags, name)
+				}
+			}
+		}
+		works = append(works, Work{SourceID: id, Title: title, Overview: scalar(data["series_intro"]), EpisodeCount: count(data["episode_cnt"]), UpdateText: scalar(data["episode_right_text"]), Tags: tags})
+	}
+	return works, nil
+}
+
 // Category 返回一页分类摘要及原始条目数；摘要不能作为完整详情或作品下架的证据。
 func (c *Client) Category(ctx context.Context, category string, page int) ([]Work, int, error) {
 	if !ValidCategory(category) || page < 1 || page > MaxCategoryPage {
@@ -214,7 +270,10 @@ func loader(body []byte, name string) (map[string]any, error) {
 	if err := dec.Decode(&root); err != nil {
 		return nil, errors.New("红果页面资料格式无效")
 	}
-	raw := root.LoaderData[name+"_page"]
+	raw := root.LoaderData[name]
+	if len(raw) == 0 {
+		raw = root.LoaderData[name+"_page"]
+	}
 	if len(raw) == 0 {
 		// 动态资料路由与同前缀 layout 并存，优先选择明确的资料节点。
 		raw = root.LoaderData[name+"_$"]

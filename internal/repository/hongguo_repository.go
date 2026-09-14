@@ -163,6 +163,27 @@ func (r *HongGuoRepository) FindBySourceID(ctx context.Context, id string) (*mod
 	return &work, err
 }
 
+// SetSourceCategory 同步修改摘要和完整资料，避免后续刷新从另一张表恢复旧分类。
+func (r *HongGuoRepository) SetSourceCategory(ctx context.Context, sourceID, category string) error {
+	if !hongguo.ValidID(sourceID) || !hongguo.ValidCategory(category) {
+		return errors.New("红果作品分类无效")
+	}
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var affected int64
+		for _, target := range []any{&model.HongGuoDiscovery{}, &model.HongGuoWork{}} {
+			result := tx.Model(target).Where("source_id = ?", sourceID).Update("source_category", category)
+			if result.Error != nil {
+				return result.Error
+			}
+			affected += result.RowsAffected
+		}
+		if affected == 0 {
+			return gorm.ErrRecordNotFound
+		}
+		return nil
+	})
+}
+
 // HongGuoListWork 是海报目录投影，只携带本地图片标识和题材，不暴露上游图片地址。
 type HongGuoListWork struct {
 	model.HongGuoWork
@@ -179,7 +200,7 @@ func (r *HongGuoRepository) List(ctx context.Context, search, sourceCategory, ca
 	if rank != "" && !hongguo.ValidRank(rank) {
 		return nil, 0, errors.New("榜单类型无效")
 	}
-	order := "catalog.created_at DESC, catalog.id DESC"
+	order := "catalog.first_visible_at DESC NULLS LAST, catalog.created_at DESC, catalog.id DESC"
 	if rank != "" {
 		order = "rank_entry.position ASC, catalog.source_id ASC"
 	}
@@ -209,7 +230,9 @@ WHERE NOT EXISTS (SELECT 1 FROM hongguo_works AS w WHERE w.source_id = d.source_
 		conditions = append(conditions, "(POSITION(LOWER(?) IN LOWER(catalog.title)) > 0 OR catalog.source_id = ?)")
 		args = append(args, search, search)
 	}
-	if sourceCategory != "" {
+	if sourceCategory == "other" {
+		conditions = append(conditions, "COALESCE(catalog.source_category, '') = ''")
+	} else if sourceCategory != "" {
 		conditions = append(conditions, "catalog.source_category = ?")
 		args = append(args, sourceCategory)
 	}

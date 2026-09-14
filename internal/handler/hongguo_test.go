@@ -117,7 +117,7 @@ func TestHongGuoHTTPAccessAndStateIsolation(t *testing.T) {
 		}
 		return rec
 	}
-	for _, path := range []string{"/works", "/works/" + work.SourceID, "/works/" + work.SourceID + "/episodes", "/groups/unknown"} {
+	for _, path := range []string{"/works", "/search?keyword=test", "/works/" + work.SourceID, "/works/" + work.SourceID + "/episodes", "/groups/unknown"} {
 		if rec := request("GET", path, "user", "", ""); rec.Code != 403 {
 			t.Fatalf("discover permission bypass: %s %d", path, rec.Code)
 		}
@@ -131,6 +131,34 @@ func TestHongGuoHTTPAccessAndStateIsolation(t *testing.T) {
 	if rec := request("GET", "/works?source_category=real-drama", "admin", "", ""); rec.Code != 200 || !strings.Contains(rec.Body.String(), `"total":1`) {
 		t.Fatalf("source category catalog: %d %s", rec.Code, rec.Body.String())
 	}
+	for _, target := range []any{&model.HongGuoDiscovery{}, &model.HongGuoWork{}} {
+		if err := db.Model(target).Where("source_id = ?", work.SourceID).Update("source_category", "").Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	if rec := request("GET", "/works?source_category=other", "admin", "", ""); rec.Code != 200 || !strings.Contains(rec.Body.String(), `"total":1`) {
+		t.Fatalf("other category catalog: %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := request("PUT", "/works/"+work.SourceID+"/category", "user", `{"source_category":"real-drama"}`, ""); rec.Code != 403 {
+		t.Fatalf("viewer changed category: %d", rec.Code)
+	}
+	for _, tc := range []struct {
+		id, body string
+		status   int
+	}{
+		{"invalid", `{"source_category":"real-drama"}`, 400},
+		{work.SourceID, `{"source_category":"other"}`, 400},
+		{"99999", `{"source_category":"ai-drama"}`, 404},
+		{work.SourceID, `{"source_category":"real-drama"}`, 204},
+	} {
+		if rec := request("PUT", "/works/"+tc.id+"/category", "admin", tc.body, ""); rec.Code != tc.status {
+			t.Fatalf("set category %s: %d %s", tc.id, rec.Code, rec.Body.String())
+		}
+	}
+	var categoryRows int64
+	if err := db.Model(&model.HongGuoDiscovery{}).Where("source_id = ? AND source_category = ?", work.SourceID, "real-drama").Count(&categoryRows).Error; err != nil || categoryRows != 1 {
+		t.Fatalf("discovery category not updated: count=%d err=%v", categoryRows, err)
+	}
 	if rec := request("GET", "/works?rank=hot-drama", "admin", "", ""); rec.Code != 200 || !strings.Contains(rec.Body.String(), `"total":1`) {
 		t.Fatalf("official rank catalog: %d %s", rec.Code, rec.Body.String())
 	}
@@ -142,6 +170,9 @@ func TestHongGuoHTTPAccessAndStateIsolation(t *testing.T) {
 		status                   int
 	}{
 		{"GET", "/works", "", "", 401},
+		{"GET", "/search?keyword=test", "", "", 401},
+		{"GET", "/search", "user", "", 400},
+		{"GET", "/search?keyword=..", "user", "", 400},
 		{"GET", "/admin/playback-stats?system=hongguo", "", "", 401},
 		{"GET", "/admin/playback-stats?system=hongguo", "user", "", 403},
 		{"GET", "/admin/playback-stats?system=hongguo", "admin", "", 200},
@@ -151,6 +182,7 @@ func TestHongGuoHTTPAccessAndStateIsolation(t *testing.T) {
 		{"GET", "/works?rank=unknown", "user", "", 400},
 		{"GET", "/works?rank=hot-drama&source_category=real-drama", "user", "", 400},
 		{"GET", "/works?source_category=unknown", "user", "", 400},
+		{"GET", "/works?source_category=other", "user", "", 200},
 		{"GET", "/works?source_category=comic", "user", "", 400},
 		{"GET", "/works?category=都市", "user", "", 400},
 		{"GET", "/works?source_category=comic-drama&category=都市", "user", "", 400},

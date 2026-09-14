@@ -41,7 +41,7 @@ func registerHongGuoRoutes(authed *gin.RouterGroup, svc *service.Container) {
 		category := strings.TrimSpace(c.Query("category"))
 		sourceCategory := strings.TrimSpace(c.Query("source_category"))
 		rank := strings.TrimSpace(c.Query("rank"))
-		if err != nil || sizeErr != nil || page < 1 || page > 1000000 || size < 1 || size > 100 || c.Query("sort") != "" || (sourceCategory != "" && !hongguo.ValidCategory(sourceCategory)) || (category != "" && !hongGuoWorkCategories[sourceCategory][category]) || (rank != "" && !hongguo.ValidRank(rank)) || (rank != "" && (sourceCategory != "" || category != "")) {
+		if err != nil || sizeErr != nil || page < 1 || page > 1000000 || size < 1 || size > 100 || c.Query("sort") != "" || (sourceCategory != "" && sourceCategory != "other" && !hongguo.ValidCategory(sourceCategory)) || (category != "" && !hongGuoWorkCategories[sourceCategory][category]) || (rank != "" && !hongguo.ValidRank(rank)) || (rank != "" && (sourceCategory != "" || category != "")) {
 			c.JSON(400, gin.H{"error": "查询参数无效"})
 			return
 		}
@@ -51,6 +51,23 @@ func registerHongGuoRoutes(authed *gin.RouterGroup, svc *service.Container) {
 			return
 		}
 		c.JSON(200, gin.H{"items": rows, "total": total, "page": page, "page_size": size})
+	})
+	group.GET("/search", requirePermission(svc, "can_view_discover"), func(c *gin.Context) {
+		keyword := strings.TrimSpace(c.Query("keyword"))
+		if !hongguo.ValidSearch(keyword) {
+			c.JSON(400, gin.H{"error": "请输入 1 至 100 字的标题或作品 ID"})
+			return
+		}
+		rows, err := svc.HongGuo.Search(c.Request.Context(), keyword)
+		if errors.Is(err, service.ErrHongGuoDisabled) {
+			c.JSON(409, gin.H{"error": "红果来源已停用"})
+			return
+		}
+		if err != nil {
+			c.JSON(502, gin.H{"error": "官网搜索失败，请稍后重试"})
+			return
+		}
+		c.JSON(200, gin.H{"items": rows, "total": len(rows)})
 	})
 	group.GET("/libraries/:libraryID", func(c *gin.Context) {
 		page, err := strconv.Atoi(c.DefaultQuery("page", "1"))
@@ -141,6 +158,25 @@ func registerHongGuoRoutes(authed *gin.RouterGroup, svc *service.Container) {
 		}
 		if err != nil {
 			c.JSON(502, gin.H{"error": "红果资料刷新失败，请查看任务日志"})
+			return
+		}
+		c.Status(204)
+	})
+	group.PUT("/works/:sourceID/category", middleware.AdminRequired(), func(c *gin.Context) {
+		var body struct {
+			SourceCategory string `json:"source_category"`
+		}
+		if !hongguo.ValidID(c.Param("sourceID")) || c.ShouldBindJSON(&body) != nil || !hongguo.ValidCategory(body.SourceCategory) {
+			c.JSON(400, gin.H{"error": "红果作品分类无效"})
+			return
+		}
+		err := svc.Repo.HongGuo.SetSourceCategory(c.Request.Context(), c.Param("sourceID"), body.SourceCategory)
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.Status(404)
+			return
+		}
+		if err != nil {
+			c.JSON(500, gin.H{"error": "红果作品分类保存失败"})
 			return
 		}
 		c.Status(204)

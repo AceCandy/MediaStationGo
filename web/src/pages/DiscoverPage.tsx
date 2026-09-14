@@ -238,7 +238,7 @@ export function DiscoverPage() {
   }
 
   return (
-    <div className="mx-auto max-w-7xl space-y-8 px-4 py-6">
+    <div className="space-y-8 py-6">
       <DiscoverHeader
         sections={sections}
         selected={selected}

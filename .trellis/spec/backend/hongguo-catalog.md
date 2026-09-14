@@ -28,7 +28,20 @@ provider and not a source of remote playable streams.
   plus local `artwork_id`, parsed `tags`, and `hydrated`. It merges canonical
   works with discovery-only summaries by `source_id` before count/pagination;
   do not fetch each work's full detail to build poster cards.
-- `GET works` accepts optional `source_category=real-drama|comic-drama|ai-drama`,
+- `GET search?keyword=...` requires `can_view_discover` and an enabled source.
+  It reads the official `/search/{keyword}` first response (or fixed detail URL
+  for a numeric source ID), preserving string IDs and upstream order. Return
+  the actual returned item count, not the upstream total as invented pagination.
+  Search is read-only; merge local hydration, classification and artwork IDs in
+  batches, never expose upstream image URLs or infer source category from tags.
+  Administrators may click an unhydrated search result to invoke the existing
+  `POST works/:id/refresh`; viewers cannot import. Late refresh responses must
+  not navigate a different search/account after the original page unmounts.
+  In the `other` category, administrators may assign one official source
+  category. Update matching discovery and work rows atomically; viewers remain
+  read-only.
+- `GET works` accepts optional `source_category=real-drama|comic-drama|ai-drama|other`;
+  `other` filters empty persisted categories and is never stored as a category.
   optional `category=<allowlisted exact tag for that source category>`, or one
   official `rank=hot-drama|hot-real-drama|hot-ai-drama|hot-comic-drama`.
   Rank cannot be combined with source/category filters. The retired local
@@ -88,6 +101,12 @@ provider and not a source of remote playable streams.
   saved without resetting its checkpoint, then fails explicitly. Only an empty
   page resets a category to page 1 for the next run. HTTP/parse/save failures
   stop the run and preserve the last committed checkpoint.
+- The public aggregate category routes currently expose a capped window, not
+  the entire source catalog. Topic routes such as `/category/ai-drama/drama`
+  expose additional IDs with explicit parent-category evidence. An approved
+  one-off topic backfill may union these routes and skip cross-category or
+  established-category conflicts. Repeated stable scans do not prove historical
+  completeness. Do not enable sitemap collection without a separate request.
 - `PendingDiscoveries(ctx, after, cutoff)` keyset-pages 100 summaries by source
   ID, excluding existing canonical works and all failure rows. Pending state is
   derived from business tables, not a second mutable status or execution log.
@@ -142,7 +161,11 @@ provider and not a source of remote playable streams.
 - Category browsing applies exact JSON-array tag membership to hydrated works.
   A tag filter requires a source category and must belong to that source's
   allowlist; the unfiltered list excludes retained historical `comic` rows.
-  Category browsing defaults to local collection order. Rank browsing joins
+  Category browsing orders by `first_visible_at DESC NULLS LAST`, then local
+  `created_at DESC, id DESC`, before pagination. Never substitute collection
+  time for a missing source first-visible time. Cards hide the source-category
+  label when a source category is selected; mixed lists and search retain it.
+  Rank browsing joins
   `hongguo_rank_entries` and orders by the stored official position; never
   derive a rank from local rating, rating count, or collection time.
 
