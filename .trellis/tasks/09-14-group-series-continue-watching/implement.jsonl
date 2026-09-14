@@ -1,0 +1,4 @@
+{"file":".trellis/spec/backend/playback-contracts.md","reason":"播放历史、Resume、UserData 与测试契约"}
+{"file":".trellis/spec/backend/shared-media-metadata.md","reason":"MediaView 与权威 Series 元数据父链契约"}
+{"file":".trellis/spec/backend/emby-api-catalog-sync.md","reason":"播放器可见 Emby 行为变更的目录同步要求"}
+{"file":".trellis/spec/backend/hongguo-catalog.md","reason":"红果独立用户状态、身份与 Emby 投影契约"}

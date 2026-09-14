@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/ShukeBta/MediaStationGo/internal/hongguo"
 	"github.com/ShukeBta/MediaStationGo/internal/model"
@@ -149,5 +150,58 @@ func TestHongGuoBindingGroupingAndStableProgress(t *testing.T) {
 	rows, err := r.MediaView.FindByIDs(ctx, []string{m.ID}, MediaQueryFilter{HiddenLibraryIDs: []string{library.ID}})
 	if err != nil || len(rows) != 0 {
 		t.Fatal("hidden media exposed")
+	}
+}
+
+func TestHongGuoContinueGroupsEpisodesByWork(t *testing.T) {
+	db, err := testdb.OpenPostgres(t, &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(model.AllModels()...); err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	r := New(db)
+	library := model.Library{Name: "红果", Path: "/test/hongguo-resume", Type: model.LibraryTypeHongGuo}
+	if err := db.Create(&library).Error; err != nil {
+		t.Fatal(err)
+	}
+	work, err := r.HongGuo.SaveDetail(ctx, hongguo.Work{SourceID: "900000000000000099", Title: "两集短剧", EpisodeCount: 2, Snapshot: []byte(`{}`)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	media := []model.Media{
+		{LibraryID: library.ID, Path: "/test/hongguo-resume/e1.strm", CatalogSource: model.TaskSystemHongGuo, LookupCatalogID: work.SourceID, SeasonNum: 1, EpisodeNum: 1},
+		{LibraryID: library.ID, Path: "/test/hongguo-resume/e2.strm", CatalogSource: model.TaskSystemHongGuo, LookupCatalogID: work.SourceID, SeasonNum: 1, EpisodeNum: 2},
+	}
+	for i := range media {
+		if err := r.Media.Upsert(ctx, &media[i]); err != nil {
+			t.Fatal(err)
+		}
+		view, err := r.MediaView.FindByID(ctx, media[i].ID)
+		if err != nil || view == nil {
+			t.Fatalf("view=%#v err=%v", view, err)
+		}
+		if err := r.HongGuo.RecordProgress(ctx, "resume-user", "", *view, 30_000+int64(i), 120_000, false); err != nil {
+			t.Fatal(err)
+		}
+	}
+	older := time.Now().UTC().Add(-time.Minute)
+	newer := time.Now().UTC()
+	if err := db.Model(&model.HongGuoUserState{}).Where("user_id = ? AND source_id = ? AND episode_number = 1", "resume-user", work.SourceID).Updates(map[string]any{"watched_at": older, "updated_at": older}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Model(&model.HongGuoUserState{}).Where("user_id = ? AND source_id = ? AND episode_number = 2", "resume-user", work.SourceID).Updates(map[string]any{"watched_at": newer, "updated_at": newer}).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	history, total, err := r.HongGuo.UserCards(ctx, "resume-user", "history", 1, 10, MediaQueryFilter{})
+	if err != nil || total != 2 || len(history) != 2 {
+		t.Fatalf("history must keep episodes: cards=%#v total=%d err=%v", history, total, err)
+	}
+	continued, total, err := r.HongGuo.UserCards(ctx, "resume-user", "continue", 1, 10, MediaQueryFilter{})
+	if err != nil || total != 1 || len(continued) != 1 || continued[0].EpisodeNumber != 2 {
+		t.Fatalf("continue must group by work: cards=%#v total=%d err=%v", continued, total, err)
 	}
 }

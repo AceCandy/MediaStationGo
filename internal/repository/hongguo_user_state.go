@@ -106,6 +106,10 @@ func (r *HongGuoRepository) UserCards(ctx context.Context, userID, tab string, p
 		q = q.Where("m.library_id <> ALL(?)", &filter.HiddenLibraryIDs)
 	}
 	key := "CASE WHEN s.episode_number = 0 AND g.id IS NOT NULL THEN g.id ELSE s.source_id || ':' || s.episode_number END"
+	if tab == "continue" {
+		// 继续观看按展示剧集聚合；完整历史仍保留每个源分集。
+		key = "CASE WHEN g.id IS NOT NULL THEN 'group:' || g.id ELSE 'work:' || s.source_id END"
+	}
 	q = q.Select("DISTINCT ON (" + key + ") s.source_id, COALESCE(g.title,w.title) AS title, w.kind, m.id AS media_id, COALESCE(gm.season_number,1) AS season_number, s.episode_number, s.position_ms, s.duration_ms, s.completed, s.updated_at").Order(key + ", s.updated_at DESC, CASE WHEN m.id = s.media_id THEN 0 ELSE 1 END, m.id")
 	outer := r.db.WithContext(ctx).Table("(?) AS cards", q)
 	var total int64

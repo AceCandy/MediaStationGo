@@ -21,6 +21,8 @@ per-user, per-metadata history state but playback events are append-only.
   `page`, `page_size`, `rank_grain=day|week`, and `rank_date`.
 - `playback_histories` is unique on active `(user_id, metadata_id)`;
   `playback_events` is unique on active `(user_id, session_id, metadata_id)`.
+- Continue-watching reads are `GET /api/watch-history/continue`, Emby
+  `/Items/Resume`, and Emby `/Items` with `Filters=IsResumable`.
 
 ## 3. Contracts
 
@@ -38,6 +40,11 @@ per-user, per-metadata history state but playback events are append-only.
 - Automatic progress below 20 seconds is ignored. At 20 seconds or later it
   updates history; a non-empty session ID also creates one event in the same
   transaction.
+- Full history remains Episode-grained. Continue-watching reads group visible,
+  incomplete Episodes by canonical Series before pagination and retain the most
+  recently watched Episode; Movies and items without a Series group by their own
+  logical identity. HongGuo groups by its source work or manual display group and
+  never merges with canonical media by title.
 - Emby progress with both metadata `ItemId` and concrete `MediaSourceId` must
   resolve the visible media directly and verify `media.metadata_id == ItemId`.
   Do not load a full `MediaView`; mismatched or legacy IDs retain the generic
@@ -80,6 +87,7 @@ per-user, per-metadata history state but playback events are append-only.
 | Invalid progress bounds | Request is rejected; no history or event is written |
 | `MediaSourceId` belongs to another `ItemId` | Ignore the mismatched source and retain generic item resolution |
 | Position below 20 seconds | Successful no-op for automatic progress |
+| Several incomplete Episodes belong to one visible Series | Continue watching returns only the most recently watched Episode; full history keeps every Episode |
 | Invisible media | Request is rejected; no history or event is written |
 | Non-admin explicit different user ID | `403` |
 | Invalid statistics grain/date or `from > to` | `400` |
@@ -99,6 +107,10 @@ per-user, per-metadata history state but playback events are append-only.
   target and follows the compatibility resolver.
 - Good: two episodes from one season contribute to one season ranking row,
   while two files sharing movie metadata contribute to one movie row.
+- Good: Episodes 6 and 7 both retain history, while every Web/Emby resume read
+  returns only the more recently watched incomplete Episode 7.
+- Bad: deduplicate after `LIMIT`, because repeated Episodes can consume the
+  candidate window and hide older resumable Series or Movies.
 - Base: a legacy client without a session ID still saves valid history but does
   not create an event.
 - Base: a deleted media file remains in details as an unavailable, unlinked
@@ -131,6 +143,9 @@ per-user, per-metadata history state but playback events are append-only.
   event creation fails.
 - Cover statistics filters and invalid parameter combinations, and synchronize
   `web/src/pages/embyApiCatalog.ts` when player-visible Emby behavior changes.
+- Cover canonical and HongGuo same-Series resume grouping, newest-Episode
+  selection, visibility, user isolation, and pagination after grouping across
+  Web Continue, Emby Resume, and `IsResumable`; assert full history is unchanged.
 - Run playback-statistics repository tests against real PostgreSQL; assert
   newest-first pagination, movie/season aggregation, date-range intersection,
   deleted-media availability, and a page beyond the last item.
@@ -172,4 +187,8 @@ err := applyUserMediaVisibility(ctx, query, userID).Take(&media).Error
 // Build each statistics branch from a clean common-filter statement.
 buckets := playbackStatsQuery(ctx, filter).Group("period")
 details := playbackStatsQuery(ctx, filter).Order("pe.played_at DESC, pe.id DESC")
+
+// Group visible resumable Episodes before applying the requested page.
+grouped := visibleResumeScope.Distinct("series_id").Order("series_id, watched_at DESC")
+page := db.Table("(?) AS grouped_resume", grouped).Order("watched_at DESC").Limit(limit)
 ```

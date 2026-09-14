@@ -71,6 +71,14 @@ func (r *HistoryRepository) ListByUserFiltered(ctx context.Context, userID strin
 	}
 	if completed != nil && !*completed {
 		q = q.Where("ph.position_ms >= ?", int64(20_000))
+		groupKey := "CASE WHEN mi.kind = 'episode' AND season.kind = 'season' THEN season.parent_id ELSE ph.metadata_id END"
+		grouped := q.Joins("LEFT JOIN metadata_items AS season ON season.id = mi.parent_id AND mi.kind = 'episode' AND season.kind = 'season'").
+			Select("DISTINCT ON (" + groupKey + ") ph.*").
+			Order(groupKey + ", ph.watched_at DESC, ph.id DESC")
+		var rows []model.PlaybackHistory
+		err := r.db.WithContext(ctx).Table("(?) AS grouped_history", grouped).
+			Order("watched_at DESC, id DESC").Limit(limit).Scan(&rows).Error
+		return rows, err
 	}
 	var rows []model.PlaybackHistory
 	err := q.Select("DISTINCT ph.*").Order("ph.watched_at desc").Limit(limit).Scan(&rows).Error

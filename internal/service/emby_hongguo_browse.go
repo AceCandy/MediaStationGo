@@ -35,12 +35,13 @@ func (e *EmbyService) hongGuoGlobalItems(ctx context.Context, p ItemsParams) (ma
 		Joins("JOIN metadata_items item ON item.id IN (leaf.id, parent.id, grandparent.id)").
 		Joins("LEFT JOIN playback_histories h ON h.metadata_id = leaf.id AND h.user_id = ? AND h.deleted_at IS NULL", p.UserID).
 		Joins("LEFT JOIN favorites fav ON fav.metadata_id = item.id AND fav.user_id = ? AND fav.deleted_at IS NULL", p.UserID).
-		Select(`item.id, item.kind, item.title, MAX(f.created_at) AS created_at,
+		Select(`item.id, CASE WHEN item.kind = 'episode' THEN 'legacy:' || COALESCE(grandparent.id,item.id) ELSE 'legacy:' || item.id END AS resume_key,
+ item.kind, item.title, MAX(f.created_at) AS created_at,
  COALESCE(MAX(h.watched_at),MAX(f.created_at)) AS played_at,
  BOOL_AND(COALESCE(h.completed,FALSE)) AS played,
  BOOL_OR(fav.id IS NOT NULL) AS favorite, MAX(COALESCE(h.position_ms,0)) AS position_ms,
  item.rating, COALESCE(item.release_date,'') AS release_date, item.year`).
-		Group("item.id")
+		Group("item.id, grandparent.id")
 	if !v.IncludeNSFW {
 		legacy = legacy.Where("NOT COALESCE(item.nsfw,FALSE)")
 	}
@@ -49,7 +50,7 @@ func (e *EmbyService) hongGuoGlobalItems(ctx context.Context, p ItemsParams) (ma
  WHERE c.person_id IN ? AND c.metadata_id = CASE WHEN item.kind = 'episode' THEN item.parent_id ELSE item.id END)`, p.PersonIDs)
 	}
 	source := e.hongGuoPersonFilter(ctx, e.hongGuoNodes(ctx, p.UserID, ""), p.UserID, "", p.PersonIDs).
-		Select("id, LOWER(kind) AS kind, title, latest_at AS created_at, COALESCE(played_at,latest_at) AS played_at, played, favorite, position_ms, rating, '' AS release_date, 0 AS year")
+		Select("id, resume_key, LOWER(kind) AS kind, title, latest_at AS created_at, COALESCE(played_at,latest_at) AS played_at, played, favorite, position_ms, rating, '' AS release_date, 0 AS year")
 	q := e.repo.DB.WithContext(ctx).Table("(?) AS combined", e.repo.DB.Raw("? UNION ALL ?", legacy, source))
 	kinds := lowerStrings(p.IncludeItemTypes)
 	if len(kinds) == 0 {
@@ -70,6 +71,7 @@ func (e *EmbyService) hongGuoGlobalItems(ctx context.Context, p ItemsParams) (ma
 	}
 	if containsEmbyFilter(p.Filters, "IsResumable") {
 		q = q.Where("NOT played AND position_ms > 0 AND kind IN ('movie','episode')")
+		q = e.repo.DB.WithContext(ctx).Table("(?) AS grouped_resume", q.Select("DISTINCT ON (resume_key) *").Order("resume_key, played_at DESC, id DESC"))
 	}
 	var total int64
 	if err := q.Session(&gorm.Session{}).Count(&total).Error; err != nil {

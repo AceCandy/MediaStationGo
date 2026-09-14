@@ -276,3 +276,51 @@ func TestHongGuoEmbyPlayableIdentityAndUserState(t *testing.T) {
 		}
 	}
 }
+
+func TestHongGuoEmbyResumableGroupsBeforePaging(t *testing.T) {
+	db, err := testdb.OpenPostgres(t, &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := NewEmbyService(&config.Config{}, zap.NewNop(), repository.New(db))
+	if err := db.AutoMigrate(model.AllModels()...); err != nil {
+		t.Fatal(err)
+	}
+	library := model.Library{Name: "红果", Path: "/test/hg-resume", Type: model.LibraryTypeHongGuo}
+	if err := db.Create(&library).Error; err != nil {
+		t.Fatal(err)
+	}
+	work, err := e.repo.HongGuo.SaveDetail(t.Context(), hongguo.Work{SourceID: "900000000000000099", Title: "两集短剧", EpisodeCount: 2, Snapshot: []byte(`{}`)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	paths := []string{"/test/hg-resume/e1.strm", "/test/hg-resume/e2.strm"}
+	ids := make([]string, len(paths))
+	for i, path := range paths {
+		media := model.Media{LibraryID: library.ID, Path: path, CatalogSource: model.TaskSystemHongGuo, LookupCatalogID: work.SourceID, SeasonNum: 1, EpisodeNum: i + 1}
+		if err := e.repo.Media.Upsert(t.Context(), &media); err != nil {
+			t.Fatal(err)
+		}
+		view, err := e.repo.MediaView.FindByID(t.Context(), media.ID)
+		if err != nil || view == nil {
+			t.Fatalf("view=%#v err=%v", view, err)
+		}
+		ids[i] = view.CatalogItemID
+		if err := e.repo.HongGuo.RecordProgress(t.Context(), "resume-user", "", *view, 30_000, 120_000, false); err != nil {
+			t.Fatal(err)
+		}
+	}
+	older := time.Now().UTC().Add(-time.Minute)
+	if err := db.Model(&model.HongGuoUserState{}).Where("user_id = ? AND source_id = ? AND episode_number = 1", "resume-user", work.SourceID).Updates(map[string]any{"watched_at": older, "updated_at": older}).Error; err != nil {
+		t.Fatal(err)
+	}
+	params := ItemsParams{UserID: "resume-user", IncludeItemTypes: []string{"Episode"}, Filters: []string{"IsResumable"}, Recursive: true, SortBy: "DatePlayed", SortOrder: "Descending", Limit: 10}
+	for _, parentID := range []string{"", library.ID} {
+		params.ParentID = parentID
+		result, err := e.Items(t.Context(), params)
+		items, _ := result["Items"].([]map[string]any)
+		if err != nil || result["TotalRecordCount"] != int64(1) || len(items) != 1 || items[0]["Id"] != ids[1] {
+			t.Fatalf("parent=%q result=%#v err=%v", parentID, result, err)
+		}
+	}
+}

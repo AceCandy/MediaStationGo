@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/ShukeBta/MediaStationGo/internal/model"
+	"gorm.io/gorm"
 )
 
 func (e *EmbyService) mediaItems(ctx context.Context, p ItemsParams) (map[string]any, error) {
@@ -37,12 +38,7 @@ func (e *EmbyService) mediaItems(ctx context.Context, p ItemsParams) (map[string
 		if strings.TrimSpace(p.UserID) == "" {
 			return map[string]any{"Items": []map[string]any{}, "TotalRecordCount": int64(0), "StartIndex": p.StartIndex}, nil
 		}
-		q = q.Joins(`JOIN (
-			SELECT metadata_id AS item_id, MAX(watched_at) AS watched_at
-			FROM playback_histories
-			WHERE user_id = ? AND completed = ? AND position_ms > 0
-			GROUP BY metadata_id
-			) AS resume ON resume.item_id = media.metadata_id`, p.UserID, false)
+		q = q.Joins("JOIN playback_histories AS resume ON resume.metadata_id = media.metadata_id AND resume.user_id = ? AND resume.deleted_at IS NULL AND NOT resume.completed AND resume.position_ms >= ?", p.UserID, int64(20_000))
 	}
 	filterBySeasonNumbers := true
 	parentKnownNonEpisodic := false
@@ -63,6 +59,18 @@ func (e *EmbyService) mediaItems(ctx context.Context, p ItemsParams) (map[string
 	}
 	if filterBySeasonNumbers && containsItemType(p.IncludeItemTypes, "Episode") && !containsItemType(p.IncludeItemTypes, "Movie") {
 		q = e.filterEpisodeItems(ctx, q)
+	}
+	if resumeFilter {
+		groupKey := "COALESCE(resume_season.parent_id, media.metadata_id)"
+		candidates := q.Session(&gorm.Session{}).
+			Joins("LEFT JOIN metadata_items AS resume_season ON resume_season.id = emby_metadata.parent_id AND emby_metadata.kind = 'episode' AND resume_season.kind = 'season'").
+			Select("media.metadata_id, " + groupKey + " AS resume_group_id, MAX(resume.watched_at) AS watched_at").
+			Group("media.metadata_id, " + groupKey)
+		selected := e.repo.DB.WithContext(ctx).Table("(?) AS resume_candidates", candidates).
+			Select("DISTINCT ON (resume_group_id) metadata_id, resume_group_id, watched_at").
+			Order("resume_group_id, watched_at DESC, metadata_id DESC")
+		selectedIDs := e.repo.DB.WithContext(ctx).Table("(?) AS selected_resume", selected).Select("metadata_id")
+		q = q.Where("media.metadata_id IN (?)", selectedIDs)
 	}
 
 	views, total, err := e.metadataPage(ctx, q, p.UserID, metadataOrderSQL(p, resumeFilter), p.StartIndex, p.Limit)

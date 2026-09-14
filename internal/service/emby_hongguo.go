@@ -139,7 +139,7 @@ func (e *EmbyService) hongGuoNodes(ctx context.Context, userID, libraryID string
 	}
 	// 同一文件贡献整剧、季、集节点；先过滤文件，再按逻辑身份聚合多版本。
 	return e.repo.DB.WithContext(ctx).Table(`(?) AS nodes`, e.repo.DB.Raw(`
-SELECT n.id, n.kind, n.title, n.parent_id, n.season_number, n.episode_number,
+SELECT n.id, n.resume_key, n.kind, n.title, n.parent_id, n.season_number, n.episode_number,
  MIN(m.id) AS media_id, MIN(m.created_at) AS created_at, MAX(m.created_at) AS latest_at,
  MAX(s.watched_at) AS played_at,
  BOOL_OR(COALESCE(f.favorite,FALSE)) AS favorite,
@@ -160,15 +160,16 @@ LEFT JOIN hongguo_artworks a ON a.work_id = w.id AND a.local_key <> ''
 LEFT JOIN hongguo_user_states s ON s.user_id = ? AND s.source_id = w.source_id AND s.episode_number = COALESCE(ep.number,1)
 LEFT JOIN hongguo_user_states f ON f.user_id = ? AND f.source_id = w.source_id AND f.episode_number = 0
 CROSS JOIN LATERAL (VALUES
- (CASE WHEN g.id IS NOT NULL THEN 'hg-group-' || g.id ELSE 'hg-work-' || w.id END,
-  CASE WHEN w.kind = 'movie' THEN 'Movie' ELSE 'Series' END,
-  COALESCE(g.title,w.title), ''::text, 0, 0),
- (CASE WHEN w.kind = 'series' THEN 'hg-season-' || w.id END, 'Season', w.title,
-  CASE WHEN g.id IS NOT NULL THEN 'hg-group-' || g.id ELSE 'hg-work-' || w.id END, COALESCE(gm.season_number,1), 0),
- (CASE WHEN w.kind = 'series' AND ep.id IS NOT NULL THEN 'hg-episode-' || ep.id END, 'Episode', '第' || ep.number || '集', 'hg-season-' || w.id, COALESCE(gm.season_number,1), ep.number)
-) AS n(id,kind,title,parent_id,season_number,episode_number)
+	(CASE WHEN g.id IS NOT NULL THEN 'hg-group-' || g.id ELSE 'hg-work-' || w.id END,
+	 CASE WHEN w.kind = 'movie' THEN 'Movie' ELSE 'Series' END,
+	 COALESCE(g.title,w.title), ''::text, 0, 0, CASE WHEN g.id IS NOT NULL THEN 'hongguo:group:' || g.id ELSE 'hongguo:work:' || w.source_id END),
+	(CASE WHEN w.kind = 'series' THEN 'hg-season-' || w.id END, 'Season', w.title,
+	 CASE WHEN g.id IS NOT NULL THEN 'hg-group-' || g.id ELSE 'hg-work-' || w.id END, COALESCE(gm.season_number,1), 0, CASE WHEN g.id IS NOT NULL THEN 'hongguo:group:' || g.id ELSE 'hongguo:work:' || w.source_id END),
+	(CASE WHEN w.kind = 'series' AND ep.id IS NOT NULL THEN 'hg-episode-' || ep.id END, 'Episode', '第' || ep.number || '集', 'hg-season-' || w.id, COALESCE(gm.season_number,1), ep.number,
+	 CASE WHEN g.id IS NOT NULL THEN 'hongguo:group:' || g.id ELSE 'hongguo:work:' || w.source_id END)
+) AS n(id,kind,title,parent_id,season_number,episode_number,resume_key)
 WHERE n.id IS NOT NULL
-GROUP BY n.id,n.kind,n.title,n.parent_id,n.season_number,n.episode_number`, files, userID, userID))
+GROUP BY n.id,n.resume_key,n.kind,n.title,n.parent_id,n.season_number,n.episode_number`, files, userID, userID))
 }
 
 // LatestItems 使用可见文件的入库时间合并最新项，各来源只读取所需的前 N 个候选。
@@ -297,6 +298,11 @@ func (e *EmbyService) hongGuoHierarchyItems(ctx context.Context, p ItemsParams) 
 	if containsEmbyFilter(p.Filters, "IsUnplayed") {
 		q = q.Where("NOT played")
 	}
+	resumeFilter := containsEmbyFilter(p.Filters, "IsResumable")
+	if resumeFilter {
+		q = q.Where("NOT played AND position_ms > 0 AND kind IN ('Movie','Episode')")
+		q = e.repo.DB.WithContext(ctx).Table("(?) AS grouped_resume", q.Select("DISTINCT ON (resume_key) *").Order("resume_key, played_at DESC, id DESC"))
+	}
 	var total int64
 	if err := q.Count(&total).Error; err != nil {
 		return nil, true, err
@@ -304,12 +310,17 @@ func (e *EmbyService) hongGuoHierarchyItems(ctx context.Context, p ItemsParams) 
 	order := "title"
 	if strings.Contains(strings.ToLower(p.SortBy), "datecreated") {
 		order = "created_at"
+	} else if resumeFilter && strings.Contains(strings.ToLower(p.SortBy), "dateplayed") {
+		order = "played_at"
 	}
 	if strings.EqualFold(p.SortOrder, "Descending") {
 		order += " DESC"
 	}
 	var nodes []hongGuoNode
-	if err := q.Order("season_number, episode_number").Order(order).Order("id").Limit(p.Limit).Offset(p.StartIndex).Scan(&nodes).Error; err != nil {
+	if !resumeFilter {
+		q = q.Order("season_number, episode_number")
+	}
+	if err := q.Order(order).Order("id").Limit(p.Limit).Offset(p.StartIndex).Scan(&nodes).Error; err != nil {
 		return nil, true, err
 	}
 	items, err := e.hongGuoNodePayloads(ctx, nodes, p.UserID, p.Fields)

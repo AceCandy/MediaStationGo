@@ -293,6 +293,67 @@ func TestEmbyItemsFiltersResumableForHome(t *testing.T) {
 	}
 }
 
+func TestContinueWatchingGroupsSeriesBeforePaging(t *testing.T) {
+	svc := newTestEmbyService(t)
+	viewer := &model.User{Base: model.Base{ID: "resume-user"}, Username: "resume-viewer", Role: "user", Tier: "free", IsActive: true}
+	if err := svc.repo.User.Create(t.Context(), viewer); err != nil {
+		t.Fatal(err)
+	}
+	library := model.Library{Name: "剧集", Path: "/media/shows", Type: "tv", Enabled: true}
+	if err := svc.repo.Library.Create(t.Context(), &library); err != nil {
+		t.Fatal(err)
+	}
+	series := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{PermanentBase: model.PermanentBase{ID: "resume-series"}, Kind: model.MetadataKindSeries, Title: "测试剧", Source: "test"})
+	season := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{PermanentBase: model.PermanentBase{ID: "resume-season"}, Kind: model.MetadataKindSeason, ParentID: &series.ID, SeasonNum: 1, Title: "第一季", Source: "test"})
+	episode6 := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{PermanentBase: model.PermanentBase{ID: "resume-episode-6"}, Kind: model.MetadataKindEpisode, ParentID: &season.ID, EpisodeNum: 6, Title: "第六集", Source: "test"})
+	episode7 := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{PermanentBase: model.PermanentBase{ID: "resume-episode-7"}, Kind: model.MetadataKindEpisode, ParentID: &season.ID, EpisodeNum: 7, Title: "第七集", Source: "test"})
+	movie := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{PermanentBase: model.PermanentBase{ID: "resume-movie"}, Kind: model.MetadataKindMovie, Title: "测试电影", Source: "test"})
+	media := []model.Media{
+		{PermanentBase: model.PermanentBase{ID: "resume-media-6"}, LibraryID: library.ID, MetadataID: episode6.ID, Path: "/media/shows/s01e06.mkv", SeasonNum: 1, EpisodeNum: 6},
+		{PermanentBase: model.PermanentBase{ID: "resume-media-7"}, LibraryID: library.ID, MetadataID: episode7.ID, Path: "/media/shows/s01e07.mkv", SeasonNum: 1, EpisodeNum: 7},
+		{PermanentBase: model.PermanentBase{ID: "resume-media-movie"}, LibraryID: library.ID, MetadataID: movie.ID, Path: "/media/shows/movie.mkv"},
+	}
+	if err := svc.repo.DB.Create(&media).Error; err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	history := []model.PlaybackHistory{
+		{UserID: viewer.ID, MetadataID: episode6.ID, MediaID: media[0].ID, PositionMs: 30_000, DurationMs: 120_000, WatchedAt: now.Add(-2 * time.Minute)},
+		{UserID: viewer.ID, MetadataID: movie.ID, MediaID: media[2].ID, PositionMs: 30_000, DurationMs: 120_000, WatchedAt: now.Add(-time.Minute)},
+		{UserID: viewer.ID, MetadataID: episode7.ID, MediaID: media[1].ID, PositionMs: 30_000, DurationMs: 120_000, WatchedAt: now},
+	}
+	if err := svc.repo.DB.Create(&history).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	playback := NewPlaybackService(zap.NewNop(), svc.repo)
+	recent, err := playback.RecentHistory(t.Context(), viewer.ID, 3, MediaVisibility{IncludeNSFW: true})
+	if err != nil || len(recent) != 3 {
+		t.Fatalf("full history must keep every episode: items=%#v err=%v", recent, err)
+	}
+	continued, err := playback.ContinueHistory(t.Context(), viewer.ID, 2, MediaVisibility{IncludeNSFW: true})
+	if err != nil || len(continued) != 2 || continued[0].MetadataID != episode7.ID || continued[1].MetadataID != movie.ID {
+		t.Fatalf("native continue must group before limit: items=%#v err=%v", continued, err)
+	}
+
+	resume, err := svc.ResumeItems(t.Context(), viewer.ID, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resumeItems := resume["Items"].([]map[string]any)
+	if len(resumeItems) != 2 || resumeItems[0]["Id"] != episode7.ID || resumeItems[1]["Id"] != movie.ID {
+		t.Fatalf("Emby Resume must group series: %#v", resumeItems)
+	}
+	filtered, err := svc.Items(t.Context(), ItemsParams{UserID: viewer.ID, Filters: []string{"IsResumable"}, SortBy: "DatePlayed", SortOrder: "Descending", Limit: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	filteredItems := filtered["Items"].([]map[string]any)
+	if filtered["TotalRecordCount"] != int64(2) || len(filteredItems) != 2 || filteredItems[0]["Id"] != episode7.ID || filteredItems[1]["Id"] != movie.ID {
+		t.Fatalf("Emby IsResumable must group series: %#v", filtered)
+	}
+}
+
 func TestEmbyUserPolicyDisablesDownloadsForViewers(t *testing.T) {
 	svc := &EmbyService{}
 	viewerPayload := svc.userPayload(&model.User{Role: "user", IsActive: true})
