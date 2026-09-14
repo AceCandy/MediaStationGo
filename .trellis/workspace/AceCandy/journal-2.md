@@ -808,3 +808,25 @@ Web 电影与整剧按 metadata 分页，Emby 整剧摘要、混合库与子级�
 ### Status
 
 [OK] **Completed**
+
+
+## Session 126: 完善红果分类发现与官网搜索
+<!-- trellis-session: v=2 fp=930b1ffe82bd2933 -->
+
+**Date**: 2026-09-14
+**Task**: 完善红果分类发现与官网搜索
+**Branch**: `main`
+
+### Summary
+
+完成公开题材子目录补录、官网搜索接入、分类按上线时间排序、其它分类筛选与管理员分类设置；补充跨层测试并完成前端构建与浏览器回归。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `ce10e1e` | feat: 完善红果分类发现与官网搜索 |
+
+### Status
+
+[OK] **Completed**
