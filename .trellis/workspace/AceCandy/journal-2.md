@@ -876,3 +876,25 @@ Web 与 Emby 对缺失的单集播出日期按同季前序集回退；季和单�
 ### Status
 
 [OK] **Completed**
+
+
+## Session 129: TMDB 快照自动补齐与失败重试
+<!-- trellis-session: v=2 fp=8c26733fcf779fcb -->
+
+**Date**: 2026-09-15
+**Task**: TMDB 快照自动补齐与失败重试
+**Branch**: `main`
+
+### Summary
+
+为 NFO 和非 TMDB 来源补齐 TMDB 快照；失败不标记完成，启动按实际缺口恢复；完成定向测试、go vet 和任务归档。全量包测试仍有既有失败，详见归档 PRD。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `17b9925` | fix: 自动补齐 TMDB 快照并支持失败重试 |
+
+### Status
+
+[OK] **Completed**
