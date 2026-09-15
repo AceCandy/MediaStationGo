@@ -11,6 +11,14 @@ vm.runInNewContext(ts.transpileModule(readFileSync(new URL('../src/pages/seriesD
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
 }).outputText, { exports })
 const { distinctEpisodes, resolveSeriesSelection, seriesResumeEpisode, episodeLabel } = exports
+const presentation = exports.episodePresentation
+assert.equal(presentation({ title: '电影', metadata_kind: 'movie' }).subtitle, '')
+const sample = { title: '第 7 集', series_title: '测试剧', metadata_kind: 'episode', season_num: 1, episode_num: 7 }
+assert.equal(presentation(sample).title, '测试剧')
+assert.equal(presentation(sample).subtitle, '第 1 季 · 第 7 集')
+assert.equal(presentation({ ...sample, title: '重逢' }).subtitle, '第 1 季 · 第 7 集 · 重逢')
+assert.equal(presentation({ ...sample, title: '第七集', season_num: 0 }).subtitle, '特别篇 · 第 7 集')
+assert.equal(presentation({ ...sample, series_title: '' }).title, '第 7 集')
 assert.equal(episodeLabel({ metadata_kind: 'series', episode_num: 0 }), '整剧关联文件')
 assert.equal(episodeLabel({ metadata_kind: 'season', episode_num: 0 }), '季关联文件')
 assert.equal(episodeLabel({ episode_num: 0 }), '未识别集号')

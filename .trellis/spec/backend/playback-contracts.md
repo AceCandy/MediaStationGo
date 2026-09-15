@@ -45,6 +45,12 @@ per-user, per-metadata history state but playback events are append-only.
   recently watched Episode; Movies and items without a Series group by their own
   logical identity. HongGuo groups by its source work or manual display group and
   never merges with canonical media by title.
+- Web history and continue cards fill an absent Episode poster with its Season
+  poster, then Series poster, then the existing display backdrop. Batch-load
+  artwork for the returned page only; preserve canonical selections and concrete
+  playback identity. Web history, continue and featured sections show SeriesTitle
+  as the heading and season/episode coordinates plus a non-generic episode title
+  below it. Season zero is displayed as specials; Movies keep their own title.
 - Emby progress with both metadata `ItemId` and concrete `MediaSourceId` must
   resolve the visible media directly and verify `media.metadata_id == ItemId`.
   Do not load a full `MediaView`; mismatched or legacy IDs retain the generic

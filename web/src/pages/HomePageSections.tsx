@@ -8,6 +8,7 @@ import type { HistoryItem } from '../types'
 import type { Media } from '../types'
 import type { SeriesCard } from '../utils/groupSeries'
 import { mediaDetailLink, seriesCardLink } from '../utils/groupSeries'
+import { episodePresentation } from './seriesDetailModel'
 
 export function HomeLoadingState() {
   return (
@@ -51,6 +52,7 @@ export function HomeFeaturedSection({
   featuredPoster: string
   showDiscover: boolean
 }) {
+  const presentation = episodePresentation(featuredItem)
   return (
     <section className="relative overflow-hidden rounded-[2rem] border border-[var(--app-border)] bg-[var(--app-panel)] shadow-elevated">
       {/* 背景：氛围底 + backdrop 大图 + 可读性遮罩 */}
@@ -87,8 +89,9 @@ export function HomeFeaturedSection({
             transition={{ duration: 0.55, delay: 0.08, ease: [0.21, 0.47, 0.32, 0.98] }}
             className="mt-5 max-w-3xl font-display text-[clamp(1.5rem,3.4vw,2.6rem)] font-extrabold leading-[1.18] tracking-tight text-[var(--app-text)] line-clamp-3 [text-wrap:balance]"
           >
-            {featuredItem.title}
+            {presentation.title}
           </motion.h1>
+          {presentation.subtitle && <p className="mt-2 text-sm text-[var(--app-subtle)]">{presentation.subtitle}</p>}
 
           <motion.div
             initial={{ opacity: 0, y: 12 }}
@@ -155,12 +158,12 @@ export function HomeFeaturedSection({
             <div className="relative aspect-[2/3] w-full overflow-hidden rounded-[1.5rem] border border-white/15 shadow-[0_32px_80px_rgba(0,0,0,0.45)]">
               <div className="flex h-full w-full flex-col items-center justify-center text-center" style={{ background: 'var(--app-poster-empty)' }}>
                 <Film className="mb-3 h-10 w-10 text-brand-400" />
-                <span className="px-5 font-display text-xl font-black leading-snug tracking-tight text-[var(--app-text)] [text-wrap:balance]">{featuredItem.title}</span>
+                <span className="px-5 font-display text-xl font-black leading-snug tracking-tight text-[var(--app-text)] [text-wrap:balance]">{presentation.title}</span>
               </div>
               {featuredPoster && (
                 <img
                   src={imageURL(featuredPoster, featuredItem.updated_at)}
-                  alt={featuredItem.title}
+                  alt={presentation.title}
                   className="absolute inset-0 h-full w-full object-cover"
                   referrerPolicy="no-referrer"
                   onError={(event) => { event.currentTarget.style.display = 'none' }}
@@ -231,6 +234,7 @@ export function RecentMediaSection({ recentCards }: { recentCards: SeriesCard[] 
 }
 
 function ContinueCard({ media, progress }: { media: Media; progress: number }) {
+  const presentation = episodePresentation(media)
   return (
     <Link to={mediaDetailLink(media)} className="group flex items-center gap-4 rounded-2xl border border-[var(--app-border)] bg-[var(--app-panel)] p-3.5 shadow-[0_1px_3px_rgba(0,0,0,0.01)] transition-all duration-300 hover:border-brand-500/30 hover:bg-[var(--app-panel-soft)] hover:shadow-md">
       <div className="relative h-18 w-12 shrink-0 overflow-hidden rounded-xl border border-[var(--app-border)] bg-[var(--app-panel-soft)]">
@@ -253,8 +257,9 @@ function ContinueCard({ media, progress }: { media: Media; progress: number }) {
       </div>
       <div className="min-w-0 flex-1 space-y-1.5">
         <p className="truncate text-sm font-bold text-[var(--app-text)] transition-colors group-hover:text-brand-500">
-          {media.title}
+          {presentation.title}
         </p>
+        {presentation.subtitle && <p className="truncate text-xs text-[var(--app-muted)]" title={presentation.subtitle}>{presentation.subtitle}</p>}
         <div className="space-y-1">
           <div className="h-1.5 w-full overflow-hidden rounded-full bg-[var(--app-hover)]">
             <motion.div

@@ -327,13 +327,24 @@ func TestContinueWatchingGroupsSeriesBeforePaging(t *testing.T) {
 	}
 
 	playback := NewPlaybackService(zap.NewNop(), svc.repo)
+	seriesPoster := createServiceTestArtwork(t, svc.repo.DB, series.ID, model.ArtworkTypePoster, "history-series-poster")
 	recent, err := playback.RecentHistory(t.Context(), viewer.ID, 3, MediaVisibility{IncludeNSFW: true})
 	if err != nil || len(recent) != 3 {
 		t.Fatalf("full history must keep every episode: items=%#v err=%v", recent, err)
 	}
+	if m := recent[0].Media; m == nil || m.PosterURL != seriesPoster || m.SeriesTitle != series.Title || m.Title != episode7.Title || m.EpisodeNum != 7 || m.SeasonNum != 1 {
+		t.Fatalf("history must expose series poster and episode identity: %#v", m)
+	}
+	seasonPoster := createServiceTestArtwork(t, svc.repo.DB, season.ID, model.ArtworkTypePoster, "history-season-poster")
 	continued, err := playback.ContinueHistory(t.Context(), viewer.ID, 2, MediaVisibility{IncludeNSFW: true})
 	if err != nil || len(continued) != 2 || continued[0].MetadataID != episode7.ID || continued[1].MetadataID != movie.ID {
 		t.Fatalf("native continue must group before limit: items=%#v err=%v", continued, err)
+	}
+	if m := continued[0].Media; m == nil || m.PosterURL != seasonPoster || m.ID != media[1].ID {
+		t.Fatalf("continue must prefer season poster and preserve playback target: %#v", m)
+	}
+	if view := serviceTestMediaView(t, svc.repo, media[1].ID); view.PosterURL != "" {
+		t.Fatalf("history poster fallback must not affect ordinary episode projection: %#v", view)
 	}
 
 	resume, err := svc.ResumeItems(t.Context(), viewer.ID, 2)

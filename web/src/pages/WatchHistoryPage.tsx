@@ -7,6 +7,7 @@ import { historyAPI } from '../api/history'
 import { imageURL } from '../api/client'
 import { confirmAction } from '../components/confirmAction'
 import type { HistoryItem } from '../types'
+import { episodePresentation } from './seriesDetailModel'
 
 function fmtDuration(ms: number): string {
   if (!ms || ms <= 0) return '—'
@@ -94,6 +95,7 @@ export function WatchHistoryPage({ embedded = false }: { embedded?: boolean }) {
         {items.map((h) => {
           const m = h.media
           if (!m) return null
+          const presentation = episodePresentation(m)
           const progress = h.duration_ms > 0
             ? Math.min(1, Math.max(0, h.position_ms / h.duration_ms))
             : 0
@@ -115,10 +117,12 @@ export function WatchHistoryPage({ embedded = false }: { embedded?: boolean }) {
               <div className="min-w-0 flex-1 space-y-1">
                 <Link
                   to={`/media/${m.id}`}
-                  className="font-medium text-ink-600 transition hover:text-brand-500"
+                  className="block truncate font-medium text-ink-600 transition hover:text-brand-500"
+                  title={presentation.title}
                 >
-                  {m.title}
+                  {presentation.title}
                 </Link>
+                {presentation.subtitle && <p className="truncate text-xs text-ink-50" title={presentation.subtitle}>{presentation.subtitle}</p>}
                 <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink-50">
                   <span>{fmtDuration(h.position_ms)} / {fmtDuration(h.duration_ms)}</span>
                   <span>{new Date(h.watched_at).toLocaleString()}</span>

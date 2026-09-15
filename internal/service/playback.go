@@ -204,6 +204,30 @@ func (p *PlaybackService) historyItems(ctx context.Context, userID string, limit
 		}
 		items = append(items, HistoryItem{PlaybackHistory: rows[i], Media: media})
 	}
+	// 观看记录使用竖版海报；只在展示时借用季或整剧的图片。
+	artworkIDs := []string{}
+	for _, item := range items {
+		if m := item.Media; m != nil && m.PosterURL == "" && m.MetadataKind == model.MetadataKindEpisode && m.CatalogSource != model.TaskSystemHongGuo {
+			artworkIDs = append(artworkIDs, m.SeasonID, m.SeriesID)
+		}
+	}
+	if len(artworkIDs) > 0 {
+		selections, err := p.repo.Artwork.ListSelectionsByMetadataIDs(ctx, artworkIDs)
+		if err != nil {
+			return nil, err
+		}
+		posters := map[string]string{}
+		for _, selection := range selections {
+			if selection.ArtworkType == model.ArtworkTypePoster {
+				posters[selection.MetadataID] = ArtworkURL(selection.AssetID)
+			}
+		}
+		for _, item := range items {
+			if m := item.Media; m != nil && m.PosterURL == "" && m.MetadataKind == model.MetadataKindEpisode && m.CatalogSource != model.TaskSystemHongGuo {
+				m.PosterURL = firstNonEmpty(posters[m.SeasonID], posters[m.SeriesID], m.BackdropURL)
+			}
+		}
+	}
 	return items, nil
 }
 
