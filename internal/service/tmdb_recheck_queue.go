@@ -90,6 +90,15 @@ func (s *ScraperService) runTMDbRecheckQueue(ctx context.Context, metrics map[st
 		return err
 	}
 	metrics["total"], metrics["remaining"] = remaining, remaining
+	seasons, err := s.repo.Metadata.ListTMDbRecheckSeasonOrder(ctx, cutoff)
+	if err != nil {
+		return err
+	}
+	seasonJobs := make(chan string, len(seasons))
+	for _, id := range seasons {
+		seasonJobs <- id
+	}
+	close(seasonJobs)
 	lastCount := time.Now()
 	report("recheck", fmt.Sprintf("开始检查 TMDb 季/集信息，本轮到期 %d 个；新到期重试留待下轮", remaining), true, nil)
 	type result struct {
@@ -103,14 +112,17 @@ func (s *ScraperService) runTMDbRecheckQueue(ctx context.Context, metrics map[st
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			for ctx.Err() == nil {
-				lease, err := s.repo.Metadata.ClaimTMDbRecheckSeason(ctx, cutoff)
+			for id := range seasonJobs {
+				if ctx.Err() != nil {
+					return
+				}
+				lease, err := s.repo.Metadata.ClaimTMDbRecheckSeasonByID(ctx, id, cutoff)
 				if err != nil {
 					results <- result{err: err}
 					return
 				}
 				if lease == nil {
-					return
+					continue
 				}
 				results <- result{metrics: map[string]int64{"seasons_scanned": 1}}
 				err = s.processTMDbRecheckSeason(ctx, lease, cutoff, func(local map[string]int64, details []string) {
@@ -176,6 +188,11 @@ func (s *ScraperService) processTMDbRecheck(parent context.Context, job *model.T
 		return recordTMDbRecheckStage(metrics, "save", "数据库状态保存", started, err)
 	}
 	identityValid := state != nil && state.IdentityValid
+	now := time.Now().UTC()
+	var cooldown time.Duration
+	if state != nil {
+		cooldown = state.Cooldown(now)
+	}
 	if identityValid {
 		id, parseErr := strconv.Atoi(state.SeriesTMDbID)
 		identityValid = parseErr == nil && id > 0
@@ -185,12 +202,12 @@ func (s *ScraperService) processTMDbRecheck(parent context.Context, job *model.T
 	} else if !identityValid {
 		next := time.Now().UTC().Add(7 * 24 * time.Hour)
 		err = finish("blocked", "TMDb 标识缺失或不唯一", &next)
-	} else if state.CheckedAt != nil && state.CheckedAt.Add(tmdbEpisodeMetadataRecheckCooldown).After(time.Now()) {
-		next := state.CheckedAt.Add(tmdbEpisodeMetadataRecheckCooldown)
+	} else if state.CheckedAt != nil && state.CheckedAt.Add(cooldown).After(now) {
+		next := state.CheckedAt.Add(cooldown)
 		if job.NotFoundIdentity != "" {
 			err = finish("not_found", job.LastError, &next)
 		} else {
-			err = finish("pending", "成功检查后的 72 小时冷却", &next)
+			err = finish("pending", fmt.Sprintf("成功检查后的 %d 天冷却", int(cooldown/(24*time.Hour))), &next)
 		}
 	} else {
 		return s.fetchAndCommitTMDbRecheck(ctx, parent, job, state, metrics)
@@ -216,13 +233,26 @@ func (s *ScraperService) fetchAndCommitTMDbRecheck(ctx, parent context.Context, 
 	data, err := s.fetchTMDbMetadataRecheck(requestCtx, state.TMDbMetadataRecheckCandidate, seriesID)
 	cancel()
 	metrics["requests"]++
+	timing := state.TMDbRecheckTiming
+	if data != nil && data.timing != nil {
+		if data.timing.SeasonReleaseDate != "" {
+			timing.SeasonReleaseDate = data.timing.SeasonReleaseDate
+		}
+		var localDates, freshDates []string
+		_ = json.Unmarshal([]byte(timing.SeasonEpisodeDates), &localDates)
+		_ = json.Unmarshal([]byte(data.timing.SeasonEpisodeDates), &freshDates)
+		dates, _ := json.Marshal(append(localDates, freshDates...))
+		timing.SeasonEpisodeDates = string(dates)
+	}
 	if isTMDbHTTPStatus(err, http.StatusNotFound) || errors.Is(err, errTMDbEpisodeMissingFromSeason) {
 		recordTMDbRecheckStage(metrics, "details", "详情请求", stageStarted, nil)
-		next := time.Now().UTC().Add(tmdbEpisodeMetadataRecheckCooldown)
+		now := time.Now().UTC()
+		cooldown := timing.Cooldown(now)
+		next := now.Add(cooldown)
 		job.NotFoundIdentity = state.RequestIdentity()
-		reason := "TMDb 上游未找到该季/集（404），3 天后复核；请核对剧集匹配及编号，勿仅凭 404 删除文件"
+		reason := fmt.Sprintf("TMDb 上游未找到该季/集（404），%d 天后复核；请核对剧集匹配及编号，勿仅凭 404 删除文件", int(cooldown/(24*time.Hour)))
 		if errors.Is(err, errTMDbEpisodeMissingFromSeason) {
-			reason = "TMDb 整季清单未包含该集，3 天后复核；请核对匹配及编号，勿据此删除文件"
+			reason = fmt.Sprintf("TMDb 整季清单未包含该集，%d 天后复核；请核对匹配及编号，勿据此删除文件", int(cooldown/(24*time.Hour)))
 		}
 		stageStarted = time.Now()
 		err = s.repo.Metadata.CommitTMDbRecheck(ctx, job, state, func(repos *repository.Container) error {
@@ -282,8 +312,13 @@ func (s *ScraperService) fetchAndCommitTMDbRecheck(ctx, parent context.Context, 
 		var next *time.Time
 		if current != nil && tmdbMetadataCandidateNeedsRecheck(current.TMDbMetadataRecheckCandidate) {
 			status = "pending"
-			due := now.Add(tmdbEpisodeMetadataRecheckCooldown)
+			if data.timing == nil {
+				timing = current.TMDbRecheckTiming
+			}
+			cooldown := timing.Cooldown(now)
+			due := now.Add(cooldown)
 			next = &due
+			details = append(details, fmt.Sprintf("⚠️ %s，%d 天后再查", job.MetadataID, int(cooldown/(24*time.Hour))))
 		}
 		return repos.Metadata.FinishTMDbRecheck(ctx, job, status, "", next, 0)
 	})

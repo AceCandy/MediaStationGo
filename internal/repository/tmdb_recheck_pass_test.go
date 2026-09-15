@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -135,4 +136,43 @@ SELECT lpad(i::text,8,'0'),'episode','','test',CASE WHEN i>29970 THEN 'target-se
 		t.Fatal(text)
 	}
 	t.Log(text)
+	// 新路径每轮聚合一次；按季领取仍只通过目标主键探测队列。
+	query = tmdbRecheckSeasonClaimSQL
+	for i := 1; i <= 5; i++ {
+		query = strings.Replace(query, "?", fmt.Sprintf("$%d", i), 1)
+	}
+	if err := db.Exec("PREPARE recheck_season_claim(text,text,text,text,timestamptz) AS " + query).Error; err != nil {
+		t.Fatal(err)
+	}
+	plan = nil
+	if err := db.Raw("EXPLAIN (ANALYZE, BUFFERS) EXECUTE recheck_season_claim('target-season','target-season','target-season','test-owner',statement_timestamp())").Scan(&plan).Error; err != nil {
+		t.Fatal(err)
+	}
+	lines = nil
+	for _, row := range plan {
+		lines = append(lines, row.Line)
+	}
+	text = strings.Join(lines, "\n")
+	if !strings.Contains(text, "tm_db_recheck_jobs_pkey") || strings.Contains(text, "Seq Scan on tm_db_recheck_jobs") {
+		t.Fatal(text)
+	}
+	t.Log(text)
+	cutoff := time.Now()
+	order, err := New(db).Metadata.ListTMDbRecheckSeasonOrder(t.Context(), cutoff)
+	if err != nil || len(order) != 1001 {
+		t.Fatalf("due seasons=%d err=%v", len(order), err)
+	}
+	query = strings.Replace(tmdbRecheckSeasonOrderSQL, "?", "$1", 1)
+	if err := db.Exec("PREPARE recheck_season_order(timestamptz) AS " + query).Error; err != nil {
+		t.Fatal(err)
+	}
+	plan = nil
+	if err := db.Raw("EXPLAIN (ANALYZE, BUFFERS) EXECUTE recheck_season_order(statement_timestamp())").Scan(&plan).Error; err != nil {
+		t.Fatal(err)
+	}
+	lines = nil
+	for _, row := range plan {
+		lines = append(lines, row.Line)
+	}
+	t.Log(strings.Join(lines, "\n"))
 }

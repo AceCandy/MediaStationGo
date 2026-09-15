@@ -18,7 +18,7 @@ func TestTMDbRecheckInventoryIssuePreservesCompleteTargetsAndLeases(t *testing.T
 	if err := db.Create(&season).Error; err != nil {
 		t.Fatal(err)
 	}
-	episode := model.MetadataItem{Kind: "episode", ParentID: &season.ID, EpisodeNum: 20, Overview: "本地简介", ReleaseDate: "2026-01-01"}
+	episode := model.MetadataItem{Kind: "episode", ParentID: &season.ID, EpisodeNum: 20, Overview: "本地简介", ReleaseDate: time.Now().UTC().AddDate(0, 0, -100).Format(time.DateOnly)}
 	if err := db.Create(&episode).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -73,10 +73,14 @@ func TestTMDbRecheckInventoryIssuePreservesCompleteTargetsAndLeases(t *testing.T
 	if err := db.Model(&model.TMDbRecheckJob{}).Where("metadata_id=?", episode.ID).Update("lease_until", time.Now().Add(-time.Minute)).Error; err != nil {
 		t.Fatal(err)
 	}
+	before := time.Now()
 	record()
 	first := read()
 	if first.Status != "not_found" || first.NotFoundIdentity == "" || first.DueAt == nil {
 		t.Fatalf("missing issue: %+v", first)
+	}
+	if first.DueAt.Before(before.Add(10*24*time.Hour)) || first.DueAt.After(time.Now().Add(10*24*time.Hour)) {
+		t.Fatalf("inventory cooldown ignored air date: %+v", first)
 	}
 	record()
 	if got := read(); !got.DueAt.Equal(*first.DueAt) {

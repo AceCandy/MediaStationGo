@@ -14,10 +14,7 @@ import (
 	"github.com/ShukeBta/MediaStationGo/internal/repository"
 )
 
-const (
-	tmdbEpisodeMetadataRecheckPageLimit = 200
-	tmdbEpisodeMetadataRecheckCooldown  = 72 * time.Hour
-)
+const tmdbEpisodeMetadataRecheckPageLimit = 200
 
 func (s *ScraperService) runTMDbEpisodeMetadataRecheck(ctx context.Context, trigger string) error {
 	if s == nil || s.repo == nil || s.repo.Metadata == nil || s.tmdb == nil || !s.tmdb.Enabled() || s.artwork == nil {
@@ -198,7 +195,7 @@ func (s *ScraperService) persistTMDbMetadataRecheck(ctx context.Context, candida
 	missing := missingTMDbMetadataFields(item, artworkSatisfied, artworkType)
 	if len(missing) > 0 {
 		metrics["incomplete"]++
-		details = append(details, "⚠️ "+subject+"，TMDb 仍缺="+strings.Join(missing, "、")+"，72 小时后再查")
+		details = append(details, "⚠️ "+subject+"，TMDb 仍缺="+strings.Join(missing, "、"))
 	}
 	return details, nil
 }
@@ -245,6 +242,17 @@ type tmdbMetadataRecheckDetails struct {
 	loadedCreditTypes []string
 	artworkURL        string
 	rawJSON           []byte
+	timing            *repository.TMDbRecheckTiming
+}
+
+// tmdbSeasonRecheckTiming 复用整季响应的日期，缺集结果也能采用当前播出安排。
+func tmdbSeasonRecheckTiming(season *TMDbSeasonDetails) *repository.TMDbRecheckTiming {
+	dates := make([]string, 0, len(season.Episodes))
+	for _, episode := range season.Episodes {
+		dates = append(dates, episode.AirDate)
+	}
+	raw, _ := json.Marshal(dates)
+	return &repository.TMDbRecheckTiming{SeasonReleaseDate: season.AirDate, SeasonEpisodeDates: string(raw)}
 }
 
 func (s *ScraperService) fetchTMDbMetadataRecheck(ctx context.Context, candidate repository.TMDbMetadataRecheckCandidate, seriesTMDbID int) (*tmdbMetadataRecheckDetails, error) {
@@ -257,16 +265,28 @@ func (s *ScraperService) fetchTMDbMetadataRecheck(ctx context.Context, candidate
 			return nil, ErrTMDbRefreshIdentity
 		}
 		return &tmdbMetadataRecheckDetails{id: season.ID, updates: tmdbMetadataUpdates(catalogSeasonItem("", season)), credits: season.Credits,
-			loadedCreditTypes: season.LoadedCreditTypes, artworkURL: season.PosterURL, rawJSON: season.RawJSON}, nil
+			loadedCreditTypes: season.LoadedCreditTypes, artworkURL: season.PosterURL, rawJSON: season.RawJSON, timing: tmdbSeasonRecheckTiming(season)}, nil
 	}
 	if candidate.Kind != model.MetadataKindEpisode {
 		return nil, ErrTMDbRefreshIdentity
 	}
+	// 后台已共享整季响应，缺集时也用本次播出安排决定冷却；手动单集请求保持原入口。
+	var timing *repository.TMDbRecheckTiming
+	if tmdbSeasonBatchFromContext(ctx) != nil {
+		season, err := s.tmdb.GetTVSeasonDetails(ctx, seriesTMDbID, candidate.SeasonNum)
+		if err != nil || season == nil {
+			return nil, err
+		}
+		if season.ID <= 0 || season.SeasonNumber != candidate.SeasonNum {
+			return nil, ErrTMDbRefreshIdentity
+		}
+		timing = tmdbSeasonRecheckTiming(season)
+	}
 	episode, err := s.tmdb.GetTVEpisodeDetails(ctx, seriesTMDbID, candidate.SeasonNum, candidate.EpisodeNum)
 	if err != nil || episode == nil {
-		return nil, err
+		return &tmdbMetadataRecheckDetails{timing: timing}, err
 	}
 	updates, _ := tmdbEpisodeMetadataUpdates(nil, episode, 0)
 	return &tmdbMetadataRecheckDetails{id: episode.ID, updates: updates, credits: episode.Credits,
-		loadedCreditTypes: episode.LoadedCreditTypes, artworkURL: episode.CatalogStillURL, rawJSON: episode.RawJSON}, nil
+		loadedCreditTypes: episode.LoadedCreditTypes, artworkURL: episode.CatalogStillURL, rawJSON: episode.RawJSON, timing: timing}, nil
 }

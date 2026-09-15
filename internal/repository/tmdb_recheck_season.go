@@ -25,16 +25,31 @@ func (r *MetadataRepository) ClaimTMDbRecheckSeason(ctx context.Context, cutoff 
 		if err != nil || id == "" {
 			return nil, err
 		}
-		var lease model.TMDbRecheckSeasonLease
-		err = r.db.WithContext(ctx).Raw(`INSERT INTO tm_db_recheck_season_leases(metadata_id,lease_token,lease_until)
-VALUES (?, ?, clock_timestamp()+interval '5 minutes') ON CONFLICT(metadata_id) DO UPDATE
-SET lease_token=EXCLUDED.lease_token,lease_until=EXCLUDED.lease_until
-WHERE tm_db_recheck_season_leases.lease_until<=statement_timestamp() RETURNING *`, id, uuid.NewString()).Scan(&lease).Error
-		if err != nil || lease.MetadataID != "" {
-			return &lease, err
+		lease, err := r.ClaimTMDbRecheckSeasonByID(ctx, id, cutoff)
+		if err != nil || lease != nil {
+			return lease, err
 		}
 	}
 	return nil, ctx.Err()
+}
+
+const tmdbRecheckSeasonClaimSQL = `WITH targets AS MATERIALIZED (
+SELECT ?::text AS id UNION ALL SELECT id FROM metadata_items WHERE parent_id=? AND kind='episode')
+INSERT INTO tm_db_recheck_season_leases(metadata_id,lease_token,lease_until)
+SELECT ?, ?, clock_timestamp()+interval '5 minutes'
+WHERE EXISTS(SELECT 1 FROM targets t JOIN tm_db_recheck_jobs j ON j.metadata_id=t.id
+ WHERE j.due_at<=? AND (j.lease_until IS NULL OR j.lease_until<=statement_timestamp()))
+ON CONFLICT(metadata_id) DO UPDATE SET lease_token=EXCLUDED.lease_token,lease_until=EXCLUDED.lease_until
+WHERE tm_db_recheck_season_leases.lease_until<=statement_timestamp() RETURNING *`
+
+// ClaimTMDbRecheckSeasonByID 按本轮优先顺序领取季；已被其他执行者占用或不再到期时跳过。
+func (r *MetadataRepository) ClaimTMDbRecheckSeasonByID(ctx context.Context, id string, cutoff time.Time) (*model.TMDbRecheckSeasonLease, error) {
+	var lease model.TMDbRecheckSeasonLease
+	err := r.db.WithContext(ctx).Raw(tmdbRecheckSeasonClaimSQL, id, id, id, uuid.NewString(), cutoff).Scan(&lease).Error
+	if err != nil || lease.MetadataID == "" {
+		return nil, err
+	}
+	return &lease, nil
 }
 
 // lockTMDbRecheckSeason 统一季租约到目标租约的锁顺序，拒绝过期执行者写入。

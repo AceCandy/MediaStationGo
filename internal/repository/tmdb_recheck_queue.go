@@ -205,6 +205,7 @@ func (r *MetadataRepository) RenewTMDbRecheck(ctx context.Context, job *model.TM
 // TMDbRecheckState 是单个待办的当前业务事实和并发快照。
 type TMDbRecheckState struct {
 	TMDbMetadataRecheckCandidate
+	TMDbRecheckTiming
 	ParentID      string
 	SeriesID      string
 	Fingerprint   string
@@ -265,7 +266,8 @@ func (r *MetadataRepository) tmdbRecheckStates(ctx context.Context, ids []string
 	if len(ids) == 0 {
 		return states, nil
 	}
-	err := r.db.WithContext(ctx).Raw(`SELECT mi.id AS metadata_id, mi.kind, mi.title, mi.overview, mi.release_date,
+	err := r.db.WithContext(ctx).Raw(`SELECT `+tmdbRecheckTimingColumns+`,
+mi.id AS metadata_id, mi.kind, mi.title, mi.overview, mi.release_date,
 COALESCE(mi.parent_id,'') AS parent_id, series.id AS series_id, series.title AS series_title,
 CASE WHEN mi.kind='season' THEN mi.season_num ELSE season.season_num END AS season_num, mi.episode_num,
 sid.external_id AS series_tm_db_id, own.external_id AS tmdb_id,
@@ -278,6 +280,7 @@ NOT EXISTS(SELECT 1 FROM metadata_artworks a JOIN artwork_assets aa ON aa.id=a.a
 md5(concat_ws('|',mi.updated_at,mi.title,mi.overview,mi.release_date,season.updated_at,series.updated_at, COALESCE(c.revision,0),COALESCE(pc.revision,0),COALESCE(sc.revision,0))) AS fingerprint
 FROM metadata_items mi
 LEFT JOIN metadata_items season ON season.id=mi.parent_id AND season.kind='season' AND mi.kind='episode'
+LEFT JOIN metadata_items timing_season ON timing_season.id=CASE WHEN mi.kind='season' THEN mi.id ELSE mi.parent_id END AND timing_season.kind='season'
 JOIN metadata_items series ON series.id=CASE WHEN mi.kind='season' THEN mi.parent_id ELSE season.parent_id END AND series.kind='series'
 LEFT JOIN tm_db_recheck_changes c ON c.metadata_id=mi.id
 LEFT JOIN tm_db_recheck_changes pc ON pc.metadata_id=mi.parent_id

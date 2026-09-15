@@ -69,7 +69,8 @@ func (r *MetadataRepository) RecordTMDbInventoryMissing(ctx context.Context, id,
 			}
 			seen[item.Number] = true
 		}
-		due := time.Now().UTC().Add(72 * time.Hour)
+		now := time.Now().UTC()
+		due := now.Add(state.Cooldown(now))
 		return tx.Exec(`INSERT INTO tm_db_recheck_jobs(metadata_id,status,due_at,not_found_identity,last_error)
 VALUES (?, 'not_found', ?, ?, 'TMDb 整季清单未包含该集，请核对匹配及编号；勿据此删除文件')
 ON CONFLICT(metadata_id) DO UPDATE SET status=EXCLUDED.status,due_at=EXCLUDED.due_at,
