@@ -152,6 +152,9 @@ func TestScheduledTaskDefinitionsSupportManualExecution(t *testing.T) {
 		if definition.Key == TaskDefinitionLibraryScan {
 			expectedTrigger = "定时 / 手动 / 新增后自动"
 		}
+		if definition.Key == TaskDefinitionTMDbArtworkLocalRepair {
+			expectedTrigger = "资料入库后自动 / 定时 / 手动"
+		}
 		if definition.Action != "scheduler" || definition.Trigger != expectedTrigger {
 			t.Fatalf("definition %s = %#v", definition.Key, definition)
 		}
