@@ -854,3 +854,25 @@ Web 电影与整剧按 metadata 分页，Emby 整剧摘要、混合库与子级�
 ### Status
 
 [OK] **Completed**
+
+
+## Session 128: 剧集日期与图片展示回退
+<!-- trellis-session: v=2 fp=7c17cb29e5f85d0d -->
+
+**Date**: 2026-09-15
+**Task**: 剧集日期与图片展示回退
+**Branch**: `main`
+
+### Summary
+
+Web 与 Emby 对缺失的单集播出日期按同季前序集回退；季和单集图片使用剧集图片做只读展示回退，并同步规范与回归测试。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `11dd162` | feat: 补齐剧集日期与图片展示回退 |
+
+### Status
+
+[OK] **Completed**
