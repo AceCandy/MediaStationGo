@@ -830,3 +830,27 @@ Web 电影与整剧按 metadata 分页，Emby 整剧摘要、混合库与子级�
 ### Status
 
 [OK] **Completed**
+
+
+## Session 127: TMDb 季集复查与 Emby 日期兼容
+<!-- trellis-session: v=2 fp=17cfc53d38a8d139 -->
+
+**Date**: 2026-09-15
+**Task**: TMDb 季集复查与 Emby 日期兼容
+**Branch**: `main`
+
+### Summary
+
+完成 TMDb 按季播出日期分档复查、优先级排序与冷却策略；统一 Emby PremiereDate/DateCreated 日期格式并同步目录规范；全量 Go 测试、go vet、Web lint/build 和差异检查通过。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `9d12d03` | fix: 按播出时间分档 TMDb 季集复查 |
+| `9183502` | fix: 统一 Emby 日期响应格式 |
+| `3246482` | test: 同步后台任务触发条件断言 |
+
+### Status
+
+[OK] **Completed**
