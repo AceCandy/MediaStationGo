@@ -45,6 +45,7 @@ func TestTMDbSnapshotBackfillCoversAllKindsAndPersistsAutomaticCompletion(t *tes
 	failed := createServiceTestMetadata(t, db, model.MetadataItem{PermanentBase: model.PermanentBase{ID: "00000000-0000-0000-0000-000000000500"}, Kind: model.MetadataKindMovie, Title: "Failed kept", Source: "manual"}, model.MetadataIdentifier{Provider: "tmdb", EntityKind: model.MetadataKindMovie, ExternalID: "50"})
 
 	var requests atomic.Int32
+	var recovered atomic.Bool
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests.Add(1)
 		w.Header().Set("Content-Type", "application/json")
@@ -58,7 +59,13 @@ func TestTMDbSnapshotBackfillCoversAllKindsAndPersistsAutomaticCompletion(t *tes
 		case "/tv/20/season/1/episode/1":
 			_ = json.NewEncoder(w).Encode(map[string]any{"id": 40, "name": "Remote episode", "future_field": true})
 		case "/movie/50":
-			http.Error(w, "provider failed", http.StatusBadGateway)
+			if recovered.Load() {
+				_ = json.NewEncoder(w).Encode(map[string]any{"id": 50, "title": "Recovered movie"})
+			} else {
+				http.Error(w, "provider failed", http.StatusBadGateway)
+			}
+		case "/movie/60":
+			_ = json.NewEncoder(w).Encode(map[string]any{"id": 60, "title": "New movie"})
 		default:
 			http.NotFound(w, r)
 		}
@@ -110,21 +117,47 @@ func TestTMDbSnapshotBackfillCoversAllKindsAndPersistsAutomaticCompletion(t *tes
 		t.Fatalf("automatic task = %#v", automaticTask)
 	}
 	completed, err := repos.Setting.Get(t.Context(), tmdbSnapshotBackfillCompletedSettingKey)
-	if err != nil || completed != "true" {
+	if err != nil || completed == "true" {
 		t.Fatalf("completion setting = %q, err = %v", completed, err)
 	}
 	if err := scraper.StartTMDbSnapshotBackfill(t.Context(), true); err != nil {
 		t.Fatal(err)
 	}
-	if got := len(tracker.Snapshot().Recent); got != 1 {
-		t.Fatalf("completed automatic backfill started again: executions=%d", got)
+	retryTask := waitForTMDbSnapshotTask(t, tracker, 2)
+	if retryTask.Status != TaskStatusFailed || retryTask.Metrics["failed"] != 1 {
+		t.Fatalf("automatic retry task = %#v", retryTask)
 	}
 	if err := scraper.StartTMDbSnapshotBackfill(t.Context(), false); err != nil {
 		t.Fatal(err)
 	}
-	manualTask := waitForTMDbSnapshotTask(t, tracker, 2)
+	manualTask := waitForTMDbSnapshotTask(t, tracker, 3)
 	if manualTask.Trigger != TaskTriggerManual || manualTask.Status != TaskStatusFailed || manualTask.Metrics["failed"] != 1 {
 		t.Fatalf("manual retry task = %#v", manualTask)
+	}
+	recovered.Store(true)
+	if err := scraper.StartTMDbSnapshotBackfill(t.Context(), true); err != nil {
+		t.Fatal(err)
+	}
+	if task := waitForTMDbSnapshotTask(t, tracker, 4); task.Status != TaskStatusCompleted || task.Metrics["succeeded"] != 1 {
+		t.Fatalf("recovered task = %#v", task)
+	}
+	completed, err = repos.Setting.Get(t.Context(), tmdbSnapshotBackfillCompletedSettingKey)
+	if err != nil || completed != "true" {
+		t.Fatalf("successful completion setting = %q, err = %v", completed, err)
+	}
+	before := requests.Load()
+	if err := scraper.StartTMDbSnapshotBackfill(t.Context(), true); err != nil {
+		t.Fatal(err)
+	}
+	if len(tracker.Snapshot().Recent) != 4 || requests.Load() != before {
+		t.Fatal("completed backfill without gaps started again")
+	}
+	createServiceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindMovie, Title: "New local movie", Source: "local"}, model.MetadataIdentifier{Provider: "tmdb", EntityKind: model.MetadataKindMovie, ExternalID: "60"})
+	if err := scraper.StartTMDbSnapshotBackfill(t.Context(), true); err != nil {
+		t.Fatal(err)
+	}
+	if task := waitForTMDbSnapshotTask(t, tracker, 5); task.Status != TaskStatusCompleted || task.Metrics["succeeded"] != 1 {
+		t.Fatalf("completion marker blocked new gap: %#v", task)
 	}
 }
 

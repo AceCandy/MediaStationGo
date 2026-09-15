@@ -225,6 +225,32 @@ func (r *MetadataRepository) ReplaceIdentifierWithSnapshot(ctx context.Context, 
 	})
 }
 
+// InsertMissingTMDbSnapshot 校验当前身份后只补空缺，保护请求期间的改绑和其他路径已保存的快照。
+func (r *MetadataRepository) InsertMissingTMDbSnapshot(ctx context.Context, candidate TMDbSnapshotBackfillCandidate, payload json.RawMessage, fetchedAt time.Time) error {
+	if !json.Valid(payload) || candidate.TMDbID <= 0 {
+		return errors.New("valid TMDB snapshot is required")
+	}
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var item model.MetadataItem
+		if err := tx.Clauses(clause.Locking{Strength: "SHARE"}).First(&item, "id = ? AND kind = ?", candidate.MetadataID, candidate.EntityKind).Error; err != nil {
+			return err
+		}
+		var identifier model.MetadataIdentifier
+		if err := tx.Clauses(clause.Locking{Strength: "SHARE"}).Where(
+			"metadata_id = ? AND provider = ? AND entity_kind = ? AND external_id = ?",
+			candidate.MetadataID, "tmdb", candidate.EntityKind, strconv.Itoa(candidate.TMDbID),
+		).First(&identifier).Error; err != nil {
+			return err
+		}
+		snapshot := model.MetadataProviderSnapshot{
+			MetadataID: candidate.MetadataID, Provider: "tmdb", Payload: string(payload), FetchedAt: fetchedAt,
+		}
+		return tx.Clauses(clause.OnConflict{
+			Columns: []clause.Column{{Name: "metadata_id"}, {Name: "provider"}}, DoNothing: true,
+		}).Create(&snapshot).Error
+	})
+}
+
 func (r *MetadataRepository) missingTMDbSnapshotQuery(ctx context.Context) *gorm.DB {
 	return r.db.WithContext(ctx).Table("metadata_items AS mi").
 		Joins(`JOIN LATERAL (

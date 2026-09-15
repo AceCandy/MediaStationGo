@@ -2443,7 +2443,7 @@ if isPerson, err := svc.PeopleImages.ServePerson(ctx, w, r, personID); isPerson 
 }
 ```
 
-## Scenario: TMDb Detail Snapshots and One-Time Backfill
+## Scenario: TMDb Detail Snapshots and Missing-Snapshot Recovery
 
 ### 1. Scope / Trigger
 
@@ -2457,6 +2457,9 @@ if isPerson, err := svc.PeopleImages.ServePerson(ctx, w, r, personID); isPerson 
 
 - Snapshot write:
   `MetadataRepository.UpsertProviderSnapshot(ctx, metadataID, "tmdb", payload, fetchedAt)`.
+- Optional cross-provider fill:
+  `ScraperService.ensureTMDbSnapshot(ctx, metadataID, entityKind, tmdbID)` and
+  `MetadataRepository.InsertMissingTMDbSnapshot(ctx, candidate, payload, fetchedAt)`.
 - Strict manual identity write:
   `MetadataRepository.ReplaceIdentifierWithSnapshot(ctx, metadataID, "tmdb", entityKind, externalID, payload, fetchedAt)`.
 - Backfill discovery:
@@ -2465,7 +2468,7 @@ if isPerson, err := svc.PeopleImages.ServePerson(ctx, w, r, personID); isPerson 
 - Backfill execution:
   `ScraperService.StartTMDbSnapshotBackfill(ctx, automatic)` and
   `BackfillTMDbSnapshots(ctx, progress)`.
-- One-time completion setting:
+- Successful-pass completion setting:
   `internal.tmdb_snapshot_backfill_completed=true`.
 - Stable task definition/action/kind: `tmdb_snapshot_backfill`.
 - Metrics: integer `processed`, `total`, `succeeded`, `failed`, and `remaining`.
@@ -2479,6 +2482,14 @@ if isPerson, err := svc.PeopleImages.ServePerson(ctx, w, r, personID); isPerson 
 - Normal scrape and manual match first preserve the accepted canonical match.
   A later optional detail or snapshot failure is best-effort and must not roll
   back that accepted match. Search-page JSON alone is never a detail snapshot.
+- NFO and non-TMDb provider ingestion attempt an immediate Movie/Series detail
+  snapshot after saving a positive same-kind TMDb identifier. Reuse the detail
+  fetch/validation path; preserve original display fields, source and artwork.
+  Existing snapshots and unconfigured TMDb skip network requests. Failed fills
+  remain eligible for the next ingestion or startup recovery; no periodic scan.
+- Optional fill rechecks and locks the current metadata kind and identifier
+  after the request, then inserts on conflict do nothing. A changed identity
+  rejects the old response, and a concurrently saved snapshot wins.
 - Editing a TMDb ID is strict: fetch and validate the complete detail before any
   identity write, then replace the identifier and snapshot in one repository
   transaction. Any detail or snapshot error preserves both prior values.
@@ -2493,10 +2504,11 @@ if isPerson, err := svc.PeopleImages.ServePerson(ctx, w, r, personID); isPerson 
   It writes snapshots only, isolates per-item failures, and uses snapshot
   existence as the business checkpoint. Task rows and log text are observability,
   never resume state.
-- Automatic startup runs only while the completion setting is absent. Only a
-  complete enumeration writes the setting. Cancellation or a fatal count/page
-  query leaves it absent; a complete pass writes it even when individual items
-  failed. Those failures are retried only by the task-center manual action.
+- Automatic startup skips only when completion is true and no actual snapshot
+  gaps remain. This also recovers gaps hidden by legacy completion markers.
+  Only a complete pass with no failed items writes completion; cancellation,
+  fatal queries and per-item failures do not mark a new successful pass.
+  Snapshot absence remains retry state, independent of the historical marker.
 - Automatic and manual runs share one task-kind mutex. They create the persisted
   task execution before background work. The definition exposes current metrics
   while running and the latest terminal metrics afterward; the Web task page
@@ -2517,9 +2529,12 @@ if isPerson, err := svc.PeopleImages.ServePerson(ctx, w, r, personID); isPerson 
 | One provider request or snapshot write fails | Increment `processed` and `failed`; continue the pass |
 | Count/page query fails | Fail the task and leave the completion setting absent |
 | Service context is canceled | Mark the task interrupted and leave the completion setting absent |
-| Enumeration completes with failed items | Set completion, force `remaining=0`, and mark the task failed |
+| Enumeration completes with failed items | Do not set completion; force `remaining=0` and mark the task failed |
 | Enumeration completes with no failed items | Set completion and mark the task completed |
-| Automatic start sees completion=true | Create no task and make no TMDb request |
+| Automatic start sees completion=true and no gaps | Create no task and make no TMDb request |
+| Automatic start sees completion=true but gaps exist | Retry current missing snapshots |
+| NFO/non-TMDb ingestion has a positive TMDb ID but no snapshot | Attempt detail fill without changing accepted presentation |
+| Optional fill races an identity change or snapshot write | Reject stale identity; preserve the concurrent snapshot |
 | Manual start sees completion=true | Start a new run over the currently missing snapshots |
 | Another snapshot backfill is active | Return a conflict; do not create a second execution |
 
@@ -2527,8 +2542,8 @@ if isPerson, err := svc.PeopleImages.ServePerson(ctx, w, r, personID); isPerson 
 
 - Good: a search-selected Movie is linked immediately, its successful complete
   detail overwrites no unrelated metadata and saves the raw response snapshot.
-- Good: a pass processes four kinds, records one failed provider item, writes
-  the completion setting, and later exposes only that missing item to manual retry.
+- Good: a pass processes four kinds, records one failed provider item, leaves
+  completion unset, and exposes only that missing item to startup/manual retry.
 - Base: the first upgraded start finds no candidates; it records a zero-metric
   completed task and writes the completion setting.
 - Base: a media file is deleted; its canonical metadata, TMDb identity, and
@@ -2548,7 +2563,13 @@ if isPerson, err := svc.PeopleImages.ServePerson(ctx, w, r, personID); isPerson 
   returned child-ID mismatch, and prior identifier/snapshot preservation.
 - Backfill: all four kinds, per-item failure isolation, snapshot-only writes,
   successful checkpoint exclusion, cancellation without completion, complete
-  pass with failures, automatic no-rerun, and manual retry after completion.
+  pass with failures, automatic no-rerun without gaps, legacy marker recovery,
+  and manual retry after completion.
+- `TestNonTMDbIngestionFillsSnapshotWithoutChangingPresentation`,
+  `TestTMDbSnapshotAutofillFailureKeepsIngestionRetryable` and
+  `TestTMDbSnapshotAutofillProtectsConcurrentWrites` exercise NFO/Douban
+  Movie/Series ingestion, repeat request exclusion, failure recovery and stale
+  response protection on PostgreSQL with simulated TMDb HTTP responses.
 - Task/API/UI: stable definition, same-kind conflict, current/latest metrics,
   manual action status, three-second refresh, lint, and production build.
 
@@ -2564,10 +2585,10 @@ repo.ReplaceIdentifierWithSnapshot(ctx, metadataID, "tmdb", kind, externalID, pa
 ```
 
 ```go
-// Wrong: task history is migration state and complete passes rerun at startup.
+// Wrong: task history is migration state.
 afterID := latestTask.Metrics["cursor"]
 
-// Correct: snapshot existence checkpoints items; one setting checkpoints the pass.
+// Correct: snapshot existence checkpoints items, including gaps after a successful pass.
 candidates := repo.ListMissingTMDbSnapshotsAfter(ctx, afterID, pageSize)
 ```
 

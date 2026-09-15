@@ -55,7 +55,29 @@ func (s *ScraperService) persistTMDbSnapshot(ctx context.Context, metadataID str
 	return true
 }
 
-// StartTMDbSnapshotBackfill 启动一次全库回填；automatic 仅在完成标记缺失时启动。
+// ensureTMDbSnapshot 为已接受的其他来源资料补原始快照；失败保留资料和缺口供后续重试。
+func (s *ScraperService) ensureTMDbSnapshot(ctx context.Context, metadataID, entityKind string, tmdbID int) {
+	if tmdbID <= 0 || s.tmdb == nil || s.tmdb.resolveAPIKey(ctx) == "" {
+		return
+	}
+	snapshot, err := s.repo.Metadata.FindProviderSnapshot(ctx, metadataID, "tmdb")
+	if err == nil && snapshot != nil {
+		return
+	}
+	if err == nil {
+		candidate := repository.TMDbSnapshotBackfillCandidate{MetadataID: metadataID, EntityKind: entityKind, TMDbID: tmdbID}
+		var payload json.RawMessage
+		payload, err = s.fetchTMDbSnapshot(ctx, candidate)
+		if err == nil {
+			err = s.repo.Metadata.InsertMissingTMDbSnapshot(ctx, candidate, payload, time.Now().UTC())
+		}
+	}
+	if err != nil && s.log != nil {
+		s.log.Warn("failed to fill tmdb snapshot", zap.String("metadata_id", metadataID), zap.Error(sanitizeTaskLogError(err)))
+	}
+}
+
+// StartTMDbSnapshotBackfill 启动一次全库回填；完成标记与实际无缺口同时满足时跳过自动执行。
 func (s *ScraperService) StartTMDbSnapshotBackfill(ctx context.Context, automatic bool) error {
 	if s == nil || s.repo == nil || s.repo.Metadata == nil || s.repo.Setting == nil || s.tmdb == nil || s.tasks == nil {
 		return ErrTMDbSnapshotBackfillUnavailable
@@ -66,7 +88,10 @@ func (s *ScraperService) StartTMDbSnapshotBackfill(ctx context.Context, automati
 			return err
 		}
 		if completed == "true" {
-			return nil
+			missing, err := s.repo.Metadata.CountMissingTMDbSnapshots(ctx)
+			if err != nil || missing == 0 {
+				return err
+			}
 		}
 	}
 	if s.tmdb.resolveAPIKey(ctx) == "" {
@@ -98,11 +123,11 @@ func (s *ScraperService) runTMDbSnapshotBackfill(ctx context.Context, task *Task
 		task.Update(update)
 	}
 	result, err := s.BackfillTMDbSnapshots(ctx, progress)
-	if err == nil && automatic {
-		err = s.repo.Setting.Set(ctx, tmdbSnapshotBackfillCompletedSettingKey, "true")
-	}
 	if err == nil && result.Failed > 0 {
 		err = fmt.Errorf("%d TMDB snapshots failed", result.Failed)
+	}
+	if err == nil && automatic {
+		err = s.repo.Setting.Set(ctx, tmdbSnapshotBackfillCompletedSettingKey, "true")
 	}
 	stage, message := "completed", "TMDB 快照回填完成"
 	if errors.Is(err, context.Canceled) {
