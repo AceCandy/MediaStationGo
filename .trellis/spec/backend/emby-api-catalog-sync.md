@@ -53,6 +53,7 @@ The catalog owner is `web/src/pages/embyApiCatalog.ts`; the renderer is `web/src
 - `auth: 'token'` means a valid token is required. Do not mark `X-Emby-Token` itself as required when the middleware also accepts Authorization or query carriers.
 - Use `support: 'implemented'` only when the handler performs real lookup, playback, state mutation, or session behavior. Fixed or empty probes use `support: 'compatibility'`.
 - Response fields and examples must match the current JSON layer consumed by the player. Different top-level shapes cannot be aliases even when both responses are empty.
+- Date-valued item fields such as `PremiereDate` and `DateCreated` are UTC strings formatted as `2006-01-02T15:04:05.0000000Z`; do not place a `time.Time` directly in an Emby response map.
 - Binary, redirect, HEAD, subtitle, and no-content behavior must state their actual status/content type instead of presenting a JSON example.
 - Examples use fictitious IDs, hosts, usernames, and tokens. Never include local media paths, real account data, signed URLs, or secrets.
 

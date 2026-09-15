@@ -674,7 +674,7 @@ export const EMBY_API_ENDPOINTS: readonly EmbyApiEndpoint[] = [
     "MediaStreams": []
   }],
   "PlaySessionId": "play-1",
-  "DateCreated": "2026-01-01T00:00:00Z"
+  "DateCreated": "2026-01-01T00:00:00.0000000Z"
 }`,
     }, { status: '400 / 404', contentType: 'application/json', description: '轨道索引非法或媒体不可播放。' }],
   },

@@ -370,7 +370,7 @@ func TestEmbyLatestItemsOrderByReleaseDate(t *testing.T) {
 	if len(items) != 2 || items[0]["Id"] != "metadata-newer-release-older-scan" {
 		t.Fatalf("latest items should prefer release date over created_at, got %#v", items)
 	}
-	if _, ok := items[0]["PremiereDate"].(time.Time); !ok {
-		t.Fatalf("latest item should expose PremiereDate for Emby clients: %#v", items[0])
+	if items[0]["PremiereDate"] != "2026-06-23T00:00:00.0000000Z" {
+		t.Fatalf("latest item should expose Emby-compatible PremiereDate: %#v", items[0])
 	}
 }

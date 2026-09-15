@@ -38,11 +38,14 @@ func mediaReleaseOrderSQL(desc bool) string {
 	return fmt.Sprintf("COALESCE(emby_metadata.release_date, '') %s, COALESCE(emby_metadata.year, 0) %s, media.created_at %s, media.id %s", dir, dir, dir, dir)
 }
 
-func embyPremiereDate(value string) (time.Time, bool) {
+func embyPremiereDate(value string) (string, bool) {
 	value = normalizeReleaseDate(value)
 	if value == "" {
-		return time.Time{}, false
+		return "", false
 	}
 	t, err := time.Parse("2006-01-02", value)
-	return t, err == nil
+	if err != nil {
+		return "", false
+	}
+	return formatEmbyDateTime(t), true
 }
