@@ -69,7 +69,8 @@ const itemFields: readonly EmbyApiField[] = [
   { name: 'MediaType', type: 'string', description: 'Video 等媒体类型。' },
   { name: 'RunTimeTicks', type: 'number', description: '以 100ns 为单位的时长。' },
   { name: 'PartCount', type: 'number', description: '当前播放版本的物理 Part 数量；单文件省略。' },
-  { name: 'ImageTags', type: 'object', description: '图片类型与缓存标识。' },
+  { name: 'ImageTags', type: 'object', description: '图片类型与缓存标识；季缺少海报时使用剧集海报，单集缺少剧照时依次使用剧集横版图、剧集海报。' },
+  { name: 'PremiereDate', type: 'string', description: 'UTC 首播时间；单集缺失时使用同季内最近一个更早集号的已知播出时间。' },
   { name: 'UserData', type: 'object', description: '收藏、已播放和进度等用户状态。' },
   { name: 'MediaSources', type: 'array', description: '可播放媒体源及流地址。' },
 ]
@@ -625,7 +626,7 @@ export const EMBY_API_ENDPOINTS: readonly EmbyApiEndpoint[] = [
     id: 'item-image',
     category: '图片与播放',
     name: '媒体图片',
-    description: '读取封面、背景图、人物图等媒体图片；媒体库 Primary 支持上传封面和外链封面。红果短剧 海报与人物图从来源独立本地目录输出，不重定向到需要鉴权的 Web 图片路由；缺图返回占位并登记修复。',
+    description: '读取封面、背景图、人物图等媒体图片；媒体库 Primary 支持上传封面和外链封面。季 Primary 缺失时使用剧集海报，单集 Primary 缺失时依次使用剧集横版图、剧集海报。红果短剧 海报与人物图从来源独立本地目录输出，不重定向到需要鉴权的 Web 图片路由；缺图返回占位并登记修复。',
     methods: ['GET', 'HEAD'],
     path: '/Items/:id/Images/:type',
     aliases: ['/Items/:id/Images/:type/:index', '/items/:id/images/:type', '/items/:id/images/:type/:index'],

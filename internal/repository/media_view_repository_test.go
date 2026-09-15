@@ -32,6 +32,27 @@ func TestMediaViewIdentifierProjectionIsCorrelated(t *testing.T) {
 	}
 }
 
+func TestMediaViewDisplayFallbackQueryStaysWithinHierarchy(t *testing.T) {
+	db, err := gorm.Open(postgres.Open(""), &gorm.Config{DisableAutomaticPing: true, DryRun: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var rows []model.MediaView
+	stmt := (&MediaViewRepository{db: db}).query(t.Context()).Select(mediaViewSelect).Find(&rows).Statement
+	sql := strings.Join(strings.Fields(stmt.SQL.String()), " ")
+	for _, want := range []string{
+		"previous_episode.parent_id = mi.parent_id",
+		"previous_episode.episode_num < mi.episode_num",
+		"ORDER BY previous_episode.episode_num DESC",
+		"series_poster.metadata_id = series_metadata.id",
+		"series_backdrop.metadata_id = series_metadata.id",
+	} {
+		if !strings.Contains(sql, want) {
+			t.Fatalf("media view fallback query missing %q: %s", want, sql)
+		}
+	}
+}
+
 func TestMetadataSearchSpecialCharactersDoNotMatchEverything(t *testing.T) {
 	db, err := gorm.Open(postgres.Open(""), &gorm.Config{DisableAutomaticPing: true, DryRun: true})
 	if err != nil {

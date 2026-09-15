@@ -20,7 +20,16 @@ m.*,
 	COALESCE(mi.overview, '') AS view_overview,
 	COALESCE(mi.rating, 0) AS view_rating,
 	COALESCE(mi.year, m.scan_year, 0) AS view_year,
-	COALESCE(mi.release_date, '') AS view_release_date,
+	COALESCE(NULLIF(mi.release_date, ''), CASE WHEN mi.kind = 'episode' THEN (
+		SELECT NULLIF(previous_episode.release_date, '')
+		FROM metadata_items AS previous_episode
+		WHERE previous_episode.kind = 'episode'
+			AND previous_episode.parent_id = mi.parent_id
+			AND previous_episode.episode_num < mi.episode_num
+			AND NULLIF(previous_episode.release_date, '') IS NOT NULL
+		ORDER BY previous_episode.episode_num DESC
+		LIMIT 1
+	) END, '') AS view_release_date,
 	COALESCE(season_metadata.season_num, m.season_num, 0) AS view_season_num,
 	COALESCE(NULLIF(mi.episode_num, 0), m.episode_num, 0) AS view_episode_num,
 	COALESCE(identifiers.tmdb_external_id, '') AS view_tmdb_external_id,
@@ -33,8 +42,10 @@ m.*,
 	COALESCE(mi.nsfw, FALSE) AS view_nsfw,
 	COALESCE(mi.kind, '') AS view_metadata_kind,
 	COALESCE(mi.source, '') AS view_metadata_source,
-	COALESCE(poster_asset.id, '') AS view_poster_asset_id,
-	COALESCE(still_asset.id, backdrop_asset.id, '') AS view_backdrop_asset_id,
+	COALESCE(poster_asset.id, CASE WHEN mi.kind = 'season' THEN series_poster_asset.id END, '') AS view_poster_asset_id,
+	COALESCE(still_asset.id, backdrop_asset.id,
+		CASE WHEN mi.kind = 'episode' THEN series_backdrop_asset.id END,
+		CASE WHEN mi.kind = 'episode' THEN series_poster_asset.id END, '') AS view_backdrop_asset_id,
 	COALESCE(pm.duration_ms, 0) AS view_probe_duration_ms,
 	COALESCE(pm.size_bytes, 0) AS view_probe_size_bytes,
 	COALESCE(pm.container, '') AS view_probe_container,
@@ -79,7 +90,11 @@ func (r *MediaViewRepository) query(ctx context.Context) *gorm.DB {
 		Joins("LEFT JOIN metadata_artworks AS backdrop ON backdrop.metadata_id = mi.id AND backdrop.artwork_type = 'backdrop'").
 		Joins("LEFT JOIN artwork_assets AS backdrop_asset ON backdrop_asset.id = backdrop.asset_id").
 		Joins("LEFT JOIN metadata_artworks AS still ON still.metadata_id = mi.id AND still.artwork_type = 'still'").
-		Joins("LEFT JOIN artwork_assets AS still_asset ON still_asset.id = still.asset_id")
+		Joins("LEFT JOIN artwork_assets AS still_asset ON still_asset.id = still.asset_id").
+		Joins("LEFT JOIN metadata_artworks AS series_poster ON series_poster.metadata_id = series_metadata.id AND series_poster.artwork_type = 'poster'").
+		Joins("LEFT JOIN artwork_assets AS series_poster_asset ON series_poster_asset.id = series_poster.asset_id").
+		Joins("LEFT JOIN metadata_artworks AS series_backdrop ON series_backdrop.metadata_id = series_metadata.id AND series_backdrop.artwork_type = 'backdrop'").
+		Joins("LEFT JOIN artwork_assets AS series_backdrop_asset ON series_backdrop_asset.id = series_backdrop.asset_id")
 }
 
 func applyMediaViewFilter(q *gorm.DB, filter MediaQueryFilter) *gorm.DB {

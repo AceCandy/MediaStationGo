@@ -46,6 +46,15 @@ func (s *MediaService) GetMediaSeasonVisible(ctx context.Context, mediaID string
 	}
 	season.SeasonID = media.SeasonID
 	season.SeriesID = media.SeriesID
+	if season.PosterURL == "" {
+		series, findErr := s.repo.MediaView.FindSeriesPresentation(ctx, media.SeriesID, visibility.IncludeNSFW)
+		if findErr != nil {
+			return nil, findErr
+		}
+		if series != nil {
+			season.PosterURL = series.PosterURL
+		}
+	}
 	if err := s.attachMediaProviderDetails(ctx, season); err != nil {
 		return nil, err
 	}

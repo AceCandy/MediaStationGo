@@ -454,7 +454,7 @@ func TestEmbySeriesArtworkUsesSharedMetadata(t *testing.T) {
 	}
 }
 
-func TestEmbySeasonAndEpisodeDoNotInheritSeriesArtworkOrPeople(t *testing.T) {
+func TestEmbySeasonAndEpisodeUseDisplayArtworkFallbackWithoutPeopleInheritance(t *testing.T) {
 	svc := newTestEmbyService(t)
 	seriesID := "metadata-no-inherit-series"
 	episode := createServiceTestEpisodeMetadata(t, svc.repo.DB,
@@ -464,7 +464,9 @@ func TestEmbySeasonAndEpisodeDoNotInheritSeriesArtworkOrPeople(t *testing.T) {
 	if episode.ParentID == nil {
 		t.Fatal("episode season parent is missing")
 	}
-	createServiceTestArtwork(t, svc.repo.DB, seriesID, model.ArtworkTypePoster, "asset-no-inherit-poster")
+	wantPoster := createServiceTestArtwork(t, svc.repo.DB, seriesID, model.ArtworkTypePoster, "asset-fallback-poster")
+	wantBackdrop := createServiceTestArtwork(t, svc.repo.DB, seriesID, model.ArtworkTypeBackdrop, "asset-fallback-backdrop")
+	wantEpisodeBackdrop := createServiceTestArtwork(t, svc.repo.DB, episode.ID, model.ArtworkTypeBackdrop, "asset-episode-backdrop")
 	person := model.Person{Name: "Series Actor", OriginalName: "Series Actor", NormalizedName: "series actor", Source: "tmdb"}
 	if err := svc.repo.DB.Create(&person).Error; err != nil {
 		t.Fatal(err)
@@ -472,17 +474,29 @@ func TestEmbySeasonAndEpisodeDoNotInheritSeriesArtworkOrPeople(t *testing.T) {
 	if err := svc.repo.DB.Create(&model.MetadataCredit{MetadataID: seriesID, PersonID: person.ID, Type: model.CreditTypeActor}).Error; err != nil {
 		t.Fatal(err)
 	}
-	for _, id := range []string{*episode.ParentID, episode.ID} {
-		image, err := svc.ImageURL(t.Context(), id, "Primary")
+	for _, tc := range []struct{ id, want string }{{*episode.ParentID, wantPoster}, {episode.ID, wantEpisodeBackdrop}} {
+		image, err := svc.ImageURL(t.Context(), tc.id, "Primary")
 		if err != nil {
 			t.Fatal(err)
 		}
-		if image != "" {
-			t.Fatalf("metadata %s inherited series image %q", id, image)
+		if image != tc.want {
+			t.Fatalf("metadata %s fallback image = %q, want %q", tc.id, image, tc.want)
 		}
-		if people := svc.peopleForMetadata(t.Context(), id); len(people) != 0 {
-			t.Fatalf("metadata %s inherited series people: %#v", id, people)
+		if people := svc.peopleForMetadata(t.Context(), tc.id); len(people) != 0 {
+			t.Fatalf("metadata %s inherited series people: %#v", tc.id, people)
 		}
+	}
+	if err := svc.repo.DB.Where("metadata_id = ? AND artwork_type = ?", episode.ID, model.ArtworkTypeBackdrop).Delete(&model.MetadataArtwork{}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if image, err := svc.ImageURL(t.Context(), episode.ID, "Primary"); err != nil || image != wantBackdrop {
+		t.Fatalf("episode series backdrop fallback = %q, want %q: %v", image, wantBackdrop, err)
+	}
+	if err := svc.repo.DB.Where("metadata_id = ? AND artwork_type = ?", seriesID, model.ArtworkTypeBackdrop).Delete(&model.MetadataArtwork{}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if image, err := svc.ImageURL(t.Context(), episode.ID, "Primary"); err != nil || image != wantPoster {
+		t.Fatalf("episode poster fallback = %q, want %q: %v", image, wantPoster, err)
 	}
 	if err := svc.repo.DB.Create(&model.MetadataCredit{MetadataID: *episode.ParentID, PersonID: person.ID, Type: model.CreditTypeActor}).Error; err != nil {
 		t.Fatal(err)

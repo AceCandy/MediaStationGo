@@ -620,10 +620,15 @@ db.Model(&credit).
 - Emby clients may call `/SearchHints`, `/Search/Hints`, and their user-scoped or lowercase variants; these routes must project shared metadata titles and IDs, not raw media scan fields.
 - Provider identifier projection must return at most one joined row per media and must correlate the reduction to the current `mi.id` and `mi.kind` (for example with `LEFT JOIN LATERAL`). Never aggregate the full active identifier table before joining, and never join the raw one-to-many identifier table into paginated media queries.
 - Selected artwork is copied into `DataDir`; remote URLs and source paths are provenance only and are never served as the authoritative runtime image.
-- Series, Season, and Episode image projections are entity-owned. Series uses
-  poster/backdrop, Season uses poster, and Episode uses still; MediaView, Emby
-  payloads, image routes, and virtual artwork caches must not fall back to an
-  ancestor.
+- Selected artwork remains entity-owned: Series uses poster/backdrop, Season
+  uses poster, and Episode uses still. Read-only Web/Emby projections may use
+  the Series poster for a missing Season poster, and an existing Episode
+  backdrop followed by the Series backdrop then poster for a missing Episode
+  still. This display fallback must not create a
+  selection or complete the child artwork checkpoint.
+- A missing Episode release date is projected from the nearest lower-numbered
+  Episode with a date in the same Season. Never persist the projected date or
+  cross a Season boundary; leave it empty when no earlier dated Episode exists.
 - Scanner, scraper, metadata edit, and organizer metadata flows only read NFO/poster/fanart/thumb sidecars. They must not create, overwrite, move, or delete them.
 - Scan and scrape flows must not move, rename, delete, deduplicate, or reclassify playable media files or change their library/path placement. Only an explicit organize operation may invoke `ReclassifyMisclassifiedMedia` or other filesystem transfer helpers.
 - Deleting a library transactionally hard-deletes its `Media`, `LibraryRoot`, and `Library` rows. It preserves shared metadata, metadata-owned user state, identifiers, managed artwork, and all on-disk media files.
@@ -2033,7 +2038,7 @@ the artwork worker downloads and completes its own checkpoint independently.
 | Worker stops while a job is running | Reset it to retry on next startup |
 | Required own image download fails | Preserve the old own selection and leave artwork/full checkpoints empty |
 | Catalog retry follows a recent proxy image failure | Retry the upstream URL without deleting a successful cached image |
-| Provider explicitly returns no own image | Mark own artwork complete without ancestor fallback |
+| Provider explicitly returns no own image | Mark own artwork complete without persisting ancestor artwork; display projections may still fall back |
 | One Episode is incomplete | Keep its Season, Series, and durable job incomplete |
 | Episode/Season top-level title is a generated label | Continue through its own translations before accepting or generating a fallback |
 | Snapshot belongs to manual or non-TMDb metadata | Leave its display fields unchanged |
@@ -2060,11 +2065,11 @@ the artwork worker downloads and completes its own checkpoint independently.
 - Good: an Episode stores its localized name in `Title`, while clients receive
   the parent show name from `SeriesTitle`.
 - Base: a Series has no Seasons or an entity has no image path; explicit empty
-  inventories/scopes complete without synthetic children or inherited images.
+  inventories/scopes complete without synthetic children or inherited selections.
 - Base: a historical TMDb Episode snapshot is relocalized at startup without a
   provider request; a manual Episode with the same shape remains untouched.
 - Bad: an in-memory map is queue truth, a root-only timestamp suppresses child
-  hydration, or a Season/Episode copies Series artwork or people.
+  hydration, or a Season/Episode persists copied Series artwork or people.
 - Bad: storing the Series name in `Episode.Title` or copying the Series
   `OriginalName`, overview, or provider IDs into an Episode projection.
 - Bad: a browser-facing image failure marker suppresses the durable job's own
@@ -2099,8 +2104,9 @@ the artwork worker downloads and completes its own checkpoint independently.
   non-Episode titles, drop the column idempotently, and omit `episode_title`
   from serialized media payloads.
 - MediaView/Emby: Episode-owned title and identifiers, parent `SeriesTitle`, own
-  Episode stills, own Season posters/people, no virtual cache fallback, and
-  catalog-only exclusion from physical libraries.
+  artwork precedence, read-only Series artwork fallback for missing Season/Episode
+  images, same-Season previous-date fallback, Season-owned people, and catalog-only
+  exclusion from physical libraries.
 - Artwork repair/recheck: PostgreSQL tests cover both keyset scans without a
   `media` table, never-hydrated exclusion, task-one state handoff, per-type
   cooldown, conditional selection races, full-sweep pagination, and exact retired
@@ -2120,11 +2126,11 @@ repo.Metadata.EnqueueCatalogJob(ctx, "tmdb", entityKind, externalID)
 ```
 
 ```go
-// Wrong: Season silently displays the Series poster.
-seasonPoster := series.PosterURL
+// Wrong: display fallback is persisted as child-owned artwork.
+repo.SaveSelection(ctx, season.ID, "poster", "fallback", seriesPosterAsset)
 
-// Correct: missing own Season artwork remains empty.
-seasonPoster := metadataArtworkURL(ctx, season.ID, model.ArtworkTypePoster)
+// Correct: fallback exists only in the read projection.
+seasonPoster := firstNonEmpty(ownSeasonPoster, seriesPoster)
 ```
 
 ```go

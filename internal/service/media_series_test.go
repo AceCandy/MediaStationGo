@@ -145,6 +145,54 @@ func TestMediaSeasonDetailUsesCanonicalArtworkAndVisibility(t *testing.T) {
 	}
 }
 
+func TestSeriesDisplayFallbacksStayInsideTheSeriesHierarchy(t *testing.T) {
+	db := newServiceTestDB(t, &model.Library{}, &model.Media{}, &model.MediaProbeMetadata{})
+	repos := repository.New(db)
+	lib := model.Library{Name: "展示回退", Path: "/fixture/display-fallback", Type: "tv", Enabled: true}
+	if err := repos.Library.Create(t.Context(), &lib); err != nil {
+		t.Fatal(err)
+	}
+	series := createServiceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindSeries, Title: "整剧"})
+	season := createServiceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindSeason, ParentID: &series.ID, SeasonNum: 1, Title: "第一季"})
+	otherSeason := createServiceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindSeason, ParentID: &series.ID, SeasonNum: 2, Title: "第二季"})
+	wantPoster := createServiceTestArtwork(t, db, series.ID, model.ArtworkTypePoster, "display-fallback-poster")
+	wantBackdrop := createServiceTestArtwork(t, db, series.ID, model.ArtworkTypeBackdrop, "display-fallback-backdrop")
+	createEpisode := func(parentID string, number int, releaseDate string) model.Media {
+		t.Helper()
+		episode := createServiceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindEpisode, ParentID: &parentID, EpisodeNum: number, Title: fmt.Sprintf("第%d集", number), ReleaseDate: releaseDate})
+		media := model.Media{LibraryID: lib.ID, MetadataID: episode.ID, Path: fmt.Sprintf("%s/%s-E%02d.mkv", lib.Path, parentID, number), EpisodeNum: number}
+		if err := db.Create(&media).Error; err != nil {
+			t.Fatal(err)
+		}
+		return media
+	}
+	first := createEpisode(season.ID, 1, "2026-09-01")
+	second := createEpisode(season.ID, 2, "")
+	other := createEpisode(otherSeason.ID, 1, "")
+
+	var secondView *model.MediaView
+	for _, tc := range []struct {
+		media model.Media
+		date  string
+	}{{first, "2026-09-01"}, {second, "2026-09-01"}, {other, ""}} {
+		view := serviceTestMediaView(t, repos, tc.media.ID)
+		if view.ReleaseDate != tc.date || view.BackdropURL != wantBackdrop {
+			t.Fatalf("episode %s projection: date=%q backdrop=%q", tc.media.ID, view.ReleaseDate, view.BackdropURL)
+		}
+		if tc.media.ID == second.ID {
+			secondView = view
+		}
+	}
+	svc := NewMediaService(&config.Config{}, zap.NewNop(), repos)
+	if item := NewEmbyService(&config.Config{}, zap.NewNop(), repos).itemPayload(t.Context(), secondView, "", false, 0, false); item["PremiereDate"] != "2026-09-01T00:00:00.0000000Z" {
+		t.Fatalf("Emby episode PremiereDate fallback: %#v", item)
+	}
+	got, err := svc.GetMediaSeasonVisible(t.Context(), first.ID, MediaVisibility{})
+	if err != nil || got == nil || got.PosterURL != wantPoster {
+		t.Fatalf("season poster fallback: %+v %v", got, err)
+	}
+}
+
 func TestMediaSeriesDetailSupportsEveryAttachmentLevel(t *testing.T) {
 	db := newServiceTestDB(t, &model.Library{}, &model.Media{}, &model.MediaProbeMetadata{}, &model.MetadataProviderSnapshot{})
 	repos := repository.New(db)

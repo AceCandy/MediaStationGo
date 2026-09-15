@@ -63,8 +63,10 @@ func (e *EmbyService) ImageURL(ctx context.Context, id, imageType string) (strin
 		}
 		if metadata != nil {
 			artworkType := ""
+			parentFallback := true
 			switch strings.ToLower(imageType) {
 			case "backdrop", "art":
+				parentFallback = false
 				if metadata.Kind == model.MetadataKindMovie || metadata.Kind == model.MetadataKindSeries {
 					artworkType = model.ArtworkTypeBackdrop
 				}
@@ -76,7 +78,18 @@ func (e *EmbyService) ImageURL(ctx context.Context, id, imageType string) (strin
 					artworkType = model.ArtworkTypePoster
 				}
 			}
-			return e.metadataArtworkURL(ctx, metadata.ID, artworkType), nil
+			if raw := e.metadataArtworkURL(ctx, metadata.ID, artworkType); raw != "" {
+				return raw, nil
+			}
+			if metadata.Kind == model.MetadataKindEpisode && parentFallback {
+				if raw := e.metadataArtworkURL(ctx, metadata.ID, model.ArtworkTypeBackdrop); raw != "" {
+					return raw, nil
+				}
+			}
+			if parentFallback {
+				return e.parentArtworkFallback(ctx, metadata), nil
+			}
+			return "", nil
 		}
 	}
 	if raw, ok := e.cachedArtworkURL(id, imageType); ok {
@@ -101,6 +114,30 @@ func (e *EmbyService) ImageURL(ctx context.Context, id, imageType string) (strin
 		return "", err
 	}
 	return "", nil
+}
+
+func (e *EmbyService) parentArtworkFallback(ctx context.Context, metadata *model.MetadataItem) string {
+	if metadata == nil || metadata.ParentID == nil {
+		return ""
+	}
+	parent, err := e.repo.Metadata.FindByID(ctx, *metadata.ParentID)
+	if err != nil || parent == nil {
+		return ""
+	}
+	if metadata.Kind == model.MetadataKindSeason {
+		return e.metadataArtworkURL(ctx, parent.ID, model.ArtworkTypePoster)
+	}
+	if metadata.Kind != model.MetadataKindEpisode || parent.ParentID == nil {
+		return ""
+	}
+	series, err := e.repo.Metadata.FindByID(ctx, *parent.ParentID)
+	if err != nil || series == nil {
+		return ""
+	}
+	if raw := e.metadataArtworkURL(ctx, series.ID, model.ArtworkTypeBackdrop); raw != "" {
+		return raw
+	}
+	return e.metadataArtworkURL(ctx, series.ID, model.ArtworkTypePoster)
 }
 
 func (e *EmbyService) metadataArtworkURL(ctx context.Context, metadataID, artworkType string) string {

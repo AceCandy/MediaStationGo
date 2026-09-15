@@ -195,7 +195,7 @@ func (e *EmbyService) seasonPayload(ctx context.Context, season embySeasonGroup,
 func (e *EmbyService) seasonPayloadsWithFields(ctx context.Context, seasons []embySeasonGroup, userID string, requestedFields []string) []map[string]any {
 	ids := make([]string, 0, len(seasons))
 	for _, season := range seasons {
-		ids = append(ids, season.ID)
+		ids = append(ids, season.ID, season.SeriesID)
 	}
 	relations := e.metadataRelationsForIDs(ctx, ids, userID, newEmbyListFields(requestedFields))
 	items := make([]map[string]any, 0, len(seasons))
@@ -219,6 +219,9 @@ func (e *EmbyService) seasonPayloadWithRelations(ctx context.Context, season emb
 			rating = metadata.Rating
 		}
 		seasonPoster = e.metadataArtworkURL(ctx, season.ID, model.ArtworkTypePoster)
+		if seasonPoster == "" {
+			seasonPoster = e.metadataArtworkURL(ctx, season.SeriesID, model.ArtworkTypePoster)
+		}
 		mediaID := ""
 		if len(season.Episodes) > 0 {
 			mediaID = season.Episodes[0].ID
@@ -234,6 +237,9 @@ func (e *EmbyService) seasonPayloadWithRelations(ctx context.Context, season emb
 			rating = metadata.Rating
 		}
 		seasonPoster = relations.artworkByMetadataID[season.ID][model.ArtworkTypePoster]
+		if seasonPoster == "" {
+			seasonPoster = relations.artworkByMetadataID[season.SeriesID][model.ArtworkTypePoster]
+		}
 		favorite = relations.favoriteByMetadataID[season.ID]
 		completed = relations.completedByMetadataID[season.ID]
 		if relations.fields.people {
