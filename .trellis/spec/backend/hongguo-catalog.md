@@ -4,7 +4,8 @@
 
 Apply when changing HongGuo collection, file binding, grouping, user state,
 statistics, or Web/Emby projections. This is a separate catalog, not a TMDb
-provider and not a source of remote playable streams.
+provider and not a source of remote playable streams. Administrator downloads
+are a separate authorized exception; playback still uses existing local/STRM files.
 
 ## 2. Signatures
 
@@ -25,17 +26,25 @@ provider and not a source of remote playable streams.
   `works/:id/media`, `groups`, `libraries/:id`, `me`, `pending`, `status`,
   `cancel`, and `artwork/:id` are registered in `handler/hongguo.go`.
 - `GET works` returns paginated `HongGuoListWork`: existing public work fields
-  plus local `artwork_id`, parsed `tags`, and `hydrated`. It merges canonical
+  plus local `artwork_id`, parsed `tags`, `hydrated`, and optional `group_id`. It merges canonical
   works with discovery-only summaries by `source_id` before count/pagination;
   do not fetch each work's full detail to build poster cards.
+  List and search batch-load group membership for the returned hydrated work IDs;
+  no Media existence check or per-card detail query is involved. Group members
+  remain on the existing authenticated group-detail GET, loaded on demand.
 - `GET search?keyword=...` requires `can_view_discover` and an enabled source.
   It reads the official `/search/{keyword}` first response (or fixed detail URL
   for a numeric source ID), preserving string IDs and upstream order. Return
   the actual returned item count, not the upstream total as invented pagination.
-  Search is read-only; merge local hydration, classification and artwork IDs in
-  batches, never expose upstream image URLs or infer source category from tags.
-  Administrators may click an unhydrated search result to invoke the existing
-  `POST works/:id/refresh`; viewers cannot import. Late refresh responses must
+  Merge local hydration, classification and artwork IDs in batches, never
+  expose upstream image URLs or infer source category from tags. Search registers
+  unhydrated results in `hongguo_discoveries` using source-ID conflict-do-nothing;
+  repeated searches preserve existing summaries, categories and failure cooldowns.
+  After registration, search requests an asynchronous event-triggered refresh;
+  the search request itself never downloads media or creates canonical works/episodes. Queue persistence
+  failure fails the search rather than claiming successful registration.
+  Administrators may explicitly invoke the existing
+  `POST works/:id/refresh`; viewers only register summaries through search. Late refresh responses must
   not navigate a different search/account after the original page unmounts.
   In the `other` category, administrators may assign one official source
   category. Update matching discovery and work rows atomically; viewers remain
@@ -114,6 +123,16 @@ provider and not a source of remote playable streams.
   up to 50 failures selected at start and refreshes up to 100 existing works
   older than 24 hours using the persistent refresh cursor. Later discoveries
   wait for the next run; explicit source-ID refresh bypasses that cooldown.
+  Successful discovery-page/rank persistence and successful search registration
+  call `requestRefresh`. Wakeups coalesce behind the existing refresh mutex;
+  after the current manual/scheduled/event run releases it, one event worker
+  rechecks pending summaries and starts the same task execution only if needed.
+  Wakeups arriving during that run request a subsequent fixed-cutoff pass.
+  Workers reserve the mutex before goroutine launch, use service-owned cancellation
+  rather than the search HTTP lifetime, and are joined by `Wait`. Cancel/disable/
+  shutdown clear queued wakeups and cancel a reserved worker before its run starts.
+  Empty or cooling-only queues do not create an automatic execution. Business
+  summaries survive process exit and are still recoverable by periodic/manual runs.
   Discovery-only rows appear as read-only Web cards with `hydrated=false`, but
   remain absent from Emby, detail, grouping, playback, and binding projections.
   Their click path reports that source details do not exist. Repeated discovery
@@ -199,7 +218,7 @@ provider and not a source of remote playable streams.
 - Bad: match by similar titles, fabricate release dates, or store a source ID
   in `media.metadata_id`.
 - Good: local file Range yields 206; user-provided STRM retains the shared
-  redirect path. No remote video URL is extracted from the source website.
+  redirect path. Playback never extracts a remote video URL from the source website.
 - Good: one 24-item category page records summaries without 24 detail requests;
   a later refresh hydrates them before they become bindable catalog entries.
 - Base: `GET works?source_category=real-drama&category=都市` returns only hydrated works whose
@@ -217,6 +236,15 @@ provider and not a source of remote playable streams.
   under 全部. Bad: guessing that work is AI-generated from its title or tags.
 
 ## 6. Tests Required
+
+- `TestHongGuoWakeupCoalescesAndCancelClearsPending`: merged wakeups while busy,
+  cancel clears pending state, and shutdown rejects later signals (including race).
+- `TestHongGuoWakeupDrainsLaterDiscoveries`: blocked first HTTP request, a second
+  summary registered after cutoff, serialized follow-up hydration and event triggers.
+
+- `TestHongGuoSearchQueuesMissingDetails`: missing-only durable registration,
+  repeated/duplicate result IDs, category preservation, pending-task selection,
+  failure cooldown and no canonical work/episode/artwork creation.
 
 - `internal/hongguo`: ID precision, movie evidence, count separation, snapshot
   whitelist, cancellation/HTTP bounds and explicit path IDs.
@@ -292,3 +320,115 @@ Wrong: derive `source_category` from hydrated detail tags.
 
 Correct: persist the category used by `Client.Category` on the discovery row and
 carry it by source ID when the authoritative detail becomes a work.
+
+## Scenario: 管理员下载与外部备份交接
+
+### 1. Scope / Trigger
+
+下载只输出文件，不能创建媒体、旧元数据、云盘对象或 STRM，也不自动追更。
+`/admin/media/downloads` 位于文件空间；红果详情的下载按钮只对管理员显示。
+
+### 2. Signatures
+
+- 管理员 API：`/api/catalogs/hongguo/downloads` 下 GET/PUT `config`、GET 列表、POST 入队、POST `:id/cancel|retry`。
+- 独立表 `hong_guo_download_works` 固定作品位置；`hong_guo_downloads` 按 `(source_id, episode)` 唯一，保存状态、租约、发布散列和暂存位置。
+- Settings: `hongguo.download_root`, `hongguo.download_concurrency`, `hongguo.verification_concurrency`, `hongguo.hardware_verification`, `hongguo.download_priority`; task kind `hongguo_download`.
+- Work management APIs under the same administrator group: `GET /works?page=1`, `GET /works/:source/episodes?page=1`, `POST /works/:source/retry`. Existing flat-list and single-episode APIs remain compatible.
+- `GET /works?failed_only=true` filters source works with at least one currently failed episode before counting/pagination. Omitted/false keeps all works; invalid boolean returns 400. Filter by eligible source IDs, not by the outer episode status: summaries and expanded episodes retain every status. The Web checkbox defaults off, persists in the URL, resets page to 1 when toggled, cancels stale requests and distinguishes empty filtered results. When failures disappear after retry/polling, clamp out-of-range pages. Service/HTTP tests cover full summaries and failures behind 50 newer nonfailed works; browser checks cover toggling and reload persistence. Never filter only the loaded page or modify queue state when toggling.
+
+### 3. Contracts
+
+- PUT config accepts `{root:string, concurrency?:integer, verification_concurrency?:integer, priority?:"app"|"official"|"fallback"}` and returns `{root,temporary_dir,output_dir,concurrency,verification_concurrency,priority}`. Both concurrency fields are 1–5; transfer defaults to 3 and verification to 2. Default priority is App. Preserve existing saved priorities; remaining sources follow App/fallback/official order with no duplicate. Missing/null optional fields preserve stored values. Save supplied keys together and wake the dispatcher only after success. Read the bounded key set in one query. Derive `downloading/` and `completed/` from one absolute root; CD2 backs up only the latter.
+- Config also accepts optional `hardware_verification:boolean` and returns the resolved boolean. Default false; omitted/null preserves stored value, non-boolean JSON is rejected. The existing settings modal owns all five drafts. Cancel discards edits, polling cannot overwrite them, and dirty forms cannot close via Escape/backdrop. Use the shared Select for priority; Escape in its listbox closes only that menu. Show highest available quality as fixed behavior, not a setting.
+- Work lists paginate 50 source IDs, with `total` counting works; each item includes `source_id`, `title`, `total` episode count and counts for all eight statuses, including `waiting_verify`, across all episodes. Order by first task creation descending, then source ID. Expanded episodes are sorted before pagination: downloading, verifying/publishing, waiting_verify, failed, queued, cancelled, completed; ties use episode/id. Do not group or prioritize only one flat episode page in the browser.
+- Work retry locks only `failed` rows of that source, reuses the single-episode source-video validation, and returns `{added,skipped}`. Missing episode data/IDs stay failed and count as skipped; other database failures roll back the operation. Completed, cancelled and active rows must not change. Successful retry wakes the existing worker; never duplicate tasks or change placement.
+- Download Space omits the duplicate content heading and uses Discover's underline source navigation. Storage settings live in `ModalShell`; cancel discards drafts, successful save closes, and polling cannot overwrite edits. Work cards default collapsed and preserve expansion during polling/retry; only expanded episode lists poll. Work-level retry covers every failed episode, irrespective of the expanded page. Keep single-episode operations inside the expanded list.
+- POST 接收 `{source_id:string}`，返回 202 `{added:number}`；只能使用已有权威分集，缺少视频 ID 的分集记录为失败。GET 使用 `page`，每页 50 项，返回 `{items,total,page}`。
+- 以 `FirstVisibleAt` 北京时间归档，不冒充上映日期：`2026/09/作品 [hongguo-ID]/Season 01/S01E001.mp4`；仅年份用 `2026/未知月份/作品`，无年份用 `未知年份/作品`。
+- 作品首次入队固定根路径和相对目录；改配置、改标题、重试或补集不能迁移旧作品。标题中的方括号转换为全角，确保来源标签无歧义。
+- `ResolveDownloadSource` resolves only the named app/official/fallback source. The worker tries priority first, then advances after the last attempted source in the configured three-source order on parse/network/incomplete-media errors; do not bypass priority to compare quality across sources. At most nine source attempts span transfer and verification stages. Cancel, local I/O and unknown tool errors do not trigger fallback. FFmpeg/FFprobe source classification accepts only explicit corrupt-media diagnostics, never arbitrary stderr. Stderr is bounded by `exec.Cmd.Output` and never exposed. Checkpointed publication failure never redownloads.
+- Official pages validate both work and video IDs and currently expose one supported `main_url`; no verified multi-quality official schema exists in current fixtures. Fallback selects the highest numeric quality among valid URL/key candidates. App uses the fixed signed POST `/novel/player/video_model/v1/`, exact requested video ID and `need_all_video_definition=true`; reject redirects, bound request time/body and reuse the public-IP download transport. Parse object/string models and array/map variants; select highest compatible quality, short-side fallback for portrait dimensions, prefer H.264 at equal quality, skip bytevc2 and invalid URL/key candidates. Only full MP4 is supported, not HLS. URLs, device identifiers, signatures and keys remain ephemeral and absent from public DTOs, business rows and logs.
+- Preserve official HTTP statuses, classify App code 101002 as video taken down, and expose only numeric unknown App status codes, never upstream message/debug text. A fallback `parse:0,url:...` may merely base64-encode the original request reference; it is not automatically a media URL. Public episode rows add `source,quality,width,height,codec,source_errors`; source errors store only the most recent safe failure per source in a JSON-serialized text column and manual retry clears them. Reset media attributes when switching sources. Before completion attributes describe the selected source; after successful verification, FFprobe dimensions/codec and short-side quality replace them. Legacy missing values stay unknown, with no file rescans or fabricated metadata. Existing AutoMigrate adds these nullable columns without rewriting completed files.
+- 下载连接在 DNS 解析及重定向后拒绝私网、回环、链路本地和保留地址。不能为兼容代理 fake-IP 而静默放开此限制。
+- When a hostname resolves to `198.18.0.0/15`, `downloadLookupIP` retries through AliDNS DoH (`dns.alidns.com`, pinned TCP endpoint `223.5.5.5:443`, verified TLS, no proxy or redirects). Literal IPs never trigger fallback. DoH has an 8-second deadline and 64-KiB response limit; only validated public A records may be dialed. Empty, malformed, mixed-private or failed answers fail closed; never connect to Fake-IP addresses. Ordinary public DNS resolution remains unchanged.
+- `DownloadRequest` exposes only local DNS/Fake-IP/connect/timeout/TLS/redirect error categories or HTTP status; never forward `url.Error` text containing signed URLs. No new proxy setting or global network-policy change is introduced.
+- 下载后 FFprobe 检查视频/时长，FFmpeg 完整解码，计算 SHA256 并同步磁盘；先保存发布检查点，再在租约/状态锁保护下通过无覆盖硬链发布。SHA256 用于本地产物恢复一致性，不代表来源校验和。
+- Hardware verification snapshots the current setting when verification starts, without restarting or interrupting active work. Only the full decode command gains `-hwaccel vaapi -hwaccel_device /dev/dri/renderD128 -hwaccel_output_format vaapi`; remux/probe/hash/publication remain unchanged. Any hardware command failure falls back once to the existing software decode on the same file before source-error classification; cancellation returns immediately without fallback. Record hardware use/fallback with fixed task messages, never raw stderr. Missing device/permissions/unsupported codecs therefore do not alone trigger redownload. Hardware success is not proof of software-equivalent corruption detection; neither guarantees source-byte identity. No automatic permission/device changes. Good: unsupported device falls back and passes software; bad: publish after both decoders fail or hide hardware errors as successful checks.
+- One service instance admits independently configured transfer and verification/publication workers. Both limits are reread on dispatch and saving wakes the dispatcher: increases admit waiting work without restart; decreases drain active work without interruption, admitting only below the new limit. The completion channel covers both maximum pool sizes. `ClaimHongGuoDownload` selects rows without raw/hash checkpoints; `ClaimHongGuoVerification` selects checkpointed queued/waiting or expired active rows. Waiting verification is durable and has no active worker/FFmpeg process. Shutdown cancels and joins both pools; the two-second heartbeat stops cancelled/stale workers.
+- `raw_size`, `source_tries`, `encrypted` and `duration` are private recovery fields; `source` also identifies the public download source. Sync raw bytes and stage/parent directories before recording raw size and releasing the transfer lease to `waiting_verify`. Verification validates raw file size, hardlinks it into a new lease-owned stage, syncs it, then changes the DB checkpoint before removing old names. Failed checkpoint adoption removes only the unadopted stage. Encrypted raw files re-resolve only the original source's key; keys and signed URLs are never persisted. Unavailable/changed key data may force bounded source fallback. Local filesystem/tool failures do not switch sources.
+- Source validation failure clears the raw checkpoint and requeues for a fresh transfer slot, preserving at most nine source attempts across stages. Manual retries reset the source-attempt budget; shutdown does not consume an interrupted transfer attempt. `attempts` counts transfer claims, not verification claims. Publication remains hash/size checkpointed and no-overwrite; completed output is never auto-deleted. Temporary files can accumulate behind slower verification.
+
+### 4. Validation & Error Matrix
+
+- 匿名/非管理员：401/403；服务缺失：503。
+- 非法 ID、分页、相对或文件系统根路径、与媒体库重叠的路径：400。
+- 两个子目录不能执行同文件系统原子发布：配置失败。
+- Fractional/out-of-range transfer or verification concurrency or unknown priority -> 400 before changing settings; old root-only requests preserve all optional settings. Unknown/local tool failures stop without cycling sources.
+- App 101002 -> explicit taken-down error and normal bounded fallback; official 404 -> retain HTTP 404, not generic network failure. Empty/unsupported variants -> safe source failure. No compatible higher variant -> choose the highest remaining valid option, never claim all episodes have unrestricted 1080p.
+- 同名目标不匹配发布检查点、媒体截断或时长不匹配：失败，不能覆盖目标或标记完成。
+- Waiting verification -> no transfer slot consumed; missing/wrong-length raw file -> bounded redownload; cancelled verifier -> old token cannot update/re-publish, immediate retry gets a distinct stage.
+- 完成任务不能取消/删除；只允许重试失败或取消任务。
+
+### 5. Good / Base / Bad Cases
+
+- Good：验证完成才进入 `completed`，CD2 与 Symedia 在外部处理；分层后的 STRM 保留来源标签与源季集编号。
+- Base：日期未知直接进入 `未知年份/作品`。
+- Bad：让 CD2 备份 `downloading`，或将进程退出成功/文件存在当作完整性证明。
+- Good: set fallback first and use official after a 403 or corrupt MP4. Base: official returns one URL. Bad: claim global highest quality from one URL, interrupt running downloads when reducing concurrency, or retry a missing FFmpeg installation against every source.
+
+### 6. Tests Required
+
+- 下载专项 Go 测试覆盖身份与网络拒绝、目录/标签、持久化去重与固定位置、取消/过期租约、发布恢复/冲突、真实本地 FFmpeg 校验和接口权限；数据库测试须提供 `MEDIASTATION_TEST_POSTGRES_DSN`。
+- App tests cover highest compatible selection, portrait size, encrypted key parsing, safe takedown/HTTP errors, signed exact-ID POST and cancellation. Three-source service tests verify configured orders, original-source key re-resolution, persisted errors and FFprobe attributes. `MEDIASTATION_TEST_HONGGUO_APP_LIVE=1` enables `TestDownloadAppLive` and `TestHongGuoDownloadAppPipelineLive` (the latter requires isolated PostgreSQL); both use auto-cleaned temporary media, never production queue rows. Real success of one episode is not proof of universal availability or 1080p access.
+- `TestHongGuoDownloadHardwareFallback` checks exact hardware arguments, disabled/success/fallback/both-fail/cancel paths without requiring a GPU. Config tests cover default-off, persistence, omitted fields, false updates and invalid types. Opt-in `TestHongGuoDownloadHardwareLive` reads `MEDIASTATION_TEST_HONGGUO_VAAPI_FILE`, verifies a preexisting file without changing it, and asserts no software fallback occurred. Enabling hardware does not certify every codec or driver version.
+- `TestHongGuoDownloadWorkGroupingAndRetry` covers >50 episodes, whole-work status counts, per-source episode pagination, missing-ID skips, repeated retry, preserved completed paths and isolation from other works. HTTP access checks cover all three work endpoints; browser checks cover collapsed loading, bulk retry, episode pagination and modal save/cancel/responsive behavior.
+- `TestHongGuoDownloadSeparateVerificationAndRecovery` proves three blocked transfers coexist with two blocked verifiers and one waiting verifier, verifier cancel/immediate retry isolates tokens/stages, and service reconstruction publishes staged files without downloading again. `TestHongGuoDownloadEpisodePriorityBeforePagination` places active episodes beyond index 50 and asserts first-page priority plus final completed ordering. `TestHongGuoSearchResultsAreReadOnlyAndKeepSourceOrder` checks list/search group membership without Media rows.
+- Cancellation tests open connections with the isolated schema in pgx RuntimeParams. A session-only `SET search_path` is lost if cancellation discards a connection; reconnecting must never silently use the default schema. Keep this test setup scoped to download tests and close its pool before schema cleanup.
+- `TestHongGuoDownloadSettings`, `TestHongGuoDownloadConfigHTTP`: defaults, persistence, omitted-field compatibility, invalid integer/priority and unchanged settings on rejection. `TestHongGuoDownloadDynamicConcurrencyAndShutdown`, `TestHongGuoDownloadCancelThenRetryRunningLease`: concurrency 3→1→2, no interruption/duplicate claims, old HTTP cancellation, new-lease publication and joined shutdown. Source priority tests cover both orders, parsing/403/truncation/corrupt-file fallback and local errors; command classification tests cover unknown/local diagnostics and redaction. `TestDownloadFallbackSelectsHighestValidQuality` rejects invalid higher options. Run with isolated PostgreSQL and `-race`.
+- `web/scripts/check-download-space.mjs` 覆盖管理员/普通用户入口、入队、重试、保存与未保存输入保持、响应式；另运行 Web lint/build。
+- `MEDIASTATION_TEST_HONGGUO_DOWNLOAD_LIVE=1` 为真实来源下载单独验收开关；通过本地样例不能替代真实来源、CD2/Symedia 或部署迁移验收。
+- `TestDownloadFakeIPFallback`, `TestDownloadDNSFailureDoesNotReturnFakeIP`, and `TestDownloadErrorsAreRedacted` cover fallback boundaries, malformed/unsafe answers, fail-closed behavior and URL redaction. Opt-in `TestDownloadFakeIPLive` reads one real episode completely and decodes it with FFmpeg in a test-cleaned temporary directory; this does not certify queue publication or cloud integration.
+
+### 7. Wrong vs Correct
+
+Wrong：下载临时文件直接写到备份目录，取消后旧工作者继续覆盖目标。
+
+Correct：隔离暂存、验证并持久化检查点，在有效租约与行锁下无覆盖发布。
+
+Wrong: treat fallback's encoded request reference as a video URL, or hide App's taken-down reason behind the final webpage error. Correct: accept only supported media/key candidates and retain bounded per-source errors alongside the final task error.
+
+Browser test mocks match first registration: do not assume adding the same route replaces an earlier static response. Assert outgoing configuration separately from its mocked response; real persistence belongs in the HTTP/database test.
+
+## Scenario: Scheduled supplement and relocated execution history
+
+### 1. Scope / Trigger
+
+Download Space owns download execution history. Task Center owns the independent `hongguo_download_supplement` manual/scheduled task; this is new-work acquisition, not episode catch-up.
+
+### 2. Signatures
+
+`POST /api/catalogs/hongguo/downloads/supplement` accepts `{count: integer}` and returns 202 `{requested,candidates,works,episodes,skipped,failed}`. History remains `GET /api/tasks/definitions/hongguo_download/executions`.
+
+The direct endpoint remains for compatibility. Task Center uses `POST /api/tasks/definitions/hongguo_download_supplement/run` with `{count}` (202 starts background work), and the existing schedule endpoint with `{enabled,interval_seconds,count}`. Settings keys are `hongguo.download_supplement.enabled`, `.interval_seconds`, `.count`; defaults are disabled, 86400 seconds and 10 works. Save all three atomically; manual count never changes schedule count. Omitted schedule count preserves the saved value.
+
+### 3. Contracts
+
+Count means 1–100 source works, not episodes or logical groups. Select canonical works using discovery's first-visible/created/id descending ordering, excluding comic, invalid IDs, missing/invalid episode video IDs, episode counts outside 1–10000, and any existing download placement or episode row regardless of status. Never use task logs or Media membership as eligibility. First-time placement conflict inside the existing enqueue transaction prevents concurrent duplicate work; normal manual enqueue still supplements newly available episodes. Return actual committed counts, not requested counts. Failed/concurrently claimed candidates may leave the request short; no automatic candidate-refill loop or source hydration.
+
+Hide the download definition only from task-center enumeration; preserve its registration, execution persistence, log mapping and history authorization. The settings-adjacent button opens paginated download execution history only. The separate supplement definition retains each round's trigger, actual counts and failures. Each round adds new works, not a queue target. Scheduler prevents overlapping rounds; the shared supplement service also guards the compatibility endpoint. Scheduler shutdown cancels and joins its supplement run. Explain that enqueue/transfer success is not final file completion. Cancel stale history reads and prevent duplicate submissions. A lost request response can leave already committed works queued: inspect Download Space before requesting more.
+
+### 4. Validation & Error Matrix
+
+Anonymous/non-admin -> 401/403. Invalid/fractional count or body over 4 KiB -> 400 without queue writes. Disabled source or missing root -> background task failure (direct compatibility endpoint rejects synchronously). Insufficient candidates -> successful round with actual counts. Per-work enqueue failure -> failed round with counts, preserving prior committed works. Concurrent rounds are rejected. No new schema, credentials or upstream URLs.
+
+### 5. Good / Base / Bad Cases
+
+Good: request 10, find 3, enqueue 3 and explain the shortage. Base: none eligible, enqueue zero. Bad: automatically requeue cancelled downloads or claim 10 works when only 3 were committed.
+
+### 6. Tests Required
+
+`TestHongGuoDownloadSupplement`, `TestHongGuoDownloadSupplementOrderAndConcurrent`, `TestHongGuoDownloadHistoryHiddenFromTaskCenter`: real PostgreSQL filtering/order/counts and concurrent first placement, existing state preservation and retained history. Scheduler/HTTP supplement tests cover defaults, atomic validation, reload, manual-count isolation, actual timer-loop trigger, concurrency, shutdown cancellation and failure history. `check-download-space.mjs` covers history paging and absence of supplement entry; `check-hongguo-supplement-task.mjs` covers manual quantity, schedule settings, invalid count, failure retention, focus restoration and dual-theme narrow layouts.
+
+### 7. Wrong vs Correct
+
+Wrong: delete the task definition or filter only the loaded discovery page. Correct: preserve history identity, hide its task-center row and select bounded eligible works server-side before LIMIT.

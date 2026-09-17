@@ -96,22 +96,7 @@ export function MediaDetailMetadata({ media, selectedMedia, scope, isAdmin, favo
         </motion.div>
 
         <motion.div {...rise(0.08)} className="space-y-2.5 text-xs font-bold tracking-wide">
-          <div className="flex flex-wrap items-center gap-2.5">
-            {!isEpisode && <span className="badge-gold !px-3 !py-1.5 !text-xs shadow-glow-gold">
-              <Star size={12} fill="currentColor" className="mr-1" />
-              {media.rating > 0 ? media.rating.toFixed(1) : '-'}
-            </span>}
-            {(media.release_date || media.year > 0) && (
-              <span className="inline-flex items-center gap-1.5 rounded-xl border border-[var(--app-border)] bg-[var(--app-panel)]/70 px-3 py-1.5 text-[var(--app-text)] backdrop-blur">
-                <Calendar size={13} className="text-brand-500" />
-                <span>{media.release_date || `${media.year} 年`}</span>
-              </span>
-            )}
-            {scope !== 'series' && <span className="inline-flex items-center gap-1.5 rounded-xl border border-[var(--app-border)] bg-[var(--app-panel)]/70 px-3 py-1.5 text-[var(--app-subtle)] backdrop-blur">
-              <Clock size={13} aria-hidden="true" />
-              {fmtDuration(media.duration_sec)}
-            </span>}
-          </div>
+          <MetadataFacts rating={isEpisode ? undefined : media.rating} date={media.release_date || (media.year > 0 ? `${media.year} 年` : undefined)} durationSeconds={scope !== 'series' ? [media.duration_sec] : undefined} />
           {scope !== 'series' && <div className="flex flex-wrap items-center gap-2.5">
             {media.width > 0 && (
               <span className="inline-flex items-center gap-1.5 rounded-xl border border-[var(--app-brand-border)] bg-[var(--app-brand-soft)] px-3 py-1.5 uppercase text-[var(--app-brand-text)] backdrop-blur">
@@ -153,21 +138,10 @@ export function MediaDetailMetadata({ media, selectedMedia, scope, isAdmin, favo
       {actions}
       {doubanOpen && canBindDouban && <DoubanBindingDialog key={media.metadata_id} media={media} onClose={() => setDoubanOpen(false)} onBound={onDoubanBound ?? (() => undefined)} />}
       <Details {...(scope ? { className: 'space-y-4 text-[var(--app-subtle)]' } : {})}>
-      {media.overview && (
-        <motion.div {...rise(0.16)} className={scope ? 'space-y-2.5' : 'glass-panel !rounded-2xl !p-5 sm:!p-6 space-y-2.5'}>
-          <h3 className="text-xs font-bold uppercase tracking-[0.2em] text-brand-500">剧情简介</h3>
-          <p className="max-w-3xl text-[15px] leading-7 text-[var(--app-subtle)] font-medium">
-            {media.overview}
-          </p>
-        </motion.div>
-      )}
+      {media.overview && <MetadataOverview overview={media.overview} compact={Boolean(scope)} />}
 
       <motion.div {...rise(0.22)} className="space-y-4">
-        {scope !== 'episode' && <MetadataTags label="类型流派" values={parseCSV(media.genres)} primary />}
-        {scope !== 'episode' && <div className="grid gap-4 sm:grid-cols-2">
-          <MetadataTags label="国家/地区" values={localizedCSV(media.countries, 'region')} />
-          <MetadataTags label="语言" values={localizedCSV(media.languages, 'language')} />
-        </div>}
+        {scope !== 'episode' && <MetadataCategories genres={parseCSV(media.genres)} countries={parseCSV(media.countries)} languages={parseCSV(media.languages)} />}
         {selectedMedia && <div className="space-y-3 rounded-2xl border border-[var(--app-border)] bg-[var(--app-panel)]/50 p-4 text-xs">
           <div className="flex min-w-0 gap-3">
             <span className="w-16 shrink-0 font-bold uppercase tracking-wider text-[var(--app-muted)]">Media ID</span>
@@ -212,6 +186,45 @@ export function MediaDetailMetadata({ media, selectedMedia, scope, isAdmin, favo
   )
 }
 
+export function MetadataFacts({ rating, date, durationSeconds, dateLabel = '上映日期', runtimeLabel = '时长' }: { rating?: number; date?: string; durationSeconds?: number[]; dateLabel?: string; runtimeLabel?: string }) {
+  const runtime = durationSeconds ? durationSeconds.map(fmtDuration).join(' / ') || '暂无' : undefined
+  return (
+    <div className="flex flex-wrap items-center gap-2.5 text-xs font-bold tracking-wide">
+      {rating !== undefined && <span aria-label={`评分 ${rating > 0 ? rating.toFixed(1) : '暂无'}`} className="badge-gold !px-3 !py-1.5 !text-xs shadow-glow-gold">
+        <Star size={12} fill="currentColor" className="mr-1" aria-hidden="true" />
+        {rating > 0 ? rating.toFixed(1) : '-'}
+      </span>}
+      {date && <span aria-label={`${dateLabel} ${date}`} className="inline-flex items-center gap-1.5 rounded-xl border border-[var(--app-border)] bg-[var(--app-panel)]/70 px-3 py-1.5 text-[var(--app-text)] backdrop-blur">
+        <Calendar size={13} className="text-brand-500" aria-hidden="true" />
+        <span>{date}</span>
+      </span>}
+      {runtime && <span aria-label={`${runtimeLabel} ${runtime}`} className="inline-flex items-center gap-1.5 rounded-xl border border-[var(--app-border)] bg-[var(--app-panel)]/70 px-3 py-1.5 text-[var(--app-subtle)] backdrop-blur">
+        <Clock size={13} aria-hidden="true" />
+        {runtimeLabel === '单集时长' && <span>单集</span>}{runtime}
+      </span>}
+    </div>
+  )
+}
+
+export function MetadataOverview({ overview, compact = false }: { overview: string; compact?: boolean }) {
+  return (
+    <motion.div {...rise(0.16)} className={compact ? 'space-y-2.5' : 'glass-panel !rounded-2xl !p-5 sm:!p-6 space-y-2.5'}>
+      <h3 className="text-xs font-bold uppercase tracking-[0.2em] text-brand-500">剧情简介</h3>
+      <p className="max-w-3xl text-[15px] leading-7 text-[var(--app-subtle)] font-medium">{overview}</p>
+    </motion.div>
+  )
+}
+
+export function MetadataCategories({ genres, countries, languages }: { genres: string[]; countries: string[]; languages: string[] }) {
+  return <div className="space-y-4">
+    <MetadataTags label="类型流派" values={genres} primary />
+    <div className="grid gap-4 sm:grid-cols-2">
+      <MetadataTags label="国家/地区" values={countries} localize="region" />
+      <MetadataTags label="语言" values={languages} localize="language" />
+    </div>
+  </div>
+}
+
 type ProviderStatus = 'unlinked' | 'missing' | 'partial' | 'degraded' | 'complete' | 'episode_missing'
 
 const providerStatusLabels: Record<ProviderStatus, string> = {
@@ -227,8 +240,8 @@ function providerStatus(status: ProviderStatus | undefined, snapshot: boolean | 
   return status ?? (snapshot ? 'partial' : 'missing')
 }
 
-function ProviderBadge({ href, onClick, label, iconSrc, status }: { href?: string; onClick?: () => void; label: string; iconSrc: string; status: ProviderStatus }) {
-  const statusLabel = providerStatusLabels[status]
+export function ProviderBadge({ href, onClick, label, iconSrc, status }: { href?: string; onClick?: () => void; label: string; iconSrc: string; status?: ProviderStatus }) {
+  const statusLabel = status ? providerStatusLabels[status] : ''
   const missingEpisode = status === 'episode_missing'
   const warning = status === 'partial' || status === 'degraded'
   const StatusIcon = missingEpisode ? CircleAlert : status === 'unlinked' ? Unlink : status === 'complete' ? CircleCheck : warning ? CircleAlert : Circle
@@ -236,14 +249,14 @@ function ProviderBadge({ href, onClick, label, iconSrc, status }: { href?: strin
   const content = (
     <>
       <img src={iconSrc} alt="" aria-hidden="true" className="h-4 w-auto shrink-0" />
-      <StatusIcon size={13} aria-hidden="true" className={statusClass} />
-      <span className={missingEpisode ? 'text-red-700' : 'sr-only'}>{statusLabel}</span>
+      {status && <StatusIcon size={13} aria-hidden="true" className={statusClass} />}
+      {status && <span className={missingEpisode ? 'text-red-700' : 'sr-only'}>{statusLabel}</span>}
     </>
   )
   const className = 'inline-flex items-center gap-1.5 rounded-xl border px-2.5 py-1.5 text-[var(--app-text)] backdrop-blur ' +
     (missingEpisode ? 'border-red-500 bg-[var(--app-danger-soft)]' : 'border-[var(--app-border)] bg-[var(--app-panel)]/70') +
     (!missingEpisode && (href || onClick) ? ' hover:border-[var(--app-brand-border)] hover:text-[var(--app-brand-text)]' : '')
-  const title = `${label}：${statusLabel}` + (missingEpisode ? '；已按本地季集号入库，可能尚未收录或分集编号不同，也可能尚未完成补全' : '')
+  const title = label + (statusLabel ? `：${statusLabel}` : '') + (missingEpisode ? '；已按本地季集号入库，可能尚未收录或分集编号不同，也可能尚未完成补全' : '')
   if (!href) {
     if (!onClick) return <span title={title} aria-label={title} className={className}>{content}</span>
     return <button type="button" onClick={onClick} title={`${title}，点击搜索并绑定豆瓣`} aria-label={`${title}，点击搜索并绑定豆瓣`} className={className}>{content}</button>
@@ -275,7 +288,8 @@ function tmdbURL(media: Media): string | null {
   return null
 }
 
-function MetadataTags({ label, values, primary = false }: { label: string; values: string[]; primary?: boolean }) {
+export function MetadataTags({ label, values, primary = false, localize }: { label: string; values: string[]; primary?: boolean; localize?: 'region' | 'language' }) {
+  if (localize) values = localizedCSV(values.join(','), localize)
   if (values.length === 0) return null
   const tagClass = primary
     ? 'rounded-full bg-[var(--app-brand-soft)] text-[var(--app-brand-text)] border border-[var(--app-brand-border)] px-3 py-1 text-2xs font-bold uppercase tracking-wider'

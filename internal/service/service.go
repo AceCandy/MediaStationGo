@@ -21,6 +21,7 @@ type Container struct {
 	SSEHub           *SSEHub
 	Tasks            *TaskTrackerService
 	HongGuo          *HongGuoService
+	HongGuoDownloads *HongGuoDownloadService
 	Auth             *AuthService
 	Media            *MediaService
 	Scan             *ScannerService
@@ -88,6 +89,9 @@ func (c *Container) Boot() {
 			c.Log.Warn("recover task executions failed", zap.Error(err))
 		}
 	}
+	if c.HongGuoDownloads != nil {
+		c.HongGuoDownloads.Start(c.stopCtx)
+	}
 	if err := c.NormalizeLocalLibraryPaths(c.stopCtx); err != nil {
 		c.Log.Warn("normalize local library paths failed", zap.Error(err))
 	}
@@ -131,6 +135,9 @@ func (c *Container) Close() {
 	}
 	if c.HongGuo != nil {
 		c.HongGuo.Wait()
+	}
+	if c.HongGuoDownloads != nil {
+		c.HongGuoDownloads.Wait()
 	}
 	if c.Scraper != nil {
 		c.Scraper.WaitCatalogHydrationWorker()

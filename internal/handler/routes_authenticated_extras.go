@@ -18,7 +18,11 @@ func registerAuthedUISurfaceRoutes(authed *gin.RouterGroup, svc *service.Contain
 	authed.DELETE("/watch-history/:id", historyDeleteOneHandler(svc))
 
 	authed.GET("/discover/sections", requirePermission(svc, "can_view_discover"), discoverSectionsHandler(svc))
+	authed.POST("/discover/search", requirePermission(svc, "can_view_discover"), discoverSearchHandler(svc))
 	authed.GET("/discover/feed", requirePermission(svc, "can_view_discover"), discoverFeedHandler(svc))
+	authed.GET("/discover/tmdb/:kind/:id", requirePermission(svc, "can_view_discover"), discoverDetailHandler(svc))
+	authed.POST("/discover/tmdb/:kind/:id/refresh", requirePermission(svc, "can_view_discover"), middleware.AdminRequired(), discoverTMDbRefreshHandler(svc))
+	authed.POST("/discover/library-status", requirePermission(svc, "can_view_discover"), discoverLibraryStatusHandler(svc))
 
 	authed.GET("/system/info", systemInfoHandler(svc))
 	authed.GET("/system/status", systemStatusHandler(svc))

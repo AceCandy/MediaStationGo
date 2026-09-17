@@ -5,6 +5,7 @@ import { Activity, ChevronLeft, ChevronRight, FileText, Play, RefreshCw, Search,
 
 import { libraryAPI, mediaAPI, type MediaScrapeIssue, type STRMDeleteTarget } from '../api/library'
 import { tasksAPI, type BackgroundTask, type TaskDefinition, type TaskLog, type TaskSystem } from '../api/tasks'
+import { HongGuoSupplementDialog } from './HongGuoSupplementDialog'
 import { confirmAction } from '../components/confirmAction'
 import { ManualScrapeDialog } from '../components/ManualScrapeDialog'
 import { ModalShell } from '../components/ModalShell'
@@ -283,14 +284,17 @@ function TaskScheduleDialog({ definition, onClose, onSaved }: { definition: Task
   const [unit, setUnit] = useState<ScheduleUnit>(initialUnit)
   const [value, setValue] = useState(String(config.interval_seconds / scheduleUnits[initialUnit].seconds))
   const [saving, setSaving] = useState(false)
+  const supplement = definition.key === 'hongguo_download_supplement'
+  const [count, setCount] = useState(String(config.count ?? 10))
   const [error, setError] = useState('')
   const unitSeconds = scheduleUnits[unit].seconds
 
   const save = async () => {
+    if (supplement && (!Number.isInteger(Number(count)) || Number(count) < 1 || Number(count) > 100)) { setError('每轮补充数量须为 1–100 部'); return }
     setSaving(true)
     setError('')
     try {
-      await tasksAPI.updateSchedule(definition.key, enabled, Number(value) * unitSeconds)
+      await tasksAPI.updateSchedule(definition.key, enabled, Number(value) * unitSeconds, supplement ? Number(count) : undefined)
       await onSaved()
       toast.success(`${definition.name}周期已更新`)
       onClose()
@@ -310,6 +314,7 @@ function TaskScheduleDialog({ definition, onClose, onSaved }: { definition: Task
         <label><span className="mb-1 block text-xs text-ink-50">单位</span><Select className="input-field" value={unit} disabled={saving} onChange={(value) => setUnit(value as ScheduleUnit)}>{Object.entries(scheduleUnits).map(([key, item]) => <option key={key} value={key}>{item.label}</option>)}</Select></label>
       </div>
       <p className="mt-2 text-xs text-ink-50">支持范围：{formatInterval(config.min_interval_seconds)} 至 {formatInterval(config.max_interval_seconds)}</p>
+      {supplement && <><label className="mt-4 block text-sm">每轮补充数量<input className="input-field mt-2 w-full" type="number" min={1} max={100} step={1} required value={count} disabled={saving} onChange={(event) => setCount(event.target.value)} /></label><p className="mt-2 text-xs text-ink-50">每轮新增 1–100 部，不是保持队列数量；已有任务和资料不齐的作品跳过。默认关闭，启用后才周期执行。</p></>}
       {error && <p className="mt-3 text-sm text-red-500" role="alert">{error}</p>}
       <footer className="mt-6 flex justify-end gap-2"><button type="button" className="btn-outline" disabled={saving} onClick={onClose}>取消</button><button type="button" className="btn-primary" disabled={saving || !value} onClick={() => void save()}>{saving ? '保存中...' : '保存'}</button></footer>
     </ModalShell>
@@ -632,6 +637,9 @@ function TasksSystemPage({ system, onSystemChange }: { system: TaskSystem; onSys
 	const [probeLimit, setProbeLimit] = useState('')
 	const [scrapeLibraryID, setScrapeLibraryID] = useState('')
 	const runPending = useRef(false)
+	const [supplementDefinition, setSupplementDefinition] = useState<TaskDefinition | null>(null)
+	const supplementTrigger = useRef<HTMLElement | null>(null)
+	const closeSupplement = () => { setSupplementDefinition(null); supplementTrigger.current?.focus() }
 
 	const refresh = () => tasksAPI.snapshot(1, 1, system).then((value) => { setDefinitions(value.definitions ?? []); setLoadError(false) })
   useEffect(() => {
@@ -661,6 +669,11 @@ function TasksSystemPage({ system, onSystemChange }: { system: TaskSystem; onSys
 
   const run = async (definition: TaskDefinition) => {
 		if (runPending.current || running || definition.current_state === 'running') return
+		if (definition.key === 'hongguo_download_supplement') {
+			supplementTrigger.current = document.activeElement as HTMLElement
+			setSupplementDefinition(definition)
+			return
+		}
 		runPending.current = true
     setRunning(definition.key)
     try {
@@ -713,6 +726,7 @@ function TasksSystemPage({ system, onSystemChange }: { system: TaskSystem; onSys
 			{loadError && !definitions ? <div className="flex flex-col items-center gap-3 py-8 text-sm text-ink-50"><p>任务列表加载失败。</p><button type="button" className="rounded border border-gray-200 p-2 text-sand-600 hover:text-brand-500" title="重新加载" aria-label="重新加载" onClick={() => void refresh()}><RefreshCw size={16} /></button></div> : !definitions ? <p className="py-8 text-center text-ink-50">加载中...</p> : definitions.length === 0 ? <p className="py-8 text-center text-ink-50">暂无任务。</p> : <DefinitionTable definitions={definitions} running={running} libraries={libraries} scanLibraryID={scanLibraryID} onScanLibraryChange={setScanLibraryID} probeLibraryID={probeLibraryID} onProbeLibraryChange={setProbeLibraryID} probeLimit={probeLimit} onProbeLimitChange={setProbeLimit} scrapeLibraryID={scrapeLibraryID} onScrapeLibraryChange={setScrapeLibraryID} onRun={(definition) => void run(definition)} onLog={setLogDefinition} onSchedule={setScheduleDefinition} onPending={setPendingDefinition} pendingCounts={pendingCounts} />}
       </section>
       {logDefinition && <TaskLogDialog definition={logDefinition} onClose={() => setLogDefinition(null)} />}
+      {supplementDefinition && <HongGuoSupplementDialog initialCount={supplementDefinition.schedule_config?.count ?? 10} onClose={closeSupplement} onStarted={() => { toast.success('补充下载任务已启动，请查看本轮日志'); void refresh().catch(() => setLoadError(true)) }} />}
       {scheduleDefinition && <TaskScheduleDialog definition={scheduleDefinition} onClose={() => setScheduleDefinition(null)} onSaved={() => refresh().catch(() => setLoadError(true))} />}
       {pendingDefinition?.key === 'tmdb_episode_metadata_recheck' && <TMDbRecheckPanel onClose={closePending} />}
       {pendingDefinition?.action === 'media_scrape' && <ScrapeIssuesPanel libraries={libraries} onClose={closePending} />}

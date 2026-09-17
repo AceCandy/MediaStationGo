@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { discoverAPI, type DiscoverItem, type DiscoverSection } from '../api/discover'
 import { DiscoverSkeleton } from './DiscoverContentRow'
 import { DiscoverDetailModal } from './DiscoverDetailModal'
+import { DiscoverSearchPanel } from './DiscoverSearchPanel'
 import { DiscoverEmptySelection, DiscoverHeader, DiscoverResults } from './DiscoverPageSections'
 import {
   defaultSections,
@@ -14,6 +15,10 @@ import {
 } from './discoverPageModel'
 
 export function DiscoverPage() {
+  return <DiscoverSearchPanel><DiscoverFeed /></DiscoverSearchPanel>
+}
+
+function DiscoverFeed() {
   const [sections, setSections] = useState<DiscoverSection[]>([])
   const [selected, setSelected] = useState<string[]>([])
   const [rows, setRows] = useState<Record<string, DiscoverItem[]>>({})

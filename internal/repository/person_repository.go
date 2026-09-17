@@ -265,6 +265,34 @@ func (r *PersonRepository) ApplyCachedTranslation(ctx context.Context, targets [
 	})
 }
 
+// FindCreditPeople 批量按来源标识读取人物，供头像复用判断使用，不按姓名合并。
+func (r *PersonRepository) FindCreditPeople(ctx context.Context, inputs []CreditInput) (map[[2]string]model.Person, error) {
+	identities := make([][]any, 0, len(inputs))
+	for _, input := range inputs {
+		provider, externalID := strings.ToLower(strings.TrimSpace(input.Provider)), strings.TrimSpace(input.ExternalID)
+		if provider != "" && externalID != "" {
+			identities = append(identities, []any{provider, externalID})
+		}
+	}
+	people := make(map[[2]string]model.Person)
+	if len(identities) == 0 {
+		return people, nil
+	}
+	var rows []struct {
+		model.Person
+		Provider   string
+		ExternalID string
+	}
+	err := r.db.WithContext(ctx).Table("people AS p").
+		Select("p.*, pi.provider, pi.external_id").
+		Joins("JOIN person_identifiers AS pi ON pi.person_id = p.id").
+		Where("(pi.provider, pi.external_id) IN ?", identities).Scan(&rows).Error
+	for _, row := range rows {
+		people[[2]string{row.Provider, row.ExternalID}] = row.Person
+	}
+	return people, err
+}
+
 func (r *PersonRepository) FindByID(ctx context.Context, id string) (*model.Person, error) {
 	var person model.Person
 	err := r.db.WithContext(ctx).First(&person, "id = ?", strings.TrimSpace(id)).Error

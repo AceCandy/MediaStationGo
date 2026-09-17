@@ -4,21 +4,23 @@ package service
 // across providers; provider-specific IDs sit side-by-side so the scraper
 // orchestrator can write them all into a single update.
 type Match struct {
-	Source        string   `json:"-"`
-	TMDbID        int      `json:"tmdb_id"`
-	BangumiID     int      `json:"bangumi_id"`
-	DoubanID      string   `json:"douban_id,omitempty"`
-	TheTVDBID     string   `json:"thetvdb_id,omitempty"`
-	IMDbID        string   `json:"imdb_id,omitempty"`
-	MediaType     string   `json:"media_type,omitempty"`
-	Title         string   `json:"title"`
-	OriginalName  string   `json:"original_name,omitempty"`
-	Overview      string   `json:"overview"`
-	PosterURL     string   `json:"poster_url"`
-	BackdropURL   string   `json:"backdrop_url"`
-	Year          int      `json:"year"`
-	ReleaseDate   string   `json:"release_date,omitempty"`
-	Rating        float32  `json:"rating"`
+	Source       string  `json:"-"`
+	TMDbID       int     `json:"tmdb_id"`
+	BangumiID    int     `json:"bangumi_id"`
+	DoubanID     string  `json:"douban_id,omitempty"`
+	TheTVDBID    string  `json:"thetvdb_id,omitempty"`
+	IMDbID       string  `json:"imdb_id,omitempty"`
+	MediaType    string  `json:"media_type,omitempty"`
+	Title        string  `json:"title"`
+	OriginalName string  `json:"original_name,omitempty"`
+	Overview     string  `json:"overview"`
+	PosterURL    string  `json:"poster_url"`
+	BackdropURL  string  `json:"backdrop_url"`
+	Year         int     `json:"year"`
+	ReleaseDate  string  `json:"release_date,omitempty"`
+	Rating       float32 `json:"rating"`
+	// RuntimeSec 是电影资料源声明的整部影片时长；剧集不把它当作全剧时长。
+	RuntimeSec    int      `json:"-"`
 	Languages     []string `json:"languages,omitempty"`
 	Countries     []string `json:"countries,omitempty"`
 	Genres        []string `json:"genres,omitempty"`

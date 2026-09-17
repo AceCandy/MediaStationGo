@@ -34,6 +34,7 @@ func (t *TMDbProvider) GetMovieMatch(ctx context.Context, tmdbID int) (*Match, e
 		BackdropPath     string  `json:"backdrop_path"`
 		ReleaseDate      string  `json:"release_date"`
 		VoteAverage      float32 `json:"vote_average"`
+		Runtime          int     `json:"runtime"`
 		Genres           []struct {
 			Name string `json:"name"`
 		} `json:"genres"`
@@ -66,6 +67,7 @@ func (t *TMDbProvider) GetMovieMatch(ctx context.Context, tmdbID int) (*Match, e
 		OriginalName:      r.OriginalTitle,
 		Overview:          r.Overview,
 		Rating:            r.VoteAverage,
+		RuntimeSec:        r.Runtime * 60,
 		Languages:         nonEmptyStrings(r.OriginalLanguage),
 		IMDbID:            strings.TrimSpace(r.ExternalIDs.IMDbID),
 		RawJSON:           raw,

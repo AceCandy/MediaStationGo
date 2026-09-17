@@ -32,6 +32,10 @@ type SchedulerService struct {
 	hub              *Hub
 	tasks            *TaskTrackerService
 	hongguo          *HongGuoService
+	hongguoDownloads *HongGuoDownloadService
+	supplementCtx    context.Context
+	supplementCancel context.CancelFunc
+	supplementWG     sync.WaitGroup
 	now              func() time.Time
 
 	mu         sync.Mutex
@@ -45,10 +49,16 @@ var (
 	ErrSchedulerJobAlreadyRunning = errors.New("scheduled job already running")
 	ErrSchedulerConfigUnsupported = errors.New("scheduled job is not configurable")
 	ErrSchedulerIntervalInvalid   = errors.New("scheduled job interval is invalid")
+	ErrSchedulerCountInvalid      = errors.New("每轮补充数量须为 1–100 部")
 )
 
 func (s *SchedulerService) SetTaskTracker(tasks *TaskTrackerService) {
 	s.tasks = tasks
+}
+
+// SetHongGuoDownloads 在启动调度前注入补充下载服务。
+func (s *SchedulerService) SetHongGuoDownloads(downloads *HongGuoDownloadService) {
+	s.hongguoDownloads = downloads
 }
 
 func (s *SchedulerService) SetOrganizePipeline(pipeline *OrganizePipelineService) {
@@ -73,6 +83,7 @@ type scheduledJob struct {
 	maxInterval   time.Duration
 	reset         chan struct{}
 	configVersion uint64
+	count         int
 	lastRun       time.Time
 	lastErr       string
 	running       bool
@@ -106,6 +117,7 @@ func NewSchedulerService(
 
 // Start kicks off every job in its own goroutine and returns immediately.
 func (s *SchedulerService) Start(ctx context.Context) {
+	s.supplementCtx, s.supplementCancel = context.WithCancel(ctx)
 	s.jobs = []*scheduledJob{
 		s.configuredJob(ctx, "library_scan", "scan.periodic_enabled", "scan.interval_seconds", false, 24*time.Hour, s.jobScanLibraries),
 		s.configuredJob(ctx, "organize_source", "organize.auto", "organize.interval_seconds", false, 5*time.Minute, s.jobOrganizeSource),
@@ -126,6 +138,18 @@ func (s *SchedulerService) Start(ctx context.Context) {
 			}
 			s.jobs = append(s.jobs, s.configuredJob(ctx, kind, "hongguo."+kind+".enabled", "hongguo."+kind+".interval_seconds", kind != TaskKindHongGuoSync, interval, func(ctx context.Context) error { return s.hongguo.Run(ctx, kind, "") }))
 		}
+	}
+	if s.hongguoDownloads != nil {
+		job := s.configuredJob(ctx, TaskKindHongGuoSupplement, "hongguo.download_supplement.enabled", "hongguo.download_supplement.interval_seconds", false, 24*time.Hour, s.jobHongGuoSupplement)
+		job.count = 10
+		if s.repo != nil && s.repo.Setting != nil {
+			if value, err := s.repo.Setting.Get(ctx, hongGuoSupplementCountKey); err == nil {
+				if count, err := strconv.Atoi(value); err == nil && count >= 1 && count <= 100 {
+					job.count = count
+				}
+			}
+		}
+		s.jobs = append(s.jobs, job)
 	}
 	for _, j := range s.jobs {
 		go s.loopWithInitialDelay(ctx, j, j.interval)
@@ -163,11 +187,15 @@ func (s *SchedulerService) configuredJob(
 // Stop signals every job loop to exit on the next tick.
 func (s *SchedulerService) Stop() {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	select {
 	case <-s.stopCh:
 		// already closed
 	default:
 		close(s.stopCh)
 	}
+	if s.supplementCancel != nil {
+		s.supplementCancel()
+	}
+	s.mu.Unlock()
+	s.supplementWG.Wait()
 }

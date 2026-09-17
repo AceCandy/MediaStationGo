@@ -55,6 +55,8 @@ func AllModels() []interface{} {
 		&MetadataProviderSnapshot{},
 		&CatalogHydrationJob{},
 		&TaskExecution{},
+		&HongGuoDownloadWork{},
+		&HongGuoDownload{},
 		&TMDbRecheckJob{},
 		&TMDbRecheckSeasonLease{},
 		&TMDbRecheckChange{},

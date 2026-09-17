@@ -272,9 +272,23 @@ func (s *ScraperService) persistCredits(ctx context.Context, metadataID string, 
 
 func (s *ScraperService) prepareCreditInputs(ctx context.Context, credits []PersonCredit, refreshImages ...bool) []repository.CreditInput {
 	inputs := creditInputs(credits)
+	var people map[[2]string]model.Person
+	if s.people != nil && s.repo != nil && s.repo.Person != nil {
+		var err error
+		people, err = s.repo.Person.FindCreditPeople(ctx, inputs)
+		if err != nil && s.log != nil {
+			s.log.Warn("people image reuse lookup failed", zap.Error(err))
+		}
+	}
 	for i := range inputs {
 		input := &inputs[i]
 		if s.people != nil && strings.TrimSpace(input.ProfileURL) != "" {
+			person := people[[2]string{strings.ToLower(strings.TrimSpace(input.Provider)), strings.TrimSpace(input.ExternalID)}]
+			// 只复用已成功导入的远程来源；URL 更新但下载失败时仍需重试。
+			if isHTTPish(input.ProfileURL) && person.ProfileImageSourceURL == input.ProfileURL && s.people.hasUsableImage(person.ProfileImageKey) {
+				input.ProfileImageKey = person.ProfileImageKey
+				continue
+			}
 			importImage := s.people.ImportCached
 			if len(refreshImages) > 0 && refreshImages[0] {
 				importImage = s.people.Import

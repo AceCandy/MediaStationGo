@@ -43,6 +43,9 @@ func TestAuthenticatedRouteSurfacesAreRegistered(t *testing.T) {
 		"GET /api/search/tmdb",
 		"GET /api/watch-history",
 		"GET /api/discover/feed",
+		"GET /api/discover/tmdb/:kind/:id",
+		"POST /api/discover/tmdb/:kind/:id/refresh",
+		"POST /api/discover/library-status",
 		"GET /api/playback/:id/info",
 		"GET /api/admin/assistant/history",
 	} {

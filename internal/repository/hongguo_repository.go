@@ -187,9 +187,11 @@ func (r *HongGuoRepository) SetSourceCategory(ctx context.Context, sourceID, cat
 // HongGuoListWork 是海报目录投影，只携带本地图片标识和题材，不暴露上游图片地址。
 type HongGuoListWork struct {
 	model.HongGuoWork
-	ArtworkID string   `json:"artwork_id"`
-	TagList   []string `gorm:"-" json:"tags"`
-	Hydrated  bool     `json:"hydrated"`
+	ArtworkID  string   `json:"artwork_id"`
+	TagList    []string `gorm:"-" json:"tags"`
+	Hydrated   bool     `json:"hydrated"`
+	GroupID    string   `gorm:"-" json:"group_id,omitempty"`
+	Downloaded bool     `gorm:"-" json:"downloaded"`
 }
 
 // List 在数据库分页前合并正式作品和仅发现摘要，不加载分集、人物或图片原始地址。
@@ -259,7 +261,50 @@ WHERE NOT EXISTS (SELECT 1 FROM hongguo_works AS w WHERE w.source_id = d.source_
 			return nil, 0, err
 		}
 	}
-	return rows, total, err
+	return rows, total, r.loadListBadges(ctx, rows)
+}
+
+// loadListBadges 批量补充聚合关系和历史下载标识；完成记录不依赖文件是否仍存在。
+func (r *HongGuoRepository) loadListBadges(ctx context.Context, rows []HongGuoListWork) error {
+	if len(rows) == 0 {
+		return nil
+	}
+	sourceIDs := make([]string, 0, len(rows))
+	for _, row := range rows {
+		sourceIDs = append(sourceIDs, row.SourceID)
+	}
+	var completed []string
+	if err := r.db.WithContext(ctx).Model(&model.HongGuoDownload{}).Where("source_id = ANY(?) AND status = ?", &sourceIDs, "completed").Distinct("source_id").Pluck("source_id", &completed).Error; err != nil {
+		return err
+	}
+	downloaded := make(map[string]bool, len(completed))
+	for _, id := range completed {
+		downloaded[id] = true
+	}
+	for i := range rows {
+		rows[i].Downloaded = downloaded[rows[i].SourceID]
+	}
+	ids := make([]string, 0, len(rows))
+	for _, row := range rows {
+		if row.Hydrated {
+			ids = append(ids, row.ID)
+		}
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	var members []model.HongGuoGroupMember
+	if err := r.db.WithContext(ctx).Where("work_id = ANY(?)", &ids).Find(&members).Error; err != nil {
+		return err
+	}
+	groups := make(map[string]string, len(members))
+	for _, member := range members {
+		groups[member.WorkID] = member.GroupID
+	}
+	for i := range rows {
+		rows[i].GroupID = groups[rows[i].ID]
+	}
+	return nil
 }
 
 func (r *HongGuoRepository) SyncState(ctx context.Context, category string) (model.HongGuoSyncState, error) {

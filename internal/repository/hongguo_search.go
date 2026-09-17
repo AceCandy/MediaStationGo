@@ -3,12 +3,32 @@ package repository
 import (
 	"context"
 	"encoding/json"
+	"errors"
 
 	"github.com/ShukeBta/MediaStationGo/internal/hongguo"
 	"github.com/ShukeBta/MediaStationGo/internal/model"
+	"gorm.io/gorm/clause"
 )
 
-// SearchResults 按官网顺序合并本地资料与图片标识，搜索本身不创建目录或详情。
+// QueueMissingSearchResults 只登记缺失详情的搜索摘要，复用资料刷新队列；重复搜索不覆盖分类或重试状态。
+func (r *HongGuoRepository) QueueMissingSearchResults(ctx context.Context, results []HongGuoListWork) error {
+	rows := make([]model.HongGuoDiscovery, 0, len(results))
+	for _, item := range results {
+		if item.Hydrated {
+			continue
+		}
+		if !hongguo.ValidID(item.SourceID) {
+			return errors.New("红果搜索作品 ID 无效")
+		}
+		rows = append(rows, model.HongGuoDiscovery{SourceID: item.SourceID, SourceCategory: item.SourceCategory, Title: item.Title, Overview: item.Overview, EpisodeCount: item.EpisodeCount, UpdateText: item.UpdateText})
+	}
+	if len(rows) == 0 {
+		return nil
+	}
+	return r.db.WithContext(ctx).Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "source_id"}}, DoNothing: true}).CreateInBatches(&rows, 100).Error
+}
+
+// SearchResults 只读合并本地资料与图片标识并保留官网顺序；摘要入队由调用方另行执行。
 func (r *HongGuoRepository) SearchResults(ctx context.Context, remote []hongguo.Work) ([]HongGuoListWork, error) {
 	rows := []HongGuoListWork{}
 	if len(remote) == 0 {
@@ -60,5 +80,5 @@ func (r *HongGuoRepository) SearchResults(ctx context.Context, remote []hongguo.
 		}
 		rows = append(rows, row)
 	}
-	return rows, nil
+	return rows, r.loadListBadges(ctx, rows)
 }

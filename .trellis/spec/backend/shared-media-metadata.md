@@ -176,12 +176,14 @@ supersedes older requirements for per-Episode extended responses and credits.
 ### 2. Signatures
 
 - Admin-only `POST /api/metadata/:id/tmdb/refresh`, without a request body.
+- Admin-only `POST /api/discover/tmdb/:kind/:id/refresh`, without a request body; `ScraperService.RefreshMetadataTMDbByIdentity` resolves the existing same-kind metadata before delegating.
 - `ScraperService.RefreshMetadataTMDb(ctx, metadataID) error`.
 
 ### 3. Contracts
 
 - Read the unique same-kind TMDb identifier from metadata, never Media scan hints.
-- Always fetch fresh details, regardless of existing snapshots or catalog checkpoints.
+- The discover refresh accepts only a positive TMDb ID with `kind=movie|tv`, maps `tv` to `series`, and returns not-found without creating a metadata or Media row when no canonical identifier exists.
+- Manual metadata refresh always fetches fresh details, regardless of existing snapshots or catalog checkpoints. The discover identity wrapper reuses a non-degraded TMDb snapshot younger than three hours; it returns local details without advancing the timestamp.
 - Validate the returned entity ID; Season/Episode coordinates come from canonical parents.
 - Update the current entity's display fields, loaded credit scopes, managed TMDb images,
   and raw snapshot. Preserve identity, other provider identifiers, NSFW, and hierarchy.
@@ -2327,7 +2329,9 @@ TMDbEpisodeCheckedAt *time.Time `gorm:"column:tmdb_episode_checked_at;index"`
   stores image bytes.
 - `PeopleImageStore.ImportCached(ctx, source)` reuses successful remote imports
   through a private bounded in-process `RuntimeCacheService` for 24 hours.
-  Explicit TMDb refresh uses direct Import via `persistCredits(..., true)`.
+  Credit preparation first batch-resolves provider identities and reuses valid
+  persisted remote images whose `ProfileImageSourceURL` matches the incoming URL,
+  including after restart. Explicit TMDb refresh uses direct Import only on a miss.
 - `PeopleImageStore.ServePerson(ctx, writer, request, personID)` serves only a
   validated local key and reports whether the ID belongs to a person.
 - Public image contract remains `GET /Items/{id}/Images/Primary` and its
@@ -2342,7 +2346,8 @@ TMDbEpisodeCheckedAt *time.Time `gorm:"column:tmdb_episode_checked_at;index"`
   authoritative scrape.
 - Normal credit persistence reuses a successful remote URL only while the local
   file is valid and its computed storage key matches the cached key. Cache expiry,
-  eviction or process restart causes another direct import. Local source files
+  eviction or process restart causes another direct import only when no matching
+  persisted person image is available. Local source files
   are always reread; failures never create a success mapping. Automatic remote
   import failures instead cache a failure flag for one minute; caller cancellation
   does not. Explicit Import bypasses cooldown, and success replaces the flag.
@@ -2395,9 +2400,12 @@ TMDbEpisodeCheckedAt *time.Time `gorm:"column:tmdb_episode_checked_at;index"`
 - Remote import: assert no image or failure marker is created under
   `cache/images`.
 - `TestPersistCreditsReusesRemoteProfile`: separate works reuse one download;
-  missing/wrong local bytes are repaired, explicit refresh downloads again,
+  missing/wrong local bytes are repaired, explicit refresh reuses unchanged images after restart,
   source changes are fetched, failure cooldown suppresses repeat requests,
   expiry restores automatic requests and explicit recovery bypasses cooldown.
+- `TestRefreshCreditsImportsOnlyChangedOrBrokenProfiles`: unchanged URLs retain
+  translations without downloads; missing/corrupt files, changed URLs and new
+  identities download; a failed changed URL keeps old provenance and is retried.
 
 ### Shared remote fetch and provider routing
 

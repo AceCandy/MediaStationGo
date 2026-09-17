@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/ShukeBta/MediaStationGo/internal/model"
+	"github.com/ShukeBta/MediaStationGo/internal/repository"
 )
 
 var ErrTMDbRefreshIdentity = errors.New("metadata has no unique TMDB identity")
@@ -49,7 +50,7 @@ func (s *ScraperService) RefreshMetadataTMDb(ctx context.Context, metadataID str
 			return ErrTMDbRefreshIdentity
 		}
 		next = metadataItemFromMatch(match, item.Kind, "tmdb")
-		next.RuntimeSec = item.RuntimeSec
+		next.RuntimeSec = match.RuntimeSec
 		payload, credits, loaded = match.RawJSON, match.Credits, match.LoadedCreditTypes
 		artwork[model.ArtworkTypePoster] = match.CatalogPosterURL
 		artwork[model.ArtworkTypeBackdrop] = match.CatalogBackdropURL
@@ -110,12 +111,7 @@ func (s *ScraperService) RefreshMetadataTMDb(ctx context.Context, metadataID str
 		return errors.New("invalid TMDB detail snapshot")
 	}
 	// 仅替换详情字段，保留实体身份、父链、其他来源标识及目录检查点。
-	item.Title, item.Overview, item.Rating = next.Title, next.Overview, next.Rating
-	item.Year, item.ReleaseDate, item.RuntimeSec = next.Year, next.ReleaseDate, next.RuntimeSec
-	if item.Kind == model.MetadataKindMovie || item.Kind == model.MetadataKindSeries {
-		item.OriginalName = next.OriginalName
-		item.Languages, item.Countries, item.Genres = next.Languages, next.Countries, next.Genres
-	}
+	mergeTMDbMetadata(item, next)
 	item.Source = "tmdb"
 	if err := s.repo.Metadata.Update(ctx, item); err != nil {
 		return err
@@ -158,11 +154,10 @@ func (s *ScraperService) refreshSeasonEpisodesFromDetails(ctx context.Context, s
 		if episode == nil {
 			continue
 		}
-		episode.Title = strings.TrimSpace(summary.Name)
-		episode.Overview = strings.TrimSpace(summary.Overview)
-		episode.Rating = summary.Rating
-		episode.RuntimeSec = summary.Runtime * 60
-		episode.ReleaseDate = summary.AirDate
+		mergeTMDbMetadata(episode, &model.MetadataItem{
+			Title: summary.Name, Overview: summary.Overview, Rating: summary.Rating,
+			RuntimeSec: summary.Runtime * 60, ReleaseDate: summary.AirDate,
+		})
 		episode.Source = "tmdb"
 		if err := s.repo.Metadata.Update(ctx, episode); err != nil {
 			return err
@@ -203,7 +198,7 @@ func (s *ScraperService) metadataTMDbRefreshID(ctx context.Context, item *model.
 		if identifier.Provider != "tmdb" || identifier.EntityKind != item.Kind {
 			continue
 		}
-		value, err := strconv.Atoi(identifier.ExternalID)
+		value, err := strconv.Atoi(strings.TrimSpace(identifier.ExternalID))
 		if err != nil || value <= 0 || id != 0 {
 			return 0, ErrTMDbRefreshIdentity
 		}
@@ -213,4 +208,64 @@ func (s *ScraperService) metadataTMDbRefreshID(ctx context.Context, item *model.
 		return 0, ErrTMDbRefreshIdentity
 	}
 	return id, nil
+}
+
+// RefreshMetadataTMDbByIdentity 将发现页的 TMDb 身份解析为现有 metadata，再复用媒体详情刷新逻辑。
+// 三小时内已有成功快照则复用；不存在本地 metadata 时不创建目录记录。
+func (s *ScraperService) RefreshMetadataTMDbByIdentity(ctx context.Context, id repository.DiscoverIdentity) error {
+	if s == nil || s.repo == nil || !id.Valid() {
+		return ErrTMDbRefreshIdentity
+	}
+	item, err := s.repo.Metadata.FindByIdentifier(ctx, "tmdb", id.Kind(), strconv.Itoa(id.TMDbID))
+	if err != nil {
+		return err
+	}
+	if item == nil {
+		return ErrMediaNotFound
+	}
+	snapshot, err := s.repo.Metadata.FindProviderSnapshot(ctx, item.ID, "tmdb")
+	if err != nil {
+		return err
+	}
+	if snapshot != nil && !snapshot.Degraded && time.Since(snapshot.FetchedAt) < 3*time.Hour {
+		return nil
+	}
+	return s.RefreshMetadataTMDb(ctx, item.ID)
+}
+
+// mergeTMDbMetadata 只接受来源返回的有效字段，避免一次缺项刷新清空本地资料。
+func mergeTMDbMetadata(item, next *model.MetadataItem) {
+	if item == nil || next == nil {
+		return
+	}
+	if value := strings.TrimSpace(next.Title); value != "" {
+		item.Title = value
+	}
+	if value := strings.TrimSpace(next.OriginalName); value != "" {
+		item.OriginalName = value
+	}
+	if value := strings.TrimSpace(next.Overview); value != "" {
+		item.Overview = value
+	}
+	if next.Rating > 0 {
+		item.Rating = next.Rating
+	}
+	if next.Year > 0 {
+		item.Year = next.Year
+	}
+	if value := strings.TrimSpace(next.ReleaseDate); value != "" {
+		item.ReleaseDate = value
+	}
+	if next.RuntimeSec > 0 {
+		item.RuntimeSec = next.RuntimeSec
+	}
+	if value := strings.TrimSpace(next.Languages); value != "" {
+		item.Languages = value
+	}
+	if value := strings.TrimSpace(next.Countries); value != "" {
+		item.Countries = value
+	}
+	if value := strings.TrimSpace(next.Genres); value != "" {
+		item.Genres = value
+	}
 }

@@ -1,0 +1,4 @@
+{"file":".trellis/spec/frontend/discover-feed-loading.md","reason":"保持发现请求取消、缓存与图片稳定契约"}
+{"file":".trellis/spec/backend/shared-media-metadata.md","reason":"入库判断使用权威元数据和文件关联"}
+{"file":".trellis/spec/frontend/routing-and-loading-contracts.md","reason":"权限与账户/播放配置隔离"}
+{"file":".trellis/spec/frontend/design-system.md","reason":"复用详情样式和响应式约束"}

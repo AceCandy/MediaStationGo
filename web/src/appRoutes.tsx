@@ -46,6 +46,7 @@ const FileManagerPage = lazy(() =>
 const StoragePage = lazy(() => import('./pages/StoragePage').then((m) => ({ default: m.StoragePage })))
 const DuplicatesPage = lazy(() => import('./pages/DuplicatesPage').then((m) => ({ default: m.DuplicatesPage })))
 const StrmPage = lazy(() => import('./pages/StrmPage').then((m) => ({ default: m.StrmPage })))
+const DownloadSpacePage = lazy(() => import('./pages/DownloadSpacePage').then((m) => ({ default: m.DownloadSpacePage })))
 const ProfileManagementPage = lazy(() =>
   import('./pages/ProfileManagementPage').then((m) => ({ default: m.ProfileManagementPage })),
 )
@@ -250,6 +251,12 @@ export const appRoutes: AppRoute[] = [
         path: 'media/strm',
         element: <StrmPage />,
         navigation: { scope: 'files', label: 'STRM 工具', icon: FileText, to: '/admin/media/strm', order: 30 },
+      },
+      {
+        id: 'admin-media-downloads',
+        path: 'media/downloads',
+        element: <DownloadSpacePage />,
+        navigation: { scope: 'files', label: '下载空间', icon: HardDrive, to: '/admin/media/downloads', order: 25 },
       },
       {
         id: 'admin-storage',

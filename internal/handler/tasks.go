@@ -98,6 +98,25 @@ func taskDefinitionHistoryHandler(svc *service.Container) gin.HandlerFunc {
 func taskDefinitionRunHandler(svc *service.Container) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		key := c.Param("key")
+		if key == service.TaskKindHongGuoSupplement {
+			c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 4096)
+			var request struct {
+				Count int `json:"count"`
+			}
+			if c.ShouldBindJSON(&request) != nil || request.Count < 1 || request.Count > 100 {
+				c.JSON(400, gin.H{"error": "本次补充数量须为 1–100 部"})
+				return
+			}
+			if svc == nil || svc.Scheduler == nil {
+				c.JSON(503, gin.H{"error": "调度服务不可用"})
+				return
+			}
+			if !handleSchedulerRunResult(c, svc.Scheduler.RunHongGuoSupplementNowAsync(c.Request.Context(), request.Count)) {
+				return
+			}
+			c.JSON(202, gin.H{"status": "queued"})
+			return
+		}
 		if key == service.TaskDefinitionMediaScrape {
 			if svc == nil || svc.Scraper == nil || svc.Repo == nil || svc.Repo.Library == nil {
 				c.JSON(http.StatusServiceUnavailable, gin.H{"error": "media scrape unavailable"})
@@ -315,13 +334,20 @@ func taskDefinitionScheduleHandler(svc *service.Container) gin.HandlerFunc {
 		var request struct {
 			Enabled         *bool `json:"enabled"`
 			IntervalSeconds int64 `json:"interval_seconds"`
+			Count           *int  `json:"count"`
 		}
 		if err := c.ShouldBindJSON(&request); err != nil || request.Enabled == nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid schedule request"})
 			return
 		}
-		if err := svc.Scheduler.UpdateSchedule(c.Request.Context(), job, *request.Enabled, request.IntervalSeconds); err != nil {
+		var counts []int
+		if request.Count != nil {
+			counts = append(counts, *request.Count)
+		}
+		if err := svc.Scheduler.UpdateSchedule(c.Request.Context(), job, *request.Enabled, request.IntervalSeconds, counts...); err != nil {
 			switch {
+			case errors.Is(err, service.ErrSchedulerCountInvalid):
+				c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			case errors.Is(err, service.ErrSchedulerIntervalInvalid):
 				c.JSON(http.StatusBadRequest, gin.H{"error": "interval is outside the supported range"})
 			case errors.Is(err, service.ErrSchedulerJobNotFound), errors.Is(err, service.ErrSchedulerConfigUnsupported):

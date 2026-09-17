@@ -46,6 +46,7 @@ type TaskDefinition struct {
 }
 
 type TaskScheduleConfig struct {
+	Count              int   `json:"count,omitempty"`
 	Enabled            bool  `json:"enabled"`
 	IntervalSeconds    int64 `json:"interval_seconds"`
 	MinIntervalSeconds int64 `json:"min_interval_seconds"`
@@ -59,6 +60,8 @@ type taskDefinitionSpec struct {
 }
 
 var taskDefinitionSpecs = []taskDefinitionSpec{
+	{TaskDefinition: TaskDefinition{Key: TaskKindHongGuoDownload, Name: "红果视频下载", Description: "从发现页发起，校验完整视频后发布到下载输出目录", Trigger: "手动"}, filter: repository.TaskExecutionFilter{Kind: TaskKindHongGuoDownload}},
+	{TaskDefinition: TaskDefinition{Key: TaskKindHongGuoSupplement, Name: "红果补充下载", Description: "按上线时间选取资料齐全且从未入队的作品；每轮新增指定数量，非维持队列数量", Trigger: "定时 / 手动", Action: "scheduler"}, filter: repository.TaskExecutionFilter{Kind: TaskKindHongGuoSupplement}, schedulerJob: TaskKindHongGuoSupplement},
 	{TaskDefinition: TaskDefinition{Key: TaskKindHongGuoSync, Name: "红果作品发现", Description: "从检查点持续翻页至各分类结束，保存目录摘要；不抓详情，可与资料刷新并行", Trigger: "定时 / 手动", Action: "scheduler"}, filter: repository.TaskExecutionFilter{Kind: TaskKindHongGuoSync}, schedulerJob: TaskKindHongGuoSync},
 	{TaskDefinition: TaskDefinition{Key: TaskKindHongGuoRefresh, Name: "红果资料刷新", Description: "优先补齐本轮开始前的新作品，再重试失败和刷新超过 24 小时的已有资料", Trigger: "定时 / 手动", Action: "scheduler"}, filter: repository.TaskExecutionFilter{Kind: TaskKindHongGuoRefresh}, schedulerJob: TaskKindHongGuoRefresh},
 	{TaskDefinition: TaskDefinition{Key: TaskKindHongGuoArtwork, Name: "红果图片下载", Description: "下载海报和人物头像，失败保留独立重试状态", Trigger: "定时 / 手动", Action: "scheduler"}, filter: repository.TaskExecutionFilter{Kind: TaskKindHongGuoArtwork}, schedulerJob: TaskKindHongGuoArtwork},
@@ -119,6 +122,10 @@ func (t *TaskTrackerService) DefinitionsForSystem(scheduler []JobStatus, system 
 	definitions := make([]TaskDefinition, 0, len(taskDefinitionSpecs))
 	active := t.memorySnapshot().Active
 	for _, spec := range taskDefinitionSpecs {
+		// 下载执行记录由下载空间展示，保留定义以兼容历史与日志接口。
+		if spec.Key == TaskKindHongGuoDownload {
+			continue
+		}
 		definition := spec.TaskDefinition
 		definition.System = model.TaskSystemForKind(spec.filter.Kind)
 		if system != "" && definition.System != system {
@@ -153,6 +160,7 @@ func (t *TaskTrackerService) DefinitionsForSystem(scheduler []JobStatus, system 
 			}
 			if status.Configurable {
 				definition.ScheduleConfig = &TaskScheduleConfig{
+					Count:   status.Count,
 					Enabled: status.Enabled, IntervalSeconds: status.IntervalSeconds,
 					MinIntervalSeconds: status.MinIntervalSeconds, MaxIntervalSeconds: status.MaxIntervalSeconds,
 				}

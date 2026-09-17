@@ -130,7 +130,7 @@ func (c *Client) page(ctx context.Context, path string) ([]byte, error) {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
-		return nil, errors.New("红果资料请求失败")
+		return nil, publicDownloadError(err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode == http.StatusNotFound {

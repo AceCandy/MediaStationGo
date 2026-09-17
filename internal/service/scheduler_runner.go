@@ -15,6 +15,7 @@ import (
 
 // JobStatus is a snapshot suitable for the admin UI.
 type JobStatus struct {
+	Count              int       `json:"count,omitempty"`
 	Name               string    `json:"name"`
 	Interval           string    `json:"interval"`
 	LastRun            time.Time `json:"last_run,omitempty"`
@@ -36,6 +37,7 @@ func (s *SchedulerService) Status() []JobStatus {
 	out := make([]JobStatus, 0, len(s.jobs))
 	for _, j := range s.jobs {
 		out = append(out, JobStatus{
+			Count:              j.count,
 			Name:               j.name,
 			Interval:           j.interval.String(),
 			LastRun:            j.lastRun,
@@ -54,7 +56,7 @@ func (s *SchedulerService) Status() []JobStatus {
 }
 
 // UpdateSchedule persists and applies one allowlisted periodic job configuration.
-func (s *SchedulerService) UpdateSchedule(ctx context.Context, name string, enabled bool, intervalSeconds int64) error {
+func (s *SchedulerService) UpdateSchedule(ctx context.Context, name string, enabled bool, intervalSeconds int64, counts ...int) error {
 	s.scheduleMu.Lock()
 	defer s.scheduleMu.Unlock()
 	s.mu.Lock()
@@ -72,6 +74,14 @@ func (s *SchedulerService) UpdateSchedule(ctx context.Context, name string, enab
 		return ErrSchedulerIntervalInvalid
 	}
 	interval := time.Duration(intervalSeconds) * time.Second
+	count := j.count
+	if len(counts) > 0 {
+		if name != TaskKindHongGuoSupplement || len(counts) != 1 || counts[0] < 1 || counts[0] > 100 {
+			s.mu.Unlock()
+			return ErrSchedulerCountInvalid
+		}
+		count = counts[0]
+	}
 	enabledKey, intervalKey := j.enabledKey, j.intervalKey
 	s.mu.Unlock()
 
@@ -80,10 +90,14 @@ func (s *SchedulerService) UpdateSchedule(ctx context.Context, name string, enab
 	}
 	now := time.Now()
 	if err := s.repo.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		for key, value := range map[string]string{
+		values := map[string]string{
 			enabledKey:  strconv.FormatBool(enabled),
 			intervalKey: strconv.FormatInt(intervalSeconds, 10),
-		} {
+		}
+		if name == TaskKindHongGuoSupplement {
+			values[hongGuoSupplementCountKey] = strconv.Itoa(count)
+		}
+		for key, value := range values {
 			if err := tx.Save(&model.Setting{Key: key, Value: value, UpdatedAt: now}).Error; err != nil {
 				return err
 			}
@@ -98,6 +112,7 @@ func (s *SchedulerService) UpdateSchedule(ctx context.Context, name string, enab
 	if j != nil {
 		j.enabled = enabled
 		j.interval = interval
+		j.count = count
 		j.configVersion++
 		select {
 		case j.reset <- struct{}{}:
@@ -248,15 +263,28 @@ func (s *SchedulerService) jobByNameLocked(name string) *scheduledJob {
 func (s *SchedulerService) beginRun(j *scheduledJob) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if j.name == TaskKindHongGuoSupplement {
+		select {
+		case <-s.stopCh:
+			return ErrSchedulerJobNotFound
+		default:
+		}
+	}
 	if j.running {
 		return ErrSchedulerJobAlreadyRunning
 	}
 	j.running = true
 	j.started = s.currentTime()
+	if j.name == TaskKindHongGuoSupplement {
+		s.supplementWG.Add(1)
+	}
 	return nil
 }
 
 func (s *SchedulerService) runReserved(ctx context.Context, j *scheduledJob) error {
+	if j.name == TaskKindHongGuoSupplement {
+		defer s.supplementWG.Done()
+	}
 	err := j.run(ctx)
 	s.mu.Lock()
 	j.lastRun = s.currentTime()

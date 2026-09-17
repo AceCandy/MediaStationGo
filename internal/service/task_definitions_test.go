@@ -94,8 +94,8 @@ func TestTaskDefinitionsIncludeIdleTasksAndLatestExecution(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(definitions) != len(taskDefinitionSpecs) {
-		t.Fatalf("definitions = %d, want %d", len(definitions), len(taskDefinitionSpecs))
+	if len(definitions) != len(taskDefinitionSpecs)-1 {
+		t.Fatalf("definitions = %d, want %d (download history lives in Download Space)", len(definitions), len(taskDefinitionSpecs)-1)
 	}
 	for _, definition := range definitions {
 		if definition.Key == TaskDefinitionPeopleTranslation {
@@ -133,6 +133,7 @@ func TestScheduledTaskDefinitionsSupportManualExecution(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := map[string]bool{
+		TaskKindHongGuoSupplement:                true,
 		TaskDefinitionOrganize:                   true,
 		TaskDefinitionLibraryScan:                true,
 		TaskDefinitionPeopleBackfill:             true,

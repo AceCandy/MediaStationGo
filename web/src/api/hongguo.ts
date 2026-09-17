@@ -27,7 +27,7 @@ export interface HongGuoDetail extends HongGuoWork {
   group?: { group_id: string; work_id: string; season_number: number }
 }
 
-export interface HongGuoListWork extends HongGuoWork { artwork_id: string; tags: string[]; hydrated: boolean }
+export interface HongGuoListWork extends HongGuoWork { artwork_id: string; tags: string[]; hydrated: boolean; group_id?: string; downloaded?: boolean }
 
 export interface HongGuoGroupInput { source_id: string; season_number: number }
 export interface HongGuoGroup { id: string; title: string; members: (HongGuoWork & { season_number: number })[] }
@@ -55,8 +55,8 @@ export const hongguoAPI = {
   artwork: (id: string) => `/api/catalogs/hongguo/artwork/${encodeURIComponent(id)}`,
   group: (id: string, signal?: AbortSignal) => api.get<HongGuoGroup>(`/catalogs/hongguo/groups/${encodeURIComponent(id)}`, { signal }).then((r) => r.data),
   saveGroup: (id: string | undefined, title: string, members: HongGuoGroupInput[]) => id
-    ? api.put(`/catalogs/hongguo/groups/${encodeURIComponent(id)}`, { title, members })
-    : api.post('/catalogs/hongguo/groups', { title, members }),
+    ? api.put<Pick<HongGuoGroup, 'id' | 'title'>>(`/catalogs/hongguo/groups/${encodeURIComponent(id)}`, { title, members })
+    : api.post<Pick<HongGuoGroup, 'id' | 'title'>>('/catalogs/hongguo/groups', { title, members }),
   deleteGroup: (id: string) => api.delete(`/catalogs/hongguo/groups/${encodeURIComponent(id)}`),
   userCards: (tab: 'favourites' | 'history' | 'continue', page: number, signal?: AbortSignal) => api.get<{ items: HongGuoUserCard[]; total: number }>('/catalogs/hongguo/me', { params: { tab, page }, signal }).then((r) => r.data),
   favorite: (id: string, signal?: AbortSignal) => api.get<{ favorite: boolean }>(`/catalogs/hongguo/works/${encodeURIComponent(id)}/favorite`, { signal }).then((r) => r.data.favorite),

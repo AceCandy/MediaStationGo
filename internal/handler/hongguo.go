@@ -27,6 +27,7 @@ var hongGuoWorkCategories = map[string]map[string]bool{
 }
 
 func registerHongGuoRoutes(authed *gin.RouterGroup, svc *service.Container) {
+	registerHongGuoDownloadRoutes(authed, svc)
 	group := authed.Group("/catalogs/hongguo")
 	group.Use(func(c *gin.Context) {
 		if svc.HongGuo == nil {

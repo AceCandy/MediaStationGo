@@ -19,7 +19,7 @@ function load(name, mocks, exportName = name) {
   return exports[exportName]
 }
 
-const Metadata = load('MediaDetailMetadata', { '../api/library': {}, '../components/STRMDeleteDialog': {} })
+const Metadata = load('MediaDetailMetadata', { '../api/library': {}, '../components/STRMDeleteDialog': {}, '../components/DoubanBindingDialog': {} })
 const AdminMenu = load('MediaDetailAdminPanel', {}, 'MediaDetailAdminMenu')
 const menuProps = { tmdbRefreshPending: false, doubanEnrichmentPending: false, doubanDegraded: false, onMetadataEdit() {}, onProbe() {}, onSoftDelete() {} }
 const seriesMenu = renderToStaticMarkup(createElement(AdminMenu, { ...menuProps, label: '整剧更多操作' }))
@@ -58,7 +58,9 @@ for (const scope of [undefined, 'series', 'episode']) {
     assert.match(html, /\/tv\/2\/season\/1\/episode\/1/, 'episode TMDb link remains')
   } else {
     assert.match(html, /badge-gold/, 'movie and series ratings remain')
-    assert.match(html, /fixture-douban/, 'movie and series Douban association remains')
+    assert.match(html, /点击搜索并绑定豆瓣/, 'administrator Douban binding action remains')
+    const viewer = renderToStaticMarkup(createElement(Metadata, { media: { ...media, douban_id: 'fixture-douban', metadata_kind: scope ?? 'movie' }, scope, isAdmin: false }))
+    assert.match(viewer, /href="https:\/\/movie.douban.com\/subject\/fixture-douban\//, 'viewer Douban external link remains')
   }
 }
 const standaloneEpisode = renderToStaticMarkup(createElement(Metadata, { media: { ...media, metadata_kind: 'episode' }, isAdmin: true }))

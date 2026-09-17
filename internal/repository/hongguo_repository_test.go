@@ -162,7 +162,7 @@ func TestHongGuoListOrdersByFirstVisibleBeforePagination(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&model.HongGuoWork{}, &model.HongGuoDiscovery{}, &model.HongGuoArtwork{}, &model.HongGuoRankEntry{}); err != nil {
+	if err := db.AutoMigrate(&model.HongGuoWork{}, &model.HongGuoDiscovery{}, &model.HongGuoArtwork{}, &model.HongGuoRankEntry{}, &model.HongGuoGroupMember{}, &model.HongGuoDownload{}); err != nil {
 		t.Fatal(err)
 	}
 	now := time.Now().UTC()
@@ -173,6 +173,7 @@ func TestHongGuoListOrdersByFirstVisibleBeforePagination(t *testing.T) {
 		{SourceID: "91003", SourceCategory: "ai-drama", Title: "未知上线", Tags: "[]"},
 	}
 	for i := range works {
+		works[i].Kind = "series"
 		works[i].CreatedAt = older.Add(-time.Duration(i) * time.Hour)
 		if err := db.Create(&works[i]).Error; err != nil {
 			t.Fatal(err)

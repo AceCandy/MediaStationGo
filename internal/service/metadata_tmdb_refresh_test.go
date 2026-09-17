@@ -61,7 +61,7 @@ func TestRefreshMetadataTMDbOnlyUpdatesCurrentMetadata(t *testing.T) {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		cast := []any{}
-		if requests == 1 {
+		if requests == 1 || requests == 5 {
 			cast = append(cast, map[string]any{"id": 100, "name": "演员", "character": "角色"})
 		}
 		payload := map[string]any{
@@ -104,6 +104,9 @@ func TestRefreshMetadataTMDbOnlyUpdatesCurrentMetadata(t *testing.T) {
 		if stored.Title != fmt.Sprintf("最新标题%d", requests) || stored.Overview != "最新简介" || stored.Rating != 8 {
 			t.Fatalf("metadata not refreshed: %#v", stored)
 		}
+		if item.ID == movie.ID && stored.RuntimeSec != 42*60 {
+			t.Fatalf("movie runtime = %d, want %d", stored.RuntimeSec, 42*60)
+		}
 		if stored.ID != item.ID || !reflect.DeepEqual(stored.ParentID, item.ParentID) || stored.Kind != item.Kind || !stored.NSFW || !stored.CatalogHydratedAt.Equal(old) {
 			t.Fatalf("metadata identity or unrelated state changed: %#v", stored)
 		}
@@ -124,8 +127,30 @@ func TestRefreshMetadataTMDbOnlyUpdatesCurrentMetadata(t *testing.T) {
 			if err := db.Model(&model.MetadataCredit{}).Where("metadata_id = ?", item.ID).Count(&creditCount).Error; err != nil {
 				t.Fatal(err)
 			}
-			if (requests == 1 && creditCount != 1) || (requests == 5 && creditCount != 0) {
+			if (requests == 1 && creditCount != 1) || (requests == 5 && creditCount != 1) {
 				t.Fatalf("loaded credit snapshot not replaced: %d", creditCount)
+			}
+			if requests == 1 {
+				var credit model.MetadataCredit
+				if err := db.Where("metadata_id = ?", item.ID).First(&credit).Error; err != nil {
+					t.Fatal(err)
+				}
+				if err := db.Model(&model.Person{}).Where("id = ?", credit.PersonID).Update("name", "已翻译演员").Error; err != nil {
+					t.Fatal(err)
+				}
+				if err := db.Model(&model.MetadataCredit{}).Where("id = ?", credit.ID).Update("role", "已翻译角色").Error; err != nil {
+					t.Fatal(err)
+				}
+			}
+			if requests == 5 {
+				var credit model.MetadataCredit
+				if err := db.Where("metadata_id = ?", item.ID).First(&credit).Error; err != nil {
+					t.Fatal(err)
+				}
+				var person model.Person
+				if err := db.First(&person, "id = ?", credit.PersonID).Error; err != nil || person.Name != "已翻译演员" || credit.Role != "已翻译角色" {
+					t.Fatalf("translated credit was not preserved: person=%#v credit=%#v err=%v", person, credit, err)
+				}
 			}
 		}
 	}
@@ -167,5 +192,58 @@ func TestRefreshMetadataTMDbOnlyUpdatesCurrentMetadata(t *testing.T) {
 	failedSnapshot, _ := repos.Metadata.FindProviderSnapshot(t.Context(), movie.ID, "tmdb")
 	if !reflect.DeepEqual(beforeSnapshot, failedSnapshot) {
 		t.Fatal("incomplete refresh advanced snapshot")
+	}
+}
+
+func TestMergeTMDbMetadataPreservesMissingFields(t *testing.T) {
+	item := &model.MetadataItem{
+		Title: "旧标题", OriginalName: "Old Original", Overview: "旧简介", Rating: 7.5,
+		Year: 2020, ReleaseDate: "2020-01-02", RuntimeSec: 3600,
+		Languages: "zh", Countries: "CN", Genres: "剧情",
+	}
+	mergeTMDbMetadata(item, &model.MetadataItem{Title: "新标题", Rating: 8.1, Year: 2026, Genres: "科幻"})
+	if item.Title != "新标题" || item.Rating != 8.1 || item.Year != 2026 || item.Genres != "科幻" {
+		t.Fatalf("valid TMDB fields were not applied: %#v", item)
+	}
+	if item.OriginalName != "Old Original" || item.Overview != "旧简介" || item.ReleaseDate != "2020-01-02" || item.RuntimeSec != 3600 || item.Languages != "zh" || item.Countries != "CN" {
+		t.Fatalf("missing TMDB fields cleared local values: %#v", item)
+	}
+}
+
+func TestDiscoverTMDbRefreshCooldown(t *testing.T) {
+	db := newServiceTestDB(t, &model.MetadataProviderSnapshot{})
+	repos := repository.New(db)
+	item := createServiceTestMetadata(t, db, model.MetadataItem{Kind: "movie", Title: "原资料", Source: "tmdb"}, model.MetadataIdentifier{Provider: "tmdb", EntityKind: "movie", ExternalID: "10"})
+	requests := 0
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		fmt.Fprint(w, `{"id":10,"title":"最新资料"}`)
+	}))
+	defer upstream.Close()
+	cfg := &config.Config{Secrets: config.SecretsConfig{TMDbAPIKey: "test-key", TMDbAPIProxy: upstream.URL}}
+	scraper := NewScraperService(cfg, zap.NewNop(), repos, NewTMDbProvider(cfg, zap.NewNop(), nil), nil, nil, nil, nil)
+	id := repository.DiscoverIdentity{TMDbID: 10, MediaType: "movie"}
+	for _, age := range []time.Duration{time.Hour, 3*time.Hour - time.Minute, 3 * time.Hour, 4 * time.Hour} {
+		if err := repos.Metadata.UpsertProviderSnapshot(t.Context(), item.ID, "tmdb", []byte(`{"id":10}`), time.Now().Add(-age)); err != nil {
+			t.Fatal(err)
+		}
+		before := requests
+		if err := scraper.RefreshMetadataTMDbByIdentity(t.Context(), id); err != nil {
+			t.Fatal(err)
+		}
+		want := 0
+		if age >= 3*time.Hour {
+			want = 1
+		}
+		if requests-before != want {
+			t.Fatalf("age %s: requests = %d, want %d", age, requests-before, want)
+		}
+	}
+	before := requests
+	if err := scraper.RefreshMetadataTMDbByIdentity(t.Context(), id); err != nil || requests != before {
+		t.Fatalf("repeat refresh bypassed cooldown: requests=%d err=%v", requests-before, err)
+	}
+	if err := scraper.RefreshMetadataTMDb(t.Context(), item.ID); err != nil || requests != before+1 {
+		t.Fatalf("manual refresh was throttled: requests=%d err=%v", requests-before, err)
 	}
 }

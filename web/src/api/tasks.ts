@@ -51,6 +51,7 @@ export interface TaskDefinition {
 }
 
 export interface TaskScheduleConfig {
+  count?: number
   enabled: boolean
   interval_seconds: number
   min_interval_seconds: number
@@ -82,14 +83,15 @@ export const tasksAPI = {
     api.get<TasksSnapshot>('/tasks', { params: { page, page_size: pageSize, system }, signal }).then((r) => r.data),
   log: (key: string, date?: string) =>
     api.get<TaskLog>(`/tasks/definitions/${key}/log`, { params: date ? { date } : undefined }).then((r) => r.data),
-  history: (key: string, page = 1, pageSize = 20) =>
-    api.get<TaskHistory>(`/tasks/definitions/${key}/executions`, { params: { page, page_size: pageSize } }).then((r) => r.data),
-  run: (key: string, options?: { limit?: number; library_id?: string; all_libraries?: boolean }) =>
+  history: (key: string, page = 1, pageSize = 20, signal?: AbortSignal) =>
+    api.get<TaskHistory>(`/tasks/definitions/${key}/executions`, { params: { page, page_size: pageSize }, signal }).then((r) => r.data),
+  run: (key: string, options?: { limit?: number; library_id?: string; all_libraries?: boolean; count?: number }) =>
     api.post<{ status: string; count?: number; libraries?: number }>(`/tasks/definitions/${key}/run`, options).then((r) => r.data),
-  updateSchedule: (key: string, enabled: boolean, intervalSeconds: number) =>
+  updateSchedule: (key: string, enabled: boolean, intervalSeconds: number, count?: number) =>
     api.put<TaskDefinition>(`/tasks/definitions/${key}/schedule`, {
       enabled,
       interval_seconds: intervalSeconds,
+      ...(count !== undefined ? { count } : {}),
     }).then((r) => r.data),
 }
 

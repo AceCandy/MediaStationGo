@@ -219,11 +219,13 @@ func TestPersistCreditsReusesRemoteProfile(t *testing.T) {
 	if got := atomic.LoadInt32(&calls); got != 3 {
 		t.Fatalf("missing image downloads = %d, want 3", got)
 	}
+	// 模拟重启：复用持久化来源，不依赖进程内 URL 缓存。
+	scraper.people = NewPeopleImageStore(cfg, repos.Person, store.imageProxy)
 	if err := scraper.persistCredits(t.Context(), lastMetadataID, []string{model.CreditTypeActor}, credits, true); err != nil {
 		t.Fatal(err)
 	}
-	if got := atomic.LoadInt32(&calls); got != 4 {
-		t.Fatalf("explicit import downloads = %d, want 4", got)
+	if got := atomic.LoadInt32(&calls); got != 3 {
+		t.Fatalf("unchanged profile downloads = %d, want 3", got)
 	}
 	reject.Store(true)
 	changedURL := "https://image.tmdb.org/t/p/original/changed.png"
@@ -232,8 +234,8 @@ func TestPersistCreditsReusesRemoteProfile(t *testing.T) {
 			t.Fatal("expected upstream failure")
 		}
 	}
-	if got := atomic.LoadInt32(&calls); got != 5 {
-		t.Fatalf("failed import cooldown downloads = %d, want 5", got)
+	if got := atomic.LoadInt32(&calls); got != 4 {
+		t.Fatalf("failed import cooldown downloads = %d, want 4", got)
 	}
 	reject.Store(false)
 	if _, err := store.Import(t.Context(), changedURL); err != nil {
@@ -242,8 +244,8 @@ func TestPersistCreditsReusesRemoteProfile(t *testing.T) {
 	if _, err := store.ImportCached(t.Context(), changedURL); err != nil {
 		t.Fatal(err)
 	}
-	if got := atomic.LoadInt32(&calls); got != 6 {
-		t.Fatalf("explicit recovery downloads = %d, want 6", got)
+	if got := atomic.LoadInt32(&calls); got != 5 {
+		t.Fatalf("explicit recovery downloads = %d, want 5", got)
 	}
 	// 冷却到期后自动入口恢复请求，不需要重启或手动清理。
 	store.sources.SetJSON(t.Context(), changedURL, peopleImageSource{Failed: true}, time.Minute)
@@ -255,8 +257,69 @@ func TestPersistCreditsReusesRemoteProfile(t *testing.T) {
 	if _, err := store.ImportCached(t.Context(), changedURL); err != nil {
 		t.Fatal(err)
 	}
-	if got := atomic.LoadInt32(&calls); got != 7 {
-		t.Fatalf("expired cooldown downloads=%d, want 7", got)
+	if got := atomic.LoadInt32(&calls); got != 6 {
+		t.Fatalf("expired cooldown downloads=%d, want 6", got)
+	}
+}
+
+func TestRefreshCreditsImportsOnlyChangedOrBrokenProfiles(t *testing.T) {
+	store, repos, cfg := newPeopleImageStoreTest(t)
+	var calls int
+	var reject bool
+	store.imageProxy.client = &http.Client{Transport: imageRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		calls++
+		if reject {
+			return &http.Response{StatusCode: http.StatusNotFound, Header: http.Header{}, Body: io.NopCloser(strings.NewReader("not found")), Request: req}, nil
+		}
+		return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": []string{"image/png"}}, Body: io.NopCloser(bytes.NewReader(testArtworkPNG(t, 3, 2))), Request: req}, nil
+	})}
+	scraper := &ScraperService{repo: repos, people: store}
+	item := model.MetadataItem{Kind: model.MetadataKindMovie, Title: "Work", Source: "tmdb"}
+	if err := repos.DB.Create(&item).Error; err != nil {
+		t.Fatal(err)
+	}
+	credits := []PersonCredit{{Provider: "tmdb", ExternalID: "123", Name: "Actor", ProfileURL: "https://image.tmdb.org/t/p/original/actor.png", Type: model.CreditTypeActor, OriginalRole: "Role"}}
+	refresh := func(wantCalls int) model.Person {
+		t.Helper()
+		if err := scraper.persistCredits(t.Context(), item.ID, []string{model.CreditTypeActor}, credits, true); err != nil {
+			t.Fatal(err)
+		}
+		rows, err := repos.Person.ListCreditsWithPeople(t.Context(), item.ID)
+		if err != nil || len(rows) != 1 || calls != wantCalls {
+			t.Fatalf("credits=%v err=%v downloads=%d want=%d", rows, err, calls, wantCalls)
+		}
+		return rows[0].Person
+	}
+	person := refresh(1)
+	if err := repos.DB.Model(&person).Update("name", "演员").Error; err != nil {
+		t.Fatal(err)
+	}
+	if got := refresh(1); got.Name != "演员" {
+		t.Fatalf("translation lost: %q", got.Name)
+	}
+	path := filepath.Join(cfg.App.DataDir, "people", filepath.FromSlash(person.ProfileImageKey))
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	refresh(2)
+	if err := os.WriteFile(path, testArtworkPNG(t, 4, 2), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	refresh(3)
+	credits[0].ProfileURL = "https://image.tmdb.org/t/p/original/changed.png"
+	reject = true
+	if got := refresh(4); got.ProfileImageSourceURL == got.ProfileURL || got.ProfileImageKey != person.ProfileImageKey {
+		t.Fatal("failed download changed image provenance or discarded old image")
+	}
+	reject = false
+	if got := refresh(5); got.ProfileImageSourceURL != credits[0].ProfileURL {
+		t.Fatal("changed URL was not retried")
+	}
+	refresh(5)
+	credits[0].ExternalID = "456"
+	credits[0].ProfileURL = "https://image.tmdb.org/t/p/original/new.png"
+	if got := refresh(6); got.ID == person.ID {
+		t.Fatal("new actor reused old identity")
 	}
 }
 

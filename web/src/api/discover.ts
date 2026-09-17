@@ -1,7 +1,7 @@
-import { api } from './client'
+import { api, LONG_REQUEST_TIMEOUT } from './client'
 import { useAuthStore } from '../stores/auth'
 import { getActivePlayProfileId } from '../stores/playProfile'
-import type { Media } from '../types'
+import type { Media, MediaCredit } from '../types'
 
 let sectionsRequest: { key: string; promise: Promise<DiscoverSection[]> } | null = null
 
@@ -27,6 +27,23 @@ export interface DiscoverSection {
   provider?: string
 }
 
+export interface DiscoverIdentity { tmdb_id: number; media_type: 'movie' | 'tv' }
+export interface DiscoverDetail extends Omit<DiscoverItem, 'genres' | 'countries' | 'languages'> {
+  genres?: string[]
+  countries?: string[]
+  languages?: string[]
+  runtime_minutes: number[]
+  credits: MediaCredit[]
+  local_metadata?: boolean
+}
+
+export function discoverTMDbIdentity(item: DiscoverItem): DiscoverIdentity | null {
+  return (!item.source || item.source === 'tmdb') && Number.isSafeInteger(item.tmdb_id) && (item.tmdb_id ?? 0) > 0 && (item.media_type === 'movie' || item.media_type === 'tv')
+    ? { tmdb_id: item.tmdb_id!, media_type: item.media_type } : null
+}
+
+export function discoverIdentityKey(item: DiscoverIdentity): string { return `${item.media_type}:${item.tmdb_id}` }
+
 export interface DiscoverFeedMeta {
   page: number
   has_next: boolean
@@ -51,6 +68,10 @@ export interface DiscoverResp {
 }
 
 export const discoverAPI = {
+  search: (query: string, kind: string, page: number, signal?: AbortSignal) => api.post<{ items: DiscoverItem[]; has_next: boolean; page: number }>('/discover/search', { query, kind, page }, { signal }).then((response) => response.data),
+  detail: (item: DiscoverIdentity, signal?: AbortSignal) => api.get<DiscoverDetail>(`/discover/tmdb/${item.media_type}/${item.tmdb_id}`, { signal }).then((r) => r.data),
+  refresh: (item: DiscoverIdentity, signal?: AbortSignal) => api.post<DiscoverDetail>(`/discover/tmdb/${item.media_type}/${item.tmdb_id}/refresh`, undefined, { signal, timeout: LONG_REQUEST_TIMEOUT }).then((r) => r.data),
+  libraryStatus: (items: DiscoverIdentity[], signal?: AbortSignal) => api.post<{ items: DiscoverIdentity[] }>('/discover/library-status', { items }, { signal }).then((r) => r.data.items),
   trending: () =>
     api.get<DiscoverResp>('/discover/trending').then((r) => ({
       items: r.data.items ?? [],

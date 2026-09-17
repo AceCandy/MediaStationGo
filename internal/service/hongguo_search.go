@@ -6,7 +6,7 @@ import (
 	"github.com/ShukeBta/MediaStationGo/internal/repository"
 )
 
-// Search 只读取官网和本地状态；补录仍使用管理员详情刷新入口。
+// Search 合并官网与本地状态，登记缺失资料的摘要并唤醒资料刷新任务。
 func (s *HongGuoService) Search(ctx context.Context, keyword string) ([]repository.HongGuoListWork, error) {
 	enabled, err := s.Enabled(ctx)
 	if err != nil {
@@ -19,5 +19,13 @@ func (s *HongGuoService) Search(ctx context.Context, keyword string) ([]reposito
 	if err != nil {
 		return nil, err
 	}
-	return s.repo.HongGuo.SearchResults(ctx, works)
+	rows, err := s.repo.HongGuo.SearchResults(ctx, works)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.repo.HongGuo.QueueMissingSearchResults(ctx, rows); err != nil {
+		return nil, err
+	}
+	s.requestRefresh(ctx)
+	return rows, nil
 }

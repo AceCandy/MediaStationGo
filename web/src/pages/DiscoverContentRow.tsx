@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 
-import type { DiscoverItem } from '../api/discover'
+import { discoverAPI, discoverIdentityKey, discoverTMDbIdentity, type DiscoverItem } from '../api/discover'
 import { imageURL } from '../api/client'
 import { discoverItemSource } from './discoverPageModel'
 
@@ -18,6 +18,28 @@ export function ContentRow({
   onSelect: (item: DiscoverItem) => void
 }) {
   const sentinelRef = useRef<HTMLDivElement>(null)
+  const [libraryItems, setLibraryItems] = useState<Set<string>>(new Set())
+  const [libraryError, setLibraryError] = useState(false)
+  const [libraryRevision, setLibraryRevision] = useState(0)
+  useEffect(() => {
+    const controller = new AbortController()
+    const identities = Array.from(new Map(items.flatMap((item) => {
+      const id = discoverTMDbIdentity(item)
+      return id ? [[discoverIdentityKey(id), id] as const] : []
+    })).values())
+    setLibraryItems(new Set())
+    setLibraryError(false)
+    void (async () => {
+      const found = new Set<string>()
+      for (let start = 0; start < identities.length; start += 100) {
+        const result = await discoverAPI.libraryStatus(identities.slice(start, start + 100), controller.signal)
+        if (controller.signal.aborted) return
+        result.forEach((id) => found.add(discoverIdentityKey(id)))
+      }
+      if (!controller.signal.aborted) setLibraryItems(found)
+    })().catch(() => { if (!controller.signal.aborted) setLibraryError(true) })
+    return () => controller.abort()
+  }, [items, libraryRevision])
   useEffect(() => {
     const sentinel = sentinelRef.current
     if (!sentinel || !canNext || loading || !onLoadMore) return
@@ -30,11 +52,13 @@ export function ContentRow({
 
   return (
     <section className="space-y-4">
+      {libraryError && <p role="alert" className="text-sm text-[var(--app-muted)]">入库状态暂时不可用 <button className="btn-ghost" onClick={() => setLibraryRevision((v) => v + 1)}>重试入库状态</button></p>}
       <div className="grid grid-cols-3 gap-4 sm:grid-cols-4 md:grid-cols-5">
         {items.map((item, index) => (
           <DiscoverCard
             key={discoverKey(item, index)}
             item={item}
+            inLibrary={libraryItems.has(`${item.media_type}:${item.tmdb_id}`) && discoverTMDbIdentity(item) !== null}
             onSelect={onSelect}
           />
         ))}
@@ -70,9 +94,11 @@ export function DiscoverSkeleton() {
 
 function DiscoverCard({
   item,
+  inLibrary,
   onSelect,
 }: {
   item: DiscoverItem
+  inLibrary: boolean
   onSelect: (item: DiscoverItem) => void
 }) {
   const source = discoverItemSource(item)
@@ -128,6 +154,7 @@ function DiscoverCard({
   return (
     <button
       type="button"
+      aria-label={`查看${item.title}`}
       onClick={() => onSelect(item)}
       className="group relative overflow-hidden rounded-xl border border-gray-200 bg-gray-50 text-left transition-all duration-300 hover:-translate-y-1 hover:border-primary-500/30 hover:shadow-xl focus:outline-none focus:ring-2 focus:ring-primary-400/40"
     >
@@ -157,6 +184,7 @@ function DiscoverCard({
             ★ {(item.rating ?? 0).toFixed(1)}
           </div>
         )}
+        {inLibrary && <span className="absolute bottom-2 left-2 rounded-lg border border-[var(--app-border)] bg-[var(--app-panel)] px-2 py-1 text-[10px] font-semibold text-[var(--app-text)] shadow-sm">✅ 已入库</span>}
       </div>
       <div className="space-y-0.5 px-2.5 py-2">
         <p className="truncate text-xs font-medium text-ink-600 transition-colors group-hover:text-brand-500">

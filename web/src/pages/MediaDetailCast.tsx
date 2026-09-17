@@ -21,6 +21,12 @@ export function MediaDetailCast({ mediaId, scope }: { mediaId: string; scope?: '
 
   if (!credits || credits.length === 0) return null
 
+  return <MediaCredits credits={credits} />
+}
+
+export function MediaCredits({ credits }: { credits: MediaCredit[] }) {
+  if (credits.length === 0) return null
+
   return (
     <section className="space-y-4">
       <div className="flex items-center gap-2.5">

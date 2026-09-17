@@ -28,19 +28,21 @@ var errHongGuoCheckpoint = errors.New("红果同步检查点保存失败")
 
 // HongGuoService 持有来源任务互斥与取消，复用公共执行日志，不写旧资料表。
 type HongGuoService struct {
-	repo            *repository.Container
-	client          *hongguo.Client
-	tasks           *TaskTrackerService
-	images          *ImageProxy
-	imageRoot       string
-	runMu           sync.Mutex
-	artworkMu       sync.Mutex
-	discoveryMu     sync.Mutex
-	mu              sync.Mutex
-	cancel          context.CancelFunc
-	artworkCancel   context.CancelFunc
-	discoveryCancel context.CancelFunc
-	closed          bool
+	repo              *repository.Container
+	client            *hongguo.Client
+	tasks             *TaskTrackerService
+	images            *ImageProxy
+	imageRoot         string
+	runMu             sync.Mutex
+	artworkMu         sync.Mutex
+	discoveryMu       sync.Mutex
+	mu                sync.Mutex
+	cancel            context.CancelFunc
+	artworkCancel     context.CancelFunc
+	discoveryCancel   context.CancelFunc
+	closed            bool
+	refreshRequested  bool
+	autoRefreshCancel context.CancelFunc
 }
 
 func NewHongGuoService(repo *repository.Container, tasks *TaskTrackerService, images *ImageProxy, dataDir string) *HongGuoService {
@@ -69,6 +71,10 @@ func (s *HongGuoService) SetEnabled(ctx context.Context, enabled bool) error {
 func (s *HongGuoService) Cancel() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.refreshRequested = false
+	if s.autoRefreshCancel != nil {
+		s.autoRefreshCancel()
+	}
 	if s.cancel != nil {
 		s.cancel()
 	}
@@ -84,6 +90,10 @@ func (s *HongGuoService) Cancel() {
 func (s *HongGuoService) Wait() {
 	s.mu.Lock()
 	s.closed = true
+	s.refreshRequested = false
+	if s.autoRefreshCancel != nil {
+		s.autoRefreshCancel()
+	}
 	if s.cancel != nil {
 		s.cancel()
 	}
@@ -128,7 +138,17 @@ func (s *HongGuoService) Run(ctx context.Context, kind, sourceID string) error {
 	if !runMu.TryLock() {
 		return ErrHongGuoRunning
 	}
-	defer runMu.Unlock()
+	defer func() {
+		runMu.Unlock()
+		if kind == TaskKindHongGuoRefresh {
+			s.startRequestedRefresh()
+		}
+	}()
+	return s.runLocked(ctx, kind, sourceID, name, activeCancel)
+}
+
+// runLocked 的调用方持有对应任务锁，自动与手动刷新共用同一执行记录和互斥。
+func (s *HongGuoService) runLocked(ctx context.Context, kind, sourceID, name string, activeCancel *context.CancelFunc) error {
 	ctx, cancel := context.WithCancel(ctx)
 	s.mu.Lock()
 	if s.closed {
@@ -147,6 +167,9 @@ func (s *HongGuoService) Run(ctx context.Context, kind, sourceID string) error {
 		return ErrHongGuoDisabled
 	}
 	trigger := schedulerTaskTrigger(ctx)
+	if event, _ := ctx.Value(hongGuoEventRefreshKey{}).(bool); event {
+		trigger = TaskTriggerEvent
+	}
 	if sourceID != "" {
 		trigger = TaskTriggerManual
 	}
@@ -178,6 +201,7 @@ func (s *HongGuoService) Run(ctx context.Context, kind, sourceID string) error {
 				details = append(details, "✅ 已记录红果目录 "+work.SourceID)
 			}
 			task.Update(TaskUpdate{Message: fmt.Sprintf("已记录 %d 项目录摘要，详情由资料刷新任务补齐", processed), Details: details, Metrics: map[string]int64{"processed": processed, "succeeded": processed}})
+			s.requestRefresh(ctx)
 		}, func(message string) {
 			task.Update(TaskUpdate{Message: message, Metrics: map[string]int64{"processed": processed, "failed": failed, "succeeded": processed - failed}})
 		})

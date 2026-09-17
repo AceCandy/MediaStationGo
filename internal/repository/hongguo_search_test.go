@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ShukeBta/MediaStationGo/internal/hongguo"
 	"github.com/ShukeBta/MediaStationGo/internal/model"
@@ -16,7 +17,7 @@ func TestHongGuoSearchResultsAreReadOnlyAndKeepSourceOrder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = db.AutoMigrate(model.HongGuoModels()...); err != nil {
+	if err = db.AutoMigrate(append(model.HongGuoModels(), &model.HongGuoDownload{})...); err != nil {
 		t.Fatal(err)
 	}
 	r := New(db).HongGuo
@@ -26,6 +27,17 @@ func TestHongGuoSearchResultsAreReadOnlyAndKeepSourceOrder(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err = r.SaveDetail(ctx, known); err != nil {
+		t.Fatal(err)
+	}
+	var saved model.HongGuoWork
+	if err = db.First(&saved, "source_id = ?", known.SourceID).Error; err != nil {
+		t.Fatal(err)
+	}
+	group := model.HongGuoGroup{Title: "关联测试"}
+	if err = db.Create(&group).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err = db.Create(&model.HongGuoGroupMember{GroupID: group.ID, WorkID: saved.ID, SeasonNumber: 2}).Error; err != nil {
 		t.Fatal(err)
 	}
 	comic := model.HongGuoDiscovery{SourceID: "9000000000000000003", Title: "漫画", SourceCategory: "comic"}
@@ -40,6 +52,13 @@ func TestHongGuoSearchResultsAreReadOnlyAndKeepSourceOrder(t *testing.T) {
 	if rows[0].SourceID != remote[0].SourceID || rows[0].Hydrated || rows[0].SourceCategory != "" || !rows[1].Hydrated || rows[1].Title != known.Title || rows[1].SourceCategory != "ai-drama" {
 		t.Fatalf("bad projection: %+v", rows)
 	}
+	if rows[0].GroupID != "" || rows[1].GroupID != group.ID {
+		t.Fatal("search group membership missing")
+	}
+	local, _, err := r.List(ctx, known.Title, "", "", "", 1, 50)
+	if err != nil || len(local) != 1 || local[0].GroupID != group.ID {
+		t.Fatalf("list membership: %+v %v", local, err)
+	}
 	encoded, _ := json.Marshal(rows)
 	if strings.Contains(string(encoded), "example.invalid") {
 		t.Fatal("upstream URL leaked")
@@ -48,6 +67,50 @@ func TestHongGuoSearchResultsAreReadOnlyAndKeepSourceOrder(t *testing.T) {
 	for _, table := range []string{"hongguo_works", "hongguo_discoveries", "hongguo_artworks"} {
 		if err = db.Table(table).Where("source_id = ?", remote[0].SourceID).Count(&count).Error; err != nil || count != 0 {
 			t.Fatalf("search mutated %s: %d %v", table, count, err)
+		}
+	}
+}
+
+func TestHongGuoSearchQueuesMissingDetails(t *testing.T) {
+	db, err := testdb.OpenPostgres(t, &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(model.HongGuoModels()...); err != nil {
+		t.Fatal(err)
+	}
+	r, ctx := New(db).HongGuo, t.Context()
+	results := []HongGuoListWork{
+		{HongGuoWork: model.HongGuoWork{SourceID: "90001", Title: "待补齐"}},
+		{HongGuoWork: model.HongGuoWork{SourceID: "90002", Title: "已收录"}, Hydrated: true},
+	}
+	if err := r.QueueMissingSearchResults(ctx, results); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Model(&model.HongGuoDiscovery{}).Where("source_id = ?", "90001").Updates(map[string]any{"source_category": "ai-drama", "title": "已分类"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := r.QueueMissingSearchResults(ctx, append(results, results[0])); err != nil {
+		t.Fatal(err)
+	}
+	pending, err := r.PendingDiscoveries(ctx, "", time.Now().Add(time.Second))
+	if err != nil || len(pending) != 1 || pending[0].SourceID != "90001" || pending[0].Title != "已分类" || pending[0].SourceCategory != "ai-drama" {
+		t.Fatalf("pending=%+v err=%v", pending, err)
+	}
+	if err := r.RecordSyncFailure(ctx, "90001", time.Now().Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.QueueMissingSearchResults(ctx, results); err != nil {
+		t.Fatal(err)
+	}
+	pending, err = r.PendingDiscoveries(ctx, "", time.Now().Add(time.Second))
+	if err != nil || len(pending) != 0 {
+		t.Fatalf("cooling item requeued: %+v %v", pending, err)
+	}
+	for _, table := range []string{"hongguo_works", "hongguo_episodes", "hongguo_artworks"} {
+		var count int64
+		if err := db.Table(table).Count(&count).Error; err != nil || count != 0 {
+			t.Fatalf("unexpected %s writes: %d %v", table, count, err)
 		}
 	}
 }

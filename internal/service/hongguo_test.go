@@ -59,7 +59,7 @@ func TestHongGuoImportTaskAndIsolation(t *testing.T) {
 		t.Fatalf("source task leaked: %+v %v", legacy, err)
 	}
 	defs, err := tasks.DefinitionsForSystem(nil, model.TaskSystemHongGuo)
-	if err != nil || len(defs) != 3 {
+	if err != nil || len(defs) != 4 {
 		t.Fatalf("definitions=%+v err=%v", defs, err)
 	}
 	for _, d := range defs {
