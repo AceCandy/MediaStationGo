@@ -898,3 +898,34 @@ Web 与 Emby 对缺失的单集播出日期按同季前序集回退；季和单�
 ### Status
 
 [OK] **Completed**
+
+
+## Session 130: 发现资料与红果下载功能收尾归档
+<!-- trellis-session: v=2 fp=7445b91980c90754 -->
+
+**Date**: 2026-09-17
+**Task**: 发现资料与红果下载功能收尾归档
+**Branch**: `main`
+
+### Summary
+
+提交发现详情、本地资料刷新与入库标记，以及红果下载、校验、来源回退、批量管理和历史下载标识；归档两项任务。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `31952ac` | feat: 完善发现资料弹窗与红果下载管理 |
+
+### Testing
+
+- [OK] 本轮相关四个 Go 包测试、Web lint、series-presentation 检查及 diff 检查通过。
+- [OK] 前轮隔离 PostgreSQL 定向 race 测试、Web build 与发现和搜索浏览器检查通过；本轮未重跑数据库集成测试。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 未推送远端、未部署、未重启服务；上线后按实际数据验收。
