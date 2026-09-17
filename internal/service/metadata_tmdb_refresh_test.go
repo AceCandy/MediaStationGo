@@ -16,12 +16,13 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/ShukeBta/MediaStationGo/internal/config"
+	"github.com/ShukeBta/MediaStationGo/internal/database"
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 	"github.com/ShukeBta/MediaStationGo/internal/repository"
 )
 
 func TestRefreshMetadataTMDbOnlyUpdatesCurrentMetadata(t *testing.T) {
-	db := newServiceTestDB(t, &model.Media{}, &model.MetadataProviderSnapshot{}, &model.Person{}, &model.PersonIdentifier{}, &model.MetadataCredit{})
+	db := newServiceTestDB(t, &model.Media{}, &model.MetadataProviderSnapshot{}, &model.Person{}, &model.PersonIdentifier{}, &model.MetadataCredit{}, &model.TMDbRecheckJob{})
 	repos := repository.New(db)
 	old := time.Now().UTC().Add(-time.Hour).Truncate(time.Microsecond)
 	makeItem := func(kind, externalID string, parent *string, season, episode int) *model.MetadataItem {
@@ -192,6 +193,86 @@ func TestRefreshMetadataTMDbOnlyUpdatesCurrentMetadata(t *testing.T) {
 	failedSnapshot, _ := repos.Metadata.FindProviderSnapshot(t.Context(), movie.ID, "tmdb")
 	if !reflect.DeepEqual(beforeSnapshot, failedSnapshot) {
 		t.Fatal("incomplete refresh advanced snapshot")
+	}
+}
+
+func TestRefreshMetadataTMDbClearsNotFound(t *testing.T) {
+	for _, mode := range []string{"episode", "season", "running", "404", "wrong_identity"} {
+		t.Run(mode, func(t *testing.T) {
+			db := newServiceTestDB(t, &model.Media{}, &model.MetadataProviderSnapshot{}, &model.Person{}, &model.PersonIdentifier{}, &model.MetadataCredit{},
+				&model.TMDbRecheckJob{}, &model.TMDbRecheckChange{}, &model.TMDbRecheckAssetChange{})
+			if err := database.EnsureTMDbRecheckTriggers(db); err != nil {
+				t.Fatal(err)
+			}
+			repos := repository.New(db)
+			series := createServiceTestMetadata(t, db, model.MetadataItem{Kind: "series"}, model.MetadataIdentifier{Provider: "tmdb", EntityKind: "series", ExternalID: "20"})
+			season := createServiceTestMetadata(t, db, model.MetadataItem{Kind: "season", ParentID: &series.ID, SeasonNum: 1}, model.MetadataIdentifier{Provider: "tmdb", EntityKind: "season", ExternalID: "30"})
+			episode := createServiceTestMetadata(t, db, model.MetadataItem{Kind: "episode", ParentID: &season.ID, EpisodeNum: 1}, model.MetadataIdentifier{Provider: "tmdb", EntityKind: "episode", ExternalID: "40"})
+			missing := createServiceTestMetadata(t, db, model.MetadataItem{Kind: "episode", ParentID: &season.ID, EpisodeNum: 2})
+			future := time.Now().Add(20 * 24 * time.Hour).UTC().Truncate(time.Microsecond)
+			for _, item := range []*model.MetadataItem{season, episode, missing} {
+				if err := db.Create(&model.Media{MetadataID: item.ID, Path: "/test/" + item.ID + ".strm"}).Error; err != nil {
+					t.Fatal(err)
+				}
+				if err := db.Create(&model.TMDbRecheckJob{MetadataID: item.ID, Status: "not_found", DueAt: &future, Attempts: 2, LastError: "清单未收录", NotFoundIdentity: "old"}).Error; err != nil {
+					t.Fatal(err)
+				}
+			}
+			oldJob := model.TMDbRecheckJob{MetadataID: episode.ID, LeaseToken: "old-request", NotFoundIdentity: "old"}
+			if mode == "running" {
+				if err := db.Model(&model.TMDbRecheckJob{}).Where("metadata_id=?", episode.ID).Updates(map[string]any{"status": "running", "lease_token": oldJob.LeaseToken, "lease_until": future}).Error; err != nil {
+					t.Fatal(err)
+				}
+			}
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if mode == "404" {
+					http.NotFound(w, r)
+					return
+				}
+				if mode == "wrong_identity" {
+					fmt.Fprint(w, `{"id":999,"name":"测试单集"}`)
+				} else if mode == "season" {
+					fmt.Fprint(w, `{"id":30,"season_number":1,"name":"测试季","episodes":[{"id":40,"episode_number":1,"name":"测试单集"}]}`)
+				} else {
+					fmt.Fprint(w, `{"id":40,"episode_number":1,"name":"测试单集"}`)
+				}
+			}))
+			defer server.Close()
+			cfg := &config.Config{Secrets: config.SecretsConfig{TMDbAPIKey: "test-key", TMDbAPIProxy: server.URL}}
+			s := NewScraperService(cfg, zap.NewNop(), repos, NewTMDbProvider(cfg, zap.NewNop(), nil), nil, nil, nil, nil)
+			target := episode
+			if mode == "season" {
+				target = season
+			}
+			err := s.RefreshMetadataTMDb(t.Context(), target.ID)
+			failed := mode == "404" || mode == "wrong_identity"
+			if (err != nil) != failed {
+				t.Fatalf("refresh err=%v, want failure=%v", err, failed)
+			}
+			for _, item := range []*model.MetadataItem{season, episode, missing} {
+				var job model.TMDbRecheckJob
+				if err := db.First(&job, "metadata_id=?", item.ID).Error; err != nil {
+					t.Fatal(err)
+				}
+				found := !failed && (item.ID == episode.ID || mode == "season" && item.ID == season.ID)
+				if found {
+					if job.Status != "pending" || job.LastError != "" || job.NotFoundIdentity != "" || job.Attempts != 0 || job.LeaseToken != "" || job.LeaseUntil != nil || job.DueAt == nil || job.DueAt.After(time.Now()) {
+						t.Fatalf("found target retains old failure: %+v", job)
+					}
+				} else if job.Status != "not_found" || job.LastError != "清单未收录" || job.Attempts != 2 || job.DueAt == nil || !job.DueAt.Equal(future) {
+					t.Fatalf("unconfirmed target changed: %+v", job)
+				}
+			}
+			if mode == "running" {
+				if err := repos.Metadata.FinishTMDbRecheck(t.Context(), &oldJob, "not_found", "旧结果", &future, 3); !errors.Is(err, repository.ErrTMDbRecheckChanged) {
+					t.Fatalf("stale writer accepted: %v", err)
+				}
+			}
+			stored, err := repos.Metadata.FindByID(t.Context(), episode.ID)
+			if err != nil || stored.Overview != "" || stored.ReleaseDate != "" {
+				t.Fatalf("fixture must retain missing fields: %+v %v", stored, err)
+			}
+		})
 	}
 }
 

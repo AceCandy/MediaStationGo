@@ -18,6 +18,15 @@ const TMDbRecheckLease = 5 * time.Minute
 
 var ErrTMDbRecheckChanged = errors.New("复查目标已变更或领取已过期")
 
+// ConfirmTMDbRecheckFound 在显式刷新成功后解除旧未收录结论，留待现有流程判断缺项。
+// 按主键更新已有待办并撤销在途凭据，防止旧请求覆盖已确认存在的结果。
+func (r *MetadataRepository) ConfirmTMDbRecheckFound(ctx context.Context, id string) error {
+	return r.db.WithContext(ctx).Model(&model.TMDbRecheckJob{}).
+		Where("metadata_id=? AND (status IN ('not_found','running') OR not_found_identity<>'')", id).
+		Updates(map[string]any{"status": "pending", "due_at": gorm.Expr("clock_timestamp()"), "attempts": 0,
+			"last_error": "", "not_found_identity": "", "lease_token": "", "lease_until": nil}).Error
+}
+
 // ScanTMDbRecheckFiles 每次核对一批文件，游标和补建登记共同提交。
 func (r *MetadataRepository) ScanTMDbRecheckFiles(ctx context.Context) (bool, int, error) {
 	more := false

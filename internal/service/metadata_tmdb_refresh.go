@@ -134,7 +134,13 @@ func (s *ScraperService) RefreshMetadataTMDb(ctx context.Context, metadataID str
 			return err
 		}
 	}
-	return s.repo.Metadata.UpsertProviderSnapshot(ctx, item.ID, "tmdb", payload, time.Now().UTC())
+	if err := s.repo.Metadata.UpsertProviderSnapshot(ctx, item.ID, "tmdb", payload, time.Now().UTC()); err != nil {
+		return err
+	}
+	if item.Kind == model.MetadataKindSeason || item.Kind == model.MetadataKindEpisode {
+		return s.repo.Metadata.ConfirmTMDbRecheckFound(ctx, item.ID)
+	}
+	return nil
 }
 
 // refreshSeasonEpisodesFromDetails 将季接口内的集摘要同步到已有本地单集。
@@ -182,6 +188,9 @@ func (s *ScraperService) refreshSeasonEpisodesFromDetails(ctx context.Context, s
 			}
 		}
 		if err := s.repo.Metadata.ReplaceIdentifierWithSnapshot(ctx, episode.ID, "tmdb", model.MetadataKindEpisode, strconv.Itoa(summary.ID), epPayload, now); err != nil {
+			return err
+		}
+		if err := s.repo.Metadata.ConfirmTMDbRecheckFound(ctx, episode.ID); err != nil {
 			return err
 		}
 	}
