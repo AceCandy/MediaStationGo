@@ -67,7 +67,7 @@ func TestRefreshMetadataTMDbOnlyUpdatesCurrentMetadata(t *testing.T) {
 		}
 		payload := map[string]any{
 			"id": id, "title": fmt.Sprintf("最新标题%d", requests), "name": fmt.Sprintf("最新标题%d", requests),
-			"overview": "最新简介", "runtime": 42, "season_number": 0, "vote_average": 8,
+			"overview": "最新简介", "runtime": 42, "season_number": 0, "episode_number": 1, "vote_average": 8,
 			"release_date": "2026-09-06", "first_air_date": "2026-09-06", "air_date": "2026-09-06",
 			"credits":     map[string]any{"cast": cast, "crew": []any{}},
 			"poster_path": "/poster.png", "backdrop_path": "/backdrop.png", "still_path": "/still.png",
@@ -197,8 +197,9 @@ func TestRefreshMetadataTMDbOnlyUpdatesCurrentMetadata(t *testing.T) {
 }
 
 func TestRefreshMetadataTMDbClearsNotFound(t *testing.T) {
-	for _, mode := range []string{"episode", "season", "running", "404", "wrong_identity"} {
+	for _, mode := range []string{"episode", "season", "episode_missing_id", "season_missing_id", "episode_stale_id", "running", "404", "wrong_identity"} {
 		t.Run(mode, func(t *testing.T) {
+			isSeason := mode == "season" || mode == "season_missing_id"
 			db := newServiceTestDB(t, &model.Media{}, &model.MetadataProviderSnapshot{}, &model.Person{}, &model.PersonIdentifier{}, &model.MetadataCredit{},
 				&model.TMDbRecheckJob{}, &model.TMDbRecheckChange{}, &model.TMDbRecheckAssetChange{})
 			if err := database.EnsureTMDbRecheckTriggers(db); err != nil {
@@ -209,6 +210,16 @@ func TestRefreshMetadataTMDbClearsNotFound(t *testing.T) {
 			season := createServiceTestMetadata(t, db, model.MetadataItem{Kind: "season", ParentID: &series.ID, SeasonNum: 1}, model.MetadataIdentifier{Provider: "tmdb", EntityKind: "season", ExternalID: "30"})
 			episode := createServiceTestMetadata(t, db, model.MetadataItem{Kind: "episode", ParentID: &season.ID, EpisodeNum: 1}, model.MetadataIdentifier{Provider: "tmdb", EntityKind: "episode", ExternalID: "40"})
 			missing := createServiceTestMetadata(t, db, model.MetadataItem{Kind: "episode", ParentID: &season.ID, EpisodeNum: 2})
+			if mode == "episode_missing_id" || mode == "season_missing_id" {
+				if err := db.Where("metadata_id IN ?", []string{season.ID, episode.ID}).Delete(&model.MetadataIdentifier{}).Error; err != nil {
+					t.Fatal(err)
+				}
+			}
+			if mode == "episode_stale_id" {
+				if err := db.Model(&model.MetadataIdentifier{}).Where("metadata_id=?", episode.ID).Update("external_id", "999").Error; err != nil {
+					t.Fatal(err)
+				}
+			}
 			future := time.Now().Add(20 * 24 * time.Hour).UTC().Truncate(time.Microsecond)
 			for _, item := range []*model.MetadataItem{season, episode, missing} {
 				if err := db.Create(&model.Media{MetadataID: item.ID, Path: "/test/" + item.ID + ".strm"}).Error; err != nil {
@@ -225,23 +236,30 @@ func TestRefreshMetadataTMDbClearsNotFound(t *testing.T) {
 				}
 			}
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				wantPath := "/tv/20/season/1/episode/1"
+				if isSeason {
+					wantPath = "/tv/20/season/1"
+				}
+				if r.URL.Path != wantPath {
+					t.Errorf("request path = %q, want %q", r.URL.Path, wantPath)
+				}
 				if mode == "404" {
 					http.NotFound(w, r)
 					return
 				}
 				if mode == "wrong_identity" {
-					fmt.Fprint(w, `{"id":999,"name":"测试单集"}`)
-				} else if mode == "season" {
+					fmt.Fprint(w, `{"id":40,"season_number":2,"episode_number":1,"name":"测试单集"}`)
+				} else if isSeason {
 					fmt.Fprint(w, `{"id":30,"season_number":1,"name":"测试季","episodes":[{"id":40,"episode_number":1,"name":"测试单集"}]}`)
 				} else {
-					fmt.Fprint(w, `{"id":40,"episode_number":1,"name":"测试单集"}`)
+					fmt.Fprint(w, `{"id":40,"season_number":1,"episode_number":1,"name":"测试单集"}`)
 				}
 			}))
 			defer server.Close()
 			cfg := &config.Config{Secrets: config.SecretsConfig{TMDbAPIKey: "test-key", TMDbAPIProxy: server.URL}}
 			s := NewScraperService(cfg, zap.NewNop(), repos, NewTMDbProvider(cfg, zap.NewNop(), nil), nil, nil, nil, nil)
 			target := episode
-			if mode == "season" {
+			if isSeason {
 				target = season
 			}
 			err := s.RefreshMetadataTMDb(t.Context(), target.ID)
@@ -249,12 +267,22 @@ func TestRefreshMetadataTMDbClearsNotFound(t *testing.T) {
 			if (err != nil) != failed {
 				t.Fatalf("refresh err=%v, want failure=%v", err, failed)
 			}
+			if !failed {
+				wantID := 40
+				if isSeason {
+					wantID = 30
+				}
+				if id, err := s.metadataTMDbRefreshID(t.Context(), target); err != nil || id != wantID {
+					t.Fatalf("refreshed identifier = %d, err=%v, want %d", id, err, wantID)
+				}
+				assertServiceTestTMDbSnapshot(t, repos, target.ID)
+			}
 			for _, item := range []*model.MetadataItem{season, episode, missing} {
 				var job model.TMDbRecheckJob
 				if err := db.First(&job, "metadata_id=?", item.ID).Error; err != nil {
 					t.Fatal(err)
 				}
-				found := !failed && (item.ID == episode.ID || mode == "season" && item.ID == season.ID)
+				found := !failed && (item.ID == episode.ID || isSeason && item.ID == season.ID)
 				if found {
 					if job.Status != "pending" || job.LastError != "" || job.NotFoundIdentity != "" || job.Attempts != 0 || job.LeaseToken != "" || job.LeaseUntil != nil || job.DueAt == nil || job.DueAt.After(time.Now()) {
 						t.Fatalf("found target retains old failure: %+v", job)
@@ -276,6 +304,28 @@ func TestRefreshMetadataTMDbClearsNotFound(t *testing.T) {
 	}
 }
 
+func TestValidTMDbRefreshPosition(t *testing.T) {
+	for _, test := range []struct {
+		payload         string
+		season, episode int
+		valid           bool
+	}{
+		{`{"season_number":0}`, 0, 0, true},
+		{`{"season_number":0,"episode_number":1}`, 0, 1, true},
+		{`{"season_number":1,"episode_number":2}`, 1, 2, true},
+		{`{"season_number":2,"episode_number":2}`, 1, 2, false},
+		{`{"season_number":1,"episode_number":3}`, 1, 2, false},
+		{`{"season_number":1}`, 1, 2, false},
+		{`{"episode_number":1}`, 0, 1, false},
+		{`{"season_number":null}`, 0, 0, false},
+		{`invalid`, 0, 0, false},
+	} {
+		if got := validTMDbRefreshPosition([]byte(test.payload), test.season, test.episode); got != test.valid {
+			t.Errorf("position %s for S%dE%d = %v, want %v", test.payload, test.season, test.episode, got, test.valid)
+		}
+	}
+}
+
 func TestMergeTMDbMetadataPreservesMissingFields(t *testing.T) {
 	item := &model.MetadataItem{
 		Title: "旧标题", OriginalName: "Old Original", Overview: "旧简介", Rating: 7.5,
@@ -292,7 +342,7 @@ func TestMergeTMDbMetadataPreservesMissingFields(t *testing.T) {
 }
 
 func TestDiscoverTMDbRefreshCooldown(t *testing.T) {
-	db := newServiceTestDB(t, &model.MetadataProviderSnapshot{})
+	db := newServiceTestDB(t, &model.MetadataProviderSnapshot{}, &model.Person{}, &model.PersonIdentifier{}, &model.MetadataCredit{})
 	repos := repository.New(db)
 	item := createServiceTestMetadata(t, db, model.MetadataItem{Kind: "movie", Title: "原资料", Source: "tmdb"}, model.MetadataIdentifier{Provider: "tmdb", EntityKind: "movie", ExternalID: "10"})
 	requests := 0

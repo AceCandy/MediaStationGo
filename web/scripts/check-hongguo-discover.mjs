@@ -24,7 +24,7 @@ const items = Array.from({ length: 18 }, (_, i) => ({
   id: `work-${i}`, source_id: `${90001 + i}`, title: titles[i % titles.length], kind: 'series',
   source_category: 'real-drama',
   artwork_id: i === 2 ? '' : `poster-${i}`, tags: ['都市', '成长', '家庭'],
-  update_text: `全${60 + i}集`, episode_count: 60 + i, rating: 8.5, hydrated: i !== 0,
+  update_text: `全${260 + i}集`, episode_count: 260 + i, rating: 8.5, hydrated: i !== 0,
   downloaded: i === 0 || i === 1,
 }))
 
@@ -118,10 +118,11 @@ try {
 
   for (const theme of ['dark', 'light']) {
     evaluate(`document.documentElement.dataset.theme=${JSON.stringify(theme)}`)
-    for (const width of [390, 768, 1024, 1280, 1440]) {
+    for (const width of [320, 390, 480, 640, 768, 1024, 1280, 1440]) {
       browser('set', 'viewport', String(width), '900')
       assert.ok(evaluate('document.documentElement.scrollWidth <= innerWidth'), `${theme}/${width} overflow`)
       assert.ok(evaluate(`[...document.querySelectorAll('[data-hongguo-downloaded]')].every(b => { const a=b.previousElementSibling; if (!a) return true; const x=a.getBoundingClientRect(), y=b.getBoundingClientRect(); return x.right<=y.left || x.bottom<=y.top || y.bottom<=x.top; })`), `${theme}/${width} badge overlap`)
+      assert.ok(evaluate(`[...document.querySelectorAll('[data-hongguo-downloaded]')].every(b => { const rating=b.parentElement.querySelector('.left-2.top-2'); const label=b.closest('button').parentElement.querySelector('[data-hongguo-episode-label]'); const x=b.getBoundingClientRect(), y=label.getBoundingClientRect(); return Math.abs(x.left-rating.getBoundingClientRect().left)<1 && Math.abs(x.bottom-y.bottom)<1 && x.right<=y.left; })`), `${theme}/${width} downloaded badge must align left with rating and bottom with episode count without overlap`)
       if (process.env.DISCOVER_SCREENSHOT_DIR) browser('screenshot', `${process.env.DISCOVER_SCREENSHOT_DIR}/${theme}-${width}.png`)
     }
   }

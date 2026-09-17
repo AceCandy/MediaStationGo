@@ -26,10 +26,7 @@ func (s *ScraperService) RefreshMetadataTMDb(ctx context.Context, metadataID str
 	if item == nil {
 		return ErrMediaNotFound
 	}
-	tmdbID, err := s.metadataTMDbRefreshID(ctx, item)
-	if err != nil {
-		return err
-	}
+	var tmdbID int
 	var payload []byte
 	var credits []PersonCredit
 	var loaded []string
@@ -37,6 +34,10 @@ func (s *ScraperService) RefreshMetadataTMDb(ctx context.Context, metadataID str
 	artwork := map[string]string{}
 	switch item.Kind {
 	case model.MetadataKindMovie, model.MetadataKindSeries:
+		tmdbID, err = s.metadataTMDbRefreshID(ctx, item)
+		if err != nil {
+			return err
+		}
 		var match *Match
 		if item.Kind == model.MetadataKindMovie {
 			match, err = s.tmdb.GetMovieMatch(ctx, tmdbID)
@@ -63,7 +64,7 @@ func (s *ScraperService) RefreshMetadataTMDb(ctx context.Context, metadataID str
 				return err
 			}
 		}
-		if season == nil || season.Kind != model.MetadataKindSeason || season.ParentID == nil {
+		if season == nil || season.Kind != model.MetadataKindSeason || season.ParentID == nil || season.SeasonNum < 0 || (item.Kind == model.MetadataKindEpisode && item.EpisodeNum <= 0) {
 			return ErrTMDbRefreshIdentity
 		}
 		series, err := s.repo.Metadata.FindByID(ctx, *season.ParentID)
@@ -82,9 +83,10 @@ func (s *ScraperService) RefreshMetadataTMDb(ctx context.Context, metadataID str
 			if err != nil {
 				return err
 			}
-			if details == nil || details.ID != tmdbID {
+			if details == nil || details.ID <= 0 || !validTMDbRefreshPosition(details.RawJSON, season.SeasonNum, 0) {
 				return ErrTMDbRefreshIdentity
 			}
+			tmdbID = details.ID
 			next = catalogSeasonItem(series.ID, details)
 			payload, credits, loaded = details.RawJSON, details.Credits, details.LoadedCreditTypes
 			artwork[model.ArtworkTypePoster] = details.PosterURL
@@ -96,9 +98,10 @@ func (s *ScraperService) RefreshMetadataTMDb(ctx context.Context, metadataID str
 			if err != nil {
 				return err
 			}
-			if details == nil || details.ID != tmdbID {
+			if details == nil || details.ID <= 0 || !validTMDbRefreshPosition(details.RawJSON, season.SeasonNum, item.EpisodeNum) {
 				return ErrTMDbRefreshIdentity
 			}
+			tmdbID = details.ID
 			next = &model.MetadataItem{Title: details.Name, Overview: details.Overview, Rating: details.Rating,
 				RuntimeSec: details.Runtime * 60, ReleaseDate: details.AirDate, Year: details.AirYear}
 			payload, credits, loaded = details.RawJSON, details.Credits, details.LoadedCreditTypes
@@ -134,13 +137,25 @@ func (s *ScraperService) RefreshMetadataTMDb(ctx context.Context, metadataID str
 			return err
 		}
 	}
-	if err := s.repo.Metadata.UpsertProviderSnapshot(ctx, item.ID, "tmdb", payload, time.Now().UTC()); err != nil {
-		return err
-	}
 	if item.Kind == model.MetadataKindSeason || item.Kind == model.MetadataKindEpisode {
+		if err := s.repo.Metadata.ReplaceIdentifierWithSnapshot(ctx, item.ID, "tmdb", item.Kind, strconv.Itoa(tmdbID), payload, time.Now().UTC()); err != nil {
+			return err
+		}
 		return s.repo.Metadata.ConfirmTMDbRecheckFound(ctx, item.ID)
 	}
-	return nil
+	return s.repo.Metadata.UpsertProviderSnapshot(ctx, item.ID, "tmdb", payload, time.Now().UTC())
+}
+
+// validTMDbRefreshPosition 校验响应的季集坐标；缺少季号不能误判为特别篇第 0 季。
+func validTMDbRefreshPosition(payload []byte, season, episode int) bool {
+	var position struct {
+		Season  *int `json:"season_number"`
+		Episode *int `json:"episode_number"`
+	}
+	if err := json.Unmarshal(payload, &position); err != nil || position.Season == nil || *position.Season != season {
+		return false
+	}
+	return episode == 0 || position.Episode != nil && *position.Episode == episode
 }
 
 // refreshSeasonEpisodesFromDetails 将季接口内的集摘要同步到已有本地单集。

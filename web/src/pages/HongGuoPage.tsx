@@ -201,7 +201,7 @@ function HongGuoContent({ sourceID, keyword, section, sourceCategory, category, 
     {remoteError && <p role="alert" className="text-sm text-red-500">官网搜索失败，已保留本地结果。<button className="btn-outline ml-2" onClick={() => setRemoteRetry((value) => value + 1)}>重试官网搜索</button></p>}
     {error && <p role="alert" className="text-sm text-red-500">{keyword ? '本地资料加载失败，已保留现有结果。' : '资料加载失败，已保留现有结果。'}<button className="btn-outline ml-2" onClick={() => setLocalRetry((value) => value + 1)}>重试加载</button></p>}
     {(loading || remoteLoading) && visibleRows.length === 0 ? <p role="status">加载红果资料中…</p> : <>
-      <div className="grid grid-cols-3 gap-4 sm:grid-cols-4 md:grid-cols-5">{visibleRows.map((work) => <HongGuoPosterCard key={`${work.source_id}:${revision}`} work={work} showSourceCategory={Boolean(keyword) || !sourceCategory} selecting={admin && selecting} selected={selected.some((item) => item.source_id === work.source_id)} disabled={admin && selecting && (batchBusy || !work.hydrated)} onOpen={() => {
+      <div className="grid grid-cols-2 gap-4 min-[480px]:grid-cols-3 sm:grid-cols-4 md:grid-cols-5">{visibleRows.map((work) => <HongGuoPosterCard key={`${work.source_id}:${revision}`} work={work} showSourceCategory={Boolean(keyword) || !sourceCategory} selecting={admin && selecting} selected={selected.some((item) => item.source_id === work.source_id)} disabled={admin && selecting && (batchBusy || !work.hydrated)} onOpen={() => {
         if (!admin || !selecting) { navigate({ id: work.source_id, media_page: '' }); return }
         setSelected((current) => current.some((item) => item.source_id === work.source_id) ? current.filter((item) => item.source_id !== work.source_id) : [...current, work])
       }} />)}</div>
@@ -226,11 +226,11 @@ function HongGuoPosterCard({ work, showSourceCategory, onOpen, selecting = false
       <div className="absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-black/80 to-transparent" />
       {!work.hydrated ? <span className="absolute left-2 top-2 rounded-md bg-black/55 px-2 py-1 text-xs font-semibold text-white backdrop-blur">待补齐</span> : work.rating > 0 && <span className="absolute left-2 top-2 rounded-md bg-black/55 px-2 py-1 text-xs font-semibold text-gold-300 backdrop-blur">{work.rating.toFixed(1)}</span>}
       {selecting && <span aria-hidden="true" className={`absolute right-2 top-2 flex h-6 w-6 items-center justify-center rounded-full border text-white ${selected ? 'border-brand-500 bg-brand-500' : 'border-white bg-black/55'}`}>{selected ? '✓' : ''}</span>}
-      {work.downloaded && <span data-hongguo-downloaded className="absolute right-2 top-10 rounded-md bg-emerald-700/90 px-2 py-1 text-xs font-semibold text-white backdrop-blur" title="存在已完成的分集下载记录，不代表全剧下载完成、文件仍在或已入库">↓ 已下载</span>}
+      {work.downloaded && <span data-hongguo-downloaded className="absolute bottom-3 left-2 rounded-md bg-emerald-700/90 px-1 py-1 text-[10px] font-semibold text-white backdrop-blur xl:px-2 xl:text-xs" title="存在已完成的分集下载记录，不代表全剧下载完成、文件仍在或已入库">↓ 已下载</span>}
     </div>
     <h2 className="mt-3 truncate text-sm font-semibold text-ink-600 transition-colors group-hover:text-brand-500" title={work.title}>{work.title}</h2>
     <p className="mt-1 truncate text-xs text-ink-50">{[showSourceCategory && hongGuoSourceCategories.find((item) => item.value === work.source_category)?.label, ...(work.tags ?? []).slice(0, 2)].filter(Boolean).join(' · ') || (work.hydrated ? work.kind === 'movie' ? '电影' : '剧集' : '待补齐')}</p>
-  </button><div className="pointer-events-none absolute inset-x-0 top-0 flex aspect-[2/3] items-end justify-end px-3 pb-3"><div className="flex min-w-0 items-center gap-1 text-xs font-medium text-white drop-shadow">
+  </button><div className="pointer-events-none absolute inset-x-0 top-0 flex aspect-[2/3] items-end justify-end px-3 pb-3"><div className={`flex min-w-0 items-center gap-1 font-medium text-white drop-shadow ${work.downloaded ? 'text-[10px] xl:text-xs' : 'text-xs'}`}>
     {work.group_id && <HongGuoGroupBadge key={work.group_id} groupID={work.group_id} sourceID={work.source_id} />}
     <span data-hongguo-episode-label className="min-w-0 truncate text-right" title={work.update_text || (work.episode_count > 0 ? `已更新 ${work.episode_count} 集` : '集数未知')}>{work.update_text || (work.episode_count > 0 ? `已更新 ${work.episode_count} 集` : '集数未知')}</span>
   </div></div></div>

@@ -56,7 +56,7 @@ try {
   waitFor(`!document.querySelector('[role="dialog"]')`)
   assert.ok(!evaluate(`window.searchRequests.some(url=>url.includes('/search?') || url.includes('/works?'))`))
   click('多选'); click('选择匹配作品0')
-  assert.ok(evaluate(`document.querySelector('[aria-label="选择匹配作品0"] [data-hongguo-downloaded]').classList.contains('top-10')`))
+  assert.ok(evaluate(`document.querySelector('[aria-label="选择匹配作品0"] [data-hongguo-downloaded]').classList.contains('bottom-3')`))
   browser('scrollintoview', '[data-testid="hongguo-load-more"]')
   waitFor(`document.body.innerText.includes('本地资料加载失败')`)
   assert.ok(evaluate(`document.body.innerText.includes('已选 1 部') && document.body.innerText.includes('已显示 58 部')`))
