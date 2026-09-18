@@ -151,6 +151,11 @@ export type ImageURLOptions =
   | {
       refreshCache?: boolean
       retryFailed?: boolean
+      maxWidth?: number
+      maxHeight?: number
+      quality?: number
+      format?: 'webp' | 'jpeg' | 'png'
+      original?: boolean
     }
 
 export function imageURL(remote?: string, version?: string, options: ImageURLOptions = false): string {
@@ -160,15 +165,26 @@ export function imageURL(remote?: string, version?: string, options: ImageURLOpt
   const refreshCache = typeof options === 'boolean' ? false : Boolean(options.refreshCache)
   const retryQuery = retryFailed ? 'retry=1' : ''
   const refreshQuery = refreshCache ? 'refresh=1' : ''
-  const imageQuery = [versionQuery, retryQuery, refreshQuery].filter(Boolean).join('&')
-  if (remote.startsWith('/api/img')) return withQuery(withoutAuthQuery(remote), imageQuery)
-  if (remote.startsWith('/api/')) return withQuery(withQuery(remote, tokenQuery()), imageQuery)
+  const sizing = typeof options === 'boolean' ? {} : options
+  const variantQuery = sizing.original ? '' : new URLSearchParams({
+    maxWidth: String(sizing.maxWidth ?? 640),
+    ...(sizing.maxHeight ? { maxHeight: String(sizing.maxHeight) } : {}),
+    quality: String(sizing.quality ?? 80),
+    format: sizing.format ?? 'webp',
+  }).toString()
+  const imageQuery = [versionQuery, retryQuery, refreshQuery, variantQuery].filter(Boolean).join('&')
+  // 同源图片由 HttpOnly Cookie 鉴权，避免令牌刷新改变图片缓存地址。
+  if (remote.startsWith('/api/')) return withQuery(withoutAuthQuery(remote), imageQuery)
   return withQuery(`/api/img?url=${encodeURIComponent(remote)}`, imageQuery)
 }
 
 function withQuery(url: string, query: string): string {
   if (!query) return url
-  return `${url}${url.includes('?') ? '&' : '?'}${query}`
+  const [beforeHash, hash] = url.split('#', 2)
+  const [path, existing] = beforeHash.split('?', 2)
+  const params = new URLSearchParams(existing)
+  new URLSearchParams(query).forEach((value, key) => params.set(key, value))
+  return `${path}?${params.toString()}${hash ? `#${hash}` : ''}`
 }
 
 function withoutAuthQuery(url: string): string {
@@ -180,7 +196,8 @@ function withoutAuthQuery(url: string): string {
 
   const path = beforeHash.slice(0, queryIndex)
   const params = new URLSearchParams(beforeHash.slice(queryIndex + 1))
-  ;['token', 'api_key', 'apiKey', 'ApiKey'].forEach((key) => params.delete(key))
+  const remove = new Set(['token', 'api_key', 'apikey', 'width', 'height', 'maxwidth', 'maxheight', 'fillwidth', 'fillheight', 'quality', 'format'])
+  for (const key of [...params.keys()]) if (remove.has(key.toLowerCase())) params.delete(key)
   const query = params.toString()
   return `${path}${query ? `?${query}` : ''}${hash}`
 }

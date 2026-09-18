@@ -60,7 +60,7 @@ export function HomeFeaturedSection({
         <div className="theme-hero-bg h-full w-full" />
         {featuredVisual && (
           <img
-            src={imageURL(featuredVisual, featuredItem.updated_at)}
+            src={imageURL(featuredVisual, featuredItem.updated_at, { maxWidth: 1920 })}
             alt=""
             className="absolute inset-0 h-full w-full scale-105 object-cover object-[center_20%] opacity-80"
             referrerPolicy="no-referrer"

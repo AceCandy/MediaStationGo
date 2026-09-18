@@ -11,13 +11,14 @@ import (
 
 // MediaService offers high-level CRUD over libraries and media items.
 type MediaService struct {
-	cfg     *config.Config
-	log     *zap.Logger
-	repo    *repository.Container
-	cache   *RuntimeCacheService
-	artwork *ArtworkStore
-	probe   *MediaProbeService
-	tmdb    *TMDbProvider
+	cfg      *config.Config
+	log      *zap.Logger
+	repo     *repository.Container
+	cache    *RuntimeCacheService
+	artwork  *ArtworkStore
+	variants *imageVariants
+	probe    *MediaProbeService
+	tmdb     *TMDbProvider
 }
 
 type MediaVisibility struct {

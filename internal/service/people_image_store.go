@@ -158,7 +158,7 @@ func (s *PeopleImageStore) ServePerson(ctx context.Context, w http.ResponseWrite
 		return true, ErrPeopleImageNotFound
 	}
 	path, err := storedImagePath(s.root, key)
-	if err != nil || !serveImageFile(w, r, key, path, imageBrowserCacheControl) {
+	if err != nil || !s.imageProxy.serveImageFile(w, r, key, path, imageBrowserCacheControl) {
 		return true, ErrPeopleImageNotFound
 	}
 	return true, nil

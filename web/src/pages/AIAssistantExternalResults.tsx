@@ -35,6 +35,8 @@ export function AIAssistantExternalResults({ items }: AIAssistantExternalResults
                     <img
                       src={imageURL(item.poster_url)}
                       alt={item.title}
+                      loading="lazy"
+                      decoding="async"
                       className="h-full w-full object-cover"
                     />
                   ) : null}

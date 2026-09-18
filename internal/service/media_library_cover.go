@@ -65,14 +65,11 @@ func (s *MediaService) SaveLibraryCover(ctx context.Context, libraryID string, s
 
 // ServeLibraryCover 返回媒体库当前使用的本地上传封面。
 func (s *MediaService) ServeLibraryCover(ctx context.Context, w http.ResponseWriter, r *http.Request, libraryID string) error {
-	lib, err := s.repo.Library.FindByID(ctx, libraryID)
+	coverURL, err := s.repo.Library.FindCoverURL(ctx, libraryID)
 	if err != nil {
 		return err
 	}
-	if lib == nil {
-		return ErrLibraryCoverNotFound
-	}
-	version, ok := libraryCoverVersion(lib.CoverURL, libraryID)
+	version, ok := libraryCoverVersion(coverURL, libraryID)
 	if !ok {
 		return ErrLibraryCoverNotFound
 	}
@@ -80,7 +77,7 @@ func (s *MediaService) ServeLibraryCover(ctx context.Context, w http.ResponseWri
 	if err != nil {
 		return err
 	}
-	if !serveImageFile(w, r, libraryID, path, imageBrowserCacheControl) {
+	if !s.variants.serveFile(w, r, libraryID, path, imageBrowserCacheControl) {
 		return ErrLibraryCoverNotFound
 	}
 	return nil

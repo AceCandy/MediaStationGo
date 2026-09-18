@@ -60,7 +60,7 @@ export function DiscoverDetailModal({ item, onClose }: { item: DiscoverItem; onC
     <ModalShell onClose={onClose} maxWidth="max-w-5xl" className="max-h-[92vh] overflow-y-auto" ariaLabel={display.title}>
       <div className="relative isolate min-h-full p-5 sm:p-6">
         {display.backdrop_url && <div aria-hidden="true" data-discover-backdrop className="pointer-events-none absolute inset-0 -z-10 overflow-hidden">
-          <img src={imageURL(display.backdrop_url)} alt="" className="absolute inset-x-0 top-0 h-[min(36rem,100%)] w-full object-cover opacity-40" />
+          <img src={imageURL(display.backdrop_url, undefined, { maxWidth: 1920 })} alt="" className="absolute inset-x-0 top-0 h-[min(36rem,100%)] w-full object-cover opacity-40" />
           <div className="absolute inset-0" style={{ background: 'linear-gradient(to bottom, color-mix(in srgb, var(--app-panel) 35%, transparent), var(--app-panel) min(34rem, 75%))' }} />
         </div>}
       <DiscoverModalHeader item={display} source={source} onClose={onClose} />

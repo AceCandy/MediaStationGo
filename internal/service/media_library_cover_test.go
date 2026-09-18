@@ -3,12 +3,14 @@ package service
 import (
 	"bytes"
 	"errors"
+	"log"
 	"net/http/httptest"
 	"os"
 	"strings"
 	"testing"
 
 	"go.uber.org/zap"
+	"gorm.io/gorm/logger"
 
 	"github.com/ShukeBta/MediaStationGo/internal/config"
 	"github.com/ShukeBta/MediaStationGo/internal/model"
@@ -51,8 +53,15 @@ func TestLibraryCoverUploadServeAndClear(t *testing.T) {
 	}
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest("GET", libraryCoverURL(lib.ID), nil)
+	var queries bytes.Buffer
+	originalLogger := db.Logger
+	db.Logger = logger.New(log.New(&queries, "", 0), logger.Config{LogLevel: logger.Info})
 	if err := svc.ServeLibraryCover(t.Context(), recorder, request, lib.ID); err != nil {
 		t.Fatal(err)
+	}
+	db.Logger = originalLogger
+	if sql := queries.String(); strings.Count(sql, "SELECT") != 1 || strings.Contains(sql, "library_roots") || !strings.Contains(sql, "cover_url") {
+		t.Fatalf("cover should only select its URL: %s", sql)
 	}
 	if recorder.Code != 200 || recorder.Header().Get("Content-Type") != "image/png" {
 		t.Fatalf("served cover: status=%d type=%q", recorder.Code, recorder.Header().Get("Content-Type"))
@@ -66,5 +75,10 @@ func TestLibraryCoverUploadServeAndClear(t *testing.T) {
 	}
 	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("cleared cover file error = %v", err)
+	}
+	for _, id := range []string{lib.ID, "00000000-0000-0000-0000-000000000000"} {
+		if err := svc.ServeLibraryCover(t.Context(), httptest.NewRecorder(), request, id); !errors.Is(err, ErrLibraryCoverNotFound) {
+			t.Fatalf("missing cover error = %v", err)
+		}
 	}
 }

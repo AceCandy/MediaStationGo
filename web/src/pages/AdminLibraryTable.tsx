@@ -104,6 +104,8 @@ function LibraryGridCard({
           <img
             src={imageURL(library.cover_url)}
             alt=""
+            loading="lazy"
+            decoding="async"
             className="h-full w-full object-cover object-center transition duration-300 group-hover:scale-105"
           />
         ) : (

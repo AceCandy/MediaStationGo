@@ -36,7 +36,7 @@ export function ExternalResults({ items }: { items: ExternalMediaResult[] }) {
             >
               <div className="h-28 w-20 shrink-0 overflow-hidden rounded-xl bg-gray-100">
                 {item.poster_url ? (
-                  <img src={imageURL(item.poster_url)} alt={item.title} className="h-full w-full object-cover" />
+                  <img src={imageURL(item.poster_url)} alt={item.title} loading="lazy" decoding="async" className="h-full w-full object-cover" />
                 ) : null}
               </div>
               <div className="min-w-0 flex-1">

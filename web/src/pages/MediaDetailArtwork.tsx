@@ -13,7 +13,7 @@ type MediaDetailArtworkProps = {
 // MediaDetailBackdrop 影院式背景：backdrop 大图 + 按主色染色的环境光晕 + 可读性遮罩。
 export function MediaDetailBackdrop({ media }: MediaDetailArtworkProps) {
   const backdropSrc = media.backdrop_url || media.poster_url
-    ? imageURL(media.backdrop_url || media.poster_url || '', media.updated_at)
+    ? imageURL(media.backdrop_url || media.poster_url || '', media.updated_at, { maxWidth: 1920 })
     : ''
   const ambient = useDominantColor(backdropSrc || null)
 

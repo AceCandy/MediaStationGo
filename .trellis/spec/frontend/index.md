@@ -12,6 +12,7 @@
 | [Discover Feed Loading Contract](./discover-feed-loading.md) | Discover batching, cancellation, cache refresh, and stable poster URLs | Active |
 | [Cinema Design System](./design-system.md) | Brand palette, theme tokens, motion language, and component primitives | Active |
 | [Emby API Catalog Synchronization](../backend/emby-api-catalog-sync.md) | Cross-layer synchronization contract for the static administrator catalog | Active |
+| [Parameterized Image Delivery](../backend/image-variants.md) | Stable Cookie-authenticated image URLs, sizing and browser cache identity | Active |
 
 ---
 

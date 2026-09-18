@@ -79,6 +79,16 @@ func (r *LibraryRepository) FindByID(ctx context.Context, id string) (*model.Lib
 	return &l, nil
 }
 
+// FindCoverURL 只读取当前封面地址，不加载媒体库目录；不存在时返回空字符串。
+func (r *LibraryRepository) FindCoverURL(ctx context.Context, id string) (string, error) {
+	var l model.Library
+	err := r.db.WithContext(ctx).Select("cover_url").Where("id = ?", id).First(&l).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return "", nil
+	}
+	return l.CoverURL, err
+}
+
 // Delete removes a library and (soft) cascades to its media via repository
 // callers; we do not run CASCADE here to keep this method narrow.
 func (r *LibraryRepository) Delete(ctx context.Context, id string) error {

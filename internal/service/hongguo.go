@@ -534,7 +534,7 @@ func (s *HongGuoService) ServeArtwork(ctx context.Context, w http.ResponseWriter
 		return err
 	}
 	path, err := storedImagePath(s.imageRoot, row.LocalKey)
-	if err != nil || !serveImageFile(w, r, row.LocalKey, path, imageBrowserCacheControl) {
+	if err != nil || !s.images.serveImageFile(w, r, row.LocalKey, path, imageBrowserCacheControl) {
 		if scheduleErr := s.repo.HongGuo.ScheduleMissingArtwork(ctx, row.ID); scheduleErr != nil {
 			return scheduleErr
 		}

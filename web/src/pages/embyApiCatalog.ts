@@ -636,8 +636,16 @@ export const EMBY_API_ENDPOINTS: readonly EmbyApiEndpoint[] = [
       { name: 'id', location: 'path', type: 'string', required: true, description: '媒体库、媒体项或人物 ID。' },
       { name: 'type', location: 'path', type: 'string', required: true, description: 'Primary、Backdrop 等图片类型。' },
       { name: 'index', location: 'path', type: 'number', description: '多图类型的索引。' },
+      { name: 'width / height / maxWidth / maxHeight', location: 'query', type: 'number', description: '1–4096；按比例缩小至宽高范围内，不放大。参数名不区分大小写。' },
+      { name: 'fillWidth / fillHeight', location: 'query', type: 'number', description: '1–4096，必须同时提供；居中按比例裁剪，不放大。' },
+      { name: 'quality', location: 'query', type: 'number', description: '1–100，默认 80；PNG 为无损编码。' },
+      { name: 'format', location: 'query', type: 'string', description: 'webp（默认）、jpeg/jpg、png；无任何处理参数返回原图。有处理参数时每边最多 4096。' },
     ],
-    responses: [{ status: '200', contentType: 'image/*', description: '返回实际图片；图片不可用时返回缓存一小时的占位 PNG。HEAD 仅返回响应头。' }],
+    responses: [
+      { status: '200', contentType: 'image/*', description: '返回原图或磁盘缓存变体；GIF、动图和处理失败回退原图且不缓存。图片不可用时返回缓存一小时的占位 PNG。HEAD 仅返回响应头（不含 index 的路由）。' },
+      { status: '304', contentType: '无正文', description: '图片未变更，条件请求不返回正文。' },
+      { status: '400', contentType: 'text/plain; charset=utf-8', description: '找到图片但处理参数非法、重复或格式不支持。' },
+    ],
   },
   {
     id: 'playback-info-get',

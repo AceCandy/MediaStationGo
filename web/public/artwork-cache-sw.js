@@ -102,7 +102,10 @@ async function deleteOldArtworkVariants(cache, currentRequest) {
 
 function artworkIdentity(url) {
   if (url.pathname === '/api/img') {
-    return `${url.origin}${url.pathname}?url=${url.searchParams.get('url') || ''}`
+    const identity = new URL(url)
+    for (const key of [...STRIP_QUERY_KEYS, 'v', 'retry', 'refresh']) identity.searchParams.delete(key)
+    identity.searchParams.sort()
+    return identity.toString()
   }
   return ''
 }

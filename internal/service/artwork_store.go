@@ -263,7 +263,7 @@ func (s *ArtworkStore) Serve(ctx context.Context, w http.ResponseWriter, r *http
 	if err != nil {
 		return ErrArtworkNotFound
 	}
-	if !serveImageFile(w, r, asset.ID, path, imageBrowserCacheControl) {
+	if !s.imageProxy.serveImageFile(w, r, asset.ID, path, imageBrowserCacheControl) {
 		return ErrArtworkNotFound
 	}
 	return nil

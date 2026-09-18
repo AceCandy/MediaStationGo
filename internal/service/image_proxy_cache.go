@@ -83,10 +83,6 @@ func (p *ImageProxy) remoteImageCachePathsForValidated(raw string) (string, stri
 	return key, cachePath, cachePath + ".fail"
 }
 
-func serveCachedImageFile(w http.ResponseWriter, r *http.Request, key, cachePath string) bool {
-	return serveImageFile(w, r, key, cachePath, imageBrowserCacheControl)
-}
-
 func serveImageFile(w http.ResponseWriter, r *http.Request, key, path, cacheControl string) bool {
 	file, err := os.Open(path) // #nosec G304 -- caller only passes validated local paths or SHA-derived cache paths.
 	if err != nil {

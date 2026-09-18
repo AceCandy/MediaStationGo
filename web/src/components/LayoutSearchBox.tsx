@@ -136,6 +136,8 @@ function SearchResultItem({ card, onClick }: { card: SeriesCard; onClick: () => 
           <img
             src={imageURL(card.rep.poster_url, card.rep.updated_at)}
             alt={card.rep.title}
+            loading="lazy"
+            decoding="async"
             className="h-full w-full object-cover"
           />
         ) : (

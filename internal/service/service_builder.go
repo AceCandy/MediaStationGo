@@ -165,6 +165,7 @@ func (b *serviceContainerBuilder) initImageProxy() {
 	b.c.Artwork = NewArtworkStore(b.cfg, b.repos.Artwork, b.c.ImageProxy)
 	b.c.PeopleImages = NewPeopleImageStore(b.cfg, b.repos.Person, b.c.ImageProxy)
 	b.c.Media.SetArtworkStore(b.c.Artwork)
+	b.c.Media.variants = b.c.ImageProxy.variants
 	b.c.Scan.SetImageProxy(b.c.ImageProxy)
 	b.c.Scraper.SetImageProxy(b.c.ImageProxy)
 	b.c.Scraper.SetArtworkStore(b.c.Artwork)

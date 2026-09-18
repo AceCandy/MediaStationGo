@@ -29,6 +29,7 @@ type ImageProxy struct {
 	log       *zap.Logger
 	client    *http.Client
 	cacheDir  string
+	variants  *imageVariants
 	mu        sync.Mutex
 	apiConfig *APIConfigService
 	fetchMu   sync.Mutex
@@ -60,6 +61,7 @@ func NewImageProxy(cfg *config.Config, log *zap.Logger) *ImageProxy {
 		cfg:      cfg,
 		log:      log,
 		cacheDir: filepath.Join(cfg.Cache.CacheDir, "images"),
+		variants: newImageVariants(cfg.Cache.CacheDir),
 		client:   &http.Client{Timeout: 30 * time.Second, Transport: transport},
 	}
 }
