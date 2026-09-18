@@ -157,7 +157,7 @@ func (e *EmbyService) RecordProgress(ctx context.Context, userID, itemID, mediaS
 	if err := validatePlaybackProgress(pos, dur); err != nil {
 		return err
 	}
-	if !shouldRecordPlaybackProgress(pos) {
+	if !shouldRecordPlaybackProgress(pos, dur) {
 		return nil
 	}
 	history := &model.PlaybackHistory{

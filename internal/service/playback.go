@@ -67,7 +67,10 @@ func playbackCompleted(position, duration int64) bool {
 	return position >= duration*9/10
 }
 
-func shouldRecordPlaybackProgress(position int64) bool {
+func shouldRecordPlaybackProgress(position, duration int64) bool {
+	if duration > shortPlaybackDurationMs {
+		return position >= 60_000
+	}
 	return position >= playbackRecordThresholdMs
 }
 
@@ -79,7 +82,7 @@ func (p *PlaybackService) RecordProgress(ctx context.Context, userID, mediaID, s
 	if err := validatePlaybackProgress(position, duration); err != nil {
 		return err
 	}
-	if !shouldRecordPlaybackProgress(position) {
+	if !shouldRecordPlaybackProgress(position, duration) {
 		return nil
 	}
 	filter := repository.MediaQueryFilter{

@@ -33,10 +33,26 @@ func TestPlaybackProgressRules(t *testing.T) {
 }
 
 func TestPlaybackProgressRecordingThreshold(t *testing.T) {
-	if shouldRecordPlaybackProgress(19_999) {
-		t.Fatal("progress before 20 seconds must be ignored")
+	tests := []struct {
+		name     string
+		position int64
+		duration int64
+		want     bool
+	}{
+		{name: "short before threshold", position: 19_999, duration: 599_999},
+		{name: "short at threshold", position: 20_000, duration: 599_999, want: true},
+		{name: "ten minutes before threshold", position: 19_999, duration: 600_000},
+		{name: "ten minutes at threshold", position: 20_000, duration: 600_000, want: true},
+		{name: "long at old threshold", position: 20_000, duration: 600_001},
+		{name: "long before threshold", position: 59_999, duration: 600_001},
+		{name: "long at threshold", position: 60_000, duration: 600_001, want: true},
+		{name: "long after threshold", position: 60_001, duration: 600_001, want: true},
 	}
-	if !shouldRecordPlaybackProgress(20_000) {
-		t.Fatal("progress at 20 seconds must be recorded")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := shouldRecordPlaybackProgress(tt.position, tt.duration); got != tt.want {
+				t.Fatalf("shouldRecordPlaybackProgress(%d, %d) = %v, want %v", tt.position, tt.duration, got, tt.want)
+			}
+		})
 	}
 }

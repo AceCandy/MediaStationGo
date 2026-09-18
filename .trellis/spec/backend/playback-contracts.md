@@ -37,9 +37,10 @@ per-user, per-metadata history state but playback events are append-only.
   and favorite-metadata visibility before selecting one file per favorite.
 - The service, not a request `completed` field, calculates completion:
   duration below ten minutes uses `duration - 30s`; otherwise use 90%.
-- Automatic progress below 20 seconds is ignored. At 20 seconds or later it
-  updates history; a non-empty session ID also creates one event in the same
-  transaction.
+- Automatic progress requires a position of at least 60 seconds when duration
+  exceeds ten minutes, or 20 seconds otherwise (including exactly ten minutes).
+  Earlier positions are ignored; eligible updates save history and a non-empty
+  session ID also creates one event in the same transaction.
 - Full history remains Episode-grained. Continue-watching reads group visible,
   incomplete Episodes by canonical Series before pagination and retain the most
   recently watched Episode; Movies and items without a Series group by their own
@@ -92,7 +93,7 @@ per-user, per-metadata history state but playback events are append-only.
 | Favorite mutation targets Season/Episode | `400`; no favorite row or parent favorite is written |
 | Invalid progress bounds | Request is rejected; no history or event is written |
 | `MediaSourceId` belongs to another `ItemId` | Ignore the mismatched source and retain generic item resolution |
-| Position below 20 seconds | Successful no-op for automatic progress |
+| Position below 60 seconds for duration > ten minutes, or below 20 seconds otherwise | Successful no-op for automatic progress |
 | Several incomplete Episodes belong to one visible Series | Continue watching returns only the most recently watched Episode; full history keeps every Episode |
 | Invisible media | Request is rejected; no history or event is written |
 | Non-admin explicit different user ID | `403` |
@@ -105,7 +106,7 @@ per-user, per-metadata history state but playback events are append-only.
 
 - Good: a Series favorite displays its Series poster and links to the Series detail.
 - Bad: return the latest imported episode's title/poster as a whole-series favorite.
-- Good: a 20-second Web update with a UUID creates or updates history and one
+- Good: a 20-second Web update for a two-minute video with a UUID creates or updates history and one
   event; duplicate updates with that UUID do not increment the count.
 - Good: Emby `ItemId + MediaSourceId` resolves one visible media row without a
   `metadata_identifiers` projection.
@@ -132,7 +133,7 @@ per-user, per-metadata history state but playback events are append-only.
   `TestListFavourites*` verify supported round-trips, unsupported writes, entity-owned
   presentation, and visibility against PostgreSQL. The Web series-presentation check
   verifies movie/series favorite controls and no season/episode controls.
-- Cover the ten-minute completion boundary, invalid bounds, 20-second boundary,
+- Cover the ten-minute completion and recording boundaries, invalid bounds, 20/60-second recording boundaries,
   manual watched/unwatched behavior, and percentage clamping.
 - `TestEmbySeriesAndSeasonPlayedState` covers Series/Season detail and list
   readback, missing probe duration, repeated mark/unmark, user isolation,
