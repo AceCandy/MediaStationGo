@@ -127,6 +127,11 @@ func (s *HongGuoDownloadService) run(parent context.Context, row model.HongGuoDo
 	}
 	close(finished)
 	<-joined
+	if errors.Is(err, errHongGuoDownloadRemoved) {
+		task.Finish(nil, TaskUpdate{Stage: "removed", Message: errHongGuoDownloadRemoved.Error()})
+		s.Wake()
+		return
+	}
 	if errors.Is(err, errHongGuoAwaitVerification) {
 		err = s.repo.HongGuo.UpdateHongGuoDownload(ctx, row.ID, row.LeaseToken, map[string]any{"status": "waiting_verify", "lease_token": "", "lease_until": nil, "bytes": downloaded.Load(), "total_bytes": total.Load()})
 		if err == nil {
@@ -234,9 +239,9 @@ func (s *HongGuoDownloadService) executeDownload(ctx context.Context, row *model
 	row.StagingPath = readyRel
 	task.Update(TaskUpdate{Stage: "downloading", Message: "使用" + hongguo.DownloadSourceName(source) + "下载"})
 	// 红果按 S01 集号定位；仅新传输刷新 ID，暂存文件恢复必须沿用原视频的密钥。
-	work, err := s.client.Detail(ctx, row.SourceID)
+	work, err := s.latestDownloadDetail(ctx, *row)
 	if err != nil {
-		return fmt.Errorf("%w: 获取最新分集列表失败：%v", errHongGuoDownloadSource, err)
+		return err
 	}
 	if row.Episode < 1 || row.Episode > len(work.VideoIDs) || !hongguo.ValidID(work.VideoIDs[row.Episode-1]) {
 		return errors.New("上游当前分集列表中没有该集的有效视频 ID")

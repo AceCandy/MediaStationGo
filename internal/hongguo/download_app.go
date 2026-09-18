@@ -24,6 +24,9 @@ import (
 const downloadAppURL = "https://api5-normal-sinfonlineb.fqnovel.com/novel/player/video_model/v1/"
 const downloadAppUserAgent = "com.phoenix.read/73532 (Linux; U; Android 16; zh_CN; 25053RT47C; Build/BP2A.250605.031.A3; Cronet/TTNetVersion:04657795 2026-01-23 QuicVersion:c67e9834 2025-09-08)"
 
+// ErrVideoTakenDown 仅表示当前视频下架，不能据此判定整部作品下架。
+var ErrVideoTakenDown = errors.New("App 接口：当前视频已下架（101002）")
+
 // resolveDownloadApp 只读取指定分集的播放信息，不登录、注册设备或持久化取流凭据。
 func (c *Client) resolveDownloadApp(ctx context.Context, videoID string) (DownloadMedia, error) {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
@@ -107,7 +110,7 @@ func parseDownloadApp(body []byte) (DownloadMedia, error) {
 	}
 	for _, code := range []string{scalar(result["code"]), scalar(result["status_code"]), scalar(object(result["BaseResp"])["StatusCode"])} {
 		if code == "101002" {
-			return DownloadMedia{}, errors.New("App 接口：当前视频已下架（101002）")
+			return DownloadMedia{}, ErrVideoTakenDown
 		}
 		if code != "" && code != "0" {
 			if _, err := strconv.ParseInt(code, 10, 32); err == nil {

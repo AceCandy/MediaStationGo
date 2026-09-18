@@ -272,20 +272,6 @@ func (s *HongGuoDownloadService) enqueue(ctx context.Context, id string, onlyNew
 	if err := s.repo.DB.WithContext(ctx).First(&work, "source_id = ?", id).Error; err != nil {
 		return 0, errors.New("请先补齐该作品的红果资料")
 	}
-	var episodes []model.HongGuoEpisode
-	if err := s.repo.DB.WithContext(ctx).Where("work_id = ?", work.ID).Order("number").Limit(10001).Find(&episodes).Error; err != nil {
-		return 0, err
-	}
-	if len(episodes) == 0 || len(episodes) > 10000 {
-		return 0, errors.New("分集资料为空或超过单次下载上限")
-	}
-	if onlyNew {
-		for _, episode := range episodes {
-			if !hongguo.ValidID(episode.SourceVideoID) {
-				return 0, errors.New("分集资料尚未补齐")
-			}
-		}
-	}
 	year, month := 0, 0
 	if work.FirstVisibleAt != nil {
 		at := work.FirstVisibleAt.In(time.FixedZone("CST", 8*60*60))
@@ -294,6 +280,24 @@ func (s *HongGuoDownloadService) enqueue(ctx context.Context, id string, onlyNew
 	placement := model.HongGuoDownloadWork{SourceID: id, Title: work.Title, Root: cfg.Root, Directory: hongGuoDownloadDirectory(year, month, work.Title, id)}
 	added := 0
 	err = s.repo.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// 与下载清理使用相同锁顺序，不能用事务外旧分集把失效任务重新入队。
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&work, "id = ?", work.ID).Error; err != nil {
+			return err
+		}
+		var episodes []model.HongGuoEpisode
+		if err := tx.Where("work_id = ?", work.ID).Order("number").Limit(10001).Find(&episodes).Error; err != nil {
+			return err
+		}
+		if len(episodes) == 0 || len(episodes) > 10000 {
+			return errors.New("分集资料为空或超过单次下载上限")
+		}
+		if onlyNew {
+			for _, episode := range episodes {
+				if !hongguo.ValidID(episode.SourceVideoID) {
+					return errors.New("分集资料尚未补齐")
+				}
+			}
+		}
 		created := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&placement)
 		if created.Error != nil {
 			return created.Error
