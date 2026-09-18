@@ -10,7 +10,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	"go.uber.org/zap"
@@ -98,7 +97,21 @@ func (p *PlaybackService) RecordProgress(ctx context.Context, userID, mediaID, s
 		if !visibility.AllowsView(&rows[0]) {
 			return errors.New("media not found")
 		}
-		return p.repo.HongGuo.RecordProgress(ctx, userID, sessionID, rows[0], position, duration, playbackCompleted(position, duration))
+		completed := playbackCompleted(position, duration)
+		autoMark, err := p.autoMarkPreviousEpisodes(ctx, completed)
+		if err != nil {
+			return err
+		}
+		if !autoMark {
+			return p.repo.HongGuo.RecordProgress(ctx, userID, sessionID, rows[0], position, duration, completed)
+		}
+		return p.repo.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+			repos := repository.New(tx)
+			if err := repos.HongGuo.RecordProgress(ctx, userID, sessionID, rows[0], position, duration, completed); err != nil {
+				return err
+			}
+			return repos.HongGuo.MarkPreviousEpisodes(ctx, userID, rows[0].LookupCatalogID, rows[0].EpisodeNum, filter)
+		})
 	}
 	if len(rows) == 0 || rows[0].MetadataID == "" {
 		return errors.New("media not found")
@@ -113,23 +126,7 @@ func (p *PlaybackService) RecordProgress(ctx context.Context, userID, mediaID, s
 		WatchedAt:  time.Now(),
 		Completed:  playbackCompleted(position, duration),
 	}
-	if strings.TrimSpace(sessionID) == "" {
-		return p.repo.History.Upsert(ctx, h)
-	}
-	return p.repo.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		repos := repository.New(tx)
-		if err := repos.History.Upsert(ctx, h); err != nil {
-			return err
-		}
-		return repos.PlaybackEvent.Insert(ctx, &model.PlaybackEvent{
-			UserID:     userID,
-			SessionID:  strings.TrimSpace(sessionID),
-			MetadataID: media.MetadataID,
-			MediaID:    media.ID,
-			LibraryID:  media.LibraryID,
-			PlayedAt:   h.WatchedAt,
-		})
-	})
+	return p.saveProgress(ctx, h, sessionID, media.LibraryID, visibility)
 }
 
 func (p *PlaybackService) DeleteHistoryForMedia(ctx context.Context, userID, mediaID string, completed *bool) (int64, error) {

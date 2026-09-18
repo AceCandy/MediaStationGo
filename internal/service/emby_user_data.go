@@ -169,27 +169,19 @@ func (e *EmbyService) RecordProgress(ctx context.Context, userID, itemID, mediaS
 		WatchedAt:  time.Now(),
 		Completed:  playbackCompleted(pos, dur),
 	}
-	if strings.TrimSpace(sessionID) == "" {
-		return e.repo.History.Upsert(ctx, history)
-	}
-	media, err := e.repo.Media.FindByID(ctx, target.MediaID)
-	if err != nil || media == nil {
-		return errors.New("media not found")
-	}
-	return e.repo.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		repos := repository.New(tx)
-		if err := repos.History.Upsert(ctx, history); err != nil {
-			return err
+	libraryID := ""
+	if strings.TrimSpace(sessionID) != "" {
+		media, err := e.repo.Media.FindByID(ctx, target.MediaID)
+		if err != nil || media == nil {
+			return errors.New("media not found")
 		}
-		return repos.PlaybackEvent.Insert(ctx, &model.PlaybackEvent{
-			UserID:     userID,
-			SessionID:  strings.TrimSpace(sessionID),
-			MetadataID: target.MetadataID,
-			MediaID:    target.MediaID,
-			LibraryID:  media.LibraryID,
-			PlayedAt:   history.WatchedAt,
-		})
-	})
+		libraryID = media.LibraryID
+	}
+	err := NewPlaybackService(e.log, e.repo).saveProgress(ctx, history, sessionID, libraryID, e.mediaVisibility(ctx, userID))
+	if err == nil && history.Completed && e.cache != nil {
+		e.cache.DeletePrefix(ctx, embyItemsCachePrefix)
+	}
+	return err
 }
 
 func splitCSV(s string) []string {

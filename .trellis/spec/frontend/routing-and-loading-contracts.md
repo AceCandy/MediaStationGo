@@ -36,6 +36,14 @@ Required behavior:
   deterministic retained leaf; redirect targets must not form cycles.
 - Keep ordinary `/search` authenticated but independent of AI permissions.
   Apply AI capability and provider checks only to `mode=ai` behavior.
+- System settings expose one management link to `/admin/settings` (redirects
+  to `general`). Existing `/admin/settings/general|playback|recognition-words|access`
+  paths remain valid; `watching` owns playback behavior. These paths render
+  page-local category links and share the `/admin/settings` layout mount key
+  so category changes preserve unsaved settings. Keep the recognition panel
+  mounted after its first visit, hiding it while another category is active.
+  Run `node scripts/check-settings-tabs.mjs` against the Web preview to cover
+  drafts, save payloads, readback, permissions, navigation and responsive themes.
 
 ## Permission Lifecycle
 

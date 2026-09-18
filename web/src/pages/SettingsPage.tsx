@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useState } from 'react'
 import { Loader2, Save, SettingsIcon } from 'lucide-react'
 import toast from 'react-hot-toast'
+import { Link } from 'react-router-dom'
 
 import { adminAPI } from '../api/admin'
 import { libraryAPI } from '../api/library'
@@ -15,6 +16,11 @@ export function SettingsPage({ groupKey }: { groupKey: SettingGroupKey }) {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [libraries, setLibraries] = useState<Library[]>([])
+  const [recognitionVisited, setRecognitionVisited] = useState(groupKey === 'recognition-words')
+
+  useEffect(() => {
+    if (groupKey === 'recognition-words') setRecognitionVisited(true)
+  }, [groupKey])
 
   const refresh = async () => {
     setLoading(true)
@@ -74,10 +80,25 @@ export function SettingsPage({ groupKey }: { groupKey: SettingGroupKey }) {
           <SettingsIcon size={20} />
         </div>
         <div>
-          <h1 className="font-display text-3xl font-bold text-ink-600">{group.label}</h1>
-          {group.description && <p className="text-sm text-ink-50">{group.description}</p>}
+          <h1 className="font-display text-3xl font-bold text-ink-600">系统设置</h1>
         </div>
       </div>
+
+      <nav aria-label="系统设置分类" className="flex max-w-full flex-wrap gap-1.5 rounded-2xl border border-[var(--app-border)] bg-[var(--app-panel)] p-1.5">
+        {GROUPS.map((item) => (
+          <Link
+            key={item.key}
+            to={`/admin/settings/${item.key}`}
+            aria-current={item.key === groupKey ? 'page' : undefined}
+            className={`flex min-h-11 items-center rounded-xl px-4 text-sm font-semibold transition-colors ${item.key === groupKey
+              ? 'bg-[var(--app-active-bg)] text-[var(--app-active-text)]'
+              : 'text-[var(--app-muted)] hover:bg-[var(--app-hover)] hover:text-[var(--app-text)]'}`}
+          >
+            {item.label}
+          </Link>
+        ))}
+      </nav>
+      {group.description && <p className="text-sm text-ink-50">{group.description}</p>}
 
       {loading && (
         <div className="flex justify-center py-12 text-ink-50">
@@ -87,7 +108,9 @@ export function SettingsPage({ groupKey }: { groupKey: SettingGroupKey }) {
 
       {!loading && (
         <div className="space-y-4">
-          {group.key === 'recognition-words' && <RecognitionWordsPanel />}
+          <div hidden={group.key !== 'recognition-words'}>
+            {recognitionVisited && <RecognitionWordsPanel />}
+          </div>
           {hasSettings && (
             <form onSubmit={onSave} className="glass-panel space-y-4">
               {group.items.map((it) => (

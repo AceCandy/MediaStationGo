@@ -75,6 +75,7 @@ export function SettingRow({ def, value, onChange, libraries = [] }: SettingsRow
           <label className="flex cursor-pointer items-center gap-2">
             <input
               type="checkbox"
+              aria-label={def.label}
               className="h-4 w-4 accent-primary-400"
               checked={toggleOn}
               onChange={(event) => onChange(event.target.checked ? 'true' : 'false')}

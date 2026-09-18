@@ -23,6 +23,8 @@ per-user, per-metadata history state but playback events are append-only.
   `playback_events` is unique on active `(user_id, session_id, metadata_id)`.
 - Continue-watching reads are `GET /api/watch-history/continue`, Emby
   `/Items/Resume`, and Emby `/Items` with `Filters=IsResumable`.
+- `playback.auto_mark_previous_episodes` is an administrator setting, default
+  false, edited through the existing single-key settings API.
 
 ## 3. Contracts
 
@@ -60,6 +62,17 @@ per-user, per-metadata history state but playback events are append-only.
   Clamp read-side progress percentages to 0 through 100.
 - Manual watched writes completed state without an event. Manual unwatched
   deletes the history row and preserves existing events.
+- With automatic previous-episode marking enabled, an eligible completed
+  progress report marks only the current user's visible, file-backed earlier
+  Episodes in the same canonical Season (including season zero). HongGuo uses
+  its source work and source episode number, never a manual display group.
+  Missing/invalid settings disable the feature; saving the setting or manually
+  marking an item does not backfill history. Existing completed rows retain
+  their timestamps and positions, including during conflict updates. Current
+  history, supplemental marks and the current session event commit atomically;
+  supplemental marks never create playback events. Web and Emby canonical
+  progress share `PlaybackService.saveProgress`, preserving the Emby lightweight
+  source resolver without loading identifiers or artwork.
 - Emby Series/Season manual watched/unwatched recursively updates visible,
   file-backed episodes in one transaction, deduplicated by metadata ID. A
   Season affects only its own episodes (including season zero). Missing and
@@ -96,6 +109,8 @@ per-user, per-metadata history state but playback events are append-only.
 | Position below 60 seconds for duration > ten minutes, or below 20 seconds otherwise | Successful no-op for automatic progress |
 | Several incomplete Episodes belong to one visible Series | Continue watching returns only the most recently watched Episode; full history keeps every Episode |
 | Invisible media | Request is rejected; no history or event is written |
+| Auto-mark off or progress incomplete | No earlier episode is changed |
+| Auto-mark on and progress completed | Only visible earlier episodes in the same season are completed; failures roll back the progress transaction |
 | Non-admin explicit different user ID | `403` |
 | Invalid statistics grain/date or `from > to` | `400` |
 | `page < 1`, `page_size` outside 1..100, or overflowing offset | `400` |
@@ -120,6 +135,9 @@ per-user, per-metadata history state but playback events are append-only.
   candidate window and hide older resumable Series or Movies.
 - Base: a legacy client without a session ID still saves valid history but does
   not create an event.
+- Good: completing S02E05 with auto-mark enabled completes missing visible
+  S02E01–E04 history, preserving already completed rows and every other season.
+- Bad: apply auto-mark only to Web, or merge HongGuo seasons by display group.
 - Base: a deleted media file remains in details as an unavailable, unlinked
   audit event.
 - Bad: using a client-supplied `completed` value, or inserting an event outside
@@ -135,6 +153,10 @@ per-user, per-metadata history state but playback events are append-only.
   verifies movie/series favorite controls and no season/episode controls.
 - Cover the ten-minute completion and recording boundaries, invalid bounds, 20/60-second recording boundaries,
   manual watched/unwatched behavior, and percentage clamping.
+- `TestPlaybackAutoMarkPreviousEpisodes` and `TestHongGuoAutoMarkPreviousEpisodes`
+  exercise the toggle, Web/Emby writes, no-session compatibility, same-season
+  bounds, visibility, version deduplication, user isolation, completed-row
+  preservation, event isolation and rollback against PostgreSQL.
 - `TestEmbySeriesAndSeasonPlayedState` covers Series/Season detail and list
   readback, missing probe duration, repeated mark/unmark, user isolation,
   and manual-write cache invalidation against PostgreSQL.

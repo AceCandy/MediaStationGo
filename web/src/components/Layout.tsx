@@ -66,7 +66,7 @@ export function Layout() {
             <button type="button" onClick={permissions.retry} className="min-h-11 font-bold underline">重试</button>
           </div>
         )}
-        <LayoutWorkspace routeKey={location.pathname} />
+        <LayoutWorkspace routeKey={location.pathname.startsWith('/admin/settings/') ? '/admin/settings' : location.pathname} />
         <LayoutMobileBottomNav
           pathname={location.pathname}
           isAdmin={permissions.isAdmin}

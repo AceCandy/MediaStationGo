@@ -31,6 +31,10 @@ func (r *HistoryRepository) Upsert(ctx context.Context, h *model.PlaybackHistory
 
 // UpsertBatch 按用户和作品身份批量保存历史，调用方须先按作品去重。
 func (r *HistoryRepository) UpsertBatch(ctx context.Context, rows []*model.PlaybackHistory) error {
+	return r.upsertBatch(ctx, rows, clause.Where{})
+}
+
+func (r *HistoryRepository) upsertBatch(ctx context.Context, rows []*model.PlaybackHistory, condition clause.Where) error {
 	if len(rows) == 0 {
 		return nil
 	}
@@ -47,6 +51,7 @@ func (r *HistoryRepository) UpsertBatch(ctx context.Context, rows []*model.Playb
 		DoUpdates: clause.AssignmentColumns([]string{
 			"media_id", "position_ms", "duration_ms", "watched_at", "completed", "updated_at",
 		}),
+		Where: condition,
 	}).CreateInBatches(rows, 200).Error
 }
 
