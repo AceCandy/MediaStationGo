@@ -3,18 +3,92 @@ package service
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/ShukeBta/MediaStationGo/internal/hongguo"
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 )
+
+func TestHongGuoDownloadResolvesLatestEpisode(t *testing.T) {
+	for _, mode := range []string{"queued", "retry", "bulk", "missing", "detail-failed"} {
+		t.Run(mode, func(t *testing.T) {
+			s := newDownloadTestService(t)
+			seed := seedDownload(t, s)
+			ctx := t.Context()
+			if err := s.repo.DB.Model(&model.HongGuoEpisode{}).Where("number = 1").Update("source_video_id", "").Error; err != nil {
+				t.Fatal(err)
+			}
+			if mode == "retry" || mode == "bulk" {
+				if err := s.repo.DB.Model(&seed).Update("status", "failed").Error; err != nil {
+					t.Fatal(err)
+				}
+				if mode == "retry" {
+					if err := s.Action(ctx, seed.ID, "retry"); err != nil {
+						t.Fatal(err)
+					}
+				} else if added, skipped, err := s.RetryFailedWork(ctx, seed.SourceID); err != nil || added != 1 || skipped != 0 {
+					t.Fatalf("bulk retry: %d %d %v", added, skipped, err)
+				}
+			}
+			details, players := 0, 0
+			s.client = hongguo.NewClient(&http.Client{Transport: hongGuoTestTransport(func(r *http.Request) (*http.Response, error) {
+				status := 200
+				body := `_ROUTER_DATA={"loaderData":{"player_page":{"series_id":"123","vid":"789","video_player_info":{"main_url":"https://media.example/current","duration":1}}}}`
+				if r.URL.Path == "/detail" {
+					details++
+					ids := `["789"]`
+					if mode == "missing" {
+						ids = `[]`
+					}
+					if mode == "detail-failed" {
+						status = 503
+					}
+					body = fmt.Sprintf(`_ROUTER_DATA={"loaderData":{"detail_page":{"seriesDetail":{"series_id":"123","series_name":"测试剧","vid_list":%s}}}}`, ids)
+				} else {
+					players++
+					if r.URL.Path != "/player/123/789" {
+						t.Errorf("used stale video: %s", r.URL.Path)
+					}
+				}
+				return &http.Response{StatusCode: status, Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header), Request: r}, nil
+			})})
+			s.http = &http.Client{Transport: hongGuoTestTransport(func(r *http.Request) (*http.Response, error) {
+				return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader("media")), ContentLength: 5, Header: make(http.Header), Request: r}, nil
+			})}
+			row, err := s.repo.HongGuo.ClaimHongGuoDownload(ctx)
+			if err != nil || row == nil {
+				t.Fatalf("claim: %v", err)
+			}
+			var downloaded, total atomic.Int64
+			err = s.executeDownload(ctx, row, &downloaded, &total, nil, "official")
+			if details != 1 {
+				t.Fatalf("detail calls: %d", details)
+			}
+			if mode == "missing" || mode == "detail-failed" {
+				if err == nil || errors.Is(err, errHongGuoAwaitVerification) || players != 0 {
+					t.Fatalf("stale fallback: %v players=%d", err, players)
+				}
+				return
+			}
+			if !errors.Is(err, errHongGuoAwaitVerification) || players != 1 {
+				t.Fatalf("transfer: %v players=%d", err, players)
+			}
+			var saved model.HongGuoDownload
+			if err := s.repo.DB.First(&saved, "id = ?", seed.ID).Error; err != nil || saved.VideoID != "789" || saved.RawSize != 5 {
+				t.Fatalf("checkpoint: %+v %v", saved, err)
+			}
+		})
+	}
+}
 
 func finishDownloadTest(t *testing.T, s *HongGuoDownloadService, ctx context.Context, row model.HongGuoDownload) {
 	t.Helper()
@@ -95,6 +169,9 @@ func TestHongGuoDownloadSeparateVerificationAndRecovery(t *testing.T) {
 	}
 	transfers, verifications := make(chan string, 6), make(chan string, 6)
 	s.client = hongguo.NewClient(&http.Client{Transport: hongGuoTestTransport(func(r *http.Request) (*http.Response, error) {
+		if response := downloadDetailTestResponse(r); response != nil {
+			return response, nil
+		}
 		id := filepath.Base(r.URL.Path)
 		if id >= "459" {
 			verifications <- id
@@ -158,6 +235,9 @@ func TestHongGuoDownloadSeparateVerificationAndRecovery(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := s.Action(t.Context(), old.ID, "cancel"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.repo.DB.Model(&model.HongGuoEpisode{}).Where("number = ?", old.Episode).Update("source_video_id", "999").Error; err != nil {
 		t.Fatal(err)
 	}
 	if err := s.Action(t.Context(), old.ID, "retry"); err != nil {

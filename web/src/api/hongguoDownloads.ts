@@ -1,6 +1,6 @@
 import { api } from './client'
 
-export interface DownloadConfig { root: string; temporary_dir: string; output_dir: string; concurrency: number; verification_concurrency: number; hardware_verification: boolean; priority: string }
+export interface DownloadConfig { root: string; temporary_dir: string; output_dir: string; concurrency: number; verification_concurrency: number; full_verification: boolean; hardware_verification: boolean; priority: string }
 export interface HongGuoDownload {
   id: string; source_id: string; title: string; episode: number; relative_path: string
   status: 'queued' | 'downloading' | 'waiting_verify' | 'verifying' | 'publishing' | 'completed' | 'failed' | 'cancelled'
@@ -13,7 +13,7 @@ export type HongGuoDownloadWork = { source_id: string; title: string; total: num
 const base = '/catalogs/hongguo/downloads'
 export const hongguoDownloadsAPI = {
   config: (signal?: AbortSignal) => api.get<DownloadConfig>(`${base}/config`, { signal }).then((r) => r.data),
-  save: (config: Pick<DownloadConfig, 'root' | 'concurrency' | 'verification_concurrency' | 'hardware_verification' | 'priority'>) => api.put<DownloadConfig>(`${base}/config`, config).then((r) => r.data),
+  save: (config: Pick<DownloadConfig, 'root' | 'concurrency' | 'verification_concurrency' | 'full_verification' | 'hardware_verification' | 'priority'>) => api.put<DownloadConfig>(`${base}/config`, config).then((r) => r.data),
   list: (page: number, signal?: AbortSignal) => api.get<{ items: HongGuoDownload[]; total: number }>(base, { params: { page }, signal }).then((r) => r.data),
   works: (page: number, failedOnly: boolean, signal?: AbortSignal) => api.get<{ items: HongGuoDownloadWork[]; total: number }>(`${base}/works`, { params: { page, failed_only: failedOnly || undefined }, signal }).then((r) => r.data),
   episodes: (source: string, page: number, signal?: AbortSignal) => api.get<{ items: HongGuoDownload[]; total: number }>(`${base}/works/${encodeURIComponent(source)}/episodes`, { params: { page }, signal }).then((r) => r.data),

@@ -15,7 +15,7 @@ const evaluate = (code) => {
 const route = (path, value) => browser('network', 'route', `${base}/api/${path}`, '--body', JSON.stringify(value))
 const open = (path) => browser('open', base + path)
 const wait = (code) => browser('wait', '--fn', code)
-const config = { root: '/downloads/hongguo', temporary_dir: '/downloads/hongguo/downloading', output_dir: '/downloads/hongguo/completed', concurrency: 3, verification_concurrency: 2, hardware_verification: false, priority: 'official' }
+const config = { root: '/downloads/hongguo', temporary_dir: '/downloads/hongguo/downloading', output_dir: '/downloads/hongguo/completed', concurrency: 3, verification_concurrency: 2, full_verification: true, hardware_verification: false, priority: 'official' }
 const job = { id: '10000000-0000-0000-0000-000000000001', source_id: '123', title: '用于验证年月归档与长剧名排版的红果短剧', episode: 1, relative_path: '2026/09/剧名 [hongguo-123]/Season 01/S01E001.mp4', status: 'failed', bytes: 0, total_bytes: 0, attempts: 1, error: '来源暂时不可用，可重试', source: 'app', quality: 1080, width: 1080, height: 1922, codec: 'hevc', source_errors: { app: '当前视频已下架（101002）', official: '红果资料 HTTP 404' } }
 const episodes = ['downloading', 'verifying', 'publishing', 'waiting_verify', 'failed', 'queued', 'cancelled', 'completed'].map((status, index) => status === 'failed' ? job : { ...job, id: `task-${status}`, status, episode: index + 2, bytes: 1024, total_bytes: 2048, error: '' })
 const auth = (role) => evaluate(`localStorage.setItem('mediastationgo-auth', JSON.stringify({state:{token:'local-test-token',user:{id:${JSON.stringify(role)},username:'页面测试',role:${JSON.stringify(role)},tier:'free'}},version:0}))`)
@@ -132,23 +132,25 @@ try {
     }
   }
   evaluate(`window.downloadWrites=[]; const originalSend=XMLHttpRequest.prototype.send; XMLHttpRequest.prototype.send=function(body){ if(typeof body==='string' && body.includes('"concurrency"')) window.downloadWrites.push(JSON.parse(body)); return originalSend.call(this,body) }`)
-  browser('find', 'label', '并发下载数量', 'fill', '6')
+  browser('find', 'label', '并发下载数量', 'fill', '11')
   browser('find', 'role', 'button', 'click', '--name', '保存设置', '--exact')
   assert.ok(evaluate(`!document.querySelector('input[type="number"]').checkValidity() && window.downloadWrites.length === 0`))
-  browser('find', 'label', '并发下载数量', 'fill', '2')
-  for (const invalid of ['0', '6', '1.5', '']) {
+  browser('find', 'label', '并发下载数量', 'fill', '10')
+  for (const invalid of ['0', '21', '1.5', '']) {
     browser('find', 'label', '并发校验数量', 'fill', invalid)
     browser('find', 'role', 'button', 'click', '--name', '保存设置', '--exact')
     assert.equal(evaluate('window.downloadWrites.length'), 0)
   }
-  browser('find', 'label', '并发校验数量', 'fill', '3')
+  browser('find', 'label', '并发校验数量', 'fill', '20')
   assert.ok(evaluate(`![...document.querySelectorAll('label')].find(l=>l.textContent.includes('启用核显加速校验')).querySelector('input').checked`))
   browser('find', 'label', '启用核显加速校验（VAAPI）', 'click')
+  browser('find', 'label', '完整解码校验', 'click')
+  assert.ok(evaluate(`document.querySelector('input[type="checkbox"]:disabled') && [...document.querySelectorAll('label')].find(l=>l.textContent.includes('启用核显加速校验')).querySelector('input').disabled`))
   browser('find', 'role', 'button', 'click', '--name', '下载接口优先级', '--exact')
   browser('find', 'role', 'option', 'click', '--name', '备用 → App → 官方网页', '--exact')
   browser('find', 'role', 'button', 'click', '--name', '保存设置', '--exact')
   wait(`document.body.innerText.includes('下载设置已保存')`)
-  assert.deepEqual(evaluate('window.downloadWrites'), [{ root: config.root, concurrency: 2, verification_concurrency: 3, hardware_verification: true, priority: 'fallback' }])
+  assert.deepEqual(evaluate('window.downloadWrites'), [{ root: config.root, concurrency: 10, verification_concurrency: 20, full_verification: false, hardware_verification: true, priority: 'fallback' }])
   wait(`!document.querySelector('[role="dialog"]')`)
   browser('find', 'role', 'button', 'click', '--name', '设置', '--exact')
   // 静态响应使用服务端配置；真实持久化与旧请求兼容由 ConfigHTTP 测试覆盖。

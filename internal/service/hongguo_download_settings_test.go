@@ -53,6 +53,9 @@ func TestHongGuoDownloadCancelThenRetryRunningLease(t *testing.T) {
 	seed := seedDownload(t, s)
 	media := downloadFixture(t)
 	s.client = hongguo.NewClient(&http.Client{Transport: hongGuoTestTransport(func(r *http.Request) (*http.Response, error) {
+		if response := downloadDetailTestResponse(r); response != nil {
+			return response, nil
+		}
 		body := `_ROUTER_DATA={"loaderData":{"player_page":{"series_id":"123","vid":"456","video_player_info":{"main_url":"https://media.example/video","duration":1}}}}`
 		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header), Request: r}, nil
 	})})
@@ -111,7 +114,7 @@ func TestHongGuoDownloadCancelThenRetryRunningLease(t *testing.T) {
 			if row.Attempts != 2 {
 				t.Fatalf("unexpected claims: %d", row.Attempts)
 			}
-			if err := verifyHongGuoDownload(ctx, filepath.Join(row.Root, "completed", row.RelativePath), 1, false, nil, nil); err != nil {
+			if err := verifyHongGuoDownload(ctx, filepath.Join(row.Root, "completed", row.RelativePath), 1, true, false, nil, nil); err != nil {
 				t.Fatal(err)
 			}
 			break
@@ -127,29 +130,32 @@ func TestHongGuoDownloadSettings(t *testing.T) {
 	s := newDownloadTestService(t)
 	ctx := context.Background()
 	cfg, err := s.Config(ctx)
-	if err != nil || cfg.Concurrency != 3 || cfg.VerificationConcurrency != 2 || cfg.HardwareVerification || cfg.Priority != hongguo.DownloadApp {
+	if err != nil || cfg.Concurrency != 3 || cfg.VerificationConcurrency != 2 || cfg.HardwareVerification || !cfg.FullVerification || cfg.Priority != hongguo.DownloadApp {
 		t.Fatalf("defaults: %+v %v", cfg, err)
 	}
-	concurrency, priority := 5, hongguo.DownloadFallback
-	verification := 3
+	concurrency, priority := 10, hongguo.DownloadFallback
+	verification := 20
 	hardware := true
-	patch := HongGuoDownloadConfigPatch{Concurrency: &concurrency, VerificationConcurrency: &verification, HardwareVerification: &hardware, Priority: &priority}
+	full := false
+	patch := HongGuoDownloadConfigPatch{Concurrency: &concurrency, VerificationConcurrency: &verification, FullVerification: &full, HardwareVerification: &hardware, Priority: &priority}
 	if _, err := s.SaveConfig(ctx, cfg.Root, patch); err != nil {
 		t.Fatal(err)
 	}
 	// 模拟重启后从数据库读取，而不是依赖服务内缓存。
 	restarted := NewHongGuoDownloadService(s.repo, s.catalog, s.tasks)
 	cfg, err = restarted.Config(ctx)
-	if err != nil || cfg.Concurrency != 5 || cfg.VerificationConcurrency != 3 || !cfg.HardwareVerification || cfg.Priority != priority {
+	if err != nil || cfg.Concurrency != 10 || cfg.VerificationConcurrency != 20 || !cfg.HardwareVerification || cfg.FullVerification || cfg.Priority != priority {
 		t.Fatalf("persisted: %+v %v", cfg, err)
 	}
-	if cfg, err = s.SaveConfig(ctx, cfg.Root, HongGuoDownloadConfigPatch{}); err != nil || cfg.Concurrency != 5 || cfg.VerificationConcurrency != 3 || !cfg.HardwareVerification || cfg.Priority != priority {
+	if cfg, err = s.SaveConfig(ctx, cfg.Root, HongGuoDownloadConfigPatch{}); err != nil || cfg.Concurrency != 10 || cfg.VerificationConcurrency != 20 || !cfg.HardwareVerification || cfg.FullVerification || cfg.Priority != priority {
 		t.Fatalf("legacy save: %+v %v", cfg, err)
 	}
-	for _, invalid := range []int{0, -1, 6} {
+	for _, invalid := range []int{0, -1, 21} {
 		if _, err := s.SaveConfig(ctx, cfg.Root, HongGuoDownloadConfigPatch{VerificationConcurrency: &invalid}); err == nil {
 			t.Fatal("accepted invalid verification concurrency")
 		}
+	}
+	for _, invalid := range []int{0, -1, 11} {
 		concurrency = invalid
 		if _, err := s.SaveConfig(ctx, filepath.Join(t.TempDir(), "unused"), patch); err == nil {
 			t.Fatal("accepted invalid concurrency")
@@ -164,6 +170,10 @@ func TestHongGuoDownloadSettings(t *testing.T) {
 		t.Fatalf("invalid save changed settings: %+v %v", after, err)
 	}
 	hardware = false
+	full = true
+	if cfg, err = s.SaveConfig(ctx, cfg.Root, HongGuoDownloadConfigPatch{FullVerification: &full}); err != nil || !cfg.FullVerification {
+		t.Fatalf("cannot re-enable full verification: %+v %v", cfg, err)
+	}
 	if cfg, err = s.SaveConfig(ctx, cfg.Root, HongGuoDownloadConfigPatch{HardwareVerification: &hardware}); err != nil || cfg.HardwareVerification {
 		t.Fatalf("cannot disable hardware: %+v %v", cfg, err)
 	}
@@ -192,6 +202,9 @@ func TestHongGuoDownloadSourcePriorityAndFallback(t *testing.T) {
 			}
 			var visits []string
 			s.client = hongguo.NewClient(&http.Client{Transport: hongGuoTestTransport(func(r *http.Request) (*http.Response, error) {
+				if response := downloadDetailTestResponse(r); response != nil {
+					return response, nil
+				}
 				source := "official"
 				body := `_ROUTER_DATA={"loaderData":{"player_page":{"series_id":"123","vid":"456","video_player_info":{"main_url":"https://media.example/official","duration":1}}}}`
 				if strings.Contains(r.URL.Path, "/api/hongguo/play") {
@@ -312,6 +325,9 @@ func TestHongGuoDownloadDynamicConcurrencyAndShutdown(t *testing.T) {
 	}
 	media := downloadFixture(t)
 	s.client = hongguo.NewClient(&http.Client{Transport: hongGuoTestTransport(func(r *http.Request) (*http.Response, error) {
+		if response := downloadDetailTestResponse(r); response != nil {
+			return response, nil
+		}
 		id := filepath.Base(r.URL.Path)
 		body := fmt.Sprintf(`_ROUTER_DATA={"loaderData":{"player_page":{"series_id":"123","vid":%q,"video_player_info":{"main_url":"https://media.example/%s","duration":1}}}}`, id, id)
 		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header), Request: r}, nil

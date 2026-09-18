@@ -233,6 +233,18 @@ func (s *HongGuoDownloadService) executeDownload(ctx context.Context, row *model
 	}
 	row.StagingPath = readyRel
 	task.Update(TaskUpdate{Stage: "downloading", Message: "使用" + hongguo.DownloadSourceName(source) + "下载"})
+	// 红果按 S01 集号定位；仅新传输刷新 ID，暂存文件恢复必须沿用原视频的密钥。
+	work, err := s.client.Detail(ctx, row.SourceID)
+	if err != nil {
+		return fmt.Errorf("%w: 获取最新分集列表失败：%v", errHongGuoDownloadSource, err)
+	}
+	if row.Episode < 1 || row.Episode > len(work.VideoIDs) || !hongguo.ValidID(work.VideoIDs[row.Episode-1]) {
+		return errors.New("上游当前分集列表中没有该集的有效视频 ID")
+	}
+	row.VideoID = work.VideoIDs[row.Episode-1]
+	if err := s.repo.HongGuo.UpdateHongGuoDownload(ctx, row.ID, row.LeaseToken, map[string]any{"video_id": row.VideoID}); err != nil {
+		return err
+	}
 	media, err := s.client.ResolveDownloadSource(ctx, row.SourceID, row.VideoID, source)
 	if err != nil {
 		return fmt.Errorf("%w: %v", errHongGuoDownloadSource, err)
@@ -349,7 +361,7 @@ func (s *HongGuoDownloadService) verifyDownloaded(ctx context.Context, row *mode
 	if _, err := exec.CommandContext(ctx, "ffmpeg", args...).Output(); err != nil {
 		return downloadMediaCommandError(err, "媒体处理失败：需可用 FFmpeg 和支持的完整 MP4 媒体")
 	}
-	if err := verifyHongGuoDownload(ctx, readyPath, media.Duration, cfg.HardwareVerification, task, &media); err != nil {
+	if err := verifyHongGuoDownload(ctx, readyPath, media.Duration, cfg.FullVerification, cfg.HardwareVerification, task, &media); err != nil {
 		return err
 	}
 	row.Width, row.Height, row.Codec = media.Width, media.Height, media.Codec
@@ -402,7 +414,7 @@ func (r *downloadCountingReader) Read(p []byte) (int, error) {
 	return n, err
 }
 
-func verifyHongGuoDownload(ctx context.Context, path string, expected float64, hardware bool, task *TaskHandle, media *hongguo.DownloadMedia) error {
+func verifyHongGuoDownload(ctx context.Context, path string, expected float64, full, hardware bool, task *TaskHandle, media *hongguo.DownloadMedia) error {
 	data, err := exec.CommandContext(ctx, "ffprobe", "-v", "error", "-protocol_whitelist", "file,pipe", "-show_entries", "format=duration:stream=codec_type,codec_name,width,height", "-of", "json", path).Output()
 	if err != nil {
 		return downloadMediaCommandError(err, "视频探测失败，请确认 FFprobe 已安装且文件有效")
@@ -435,7 +447,10 @@ func verifyHongGuoDownload(ctx context.Context, path string, expected float64, h
 	if expected > 0 && math.Abs(duration-expected) > math.Max(2, expected*0.02) {
 		return fmt.Errorf("%w: 视频时长与来源不一致，未发布", errHongGuoDownloadSource)
 	}
-	return decodeHongGuoDownload(ctx, path, hardware, task)
+	if full {
+		return decodeHongGuoDownload(ctx, path, hardware, task)
+	}
+	return nil
 }
 
 // 硬解仅用于全流解码检查；失败时以软件校验为准，取消不能触发额外解码。

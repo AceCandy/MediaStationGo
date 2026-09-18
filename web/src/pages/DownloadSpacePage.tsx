@@ -26,9 +26,10 @@ function DownloadSpaceContent() {
   const [root, setRoot] = useState('')
   const [concurrency, setConcurrency] = useState('')
   const [verificationConcurrency, setVerificationConcurrency] = useState('')
+  const [fullVerification, setFullVerification] = useState(true)
   const [hardwareVerification, setHardwareVerification] = useState(false)
   const [priority, setPriority] = useState('')
-  const dirty = root !== (config?.root ?? '') || concurrency !== String(config?.concurrency ?? '') || verificationConcurrency !== String(config?.verification_concurrency ?? '') || hardwareVerification !== (config?.hardware_verification ?? false) || priority !== (config?.priority ?? '')
+  const dirty = root !== (config?.root ?? '') || concurrency !== String(config?.concurrency ?? '') || verificationConcurrency !== String(config?.verification_concurrency ?? '') || fullVerification !== (config?.full_verification ?? true) || hardwareVerification !== (config?.hardware_verification ?? false) || priority !== (config?.priority ?? '')
   const [configError, setConfigError] = useState('')
   const [result, setResult] = useState<{ page: number; failedOnly: boolean; items: HongGuoDownloadWork[]; total: number } | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
@@ -47,7 +48,7 @@ function DownloadSpaceContent() {
   useEffect(() => {
     const controller = new AbortController()
     void hongguoDownloadsAPI.config(controller.signal).then((value) => {
-      if (!controller.signal.aborted) { setConfig(value); setRoot(value.root); setConcurrency(String(value.concurrency)); setVerificationConcurrency(String(value.verification_concurrency)); setHardwareVerification(value.hardware_verification); setPriority(value.priority); setConfigError('') }
+      if (!controller.signal.aborted) { setConfig(value); setRoot(value.root); setConcurrency(String(value.concurrency)); setVerificationConcurrency(String(value.verification_concurrency)); setFullVerification(value.full_verification); setHardwareVerification(value.hardware_verification); setPriority(value.priority); setConfigError('') }
     }).catch((err) => { if (!controller.signal.aborted) setConfigError(message(err)) })
     return () => controller.abort()
   }, [configRevision])
@@ -86,7 +87,7 @@ function DownloadSpaceContent() {
   return <div className="space-y-6">
     <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-200">
       <nav aria-label="下载来源"><button type="button" aria-pressed="true" className="min-h-11 border-b-2 border-brand-500 px-4 py-3 text-sm font-semibold text-brand-500 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500">红果短剧</button></nav>
-      <div className="flex flex-wrap gap-2"><HongGuoDownloadActions /><button ref={settingsButton} className="btn-outline" onClick={() => { setRoot(config?.root ?? ''); setConcurrency(String(config?.concurrency ?? '')); setVerificationConcurrency(String(config?.verification_concurrency ?? '')); setHardwareVerification(config?.hardware_verification ?? false); setPriority(config?.priority ?? ''); setSettingsOpen(true) }}>设置</button></div>
+      <div className="flex flex-wrap gap-2"><HongGuoDownloadActions /><button ref={settingsButton} className="btn-outline" onClick={() => { setRoot(config?.root ?? ''); setConcurrency(String(config?.concurrency ?? '')); setVerificationConcurrency(String(config?.verification_concurrency ?? '')); setFullVerification(config?.full_verification ?? true); setHardwareVerification(config?.hardware_verification ?? false); setPriority(config?.priority ?? ''); setSettingsOpen(true) }}>设置</button></div>
     </div>
     {config && !config.root && <p className="text-sm text-ink-50">尚未设置下载目录，请点击“设置”配置。</p>}
     {settingsOpen && <ModalShell ariaLabel="红果下载设置" maxWidth="max-w-xl" className="max-h-[85dvh] overflow-y-auto p-5" onClose={busy === 'config' || dirty ? undefined : closeSettings}>
@@ -102,14 +103,16 @@ function DownloadSpaceContent() {
       {configError && <p role="alert">{configError} <button className="btn-outline" onClick={() => setConfigRevision((v) => v + 1)}>重试</button></p>}
       <form className="space-y-3" onSubmit={(event) => {
         event.preventDefault(); if (busy) return; setBusy('config')
-        void hongguoDownloadsAPI.save({ root, concurrency: Number(concurrency), verification_concurrency: Number(verificationConcurrency), hardware_verification: hardwareVerification, priority }).then((value) => { if (active.current) { setConfig(value); setRoot(value.root); setConcurrency(String(value.concurrency)); setVerificationConcurrency(String(value.verification_concurrency)); setHardwareVerification(value.hardware_verification); setPriority(value.priority); closeSettings(); toast.success('下载设置已保存') } }).catch((err) => { if (active.current) toast.error(message(err)) }).finally(() => { if (active.current) setBusy('') })
+        void hongguoDownloadsAPI.save({ root, concurrency: Number(concurrency), verification_concurrency: Number(verificationConcurrency), full_verification: fullVerification, hardware_verification: hardwareVerification, priority }).then((value) => { if (active.current) { setConfig(value); setRoot(value.root); setConcurrency(String(value.concurrency)); setVerificationConcurrency(String(value.verification_concurrency)); setFullVerification(value.full_verification); setHardwareVerification(value.hardware_verification); setPriority(value.priority); closeSettings(); toast.success('下载设置已保存') } }).catch((err) => { if (active.current) toast.error(message(err)) }).finally(() => { if (active.current) setBusy('') })
       }}>
         <label className="block">下载存储根目录<input autoFocus className="input-field mt-2 w-full" value={root} onChange={(e) => setRoot(e.target.value)} placeholder="例如 /downloads/hongguo" required disabled={!config || !!busy} /></label>
-        <label className="block">并发下载数量<input type="number" min={1} max={5} step={1} required className="input-field mt-2 w-full" value={concurrency} onChange={(e) => setConcurrency(e.target.value)} disabled={!config || !!busy} /></label>
-        <label className="block">并发校验数量<input type="number" min={1} max={5} step={1} required className="input-field mt-2 w-full" value={verificationConcurrency} onChange={(e) => setVerificationConcurrency(e.target.value)} disabled={!config || !!busy} /></label>
-        <label className="flex min-h-11 items-center gap-2"><input type="checkbox" checked={hardwareVerification} onChange={(event) => setHardwareVerification(event.target.checked)} disabled={!config || !!busy} />启用核显加速校验（VAAPI）</label>
+        <label className="block">并发下载数量<input type="number" min={1} max={10} step={1} required className="input-field mt-2 w-full" value={concurrency} onChange={(e) => setConcurrency(e.target.value)} disabled={!config || !!busy} /></label>
+        <label className="block">并发校验数量<input type="number" min={1} max={20} step={1} required className="input-field mt-2 w-full" value={verificationConcurrency} onChange={(e) => setVerificationConcurrency(e.target.value)} disabled={!config || !!busy} /></label>
+        <label className="flex min-h-11 items-center gap-2"><input type="checkbox" checked={fullVerification} onChange={(event) => setFullVerification(event.target.checked)} disabled={!config || !!busy} />完整解码校验</label>
+        <p className="text-sm text-ink-50">默认开启，逐帧检查音视频是否可解码。关闭可缩短处理时间，仍保留下载完整性、解密封装、轨道和时长检查；可能无法提前发现中途损坏。保存后用于后续校验，正在校验的分集不受影响。</p>
+        <label className="flex min-h-11 items-center gap-2"><input type="checkbox" checked={hardwareVerification} onChange={(event) => setHardwareVerification(event.target.checked)} disabled={!config || !!busy || !fullVerification} />启用核显加速校验（VAAPI）</label>
         <p className="text-sm text-ink-50">默认关闭，仅加速解码检查，不转码。需 FFmpeg 支持 VAAPI，且服务可访问 /dev/dri/renderD128；硬解报错自动回退软件校验。保存后用于后续校验，无需重启；硬件与软件的损坏检出能力可能不同。</p>
-        <p className="text-sm text-ink-50">下载与校验各自支持同时处理 1–5 集，互不占用名额。保存后动态生效，无需重启；调低不会中断正在处理的分集，后续按新上限领取。机械盘建议先试 2–3 个校验；等待校验的文件会暂存在临时目录。</p>
+        <p className="text-sm text-ink-50">下载支持同时处理 1–10 集，校验支持 1–20 集，互不占用名额。保存后动态生效，无需重启；调低不会中断正在处理的分集，后续按新上限领取。机械盘建议先试 2–3 个校验；等待校验的文件会暂存在临时目录。</p>
         <div className="space-y-2"><p>下载接口优先级</p><Select aria-label="下载接口优先级" className="input-field w-full" value={priority} onChange={setPriority} disabled={!config || !!busy}><option value="app">App → 备用 → 官方网页（推荐）</option><option value="fallback">备用 → App → 官方网页</option><option value="official">官方网页 → App → 备用</option></Select></div>
         <p className="text-sm text-ink-50">自动选择所用接口提供的最高可用画质，不跨接口比较。接口顺序用于后续取流，已开始传输的分集不受影响。</p>
         <button className="btn-primary" disabled={!config || !!busy}>{busy === 'config' ? '保存中…' : '保存设置'}</button>

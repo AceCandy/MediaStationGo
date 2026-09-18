@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -67,6 +68,10 @@ func TestHongGuoDownloadWorkGroupingAndRetry(t *testing.T) {
 		}
 	}
 	if _, err := s.Enqueue(ctx, "123"); err != nil {
+		t.Fatal(err)
+	}
+	// 缺失本地分集仍应跳过；缺失旧视频 ID 则由执行阶段重新解析。
+	if err := s.repo.DB.Where("work_id = ? AND number = ?", work.ID, 54).Delete(&model.HongGuoEpisode{}).Error; err != nil {
 		t.Fatal(err)
 	}
 	if err := s.repo.DB.Model(&model.HongGuoDownload{}).Where("source_id = ?", "123").Update("status", "failed").Error; err != nil {
@@ -155,6 +160,14 @@ func TestHongGuoDownloadWorkGroupingAndRetry(t *testing.T) {
 	if err != nil || total != 0 || len(works) != 0 {
 		t.Fatalf("resolved failures remain visible: %+v %d %v", works, total, err)
 	}
+}
+
+func downloadDetailTestResponse(r *http.Request) *http.Response {
+	if r.URL.Path != "/detail" {
+		return nil
+	}
+	body := fmt.Sprintf(`_ROUTER_DATA={"loaderData":{"detail_page":{"seriesDetail":{"series_id":%q,"series_name":"测试剧","vid_list":["456","457","458","459","460","461"]}}}}`, r.URL.Query().Get("series_id"))
+	return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header), Request: r}
 }
 
 func newDownloadTestService(t *testing.T) *HongGuoDownloadService {
@@ -350,6 +363,9 @@ func TestHongGuoDownloadExecutesAndValidatesBeforePublishing(t *testing.T) {
 	}
 	media := downloadFixture(t)
 	s.client = hongguo.NewClient(&http.Client{Transport: hongGuoTestTransport(func(r *http.Request) (*http.Response, error) {
+		if response := downloadDetailTestResponse(r); response != nil {
+			return response, nil
+		}
 		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`_ROUTER_DATA={"loaderData":{"player_page":{"series_id":"123","vid":"456","video_player_info":{"main_url":"https://media.example/video.mp4","duration":1}}}}`)), Header: make(http.Header), Request: r}, nil
 	})})
 	s.http = &http.Client{Transport: hongGuoTestTransport(func(r *http.Request) (*http.Response, error) {
@@ -366,13 +382,13 @@ func TestHongGuoDownloadExecutesAndValidatesBeforePublishing(t *testing.T) {
 		t.Fatalf("%s: %s", saved.Status, saved.Error)
 	}
 	path := filepath.Join(row.Root, "completed", row.RelativePath)
-	if err := verifyHongGuoDownload(context.Background(), path, 30, false, nil, nil); err == nil {
+	if err := verifyHongGuoDownload(context.Background(), path, 30, true, false, nil, nil); err == nil {
 		t.Fatal("duration mismatch accepted")
 	}
 	if err := os.Truncate(path, 16); err != nil {
 		t.Fatal(err)
 	}
-	if err := verifyHongGuoDownload(context.Background(), path, 0, false, nil, nil); err == nil {
+	if err := verifyHongGuoDownload(context.Background(), path, 0, true, false, nil, nil); err == nil {
 		t.Fatal("truncated media accepted")
 	}
 	var count int64

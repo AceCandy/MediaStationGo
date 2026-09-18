@@ -24,11 +24,12 @@ const hongGuoDownloadRootKey = "hongguo.download_root"
 const hongGuoDownloadConcurrencyKey = "hongguo.download_concurrency"
 const hongGuoVerificationConcurrencyKey = "hongguo.verification_concurrency"
 const hongGuoHardwareVerificationKey = "hongguo.hardware_verification"
+const hongGuoFullVerificationKey = "hongguo.full_verification"
 const hongGuoDownloadPriorityKey = "hongguo.download_priority"
 const defaultHongGuoDownloadConcurrency = 3
-const maxHongGuoDownloadConcurrency = 5
+const maxHongGuoDownloadConcurrency = 10
 const defaultHongGuoVerificationConcurrency = 2
-const maxHongGuoVerificationConcurrency = 5
+const maxHongGuoVerificationConcurrency = 20
 
 // HongGuoDownloadService 有界并发消费持久化分集队列；跨进程租约由数据库维护。
 type HongGuoDownloadService struct {
@@ -49,6 +50,7 @@ type HongGuoDownloadConfig struct {
 	Concurrency             int    `json:"concurrency"`
 	VerificationConcurrency int    `json:"verification_concurrency"`
 	HardwareVerification    bool   `json:"hardware_verification"`
+	FullVerification        bool   `json:"full_verification"`
 	Priority                string `json:"priority"`
 }
 
@@ -57,6 +59,7 @@ type HongGuoDownloadConfigPatch struct {
 	Concurrency             *int    `json:"concurrency"`
 	VerificationConcurrency *int    `json:"verification_concurrency"`
 	HardwareVerification    *bool   `json:"hardware_verification"`
+	FullVerification        *bool   `json:"full_verification"`
 	Priority                *string `json:"priority"`
 }
 
@@ -66,9 +69,9 @@ func NewHongGuoDownloadService(repo *repository.Container, catalog *HongGuoServi
 }
 
 func (s *HongGuoDownloadService) Config(ctx context.Context) (HongGuoDownloadConfig, error) {
-	cfg := HongGuoDownloadConfig{Concurrency: defaultHongGuoDownloadConcurrency, VerificationConcurrency: defaultHongGuoVerificationConcurrency, Priority: hongguo.DownloadApp}
+	cfg := HongGuoDownloadConfig{Concurrency: defaultHongGuoDownloadConcurrency, VerificationConcurrency: defaultHongGuoVerificationConcurrency, FullVerification: true, Priority: hongguo.DownloadApp}
 	var settings []model.Setting
-	err := s.repo.DB.WithContext(ctx).Where("key IN ?", []string{hongGuoDownloadRootKey, hongGuoDownloadConcurrencyKey, hongGuoVerificationConcurrencyKey, hongGuoHardwareVerificationKey, hongGuoDownloadPriorityKey}).Find(&settings).Error
+	err := s.repo.DB.WithContext(ctx).Where("key IN ?", []string{hongGuoDownloadRootKey, hongGuoDownloadConcurrencyKey, hongGuoVerificationConcurrencyKey, hongGuoHardwareVerificationKey, hongGuoFullVerificationKey, hongGuoDownloadPriorityKey}).Find(&settings).Error
 	if err != nil {
 		return cfg, err
 	}
@@ -91,6 +94,11 @@ func (s *HongGuoDownloadService) Config(ctx context.Context) (HongGuoDownloadCon
 			if err != nil {
 				return cfg, errors.New("硬件校验配置无效")
 			}
+		case hongGuoFullVerificationKey:
+			cfg.FullVerification, err = strconv.ParseBool(setting.Value)
+			if err != nil {
+				return cfg, errors.New("完整解码校验配置无效")
+			}
 		case hongGuoDownloadPriorityKey:
 			cfg.Priority = setting.Value
 			if cfg.Priority != hongguo.DownloadApp && cfg.Priority != hongguo.DownloadOfficial && cfg.Priority != hongguo.DownloadFallback {
@@ -107,10 +115,10 @@ func (s *HongGuoDownloadService) Config(ctx context.Context) (HongGuoDownloadCon
 
 func (s *HongGuoDownloadService) SaveConfig(ctx context.Context, root string, patch HongGuoDownloadConfigPatch) (HongGuoDownloadConfig, error) {
 	if patch.VerificationConcurrency != nil && (*patch.VerificationConcurrency < 1 || *patch.VerificationConcurrency > maxHongGuoVerificationConcurrency) {
-		return HongGuoDownloadConfig{}, errors.New("并发校验数量须为 1–5")
+		return HongGuoDownloadConfig{}, errors.New("并发校验数量须为 1–20")
 	}
 	if patch.Concurrency != nil && (*patch.Concurrency < 1 || *patch.Concurrency > maxHongGuoDownloadConcurrency) {
-		return HongGuoDownloadConfig{}, errors.New("并发下载数量须为 1–5")
+		return HongGuoDownloadConfig{}, errors.New("并发下载数量须为 1–10")
 	}
 	if patch.Priority != nil && *patch.Priority != hongguo.DownloadApp && *patch.Priority != hongguo.DownloadOfficial && *patch.Priority != hongguo.DownloadFallback {
 		return HongGuoDownloadConfig{}, errors.New("下载接口优先级无效")
@@ -174,6 +182,9 @@ func (s *HongGuoDownloadService) SaveConfig(ctx context.Context, root string, pa
 	}
 	defer os.Remove(target)
 	settings := []model.Setting{{Key: hongGuoDownloadRootKey, Value: root, UpdatedAt: time.Now()}}
+	if patch.FullVerification != nil {
+		settings = append(settings, model.Setting{Key: hongGuoFullVerificationKey, Value: strconv.FormatBool(*patch.FullVerification), UpdatedAt: time.Now()})
+	}
 	if patch.HardwareVerification != nil {
 		settings = append(settings, model.Setting{Key: hongGuoHardwareVerificationKey, Value: strconv.FormatBool(*patch.HardwareVerification), UpdatedAt: time.Now()})
 	}
@@ -294,12 +305,8 @@ func (s *HongGuoDownloadService) enqueue(ctx context.Context, id string, onlyNew
 			return err
 		}
 		for _, episode := range episodes {
-			status, message := "queued", ""
-			if !hongguo.ValidID(episode.SourceVideoID) {
-				status, message = "failed", "该集缺少源视频 ID，请刷新作品资料后重试"
-			}
 			filename := fmt.Sprintf("S01E%03d.mp4", episode.Number)
-			row := model.HongGuoDownload{SourceID: id, Episode: episode.Number, VideoID: episode.SourceVideoID, Title: placement.Title, Root: placement.Root, RelativePath: filepath.Join(placement.Directory, "Season 01", filename), Status: status, Error: message}
+			row := model.HongGuoDownload{SourceID: id, Episode: episode.Number, VideoID: episode.SourceVideoID, Title: placement.Title, Root: placement.Root, RelativePath: filepath.Join(placement.Directory, "Season 01", filename), Status: "queued"}
 			result := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&row)
 			if result.Error != nil {
 				return result.Error
@@ -350,9 +357,9 @@ func (s *HongGuoDownloadService) Action(ctx context.Context, id, action string) 
 	return err
 }
 
-var errDownloadEpisodeMissing = errors.New("该集仍缺少视频 ID，请先刷新作品资料")
+var errDownloadEpisodeMissing = errors.New("该集资料不存在，请先刷新作品资料")
 
-// 调用方须先锁定任务并校验状态，批量和单集重试使用同一来源校验。
+// 重试只核对分集身份；新传输解析最新视频 ID，已有暂存文件保留原视频 ID 以恢复密钥。
 func retryHongGuoDownload(tx *gorm.DB, row model.HongGuoDownload) error {
 	var episode model.HongGuoEpisode
 	err := tx.Joins("JOIN hongguo_works w ON w.id = hongguo_episodes.work_id").Where("w.source_id = ? AND hongguo_episodes.number = ?", row.SourceID, row.Episode).First(&episode).Error
@@ -362,10 +369,7 @@ func retryHongGuoDownload(tx *gorm.DB, row model.HongGuoDownload) error {
 	if err != nil {
 		return err
 	}
-	if !hongguo.ValidID(episode.SourceVideoID) {
-		return errDownloadEpisodeMissing
-	}
-	return tx.Model(&row).Updates(map[string]any{"status": "queued", "error": "", "source_errors": "{}", "video_id": episode.SourceVideoID, "source_tries": 0, "lease_token": "", "lease_until": nil}).Error
+	return tx.Model(&row).Updates(map[string]any{"status": "queued", "error": "", "source_errors": "{}", "source_tries": 0, "lease_token": "", "lease_until": nil}).Error
 }
 
 func (s *HongGuoDownloadService) Wake() {

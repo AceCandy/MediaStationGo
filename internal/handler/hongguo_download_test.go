@@ -35,14 +35,17 @@ func TestHongGuoDownloadConfigHTTP(t *testing.T) {
 		fields string
 		status int
 	}{
-		{`,"concurrency":2,"verification_concurrency":3,"hardware_verification":true,"priority":"app"`, 200},
-		{`,"concurrency":2,"verification_concurrency":3,"hardware_verification":true,"priority":"fallback"`, 200},
+		{`,"concurrency":10,"verification_concurrency":20,"full_verification":false,"hardware_verification":true,"priority":"app"`, 200},
+		{`,"concurrency":10,"verification_concurrency":20,"hardware_verification":true,"priority":"fallback"`, 200},
 		{"", 200},
+		{`,"full_verification":null`, 200},
+		{`,"full_verification":"false"`, 400},
+		{`,"full_verification":0`, 400},
 		{`,"concurrency":0`, 400},
-		{`,"concurrency":6`, 400},
+		{`,"concurrency":11`, 400},
 		{`,"concurrency":1.5`, 400},
 		{`,"verification_concurrency":0`, 400},
-		{`,"verification_concurrency":6`, 400},
+		{`,"verification_concurrency":21`, 400},
 		{`,"verification_concurrency":1.5`, 400},
 		{`,"hardware_verification":"true"`, 400},
 		{`,"hardware_verification":1`, 400},
@@ -61,7 +64,7 @@ func TestHongGuoDownloadConfigHTTP(t *testing.T) {
 			if strings.Contains(tt.fields, `"app"`) {
 				priority = "app"
 			}
-			if err := json.Unmarshal(w.Body.Bytes(), &cfg); err != nil || cfg.Concurrency != 2 || cfg.VerificationConcurrency != 3 || !cfg.HardwareVerification || cfg.Priority != priority {
+			if err := json.Unmarshal(w.Body.Bytes(), &cfg); err != nil || cfg.Concurrency != 10 || cfg.VerificationConcurrency != 20 || !cfg.HardwareVerification || cfg.FullVerification || cfg.Priority != priority {
 				t.Fatalf("round-trip: %+v %v", cfg, err)
 			}
 		}

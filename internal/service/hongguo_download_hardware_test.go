@@ -21,7 +21,7 @@ func TestHongGuoDownloadHardwareLive(t *testing.T) {
 	task := tracker.Start(TaskKindHongGuoDownload, "硬件校验测试", TaskUpdate{})
 	ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
 	defer cancel()
-	err := verifyHongGuoDownload(ctx, path, 0, true, task, nil)
+	err := verifyHongGuoDownload(ctx, path, 0, true, true, task, nil)
 	active := tracker.Snapshot().Active
 	task.Finish(err, TaskUpdate{})
 	if err != nil {
@@ -98,5 +98,30 @@ esac
 				t.Fatal("fallback still uses hardware")
 			}
 		})
+	}
+}
+
+func TestHongGuoDownloadFullVerification(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("PATH", dir)
+	// 基础探测成功，但解码器固定报告损坏，区分是否真正执行了完整解码。
+	for name, script := range map[string]string{
+		"ffprobe": "#!/bin/sh\nprintf '%s' '{\"format\":{\"duration\":\"10\"},\"streams\":[{\"codec_type\":\"video\"}]}'\n",
+		"ffmpeg":  "#!/bin/sh\nprintf 'Error while decoding' >&2\nexit 1\n",
+	} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(script), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, hardware := range []bool{false, true} {
+		if err := verifyHongGuoDownload(t.Context(), "sample.mp4", 10, false, hardware, nil, nil); err != nil {
+			t.Fatalf("disabled full verification invoked decoder: %v", err)
+		}
+		if err := verifyHongGuoDownload(t.Context(), "sample.mp4", 10, true, hardware, nil, nil); !errors.Is(err, errHongGuoDownloadSource) {
+			t.Fatalf("enabled full verification missed decode failure: %v", err)
+		}
+		if err := verifyHongGuoDownload(t.Context(), "sample.mp4", 30, false, hardware, nil, nil); !errors.Is(err, errHongGuoDownloadSource) {
+			t.Fatalf("disabled full verification skipped duration check: %v", err)
+		}
 	}
 }
