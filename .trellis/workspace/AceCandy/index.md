@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-2.md`
-- **Total Sessions**: 130
-- **Last Active**: 2026-09-17
+- **Total Sessions**: 131
+- **Last Active**: 2026-09-18
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-2.md` | ~931 | Active |
+| `journal-2.md` | ~968 | Active |
 | `journal-1.md` | ~1981 | Archived |
 <!-- @@@/auto:active-documents -->
 
@@ -30,6 +30,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 131 | 2026-09-18 | 系统设置与观看补标收尾及已完成任务归档 | `6cc74ee`, `ed6e9ef`, `89fccfa` | `main` |
 | 130 | 2026-09-17 | 发现资料与红果下载功能收尾归档 | `31952ac` | `main` |
 | 129 | 2026-09-15 | TMDB 快照自动补齐与失败重试 | `17b9925` | `main` |
 | 128 | 2026-09-15 | 剧集日期与图片展示回退 | `11dd162` | `main` |
