@@ -966,3 +966,39 @@ Web 与 Emby 对缺失的单集播出日期按同季前序集回退；季和单�
 ### Next Steps
 
 - 尚未验证真实播放器设备实播；未推送远端。
+
+
+## Session 132: 参数化图片与 WebP 缓存
+<!-- trellis-session: v=2 fp=b75a3ac62c4f20a9 -->
+
+**Date**: 2026-09-19
+**Task**: 参数化图片与 WebP 缓存
+**Branch**: `main`
+
+### Summary
+
+完成 Web 与 Emby 参数化图片、共享磁盘变体缓存、稳定 Cookie 图片 URL、懒加载和封面单查询，已同步 Spec 并归档任务。
+
+### Main Changes
+
+- 处理图片默认 WebP，支持宽高、质量与格式；原图和动图保留，缓存不自动清理。
+- 统一六类图片出口及远程冷/热缓存；补充 EXIF 方向、并发合并、原子写入、HEAD/304 和失败回退。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `e18c2105cf8015550d6b2f67ad3f480879389df5` | feat: 支持参数化图片与 WebP 缓存并优化图片加载 |
+
+### Testing
+
+- [OK] Go 图片相关回归、race、CGO_ENABLED=0 nodynamic、Web URL 检查、lint/build 和 git diff --check 通过。
+- [OK] 未配置 PostgreSQL 测试 DSN，数据库测试跳过；未验证真实浏览器、播放器和部署性能。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 部署后验证图片耗时和客户端兼容，关注变体缓存磁盘占用。
