@@ -61,7 +61,7 @@ func NewImageProxy(cfg *config.Config, log *zap.Logger) *ImageProxy {
 		cfg:      cfg,
 		log:      log,
 		cacheDir: filepath.Join(cfg.Cache.CacheDir, "images"),
-		variants: newImageVariants(cfg.Cache.CacheDir),
+		variants: newImageVariants(cfg.Cache.CacheDir, cfg.App.DataDir),
 		client:   &http.Client{Timeout: 30 * time.Second, Transport: transport},
 	}
 }

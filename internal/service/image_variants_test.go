@@ -3,7 +3,9 @@ package service
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/binary"
+	"fmt"
 	"hash/crc32"
 	"image"
 	"image/color"
@@ -81,7 +83,7 @@ func TestImageVariantHTTPAndInvalidation(t *testing.T) {
 	if err := os.WriteFile(path, original, 0600); err != nil {
 		t.Fatal(err)
 	}
-	v := newImageVariants(dir)
+	v := newImageVariants(dir, "")
 	serve := func(method, query, etag string) *httptest.ResponseRecorder {
 		r := httptest.NewRequest(method, "/?"+query, nil)
 		if etag != "" {
@@ -107,7 +109,7 @@ func TestImageVariantHTTPAndInvalidation(t *testing.T) {
 	if got := serve("HEAD", "maxWidth=40", ""); got.Body.Len() != 0 || got.Header().Get("Content-Length") != first.Header().Get("Content-Length") {
 		t.Fatal("HEAD")
 	}
-	files, _ := filepath.Glob(filepath.Join(v.dir, "*", "*.webp"))
+	files, _ := filepath.Glob(filepath.Join(v.dir, "local", "*", "*", "*.webp"))
 	if len(files) != 1 {
 		t.Fatalf("cache files: %v", files)
 	}
@@ -131,6 +133,38 @@ func TestImageVariantHTTPAndInvalidation(t *testing.T) {
 	}
 }
 
+func TestImageVariantCacheLayout(t *testing.T) {
+	root := t.TempDir()
+	dataDir := filepath.Join(root, "data")
+	cacheDir := filepath.Join(dataDir, "cache")
+	path := filepath.Join(dataDir, "artwork", "sha256", "ab", "cd", "poster.png")
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, variantPNG(t, 120, 60), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	v := newImageVariants(cacheDir, dataDir)
+	for _, query := range []string{"maxWidth=40", "maxHeight=30"} {
+		w := httptest.NewRecorder()
+		if !v.serveFile(w, httptest.NewRequest("GET", "/?"+query, nil), "source", path, imageBrowserCacheControl) {
+			t.Fatal("not served")
+		}
+	}
+	files, _ := filepath.Glob(filepath.Join(v.dir, "artwork", "sha256", "ab", "cd", "poster", "*", "*.webp"))
+	if len(files) != 2 || filepath.Dir(files[0]) != filepath.Dir(files[1]) {
+		t.Fatalf("cache layout: %v", files)
+	}
+	if got := v.sourceGroup("source", filepath.Join(cacheDir, "images", "remote-key")); got != filepath.Join("remote", "remote-key") {
+		t.Fatalf("remote group: %s", got)
+	}
+	localPath := filepath.Join(root, "library", "poster.png")
+	localHash := fmt.Sprintf("%x", sha256.Sum256([]byte(localPath)))
+	if got := v.sourceGroup("source", localPath); got != filepath.Join("local", localHash) {
+		t.Fatalf("local group: %s", got)
+	}
+}
+
 func TestImageVariantFallbackAndCancellation(t *testing.T) {
 	oversized := variantPNG(t, 1, 1)
 	binary.BigEndian.PutUint32(oversized[16:20], 32_000_001)
@@ -149,7 +183,7 @@ func TestImageVariantFallbackAndCancellation(t *testing.T) {
 			t.Fatal(err)
 		}
 		w := httptest.NewRecorder()
-		if !newImageVariants(dir).serveFile(w, httptest.NewRequest("GET", "/?width=1", nil), "source", path, imageBrowserCacheControl) {
+		if !newImageVariants(dir, "").serveFile(w, httptest.NewRequest("GET", "/?width=1", nil), "source", path, imageBrowserCacheControl) {
 			t.Fatal("fallback missing")
 		}
 		if !bytes.Equal(w.Body.Bytes(), data) || w.Header().Get("Cache-Control") != "no-store" {
@@ -159,7 +193,7 @@ func TestImageVariantFallbackAndCancellation(t *testing.T) {
 	if err := os.WriteFile(path, variantPNG(t, 20, 10), 0600); err != nil {
 		t.Fatal(err)
 	}
-	v := newImageVariants(path) // 普通文件不能创建缓存子目录。
+	v := newImageVariants(path, "") // 普通文件不能创建缓存子目录。
 	w := httptest.NewRecorder()
 	v.serveFile(w, httptest.NewRequest("GET", "/?width=1", nil), "source", path, imageBrowserCacheControl)
 	if w.Header().Get("Cache-Control") != "no-store" || w.Header().Get("Content-Type") != "image/png" {
@@ -175,7 +209,7 @@ func TestImageVariantFallbackAndCancellation(t *testing.T) {
 }
 
 func TestImageVariantConcurrentGeneration(t *testing.T) {
-	v := newImageVariants(t.TempDir())
+	v := newImageVariants(t.TempDir(), "")
 	data := variantPNG(t, 120, 60)
 	var reads atomic.Int32
 	var wg sync.WaitGroup
@@ -184,7 +218,7 @@ func TestImageVariantConcurrentGeneration(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			w := httptest.NewRecorder()
-			if !v.serve(w, httptest.NewRequest("GET", "/", nil), "same", imageVariantOptions{MaxWidth: 40, Quality: 80, Format: "webp"}, func() ([]byte, error) { reads.Add(1); return data, nil }) {
+			if !v.serve(w, httptest.NewRequest("GET", "/", nil), "same", "", imageVariantOptions{MaxWidth: 40, Quality: 80, Format: "webp"}, func() ([]byte, error) { reads.Add(1); return data, nil }) {
 				t.Error("not served")
 			}
 			if w.Header().Get("Content-Type") != "image/webp" {

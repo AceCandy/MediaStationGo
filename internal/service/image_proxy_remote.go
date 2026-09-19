@@ -126,7 +126,7 @@ func (p *ImageProxy) serveRemoteImage(ctx context.Context, w http.ResponseWriter
 		http.Error(w, parseErr.Error(), http.StatusBadRequest)
 		return nil
 	} else if requested && p.variants != nil {
-		if p.variants.serve(w, r, fmt.Sprintf("%x", sha256.Sum256(data)), o, func() ([]byte, error) { return data, nil }) {
+		if p.variants.serve(w, r, fmt.Sprintf("%x", sha256.Sum256(data)), "", o, func() ([]byte, error) { return data, nil }) {
 			return nil
 		}
 		cacheControl = "no-store"

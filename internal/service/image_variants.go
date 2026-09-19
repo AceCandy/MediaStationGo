@@ -25,14 +25,22 @@ import (
 
 // imageVariants 保存可重新生成的图片，不覆盖原图，也不自动清理。
 type imageVariants struct {
-	dir    string
-	slots  chan struct{}
-	mu     sync.Mutex
-	active map[string]chan struct{}
+	dir       string
+	dataDir   string
+	remoteDir string
+	slots     chan struct{}
+	mu        sync.Mutex
+	active    map[string]chan struct{}
 }
 
-func newImageVariants(cacheDir string) *imageVariants {
-	return &imageVariants{dir: filepath.Join(cacheDir, "image-variants"), slots: make(chan struct{}, 2), active: make(map[string]chan struct{})}
+func newImageVariants(cacheDir, dataDir string) *imageVariants {
+	return &imageVariants{
+		dir:       filepath.Join(cacheDir, "image-variants"),
+		dataDir:   dataDir,
+		remoteDir: filepath.Join(cacheDir, "images"),
+		slots:     make(chan struct{}, 2),
+		active:    make(map[string]chan struct{}),
+	}
 }
 
 type imageVariantOptions struct {
@@ -117,7 +125,7 @@ func (v *imageVariants) serveFile(w http.ResponseWriter, r *http.Request, key, p
 		return false
 	}
 	source := fmt.Sprintf("%s:%d:%d", path, stat.Size(), stat.ModTime().UnixNano())
-	if v.serve(w, r, source, o, func() ([]byte, error) {
+	if v.serve(w, r, source, path, o, func() ([]byte, error) {
 		f, err := os.Open(path)
 		if err != nil {
 			return nil, err
@@ -131,9 +139,12 @@ func (v *imageVariants) serveFile(w http.ResponseWriter, r *http.Request, key, p
 }
 
 // serve 合并同一变体的生成；等待并发名额和其它请求时响应取消。
-func (v *imageVariants) serve(w http.ResponseWriter, r *http.Request, source string, o imageVariantOptions, read func() ([]byte, error)) bool {
-	key := fmt.Sprintf("%x", sha256.Sum256([]byte(fmt.Sprintf("v1:%s:%+v", source, o))))
-	path := filepath.Join(v.dir, key[:2], key+"."+o.Format)
+func (v *imageVariants) serve(w http.ResponseWriter, r *http.Request, source, sourcePath string, o imageVariantOptions, read func() ([]byte, error)) bool {
+	identity := "v1:" + source
+	key := fmt.Sprintf("%x", sha256.Sum256([]byte(fmt.Sprintf("%s:%+v", identity, o))))
+	version := fmt.Sprintf("%x", sha256.Sum256([]byte(identity)))
+	spec := fmt.Sprintf("w%d-h%d-mw%d-mh%d-fw%d-fh%d-q%d.%s", o.Width, o.Height, o.MaxWidth, o.MaxHeight, o.FillWidth, o.FillHeight, o.Quality, o.Format)
+	path := filepath.Join(v.dir, v.sourceGroup(source, sourcePath), version, spec)
 	for {
 		if r.Context().Err() != nil {
 			return true
@@ -182,6 +193,43 @@ func (v *imageVariants) serve(w http.ResponseWriter, r *http.Request, source str
 		return false
 	}
 	return serveImageFile(w, r, key, path, imageBrowserCacheControl)
+}
+
+// sourceGroup 保留 DataDir 下的图片层级，其他来源只保留不可逆标识。
+func (v *imageVariants) sourceGroup(source, sourcePath string) string {
+	if rel, ok := relativeImagePath(v.remoteDir, sourcePath); ok {
+		return filepath.Join("remote", rel)
+	}
+	if rel, ok := relativeImagePath(v.dataDir, sourcePath); ok {
+		return strings.TrimSuffix(rel, filepath.Ext(rel))
+	}
+	value := sourcePath
+	group := "local"
+	if value == "" {
+		value = source
+		group = "remote"
+	}
+	return filepath.Join(group, fmt.Sprintf("%x", sha256.Sum256([]byte(value))))
+}
+
+// relativeImagePath 只返回 root 内部的非空相对路径。
+func relativeImagePath(root, path string) (string, bool) {
+	if strings.TrimSpace(root) == "" || strings.TrimSpace(path) == "" {
+		return "", false
+	}
+	rootAbs, err := filepath.Abs(root)
+	if err != nil {
+		return "", false
+	}
+	pathAbs, err := filepath.Abs(path)
+	if err != nil {
+		return "", false
+	}
+	rel, err := filepath.Rel(rootAbs, pathAbs)
+	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", false
+	}
+	return rel, true
 }
 
 func encodeImageVariant(data []byte, o imageVariantOptions) ([]byte, error) {

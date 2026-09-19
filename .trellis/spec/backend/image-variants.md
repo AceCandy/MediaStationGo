@@ -22,7 +22,7 @@ Original storage/import and authentication are not transformation concerns.
 - JPEG/PNG EXIF orientation is applied before sizing; WebP uses the decoder's AutoRotate option.
 - GIF, animated WebP and APNG are passed through without flattening. Failed processing returns original bytes with `no-store`; placeholders retain existing semantics.
 - One shared instance per service container; two concurrent encodes and same-key generation coalescing. Waiting observes request cancellation; an already-running codec finishes before cancellation is checked again.
-- Variants live at `<cache.cache_dir>/image-variants/<hash-prefix>/<hash>.<format>` and use existing atomic file writes. No automatic cleanup or pre-generation.
+- Variants mirror DataDir image paths under `<cache.cache_dir>/image-variants`; remote and external local images use `remote/<source-hash>` and `local/<path-hash>`. Each source version owns its specification files. Existing atomic file writes remain; there is no automatic cleanup or pre-generation.
 - Keys include algorithm version, source path/size/nanosecond mtime and normalized options. Downloaded bytes use a content hash if original storage failed. Source updates create a new variant; old variants remain.
 - Web defaults to maxWidth=640; large backgrounds use 1920. `original:true` removes processing parameters. URL version replacement must not create duplicate query keys; tokens must not enter image URLs.
 - Same-origin `/api/` images rely on the existing HttpOnly Cookie, not a token-bearing URL. Playback URLs retain their existing token behavior. Non-critical list, search and administration images use native lazy loading and asynchronous decoding.
