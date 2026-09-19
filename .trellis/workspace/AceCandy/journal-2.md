@@ -1002,3 +1002,25 @@ Web 与 Emby 对缺失的单集播出日期按同季前序集回退；季和单�
 ### Next Steps
 
 - 部署后验证图片耗时和客户端兼容，关注变体缓存磁盘占用。
+
+
+## Session 133: 按图片来源组织裁剪缓存
+<!-- trellis-session: v=2 fp=d8d19c89aef2cdf6 -->
+
+**Date**: 2026-09-19
+**Task**: 按图片来源组织裁剪缓存
+**Branch**: `main`
+
+### Summary
+
+将图片裁剪缓存按 DataDir 原图层级、远程图片和外部本地图片分类组织，保留源版本及规格目录，并补充路径布局测试。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `f5fbb23` | fix: 按图片来源组织裁剪缓存 |
+
+### Status
+
+[OK] **Completed**

@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-2.md`
-- **Total Sessions**: 132
+- **Total Sessions**: 133
 - **Last Active**: 2026-09-19
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-2.md` | ~1004 | Active |
+| `journal-2.md` | ~1026 | Active |
 | `journal-1.md` | ~1981 | Archived |
 <!-- @@@/auto:active-documents -->
 
@@ -30,6 +30,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 133 | 2026-09-19 | 按图片来源组织裁剪缓存 | `f5fbb23` | `main` |
 | 132 | 2026-09-19 | 参数化图片与 WebP 缓存 | `e18c2105cf8015550d6b2f67ad3f480879389df5` | `main` |
 | 131 | 2026-09-18 | 系统设置与观看补标收尾及已完成任务归档 | `6cc74ee`, `ed6e9ef`, `89fccfa` | `main` |
 | 130 | 2026-09-17 | 发现资料与红果下载功能收尾归档 | `31952ac` | `main` |
