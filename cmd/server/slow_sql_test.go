@@ -2,6 +2,8 @@ package main
 
 import (
 	"bytes"
+	"database/sql"
+	"encoding/json"
 	"errors"
 	"log"
 	"os"
@@ -28,6 +30,11 @@ func TestSlowSQLLogIsolation(t *testing.T) {
 			var app bytes.Buffer
 			base := logger.New(log.New(&app, "", 0), logger.Config{LogLevel: logger.Warn})
 			l := slowSQLLogger{Interface: base, log: slowLog, threshold: 100 * time.Millisecond}
+			statsCalls := 0
+			l.poolStats = func() sql.DBStats {
+				statsCalls++
+				return sql.DBStats{MaxOpenConnections: 4, InUse: 4, Idle: 0, WaitCount: 11, WaitDuration: 1500 * time.Millisecond}
+			}
 			query := func() (string, int64) { return "SELECT * FROM media WHERE id = $1", 16 }
 			l.Trace(t.Context(), time.Now().Add(-time.Second), query, nil)
 			if app.Len() != 0 {
@@ -56,6 +63,13 @@ func TestSlowSQLLogIsolation(t *testing.T) {
 			}
 			if strings.Count(string(data), "\n") != 1 || !strings.Contains(string(data), `"rows":16`) || strings.Contains(string(data), "private-value") {
 				t.Fatalf("unexpected slow log: %s", data)
+			}
+			var entry map[string]any
+			if err := json.Unmarshal(data, &entry); err != nil {
+				t.Fatal(err)
+			}
+			if statsCalls != 1 || entry["db_pool_max_open"] != float64(4) || entry["db_pool_in_use"] != float64(4) || entry["db_pool_idle"] != float64(0) || entry["db_pool_wait_count_total"] != float64(11) || entry["db_pool_wait_ms_total"] != float64(1500) {
+				t.Fatalf("unexpected pool snapshot: calls=%d entry=%v", statsCalls, entry)
 			}
 		})
 	}

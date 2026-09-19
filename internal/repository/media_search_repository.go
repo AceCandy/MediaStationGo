@@ -749,19 +749,19 @@ func (r *MediaViewRepository) metadataSearchDocuments(ctx context.Context, metad
 	var libraries []libraryRow
 	// 分集很多而实际文件稀疏时，逐集探测 media 索引比扫描一次更贵。
 	// 有界计数保留小批增量更新的索引点查，避免每次更新都扫描全部媒体。
-	// ponytail: 1024 为当前数据规模的切换阈值；媒体规模显著增长时需重新对比执行计划。
+	// ponytail: 8192 为当前数据规模的切换阈值；媒体规模显著增长时需重新对比执行计划。
 	var episodeCount int64
 	if err := r.db.WithContext(ctx).Raw(`SELECT count(*) FROM (
 		SELECT 1 FROM metadata_items AS series_metadata
 		JOIN metadata_items AS season_metadata ON season_metadata.parent_id = series_metadata.id AND season_metadata.kind = 'season'
 		JOIN metadata_items AS episode_metadata ON episode_metadata.parent_id = season_metadata.id AND episode_metadata.kind = 'episode'
 		WHERE series_metadata.id IN ? AND series_metadata.kind = 'series'
-		LIMIT 1025
+		LIMIT 8193
 	) AS candidate_episodes`, metadataIDs).Scan(&episodeCount).Error; err != nil {
 		return nil, err
 	}
 	mediaSource := "media"
-	if episodeCount > 1024 {
+	if episodeCount > 8192 {
 		mediaSource = "(SELECT metadata_id, library_id FROM media OFFSET 0)"
 	}
 	err := r.db.WithContext(ctx).Raw(`

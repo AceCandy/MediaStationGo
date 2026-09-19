@@ -30,6 +30,23 @@ Questions to answer:
 
 ## Structured Logging
 
+### Slow SQL Connection Pool Diagnostics
+
+1. Scope: `cmd/server/slow_sql.go` and runtime logger wiring in `main.go`.
+2. Fields: `db_pool_max_open`, `db_pool_in_use`, `db_pool_idle`,
+   `db_pool_wait_count_total`, `db_pool_wait_ms_total` come from `sql.DB.Stats`.
+3. Contract: attach one pool snapshot only to an already-emitted successful
+   slow SQL event; use the runtime pool, not the closed migration connection.
+4. Boundaries: disabled, silent, fast and failed queries do not sample the pool.
+   Errors retain the original logger path; `ParamsFilter` still suppresses values.
+5. Cases: increasing cumulative waits can help correlate contention; an idle
+   pool at completion does not rule out earlier waiting. No extra polling service.
+6. Tests: `TestSlowSQLLogIsolation` checks one snapshot, numeric fields, millisecond
+   units, unchanged error/disabled/fast behavior and absence of private parameters.
+7. Wrong: report total pool wait duration as this SQL's wait duration. Correct:
+   label totals explicitly and compare deltas across events without attributing
+   concurrent waits to one query; retain server-side plan/wait checks.
+
 - Player-compatible API diagnostics enrich the existing `http` entry with
   `player_api=true`, request headers, and query parameters. They must not create
   a duplicate per-request log line.

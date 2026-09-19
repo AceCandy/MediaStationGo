@@ -2,8 +2,11 @@ package repository
 
 import (
 	"context"
+	"database/sql"
+	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"gorm.io/gorm"
 
@@ -204,14 +207,33 @@ func (r *MediaViewRepository) FindByLogicalMetadataIDs(ctx context.Context, meta
 	if len(metadataIDs) == 0 {
 		return []model.MediaView{}, nil
 	}
-	logicalID := "CASE WHEN mi.kind IN ('episode', 'season') THEN COALESCE(series_metadata.id, mi.id) ELSE mi.id END"
-	q := applyMediaViewFilter(r.query(ctx).Where("m.metadata_id IN ? OR "+logicalID+" IN ?", metadataIDs, metadataIDs), filter).
+	// 先限定请求作品的文件，再关联展示字段，避免跨层级 OR 扫描全库媒体。
+	candidates := r.logicalMetadataCandidates(ctx, metadataIDs)
+	q := applyMediaViewFilter(r.query(ctx).
+		Table("(SELECT * FROM media WHERE metadata_id IN (?) OFFSET 0) AS m", candidates), filter).
 		Order("m.created_at DESC, m.id DESC")
 	var rows []model.MediaView
 	if err := scanMediaViews(q, &rows); err != nil {
 		return nil, err
 	}
 	return rows, nil
+}
+
+// logicalMetadataCandidates 保留请求项本身，仅为整剧展开类型匹配的季和分集。
+func (r *MediaViewRepository) logicalMetadataCandidates(ctx context.Context, metadataIDs []string) *gorm.DB {
+	return r.db.WithContext(ctx).Raw(`WITH requested AS MATERIALIZED (
+		SELECT id, kind FROM metadata_items WHERE id = ANY(?)
+	)
+	SELECT id FROM requested
+	UNION ALL
+	SELECT s.id FROM requested r
+	JOIN metadata_items s ON s.parent_id = r.id AND s.kind = 'season'
+	WHERE r.kind = 'series'
+	UNION ALL
+	SELECT e.id FROM requested r
+	JOIN metadata_items s ON s.parent_id = r.id AND s.kind = 'season'
+	JOIN metadata_items e ON e.parent_id = s.id AND e.kind = 'episode'
+	WHERE r.kind = 'series'`, &metadataIDs)
 }
 
 func (r *MediaViewRepository) FindByLogicalMetadataID(ctx context.Context, metadataID string, filter MediaQueryFilter) (*model.MediaView, error) {
@@ -291,6 +313,72 @@ func (r *MediaViewRepository) ListRecentLogicalWorks(ctx context.Context, limit 
 		limit = 24
 	}
 	logicalID := "CASE WHEN mi.kind IN ('episode', 'season') THEN COALESCE(series_metadata.id, mi.id) ELSE mi.id END"
+	// 按文件时间逐批解析作品；跨过最后一部作品的时间边界后才能截断同时间 ID。
+	// service 层已有相同游标规则，此处在仓储内保留 MediaView 的完整过滤语义。
+	const batchSize = 128
+	type candidate struct {
+		ID        string
+		CreatedAt sql.NullTime
+	}
+	latest := map[string]time.Time{}
+	var cursor candidate
+	// 高重复或低命中筛选超过 16 批时回退聚合，避免全库逐批往返；不截断结果。
+	for batchNumber := 0; batchNumber < 16; batchNumber++ {
+		q := r.db.WithContext(ctx).Table("media").Select("id, created_at").Where("metadata_id IS NOT NULL")
+		if len(filter.AllowedLibraryIDs) > 0 {
+			q = q.Where("library_id = ANY(?)", &filter.AllowedLibraryIDs)
+		}
+		if len(filter.HiddenLibraryIDs) > 0 {
+			q = q.Where("library_id <> ALL(?)", &filter.HiddenLibraryIDs)
+		}
+		if cursor.ID != "" {
+			q = q.Where("(created_at, id) < (?, ?)", cursor.CreatedAt.Time, cursor.ID)
+		}
+		var candidates []candidate
+		if err := q.Order("created_at DESC, id DESC").Limit(batchSize).Scan(&candidates).Error; err != nil {
+			return nil, err
+		}
+		// PostgreSQL 的 MAX 忽略 NULL，而 DESC 将全 NULL 作品放在最前，交回原聚合处理。
+		if len(candidates) > 0 && !candidates[0].CreatedAt.Valid {
+			break
+		}
+		mediaIDs := make([]string, 0, len(candidates))
+		for _, row := range candidates {
+			mediaIDs = append(mediaIDs, row.ID)
+		}
+		if len(mediaIDs) > 0 {
+			var works []struct {
+				ID        string
+				CreatedAt time.Time
+			}
+			batch := applyMediaViewFilter(r.query(ctx).Where("m.id IN ?", mediaIDs), filter)
+			if err := batch.Select(logicalID + " AS id, MAX(m.created_at) AS created_at").Group(logicalID).Scan(&works).Error; err != nil {
+				return nil, err
+			}
+			for _, work := range works {
+				if previous, ok := latest[work.ID]; !ok || work.CreatedAt.After(previous) {
+					latest[work.ID] = work.CreatedAt
+				}
+			}
+		}
+		ids := make([]string, 0, len(latest))
+		for id := range latest {
+			ids = append(ids, id)
+		}
+		sort.Slice(ids, func(i, j int) bool {
+			if latest[ids[i]].Equal(latest[ids[j]]) {
+				return ids[i] > ids[j]
+			}
+			return latest[ids[i]].After(latest[ids[j]])
+		})
+		if len(ids) > limit {
+			ids = ids[:limit]
+		}
+		if len(candidates) < batchSize || (len(ids) == limit && candidates[len(candidates)-1].CreatedAt.Time.Before(latest[ids[len(ids)-1]])) {
+			return r.FindByLogicalMetadataIDs(ctx, ids, filter)
+		}
+		cursor = candidates[len(candidates)-1]
+	}
 	base := applyMediaViewFilter(r.query(ctx), filter)
 	type logicalRow struct {
 		ID string `gorm:"column:logical_id"`

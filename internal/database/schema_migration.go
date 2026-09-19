@@ -575,6 +575,7 @@ func ensurePostgresColumnCompatibility(db *gorm.DB) error {
 func ensurePerformanceIndexes(db *gorm.DB) error {
 	statements := []string{
 		`CREATE INDEX IF NOT EXISTS idx_media_library_created_active ON media(library_id, created_at DESC)`,
+		`CREATE INDEX IF NOT EXISTS idx_media_recent_metadata ON media(created_at DESC, id DESC) WHERE metadata_id IS NOT NULL`,
 		`CREATE INDEX IF NOT EXISTS idx_people_pending_translation ON people(id) WHERE deleted_at IS NULL AND original_name <> '' AND name = original_name AND original_name !~ '[一-鿿]'`,
 		`CREATE INDEX IF NOT EXISTS idx_metadata_credits_type_pending_translation ON metadata_credits(type, metadata_id, id) WHERE original_role <> '' AND role = original_role AND original_role !~ '[一-鿿]'`,
 		`DROP INDEX IF EXISTS idx_metadata_credits_pending_translation`,
@@ -598,6 +599,12 @@ func ensurePerformanceIndexes(db *gorm.DB) error {
 		statements = append(statements,
 			`CREATE INDEX IF NOT EXISTS idx_playlist_items_metadata_active ON playlist_items(metadata_id, playlist_id) WHERE deleted_at IS NULL`,
 			`CREATE UNIQUE INDEX IF NOT EXISTS uniq_playlist_items_metadata_active ON playlist_items(playlist_id, metadata_id) WHERE deleted_at IS NULL`,
+		)
+	}
+	if db.Migrator().HasTable(&model.HongGuoDownload{}) {
+		statements = append(statements,
+			`CREATE INDEX IF NOT EXISTS idx_hg_download_transfer_claim ON hong_guo_downloads(created_at, id) WHERE status IN ('queued', 'waiting_verify', 'downloading', 'verifying', 'publishing') AND raw_size = 0 AND COALESCE(sha256, '') = ''`,
+			`CREATE INDEX IF NOT EXISTS idx_hg_download_verification_claim ON hong_guo_downloads(created_at, id) WHERE status IN ('queued', 'waiting_verify', 'downloading', 'verifying', 'publishing') AND (raw_size > 0 OR COALESCE(sha256, '') <> '')`,
 		)
 	}
 	statements = append(statements,

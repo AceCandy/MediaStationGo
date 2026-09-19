@@ -25,19 +25,24 @@ type HongGuoDownloadSummary struct {
 	Cancelled     int64  `json:"cancelled"`
 }
 
-func (s *HongGuoDownloadService) ListWorks(ctx context.Context, page int, failedOnly bool) ([]HongGuoDownloadSummary, int64, error) {
+func (s *HongGuoDownloadService) ListWorks(ctx context.Context, page int, status string) ([]HongGuoDownloadSummary, int64, error) {
 	rows := []HongGuoDownloadSummary{}
 	var total int64
 	db := s.repo.DB.WithContext(ctx).Model(&model.HongGuoDownload{})
-	if failedOnly {
-		// 只筛选作品身份，外层仍汇总该作品的所有分集状态。
-		failed := s.repo.DB.Model(&model.HongGuoDownload{}).Select("source_id").Where("status = ?", "failed")
-		db = db.Where("source_id IN (?)", failed)
+	if status != "" {
+		db = db.Where("status = ?", status)
 	}
 	if err := db.Session(&gorm.Session{}).Distinct("source_id").Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
-	err := db.Select(`source_id, MAX(title) AS title, COUNT(*) AS total,
+	// 先分页作品身份；状态筛选不影响后续对整部作品的分集统计。
+	works := s.repo.DB.WithContext(ctx).Model(&model.HongGuoDownload{}).Select("source_id").Group("source_id")
+	if status != "" {
+		works = works.Having("BOOL_OR(status = ?)", status)
+	}
+	works = works.Order("MIN(created_at) DESC, source_id").Limit(50).Offset((page - 1) * 50)
+	err := s.repo.DB.WithContext(ctx).Model(&model.HongGuoDownload{}).Where("source_id IN (?)", works).
+		Select(`source_id, MAX(title) AS title, COUNT(*) AS total,
 	 COUNT(*) FILTER (WHERE status = 'queued') AS queued,
 	 COUNT(*) FILTER (WHERE status = 'downloading') AS downloading,
 	 COUNT(*) FILTER (WHERE status = 'verifying') AS verifying,
@@ -45,7 +50,7 @@ func (s *HongGuoDownloadService) ListWorks(ctx context.Context, page int, failed
 	 COUNT(*) FILTER (WHERE status = 'publishing') AS publishing,
 	 COUNT(*) FILTER (WHERE status = 'completed') AS completed,
 	 COUNT(*) FILTER (WHERE status = 'failed') AS failed,
-	 COUNT(*) FILTER (WHERE status = 'cancelled') AS cancelled`).Group("source_id").Order("MIN(created_at) DESC, source_id").Limit(50).Offset((page - 1) * 50).Scan(&rows).Error
+	 COUNT(*) FILTER (WHERE status = 'cancelled') AS cancelled`).Group("source_id").Order("MIN(created_at) DESC, source_id").Scan(&rows).Error
 	return rows, total, err
 }
 

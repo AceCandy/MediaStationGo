@@ -15,7 +15,7 @@ export const hongguoDownloadsAPI = {
   config: (signal?: AbortSignal) => api.get<DownloadConfig>(`${base}/config`, { signal }).then((r) => r.data),
   save: (config: Pick<DownloadConfig, 'root' | 'concurrency' | 'verification_concurrency' | 'full_verification' | 'hardware_verification' | 'priority'>) => api.put<DownloadConfig>(`${base}/config`, config).then((r) => r.data),
   list: (page: number, signal?: AbortSignal) => api.get<{ items: HongGuoDownload[]; total: number }>(base, { params: { page }, signal }).then((r) => r.data),
-  works: (page: number, failedOnly: boolean, signal?: AbortSignal) => api.get<{ items: HongGuoDownloadWork[]; total: number }>(`${base}/works`, { params: { page, failed_only: failedOnly || undefined }, signal }).then((r) => r.data),
+  works: (page: number, status: HongGuoDownload['status'] | '', signal?: AbortSignal) => api.get<{ items: HongGuoDownloadWork[]; total: number }>(`${base}/works`, { params: { page, status: status || undefined }, signal }).then((r) => r.data),
   episodes: (source: string, page: number, signal?: AbortSignal) => api.get<{ items: HongGuoDownload[]; total: number }>(`${base}/works/${encodeURIComponent(source)}/episodes`, { params: { page }, signal }).then((r) => r.data),
   retryWork: (source: string) => api.post<{ added: number; skipped: number }>(`${base}/works/${encodeURIComponent(source)}/retry`).then((r) => r.data),
   enqueue: (source_id: string) => api.post<{ added: number }>(base, { source_id }).then((r) => r.data),

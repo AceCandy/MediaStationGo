@@ -71,7 +71,7 @@ func TestHongGuoDownloadConfigHTTP(t *testing.T) {
 	}
 }
 
-func TestHongGuoDownloadWorksFailedFilterHTTP(t *testing.T) {
+func TestHongGuoDownloadWorksStatusFilterHTTP(t *testing.T) {
 	db, err := testdb.OpenPostgres(t, &gorm.Config{})
 	if err != nil {
 		t.Fatal(err)
@@ -90,7 +90,7 @@ func TestHongGuoDownloadWorksFailedFilterHTTP(t *testing.T) {
 		query  string
 		status int
 		total  int64
-	}{{"", 200, 2}, {"?failed_only=false", 200, 2}, {"?failed_only=true", 200, 1}, {"?failed_only=invalid", 400, 0}} {
+	}{{"", 200, 2}, {"?status=completed", 200, 1}, {"?status=failed", 200, 1}, {"?status=invalid", 400, 0}} {
 		w := httptest.NewRecorder()
 		engine.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/catalogs/hongguo/downloads/works"+tt.query, nil))
 		if w.Code != tt.status {
@@ -109,7 +109,7 @@ func TestHongGuoDownloadWorksFailedFilterHTTP(t *testing.T) {
 		if result.Total != tt.total || int64(len(result.Items)) != tt.total {
 			t.Fatalf("%s: %+v", tt.query, result)
 		}
-		if tt.total == 1 && (result.Items[0].Total != 2 || result.Items[0].Completed != 1 || result.Items[0].Failed != 1) {
+		if tt.query == "?status=failed" && (result.Items[0].Total != 2 || result.Items[0].Completed != 1 || result.Items[0].Failed != 1) {
 			t.Fatalf("incomplete summary: %+v", result)
 		}
 	}

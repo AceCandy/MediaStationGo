@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"path/filepath"
 	"time"
 
@@ -32,6 +33,7 @@ type slowSQLLogger struct {
 	log       *zap.Logger
 	threshold time.Duration
 	silent    bool
+	poolStats func() sql.DBStats
 }
 
 func (l slowSQLLogger) LogMode(level logger.LogLevel) logger.Interface {
@@ -53,8 +55,17 @@ func (l slowSQLLogger) Trace(ctx context.Context, begin time.Time, fc func() (st
 		return
 	}
 	sql, rows := fc()
-	l.log.Warn("slow SQL", zap.Float64("duration_ms", float64(elapsed)/float64(time.Millisecond)),
-		zap.Int64("rows", rows), zap.String("source", utils.FileWithLineNum()), zap.String("sql", sql))
+	fields := []zap.Field{zap.Float64("duration_ms", float64(elapsed)/float64(time.Millisecond)),
+		zap.Int64("rows", rows), zap.String("source", utils.FileWithLineNum()), zap.String("sql", sql)}
+	if l.poolStats != nil {
+		stats := l.poolStats()
+		// 等待指标是整个连接池的累计值，不能当作本条 SQL 的等待时间。
+		fields = append(fields, zap.Int("db_pool_max_open", stats.MaxOpenConnections),
+			zap.Int("db_pool_in_use", stats.InUse), zap.Int("db_pool_idle", stats.Idle),
+			zap.Int64("db_pool_wait_count_total", stats.WaitCount),
+			zap.Float64("db_pool_wait_ms_total", float64(stats.WaitDuration)/float64(time.Millisecond)))
+	}
+	l.log.Warn("slow SQL", fields...)
 }
 
 // ParamsFilter 不展开绑定参数，避免凭据、路径和个人信息进入 SQL 日志。

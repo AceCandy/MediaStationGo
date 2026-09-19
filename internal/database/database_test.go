@@ -297,6 +297,7 @@ func TestEnsurePerformanceIndexesCreatesHotPathIndexes(t *testing.T) {
 		"idx_media_library_created_active",
 		"idx_media_library_episode_active",
 		"idx_media_metadata_active",
+		"idx_media_recent_metadata",
 		"idx_metadata_parent_episode_active",
 		"idx_favorites_user_media_active",
 		"idx_playback_histories_user_media_active",

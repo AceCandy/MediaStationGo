@@ -10,6 +10,7 @@ import { HongGuoDownloadActions } from './HongGuoDownloadActions'
 const sourceLabels: Record<string, string> = { app: 'App 接口', fallback: '备用接口', official: '官方网页' }
 const statusLabels: Record<HongGuoDownload['status'], string> = { downloading: '↓ 下载中', verifying: '◉ 校验中', publishing: '↗ 发布中', waiting_verify: '◷ 等待校验', failed: '⚠ 失败', queued: '◷ 等待下载', cancelled: '⊘ 已取消', completed: '✓ 已完成' }
 const statusColors: Record<HongGuoDownload['status'], string> = { downloading: 'text-brand-500 bg-brand-500/10', verifying: 'text-sage-600 bg-sage-500/10', publishing: 'text-sage-600 bg-sage-500/10', waiting_verify: 'text-gold-600 bg-gold-500/10', failed: 'text-red-500 bg-red-500/10', queued: 'text-ink-50 bg-ink-100/5', cancelled: 'text-ink-50 bg-ink-100/5', completed: 'text-emerald-600 bg-emerald-500/10' }
+const statuses = Object.keys(statusLabels) as HongGuoDownload['status'][]
 const message = (err: unknown) => (err as { response?: { data?: { error?: string } } })?.response?.data?.error || '操作失败，请重试'
 
 export function DownloadSpacePage() {
@@ -21,7 +22,8 @@ function DownloadSpaceContent() {
   const [params, setParams] = useSearchParams()
   const raw = Number(params.get('page') ?? 1)
   const page = Number.isInteger(raw) && raw >= 1 && raw <= 1000000 ? raw : 1
-  const failedOnly = params.get('failed_only') === 'true'
+  const rawStatus = params.get('status') ?? ''
+  const status = statuses.includes(rawStatus as HongGuoDownload['status']) ? rawStatus as HongGuoDownload['status'] : ''
   const [config, setConfig] = useState<DownloadConfig | null>(null)
   const [root, setRoot] = useState('')
   const [concurrency, setConcurrency] = useState('')
@@ -31,7 +33,7 @@ function DownloadSpaceContent() {
   const [priority, setPriority] = useState('')
   const dirty = root !== (config?.root ?? '') || concurrency !== String(config?.concurrency ?? '') || verificationConcurrency !== String(config?.verification_concurrency ?? '') || fullVerification !== (config?.full_verification ?? true) || hardwareVerification !== (config?.hardware_verification ?? false) || priority !== (config?.priority ?? '')
   const [configError, setConfigError] = useState('')
-  const [result, setResult] = useState<{ page: number; failedOnly: boolean; items: HongGuoDownloadWork[]; total: number } | null>(null)
+  const [result, setResult] = useState<{ page: number; status: string; items: HongGuoDownloadWork[]; total: number } | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const settingsButton = useRef<HTMLButtonElement>(null)
   const closeSettings = () => { setSettingsOpen(false); settingsButton.current?.focus() }
@@ -42,9 +44,9 @@ function DownloadSpaceContent() {
   const active = useRef(true)
   useEffect(() => { active.current = true; return () => { active.current = false } }, [])
   useEffect(() => {
-    if (raw === page && params.getAll('page').length <= 1 && (failedOnly ? params.getAll('failed_only').length === 1 : !params.has('failed_only'))) return
-    const next = new URLSearchParams(params); next.set('page', String(page)); if (failedOnly) next.set('failed_only', 'true'); else next.delete('failed_only'); setParams(next, { replace: true })
-  }, [params, setParams, raw, page, failedOnly])
+    if (raw === page && params.getAll('page').length <= 1 && rawStatus === status && (status ? params.getAll('status').length === 1 : !params.has('status'))) return
+    const next = new URLSearchParams(params); next.set('page', String(page)); if (status) next.set('status', status); else next.delete('status'); setParams(next, { replace: true })
+  }, [params, setParams, raw, page, rawStatus, status])
   useEffect(() => {
     const controller = new AbortController()
     void hongguoDownloadsAPI.config(controller.signal).then((value) => {
@@ -57,19 +59,19 @@ function DownloadSpaceContent() {
     let timer: ReturnType<typeof setTimeout>
     const load = async () => {
       try {
-        const value = await hongguoDownloadsAPI.works(page, failedOnly, controller.signal)
+        const value = await hongguoDownloadsAPI.works(page, status, controller.signal)
         if (!controller.signal.aborted) {
           if (page > 1 && value.total <= (page - 1) * 50) {
             setParams((previous) => { const next = new URLSearchParams(previous); next.set('page', String(Math.max(1, Math.ceil(value.total / 50)))); return next }, { replace: true })
           }
-          setResult({ ...value, page, failedOnly }); setError('')
+          setResult({ ...value, page, status }); setError('')
         }
       } catch (err) { if (!controller.signal.aborted) setError(message(err)) }
       if (!controller.signal.aborted) timer = setTimeout(() => void load(), 5000)
     }
     void load()
     return () => { controller.abort(); clearTimeout(timer) }
-  }, [page, failedOnly, refresh, setParams])
+  }, [page, status, refresh, setParams])
   const perform = async (id: string, action: 'cancel' | 'retry' | 'work') => {
     if (busy) return
     setBusy(id)
@@ -124,10 +126,10 @@ function DownloadSpaceContent() {
     </section></ModalShell>}
     <section className="space-y-3" aria-label="红果下载任务">
       <div className="flex flex-wrap items-center justify-between gap-3"><h2 className="text-lg font-semibold">作品任务</h2><Link className="btn-outline" to="/discover?system=hongguo">去红果发现下载</Link></div>
-      <label className="flex min-h-11 items-center gap-2 text-sm"><input type="checkbox" checked={failedOnly} onChange={(event) => { const next = new URLSearchParams(params); if (event.target.checked) next.set('failed_only', 'true'); else next.delete('failed_only'); next.set('page', '1'); setParams(next) }} />仅显示含失败集的剧集</label>
+      <div className="flex items-center gap-2 text-sm"><span>整剧状态</span><Select aria-label="整剧状态" className="input-field min-w-44" value={status} onChange={(value) => { const next = new URLSearchParams(params); if (value) next.set('status', value); else next.delete('status'); next.set('page', '1'); setParams(next) }}><option value="">全部状态</option>{statuses.map((value) => <option key={value} value={value}>{statusLabels[value]}</option>)}</Select></div>
       {error && <p role="alert">{error}</p>}
-      {result?.page !== page || result.failedOnly !== failedOnly ? <p role="status">加载中…</p> : <>
-        {result.items.length === 0 && <p className="text-ink-50">{failedOnly ? '暂无含失败集的剧集。' : '暂无下载任务。从红果发现打开作品详情后发起下载。'}</p>}
+      {result?.page !== page || result.status !== status ? <p role="status">加载中…</p> : <>
+        {result.items.length === 0 && <p className="text-ink-50">{status ? '暂无含所选状态分集的剧集。' : '暂无下载任务。从红果发现打开作品详情后发起下载。'}</p>}
         {result.items.map((work) => <DownloadWork key={work.source_id} work={work} refresh={refresh} busy={busy} perform={perform} />)}
         <div className="flex flex-wrap items-center gap-3"><button className="btn-outline" disabled={page <= 1} onClick={() => goPage(page - 1)}>上一页</button><span>第 {page} 页 · 共 {result.total} 部</span><button className="btn-outline" disabled={page * 50 >= result.total} onClick={() => goPage(page + 1)}>下一页</button></div>
       </>}

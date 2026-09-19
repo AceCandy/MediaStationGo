@@ -102,8 +102,12 @@ func main() {
 	}
 	defer func() { _ = slowLog.Sync() }()
 	if cfg.Logging.SlowSQLThresholdMS > 0 {
+		sqlDB, err := db.DB()
+		if err != nil {
+			logger.Fatal("runtime database handle failed", zap.Error(err))
+		}
 		db.Logger = slowSQLLogger{Interface: db.Logger, log: slowLog,
-			threshold: time.Duration(cfg.Logging.SlowSQLThresholdMS) * time.Millisecond}
+			threshold: time.Duration(cfg.Logging.SlowSQLThresholdMS) * time.Millisecond, poolStats: sqlDB.Stats}
 	}
 	if err := waitForDatabase(db, logger); err != nil {
 		logger.Fatal("database not ready after migration", zap.Error(err))

@@ -105,12 +105,14 @@ func registerHongGuoDownloadRoutes(authed *gin.RouterGroup, svc *service.Contain
 			c.JSON(400, gin.H{"error": "分页参数无效"})
 			return
 		}
-		failedOnly, err := strconv.ParseBool(c.DefaultQuery("failed_only", "false"))
-		if err != nil {
-			c.JSON(400, gin.H{"error": "失败筛选参数无效"})
+		status := c.Query("status")
+		switch status {
+		case "", "queued", "downloading", "waiting_verify", "verifying", "publishing", "completed", "failed", "cancelled":
+		default:
+			c.JSON(400, gin.H{"error": "状态筛选参数无效"})
 			return
 		}
-		rows, total, err := svc.HongGuoDownloads.ListWorks(c.Request.Context(), page, failedOnly)
+		rows, total, err := svc.HongGuoDownloads.ListWorks(c.Request.Context(), page, status)
 		if err != nil {
 			c.JSON(500, gin.H{"error": "读取作品下载任务失败"})
 			return

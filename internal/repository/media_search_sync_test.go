@@ -131,7 +131,7 @@ func TestMetadataSearchDocumentsWithManyUnplayableEpisodes(t *testing.T) {
 		t.Fatalf("small batch: documents=%v sql=%s err=%v", want, librarySQL, err)
 	}
 	seasonID := "search-season"
-	episodes := make([]model.MetadataItem, 1025)
+	episodes := make([]model.MetadataItem, 8192)
 	for i := range episodes {
 		episodes[i] = model.MetadataItem{
 			PermanentBase: model.PermanentBase{ID: fmt.Sprintf("empty-episode-%04d", i)},
@@ -139,10 +139,17 @@ func TestMetadataSearchDocumentsWithManyUnplayableEpisodes(t *testing.T) {
 			Title: "Empty episode", Source: "local",
 		}
 	}
-	if err := repos.DB.CreateInBatches(&episodes, 500).Error; err != nil {
+	if err := repos.DB.CreateInBatches(episodes[:8191], 500).Error; err != nil {
 		t.Fatal(err)
 	}
 	got, err := repos.MediaView.metadataSearchDocuments(t.Context(), ids)
+	if err != nil || !reflect.DeepEqual(got, want) || strings.Contains(librarySQL, "OFFSET 0") {
+		t.Fatalf("bounded batch scanned all media: got=%v want=%v sql=%s err=%v", got, want, librarySQL, err)
+	}
+	if err := repos.DB.Create(&episodes[8191]).Error; err != nil {
+		t.Fatal(err)
+	}
+	got, err = repos.MediaView.metadataSearchDocuments(t.Context(), ids)
 	if err != nil || !reflect.DeepEqual(got, want) || !strings.Contains(librarySQL, "OFFSET 0") {
 		t.Fatalf("sparse series changed documents: got=%v want=%v sql=%s err=%v", got, want, librarySQL, err)
 	}

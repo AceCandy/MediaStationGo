@@ -18,6 +18,11 @@ type LibraryMetadataSummary struct {
 // libraryMetadataScope 通过真实文件关联限定作品归属，支持整剧、季和分集直接关联。
 func (r *MediaViewRepository) libraryMetadataScope(ctx context.Context, libraryID, kind, metadataID string, filter MediaQueryFilter) *gorm.DB {
 	q := r.db.WithContext(ctx).Table("media AS m")
+	if kind == model.MetadataKindSeries && metadataID != "" {
+		// 指定作品先展开关联元数据，避免 CASE 父级连接扫描整个目录。
+		candidates := r.logicalMetadataCandidates(ctx, []string{metadataID})
+		q = q.Table("(SELECT * FROM media WHERE library_id = ? AND metadata_id IN (?) OFFSET 0) AS m", libraryID, candidates)
+	}
 	filtered := filter.MissingPoster || filter.MissingChineseTitle
 	if filtered && kind == model.MetadataKindSeries && metadataID == "" {
 		q = r.libraryFilteredSeriesScope(ctx, libraryID)
@@ -26,7 +31,12 @@ func (r *MediaViewRepository) libraryMetadataScope(ctx context.Context, libraryI
 		if filtered && kind == model.MetadataKindMovie {
 			q = q.Joins("JOIN metadata_items AS work ON work.id = mi.id")
 		} else {
-			q = q.Joins("LEFT JOIN metadata_items AS season ON season.id = mi.parent_id AND mi.kind = 'episode' AND season.kind = 'season'").
+			seasonTable := "metadata_items"
+			if kind == model.MetadataKindSeries && metadataID == "" && !filtered {
+				// 普通整库浏览复用季集合，避免每个文件重复按主键读取同一季。
+				seasonTable = "(SELECT id, parent_id, season_num, kind FROM metadata_items WHERE kind = 'season' OFFSET 0)"
+			}
+			q = q.Joins("LEFT JOIN " + seasonTable + " AS season ON season.id = mi.parent_id AND mi.kind = 'episode' AND season.kind = 'season'").
 				Joins("JOIN metadata_items AS work ON work.id = CASE WHEN mi.kind = 'episode' THEN season.parent_id WHEN mi.kind = 'season' THEN mi.parent_id ELSE mi.id END")
 		}
 	}

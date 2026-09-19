@@ -90,7 +90,9 @@ func (c *Container) Boot() {
 		}
 	}
 	if c.HongGuoDownloads != nil {
-		c.HongGuoDownloads.Start(c.stopCtx)
+		if err := c.HongGuoDownloads.Start(c.stopCtx); err != nil {
+			c.Log.Warn("migrate hongguo download directories failed", zap.Error(err))
+		}
 	}
 	if err := c.NormalizeLocalLibraryPaths(c.stopCtx); err != nil {
 		c.Log.Warn("normalize local library paths failed", zap.Error(err))

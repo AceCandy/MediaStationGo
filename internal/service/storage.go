@@ -37,16 +37,16 @@ type LibraryUsage struct {
 // Compute returns the full breakdown.
 func (s *StorageService) Compute(ctx context.Context) (*Breakdown, error) {
 	out := &Breakdown{ByLibrary: []LibraryUsage{}}
-	// 先按库去重 metadata，再将同季的集汇总；上级关联只处理季、剧集合。
+	// 在库、类型及父级分组内去重 metadata，避免先对全库文件做一次独立去重。
 	// 容量独立按文件累加，未匹配 metadata 的文件也计入，目录中的无文件条目不计数。
 	err := s.repo.DB.WithContext(ctx).Raw(`
 		WITH linked AS (
-			SELECT DISTINCT library_id, metadata_id FROM media WHERE metadata_id IS NOT NULL
+			SELECT library_id, metadata_id FROM media WHERE metadata_id IS NOT NULL
 		), items AS MATERIALIZED (
 			SELECT m.library_id, mi.kind,
 				CASE WHEN mi.kind = 'episode' THEN mi.parent_id
 					WHEN mi.kind IN ('season', 'series') THEN mi.id END AS id,
-				COUNT(*) AS item_count
+				COUNT(DISTINCT m.metadata_id) AS item_count
 			FROM linked m JOIN metadata_items mi ON mi.id = m.metadata_id
 			GROUP BY m.library_id, mi.kind,
 				CASE WHEN mi.kind = 'episode' THEN mi.parent_id

@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"testing"
 	"time"
@@ -11,6 +12,56 @@ import (
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 	"github.com/ShukeBta/MediaStationGo/internal/testdb"
 )
+
+func TestMissingTMDbSnapshotCountScopesMetadataProbes(t *testing.T) {
+	db, err := testdb.OpenPostgres(t, &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(&model.MetadataItem{}, &model.MetadataIdentifier{}, &model.MetadataProviderSnapshot{}); err != nil {
+		t.Fatal(err)
+	}
+	for _, sql := range []string{
+		`INSERT INTO metadata_items(id,kind,title,source) SELECT 'scope-'||i,'movie','Movie','local' FROM generate_series(1,10000) i`,
+		`INSERT INTO metadata_identifiers(id,metadata_id,provider,entity_kind,external_id) VALUES ('scope-id','scope-1','tmdb','movie','2147483647')`,
+		`ANALYZE metadata_items`, `ANALYZE metadata_identifiers`, `ANALYZE metadata_provider_snapshots`,
+	} {
+		if err := db.Exec(sql).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	count, err := New(db).Metadata.CountMissingTMDbSnapshots(t.Context())
+	if err != nil || count != 1 {
+		t.Fatalf("count=%d err=%v", count, err)
+	}
+	query := db.ToSQL(func(tx *gorm.DB) *gorm.DB {
+		return (&MetadataRepository{db: tx}).missingTMDbSnapshotQuery(t.Context()).Count(&count)
+	})
+	var raw string
+	if err := db.Raw("EXPLAIN (ANALYZE, FORMAT JSON, TIMING OFF) " + query).Scan(&raw).Error; err != nil {
+		t.Fatal(err)
+	}
+	type node struct {
+		Relation string `json:"Relation Name"`
+		Rows     int    `json:"Actual Rows"`
+		Loops    int    `json:"Actual Loops"`
+		Plans    []node `json:"Plans"`
+	}
+	var plans []struct{ Plan node }
+	if err := json.Unmarshal([]byte(raw), &plans); err != nil || len(plans) != 1 {
+		t.Fatalf("invalid plan: %s err=%v", raw, err)
+	}
+	var check func(node)
+	check = func(n node) {
+		if n.Relation == "metadata_items" && n.Rows*n.Loops > 10 {
+			t.Fatalf("count scanned unrelated metadata: %s", raw)
+		}
+		for _, child := range n.Plans {
+			check(child)
+		}
+	}
+	check(plans[0].Plan)
+}
 
 func TestListMissingCatalogArtworkWithoutMediaTable(t *testing.T) {
 	db, err := testdb.OpenPostgres(t, &gorm.Config{})
@@ -86,11 +137,18 @@ func TestListMissingTMDbSnapshotsWithoutMediaTable(t *testing.T) {
 	}
 	identifiers := []model.MetadataIdentifier{
 		{MetadataID: items[0].ID, Provider: "tmdb", EntityKind: model.MetadataKindMovie, ExternalID: "10"},
+		{MetadataID: items[0].ID, Provider: "tmdb", EntityKind: model.MetadataKindMovie, ExternalID: "2147483649"},
+		{MetadataID: items[0].ID, Provider: "tmdb", EntityKind: model.MetadataKindMovie, ExternalID: "2"},
 		{MetadataID: items[1].ID, Provider: "tmdb", EntityKind: model.MetadataKindSeries, ExternalID: "20"},
 		{MetadataID: season.ID, Provider: "tmdb", EntityKind: model.MetadataKindSeason, ExternalID: "30"},
 		{MetadataID: episode.ID, Provider: "tmdb", EntityKind: model.MetadataKindEpisode, ExternalID: "40"},
 		{MetadataID: complete.ID, Provider: "tmdb", EntityKind: model.MetadataKindMovie, ExternalID: "50"},
 		{MetadataID: invalid.ID, Provider: "tmdb", EntityKind: model.MetadataKindMovie, ExternalID: "not-a-number"},
+		{MetadataID: invalid.ID, Provider: "tmdb", EntityKind: model.MetadataKindMovie, ExternalID: "2147483648"},
+		{MetadataID: invalid.ID, Provider: "tmdb", EntityKind: model.MetadataKindMovie, ExternalID: "999999999999999999999999"},
+		{MetadataID: invalid.ID, Provider: "tmdb", EntityKind: model.MetadataKindMovie, ExternalID: "01"},
+		{MetadataID: invalid.ID, Provider: "tmdb", EntityKind: model.MetadataKindSeries, ExternalID: "60"},
+		{MetadataID: invalid.ID, Provider: "douban", EntityKind: model.MetadataKindMovie, ExternalID: "60"},
 	}
 	if err := db.Create(&identifiers).Error; err != nil {
 		t.Fatal(err)
@@ -104,7 +162,7 @@ func TestListMissingTMDbSnapshotsWithoutMediaTable(t *testing.T) {
 		t.Fatalf("missing snapshot total = %d, err = %v", total, err)
 	}
 	first, err := repo.ListMissingTMDbSnapshotsAfter(t.Context(), "", 2)
-	if err != nil || len(first) != 2 || first[0].TMDbID != 10 || first[1].TMDbID != 20 {
+	if err != nil || len(first) != 2 || first[0].TMDbID != 2 || first[1].TMDbID != 20 {
 		t.Fatalf("first page = %#v, err = %v", first, err)
 	}
 	second, err := repo.ListMissingTMDbSnapshotsAfter(t.Context(), first[1].MetadataID, 2)

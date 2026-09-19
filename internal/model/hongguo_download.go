@@ -2,7 +2,7 @@ package model
 
 import "time"
 
-// HongGuoDownloadWork 固定首次下载的作品路径，补集不受标题、上线日期或设置变化影响。
+// HongGuoDownloadWork 固定作品路径；从未开始的整剧可随目录规则迁移，开始后不再变更。
 type HongGuoDownloadWork struct {
 	SourceID  string    `gorm:"primaryKey;size:32" json:"source_id"`
 	Title     string    `gorm:"type:text;not null" json:"title"`

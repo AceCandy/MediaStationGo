@@ -169,15 +169,45 @@ the generic prepared plan with `FOR UPDATE SKIP LOCKED` on a mostly processed
 queue. Existing deployments can build the new index concurrently before upgrade;
 startup model migration uses ordinary index creation.
 
+### HongGuo Download Claim Indexes
+
+1. Scope: `claimHongGuoDownload` and startup performance indexes.
+2. Signatures: `idx_hg_download_transfer_claim` and
+   `idx_hg_download_verification_claim` index `(created_at, id)` for the five
+   queued/waiting/active states, partitioned by the exact raw/hash predicates.
+3. Contract: express eligibility as the five fixed literal states AND
+   `(status IN ('queued', 'waiting_verify') OR lease_until < ?)`. Keep the
+   transaction, ascending order, `FOR UPDATE SKIP LOCKED`, and checkpoint routing.
+4. Boundaries: active rows with NULL/unexpired leases remain ineligible;
+   failed/cancelled/completed rows never enter either claim. NULL SHA256 still
+   behaves as empty. Migration errors abort startup; repeated creation is safe.
+5. Cases: an expired transfer resumes; a raw/hash checkpoint uses verification;
+   scanning and sorting the whole pending queue for LIMIT 1 is a regression.
+6. Tests: `TestHongGuoDownloadClaimOrderAndPlan` runs real PostgreSQL, repeated
+   migration, state/order assertions and the actual repository-generated SQL
+   under `force_generic_plan`. Assert the respective index is used with no Sort
+   or Seq Scan. Startup creation can block writers; deploy existing databases
+   with separately reviewed `CREATE INDEX CONCURRENTLY` before restarting.
+7. Wrong: merely add an index while keeping the two status branches in a top-level
+   OR; this can retain BitmapOr and sorting. Correct: factor out the literal
+   five-state predicate. Parameterizing that predicate can prevent generic
+   plans from proving partial-index eligibility.
+
 ### Search Index Backfill Batches
 
-For library membership in `metadataSearchDocuments`, count at most 1,025
-candidate episodes before choosing the media join. Up to 1,024 episodes keeps
+For library membership in `metadataSearchDocuments`, count at most 8,193
+candidate episodes before choosing the media join. Up to 8,192 episodes keeps
 indexed point lookups; larger scopes use an `OFFSET 0` media projection to
 avoid thousands of failed per-episode probes. This projection scans the media
 index, so do not apply it unconditionally to small incremental updates. Recheck
 the crossover when media volume changes substantially. Preserve UNION pair
 deduplication and all movie/season/episode kind checks in both paths.
+At roughly 375k media rows, the former 1,024 threshold forced a full index
+scan for batches of 1,026–1,181 episodes (190–238ms versus 12–14ms with
+point lookups). An 8,001-episode sample also favored lookups (122ms versus
+286ms). These are sampled plans, not a universal crossover guarantee.
+`TestMetadataSearchDocumentsWithManyUnplayableEpisodes` covers both sides
+of the 8,192 boundary and identical document output with sparse files.
 
 `metadataSearchDocumentIDs` pages movie/series candidates by ID without the
 global playable `EXISTS` filter. `metadataSearchDocuments` validates playable
@@ -252,6 +282,73 @@ as a present key. Preserve scalar/array/JSON-null behavior, stale cutoff, unique
 same-kind Movie/Series identifier counting and artwork asset existence checks.
 `TestDoubanEnrichmentCandidateJSONAndPagination` covers these JSON boundaries,
 pagination, cancellation and the snapshot uniqueness precondition.
+
+### Storage and Missing-Snapshot Statistics
+
+`StorageService.Compute` counts distinct metadata IDs within each library/kind/
+parent group, not files. Keep `COUNT(DISTINCT m.metadata_id)` if the input media
+projection is not deduplicated; a plain COUNT would count multiple versions.
+Season and series sets must include direct attachments and episode ancestors.
+Capacity remains a separate per-file probe sum, including unmatched files;
+unprobed files contribute counts but no bytes. Preserve disabled/empty libraries
+and exclude deleted libraries. `TestStorageBreakdownCountsLibraryMetadata`
+covers these cases, including duplicate direct series and season files.
+
+`missingTMDbSnapshotQuery` filters through same-kind TMDb identifiers with no
+TMDb snapshot before resolving candidate metadata. Keep the existing lateral
+selection of the shortest numeric identifier, its CASE-guarded bigint cast,
+int32 bound and ID cursor ordering. EXISTS must not multiply rows for aliases;
+these catalog queries must work without a media table. Do not force the missing
+identifier set to materialize: leave cursor pushdown and join choice available
+for both a new catalog and a mostly completed backfill.
+
+`TestListMissingTMDbSnapshotsWithoutMediaTable` covers aliases, wrong provider/
+kind, malformed/overflow IDs and pagination. Identifier fixtures must respect
+the global provider/kind/external-ID uniqueness constraint, even across metadata.
+`TestMissingTMDbSnapshotCountScopesMetadataProbes` ANALYZEs its isolated fixture
+of 10,000 unrelated metadata rows and one valid identifier, then checks the
+actual PostgreSQL plan does not scan the unrelated metadata. Re-evaluate that
+performance guard on PostgreSQL upgrades; do not replace it with a wall-clock
+threshold that fluctuates with test-machine load.
+
+### Recent Logical Works and Library Season Sets
+
+For an explicit series ID, `libraryMetadataScope` must restrict library files
+through `logicalMetadataCandidates` before the CASE-based ancestor joins.
+The same scope feeds card pagination and episode details. Preserve work-level
+filters and direct series/season attachments; movie and unspecified-series
+paths retain their existing scopes. Candidates are used through `IN`, not a
+multiplying join, so overlapping IDs in `UNION ALL` need no extra DISTINCT.
+`TestLibrarySeriesEpisodesScopesProjectionBeforeJoins` checks metadata traversal
+as well as identifier hydration against unrelated catalog fixtures; do not only
+bound the final projection while leaving its ID subquery to scan the catalog.
+When replaying array-bearing fixture SQL for EXPLAIN, restore the placeholder
+and bind the actual array instead of executing the logger's Go-slice text.
+
+1. Scope: `ListRecentLogicalWorks`, ordinary series library pagination and
+   `ensurePerformanceIndexes`.
+2. Signatures: `idx_media_recent_metadata` indexes `(created_at DESC, id DESC)`
+   with the literal predicate `metadata_id IS NOT NULL`. Existing library-leading
+   indexes do not supply global time order. Creation is idempotent; use separately
+   approved `CREATE INDEX CONCURRENTLY` before upgrading an existing database.
+3. Contract: resolve batches of 128 file candidates with the original visibility
+   and missing-field filters. Stop only after crossing the last selected work's
+   timestamp, then break ties by logical ID. Hydrate complete work versions.
+4. Boundaries: NULL timestamps or 16 unresolved batches fall back to the original
+   aggregate; they never truncate results. Query errors propagate. Startup index
+   creation can block writers, and deployment still requires runtime verification.
+5. Cases: same-time works across batches retain exact ranking; selective filters
+   may require fallback. Ordinary series browsing shares a narrow season set with
+   `OFFSET 0`; explicit-work, movie and missing-field paths retain point lookups.
+6. Tests: `TestRecentLogicalWorksPreservesBatchTiesAndFilters` compares complete
+   old/new results, NULL/fallback and index plans. Migration tests assert repeated
+   creation. `TestLibrarySeriesPageReadsSeasonSetOnce` verifies one season-table
+   read for 2,000 episodes; direct-file, tie, empty-page and stale-statistics tests
+   preserve pagination semantics. Run on PostgreSQL, not skipped.
+7. Wrong: LIMIT files once and treat them as the complete recent-work page.
+   Correct: advance a keyset until the time boundary is cleared, or use the exact
+   aggregate fallback. Do not remove scoped pagination materialization: a measured
+   NOT MATERIALIZED candidate timed out at 10 seconds.
 
 ### Nullable PostgreSQL Aggregates
 

@@ -26,7 +26,8 @@ func (r *HongGuoRepository) claimHongGuoDownload(ctx context.Context, verificati
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		now := time.Now()
 		until := now.Add(time.Minute)
-		query := tx.Clauses(clause.Locking{Strength: "UPDATE", Options: "SKIP LOCKED"}).Where("status IN ? OR (status IN ? AND lease_until < ?)", []string{"queued", "waiting_verify"}, []string{"downloading", "verifying", "publishing"}, now)
+		// 固定状态保留为字面量，使通用预编译计划也能匹配领取部分索引。
+		query := tx.Clauses(clause.Locking{Strength: "UPDATE", Options: "SKIP LOCKED"}).Where("status IN ('queued', 'waiting_verify', 'downloading', 'verifying', 'publishing') AND (status IN ('queued', 'waiting_verify') OR lease_until < ?)", now)
 		if verification {
 			query = query.Where("raw_size > 0 OR COALESCE(sha256, '') <> ''")
 		} else {

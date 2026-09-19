@@ -82,12 +82,15 @@ func TestStorageBreakdownCountsLibraryMetadata(t *testing.T) {
 	movie2 := createServiceTestMetadata(t, db, model.MetadataItem{Kind: "movie", Title: "电影二", Source: "local"})
 	episode2 := createServiceTestMetadata(t, db, model.MetadataItem{Kind: "episode", ParentID: &season.ID, EpisodeNum: 3, Title: "第三集", Source: "local"})
 	directSeries := createServiceTestMetadata(t, db, model.MetadataItem{Kind: "series", Title: "直接关联剧", Source: "local"})
+	seasonSeries := createServiceTestMetadata(t, db, model.MetadataItem{Kind: "series", Title: "仅季文件的剧", Source: "local"})
+	directSeason := createServiceTestMetadata(t, db, model.MetadataItem{Kind: "season", ParentID: &seasonSeries.ID, SeasonNum: 1, Title: "直接关联季", Source: "local"})
 	for i, file := range []struct {
 		library  int
 		metadata string
 	}{
 		{0, movie2.ID}, {0, episode.ID},
-		{1, episode2.ID}, {1, episode2.ID}, {1, directSeries.ID},
+		{1, episode2.ID}, {1, episode2.ID}, {1, directSeries.ID}, {1, directSeries.ID},
+		{1, directSeason.ID}, {1, directSeason.ID},
 	} {
 		if err := db.Create(&model.Media{
 			LibraryID: libs[file.library].ID, MetadataID: file.metadata,
@@ -98,7 +101,7 @@ func TestStorageBreakdownCountsLibraryMetadata(t *testing.T) {
 	}
 	want[0].MovieCount = 2
 	want[0].SeriesCount, want[0].SeasonCount, want[0].EpisodeCount = 1, 1, 1
-	want[1].SeriesCount, want[1].EpisodeCount = 2, 3
+	want[1].SeriesCount, want[1].SeasonCount, want[1].EpisodeCount = 3, 3, 3
 	got, err = svc.Compute(t.Context())
 	if err != nil {
 		t.Fatal(err)

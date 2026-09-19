@@ -264,9 +264,14 @@ func (r *MetadataRepository) missingTMDbSnapshotQuery(ctx context.Context) *gorm
             LIMIT 1
         ) AS own_tmdb ON own_tmdb.tmdb_id BETWEEN 1 AND 2147483647`).
 		Where("mi.kind IN ?", []string{model.MetadataKindMovie, model.MetadataKindSeries, model.MetadataKindSeason, model.MetadataKindEpisode}).
-		Where(`NOT EXISTS (
-            SELECT 1 FROM metadata_provider_snapshots AS snapshot
-            WHERE snapshot.metadata_id = mi.id AND snapshot.provider = 'tmdb'
+		// 先排除已有快照的标识，避免对全目录逐条挑选 TMDb ID。
+		Where(`EXISTS (
+            SELECT 1 FROM metadata_identifiers AS missing
+            WHERE missing.metadata_id = mi.id AND missing.provider = 'tmdb' AND missing.entity_kind = mi.kind
+              AND NOT EXISTS (
+                SELECT 1 FROM metadata_provider_snapshots AS snapshot
+                WHERE snapshot.metadata_id = missing.metadata_id AND snapshot.provider = 'tmdb'
+              )
         )`)
 }
 

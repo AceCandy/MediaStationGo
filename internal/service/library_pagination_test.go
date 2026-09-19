@@ -63,6 +63,69 @@ func TestLibrarySeriesPagePreservesDirectFilesAndTies(t *testing.T) {
 				t.Fatalf("offset=%d rows=%+v want=%+v", offset, rows, want[offset:offset+1])
 			}
 		}
+		_, direct, total, err := svc.repo.MediaView.ListLibraryMetadataPage(t.Context(), "page-library", "series", "page-a", 0, 1, filter)
+		if err != nil || total != 1 || !reflect.DeepEqual(direct, want[2:]) {
+			t.Fatalf("explicit series lost direct files: rows=%+v total=%d err=%v", direct, total, err)
+		}
+		for _, id := range []string{"page-season", "missing"} {
+			_, rows, total, err := svc.repo.MediaView.ListLibraryMetadataPage(t.Context(), "page-library", "series", id, 0, 1, filter)
+			if err != nil || total != 0 || len(rows) != 0 {
+				t.Fatalf("invalid series %s: rows=%+v total=%d err=%v", id, rows, total, err)
+			}
+		}
+	}
+}
+
+func TestLibrarySeriesPageReadsSeasonSetOnce(t *testing.T) {
+	svc := newTestEmbyService(t)
+	db := svc.repo.DB
+	for _, sql := range []string{
+		`INSERT INTO metadata_items(id,kind,title,source) VALUES ('set-series','series','Series','local')`,
+		`INSERT INTO metadata_items(id,kind,parent_id,title,source,season_num) VALUES ('set-season','season','set-series','Season','local',1)`,
+		`INSERT INTO metadata_items(id,kind,parent_id,title,source,episode_num) SELECT 'set-episode-'||n,'episode','set-season','Episode','local',n FROM generate_series(1,2000) n`,
+		`INSERT INTO media(id,metadata_id,library_id,path,created_at) SELECT 'set-file-'||n,'set-episode-'||n,'set-library','/set/'||n,'2026-01-01' FROM generate_series(1,2000) n`,
+		`ANALYZE media`, `ANALYZE metadata_items`,
+	} {
+		if err := db.Exec(sql).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	reads := &paginationReadLog{Interface: db.Logger}
+	db.Logger = reads
+	_, cards, total, err := svc.repo.MediaView.ListLibraryMetadataPage(t.Context(), "set-library", "series", "", 0, 1, repository.MediaQueryFilter{IncludeNSFW: true})
+	if err != nil || total != 1 || len(cards) != 1 || cards[0].Count != 2000 || cards[0].VersionCount != 2000 {
+		t.Fatalf("cards=%+v total=%d err=%v", cards, total, err)
+	}
+	var raw string
+	if err := db.Raw("EXPLAIN (ANALYZE, FORMAT JSON, TIMING OFF) " + reads.seriesSQL).Scan(&raw).Error; err != nil {
+		t.Fatal(err)
+	}
+	type node struct {
+		Relation string `json:"Relation Name"`
+		Alias    string `json:"Alias"`
+		Loops    int    `json:"Actual Loops"`
+		Plans    []node `json:"Plans"`
+	}
+	var plans []struct{ Plan node }
+	if err := json.Unmarshal([]byte(raw), &plans); err != nil || len(plans) != 1 {
+		t.Fatalf("invalid plan: %s err=%v", raw, err)
+	}
+	found := false
+	var check func(node)
+	check = func(n node) {
+		if n.Relation == "metadata_items" && n.Alias == "metadata_items" {
+			found = true
+			if n.Loops > 1 {
+				t.Fatalf("season set repeatedly read: %s", raw)
+			}
+		}
+		for _, child := range n.Plans {
+			check(child)
+		}
+	}
+	check(plans[0].Plan)
+	if !found {
+		t.Fatalf("season set missing from plan: %s", raw)
 	}
 }
 
@@ -119,18 +182,21 @@ func TestLibrarySeriesEpisodesScopesProjectionBeforeJoins(t *testing.T) {
 	if err != nil || len(rows) != 12 {
 		t.Fatalf("rows=%d err=%v", len(rows), err)
 	}
-	query := reads.viewSQL
+	// 日志中的 Go slice 不是 PostgreSQL 数组字面量，执行计划恢复绑定参数。
+	query := strings.ReplaceAll(reads.viewSQL, "'[bounded-series]'", "?")
+	metadataIDs := []string{"bounded-series"}
 	for i, row := range rows {
 		if row.SeriesID != "bounded-series" || row.EpisodeNum != i+1 {
 			t.Fatal("series scope or episode order changed")
 		}
 	}
 	var raw string
-	if err := db.Raw("EXPLAIN (ANALYZE, FORMAT JSON) " + query).Row().Scan(&raw); err != nil {
+	if err := db.Raw("EXPLAIN (ANALYZE, FORMAT JSON) "+query, &metadataIDs).Row().Scan(&raw); err != nil {
 		t.Fatal(err)
 	}
 	type planNode struct {
 		Relation string     `json:"Relation Name"`
+		Rows     float64    `json:"Actual Rows"`
 		Loops    float64    `json:"Actual Loops"`
 		Plans    []planNode `json:"Plans"`
 	}
@@ -140,6 +206,9 @@ func TestLibrarySeriesEpisodesScopesProjectionBeforeJoins(t *testing.T) {
 	}
 	var check func(planNode)
 	check = func(node planNode) {
+		if node.Relation == "metadata_items" && node.Rows*node.Loops > 100 {
+			t.Errorf("single-series lookup traversed unrelated metadata: %.0f rows x %.0f loops", node.Rows, node.Loops)
+		}
 		if node.Relation == "metadata_identifiers" && node.Loops > float64(len(rows)) {
 			t.Errorf("identifier lookups expanded to %.0f for %d selected files", node.Loops, len(rows))
 		}
