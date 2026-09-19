@@ -457,12 +457,31 @@ body::before {
   .page-heading  { @apply font-display text-3xl font-extrabold tracking-tight text-gray-900; }
   .page-subtitle { @apply mt-1 text-sm text-gray-500; }
 
+  /* 页面分类和面板切换共用外观；链接与按钮保留各自的导航语义。 */
+  .tab-list {
+    @apply flex max-w-full flex-wrap gap-1.5 rounded-2xl border p-1.5;
+    border-color: var(--app-border);
+    background: var(--app-panel);
+  }
+  .tab-item {
+    @apply inline-flex min-h-11 items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold transition-colors;
+    color: var(--app-muted);
+  }
+  .tab-item:hover { background: var(--app-hover); color: var(--app-text); }
+  .tab-item[aria-current='page'],
+  .tab-item[aria-pressed='true'] { background: var(--app-active-bg); color: var(--app-active-text); }
+  .tab-item:focus-visible { outline: 2px solid var(--app-accent); outline-offset: 2px; }
+  .tab-item[aria-current='page'] svg,
+  .tab-item[aria-pressed='true'] svg { color: var(--app-active-icon); }
+
   /* ── 数据表 ── */
   .data-table { @apply w-full text-left text-sm border-collapse; }
-  .data-table thead { @apply border-b border-gray-200 bg-gray-50/70; }
-  .data-table th { @apply px-5 py-4 text-xs font-bold uppercase tracking-wider text-gray-500 whitespace-nowrap; }
-  .data-table td { @apply px-5 py-4 text-gray-700 border-b border-gray-100 max-w-xs truncate; }
-  .data-table tbody tr { @apply transition-colors hover:bg-gray-50/50; }
+  .data-table :where(thead) { @apply border-b; background: var(--app-panel-soft); border-color: var(--app-border); }
+  .data-table :where(th) { @apply px-5 py-4 text-xs font-bold uppercase tracking-wider whitespace-nowrap; color: var(--app-muted); }
+  /* 列宽、截断和状态色由单元格按内容设置，避免裁掉行内表单及操作。 */
+  .data-table :where(td) { @apply px-5 py-4 border-b; color: var(--app-subtle); border-color: var(--app-border); }
+  .data-table :where(tbody tr) { @apply transition-colors; }
+  .data-table :where(tbody tr:hover) { background: var(--app-hover); }
 
   /* ── 分割线 ── */
   .divider { @apply border-t border-gray-200/80; }
@@ -512,12 +531,12 @@ body::before {
   border-color: var(--app-accent-border);
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45), 0 0 24px rgba(139, 92, 246, 0.12);
 }
-:root[data-theme='dark'] .btn-outline {
+:root[data-theme='dark'] :is(.btn-outline, .neon-button, .amber-btn) {
   background: var(--app-panel-soft);
   border-color: var(--app-border);
   color: var(--app-subtle);
 }
-:root[data-theme='dark'] .btn-outline:hover {
+:root[data-theme='dark'] :is(.btn-outline, .neon-button, .amber-btn):hover {
   border-color: var(--app-accent-border);
   color: var(--app-brand-text);
 }
@@ -530,19 +549,15 @@ body::before {
 :root[data-theme='dark'] .badge-neutral { background: var(--app-hover); color: var(--app-muted); border-color: var(--app-border); }
 :root[data-theme='dark'] .page-heading { color: var(--app-text); }
 :root[data-theme='dark'] .page-subtitle { color: var(--app-muted); }
-:root[data-theme='dark'] .input-field {
+:root[data-theme='dark'] :is(.input-field, .input-base, .field-input) {
   background: rgba(255, 255, 255, 0.04) !important;
   border-color: var(--app-border);
   color: var(--app-text);
 }
-:root[data-theme='dark'] .input-field:focus {
+:root[data-theme='dark'] :is(.input-field, .input-base, .field-input):focus {
   background: rgba(255, 255, 255, 0.06) !important;
   border-color: var(--app-accent-border);
 }
-:root[data-theme='dark'] .data-table thead { background: var(--app-panel-soft); border-color: var(--app-border); }
-:root[data-theme='dark'] .data-table th { color: var(--app-muted); }
-:root[data-theme='dark'] .data-table td { color: var(--app-subtle); border-color: var(--app-border); }
-:root[data-theme='dark'] .data-table tbody tr:hover { background: var(--app-hover); }
 :root[data-theme='dark'] .divider { border-color: var(--app-border); }
 
 /* ─── 剧集图片开关（原有定制组件，换品牌色） ─── */

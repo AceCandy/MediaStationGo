@@ -84,15 +84,13 @@ export function SettingsPage({ groupKey }: { groupKey: SettingGroupKey }) {
         </div>
       </div>
 
-      <nav aria-label="系统设置分类" className="flex max-w-full flex-wrap gap-1.5 rounded-2xl border border-[var(--app-border)] bg-[var(--app-panel)] p-1.5">
+      <nav aria-label="系统设置分类" className="tab-list">
         {GROUPS.map((item) => (
           <Link
             key={item.key}
             to={`/admin/settings/${item.key}`}
             aria-current={item.key === groupKey ? 'page' : undefined}
-            className={`flex min-h-11 items-center rounded-xl px-4 text-sm font-semibold transition-colors ${item.key === groupKey
-              ? 'bg-[var(--app-active-bg)] text-[var(--app-active-text)]'
-              : 'text-[var(--app-muted)] hover:bg-[var(--app-hover)] hover:text-[var(--app-text)]'}`}
+            className="tab-item"
           >
             {item.label}
           </Link>

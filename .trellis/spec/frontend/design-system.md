@@ -27,11 +27,13 @@
 
 - `.btn-primary` = violet gradient + glow shadow + hover sheen sweep (`::after` highlight); `.btn-danger` = red gradient variant for destructive confirms; `.btn-outline`, `.btn-ghost` for secondary actions; `.icon-btn` = 36px square ghost button (dialog close, toolbar slots).
 - `.card` / `.glass-panel`, `.input-field`, `.badge-brand|sage|gold|neutral`, `.data-table`, `.skeleton`, `.text-gradient-brand`.
+- **Category navigation / panel switches**: use `.tab-list` with `.tab-item` links or buttons. Active links use `aria-current="page"`; active buttons use `aria-pressed`. Both share the same rounded surface, typography, 44px minimum height, hover/focus and theme tokens. Keep URL/state/loading ownership in the page; do not recreate active/inactive class strings. Filter chips, ranking periods and episode selectors have different semantics and retain their own layouts.
+- **Data tables**: every `<table>` uses `.data-table`. Preserve responsive wrappers, column sizing and sticky headers. Base child selectors use `:where(...)` so cell alignment, semantic status colors and explicit compact spacing remain overridable. Never apply blanket truncation or `nowrap` to data cells: forms, controls and descriptions must remain visible; truncate individual filename/path cells when appropriate.
 - **Selects**: use `Select` (`web/src/components/Select.tsx`) instead of native `<select>`. Keep options as `<option>` children and pass the existing string value to `onChange`; the shared component owns the themed Portal menu, keyboard navigation, disabled/required behavior, and focus return.
 - **Modals**: every dialog uses `ModalShell` (`web/src/components/ModalShell.tsx`) — framer-motion spring entrance (scale 0.94 → 1, `stiffness 420, damping 32`, respects `prefers-reduced-motion`), theme-aware `.modal-backdrop` (`--app-overlay` + 10px blur), `.modal-panel`, `.modal-header`, `.modal-footer`, `.modal-icon` (`--danger`/`--gold` variants), body scroll lock. Pass `onClose` to enable backdrop-click + Escape close; omit it for dirty forms. Set `zIndex` for stacked dialogs (confirm 100, password/PIN 110).
 - Toasts (react-hot-toast in `main.tsx`) read `--app-glass`/`--app-text` vars; success icon violet, error red. Don't add per-call `className` overrides.
 - Movie/Series administrator Douban badges open `DoubanBindingDialog` and search the current title. Only subject-confirmed candidate types are actionable; cross-type application uses `ConfirmDialog` before sending `force=true`. Disable duplicate applies/closing while saving, refresh canonical detail after success, and preserve the dialog on failure. Metadata editing displays the ID read-only. Run `node web/scripts/check-douban-binding.mjs` for confirmation, cancellation and refresh checks.
-- Backward-compatible aliases (`surface-card`, `field-input`, `amber-btn--solid`, …) map to the new primitives — keep them working.
+- Backward-compatible aliases (`surface-card`, `field-input`, `amber-btn--solid`, …) map to the new primitives — keep them working. Tailwind `@apply` copies declarations, not later dark-theme selectors; theme/hover/focus rules must also match aliases such as `input-base` and `neon-button`.
 
 ## Quality Check
 
@@ -39,6 +41,7 @@
 - [ ] Product UI does not introduce native `<select>` elements; dropdowns reuse the shared `Select`.
 - [ ] Dark and light themes both verified with screenshots.
 - [ ] Hover/focus states carry the violet glow language.
+- [ ] Run `UI_TEST_URL=<local Web URL> node web/scripts/check-ui-primitives.mjs` for cross-page tab style equality, native semantics, touch targets, responsive themes, alias parity and unclipped table content. Keep settings draft/save and discovery/download browser regressions passing.
 
 ## Series Detail: Watching First
 

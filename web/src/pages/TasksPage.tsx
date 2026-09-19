@@ -228,19 +228,19 @@ function DefinitionTable(props: { definitions: TaskDefinition[]; running: string
   return (
     <>
 		<div className="hidden overflow-x-auto lg:block">
-        <table className="w-full min-w-[880px] text-left text-sm">
-          <thead className="text-xs text-sand-500">
-            <tr><th className="py-2">任务</th><th>触发方式</th><th>当前状态</th><th>最近结果</th><th>执行时间</th><th className="text-right">操作</th></tr>
+        <table className="data-table min-w-[880px]">
+          <thead>
+            <tr><th>任务</th><th>触发方式</th><th>当前状态</th><th>最近结果</th><th>执行时间</th><th className="text-right">操作</th></tr>
           </thead>
           <tbody>
             {props.definitions.map((definition) => (
-              <tr key={definition.key} className="border-t border-gray-200 align-top">
-                <td className="max-w-xs py-3"><div className="flex items-center gap-1"><div className="font-medium text-ink-600">{definition.name}</div><TaskPendingButton definition={definition} onPending={props.onPending} pendingCounts={props.pendingCounts} /></div><div className="mt-0.5 text-xs text-ink-50">{definition.description}</div>{taskProgressText(definition) && <div className="mt-1 text-xs text-ink-100">{taskProgressText(definition)}</div>}</td>
-				<td className="py-3 text-ink-100"><div>{definition.trigger}</div>{scheduleText(definition) && <div className="mt-0.5 text-xs text-ink-50">{scheduleText(definition)}</div>}</td>
-                <td className="py-3"><CurrentState state={definition.current_state} task={definition.current} /></td>
-                <td className="py-3"><LatestResult task={definition.latest} /></td>
-                <td className="whitespace-nowrap py-3 text-ink-100"><div>最近 · {formatTime(definition.latest?.finished_at ?? definition.latest?.started_at)}</div><div className="mt-0.5 text-xs text-ink-50">下次 · {formatTime(definition.next_run)}</div></td>
-                <td className="py-3"><TaskActions {...props} definition={definition} /></td>
+              <tr key={definition.key} className="align-top">
+                <td className="max-w-xs"><div className="flex items-center gap-1"><div className="font-medium text-ink-600">{definition.name}</div><TaskPendingButton definition={definition} onPending={props.onPending} pendingCounts={props.pendingCounts} /></div><div className="mt-0.5 text-xs text-ink-50">{definition.description}</div>{taskProgressText(definition) && <div className="mt-1 text-xs text-ink-100">{taskProgressText(definition)}</div>}</td>
+				<td className="text-ink-100"><div>{definition.trigger}</div>{scheduleText(definition) && <div className="mt-0.5 text-xs text-ink-50">{scheduleText(definition)}</div>}</td>
+                <td><CurrentState state={definition.current_state} task={definition.current} /></td>
+                <td><LatestResult task={definition.latest} /></td>
+                <td className="whitespace-nowrap text-ink-100"><div>最近 · {formatTime(definition.latest?.finished_at ?? definition.latest?.started_at)}</div><div className="mt-0.5 text-xs text-ink-50">下次 · {formatTime(definition.next_run)}</div></td>
+                <td><TaskActions {...props} definition={definition} /></td>
               </tr>
             ))}
           </tbody>
@@ -714,10 +714,10 @@ function TasksSystemPage({ system, onSystemChange }: { system: TaskSystem; onSys
   return (
     <div className="space-y-6">
       <header className="flex items-center gap-3"><Activity className="h-6 w-6 text-brand-500" /><div><h1 className="font-display text-3xl font-bold text-ink-600">任务中心</h1><p className="text-sm text-ink-50">查看后台任务状态、调度与最近执行结果。</p></div></header>
-      <div className="flex flex-wrap gap-2 border-b border-[var(--app-border)]" role="group" aria-label="任务体系">
+      <div className="tab-list" role="group" aria-label="任务体系">
         {([['common', '公共任务'], ['catalog', '现有资料体系'], ['hongguo', '红果短剧']] as const).map(([value, label]) => (
           <button key={value} type="button" aria-pressed={system === value} onClick={() => { if (system !== value) onSystemChange(value) }}
-            className={`min-h-11 border-b-2 px-3 py-2 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 ${system === value ? 'border-brand-500 text-brand-500' : 'border-transparent text-ink-50 hover:border-brand-500/40 hover:text-ink-600'}`}>
+            className="tab-item">
             {label}
           </button>
         ))}

@@ -1,6 +1,5 @@
 import { Clock, Heart, ListMusic } from 'lucide-react'
 import { Link, Navigate, useSearchParams } from 'react-router-dom'
-import clsx from 'clsx'
 import { useEffect, useState } from 'react'
 import toast from 'react-hot-toast'
 import { hongguoAPI, type HongGuoUserCard } from '../api/hongguo'
@@ -45,7 +44,7 @@ export function MePage() {
         setSearchParams(next)
       }}><option value="catalog">现有资料体系</option><option value="hongguo">红果短剧</option></Select>
 
-      <nav aria-label="我的内容" className="flex min-w-0 gap-1.5 overflow-x-auto rounded-2xl border border-[var(--app-border)] bg-[var(--app-panel)] p-1.5 w-fit">
+      <nav aria-label="我的内容" className="tab-list w-fit">
         {TABS.filter((tab) => source !== 'hongguo' || tab.id !== 'playlists').map((tab) => {
           const Icon = tab.icon
           const active = tab.id === activeTab
@@ -54,14 +53,9 @@ export function MePage() {
               key={tab.id}
               to={`/me?tab=${tab.id}${source === 'hongguo' ? '&source=hongguo' : ''}`}
               aria-current={active ? 'page' : undefined}
-              className={clsx(
-                'flex min-h-10 shrink-0 items-center gap-2 rounded-xl px-4 text-sm font-bold transition-all duration-300 ease-smooth',
-                active
-                  ? 'bg-[var(--app-active-bg)] text-[var(--app-active-text)] shadow-sm'
-                  : 'text-[var(--app-muted)] hover:bg-[var(--app-hover)] hover:text-[var(--app-text)]',
-              )}
+              className="tab-item"
             >
-              <Icon size={16} className={active ? 'text-[var(--app-active-icon)]' : undefined} />
+              <Icon size={16} />
               {tab.label}
             </Link>
           )

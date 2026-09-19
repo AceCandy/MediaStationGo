@@ -141,7 +141,7 @@ export function ManualOrganizePanel({
         </label>
         <button
           type="button"
-          className="neon-button !border-primary-400/30 !bg-white !text-brand-500"
+          className="neon-button"
           disabled={!organizeReady || organizeBusy !== ''}
           onClick={onPreview}
         >
@@ -165,22 +165,22 @@ export function ManualOrganizePanel({
 function ManualOrganizePreviewTable({ items }: { items: PreviewItem[] }) {
   return (
     <div className="max-h-72 overflow-auto rounded-xl border border-gray-200 bg-white/70">
-      <table className="w-full text-left text-xs">
-        <thead className="sticky top-0 bg-white text-sand-500">
+      <table className="data-table text-xs">
+        <thead className="sticky top-0">
           <tr>
             <th className="px-3 py-2">动作</th>
-            <th>来源</th>
-            <th>目标</th>
-            <th>原因</th>
+            <th className="px-3 py-2">来源</th>
+            <th className="px-3 py-2">目标</th>
+            <th className="px-3 py-2">原因</th>
           </tr>
         </thead>
         <tbody>
           {items.map((item, index) => (
-            <tr key={`${item.source}-${index}`} className="border-t border-gray-200 align-top">
+            <tr key={`${item.source}-${index}`} className="align-top">
               <td className="px-3 py-2 font-semibold text-brand-500">{item.action}</td>
-              <td className="max-w-xs truncate py-2 font-mono text-ink-100" title={item.source}>{item.source}</td>
-              <td className="max-w-xs truncate py-2 font-mono text-ink-100" title={item.target}>{item.target || '—'}</td>
-              <td className="py-2 text-sand-500">{item.reason || '—'}</td>
+              <td className="max-w-xs truncate px-3 py-2 font-mono text-ink-100" title={item.source}>{item.source}</td>
+              <td className="max-w-xs truncate px-3 py-2 font-mono text-ink-100" title={item.target}>{item.target || '—'}</td>
+              <td className="px-3 py-2 text-sand-500">{item.reason || '—'}</td>
             </tr>
           ))}
         </tbody>

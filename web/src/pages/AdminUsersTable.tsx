@@ -31,10 +31,10 @@ export function AdminUsersTable({
 }: AdminUsersTableProps) {
   return (
     <div className="glass-panel overflow-x-auto">
-      <table className="w-full text-left text-sm">
-        <thead className="text-xs uppercase tracking-wider text-sand-500">
+      <table className="data-table">
+        <thead>
           <tr>
-            <th className="py-2">用户名</th>
+            <th>用户名</th>
             <th>角色</th>
             <th>状态</th>
             <th>权限说明</th>
@@ -44,8 +44,8 @@ export function AdminUsersTable({
         </thead>
         <tbody>
           {users.map((u) => (
-            <tr key={u.id} className="border-t border-gray-200">
-              <td className="py-2 text-ink-600">
+            <tr key={u.id}>
+              <td className="text-ink-600">
                 {editingID === u.id ? (
                   <input
                     className="input-base h-9 max-w-48"
@@ -73,7 +73,7 @@ export function AdminUsersTable({
                   {(u.realtime_device_count ?? 0) > 0 && <span className="text-xs text-ink-50">{u.realtime_device_count} 台</span>}
                 </span>
               </td>
-              <td className="space-x-2 py-2 text-right">
+              <td className="space-x-2 text-right">
                 {editingID === u.id ? (
                   <>
                     <button

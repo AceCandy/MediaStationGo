@@ -70,13 +70,13 @@ export function APIConfigsPanel() {
       )}
 
       {!loading && !loadError && (
-        <div className="glass-panel overflow-hidden">
-          <table className="w-full text-left text-sm">
-            <thead className="border-b border-gray-200 text-xs uppercase tracking-wider text-sand-500">
+        <div className="glass-panel overflow-x-auto">
+          <table className="data-table">
+            <thead>
               <tr>
-                <th className="px-4 py-3">服务</th>
-                <th className="px-4 py-3">密钥 / 状态</th>
-                <th className="px-4 py-3 text-right">操作</th>
+                <th>服务</th>
+                <th>密钥 / 状态</th>
+                <th className="text-right">操作</th>
               </tr>
             </thead>
             <tbody>
@@ -92,17 +92,14 @@ export function APIConfigsPanel() {
                     }}
                   />
                 ) : (
-                  <tr
-                    key={item.id}
-                    className="border-t border-gray-200 transition hover:bg-gray-50"
-                  >
-                    <td className="px-4 py-3">
+                  <tr key={item.id}>
+                    <td>
                       <p className="font-medium text-ink-600">{item.provider}</p>
                       {item.description && (
                         <p className="text-xs text-sand-500">{item.description}</p>
                       )}
                     </td>
-                    <td className="px-4 py-3">
+                    <td>
                       <div className="flex flex-wrap items-center gap-2 text-xs">
                         {apiConfigConfigured(item) && item.masked_key && (
                           <span className="font-mono text-brand-500">{item.masked_key}</span>
@@ -121,7 +118,7 @@ export function APIConfigsPanel() {
                         )}
                       </div>
                     </td>
-                    <td className="px-4 py-3 text-right">
+                    <td className="text-right">
                       <div className="flex items-center justify-end gap-1">
                         <button
                           onClick={() => setEditing(item.provider)}
@@ -216,8 +213,8 @@ function EditingRow({
   }
 
   return (
-    <tr className="border-t border-gray-200 bg-primary-400/5">
-      <td colSpan={3} className="px-4 py-3">
+    <tr className="bg-primary-400/5">
+      <td colSpan={3}>
         <form onSubmit={submit} className="space-y-3">
           <div className="flex flex-wrap items-end gap-3">
             <span className="text-sm font-medium text-ink-600">{item.provider}</span>

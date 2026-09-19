@@ -43,7 +43,7 @@ try {
   wait(`document.body.innerText.includes('完成 1/81 集')`)
   assert.ok(evaluate(`location.search.includes('page=1')`))
   assert.ok(!evaluate(`document.querySelector('input[placeholder="例如 /downloads/hongguo"]')`))
-  assert.ok(evaluate(`document.querySelector('nav[aria-label="下载来源"] button').classList.contains('border-b-2')`))
+  assert.ok(evaluate(`document.querySelector('nav[aria-label="下载来源"] button').classList.contains('tab-item')`))
   assert.ok(!evaluate(`performance.getEntriesByType('resource').some(r=>r.name.includes('/episodes'))`))
   assert.equal(evaluate(`document.querySelectorAll('article').length`), 2)
   assert.ok(evaluate(`document.body.innerText.includes('✅ 全部完成')`))

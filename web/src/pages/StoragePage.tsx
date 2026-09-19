@@ -102,10 +102,10 @@ export function StoragePage() {
             <div className="space-y-3">
               <h2 className="font-display text-xl font-semibold text-ink-600">按媒体库</h2>
               <div className="glass-panel overflow-x-auto">
-                <table className="w-full min-w-[640px] text-left text-sm">
-                  <thead className="text-xs uppercase tracking-wider text-sand-500">
+                <table className="data-table min-w-[640px]">
+                  <thead>
                     <tr>
-                      <th className="py-2">名称</th>
+                      <th>名称</th>
                       <th>类型</th>
                       <th>电影数</th>
                       <th>剧数</th>
@@ -119,8 +119,8 @@ export function StoragePage() {
                     {data.by_library.map((library) => {
                       const pct = (library.total_bytes / totalBytes) * 100
                       return (
-                        <tr key={library.library_id} className="border-t border-gray-200">
-                          <td className="py-2 text-ink-600">{library.name}</td>
+                        <tr key={library.library_id}>
+                          <td className="text-ink-600">{library.name}</td>
                           <td className="text-ink-100">{library.type}</td>
                           <td className="text-ink-100">{library.movie_count}</td>
                           <td className="text-ink-100">{library.series_count}</td>

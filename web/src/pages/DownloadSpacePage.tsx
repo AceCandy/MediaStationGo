@@ -85,8 +85,8 @@ function DownloadSpaceContent() {
   }
   const goPage = (value: number) => { const next = new URLSearchParams(params); next.set('page', String(value)); setParams(next) }
   return <div className="space-y-6">
-    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-200">
-      <nav aria-label="下载来源"><button type="button" aria-pressed="true" className="min-h-11 border-b-2 border-brand-500 px-4 py-3 text-sm font-semibold text-brand-500 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500">红果短剧</button></nav>
+    <div className="flex flex-wrap items-center justify-between gap-3">
+      <nav aria-label="下载来源" className="tab-list"><button type="button" aria-pressed="true" className="tab-item">红果短剧</button></nav>
       <div className="flex flex-wrap gap-2"><HongGuoDownloadActions /><button ref={settingsButton} className="btn-outline" onClick={() => { setRoot(config?.root ?? ''); setConcurrency(String(config?.concurrency ?? '')); setVerificationConcurrency(String(config?.verification_concurrency ?? '')); setFullVerification(config?.full_verification ?? true); setHardwareVerification(config?.hardware_verification ?? false); setPriority(config?.priority ?? ''); setSettingsOpen(true) }}>设置</button></div>
     </div>
     {config && !config.root && <p className="text-sm text-ink-50">尚未设置下载目录，请点击“设置”配置。</p>}

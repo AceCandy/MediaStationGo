@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
 import { GalleryHorizontalEnd, LayoutGrid } from 'lucide-react'
 import { Link, Navigate, useSearchParams } from 'react-router-dom'
-import clsx from 'clsx'
 
 import { libraryAPI } from '../api/library'
 import { useAuthStore } from '../stores/auth'
@@ -55,7 +54,7 @@ function LibrariesViewSwitcher({ view }: { view: string }) {
     { id: 'poster', label: '海报视图', icon: GalleryHorizontalEnd, to: '/libraries?view=poster' },
   ]
   return (
-    <nav aria-label="媒体库视图" className="inline-grid grid-cols-2 rounded-lg border border-[var(--app-border)] bg-[var(--app-panel)] p-1">
+    <nav aria-label="媒体库视图" className="tab-list w-fit">
       {items.map((item) => {
         const Icon = item.icon
         const active = view === item.id
@@ -64,12 +63,7 @@ function LibrariesViewSwitcher({ view }: { view: string }) {
             key={item.id}
             to={item.to}
             aria-current={active ? 'page' : undefined}
-            className={clsx(
-              'flex min-h-11 items-center justify-center gap-2 rounded-md px-4 text-sm font-bold transition-colors',
-              active
-                ? 'bg-[var(--app-active-bg)] text-[var(--app-active-text)]'
-                : 'text-[var(--app-muted)] hover:bg-[var(--app-hover)] hover:text-[var(--app-text)]',
-            )}
+            className="tab-item"
           >
             <Icon size={16} />
             {item.label}

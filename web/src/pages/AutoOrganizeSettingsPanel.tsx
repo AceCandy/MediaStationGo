@@ -57,7 +57,7 @@ export function AutoOrganizeSettingsPanel({
         <div className="flex flex-wrap gap-2">
           <button
             type="button"
-            className="neon-button !border-primary-400/30 !bg-white !text-brand-500"
+            className="neon-button"
             disabled={loading || saving}
             onClick={onRefresh}
           >
@@ -65,7 +65,7 @@ export function AutoOrganizeSettingsPanel({
           </button>
           <button
             type="button"
-            className="neon-button !border-primary-400/30 !bg-white !text-brand-500"
+            className="neon-button"
             disabled={loading || saving || !dirty}
             onClick={onSave}
           >
@@ -82,16 +82,13 @@ export function AutoOrganizeSettingsPanel({
         </div>
       </div>
 
-      <div className="flex flex-wrap gap-2 rounded-2xl border border-gray-200 bg-gray-50 p-1">
+      <div className="tab-list" role="group" aria-label="自动整理设置分类">
         {AUTO_ORGANIZE_TABS.map(([key, label]) => (
           <button
             key={key}
             type="button"
-            className={
-              activeTab === key
-                ? 'rounded-xl bg-white px-3 py-1.5 text-xs font-semibold text-brand-500 shadow-sm'
-                : 'rounded-xl px-3 py-1.5 text-xs text-ink-100 hover:bg-white/70'
-            }
+            className="tab-item"
+            aria-pressed={activeTab === key}
             onClick={() => onTabChange(key)}
           >
             {label}

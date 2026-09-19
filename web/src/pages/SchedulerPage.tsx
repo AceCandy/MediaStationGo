@@ -38,10 +38,10 @@ export function SchedulerSection() {
         <p className="text-sm text-ink-50">媒体库扫描等周期任务，每 5 秒刷新状态。</p>
       </div>
       <div className="overflow-x-auto">
-        <table className="w-full text-left text-sm">
-          <thead className="text-xs uppercase tracking-wider text-sand-500">
+        <table className="data-table">
+          <thead>
             <tr>
-              <th className="py-2">任务</th>
+              <th>任务</th>
               <th>间隔</th>
               <th>上次运行</th>
               <th>错误</th>
@@ -50,8 +50,8 @@ export function SchedulerSection() {
           </thead>
           <tbody>
             {jobs.map((j) => (
-              <tr key={j.name} className="border-t border-gray-200">
-                <td className="py-2 font-mono text-ink-600">{j.name}</td>
+              <tr key={j.name}>
+                <td className="font-mono text-ink-600">{j.name}</td>
                 <td className="text-ink-100">{j.interval}</td>
                 <td className="text-ink-50">
                   {j.last_run && new Date(j.last_run).getFullYear() > 2000
@@ -59,7 +59,7 @@ export function SchedulerSection() {
                     : '尚未运行'}
                 </td>
                 <td className="text-red-400">{j.last_err || '—'}</td>
-                <td className="py-2 text-right">
+                <td className="text-right">
                   <button
                     onClick={() => runNow(j.name)}
                     disabled={running === j.name}

@@ -27,10 +27,10 @@ export function FileEntriesTable({
 }: FileEntriesTableProps) {
   return (
     <div className="glass-panel overflow-x-auto">
-      <table className="w-full text-left text-sm">
-        <thead className="text-xs uppercase tracking-wider text-sand-500">
+      <table className="data-table">
+        <thead>
           <tr>
-            <th className="w-10 py-2">
+            <th className="w-10">
               <input
                 type="checkbox"
                 aria-label="选择当前目录全部项目"
@@ -38,7 +38,7 @@ export function FileEntriesTable({
                 onChange={(event) => onSelectAll(event.target.checked)}
               />
             </th>
-            <th className="py-2">名称</th>
+            <th>名称</th>
             <th>大小</th>
             <th>修改时间</th>
             <th className="text-right">选择</th>
@@ -48,9 +48,9 @@ export function FileEntriesTable({
           {entries.map((entry) => (
             <tr
               key={entry.path}
-              className={'border-t border-gray-200 transition hover:bg-gray-50 ' + (selectedPath === entry.path || selectedPaths.includes(entry.path) ? 'bg-primary-400/5' : '')}
+              className={selectedPath === entry.path || selectedPaths.includes(entry.path) ? 'bg-primary-400/5' : undefined}
             >
-              <td className="py-2">
+              <td>
                 <input
                   type="checkbox"
                   aria-label={`选择 ${entry.name}`}
@@ -58,7 +58,7 @@ export function FileEntriesTable({
                   onChange={(event) => onToggleSelectedPath(entry, event.target.checked)}
                 />
               </td>
-              <td className="py-2 text-ink-600">
+              <td className="text-ink-600">
                 <button
                   className="flex max-w-xl items-center gap-2 text-left"
                   onClick={() => (entry.is_dir ? onEnter(entry) : onChoose(entry))}
