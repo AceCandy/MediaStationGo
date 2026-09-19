@@ -40,14 +40,6 @@ export function AdminEmbyAPIsPage() {
 
   return (
     <div className="space-y-6">
-      <header>
-        <div className="flex items-center gap-3">
-          <Code2 className="h-7 w-7 text-brand-500" />
-          <h1 className="page-heading">Emby 接口</h1>
-        </div>
-        <p className="page-subtitle">MediaStationGo 当前提供给 Emby 播放器的兼容接口与数据契约。</p>
-      </header>
-
       <section className="glass-panel !p-0" aria-label="Emby 接口规则">
         <div className="grid divide-y divide-[var(--app-border)] sm:grid-cols-3 sm:divide-x sm:divide-y-0">
           <OverviewItem icon={<Code2 size={18} />} label="接口条目" value={`${EMBY_API_ENDPOINTS.length} 个`} detail={`${implementedCount} 个具备实际业务行为`} />

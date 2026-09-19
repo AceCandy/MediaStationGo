@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import toast from 'react-hot-toast'
-import { Activity, ChevronLeft, ChevronRight, FileText, Play, RefreshCw, Search, Settings, Trash2, X } from 'lucide-react'
+import { ChevronLeft, ChevronRight, FileText, Play, RefreshCw, Search, Settings, Trash2, X } from 'lucide-react'
 
 import { libraryAPI, mediaAPI, type MediaScrapeIssue, type STRMDeleteTarget } from '../api/library'
 import { tasksAPI, type BackgroundTask, type TaskDefinition, type TaskLog, type TaskSystem } from '../api/tasks'
@@ -713,7 +713,6 @@ function TasksSystemPage({ system, onSystemChange }: { system: TaskSystem; onSys
 
   return (
     <div className="space-y-6">
-      <header className="flex items-center gap-3"><Activity className="h-6 w-6 text-brand-500" /><div><h1 className="font-display text-3xl font-bold text-ink-600">任务中心</h1><p className="text-sm text-ink-50">查看后台任务状态、调度与最近执行结果。</p></div></header>
       <div className="tab-list" role="group" aria-label="任务体系">
         {([['common', '公共任务'], ['catalog', '现有资料体系'], ['hongguo', '红果短剧']] as const).map(([value, label]) => (
           <button key={value} type="button" aria-pressed={system === value} onClick={() => { if (system !== value) onSystemChange(value) }}

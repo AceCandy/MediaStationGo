@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useState } from 'react'
-import { Loader2, Save, SettingsIcon } from 'lucide-react'
+import { Loader2, Save } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { Link } from 'react-router-dom'
 
@@ -75,15 +75,6 @@ export function SettingsPage({ groupKey }: { groupKey: SettingGroupKey }) {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-3">
-        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-sand-300/40 text-ink-100">
-          <SettingsIcon size={20} />
-        </div>
-        <div>
-          <h1 className="font-display text-3xl font-bold text-ink-600">系统设置</h1>
-        </div>
-      </div>
-
       <nav aria-label="系统设置分类" className="tab-list">
         {GROUPS.map((item) => (
           <Link
@@ -121,10 +112,10 @@ export function SettingsPage({ groupKey }: { groupKey: SettingGroupKey }) {
                 />
               ))}
               {group.advancedItems && group.advancedItems.length > 0 && (
-                <details className="border-t border-gray-200 pt-4">
-                  <summary className="cursor-pointer text-sm font-semibold text-ink-600">
+                <section className="border-t border-gray-200 pt-4">
+                  <h2 className="text-sm font-semibold text-ink-600">
                     高级设置
-                  </summary>
+                  </h2>
                   <div className="mt-4 space-y-4">
                     {group.advancedItems.map((it) => (
                       <SettingRow
@@ -136,7 +127,7 @@ export function SettingsPage({ groupKey }: { groupKey: SettingGroupKey }) {
                       />
                     ))}
                   </div>
-                </details>
+                </section>
               )}
               <div className="flex items-center justify-between pt-2">
                 <span className="text-xs text-sand-500">

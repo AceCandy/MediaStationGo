@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Bell, Loader2, Play, Plus, Square } from 'lucide-react'
+import { Loader2, Play, Plus, Square } from 'lucide-react'
 import toast from 'react-hot-toast'
 
 import { notifyChannelsAPI } from '../api/notify_channels'
@@ -95,18 +95,7 @@ export function NotifyChannelsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-400/10 text-amber-300">
-            <Bell size={20} />
-          </div>
-          <div>
-            <h1 className="font-display text-3xl font-bold text-ink-600">通知渠道</h1>
-            <p className="text-sm text-ink-50">
-              配置 Telegram / Bark / 企业微信 / Webhook 多通道推送
-            </p>
-          </div>
-        </div>
+      <div className="flex justify-end">
         <button
           onClick={() => {
             setEditing(null)

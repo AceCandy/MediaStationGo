@@ -25,7 +25,6 @@ export function LibrariesPage() {
         <PosterWallPage />
       ) : (
         <section className="space-y-5">
-          <h1 className="font-display text-3xl font-bold text-ink-600">媒体库</h1>
           {isAdmin ? <AdminLibraryPanel /> : <ViewerLibraryGrid />}
         </section>
       )}

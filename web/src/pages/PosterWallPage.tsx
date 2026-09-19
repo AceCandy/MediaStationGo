@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { GalleryHorizontalEnd, Layers } from 'lucide-react'
+import { Layers } from 'lucide-react'
 
 import { libraryAPI } from '../api/library'
 import { MediaCard } from '../components/MediaCard'
@@ -128,13 +128,7 @@ export function PosterWallPage() {
 
   return (
     <div className="space-y-6">
-      <header className="flex items-center gap-3">
-        <GalleryHorizontalEnd className="h-6 w-6 text-brand-500" />
-        <div>
-          <h1 className="font-display text-3xl font-bold text-ink-600">海报视图</h1>
-          <p className="text-sm text-ink-50">按剧集聚合 · 已加载 {cards.length} 个条目</p>
-        </div>
-      </header>
+      <p className="text-sm text-ink-50">按剧集聚合 · 已加载 {cards.length} 个条目</p>
 
       {catalogError && (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">

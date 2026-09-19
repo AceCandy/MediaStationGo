@@ -31,6 +31,7 @@ try {
   evaluate(`localStorage.setItem('mediastationgo-auth', JSON.stringify({state:{token:'local-test-token',user:{id:'settings-admin',username:'页面测试',role:'admin',tier:'free'}},version:0}))`)
   open('/admin/settings/watching')
   wait(`!!document.querySelector(${JSON.stringify(checkbox)})`)
+  assert.equal(evaluate(`document.querySelectorAll('#main-content h1').length`), 0, 'redundant settings page heading')
   assert.equal(evaluate(`document.querySelector(${JSON.stringify(checkbox)}).checked`), false)
   browser('check', checkbox)
   select('general')

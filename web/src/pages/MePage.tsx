@@ -33,11 +33,6 @@ export function MePage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="font-display text-3xl font-bold text-[var(--app-text)]">我的</h1>
-        <p className="mt-1 text-sm text-[var(--app-muted)]">收藏内容、播放列表与观看记录</p>
-      </div>
-
       <Select aria-label="用户记录资料体系" value={source} onChange={(value) => {
         const next = new URLSearchParams(searchParams); next.set('source', value); next.delete('page');
         if (value === 'hongguo' && activeTab === 'playlists') next.set('tab', 'favourites')

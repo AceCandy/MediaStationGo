@@ -42,6 +42,7 @@ try {
     browser('open', base + path)
     const selector = `[aria-label="${label}"]`
     wait(`!!document.querySelector(${JSON.stringify(selector)})`)
+    assert.equal(evaluate(`document.querySelectorAll('#main-content h1').length`), 0, `${label}: redundant page heading`)
     assert.ok(evaluate(`!!document.querySelector(${JSON.stringify(`${selector} ${tag}`)})`), `${label}: native semantics`)
     if (path === '/admin/media/files') evaluate(`document.querySelectorAll('details').forEach(panel => { panel.open = true })`)
     for (const theme of ['dark', 'light']) {

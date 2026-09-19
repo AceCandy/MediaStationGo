@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ChevronLeft, ChevronRight, RefreshCw, ScrollText, X } from 'lucide-react'
+import { ChevronLeft, ChevronRight, RefreshCw, X } from 'lucide-react'
 import { useSearchParams } from 'react-router-dom'
 
 import { adminAPI, type PlayerRequestLog, type PlayerRequestLogPage } from '../api/admin'
@@ -117,7 +117,6 @@ export function PlayerRequestLogsPage() {
   const rows = data?.items ?? []
   return (
     <div className="space-y-6">
-      <header className="flex items-center gap-3"><ScrollText className="h-7 w-7 text-brand-500" /><div><h1 className="page-heading">播放器日志</h1><p className="page-subtitle">实时查看播放器兼容 API 的脱敏请求记录。</p></div></header>
 
       <form className="glass-panel grid gap-3 md:grid-cols-[10rem_9rem_8rem_minmax(0,1fr)_auto]" onSubmit={(event) => { event.preventDefault(); const parsedStatus = positiveInt(statusDraft, 0); updateParams({ path: pathDraft.trim() || undefined, status: parsedStatus >= 100 && parsedStatus <= 599 ? String(parsedStatus) : undefined, page: undefined }) }}>
         <label className="text-xs text-ink-50">月份<input className="input-base mt-1" type="month" value={month} onChange={(event) => updateParams({ month: event.target.value, page: undefined })} /></label>

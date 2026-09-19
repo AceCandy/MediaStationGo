@@ -22,11 +22,7 @@ export function StatsHeader({
   monitorError: string
 }) {
   return (
-    <header className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-      <div>
-        <h1 className="font-display text-3xl font-bold text-ink-600">系统监控</h1>
-        <p className="text-sm text-ink-50">查看存储规模以及 CPU、内存与数据盘状态。</p>
-      </div>
+    <header className="flex justify-end">
       <div className="glass-panel inline-flex items-center gap-3 !px-4 !py-3">
         <span className="relative flex h-3 w-3">
           <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-70" />

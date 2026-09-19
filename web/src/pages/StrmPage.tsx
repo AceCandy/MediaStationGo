@@ -1,7 +1,6 @@
 import { StrmAttachSection } from './StrmAttachSection'
 import { StrmGenerateSection } from './StrmGenerateSection'
 import { StrmImportSection } from './StrmImportSection'
-import { StrmPageHeader } from './StrmPageHeader'
 import { StrmRepairSection } from './StrmRepairSection'
 import { useStrmPage } from './useStrmPage'
 
@@ -16,8 +15,6 @@ export function StrmPage() {
 
   return (
     <div className="space-y-6">
-      <StrmPageHeader />
-
       <StrmGenerateSection
         libraries={strm.libraries}
         generateLibraryID={strm.generate.generateLibraryID}

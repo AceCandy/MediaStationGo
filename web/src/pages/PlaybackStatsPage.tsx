@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  BarChart3,
   ChevronLeft,
   ChevronRight,
   Film,
@@ -190,14 +189,6 @@ function PlaybackStatsSystemPage({ system }: { system: 'catalog' | 'hongguo' }) 
 
   return (
     <div className="space-y-6">
-      <header className="flex items-center gap-3">
-        <BarChart3 className="h-7 w-7 text-brand-500" />
-        <div>
-          <h1 className="page-heading">播放统计</h1>
-          <p className="page-subtitle">按真实播放会话查看趋势、热门作品和具体记录。</p>
-        </div>
-      </header>
-
       {filterError && <p className="rounded-xl bg-red-500/10 px-4 py-3 text-sm text-red-500" role="alert">{filterError}</p>}
 
       <section className="glass-panel space-y-4">

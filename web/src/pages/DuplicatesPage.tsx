@@ -181,17 +181,7 @@ export function DuplicatesPage() {
 
   return (
     <div className="space-y-6">
-      <header className="flex items-center gap-4">
-        <div className="modal-icon">
-          <Copy size={20} />
-        </div>
-        <div>
-          <h1 className="page-heading">重复文件</h1>
-          <p className="page-subtitle">
-            扫描媒体库中的重复文件，并标记重复条目；不会删除磁盘文件。
-          </p>
-        </div>
-      </header>
+      <p className="text-sm text-ink-50">扫描媒体库中的重复文件，并标记重复条目；不会删除磁盘文件。</p>
 
       <div className="glass-panel flex flex-col gap-3 md:flex-row md:items-end">
         <div className="min-w-0 flex-1">

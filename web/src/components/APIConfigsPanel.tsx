@@ -250,8 +250,8 @@ function EditingRow({
               <X size={12} />
             </button>
           </div>
-          <details className="border-t border-gray-200 pt-3">
-            <summary className="cursor-pointer text-xs font-semibold text-ink-600">高级设置</summary>
+          <section className="border-t border-gray-200 pt-3">
+            <h3 className="text-xs font-semibold text-ink-600">高级设置</h3>
             <div className="mt-3 grid gap-3 md:grid-cols-2">
               <label className="text-xs text-ink-50">
                 {isAdult ? '主源 URL' : 'Base URL'}
@@ -315,7 +315,7 @@ function EditingRow({
                 </>
               )}
             </div>
-          </details>
+          </section>
         </form>
       </td>
     </tr>
