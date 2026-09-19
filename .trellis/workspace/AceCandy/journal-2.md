@@ -1024,3 +1024,37 @@ Web 与 Emby 对缺失的单集播出日期按同季前序集回退；季和单�
 ### Status
 
 [OK] **Completed**
+
+
+## Session 134: 慢 SQL 优化与下载改动提交归档
+<!-- trellis-session: v=2 fp=33acda40440d547b -->
+
+**Date**: 2026-09-19
+**Task**: 慢 SQL 优化与下载改动提交归档
+**Branch**: `main`
+
+### Summary
+
+提交六批慢查询优化、连接池等待诊断及确认纳入的下载筛选和目录分桶；仅归档本轮慢SQL任务，保留未解决项。
+
+### Main Changes
+
+- 优化下载领取、作品汇总、媒体展示与分页、目录统计、存储统计、搜索索引批次；新增慢日志连接池诊断。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `20f98a2` | fix: 优化慢查询并完善下载筛选与目录分桶 |
+
+### Testing
+
+- [OK] 五个Go包针对性PostgreSQL race测试、go vet、前端lint与生产构建、diff检查通过；未跑完整Go测试和浏览器端到端测试。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 第六批需部署后验证单剧接口及连接池等待；TMDb/存储/目录统计与偶发慢写仍待跟进。
