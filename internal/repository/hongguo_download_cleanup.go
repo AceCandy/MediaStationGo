@@ -122,7 +122,7 @@ func (r *HongGuoRepository) RemoveUnavailableHongGuoDownloads(ctx context.Contex
 			return err
 		}
 		// 显式清理作品从属记录；人物和用户观看状态不属于作品的生命周期。
-		for _, target := range []any{&model.HongGuoGroupMember{}, &model.HongGuoEpisode{}, &model.HongGuoCredit{}, &model.HongGuoSnapshot{}, &model.HongGuoArtwork{}} {
+		for _, target := range []any{&model.HongGuoEpisode{}, &model.HongGuoCredit{}, &model.HongGuoSnapshot{}, &model.HongGuoArtwork{}} {
 			if err := tx.Where("work_id = ?", work.ID).Delete(target).Error; err != nil {
 				return err
 			}

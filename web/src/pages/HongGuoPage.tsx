@@ -118,7 +118,6 @@ function HongGuoContent({ sourceID, keyword, section, sourceCategory, category, 
   const [query, setQuery] = useState(keyword)
   const [localRetry, setLocalRetry] = useState(0)
   const [remoteRows, setRemoteRows] = useState<HongGuoListWork[]>([])
-  const [savedGroups, setSavedGroups] = useState<Record<string, string>>({})
   const [remoteLoading, setRemoteLoading] = useState(Boolean(keyword))
   const [remoteError, setRemoteError] = useState(false)
   const [remoteRetry, setRemoteRetry] = useState(0)
@@ -170,8 +169,8 @@ function HongGuoContent({ sourceID, keyword, section, sourceCategory, category, 
     merged.set(work.source_id, { ...(!previous?.hydrated || work.hydrated ? work : previous), downloaded: !!(previous?.downloaded || work.downloaded) })
   }
   // 成功写入优先于更早发出、稍后才返回的列表请求；显式刷新再以服务端关系为准。
-  const visibleRows = Array.from(merged.values(), (work) => savedGroups[work.source_id] ? { ...work, group_id: savedGroups[work.source_id] } : work)
-  const refresh = () => { setRows([]); setRemoteRows([]); setSavedGroups({}); setLoading(true); setHasMore(false); setCatalogPage(firstPage); setRevision((value) => value + 1) }
+  const visibleRows = Array.from(merged.values())
+  const refresh = () => { setRows([]); setRemoteRows([]); setLoading(true); setHasMore(false); setCatalogPage(firstPage); setRevision((value) => value + 1) }
 
   return <div className="space-y-6">
     {<><div className="flex flex-wrap items-center justify-between gap-3">
@@ -192,11 +191,9 @@ function HongGuoContent({ sourceID, keyword, section, sourceCategory, category, 
     {admin && <div className="space-y-2">
       <div className="flex flex-wrap items-center gap-2">
         <button type="button" className="btn-outline" aria-pressed={selecting} disabled={batchBusy} onClick={() => { setSelecting((value) => !value); setSelected([]) }}>{selecting ? '退出多选' : '多选'}</button>
-        {selecting && <HongGuoBatchActions selected={selected} onSelectedChange={setSelected} enabled={enabled === true} busy={batchBusy} onBusyChange={setBatchBusy} onGroupSaved={(id, members) => {
-          setSavedGroups((current) => ({ ...current, ...Object.fromEntries(members.map((work) => [work.source_id, id])) }))
-        }} />}
+        {selecting && <HongGuoBatchActions selected={selected} onSelectedChange={setSelected} enabled={enabled === true} busy={batchBusy} onBusyChange={setBatchBusy} />}
       </div>
-      {selecting && <p className="text-xs text-ink-50">按勾选顺序分配初始季号，聚合前可调整；待补齐作品暂不可选，切换搜索或分类会清空选择。</p>}
+      {selecting && <p className="text-xs text-ink-50">待补齐作品暂不可选，切换搜索或分类会清空选择。系列关系由红果官方资料提供。</p>}
     </div>}
     {remoteError && <p role="alert" className="text-sm text-red-500">官网搜索失败，已保留本地结果。<button className="btn-outline ml-2" onClick={() => setRemoteRetry((value) => value + 1)}>重试官网搜索</button></p>}
     {error && <p role="alert" className="text-sm text-red-500">{keyword ? '本地资料加载失败，已保留现有结果。' : '资料加载失败，已保留现有结果。'}<button className="btn-outline ml-2" onClick={() => setLocalRetry((value) => value + 1)}>重试加载</button></p>}

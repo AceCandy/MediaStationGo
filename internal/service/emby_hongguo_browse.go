@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/ShukeBta/MediaStationGo/internal/model"
+	"github.com/ShukeBta/MediaStationGo/internal/repository"
 	"gorm.io/gorm"
 )
 
@@ -196,16 +197,16 @@ func (e *EmbyService) hongGuoBrowseLegacyPayloads(ctx context.Context, ids []str
 	return items, nil
 }
 
-// hongGuoPersonFilter 按源作品演职员筛选；人工整剧包含成员季，不按人名猜测归属。
+// hongGuoPersonFilter 按源作品演职员筛选；官方合集包含成员季，不按人名猜测归属。
 func (e *EmbyService) hongGuoPersonFilter(ctx context.Context, q *gorm.DB, userID, libraryID string, personIDs []string) *gorm.DB {
 	if len(personIDs) == 0 {
 		return q
 	}
 	ids := e.repo.DB.WithContext(ctx).Table("hongguo_credits c").
 		Joins("JOIN hongguo_works w ON w.id = c.work_id").
-		Joins("LEFT JOIN hongguo_group_members gm ON gm.work_id = c.work_id").
+		Joins(repository.HongGuoAlbumJoin).
 		Joins("LEFT JOIN hongguo_episodes ep ON ep.work_id = c.work_id").
-		Joins("CROSS JOIN LATERAL (VALUES ('hg-work-' || c.work_id), ('hg-season-' || c.work_id), ('hg-group-' || gm.group_id), ('hg-episode-' || ep.id)) n(id)").
+		Joins("CROSS JOIN LATERAL (VALUES ('hg-work-' || c.work_id), ('hg-season-' || c.work_id), ('hg-group-' || g.id), ('hg-episode-' || ep.id)) n(id)").
 		Where("'hg-person-' || c.person_id IN ?", personIDs).
 		Where("w.source_id IN (?)", e.hongGuoNodes(ctx, userID, libraryID).Select("source_id").Where("source_id <> ''")).Select("n.id")
 	return q.Where("id IN (?)", ids)

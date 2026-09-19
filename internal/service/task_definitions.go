@@ -60,6 +60,7 @@ type taskDefinitionSpec struct {
 }
 
 var taskDefinitionSpecs = []taskDefinitionSpec{
+	{TaskDefinition: TaskDefinition{Key: TaskKindHongGuoAlbum, Name: "红果官方合集补充", Description: "分批补充历史作品的官方合集和季号；已检查项跳过，失败冷却后重试，可取消后续跑", Trigger: "定时 / 手动", Action: "scheduler"}, filter: repository.TaskExecutionFilter{Kind: TaskKindHongGuoAlbum}, schedulerJob: TaskKindHongGuoAlbum},
 	{TaskDefinition: TaskDefinition{Key: TaskKindHongGuoDownload, Name: "红果视频下载", Description: "从发现页发起，校验完整视频后发布到下载输出目录", Trigger: "手动"}, filter: repository.TaskExecutionFilter{Kind: TaskKindHongGuoDownload}},
 	{TaskDefinition: TaskDefinition{Key: TaskKindHongGuoSupplement, Name: "红果补充下载", Description: "按上线时间选取资料齐全且从未入队的作品；每轮新增指定数量，非维持队列数量", Trigger: "定时 / 手动", Action: "scheduler"}, filter: repository.TaskExecutionFilter{Kind: TaskKindHongGuoSupplement}, schedulerJob: TaskKindHongGuoSupplement},
 	{TaskDefinition: TaskDefinition{Key: TaskKindHongGuoSync, Name: "红果作品发现", Description: "从检查点持续翻页至各分类结束，保存目录摘要；不抓详情，可与资料刷新并行", Trigger: "定时 / 手动", Action: "scheduler"}, filter: repository.TaskExecutionFilter{Kind: TaskKindHongGuoSync}, schedulerJob: TaskKindHongGuoSync},

@@ -196,7 +196,12 @@ func TestHongGuoHTTPAccessAndStateIsolation(t *testing.T) {
 		{"GET", "/works/" + work.SourceID + "/episodes?page=1", "user", "", 200},
 		{"POST", "/works/" + work.SourceID + "/refresh", "user", "", 403},
 		{"POST", "/works/invalid/refresh", "admin", "", 400},
-		{"POST", "/groups", "user", `{}`, 403},
+		{"POST", "/groups", "user", `{}`, 404},
+		{"POST", "/groups", "admin", `{}`, 404},
+		{"PUT", "/groups/99999", "admin", `{}`, 404},
+		{"DELETE", "/groups/99999", "admin", "", 404},
+		{"GET", "/groups/99999", "user", "", 404},
+		{"GET", "/groups/not-an-id", "user", "", 400},
 		{"PUT", "/status", "user", `{"enabled":false}`, 403},
 		{"PUT", "/status", "admin", `{}`, 400},
 		{"POST", "/cancel", "user", "", 403},
@@ -241,5 +246,16 @@ func TestHongGuoHTTPAccessAndStateIsolation(t *testing.T) {
 	other, err := repos.HongGuo.UserState(ctx, "other-user", work.SourceID, 0)
 	if err != nil || !other.Favorite {
 		t.Fatal("request user_id changed another user's favorite")
+	}
+	if _, err := repos.HongGuo.SaveDetail(ctx, hongguo.Work{SourceID: "92001", Title: "官方系列", EpisodeCount: 2, Snapshot: []byte(`{}`)}); err != nil {
+		t.Fatal(err)
+	}
+	if err := repos.HongGuo.SaveAlbum(ctx, "92001", hongguo.Album{ID: "99999", Season: 3}); err != nil {
+		t.Fatal(err)
+	}
+	rec := request(http.MethodGet, "/groups/99999", "user", "", "")
+	var album repository.HongGuoGroupDetail
+	if rec.Code != 200 || json.Unmarshal(rec.Body.Bytes(), &album) != nil || album.ID != "99999" || len(album.Members) != 1 || album.Members[0].SeasonNumber != 3 {
+		t.Fatalf("official album GET: %d %s", rec.Code, rec.Body.String())
 	}
 }

@@ -162,7 +162,7 @@ func TestHongGuoListOrdersByFirstVisibleBeforePagination(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&model.HongGuoWork{}, &model.HongGuoDiscovery{}, &model.HongGuoArtwork{}, &model.HongGuoRankEntry{}, &model.HongGuoGroupMember{}, &model.HongGuoDownload{}); err != nil {
+	if err := db.AutoMigrate(&model.HongGuoWork{}, &model.HongGuoDiscovery{}, &model.HongGuoArtwork{}, &model.HongGuoRankEntry{}, &model.HongGuoDownload{}); err != nil {
 		t.Fatal(err)
 	}
 	now := time.Now().UTC()

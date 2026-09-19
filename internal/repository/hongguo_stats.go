@@ -36,7 +36,7 @@ func (r *HongGuoRepository) PlaybackStats(ctx context.Context, f PlaybackStatsFi
 	}
 	const display = `COALESCE(NULLIF(w.title, ''), '媒体已不可用') AS title,
 		CASE WHEN w.kind = 'series' THEN COALESCE(g.title, w.title, '') ELSE '' END AS series_title,
-		CASE WHEN w.kind = 'series' THEN COALESCE(gm.season_number, 1) ELSE 0 END AS season_num,
+		CASE WHEN w.kind = 'series' THEN CASE WHEN g.id IS NULL THEN 1 ELSE w.season_index END ELSE 0 END AS season_num,
 		CASE WHEN a.id IS NULL THEN '' ELSE '/api/catalogs/hongguo/artwork/' || a.id END AS poster_url`
 	if err := hongGuoStatsDisplay(r.playbackStatsQuery(ctx, f)).
 		Joins("LEFT JOIN users u ON u.id = pe.user_id AND u.deleted_at IS NULL").
@@ -83,7 +83,6 @@ func (r *HongGuoRepository) playbackStatsQuery(ctx context.Context, f PlaybackSt
 }
 
 func hongGuoStatsDisplay(q *gorm.DB) *gorm.DB {
-	return q.Joins("LEFT JOIN hongguo_group_members gm ON gm.work_id = w.id").
-		Joins("LEFT JOIN hongguo_groups g ON g.id = gm.group_id").
+	return q.Joins(HongGuoAlbumJoin).
 		Joins("LEFT JOIN hongguo_artworks a ON a.work_id = w.id")
 }

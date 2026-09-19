@@ -18,6 +18,7 @@ const (
 	TaskKindHongGuoSync    = "hongguo_sync"
 	TaskKindHongGuoRefresh = "hongguo_refresh"
 	TaskKindHongGuoArtwork = "hongguo_artwork"
+	TaskKindHongGuoAlbum   = "hongguo_album"
 	hongGuoRetryDelay      = time.Hour
 	hongGuoNotFoundDelay   = 72 * time.Hour
 )
@@ -122,6 +123,8 @@ func (s *HongGuoService) Run(ctx context.Context, kind, sourceID string) error {
 		name = "红果资料刷新"
 	case TaskKindHongGuoArtwork:
 		name = "红果图片下载"
+	case TaskKindHongGuoAlbum:
+		name = "红果官方合集补充"
 	default:
 		return errors.New("未知红果任务")
 	}
@@ -140,7 +143,7 @@ func (s *HongGuoService) Run(ctx context.Context, kind, sourceID string) error {
 	}
 	defer func() {
 		runMu.Unlock()
-		if kind == TaskKindHongGuoRefresh {
+		if kind == TaskKindHongGuoRefresh || kind == TaskKindHongGuoAlbum {
 			s.startRequestedRefresh()
 		}
 	}()
@@ -214,6 +217,19 @@ func (s *HongGuoService) runLocked(ctx context.Context, kind, sourceID, name str
 		} else {
 			err = s.refreshBatch(ctx, report)
 		}
+		if ctx.Err() == nil {
+			if sourceID != "" {
+				if _, findErr := s.repo.HongGuo.FindBySourceID(ctx, sourceID); findErr == nil {
+					albumErr := s.refreshAlbum(ctx, sourceID)
+					report("官方合集 "+sourceID, albumErr)
+					err = errors.Join(err, albumErr)
+				}
+			} else {
+				err = errors.Join(err, s.backfillAlbums(ctx, report))
+			}
+		}
+	case TaskKindHongGuoAlbum:
+		err = s.backfillAlbums(ctx, report)
 	case TaskKindHongGuoArtwork:
 		err = s.downloadArtwork(ctx, report)
 	}
@@ -257,7 +273,10 @@ func (s *HongGuoService) refresh(ctx context.Context, id string) (err error) {
 	if err != nil {
 		return err
 	}
-	return s.repo.HongGuo.RebindWork(ctx, id)
+	if err := s.repo.HongGuo.RebindWork(ctx, id); err != nil {
+		return err
+	}
+	return s.repo.HongGuo.RetryAlbum(ctx, id, time.Now())
 }
 
 func (s *HongGuoService) discover(ctx context.Context, report func([]hongguo.Work), notice func(string)) error {

@@ -3,6 +3,7 @@ package service
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"image"
@@ -26,7 +27,17 @@ import (
 
 type hongGuoTestTransport func(*http.Request) (*http.Response, error)
 
-func (f hongGuoTestTransport) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+func (f hongGuoTestTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	if r.URL.Path == "/novel/player/video_detail/v1/" {
+		var input map[string]string
+		if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+			return nil, err
+		}
+		body, _ := json.Marshal(map[string]any{"code": 0, "data": map[string]any{"video_data": map[string]string{"series_id_str": input["series_id"]}}})
+		return &http.Response{StatusCode: 200, Body: io.NopCloser(bytes.NewReader(body)), Header: make(http.Header), Request: r}, nil
+	}
+	return f(r)
+}
 
 func TestHongGuoImportTaskAndIsolation(t *testing.T) {
 	db, err := testdb.OpenPostgres(t, &gorm.Config{})
@@ -59,7 +70,7 @@ func TestHongGuoImportTaskAndIsolation(t *testing.T) {
 		t.Fatalf("source task leaked: %+v %v", legacy, err)
 	}
 	defs, err := tasks.DefinitionsForSystem(nil, model.TaskSystemHongGuo)
-	if err != nil || len(defs) != 4 {
+	if err != nil || len(defs) != 5 {
 		t.Fatalf("definitions=%+v err=%v", defs, err)
 	}
 	for _, d := range defs {

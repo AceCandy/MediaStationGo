@@ -90,7 +90,7 @@ func TestHongGuoBindingGroupingAndStableProgress(t *testing.T) {
 	if err != nil || total != 1 || len(cards) != 1 {
 		t.Fatalf("favorite cards: %v %d %v", cards, total, err)
 	}
-	group, err := r.HongGuo.SaveGroup(ctx, "", "合并剧", []HongGuoGroupInput{{SourceID: input.SourceID, SeasonNumber: 3}})
+	err = r.HongGuo.SaveAlbum(ctx, input.SourceID, hongguo.Album{ID: "9000000000000000099", Season: 3})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -110,7 +110,7 @@ func TestHongGuoBindingGroupingAndStableProgress(t *testing.T) {
 	if err := db.Model(&model.HongGuoPlaybackEvent{}).Count(&events).Error; err != nil || events != 1 {
 		t.Fatalf("events=%d err=%v", events, err)
 	}
-	if err := r.HongGuo.DeleteGroup(ctx, group.ID); err != nil {
+	if err := r.HongGuo.SaveAlbum(ctx, input.SourceID, hongguo.Album{}); err != nil {
 		t.Fatal(err)
 	}
 	input.Completed = true

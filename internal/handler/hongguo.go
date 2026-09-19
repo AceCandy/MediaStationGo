@@ -12,7 +12,6 @@ import (
 	"github.com/ShukeBta/MediaStationGo/internal/repository"
 	"github.com/ShukeBta/MediaStationGo/internal/service"
 	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
 
@@ -299,7 +298,7 @@ func registerHongGuoRoutes(authed *gin.RouterGroup, svc *service.Container) {
 		c.JSON(200, gin.H{"items": items, "total": total})
 	})
 	group.GET("/groups/:id", requirePermission(svc, "can_view_discover"), func(c *gin.Context) {
-		if _, err := uuid.Parse(c.Param("id")); err != nil {
+		if !hongguo.ValidID(c.Param("id")) {
 			c.Status(400)
 			return
 		}
@@ -313,45 +312,5 @@ func registerHongGuoRoutes(authed *gin.RouterGroup, svc *service.Container) {
 			return
 		}
 		c.JSON(200, detail)
-	})
-	saveGroup := func(c *gin.Context) {
-		id := c.Param("id")
-		if id != "" {
-			if _, err := uuid.Parse(id); err != nil {
-				c.Status(400)
-				return
-			}
-		}
-		var request struct {
-			Title   string                         `json:"title"`
-			Members []repository.HongGuoGroupInput `json:"members"`
-		}
-		if err := c.ShouldBindJSON(&request); err != nil {
-			c.JSON(400, gin.H{"error": "聚合参数无效"})
-			return
-		}
-		group, err := svc.Repo.HongGuo.SaveGroup(c.Request.Context(), id, request.Title, request.Members)
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			c.JSON(404, gin.H{"error": "聚合或源作品不存在，请先导入资料"})
-			return
-		}
-		if err != nil {
-			c.JSON(409, gin.H{"error": "聚合未保存，请检查季号重复、电影成员或作品已在其他聚合"})
-			return
-		}
-		c.JSON(200, group)
-	}
-	group.POST("/groups", middleware.AdminRequired(), saveGroup)
-	group.PUT("/groups/:id", middleware.AdminRequired(), saveGroup)
-	group.DELETE("/groups/:id", middleware.AdminRequired(), func(c *gin.Context) {
-		if _, err := uuid.Parse(c.Param("id")); err != nil {
-			c.Status(400)
-			return
-		}
-		if err := svc.Repo.HongGuo.DeleteGroup(c.Request.Context(), c.Param("id")); err != nil {
-			c.JSON(500, gin.H{"error": "解除聚合失败"})
-			return
-		}
-		c.Status(204)
 	})
 }

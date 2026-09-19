@@ -47,6 +47,11 @@ type HongGuoWork struct {
 	Rating             float32    `json:"rating"`
 	RatingCount        int64      `json:"rating_count"`
 	RefreshedAt        time.Time  `gorm:"not null;index" json:"refreshed_at"`
+	// 官方合集与季序号只改变展示关系，不改变源作品和分集身份。
+	RelatedAlbumID string     `gorm:"size:32;not null;default:'';index:idx_hongguo_album,priority:1" json:"related_album_id"`
+	SeasonIndex    int        `gorm:"not null;default:0;index:idx_hongguo_album,priority:2" json:"season_index"`
+	AlbumCheckedAt *time.Time `json:"-"`
+	AlbumRetryAt   *time.Time `gorm:"index" json:"-"`
 }
 
 func (HongGuoWork) TableName() string { return "hongguo_works" }
@@ -130,25 +135,6 @@ type HongGuoSyncFailure struct {
 
 func (HongGuoSyncFailure) TableName() string { return "hongguo_sync_failures" }
 
-// HongGuoGroup 是人工整剧聚合，仅改变展示层级，不改变源作品及分集身份。
-type HongGuoGroup struct {
-	PermanentBase
-	Title string `gorm:"type:text;not null" json:"title"`
-}
-
-func (HongGuoGroup) TableName() string { return "hongguo_groups" }
-
-// HongGuoGroupMember 规定聚合中的季号，每个源作品最多属于一个聚合。
-type HongGuoGroupMember struct {
-	WorkID       string       `gorm:"primaryKey;size:36" json:"work_id"`
-	GroupID      string       `gorm:"size:36;not null;uniqueIndex:uidx_hongguo_group_season,priority:1" json:"group_id"`
-	SeasonNumber int          `gorm:"not null;uniqueIndex:uidx_hongguo_group_season,priority:2;check:chk_hongguo_group_season,season_number > 0" json:"season_number"`
-	Group        HongGuoGroup `gorm:"foreignKey:GroupID;constraint:OnDelete:CASCADE" json:"-"`
-	Work         HongGuoWork  `gorm:"foreignKey:WorkID;constraint:OnDelete:RESTRICT" json:"-"`
-}
-
-func (HongGuoGroupMember) TableName() string { return "hongguo_group_members" }
-
 // HongGuoMediaBinding 连接公共物理文件与红果资料，不向旧 metadata_items 写入替身记录。
 type HongGuoMediaBinding struct {
 	MediaID   string          `gorm:"primaryKey;size:36" json:"media_id"`
@@ -163,5 +149,5 @@ func (HongGuoMediaBinding) TableName() string { return "hongguo_media_bindings" 
 
 // HongGuoModels 集中声明来源拥有的表，不包含公共文件和用户状态的生命周期。
 func HongGuoModels() []interface{} {
-	return []interface{}{&HongGuoDiscovery{}, &HongGuoRankEntry{}, &HongGuoWork{}, &HongGuoEpisode{}, &HongGuoPerson{}, &HongGuoCredit{}, &HongGuoSnapshot{}, &HongGuoArtwork{}, &HongGuoSyncState{}, &HongGuoSyncFailure{}, &HongGuoGroup{}, &HongGuoGroupMember{}, &HongGuoMediaBinding{}}
+	return []interface{}{&HongGuoDiscovery{}, &HongGuoRankEntry{}, &HongGuoWork{}, &HongGuoEpisode{}, &HongGuoPerson{}, &HongGuoCredit{}, &HongGuoSnapshot{}, &HongGuoArtwork{}, &HongGuoSyncState{}, &HongGuoSyncFailure{}, &HongGuoMediaBinding{}}
 }

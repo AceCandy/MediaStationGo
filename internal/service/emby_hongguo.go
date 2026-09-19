@@ -149,13 +149,12 @@ SELECT n.id, n.resume_key, n.kind, n.title, n.parent_id, n.season_number, n.epis
  CASE WHEN n.id LIKE 'hg-group-%%' THEN '[]' ELSE MIN(w.tags) END AS tags,
  CASE WHEN n.id LIKE 'hg-group-%%' THEN 0 ELSE MAX(w.rating) END AS rating,
  COUNT(DISTINCT ep.id) AS episode_count,
- CASE WHEN n.kind = 'Episode' THEN '' ELSE COALESCE((ARRAY_AGG(a.id ORDER BY gm.season_number NULLS LAST,w.id) FILTER (WHERE a.id IS NOT NULL))[1],'') END AS artwork_id
+ CASE WHEN n.kind = 'Episode' THEN '' ELSE COALESCE((ARRAY_AGG(a.id ORDER BY NULLIF(w.season_index,0) NULLS LAST,w.id) FILTER (WHERE a.id IS NOT NULL))[1],'') END AS artwork_id
 FROM (?) AS m
 JOIN hongguo_media_bindings b ON b.media_id = m.id
 JOIN hongguo_works w ON w.id = b.work_id
 LEFT JOIN hongguo_episodes ep ON ep.id = b.episode_id AND ep.work_id = w.id
-LEFT JOIN hongguo_group_members gm ON gm.work_id = w.id
-LEFT JOIN hongguo_groups g ON g.id = gm.group_id
+`+repository.HongGuoAlbumJoin+`
 LEFT JOIN hongguo_artworks a ON a.work_id = w.id AND a.local_key <> ''
 LEFT JOIN hongguo_user_states s ON s.user_id = ? AND s.source_id = w.source_id AND s.episode_number = COALESCE(ep.number,1)
 LEFT JOIN hongguo_user_states f ON f.user_id = ? AND f.source_id = w.source_id AND f.episode_number = 0
@@ -164,8 +163,8 @@ CROSS JOIN LATERAL (VALUES
 	 CASE WHEN w.kind = 'movie' THEN 'Movie' ELSE 'Series' END,
 	 COALESCE(g.title,w.title), ''::text, 0, 0, CASE WHEN g.id IS NOT NULL THEN 'hongguo:group:' || g.id ELSE 'hongguo:work:' || w.source_id END),
 	(CASE WHEN w.kind = 'series' THEN 'hg-season-' || w.id END, 'Season', w.title,
-	 CASE WHEN g.id IS NOT NULL THEN 'hg-group-' || g.id ELSE 'hg-work-' || w.id END, COALESCE(gm.season_number,1), 0, CASE WHEN g.id IS NOT NULL THEN 'hongguo:group:' || g.id ELSE 'hongguo:work:' || w.source_id END),
-	(CASE WHEN w.kind = 'series' AND ep.id IS NOT NULL THEN 'hg-episode-' || ep.id END, 'Episode', '第' || ep.number || '集', 'hg-season-' || w.id, COALESCE(gm.season_number,1), ep.number,
+	 CASE WHEN g.id IS NOT NULL THEN 'hg-group-' || g.id ELSE 'hg-work-' || w.id END, CASE WHEN g.id IS NULL THEN 1 ELSE w.season_index END, 0, CASE WHEN g.id IS NOT NULL THEN 'hongguo:group:' || g.id ELSE 'hongguo:work:' || w.source_id END),
+	(CASE WHEN w.kind = 'series' AND ep.id IS NOT NULL THEN 'hg-episode-' || ep.id END, 'Episode', '第' || ep.number || '集', 'hg-season-' || w.id, CASE WHEN g.id IS NULL THEN 1 ELSE w.season_index END, ep.number,
 	 CASE WHEN g.id IS NOT NULL THEN 'hongguo:group:' || g.id ELSE 'hongguo:work:' || w.source_id END)
 ) AS n(id,kind,title,parent_id,season_number,episode_number,resume_key)
 WHERE n.id IS NOT NULL

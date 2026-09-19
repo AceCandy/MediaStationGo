@@ -7,7 +7,7 @@ import (
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 )
 
-// HongGuoLibraryCard 在媒体库中按人工聚合去重，源资料库列表仍保留每个作品。
+// HongGuoLibraryCard 在媒体库中按官方合集去重，源资料库列表仍保留每个作品。
 type HongGuoLibraryCard struct {
 	ID        string `json:"id"`
 	SourceID  string `json:"source_id"`
@@ -20,8 +20,8 @@ func (r *MediaViewRepository) HongGuoLibraryCards(ctx context.Context, libraryID
 	if page < 1 || page > 1000000 {
 		return nil, 0, errors.New("分页参数无效")
 	}
-	q := r.db.WithContext(ctx).Table("media m").Joins("JOIN hongguo_media_bindings b ON b.media_id = m.id").Joins("JOIN hongguo_works w ON w.id = b.work_id").Joins("LEFT JOIN hongguo_group_members gm ON gm.work_id = w.id").Joins("LEFT JOIN hongguo_groups g ON g.id = gm.group_id").Joins("LEFT JOIN hongguo_artworks a ON a.work_id = w.id AND a.local_key <> ''").Where("m.library_id = ? AND m.catalog_source = 'hongguo'", libraryID).
-		Select("COALESCE(g.id,w.id) AS id, COALESCE(g.title,w.title) AS title, w.kind, (ARRAY_AGG(w.source_id ORDER BY gm.season_number NULLS LAST,w.id))[1] AS source_id, COALESCE((ARRAY_AGG(a.id ORDER BY gm.season_number NULLS LAST,w.id) FILTER (WHERE a.id IS NOT NULL))[1],'') AS artwork_id").Group("COALESCE(g.id,w.id), COALESCE(g.title,w.title), w.kind")
+	q := r.db.WithContext(ctx).Table("media m").Joins("JOIN hongguo_media_bindings b ON b.media_id = m.id").Joins("JOIN hongguo_works w ON w.id = b.work_id").Joins(HongGuoAlbumJoin).Joins("LEFT JOIN hongguo_artworks a ON a.work_id = w.id AND a.local_key <> ''").Where("m.library_id = ? AND m.catalog_source = 'hongguo'", libraryID).
+		Select("COALESCE(g.id,w.id) AS id, COALESCE(g.title,w.title) AS title, w.kind, (ARRAY_AGG(w.source_id ORDER BY NULLIF(w.season_index,0) NULLS LAST,w.id))[1] AS source_id, COALESCE((ARRAY_AGG(a.id ORDER BY NULLIF(w.season_index,0) NULLS LAST,w.id) FILTER (WHERE a.id IS NOT NULL))[1],'') AS artwork_id").Group("COALESCE(g.id,w.id), COALESCE(g.title,w.title), w.kind")
 	outer := r.db.WithContext(ctx).Table("(?) AS cards", q)
 	var total int64
 	if err := outer.Count(&total).Error; err != nil {
@@ -91,8 +91,7 @@ func (r *MediaViewRepository) hongGuoViewsByIDs(ctx context.Context, ids []strin
 		Joins("JOIN hongguo_media_bindings AS b ON b.media_id = m.id").
 		Joins("JOIN hongguo_works AS w ON w.id = b.work_id").
 		Joins("LEFT JOIN hongguo_episodes AS ep ON ep.id = b.episode_id AND ep.work_id = w.id").
-		Joins("LEFT JOIN hongguo_group_members AS gm ON gm.work_id = w.id").
-		Joins("LEFT JOIN hongguo_groups AS g ON g.id = gm.group_id").
+		Joins(HongGuoAlbumJoin).
 		Joins("LEFT JOIN hongguo_artworks AS a ON a.work_id = w.id AND a.local_key <> ''").
 		Joins("LEFT JOIN media_probe_metadata AS pm ON pm.media_id = m.id").
 		Where("m.id = ANY(?)", &sourceIDs)
@@ -117,7 +116,7 @@ CASE WHEN ep.id IS NULL THEN '' ELSE 'hg-season-' || w.id END AS view_season_id,
 CASE WHEN ep.id IS NULL THEN w.title ELSE '第' || ep.number || '集' END AS view_title,
 CASE WHEN ep.id IS NULL THEN w.overview ELSE '' END AS view_overview,
 CASE WHEN ep.id IS NULL THEN w.rating ELSE 0 END AS view_rating,
-CASE WHEN ep.id IS NULL THEN 0 ELSE COALESCE(gm.season_number,1) END AS view_season_num,
+CASE WHEN ep.id IS NULL THEN 0 ELSE CASE WHEN g.id IS NULL THEN 1 ELSE w.season_index END END AS view_season_num,
 COALESCE(ep.number,0) AS view_episode_num,
 CASE WHEN ep.id IS NULL THEN 'movie' ELSE 'episode' END AS view_metadata_kind,
 'hongguo' AS view_metadata_source,

@@ -20,6 +20,10 @@ func AutoMigrate(db *gorm.DB) error {
 	if err := db.AutoMigrate(model.AllModels()...); err != nil {
 		return err
 	}
+	// 人工聚合已退役；先删成员表，不级联删除其他业务对象。
+	if err := db.Exec("DROP TABLE IF EXISTS hongguo_group_members, hongguo_groups").Error; err != nil {
+		return err
+	}
 	if !hadHongGuoArtwork {
 		if err := ensureHongGuoArtworkOwnership(db); err != nil {
 			return err

@@ -87,7 +87,7 @@ func TestHongGuoPlaybackStatistics(t *testing.T) {
 	if stats.Total != 3 || len(stats.Buckets) != 1 || stats.Buckets[0].Count != 3 || len(stats.Details.Items) != 1 || stats.Details.Items[0].UserID != "b" || !stats.Details.Items[0].MediaAvailable || len(stats.Ranking.Items) != 1 || stats.Ranking.Items[0].Count != 3 {
 		t.Fatalf("wrong statistics: %+v", stats)
 	}
-	if _, err := r.HongGuo.SaveGroup(ctx, "", "人工整剧", []HongGuoGroupInput{{SourceID: w.SourceID, SeasonNumber: 3}}); err != nil {
+	if err := r.HongGuo.SaveAlbum(ctx, w.SourceID, hongguo.Album{ID: "9000000000000000099", Season: 3}); err != nil {
 		t.Fatal(err)
 	}
 	f.UserID, f.MediaType, f.LibraryIDs = "a", "tv", []string{lib.ID}
@@ -96,7 +96,7 @@ func TestHongGuoPlaybackStatistics(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if stats.Total != 2 || stats.Details.Items[0].SeasonNum != 3 || stats.Details.Items[0].SeriesTitle != "人工整剧" || stats.Ranking.Items[0].Count != 1 || stats.Ranking.Items[0].GroupID != "hongguo-"+w.SourceID {
+	if stats.Total != 2 || stats.Details.Items[0].SeasonNum != 3 || stats.Details.Items[0].SeriesTitle != w.Title || stats.Ranking.Items[0].Count != 1 || stats.Ranking.Items[0].GroupID != "hongguo-"+w.SourceID {
 		t.Fatalf("filters or stable grouping: %+v", stats)
 	}
 	if err := db.Delete(&m).Error; err != nil {

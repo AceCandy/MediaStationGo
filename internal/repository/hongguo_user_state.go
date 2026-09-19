@@ -88,8 +88,7 @@ func (r *HongGuoRepository) UserCards(ctx context.Context, userID, tab string, p
 		Joins("JOIN hongguo_media_bindings b ON b.work_id = w.id").
 		Joins("JOIN media m ON m.id = b.media_id AND m.catalog_source = 'hongguo'").
 		Joins("LEFT JOIN hongguo_episodes ep ON ep.id = b.episode_id").
-		Joins("LEFT JOIN hongguo_group_members gm ON gm.work_id = w.id").
-		Joins("LEFT JOIN hongguo_groups g ON g.id = gm.group_id").
+		Joins(HongGuoAlbumJoin).
 		Where("s.user_id = ?", userID)
 	if tab == "favourites" {
 		q = q.Where("s.episode_number = 0 AND s.favorite")
@@ -110,7 +109,7 @@ func (r *HongGuoRepository) UserCards(ctx context.Context, userID, tab string, p
 		// 继续观看按展示剧集聚合；完整历史仍保留每个源分集。
 		key = "CASE WHEN g.id IS NOT NULL THEN 'group:' || g.id ELSE 'work:' || s.source_id END"
 	}
-	q = q.Select("DISTINCT ON (" + key + ") s.source_id, COALESCE(g.title,w.title) AS title, w.kind, m.id AS media_id, COALESCE(gm.season_number,1) AS season_number, s.episode_number, s.position_ms, s.duration_ms, s.completed, s.updated_at").Order(key + ", s.updated_at DESC, CASE WHEN m.id = s.media_id THEN 0 ELSE 1 END, m.id")
+	q = q.Select("DISTINCT ON (" + key + ") s.source_id, COALESCE(g.title,w.title) AS title, w.kind, m.id AS media_id, CASE WHEN g.id IS NULL THEN 1 ELSE w.season_index END AS season_number, s.episode_number, s.position_ms, s.duration_ms, s.completed, s.updated_at").Order(key + ", s.updated_at DESC, CASE WHEN m.id = s.media_id THEN 0 ELSE 1 END, m.id")
 	outer := r.db.WithContext(ctx).Table("(?) AS cards", q)
 	var total int64
 	if err := outer.Count(&total).Error; err != nil {

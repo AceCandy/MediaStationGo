@@ -11,8 +11,9 @@ are a separate authorized exception; playback still uses existing local/STRM fil
 
 - Catalog tables: `hongguo_discoveries`, `hongguo_rank_entries`, `hongguo_works`, `hongguo_episodes`, `hongguo_people`,
   `hongguo_credits`, `hongguo_snapshots`, `hongguo_artworks`,
-  `hongguo_sync_states`, `hongguo_sync_failures`, `hongguo_groups`,
-  `hongguo_group_members`, `hongguo_media_bindings`.
+  `hongguo_sync_states`, `hongguo_sync_failures`, `hongguo_media_bindings`.
+  Official grouping lives on `hongguo_works.related_album_id/season_index`;
+  migration drops retired manual group/member tables without CASCADE.
 - `hongguo_discoveries.source_category` and `hongguo_works.source_category`
   contain `real-drama|comic-drama|ai-drama`, or empty for legacy/direct-ID rows.
   The former `comic` source is not collected or shown; existing rows are retained.
@@ -57,8 +58,9 @@ are a separate authorized exception; playback still uses existing local/STRM fil
   `sort=latest|rating|hot` parameter is rejected.
 - `/api/admin/playback-stats?system=hongguo` uses the existing filter/DTO
   contract but only reads independent events; omitted system remains `catalog`.
-- Emby identities: `hg-work-`, `hg-group-`, `hg-season-`, `hg-episode-`,
-  `hg-person-` followed by internal UUID. Provider ID values remain upstream IDs.
+- Emby identities: `hg-work-`, `hg-season-`, `hg-episode-`, `hg-person-`
+  followed by internal UUID; `hg-group-` is followed by official album ID.
+  Provider ID values remain upstream IDs.
 
 ## 3. Contracts
 
@@ -159,7 +161,7 @@ are a separate authorized exception; playback still uses existing local/STRM fil
 - Disabling stops source tasks and new bindings; a disabled file upsert rolls
   back rather than replacing an existing binding. Existing files, metadata and
   user state remain readable. No destructive uninstall is provided.
-- Manual groups only change presentation. State key is `(user_id, source_id,
+- Official albums only change presentation. State key is `(user_id, source_id,
   episode_number)`: episode 0 is work favorite, episode 1 is also movie progress.
   Events are unique per user/session/source/episode and survive file deletion
   and manual unwatch. User tables are excluded from `HongGuoModels()`.
@@ -168,7 +170,7 @@ are a separate authorized exception; playback still uses existing local/STRM fil
   the current page. Reuse existing old-catalog payload builders with `Fields`;
   do not call complete `Item` once per list row. Omitted Fields retains existing
   defaults; explicit Fields controls People/ProviderIds/MediaSources.
-- Source statistics rank by source work, even after manual grouping. Display
+- Source statistics rank by source work, even after official grouping. Display
   current group title/season without changing the event identity. Missing or
   rebound files must not be linked as the original event's available media.
 - Web source pages rebuild when authenticated user/profile changes. Task URL
@@ -194,11 +196,12 @@ are a separate authorized exception; playback still uses existing local/STRM fil
 | --- | --- |
 | Anonymous source API | 401 |
 | No can_view_discover on works/list/detail/episodes or group-detail GET | 403 |
-| Non-admin import/group/status/cancel/pending/statistics | 403 |
+| Non-admin import/status/cancel/pending/statistics | 403 |
+| Manual group POST/PUT/DELETE | Not registered; 404 |
 | Invalid source ID, pagination or stats system | 400 |
 | Unknown works source category, tag category or rank; rank mixed with category filters; retired sort parameter | 400; do not silently fall back to another list. |
 | Hidden file/library or locked profile playback | Not found; no state mutation |
-| Duplicate group season or movie member | Reject transaction |
+| Invalid official album ID or nonpositive/out-of-range season | Reject supplement; preserve existing relation |
 | Source file sent to old metadata writer | Reject before any old metadata insert |
 | Disabled source upsert | Error; prior file/binding unchanged |
 | Detail/image network failure | Preserve successful data; independent retry |
@@ -213,7 +216,7 @@ are a separate authorized exception; playback still uses existing local/STRM fil
 
 ## 5. Good / Base / Bad Cases
 
-- Good: group source work B as season 3; `S01E002` still binds B episode 2.
+- Good: official album places source work B at season 3; `S01E002` still binds B episode 2.
 - Base: an ungrouped source work remains a usable standalone first season.
 - Bad: match by similar titles, fabricate release dates, or store a source ID
   in `media.metadata_id`.
@@ -289,6 +292,10 @@ are a separate authorized exception; playback still uses existing local/STRM fil
 
 ## 7. Wrong vs Correct
 
+Wrong: infer cross-season membership from similar titles or maintain editable group rows.
+
+Correct: use the exact official album ID and season index; preserve source identities.
+
 Wrong: create old metadata, then rely on Media's CHECK to reject its binding.
 
 Correct: reject `media.CatalogSource != ""` immediately in the old mutation
@@ -315,6 +322,64 @@ checkpoint only after confirming its preceding page is short.
 Wrong: filter the serialized `tags` column with a substring search.
 
 Correct: query exact JSON-array membership so similarly named tags remain distinct.
+
+## Scenario: Official cross-season albums
+
+### 1. Scope / Trigger
+
+Official App relationships replace manual grouping for Web and Emby display.
+
+### 2. Signatures
+
+`POST /novel/player/video_detail/v1/` takes string `series_id`; read
+`data.video_data.related_album_id/season_index` with `UseNumber` and matching
+`series_id_str` (fallback `series_id`). Reuse signed, bounded `appRequest`.
+Keep webpage detail collection: App detail does not replace webpage rating
+counts or first-visible timestamps.
+
+### 3. Contracts
+
+Store `related_album_id` and `season_index` on `hongguo_works` only.
+`album_checked_at` and `album_retry_at` are private checkpoints. Successful empty
+relationships clear the old relation and count as checked; errors preserve it
+and set a one-hour retry. Webpage updates never overwrite these fields.
+`GET groups/:id` is a read-only projection ordered by season then source ID;
+the title is the earliest stored season's original title. Only series with
+positive season numbers participate; duplicate season numbers retain distinct
+source identities. No title parsing or manual override is available.
+Task `hongguo_album` uses 100-row source-ID keyset batches with a fixed cutoff
+and 200-ms cancellable spacing. It shares the refresh execution lock and runs
+manually or daily (`hongguo.hongguo_album.enabled/interval_seconds`). Refreshes
+also enqueue and process supplement work. Successful rows resume from private
+checkpoints without reprocessing unchanged successful-empty rows.
+
+### 4. Validation & Error Matrix
+
+Invalid/mismatched IDs, malformed/trailing JSON, nonzero status, or album
+seasons outside 1–100000 fail without clearing relationships. Missing/empty/zero
+album IDs are successful standalone results. HTTP cancellation leaves work
+pending; checkpoint failures stop the batch. Old manual write routes return 404.
+
+### 5. Good / Base / Bad Cases
+
+Good: different titles sharing an exact album ID form one series. Base: no
+official relation remains standalone. Bad: merge identically titled works with
+different album IDs or change episode UUIDs after backfill.
+
+### 6. Tests Required
+
+`TestParseAlbum`, `TestAlbumRequestAndCancellation`,
+`TestHongGuoOfficialAlbumsAndBackfill`, `TestHongGuoAlbumFailureAndResume`, and
+`TestHongGuoRetireManualGroups` cover precision, validation, signed requests,
+pagination, independent webpage writes, failure/cancellation/restart, lock
+exclusion and repeatable table removal preserving works. Existing search,
+binding, playback and HTTP tests cover projected fields and stable identities.
+`web/scripts/check-hongguo-batch.mjs` checks read-only albums and batch downloads.
+
+### 7. Wrong vs Correct
+
+Wrong: treat an App error as an empty album or continuously retry confirmed
+standalone works. Correct: distinguish checked-empty, pending and cooling states.
 
 Wrong: derive `source_category` from hydrated detail tags.
 

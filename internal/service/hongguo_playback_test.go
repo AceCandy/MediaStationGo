@@ -143,7 +143,8 @@ func TestHongGuoEmbyPlayableIdentityAndUserState(t *testing.T) {
 	if err != nil || view == nil {
 		t.Fatal(err)
 	}
-	group, err := e.repo.HongGuo.SaveGroup(ctx, "", "人工整剧", []repository.HongGuoGroupInput{{SourceID: series.SourceID, SeasonNumber: 3}})
+	groupID := "9000000000000000099"
+	err = e.repo.HongGuo.SaveAlbum(ctx, series.SourceID, hongguo.Album{ID: groupID, Season: 3})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -151,7 +152,7 @@ func TestHongGuoEmbyPlayableIdentityAndUserState(t *testing.T) {
 	if err != nil || listing["TotalRecordCount"] != int64(2) {
 		t.Fatalf("library hierarchy: %v %v", listing, err)
 	}
-	seasons, err := e.Items(ctx, ItemsParams{ParentID: "hg-group-" + group.ID, UserID: "user-a", Limit: 50})
+	seasons, err := e.Items(ctx, ItemsParams{ParentID: "hg-group-" + groupID, UserID: "user-a", Limit: 50})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -159,7 +160,7 @@ func TestHongGuoEmbyPlayableIdentityAndUserState(t *testing.T) {
 	if len(seasonItems) != 1 || seasonItems[0]["IndexNumber"] != 3 {
 		t.Fatalf("seasons: %v", seasons)
 	}
-	episodes, err := e.Items(ctx, ItemsParams{ParentID: "hg-group-" + group.ID, UserID: "user-a", IncludeItemTypes: []string{"Episode"}, Recursive: true, Limit: 50})
+	episodes, err := e.Items(ctx, ItemsParams{ParentID: "hg-group-" + groupID, UserID: "user-a", IncludeItemTypes: []string{"Episode"}, Recursive: true, Limit: 50})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -167,32 +168,32 @@ func TestHongGuoEmbyPlayableIdentityAndUserState(t *testing.T) {
 	if len(episodeItems) != 1 || episodeItems[0]["Id"] != view.CatalogItemID || episodeItems[0]["ParentIndexNumber"] != 3 {
 		t.Fatalf("episodes: %v", episodes)
 	}
-	search, err := e.Items(ctx, ItemsParams{UserID: "user-a", SearchTerm: "人工整剧", Limit: 50})
+	search, err := e.Items(ctx, ItemsParams{UserID: "user-a", SearchTerm: series.Title, Limit: 50})
 	if err != nil {
 		t.Fatal(err)
 	}
 	searchItems := search["Items"].([]map[string]any)
-	if len(searchItems) != 1 || searchItems[0]["Id"] != "hg-group-"+group.ID {
+	if len(searchItems) != 1 || searchItems[0]["Id"] != "hg-group-"+groupID {
 		t.Fatalf("global source search: %v", search)
 	}
 	counts, err := e.ItemCounts(ctx, "user-a")
 	if err != nil || counts["MovieCount"] != int64(1) || counts["EpisodeCount"] != int64(1) || counts["SeriesCount"] != 1 {
 		t.Fatalf("counts: %v %v", counts, err)
 	}
-	if err := e.SetFavorite(ctx, "user-a", "hg-group-"+group.ID, true); err != nil {
+	if err := e.SetFavorite(ctx, "user-a", "hg-group-"+groupID, true); err != nil {
 		t.Fatal(err)
 	}
-	if err := e.MarkPlayed(ctx, "user-a", "hg-group-"+group.ID, true); err != nil {
+	if err := e.MarkPlayed(ctx, "user-a", "hg-group-"+groupID, true); err != nil {
 		t.Fatal(err)
 	}
-	groupItem, err := e.Item(ctx, "hg-group-"+group.ID, "user-a")
+	groupItem, err := e.Item(ctx, "hg-group-"+groupID, "user-a")
 	if err != nil || groupItem == nil {
 		t.Fatalf("group item: %v %v", groupItem, err)
 	}
 	if data := groupItem["UserData"].(map[string]any); data["Played"] != true || data["IsFavorite"] != true {
 		t.Fatalf("container state: %v", data)
 	}
-	if err := e.MarkPlayed(ctx, "user-a", "hg-group-"+group.ID, false); err != nil {
+	if err := e.MarkPlayed(ctx, "user-a", "hg-group-"+groupID, false); err != nil {
 		t.Fatal(err)
 	}
 	if err := e.SetFavorite(ctx, "user-a", view.CatalogItemID, true); !errors.Is(err, repository.ErrFavoriteUnsupportedType) {
@@ -226,7 +227,7 @@ func TestHongGuoEmbyPlayableIdentityAndUserState(t *testing.T) {
 			t.Fatal(err)
 		}
 		items := result["Items"].([]map[string]any)
-		want := []string{legacy.ID, "hg-group-" + group.ID, id}[page]
+		want := []string{legacy.ID, "hg-group-" + groupID, id}[page]
 		if result["TotalRecordCount"] != int64(3) || len(items) != 1 || items[0]["Id"] != want {
 			t.Fatalf("mixed global page %d: %v", page, result)
 		}
@@ -244,7 +245,7 @@ func TestHongGuoEmbyPlayableIdentityAndUserState(t *testing.T) {
 		t.Fatalf("mixed latest: %v %v", latest, err)
 	}
 	latest, err = e.LatestItems(ctx, "user-a", library.ID, 1, false)
-	if err != nil || len(latest) != 1 || latest[0]["Id"] != "hg-group-"+group.ID {
+	if err != nil || len(latest) != 1 || latest[0]["Id"] != "hg-group-"+groupID {
 		t.Fatalf("source library latest grouping: %v %v", latest, err)
 	}
 	oldSeries := model.MetadataItem{Kind: model.MetadataKindSeries, Title: "旧整剧", Source: "manual"}

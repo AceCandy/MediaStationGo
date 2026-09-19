@@ -131,7 +131,7 @@ func (s *SchedulerService) Start(ctx context.Context) {
 		s.configuredJob(ctx, "account_cleanup", SettingAccountCleanupEnabled, "device.account_cleanup_interval_seconds", false, 24*time.Hour, s.jobAccountCleanup),
 	}
 	if s.hongguo != nil {
-		for _, kind := range []string{TaskKindHongGuoSync, TaskKindHongGuoRefresh, TaskKindHongGuoArtwork} {
+		for _, kind := range []string{TaskKindHongGuoSync, TaskKindHongGuoRefresh, TaskKindHongGuoArtwork, TaskKindHongGuoAlbum} {
 			interval := 24 * time.Hour
 			if kind == TaskKindHongGuoArtwork {
 				interval = time.Hour

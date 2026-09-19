@@ -33,11 +33,8 @@ func TestHongGuoSearchResultsAreReadOnlyAndKeepSourceOrder(t *testing.T) {
 	if err = db.First(&saved, "source_id = ?", known.SourceID).Error; err != nil {
 		t.Fatal(err)
 	}
-	group := model.HongGuoGroup{Title: "关联测试"}
-	if err = db.Create(&group).Error; err != nil {
-		t.Fatal(err)
-	}
-	if err = db.Create(&model.HongGuoGroupMember{GroupID: group.ID, WorkID: saved.ID, SeasonNumber: 2}).Error; err != nil {
+	groupID := "9000000000000000099"
+	if err = r.SaveAlbum(ctx, saved.SourceID, hongguo.Album{ID: groupID, Season: 2}); err != nil {
 		t.Fatal(err)
 	}
 	comic := model.HongGuoDiscovery{SourceID: "9000000000000000003", Title: "漫画", SourceCategory: "comic"}
@@ -52,11 +49,11 @@ func TestHongGuoSearchResultsAreReadOnlyAndKeepSourceOrder(t *testing.T) {
 	if rows[0].SourceID != remote[0].SourceID || rows[0].Hydrated || rows[0].SourceCategory != "" || !rows[1].Hydrated || rows[1].Title != known.Title || rows[1].SourceCategory != "ai-drama" {
 		t.Fatalf("bad projection: %+v", rows)
 	}
-	if rows[0].GroupID != "" || rows[1].GroupID != group.ID {
+	if rows[0].GroupID != "" || rows[1].GroupID != groupID || rows[1].RelatedAlbumID != groupID || rows[1].SeasonIndex != 2 {
 		t.Fatal("search group membership missing")
 	}
 	local, _, err := r.List(ctx, known.Title, "", "", "", 1, 50)
-	if err != nil || len(local) != 1 || local[0].GroupID != group.ID {
+	if err != nil || len(local) != 1 || local[0].GroupID != groupID || local[0].RelatedAlbumID != groupID || local[0].SeasonIndex != 2 {
 		t.Fatalf("list membership: %+v %v", local, err)
 	}
 	encoded, _ := json.Marshal(rows)

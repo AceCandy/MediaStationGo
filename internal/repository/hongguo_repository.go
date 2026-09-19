@@ -58,15 +58,6 @@ func (r *HongGuoRepository) SaveDetail(ctx context.Context, input hongguo.Work) 
 		if err := tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "source_id"}}, DoUpdates: clause.AssignmentColumns([]string{"source_category", "kind", "title", "overview", "tags", "episode_count", "total_episodes", "accessible_episodes", "update_text", "source_status", "completed", "first_visible_at", "rating", "rating_count", "refreshed_at", "updated_at"})}, clause.Returning{}).Create(&work).Error; err != nil {
 			return err
 		}
-		if work.Kind == model.MetadataKindMovie {
-			var members int64
-			if err := tx.Model(&model.HongGuoGroupMember{}).Where("work_id = ?", work.ID).Count(&members).Error; err != nil {
-				return err
-			}
-			if members > 0 {
-				return errors.New("已聚合剧不能自动变为电影，请先解除聚合")
-			}
-		}
 		// 不删除已存在分集：上游临时缩短列表不应破坏绑定或观看身份。
 		episodes := make([]model.HongGuoEpisode, 0, work.EpisodeCount)
 		for number := 1; number <= work.EpisodeCount; number++ {
@@ -293,16 +284,20 @@ func (r *HongGuoRepository) loadListBadges(ctx context.Context, rows []HongGuoLi
 	if len(ids) == 0 {
 		return nil
 	}
-	var members []model.HongGuoGroupMember
-	if err := r.db.WithContext(ctx).Where("work_id = ANY(?)", &ids).Find(&members).Error; err != nil {
+	var members []model.HongGuoWork
+	if err := r.db.WithContext(ctx).Select("id, kind, related_album_id, season_index").Where("id = ANY(?)", &ids).Find(&members).Error; err != nil {
 		return err
 	}
-	groups := make(map[string]string, len(members))
+	groups := make(map[string]model.HongGuoWork, len(members))
 	for _, member := range members {
-		groups[member.WorkID] = member.GroupID
+		groups[member.ID] = member
 	}
 	for i := range rows {
-		rows[i].GroupID = groups[rows[i].ID]
+		member := groups[rows[i].ID]
+		rows[i].RelatedAlbumID, rows[i].SeasonIndex = member.RelatedAlbumID, member.SeasonIndex
+		if member.Kind == model.MetadataKindSeries && member.SeasonIndex > 0 {
+			rows[i].GroupID = member.RelatedAlbumID
+		}
 	}
 	return nil
 }
@@ -362,11 +357,18 @@ func (r *HongGuoRepository) ScheduleMissingArtwork(ctx context.Context, id strin
 // HongGuoDetail 是独立资料详情，不包含原始快照、图片源地址和播放地址。
 type HongGuoDetail struct {
 	model.HongGuoWork
-	TagList  []string                  `json:"tags"`
-	Episodes []model.HongGuoEpisode    `json:"episodes"`
-	Credits  []model.HongGuoCredit     `json:"credits"`
-	Artwork  []model.HongGuoArtwork    `json:"artwork"`
-	Group    *model.HongGuoGroupMember `json:"group,omitempty"`
+	TagList  []string               `json:"tags"`
+	Episodes []model.HongGuoEpisode `json:"episodes"`
+	Credits  []model.HongGuoCredit  `json:"credits"`
+	Artwork  []model.HongGuoArtwork `json:"artwork"`
+	Group    *HongGuoMembership     `json:"group,omitempty"`
+}
+
+// HongGuoMembership 仅投影官方关系，供详情和展示消费。
+type HongGuoMembership struct {
+	GroupID      string `json:"group_id"`
+	WorkID       string `json:"work_id"`
+	SeasonNumber int    `json:"season_number"`
 }
 
 func (r *HongGuoRepository) Detail(ctx context.Context, sourceID string) (*HongGuoDetail, error) {
@@ -392,12 +394,8 @@ func (r *HongGuoRepository) Detail(ctx context.Context, sourceID string) (*HongG
 	if err := r.db.WithContext(ctx).Where("work_id = ? OR person_id IN ?", work.ID, personIDs).Find(&detail.Artwork).Error; err != nil {
 		return nil, err
 	}
-	var member model.HongGuoGroupMember
-	err = r.db.WithContext(ctx).Where("work_id = ?", work.ID).First(&member).Error
-	if err == nil {
-		detail.Group = &member
-	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
-		return nil, err
+	if work.Kind == model.MetadataKindSeries && work.RelatedAlbumID != "" && work.SeasonIndex > 0 {
+		detail.Group = &HongGuoMembership{GroupID: work.RelatedAlbumID, WorkID: work.ID, SeasonNumber: work.SeasonIndex}
 	}
 	return detail, nil
 }

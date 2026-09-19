@@ -29,11 +29,20 @@ var ErrVideoTakenDown = errors.New("App 接口：当前视频已下架（101002�
 
 // resolveDownloadApp 只读取指定分集的播放信息，不登录、注册设备或持久化取流凭据。
 func (c *Client) resolveDownloadApp(ctx context.Context, videoID string) (DownloadMedia, error) {
+	data, err := c.appRequest(ctx, downloadAppURL, map[string]any{"video_id": videoID, "content_type": 1, "biz_param": map[string]any{"need_all_video_definition": true, "video_platform": 3}})
+	if err != nil {
+		return DownloadMedia{}, err
+	}
+	return parseDownloadApp(data)
+}
+
+// appRequest 只接收内部固定接口地址，签名和设备参数不持久化。
+func (c *Client) appRequest(ctx context.Context, endpoint string, payload any) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	var random [16]byte
 	if _, err := rand.Read(random[:]); err != nil {
-		return DownloadMedia{}, errors.New("无法准备 App 请求")
+		return nil, errors.New("无法准备 App 请求")
 	}
 	deviceID := func(b []byte) string {
 		return strconv.FormatUint(1_000_000_000_000_000_000+binary.BigEndian.Uint64(b)%8_000_000_000_000_000_000, 10)
@@ -48,10 +57,13 @@ func (c *Client) resolveDownloadApp(ctx context.Context, videoID string) (Downlo
 	}
 	now := time.Now()
 	query.Set("_rticket", strconv.FormatInt(now.UnixMilli(), 10))
-	body, _ := json.Marshal(map[string]any{"video_id": videoID, "content_type": 1, "biz_param": map[string]any{"need_all_video_definition": true, "video_platform": 3}})
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, downloadAppURL+"?"+query.Encode(), bytes.NewReader(body))
+	body, err := json.Marshal(payload)
 	if err != nil {
-		return DownloadMedia{}, errors.New("App 请求无效")
+		return nil, errors.New("App 请求内容无效")
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint+"?"+query.Encode(), bytes.NewReader(body))
+	if err != nil {
+		return nil, errors.New("App 请求无效")
 	}
 	req.Header.Set("User-Agent", downloadAppUserAgent)
 	req.Header.Set("Accept", "application/json")
@@ -65,22 +77,22 @@ func (c *Client) resolveDownloadApp(ctx context.Context, videoID string) (Downlo
 	resp, err := client.Do(req)
 	if err != nil {
 		if ctx.Err() != nil {
-			return DownloadMedia{}, ctx.Err()
+			return nil, ctx.Err()
 		}
-		return DownloadMedia{}, publicDownloadError(err)
+		return nil, publicDownloadError(err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return DownloadMedia{}, fmt.Errorf("App 接口 HTTP %d", resp.StatusCode)
+		return nil, fmt.Errorf("App 接口 HTTP %d", resp.StatusCode)
 	}
 	data, err := io.ReadAll(io.LimitReader(resp.Body, 4*1024*1024+1))
 	if err != nil || len(data) > 4*1024*1024 {
-		return DownloadMedia{}, errors.New("App 响应读取失败或过大")
+		return nil, errors.New("App 响应读取失败或过大")
 	}
-	return parseDownloadApp(data)
+	return data, nil
 }
 
-// signDownloadAppRequest 签名仅用于固定 App 播放接口，不写入日志或业务记录。
+// signDownloadAppRequest 签名仅用于固定 App 接口，不写入日志或业务记录。
 func signDownloadAppRequest(req *http.Request, body []byte, now time.Time) {
 	queryHash, bodyHash := md5.Sum([]byte(req.URL.RawQuery)), md5.Sum(body)
 	var payload [20]byte
