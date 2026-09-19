@@ -20,4 +20,4 @@
 - 排除上述四项已证实的基线失败后，五个相关包的 `TestHongGuo|TestParseAlbum|TestAlbum|TestDownloadApp` 回归全部通过；`go test -race ./internal/service -run 'TestHongGuoAlbumFailureAndResume|TestHongGuoWakeup'` 通过。新增官方 GET 的 HTTP 用例单独复跑通过。
 - 未对实际业务库迁移或执行全量联网回填；未验证真实播放器与全库上游限流。部署启动迁移会不可逆删除旧人工关系；用户已明确无需保留。官方关系只聚合已入库成员，不自动发现未收录季。
 
-代码保持未提交；按收尾流程暂不归档含未提交改动的任务，不触碰其他并行任务。
+代码已提交于 `e250d36`；2026-09-20 按用户要求归档。上述基线测试失败和部署风险继续保留，本次归档未执行业务库迁移、上游回填或重新测试。
