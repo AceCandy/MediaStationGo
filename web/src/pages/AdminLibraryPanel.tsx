@@ -1,13 +1,16 @@
-import { FormEvent, useState } from 'react'
-import { Plus } from 'lucide-react'
+import { FormEvent, useRef, useState } from 'react'
+import { Plus, SlidersHorizontal } from 'lucide-react'
 
 import { AdminLibraryCreateDialog } from './AdminLibraryPanelSections'
 import { AdminLibraryGrid, LibraryDetailDialog } from './AdminLibraryTable'
 import { useAdminLibraryPanel } from './useAdminLibraryPanel'
+import { EmbyLibraryDisplayDialog } from './EmbyLibraryDisplayDialog'
 
 export function AdminLibraryPanel() {
   const { libs, createForm, rootActions, libraryActions } = useAdminLibraryPanel()
   const [createOpen, setCreateOpen] = useState(false)
+  const [displayOpen, setDisplayOpen] = useState(false)
+  const displayButton = useRef<HTMLButtonElement>(null)
   const [activeID, setActiveID] = useState<string | null>(null)
   const activeLib = activeID ? libs.find((l) => l.id === activeID) ?? null : null
 
@@ -17,14 +20,20 @@ export function AdminLibraryPanel() {
 
   return (
     <div className="space-y-5">
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-ink-50">共 {libs.length} 个媒体库</p>
-        <button className="btn-primary" onClick={() => setCreateOpen(true)}>
-          <Plus size={16} /> 新建媒体库
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button ref={displayButton} className="btn-outline" onClick={() => setDisplayOpen(true)}>
+            <SlidersHorizontal size={16} /> Emby 媒体库展示
+          </button>
+          <button className="btn-primary" onClick={() => setCreateOpen(true)}>
+            <Plus size={16} /> 新建媒体库
+          </button>
+        </div>
       </div>
 
       <AdminLibraryGrid libs={libs} onSelect={(lib) => setActiveID(lib.id)} />
+      {displayOpen && <EmbyLibraryDisplayDialog onClose={() => { setDisplayOpen(false); displayButton.current?.focus() }} />}
 
       {createOpen && (
         <AdminLibraryCreateDialog

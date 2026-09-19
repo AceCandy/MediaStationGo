@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"encoding/json"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -33,6 +34,32 @@ func updateSettingHandler(svc *service.Container) gin.HandlerFunc {
 			return
 		}
 		oldValue := ""
+		if req.Key == service.EmbyLibraryDisplaySettingKey {
+			entries, err := service.DecodeEmbyLibraryDisplay(req.Value)
+			if err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+				return
+			}
+			libs, err := svc.Repo.Library.List(c.Request.Context())
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+				return
+			}
+			known := make(map[string]bool, len(libs))
+			for _, lib := range libs {
+				known[lib.ID] = true
+			}
+			for _, entry := range entries {
+				if !known[entry.ID] {
+					c.JSON(http.StatusBadRequest, gin.H{"error": "媒体库已变更，请重新打开弹窗"})
+					return
+				}
+			}
+			if req.Value != "" {
+				canonical, _ := json.Marshal(entries)
+				req.Value = string(canonical)
+			}
+		}
 		if req.Key == service.AdultLibraryIDsSettingKey {
 			oldValue, _ = svc.Repo.Setting.Get(c.Request.Context(), req.Key)
 		}

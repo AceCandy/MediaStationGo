@@ -27,7 +27,7 @@ func embyViewsHandler(svc *service.Container) gin.HandlerFunc {
 func embyVirtualFoldersHandler(svc *service.Container) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		c.Header("Cache-Control", "no-store")
-		libs, err := svc.Repo.Library.List(c.Request.Context())
+		libs, err := svc.Emby.DisplayLibraries(c.Request.Context())
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
