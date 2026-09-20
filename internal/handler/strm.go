@@ -257,7 +257,7 @@ func queueSTRMRefreshAfterChanges(ctx context.Context, svc *service.Container, o
 		refresh.ScrapeReason = "scraper unavailable"
 	}
 	for _, target := range targets {
-		kind := service.LibraryScanTaskKind(&model.Library{Type: target.LibraryType})
+		libraryType := strings.ToLower(strings.TrimSpace(target.LibraryType))
 		key := target.LibraryID
 		if target.RootID != "" {
 			key += ":" + target.RootID
@@ -267,11 +267,11 @@ func queueSTRMRefreshAfterChanges(ctx context.Context, svc *service.Container, o
 			continue
 		}
 		refresh.Queued = true
-		runOptions := strmRefreshRunOptions{ScrapeAfter: options.ScrapeAfter && svc.Scraper != nil && kind != service.TaskKindNFOScan}
+		runOptions := strmRefreshRunOptions{ScrapeAfter: options.ScrapeAfter && svc.Scraper != nil && libraryType != model.LibraryTypeNFOMovie && libraryType != model.LibraryTypeNFOTV}
 		if runOptions.ScrapeAfter {
 			refresh.ScrapeQueued = true
 		}
-		task := startScanHTTPTask(svc, options.TaskName, target.Name, target.Path, service.TaskTriggerManual, kind)
+		task := startScanHTTPTask(svc, options.TaskName, target.Name, target.Path, service.TaskTriggerManual)
 		go runSTRMRefreshScan(svc, target, task, finishScan, runOptions)
 	}
 	if !refresh.Queued {

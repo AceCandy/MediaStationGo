@@ -12,10 +12,12 @@ confirmed there are no existing NFO libraries.
 - `NFORepository.Ingest(ctx, media, input) (changed bool, err error)` writes
   independent items and file snapshots transactionally; source is `nfo`, with
   NULL `media.metadata_id`.
-- Task system `nfo`, kinds/definition keys `nfo_scan` and `nfo_watch`.
-- `POST /api/tasks/definitions/nfo_scan/run` requires `{library_id: string}`.
-- Task Center URL accepts `system=nfo`; invalid/duplicate system values retain
-  existing canonicalization behavior.
+- Scans and file events use common kinds `scan`/`watch` and definitions
+  `library_scan`/`library_watch`, including NFO and HongGuo libraries.
+- `POST /api/tasks/definitions/library_scan/run` requires `{library_id: string}`.
+  The legacy `nfo_scan/run` action still accepts NFO targets and creates a common scan.
+- Task Center redirects the legacy `system=nfo` URL to `system=common`;
+  invalid/duplicate system values retain existing canonicalization behavior.
 
 ## 3. Contracts
 
@@ -34,12 +36,17 @@ confirmed there are no existing NFO libraries.
 - Series presentations retain their own SeriesID/SeriesTitle so card projection
   cannot erase hierarchy identity. Conflict-upsert reloads use a fresh GORM
   object to avoid filtering by a newly generated, unpersisted primary key.
-- Scan and watch history/logs are source-specific. Mixed scheduled scans and
-  watcher batches split into ordinary and NFO executions. Shared track probing
-  remains a common task. NFO scans reuse the common periodic scan timer; no
-  second timer or network metadata task is introduced.
-- NFO task actions reject ordinary library targets. The legacy `library_scan`
-  action remains compatible, but an NFO target produces an NFO execution.
+- Each scheduled scan or watcher batch creates one common execution across
+  library types. NFO scans share the common timer and library selector. Catalog
+  isolation does not require separate scan/watch tasks or timers.
+- Legacy `nfo_scan`/`nfo_watch` definitions are hidden from the task list, but
+  their history/log APIs remain readable without rewriting stored records.
+  The legacy NFO action retains its non-NFO target rejection.
+- NFO network-scrape exclusion depends on library type, never task kind;
+  this also applies to STRM refresh after generation.
+- If watcher library lookup fails, requeue both video candidates and NFO/image
+  sidecars through the existing debounce queue. Query failure must not consume
+  accepted event types; directories and unsupported extensions remain excluded.
 - Legacy empty-system task rows derive system from kind. The catalog fallback
   excludes both `hongguo_` and `nfo_` prefixes.
 - NFO ingestion serializes a path before checking/inserting its row. Unchanged
@@ -59,6 +66,8 @@ confirmed there are no existing NFO libraries.
 | Condition | Result |
 | --- | --- |
 | `nfo_scan` targets ordinary library | HTTP 400; no execution |
+| Public scan targets an NFO library | Common scan execution; local NFO ingestion |
+| Mixed ordinary/HongGuo/NFO file events | One common watch execution |
 | Same file and snapshot scanned twice | Second ingest returns changed=false |
 | NFO becomes invalid/missing | Preserve accepted snapshot, report file state |
 | Ancestor/item is NSFW and profile disallows it | No visible file |
@@ -78,9 +87,11 @@ claim complete isolation while the scanner still uses the old writer.
 `TestNFORepositoryPreservesFilesAndPreviousSnapshot` covers repeat/changed
 snapshots, invalid-NFO preservation, independent views and NSFW/library filters.
 `TestNFORejectsWrongDocumentAndUnknownSeason` covers document/season validation.
-`TestNFOTaskIsolation`, `TestNFOTaskLegacySystemFilter`,
-`TestNFOWatcherSeparatesMixedBatch`, and `TestNFOSchedulerSeparatesLibraries`
-cover task attribution. Run PostgreSQL tests with the isolated test DSN.
+`TestNFOTasksUseCommonDefinitions`, `TestNFOTaskLegacySystemFilter`,
+`TestNFOWatcherSharesMixedBatch`, and `TestNFOSchedulerSharesLibraries`
+cover common attribution and historical access. Run PostgreSQL tests with the isolated test DSN.
+`TestWatcherBatchRequeuesSidecarsWhenLibraryQueryFails` covers sidecar-only and
+mixed batches on lookup failure, including every supported image extension.
 `TestNFOOnlyTVPersistsShowAndEpisodeNFO` must retain its episode-title/coordinate
 assertions; its fixture must include `MediaProbeMetadata` used by MediaView.
 `TestNFOFreshStartupAndScan` verifies repeated startup, local image refresh,
@@ -91,6 +102,10 @@ resume grouping and hidden-library filtering. Browser/device playback remains
 a separate manual acceptance step.
 
 ## 7. Wrong vs Correct
+
+Wrong: create a separate scan/watch task for each isolated catalog, or infer
+whether scraping is allowed from the execution kind.
+Correct: share file tasks and select ingestion/scraping behavior by library type.
 
 Wrong: merge NFO into `next`, then call `persistLocalMetadata(ctx, m, ...)`.
 Correct: pass `&next`, so metadata kind/season/episode use the merged facts.

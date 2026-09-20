@@ -137,7 +137,7 @@ interface TaskRowProps {
 
 function TaskActions({ definition, running, libraries, scanLibraryID, onScanLibraryChange, probeLibraryID, onProbeLibraryChange, probeLimit, onProbeLimitChange, scrapeLibraryID, onScrapeLibraryChange, onRun, onLog, onSchedule }: TaskRowProps) {
   const disabled = definition.current_state === 'running' || running === definition.key
-  const isScan = definition.key === 'library_scan' || definition.key === 'nfo_scan'
+  const isScan = definition.key === 'library_scan'
   const runDisabled = disabled || (isScan && !scanLibraryID)
   return (
     <div className="flex flex-wrap items-center justify-end gap-1">
@@ -151,7 +151,7 @@ function TaskActions({ definition, running, libraries, scanLibraryID, onScanLibr
           className="h-8 w-32 rounded border border-gray-200 px-2 text-xs text-ink-600"
         >
           <option value="">选择媒体库</option>
-          {libraries.filter((library) => (library.type === 'nfo_movie' || library.type === 'nfo_tv') === (definition.system === 'nfo')).map((library) => <option key={library.id} value={library.id}>{library.name}</option>)}
+          {libraries.map((library) => <option key={library.id} value={library.id}>{library.name}</option>)}
         </Select>
       )}
       {definition.action === 'probe_backfill' && (
@@ -615,7 +615,7 @@ function ScrapeIssuesPanel({ libraries, onClose }: { libraries: Library[]; onClo
 export function TasksPage() {
 	const [params, setParams] = useSearchParams()
 	const values = params.getAll('system')
-	const system: TaskSystem = values.length === 1 && (values[0] === 'common' || values[0] === 'hongguo' || values[0] === 'nfo') ? values[0] : 'catalog'
+	const system: TaskSystem = values.length === 1 && values[0] === 'nfo' ? 'common' : values.length === 1 && (values[0] === 'common' || values[0] === 'hongguo') ? values[0] : 'catalog'
 	useEffect(() => {
 		if (values.length > 1 || (values.length === 1 && values[0] !== system)) {
 			const next = new URLSearchParams(params); next.set('system', system); setParams(next, { replace: true })
@@ -689,7 +689,7 @@ function TasksSystemPage({ system, onSystemChange }: { system: TaskSystem; onSys
         toast.error('回填数量必须是正整数')
         return
       }
-			const result = await tasksAPI.run(definition.key, (definition.key === 'library_scan' || definition.key === 'nfo_scan')
+			const result = await tasksAPI.run(definition.key, definition.key === 'library_scan'
         ? { library_id: scanLibraryID }
         : definition.action === 'probe_backfill' ? { limit, library_id: probeLibraryID || undefined }
           : definition.action === 'media_scrape' ? (scrapeLibraryID ? { library_id: scrapeLibraryID } : { all_libraries: true }) : undefined)
@@ -715,7 +715,7 @@ function TasksSystemPage({ system, onSystemChange }: { system: TaskSystem; onSys
   return (
     <div className="space-y-6">
       <div className="tab-list" role="group" aria-label="任务体系">
-        {([['common', '公共任务'], ['catalog', '现有资料体系'], ['hongguo', '红果短剧'], ['nfo', '非常规本地库']] as const).map(([value, label]) => (
+        {([['common', '公共任务'], ['catalog', '现有资料体系'], ['hongguo', '红果短剧']] as const).map(([value, label]) => (
           <button key={value} type="button" aria-pressed={system === value} onClick={() => { if (system !== value) onSystemChange(value) }}
             className="tab-item">
             {label}

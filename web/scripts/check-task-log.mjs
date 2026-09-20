@@ -33,7 +33,7 @@ const react = {
   useEffect() {},
   useRef: () => ({ current: 0 }),
 }
-vm.runInNewContext(ts.transpileModule(`${source}\nexport { TaskLogDialog, reverseLogLines, CurrentState, DefinitionTable, taskProgressText };`, {
+vm.runInNewContext(ts.transpileModule(`${source}\nexport { TaskLogDialog, reverseLogLines, CurrentState, DefinitionTable, taskProgressText, TaskActions };`, {
   compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX, target: ts.ScriptTarget.ES2022 },
 }).outputText, { exports, require: (id) => id === 'react' ? react : mocks[id] ?? (id.startsWith('.') ? {} : require(id)) })
 
@@ -49,6 +49,14 @@ function render(content, page = 1) {
 }
 function pre(tree) { return tree.find((node) => node.type === 'pre') }
 function button(tree, label) { return tree.find((node) => node.props?.['aria-label'] === label) }
+
+const libraryTypes = ['movie', 'hongguo', 'nfo_movie', 'nfo_tv']
+const scanActions = nodes(exports.TaskActions({
+  definition: { key: 'library_scan', system: 'common', current_state: 'idle' },
+  libraries: libraryTypes.map((type) => ({ id: type, type, name: type })),
+  scanLibraryID: 'nfo_movie',
+}))
+assert.deepEqual(scanActions.filter((node) => node.type === 'option').map((node) => node.props.value), ['', ...libraryTypes])
 
 assert.equal(exports.reverseLogLines('').length, 0)
 assert.equal(exports.reverseLogLines('old\n\nnew\n').join('|'), 'new||old')

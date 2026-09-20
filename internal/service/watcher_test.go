@@ -122,3 +122,30 @@ func TestWatcherBatchRequeuesWhenTaskCreationFails(t *testing.T) {
 		t.Fatalf("pending = %#v, want requeued path", watcher.pending)
 	}
 }
+
+func TestWatcherBatchRequeuesSidecarsWhenLibraryQueryFails(t *testing.T) {
+	// 缺少媒体库表，确保查询失败发生在侧车展开之前。
+	repos := repository.New(newServiceTestDB(t))
+	for _, mixed := range []bool{false, true} {
+		watcher := NewWatcherService(zap.NewNop(), repos, nil, nil)
+		root := t.TempDir()
+		names := []string{"episode.nfo", "poster.jpg", "fanart.jpeg", "thumb.png", "cover.webp"}
+		if mixed {
+			names = append(names, "episode.mkv")
+		}
+		var due []duePath
+		for _, name := range names {
+			due = append(due, duePath{path: filepath.Join(root, name), libraryID: "lib"})
+		}
+		due = append(due, duePath{path: filepath.Join(root, "ignored.txt"), libraryID: "lib"}, duePath{path: root, libraryID: "lib"})
+		watcher.processBatch(t.Context(), due)
+		if len(watcher.pending) != len(names) {
+			t.Fatalf("mixed=%v: pending=%v, want %d supported events", mixed, watcher.pending, len(names))
+		}
+		for _, name := range names {
+			if pending, ok := watcher.pending[filepath.Join(root, name)]; !ok || pending.libraryID != "lib" {
+				t.Fatalf("mixed=%v: missing requeued event %s", mixed, name)
+			}
+		}
+	}
+}

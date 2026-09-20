@@ -30,14 +30,6 @@ const (
 
 var ErrTaskDefinitionNotFound = errors.New("task definition not found")
 
-// LibraryScanTaskKind 按资料边界隔离执行记录，扫描器仍共用。
-func LibraryScanTaskKind(lib *model.Library) string {
-	if libraryUsesNFOOnly(lib) {
-		return TaskKindNFOScan
-	}
-	return TaskKindScan
-}
-
 type TaskDefinition struct {
 	System         string              `json:"system"`
 	Key            string              `json:"key"`
@@ -133,6 +125,10 @@ func (t *TaskTrackerService) DefinitionsForSystem(scheduler []JobStatus, system 
 	definitions := make([]TaskDefinition, 0, len(taskDefinitionSpecs))
 	active := t.memorySnapshot().Active
 	for _, spec := range taskDefinitionSpecs {
+		// 旧 NFO 任务键仅兼容历史查询和旧入口，新执行统一归入公共扫描、监听。
+		if spec.Key == TaskKindNFOScan || spec.Key == TaskKindNFOWatch {
+			continue
+		}
 		// 下载执行记录由下载空间展示，保留定义以兼容历史与日志接口。
 		if spec.Key == TaskKindHongGuoDownload {
 			continue

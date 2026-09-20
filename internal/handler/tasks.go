@@ -202,7 +202,8 @@ func taskDefinitionRunHandler(svc *service.Container) gin.HandlerFunc {
 				c.JSON(http.StatusNotFound, gin.H{"error": "library not found"})
 				return
 			}
-			if key == service.TaskKindNFOScan && service.LibraryScanTaskKind(library) != service.TaskKindNFOScan {
+			libraryType := strings.ToLower(strings.TrimSpace(library.Type))
+			if key == service.TaskKindNFOScan && libraryType != model.LibraryTypeNFOMovie && libraryType != model.LibraryTypeNFOTV {
 				c.JSON(http.StatusBadRequest, gin.H{"error": "NFO scan requires an NFO library"})
 				return
 			}

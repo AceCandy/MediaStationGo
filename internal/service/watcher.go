@@ -298,6 +298,7 @@ func (w *WatcherService) processBatch(ctx context.Context, due []duePath) {
 	libs, err := w.repo.Library.List(ctx)
 	if err != nil {
 		w.requeue(candidates)
+		w.requeue(sidecars)
 		w.log.Error("load watcher libraries failed", zap.Error(err))
 		return
 	}
@@ -329,19 +330,6 @@ func (w *WatcherService) processBatch(ctx context.Context, due []duePath) {
 			}
 		}
 	}
-	var ordinary, local []duePath
-	for _, candidate := range candidates {
-		if nfoLibraries[candidate.libraryID] {
-			local = append(local, candidate)
-		} else {
-			ordinary = append(ordinary, candidate)
-		}
-	}
-	w.processCandidateBatch(ctx, ordinary, TaskKindWatch)
-	w.processCandidateBatch(ctx, local, TaskKindNFOWatch)
-}
-
-func (w *WatcherService) processCandidateBatch(ctx context.Context, candidates []duePath, kind string) {
 	if len(candidates) == 0 {
 		return
 	}
@@ -351,7 +339,7 @@ func (w *WatcherService) processCandidateBatch(ctx context.Context, candidates [
 		w.log.Error("watcher task tracker unavailable")
 		return
 	}
-	task := w.tasks.StartTriggered(kind, TaskTriggerEvent, "媒体库变更监听", TaskUpdate{
+	task := w.tasks.StartTriggered(TaskKindWatch, TaskTriggerEvent, "媒体库变更监听", TaskUpdate{
 		Stage: "watch", Message: "媒体库变更处理已启动", Metrics: metrics,
 	})
 	if task == nil {

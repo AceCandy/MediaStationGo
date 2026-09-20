@@ -2,6 +2,7 @@ package service
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -11,18 +12,28 @@ import (
 	"go.uber.org/zap"
 )
 
-func TestNFOTaskIsolation(t *testing.T) {
+func TestNFOTasksUseCommonDefinitions(t *testing.T) {
 	tracker := NewTaskTrackerService(nil, nil)
+	tracker.ConfigurePersistence(nil, t.TempDir())
 	for _, kind := range []string{TaskKindScan, TaskKindWatch, TaskKindScrape, TaskKindNFOScan, TaskKindNFOWatch} {
-		startFinishedTask(t, tracker, kind, kind, TaskUpdate{})
+		startFinishedTask(t, tracker, kind, kind, TaskUpdate{Details: []string{kind}})
 	}
 	definitions, err := tracker.DefinitionsForSystem(nil, model.TaskSystemNFO)
-	if err != nil || len(definitions) != 2 {
+	if err != nil || len(definitions) != 0 {
 		t.Fatalf("NFO definitions: %v %v", definitions, err)
 	}
+	definitions, err = tracker.Definitions(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, definition := range definitions {
-		if definition.Latest == nil || definition.Latest.System != model.TaskSystemNFO {
-			t.Fatalf("missing NFO history: %+v", definition)
+		if definition.Key == TaskKindNFOScan || definition.Key == TaskKindNFOWatch {
+			t.Fatalf("legacy NFO task still visible: %+v", definition)
+		}
+		if definition.Key == TaskDefinitionLibraryScan || definition.Key == TaskDefinitionLibraryWatch {
+			if definition.Latest == nil || definition.System != model.TaskSystemCommon {
+				t.Fatalf("missing common task history: %+v", definition)
+			}
 		}
 	}
 	for system, want := range map[string]int64{model.TaskSystemCommon: 2, model.TaskSystemCatalog: 1, model.TaskSystemNFO: 2} {
@@ -31,14 +42,19 @@ func TestNFOTaskIsolation(t *testing.T) {
 			t.Fatalf("%s total=%d want=%d err=%v", system, page.Total, want, err)
 		}
 	}
-	for _, kind := range []string{model.LibraryTypeNFOMovie, model.LibraryTypeNFOTV} {
-		if LibraryScanTaskKind(&model.Library{Type: kind}) != TaskKindNFOScan {
-			t.Fatalf("NFO library routed to common: %s", kind)
+	for _, key := range []string{TaskKindNFOScan, TaskKindNFOWatch} {
+		history, err := tracker.DefinitionHistory(key, 1, 10)
+		if err != nil || history.Total != 1 {
+			t.Fatalf("legacy NFO history unavailable: %s %+v %v", key, history, err)
+		}
+		log, err := tracker.ReadDefinitionLog(key, "", 0)
+		if err != nil || !strings.Contains(log.Content, key) {
+			t.Fatalf("legacy NFO log unavailable: %s %+v %v", key, log, err)
 		}
 	}
 }
 
-func TestNFOWatcherSeparatesMixedBatch(t *testing.T) {
+func TestNFOWatcherSharesMixedBatch(t *testing.T) {
 	db := newServiceTestDB(t, &model.Library{}, &model.Media{}, &model.TaskExecution{})
 	repos := repository.New(db)
 	log := zap.NewNop()
@@ -46,7 +62,7 @@ func TestNFOWatcherSeparatesMixedBatch(t *testing.T) {
 	scanner := NewScannerService(&config.Config{}, log, repos, nil, nil, nil)
 	watcher := NewWatcherService(log, repos, scanner, tracker)
 	var due []duePath
-	for _, libraryType := range []string{"movie", model.LibraryTypeNFOMovie, model.LibraryTypeNFOTV} {
+	for _, libraryType := range []string{"movie", model.LibraryTypeHongGuo, model.LibraryTypeNFOMovie, model.LibraryTypeNFOTV} {
 		lib := model.Library{Name: libraryType, Type: libraryType, Path: t.TempDir()}
 		if err := repos.Library.Create(t.Context(), &lib); err != nil {
 			t.Fatal(err)
@@ -54,15 +70,13 @@ func TestNFOWatcherSeparatesMixedBatch(t *testing.T) {
 		due = append(due, duePath{path: filepath.Join(lib.Path, "deleted.mkv"), libraryID: lib.ID})
 	}
 	watcher.processBatch(t.Context(), due)
-	for key, want := range map[string]int64{TaskDefinitionLibraryWatch: 1, TaskKindNFOWatch: 2} {
-		history, err := tracker.DefinitionHistory(key, 1, 10)
-		if err != nil || len(history.Items) != 1 || history.Items[0].Metrics["total"] != want {
-			t.Fatalf("%s history=%+v err=%v", key, history, err)
-		}
+	history, err := tracker.List(1, 10)
+	if err != nil || len(history.Items) != 1 || history.Items[0].Kind != TaskKindWatch || history.Items[0].System != model.TaskSystemCommon || history.Items[0].Metrics["total"] != 4 {
+		t.Fatalf("mixed watch history=%+v err=%v", history, err)
 	}
 }
 
-func TestNFOSchedulerSeparatesLibraries(t *testing.T) {
+func TestNFOSchedulerSharesLibraries(t *testing.T) {
 	db := newServiceTestDB(t, &model.Library{}, &model.Media{}, &model.Setting{})
 	repos := repository.New(db)
 	log := zap.NewNop()
@@ -70,7 +84,7 @@ func TestNFOSchedulerSeparatesLibraries(t *testing.T) {
 	scanner := NewScannerService(&config.Config{}, log, repos, NewHub(log), nil, nil)
 	scheduler := NewSchedulerService(log, repos, scanner, nil, NewHub(log))
 	scheduler.SetTaskTracker(tracker)
-	for _, libraryType := range []string{"movie", model.LibraryTypeNFOMovie} {
+	for _, libraryType := range []string{"movie", model.LibraryTypeHongGuo, model.LibraryTypeNFOMovie, model.LibraryTypeNFOTV} {
 		lib := model.Library{Name: libraryType, Type: libraryType, Path: t.TempDir(), Enabled: true}
 		if err := repos.Library.Create(t.Context(), &lib); err != nil {
 			t.Fatal(err)
@@ -79,11 +93,9 @@ func TestNFOSchedulerSeparatesLibraries(t *testing.T) {
 	if err := scheduler.jobScanLibraries(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	for _, key := range []string{TaskDefinitionLibraryScan, TaskKindNFOScan} {
-		history, err := tracker.DefinitionHistory(key, 1, 10)
-		if err != nil || len(history.Items) != 1 || history.Items[0].Metrics["libraries"] != 1 {
-			t.Fatalf("%s history=%+v err=%v", key, history, err)
-		}
+	history, err := tracker.List(1, 10)
+	if err != nil || len(history.Items) != 1 || history.Items[0].Kind != TaskKindScan || history.Items[0].System != model.TaskSystemCommon || history.Items[0].Metrics["libraries"] != 4 {
+		t.Fatalf("mixed scan history=%+v err=%v", history, err)
 	}
 }
 

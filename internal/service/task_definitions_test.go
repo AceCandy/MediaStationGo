@@ -94,8 +94,8 @@ func TestTaskDefinitionsIncludeIdleTasksAndLatestExecution(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(definitions) != len(taskDefinitionSpecs)-1 {
-		t.Fatalf("definitions = %d, want %d (download history lives in Download Space)", len(definitions), len(taskDefinitionSpecs)-1)
+	if len(definitions) != len(taskDefinitionSpecs)-3 {
+		t.Fatalf("definitions = %d, want %d (download and legacy NFO definitions are hidden)", len(definitions), len(taskDefinitionSpecs)-3)
 	}
 	for _, definition := range definitions {
 		if definition.Key == TaskDefinitionPeopleTranslation {
