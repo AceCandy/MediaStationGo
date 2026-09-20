@@ -345,15 +345,24 @@ counts or first-visible timestamps.
 Store `related_album_id` and `season_index` on `hongguo_works` only.
 `album_checked_at` and `album_retry_at` are private checkpoints. Successful empty
 relationships clear the old relation and count as checked; errors preserve it
-and set a one-hour retry. Webpage updates never overwrite these fields.
+and mark the work for the next supplement pass without cooldown. The non-null
+`album_retry_at` is a pending marker; even legacy future timestamps are eligible.
+Webpage persistence never overwrites these fields.
 `GET groups/:id` is a read-only projection ordered by season then source ID;
 the title is the earliest stored season's original title. Only series with
 positive season numbers participate; duplicate season numbers retain distinct
 source identities. No title parsing or manual override is available.
 Task `hongguo_album` uses 100-row source-ID keyset batches with a fixed cutoff
 and 200-ms cancellable spacing. It shares the refresh execution lock and runs
-manually or daily (`hongguo.hongguo_album.enabled/interval_seconds`). Refreshes
-also enqueue and process supplement work. Successful rows resume from private
+manually or daily (`hongguo.hongguo_album.enabled/interval_seconds`). A successful
+detail refresh enqueues and attempts only that work's album. Query/validation
+failure logs a sanitized warning and increments `album_warnings`, without
+failing the detail task or entering its sync-failure queue. Ordinary refresh
+never calls `backfillAlbums`: historical pending/failed albums belong to the
+independent supplement task. The source-ID cursor ensures each work is tried
+at most once per pass; the existing schedule/manual action starts the next pass.
+Both paths share
+the cancellable request spacing. Successful rows resume from private
 checkpoints without reprocessing unchanged successful-empty rows.
 
 ### 4. Validation & Error Matrix
@@ -362,6 +371,10 @@ Invalid/mismatched IDs, malformed/trailing JSON, nonzero status, or album
 seasons outside 1–100000 fail without clearing relationships. Missing/empty/zero
 album IDs are successful standalone results. HTTP cancellation leaves work
 pending; checkpoint failures stop the batch. Old manual write routes return 404.
+Neither cancellation nor database/checkpoint failures may be downgraded to
+album-query warnings. Diagnostic errors expose only bounded integer business
+codes and fixed field descriptions/numeric season ranges, never upstream
+messages, response bodies, credentials or arbitrary string field values.
 
 ### 5. Good / Base / Bad Cases
 
@@ -378,11 +391,22 @@ pagination, independent webpage writes, failure/cancellation/restart, lock
 exclusion and repeatable table removal preserving works. Existing search,
 binding, playback and HTTP tests cover projected fields and stable identities.
 `web/scripts/check-hongguo-batch.mjs` checks read-only albums and batch downloads.
+`TestAlbumErrorsIdentifySafeFields` covers business-code and field diagnostics
+without upstream text leakage. `TestHongGuoRefreshDefersAlbumFailure` covers
+manual/batch success, retained relations, immediate next-pass retry, separate warning
+metrics, no historical-album sweep and supplement recovery on PostgreSQL.
+`TestHongGuoRefreshDoesNotIgnoreAlbumCheckpointOrCancellation` covers failed
+result/retry persistence and interrupted requests retaining terminal errors.
 
 ### 7. Wrong vs Correct
 
 Wrong: treat an App error as an empty album or continuously retry confirmed
-standalone works. Correct: distinguish checked-empty, pending and cooling states.
+standalone works. Correct: distinguish checked-empty and pending states; do not
+add per-work cooldown for optional album query failures.
+
+Wrong: fail an otherwise successful detail task because optional album queries
+failed, or consume all historical album retries in every detail refresh.
+Correct: warn for the current work and leave retries to `hongguo_album`.
 
 Wrong: derive `source_category` from hydrated detail tags.
 

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"strconv"
 )
@@ -30,12 +31,18 @@ func parseAlbum(body []byte, sourceID string) (Album, error) {
 	var root map[string]any
 	dec := json.NewDecoder(bytes.NewReader(body))
 	dec.UseNumber()
-	if dec.Decode(&root) != nil || scalar(root["code"]) != "0" {
-		return Album{}, errors.New("红果官方合集响应无效")
+	if dec.Decode(&root) != nil || root == nil {
+		return Album{}, errors.New("红果官方合集响应 JSON 无效")
 	}
 	var tail any
 	if dec.Decode(&tail) != io.EOF {
 		return Album{}, errors.New("红果官方合集响应不完整")
+	}
+	if code := scalar(root["code"]); code != "0" {
+		if value, err := strconv.ParseInt(code, 10, 32); err == nil && value != 0 {
+			return Album{}, fmt.Errorf("红果官方合集业务错误（code=%d）", value)
+		}
+		return Album{}, errors.New("红果官方合集业务码 code 缺失或无效")
 	}
 	v := object(object(root["data"])["video_data"])
 	id := scalar(v["series_id_str"])
@@ -47,14 +54,20 @@ func parseAlbum(body []byte, sourceID string) (Album, error) {
 	}
 	albumID := scalar(v["related_album_id"])
 	if v["related_album_id"] != nil && albumID == "" && v["related_album_id"] != "" {
-		return Album{}, errors.New("红果官方合集 ID 无效")
+		return Album{}, errors.New("红果官方合集 related_album_id 无效")
 	}
 	if albumID == "" || albumID == "0" {
 		return Album{}, nil
 	}
+	if !ValidID(albumID) {
+		return Album{}, errors.New("红果官方合集 related_album_id 无效")
+	}
 	season, err := strconv.Atoi(scalar(v["season_index"]))
-	if !ValidID(albumID) || err != nil || season < 1 || season > 100000 {
-		return Album{}, errors.New("红果官方合集 ID 或季号无效")
+	if err != nil {
+		return Album{}, errors.New("红果官方合集 season_index 缺失或不是整数")
+	}
+	if season < 1 || season > 100000 {
+		return Album{}, fmt.Errorf("红果官方合集 season_index=%d 超出有效范围 1–100000", season)
 	}
 	return Album{ID: albumID, Season: season}, nil
 }

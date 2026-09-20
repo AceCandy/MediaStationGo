@@ -55,7 +55,7 @@ func TestHongGuoOfficialAlbumsAndBackfill(t *testing.T) {
 		t.Fatalf("group=%+v err=%v", group, err)
 	}
 	rows, err := r.PendingAlbums(ctx, "", time.Now())
-	if err != nil || len(rows) != 99 {
+	if err != nil || len(rows) != 100 || rows[0].SourceID != works[0].SourceID {
 		t.Fatalf("remaining=%d err=%v", len(rows), err)
 	}
 	// 网页详情更新与补充结果隔离，包括成功无关系的检查点。

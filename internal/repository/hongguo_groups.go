@@ -61,10 +61,10 @@ func (r *HongGuoRepository) RetryAlbum(ctx context.Context, sourceID string, ret
 	return r.db.WithContext(ctx).Model(&model.HongGuoWork{}).Where("source_id = ?", sourceID).Update("album_retry_at", retryAt).Error
 }
 
-// PendingAlbums 以成功检查时间区分未知和无合集；固定边界避免同轮反复请求失败项。
+// PendingAlbums 以成功检查时间区分未知和无合集；游标避免同轮重复，重试标记不设冷却。
 func (r *HongGuoRepository) PendingAlbums(ctx context.Context, after string, cutoff time.Time) ([]model.HongGuoWork, error) {
 	rows := []model.HongGuoWork{}
-	err := r.db.WithContext(ctx).Where("source_id > ? AND created_at <= ? AND (album_checked_at IS NULL OR album_retry_at IS NOT NULL) AND (album_retry_at IS NULL OR album_retry_at <= ?)", after, cutoff, cutoff).
+	err := r.db.WithContext(ctx).Where("source_id > ? AND created_at <= ? AND (album_checked_at IS NULL OR album_retry_at IS NOT NULL)", after, cutoff).
 		Order("source_id").Limit(100).Find(&rows).Error
 	return rows, err
 }
