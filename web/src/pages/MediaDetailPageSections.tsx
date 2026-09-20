@@ -144,12 +144,12 @@ export function MediaDetailMainContent({
             />
             {isAdmin && (
               <MediaDetailAdminMenu
-                onTMDbRefresh={onTMDbRefresh}
+                onTMDbRefresh={media.catalog_source ? undefined : onTMDbRefresh}
                 tmdbRefreshPending={tmdbRefreshPending}
                 onDoubanEnrich={(media.metadata_kind === 'movie' || media.metadata_kind === 'series') && media.douban_id ? onDoubanEnrich : undefined}
                 doubanEnrichmentPending={doubanEnrichmentPending}
                 doubanDegraded={media.douban_status === 'degraded'}
-                onMetadataEdit={onMetadataEdit}
+                onMetadataEdit={media.catalog_source ? undefined : onMetadataEdit}
                 onProbe={onProbe}
                 onSoftDelete={onSoftDelete}
               />

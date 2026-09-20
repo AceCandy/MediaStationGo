@@ -57,7 +57,7 @@ func TestWatcherRefreshMapsHostLibraryPathToContainerPath(t *testing.T) {
 }
 
 func TestWatcherBatchCreatesOneIsolatedExecution(t *testing.T) {
-	db := newServiceTestDB(t, &model.Media{}, &model.TaskExecution{})
+	db := newServiceTestDB(t, &model.Library{}, &model.Media{}, &model.TaskExecution{})
 	repos := repository.New(db)
 	log := zap.NewNop()
 	tracker := NewTaskTrackerService(log, nil)
@@ -91,7 +91,7 @@ func TestWatcherBatchContinuesAfterPathFailures(t *testing.T) {
 	trackerRepos := repository.New(trackerDB)
 	tracker := NewTaskTrackerService(zap.NewNop(), nil)
 	tracker.ConfigurePersistence(trackerRepos.TaskExecution, t.TempDir())
-	scannerRepos := repository.New(newServiceTestDB(t))
+	scannerRepos := repository.New(newServiceTestDB(t, &model.Library{}))
 	scanner := NewScannerService(&config.Config{}, zap.NewNop(), scannerRepos, nil, nil, nil)
 	watcher := NewWatcherService(zap.NewNop(), scannerRepos, scanner, tracker)
 
@@ -110,10 +110,10 @@ func TestWatcherBatchContinuesAfterPathFailures(t *testing.T) {
 }
 
 func TestWatcherBatchRequeuesWhenTaskCreationFails(t *testing.T) {
-	trackerRepos := repository.New(newServiceTestDB(t))
+	trackerRepos := repository.New(newServiceTestDB(t, &model.Library{}))
 	tracker := NewTaskTrackerService(zap.NewNop(), nil)
 	tracker.ConfigurePersistence(trackerRepos.TaskExecution, t.TempDir())
-	watcher := NewWatcherService(zap.NewNop(), nil, nil, tracker)
+	watcher := NewWatcherService(zap.NewNop(), trackerRepos, nil, tracker)
 	path := filepath.Join(t.TempDir(), "retry.mkv")
 
 	watcher.processBatch(t.Context(), []duePath{{path: path, libraryID: "lib"}})

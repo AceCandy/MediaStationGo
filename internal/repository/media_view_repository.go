@@ -136,6 +136,13 @@ func (r *MediaViewRepository) FindByID(ctx context.Context, id string) (*model.M
 	}
 	if len(rows) == 0 {
 		var err error
+		rows, err = r.nfoViewsByIDs(ctx, []string{id}, MediaQueryFilter{IncludeNSFW: true})
+		if err != nil {
+			return nil, err
+		}
+		if len(rows) > 0 {
+			return &rows[0], nil
+		}
 		rows, err = r.hongGuoViewsByIDs(ctx, []string{id}, MediaQueryFilter{IncludeNSFW: true})
 		if err != nil || len(rows) == 0 {
 			return nil, err
@@ -168,6 +175,13 @@ func (r *MediaViewRepository) FindByIDs(ctx context.Context, ids []string, filte
 		return nil, err
 	}
 	for _, row := range sourceRows {
+		byID[row.ID] = row
+	}
+	nfoRows, err := r.nfoViewsByIDs(ctx, missing, filter)
+	if err != nil {
+		return nil, err
+	}
+	for _, row := range nfoRows {
 		byID[row.ID] = row
 	}
 	out := make([]model.MediaView, 0, len(rows))
@@ -206,6 +220,22 @@ func (r *MediaViewRepository) FindByMetadataIDs(ctx context.Context, metadataIDs
 func (r *MediaViewRepository) FindByLogicalMetadataIDs(ctx context.Context, metadataIDs []string, filter MediaQueryFilter) ([]model.MediaView, error) {
 	if len(metadataIDs) == 0 {
 		return []model.MediaView{}, nil
+	}
+	var localIDs, ordinaryIDs []string
+	for _, id := range metadataIDs {
+		if strings.HasPrefix(id, "nfo-") {
+			localIDs = append(localIDs, strings.TrimPrefix(id, "nfo-"))
+		} else {
+			ordinaryIDs = append(ordinaryIDs, id)
+		}
+	}
+	if len(localIDs) > 0 {
+		rows, err := scanNFOViews(r.nfoViewQuery(ctx, filter).Where("ni.id IN ? OR ns.id IN ? OR nw.id IN ?", localIDs, localIDs, localIDs))
+		if err != nil || len(ordinaryIDs) == 0 {
+			return rows, err
+		}
+		ordinary, err := r.FindByLogicalMetadataIDs(ctx, ordinaryIDs, filter)
+		return append(rows, ordinary...), err
 	}
 	// 先限定请求作品的文件，再关联展示字段，避免跨层级 OR 扫描全库媒体。
 	candidates := r.logicalMetadataCandidates(ctx, metadataIDs)
@@ -312,6 +342,18 @@ func (r *MediaViewRepository) ListRecentLogicalWorks(ctx context.Context, limit 
 	if limit <= 0 {
 		limit = 24
 	}
+	if has, err := (&NFORepository{db: r.db}).HasMedia(ctx); err != nil {
+		return nil, err
+	} else if has {
+		key := "CASE WHEN mi.kind IN ('episode','season') THEN COALESCE(series_metadata.id,mi.id) ELSE mi.id END"
+		ordinary := applyMediaViewFilter(r.query(ctx), filter).Select(key + " AS id,MAX(m.created_at) AS latest").Group(key)
+		local := r.nfoViewQuery(ctx, filter).Select("'nfo-' || COALESCE(nw.id,ni.id) AS id,MAX(m.created_at) AS latest").Group("COALESCE(nw.id,ni.id)")
+		var ids []string
+		if err := r.db.WithContext(ctx).Table("(?) AS works", r.db.Raw("? UNION ALL ?", ordinary, local)).Order("latest DESC,id DESC").Limit(limit).Pluck("id", &ids).Error; err != nil {
+			return nil, err
+		}
+		return r.FindByLogicalMetadataIDs(ctx, ids, filter)
+	}
 	logicalID := "CASE WHEN mi.kind IN ('episode', 'season') THEN COALESCE(series_metadata.id, mi.id) ELSE mi.id END"
 	// 按文件时间逐批解析作品；跨过最后一部作品的时间边界后才能截断同时间 ID。
 	// service 层已有相同游标规则，此处在仓储内保留 MediaView 的完整过滤语义。
@@ -402,6 +444,23 @@ func (r *MediaViewRepository) ListByLibrariesFiltered(ctx context.Context, libra
 		return []model.MediaView{}, 0, nil
 	}
 	q := applyMediaViewFilter(r.query(ctx).Where("m.library_id = ANY(?)", &libraryIDs), filter)
+	if has, err := (&NFORepository{db: r.db}).HasMedia(ctx); err != nil {
+		return nil, 0, err
+	} else if has {
+		ordinary := q.Select("m.id, COALESCE(mi.release_date,'') AS release_date, COALESCE(mi.year,m.scan_year,0) AS year, m.updated_at,m.created_at")
+		local := r.nfoViewQuery(ctx, filter).Where("m.library_id = ANY(?)", &libraryIDs).Select("m.id, COALESCE(b.release_date,'') AS release_date, b.year, m.updated_at,m.created_at")
+		combined := r.db.WithContext(ctx).Table("(?) AS files", r.db.Raw("? UNION ALL ?", ordinary, local))
+		var total int64
+		if err := combined.Session(&gorm.Session{}).Count(&total).Error; err != nil {
+			return nil, 0, err
+		}
+		var ids []string
+		if err := combined.Order("release_date DESC, year DESC, updated_at DESC, created_at DESC, id DESC").Offset(offset).Limit(limit).Pluck("id", &ids).Error; err != nil {
+			return nil, 0, err
+		}
+		rows, err := r.FindByIDs(ctx, ids, filter)
+		return rows, total, err
+	}
 	var total int64
 	if err := q.Count(&total).Error; err != nil {
 		return nil, 0, err

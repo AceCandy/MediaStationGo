@@ -21,7 +21,11 @@ func getMediaSeriesHandler(svc *service.Container) gin.HandlerFunc {
 			return
 		}
 		uid, _ := c.Get(middleware.CtxUserID)
-		favorite, err := svc.Repo.Favorite.IsFavoriteByIdentity(c.Request.Context(), toString(uid), series.MetadataID, "")
+		identity := series.MetadataID
+		if series.CatalogSource == "nfo" {
+			identity = series.CatalogItemID
+		}
+		favorite, err := svc.Repo.Favorite.IsFavoriteByIdentity(c.Request.Context(), toString(uid), identity, "")
 		if err != nil {
 			writeInternalOrCanceled(c, err)
 			return
@@ -62,7 +66,11 @@ func setMediaSeriesFavoriteHandler(svc *service.Container) gin.HandlerFunc {
 			return
 		}
 		uid, _ := c.Get(middleware.CtxUserID)
-		if _, err := svc.Repo.Favorite.SetByIdentity(c.Request.Context(), toString(uid), series.MetadataID, c.Param("id"), *req.Favourite); err != nil {
+		identity := series.MetadataID
+		if series.CatalogSource == "nfo" {
+			identity = series.CatalogItemID
+		}
+		if _, err := svc.Repo.Favorite.SetByIdentity(c.Request.Context(), toString(uid), identity, c.Param("id"), *req.Favourite); err != nil {
 			writeFavoriteError(c, err)
 			return
 		}

@@ -58,6 +58,8 @@ are a separate authorized exception; playback still uses existing local/STRM fil
   `sort=latest|rating|hot` parameter is rejected.
 - `/api/admin/playback-stats?system=hongguo` uses the existing filter/DTO
   contract but only reads independent events; omitted system remains `catalog`.
+  `system=all` combines ordinary, HongGuo and NFO projections before aggregation
+  and pagination; event storage and source-work ranking remain independent.
 - Emby identities: `hg-work-`, `hg-season-`, `hg-episode-`, `hg-person-`
   followed by internal UUID; `hg-group-` is followed by official album ID.
   Provider ID values remain upstream IDs.
@@ -174,7 +176,8 @@ are a separate authorized exception; playback still uses existing local/STRM fil
   current group title/season without changing the event identity. Missing or
   rebound files must not be linked as the original event's available media.
 - Web source pages rebuild when authenticated user/profile changes. Task URL
-  system is `common|catalog|hongguo`; stats URL is `catalog|hongguo`.
+  system is `common|catalog|hongguo|nfo`; stats URL is `all|catalog|hongguo|nfo`
+  with Web default `all` and source-qualified detail/ranking identities.
 - Web labels use 红果短剧; internal source IDs remain `hongguo`. Discovery is
   `/discover?system=hongguo`. Works/list/detail/episodes and group-detail GETs
   require `can_view_discover`; media, artwork and user-state routes retain

@@ -147,6 +147,7 @@ func (s *ScraperService) claimNextPendingMediaGroup(ctx context.Context) (*scrap
 	err := s.repo.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var rows []model.Media
 		if err := tx.Where("scrape_status IS NULL OR scrape_status = '' OR scrape_status = ?", "pending").
+			Where("COALESCE(catalog_source, '') = ''").
 			Where(`NOT EXISTS (
 				SELECT 1 FROM media AS running_media
 				WHERE running_media.scrape_status = ? AND (
@@ -186,6 +187,7 @@ func (s *ScraperService) claimNextPendingMediaGroup(ctx context.Context) (*scrap
 func (s *ScraperService) recoverRunningMediaScrapes(ctx context.Context) error {
 	return s.repo.DB.WithContext(ctx).Model(&model.Media{}).
 		Where("scrape_status = ?", "running").
+		Where("COALESCE(catalog_source, '') = ''").
 		Update("scrape_status", "pending").Error
 }
 
@@ -193,6 +195,7 @@ func (s *ScraperService) hasActiveMediaScrapes(ctx context.Context) (bool, error
 	var active bool
 	err := s.repo.DB.WithContext(ctx).Model(&model.Media{}).
 		Select("COUNT(*) > 0").
+		Where("COALESCE(catalog_source, '') = ''").
 		Where("scrape_status IS NULL OR scrape_status = '' OR scrape_status IN ?", []string{"pending", "running"}).
 		Scan(&active).Error
 	return active, err
@@ -249,6 +252,7 @@ func (s *ScraperService) ResetLibraryScrape(ctx context.Context, libraryID strin
 		statuses = append(statuses, "matched")
 	}
 	res := s.repo.DB.WithContext(ctx).Model(&model.Media{}).
+		Where("COALESCE(catalog_source, '') = ''").
 		Where("library_id = ? AND (scrape_status IS NULL OR scrape_status = '' OR scrape_status IN ?)", libraryID, statuses).
 		Updates(map[string]any{"scrape_status": "pending", "scrape_trigger": TaskTriggerManual, "scrape_error": ""})
 	if res.Error == nil && res.RowsAffected > 0 {
@@ -261,6 +265,9 @@ func (s *ScraperService) ResetMediaScrape(ctx context.Context, mediaID string) (
 	media, err := s.repo.Media.FindByID(ctx, mediaID)
 	if err != nil || media == nil {
 		return media, err
+	}
+	if media.CatalogSource != "" {
+		return nil, errors.New("独立资料媒体请使用对应来源的扫描或刷新任务")
 	}
 	q := s.repo.DB.WithContext(ctx).Model(&model.Media{})
 	if strings.TrimSpace(media.SeriesID) != "" {

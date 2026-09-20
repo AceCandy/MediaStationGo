@@ -20,6 +20,23 @@ func (r *HistoryRepository) ListByUserMetadataIDs(ctx context.Context, userID st
 	if len(metadataIDs) == 0 {
 		return rows, nil
 	}
+	localIDs, ordinaryIDs := []string{}, []string{}
+	for _, id := range metadataIDs {
+		if strings.HasPrefix(id, "nfo-") {
+			localIDs = append(localIDs, strings.TrimPrefix(id, "nfo-"))
+		} else {
+			ordinaryIDs = append(ordinaryIDs, id)
+		}
+	}
+	if len(localIDs) > 0 {
+		var local []model.PlaybackHistory
+		if err := r.db.WithContext(ctx).Table("nfo_user_states").Where("user_id = ? AND item_id IN ? AND watched_at IS NOT NULL", userID, localIDs).
+			Select("'nfo-' || item_id AS id, 'nfo-' || item_id AS metadata_id,user_id,media_id,position_ms,duration_ms,completed,watched_at").Scan(&local).Error; err != nil {
+			return nil, err
+		}
+		ordinary, err := r.ListByUserMetadataIDs(ctx, userID, ordinaryIDs)
+		return append(ordinary, local...), err
+	}
 	err := r.db.WithContext(ctx).Where("user_id = ? AND metadata_id = ANY(?)", userID, &metadataIDs).Order("watched_at DESC").Find(&rows).Error
 	return rows, err
 }

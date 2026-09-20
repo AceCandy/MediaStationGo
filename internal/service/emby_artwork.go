@@ -9,6 +9,23 @@ import (
 
 // ImageURL returns artwork for a library/media/series/season item id.
 func (e *EmbyService) ImageURL(ctx context.Context, id, imageType string) (string, error) {
+	if strings.HasPrefix(id, "nfo-") {
+		view, err := e.repo.MediaView.NFOPresentation(ctx, id, true)
+		if err != nil || view == nil {
+			return "", err
+		}
+		if view.MetadataKind == model.MetadataKindMovie || view.MetadataKind == model.MetadataKindEpisode {
+			files, err := e.repo.MediaView.NFOItemViews(ctx, id, e.mediaQueryFilter(ctx, ""))
+			if err != nil || len(files) == 0 {
+				return "", err
+			}
+			view = &files[0]
+		}
+		if strings.EqualFold(imageType, "backdrop") || strings.EqualFold(imageType, "art") {
+			return view.BackdropURL, nil
+		}
+		return mediaPrimaryArtworkForType(view, view.MetadataKind == model.MetadataKindEpisode), nil
+	}
 	if strings.HasPrefix(id, "hg-person-") {
 		if !strings.EqualFold(imageType, "Primary") {
 			return "", nil

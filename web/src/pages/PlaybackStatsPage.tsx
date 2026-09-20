@@ -26,6 +26,7 @@ import { Select } from '../components/Select'
 import type { Library, User } from '../types'
 
 const DETAIL_PAGE_SIZE = 20
+const SYSTEM_LABEL = { all: '全部体系', catalog: '普通媒体库', hongguo: '红果短剧', nfo: '非常规媒体库' }
 
 function localDate(date: Date): string {
   return new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 10)
@@ -83,22 +84,23 @@ const MEDAL_CLASS = [
 
 export function PlaybackStatsPage() {
   const [params, setParams] = useSearchParams()
-  const system = params.get('system') === 'hongguo' ? 'hongguo' : 'catalog'
+  const value = params.get('system')
+  const system = value === 'catalog' || value === 'hongguo' || value === 'nfo' ? value : 'all'
   useEffect(() => {
     const values = params.getAll('system')
-    if (values.length > 1 || (values.length === 1 && values[0] !== 'hongguo' && values[0] !== 'catalog')) {
+    if (values.length > 1 || (values.length === 1 && !Object.keys(SYSTEM_LABEL).includes(values[0]))) {
       const next = new URLSearchParams(params)
       next.set('system', system)
       setParams(next, { replace: true })
     }
   }, [params, setParams, system])
   return <div className="space-y-4">
-    <label className="block text-sm text-ink-50">资料体系<Select className="input-base mt-1" value={system} onChange={(value) => { const next = new URLSearchParams(params); next.set('system', value); setParams(next) }}><option value="catalog">现有资料体系</option><option value="hongguo">红果短剧</option></Select></label>
+    <label className="block text-sm text-ink-50">资料体系<Select className="input-base mt-1" value={system} onChange={(value) => { const next = new URLSearchParams(params); next.set('system', value); setParams(next) }}>{Object.entries(SYSTEM_LABEL).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</Select></label>
     <PlaybackStatsSystemPage key={system} system={system} />
   </div>
 }
 
-function PlaybackStatsSystemPage({ system }: { system: 'catalog' | 'hongguo' }) {
+function PlaybackStatsSystemPage({ system }: { system: NonNullable<PlaybackStatsQuery['system']> }) {
   const dates = useMemo(() => defaultDates(), [])
   const [grain, setGrain] = useState<PlaybackStatsQuery['grain']>('day')
   const [from, setFrom] = useState(dates.from)
@@ -121,7 +123,10 @@ function PlaybackStatsSystemPage({ system }: { system: 'catalog' | 'hongguo' }) 
     void Promise.all([adminAPI.listUsers(), libraryAPI.list({ includeHidden: true })])
       .then(([userRows, libraryRows]) => {
         setUsers(userRows)
-        setLibraries(libraryRows.filter((library) => (library.type === 'hongguo') === (system === 'hongguo')))
+        setLibraries(libraryRows.filter((library) => {
+          const source = library.type === 'hongguo' ? 'hongguo' : library.type === 'nfo_movie' || library.type === 'nfo_tv' ? 'nfo' : 'catalog'
+          return system === 'all' || source === system
+        }))
       })
       .catch(() => setFilterError('筛选项加载失败。'))
   }, [system])
@@ -263,7 +268,7 @@ function PlaybackStatsSystemPage({ system }: { system: 'catalog' | 'hongguo' }) 
         <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <div className="flex items-center gap-2"><Trophy size={20} className="text-gold-500" /><h2 id="playback-ranking-title" className="text-lg font-semibold text-ink-600">热门榜单</h2></div>
-            <p className="mt-1 text-xs text-ink-50">电影按作品、电视剧按季统计 Top 10{data?.ranking.period ? ` · 周期 ${data.ranking.period}` : ''}</p>
+            <p className="mt-1 text-xs text-ink-50">电影按作品、电视剧按季、红果按来源作品统计 Top 10{data?.ranking.period ? ` · 周期 ${data.ranking.period}` : ''}</p>
           </div>
           <div className="flex flex-wrap items-end gap-2">
             <div className="flex rounded-xl p-1" style={{ background: 'var(--app-hover)' }} role="group" aria-label="榜单周期">
@@ -278,13 +283,14 @@ function PlaybackStatsSystemPage({ system }: { system: 'catalog' | 'hongguo' }) 
               {podium.map((item, index) => {
                 const rank = index + 1
                 return (
-                  <div key={item.group_id} className={`flex items-center gap-3 rounded-2xl border p-3 transition-colors hover:bg-[var(--app-hover)] ${rank === 1 ? 'shadow-glow-gold' : ''}`} style={{ borderColor: rank === 1 ? 'rgba(240, 179, 78, 0.45)' : 'var(--app-border)', background: rank === 1 ? 'rgba(240, 179, 78, 0.05)' : undefined }}>
+                  <div key={`${item.system}:${item.group_id}`} className={`flex items-center gap-3 rounded-2xl border p-3 transition-colors hover:bg-[var(--app-hover)] ${rank === 1 ? 'shadow-glow-gold' : ''}`} style={{ borderColor: rank === 1 ? 'rgba(240, 179, 78, 0.45)' : 'var(--app-border)', background: rank === 1 ? 'rgba(240, 179, 78, 0.05)' : undefined }}>
                     <div className="relative shrink-0">
                       <StatsPoster src={item.poster_url} alt={rankTitle(item)} className="h-20 w-14 rounded-lg" />
                       <span className={`absolute -left-1.5 -top-1.5 flex h-6 w-6 items-center justify-center rounded-full text-2xs font-black text-white shadow-md ring-2 ring-[var(--app-panel)] ${MEDAL_CLASS[index]}`}>{rank}</span>
                     </div>
                     <div className="min-w-0 flex-1">
                       <p className="line-clamp-2 text-sm font-bold leading-snug text-ink-600">{rankTitle(item)}</p>
+                      {system === 'all' && <p className="mt-1 text-xs text-ink-50">{SYSTEM_LABEL[item.system]}</p>}
                       <p className={`mt-1.5 text-xs font-extrabold ${rank === 1 ? 'text-gold-500' : 'text-ink-50'}`}>{item.count} 次播放</p>
                     </div>
                   </div>
@@ -294,11 +300,12 @@ function PlaybackStatsSystemPage({ system }: { system: 'catalog' | 'hongguo' }) 
             {rankRest.length > 0 && (
               <div className="divide-y divide-[var(--app-border)] overflow-hidden rounded-xl border border-[var(--app-border)]">
                 {rankRest.map((item, index) => (
-                  <div key={item.group_id} className="flex items-center gap-3 p-2.5 transition-colors hover:bg-[var(--app-hover)]">
+                  <div key={`${item.system}:${item.group_id}`} className="flex items-center gap-3 p-2.5 transition-colors hover:bg-[var(--app-hover)]">
                     <span className="w-6 shrink-0 text-center text-sm font-black text-ink-50">{index + 4}</span>
                     <StatsPoster src={item.poster_url} alt={rankTitle(item)} className="h-11 w-8 shrink-0 rounded-md" />
                     <div className="min-w-0 flex-1">
                       <p className="line-clamp-1 text-sm font-semibold text-ink-600">{rankTitle(item)}</p>
+                      {system === 'all' && <p className="mt-1 text-xs text-ink-50">{SYSTEM_LABEL[item.system]}</p>}
                       <div className="mt-1.5 h-1 overflow-hidden rounded-full" style={{ background: 'var(--app-hover)' }}><div className="h-full rounded-full bg-gradient-to-r from-brand-600 to-brand-400" style={{ width: `${Math.max(4, item.count / rankMax * 100)}%` }} /></div>
                     </div>
                     <span className="shrink-0 text-sm font-bold text-ink-600">{item.count} 次</span>
@@ -318,9 +325,9 @@ function PlaybackStatsSystemPage({ system }: { system: 'catalog' | 'hongguo' }) 
         {loading && !data ? <p className="py-10 text-center text-ink-50">明细加载中...</p> : error ? <p className="py-10 text-center text-red-500" role="alert">明细加载失败。</p> : !data?.details.items.length ? <p className="py-10 text-center text-ink-50">当前条件下暂无播放明细。</p> : (
           <>
             <div className="hidden overflow-x-auto lg:block">
-              <table className="data-table min-w-[760px]"><thead><tr><th>媒体</th><th>账户</th><th>媒体库</th><th>播放时间</th></tr></thead><tbody>{data.details.items.map((item) => <tr key={item.id}><td><div className="flex min-w-0 items-center gap-3"><StatsPoster src={item.poster_url} alt={detailTitle(item)} className="h-14 w-10 shrink-0 rounded-lg" /><div className="min-w-0">{item.media_available ? <Link to={item.source_id ? `/discover?system=hongguo&id=${encodeURIComponent(item.source_id)}` : `/media/${item.media_id}`} className="font-semibold text-ink-600 hover:text-brand-500">{detailTitle(item)}</Link> : <span className="font-semibold text-ink-600">{detailTitle(item)}</span>}{!item.media_available && <p className="mt-1 text-xs text-ink-50">媒体已不可用</p>}</div></div></td><td>{item.user_name}</td><td>{item.library_name}</td><td className="whitespace-nowrap">{new Date(item.played_at).toLocaleString()}</td></tr>)}</tbody></table>
+              <table className="data-table min-w-[760px]"><thead><tr><th>媒体</th><th>账户</th><th>媒体库</th><th>播放时间</th></tr></thead><tbody>{data.details.items.map((item) => <tr key={`${item.system}:${item.id}`}><td><div className="flex min-w-0 items-center gap-3"><StatsPoster src={item.poster_url} alt={detailTitle(item)} className="h-14 w-10 shrink-0 rounded-lg" /><div className="min-w-0">{item.media_available ? <Link to={item.source_id ? `/discover?system=hongguo&id=${encodeURIComponent(item.source_id)}` : `/media/${item.media_id}`} className="font-semibold text-ink-600 hover:text-brand-500">{detailTitle(item)}</Link> : <span className="font-semibold text-ink-600">{detailTitle(item)}</span>}{!item.media_available && <p className="mt-1 text-xs text-ink-50">媒体已不可用</p>}</div></div></td><td>{item.user_name}</td><td>{item.library_name}{system === 'all' && <p className="mt-1 text-xs text-ink-50">{SYSTEM_LABEL[item.system]}</p>}</td><td className="whitespace-nowrap">{new Date(item.played_at).toLocaleString()}</td></tr>)}</tbody></table>
             </div>
-            <div className="divide-y divide-[var(--app-border)] lg:hidden">{data.details.items.map((item) => <article key={item.id} className="flex gap-3 p-4"><StatsPoster src={item.poster_url} alt={detailTitle(item)} className="h-20 w-14 shrink-0 rounded-lg" /><div className="min-w-0 flex-1">{item.media_available ? <Link to={item.source_id ? `/discover?system=hongguo&id=${encodeURIComponent(item.source_id)}` : `/media/${item.media_id}`} className="font-semibold text-ink-600 hover:text-brand-500">{detailTitle(item)}</Link> : <p className="font-semibold text-ink-600">{detailTitle(item)}</p>}<p className="mt-2 text-sm text-ink-50">{item.user_name} · {item.library_name}</p><p className="mt-1 text-xs text-ink-50">{new Date(item.played_at).toLocaleString()}{!item.media_available ? ' · 媒体已不可用' : ''}</p></div></article>)}</div>
+            <div className="divide-y divide-[var(--app-border)] lg:hidden">{data.details.items.map((item) => <article key={`${item.system}:${item.id}`} className="flex gap-3 p-4"><StatsPoster src={item.poster_url} alt={detailTitle(item)} className="h-20 w-14 shrink-0 rounded-lg" /><div className="min-w-0 flex-1">{item.media_available ? <Link to={item.source_id ? `/discover?system=hongguo&id=${encodeURIComponent(item.source_id)}` : `/media/${item.media_id}`} className="font-semibold text-ink-600 hover:text-brand-500">{detailTitle(item)}</Link> : <p className="font-semibold text-ink-600">{detailTitle(item)}</p>}<p className="mt-2 text-sm text-ink-50">{item.user_name} · {item.library_name}{system === 'all' ? ` · ${SYSTEM_LABEL[item.system]}` : ''}</p><p className="mt-1 text-xs text-ink-50">{new Date(item.played_at).toLocaleString()}{!item.media_available ? ' · 媒体已不可用' : ''}</p></div></article>)}</div>
           </>
         )}
         <div className="flex items-center justify-between border-t border-[var(--app-border)] px-4 py-3 text-sm text-ink-50">

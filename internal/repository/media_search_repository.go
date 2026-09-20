@@ -338,6 +338,22 @@ func applyMetadataSearchLIKEFilter(q *gorm.DB, groups []metadataSearchTermGroup,
 
 func (r *MediaViewRepository) searchMetadataIDsPostgres(ctx context.Context, query string, groups []metadataSearchTermGroup, offset, limit int, filter MetadataSearchFilter) ([]string, int64, error) {
 	q := applyMetadataSearchLIKEFilter(r.metadataSearchQuery(ctx, filter), groups, filter.Fields)
+	if query == "" {
+		if has, err := (&NFORepository{db: r.db}).HasMedia(ctx); err != nil {
+			return nil, 0, err
+		} else if has {
+			legacy := q.Select("search_metadata.id, search_metadata.created_at")
+			local := r.nfoSearchQuery(ctx, filter).Select("'nfo-' || search_metadata.id AS id, search_metadata.created_at")
+			combined := r.db.WithContext(ctx).Table("(?) AS search_metadata", r.db.Raw("? UNION ALL ?", legacy, local))
+			var total int64
+			if err := combined.Session(&gorm.Session{}).Count(&total).Error; err != nil {
+				return nil, 0, err
+			}
+			var ids []string
+			err := combined.Order("created_at DESC,id DESC").Offset(offset).Limit(limit).Pluck("id", &ids).Error
+			return ids, total, err
+		}
+	}
 	var total int64
 	if query == "" {
 		if err := q.Session(&gorm.Session{}).Count(&total).Error; err != nil {
@@ -376,9 +392,6 @@ func (r *MediaViewRepository) rankMetadataSearchIDs(ctx context.Context, query s
 	if len(ids) > maxMetadataSearchCandidates {
 		ids = ids[:maxMetadataSearchCandidates]
 	}
-	if len(ids) == 0 {
-		return []string{}, 0, nil
-	}
 	var candidates []metadataSearchCandidate
 	err := r.metadataSearchQuery(ctx, filter).
 		Where("search_metadata.id IN ?", ids).
@@ -386,6 +399,16 @@ func (r *MediaViewRepository) rankMetadataSearchIDs(ctx context.Context, query s
 		Scan(&candidates).Error
 	if err != nil {
 		return nil, 0, err
+	}
+	if has, err := (&NFORepository{db: r.db}).HasMedia(ctx); err != nil {
+		return nil, 0, err
+	} else if has {
+		var local []metadataSearchCandidate
+		q := applyMetadataSearchLIKEFilter(r.nfoSearchQuery(ctx, filter), groups, filter.Fields)
+		if err := q.Select("'nfo-' || search_metadata.id AS id, search_metadata.title, search_metadata.original_name, search_metadata.overview, search_metadata.genres, search_metadata.year").Order("search_metadata.created_at DESC,search_metadata.id DESC").Limit(maxMetadataSearchCandidates).Scan(&local).Error; err != nil {
+			return nil, 0, err
+		}
+		candidates = append(candidates, local...)
 	}
 	ranked := rankMetadataSearchCandidates(query, groups, candidates, filter.Fields)
 	page, total := pageMetadataSearchCandidates(ranked, offset, limit)
@@ -431,6 +454,9 @@ func (r *MediaViewRepository) FindSeriesPresentation(ctx context.Context, metada
 
 // FindSeasonPresentation 读取季自身的资料与图片；调用方必须先验证所属文件可见性。
 func (r *MediaViewRepository) FindSeasonPresentation(ctx context.Context, metadataID string, includeNSFW bool) (*model.MediaView, error) {
+	if strings.HasPrefix(metadataID, "nfo-") {
+		return r.NFOPresentation(ctx, metadataID, includeNSFW)
+	}
 	rows, err := r.metadataSearchPresentations(ctx, []string{metadataID})
 	if err != nil {
 		return nil, err
@@ -448,6 +474,21 @@ func (r *MediaViewRepository) FindSeasonPresentation(ctx context.Context, metada
 // FindSeriesPresentations 批量读取整剧展示字段；调用方只可传入已验证文件可见性的整剧 ID。
 func (r *MediaViewRepository) FindSeriesPresentations(ctx context.Context, metadataIDs []string, includeNSFW bool) (map[string]model.MediaView, error) {
 	out := make(map[string]model.MediaView)
+	ordinaryIDs := make([]string, 0, len(metadataIDs))
+	for _, id := range metadataIDs {
+		if strings.HasPrefix(id, "nfo-") {
+			view, err := r.NFOPresentation(ctx, id, includeNSFW)
+			if err != nil {
+				return nil, err
+			}
+			if view != nil {
+				out[id] = *view
+			}
+		} else {
+			ordinaryIDs = append(ordinaryIDs, id)
+		}
+	}
+	metadataIDs = ordinaryIDs
 	if len(metadataIDs) == 0 {
 		return out, nil
 	}
@@ -479,6 +520,53 @@ func (r *MediaViewRepository) FindMetadataSearchRepresentatives(ctx context.Cont
 	metadataIDs = uniqueNonEmptyStrings(metadataIDs)
 	if len(metadataIDs) == 0 {
 		return []model.MediaView{}, nil
+	}
+	localIDs, ordinaryIDs := []string{}, []string{}
+	for _, id := range metadataIDs {
+		if strings.HasPrefix(id, "nfo-") {
+			localIDs = append(localIDs, id)
+		} else {
+			ordinaryIDs = append(ordinaryIDs, id)
+		}
+	}
+	if len(localIDs) > 0 {
+		ordinary, err := r.FindMetadataSearchRepresentatives(ctx, ordinaryIDs, filter)
+		if err != nil {
+			return nil, err
+		}
+		byID := map[string]model.MediaView{}
+		for _, view := range ordinary {
+			byID[view.MetadataID] = view
+		}
+		for _, id := range localIDs {
+			files, err := r.NFOItemViews(ctx, id, filter)
+			if err != nil {
+				return nil, err
+			}
+			if len(files) == 0 {
+				continue
+			}
+			view, err := r.NFOPresentation(ctx, id, filter.IncludeNSFW)
+			if err != nil {
+				return nil, err
+			}
+			if view == nil {
+				continue
+			}
+			view.ID = files[0].ID
+			view.LookupCatalogID = strings.TrimPrefix(id, "nfo-")
+			if view.MetadataKind == model.MetadataKindSeries {
+				view.SeriesID, view.SeriesTitle = id, view.Title
+			}
+			byID[id] = *view
+		}
+		result := make([]model.MediaView, 0, len(metadataIDs))
+		for _, id := range metadataIDs {
+			if view, ok := byID[id]; ok {
+				result = append(result, view)
+			}
+		}
+		return result, nil
 	}
 	topID := "CASE WHEN attached_metadata.kind = 'movie' THEN attached_metadata.id WHEN attached_metadata.kind = 'episode' THEN top_series.id ELSE NULL END"
 	topNSFW := "CASE WHEN attached_metadata.kind = 'movie' THEN attached_metadata.nsfw WHEN attached_metadata.kind = 'episode' THEN top_series.nsfw ELSE TRUE END"

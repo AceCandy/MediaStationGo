@@ -30,6 +30,8 @@ const (
 	TaskKindProbe                 = "probe"
 	TaskKindScan                  = "scan"
 	TaskKindWatch                 = "watch"
+	TaskKindNFOScan               = "nfo_scan"
+	TaskKindNFOWatch              = "nfo_watch"
 	TaskKindScrape                = "scrape"
 	TaskKindPeople                = "people"
 	TaskKindArtwork               = "artwork"

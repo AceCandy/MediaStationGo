@@ -18,6 +18,10 @@ import (
 // single scan; pass a fresh map for one-off ingests. It mutates res counters.
 func (s *ScannerService) ingestFile(ctx context.Context, lib *model.Library, root *model.LibraryRoot, path string, size, modTimeNS int64, seenInodes map[string]string, existingMedia map[string]existingLocalMedia, writeBatch *localMediaWriteBatch, res *ScanResult) {
 	res.Visited++
+	if libraryUsesNFOOnly(lib) {
+		s.ingestNFOMedia(ctx, lib, root, path, size, modTimeNS, res)
+		return
+	}
 	ext := strings.ToLower(filepath.Ext(path))
 	cleanPath := filepath.Clean(path)
 

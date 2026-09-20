@@ -21,6 +21,13 @@ func (e *EmbyService) SetFavorite(ctx context.Context, userID, itemID string, fa
 	if err != nil {
 		return err
 	}
+	if target.NFOItemID != "" {
+		err := e.repo.NFO.SetFavorite(ctx, userID, target.NFOItemID, target.MediaID, favorite)
+		if err == nil && e.cache != nil {
+			e.cache.DeletePrefix(ctx, embyItemsCachePrefix)
+		}
+		return err
+	}
 	if target.SourceID != "" {
 		if target.SourceEpisode > 0 {
 			return repository.ErrFavoriteUnsupportedType
@@ -41,6 +48,30 @@ func (e *EmbyService) SetFavorite(ctx context.Context, userID, itemID string, fa
 
 // MarkPlayed 按作品身份标记已看，并保留当前具体版本。
 func (e *EmbyService) MarkPlayed(ctx context.Context, userID, itemID string, played bool) error {
+	views, err := e.mediaViewsForItemID(ctx, itemID, userID)
+	if err != nil {
+		return err
+	}
+	if len(views) > 0 && views[0].CatalogSource == model.CatalogSourceNFO {
+		err := e.repo.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+			repos := repository.New(tx)
+			seen := map[string]bool{}
+			for _, view := range views {
+				if seen[view.CatalogItemID] {
+					continue
+				}
+				seen[view.CatalogItemID] = true
+				if err := repos.NFO.MarkPlayed(ctx, userID, view, played); err != nil {
+					return err
+				}
+			}
+			return nil
+		})
+		if err == nil && e.cache != nil {
+			e.cache.DeletePrefix(ctx, embyItemsCachePrefix)
+		}
+		return err
+	}
 	if handled, err := e.hongGuoContainerMutation(ctx, userID, itemID, nil, &played); handled {
 		return err
 	}
@@ -124,12 +155,15 @@ func (e *EmbyService) RecordProgress(ctx context.Context, userID, itemID, mediaS
 			if target.SourceID != "" {
 				sameItem = sourceTarget.SourceID == target.SourceID && sourceTarget.SourceEpisode == target.SourceEpisode
 			}
+			if target.NFOItemID != "" {
+				sameItem = target.NFOItemID == sourceTarget.NFOItemID
+			}
 			if sourceTarget.MediaID != "" && sameItem {
 				target.MediaID = sourceTarget.MediaID
 			}
 		}
 	}
-	if target.SourceID != "" && target.MediaID != "" {
+	if (target.SourceID != "" || target.NFOItemID != "") && target.MediaID != "" {
 		dur := runtimeTicks / 10_000
 		if dur <= 0 {
 			if probe, _ := e.repo.MediaProbe.FindByMediaID(ctx, target.MediaID); probe != nil {

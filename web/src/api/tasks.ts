@@ -1,6 +1,6 @@
 import { api } from './client'
 
-export type TaskSystem = 'common' | 'catalog' | 'hongguo'
+export type TaskSystem = 'common' | 'catalog' | 'hongguo' | 'nfo'
 
 export interface BackgroundTask {
 	system: TaskSystem

@@ -122,7 +122,11 @@ func listLibrarySeriesEpisodesHandler(svc *service.Container) gin.HandlerFunc {
 		}
 		ids := make([]string, 0, len(items))
 		for _, item := range items {
-			ids = append(ids, item.MetadataID)
+			if item.CatalogSource == "nfo" {
+				ids = append(ids, "nfo-"+item.LookupCatalogID)
+			} else {
+				ids = append(ids, item.MetadataID)
+			}
 		}
 		uid, _ := c.Get(middleware.CtxUserID)
 		history, err := svc.Repo.History.ListByUserMetadataIDs(c.Request.Context(), toString(uid), ids)

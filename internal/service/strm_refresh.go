@@ -20,10 +20,11 @@ type STRMRefreshResult struct {
 }
 
 type STRMRefreshTarget struct {
-	LibraryID string `json:"library_id"`
-	RootID    string `json:"root_id,omitempty"`
-	Name      string `json:"name"`
-	Path      string `json:"path"`
+	LibraryType string `json:"-"`
+	LibraryID   string `json:"library_id"`
+	RootID      string `json:"root_id,omitempty"`
+	Name        string `json:"name"`
+	Path        string `json:"path"`
 }
 
 func FindSTRMRefreshTargets(ctx context.Context, repo *repository.Container, outputDir string) ([]STRMRefreshTarget, error) {
@@ -69,10 +70,11 @@ func FindSTRMRefreshTargets(ctx context.Context, repo *repository.Container, out
 			}
 			seen[key] = struct{}{}
 			targets = append(targets, STRMRefreshTarget{
-				LibraryID: lib.ID,
-				RootID:    root.ID,
-				Name:      lib.Name,
-				Path:      filepath.Clean(root.Path),
+				LibraryType: lib.Type,
+				LibraryID:   lib.ID,
+				RootID:      root.ID,
+				Name:        lib.Name,
+				Path:        filepath.Clean(root.Path),
 			})
 		}
 	}

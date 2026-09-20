@@ -85,7 +85,7 @@ func startLibraryScanTask(svc *service.Container, lib *model.Library, trigger, n
 	if !ok {
 		return false, nil
 	}
-	task := startScanHTTPTask(svc, name, lib.Name, lib.Path, trigger)
+	task := startScanHTTPTask(svc, name, lib.Name, lib.Path, trigger, service.LibraryScanTaskKind(lib))
 	if task == nil {
 		finishScan()
 		return false, errCreateScanTask
@@ -105,11 +105,18 @@ func startLibraryScanTask(svc *service.Container, lib *model.Library, trigger, n
 }
 
 func startLibraryRootScanTask(svc *service.Container, libraryID, rootID, libraryName, path, trigger, name string) (bool, error) {
+	lib, err := svc.Repo.Library.FindByID(context.Background(), libraryID)
+	if err != nil {
+		return false, err
+	}
+	if lib == nil {
+		return false, errors.New("library not found")
+	}
 	finishScan, ok := svc.Scan.TryBeginLocalScan(libraryID + ":" + rootID)
 	if !ok {
 		return false, nil
 	}
-	task := startScanHTTPTask(svc, name, libraryName, path, trigger)
+	task := startScanHTTPTask(svc, name, libraryName, path, trigger, service.LibraryScanTaskKind(lib))
 	if task == nil {
 		finishScan()
 		return false, errCreateScanTask
@@ -152,14 +159,14 @@ func wakeProbeBackfillAfterScan(svc *service.Container, res *service.ScanResult)
 	}
 }
 
-func startScanHTTPTask(svc *service.Container, name, libraryName, path, trigger string) *service.TaskHandle {
+func startScanHTTPTask(svc *service.Container, name, libraryName, path, trigger, kind string) *service.TaskHandle {
 	if svc == nil || svc.Tasks == nil {
 		return nil
 	}
 	if libraryName != "" {
 		name += "：" + libraryName
 	}
-	return svc.Tasks.StartTriggered(service.TaskKindScan, trigger, name, service.TaskUpdate{
+	return svc.Tasks.StartTriggered(kind, trigger, name, service.TaskUpdate{
 		Stage:      "scan",
 		SourcePath: path,
 		Message:    "正在扫描并入库",

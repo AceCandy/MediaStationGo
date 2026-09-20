@@ -11,7 +11,7 @@ import { seriesTitle, type SeriesCard } from '../utils/groupSeries'
 import { MediaDetailBackdrop, MediaDetailPoster } from './MediaDetailArtwork'
 import { MediaDetailMetadata } from './MediaDetailMetadata'
 import { MediaDetailAdminMenu } from './MediaDetailAdminPanel'
-import { episodeLabel, seriesResumeEpisode } from './seriesDetailModel'
+import { episodeIdentity, episodeLabel, seriesResumeEpisode } from './seriesDetailModel'
 
 type LibrarySeriesDetailHeaderProps = {
   series: SeriesCard
@@ -52,13 +52,13 @@ export function LibrarySeriesDetailHeader({ series, allEpisodes, history, playba
     finally { favouritePending.current = false }
   }
   const resume = seriesResumeEpisode(allEpisodes, history)
-  const resumeHistory = history.find((row) => row.metadata_id === resume?.metadata_id)
+  const resumeHistory = resume ? history.find((row) => row.metadata_id === episodeIdentity(resume)) : undefined
   const continuing = resumeHistory && !resumeHistory.completed && resumeHistory.position_ms >= 20_000
   const resumeFrom = () => {
     const url = new URL(playbackFrom, window.location.origin)
     if (resume) {
       url.searchParams.set('season', String(resume.season_num))
-      url.searchParams.set('episode', resume.metadata_id || resume.id)
+      url.searchParams.set('episode', episodeIdentity(resume))
       url.searchParams.set('version', resume.id)
     }
     return url.pathname + url.search
@@ -67,7 +67,7 @@ export function LibrarySeriesDetailHeader({ series, allEpisodes, history, playba
     <p className="text-sm text-[var(--app-muted)]">共 {series.count} {allEpisodes.some((ep) => ep.episode_num <= 0) ? '项' : '集'}</p>
     <div className="flex flex-wrap items-center gap-3">
       {resume && <Link to={`/play/${resume.id}`} state={{ from: resumeFrom() }} className="btn-primary"><Play size={16} fill="currentColor" aria-hidden="true" />{continuing ? '继续观看' : '播放'} · {resume.episode_num > 0 ? `S${resume.season_num} E${resume.episode_num}` : episodeLabel(resume)}</Link>}
-      {isAdmin && allEpisodes.length > 0 && <MediaDetailAdminMenu label="整剧更多操作" disabled={!!seriesToolBusy} tmdbRefreshPending={false} doubanEnrichmentPending={false} doubanDegraded={false} onMetadataEdit={onMetadataEdit} onProbe={onProbe} onSoftDelete={onSoftDelete} />}
+      {isAdmin && allEpisodes.length > 0 && <MediaDetailAdminMenu label="整剧更多操作" disabled={!!seriesToolBusy} tmdbRefreshPending={false} doubanEnrichmentPending={false} doubanDegraded={false} onMetadataEdit={series.rep.catalog_source ? undefined : onMetadataEdit} onProbe={onProbe} onSoftDelete={onSoftDelete} />}
     </div>
   </div>
 

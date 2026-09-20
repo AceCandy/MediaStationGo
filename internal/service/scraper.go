@@ -38,6 +38,9 @@ func (s *ScraperService) enrichOneWithOptions(ctx context.Context, m *model.Medi
 	if lib != nil && lib.Type == model.LibraryTypeHongGuo {
 		return errors.New("红果媒体库不能运行现有资料刮削")
 	}
+	if libraryUsesNFOOnly(lib) {
+		return errors.New("非常规媒体库请使用本地扫描任务")
+	}
 
 	seriesLike := mediaIsEpisodic(m, lib)
 	if seriesLike {
@@ -56,18 +59,6 @@ func (s *ScraperService) enrichOneWithOptions(ctx context.Context, m *model.Medi
 			localErr = err
 			s.log.Warn("read local metadata before scrape failed", zap.String("media_id", m.ID), zap.Error(err))
 		}
-	}
-	if libraryUsesNFOOnly(lib) {
-		if localErr != nil {
-			return s.markScrapeError(ctx, m.ID, localErr)
-		}
-		if local == nil || !local.HasNFO {
-			return s.markScrapeNoMatch(ctx, m.ID, "")
-		}
-		if strings.TrimSpace(local.Title) == "" {
-			local.Title = strings.TrimSpace(m.Title)
-		}
-		return recordScrapeSource(options, "local_nfo", s.applyLocalMetadataMatch(ctx, m, local))
 	}
 	if hinted, _ := pathHintMetadata(m.Path, seriesLike); hinted != nil {
 		local = mergeScrapePathHintMetadata(local, hinted)

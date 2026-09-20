@@ -18,7 +18,8 @@ per-user, per-metadata history state but playback events are append-only.
   `/Sessions/Playing/Stopped` forward `PlaySessionId` as `session_id`.
 - `GET /api/admin/playback-stats` accepts `grain=day|week|month`, `from`, `to`,
   optional `user_id`, `media_type=movie|tv`, comma-separated `library_ids`,
-  `page`, `page_size`, `rank_grain=day|week`, and `rank_date`.
+  `page`, `page_size`, `rank_grain=day|week`, `rank_date`, and
+  `system=all|catalog|hongguo|nfo` (API default remains `catalog`).
 - `playback_histories` is unique on active `(user_id, metadata_id)`;
   `playback_events` is unique on active `(user_id, session_id, metadata_id)`.
 - Continue-watching reads are `GET /api/watch-history/continue`, Emby
@@ -92,6 +93,19 @@ per-user, per-metadata history state but playback events are append-only.
 - Playback statistics retain the legacy `total` and `buckets` fields and add
   `details` and `ranking`. Details are ordered by `played_at DESC, id DESC`;
   the Web UI requests 20 rows per page.
+- Statistics read independent event tables through source projections. `all`
+  uses SQL `UNION ALL` before counting, bucketing, detail pagination and Top 10.
+  Detail and ranking rows expose `system`; rank identity is `(system, group_id)`
+  and details break cross-table ID/time ties by `system ASC`. Never merge titles,
+  concatenate independently paginated results or sum independently capped ranks.
+- NFO movies rank by local item, episodes by local season. HongGuo preserves
+  source-work ranking even when official albums group display. NFO file links
+  require the current binding to match the event item; deleted/rebound files
+  retain events but are unavailable. No metadata surrogate or summary table.
+- The statistics Web page defaults to `all`; explicit source URLs remain valid.
+  Switching source resets filters/page and shows only matching library types.
+  Ordinary library choices exclude HongGuo and both NFO library types. Combined
+  details/ranking show source labels and use source-qualified React keys.
 - Ranking returns at most ten rows. Movies group by canonical metadata ID;
   episodes group by their season metadata ID. A day/week window is intersected
   with the selected `from`/`to` range, and weeks start on Monday.
@@ -113,6 +127,7 @@ per-user, per-metadata history state but playback events are append-only.
 | Auto-mark on and progress completed | Only visible earlier episodes in the same season are completed; failures roll back the progress transaction |
 | Non-admin explicit different user ID | `403` |
 | Invalid statistics grain/date or `from > to` | `400` |
+| Unknown statistics system | `400`; never silently select another source |
 | `page < 1`, `page_size` outside 1..100, or overflowing offset | `400` |
 | Invalid `rank_grain`, or `rank_date` outside `from` through `to` | `400` |
 | Non-admin statistics request | `403` |
@@ -178,6 +193,14 @@ per-user, per-metadata history state but playback events are append-only.
 - Run playback-statistics repository tests against real PostgreSQL; assert
   newest-first pagination, movie/season aggregation, date-range intersection,
   deleted-media availability, and a page beyond the last item.
+- `TestPlaybackStatsAllSystems` covers interleaved source events, identical
+  cross-table IDs/timestamps, timezone buckets, per-source and combined filters,
+  stable global pagination, rank-window intersection, duplicate local titles,
+  Top 10 and NFO deleted/rebound file links. Existing ordinary/HongGuo stats
+  tests must still pass. HTTP tests cover all four systems and admin boundaries.
+- `node scripts/check-playback-stats.mjs` uses an isolated browser and mocked
+  API against a local preview: defaults/deep links, source switching, filter
+  reset, paging, labels/links, empty/error states and light/dark responsive views.
 - For the Web page, run lint/build and check desktop/mobile, light/dark,
   day/week switching, empty/error states, and horizontal overflow.
 

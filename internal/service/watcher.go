@@ -278,14 +278,70 @@ func (w *WatcherService) debouncer(ctx context.Context) {
 
 func (w *WatcherService) processBatch(ctx context.Context, due []duePath) {
 	candidates := make([]duePath, 0, len(due))
+	sidecars := make([]duePath, 0)
 	for _, d := range due {
 		if fi, err := os.Stat(d.path); err == nil && fi.IsDir() {
 			continue
 		}
 		if _, ok := videoExtensions[strings.ToLower(filepath.Ext(d.path))]; ok {
 			candidates = append(candidates, d)
+		} else {
+			switch strings.ToLower(filepath.Ext(d.path)) {
+			case ".nfo", ".jpg", ".jpeg", ".png", ".webp":
+				sidecars = append(sidecars, d)
+			}
 		}
 	}
+	if len(candidates) == 0 && len(sidecars) == 0 {
+		return
+	}
+	libs, err := w.repo.Library.List(ctx)
+	if err != nil {
+		w.requeue(candidates)
+		w.log.Error("load watcher libraries failed", zap.Error(err))
+		return
+	}
+	nfoLibraries := make(map[string]bool)
+	for _, lib := range libs {
+		nfoLibraries[lib.ID] = libraryUsesNFOOnly(&lib)
+	}
+	seen := map[string]bool{}
+	for _, candidate := range candidates {
+		seen[candidate.path] = true
+	}
+	for _, sidecar := range sidecars {
+		if !nfoLibraries[sidecar.libraryID] {
+			continue
+		}
+		// 侧车只重读所在目录下已入库的文件；不重新遍历媒体库目录树。
+		prefix := filepath.Dir(sidecar.path) + string(filepath.Separator)
+		var paths []string
+		err := w.repo.DB.WithContext(ctx).Model(&model.Media{}).
+			Where("library_id = ? AND catalog_source = ? AND path LIKE ? ESCAPE '\\'", sidecar.libraryID, model.CatalogSourceNFO, repository.EscapeLike(prefix)+"%").Pluck("path", &paths).Error
+		if err != nil {
+			w.requeue([]duePath{sidecar})
+			continue
+		}
+		for _, path := range paths {
+			if !seen[path] {
+				candidates = append(candidates, duePath{path: path, libraryID: sidecar.libraryID})
+				seen[path] = true
+			}
+		}
+	}
+	var ordinary, local []duePath
+	for _, candidate := range candidates {
+		if nfoLibraries[candidate.libraryID] {
+			local = append(local, candidate)
+		} else {
+			ordinary = append(ordinary, candidate)
+		}
+	}
+	w.processCandidateBatch(ctx, ordinary, TaskKindWatch)
+	w.processCandidateBatch(ctx, local, TaskKindNFOWatch)
+}
+
+func (w *WatcherService) processCandidateBatch(ctx context.Context, candidates []duePath, kind string) {
 	if len(candidates) == 0 {
 		return
 	}
@@ -295,7 +351,7 @@ func (w *WatcherService) processBatch(ctx context.Context, due []duePath) {
 		w.log.Error("watcher task tracker unavailable")
 		return
 	}
-	task := w.tasks.StartTriggered(TaskKindWatch, TaskTriggerEvent, "媒体库变更监听", TaskUpdate{
+	task := w.tasks.StartTriggered(kind, TaskTriggerEvent, "媒体库变更监听", TaskUpdate{
 		Stage: "watch", Message: "媒体库变更处理已启动", Metrics: metrics,
 	})
 	if task == nil {
@@ -364,7 +420,10 @@ func (w *WatcherService) processPath(ctx context.Context, d duePath) ([]string, 
 	if res != nil && res.Added+res.Updated > 0 {
 		w.log.Info("watcher ingested media", zap.String("path", d.path))
 		if w.scanner.scraper != nil {
-			w.scanner.scraper.WakeScrapeWorker()
+			lib, err := w.scanner.repo.Library.FindByID(ctx, d.libraryID)
+			if err == nil && !libraryUsesNFOOnly(lib) {
+				w.scanner.scraper.WakeScrapeWorker()
+			}
 		}
 		details := res.ChangeDetails()
 		if res.Added > 0 {

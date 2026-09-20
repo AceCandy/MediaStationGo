@@ -89,6 +89,19 @@ func (s *ArtworkStore) importRemoteCandidate(ctx context.Context, metadataID, ar
 }
 
 func (s *ArtworkStore) ImportLocal(ctx context.Context, metadataID, artworkType, sourcePath string) (*model.ArtworkAsset, error) {
+	asset, err := s.prepareLocalAsset(metadataID, artworkType, sourcePath)
+	if err != nil {
+		return nil, err
+	}
+	abs, err := filepath.Abs(filepath.Clean(sourcePath))
+	if err != nil {
+		return nil, err
+	}
+	return s.repo.SaveSelection(ctx, metadataID, artworkType, "local_nfo", abs, asset)
+}
+
+// prepareLocalAsset 仅准备受控本地图片字节，关联资料的事务由各资料体系负责。
+func (s *ArtworkStore) prepareLocalAsset(ownerID, artworkType, sourcePath string) (*model.ArtworkAsset, error) {
 	if s.imageProxy == nil {
 		return nil, errors.New("image proxy is unavailable")
 	}
@@ -108,7 +121,7 @@ func (s *ArtworkStore) ImportLocal(ctx context.Context, metadataID, artworkType,
 	if len(data) > maxArtworkBytes {
 		return nil, errors.New("artwork exceeds 32 MiB limit")
 	}
-	return s.save(ctx, metadataID, artworkType, "local_nfo", abs, data, "")
+	return s.prepareAsset(ownerID, artworkType, data)
 }
 
 func (s *ArtworkStore) save(ctx context.Context, metadataID, artworkType, provider, sourceURL string, data []byte, _ string) (*model.ArtworkAsset, error) {

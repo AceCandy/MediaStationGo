@@ -24,6 +24,13 @@ func (r *FavoriteRepository) Toggle(ctx context.Context, userID, mediaID string)
 	}
 	var f model.Favorite
 	metadataID := mediaMetadataID(media)
+	if strings.HasPrefix(metadataID, "nfo-") {
+		state, err := (&NFORepository{db: r.db}).UserState(ctx, userID, metadataID)
+		if err != nil {
+			return false, err
+		}
+		return r.SetByIdentity(ctx, userID, metadataID, mediaID, !state.Favorite)
+	}
 	if err := r.validateFavoriteMetadata(ctx, metadataID); err != nil {
 		return false, err
 	}
@@ -48,6 +55,9 @@ func (r *FavoriteRepository) Set(ctx context.Context, userID, mediaID string, fa
 
 // SetByIdentity 保存作品身份，并保留一个具体媒体版本。
 func (r *FavoriteRepository) SetByIdentity(ctx context.Context, userID, metadataID, mediaID string, favorite bool) (bool, error) {
+	if strings.HasPrefix(metadataID, "nfo-") {
+		return favorite, (&NFORepository{db: r.db}).SetFavorite(ctx, userID, metadataID, mediaID, favorite)
+	}
 	if err := r.validateFavoriteMetadata(ctx, metadataID); err != nil {
 		return false, err
 	}
@@ -103,6 +113,10 @@ func (r *FavoriteRepository) IsFavorite(ctx context.Context, userID, mediaID str
 }
 
 func (r *FavoriteRepository) IsFavoriteByIdentity(ctx context.Context, userID, metadataID, mediaID string) (bool, error) {
+	if strings.HasPrefix(metadataID, "nfo-") {
+		state, err := (&NFORepository{db: r.db}).UserState(ctx, userID, metadataID)
+		return state.Favorite, err
+	}
 	if strings.TrimSpace(metadataID) == "" {
 		return false, errors.New("metadata id is required")
 	}
@@ -116,6 +130,14 @@ func (r *FavoriteRepository) findMedia(ctx context.Context, mediaID string) (*mo
 	err := r.db.WithContext(ctx).Where("id = ?", mediaID).First(&media).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, errors.New("media not found")
+	}
+	if err == nil && media.CatalogSource == model.CatalogSourceNFO {
+		var binding model.NFOMediaBinding
+		if err := r.db.WithContext(ctx).First(&binding, "media_id = ?", media.ID).Error; err != nil {
+			return nil, err
+		}
+		// 仅作收藏路由身份，不回写公共文件的 metadata_id。
+		media.MetadataID = "nfo-" + binding.ItemID
 	}
 	return &media, err
 }

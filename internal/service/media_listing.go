@@ -308,7 +308,9 @@ func (s *MediaService) ListMediaVersions(ctx context.Context, id, userID string,
 		HiddenLibraryIDs:  visibility.HiddenLibraryIDs,
 	}
 	var items []model.MediaView
-	if media == nil {
+	if media != nil && media.CatalogSource == model.CatalogSourceNFO && visibility.AllowsView(media) {
+		items, err = s.repo.MediaView.NFOItemViews(ctx, media.CatalogItemID, filter)
+	} else if media == nil {
 		items, err = s.repo.MediaView.FindByLogicalMetadataIDs(ctx, []string{id}, filter)
 	} else if visibility.AllowsView(media) {
 		items, err = s.repo.MediaView.FindByMetadataID(ctx, media.MetadataID, filter)
@@ -321,6 +323,13 @@ func (s *MediaService) ListMediaVersions(ctx context.Context, id, userID string,
 		return preferMediaVersion(items[i].Media, items[j].Media)
 	})
 	if userID != "" && len(items) > 1 {
+		if items[0].CatalogSource == model.CatalogSourceNFO {
+			state, err := s.repo.NFO.UserState(ctx, userID, items[0].CatalogItemID)
+			if err != nil {
+				return nil, err
+			}
+			return orderMediaVersionSiblings(items, state.MediaID), nil
+		}
 		mediaIDs := make([]string, 0, len(items))
 		for i := range items {
 			mediaIDs = append(mediaIDs, items[i].ID)

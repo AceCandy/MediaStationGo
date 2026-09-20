@@ -9,7 +9,7 @@ type MediaDetailAdminMenuProps = {
   onDoubanEnrich?: () => void
   doubanEnrichmentPending: boolean
   doubanDegraded: boolean
-  onMetadataEdit: () => void
+  onMetadataEdit?: () => void
   onProbe: () => void
   onSoftDelete: () => void
 }
@@ -70,7 +70,7 @@ export function MediaDetailAdminMenu({
             onClose={close}
           />
         )}
-        <AdminMenuItem icon={Pencil} iconClass="text-[var(--app-muted)]" label="编辑元数据" onClick={onMetadataEdit} onClose={close} />
+        {onMetadataEdit && <AdminMenuItem icon={Pencil} iconClass="text-[var(--app-muted)]" label="编辑元数据" onClick={onMetadataEdit} onClose={close} />}
         <AdminMenuItem icon={Database} iconClass="text-[var(--app-muted)]" label="强制探测媒体轨 (ffprobe)" onClick={onProbe} onClose={close} />
         <div className="mx-2 my-1.5 border-t border-[var(--app-border)]" />
         <AdminMenuItem icon={Trash2} iconClass="text-red-500" label="永久删除" danger onClick={onSoftDelete} onClose={close} />

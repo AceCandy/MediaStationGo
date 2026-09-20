@@ -9,6 +9,7 @@ const (
 	TaskSystemCommon  = "common"
 	TaskSystemCatalog = "catalog"
 	TaskSystemHongGuo = "hongguo"
+	TaskSystemNFO     = "nfo"
 )
 
 // CommonTaskKinds 是不归属特定资料库的公共文件与账号任务。
@@ -16,6 +17,9 @@ var CommonTaskKinds = []string{"organize", "probe", "scan", "watch", "cleanup"}
 
 // TaskSystemForKind 同时服务新执行写入和历史空归属记录的兼容读取。
 func TaskSystemForKind(kind string) string {
+	if strings.HasPrefix(kind, "nfo_") {
+		return TaskSystemNFO
+	}
 	if strings.HasPrefix(kind, "hongguo_") {
 		return TaskSystemHongGuo
 	}

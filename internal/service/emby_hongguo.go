@@ -19,6 +19,12 @@ func (e *EmbyService) ResumeItems(ctx context.Context, userID string, limit int)
 	if limit <= 0 || limit > 100 {
 		limit = 20
 	}
+	if has, err := e.repo.NFO.HasMedia(ctx); err != nil {
+		return nil, err
+	} else if has {
+		result, _, err := e.hongGuoGlobalItems(ctx, ItemsParams{UserID: userID, Recursive: true, Limit: limit, Filters: []string{"IsResumable"}, SortBy: "DatePlayed", SortOrder: "Descending"})
+		return result, err
+	}
 	v := e.mediaVisibility(ctx, userID)
 	if v.LibraryRestricted && len(v.AllowedLibraryIDs) == 0 {
 		return emptyItemsEnvelope(0), nil
@@ -176,6 +182,31 @@ func (e *EmbyService) LatestItems(ctx context.Context, userID, parentID string, 
 	if limit <= 0 || limit > 100 {
 		limit = 20
 	}
+	if has, err := e.repo.NFO.HasMedia(ctx); err != nil {
+		return nil, err
+	} else if has {
+		filter := "IsUnplayed"
+		if isPlayed {
+			filter = "IsPlayed"
+		}
+		params := ItemsParams{UserID: userID, ParentID: parentID, Limit: limit, Fields: fields, Filters: []string{filter}, SortBy: "DateCreated", SortOrder: "Descending"}
+		if parentID == "" {
+			params.Recursive = true
+			result, _, err := e.hongGuoGlobalItems(ctx, params)
+			if err != nil {
+				return nil, err
+			}
+			items, _ := result["Items"].([]map[string]any)
+			return items, nil
+		}
+		if result, handled, err := e.hongGuoHierarchyItems(ctx, params); handled {
+			if err != nil {
+				return nil, err
+			}
+			items, _ := result["Items"].([]map[string]any)
+			return items, nil
+		}
+	}
 	if parentID != "" {
 		library, err := e.repo.Library.FindByID(ctx, parentID)
 		if err != nil {
@@ -253,7 +284,8 @@ func (e *EmbyService) LatestItems(ctx context.Context, userID, parentID string, 
 
 func (e *EmbyService) hongGuoHierarchyItems(ctx context.Context, p ItemsParams) (map[string]any, bool, error) {
 	libraryID := ""
-	if !strings.HasPrefix(p.ParentID, "hg-") {
+	local := strings.HasPrefix(p.ParentID, "nfo-")
+	if !local && !strings.HasPrefix(p.ParentID, "hg-") {
 		if p.ParentID == "" {
 			return nil, false, nil
 		}
@@ -261,18 +293,26 @@ func (e *EmbyService) hongGuoHierarchyItems(ctx context.Context, p ItemsParams) 
 		if err != nil {
 			return nil, true, err
 		}
-		if lib == nil || lib.Type != model.LibraryTypeHongGuo {
+		if lib == nil || (lib.Type != model.LibraryTypeHongGuo && !libraryUsesNFOOnly(lib)) {
 			return nil, false, nil
 		}
 		libraryID = lib.ID
+		local = libraryUsesNFOOnly(lib)
 	}
-	q := e.hongGuoNodes(ctx, p.UserID, libraryID)
+	nodesQuery := e.hongGuoNodes
+	if local {
+		nodesQuery = e.nfoNodes
+	}
+	q := nodesQuery(ctx, p.UserID, libraryID)
 	if libraryID != "" {
 		if !p.Recursive {
 			q = q.Where("parent_id = ''")
 		}
 	} else if p.Recursive || containsItemType(p.IncludeItemTypes, "Episode") {
-		if strings.HasPrefix(p.ParentID, "hg-season-") {
+		if local {
+			seasons := nodesQuery(ctx, p.UserID, "").Select("id").Where("parent_id = ? AND kind = 'Season'", p.ParentID)
+			q = q.Where("(parent_id = ? OR parent_id IN (?)) AND kind = 'Episode'", p.ParentID, seasons)
+		} else if strings.HasPrefix(p.ParentID, "hg-season-") {
 			q = q.Where("parent_id = ?", p.ParentID)
 		} else {
 			seasons := e.hongGuoNodes(ctx, p.UserID, "").Select("id").Where("parent_id = ? AND kind = 'Season'", p.ParentID)
@@ -287,7 +327,11 @@ func (e *EmbyService) hongGuoHierarchyItems(ctx context.Context, p ItemsParams) 
 	if p.SearchTerm != "" {
 		q = q.Where("POSITION(LOWER(?) IN LOWER(title)) > 0", strings.TrimSpace(p.SearchTerm))
 	}
-	q = e.hongGuoPersonFilter(ctx, q, p.UserID, libraryID, p.PersonIDs)
+	if local && len(p.PersonIDs) > 0 {
+		q = q.Where("FALSE")
+	} else if !local {
+		q = e.hongGuoPersonFilter(ctx, q, p.UserID, libraryID, p.PersonIDs)
+	}
 	if containsEmbyFilter(p.Filters, "IsFavorite") {
 		q = q.Where("favorite AND kind IN ('Movie','Series')")
 	}
@@ -322,7 +366,11 @@ func (e *EmbyService) hongGuoHierarchyItems(ctx context.Context, p ItemsParams) 
 	if err := q.Order(order).Order("id").Limit(p.Limit).Offset(p.StartIndex).Scan(&nodes).Error; err != nil {
 		return nil, true, err
 	}
-	items, err := e.hongGuoNodePayloads(ctx, nodes, p.UserID, p.Fields)
+	payloads := e.hongGuoNodePayloads
+	if local {
+		payloads = e.nfoNodePayloads
+	}
+	items, err := payloads(ctx, nodes, p.UserID, p.Fields)
 	return map[string]any{"Items": items, "TotalRecordCount": total, "StartIndex": p.StartIndex}, true, err
 }
 

@@ -10,6 +10,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"time"
 
 	"go.uber.org/zap"
@@ -93,6 +94,26 @@ func (p *PlaybackService) RecordProgress(ctx context.Context, userID, mediaID, s
 	if err != nil {
 		return err
 	}
+	if len(rows) > 0 && rows[0].CatalogSource == model.CatalogSourceNFO {
+		if !visibility.AllowsView(&rows[0]) {
+			return errors.New("media not found")
+		}
+		completed := playbackCompleted(position, duration)
+		autoMark, err := p.autoMarkPreviousEpisodes(ctx, completed)
+		if err != nil {
+			return err
+		}
+		return p.repo.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+			repos := repository.New(tx)
+			if err := repos.NFO.RecordProgress(ctx, userID, sessionID, rows[0], position, duration, completed); err != nil {
+				return err
+			}
+			if autoMark {
+				return repos.NFO.MarkPreviousEpisodes(ctx, userID, rows[0], filter)
+			}
+			return nil
+		})
+	}
 	if len(rows) > 0 && rows[0].CatalogSource == model.TaskSystemHongGuo {
 		if !visibility.AllowsView(&rows[0]) {
 			return errors.New("media not found")
@@ -138,6 +159,18 @@ func (p *PlaybackService) DeleteHistoryForMedia(ctx context.Context, userID, med
 	if media == nil {
 		return 0, errors.New("media not found")
 	}
+	if media.CatalogSource == model.CatalogSourceNFO {
+		var binding model.NFOMediaBinding
+		if err := p.repo.DB.WithContext(ctx).First(&binding, "media_id = ?", mediaID).Error; err != nil {
+			return 0, err
+		}
+		q = q.Model(&model.NFOUserState{}).Where("item_id = ? AND watched_at IS NOT NULL", binding.ItemID)
+		if completed != nil {
+			q = q.Where("completed = ?", *completed)
+		}
+		result := q.Updates(map[string]any{"position_ms": 0, "duration_ms": 0, "completed": false, "watched_at": nil})
+		return result.RowsAffected, result.Error
+	}
 	q = q.Where("metadata_id = ?", media.MetadataID)
 	if completed != nil {
 		q = q.Where("completed = ?", *completed)
@@ -174,6 +207,24 @@ func (p *PlaybackService) historyItems(ctx context.Context, userID string, limit
 	rows, err := p.repo.History.ListByUserFiltered(ctx, userID, limit, completed, filter)
 	if err != nil {
 		return nil, err
+	}
+	if has, err := p.repo.NFO.HasMedia(ctx); err != nil {
+		return nil, err
+	} else if has {
+		local, err := p.repo.NFO.History(ctx, userID, limit, completed, filter)
+		if err != nil {
+			return nil, err
+		}
+		rows = append(rows, local...)
+		sort.SliceStable(rows, func(i, j int) bool {
+			if rows[i].WatchedAt.Equal(rows[j].WatchedAt) {
+				return rows[i].ID > rows[j].ID
+			}
+			return rows[i].WatchedAt.After(rows[j].WatchedAt)
+		})
+		if limit > 0 && len(rows) > limit {
+			rows = rows[:limit]
+		}
 	}
 	mediaIDs := make([]string, 0, len(rows))
 	for i := range rows {
@@ -253,7 +304,20 @@ func (p *PlaybackService) ListFavourites(ctx context.Context, userID string, vis
 		AllowedLibraryIDs: visibility.AllowedLibraryIDs,
 		HiddenLibraryIDs:  visibility.HiddenLibraryIDs,
 	}
-	return p.repo.MediaView.ListFavoriteCards(ctx, userID, filter)
+	rows, err := p.repo.MediaView.ListFavoriteCards(ctx, userID, filter)
+	if err != nil {
+		return nil, err
+	}
+	if has, err := p.repo.NFO.HasMedia(ctx); err != nil {
+		return nil, err
+	} else if has {
+		local, err := p.repo.NFO.FavoriteCards(ctx, userID, filter)
+		if err != nil {
+			return nil, err
+		}
+		rows = append(rows, local...)
+	}
+	return rows, nil
 }
 
 // ─── Playlists ──────────────────────────────────────────────────────────────

@@ -35,7 +35,11 @@ func listMediaCreditsHandler(svc *service.Container) gin.HandlerFunc {
 			}
 			m = series
 		}
-		credits, err := svc.Media.ListMetadataCredits(c.Request.Context(), m.MetadataID)
+		identity := m.MetadataID
+		if m.CatalogSource == "nfo" {
+			identity = m.CatalogItemID
+		}
+		credits, err := svc.Media.ListMetadataCredits(c.Request.Context(), identity)
 		if err != nil {
 			writeInternalOrCanceled(c, err)
 			return

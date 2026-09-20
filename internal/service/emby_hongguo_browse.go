@@ -10,13 +10,13 @@ import (
 )
 
 // hongGuoGlobalItems 在 SQL 中合并逻辑身份并分页，不拼接两个来源各自的分页结果。
-// 仅在存在红果文件时接管全局普通浏览，来源库内浏览保持独立。
+// 仅在存在独立来源文件时接管全局浏览，来源库内浏览保持独立。
 func (e *EmbyService) hongGuoGlobalItems(ctx context.Context, p ItemsParams) (map[string]any, bool, error) {
-	if p.ParentID != "" || containsOnlyFolderItemTypes(p.IncludeItemTypes) || (!p.Recursive && len(p.IncludeItemTypes) == 0 && len(p.Filters) == 0) {
+	if p.ParentID != "" || containsOnlyFolderItemTypes(p.IncludeItemTypes) || (strings.TrimSpace(p.SearchTerm) == "" && !p.Recursive && len(p.IncludeItemTypes) == 0 && len(p.Filters) == 0) {
 		return nil, false, nil
 	}
 	var hasSource bool
-	if err := e.repo.DB.WithContext(ctx).Raw("SELECT EXISTS (SELECT 1 FROM media WHERE catalog_source = 'hongguo')").Scan(&hasSource).Error; err != nil {
+	if err := e.repo.DB.WithContext(ctx).Raw("SELECT EXISTS (SELECT 1 FROM media WHERE catalog_source IN ('hongguo','nfo'))").Scan(&hasSource).Error; err != nil {
 		return nil, true, err
 	}
 	if !hasSource {
@@ -52,11 +52,24 @@ func (e *EmbyService) hongGuoGlobalItems(ctx context.Context, p ItemsParams) (ma
 	}
 	source := e.hongGuoPersonFilter(ctx, e.hongGuoNodes(ctx, p.UserID, ""), p.UserID, "", p.PersonIDs).
 		Select("id, resume_key, LOWER(kind) AS kind, title, latest_at AS created_at, COALESCE(played_at,latest_at) AS played_at, played, favorite, position_ms, rating, '' AS release_date, 0 AS year")
-	q := e.repo.DB.WithContext(ctx).Table("(?) AS combined", e.repo.DB.Raw("? UNION ALL ?", legacy, source))
+	combined := e.repo.DB.Raw("? UNION ALL ?", legacy, source)
+	if hasNFO, err := e.repo.NFO.HasMedia(ctx); err != nil {
+		return nil, true, err
+	} else if hasNFO {
+		local := e.nfoNodes(ctx, p.UserID, "").Select("id, resume_key, LOWER(kind) AS kind, title, latest_at AS created_at, COALESCE(played_at,latest_at) AS played_at, played, favorite, position_ms, rating, release_date, year")
+		if len(p.PersonIDs) > 0 {
+			local = local.Where("FALSE")
+		}
+		combined = e.repo.DB.Raw("? UNION ALL ?", combined, local)
+	}
+	q := e.repo.DB.WithContext(ctx).Table("(?) AS combined", combined)
+	if strings.TrimSpace(p.SearchTerm) != "" {
+		q = q.Where("POSITION(LOWER(?) IN LOWER(title)) > 0", strings.TrimSpace(p.SearchTerm))
+	}
 	kinds := lowerStrings(p.IncludeItemTypes)
 	if len(kinds) == 0 {
 		kinds = []string{model.MetadataKindMovie, model.MetadataKindEpisode}
-		if containsEmbyFilter(p.Filters, "IsFavorite") {
+		if containsEmbyFilter(p.Filters, "IsFavorite") || strings.TrimSpace(p.SearchTerm) != "" {
 			kinds = []string{model.MetadataKindMovie, model.MetadataKindSeries}
 		}
 	}
@@ -103,10 +116,13 @@ func (e *EmbyService) hongGuoGlobalItems(ctx context.Context, p ItemsParams) (ma
 		return nil, true, err
 	}
 	sourceIDs := []string{}
+	localIDs := []string{}
 	legacyIDs := []string{}
 	for _, id := range ids {
 		if strings.HasPrefix(id, "hg-") {
 			sourceIDs = append(sourceIDs, id)
+		} else if strings.HasPrefix(id, "nfo-") {
+			localIDs = append(localIDs, id)
 		} else {
 			legacyIDs = append(legacyIDs, id)
 		}
@@ -122,6 +138,19 @@ func (e *EmbyService) hongGuoGlobalItems(ctx context.Context, p ItemsParams) (ma
 		return nil, true, err
 	}
 	byID := map[string]map[string]any{}
+	if len(localIDs) > 0 {
+		var localNodes []hongGuoNode
+		if err := e.nfoNodes(ctx, p.UserID, "").Where("id IN ?", localIDs).Scan(&localNodes).Error; err != nil {
+			return nil, true, err
+		}
+		localItems, err := e.nfoNodePayloads(ctx, localNodes, p.UserID, p.Fields)
+		if err != nil {
+			return nil, true, err
+		}
+		for _, item := range localItems {
+			byID[item["Id"].(string)] = item
+		}
+	}
 	for _, item := range sourceItems {
 		byID[item["Id"].(string)] = item
 	}

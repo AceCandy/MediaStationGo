@@ -157,6 +157,13 @@ func (e *EmbyService) Items(ctx context.Context, p ItemsParams) (map[string]any,
 		if result, ok, err := e.hongGuoHierarchyItems(ctx, p); ok {
 			return result, err
 		}
+		if has, err := e.repo.NFO.HasMedia(ctx); err != nil {
+			return nil, err
+		} else if has {
+			if result, ok, err := e.hongGuoGlobalItems(ctx, p); ok {
+				return result, err
+			}
+		}
 		return e.searchTopLevelItems(ctx, p)
 	}
 	if result, ok, err := e.hongGuoHierarchyItems(ctx, p); ok {

@@ -193,7 +193,7 @@ func (s *ScraperService) applyLocalMetadataMatch(ctx context.Context, m *model.M
 	if err != nil {
 		return err
 	}
-	persisted, err := s.persistLocalMetadata(ctx, m, lib, local)
+	persisted, err := s.persistLocalMetadata(ctx, &next, lib, local)
 	if err != nil {
 		return s.markScrapeError(ctx, m.ID, err)
 	}

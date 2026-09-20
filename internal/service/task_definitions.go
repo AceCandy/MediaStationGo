@@ -30,6 +30,14 @@ const (
 
 var ErrTaskDefinitionNotFound = errors.New("task definition not found")
 
+// LibraryScanTaskKind 按资料边界隔离执行记录，扫描器仍共用。
+func LibraryScanTaskKind(lib *model.Library) string {
+	if libraryUsesNFOOnly(lib) {
+		return TaskKindNFOScan
+	}
+	return TaskKindScan
+}
+
 type TaskDefinition struct {
 	System         string              `json:"system"`
 	Key            string              `json:"key"`
@@ -60,6 +68,8 @@ type taskDefinitionSpec struct {
 }
 
 var taskDefinitionSpecs = []taskDefinitionSpec{
+	{TaskDefinition: TaskDefinition{Key: TaskKindNFOScan, Name: "非常规媒体库扫描", Description: "扫描本地文件和 NFO，不进行网络资料匹配；定时执行沿用公共媒体库扫描周期", Trigger: "定时 / 手动 / 新增后自动", Action: "library_scan"}, filter: repository.TaskExecutionFilter{Kind: TaskKindNFOScan}},
+	{TaskDefinition: TaskDefinition{Key: TaskKindNFOWatch, Name: "非常规媒体库变更监听", Description: "处理非常规媒体库的本地文件变更", Trigger: "文件事件"}, filter: repository.TaskExecutionFilter{Kind: TaskKindNFOWatch}},
 	{TaskDefinition: TaskDefinition{Key: TaskKindHongGuoAlbum, Name: "红果官方合集补充", Description: "分批补充历史作品的官方合集和季号；已检查项跳过，失败冷却后重试，可取消后续跑", Trigger: "定时 / 手动", Action: "scheduler"}, filter: repository.TaskExecutionFilter{Kind: TaskKindHongGuoAlbum}, schedulerJob: TaskKindHongGuoAlbum},
 	{TaskDefinition: TaskDefinition{Key: TaskKindHongGuoDownload, Name: "红果视频下载", Description: "从发现页发起，校验完整视频后发布到下载输出目录", Trigger: "手动"}, filter: repository.TaskExecutionFilter{Kind: TaskKindHongGuoDownload}},
 	{TaskDefinition: TaskDefinition{Key: TaskKindHongGuoSupplement, Name: "红果补充下载", Description: "按上线时间选取资料齐全且从未入队的作品；每轮新增指定数量，非维持队列数量", Trigger: "定时 / 手动", Action: "scheduler"}, filter: repository.TaskExecutionFilter{Kind: TaskKindHongGuoSupplement}, schedulerJob: TaskKindHongGuoSupplement},

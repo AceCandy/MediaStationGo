@@ -1,8 +1,10 @@
 import { api } from './client'
 import type { AccessLog, Setting, User } from '../types'
 
+export type PlaybackStatsSystem = 'catalog' | 'hongguo' | 'nfo'
+
 export interface PlaybackStatsQuery {
-  system?: 'catalog' | 'hongguo'
+  system?: PlaybackStatsSystem | 'all'
   grain: 'day' | 'week' | 'month'
   from: string
   to: string
@@ -16,6 +18,7 @@ export interface PlaybackStatsQuery {
 }
 
 export interface PlaybackStatsDetail {
+	system: PlaybackStatsSystem
 	source_id?: string
 	id: string
 	played_at: string
@@ -34,6 +37,7 @@ export interface PlaybackStatsDetail {
 }
 
 export interface PlaybackStatsRankItem {
+	system: PlaybackStatsSystem
 	group_id: string
 	title: string
 	series_title?: string

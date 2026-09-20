@@ -26,6 +26,7 @@ This directory contains guidelines for backend development. Fill in each file wi
 | [Parameterized Image Delivery](./image-variants.md) | Web/Emby sizing, encoding, original fallback and disk cache identity | Active |
 | [Playback History and Statistics Contracts](./playback-contracts.md) | Shared progress, UserData isolation, events, and statistics contract | Active |
 | [HongGuoDB Catalog Isolation](./hongguo-catalog.md) | Independent catalog, binding, tasks, user state and Web/Emby projections | Active |
+| [Local NFO Catalog Boundaries](./nfo-catalog.md) | Independent local ingestion, state, Web/Emby projections and tasks | Active |
 | [Player Request Logging and Redirect Cache](./player-request-logging.md) | Playback redirect cache identity, failed-response logging, and cancellation status | Active |
 | [Douban Configuration and Artwork](./douban-cookie-config.md) | Database-owned Cookie, explicit proxy pool, configurable image origin, and managed poster repair | Active |
 | [Discover Feed Loading Contract](../frontend/discover-feed-loading.md) | Discover section cache, explicit refresh, fallback, and Web request boundaries | Active |

@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"strings"
 
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 	"gorm.io/gorm"
@@ -77,6 +78,13 @@ func (r *MediaViewRepository) libraryFilteredSeriesScope(ctx context.Context, li
 
 // ListLibraryMetadataPage 在数据库按作品统计、排序和分页，只读取当前页的一个操作文件。
 func (r *MediaViewRepository) ListLibraryMetadataPage(ctx context.Context, libraryID, kind, metadataID string, offset, limit int, filter MediaQueryFilter) ([]model.MediaView, []LibraryMetadataSummary, int64, error) {
+	var library model.Library
+	if err := r.db.WithContext(ctx).Select("type").Where("id = ?", libraryID).Limit(1).Find(&library).Error; err != nil {
+		return nil, nil, 0, err
+	}
+	if library.Type == model.LibraryTypeNFOMovie || library.Type == model.LibraryTypeNFOTV {
+		return r.nfoLibraryPage(ctx, libraryID, kind, metadataID, offset, limit, filter)
+	}
 	query := func() *gorm.DB { return r.libraryMetadataScope(ctx, libraryID, kind, metadataID, filter) }
 	var total int64
 	var summaries []LibraryMetadataSummary
@@ -161,6 +169,9 @@ func (r *MediaViewRepository) LibrarySeriesMetadataIDs(ctx context.Context, libr
 
 // ListLibrarySeriesViews 仅加载指定作品在当前库内的可见关联文件。
 func (r *MediaViewRepository) ListLibrarySeriesViews(ctx context.Context, libraryID, metadataID string, filter MediaQueryFilter) ([]model.MediaView, error) {
+	if strings.HasPrefix(metadataID, "nfo-") {
+		return scanNFOViews(r.nfoViewQuery(ctx, filter).Where("m.library_id = ? AND nw.id = ?", libraryID, strings.TrimPrefix(metadataID, "nfo-")).Order("ns.season_num,ni.episode_num,m.path"))
+	}
 	ids := r.libraryMetadataScope(ctx, libraryID, model.MetadataKindSeries, metadataID, filter).Select("m.id")
 	var rows []model.MediaView
 	// 先限定文件输入，再关联展示数据；OFFSET 0 阻止规划器将剧集过滤推迟到全库投影之后。

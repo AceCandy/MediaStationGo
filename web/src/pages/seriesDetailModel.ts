@@ -1,7 +1,7 @@
 import type { Media } from '../types'
 import type { HistoryItem } from '../types/history'
 
-export const episodeIdentity = (media: Media): string => media.metadata_id || media.id
+export const episodeIdentity = (media: Media): string => media.catalog_item_id || (media.catalog_source === 'nfo' && media.lookup_catalog_id ? `nfo-${media.lookup_catalog_id}` : media.metadata_id || media.id)
 
 export function episodePresentation(media: Media): { title: string; subtitle: string } {
   if (media.metadata_kind !== 'episode') return { title: media.title, subtitle: '' }

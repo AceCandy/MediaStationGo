@@ -16,6 +16,12 @@ func mediaSeriesKey(media model.Media) string {
 }
 
 func mediaSeriesRawKey(media model.Media) string {
+	if media.CatalogSource == model.CatalogSourceNFO {
+		if media.SeriesID != "" {
+			return "series:" + media.SeriesID
+		}
+		return "nfo:" + media.LookupCatalogID
+	}
 	fromPath := seriesTitleFromMediaPath(media.Path)
 	if media.SeasonNum > 0 || media.EpisodeNum > 0 || episodicPathRE.MatchString(media.Path+" "+media.DisplayLibraryPath+" "+media.LibraryPath) {
 		if strings.TrimSpace(media.SeriesID) != "" {

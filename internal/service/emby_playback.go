@@ -210,6 +210,16 @@ func (e *EmbyService) preferredPlayableView(ctx context.Context, userID string, 
 	for _, view := range views {
 		mediaIDs = append(mediaIDs, view.ID)
 	}
+	if userID != "" && views[0].CatalogSource == model.CatalogSourceNFO {
+		var state model.NFOUserState
+		if e.repo.DB.WithContext(ctx).Where("user_id = ? AND media_id = ANY(?) AND watched_at IS NOT NULL", userID, &mediaIDs).Order("watched_at DESC").Limit(1).Find(&state).Error == nil {
+			for i := range views {
+				if views[i].ID == state.MediaID {
+					return &views[i]
+				}
+			}
+		}
+	}
 	var history model.PlaybackHistory
 	if userID != "" && e.repo.DB.WithContext(ctx).Where("user_id = ? AND media_id = ANY(?)", userID, &mediaIDs).
 		Order("watched_at DESC").Limit(1).Find(&history).Error == nil && history.ID != "" {

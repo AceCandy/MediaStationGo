@@ -1,6 +1,7 @@
 package service
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -37,15 +38,15 @@ func TestNFOOnlyMovieDoesNotUsePathHintOrProvider(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := scraper.EnrichOne(t.Context(), &media); err != nil {
-		t.Fatal(err)
+	if err := scraper.EnrichOne(t.Context(), &media); err == nil {
+		t.Fatal("ordinary scraper accepted NFO library")
 	}
 	stored, err := repos.Media.FindByID(t.Context(), media.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if stored.ScrapeStatus != "no_match" || stored.MetadataID != "" {
-		t.Fatalf("missing NFO status=%q metadata=%q, want no_match without canonical binding", stored.ScrapeStatus, stored.MetadataID)
+	if stored.ScrapeStatus != "pending" || stored.MetadataID != "" {
+		t.Fatalf("rejected scrape changed file: status=%q metadata=%q", stored.ScrapeStatus, stored.MetadataID)
 	}
 	if providerCalls.Load() != 0 {
 		t.Fatalf("provider calls = %d, want 0", providerCalls.Load())
@@ -65,11 +66,7 @@ func TestNFOOnlyMoviePersistsValidNFOAndReportsBrokenNFO(t *testing.T) {
 			t.Fatal(err)
 		}
 		media := model.Media{LibraryID: library.ID, Title: "旅行记录 raw", Path: mediaPath, ScrapeStatus: "pending"}
-		if err := repos.DB.Create(&media).Error; err != nil {
-			t.Fatal(err)
-		}
-
-		if err := scraper.EnrichOne(t.Context(), &media); err != nil {
+		if err := ingestNFOTestMedia(t, scraper, repos, &library, &media); err != nil {
 			t.Fatal(err)
 		}
 		got := serviceTestMediaView(t, repos, media.ID)
@@ -93,11 +90,7 @@ func TestNFOOnlyMoviePersistsValidNFOAndReportsBrokenNFO(t *testing.T) {
 			t.Fatal(err)
 		}
 		media := model.Media{LibraryID: library.ID, Title: "损坏", Path: mediaPath, ScrapeStatus: "pending"}
-		if err := repos.DB.Create(&media).Error; err != nil {
-			t.Fatal(err)
-		}
-
-		if err := scraper.EnrichOne(t.Context(), &media); err == nil {
+		if err := ingestNFOTestMedia(t, scraper, repos, &library, &media); err == nil {
 			t.Fatal("broken NFO should return an error")
 		}
 		stored, err := repos.Media.FindByID(t.Context(), media.ID)
@@ -133,11 +126,7 @@ func TestNFOOnlyTVPersistsShowAndEpisodeNFO(t *testing.T) {
 		t.Fatal(err)
 	}
 	media := model.Media{LibraryID: library.ID, Title: "raw", Path: mediaPath, ScrapeStatus: "pending"}
-	if err := repos.DB.Create(&media).Error; err != nil {
-		t.Fatal(err)
-	}
-
-	if err := scraper.EnrichOne(t.Context(), &media); err != nil {
+	if err := ingestNFOTestMedia(t, scraper, repos, &library, &media); err != nil {
 		t.Fatal(err)
 	}
 	got := serviceTestMediaView(t, repos, media.ID)
@@ -178,16 +167,14 @@ func TestNFOOnlyTVGroupReadsEachEpisodeNFO(t *testing.T) {
 		{LibraryID: library.ID, SeriesID: "local:show", Title: "raw 1", Path: paths[0], SeasonNum: 1, EpisodeNum: 1, ScrapeStatus: "running"},
 		{LibraryID: library.ID, SeriesID: "local:show", Title: "raw 2", Path: paths[1], SeasonNum: 1, EpisodeNum: 2, ScrapeStatus: "running"},
 	}
-	if err := repos.DB.Create(&rows).Error; err != nil {
-		t.Fatal(err)
-	}
-	group := scrapeCandidateGroup{Representative: rows[0], MediaIDs: []string{rows[0].ID, rows[1].ID}}
-	if err := scraper.enrichCandidateGroup(t.Context(), group, ScrapeOptions{result: &scrapeResult{}}); err != nil {
-		t.Fatal(err)
+	for i := range rows {
+		if err := ingestNFOTestMedia(t, scraper, repos, &library, &rows[i]); err != nil {
+			t.Fatal(err)
+		}
 	}
 	first := serviceTestMediaView(t, repos, rows[0].ID)
 	second := serviceTestMediaView(t, repos, rows[1].ID)
-	if first.Title != "第一集" || second.Title != "第二集" || first.MetadataID == "" || second.MetadataID == "" || first.MetadataID == second.MetadataID {
+	if first.Title != "第一集" || second.Title != "第二集" || first.MetadataID != "" || second.MetadataID != "" || first.CatalogItemID == "" || first.CatalogItemID == second.CatalogItemID {
 		t.Fatalf("episode metadata was not persisted independently: first=%#v second=%#v", first, second)
 	}
 	if providerCalls.Load() != 0 {
@@ -244,6 +231,9 @@ func newNFOOnlyTestScraper(t *testing.T) (*ScraperService, *repository.Container
 	if err := migrateScraperTestModels(t, db); err != nil {
 		t.Fatal(err)
 	}
+	if err := db.AutoMigrate(&model.MediaProbeMetadata{}, &model.NFOItem{}, &model.NFOMediaBinding{}); err != nil {
+		t.Fatal(err)
+	}
 	if err := db.Callback().Create().Remove("testutil:media-metadata"); err != nil {
 		t.Fatal(err)
 	}
@@ -260,4 +250,26 @@ func newNFOOnlyTestScraper(t *testing.T) (*ScraperService, *repository.Container
 	log := zap.NewNop()
 	scraper := NewScraperService(cfg, log, repos, NewTMDbProvider(cfg, log, nil), nil, nil, nil, NewHub(log))
 	return scraper, repos, &calls
+}
+
+// ingestNFOTestMedia 走真实扫描入口，验证 NFO 不再通过普通刮削器入库。
+func ingestNFOTestMedia(t *testing.T, scraper *ScraperService, repos *repository.Container, lib *model.Library, media *model.Media) error {
+	t.Helper()
+	writeOrgFile(t, media.Path, "video")
+	scanner := NewScannerService(scraper.cfg, zap.NewNop(), repos, NewHub(zap.NewNop()), nil, scraper)
+	result, err := scanner.IngestPathResult(t.Context(), lib.ID, media.Path)
+	if err != nil {
+		return err
+	}
+	stored, err := repos.Media.FindByPath(t.Context(), media.Path)
+	if err != nil {
+		return err
+	}
+	if stored != nil {
+		*media = *stored
+	}
+	if result.ErrorCount > 0 {
+		return fmt.Errorf("scan: %v", result.Errors)
+	}
+	return nil
 }

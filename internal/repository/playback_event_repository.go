@@ -57,6 +57,7 @@ type PlaybackStatsResult struct {
 
 // PlaybackStatsDetail 是一次真实播放事件的管理员展示投影。
 type PlaybackStatsDetail struct {
+	System         string    `json:"system"`
 	SourceID       string    `json:"source_id,omitempty"`
 	ID             string    `json:"id"`
 	PlayedAt       time.Time `json:"played_at"`
@@ -84,6 +85,7 @@ type PlaybackStatsDetailsPage struct {
 
 // PlaybackStatsRankItem 是电影作品或电视剧季度的聚合排行项。
 type PlaybackStatsRankItem struct {
+	System      string `json:"system"`
 	GroupID     string `json:"group_id"`
 	Title       string `json:"title"`
 	SeriesTitle string `json:"series_title,omitempty"`
@@ -100,35 +102,12 @@ type PlaybackStatsRanking struct {
 }
 
 func (r *PlaybackEventRepository) Stats(ctx context.Context, filter PlaybackStatsFilter) (*PlaybackStatsResult, error) {
-	var total int64
-	if err := r.playbackStatsQuery(ctx, filter).Count(&total).Error; err != nil {
-		return nil, err
-	}
-	type row struct {
-		Period time.Time
-		Count  int64
-	}
-	var rows []row
-	periodSQL := "DATE_TRUNC(?, pe.played_at AT TIME ZONE ?)"
-	if err := r.playbackStatsQuery(ctx, filter).
-		Select(periodSQL+" AS period, COUNT(*) AS count", filter.Grain, filter.TimeZone).
-		Group("period").
-		Order("period ASC").
-		Scan(&rows).Error; err != nil {
-		return nil, err
-	}
-	buckets := make([]PlaybackStatsBucket, 0, len(rows))
-	for _, row := range rows {
-		format := "2006-01-02"
-		if filter.Grain == "month" {
-			format = "2006-01"
-		}
-		buckets = append(buckets, PlaybackStatsBucket{Period: row.Period.Format(format), Count: row.Count})
-	}
+	return queryPlaybackStats(r.db.WithContext(ctx), filter, r.playbackStatsQueries(ctx, filter))
+}
 
-	details := make([]PlaybackStatsDetail, 0)
+func (r *PlaybackEventRepository) playbackStatsQueries(ctx context.Context, filter PlaybackStatsFilter) playbackStatsQueries {
 	detailQuery := playbackStatsDisplayQuery(r.playbackStatsQuery(ctx, filter)).
-		Select(`pe.id, pe.played_at, pe.user_id,
+		Select(`'catalog' AS system, '' AS source_id, pe.id, pe.played_at, pe.user_id,
 			COALESCE(NULLIF(u.nickname, ''), u.username, '已删除账户') AS user_name,
 			pe.library_id, COALESCE(l.name, '已删除媒体库') AS library_name,
 			pe.media_id, pe.metadata_id, COALESCE(NULLIF(mi.title, ''), '媒体已不可用') AS title,
@@ -137,17 +116,11 @@ func (r *PlaybackEventRepository) Stats(ctx context.Context, filter PlaybackStat
 			COALESCE(mi.episode_num, 0) AS episode_num,
 			CASE WHEN COALESCE(item_poster_asset.id, season_poster_asset.id, series_poster_asset.id, '') = '' THEN ''
 				ELSE '/api/artwork/' || COALESCE(item_poster_asset.id, season_poster_asset.id, series_poster_asset.id) END AS poster_url,
-			(m.id IS NOT NULL) AS media_available`).
-		Order("pe.played_at DESC, pe.id DESC").
-		Limit(filter.PageSize).
-		Offset((filter.Page - 1) * filter.PageSize)
-	if err := detailQuery.Scan(&details).Error; err != nil {
-		return nil, err
-	}
+			(m.id IS NOT NULL) AS media_available`)
 
 	rankSource := playbackStatsDisplayQuery(r.playbackStatsQuery(ctx, filter)).
 		Where("pe.played_at >= ? AND pe.played_at < ?", filter.RankFrom, filter.RankTo).
-		Select(`CASE
+		Select(`'catalog' AS system, CASE
 				WHEN mi.kind = 'episode' THEN COALESCE(season_metadata.id, mi.id)
 				ELSE mi.id
 			END AS group_id,
@@ -157,23 +130,10 @@ func (r *PlaybackEventRepository) Stats(ctx context.Context, filter PlaybackStat
 			CASE WHEN mi.kind IN ('episode', 'season') THEN COALESCE(season_metadata.season_num, mi.season_num, 0) ELSE 0 END AS season_num,
 			CASE WHEN COALESCE(season_poster_asset.id, series_poster_asset.id, item_poster_asset.id, '') = '' THEN ''
 				ELSE '/api/artwork/' || COALESCE(season_poster_asset.id, series_poster_asset.id, item_poster_asset.id) END AS poster_url`)
-	ranking := make([]PlaybackStatsRankItem, 0)
-	if err := r.db.WithContext(ctx).
-		Table("(?) AS ranked", rankSource).
-		Select("group_id, MAX(title) AS title, MAX(series_title) AS series_title, MAX(season_num) AS season_num, MAX(poster_url) AS poster_url, COUNT(*) AS count").
-		Where("group_id IS NOT NULL").
-		Group("group_id").
-		Order("count DESC, group_id ASC").
-		Limit(10).
-		Scan(&ranking).Error; err != nil {
-		return nil, err
+	return playbackStatsQueries{
+		events:  r.playbackStatsQuery(ctx, filter).Select("pe.played_at"),
+		details: detailQuery, ranking: rankSource,
 	}
-
-	return &PlaybackStatsResult{
-		Total: total, Buckets: buckets,
-		Details: PlaybackStatsDetailsPage{Items: details, Page: filter.Page, PageSize: filter.PageSize, Total: total},
-		Ranking: PlaybackStatsRanking{Grain: filter.RankGrain, Period: filter.RankPeriod, Items: ranking},
-	}, nil
 }
 
 func (r *PlaybackEventRepository) playbackStatsQuery(ctx context.Context, filter PlaybackStatsFilter) *gorm.DB {

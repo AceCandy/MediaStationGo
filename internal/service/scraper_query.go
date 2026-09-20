@@ -162,7 +162,7 @@ func libraryUsesNFOOnly(lib *model.Library) bool {
 
 func LibraryTypeSupportsMetadataScrape(libraryType string) bool {
 	switch strings.ToLower(strings.TrimSpace(libraryType)) {
-	case "movie", "tv", "anime", "variety", "show", "shows", model.LibraryTypeNFOMovie, model.LibraryTypeNFOTV:
+	case "movie", "tv", "anime", "variety", "show", "shows":
 		return true
 	default:
 		return false

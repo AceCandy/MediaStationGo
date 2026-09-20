@@ -120,7 +120,7 @@ export function LibrarySeriesEpisodes({ loading, selectedEpisodes, selectedSeaso
       <div ref={stripRef} className="relative flex gap-3 overflow-x-auto pb-3" aria-label="分集列表">
         {visibleEpisodes.map((ep) => {
           const active = episodeIdentity(ep) === selectedEpisodeID
-          const progress = history.find((row) => row.metadata_id === ep.metadata_id)
+          const progress = history.find((row) => row.metadata_id === episodeIdentity(ep))
           const percent = progress?.duration_ms ? Math.max(0, Math.min(100, progress.position_ms / progress.duration_ms * 100)) : 0
           return (
             <article key={episodeIdentity(ep)} className={`w-52 shrink-0 overflow-hidden rounded-2xl border bg-[var(--app-panel)] transition sm:w-60 ${active ? 'border-brand-500 ring-2 ring-brand-500/20' : 'border-[var(--app-border)]'}`}>

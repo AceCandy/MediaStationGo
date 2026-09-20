@@ -37,7 +37,7 @@ export function MediaDetailMetadata({ media, selectedMedia, scope, isAdmin, favo
   const [deleteTarget, setDeleteTarget] = useState<STRMDeleteTarget | null>(null)
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [doubanOpen, setDoubanOpen] = useState(false)
-  const canBindDouban = isAdmin && (media.metadata_kind === 'movie' || media.metadata_kind === 'series')
+  const canBindDouban = isAdmin && !media.catalog_source && (media.metadata_kind === 'movie' || media.metadata_kind === 'series')
 
   useEffect(() => {
     let cancelled = false

@@ -20,14 +20,9 @@ func adminPlaybackStatsHandler(svc *service.Container) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
-		var result *repository.PlaybackStatsResult
-		switch c.DefaultQuery("system", "catalog") {
-		case "catalog":
-			result, err = svc.Repo.PlaybackEvent.Stats(c.Request.Context(), filter)
-		case "hongguo":
-			result, err = svc.Repo.HongGuo.PlaybackStats(c.Request.Context(), filter)
-		default:
-			c.JSON(http.StatusBadRequest, gin.H{"error": "system must be catalog or hongguo"})
+		result, err := svc.Repo.PlaybackStats(c.Request.Context(), c.DefaultQuery("system", "catalog"), filter)
+		if errors.Is(err, repository.ErrPlaybackStatsSystem) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
 		if err != nil {

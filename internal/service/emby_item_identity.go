@@ -13,9 +13,14 @@ type embyItemTarget struct {
 	MediaID       string
 	SourceID      string
 	SourceEpisode int
+	NFOItemID     string
 }
 
 func (e *EmbyService) userDataForTarget(ctx context.Context, userID string, target embyItemTarget) (bool, int64, bool) {
+	if userID != "" && target.NFOItemID != "" {
+		state, _ := e.repo.NFO.UserState(ctx, userID, target.NFOItemID)
+		return state.Favorite, state.PositionMs, state.Completed
+	}
 	if userID != "" && target.SourceID != "" {
 		state, _ := e.repo.HongGuo.UserState(ctx, userID, target.SourceID, max(1, target.SourceEpisode))
 		favorite := false
@@ -83,7 +88,7 @@ func embyItemID(m *model.MediaView) string {
 	if m == nil {
 		return ""
 	}
-	if m.CatalogSource == model.TaskSystemHongGuo {
+	if m.CatalogSource == model.TaskSystemHongGuo || m.CatalogSource == model.CatalogSourceNFO {
 		return m.CatalogItemID
 	}
 	return strings.TrimSpace(m.MetadataID)
@@ -125,6 +130,9 @@ func (e *EmbyService) mediaViewsForItemID(ctx context.Context, id, userID string
 	if strings.HasPrefix(id, "hg-") {
 		return e.repo.MediaView.HongGuoItemViews(ctx, id, e.mediaQueryFilter(ctx, userID))
 	}
+	if strings.HasPrefix(id, "nfo-") {
+		return e.repo.MediaView.NFOItemViews(ctx, id, e.mediaQueryFilter(ctx, userID))
+	}
 	if rows, err := e.repo.MediaView.FindByIDs(ctx, []string{id}, e.mediaQueryFilter(ctx, userID)); err != nil {
 		return nil, err
 	} else if len(rows) > 0 {
@@ -146,6 +154,12 @@ func (e *EmbyService) itemTarget(ctx context.Context, id, userID string) (embyIt
 		return embyItemTarget{}, err
 	} else if m != nil {
 		target := embyItemTarget{ItemID: embyItemID(m), MetadataID: m.MetadataID, MediaID: m.ID}
+		if m.CatalogSource == model.CatalogSourceNFO {
+			target.NFOItemID = m.CatalogItemID
+			if strings.HasPrefix(id, "nfo-") {
+				target.ItemID, target.NFOItemID = id, id
+			}
+		}
 		if m.CatalogSource == model.TaskSystemHongGuo {
 			target.SourceID, target.SourceEpisode = m.LookupCatalogID, m.EpisodeNum
 		}

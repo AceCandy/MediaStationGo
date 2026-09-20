@@ -230,7 +230,7 @@ func (s *ScraperService) scrapeCandidateRows(ctx context.Context, libraryID stri
 		statusFilter += " OR scrape_status = ?"
 		statusArgs = append(statusArgs, "matched")
 	}
-	q := s.repo.DB.WithContext(ctx).Where(statusFilter, statusArgs...)
+	q := s.repo.DB.WithContext(ctx).Where(statusFilter, statusArgs...).Where("COALESCE(catalog_source, '') = ''")
 	if len(libraryIDs) > 0 {
 		q = q.Where("library_id IN ?", libraryIDs)
 	}

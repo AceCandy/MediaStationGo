@@ -15,25 +15,43 @@ import (
 //
 // 定时开关和周期由 SchedulerService 统一管理；手动调用始终执行。
 func (s *SchedulerService) jobScanLibraries(ctx context.Context) error {
+	libs, err := s.librariesForScanRun(ctx)
+	if err != nil {
+		return err
+	}
+	var ordinary, local []model.Library
+	for _, lib := range libs {
+		if libraryUsesNFOOnly(&lib) {
+			local = append(local, lib)
+		} else {
+			ordinary = append(ordinary, lib)
+		}
+	}
+	var result error
+	if len(ordinary) > 0 || len(local) == 0 {
+		result = s.scanLibraryTasks(ctx, ordinary, TaskKindScan)
+	}
+	if len(local) > 0 {
+		result = errors.Join(result, s.scanLibraryTasks(ctx, local, TaskKindNFOScan))
+	}
+	return result
+}
+
+func (s *SchedulerService) scanLibraryTasks(ctx context.Context, libs []model.Library, kind string) error {
 	trigger := schedulerTaskTrigger(ctx)
 	name := "定时媒体库扫描"
 	if trigger == TaskTriggerManual {
 		name = "手动触发媒体库扫描"
 	}
+	if kind == TaskKindNFOScan {
+		name += "（非常规本地库）"
+	}
 	var task *TaskHandle
 	if s.tasks != nil {
-		task = s.tasks.StartTriggered(TaskKindScan, trigger, name, TaskUpdate{Stage: "scan", Message: "正在扫描已启用媒体库"})
+		task = s.tasks.StartTriggered(kind, trigger, name, TaskUpdate{Stage: "scan", Message: "正在扫描已启用媒体库"})
 		if task == nil {
 			return errors.New("create scan task execution failed")
 		}
-	}
-	libs, err := s.librariesForScanRun(ctx)
-	if err != nil {
-		if task != nil {
-			safeErr := sanitizeTaskLogError(err)
-			task.Finish(safeErr, TaskUpdate{Stage: "scan", Message: "媒体库扫描失败", Details: []string{"❌ 读取媒体库列表失败: " + safeErr.Error()}, DetailsWithoutLevel: true})
-		}
-		return err
 	}
 	metrics := map[string]int64{}
 	needsProbeBackfill := false

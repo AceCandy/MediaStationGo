@@ -41,6 +41,7 @@ export function LibrarySeasonActions({ season, mediaID, episodes, onChanged }: {
       setProgress(null)
     }
   }
+  if (season.catalog_source) return null
   return <>
     <details ref={menu} className="relative w-fit" onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget)) closeMenu() }} onKeyDown={event => { if (event.key === 'Escape') { closeMenu(); menu.current?.querySelector('summary')?.focus() } }}>
       <summary className="btn-outline w-fit cursor-pointer list-none [&::-webkit-details-marker]:hidden"><MoreHorizontal size={16} aria-hidden="true" />整季更多操作</summary>

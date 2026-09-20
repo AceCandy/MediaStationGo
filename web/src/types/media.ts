@@ -1,6 +1,9 @@
 export interface Media {
   id: string
   metadata_id?: string
+  catalog_source?: string
+  catalog_item_id?: string
+  lookup_catalog_id?: string
   library_id: string
   library_root_id?: string
   library_name?: string

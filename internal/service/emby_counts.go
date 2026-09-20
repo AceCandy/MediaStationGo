@@ -33,6 +33,29 @@ func (e *EmbyService) ItemCounts(ctx context.Context, userID string) (map[string
 	if err != nil {
 		return nil, err
 	}
+	if has, err := e.repo.NFO.HasMedia(ctx); err != nil {
+		return nil, err
+	} else if has {
+		var counts []struct {
+			Kind  string
+			Total int64
+		}
+		if err := e.nfoNodes(ctx, userID, "").Select("kind,COUNT(*) AS total").Group("kind").Scan(&counts).Error; err != nil {
+			return nil, err
+		}
+		for _, count := range counts {
+			switch count.Kind {
+			case "Movie":
+				movieCount += count.Total
+				itemCount += count.Total
+			case "Episode":
+				episodeCount += count.Total
+				itemCount += count.Total
+			case "Series":
+				seriesCount += int(count.Total)
+			}
+		}
+	}
 	var hasHongGuo bool
 	if err := e.repo.DB.WithContext(ctx).Raw("SELECT EXISTS (SELECT 1 FROM media WHERE catalog_source = 'hongguo')").Scan(&hasHongGuo).Error; err != nil {
 		return nil, err

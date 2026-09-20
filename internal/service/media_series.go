@@ -126,6 +126,9 @@ func (s *MediaService) resolveLibrarySeriesKey(ctx context.Context, libraryID, k
 }
 
 func seriesCardMetadataID(card SeriesCard) string {
+	if card.Rep.CatalogSource == model.CatalogSourceNFO && card.Rep.SeriesID == "" {
+		return "nfo-" + card.Rep.LookupCatalogID
+	}
 	if card.Rep.SeriesID != "" {
 		return card.Rep.SeriesID
 	}
@@ -155,6 +158,9 @@ func (s *MediaService) ListRecentSeriesCards(ctx context.Context, limit int, vis
 	recentAt := make(map[string]time.Time, len(cards))
 	for _, row := range rows {
 		id := row.MetadataID
+		if row.CatalogSource == model.CatalogSourceNFO {
+			id = row.CatalogItemID
+		}
 		if row.SeriesID != "" {
 			id = row.SeriesID
 		}

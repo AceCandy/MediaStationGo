@@ -90,6 +90,12 @@ func groupMediaVersions(items []model.Media) []MediaItem {
 }
 
 func mediaVersionGroupKey(m model.Media) string {
+	if m.CatalogSource == model.CatalogSourceNFO {
+		if m.LookupCatalogID != "" {
+			return "nfo:" + m.LookupCatalogID
+		}
+		return "nfo-file:" + m.ID
+	}
 	if strings.TrimSpace(m.MetadataID) != "" {
 		return "metadata:" + strings.TrimSpace(m.MetadataID)
 	}

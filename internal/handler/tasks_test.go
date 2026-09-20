@@ -292,8 +292,12 @@ func TestTaskDefinitionRunHandlerQueuesSingleAndAllMediaLibraries(t *testing.T) 
 	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
 		t.Fatal(err)
 	}
-	if response.Count != 2 || response.Libraries != 2 {
+	if response.Count != 1 || response.Libraries != 1 {
 		t.Fatalf("all response = %#v", response)
+	}
+	stored = model.Media{}
+	if err := db.First(&stored, "id = ?", rows[1].ID).Error; err != nil || stored.ScrapeStatus != "no_match" {
+		t.Fatalf("ordinary scrape queued NFO library: %#v, %v", stored, err)
 	}
 	stored = model.Media{}
 	if err := db.First(&stored, "id = ?", rows[2].ID).Error; err != nil {

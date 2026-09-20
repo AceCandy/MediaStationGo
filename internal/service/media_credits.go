@@ -2,7 +2,9 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"sort"
+	"strings"
 
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 )
@@ -20,6 +22,22 @@ type MediaCredit struct {
 func (s *MediaService) ListMetadataCredits(ctx context.Context, metadataID string) ([]MediaCredit, error) {
 	credits := []MediaCredit{}
 	if metadataID == "" {
+		return credits, nil
+	}
+	if strings.HasPrefix(metadataID, "nfo-") {
+		var item model.NFOItem
+		if err := s.repo.DB.WithContext(ctx).First(&item, "id = ?", strings.TrimPrefix(metadataID, "nfo-")).Error; err != nil {
+			return nil, err
+		}
+		var people []PersonCredit
+		if err := json.Unmarshal([]byte(item.People), &people); err != nil {
+			return nil, err
+		}
+		for _, person := range people {
+			if person.Name != "" {
+				credits = append(credits, MediaCredit{Name: person.Name, Role: person.OriginalRole, Type: person.Type})
+			}
+		}
 		return credits, nil
 	}
 	rows, err := s.repo.Person.ListCreditsWithPeople(ctx, metadataID)
