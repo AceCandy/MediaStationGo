@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-2.md`
-- **Total Sessions**: 135
+- **Total Sessions**: 136
 - **Last Active**: 2026-09-20
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-2.md` | ~1092 | Active |
+| `journal-2.md` | ~1128 | Active |
 | `journal-1.md` | ~1981 | Archived |
 <!-- @@@/auto:active-documents -->
 
@@ -30,6 +30,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 136 | 2026-09-20 | 非常规库隔离与跨体系播放统计 | `06d9ad8` | `main` |
 | 135 | 2026-09-20 | 归档其余已提交任务 | `04307d8`, `e250d36`, `b2b76b7` | `main` |
 | 134 | 2026-09-19 | 慢 SQL 优化与下载改动提交归档 | `20f98a2` | `main` |
 | 133 | 2026-09-19 | 按图片来源组织裁剪缓存 | `f5fbb23` | `main` |
