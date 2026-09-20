@@ -348,6 +348,12 @@ relationships clear the old relation and count as checked; errors preserve it
 and mark the work for the next supplement pass without cooldown. The non-null
 `album_retry_at` is a pending marker; even legacy future timestamps are eligible.
 Webpage persistence never overwrites these fields.
+Album detail business code `101001` (series taken down) succeeds with the
+requested source ID as album ID and season 1. This affects presentation only;
+it never deletes the work, episodes or files. For a successful matching work
+with a valid nonempty album ID, a missing or non-integer `season_index` defaults
+to 1. Valid integer seasons retain their value; out-of-range integers fail.
+These defaults use the ordinary successful-save path and clear pending retries.
 `GET groups/:id` is a read-only projection ordered by season then source ID;
 the title is the earliest stored season's original title. Only series with
 positive season numbers participate; duplicate season numbers retain distinct
@@ -367,7 +373,7 @@ checkpoints without reprocessing unchanged successful-empty rows.
 
 ### 4. Validation & Error Matrix
 
-Invalid/mismatched IDs, malformed/trailing JSON, nonzero status, or album
+Invalid/mismatched IDs, malformed/trailing JSON, nonzero status other than `101001`, or album
 seasons outside 1–100000 fail without clearing relationships. Missing/empty/zero
 album IDs are successful standalone results. HTTP cancellation leaves work
 pending; checkpoint failures stop the batch. Old manual write routes return 404.
@@ -391,6 +397,9 @@ pagination, independent webpage writes, failure/cancellation/restart, lock
 exclusion and repeatable table removal preserving works. Existing search,
 binding, playback and HTTP tests cover projected fields and stable identities.
 `web/scripts/check-hongguo-batch.mjs` checks read-only albums and batch downloads.
+`TestParseAlbum` also covers `101001` self-ID/season-1 defaults, missing/null/
+non-integer season defaults, preserved valid seasons, overflow/range rejection,
+other business-code failures and trailing-JSON rejection before defaults.
 `TestAlbumErrorsIdentifySafeFields` covers business-code and field diagnostics
 without upstream text leakage. `TestHongGuoRefreshDefersAlbumFailure` covers
 manual/batch success, retained relations, immediate next-pass retry, separate warning
@@ -400,7 +409,7 @@ result/retry persistence and interrupted requests retaining terminal errors.
 
 ### 7. Wrong vs Correct
 
-Wrong: treat an App error as an empty album or continuously retry confirmed
+Wrong: treat an unknown App error as an empty album or continuously retry confirmed
 standalone works. Correct: distinguish checked-empty and pending states; do not
 add per-work cooldown for optional album query failures.
 

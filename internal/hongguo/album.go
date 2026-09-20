@@ -39,6 +39,10 @@ func parseAlbum(body []byte, sourceID string) (Album, error) {
 		return Album{}, errors.New("红果官方合集响应不完整")
 	}
 	if code := scalar(root["code"]); code != "0" {
+		// 已下架的作品按自身 ID 保留独立第一季，不再等待官方合集。
+		if code == "101001" {
+			return Album{ID: sourceID, Season: 1}, nil
+		}
 		if value, err := strconv.ParseInt(code, 10, 32); err == nil && value != 0 {
 			return Album{}, fmt.Errorf("红果官方合集业务错误（code=%d）", value)
 		}
@@ -63,8 +67,12 @@ func parseAlbum(body []byte, sourceID string) (Album, error) {
 		return Album{}, errors.New("红果官方合集 related_album_id 无效")
 	}
 	season, err := strconv.Atoi(scalar(v["season_index"]))
+	if errors.Is(err, strconv.ErrRange) {
+		return Album{}, errors.New("红果官方合集 season_index 超出有效范围 1–100000")
+	}
 	if err != nil {
-		return Album{}, errors.New("红果官方合集 season_index 缺失或不是整数")
+		// 官方未提供可解析的季号时，以第一季展示已有合集关系。
+		season = 1
 	}
 	if season < 1 || season > 100000 {
 		return Album{}, fmt.Errorf("红果官方合集 season_index=%d 超出有效范围 1–100000", season)
