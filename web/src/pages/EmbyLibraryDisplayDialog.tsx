@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { motion, Reorder, useDragControls, useReducedMotion } from 'framer-motion'
-import { ArrowDown, ArrowUp, GripVertical } from 'lucide-react'
+import { ArrowUpToLine, GripVertical } from 'lucide-react'
 import toast from 'react-hot-toast'
 
 import { adminAPI } from '../api/admin'
@@ -42,7 +42,7 @@ export function EmbyLibraryDisplayDialog({ onClose }: { onClose: () => void }) {
   const move = (index: number, offset: number) => {
     if (saving || index + offset < 0 || index + offset >= rows.length) return
     const next = [...rows]
-    ;[next[index], next[index + offset]] = [next[index + offset], next[index]]
+    next.splice(index + offset, 0, next.splice(index, 1)[0])
     setRows(next)
   }
 
@@ -85,7 +85,7 @@ export function EmbyLibraryDisplayDialog({ onClose }: { onClose: () => void }) {
             <button type="button" className="btn-outline" onClick={() => { setError(false); setLoading(true); setAttempt(attempt + 1) }}>重试</button>
           </div> : rows.length === 0 ? <p className="text-sm text-ink-50">暂无媒体库</p> : (
             <Reorder.Group as="ol" axis="y" values={rows} onReorder={(next) => { if (!saving) setRows(next) }} className="space-y-2">
-              {rows.map((row, index) => <DisplayItem key={row.id} row={row} index={index} count={rows.length} saving={saving} move={move}
+              {rows.map((row, index) => <DisplayItem key={row.id} row={row} index={index} saving={saving} move={move}
                 toggle={() => setRows(rows.map((entry) => entry.id === row.id ? { ...entry, hidden: !entry.hidden } : entry))} />)}
             </Reorder.Group>
           )}
@@ -99,23 +99,22 @@ export function EmbyLibraryDisplayDialog({ onClose }: { onClose: () => void }) {
   )
 }
 
-function DisplayItem({ row, index, count, saving, move, toggle }: {
-  row: DisplayRow; index: number; count: number; saving: boolean
+function DisplayItem({ row, index, saving, move, toggle }: {
+  row: DisplayRow; index: number; saving: boolean
   move: (index: number, offset: number) => void; toggle: () => void
 }) {
   const controls = useDragControls()
   const reduced = useReducedMotion()
   return (
     <Reorder.Item value={row} dragListener={false} dragControls={controls} layout="position" transition={reduced ? { duration: 0 } : undefined}
-      className="relative flex items-center gap-2 rounded-xl border border-ink-100/10 bg-[var(--app-bg)] p-2">
-      <button type="button" disabled={saving} className="flex min-h-11 min-w-11 shrink-0 touch-none items-center justify-center rounded-lg text-ink-50 active:cursor-grabbing"
+      className="relative flex items-center gap-1 rounded-xl border border-ink-100/10 bg-[var(--app-bg)] px-2 py-1">
+      <button type="button" disabled={saving} className="flex min-h-11 w-7 shrink-0 touch-none items-center justify-center rounded-lg text-ink-50 active:cursor-grabbing"
         aria-label={`拖动${row.name}排序，也可使用上下方向键`} onPointerDown={(event) => { if (!saving) controls.start(event) }}
         onKeyDown={(event) => { if (event.key === 'ArrowUp' || event.key === 'ArrowDown') { event.preventDefault(); move(index, event.key === 'ArrowUp' ? -1 : 1) } }}><GripVertical size={20} /></button>
-      <span className="min-w-0 flex-1 break-words text-sm font-semibold">{row.name}</span>
-      <div className="flex shrink-0 flex-col">
-        <button type="button" className="icon-btn !h-11 !w-11" disabled={saving || index === 0} aria-label={`上移${row.name}`} onClick={() => move(index, -1)}><ArrowUp size={16} /></button>
-        <button type="button" className="icon-btn !h-11 !w-11" disabled={saving || index === count - 1} aria-label={`下移${row.name}`} onClick={() => move(index, 1)}><ArrowDown size={16} /></button>
+      <div className="w-7 shrink-0">
+        {index > 0 && <button type="button" className="icon-btn !h-11 !w-7" disabled={saving} title="置顶" aria-label={`置顶${row.name}`} onClick={() => move(index, -index)}><ArrowUpToLine size={16} /></button>}
       </div>
+      <span className="min-w-0 flex-1 break-words text-sm font-semibold">{row.name}</span>
       <label className="flex min-h-11 shrink-0 cursor-pointer items-center gap-2 px-1 text-sm">
         <input type="checkbox" role="switch" className="h-4 w-4 accent-brand-500" checked={!row.hidden} disabled={saving} onChange={toggle} aria-label={`显示${row.name}`} />
         {row.hidden ? '隐藏' : '显示'}
