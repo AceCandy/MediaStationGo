@@ -14,7 +14,10 @@ import (
 )
 
 // HongGuoRepository 仅操作红果资料表；公共媒体通过独立绑定接入。
-type HongGuoRepository struct{ db *gorm.DB }
+type HongGuoRepository struct {
+	db *gorm.DB
+	searchIndex
+}
 
 func (r *HongGuoRepository) RecordSyncFailure(ctx context.Context, sourceID string, retryAt time.Time) error {
 	row := model.HongGuoSyncFailure{SourceID: sourceID, Attempts: 1, RetryAt: retryAt}
@@ -105,6 +108,7 @@ func (r *HongGuoRepository) SaveDetail(ctx context.Context, input hongguo.Work) 
 	if err != nil {
 		return nil, err
 	}
+	r.refreshSearchWork(ctx, work.ID, work.RelatedAlbumID)
 	return &work, nil
 }
 

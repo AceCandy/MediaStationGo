@@ -89,6 +89,7 @@ func (b *serviceContainerBuilder) configureMediaSearchBackend() {
 		return
 	}
 	b.repos.MediaView.SetSearchBackend(searchBackend)
+	b.repos.HongGuo.SetSearchBackend(repository.NewOpenSearchHongGuoBackend(b.cfg.Search))
 	if b.log != nil {
 		b.log.Info("opensearch metadata search enabled", zap.String("index", b.cfg.Search.Index), zap.String("url", b.cfg.Search.OpenSearchURL))
 	}

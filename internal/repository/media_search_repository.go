@@ -325,7 +325,7 @@ func applyMetadataSearchLIKEFilter(q *gorm.DB, groups []metadataSearchTermGroup,
 				}
 				predicates := make([]string, 0, len(variant.tokens))
 				for _, token := range variant.tokens {
-					predicates = append(predicates, field+" LIKE ? ESCAPE '\\'")
+					predicates = append(predicates, field+" ILIKE ? ESCAPE '\\'")
 					args = append(args, "%"+EscapeLike(token)+"%")
 				}
 				alternatives = append(alternatives, "("+strings.Join(predicates, " AND ")+")")
@@ -702,6 +702,13 @@ func applyMetadataSearchPresentation(view *model.MediaView, row metadataSearchPr
 }
 
 func (r *MediaViewRepository) BackfillSearchIndex(ctx context.Context, batchLimit int, batchPause time.Duration) (total int64, err error) {
+	return r.searchIndex.backfill(ctx, batchLimit, batchPause, r.metadataSearchDocumentIDs, r.metadataSearchDocuments)
+}
+
+func (r *searchIndex) backfill(ctx context.Context, batchLimit int, batchPause time.Duration,
+	listIDs func(context.Context, string, int) ([]string, error),
+	loadDocuments func(context.Context, []string) ([]MetadataSearchDocument, error),
+) (total int64, err error) {
 	backend, ok := r.searchBackend.(MediaSearchSyncBackend)
 	if !ok {
 		return 0, nil
@@ -733,14 +740,14 @@ func (r *MediaViewRepository) BackfillSearchIndex(ctx context.Context, batchLimi
 
 	var lastID string
 	for {
-		ids, listErr := r.metadataSearchDocumentIDs(ctx, lastID, batchLimit)
+		ids, listErr := listIDs(ctx, lastID, batchLimit)
 		if listErr != nil {
 			return total, listErr
 		}
 		if len(ids) == 0 {
 			break
 		}
-		documents, documentErr := r.metadataSearchDocuments(ctx, ids)
+		documents, documentErr := loadDocuments(ctx, ids)
 		if documentErr != nil {
 			return total, documentErr
 		}
@@ -769,7 +776,7 @@ func (r *MediaViewRepository) BackfillSearchIndex(ctx context.Context, batchLimi
 		dirty = append(dirty, id)
 	}
 	sort.Strings(dirty)
-	documents, err := r.metadataSearchDocuments(ctx, dirty)
+	documents, err := loadDocuments(ctx, dirty)
 	if err == nil {
 		byID := make(map[string]MetadataSearchDocument, len(documents))
 		for _, document := range documents {
@@ -795,12 +802,13 @@ func (r *MediaViewRepository) BackfillSearchIndex(ctx context.Context, batchLimi
 	}
 	r.searchRebuild = false
 	r.searchDirty = nil
+	r.searchFailed.Store(false)
 	r.searchMu.Unlock()
 	activated = true
 	return total, nil
 }
 
-func (r *MediaViewRepository) finishSearchRebuild() {
+func (r *searchIndex) finishSearchRebuild() {
 	r.searchMu.Lock()
 	r.searchRebuild = false
 	r.searchDirty = nil
@@ -924,6 +932,40 @@ func (r *MediaViewRepository) RefreshMetadataIDs(ctx context.Context, metadataID
 			_ = backend.UpsertMetadata(ctx, document)
 		} else {
 			_ = backend.DeleteMetadata(ctx, id)
+		}
+	}
+}
+
+func (r *searchIndex) refresh(ctx context.Context, candidates []string, loadDocuments func(context.Context, []string) ([]MetadataSearchDocument, error)) {
+	backend, ok := r.searchBackend.(MediaSearchSyncBackend)
+	if !ok || len(candidates) == 0 {
+		return
+	}
+	// ponytail: 红果增量按索引串行以免旧快照覆盖新文档；吞吐不足时再引入文档版本控制。
+	r.searchMu.Lock()
+	defer r.searchMu.Unlock()
+	if r.searchRebuild {
+		for _, id := range candidates {
+			r.searchDirty[id] = struct{}{}
+		}
+	}
+	documents, err := loadDocuments(ctx, candidates)
+	if err != nil {
+		r.searchFailed.Store(true)
+		return
+	}
+	byID := make(map[string]MetadataSearchDocument, len(documents))
+	for _, document := range documents {
+		byID[document.ID] = document
+	}
+	for _, id := range candidates {
+		if document, exists := byID[id]; exists {
+			err = backend.UpsertMetadata(ctx, document)
+		} else {
+			err = backend.DeleteMetadata(ctx, id)
+		}
+		if err != nil {
+			r.searchFailed.Store(true)
 		}
 	}
 }

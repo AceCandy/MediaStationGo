@@ -17,8 +17,8 @@ import (
 // 完成历史、可恢复文件和媒体库绑定优先于上游状态，不能随清理丢失。
 func (r *HongGuoRepository) RemoveUnavailableHongGuoDownloads(ctx context.Context, owner model.HongGuoDownload, detail *hongguo.Work) ([]model.HongGuoDownload, error) {
 	var removed []model.HongGuoDownload
+	var work model.HongGuoWork
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var work model.HongGuoWork
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&work, "source_id = ?", owner.SourceID).Error; err != nil {
 			return err
 		}
@@ -137,5 +137,6 @@ func (r *HongGuoRepository) RemoveUnavailableHongGuoDownloads(ctx context.Contex
 	if err != nil {
 		return nil, err
 	}
+	r.refreshSearchWork(ctx, work.ID, work.RelatedAlbumID)
 	return removed, nil
 }

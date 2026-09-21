@@ -23,11 +23,12 @@ const (
 )
 
 type OpenSearchMediaBackend struct {
-	baseURL  string
-	alias    string
-	username string
-	password string
-	client   *http.Client
+	baseURL      string
+	alias        string
+	username     string
+	password     string
+	client       *http.Client
+	documentType string
 
 	readyMu sync.RWMutex
 	ready   bool
@@ -42,12 +43,23 @@ func NewOpenSearchMediaBackend(cfg config.SearchConfig) *OpenSearchMediaBackend 
 		alias = defaultMetadataSearchAlias
 	}
 	return &OpenSearchMediaBackend{
-		baseURL:  strings.TrimRight(strings.TrimSpace(cfg.OpenSearchURL), "/"),
-		alias:    alias,
-		username: strings.TrimSpace(cfg.Username),
-		password: cfg.Password,
-		client:   &http.Client{Timeout: 4 * time.Second},
+		baseURL:      strings.TrimRight(strings.TrimSpace(cfg.OpenSearchURL), "/"),
+		alias:        alias,
+		username:     strings.TrimSpace(cfg.Username),
+		password:     cfg.Password,
+		client:       &http.Client{Timeout: 4 * time.Second},
+		documentType: "metadata",
 	}
+}
+
+// NewOpenSearchHongGuoBackend 共用连接配置，红果文档与普通资料使用独立 alias。
+func NewOpenSearchHongGuoBackend(cfg config.SearchConfig) *OpenSearchMediaBackend {
+	b := NewOpenSearchMediaBackend(cfg)
+	if b != nil {
+		b.alias += "_hongguo"
+		b.documentType = "hongguo"
+	}
+	return b
 }
 
 func (b *OpenSearchMediaBackend) SearchMetadataIDs(ctx context.Context, query string, _, _ int, filter MetadataSearchFilter) ([]string, int64, error) {
@@ -81,6 +93,12 @@ func (b *OpenSearchMediaBackend) SearchMetadataIDs(ctx context.Context, query st
 		})
 	}
 	filters := []any{map[string]any{"terms": map[string]any{"kind": filter.Kinds}}}
+	if filter.CandidateIDs != nil {
+		if len(filter.CandidateIDs) == 0 {
+			return []string{}, 0, nil
+		}
+		filters = append(filters, map[string]any{"terms": map[string]any{"id": filter.CandidateIDs}})
+	}
 	if !filter.IncludeNSFW {
 		filters = append(filters, map[string]any{"term": map[string]any{"nsfw": false}})
 	}
@@ -131,7 +149,7 @@ func (b *OpenSearchMediaBackend) PrepareMetadataIndex(ctx context.Context) (stri
 		"mappings": map[string]any{
 			"_meta": map[string]any{
 				"schema_version": metadataSearchSchema,
-				"document_type":  "metadata",
+				"document_type":  b.documentType,
 			},
 			"properties": map[string]any{
 				"id":            map[string]any{"type": "keyword"},
@@ -260,7 +278,7 @@ func (b *OpenSearchMediaBackend) ensureReady(ctx context.Context) error {
 		return err
 	}
 	for _, mapping := range mappings {
-		if schemaVersion(mapping.Mappings.Meta["schema_version"]) == metadataSearchSchema && mapping.Mappings.Meta["document_type"] == "metadata" {
+		if schemaVersion(mapping.Mappings.Meta["schema_version"]) == metadataSearchSchema && mapping.Mappings.Meta["document_type"] == b.documentType {
 			b.readyMu.Lock()
 			b.ready = true
 			b.readyMu.Unlock()

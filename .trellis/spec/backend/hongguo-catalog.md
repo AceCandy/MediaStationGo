@@ -168,7 +168,7 @@ are a separate authorized exception; playback still uses existing local/STRM fil
   Events are unique per user/session/source/episode and survive file deletion
   and manual unwatch. User tables are excluded from `HongGuoModels()`.
 - Apply file/profile visibility before logical grouping, count and pagination.
-  Emby mixed pages merge identities in SQL before pagination and batch-load only
+  Emby mixed browsing pages merge identities in SQL before pagination and batch-load only
   the current page. Reuse existing old-catalog payload builders with `Fields`;
   do not call complete `Item` once per list row. Omitted Fields retains existing
   defaults; explicit Fields controls People/ProviderIds/MediaSources.
@@ -325,6 +325,62 @@ checkpoint only after confirming its preceding page is short.
 Wrong: filter the serialized `tags` column with a substring search.
 
 Correct: query exact JSON-array membership so similarly named tags remain distinct.
+
+## Scenario: Independent Emby search indexes
+
+### 1. Scope / Trigger
+
+Global Movie/Series keyword searches across ordinary, HongGuo and NFO catalogs.
+
+### 2. Signatures
+
+`NewOpenSearchHongGuoBackend(SearchConfig)` uses the normalized ordinary alias
+plus `_hongguo`, with `document_type=hongguo`. `HongGuoRepository.SearchCandidates`
+returns logical works; `BackfillSearchIndex` shares the existing rebuild coordinator.
+
+### 3. Contracts
+
+Index canonical logical `hg-work-` / `hg-group-` titles, never shared metadata
+surrogates. Before OpenSearch limits candidates, query current visible file-backed
+identities and pass them as `CandidateIDs`; revalidate returned IDs in PostgreSQL.
+The ordinary repository already adds independent NFO database candidates.
+Emby merges candidates using the existing 100-result ranking limit and only
+hydrates the final page. NFO existence must not route normal keyword search
+through the full browse aggregation. Hierarchy and playback-state filters retain
+their database paths; NFO does not borrow ordinary/HongGuo person identities.
+
+SaveDetail, SaveAlbum and confirmed catalog cleanup refresh old/new identities
+after commit, including the previous album title when its earliest member leaves.
+Rebuilds replay dirty IDs before atomic alias activation. HongGuo incremental
+writes serialize, but searches read the failure flag atomically without waiting
+for index writes. Ordinary incremental concurrency is unchanged. Both source
+warmups share configured batching/delay but run independently.
+
+### 4. Validation & Error Matrix
+
+Missing/unready/failing index -> PostgreSQL fallback. Known failed incremental
+write -> bypass the index until a successful rebuild. More than 65,536 visible
+IDs -> database fallback, never truncate permissions. Empty/locked/hidden scope
+-> no results. Cancellation propagates; incomplete rebuilds are never activated.
+
+### 5. Good/Base/Bad Cases
+
+Good: a visible season makes one official album searchable. Base: absent index
+still returns matching files. Bad: an NFO library disables ordinary OpenSearch,
+or visibility is applied only after the candidate limit.
+
+### 6. Tests Required
+
+`TestHongGuoSearchIndexLifecycleAndVisibility`, `TestEmbySourceSearchUsesSeparateBackendsWithNFO`,
+and `TestEmbyHongGuoSearchKeepsPlayedFilterWithoutNFO` run on isolated PostgreSQL.
+`TestOpenSearchHongGuoAliasAndCandidateScope` checks HTTP isolation; opt-in
+`MEDIASTATION_TEST_OPENSEARCH_LIVE=1` uses a uniquely named temporary index and
+deletes it in cleanup. Retain existing metadata rebuild/cancellation tests.
+
+### 7. Wrong vs Correct
+
+Wrong: count all three expanded catalogs before testing the search title.
+Correct: recall eligible candidates per source, rank once, hydrate one page.
 
 ## Scenario: Official cross-season albums
 

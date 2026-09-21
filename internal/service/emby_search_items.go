@@ -8,49 +8,94 @@ import (
 	"github.com/ShukeBta/MediaStationGo/internal/repository"
 )
 
-// searchTopLevelItems handles every non-empty Emby SearchTerm before the
-// Series -> Season -> Episode browse branches can consume it.
+// searchTopLevelItems 各来源先检索候选，统一排序分页后只加载当前页详情。
 func (e *EmbyService) searchTopLevelItems(ctx context.Context, p ItemsParams) (map[string]any, error) {
-	if p.ParentID != "" || containsItemType(p.IncludeItemTypes, "Person") {
-		return e.searchCatalogTopLevelItems(ctx, p)
+	query := []rune(strings.TrimSpace(p.SearchTerm))
+	if len(query) == 2 && query[0] != '%' && query[1] == '%' {
+		// 播放器单字符输入会追加百分号，此处去掉兼容后缀。
+		p.SearchTerm = string(query[0])
+	}
+	if containsItemType(p.IncludeItemTypes, "Person") {
+		return e.searchPersonAndMediaItems(ctx, p)
+	}
+	kinds := embySearchKinds(p.IncludeItemTypes)
+	v := e.mediaVisibility(ctx, p.UserID)
+	if len(kinds) == 0 || (v.LibraryRestricted && len(v.AllowedLibraryIDs) == 0) {
+		return emptyItemsEnvelope(p.StartIndex), nil
+	}
+	filter := repository.MetadataSearchFilter{
+		MediaQueryFilter: e.mediaQueryFilter(ctx, p.UserID),
+		Fields:           repository.MetadataSearchFieldsTitle, Kinds: kinds, PersonIDs: p.PersonIDs,
+	}
+	if p.ParentID != "" {
+		library, err := e.repo.Library.FindByID(ctx, p.ParentID)
+		if err != nil {
+			return nil, err
+		}
+		if library == nil || (len(v.AllowedLibraryIDs) > 0 && !containsString(v.AllowedLibraryIDs, library.ID)) {
+			return emptyItemsEnvelope(p.StartIndex), nil
+		}
+		filter.AllowedLibraryIDs = e.mergedLibraryIDs(ctx, library.ID)
+	}
+	if containsEmbyFilter(p.Filters, "IsFavorite") {
+		if strings.TrimSpace(p.UserID) == "" {
+			return emptyItemsEnvelope(p.StartIndex), nil
+		}
+		filter.FavoriteUserID = p.UserID
+	}
+	if containsEmbyFilter(p.Filters, "IsResumable") {
+		if strings.TrimSpace(p.UserID) == "" {
+			return emptyItemsEnvelope(p.StartIndex), nil
+		}
+		filter.ResumableUserID = p.UserID
+	}
+	ids, _, err := e.repo.MediaView.SearchMetadataIDs(ctx, p.SearchTerm, 0, repository.MetadataSearchCandidateLimit, filter)
+	if err != nil {
+		return nil, err
+	}
+	candidates, err := e.repo.MediaView.SearchCandidateDetails(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+	if p.ParentID == "" {
+		source, err := e.hongGuoSearchCandidates(ctx, p, filter)
+		if err != nil {
+			return nil, err
+		}
+		candidates = append(candidates, source...)
+	}
+	ranked, total := repository.RankMetadataSearchCandidatePage(p.SearchTerm, candidates, p.StartIndex, p.Limit)
+	ids = make([]string, 0, len(ranked))
+	for _, candidate := range ranked {
+		ids = append(ids, candidate.ID)
+	}
+	items, err := e.globalItemPayloads(ctx, ids, p)
+	if err != nil {
+		return nil, err
+	}
+	if p.ParentID != "" {
+		for _, item := range items {
+			item["ParentId"] = p.ParentID
+		}
+	}
+	return map[string]any{"Items": items, "TotalRecordCount": total, "StartIndex": p.StartIndex}, nil
+}
+
+// hongGuoSearchCandidates 播放状态按当前用户实时查询，其余作品搜索使用独立索引。
+func (e *EmbyService) hongGuoSearchCandidates(ctx context.Context, p ItemsParams, filter repository.MetadataSearchFilter) ([]repository.MetadataSearchCandidate, error) {
+	if !containsEmbyFilter(p.Filters, "IsPlayed") && !containsEmbyFilter(p.Filters, "IsUnplayed") && !containsEmbyFilter(p.Filters, "IsResumable") {
+		return e.repo.HongGuo.SearchCandidates(ctx, p.SearchTerm, filter)
 	}
 	var hasSource bool
 	if err := e.repo.DB.WithContext(ctx).Raw("SELECT EXISTS (SELECT 1 FROM media WHERE catalog_source = 'hongguo')").Scan(&hasSource).Error; err != nil {
 		return nil, err
+	} else if !hasSource {
+		return nil, nil
 	}
-	if !hasSource {
-		return e.searchCatalogTopLevelItems(ctx, p)
-	}
-	query := []rune(strings.TrimSpace(p.SearchTerm))
-	if len(query) == 2 && query[0] != '%' && query[1] == '%' {
-		p.SearchTerm = string(query[0])
-	}
-	legacyParams := p
-	legacyParams.StartIndex, legacyParams.Limit = 0, repository.MetadataSearchCandidateLimit
-	legacy, err := e.searchCatalogTopLevelItems(ctx, legacyParams)
-	if err != nil {
-		return nil, err
-	}
-	candidates := []repository.MetadataSearchCandidate{}
-	payloads := map[string]map[string]any{}
-	if items, ok := legacy["Items"].([]map[string]any); ok {
-		for _, item := range items {
-			id, _ := item["Id"].(string)
-			title, _ := item["Name"].(string)
-			kind, _ := item["Type"].(string)
-			original, _ := item["OriginalTitle"].(string)
-			year, _ := item["ProductionYear"].(int)
-			candidates = append(candidates, repository.MetadataSearchCandidate{ID: id, Title: title, Kind: strings.ToLower(kind), OriginalName: original, Year: year})
-			payloads[id] = item
-		}
-	}
-	q := e.hongGuoNodes(ctx, p.UserID, "").Where("LOWER(kind) IN ? AND POSITION(LOWER(?) IN LOWER(title)) > 0", embySearchKinds(p.IncludeItemTypes), p.SearchTerm)
+	q := e.hongGuoNodes(ctx, p.UserID, "").Where("LOWER(kind) IN ? AND POSITION(LOWER(?) IN LOWER(title)) > 0", filter.Kinds, p.SearchTerm)
 	q = e.hongGuoPersonFilter(ctx, q, p.UserID, "", p.PersonIDs)
 	if containsEmbyFilter(p.Filters, "IsFavorite") {
 		q = q.Where("favorite")
-	}
-	if containsEmbyFilter(p.Filters, "IsResumable") {
-		q = q.Where("kind = 'Movie' AND NOT played AND position_ms > 0")
 	}
 	if containsEmbyFilter(p.Filters, "IsPlayed") {
 		q = q.Where("played")
@@ -58,146 +103,18 @@ func (e *EmbyService) searchTopLevelItems(ctx context.Context, p ItemsParams) (m
 	if containsEmbyFilter(p.Filters, "IsUnplayed") {
 		q = q.Where("NOT played")
 	}
+	if containsEmbyFilter(p.Filters, "IsResumable") {
+		q = q.Where("kind = 'Movie' AND NOT played AND position_ms > 0")
+	}
 	var nodes []hongGuoNode
 	if err := q.Order("title, id").Limit(repository.MetadataSearchCandidateLimit).Scan(&nodes).Error; err != nil {
 		return nil, err
 	}
-	byID := map[string]hongGuoNode{}
+	candidates := make([]repository.MetadataSearchCandidate, 0, len(nodes))
 	for _, node := range nodes {
 		candidates = append(candidates, repository.MetadataSearchCandidate{ID: node.ID, Kind: strings.ToLower(node.Kind), Title: node.Title})
-		byID[node.ID] = node
 	}
-	ranked, total := repository.RankMetadataSearchCandidatePage(p.SearchTerm, candidates, p.StartIndex, p.Limit)
-	pageNodes := []hongGuoNode{}
-	for _, candidate := range ranked {
-		if node, ok := byID[candidate.ID]; ok {
-			pageNodes = append(pageNodes, node)
-		}
-	}
-	sourceItems, err := e.hongGuoNodePayloads(ctx, pageNodes, p.UserID, p.Fields)
-	if err != nil {
-		return nil, err
-	}
-	for _, item := range sourceItems {
-		payloads[item["Id"].(string)] = item
-	}
-	items := make([]map[string]any, 0, len(ranked))
-	for _, candidate := range ranked {
-		if item := payloads[candidate.ID]; item != nil {
-			items = append(items, item)
-		}
-	}
-	return map[string]any{"Items": items, "TotalRecordCount": total, "StartIndex": p.StartIndex}, nil
-}
-
-func (e *EmbyService) searchCatalogTopLevelItems(ctx context.Context, p ItemsParams) (map[string]any, error) {
-	searchTerm := []rune(strings.TrimSpace(p.SearchTerm))
-	if len(searchTerm) == 2 && searchTerm[0] != '%' && searchTerm[1] == '%' {
-		// Yamby/Emby 播放器只输入一个字符时会自动追加 `%`，此处去掉通配后缀再搜索。
-		p.SearchTerm = string(searchTerm[0])
-	}
-	if containsItemType(p.IncludeItemTypes, "Person") {
-		return e.searchPersonAndMediaItems(ctx, p)
-	}
-	kinds := embySearchKinds(p.IncludeItemTypes)
-	if len(kinds) == 0 {
-		return emptyItemsEnvelope(p.StartIndex), nil
-	}
-	visibility := e.mediaVisibility(ctx, p.UserID)
-	if visibility.LibraryRestricted && len(visibility.AllowedLibraryIDs) == 0 {
-		return emptyItemsEnvelope(p.StartIndex), nil
-	}
-	viewFilter := repository.MediaQueryFilter{
-		IncludeNSFW:       visibility.IncludeNSFW,
-		AllowedLibraryIDs: visibility.AllowedLibraryIDs,
-		HiddenLibraryIDs:  visibility.HiddenLibraryIDs,
-	}
-	if p.ParentID != "" {
-		library, err := e.repo.Library.FindByID(ctx, p.ParentID)
-		if err != nil {
-			return nil, err
-		}
-		if library == nil {
-			return emptyItemsEnvelope(p.StartIndex), nil
-		}
-		if len(viewFilter.AllowedLibraryIDs) > 0 && !containsString(viewFilter.AllowedLibraryIDs, library.ID) {
-			return emptyItemsEnvelope(p.StartIndex), nil
-		}
-		viewFilter.AllowedLibraryIDs = e.mergedLibraryIDs(ctx, library.ID)
-	}
-	searchFilter := repository.MetadataSearchFilter{
-		MediaQueryFilter:  viewFilter,
-		Fields:            repository.MetadataSearchFieldsTitle,
-		Kinds:             kinds,
-		PersonIDs:         p.PersonIDs,
-		LibraryRestricted: visibility.LibraryRestricted || p.ParentID != "",
-	}
-	if containsEmbyFilter(p.Filters, "IsFavorite") {
-		if strings.TrimSpace(p.UserID) == "" {
-			return emptyItemsEnvelope(p.StartIndex), nil
-		}
-		searchFilter.FavoriteUserID = p.UserID
-	}
-	if containsEmbyFilter(p.Filters, "IsResumable") {
-		if strings.TrimSpace(p.UserID) == "" {
-			return emptyItemsEnvelope(p.StartIndex), nil
-		}
-		searchFilter.ResumableUserID = p.UserID
-	}
-	ids, total, err := e.repo.MediaView.SearchMetadataIDs(ctx, p.SearchTerm, p.StartIndex, p.Limit, searchFilter)
-	if err != nil {
-		return nil, err
-	}
-	representatives, err := e.repo.MediaView.FindMetadataSearchRepresentatives(ctx, ids, viewFilter)
-	if err != nil {
-		return nil, err
-	}
-	representativeByID := make(map[string]model.MediaView, len(representatives))
-	for _, view := range representatives {
-		representativeByID[view.MetadataID] = view
-	}
-
-	movieViews := make([]model.MediaView, 0, len(representatives))
-	seriesIDs := make([]string, 0, len(representatives))
-	for _, id := range ids {
-		view, visible := representativeByID[id]
-		if !visible {
-			continue
-		}
-		if view.MetadataKind == model.MetadataKindSeries {
-			seriesIDs = append(seriesIDs, id)
-		} else {
-			movieViews = append(movieViews, view)
-		}
-	}
-	payloadByID := make(map[string]map[string]any, len(representatives))
-	for _, item := range e.payloadsForViewsWithFields(ctx, movieViews, p.UserID, p.Fields) {
-		if id, _ := item["Id"].(string); id != "" {
-			payloadByID[id] = item
-		}
-	}
-	if len(seriesIDs) > 0 {
-		q := seriesScopeQuery(e.applyUserMediaVisibility(ctx, e.repo.DB.WithContext(ctx).Model(&model.Media{}), p.UserID))
-		groups, loadErr := e.seriesSummaries(ctx, q, seriesIDs)
-		if loadErr != nil {
-			return nil, loadErr
-		}
-		for _, item := range e.seriesPayloadsWithFields(ctx, groups, p.UserID, p.Fields) {
-			if id, _ := item["Id"].(string); id != "" {
-				payloadByID[id] = item
-			}
-		}
-	}
-	items := make([]map[string]any, 0, len(payloadByID))
-	for _, id := range ids {
-		if item, ok := payloadByID[id]; ok {
-			if p.ParentID != "" {
-				item["ParentId"] = p.ParentID
-			}
-			items = append(items, item)
-		}
-	}
-	return map[string]any{"Items": items, "TotalRecordCount": total, "StartIndex": p.StartIndex}, nil
+	return candidates, nil
 }
 
 func (e *EmbyService) searchPersonAndMediaItems(ctx context.Context, p ItemsParams) (map[string]any, error) {

@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"gorm.io/gorm"
@@ -59,11 +60,17 @@ m.*,
 
 // MediaViewRepository 对共享元数据完成 JOIN 后再执行权限、排序和分页。
 type MediaViewRepository struct {
-	db            *gorm.DB
+	db *gorm.DB
+	searchIndex
+}
+
+// searchIndex 协调各资料来源的独立索引，重建期间追补已提交的变更。
+type searchIndex struct {
 	searchBackend MediaSearchBackend
 	searchMu      sync.Mutex
 	searchRebuild bool
 	searchDirty   map[string]struct{}
+	searchFailed  atomic.Bool
 }
 
 func (r *MediaViewRepository) SetSearchBackend(backend MediaSearchBackend) {

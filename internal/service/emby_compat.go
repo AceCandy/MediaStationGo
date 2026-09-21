@@ -157,9 +157,11 @@ func (e *EmbyService) Items(ctx context.Context, p ItemsParams) (map[string]any,
 		if result, ok, err := e.hongGuoHierarchyItems(ctx, p); ok {
 			return result, err
 		}
+		// 播放状态和非作品类型沿用原有筛选；普通作品搜索不受 NFO 是否存在影响。
+		stateSearch := containsEmbyFilter(p.Filters, "IsPlayed") || containsEmbyFilter(p.Filters, "IsUnplayed") || containsEmbyFilter(p.Filters, "IsResumable")
 		if has, err := e.repo.NFO.HasMedia(ctx); err != nil {
 			return nil, err
-		} else if has {
+		} else if has && (stateSearch || len(embySearchKinds(p.IncludeItemTypes)) == 0) && !containsItemType(p.IncludeItemTypes, "Person") {
 			if result, ok, err := e.hongGuoGlobalItems(ctx, p); ok {
 				return result, err
 			}

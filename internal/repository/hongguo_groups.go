@@ -8,6 +8,7 @@ import (
 	"github.com/ShukeBta/MediaStationGo/internal/hongguo"
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // HongGuoAlbumJoin 为作品别名 w 投影官方合集 g；标题取最早已收录季，不按标题推断关系。
@@ -53,8 +54,17 @@ func (r *HongGuoRepository) SaveAlbum(ctx context.Context, sourceID string, albu
 	if !hongguo.ValidID(sourceID) || (album.ID != "" && (!hongguo.ValidID(album.ID) || album.Season < 1 || album.Season > 100000)) || (album.ID == "" && album.Season != 0) {
 		return errors.New("红果官方合集关系无效")
 	}
-	return r.db.WithContext(ctx).Model(&model.HongGuoWork{}).Where("source_id = ?", sourceID).
-		Updates(map[string]any{"related_album_id": album.ID, "season_index": album.Season, "album_checked_at": time.Now(), "album_retry_at": nil}).Error
+	var work model.HongGuoWork
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("source_id = ?", sourceID).First(&work).Error; err != nil {
+			return err
+		}
+		return tx.Model(&model.HongGuoWork{}).Where("id = ?", work.ID).Updates(map[string]any{"related_album_id": album.ID, "season_index": album.Season, "album_checked_at": time.Now(), "album_retry_at": nil}).Error
+	})
+	if err == nil {
+		r.refreshSearchWork(ctx, work.ID, work.RelatedAlbumID, album.ID)
+	}
+	return err
 }
 
 func (r *HongGuoRepository) RetryAlbum(ctx context.Context, sourceID string, retryAt time.Time) error {

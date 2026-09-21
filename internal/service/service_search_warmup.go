@@ -4,6 +4,7 @@ import (
 	"context"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"go.uber.org/zap"
@@ -28,7 +29,20 @@ func (c *Container) warmMediaSearchIndex(ctx context.Context) {
 	case <-time.After(mediaSearchWarmupDelay(ctx, c.Repo)):
 	}
 	batchSize := mediaSearchWarmupBatchSize(ctx, c.Repo)
-	total, err := c.Repo.MediaView.BackfillSearchIndex(ctx, batchSize, mediaSearchWarmupPause(ctx, c.Repo))
+	pause := mediaSearchWarmupPause(ctx, c.Repo)
+	var sourceWarmup sync.WaitGroup
+	if c.Repo.HongGuo != nil {
+		sourceWarmup.Go(func() {
+			total, err := c.Repo.HongGuo.BackfillSearchIndex(ctx, batchSize, pause)
+			if err != nil {
+				c.Log.Debug("hongguo search index warmup stopped", zap.Error(err))
+			} else if total > 0 {
+				c.Log.Info("hongguo search index warmed", zap.Int64("indexed", total))
+			}
+		})
+	}
+	defer sourceWarmup.Wait()
+	total, err := c.Repo.MediaView.BackfillSearchIndex(ctx, batchSize, pause)
 	if err != nil {
 		c.Log.Debug("metadata search index warmup stopped", zap.Error(err))
 		return

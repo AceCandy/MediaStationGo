@@ -65,6 +65,8 @@ type MetadataSearchFilter struct {
 	FavoriteUserID    string
 	ResumableUserID   string
 	ForcePostgres     bool
+	// CandidateIDs 在候选截断前限定独立资料来源的可见逻辑身份；nil 表示不限定。
+	CandidateIDs []string
 }
 
 // MetadataSearchDocument is the complete OpenSearch projection for one
@@ -77,7 +79,7 @@ type MetadataSearchDocument struct {
 	Overview     string   `json:"overview"`
 	Genres       string   `json:"genres"`
 	NSFW         bool     `json:"nsfw"`
-	LibraryIDs   []string `json:"library_ids"`
+	LibraryIDs   []string `json:"library_ids" gorm:"-"`
 }
 
 func (r *MediaRepository) refreshMetadataBestEffort(ctx context.Context, metadataIDs ...string) {
