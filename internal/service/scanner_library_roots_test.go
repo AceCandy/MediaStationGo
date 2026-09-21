@@ -58,8 +58,8 @@ func TestScanLibraryScansMultipleRootsAndPrunesPerRoot(t *testing.T) {
 	removeTestPath(t, fileA)
 	removeTestPath(t, rootB)
 	res, err = scanner.ScanLibrary(t.Context(), lib.ID)
-	if err != nil {
-		t.Fatalf("scan with one offline root should continue: %v", err)
+	if err == nil || res.ErrorCount == 0 {
+		t.Fatalf("partial scan must report the offline root: result=%+v err=%v", res, err)
 	}
 	if res.Removed != 1 {
 		t.Fatalf("removed = %d, want only vanished file from accessible root removed", res.Removed)

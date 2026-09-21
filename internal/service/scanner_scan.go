@@ -171,7 +171,7 @@ func (s *ScannerService) scanLibraryWithProgress(ctx context.Context, libraryID 
 	}
 
 	s.finishLocalLibraryScan(ctx, lib, res, autoScrape)
-	return res, nil
+	return res, scanErr
 }
 
 func (s *ScannerService) scanLocalLibraryRoot(ctx context.Context, lib *model.Library, root *model.LibraryRoot, autoScrape bool) (*ScanResult, error) {

@@ -59,6 +59,9 @@ func TestWatcherRefreshMapsHostLibraryPathToContainerPath(t *testing.T) {
 func TestWatcherBatchCreatesOneIsolatedExecution(t *testing.T) {
 	db := newServiceTestDB(t, &model.Library{}, &model.Media{}, &model.TaskExecution{})
 	repos := repository.New(db)
+	if err := repos.Library.Create(t.Context(), &model.Library{Base: model.Base{ID: "lib"}, Path: "/media", Type: "movie", Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
 	log := zap.NewNop()
 	tracker := NewTaskTrackerService(log, nil)
 	tracker.ConfigurePersistence(repos.TaskExecution, t.TempDir())
@@ -92,6 +95,9 @@ func TestWatcherBatchContinuesAfterPathFailures(t *testing.T) {
 	tracker := NewTaskTrackerService(zap.NewNop(), nil)
 	tracker.ConfigurePersistence(trackerRepos.TaskExecution, t.TempDir())
 	scannerRepos := repository.New(newServiceTestDB(t, &model.Library{}))
+	if err := scannerRepos.Library.Create(t.Context(), &model.Library{Base: model.Base{ID: "lib"}, Path: "/media", Type: "movie", Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
 	scanner := NewScannerService(&config.Config{}, zap.NewNop(), scannerRepos, nil, nil, nil)
 	watcher := NewWatcherService(zap.NewNop(), scannerRepos, scanner, tracker)
 
@@ -107,10 +113,16 @@ func TestWatcherBatchContinuesAfterPathFailures(t *testing.T) {
 	if task := history.Items[0]; task.Status != TaskStatusFailed || task.Metrics["failed"] != 2 {
 		t.Fatalf("failed watch task = %#v", task)
 	}
+	if len(watcher.pending) != 2 {
+		t.Fatalf("failed files were not requeued: %+v", watcher.pending)
+	}
 }
 
 func TestWatcherBatchRequeuesWhenTaskCreationFails(t *testing.T) {
 	trackerRepos := repository.New(newServiceTestDB(t, &model.Library{}))
+	if err := trackerRepos.Library.Create(t.Context(), &model.Library{Base: model.Base{ID: "lib"}, Path: "/media", Type: "movie", Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
 	tracker := NewTaskTrackerService(zap.NewNop(), nil)
 	tracker.ConfigurePersistence(trackerRepos.TaskExecution, t.TempDir())
 	watcher := NewWatcherService(zap.NewNop(), trackerRepos, nil, tracker)
@@ -139,8 +151,8 @@ func TestWatcherBatchRequeuesSidecarsWhenLibraryQueryFails(t *testing.T) {
 		}
 		due = append(due, duePath{path: filepath.Join(root, "ignored.txt"), libraryID: "lib"}, duePath{path: root, libraryID: "lib"})
 		watcher.processBatch(t.Context(), due)
-		if len(watcher.pending) != len(names) {
-			t.Fatalf("mixed=%v: pending=%v, want %d supported events", mixed, watcher.pending, len(names))
+		if len(watcher.pending) != len(names)+1 {
+			t.Fatalf("mixed=%v: pending=%v, want %d supported events and directory recovery", mixed, watcher.pending, len(names))
 		}
 		for _, name := range names {
 			if pending, ok := watcher.pending[filepath.Join(root, name)]; !ok || pending.libraryID != "lib" {

@@ -19,7 +19,7 @@ type walkInfo struct {
 func walk(root string, fn func(string, walkInfo) error) error {
 	return filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
-			return nil // best effort — keep walking
+			return err
 		}
 		name := d.Name()
 		if d.IsDir() && name != "." && len(name) > 1 && name[0] == '.' {
@@ -27,10 +27,12 @@ func walk(root string, fn func(string, walkInfo) error) error {
 		}
 		info := walkInfo{isDir: d.IsDir()}
 		if !d.IsDir() {
-			if fi, err := d.Info(); err == nil {
-				info.size = fi.Size()
-				info.modTimeNS = fi.ModTime().UnixNano()
+			fi, err := d.Info()
+			if err != nil {
+				return err
 			}
+			info.size = fi.Size()
+			info.modTimeNS = fi.ModTime().UnixNano()
 		}
 		return fn(path, info)
 	})

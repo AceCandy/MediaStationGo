@@ -46,7 +46,8 @@ confirmed there are no existing NFO libraries.
   this also applies to STRM refresh after generation.
 - If watcher library lookup fails, requeue both video candidates and NFO/image
   sidecars through the existing debounce queue. Query failure must not consume
-  accepted event types; directories and unsupported extensions remain excluded.
+  accepted event types; directory recovery is also requeued, while unsupported
+  extensions remain excluded.
 - Legacy empty-system task rows derive system from kind. The catalog fallback
   excludes both `hongguo_` and `nfo_` prefixes.
 - NFO ingestion serializes a path before checking/inserting its row. Unchanged

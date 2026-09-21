@@ -33,7 +33,10 @@ import (
 // belongs to, for debounced incremental processing.
 type pendingEvent struct {
 	libraryID string
-	ts        time.Time
+	readyAt   time.Time
+	attempts  int
+	metadata  bool
+	directory bool
 }
 
 // WatcherService is a thin orchestrator on top of fsnotify.
@@ -101,6 +104,8 @@ func (w *WatcherService) Refresh(ctx context.Context) error {
 	// files anywhere in the tree raise events — fsnotify itself is
 	// non-recursive, so we register each directory explicitly.
 	current := make(map[string]string)
+	failedRoots := make(map[string]string)
+	var failures []error
 	for _, l := range libs {
 		if !l.Enabled {
 			continue
@@ -123,16 +128,37 @@ func (w *WatcherService) Refresh(ctx context.Context) error {
 					zap.String("library_id", l.ID),
 					zap.String("root_id", root.ID),
 					zap.Error(err))
+				if err == nil {
+					err = errors.New("路径不是目录")
+				}
+				failures = append(failures, fmt.Errorf("监听目录不可访问: %s: %w", root.Path, err))
+				for _, path := range mappedPathCandidates(root.Path) {
+					failedRoots[path] = l.ID
+				}
+				w.pending[root.Path] = pendingEvent{libraryID: l.ID, readyAt: time.Now().Add(30 * time.Second), directory: true}
 				continue
 			}
-			for _, dir := range listDirsForWatch(watchRoot) {
+			dirs, err := listDirsForWatch(watchRoot)
+			if err != nil {
+				failures = append(failures, err)
+				failedRoots[watchRoot] = l.ID
+				w.pending[watchRoot] = pendingEvent{libraryID: l.ID, readyAt: time.Now().Add(30 * time.Second), directory: true}
+			}
+			for _, dir := range dirs {
 				current[dir] = l.ID
 			}
 		}
 	}
 	// Remove disappeared paths.
-	for path := range w.watched {
-		if _, ok := current[path]; !ok {
+	for path, libraryID := range w.watched {
+		preserve := false
+		for root, id := range failedRoots {
+			if id == libraryID && pathBelongsToRoot(path, root) {
+				preserve = true
+				break
+			}
+		}
+		if _, ok := current[path]; !ok && !preserve {
 			_ = w.watcher.Remove(path)
 			delete(w.watched, path)
 		}
@@ -144,39 +170,26 @@ func (w *WatcherService) Refresh(ctx context.Context) error {
 		}
 		if err := w.watcher.Add(path); err != nil {
 			w.log.Warn("watch add failed", zap.String("path", path), zap.Error(err))
+			failures = append(failures, err)
+			w.pending[path] = pendingEvent{libraryID: id, readyAt: time.Now().Add(30 * time.Second), directory: true}
 			continue
 		}
 		w.watched[path] = id
 	}
-	return nil
+	return errors.Join(failures...)
 }
 
 // listDirsForWatch returns root plus every (non-hidden) subdirectory so the
 // watcher can register the whole tree recursively.
-func listDirsForWatch(root string) []string {
+func listDirsForWatch(root string) ([]string, error) {
 	dirs := []string{root}
-	_ = walk(root, func(path string, info walkInfo) error {
+	err := walk(root, func(path string, info walkInfo) error {
 		if info.isDir && path != root {
 			dirs = append(dirs, path)
 		}
 		return nil
 	})
-	return dirs
-}
-
-// watchDirRecursive registers a newly-created directory subtree so files
-// copied into it afterwards still raise events.
-func (w *WatcherService) watchDirRecursive(dir, libraryID string) {
-	for _, d := range listDirsForWatch(dir) {
-		if _, ok := w.watched[d]; ok {
-			continue
-		}
-		if err := w.watcher.Add(d); err != nil {
-			w.log.Debug("watch add (recursive) failed", zap.String("path", d), zap.Error(err))
-			continue
-		}
-		w.watched[d] = libraryID
-	}
+	return dirs, err
 }
 
 // loop drains fsnotify events and pushes the affected library into the
@@ -202,22 +215,26 @@ func (w *WatcherService) loop(ctx context.Context) {
 			if lib == "" {
 				continue
 			}
-			// 新建目录：立即递归纳入监听，确保随后拷入的文件也能触发事件。
-			if ev.Op&fsnotify.Create != 0 {
-				if fi, err := os.Stat(ev.Name); err == nil && fi.IsDir() {
-					w.mu.Lock()
-					w.watchDirRecursive(ev.Name, lib)
-					w.mu.Unlock()
+			w.mu.Lock()
+			_, directory := w.watched[ev.Name]
+			if directory && ev.Op&(fsnotify.Remove|fsnotify.Rename) != 0 {
+				for path := range w.watched {
+					if pathBelongsToRoot(path, ev.Name) {
+						_ = w.watcher.Remove(path)
+						delete(w.watched, path)
+					}
 				}
 			}
-			w.mu.Lock()
-			w.pending[ev.Name] = pendingEvent{libraryID: lib, ts: time.Now()}
+			old := w.pending[ev.Name]
+			w.pending[ev.Name] = pendingEvent{libraryID: lib, readyAt: time.Now().Add(5 * time.Second), metadata: old.metadata, directory: directory || old.directory}
 			w.mu.Unlock()
 		case err, ok := <-w.watcher.Errors:
 			if !ok {
 				return
 			}
 			w.log.Warn("watcher error", zap.Error(err))
+			// 丢失事件后仅合并一次目录补扫；正常单文件事件仍不触发全库遍历。
+			w.queueWatchRecovery()
 		}
 	}
 }
@@ -227,6 +244,9 @@ func (w *WatcherService) loop(ctx context.Context) {
 func (w *WatcherService) findLibrary(path string) string {
 	w.mu.Lock()
 	defer w.mu.Unlock()
+	if id, ok := w.watched[path]; ok {
+		return id
+	}
 	dir := filepath.Dir(path)
 	for {
 		if id, ok := w.watched[dir]; ok {
@@ -244,13 +264,16 @@ func (w *WatcherService) findLibrary(path string) string {
 type duePath struct {
 	path      string
 	libraryID string
+	attempts  int
+	metadata  bool
+	directory bool
 }
 
 // debouncer drains the pending set every 5 s and processes each settled path
 // incrementally: existing files are ingested (single-file upsert), vanished
 // files are removed. Coalescing by path avoids storming the disk during bulk
-// operations (mass-rename, large copies), and crucially we never re-walk the
-// entire library — only the paths that actually changed.
+// operations (mass-rename, large copies). Normal file events touch only changed
+// paths; directory events and watch failures explicitly queue subtree recovery.
 func (w *WatcherService) debouncer(ctx context.Context) {
 	t := time.NewTicker(5 * time.Second)
 	defer t.Stop()
@@ -266,8 +289,8 @@ func (w *WatcherService) debouncer(ctx context.Context) {
 		due := make([]duePath, 0, len(w.pending))
 		now := time.Now()
 		for path, ev := range w.pending {
-			if now.Sub(ev.ts) >= 5*time.Second {
-				due = append(due, duePath{path: path, libraryID: ev.libraryID})
+			if !now.Before(ev.readyAt) {
+				due = append(due, duePath{path: path, libraryID: ev.libraryID, attempts: ev.attempts, metadata: ev.metadata, directory: ev.directory})
 				delete(w.pending, path)
 			}
 		}
@@ -279,8 +302,13 @@ func (w *WatcherService) debouncer(ctx context.Context) {
 func (w *WatcherService) processBatch(ctx context.Context, due []duePath) {
 	candidates := make([]duePath, 0, len(due))
 	sidecars := make([]duePath, 0)
+	directories := make([]duePath, 0)
 	for _, d := range due {
 		if fi, err := os.Stat(d.path); err == nil && fi.IsDir() {
+			d.directory = true
+		}
+		if d.directory {
+			directories = append(directories, d)
 			continue
 		}
 		if _, ok := videoExtensions[strings.ToLower(filepath.Ext(d.path))]; ok {
@@ -292,41 +320,74 @@ func (w *WatcherService) processBatch(ctx context.Context, due []duePath) {
 			}
 		}
 	}
-	if len(candidates) == 0 && len(sidecars) == 0 {
+	if len(candidates) == 0 && len(sidecars) == 0 && len(directories) == 0 {
 		return
 	}
 	libs, err := w.repo.Library.List(ctx)
 	if err != nil {
 		w.requeue(candidates)
 		w.requeue(sidecars)
+		w.requeue(directories)
 		w.log.Error("load watcher libraries failed", zap.Error(err))
 		return
 	}
-	nfoLibraries := make(map[string]bool)
+	libraries := make(map[string]model.Library)
 	for _, lib := range libs {
-		nfoLibraries[lib.ID] = libraryUsesNFOOnly(&lib)
+		libraries[lib.ID] = lib
 	}
-	seen := map[string]bool{}
-	for _, candidate := range candidates {
-		seen[candidate.path] = true
+	for _, d := range directories {
+		if lib, ok := libraries[d.libraryID]; !ok || !lib.Enabled {
+			continue
+		}
+		if err := w.queueDirectory(ctx, d); err != nil {
+			if _, statErr := os.Stat(d.path); os.IsNotExist(statErr) {
+				if missingErr := w.queueMissingDirectory(ctx, d); missingErr != nil {
+					w.log.Warn("watch missing directory reconciliation failed", zap.Error(missingErr))
+				}
+			}
+			w.log.Warn("watch directory reconciliation failed", zap.String("path", d.path), zap.Error(err))
+			w.requeue([]duePath{d})
+		}
+	}
+	active := candidates[:0]
+	for _, d := range candidates {
+		if lib, ok := libraries[d.libraryID]; ok && lib.Enabled {
+			active = append(active, d)
+		}
+	}
+	candidates = active
+	seen := map[string]int{}
+	for i, candidate := range candidates {
+		seen[candidate.path] = i
 	}
 	for _, sidecar := range sidecars {
-		if !nfoLibraries[sidecar.libraryID] {
+		lib, ok := libraries[sidecar.libraryID]
+		if !ok || !lib.Enabled || lib.Type == model.LibraryTypeHongGuo {
+			continue
+		}
+		nfo := libraryUsesNFOOnly(&lib)
+		if !nfo && !strings.EqualFold(filepath.Ext(sidecar.path), ".nfo") {
 			continue
 		}
 		// 侧车只重读所在目录下已入库的文件；不重新遍历媒体库目录树。
 		prefix := filepath.Dir(sidecar.path) + string(filepath.Separator)
 		var paths []string
+		source := ""
+		if nfo {
+			source = model.CatalogSourceNFO
+		}
 		err := w.repo.DB.WithContext(ctx).Model(&model.Media{}).
-			Where("library_id = ? AND catalog_source = ? AND path LIKE ? ESCAPE '\\'", sidecar.libraryID, model.CatalogSourceNFO, repository.EscapeLike(prefix)+"%").Pluck("path", &paths).Error
+			Where("library_id = ? AND COALESCE(catalog_source, '') = ? AND path LIKE ? ESCAPE '\\'", sidecar.libraryID, source, repository.EscapeLike(prefix)+"%").Pluck("path", &paths).Error
 		if err != nil {
 			w.requeue([]duePath{sidecar})
 			continue
 		}
 		for _, path := range paths {
-			if !seen[path] {
-				candidates = append(candidates, duePath{path: path, libraryID: sidecar.libraryID})
-				seen[path] = true
+			if index, ok := seen[path]; ok {
+				candidates[index].metadata = candidates[index].metadata || !nfo
+			} else {
+				seen[path] = len(candidates)
+				candidates = append(candidates, duePath{path: path, libraryID: sidecar.libraryID, attempts: sidecar.attempts, metadata: !nfo})
 			}
 		}
 	}
@@ -347,30 +408,47 @@ func (w *WatcherService) processBatch(ctx context.Context, due []duePath) {
 		w.log.Error("create watcher task execution failed")
 		return
 	}
-	for _, d := range candidates {
-		details, key := w.processPath(ctx, d)
-		metrics[key]++
-		task.Update(TaskUpdate{Stage: "watch", Metrics: metrics, Details: details})
-	}
-	if metrics["failed"] > 0 {
-		task.Finish(errors.New("部分文件变更处理失败"), TaskUpdate{Stage: "watch", Message: "媒体库变更处理失败", Metrics: metrics})
+	defer func() {
 		if metrics["added"]+metrics["updated"] > 0 {
 			w.scanner.WakeProbeBackfill()
 		}
+	}()
+	for _, d := range candidates {
+		if ctx.Err() != nil {
+			w.requeue([]duePath{d})
+			continue
+		}
+		details, key := w.processPath(ctx, d)
+		if key == "failed" {
+			w.requeue([]duePath{d})
+		}
+		metrics[key]++
+		task.Update(TaskUpdate{Stage: "watch", Metrics: metrics, Details: details})
+	}
+	if ctx.Err() != nil {
+		task.Finish(ctx.Err(), TaskUpdate{Stage: "watch", Message: "媒体库变更处理已取消", Metrics: metrics})
+		return
+	}
+	if metrics["failed"] > 0 {
+		task.Finish(errors.New("部分文件变更处理失败"), TaskUpdate{Stage: "watch", Message: "媒体库变更处理失败", Metrics: metrics})
 		return
 	}
 	task.Finish(nil, TaskUpdate{Stage: "completed", Message: "媒体库变更处理完成", Metrics: metrics})
-	if metrics["added"]+metrics["updated"] > 0 {
-		w.scanner.WakeProbeBackfill()
-	}
 }
 
 func (w *WatcherService) requeue(paths []duePath) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	for _, d := range paths {
-		if _, exists := w.pending[d.path]; !exists {
-			w.pending[d.path] = pendingEvent{libraryID: d.libraryID, ts: time.Now()}
+		if next, exists := w.pending[d.path]; exists {
+			next.metadata = next.metadata || d.metadata
+			next.directory = next.directory || d.directory
+			w.pending[d.path] = next
+		} else if d.attempts < 5 {
+			delay := min(30*time.Second*time.Duration(1<<d.attempts), 5*time.Minute)
+			w.pending[d.path] = pendingEvent{libraryID: d.libraryID, readyAt: time.Now().Add(delay), attempts: d.attempts + 1, metadata: d.metadata, directory: d.directory}
+		} else {
+			w.log.Warn("watch retry limit reached; next event or library scan required", zap.String("path", d.path))
 		}
 	}
 }
@@ -391,6 +469,15 @@ func (w *WatcherService) processPath(ctx context.Context, d duePath) ([]string, 
 	}
 	if fi.IsDir() {
 		return nil, "skipped"
+	}
+	metadataChanged := false
+	if d.metadata {
+		if changed, err := w.scanner.refreshLocalMetadataHints(ctx, d.libraryID, d.path); err != nil {
+			return []string{fmt.Sprintf("❌ 本地资料 %s: %v", d.path, sanitizeTaskLogError(err))}, "failed"
+		} else if changed {
+			metadataChanged = true
+			w.scanner.startAutoScrape(ctx, d.libraryID)
+		}
 	}
 	res, ierr := w.scanner.IngestPathResult(ctx, d.libraryID, d.path)
 	if ierr != nil {
@@ -418,6 +505,9 @@ func (w *WatcherService) processPath(ctx context.Context, d duePath) ([]string, 
 			return details, "added"
 		}
 		return details, "updated"
+	}
+	if metadataChanged {
+		return []string{"🔄 更新本地资料提示 " + d.path}, "metadata"
 	}
 	return []string{"⏭️ 文件未产生入库变化 " + d.path}, "skipped"
 }

@@ -145,19 +145,36 @@ func scrapeProviderLabel(source string) string {
 func (s *ScraperService) claimNextPendingMediaGroup(ctx context.Context) (*scrapeCandidateGroup, error) {
 	var claimed *scrapeCandidateGroup
 	err := s.repo.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var rows []model.Media
-		if err := tx.Where("scrape_status IS NULL OR scrape_status = '' OR scrape_status = ?", "pending").
+		// 先选代表，再加载其完整作品组；领取一部作品不应载入整个待办库。
+		var seed model.Media
+		pending := tx.Where("scrape_status IS NULL OR scrape_status = '' OR scrape_status = 'pending'").
 			Where("COALESCE(catalog_source, '') = ''").
 			Where(`NOT EXISTS (
 				SELECT 1 FROM media AS running_media
-				WHERE running_media.scrape_status = ? AND (
-					(media.series_hint <> '' AND running_media.series_hint = media.series_hint) OR
-					(media.series_hint = '' AND media.metadata_id <> '' AND running_media.series_hint = '' AND running_media.metadata_id = media.metadata_id) OR
-					(media.series_hint = '' AND media.metadata_id = '' AND running_media.id = media.id)
+				WHERE running_media.scrape_status = 'running' AND COALESCE(running_media.catalog_source, '') = '' AND (
+					(BTRIM(COALESCE(media.series_hint, '')) <> '' AND BTRIM(running_media.series_hint) = BTRIM(media.series_hint)) OR
+					(BTRIM(COALESCE(media.series_hint, '')) = '' AND BTRIM(COALESCE(media.metadata_id, '')) <> '' AND BTRIM(COALESCE(running_media.series_hint, '')) = '' AND BTRIM(running_media.metadata_id) = BTRIM(media.metadata_id)) OR
+					(BTRIM(COALESCE(media.series_hint, '')) = '' AND BTRIM(COALESCE(media.metadata_id, '')) = '' AND running_media.id = media.id)
 				)
-			)`, "running").
+			)`)
+		result := pending.Session(&gorm.Session{}).
 			Order("CASE WHEN COALESCE(season_num, 0) > 0 OR COALESCE(episode_num, 0) > 0 THEN 1 ELSE 0 END").
-			Order("id ASC").Find(&rows).Error; err != nil || len(rows) == 0 {
+			Order("id ASC").Limit(1).Find(&seed)
+		if result.Error != nil || result.RowsAffected == 0 {
+			return result.Error
+		}
+		// 两次 SELECT 之间别的 worker 可能已领取；完整组查询也必须排除正在运行的作品。
+		q := pending.Session(&gorm.Session{})
+		switch {
+		case strings.TrimSpace(seed.SeriesID) != "":
+			q = q.Where("BTRIM(COALESCE(series_hint, '')) = ?", strings.TrimSpace(seed.SeriesID))
+		case strings.TrimSpace(seed.MetadataID) != "":
+			q = q.Where("BTRIM(COALESCE(series_hint, '')) = '' AND BTRIM(COALESCE(metadata_id, '')) = ?", strings.TrimSpace(seed.MetadataID))
+		default:
+			q = q.Where("id = ?", seed.ID)
+		}
+		var rows []model.Media
+		if err := q.Order("CASE WHEN COALESCE(season_num, 0) > 0 OR COALESCE(episode_num, 0) > 0 THEN 1 ELSE 0 END").Order("id").Find(&rows).Error; err != nil {
 			return err
 		}
 		groups, err := groupScrapeCandidateRows(rows)
@@ -167,6 +184,7 @@ func (s *ScraperService) claimNextPendingMediaGroup(ctx context.Context) (*scrap
 		group := groups[0]
 		res := tx.Model(&model.Media{}).
 			Where("id = ANY(?) AND (scrape_status IS NULL OR scrape_status = '' OR scrape_status = ?)", &group.MediaIDs, "pending").
+			Where("COALESCE(catalog_source, '') = ''").
 			Update("scrape_status", "running")
 		if res.Error != nil {
 			return res.Error
@@ -202,15 +220,10 @@ func (s *ScraperService) hasActiveMediaScrapes(ctx context.Context) (bool, error
 }
 
 func (s *ScraperService) resetScrapeGroupPending(ctx context.Context, group scrapeCandidateGroup) error {
-	q := s.repo.DB.WithContext(ctx).Model(&model.Media{})
-	if strings.TrimSpace(group.Representative.SeriesID) != "" {
-		q = q.Where("series_hint = ?", group.Representative.SeriesID)
-	} else if strings.TrimSpace(group.MetadataID) != "" {
-		q = q.Where("metadata_id = ?", group.MetadataID)
-	} else {
-		q = q.Where("id = ANY(?)", &group.MediaIDs)
-	}
-	return q.Updates(map[string]any{"scrape_status": "pending", "scrape_error": ""}).Error
+	// 只退回本次实际领取的文件，避免空白身份漏退或重置同作品其他来源/已完成文件。
+	return s.repo.DB.WithContext(ctx).Model(&model.Media{}).
+		Where("id = ANY(?) AND COALESCE(catalog_source, '') = ''", &group.MediaIDs).
+		Updates(map[string]any{"scrape_status": "pending", "scrape_error": ""}).Error
 }
 
 func (s *ScraperService) enrichCandidateGroup(ctx context.Context, group scrapeCandidateGroup, options ScrapeOptions) error {

@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -14,6 +15,8 @@ import (
 func (s *ScannerService) RemovePath(ctx context.Context, path string) (int64, error) {
 	if _, err := os.Stat(path); err == nil {
 		return 0, nil // still exists; nothing to remove
+	} else if !os.IsNotExist(err) {
+		return 0, err
 	}
 	var removedMedia model.Media
 	if err := s.repo.DB.WithContext(ctx).Select("id", "library_id", "path").Where("path = ?", path).Find(&removedMedia).Error; err != nil {
@@ -21,6 +24,22 @@ func (s *ScannerService) RemovePath(ctx context.Context, path string) (int64, er
 	}
 	if removedMedia.ID == "" {
 		return 0, nil
+	}
+	// 根目录离线时保留记录；子文件不存在不能证明整个挂载仍然可用。
+	lib, err := s.repo.Library.FindByID(ctx, removedMedia.LibraryID)
+	if err != nil {
+		return 0, err
+	}
+	root, err := s.localLibraryRootForPath(ctx, lib, path)
+	if err != nil {
+		return 0, err
+	}
+	info, err := os.Stat(root.Path)
+	if err != nil {
+		return 0, err
+	}
+	if !info.IsDir() || !pathBelongsToRoot(path, root.Path) {
+		return 0, fmt.Errorf("媒体路径不在可用的库目录中: %s", path)
 	}
 	var metadataIDs []string
 	if err := s.repo.DB.WithContext(ctx).Model(&model.Media{}).Where("path = ?", path).Where("metadata_id IS NOT NULL").Pluck("metadata_id", &metadataIDs).Error; err != nil {

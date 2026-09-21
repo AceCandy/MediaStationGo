@@ -38,6 +38,9 @@ history is observability only; business object state owns retry and recovery.
 - Task logs live at
   `<data_dir>/task-logs/YYYY-MM-DD/<task-definition-key>.log`.
 - Media scrape states include `pending`, `running`, `matched`, `no_match`, and `error`.
+- Claim indexes are `idx_media_scrape_pending_pick` (movie-first ordering),
+  `idx_media_scrape_group` (trimmed group identity), and
+  `idx_media_scrape_running` (active ordinary-source rows).
 - Automatic scrape execution uses exactly three media workers and one serial
   catalog worker. `scrapeRunMu` is an `RWMutex`: automatic media groups hold a
   read lock, while manual, whole-library, catalog, and people work hold the
@@ -138,7 +141,11 @@ history is observability only; business object state owns retry and recovery.
   unsupported-extension events are removed. Every remaining path is processed
   even after another path fails. A task-execution create failure requeues the
   complete candidate batch; individual business failures are recorded and make
-  the batch failed without creating a retry loop.
+  the batch failed. Retry uses the existing pending map: 30-second exponential
+  backoff capped at five minutes, at most five retries. A newer event wins its
+  deadline/attempt count while retaining sidecar/directory intent. After the
+  bound, the next filesystem event or library scan is required; history is not
+  a durable event queue.
 - New task-center log lines never contain `[INFO]`, `[DETAIL]`, or `[ERROR]`.
   Manual and scheduled executions write `🔻` first for start, `🔄` for
   progress, `❌` for terminal errors, and `🔺` last for finish. Event executions
@@ -186,6 +193,11 @@ history is observability only; business object state owns retry and recovery.
   request URL, or API key.
 - A newly arrived member of a running series stays pending until that series
   finishes; it must not be claimed concurrently by another process.
+- Claim reads one ordered seed (`LIMIT 1`), then its complete pending group.
+  Both reads exclude running groups, including NULL/space-padded identities;
+  a running claim may commit between the reads. The final conditional UPDATE
+  rechecks ordinary source and pending status; partial success rolls back.
+  Cancellation returns only `group.MediaIDs`, never a newly inferred group.
 - Explicit rescrape resets the selected business objects to `pending` and wakes
   the worker. Catalog checkpoints remain the catalog recovery authority.
 - Manual `media_scrape` resets only NULL/empty, `pending`, `error`, and
@@ -328,6 +340,10 @@ history is observability only; business object state owns retry and recovery.
 - Three-worker overlap with a maximum concurrency of three; atomic whole-series
   claim, late-series-member exclusion, catalog deferral, worker cancellation,
   and `running -> pending` media recovery.
+- `TestClaimPendingGroup*` checks bounded reads and all three actual PostgreSQL
+  index plans over 10,000 pending files, NULL/space identities, source isolation,
+  three independent-connection claim races, between-read arrivals, source-change
+  rollback and complete cancellation reset.
 - Automatic scrape timing logs contain all six durations, keep every duration
   between zero and total, and omit paths, URLs, and API keys.
 - API/UI contract plus manual, scheduled, and event trigger attribution.
@@ -455,6 +471,8 @@ progress, complete probe-document invalidation, or automatic track backfill.
 - `MediaProbeService.StartBackfill(trigger, name, sourcePath, libraryID, limit)`
   starts the shared visible probe execution.
 - `MediaProbeService.WakeBackfill()` requests a coalesced automatic pass.
+- `RemovePath(ctx, path)` returns access failures without deleting rows; its
+  missing-file path also requires an accessible owning library root.
 - Missing, malformed, or non-current `media_probe_metadata` is the durable
   backfill state; task executions and in-memory wake flags are not checkpoints.
 
@@ -464,7 +482,18 @@ progress, complete probe-document invalidation, or automatic track backfill.
   enqueues per-file probe work in a hidden queue.
 - Enabled roots are scanned serially in configured order. Each root flushes its
   pending writes before pruning missing media. A failed root is not pruned and
-  does not stop later roots.
+  does not stop later roots. `walk` propagates directory/file-info errors;
+  whole-library scans return the root error even after another root succeeds.
+- Directory events reconcile only that subtree, registering watches before
+  reading files. Watcher errors coalesce root recovery; missing-file checks use
+  200-row keyset pages. Failed refreshes preserve only the affected roots'
+  watches, not disabled libraries. Stale events cannot revive a disabled library.
+- Ordinary-library NFO events refresh stored local hints even for unchanged
+  media. They retain confirmed identity and probe documents; unbound media
+  return to pending with current hints. Running scrapes defer the refresh to
+  retry. Invalid NFO retains accepted hints. NFO/HongGuo catalogs keep their
+  own ingestion paths. Full scans still skip unchanged ordinary media without
+  rereading sidecars; ordinary image-only event refresh is outside this contract.
 - Root start, bounded running progress, root finish, and root failure update the
   existing scan task. Per-file change details retain at most 200 rows and add an
   omitted-count summary without changing aggregate metrics.
@@ -490,6 +519,8 @@ progress, complete probe-document invalidation, or automatic track backfill.
 | Condition | Required result |
 | --- | --- |
 | Root cannot be resolved or walked completely | Record a path failure, flush successful writes, preserve existing rows for that root, continue later roots |
+| Watcher stat fails with permission/I/O error, or the owning root is missing | Preserve media and retry; do not interpret the failure as a confirmed deletion |
+| NFO changes during an active scrape | Preserve hints and identity until bounded retry; do not silently consume the update |
 | Probe document invalidation fails | Record a scan error and do not update that media row |
 | Scan partially persists media and then returns an error | Finish the scan error path and still wake probe backfill for the persisted additions/updates |
 | Another probe task is active | Manual start returns `ErrMediaProbeBackfillRunning`; automatic wake remains pending without parallel work |
@@ -510,6 +541,10 @@ progress, complete probe-document invalidation, or automatic track backfill.
 
 - Assert serial root start/finish order, write visibility at root finish, and no
   prune after a failed root.
+- `TestScanWalk*`, `TestScanUnreadable*`, `TestRemovePath*` and `TestWatcher*`
+  cover traversal/access errors, offline roots, moved/deleted directories,
+  coalesced recovery, retry bounds, disabled-library protection and NFO refresh
+  without identity/probe invalidation. Run with PostgreSQL and include `-race`.
 - Assert file-size/mtime changes remove the old probe document while unchanged
   files retain it.
 - Assert automatic execution is visible as one event task, duplicate/running

@@ -18,7 +18,7 @@ import (
 
 func newScannerTestEnv(t *testing.T) (*ScannerService, *repository.Container) {
 	t.Helper()
-	db := newServiceTestDB(t, &model.Library{}, &model.Media{}, &model.Setting{})
+	db := newServiceTestDB(t, &model.Library{}, &model.Media{}, &model.Setting{}, &model.MediaProbeMetadata{})
 	if err := db.Callback().Create().Remove("testutil:media-metadata"); err != nil {
 		t.Fatal(err)
 	}
@@ -675,15 +675,19 @@ func TestScanLibraryReportsPerFileUpsertErrors(t *testing.T) {
 	if err := os.WriteFile(file, []byte("data"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := repos.DB.Exec("DROP TABLE media").Error; err != nil {
+	if err := repos.DB.Migrator().DropTable(&model.MediaProbeMetadata{}, &model.Media{}); err != nil {
 		t.Fatal(err)
 	}
 	res, err := sc.ScanLibrary(t.Context(), lib.ID)
 	if err != nil {
 		t.Fatalf("scan should continue and report file errors, got top-level error: %v", err)
 	}
-	if res.ErrorCount != 1 || len(res.Errors) != 1 {
-		t.Fatalf("scan errors = count %d details %#v, want one detailed error", res.ErrorCount, res.Errors)
+	found := false
+	for _, detail := range res.Errors {
+		found = found || strings.Contains(detail, file)
+	}
+	if res.ErrorCount == 0 || !found {
+		t.Fatalf("scan errors = count %d details %#v, want the per-file failure retained", res.ErrorCount, res.Errors)
 	}
 	if res.Visited != 1 {
 		t.Fatalf("visited = %d, want 1", res.Visited)
