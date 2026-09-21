@@ -22,9 +22,9 @@ per-user, per-metadata history state but playback events are append-only.
   `system=all|catalog|hongguo|nfo` (API default remains `catalog`).
 - `playback_histories` is unique on active `(user_id, metadata_id)`;
   `playback_events` is unique on active `(user_id, session_id, metadata_id)`.
-- Web continuation is `GET /api/watch-history/continue`; Emby separates
-  `/Items/Resume` and `/Items?Filters=IsResumable` from `/Shows/NextUp` (also
-  user-scoped, lowercase, and `/emby` variants).
+- Web continuation is `GET /api/watch-history/continue`. Emby `/Items/Resume`
+  returns resume-or-next; `/Shows/NextUp` returns next-only; `/Items?Filters=IsResumable`
+  remains resume-only (also user-scoped, lowercase, and `/emby` variants).
 - `playback.auto_mark_previous_episodes` is an administrator setting, default
   false, edited through the existing single-key settings API.
 
@@ -65,7 +65,8 @@ per-user, per-metadata history state but playback events are append-only.
   recently watched Episode; Movies and items without a Series group by their own
   logical identity. HongGuo groups by its source work or official album and
   never merges with canonical media by title.
-- Web continuation and Emby NextUp share `HistoryRepository.Continuations`.
+- Web continuation, Emby Resume and NextUp share `HistoryRepository.Continuations`
+  via `ContinuationWeb`, `ContinuationResume` and `ContinuationNextUp` modes.
   Prefer the latest visible resumable episode; without a resumable episode,
   advance from the furthest completed coordinate to the first later visible,
   file-backed unplayed episode. Canonical/NFO order by season/episode; HongGuo
@@ -76,8 +77,13 @@ per-user, per-metadata history state but playback events are append-only.
   Untouched and exhausted groups produce no next candidate. Specials can
   resume; positive-season progress never automatically returns to season zero.
 - Web preserves canonical/NFO 20-second resume eligibility and HongGuo positive
-  progress eligibility; NextUp excludes any group with positive resumable
-  progress to avoid duplicating Emby mixed Resume. NextUp excludes movies.
+  progress eligibility. Both Emby continuation modes treat positive positions
+  as resumable; NextUp excludes groups with a resume and excludes movies.
+  Resume returns one resume-or-next candidate per group, including movie resumes.
+  `IsResumable` retains its existing resume-only filtering; it does not add next episodes.
+  Emby Resume and NextUp share pagination/payload assembly with exact total counts,
+  including empty end pages. Ordinary resume payloads preserve last-played versions
+  and multipart groups; next episodes use normal preferred-version selection.
   Its `UserId` defaults to the authenticated user; `SeriesId` filters public
   series identities, `Fields` uses existing payload rules, `Limit` is 1..100
   (default/fallback 20), negative/overflow `StartIndex` falls back to zero.
@@ -96,8 +102,7 @@ per-user, per-metadata history state but playback events are append-only.
   per source in PostgreSQL. Preserve database collation, NULL ordering and
   `played_at DESC, id DESC` representative selection. Do not expand the full
   catalog into Series/Season nodes or join artwork/probe data for candidates.
-  This path retains `position_ms > 0`; the no-NFO `ResumeItems` history path
-  retains its existing threshold and preferred-version behavior. Album grouping
+  This path retains `position_ms > 0`. Album grouping
   still returns the selected playable Episode, never an album container.
 - Web history and continue cards fill an absent Episode poster with its Season
   poster, then Series poster, then the existing display backdrop. Batch-load
@@ -172,7 +177,7 @@ per-user, per-metadata history state but playback events are append-only.
 | `MediaSourceId` belongs to another `ItemId` | Ignore the mismatched source and retain generic item resolution |
 | Position below 60 seconds for duration > ten minutes, or below 20 seconds otherwise | Successful no-op for automatic progress |
 | Several incomplete Episodes belong to one visible Series | Continue watching returns only the most recently watched Episode; full history keeps every Episode |
-| Completed season, later visible unplayed episode | Web returns an is_next card; Emby NextUp returns the same logical Episode |
+| Completed season, later visible unplayed episode | Web, Emby Resume and NextUp return the same logical Episode |
 | Incomplete episode in a started group | Web resumes it; NextUp omits the group; Resume semantics remain unchanged |
 | Watched episode replayed past recording threshold | Played remains true; Resume shows new position; NextUp omits the group |
 | Deleted long file, shorter visible replacement already finished | Effective Played=true and resume=0; season and NextUp use the corrected state |

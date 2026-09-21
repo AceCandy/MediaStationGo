@@ -167,15 +167,10 @@ func embyNextUpHandler(svc *service.Container) gin.HandlerFunc {
 
 func embyResumeItemsHandler(svc *service.Container) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		uid := c.Param("userId")
-		if uid == "" {
-			uid = firstQueryValue(c, "UserId", "userId", "userid")
-		}
-		if uid == "" {
-			uid = embyUserID(c)
-		}
-		limit, _ := strconv.Atoi(embyFirstNonEmptyString(firstQueryValue(c, "Limit", "limit"), "20"))
-		out, err := svc.Emby.ResumeItems(c.Request.Context(), uid, limit)
+		params := parseEmbyItemsParams(c)
+		params.Limit, _ = strconv.Atoi(firstQueryValue(c, "Limit", "limit"))
+		params.ParentID = ""
+		out, err := svc.Emby.ResumeItemsPage(c.Request.Context(), params)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return

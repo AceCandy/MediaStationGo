@@ -196,24 +196,18 @@ func (e *EmbyService) latestSeriesItemsForLibrary(ctx context.Context, userID, l
 	return items, nil
 }
 
-// ResumeItems 列出有未完成播放进度的媒体。
-func (e *EmbyService) legacyResumeItems(ctx context.Context, userID string, limit int) (map[string]any, error) {
-	if limit <= 0 || limit > 100 {
-		limit = 20
-	}
-	completed := false
-	hist, err := e.repo.History.ListByUserFiltered(ctx, userID, limit, &completed, e.mediaQueryFilter(ctx, userID))
-	if err != nil {
-		return nil, err
-	}
+// legacyContinuationPayloads 补全普通目录续播，保留断点所在版本和分段组。
+func (e *EmbyService) legacyContinuationPayloads(ctx context.Context, userID string, hist []repository.Continuation, fields []string) ([]map[string]any, error) {
 	if len(hist) == 0 {
-		return map[string]any{"Items": []any{}, "TotalRecordCount": 0}, nil
+		return []map[string]any{}, nil
 	}
 	metadataIDs := make([]string, 0, len(hist))
 	lastMediaByMetadata := make(map[string]string, len(hist))
 	for i := range hist {
-		metadataIDs = append(metadataIDs, hist[i].MetadataID)
-		lastMediaByMetadata[hist[i].MetadataID] = hist[i].MediaID
+		metadataIDs = append(metadataIDs, hist[i].ItemID)
+		if !hist[i].IsNext {
+			lastMediaByMetadata[hist[i].ItemID] = hist[i].MediaID
+		}
 	}
 	versions, err := e.repo.MediaView.FindByMetadataIDs(ctx, metadataIDs, e.mediaQueryFilter(ctx, userID))
 	if err != nil {
@@ -239,25 +233,22 @@ func (e *EmbyService) legacyResumeItems(ctx context.Context, userID string, limi
 	}
 	views := make([]model.MediaView, 0, len(hist))
 	positions := make(map[string]int64, len(hist))
-	lastPlayed := make(map[string]string, len(hist))
 	completedByID := make(map[string]bool, len(hist))
 	for _, history := range hist {
-		if view, ok := viewsByMetadata[history.MetadataID]; ok {
+		if view, ok := viewsByMetadata[history.ItemID]; ok {
 			views = append(views, view)
-			positions[history.MetadataID] = history.PositionMs
-			completedByID[history.MetadataID] = history.Completed
-			lastPlayed[history.MetadataID] = formatEmbyDateTime(history.WatchedAt)
+			positions[history.ItemID] = history.PositionMs
+			completedByID[history.ItemID] = history.Completed
 		}
 	}
-	relations := e.itemRelationsForViews(ctx, views, userID, newEmbyListFields(nil))
+	relations := e.itemRelationsForViews(ctx, views, userID, newEmbyListFields(fields))
 	items := make([]map[string]any, 0, len(views))
 	for i := range views {
 		view := &views[i]
 		item := e.itemPayloadWithRelations(ctx, view, userID, false, positions[view.MetadataID], completedByID[view.MetadataID], false, relations)
-		item["UserData"].(map[string]any)["LastPlayedDate"] = lastPlayed[view.MetadataID]
 		items = append(items, item)
 	}
-	return map[string]any{"Items": items, "TotalRecordCount": len(items)}, nil
+	return items, nil
 }
 
 func (e *EmbyService) itemPayload(ctx context.Context, m *model.MediaView, userID string, fav bool, posMs int64, completeStreams bool) map[string]any {

@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -50,7 +51,7 @@ func TestNextUpRoutesAndWebContinuation(t *testing.T) {
 	registerEmbyRoutes(router, "test-secret", svc)
 	token := signedTestToken(t, "test-secret")
 	for _, prefix := range []string{"", "/emby"} {
-		for _, path := range []string{"/Shows/NextUp", "/Users/user-1/Shows/NextUp", "/shows/nextup", "/users/user-1/shows/nextup"} {
+		for _, path := range []string{"/Shows/NextUp", "/Users/user-1/Shows/NextUp", "/shows/nextup", "/users/user-1/shows/nextup", "/Items/Resume", "/Users/user-1/Items/Resume", "/items/resume", "/users/user-1/items/resume"} {
 			request := httptest.NewRequest(http.MethodGet, prefix+path+"?SeriesId=series&Limit=1&Fields=MediaSources", nil)
 			request.Header.Set("X-Emby-Token", token)
 			response := httptest.NewRecorder()
@@ -86,5 +87,27 @@ func TestNextUpRoutesAndWebContinuation(t *testing.T) {
 	}
 	if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil || response.Code != 200 || len(result) != 1 || !result[0].History.IsNext || result[0].History.Position != 0 || result[0].Media.ID != "next-file" {
 		t.Fatalf("web contract: status=%d body=%s err=%v", response.Code, response.Body.String(), err)
+	}
+	// 电影断点和下一集须统一排序后分页，而不是各取一页再拼接。
+	create(&model.MetadataItem{PermanentBase: model.PermanentBase{ID: "movie"}, Kind: "movie", Title: "Movie", Source: "test"})
+	create(&model.Media{PermanentBase: model.PermanentBase{ID: "movie-file"}, LibraryID: "library", MetadataID: "movie", Path: "/test/movie"})
+	create(&model.PlaybackHistory{UserID: "user-1", MetadataID: "movie", MediaID: "movie-file", PositionMs: 30000, DurationMs: 120000, WatchedAt: time.Now().Add(time.Minute)})
+	for index, want := range []string{"movie", "next", ""} {
+		request := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/emby/Users/user-1/Items/Resume?Limit=1&StartIndex=%d", index), nil)
+		request.Header.Set("X-Emby-Token", token)
+		response := httptest.NewRecorder()
+		router.ServeHTTP(response, request)
+		var page struct {
+			Items []struct {
+				ID string `json:"Id"`
+			}
+			TotalRecordCount, StartIndex int
+		}
+		if err := json.Unmarshal(response.Body.Bytes(), &page); err != nil || response.Code != 200 || page.TotalRecordCount != 2 || page.StartIndex != index {
+			t.Fatalf("mixed page %d: status=%d body=%s err=%v", index, response.Code, response.Body.String(), err)
+		}
+		if (want == "" && len(page.Items) != 0) || (want != "" && (len(page.Items) != 1 || page.Items[0].ID != want)) {
+			t.Fatalf("mixed page %d: %+v want %s", index, page, want)
+		}
 	}
 }

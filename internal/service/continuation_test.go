@@ -105,6 +105,14 @@ func TestContinuationCrossSeason(t *testing.T) {
 				if len(got) != 1 || got[0]["Id"] != want || emby["TotalRecordCount"] != int64(1) {
 					t.Fatalf("emby=%v want %s", emby, want)
 				}
+				resume, err := e.ResumeItems(t.Context(), user, 10)
+				if err != nil || len(resume["Items"].([]map[string]any)) != 1 || resume["Items"].([]map[string]any)[0]["Id"] != want {
+					t.Fatalf("home Resume=%v err=%v want %s", resume, err, want)
+				}
+				empty, err := e.ResumeItemsPage(t.Context(), ItemsParams{UserID: user, StartIndex: 1, Limit: 1})
+				if err != nil || empty["TotalRecordCount"] != int64(1) || len(empty["Items"].([]map[string]any)) != 0 {
+					t.Fatalf("Resume empty page lost total: %v %v", empty, err)
+				}
 				page, err := e.NextUpItems(t.Context(), ItemsParams{UserID: user, StartIndex: 1, Limit: 1})
 				if err != nil || page["TotalRecordCount"] != int64(1) || len(page["Items"].([]map[string]any)) != 0 {
 					t.Fatalf("empty page lost total: %v %v", page, err)
@@ -178,7 +186,7 @@ func TestContinuationCrossSeason(t *testing.T) {
 			if err := db.Model(&model.Media{}).Where("id = ?", files[2]).Update("library_id", "hidden").Error; err != nil {
 				t.Fatal(err)
 			}
-			visible, total, err := repos.History.Continuations(t.Context(), user, repository.MediaQueryFilter{IncludeNSFW: true, HiddenLibraryIDs: []string{"hidden"}}, true, "", 0, 10)
+			visible, total, err := repos.History.Continuations(t.Context(), user, repository.MediaQueryFilter{IncludeNSFW: true, HiddenLibraryIDs: []string{"hidden"}}, repository.ContinuationNextUp, "", 0, 10)
 			if err != nil || total != 1 || len(visible) != 1 || visible[0].ItemID != items[3] {
 				t.Fatalf("hidden successor: %v total=%d err=%v", visible, total, err)
 			}
@@ -193,7 +201,7 @@ func TestContinuationCrossSeason(t *testing.T) {
 				if err := db.Table(table).Where("id = ?", "s2e1").Update("nsfw", true).Error; err != nil {
 					t.Fatal(err)
 				}
-				rows, total, err := repos.History.Continuations(t.Context(), user, repository.MediaQueryFilter{}, true, "", 0, 10)
+				rows, total, err := repos.History.Continuations(t.Context(), user, repository.MediaQueryFilter{}, repository.ContinuationNextUp, "", 0, 10)
 				if err != nil || total != 1 || len(rows) != 1 || rows[0].ItemID != items[3] {
 					t.Fatalf("NSFW successor: %v total=%d err=%v", rows, total, err)
 				}
@@ -240,6 +248,11 @@ func TestContinuationCrossSeason(t *testing.T) {
 			resume, err := e.ResumeItems(t.Context(), user, 10)
 			if err != nil || len(resume["Items"].([]map[string]any)) != 1 || resume["Items"].([]map[string]any)[0]["Id"] != items[2] {
 				t.Fatalf("resume changed: %v %v", resume, err)
+			}
+			resumeItem := resume["Items"].([]map[string]any)[0]
+			sources := resumeItem["MediaSources"].([]map[string]any)
+			if len(sources) != 2 || sources[0]["Id"] != version.ID || resumeItem["UserData"].(map[string]any)["PlaybackPositionTicks"] != int64(30000*10000) {
+				t.Fatalf("Resume lost preferred version or position: %v", resumeItem)
 			}
 			if err := e.MarkPlayed(t.Context(), user, items[2], true); err != nil {
 				t.Fatal(err)

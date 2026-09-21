@@ -204,7 +204,7 @@ func (p *PlaybackService) ContinueHistory(ctx context.Context, userID string, li
 		return []HistoryItem{}, nil
 	}
 	filter := repository.MediaQueryFilter{IncludeNSFW: visibility.IncludeNSFW, AllowedLibraryIDs: visibility.AllowedLibraryIDs, HiddenLibraryIDs: visibility.HiddenLibraryIDs}
-	candidates, _, err := p.repo.History.Continuations(ctx, userID, filter, false, "", 0, limit)
+	candidates, _, err := p.repo.History.Continuations(ctx, userID, filter, repository.ContinuationWeb, "", 0, limit)
 	if err != nil {
 		return nil, err
 	}

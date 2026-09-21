@@ -132,6 +132,11 @@ func globalItemsOrder(p ItemsParams) string {
 
 // globalItemPayloads 只补全最终页，所有来源沿用原有批量响应与 Fields 规则。
 func (e *EmbyService) globalItemPayloads(ctx context.Context, ids []string, p ItemsParams) ([]map[string]any, error) {
+	return e.globalItemPayloadsWithPreferredMedia(ctx, ids, p, nil)
+}
+
+// globalItemPayloadsWithPreferredMedia 允许续播沿用已选文件，其余列表保持默认版本顺序。
+func (e *EmbyService) globalItemPayloadsWithPreferredMedia(ctx context.Context, ids []string, p ItemsParams, preferredMedia map[string]string) ([]map[string]any, error) {
 	sourceIDs := []string{}
 	localIDs := []string{}
 	legacyIDs := []string{}
@@ -150,6 +155,11 @@ func (e *EmbyService) globalItemPayloads(ctx context.Context, ids []string, p It
 			return nil, err
 		}
 	}
+	for i := range nodes {
+		if mediaID := preferredMedia[nodes[i].ID]; mediaID != "" {
+			nodes[i].MediaID = mediaID
+		}
+	}
 	sourceItems, err := e.hongGuoNodePayloads(ctx, nodes, p.UserID, p.Fields)
 	if err != nil {
 		return nil, err
@@ -159,6 +169,11 @@ func (e *EmbyService) globalItemPayloads(ctx context.Context, ids []string, p It
 		var localNodes []hongGuoNode
 		if err := e.nfoNodes(ctx, p.UserID, "").Where("id IN ?", localIDs).Scan(&localNodes).Error; err != nil {
 			return nil, err
+		}
+		for i := range localNodes {
+			if mediaID := preferredMedia[localNodes[i].ID]; mediaID != "" {
+				localNodes[i].MediaID = mediaID
+			}
 		}
 		localItems, err := e.nfoNodePayloads(ctx, localNodes, p.UserID, p.Fields)
 		if err != nil {

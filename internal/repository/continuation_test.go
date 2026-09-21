@@ -51,49 +51,51 @@ func TestContinuationPlansAndMixedPagination(t *testing.T) {
 	}
 	r := New(db).History
 	filter := MediaQueryFilter{IncludeNSFW: true}
-	for _, source := range []string{"legacy", "nfo", "hongguo"} {
-		q := r.continuationSource(t.Context(), "viewer", filter, source, true, "")
-		query := q.Session(&gorm.Session{DryRun: true}).Find(&[]Continuation{})
-		var raw []byte
-		if err := db.Raw("EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) "+query.Statement.SQL.String(), query.Statement.Vars...).Row().Scan(&raw); err != nil {
-			t.Fatal(err)
-		}
-		var plans []struct {
-			Plan map[string]any
-			Time float64 `json:"Execution Time"`
-		}
-		if err := json.Unmarshal(raw, &plans); err != nil {
-			t.Fatal(err)
-		}
-		var inspect func(map[string]any)
-		inspect = func(plan map[string]any) {
-			if _, ok := plan["Relation Name"]; ok {
-				rows, _ := plan["Actual Rows"].(float64)
-				loops, _ := plan["Actual Loops"].(float64)
-				removed, _ := plan["Rows Removed by Filter"].(float64)
-				if (rows+removed)*loops > 50 {
-					t.Fatalf("%s scanned unrelated catalog: relation=%v rows=%v loops=%v removed=%v plan=%s", source, plan["Relation Name"], rows, loops, removed, raw)
+	for _, mode := range []ContinuationMode{ContinuationNextUp, ContinuationResume} {
+		for _, source := range []string{"legacy", "nfo", "hongguo"} {
+			q := r.continuationSource(t.Context(), "viewer", filter, source, mode, "")
+			query := q.Session(&gorm.Session{DryRun: true}).Find(&[]Continuation{})
+			var raw []byte
+			if err := db.Raw("EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) "+query.Statement.SQL.String(), query.Statement.Vars...).Row().Scan(&raw); err != nil {
+				t.Fatal(err)
+			}
+			var plans []struct {
+				Plan map[string]any
+				Time float64 `json:"Execution Time"`
+			}
+			if err := json.Unmarshal(raw, &plans); err != nil {
+				t.Fatal(err)
+			}
+			var inspect func(map[string]any)
+			inspect = func(plan map[string]any) {
+				if _, ok := plan["Relation Name"]; ok {
+					rows, _ := plan["Actual Rows"].(float64)
+					loops, _ := plan["Actual Loops"].(float64)
+					removed, _ := plan["Rows Removed by Filter"].(float64)
+					if (rows+removed)*loops > 50 {
+						t.Fatalf("%s scanned unrelated catalog: relation=%v rows=%v loops=%v removed=%v plan=%s", source, plan["Relation Name"], rows, loops, removed, raw)
+					}
+				}
+				children, _ := plan["Plans"].([]any)
+				for _, child := range children {
+					inspect(child.(map[string]any))
 				}
 			}
-			children, _ := plan["Plans"].([]any)
-			for _, child := range children {
-				inspect(child.(map[string]any))
-			}
+			inspect(plans[0].Plan)
+			t.Logf("%s next episode: %.3f ms", source, plans[0].Time)
 		}
-		inspect(plans[0].Plan)
-		t.Logf("%s next episode: %.3f ms", source, plans[0].Time)
-	}
-	for start, want := range []string{"hg-episode-ep-1-2", "nfo-ep-1-2", "ep-1-2", ""} {
-		rows, total, err := r.Continuations(t.Context(), "viewer", filter, true, "", start, 1)
-		if err != nil || total != 3 {
-			t.Fatalf("mixed page %d: rows=%v total=%d err=%v", start, rows, total, err)
-		}
-		if want == "" {
-			if len(rows) != 0 {
-				t.Fatalf("unexpected end page: %v", rows)
+		for start, want := range []string{"hg-episode-ep-1-2", "nfo-ep-1-2", "ep-1-2", ""} {
+			rows, total, err := r.Continuations(t.Context(), "viewer", filter, mode, "", start, 1)
+			if err != nil || total != 3 {
+				t.Fatalf("mixed page %d: rows=%v total=%d err=%v", start, rows, total, err)
 			}
-		} else if len(rows) != 1 || rows[0].ItemID != want {
-			t.Fatalf("page %d: %v want %s", start, rows, want)
+			if want == "" {
+				if len(rows) != 0 {
+					t.Fatalf("unexpected end page: %v", rows)
+				}
+			} else if len(rows) != 1 || rows[0].ItemID != want {
+				t.Fatalf("page %d: %v want %s", start, rows, want)
+			}
 		}
 	}
 	// 新近但已完结的剧不能占满候选窗口，导致较早的有效下一集消失。
@@ -102,11 +104,11 @@ func TestContinuationPlansAndMixedPagination(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	rows, total, err := r.Continuations(t.Context(), "viewer", filter, true, "series-1", 0, 1)
+	rows, total, err := r.Continuations(t.Context(), "viewer", filter, ContinuationNextUp, "series-1", 0, 1)
 	if err != nil || total != 1 || len(rows) != 1 || rows[0].ItemID != "ep-1-2" {
 		t.Fatalf("series filter/exhausted groups: %v total=%d err=%v", rows, total, err)
 	}
-	rows, total, err = r.Continuations(t.Context(), "viewer", filter, true, "", 2, 1)
+	rows, total, err = r.Continuations(t.Context(), "viewer", filter, ContinuationNextUp, "", 2, 1)
 	if err != nil || total != 3 || len(rows) != 1 || rows[0].ItemID != "ep-1-2" {
 		t.Fatalf("premature history limit: %v total=%d err=%v", rows, total, err)
 	}

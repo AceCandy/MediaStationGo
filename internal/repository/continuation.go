@@ -20,8 +20,17 @@ type Continuation struct {
 	Completed  bool
 }
 
-// Continuations 共用 Web 续播和 Emby 下一集选集规则；nextOnly 不返回电影和已有断点的剧。
-func (r *HistoryRepository) Continuations(ctx context.Context, userID string, filter MediaQueryFilter, nextOnly bool, seriesID string, start, limit int) ([]Continuation, int64, error) {
+// ContinuationMode 区分网页续播、Emby 首页续播和仅下一集的筛选与计数需求。
+type ContinuationMode int
+
+const (
+	ContinuationWeb ContinuationMode = iota
+	ContinuationResume
+	ContinuationNextUp
+)
+
+// Continuations 在分页前按剧归组；Emby 返回精确总数，网页只取有界候选。
+func (r *HistoryRepository) Continuations(ctx context.Context, userID string, filter MediaQueryFilter, mode ContinuationMode, seriesID string, start, limit int) ([]Continuation, int64, error) {
 	rows := []Continuation{}
 	if userID == "" {
 		return rows, 0, nil
@@ -41,8 +50,8 @@ func (r *HistoryRepository) Continuations(ctx context.Context, userID string, fi
 	var total int64
 	var pages []*gorm.DB
 	for _, source := range sources {
-		q := r.continuationSource(ctx, userID, filter, source, nextOnly, seriesID)
-		if nextOnly {
+		q := r.continuationSource(ctx, userID, filter, source, mode, seriesID)
+		if mode != ContinuationWeb {
 			var count int64
 			if err := db.Table("(?) AS candidates", q).Count(&count).Error; err != nil {
 				return nil, 0, err
@@ -68,7 +77,7 @@ func (r *HistoryRepository) Continuations(ctx context.Context, userID string, fi
 }
 
 // continuationSource 先归组有状态的可见条目，再按组定位后续单集，避免展开全目录及逐剧请求。
-func (r *HistoryRepository) continuationSource(ctx context.Context, userID string, filter MediaQueryFilter, source string, nextOnly bool, seriesID string) *gorm.DB {
+func (r *HistoryRepository) continuationSource(ctx context.Context, userID string, filter MediaQueryFilter, source string, mode ContinuationMode, seriesID string) *gorm.DB {
 	db := r.db.WithContext(ctx)
 	q := db.Table("media AS m")
 	if len(filter.AllowedLibraryIDs) > 0 {
@@ -125,7 +134,7 @@ func (r *HistoryRepository) continuationSource(ctx context.Context, userID strin
 	q = q.Select(projection + `, m.id AS media_id, COALESCE(m.id = st.media_id,FALSE) AS preferred,
  COALESCE(st.position_ms,0) AS position_ms, COALESCE(st.duration_ms,0) AS duration_ms,
  COALESCE(st.completed,FALSE) AS completed, st.watched_at`)
-	if nextOnly {
+	if mode != ContinuationWeb {
 		// Emby 混合目录的 Resume 接受任意正进度；NextUp 不能重复推荐它。
 		threshold = 1
 	}
@@ -138,7 +147,7 @@ func (r *HistoryRepository) continuationSource(ctx context.Context, userID strin
 		Where("kind = 'episode' AND NOT completed AND (season_num,work_order,episode_num) > (a.season_num,a.work_order,a.episode_num)").
 		Order("season_num, work_order, episode_num, preferred DESC, media_id").Limit(1)
 	anchorFilter := "TRUE"
-	if nextOnly {
+	if mode == ContinuationNextUp {
 		anchorFilter = "NOT a.resumable AND a.completed AND a.kind = 'episode'"
 	}
 	// 红果/NFO 批量标记逐集写时间；完成边界取最远集序，不能由写入顺序决定。

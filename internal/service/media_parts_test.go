@@ -337,6 +337,14 @@ func TestEmbyMultipartKeepsVersionsAndConcretePartPlayback(t *testing.T) {
 	if err := svc.repo.DB.Where("user_id = ? AND metadata_id = ?", "user-1", metadata.ID).Take(&history).Error; err != nil || history.MediaID != media[3].ID {
 		t.Fatalf("part progress history = %#v, %v", history, err)
 	}
+	resume, err := svc.ResumeItems(t.Context(), "user-1", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resumeItems := resume["Items"].([]map[string]any)
+	if len(resumeItems) != 1 || resumeItems[0]["PartCount"] != 2 || resumeItems[0]["MediaSources"].([]map[string]any)[0]["Id"] != media[2].ID {
+		t.Fatalf("Resume lost preferred multipart version: %v", resume)
+	}
 	additional, err = svc.AdditionalParts(t.Context(), metadata.ID, "user-1")
 	if err != nil {
 		t.Fatal(err)

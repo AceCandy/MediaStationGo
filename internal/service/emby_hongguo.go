@@ -14,95 +14,9 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-// ResumeItems 对两套独立状态各取有界最新候选，再按观看时间选全局前 N 项。
+// ResumeItems 为直接调用者提供首页续播；HTTP 分页入口复用相同候选查询。
 func (e *EmbyService) ResumeItems(ctx context.Context, userID string, limit int) (map[string]any, error) {
-	if limit <= 0 || limit > 100 {
-		limit = 20
-	}
-	if has, err := e.repo.NFO.HasMedia(ctx); err != nil {
-		return nil, err
-	} else if has {
-		result, _, err := e.hongGuoGlobalItems(ctx, ItemsParams{UserID: userID, Recursive: true, Limit: limit, Filters: []string{"IsResumable"}, SortBy: "DatePlayed", SortOrder: "Descending"})
-		return result, err
-	}
-	v := e.mediaVisibility(ctx, userID)
-	if v.LibraryRestricted && len(v.AllowedLibraryIDs) == 0 {
-		return emptyItemsEnvelope(0), nil
-	}
-	legacy, err := e.legacyResumeItems(ctx, userID, limit)
-	if err != nil {
-		return nil, err
-	}
-	var hasHongGuo bool
-	if err := e.repo.DB.WithContext(ctx).Raw("SELECT EXISTS (SELECT 1 FROM media WHERE catalog_source = 'hongguo')").Scan(&hasHongGuo).Error; err != nil {
-		return nil, err
-	}
-	if !hasHongGuo || userID == "" {
-		return legacy, nil
-	}
-	cards, _, err := e.repo.HongGuo.UserCards(ctx, userID, "continue", 1, limit, e.mediaQueryFilter(ctx, userID))
-	if err != nil {
-		return nil, err
-	}
-	items, _ := legacy["Items"].([]map[string]any)
-	ids := make([]string, len(cards))
-	for i, card := range cards {
-		ids[i] = card.MediaID
-	}
-	sourceIDs := make([]string, 0, len(cards))
-	for _, card := range cards {
-		sourceIDs = append(sourceIDs, card.SourceID)
-	}
-	people, err := e.hongGuoPeople(ctx, sourceIDs)
-	if err != nil {
-		return nil, err
-	}
-	views, err := e.repo.MediaView.FindByIDs(ctx, ids, e.mediaQueryFilter(ctx, userID))
-	if err != nil {
-		return nil, err
-	}
-	byID := map[string]model.MediaView{}
-	relations := &embyItemRelations{fields: newEmbyListFields(nil), versionsByMetadataID: map[string][]model.MediaView{}}
-	relations.peopleByMetadataID = people
-	itemIDs := make([]string, 0, len(views))
-	for _, view := range views {
-		byID[view.ID] = view
-		itemIDs = append(itemIDs, view.CatalogItemID)
-	}
-	versions, err := e.repo.MediaView.HongGuoItemsViews(ctx, itemIDs, e.mediaQueryFilter(ctx, userID))
-	if err != nil {
-		return nil, err
-	}
-	for _, view := range versions {
-		relations.versionsByMetadataID[view.CatalogItemID] = append(relations.versionsByMetadataID[view.CatalogItemID], view)
-	}
-	for _, card := range cards {
-		view, ok := byID[card.MediaID]
-		if !ok {
-			continue
-		}
-		relations.versionsByMetadataID[view.CatalogItemID] = orderMediaVersionSiblings(relations.versionsByMetadataID[view.CatalogItemID], card.MediaID)
-		item := e.itemPayloadWithRelations(ctx, &view, userID, false, card.PositionMs, card.Completed, false, relations)
-		item["UserData"].(map[string]any)["LastPlayedDate"] = formatEmbyDateTime(card.UpdatedAt)
-		items = append(items, item)
-	}
-	sort.SliceStable(items, func(i, j int) bool {
-		left, _ := items[i]["UserData"].(map[string]any)["LastPlayedDate"].(string)
-		right, _ := items[j]["UserData"].(map[string]any)["LastPlayedDate"].(string)
-		if left == right {
-			return items[i]["Id"].(string) < items[j]["Id"].(string)
-		}
-		leftTime, _ := time.Parse(time.RFC3339Nano, left)
-		rightTime, _ := time.Parse(time.RFC3339Nano, right)
-		return leftTime.After(rightTime)
-	})
-	if len(items) > limit {
-		items = items[:limit]
-	}
-	if items == nil {
-		items = []map[string]any{}
-	}
-	return map[string]any{"Items": items, "TotalRecordCount": len(items)}, nil
+	return e.continuationItems(ctx, ItemsParams{UserID: userID, Limit: limit}, repository.ContinuationResume)
 }
 
 // hongGuoNode 是文件可见性过滤后的逻辑目录，不写入旧资料表。
