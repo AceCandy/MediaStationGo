@@ -1226,3 +1226,33 @@ Web 与 Emby 对缺失的单集播出日期按同季前序集回退；季和单�
 ### Status
 
 [OK] **Completed**
+
+
+## Session 141: Emby 分来源搜索与红果独立索引
+<!-- trellis-session: v=2 fp=592de516f96168e2 -->
+
+**Date**: 2026-09-21
+**Task**: Emby 分来源搜索与红果独立索引
+**Branch**: `main`
+
+### Summary
+
+普通库和红果独立 OpenSearch 检索，合并 NFO 数据库候选并统一分页；完成相关回归与独立复核，归档任务。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `4096143` | fix(emby): search catalog sources independently |
+
+### Testing
+
+- [OK] PostgreSQL 隔离回归、真实临时 OpenSearch、race 与 vet 通过；只读搜索航海王约 274ms。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 现有服务未重启；部署后复测播放器搜索并等待红果索引预热。
