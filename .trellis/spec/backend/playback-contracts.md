@@ -49,6 +49,15 @@ per-user, per-metadata history state but playback events are append-only.
   recently watched Episode; Movies and items without a Series group by their own
   logical identity. HongGuo groups by its source work or manual display group and
   never merges with canonical media by title.
+- Mixed-catalog Emby global `IsResumable` uses `globalResumeItems`: filter each
+  source's current-user state and visible files before grouping, count distinct
+  resume keys per source, then merge at most `StartIndex + Limit` grouped rows
+  per source in PostgreSQL. Preserve database collation, NULL ordering and
+  `played_at DESC, id DESC` representative selection. Do not expand the full
+  catalog into Series/Season nodes or join artwork/probe data for candidates.
+  This path retains `position_ms > 0`; the no-NFO `ResumeItems` history path
+  retains its existing threshold and preferred-version behavior. Album grouping
+  still returns the selected playable Episode, never an album container.
 - Web history and continue cards fill an absent Episode poster with its Season
   poster, then Series poster, then the existing display backdrop. Batch-load
   artwork for the returned page only; preserve canonical selections and concrete
@@ -190,6 +199,11 @@ per-user, per-metadata history state but playback events are append-only.
 - Cover canonical and HongGuo same-Series resume grouping, newest-Episode
   selection, visibility, user isolation, and pagination after grouping across
   Web Continue, Emby Resume, and `IsResumable`; assert full history is unchanged.
+- `TestEmbyResumeSourcesGroupBeforeMerge` compares mixed-source pages with the
+  original node query and covers filters, offsets, exact totals, versions,
+  albums, time ties and missing timestamps. `TestEmbyResumeCandidatesIgnoreUnwatchedCatalog`
+  checks actual PostgreSQL plan rows/loops against large unrelated catalogs and
+  other users' states; SQL shape or elapsed-time assertions alone are insufficient.
 - Run playback-statistics repository tests against real PostgreSQL; assert
   newest-first pagination, movie/season aggregation, date-range intersection,
   deleted-media availability, and a page beyond the last item.

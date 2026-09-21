@@ -26,6 +26,10 @@ func (e *EmbyService) hongGuoGlobalItems(ctx context.Context, p ItemsParams) (ma
 	if v.LibraryRestricted && len(v.AllowedLibraryIDs) == 0 {
 		return emptyItemsEnvelope(p.StartIndex), true, nil
 	}
+	if containsEmbyFilter(p.Filters, "IsResumable") {
+		result, err := e.globalResumeItems(ctx, p)
+		return result, true, err
+	}
 	files := e.applyUserMediaVisibility(ctx, e.repo.DB.WithContext(ctx).Model(&model.Media{}), p.UserID).
 		Select("media.metadata_id, media.created_at")
 	// 每个文件最多展开自身、季、整剧；没有文件的资料不成为候选。
@@ -62,7 +66,23 @@ func (e *EmbyService) hongGuoGlobalItems(ctx context.Context, p ItemsParams) (ma
 		}
 		combined = e.repo.DB.Raw("? UNION ALL ?", combined, local)
 	}
-	q := e.repo.DB.WithContext(ctx).Table("(?) AS combined", combined)
+	q := filterGlobalItems(e.repo.DB.WithContext(ctx).Table("(?) AS combined", combined), p)
+	var total int64
+	if err := q.Session(&gorm.Session{}).Count(&total).Error; err != nil {
+		return nil, true, err
+	}
+	var ids []string
+	if err := q.Session(&gorm.Session{}).Order(globalItemsOrder(p)).Offset(p.StartIndex).Limit(p.Limit).Pluck("id", &ids).Error; err != nil {
+		return nil, true, err
+	}
+	items, err := e.globalItemPayloads(ctx, ids, p)
+	if err != nil {
+		return nil, true, err
+	}
+	return map[string]any{"Items": items, "TotalRecordCount": total, "StartIndex": p.StartIndex}, true, nil
+}
+
+func filterGlobalItems(q *gorm.DB, p ItemsParams) *gorm.DB {
 	if strings.TrimSpace(p.SearchTerm) != "" {
 		q = q.Where("POSITION(LOWER(?) IN LOWER(title)) > 0", strings.TrimSpace(p.SearchTerm))
 	}
@@ -83,14 +103,10 @@ func (e *EmbyService) hongGuoGlobalItems(ctx context.Context, p ItemsParams) (ma
 	if containsEmbyFilter(p.Filters, "IsUnplayed") {
 		q = q.Where("NOT played")
 	}
-	if containsEmbyFilter(p.Filters, "IsResumable") {
-		q = q.Where("NOT played AND position_ms > 0 AND kind IN ('movie','episode')")
-		q = e.repo.DB.WithContext(ctx).Table("(?) AS grouped_resume", q.Select("DISTINCT ON (resume_key) *").Order("resume_key, played_at DESC, id DESC"))
-	}
-	var total int64
-	if err := q.Session(&gorm.Session{}).Count(&total).Error; err != nil {
-		return nil, true, err
-	}
+	return q
+}
+
+func globalItemsOrder(p ItemsParams) string {
 	order, direction := "release_date", "DESC"
 	switch primarySupportedEmbySort(p.SortBy, containsEmbyFilter(p.Filters, "IsResumable")) {
 	case "sortname", "name":
@@ -107,14 +123,15 @@ func (e *EmbyService) hongGuoGlobalItems(ctx context.Context, p ItemsParams) (ma
 	} else if strings.EqualFold(firstCSVValue(p.SortOrder), "Ascending") {
 		direction = "ASC"
 	}
-	var ids []string
-	pageQuery := q.Session(&gorm.Session{}).Order(order + " " + direction)
+	clauses := []string{order + " " + direction}
 	if order == "release_date" {
-		pageQuery = pageQuery.Order("year " + direction).Order("created_at " + direction)
+		clauses = append(clauses, "year "+direction, "created_at "+direction)
 	}
-	if err := pageQuery.Order("id "+direction).Offset(p.StartIndex).Limit(p.Limit).Pluck("id", &ids).Error; err != nil {
-		return nil, true, err
-	}
+	return strings.Join(append(clauses, "id "+direction), ", ")
+}
+
+// globalItemPayloads 只补全最终页，所有来源沿用原有批量响应与 Fields 规则。
+func (e *EmbyService) globalItemPayloads(ctx context.Context, ids []string, p ItemsParams) ([]map[string]any, error) {
 	sourceIDs := []string{}
 	localIDs := []string{}
 	legacyIDs := []string{}
@@ -130,22 +147,22 @@ func (e *EmbyService) hongGuoGlobalItems(ctx context.Context, p ItemsParams) (ma
 	var nodes []hongGuoNode
 	if len(sourceIDs) > 0 {
 		if err := e.hongGuoNodes(ctx, p.UserID, "").Where("id IN ?", sourceIDs).Scan(&nodes).Error; err != nil {
-			return nil, true, err
+			return nil, err
 		}
 	}
 	sourceItems, err := e.hongGuoNodePayloads(ctx, nodes, p.UserID, p.Fields)
 	if err != nil {
-		return nil, true, err
+		return nil, err
 	}
 	byID := map[string]map[string]any{}
 	if len(localIDs) > 0 {
 		var localNodes []hongGuoNode
 		if err := e.nfoNodes(ctx, p.UserID, "").Where("id IN ?", localIDs).Scan(&localNodes).Error; err != nil {
-			return nil, true, err
+			return nil, err
 		}
 		localItems, err := e.nfoNodePayloads(ctx, localNodes, p.UserID, p.Fields)
 		if err != nil {
-			return nil, true, err
+			return nil, err
 		}
 		for _, item := range localItems {
 			byID[item["Id"].(string)] = item
@@ -156,7 +173,7 @@ func (e *EmbyService) hongGuoGlobalItems(ctx context.Context, p ItemsParams) (ma
 	}
 	legacyItems, err := e.hongGuoBrowseLegacyPayloads(ctx, legacyIDs, p)
 	if err != nil {
-		return nil, true, err
+		return nil, err
 	}
 	for _, item := range legacyItems {
 		byID[item["Id"].(string)] = item
@@ -168,7 +185,7 @@ func (e *EmbyService) hongGuoGlobalItems(ctx context.Context, p ItemsParams) (ma
 			items = append(items, item)
 		}
 	}
-	return map[string]any{"Items": items, "TotalRecordCount": total, "StartIndex": p.StartIndex}, true, nil
+	return items, nil
 }
 
 // 混合页中的旧资料仍使用原有批量投影与 Fields 规则，不逐项调用完整详情。
