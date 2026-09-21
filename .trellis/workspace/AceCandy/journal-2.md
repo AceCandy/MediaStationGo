@@ -1170,3 +1170,37 @@ Web 与 Emby 对缺失的单集播出日期按同季前序集回退；季和单�
 ### Status
 
 [OK] **Completed**
+
+
+## Session 139: 优化混合来源继续观看查询
+<!-- trellis-session: v=2 fp=cf2eaf1e418d7e21 -->
+
+**Date**: 2026-09-21
+**Task**: 优化混合来源继续观看查询
+**Branch**: `main`
+
+### Summary
+
+按来源筛选用户进度并归组计数，有界合并后统一排序分页，保持权限和响应语义。
+
+### Main Changes
+
+- 新增传统资料、红果与 NFO 的继续观看候选查询及混合分页回归测试。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `b465f98` | perf(emby): 按来源筛选并合并继续观看候选 |
+
+### Testing
+
+- [OK] 隔离 PostgreSQL 回归通过；三来源各两万资料及两万无关用户状态的执行计划检查通过；go vet 和 diff 检查通过。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 线上实际耗时及播放器仍需验证；普通剧集分页、NFO目录与存在性检查等慢查询尚未优化。
