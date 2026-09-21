@@ -1278,3 +1278,25 @@ Web 与 Emby 对缺失的单集播出日期按同季前序集回退；季和单�
 ### Status
 
 [OK] **Completed**
+
+
+## Session 143: Emby 首页 Resume 衔接下一季提交推送
+<!-- trellis-session: v=2 fp=d9b40b282ec003c2 -->
+
+**Date**: 2026-09-22
+**Task**: Emby 首页 Resume 衔接下一季提交推送
+**Branch**: `main`
+
+### Summary
+
+复用跨来源续播查询让 Emby Resume 返回断点或下一集，覆盖普通、NFO、红果及分页和具体版本；隔离 PostgreSQL 回归、Web 构建与浏览器目录检查通过。归档任务，未部署运行服务。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `02cd17d` | fix(emby): include next episodes in resume items |
+
+### Status
+
+[OK] **Completed**
