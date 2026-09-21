@@ -9,6 +9,7 @@ export interface HistoryItem {
   duration_ms: number
   watched_at: string
   completed: boolean
+  is_next?: boolean
   media?: Media
 }
 

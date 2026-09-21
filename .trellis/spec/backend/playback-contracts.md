@@ -22,8 +22,9 @@ per-user, per-metadata history state but playback events are append-only.
   `system=all|catalog|hongguo|nfo` (API default remains `catalog`).
 - `playback_histories` is unique on active `(user_id, metadata_id)`;
   `playback_events` is unique on active `(user_id, session_id, metadata_id)`.
-- Continue-watching reads are `GET /api/watch-history/continue`, Emby
-  `/Items/Resume`, and Emby `/Items` with `Filters=IsResumable`.
+- Web continuation is `GET /api/watch-history/continue`; Emby separates
+  `/Items/Resume` and `/Items?Filters=IsResumable` from `/Shows/NextUp` (also
+  user-scoped, lowercase, and `/emby` variants).
 - `playback.auto_mark_previous_episodes` is an administrator setting, default
   false, edited through the existing single-key settings API.
 
@@ -40,15 +41,55 @@ per-user, per-metadata history state but playback events are append-only.
   and favorite-metadata visibility before selecting one file per favorite.
 - The service, not a request `completed` field, calculates completion:
   duration below ten minutes uses `duration - 30s`; otherwise use 90%.
+- Ordinary, NFO and HongGuo state have nullable internal `resume_position_ms`.
+  NULL interprets legacy completed snapshots as zero resume, otherwise uses
+  `position_ms`. Automatic reports store zero on completion and a positive
+  replay position independently of sticky `completed` (old OR new). Explicit
+  unwatch resets state. Keep original position/duration snapshots for statistics.
+- `repository.PlaybackStates` is a read-only effective-state projection shared
+  by detail, hierarchy, Resume and NextUp before filtering/grouping/paging.
+  When the recorded file is unavailable, compare its resume position with a
+  visible same-identity preferred replacement's probe duration. Unknown duration
+  or multipart replacement cannot infer completion. Do not rewrite snapshots or
+  events on reads, and never downgrade a completed mark. A deleted source's late
+  Emby report must not resolve to a different file and overwrite progress.
+- A concrete non-multipart playback report uses that file's known probe duration
+  after validating client bounds; clamp position to that duration. Do not use a
+  different version's duration. Multipart retains its reported group timeline.
 - Automatic progress requires a position of at least 60 seconds when duration
   exceeds ten minutes, or 20 seconds otherwise (including exactly ten minutes).
   Earlier positions are ignored; eligible updates save history and a non-empty
   session ID also creates one event in the same transaction.
-- Full history remains Episode-grained. Continue-watching reads group visible,
-  incomplete Episodes by canonical Series before pagination and retain the most
+- Full history remains Episode-grained. Emby resume reads group visible,
+  resumable Episodes (including watched replays) by canonical Series before pagination and retain the most
   recently watched Episode; Movies and items without a Series group by their own
-  logical identity. HongGuo groups by its source work or manual display group and
+  logical identity. HongGuo groups by its source work or official album and
   never merges with canonical media by title.
+- Web continuation and Emby NextUp share `HistoryRepository.Continuations`.
+  Prefer the latest visible resumable episode; without a resumable episode,
+  advance from the furthest completed coordinate to the first later visible,
+  file-backed unplayed episode. Canonical/NFO order by season/episode; HongGuo
+  orders by season_index/source_id/episode, preserving source state identity
+  when several works have the same season number. Bulk marking is not ordered
+  playback: different per-episode timestamps must not move the completion
+  boundary backward. Group activity uses the maximum watched timestamp.
+  Untouched and exhausted groups produce no next candidate. Specials can
+  resume; positive-season progress never automatically returns to season zero.
+- Web preserves canonical/NFO 20-second resume eligibility and HongGuo positive
+  progress eligibility; NextUp excludes any group with positive resumable
+  progress to avoid duplicating Emby mixed Resume. NextUp excludes movies.
+  Its `UserId` defaults to the authenticated user; `SeriesId` filters public
+  series identities, `Fields` uses existing payload rules, `Limit` is 1..100
+  (default/fallback 20), negative/overflow `StartIndex` falls back to zero.
+  Visibility precedes grouping, successor selection, exact count and paging.
+  Bound each source by StartIndex+Limit only after finding valid candidates;
+  hydrate current-page items in batches. Never cap raw history or expand a
+  whole catalog into display nodes to find successors.
+- A Web continuation response keeps `{history, media}` and adds
+  `history.is_next=true` for derived recommendations. A `next:<item ID>` history
+  ID is a read-only projection, never persisted or included in full history or
+  statistics. Next-episode cards link directly to the selected concrete file
+  (`/media/<media.id>`), not a series page that defaults to its first episode.
 - Mixed-catalog Emby global `IsResumable` uses `globalResumeItems`: filter each
   source's current-user state and visible files before grouping, count distinct
   resume keys per source, then merge at most `StartIndex + Limit` grouped rows
@@ -131,6 +172,13 @@ per-user, per-metadata history state but playback events are append-only.
 | `MediaSourceId` belongs to another `ItemId` | Ignore the mismatched source and retain generic item resolution |
 | Position below 60 seconds for duration > ten minutes, or below 20 seconds otherwise | Successful no-op for automatic progress |
 | Several incomplete Episodes belong to one visible Series | Continue watching returns only the most recently watched Episode; full history keeps every Episode |
+| Completed season, later visible unplayed episode | Web returns an is_next card; Emby NextUp returns the same logical Episode |
+| Incomplete episode in a started group | Web resumes it; NextUp omits the group; Resume semantics remain unchanged |
+| Watched episode replayed past recording threshold | Played remains true; Resume shows new position; NextUp omits the group |
+| Deleted long file, shorter visible replacement already finished | Effective Played=true and resume=0; season and NextUp use the corrected state |
+| Missing replacement duration or no visible replacement | Do not infer completion from stale duration |
+| No history, all completed, or no visible successor | No next-episode recommendation |
+| NextUp offset beyond final page | Empty Items with the exact unchanged TotalRecordCount |
 | Invisible media | Request is rejected; no history or event is written |
 | Auto-mark off or progress incomplete | No earlier episode is changed |
 | Auto-mark on and progress completed | Only visible earlier episodes in the same season are completed; failures roll back the progress transaction |
@@ -155,6 +203,10 @@ per-user, per-metadata history state but playback events are append-only.
   while two files sharing movie metadata contribute to one movie row.
 - Good: Episodes 6 and 7 both retain history, while every Web/Emby resume read
   returns only the more recently watched incomplete Episode 7.
+- Good: S01 is marked complete in arbitrary write order and both continuation
+  consumers select S02E01. Redoing the S01E01 mark does not rewind selection.
+- Bad: order HongGuo only by season/episode and collide two source works, or
+  let the most recently written bulk mark define the completed boundary.
 - Bad: deduplicate after `LIMIT`, because repeated Episodes can consume the
   candidate window and hide older resumable Series or Movies.
 - Base: a legacy client without a session ID still saves valid history but does
@@ -170,6 +222,22 @@ per-user, per-metadata history state but playback events are append-only.
   of the ranking period and selected date range.
 
 ## 6. Tests Required
+
+- `TestPlaybackStateReplayAndDeletedVersion` covers all three sources, replay,
+  completion, explicit unwatch, legacy snapshots, unknown duration, hidden
+  replacements, user isolation and read-only reconciliation on PostgreSQL.
+- `TestContinuationCrossSeason` covers canonical/NFO/HongGuo manual season
+  completion, out-of-order marks, equal-season album members, hidden successor
+  files, version preference, resume priority, user isolation and read-only state.
+- `TestContinuationPlansAndMixedPagination` checks real PostgreSQL plan
+  rows/loops against 2,000 series/4,000 episodes per catalog and other-user
+  states, stable mixed pages/exact totals and exhausted groups before valid
+  candidates. No wall-clock assertion or assumption that a LIMIT bounds scans.
+- `TestNextUpRoutesAndWebContinuation` and `TestEmbyTargetUserRequired` cover
+  all route aliases, current-user and cross-user access and nested Web markers.
+  Run `node scripts/check-history-presentation.mjs` and
+  `node scripts/check-nextup.mjs` from `web` (the latter uses a local preview,
+  mocked APIs and an isolated browser) for target links and catalog behavior.
 
 - `TestFavoritesOnlyMoviesAndSeries`, `TestFavoriteHandlersRejectEpisodes`, and
   `TestListFavourites*` verify supported round-trips, unsupported writes, entity-owned
@@ -258,3 +326,8 @@ details := playbackStatsQuery(ctx, filter).Order("pe.played_at DESC, pe.id DESC"
 grouped := visibleResumeScope.Distinct("series_id").Order("series_id, watched_at DESC")
 page := db.Table("(?) AS grouped_resume", grouped).Order("watched_at DESC").Limit(limit)
 ```
+
+Wrong: persist a zero-progress row for S02E01 just to display a recommendation,
+or limit the latest 20 history rows before discarding exhausted series.
+Correct: derive the next visible episode from current state, then page valid
+group candidates and return a read-only `is_next` projection.

@@ -11,9 +11,13 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-func (r *NFORepository) UserState(ctx context.Context, userID, itemID string) (model.NFOUserState, error) {
+func (r *NFORepository) UserState(ctx context.Context, userID, itemID string, filters ...MediaQueryFilter) (model.NFOUserState, error) {
 	state := model.NFOUserState{UserID: userID, ItemID: strings.TrimPrefix(itemID, "nfo-")}
-	err := r.db.WithContext(ctx).Where("user_id = ? AND item_id = ?", userID, state.ItemID).First(&state).Error
+	filter := MediaQueryFilter{IncludeNSFW: true}
+	if len(filters) > 0 {
+		filter = filters[0]
+	}
+	err := r.db.WithContext(ctx).Table("(?) AS state", PlaybackStates(ctx, r.db, "nfo", userID, filter)).Where("item_id = ?", state.ItemID).Take(&state).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		err = nil
 	}
@@ -47,8 +51,9 @@ func (r *NFORepository) RecordProgress(ctx context.Context, userID, sessionID st
 	}
 	now := time.Now()
 	state := model.NFOUserState{UserID: userID, ItemID: strings.TrimPrefix(media.CatalogItemID, "nfo-"), MediaID: media.ID, PositionMs: position, DurationMs: duration, Completed: completed, WatchedAt: &now}
+	state.ResumePositionMs = ResumePosition(position, completed)
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := saveNFOProgress(tx, &state); err != nil {
+		if err := tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "user_id"}, {Name: "item_id"}}, DoUpdates: progressUpdates("nfo_user_states")}).Create(&state).Error; err != nil {
 			return err
 		}
 		if strings.TrimSpace(sessionID) == "" {
@@ -61,7 +66,7 @@ func (r *NFORepository) RecordProgress(ctx context.Context, userID, sessionID st
 
 func saveNFOProgress(tx *gorm.DB, state *model.NFOUserState) error {
 	return tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "user_id"}, {Name: "item_id"}},
-		DoUpdates: clause.AssignmentColumns([]string{"media_id", "position_ms", "duration_ms", "completed", "watched_at", "updated_at"}),
+		DoUpdates: clause.AssignmentColumns([]string{"media_id", "position_ms", "duration_ms", "resume_position_ms", "completed", "watched_at", "updated_at"}),
 	}).Create(state).Error
 }
 
@@ -100,7 +105,7 @@ func (r *NFORepository) MarkPreviousEpisodes(ctx context.Context, userID string,
 		state := model.NFOUserState{UserID: userID, ItemID: id, MediaID: row.ID, PositionMs: row.ProbeDurationMS, DurationMs: row.ProbeDurationMS, Completed: true, WatchedAt: &now}
 		if err := r.db.WithContext(ctx).Clauses(clause.OnConflict{
 			Columns:   []clause.Column{{Name: "user_id"}, {Name: "item_id"}},
-			DoUpdates: clause.AssignmentColumns([]string{"media_id", "position_ms", "duration_ms", "completed", "watched_at", "updated_at"}),
+			DoUpdates: clause.AssignmentColumns([]string{"media_id", "position_ms", "duration_ms", "resume_position_ms", "completed", "watched_at", "updated_at"}),
 			Where:     clause.Where{Exprs: []clause.Expression{clause.Expr{SQL: "NOT nfo_user_states.completed"}}},
 		}).Create(&state).Error; err != nil {
 			return err
@@ -120,11 +125,13 @@ func (r *NFORepository) HasMedia(ctx context.Context) (bool, error) {
 // History 先按可见文件筛选及整剧归组，再分页；只投影公共响应，不写公共状态表。
 func (r *NFORepository) History(ctx context.Context, userID string, limit int, completed *bool, filter MediaQueryFilter) ([]model.PlaybackHistory, error) {
 	q := (&MediaViewRepository{db: r.db}).nfoViewQuery(ctx, filter).
-		Joins("JOIN nfo_user_states st ON st.item_id = ni.id AND st.user_id = ?", userID).
+		Joins("JOIN (?) st ON st.item_id = ni.id", PlaybackStates(ctx, r.db, "nfo", userID, filter)).
 		Where("st.watched_at IS NOT NULL")
 	key := "ni.id"
 	if completed != nil {
-		q = q.Where("st.completed = ?", *completed)
+		if *completed {
+			q = q.Where("st.completed")
+		}
 		if !*completed {
 			q = q.Where("st.position_ms >= 20000")
 			key = "COALESCE(nw.id,ni.id)"

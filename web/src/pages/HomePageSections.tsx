@@ -185,14 +185,14 @@ export function ContinueWatchingSection({ history }: { history: HistoryItem[] })
           <Clock size={16} />
         </span>
         <h2 className="font-display text-xl font-extrabold tracking-tight text-[var(--app-text)]">继续观看</h2>
-        <span className="rounded-full border border-[var(--app-border)] bg-[var(--app-panel-soft)] px-2.5 py-0.5 text-xs font-bold text-[var(--app-muted)]">{history.length} 个记录</span>
+        <span className="rounded-full border border-[var(--app-border)] bg-[var(--app-panel-soft)] px-2.5 py-0.5 text-xs font-bold text-[var(--app-muted)]">{history.length} 项</span>
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
         {history.slice(0, 8).map((h) => {
           const media = h.media!
           const progress = h.duration_ms > 0 ? h.position_ms / h.duration_ms : 0
-          return <ContinueCard key={h.id} media={media} progress={progress} />
+          return <ContinueCard key={h.id} media={media} progress={progress} isNext={h.is_next} />
         })}
       </div>
     </section>
@@ -233,10 +233,11 @@ export function RecentMediaSection({ recentCards }: { recentCards: SeriesCard[] 
   )
 }
 
-function ContinueCard({ media, progress }: { media: Media; progress: number }) {
+function ContinueCard({ media, progress, isNext }: { media: Media; progress: number; isNext?: boolean }) {
   const presentation = episodePresentation(media)
+  const href = isNext ? `/media/${encodeURIComponent(media.id)}` : mediaDetailLink(media)
   return (
-    <Link to={mediaDetailLink(media)} className="group flex items-center gap-4 rounded-2xl border border-[var(--app-border)] bg-[var(--app-panel)] p-3.5 shadow-[0_1px_3px_rgba(0,0,0,0.01)] transition-all duration-300 hover:border-brand-500/30 hover:bg-[var(--app-panel-soft)] hover:shadow-md">
+    <Link to={href} className="group flex items-center gap-4 rounded-2xl border border-[var(--app-border)] bg-[var(--app-panel)] p-3.5 shadow-[0_1px_3px_rgba(0,0,0,0.01)] transition-all duration-300 hover:border-brand-500/30 hover:bg-[var(--app-panel-soft)] hover:shadow-md">
       <div className="relative h-18 w-12 shrink-0 overflow-hidden rounded-xl border border-[var(--app-border)] bg-[var(--app-panel-soft)]">
         {media.poster_url ? (
           <img
@@ -271,7 +272,7 @@ function ContinueCard({ media, progress }: { media: Media; progress: number }) {
             />
           </div>
           <p className="text-[10px] font-bold uppercase tracking-wide text-[var(--app-muted)]">
-            已观看到 {Math.round(progress * 100)}%
+            {isNext ? '接着看下一集' : `已观看到 ${Math.round(progress * 100)}%`}
           </p>
         </div>
       </div>

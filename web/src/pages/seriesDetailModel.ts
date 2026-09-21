@@ -23,6 +23,8 @@ export function distinctEpisodes(items: Media[]): Media[] {
 
 export function seriesResumeEpisode(items: Media[], history: HistoryItem[]): Media | undefined {
   const episodes = distinctEpisodes(items).sort((a, b) => a.season_num - b.season_num || a.episode_num - b.episode_num)
+  const resuming = history.find((row) => row.position_ms >= 20_000 && episodes.some((ep) => episodeIdentity(ep) === row.metadata_id))
+  if (resuming) return items.find((ep) => ep.id === resuming.media_id) ?? episodes.find((ep) => episodeIdentity(ep) === resuming.metadata_id)
   const latest = history.find((row) => episodes.some((ep) => episodeIdentity(ep) === row.metadata_id))
   if (!latest) return episodes.find((ep) => ep.season_num > 0) ?? episodes[0]
   const index = episodes.findIndex((ep) => episodeIdentity(ep) === latest.metadata_id)

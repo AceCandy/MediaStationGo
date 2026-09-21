@@ -65,7 +65,7 @@ func (r *HongGuoRepository) MarkPreviousEpisodes(ctx context.Context, userID, so
 	}
 	return r.db.WithContext(ctx).Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: "user_id"}, {Name: "source_id"}, {Name: "episode_number"}},
-		DoUpdates: clause.AssignmentColumns([]string{"media_id", "position_ms", "duration_ms", "completed", "watched_at", "updated_at"}),
+		DoUpdates: clause.AssignmentColumns([]string{"media_id", "position_ms", "duration_ms", "resume_position_ms", "completed", "watched_at", "updated_at"}),
 		Where:     clause.Where{Exprs: []clause.Expression{clause.Eq{Column: clause.Column{Table: "hongguo_user_states", Name: "completed"}, Value: false}}},
 	}).CreateInBatches(&rows, 200).Error
 }

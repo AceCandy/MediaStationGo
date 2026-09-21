@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/ShukeBta/MediaStationGo/internal/model"
+	"github.com/ShukeBta/MediaStationGo/internal/repository"
 )
 
 type embyItemTarget struct {
@@ -18,11 +19,11 @@ type embyItemTarget struct {
 
 func (e *EmbyService) userDataForTarget(ctx context.Context, userID string, target embyItemTarget) (bool, int64, bool) {
 	if userID != "" && target.NFOItemID != "" {
-		state, _ := e.repo.NFO.UserState(ctx, userID, target.NFOItemID)
+		state, _ := e.repo.NFO.UserState(ctx, userID, target.NFOItemID, e.mediaQueryFilter(ctx, userID))
 		return state.Favorite, state.PositionMs, state.Completed
 	}
 	if userID != "" && target.SourceID != "" {
-		state, _ := e.repo.HongGuo.UserState(ctx, userID, target.SourceID, max(1, target.SourceEpisode))
+		state, _ := e.repo.HongGuo.UserState(ctx, userID, target.SourceID, max(1, target.SourceEpisode), e.mediaQueryFilter(ctx, userID))
 		favorite := false
 		if target.SourceEpisode == 0 {
 			workState, _ := e.repo.HongGuo.UserState(ctx, userID, target.SourceID, 0)
@@ -35,7 +36,7 @@ func (e *EmbyService) userDataForTarget(ctx context.Context, userID string, targ
 	}
 	favorite, _ := e.repo.Favorite.IsFavoriteByIdentity(ctx, userID, target.MetadataID, target.MediaID)
 	var history model.PlaybackHistory
-	q := e.repo.DB.WithContext(ctx).Where("user_id = ? AND metadata_id = ?", userID, target.MetadataID)
+	q := e.repo.DB.WithContext(ctx).Table("(?) AS history", repository.PlaybackStates(ctx, e.repo.DB, "legacy", userID, e.mediaQueryFilter(ctx, userID))).Where("metadata_id = ?", target.MetadataID)
 	if err := q.Order("watched_at desc").First(&history).Error; err != nil {
 		return favorite, 0, false
 	}
@@ -72,7 +73,7 @@ func (e *EmbyService) userDataForMetadataIDs(ctx context.Context, userID string,
 		}
 	}
 	var historyRows []model.PlaybackHistory
-	if err := e.repo.DB.WithContext(ctx).Where("user_id = ? AND metadata_id IN ?", userID, ids).
+	if err := e.repo.DB.WithContext(ctx).Table("(?) AS history", repository.PlaybackStates(ctx, e.repo.DB, "legacy", userID, e.mediaQueryFilter(ctx, userID))).Where("metadata_id IN ?", ids).
 		Order("watched_at desc").Find(&historyRows).Error; err == nil {
 		for _, history := range historyRows {
 			if _, ok := positions[history.MetadataID]; !ok {

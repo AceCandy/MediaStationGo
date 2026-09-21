@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/ShukeBta/MediaStationGo/internal/model"
+	"github.com/ShukeBta/MediaStationGo/internal/repository"
 	"gorm.io/gorm"
 )
 
@@ -61,10 +62,10 @@ func (e *EmbyService) globalResumeItems(ctx context.Context, p ItemsParams) (map
 // legacyResumeCandidates 活跃状态按用户和资料唯一；只关联有进度的电影和单集。
 func (e *EmbyService) legacyResumeCandidates(ctx context.Context, p ItemsParams) *gorm.DB {
 	q := e.applyUserMediaVisibility(ctx, e.repo.DB.WithContext(ctx).Model(&model.Media{}), p.UserID).
-		Joins("JOIN playback_histories h ON h.metadata_id = media.metadata_id AND h.user_id = ? AND h.deleted_at IS NULL", p.UserID).
+		Joins("JOIN (?) h ON h.metadata_id = media.metadata_id", repository.PlaybackStates(ctx, e.repo.DB, "legacy", p.UserID, e.mediaQueryFilter(ctx, p.UserID))).
 		Joins("LEFT JOIN metadata_items parent ON parent.id = emby_metadata.parent_id").
 		Joins("LEFT JOIN metadata_items grandparent ON grandparent.id = parent.parent_id").
-		Where("NOT COALESCE(h.completed,FALSE) AND h.position_ms > 0 AND emby_metadata.kind IN ('movie','episode')")
+		Where("h.position_ms > 0 AND emby_metadata.kind IN ('movie','episode')")
 	if len(p.PersonIDs) > 0 {
 		q = q.Where(`EXISTS (SELECT 1 FROM metadata_credits c WHERE c.person_id IN ?
  AND c.metadata_id = CASE WHEN emby_metadata.kind = 'episode' THEN emby_metadata.parent_id ELSE emby_metadata.id END)`, p.PersonIDs)
@@ -77,7 +78,7 @@ func (e *EmbyService) legacyResumeCandidates(ctx context.Context, p ItemsParams)
 	return q.Select(`emby_metadata.id,
  CASE WHEN emby_metadata.kind = 'episode' THEN 'legacy:' || COALESCE(grandparent.id,emby_metadata.id) ELSE 'legacy:' || emby_metadata.id END AS resume_key,
  emby_metadata.kind, emby_metadata.title, MAX(media.created_at) AS created_at,
- COALESCE(MAX(h.watched_at),MAX(media.created_at)) AS played_at, FALSE AS played, ` + favorite + ` AS favorite,
+ COALESCE(MAX(h.watched_at),MAX(media.created_at)) AS played_at, BOOL_AND(h.completed) AS played, ` + favorite + ` AS favorite,
  emby_metadata.rating, COALESCE(emby_metadata.release_date,'') AS release_date, emby_metadata.year`).
 		Group("emby_metadata.id, grandparent.id")
 }
@@ -101,8 +102,8 @@ func (e *EmbyService) nfoResumeCandidates(ctx context.Context, p ItemsParams) *g
 		Joins("JOIN nfo_items ni ON ni.id = b.item_id").
 		Joins("LEFT JOIN nfo_items ns ON ns.id = ni.parent_id AND ni.kind = 'episode'").
 		Joins("LEFT JOIN nfo_items nw ON nw.id = ns.parent_id").
-		Joins("JOIN nfo_user_states s ON s.item_id = ni.id AND s.user_id = ?", p.UserID).
-		Where("NOT COALESCE(s.completed,FALSE) AND s.position_ms > 0 AND ni.kind IN ('movie','episode')")
+		Joins("JOIN (?) s ON s.item_id = ni.id", repository.PlaybackStates(ctx, e.repo.DB, "nfo", p.UserID, e.mediaQueryFilter(ctx, p.UserID))).
+		Where("s.position_ms > 0 AND ni.kind IN ('movie','episode')")
 	if !e.mediaVisibility(ctx, p.UserID).IncludeNSFW {
 		q = q.Where("NOT COALESCE(b.nsfw,FALSE) AND NOT COALESCE(ni.nsfw,FALSE) AND NOT COALESCE(ns.nsfw,FALSE) AND NOT COALESCE(nw.nsfw,FALSE)")
 	}
@@ -111,7 +112,7 @@ func (e *EmbyService) nfoResumeCandidates(ctx context.Context, p ItemsParams) *g
 	}
 	return q.Select(`'nfo-' || ni.id AS id, 'nfo-' || COALESCE(nw.id,ni.id) AS resume_key,
  ni.kind, ni.title, MAX(m.created_at) AS created_at, COALESCE(MAX(s.watched_at),MAX(m.created_at)) AS played_at,
- FALSE AS played, BOOL_OR(COALESCE(s.favorite,FALSE)) AS favorite, ni.rating, ni.release_date, ni.year`).Group("ni.id, nw.id")
+ BOOL_AND(s.completed) AS played, BOOL_OR(COALESCE(s.favorite,FALSE)) AS favorite, ni.rating, ni.release_date, ni.year`).Group("ni.id, nw.id")
 }
 
 func (e *EmbyService) hongGuoResumeCandidates(ctx context.Context, p ItemsParams) *gorm.DB {
@@ -119,8 +120,8 @@ func (e *EmbyService) hongGuoResumeCandidates(ctx context.Context, p ItemsParams
 		Joins("JOIN hongguo_media_bindings b ON b.media_id = m.id").
 		Joins("JOIN hongguo_works w ON w.id = b.work_id").
 		Joins("LEFT JOIN hongguo_episodes ep ON ep.id = b.episode_id AND ep.work_id = w.id").
-		Joins("JOIN hongguo_user_states s ON s.user_id = ? AND s.source_id = w.source_id AND s.episode_number = COALESCE(ep.number,1)", p.UserID).
-		Where("NOT s.completed AND s.position_ms > 0 AND (w.kind = 'movie' OR (w.kind = 'series' AND ep.id IS NOT NULL))")
+		Joins("JOIN (?) s ON s.source_id = w.source_id AND s.episode_number = COALESCE(ep.number,1)", repository.PlaybackStates(ctx, e.repo.DB, "hongguo", p.UserID, e.mediaQueryFilter(ctx, p.UserID))).
+		Where("s.position_ms > 0 AND (w.kind = 'movie' OR (w.kind = 'series' AND ep.id IS NOT NULL))")
 	if len(p.PersonIDs) > 0 {
 		q = q.Where("EXISTS (SELECT 1 FROM hongguo_credits c WHERE c.work_id = w.id AND 'hg-person-' || c.person_id IN ?)", p.PersonIDs)
 	}
@@ -135,5 +136,5 @@ func (e *EmbyService) hongGuoResumeCandidates(ctx context.Context, p ItemsParams
  CASE WHEN w.kind = 'movie' THEN 'movie' ELSE 'episode' END AS kind,
  CASE WHEN w.kind = 'movie' THEN w.title ELSE '第' || ep.number || '集' END AS title,
  MAX(m.created_at) AS created_at, COALESCE(MAX(s.watched_at),MAX(m.created_at)) AS played_at,
- FALSE AS played, ` + favorite + ` AS favorite, w.rating, '' AS release_date, 0 AS year`).Group("1, 2, 3, 4, w.rating")
+ BOOL_AND(s.completed) AS played, ` + favorite + ` AS favorite, w.rating, '' AS release_date, 0 AS year`).Group("1, 2, 3, 4, w.rating")
 }

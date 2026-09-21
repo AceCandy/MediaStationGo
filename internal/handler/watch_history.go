@@ -5,7 +5,7 @@
 //
 //	GET  /api/watch-history          paginated list (admin sees every user)
 //	GET  /api/watch-history/stats    aggregate watch time + completion
-//	GET  /api/watch-history/continue resume rail (incomplete only)
+//	GET  /api/watch-history/continue resume and next-episode rail
 //	DELETE /api/watch-history        clear (?media_item_id= optional)
 //	DELETE /api/watch-history/:id    remove one row
 package handler
@@ -80,8 +80,7 @@ func historyStatsHandler(svc *service.Container) gin.HandlerFunc {
 	}
 }
 
-// historyContinueHandler returns "Continue Watching" rows: incomplete
-// items, most recent first.
+// historyContinueHandler 返回断点和只读下一集候选，按关联剧的观看时间排序。
 func historyContinueHandler(svc *service.Container) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		uid, _ := c.Get(middleware.CtxUserID)
@@ -99,8 +98,10 @@ func historyContinueHandler(svc *service.Container) gin.HandlerFunc {
 			if item.Media == nil {
 				continue
 			}
+			history := item
+			history.Media = nil
 			out = append(out, gin.H{
-				"history": item.PlaybackHistory,
+				"history": history,
 				"media":   item.Media,
 			})
 		}

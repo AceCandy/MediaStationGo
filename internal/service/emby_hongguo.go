@@ -162,7 +162,7 @@ JOIN hongguo_works w ON w.id = b.work_id
 LEFT JOIN hongguo_episodes ep ON ep.id = b.episode_id AND ep.work_id = w.id
 `+repository.HongGuoAlbumJoin+`
 LEFT JOIN hongguo_artworks a ON a.work_id = w.id AND a.local_key <> ''
-LEFT JOIN hongguo_user_states s ON s.user_id = ? AND s.source_id = w.source_id AND s.episode_number = COALESCE(ep.number,1)
+LEFT JOIN (?) s ON s.source_id = w.source_id AND s.episode_number = COALESCE(ep.number,1)
 LEFT JOIN hongguo_user_states f ON f.user_id = ? AND f.source_id = w.source_id AND f.episode_number = 0
 CROSS JOIN LATERAL (VALUES
 	(CASE WHEN g.id IS NOT NULL THEN 'hg-group-' || g.id ELSE 'hg-work-' || w.id END,
@@ -174,7 +174,7 @@ CROSS JOIN LATERAL (VALUES
 	 CASE WHEN g.id IS NOT NULL THEN 'hongguo:group:' || g.id ELSE 'hongguo:work:' || w.source_id END)
 ) AS n(id,kind,title,parent_id,season_number,episode_number,resume_key)
 WHERE n.id IS NOT NULL
-GROUP BY n.id,n.resume_key,n.kind,n.title,n.parent_id,n.season_number,n.episode_number`, files, userID, userID))
+GROUP BY n.id,n.resume_key,n.kind,n.title,n.parent_id,n.season_number,n.episode_number`, files, repository.PlaybackStates(ctx, e.repo.DB, "hongguo", userID, e.mediaQueryFilter(ctx, userID)), userID))
 }
 
 // LatestItems 使用可见文件的入库时间合并最新项，各来源只读取所需的前 N 个候选。
@@ -343,7 +343,7 @@ func (e *EmbyService) hongGuoHierarchyItems(ctx context.Context, p ItemsParams) 
 	}
 	resumeFilter := containsEmbyFilter(p.Filters, "IsResumable")
 	if resumeFilter {
-		q = q.Where("NOT played AND position_ms > 0 AND kind IN ('Movie','Episode')")
+		q = q.Where("position_ms > 0 AND kind IN ('Movie','Episode')")
 		q = e.repo.DB.WithContext(ctx).Table("(?) AS grouped_resume", q.Select("DISTINCT ON (resume_key) *").Order("resume_key, played_at DESC, id DESC"))
 	}
 	var total int64

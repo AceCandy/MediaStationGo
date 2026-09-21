@@ -130,12 +130,14 @@ func (e *EmbyService) RecordProgress(ctx context.Context, userID, itemID, mediaS
 	itemID = strings.TrimSpace(itemID)
 	mediaSourceID = strings.TrimSpace(mediaSourceID)
 	target := embyItemTarget{}
+	var concrete *model.Media
 	if mediaSourceID != "" {
 		var source model.Media
 		query := e.repo.DB.WithContext(ctx).Model(&model.Media{}).Where("media.id = ?", mediaSourceID)
 		sourceErr := e.applyUserMediaVisibility(ctx, query, userID).Take(&source).Error
 		if sourceErr == nil && (itemID == source.ID || itemID == source.MetadataID) {
 			target = embyItemTarget{ItemID: source.MetadataID, MetadataID: source.MetadataID, MediaID: source.ID}
+			concrete = &source
 		} else if sourceErr != nil && !errors.Is(sourceErr, gorm.ErrRecordNotFound) {
 			return sourceErr
 		}
@@ -150,6 +152,10 @@ func (e *EmbyService) RecordProgress(ctx context.Context, userID, itemID, mediaS
 			sourceTarget, sourceErr := e.itemTarget(ctx, mediaSourceID, userID)
 			if sourceErr != nil {
 				return sourceErr
+			}
+			// 已移除的具体版本上报不能借另一文件的身份覆盖用户状态。
+			if sourceTarget.MediaID == "" {
+				return nil
 			}
 			sameItem := target.MetadataID != "" && sourceTarget.MetadataID == target.MetadataID
 			if target.SourceID != "" {
@@ -173,13 +179,32 @@ func (e *EmbyService) RecordProgress(ctx context.Context, userID, itemID, mediaS
 		if dur <= 0 {
 			return nil
 		}
-		return NewPlaybackService(e.log, e.repo).RecordProgress(ctx, userID, target.MediaID, sessionID, positionTicks/10_000, dur, e.mediaVisibility(ctx, userID))
+		err := NewPlaybackService(e.log, e.repo).RecordProgress(ctx, userID, target.MediaID, sessionID, positionTicks/10_000, dur, e.mediaVisibility(ctx, userID))
+		if err == nil && e.cache != nil {
+			e.cache.DeletePrefix(ctx, embyItemsCachePrefix)
+		}
+		return err
 	}
 	if target.MetadataID == "" || target.MediaID == "" {
 		return errors.New("media not found")
 	}
 	pos := positionTicks / 10_000
 	dur := runtimeTicks / 10_000
+	if dur > 0 {
+		if err := validatePlaybackProgress(pos, dur); err != nil {
+			return err
+		}
+	}
+	if concrete != nil && concrete.PartGroupKey == "" {
+		var probe model.MediaProbeMetadata
+		err := e.repo.DB.WithContext(ctx).Select("duration_ms").Where("media_id = ?", concrete.ID).Take(&probe).Error
+		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			return err
+		}
+		if probe.DurationMS > 0 {
+			dur, pos = probe.DurationMS, min(pos, probe.DurationMS)
+		}
+	}
 	if dur <= 0 {
 		if probe, _ := e.repo.MediaProbe.FindByMediaID(ctx, target.MediaID); probe != nil {
 			dur = probe.DurationMS
@@ -212,7 +237,7 @@ func (e *EmbyService) RecordProgress(ctx context.Context, userID, itemID, mediaS
 		libraryID = media.LibraryID
 	}
 	err := NewPlaybackService(e.log, e.repo).saveProgress(ctx, history, sessionID, libraryID, e.mediaVisibility(ctx, userID))
-	if err == nil && history.Completed && e.cache != nil {
+	if err == nil && e.cache != nil {
 		e.cache.DeletePrefix(ctx, embyItemsCachePrefix)
 	}
 	return err

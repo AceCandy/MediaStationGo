@@ -53,7 +53,7 @@ export function LibrarySeriesDetailHeader({ series, allEpisodes, history, playba
   }
   const resume = seriesResumeEpisode(allEpisodes, history)
   const resumeHistory = resume ? history.find((row) => row.metadata_id === episodeIdentity(resume)) : undefined
-  const continuing = resumeHistory && !resumeHistory.completed && resumeHistory.position_ms >= 20_000
+  const continuing = resumeHistory && resumeHistory.position_ms >= 20_000
   const resumeFrom = () => {
     const url = new URL(playbackFrom, window.location.origin)
     if (resume) {

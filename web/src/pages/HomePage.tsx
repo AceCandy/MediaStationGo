@@ -40,7 +40,7 @@ export function HomePage() {
     })
     historyAPI.continueWatching(30)
       .then((rows) => {
-        if (!cancelled) setHistory(asArray<{ history: HistoryItem; media: Media }>(rows).map(({ history: item, media }) => ({ ...item, media })).filter((h) => h && !h.completed && !!h.media))
+        if (!cancelled) setHistory(asArray<{ history: HistoryItem; media: Media }>(rows).map(({ history: item, media }) => ({ ...item, media })).filter((h) => h && !!h.media))
       })
       .catch(() => undefined)
       .finally(() => {

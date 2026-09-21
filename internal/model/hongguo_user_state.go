@@ -5,16 +5,18 @@ import "time"
 // HongGuoUserState 属于用户数据，不随资料停用/卸载级联删除。
 // 源作品 ID 与源集号构成稳定身份；0 仅用于作品收藏，电影进度仍归源第 1 集。
 type HongGuoUserState struct {
-	UserID        string     `gorm:"primaryKey;size:36" json:"user_id"`
-	SourceID      string     `gorm:"primaryKey;size:32" json:"source_id"`
-	EpisodeNumber int        `gorm:"primaryKey;check:chk_hongguo_state_episode,episode_number >= 0" json:"episode_number"`
-	Favorite      bool       `gorm:"not null;default:false" json:"favorite"`
-	MediaID       string     `gorm:"size:128" json:"media_id"`
-	PositionMs    int64      `gorm:"not null;default:0" json:"position_ms"`
-	DurationMs    int64      `gorm:"not null;default:0" json:"duration_ms"`
-	Completed     bool       `gorm:"not null;default:false" json:"completed"`
-	WatchedAt     *time.Time `gorm:"index" json:"watched_at,omitempty"`
-	UpdatedAt     time.Time  `json:"updated_at"`
+	UserID        string `gorm:"primaryKey;size:36" json:"user_id"`
+	SourceID      string `gorm:"primaryKey;size:32" json:"source_id"`
+	EpisodeNumber int    `gorm:"primaryKey;check:chk_hongguo_state_episode,episode_number >= 0" json:"episode_number"`
+	Favorite      bool   `gorm:"not null;default:false" json:"favorite"`
+	MediaID       string `gorm:"size:128" json:"media_id"`
+	PositionMs    int64  `gorm:"not null;default:0" json:"position_ms"`
+	DurationMs    int64  `gorm:"not null;default:0" json:"duration_ms"`
+	Completed     bool   `gorm:"not null;default:false" json:"completed"`
+	// ResumePositionMs 为本次续播位置，不随已看标记保留片尾断点。
+	ResumePositionMs *int64     `json:"-"`
+	WatchedAt        *time.Time `gorm:"index" json:"watched_at,omitempty"`
+	UpdatedAt        time.Time  `json:"updated_at"`
 }
 
 func (HongGuoUserState) TableName() string { return "hongguo_user_states" }

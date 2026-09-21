@@ -150,6 +150,21 @@ func embyLatestItemsHandler(svc *service.Container) gin.HandlerFunc {
 	}
 }
 
+func embyNextUpHandler(svc *service.Container) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		params := parseEmbyItemsParams(c)
+		params.Limit, _ = strconv.Atoi(firstQueryValue(c, "Limit", "limit"))
+		params.ParentID = firstQueryValue(c, "SeriesId", "seriesId", "seriesid")
+		out, err := svc.Emby.NextUpItems(c.Request.Context(), params)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		embyAttachRequestTokenToMediaSources(c, out)
+		c.JSON(http.StatusOK, out)
+	}
+}
+
 func embyResumeItemsHandler(svc *service.Container) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		uid := c.Param("userId")

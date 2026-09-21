@@ -96,7 +96,7 @@ export function WatchHistoryPage({ embedded = false }: { embedded?: boolean }) {
           const m = h.media
           if (!m) return null
           const presentation = episodePresentation(m)
-          const progress = h.duration_ms > 0
+          const progress = h.completed && h.position_ms === 0 ? 1 : h.duration_ms > 0
             ? Math.min(1, Math.max(0, h.position_ms / h.duration_ms))
             : 0
           return (
@@ -124,7 +124,7 @@ export function WatchHistoryPage({ embedded = false }: { embedded?: boolean }) {
                 </Link>
                 {presentation.subtitle && <p className="truncate text-xs text-ink-50" title={presentation.subtitle}>{presentation.subtitle}</p>}
                 <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink-50">
-                  <span>{fmtDuration(h.position_ms)} / {fmtDuration(h.duration_ms)}</span>
+                  <span>{fmtDuration(h.completed && h.position_ms === 0 ? h.duration_ms : h.position_ms)} / {fmtDuration(h.duration_ms)}</span>
                   <span>{new Date(h.watched_at).toLocaleString()}</span>
                   {h.completed && (
                     <span className="rounded-lg border border-emerald-400/40 px-1.5 py-0.5 text-emerald-400">
@@ -144,7 +144,7 @@ export function WatchHistoryPage({ embedded = false }: { embedded?: boolean }) {
                   to={`/play/${m.id}`}
                   className="neon-button min-h-11 !px-3 !text-xs"
                 >
-                  <Play size={12} /> 继续
+                  <Play size={12} /> {h.position_ms > 0 ? '继续' : '播放'}
                 </Link>
                 <button
                   onClick={() => removeOne(h.id)}

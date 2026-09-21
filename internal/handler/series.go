@@ -15,6 +15,7 @@ import (
 
 	"github.com/ShukeBta/MediaStationGo/internal/middleware"
 	"github.com/ShukeBta/MediaStationGo/internal/model"
+	"github.com/ShukeBta/MediaStationGo/internal/repository"
 	"github.com/ShukeBta/MediaStationGo/internal/service"
 )
 
@@ -129,7 +130,8 @@ func listLibrarySeriesEpisodesHandler(svc *service.Container) gin.HandlerFunc {
 			}
 		}
 		uid, _ := c.Get(middleware.CtxUserID)
-		history, err := svc.Repo.History.ListByUserMetadataIDs(c.Request.Context(), toString(uid), ids)
+		visibility := mediaVisibilityForRequest(c, svc)
+		history, err := svc.Repo.History.ListByUserMetadataIDs(c.Request.Context(), toString(uid), ids, repository.MediaQueryFilter{IncludeNSFW: visibility.IncludeNSFW, AllowedLibraryIDs: visibility.AllowedLibraryIDs, HiddenLibraryIDs: visibility.HiddenLibraryIDs})
 		if err != nil {
 			writeInternalOrCanceled(c, err)
 			return

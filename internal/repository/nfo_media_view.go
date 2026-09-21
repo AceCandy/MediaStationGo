@@ -88,7 +88,7 @@ func (r *MediaViewRepository) NFONodes(ctx context.Context, userID, libraryID st
 		q = q.Where("m.library_id = ?", libraryID)
 	}
 	q = q.Joins("JOIN nfo_items item ON item.id IN (ni.id,ns.id,nw.id)").
-		Joins("LEFT JOIN nfo_user_states st ON st.item_id = ni.id AND st.user_id = ?", userID).
+		Joins("LEFT JOIN (?) st ON st.item_id = ni.id", PlaybackStates(ctx, r.db, "nfo", userID, filter)).
 		Joins("LEFT JOIN nfo_user_states fav ON fav.item_id = item.id AND fav.user_id = ?", userID).
 		Select(`'nfo-' || item.id AS id, 'nfo-' || COALESCE(nw.id,ni.id) AS resume_key,
 INITCAP(item.kind) AS kind, item.title, COALESCE('nfo-' || item.parent_id,'') AS parent_id,
@@ -169,9 +169,9 @@ func (r *MediaViewRepository) nfoSearchQuery(ctx context.Context, filter Metadat
 		q = q.Where("EXISTS (SELECT 1 FROM nfo_user_states s WHERE s.item_id = search_metadata.id AND s.user_id = ? AND s.favorite)", filter.FavoriteUserID)
 	}
 	if filter.ResumableUserID != "" {
-		q = q.Where(`EXISTS (SELECT 1 FROM nfo_user_states s JOIN nfo_items leaf ON leaf.id = s.item_id
+		q = q.Where(`EXISTS (SELECT 1 FROM (?) s JOIN nfo_items leaf ON leaf.id = s.item_id
 LEFT JOIN nfo_items season ON season.id = leaf.parent_id
-WHERE s.user_id = ? AND NOT s.completed AND s.position_ms > 0 AND (leaf.id = search_metadata.id OR season.parent_id = search_metadata.id))`, filter.ResumableUserID)
+WHERE s.position_ms > 0 AND (leaf.id = search_metadata.id OR season.parent_id = search_metadata.id))`, PlaybackStates(ctx, r.db, "nfo", filter.ResumableUserID, fileFilter))
 	}
 	return q
 }

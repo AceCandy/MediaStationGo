@@ -27,11 +27,11 @@ func (p *PlaybackService) saveProgress(ctx context.Context, history *model.Playb
 	}
 	sessionID = strings.TrimSpace(sessionID)
 	if sessionID == "" && !autoMark {
-		return p.repo.History.Upsert(ctx, history)
+		return p.repo.History.UpsertProgress(ctx, history)
 	}
 	return p.repo.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		repos := repository.New(tx)
-		if err := repos.History.Upsert(ctx, history); err != nil {
+		if err := repos.History.UpsertProgress(ctx, history); err != nil {
 			return err
 		}
 		if autoMark && !(visibility.LibraryRestricted && len(visibility.AllowedLibraryIDs) == 0) {

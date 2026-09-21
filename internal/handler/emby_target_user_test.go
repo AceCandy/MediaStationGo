@@ -31,11 +31,20 @@ func TestEmbyTargetUserRequired(t *testing.T) {
 				c.Next()
 			}, embyTargetUserRequired())
 			router.GET("/Users/:userId/Items", func(c *gin.Context) { c.Status(http.StatusNoContent) })
+			router.GET("/Users/:userId/Shows/NextUp", func(c *gin.Context) { c.Status(http.StatusNoContent) })
+			router.GET("/Shows/NextUp", func(c *gin.Context) { c.Status(http.StatusNoContent) })
 			request := httptest.NewRequest(http.MethodGet, "/Users/"+tt.target+"/Items", nil)
 			response := httptest.NewRecorder()
 			router.ServeHTTP(response, request)
 			if response.Code != tt.wantStatus {
 				t.Fatalf("status = %d, want %d", response.Code, tt.wantStatus)
+			}
+			for _, path := range []string{"/Users/" + tt.target + "/Shows/NextUp", "/Shows/NextUp?UserId=" + tt.target} {
+				response := httptest.NewRecorder()
+				router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, path, nil))
+				if response.Code != tt.wantStatus {
+					t.Fatalf("%s status=%d want=%d", path, response.Code, tt.wantStatus)
+				}
 			}
 		})
 	}

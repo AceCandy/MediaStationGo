@@ -94,6 +94,11 @@ func (p *PlaybackService) RecordProgress(ctx context.Context, userID, mediaID, s
 	if err != nil {
 		return err
 	}
+	if len(rows) > 0 && rows[0].PartGroupKey == "" && rows[0].ProbeDurationMS > 0 {
+		// 当前文件的探测时长优先；不同版本或旧客户端可携带过期片长。
+		duration = rows[0].ProbeDurationMS
+		position = min(position, duration)
+	}
 	if len(rows) > 0 && rows[0].CatalogSource == model.CatalogSourceNFO {
 		if !visibility.AllowsView(&rows[0]) {
 			return errors.New("media not found")
@@ -168,7 +173,7 @@ func (p *PlaybackService) DeleteHistoryForMedia(ctx context.Context, userID, med
 		if completed != nil {
 			q = q.Where("completed = ?", *completed)
 		}
-		result := q.Updates(map[string]any{"position_ms": 0, "duration_ms": 0, "completed": false, "watched_at": nil})
+		result := q.Updates(map[string]any{"position_ms": 0, "duration_ms": 0, "resume_position_ms": nil, "completed": false, "watched_at": nil})
 		return result.RowsAffected, result.Error
 	}
 	q = q.Where("metadata_id = ?", media.MetadataID)
@@ -183,7 +188,8 @@ func (p *PlaybackService) DeleteHistoryForMedia(ctx context.Context, userID, med
 // gets a fully-populated card without a second round-trip.
 type HistoryItem struct {
 	model.PlaybackHistory
-	Media *model.MediaView `json:"media,omitempty"`
+	Media  *model.MediaView `json:"media,omitempty"`
+	IsNext bool             `json:"is_next,omitempty"`
 }
 
 // RecentHistory returns the most recently-watched items for a user. We
@@ -194,8 +200,25 @@ func (p *PlaybackService) RecentHistory(ctx context.Context, userID string, limi
 }
 
 func (p *PlaybackService) ContinueHistory(ctx context.Context, userID string, limit int, visibility MediaVisibility) ([]HistoryItem, error) {
-	completed := false
-	return p.historyItems(ctx, userID, limit, &completed, visibility)
+	if visibility.LibraryRestricted && len(visibility.AllowedLibraryIDs) == 0 {
+		return []HistoryItem{}, nil
+	}
+	filter := repository.MediaQueryFilter{IncludeNSFW: visibility.IncludeNSFW, AllowedLibraryIDs: visibility.AllowedLibraryIDs, HiddenLibraryIDs: visibility.HiddenLibraryIDs}
+	candidates, _, err := p.repo.History.Continuations(ctx, userID, filter, false, "", 0, limit)
+	if err != nil {
+		return nil, err
+	}
+	rows := make([]model.PlaybackHistory, 0, len(candidates))
+	for _, candidate := range candidates {
+		rows = append(rows, model.PlaybackHistory{Base: model.Base{ID: candidate.HistoryID}, UserID: userID,
+			MetadataID: candidate.ItemID, MediaID: candidate.MediaID, PositionMs: candidate.PositionMs,
+			DurationMs: candidate.DurationMs, WatchedAt: candidate.WatchedAt, Completed: candidate.Completed})
+	}
+	items, err := p.hydrateHistory(ctx, rows, filter)
+	for i := range items {
+		items[i].IsNext = candidates[i].IsNext
+	}
+	return items, err
 }
 
 func (p *PlaybackService) historyItems(ctx context.Context, userID string, limit int, completed *bool, visibility MediaVisibility) ([]HistoryItem, error) {
@@ -226,6 +249,11 @@ func (p *PlaybackService) historyItems(ctx context.Context, userID string, limit
 			rows = rows[:limit]
 		}
 	}
+	return p.hydrateHistory(ctx, rows, filter)
+}
+
+// hydrateHistory 只补齐当前页展示信息，供真实历史和只读续播候选共用。
+func (p *PlaybackService) hydrateHistory(ctx context.Context, rows []model.PlaybackHistory, filter repository.MediaQueryFilter) ([]HistoryItem, error) {
 	mediaIDs := make([]string, 0, len(rows))
 	for i := range rows {
 		if rows[i].MediaID != "" {

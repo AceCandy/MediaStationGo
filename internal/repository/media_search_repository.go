@@ -278,12 +278,13 @@ func (r *MediaViewRepository) metadataSearchQuery(ctx context.Context, filter Me
 		)`, filter.FavoriteUserID)
 	}
 	if filter.ResumableUserID != "" {
+		stateFilter := filter.MediaQueryFilter
+		if filter.LibraryRestricted {
+			stateFilter.AllowedLibraryIDs = filter.VisibleLibraryIDs
+		}
 		q = q.Where(`EXISTS (
-			SELECT 1 FROM playback_histories AS search_history
-			WHERE search_history.user_id = ?
-				AND search_history.deleted_at IS NULL
-				AND search_history.completed = FALSE
-				AND search_history.position_ms > 0
+			SELECT 1 FROM (?) AS search_history
+			WHERE search_history.position_ms > 0
 				AND (
 					search_history.metadata_id = search_metadata.id
 					OR (search_metadata.kind = 'series' AND EXISTS (
@@ -297,7 +298,7 @@ func (r *MediaViewRepository) metadataSearchQuery(ctx context.Context, filter Me
 							AND history_season.parent_id = search_metadata.id
 					))
 				)
-		)`, filter.ResumableUserID)
+		)`, PlaybackStates(ctx, r.db, "legacy", filter.ResumableUserID, stateFilter))
 	}
 	return q
 }

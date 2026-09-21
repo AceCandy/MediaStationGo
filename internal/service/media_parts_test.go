@@ -249,6 +249,12 @@ func TestScannerRootReconcilesNestedMediaParts(t *testing.T) {
 
 func TestEmbyMultipartKeepsVersionsAndConcretePartPlayback(t *testing.T) {
 	svc := newTestEmbyService(t)
+	if err := svc.repo.DB.AutoMigrate(&model.PlaybackEvent{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.repo.DB.Exec(`CREATE UNIQUE INDEX test_history_identity ON playback_histories(user_id,metadata_id) WHERE deleted_at IS NULL`).Error; err != nil {
+		t.Fatal(err)
+	}
 	library := model.Library{Name: "Movies", Path: "/media/movies", Type: "movie", Enabled: true}
 	if err := svc.repo.Library.Create(t.Context(), &library); err != nil {
 		t.Fatal(err)

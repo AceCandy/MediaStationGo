@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/ShukeBta/MediaStationGo/internal/model"
+	"github.com/ShukeBta/MediaStationGo/internal/repository"
 	"gorm.io/gorm"
 )
 
@@ -38,7 +39,7 @@ func (e *EmbyService) mediaItems(ctx context.Context, p ItemsParams) (map[string
 		if strings.TrimSpace(p.UserID) == "" {
 			return map[string]any{"Items": []map[string]any{}, "TotalRecordCount": int64(0), "StartIndex": p.StartIndex}, nil
 		}
-		q = q.Joins("JOIN playback_histories AS resume ON resume.metadata_id = media.metadata_id AND resume.user_id = ? AND resume.deleted_at IS NULL AND NOT resume.completed AND resume.position_ms >= ?", p.UserID, int64(20_000))
+		q = q.Joins("JOIN (?) AS resume ON resume.metadata_id = media.metadata_id AND resume.position_ms >= ?", repository.PlaybackStates(ctx, e.repo.DB, "legacy", p.UserID, e.mediaQueryFilter(ctx, p.UserID)), int64(20_000))
 	}
 	filterBySeasonNumbers := true
 	parentKnownNonEpisodic := false

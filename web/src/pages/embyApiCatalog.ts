@@ -107,7 +107,7 @@ const playStateParameters: readonly EmbyApiParameter[] = [
   { name: 'MediaSourceId', location: 'body', type: 'string', description: 'PlaybackInfo 返回的媒体源 ID。' },
   { name: 'PlaySessionId', location: 'body', type: 'string', description: 'PlaybackInfo 返回的播放会话 ID；同一次播放必须复用。' },
   { name: 'PositionTicks', location: 'body', type: 'number', description: '当前播放位置。' },
-  { name: 'RunTimeTicks', location: 'body', type: 'number', description: '媒体总时长；可省略，服务端会读取 ffprobe 时长，仍未知时接受请求但不记录进度。' },
+  { name: 'RunTimeTicks', location: 'body', type: 'number', description: '媒体总时长；明确具体文件时优先使用其已知探测时长。分段播放保留整组时间线；未提供且探测也未知时不记录进度。' },
 ]
 
 const playStateRequest = `{
@@ -120,8 +120,8 @@ const playStateRequest = `{
 
 const userDataFields: readonly EmbyApiField[] = [
   { name: 'IsFavorite', type: 'boolean', description: '是否收藏。' },
-  { name: 'Played', type: 'boolean', description: '是否已播放。' },
-  { name: 'PlaybackPositionTicks', type: 'number', description: '播放进度，存在用户数据时返回。' },
+  { name: 'Played', type: 'boolean', description: '是否已看过；重播不清除，显式取消已看才重置。' },
+  { name: 'PlaybackPositionTicks', type: 'number', description: '续播位置；播放完成或手动标已看后为 0。已看过的作品重播时也可有断点。旧文件不可用时按可见替代版本的已知片长修正。' },
 ]
 
 export const EMBY_API_ENDPOINTS: readonly EmbyApiEndpoint[] = [
@@ -609,13 +609,42 @@ export const EMBY_API_ENDPOINTS: readonly EmbyApiEndpoint[] = [
     responses: [{ status: '200', contentType: 'application/json', description: 'Episode 类型的 Items 结构。', fields: itemsEnvelopeFields, example: itemsExample }],
   },
   {
+    id: 'show-nextup',
+    category: '媒体项',
+    name: '接着看下一集',
+    description: '按最近观看顺序返回已开始剧集的下一可播放未看单集，支持普通资料、本地 NFO 和红果官方合集跨季衔接。已有断点的剧由 Resume 提供；未开始、已看完或没有后续可见文件的剧不返回。',
+    methods: ['GET'],
+    path: '/Shows/NextUp',
+    aliases: ['/Users/:userId/Shows/NextUp', '/shows/nextup', '/users/:userId/shows/nextup'],
+    auth: 'token',
+    support: 'implemented',
+    parameters: [tokenHeader,
+      { name: 'UserId', location: 'query', type: 'string', description: '默认令牌用户；用户路径参数优先。跨用户读取仅限管理员。' },
+      { name: 'SeriesId', location: 'query', type: 'string', description: '可选剧集 ID，支持 nfo-、hg-work- 和 hg-group- 身份。' },
+      { name: 'StartIndex', location: 'query', type: 'number', description: '归组后的分页偏移，默认 0；负数或溢出值回到 0。' },
+      { name: 'Limit', location: 'query', type: 'number', description: '每页 1–100 项，默认 20；越界值使用默认值。' },
+      { name: 'Fields', location: 'query', type: 'string', description: '逗号分隔的附加字段，沿用媒体列表字段规则。' },
+    ],
+    responses: [{ status: '200', contentType: 'application/json', description: 'Episode Items、准确 TotalRecordCount 和 StartIndex；不存在推荐时返回空数组。', fields: itemsEnvelopeFields, example: `{
+  "Items": [{
+    "Id": "episode-42",
+    "Name": "第 1 集",
+    "Type": "Episode",
+    "ParentIndexNumber": 2,
+    "IndexNumber": 1
+  }],
+  "TotalRecordCount": 1,
+  "StartIndex": 0
+}` }],
+  },
+  {
     id: 'empty-items-compatibility',
     category: '媒体项',
     name: '空列表兼容端点',
     description: '满足播放器探测，但当前不提供对应业务数据。',
     methods: ['GET'],
-    path: '/Shows/NextUp',
-    aliases: ['/Users/:userId/Shows/NextUp', '/MediaSegments/:id', '/Artists', '/Genres', '/Shows/Upcoming', '/Items/:id/Similar', '/Items/:id/ThumbnailSet', '/Items/:id/Intros', '/Items/:id/SpecialFeatures'],
+    path: '/MediaSegments/:id',
+    aliases: ['/Artists', '/Genres', '/Shows/Upcoming', '/Items/:id/Similar', '/Items/:id/ThumbnailSet', '/Items/:id/Intros', '/Items/:id/SpecialFeatures'],
     auth: 'token',
     support: 'compatibility',
     parameters: [tokenHeader],

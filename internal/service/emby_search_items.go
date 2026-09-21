@@ -104,7 +104,7 @@ func (e *EmbyService) hongGuoSearchCandidates(ctx context.Context, p ItemsParams
 		q = q.Where("NOT played")
 	}
 	if containsEmbyFilter(p.Filters, "IsResumable") {
-		q = q.Where("kind = 'Movie' AND NOT played AND position_ms > 0")
+		q = q.Where("kind = 'Movie' AND position_ms > 0")
 	}
 	var nodes []hongGuoNode
 	if err := q.Order("title, id").Limit(repository.MetadataSearchCandidateLimit).Scan(&nodes).Error; err != nil {

@@ -19,8 +19,9 @@ func (r *HongGuoRepository) RecordProgress(ctx context.Context, userID, sessionI
 	}
 	now := time.Now()
 	state := model.HongGuoUserState{UserID: userID, SourceID: media.LookupCatalogID, EpisodeNumber: max(1, media.EpisodeNum), MediaID: media.ID, PositionMs: position, DurationMs: duration, Completed: completed, WatchedAt: &now}
+	state.ResumePositionMs = ResumePosition(position, completed)
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "user_id"}, {Name: "source_id"}, {Name: "episode_number"}}, DoUpdates: clause.AssignmentColumns([]string{"media_id", "position_ms", "duration_ms", "completed", "watched_at", "updated_at"})}).Create(&state).Error; err != nil {
+		if err := tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "user_id"}, {Name: "source_id"}, {Name: "episode_number"}}, DoUpdates: progressUpdates("hongguo_user_states")}).Create(&state).Error; err != nil {
 			return err
 		}
 		if strings.TrimSpace(sessionID) == "" {
@@ -31,9 +32,13 @@ func (r *HongGuoRepository) RecordProgress(ctx context.Context, userID, sessionI
 	})
 }
 
-func (r *HongGuoRepository) UserState(ctx context.Context, userID, sourceID string, episode int) (model.HongGuoUserState, error) {
+func (r *HongGuoRepository) UserState(ctx context.Context, userID, sourceID string, episode int, filters ...MediaQueryFilter) (model.HongGuoUserState, error) {
 	state := model.HongGuoUserState{UserID: userID, SourceID: sourceID, EpisodeNumber: episode}
-	err := r.db.WithContext(ctx).Where("user_id = ? AND source_id = ? AND episode_number = ?", userID, sourceID, episode).First(&state).Error
+	filter := MediaQueryFilter{IncludeNSFW: true}
+	if len(filters) > 0 {
+		filter = filters[0]
+	}
+	err := r.db.WithContext(ctx).Table("(?) AS state", PlaybackStates(ctx, r.db, "hongguo", userID, filter)).Where("source_id = ? AND episode_number = ?", sourceID, episode).Take(&state).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		err = nil
 	}
@@ -62,7 +67,7 @@ func (r *HongGuoRepository) MarkPlayed(ctx context.Context, userID string, media
 		state.DurationMs = media.ProbeDurationMS
 		state.PositionMs = media.ProbeDurationMS
 	}
-	return r.db.WithContext(ctx).Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "user_id"}, {Name: "source_id"}, {Name: "episode_number"}}, DoUpdates: clause.AssignmentColumns([]string{"media_id", "position_ms", "duration_ms", "completed", "watched_at", "updated_at"})}).Create(&state).Error
+	return r.db.WithContext(ctx).Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "user_id"}, {Name: "source_id"}, {Name: "episode_number"}}, DoUpdates: clause.AssignmentColumns([]string{"media_id", "position_ms", "duration_ms", "resume_position_ms", "completed", "watched_at", "updated_at"})}).Create(&state).Error
 }
 
 // HongGuoUserCard 按当前可见文件展示用户状态，不公开其他用户及来源原始地址。
@@ -83,7 +88,7 @@ func (r *HongGuoRepository) UserCards(ctx context.Context, userID, tab string, p
 	if userID == "" || (tab != "favourites" && tab != "history" && tab != "continue") || page < 1 || page > 1000000 || size < 1 || size > 100 {
 		return nil, 0, errors.New("用户资料查询参数无效")
 	}
-	q := r.db.WithContext(ctx).Table("hongguo_user_states AS s").
+	q := r.db.WithContext(ctx).Table("(?) AS s", PlaybackStates(ctx, r.db, "hongguo", userID, filter)).
 		Joins("JOIN hongguo_works w ON w.source_id = s.source_id").
 		Joins("JOIN hongguo_media_bindings b ON b.work_id = w.id").
 		Joins("JOIN media m ON m.id = b.media_id AND m.catalog_source = 'hongguo'").
@@ -95,7 +100,7 @@ func (r *HongGuoRepository) UserCards(ctx context.Context, userID, tab string, p
 	} else {
 		q = q.Where("s.episode_number > 0 AND s.episode_number = COALESCE(ep.number,1) AND s.watched_at IS NOT NULL")
 		if tab == "continue" {
-			q = q.Where("NOT s.completed AND s.position_ms > 0")
+			q = q.Where("s.position_ms > 0")
 		}
 	}
 	if len(filter.AllowedLibraryIDs) > 0 {

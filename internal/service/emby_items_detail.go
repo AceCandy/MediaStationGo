@@ -8,6 +8,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/ShukeBta/MediaStationGo/internal/model"
+	"github.com/ShukeBta/MediaStationGo/internal/repository"
 )
 
 // Item 单条目详情。
@@ -111,7 +112,7 @@ func (e *EmbyService) AdditionalParts(ctx context.Context, mediaID, userID strin
 			ids = append(ids, parts[i].ID)
 		}
 		var histories []model.PlaybackHistory
-		if err := e.repo.DB.WithContext(ctx).Where("user_id = ? AND media_id IN ?", userID, ids).Find(&histories).Error; err == nil {
+		if err := e.repo.DB.WithContext(ctx).Table("(?) AS history", repository.PlaybackStates(ctx, e.repo.DB, "legacy", userID, e.mediaQueryFilter(ctx, userID))).Where("media_id IN ?", ids).Find(&histories).Error; err == nil {
 			for _, history := range histories {
 				positions[history.MediaID] = history.PositionMs
 				completed[history.MediaID] = history.Completed
@@ -166,11 +167,10 @@ func (e *EmbyService) legacyLatestItems(ctx context.Context, userID, parentID st
 }
 
 func (e *EmbyService) applyLatestPlayedFilter(ctx context.Context, q *gorm.DB, userID string, isPlayed bool) *gorm.DB {
-	completed := e.repo.DB.WithContext(ctx).Model(&model.PlaybackHistory{}).
+	completed := e.repo.DB.WithContext(ctx).Table("(?) AS history", repository.PlaybackStates(ctx, e.repo.DB, "legacy", userID, e.mediaQueryFilter(ctx, userID))).
 		Select("1").
-		Where("playback_histories.user_id = ?", userID).
-		Where("playback_histories.metadata_id = media.metadata_id").
-		Where("playback_histories.completed = ?", true)
+		Where("history.metadata_id = media.metadata_id").
+		Where("history.completed")
 	if isPlayed {
 		return q.Where("EXISTS (?)", completed)
 	}
@@ -240,10 +240,12 @@ func (e *EmbyService) legacyResumeItems(ctx context.Context, userID string, limi
 	views := make([]model.MediaView, 0, len(hist))
 	positions := make(map[string]int64, len(hist))
 	lastPlayed := make(map[string]string, len(hist))
+	completedByID := make(map[string]bool, len(hist))
 	for _, history := range hist {
 		if view, ok := viewsByMetadata[history.MetadataID]; ok {
 			views = append(views, view)
 			positions[history.MetadataID] = history.PositionMs
+			completedByID[history.MetadataID] = history.Completed
 			lastPlayed[history.MetadataID] = formatEmbyDateTime(history.WatchedAt)
 		}
 	}
@@ -251,7 +253,7 @@ func (e *EmbyService) legacyResumeItems(ctx context.Context, userID string, limi
 	items := make([]map[string]any, 0, len(views))
 	for i := range views {
 		view := &views[i]
-		item := e.itemPayloadWithRelations(ctx, view, userID, false, positions[view.MetadataID], false, false, relations)
+		item := e.itemPayloadWithRelations(ctx, view, userID, false, positions[view.MetadataID], completedByID[view.MetadataID], false, relations)
 		item["UserData"].(map[string]any)["LastPlayedDate"] = lastPlayed[view.MetadataID]
 		items = append(items, item)
 	}
@@ -356,7 +358,8 @@ func (e *EmbyService) itemPayloadWithRelations(ctx context.Context, m *model.Med
 
 	durationMs := m.ProbeDurationMS
 	runTimeTicks := durationMs * 10_000
-	played := completed || playbackCompleted(posMs, durationMs)
+	played := completed
+	playCount := 0
 	pct := 0.0
 	if durationMs > 0 {
 		pct = float64(posMs) / float64(durationMs) * 100
@@ -370,6 +373,7 @@ func (e *EmbyService) itemPayloadWithRelations(ctx context.Context, m *model.Med
 	container := embyMediaContainer(&m.Media, m.ProbeContainer)
 	if completed {
 		pct = 100
+		playCount = 1
 	}
 	isLocalSTRM := localSTRMFileTarget(&m.Media) != ""
 	isRemote := strings.TrimSpace(m.STRMURL) != "" && !isLocalSTRM
@@ -404,7 +408,7 @@ func (e *EmbyService) itemPayloadWithRelations(ctx context.Context, m *model.Med
 		"Genres":            splitCSV(m.Genres),
 		"UserData": map[string]any{
 			"PlaybackPositionTicks": posMs * 10_000,
-			"PlayCount":             0,
+			"PlayCount":             playCount,
 			"IsFavorite":            fav,
 			"Played":                played,
 			"PlayedPercentage":      pct,

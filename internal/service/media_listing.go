@@ -324,7 +324,7 @@ func (s *MediaService) ListMediaVersions(ctx context.Context, id, userID string,
 	})
 	if userID != "" && len(items) > 1 {
 		if items[0].CatalogSource == model.CatalogSourceNFO {
-			state, err := s.repo.NFO.UserState(ctx, userID, items[0].CatalogItemID)
+			state, err := s.repo.NFO.UserState(ctx, userID, items[0].CatalogItemID, filter)
 			if err != nil {
 				return nil, err
 			}

@@ -40,6 +40,7 @@ assert.equal(resolveSeriesSelection([], new URLSearchParams()).episode, undefine
 assert.equal(seriesResumeEpisode(items, []).metadata_id, first.metadata_id)
 assert.equal(seriesResumeEpisode(items, [{ metadata_id: 'first', media_id: alternate.id, completed: false }]).id, alternate.id)
 assert.equal(seriesResumeEpisode(items, [{ metadata_id: 'first', completed: true }]).id, second.id)
+assert.equal(seriesResumeEpisode(items, [{ metadata_id: 'first', media_id: alternate.id, completed: true, position_ms: 120000 }]).id, alternate.id)
 assert.equal(seriesResumeEpisode(items, [{ metadata_id: 'hidden', completed: false }]).metadata_id, first.metadata_id)
 assert.equal(seriesResumeEpisode([], []), undefined)
 console.log('Series selection, specials, version grouping and resume checks passed')

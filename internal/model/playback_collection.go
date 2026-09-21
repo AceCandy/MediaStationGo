@@ -5,14 +5,16 @@ import "time"
 // PlaybackHistory 记录作品级播放位置；MediaID 保留最后使用的具体版本。
 type PlaybackHistory struct {
 	Base
-	UserID     string        `gorm:"index;size:36;not null" json:"user_id"`
-	MetadataID string        `gorm:"index;size:36;not null;check:chk_playback_history_metadata_id,metadata_id <> ''" json:"metadata_id"`
-	MediaID    string        `gorm:"index;size:128;not null" json:"media_id"`
-	PositionMs int64         `json:"position_ms"`
-	DurationMs int64         `json:"duration_ms"`
-	WatchedAt  time.Time     `json:"watched_at"`
-	Completed  bool          `json:"completed"`
-	Metadata   *MetadataItem `gorm:"foreignKey:MetadataID;references:ID;constraint:OnUpdate:CASCADE,OnDelete:RESTRICT" json:"-"`
+	UserID     string    `gorm:"index;size:36;not null" json:"user_id"`
+	MetadataID string    `gorm:"index;size:36;not null;check:chk_playback_history_metadata_id,metadata_id <> ''" json:"metadata_id"`
+	MediaID    string    `gorm:"index;size:128;not null" json:"media_id"`
+	PositionMs int64     `json:"position_ms"`
+	DurationMs int64     `json:"duration_ms"`
+	WatchedAt  time.Time `json:"watched_at"`
+	Completed  bool      `json:"completed"`
+	// ResumePositionMs 与已看状态独立；nil 兼容旧记录，完成时为 0。
+	ResumePositionMs *int64        `json:"-"`
+	Metadata         *MetadataItem `gorm:"foreignKey:MetadataID;references:ID;constraint:OnUpdate:CASCADE,OnDelete:RESTRICT" json:"-"`
 }
 
 // PlaybackEvent 记录一次达到统计门槛的独立播放会话；媒体与库字段是播放时快照。

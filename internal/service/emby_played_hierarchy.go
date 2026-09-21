@@ -30,7 +30,7 @@ func (e *EmbyService) playedForContainers(ctx context.Context, userID string, id
 	}
 	q := e.containerEpisodeScope(ctx, userID, ids).
 		Joins("CROSS JOIN LATERAL (VALUES (scope_season.id), (scope_series.id)) AS container(id)").
-		Joins("LEFT JOIN playback_histories AS history ON history.metadata_id = media.metadata_id AND history.user_id = ? AND history.deleted_at IS NULL", userID).
+		Joins("LEFT JOIN (?) AS history ON history.metadata_id = media.metadata_id", repository.PlaybackStates(ctx, e.repo.DB, "legacy", userID, e.mediaQueryFilter(ctx, userID))).
 		Where("container.id IN ?", ids).
 		Select("container.id, BOOL_AND(COALESCE(history.completed, FALSE)) AS played").Group("container.id")
 	if err := q.Scan(&rows).Error; err == nil {

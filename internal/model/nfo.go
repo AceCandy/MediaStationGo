@@ -51,15 +51,17 @@ type NFOMediaBinding struct {
 
 // NFOUserState 按本地逻辑条目记录收藏与播放状态；删除文件不删除用户状态。
 type NFOUserState struct {
-	UserID     string     `gorm:"primaryKey;size:36" json:"user_id"`
-	ItemID     string     `gorm:"primaryKey;size:36" json:"item_id"`
-	MediaID    string     `gorm:"size:36" json:"media_id"`
-	Favorite   bool       `json:"favorite"`
-	PositionMs int64      `json:"position_ms"`
-	DurationMs int64      `json:"duration_ms"`
-	Completed  bool       `json:"completed"`
-	WatchedAt  *time.Time `json:"watched_at,omitempty"`
-	UpdatedAt  time.Time  `json:"updated_at"`
+	UserID     string `gorm:"primaryKey;size:36" json:"user_id"`
+	ItemID     string `gorm:"primaryKey;size:36" json:"item_id"`
+	MediaID    string `gorm:"size:36" json:"media_id"`
+	Favorite   bool   `json:"favorite"`
+	PositionMs int64  `json:"position_ms"`
+	DurationMs int64  `json:"duration_ms"`
+	Completed  bool   `json:"completed"`
+	// ResumePositionMs 为本次续播位置；nil 按旧完成状态解释 PositionMs。
+	ResumePositionMs *int64     `json:"-"`
+	WatchedAt        *time.Time `json:"watched_at,omitempty"`
+	UpdatedAt        time.Time  `json:"updated_at"`
 }
 
 // NFOPlaybackEvent 保留本地条目的播放事实，独立于普通作品事件。

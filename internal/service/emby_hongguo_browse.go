@@ -38,7 +38,7 @@ func (e *EmbyService) hongGuoGlobalItems(ctx context.Context, p ItemsParams) (ma
 		Joins("LEFT JOIN metadata_items parent ON parent.id = leaf.parent_id").
 		Joins("LEFT JOIN metadata_items grandparent ON grandparent.id = parent.parent_id").
 		Joins("JOIN metadata_items item ON item.id IN (leaf.id, parent.id, grandparent.id)").
-		Joins("LEFT JOIN playback_histories h ON h.metadata_id = leaf.id AND h.user_id = ? AND h.deleted_at IS NULL", p.UserID).
+		Joins("LEFT JOIN (?) h ON h.metadata_id = leaf.id", repository.PlaybackStates(ctx, e.repo.DB, "legacy", p.UserID, e.mediaQueryFilter(ctx, p.UserID))).
 		Joins("LEFT JOIN favorites fav ON fav.metadata_id = item.id AND fav.user_id = ? AND fav.deleted_at IS NULL", p.UserID).
 		Select(`item.id, CASE WHEN item.kind = 'episode' THEN 'legacy:' || COALESCE(grandparent.id,item.id) ELSE 'legacy:' || item.id END AS resume_key,
  item.kind, item.title, MAX(f.created_at) AS created_at,

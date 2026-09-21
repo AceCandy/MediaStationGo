@@ -41,4 +41,19 @@ for (const [Component, props] of [
   assert.match(html, /src="\/api\/artwork\/series-poster"/)
   assert.match(html, /href="\/media\/file"/)
 }
+const nextHome = load('HomePageSections.tsx', { ...mocks, '../utils/groupSeries': { mediaDetailLink: () => '/library/library?series_id=hg-group-100' } })
+const next = renderToStaticMarkup(React.createElement(MemoryRouter, {}, React.createElement(nextHome.ContinueWatchingSection, {
+  history: [{ ...history[0], media: { ...media, series_id: 'hg-group-100', library_id: 'library', catalog_source: 'hongguo' }, is_next: true, position_ms: 0, duration_ms: 0 }],
+})))
+assert.match(next, /接着看下一集/)
+assert.doesNotMatch(next, /已观看到/)
+assert.match(next, /href="\/media\/file"/)
+history[0] = { ...history[0], completed: true, position_ms: 0 }
+const completed = renderToStaticMarkup(React.createElement(MemoryRouter, {}, React.createElement(watch.WatchHistoryPage, { embedded: true })))
+assert.match(completed, /width:100%/)
+assert.match(completed, /已看完/)
+history[0] = { ...history[0], position_ms: 30000 }
+const replay = renderToStaticMarkup(React.createElement(MemoryRouter, {}, React.createElement(watch.WatchHistoryPage, { embedded: true })))
+assert.match(replay, /width:25%/)
+assert.match(replay, /已看完/)
 console.log('History, continue and featured presentation checks passed')

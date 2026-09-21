@@ -277,6 +277,9 @@ func newEmbyTrackRouteTest(t *testing.T) (*gin.Engine, string, string, string, *
 	if err := migrateMediaHandlerTestDB(db, model.AllModels()...); err != nil {
 		t.Fatal(err)
 	}
+	if err := db.Exec(`CREATE UNIQUE INDEX test_history_identity ON playback_histories(user_id,metadata_id) WHERE deleted_at IS NULL`).Error; err != nil {
+		t.Fatal(err)
+	}
 	repos := repository.New(db)
 	if err := repos.User.Create(t.Context(), &model.User{
 		Base: model.Base{ID: "user-1"}, Username: "tester", PasswordHash: "x", Role: "admin", Tier: "plus", IsActive: true,
