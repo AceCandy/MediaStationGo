@@ -73,7 +73,7 @@ func TestEmbySeriesPaginationDoesNotProbeFilesForWholeCatalog(t *testing.T) {
 		t.Fatalf("unexpected series page: %#v", result)
 	}
 	queries := append([]string(nil), reads.queries...)
-	if len(queries) != 2 {
+	if len(queries) != 1 {
 		t.Fatalf("count/page queries = %d", len(queries))
 	}
 	for _, query := range queries {
@@ -131,6 +131,15 @@ func TestEmbySeriesPaginationDoesNotProbeFilesForWholeCatalog(t *testing.T) {
 			t.Fatalf("name sorting or offset changed: %#v", result)
 		}
 	}
+	// 同季多个版本取最新时间；聚合压缩不能改成最早时间。
+	if err := db.Exec("UPDATE media SET created_at = '2099-01-01' WHERE id = 'file-1-1-2'").Error; err != nil {
+		t.Fatal(err)
+	}
+	p.SortBy, p.SortOrder, p.StartIndex = "DateCreated", "Descending", 0
+	result, err = svc.Items(t.Context(), p)
+	if err != nil || result["Items"].([]map[string]any)[0]["Id"] != "series-1" {
+		t.Fatalf("latest file timestamp lost: %#v, %v", result, err)
+	}
 	p.StartIndex = 20
 	result, err = svc.Items(t.Context(), p)
 	if err != nil || result["TotalRecordCount"] != 20 || len(result["Items"].([]map[string]any)) != 0 {
@@ -163,7 +172,7 @@ func TestEmbySeriesPaginationDoesNotProbeFilesForWholeCatalog(t *testing.T) {
 		t.Fatalf("favorite-only page changed: %#v, %v", result, err)
 	}
 	favoriteQueries := append([]string(nil), reads.queries...)
-	if len(favoriteQueries) != 2 {
+	if len(favoriteQueries) != 1 {
 		t.Fatalf("favorite count/page queries = %d", len(favoriteQueries))
 	}
 	for _, query := range favoriteQueries {

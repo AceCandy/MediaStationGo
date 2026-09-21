@@ -112,7 +112,8 @@ func (r *NFORepository) MarkPreviousEpisodes(ctx context.Context, userID string,
 // HasMedia 避免无本地资料文件时启动独立目录查询。
 func (r *NFORepository) HasMedia(ctx context.Context) (bool, error) {
 	var found bool
-	err := r.db.WithContext(ctx).Raw("SELECT EXISTS(SELECT 1 FROM media WHERE catalog_source = ?)", model.CatalogSourceNFO).Scan(&found).Error
+	// 固定来源保留为字面量，避免通用预编译计划按常见来源估算而顺序扫描。
+	err := r.db.WithContext(ctx).Raw("SELECT EXISTS(SELECT 1 FROM media WHERE catalog_source = 'nfo')").Scan(&found).Error
 	return found, err
 }
 

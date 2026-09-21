@@ -266,21 +266,19 @@ func (e *EmbyService) seriesMetadataPageWithCount(ctx context.Context, q *gorm.D
 	if containsEmbyFilter(p.Filters, "IsFavorite") {
 		// 收藏范围通常很小，允许先筛整剧再找文件，避免物化全部可见文件。
 		cte = "WITH scoped_media AS NOT MATERIALIZED (?) "
+	} else {
+		// 每季仅保留最新文件时间，避免后续父级关联和排序展开全部文件版本。
+		files = files.Select("emby_metadata.parent_id, MAX(media.created_at) AS created_at").Group("emby_metadata.parent_id")
 	}
 	pageScope := e.repo.DB.WithContext(ctx).Table("scoped_media AS media").
 		Joins("JOIN metadata_items AS scope_season ON scope_season.id = media.parent_id AND scope_season.kind = 'season'").
 		Joins("JOIN metadata_items AS scope_series ON scope_series.id = scope_season.parent_id AND scope_series.kind = 'series'")
 	pageScope = e.applySeriesPageFilters(ctx, pageScope, p)
 	var total int64
-	if countTotal {
-		grouped := pageScope.Session(&gorm.Session{}).Select("scope_series.id").Group("scope_series.id")
-		if err := e.repo.DB.WithContext(ctx).Raw(cte+"SELECT count(*) FROM (?) AS scoped_series", files, grouped).Scan(&total).Error; err != nil {
-			return nil, 0, err
-		}
-	}
 
 	type seriesIDRow struct {
 		SeriesID string `gorm:"column:series_id"`
+		Total    int64  `gorm:"column:total"`
 	}
 	var idRows []seriesIDRow
 	idQuery := pageScope.Session(&gorm.Session{}).
@@ -291,11 +289,23 @@ func (e *EmbyService) seriesMetadataPageWithCount(ctx context.Context, q *gorm.D
 	if limit > 0 {
 		idQuery = idQuery.Limit(limit)
 	}
-	if err := e.repo.DB.WithContext(ctx).Raw(cte+"?", files, idQuery).Scan(&idRows).Error; err != nil {
+	query := e.repo.DB.WithContext(ctx).Raw(cte+"?", files, idQuery)
+	if countTotal {
+		grouped := pageScope.Session(&gorm.Session{}).
+			Select("scope_series.id AS series_id, ROW_NUMBER() OVER (ORDER BY " + seriesOrderSQL(p) + ") AS ordinal").Group("scope_series.id")
+		page := e.repo.DB.Table("scoped_series").Select("series_id, ordinal").Order("ordinal").Offset(start)
+		if limit > 0 {
+			page = page.Limit(limit)
+		}
+		// 左连接保留越界空页的总数；计数和分页共享一次文件扫描。
+		query = e.repo.DB.WithContext(ctx).Raw(strings.TrimSpace(cte)+", scoped_series AS MATERIALIZED (?) SELECT totals.total, COALESCE(page.series_id, '') AS series_id FROM (SELECT COUNT(*) AS total FROM scoped_series) totals LEFT JOIN (?) page ON TRUE ORDER BY page.ordinal", files, grouped, page)
+	}
+	if err := query.Scan(&idRows).Error; err != nil {
 		return nil, 0, err
 	}
 	seriesIDs := make([]string, 0, len(idRows))
 	for _, row := range idRows {
+		total = row.Total
 		if id := strings.TrimSpace(row.SeriesID); id != "" {
 			seriesIDs = append(seriesIDs, id)
 		}
