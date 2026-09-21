@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-2.md`
-- **Total Sessions**: 141
-- **Last Active**: 2026-09-21
+- **Total Sessions**: 142
+- **Last Active**: 2026-09-22
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-2.md` | ~1258 | Active |
+| `journal-2.md` | ~1280 | Active |
 | `journal-1.md` | ~1981 | Archived |
 <!-- @@@/auto:active-documents -->
 
@@ -30,6 +30,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 142 | 2026-09-22 | 播放状态修复与跨季续播提交归档 | `6b5d024` | `main` |
 | 141 | 2026-09-21 | Emby 分来源搜索与红果独立索引 | `4096143` | `main` |
 | 140 | 2026-09-21 | 扫描可靠性与刮削领取优化 | `12ee325` | `main` |
 | 139 | 2026-09-21 | 优化混合来源继续观看查询 | `b465f98` | `main` |

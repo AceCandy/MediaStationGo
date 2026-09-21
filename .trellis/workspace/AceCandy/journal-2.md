@@ -1256,3 +1256,25 @@ Web 与 Emby 对缺失的单集播出日期按同季前序集回退；季和单�
 ### Next Steps
 
 - 现有服务未重启；部署后复测播放器搜索并等待红果索引预热。
+
+
+## Session 142: 播放状态修复与跨季续播提交归档
+<!-- trellis-session: v=2 fp=5e1fbecb04259eb0 -->
+
+**Date**: 2026-09-22
+**Task**: 播放状态修复与跨季续播提交归档
+**Branch**: `main`
+
+### Summary
+
+提交普通目录、NFO、红果 Group 播放状态修复与跨季 NextUp；针对性 PostgreSQL 回归、Web 构建和浏览器检查通过；归档两个任务，保留无关未提交改动，未部署。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `6b5d024` | fix(playback): reconcile watched state and cross-season continuation |
+
+### Status
+
+[OK] **Completed**
