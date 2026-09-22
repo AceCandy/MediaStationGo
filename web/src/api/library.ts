@@ -204,11 +204,11 @@ export const libraryAPI = {
         })
         .then((r) => r.data)),
 
-  listSeriesEpisodes: (id: string, key: string) =>
-    libraryRequest(`episodes:${id}:${key}`, () =>
+  listSeriesEpisodes: (id: string, key: string, season?: number) =>
+    libraryRequest(`episodes:${id}:${key}:${season ?? ''}`, () =>
       api
-        .get<{ items: Media[]; total: number; history: HistoryItem[] }>(`/libraries/${id}/series/episodes`, {
-          params: { key },
+        .get<{ items: Media[]; total: number; history: HistoryItem[]; resume?: HistoryItem | null }>(`/libraries/${id}/series/episodes`, {
+          params: { key, season },
           timeout: LONG_REQUEST_TIMEOUT,
         })
         .then((r) => r.data)),

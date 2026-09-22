@@ -270,7 +270,7 @@ func TestLibraryMetadataPaginationBoundsFileReads(t *testing.T) {
 	if err != nil || total != 2 || len(cards) != 1 || cards[0].Key == first.Key {
 		t.Fatalf("second page=%+v total=%d err=%v", cards, total, err)
 	}
-	rows, err := web.ListLibrarySeriesEpisodes(t.Context(), lib.ID, first.Key, visibility)
+	rows, err := web.ListLibrarySeriesEpisodes(t.Context(), lib.ID, first.Key, nil, visibility)
 	if err != nil || len(rows) != episodeCount*2 {
 		t.Fatalf("selected series rows=%d err=%v", len(rows), err)
 	}

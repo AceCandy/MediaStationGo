@@ -433,8 +433,9 @@ func TestListLibrarySeriesDoesNotTruncateLargeEpisodeLibraries(t *testing.T) {
 		t.Fatal(err)
 	}
 	svc := &service.Container{
-		Repo:  repos,
-		Media: service.NewMediaService(&config.Config{}, zap.NewNop(), repos),
+		Repo:     repos,
+		Media:    service.NewMediaService(&config.Config{}, zap.NewNop(), repos),
+		Playback: service.NewPlaybackService(zap.NewNop(), repos),
 	}
 
 	series := requestLibrarySeries(t, svc, "/api/libraries/"+lib.ID+"/series", lib.ID)
@@ -453,6 +454,19 @@ func TestListLibrarySeriesDoesNotTruncateLargeEpisodeLibraries(t *testing.T) {
 	}
 	if episodes.Items[0].EpisodeNum != 1 || episodes.Items[len(episodes.Items)-1].EpisodeNum != 2001 {
 		t.Fatalf("episode order first=%d last=%d", episodes.Items[0].EpisodeNum, episodes.Items[len(episodes.Items)-1].EpisodeNum)
+	}
+	detail := requestLibrarySeries(t, svc, "/api/libraries/"+lib.ID+"/series?series_id="+seriesMetadata.ID, lib.ID)
+	if len(detail.Items) != 1 || len(detail.Items[0].Seasons) != 1 || detail.Items[0].Seasons[0] != 1 {
+		t.Fatalf("series seasons = %+v, want [1]", detail.Items)
+	}
+	filteredResponse := requestLibrarySeriesEpisodes(t, svc, "/api/libraries/"+lib.ID+"/series/episodes?key="+url.QueryEscape(series.Items[0].Key)+"&season=1", lib.ID)
+	if filteredResponse.Total != 2001 {
+		t.Fatalf("season-filtered response total=%d, want 2001", filteredResponse.Total)
+	}
+	season := 1
+	filtered, err := svc.Media.ListLibrarySeriesEpisodes(t.Context(), lib.ID, series.Items[0].Key, &season, service.MediaVisibility{IncludeNSFW: true})
+	if err != nil || len(filtered) != 2001 {
+		t.Fatalf("season-filtered episodes=%d err=%v, want 2001", len(filtered), err)
 	}
 }
 

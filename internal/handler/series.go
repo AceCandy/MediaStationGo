@@ -116,7 +116,16 @@ func listLibrarySeriesEpisodesHandler(svc *service.Container) gin.HandlerFunc {
 				return
 			}
 		}
-		items, err := svc.Media.ListLibrarySeriesEpisodes(c.Request.Context(), libID, key, mediaVisibilityForRequest(c, svc))
+		var season *int
+		if raw, ok := c.GetQuery("season"); ok {
+			value, err := strconv.Atoi(raw)
+			if err != nil || value < 0 {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "season must be a non-negative integer"})
+				return
+			}
+			season = &value
+		}
+		items, err := svc.Media.ListLibrarySeriesEpisodes(c.Request.Context(), libID, key, season, mediaVisibilityForRequest(c, svc))
 		if err != nil {
 			writeInternalOrCanceled(c, err)
 			return
@@ -136,6 +145,14 @@ func listLibrarySeriesEpisodesHandler(svc *service.Container) gin.HandlerFunc {
 			writeInternalOrCanceled(c, err)
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"items": items, "total": len(items), "history": history})
+		var resume *service.HistoryItem
+		if season != nil && len(items) > 0 {
+			resume, err = svc.Playback.ContinueSeriesHistory(c.Request.Context(), toString(uid), libID, items[0].SeriesID, visibility)
+			if err != nil {
+				writeInternalOrCanceled(c, err)
+				return
+			}
+		}
+		c.JSON(http.StatusOK, gin.H{"items": items, "total": len(items), "history": history, "resume": resume})
 	}
 }

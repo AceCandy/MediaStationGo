@@ -18,6 +18,8 @@ export function useLibraryData(libraryID: string, filters: LibraryMediaFilters) 
   const profileID = usePlayProfileStore((state) => state.activeProfileId)
   const seriesID = searchParams.get('series_id') || ''
   const seriesKey = seriesID ? '' : searchParams.get('series') || ''
+  const rawSeason = searchParams.get('season')
+  const requestedSeason = rawSeason !== null && /^\d+$/.test(rawSeason) ? Number(rawSeason) : undefined
   const target = `${userID}:${profileID}:${libraryID}:${seriesID}:${seriesKey}`
   const [linkedSeries, setLinkedSeries] = useState<{ target: string; card: SeriesCard | null } | null>(null)
   const { missingPoster = false, missingChineseTitle = false } = filters
@@ -26,6 +28,7 @@ export function useLibraryData(libraryID: string, filters: LibraryMediaFilters) 
   const [serverSeriesCards, setServerSeriesCards] = useState<SeriesCard[]>([])
   const [seriesEpisodeItems, setSeriesEpisodeItems] = useState<Media[]>([])
   const [seriesHistory, setSeriesHistory] = useState<HistoryItem[]>([])
+  const [seriesResume, setSeriesResume] = useState<HistoryItem | null>(null)
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(true)
   const [loadingMore, setLoadingMore] = useState(false)
@@ -151,6 +154,7 @@ export function useLibraryData(libraryID: string, filters: LibraryMediaFilters) 
 
   useEffect(() => {
     setSeriesHistory([])
+    setSeriesResume(null)
     setSeriesEpisodesError(false)
     if (!libraryID || !isSeriesLibrary || !episodeKey) {
       setSeriesEpisodeItems([])
@@ -160,11 +164,12 @@ export function useLibraryData(libraryID: string, filters: LibraryMediaFilters) 
     let cancelled = false
     setLoadingSeriesEpisodes(true)
     setSeriesEpisodeItems([])
-    libraryAPI.listSeriesEpisodes(libraryID, episodeKey)
+    libraryAPI.listSeriesEpisodes(libraryID, episodeKey, requestedSeason)
       .then((r) => {
         if (!cancelled) {
           setSeriesEpisodeItems(r.items ?? [])
           setSeriesHistory(r.history ?? [])
+          setSeriesResume(r.resume ?? null)
         }
       })
       .catch(() => {
@@ -177,7 +182,7 @@ export function useLibraryData(libraryID: string, filters: LibraryMediaFilters) 
         if (!cancelled) setLoadingSeriesEpisodes(false)
       })
     return () => { cancelled = true }
-  }, [libraryID, library, isSeriesLibrary, episodeKey, userID, profileID])
+  }, [libraryID, library, isSeriesLibrary, episodeKey, requestedSeason, userID, profileID])
 
   const reloadCurrentLibrary = useCallback(() => {
     setLibrary((current) => (current ? { ...current } : current))
@@ -192,6 +197,7 @@ export function useLibraryData(libraryID: string, filters: LibraryMediaFilters) 
     items,
     seriesEpisodeItems,
     seriesHistory,
+    seriesResume,
     total,
     loading: loading || (isSeriesLibrary && !!(seriesID || seriesKey) && linkedSeries?.target !== target),
     loadingSeriesEpisodes,

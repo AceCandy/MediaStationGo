@@ -123,6 +123,28 @@ func TestContinuationCrossSeason(t *testing.T) {
 				t.Fatal(err)
 			}
 			assertNext(items[2])
+			if source != "hongguo" {
+				id := seriesID
+				if source == "nfo" {
+					id = "nfo-" + id
+				}
+				candidate, err := p.ContinueSeriesHistory(t.Context(), user, lib.ID, id, MediaVisibility{IncludeNSFW: true})
+				if err != nil || candidate == nil || !candidate.IsNext || candidate.MetadataID != items[2] || candidate.Media == nil || candidate.Media.ID != files[2] {
+					t.Fatalf("cross-season series continuation=%+v err=%v", candidate, err)
+				}
+				if source == "legacy" {
+					if err := db.Model(&model.MetadataItem{}).Where("id = ?", "season-2").Update("nsfw", true).Error; err != nil {
+						t.Fatal(err)
+					}
+					hidden, err := p.ContinueSeriesHistory(t.Context(), user, lib.ID, id, MediaVisibility{})
+					if err != nil || hidden != nil {
+						t.Fatalf("hidden season continuation=%+v err=%v", hidden, err)
+					}
+					if err := db.Model(&model.MetadataItem{}).Where("id = ?", "season-2").Update("nsfw", false).Error; err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
 			// 已移除的错误长版本不能继续阻止季完成与跨季；三种来源保持同一规则。
 			create(&model.MediaProbeMetadata{MediaID: files[0], DurationMS: 1_440_000})
 			var oldVersion model.Media

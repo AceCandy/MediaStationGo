@@ -59,6 +59,7 @@ export function LibraryPage() {
     items,
     seriesEpisodeItems,
     seriesHistory,
+    seriesResume,
     total,
     loading,
     loadingSeriesEpisodes,
@@ -119,8 +120,8 @@ export function LibraryPage() {
     handleSeriesProbe,
     handleSeriesSoftDelete,
   } = useLibraryAdminActions({
+    libraryID: id,
     selectedSeries,
-    selectedSeriesEpisodes,
     reloadCurrentLibrary,
     clearSelectedSeries,
   })
@@ -184,6 +185,7 @@ export function LibraryPage() {
         selectedEpisodes={selectedEpisodes}
         allEpisodes={selectedSeriesEpisodes}
         history={seriesHistory}
+        resume={seriesResume}
         loadingEpisodes={loadingSeriesEpisodes}
         episodesError={seriesEpisodesError}
         playbackFrom={`${location.pathname}${location.search}`}

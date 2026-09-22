@@ -200,11 +200,28 @@ func (p *PlaybackService) RecentHistory(ctx context.Context, userID string, limi
 }
 
 func (p *PlaybackService) ContinueHistory(ctx context.Context, userID string, limit int, visibility MediaVisibility) ([]HistoryItem, error) {
+	return p.continueHistory(ctx, userID, limit, "", visibility)
+}
+
+// ContinueSeriesHistory 只返回当前媒体库中指定剧集的一个跨季续播或下一集候选。
+func (p *PlaybackService) ContinueSeriesHistory(ctx context.Context, userID, libraryID, seriesID string, visibility MediaVisibility) (*HistoryItem, error) {
+	if seriesID == "" || !visibility.allows(libraryID, false) {
+		return nil, nil
+	}
+	visibility.AllowedLibraryIDs = []string{libraryID}
+	items, err := p.continueHistory(ctx, userID, 1, seriesID, visibility)
+	if err != nil || len(items) == 0 {
+		return nil, err
+	}
+	return &items[0], nil
+}
+
+func (p *PlaybackService) continueHistory(ctx context.Context, userID string, limit int, seriesID string, visibility MediaVisibility) ([]HistoryItem, error) {
 	if visibility.LibraryRestricted && len(visibility.AllowedLibraryIDs) == 0 {
 		return []HistoryItem{}, nil
 	}
 	filter := repository.MediaQueryFilter{IncludeNSFW: visibility.IncludeNSFW, AllowedLibraryIDs: visibility.AllowedLibraryIDs, HiddenLibraryIDs: visibility.HiddenLibraryIDs}
-	candidates, _, err := p.repo.History.Continuations(ctx, userID, filter, repository.ContinuationWeb, "", 0, limit)
+	candidates, _, err := p.repo.History.Continuations(ctx, userID, filter, repository.ContinuationWeb, seriesID, 0, limit)
 	if err != nil {
 		return nil, err
 	}

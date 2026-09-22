@@ -96,6 +96,12 @@ per-user, per-metadata history state but playback events are append-only.
   ID is a read-only projection, never persisted or included in full history or
   statistics. Next-episode cards link directly to the selected concrete file
   (`/media/<media.id>`), not a series page that defaults to its first episode.
+- A season-scoped library Series response may include one whole-series `resume`
+  history candidate with its playable `media`. Reuse `ContinuationWeb` with the
+  canonical Series ID and current library visibility; do not load all Series
+  files or infer cross-season progress from the current season's history. For
+  canonical Series, exclude NSFW Episode, Season and Series ancestors before
+  selecting the next candidate; NFO applies the same hierarchy boundary.
 - Mixed-catalog Emby global `IsResumable` uses `globalResumeItems`: filter each
   source's current-user state and visible files before grouping, count distinct
   resume keys per source, then merge at most `StartIndex + Limit` grouped rows

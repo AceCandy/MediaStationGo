@@ -16,6 +16,7 @@ type SeriesCard struct {
 	Rep       model.Media `json:"rep"`
 	LinkMedia model.Media `json:"linkMedia"`
 	Count     int         `json:"count"`
+	Seasons   []int       `json:"seasons,omitempty"`
 }
 
 // GetMediaSeriesVisible 从可见文件定位整剧，复用 canonical 展示投影而非分集信息。
@@ -101,6 +102,13 @@ func (s *MediaService) ListLibrarySeriesCards(ctx context.Context, libraryID str
 	}
 	if err := s.attachSeriesCardPresentations(ctx, cards, visibility); err != nil {
 		return nil, 0, err
+	}
+	if seriesID != "" && len(cards) == 1 {
+		seasons, err := s.repo.MediaView.ListLibrarySeriesSeasons(ctx, libraryID, seriesID, repository.MediaQueryFilter{IncludeNSFW: visibility.IncludeNSFW, AllowedLibraryIDs: visibility.AllowedLibraryIDs, HiddenLibraryIDs: visibility.HiddenLibraryIDs})
+		if err != nil {
+			return nil, 0, err
+		}
+		cards[0].Seasons = seasons
 	}
 	if key != "" && len(cards) == 1 {
 		cards[0].Key = key
@@ -203,7 +211,7 @@ func (s *MediaService) attachSeriesCardPresentations(ctx context.Context, cards 
 	return nil
 }
 
-func (s *MediaService) ListLibrarySeriesEpisodes(ctx context.Context, libraryID, key string, visibility MediaVisibility) ([]model.MediaView, error) {
+func (s *MediaService) ListLibrarySeriesEpisodes(ctx context.Context, libraryID, key string, season *int, visibility MediaVisibility) ([]model.MediaView, error) {
 	if !visibility.allows(libraryID, false) {
 		return []model.MediaView{}, nil
 	}
@@ -214,7 +222,7 @@ func (s *MediaService) ListLibrarySeriesEpisodes(ctx context.Context, libraryID,
 	if id == "" {
 		return []model.MediaView{}, nil
 	}
-	rows, err := s.repo.MediaView.ListLibrarySeriesViews(ctx, libraryID, id, repository.MediaQueryFilter{IncludeNSFW: visibility.IncludeNSFW, AllowedLibraryIDs: visibility.AllowedLibraryIDs, HiddenLibraryIDs: visibility.HiddenLibraryIDs})
+	rows, err := s.repo.MediaView.ListLibrarySeriesViewsForSeason(ctx, libraryID, id, season, repository.MediaQueryFilter{IncludeNSFW: visibility.IncludeNSFW, AllowedLibraryIDs: visibility.AllowedLibraryIDs, HiddenLibraryIDs: visibility.HiddenLibraryIDs})
 	if err != nil {
 		return nil, err
 	}

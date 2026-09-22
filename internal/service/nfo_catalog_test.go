@@ -194,9 +194,18 @@ func TestNFOSeriesHierarchyAndStateIsolation(t *testing.T) {
 	if err != nil || total != 1 || len(cards) != 1 || cards[0].Rep.SeriesID != seriesID || cards[0].Rep.Title != "本地节目" {
 		t.Fatalf("web series=%+v total=%d err=%v", cards, total, err)
 	}
-	episodes, err := web.ListLibrarySeriesEpisodes(t.Context(), lib.ID, cards[0].Key, MediaVisibility{IncludeNSFW: true})
+	detailCards, _, err := web.ListLibrarySeriesCards(t.Context(), lib.ID, 1, 1, seriesID, "", MediaVisibility{IncludeNSFW: true})
+	if err != nil || len(detailCards) != 1 || len(detailCards[0].Seasons) != 1 || detailCards[0].Seasons[0] != 1 {
+		t.Fatalf("web series seasons=%+v err=%v", detailCards, err)
+	}
+	episodes, err := web.ListLibrarySeriesEpisodes(t.Context(), lib.ID, cards[0].Key, nil, MediaVisibility{IncludeNSFW: true})
 	if err != nil || len(episodes) != 4 {
 		t.Fatalf("web episodes=%+v err=%v", episodes, err)
+	}
+	season := 1
+	filtered, err := web.ListLibrarySeriesEpisodes(t.Context(), lib.ID, cards[0].Key, &season, MediaVisibility{IncludeNSFW: true})
+	if err != nil || len(filtered) != 4 {
+		t.Fatalf("web filtered episodes=%+v err=%v", filtered, err)
 	}
 	recent, err := web.ListRecentSeriesCards(t.Context(), 10, MediaVisibility{IncludeNSFW: true})
 	if err != nil || len(recent) != 1 || recent[0].Rep.SeriesID != seriesID {

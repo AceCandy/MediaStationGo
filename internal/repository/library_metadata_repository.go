@@ -169,10 +169,39 @@ func (r *MediaViewRepository) LibrarySeriesMetadataIDs(ctx context.Context, libr
 
 // ListLibrarySeriesViews 仅加载指定作品在当前库内的可见关联文件。
 func (r *MediaViewRepository) ListLibrarySeriesViews(ctx context.Context, libraryID, metadataID string, filter MediaQueryFilter) ([]model.MediaView, error) {
+	return r.listLibrarySeriesViews(ctx, libraryID, metadataID, nil, filter)
+}
+
+// ListLibrarySeriesViewsForSeason 只读取指定剧集指定季的可见文件。
+func (r *MediaViewRepository) ListLibrarySeriesViewsForSeason(ctx context.Context, libraryID, metadataID string, season *int, filter MediaQueryFilter) ([]model.MediaView, error) {
+	return r.listLibrarySeriesViews(ctx, libraryID, metadataID, season, filter)
+}
+
+// ListLibrarySeriesSeasons 返回指定剧集在当前媒体库中可见的季号。
+func (r *MediaViewRepository) ListLibrarySeriesSeasons(ctx context.Context, libraryID, metadataID string, filter MediaQueryFilter) ([]int, error) {
+	var seasons []int
 	if strings.HasPrefix(metadataID, "nfo-") {
-		return scanNFOViews(r.nfoViewQuery(ctx, filter).Where("m.library_id = ? AND nw.id = ?", libraryID, strings.TrimPrefix(metadataID, "nfo-")).Order("ns.season_num,ni.episode_num,m.path"))
+		q := r.nfoViewQuery(ctx, filter).Where("m.library_id = ? AND nw.id = ?", libraryID, strings.TrimPrefix(metadataID, "nfo-"))
+		err := q.Distinct("COALESCE(ns.season_num, 0)").Order("COALESCE(ns.season_num, 0)").Pluck("COALESCE(ns.season_num, 0)", &seasons).Error
+		return seasons, err
+	}
+	q := r.libraryMetadataScope(ctx, libraryID, model.MetadataKindSeries, metadataID, filter)
+	err := q.Distinct("COALESCE(season.season_num, mi.season_num, 0)").Order("COALESCE(season.season_num, mi.season_num, 0)").Pluck("COALESCE(season.season_num, mi.season_num, 0)", &seasons).Error
+	return seasons, err
+}
+
+func (r *MediaViewRepository) listLibrarySeriesViews(ctx context.Context, libraryID, metadataID string, season *int, filter MediaQueryFilter) ([]model.MediaView, error) {
+	if strings.HasPrefix(metadataID, "nfo-") {
+		q := r.nfoViewQuery(ctx, filter).Where("m.library_id = ? AND nw.id = ?", libraryID, strings.TrimPrefix(metadataID, "nfo-"))
+		if season != nil {
+			q = q.Where("COALESCE(ns.season_num, 0) = ?", *season)
+		}
+		return scanNFOViews(q.Order("ns.season_num,ni.episode_num,m.path"))
 	}
 	ids := r.libraryMetadataScope(ctx, libraryID, model.MetadataKindSeries, metadataID, filter).Select("m.id")
+	if season != nil {
+		ids = ids.Where("COALESCE(season.season_num, mi.season_num, 0) = ?", *season)
+	}
 	var rows []model.MediaView
 	// 先限定文件输入，再关联展示数据；OFFSET 0 阻止规划器将剧集过滤推迟到全库投影之后。
 	err := scanMediaViews(r.query(ctx).Table("(SELECT * FROM media WHERE id IN (?) OFFSET 0) AS m", ids).

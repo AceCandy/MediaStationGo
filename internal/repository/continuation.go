@@ -125,7 +125,7 @@ func (r *HistoryRepository) continuationSource(ctx context.Context, userID strin
 			Joins("LEFT JOIN (?) st ON st.metadata_id = i.id", PlaybackStates(ctx, r.db, source, userID, filter)).
 			Where("i.kind IN ('movie','episode')")
 		if !filter.IncludeNSFW {
-			q = q.Where("NOT COALESCE(i.nsfw,FALSE)")
+			q = q.Where("NOT COALESCE(i.nsfw,FALSE) AND NOT COALESCE(season.nsfw,FALSE) AND NOT COALESCE(series.nsfw,FALSE)")
 		}
 		projection = `i.id AS item_id, COALESCE(series.id,i.id) AS group_id, COALESCE(series.id,'') AS series_id,
  i.kind, COALESCE(season.season_num,0) AS season_num, '' AS work_order, '' AS album_id, i.episode_num, COALESCE(st.id,'') AS history_id`

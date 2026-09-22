@@ -43,4 +43,40 @@ assert.equal(seriesResumeEpisode(items, [{ metadata_id: 'first', completed: true
 assert.equal(seriesResumeEpisode(items, [{ metadata_id: 'first', media_id: alternate.id, completed: true, position_ms: 120000 }]).id, alternate.id)
 assert.equal(seriesResumeEpisode(items, [{ metadata_id: 'hidden', completed: false }]).metadata_id, first.metadata_id)
 assert.equal(seriesResumeEpisode([], []), undefined)
+const render = (type, props) => ({ type, props })
+const header = {}
+vm.runInNewContext(ts.transpileModule(readFileSync(new URL('../src/pages/LibrarySeriesDetailHeader.tsx', import.meta.url), 'utf8'), {
+  compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX },
+}).outputText, {
+  exports: header,
+  URL,
+  window: { location: { origin: 'http://localhost' } },
+  require: id => ({
+    react: { useState: value => [value, () => {}], useEffect: () => {}, useRef: value => ({ current: value }) },
+    'react/jsx-runtime': { jsx: render, jsxs: render },
+    'react-router-dom': { Link: 'Link' },
+    'lucide-react': { ArrowLeft: 'Icon', Play: 'Icon' },
+    'react-hot-toast': { default: {} },
+    '../api/library': { mediaAPI: {} },
+    '../api/playback': { playbackAPI: {} },
+    '../utils/groupSeries': { seriesTitle: () => '测试剧' },
+    './MediaDetailArtwork': { MediaDetailBackdrop: 'Backdrop', MediaDetailPoster: 'Poster' },
+    './MediaDetailMetadata': { MediaDetailMetadata: 'Metadata' },
+    './MediaDetailAdminPanel': { MediaDetailAdminMenu: 'AdminMenu' },
+    './seriesDetailModel': exports,
+  })[id],
+})
+const next = ep('s2e1-file', 's2e1', 2, 1)
+const tree = header.LibrarySeriesDetailHeader({ series: { rep: first, count: 3 }, allEpisodes: [first, second], history: [], resume: { media: next, is_next: true, position_ms: 0 }, playbackFrom: '/library/test?season=1', isAdmin: false })
+const links = []
+function collect(node) {
+  if (!node || typeof node !== 'object') return
+  if (Array.isArray(node)) return node.forEach(collect)
+  if (node.type === 'Link') links.push(node)
+  collect(node.props?.children)
+}
+collect(tree)
+assert.equal(links[0].props.to, '/play/s2e1-file', 'completed season continues at the next season')
+assert.match(links[0].props.state.from, /season=2&episode=s2e1&version=s2e1-file/)
+assert.match(JSON.stringify(links[0].props.children), /S2 E1/)
 console.log('Series selection, specials, version grouping and resume checks passed')

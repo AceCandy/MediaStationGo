@@ -16,6 +16,7 @@ type LibrarySeriesDetailSectionProps = {
   selectedEpisodes: { season: number; episodes: Media[] }[]
   allEpisodes: Media[]
   history: HistoryItem[]
+  resume: HistoryItem | null
   loadingEpisodes: boolean
   episodesError: boolean
   playbackFrom: string
@@ -29,7 +30,7 @@ type LibrarySeriesDetailSectionProps = {
   onChanged: () => void
 }
 
-export function LibrarySeriesDetailSection({ selectedSeries, selectedEpisodes, allEpisodes, history, loadingEpisodes, episodesError, playbackFrom, isAdmin, seriesToolBusy, onBack, onMetadataEdit, onProbe, onSoftDelete, onSeasonChange, onChanged }: LibrarySeriesDetailSectionProps) {
+export function LibrarySeriesDetailSection({ selectedSeries, selectedEpisodes, allEpisodes, history, resume, loadingEpisodes, episodesError, playbackFrom, isAdmin, seriesToolBusy, onBack, onMetadataEdit, onProbe, onSoftDelete, onSeasonChange, onChanged }: LibrarySeriesDetailSectionProps) {
   const [params, setParams] = useSearchParams()
   const { season, episode } = resolveSeriesSelection(selectedEpisodes, params)
   const episodeID = episode ? episodeIdentity(episode) : ''
@@ -76,7 +77,7 @@ export function LibrarySeriesDetailSection({ selectedSeries, selectedEpisodes, a
   }
   return (
     <div className="min-w-0 space-y-8">
-      <LibrarySeriesDetailHeader series={selectedSeries} allEpisodes={loadingEpisodes ? [] : allEpisodes} history={history} playbackFrom={playbackFrom} isAdmin={isAdmin} seriesToolBusy={seriesToolBusy} onBack={onBack} onMetadataEdit={onMetadataEdit} onProbe={onProbe} onSoftDelete={onSoftDelete} />
+      <LibrarySeriesDetailHeader series={selectedSeries} allEpisodes={loadingEpisodes ? [] : allEpisodes} history={history} resume={loadingEpisodes ? null : resume} playbackFrom={playbackFrom} isAdmin={isAdmin} seriesToolBusy={seriesToolBusy} onBack={onBack} onMetadataEdit={onMetadataEdit} onProbe={onProbe} onSoftDelete={onSoftDelete} />
       <div className="min-w-0 space-y-6 rounded-3xl border border-[var(--app-border)] bg-[var(--app-panel)] p-5 sm:p-8">
       {episodesError ? <div role="status" className="flex flex-wrap items-center gap-3 text-[var(--app-muted)]">分集加载失败<button className="btn-outline" onClick={onChanged}>重试分集</button></div> : <LibrarySeriesEpisodes loading={loadingEpisodes} selectedEpisodes={selectedEpisodes} selectedSeason={season?.season ?? 1} visibleEpisodes={season?.episodes ?? []} selectedEpisodeID={episodeID} history={history} isAdmin={isAdmin} onChanged={onChanged} onSeasonChange={onSeasonChange} onEpisodeSelect={selectEpisode} />}
       {episode && !loadingEpisodes && (

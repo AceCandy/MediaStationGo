@@ -30,7 +30,7 @@ import type { Media } from '../types'
  *
  * 同一组内取最早 created_at 的那条作为代表卡片，并带 count 表示集数。
  */
-export type SeriesCard = { key: string; rep: Media; linkMedia: Media; count: number }
+export type SeriesCard = { key: string; rep: Media; linkMedia: Media; count: number; seasons?: number[] }
 
 export function getSeriesKey(media: Media): string {
   return compactSeriesKey(getSeriesRawKey(media))

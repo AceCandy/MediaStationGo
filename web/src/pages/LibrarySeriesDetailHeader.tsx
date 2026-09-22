@@ -17,6 +17,7 @@ type LibrarySeriesDetailHeaderProps = {
   series: SeriesCard
   allEpisodes: Media[]
   history: HistoryItem[]
+  resume: HistoryItem | null
   playbackFrom: string
   isAdmin: boolean
   seriesToolBusy: string
@@ -26,7 +27,7 @@ type LibrarySeriesDetailHeaderProps = {
   onSoftDelete: () => void
 }
 
-export function LibrarySeriesDetailHeader({ series, allEpisodes, history, playbackFrom, isAdmin, seriesToolBusy, onBack, onMetadataEdit, onProbe, onSoftDelete }: LibrarySeriesDetailHeaderProps) {
+export function LibrarySeriesDetailHeader({ series, allEpisodes, history, resume: seriesResume, playbackFrom, isAdmin, seriesToolBusy, onBack, onMetadataEdit, onProbe, onSoftDelete }: LibrarySeriesDetailHeaderProps) {
   const [data, setData] = useState<{ series: Media; favourite: boolean } | null>(null)
   const [failed, setFailed] = useState(false)
   const [revision, setRevision] = useState(0)
@@ -51,8 +52,8 @@ export function LibrarySeriesDetailHeader({ series, allEpisodes, history, playba
     } catch { toast.error('整剧收藏操作失败') }
     finally { favouritePending.current = false }
   }
-  const resume = seriesResumeEpisode(allEpisodes, history)
-  const resumeHistory = resume ? history.find((row) => row.metadata_id === episodeIdentity(resume)) : undefined
+  const resume = seriesResume?.media ?? seriesResumeEpisode(allEpisodes, history)
+  const resumeHistory = seriesResume?.media ? seriesResume : resume ? history.find((row) => row.metadata_id === episodeIdentity(resume)) : undefined
   const continuing = resumeHistory && resumeHistory.position_ms >= 20_000
   const resumeFrom = () => {
     const url = new URL(playbackFrom, window.location.origin)
@@ -67,7 +68,7 @@ export function LibrarySeriesDetailHeader({ series, allEpisodes, history, playba
     <p className="text-sm text-[var(--app-muted)]">共 {series.count} {allEpisodes.some((ep) => ep.episode_num <= 0) ? '项' : '集'}</p>
     <div className="flex flex-wrap items-center gap-3">
       {resume && <Link to={`/play/${resume.id}`} state={{ from: resumeFrom() }} className="btn-primary"><Play size={16} fill="currentColor" aria-hidden="true" />{continuing ? '继续观看' : '播放'} · {resume.episode_num > 0 ? `S${resume.season_num} E${resume.episode_num}` : episodeLabel(resume)}</Link>}
-      {isAdmin && allEpisodes.length > 0 && <MediaDetailAdminMenu label="整剧更多操作" disabled={!!seriesToolBusy} tmdbRefreshPending={false} doubanEnrichmentPending={false} doubanDegraded={false} onMetadataEdit={series.rep.catalog_source ? undefined : onMetadataEdit} onProbe={onProbe} onSoftDelete={onSoftDelete} />}
+      {isAdmin && series.count > 0 && <MediaDetailAdminMenu label="整剧更多操作" disabled={!!seriesToolBusy} tmdbRefreshPending={false} doubanEnrichmentPending={false} doubanDegraded={false} onMetadataEdit={series.rep.catalog_source ? undefined : onMetadataEdit} onProbe={onProbe} onSoftDelete={onSoftDelete} />}
     </div>
   </div>
 

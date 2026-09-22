@@ -154,10 +154,65 @@ It uses mocked APIs; actual downloaded poster rendering remains deployment QA.
 Series-library deep links (`series` or `series_id`) must skip the library
 catalogue page. After library type resolution, request the linked series card
 and its episodes independently using the URL identity. Card completion must
-not refetch episodes; season/version changes reuse them. Explicit refresh
-reloads both, stale responses are ignored, and returning to the catalogue
-restores 50-item pagination. Run `node scripts/check-series-loading.mjs` from
-`web` to verify this request lifecycle.
+not refetch episodes; version changes reuse them, while season changes fetch
+only the selected season. Explicit refresh reloads both, stale responses are
+ignored, and returning to the catalogue restores 50-item pagination. Run
+`node scripts/check-series-loading.mjs` from `web` to verify this lifecycle.
+
+## Scenario: Season-Scoped Web Series Detail
+
+### 1. Scope / Trigger
+
+Opening a series deep link with `season` or switching the selected season.
+
+### 2. Signatures
+
+`GET /api/libraries/:id/series/episodes?key=metadata:<id>&season=<non-negative integer>`;
+`season` is optional. A targeted series card may include `seasons: number[]`.
+Season-scoped episode responses add `resume: HistoryItem | null`, where a
+candidate has `media` (one playable file) and `is_next` for the following episode.
+
+### 3. Contracts
+
+When `season` is present, load only its visible file versions and history;
+the card's `seasons` supplies the selector without loading other episodes.
+The header's play control uses the separate user- and library-scoped whole-series
+`resume` candidate: after the last completed S1 episode, it targets S2 E1,
+while an explicit `season=1` URL still shows S1 in the episode selector.
+Without `season`, retain the previous full-series response. NFO and ordinary
+series follow the same season filter and visibility rules. Whole-series admin
+actions explicitly fetch without `season` and never fall back to the current
+season on failure. No external font request is needed for first paint.
+
+### 4. Validation & Error Matrix
+
+Invalid or negative `season` returns HTTP 400; an unavailable season yields
+an empty list. No eligible continuation returns `resume: null`; a continuation
+lookup failure returns an error, never another user's candidate. Failed
+whole-series fetch reports an error and does not delete the current-season
+subset or dismiss the selected series.
+
+### 5. Good / Base / Bad Cases
+
+Good: a `season=1` deep link loads season 1 plus the list of visible seasons,
+but after S1 is watched its header plays S2 E1 without fetching S2's file list.
+Base: an old URL without a season still loads the full series. Bad: a season
+switch or admin delete silently reuses the old/current-season episode list.
+
+### 6. Tests Required
+
+`check-series-loading.mjs` checks per-season requests, the separate next candidate,
+stale responses and retry. `TestContinuationCrossSeason` checks scoped NFO/ordinary
+S1→S2 candidates; the handler and NFO/ordinary service tests check season lists
+and filtered episodes. Run
+`npm run lint`, `npm run build`, and `git diff --check` for Web changes.
+
+### 7. Wrong vs Correct
+
+Wrong: derive every season or the whole-series next candidate from the
+current-season episodes, or delete those episodes as the entire series.
+Correct: return season numbers and the one whole-series continuation separately;
+fetch every visible episode only when a whole-series operation is confirmed.
 
 For routing or layout changes, verify at least 390x844, 768x1024, 1440x900,
 and the exact responsive breakpoint affected by the change. Check canonical

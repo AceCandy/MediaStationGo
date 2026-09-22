@@ -38,7 +38,7 @@ export function useLibrarySeriesSelection({
 }: UseLibrarySeriesSelectionOptions) {
   const allSeasons = useMemo(() => {
     const sourceItems = isSeriesLibrary ? seriesEpisodeItems : items
-    if (!selectedSeries || sourceItems.length === 0) return []
+    if (!selectedSeries) return []
     const eps = isSeriesLibrary
       ? sourceItems
       : sourceItems.filter((m) => getSeriesKey(m) === selectedSeries.key)
@@ -50,6 +50,9 @@ export function useLibrarySeriesSelection({
     }
     for (const [, list] of seasons) {
       list.sort((a, b) => (a.episode_num || 0) - (b.episode_num || 0))
+    }
+    for (const season of selectedSeries.seasons ?? []) {
+      if (!seasons.has(season)) seasons.set(season, [])
     }
     return Array.from(seasons.entries())
       .sort(([a], [b]) => a - b)
