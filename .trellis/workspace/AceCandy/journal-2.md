@@ -1414,3 +1414,25 @@ Scope series detail episodes to the selected season while preserving cross-seaso
 ### Status
 
 [OK] **Completed**
+
+
+## Session 148: 整体审查优化与数据库回归收尾
+<!-- trellis-session: v=2 fp=52212151e1608e0e -->
+
+**Date**: 2026-09-22
+**Task**: 整体审查优化与数据库回归收尾
+**Branch**: `main`
+
+### Summary
+
+修复权限和会话撤销、无覆盖文件转移与补偿、调度关闭、前端请求隔离及刮削/播放/整理问题；PostgreSQL 全量和前端回归通过，完成任务归档。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `5539428` | fix: harden access, transfers and database regressions |
+
+### Status
+
+[OK] **Completed**

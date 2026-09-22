@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-2.md`
-- **Total Sessions**: 147
+- **Total Sessions**: 148
 - **Last Active**: 2026-09-22
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-2.md` | ~1416 | Active |
+| `journal-2.md` | ~1438 | Active |
 | `journal-1.md` | ~1981 | Archived |
 <!-- @@@/auto:active-documents -->
 
@@ -30,6 +30,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 148 | 2026-09-22 | 整体审查优化与数据库回归收尾 | `5539428` | `main` |
 | 147 | 2026-09-22 | 修复按季加载后的其它季海报缺失 | `b01bea1` | `main` |
 | 146 | 2026-09-22 | Season-scoped series detail loading | `f6a69ac` | `main` |
 | 145 | 2026-09-22 | 完成剩余改动提交与任务归档 | `0833cc5`, `abbcd81`, `8b5f9a0` | `main` |
