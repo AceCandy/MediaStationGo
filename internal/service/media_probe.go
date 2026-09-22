@@ -7,6 +7,7 @@ import (
 	"math"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -60,6 +61,7 @@ type mediaProbeSource struct {
 	url      string
 	local    bool
 	size     int64
+	file     os.FileInfo
 }
 
 // MediaProbeService 是完整探测文档的唯一写入入口。
@@ -98,25 +100,30 @@ func (s *MediaProbeService) SetTaskTracker(log *zap.Logger, tasks *TaskTrackerSe
 }
 
 func (s *MediaProbeService) ProbeMedia(ctx context.Context, mediaID string) (*ProbeResult, error) {
+	result, _, err := s.probeMedia(ctx, mediaID)
+	return result, err
+}
+
+func (s *MediaProbeService) probeMedia(ctx context.Context, mediaID string) (*ProbeResult, mediaProbeSource, error) {
 	if s == nil || s.repo == nil || s.repo.Media == nil || s.probe == nil {
-		return nil, errors.New("media probe unavailable")
+		return nil, mediaProbeSource{}, errors.New("media probe unavailable")
 	}
 	media, err := s.repo.Media.FindByID(ctx, strings.TrimSpace(mediaID))
 	if err != nil || media == nil {
 		if err != nil {
-			return nil, err
+			return nil, mediaProbeSource{}, err
 		}
-		return nil, ErrMediaNotFound
+		return nil, mediaProbeSource{}, ErrMediaNotFound
 	}
 	source, err := s.resolveSource(ctx, media)
 	if err != nil {
-		return nil, err
+		return nil, mediaProbeSource{}, err
 	}
 	var result *ProbeResult
 	if source.url != "" {
 		select {
 		case <-ctx.Done():
-			return nil, ctx.Err()
+			return nil, mediaProbeSource{}, ctx.Err()
 		case <-time.After(remoteMediaProbeDelay()):
 		}
 		result, err = s.probe.ProbeHTTP(ctx, source.url)
@@ -124,15 +131,15 @@ func (s *MediaProbeService) ProbeMedia(ctx context.Context, mediaID string) (*Pr
 		result, err = s.probe.Probe(ctx, source.path)
 	}
 	if err != nil {
-		return nil, err
+		return nil, source, err
 	}
 	if err := s.persist(ctx, media.ID, source, result); err != nil {
-		return nil, err
+		return nil, mediaProbeSource{}, err
 	}
 	if s.cache != nil {
 		s.cache.DeletePrefix(ctx, "media:")
 	}
-	return result, nil
+	return result, mediaProbeSource{}, nil
 }
 
 func remoteMediaProbeDelay() time.Duration {
@@ -271,7 +278,7 @@ func (s *MediaProbeService) backfill(ctx context.Context, libraryID string, limi
 			if _, err := UnmarshalProbeDocument(row.ProbeJSON, row.SchemaVersion); err == nil {
 				result.Skipped++
 			} else {
-				probed, err := s.ProbeMedia(ctx, row.MediaID)
+				probed, source, err := s.probeMedia(ctx, row.MediaID)
 				if errors.Is(err, errMediaProbeSourceUnavailable) {
 					result.Skipped++
 				} else if err != nil || probed == nil || probed.Document == nil {
@@ -286,6 +293,11 @@ func (s *MediaProbeService) backfill(ctx context.Context, libraryID string, limi
 					reason := sanitizeTaskLogError(err).Error()
 					if row.Path != "" {
 						reason = strings.ReplaceAll(reason, row.Path, "[redacted-path]")
+					}
+					if deleted, deleteErr := s.removeBrokenProbeSource(ctx, row.MediaID, source, err); deleted {
+						reason += " (损坏视频已删除)"
+					} else if deleteErr != nil {
+						reason += " (删除损坏视频失败)"
 					}
 					result.Details = []string{fmt.Sprintf("❌️ %s %s %s", row.MediaID, row.Path, reason)}
 				} else {
@@ -307,6 +319,30 @@ func (s *MediaProbeService) backfill(ctx context.Context, libraryID string, limi
 		lastID = rows[len(rows)-1].MediaID
 	}
 	return result, nil
+}
+
+// removeBrokenProbeSource 仅在回填探测确认 moov 损坏且媒体源未变化时删除被探测的本地视频。
+func (s *MediaProbeService) removeBrokenProbeSource(ctx context.Context, mediaID string, source mediaProbeSource, probeErr error) (bool, error) {
+	var exitErr *exec.ExitError
+	if !source.local || source.path == "" || source.file == nil || ctx.Err() != nil || !errors.As(probeErr, &exitErr) || !strings.Contains(strings.ToLower(string(exitErr.Stderr)), "moov atom not found") {
+		return false, nil
+	}
+	media, err := s.repo.Media.FindByID(ctx, mediaID)
+	if err != nil || media == nil {
+		return false, err
+	}
+	identity, err := currentSourceIdentity(media, s.probePathMappings(ctx))
+	if err != nil || identity != source.identity {
+		return false, err
+	}
+	info, err := os.Lstat(source.path)
+	if err != nil || !info.Mode().IsRegular() || !os.SameFile(source.file, info) {
+		return false, err
+	}
+	if err := os.Remove(source.path); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func pendingProbeQuery(query *gorm.DB, automatic bool) *gorm.DB {
@@ -586,7 +622,7 @@ func localMediaProbeSource(media *model.Media, target string) (mediaProbeSource,
 	target = filepath.Clean(target)
 	return mediaProbeSource{
 		identity: fmt.Sprintf("local\x00%s\x00%s\x00%d\x00%d", media.Path, target, stat.Size(), stat.ModTime().UnixNano()),
-		path:     target, local: true, size: stat.Size(),
+		path:     target, local: true, size: stat.Size(), file: stat,
 	}, nil
 }
 

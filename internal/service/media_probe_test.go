@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -101,6 +102,93 @@ func TestMediaProbePersistsLocalSTRMTargetSize(t *testing.T) {
 	got, _ := repos.MediaProbe.FindByMediaID(t.Context(), media.ID)
 	if got.SizeBytes != int64(len(content)) {
 		t.Fatalf("size_bytes = %d, want target size %d", got.SizeBytes, len(content))
+	}
+}
+
+func TestMediaProbeBackfillDeletesMoovDamagedVideoOnly(t *testing.T) {
+	for _, tc := range []struct {
+		name, failure                 string
+		strm, change, replace, delete bool
+	}{
+		{name: "video", failure: "moov atom not found", delete: true},
+		{name: "STRM target", failure: "moov atom not found", strm: true, delete: true},
+		{name: "other failure", failure: "Invalid data found when processing input"},
+		{name: "changed source", failure: "moov atom not found", change: true},
+		{name: "replaced source with matching size and time", failure: "moov atom not found", replace: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			db := newServiceTestDB(t, &model.Media{}, &model.MediaProbeMetadata{})
+			metadata := createServiceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindMovie, Title: "Movie", Source: "local"})
+			target := filepath.Join(t.TempDir(), "movie.mp4")
+			if err := os.WriteFile(target, []byte("broken video"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			media := model.Media{MetadataID: metadata.ID, LibraryID: "library", Title: "Movie", Path: target}
+			if tc.strm {
+				media.Path = filepath.Join(filepath.Dir(target), "movie.strm")
+				media.STRMURL = target
+				if err := os.WriteFile(media.Path, []byte(target+"\n"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := db.Create(&media).Error; err != nil {
+				t.Fatal(err)
+			}
+			runner := &stubMediaProbeRunner{probeFunc: func(path string) (*ProbeResult, error) {
+				if path != target {
+					t.Fatalf("probe path = %q, want %q", path, target)
+				}
+				if tc.change {
+					if err := os.WriteFile(target, []byte("replacement video content"), 0o600); err != nil {
+						t.Fatal(err)
+					}
+				}
+				if tc.replace {
+					original, err := os.Stat(target)
+					if err != nil {
+						t.Fatal(err)
+					}
+					if err := os.Remove(target); err != nil {
+						t.Fatal(err)
+					}
+					if err := os.WriteFile(target, []byte("replacement!"), 0o600); err != nil {
+						t.Fatal(err)
+					}
+					if err := os.Chtimes(target, original.ModTime(), original.ModTime()); err != nil {
+						t.Fatal(err)
+					}
+				}
+				return nil, formatFFprobeExecError("ffprobe failed", path, &exec.ExitError{Stderr: []byte(tc.failure)})
+			}}
+			var details []string
+			svc := NewMediaProbeService(repository.New(db), runner)
+			if tc.name == "video" {
+				if _, err := svc.ProbeMedia(t.Context(), media.ID); err == nil {
+					t.Fatal("direct probe unexpectedly succeeded")
+				}
+				if _, err := os.Stat(target); err != nil {
+					t.Fatalf("direct probe deleted the video: %v", err)
+				}
+			}
+			result, err := svc.BackfillLibrary(t.Context(), "library", 0, func(progress ProbeBackfillResult) {
+				details = append(details, progress.Details...)
+			})
+			if err != nil || result.Failed != 1 {
+				t.Fatalf("backfill = %#v, err = %v", result, err)
+			}
+			_, statErr := os.Stat(target)
+			if (statErr == nil) == tc.delete || (statErr != nil && !os.IsNotExist(statErr)) {
+				t.Fatalf("target stat = %v, want deleted = %v", statErr, tc.delete)
+			}
+			if tc.strm {
+				if _, err := os.Stat(media.Path); err != nil {
+					t.Fatalf("STRM sidecar removed: %v", err)
+				}
+			}
+			if len(details) != 1 || strings.Contains(details[0], "损坏视频已删除") != tc.delete {
+				t.Fatalf("backfill details = %q", details)
+			}
+		})
 	}
 }
 
