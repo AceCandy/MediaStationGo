@@ -344,7 +344,7 @@ func (r *MediaViewRepository) searchMetadataIDsPostgres(ctx context.Context, que
 			return nil, 0, err
 		} else if has {
 			legacy := q.Select("search_metadata.id, search_metadata.created_at")
-			local := r.nfoSearchQuery(ctx, filter).Select("'nfo-' || search_metadata.id AS id, search_metadata.created_at")
+			local := r.nfoSearchQuery(ctx, filter, nil).Select("'nfo-' || search_metadata.id AS id, search_metadata.created_at")
 			combined := r.db.WithContext(ctx).Table("(?) AS search_metadata", r.db.Raw("? UNION ALL ?", legacy, local))
 			var total int64
 			if err := combined.Session(&gorm.Session{}).Count(&total).Error; err != nil {
@@ -405,7 +405,7 @@ func (r *MediaViewRepository) rankMetadataSearchIDs(ctx context.Context, query s
 		return nil, 0, err
 	} else if has {
 		var local []metadataSearchCandidate
-		q := applyMetadataSearchLIKEFilter(r.nfoSearchQuery(ctx, filter), groups, filter.Fields)
+		q := r.nfoSearchQuery(ctx, filter, groups)
 		if err := q.Select("'nfo-' || search_metadata.id AS id, search_metadata.title, search_metadata.original_name, search_metadata.overview, search_metadata.genres, search_metadata.year").Order("search_metadata.created_at DESC,search_metadata.id DESC").Limit(maxMetadataSearchCandidates).Scan(&local).Error; err != nil {
 			return nil, 0, err
 		}
@@ -539,27 +539,12 @@ func (r *MediaViewRepository) FindMetadataSearchRepresentatives(ctx context.Cont
 		for _, view := range ordinary {
 			byID[view.MetadataID] = view
 		}
-		for _, id := range localIDs {
-			files, err := r.NFOItemViews(ctx, id, filter)
-			if err != nil {
-				return nil, err
-			}
-			if len(files) == 0 {
-				continue
-			}
-			view, err := r.NFOPresentation(ctx, id, filter.IncludeNSFW)
-			if err != nil {
-				return nil, err
-			}
-			if view == nil {
-				continue
-			}
-			view.ID = files[0].ID
-			view.LookupCatalogID = strings.TrimPrefix(id, "nfo-")
-			if view.MetadataKind == model.MetadataKindSeries {
-				view.SeriesID, view.SeriesTitle = id, view.Title
-			}
-			byID[id] = *view
+		local, err := r.nfoSearchRepresentatives(ctx, localIDs, filter)
+		if err != nil {
+			return nil, err
+		}
+		for _, view := range local {
+			byID[view.CatalogItemID] = view
 		}
 		result := make([]model.MediaView, 0, len(metadataIDs))
 		for _, id := range metadataIDs {
@@ -571,8 +556,10 @@ func (r *MediaViewRepository) FindMetadataSearchRepresentatives(ctx context.Cont
 	}
 	topID := "CASE WHEN attached_metadata.kind = 'movie' THEN attached_metadata.id WHEN attached_metadata.kind = 'episode' THEN top_series.id ELSE NULL END"
 	topNSFW := "CASE WHEN attached_metadata.kind = 'movie' THEN attached_metadata.nsfw WHEN attached_metadata.kind = 'episode' THEN top_series.nsfw ELSE TRUE END"
+	// 保留候选驱动的索引读取，避免优化器把代表文件查询展开为全媒体扫描。
 	base := r.db.WithContext(ctx).
-		Table("media AS search_media").
+		Table("(?) AS candidates", r.logicalMetadataCandidates(ctx, metadataIDs)).
+		Joins("JOIN LATERAL (SELECT id, metadata_id, library_id, created_at FROM media WHERE metadata_id = candidates.id OFFSET 0) AS search_media ON TRUE").
 		Joins("JOIN metadata_items AS attached_metadata ON attached_metadata.id = search_media.metadata_id").
 		Joins("LEFT JOIN metadata_items AS top_season ON top_season.id = attached_metadata.parent_id AND attached_metadata.kind = 'episode' AND top_season.kind = 'season'").
 		Joins("LEFT JOIN metadata_items AS top_series ON top_series.id = top_season.parent_id AND top_series.kind = 'series'").

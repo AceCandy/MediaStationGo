@@ -143,6 +143,10 @@ func (r *MediaViewRepository) NFOPresentation(ctx context.Context, id string, in
 	if result.Error != nil || result.RowsAffected == 0 {
 		return nil, result.Error
 	}
+	return nfoPresentation(item), nil
+}
+
+func nfoPresentation(item model.NFOItem) *model.MediaView {
 	v := &model.MediaView{Media: model.Media{PermanentBase: item.PermanentBase, LibraryID: item.LibraryID, CatalogSource: model.CatalogSourceNFO}, CatalogItemID: "nfo-" + item.ID,
 		Title: item.Title, OriginalName: item.OriginalName, Overview: item.Overview, Year: item.Year, Rating: item.Rating, ReleaseDate: item.ReleaseDate,
 		Genres: item.Genres, Countries: item.Countries, Languages: item.Languages, NSFW: item.NSFW, MetadataKind: item.Kind, MetadataSource: model.CatalogSourceNFO,
@@ -151,17 +155,64 @@ func (r *MediaViewRepository) NFOPresentation(ctx context.Context, id string, in
 		v.SeriesID, v.SeriesTitle = v.CatalogItemID, item.Title
 	}
 	v.Normalize()
-	return v, nil
+	return v
 }
 
-func (r *MediaViewRepository) nfoSearchQuery(ctx context.Context, filter MetadataSearchFilter) *gorm.DB {
+// nfoCandidateFiles 从指定节点展开绑定，避免为每个候选扫描所有本地文件。
+func (r *MediaViewRepository) nfoCandidateFiles(ctx context.Context, filter MediaQueryFilter, itemID string) *gorm.DB {
+	return r.nfoViewQuery(ctx, filter).Where(`b.item_id IN (
+SELECT ` + itemID + `
+UNION ALL SELECT leaf.id FROM nfo_items leaf WHERE leaf.parent_id = ` + itemID + ` AND leaf.kind = 'episode'
+UNION ALL SELECT leaf.id FROM nfo_items season JOIN nfo_items leaf ON leaf.parent_id = season.id AND leaf.kind = 'episode' WHERE season.parent_id = ` + itemID + `
+)`)
+}
+
+func (r *MediaViewRepository) nfoSearchRepresentatives(ctx context.Context, ids []string, filter MediaQueryFilter) ([]model.MediaView, error) {
+	itemIDs := make([]string, len(ids))
+	for i, id := range ids {
+		itemIDs[i] = strings.TrimPrefix(id, "nfo-")
+	}
+	files := r.nfoCandidateFiles(ctx, filter, "requested.id").
+		Where("ni.id = requested.id OR ns.id = requested.id OR nw.id = requested.id").
+		Select("m.id AS representative_id").Order("ns.season_num, ni.episode_num, m.path").Limit(1)
+	var rows []struct {
+		model.NFOItem
+		RepresentativeID string
+	}
+	q := r.db.WithContext(ctx).Table("nfo_items AS requested").
+		Select("requested.*, representative.representative_id").
+		Joins("JOIN LATERAL (?) AS representative ON TRUE", files).Where("requested.id = ANY(?)", &itemIDs)
+	if !filter.IncludeNSFW {
+		q = q.Where("NOT requested.nsfw")
+	}
+	if err := q.Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	views := make([]model.MediaView, 0, len(rows))
+	for _, row := range rows {
+		view := nfoPresentation(row.NFOItem)
+		view.ID = row.RepresentativeID
+		view.LookupCatalogID = row.NFOItem.ID
+		views = append(views, *view)
+	}
+	return views, nil
+}
+
+func (r *MediaViewRepository) nfoSearchQuery(ctx context.Context, filter MetadataSearchFilter, groups []metadataSearchTermGroup) *gorm.DB {
 	fileFilter := filter.MediaQueryFilter
 	if filter.LibraryRestricted {
 		fileFilter.AllowedLibraryIDs = filter.VisibleLibraryIDs
 	}
-	files := r.nfoViewQuery(ctx, fileFilter).Select("COALESCE(nw.id,ni.id)")
-	q := r.db.WithContext(ctx).Table("nfo_items AS search_metadata").Where("search_metadata.id IN (?)", files).
-		Where("search_metadata.kind IN ?", filter.Kinds)
+	files := r.nfoCandidateFiles(ctx, fileFilter, "search_metadata.id").
+		Where("COALESCE(nw.id,ni.id) = search_metadata.id").Select("1").Limit(1)
+	q := r.db.WithContext(ctx).Table("nfo_items AS search_metadata")
+	if len(groups) > 0 {
+		matches := applyMetadataSearchLIKEFilter(r.db.WithContext(ctx).Table("nfo_items AS search_metadata"), groups, filter.Fields).
+			Where("search_metadata.kind IN ?", filter.Kinds).Select("search_metadata.*")
+		// 先匹配作品再检查文件权限，避免全库关联和逐行子计划的过高成本估算。
+		q = r.db.WithContext(ctx).Table("(WITH matching AS MATERIALIZED (?) SELECT * FROM matching) AS search_metadata", matches)
+	}
+	q = q.Where("EXISTS (? OFFSET 0)", files).Where("search_metadata.kind IN ?", filter.Kinds)
 	if len(filter.PersonIDs) > 0 {
 		q = q.Where("FALSE")
 	}

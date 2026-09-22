@@ -32,6 +32,8 @@ export function SearchPage() {
         itemCount={search.itemCount}
         searchTotal={search.searchTotal}
         loading={search.loading}
+        hasMore={search.hasMore}
+        onLoadMore={search.loadMore}
       />
     </div>
   )

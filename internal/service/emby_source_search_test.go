@@ -11,6 +11,7 @@ import (
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 	"github.com/ShukeBta/MediaStationGo/internal/repository"
 	"go.uber.org/zap"
+	"gorm.io/gorm"
 )
 
 type sourceSearchBackend struct {
@@ -41,6 +42,7 @@ func TestEmbySourceSearchUsesSeparateBackendsWithNFO(t *testing.T) {
 	create(&lib)
 	create(&model.MetadataItem{PermanentBase: model.PermanentBase{ID: "ordinary"}, Kind: "movie", Title: "航海王", Source: "test"})
 	create(&model.Media{PermanentBase: model.PermanentBase{ID: "ordinary-file"}, LibraryID: lib.ID, MetadataID: "ordinary", Path: "/test/search/movie.mkv"})
+	create(&model.MediaProbeMetadata{MediaID: "ordinary-file", DurationMS: 90000, ProbeJSON: "{}"})
 	create(&model.HongGuoWork{PermanentBase: model.PermanentBase{ID: "source"}, SourceID: "12345678901", Kind: "series", Title: "航海王续篇"})
 	create(&model.HongGuoEpisode{PermanentBase: model.PermanentBase{ID: "source-episode"}, WorkID: "source", Number: 1})
 	create(&model.Media{PermanentBase: model.PermanentBase{ID: "source-file"}, LibraryID: lib.ID, CatalogSource: "hongguo", Path: "/test/search/source.mkv"})
@@ -78,6 +80,7 @@ func TestEmbySourceSearchUsesSeparateBackendsWithNFO(t *testing.T) {
 	if err != nil || hints["TotalRecordCount"] != int64(3) {
 		t.Fatalf("fallback hints=%v err=%v", hints, err)
 	}
+	assertSearchHintsProjection(t, e, p)
 	e.visibilityCache["viewer"] = embyVisibilityCacheEntry{visibility: MediaVisibility{IncludeNSFW: true, HiddenLibraryIDs: []string{lib.ID}}, expiresAt: time.Now().Add(time.Hour)}
 	page, err := e.Items(t.Context(), p)
 	if err != nil || page["TotalRecordCount"] != int64(0) {
@@ -88,6 +91,57 @@ func TestEmbySourceSearchUsesSeparateBackendsWithNFO(t *testing.T) {
 	if err != nil || page["TotalRecordCount"] != int64(0) {
 		t.Fatalf("locked page=%v err=%v", page, err)
 	}
+}
+
+func assertSearchHintsProjection(t *testing.T, e *EmbyService, p ItemsParams) {
+	t.Helper()
+	queries := 0
+	count := func(db *gorm.DB) {
+		if !db.DryRun {
+			queries++
+		}
+	}
+	if err := e.repo.DB.Callback().Query().After("gorm:query").Register("test:hints-query", count); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.repo.DB.Callback().Row().After("gorm:row").Register("test:hints-row", count); err != nil {
+		t.Fatal(err)
+	}
+	p.Fields = nil
+	full, err := e.Items(t.Context(), p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fullCount := queries
+	queries = 0
+	// 即使客户端要求完整关系，提示仍只加载自己的字段。
+	p.Fields = []string{"People", "ProviderIds", "MediaSources", "MediaStreams"}
+	hints, err := e.SearchHints(t.Context(), p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if queries >= fullCount {
+		t.Fatalf("hint queries=%d, full=%d", queries, fullCount)
+	}
+	if hints["TotalRecordCount"] != full["TotalRecordCount"] {
+		t.Fatal("hint total changed")
+	}
+	items := full["Items"].([]map[string]any)
+	rows := hints["SearchHints"].([]map[string]any)
+	if len(rows) != len(items) {
+		t.Fatal("hint count changed")
+	}
+	for i, item := range items {
+		for _, field := range []string{"Id", "Name", "Type", "MediaType", "ProductionYear", "IndexNumber", "ParentIndexNumber", "RunTimeTicks"} {
+			if !reflect.DeepEqual(rows[i][field], item[field]) {
+				t.Errorf("hint %d field %s changed", i, field)
+			}
+		}
+		if tags, ok := item["ImageTags"].(map[string]string); ok && rows[i]["PrimaryImageTag"] != tags["Primary"] {
+			t.Error("hint image changed")
+		}
+	}
+	t.Logf("search hints queries=%d, full items=%d", queries, fullCount)
 }
 
 func TestEmbyHongGuoSearchKeepsPlayedFilterWithoutNFO(t *testing.T) {

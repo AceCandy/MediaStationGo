@@ -230,10 +230,10 @@ export const mediaAPI = {
     return request
   },
 
-  search: (q: string, limit = 50) =>
-    api.get<MediaSearchPage>('/media', { params: { q, limit } }).then((r) => r.data),
+  search: (q: string, limit = 50, signal?: AbortSignal) =>
+    api.get<MediaSearchPage>('/media', { params: { q, limit }, signal }).then((r) => r.data),
 
-  searchPage: (q: string, page = 1, pageSize = 50, options?: { groupVersions?: boolean }) =>
+  searchPage: (q: string, page = 1, pageSize = 50, options?: { groupVersions?: boolean; signal?: AbortSignal }) =>
     api
       .get<MediaSearchPage>('/media', {
         params: {
@@ -243,6 +243,7 @@ export const mediaAPI = {
           group_versions: options?.groupVersions === false ? 0 : undefined,
         },
         timeout: LONG_REQUEST_TIMEOUT,
+        signal: options?.signal,
       })
       .then((r) => r.data),
 

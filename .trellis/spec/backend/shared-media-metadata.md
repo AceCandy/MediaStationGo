@@ -1229,6 +1229,18 @@ return []model.MediaView{*part2}
   loading one playable representative per Metadata. Do not pass these results
   through `groupMediaVersions`: its creation-time sort overwrites relevance.
   Regression coverage must make title matches older than overview-only matches.
+- Representative loading must be candidate-driven: ordinary candidates expand
+  through `logicalMetadataCandidates`, with a lateral media lookup (`OFFSET 0`
+  preserves the lookup boundary). Keep the existing movie / series-episode
+  eligibility and latest-file ordering; do not admit direct Series/Season files.
+- NFO search materializes keyword-matched items before checking file visibility.
+  Batch representative loading uses the same binding / ancestor / library
+  filters as `NFOItemViews`, orders by season, episode and path, and projects the
+  requested item through `nfoPresentation`. Do not loop over candidates calling
+  `NFOItemViews` and `NFOPresentation` independently.
+- SearchHints sets `Fields=BasicSyncInfo` before reusing Items. Its output fields,
+  total and ordering remain identical to projecting full Items; People,
+  ProviderIds and MediaSources are not needed for the hints envelope.
 - Emby `SearchTerm` treats supported `IncludeItemTypes` as an OR set. Movie and
   Series keep the OpenSearch/PostgreSQL media path; Person candidates come only
   from PostgreSQL name/original-name search and never expand to credited works.
@@ -1287,6 +1299,13 @@ return []model.MediaView{*part2}
 - PostgreSQL tests assert Movie multi-version and Series multi-Episode collapse,
   no-Media exclusion, unresolved-Media exclusion, library visibility, NSFW,
   token-group filtering, capped total, ordering, and in-memory pagination.
+- `search_loading_test.go` compares NFO batch presentation and candidate
+  visibility against the single-item path, including hidden libraries, NSFW,
+  missing artwork/title and keyword matching; the batch executes one query.
+  Query-count callbacks must ignore GORM DryRun subquery construction.
+  `emby_source_search_test.go` compares hints against full Items and asserts
+  fewer executed relation queries. Use real EXPLAIN plans, not SQL shape alone,
+  to validate selective media reads.
 - Pure ranking tests assert canonical 0–100 conversion, whole numeric runs,
   strict tier order, relevance before title number, number/year/ID tie-breaks,
   irrelevant single-token exclusion, and safe page boundaries.

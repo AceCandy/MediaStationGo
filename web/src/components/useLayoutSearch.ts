@@ -44,9 +44,10 @@ export function useLayoutSearch({ pathname, locationSearch, navigate }: UseLayou
 
     setLoading(true)
     setError('')
+    const controller = new AbortController()
     const timer = window.setTimeout(() => {
       mediaAPI
-        .search(trimmedQuery, 24)
+        .search(trimmedQuery, 24, controller.signal)
         .then((data) => {
           if (seq !== searchSeq.current) return
           setItems(data.items ?? [])
@@ -63,7 +64,11 @@ export function useLayoutSearch({ pathname, locationSearch, navigate }: UseLayou
         })
     }, 220)
 
-    return () => window.clearTimeout(timer)
+    return () => {
+      window.clearTimeout(timer)
+      searchSeq.current = seq + 1
+      controller.abort()
+    }
   }, [focused, query, aiOn])
 
   const submit = (event: FormEvent) => {

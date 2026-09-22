@@ -7,6 +7,8 @@ type SearchLocalResultsProps = {
   itemCount: number
   searchTotal: number
   loading: boolean
+  hasMore: boolean
+  onLoadMore: () => void
 }
 
 export function SearchLocalResults({
@@ -14,14 +16,16 @@ export function SearchLocalResults({
   itemCount,
   searchTotal,
   loading,
+  hasMore,
+  onLoadMore,
 }: SearchLocalResultsProps) {
-  if (localCards.length === 0) return null
+  if (localCards.length === 0 && !hasMore) return null
 
   return (
     <>
       <div className="text-sm font-semibold text-ink-100">
         本地媒体库 · {localCards.length} 个合集 / {itemCount} 个条目
-        {loading && searchTotal > itemCount ? ` · 正在加载全部结果 ${itemCount}/${searchTotal}` : ''}
+        {searchTotal > itemCount ? ` · 已加载 ${itemCount}/${searchTotal}` : ''}
       </div>
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
         {localCards.map((card, index) => (
@@ -34,6 +38,11 @@ export function SearchLocalResults({
           />
         ))}
       </div>
+      {hasMore && (
+        <button type="button" className="btn-secondary" disabled={loading} onClick={onLoadMore}>
+          {loading ? '加载中…' : '加载更多'}
+        </button>
+      )}
     </>
   )
 }

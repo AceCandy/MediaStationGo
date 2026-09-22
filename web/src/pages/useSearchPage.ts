@@ -8,7 +8,7 @@ import { useAISearchAvailability } from '../components/useAISearchAvailability'
 import type { Media } from '../types'
 import { groupSeries } from '../utils/groupSeries'
 
-const LOCAL_SEARCH_PAGE_SIZE = 2000
+const LOCAL_SEARCH_PAGE_SIZE = 30
 
 function apiErrorMessage(err: unknown, fallback: string): string {
   return (err as { response?: { data?: { error?: string } } })?.response?.data?.error ?? fallback
@@ -30,6 +30,10 @@ export function useSearchPage() {
   const [externalItems, setExternalItems] = useState<ExternalMediaResult[]>([])
   const [searchTotal, setSearchTotal] = useState(0)
   const searchSeq = useRef(0)
+  const requestController = useRef<AbortController | null>(null)
+  const nextPage = useRef(1)
+  const pagePending = useRef(false)
+  const [hasMore, setHasMore] = useState(false)
   const localCards = useMemo(() => groupSeries(items), [items])
   const aiOn = requestedAI && aiAvailable
   const normalSearchTarget = useMemo(() => {
@@ -46,37 +50,24 @@ export function useSearchPage() {
     setSearchParams(next, { replace: true })
   }, [aiAvailable, aiChecked, requestedAI, searchParams, setSearchParams])
 
-  const doQuickSearch = useCallback((query: string, seq: number) => {
-    if (!query.trim()) {
-      setItems([])
-      setSearchTotal(0)
-      setHasSearched(false)
-      setLoading(false)
-      return
-    }
-
+  const doQuickSearch = useCallback((query: string, seq: number, controller: AbortController) => {
+    if (pagePending.current || controller.signal.aborted) return
+    pagePending.current = true
+    const page = nextPage.current
+    setLoading(true)
     setHasSearched(true)
     setError('')
     setExternalItems([])
-    const loadAll = async () => {
-      let page = 1
-      let collected: Media[] = []
-      for (;;) {
-        const data = await mediaAPI.searchPage(query, page, LOCAL_SEARCH_PAGE_SIZE)
+    mediaAPI.searchPage(query, page, LOCAL_SEARCH_PAGE_SIZE, { signal: controller.signal })
+      .then((data) => {
         if (seq !== searchSeq.current) return
         const pageItems = data.items ?? []
-        collected = collected.concat(pageItems)
-        const total = data.total ?? collected.length
+        const total = data.total ?? (page - 1) * LOCAL_SEARCH_PAGE_SIZE + pageItems.length
         setSearchTotal(total)
-        if (page === 1) setItems(collected)
-        if (collected.length >= total || pageItems.length < LOCAL_SEARCH_PAGE_SIZE) break
-        page += 1
-      }
-      if (seq !== searchSeq.current) return
-      setItems(collected)
-      setExternalItems([])
-    }
-    loadAll()
+        setItems((previous) => page === 1 ? pageItems : previous.concat(pageItems))
+        setHasMore(page * LOCAL_SEARCH_PAGE_SIZE < total)
+        nextPage.current = page + 1
+      })
       .catch((err) => {
         if (seq !== searchSeq.current) return
         const msg = apiErrorMessage(err, '搜索失败')
@@ -84,12 +75,20 @@ export function useSearchPage() {
         toast.error(msg)
       })
       .finally(() => {
-        if (seq === searchSeq.current) setLoading(false)
+        if (seq === searchSeq.current) {
+          pagePending.current = false
+          setLoading(false)
+        }
       })
   }, [])
 
   useEffect(() => {
     const seq = ++searchSeq.current
+    const controller = new AbortController()
+    requestController.current = controller
+    nextPage.current = 1
+    pagePending.current = false
+    setHasMore(false)
     setItems([])
     setSearchTotal(0)
     setExternalItems([])
@@ -102,11 +101,11 @@ export function useSearchPage() {
     setLoading(true)
     const timer = window.setTimeout(() => {
       if (!aiOn) {
-        doQuickSearch(trimmedQuery, seq)
+        doQuickSearch(trimmedQuery, seq, controller)
         return
       }
       setHasSearched(true)
-      aiAPI.smartSearch(trimmedQuery)
+      aiAPI.smartSearch(trimmedQuery, controller.signal)
         .then((data) => {
           if (seq !== searchSeq.current) return
           setItems(data.items ?? [])
@@ -124,6 +123,7 @@ export function useSearchPage() {
     return () => {
       window.clearTimeout(timer)
       searchSeq.current = seq + 1
+      controller.abort()
     }
   }, [urlQuery, locationKey, aiOn, doQuickSearch, requestedAI, validMode])
 
@@ -132,10 +132,15 @@ export function useSearchPage() {
     externalItems,
     itemCount: items.length,
     loading,
+    hasMore,
+    loadMore: () => {
+      const controller = requestController.current
+      if (hasMore && !aiOn && controller) doQuickSearch(urlQuery.trim(), searchSeq.current, controller)
+    },
     localCards,
     normalizationTarget: validMode ? null : normalSearchTarget,
     searchTotal,
-    showEmpty: !loading && !error && hasSearched && localCards.length === 0,
+    showEmpty: !loading && !error && !hasMore && hasSearched && localCards.length === 0,
     showIdle: !loading && !error && !hasSearched,
   }
 }

@@ -43,11 +43,12 @@ export const aiAPI = {
     return promise
   },
 
-  smartSearch: (query: string) =>
+  smartSearch: (query: string, signal?: AbortSignal) =>
     api
       .post<{ intent: SearchIntent; items: Media[]; external_items: ExternalMediaResult[] }>(
         '/ai/search',
         { query },
+        { signal },
       )
       .then((r) => r.data),
 

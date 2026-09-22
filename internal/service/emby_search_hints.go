@@ -14,6 +14,7 @@ func (e *EmbyService) SearchHints(ctx context.Context, p ItemsParams) (map[strin
 	if p.Limit <= 0 || p.Limit > 50 {
 		p.Limit = 20
 	}
+	p.Fields = []string{"BasicSyncInfo"}
 	result, err := e.Items(ctx, p)
 	if err != nil {
 		return nil, err

@@ -97,6 +97,53 @@ The poster view mounts its loading effect only while
 Do not restore the former unbounded or multi-thousand-item initial request
 under another component or helper name.
 
+## Scenario: Bounded Search Loading
+
+### 1. Scope / Trigger
+
+Changes to the search page, top-bar suggestions, or their request lifecycle.
+
+### 2. Signatures
+
+`mediaAPI.searchPage(q, page, 30, { signal })` calls `GET /media` with
+`q`, `page`, `page_size`; `search(q, limit, signal)` and
+`aiAPI.smartSearch(query, signal)` also accept cancellation.
+
+### 3. Contracts
+
+Load only page 1 initially. Append later pages in backend rank order only after
+an explicit load-more action; advance the page only after success. Display the
+backend total separately from loaded items. AI search remains a single request.
+URL changes and unmount abort requests and invalidate their sequence; suggestions
+also abort on blur/query/mode changes. Cancellation is not a visible failure.
+
+### 4. Validation & Error Matrix
+
+- Page failure: keep loaded cards and retry the same page.
+- Query/mode change: clear old results, reset page and cancel pending work.
+- Stale response: ignore success, failure and completion state updates.
+- Last page: hide load-more; do not automatically request another page.
+- Short/empty page with later candidates in `total`: keep load-more available;
+  do not mistake a missing representative for exhaustion of all later pages.
+
+### 5. Good / Base / Bad Cases
+
+Good: 65 matches load as 30, 30, 5; base: 14 matches need one request;
+bad: request 2000 or loop until the entire result set is loaded on mount.
+
+### 6. Tests Required
+
+Run `node scripts/check-search-loading.mjs http://127.0.0.1:6237` against an
+isolated Vite dev server. It mocks all APIs and checks StrictMode, first-page
+size, retry, pagination completion, page/AI/suggestion cancellation, unmount,
+stale responses and dark/light responsive widths. Close the server afterward.
+
+### 7. Wrong vs Correct
+
+Wrong: increment the page before awaiting its response, or only hide a stale
+response without cancelling it. Correct: advance on success and combine
+AbortController with a sequence check.
+
 ## Verification
 
 Run `node scripts/check-hongguo-discover.mjs` against a local Web preview on
