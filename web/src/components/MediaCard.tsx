@@ -24,7 +24,6 @@ export const MediaCard = ({
 }) => {
   const ref = useRef<HTMLDivElement>(null)
   const href = linkTo ?? mediaDetailLink(media)
-  const [posterFit, setPosterFit] = useState<'cover' | 'contain'>('cover')
   const posterSrc = imageURL(media.poster_url, media.updated_at)
   const displayRating = rating ?? media.rating
   const versionCount = media.version_count ?? media.versions?.length ?? 0
@@ -35,10 +34,6 @@ export const MediaCard = ({
   useEffect(() => {
     setMotionDelay(entranceDelay)
   }, [entranceDelay])
-
-  useEffect(() => {
-    setPosterFit('cover')
-  }, [media.poster_url, media.updated_at])
 
   // 鼠标跟随高光：只写 CSS 变量，不触发 React 重渲染
   const handlePointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
@@ -63,33 +58,14 @@ export const MediaCard = ({
         {/* Poster Wrapper */}
         <div className="relative aspect-[2/3] w-full overflow-hidden bg-[var(--app-panel-soft)]">
           {media.poster_url ? (
-            <>
-              {posterFit === 'contain' && (
-                <img
-                  src={posterSrc}
-                  alt=""
-                  aria-hidden="true"
-                  loading="lazy"
-                  className="absolute inset-0 h-full w-full scale-110 object-cover object-center opacity-25 blur-xl"
-                  referrerPolicy="no-referrer"
-                />
-              )}
-              <img
-                src={posterSrc}
-                alt={media.title}
-                loading="lazy"
-                decoding="async"
-                onLoad={(event) => {
-                  const img = event.currentTarget
-                  setPosterFit(img.naturalWidth > img.naturalHeight ? 'contain' : 'cover')
-                }}
-                className={
-                  'relative block h-full w-full object-center transition-transform duration-700 ease-smooth group-hover:scale-[1.06] ' +
-                  (posterFit === 'contain' ? 'object-contain p-1.5' : 'object-cover')
-                }
-                referrerPolicy="no-referrer"
-              />
-            </>
+            <img
+              src={posterSrc}
+              alt={media.title}
+              loading="lazy"
+              decoding="async"
+              className="relative block h-full w-full object-cover object-left transition-transform duration-700 ease-smooth group-hover:scale-[1.06]"
+              referrerPolicy="no-referrer"
+            />
           ) : (
             <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-[var(--app-muted)]" style={{ background: 'var(--app-poster-empty)' }}>
               <Film size={28} className="stroke-[1.5]" />
