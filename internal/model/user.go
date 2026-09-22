@@ -6,8 +6,10 @@ import "time"
 // 其他所有用户默认为 "user"。
 type User struct {
 	Base
-	Username           string     `gorm:"uniqueIndex;size:64;not null" json:"username"`
-	PasswordHash       string     `gorm:"size:128;not null" json:"-"`
+	Username     string `gorm:"uniqueIndex;size:64;not null" json:"username"`
+	PasswordHash string `gorm:"size:128;not null" json:"-"`
+	// TokenVersion 在改密时递增，使此前签发的会话失效。
+	TokenVersion       int64      `gorm:"not null;default:0" json:"-"`
 	Role               string     `gorm:"size:16;not null;default:user" json:"role"`
 	Tier               string     `gorm:"size:16;default:free" json:"tier"` // free / plus
 	Nickname           string     `gorm:"size:128" json:"nickname,omitempty"`

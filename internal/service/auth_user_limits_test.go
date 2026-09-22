@@ -8,6 +8,7 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"go.uber.org/zap"
+	"gorm.io/gorm"
 
 	"github.com/ShukeBta/MediaStationGo/internal/config"
 	"github.com/ShukeBta/MediaStationGo/internal/model"
@@ -122,6 +123,59 @@ func TestAdminResetPasswordAllowsLoginWithNewPassword(t *testing.T) {
 	}
 	if _, err := auth.Login(ctx, "viewer", "new-password"); err != nil {
 		t.Fatalf("new password should login: %v", err)
+	}
+}
+
+func TestPasswordChangeRevokesSessionsAtomically(t *testing.T) {
+	for _, reset := range []bool{false, true} {
+		repos, auth, _, _ := newAuthTestServices(t)
+		user, tokens, err := auth.Register(t.Context(), "viewer", "old-password")
+		if err != nil {
+			t.Fatal(err)
+		}
+		change := func() error {
+			if reset {
+				return auth.ResetPassword(t.Context(), user.ID, "new-password")
+			}
+			return auth.ChangePassword(t.Context(), user.ID, "old-password", "new-password")
+		}
+		injected := errors.New("revoke failure")
+		if err := repos.DB.Callback().Update().Before("gorm:update").Register("test:revoke_failure", func(tx *gorm.DB) {
+			if tx.Statement.Table == "refresh_tokens" {
+				tx.AddError(injected)
+			}
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if err := change(); !errors.Is(err, injected) {
+			t.Fatalf("expected rollback: %v", err)
+		}
+		repos.DB.Callback().Update().Remove("test:revoke_failure")
+		unchanged, err := repos.User.FindByID(t.Context(), user.ID)
+		if err != nil || unchanged.PasswordHash != user.PasswordHash {
+			t.Fatalf("password was partially changed: %v", err)
+		}
+		if err := change(); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := auth.RefreshTokens(t.Context(), tokens.RefreshToken); !errors.Is(err, ErrTokenRevoked) {
+			t.Fatalf("old session refreshed: %v", err)
+		}
+		// 模拟改密前已读取身份、改密后才写入的并发登录。
+		late, err := auth.tokenSvc.IssuePair(t.Context(), user)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := auth.RefreshTokens(t.Context(), late.RefreshToken); !errors.Is(err, ErrTokenRevoked) {
+			t.Fatalf("late old-version session refreshed: %v", err)
+		}
+		fresh, err := auth.Login(t.Context(), "viewer", "new-password")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := auth.RefreshTokens(t.Context(), fresh.Tokens.RefreshToken); err != nil {
+			t.Fatalf("new session failed: %v", err)
+		}
 	}
 }
 

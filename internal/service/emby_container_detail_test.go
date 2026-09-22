@@ -77,7 +77,7 @@ func TestEmbyContainerDetailBoundsReadsAndPreservesPayload(t *testing.T) {
 		{IncludeNSFW: true, HiddenLibraryIDs: []string{"z-library"}},
 		{AllowedLibraryIDs: []string{"missing-library"}},
 	} {
-		svc.visibilityCache = map[string]embyVisibilityCacheEntry{"viewer": {visibility: visibility, expiresAt: time.Now().Add(time.Minute)}}
+		svc.visibilityCache = map[string]embyVisibilityCacheEntry{"viewer": {visibility: visibility, expiresAt: time.Now().Add(time.Hour)}}
 		for _, id := range []string{"detail-series", "detail-season-0", "detail-season-1", "detail-season-3", "missing"} {
 			var want map[string]any
 			if id == "detail-series" {

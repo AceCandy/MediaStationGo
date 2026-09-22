@@ -216,37 +216,28 @@ func TestSearchMediaVisibleHonorsLargePosterWallLimit(t *testing.T) {
 func TestSearchMediaVisibleCanReturnHugeLibraryResultsWhenRequested(t *testing.T) {
 	db := newServiceTestDB(t, &model.Library{}, &model.Media{})
 	repos := repository.New(db)
-	lib := model.Library{Name: "海量剧集", Path: "/media/huge", Type: "tv", Enabled: true}
+	lib := model.Library{Name: "海量电影", Path: "/media/huge", Type: "movie", Enabled: true}
 	if err := repos.Library.Create(t.Context(), &lib); err != nil {
 		t.Fatal(err)
 	}
 	const total = 2505
-	series := createServiceTestMetadata(t, db, model.MetadataItem{
-		PermanentBase: model.PermanentBase{ID: "huge-series"}, Kind: model.MetadataKindSeries, Title: "海量剧集", Source: "local",
-	})
-	season := createServiceTestMetadata(t, db, model.MetadataItem{
-		PermanentBase: model.PermanentBase{ID: "huge-season"}, Kind: model.MetadataKindSeason,
-		ParentID: &series.ID, SeasonNum: 1, Title: "Season 1", Source: "local",
-	})
-	episodes := make([]model.MetadataItem, total)
+	movies := make([]model.MetadataItem, total)
 	rows := make([]model.Media, total)
 	for i := range rows {
-		title := fmt.Sprintf("海量剧集 %04d", i)
-		episodeID := fmt.Sprintf("huge-episode-%04d", i)
-		episodes[i] = model.MetadataItem{
-			PermanentBase: model.PermanentBase{ID: episodeID}, Kind: model.MetadataKindEpisode, ParentID: &season.ID,
-			EpisodeNum: i + 1, Title: title, Source: "local",
+		title := fmt.Sprintf("海量电影 %04d", i)
+		movieID := fmt.Sprintf("huge-movie-%04d", i)
+		movies[i] = model.MetadataItem{
+			PermanentBase: model.PermanentBase{ID: movieID}, Kind: model.MetadataKindMovie,
+			Title: title, Source: "local",
 		}
 		rows[i] = model.Media{
 			LibraryID:  lib.ID,
-			MetadataID: episodeID,
+			MetadataID: movieID,
 			Title:      title,
 			Path:       fmt.Sprintf("/media/huge/show-%04d.mkv", i),
-			SeasonNum:  1,
-			EpisodeNum: i + 1,
 		}
 	}
-	if err := db.CreateInBatches(&episodes, 500).Error; err != nil {
+	if err := db.CreateInBatches(&movies, 500).Error; err != nil {
 		t.Fatal(err)
 	}
 	if err := db.CreateInBatches(&rows, 500).Error; err != nil {
@@ -254,7 +245,7 @@ func TestSearchMediaVisibleCanReturnHugeLibraryResultsWhenRequested(t *testing.T
 	}
 
 	items, err := NewMediaService(&config.Config{}, zap.NewNop(), repos).
-		SearchMediaVisible(t.Context(), "海量剧集", total, MediaVisibility{IncludeNSFW: true})
+		SearchMediaVisible(t.Context(), "", total, MediaVisibility{IncludeNSFW: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -263,7 +254,7 @@ func TestSearchMediaVisibleCanReturnHugeLibraryResultsWhenRequested(t *testing.T
 	}
 
 	firstPage, totalRows, err := NewMediaService(&config.Config{}, zap.NewNop(), repos).
-		SearchMediaVisiblePage(t.Context(), "海量剧集", 1, 2000, MediaVisibility{IncludeNSFW: true})
+		SearchMediaVisiblePage(t.Context(), "", 1, 2000, MediaVisibility{IncludeNSFW: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -271,12 +262,17 @@ func TestSearchMediaVisibleCanReturnHugeLibraryResultsWhenRequested(t *testing.T
 		t.Fatalf("huge search page 1 len=%d total=%d, want len=2000 total=%d", len(firstPage), totalRows, total)
 	}
 	secondPage, totalRows, err := NewMediaService(&config.Config{}, zap.NewNop(), repos).
-		SearchMediaVisiblePage(t.Context(), "海量剧集", 2, 2000, MediaVisibility{IncludeNSFW: true})
+		SearchMediaVisiblePage(t.Context(), "", 2, 2000, MediaVisibility{IncludeNSFW: true})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if totalRows != total || len(secondPage) != total-2000 {
 		t.Fatalf("huge search page 2 len=%d total=%d, want len=%d total=%d", len(secondPage), totalRows, total-2000, total)
+	}
+	matched, err := NewMediaService(&config.Config{}, zap.NewNop(), repos).
+		SearchMediaVisible(t.Context(), "海量电影", total, MediaVisibility{IncludeNSFW: true})
+	if err != nil || len(matched) != 100 {
+		t.Fatalf("keyword search len=%d, err=%v, want bounded 100 results", len(matched), err)
 	}
 }
 

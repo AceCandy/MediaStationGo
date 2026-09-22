@@ -7,9 +7,13 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
+	"gorm.io/gorm"
 
 	"github.com/ShukeBta/MediaStationGo/internal/config"
+	"github.com/ShukeBta/MediaStationGo/internal/model"
+	"github.com/ShukeBta/MediaStationGo/internal/repository"
 	"github.com/ShukeBta/MediaStationGo/internal/service"
+	"github.com/ShukeBta/MediaStationGo/internal/testdb"
 )
 
 func TestStorageRouteIsRegistered(t *testing.T) {
@@ -30,9 +34,19 @@ func TestStorageRouteIsRegistered(t *testing.T) {
 
 func TestSTRMDeleteRoutesAreAdminOnly(t *testing.T) {
 	gin.SetMode(gin.TestMode)
+	db, err := testdb.OpenPostgres(t, &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(&model.User{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&model.User{Base: model.Base{ID: "user-1"}, Username: "viewer", Role: "user"}).Error; err != nil {
+		t.Fatal(err)
+	}
 	const secret = "strm-delete-secret"
 	router := gin.New()
-	Register(router, &config.Config{Secrets: config.SecretsConfig{JWTSecret: secret}}, zap.NewNop(), &service.Container{Log: zap.NewNop()})
+	Register(router, &config.Config{Secrets: config.SecretsConfig{JWTSecret: secret}}, zap.NewNop(), &service.Container{Log: zap.NewNop(), Repo: repository.New(db)})
 
 	found := map[string]bool{}
 	for _, route := range router.Routes() {

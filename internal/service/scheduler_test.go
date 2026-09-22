@@ -67,6 +67,59 @@ func TestSchedulerRunNowAsyncSurvivesCallerCancellation(t *testing.T) {
 	}
 }
 
+func TestSchedulerStopCancelsAndWaitsForManualJob(t *testing.T) {
+	s := NewSchedulerService(zap.NewNop(), nil, nil, nil, nil)
+	started, canceled, release := make(chan struct{}), make(chan struct{}), make(chan struct{})
+	s.jobs = []*scheduledJob{{name: "test", run: func(ctx context.Context) error {
+		close(started)
+		<-ctx.Done()
+		close(canceled)
+		<-release
+		return ctx.Err()
+	}}}
+	if err := s.RunNowAsync(t.Context(), "test"); err != nil {
+		t.Fatal(err)
+	}
+	<-started
+	stopped := make(chan struct{})
+	go func() { s.Stop(); close(stopped) }()
+	select {
+	case <-canceled:
+	case <-time.After(time.Second):
+		close(release)
+		t.Fatal("Stop did not cancel job")
+	}
+	select {
+	case <-stopped:
+		t.Fatal("Stop returned before cleanup")
+	default:
+	}
+	close(release)
+	select {
+	case <-stopped:
+	case <-time.After(time.Second):
+		t.Fatal("Stop did not wait for job")
+	}
+	s.Stop()
+	if err := s.RunNowAsync(t.Context(), "test"); !errors.Is(err, ErrSchedulerJobNotFound) {
+		t.Fatalf("accepted run after stop: %v", err)
+	}
+}
+
+func TestSchedulerConcurrentStartStop(t *testing.T) {
+	for range 20 {
+		s := NewSchedulerService(zap.NewNop(), nil, nil, nil, nil)
+		started := make(chan struct{})
+		go func() { s.Start(t.Context()); close(started) }()
+		s.Stop()
+		<-started
+		s.Stop()
+		if s.runCtx.Err() == nil {
+			t.Fatal("lifecycle still active")
+		}
+	}
+}
+
 func TestSchedulerRegistersDisabledTMDbArtworkJobs(t *testing.T) {
 	scheduler := NewSchedulerService(zap.NewNop(), nil, nil, nil, nil)
 	ctx, cancel := context.WithCancel(t.Context())

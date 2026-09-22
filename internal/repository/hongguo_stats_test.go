@@ -17,7 +17,7 @@ func TestHongGuoConcurrentProgressAndRollback(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&model.HongGuoUserState{}, &model.HongGuoPlaybackEvent{}); err != nil {
+	if err := db.AutoMigrate(&model.Media{}, &model.MediaProbeMetadata{}, &model.HongGuoUserState{}, &model.HongGuoPlaybackEvent{}); err != nil {
 		t.Fatal(err)
 	}
 	r, ctx := New(db), t.Context()
@@ -45,7 +45,8 @@ func TestHongGuoConcurrentProgressAndRollback(t *testing.T) {
 	if err := r.HongGuo.RecordProgress(ctx, "user", strings.Repeat("x", 129), view, 60000, 120000, false); err == nil {
 		t.Fatal("expected event insert failure")
 	}
-	state, err := r.HongGuo.UserState(ctx, "user", view.LookupCatalogID, 1)
+	var state model.HongGuoUserState
+	err = db.Where("user_id = ? AND source_id = ? AND episode_number = ?", "user", view.LookupCatalogID, 1).First(&state).Error
 	if err != nil || state.PositionMs != 30000 {
 		t.Fatalf("failed event did not roll back state: %+v %v", state, err)
 	}

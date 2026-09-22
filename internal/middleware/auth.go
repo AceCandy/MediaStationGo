@@ -12,11 +12,12 @@ import (
 
 // Claims is the JWT payload we issue.
 type Claims struct {
-	UserID  string `json:"uid"`
-	Role    string `json:"role"`
-	Tier    string `json:"tier,omitempty"`
-	Purpose string `json:"purpose,omitempty"`
-	MediaID string `json:"media_id,omitempty"`
+	TokenVersion int64  `json:"ver,omitempty"`
+	UserID       string `json:"uid"`
+	Role         string `json:"role"`
+	Tier         string `json:"tier,omitempty"`
+	Purpose      string `json:"purpose,omitempty"`
+	MediaID      string `json:"media_id,omitempty"`
 	jwt.RegisteredClaims
 }
 
@@ -46,6 +47,7 @@ func AuthRequired(secret string) gin.HandlerFunc {
 		}
 		syncAccessTokenCookie(c, raw, claims)
 		c.Set(CtxUserID, claims.UserID)
+		c.Set(CtxTokenVersion, claims.TokenVersion)
 		c.Set(CtxUserRole, claims.Role)
 		c.Set(CtxUserTier, claims.Tier)
 		c.Set(CtxTokenPurpose, claims.Purpose)

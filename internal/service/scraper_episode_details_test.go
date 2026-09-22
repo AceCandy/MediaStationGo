@@ -28,6 +28,14 @@ func TestEnrichLibraryDefersEpisodeDetailsUntilMainMetadataFinishes(t *testing.T
 
 		w.Header().Set("Content-Type", "application/json")
 		switch {
+		case r.URL.Path == "/tv/12345/season/2":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"id": 22345, "season_number": 2, "name": "第 2 季",
+				"episodes": []map[string]any{
+					{"id": 2234501, "season_number": 2, "episode_number": 1, "name": "任务代号: 猫", "overview": "第一集剧情", "still_path": "/still-1.jpg"},
+					{"id": 2234502, "season_number": 2, "episode_number": 2, "name": "接近目标", "overview": "第二集剧情", "still_path": "/still-2.jpg"},
+				},
+			})
 		case strings.HasPrefix(r.URL.Path, "/search/tv"):
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"results": []map[string]any{{
@@ -87,6 +95,9 @@ func TestEnrichLibraryDefersEpisodeDetailsUntilMainMetadataFinishes(t *testing.T
 	if err := migrateScraperTestModels(t, db); err != nil {
 		t.Fatal(err)
 	}
+	if err := db.Callback().Create().Remove("testutil:media-metadata"); err != nil {
+		t.Fatal(err)
+	}
 	repos := repository.New(db)
 	cfg := &config.Config{}
 	cfg.Secrets.TMDbAPIKey = "test-key"
@@ -102,18 +113,20 @@ func TestEnrichLibraryDefersEpisodeDetailsUntilMainMetadataFinishes(t *testing.T
 	rows := []model.Media{
 		{
 			PermanentBase: model.PermanentBase{ID: "episode-1"},
+			SeriesID:      "local-series",
 			LibraryID:     lib.ID,
 			Title:         "间谍过家家",
-			Path:          filepath.Join(lib.Path, "间谍过家家 - S02E01.mkv"),
+			Path:          filepath.Join(lib.Path, "间谍过家家 {tmdb-12345}", "间谍过家家 - S02E01.mkv"),
 			SeasonNum:     2,
 			EpisodeNum:    1,
 			ScrapeStatus:  "pending",
 		},
 		{
 			PermanentBase: model.PermanentBase{ID: "episode-2"},
+			SeriesID:      "local-series",
 			LibraryID:     lib.ID,
 			Title:         "间谍过家家",
-			Path:          filepath.Join(lib.Path, "间谍过家家 - S02E02.mkv"),
+			Path:          filepath.Join(lib.Path, "间谍过家家 {tmdb-12345}", "间谍过家家 - S02E02.mkv"),
 			SeasonNum:     2,
 			EpisodeNum:    2,
 			ScrapeStatus:  "pending",
@@ -127,8 +140,8 @@ func TestEnrichLibraryDefersEpisodeDetailsUntilMainMetadataFinishes(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Processed != 2 || result.Matched != 2 {
-		t.Fatalf("result=%+v, want two matched episodes", result)
+	if result.Processed != 1 || result.Matched != 1 {
+		t.Fatalf("result=%+v, want one matched series group", result)
 	}
 
 	mu.Lock()
@@ -159,7 +172,7 @@ func TestEnrichLibraryDefersEpisodeDetailsUntilMainMetadataFinishes(t *testing.T
 		serviceTestMediaView(t, repos, stored[1].ID),
 	}
 	if views[0].Overview != "第一集剧情" || views[1].Overview != "第二集剧情" {
-		t.Fatalf("deferred episode metadata not saved: %+v", views)
+		t.Fatalf("deferred episode metadata not saved: first=%+v second=%+v", *views[0], *views[1])
 	}
 	if views[0].Title != "任务代号: 猫" || views[1].Title != "接近目标" {
 		t.Fatalf("episode canonical titles not saved: %+v", views)
@@ -183,7 +196,7 @@ func TestEnrichLibrarySkipsDeferredEpisodeStillWhenDisabled(t *testing.T) {
 	media := model.Media{
 		LibraryID:    lib.ID,
 		Title:        "间谍过家家",
-		Path:         filepath.Join(lib.Path, "间谍过家家 - S02E01.mkv"),
+		Path:         filepath.Join(lib.Path, "间谍过家家 {tmdb-12345}", "间谍过家家 - S02E01.mkv"),
 		SeasonNum:    2,
 		EpisodeNum:   1,
 		ScrapeStatus: "pending",

@@ -114,7 +114,7 @@ func (s *AuthService) Register(ctx context.Context, username, password string) (
 	// 自动为新用户创建默认权限
 	_, _ = s.permissionSvc.EnsureForUser(ctx, u.ID)
 	// 签发令牌对
-	tokens, err := s.tokenSvc.IssuePair(ctx, u.ID, u.Role, u.Tier)
+	tokens, err := s.tokenSvc.IssuePair(ctx, u)
 	if err != nil {
 		return u, nil, nil // 用户已创建，令牌签发失败不影响注册成功
 	}
@@ -148,7 +148,7 @@ func (s *AuthService) Login(ctx context.Context, username, password string) (*Lo
 		return nil, ErrInvalidCredentials
 	}
 	// 签发令牌对
-	tokens, err := s.tokenSvc.IssuePair(ctx, u.ID, u.Role, u.Tier)
+	tokens, err := s.tokenSvc.IssuePair(ctx, u)
 	if err != nil {
 		return nil, err
 	}

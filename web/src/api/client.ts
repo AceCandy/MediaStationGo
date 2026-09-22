@@ -1,4 +1,4 @@
-import axios, { AxiosError, type InternalAxiosRequestConfig } from 'axios'
+import axios, { AxiosError, CanceledError, type InternalAxiosRequestConfig } from 'axios'
 
 import { useAuthStore } from '../stores/auth'
 import { getActivePlayProfileId, getActivePlayProfilePinToken } from '../stores/playProfile'
@@ -13,28 +13,8 @@ export const api = axios.create({
 export const LONG_REQUEST_TIMEOUT = 120_000
 export const BATCH_REQUEST_TIMEOUT = 300_000
 
-// Flag to prevent multiple simultaneous refresh attempts
-let isRefreshing = false
-let refreshSubscribers: Array<{
-  resolve: (token: string) => void
-  reject: (error: unknown) => void
-}> = []
-
-// Subscribe to token refresh
-function subscribeTokenRefresh(resolve: (token: string) => void, reject: (error: unknown) => void) {
-  refreshSubscribers.push({ resolve, reject })
-}
-
-// Notify all subscribers about new token
-function onTokenRefreshed(newToken: string) {
-  refreshSubscribers.forEach((subscriber) => subscriber.resolve(newToken))
-  refreshSubscribers = []
-}
-
-function onTokenRefreshFailed(error: unknown) {
-  refreshSubscribers.forEach((subscriber) => subscriber.reject(error))
-  refreshSubscribers = []
-}
+type SessionRequest = InternalAxiosRequestConfig & { _retry?: boolean; _sessionVersion?: number }
+let refreshFlight: { version: number; promise: Promise<boolean> } | undefined
 
 function isRefreshRequest(config?: InternalAxiosRequestConfig | null): boolean {
   return Boolean(config?.url?.includes('/auth/refresh'))
@@ -42,7 +22,12 @@ function isRefreshRequest(config?: InternalAxiosRequestConfig | null): boolean {
 
 // Add auth token to requests
 api.interceptors.request.use((config) => {
-  const token = useAuthStore.getState().token
+  const request = config as SessionRequest
+  const { token, sessionVersion } = useAuthStore.getState()
+  if (request._sessionVersion !== undefined && request._sessionVersion !== sessionVersion) {
+    throw new CanceledError('会话已切换')
+  }
+  request._sessionVersion = sessionVersion
   if (token) {
     config.headers = config.headers ?? {}
     config.headers.Authorization = `Bearer ${token}`
@@ -61,9 +46,18 @@ api.interceptors.request.use((config) => {
 
 // Handle 401 errors with token refresh
 api.interceptors.response.use(
-  (resp) => resp,
+  (resp) => {
+    if ((resp.config as SessionRequest)._sessionVersion !== useAuthStore.getState().sessionVersion) {
+      throw new CanceledError('会话已切换')
+    }
+    return resp
+  },
   async (err: AxiosError) => {
-    const originalRequest = err.config as InternalAxiosRequestConfig & { _retry?: boolean }
+    const originalRequest = err.config as SessionRequest | undefined
+    const version = useAuthStore.getState().sessionVersion
+    if (originalRequest && originalRequest._sessionVersion !== version) {
+      return Promise.reject(new CanceledError('会话已切换'))
+    }
 
     // If 401 and not already retried
     if (
@@ -72,45 +66,22 @@ api.interceptors.response.use(
       !originalRequest._retry &&
       !isRefreshRequest(originalRequest)
     ) {
-      if (isRefreshing) {
-        // Wait for token refresh to complete
-        return new Promise((resolve, reject) => {
-          subscribeTokenRefresh((token: string) => {
-            if (originalRequest.headers) {
-              originalRequest.headers.Authorization = `Bearer ${token}`
-            }
-            resolve(api(originalRequest))
-          }, reject)
-        })
-      }
-
       originalRequest._retry = true
-      isRefreshing = true
-
-      try {
-        const refreshed = await useAuthStore.getState().tokenRefresh()
-        if (refreshed) {
-          const newToken = useAuthStore.getState().token
-          if (newToken && originalRequest.headers) {
-            originalRequest.headers.Authorization = `Bearer ${newToken}`
-          }
-          onTokenRefreshed(newToken || '')
-          isRefreshing = false
-          return api(originalRequest)
-        }
-      } catch (refreshError) {
-        isRefreshing = false
-        onTokenRefreshFailed(refreshError)
-        useAuthStore.getState().logout()
-        if (typeof window !== 'undefined' && window.location.pathname !== '/login') {
-          window.location.href = '/login'
-        }
-        return Promise.reject(refreshError)
+      const currentToken = useAuthStore.getState().token
+      if (currentToken && originalRequest.headers.Authorization !== `Bearer ${currentToken}`) {
+        return api(originalRequest)
       }
-
-      // Refresh failed, logout
-      isRefreshing = false
-      onTokenRefreshFailed(err)
+      if (!refreshFlight || refreshFlight.version !== version) {
+        const promise = useAuthStore.getState().tokenRefresh().finally(() => {
+          if (refreshFlight?.promise === promise) refreshFlight = undefined
+        })
+        refreshFlight = { version, promise }
+      }
+      const refreshed = await refreshFlight.promise
+      if (useAuthStore.getState().sessionVersion !== version) {
+        return Promise.reject(new CanceledError('会话已切换'))
+      }
+      if (refreshed) return api(originalRequest)
       useAuthStore.getState().logout()
       if (typeof window !== 'undefined' && window.location.pathname !== '/login') {
         window.location.href = '/login'

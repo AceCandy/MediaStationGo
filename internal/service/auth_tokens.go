@@ -15,9 +15,10 @@ import (
 // IssueToken signs a JWT for the given user (60min validity, includes tier).
 func (s *AuthService) IssueToken(u *model.User) (string, error) {
 	claims := Claims{
-		UserID: u.ID,
-		Role:   u.Role,
-		Tier:   u.Tier,
+		UserID:       u.ID,
+		TokenVersion: u.TokenVersion,
+		Role:         u.Role,
+		Tier:         u.Tier,
 		RegisteredClaims: jwt.RegisteredClaims{
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(60 * time.Minute)),
@@ -59,9 +60,10 @@ func (s *AuthService) IssueExternalPlaybackToken(u *model.User, mediaID string, 
 		return "", errors.New("user required")
 	}
 	return signExternalPlaybackToken(Claims{
-		UserID: u.ID,
-		Role:   u.Role,
-		Tier:   u.Tier,
+		UserID:       u.ID,
+		TokenVersion: u.TokenVersion,
+		Role:         u.Role,
+		Tier:         u.Tier,
 	}, mediaID, durationSec, s.cfg.Secrets.JWTSecret)
 }
 
@@ -78,11 +80,12 @@ func signExternalPlaybackToken(identity Claims, mediaID string, durationSec int,
 	}
 	now := time.Now()
 	claims := Claims{
-		UserID:  identity.UserID,
-		Role:    identity.Role,
-		Tier:    identity.Tier,
-		Purpose: ExternalPlaybackTokenPurpose,
-		MediaID: mediaID,
+		UserID:       identity.UserID,
+		TokenVersion: identity.TokenVersion,
+		Role:         identity.Role,
+		Tier:         identity.Tier,
+		Purpose:      ExternalPlaybackTokenPurpose,
+		MediaID:      mediaID,
 		RegisteredClaims: jwt.RegisteredClaims{
 			IssuedAt:  jwt.NewNumericDate(now),
 			ExpiresAt: jwt.NewNumericDate(now.Add(ExternalPlaybackTokenDurationForMedia(durationSec))),
@@ -107,9 +110,10 @@ const EmbyTokenDuration = 30 * 24 * time.Hour
 // EmbyAuthRequired 校验逻辑，只是有效期更长。
 func (s *AuthService) IssueEmbyToken(u *model.User) (string, error) {
 	claims := Claims{
-		UserID: u.ID,
-		Role:   u.Role,
-		Tier:   u.Tier,
+		UserID:       u.ID,
+		TokenVersion: u.TokenVersion,
+		Role:         u.Role,
+		Tier:         u.Tier,
 		RegisteredClaims: jwt.RegisteredClaims{
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(EmbyTokenDuration)),

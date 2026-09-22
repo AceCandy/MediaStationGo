@@ -73,7 +73,7 @@ func (o *OrganizerService) ReclassifyMisclassifiedMedia(ctx context.Context, opt
 		if err != nil {
 			return err
 		}
-		displayRows := mediaViewsAsMedia(views)
+		displayRows := organizeMediaViews(views)
 		for i := range displayRows {
 			lib, ok := libByID[displayRows[i].LibraryID]
 			if !ok {

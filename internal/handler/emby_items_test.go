@@ -3,6 +3,8 @@ package handler
 import (
 	"bytes"
 	"encoding/json"
+	"image"
+	"image/jpeg"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -21,8 +23,6 @@ import (
 	"github.com/ShukeBta/MediaStationGo/internal/repository"
 	"github.com/ShukeBta/MediaStationGo/internal/service"
 )
-
-var embyTestJPEG = []byte{0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 'J', 'F', 'I', 'F', 0x00, 0xff, 0xd9}
 
 func createEmbyArtworkFixture(t *testing.T, db *gorm.DB, cfg *config.Config, mediaID string, data []byte, mimeType, extension string) {
 	t.Helper()
@@ -65,7 +65,7 @@ func TestEmbyItemImageServesWithoutAPIAuth(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
-	if err := migrateMediaHandlerTestDB(db, &model.Media{}); err != nil {
+	if err := migrateMediaHandlerTestDB(db, &model.Library{}, &model.Media{}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 
@@ -97,7 +97,7 @@ func TestEmbyItemImageServesWithoutAPIAuth(t *testing.T) {
 		ImageProxy: imageProxy,
 	})
 
-	req := httptest.NewRequest(http.MethodGet, "/Items/media-1/Images/Primary", nil)
+	req := httptest.NewRequest(http.MethodGet, "/Items/metadata-media-1/Images/Primary", nil)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -109,6 +109,9 @@ func TestEmbyItemImageServesWithoutAPIAuth(t *testing.T) {
 	}
 	if contentType := w.Header().Get("Content-Type"); !strings.Contains(contentType, "image/png") {
 		t.Fatalf("expected png content type, got %q", contentType)
+	}
+	if !bytes.Equal(w.Body.Bytes(), posterData) {
+		t.Fatal("expected original poster bytes")
 	}
 	if got := w.Header().Get("Cache-Control"); !strings.Contains(got, "max-age=2592000") {
 		t.Fatalf("image Cache-Control = %q, want long browser cache", got)
@@ -127,13 +130,18 @@ func TestEmbyItemImageServesPersistentArtworkWithoutResolve(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
-	if err := migrateMediaHandlerTestDB(db, &model.Media{}); err != nil {
+	if err := migrateMediaHandlerTestDB(db, &model.Library{}, &model.Media{}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 
 	cfg := &config.Config{App: config.AppConfig{DataDir: t.TempDir()}, Cache: config.CacheConfig{CacheDir: t.TempDir()}}
 	imageProxy := service.NewImageProxy(cfg, zap.NewNop())
 	repos := repository.New(db)
+	var encoded bytes.Buffer
+	if err := jpeg.Encode(&encoded, image.NewRGBA(image.Rect(0, 0, 2, 2)), nil); err != nil {
+		t.Fatal(err)
+	}
+	embyTestJPEG := encoded.Bytes()
 	createEmbyArtworkFixture(t, db, cfg, "media-artwork-1", embyTestJPEG, "image/jpeg", "jpg")
 
 	router := gin.New()
@@ -144,7 +152,7 @@ func TestEmbyItemImageServesPersistentArtworkWithoutResolve(t *testing.T) {
 		ImageProxy: imageProxy,
 	})
 
-	req := httptest.NewRequest(http.MethodGet, "/Items/media-artwork-1/Images/Primary", nil)
+	req := httptest.NewRequest(http.MethodGet, "/Items/metadata-media-artwork-1/Images/Primary", nil)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 

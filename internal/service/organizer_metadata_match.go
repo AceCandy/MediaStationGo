@@ -78,8 +78,19 @@ func (o *OrganizerService) lookupOrganizeSourceMedia(ctx context.Context, path s
 	if err != nil || view == nil {
 		return nil
 	}
-	display := mediaViewsAsMedia([]model.MediaView{*view})
+	display := organizeMediaViews([]model.MediaView{*view})
 	return &display[0]
+}
+
+// organizeMediaViews 使用剧名构造剧集路径，不把单集标题当作整剧名称。
+func organizeMediaViews(views []model.MediaView) []model.Media {
+	rows := mediaViewsAsMedia(views)
+	for i := range views {
+		if views[i].MetadataKind == model.MetadataKindEpisode && strings.TrimSpace(views[i].SeriesTitle) != "" {
+			rows[i].Title = views[i].SeriesTitle
+		}
+	}
+	return rows
 }
 
 func organizeMatchFromMedia(media *model.Media) *Match {

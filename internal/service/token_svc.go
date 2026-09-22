@@ -27,11 +27,12 @@ const (
 
 // Claims 是 JWT 载荷（复制自 middleware 以避免循环导入）。
 type Claims struct {
-	UserID  string `json:"uid"`
-	Role    string `json:"role"`
-	Tier    string `json:"tier,omitempty"`
-	Purpose string `json:"purpose,omitempty"`
-	MediaID string `json:"media_id,omitempty"`
+	TokenVersion int64  `json:"ver,omitempty"`
+	UserID       string `json:"uid"`
+	Role         string `json:"role"`
+	Tier         string `json:"tier,omitempty"`
+	Purpose      string `json:"purpose,omitempty"`
+	MediaID      string `json:"media_id,omitempty"`
 	jwt.RegisteredClaims
 }
 
@@ -63,9 +64,9 @@ var (
 )
 
 // IssuePair 为用户签发新的令牌对。
-func (s *TokenService) IssuePair(ctx context.Context, userID, role, tier string) (*TokenPair, error) {
+func (s *TokenService) IssuePair(ctx context.Context, user *model.User) (*TokenPair, error) {
 	// 生成 Access Token
-	accessToken, err := s.issueAccessToken(userID, role, tier)
+	accessToken, err := s.issueAccessToken(user)
 	if err != nil {
 		return nil, err
 	}
@@ -79,9 +80,10 @@ func (s *TokenService) IssuePair(ctx context.Context, userID, role, tier string)
 	// 存储 Refresh Token 哈希
 	tokenHash := repository.HashToken(refreshToken)
 	rt := &model.RefreshToken{
-		UserID:    userID,
-		TokenHash: tokenHash,
-		ExpiresAt: time.Now().Add(RefreshTokenDuration),
+		UserID:       user.ID,
+		TokenVersion: user.TokenVersion,
+		TokenHash:    tokenHash,
+		ExpiresAt:    time.Now().Add(RefreshTokenDuration),
 	}
 	if err := s.storeRefreshToken(ctx, rt); err != nil {
 		return nil, err
@@ -114,16 +116,17 @@ func (s *TokenService) maxActiveRefreshTokens(ctx context.Context) int {
 }
 
 // issueAccessToken 签发 JWT Access Token（HS256，60分钟有效期）。
-func (s *TokenService) issueAccessToken(userID, role, tier string) (string, error) {
+func (s *TokenService) issueAccessToken(user *model.User) (string, error) {
 	claims := Claims{
-		UserID: userID,
-		Role:   role,
-		Tier:   tier,
+		UserID:       user.ID,
+		Role:         user.Role,
+		Tier:         user.Tier,
+		TokenVersion: user.TokenVersion,
 		RegisteredClaims: jwt.RegisteredClaims{
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(AccessTokenDuration)),
 			Issuer:    "mediastationgo",
-			Subject:   userID,
+			Subject:   user.ID,
 		},
 	}
 	t := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
@@ -170,6 +173,9 @@ func (s *TokenService) Refresh(ctx context.Context, refreshToken string) (*Token
 	if user == nil {
 		return nil, ErrInvalidRefreshToken
 	}
+	if rt.TokenVersion != user.TokenVersion {
+		return nil, ErrTokenRevoked
+	}
 	if !user.IsActive {
 		return nil, ErrUserInactive
 	}
@@ -182,7 +188,7 @@ func (s *TokenService) Refresh(ctx context.Context, refreshToken string) (*Token
 		s.log.Warn("failed to revoke old refresh token", zap.Error(err))
 	}
 	// 签发新的令牌对
-	return s.IssuePair(ctx, user.ID, user.Role, user.Tier)
+	return s.IssuePair(ctx, user)
 }
 
 // RevokeAll 撤销用户的所有 Refresh Token（用于登出）。

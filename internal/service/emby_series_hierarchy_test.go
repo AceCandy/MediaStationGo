@@ -116,14 +116,14 @@ func TestEmbyItemsExposeSeriesSeasonEpisodeHierarchy(t *testing.T) {
 	if err != nil {
 		t.Fatalf("search episodes: %v", err)
 	}
-	if items := episodeSearch["Items"].([]map[string]any); len(items) != 0 || episodeSearch["TotalRecordCount"] != 0 {
+	if items := episodeSearch["Items"].([]map[string]any); len(items) != 0 || episodeSearch["TotalRecordCount"] != int64(0) {
 		t.Fatalf("episode search = %#v, want no top-level results", episodeSearch)
 	}
 	seasonSearch, err := svc.Items(t.Context(), ItemsParams{ParentID: series.ID, IncludeItemTypes: []string{"Season"}, SearchTerm: "第一季", Limit: 50})
 	if err != nil {
 		t.Fatalf("search seasons: %v", err)
 	}
-	if items := seasonSearch["Items"].([]map[string]any); len(items) != 0 || seasonSearch["TotalRecordCount"] != 0 {
+	if items := seasonSearch["Items"].([]map[string]any); len(items) != 0 || seasonSearch["TotalRecordCount"] != int64(0) {
 		t.Fatalf("season search = %#v, want no top-level results", seasonSearch)
 	}
 

@@ -96,6 +96,11 @@ func TestHongGuoHTTPAccessAndStateIsolation(t *testing.T) {
 		t.Fatalf("source STRM redirect: %d", rec.Code)
 	}
 	request := func(method, path, role, body, profileID string) *httptest.ResponseRecorder {
+		if role != "" {
+			if err := repos.User.UpdateFields(ctx, "user-1", map[string]any{"role": role}); err != nil {
+				t.Fatal(err)
+			}
+		}
 		url := "/api/catalogs/hongguo" + path
 		if strings.HasPrefix(path, "/admin/") {
 			url = "/api" + path

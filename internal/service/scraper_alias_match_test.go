@@ -12,9 +12,15 @@ import (
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 )
 
-func TestEnrichOneUsesAlternateLanguageTitleAndKeepsLocalizedMetadata(t *testing.T) {
+func TestManualSearchKeepsLocalizedAlternateTitleCandidate(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/tv/292696" {
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"id": 292696, "name": "莫离", "original_name": "The First Jasmine", "first_air_date": "2026-01-01",
+			})
+			return
+		}
 		if r.URL.Path != "/search/tv" {
 			http.NotFound(w, r)
 			return
@@ -44,6 +50,9 @@ func TestEnrichOneUsesAlternateLanguageTitleAndKeepsLocalizedMetadata(t *testing
 	defer upstream.Close()
 
 	repos := newOrganizerTestRepo(t)
+	if err := migrateScraperTestModels(t, repos.DB); err != nil {
+		t.Fatal(err)
+	}
 	cfg := &config.Config{}
 	cfg.Secrets.TMDbAPIKey = "test-key"
 	cfg.Secrets.TMDbAPIProxy = upstream.URL
@@ -67,7 +76,22 @@ func TestEnrichOneUsesAlternateLanguageTitleAndKeepsLocalizedMetadata(t *testing
 		t.Fatal(err)
 	}
 
-	if err := scraper.EnrichOne(t.Context(), &media); err != nil {
+	candidates, err := scraper.ManualSearch(t.Context(), &media, "The First Jasmine", "tmdb", "tv")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var selected *ExternalMediaResult
+	for i := range candidates {
+		if candidates[i].TMDbID == 292696 {
+			selected = &candidates[i]
+		}
+	}
+	if selected == nil || selected.Title != "莫离" {
+		t.Fatalf("localized candidate missing: %#v", candidates)
+	}
+	if _, err := scraper.ApplyManualMatch(t.Context(), media.ID, ManualScrapeRequest{
+		Source: "tmdb", MediaType: "tv", TMDbID: selected.TMDbID, Title: selected.Title,
+	}); err != nil {
 		t.Fatal(err)
 	}
 	got := serviceTestMediaView(t, repos, media.ID)

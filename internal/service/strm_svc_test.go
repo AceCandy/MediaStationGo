@@ -95,7 +95,7 @@ func TestGeneratedSTRMRecordRejectsProviderProtocol(t *testing.T) {
 func TestGenerateSTRMForLibrarySignsDefaultPlaybackToken(t *testing.T) {
 	db := newServiceTestDB(t, &model.Library{}, &model.Media{}, &model.MediaProbeMetadata{}, &model.STRMRecord{}, &model.Setting{}, &model.User{})
 	repos := repository.New(db)
-	admin := model.User{Username: "admin", PasswordHash: "x", Role: "admin", Tier: "plus", IsActive: true}
+	admin := model.User{Username: "admin", PasswordHash: "x", Role: "admin", Tier: "plus", IsActive: true, TokenVersion: 4}
 	if err := repos.User.Create(t.Context(), &admin); err != nil {
 		t.Fatal(err)
 	}
@@ -139,7 +139,7 @@ func TestGenerateSTRMForLibrarySignsDefaultPlaybackToken(t *testing.T) {
 	if err != nil || !parsed.Valid {
 		t.Fatalf("generated token did not validate: %v", err)
 	}
-	if claims.UserID != admin.ID || claims.Role != "admin" || claims.Tier != "plus" {
+	if claims.UserID != admin.ID || claims.Role != "admin" || claims.Tier != "plus" || claims.TokenVersion != admin.TokenVersion {
 		t.Fatalf("claims = %#v, want admin identity", claims)
 	}
 	if claims.Purpose != ExternalPlaybackTokenPurpose || claims.MediaID != media.ID {

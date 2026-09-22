@@ -263,27 +263,25 @@ func (s *SchedulerService) jobByNameLocked(name string) *scheduledJob {
 func (s *SchedulerService) beginRun(j *scheduledJob) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if j.name == TaskKindHongGuoSupplement {
-		select {
-		case <-s.stopCh:
-			return ErrSchedulerJobNotFound
-		default:
-		}
+	if s.runCtx.Err() != nil {
+		return ErrSchedulerJobNotFound
 	}
 	if j.running {
 		return ErrSchedulerJobAlreadyRunning
 	}
 	j.running = true
 	j.started = s.currentTime()
-	if j.name == TaskKindHongGuoSupplement {
-		s.supplementWG.Add(1)
-	}
+	s.runWG.Add(1)
 	return nil
 }
 
 func (s *SchedulerService) runReserved(ctx context.Context, j *scheduledJob) error {
-	if j.name == TaskKindHongGuoSupplement {
-		defer s.supplementWG.Done()
+	defer s.runWG.Done()
+	ctx, cancel := context.WithCancel(ctx)
+	stop := context.AfterFunc(s.runCtx, cancel)
+	defer func() { stop(); cancel() }()
+	if s.runCtx.Err() != nil {
+		cancel()
 	}
 	err := j.run(ctx)
 	s.mu.Lock()

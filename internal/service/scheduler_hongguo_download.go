@@ -20,9 +20,6 @@ func (s *SchedulerService) RunHongGuoSupplementNowAsync(ctx context.Context, cou
 }
 
 func (s *SchedulerService) jobHongGuoSupplement(ctx context.Context) error {
-	ctx, cancel := context.WithCancel(ctx)
-	stop := context.AfterFunc(s.supplementCtx, cancel)
-	defer func() { stop(); cancel() }()
 	count, ok := ctx.Value(hongGuoSupplementCountContextKey{}).(int)
 	if !ok {
 		s.mu.Lock()

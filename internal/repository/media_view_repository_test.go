@@ -321,7 +321,7 @@ func TestMediaViewProjectsEpisodeArtworkAndParentIdentifiers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if second == nil || second.PosterURL != "" || second.BackdropURL != "" || second.TMDbID != 0 {
+	if second == nil || second.PosterURL != "" || second.BackdropURL != "/api/artwork/asset-backdrop" || second.TMDbID != 0 {
 		t.Fatalf("episode inherited parent data = %#v", second)
 	}
 

@@ -633,6 +633,13 @@ db.Model(&credit).
   cross a Season boundary; leave it empty when no earlier dated Episode exists.
 - Scanner, scraper, metadata edit, and organizer metadata flows only read NFO/poster/fanart/thumb sidecars. They must not create, overwrite, move, or delete them.
 - Scan and scrape flows must not move, rename, delete, deduplicate, or reclassify playable media files or change their library/path placement. Only an explicit organize operation may invoke `ReclassifyMisclassifiedMedia` or other filesystem transfer helpers.
+- Organizer inputs use `organizeMediaViews`: a canonical Episode with a non-empty
+  `SeriesTitle` uses that title for directory/file naming. Its display `Title`
+  remains the Episode title; do not alter generic `mediaViewsAsMedia` consumers.
+  Single-file organizing, directory lookup and reclassification share this
+  conversion. `TestOrganizePipelineRenamesAfterScrape` verifies the final path;
+  `TestOrganizeMediaViewsKeepsSeriesNamingSeparateFromEpisodeDisplay` covers
+  missing Series titles, Movies and unchanged display data.
 - Deleting a library transactionally hard-deletes its `Media`, `LibraryRoot`, and `Library` rows. It preserves shared metadata, metadata-owned user state, identifiers, managed artwork, and all on-disk media files.
 
 ### 4. Validation & Error Matrix

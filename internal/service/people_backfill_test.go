@@ -220,7 +220,7 @@ func TestBackfillPeopleInvalidatesNotFoundTMDbAndContinues(t *testing.T) {
 
 	invalid := model.MetadataItem{Kind: model.MetadataKindMovie, Title: "Invalid", Source: "tmdb"}
 	valid := model.MetadataItem{Kind: model.MetadataKindSeries, Title: "Valid", Source: "tmdb"}
-	if err := repos.DB.Create(&[]model.MetadataItem{invalid, valid}).Error; err != nil {
+	if err := repos.DB.Create(&[]*model.MetadataItem{&invalid, &valid}).Error; err != nil {
 		t.Fatal(err)
 	}
 	identifiers := []model.MetadataIdentifier{

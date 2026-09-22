@@ -83,7 +83,7 @@ func TestScrapeQueryCandidatesDoNotUseMovieCollectionFolderAsTitle(t *testing.T)
 	}
 }
 
-func TestEnrichOneUsesMovieFolderWhenFilenameIsGeneric(t *testing.T) {
+func TestManualSearchUsesMovieFolderWhenFilenameIsGeneric(t *testing.T) {
 	var queries []string
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		queries = append(queries, r.URL.Query().Get("query"))
@@ -143,10 +143,14 @@ func TestEnrichOneUsesMovieFolderWhenFilenameIsGeneric(t *testing.T) {
 	}
 
 	got := serviceTestMediaView(t, repos, media.ID)
-	if got.ScrapeStatus != "matched" || got.TMDbID != 27205 || got.Title != "Inception" {
-		t.Fatalf("generic filename scrape did not use folder title: status=%q tmdb=%d title=%q queries=%v", got.ScrapeStatus, got.TMDbID, got.Title, queries)
+	if got.ScrapeStatus != "no_match" || len(queries) != 0 {
+		t.Fatalf("automatic scrape without ID must not search: status=%q queries=%v", got.ScrapeStatus, queries)
 	}
-	if len(queries) == 0 || queries[0] != "inception" {
-		t.Fatalf("first tmdb query = %q, want folder title; all queries=%v", firstQuery(queries), queries)
+	candidates, err := scraper.ManualSearch(t.Context(), &media, "", "tmdb", "movie")
+	if err != nil || len(candidates) != 1 || candidates[0].TMDbID != 27205 || candidates[0].Title != "Inception" {
+		t.Fatalf("folder title manual search = %#v, err=%v queries=%v", candidates, err, queries)
+	}
+	if firstIndexFunc(queries, func(query string) bool { return query == "inception" }) < 0 {
+		t.Fatalf("manual search did not use folder title: queries=%v", queries)
 	}
 }

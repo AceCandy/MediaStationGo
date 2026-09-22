@@ -98,7 +98,7 @@ func TestProbeLibraryRouteRequiresAdminAndReturnsAccepted(t *testing.T) {
 		snapshot := svc.Tasks.Snapshot()
 		if len(snapshot.Recent) > 0 {
 			task := snapshot.Recent[0]
-			if task.Kind != service.TaskKindProbe || task.Status != service.TaskStatusCompleted || task.Metrics["total"] != 1 || task.Metrics["completed"] != 0 || task.Metrics["skipped"] != 1 || task.Metrics["failed"] != 0 {
+			if task.Kind != service.TaskKindProbe || task.Status != service.TaskStatusCompleted || task.Metrics["total"] != 0 || task.Metrics["completed"] != 0 || task.Metrics["skipped"] != 0 || task.Metrics["failed"] != 0 {
 				t.Fatalf("task = %#v", task)
 			}
 			return

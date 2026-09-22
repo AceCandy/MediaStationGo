@@ -57,7 +57,7 @@ func (h *RefreshHandler) RefreshToken(c *gin.Context) {
 		return
 	}
 
-	setAccessTokenCookie(c, tokens.AccessToken, int(tokens.ExpiresIn))
+	// 刷新可能属于已退出的旧会话；由后续当前会话的 Bearer 请求同步图片 Cookie。
 	c.JSON(http.StatusOK, gin.H{
 		"code":    0,
 		"message": "ok",

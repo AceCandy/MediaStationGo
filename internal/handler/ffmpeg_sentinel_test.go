@@ -96,9 +96,6 @@ func TestRetainedPlaybackWorkflowsNeverStartFFmpeg(t *testing.T) {
 			container.Close()
 		}
 	})
-	container.Boot()
-	assertFFmpegSentinelNotStarted(t, marker, "service boot")
-
 	detail := httptest.NewRecorder()
 	detailContext, _ := gin.CreateTestContext(detail)
 	detailContext.Set(middleware.CtxUserID, "user-1")
@@ -112,6 +109,8 @@ func TestRetainedPlaybackWorkflowsNeverStartFFmpeg(t *testing.T) {
 	if _, ok := container.MediaProbe.Load(t.Context(), media.ID); ok {
 		t.Fatal("media detail blocked on media probe")
 	}
+	container.Boot()
+	assertFFmpegSentinelNotStarted(t, marker, "service boot")
 
 	probe := httptest.NewRecorder()
 	probeContext, _ := gin.CreateTestContext(probe)

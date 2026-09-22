@@ -29,6 +29,10 @@ func activeUserRequired(svc *service.Container) gin.HandlerFunc {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"code": 40101, "message": "user not found"})
 			return
 		}
+		if u.TokenVersion != c.GetInt64(middleware.CtxTokenVersion) {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"code": 40101, "message": "session revoked"})
+			return
+		}
 		if !u.IsActive {
 			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"code": 40302, "message": "user account is disabled"})
 			return
@@ -37,6 +41,8 @@ func activeUserRequired(svc *service.Container) gin.HandlerFunc {
 			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"code": 40303, "message": "user account has expired"})
 			return
 		}
+		c.Set(middleware.CtxUserRole, u.Role)
+		c.Set(middleware.CtxUserTier, u.Tier)
 		c.Next()
 	}
 }
@@ -58,6 +64,10 @@ func activeEmbyUserRequired(svc *service.Container) gin.HandlerFunc {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"Code": 40101, "Message": "User not found"})
 			return
 		}
+		if u.TokenVersion != c.GetInt64(middleware.CtxTokenVersion) {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"Code": 40101, "Message": "Session revoked"})
+			return
+		}
 		if !u.IsActive {
 			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"Code": 40302, "Message": "User account is disabled"})
 			return
@@ -67,6 +77,8 @@ func activeEmbyUserRequired(svc *service.Container) gin.HandlerFunc {
 			return
 		}
 		c.Set(embyCtxUserName, u.Username)
+		c.Set(middleware.CtxUserRole, u.Role)
+		c.Set(middleware.CtxUserTier, u.Tier)
 		c.Next()
 	}
 }

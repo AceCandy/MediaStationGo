@@ -274,7 +274,7 @@ func TestEmbyItemsFilterByPerson(t *testing.T) {
 	for _, id := range []string{"related-series", "unrelated-series"} {
 		series := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{PermanentBase: model.PermanentBase{ID: id}, Kind: model.MetadataKindSeries, Title: id, Source: "tmdb"})
 		season := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{PermanentBase: model.PermanentBase{ID: id + "-season"}, Kind: model.MetadataKindSeason, ParentID: &series.ID, SeasonNum: 1, Title: "Season 1", Source: "tmdb"})
-		episode := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{PermanentBase: model.PermanentBase{ID: id + "-episode"}, Kind: model.MetadataKindEpisode, ParentID: &season.ID, SeasonNum: 1, EpisodeNum: 1, Title: "Episode 1", Source: "tmdb"})
+		episode := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{PermanentBase: model.PermanentBase{ID: id + "-episode"}, Kind: model.MetadataKindEpisode, ParentID: &season.ID, EpisodeNum: 1, Title: "Episode 1", Source: "tmdb"})
 		if err := svc.repo.DB.Create(&model.Media{PermanentBase: model.PermanentBase{ID: "media-" + id}, MetadataID: episode.ID, LibraryID: library.ID, Title: id, Path: "/media/shows/" + id + "/S01E01.mkv", SeasonNum: 1, EpisodeNum: 1}).Error; err != nil {
 			t.Fatal(err)
 		}
@@ -335,7 +335,7 @@ func TestEmbyFolderPayloadQueriesDoNotScaleWithPageSize(t *testing.T) {
 	}
 }
 
-func TestEmbyLatestItemsOrderByReleaseDate(t *testing.T) {
+func TestEmbyLatestItemsOrderByImportDate(t *testing.T) {
 	svc := newTestEmbyService(t)
 	lib := model.Library{Name: "电影", Path: `/media/movies`, Type: "movie", Enabled: true}
 	if err := svc.repo.Library.Create(t.Context(), &lib); err != nil {
@@ -367,10 +367,10 @@ func TestEmbyLatestItemsOrderByReleaseDate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("latest items: %v", err)
 	}
-	if len(items) != 2 || items[0]["Id"] != "metadata-newer-release-older-scan" {
-		t.Fatalf("latest items should prefer release date over created_at, got %#v", items)
+	if len(items) != 2 || items[0]["Id"] != "metadata-older-release-newer-scan" {
+		t.Fatalf("latest items should prefer created_at over release date, got %#v", items)
 	}
-	if items[0]["PremiereDate"] != "2026-06-23T00:00:00.0000000Z" {
+	if items[0]["PremiereDate"] != "2026-01-10T00:00:00.0000000Z" {
 		t.Fatalf("latest item should expose Emby-compatible PremiereDate: %#v", items[0])
 	}
 }

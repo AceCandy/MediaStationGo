@@ -280,6 +280,9 @@ func TestEmbySharedMetadataAcrossIndependentLibrariesUsesOneGlobalItemAndVisible
 
 func TestEmbyMetadataVersionsShareUserStateAndKeepSourceIDs(t *testing.T) {
 	svc := newTestEmbyService(t)
+	if err := svc.repo.DB.Exec(`CREATE UNIQUE INDEX test_history_identity ON playback_histories(user_id,metadata_id) WHERE deleted_at IS NULL`).Error; err != nil {
+		t.Fatal(err)
+	}
 	if err := svc.repo.DB.AutoMigrate(&model.Playlist{}, &model.PlaylistItem{}); err != nil {
 		t.Fatalf("migrate playlists: %v", err)
 	}
@@ -339,7 +342,7 @@ func TestEmbyMetadataVersionsShareUserStateAndKeepSourceIDs(t *testing.T) {
 	}
 	fullViewQueries := 0
 	callbackName := "test:record-progress-media-source-fast-path"
-	if err := svc.repo.DB.Callback().Query().After("gorm:query").Register(callbackName, func(tx *gorm.DB) {
+	if err := svc.repo.DB.Callback().Row().After("gorm:row").Register(callbackName, func(tx *gorm.DB) {
 		if strings.Contains(tx.Statement.SQL.String(), "metadata_identifiers") {
 			fullViewQueries++
 		}
@@ -356,7 +359,7 @@ func TestEmbyMetadataVersionsShareUserStateAndKeepSourceIDs(t *testing.T) {
 	if err := svc.RecordProgress(t.Context(), "user-1", metadata.ID, media1080.ID, "", 30_000*10_000, 0); err != nil {
 		t.Fatalf("record progress: %v", err)
 	}
-	if err := svc.repo.DB.Callback().Query().Remove(callbackName); err != nil {
+	if err := svc.repo.DB.Callback().Row().Remove(callbackName); err != nil {
 		t.Fatalf("remove query callback: %v", err)
 	}
 	if fullViewQueries != 0 {

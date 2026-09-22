@@ -180,7 +180,7 @@ func TestDoubanArtworkLocalRepairCheckpointsOnlyFinal404WithUsableSmallImage(t *
 				t.Fatal(err)
 			}
 			largeURL := "https://img9.doubanio.com/view/photo/l/public/p123.jpg"
-			payload := `{"cover":{"image":{"large":{"url":"` + largeURL + `"}}}}`
+			payload := `{"title":"Movie","cover":{"image":{"large":{"url":"` + largeURL + `"}}}}`
 			if err := db.Create(&model.MetadataProviderSnapshot{MetadataID: metadata.ID, Provider: "douban", Payload: payload, FetchedAt: time.Now().UTC()}).Error; err != nil {
 				t.Fatal(err)
 			}
@@ -241,7 +241,7 @@ func TestDoubanArtworkLocalRepairCheckpointsOnlyFinal404WithUsableSmallImage(t *
 				t.Fatalf("Douban image requests = %d, want 1", requests.Load())
 			}
 			newLargeURL := "https://img9.doubanio.com/view/photo/l/public/p456.jpg"
-			newPayload := `{"cover":{"image":{"large":{"url":"` + newLargeURL + `"}}}}`
+			newPayload := `{"title":"Movie","cover":{"image":{"large":{"url":"` + newLargeURL + `"}}}}`
 			if err := db.Model(&model.MetadataProviderSnapshot{}).
 				Where("metadata_id = ? AND provider = 'douban'", metadata.ID).
 				Update("payload", newPayload).Error; err != nil {

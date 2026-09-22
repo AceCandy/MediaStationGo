@@ -11,11 +11,13 @@
 package service
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 )
 
 var linkFile = os.Link
@@ -51,7 +53,7 @@ func parseTransferMode(s string) TransferMode {
 // transferFile 按指定方式把 src 转移到 dst。
 // dst 已存在时一律报错，绝不覆盖（防止不同 release 改名后互相覆盖）。
 func transferFile(src, dst string, mode TransferMode) error {
-	if _, err := os.Stat(dst); err == nil {
+	if _, err := os.Lstat(dst); err == nil {
 		return fmt.Errorf("destination already exists: %s", dst)
 	}
 	switch mode {
@@ -93,52 +95,58 @@ func copyFile(src, dst string) error {
 		_ = os.Remove(dst)
 		return werr
 	}
-	return f.Close()
+	if err := f.Close(); err != nil {
+		_ = os.Remove(dst)
+		return err
+	}
+	return nil
 }
 
-// moveFile tries os.Rename first (instant on same fs), then falls back
-// to copy + remove for cross-device moves.
-//
-// If dst already exists, moveFile returns an error instead of overwriting it.
-// OrganizeMedia checks this before calling transferFile; this remains the
-// second line of defense against different releases collapsing to one name.
+// moveFile 原子移动且不覆盖目标；跨盘或平台不支持时独占复制后删除源。
 func moveFile(src, dst string) error {
-	if _, err := os.Stat(dst); err == nil {
-		return fmt.Errorf("destination already exists: %s", dst)
-	}
-	if err := os.Rename(src, dst); err == nil {
+	if err := renameNoReplace(src, dst); err == nil {
 		return nil
-	}
-	in, err := os.Open(src) // #nosec G304 -- src is selected from configured media/download roots by the organizer.
-	if err != nil {
+	} else if !errors.Is(err, syscall.EXDEV) {
 		return err
 	}
-	defer in.Close()
-	f, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644) // #nosec G304,G302 -- dst is organizer-generated; media files must remain readable by local players.
-	if err != nil {
+	if err := copyFile(src, dst); err != nil {
 		return err
 	}
-	if _, werr := io.Copy(f, in); werr != nil {
-		_ = f.Close()
-		_ = os.Remove(dst)
-		return werr
+	if err := os.Remove(src); err != nil {
+		return errors.Join(err, os.Remove(dst))
 	}
-	if cerr := f.Close(); cerr != nil {
-		return cerr
+	return nil
+}
+
+// rollbackTransfer 在数据库更新失败后恢复转移；恢复目标冲突时保留两份内容并报告。
+func rollbackTransfer(src, dst string, mode TransferMode, transferred os.FileInfo, cause error) error {
+	current, err := os.Lstat(dst)
+	if err != nil || !os.SameFile(transferred, current) {
+		return errors.Join(cause, fmt.Errorf("restore transfer refused: destination changed: %s", dst), err)
 	}
-	return os.Remove(src)
+	if mode == TransferCopy || mode == TransferHardlink || mode == TransferSymlink {
+		err = os.Remove(dst)
+	} else {
+		err = moveFile(dst, src)
+	}
+	if err != nil {
+		return errors.Join(cause, fmt.Errorf("restore transfer %s -> %s failed: %w", dst, src, err))
+	}
+	return cause
 }
 
 func transferDirectory(src, dst string, mode TransferMode) error {
-	if _, err := os.Stat(dst); err == nil {
+	if _, err := os.Lstat(dst); err == nil {
 		return fmt.Errorf("destination already exists: %s", dst)
 	}
 	switch mode {
 	case TransferSymlink:
 		return transferFile(src, dst, mode)
 	case TransferMove:
-		if err := os.Rename(src, dst); err == nil {
+		if err := renameNoReplace(src, dst); err == nil {
 			return nil
+		} else if !errors.Is(err, syscall.EXDEV) {
+			return err
 		}
 		if err := transferDirectoryTree(src, dst, TransferCopy); err != nil {
 			return err
@@ -152,6 +160,10 @@ func transferDirectory(src, dst string, mode TransferMode) error {
 }
 
 func transferDirectoryTree(src, dst string, mode TransferMode) error {
+	// 只清理本次独占创建的目录，不能删除并发任务已有的目标。
+	if err := os.Mkdir(dst, 0o755); err != nil { // #nosec G301 -- media folders must remain readable by local players.
+		return err
+	}
 	if err := filepath.WalkDir(src, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -161,7 +173,7 @@ func transferDirectoryTree(src, dst string, mode TransferMode) error {
 			return err
 		}
 		if rel == "." {
-			return os.MkdirAll(dst, 0o755) // #nosec G301 -- media folders must remain readable by local players.
+			return nil
 		}
 		target := filepath.Join(dst, rel)
 		if d.IsDir() {

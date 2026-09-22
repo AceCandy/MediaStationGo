@@ -135,6 +135,9 @@ func (c *Container) Close() {
 	if c.stopCancel != nil {
 		c.stopCancel()
 	}
+	if c.Scheduler != nil {
+		c.Scheduler.Stop()
+	}
 	if c.HongGuo != nil {
 		c.HongGuo.Wait()
 	}
@@ -143,9 +146,6 @@ func (c *Container) Close() {
 	}
 	if c.Scraper != nil {
 		c.Scraper.WaitCatalogHydrationWorker()
-	}
-	if c.Scheduler != nil {
-		c.Scheduler.Stop()
 	}
 	if c.Watcher != nil {
 		c.Watcher.Stop()
@@ -158,8 +158,5 @@ func (c *Container) Close() {
 	}
 	if c.SSEHub != nil {
 		c.SSEHub.Stop()
-	}
-	if c.Scheduler != nil {
-		c.Scheduler.Stop()
 	}
 }

@@ -71,9 +71,10 @@ func (s *STRMService) defaultSTRMPlaybackToken(ctx context.Context, media model.
 		return ""
 	}
 	token, err := signExternalPlaybackToken(Claims{
-		UserID: admin.ID,
-		Role:   admin.Role,
-		Tier:   admin.Tier,
+		UserID:       admin.ID,
+		Role:         admin.Role,
+		Tier:         admin.Tier,
+		TokenVersion: admin.TokenVersion,
 	}, media.ID, s.probeDurationSec(ctx, media.ID), s.cfg.Secrets.JWTSecret)
 	if err != nil {
 		if s.log != nil {

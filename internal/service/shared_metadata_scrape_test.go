@@ -230,7 +230,7 @@ func TestProviderMatchDoesNotMergeLocalNFOFields(t *testing.T) {
 	scraper, repos, closeServer := newTestScraper(t)
 	defer closeServer()
 	root := t.TempDir()
-	mediaPath := filepath.Join(root, "Show", "Season 02", "Show - S02E01.mkv")
+	mediaPath := filepath.Join(root, "Show {tmdb-12345}", "Season 02", "Show - S02E01.mkv")
 	if err := os.MkdirAll(filepath.Dir(mediaPath), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -285,7 +285,7 @@ func TestProviderErrorDoesNotFallBackToLocalNFO(t *testing.T) {
 	repos := repository.New(db)
 	root := t.TempDir()
 	mediaPath := filepath.Join(root, "movie.mkv")
-	if err := os.WriteFile(nfoPath(mediaPath), []byte(`<movie><title>本地电影</title><plot>本地简介</plot></movie>`), 0o644); err != nil {
+	if err := os.WriteFile(nfoPath(mediaPath), []byte(`<movie><title>本地电影</title><plot>本地简介</plot><uniqueid type="tmdb">42</uniqueid></movie>`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	lib := model.Library{Name: "Movies", Path: root, Type: "movie", Enabled: true}

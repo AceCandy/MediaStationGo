@@ -75,6 +75,9 @@ func TestWakeScrapeWorkerSignalsThreeMediaWorkers(t *testing.T) {
 func TestKnownTMDbIDReusesLoadedDetails(t *testing.T) {
 	scraper, repos, closeDefaultUpstream := newTestScraper(t)
 	defer closeDefaultUpstream()
+	if err := repos.DB.Callback().Create().Remove("testutil:media-metadata"); err != nil {
+		t.Fatal(err)
+	}
 
 	var movieCalls atomic.Int32
 	var tvCalls atomic.Int32
@@ -107,12 +110,12 @@ func TestKnownTMDbIDReusesLoadedDetails(t *testing.T) {
 	scraper.tmdb = NewTMDbProvider(scraper.cfg, zap.NewNop(), nil)
 	movieLibrary := model.Library{Name: "Movies", Path: "/media/movies", Type: "movie", Enabled: true}
 	tvLibrary := model.Library{Name: "TV", Path: "/media/tv", Type: "tv", Enabled: true}
-	if err := repos.DB.Create(&[]model.Library{movieLibrary, tvLibrary}).Error; err != nil {
+	if err := repos.DB.Create(&[]*model.Library{&movieLibrary, &tvLibrary}).Error; err != nil {
 		t.Fatal(err)
 	}
 	media := []model.Media{
 		{LibraryID: movieLibrary.ID, Title: "Known Movie", Path: "/media/movies/known.mkv", TMDbID: 41, SeasonNum: 20, EpisodeNum: 24, ScrapeStatus: "pending"},
-		{LibraryID: tvLibrary.ID, Title: "Known Series", Path: "/media/tv/known.mkv", TMDbID: 42, ScrapeStatus: "pending"},
+		{LibraryID: tvLibrary.ID, Title: "Known Series", Path: "/media/tv/Known Series {tmdb-42}/known.mkv", TMDbID: 42, ScrapeStatus: "pending"},
 	}
 	if err := repos.DB.Create(&media).Error; err != nil {
 		t.Fatal(err)
@@ -158,6 +161,7 @@ func TestSearchTMDbMatchStillLoadsExtendedDetails(t *testing.T) {
 		case "/movie/43":
 			detailCalls.Add(1)
 			_ = json.NewEncoder(w).Encode(map[string]any{
+				"id": 43, "title": "搜索电影", "original_title": "Search Movie",
 				"original_language":    "en",
 				"spoken_languages":     []map[string]any{{"iso_639_1": "fr"}},
 				"production_countries": []map[string]any{{"iso_3166_1": "US"}},
@@ -179,7 +183,13 @@ func TestSearchTMDbMatchStillLoadsExtendedDetails(t *testing.T) {
 	if err := repos.DB.Create(&media).Error; err != nil {
 		t.Fatal(err)
 	}
-	if err := scraper.enrichOneWithOptions(t.Context(), &media, ScrapeOptions{DeferEpisodeDetails: true}); err != nil {
+	candidates, err := scraper.ManualSearch(t.Context(), &media, "搜索电影", "tmdb", "movie")
+	if err != nil || len(candidates) != 1 || candidates[0].TMDbID != 43 {
+		t.Fatalf("manual candidates = %#v, err=%v", candidates, err)
+	}
+	if _, err := scraper.ApplyManualMatch(t.Context(), media.ID, ManualScrapeRequest{
+		Source: "tmdb", MediaType: "movie", TMDbID: candidates[0].TMDbID, Title: candidates[0].Title,
+	}); err != nil {
 		t.Fatal(err)
 	}
 	if searchCalls.Load() != 1 || detailCalls.Load() != 1 {

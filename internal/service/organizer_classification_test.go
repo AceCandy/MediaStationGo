@@ -208,6 +208,11 @@ func TestOrganizeDirectoryReclassifiesMovieFromDirtyGeneratedEpisodePath(t *test
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch {
+		case r.URL.Path == "/movie/1198994":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"id": 1198994, "title": "请求救援", "original_title": "Request Rescue", "release_date": "2026-02-01",
+				"production_countries": []map[string]any{{"iso_3166_1": "US"}},
+			})
 		case r.URL.Path == "/search/movie":
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"results": []map[string]any{{
@@ -245,7 +250,7 @@ func TestOrganizeDirectoryReclassifiesMovieFromDirtyGeneratedEpisodePath(t *test
 		t.Fatal(err)
 	}
 
-	wrongPath := filepath.Join(euusLib.Path, "请求救援 (2026)", "Season 1", "请求救援 - S01E202-1080p - 第 202 集.mkv")
+	wrongPath := filepath.Join(euusLib.Path, "请求救援 (2026) {tmdb-1198994}", "Season 1", "请求救援 - S01E202-1080p - 第 202 集.mkv")
 	writeOrgFile(t, wrongPath, "movie")
 	movie := createServiceTestMetadata(t, repos.DB, model.MetadataItem{
 		Kind: model.MetadataKindMovie, Title: "请求救援", OriginalName: "请求救援",

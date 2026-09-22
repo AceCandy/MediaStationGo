@@ -53,6 +53,7 @@ func EmbyAuthRequired(secret string) gin.HandlerFunc {
 
 		c.Set(EmbyCtxUserID, claims.UserID)
 		c.Set(CtxUserID, claims.UserID)
+		c.Set(CtxTokenVersion, claims.TokenVersion)
 		c.Set(CtxUserRole, claims.Role)
 		c.Set(CtxUserTier, claims.Tier)
 		c.Next()

@@ -18,6 +18,25 @@ func TestScraperAnyEnabledIgnoresAdultProvider(t *testing.T) {
 	}
 }
 
+func TestEnrichOneRejectsMissingLibrary(t *testing.T) {
+	scraper, repos, closeServer := newTestScraper(t)
+	defer closeServer()
+	media := model.Media{LibraryID: "missing-library", Title: "Movie", Path: "/media/movie.mkv", ScrapeStatus: "pending"}
+	if err := repos.DB.Create(&media).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := scraper.EnrichOne(t.Context(), &media); err == nil || err.Error() != "library not found" {
+		t.Fatalf("missing library error = %v", err)
+	}
+	var stored model.Media
+	if err := repos.DB.First(&stored, "id = ?", media.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if stored.ScrapeStatus != "pending" || stored.MetadataID != media.MetadataID {
+		t.Fatalf("missing library changed media: %#v", stored)
+	}
+}
+
 func TestEnrichOneReturnsNoMatchPersistenceError(t *testing.T) {
 	scraper, repos, closeServer := newTestScraper(t)
 	defer closeServer()
@@ -53,7 +72,7 @@ func TestEnrichOneReturnsNoMatchPersistenceError(t *testing.T) {
 }
 
 func TestEnrichOneUsesExistingTMDbIDWithoutAdultLookup(t *testing.T) {
-	scraper, repos, closeServer := newTestScraper(t)
+	scraper, repos, closeServer := newUnboundTestScraper(t)
 	defer closeServer()
 	var adultCalls atomic.Int32
 	adult := NewAdultProvider(scraper.log, nil)
@@ -101,7 +120,7 @@ func TestEnrichOneWritesTMDbIdentifier(t *testing.T) {
 	if err := repos.DB.Create(&lib).Error; err != nil {
 		t.Fatal(err)
 	}
-	mediaPath := filepath.Join(lib.Path, "间谍过家家 - S02E01.mkv")
+	mediaPath := filepath.Join(lib.Path, "间谍过家家 {tmdb-12345}", "间谍过家家 - S02E01.mkv")
 	if err := repos.DB.Create(&model.Media{
 		LibraryID:    lib.ID,
 		Title:        "间谍过家家",
@@ -128,8 +147,8 @@ func TestEnrichOneWritesTMDbIdentifier(t *testing.T) {
 	}
 }
 
-func TestEnrichOneTreatsEpisodicMediaInMovieLibraryAsTV(t *testing.T) {
-	scraper, repos, closeServer := newTestScraper(t)
+func TestEnrichOneDoesNotInferTVInMovieLibrary(t *testing.T) {
+	scraper, repos, closeServer := newUnboundTestScraper(t)
 	defer closeServer()
 
 	lib := model.Library{Name: "混合库", Path: t.TempDir(), Type: "movie", Enabled: true}
@@ -152,10 +171,9 @@ func TestEnrichOneTreatsEpisodicMediaInMovieLibraryAsTV(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got := serviceTestMediaView(t, repos, media.ID)
-	serviceTestTMDbSeries(t, repos, got, 12345)
-	if got.ScrapeStatus != "matched" {
-		t.Fatalf("episodic media in movie library should use tv scrape: status=%q", got.ScrapeStatus)
+	got, err := repos.Media.FindByID(t.Context(), media.ID)
+	if err != nil || got == nil || got.ScrapeStatus != "no_match" || got.MetadataID != "" {
+		t.Fatalf("movie library without explicit ID must remain unbound: media=%#v err=%v", got, err)
 	}
 }
 
@@ -199,7 +217,7 @@ func TestEnrichOneWritesTMDbEpisodeMetadata(t *testing.T) {
 	if err := repos.DB.Create(&lib).Error; err != nil {
 		t.Fatal(err)
 	}
-	mediaPath := filepath.Join(lib.Path, "间谍过家家 - S02E01.mkv")
+	mediaPath := filepath.Join(lib.Path, "间谍过家家 {tmdb-12345}", "间谍过家家 - S02E01.mkv")
 	media := model.Media{
 		LibraryID:    lib.ID,
 		Title:        "间谍过家家",
@@ -246,7 +264,7 @@ func TestEnrichOneSkipsTMDbEpisodeStillWhenDisabled(t *testing.T) {
 	if err := repos.DB.Create(&lib).Error; err != nil {
 		t.Fatal(err)
 	}
-	mediaPath := filepath.Join(lib.Path, "间谍过家家 - S02E01.mkv")
+	mediaPath := filepath.Join(lib.Path, "间谍过家家 {tmdb-12345}", "间谍过家家 - S02E01.mkv")
 	media := model.Media{
 		LibraryID:    lib.ID,
 		Title:        "间谍过家家",
@@ -287,7 +305,7 @@ func TestEnrichOneSkipsTMDbEpisodeStillWhenDisabled(t *testing.T) {
 }
 
 func TestApplyManualMatchSkipsTMDbEpisodeStillWhenDisabled(t *testing.T) {
-	scraper, repos, closeServer := newTestScraper(t)
+	scraper, repos, closeServer := newUnboundTestScraper(t)
 	defer closeServer()
 
 	lib := model.Library{Name: "番剧", Path: t.TempDir(), Type: "tv", Enabled: true}

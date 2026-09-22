@@ -15,12 +15,13 @@ const LIBRARY_PAGE_SIZE = 50
 export function useLibraryData(libraryID: string, filters: LibraryMediaFilters) {
   const [searchParams] = useSearchParams()
   const userID = useAuthStore((state) => state.user?.id)
+  const sessionVersion = useAuthStore((state) => state.sessionVersion)
   const profileID = usePlayProfileStore((state) => state.activeProfileId)
   const seriesID = searchParams.get('series_id') || ''
   const seriesKey = seriesID ? '' : searchParams.get('series') || ''
   const rawSeason = searchParams.get('season')
   const requestedSeason = rawSeason !== null && /^\d+$/.test(rawSeason) ? Number(rawSeason) : undefined
-  const target = `${userID}:${profileID}:${libraryID}:${seriesID}:${seriesKey}`
+  const target = `${sessionVersion}:${userID}:${profileID}:${libraryID}:${seriesID}:${seriesKey}`
   const [linkedSeries, setLinkedSeries] = useState<{ target: string; card: SeriesCard | null } | null>(null)
   const { missingPoster = false, missingChineseTitle = false } = filters
   const [library, setLibrary] = useState<Library | null>(null)
@@ -38,6 +39,7 @@ export function useLibraryData(libraryID: string, filters: LibraryMediaFilters) 
   const [nextPage, setNextPage] = useState(2)
   const loadingMoreRef = useRef(false)
   const loadVersionRef = useRef(0)
+  const loadMoreController = useRef<AbortController | null>(null)
 
   const isSeriesLibrary = isSeriesLibraryType(library?.type)
   const episodeKey = seriesID ? `metadata:${seriesID}` : seriesKey
@@ -57,7 +59,8 @@ export function useLibraryData(libraryID: string, filters: LibraryMediaFilters) 
   useEffect(() => {
     if (!library || !isSeriesLibrary || (!seriesID && !seriesKey)) return
     let cancelled = false
-    libraryAPI.listSeries(libraryID, 1, 1, { seriesID, key: seriesKey })
+    const controller = new AbortController()
+    libraryAPI.listSeries(libraryID, 1, 1, { seriesID, key: seriesKey, signal: controller.signal })
       .then((result) => { if (!cancelled) setLinkedSeries({ target, card: result.items[0] ?? null }) })
       .catch(() => {
         if (!cancelled) {
@@ -65,18 +68,19 @@ export function useLibraryData(libraryID: string, filters: LibraryMediaFilters) 
           toast.error('剧集详情加载失败，请刷新重试')
         }
       })
-    return () => { cancelled = true }
+    return () => { cancelled = true; controller.abort() }
   }, [library, libraryID, isSeriesLibrary, seriesID, seriesKey, target])
 
   useEffect(() => {
     if (!libraryID) return
     let cancelled = false
+    const controller = new AbortController()
     setLoading(true)
     setLibrary(null)
     setItems([])
     setServerSeriesCards([])
     setSeriesEpisodeItems([])
-    libraryAPI.get(libraryID)
+    libraryAPI.get(libraryID, { signal: controller.signal })
       .then((lib) => {
         if (!cancelled) setLibrary(lib)
       })
@@ -87,12 +91,13 @@ export function useLibraryData(libraryID: string, filters: LibraryMediaFilters) 
           toast.error('媒体库不存在或无权限')
         }
       })
-    return () => { cancelled = true }
-  }, [libraryID, userID, profileID])
+    return () => { cancelled = true; controller.abort() }
+  }, [libraryID, userID, profileID, sessionVersion])
 
   useEffect(() => {
     if (!libraryID || !library) return
     let cancelled = false
+    const controller = new AbortController()
     loadVersionRef.current += 1
     loadingMoreRef.current = false
     setLoading(true)
@@ -108,7 +113,7 @@ export function useLibraryData(libraryID: string, filters: LibraryMediaFilters) 
       return
     }
 
-    loadLibraryPage(libraryID, isSeriesLibrary, 1, { missingPoster, missingChineseTitle })
+    loadLibraryPage(libraryID, isSeriesLibrary, 1, { missingPoster, missingChineseTitle }, controller.signal)
       .then((page) => {
         if (cancelled) return
         setTotal(page.total)
@@ -121,19 +126,26 @@ export function useLibraryData(libraryID: string, filters: LibraryMediaFilters) 
       .finally(() => {
         if (!cancelled) setLoading(false)
       })
-    return () => { cancelled = true }
-  }, [missingChineseTitle, missingPoster, libraryID, library, isSeriesLibrary, isSeriesDetail])
+    return () => {
+      cancelled = true
+      controller.abort()
+      loadVersionRef.current += 1
+      loadMoreController.current?.abort()
+    }
+  }, [missingChineseTitle, missingPoster, libraryID, library, isSeriesLibrary, isSeriesDetail, sessionVersion, userID, profileID])
 
   const loadedCount = isSeriesLibrary ? serverSeriesCards.length : items.length
   const hasMore = loadedCount < total
   const loadMore = useCallback(async () => {
     if (!libraryID || !library || !hasMore || loadingMoreRef.current) return
     const loadVersion = loadVersionRef.current
+    const controller = new AbortController()
+    loadMoreController.current = controller
     loadingMoreRef.current = true
     setLoadingMore(true)
     setLoadMoreError(false)
     try {
-      const page = await loadLibraryPage(libraryID, isSeriesLibrary, nextPage, { missingPoster, missingChineseTitle })
+      const page = await loadLibraryPage(libraryID, isSeriesLibrary, nextPage, { missingPoster, missingChineseTitle }, controller.signal)
       if (loadVersion !== loadVersionRef.current) return
       setTotal(page.items.length === 0 ? loadedCount : page.total)
       if (page.kind === 'series') setServerSeriesCards((current) => current.concat(page.items))
@@ -162,9 +174,10 @@ export function useLibraryData(libraryID: string, filters: LibraryMediaFilters) 
       return
     }
     let cancelled = false
+    const controller = new AbortController()
     setLoadingSeriesEpisodes(true)
     setSeriesEpisodeItems([])
-    libraryAPI.listSeriesEpisodes(libraryID, episodeKey, requestedSeason)
+    libraryAPI.listSeriesEpisodes(libraryID, episodeKey, requestedSeason, controller.signal)
       .then((r) => {
         if (!cancelled) {
           setSeriesEpisodeItems(r.items ?? [])
@@ -181,8 +194,8 @@ export function useLibraryData(libraryID: string, filters: LibraryMediaFilters) 
       .finally(() => {
         if (!cancelled) setLoadingSeriesEpisodes(false)
       })
-    return () => { cancelled = true }
-  }, [libraryID, library, isSeriesLibrary, episodeKey, requestedSeason, userID, profileID])
+    return () => { cancelled = true; controller.abort() }
+  }, [libraryID, library, isSeriesLibrary, episodeKey, requestedSeason, userID, profileID, sessionVersion])
 
   const reloadCurrentLibrary = useCallback(() => {
     setLibrary((current) => (current ? { ...current } : current))
@@ -214,13 +227,13 @@ export function useLibraryData(libraryID: string, filters: LibraryMediaFilters) 
   }
 }
 
-async function loadLibraryPage(libraryID: string, series: boolean, page: number, filters: LibraryMediaFilters) {
+async function loadLibraryPage(libraryID: string, series: boolean, page: number, filters: LibraryMediaFilters, signal: AbortSignal) {
   if (series) {
-    const data = await libraryAPI.listSeries(libraryID, page, LIBRARY_PAGE_SIZE, filters)
+    const data = await libraryAPI.listSeries(libraryID, page, LIBRARY_PAGE_SIZE, { ...filters, signal })
     const items = data.items ?? []
     return { kind: 'series' as const, items, total: data.total ?? items.length }
   }
-  const data = await libraryAPI.listMedia(libraryID, page, LIBRARY_PAGE_SIZE, filters)
+  const data = await libraryAPI.listMedia(libraryID, page, LIBRARY_PAGE_SIZE, { ...filters, signal })
   const items = data.items ?? []
   return { kind: 'media' as const, items, total: data.total ?? items.length }
 }

@@ -64,7 +64,7 @@ func (o *OrganizerService) resolveOrganizeMediaRequest(ctx context.Context, medi
 		return organizeMediaRequest{}, err
 	}
 	if view != nil {
-		*m = mediaViewsAsMedia([]model.MediaView{*view})[0]
+		*m = organizeMediaViews([]model.MediaView{*view})[0]
 		if !hasMetadata {
 			m.SeasonNum, m.EpisodeNum = detectedSeason, detectedEpisode
 		}
@@ -148,7 +148,7 @@ func (o *OrganizerService) applyOrganizeMedia(ctx context.Context, req organizeM
 	// Refuse to overwrite an existing different file. 当多个 release（如
 	// 不同字幕组、不同源）刮削后被统一改名，原本不重复的文件会被映射到
 	// 同一个目标路径，盲目 move 会导致后者覆盖前者，造成数据丢失。
-	if _, err := os.Stat(dst.path); err == nil {
+	if _, err := os.Lstat(dst.path); err == nil {
 		o.log.Warn("organize skipped: destination already exists",
 			zap.String("media", m.ID),
 			zap.String("from", m.Path),
@@ -161,6 +161,10 @@ func (o *OrganizerService) applyOrganizeMedia(ctx context.Context, req organizeM
 	}
 	if err := transferFile(m.Path, dst.path, req.transferMode); err != nil {
 		return "", err
+	}
+	transferred, err := os.Lstat(dst.path)
+	if err != nil {
+		return dst.path, err
 	}
 
 	updates := map[string]any{
@@ -180,7 +184,7 @@ func (o *OrganizerService) applyOrganizeMedia(ctx context.Context, req organizeM
 		Model(&model.Media{}).
 		Where("id = ?", m.ID).
 		Updates(updates).Error; err != nil {
-		return dst.path, err
+		return dst.path, rollbackTransfer(m.Path, dst.path, req.transferMode, transferred, err)
 	}
 	o.repo.MediaView.RefreshMetadataIDs(ctx, m.MetadataID)
 	o.log.Info("organized",

@@ -33,9 +33,11 @@ type SchedulerService struct {
 	tasks            *TaskTrackerService
 	hongguo          *HongGuoService
 	hongguoDownloads *HongGuoDownloadService
-	supplementCtx    context.Context
-	supplementCancel context.CancelFunc
-	supplementWG     sync.WaitGroup
+	runCtx           context.Context
+	runCancel        context.CancelFunc
+	runWG            sync.WaitGroup
+	stopParent       func() bool
+	started          bool
 	now              func() time.Time
 
 	mu         sync.Mutex
@@ -104,7 +106,10 @@ func NewSchedulerService(
 	organizer *OrganizerService,
 	hub *Hub,
 ) *SchedulerService {
+	runCtx, runCancel := context.WithCancel(context.Background())
 	return &SchedulerService{
+		runCtx:    runCtx,
+		runCancel: runCancel,
 		log:       log,
 		repo:      repo,
 		scanner:   scanner,
@@ -117,7 +122,13 @@ func NewSchedulerService(
 
 // Start kicks off every job in its own goroutine and returns immediately.
 func (s *SchedulerService) Start(ctx context.Context) {
-	s.supplementCtx, s.supplementCancel = context.WithCancel(ctx)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.started || s.runCtx.Err() != nil || ctx.Err() != nil {
+		return
+	}
+	s.started = true
+	s.stopParent = context.AfterFunc(ctx, s.runCancel)
 	s.jobs = []*scheduledJob{
 		s.configuredJob(ctx, "library_scan", "scan.periodic_enabled", "scan.interval_seconds", false, 24*time.Hour, s.jobScanLibraries),
 		s.configuredJob(ctx, "organize_source", "organize.auto", "organize.interval_seconds", false, 5*time.Minute, s.jobOrganizeSource),
@@ -152,7 +163,12 @@ func (s *SchedulerService) Start(ctx context.Context) {
 		s.jobs = append(s.jobs, job)
 	}
 	for _, j := range s.jobs {
-		go s.loopWithInitialDelay(ctx, j, j.interval)
+		delay := j.interval
+		s.runWG.Add(1)
+		go func() {
+			defer s.runWG.Done()
+			s.loopWithInitialDelay(s.runCtx, j, delay)
+		}()
 	}
 }
 
@@ -184,7 +200,7 @@ func (s *SchedulerService) configuredJob(
 	}
 }
 
-// Stop signals every job loop to exit on the next tick.
+// Stop 取消并等待全部定时和手动任务；关闭后不再接受新任务。
 func (s *SchedulerService) Stop() {
 	s.mu.Lock()
 	select {
@@ -193,9 +209,10 @@ func (s *SchedulerService) Stop() {
 	default:
 		close(s.stopCh)
 	}
-	if s.supplementCancel != nil {
-		s.supplementCancel()
+	s.runCancel()
+	if s.stopParent != nil {
+		s.stopParent()
 	}
 	s.mu.Unlock()
-	s.supplementWG.Wait()
+	s.runWG.Wait()
 }

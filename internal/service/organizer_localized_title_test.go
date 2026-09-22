@@ -71,7 +71,7 @@ func TestOrganizeDirectoryUsesTMDbChineseAlternativeTitle(t *testing.T) {
 	root := t.TempDir()
 	src := filepath.Join(root, "downloads")
 	dest := filepath.Join(root, "media")
-	sourceFile := filepath.Join(src, "The.Rookie.2007.S04E01.1080p.WEB-DL.mkv")
+	sourceFile := filepath.Join(src, "The Rookie {tmdb-7583}", "The.Rookie.2007.S04E01.1080p.WEB-DL.mkv")
 	writeOrgFile(t, sourceFile, "episode")
 
 	organizer := NewOrganizerService(cfg, log, repos)

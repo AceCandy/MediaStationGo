@@ -163,10 +163,7 @@ func TestOrganizeDirectorySkipsHigherResolutionWhenReplacementDisabled(t *testin
 	}
 }
 
-// TestOrganizeDirectoryReplaceHigherResolutionWhenAllowed verifies 洗版: a
-// higher-resolution source replaces the lower-resolution version already in the
-// destination only when the caller explicitly allows replacement.
-func TestOrganizeDirectoryReplaceHigherResolutionWhenAllowed(t *testing.T) {
+func TestOrganizeDirectoryReplaceOptionDoesNotEnableDisabledReplacement(t *testing.T) {
 	root := t.TempDir()
 	src := filepath.Join(root, "downloads")
 	dest := filepath.Join(root, "media")
@@ -191,21 +188,22 @@ func TestOrganizeDirectoryReplaceHigherResolutionWhenAllowed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("organize directory: %v", err)
 	}
-	if res.Replaced != 1 || res.Organized != 0 || res.Skipped != 0 {
-		t.Fatalf("expected replaced=1 organized=0 skipped=0 (洗版), got %+v", res)
+	if res.Replaced != 0 || res.Organized != 0 || res.Skipped != 1 {
+		t.Fatalf("replacement option must not enable disabled replacement: %+v", res)
 	}
-	// Destination file must now contain the higher-resolution source content.
 	got, err := os.ReadFile(existing)
-	if err != nil || string(got) != "inception-uhd" {
-		t.Fatalf("destination must hold the higher-res source content, got %q err=%v", string(got), err)
+	if err != nil || string(got) != "inception-1080p" {
+		t.Fatalf("existing content must be preserved, got %q err=%v", string(got), err)
 	}
-	// The replaced DB row should be gone.
+	if got, err := os.ReadFile(filepath.Join(src, "Inception 2010 2160p BluRay.mkv")); err != nil || string(got) != "inception-uhd" {
+		t.Fatalf("source content must be preserved, got %q err=%v", got, err)
+	}
 	var count int64
 	if err := repos.DB.Model(&model.Media{}).Where("path = ?", existing).Count(&count).Error; err != nil {
 		t.Fatal(err)
 	}
-	if count != 0 {
-		t.Fatalf("expected replaced media DB row removed, found %d", count)
+	if count != 1 {
+		t.Fatalf("expected existing media DB row preserved, found %d", count)
 	}
 }
 

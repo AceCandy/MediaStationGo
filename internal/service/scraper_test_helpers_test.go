@@ -67,6 +67,15 @@ func newTestScraper(t *testing.T) (*ScraperService, *repository.Container, func(
 		case r.URL.Path == "/tv/12345/season/2":
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"id": 22345, "season_number": 2, "name": "第 2 季", "future_field": true,
+				"episodes": []map[string]any{
+					{"id": 2234501, "season_number": 2, "episode_number": 1, "name": "任务代号: 猫", "overview": "单集剧情", "still_path": "/still.jpg", "air_date": "2023-10-07", "vote_average": 9.1, "runtime": 24},
+					{"id": 2234502, "season_number": 2, "episode_number": 2, "name": "接近目标", "overview": "第二集剧情"},
+				},
+			})
+		case r.URL.Path == "/tv/12345/season/1":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"id": 12345, "season_number": 1, "name": "第 1 季",
+				"episodes": []map[string]any{{"id": 1234501, "season_number": 1, "episode_number": 1, "name": "行动开始", "overview": "第一集剧情"}},
 			})
 		case r.URL.Path == "/tv/12345/credits":
 			_ = json.NewEncoder(w).Encode(map[string]any{
@@ -77,6 +86,7 @@ func newTestScraper(t *testing.T) (*ScraperService, *repository.Container, func(
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"id":             12345,
 				"name":           "间谍过家家",
+				"original_name":  "SPY×FAMILY",
 				"overview":       "测试简介",
 				"poster_path":    "/poster.jpg",
 				"backdrop_path":  "/backdrop.jpg",
@@ -134,6 +144,17 @@ func newTestScraper(t *testing.T) (*ScraperService, *repository.Container, func(
 	return scraper, repos, upstream.Close
 }
 
+// newUnboundTestScraper 保留扫描后的未绑定状态，让测试实际经过资料源查找。
+func newUnboundTestScraper(t *testing.T) (*ScraperService, *repository.Container, func()) {
+	t.Helper()
+	scraper, repos, closeServer := newTestScraper(t)
+	if err := repos.DB.Callback().Create().Remove("testutil:media-metadata"); err != nil {
+		closeServer()
+		t.Fatal(err)
+	}
+	return scraper, repos, closeServer
+}
+
 func assertServiceTestTMDbSnapshot(t *testing.T, repos *repository.Container, metadataID string) {
 	t.Helper()
 	snapshot, err := repos.Metadata.FindProviderSnapshot(t.Context(), metadataID, "tmdb")
@@ -148,7 +169,7 @@ func migrateScraperTestModels(t *testing.T, db *gorm.DB, extra ...any) error {
 		&model.Library{}, &model.MetadataItem{}, &model.MetadataIdentifier{},
 		&model.MetadataProviderSnapshot{}, &model.CatalogHydrationJob{},
 		&model.TMDbRecheckJob{}, &model.TMDbRecheckChange{},
-		&model.ArtworkAsset{}, &model.MetadataArtwork{}, &model.MetadataArtworkCandidate{}, &model.MetadataArtworkRecheck{}, &model.Media{},
+		&model.ArtworkAsset{}, &model.MetadataArtwork{}, &model.MetadataArtworkCandidate{}, &model.MetadataArtworkRecheck{}, &model.Media{}, &model.MediaProbeMetadata{},
 		&model.Favorite{}, &model.PlaybackHistory{}, &model.PlaylistItem{},
 		&model.Person{}, &model.PersonIdentifier{}, &model.MetadataCredit{},
 	}

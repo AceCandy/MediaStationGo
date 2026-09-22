@@ -1,6 +1,7 @@
 package service
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -422,8 +423,16 @@ func TestDoubanProviderMatchPersistsSnapshotWithoutFusingDetailFields(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	if snapshot == nil || !strings.Contains(snapshot.Payload, `"future_field":{"kept":true}`) {
+	if snapshot == nil {
 		t.Fatalf("snapshot = %#v", snapshot)
+	}
+	var payload struct {
+		FutureField struct {
+			Kept bool `json:"kept"`
+		} `json:"future_field"`
+	}
+	if err := json.Unmarshal([]byte(snapshot.Payload), &payload); err != nil || !payload.FutureField.Kept {
+		t.Fatalf("snapshot unknown field lost: %s, err=%v", snapshot.Payload, err)
 	}
 	if _, err := scraper.persistProviderMetadata(t.Context(), &media, &lib, match); err != nil {
 		t.Fatal(err)

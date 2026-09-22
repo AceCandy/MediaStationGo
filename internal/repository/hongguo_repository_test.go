@@ -233,7 +233,7 @@ func TestHongGuoArtworkOwnershipMigration(t *testing.T) {
 	if err := db.Create(&duplicateWork).Error; err != nil {
 		t.Fatal(err)
 	}
-	if err := db.Create(&model.HongGuoArtwork{WorkID: &duplicateWork.ID, SourceURL: "https://example.invalid/duplicate"}).Error; err != nil {
+	if err := db.Omit("source_id").Create(&model.HongGuoArtwork{WorkID: &duplicateWork.ID, SourceURL: "https://example.invalid/duplicate"}).Error; err != nil {
 		t.Fatal(err)
 	}
 	if err := database.AutoMigrate(db); err == nil {

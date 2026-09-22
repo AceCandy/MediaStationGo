@@ -1,6 +1,7 @@
 package service
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -8,6 +9,7 @@ import (
 
 	"github.com/fsnotify/fsnotify"
 	"go.uber.org/zap"
+	"gorm.io/gorm"
 
 	"github.com/ShukeBta/MediaStationGo/internal/config"
 	"github.com/ShukeBta/MediaStationGo/internal/model"
@@ -96,6 +98,13 @@ func TestWatcherBatchContinuesAfterPathFailures(t *testing.T) {
 	tracker.ConfigurePersistence(trackerRepos.TaskExecution, t.TempDir())
 	scannerRepos := repository.New(newServiceTestDB(t, &model.Library{}))
 	if err := scannerRepos.Library.Create(t.Context(), &model.Library{Base: model.Base{ID: "lib"}, Path: "/media", Type: "movie", Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	if err := scannerRepos.DB.Callback().Query().Before("gorm:query").Register("test:fail-media-query", func(tx *gorm.DB) {
+		if tx.Statement.Table == "media" {
+			tx.AddError(errors.New("forced media query failure"))
+		}
+	}); err != nil {
 		t.Fatal(err)
 	}
 	scanner := NewScannerService(&config.Config{}, zap.NewNop(), scannerRepos, nil, nil, nil)

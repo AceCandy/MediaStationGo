@@ -62,7 +62,7 @@ func TestScannerReconcilesMediaPartsAndRestoresSingleton(t *testing.T) {
 	if first.PartGroupKey != "" || first.PartIndex != 0 {
 		t.Fatalf("single candidate became multipart: %#v", first)
 	}
-	if first.Title == "Movie" {
+	if first.Title == "movie" {
 		t.Fatalf("single candidate title was stripped: %q", first.Title)
 	}
 
@@ -77,8 +77,8 @@ func TestScannerReconcilesMediaPartsAndRestoresSingleton(t *testing.T) {
 	if first.PartGroupKey == "" || first.PartGroupKey != second.PartGroupKey || first.PartIndex != 1 || second.PartIndex != 2 {
 		t.Fatalf("multipart relation = first(%q,%d) second(%q,%d)", first.PartGroupKey, first.PartIndex, second.PartGroupKey, second.PartIndex)
 	}
-	if first.Title != "Movie" || second.Title != "Movie" {
-		t.Fatalf("multipart titles = %q, %q, want Movie", first.Title, second.Title)
+	if first.Title != "movie" || second.Title != "movie" {
+		t.Fatalf("multipart titles = %q, %q, want movie", first.Title, second.Title)
 	}
 
 	if err := os.Remove(part2); err != nil {
@@ -91,7 +91,7 @@ func TestScannerReconcilesMediaPartsAndRestoresSingleton(t *testing.T) {
 	if first.PartGroupKey != "" || first.PartIndex != 0 {
 		t.Fatalf("remaining singleton kept multipart relation: %#v", first)
 	}
-	if first.Title == "Movie" {
+	if first.Title == "movie" {
 		t.Fatalf("remaining singleton title was not restored: %q", first.Title)
 	}
 }
@@ -219,6 +219,9 @@ func TestScannerKeepsEpisodeIdentityForMediaParts(t *testing.T) {
 
 func TestScannerRootReconcilesNestedMediaParts(t *testing.T) {
 	scanner, repos := newScannerTestEnv(t)
+	if err := repos.DB.AutoMigrate(&model.LibraryRoot{}); err != nil {
+		t.Fatal(err)
+	}
 	root := t.TempDir()
 	library := model.Library{Name: "Movies", Path: root, Type: "movie", Enabled: true}
 	if err := repos.Library.Create(t.Context(), &library); err != nil {

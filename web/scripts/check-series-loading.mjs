@@ -13,6 +13,7 @@ let dirty = true
 let effects = []
 let params = new URLSearchParams('series=metadata:one')
 let result
+let sessionVersion = 0
 const requests = []
 const request = (kind, args) => new Promise((resolve, reject) => requests.push({ kind, args, resolve, reject }))
 const react = {
@@ -51,7 +52,7 @@ const mocks = {
   react,
   'react-hot-toast': { default: { error() {} } },
   'react-router-dom': { useSearchParams: () => [params] },
-  '../stores/auth': { useAuthStore: select => select({ user: { id: 'viewer' } }) },
+  '../stores/auth': { useAuthStore: select => select({ user: { id: 'viewer' }, sessionVersion }) },
   '../stores/playProfile': { usePlayProfileStore: select => select({ activeProfileId: 'profile' }) },
   '../api/library': { libraryAPI: Object.fromEntries(['get', 'listSeries', 'listMedia', 'listSeriesEpisodes'].map(kind => [kind, (...args) => request(kind, args)])) },
   '../utils/groupSeries': { groupSeries: () => [], isEpisodeLike: () => false },
@@ -60,7 +61,7 @@ const mocks = {
 const exports = {}
 vm.runInNewContext(ts.transpileModule(readFileSync(new URL('../src/pages/useLibraryData.ts', import.meta.url), 'utf8'), {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
-}).outputText, { exports, require: id => { assert.ok(id in mocks, id); return mocks[id] } })
+}).outputText, { exports, AbortController: globalThis.AbortController, require: id => { assert.ok(id in mocks, id); return mocks[id] } })
 async function flush() {
   for (let i = 0; i < 12; i++) {
     if (dirty) {
@@ -94,6 +95,7 @@ assert.equal(count('listSeriesEpisodes'), 1, 'card completion does not refetch e
 navigate('series=metadata:one&season=2&episode=other&version=file')
 await flush()
 assert.equal(count('listSeriesEpisodes'), 2, 'season changes refresh episodes')
+assert.equal(requests[2].args[3].aborted, true, 'previous season request was aborted')
 assert.equal(requests.at(-1).args[2], 2, 'only the selected season is requested')
 requests.at(-1).resolve({ items: [{ id: 'current' }], history: [], resume: { media: { id: 'next', season_num: 3, episode_num: 1 }, is_next: true } })
 await flush()
@@ -107,6 +109,7 @@ navigate('series_id=two')
 await flush()
 assert.equal(requests.at(-1).args[1], 'metadata:two', 'series_id uses canonical episode key')
 assert.equal(result.seriesResume, null, 'navigation clears the previous series recommendation')
+assert.equal(staleEpisodes.args[3].aborted, true, 'series navigation aborts old request')
 staleEpisodes.resolve({ items: [{ id: 'stale' }] })
 await flush()
 assert.equal(result.seriesEpisodeItems.length, 0, 'old series response is ignored')
@@ -117,7 +120,20 @@ navigate('')
 await flush()
 assert.equal(requests.at(-1).kind, 'listSeries')
 assert.equal(requests.at(-1).args[2], 50, 'returning to the library restores pagination')
-requests.at(-1).resolve({ items: [], total: 0 })
+requests.at(-1).resolve({ items: [{ key: 'first', rep: {} }], total: 100 })
 await flush()
 assert.equal(result.loading, false)
-console.log('Series detail parallel loading, navigation, retry and stale-response checks passed')
+const more = result.loadMore()
+await flush()
+const oldPage = requests.at(-1)
+sessionVersion++
+dirty = true
+await flush()
+assert.equal(oldPage.args[3].signal.aborted, true, 'relogin aborts pending pagination')
+oldPage.resolve({ items: [{ key: 'stale', rep: {} }], total: 100 })
+await more
+await flush()
+assert.equal(result.seriesCards.length, 0, 'old page does not leak into new session')
+for (const slot of slots) slot?.cleanup?.()
+assert.equal(requests.filter(row => row.kind === 'get').at(-1).args[1].signal.aborted, true, 'unmount aborts library request')
+console.log('Series loading, navigation, retry, abort and session pagination checks passed')

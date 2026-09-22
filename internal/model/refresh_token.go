@@ -11,12 +11,14 @@ import (
 // RefreshToken 用于双令牌认证机制中的刷新令牌。
 // 存储时使用 SHA256 哈希，原始令牌不存储。
 type RefreshToken struct {
-	ID        string    `gorm:"primaryKey;size:36" json:"id"`
-	UserID    string    `gorm:"index;size:36;not null" json:"user_id"`
-	TokenHash string    `gorm:"uniqueIndex;size:128;not null" json:"-"`
-	ExpiresAt time.Time `gorm:"index" json:"expires_at"`
-	CreatedAt time.Time `json:"created_at"`
-	Revoked   bool      `gorm:"default:false" json:"revoked"`
+	ID     string `gorm:"primaryKey;size:36" json:"id"`
+	UserID string `gorm:"index;size:36;not null" json:"user_id"`
+	// TokenVersion 保留签发时的账号版本，拒绝并发改密期间生成的旧会话。
+	TokenVersion int64     `gorm:"not null;default:0" json:"-"`
+	TokenHash    string    `gorm:"uniqueIndex;size:128;not null" json:"-"`
+	ExpiresAt    time.Time `gorm:"index" json:"expires_at"`
+	CreatedAt    time.Time `json:"created_at"`
+	Revoked      bool      `gorm:"default:false" json:"revoked"`
 }
 
 // BeforeCreate 生成 UUID。

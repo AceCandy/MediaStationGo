@@ -226,6 +226,9 @@ func TestEnrichOneRejectsStaleEpisodeTMDbIDBySeriesTitle(t *testing.T) {
 	if err := migrateScraperTestModels(t, db); err != nil {
 		t.Fatal(err)
 	}
+	if err := db.Callback().Create().Remove("testutil:media-metadata"); err != nil {
+		t.Fatal(err)
+	}
 	repos := repository.New(db)
 	cfg := &config.Config{}
 	cfg.Secrets.TMDbAPIKey = "test-key"
@@ -254,17 +257,15 @@ func TestEnrichOneRejectsStaleEpisodeTMDbIDBySeriesTitle(t *testing.T) {
 	if err := scraper.EnrichOne(t.Context(), &media); err != nil {
 		t.Fatal(err)
 	}
-	got := serviceTestMediaView(t, repos, media.ID)
-	series := serviceTestTMDbSeries(t, repos, got, 296753)
-	if got.ScrapeStatus != "matched" || series.Title != "折腰" {
-		t.Fatalf("stale tmdb id should be rejected and repaired by title search: status=%q series_title=%q requests=%v",
-			got.ScrapeStatus, series.Title, requested)
+	got, err := repos.Media.FindByID(t.Context(), media.ID)
+	if err != nil || got == nil || got.ScrapeStatus != "no_match" || got.MetadataID != "" {
+		t.Fatalf("stale ID must remain unmatched: media=%#v err=%v requests=%v", got, err, requested)
 	}
 	if firstIndexFunc(requested, func(path string) bool { return path == "/tv/220269" }) < 0 {
 		t.Fatalf("test did not exercise stale id lookup: requests=%v", requested)
 	}
-	if firstIndexFunc(requested, func(path string) bool { return path == "/search/tv" }) < 0 {
-		t.Fatalf("scraper did not fall back to title search after stale id rejection: requests=%v", requested)
+	if firstIndexFunc(requested, func(path string) bool { return path == "/search/tv" }) >= 0 {
+		t.Fatalf("automatic scrape must not search after stale ID rejection: requests=%v", requested)
 	}
 }
 

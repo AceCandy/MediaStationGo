@@ -8,8 +8,10 @@ import type { HistoryItem } from '../types/history'
 const recentRequests = new Map<string, Promise<SeriesCard[]>>()
 const libraryRequests = new Map<string, Promise<unknown>>()
 
-function libraryRequest<T>(key: string, load: () => Promise<T>): Promise<T> {
-  const scope = `${useAuthStore.getState().user?.id ?? ''}:${getActivePlayProfileId() ?? ''}:${key}`
+function libraryRequest<T>(key: string, load: () => Promise<T>, signal?: AbortSignal): Promise<T> {
+  // 可取消的请求独占生命周期，避免一个视图取消另一个视图的共享请求。
+  if (signal) return load()
+  const scope = `${useAuthStore.getState().sessionVersion}:${getActivePlayProfileId() ?? ''}:${key}`
   const pending = libraryRequests.get(scope)
   if (pending) return pending as Promise<T>
   const request = load().finally(() => {
@@ -128,21 +130,23 @@ export interface MediaMetadataUpdate {
 }
 
 export const libraryAPI = {
-  list: (options?: { includeHidden?: boolean }) =>
+  list: (options?: { includeHidden?: boolean; signal?: AbortSignal }) =>
     libraryRequest(`list:${options?.includeHidden ? 1 : 0}`, () =>
       api
         .get<Library[]>('/libraries', {
+          signal: options?.signal,
           params: options?.includeHidden ? { include_hidden: 1 } : undefined,
         })
-        .then((r) => r.data)),
+        .then((r) => r.data), options?.signal),
 
-  get: (id: string, options?: { includeHidden?: boolean }) =>
+  get: (id: string, options?: { includeHidden?: boolean; signal?: AbortSignal }) =>
     libraryRequest(`get:${id}:${options?.includeHidden ? 1 : 0}`, () =>
       api
         .get<Library>(`/libraries/${id}`, {
+          signal: options?.signal,
           params: options?.includeHidden ? { include_hidden: 1 } : undefined,
         })
-        .then((r) => r.data)),
+        .then((r) => r.data), options?.signal),
 
   create: (name: string, path: string, type: string) =>
     api.post<Library>('/libraries', { name, path, type }).then((r) => r.data),
@@ -173,10 +177,11 @@ export const libraryAPI = {
 
   removeRoot: (id: string, rootID: string) => api.delete(`/libraries/${id}/roots/${rootID}`).then((r) => r.data),
 
-  listMedia: (id: string, page = 1, pageSize = 50, options?: LibraryMediaFilters & { groupVersions?: boolean }) =>
+  listMedia: (id: string, page = 1, pageSize = 50, options?: LibraryMediaFilters & { groupVersions?: boolean; signal?: AbortSignal }) =>
     libraryRequest(`media:${id}:${page}:${pageSize}:${options?.groupVersions === false ? 0 : 1}:${options?.missingPoster ? 1 : 0}:${options?.missingChineseTitle ? 1 : 0}`, () =>
       api
         .get<MediaPage>(`/libraries/${id}/media`, {
+          signal: options?.signal,
           params: {
             page,
             page_size: pageSize,
@@ -186,12 +191,13 @@ export const libraryAPI = {
           },
           timeout: LONG_REQUEST_TIMEOUT,
         })
-        .then((r) => r.data)),
+        .then((r) => r.data), options?.signal),
 
-  listSeries: (id: string, page = 1, pageSize = 500, options?: LibraryMediaFilters & { seriesID?: string; key?: string }) =>
+  listSeries: (id: string, page = 1, pageSize = 500, options?: LibraryMediaFilters & { seriesID?: string; key?: string; signal?: AbortSignal }) =>
     libraryRequest(`series:${id}:${page}:${pageSize}:${options?.missingPoster ? 1 : 0}:${options?.missingChineseTitle ? 1 : 0}:${options?.seriesID ?? ''}:${options?.key ?? ''}`, () =>
       api
         .get<SeriesPage>(`/libraries/${id}/series`, {
+          signal: options?.signal,
           params: {
             series_id: options?.seriesID,
             key: options?.key,
@@ -202,16 +208,17 @@ export const libraryAPI = {
           },
           timeout: LONG_REQUEST_TIMEOUT,
         })
-        .then((r) => r.data)),
+        .then((r) => r.data), options?.signal),
 
-  listSeriesEpisodes: (id: string, key: string, season?: number) =>
+  listSeriesEpisodes: (id: string, key: string, season?: number, signal?: AbortSignal) =>
     libraryRequest(`episodes:${id}:${key}:${season ?? ''}`, () =>
       api
         .get<{ items: Media[]; total: number; history: HistoryItem[]; resume?: HistoryItem | null }>(`/libraries/${id}/series/episodes`, {
+          signal,
           params: { key, season },
           timeout: LONG_REQUEST_TIMEOUT,
         })
-        .then((r) => r.data)),
+        .then((r) => r.data), signal),
 }
 
 export const mediaAPI = {

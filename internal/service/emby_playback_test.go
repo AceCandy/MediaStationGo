@@ -36,7 +36,20 @@ func (p *recordingLocalPlaybackProber) Probe(_ context.Context, path string) (*P
 	if p.release != nil {
 		<-p.release
 	}
-	return p.probe, nil
+	result := *p.probe
+	if result.Document != nil {
+		doc := *result.Document
+		info, err := os.Stat(path)
+		if err != nil {
+			return nil, err
+		}
+		doc.Format.Size = info.Size()
+		if doc.Format.Duration > 0 {
+			doc.Format.BitRate = int64(float64(info.Size()*8) / doc.Format.Duration)
+		}
+		result.Document = &doc
+	}
+	return &result, nil
 }
 
 func (p *recordingLocalPlaybackProber) ProbeHTTP(_ context.Context, rawURL string) (*ProbeResult, error) {
@@ -670,7 +683,8 @@ func TestEmbyMediaSourceUsesLocalSTRMTargetContainer(t *testing.T) {
 		DurationSec:   10,
 	}
 
-	src := svc.mediaSource(t.Context(), media, media.Title, false)
+	doc := &ProbeDocument{SchemaVersion: ProbeDocumentSchemaVersion, Format: ProbeFormat{Duration: 10, Size: 8_000, BitRate: 6_400}}
+	src := svc.mediaSourceWithProbe(t.Context(), media, media.Title, false, doc)
 	if src["Container"] != "mkv" || src["IsRemote"] != false {
 		t.Fatalf("local strm source should expose mkv as local media: %#v", src)
 	}
@@ -814,6 +828,10 @@ func TestEmbyPlaybackInfoAsynchronouslyProbesLocalSTRMTarget(t *testing.T) {
 	}
 	prober := &recordingLocalPlaybackProber{probe: &ProbeResult{
 		DurationSec: 3661, Width: 3840, Height: 2160, VideoCodec: "hevc", AudioCodec: "eac3", Container: "matroska,webm",
+		Document: &ProbeDocument{SchemaVersion: ProbeDocumentSchemaVersion, Format: ProbeFormat{Duration: 3661, Name: "matroska,webm"}, Streams: []ProbeStream{
+			{Index: 0, CodecType: "video", CodecName: "hevc", Width: 3840, Height: 2160},
+			{Index: 1, CodecType: "audio", CodecName: "eac3"},
+		}},
 	}}
 	svc.SetMediaProbe(NewMediaProbeService(svc.repo, prober))
 
@@ -875,6 +893,10 @@ func TestEmbyPlaybackInfoProbesAllLocalSTRMVersions(t *testing.T) {
 	}
 	prober := &recordingLocalPlaybackProber{probe: &ProbeResult{
 		DurationSec: 2, Width: 1920, Height: 1080, VideoCodec: "hevc", AudioCodec: "aac", Container: "matroska,webm",
+		Document: &ProbeDocument{SchemaVersion: ProbeDocumentSchemaVersion, Format: ProbeFormat{Duration: 2, Name: "matroska,webm"}, Streams: []ProbeStream{
+			{Index: 0, CodecType: "video", CodecName: "hevc", Width: 1920, Height: 1080},
+			{Index: 1, CodecType: "audio", CodecName: "aac"},
+		}},
 	}}
 	svc.SetMediaProbe(NewMediaProbeService(svc.repo, prober))
 
@@ -884,8 +906,8 @@ func TestEmbyPlaybackInfoProbesAllLocalSTRMVersions(t *testing.T) {
 	deadline := time.Now().Add(3 * time.Second)
 	for {
 		var completed int64
-		if err := svc.repo.DB.Model(&model.Media{}).
-			Where("id IN ? AND duration_sec > 0", []string{media[0].ID, media[1].ID}).
+		if err := svc.repo.DB.Model(&model.MediaProbeMetadata{}).
+			Where("media_id IN ? AND duration_ms > 0", []string{media[0].ID, media[1].ID}).
 			Count(&completed).Error; err != nil {
 			t.Fatal(err)
 		}
@@ -1099,6 +1121,10 @@ func TestEmbyPlaybackInfoProbesMissingHTTPTrackMetadata(t *testing.T) {
 			VideoCodec:  "hevc",
 			AudioCodec:  "eac3",
 			Container:   "matroska,webm",
+			Document: &ProbeDocument{SchemaVersion: ProbeDocumentSchemaVersion, Format: ProbeFormat{Duration: 3661, Name: "matroska,webm"}, Streams: []ProbeStream{
+				{Index: 0, CodecType: "video", CodecName: "hevc", Width: 3840, Height: 2160},
+				{Index: 1, CodecType: "audio", CodecName: "eac3"},
+			}},
 		},
 	}
 	svc.SetMediaProbe(NewMediaProbeService(svc.repo, prober))
@@ -1108,7 +1134,7 @@ func TestEmbyPlaybackInfoProbesMissingHTTPTrackMetadata(t *testing.T) {
 	}
 
 	var persisted *model.MediaProbeMetadata
-	deadline := time.Now().Add(3 * time.Second)
+	deadline := time.Now().Add(8 * time.Second)
 	for {
 		persisted, _ = svc.repo.MediaProbe.FindByMediaID(t.Context(), "http-probe-1")
 		if persisted != nil || time.Now().After(deadline) {

@@ -30,6 +30,11 @@ per-user, per-metadata history state but playback events are append-only.
 
 ## 3. Contracts
 
+- `preferredPlayableView` preserves visible Series/Season episode order without
+  history. Apply `preferMediaVersion` only to files sharing `embyItemID`; a newer
+  or higher-resolution later Episode must not replace the first Episode.
+  Existing user history retains priority. Cover this with
+  `TestEmbyItemsExposeSeriesSeasonEpisodeHierarchy` and same-item version tests.
 - Favorites accept only canonical Movie or Series metadata. The shared repository
   rejects Season/Episode writes with `ErrFavoriteUnsupportedType`; Web and Emby
   return `400`, without converting the target to its parent. Web hides unsupported

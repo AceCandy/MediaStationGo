@@ -13,6 +13,7 @@ import (
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 
+	"github.com/ShukeBta/MediaStationGo/internal/config"
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 	"github.com/ShukeBta/MediaStationGo/internal/repository"
 	"github.com/ShukeBta/MediaStationGo/internal/service"
@@ -24,7 +25,7 @@ func TestEmbyVirtualFoldersRouteReturnsJSON(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
-	if err := db.AutoMigrate(&model.User{}, &model.Library{}); err != nil {
+	if err := db.AutoMigrate(&model.User{}, &model.Library{}, &model.Setting{}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 	repos := repository.New(db)
@@ -50,7 +51,7 @@ func TestEmbyVirtualFoldersRouteReturnsJSON(t *testing.T) {
 
 	const secret = "test-secret"
 	router := gin.New()
-	registerEmbyRoutes(router, secret, &service.Container{Repo: repos})
+	registerEmbyRoutes(router, secret, &service.Container{Repo: repos, Emby: service.NewEmbyService(&config.Config{}, zap.NewNop(), repos)})
 
 	req := httptest.NewRequest(http.MethodGet, "/Library/VirtualFolders", nil)
 	req.Header.Set("X-Emby-Token", signedTestToken(t, secret))

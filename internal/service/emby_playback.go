@@ -231,7 +231,7 @@ func (e *EmbyService) preferredPlayableView(ctx context.Context, userID string, 
 	}
 	preferred := 0
 	for i := 1; i < len(views); i++ {
-		if preferMediaVersion(views[i].Media, views[preferred].Media) {
+		if embyItemID(&views[i]) == embyItemID(&views[preferred]) && preferMediaVersion(views[i].Media, views[preferred].Media) {
 			preferred = i
 		}
 	}

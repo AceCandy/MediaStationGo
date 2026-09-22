@@ -10,6 +10,22 @@ jobs:
   backend:
     name: Backend (Go)
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: mediastation_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U test -d mediastation_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      MEDIASTATION_TEST_POSTGRES_DSN: postgres://test:test@localhost:5432/mediastation_test?sslmode=disable
     steps:
       - uses: actions/checkout@v4
 
@@ -44,6 +60,12 @@ jobs:
 
       - name: Install
         run: npm ci
+
+      - name: Lint and regression checks
+        run: |
+          npm run lint
+          node scripts/check-auth-session.mjs
+          node scripts/check-series-loading.mjs
 
       - name: Type-check & build
         run: npm run build

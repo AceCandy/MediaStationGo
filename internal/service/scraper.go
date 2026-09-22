@@ -35,7 +35,10 @@ func (s *ScraperService) enrichOneWithOptions(ctx context.Context, m *model.Medi
 	if err != nil {
 		return err
 	}
-	if lib != nil && lib.Type == model.LibraryTypeHongGuo {
+	if lib == nil {
+		return errors.New("library not found")
+	}
+	if lib.Type == model.LibraryTypeHongGuo {
 		return errors.New("红果媒体库不能运行现有资料刮削")
 	}
 	if libraryUsesNFOOnly(lib) {

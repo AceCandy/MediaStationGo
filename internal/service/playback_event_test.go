@@ -11,6 +11,14 @@ import (
 
 func TestPlaybackProgressRecordsOneEventPerSession(t *testing.T) {
 	db := newServiceTestDB(t, &model.Media{}, &model.PlaybackHistory{}, &model.PlaybackEvent{})
+	for _, sql := range []string{
+		`CREATE UNIQUE INDEX test_history_identity ON playback_histories(user_id,metadata_id) WHERE deleted_at IS NULL`,
+		`CREATE UNIQUE INDEX test_event_identity ON playback_events(user_id,session_id,metadata_id) WHERE deleted_at IS NULL`,
+	} {
+		if err := db.Exec(sql).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
 	repos := repository.New(db)
 	metadata := createServiceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindMovie, Title: "Movie", Source: "local"})
 	media := model.Media{LibraryID: "library-1", MetadataID: metadata.ID, Title: "Movie", Path: "/media/movie.mkv", DurationSec: 120}

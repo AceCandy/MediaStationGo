@@ -18,7 +18,7 @@ func TestListScrapeIssuesFiltersAndSanitizesReasons(t *testing.T) {
 	service := NewMediaService(&config.Config{}, zap.NewNop(), repos)
 	normal := model.Library{Name: "电影", Path: "/media/movies", Type: "movie", Enabled: true}
 	nfo := model.Library{Name: "个人短片", Path: "/media/clips", Type: model.LibraryTypeNFOMovie, Enabled: true}
-	if err := db.Create(&[]model.Library{normal, nfo}).Error; err != nil {
+	if err := db.Create(&[]*model.Library{&normal, &nfo}).Error; err != nil {
 		t.Fatal(err)
 	}
 	rows := []model.Media{

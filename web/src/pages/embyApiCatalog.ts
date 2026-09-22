@@ -51,7 +51,7 @@ const tokenHeader: EmbyApiParameter = {
   name: 'X-Emby-Token',
   location: 'header',
   type: 'string',
-  description: '推荐传递登录返回的访问令牌；也兼容 Authorization Bearer、MediaBrowser Token 和 api_key 查询参数。',
+  description: '推荐传递登录返回的访问令牌；也兼容 Authorization Bearer、MediaBrowser Token 和 api_key 查询参数。每次请求按当前账号状态和权限校验；改密或重置密码后旧令牌失效，须重新登录。',
 }
 
 const userFields: readonly EmbyApiField[] = [
@@ -277,7 +277,7 @@ export const EMBY_API_ENDPOINTS: readonly EmbyApiEndpoint[] = [
         contentType: 'application/json',
         description: '登录成功并创建兼容会话。',
         fields: [
-          { name: 'AccessToken', type: 'string', description: '有效期 30 天的 Emby JWT。' },
+          { name: 'AccessToken', type: 'string', description: '最长有效期 30 天的 Emby JWT；改密或重置密码后失效。' },
           { name: 'ServerId', type: 'string', description: '服务器 ID。' },
           { name: 'User', type: 'object', description: '完整用户对象。' },
           { name: 'SessionInfo', type: 'object', description: '会话、客户端和设备信息。' },
@@ -685,7 +685,7 @@ export const EMBY_API_ENDPOINTS: readonly EmbyApiEndpoint[] = [
     id: 'playback-info-get',
     category: '图片与播放',
     name: '获取播放信息',
-    description: '为播放器选择媒体源、音轨和字幕轨，生成直接播放地址。红果短剧 电影与分集也解析到本地文件或 STRM 的 MediaSource，不从资源站取流。',
+    description: '为播放器选择媒体源、音轨和字幕轨，生成直接播放地址。剧集或季入口优先续播，无历史时选择首集；版本优选仅在同一集内进行。红果短剧电影与分集也解析到本地文件或 STRM 的 MediaSource，不从资源站取流。',
     methods: ['GET'],
     path: '/Items/:id/PlaybackInfo',
     aliases: ['/Users/:userId/Items/:id/PlaybackInfo', '/items/:id/playbackinfo'],
@@ -725,7 +725,7 @@ export const EMBY_API_ENDPOINTS: readonly EmbyApiEndpoint[] = [
     id: 'playback-info-post',
     category: '图片与播放',
     name: '提交播放选择',
-    description: '使用 JSON Body 指定媒体源、用户、音轨和字幕轨。',
+    description: '使用 JSON Body 指定媒体源、用户、音轨和字幕轨。未指定媒体源时，剧集选集和同集版本优选规则与 GET 相同。',
     methods: ['POST'],
     path: '/Items/:id/PlaybackInfo',
     aliases: ['/Users/:userId/Items/:id/PlaybackInfo', '/items/:id/playbackinfo'],

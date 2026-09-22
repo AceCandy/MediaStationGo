@@ -134,6 +134,19 @@ func TestScanLibraryRefreshesArtworkOnlyMetadata(t *testing.T) {
 	if _, err := scanner.ScanLibrary(t.Context(), lib.ID); err != nil {
 		t.Fatal(err)
 	}
+	var unchanged model.Media
+	if err := db.First(&unchanged, "path = ?", mediaPath).Error; err != nil {
+		t.Fatal(err)
+	}
+	if local := serviceTestLocalMetadataHint(t, unchanged); local.PosterURL != oldPoster {
+		t.Fatalf("unchanged media should skip sidecar reads: %+v", local)
+	}
+	if err := os.WriteFile(mediaPath, []byte("changed media"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := scanner.ScanLibrary(t.Context(), lib.ID); err != nil {
+		t.Fatal(err)
+	}
 
 	var media model.Media
 	if err := db.First(&media, "path = ?", mediaPath).Error; err != nil {
@@ -197,7 +210,7 @@ func TestScanLibraryReconcilesDirtyMovieEpisodes(t *testing.T) {
 	if err := repos.Library.Create(t.Context(), &lib); err != nil {
 		t.Fatal(err)
 	}
-	if err := db.Create(&[]model.MetadataItem{movieMetadata, seriesMetadata}).Error; err != nil {
+	if err := db.Create(&[]*model.MetadataItem{&movieMetadata, &seriesMetadata}).Error; err != nil {
 		t.Fatal(err)
 	}
 	rows := []model.Media{

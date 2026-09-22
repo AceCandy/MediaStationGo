@@ -792,6 +792,15 @@ func TestDoubanProxyPoolRouting(t *testing.T) {
 		}); err != nil {
 			t.Fatal(err)
 		}
+		t.Cleanup(func() {
+			normal := ProxyPoolTypeNormal
+			empty, clearToken := "", "<clear>"
+			if _, err := provider.proxyPool.UpdateConfig(context.Background(), ProxyPoolConfigPatch{
+				ProxyPoolType: &normal, ResinProxyURL: &empty, ResinAccount: &empty, ResinProxyToken: &clearToken,
+			}); err != nil {
+				t.Error(err)
+			}
+		})
 		if _, status, err := provider.requestJSON(t.Context(), "https://example.test/data", ""); err != nil || status != 200 {
 			t.Fatalf("status=%d err=%v", status, err)
 		}
@@ -806,7 +815,7 @@ func TestDoubanProxyPoolRouting(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		provider.setRoute(0, config.Revision, resolved.Revision, 0)
+		provider.setRoute(0, config.Revision, provider.resolveConfig(t.Context()).Revision, 0)
 		if _, status, err := provider.requestJSON(t.Context(), "https://example.test/data", ""); err != nil || status != 200 {
 			t.Fatalf("Resin fallback status=%d err=%v", status, err)
 		}

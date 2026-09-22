@@ -24,7 +24,7 @@ func TestGroupScrapeCandidateRowsUsesStableIdentity(t *testing.T) {
 }
 
 func TestClaimNextPendingMediaGroupClaimsWholeSeries(t *testing.T) {
-	scraper, repos, closeUpstream := newTestScraper(t)
+	scraper, repos, closeUpstream := newUnboundTestScraper(t)
 	defer closeUpstream()
 
 	library := model.Library{Name: "TV", Path: "/media/tv", Type: "tv", Enabled: true}

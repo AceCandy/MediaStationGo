@@ -304,7 +304,7 @@ func (s *HongGuoService) discover(ctx context.Context, report func([]hongguo.Wor
 				page = 1
 			}
 			works, itemCount, err := s.client.Category(ctx, category, page)
-			if err != nil && !errors.Is(err, hongguo.ErrNotFound) {
+			if err != nil {
 				if page > 1 && errors.Is(err, hongguo.ErrNotFound) {
 					previous, previousCount, previousErr := s.client.Category(ctx, category, page-1)
 					if previousErr == nil && previousCount < hongguo.CategoryPageSize {

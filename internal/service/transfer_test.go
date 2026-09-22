@@ -2,11 +2,82 @@ package service
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 )
+
+func TestConcurrentMovesNeverOverwrite(t *testing.T) {
+	for range 20 {
+		dir := t.TempDir()
+		dst := filepath.Join(dir, "target")
+		const count = 16
+		var wg sync.WaitGroup
+		start := make(chan struct{})
+		results := make([]error, count)
+		for i := range count {
+			src := writeTemp(t, dir, fmt.Sprint(i), fmt.Sprint(i))
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				<-start
+				results[i] = moveFile(src, dst)
+			}()
+		}
+		close(start)
+		wg.Wait()
+		winners := 0
+		for i, err := range results {
+			path := filepath.Join(dir, fmt.Sprint(i))
+			if err == nil {
+				winners++
+				path = dst
+			}
+			if data, err := os.ReadFile(path); err != nil || string(data) != fmt.Sprint(i) {
+				t.Fatalf("source %d lost: %q, %v", i, data, err)
+			}
+		}
+		if winners != 1 {
+			t.Fatalf("got %d successful moves", winners)
+		}
+	}
+}
+
+func TestTransfersRejectOccupiedDirectoryAndBrokenLink(t *testing.T) {
+	dir := t.TempDir()
+	src := writeTemp(t, dir, "source", "payload")
+	dst := filepath.Join(dir, "broken")
+	if err := os.Symlink(filepath.Join(dir, "missing"), dst); err != nil {
+		t.Fatal(err)
+	}
+	if err := moveFile(src, dst); err == nil {
+		t.Fatal("overwrote broken symlink")
+	}
+	if _, err := os.Readlink(dst); err != nil {
+		t.Fatal(err)
+	}
+	srcDir, dstDir := filepath.Join(dir, "src"), filepath.Join(dir, "dst")
+	if err := os.Mkdir(srcDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(dstDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeTemp(t, srcDir, "source", "source")
+	if err := transferDirectory(srcDir, dstDir, TransferMove); err == nil {
+		t.Fatal("replaced existing directory")
+	}
+	writeTemp(t, dstDir, "owned", "existing")
+	if err := transferDirectoryTree(srcDir, dstDir, TransferCopy); err == nil {
+		t.Fatal("copied into existing directory")
+	}
+	if data, err := os.ReadFile(filepath.Join(dstDir, "owned")); err != nil || string(data) != "existing" {
+		t.Fatalf("removed existing directory: %q %v", data, err)
+	}
+}
 
 func TestParseTransferMode(t *testing.T) {
 	cases := map[string]TransferMode{

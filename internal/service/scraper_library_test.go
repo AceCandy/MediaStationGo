@@ -137,7 +137,7 @@ func TestEnrichOneReusesLinkedCanonicalBeforeProviderLookup(t *testing.T) {
 	}}); err != nil {
 		t.Fatal(err)
 	}
-	metadataUpdatedAt := metadata.UpdatedAt
+	metadataUpdatedAt := metadata.UpdatedAt.Truncate(time.Microsecond)
 	media := model.Media{
 		LibraryID: lib.ID, MetadataID: metadata.ID, TMDbID: 408,
 		Title: "Snow White", Path: filepath.Join(lib.Path, "Snow White.mkv"), ScrapeStatus: "pending",
@@ -181,16 +181,9 @@ func TestEnrichOneReusesRecentGeneratedEpisodeMetadata(t *testing.T) {
 		Kind: model.MetadataKindEpisode, SeasonNum: 2, EpisodeNum: 1, Title: "第 1 集", Source: "tmdb",
 		PermanentBase: model.PermanentBase{UpdatedAt: time.Now().UTC().Add(-6 * 24 * time.Hour)},
 	}
-	series := createServiceTestEpisodeMetadata(t, repos.DB,
+	episodeMetadata := createServiceTestEpisodeMetadata(t, repos.DB,
 		model.MetadataItem{Kind: model.MetadataKindSeries, Title: "Show", Source: "tmdb"}, episode,
 		model.MetadataIdentifier{Provider: "tmdb", EntityKind: model.MetadataKindSeries, ExternalID: "12345"})
-	episodeMetadata, err := repos.Metadata.FindEpisode(t.Context(), series.ID, 2, 1)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if episodeMetadata == nil {
-		t.Fatal("episode metadata not created")
-	}
 	media := model.Media{
 		LibraryID: lib.ID, MetadataID: episodeMetadata.ID, TMDbID: 12345, SeasonNum: 2, EpisodeNum: 1,
 		Title: "Show", Path: filepath.Join(lib.Path, "Show - S02E01.mkv"), ScrapeStatus: "pending",
@@ -227,16 +220,9 @@ func TestEnrichOneRefreshesStaleGeneratedEpisodeMetadata(t *testing.T) {
 		Kind: model.MetadataKindEpisode, SeasonNum: 2, EpisodeNum: 1, Title: "第 1 集", Source: "tmdb",
 		PermanentBase: model.PermanentBase{UpdatedAt: time.Now().UTC().Add(-8 * 24 * time.Hour)},
 	}
-	series := createServiceTestEpisodeMetadata(t, repos.DB,
+	episodeMetadata := createServiceTestEpisodeMetadata(t, repos.DB,
 		model.MetadataItem{Kind: model.MetadataKindSeries, Title: "Show", Source: "tmdb"}, episode,
 		model.MetadataIdentifier{Provider: "tmdb", EntityKind: model.MetadataKindSeries, ExternalID: "12345"})
-	episodeMetadata, err := repos.Metadata.FindEpisode(t.Context(), series.ID, 2, 1)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if episodeMetadata == nil {
-		t.Fatal("episode metadata not created")
-	}
 	media := model.Media{
 		LibraryID: lib.ID, MetadataID: episodeMetadata.ID, TMDbID: 12345, SeasonNum: 2, EpisodeNum: 1,
 		Title: "Show", Path: filepath.Join(lib.Path, "Show - S02E01.mkv"), ScrapeStatus: "pending",
@@ -360,7 +346,7 @@ func TestEnrichLibraryScopesCandidatesToRequestedLibrary(t *testing.T) {
 	if err := repos.DB.Create(&model.Media{
 		LibraryID:    target.ID,
 		Title:        "间谍过家家",
-		Path:         target.Path + "/间谍过家家 - S02E02.mkv",
+		Path:         filepath.Join(target.Path, "间谍过家家 {tmdb-12345}", "间谍过家家 - S02E02.mkv"),
 		SeasonNum:    2,
 		EpisodeNum:   2,
 		ScrapeStatus: "pending",

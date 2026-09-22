@@ -150,7 +150,10 @@ func TestEmbyItemsUseScalarStreamsWhileItemUsesCompleteProbeDocument(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := svc.repo.DB.Create(&model.MediaProbeMetadata{MediaID: media.ID, ProbeJSON: probeJSON, SchemaVersion: ProbeDocumentSchemaVersion}).Error; err != nil {
+	if err := svc.repo.DB.Create(&model.MediaProbeMetadata{
+		MediaID: media.ID, ProbeJSON: probeJSON, SchemaVersion: ProbeDocumentSchemaVersion,
+		SummaryVersion: ProbeSummaryVersion, VideoCodec: "h264", AudioCodec: "aac", Width: 1920, Height: 1080,
+	}).Error; err != nil {
 		t.Fatal(err)
 	}
 	subtitles := NewSubtitleService(zap.NewNop(), svc.repo)

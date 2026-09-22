@@ -111,10 +111,17 @@ func (r *UserRepository) UpdateFields(ctx context.Context, id string, updates ma
 	return r.db.WithContext(ctx).Model(&model.User{}).Where("id = ?", id).Updates(updates).Error
 }
 
-// UpdatePassword sets a new password hash and clears ForcePasswordReset.
+// UpdatePassword 原子更新密码并撤销旧会话，撤销失败时保留原密码。
 func (r *UserRepository) UpdatePassword(ctx context.Context, id, hash string) error {
-	return r.db.WithContext(ctx).Model(&model.User{}).Where("id = ?", id).
-		Updates(map[string]any{"password_hash": hash, "force_password_reset": false}).Error
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&model.User{}).Where("id = ?", id).Updates(map[string]any{
+			"password_hash": hash, "force_password_reset": false,
+			"token_version": gorm.Expr("token_version + 1"),
+		}).Error; err != nil {
+			return err
+		}
+		return (&RefreshTokenRepository{db: tx}).RevokeByUserID(ctx, id)
+	})
 }
 
 // TouchLogin updates the last login timestamp.

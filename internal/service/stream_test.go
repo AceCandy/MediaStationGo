@@ -557,8 +557,10 @@ func TestStreamProbeUsesLocalSTRMTarget(t *testing.T) {
 	}
 	prober := &recordingLocalPlaybackProber{probe: &ProbeResult{
 		DurationSec: 120, Width: 1920, Height: 1080, VideoCodec: "h264", AudioCodec: "aac", Container: "matroska,webm",
+		Document: &ProbeDocument{SchemaVersion: ProbeDocumentSchemaVersion, Format: ProbeFormat{Name: "matroska,webm", Duration: 120}},
 	}}
 	svc := NewStreamService(&config.Config{}, zap.NewNop(), repos)
+	svc.SetMediaProbe(NewMediaProbeService(repos, prober))
 
 	if err := svc.Probe(t.Context(), media.ID, prober); err != nil {
 		t.Fatal(err)
