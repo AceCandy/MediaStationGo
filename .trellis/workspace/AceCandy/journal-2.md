@@ -1392,3 +1392,25 @@ Scope series detail episodes to the selected season while preserving cross-seaso
 ### Status
 
 [OK] **Completed**
+
+
+## Session 147: 修复按季加载后的其它季海报缺失
+<!-- trellis-session: v=2 fp=74c34e0c490ab682 -->
+
+**Date**: 2026-09-22
+**Task**: 修复按季加载后的其它季海报缺失
+**Branch**: `main`
+
+### Summary
+
+季列表返回每季可见代表文件 ID，复用季资料接口独立加载海报；保留当前季分集查询，修正空分集误标与无请求永久加载。已通过 Web lint/build、三个剧集回归脚本、独立代码复核及临时 PostgreSQL 上的普通媒体和 NFO 四项定向测试；临时数据库已关闭清理。尚未部署，未验证线上实际页面。无活动任务目录，本次以会话日志留档。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `b01bea1` | fix: load season posters independently of episode lists |
+
+### Status
+
+[OK] **Completed**
