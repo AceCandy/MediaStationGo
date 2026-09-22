@@ -1334,3 +1334,39 @@ Web 与 Emby 对缺失的单集播出日期按同季前序集回退；季和单�
 ### Next Steps
 
 - 尚未推送或部署；真实客户端线上验证待发布后进行。
+
+
+## Session 145: 完成剩余改动提交与任务归档
+<!-- trellis-session: v=2 fp=6175760952316864 -->
+
+**Date**: 2026-09-22
+**Task**: 完成剩余改动提交与任务归档
+**Branch**: `main`
+
+### Summary
+
+提交剩余扫描日志与媒体卡改动，并归档 09-21 Emby 浏览查询优化任务。
+
+### Main Changes
+
+- 扫描任务日志改为仅展示脱敏错误并限制数量；媒体卡海报改为稳定的 object-cover 展示。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `0833cc5` | perf(emby): 合并剧集分页计数并优化 NFO 存在性查询 |
+| `abbcd81` | fix(tasks): keep library scan logs concise and sanitized |
+| `8b5f9a0` | fix(web): simplify media card poster rendering |
+
+### Testing
+
+- [OK] 扫描任务定向 Go 测试和前端 lint 通过；09-21 查询优化提交此前已完成定向 PostgreSQL 回归与 go vet。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 工作树已清洁；未推送或部署。
