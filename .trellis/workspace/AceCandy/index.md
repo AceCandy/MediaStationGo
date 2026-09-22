@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-2.md`
-- **Total Sessions**: 148
-- **Last Active**: 2026-09-22
+- **Total Sessions**: 149
+- **Last Active**: 2026-09-23
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-2.md` | ~1438 | Active |
+| `journal-2.md` | ~1469 | Active |
 | `journal-1.md` | ~1981 | Archived |
 <!-- @@@/auto:active-documents -->
 
@@ -30,6 +30,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 149 | 2026-09-23 | 红果发现计数与按完结状态刷新 | `89127f3` | `main` |
 | 148 | 2026-09-22 | 整体审查优化与数据库回归收尾 | `5539428` | `main` |
 | 147 | 2026-09-22 | 修复按季加载后的其它季海报缺失 | `b01bea1` | `main` |
 | 146 | 2026-09-22 | Season-scoped series detail loading | `f6a69ac` | `main` |

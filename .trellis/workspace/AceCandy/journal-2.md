@@ -1436,3 +1436,34 @@ Scope series detail episodes to the selected season while preserving cross-seaso
 ### Status
 
 [OK] **Completed**
+
+
+## Session 149: 红果发现计数与按完结状态刷新
+<!-- trellis-session: v=2 fp=92929985fe2d3365 -->
+
+**Date**: 2026-09-23
+**Task**: 红果发现计数与按完结状态刷新
+**Branch**: `main`
+
+### Summary
+
+发现只统计首次入库的新作品；补齐新作品并仅定期刷新未完结作品，区分首次补齐、更新和无变化。修复快照比较长数字精度，完成验证与归档。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `89127f3` | fix: correct HongGuo discovery counts and refresh eligibility |
+
+### Testing
+
+- [OK] 隔离 PostgreSQL 17 的红果发现、刷新、失败重试、唤醒及详情回归通过；go vet 与 git diff --check 通过。
+- [OK] 未部署，未进行真实上游或浏览器联调；临时测试容器已清理。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 部署后观察真实新增计数及完结作品退出自动刷新；上游缺少完结证据时仍按未完结处理。
