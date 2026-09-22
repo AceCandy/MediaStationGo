@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-2.md`
-- **Total Sessions**: 143
+- **Total Sessions**: 144
 - **Last Active**: 2026-09-22
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-2.md` | ~1302 | Active |
+| `journal-2.md` | ~1336 | Active |
 | `journal-1.md` | ~1981 | Archived |
 <!-- @@@/auto:active-documents -->
 
@@ -30,6 +30,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 144 | 2026-09-22 | 搜索查询与首屏加载优化 | `28b9493` | `main` |
 | 143 | 2026-09-22 | Emby 首页 Resume 衔接下一季提交推送 | `02cd17d` | `main` |
 | 142 | 2026-09-22 | 播放状态修复与跨季续播提交归档 | `6b5d024` | `main` |
 | 141 | 2026-09-21 | Emby 分来源搜索与红果独立索引 | `4096143` | `main` |

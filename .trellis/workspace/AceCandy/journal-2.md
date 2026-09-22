@@ -1300,3 +1300,37 @@ Web 与 Emby 对缺失的单集播出日期按同季前序集回退；季和单�
 ### Status
 
 [OK] **Completed**
+
+
+## Session 144: 搜索查询与首屏加载优化
+<!-- trellis-session: v=2 fp=cf8de99c54858947 -->
+
+**Date**: 2026-09-22
+**Task**: 搜索查询与首屏加载优化
+**Branch**: `main`
+
+### Summary
+
+完成候选驱动代表查询、NFO 批量展示、轻量搜索提示和网页分页取消；验收并归档。
+
+### Main Changes
+
+- 爱情全量 200 条查询由约 8.8–9.2 秒降至 0.36–0.41 秒，SQL 211 降至 12；旧新结果一致。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `28b9493` | perf(search): batch result loading and paginate web search |
+
+### Testing
+
+- [OK] 相关回归、定向 race、go vet、前端 lint/build、浏览器交互和独立复核通过；6 项既有失败已用改前代码复现。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 尚未推送或部署；真实客户端线上验证待发布后进行。
