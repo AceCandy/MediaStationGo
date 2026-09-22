@@ -183,12 +183,18 @@ func (s *HongGuoService) runLocked(ctx context.Context, kind, sourceID, name str
 	processed := int64(0)
 	failed := int64(0)
 	deferred := int64(0)
+	newCount := int64(0)
+	updatedCount := int64(0)
+	unchangedCount := int64(0)
 	albumWarnings := int64(0)
 	reportAlbumWarning := func(id string, albumErr error) {
 		albumWarnings++
 		task.Update(TaskUpdate{Details: []string{fmt.Sprintf("⚠️ 红果 官方合集 %s：%v；已交给红果官方合集补充任务重试", id, sanitizeTaskLogError(albumErr))}})
 	}
-	report := func(id string, itemErr error) {
+	metrics := func() map[string]int64 {
+		return map[string]int64{"processed": processed, "failed": failed, "deferred": deferred, "succeeded": processed - failed - deferred, "new": newCount, "updated": updatedCount, "unchanged": unchangedCount, "album_warnings": albumWarnings}
+	}
+	report := func(id, change string, itemErr error) {
 		processed++
 		detail := "✅ 红果 " + id
 		if errors.Is(itemErr, hongguo.ErrNotFound) {
@@ -197,55 +203,81 @@ func (s *HongGuoService) runLocked(ctx context.Context, kind, sourceID, name str
 		} else if itemErr != nil {
 			failed++
 			detail = fmt.Sprintf("❌ 红果 %s：%v", id, sanitizeTaskLogError(itemErr))
+		} else if kind == TaskKindHongGuoRefresh {
+			switch change {
+			case "new":
+				newCount++
+				detail += "：新作品资料已补齐"
+			case "updated":
+				updatedCount++
+				detail += "：资料有更新"
+			case "unchanged":
+				unchangedCount++
+				detail += "：刷新后资料无变动"
+			}
 		}
-		task.Update(TaskUpdate{Message: fmt.Sprintf("已处理 %d 项，失败 %d 项，暂缓 %d 项", processed, failed, deferred), Details: []string{detail}, Metrics: map[string]int64{"processed": processed, "failed": failed, "deferred": deferred, "succeeded": processed - failed - deferred, "album_warnings": albumWarnings}})
+		message := fmt.Sprintf("已处理 %d 项，失败 %d 项，暂缓 %d 项", processed, failed, deferred)
+		if kind == TaskKindHongGuoRefresh {
+			message = fmt.Sprintf("已处理 %d 项：新作品补齐 %d、资料更新 %d、无变动 %d；失败 %d、暂缓 %d", processed, newCount, updatedCount, unchangedCount, failed, deferred)
+		}
+		task.Update(TaskUpdate{Message: message, Details: []string{detail}, Metrics: metrics()})
 	}
 	switch kind {
 	case TaskKindHongGuoSync:
-		err = s.discover(ctx, func(works []hongguo.Work) {
-			processed += int64(len(works))
-			details := make([]string, 0, len(works))
-			for _, work := range works {
-				details = append(details, "✅ 已记录红果目录 "+work.SourceID)
+		err = s.discover(ctx, func(ids []string) {
+			processed += int64(len(ids))
+			newCount += int64(len(ids))
+			details := make([]string, 0, len(ids))
+			for _, id := range ids {
+				details = append(details, "✅ 新发现红果作品 "+id)
 			}
-			task.Update(TaskUpdate{Message: fmt.Sprintf("已记录 %d 项目录摘要，详情由资料刷新任务补齐", processed), Details: details, Metrics: map[string]int64{"processed": processed, "succeeded": processed}})
+			task.Update(TaskUpdate{Message: fmt.Sprintf("本轮新发现 %d 项，详情由资料刷新任务补齐", processed), Details: details, Metrics: metrics()})
 			s.requestRefresh(ctx)
 		}, func(message string) {
-			task.Update(TaskUpdate{Message: message, Metrics: map[string]int64{"processed": processed, "failed": failed, "succeeded": processed - failed}})
+			task.Update(TaskUpdate{Message: message, Metrics: metrics()})
 		})
 	case TaskKindHongGuoRefresh:
 		if sourceID != "" {
-			err = s.refresh(ctx, sourceID, reportAlbumWarning)
+			var change string
+			change, err = s.refresh(ctx, sourceID, reportAlbumWarning)
 			if ctx.Err() == nil {
-				report(sourceID, err)
+				report(sourceID, change, err)
 			}
 		} else {
 			err = s.refreshBatch(ctx, report, reportAlbumWarning)
 		}
 	case TaskKindHongGuoAlbum:
-		err = s.backfillAlbums(ctx, report)
+		err = s.backfillAlbums(ctx, func(id string, err error) { report(id, "", err) })
 	case TaskKindHongGuoArtwork:
-		err = s.downloadArtwork(ctx, report)
+		err = s.downloadArtwork(ctx, func(id string, err error) { report(id, "", err) })
 	}
 	finishErr := sanitizeTaskLogError(err)
 	if errors.Is(err, context.Canceled) {
 		finishErr = context.Canceled
 	}
 	message := fmt.Sprintf("本次处理 %d 项，失败 %d 项，暂缓 %d 项", processed, failed, deferred)
+	if kind == TaskKindHongGuoSync {
+		message = fmt.Sprintf("本次新增 %d 项，失败 %d 项，暂缓 %d 项", processed, failed, deferred)
+	} else if kind == TaskKindHongGuoRefresh {
+		message = fmt.Sprintf("本次处理 %d 项：新作品补齐 %d、资料更新 %d、无变动 %d；失败 %d、暂缓 %d", processed, newCount, updatedCount, unchangedCount, failed, deferred)
+	}
 	if err != nil && !errors.Is(err, context.Canceled) {
 		message = fmt.Sprintf("任务失败：已处理 %d 项；具体原因见错误日志", processed)
 		if failed > 0 {
 			message = fmt.Sprintf("任务失败：已处理 %d 项，其中 %d 项失败", processed, failed)
 		}
+		if kind == TaskKindHongGuoRefresh {
+			message += fmt.Sprintf("；新作品补齐 %d、资料更新 %d、无变动 %d", newCount, updatedCount, unchangedCount)
+		}
 	}
 	if albumWarnings > 0 {
 		message += fmt.Sprintf("；%d 项合集查询失败，交由红果官方合集补充任务重试", albumWarnings)
 	}
-	task.Finish(finishErr, TaskUpdate{Message: message, Metrics: map[string]int64{"processed": processed, "failed": failed, "deferred": deferred, "succeeded": processed - failed - deferred, "album_warnings": albumWarnings}})
+	task.Finish(finishErr, TaskUpdate{Message: message, Metrics: metrics()})
 	return err
 }
 
-func (s *HongGuoService) refresh(ctx context.Context, id string, reportAlbumWarning func(string, error)) (err error) {
+func (s *HongGuoService) refresh(ctx context.Context, id string, reportAlbumWarning func(string, error)) (change string, err error) {
 	defer func() {
 		if ctx.Err() != nil {
 			return
@@ -264,32 +296,32 @@ func (s *HongGuoService) refresh(ctx context.Context, id string, reportAlbumWarn
 	}()
 	work, err := s.client.Detail(ctx, id)
 	if err != nil {
-		return err
+		return "", err
 	}
-	_, err = s.repo.HongGuo.SaveDetail(ctx, work)
+	_, change, err = s.repo.HongGuo.SaveDetailWithChange(ctx, work)
 	if err != nil {
-		return err
+		return "", err
 	}
 	if err := s.repo.HongGuo.RebindWork(ctx, id); err != nil {
-		return err
+		return "", err
 	}
 	// 先保留待补充状态，取消或退出也不会丢失本次合集检查。
 	if err := s.repo.HongGuo.RetryAlbum(ctx, id, time.Now()); err != nil {
-		return errors.Join(errHongGuoCheckpoint, err)
+		return "", errors.Join(errHongGuoCheckpoint, err)
 	}
 	if albumErr := s.refreshAlbum(ctx, id); albumErr != nil {
 		if ctx.Err() != nil {
-			return ctx.Err()
+			return "", ctx.Err()
 		}
 		if errors.Is(albumErr, errHongGuoCheckpoint) {
-			return albumErr
+			return "", albumErr
 		}
 		reportAlbumWarning(id, albumErr)
 	}
-	return nil
+	return change, nil
 }
 
-func (s *HongGuoService) discover(ctx context.Context, report func([]hongguo.Work), notice func(string)) error {
+func (s *HongGuoService) discover(ctx context.Context, report func([]string), notice func(string)) error {
 	for _, category := range hongguo.Categories {
 		state, err := s.repo.HongGuo.SyncState(ctx, category)
 		if err != nil {
@@ -309,9 +341,11 @@ func (s *HongGuoService) discover(ctx context.Context, report func([]hongguo.Wor
 					previous, previousCount, previousErr := s.client.Category(ctx, category, page-1)
 					if previousErr == nil && previousCount < hongguo.CategoryPageSize {
 						state.NextPage = 1
-						if saveErr := s.repo.HongGuo.SaveDiscoveryPage(ctx, previous, state); saveErr != nil {
+						newIDs, saveErr := s.repo.HongGuo.SaveDiscoveryPageWithNew(ctx, previous, state)
+						if saveErr != nil {
 							return saveErr
 						}
+						report(newIDs)
 						notice(fmt.Sprintf("⚠ 红果分类 %s 第 %d 页（/category/%s?page=%d）返回 HTTP 404；回查第 %d 页确认是尾页，已重置检查点", category, page, category, page, page-1))
 						break
 					}
@@ -353,17 +387,19 @@ func (s *HongGuoService) discover(ctx context.Context, report func([]hongguo.Wor
 			}
 			if incremental && boundary {
 				state.NextPage = 1
-				if err := s.repo.HongGuo.SaveDiscoveryPage(ctx, works, state); err != nil {
+				newIDs, err := s.repo.HongGuo.SaveDiscoveryPageWithNew(ctx, works, state)
+				if err != nil {
 					return err
 				}
-				report(works)
+				report(newIDs)
 				notice(fmt.Sprintf("ℹ️ 红果分类 %s 增量扫描至第 %d 页，已追平上次检查点", category, page))
 				break
 			}
-			if err := s.repo.HongGuo.SaveDiscoveryPage(ctx, works, state); err != nil {
+			newIDs, err := s.repo.HongGuo.SaveDiscoveryPageWithNew(ctx, works, state)
+			if err != nil {
 				return err
 			}
-			report(works)
+			report(newIDs)
 			if complete {
 				notice(fmt.Sprintf("ℹ️ 红果分类 %s 第 %d 页共 %d 项，少于每页 %d 项，目录已到末页并重置检查点", category, page, itemCount, hongguo.CategoryPageSize))
 				break
@@ -395,16 +431,17 @@ func (s *HongGuoService) discover(ctx context.Context, report func([]hongguo.Wor
 				return fmt.Errorf("红果榜单 %s 已达到 %d 页安全上限但仍有下一页", rank.Key, page)
 			}
 		}
-		if err := s.repo.HongGuo.ReplaceRank(ctx, rank.Key, rank.SourceCategory, works); err != nil {
+		newIDs, err := s.repo.HongGuo.ReplaceRankWithNew(ctx, rank.Key, rank.SourceCategory, works)
+		if err != nil {
 			return err
 		}
-		report(works)
+		report(newIDs)
 		notice(fmt.Sprintf("ℹ️ %s已按官网名次更新，共 %d 项", rank.Label, len(works)))
 	}
 	return nil
 }
 
-func (s *HongGuoService) refreshBatch(ctx context.Context, report, reportAlbumWarning func(string, error)) error {
+func (s *HongGuoService) refreshBatch(ctx context.Context, report func(string, string, error), reportAlbumWarning func(string, error)) error {
 	failures := 0
 	retried := map[string]bool{}
 	due, err := s.repo.HongGuo.DueSyncFailures(ctx)
@@ -420,7 +457,7 @@ func (s *HongGuoService) refreshBatch(ctx context.Context, report, reportAlbumWa
 			return err
 		}
 		for _, row := range pending {
-			err := s.refresh(ctx, row.SourceID, reportAlbumWarning)
+			change, err := s.refresh(ctx, row.SourceID, reportAlbumWarning)
 			if errors.Is(err, errHongGuoCheckpoint) {
 				return err
 			}
@@ -430,7 +467,7 @@ func (s *HongGuoService) refreshBatch(ctx context.Context, report, reportAlbumWa
 			if err != nil && !errors.Is(err, hongguo.ErrNotFound) {
 				failures++
 			}
-			report(row.SourceID, err)
+			report(row.SourceID, change, err)
 			after = row.SourceID
 		}
 		if len(pending) < 100 {
@@ -439,7 +476,8 @@ func (s *HongGuoService) refreshBatch(ctx context.Context, report, reportAlbumWa
 	}
 	for _, row := range due {
 		retried[row.SourceID] = true
-		if err := s.refresh(ctx, row.SourceID, reportAlbumWarning); err != nil {
+		change, err := s.refresh(ctx, row.SourceID, reportAlbumWarning)
+		if err != nil {
 			if errors.Is(err, errHongGuoCheckpoint) {
 				return err
 			}
@@ -449,9 +487,9 @@ func (s *HongGuoService) refreshBatch(ctx context.Context, report, reportAlbumWa
 			if !errors.Is(err, hongguo.ErrNotFound) {
 				failures++
 			}
-			report(row.SourceID, err)
+			report(row.SourceID, change, err)
 		} else {
-			report(row.SourceID, nil)
+			report(row.SourceID, change, nil)
 		}
 	}
 	state, err := s.repo.HongGuo.SyncState(ctx, "refresh")
@@ -465,7 +503,7 @@ func (s *HongGuoService) refreshBatch(ctx context.Context, report, reportAlbumWa
 	for _, work := range works {
 		if retried[work.SourceID] {
 			// 失败队列已经处理过的作品只推进常规游标，不在同一轮重复请求。
-		} else if err := s.refresh(ctx, work.SourceID, reportAlbumWarning); err != nil {
+		} else if change, err := s.refresh(ctx, work.SourceID, reportAlbumWarning); err != nil {
 			if errors.Is(err, errHongGuoCheckpoint) {
 				return err
 			}
@@ -475,9 +513,9 @@ func (s *HongGuoService) refreshBatch(ctx context.Context, report, reportAlbumWa
 			if !errors.Is(err, hongguo.ErrNotFound) {
 				failures++
 			}
-			report(work.SourceID, err)
+			report(work.SourceID, change, err)
 		} else {
-			report(work.SourceID, nil)
+			report(work.SourceID, change, nil)
 		}
 		state.AfterID = work.ID
 		if err := s.repo.HongGuo.SaveSyncState(ctx, state); err != nil {

@@ -349,6 +349,80 @@ func TestHongGuoRefreshRetriesAndShutdown(t *testing.T) {
 	}
 }
 
+func TestHongGuoRefreshStopsAtCompletionAndReportsChanges(t *testing.T) {
+	db, err := testdb.OpenPostgres(t, &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(model.AllModels()...); err != nil {
+		t.Fatal(err)
+	}
+	ctx := t.Context()
+	repos := repository.New(db)
+	tasks := NewTaskTrackerService(zap.NewNop(), nil)
+	s := NewHongGuoService(repos, tasks, nil, t.TempDir())
+	t.Cleanup(s.Wait)
+	page := func(id, title, status string) string {
+		return fmt.Sprintf(`_ROUTER_DATA={"loaderData":{"detail_page":{"seriesDetail":{"series_id":%q,"series_name":%q,"episode_cnt":2,"episode_right_text":%q}}}}`, id, title, status)
+	}
+	for _, seed := range []struct{ id, status string }{{"91101", "全2集"}, {"91102", "更新至2集"}} {
+		work, err := hongguo.ParseDetail([]byte(page(seed.id, "旧资料", seed.status)), seed.id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := repos.HongGuo.SaveDetail(ctx, work); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := db.Model(&model.HongGuoWork{}).Where("source_id IN ?", []string{"91101", "91102"}).Update("refreshed_at", time.Now().Add(-25*time.Hour)).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := repos.HongGuo.RecordSyncFailure(ctx, "91101", time.Now().Add(-time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if err := repos.HongGuo.SaveDiscoveryPage(ctx, []hongguo.Work{{SourceID: "91103", Title: "新摘要"}}, model.HongGuoSyncState{Category: "real-drama", NextPage: 1}); err != nil {
+		t.Fatal(err)
+	}
+	requests := map[string]int{}
+	finished := false
+	s.client = hongguo.NewClient(&http.Client{Transport: hongGuoTestTransport(func(r *http.Request) (*http.Response, error) {
+		id := r.URL.Query().Get("series_id")
+		requests[id]++
+		title, status := "旧资料", "更新至2集"
+		if id == "91102" && finished {
+			title, status = "更新后资料", "全2集"
+		}
+		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(page(id, title, status))), Header: make(http.Header), Request: r}, nil
+	})})
+	if err := s.Run(ctx, TaskKindHongGuoRefresh, ""); err != nil {
+		t.Fatal(err)
+	}
+	result, err := tasks.ListSystem(model.TaskSystemHongGuo, 1, 1)
+	if err != nil || len(result.Items) != 1 || result.Items[0].Metrics["new"] != 1 || result.Items[0].Metrics["unchanged"] != 1 || requests["91101"] != 0 || requests["91102"] != 1 || requests["91103"] != 1 {
+		t.Fatalf("first batch: %+v requests=%v err=%v", result, requests, err)
+	}
+	finished = true
+	if err := db.Model(&model.HongGuoWork{}).Where("source_id = ?", "91102").Update("refreshed_at", time.Now().Add(-25*time.Hour)).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Run(ctx, TaskKindHongGuoRefresh, ""); err != nil {
+		t.Fatal(err)
+	}
+	result, err = tasks.ListSystem(model.TaskSystemHongGuo, 1, 1)
+	if err != nil || len(result.Items) != 1 || result.Items[0].Metrics["updated"] != 1 || requests["91102"] != 2 {
+		t.Fatalf("completion update: %+v requests=%v err=%v", result, requests, err)
+	}
+	if err := db.Model(&model.HongGuoWork{}).Where("source_id = ?", "91102").Update("refreshed_at", time.Now().Add(-25*time.Hour)).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Run(ctx, TaskKindHongGuoRefresh, ""); err != nil || requests["91102"] != 2 || requests["91101"] != 0 {
+		t.Fatalf("completed works refreshed again: %v %v", requests, err)
+	}
+	if err := s.Run(ctx, TaskKindHongGuoRefresh, "91102"); err != nil || requests["91102"] != 3 {
+		t.Fatalf("manual refresh of completed work rejected: %v %v", requests, err)
+	}
+}
+
 func TestHongGuoNotFoundIsDeferredWithoutFailingBatch(t *testing.T) {
 	db, err := testdb.OpenPostgres(t, &gorm.Config{})
 	if err != nil {

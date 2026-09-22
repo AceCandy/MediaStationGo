@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -10,6 +11,33 @@ import (
 	"github.com/ShukeBta/MediaStationGo/internal/testdb"
 	"gorm.io/gorm"
 )
+
+func TestHongGuoDetailChangePreservesNumericIDs(t *testing.T) {
+	db, err := testdb.OpenPostgres(t, &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(model.AllModels()...); err != nil {
+		t.Fatal(err)
+	}
+	r := New(db).HongGuo
+	for _, tc := range []struct{ videoID, cover, change string }{
+		{"9000000000000000001", "a", "new"},
+		{"9000000000000000001", "a", "unchanged"},
+		{"9000000000000000002", "a", "updated"},
+		{"9000000000000000002", "b", "updated"},
+		{"9000000000000000002", "b", "unchanged"},
+	} {
+		page := fmt.Sprintf(`_ROUTER_DATA={"loaderData":{"detail_page":{"seriesDetail":{"series_id":"96004","series_name":"测试剧","episode_cnt":1,"vid_list":[%s],"series_cover":"https://example.invalid/%s"}}}}`, tc.videoID, tc.cover)
+		input, err := hongguo.ParseDetail([]byte(page), "96004")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, change, err := r.SaveDetailWithChange(t.Context(), input); err != nil || change != tc.change {
+			t.Fatalf("video=%s cover=%s: change=%s want=%s err=%v", tc.videoID, tc.cover, change, tc.change, err)
+		}
+	}
+}
 
 func TestHongGuoDiscoveryCheckpointAndRetryIsolation(t *testing.T) {
 	db, err := testdb.OpenPostgres(t, &gorm.Config{})
@@ -35,6 +63,9 @@ func TestHongGuoDiscoveryCheckpointAndRetryIsolation(t *testing.T) {
 	cutoff := time.Now()
 	if err := r.SaveDiscoveryPage(ctx, works, state); err != nil {
 		t.Fatal(err)
+	}
+	if ids, err := r.SaveDiscoveryPageWithNew(ctx, works, state); err != nil || len(ids) != 0 {
+		t.Fatalf("repeat category counted as new: %v %v", ids, err)
 	}
 	var discovery model.HongGuoDiscovery
 	if err := db.First(&discovery, "source_id = ?", "96001").Error; err != nil || discovery.SourceCategory != "real-drama" {
@@ -81,8 +112,8 @@ func TestHongGuoDiscoveryCheckpointAndRetryIsolation(t *testing.T) {
 	if err := db.First(&discovery, "source_id = ?", "96001").Error; err != nil || discovery.SourceCategory != "real-drama" {
 		t.Fatalf("overall rank erased source category: %+v %v", discovery, err)
 	}
-	if err := r.ReplaceRank(ctx, "hot-real-drama", "real-drama", []hongguo.Work{{SourceID: "96001", Title: "榜单摘要"}, {SourceID: "96002", Title: "新榜单摘要"}}); err != nil {
-		t.Fatal(err)
+	if ids, err := r.ReplaceRankWithNew(ctx, "hot-real-drama", "real-drama", []hongguo.Work{{SourceID: "96001", Title: "榜单摘要"}, {SourceID: "96002", Title: "新榜单摘要"}}); err != nil || len(ids) != 1 || ids[0] != "96002" {
+		t.Fatalf("rank new ids=%v err=%v", ids, err)
 	}
 	var rankRows []model.HongGuoRankEntry
 	if err := db.Order("position").Find(&rankRows, "rank_key = ?", "hot-real-drama").Error; err != nil || len(rankRows) != 2 || rankRows[0].SourceID != "96001" || rankRows[1].Position != 2 {
@@ -98,8 +129,17 @@ func TestHongGuoDiscoveryCheckpointAndRetryIsolation(t *testing.T) {
 	if err := r.ReplaceRank(ctx, "hot-real-drama", "real-drama", []hongguo.Work{{SourceID: "96002", Title: "新榜单摘要"}}); err != nil {
 		t.Fatal(err)
 	}
+	if ids, err := r.ReplaceRankWithNew(ctx, "hot-real-drama", "real-drama", []hongguo.Work{{SourceID: "96002", Title: "旧榜单摘要"}}); err != nil || len(ids) != 0 {
+		t.Fatalf("repeat rank counted as new: %v %v", ids, err)
+	}
 	rankRows = nil
 	if err := db.Find(&rankRows, "rank_key = ?", "hot-real-drama").Error; err != nil || len(rankRows) != 1 || rankRows[0].SourceID != "96002" {
 		t.Fatalf("stale rank rows retained: %+v %v", rankRows, err)
+	}
+	if _, err := r.SaveDetail(ctx, hongguo.Work{SourceID: "96003", Title: "已入库", Snapshot: []byte(`{}`)}); err != nil {
+		t.Fatal(err)
+	}
+	if ids, err := r.SaveDiscoveryPageWithNew(ctx, []hongguo.Work{{SourceID: "96003", Title: "已有正式作品"}}, state); err != nil || len(ids) != 0 {
+		t.Fatalf("canonical work counted as new: %v %v", ids, err)
 	}
 }

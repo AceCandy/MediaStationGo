@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"reflect"
 	"strings"
 	"time"
 
@@ -30,31 +31,69 @@ func (r *HongGuoRepository) ClearSyncFailure(ctx context.Context, sourceID strin
 
 func (r *HongGuoRepository) DueSyncFailures(ctx context.Context) ([]model.HongGuoSyncFailure, error) {
 	rows := []model.HongGuoSyncFailure{}
-	err := r.db.WithContext(ctx).Where("retry_at <= ?", time.Now()).Order("retry_at, source_id").Limit(50).Find(&rows).Error
+	err := r.db.WithContext(ctx).Where("retry_at <= ?", time.Now()).
+		Where("NOT EXISTS (SELECT 1 FROM hongguo_works w WHERE w.source_id = hongguo_sync_failures.source_id AND w.completed = true)").
+		Order("retry_at, source_id").Limit(50).Find(&rows).Error
 	return rows, err
 }
 
 // SaveDetail 原子替换成功资料快照，刷新保持作品和分集 ID 不变。
 func (r *HongGuoRepository) SaveDetail(ctx context.Context, input hongguo.Work) (*model.HongGuoWork, error) {
+	work, _, err := r.SaveDetailWithChange(ctx, input)
+	return work, err
+}
+
+// SaveDetailWithChange 按已持久化的业务快照区分首次入库、内容更新和无变化。
+func (r *HongGuoRepository) SaveDetailWithChange(ctx context.Context, input hongguo.Work) (*model.HongGuoWork, string, error) {
 	if !hongguo.ValidID(input.SourceID) || input.Title == "" || !json.Valid(input.Snapshot) || input.EpisodeCount < 0 || input.EpisodeCount > 100000 {
-		return nil, errors.New("红果详情无效")
+		return nil, "", errors.New("红果详情无效")
 	}
 	tags, err := json.Marshal(input.Tags)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	now := time.Now().UTC()
+	change := "new"
 	work := model.HongGuoWork{SourceID: input.SourceID, Kind: model.MetadataKindSeries, Title: input.Title, Overview: input.Overview, Tags: string(tags), EpisodeCount: input.EpisodeCount, TotalEpisodes: input.TotalEpisodes, AccessibleEpisodes: input.AccessibleEpisodes, UpdateText: input.UpdateText, SourceStatus: input.SourceStatus, Completed: input.Completed, FirstVisibleAt: input.FirstVisibleAt, Rating: input.Rating, RatingCount: input.RatingCount, RefreshedAt: now}
 	if input.IsMovie() {
 		work.Kind = model.MetadataKindMovie
 	}
 	err = r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var previous model.HongGuoWork
+		found := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("source_id = ?", input.SourceID).Take(&previous)
+		if found.Error != nil && !errors.Is(found.Error, gorm.ErrRecordNotFound) {
+			return found.Error
+		}
 		if err := tx.Model(&model.HongGuoDiscovery{}).Select("source_category").Where("source_id = ?", input.SourceID).Scan(&work.SourceCategory).Error; err != nil {
 			return err
 		}
 		if work.SourceCategory == "" {
 			if err := tx.Model(&model.HongGuoWork{}).Select("source_category").Where("source_id = ?", input.SourceID).Scan(&work.SourceCategory).Error; err != nil {
 				return err
+			}
+		}
+		if found.Error == nil {
+			change = "updated"
+			var previousSnapshot model.HongGuoSnapshot
+			result := tx.Where("work_id = ?", previous.ID).Take(&previousSnapshot)
+			if result.Error != nil && !errors.Is(result.Error, gorm.ErrRecordNotFound) {
+				return result.Error
+			}
+			if result.Error == nil && previous.SourceCategory == work.SourceCategory {
+				var before, after any
+				beforeDecoder := json.NewDecoder(strings.NewReader(previousSnapshot.Payload))
+				beforeDecoder.UseNumber()
+				if err := beforeDecoder.Decode(&before); err != nil {
+					return err
+				}
+				afterDecoder := json.NewDecoder(strings.NewReader(string(input.Snapshot)))
+				afterDecoder.UseNumber()
+				if err := afterDecoder.Decode(&after); err != nil {
+					return err
+				}
+				if reflect.DeepEqual(before, after) {
+					change = "unchanged"
+				}
 			}
 		}
 		// 冲突更新同时持有作品行锁，串行刷新其分集、人物与快照。
@@ -106,10 +145,10 @@ func (r *HongGuoRepository) SaveDetail(ctx context.Context, input hongguo.Work) 
 		return tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "work_id"}}, DoUpdates: clause.AssignmentColumns([]string{"payload", "fetched_at"})}).Create(&snapshot).Error
 	})
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	r.refreshSearchWork(ctx, work.ID, work.RelatedAlbumID)
-	return &work, nil
+	return &work, change, nil
 }
 
 func saveHongGuoArtwork(tx *gorm.DB, sourceID, workID, personID *string, sourceURL string, now time.Time) error {
@@ -325,6 +364,7 @@ func (r *HongGuoRepository) WorksAfter(ctx context.Context, id string, limit int
 	}
 	var rows []model.HongGuoWork
 	err := r.db.WithContext(ctx).Where("id > ?", id).
+		Where("completed = ?", false).
 		Where("refreshed_at < ?", time.Now().Add(-24*time.Hour)).
 		Where("source_id NOT IN (SELECT source_id FROM hongguo_sync_failures)").
 		Order("id").Limit(limit).Find(&rows).Error

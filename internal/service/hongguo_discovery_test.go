@@ -336,4 +336,11 @@ func TestHongGuoDiscoveryIncrementalStopsAtSavedBoundary(t *testing.T) {
 	if err := db.Model(&model.HongGuoDiscovery{}).Where("source_id = ?", "200").Count(&count).Error; err != nil || count != 1 {
 		t.Fatalf("new discovery count=%d err=%v", count, err)
 	}
+	if _, err := runHongGuoDiscoveryOnly(ctx, s); err != nil {
+		t.Fatal(err)
+	}
+	page, err := tasks.ListSystem(model.TaskSystemHongGuo, 1, 1)
+	if err != nil || len(page.Items) != 1 || page.Items[0].Metrics["new"] != 0 || page.Items[0].Metrics["processed"] != 0 || !strings.Contains(page.Items[0].Message, "本次新增 0 项") {
+		t.Fatalf("repeat discovery counted old rank or category entries: %+v %v", page, err)
+	}
 }

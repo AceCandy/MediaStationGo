@@ -88,6 +88,12 @@ are a separate authorized exception; playback still uses existing local/STRM fil
   an existing non-empty value for direct-ID refreshes. Never infer this field
   from title or detail tags. Existing empty rows are populated after discovery
   sees the source ID and that work is refreshed again.
+- Discovery task `processed`/`new` counts only source IDs newly inserted into
+  `hongguo_discoveries` with no existing `hongguo_works` row. Category rescans,
+  cross-category duplicates and rank replacements still update summaries and
+  positions but never count old IDs as new. Insert eligibility is determined
+  by the committed database insert within the summary/checkpoint or rank
+  transaction, not by the upstream page length.
 - Official ranks come from `/rank/hot-drama`, `/rank/hot-real-drama`,
   `/rank/hot-ai-drama`, and `/rank/hot-comic-drama`. Parse the server-rendered
   ordered list and `rel=next`; follow at most `MaxRankPage=100` pages. Replace
@@ -124,8 +130,11 @@ are a separate authorized exception; playback still uses existing local/STRM fil
   ID, excluding existing canonical works and all failure rows. Pending state is
   derived from business tables, not a second mutable status or execution log.
   Refresh drains pending work present at its fixed start cutoff, then retries
-  up to 50 failures selected at start and refreshes up to 100 existing works
-  older than 24 hours using the persistent refresh cursor. Later discoveries
+  up to 50 eligible failures selected at start and refreshes up to 100 existing
+  **unfinished** works older than 24 hours using the persistent refresh cursor.
+  A canonical work marked `completed=true` is excluded from both scheduled
+  existing-work refreshes and automatic due-failure retries; an administrator's
+  explicit source-ID refresh remains allowed. Later discoveries
   wait for the next run; explicit source-ID refresh bypasses that cooldown.
   Successful discovery-page/rank persistence and successful search registration
   call `requestRefresh`. Wakeups coalesce behind the existing refresh mutex;
@@ -150,6 +159,19 @@ are a separate authorized exception; playback still uses existing local/STRM fil
   business tables, not task logs. Normal refresh excludes failed IDs; only due
   retries request them. Successful due retries are not repeated in the same run.
   Cancellation retains `context.Canceled` identity and finishes interrupted.
+- Refresh reports successful first hydration as `new`, an existing work whose
+  persisted whitelisted detail snapshot or source category differs as `updated`,
+  and the same business detail as `unchanged`; refreshed/updated/fetched timestamps
+  alone do not mean a content update. These three counts, failures and deferred
+  items remain separate in the task summary and per-item details. The snapshot
+  comparison must decode numbers with `json.Decoder.UseNumber`: numeric video
+  IDs beyond float64 precision can otherwise hide real episode-ID changes.
+  `TestHongGuoDetailChangePreservesNumericIDs` covers adjacent 19-digit IDs,
+  changed source covers, and identical snapshots across refresh timestamps.
+  The snapshot
+  includes source poster URL and person avatar URLs but not local artwork download
+  progress. Initial hydration and unfinished periodic refresh share the same
+  detail save; no extra source HTTP request is needed for this classification.
 - Detail HTTP 404 records `retry_at` at about 72 hours from the completed attempt,
   increments the task's `deferred` metric, and does not increment batch `failed`;
   other detail errors retain the one-hour retry and failed-batch behavior. A
@@ -265,6 +287,13 @@ are a separate authorized exception; playback still uses existing local/STRM fil
 - `TestHongGuoDiscoveryDefersDetailsAndResumes`: no detail HTTP during discovery,
   page-level restart, more-than-100 pending hydration, no summary overwrite,
   regular cooldown and explicit-ID bypass.
+- `TestHongGuoRefreshStopsAtCompletionAndReportsChanges`: completed old works
+  and due failures get no automatic detail request; new summaries are hydrated,
+  unfinished unchanged details count separately, a later completion counts as
+  updated then leaves the automatic candidate set, and explicit-ID refresh
+  remains available. Discovery repository/service tests assert unique new IDs
+  across repeated category and rank scans, even when an existing work had no
+  discovery summary.
 - `TestHongGuoDiscoveryCheckpointAndRetryIsolation`: atomic page rollback,
   fixed cutoff, failure cooldown, durable pending recovery, source-category
   propagation and one source-ID artwork row per summary cover.
