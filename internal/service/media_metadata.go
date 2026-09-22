@@ -54,6 +54,16 @@ func (s *MediaService) UpdateMetadata(ctx context.Context, id string, req MediaM
 	if media == nil {
 		return nil, errors.New("media not found")
 	}
+	if media.CatalogSource == model.CatalogSourceNFO {
+		view, err := s.repo.MediaView.FindByID(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		if view == nil {
+			return nil, errors.New("media not found")
+		}
+		return s.updateNFOMetadata(ctx, media, view, req)
+	}
 	if media.CatalogSource != "" {
 		return nil, errors.New("独立资料体系不支持旧体系元数据编辑")
 	}

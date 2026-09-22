@@ -61,7 +61,7 @@ export function PlayerPage() {
   useEffect(() => {
     if (!media || !ref.current) return
     const video = ref.current
-    sessionIDRef.current = crypto.randomUUID()
+    sessionIDRef.current = crypto.randomUUID?.() ?? `${Date.now()}-${Math.random()}`
     lastSentRef.current = 0
     lastPositionRef.current = -1
     video.src = streamURL(media.id)

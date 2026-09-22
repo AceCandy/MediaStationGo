@@ -41,13 +41,12 @@ export function LibrarySeasonActions({ season, mediaID, episodes, onChanged }: {
       setProgress(null)
     }
   }
-  if (season.catalog_source) return null
   return <>
     <details ref={menu} className="relative w-fit" onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget)) closeMenu() }} onKeyDown={event => { if (event.key === 'Escape') { closeMenu(); menu.current?.querySelector('summary')?.focus() } }}>
       <summary className="btn-outline w-fit cursor-pointer list-none [&::-webkit-details-marker]:hidden"><MoreHorizontal size={16} aria-hidden="true" />整季更多操作</summary>
       <div role="menu" aria-label="季管理操作" className="absolute right-0 top-full z-50 mt-2 w-64 max-w-[calc(100vw-4rem)] overflow-hidden rounded-xl border border-[var(--app-border)] bg-[var(--app-panel)] p-1.5 shadow-xl">
-        <AdminMenuItem icon={RefreshCw} iconClass="text-[var(--app-gold)]" label="刷新季 TMDB 信息" disabled={!season.metadata_id} onClick={() => refresh(false)} onClose={closeMenu} />
-        <AdminMenuItem icon={RefreshCw} iconClass="text-[var(--app-gold)]" label="刷新整季 TMDB 信息" disabled={!season.metadata_id} onClick={() => refresh(true)} onClose={closeMenu} title={`刷新季资料及当前 ${episodes.length} 集`} />
+        {!season.catalog_source && <AdminMenuItem icon={RefreshCw} iconClass="text-[var(--app-gold)]" label="刷新季 TMDB 信息" disabled={!season.metadata_id} onClick={() => refresh(false)} onClose={closeMenu} />}
+        {!season.catalog_source && <AdminMenuItem icon={RefreshCw} iconClass="text-[var(--app-gold)]" label="刷新整季 TMDB 信息" disabled={!season.metadata_id} onClick={() => refresh(true)} onClose={closeMenu} title={`刷新季资料及当前 ${episodes.length} 集`} />}
         <AdminMenuItem icon={Pencil} iconClass="text-[var(--app-muted)]" label="编辑季元数据" onClick={() => setEditing(true)} onClose={closeMenu} />
       </div>
     </details>

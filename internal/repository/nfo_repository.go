@@ -29,6 +29,38 @@ type NFOArtwork struct {
 	Asset      *model.ArtworkAsset
 }
 
+// UpdateMetadata 更新 NFO 条目快照；binding 为 true 时同步文件绑定的叶子快照。
+func (r *NFORepository) UpdateMetadata(ctx context.Context, mediaID, itemID string, fields model.NFOFields, binding bool) error {
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if itemID == "" && mediaID != "" {
+			var link model.NFOMediaBinding
+			if err := tx.Where("media_id = ?", mediaID).First(&link).Error; err != nil {
+				return err
+			}
+			itemID = link.ItemID
+		}
+		if itemID == "" {
+			return errors.New("NFO 条目不存在")
+		}
+		updates := map[string]any{
+			"title": fields.Title, "original_name": fields.OriginalName, "overview": fields.Overview,
+			"year": fields.Year, "release_date": fields.ReleaseDate, "rating": fields.Rating,
+			"genres": fields.Genres, "countries": fields.Countries, "languages": fields.Languages, "nsfw": fields.NSFW,
+		}
+		if result := tx.Model(&model.NFOItem{}).Where("id = ?", itemID).Updates(updates); result.Error != nil {
+			return result.Error
+		} else if result.RowsAffected == 0 {
+			return errors.New("NFO 条目不存在")
+		}
+		if binding && mediaID != "" {
+			if err := tx.Model(&model.NFOMediaBinding{}).Where("media_id = ?", mediaID).Updates(updates).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
 // Ingest 将文件事实、条目层级和资料绑定作为一次事务保存。
 // 无有效资料时仅更新文件状态，保留已有资料绑定。
 func (r *NFORepository) Ingest(ctx context.Context, media *model.Media, input *NFOIngest) (bool, error) {

@@ -68,7 +68,7 @@ export function LibrarySeriesDetailHeader({ series, allEpisodes, history, resume
     <p className="text-sm text-[var(--app-muted)]">共 {series.count} {allEpisodes.some((ep) => ep.episode_num <= 0) ? '项' : '集'}</p>
     <div className="flex flex-wrap items-center gap-3">
       {resume && <Link to={`/play/${resume.id}`} state={{ from: resumeFrom() }} className="btn-primary"><Play size={16} fill="currentColor" aria-hidden="true" />{continuing ? '继续观看' : '播放'} · {resume.episode_num > 0 ? `S${resume.season_num} E${resume.episode_num}` : episodeLabel(resume)}</Link>}
-      {isAdmin && series.count > 0 && <MediaDetailAdminMenu label="整剧更多操作" disabled={!!seriesToolBusy} tmdbRefreshPending={false} doubanEnrichmentPending={false} doubanDegraded={false} onMetadataEdit={series.rep.catalog_source ? undefined : onMetadataEdit} onProbe={onProbe} onSoftDelete={onSoftDelete} />}
+      {isAdmin && series.count > 0 && <MediaDetailAdminMenu label="整剧更多操作" disabled={!!seriesToolBusy} tmdbRefreshPending={false} doubanEnrichmentPending={false} doubanDegraded={false} onMetadataEdit={onMetadataEdit} onProbe={onProbe} onSoftDelete={onSoftDelete} />}
     </div>
   </div>
 

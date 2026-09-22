@@ -149,7 +149,7 @@ export function MediaDetailMainContent({
                 onDoubanEnrich={(media.metadata_kind === 'movie' || media.metadata_kind === 'series') && media.douban_id ? onDoubanEnrich : undefined}
                 doubanEnrichmentPending={doubanEnrichmentPending}
                 doubanDegraded={media.douban_status === 'degraded'}
-                onMetadataEdit={media.catalog_source ? undefined : onMetadataEdit}
+                onMetadataEdit={onMetadataEdit}
                 onProbe={onProbe}
                 onSoftDelete={onSoftDelete}
               />
