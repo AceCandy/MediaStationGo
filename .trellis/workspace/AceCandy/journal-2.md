@@ -1370,3 +1370,25 @@ Web 与 Emby 对缺失的单集播出日期按同季前序集回退；季和单�
 ### Next Steps
 
 - 工作树已清洁；未推送或部署。
+
+
+## Session 146: Season-scoped series detail loading
+<!-- trellis-session: v=2 fp=12152355abd21944 -->
+
+**Date**: 2026-09-22
+**Task**: Season-scoped series detail loading
+**Branch**: `main`
+
+### Summary
+
+Scope series detail episodes to the selected season while preserving cross-season continuation; Web checks and targeted Go tests passed; PostgreSQL-specific tests skipped without a configured test DSN.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `f6a69ac` | perf: load series details by season with cross-season resume |
+
+### Status
+
+[OK] **Completed**
