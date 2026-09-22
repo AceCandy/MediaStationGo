@@ -12,11 +12,12 @@ import (
 )
 
 type SeriesCard struct {
-	Key       string      `json:"key"`
-	Rep       model.Media `json:"rep"`
-	LinkMedia model.Media `json:"linkMedia"`
-	Count     int         `json:"count"`
-	Seasons   []int       `json:"seasons,omitempty"`
+	Key            string         `json:"key"`
+	Rep            model.Media    `json:"rep"`
+	LinkMedia      model.Media    `json:"linkMedia"`
+	Count          int            `json:"count"`
+	Seasons        []int          `json:"seasons,omitempty"`
+	SeasonMediaIDs map[int]string `json:"season_media_ids,omitempty"`
 }
 
 // GetMediaSeriesVisible 从可见文件定位整剧，复用 canonical 展示投影而非分集信息。
@@ -108,7 +109,11 @@ func (s *MediaService) ListLibrarySeriesCards(ctx context.Context, libraryID str
 		if err != nil {
 			return nil, 0, err
 		}
-		cards[0].Seasons = seasons
+		cards[0].SeasonMediaIDs = make(map[int]string, len(seasons))
+		for _, season := range seasons {
+			cards[0].Seasons = append(cards[0].Seasons, season.Season)
+			cards[0].SeasonMediaIDs[season.Season] = season.MediaID
+		}
 	}
 	if key != "" && len(cards) == 1 {
 		cards[0].Key = key

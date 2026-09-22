@@ -134,9 +134,11 @@ assert.match(renderToStaticMarkup(createElement(EpisodeDetail, episodeProps)), /
 episodeMedia = { ...episodeMedia, id: 'stale-file' }
 assert.doesNotMatch(renderToStaticMarkup(createElement(EpisodeDetail, episodeProps)), /Synopsis sentinel/, 'stale file metadata stays hidden')
 let seasonResponse = null
+let exerciseSeasonEffects = false
+const seasonRequests = []
 const Episodes = load('LibrarySeriesEpisodes', {
-  react: { ...require('react'), useState: (initial) => [initial === null ? seasonResponse : initial, () => {}] },
-  '../api/library': {},
+  react: { ...require('react'), useState: (initial) => [initial === null ? seasonResponse : initial, () => {}], useEffect: (effect) => { if (exerciseSeasonEffects) effect() } },
+  '../api/library': { mediaAPI: { season: async (id) => { seasonRequests.push(id); return null } } },
   'react-router-dom': router,
   '../api/client': client,
   '../components/Select': { Select: ({ children, ...rest }) => createElement('select', rest, children) },
@@ -180,6 +182,21 @@ assert.doesNotMatch(fullList, /可播放|transition-\[width\]|hover:w-/, 'poster
 assert.match(fullList, /-ml-12/, 'season posters overlap')
 assert.match(fullList, />S1<\/span>/)
 assert.match(fullList, />S2<\/span>/)
+// Other seasons have no loaded episodes; use their independently supplied representatives.
+exerciseSeasonEffects = true
+seasonResponse = { mediaID: 'second', season: { title: '第二季独立标题', season_num: 2, poster_url: '/season-two.jpg' }, failed: false }
+const sparseSeasons = { ...seasonProps, selectedEpisodes: [...seasons, { season: 2, episodes: [] }, { season: 0, episodes: [] }], seasonMediaIDs: { 1: media.id, 2: 'second', 0: 'special' } }
+const sparseHTML = renderToStaticMarkup(createElement(Episodes, sparseSeasons))
+assert.deepEqual(seasonRequests, [media.id, media.id, 'second', 'special'], 'every season loads metadata without fetching other seasons episodes')
+assert.match(sparseHTML, /src="\/season-two.jpg"/, 'unloaded season renders its own poster')
+assert.match(sparseHTML, /aria-label="第 2 季 · 第二季独立标题"/)
+assert.match(sparseHTML, /aria-label="特别篇"/)
+assert.doesNotMatch(sparseHTML, /未识别季集/, 'empty episode arrays are not unidentified seasons')
+exerciseSeasonEffects = false
+seasonResponse = null
+const missingReference = renderToStaticMarkup(createElement(Episodes, { ...seasonProps, selectedEpisodes: [{ season: 2, episodes: [] }], visibleEpisodes: [], selectedSeason: 2 }))
+assert.match(missingReference, /暂无季封面/)
+assert.doesNotMatch(missingReference, /加载中…/, 'no request must not show perpetual loading')
 seasonResponse = { mediaID: media.id, season: { title: '季独立标题', season_num: 1, poster_url: '/season-poster.jpg' }, failed: false }
 const withSeason = renderToStaticMarkup(createElement(Episodes, seasonProps))
 assert.doesNotMatch(withSeason, /整季更多操作/, 'viewer cannot manage season metadata')

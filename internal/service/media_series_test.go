@@ -12,6 +12,53 @@ import (
 	"github.com/ShukeBta/MediaStationGo/internal/repository"
 )
 
+func TestSeriesSeasonPostersWithoutLoadingOtherEpisodes(t *testing.T) {
+	db := newServiceTestDB(t, &model.Library{}, &model.Media{}, &model.MediaProbeMetadata{}, &model.MetadataProviderSnapshot{})
+	repos := repository.New(db)
+	lib := model.Library{Name: "季封面", Path: "/fixture/season-posters", Type: "tv", Enabled: true}
+	if err := repos.Library.Create(t.Context(), &lib); err != nil {
+		t.Fatal(err)
+	}
+	series := createServiceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindSeries, Title: "整剧"})
+	svc := NewMediaService(&config.Config{}, zap.NewNop(), repos)
+	wantFiles := map[int]string{}
+	wantPosters := map[int]string{}
+	for _, number := range []int{0, 1, 2} {
+		season := createServiceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindSeason, ParentID: &series.ID, SeasonNum: number, Title: fmt.Sprintf("Season %d", number)})
+		episode := createServiceTestMetadata(t, db, model.MetadataItem{Kind: model.MetadataKindEpisode, ParentID: &season.ID, EpisodeNum: 1, Title: "Episode"})
+		wantPosters[number] = createServiceTestArtwork(t, db, season.ID, model.ArtworkTypePoster, fmt.Sprintf("poster-%d", number))
+		media := model.Media{LibraryID: lib.ID, MetadataID: episode.ID, Path: fmt.Sprintf("%s/%d.mkv", lib.Path, number)}
+		if err := db.Create(&media).Error; err != nil {
+			t.Fatal(err)
+		}
+		wantFiles[number] = media.ID
+	}
+	cards, _, err := svc.ListLibrarySeriesCards(t.Context(), lib.ID, 1, 1, series.ID, "", MediaVisibility{})
+	if err != nil || len(cards) != 1 || len(cards[0].SeasonMediaIDs) != 3 {
+		t.Fatalf("season references: %+v, %v", cards, err)
+	}
+	selected := 1
+	episodes, err := svc.ListLibrarySeriesEpisodes(t.Context(), lib.ID, cards[0].Key, &selected, MediaVisibility{})
+	if err != nil || len(episodes) != 1 || episodes[0].SeasonNum != selected {
+		t.Fatalf("selected season: %+v, %v", episodes, err)
+	}
+	for number, fileID := range wantFiles {
+		if cards[0].SeasonMediaIDs[number] != fileID {
+			t.Fatalf("season %d representative: %q", number, cards[0].SeasonMediaIDs[number])
+		}
+		season, err := svc.GetMediaSeasonVisible(t.Context(), fileID, MediaVisibility{})
+		if err != nil || season == nil || season.SeasonNum != number || season.PosterURL != wantPosters[number] {
+			t.Fatalf("season %d poster: %+v, %v", number, season, err)
+		}
+	}
+	for _, visibility := range []MediaVisibility{{HiddenLibraryIDs: []string{lib.ID}}, {AllowedLibraryIDs: []string{"other"}}, {LibraryRestricted: true}} {
+		cards, _, err := svc.ListLibrarySeriesCards(t.Context(), lib.ID, 1, 1, series.ID, "", visibility)
+		if err != nil || len(cards) != 0 {
+			t.Fatalf("hidden season references: %+v, %v", cards, err)
+		}
+	}
+}
+
 func TestLibrarySeriesCardsUseSeriesPresentationAndKeepEpisodeTarget(t *testing.T) {
 	db := newServiceTestDB(t, &model.Library{}, &model.Media{}, &model.MediaProbeMetadata{}, &model.MetadataProviderSnapshot{})
 	repos := repository.New(db)

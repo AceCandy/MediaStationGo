@@ -198,6 +198,10 @@ func TestNFOSeriesHierarchyAndStateIsolation(t *testing.T) {
 	if err != nil || len(detailCards) != 1 || len(detailCards[0].Seasons) != 1 || detailCards[0].Seasons[0] != 1 {
 		t.Fatalf("web series seasons=%+v err=%v", detailCards, err)
 	}
+	seasonDetails, err := web.GetMediaSeasonVisible(t.Context(), detailCards[0].SeasonMediaIDs[1], MediaVisibility{IncludeNSFW: true})
+	if err != nil || seasonDetails == nil || seasonDetails.SeasonNum != 1 {
+		t.Fatalf("web season representative=%+v err=%v", seasonDetails, err)
+	}
 	episodes, err := web.ListLibrarySeriesEpisodes(t.Context(), lib.ID, cards[0].Key, nil, MediaVisibility{IncludeNSFW: true})
 	if err != nil || len(episodes) != 4 {
 		t.Fatalf("web episodes=%+v err=%v", episodes, err)

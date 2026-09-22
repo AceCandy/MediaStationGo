@@ -13,6 +13,7 @@ import { LibrarySeasonActions } from './LibrarySeasonActions'
 type LibrarySeriesEpisodesProps = {
   loading: boolean
   selectedEpisodes: { season: number; episodes: Media[] }[]
+  seasonMediaIDs?: Record<number, string>
   selectedSeason: number
   visibleEpisodes: Media[]
   selectedEpisodeID: string
@@ -23,8 +24,8 @@ type LibrarySeriesEpisodesProps = {
   onEpisodeSelect: (media: Media) => void
 }
 
-function SeasonCard({ selectedSeason, visibleEpisodes, active, current = false, onSeasonChange, isAdmin = false, onChanged, revision = 0 }: Pick<LibrarySeriesEpisodesProps, 'selectedSeason' | 'visibleEpisodes' | 'onSeasonChange'> & { active: boolean; current?: boolean; isAdmin?: boolean; onChanged?: () => void; revision?: number }) {
-  const seasonMediaID = visibleEpisodes[0]?.id ?? ''
+function SeasonCard({ selectedSeason, visibleEpisodes, mediaID, active, current = false, onSeasonChange, isAdmin = false, onChanged, revision = 0 }: Pick<LibrarySeriesEpisodesProps, 'selectedSeason' | 'visibleEpisodes' | 'onSeasonChange'> & { mediaID?: string; active: boolean; current?: boolean; isAdmin?: boolean; onChanged?: () => void; revision?: number }) {
+  const seasonMediaID = mediaID || visibleEpisodes[0]?.id || ''
   const [seasonResult, setSeasonResult] = useState<{ mediaID: string; season: Media | null; failed: boolean } | null>(null)
   const [retry, setRetry] = useState(0)
   useEffect(() => {
@@ -39,12 +40,12 @@ function SeasonCard({ selectedSeason, visibleEpisodes, active, current = false, 
   }, [seasonMediaID, retry, revision])
   const currentSeasonResult = seasonResult?.mediaID === seasonMediaID ? seasonResult : null
   const seasonMetadata = currentSeasonResult?.season?.season_num === selectedSeason ? currentSeasonResult.season : null
-  const seasonLabel = visibleEpisodes.every((ep) => ep.episode_num <= 0) ? '未识别季集' : selectedSeason === 0 ? '特别篇' : `第 ${selectedSeason} 季`
+  const seasonLabel = visibleEpisodes.length > 0 && visibleEpisodes.every((ep) => ep.episode_num <= 0) ? '未识别季集' : selectedSeason === 0 ? '特别篇' : `第 ${selectedSeason} 季`
   const seasonTitle = seasonMetadata?.title?.trim() ?? ''
   const genericTitle = /^(?:第\s*[0-9一二三四五六七八九十百零〇两]+\s*季|season[\s._-]*\d+|specials?|特别篇|特別篇)$/i.test(seasonTitle)
   const seasonHeading = seasonTitle && !genericTitle ? `${seasonLabel} · ${seasonTitle}` : seasonLabel
   const tmdbStatus = seasonMetadata?.tmdb_status === 'complete' ? '本地详情和图片完整' : seasonMetadata?.tmdb_status === 'partial' ? '本地数据不完整' : seasonMetadata?.tmdb_id ? '本地未缓存' : '未关联 TMDB 季信息'
-  const poster = seasonMetadata?.poster_url ? <img src={imageURL(seasonMetadata.poster_url, seasonMetadata.updated_at)} alt="" loading="lazy" className="h-full w-full object-cover" referrerPolicy="no-referrer" /> : <span className="p-2 text-center text-xs text-[var(--app-muted)]">{currentSeasonResult ? '暂无季封面' : '加载中…'}</span>
+  const poster = seasonMetadata?.poster_url ? <img src={imageURL(seasonMetadata.poster_url, seasonMetadata.updated_at)} alt="" loading="lazy" className="h-full w-full object-cover" referrerPolicy="no-referrer" /> : <span className="p-2 text-center text-xs text-[var(--app-muted)]">{currentSeasonResult || !seasonMediaID ? '暂无季封面' : '加载中…'}</span>
   const retryButton = currentSeasonResult?.failed && <button type="button" className="btn-ghost min-h-11 text-xs" onClick={() => { setSeasonResult(null); setRetry((value) => value + 1) }}>季资料加载失败，重试</button>
   if (!current) return (
     <div className="relative w-28 shrink-0 -ml-12 first:ml-0 transition-transform duration-200 hover:z-20 hover:-translate-y-1 focus-within:z-20 focus-within:-translate-y-1 motion-reduce:transform-none motion-reduce:transition-none">
@@ -85,7 +86,7 @@ function SeasonCard({ selectedSeason, visibleEpisodes, active, current = false, 
   )
 }
 
-export function LibrarySeriesEpisodes({ loading, selectedEpisodes, selectedSeason, visibleEpisodes, selectedEpisodeID, history, isAdmin, onChanged, onSeasonChange, onEpisodeSelect }: LibrarySeriesEpisodesProps) {
+export function LibrarySeriesEpisodes({ loading, selectedEpisodes, seasonMediaIDs, selectedSeason, visibleEpisodes, selectedEpisodeID, history, isAdmin, onChanged, onSeasonChange, onEpisodeSelect }: LibrarySeriesEpisodesProps) {
   const stripRef = useRef<HTMLDivElement>(null)
   const [posterRevision, setPosterRevision] = useState(0)
   useEffect(() => {
@@ -106,7 +107,7 @@ export function LibrarySeriesEpisodes({ loading, selectedEpisodes, selectedSeaso
         <SeasonCard selectedSeason={selectedSeason} visibleEpisodes={visibleEpisodes} active current isAdmin={isAdmin} onChanged={() => { setPosterRevision(value => value + 1); onChanged() }} onSeasonChange={onSeasonChange} />
         {selectedEpisodes.length > 1 && <div className="isolate order-2 flex min-w-0 overflow-x-auto px-3 py-4" aria-label="完整季列表">
           {selectedEpisodes.map(({ season, episodes }) => (
-            <SeasonCard key={season} selectedSeason={season} visibleEpisodes={episodes} active={season === selectedSeason} revision={posterRevision} onSeasonChange={onSeasonChange} />
+            <SeasonCard key={season} selectedSeason={season} visibleEpisodes={episodes} mediaID={seasonMediaIDs?.[season]} active={season === selectedSeason} revision={posterRevision} onSeasonChange={onSeasonChange} />
           ))}
         </div>}
       </div>

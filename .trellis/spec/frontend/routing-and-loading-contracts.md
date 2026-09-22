@@ -169,6 +169,11 @@ Opening a series deep link with `season` or switching the selected season.
 
 `GET /api/libraries/:id/series/episodes?key=metadata:<id>&season=<non-negative integer>`;
 `season` is optional. A targeted series card may include `seasons: number[]`.
+It also supplies `season_media_ids: Record<number, string>`: one visible file
+per season for the existing `/media/:id/season` metadata request. Season posters
+must use these references even when that season's episode list is empty; do not
+load every season's episodes to recover artwork. Empty, not-yet-loaded episode
+arrays do not mean an unidentified season. A missing reference is not loading.
 Season-scoped episode responses add `resume: HistoryItem | null`, where a
 candidate has `media` (one playable file) and `is_next` for the following episode.
 

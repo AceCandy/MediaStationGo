@@ -177,16 +177,21 @@ func (r *MediaViewRepository) ListLibrarySeriesViewsForSeason(ctx context.Contex
 	return r.listLibrarySeriesViews(ctx, libraryID, metadataID, season, filter)
 }
 
-// ListLibrarySeriesSeasons 返回指定剧集在当前媒体库中可见的季号。
-func (r *MediaViewRepository) ListLibrarySeriesSeasons(ctx context.Context, libraryID, metadataID string, filter MediaQueryFilter) ([]int, error) {
-	var seasons []int
+type LibrarySeriesSeason struct {
+	Season  int
+	MediaID string
+}
+
+// ListLibrarySeriesSeasons 返回可见季及各季的代表文件，仅用于读取季资料，不展开分集。
+func (r *MediaViewRepository) ListLibrarySeriesSeasons(ctx context.Context, libraryID, metadataID string, filter MediaQueryFilter) ([]LibrarySeriesSeason, error) {
+	var seasons []LibrarySeriesSeason
 	if strings.HasPrefix(metadataID, "nfo-") {
 		q := r.nfoViewQuery(ctx, filter).Where("m.library_id = ? AND nw.id = ?", libraryID, strings.TrimPrefix(metadataID, "nfo-"))
-		err := q.Distinct("COALESCE(ns.season_num, 0)").Order("COALESCE(ns.season_num, 0)").Pluck("COALESCE(ns.season_num, 0)", &seasons).Error
+		err := q.Select("COALESCE(ns.season_num, 0) AS season, MIN(m.id) AS media_id").Group("COALESCE(ns.season_num, 0)").Order("season").Scan(&seasons).Error
 		return seasons, err
 	}
 	q := r.libraryMetadataScope(ctx, libraryID, model.MetadataKindSeries, metadataID, filter)
-	err := q.Distinct("COALESCE(season.season_num, mi.season_num, 0)").Order("COALESCE(season.season_num, mi.season_num, 0)").Pluck("COALESCE(season.season_num, mi.season_num, 0)", &seasons).Error
+	err := q.Select("COALESCE(season.season_num, mi.season_num, 0) AS season, COALESCE(MIN(CASE WHEN mi.kind IN ('season', 'episode') THEN m.id END), MIN(m.id)) AS media_id").Group("COALESCE(season.season_num, mi.season_num, 0)").Order("season").Scan(&seasons).Error
 	return seasons, err
 }
 
