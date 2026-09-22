@@ -66,17 +66,18 @@ func TestTaskDefinitionRunHandlerReportsSeriesLocalCorrectionUnavailable(t *test
 	}
 }
 
-func TestScanTaskDetailsKeepsAllChangesAndLimitsOnlyErrors(t *testing.T) {
+func TestScanTaskDetailsOmitsSuccessesAndShowsErrors(t *testing.T) {
 	res := &service.ScanResult{
 		Reconciled: 2,
 		Changes: []service.ScanChange{
 			{Action: service.ScanChangeAdded, Path: "/media/a.strm"},
 			{Action: service.ScanChangeUpdated, Path: "/media/b.strm", Reason: "mtime_ns 变化"},
 		},
-		Errors: []string{"first", "second"},
+		ErrorCount: 2,
+		Errors:     []string{"first", "second"},
 	}
 	details := scanTaskDetails(res, 1)
-	if len(details) != 4 || details[0] != "🧹 纠正 2 条电影库季集脏数据" || details[1] != "➕ 新增 /media/a.strm" || details[2] != "🔄 更新 /media/b.strm（mtime_ns 变化）" || details[3] != "错误: first" {
+	if len(details) != 2 || details[0] != "❌ first" || details[1] != "⚠️ 另有 1 条扫描错误未展开" {
 		t.Fatalf("details = %#v", details)
 	}
 	if got := scanTaskMetrics(res)["reconciled"]; got != 2 {

@@ -213,6 +213,27 @@ func (res *ScanResult) ChangeDetails() []string {
 	return out
 }
 
+// ErrorDetails 返回任务日志使用的脱敏错误明细，不展开成功项。
+func (res *ScanResult) ErrorDetails(limit int) []string {
+	if res == nil || limit <= 0 {
+		return nil
+	}
+	var details []string
+	for _, line := range res.Errors {
+		if line = strings.TrimSpace(line); line == "" {
+			continue
+		}
+		details = append(details, "❌ "+sanitizeTaskLogError(errors.New(line)).Error())
+		if len(details) >= limit {
+			break
+		}
+	}
+	if omitted := res.ErrorCount - len(details); omitted > 0 {
+		details = append(details, fmt.Sprintf("⚠️ 另有 %d 条扫描错误未展开", omitted))
+	}
+	return details
+}
+
 var ErrLocalScanAlreadyRunning = errors.New("local scan already running")
 
 const maxScanErrorDetails = 20

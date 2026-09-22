@@ -68,7 +68,9 @@ func (s *SchedulerService) jobScanLibraries(ctx context.Context) error {
 				metrics["errors"]++
 			}
 			if task != nil {
-				task.Update(TaskUpdate{Stage: "scan", Metrics: metrics, Details: []string{fmt.Sprintf("❌ 媒体库 %s（%s）: 扫描失败: %v", l.Name, l.ID, sanitizeTaskLogError(err))}, DetailsWithoutLevel: true})
+				details := res.ErrorDetails(maxScanErrorDetails)
+				details = append(details, fmt.Sprintf("❌ 媒体库 %s（%s）: 扫描失败: %v", l.Name, l.ID, sanitizeTaskLogError(err)))
+				task.Update(TaskUpdate{Stage: "scan", Metrics: metrics, Details: details, DetailsWithoutLevel: true})
 			}
 			s.log.Warn("scheduled scan failed",
 				zap.String("library", l.ID), zap.Error(err))
@@ -111,7 +113,7 @@ func libraryScanTaskDetail(l model.Library, res *ScanResult) string {
 
 func libraryScanTaskDetails(l model.Library, res *ScanResult) []string {
 	details := []string{libraryScanTaskDetail(l, res)}
-	return append(details, res.ChangeDetails()...)
+	return append(details, res.ErrorDetails(maxScanErrorDetails)...)
 }
 
 // jobOrganizeSource periodically organizes the configured staging/download

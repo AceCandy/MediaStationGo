@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"strings"
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
@@ -197,24 +196,5 @@ func scanTaskMetrics(res *service.ScanResult) map[string]int64 {
 }
 
 func scanTaskDetails(res *service.ScanResult, limit int) []string {
-	if res == nil {
-		return nil
-	}
-	out := res.ChangeDetails()
-	if limit <= 0 {
-		return out
-	}
-	errorCount := 0
-	for _, line := range res.Errors {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		out = append(out, "错误: "+line)
-		errorCount++
-		if errorCount >= limit {
-			return out
-		}
-	}
-	return out
+	return res.ErrorDetails(limit)
 }

@@ -292,7 +292,7 @@ history is observability only; business object state owns retry and recovery.
 - Base: adding a disabled root saves it without starting an event scan.
 - Bad: reuse the manual target for timer-driven runs, or fail a successful save
   because its follow-up scan task could not be created.
-- Good: a scan change is written as `timestamp ➕ 新增 /media/a.strm`.
+- Good: a library scan keeps aggregate metrics and writes `timestamp ❌ /media/a.strm: permission denied`; successful per-file changes are not expanded.
 - Good: enabling a two-hour library scan persists `7200`, resets its live timer,
   and immediately returns a definition whose `schedule_config.enabled` is true.
 - Good: two settled video paths produce one `library_watch` execution with two
@@ -495,8 +495,10 @@ progress, complete probe-document invalidation, or automatic track backfill.
   own ingestion paths. Full scans still skip unchanged ordinary media without
   rereading sidecars; ordinary image-only event refresh is outside this contract.
 - Root start, bounded running progress, root finish, and root failure update the
-  existing scan task. Per-file change details retain at most 200 rows and add an
-  omitted-count summary without changing aggregate metrics.
+  existing scan task. Library scan logs omit successful per-file changes and
+  include sanitized path/error details on both completion and failure paths.
+  Error details retain at most 20 rows and report the omitted count without
+  changing aggregate metrics. Other consumers retain bounded change records.
 - A changed local file deletes its previous complete probe document before the
   media fingerprint update. If deletion fails, that media update is rejected so
   stale tracks are never presented as current.

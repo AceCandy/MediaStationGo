@@ -74,6 +74,7 @@ func TestLibraryScanTaskDetail(t *testing.T) {
 	lib := model.Library{Base: model.Base{ID: "library-1"}, Name: "电影"}
 	result := &ScanResult{
 		Visited: 10, Added: 2, Updated: 3, Reconciled: 2, Removed: 1, Skipped: 4, ErrorCount: 1,
+		Errors: []string{"/media/broken.strm: permission denied"},
 		Changes: []ScanChange{
 			{Action: ScanChangeAdded, Path: "/media/a.strm"},
 			{Action: ScanChangeUpdated, Path: "/media/b.strm", Reason: "mtime_ns 变化：1 → 2"},
@@ -92,13 +93,31 @@ func TestLibraryScanTaskDetail(t *testing.T) {
 	details := libraryScanTaskDetails(lib, result)
 	wantDetails := []string{
 		got,
-		"🧹 纠正 2 条电影库季集脏数据",
-		"➕ 新增 /media/a.strm",
-		"🔄 更新 /media/b.strm（mtime_ns 变化：1 → 2）",
-		"🗑️ 删除 /media/c.strm",
+		"❌ /media/broken.strm: permission denied",
 	}
 	if !slices.Equal(details, wantDetails) {
 		t.Fatalf("details = %#v, want %#v", details, wantDetails)
+	}
+}
+
+func TestScanErrorDetails(t *testing.T) {
+	result := &ScanResult{}
+	for i := 0; i < 23; i++ {
+		addScanError(result, "/media/broken.strm", errors.New("request https://example.test/path?token=secret failed"))
+	}
+	details := result.ErrorDetails(maxScanErrorDetails)
+	if len(details) != 21 || details[20] != "⚠️ 另有 3 条扫描错误未展开" {
+		t.Fatalf("bounded details = %#v", details)
+	}
+	for _, line := range details[:20] {
+		if line != "❌ /media/broken.strm: request [redacted-url] failed" {
+			t.Fatalf("error detail = %q", line)
+		}
+	}
+	for _, empty := range []*ScanResult{nil, {Changes: []ScanChange{{Action: ScanChangeAdded, Path: "/media/ok.strm"}}}} {
+		if got := empty.ErrorDetails(20); len(got) != 0 {
+			t.Fatalf("successful scan details = %#v", got)
+		}
 	}
 }
 
