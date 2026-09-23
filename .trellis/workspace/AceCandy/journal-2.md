@@ -1497,3 +1497,25 @@ Scope series detail episodes to the selected season while preserving cross-seaso
 ### Next Steps
 
 - 部署后重试原失败记录并核对线上结果；未执行全量测试。
+
+
+## Session 151: 统一红果媒体库展示
+<!-- trellis-session: v=2 fp=f8011df9f09786dd -->
+
+**Date**: 2026-09-24
+**Task**: 统一红果媒体库展示
+**Branch**: `main`
+
+### Summary
+
+红果媒体库复用普通剧集卡片与详情，统一第一季主体资料并保留各季和来源状态；补齐版本、收藏、历史、旧链接适配及电影路由保护。隔离 PostgreSQL 定向回归、Web lint/build、共享剧集检查和浏览器双主题响应式验证通过；测试服务和临时截图已清理，未部署或实测真实媒体播放。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `9a3fbac` | fix: unify hongguo library presentation |
+
+### Status
+
+[OK] **Completed**
