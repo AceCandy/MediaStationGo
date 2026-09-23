@@ -113,7 +113,7 @@ func (r *NFORepository) Ingest(ctx context.Context, media *model.Media, input *N
 				if artwork.Asset == nil || artwork.ItemIndex < 0 || artwork.ItemIndex >= len(input.Items) {
 					return errors.New("本地图片资产无效")
 				}
-				if err := tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "sha256"}}, DoNothing: true}).Create(artwork.Asset).Error; err != nil {
+				if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(artwork.Asset).Error; err != nil {
 					return err
 				}
 				var saved model.ArtworkAsset

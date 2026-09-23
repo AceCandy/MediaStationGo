@@ -65,6 +65,25 @@ Correct: use Responses for People translation without tools; reserve `web_search
 
 ## Query Patterns
 
+### Concurrent Artwork Asset Reuse
+
+`ArtworkRepository`'s five asset writers and `NFORepository.Ingest` share
+`artwork_assets`, whose `sha256` and `storage_key` are both unique. Use
+`clause.OnConflict{DoNothing: true}` without a conflict target, then reload
+the asset by SHA-256 in the same transaction before saving any association.
+`ON CONFLICT (sha256) DO NOTHING` can still raise `23505` on the storage-key
+index during concurrent insertion of identical images. Keep both indexes;
+do not overwrite the existing asset or substitute a pre-insert existence check.
+
+Identical content must reuse one asset across independent metadata and NFO
+associations. A conflict without a matching SHA-256 must remain an error and
+roll back the association, never select an asset by storage key alone.
+`TestArtworkAssetConcurrentReuse` exercises all six writers with independent
+PostgreSQL connections over repeated synchronized starts, checking shared IDs,
+selection/candidate/NFO links, unchanged asset attributes, and invalid-conflict
+rollback. Configure each connection's isolated schema explicitly; the default
+test connection pool of one cannot exercise concurrent database writes.
+
 ### Hard-Delete Tables in Hand-Written SQL
 
 Models embedding `PermanentBase` have no `deleted_at` column. Before adding a

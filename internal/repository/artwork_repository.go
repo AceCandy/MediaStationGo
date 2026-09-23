@@ -80,10 +80,7 @@ const tmdbArtworkRecheckHasMediaSQL = `EXISTS (
 func (r *ArtworkRepository) SaveSelection(ctx context.Context, metadataID, artworkType, sourceProvider, sourceURL string, asset *model.ArtworkAsset) (*model.ArtworkAsset, error) {
 	var saved model.ArtworkAsset
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := tx.Clauses(clause.OnConflict{
-			Columns:   []clause.Column{{Name: "sha256"}},
-			DoNothing: true,
-		}).Create(asset).Error; err != nil {
+		if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(asset).Error; err != nil {
 			return err
 		}
 		if err := tx.Where("sha256 = ?", asset.SHA256).First(&saved).Error; err != nil {
@@ -112,7 +109,7 @@ func (r *ArtworkRepository) SaveCatalogSelection(ctx context.Context, metadataID
 	var saved model.ArtworkAsset
 	selected := false
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "sha256"}}, DoNothing: true}).Create(asset).Error; err != nil {
+		if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(asset).Error; err != nil {
 			return err
 		}
 		if err := tx.Where("sha256 = ?", asset.SHA256).First(&saved).Error; err != nil {
@@ -151,7 +148,7 @@ func (r *ArtworkRepository) SaveCandidate(ctx context.Context, metadataID, artwo
 	var saved model.ArtworkAsset
 	promoted := false
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "sha256"}}, DoNothing: true}).Create(asset).Error; err != nil {
+		if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(asset).Error; err != nil {
 			return err
 		}
 		if err := tx.Where("sha256 = ?", asset.SHA256).First(&saved).Error; err != nil {
@@ -379,7 +376,7 @@ func (r *ArtworkRepository) RepairTMDbSelection(ctx context.Context, snapshot TM
 	var saved model.ArtworkAsset
 	updated := false
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "sha256"}}, DoNothing: true}).Create(asset).Error; err != nil {
+		if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(asset).Error; err != nil {
 			return err
 		}
 		if err := tx.Where("sha256 = ?", asset.SHA256).First(&saved).Error; err != nil {
@@ -409,7 +406,7 @@ func (r *ArtworkRepository) RepairDoubanCandidate(ctx context.Context, snapshot 
 	var saved model.ArtworkAsset
 	updated := false
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "sha256"}}, DoNothing: true}).Create(asset).Error; err != nil {
+		if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(asset).Error; err != nil {
 			return err
 		}
 		if err := tx.Where("sha256 = ?", asset.SHA256).First(&saved).Error; err != nil {
