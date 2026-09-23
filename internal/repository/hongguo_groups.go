@@ -13,7 +13,7 @@ import (
 
 // HongGuoAlbumJoin 为作品别名 w 投影官方合集 g；标题取最早已收录季，不按标题推断关系。
 const HongGuoAlbumJoin = `LEFT JOIN LATERAL (
- SELECT aw.related_album_id AS id, aw.title FROM hongguo_works aw
+ SELECT aw.related_album_id AS id, aw.id AS work_id, aw.title FROM hongguo_works aw
  WHERE w.kind = 'series' AND w.related_album_id <> '' AND w.season_index > 0
  AND aw.related_album_id = w.related_album_id AND aw.kind = 'series' AND aw.season_index > 0
  ORDER BY aw.season_index, aw.source_id LIMIT 1

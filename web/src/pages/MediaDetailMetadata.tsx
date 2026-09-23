@@ -115,7 +115,7 @@ export function MediaDetailMetadata({ media, selectedMedia, scope, isAdmin, favo
               </span>
             )}
           </div>}
-          {(tmdbHref || missingTMDbEpisode || !isEpisode) && <div className="flex flex-wrap items-center gap-2.5">
+          {media.catalog_source !== 'hongguo' && (tmdbHref || missingTMDbEpisode || !isEpisode) && <div className="flex flex-wrap items-center gap-2.5">
             {(tmdbHref || missingTMDbEpisode) && (
               <ProviderBadge
                 href={tmdbHref ?? undefined}

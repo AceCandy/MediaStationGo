@@ -455,6 +455,14 @@ func (r *MediaViewRepository) FindSeriesPresentation(ctx context.Context, metada
 
 // FindSeasonPresentation 读取季自身的资料与图片；调用方必须先验证所属文件可见性。
 func (r *MediaViewRepository) FindSeasonPresentation(ctx context.Context, metadataID string, includeNSFW bool) (*model.MediaView, error) {
+	if strings.HasPrefix(metadataID, "hg-season-") {
+		rows, err := r.hongGuoPresentations(ctx, []string{metadataID}, true)
+		view, ok := rows[metadataID]
+		if err != nil || !ok {
+			return nil, err
+		}
+		return &view, nil
+	}
 	if strings.HasPrefix(metadataID, "nfo-") {
 		return r.NFOPresentation(ctx, metadataID, includeNSFW)
 	}
@@ -476,8 +484,11 @@ func (r *MediaViewRepository) FindSeasonPresentation(ctx context.Context, metada
 func (r *MediaViewRepository) FindSeriesPresentations(ctx context.Context, metadataIDs []string, includeNSFW bool) (map[string]model.MediaView, error) {
 	out := make(map[string]model.MediaView)
 	ordinaryIDs := make([]string, 0, len(metadataIDs))
+	hongGuoIDs := []string{}
 	for _, id := range metadataIDs {
-		if strings.HasPrefix(id, "nfo-") {
+		if strings.HasPrefix(id, "hg-") {
+			hongGuoIDs = append(hongGuoIDs, id)
+		} else if strings.HasPrefix(id, "nfo-") {
 			view, err := r.NFOPresentation(ctx, id, includeNSFW)
 			if err != nil {
 				return nil, err
@@ -488,6 +499,13 @@ func (r *MediaViewRepository) FindSeriesPresentations(ctx context.Context, metad
 		} else {
 			ordinaryIDs = append(ordinaryIDs, id)
 		}
+	}
+	sourceViews, err := r.hongGuoPresentations(ctx, hongGuoIDs, false)
+	if err != nil {
+		return nil, err
+	}
+	for id, view := range sourceViews {
+		out[id] = view
 	}
 	metadataIDs = ordinaryIDs
 	if len(metadataIDs) == 0 {

@@ -1,0 +1,2 @@
+{"file":".trellis/spec/backend/playback-contracts.md","reason":"Independent state, visible episodes and continuation"}
+{"file":".trellis/spec/frontend/routing-and-loading-contracts.md","reason":"Scoped season loading, legacy links and responsive checks"}

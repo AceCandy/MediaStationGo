@@ -60,8 +60,10 @@ export function LibraryMediaSections({
             <MediaCard
               key={series.key}
               media={series.rep}
-              count={series.count}
-              onClick={() => onSeriesClick(series)}
+              count={series.rep.catalog_source === 'hongguo' && !series.rep.series_id ? undefined : series.count}
+              onClick={series.rep.catalog_source === 'hongguo' && !series.rep.series_id ? undefined : () => onSeriesClick(series)}
+              linkTo={series.rep.catalog_source === 'hongguo' && !series.rep.series_id ? `/media/${series.rep.id}` : undefined}
+              linkState={{ from: detailFrom }}
               staggerIndex={index}
             />
           ))}

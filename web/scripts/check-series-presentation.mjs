@@ -131,6 +131,10 @@ assert.ok(episode.indexOf('Synopsis sentinel') < episode.indexOf('媒体信息')
 assert.match(episode, /md:col-start-2/, 'episode metadata has a desktop right column')
 episodeMedia = { ...episodeMedia, backdrop_url: '' }
 assert.match(renderToStaticMarkup(createElement(EpisodeDetail, episodeProps)), /暂无剧照/, 'missing artwork has an explicit fallback')
+episodeMedia = { ...episodeMedia, catalog_source: 'hongguo', metadata_kind: 'episode', overview: '', release_date: '' }
+const hongguoEpisode = renderToStaticMarkup(createElement(EpisodeDetail, { ...episodeProps, isAdmin: true }))
+assert.match(hongguoEpisode, /暂无剧照/, 'HongGuo uses the same missing-artwork fallback')
+assert.doesNotMatch(hongguoEpisode, /编辑元数据|刷新tmdb信息|未获取到 TMDB|douban.svg|Synopsis sentinel/, 'source episodes do not invent metadata or offer unsupported writers')
 episodeMedia = { ...episodeMedia, id: 'stale-file' }
 assert.doesNotMatch(renderToStaticMarkup(createElement(EpisodeDetail, episodeProps)), /Synopsis sentinel/, 'stale file metadata stays hidden')
 let seasonResponse = null
@@ -221,4 +225,8 @@ for (const [status, label] of [['missing', '本地未缓存'], ['partial', '本�
 }
 seasonResponse = { mediaID: media.id, season: { title: '番外故事', season_num: 0 }, failed: false }
 assert.match(renderToStaticMarkup(createElement(Episodes, { ...seasonProps, selectedSeason: 0, selectedEpisodes: [{ season: 0, episodes: [firstEpisode] }] })), /特别篇 · 番外故事/)
+seasonResponse = { mediaID: media.id, season: { title: '红果季资料', catalog_source: 'hongguo', season_num: 1, overview: '来源季简介' }, failed: false }
+const hongguoSeason = renderToStaticMarkup(createElement(Episodes, { ...seasonProps, isAdmin: true }))
+assert.match(hongguoSeason, /来源季简介/)
+assert.doesNotMatch(hongguoSeason, /整季更多操作|未关联 TMDB/, 'HongGuo seasons retain presentation without canonical metadata writers')
 console.log('Series playback order, expanded metadata and read-only tracks checks passed')

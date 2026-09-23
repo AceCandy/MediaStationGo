@@ -24,6 +24,16 @@ func (s *MediaService) ListMetadataCredits(ctx context.Context, metadataID strin
 	if metadataID == "" {
 		return credits, nil
 	}
+	if strings.HasPrefix(metadataID, "hongguo:") {
+		err := s.repo.DB.WithContext(ctx).Table("hongguo_credits c").
+			Joins("JOIN hongguo_works w ON w.id = c.work_id").
+			Joins("JOIN hongguo_people p ON p.id = c.person_id").
+			Joins("LEFT JOIN hongguo_artworks a ON a.person_id = p.id AND a.local_key <> ''").
+			Where("w.source_id = ?", strings.TrimPrefix(metadataID, "hongguo:")).
+			Select("p.id AS person_id,p.name,c.subtitle AS role,'' AS type,CASE WHEN a.id IS NULL THEN '' ELSE '/api/catalogs/hongguo/artwork/' || a.id END AS profile_url").
+			Order("c.sort_order,c.id").Limit(200).Scan(&credits).Error
+		return credits, err
+	}
 	if strings.HasPrefix(metadataID, "nfo-") {
 		var item model.NFOItem
 		if err := s.repo.DB.WithContext(ctx).First(&item, "id = ?", strings.TrimPrefix(metadataID, "nfo-")).Error; err != nil {

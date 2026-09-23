@@ -68,11 +68,11 @@ function SeasonCard({ selectedSeason, visibleEpisodes, mediaID, active, current 
           {seasonMetadata && <div className="flex flex-wrap items-center gap-2 text-xs text-[var(--app-subtle)]">
             <span className="inline-flex items-center gap-1 rounded-lg bg-[var(--app-hover)] px-2 py-1.5" aria-label={`评分 ${seasonMetadata.rating > 0 ? seasonMetadata.rating.toFixed(1) : '暂无'}`}><Star size={14} className="text-gold-500" aria-hidden="true" />{seasonMetadata.rating > 0 ? seasonMetadata.rating.toFixed(1) : '暂无'}</span>
             {seasonMetadata.release_date && <span className="inline-flex items-center gap-1 rounded-lg bg-[var(--app-hover)] px-2 py-1.5" title="首播时间"><Calendar size={14} aria-hidden="true" />{seasonMetadata.release_date}</span>}
-            {seasonMetadata.series_tmdb_id ? <a className="inline-flex min-h-9 items-center gap-1 rounded-lg border border-[var(--app-border)] px-2 hover:border-brand-500" title={`TMDB：${tmdbStatus}`} aria-label={`TMDB：${tmdbStatus}，查看季页面`} href={`https://www.themoviedb.org/tv/${seasonMetadata.series_tmdb_id}/season/${selectedSeason}`} target="_blank" rel="noopener noreferrer">{providerBadge}</a> : <span className="inline-flex items-center gap-1 px-2" title={`TMDB：${tmdbStatus}`}>{providerBadge}</span>}
+            {seasonMetadata.catalog_source !== 'hongguo' && (seasonMetadata.series_tmdb_id ? <a className="inline-flex min-h-9 items-center gap-1 rounded-lg border border-[var(--app-border)] px-2 hover:border-brand-500" title={`TMDB：${tmdbStatus}`} aria-label={`TMDB：${tmdbStatus}，查看季页面`} href={`https://www.themoviedb.org/tv/${seasonMetadata.series_tmdb_id}/season/${selectedSeason}`} target="_blank" rel="noopener noreferrer">{providerBadge}</a> : <span className="inline-flex items-center gap-1 px-2" title={`TMDB：${tmdbStatus}`}>{providerBadge}</span>)}
           </div>}
           {seasonMetadata?.genres && <p className="text-xs text-[var(--app-muted)]">{seasonMetadata.genres}</p>}
           {retryButton}
-          {isAdmin && seasonMetadata && <LibrarySeasonActions key={seasonMediaID} season={seasonMetadata} mediaID={seasonMediaID} episodes={visibleEpisodes} onChanged={async () => {
+          {isAdmin && seasonMetadata && seasonMetadata.catalog_source !== 'hongguo' && <LibrarySeasonActions key={seasonMediaID} season={seasonMetadata} mediaID={seasonMediaID} episodes={visibleEpisodes} onChanged={async () => {
             const season = await mediaAPI.season(seasonMediaID)
             setSeasonResult({ mediaID: seasonMediaID, season, failed: false })
             onChanged?.()

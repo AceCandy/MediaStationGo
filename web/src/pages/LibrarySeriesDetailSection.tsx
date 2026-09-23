@@ -51,7 +51,12 @@ export function LibrarySeriesDetailSection({ selectedSeries, selectedEpisodes, a
   useEffect(() => {
     if (!selectedSeries || !season || !episodeID || loadingEpisodes) return
     const next = new URLSearchParams(params)
-    if (params.get('series_id')) {
+    if (params.has('hongguo_id') && selectedSeries.rep.series_id) {
+      next.set('series_id', selectedSeries.rep.series_id)
+      next.delete('series')
+      next.delete('hongguo_id')
+      next.delete('media_page')
+    } else if (params.get('series_id')) {
       next.set('series_id', params.get('series_id')!)
       next.delete('series')
     } else next.set('series', selectedSeries.key)

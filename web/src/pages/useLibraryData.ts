@@ -18,7 +18,8 @@ export function useLibraryData(libraryID: string, filters: LibraryMediaFilters) 
   const sessionVersion = useAuthStore((state) => state.sessionVersion)
   const profileID = usePlayProfileStore((state) => state.activeProfileId)
   const seriesID = searchParams.get('series_id') || ''
-  const seriesKey = seriesID ? '' : searchParams.get('series') || ''
+  const legacySourceID = searchParams.get('hongguo_id') || ''
+  const seriesKey = seriesID ? '' : searchParams.get('series') || (legacySourceID ? `hongguo:${legacySourceID}` : '')
   const rawSeason = searchParams.get('season')
   const requestedSeason = rawSeason !== null && /^\d+$/.test(rawSeason) ? Number(rawSeason) : undefined
   const target = `${sessionVersion}:${userID}:${profileID}:${libraryID}:${seriesID}:${seriesKey}`
@@ -41,7 +42,7 @@ export function useLibraryData(libraryID: string, filters: LibraryMediaFilters) 
   const loadVersionRef = useRef(0)
   const loadMoreController = useRef<AbortController | null>(null)
 
-  const isSeriesLibrary = isSeriesLibraryType(library?.type)
+  const isSeriesLibrary = isSeriesLibraryType(library?.type) || library?.type === 'hongguo'
   const episodeKey = seriesID ? `metadata:${seriesID}` : seriesKey
   const isSeriesDetail = isSeriesLibrary && !!episodeKey
   const hasEpisodicItems = useMemo(() => items.some(isEpisodeLike), [items])
@@ -108,7 +109,7 @@ export function useLibraryData(libraryID: string, filters: LibraryMediaFilters) 
     setItems([])
     setServerSeriesCards([])
 
-    if (isSeriesDetail || library.type === 'hongguo') {
+    if (isSeriesDetail) {
       setLoading(false)
       return
     }

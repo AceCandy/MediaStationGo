@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { useLocation, useParams, useSearchParams } from 'react-router-dom'
+import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import toast from 'react-hot-toast'
 
@@ -14,12 +14,12 @@ import { LibrarySeriesDetailSection } from './LibrarySeriesDetailSection'
 import { useLibraryData } from './useLibraryData'
 import { useLibrarySeriesSelection } from './useLibrarySeriesSelection'
 import { useLibraryAdminActions } from './useLibraryAdminActions'
-import { HongGuoLibraryView } from './HongGuoPage'
 
 export function LibraryPage() {
   const { id = '' } = useParams()
   const [searchParams, setSearchParams] = useSearchParams()
   const location = useLocation()
+  const navigate = useNavigate()
   const role = useAuthStore((s) => s.user?.role)
 
   const [seriesMetadataEditOpen, setSeriesMetadataEditOpen] = useState(false)
@@ -126,7 +126,14 @@ export function LibraryPage() {
     clearSelectedSeries,
   })
 
-  if (library?.type === 'hongguo') return <HongGuoLibraryView key={library.id} libraryID={library.id} title={library.name} />
+  useEffect(() => {
+    if (selectedSeries?.rep.catalog_source === 'hongguo' && !selectedSeries.rep.series_id) {
+      navigate(`/media/${selectedSeries.rep.id}`, { replace: true, state: { from: `/library/${id}` } })
+    }
+  }, [selectedSeries, navigate, id])
+
+  // 电影转入文件详情时，不挂载会同步季集 URL 的剧集详情。
+  if (selectedSeries?.rep.catalog_source === 'hongguo' && !selectedSeries.rep.series_id) return null
 
   if (loading) {
     return (
@@ -139,7 +146,7 @@ export function LibraryPage() {
     )
   }
 
-  if ((searchParams.has('series_id') || searchParams.has('series')) && !selectedSeries) {
+  if ((searchParams.has('series_id') || searchParams.has('series') || searchParams.has('hongguo_id')) && !selectedSeries) {
     return <div className="space-y-4 rounded-2xl border border-[var(--app-border)] p-6"><p role="status" className="text-[var(--app-muted)]">剧集不存在、加载失败或当前账号无权查看。</p><div className="flex gap-3"><button className="btn-outline" onClick={reloadCurrentLibrary}>重试</button><button className="btn-ghost" onClick={clearSelectedSeries}>返回媒体库</button></div></div>
   }
 

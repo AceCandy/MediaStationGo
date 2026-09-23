@@ -132,7 +132,9 @@ func listLibrarySeriesEpisodesHandler(svc *service.Container) gin.HandlerFunc {
 		}
 		ids := make([]string, 0, len(items))
 		for _, item := range items {
-			if item.CatalogSource == "nfo" {
+			if item.CatalogSource == "hongguo" {
+				ids = append(ids, item.CatalogItemID)
+			} else if item.CatalogSource == "nfo" {
 				ids = append(ids, "nfo-"+item.LookupCatalogID)
 			} else {
 				ids = append(ids, item.MetadataID)

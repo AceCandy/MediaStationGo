@@ -1,8 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { hongguoAPI, type HongGuoListWork, type HongGuoLibraryCard } from '../api/hongguo'
+import { hongguoAPI, type HongGuoListWork } from '../api/hongguo'
 import { HongGuoDetailModal } from './HongGuoDetailModal'
-import { HongGuoLibraryDetail } from './HongGuoLibraryDetail'
 import { Film, RefreshCw, Search } from 'lucide-react'
 import { imageURL } from '../api/client'
 import { useMediaAccessKey } from '../hooks/useMediaAccessKey'
@@ -31,42 +30,6 @@ const hongGuoRanks = [
 ] as const
 type HongGuoRank = typeof hongGuoRanks[number]['value']
 type HongGuoSourceCategory = typeof hongGuoSourceCategories[number]['value']
-
-export function HongGuoLibraryView({ libraryID, title }: { libraryID: string; title: string }) {
-  const accessKey = useMediaAccessKey()
-  return <HongGuoLibraryContent key={`${libraryID}:${accessKey}`} libraryID={libraryID} title={title} />
-}
-
-function HongGuoLibraryContent({ libraryID, title }: { libraryID: string; title: string }) {
-  const [params, setParams] = useSearchParams()
-  const sourceID = params.get('hongguo_id') ?? ''
-  const rawPage = Number(params.get('page') ?? 1)
-  const page = Number.isInteger(rawPage) && rawPage > 0 && rawPage <= 1000000 ? rawPage : 1
-  const [data, setData] = useState<{ page: number; items: HongGuoLibraryCard[]; total: number } | null>(null)
-  const [error, setError] = useState(false)
-  const [retry, setRetry] = useState(0)
-  useEffect(() => {
-    if (rawPage === page && params.getAll('page').length <= 1) return
-    const next = new URLSearchParams(params); next.set('page', String(page)); setParams(next, { replace: true })
-  }, [params, setParams, rawPage, page])
-  useEffect(() => {
-    if (sourceID) return
-    const controller = new AbortController(); setError(false)
-    void hongguoAPI.library(libraryID, page, controller.signal).then((result) => { if (!controller.signal.aborted) setData({ ...result, page }) }).catch(() => { if (!controller.signal.aborted) setError(true) })
-    return () => controller.abort()
-  }, [libraryID, page, retry, sourceID])
-  const goPage = (value: number) => { const next = new URLSearchParams(params); next.set('page', String(value)); setParams(next) }
-  if (sourceID) return <HongGuoLibraryDetail key={sourceID} sourceID={sourceID} onClose={() => { const next = new URLSearchParams(params); next.delete('hongguo_id'); next.delete('media_page'); setParams(next) }} />
-  return <section className="space-y-5"><header><h1 className="font-display text-3xl font-bold">{title}</h1><p className="text-sm text-ink-50">红果短剧 · 已匹配媒体 · 按人工聚合展示</p></header>
-    {error ? <p role="alert">媒体库读取失败 <button className="btn-outline" onClick={() => setRetry((v) => v + 1)}>重试</button></p> : data?.page !== page ? <p role="status">加载中…</p> : <>
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">{data.items.map((item) => <button key={item.id} className="card overflow-hidden text-left" onClick={() => { const next = new URLSearchParams(params); next.set('hongguo_id', item.source_id); next.delete('media_page'); setParams(next) }}>
-        {item.artwork_id && <img className="aspect-[2/3] w-full object-cover" loading="lazy" src={imageURL(hongguoAPI.artwork(item.artwork_id))} alt={`${item.title}海报`} />}<div className="p-3"><h2 className="font-semibold">{item.title}</h2><p className="text-sm text-ink-50">{item.kind === 'movie' ? '电影' : '剧集'}</p></div>
-      </button>)}</div>
-      {data.items.length === 0 && <p>暂无已匹配媒体。请先导入红果资料，并使用来源 ID 扫描本地文件或 STRM。</p>}
-      <div className="flex items-center gap-3"><button className="btn-outline" disabled={page <= 1} onClick={() => goPage(page - 1)}>上一页</button><span>第 {page} 页 · 共 {data.total} 项</span><button className="btn-outline" disabled={page * 50 >= data.total} onClick={() => goPage(page + 1)}>下一页</button></div>
-    </>}
-  </section>
-}
 
 export function HongGuoPage() {
   const accessKey = useMediaAccessKey()

@@ -38,6 +38,8 @@ func listMediaCreditsHandler(svc *service.Container) gin.HandlerFunc {
 		identity := m.MetadataID
 		if m.CatalogSource == "nfo" {
 			identity = m.CatalogItemID
+		} else if m.CatalogSource == "hongguo" {
+			identity = "hongguo:" + m.LookupCatalogID
 		}
 		credits, err := svc.Media.ListMetadataCredits(c.Request.Context(), identity)
 		if err != nil {

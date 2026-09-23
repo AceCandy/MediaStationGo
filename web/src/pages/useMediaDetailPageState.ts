@@ -5,6 +5,7 @@ import toast from 'react-hot-toast'
 import { api, LONG_REQUEST_TIMEOUT } from '../api/client'
 import { mediaAPI } from '../api/library'
 import { playbackAPI } from '../api/playback'
+import { hongguoAPI } from '../api/hongguo'
 import { confirmAction } from '../components/confirmAction'
 import type { Media } from '../types'
 import { mediaLibraryBackTarget } from './MediaDetailPageModel'
@@ -180,7 +181,9 @@ function useMediaDetailRefresh({
       if (requestGeneration !== generation.current) return null
       setMedia(nextMedia)
       setLoading(false)
-      void playbackAPI.favouriteStatus(nextMedia.id)
+      void (nextMedia.catalog_source === 'hongguo' && nextMedia.lookup_catalog_id
+        ? hongguoAPI.favorite(nextMedia.lookup_catalog_id)
+        : playbackAPI.favouriteStatus(nextMedia.id))
         .then((state) => {
           if (requestGeneration === generation.current) setFavourite(state)
         })
@@ -268,7 +271,10 @@ async function toggleMediaFavourite(
   setFavourite: Dispatch<SetStateAction<boolean>>,
 ): Promise<void> {
   if (!media) return
-  const state = await playbackAPI.toggleFavourite(media.id)
+  const state = media.catalog_source === 'hongguo' && media.lookup_catalog_id
+    ? !(await hongguoAPI.favorite(media.lookup_catalog_id))
+    : await playbackAPI.toggleFavourite(media.id)
+  if (media.catalog_source === 'hongguo' && media.lookup_catalog_id) await hongguoAPI.setFavorite(media.lookup_catalog_id, state)
   setFavourite(state)
   toast.success(state ? '已加入我的收藏' : '已取消收藏')
 }

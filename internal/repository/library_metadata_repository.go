@@ -85,6 +85,9 @@ func (r *MediaViewRepository) ListLibraryMetadataPage(ctx context.Context, libra
 	if library.Type == model.LibraryTypeNFOMovie || library.Type == model.LibraryTypeNFOTV {
 		return r.nfoLibraryPage(ctx, libraryID, kind, metadataID, offset, limit, filter)
 	}
+	if library.Type == model.LibraryTypeHongGuo {
+		return r.hongGuoLibraryPage(ctx, libraryID, metadataID, offset, limit, filter)
+	}
 	query := func() *gorm.DB { return r.libraryMetadataScope(ctx, libraryID, kind, metadataID, filter) }
 	var total int64
 	var summaries []LibraryMetadataSummary
@@ -185,6 +188,12 @@ type LibrarySeriesSeason struct {
 // ListLibrarySeriesSeasons 返回可见季及各季的代表文件，仅用于读取季资料，不展开分集。
 func (r *MediaViewRepository) ListLibrarySeriesSeasons(ctx context.Context, libraryID, metadataID string, filter MediaQueryFilter) ([]LibrarySeriesSeason, error) {
 	var seasons []LibrarySeriesSeason
+	if strings.HasPrefix(metadataID, "hg-") {
+		err := r.hongGuoSeriesScope(ctx, libraryID, metadataID, filter).
+			Select(hongGuoSeasonNumber + " AS season, (ARRAY_AGG(m.id ORDER BY w.source_id,m.episode_num,m.id))[1] AS media_id").
+			Group(hongGuoSeasonNumber).Order("season").Scan(&seasons).Error
+		return seasons, err
+	}
 	if strings.HasPrefix(metadataID, "nfo-") {
 		q := r.nfoViewQuery(ctx, filter).Where("m.library_id = ? AND nw.id = ?", libraryID, strings.TrimPrefix(metadataID, "nfo-"))
 		err := q.Select("COALESCE(ns.season_num, 0) AS season, MIN(m.id) AS media_id").Group("COALESCE(ns.season_num, 0)").Order("season").Scan(&seasons).Error
@@ -196,6 +205,17 @@ func (r *MediaViewRepository) ListLibrarySeriesSeasons(ctx context.Context, libr
 }
 
 func (r *MediaViewRepository) listLibrarySeriesViews(ctx context.Context, libraryID, metadataID string, season *int, filter MediaQueryFilter) ([]model.MediaView, error) {
+	if strings.HasPrefix(metadataID, "hg-") {
+		q := r.hongGuoSeriesScope(ctx, libraryID, metadataID, filter)
+		if season != nil {
+			q = q.Where(hongGuoSeasonNumber+" = ?", *season)
+		}
+		var ids []string
+		if err := q.Order(hongGuoSeasonNumber+",w.source_id,m.episode_num,m.id").Pluck("m.id", &ids).Error; err != nil {
+			return nil, err
+		}
+		return r.FindByIDs(ctx, ids, filter)
+	}
 	if strings.HasPrefix(metadataID, "nfo-") {
 		q := r.nfoViewQuery(ctx, filter).Where("m.library_id = ? AND nw.id = ?", libraryID, strings.TrimPrefix(metadataID, "nfo-"))
 		if season != nil {

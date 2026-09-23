@@ -507,6 +507,68 @@ Wrong: derive `source_category` from hydrated detail tags.
 Correct: persist the category used by `Client.Category` on the discovery row and
 carry it by source ID when the authoritative detail becomes a work.
 
+## Scenario: Shared Web library presentation
+
+### 1. Scope / Trigger
+
+HongGuo library cards and details reuse ordinary series/file components. Catalog
+isolation is a storage/state boundary, not a reason for a separate reduced UI.
+
+### 2. Signatures
+
+Use `GET /api/libraries/:id/series`, `/series/episodes?key=metadata:<hg-id>&season=N`,
+and `/api/media/:fileID/{series,season,versions,credits}`. Series favorites use
+`PUT /api/media/:fileID/series/favorite` with `{favourite:boolean}`. Legacy
+`hongguo_id=<sourceID>` resolves through `key=hongguo:<sourceID>` within that library.
+
+### 3. Contracts
+
+`MediaCard` and `LibrarySeriesDetailSection` consume the existing response shapes.
+Every whole-series field (title, overview, rating, tags, poster, credits) comes
+from the first stored official season, ordered by season index then source ID.
+This does not require a playable file for that season. If season 1 is not stored,
+use the earliest stored season. Do not mix another season's richer fields into it.
+Season details retain their own work metadata; missing season posters stay empty.
+Missing episode overview/still/release date stays empty and uses ordinary UI rules.
+Never claim `first_visible_at` is a release date or create metadata surrogates.
+
+Filter files by library/profile visibility before grouping and pagination. Count
+distinct episode identities, not files. Duplicate official season numbers retain
+distinct `catalog_item_id` values; alternate files retain a shared episode identity.
+Playback and favorites keep source/user keys. Whole-series favorites affect only
+visible member sources; movies use the existing source favorite API. Disable old
+metadata editing and TMDb/Douban controls for HongGuo while retaining file operations.
+
+### 4. Validation & Error Matrix
+
+Visible file without discovery permission -> shared detail/credits/state permitted.
+Invisible file or locked profile -> 404 and no state mutation. Unknown legacy
+source in the requested library -> empty card result. Empty library -> empty page.
+
+### 5. Good / Base / Bad Cases
+
+Good: only season 2 has files, but stored season 1 owns the series header. Base:
+standalone work is season 1; a movie uses `/media/:fileID`. Bad: missing episode
+stills select a different detail layout, or two versions inflate episode count.
+
+### 6. Tests Required
+
+`TestHongGuoLibrarySeriesPresentation` covers first-season fields/credits without
+files, own-season blanks, duplicate seasons/versions, scoped pagination/filtering,
+history/favorites/user isolation, cross-season resume, legacy links and movies.
+`TestHongGuoHTTPAccessAndStateIsolation` verifies shared details without discovery
+permission and locked-profile read/write rejection. Run with isolated PostgreSQL.
+`check-series-loading.mjs`, `check-series-presentation.mjs` and
+`check-hongguo-discover.mjs` cover common loaders, missing fields, unsupported
+controls, switching/restoring seasons/versions, old links and dual-theme layouts.
+
+### 7. Wrong vs Correct
+
+Wrong: add a HongGuo-only card/detail tree because episode fields are sparse.
+Correct: adapt read projections to the common components and leave absent fields
+absent. API mocks must register child routes before a bare parent URL: the browser
+mock matcher can match URL prefixes and otherwise hide the child response.
+
 ## Scenario: 管理员下载与外部备份交接
 
 ### 1. Scope / Trigger

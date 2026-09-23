@@ -72,6 +72,50 @@ func TestHongGuoHTTPAccessAndStateIsolation(t *testing.T) {
 	registerAdminRoutes(router.Group("/api"), &config.Config{Secrets: config.SecretsConfig{JWTSecret: "hongguo-http-test"}}, svc)
 	registerHongGuoRoutes(router.Group("/api", middleware.AuthRequired("hongguo-http-test")), svc)
 	router.GET("/api/stream/:id", middleware.AuthRequired("hongguo-http-test"), streamHandler(svc))
+	mediaRoutes := router.Group("/api/media", middleware.AuthRequired("hongguo-http-test"))
+	mediaRoutes.GET("/:id/series", getMediaSeriesHandler(svc))
+	mediaRoutes.PUT("/:id/series/favorite", setMediaSeriesFavoriteHandler(svc))
+	mediaRoutes.GET("/:id/credits", listMediaCreditsHandler(svc))
+	seriesWork, err := repos.HongGuo.SaveDetail(ctx, hongguo.Work{SourceID: "9000000000000000002", Title: "共享详情", EpisodeCount: 2, Snapshot: []byte(`{}`), People: []hongguo.Person{{SourceID: "12345", Name: "来源演员"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	seriesFile := model.Media{LibraryID: library.ID, Path: filepath.Join(library.Path, "series-S01E01.mkv"), CatalogSource: model.TaskSystemHongGuo, LookupCatalogID: seriesWork.SourceID, SeasonNum: 1, EpisodeNum: 1}
+	if err := db.Model(seriesWork).Update("source_category", "comic-drama").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := repos.Media.Upsert(ctx, &seriesFile); err != nil {
+		t.Fatal(err)
+	}
+	// 无发现权限仍可从可见文件访问共享详情；锁定 profile 不得读写来源状态。
+	for _, tc := range []struct {
+		method, path, body, profile, want string
+		status                            int
+	}{
+		{"GET", "/series", "", "", `"title":"共享详情"`, 200},
+		{"GET", "/credits?scope=series", "", "", `"name":"来源演员"`, 200},
+		{"PUT", "/series/favorite", `{"favourite":true}`, "", `"favourite":true`, 200},
+		{"GET", "/series", "", "", `"favourite":true`, 200},
+		{"GET", "/series", "", profile.ID, "", 404},
+		{"GET", "/credits?scope=series", "", profile.ID, "", 404},
+		{"PUT", "/series/favorite", `{"favourite":false}`, profile.ID, "", 404},
+		{"GET", "/series", "", "", `"favourite":true`, 200},
+	} {
+		req := httptest.NewRequest(tc.method, "/api/media/"+seriesFile.ID+tc.path, strings.NewReader(tc.body))
+		req.Header.Set("Authorization", "Bearer "+signedProbeRoleToken(t, "hongguo-http-test", "user"))
+		req.Header.Set("Content-Type", "application/json")
+		if tc.profile != "" {
+			req.Header.Set("X-Play-Profile-ID", tc.profile)
+		}
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		if rec.Code != tc.status || !strings.Contains(rec.Body.String(), tc.want) {
+			t.Fatalf("shared source detail %s %s: %d %s", tc.method, tc.path, rec.Code, rec.Body.String())
+		}
+	}
+	if err := repos.HongGuo.SetFavorite(ctx, "user-1", seriesWork.SourceID, false); err != nil {
+		t.Fatal(err)
+	}
 	streamRequest := func(profileID string) *httptest.ResponseRecorder {
 		req := httptest.NewRequest(http.MethodGet, "/api/stream/"+m.ID, nil)
 		req.Header.Set("Authorization", "Bearer "+signedProbeRoleToken(t, "hongguo-http-test", "user"))

@@ -185,23 +185,68 @@ try {
   assert.ok(evaluate(`performance.getEntriesByType('resource').some(r=>new URL(r.name).pathname.endsWith('/works/90001/category'))`))
   assert.equal(evaluate(`document.querySelector('[role="dialog"]') !== null && document.querySelector('button[aria-label="查看长风渡山河"]') === null`), true)
   browser('network', 'unroute')
-  route('auth/permissions', { permissions: { can_view_discover: true }, role: 'admin', is_super: true })
+  route('auth/permissions', { permissions: { can_view_discover: false }, role: 'admin', is_super: true })
   route('play-profiles', [])
+  const seriesID = 'hg-group-99001'
+  const first = { id: 'test-episode', catalog_source: 'hongguo', catalog_item_id: 'hg-episode-first', lookup_catalog_id: '90001', series_id: seriesID, series_title: '长风渡山河', title: '第1集', metadata_kind: 'episode', library_id: 'hongguo-test', season_num: 1, episode_num: 1, path: '/fixture/S01E01.strm', tracks: [{ index: 0, type: 'video', codec: 'h264' }] }
+  const alternate = { ...first, id: 'alternate-episode', path: '/fixture/S01E01-alt.strm' }
+  const second = { ...first, id: 'second-episode', catalog_item_id: 'hg-episode-second', lookup_catalog_id: '90002', season_num: 2 }
+  const series = { ...first, id: seriesID, metadata_kind: 'series', title: '长风渡山河', overview: '第一季作为整剧简介', genres: '都市,成长', rating: 8.5, season_num: 0, episode_num: 0 }
+  const card = { key: `metadata:${seriesID}`, rep: { ...series, id: first.id }, linkMedia: first, count: 2, seasons: [1, 2], season_media_ids: { 1: first.id, 2: second.id } }
+  const movie = { ...first, id: 'test-movie', lookup_catalog_id: '90003', catalog_item_id: 'hg-work-movie', series_id: '', metadata_kind: 'movie', title: '红果电影', season_num: 0, episode_num: 0 }
+  const movieCard = { key: 'hongguo:90003', rep: movie, linkMedia: movie, count: 1 }
+  route('libraries/hongguo-test/series?*hongguo*90003*', { items: [movieCard], total: 1 })
+  route('libraries/hongguo-test/series?*hongguo*90001*', { items: [{ ...card, key: 'hongguo:90001' }], total: 1 })
+  route('libraries/hongguo-test/series?*', { items: [card, movieCard], total: 2 })
+  route('libraries/hongguo-test/series/episodes?*hongguo*90003*', { items: [movie], history: [], total: 1 })
+  route('libraries/hongguo-test/series/episodes?*season=2*', { items: [second], history: [], total: 1 })
+  route('libraries/hongguo-test/series/episodes?*', { items: [first, alternate, second], history: [], total: 3 })
   route('libraries/hongguo-test', { id: 'hongguo-test', name: '测试红果库', type: 'hongguo' })
-  route('catalogs/hongguo/libraries/hongguo-test?*', { items: [{ ...items[0], id: 'library-work' }], total: 1 })
-  route('catalogs/hongguo/works/90001/media?*', { items: [{ id: 'test-episode', title: '第一集', season_num: 1, episode_num: 1, relative_path: 'test.strm' }], total: 1 })
-  route('catalogs/hongguo/works/90001', { ...items[0], overview: '库内简介', artwork: [], credits: [], tags: [] })
+  for (const file of [first, alternate, second, movie]) {
+    route(`media/${file.id}/versions`, file === movie ? [movie] : file === second ? [second] : [first, alternate])
+    route(`media/${file.id}/series/favorite`, { favourite: true })
+    route(`media/${file.id}/series`, { series, favourite: false })
+    route(`media/${file.id}/season`, { season: { ...series, id: `hg-season-${file.lookup_catalog_id}`, title: file.season_num === 2 ? '重逢第二部' : '长风渡山河', metadata_kind: 'season', season_num: file.season_num, overview: `第${file.season_num}季独立简介` } })
+    route(`media/${file.id}/credits*`, { items: [{ person_id: 'source-person', name: '第一季演员', type: '' }] })
+    route(`media/${file.id}`, file)
+  }
+  route('catalogs/hongguo/works/90003/favorite', { favorite: false })
+  route('favourites', { items: [] })
   route('**', {})
   visit('/library/hongguo-test')
-  waitFor(`document.body.innerText.includes('测试红果库') && document.querySelector('button.card') !== null`)
-  browser('click', 'button.card')
-  waitFor(`document.body.innerText.includes('播放 · S1E001')`)
-  assert.equal(evaluate(`location.pathname`), '/library/hongguo-test')
-  assert.equal(evaluate(`new URLSearchParams(location.search).get('hongguo_id')`), '90001')
+  waitFor(`document.body.innerText.includes('测试红果库') && document.querySelector('button .shadow-poster') !== null`)
+  assert.equal(evaluate(`document.querySelectorAll('button.card').length`), 0, 'library uses ordinary MediaCard')
+  browser('click', 'button:has(.shadow-poster)')
+  waitFor(`document.body.innerText.includes('第一季作为整剧简介') && document.body.innerText.includes('暂无剧照') && document.body.innerText.includes('第一季演员')`)
   assert.equal(evaluate(`document.querySelector('[role="dialog"]')`), null)
-  assert.ok(evaluate(`document.querySelector('a[href="/play/test-episode"]') !== null`))
+  assert.ok(!evaluate(`document.body.innerText.match(/未获取到 TMDB|未关联 TMDB|编辑元数据/)`))
+  assert.equal(evaluate(`document.querySelectorAll('[aria-label="分集列表"] button').length`), 1, 'versions count as one episode')
+  assert.ok(evaluate(`document.querySelector('a[href="/play/alternate-episode"]') !== null`))
+  browser('click', 'summary[aria-label^="版本："]')
+  browser('find', 'role', 'button', 'click', '--name', '#1', '--exact')
+  waitFor(`new URLSearchParams(location.search).get('version') === 'test-episode' && document.querySelector('a[href="/play/test-episode"]') !== null`)
+  browser('find', 'role', 'button', 'click', '--name', '加入收藏', '--exact')
+  waitFor(`document.querySelector('button[aria-label="取消收藏"]') !== null`)
+  browser('find', 'role', 'button', 'click', '--name', '第 2 季 · 重逢第二部', '--exact')
+  waitFor(`new URLSearchParams(location.search).get('season') === '2' && document.querySelector('a[href="/play/second-episode"]') !== null && document.body.innerText.includes('第2季独立简介')`)
+  assert.ok(evaluate(`document.body.innerText.includes('第一季作为整剧简介')`), 'changing season retains first-season series metadata')
+  for (const theme of ['dark', 'light']) {
+    evaluate(`document.documentElement.dataset.theme=${JSON.stringify(theme)}`)
+    for (const width of [390, 639, 640, 767, 768, 1023, 1024, 1440]) {
+      browser('set', 'viewport', String(width), '900')
+      assert.ok(evaluate('document.documentElement.scrollWidth <= innerWidth'), `library ${theme}/${width} overflow`)
+      if (process.env.DISCOVER_SCREENSHOT_DIR && (width === 390 || width === 1440)) browser('screenshot', `${process.env.DISCOVER_SCREENSHOT_DIR}/hongguo-library-${theme}-${width}.png`)
+    }
+  }
+  visit('/library/hongguo-test?hongguo_id=90001&season=1&episode=hg-episode-first&version=alternate-episode')
+  waitFor(`new URLSearchParams(location.search).get('series_id') === '${seriesID}' && !new URLSearchParams(location.search).has('hongguo_id') && document.querySelector('a[href="/play/alternate-episode"]') !== null`)
+  assert.ok(!evaluate(`performance.getEntriesByType('resource').some(r => new URL(r.name).pathname.endsWith('/works/90001') || r.name.includes('/catalogs/hongguo/libraries'))`), 'library details do not require discovery endpoints')
   browser('find', 'role', 'button', 'click', '--name', '返回媒体库', '--exact')
-  waitFor(`!new URLSearchParams(location.search).has('hongguo_id') && document.querySelector('button.card') !== null`)
+  waitFor(`!new URLSearchParams(location.search).has('series_id') && document.querySelector('button .shadow-poster') !== null`)
+  visit('/library/hongguo-test?hongguo_id=90003')
+  waitFor(`location.pathname === '/media/test-movie' && document.body.innerText.includes('红果电影')`)
+  assert.ok(!evaluate(`performance.getEntriesByType('resource').some(r => new URL(r.name).pathname.endsWith('/media/test-movie/series'))`), 'movie redirect never mounts series details that rewrite its URL')
+  assert.equal(browser('errors').trim(), '')
   console.log('红果发现：旧链接、参数、按需加载、体系切换、权限与双主题响应式检查通过')
 } catch (error) {
   console.error(browser('errors'))

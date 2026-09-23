@@ -40,7 +40,7 @@ export function LibrarySeriesEpisodeDetail({ mediaID, episodeID, versions, playb
             <div className="flex flex-wrap items-center gap-3">
               <Link to={`/play/${media.id}`} state={{ from: playbackFrom }} className="btn-primary"><Play size={16} fill="currentColor" aria-hidden="true" />{media.episode_num > 0 ? '播放此集' : '播放文件'}</Link>
               <ExternalPlayerButton mediaId={media.id} />
-              {isAdmin && <MediaDetailAdminMenu label="当前单集 / 文件操作" onTMDbRefresh={detail.refreshTMDb} tmdbRefreshPending={detail.tmdbRefreshPending} doubanEnrichmentPending={false} doubanDegraded={false} onMetadataEdit={() => detail.setMetadataEditOpen(true)} onProbe={detail.reprobe} onSoftDelete={async () => { if (await detail.softDelete()) onChanged() }} />}
+              {isAdmin && <MediaDetailAdminMenu label="当前单集 / 文件操作" onTMDbRefresh={media.catalog_source ? undefined : detail.refreshTMDb} tmdbRefreshPending={detail.tmdbRefreshPending} doubanEnrichmentPending={false} doubanDegraded={false} onMetadataEdit={media.catalog_source === 'hongguo' ? undefined : () => detail.setMetadataEditOpen(true)} onProbe={detail.reprobe} onSoftDelete={async () => { if (await detail.softDelete()) onChanged() }} />}
             </div>
           } /> : <p role="status" className="text-sm text-[var(--app-muted)]">{detail.loading ? '正在加载当前版本…' : '当前版本不可用'}{!detail.loading && <button className="btn-outline ml-3" onClick={() => void detail.refresh().catch(() => undefined)}>重试</button>}</p>}
         </div>

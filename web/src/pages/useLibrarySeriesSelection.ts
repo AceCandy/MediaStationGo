@@ -74,7 +74,8 @@ export function useLibrarySeriesSelection({
     }
 
     const seriesID = searchParams.get('series_id')
-    const key = searchParams.get('series')
+    const sourceID = searchParams.get('hongguo_id')
+    const key = searchParams.get('series') || (sourceID ? `hongguo:${sourceID}` : '')
     if (!seriesID && !key) {
       setSelectedSeries(null)
       return
@@ -99,6 +100,8 @@ export function useLibrarySeriesSelection({
     next.delete('season')
     next.delete('episode')
     next.delete('version')
+    next.delete('hongguo_id')
+    next.delete('media_page')
     next.set('series', card.key)
     setSearchParams(next)
     window.scrollTo({ top: 0, behavior: 'smooth' })
@@ -113,6 +116,8 @@ export function useLibrarySeriesSelection({
     next.delete('season')
     next.delete('episode')
     next.delete('version')
+    next.delete('hongguo_id')
+    next.delete('media_page')
     setSearchParams(next)
   }
 

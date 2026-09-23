@@ -48,7 +48,7 @@ func (s *MediaService) GetMediaSeasonVisible(ctx context.Context, mediaID string
 	}
 	season.SeasonID = media.SeasonID
 	season.SeriesID = media.SeriesID
-	if season.PosterURL == "" {
+	if season.PosterURL == "" && media.CatalogSource != model.TaskSystemHongGuo {
 		series, findErr := s.repo.MediaView.FindSeriesPresentation(ctx, media.SeriesID, visibility.IncludeNSFW)
 		if findErr != nil {
 			return nil, findErr
@@ -97,7 +97,9 @@ func (s *MediaService) ListLibrarySeriesCards(ctx context.Context, libraryID str
 	cards := make([]SeriesCard, 0, len(summaries))
 	for _, summary := range summaries {
 		if row, ok := byID[summary.MediaID]; ok {
-			row.SeriesID = summary.MetadataID
+			if row.CatalogSource != model.TaskSystemHongGuo || row.SeriesID != "" {
+				row.SeriesID = summary.MetadataID
+			}
 			cards = append(cards, SeriesCard{Key: "metadata:" + summary.MetadataID, Rep: row, LinkMedia: row, Count: summary.Count})
 		}
 	}
@@ -123,6 +125,9 @@ func (s *MediaService) ListLibrarySeriesCards(ctx context.Context, libraryID str
 
 // resolveLibrarySeriesKey 接受 canonical ID；旧哈希链接只扫描作品 ID，不读取分集。
 func (s *MediaService) resolveLibrarySeriesKey(ctx context.Context, libraryID, key string, visibility MediaVisibility) (string, error) {
+	if strings.HasPrefix(key, "hongguo:") {
+		return s.repo.MediaView.HongGuoSeriesForSource(ctx, libraryID, strings.TrimPrefix(key, "hongguo:"), repository.MediaQueryFilter{AllowedLibraryIDs: visibility.AllowedLibraryIDs, HiddenLibraryIDs: visibility.HiddenLibraryIDs})
+	}
 	if strings.HasPrefix(key, "metadata:") {
 		return strings.TrimPrefix(key, "metadata:"), nil
 	}

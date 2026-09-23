@@ -24,13 +24,31 @@ func (r *HistoryRepository) ListByUserMetadataIDs(ctx context.Context, userID st
 	if len(metadataIDs) == 0 {
 		return rows, nil
 	}
-	localIDs, ordinaryIDs := []string{}, []string{}
+	localIDs, ordinaryIDs, hongGuoIDs := []string{}, []string{}, []string{}
 	for _, id := range metadataIDs {
-		if strings.HasPrefix(id, "nfo-") {
+		if strings.HasPrefix(id, "hg-episode-") {
+			hongGuoIDs = append(hongGuoIDs, strings.TrimPrefix(id, "hg-episode-"))
+		} else if strings.HasPrefix(id, "nfo-") {
 			localIDs = append(localIDs, strings.TrimPrefix(id, "nfo-"))
 		} else {
 			ordinaryIDs = append(ordinaryIDs, id)
 		}
+	}
+	if len(hongGuoIDs) > 0 {
+		err := r.db.WithContext(ctx).Table("(?) AS state", PlaybackStates(ctx, r.db, "hongguo", userID, filter)).
+			Joins("JOIN hongguo_works w ON w.source_id = state.source_id").
+			Joins("JOIN hongguo_episodes ep ON ep.work_id = w.id AND ep.number = state.episode_number").
+			Where("ep.id IN ? AND state.watched_at IS NOT NULL", hongGuoIDs).
+			Select("'hg-state:' || state.source_id || ':' || state.episode_number AS id, 'hg-episode-' || ep.id AS metadata_id,state.user_id,state.media_id,state.position_ms,state.duration_ms,state.completed,state.watched_at").
+			Order("state.watched_at DESC").Scan(&rows).Error
+		if err != nil {
+			return nil, err
+		}
+		for _, id := range localIDs {
+			ordinaryIDs = append(ordinaryIDs, "nfo-"+id)
+		}
+		other, err := r.ListByUserMetadataIDs(ctx, userID, ordinaryIDs, filter)
+		return append(rows, other...), err
 	}
 	if len(localIDs) > 0 {
 		var local []model.PlaybackHistory

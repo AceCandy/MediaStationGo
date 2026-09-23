@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/ShukeBta/MediaStationGo/internal/middleware"
+	"github.com/ShukeBta/MediaStationGo/internal/repository"
 	"github.com/ShukeBta/MediaStationGo/internal/service"
 	"github.com/gin-gonic/gin"
 )
@@ -25,7 +26,13 @@ func getMediaSeriesHandler(svc *service.Container) gin.HandlerFunc {
 		if series.CatalogSource == "nfo" {
 			identity = series.CatalogItemID
 		}
-		favorite, err := svc.Repo.Favorite.IsFavoriteByIdentity(c.Request.Context(), toString(uid), identity, "")
+		var favorite bool
+		if series.CatalogSource == "hongguo" {
+			visibility := mediaVisibilityForRequest(c, svc)
+			favorite, err = svc.Repo.MediaView.HongGuoSeriesFavorite(c.Request.Context(), toString(uid), series.SeriesID, repository.MediaQueryFilter{AllowedLibraryIDs: visibility.AllowedLibraryIDs, HiddenLibraryIDs: visibility.HiddenLibraryIDs}, nil)
+		} else {
+			favorite, err = svc.Repo.Favorite.IsFavoriteByIdentity(c.Request.Context(), toString(uid), identity, "")
+		}
 		if err != nil {
 			writeInternalOrCanceled(c, err)
 			return
@@ -70,7 +77,13 @@ func setMediaSeriesFavoriteHandler(svc *service.Container) gin.HandlerFunc {
 		if series.CatalogSource == "nfo" {
 			identity = series.CatalogItemID
 		}
-		if _, err := svc.Repo.Favorite.SetByIdentity(c.Request.Context(), toString(uid), identity, c.Param("id"), *req.Favourite); err != nil {
+		if series.CatalogSource == "hongguo" {
+			visibility := mediaVisibilityForRequest(c, svc)
+			_, err = svc.Repo.MediaView.HongGuoSeriesFavorite(c.Request.Context(), toString(uid), series.SeriesID, repository.MediaQueryFilter{AllowedLibraryIDs: visibility.AllowedLibraryIDs, HiddenLibraryIDs: visibility.HiddenLibraryIDs}, req.Favourite)
+		} else {
+			_, err = svc.Repo.Favorite.SetByIdentity(c.Request.Context(), toString(uid), identity, c.Param("id"), *req.Favourite)
+		}
+		if err != nil {
 			writeFavoriteError(c, err)
 			return
 		}
