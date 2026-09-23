@@ -1467,3 +1467,33 @@ Scope series detail episodes to the selected season while preserving cross-seaso
 ### Next Steps
 
 - 部署后观察真实新增计数及完结作品退出自动刷新；上游缺少完结证据时仍按未完结处理。
+
+
+## Session 150: 修复图片资产并发入库冲突
+<!-- trellis-session: v=2 fp=c83e8de76cefe952 -->
+
+**Date**: 2026-09-23
+**Task**: 修复图片资产并发入库冲突
+**Branch**: `main`
+
+### Summary
+
+统一六个图片资产入口的唯一键冲突处理，保留哈希复用与事务回滚，补充 PostgreSQL 并发回归和数据库规范。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `3b454cd` | fix: handle concurrent artwork asset conflicts |
+
+### Testing
+
+- [OK] PostgreSQL 15：100 轮六入口并发回归及相关仓储测试通过（含 race）；图片和 NFO 服务测试、go vet ./...、go build ./... 通过。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 部署后重试原失败记录并核对线上结果；未执行全量测试。
