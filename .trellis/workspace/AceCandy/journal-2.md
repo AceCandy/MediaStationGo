@@ -1672,3 +1672,37 @@ Scope series detail episodes to the selected season while preserving cross-seaso
 ### Status
 
 [OK] **Completed**
+
+
+## Session 158: 搜索并行与红果索引可见性优化归档
+<!-- trellis-session: v=2 fp=ad83540e59d00ce6 -->
+
+**Date**: 2026-09-25
+**Task**: 搜索并行与红果索引可见性优化归档
+**Branch**: `main`
+
+### Summary
+
+提交三来源并行搜索与红果文件/媒体库索引优化，归档两个关联任务。
+
+### Main Changes
+
+- 普通、NFO、红果召回并行；红果 v2 索引按媒体库过滤并同步已提交文件变更。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `4823d2a` | perf(search): parallelize catalog recall and index hongguo visibility |
+
+### Testing
+
+- [OK] 此前隔离 PostgreSQL、针对性 race 与独立审查通过；提交前再次通过 go vet、搜索卡片脚本和 diff 检查。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 未推送或部署；部署后须成功重建红果 v2 索引，线上 OpenSearch 性能仍待验证。
