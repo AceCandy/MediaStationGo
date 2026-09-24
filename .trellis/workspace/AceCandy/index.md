@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-2.md`
-- **Total Sessions**: 151
+- **Total Sessions**: 152
 - **Last Active**: 2026-09-24
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-2.md` | ~1521 | Active |
+| `journal-2.md` | ~1543 | Active |
 | `journal-1.md` | ~1981 | Archived |
 <!-- @@@/auto:active-documents -->
 
@@ -30,6 +30,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 152 | 2026-09-24 | 全局扫描互斥与并发入库修复 | `554b5a7` | `main` |
 | 151 | 2026-09-24 | 统一红果媒体库展示 | `9a3fbac` | `main` |
 | 150 | 2026-09-23 | 修复图片资产并发入库冲突 | `3b454cd` | `main` |
 | 149 | 2026-09-23 | 红果发现计数与按完结状态刷新 | `89127f3` | `main` |

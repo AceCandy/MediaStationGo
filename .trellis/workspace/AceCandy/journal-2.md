@@ -1519,3 +1519,25 @@ Scope series detail episodes to the selected season while preserving cross-seaso
 ### Status
 
 [OK] **Completed**
+
+
+## Session 152: 全局扫描互斥与并发入库修复
+<!-- trellis-session: v=2 fp=7138e8f1262d77da -->
+
+**Date**: 2026-09-24
+**Task**: 全局扫描互斥与并发入库修复
+**Branch**: `main`
+
+### Summary
+
+统一手动、定时、根目录及 STRM 扫描准入：单实例仅运行一个扫描，忙时直接拒绝；同路径并发入库安全复用并保留来源隔离。真实 PostgreSQL 定向回归、竞态检查、go vet 和独立复核通过；临时数据库已清理。未执行生产重扫、浏览器或全仓验证，未推送或部署。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `554b5a7` | fix: serialize library scans and reuse concurrent media |
+
+### Status
+
+[OK] **Completed**
