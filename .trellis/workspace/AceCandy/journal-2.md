@@ -1571,3 +1571,38 @@ Scope series detail episodes to the selected season while preserving cross-seaso
 ### Next Steps
 
 - 后端尚未重启；部署后复测真实页面端到端耗时，留意后台扫描引起的负载波动
+
+
+## Session 154: 网页三来源搜索接入与归档
+<!-- trellis-session: v=2 fp=ed453efca86d3bcd -->
+
+**Date**: 2026-09-24
+**Task**: 网页三来源搜索接入与归档
+**Branch**: `main`
+
+### Summary
+
+网页搜索接入红果独立候选，与普通及NFO统一排序分页；保留权限、官方合集展示及正确详情链接，已完成提交归档。
+
+### Main Changes
+
+- 共享网页搜索入口合并三类库候选，保留简介/类型匹配与100条候选上限。
+- 红果卡片按官方身份去重，首季资料覆盖代表文件展示，电影正确链接文件详情；补充规范及回归。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `1ca0b6e` | fix(search): include hongguo in web catalog search |
+
+### Testing
+
+- [OK] 已通过隔离PostgreSQL定向回归、race、go vet、前端lint/build、卡片测试、浏览器分页与取消模拟验证及独立复核；本次提交前复核diff一致且检查通过。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 尚未部署或重启线上服务；真实OpenSearch与线上库联调、生产规模性能仍待部署验证。
