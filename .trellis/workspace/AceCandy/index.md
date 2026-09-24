@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-2.md`
-- **Total Sessions**: 154
+- **Total Sessions**: 155
 - **Last Active**: 2026-09-24
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-2.md` | ~1608 | Active |
+| `journal-2.md` | ~1630 | Active |
 | `journal-1.md` | ~1981 | Archived |
 <!-- @@@/auto:active-documents -->
 
@@ -30,6 +30,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 155 | 2026-09-24 | 启动状态展示与初始化优化 | `74276d7` | `main` |
 | 154 | 2026-09-24 | 网页三来源搜索接入与归档 | `1ca0b6e` | `main` |
 | 153 | 2026-09-24 | 优化红果媒体库分页查询 | `55f027d` | `main` |
 | 152 | 2026-09-24 | 全局扫描互斥与并发入库修复 | `554b5a7` | `main` |

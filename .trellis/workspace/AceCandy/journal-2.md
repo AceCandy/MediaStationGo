@@ -1606,3 +1606,25 @@ Scope series detail episodes to the selected season while preserving cross-seaso
 ### Next Steps
 
 - 尚未部署或重启线上服务；真实OpenSearch与线上库联调、生产规模性能仍待部署验证。
+
+
+## Session 155: 启动状态展示与初始化优化
+<!-- trellis-session: v=2 fp=d8681496163b1405 -->
+
+**Date**: 2026-09-24
+**Task**: 启动状态展示与初始化优化
+**Branch**: `main`
+
+### Summary
+
+展示启动阶段、耗时与目录监听进度，未就绪时隐藏并拦截任务操作；调度器保持最后启动。优化目录遍历，退役红果旧目录迁移并移除重复配置加载。专项 Go 竞态测试、前端 lint/build 与任务中心和红果补充浏览器验证通过。未测生产启动提速；通用样式检查在未修改的文件管理页浅色按钮断言失败，未扩大修复。测试服务和临时截图已清理。推送待确认是否包含此前 12 条未推送提交。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `74276d7` | fix(startup): expose initialization progress and optimize directory watching |
+
+### Status
+
+[OK] **Completed**
