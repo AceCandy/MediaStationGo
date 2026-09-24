@@ -738,7 +738,7 @@ Applies only to `tmdb_episode_metadata_recheck`, not People, Douban or other art
 - The only write action exposed by the pending panel is explicit STRM local-target cleanup through the existing admin preview/delete endpoints and `STRMDeleteDialog` (see `strm-target.md`). Select a concrete version from an on-demand paginated file list; Season scope includes own files and direct Episode files. Never pass metadata IDs as media IDs or expose cached target URLs. No automatic deletion, renumbering, direct-video deletion or bulk Season/404 deletion; keep STRM/database records. Parent removal defaults off and requires explicit confirmation of all contents.
 - Events never directly start network work. Existing default-off schedule and manual task controls remain authoritative. No new perpetual worker/timer.
 - The Web pending dialog opens from the button beside the Season/Episode task name. The `上游未收录 / 待核对` category includes inventory absence and 404, sharing the scrape-issues card, Select and icon-button styling. Switching categories or submitting a keyword resets pagination; closing aborts requests and stale responses cannot replace the current view. Pages join titles and sort globally by Series title, Season/Episode numbers and metadata ID before pagination. Load items and summary independently: paging/filtering requests only items, while opening/explicit refresh reloads summary. Summary loading/failure never blocks rows; its exact counts describe its last load, whereas each page computes its own current filtered total. Never return lease credentials or raw provider errors; row reasons are fixed safe messages and task errors use `sanitizeTaskLogError`.
-- `tmdbRecheckCountsSQL` separates Episode and Season scopes with UNION ALL. Episode existence can use a bulk semi-join; the Season subquery joins jobs before OFFSET 0, preventing file checks for Seasons absent from the queue. Preserve that boundary and verify actual PostgreSQL plans, not merely SQL text or index presence. Counts remain proportional to the selected scope; no constant-time guarantee or stale server cache.
+- `tmdbRecheckCountsSQL` separates Episode and Season scopes with UNION ALL. Episode existence can use a bulk semi-join; the Season subquery joins jobs before OFFSET 0, preventing file checks for Seasons absent from the queue. Preserve that boundary and verify actual PostgreSQL plans, not merely SQL text or index presence. Counts remain proportional to the selected scope; the dialog's summary endpoint has no constant-time guarantee or server cache. Task-center badges use the separate cached snapshot below.
 - Pending lists, keyword results and status counts include only Season/Episode jobs with associated media, using the same scope as the file list: an Episode's own media, or a Season's own media and direct Episode media. Apply existence filtering before pagination without multiplying jobs by file versions. After scanner/watcher removal of the last media row, the next read hides that job even before change expansion or a task run. GET requests never inspect disk or mutate jobs, leases or cooldowns; restoring media restores visibility. Local-target cleanup that retains STRM/media does not remove the job from the list.
 
 ### 4. Validation & Error Matrix
@@ -793,30 +793,36 @@ Applies to the Season/Episode recheck and media-scrape issue dialogs shown from 
 
 - Recheck pending list accepts optional `keyword`; it matches item/Series titles, metadata ID and rendered S/E coordinates.
 - `GET /api/media/scrape-issues` accepts optional `keyword`; it matches scan title, path, library name and stored scrape error.
+- Admin-only `GET /api/tasks/pending-counts?refresh=1` returns `{ "rechecks": 12, "scrape_issues": 3, "updated_at": "2026-09-24T07:00:00Z" }`. Omitted/false `refresh` reads the cache; true forces recomputation. Parse the optional flag with `strconv.ParseBool`.
 
 ### 3. Contracts
 
 - Keyword search is server-side and combines with status/library filters before count and pagination. Escape LIKE metacharacters so input is literal.
 - Search runs only on explicit form submission. Empty keyword retains the existing bounded fast path.
 - Recheck keyword results use one materialized match set for exact total and page selection; do not repeat the metadata joins and LIKE predicates for each. A LEFT JOIN from the total preserves out-of-range page totals without fabricating an item. Matching still scales with eligible jobs; this is not an indexed substring-search guarantee.
-- Task-center indicators refresh once on page entry and again after closing a pending dialog. Recheck requests use `view=summary`; media-scrape issues retain page size 1. They do not join the three-second task snapshot poll. Recheck badges exclude `done`; non-zero counts use the gold warning treatment and show a capped `999+` label.
+- Task-center indicators read `/api/tasks/pending-counts` on page entry, independently of task loading. The first successful load populates a process-local snapshot with no TTL; restart clears it, and only the explicit refresh button requests recomputation. Closing a pending dialog and the three-second task snapshot poll do not reload counts. Display the snapshot time and manual-refresh behavior; an unloaded count is unknown, not zero.
+- Recompute through `SummarizeTMDbRechecks` and a page-size-1 scrape-issue query, preserving existing membership rules. Recheck badges exclude `done`; non-zero counts use the gold warning treatment and show a capped `999+` label. Pending dialog rows and their summary remain on-demand live queries, independent of this snapshot.
+- Publish both counts and their timestamp only after successful completion. A mutex and snapshot recheck coalesce overlapping successful cold loads/refreshes; ordinary cache hits do not wait for an in-progress refresh. Failure/cancellation retains the prior snapshot. Return `Cache-Control: no-store` so browser caches cannot suppress an explicit refresh. Page unmount aborts its request and ignores late results.
 
 ### 4. Validation & Error Matrix
 
 - Empty/whitespace keyword: same result and plan shape as no keyword. No match: HTTP 200 with empty items and zero filtered total.
-- A failed indicator request leaves the neutral button available; it must not block task-center rendering.
+- Snapshot route: anonymous/non-admin → 401/403; invalid refresh flag → 400; unavailable services → 503; database failure → sanitized 500 (cancellation uses the existing canceled-request response).
+- A failed indicator request retains the last successful values, shows an error and permits manual retry. Before any success, keep the count unknown and the detail button available; neither slow nor failed statistics block task-center rendering.
 
 ### 5. Good / Base / Bad Cases
 
-- Good: a title match on a later page is returned on page 1 of filtered results. Base: opening the task center requests the recheck summary and one scrape-issue row. Bad: filter only the currently rendered browser page, hydrate a sorted recheck page just for its badge, or run counts every three seconds.
+- Good: a title match on a later page is returned on page 1 of filtered results. Base: returning to the task center reads the previous snapshot without database queries; explicit refresh updates counts/time. Bad: filter only the currently rendered browser page, hydrate a sorted recheck page just for its badge, or recompute counts on polling/dialog close.
 
 ### 6. Tests Required
 
 - PostgreSQL repository tests cover recheck title, coordinate and no-match searches; service tests cover scrape issue library/path and no-match searches.
 - Web checks cover keyword forwarding, task-name indicator styling, count capping, lint and build.
+- `TestTaskPendingCountsCache` verifies real PostgreSQL cold load, zero-query cache hits, unchanged values after database updates, nonblocking reads during refresh, explicit refresh, failure retention and route permissions/validation. Preserve overlapping-load coalescing and canceled-request cache protection when changing synchronization.
+- `web/scripts/check-task-pending-counts.mjs` verifies independent task loading, cache-read versus forced-refresh parameters, no count requests from polling/dialog close, retained values on errors, retry/remount, unmount cancellation and responsive themes.
 
 ### 7. Wrong vs Correct
 
 Wrong: debounce every keystroke into count-plus-page SQL or add pending counts to the frequent task snapshot.
 
-Correct: submit keyword explicitly, keep recheck items and summary independent, and refresh indicators only at task-page/panel lifecycle boundaries.
+Correct: submit keyword explicitly, keep recheck items and summary independent, read the indicator snapshot on page entry, and recompute it only on cold load or explicit refresh.

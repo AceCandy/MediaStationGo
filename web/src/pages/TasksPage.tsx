@@ -4,7 +4,7 @@ import toast from 'react-hot-toast'
 import { ChevronLeft, ChevronRight, FileText, Play, RefreshCw, Search, Settings, Trash2, X } from 'lucide-react'
 
 import { libraryAPI, mediaAPI, type MediaScrapeIssue, type STRMDeleteTarget } from '../api/library'
-import { tasksAPI, type BackgroundTask, type StartupStatus, type TaskDefinition, type TaskLog, type TaskSystem } from '../api/tasks'
+import { tasksAPI, type BackgroundTask, type StartupStatus, type TaskDefinition, type TaskLog, type TaskPendingCounts, type TaskSystem } from '../api/tasks'
 import { HongGuoSupplementDialog } from './HongGuoSupplementDialog'
 import { confirmAction } from '../components/confirmAction'
 import { ManualScrapeDialog } from '../components/ManualScrapeDialog'
@@ -133,7 +133,7 @@ interface TaskRowProps {
   onLog: (definition: TaskDefinition) => void
   onSchedule: (definition: TaskDefinition) => void
   onPending: (definition: TaskDefinition) => void
-  pendingCounts: PendingCounts
+  pendingCounts: TaskPendingCounts | null
 }
 
 function TaskActions({ definition, ready, running, libraries, scanLibraryID, onScanLibraryChange, probeLibraryID, onProbeLibraryChange, probeLimit, onProbeLimitChange, scrapeLibraryID, onScrapeLibraryChange, onRun, onLog, onSchedule }: TaskRowProps) {
@@ -212,21 +212,16 @@ function TaskActions({ definition, ready, running, libraries, scanLibraryID, onS
   )
 }
 
-interface PendingCounts {
-  rechecks: number
-  scrapeIssues: number
-}
-
 function TaskPendingButton({ definition, onPending, pendingCounts }: Pick<TaskRowProps, 'definition' | 'onPending' | 'pendingCounts'>) {
   const title = definition.key === 'tmdb_episode_metadata_recheck'
     ? '查看季/集复查待办'
     : definition.action === 'media_scrape' ? '查看媒体入库刮削待处理' : ''
   if (!title) return null
-  const count = definition.key === 'tmdb_episode_metadata_recheck' ? pendingCounts.rechecks : pendingCounts.scrapeIssues
-  return <button type="button" className={`icon-btn h-7 min-w-7 gap-1 px-1.5 ${count > 0 ? 'w-auto border border-gold-500/30 bg-gold-500/10 text-gold-500 shadow-glow-gold' : 'w-7'}`} title={title} aria-label={`${title}${count > 0 ? `，${count} 条` : ''}`} onClick={() => onPending(definition)}><Search size={15} />{count > 0 && <span className="text-[10px] font-bold">{count > 999 ? '999+' : count}</span>}</button>
+  const count = definition.key === 'tmdb_episode_metadata_recheck' ? pendingCounts?.rechecks : pendingCounts?.scrape_issues
+  return <button type="button" className={`icon-btn h-7 min-w-7 gap-1 px-1.5 ${(count ?? 0) > 0 ? 'w-auto border border-gold-500/30 bg-gold-500/10 text-gold-500 shadow-glow-gold' : 'w-7'}`} title={title} aria-label={`${title}${count === undefined ? '，数量未加载' : `，${count} 条`}`} onClick={() => onPending(definition)}><Search size={15} />{count !== undefined && count > 0 && <span className="text-[10px] font-bold">{count > 999 ? '999+' : count}</span>}</button>
 }
 
-function DefinitionTable(props: { ready: boolean; definitions: TaskDefinition[]; running: string; libraries: Library[]; scanLibraryID: string; onScanLibraryChange: TaskRowProps['onScanLibraryChange']; probeLibraryID: string; onProbeLibraryChange: TaskRowProps['onProbeLibraryChange']; probeLimit: string; onProbeLimitChange: TaskRowProps['onProbeLimitChange']; scrapeLibraryID: string; onScrapeLibraryChange: TaskRowProps['onScrapeLibraryChange']; onRun: TaskRowProps['onRun']; onLog: TaskRowProps['onLog']; onSchedule: TaskRowProps['onSchedule']; onPending: TaskRowProps['onPending']; pendingCounts: PendingCounts }) {
+function DefinitionTable(props: { ready: boolean; definitions: TaskDefinition[]; running: string; libraries: Library[]; scanLibraryID: string; onScanLibraryChange: TaskRowProps['onScanLibraryChange']; probeLibraryID: string; onProbeLibraryChange: TaskRowProps['onProbeLibraryChange']; probeLimit: string; onProbeLimitChange: TaskRowProps['onProbeLimitChange']; scrapeLibraryID: string; onScrapeLibraryChange: TaskRowProps['onScrapeLibraryChange']; onRun: TaskRowProps['onRun']; onLog: TaskRowProps['onLog']; onSchedule: TaskRowProps['onSchedule']; onPending: TaskRowProps['onPending']; pendingCounts: TaskPendingCounts | null }) {
   return (
     <>
 		<div className="hidden overflow-x-auto lg:block">
@@ -634,7 +629,10 @@ function TasksSystemPage({ system, onSystemChange }: { system: TaskSystem; onSys
   const [logDefinition, setLogDefinition] = useState<TaskDefinition | null>(null)
 	const [scheduleDefinition, setScheduleDefinition] = useState<TaskDefinition | null>(null)
 	const [pendingDefinition, setPendingDefinition] = useState<TaskDefinition | null>(null)
-	const [pendingCounts, setPendingCounts] = useState<PendingCounts>({ rechecks: 0, scrapeIssues: 0 })
+	const [pendingCounts, setPendingCounts] = useState<TaskPendingCounts | null>(null)
+  const [pendingCountsLoading, setPendingCountsLoading] = useState(true)
+  const [pendingCountsError, setPendingCountsError] = useState(false)
+  const [pendingCountsRevision, setPendingCountsRevision] = useState(0)
 	const [running, setRunning] = useState('')
 	const [libraries, setLibraries] = useState<Library[]>([])
 	const [scanLibraryID, setScanLibraryID] = useState('')
@@ -680,18 +678,18 @@ function TasksSystemPage({ system, onSystemChange }: { system: TaskSystem; onSys
     if (system === 'hongguo') return
     libraryAPI.list({ includeHidden: true }).then(setLibraries).catch(() => setLibraries([]))
   }, [system])
-  const refreshPendingCounts = () => Promise.all([
-    tasksAPI.recheckSummary(),
-    mediaAPI.listScrapeIssues({ page: 1, pageSize: 1 }),
-  ]).then(([rechecks, scrapeIssues]) => setPendingCounts({
-    rechecks: Object.entries(rechecks.counts).reduce((total, [status, count]) => status === 'done' ? total : total + count, 0),
-    scrapeIssues: scrapeIssues.total,
-  }))
-  useEffect(() => { if (system === 'catalog') void refreshPendingCounts().catch(() => undefined) }, [system])
-  const closePending = () => {
-    setPendingDefinition(null)
-    void refreshPendingCounts().catch(() => undefined)
-  }
+  useEffect(() => {
+    if (system !== 'catalog') return
+    const controller = new AbortController()
+    setPendingCountsLoading(true)
+    setPendingCountsError(false)
+    tasksAPI.pendingCounts(pendingCountsRevision > 0, controller.signal)
+      .then((value) => { if (!controller.signal.aborted) setPendingCounts(value) })
+      .catch(() => { if (!controller.signal.aborted) setPendingCountsError(true) })
+      .finally(() => { if (!controller.signal.aborted) setPendingCountsLoading(false) })
+    return () => controller.abort()
+  }, [system, pendingCountsRevision])
+  const closePending = () => setPendingDefinition(null)
 
   const run = async (definition: TaskDefinition) => {
 		if (!ready || runPending.current || running || definition.current_state === 'running') return
@@ -756,6 +754,11 @@ function TasksSystemPage({ system, onSystemChange }: { system: TaskSystem; onSys
         ))}
       </div>
 		<section className="glass-panel">
+      {system === 'catalog' && <div className="mb-4 flex flex-wrap items-center justify-end gap-2 text-xs text-ink-100">
+        <p>{pendingCounts ? `待办统计更新于 ${formatTime(pendingCounts.updated_at)} · 手动刷新` : pendingCountsLoading ? '正在加载待办统计…' : '待办数量尚未加载'}</p>
+        <button type="button" className="btn-outline gap-1.5 px-3 py-1.5 text-xs" disabled={pendingCountsLoading} onClick={() => setPendingCountsRevision((value) => value + 1)} aria-label="刷新待办统计"><RefreshCw size={14} aria-hidden="true" className={pendingCountsLoading ? 'animate-spin' : ''} />{pendingCountsLoading ? '加载中…' : '刷新待办统计'}</button>
+        {pendingCountsError && <p role="alert" className="text-red-500">统计加载失败{pendingCounts ? '，保留上次结果' : ''}，请点击刷新重试。</p>}
+      </div>}
 			{loadError && !definitions ? <div className="flex flex-col items-center gap-3 py-8 text-sm text-ink-50"><p>任务列表加载失败。</p><button type="button" className="rounded border border-gray-200 p-2 text-sand-600 hover:text-brand-500" title="重新加载" aria-label="重新加载" onClick={() => void refresh()}><RefreshCw size={16} /></button></div> : !definitions ? <p className="py-8 text-center text-ink-50">加载中...</p> : definitions.length === 0 ? <p className="py-8 text-center text-ink-50">暂无任务。</p> : <DefinitionTable ready={ready} definitions={definitions} running={running} libraries={libraries} scanLibraryID={scanLibraryID} onScanLibraryChange={setScanLibraryID} probeLibraryID={probeLibraryID} onProbeLibraryChange={setProbeLibraryID} probeLimit={probeLimit} onProbeLimitChange={setProbeLimit} scrapeLibraryID={scrapeLibraryID} onScrapeLibraryChange={setScrapeLibraryID} onRun={(definition) => void run(definition)} onLog={setLogDefinition} onSchedule={setScheduleDefinition} onPending={setPendingDefinition} pendingCounts={pendingCounts} />}
       </section>
       {logDefinition && <TaskLogDialog definition={logDefinition} onClose={() => setLogDefinition(null)} />}

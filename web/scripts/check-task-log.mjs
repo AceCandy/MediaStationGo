@@ -142,10 +142,12 @@ for (const [count, libraryID] of [[0, 'library-a'], [12, 'library-a'], [0, ''], 
   states = []; memos = []; stateIndex = memoIndex = 0
   states[0] = { state: 'ready', warnings: [] }
   states[2] = [definition]
-  states[13] = libraryID
   notices.length = requests.length = 0
   runResult = { status: 'queued', ...(count === undefined ? {} : { count }) }
-  const table = nodes(exports.TasksSystemPage({ system: 'catalog', onSystemChange() {} })).find((node) => node.type?.name === 'DefinitionTable')
+  let table = nodes(exports.TasksSystemPage({ system: 'catalog', onSystemChange() {} })).find((node) => node.type?.name === 'DefinitionTable')
+  table.props.onScrapeLibraryChange(libraryID)
+  stateIndex = memoIndex = 0
+  table = nodes(exports.TasksSystemPage({ system: 'catalog', onSystemChange() {} })).find((node) => node.type?.name === 'DefinitionTable')
   table.props.onRun(definition)
   await setImmediate()
   assert.equal(requests.length, 1)

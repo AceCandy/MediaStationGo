@@ -46,7 +46,7 @@ assert.match(tasksPageSource, /ariaLabel="媒体入库刮削待处理"[\s\S]*max
 assert.match(tasksPageSource, /placeholder="搜索标题、路径、媒体库或原因"/, 'scrape issues expose keyword search')
 assert.match(tasksPageSource, /border-gold-500\/30[\s\S]*count > 999 \? '999\+' : count/, 'non-empty pending buttons use the gold count marker')
 assert.doesNotMatch(tasksPageSource, /setInterval\([^)]*refreshPendingCounts/, 'pending counts do not follow the three-second task polling loop')
-assert.match(tasksPageSource, /tasksAPI\.recheckSummary\(\)/, 'task badge requests only summary')
+assert.match(tasksPageSource, /tasksAPI\.pendingCounts\(/, 'task badge reads the cached summary')
 assert.match(tasksAPISource, /view: 'items'/, 'pagination skips global summary')
 assert.match(tasksAPISource, /view: 'summary'/, 'summary skips list hydration')
 assert.match(tasksAPISource, /keyword: keyword \|\| undefined/, 'recheck API forwards keyword')

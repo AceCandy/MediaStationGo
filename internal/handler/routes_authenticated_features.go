@@ -11,6 +11,7 @@ func registerAuthedStatsDiscoveryAndAIRoutes(authed *gin.RouterGroup, svc *servi
 	authed.GET("/stats", statsHandler(svc))
 	authed.GET("/tasks", middleware.AdminRequired(), tasksHandler(svc))
 	authed.GET("/tasks/startup", middleware.AdminRequired(), taskStartupHandler(svc))
+	authed.GET("/tasks/pending-counts", middleware.AdminRequired(), taskPendingCountsHandler(svc))
 	authed.GET("/tasks/definitions/:key/executions", middleware.AdminRequired(), taskDefinitionHistoryHandler(svc))
 	authed.GET("/tasks/definitions/:key/log", middleware.AdminRequired(), taskDefinitionLogHandler(svc))
 	authed.GET("/tasks/definitions/:key/pending", middleware.AdminRequired(), tmdbRecheckListHandler(svc))
