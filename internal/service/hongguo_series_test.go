@@ -175,4 +175,68 @@ func TestHongGuoLibrarySeriesPresentation(t *testing.T) {
 	if err != nil || fallback == nil || fallback.Title != works[1].Title || fallback.PosterURL != "" {
 		t.Fatalf("earliest available season fallback=%+v err=%v", fallback, err)
 	}
+
+	standalone, err := repos.HongGuo.SaveDetail(ctx, hongguo.Work{SourceID: "95001", Title: "Standalone", EpisodeCount: 2, Snapshot: []byte(`{}`)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	standaloneFile := addFile(library, standalone, 1, "a")
+	addFile(library, standalone, 1, "b")
+	addFile(library, standalone, 2, "a")
+	standaloneID := "hg-work-" + standalone.ID
+	standaloneCards, n, err := svc.ListLibrarySeriesCards(ctx, library.ID, 1, 1, "", "hongguo:"+standalone.SourceID, visibility)
+	if err != nil || n != 1 || len(standaloneCards) != 1 {
+		t.Fatalf("standalone cards=%+v total=%d err=%v", standaloneCards, n, err)
+	}
+	standaloneCard := standaloneCards[0]
+	if standaloneCard.Rep.SeriesID != standaloneID || standaloneCard.Rep.LookupCatalogID != standalone.SourceID || standaloneCard.Count != 2 || len(standaloneCard.Seasons) != 1 || standaloneCard.Seasons[0] != 1 {
+		t.Fatalf("empty album must retain its own identity and season one: %+v", standaloneCard)
+	}
+	standaloneSeason, err := svc.GetMediaSeasonVisible(ctx, standaloneFile.ID, visibility)
+	if err != nil || standaloneSeason == nil || standaloneSeason.SeasonNum != 1 {
+		t.Fatalf("standalone season=%+v err=%v", standaloneSeason, err)
+	}
+	seasonNumber = 1
+	standaloneEpisodes, err := svc.ListLibrarySeriesEpisodes(ctx, library.ID, "metadata:"+standaloneID, &seasonNumber, visibility)
+	if err != nil || len(standaloneEpisodes) != 3 {
+		t.Fatalf("standalone episodes=%+v err=%v", standaloneEpisodes, err)
+	}
+	for _, episode := range standaloneEpisodes {
+		if episode.SeriesID != standaloneID || episode.SeasonNum != 1 {
+			t.Fatalf("standalone episode has incorrect identity or season: %+v", episode)
+		}
+	}
+	// 无文件和仅其他库有文件的作品都不能进入当前库的分页集合。
+	for i := 0; i < 2; i++ {
+		unavailable, err := repos.HongGuo.SaveDetail(ctx, hongguo.Work{SourceID: fmt.Sprint(96001 + i), Title: "Unavailable", EpisodeCount: 2, Snapshot: []byte(`{}`)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if i == 1 {
+			addFile(hidden, unavailable, 1, "hidden")
+		}
+	}
+	seen := map[string]bool{}
+	for pageNumber := 1; pageNumber <= 4; pageNumber++ {
+		page, n, err := svc.ListLibrarySeriesCards(ctx, library.ID, pageNumber, 1, "", "", visibility)
+		if err != nil || n != 3 || (pageNumber <= 3 && len(page) != 1) || (pageNumber == 4 && len(page) != 0) {
+			t.Fatalf("page %d=%+v total=%d err=%v", pageNumber, page, n, err)
+		}
+		for _, card := range page {
+			if seen[card.Key] {
+				t.Fatalf("duplicate card across pages: %s", card.Key)
+			}
+			seen[card.Key] = true
+		}
+	}
+	filtered, n, err := svc.ListLibrarySeriesCards(ctx, library.ID, 1, 1, "", "", MediaVisibility{MissingChineseTitle: true})
+	if err != nil || n != 1 || len(filtered) != 1 || filtered[0].Rep.SeriesID != standaloneID || filtered[0].Count != 2 {
+		t.Fatalf("filtered pagination=%+v total=%d err=%v", filtered, n, err)
+	}
+	for _, denied := range []repository.MediaQueryFilter{{HiddenLibraryIDs: []string{library.ID}}, {AllowedLibraryIDs: []string{hidden.ID}}} {
+		rows, _, n, err := repos.MediaView.ListLibraryMetadataPage(ctx, library.ID, model.MetadataKindSeries, "", 0, 1, denied)
+		if err != nil || n != 0 || len(rows) != 0 {
+			t.Fatalf("repository visibility leaked: %+v total=%d err=%v", rows, n, err)
+		}
+	}
 }

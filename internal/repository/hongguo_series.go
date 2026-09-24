@@ -13,17 +13,13 @@ import (
 const hongGuoSeriesIdentity = "CASE WHEN g.id IS NULL THEN 'hg-work-' || w.id ELSE 'hg-group-' || g.id END"
 const hongGuoSeasonNumber = "CASE WHEN g.id IS NULL THEN 1 ELSE w.season_index END"
 
-// hongGuoSeriesScope 先限定可见文件，再按官方关系投影剧集；空库 ID 表示所有可见库。
-func (r *MediaViewRepository) hongGuoSeriesScope(ctx context.Context, libraryID, seriesID string, filter MediaQueryFilter) *gorm.DB {
+// hongGuoFileScope 统一作品存在性判断与当前页文件统计的可见范围。
+func (r *MediaViewRepository) hongGuoFileScope(ctx context.Context, libraryID string, filter MediaQueryFilter) *gorm.DB {
 	q := r.db.WithContext(ctx).Table("media m").
 		Joins("JOIN hongguo_media_bindings b ON b.media_id = m.id").
-		Joins("JOIN hongguo_works w ON w.id = b.work_id").Joins(HongGuoAlbumJoin).
 		Where("m.catalog_source = 'hongguo'")
 	if libraryID != "" {
 		q = q.Where("m.library_id = ?", libraryID)
-	}
-	if seriesID != "" {
-		q = q.Where(hongGuoSeriesIdentity+" = ?", seriesID)
 	}
 	if len(filter.AllowedLibraryIDs) > 0 {
 		q = q.Where("m.library_id = ANY(?)", &filter.AllowedLibraryIDs)
@@ -34,31 +30,74 @@ func (r *MediaViewRepository) hongGuoSeriesScope(ctx context.Context, libraryID,
 	return q
 }
 
+// hongGuoSeriesScope 先限定可见文件，再按官方关系投影剧集；空库 ID 表示所有可见库。
+func (r *MediaViewRepository) hongGuoSeriesScope(ctx context.Context, libraryID, seriesID string, filter MediaQueryFilter) *gorm.DB {
+	q := r.hongGuoFileScope(ctx, libraryID, filter).
+		Joins("JOIN hongguo_works w ON w.id = b.work_id").Joins(HongGuoAlbumJoin)
+	if seriesID != "" {
+		q = q.Where(hongGuoSeriesIdentity+" = ?", seriesID)
+	}
+	return q
+}
+
 // hongGuoLibraryPage 仅加载当前页代表文件；封面和筛选都以整剧主体资料为准。
 func (r *MediaViewRepository) hongGuoLibraryPage(ctx context.Context, libraryID, seriesID string, offset, limit int, filter MediaQueryFilter) ([]model.MediaView, []LibraryMetadataSummary, int64, error) {
-	q := r.hongGuoSeriesScope(ctx, libraryID, seriesID, filter).
-		Joins("JOIN hongguo_works primary_work ON primary_work.id = COALESCE(g.work_id,w.id)")
+	visible := r.hongGuoFileScope(ctx, libraryID, filter).Select("1").Where("b.work_id = w.id")
+	q := r.db.WithContext(ctx).Table("hongguo_works w").Joins(HongGuoAlbumJoin).
+		Joins("JOIN hongguo_works primary_work ON primary_work.id = COALESCE(g.work_id,w.id)").
+		Where("EXISTS (? OFFSET 0)", visible)
+	if seriesID != "" {
+		q = q.Where(hongGuoSeriesIdentity+" = ?", seriesID)
+	}
 	if filter.MissingPoster {
 		q = q.Where("NOT EXISTS (SELECT 1 FROM hongguo_artworks a WHERE a.work_id = primary_work.id AND a.local_key <> '')")
 	}
 	if filter.MissingChineseTitle {
 		q = q.Where("primary_work.title !~ '[㐀-䶿一-鿿豈-﫿]'")
 	}
-	groups := q.Select(hongGuoSeriesIdentity + ` AS metadata_id,
- (ARRAY_AGG(m.id ORDER BY ` + hongGuoSeasonNumber + `,w.source_id,m.episode_num,m.id))[1] AS media_id,
- COUNT(DISTINCT COALESCE(b.episode_id,w.id)) AS count, COUNT(*) AS version_count,
- primary_work.title`).Group(hongGuoSeriesIdentity + ",primary_work.title")
-	var total int64
-	if err := r.db.WithContext(ctx).Table("(?) cards", groups).Count(&total).Error; err != nil {
+	q = q.Select("w.id AS work_id, " + hongGuoSeriesIdentity + " AS metadata_id, primary_work.title")
+	page := r.db.Table("works").Order("title, metadata_id").Offset(offset).Limit(limit)
+	var rows []struct {
+		WorkID string
+		Total  int64
+	}
+	// 存在性查询保留逐作品索引查找边界，总数和分页共用一次作品范围计算。
+	err := r.db.WithContext(ctx).Raw(`WITH scoped AS MATERIALIZED (?), works AS MATERIALIZED (
+SELECT metadata_id, title FROM scoped GROUP BY metadata_id, title
+), page AS MATERIALIZED (?), page_works AS (
+SELECT scoped.work_id, page.metadata_id, page.title FROM page JOIN scoped USING (metadata_id)
+)
+SELECT page_works.work_id, totals.total FROM (SELECT COUNT(*) AS total FROM works) totals
+LEFT JOIN page_works ON TRUE ORDER BY page_works.title, page_works.metadata_id`, q, page).Scan(&rows).Error
+	if err != nil {
 		return nil, nil, 0, err
 	}
+	var total int64
+	workIDs := make([]string, 0, len(rows))
+	for _, row := range rows {
+		total = row.Total
+		if row.WorkID != "" {
+			workIDs = append(workIDs, row.WorkID)
+		}
+	}
+	if len(workIDs) == 0 {
+		return nil, nil, total, nil
+	}
+	// 显式传入当页作品 ID，避免分页连接的基数高估触发昂贵的 JIT 优化。
 	var summaries []LibraryMetadataSummary
-	if err := r.db.WithContext(ctx).Table("(?) cards", groups).Order("title,metadata_id").Offset(offset).Limit(limit).Scan(&summaries).Error; err != nil {
+	err = r.hongGuoSeriesScope(ctx, libraryID, "", filter).
+		Joins("JOIN hongguo_works primary_work ON primary_work.id = COALESCE(g.work_id,w.id)").
+		Where("b.work_id = ANY(?)", &workIDs).
+		Select(hongGuoSeriesIdentity + ` AS metadata_id,
+(ARRAY_AGG(m.id ORDER BY ` + hongGuoSeasonNumber + `,w.source_id,m.episode_num,m.id))[1] AS media_id,
+COUNT(DISTINCT COALESCE(b.episode_id,w.id)) AS count, COUNT(*) AS version_count`).
+		Group(hongGuoSeriesIdentity + ",primary_work.title").Order("primary_work.title,metadata_id").Scan(&summaries).Error
+	if err != nil {
 		return nil, nil, 0, err
 	}
 	ids := make([]string, 0, len(summaries))
-	for _, card := range summaries {
-		ids = append(ids, card.MediaID)
+	for _, row := range summaries {
+		ids = append(ids, row.MediaID)
 	}
 	filter.MissingPoster, filter.MissingChineseTitle = false, false
 	views, err := r.FindByIDs(ctx, ids, filter)

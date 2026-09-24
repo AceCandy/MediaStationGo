@@ -535,6 +535,16 @@ Never claim `first_visible_at` is a release date or create metadata surrogates.
 Filter files by library/profile visibility before grouping and pagination. Count
 distinct episode identities, not files. Duplicate official season numbers retain
 distinct `catalog_item_id` values; alternate files retain a shared episode identity.
+Library card pagination starts from `hongguo_works` with an indexed `EXISTS`
+check against visible bound files. Share the eligible work set between total and
+page selection; aggregate episode counts and representative files only for the
+returned source-work IDs. Do not sort every file before `LIMIT`. Keep the work
+existence lookup boundary (`OFFSET 0`) and verify real PostgreSQL plans, including
+JIT compilation costs: joining file aggregation into the page CTE can inflate
+estimated rows and trigger expensive JIT optimization. Empty pages retain total.
+Empty album/season fields remain standalone `hg-work-<UUID>` identities at season
+1, with the source ID preserved; never persist a synthetic self-album just to
+render this fallback, since that would change existing Web/Emby identities.
 Playback and favorites keep source/user keys. Whole-series favorites affect only
 visible member sources; movies use the existing source favorite API. Disable old
 metadata editing and TMDb/Douban controls for HongGuo while retaining file operations.
@@ -555,7 +565,8 @@ stills select a different detail layout, or two versions inflate episode count.
 
 `TestHongGuoLibrarySeriesPresentation` covers first-season fields/credits without
 files, own-season blanks, duplicate seasons/versions, scoped pagination/filtering,
-history/favorites/user isolation, cross-season resume, legacy links and movies.
+history/favorites/user isolation, cross-season resume, legacy links and movies,
+standalone season-1 fallback, unavailable works, and out-of-range page totals.
 `TestHongGuoHTTPAccessAndStateIsolation` verifies shared details without discovery
 permission and locked-profile read/write rejection. Run with isolated PostgreSQL.
 `check-series-loading.mjs`, `check-series-presentation.mjs` and
