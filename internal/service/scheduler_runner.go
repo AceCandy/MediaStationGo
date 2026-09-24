@@ -157,11 +157,12 @@ func (s *SchedulerService) runNowAsync(ctx context.Context, name string) error {
 		runCtx = context.WithoutCancel(ctx)
 	}
 	runCtx = context.WithValue(runCtx, schedulerManualRunKey{}, true)
-	if err := s.beginRun(j); err != nil {
+	finish, err := s.beginRun(j)
+	if err != nil {
 		return err
 	}
 	go func() {
-		if err := s.runReserved(runCtx, j); err != nil && s.log != nil {
+		if err := s.runReserved(runCtx, j, finish); err != nil && s.log != nil {
 			s.log.Warn("manual scheduled job failed", zap.String("name", name), zap.Error(err))
 		}
 	}()
@@ -218,7 +219,7 @@ func (s *SchedulerService) loopWithInitialDelay(ctx context.Context, j *schedule
 			continue
 		}
 		if err := s.runOnce(ctx, j); err != nil {
-			if errors.Is(err, ErrSchedulerJobAlreadyRunning) {
+			if errors.Is(err, ErrSchedulerJobAlreadyRunning) || errors.Is(err, ErrLocalScanAlreadyRunning) {
 				s.log.Debug("scheduled job skipped; previous run still active", zap.String("name", j.name))
 				continue
 			}
@@ -239,10 +240,11 @@ func stopSchedulerTimer(timer *time.Timer) {
 }
 
 func (s *SchedulerService) runOnce(ctx context.Context, j *scheduledJob) error {
-	if err := s.beginRun(j); err != nil {
+	finish, err := s.beginRun(j)
+	if err != nil {
 		return err
 	}
-	return s.runReserved(ctx, j)
+	return s.runReserved(ctx, j, finish)
 }
 
 func (s *SchedulerService) jobByName(name string) *scheduledJob {
@@ -260,23 +262,32 @@ func (s *SchedulerService) jobByNameLocked(name string) *scheduledJob {
 	return nil
 }
 
-func (s *SchedulerService) beginRun(j *scheduledJob) error {
+func (s *SchedulerService) beginRun(j *scheduledJob) (func(), error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.runCtx.Err() != nil {
-		return ErrSchedulerJobNotFound
+		return nil, ErrSchedulerJobNotFound
 	}
 	if j.running {
-		return ErrSchedulerJobAlreadyRunning
+		return nil, ErrSchedulerJobAlreadyRunning
+	}
+	finish := func() {}
+	if j.name == "library_scan" && s.scanner != nil {
+		var ok bool
+		finish, ok = s.scanner.TryBeginLocalScan()
+		if !ok {
+			return nil, ErrLocalScanAlreadyRunning
+		}
 	}
 	j.running = true
 	j.started = s.currentTime()
 	s.runWG.Add(1)
-	return nil
+	return finish, nil
 }
 
-func (s *SchedulerService) runReserved(ctx context.Context, j *scheduledJob) error {
+func (s *SchedulerService) runReserved(ctx context.Context, j *scheduledJob, finish func()) error {
 	defer s.runWG.Done()
+	defer finish()
 	ctx, cancel := context.WithCancel(ctx)
 	stop := context.AfterFunc(s.runCtx, cancel)
 	defer func() { stop(); cancel() }()

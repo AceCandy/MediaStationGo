@@ -56,23 +56,18 @@ func (s *ScannerService) ScanLibraryWithoutAutoScrape(ctx context.Context, libra
 	return s.scanLibrary(ctx, libraryID, false)
 }
 
-func (s *ScannerService) TryBeginLocalScan(libraryID string) (func(), bool) {
-	if s == nil || strings.TrimSpace(libraryID) == "" {
-		return func() {}, true
-	}
+// TryBeginLocalScan 在创建任务或启动协程前占用全局扫描名额；整批目标共享一次占用。
+func (s *ScannerService) TryBeginLocalScan() (func(), bool) {
 	s.localScanMu.Lock()
-	if s.localScans == nil {
-		s.localScans = make(map[string]struct{})
-	}
-	if _, ok := s.localScans[libraryID]; ok {
+	if s.localScanRunning {
 		s.localScanMu.Unlock()
 		return nil, false
 	}
-	s.localScans[libraryID] = struct{}{}
+	s.localScanRunning = true
 	s.localScanMu.Unlock()
 	return func() {
 		s.localScanMu.Lock()
-		delete(s.localScans, libraryID)
+		s.localScanRunning = false
 		s.localScanMu.Unlock()
 	}, true
 }

@@ -58,8 +58,8 @@ type ScannerService struct {
 
 	imageProxy *ImageProxy
 
-	localScanMu sync.Mutex
-	localScans  map[string]struct{}
+	localScanMu      sync.Mutex
+	localScanRunning bool
 }
 
 func (s *ScannerService) SetMediaProbe(mediaProbe *MediaProbeService) {
@@ -79,8 +79,7 @@ func NewScannerService(
 ) *ScannerService {
 	return &ScannerService{
 		cfg: cfg, log: log, repo: repo, hub: hub,
-		scraper:    scraper,
-		localScans: make(map[string]struct{}),
+		scraper: scraper,
 	}
 }
 
@@ -234,7 +233,7 @@ func (res *ScanResult) ErrorDetails(limit int) []string {
 	return details
 }
 
-var ErrLocalScanAlreadyRunning = errors.New("local scan already running")
+var ErrLocalScanAlreadyRunning = errors.New("已有媒体库扫描正在运行，请稍后重试")
 
 const maxScanErrorDetails = 20
 

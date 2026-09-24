@@ -38,7 +38,7 @@ func TestSTRMRefreshNFOUsesCommonScanWithoutScrape(t *testing.T) {
 			refresh := queueSTRMRefreshAfterChanges(t.Context(), svc, lib.Path, strmRefreshQueueOptions{TaskName: "STRM", Changed: true, ScrapeAfter: true})
 			deadline := time.Now().Add(5 * time.Second)
 			for {
-				finish, idle := scanner.TryBeginLocalScan(lib.ID)
+				finish, idle := scanner.TryBeginLocalScan()
 				if idle {
 					finish()
 					break

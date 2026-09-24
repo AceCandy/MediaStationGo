@@ -455,6 +455,59 @@ ids := parseFailedMediaIDsFromTaskLog(log)
 scraper.ResetLibraryScrape(ctx, libraryID, false)
 ```
 
+## Scenario: Global Library Scan Admission
+
+### 1. Scope / Trigger
+
+All manual, scheduled, automatic-root and STRM-refresh full scans in one
+application instance. File-watcher single-file ingestion remains independent.
+
+### 2. Signatures
+
+`ScannerService.TryBeginLocalScan() (release func(), admitted bool)` reserves
+one process-local slot. Call exactly one release for every successful admission.
+`ErrLocalScanAlreadyRunning` is the shared busy error.
+
+### 3. Contracts
+
+Reserve before creating an execution or launching a goroutine. Reject busy
+requests immediately; do not queue or wait. Scheduler `beginRun` reserves the
+same slot, and `runReserved` releases it even on failure/cancellation. Hold the
+slot across an entire multi-library/root batch, not once per target. Added-root
+and STRM batches create/run their per-target executions sequentially, continuing
+after an individual target failure. A task-create failure must not start
+untracked scanning. New scan entry points must use this admission boundary.
+
+### 4. Validation & Error Matrix
+
+Busy direct scan/task/scheduler API -> HTTP 409 with a user-facing error and no
+execution; direct scan responses set `queued=false`. Busy automatic follow-up
+-> log rejection without undoing the successful library/root save. Busy STRM
+follow-up -> `Queued=false` and a reason without undoing generated files.
+Task creation failure -> release immediately. Periodic busy tick -> skip that
+run, retaining its ordinary schedule, not a hidden retry queue.
+
+### 5. Good / Base / Bad Cases
+
+Good: one admitted batch scans every selected target in order. Base: a later
+request succeeds after completion. Bad: globalizing the lock while acquiring
+it separately for each spawned target, thereby dropping later targets.
+
+### 6. Tests Required
+
+`TestLocalScanAdmissionIsGlobal`, `TestSchedulerScanSharesGlobalAdmission`,
+`TestSchedulerScanReleasesSlotOnShutdown`, and `TestScanAdmissionHTTPAndBatches`
+cover admission, busy APIs/no executions, error/create-failure/shutdown release,
+sequential roots and STRM continuation. Run the database cases on isolated
+PostgreSQL and include `-race`. Path-level writer safety is still required for
+watcher concurrency; see `database-guidelines.md`.
+
+### 7. Wrong vs Correct
+
+Wrong: maintain separate library/root keys or rely only on the scheduler's
+per-job `running` flag. Correct: all scan admissions share the ScannerService
+slot; a batch owns it until all targets and task finalization finish.
+
 ## Scenario: Library Scan and Media Probe Backfill Separation
 
 ### 1. Scope / Trigger

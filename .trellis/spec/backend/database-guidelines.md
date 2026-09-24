@@ -65,6 +65,29 @@ Correct: use Responses for People translation without tools; reserve `web_search
 
 ## Query Patterns
 
+### Concurrent Media Path Reuse
+
+`MediaRepository.findOrCreateMediaByPath` retains the ordinary existing-row
+update path, but first insertion must use
+`clause.OnConflict{Columns: []clause.Column{{Name: "path"}}, DoNothing: true}`.
+Check `RowsAffected`; on conflict reload by path into a fresh `model.Media`,
+not the incoming object whose create hook generated an unsaved ID. Reuse the
+persisted ID and existing update rules. Other insert failures remain errors.
+Never catch `23505` and query again inside the same aborted PostgreSQL transaction.
+
+After resolving the actual row, revalidate catalog-source equality and NFO
+library ownership before updates/bindings. An earlier source check may have
+observed no row. Keep `idx_media_path`; scan admission alone cannot serialize
+watcher writes. NFO keeps its transaction-level path advisory lock.
+
+`TestMediaUpsertConcurrentPath` uses independent schema-pinned connections and
+a pre-insert barrier to reproduce the ordinary/HongGuo first-insert race and
+both directions of cross-source conflicts. NFO-NFO uses synchronized starts
+without the double-insert barrier, because its second writer waits earlier on
+the advisory lock. Assert one row, shared returned ID, correct bindings and
+source isolation. `TestMediaUpsertDoesNotIgnoreOtherInsertErrors` verifies that
+a primary-key conflict still fails and preserves the existing row.
+
 ### Concurrent Artwork Asset Reuse
 
 `ArtworkRepository`'s five asset writers and `NFORepository.Ingest` share

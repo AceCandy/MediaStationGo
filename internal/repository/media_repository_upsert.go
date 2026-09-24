@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 )
@@ -161,6 +162,10 @@ func (r *MediaRepository) upsert(ctx context.Context, m *model.Media) (string, e
 	if created {
 		return "", nil
 	}
+	// 冲突复用的行可能在来源入口检查之后才插入，更新前必须重验归属。
+	if existing.CatalogSource != m.CatalogSource || (m.CatalogSource == model.CatalogSourceNFO && existing.LibraryID != m.LibraryID) {
+		return "", errors.New("不能把现有文件自动改绑到其他资料体系或本地资料库")
+	}
 
 	updates := mediaUpsertUpdates(existing, *m)
 	return existing.MetadataID, r.applyMediaUpsertUpdates(ctx, m, existing, updates)
@@ -174,11 +179,17 @@ func (r *MediaRepository) findOrCreateMediaByPath(ctx context.Context, m *model.
 		if m.ScrapeStatus == "" {
 			m.ScrapeStatus = "pending"
 		}
-		if createErr := r.db.WithContext(ctx).Create(m).Error; createErr == nil {
-			return *m, true, nil
-		} else if retryErr := r.db.WithContext(ctx).Where("path = ?", m.Path).First(&existing).Error; retryErr != nil {
-			return model.Media{}, false, createErr
+		result := r.db.WithContext(ctx).Clauses(clause.OnConflict{
+			Columns: []clause.Column{{Name: "path"}}, DoNothing: true,
+		}).Create(m)
+		if result.Error != nil {
+			return model.Media{}, false, result.Error
 		}
+		if result.RowsAffected > 0 {
+			return *m, true, nil
+		}
+		// 不使用已由创建钩子生成 ID 的 m，避免附带未持久化的主键过滤。
+		err = r.db.WithContext(ctx).Where("path = ?", m.Path).First(&existing).Error
 	}
 	if err != nil {
 		return model.Media{}, false, err

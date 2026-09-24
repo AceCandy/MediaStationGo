@@ -106,14 +106,16 @@ func createLibraryHandler(svc *service.Container) gin.HandlerFunc {
 			_, scanErr := startLibraryScanTask(svc, l, service.TaskTriggerEvent, "新增媒体库自动扫描")
 			logAutomaticScanStartError(svc, l.ID, scanErr)
 		} else {
+			var enabledRoots []model.LibraryRoot
 			for i := range result.AddedRoots {
 				root := result.AddedRoots[i]
 				if !root.Enabled {
 					continue
 				}
-				_, scanErr := startLibraryRootScanTask(svc, l.ID, root.ID, l.Name, root.Path, service.TaskTriggerEvent, "新增路径自动扫描")
-				logAutomaticScanStartError(svc, root.ID, scanErr)
+				enabledRoots = append(enabledRoots, root)
 			}
+			_, scanErr := startLibraryRootScanTasks(svc, l.ID, enabledRoots, l.Name, service.TaskTriggerEvent, "新增路径自动扫描")
+			logAutomaticScanStartError(svc, l.ID, scanErr)
 		}
 		c.JSON(http.StatusCreated, l)
 	}

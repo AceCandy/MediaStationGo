@@ -253,36 +253,47 @@ func queueSTRMRefreshAfterChanges(ctx context.Context, svc *service.Container, o
 		return refresh
 	}
 	refresh.Targets = targets
+	finishScan, ok := svc.Scan.TryBeginLocalScan()
+	if !ok {
+		refresh.Reason = service.ErrLocalScanAlreadyRunning.Error()
+		refresh.ScrapeReason = strmRefreshScrapeSkipReason(refresh)
+		return refresh
+	}
+	task := startScanHTTPTask(svc, options.TaskName, targets[0].Name, targets[0].Path, service.TaskTriggerManual)
+	if task == nil {
+		finishScan()
+		refresh.Reason = errCreateScanTask.Error()
+		refresh.ScrapeReason = strmRefreshScrapeSkipReason(refresh)
+		return refresh
+	}
+	refresh.Queued = true
 	if options.ScrapeAfter && svc.Scraper == nil {
 		refresh.ScrapeReason = "scraper unavailable"
 	}
 	for _, target := range targets {
 		libraryType := strings.ToLower(strings.TrimSpace(target.LibraryType))
-		key := target.LibraryID
-		if target.RootID != "" {
-			key += ":" + target.RootID
-		}
-		finishScan, ok := svc.Scan.TryBeginLocalScan(key)
-		if !ok {
-			continue
-		}
-		refresh.Queued = true
-		runOptions := strmRefreshRunOptions{ScrapeAfter: options.ScrapeAfter && svc.Scraper != nil && libraryType != model.LibraryTypeNFOMovie && libraryType != model.LibraryTypeNFOTV}
-		if runOptions.ScrapeAfter {
+		if options.ScrapeAfter && svc.Scraper != nil && libraryType != model.LibraryTypeNFOMovie && libraryType != model.LibraryTypeNFOTV {
 			refresh.ScrapeQueued = true
 		}
-		task := startScanHTTPTask(svc, options.TaskName, target.Name, target.Path, service.TaskTriggerManual)
-		go runSTRMRefreshScan(svc, target, task, finishScan, runOptions)
 	}
-	if !refresh.Queued {
-		refresh.Reason = "matching library already scanning"
-		refresh.ScrapeReason = strmRefreshScrapeSkipReason(refresh)
-	}
+	go func() {
+		defer finishScan()
+		for i, target := range targets {
+			if i > 0 {
+				task = startScanHTTPTask(svc, options.TaskName, target.Name, target.Path, service.TaskTriggerManual)
+				if task == nil {
+					logAutomaticScanStartError(svc, target.Path, errCreateScanTask)
+					continue
+				}
+			}
+			libraryType := strings.ToLower(strings.TrimSpace(target.LibraryType))
+			runSTRMRefreshScan(svc, target, task, strmRefreshRunOptions{ScrapeAfter: options.ScrapeAfter && svc.Scraper != nil && libraryType != model.LibraryTypeNFOMovie && libraryType != model.LibraryTypeNFOTV})
+		}
+	}()
 	return refresh
 }
 
-func runSTRMRefreshScan(svc *service.Container, target service.STRMRefreshTarget, task *service.TaskHandle, finish func(), options strmRefreshRunOptions) {
-	defer finish()
+func runSTRMRefreshScan(svc *service.Container, target service.STRMRefreshTarget, task *service.TaskHandle, options strmRefreshRunOptions) {
 	var (
 		res *service.ScanResult
 		err error

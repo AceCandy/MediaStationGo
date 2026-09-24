@@ -33,11 +33,12 @@ func scanLibraryHandler(svc *service.Container) gin.HandlerFunc {
 			return
 		}
 		if !started {
-			c.JSON(http.StatusAccepted, gin.H{
+			c.JSON(http.StatusConflict, gin.H{
 				"library_id":       id,
-				"queued":           true,
+				"queued":           false,
 				"already_running":  true,
-				"message":          "该媒体库正在后台扫描，请在任务面板查看进度",
+				"error":            service.ErrLocalScanAlreadyRunning.Error(),
+				"message":          service.ErrLocalScanAlreadyRunning.Error(),
 				"estimate_message": "页面关闭不会中断扫描",
 			})
 			return
@@ -61,11 +62,12 @@ func scanLibraryRootHandler(svc *service.Container) gin.HandlerFunc {
 			return
 		}
 		if !started {
-			c.JSON(http.StatusAccepted, gin.H{
+			c.JSON(http.StatusConflict, gin.H{
 				"library_id":       id,
-				"queued":           true,
+				"queued":           false,
 				"already_running":  true,
-				"message":          "该路径正在后台扫描，请在任务面板查看进度",
+				"error":            service.ErrLocalScanAlreadyRunning.Error(),
+				"message":          service.ErrLocalScanAlreadyRunning.Error(),
 				"estimate_message": "页面关闭不会中断扫描",
 			})
 			return
@@ -80,8 +82,11 @@ func scanLibraryRootHandler(svc *service.Container) gin.HandlerFunc {
 }
 
 func startLibraryScanTask(svc *service.Container, lib *model.Library, trigger, name string) (bool, error) {
-	finishScan, ok := svc.Scan.TryBeginLocalScan(lib.ID)
+	finishScan, ok := svc.Scan.TryBeginLocalScan()
 	if !ok {
+		if trigger == service.TaskTriggerEvent {
+			logAutomaticScanStartError(svc, lib.ID, service.ErrLocalScanAlreadyRunning)
+		}
 		return false, nil
 	}
 	task := startScanHTTPTask(svc, name, lib.Name, lib.Path, trigger)
@@ -104,6 +109,14 @@ func startLibraryScanTask(svc *service.Container, lib *model.Library, trigger, n
 }
 
 func startLibraryRootScanTask(svc *service.Container, libraryID, rootID, libraryName, path, trigger, name string) (bool, error) {
+	return startLibraryRootScanTasks(svc, libraryID, []model.LibraryRoot{{Base: model.Base{ID: rootID}, Path: path}}, libraryName, trigger, name)
+}
+
+// startLibraryRootScanTasks 让同一次新增路径请求共享扫描名额，逐个处理而不丢弃后续路径。
+func startLibraryRootScanTasks(svc *service.Container, libraryID string, roots []model.LibraryRoot, libraryName, trigger, name string) (bool, error) {
+	if len(roots) == 0 {
+		return false, nil
+	}
 	lib, err := svc.Repo.Library.FindByID(context.Background(), libraryID)
 	if err != nil {
 		return false, err
@@ -111,25 +124,36 @@ func startLibraryRootScanTask(svc *service.Container, libraryID, rootID, library
 	if lib == nil {
 		return false, errors.New("library not found")
 	}
-	finishScan, ok := svc.Scan.TryBeginLocalScan(libraryID + ":" + rootID)
+	finishScan, ok := svc.Scan.TryBeginLocalScan()
 	if !ok {
+		if trigger == service.TaskTriggerEvent {
+			logAutomaticScanStartError(svc, libraryID, service.ErrLocalScanAlreadyRunning)
+		}
 		return false, nil
 	}
-	task := startScanHTTPTask(svc, name, libraryName, path, trigger)
+	task := startScanHTTPTask(svc, name, libraryName, roots[0].Path, trigger)
 	if task == nil {
 		finishScan()
 		return false, errCreateScanTask
 	}
 	go func() {
 		defer finishScan()
-		res, err := svc.Scan.ScanLibraryRootWithProgress(context.Background(), libraryID, rootID, scanTaskProgress(task))
-		if err != nil {
-			finishHTTPTask(task, err, "scan", name+"失败", scanTaskMetrics(res), scanTaskDetails(res, 20), true)
+		for i, root := range roots {
+			if i > 0 {
+				task = startScanHTTPTask(svc, name, libraryName, root.Path, trigger)
+				if task == nil {
+					logAutomaticScanStartError(svc, root.ID, errCreateScanTask)
+					continue
+				}
+			}
+			res, err := svc.Scan.ScanLibraryRootWithProgress(context.Background(), libraryID, root.ID, scanTaskProgress(task))
+			if err != nil {
+				finishHTTPTask(task, err, "scan", name+"失败", scanTaskMetrics(res), scanTaskDetails(res, 20), true)
+			} else {
+				finishHTTPTask(task, nil, "completed", name+"结束", scanTaskMetrics(res), scanTaskDetails(res, 20), true)
+			}
 			wakeProbeBackfillAfterScan(svc, res)
-			return
 		}
-		finishHTTPTask(task, nil, "completed", name+"结束", scanTaskMetrics(res), scanTaskDetails(res, 20), true)
-		wakeProbeBackfillAfterScan(svc, res)
 	}()
 	return true, nil
 }

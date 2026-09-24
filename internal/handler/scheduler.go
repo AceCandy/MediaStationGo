@@ -37,6 +37,8 @@ func triggerLibraryScanJob(c *gin.Context, svc *service.Container, libraryID str
 func handleSchedulerRunResult(c *gin.Context, err error) bool {
 	if err != nil {
 		switch {
+		case errors.Is(err, service.ErrLocalScanAlreadyRunning):
+			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
 		case errors.Is(err, service.ErrSchedulerJobAlreadyRunning):
 			c.JSON(http.StatusConflict, gin.H{"error": "任务正在运行，请稍后到实时任务查看进度"})
 		case errors.Is(err, service.ErrSchedulerJobNotFound):
