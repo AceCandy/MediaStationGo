@@ -1628,3 +1628,25 @@ Scope series detail episodes to the selected season while preserving cross-seaso
 ### Status
 
 [OK] **Completed**
+
+
+## Session 156: 任务中心待办统计缓存与手动刷新
+<!-- trellis-session: v=2 fp=5e759e3d04667cdb -->
+
+**Date**: 2026-09-24
+**Task**: 任务中心待办统计缓存与手动刷新
+**Branch**: `main`
+
+### Summary
+
+任务中心待办数量改为服务端进程内快照，首次加载后仅手动刷新重算，展示更新时间并保留失败前旧值；关闭弹窗和任务轮询不重查，明细仍实时加载。已通过真实 PostgreSQL race 测试、前端 lint/build、浏览器交互及独立复核。未调整连接池、未部署重启；历史慢查询仍待处理，红果优化并行改动未纳入本次提交。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `e14e552` | feat(tasks): cache pending counts with manual refresh |
+
+### Status
+
+[OK] **Completed**
