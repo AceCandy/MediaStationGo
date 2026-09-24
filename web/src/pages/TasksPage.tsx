@@ -4,7 +4,7 @@ import toast from 'react-hot-toast'
 import { ChevronLeft, ChevronRight, FileText, Play, RefreshCw, Search, Settings, Trash2, X } from 'lucide-react'
 
 import { libraryAPI, mediaAPI, type MediaScrapeIssue, type STRMDeleteTarget } from '../api/library'
-import { tasksAPI, type BackgroundTask, type TaskDefinition, type TaskLog, type TaskSystem } from '../api/tasks'
+import { tasksAPI, type BackgroundTask, type StartupStatus, type TaskDefinition, type TaskLog, type TaskSystem } from '../api/tasks'
 import { HongGuoSupplementDialog } from './HongGuoSupplementDialog'
 import { confirmAction } from '../components/confirmAction'
 import { ManualScrapeDialog } from '../components/ManualScrapeDialog'
@@ -34,10 +34,10 @@ function LatestResult({ task }: { task?: BackgroundTask }) {
   return <span className="text-yellow-700">运行中</span>
 }
 
-function CurrentState({ state, task }: { state: TaskDefinition['current_state']; task?: BackgroundTask }) {
+function CurrentState({ state, task, ready }: { state: TaskDefinition['current_state']; task?: BackgroundTask; ready: boolean }) {
   return state === 'running'
     ? <span title={task?.message} className="inline-flex rounded border border-yellow-300 px-1.5 py-0.5 text-xs text-yellow-700">{task?.stage === 'waiting' ? task.message || '等待刮削资源' : '运行中'}</span>
-    : <span className="inline-flex rounded border border-gray-300 px-1.5 py-0.5 text-xs text-gray-600">空闲</span>
+    : <span className="inline-flex rounded border border-gray-300 px-1.5 py-0.5 text-xs text-gray-600">{ready ? '空闲' : '未就绪'}</span>
 }
 
 function formatTime(value?: string): string {
@@ -117,6 +117,7 @@ function renderLogContent(lines: string[]) {
 }
 
 interface TaskRowProps {
+  ready: boolean
   definition: TaskDefinition
   running: string
   libraries: Library[]
@@ -135,8 +136,8 @@ interface TaskRowProps {
   pendingCounts: PendingCounts
 }
 
-function TaskActions({ definition, running, libraries, scanLibraryID, onScanLibraryChange, probeLibraryID, onProbeLibraryChange, probeLimit, onProbeLimitChange, scrapeLibraryID, onScrapeLibraryChange, onRun, onLog, onSchedule }: TaskRowProps) {
-  const disabled = definition.current_state === 'running' || running === definition.key
+function TaskActions({ definition, ready, running, libraries, scanLibraryID, onScanLibraryChange, probeLibraryID, onProbeLibraryChange, probeLimit, onProbeLimitChange, scrapeLibraryID, onScrapeLibraryChange, onRun, onLog, onSchedule }: TaskRowProps) {
+  const disabled = !ready || definition.current_state === 'running' || running === definition.key
   const isScan = definition.key === 'library_scan'
   const runDisabled = disabled || (isScan && !scanLibraryID)
   return (
@@ -194,12 +195,12 @@ function TaskActions({ definition, running, libraries, scanLibraryID, onScanLibr
           {scrapeableLibraries(libraries).map((library) => <option key={library.id} value={library.id}>{library.name}</option>)}
         </Select>
       )}
-      {definition.action && (
+      {ready && definition.action && (
         <button type="button" className="rounded border border-gray-200 p-2 text-sand-500 hover:text-brand-500 disabled:cursor-not-allowed disabled:opacity-40" title={`立即执行${definition.name}`} aria-label={`立即执行${definition.name}`} disabled={runDisabled} onClick={() => onRun(definition)}>
           <Play size={16} />
         </button>
       )}
-      {definition.schedule_config && (
+      {ready && definition.schedule_config && (
         <button type="button" className="icon-btn" title={`设置${definition.name}周期`} aria-label={`设置${definition.name}周期`} onClick={() => onSchedule(definition)}>
           <Settings size={16} />
         </button>
@@ -225,7 +226,7 @@ function TaskPendingButton({ definition, onPending, pendingCounts }: Pick<TaskRo
   return <button type="button" className={`icon-btn h-7 min-w-7 gap-1 px-1.5 ${count > 0 ? 'w-auto border border-gold-500/30 bg-gold-500/10 text-gold-500 shadow-glow-gold' : 'w-7'}`} title={title} aria-label={`${title}${count > 0 ? `，${count} 条` : ''}`} onClick={() => onPending(definition)}><Search size={15} />{count > 0 && <span className="text-[10px] font-bold">{count > 999 ? '999+' : count}</span>}</button>
 }
 
-function DefinitionTable(props: { definitions: TaskDefinition[]; running: string; libraries: Library[]; scanLibraryID: string; onScanLibraryChange: TaskRowProps['onScanLibraryChange']; probeLibraryID: string; onProbeLibraryChange: TaskRowProps['onProbeLibraryChange']; probeLimit: string; onProbeLimitChange: TaskRowProps['onProbeLimitChange']; scrapeLibraryID: string; onScrapeLibraryChange: TaskRowProps['onScrapeLibraryChange']; onRun: TaskRowProps['onRun']; onLog: TaskRowProps['onLog']; onSchedule: TaskRowProps['onSchedule']; onPending: TaskRowProps['onPending']; pendingCounts: PendingCounts }) {
+function DefinitionTable(props: { ready: boolean; definitions: TaskDefinition[]; running: string; libraries: Library[]; scanLibraryID: string; onScanLibraryChange: TaskRowProps['onScanLibraryChange']; probeLibraryID: string; onProbeLibraryChange: TaskRowProps['onProbeLibraryChange']; probeLimit: string; onProbeLimitChange: TaskRowProps['onProbeLimitChange']; scrapeLibraryID: string; onScrapeLibraryChange: TaskRowProps['onScrapeLibraryChange']; onRun: TaskRowProps['onRun']; onLog: TaskRowProps['onLog']; onSchedule: TaskRowProps['onSchedule']; onPending: TaskRowProps['onPending']; pendingCounts: PendingCounts }) {
   return (
     <>
 		<div className="hidden overflow-x-auto lg:block">
@@ -238,7 +239,7 @@ function DefinitionTable(props: { definitions: TaskDefinition[]; running: string
               <tr key={definition.key} className="align-top">
                 <td className="max-w-xs"><div className="flex items-center gap-1"><div className="font-medium text-ink-600">{definition.name}</div><TaskPendingButton definition={definition} onPending={props.onPending} pendingCounts={props.pendingCounts} /></div><div className="mt-0.5 text-xs text-ink-50">{definition.description}</div>{taskProgressText(definition) && <div className="mt-1 text-xs text-ink-100">{taskProgressText(definition)}</div>}</td>
 				<td className="text-ink-100"><div>{definition.trigger}</div>{scheduleText(definition) && <div className="mt-0.5 text-xs text-ink-50">{scheduleText(definition)}</div>}</td>
-                <td><CurrentState state={definition.current_state} task={definition.current} /></td>
+                <td><CurrentState state={definition.current_state} task={definition.current} ready={props.ready} /></td>
                 <td><LatestResult task={definition.latest} /></td>
                 <td className="whitespace-nowrap text-ink-100"><div>最近 · {formatTime(definition.latest?.finished_at ?? definition.latest?.started_at)}</div><div className="mt-0.5 text-xs text-ink-50">下次 · {formatTime(definition.next_run)}</div></td>
                 <td><TaskActions {...props} definition={definition} /></td>
@@ -253,7 +254,7 @@ function DefinitionTable(props: { definitions: TaskDefinition[]; running: string
             <div className="flex items-start justify-between gap-3"><div><div className="flex items-center gap-1"><h2 className="font-medium text-ink-600">{definition.name}</h2><TaskPendingButton definition={definition} onPending={props.onPending} pendingCounts={props.pendingCounts} /></div><p className="mt-0.5 text-xs text-ink-50">{definition.description}</p>{taskProgressText(definition) && <p className="mt-1 text-xs text-ink-100">{taskProgressText(definition)}</p>}</div><TaskActions {...props} definition={definition} /></div>
             <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
 			<div><dt className="text-ink-50">触发方式</dt><dd className="mt-0.5 text-ink-100">{definition.trigger}{scheduleText(definition) ? ` · ${scheduleText(definition)}` : ''}</dd></div>
-			<div><dt className="text-ink-50">当前状态</dt><dd className="mt-0.5"><CurrentState state={definition.current_state} task={definition.current} /></dd></div>
+			<div><dt className="text-ink-50">当前状态</dt><dd className="mt-0.5"><CurrentState state={definition.current_state} task={definition.current} ready={props.ready} /></dd></div>
 			<div><dt className="text-ink-50">最近结果</dt><dd className="mt-0.5"><LatestResult task={definition.latest} /></dd></div>
 			<div><dt className="text-ink-50">执行时间</dt><dd className="mt-0.5 text-ink-100"><div>最近 · {formatTime(definition.latest?.finished_at ?? definition.latest?.started_at)}</div>{definition.schedule_config && <div className="mt-0.5 text-ink-50">下次 · {formatTime(definition.next_run)}</div>}</dd></div>
             </dl>
@@ -625,6 +626,9 @@ export function TasksPage() {
 }
 
 function TasksSystemPage({ system, onSystemChange }: { system: TaskSystem; onSystemChange: (value: string) => void }) {
+	const [startup, setStartup] = useState<StartupStatus | null>(null)
+	const [startupError, setStartupError] = useState(false)
+	const ready = startup?.state === 'ready' && !startupError
 	const [definitions, setDefinitions] = useState<TaskDefinition[] | null>(null)
 	const [loadError, setLoadError] = useState(false)
   const [logDefinition, setLogDefinition] = useState<TaskDefinition | null>(null)
@@ -644,12 +648,33 @@ function TasksSystemPage({ system, onSystemChange }: { system: TaskSystem; onSys
 
 	const refresh = () => tasksAPI.snapshot(1, 1, system).then((value) => { setDefinitions(value.definitions ?? []); setLoadError(false) })
   useEffect(() => {
+    const controller = new AbortController()
+    let timer: number | undefined
+    const tick = async () => {
+      try {
+        const status = await tasksAPI.startup(controller.signal)
+        if (!controller.signal.aborted) {
+          setStartup(status); setStartupError(false)
+          if (status.state !== 'ready') { setScheduleDefinition(null); setSupplementDefinition(null) }
+        }
+      } catch {
+        if (!controller.signal.aborted) {
+          setStartupError(true); setScheduleDefinition(null); setSupplementDefinition(null)
+        }
+      } finally {
+        if (!controller.signal.aborted) timer = window.setTimeout(tick, 1_000)
+      }
+    }
+    void tick()
+    return () => { controller.abort(); window.clearTimeout(timer) }
+  }, [])
+  useEffect(() => {
     let active = true
 		const controller = new AbortController()
-		const tick = () => tasksAPI.snapshot(1, 1, system, controller.signal).then((value) => { if (active) { setDefinitions(value.definitions ?? []); setLoadError(false) } }).catch(() => { if (active) setLoadError(true) })
+		let timer: number | undefined
+		const tick = () => tasksAPI.snapshot(1, 1, system, controller.signal).then((value) => { if (active) { setDefinitions(value.definitions ?? []); setLoadError(false) } }).catch(() => { if (active) setLoadError(true) }).finally(() => { if (active) timer = window.setTimeout(tick, 3_000) })
     void tick()
-    const id = window.setInterval(tick, 3_000)
-    return () => { active = false; controller.abort(); window.clearInterval(id) }
+    return () => { active = false; controller.abort(); window.clearTimeout(timer) }
   }, [system])
   useEffect(() => {
     if (system === 'hongguo') return
@@ -669,7 +694,7 @@ function TasksSystemPage({ system, onSystemChange }: { system: TaskSystem; onSys
   }
 
   const run = async (definition: TaskDefinition) => {
-		if (runPending.current || running || definition.current_state === 'running') return
+		if (!ready || runPending.current || running || definition.current_state === 'running') return
 		if (definition.key === 'hongguo_download_supplement') {
 			supplementTrigger.current = document.activeElement as HTMLElement
 			setSupplementDefinition(definition)
@@ -714,6 +739,14 @@ function TasksSystemPage({ system, onSystemChange }: { system: TaskSystem; onSys
 
   return (
     <div className="space-y-6">
+      {(!ready || Boolean(startup?.warnings.length)) && (
+        <section role="status" aria-live="polite" className="glass-panel space-y-2 text-sm">
+          <p className="font-medium text-ink-600">{startupError ? '暂时无法获取启动状态，任务操作暂不可用' : !startup ? '正在确认服务启动状态…' : startup.state === 'failed' ? `初始化未完成：${startup.stage}` : startup.state === 'ready' ? '初始化已结束，部分步骤存在异常' : `正在初始化：${startup.stage}`}</p>
+          {startup && !startupError && <p className="text-ink-100">已耗时 {startup.elapsed_seconds} 秒{startup.state === 'starting' ? ` · 当前步骤 ${startup.stage_elapsed_seconds} 秒` : ''}</p>}
+          {startup && !startupError && startup.directories_found > 0 && <p className="text-ink-100">目录监听：已发现 {startup.directories_found.toLocaleString()} 个目录 · 已注册 {startup.directories_watched.toLocaleString()} 个</p>}
+          {startup?.warnings.map((warning, index) => <p key={index} className="text-gold-500">{warning}</p>)}
+        </section>
+      )}
       <div className="tab-list" role="group" aria-label="任务体系">
         {([['common', '公共任务'], ['catalog', '现有资料体系'], ['hongguo', '红果短剧']] as const).map(([value, label]) => (
           <button key={value} type="button" aria-pressed={system === value} onClick={() => { if (system !== value) onSystemChange(value) }}
@@ -723,11 +756,11 @@ function TasksSystemPage({ system, onSystemChange }: { system: TaskSystem; onSys
         ))}
       </div>
 		<section className="glass-panel">
-			{loadError && !definitions ? <div className="flex flex-col items-center gap-3 py-8 text-sm text-ink-50"><p>任务列表加载失败。</p><button type="button" className="rounded border border-gray-200 p-2 text-sand-600 hover:text-brand-500" title="重新加载" aria-label="重新加载" onClick={() => void refresh()}><RefreshCw size={16} /></button></div> : !definitions ? <p className="py-8 text-center text-ink-50">加载中...</p> : definitions.length === 0 ? <p className="py-8 text-center text-ink-50">暂无任务。</p> : <DefinitionTable definitions={definitions} running={running} libraries={libraries} scanLibraryID={scanLibraryID} onScanLibraryChange={setScanLibraryID} probeLibraryID={probeLibraryID} onProbeLibraryChange={setProbeLibraryID} probeLimit={probeLimit} onProbeLimitChange={setProbeLimit} scrapeLibraryID={scrapeLibraryID} onScrapeLibraryChange={setScrapeLibraryID} onRun={(definition) => void run(definition)} onLog={setLogDefinition} onSchedule={setScheduleDefinition} onPending={setPendingDefinition} pendingCounts={pendingCounts} />}
+			{loadError && !definitions ? <div className="flex flex-col items-center gap-3 py-8 text-sm text-ink-50"><p>任务列表加载失败。</p><button type="button" className="rounded border border-gray-200 p-2 text-sand-600 hover:text-brand-500" title="重新加载" aria-label="重新加载" onClick={() => void refresh()}><RefreshCw size={16} /></button></div> : !definitions ? <p className="py-8 text-center text-ink-50">加载中...</p> : definitions.length === 0 ? <p className="py-8 text-center text-ink-50">暂无任务。</p> : <DefinitionTable ready={ready} definitions={definitions} running={running} libraries={libraries} scanLibraryID={scanLibraryID} onScanLibraryChange={setScanLibraryID} probeLibraryID={probeLibraryID} onProbeLibraryChange={setProbeLibraryID} probeLimit={probeLimit} onProbeLimitChange={setProbeLimit} scrapeLibraryID={scrapeLibraryID} onScrapeLibraryChange={setScrapeLibraryID} onRun={(definition) => void run(definition)} onLog={setLogDefinition} onSchedule={setScheduleDefinition} onPending={setPendingDefinition} pendingCounts={pendingCounts} />}
       </section>
       {logDefinition && <TaskLogDialog definition={logDefinition} onClose={() => setLogDefinition(null)} />}
-      {supplementDefinition && <HongGuoSupplementDialog initialCount={supplementDefinition.schedule_config?.count ?? 10} onClose={closeSupplement} onStarted={() => { toast.success('补充下载任务已启动，请查看本轮日志'); void refresh().catch(() => setLoadError(true)) }} />}
-      {scheduleDefinition && <TaskScheduleDialog definition={scheduleDefinition} onClose={() => setScheduleDefinition(null)} onSaved={() => refresh().catch(() => setLoadError(true))} />}
+      {ready && supplementDefinition && <HongGuoSupplementDialog initialCount={supplementDefinition.schedule_config?.count ?? 10} onClose={closeSupplement} onStarted={() => { toast.success('补充下载任务已启动，请查看本轮日志'); void refresh().catch(() => setLoadError(true)) }} />}
+      {ready && scheduleDefinition && <TaskScheduleDialog definition={scheduleDefinition} onClose={() => setScheduleDefinition(null)} onSaved={() => refresh().catch(() => setLoadError(true))} />}
       {pendingDefinition?.key === 'tmdb_episode_metadata_recheck' && <TMDbRecheckPanel onClose={closePending} />}
       {pendingDefinition?.action === 'media_scrape' && <ScrapeIssuesPanel libraries={libraries} onClose={closePending} />}
     </div>

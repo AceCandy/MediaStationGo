@@ -2,6 +2,16 @@ import { api } from './client'
 
 export type TaskSystem = 'common' | 'catalog' | 'hongguo' | 'nfo'
 
+export interface StartupStatus {
+  state: 'starting' | 'ready' | 'failed'
+  stage: string
+  elapsed_seconds: number
+  stage_elapsed_seconds: number
+  directories_found: number
+  directories_watched: number
+  warnings: string[]
+}
+
 export interface BackgroundTask {
 	system: TaskSystem
   id: string
@@ -73,6 +83,8 @@ export interface TaskLog {
 }
 
 export const tasksAPI = {
+  startup: (signal?: AbortSignal) =>
+    api.get<StartupStatus>('/tasks/startup', { signal }).then((r) => r.data),
 	recheckFiles: (id: string, page = 1, signal?: AbortSignal) =>
 		api.get<TMDbRecheckFilesPage>(`/tasks/definitions/tmdb_episode_metadata_recheck/pending/${encodeURIComponent(id)}/files`, { params: { page, page_size: 20 }, signal }).then((r) => r.data),
 	rechecks: (status = '', page = 1, signal?: AbortSignal, keyword = '', pageSize = 20) =>

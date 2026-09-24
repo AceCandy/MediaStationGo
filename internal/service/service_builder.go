@@ -25,9 +25,10 @@ func newServiceContainer(cfg *config.Config, log *zap.Logger, repos *repository.
 		log:   log,
 		repos: repos,
 		c: &Container{
-			Cfg:  cfg,
-			Log:  log,
-			Repo: repos,
+			Cfg:     cfg,
+			Log:     log,
+			Repo:    repos,
+			Startup: NewStartupState(),
 		},
 	}
 	builder.startRealtimeServices()
@@ -104,6 +105,7 @@ func (b *serviceContainerBuilder) initContentServices() {
 	b.c.Scan.SetRuntimeCache(b.c.Cache)
 	b.c.OrganizePipeline = NewOrganizePipelineService(b.log, b.repos, b.c.Organizer, b.c.Scan, b.c.Tasks)
 	b.c.Watcher = NewWatcherService(b.log, b.repos, b.c.Scan, b.c.Tasks)
+	b.c.Watcher.progress = b.c.Startup.updateDirectories
 	b.c.AI = NewAIService(b.cfg, b.log, b.c.APIConfig)
 	b.c.Scraper.SetAI(b.c.AI)
 	b.c.Duplicate = NewDuplicateService(b.log, b.repos, b.c.WSHub)

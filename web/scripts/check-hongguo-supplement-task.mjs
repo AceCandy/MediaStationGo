@@ -18,6 +18,7 @@ try {
   browser('open', `${base}/login`)
   route('auth/permissions', { role: 'admin', is_super: true, permissions: {} })
   route('play-profiles', [])
+  route('tasks/startup', { state: 'ready', stage: '初始化完成', elapsed_seconds: 0, stage_elapsed_seconds: 0, directories_found: 0, directories_watched: 0, warnings: [] })
   route('tasks/definitions/hongguo_download_supplement/run', { status: 'queued' })
   route('tasks/definitions/hongguo_download_supplement/schedule', definition)
   route('tasks?*', { items: [], total: 0, definitions: [definition] })

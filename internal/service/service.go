@@ -5,6 +5,7 @@ package service
 
 import (
 	"context"
+	"sync"
 
 	"go.uber.org/zap"
 
@@ -71,9 +72,14 @@ type Container struct {
 	Sessions         *SessionTrackerService
 	RecognitionWords *RecognitionWordsService
 	PlayerLogs       *PlayerRequestLogService
+	Startup          *StartupState
 
 	stopCtx    context.Context
 	stopCancel context.CancelFunc
+	bootMu     sync.Mutex
+	bootWG     sync.WaitGroup
+	booted     bool
+	closing    bool
 }
 
 // New 构建服务容器。
@@ -84,42 +90,51 @@ func New(cfg *config.Config, log *zap.Logger, repos *repository.Container) *Cont
 // Boot 启动后台工作进程（watcher、媒体扫描与调度任务）。
 // 在 AutoMigrate 后调用一次。
 func (c *Container) Boot() {
+	c.bootMu.Lock()
+	if c.booted || c.closing {
+		c.bootMu.Unlock()
+		return
+	}
+	c.booted = true
+	c.bootWG.Add(1)
+	c.bootMu.Unlock()
+	defer c.bootWG.Done()
+	ready := false
+	defer func() {
+		if !ready {
+			c.Startup.finish("failed")
+		}
+	}()
 	if c.Tasks != nil {
-		if err := c.Tasks.Recover(c.stopCtx); err != nil {
-			c.Log.Warn("recover task executions failed", zap.Error(err))
+		if err := c.startupStep("恢复任务执行状态", func() error { return c.Tasks.Recover(c.stopCtx) }); err != nil {
+			return
 		}
 	}
 	if c.HongGuoDownloads != nil {
-		if err := c.HongGuoDownloads.Start(c.stopCtx); err != nil {
-			c.Log.Warn("migrate hongguo download directories failed", zap.Error(err))
-		}
+		_ = c.startupStep("启动红果下载服务", func() error { c.HongGuoDownloads.Start(c.stopCtx); return nil })
 	}
-	if err := c.NormalizeLocalLibraryPaths(c.stopCtx); err != nil {
-		c.Log.Warn("normalize local library paths failed", zap.Error(err))
+	if err := c.startupStep("检查媒体库路径", func() error { return c.NormalizeLocalLibraryPaths(c.stopCtx) }); err != nil {
+		return
 	}
-	if err := c.Watcher.Start(c.stopCtx); err != nil {
-		c.Log.Warn("watcher start failed", zap.Error(err))
-	}
-	if err := c.APIConfig.SeedDefaults(c.stopCtx); err != nil {
-		c.Log.Warn("api config seed failed", zap.Error(err))
-	}
+	_ = c.startupStep("建立媒体库目录监听", func() error { return c.Watcher.Start(c.stopCtx) })
+	_ = c.startupStep("加载资料源默认配置", func() error { return c.APIConfig.SeedDefaults(c.stopCtx) })
 	if c.MediaProbe != nil {
-		c.MediaProbe.WakeBackfill()
+		_ = c.startupStep("启动媒体轨道回填", func() error { c.MediaProbe.WakeBackfill(); return nil })
 	}
 	if c.Scraper != nil {
-		if err := c.Scraper.StartTMDbSnapshotBackfill(c.stopCtx, true); err != nil {
-			c.Log.Warn("start TMDB snapshot backfill failed", zap.Error(err))
-		}
-		c.Scraper.StartCatalogHydrationWorker(c.stopCtx)
-		c.Scraper.StartCatalogArtworkWorker(c.stopCtx)
-		if err := c.Scraper.StartSeriesLocalCorrection(c.stopCtx, true); err != nil {
-			c.Log.Warn("start series local correction failed", zap.Error(err))
-		}
+		_ = c.startupStep("启动资料快照回填", func() error { return c.Scraper.StartTMDbSnapshotBackfill(c.stopCtx, true) })
+		_ = c.startupStep("恢复资料刮削队列", func() error { return c.Scraper.StartCatalogHydrationWorker(c.stopCtx) })
+		_ = c.startupStep("启动资料图片下载", func() error { c.Scraper.StartCatalogArtworkWorker(c.stopCtx); return nil })
+		_ = c.startupStep("启动剧集本地资料纠正", func() error { return c.Scraper.StartSeriesLocalCorrection(c.stopCtx, true) })
 	}
-	go c.warmMediaSearchIndex(c.stopCtx)
+	_ = c.startupStep("启动搜索索引预热", func() error { go c.warmMediaSearchIndex(c.stopCtx); return nil })
 
-	// 启动调度器定时任务
-	c.Scheduler.Start(c.stopCtx)
+	// 全部同步初始化结束后才注册任务，避免手动执行与恢复过程交叉。
+	if err := c.startupStep("启动任务调度器", func() error { c.Scheduler.Start(c.stopCtx); return c.stopCtx.Err() }); err != nil {
+		return
+	}
+	c.Startup.finish("ready")
+	ready = true
 }
 
 // Context is canceled when the service container is closing.
@@ -132,9 +147,13 @@ func (c *Container) Context() context.Context {
 
 // Close 释放 services 持有的任何资源（websocket hub、fsnotify、后台轮询器）。
 func (c *Container) Close() {
+	c.bootMu.Lock()
+	c.closing = true
 	if c.stopCancel != nil {
 		c.stopCancel()
 	}
+	c.bootMu.Unlock()
+	c.bootWG.Wait()
 	if c.Scheduler != nil {
 		c.Scheduler.Stop()
 	}

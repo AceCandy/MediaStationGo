@@ -1,5 +1,76 @@
 # Background Task Execution Contract
 
+## Scenario: Startup Readiness and Directory Registration
+
+### 1. Scope / Trigger
+
+Applies to asynchronous `Container.Boot`, watcher initialization, and task-center
+execution/configuration. HTTP listening does not imply that tasks are ready.
+
+### 2. Signatures
+
+- Administrator-only `GET /api/tasks/startup` returns `StartupStatus` with
+  `Cache-Control: no-store`.
+- `Container.StartupStatus()` reads an independent in-memory snapshot; it never
+  queries task history or takes the watcher's traversal lock.
+
+### 3. Contracts
+
+- Fields: `state` (`starting`, `ready`, `failed`), fixed-label `stage`, integer
+  `elapsed_seconds`, `stage_elapsed_seconds`, `directories_found`,
+  `directories_watched`, and safe `warnings` (always an array).
+- Register/start the scheduler last, after all synchronous initialization.
+  `ready` does not wait for asynchronous backfill tasks to finish. Task recovery
+  and path normalization errors prevent readiness; existing recoverable worker
+  errors produce warnings. Log each initialization stage's duration.
+- Production containers always initialize `StartupState`. Explicit standalone
+  containers without it retain their ready behavior. `Close` cancels and joins
+  Boot before releasing services; canceled Boot must not report ready.
+- Watcher discovery uses `filepath.WalkDir` without explicit ordinary-file
+  `Info` calls. Preserve hidden-directory exclusion, explicit hidden/symlink-root
+  registration, failed-root recovery and cancellation. Do not change scanner
+  fingerprints or file-stat behavior. Report bounded directory counters.
+- The retired HongGuo pending-directory migration never runs at startup. Existing
+  downloads keep persisted placements; new download directory generation stays
+  unchanged. Runtime settings load once during service construction.
+- The task page polls readiness independently of history, without overlapping
+  requests and with unmount cancellation. Unknown, failed or unavailable status
+  hides execution/configuration controls and labels idle tasks as not ready.
+  Loss of readiness closes action dialogs without reopening them on recovery;
+  historical logs remain accessible.
+
+### 4. Validation & Error Matrix
+
+- Anonymous/non-admin status request: existing administrator middleware rejects
+  it with 401/403. No path, credential or raw error is exposed in the snapshot.
+- Known definition run/schedule or shared scheduler trigger before readiness:
+  HTTP 503 with `code=startup_not_ready`, without executing or saving anything.
+- Unknown task definition: retain 404 even during initialization.
+
+### 5. Good / Base / Bad Cases
+
+Good: blocked history still allows directory-progress updates. Base: successful
+startup removes its warning-free banner and enables actions. Bad: expose a run
+button merely because definitions loaded, or treat a failed status read as ready.
+
+### 6. Tests Required
+
+`TestStartupProgressDuringBlockedStep`, `TestWatchDirectoryTraversal`,
+`TestBootRegistersSchedulerLast` (including shutdown),
+`TestBootCanceledDoesNotRegisterScheduler`, and
+`TestTaskStartupGuardsAndLightweightStatus` cover progress isolation, safe
+snapshots, directory coverage, ordering/cancellation and 503/404 boundaries.
+Run watcher regressions with isolated PostgreSQL and `-race`.
+`web/scripts/check-task-startup.mjs` covers slow history, hidden controls,
+readiness loss/recovery, stale dialogs, responsive themes and request cleanup;
+keep `check-task-log.mjs` passing with explicit readiness in its mocks.
+
+### 7. Wrong vs Correct
+
+Wrong: start the scheduler early to make buttons work, or add startup status to
+the expensive task-history query. Correct: keep scheduler-last ordering and
+gate actions on the independently readable startup snapshot.
+
 ## Scenario: Unified Task History and Scrape Scheduling
 
 ### 1. Scope / Trigger

@@ -45,94 +45,11 @@ func TestHongGuoDownloadDirectoryAndSTRMIdentity(t *testing.T) {
 	if dir := filepath.ToSlash(hongGuoDownloadDirectory(2026, 9, "剧名", "7")); dir != "2026/09/02/剧名 [hongguo-7]" {
 		t.Fatal(dir)
 	}
-	for _, tt := range []struct {
-		directory, id, want string
-		legacy              bool
-	}{
-		{"2026/09/剧名 [hongguo-123]", "123", "2026/09/18/剧名 [hongguo-123]", true},
-		{"未知年份/剧名 [hongguo-7]", "7", "未知年份/02/剧名 [hongguo-7]", true},
-		{"2026/09/18/剧名 [hongguo-123]", "123", "", false},
-		{"other/剧名 [hongguo-123]", "123", "", false},
-	} {
-		got, legacy := legacyHongGuoDownloadDirectory(filepath.FromSlash(tt.directory), tt.id)
-		if filepath.ToSlash(got) != tt.want || legacy != tt.legacy {
-			t.Fatalf("legacy directory: %q %t", got, legacy)
-		}
-	}
 	if strings.Contains(hongGuoDownloadDirectory(2026, 9, "../../剧名/\x00", "123"), "../") {
 		t.Fatal("unsafe title")
 	}
 	if id, err := hongguo.PathID(hongGuoDownloadDirectory(2026, 9, "剧名 [hongguo-456]", "123")); err != nil || id != "123" {
 		t.Fatalf("title source tag conflicts: %s %v", id, err)
-	}
-}
-
-func TestHongGuoPendingDirectoryMigrationKeepsWholeWorkTogether(t *testing.T) {
-	s := newDownloadTestService(t)
-	works := []model.HongGuoWork{
-		{SourceID: "123", Title: "待迁移", Kind: "series"},
-		{SourceID: "7", Title: "已开始", Kind: "series"},
-		{SourceID: "9", Title: "曾开始", Kind: "series"},
-	}
-	if err := s.repo.DB.Create(&works).Error; err != nil {
-		t.Fatal(err)
-	}
-	placements := []model.HongGuoDownloadWork{
-		{SourceID: "123", Title: "待迁移", Root: "/downloads", Directory: filepath.FromSlash("2026/09/待迁移 [hongguo-123]")},
-		{SourceID: "7", Title: "已开始", Root: "/downloads", Directory: filepath.FromSlash("2026/09/已开始 [hongguo-7]")},
-		{SourceID: "9", Title: "曾开始", Root: "/downloads", Directory: filepath.FromSlash("2026/09/曾开始 [hongguo-9]")},
-	}
-	if err := s.repo.DB.Create(&placements).Error; err != nil {
-		t.Fatal(err)
-	}
-	rows := []model.HongGuoDownload{
-		{SourceID: "123", Episode: 1, Root: "/downloads", RelativePath: filepath.FromSlash("2026/09/待迁移 [hongguo-123]/Season 01/S01E001.mp4"), Status: "queued"},
-		{SourceID: "123", Episode: 2, Root: "/downloads", RelativePath: filepath.FromSlash("2026/09/待迁移 [hongguo-123]/Season 01/S01E002.mp4"), Status: "queued"},
-		{SourceID: "7", Episode: 1, Root: "/downloads", RelativePath: filepath.FromSlash("2026/09/已开始 [hongguo-7]/Season 01/S01E001.mp4"), Status: "queued"},
-		{SourceID: "7", Episode: 2, Root: "/downloads", RelativePath: filepath.FromSlash("2026/09/已开始 [hongguo-7]/Season 01/S01E002.mp4"), Status: "downloading", Attempts: 1},
-		{SourceID: "9", Episode: 1, Root: "/downloads", RelativePath: filepath.FromSlash("2026/09/曾开始 [hongguo-9]/Season 01/S01E001.mp4"), Status: "queued", Attempts: 1},
-	}
-	if err := s.repo.DB.Create(&rows).Error; err != nil {
-		t.Fatal(err)
-	}
-	for range 2 {
-		if err := s.migratePendingDownloadDirectories(context.Background()); err != nil {
-			t.Fatal(err)
-		}
-	}
-	var migrated, started, retried model.HongGuoDownloadWork
-	s.repo.DB.First(&migrated, "source_id = ?", "123")
-	s.repo.DB.First(&started, "source_id = ?", "7")
-	s.repo.DB.First(&retried, "source_id = ?", "9")
-	if filepath.ToSlash(migrated.Directory) != "2026/09/18/待迁移 [hongguo-123]" {
-		t.Fatal(migrated.Directory)
-	}
-	if filepath.ToSlash(started.Directory) != "2026/09/已开始 [hongguo-7]" {
-		t.Fatal(started.Directory)
-	}
-	if filepath.ToSlash(retried.Directory) != "2026/09/曾开始 [hongguo-9]" {
-		t.Fatal(retried.Directory)
-	}
-	var downloads []model.HongGuoDownload
-	if err := s.repo.DB.Order("source_id, episode").Find(&downloads).Error; err != nil {
-		t.Fatal(err)
-	}
-	for _, row := range downloads {
-		want := migrated.Directory
-		if row.SourceID == "7" {
-			want = started.Directory
-			if filepath.ToSlash(row.RelativePath) != fmt.Sprintf("2026/09/已开始 [hongguo-7]/Season 01/S01E%03d.mp4", row.Episode) {
-				t.Fatalf("started path changed: %s", row.RelativePath)
-			}
-		} else if row.SourceID == "9" {
-			want = retried.Directory
-			if filepath.ToSlash(row.RelativePath) != "2026/09/曾开始 [hongguo-9]/Season 01/S01E001.mp4" {
-				t.Fatalf("retried path changed: %s", row.RelativePath)
-			}
-		}
-		if rel, err := filepath.Rel(want, row.RelativePath); err != nil || rel == "." || strings.HasPrefix(rel, "..") {
-			t.Fatalf("split work: %+v", row)
-		}
 	}
 }
 

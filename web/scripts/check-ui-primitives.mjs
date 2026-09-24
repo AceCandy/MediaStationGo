@@ -29,6 +29,7 @@ try {
   browser('open', `${base}/login`)
   route('auth/permissions', { permissions: { can_view_discover: true }, role: 'admin', is_super: true })
   route('play-profiles', [])
+  route('tasks/startup', { state: 'ready', stage: '初始化完成', elapsed_seconds: 0, stage_elapsed_seconds: 0, directories_found: 0, directories_watched: 0, warnings: [] })
   route('libraries*', [])
   route('admin/settings', [])
   route('discover/sections', { sections: [] })

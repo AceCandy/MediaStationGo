@@ -248,78 +248,6 @@ func hongGuoDownloadDirectory(year, month int, title, id string) string {
 	return filepath.Join(date, fmt.Sprintf("%02d", bucket), name+" [hongguo-"+id+"]")
 }
 
-func legacyHongGuoDownloadDirectory(directory, id string) (string, bool) {
-	clean := filepath.Clean(directory)
-	parts := strings.Split(filepath.ToSlash(clean), "/")
-	legacy := len(parts) == 2 && parts[0] == "未知年份"
-	if len(parts) == 3 {
-		year, yearErr := strconv.Atoi(parts[0])
-		month, monthErr := strconv.Atoi(parts[1])
-		legacy = len(parts[0]) == 4 && yearErr == nil && year > 0 && (parts[1] == "未知月份" || monthErr == nil && month >= 1 && month <= 12 && parts[1] == fmt.Sprintf("%02d", month))
-	}
-	if !legacy {
-		return "", false
-	}
-	pathID, err := hongguo.PathID(clean)
-	if err != nil || pathID != id {
-		return "", false
-	}
-	bucket := crc32.ChecksumIEEE([]byte(id)) % 64
-	return filepath.Join(filepath.Dir(clean), fmt.Sprintf("%02d", bucket), filepath.Base(clean)), true
-}
-
-func untouchedHongGuoDownload(row model.HongGuoDownload) bool {
-	return row.Status == "queued" && row.Attempts == 0 && row.Bytes == 0 && row.TotalBytes == 0 && row.SourceTries == 0 && row.StagingPath == "" && row.SHA256 == "" && row.RawSize == 0 && row.VerifiedSize == 0 && row.LeaseToken == "" && row.LeaseUntil == nil
-}
-
-// migratePendingDownloadDirectories 仅整体迁移从未开始的旧队列，不移动任何已有文件。
-func (s *HongGuoDownloadService) migratePendingDownloadDirectories(ctx context.Context) error {
-	var sourceIDs []string
-	if err := s.repo.DB.WithContext(ctx).Model(&model.HongGuoDownloadWork{}).Order("source_id").Pluck("source_id", &sourceIDs).Error; err != nil {
-		return err
-	}
-	for _, sourceID := range sourceIDs {
-		if err := s.repo.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-			// 与入队和下架清理保持同一锁顺序，防止迁移期间按旧 placement 补集。
-			var work model.HongGuoWork
-			if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Select("id").First(&work, "source_id = ?", sourceID).Error; errors.Is(err, gorm.ErrRecordNotFound) {
-				return nil
-			} else if err != nil {
-				return err
-			}
-			var placement model.HongGuoDownloadWork
-			if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&placement, "source_id = ?", sourceID).Error; err != nil {
-				return err
-			}
-			directory, legacy := legacyHongGuoDownloadDirectory(placement.Directory, sourceID)
-			if !legacy {
-				return nil
-			}
-			var rows []model.HongGuoDownload
-			if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("source_id = ?", sourceID).Order("id").Find(&rows).Error; err != nil {
-				return err
-			}
-			for _, row := range rows {
-				rel, err := filepath.Rel(placement.Directory, row.RelativePath)
-				if !untouchedHongGuoDownload(row) || err != nil || rel == "." || rel == ".." || filepath.IsAbs(rel) || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-					return nil
-				}
-			}
-			updated := tx.Model(&model.HongGuoDownload{}).Where("source_id = ?", sourceID).UpdateColumn("relative_path", gorm.Expr("? || substring(relative_path from char_length(?) + 1)", directory, placement.Directory))
-			if updated.Error != nil {
-				return updated.Error
-			}
-			if updated.RowsAffected != int64(len(rows)) {
-				return errors.New("红果下载目录迁移数量不一致")
-			}
-			return tx.Model(&placement).Update("directory", directory).Error
-		}); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 func (s *HongGuoDownloadService) Enqueue(ctx context.Context, id string) (int, error) {
 	return s.enqueue(ctx, id, false)
 }
@@ -456,10 +384,7 @@ func (s *HongGuoDownloadService) Wake() {
 	default:
 	}
 }
-func (s *HongGuoDownloadService) Start(ctx context.Context) error {
-	if err := s.migratePendingDownloadDirectories(ctx); err != nil {
-		return err
-	}
+func (s *HongGuoDownloadService) Start(ctx context.Context) {
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
@@ -523,6 +448,5 @@ func (s *HongGuoDownloadService) Start(ctx context.Context) error {
 			}
 		}
 	}()
-	return nil
 }
 func (s *HongGuoDownloadService) Wait() { s.wg.Wait() }

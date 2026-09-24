@@ -27,10 +27,16 @@ func schedulerRunHandler(svc *service.Container) gin.HandlerFunc {
 }
 
 func triggerSchedulerJob(c *gin.Context, svc *service.Container, name string) bool {
+	if !requireTasksReady(c, svc) {
+		return false
+	}
 	return handleSchedulerRunResult(c, svc.Scheduler.RunNowAsync(c.Request.Context(), name))
 }
 
 func triggerLibraryScanJob(c *gin.Context, svc *service.Container, libraryID string) bool {
+	if !requireTasksReady(c, svc) {
+		return false
+	}
 	return handleSchedulerRunResult(c, svc.Scheduler.RunLibraryScanNowAsync(c.Request.Context(), libraryID))
 }
 

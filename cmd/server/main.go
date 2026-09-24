@@ -114,9 +114,8 @@ func main() {
 	}
 
 	repos := repository.New(db)
-	service.ApplyRuntimeSettings(context.Background(), cfg, repos, logger)
-	applyCPUThreadLimit(cfg, logger)
 	services := service.New(cfg, logger, repos)
+	applyCPUThreadLimit(cfg, logger)
 	if err := services.MediaProbe.BackfillSummaries(context.Background()); err != nil {
 		logger.Fatal("media probe summary backfill failed", zap.Error(err))
 	}
@@ -138,7 +137,7 @@ func main() {
 		logger.Fatal("listen failed", zap.String("addr", srv.Addr), zap.Error(err))
 	}
 	localIP := getLocalIP()
-	logger.Info("server is ready",
+	logger.Info("HTTP server is listening; background initialization pending",
 		zap.String("local", fmt.Sprintf("http://%s:%d", localIP, cfg.App.Port)),
 		zap.String("listen", srv.Addr),
 	)

@@ -20,6 +20,22 @@ import (
 	"github.com/ShukeBta/MediaStationGo/internal/service"
 )
 
+func taskStartupHandler(svc *service.Container) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		c.Header("Cache-Control", "no-store")
+		c.JSON(http.StatusOK, svc.StartupStatus())
+	}
+}
+
+// requireTasksReady 区分启动未完成与任务不存在，所有任务中心写入口共享此检查。
+func requireTasksReady(c *gin.Context, svc *service.Container) bool {
+	if svc.StartupStatus().State != "ready" {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"code": "startup_not_ready", "error": "服务尚未完成初始化，请查看任务中心启动进度"})
+		return false
+	}
+	return true
+}
+
 func tasksHandler(svc *service.Container) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		system := c.Query("system")
@@ -98,6 +114,13 @@ func taskDefinitionHistoryHandler(svc *service.Container) gin.HandlerFunc {
 func taskDefinitionRunHandler(svc *service.Container) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		key := c.Param("key")
+		if !service.TaskDefinitionExists(key) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "task definition not found"})
+			return
+		}
+		if !requireTasksReady(c, svc) {
+			return
+		}
 		if key == service.TaskKindHongGuoSupplement {
 			c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 4096)
 			var request struct {
@@ -300,10 +323,6 @@ func taskDefinitionRunHandler(svc *service.Container) gin.HandlerFunc {
 			c.JSON(http.StatusAccepted, gin.H{"status": "started"})
 			return
 		}
-		if !service.TaskDefinitionExists(key) {
-			c.JSON(http.StatusNotFound, gin.H{"error": "task definition not found"})
-			return
-		}
 		job, ok := service.TaskDefinitionSchedulerJob(key)
 		if !ok {
 			c.JSON(http.StatusMethodNotAllowed, gin.H{"error": "task does not support manual execution"})
@@ -325,6 +344,9 @@ func taskDefinitionScheduleHandler(svc *service.Container) gin.HandlerFunc {
 		key := c.Param("key")
 		if !service.TaskDefinitionExists(key) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "task definition not found"})
+			return
+		}
+		if !requireTasksReady(c, svc) {
 			return
 		}
 		job, ok := service.TaskDefinitionScheduleJob(key)

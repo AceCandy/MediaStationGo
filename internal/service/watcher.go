@@ -16,6 +16,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -46,11 +47,12 @@ type WatcherService struct {
 	scanner *ScannerService
 	tasks   *TaskTrackerService
 
-	mu      sync.Mutex
-	watcher *fsnotify.Watcher
-	watched map[string]string       // dir -> libraryID
-	pending map[string]pendingEvent // path -> most recent change
-	stop    chan struct{}
+	mu       sync.Mutex
+	watcher  *fsnotify.Watcher
+	watched  map[string]string       // dir -> libraryID
+	pending  map[string]pendingEvent // path -> most recent change
+	stop     chan struct{}
+	progress func(found, watched int)
 }
 
 // NewWatcherService is the constructor.
@@ -74,12 +76,13 @@ func (w *WatcherService) Start(ctx context.Context) error {
 		return err
 	}
 	w.watcher = fw
-	if err := w.Refresh(ctx); err != nil {
+	err = w.Refresh(ctx)
+	if err != nil {
 		w.log.Warn("watcher refresh failed", zap.Error(err))
 	}
 	go w.loop(ctx)
 	go w.debouncer(ctx)
-	return nil
+	return err
 }
 
 // Stop tears down the watcher (called on graceful shutdown).
@@ -104,9 +107,19 @@ func (w *WatcherService) Refresh(ctx context.Context) error {
 	// files anywhere in the tree raise events — fsnotify itself is
 	// non-recursive, so we register each directory explicitly.
 	current := make(map[string]string)
+	found := 0
+	report := func() {
+		if w.progress != nil {
+			w.progress(found, len(w.watched))
+		}
+	}
+	defer report()
 	failedRoots := make(map[string]string)
 	var failures []error
 	for _, l := range libs {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if !l.Enabled {
 			continue
 		}
@@ -138,14 +151,22 @@ func (w *WatcherService) Refresh(ctx context.Context) error {
 				w.pending[root.Path] = pendingEvent{libraryID: l.ID, readyAt: time.Now().Add(30 * time.Second), directory: true}
 				continue
 			}
-			dirs, err := listDirsForWatch(watchRoot)
+			err = walkDirsForWatch(ctx, watchRoot, func(path string) {
+				if _, exists := current[path]; !exists {
+					found++
+				}
+				current[path] = l.ID
+				if found%128 == 0 {
+					report()
+				}
+			})
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
 			if err != nil {
 				failures = append(failures, err)
 				failedRoots[watchRoot] = l.ID
 				w.pending[watchRoot] = pendingEvent{libraryID: l.ID, readyAt: time.Now().Add(30 * time.Second), directory: true}
-			}
-			for _, dir := range dirs {
-				current[dir] = l.ID
 			}
 		}
 	}
@@ -165,6 +186,9 @@ func (w *WatcherService) Refresh(ctx context.Context) error {
 	}
 	// Add new ones.
 	for path, id := range current {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if _, ok := w.watched[path]; ok {
 			continue
 		}
@@ -175,21 +199,36 @@ func (w *WatcherService) Refresh(ctx context.Context) error {
 			continue
 		}
 		w.watched[path] = id
+		if len(w.watched)%128 == 0 {
+			report()
+		}
 	}
 	return errors.Join(failures...)
 }
 
-// listDirsForWatch returns root plus every (non-hidden) subdirectory so the
-// watcher can register the whole tree recursively.
-func listDirsForWatch(root string) ([]string, error) {
-	dirs := []string{root}
-	err := walk(root, func(path string, info walkInfo) error {
-		if info.isDir && path != root {
-			dirs = append(dirs, path)
+// walkDirsForWatch 只收集目录；监听不需要扫描器使用的文件大小和修改时间。
+func walkDirsForWatch(ctx context.Context, root string, visit func(string)) error {
+	return filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if path == root {
+			visit(path)
+		}
+		if !entry.IsDir() {
+			return nil
+		}
+		if name := entry.Name(); len(name) > 1 && name[0] == '.' {
+			return filepath.SkipDir
+		}
+		if path != root {
+			visit(path)
 		}
 		return nil
 	})
-	return dirs, err
 }
 
 // loop drains fsnotify events and pushes the affected library into the

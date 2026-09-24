@@ -52,6 +52,7 @@ function button(tree, label) { return tree.find((node) => node.props?.['aria-lab
 
 const libraryTypes = ['movie', 'hongguo', 'nfo_movie', 'nfo_tv']
 const scanActions = nodes(exports.TaskActions({
+  ready: true,
   definition: { key: 'library_scan', system: 'common', current_state: 'idle' },
   libraries: libraryTypes.map((type) => ({ id: type, type, name: type })),
   scanLibraryID: 'nfo_movie',
@@ -105,11 +106,12 @@ for (const [state, task, expected] of [
   ['running', { stage: 'waiting' }, '等待刮削资源'],
   ['running', { stage: 'scrape', message: '正在补全作品资料' }, '运行中'],
 ]) {
-  assert.equal(exports.CurrentState({ state, task }).props.children, expected)
+  assert.equal(exports.CurrentState({ state, task, ready: true }).props.children, expected)
 }
+assert.equal(exports.CurrentState({ state: 'idle', ready: false }).props.children, '未就绪')
 const definition = { key: 'media_scrape', name: '媒体入库刮削', action: 'media_scrape', current_state: 'idle' }
 const active = { ...definition, current_state: 'running', current: { stage: 'waiting', message: '等待刮削资源' } }
-const stateNodes = nodes(exports.DefinitionTable({ definitions: [active] })).filter((node) => node.type === exports.CurrentState)
+const stateNodes = nodes(exports.DefinitionTable({ definitions: [active], ready: true })).filter((node) => node.type === exports.CurrentState)
 assert.equal(stateNodes.length, 2, 'desktop and mobile both display current task stage')
 assert.ok(stateNodes.every((node) => node.props.task === active.current))
 
@@ -138,8 +140,9 @@ for (const system of ['common', 'catalog', 'hongguo']) {
 }
 for (const [count, libraryID] of [[0, 'library-a'], [12, 'library-a'], [0, ''], [12, ''], [undefined, '']]) {
   states = []; memos = []; stateIndex = memoIndex = 0
-  states[0] = [definition]
-  states[11] = libraryID
+  states[0] = { state: 'ready', warnings: [] }
+  states[2] = [definition]
+  states[13] = libraryID
   notices.length = requests.length = 0
   runResult = { status: 'queued', ...(count === undefined ? {} : { count }) }
   const table = nodes(exports.TasksSystemPage({ system: 'catalog', onSystemChange() {} })).find((node) => node.type?.name === 'DefinitionTable')

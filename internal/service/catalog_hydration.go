@@ -23,9 +23,9 @@ const (
 var catalogURLPattern = regexp.MustCompile(`https?://[^\s]+`)
 
 // StartCatalogHydrationWorker 启动发现页目录抓取 worker。
-func (s *ScraperService) StartCatalogHydrationWorker(ctx context.Context) {
+func (s *ScraperService) StartCatalogHydrationWorker(ctx context.Context) (startErr error) {
 	if s == nil || s.repo == nil || s.repo.Metadata == nil {
-		return
+		return errors.New("资料刮削服务不可用")
 	}
 	s.catalogHydrationOnce.Do(func() {
 		if s.catalogHydrationWake == nil {
@@ -35,12 +35,14 @@ func (s *ScraperService) StartCatalogHydrationWorker(ctx context.Context) {
 			s.mediaScrapeWake = make(chan struct{}, autoMediaScrapeWorkerCount)
 		}
 		if err := s.recoverRunningMediaScrapes(ctx); err != nil {
+			startErr = err
 			if s.log != nil {
 				s.log.Warn("recover running media scrapes failed", zap.Error(err))
 			}
 			return
 		}
 		if err := s.repo.Metadata.RecoverCatalogJobs(ctx); err != nil {
+			startErr = err
 			if s.log != nil {
 				s.log.Warn("recover catalog hydration jobs failed", zap.Error(err))
 			}
@@ -49,6 +51,7 @@ func (s *ScraperService) StartCatalogHydrationWorker(ctx context.Context) {
 		s.catalogHydrationWG.Add(autoMediaScrapeWorkerCount + 1)
 		go s.runCatalogHydrationWorker(ctx)
 	})
+	return startErr
 }
 
 // WaitCatalogHydrationWorker 等待 worker 退出。
