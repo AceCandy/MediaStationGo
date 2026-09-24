@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/backend/hongguo-catalog.md", "reason": "Preserve source, visibility, album presentation and paging contracts"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "Verify bounded plans and isolated test setup"}

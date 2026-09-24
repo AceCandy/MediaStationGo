@@ -375,6 +375,10 @@ ordinary/NFO overview and genre matches and their logical-ID tie order.
 Index canonical logical `hg-work-` / `hg-group-` titles, never shared metadata
 surrogates. Before OpenSearch limits candidates, query current visible file-backed
 identities and pass them as `CandidateIDs`; revalidate returned IDs in PostgreSQL.
+Both candidate enumeration and revalidation start from works and reuse
+`hongGuoFileScope` through correlated `EXISTS (... OFFSET 0)`, as library paging
+does. An `IN (SELECT work_id FROM all visible files)` can expand every episode
+before OpenSearch is called; a limited result set does not bound that work.
 The ordinary repository already adds independent NFO database candidates.
 Emby merges candidates using the existing 100-result ranking limit and only
 hydrates the final page. NFO existence must not route normal keyword search
@@ -388,6 +392,12 @@ the official first-season presentation without replacing the file ID, source ID
 or library. `metadata_id` stays empty. Web cards use the official series/source
 identity, never directory/title heuristics; HongGuo movies link to file details
 even inside an episodic directory.
+
+Resolve final-page logical identities to source work IDs before representative
+file lookup, then bind `b.work_id = ANY(?)` using the slice pointer. Keep current
+file visibility, logical identity revalidation and representative ordering.
+Filtering only the computed `hg-group-`/`hg-work-` expression after joining all
+files can still expand the entire library for a three-card result.
 
 SaveDetail, SaveAlbum and confirmed catalog cleanup refresh old/new identities
 after commit, including the previous album title when its earliest member leaves.
@@ -424,6 +434,13 @@ without first-season files, independent backends, fallback and hidden/locked
 scopes. `TestRankWebMetadataSearchCandidatePagePreservesFieldsAndTieOrder` covers
 Web field matching while preserving Emby ordering. Run
 `node web/tests/search-source-cards.mjs` for source identities and detail URLs.
+`TestHongGuoSearchBoundsFileWork` captures the actual parameterized queries for
+visible IDs, revalidation and representatives and checks PostgreSQL plan work
+with 10,000 works and 40,000 files. Keep realistic file row widths and preserve
+array bindings; do not replace this with SQL-string checks or timing thresholds.
+On search entry-point changes, verify both functional output and real-scale
+execution plans. Mock HTTP/UI and small fixtures do not establish performance;
+report real backend timings separately from deployed browser end-to-end timing.
 
 ### 7. Wrong vs Correct
 

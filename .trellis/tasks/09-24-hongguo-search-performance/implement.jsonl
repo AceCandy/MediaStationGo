@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/backend/hongguo-catalog.md", "reason": "Independent search indexes and work-level library query boundary"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "Parameterized arrays, PostgreSQL isolation and execution-plan verification"}

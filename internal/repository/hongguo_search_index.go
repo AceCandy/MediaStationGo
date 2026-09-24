@@ -60,15 +60,10 @@ func (r *HongGuoRepository) SearchCandidates(ctx context.Context, query string, 
 	} else if !hasMedia {
 		return []MetadataSearchCandidate{}, nil
 	}
-	files := r.db.WithContext(ctx).Table("media m").Joins("JOIN hongguo_media_bindings b ON b.media_id = m.id").
-		Select("b.work_id").Where("m.catalog_source = 'hongguo'")
-	if len(filter.AllowedLibraryIDs) > 0 {
-		files = files.Where("m.library_id = ANY(?)", &filter.AllowedLibraryIDs)
-	}
-	if len(filter.HiddenLibraryIDs) > 0 {
-		files = files.Where("m.library_id <> ALL(?)", &filter.HiddenLibraryIDs)
-	}
-	works := r.hongGuoSearchWorks(ctx).Where("w.id IN (?)", files).Where("w.kind IN ?", filter.Kinds)
+	files := (&MediaViewRepository{db: r.db}).hongGuoFileScope(ctx, "", filter.MediaQueryFilter).
+		Select("1").Where("b.work_id = w.id")
+	// 与媒体库分页保持相同的存在性边界，避免展开全部分集后再计算可见作品。
+	works := r.hongGuoSearchWorks(ctx).Where("EXISTS (? OFFSET 0)", files).Where("w.kind IN ?", filter.Kinds)
 	if len(filter.PersonIDs) > 0 {
 		works = works.Where("EXISTS (SELECT 1 FROM hongguo_credits c WHERE c.work_id = w.id AND 'hg-person-' || c.person_id = ANY(?))", &filter.PersonIDs)
 	}

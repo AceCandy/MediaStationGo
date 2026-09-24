@@ -109,8 +109,18 @@ func (r *MediaViewRepository) hongGuoSearchRepresentatives(ctx context.Context, 
 	if len(ids) == 0 {
 		return []model.MediaView{}, nil
 	}
+	// 先将当页合集解析为来源作品，文件查询才能使用 work_id 索引限定范围。
+	var workIDs []string
+	if err := r.db.WithContext(ctx).Table("hongguo_works w").Joins(HongGuoAlbumJoin).
+		Where(hongGuoSeriesIdentity+" IN ?", ids).Pluck("w.id", &workIDs).Error; err != nil {
+		return nil, err
+	}
+	if len(workIDs) == 0 {
+		return []model.MediaView{}, nil
+	}
 	var representatives []LibraryMetadataSummary
 	err := r.hongGuoSeriesScope(ctx, "", "", filter).
+		Where("b.work_id = ANY(?)", &workIDs).
 		Where(hongGuoSeriesIdentity+" IN ?", ids).
 		Select("DISTINCT ON (" + hongGuoSeriesIdentity + ") " + hongGuoSeriesIdentity + " AS metadata_id, m.id AS media_id").
 		Order(hongGuoSeriesIdentity + "," + hongGuoSeasonNumber + ",w.source_id,m.episode_num,m.id").Scan(&representatives).Error
