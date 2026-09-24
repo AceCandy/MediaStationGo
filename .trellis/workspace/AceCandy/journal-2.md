@@ -1541,3 +1541,33 @@ Scope series detail episodes to the selected season while preserving cross-seaso
 ### Status
 
 [OK] **Completed**
+
+
+## Session 153: 优化红果媒体库分页查询
+<!-- trellis-session: v=2 fp=947b5ef5ee8b4e71 -->
+
+**Date**: 2026-09-24
+**Task**: 优化红果媒体库分页查询
+**Branch**: `main`
+
+### Summary
+
+先按可见红果作品分页，再聚合当页文件；保留空关联作品与第1季回退。定向回归、独立审查及真实库只读新旧结果对照通过，查询层耗时显著下降。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `55f027d` | perf: paginate hongguo works before aggregating files |
+
+### Testing
+
+- [OK] 定向 Go 回归、Web 检查、lint/build、真实数据库只读对照及 git diff --check 通过
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 后端尚未重启；部署后复测真实页面端到端耗时，留意后台扫描引起的负载波动
