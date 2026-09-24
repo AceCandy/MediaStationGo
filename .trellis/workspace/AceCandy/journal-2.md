@@ -1650,3 +1650,25 @@ Scope series detail episodes to the selected season while preserving cross-seaso
 ### Status
 
 [OK] **Completed**
+
+
+## Session 157: HongGuo search performance
+<!-- trellis-session: v=2 fp=f7af2bebdc18035b -->
+
+**Date**: 2026-09-24
+**Task**: HongGuo search performance
+**Branch**: `main`
+
+### Summary
+
+红果搜索复用作品级可见文件存在性判断，代表文件查询限制在当页来源作品；保留普通、NFO、红果三库及独立 OpenSearch。新增执行计划回归，定向 PostgreSQL 测试、race、vet 和独立审查通过；真实库只读对比结果一致。已提交归档，未推送、部署或重启，线上浏览器及负载性能待部署后验证。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `45ee9d1` | fix(search): bound hongguo file queries |
+
+### Status
+
+[OK] **Completed**
