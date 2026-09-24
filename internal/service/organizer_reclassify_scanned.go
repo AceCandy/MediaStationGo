@@ -292,12 +292,14 @@ func (o *OrganizerService) reclassifyScannedMediaLibraryOnly(ctx context.Context
 		updates["season_num"] = 0
 		updates["episode_num"] = 0
 	}
+	refresh := o.repo.HongGuo.PrepareMediaSearchRefresh(o.repo.DB.WithContext(ctx).Model(&model.Media{}).Where("id = ?", media.ID))
 	if err := o.repo.DB.WithContext(ctx).
 		Model(&model.Media{}).
 		Where("id = ?", media.ID).
 		Updates(updates).Error; err != nil {
 		return false, err
 	}
+	refresh()
 	o.repo.MediaView.RefreshMetadataIDs(ctx, media.MetadataID)
 	if o.log != nil {
 		o.log.Info("media library reclassified by metadata",

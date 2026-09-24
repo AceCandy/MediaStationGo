@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -48,15 +49,15 @@ func TestHongGuoSearchIndexLifecycleAndVisibility(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(backend.upserts) != 1 || backend.upserts[0].ID != "hg-work-"+work.ID {
-		t.Fatalf("missing committed detail update: %+v", backend.upserts)
+	if len(backend.upserts) != 0 || !containsStringValue(backend.deletes, "hg-work-"+work.ID) {
+		t.Fatalf("fileless detail must not be indexed: %+v", backend.upserts)
 	}
 	if err := r.SaveAlbum(ctx, input.SourceID, hongguo.Album{ID: "99999999999", Season: 1}); err != nil {
 		t.Fatal(err)
 	}
 	groupID := "hg-group-99999999999"
-	if !containsStringValue(backend.deletes, "hg-work-"+work.ID) || backend.upserts[len(backend.upserts)-1].ID != groupID {
-		t.Fatalf("album transition did not replace standalone identity")
+	if !containsStringValue(backend.deletes, groupID) || len(backend.upserts) != 0 {
+		t.Fatalf("fileless album must not be indexed")
 	}
 	input.SourceID, input.Title = "12345678902", "航海王续篇"
 	second, err := r.SaveDetail(ctx, input)
@@ -65,6 +66,17 @@ func TestHongGuoSearchIndexLifecycleAndVisibility(t *testing.T) {
 	}
 	if err := r.SaveAlbum(ctx, input.SourceID, hongguo.Album{ID: "99999999999", Season: 2}); err != nil {
 		t.Fatal(err)
+	}
+	lib := model.Library{Name: "source", Type: model.LibraryTypeHongGuo, Path: "/test/source"}
+	if err := repos.DB.Create(&lib).Error; err != nil {
+		t.Fatal(err)
+	}
+	file := model.Media{LibraryID: lib.ID, CatalogSource: "hongguo", LookupCatalogID: second.SourceID, SeasonNum: 1, EpisodeNum: 1, Path: "/test/source/episode.mkv"}
+	if err := repos.Media.Upsert(ctx, &file); err != nil {
+		t.Fatal(err)
+	}
+	if len(backend.upserts) != 1 || backend.upserts[0].ID != groupID || backend.upserts[0].Title != work.Title {
+		t.Fatalf("later-season file must use first stored season title: %+v", backend.upserts)
 	}
 	// 重建过程中发生标题更新，最终临时索引必须收到更新后的合集文档。
 	backend.onIndex = func() {
@@ -80,17 +92,6 @@ func TestHongGuoSearchIndexLifecycleAndVisibility(t *testing.T) {
 	if got := backend.indexed[len(backend.indexed)-1]; got.ID != groupID || got.Title != "航海王 新版" {
 		t.Fatalf("dirty update not replayed: %+v", got)
 	}
-	lib := model.Library{Name: "source", Type: model.LibraryTypeHongGuo, Path: "/test/source"}
-	if err := repos.DB.Create(&lib).Error; err != nil {
-		t.Fatal(err)
-	}
-	file := model.Media{LibraryID: lib.ID, CatalogSource: "hongguo", Path: "/test/source/episode.mkv"}
-	if err := repos.DB.Create(&file).Error; err != nil {
-		t.Fatal(err)
-	}
-	if err := repos.DB.Create(&model.HongGuoMediaBinding{MediaID: file.ID, WorkID: second.ID}).Error; err != nil {
-		t.Fatal(err)
-	}
 	backend.ids = []string{groupID, "hg-work-hidden", "hg-work-deleted"}
 	filter := MetadataSearchFilter{Kinds: []string{"series"}, MediaQueryFilter: MediaQueryFilter{IncludeNSFW: true}}
 	assertResult := func(want int) {
@@ -104,8 +105,8 @@ func TestHongGuoSearchIndexLifecycleAndVisibility(t *testing.T) {
 		}
 	}
 	assertResult(1)
-	if !reflect.DeepEqual(backend.filters[0].CandidateIDs, []string{groupID}) {
-		t.Fatalf("visibility not applied before recall: %+v", backend.filters[0])
+	if backend.filters[0].CandidateIDs != nil {
+		t.Fatalf("normal search enumerated works: %+v", backend.filters[0])
 	}
 	filter.HiddenLibraryIDs = []string{lib.ID}
 	assertResult(0)
@@ -162,6 +163,7 @@ func TestOpenSearchHongGuoLive(t *testing.T) {
 	if os.Getenv("MEDIASTATION_TEST_OPENSEARCH_LIVE") != "1" {
 		t.Skip("requires explicit live search test")
 	}
+	t.Chdir("../..")
 	cfg, err := config.Load()
 	if err != nil {
 		t.Fatal("configuration unavailable")
@@ -180,18 +182,37 @@ func TestOpenSearchHongGuoLive(t *testing.T) {
 			t.Error(err)
 		}
 	})
-	if err := backend.IndexMetadata(t.Context(), index, []MetadataSearchDocument{
-		{ID: "hg-work-visible", Kind: "series", Title: "航海王"},
-		{ID: "hg-work-hidden", Kind: "series", Title: "航海王"},
-	}); err != nil {
+	documents := []MetadataSearchDocument{{ID: "hg-work-visible", Kind: "series", Title: "航海王", LibraryIDs: []string{"visible", "hidden"}}}
+	for i := 0; i < 150; i++ {
+		documents = append(documents, MetadataSearchDocument{ID: fmt.Sprintf("hg-work-hidden-%03d", i), Kind: "series", Title: "航海王", LibraryIDs: []string{"hidden"}})
+	}
+	if err := backend.IndexMetadata(t.Context(), index, documents); err != nil {
 		t.Fatal(err)
 	}
 	if err := backend.ActivateMetadataIndex(t.Context(), index); err != nil {
 		t.Fatal(err)
 	}
-	ids, total, err := backend.SearchMetadataIDs(t.Context(), "航海王", 0, 20, MetadataSearchFilter{Kinds: []string{"series"}, CandidateIDs: []string{"hg-work-visible"}})
+	ids, total, err := backend.SearchMetadataIDs(t.Context(), "航海王", 0, 20, MetadataSearchFilter{Kinds: []string{"series"}, LibraryRestricted: true, VisibleLibraryIDs: []string{"visible"}})
 	if err != nil || total != 1 || !reflect.DeepEqual(ids, []string{"hg-work-visible"}) {
 		t.Fatalf("ids=%v total=%d err=%v", ids, total, err)
+	}
+}
+
+func TestOpenSearchHongGuoSchemaCompatibility(t *testing.T) {
+	for _, version := range []int{1, 2} {
+		t.Run(fmt.Sprint(version), func(t *testing.T) {
+			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				_, _ = fmt.Fprintf(w, `{"index":{"mappings":{"_meta":{"schema_version":%d,"document_type":"hongguo"}}}}`, version)
+			}))
+			defer upstream.Close()
+			backend := NewOpenSearchHongGuoBackend(config.SearchConfig{Backend: "opensearch", OpenSearchURL: upstream.URL})
+			if err := backend.ensureReady(t.Context()); (err == nil) != (version == 2) {
+				t.Fatalf("version=%d err=%v", version, err)
+			}
+			if ordinary := NewOpenSearchMediaBackend(config.SearchConfig{Backend: "opensearch", OpenSearchURL: upstream.URL}); ordinary.schemaVersion() != 1 {
+				t.Fatal("ordinary schema changed")
+			}
+		})
 	}
 }
 
@@ -202,13 +223,13 @@ func TestOpenSearchHongGuoAliasAndCandidateScope(t *testing.T) {
 		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/_alias"):
 			http.Error(w, "not found", 404)
 		case r.Method == http.MethodPut:
-			if !strings.HasPrefix(r.URL.Path, "/example_hongguo_v1_") {
+			if !strings.HasPrefix(r.URL.Path, "/example_hongguo_v2_") {
 				t.Error("wrong target index", r.URL.Path)
 			}
 			_ = json.NewDecoder(r.Body).Decode(&mapping)
 			_, _ = w.Write([]byte(`{}`))
 		case r.URL.Path == "/example_hongguo/_mapping":
-			_, _ = w.Write([]byte(`{"index":{"mappings":{"_meta":{"schema_version":1,"document_type":"hongguo"}}}}`))
+			_, _ = w.Write([]byte(`{"index":{"mappings":{"_meta":{"schema_version":2,"document_type":"hongguo"}}}}`))
 		case r.URL.Path == "/example_hongguo/_search":
 			_ = json.NewDecoder(r.Body).Decode(&search)
 			_, _ = w.Write([]byte(`{"hits":{"hits":[{"_id":"hg-work-example"}],"total":1}}`))

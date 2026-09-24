@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"strings"
+	"sync"
 
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 	"github.com/ShukeBta/MediaStationGo/internal/repository"
@@ -62,28 +64,51 @@ func (s *MediaService) searchMediaPage(ctx context.Context, query string, offset
 		Fields: repository.MetadataSearchFieldsWeb,
 		Kinds:  []string{model.MetadataKindMovie, model.MetadataKindSeries},
 	}
-	source, err := s.repo.HongGuo.SearchCandidates(ctx, query, filter)
-	if err != nil {
-		return nil, 0, err
-	}
 	var items []model.MediaView
 	var total int64
-	if len(source) == 0 {
+	var err error
+	if strings.TrimSpace(query) == "" {
 		items, total, err = s.repo.MediaView.SearchFilteredPage(ctx, query, offset, limit, filter.MediaQueryFilter)
 	} else {
-		ids, _, searchErr := s.repo.MediaView.SearchMetadataIDs(ctx, query, 0, repository.MetadataSearchCandidateLimit, filter)
-		if searchErr != nil {
-			return nil, 0, searchErr
+		searchCtx, cancel := context.WithCancelCause(ctx)
+		defer cancel(nil)
+		var source []repository.MetadataSearchCandidate
+		var ids []string
+		var pending sync.WaitGroup
+		pending.Go(func() {
+			var err error
+			source, err = s.repo.HongGuo.SearchCandidates(searchCtx, query, filter)
+			if err != nil {
+				cancel(err)
+			}
+		})
+		pending.Go(func() {
+			var err error
+			// 无红果命中时沿用普通/NFO 的总数及分页，有红果时仍仅合并原有候选上限。
+			ids, total, err = s.repo.MediaView.SearchMetadataIDs(searchCtx, query, 0, max(repository.MetadataSearchCandidateLimit, offset+limit), filter)
+			if err != nil {
+				cancel(err)
+			}
+		})
+		pending.Wait()
+		if err := context.Cause(searchCtx); err != nil {
+			return nil, 0, err
 		}
-		candidates, searchErr := s.repo.MediaView.SearchCandidateDetails(ctx, ids)
-		if searchErr != nil {
-			return nil, 0, searchErr
-		}
-		ranked, count := repository.RankWebMetadataSearchCandidatePage(query, append(candidates, source...), offset, limit)
-		total = count
-		ids = make([]string, 0, len(ranked))
-		for _, candidate := range ranked {
-			ids = append(ids, candidate.ID)
+		if len(source) == 0 {
+			start := min(max(offset, 0), len(ids))
+			ids = ids[start:min(start+limit, len(ids))]
+		} else {
+			ids = ids[:min(len(ids), repository.MetadataSearchCandidateLimit)]
+			candidates, searchErr := s.repo.MediaView.SearchCandidateDetails(ctx, ids)
+			if searchErr != nil {
+				return nil, 0, searchErr
+			}
+			ranked, count := repository.RankWebMetadataSearchCandidatePage(query, append(candidates, source...), offset, limit)
+			total = count
+			ids = make([]string, 0, len(ranked))
+			for _, candidate := range ranked {
+				ids = append(ids, candidate.ID)
+			}
 		}
 		items, err = s.repo.MediaView.FindMetadataSearchRepresentatives(ctx, ids, filter.MediaQueryFilter)
 	}

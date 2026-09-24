@@ -366,32 +366,59 @@ Web and Emby global Movie/Series keyword searches across ordinary, HongGuo and N
 `NewOpenSearchHongGuoBackend(SearchConfig)` uses the normalized ordinary alias
 plus `_hongguo`, with `document_type=hongguo`. `HongGuoRepository.SearchCandidates`
 returns logical works; `BackfillSearchIndex` shares the existing rebuild coordinator.
+HongGuo expects schema version 2; ordinary metadata remains version 1.
+`HongGuoRepository.PrepareMediaSearchRefresh(mediaQuery *gorm.DB, sourceIDs ...string) func()`
+captures old bindings for the exact media scope and optional incoming source works;
+invoke its returned function only after the outer database transaction commits.
 Web `/api/media?q=...` uses `MediaService.searchMediaPage` for grouped, ungrouped,
 paged and suggestion requests; `RankWebMetadataSearchCandidatePage` retains
 ordinary/NFO overview and genre matches and their logical-ID tie order.
 
 ### 3. Contracts
 
-Index canonical logical `hg-work-` / `hg-group-` titles, never shared metadata
-surrogates. Before OpenSearch limits candidates, query current visible file-backed
-identities and pass them as `CandidateIDs`; revalidate returned IDs in PostgreSQL.
-Both candidate enumeration and revalidation start from works and reuse
-`hongGuoFileScope` through correlated `EXISTS (... OFFSET 0)`, as library paging
-does. An `IN (SELECT work_id FROM all visible files)` can expand every episode
-before OpenSearch is called; a limited result set does not bound that work.
+Index file-backed canonical logical `hg-work-` / `hg-group-` titles, never shared
+metadata surrogates. Documents contain the sorted distinct union of bound HongGuo
+media `library_ids`; pending/unbound files and fileless works do not create documents.
+Album titles still come from the earliest stored season, even when it has no file.
+Healthy normal search passes a positive visible-library filter before the index's
+100-candidate limit, not a globally enumerated `CandidateIDs` list. Preserve the raw
+HongGuo locked-empty guard, then derive a fresh filter from allowed/hidden libraries;
+do not mistake raw `LibraryRestricted` for already prepared `VisibleLibraryIDs`.
+Hidden-only preparation reuses distinct media libraries outside the hidden set.
+A document in both hidden and visible libraries remains eligible through the visible
+library; never use document-level `must_not library_ids=hidden`.
+Only person/favorite-qualified requests retain pre-limit scoped `CandidateIDs`.
+Successful empty index responses return immediately. Returned identities resolve by
+work primary key / `related_album_id` before album/title projection and current-file
+verification through `hongGuoFileScope` and correlated `EXISTS (... OFFSET 0)`.
+Apply the existing title substring, kind and user constraints to these bounded works.
+Filtering only computed identities after traversing the full catalog is not bounded.
 The ordinary repository already adds independent NFO database candidates.
 Emby merges candidates using the existing 100-result ranking limit and only
 hydrates the final page. NFO existence must not route normal keyword search
 through the full browse aggregation. Hierarchy and playback-state filters retain
 their database paths; NFO does not borrow ordinary/HongGuo person identities.
 Web also merges HongGuo candidates before ranking, the shared 100-result cap and
-pagination. HongGuo keeps its existing title-only recall; ordinary/NFO keep Web
+pagination. With no HongGuo candidates, retain the existing ordinary/NFO total
+(up to 200 from their separate 100-candidate recalls) and requested later pages;
+do not apply the HongGuo merge cap to this path during orchestration changes.
+HongGuo keeps its existing title-only recall; ordinary/NFO keep Web
 field matching. Empty-query browsing retains its existing uncapped database page.
 Batch-load one visible representative per returned HongGuo identity and overlay
 the official first-season presentation without replacing the file ID, source ID
 or library. `metadata_id` stays empty. Web cards use the official series/source
 identity, never directory/title heuristics; HongGuo movies link to file details
 even inside an episodic directory.
+
+Web keyword recall runs HongGuo alongside ordinary/NFO. Inside
+`SearchMetadataIDs`, ordinary recall/revalidation and NFO lookup run independently
+after shared filter preparation. Join before merging, ranking and hydrating the
+final page; never repeat ordinary/NFO search when HongGuo is empty. Each branch
+owns its result and GORM statement. Use request-local cancellation with the
+original terminal error as its cause, cancel siblings on failure and join all
+started work before returning. Index failures retain source-local database
+fallback; successful empty index results must not trigger fallback. Empty-query
+browsing and Emby-specific orchestration retain their existing paths.
 
 Resolve final-page logical identities to source work IDs before representative
 file lookup, then bind `b.work_id = ANY(?)` using the slice pointer. Keep current
@@ -401,16 +428,34 @@ files can still expand the entire library for a three-card result.
 
 SaveDetail, SaveAlbum and confirmed catalog cleanup refresh old/new identities
 after commit, including the previous album title when its earliest member leaves.
-Rebuilds replay dirty IDs before atomic alias activation. HongGuo incremental
+Media Upsert/RebindWork, media/library/root deletion, watcher/prune, duplicate cleanup
+and organizer deletion/library moves also refresh through the same configured
+`Container.HongGuo` instance wired into `MediaRepository`. Capture old membership
+from bindings, not only `lookup_catalog_id`; after commit include current albums.
+Scanner Upsert preserves an existing nonempty library assignment; index documents
+must reflect database membership rather than assume incoming library IDs were applied.
+Rebind notifications are grouped per page and run after partial committed progress
+even if a later row fails. Rollback emits no document writes or committed dirty IDs.
+Capture/recomputation failure marks the index unreliable; when it occurs during a
+rebuild, `searchRebuildInvalid` prevents incomplete target activation.
+Rebuilds advance by candidate cursor even for entirely fileless batches, then replay
+dirty IDs before refresh and atomic alias activation. HongGuo incremental
 writes serialize, but searches read the failure flag atomically without waiting
 for index writes. Ordinary incremental concurrency is unchanged. Both source
 warmups share configured batching/delay but run independently.
+Every newly configured HongGuo sync repository starts on PostgreSQL until its first
+successful reconstruction, even if a persisted v2 alias exists. Disabled/failed
+warmup keeps PostgreSQL usable. Later same-process rebuilds may retain a trustworthy
+alias. Incremental updates retain near-real-time visibility (no per-episode
+`refresh=wait_for`); current database checks prevent forbidden results. This does not
+provide multi-process synchronization or support out-of-band administrator SQL.
 
 ### 4. Validation & Error Matrix
 
 Missing/unready/failing index -> PostgreSQL fallback. Known failed incremental
-write -> bypass the index until a successful rebuild. More than 65,536 visible
-IDs -> database fallback, never truncate permissions. Empty/locked/hidden scope
+write or post-commit capture failure -> bypass the index until a successful rebuild.
+HongGuo v1 index -> fallback, never accept successful empty v2 reads from it.
+More than 65,536 person/favorite candidate IDs -> database fallback, never truncate permissions. Empty/locked/hidden scope
 -> no results. Cancellation propagates; incomplete rebuilds are never activated.
 Distinct HongGuo identities with identical titles/paths remain separate cards;
 multiple file versions or seasons in one official album consume one result slot.
@@ -435,12 +480,31 @@ scopes. `TestRankWebMetadataSearchCandidatePagePreservesFieldsAndTieOrder` cover
 Web field matching while preserving Emby ordering. Run
 `node web/tests/search-source-cards.mjs` for source identities and detail URLs.
 `TestHongGuoSearchBoundsFileWork` captures the actual parameterized queries for
-visible IDs, revalidation and representatives and checks PostgreSQL plan work
-with 10,000 works and 40,000 files. Keep realistic file row widths and preserve
+bounded revalidation and representatives, asserts the global visible-ID query is
+absent and checks PostgreSQL plan work with 10,000 works and 40,000 files. Inspect
+work/album scans for revalidation, including PostgreSQL generic plans; representative
+card loading retains its separate existing file-work bound. Keep realistic file row widths and preserve
 array bindings; do not replace this with SQL-string checks or timing thresholds.
 On search entry-point changes, verify both functional output and real-scale
 execution plans. Mock HTTP/UI and small fixtures do not establish performance;
 report real backend timings separately from deployed browser end-to-end timing.
+`TestWebSourceSearchParallel` checks actual three-source overlap with indexed,
+fallback and PostgreSQL paths; `TestWebSourceSearchParallelCancellation` verifies
+parent cancellation, terminal database errors and joined backends.
+`TestWebSourceSearchParallelPagination` preserves both cap/page branches and
+successful empty-index behavior. Run these on isolated PostgreSQL with `-race`.
+Pin `search_path` in pgx RuntimeParams for every concurrency/cancellation test
+connection; merely enlarging the shared single-connection test pool is unsafe.
+Query-capture counters must be concurrency-safe and test waits must be bounded.
+`TestHongGuoSearchPermissionBeforeLimit` puts 150 hidden matches before one mixed-library
+visible work and covers allowed-only, raw restricted, hidden-only, empty and locked
+scopes. `TestHongGuoSearchMutationAndRecovery`, `TestHongGuoSearchRebindPartialCommit`,
+`TestHongGuoSearchCommittedCancellation`, `TestHongGuoSearchCaptureFailureBlocksRebuild`
+and `TestHongGuoSearchFilelessBatchAndMembershipDirtyReplay` cover membership, shared
+failure state, startup/restart, rollback, partial progress and rebuild recovery.
+`TestHongGuoSearchServiceMutationOwners` exercises all audited service mutation
+families, including outer library rollback and partially committed prune batches.
+`TestOpenSearchHongGuoSchemaCompatibility` rejects v1 without changing ordinary v1.
 
 ### 7. Wrong vs Correct
 
@@ -448,6 +512,9 @@ Wrong: count all three expanded catalogs before testing the search title.
 Correct: recall eligible candidates per source, rank once, hydrate one page.
 Wrong: treat an Emby search test as proof that Web search includes every source.
 Correct: exercise both Web suggestion/page entry points and Emby independently.
+Wrong: remove the visible-ID query without adding library membership to the index
+or without synchronizing file mutations. Correct: index file-backed library unions,
+filter before the limit, and publish committed membership changes through one owner.
 
 ## Scenario: Official cross-season albums
 

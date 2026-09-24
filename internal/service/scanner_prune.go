@@ -45,10 +45,12 @@ func (s *ScannerService) RemovePath(ctx context.Context, path string) (int64, er
 	if err := s.repo.DB.WithContext(ctx).Model(&model.Media{}).Where("path = ?", path).Where("metadata_id IS NOT NULL").Pluck("metadata_id", &metadataIDs).Error; err != nil {
 		return 0, err
 	}
+	refresh := s.repo.HongGuo.PrepareMediaSearchRefresh(s.repo.DB.WithContext(ctx).Model(&model.Media{}).Where("path = ?", path))
 	res := s.repo.DB.WithContext(ctx).
 		Where("path = ?", path).
 		Delete(&model.Media{})
 	if res.Error == nil && res.RowsAffected > 0 {
+		refresh()
 		s.repo.MediaView.RefreshMetadataIDs(ctx, metadataIDs...)
 		if _, err := s.reconcileMediaParts(ctx, removedMedia.LibraryID, filepath.Dir(removedMedia.Path)); err != nil {
 			return res.RowsAffected, err
@@ -156,11 +158,13 @@ func (s *ScannerService) deleteMediaByIDs(ctx context.Context, ids []string) (in
 		if err := s.repo.DB.WithContext(ctx).Model(&model.Media{}).Where("id IN ?", ids[i:end]).Where("metadata_id IS NOT NULL").Pluck("metadata_id", &metadataIDs).Error; err != nil {
 			return removed, err
 		}
+		refresh := s.repo.HongGuo.PrepareMediaSearchRefresh(s.repo.DB.WithContext(ctx).Model(&model.Media{}).Where("id IN ?", ids[i:end]))
 		res := s.repo.DB.WithContext(ctx).Where("id IN ?", ids[i:end]).Delete(&model.Media{})
 		if res.Error != nil {
 			return removed, res.Error
 		}
 		removed += res.RowsAffected
+		refresh()
 		s.repo.MediaView.RefreshMetadataIDs(ctx, metadataIDs...)
 	}
 	return removed, nil

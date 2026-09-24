@@ -1,0 +1,3 @@
+{"file": ".trellis/spec/backend/hongguo-catalog.md", "reason": "Identity, access and search regression contracts"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "Real PostgreSQL plan and transaction validation"}
+{"file": ".trellis/tasks/09-24-hongguo-search-index-visibility/research/findings.md", "reason": "Independent mutation and recovery coverage audit"}

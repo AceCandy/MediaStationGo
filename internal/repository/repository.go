@@ -43,15 +43,16 @@ type Container struct {
 // New 将每个 repository 连接到单个 *gorm.DB。
 func New(db *gorm.DB) *Container {
 	mediaView := &MediaViewRepository{db: db}
+	hongGuo := &HongGuoRepository{db: db}
 	return &Container{
 		DB:            db,
 		User:          &UserRepository{db: db},
 		Library:       &LibraryRepository{db: db},
-		Media:         &MediaRepository{db: db, view: mediaView},
+		Media:         &MediaRepository{db: db, view: mediaView, hongGuo: hongGuo},
 		MediaProbe:    &MediaProbeRepository{db: db},
 		MediaView:     mediaView,
 		Metadata:      &MetadataRepository{db: db, view: mediaView},
-		HongGuo:       &HongGuoRepository{db: db},
+		HongGuo:       hongGuo,
 		NFO:           &NFORepository{db: db},
 		Person:        &PersonRepository{db: db},
 		Artwork:       &ArtworkRepository{db: db},

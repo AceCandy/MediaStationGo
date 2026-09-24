@@ -66,11 +66,12 @@ type MediaViewRepository struct {
 
 // searchIndex 协调各资料来源的独立索引，重建期间追补已提交的变更。
 type searchIndex struct {
-	searchBackend MediaSearchBackend
-	searchMu      sync.Mutex
-	searchRebuild bool
-	searchDirty   map[string]struct{}
-	searchFailed  atomic.Bool
+	searchBackend        MediaSearchBackend
+	searchMu             sync.Mutex
+	searchRebuild        bool
+	searchDirty          map[string]struct{}
+	searchFailed         atomic.Bool
+	searchRebuildInvalid bool // 未能捕获已提交变更的身份时，本次重建不可激活。
 }
 
 func (r *MediaViewRepository) SetSearchBackend(backend MediaSearchBackend) {

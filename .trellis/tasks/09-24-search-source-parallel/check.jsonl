@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/backend/hongguo-catalog.md", "reason": "Verify three-source search contracts, visibility, fallback and final-page work bounds"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "Verify database plans, statement safety and schema-isolated concurrency tests"}

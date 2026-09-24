@@ -11,8 +11,9 @@ import (
 
 // MediaRepository persists model.Media records.
 type MediaRepository struct {
-	db   *gorm.DB
-	view *MediaViewRepository
+	db      *gorm.DB
+	view    *MediaViewRepository
+	hongGuo *HongGuoRepository
 }
 
 type MediaSearchBackend interface {
@@ -145,6 +146,7 @@ func (r *MediaRepository) ListByLibrariesFiltered(ctx context.Context, libraryID
 
 // DeleteByLibrary purges all media tied to a library.
 func (r *MediaRepository) DeleteByLibrary(ctx context.Context, libraryID string) error {
+	refresh := r.hongGuo.PrepareMediaSearchRefresh(r.db.WithContext(ctx).Model(&model.Media{}).Where("library_id = ?", libraryID))
 	var metadataIDs []string
 	if err := r.db.WithContext(ctx).Model(&model.Media{}).Where("library_id = ?", libraryID).Where("metadata_id IS NOT NULL").Pluck("metadata_id", &metadataIDs).Error; err != nil {
 		return err
@@ -153,10 +155,12 @@ func (r *MediaRepository) DeleteByLibrary(ctx context.Context, libraryID string)
 		return err
 	}
 	r.refreshMetadataBestEffort(ctx, metadataIDs...)
+	refresh()
 	return nil
 }
 
 func (r *MediaRepository) DeleteByLibraryRoot(ctx context.Context, libraryID, rootID string) error {
+	refresh := r.hongGuo.PrepareMediaSearchRefresh(r.db.WithContext(ctx).Model(&model.Media{}).Where("library_id = ? AND library_root_id = ?", libraryID, rootID))
 	var metadataIDs []string
 	q := r.db.WithContext(ctx).Model(&model.Media{}).Where("library_id = ? AND library_root_id = ?", libraryID, rootID)
 	if err := q.Where("metadata_id IS NOT NULL").Pluck("metadata_id", &metadataIDs).Error; err != nil {
@@ -168,5 +172,6 @@ func (r *MediaRepository) DeleteByLibraryRoot(ctx context.Context, libraryID, ro
 		return err
 	}
 	r.refreshMetadataBestEffort(ctx, metadataIDs...)
+	refresh()
 	return nil
 }

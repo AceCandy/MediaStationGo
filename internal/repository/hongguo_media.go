@@ -37,7 +37,8 @@ func (r *MediaRepository) upsertHongGuoMedia(ctx context.Context, m *model.Media
 	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(m.Path)), "cloud://") {
 		return errCloudMediaPathUnsupported
 	}
-	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	refresh := func() {}
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var library model.Library
 		if err := tx.First(&library, "id = ? AND type = ?", m.LibraryID, model.LibraryTypeHongGuo).Error; err != nil {
 			return err
@@ -56,8 +57,18 @@ func (r *MediaRepository) upsertHongGuoMedia(ctx context.Context, m *model.Media
 		if _, err := (&MediaRepository{db: tx}).upsert(ctx, m); err != nil {
 			return err
 		}
+		// 冲突插入也可能复用刚提交的文件；在替换绑定前锁定最终行并捕获旧身份。
+		var locked model.Media
+		if err := tx.Select("id").Clauses(clause.Locking{Strength: "UPDATE"}).First(&locked, "id = ?", m.ID).Error; err != nil {
+			return err
+		}
+		refresh = r.hongGuo.PrepareMediaSearchRefresh(tx.Model(&model.Media{}).Where("id = ?", m.ID), m.LookupCatalogID)
 		return bindHongGuoMedia(tx, m)
 	})
+	if err == nil {
+		refresh()
+	}
+	return err
 }
 
 // bindHongGuoMedia 仅按作品 ID 与源季集坐标绑定，未知资料保留待匹配文件。
@@ -115,19 +126,40 @@ func (r *HongGuoRepository) RebindWork(ctx context.Context, sourceID string) err
 		if len(rows) == 0 {
 			return nil
 		}
-		for _, row := range rows {
-			if err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-				var current model.Media
-				if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ? AND catalog_source = ? AND lookup_catalog_id = ?", row.ID, model.TaskSystemHongGuo, sourceID).First(&current).Error; errors.Is(err, gorm.ErrRecordNotFound) {
-					return nil
-				} else if err != nil {
+		err := func() error {
+			ids := make([]string, 0, len(rows))
+			for _, row := range rows {
+				ids = append(ids, row.ID)
+			}
+			refresh := r.PrepareMediaSearchRefresh(r.db.WithContext(ctx).Model(&model.Media{}).Where("id = ANY(?)", &ids), sourceID)
+			committed := false
+			// 每页合并通知；后续行失败或取消也不能遗漏前面已经提交的绑定。
+			defer func() {
+				if committed {
+					refresh()
+				}
+			}()
+			for _, row := range rows {
+				changed := false
+				if err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+					var current model.Media
+					if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ? AND catalog_source = ? AND lookup_catalog_id = ?", row.ID, model.TaskSystemHongGuo, sourceID).First(&current).Error; errors.Is(err, gorm.ErrRecordNotFound) {
+						return nil
+					} else if err != nil {
+						return err
+					}
+					changed = true
+					return bindHongGuoMedia(tx, &current)
+				}); err != nil {
 					return err
 				}
-				return bindHongGuoMedia(tx, &current)
-			}); err != nil {
-				return err
+				committed = committed || changed
+				after = row.ID
 			}
-			after = row.ID
+			return nil
+		}()
+		if err != nil {
+			return err
 		}
 	}
 }

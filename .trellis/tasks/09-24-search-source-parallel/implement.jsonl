@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/backend/hongguo-catalog.md", "reason": "Preserve independent source search, pre-limit visibility, album presentation and bounded file queries"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "Independent query statements, parameterized arrays and isolated PostgreSQL execution"}

@@ -2,8 +2,10 @@ package repository
 
 import (
 	"context"
+	"errors"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 	"unicode"
 
@@ -159,17 +161,34 @@ func (r *MediaViewRepository) SearchMetadataIDs(ctx context.Context, query strin
 	if query == "" {
 		return r.searchMetadataIDsPostgres(ctx, query, groups, offset, limit, prepared)
 	}
-	complex := len(prepared.PersonIDs) > 0 || prepared.FavoriteUserID != "" || prepared.ResumableUserID != ""
-	if r.searchBackend != nil && !prepared.ForcePostgres && !complex {
-		if ids, _, searchErr := r.searchBackend.SearchMetadataIDs(ctx, query, 0, maxMetadataSearchCandidates, prepared); searchErr == nil {
-			return r.rankMetadataSearchIDs(ctx, query, groups, ids, offset, limit, prepared)
+	searchCtx, cancel := context.WithCancelCause(ctx)
+	defer cancel(nil)
+	var candidates, local []metadataSearchCandidate
+	var pending sync.WaitGroup
+	pending.Go(func() {
+		var err error
+		candidates, err = r.ordinarySearchCandidates(searchCtx, query, groups, prepared)
+		if err != nil {
+			cancel(err)
 		}
-	}
-	ids, _, err := r.searchMetadataIDsPostgres(ctx, query, groups, 0, maxMetadataSearchCandidates, prepared)
-	if err != nil {
+	})
+	pending.Go(func() {
+		if has, err := (&NFORepository{db: r.db}).HasMedia(searchCtx); err != nil {
+			cancel(err)
+		} else if has {
+			q := r.nfoSearchQuery(searchCtx, prepared, groups)
+			if err := q.Select("'nfo-' || search_metadata.id AS id, search_metadata.title, search_metadata.original_name, search_metadata.overview, search_metadata.genres, search_metadata.year").Order("search_metadata.created_at DESC,search_metadata.id DESC").Limit(maxMetadataSearchCandidates).Scan(&local).Error; err != nil {
+				cancel(err)
+			}
+		}
+	})
+	pending.Wait()
+	if err := context.Cause(searchCtx); err != nil {
 		return nil, 0, err
 	}
-	return r.rankMetadataSearchIDs(ctx, query, groups, ids, offset, limit, prepared)
+	ranked := rankMetadataSearchCandidates(query, groups, append(candidates, local...), prepared.Fields)
+	page, total := pageMetadataSearchCandidates(ranked, offset, limit)
+	return page, total, nil
 }
 
 func (r *MediaViewRepository) prepareMetadataSearchFilter(ctx context.Context, filter MetadataSearchFilter) (MetadataSearchFilter, error) {
@@ -387,8 +406,25 @@ func (r *MediaViewRepository) searchMetadataIDsPostgres(ctx context.Context, que
 	return ids, total, nil
 }
 
-// rankMetadataSearchIDs 从数据库复核候选字段，统一排序后才应用调用方分页。
-func (r *MediaViewRepository) rankMetadataSearchIDs(ctx context.Context, query string, groups []metadataSearchTermGroup, ids []string, offset, limit int, filter MetadataSearchFilter) ([]string, int64, error) {
+// ordinarySearchCandidates 独立召回并复核普通库候选，NFO 不必等待其索引或数据库回退。
+func (r *MediaViewRepository) ordinarySearchCandidates(ctx context.Context, query string, groups []metadataSearchTermGroup, filter MetadataSearchFilter) ([]metadataSearchCandidate, error) {
+	var ids []string
+	complex := len(filter.PersonIDs) > 0 || filter.FavoriteUserID != "" || filter.ResumableUserID != ""
+	if r.searchBackend != nil && !filter.ForcePostgres && !complex {
+		if found, _, err := r.searchBackend.SearchMetadataIDs(ctx, query, 0, maxMetadataSearchCandidates, filter); err == nil {
+			ids = found
+			if ids == nil {
+				ids = []string{}
+			}
+		}
+	}
+	if ids == nil {
+		var err error
+		ids, _, err = r.searchMetadataIDsPostgres(ctx, query, groups, 0, maxMetadataSearchCandidates, filter)
+		if err != nil {
+			return nil, err
+		}
+	}
 	ids = uniqueNonEmptyStrings(ids)
 	if len(ids) > maxMetadataSearchCandidates {
 		ids = ids[:maxMetadataSearchCandidates]
@@ -398,22 +434,7 @@ func (r *MediaViewRepository) rankMetadataSearchIDs(ctx context.Context, query s
 		Where("search_metadata.id IN ?", ids).
 		Select("search_metadata.id, search_metadata.title, search_metadata.original_name, search_metadata.overview, search_metadata.genres, search_metadata.year").
 		Scan(&candidates).Error
-	if err != nil {
-		return nil, 0, err
-	}
-	if has, err := (&NFORepository{db: r.db}).HasMedia(ctx); err != nil {
-		return nil, 0, err
-	} else if has {
-		var local []metadataSearchCandidate
-		q := r.nfoSearchQuery(ctx, filter, groups)
-		if err := q.Select("'nfo-' || search_metadata.id AS id, search_metadata.title, search_metadata.original_name, search_metadata.overview, search_metadata.genres, search_metadata.year").Order("search_metadata.created_at DESC,search_metadata.id DESC").Limit(maxMetadataSearchCandidates).Scan(&local).Error; err != nil {
-			return nil, 0, err
-		}
-		candidates = append(candidates, local...)
-	}
-	ranked := rankMetadataSearchCandidates(query, groups, candidates, filter.Fields)
-	page, total := pageMetadataSearchCandidates(ranked, offset, limit)
-	return page, total, nil
+	return candidates, err
 }
 
 type metadataSearchPresentation struct {
@@ -737,6 +758,7 @@ func (r *searchIndex) backfill(ctx context.Context, batchLimit int, batchPause t
 		return 0, nil
 	}
 	r.searchRebuild = true
+	r.searchRebuildInvalid = false
 	r.searchDirty = map[string]struct{}{}
 	r.searchMu.Unlock()
 
@@ -786,6 +808,10 @@ func (r *searchIndex) backfill(ctx context.Context, batchLimit int, batchPause t
 	}
 
 	r.searchMu.Lock()
+	if r.searchRebuildInvalid {
+		r.searchMu.Unlock()
+		return total, errors.New("search index changed without captured identities during rebuild")
+	}
 	dirty := make([]string, 0, len(r.searchDirty))
 	for id := range r.searchDirty {
 		dirty = append(dirty, id)

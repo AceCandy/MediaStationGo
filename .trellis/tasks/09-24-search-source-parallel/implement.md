@@ -1,0 +1,14 @@
+# Implementation Plan
+
+Implementation and verification complete; see verification.md. The user authorized commit and archive on 2026-09-25 together with the subsequent HongGuo index-visibility task.
+
+1. Read task artifacts and backend search/database contracts, then recheck the current worktree and exact caller paths. Expected production scope: `internal/service/media_search.go` and `internal/repository/media_search_repository.go`; only adjust directly necessary existing projection helpers.
+2. Add bounded overlap and cancellation/error regressions using existing source-search fixtures and isolated PostgreSQL. Configure every test connection/reconnection with the isolated schema. Confirm the overlap regression fails on the original serial flow without editing unrelated working-tree files.
+3. Parallelize ordinary/NFO candidate retrieval in the shared keyword path, then overlap that path with HongGuo in Web search. Keep result merging and final-page hydration outside the concurrent branches; retain the no-HongGuo and empty-query behavior.
+4. Run focused PostgreSQL repository/service/handler checks, including the new overlap/error/cancellation tests, `TestWebSourceSearch`, `TestEmbySourceSearchUsesSeparateBackendsWithNFO`, `TestEmbyHongGuoSearchKeepsPlayedFilterWithoutNFO`, `TestHongGuoSearchIndexLifecycleAndVisibility`, `TestHongGuoSearchBoundsFileWork`, ranking/cap/page tests, grouped Web visibility and HongGuo presentation/access tests. Database tests count only when executed, not skipped.
+5. Repeat the focused selection with `-race`; run `go vet ./internal/repository ./internal/service ./internal/handler`, `node web/tests/search-source-cards.mjs`, gofmt and `git diff --check`. No frontend code change means frontend build/browser checks are not proof of this performance change.
+6. Independently review source contracts, read-only concurrent access, cancellation/join behavior, error provenance, duplicate queries and visibility before truncation. Review instrumentation for newly introduced races. Fix only task-owned issues and rerun affected checks.
+7. If safe real backend access is available, compare repeated old/new Web-handler samples on unchanged data with PostgreSQL read-only enforcement, timeouts and no application startup. Include mixed-source, no-HongGuo, empty-hit and suggestion cases. Report result equivalence separately from timings and current-load limitations; do not make a speed claim based only on simulated delays.
+8. Update the existing search contract with verified concurrency boundaries and tests; record completed/unverified checks and risks. Remove temporary sources/overlays and stop task-owned temporary services. Do not restart user services, push, commit or archive without a further request.
+
+Rollback: revert this task's code changes. There is no schema/index/data migration.

@@ -246,12 +246,14 @@ func (d *DuplicateService) removeMissingRows(ctx context.Context, rows []model.M
 			kept = append(kept, row)
 			continue
 		}
+		refresh := d.repo.HongGuo.PrepareMediaSearchRefresh(d.repo.DB.WithContext(ctx).Model(&model.Media{}).Where("id = ?", row.ID))
 		res := d.repo.DB.WithContext(ctx).Where("id = ?", row.ID).Delete(&model.Media{})
 		if res.Error != nil {
 			d.log.Warn("remove missing duplicate candidate failed", zap.String("media", row.ID), zap.Error(res.Error))
 			continue
 		}
 		rep.MissingRemoved += res.RowsAffected
+		refresh()
 		d.repo.MediaView.RefreshMetadataIDs(ctx, row.MetadataID)
 	}
 	return kept

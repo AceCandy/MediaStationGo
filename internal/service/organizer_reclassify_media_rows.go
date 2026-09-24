@@ -38,9 +38,11 @@ func (o *OrganizerService) updateReclassifiedMediaRow(ctx context.Context, oldPa
 	if err := o.repo.DB.WithContext(ctx).Model(&model.Media{}).Where("path = ?", oldPath).Where("metadata_id IS NOT NULL").Pluck("metadata_id", &metadataIDs).Error; err != nil {
 		return err
 	}
+	refresh := o.repo.HongGuo.PrepareMediaSearchRefresh(o.repo.DB.WithContext(ctx).Model(&model.Media{}).Where("path = ?", oldPath))
 	if err := o.repo.DB.WithContext(ctx).Model(&model.Media{}).Where("path = ?", oldPath).Updates(updates).Error; err != nil {
 		return err
 	}
+	refresh()
 	o.repo.MediaView.RefreshMetadataIDs(ctx, metadataIDs...)
 	return nil
 }
@@ -51,7 +53,9 @@ func (o *OrganizerService) deleteMediaRowForPath(ctx context.Context, path strin
 	}
 	var metadataIDs []string
 	_ = o.repo.DB.WithContext(ctx).Model(&model.Media{}).Where("path = ?", path).Where("metadata_id IS NOT NULL").Pluck("metadata_id", &metadataIDs).Error
+	refresh := o.repo.HongGuo.PrepareMediaSearchRefresh(o.repo.DB.WithContext(ctx).Model(&model.Media{}).Where("path = ?", path))
 	if err := o.repo.DB.WithContext(ctx).Where("path = ?", path).Delete(&model.Media{}).Error; err == nil {
+		refresh()
 		o.repo.MediaView.RefreshMetadataIDs(ctx, metadataIDs...)
 	}
 }

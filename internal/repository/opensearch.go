@@ -62,6 +62,13 @@ func NewOpenSearchHongGuoBackend(cfg config.SearchConfig) *OpenSearchMediaBacken
 	return b
 }
 
+func (b *OpenSearchMediaBackend) schemaVersion() int {
+	if b.documentType == "hongguo" {
+		return 2
+	}
+	return metadataSearchSchema
+}
+
 func (b *OpenSearchMediaBackend) SearchMetadataIDs(ctx context.Context, query string, _, _ int, filter MetadataSearchFilter) ([]string, int64, error) {
 	if err := b.ensureReady(ctx); err != nil {
 		return nil, 0, err
@@ -144,11 +151,11 @@ func (b *OpenSearchMediaBackend) PrepareMetadataIndex(ctx context.Context) (stri
 		return "", errors.New("opensearch backend not configured")
 	}
 	b.discardOrphanedMetadataIndices(ctx)
-	index := fmt.Sprintf("%s_v%d_%d", b.alias, metadataSearchSchema, time.Now().UTC().UnixNano())
+	index := fmt.Sprintf("%s_v%d_%d", b.alias, b.schemaVersion(), time.Now().UTC().UnixNano())
 	mapping := map[string]any{
 		"mappings": map[string]any{
 			"_meta": map[string]any{
-				"schema_version": metadataSearchSchema,
+				"schema_version": b.schemaVersion(),
 				"document_type":  b.documentType,
 			},
 			"properties": map[string]any{
@@ -278,7 +285,7 @@ func (b *OpenSearchMediaBackend) ensureReady(ctx context.Context) error {
 		return err
 	}
 	for _, mapping := range mappings {
-		if schemaVersion(mapping.Mappings.Meta["schema_version"]) == metadataSearchSchema && mapping.Mappings.Meta["document_type"] == b.documentType {
+		if schemaVersion(mapping.Mappings.Meta["schema_version"]) == b.schemaVersion() && mapping.Mappings.Meta["document_type"] == b.documentType {
 			b.readyMu.Lock()
 			b.ready = true
 			b.readyMu.Unlock()
@@ -319,7 +326,7 @@ func (b *OpenSearchMediaBackend) aliasIndices(ctx context.Context) ([]string, er
 }
 
 func (b *OpenSearchMediaBackend) discardOrphanedMetadataIndices(ctx context.Context) {
-	prefix := fmt.Sprintf("%s_v%d_", b.alias, metadataSearchSchema)
+	prefix := fmt.Sprintf("%s_v%d_", b.alias, b.schemaVersion())
 	var indices map[string]struct {
 		Aliases map[string]any `json:"aliases"`
 	}

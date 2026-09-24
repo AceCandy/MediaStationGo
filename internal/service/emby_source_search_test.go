@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -71,8 +72,8 @@ func TestEmbySourceSearchUsesSeparateBackendsWithNFO(t *testing.T) {
 	if len(ordinary.filters) != 3 || len(source.filters) != 3 {
 		t.Fatal("NFO bypassed source search backends")
 	}
-	if !reflect.DeepEqual(source.filters[0].CandidateIDs, []string{"hg-work-source"}) {
-		t.Fatal("source visibility missing")
+	if source.filters[0].CandidateIDs != nil {
+		t.Fatal("source search enumerated visible identities")
 	}
 	p.StartIndex, p.Limit = 0, 20
 	source.err, ordinary.err = errors.New("unavailable"), errors.New("unavailable")
@@ -95,10 +96,10 @@ func TestEmbySourceSearchUsesSeparateBackendsWithNFO(t *testing.T) {
 
 func assertSearchHintsProjection(t *testing.T, e *EmbyService, p ItemsParams) {
 	t.Helper()
-	queries := 0
+	var queries atomic.Int32
 	count := func(db *gorm.DB) {
 		if !db.DryRun {
-			queries++
+			queries.Add(1)
 		}
 	}
 	if err := e.repo.DB.Callback().Query().After("gorm:query").Register("test:hints-query", count); err != nil {
@@ -112,16 +113,16 @@ func assertSearchHintsProjection(t *testing.T, e *EmbyService, p ItemsParams) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fullCount := queries
-	queries = 0
+	fullCount := queries.Load()
+	queries.Store(0)
 	// 即使客户端要求完整关系，提示仍只加载自己的字段。
 	p.Fields = []string{"People", "ProviderIds", "MediaSources", "MediaStreams"}
 	hints, err := e.SearchHints(t.Context(), p)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if queries >= fullCount {
-		t.Fatalf("hint queries=%d, full=%d", queries, fullCount)
+	if queries.Load() >= fullCount {
+		t.Fatalf("hint queries=%d, full=%d", queries.Load(), fullCount)
 	}
 	if hints["TotalRecordCount"] != full["TotalRecordCount"] {
 		t.Fatal("hint total changed")
@@ -141,7 +142,7 @@ func assertSearchHintsProjection(t *testing.T, e *EmbyService, p ItemsParams) {
 			t.Error("hint image changed")
 		}
 	}
-	t.Logf("search hints queries=%d, full items=%d", queries, fullCount)
+	t.Logf("search hints queries=%d, full items=%d", queries.Load(), fullCount)
 }
 
 func TestEmbyHongGuoSearchKeepsPlayedFilterWithoutNFO(t *testing.T) {

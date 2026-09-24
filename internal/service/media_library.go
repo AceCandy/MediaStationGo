@@ -16,7 +16,9 @@ func (s *MediaService) ListLibraries(ctx context.Context) ([]model.Library, erro
 // files are left untouched.
 func (s *MediaService) DeleteLibrary(ctx context.Context, id string) error {
 	var metadataIDs []string
+	refresh := func() {}
 	err := s.repo.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		refresh = s.repo.HongGuo.PrepareMediaSearchRefresh(tx.Model(&model.Media{}).Where("library_id = ?", id))
 		if err := tx.Model(&model.Media{}).Where("library_id = ?", id).Where("metadata_id IS NOT NULL").Pluck("metadata_id", &metadataIDs).Error; err != nil {
 			return err
 		}
@@ -29,6 +31,7 @@ func (s *MediaService) DeleteLibrary(ctx context.Context, id string) error {
 		return tx.Unscoped().Where("id = ?", id).Delete(&model.Library{}).Error
 	})
 	if err == nil {
+		refresh()
 		s.repo.MediaView.RefreshMetadataIDs(ctx, metadataIDs...)
 		s.invalidateMediaCache(ctx)
 	}

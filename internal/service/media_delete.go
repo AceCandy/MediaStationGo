@@ -12,8 +12,10 @@ func (s *MediaService) Delete(ctx context.Context, id string) error {
 	if err := s.repo.DB.WithContext(ctx).Model(&model.Media{}).Where("id = ?", id).Where("metadata_id IS NOT NULL").Pluck("metadata_id", &metadataIDs).Error; err != nil {
 		return err
 	}
+	refresh := s.repo.HongGuo.PrepareMediaSearchRefresh(s.repo.DB.WithContext(ctx).Model(&model.Media{}).Where("id = ?", id))
 	err := s.repo.DB.WithContext(ctx).Where("id = ?", id).Delete(&model.Media{}).Error
 	if err == nil {
+		refresh()
 		s.repo.MediaView.RefreshMetadataIDs(ctx, metadataIDs...)
 		s.invalidateMediaCache(ctx)
 	}

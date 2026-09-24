@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jackc/pgx/v5/stdlib"
 	"gorm.io/gorm"
 )
 
@@ -48,37 +49,42 @@ SELECT 'file-'||n||'-'||e,'work-'||n FROM generate_series(1,200) n CROSS JOIN ge
 	}
 	backend := &hongGuoSearchTestBackend{ids: []string{"hg-group-1"}}
 	repos.HongGuo.SetSearchBackend(backend)
-	filter := MediaQueryFilter{IncludeNSFW: true}
+	if _, err := repos.HongGuo.BackfillSearchIndex(t.Context(), 1000, 0); err != nil {
+		t.Fatal(err)
+	}
+	statements = nil
+	filter := MediaQueryFilter{IncludeNSFW: true, AllowedLibraryIDs: []string{"library"}, HiddenLibraryIDs: []string{"hidden"}}
 	rows, err := repos.HongGuo.SearchCandidates(t.Context(), "Plan target", MetadataSearchFilter{MediaQueryFilter: filter, Kinds: []string{"series"}})
 	if err != nil || len(rows) != 1 || rows[0].ID != "hg-group-1" {
 		t.Fatalf("candidates=%v err=%v", rows, err)
 	}
-	if len(backend.filters) != 1 || len(backend.filters[0].CandidateIDs) != 200 {
-		t.Fatal("OpenSearch lost the pre-limit visible work scope")
+	if len(backend.filters) != 1 || backend.filters[0].CandidateIDs != nil {
+		t.Fatal("OpenSearch still enumerates visible identities")
 	}
 	views, err := repos.MediaView.hongGuoSearchRepresentatives(t.Context(), backend.ids, filter)
 	if err != nil || len(views) != 1 || views[0].ID != "file-1-1" || views[0].SeriesID != "hg-group-1" {
 		t.Fatalf("representatives=%v err=%v", views, err)
 	}
-	if len(statements) != 3 {
-		t.Fatalf("captured %d queries, want visible IDs, revalidation and representatives", len(statements))
+	if len(statements) != 2 {
+		t.Fatalf("captured %d queries, want bounded revalidation and representatives", len(statements))
 	}
 	for i, query := range statements {
-		t.Run([]string{"visible_ids", "revalidation", "representatives"}[i], func(t *testing.T) {
+		t.Run([]string{"revalidation", "representatives"}[i], func(t *testing.T) {
 			// 保留原始参数绑定，不能执行日志中不可用的 Go 数组插值。
 			var raw []byte
 			if err := db.Raw("EXPLAIN (ANALYZE, FORMAT JSON, TIMING OFF) "+query.sql, query.vars...).Row().Scan(&raw); err != nil {
 				t.Fatal(err)
 			}
 			var plans []struct {
-				Plan map[string]any
+				Plan          map[string]any
+				ExecutionTime float64 `json:"Execution Time"`
 			}
 			if err := json.Unmarshal(raw, &plans); err != nil {
 				t.Fatal(err)
 			}
 			var inspect func(map[string]any)
 			inspect = func(plan map[string]any) {
-				if relation := plan["Relation Name"]; relation == "media" || relation == "hongguo_media_bindings" {
+				if relation := plan["Relation Name"]; relation == "media" || relation == "hongguo_media_bindings" || (i == 0 && relation == "hongguo_works") {
 					rows, _ := plan["Actual Rows"].(float64)
 					loops, _ := plan["Actual Loops"].(float64)
 					removed, _ := plan["Rows Removed by Filter"].(float64)
@@ -92,6 +98,44 @@ SELECT 'file-'||n||'-'||e,'work-'||n FROM generate_series(1,200) n CROSS JOIN ge
 				}
 			}
 			inspect(plans[0].Plan)
+			t.Logf("execution %.3f ms", plans[0].ExecutionTime)
+			if i == 0 {
+				// PostgreSQL 17 泛型计划必须同样利用作品/合集索引，不能依赖某一次参数值。
+				pool, err := db.DB()
+				if err != nil {
+					t.Fatal(err)
+				}
+				conn, err := pool.Conn(t.Context())
+				if err != nil {
+					t.Fatal(err)
+				}
+				// simple protocol 将 $n 留给 GENERIC_PLAN 推断，不作为本次执行的绑定参数。
+				err = conn.Raw(func(driverConn any) error {
+					results, err := driverConn.(*stdlib.Conn).Conn().PgConn().Exec(t.Context(), "EXPLAIN (GENERIC_PLAN, FORMAT JSON) "+query.sql).ReadAll()
+					if err == nil {
+						raw = results[0].Rows[0][0]
+					}
+					return err
+				})
+				_ = conn.Close()
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := json.Unmarshal(raw, &plans); err != nil {
+					t.Fatal(err)
+				}
+				var inspectGeneric func(map[string]any)
+				inspectGeneric = func(plan map[string]any) {
+					if plan["Relation Name"] == "hongguo_works" && plan["Node Type"] == "Seq Scan" {
+						t.Fatalf("generic plan scans catalog: %s", raw)
+					}
+					children, _ := plan["Plans"].([]any)
+					for _, child := range children {
+						inspectGeneric(child.(map[string]any))
+					}
+				}
+				inspectGeneric(plans[0].Plan)
+			}
 		})
 	}
 }
