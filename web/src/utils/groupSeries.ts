@@ -37,6 +37,7 @@ export function getSeriesKey(media: Media): string {
 }
 
 function getSeriesRawKey(media: Media): string {
+  if (media.catalog_source === 'hongguo') return media.series_id ? `series:${media.series_id}` : `hongguo:${media.lookup_catalog_id || media.id}`
   const fromPath = seriesTitleFromPath(media.path)
   if (isEpisodeLike(media) || pathLooksEpisodic(media)) {
     // 路径剧名优先:对全剧一致, 不受单集 tmdb 污染影响。
@@ -273,7 +274,9 @@ export function groupSeries(items: Media[] = []): SeriesCard[] {
     const pathKey = getSeriesRawKey(m)
     const externalKey = repeatedSeriesExternalRawKey(m)
     const titleKey = repeatedSeriesTitleRawKey(m)
-    const key = pathKey.startsWith('library-path') && (pathCounts.get(pathKey) ?? 0) > 1
+    const key = m.catalog_source === 'hongguo'
+      ? getSeriesKey(m)
+      : pathKey.startsWith('library-path') && (pathCounts.get(pathKey) ?? 0) > 1
       ? compactSeriesKey(pathKey)
       : externalKey && (externalCounts.get(externalKey) ?? 0) > 1
         ? compactSeriesKey(externalKey)
@@ -338,6 +341,7 @@ export function seriesCardLink(card: SeriesCard): string {
 	if (card.rep.series_id) {
 		return `/library/${encodeURIComponent(targetLibraryID(card.linkMedia))}?series_id=${encodeURIComponent(card.rep.series_id)}`
 	}
+	if (card.rep.catalog_source === 'hongguo') return mediaDetailLink(card.rep)
 	if (isSeriesCard(card)) {
 		return `/library/${encodeURIComponent(targetLibraryID(card.linkMedia))}?series=${encodeURIComponent(card.key)}`
 	}

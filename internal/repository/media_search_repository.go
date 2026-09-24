@@ -540,15 +540,17 @@ func (r *MediaViewRepository) FindMetadataSearchRepresentatives(ctx context.Cont
 	if len(metadataIDs) == 0 {
 		return []model.MediaView{}, nil
 	}
-	localIDs, ordinaryIDs := []string{}, []string{}
+	localIDs, hongGuoIDs, ordinaryIDs := []string{}, []string{}, []string{}
 	for _, id := range metadataIDs {
 		if strings.HasPrefix(id, "nfo-") {
 			localIDs = append(localIDs, id)
+		} else if strings.HasPrefix(id, "hg-") {
+			hongGuoIDs = append(hongGuoIDs, id)
 		} else {
 			ordinaryIDs = append(ordinaryIDs, id)
 		}
 	}
-	if len(localIDs) > 0 {
+	if len(localIDs) > 0 || len(hongGuoIDs) > 0 {
 		ordinary, err := r.FindMetadataSearchRepresentatives(ctx, ordinaryIDs, filter)
 		if err != nil {
 			return nil, err
@@ -562,6 +564,13 @@ func (r *MediaViewRepository) FindMetadataSearchRepresentatives(ctx context.Cont
 			return nil, err
 		}
 		for _, view := range local {
+			byID[view.CatalogItemID] = view
+		}
+		hongGuo, err := r.hongGuoSearchRepresentatives(ctx, hongGuoIDs, filter)
+		if err != nil {
+			return nil, err
+		}
+		for _, view := range hongGuo {
 			byID[view.CatalogItemID] = view
 		}
 		result := make([]model.MediaView, 0, len(metadataIDs))

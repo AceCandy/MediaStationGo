@@ -104,6 +104,43 @@ COUNT(DISTINCT COALESCE(b.episode_id,w.id)) AS count, COUNT(*) AS version_count`
 	return views, summaries, total, err
 }
 
+// hongGuoSearchRepresentatives 将当页作品资料与可见文件合并，合集只占一个搜索位置。
+func (r *MediaViewRepository) hongGuoSearchRepresentatives(ctx context.Context, ids []string, filter MediaQueryFilter) ([]model.MediaView, error) {
+	if len(ids) == 0 {
+		return []model.MediaView{}, nil
+	}
+	var representatives []LibraryMetadataSummary
+	err := r.hongGuoSeriesScope(ctx, "", "", filter).
+		Where(hongGuoSeriesIdentity+" IN ?", ids).
+		Select("DISTINCT ON (" + hongGuoSeriesIdentity + ") " + hongGuoSeriesIdentity + " AS metadata_id, m.id AS media_id").
+		Order(hongGuoSeriesIdentity + "," + hongGuoSeasonNumber + ",w.source_id,m.episode_num,m.id").Scan(&representatives).Error
+	if err != nil {
+		return nil, err
+	}
+	mediaIDs := make([]string, 0, len(representatives))
+	byMediaID := make(map[string]string, len(representatives))
+	for _, row := range representatives {
+		mediaIDs = append(mediaIDs, row.MediaID)
+		byMediaID[row.MediaID] = row.MetadataID
+	}
+	views, err := r.FindByIDs(ctx, mediaIDs, filter)
+	if err != nil {
+		return nil, err
+	}
+	presentations, err := r.hongGuoPresentations(ctx, ids, false)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]model.MediaView, 0, len(views))
+	for _, view := range views {
+		if presentation, ok := presentations[byMediaID[view.ID]]; ok {
+			presentation.Media = view.Media
+			result = append(result, presentation)
+		}
+	}
+	return result, nil
+}
+
 // HongGuoSeriesForSource 兼容旧来源作品链接，只解析当前库内已匹配且可见的作品。
 func (r *MediaViewRepository) HongGuoSeriesForSource(ctx context.Context, libraryID, sourceID string, filter MediaQueryFilter) (string, error) {
 	var id string

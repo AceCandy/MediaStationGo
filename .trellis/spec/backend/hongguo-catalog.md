@@ -355,17 +355,20 @@ Wrong: filter the serialized `tags` column with a substring search.
 
 Correct: query exact JSON-array membership so similarly named tags remain distinct.
 
-## Scenario: Independent Emby search indexes
+## Scenario: Independent catalog search indexes
 
 ### 1. Scope / Trigger
 
-Global Movie/Series keyword searches across ordinary, HongGuo and NFO catalogs.
+Web and Emby global Movie/Series keyword searches across ordinary, HongGuo and NFO catalogs.
 
 ### 2. Signatures
 
 `NewOpenSearchHongGuoBackend(SearchConfig)` uses the normalized ordinary alias
 plus `_hongguo`, with `document_type=hongguo`. `HongGuoRepository.SearchCandidates`
 returns logical works; `BackfillSearchIndex` shares the existing rebuild coordinator.
+Web `/api/media?q=...` uses `MediaService.searchMediaPage` for grouped, ungrouped,
+paged and suggestion requests; `RankWebMetadataSearchCandidatePage` retains
+ordinary/NFO overview and genre matches and their logical-ID tie order.
 
 ### 3. Contracts
 
@@ -377,6 +380,14 @@ Emby merges candidates using the existing 100-result ranking limit and only
 hydrates the final page. NFO existence must not route normal keyword search
 through the full browse aggregation. Hierarchy and playback-state filters retain
 their database paths; NFO does not borrow ordinary/HongGuo person identities.
+Web also merges HongGuo candidates before ranking, the shared 100-result cap and
+pagination. HongGuo keeps its existing title-only recall; ordinary/NFO keep Web
+field matching. Empty-query browsing retains its existing uncapped database page.
+Batch-load one visible representative per returned HongGuo identity and overlay
+the official first-season presentation without replacing the file ID, source ID
+or library. `metadata_id` stays empty. Web cards use the official series/source
+identity, never directory/title heuristics; HongGuo movies link to file details
+even inside an episodic directory.
 
 SaveDetail, SaveAlbum and confirmed catalog cleanup refresh old/new identities
 after commit, including the previous album title when its earliest member leaves.
@@ -391,12 +402,15 @@ Missing/unready/failing index -> PostgreSQL fallback. Known failed incremental
 write -> bypass the index until a successful rebuild. More than 65,536 visible
 IDs -> database fallback, never truncate permissions. Empty/locked/hidden scope
 -> no results. Cancellation propagates; incomplete rebuilds are never activated.
+Distinct HongGuo identities with identical titles/paths remain separate cards;
+multiple file versions or seasons in one official album consume one result slot.
 
 ### 5. Good/Base/Bad Cases
 
 Good: a visible season makes one official album searchable. Base: absent index
 still returns matching files. Bad: an NFO library disables ordinary OpenSearch,
 or visibility is applied only after the candidate limit.
+Bad: Emby supports all sources but Web still searches only ordinary/NFO data.
 
 ### 6. Tests Required
 
@@ -405,11 +419,18 @@ and `TestEmbyHongGuoSearchKeepsPlayedFilterWithoutNFO` run on isolated PostgreSQ
 `TestOpenSearchHongGuoAliasAndCandidateScope` checks HTTP isolation; opt-in
 `MEDIASTATION_TEST_OPENSEARCH_LIVE=1` uses a uniquely named temporary index and
 deletes it in cleanup. Retain existing metadata rebuild/cancellation tests.
+`TestWebSourceSearch` covers mixed paging/suggestions, first-season presentation
+without first-season files, independent backends, fallback and hidden/locked
+scopes. `TestRankWebMetadataSearchCandidatePagePreservesFieldsAndTieOrder` covers
+Web field matching while preserving Emby ordering. Run
+`node web/tests/search-source-cards.mjs` for source identities and detail URLs.
 
 ### 7. Wrong vs Correct
 
 Wrong: count all three expanded catalogs before testing the search title.
 Correct: recall eligible candidates per source, rank once, hydrate one page.
+Wrong: treat an Emby search test as proof that Web search includes every source.
+Correct: exercise both Web suggestion/page entry points and Emby independently.
 
 ## Scenario: Official cross-season albums
 

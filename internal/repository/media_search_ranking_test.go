@@ -162,6 +162,27 @@ func TestRankMetadataSearchCandidatePageCapsBeforePaging(t *testing.T) {
 	}
 }
 
+func TestRankWebMetadataSearchCandidatePagePreservesFieldsAndTieOrder(t *testing.T) {
+	candidates := []MetadataSearchCandidate{
+		{Kind: "movie", ID: "b", Title: "航海王"},
+		{Kind: "series", ID: "a", Title: "航海王"},
+		{Kind: "movie", ID: "overview", Title: "其他电影", Overview: "航海王"},
+		{Kind: "movie", ID: "nfo-genres", Title: "本地电影", Genres: "航海王"},
+		{Kind: "movie", ID: "b", Title: "重复候选"},
+	}
+	want := []string{"a", "b", "nfo-genres", "overview"}
+	for offset, id := range want {
+		rows, total := RankWebMetadataSearchCandidatePage("航海王", candidates, offset, 1)
+		if total != 4 || len(rows) != 1 || rows[0].ID != id {
+			t.Fatalf("offset=%d rows=%v total=%d", offset, rows, total)
+		}
+	}
+	rows, total := RankMetadataSearchCandidatePage("航海王", candidates, 0, 10)
+	if total != 2 || rows[0].ID != "b" || rows[1].ID != "a" || candidates[0].Kind != "movie" {
+		t.Fatalf("title search or caller candidates changed: %v", rows)
+	}
+}
+
 func metadataSearchCandidateIDs(candidates []metadataSearchCandidate) []string {
 	ids := make([]string, len(candidates))
 	for index := range candidates {

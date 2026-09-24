@@ -27,7 +27,7 @@ func (r *MediaViewRepository) SearchCandidateDetails(ctx context.Context, ids []
 			MetadataSearchCandidate
 			ItemKind string `gorm:"column:kind"`
 		}
-		if err := r.db.WithContext(ctx).Table(source.table).Select("id, kind, title, original_name, year").Where("id = ANY(?)", &source.ids).Scan(&rows).Error; err != nil {
+		if err := r.db.WithContext(ctx).Table(source.table).Select("id, kind, title, original_name, overview, genres, year").Where("id = ANY(?)", &source.ids).Scan(&rows).Error; err != nil {
 			return nil, err
 		}
 		for _, row := range rows {

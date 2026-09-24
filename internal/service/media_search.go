@@ -21,16 +21,8 @@ func (s *MediaService) SearchMediaVisible(ctx context.Context, query string, lim
 	} else if limit > maxMediaSearchLimit {
 		limit = maxMediaSearchLimit
 	}
-	items, err := s.repo.MediaView.SearchFiltered(ctx, query, limit, repository.MediaQueryFilter{
-		IncludeNSFW:       visibility.IncludeNSFW,
-		AllowedLibraryIDs: visibility.AllowedLibraryIDs,
-		HiddenLibraryIDs:  visibility.HiddenLibraryIDs,
-	})
-	if err != nil {
-		return nil, err
-	}
-	s.attachLibraryMetadataViews(ctx, items)
-	return items, nil
+	items, _, err := s.searchMediaPage(ctx, query, 0, limit, visibility)
+	return items, err
 }
 
 func (s *MediaService) SearchMediaVisibleGrouped(ctx context.Context, query string, limit int, visibility MediaVisibility) ([]MediaItem, error) {
@@ -56,11 +48,45 @@ func (s *MediaService) SearchMediaVisiblePage(ctx context.Context, query string,
 	if page < 1 {
 		page = 1
 	}
-	items, total, err := s.repo.MediaView.SearchFilteredPage(ctx, query, (page-1)*pageSize, pageSize, repository.MediaQueryFilter{
-		IncludeNSFW:       visibility.IncludeNSFW,
-		AllowedLibraryIDs: visibility.AllowedLibraryIDs,
-		HiddenLibraryIDs:  visibility.HiddenLibraryIDs,
-	})
+	return s.searchMediaPage(ctx, query, (page-1)*pageSize, pageSize, visibility)
+}
+
+// searchMediaPage 按来源召回候选，统一排序分页后只加载当页可见代表文件。
+func (s *MediaService) searchMediaPage(ctx context.Context, query string, offset, limit int, visibility MediaVisibility) ([]model.MediaView, int64, error) {
+	filter := repository.MetadataSearchFilter{
+		MediaQueryFilter: repository.MediaQueryFilter{
+			IncludeNSFW:       visibility.IncludeNSFW,
+			AllowedLibraryIDs: visibility.AllowedLibraryIDs,
+			HiddenLibraryIDs:  visibility.HiddenLibraryIDs,
+		},
+		Fields: repository.MetadataSearchFieldsWeb,
+		Kinds:  []string{model.MetadataKindMovie, model.MetadataKindSeries},
+	}
+	source, err := s.repo.HongGuo.SearchCandidates(ctx, query, filter)
+	if err != nil {
+		return nil, 0, err
+	}
+	var items []model.MediaView
+	var total int64
+	if len(source) == 0 {
+		items, total, err = s.repo.MediaView.SearchFilteredPage(ctx, query, offset, limit, filter.MediaQueryFilter)
+	} else {
+		ids, _, searchErr := s.repo.MediaView.SearchMetadataIDs(ctx, query, 0, repository.MetadataSearchCandidateLimit, filter)
+		if searchErr != nil {
+			return nil, 0, searchErr
+		}
+		candidates, searchErr := s.repo.MediaView.SearchCandidateDetails(ctx, ids)
+		if searchErr != nil {
+			return nil, 0, searchErr
+		}
+		ranked, count := repository.RankWebMetadataSearchCandidatePage(query, append(candidates, source...), offset, limit)
+		total = count
+		ids = make([]string, 0, len(ranked))
+		for _, candidate := range ranked {
+			ids = append(ids, candidate.ID)
+		}
+		items, err = s.repo.MediaView.FindMetadataSearchRepresentatives(ctx, ids, filter.MediaQueryFilter)
+	}
 	if err != nil {
 		return nil, 0, err
 	}

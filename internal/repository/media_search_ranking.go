@@ -240,6 +240,15 @@ func metadataSearchCandidateLess(left, right metadataSearchCandidate) bool {
 
 // RankMetadataSearchCandidatePage 对异构候选去重、统一排序、截断后再分页。
 func RankMetadataSearchCandidatePage(query string, candidates []MetadataSearchCandidate, offset, limit int) ([]MetadataSearchCandidate, int64) {
+	return rankMetadataSearchCandidatePage(query, candidates, offset, limit, MetadataSearchFieldsTitle)
+}
+
+// RankWebMetadataSearchCandidatePage 保留网页简介、类型命中及逻辑 ID 平局顺序。
+func RankWebMetadataSearchCandidatePage(query string, candidates []MetadataSearchCandidate, offset, limit int) ([]MetadataSearchCandidate, int64) {
+	return rankMetadataSearchCandidatePage(query, candidates, offset, limit, MetadataSearchFieldsWeb)
+}
+
+func rankMetadataSearchCandidatePage(query string, candidates []MetadataSearchCandidate, offset, limit int, fields MetadataSearchFields) ([]MetadataSearchCandidate, int64) {
 	terms := MediaSearchTerms(strings.TrimSpace(query))
 	if len(terms) == 0 {
 		return []MetadataSearchCandidate{}, 0
@@ -247,6 +256,9 @@ func RankMetadataSearchCandidatePage(query string, candidates []MetadataSearchCa
 	seen := make(map[string]struct{}, len(candidates))
 	unique := make([]metadataSearchCandidate, 0, len(candidates))
 	for _, candidate := range candidates {
+		if fields == MetadataSearchFieldsWeb {
+			candidate.Kind = ""
+		}
 		key := candidate.Kind + "\x00" + candidate.ID
 		if candidate.ID == "" {
 			continue
@@ -257,7 +269,7 @@ func RankMetadataSearchCandidatePage(query string, candidates []MetadataSearchCa
 		seen[key] = struct{}{}
 		unique = append(unique, candidate)
 	}
-	ranked := rankMetadataSearchCandidates(query, buildMetadataSearchTermGroups(terms), unique, MetadataSearchFieldsTitle)
+	ranked := rankMetadataSearchCandidates(query, buildMetadataSearchTermGroups(terms), unique, fields)
 	if len(ranked) > maxMetadataSearchCandidates {
 		ranked = ranked[:maxMetadataSearchCandidates]
 	}
