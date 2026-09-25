@@ -1,0 +1,2 @@
+{"file":".trellis/spec/backend/hongguo-catalog.md","reason":"复核权限、合集身份和分页结果一致性"}
+{"file":".trellis/spec/backend/emby-api-catalog-sync.md","reason":"复核 Emby 类型和排序变更的文档与验证"}

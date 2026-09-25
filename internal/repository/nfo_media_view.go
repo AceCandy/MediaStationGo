@@ -84,6 +84,23 @@ func (r *MediaViewRepository) NFOItemViews(ctx context.Context, id string, filte
 // NFONodes 将可见文件展开为本地层级节点，供 Emby 在混合来源分页前查询。
 func (r *MediaViewRepository) NFONodes(ctx context.Context, userID, libraryID string, filter MediaQueryFilter) *gorm.DB {
 	q := r.nfoViewQuery(ctx, filter)
+	return r.nfoNodesFromFiles(ctx, userID, libraryID, filter, q)
+}
+
+// NFOWorkNodes 仅展开当前页作品的文件，避免详情读取重新遍历全库绑定。
+func (r *MediaViewRepository) NFOWorkNodes(ctx context.Context, userID, libraryID string, filter MediaQueryFilter, ids []string) *gorm.DB {
+	q := r.nfoViewQuery(ctx, filter).Joins("JOIN (?) page_leaf ON page_leaf.id = b.item_id", r.nfoWorkFileItems(ctx, ids))
+	return r.nfoNodesFromFiles(ctx, userID, libraryID, filter, q)
+}
+
+// nfoWorkFileItems 沿作品主键定位自身及季下分集，不按标题合并。
+func (r *MediaViewRepository) nfoWorkFileItems(ctx context.Context, ids []string) *gorm.DB {
+	return r.db.WithContext(ctx).Raw(`SELECT id FROM nfo_items WHERE id = ANY(?)
+UNION ALL SELECT ep.id FROM nfo_items season JOIN nfo_items ep ON ep.parent_id = season.id
+WHERE season.parent_id = ANY(?) AND ep.kind = 'episode'`, &ids, &ids)
+}
+
+func (r *MediaViewRepository) nfoNodesFromFiles(ctx context.Context, userID, libraryID string, filter MediaQueryFilter, q *gorm.DB) *gorm.DB {
 	if libraryID != "" {
 		q = q.Where("m.library_id = ?", libraryID)
 	}
@@ -113,13 +130,33 @@ func (r *MediaViewRepository) nfoLibraryPage(ctx context.Context, libraryID, kin
 	if itemID != "" {
 		q = q.Where(work+" = ?", strings.TrimPrefix(itemID, "nfo-"))
 	}
-	groups := q.Select(work + " AS id, MIN(m.id) AS media_id, COUNT(DISTINCT ni.id) AS count, COUNT(*) AS version_count, MAX(m.created_at) AS latest").Group(work)
-	var total int64
-	if err := r.db.WithContext(ctx).Table("(?) AS grouped", groups).Count(&total).Error; err != nil {
+	groups := q.Session(&gorm.Session{}).Select(work + " AS id, MAX(m.created_at) AS latest").Group(work)
+	page := r.db.Table("works").Order("latest DESC, id").Offset(offset).Limit(limit)
+	var rows []struct {
+		ID    string
+		Total int64
+	}
+	err := r.db.WithContext(ctx).Raw(`WITH works AS MATERIALIZED (?), page AS (?)
+SELECT COALESCE(page.id,'') AS id, totals.total FROM (SELECT COUNT(*) AS total FROM works) totals
+LEFT JOIN page ON TRUE ORDER BY page.latest DESC, page.id`, groups, page).Scan(&rows).Error
+	if err != nil {
 		return nil, nil, 0, err
 	}
+	var total int64
+	var workIDs []string
+	for _, row := range rows {
+		total = row.Total
+		if row.ID != "" {
+			workIDs = append(workIDs, row.ID)
+		}
+	}
+	if len(workIDs) == 0 {
+		return []model.MediaView{}, []LibraryMetadataSummary{}, total, nil
+	}
 	var summaries []LibraryMetadataSummary
-	err := r.db.WithContext(ctx).Table("(?) AS grouped", groups).Select("'nfo-' || id AS metadata_id, media_id, count, version_count").Order("latest DESC, id").Offset(offset).Limit(limit).Scan(&summaries).Error
+	err = q.Joins("JOIN (?) page_leaf ON page_leaf.id = b.item_id", r.nfoWorkFileItems(ctx, workIDs)).
+		Select("'nfo-' || " + work + " AS metadata_id, MIN(m.id) AS media_id, COUNT(DISTINCT ni.id) AS count, COUNT(*) AS version_count").
+		Group(work).Order("MAX(m.created_at) DESC, " + work).Scan(&summaries).Error
 	if err != nil {
 		return nil, nil, 0, err
 	}

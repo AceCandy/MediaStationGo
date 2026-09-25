@@ -355,6 +355,61 @@ Wrong: filter the serialized `tags` column with a substring search.
 
 Correct: query exact JSON-array membership so similarly named tags remain distinct.
 
+## Scenario: Emby HongGuo library browsing
+
+### 1. Scope / Trigger
+
+Library-scoped Emby Items and Latest, including when unrelated NFO media exists.
+
+### 2. Signatures
+
+`libraryAsView` maps `LibraryTypeHongGuo` to `CollectionType=tvshows`.
+`hongGuoLibraryItems(ctx, p, count)` pages logical works before node hydration;
+`hongGuoLibraryPageSupported` gates ordinary work-layer requests.
+
+### 3. Contracts
+
+Filter visible files and effective playback state before logical album grouping
+and pagination. Count and page share materialized work candidates. Latest omits
+the work count and orders by MAX visible file creation time, then logical ID;
+adding an episode can move an existing work forward. DateLastContentAdded uses
+MAX; DateCreated retains MIN. Unrelated NFO presence cannot choose a different
+library-scoped HongGuo Latest implementation. Bind page work IDs before detail
+file lookup; do not expand the entire library into series/season/episode nodes.
+Keep source movie identities unchanged despite the library's tvshows type.
+Special filters and recursive requests including child kinds retain hierarchy
+queries. Title-only browsing without a played filter uses correlated
+`EXISTS (... OFFSET 0)` like Web paging; current-page details still load dates
+and user state. Date/state-filtered candidates read eligible file bindings; this is not
+a constant-time listing or a search-index path.
+
+### 4. Validation & Error Matrix
+
+Hidden or locked-empty scope -> empty items and zero total. Offset beyond the
+last work -> empty items with unchanged total. Query failure -> error, not a
+successful empty page. All-visible-episodes completed -> played work.
+
+### 5. Good / Base / Bad Cases
+
+Good: multiple seasons consume one album slot. Base: standalone work stays
+hg-work. Bad: an unrelated NFO library changes Latest from MAX to MIN.
+
+### 6. Tests Required
+
+`TestHongGuoLibraryCollectionType`, `TestHongGuoLibraryPagingAndLatest`,
+`TestHongGuoLibraryPageBoundary` and `TestHongGuoLibraryPagePlan` cover type,
+album pagination, sort semantics, NFO presence, user state, visibility, fallback
+gates, omitted Latest count and actual page-detail file work on PostgreSQL.
+Run PostgreSQL tests without skips; synthetic timings do not certify deployment
+latency or a real player's cached collection type.
+
+### 7. Wrong vs Correct
+
+Wrong: repair OpenSearch and assume library browsing also uses it, or only fix
+CollectionType while leaving full hierarchy aggregation on the normal root page.
+Correct: trace each entry point, fix the shared collection mapping, page work
+candidates and separately verify hierarchy, Latest and search regression tests.
+
 ## Scenario: Independent catalog search indexes
 
 ### 1. Scope / Trigger

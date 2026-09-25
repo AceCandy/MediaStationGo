@@ -21,11 +21,9 @@ func (e *EmbyService) movieLibraryHasEpisodicContent(ctx context.Context, librar
 	q := e.repo.DB.WithContext(ctx).Model(&model.Media{}).
 		Where("library_id IN ?", e.mergedLibraryIDs(ctx, libraryID)).
 		Where("(season_num > 0 OR episode_num > 0) AND ("+clause+")", args...)
-	var count int64
-	if err := q.Limit(1).Count(&count).Error; err != nil {
-		return false, err
-	}
-	return count > 0, nil
+	var exists bool
+	err := e.repo.DB.WithContext(ctx).Raw("SELECT EXISTS (?)", q.Select("1")).Scan(&exists).Error
+	return exists, err
 }
 
 // movieLibraryItems 处理电影类型库的常规浏览,返回「真正的电影(Movie)」与

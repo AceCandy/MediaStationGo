@@ -43,6 +43,10 @@ type hongGuoNode struct {
 }
 
 func (e *EmbyService) hongGuoNodes(ctx context.Context, userID, libraryID string) *gorm.DB {
+	return e.hongGuoFileNodes(ctx, userID, e.hongGuoVisibleFiles(ctx, userID, libraryID))
+}
+
+func (e *EmbyService) hongGuoVisibleFiles(ctx context.Context, userID, libraryID string) *gorm.DB {
 	v := e.mediaVisibility(ctx, userID)
 	files := e.repo.DB.WithContext(ctx).Table("media AS m").Select("m.*").Where("m.catalog_source = ?", model.TaskSystemHongGuo)
 	if libraryID != "" {
@@ -57,6 +61,11 @@ func (e *EmbyService) hongGuoNodes(ctx context.Context, userID, libraryID string
 	if len(v.HiddenLibraryIDs) > 0 {
 		files = files.Where("m.library_id <> ALL(?)", &v.HiddenLibraryIDs)
 	}
+	return files
+}
+
+// hongGuoFileNodes 允许作品分页先限定文件范围，再复用原有层级和状态投影。
+func (e *EmbyService) hongGuoFileNodes(ctx context.Context, userID string, files *gorm.DB) *gorm.DB {
 	// 同一文件贡献整剧、季、集节点；先过滤文件，再按逻辑身份聚合多版本。
 	return e.repo.DB.WithContext(ctx).Table(`(?) AS nodes`, e.repo.DB.Raw(`
 SELECT n.id, n.resume_key, n.kind, n.title, n.parent_id, n.season_number, n.episode_number,
@@ -95,6 +104,28 @@ GROUP BY n.id,n.resume_key,n.kind,n.title,n.parent_id,n.season_number,n.episode_
 func (e *EmbyService) LatestItems(ctx context.Context, userID, parentID string, limit int, isPlayed bool, fields ...string) ([]map[string]any, error) {
 	if limit <= 0 || limit > 100 {
 		limit = 20
+	}
+	if parentID != "" && !strings.HasPrefix(parentID, "hg-") && !strings.HasPrefix(parentID, "nfo-") {
+		library, err := e.repo.Library.FindByID(ctx, parentID)
+		if err != nil {
+			return nil, err
+		}
+		if library != nil && library.Type == model.LibraryTypeHongGuo {
+			filter := "IsUnplayed"
+			if isPlayed {
+				filter = "IsPlayed"
+			}
+			items, _, err := e.hongGuoLibraryItems(ctx, ItemsParams{UserID: userID, ParentID: parentID, Limit: limit, Fields: fields, Filters: []string{filter}, SortBy: "DateLastContentAdded", SortOrder: "Descending"}, false)
+			return items, err
+		}
+		if library != nil && libraryUsesNFOOnly(library) {
+			filter := "IsUnplayed"
+			if isPlayed {
+				filter = "IsPlayed"
+			}
+			items, _, err := e.nfoLibraryItems(ctx, ItemsParams{UserID: userID, ParentID: parentID, Limit: limit, Fields: fields, Filters: []string{filter}, SortBy: "DateCreated", SortOrder: "Descending"}, false)
+			return items, err
+		}
 	}
 	if has, err := e.repo.NFO.HasMedia(ctx); err != nil {
 		return nil, err
@@ -213,6 +244,14 @@ func (e *EmbyService) hongGuoHierarchyItems(ctx context.Context, p ItemsParams) 
 		libraryID = lib.ID
 		local = libraryUsesNFOOnly(lib)
 	}
+	if libraryID != "" && !local && hongGuoLibraryPageSupported(p) {
+		items, total, err := e.hongGuoLibraryItems(ctx, p, true)
+		return map[string]any{"Items": items, "TotalRecordCount": total, "StartIndex": p.StartIndex}, true, err
+	}
+	if libraryID != "" && local && hongGuoLibraryPageSupported(p) {
+		items, total, err := e.nfoLibraryItems(ctx, p, true)
+		return map[string]any{"Items": items, "TotalRecordCount": total, "StartIndex": p.StartIndex}, true, err
+	}
 	nodesQuery := e.hongGuoNodes
 	if local {
 		nodesQuery = e.nfoNodes
@@ -267,6 +306,8 @@ func (e *EmbyService) hongGuoHierarchyItems(ctx context.Context, p ItemsParams) 
 	order := "title"
 	if strings.Contains(strings.ToLower(p.SortBy), "datecreated") {
 		order = "created_at"
+	} else if !local && strings.Contains(strings.ToLower(p.SortBy), "datelastcontentadded") {
+		order = "latest_at"
 	} else if resumeFilter && strings.Contains(strings.ToLower(p.SortBy), "dateplayed") {
 		order = "played_at"
 	}

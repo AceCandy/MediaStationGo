@@ -61,6 +61,13 @@ confirmed there are no existing NFO libraries.
 - In the retained local scraping path, `applyLocalMetadataMatch` must pass the
   merged `next` object to `persistLocalMetadata`. Passing the original media
   drops newly read episode coordinates and binds the file to the Series.
+- 指定 NFO 库作品浏览由 `NFOLibraryCandidates` 先分页，`NFOWorkNodes`
+  仅展开页内作品文件。标题且无播放筛选使用 EXISTS；日期/播放筛选一次按作品
+  分组汇总，不能逐作品重复全库状态查询。文件、条目、祖先和库权限须在分页前生效。
+- 指定库 Latest 不计算作品总数；普通列表越界页仍返回准确总数。保留既有
+  Emby DateCreated/MIN 与 Web MAX 文件时间排序，特殊筛选和季集路径保持原路由。
+- Web `nfoLibraryPage` 候选只计算身份和排序时间，页内才统计代表文件、集数、
+  版本数；缺图/中文标题过滤在候选及统计阶段保持一致。
 
 ## 4. Validation & Error Matrix
 
@@ -101,6 +108,10 @@ independent state/events, search and Web/Emby reads without shared metadata.
 cards/episodes/recent items, SearchHints, hierarchy, favorites, played state,
 resume grouping and hidden-library filtering. Browser/device playback remains
 a separate manual acceptance step.
+`TestNFOLibraryPagingMatchesHierarchy` 对比原层级完整响应、播放筛选、权限、排序与越界页；
+`TestNFOLibraryMovieVersionsAndFilters` 覆盖电影版本和文件资料筛选。
+`TestNFOLibraryPagePlans` 使用十万绑定执行真实 EXPLAIN ANALYZE，断言标题候选
+和页内详情不扫描全库绑定，并确认 Latest 不计作品总数。
 
 ## 7. Wrong vs Correct
 
@@ -114,3 +125,6 @@ Correct: pass `&next`, so metadata kind/season/episode use the merged facts.
 Wrong: route all NFO library lists to tables that the application does not
 create or migrate yet. Correct: finish and verify schema/upgrade/read integration
 before activating that route.
+
+Wrong: 仅凭 SQL 外层有页内 ID 过滤就断言查询受限；相关 IN 子查询可能反复扫描。
+Correct: 沿作品/季/集主键 JOIN 绑定，并以真实大样本执行计划验证扫描行数。
