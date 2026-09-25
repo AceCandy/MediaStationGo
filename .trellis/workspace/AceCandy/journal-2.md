@@ -1706,3 +1706,33 @@ Scope series detail episodes to the selected season while preserving cross-seaso
 ### Next Steps
 
 - 未推送或部署；部署后须成功重建红果 v2 索引，线上 OpenSearch 性能仍待验证。
+
+
+## Session 159: 红果与 NFO 媒体库浏览优化
+<!-- trellis-session: v=2 fp=898a42b2ed112fdd -->
+
+**Date**: 2026-09-26
+**Task**: 红果与 NFO 媒体库浏览优化
+**Branch**: `main`
+
+### Summary
+
+修复红果剧集库类型，优化红果与 NFO 作品分页及最新媒体查询，Web NFO 统计限定当前页，普通电影库改存在性检测；完成两个任务归档。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `45dfed8` | perf(library): optimize hongguo and nfo browsing |
+
+### Testing
+
+- [OK] 隔离 PostgreSQL 定向回归通过，真实查询计划与独立复核完成；前端 lint/build 与接口目录验证通过。提交前 diff 检查通过。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 未推送、未部署；真实客户端及生产并发性能待新版运行验证。

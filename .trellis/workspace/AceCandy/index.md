@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-2.md`
-- **Total Sessions**: 158
-- **Last Active**: 2026-09-25
+- **Total Sessions**: 159
+- **Last Active**: 2026-09-26
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-2.md` | ~1708 | Active |
+| `journal-2.md` | ~1738 | Active |
 | `journal-1.md` | ~1981 | Archived |
 <!-- @@@/auto:active-documents -->
 
@@ -30,6 +30,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 159 | 2026-09-26 | 红果与 NFO 媒体库浏览优化 | `45dfed8` | `main` |
 | 158 | 2026-09-25 | 搜索并行与红果索引可见性优化归档 | `4823d2a` | `main` |
 | 157 | 2026-09-24 | HongGuo search performance | `45ee9d1` | `main` |
 | 156 | 2026-09-24 | 任务中心待办统计缓存与手动刷新 | `e14e552` | `main` |
