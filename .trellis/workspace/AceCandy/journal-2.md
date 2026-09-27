@@ -1736,3 +1736,38 @@ Scope series detail episodes to the selected season while preserving cross-seaso
 ### Next Steps
 
 - 未推送、未部署；真实客户端及生产并发性能待新版运行验证。
+
+
+## Session 160: 统一作品级查询与媒体状态并归档
+<!-- trellis-session: v=2 fp=517535b412687765 -->
+
+**Date**: 2026-09-27
+**Task**: 统一作品级查询与媒体状态并归档
+**Branch**: `main`
+
+### Summary
+
+完成作品最新现存文件时间与库归属维护，统一普通/NFO/红果的作品候选、分页和页内加载，修复详情、封面、未看角标及同类 Web 读取；相关规范和回归随业务提交归档。
+
+### Main Changes
+
+- 候选先检查资格，再精确计数分页，详情及展示统计仅加载当前页；保留来源、排序和状态契约差异。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `6661e03` | perf(library): unify work-level browsing and media state |
+
+### Testing
+
+- [OK] 隔离 PostgreSQL 定向回归、十万/六十万文件执行计划、相关包 go vet、前端 lint/build 及独立审查已通过；提交时格式和空白复核通过。
+- [OK] 未执行全项目测试、真实客户端及生产并发验收；历史浏览器检查记录的既有对比度问题未扩大范围修复。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 启动新版后验收 Hills/Yamby/Web 实际体验与并发性能；本次仅本地提交归档，未推送、未重启、未操作生产数据。
