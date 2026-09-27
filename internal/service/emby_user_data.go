@@ -170,16 +170,17 @@ func (e *EmbyService) RecordProgress(ctx context.Context, userID, itemID, mediaS
 		}
 	}
 	if (target.SourceID != "" || target.NFOItemID != "") && target.MediaID != "" {
-		dur := runtimeTicks / 10_000
+		pos, dur := positionTicks/10_000, runtimeTicks/10_000
 		if dur <= 0 {
 			if probe, _ := e.repo.MediaProbe.FindByMediaID(ctx, target.MediaID); probe != nil {
-				dur = probe.DurationMS
+				// 未上报时长时，按当前文件的探测时长裁剪结束位置。
+				dur, pos = probe.DurationMS, min(pos, probe.DurationMS)
 			}
 		}
 		if dur <= 0 {
 			return nil
 		}
-		err := NewPlaybackService(e.log, e.repo).RecordProgress(ctx, userID, target.MediaID, sessionID, positionTicks/10_000, dur, e.mediaVisibility(ctx, userID))
+		err := NewPlaybackService(e.log, e.repo).RecordProgress(ctx, userID, target.MediaID, sessionID, pos, dur, e.mediaVisibility(ctx, userID))
 		if err == nil && e.cache != nil {
 			e.cache.DeletePrefix(ctx, embyItemsCachePrefix)
 		}
@@ -207,7 +208,7 @@ func (e *EmbyService) RecordProgress(ctx context.Context, userID, itemID, mediaS
 	}
 	if dur <= 0 {
 		if probe, _ := e.repo.MediaProbe.FindByMediaID(ctx, target.MediaID); probe != nil {
-			dur = probe.DurationMS
+			dur, pos = probe.DurationMS, min(pos, probe.DurationMS)
 		}
 	}
 	if dur <= 0 {

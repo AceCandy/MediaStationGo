@@ -64,7 +64,7 @@ func embyItemsHandler(svc *service.Container) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		out, err := svc.Emby.Items(c.Request.Context(), parseEmbyItemsParams(c))
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			writeInternalOrCanceled(c, err)
 			return
 		}
 		embyAttachRequestTokenToMediaSources(c, out)
@@ -76,7 +76,7 @@ func embyPersonsHandler(svc *service.Container) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		out, err := svc.Emby.Persons(c.Request.Context(), parseEmbyItemsParams(c))
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			writeInternalOrCanceled(c, err)
 			return
 		}
 		c.JSON(http.StatusOK, out)
@@ -87,7 +87,7 @@ func embySearchHintsHandler(svc *service.Container) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		out, err := svc.Emby.SearchHints(c.Request.Context(), parseEmbyItemsParams(c))
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			writeInternalOrCanceled(c, err)
 			return
 		}
 		c.JSON(http.StatusOK, out)
@@ -103,7 +103,7 @@ func embyItemByIDHandler(svc *service.Container) gin.HandlerFunc {
 		}
 		out, err := svc.Emby.Item(c.Request.Context(), id, uid)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			writeInternalOrCanceled(c, err)
 			return
 		}
 		if out == nil {
@@ -142,7 +142,7 @@ func embyLatestItemsHandler(svc *service.Container) gin.HandlerFunc {
 		params := parseEmbyItemsParams(c)
 		out, err := svc.Emby.LatestItems(c.Request.Context(), uid, params.ParentID, limit, isPlayed, params.Fields...)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			writeInternalOrCanceled(c, err)
 			return
 		}
 		embyAttachRequestTokenToMediaSources(c, out)
@@ -157,7 +157,7 @@ func embyNextUpHandler(svc *service.Container) gin.HandlerFunc {
 		params.ParentID = firstQueryValue(c, "SeriesId", "seriesId", "seriesid")
 		out, err := svc.Emby.NextUpItems(c.Request.Context(), params)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			writeInternalOrCanceled(c, err)
 			return
 		}
 		embyAttachRequestTokenToMediaSources(c, out)
@@ -172,7 +172,7 @@ func embyResumeItemsHandler(svc *service.Container) gin.HandlerFunc {
 		params.ParentID = ""
 		out, err := svc.Emby.ResumeItemsPage(c.Request.Context(), params)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			writeInternalOrCanceled(c, err)
 			return
 		}
 		embyAttachRequestTokenToMediaSources(c, out)
@@ -192,7 +192,7 @@ func embyItemsCountsHandler(svc *service.Container) gin.HandlerFunc {
 			}
 			out, err := svc.Emby.ItemCounts(c.Request.Context(), uid)
 			if err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+				writeInternalOrCanceled(c, err)
 				return
 			}
 			c.JSON(http.StatusOK, out)
@@ -244,14 +244,19 @@ func embySaveDisplayPreferencesHandler(_ *service.Container) gin.HandlerFunc {
 
 func embyShowSeasonsHandler(svc *service.Container) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		parentID := strings.TrimSpace(c.Param("id"))
+		if parentID == "" {
+			embyError(c, http.StatusBadRequest, "series id is required")
+			return
+		}
 		params := service.ItemsParams{
 			UserID:   embyFirstNonEmptyString(firstQueryValue(c, "UserId", "userId"), embyUserID(c)),
-			ParentID: c.Param("id"),
+			ParentID: parentID,
 			Limit:    500,
 		}
 		out, err := svc.Emby.Items(c.Request.Context(), params)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			writeInternalOrCanceled(c, err)
 			return
 		}
 		embyAttachRequestTokenToMediaSources(c, out)
@@ -261,9 +266,10 @@ func embyShowSeasonsHandler(svc *service.Container) gin.HandlerFunc {
 
 func embyShowEpisodesHandler(svc *service.Container) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		parentID := firstQueryValue(c, "SeasonId", "seasonId")
+		parentID := strings.TrimSpace(embyFirstNonEmptyString(firstQueryValue(c, "SeasonId", "seasonId"), c.Param("id")))
 		if parentID == "" {
-			parentID = c.Param("id")
+			embyError(c, http.StatusBadRequest, "series or season id is required")
+			return
 		}
 		params := service.ItemsParams{
 			UserID:           embyFirstNonEmptyString(firstQueryValue(c, "UserId", "userId"), embyUserID(c)),
@@ -274,7 +280,7 @@ func embyShowEpisodesHandler(svc *service.Container) gin.HandlerFunc {
 		}
 		out, err := svc.Emby.Items(c.Request.Context(), params)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			writeInternalOrCanceled(c, err)
 			return
 		}
 		embyAttachRequestTokenToMediaSources(c, out)

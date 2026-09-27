@@ -39,6 +39,10 @@ func (e *EmbyService) SearchHints(ctx context.Context, p ItemsParams) (map[strin
 			"RunTimeTicks":      item["RunTimeTicks"],
 			"MatchedTerm":       p.SearchTerm,
 		}
+		if item["Type"] == "Movie" {
+			delete(hint, "IndexNumber")
+			delete(hint, "ParentIndexNumber")
+		}
 		if tags, ok := item["ImageTags"].(map[string]string); ok {
 			hint["PrimaryImageTag"] = tags["Primary"]
 		}

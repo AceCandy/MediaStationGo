@@ -201,6 +201,14 @@ func TestEmbySearchCombinesPersonAndMediaItemTypes(t *testing.T) {
 	if len(searchHints) != 2 || searchHints[0]["Type"] != "Person" || searchHints[0]["ItemId"] != person.ID {
 		t.Fatalf("mixed search hints = %#v, want exact Person first", hints)
 	}
+	if searchHints[1]["Type"] != "Movie" {
+		t.Fatalf("second search hint type = %v, want Movie", searchHints[1]["Type"])
+	}
+	for _, key := range []string{"IndexNumber", "ParentIndexNumber"} {
+		if value, exists := searchHints[1][key]; exists {
+			t.Errorf("Movie search hint must omit %s, got %#v", key, value)
+		}
+	}
 
 	peopleOnly, err := svc.Items(t.Context(), ItemsParams{
 		SearchTerm: "周星驰", IncludeItemTypes: []string{"Person", "MusicAlbum"}, Limit: 10,

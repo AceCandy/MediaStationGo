@@ -70,7 +70,7 @@ const unplayedItemCountField: EmbyApiField = {
 const itemFields: readonly EmbyApiField[] = [
   { name: 'Id', type: 'string', description: '媒体项 ID。' },
   { name: 'Name', type: 'string', description: '标题。' },
-  { name: 'Type', type: 'string', description: 'Movie、Series、Season、Episode 等 Emby 类型。' },
+  { name: 'Type', type: 'string', description: 'Movie、Series、Season、Episode 等 Emby 类型。Movie 省略 SeriesId、SeriesName、SeasonId、SeasonName、ParentIndexNumber、IndexNumber；Episode 保留这些字段，包括特别篇的零季号。' },
   { name: 'MediaType', type: 'string', description: 'Video 等媒体类型。' },
   { name: 'RunTimeTicks', type: 'number', description: '以 100ns 为单位的时长。' },
   { name: 'PartCount', type: 'number', description: '当前播放版本的物理 Part 数量；单文件省略。' },
@@ -82,7 +82,7 @@ const itemFields: readonly EmbyApiField[] = [
 ]
 
 const itemsEnvelopeFields: readonly EmbyApiField[] = [
-  { name: 'Items', type: 'array', description: '媒体项数组。' },
+  { name: 'Items', type: 'array', description: '媒体项数组；Movie 不返回季/集层级字段，Episode 保留（含特别篇零季号），规则与媒体项详情一致。' },
   { ...unplayedItemCountField, name: 'Items[].UserData.UnplayedItemCount' },
   { name: 'TotalRecordCount', type: 'number', description: '匹配总数。' },
   { name: 'StartIndex', type: 'number', description: '本次结果的起始位置，部分兼容响应会省略。' },
@@ -108,13 +108,19 @@ const noContentResponse: EmbyApiResponse = {
   description: '请求已处理。',
 }
 
+const canceledResponse: EmbyApiResponse = {
+  status: '499',
+  contentType: '无响应体',
+  description: '请求在查询完成前被取消；真正的内部错误仍返回 500。',
+}
+
 const playStateParameters: readonly EmbyApiParameter[] = [
   tokenHeader,
   { name: 'ItemId', location: 'body', type: 'string', description: '正在播放的媒体项 ID；也可通过同名 Query 传递。' },
   { name: 'MediaSourceId', location: 'body', type: 'string', description: 'PlaybackInfo 返回的媒体源 ID。' },
   { name: 'PlaySessionId', location: 'body', type: 'string', description: 'PlaybackInfo 返回的播放会话 ID；同一次播放必须复用。' },
   { name: 'PositionTicks', location: 'body', type: 'number', description: '当前播放位置。' },
-  { name: 'RunTimeTicks', location: 'body', type: 'number', description: '媒体总时长；明确具体文件时优先使用其已知探测时长。分段播放保留整组时间线；未提供且探测也未知时不记录进度。' },
+  { name: 'RunTimeTicks', location: 'body', type: 'number', description: '媒体总时长；明确具体文件时优先使用其已知探测时长。未上报时长时使用当前媒体的探测时长，并将结束位置裁剪到该时长；客户端明确上报的越界进度仍拒绝。分段播放保留整组时间线；未提供且探测也未知时不记录进度。' },
 ]
 
 const playStateRequest = `{
@@ -420,7 +426,7 @@ export const EMBY_API_ENDPOINTS: readonly EmbyApiEndpoint[] = [
       { name: 'SearchTerm / Ids', location: 'query', type: 'string', description: '姓名关键词或逗号分隔的人物 ID。' },
       { name: 'Limit / StartIndex', location: 'query', type: 'number', description: '默认 50 项，最大 500 项。' },
     ],
-    responses: [{ status: '200', contentType: 'application/json', description: 'Person 类型的 Items 分页结构。', fields: itemsEnvelopeFields, example: itemsExample }],
+    responses: [{ status: '200', contentType: 'application/json', description: 'Person 类型的 Items 分页结构。', fields: itemsEnvelopeFields, example: itemsExample }, canceledResponse],
   },
   {
     id: 'items-counts',
@@ -433,7 +439,7 @@ export const EMBY_API_ENDPOINTS: readonly EmbyApiEndpoint[] = [
     auth: 'token',
     support: 'implemented',
     parameters: [tokenHeader, { name: 'UserId', location: 'query', type: 'string', description: '默认令牌用户；管理员可显式指定其他账户。' }],
-    responses: [{ status: '200', contentType: 'application/json', description: 'MovieCount、SeriesCount、EpisodeCount、ItemCount 数值对象。', example: '{ "MovieCount": 1, "SeriesCount": 1, "EpisodeCount": 2, "ItemCount": 3 }' }],
+    responses: [{ status: '200', contentType: 'application/json', description: 'MovieCount、SeriesCount、EpisodeCount、ItemCount 数值对象。', example: '{ "MovieCount": 1, "SeriesCount": 1, "EpisodeCount": 2, "ItemCount": 3 }' }, canceledResponse],
   },
   {
     id: 'items-query',
@@ -459,7 +465,7 @@ export const EMBY_API_ENDPOINTS: readonly EmbyApiEndpoint[] = [
       { name: 'SortBy / SortOrder', location: 'query', type: 'string', description: '排序字段和方向。DateCreated 保持各来源原有规则；DateLastContentAdded 按作品现存文件的最新入库时间排序，同一作品跨库共享时间，红果合集包含所有成员季。空时间排最后。' },
       { name: 'Limit / StartIndex', location: 'query', type: 'number', description: '按顶层 Metadata 分页，Limit 默认 50，最大 500；非空搜索在最多 100 条候选内分页。' },
     ],
-    responses: [{ status: '200', contentType: 'application/json', description: '媒体项分页结构。', fields: itemsEnvelopeFields, example: itemsExample }],
+    responses: [{ status: '200', contentType: 'application/json', description: '媒体项分页结构。', fields: itemsEnvelopeFields, example: itemsExample }, canceledResponse],
   },
   {
     id: 'search-hints',
@@ -482,7 +488,7 @@ export const EMBY_API_ENDPOINTS: readonly EmbyApiEndpoint[] = [
       contentType: 'application/json',
       description: '搜索提示分页结构。',
       fields: [
-        { name: 'SearchHints', type: 'array', description: '轻量搜索结果。' },
+        { name: 'SearchHints', type: 'array', description: '轻量搜索结果；Movie 省略 IndexNumber、ParentIndexNumber，不以 null 代替。' },
         { name: 'SearchHints[].ItemId / Id', type: 'string', description: '媒体项 ID。' },
         { name: 'SearchHints[].Name / Type', type: 'string', description: '名称和 Emby 类型。' },
         { name: 'TotalRecordCount / StartIndex', type: 'number', description: '分页信息。' },
@@ -492,7 +498,7 @@ export const EMBY_API_ENDPOINTS: readonly EmbyApiEndpoint[] = [
   "TotalRecordCount": 1,
   "StartIndex": 0
 }`,
-    }],
+    }, canceledResponse],
   },
   {
     id: 'item-detail',
@@ -519,6 +525,7 @@ export const EMBY_API_ENDPOINTS: readonly EmbyApiEndpoint[] = [
   "UserData": { "IsFavorite": false, "Played": false }
 }` },
       { status: '404', contentType: 'application/json', description: '媒体项不存在。' },
+      canceledResponse,
     ],
   },
   {
@@ -571,7 +578,7 @@ export const EMBY_API_ENDPOINTS: readonly EmbyApiEndpoint[] = [
       { name: 'IsPlayed', location: 'query', type: 'boolean', description: '默认 false；true 只返回已播放完成作品，false 只返回未播放完成作品。' },
       { name: 'Fields', location: 'query', type: 'string', description: '逗号分隔的附加字段；指定时按需加载 People、ProviderIds、MediaSources（或 MediaStreams）。未指定时保留默认完整字段。Episode 的 People 使用所属季演职员。' },
     ],
-    responses: [{ status: '200', contentType: 'application/json', description: '媒体项数组，不使用分页 envelope。', fields: itemFields, example: `[{ "Id": "media-42", "Name": "示例影片", "Type": "Movie" }]` }],
+    responses: [{ status: '200', contentType: 'application/json', description: '媒体项数组，不使用分页 envelope。', fields: itemFields, example: `[{ "Id": "media-42", "Name": "示例影片", "Type": "Movie" }]` }, canceledResponse],
   },
   {
     id: 'items-resume',
@@ -589,7 +596,7 @@ export const EMBY_API_ENDPOINTS: readonly EmbyApiEndpoint[] = [
       { name: 'StartIndex', location: 'query', type: 'number', description: '分组后的分页偏移，默认 0。' },
       { name: 'Fields', location: 'query', type: 'string', description: '额外响应字段，沿用媒体列表规则。' },
     ],
-    responses: [{ status: '200', contentType: 'application/json', description: '继续观看 Items 结构。', fields: itemsEnvelopeFields, example: itemsExample }],
+    responses: [{ status: '200', contentType: 'application/json', description: '继续观看 Items 结构。', fields: itemsEnvelopeFields, example: itemsExample }, canceledResponse],
   },
   {
     id: 'show-seasons',
@@ -602,7 +609,11 @@ export const EMBY_API_ENDPOINTS: readonly EmbyApiEndpoint[] = [
     auth: 'token',
     support: 'implemented',
     parameters: [tokenHeader, { name: 'id', location: 'path', type: 'string', required: true, description: 'Series ID。' }],
-    responses: [{ status: '200', contentType: 'application/json', description: 'Season 类型的 Items 结构。', fields: itemsEnvelopeFields, example: itemsExample }],
+    responses: [
+      { status: '200', contentType: 'application/json', description: 'Season 类型的 Items 结构。', fields: itemsEnvelopeFields, example: itemsExample },
+      { status: '400', contentType: 'application/json', description: '剧集 ID 为空或仅含空白；不会查询全局媒体。' },
+      canceledResponse,
+    ],
   },
   {
     id: 'show-episodes',
@@ -616,10 +627,14 @@ export const EMBY_API_ENDPOINTS: readonly EmbyApiEndpoint[] = [
     support: 'implemented',
     parameters: [
       tokenHeader,
-      { name: 'id', location: 'path', type: 'string', required: true, description: 'Series 或 Season ID。' },
-      { name: 'SeasonId', location: 'query', type: 'string', description: '指定季 ID；存在时优先于 path id。' },
+      { name: 'id', location: 'path', type: 'string', description: 'Series 或 Season ID；与 SeasonId 至少提供一个非空值。' },
+      { name: 'SeasonId', location: 'query', type: 'string', description: '指定季 ID；非空时优先于 path id。' },
     ],
-    responses: [{ status: '200', contentType: 'application/json', description: 'Episode 类型的 Items 结构。', fields: itemsEnvelopeFields, example: itemsExample }],
+    responses: [
+      { status: '200', contentType: 'application/json', description: 'Episode 类型的 Items 结构。', fields: itemsEnvelopeFields, example: itemsExample },
+      { status: '400', contentType: 'application/json', description: '剧集和季 ID 均为空或仅含空白；不会查询全局媒体。' },
+      canceledResponse,
+    ],
   },
   {
     id: 'show-nextup',
@@ -648,7 +663,7 @@ export const EMBY_API_ENDPOINTS: readonly EmbyApiEndpoint[] = [
   }],
   "TotalRecordCount": 1,
   "StartIndex": 0
-}` }],
+}` }, canceledResponse],
   },
   {
     id: 'empty-items-compatibility',
@@ -746,6 +761,7 @@ export const EMBY_API_ENDPOINTS: readonly EmbyApiEndpoint[] = [
       { name: 'AudioStreamIndex', location: 'body', type: 'number', description: '音轨索引。' },
       { name: 'SubtitleStreamIndex', location: 'body', type: 'number', description: '字幕轨索引。' },
       { name: 'UserId', location: 'body', type: 'string', description: '用户 ID；必须与令牌用户一致，管理员除外。' },
+      { name: 'DeviceProfile.TranscodingProfiles[].MinSegments', location: 'body', type: 'number | string', description: '兼容整数和整数字符串，例如 1 或 "1"；非法数字仍返回 400。' },
     ],
     requestExample: `{
   "MediaSourceId": "source-42",

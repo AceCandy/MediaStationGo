@@ -56,6 +56,23 @@ The catalog owner is `web/src/pages/embyApiCatalog.ts`; the renderer is `web/src
 - Date-valued item fields such as `PremiereDate` and `DateCreated` are UTC strings formatted as `2006-01-02T15:04:05.0000000Z`; do not place a `time.Time` directly in an Emby response map.
 - Binary, redirect, HEAD, subtitle, and no-content behavior must state their actual status/content type instead of presenting a JSON example.
 - Examples use fictitious IDs, hosts, usernames, and tokens. Never include local media paths, real account data, signed URLs, or secrets.
+- PlaybackInfo `DeviceProfile.TranscodingProfiles[].MinSegments` accepts JSON
+  integers and integer strings through `EmbyFlexibleInt`; its existing empty/null
+  compatibility treats those values as unspecified. Malformed numbers remain 400.
+- Shows Seasons requires a nonblank path ID. Shows Episodes selects nonblank
+  SeasonId before path ID; if both are blank, return 400 before querying Items.
+  Never let an empty hierarchy parent become a global catalog query.
+- Browsing handlers in `emby_items_handlers.go` use `writeInternalOrCanceled`:
+  canceled requests produce bodyless 499; genuine internal errors remain 500.
+- `itemPayloadWithRelations` omits `SeriesId`, `SeriesName`, `SeasonId`,
+  `SeasonName`, `ParentIndexNumber` and `IndexNumber` for Movie, rather than
+  serializing empty strings or zeroes. Apply the same shape to ordinary/NFO
+  details, lists and continuation payloads; preserve movie `ParentId`, identity
+  and media sources. Episode retains all six fields, including season zero for
+  specials. Do not infer client-side branching from request logs alone; verify
+  Hills/Yamby behavior on-device separately from the server payload contract.
+  `SearchHints` must not reintroduce absent Movie index fields as JSON null;
+  preserve its existing non-Movie projection.
 
 ## 4. Validation & Error Matrix
 
@@ -65,6 +82,8 @@ The catalog owner is `web/src/pages/embyApiCatalog.ts`; the renderer is `web/src
 | Change route casing/prefix variants | Update aliases and prefix notes | Player path mismatch |
 | Change auth middleware/token carriers | Update `auth`, parameters, and auth summary | Claiming a header is mandatory when another carrier is valid |
 | Change request parsing | Update parameter location, type, requirement, and example | Invalid integration requests |
+| Blank Shows hierarchy parent | Describe 400 and the nonblank ID requirement | Accidental whole-catalog queries |
+| Movie hierarchy fields | Document omission in shared item/envelope fields; retain Episode fields | Advertising empty series/season relations for movies |
 | Change response/status/content type | Update response fields and examples | Client parsing based on stale documentation |
 | Replace fixed response with real behavior, or vice versa | Change `support` | Misrepresenting compatibility probes as complete features |
 | Change stream/STRM handling | Update 200/206/302/404/502 and HEAD notes | Incorrect playback expectations |
@@ -76,6 +95,9 @@ The catalog owner is `web/src/pages/embyApiCatalog.ts`; the renderer is `web/src
 - Bad: grouping `/Items/:id/ThemeMedia` under the fixed empty Items response; ThemeMedia has a different top-level response contract.
 - Bad: marking `X-Emby-Token` as a required header while the middleware also accepts Bearer, MediaBrowser, and query tokens.
 - Bad: adding `/api/stream/:id` as an alias for `/emby/api/stream/:id`; the unprefixed alias is not registered.
+- Good: Movie omits episode-only fields; Episode preserves its real season,
+  including `ParentIndexNumber: 0` for specials.
+- Bad: returning `SeasonName: "特别篇"` and `SeriesId: ""` on every Movie.
 
 ## 6. Tests Required
 
@@ -88,6 +110,15 @@ For every triggered change:
 5. Browser-check `/admin/emby/interfaces` at 390x844, 768x1024, and 1440x900 with no document-level horizontal overflow.
 6. Exercise search, category filtering, empty results, detail expansion, and copy failure/success feedback.
 7. Run a main-content accessibility audit in both light and dark themes, and verify direct non-admin access remains denied.
+8. `TestEmbyPlaybackInfoMinSegments`, `TestEmbyPlaybackSelectionStringMinSegments`,
+   `TestEmbyShowsRejectEmptyParent` and `TestEmbyBrowseRequestErrors` cover parsing,
+   no-query rejection, SeasonId fallback and canceled versus real database errors.
+   `web/scripts/check-nextup.mjs` covers the shared catalog UI checks above.
+9. `TestEmbyItemPayloadHierarchyFields` checks Movie key absence (not just blank
+   values) and unchanged Episode hierarchy in detail/list payloads for ordinary,
+   NFO and HongGuo sources. Keep blank Shows rejection tests passing.
+   `TestEmbySearchCombinesPersonAndMediaItemTypes` also asserts Movie search hints
+   omit index keys rather than projecting them as null.
 
 ## 7. Wrong vs Correct
 

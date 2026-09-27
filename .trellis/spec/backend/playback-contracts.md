@@ -69,6 +69,9 @@ per-user, per-metadata history state but playback events are append-only.
 - A concrete non-multipart playback report uses that file's known probe duration
   after validating client bounds; clamp position to that duration. Do not use a
   different version's duration. Multipart retains its reported group timeline.
+- When Emby omits runtime and resolves it from the selected media's probe,
+  clamp position to that duration before validation, including ordinary, NFO
+  and HongGuo paths. This must not relax explicit client bounds or Web validation.
 - Automatic progress requires a position of at least 60 seconds when duration
   exceeds ten minutes, or 20 seconds otherwise (including exactly ten minutes).
   Earlier positions are ignored; eligible updates save history and a non-empty
@@ -197,6 +200,7 @@ per-user, per-metadata history state but playback events are append-only.
 | --- | --- |
 | Favorite mutation targets Season/Episode | `400`; no favorite row or parent favorite is written |
 | Invalid progress bounds | Request is rejected; no history or event is written |
+| Emby omits runtime and end position exceeds the selected file's probe duration | Clamp to the probe duration before saving; explicit client bounds remain strict |
 | `MediaSourceId` belongs to another `ItemId` | Ignore the mismatched source and retain generic item resolution |
 | Position below 60 seconds for duration > ten minutes, or below 20 seconds otherwise | Successful no-op for automatic progress |
 | Several incomplete Episodes belong to one visible Series | Continue watching returns only the most recently watched Episode; full history keeps every Episode |
@@ -285,6 +289,9 @@ per-user, per-metadata history state but playback events are append-only.
   history, child-to-parent aggregation, and transactional rollback.
 - Cover the Emby concrete-source fast path with a query callback asserting no
   SQL contains `metadata_identifiers`, plus a mismatched-source ownership case.
+- `TestEmbyProgressClampsProbeDuration` covers missing-runtime end reports with
+  and without MediaSourceId across all three sources, saved position/completion,
+  session event deduplication and rejection of negative or explicit invalid bounds.
 - Cover same-user, non-admin cross-user, and administrator explicit-target
   behavior for every user-scoped Emby route and `/Sessions`.
 - With `MEDIASTATION_TEST_POSTGRES_DSN`, assert concurrent history upsert,

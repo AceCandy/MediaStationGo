@@ -33,6 +33,7 @@ Apply this contract when changing playback redirect resolution, Emby stream canc
 | Upstream HTTP 500 with a valid `ffprobe.path_mappings` file | Serve the local file and cache the fallback |
 | Other upstream error, missing local file, or invalid Location | Redirect to the original URL without caching the failure |
 | Emby video stream request is canceled | Record status 499 with no response body |
+| Emby item/people/search/count/latest/resume/next-up/season/episode browsing returns a cancellation error | Record status 499 with no response body; preserve genuine errors as 500 |
 | Other 4xx/5xx player response | Persist sanitized `response_body` |
 | 2xx/3xx player response | Persist an empty `response_body` |
 

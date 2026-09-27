@@ -376,8 +376,6 @@ func (e *EmbyService) itemPayloadWithRelations(ctx context.Context, m *model.Med
 		"MediaType":         "Video",
 		"IsFolder":          false,
 		"ProductionYear":    m.Year,
-		"ParentIndexNumber": m.SeasonNum,
-		"IndexNumber":       m.EpisodeNum,
 		"Overview":          m.Overview,
 		"RunTimeTicks":      runTimeTicks,
 		"CommunityRating":   m.Rating,
@@ -387,10 +385,6 @@ func (e *EmbyService) itemPayloadWithRelations(ctx context.Context, m *model.Med
 		"DateCreated":       formatEmbyDateTime(m.CreatedAt),
 		"Path":              embyMediaSourcePath(&m.Media, playURL, isLocalSTRM, isRemote),
 		"ParentId":          parentID,
-		"SeasonId":          seasonItemID,
-		"SeasonName":        seasonName(m.SeasonNum),
-		"SeriesId":          seriesID,
-		"SeriesName":        seriesName,
 		"ImageTags":         imageTags,
 		"BackdropImageTags": backdropTags,
 		"Genres":            splitCSV(m.Genres),
@@ -401,6 +395,15 @@ func (e *EmbyService) itemPayloadWithRelations(ctx context.Context, m *model.Med
 			"Played":                played,
 			"PlayedPercentage":      pct,
 		},
+	}
+	// 电影省略季/集字段，避免空字符串被客户端视为存在剧集关联。
+	if episode {
+		item["SeriesId"] = seriesID
+		item["SeriesName"] = seriesName
+		item["SeasonId"] = seasonItemID
+		item["SeasonName"] = seasonName(m.SeasonNum)
+		item["ParentIndexNumber"] = m.SeasonNum
+		item["IndexNumber"] = m.EpisodeNum
 	}
 	if relations == nil || relations.fields.people {
 		item["People"] = people
