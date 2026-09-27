@@ -2,7 +2,6 @@ package repository
 
 import (
 	"context"
-	"database/sql"
 	"sort"
 	"strings"
 	"sync"
@@ -16,6 +15,7 @@ import (
 
 const mediaViewSelect = `
 m.*,
+	mi.latest_media_added_at AS latest_media_added_at,
 	COALESCE(CASE WHEN mi.kind IN ('episode', 'season') THEN series_metadata.id WHEN mi.kind = 'series' THEN mi.id ELSE NULL END, '') AS view_series_id,
 	COALESCE(CASE WHEN mi.kind IN ('episode', 'season') THEN series_metadata.title WHEN mi.kind = 'series' THEN mi.title ELSE NULL END, '') AS view_series_title,
 	COALESCE(CASE WHEN mi.kind = 'episode' THEN season_metadata.id WHEN mi.kind = 'season' THEN mi.id ELSE NULL END, '') AS view_season_id,
@@ -229,16 +229,40 @@ func (r *MediaViewRepository) FindByLogicalMetadataIDs(ctx context.Context, meta
 	if len(metadataIDs) == 0 {
 		return []model.MediaView{}, nil
 	}
-	var localIDs, ordinaryIDs []string
+	var localIDs, ordinaryIDs, hongGuoIDs []string
 	for _, id := range metadataIDs {
-		if strings.HasPrefix(id, "nfo-") {
+		if strings.HasPrefix(id, "hg-") {
+			hongGuoIDs = append(hongGuoIDs, id)
+		} else if strings.HasPrefix(id, "nfo-") {
 			localIDs = append(localIDs, strings.TrimPrefix(id, "nfo-"))
 		} else {
 			ordinaryIDs = append(ordinaryIDs, id)
 		}
 	}
+	if len(hongGuoIDs) > 0 {
+		var workIDs []string
+		if err := r.db.WithContext(ctx).Table("hongguo_works w").Joins(HongGuoAlbumJoin).
+			Where(hongGuoSeriesIdentity+" = ANY(?)", &hongGuoIDs).Pluck("w.id", &workIDs).Error; err != nil {
+			return nil, err
+		}
+		var fileIDs []string
+		if err := r.hongGuoSeriesScope(ctx, "", "", filter).Where("b.work_id = ANY(?)", &workIDs).
+			Where(hongGuoSeriesIdentity+" = ANY(?)", &hongGuoIDs).Pluck("m.id", &fileIDs).Error; err != nil {
+			return nil, err
+		}
+		rows, err := r.hongGuoViewsByIDs(ctx, fileIDs, filter)
+		if err != nil {
+			return nil, err
+		}
+		remaining := append([]string{}, ordinaryIDs...)
+		for _, id := range localIDs {
+			remaining = append(remaining, "nfo-"+id)
+		}
+		other, err := r.FindByLogicalMetadataIDs(ctx, remaining, filter)
+		return append(rows, other...), err
+	}
 	if len(localIDs) > 0 {
-		rows, err := scanNFOViews(r.nfoViewQuery(ctx, filter).Where("ni.id IN ? OR ns.id IN ? OR nw.id IN ?", localIDs, localIDs, localIDs))
+		rows, err := scanNFOViews(r.nfoItemViewQuery(ctx, localIDs, filter))
 		if err != nil || len(ordinaryIDs) == 0 {
 			return rows, err
 		}
@@ -350,101 +374,54 @@ func (r *MediaViewRepository) ListRecentLogicalWorks(ctx context.Context, limit 
 	if limit <= 0 {
 		limit = 24
 	}
-	if has, err := (&NFORepository{db: r.db}).HasMedia(ctx); err != nil {
-		return nil, err
-	} else if has {
-		key := "CASE WHEN mi.kind IN ('episode','season') THEN COALESCE(series_metadata.id,mi.id) ELSE mi.id END"
-		ordinary := applyMediaViewFilter(r.query(ctx), filter).Select(key + " AS id,MAX(m.created_at) AS latest").Group(key)
-		local := r.nfoViewQuery(ctx, filter).Select("'nfo-' || COALESCE(nw.id,ni.id) AS id,MAX(m.created_at) AS latest").Group("COALESCE(nw.id,ni.id)")
-		var ids []string
-		if err := r.db.WithContext(ctx).Table("(?) AS works", r.db.Raw("? UNION ALL ?", ordinary, local)).Order("latest DESC,id DESC").Limit(limit).Pluck("id", &ids).Error; err != nil {
-			return nil, err
-		}
-		return r.FindByLogicalMetadataIDs(ctx, ids, filter)
+	db := r.db.WithContext(ctx)
+	ordinaryFiles := applyMediaViewFilter(r.query(ctx), filter).Select("1").
+		Where("CASE WHEN mi.kind IN ('episode','season') THEN series_metadata.id ELSE mi.id END = recent.id")
+	ordinary := db.Table("metadata_items recent").Select("recent.id, recent.latest_media_added_at AS latest").
+		Where("recent.kind IN ('movie','series')").Where("EXISTS (? OFFSET 0)", ordinaryFiles).
+		Order("recent.latest_media_added_at DESC NULLS LAST, recent.id DESC").Limit(limit)
+	ordinary = FilterWorkLibraries(ordinary, "recent.library_ids", filter.AllowedLibraryIDs)
+	localFiles := r.nfoViewQuery(ctx, filter).Select("1").Where("COALESCE(nw.id,ni.id)=recent.id")
+	local := db.Table("nfo_items recent").Select("'nfo-' || recent.id AS id, recent.latest_media_added_at AS latest").
+		Where("recent.kind IN ('movie','series')").Where("EXISTS (? OFFSET 0)", localFiles).
+		Order("recent.latest_media_added_at DESC NULLS LAST, recent.id DESC").Limit(limit)
+	source := db.Table("hongguo_works w").Joins(HongGuoAlbumJoin).
+		Where("EXISTS (? OFFSET 0)", r.hongGuoFileScope(ctx, "", filter).Select("1").Where("b.work_id=w.id")).
+		Select(hongGuoSeriesIdentity + " AS id, MAX(" + HongGuoLatestMediaAddedSQL + ") AS latest").Group(hongGuoSeriesIdentity).
+		Order("latest DESC NULLS LAST, id DESC").Limit(limit)
+	source = FilterWorkLibraries(source, "w.library_ids", filter.AllowedLibraryIDs)
+	var page []struct {
+		ID     string
+		Latest *time.Time
 	}
-	logicalID := "CASE WHEN mi.kind IN ('episode', 'season') THEN COALESCE(series_metadata.id, mi.id) ELSE mi.id END"
-	// 按文件时间逐批解析作品；跨过最后一部作品的时间边界后才能截断同时间 ID。
-	// service 层已有相同游标规则，此处在仓储内保留 MediaView 的完整过滤语义。
-	const batchSize = 128
-	type candidate struct {
-		ID        string
-		CreatedAt sql.NullTime
-	}
-	latest := map[string]time.Time{}
-	var cursor candidate
-	// 高重复或低命中筛选超过 16 批时回退聚合，避免全库逐批往返；不截断结果。
-	for batchNumber := 0; batchNumber < 16; batchNumber++ {
-		q := r.db.WithContext(ctx).Table("media").Select("id, created_at").Where("metadata_id IS NOT NULL")
-		if len(filter.AllowedLibraryIDs) > 0 {
-			q = q.Where("library_id = ANY(?)", &filter.AllowedLibraryIDs)
-		}
-		if len(filter.HiddenLibraryIDs) > 0 {
-			q = q.Where("library_id <> ALL(?)", &filter.HiddenLibraryIDs)
-		}
-		if cursor.ID != "" {
-			q = q.Where("(created_at, id) < (?, ?)", cursor.CreatedAt.Time, cursor.ID)
-		}
-		var candidates []candidate
-		if err := q.Order("created_at DESC, id DESC").Limit(batchSize).Scan(&candidates).Error; err != nil {
-			return nil, err
-		}
-		// PostgreSQL 的 MAX 忽略 NULL，而 DESC 将全 NULL 作品放在最前，交回原聚合处理。
-		if len(candidates) > 0 && !candidates[0].CreatedAt.Valid {
-			break
-		}
-		mediaIDs := make([]string, 0, len(candidates))
-		for _, row := range candidates {
-			mediaIDs = append(mediaIDs, row.ID)
-		}
-		if len(mediaIDs) > 0 {
-			var works []struct {
-				ID        string
-				CreatedAt time.Time
-			}
-			batch := applyMediaViewFilter(r.query(ctx).Where("m.id IN ?", mediaIDs), filter)
-			if err := batch.Select(logicalID + " AS id, MAX(m.created_at) AS created_at").Group(logicalID).Scan(&works).Error; err != nil {
-				return nil, err
-			}
-			for _, work := range works {
-				if previous, ok := latest[work.ID]; !ok || work.CreatedAt.After(previous) {
-					latest[work.ID] = work.CreatedAt
-				}
-			}
-		}
-		ids := make([]string, 0, len(latest))
-		for id := range latest {
-			ids = append(ids, id)
-		}
-		sort.Slice(ids, func(i, j int) bool {
-			if latest[ids[i]].Equal(latest[ids[j]]) {
-				return ids[i] > ids[j]
-			}
-			return latest[ids[i]].After(latest[ids[j]])
-		})
-		if len(ids) > limit {
-			ids = ids[:limit]
-		}
-		if len(candidates) < batchSize || (len(ids) == limit && candidates[len(candidates)-1].CreatedAt.Time.Before(latest[ids[len(ids)-1]])) {
-			return r.FindByLogicalMetadataIDs(ctx, ids, filter)
-		}
-		cursor = candidates[len(candidates)-1]
-	}
-	base := applyMediaViewFilter(r.query(ctx), filter)
-	type logicalRow struct {
-		ID string `gorm:"column:logical_id"`
-	}
-	var ids []logicalRow
-	if err := base.Select(logicalID + " AS logical_id").Group(logicalID).
-		Order("MAX(m.created_at) DESC, logical_id DESC").Limit(limit).Scan(&ids).Error; err != nil {
+	if err := db.Table("(?) recent_works", db.Raw("(?) UNION ALL (?) UNION ALL (?)", ordinary, local, source)).
+		Order("latest DESC NULLS LAST, id DESC").Limit(limit).Scan(&page).Error; err != nil {
 		return nil, err
 	}
-	logicalIDs := make([]string, 0, len(ids))
-	for _, row := range ids {
-		if strings.TrimSpace(row.ID) != "" {
-			logicalIDs = append(logicalIDs, row.ID)
-		}
+	ids := make([]string, 0, len(page))
+	dates := make(map[string]*time.Time, len(page))
+	ranks := make(map[string]int, len(page))
+	for i, row := range page {
+		ids = append(ids, row.ID)
+		dates[row.ID] = row.Latest
+		ranks[row.ID] = i
 	}
-	return r.FindByLogicalMetadataIDs(ctx, logicalIDs, filter)
+	views, err := r.FindByLogicalMetadataIDs(ctx, ids, filter)
+	fileRanks := make(map[string]int, len(views))
+	for i := range views {
+		id := views[i].MetadataID
+		if views[i].CatalogItemID != "" {
+			id = views[i].CatalogItemID
+		}
+		if views[i].SeriesID != "" {
+			id = views[i].SeriesID
+		}
+		views[i].LatestMediaAddedAt = dates[id]
+		fileRanks[views[i].ID] = ranks[id]
+	}
+	// 文件水合按来源分支返回，恢复候选页顺序后再交给各类消费者。
+	sort.SliceStable(views, func(i, j int) bool { return fileRanks[views[i].ID] < fileRanks[views[j].ID] })
+	return views, err
 }
 
 func (r *MediaViewRepository) ListByLibrariesFiltered(ctx context.Context, libraryIDs []string, offset, limit int, filter MediaQueryFilter) ([]model.MediaView, int64, error) {

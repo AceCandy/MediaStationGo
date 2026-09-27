@@ -16,7 +16,7 @@ type embyMetadataRelations struct {
 	peopleByMetadataID      map[string][]model.EmbyPerson
 	providerIDsByMetadataID map[string]map[string]string
 	favoriteByMetadataID    map[string]bool
-	completedByMetadataID   map[string]bool
+	playbackByMetadataID    map[string]embyContainerPlayback
 	fields                  embyListFields
 }
 
@@ -71,7 +71,7 @@ func (e *EmbyService) metadataRelationsForIDs(ctx context.Context, metadataIDs [
 		}
 	}
 	relations.favoriteByMetadataID, _, _ = e.userDataForMetadataIDs(ctx, userID, metadataIDs)
-	relations.completedByMetadataID = e.playedForContainers(ctx, userID, metadataIDs)
+	relations.playbackByMetadataID = e.playbackForContainers(ctx, userID, metadataIDs)
 	return relations
 }
 
@@ -91,7 +91,8 @@ func (e *EmbyService) seriesPayloadsWithFields(ctx context.Context, groups []emb
 func (e *EmbyService) seriesPayloadWithRelations(ctx context.Context, group embySeriesGroup, userID string, relations *embyMetadataRelations) map[string]any {
 	var people []model.EmbyPerson
 	var providerIDs map[string]string
-	var favorite, completed bool
+	var favorite bool
+	var playback embyContainerPlayback
 	if relations == nil {
 		metadata, _ := e.repo.Metadata.FindByID(ctx, group.ID)
 		if metadata != nil {
@@ -108,7 +109,7 @@ func (e *EmbyService) seriesPayloadWithRelations(ctx context.Context, group emby
 			target.MediaID = group.Episodes[0].ID
 		}
 		favorite, _, _ = e.userDataForTarget(ctx, userID, target)
-		completed = e.playedForContainers(ctx, userID, []string{group.ID})[group.ID]
+		playback = e.playbackForContainers(ctx, userID, []string{group.ID})[group.ID]
 		people = e.peopleForMetadata(ctx, group.ID)
 		providerIDs = e.metadataProviderIDs(ctx, group.ID)
 	} else {
@@ -122,7 +123,7 @@ func (e *EmbyService) seriesPayloadWithRelations(ctx context.Context, group emby
 		group.PosterURL = relations.artworkByMetadataID[group.ID][model.ArtworkTypePoster]
 		group.BackdropURL = relations.artworkByMetadataID[group.ID][model.ArtworkTypeBackdrop]
 		favorite = relations.favoriteByMetadataID[group.ID]
-		completed = relations.completedByMetadataID[group.ID]
+		playback = relations.playbackByMetadataID[group.ID]
 		if relations.fields.people {
 			people = []model.EmbyPerson{}
 			if loaded, ok := relations.peopleByMetadataID[group.ID]; ok {
@@ -145,7 +146,8 @@ func (e *EmbyService) seriesPayloadWithRelations(ctx context.Context, group emby
 	}
 	userData := emptyUserData()
 	userData["IsFavorite"] = favorite
-	if completed {
+	userData["UnplayedItemCount"] = playback.UnplayedItemCount
+	if playback.Played {
 		userData["Played"] = true
 		userData["PlayCount"] = 1
 		userData["PlayedPercentage"] = float64(100)
@@ -211,7 +213,8 @@ func (e *EmbyService) seasonPayloadWithRelations(ctx context.Context, season emb
 	var seasonPoster string
 	var people []model.EmbyPerson
 	var providerIDs map[string]string
-	var favorite, completed bool
+	var favorite bool
+	var playback embyContainerPlayback
 	if relations == nil {
 		if metadata, err := e.repo.Metadata.FindByID(ctx, season.ID); err == nil && metadata != nil {
 			season.Name = metadata.Title
@@ -227,7 +230,7 @@ func (e *EmbyService) seasonPayloadWithRelations(ctx context.Context, season emb
 			mediaID = season.Episodes[0].ID
 		}
 		favorite, _, _ = e.userDataForTarget(ctx, userID, embyItemTarget{ItemID: season.ID, MetadataID: season.ID, MediaID: mediaID})
-		completed = e.playedForContainers(ctx, userID, []string{season.ID})[season.ID]
+		playback = e.playbackForContainers(ctx, userID, []string{season.ID})[season.ID]
 		people = e.peopleForMetadata(ctx, season.ID)
 		providerIDs = e.metadataProviderIDs(ctx, season.ID)
 	} else {
@@ -241,7 +244,7 @@ func (e *EmbyService) seasonPayloadWithRelations(ctx context.Context, season emb
 			seasonPoster = relations.artworkByMetadataID[season.SeriesID][model.ArtworkTypePoster]
 		}
 		favorite = relations.favoriteByMetadataID[season.ID]
-		completed = relations.completedByMetadataID[season.ID]
+		playback = relations.playbackByMetadataID[season.ID]
 		if relations.fields.people {
 			people = []model.EmbyPerson{}
 			if loaded, ok := relations.peopleByMetadataID[season.ID]; ok {
@@ -262,7 +265,8 @@ func (e *EmbyService) seasonPayloadWithRelations(ctx context.Context, season emb
 	}
 	userData := emptyUserData()
 	userData["IsFavorite"] = favorite
-	if completed {
+	userData["UnplayedItemCount"] = playback.UnplayedItemCount
+	if playback.Played {
 		userData["Played"] = true
 		userData["PlayCount"] = 1
 		userData["PlayedPercentage"] = float64(100)

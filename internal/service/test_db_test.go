@@ -8,6 +8,7 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 
+	"github.com/ShukeBta/MediaStationGo/internal/database"
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 	"github.com/ShukeBta/MediaStationGo/internal/repository"
 	"github.com/ShukeBta/MediaStationGo/internal/testutil"
@@ -30,6 +31,14 @@ func newServiceTestDB(t *testing.T, models ...any) *gorm.DB {
 		)
 		if err := db.AutoMigrate(models...); err != nil {
 			t.Fatal(err)
+		}
+		if db.Migrator().HasTable(&model.Media{}) {
+			if err := db.AutoMigrate(&model.NFOItem{}, &model.NFOMediaBinding{}, &model.HongGuoWork{}, &model.HongGuoEpisode{}, &model.HongGuoMediaBinding{}); err != nil {
+				t.Fatal(err)
+			}
+			if err := database.EnsureLatestMediaAddedTriggers(db); err != nil {
+				t.Fatal(err)
+			}
 		}
 		if err := testutil.RegisterMediaMetadataFixtures(db); err != nil {
 			t.Fatal(err)

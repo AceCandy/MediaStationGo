@@ -3,11 +3,13 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/ShukeBta/MediaStationGo/internal/model"
+	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 )
 
@@ -22,10 +24,216 @@ func (l *seriesPageReadLog) Trace(ctx context.Context, begin time.Time, fc func(
 	if strings.Contains(sql, "BOOL_AND") {
 		l.playedQueries = append(l.playedQueries, sql)
 	}
-	if strings.Contains(sql, "AS scoped_series") || strings.Contains(sql, "AS series_id") || strings.Contains(sql, "ARRAY_AGG(m.id") || strings.HasPrefix(sql, "WITH scoped AS MATERIALIZED") {
+	if strings.Contains(sql, "AS scoped_series") || strings.Contains(sql, "AS series_id") || strings.Contains(sql, "ARRAY_AGG(m.id") || strings.Contains(sql, "FROM metadata_items recent") || strings.HasPrefix(sql, "WITH scoped AS MATERIALIZED") || strings.HasPrefix(sql, "WITH work_candidates AS MATERIALIZED") {
 		l.queries = append(l.queries, sql)
 	}
 	l.Interface.Trace(ctx, begin, func() (string, int64) { return sql, rows }, err)
+}
+
+func TestEmbyLatestCandidatePlans(t *testing.T) {
+	svc := newTestEmbyService(t)
+	db := svc.repo.DB
+	for _, sql := range []string{
+		`INSERT INTO metadata_items (id,kind,title,source) SELECT 'show-'||n,'series','Show','local' FROM generate_series(1,500) n`,
+		`INSERT INTO metadata_items (id,kind,title,source,parent_id,season_num) SELECT 'season-'||s||'-'||n,'season','Season','local','show-'||s,n FROM generate_series(1,500) s CROSS JOIN generate_series(1,2) n`,
+		`INSERT INTO metadata_items (id,kind,title,source,parent_id,episode_num) SELECT 'ep-'||s||'-'||n||'-'||e,'episode','Episode','local','season-'||s||'-'||n,e FROM generate_series(1,500) s CROSS JOIN generate_series(1,2) n CROSS JOIN generate_series(1,20) e`,
+		`INSERT INTO metadata_items (id,kind,title,source) SELECT 'movie-'||n,'movie','Movie','local' FROM generate_series(1,500) n`,
+		`INSERT INTO media (id,library_id,path,metadata_id,season_num,episode_num,created_at)
+SELECT 'file-'||i.id||'-'||v,'tv','/fixture/'||i.id||'-'||v,i.id,1,i.episode_num,TIMESTAMP '2026-01-01' + i.episode_num * INTERVAL '1 hour'
+FROM metadata_items i CROSS JOIN generate_series(1,2) v WHERE i.kind='episode'`,
+		`INSERT INTO media (id,library_id,path,metadata_id,created_at)
+SELECT 'file-'||i.id||'-'||v,'movie','/fixture/'||i.id||'-'||v,i.id,TIMESTAMP '2026-02-01' + v * INTERVAL '1 hour'
+FROM metadata_items i CROSS JOIN generate_series(1,10) v WHERE i.kind='movie' AND i.id LIKE 'movie-%'`,
+		`INSERT INTO playback_histories (id,user_id,metadata_id,media_id,completed)
+SELECT 'state-'||id,'viewer',id,'file-'||id||'-1',TRUE FROM metadata_items WHERE kind='episode' AND episode_num % 2=0 OR kind='movie' AND id ~ '^movie-[0-9]*[02468]$'`,
+		`UPDATE media SET library_id='small-movie' WHERE metadata_id ~ '^movie-9[0-9]$' AND id LIKE '%-1'`,
+		`UPDATE media SET library_id='small-tv' WHERE metadata_id ~ '^ep-9[0-9]-1-[12]$' AND id LIKE '%-1'`,
+	} {
+		if err := db.Exec(sql).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	var unknown int64
+	if err := db.Table("metadata_items").Where("latest_media_added_at IS NOT NULL AND library_ids IS NULL").Count(&unknown).Error; err != nil || unknown != 0 {
+		t.Fatalf("file-backed fixture has unknown membership: %d, err=%v", unknown, err)
+	}
+	for _, table := range []string{"media", "metadata_items", "playback_histories"} {
+		if err := db.Exec("ANALYZE " + table).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	type statement struct {
+		sql  string
+		vars []any
+	}
+	var queries []statement
+	capture := func(tx *gorm.DB) {
+		if !tx.DryRun && strings.HasPrefix(tx.Statement.SQL.String(), "SELECT") && strings.Contains(tx.Statement.SQL.String(), "ORDER BY recent.latest_media_added_at") {
+			queries = append(queries, statement{tx.Statement.SQL.String(), append([]any(nil), tx.Statement.Vars...)})
+		}
+	}
+	if err := db.Callback().Row().After("gorm:row").Register("test:latest-candidates", capture); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Callback().Query().After("gorm:query").Register("test:latest-candidates", capture); err != nil {
+		t.Fatal(err)
+	}
+	for _, movieDate := range []string{"2026-02-01", "2025-12-01"} {
+		// 同时覆盖目标库位于时间索引前端和远落后于其它库；后者不能逐个探测其它库分集。
+		if err := db.Exec("UPDATE media SET created_at = ?::timestamp WHERE library_id = 'movie'", movieDate).Error; err != nil {
+			t.Fatal(err)
+		}
+		for _, kind := range []string{"movie", "tv", "small-movie", "small-tv"} {
+			for _, user := range []string{"empty-history", "viewer"} {
+				for _, played := range []bool{false, true} {
+					queries = nil
+					q := svc.applyUserMediaVisibility(t.Context(), db.Model(&model.Media{}).Where("media.library_id = ?", kind), user)
+					q = svc.applyLatestPlayedFilter(t.Context(), q, user, played)
+					var count int
+					var firstID string
+					ids := []string{}
+					if strings.HasSuffix(kind, "movie") {
+						items, err := svc.latestMetadataViews(t.Context(), q, user, []string{kind}, 3)
+						if err != nil {
+							t.Fatal(err)
+						}
+						count = len(items)
+						for _, item := range items {
+							ids = append(ids, item.MetadataID)
+						}
+						if count > 0 {
+							firstID = items[0].MetadataID
+						}
+					} else {
+						groups, err := svc.latestSeriesGroups(t.Context(), q, []string{kind}, 3)
+						if err != nil {
+							t.Fatal(err)
+						}
+						count = len(groups)
+						for _, group := range groups {
+							ids = append(ids, group.ID)
+						}
+						if count > 0 {
+							firstID = groups[0].ID
+						}
+					}
+					want := 3
+					if user == "empty-history" && played {
+						want = 0
+					}
+					if count != want {
+						t.Fatalf("%s user=%s played=%v items=%d want=%d", kind, user, played, count, want)
+					}
+					wantID := "show-99"
+					if strings.HasSuffix(kind, "movie") {
+						wantID = "movie-99"
+						if played {
+							wantID = "movie-98"
+						}
+					}
+					if count > 0 && firstID != wantID {
+						t.Fatalf("%s user=%s played=%v first=%s want=%s", kind, user, played, firstID, wantID)
+					}
+					if len(queries) != 1 {
+						t.Fatalf("candidate queries=%d", len(queries))
+					}
+					candidates := append([]statement(nil), queries...)
+					old := db.Table("metadata_items recent").Where("recent.latest_media_added_at IS NOT NULL")
+					if strings.HasSuffix(kind, "movie") {
+						old = old.Where("EXISTS (?)", q.Session(&gorm.Session{}).Select("1").Where("media.metadata_id=recent.id"))
+					} else {
+						old = old.Where("recent.kind='series'").Where("EXISTS (? OFFSET 0)", seriesScopeQuery(q.Session(&gorm.Session{})).Select("1").Where("scope_series.id=recent.id"))
+					}
+					wantIDs := []string{}
+					if err := old.Order("recent.latest_media_added_at DESC NULLS LAST, recent.id DESC").Limit(3).Pluck("recent.id", &wantIDs).Error; err != nil {
+						t.Fatal(err)
+					}
+					if !reflect.DeepEqual(ids, wantIDs) {
+						t.Fatalf("%s user=%s played=%v ids=%v old=%v", kind, user, played, ids, wantIDs)
+					}
+					for _, candidate := range candidates {
+						var raw []byte
+						// 已编译的 PostgreSQL 占位符直接交给驱动；GORM Raw 会把 @> 当作命名参数 SQL。
+						if err := db.Statement.ConnPool.QueryRowContext(t.Context(), "EXPLAIN (ANALYZE, FORMAT JSON, TIMING OFF) "+candidate.sql, candidate.vars...).Scan(&raw); err != nil {
+							t.Fatal(err)
+						}
+						type planNode struct {
+							Relation string     `json:"Relation Name"`
+							Alias    string     `json:"Alias"`
+							Index    string     `json:"Index Name"`
+							Type     string     `json:"Node Type"`
+							Rows     float64    `json:"Actual Rows"`
+							Removed  float64    `json:"Rows Removed by Filter"`
+							Loops    float64    `json:"Actual Loops"`
+							Plans    []planNode `json:"Plans"`
+						}
+						var plans []struct {
+							Plan          planNode
+							ExecutionTime float64 `json:"Execution Time"`
+						}
+						if err := json.Unmarshal(raw, &plans); err != nil {
+							t.Fatal(err)
+						}
+						var inspect func(planNode)
+						inspect = func(n planNode) {
+							if strings.HasPrefix(kind, "small-") && n.Alias == "metadata_items" && (n.Rows+n.Removed)*n.Loops > 1500 {
+								t.Errorf("small library scanned unrelated metadata: %+v", n)
+							}
+							if n.Alias == "metadata_items" && user == "empty-history" && !played {
+								t.Logf("%s membership %s index=%s visited=%.0f", kind, n.Type, n.Index, (n.Rows+n.Removed)*n.Loops)
+							}
+							// 无已看记录时允许穷尽候选，但不能整表加载文件；命中页则应提前结束。
+							maxRows := 1500.0
+							if user == "empty-history" && played {
+								maxRows = 45000
+							}
+							// 库归属已持久化，不能再枚举全库文件提取成员身份。
+							if n.Relation == "media" && n.Alias == "member" {
+								t.Errorf("unexpected library membership scan: %+v", n)
+							} else if n.Relation == "media" && ((n.Rows+n.Removed)*n.Loops > maxRows || n.Loops > maxRows) {
+								t.Errorf("%s user=%s played=%v candidate expanded unrelated files: rows=%v loops=%v", kind, user, played, n.Rows+n.Removed, n.Loops)
+							}
+							for _, child := range n.Plans {
+								inspect(child)
+							}
+						}
+						inspect(plans[0].Plan)
+						t.Logf("%s user=%s played=%v %.3f ms", kind, user, played, plans[0].ExecutionTime)
+					}
+				}
+			}
+		}
+	}
+	// 在已有四万余文件的库上测增量写入，回滚诊断事务，不把样本耗时当生产 SLA。
+	tx := db.Begin()
+	if tx.Error != nil {
+		t.Fatal(tx.Error)
+	}
+	defer tx.Rollback()
+	for i, sql := range []string{
+		`INSERT INTO media(id,path,metadata_id,library_id,created_at) VALUES ('write-cost','/fixture/write-cost','ep-99-1-1','write-cost',now())`,
+		`UPDATE media SET library_id='moved-cost' WHERE id='write-cost'`,
+		`DELETE FROM media WHERE id='write-cost'`,
+	} {
+		var raw []byte
+		if err := tx.Raw("EXPLAIN (ANALYZE, FORMAT JSON, TIMING OFF) " + sql).Row().Scan(&raw); err != nil {
+			t.Fatal(err)
+		}
+		var plans []struct {
+			ExecutionTime float64 `json:"Execution Time"`
+		}
+		if err := json.Unmarshal(raw, &plans); err != nil || len(plans) != 1 {
+			t.Fatalf("write plan: %v", err)
+		}
+		var libraries string
+		if err := tx.Raw("SELECT library_ids FROM metadata_items WHERE id='show-99'").Scan(&libraries).Error; err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(libraries, "write-cost") != (i == 0) || strings.Contains(libraries, "moved-cost") != (i == 1) {
+			t.Fatalf("write step=%d lost membership: %s", i, libraries)
+		}
+		t.Logf("incremental write step=%d %.3f ms", i, plans[0].ExecutionTime)
+	}
 }
 
 func TestEmbySeriesPaginationDoesNotProbeFilesForWholeCatalog(t *testing.T) {
@@ -62,6 +270,25 @@ func TestEmbySeriesPaginationDoesNotProbeFilesForWholeCatalog(t *testing.T) {
 	}
 	reads := &seriesPageReadLog{Interface: db.Logger}
 	db.Logger = reads
+	var plansSQL []struct {
+		sql  string
+		vars []any
+	}
+	capture := func(tx *gorm.DB) {
+		sql := tx.Statement.SQL.String()
+		if !tx.DryRun && (strings.HasPrefix(sql, "WITH work_candidates AS MATERIALIZED") || strings.HasPrefix(sql, "WITH scoped AS MATERIALIZED") || strings.Contains(sql, "BOOL_AND")) {
+			plansSQL = append(plansSQL, struct {
+				sql  string
+				vars []any
+			}{sql, append([]any(nil), tx.Statement.Vars...)})
+		}
+	}
+	if err := db.Callback().Row().After("gorm:row").Register("test:series-page-plan", capture); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Callback().Query().After("gorm:query").Register("test:series-page-plan", capture); err != nil {
+		t.Fatal(err)
+	}
 	p := ItemsParams{UserID: "page-user", ParentID: lib.ID, IncludeItemTypes: []string{"Series"}, Recursive: true,
 		SortBy: "DateLastContentAdded,SortName", SortOrder: "Descending", Limit: 3, Fields: []string{"BasicSyncInfo"}}
 	result, err := svc.Items(t.Context(), p)
@@ -69,7 +296,7 @@ func TestEmbySeriesPaginationDoesNotProbeFilesForWholeCatalog(t *testing.T) {
 		t.Fatal(err)
 	}
 	items := result["Items"].([]map[string]any)
-	if result["TotalRecordCount"] != 20 || len(items) != 3 || items[0]["Id"] != "series-20" || items[2]["Id"] != "series-18" || items[0]["RecursiveItemCount"] != 100 || items[0]["ChildCount"] != 1 {
+	if result["TotalRecordCount"] != 20 || len(items) != 3 || items[0]["Id"] != "series-9" || items[2]["Id"] != "series-7" || items[0]["RecursiveItemCount"] != 100 || items[0]["ChildCount"] != 1 {
 		t.Fatalf("unexpected series page: %#v", result)
 	}
 	queries := append([]string(nil), reads.queries...)
@@ -77,8 +304,8 @@ func TestEmbySeriesPaginationDoesNotProbeFilesForWholeCatalog(t *testing.T) {
 		t.Fatalf("count/page queries = %d", len(queries))
 	}
 	for _, query := range queries {
-		if !strings.Contains(query, "WITH scoped_media AS MATERIALIZED") || strings.Contains(query, "JOIN LATERAL") {
-			t.Fatalf("series pagination must materialize visible files before parent joins: %s", query)
+		if !strings.Contains(query, "WITH work_candidates AS MATERIALIZED") || strings.Contains(query, "MAX(media.created_at)") {
+			t.Fatalf("latest series candidates must use work time and file existence: %s", query)
 		}
 	}
 	if len(reads.playedQueries) != 1 {
@@ -110,9 +337,9 @@ func TestEmbySeriesPaginationDoesNotProbeFilesForWholeCatalog(t *testing.T) {
 			check(child)
 		}
 	}
-	for _, query := range queries {
+	for _, query := range plansSQL {
 		var raw string
-		if err := db.Raw("EXPLAIN (ANALYZE, FORMAT JSON) " + query).Row().Scan(&raw); err != nil {
+		if err := db.Statement.ConnPool.QueryRowContext(t.Context(), "EXPLAIN (ANALYZE, FORMAT JSON) "+query.sql, query.vars...).Scan(&raw); err != nil {
 			t.Fatal(err)
 		}
 		var plans []struct{ Plan planNode }
@@ -121,7 +348,7 @@ func TestEmbySeriesPaginationDoesNotProbeFilesForWholeCatalog(t *testing.T) {
 		}
 		check(plans[0].Plan)
 	}
-	for _, sortBy := range []string{"SortName", "DateCreated", "PremiereDate"} {
+	for _, sortBy := range []string{"SortName", "DateCreated", "DateLastContentAdded", "PremiereDate"} {
 		p.SortBy, p.SortOrder, p.StartIndex = sortBy, "Ascending", 1
 		result, err = svc.Items(t.Context(), p)
 		if err != nil || result["TotalRecordCount"] != 20 || len(result["Items"].([]map[string]any)) != 3 {
@@ -129,6 +356,15 @@ func TestEmbySeriesPaginationDoesNotProbeFilesForWholeCatalog(t *testing.T) {
 		}
 		if sortBy == "SortName" && result["Items"].([]map[string]any)[0]["Id"] != "series-2" {
 			t.Fatalf("name sorting or offset changed: %#v", result)
+		}
+		q := svc.applyUserMediaVisibility(t.Context(), db.Model(&model.Media{}).Where("media.library_id = ?", lib.ID), p.UserID)
+		want, wantTotal, err := svc.originalSeriesMetadataPageWithCount(t.Context(), q, p.UserID, p, p.StartIndex, p.Limit, true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, gotTotal, err := svc.seriesWorkPage(t.Context(), q, p, p.StartIndex, p.Limit)
+		if err != nil || wantTotal != gotTotal || !reflect.DeepEqual(got, want) {
+			t.Fatalf("series oracle sort=%s: got=%+v want=%+v totals=%d/%d err=%v", sortBy, got, want, gotTotal, wantTotal, err)
 		}
 	}
 	// 同季多个版本取最新时间；聚合压缩不能改成最早时间。
@@ -176,8 +412,8 @@ func TestEmbySeriesPaginationDoesNotProbeFilesForWholeCatalog(t *testing.T) {
 		t.Fatalf("favorite count/page queries = %d", len(favoriteQueries))
 	}
 	for _, query := range favoriteQueries {
-		if !strings.Contains(query, "WITH scoped_media AS NOT MATERIALIZED") {
-			t.Fatalf("favorite filter cannot be pushed into file scope: %s", query)
+		if !strings.Contains(query, "WITH work_candidates AS MATERIALIZED") || !strings.Contains(query, "favorites.metadata_id = scope_series.id") {
+			t.Fatalf("favorite filter must constrain work candidates: %s", query)
 		}
 	}
 	p.StartIndex = 1

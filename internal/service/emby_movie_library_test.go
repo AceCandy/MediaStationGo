@@ -241,4 +241,32 @@ func TestEmbyMovieLibraryGroupsEpisodicContentIntoSeries(t *testing.T) {
 	if len(drillItems) != 2 {
 		t.Fatalf("series drill-down should list both episodes, got %#v", drillItems)
 	}
+	// 原混合候选保留作排序/总数对照，包含越界空页。
+	db := svc.repo.DB
+	movies := filterLikelyEpisodicPathsFromMovieQuery(svc.applyUserMediaVisibility(t.Context(), db.Model(&model.Media{}), "").Where("media.library_id=?", lib.ID)).
+		Select("media.metadata_id AS id,'movie' AS kind," + embyReleaseOrderSQL("emby_metadata") + " AS sort_at").Group("media.metadata_id")
+	clause, args := embyLikelyEpisodicPathSQL()
+	episodes := seriesScopeQuery(svc.applyUserMediaVisibility(t.Context(), db.Model(&model.Media{}), "").Where("media.library_id=?", lib.ID)).
+		Where("(media.season_num>0 OR media.episode_num>0) AND ("+clause+")", args...).
+		Select("scope_series.id AS id,'series' AS kind," + embyReleaseOrderSQL("emby_metadata") + " AS sort_at").Group("scope_series.id")
+	var expected []struct{ ID, Kind string }
+	if err := db.Table("(?) works", db.Raw("? UNION ALL ?", movies, episodes)).Order("sort_at DESC,kind DESC,id DESC").Scan(&expected).Error; err != nil {
+		t.Fatal(err)
+	}
+	for offset := 0; offset <= len(expected)+1; offset++ {
+		got, err := svc.movieLibraryItems(t.Context(), ItemsParams{ParentID: lib.ID, StartIndex: offset, Limit: 1, Fields: []string{"BasicSyncInfo"}})
+		if err != nil || got["TotalRecordCount"] != len(expected) {
+			t.Fatalf("mixed offset=%d result=%v err=%v", offset, got, err)
+		}
+		page := got["Items"].([]map[string]any)
+		if offset >= len(expected) {
+			if len(page) != 0 {
+				t.Fatal("mixed empty page has items")
+			}
+			continue
+		}
+		if len(page) != 1 || page[0]["Id"] != expected[offset].ID {
+			t.Fatalf("mixed offset=%d page=%v expected=%v", offset, page, expected)
+		}
+	}
 }

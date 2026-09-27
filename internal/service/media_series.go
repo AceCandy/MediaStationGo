@@ -174,20 +174,26 @@ func (s *MediaService) ListRecentSeriesCards(ctx context.Context, limit int, vis
 		return nil, err
 	}
 	recentAt := make(map[string]time.Time, len(cards))
+	logicalByFile := make(map[string]string, len(rows))
 	for _, row := range rows {
 		id := row.MetadataID
-		if row.CatalogSource == model.CatalogSourceNFO {
+		if row.CatalogItemID != "" {
 			id = row.CatalogItemID
 		}
 		if row.SeriesID != "" {
 			id = row.SeriesID
 		}
-		if row.CreatedAt.After(recentAt[id]) {
-			recentAt[id] = row.CreatedAt
+		logicalByFile[row.ID] = id
+		if row.LatestMediaAddedAt != nil && row.LatestMediaAddedAt.After(recentAt[id]) {
+			recentAt[id] = *row.LatestMediaAddedAt
 		}
 	}
 	sort.SliceStable(cards, func(i, j int) bool {
-		return recentAt[seriesCardMetadataID(cards[i])].After(recentAt[seriesCardMetadataID(cards[j])])
+		left, right := logicalByFile[cards[i].Rep.ID], logicalByFile[cards[j].Rep.ID]
+		if recentAt[left].Equal(recentAt[right]) {
+			return left > right
+		}
+		return recentAt[left].After(recentAt[right])
 	})
 	if len(cards) == 0 {
 		return []SeriesCard{}, nil

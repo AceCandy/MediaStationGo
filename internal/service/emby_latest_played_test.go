@@ -2,6 +2,7 @@ package service
 
 import (
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -12,6 +13,9 @@ import (
 	"github.com/ShukeBta/MediaStationGo/internal/config"
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 )
+
+// 保留旧候选批次边界的多版本回归规模。
+const latestMediaCandidateBatchSize = 128
 
 func TestEmbyLatestItemsFilterPlayedBeforeLimitAndByUser(t *testing.T) {
 	svc := newTestEmbyService(t)
@@ -64,6 +68,20 @@ func TestEmbyLatestItemsFilterPlayedBeforeLimitAndByUser(t *testing.T) {
 		t.Fatalf("user-2 played latest = %#v, err=%v", items, err)
 	}
 	assertLatestFieldsAndQueries(t, svc, lib.ID)
+	// 另一库新增同一作品的文件只改变全局排序时间，不改变本库可见版本。
+	shared := model.Media{PermanentBase: model.PermanentBase{ID: "other-version", CreatedAt: now.Add(time.Hour)}, LibraryID: "other-library", MetadataID: "metadata-oldest", Path: "/other/oldest.mkv"}
+	if err := svc.repo.DB.Create(&shared).Error; err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"metadata-oldest", "metadata-next"} {
+		items, err := svc.LatestItems(t.Context(), "user-1", lib.ID, 1, false)
+		if err != nil || len(items) != 1 || items[0]["Id"] != want {
+			t.Fatalf("cross-library Latest want=%s items=%v err=%v", want, items, err)
+		}
+		if err := svc.repo.DB.Delete(&shared).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
 }
 
 func TestEmbyLatestSeriesFiltersEpisodesBeforeGrouping(t *testing.T) {
@@ -112,6 +130,37 @@ func TestEmbyLatestSeriesFiltersEpisodesBeforeGrouping(t *testing.T) {
 	assertLatestFieldsAndQueries(t, svc, lib.ID)
 }
 
+func TestEmbyLatestSeriesKeepsPartiallyPlayedWorkInBothLists(t *testing.T) {
+	svc := newTestEmbyService(t)
+	lib := model.Library{Name: "剧集", Path: "/fixture/partial", Type: "tv"}
+	if err := svc.repo.Library.Create(t.Context(), &lib); err != nil {
+		t.Fatal(err)
+	}
+	series := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{Kind: model.MetadataKindSeries, Title: "Series", Source: "local"})
+	for n := 1; n <= 2; n++ {
+		season := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{Kind: model.MetadataKindSeason, ParentID: &series.ID, SeasonNum: n, Title: "Season", Source: "local"})
+		ep := createServiceTestMetadata(t, svc.repo.DB, model.MetadataItem{Kind: model.MetadataKindEpisode, ParentID: &season.ID, EpisodeNum: 1, Title: "Episode", Source: "local"})
+		for v := 1; v <= 2; v++ {
+			file := model.Media{LibraryID: lib.ID, MetadataID: ep.ID, SeasonNum: n, EpisodeNum: 1, Path: fmt.Sprintf("/fixture/partial/%d-%d.mkv", n, v)}
+			if err := svc.repo.DB.Create(&file).Error; err != nil {
+				t.Fatal(err)
+			}
+			if n == 1 && v == 1 {
+				if err := svc.repo.DB.Create(&model.PlaybackHistory{UserID: "viewer", MetadataID: ep.ID, MediaID: file.ID, Completed: true}).Error; err != nil {
+					t.Fatal(err)
+				}
+			}
+		}
+	}
+	for _, played := range []bool{false, true} {
+		items, err := svc.LatestItems(t.Context(), "viewer", lib.ID, 1, played)
+		if err != nil || len(items) != 1 || items[0]["Id"] != series.ID || items[0]["RecursiveItemCount"] != 1 || items[0]["ChildCount"] != 1 {
+			t.Fatalf("played=%v items=%v err=%v", played, items, err)
+		}
+		assertEmbyUnplayedCount(t, items[0], 1)
+	}
+}
+
 func TestEmbyLatestSeriesItemsContinueThroughCandidateTimeTie(t *testing.T) {
 	svc := newTestEmbyService(t)
 	lib := model.Library{Name: "剧集", Path: "/media/latest-tv", Type: "tv", Enabled: true}
@@ -155,6 +204,46 @@ func TestEmbyLatestSeriesItemsContinueThroughCandidateTimeTie(t *testing.T) {
 	items, err := svc.LatestItems(t.Context(), "", lib.ID, 2, false)
 	if err != nil || len(items) != 2 || items[0]["Id"] != "series-newest" || items[1]["Id"] != "series-z" {
 		t.Fatalf("latest series = %#v, err=%v", items, err)
+	}
+	shared := model.Media{PermanentBase: model.PermanentBase{ID: "other-a", CreatedAt: now.Add(time.Hour)}, LibraryID: "other-library", MetadataID: aEpisode, Path: "/other/a.mkv", SeasonNum: 1, EpisodeNum: 1}
+	if err := svc.repo.DB.Create(&shared).Error; err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"series-a", "series-newest"} {
+		items, err := svc.LatestItems(t.Context(), "", lib.ID, 1, false)
+		if err != nil || len(items) != 1 || items[0]["Id"] != want {
+			t.Fatalf("cross-library series Latest want=%s items=%v err=%v", want, items, err)
+		}
+		if err := svc.repo.DB.Delete(&shared).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	// 大量更近的作品属于其它库时，仍须返回当前库完整一页。
+	for _, sql := range []string{
+		`INSERT INTO metadata_items(id,kind,title,source) SELECT 'outside-'||n,'series','Outside','local' FROM generate_series(1,?) n`,
+		`INSERT INTO media(id,path,library_id,metadata_id,created_at) SELECT 'outside-file-'||n,'/other/'||n,'other-library','outside-'||n,TIMESTAMP '2099-01-01' FROM generate_series(1,?) n`,
+	} {
+		if err := svc.repo.DB.Exec(sql, 513).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, partial := range []bool{false, true} {
+		if partial {
+			if err := svc.repo.DB.Exec("UPDATE media SET created_at=TIMESTAMP '2100-01-01' WHERE metadata_id=?", newestEpisode).Error; err != nil {
+				t.Fatal(err)
+			}
+		}
+		items, err = svc.LatestItems(t.Context(), "", lib.ID, 2, false)
+		if err != nil || len(items) != 2 || items[0]["Id"] != "series-newest" || items[1]["Id"] != "series-z" {
+			t.Fatalf("library candidates partial=%v series=%v err=%v", partial, items, err)
+		}
+	}
+	if err := svc.repo.DB.Exec("UPDATE metadata_items SET library_ids=NULL WHERE kind='series'").Error; err != nil {
+		t.Fatal(err)
+	}
+	unknown, err := svc.LatestItems(t.Context(), "", lib.ID, 2, false)
+	if err != nil || !reflect.DeepEqual(unknown, items) {
+		t.Fatalf("unknown membership changed latest: got=%v want=%v err=%v", unknown, items, err)
 	}
 }
 

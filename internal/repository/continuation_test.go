@@ -3,6 +3,7 @@ package repository
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/ShukeBta/MediaStationGo/internal/model"
@@ -51,6 +52,15 @@ func TestContinuationPlansAndMixedPagination(t *testing.T) {
 	}
 	r := New(db).History
 	filter := MediaQueryFilter{IncludeNSFW: true}
+	var candidateQueries []string
+	if err := db.Callback().Row().After("gorm:row").Register("test:continuation-page", func(tx *gorm.DB) {
+		query := tx.Statement.SQL.String()
+		if strings.Contains(query, "WITH watched AS MATERIALIZED") && !strings.HasPrefix(query, "EXPLAIN") {
+			candidateQueries = append(candidateQueries, query)
+		}
+	}); err != nil {
+		t.Fatal(err)
+	}
 	for _, mode := range []ContinuationMode{ContinuationNextUp, ContinuationResume} {
 		for _, source := range []string{"legacy", "nfo", "hongguo"} {
 			q := r.continuationSource(t.Context(), "viewer", filter, source, mode, "")
@@ -85,9 +95,13 @@ func TestContinuationPlansAndMixedPagination(t *testing.T) {
 			t.Logf("%s next episode: %.3f ms", source, plans[0].Time)
 		}
 		for start, want := range []string{"hg-episode-ep-1-2", "nfo-ep-1-2", "ep-1-2", ""} {
+			candidateQueries = nil
 			rows, total, err := r.Continuations(t.Context(), "viewer", filter, mode, "", start, 1)
 			if err != nil || total != 3 {
 				t.Fatalf("mixed page %d: rows=%v total=%d err=%v", start, rows, total, err)
+			}
+			if len(candidateQueries) != 1 || !strings.HasPrefix(candidateQueries[0], "WITH continuation_candidates AS MATERIALIZED") {
+				t.Fatal("count and page must share one candidate evaluation")
 			}
 			if want == "" {
 				if len(rows) != 0 {

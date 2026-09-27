@@ -31,6 +31,11 @@ func (HongGuoRankEntry) TableName() string { return "hongguo_rank_entries" }
 // HongGuoWork 是红果源作品，独立于现有 metadata_items；SourceID 不随人工聚合变化。
 type HongGuoWork struct {
 	PermanentBase
+	// LatestMediaAddedAt 是本源作品现存文件的最新入库时间，不包含合集其他季。
+	LatestMediaAddedAt *time.Time `gorm:"->" json:"latest_media_added_at,omitempty"`
+	// LibraryIDs 仅记录本源作品现存文件的库集合，不包含合集其他季；NULL 表示尚未初始化。
+	LibraryIDs *string `gorm:"type:jsonb;->" json:"-"`
+
 	SourceID           string     `gorm:"size:32;not null;uniqueIndex" json:"source_id"`
 	SourceCategory     string     `gorm:"size:32;not null;default:'';index" json:"source_category"`
 	Kind               string     `gorm:"size:16;not null;index;check:chk_hongguo_work_kind,kind IN ('movie','series')" json:"kind"`

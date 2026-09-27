@@ -11,6 +11,7 @@ import (
 
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 	"github.com/ShukeBta/MediaStationGo/internal/repository"
+	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 )
 
@@ -72,6 +73,97 @@ func TestLibrarySeriesPagePreservesDirectFilesAndTies(t *testing.T) {
 			if err != nil || total != 0 || len(rows) != 0 {
 				t.Fatalf("invalid series %s: rows=%+v total=%d err=%v", id, rows, total, err)
 			}
+		}
+	}
+}
+
+func TestLibraryMoviePageMatchesVersionOrder(t *testing.T) {
+	e := newTestEmbyService(t)
+	db := e.repo.DB
+	for _, sql := range []string{
+		`INSERT INTO metadata_items(id,kind,title,source) SELECT 'movie-'||n,'movie','Movie '||n,'local' FROM generate_series(1,440) n`,
+		`INSERT INTO media(id,metadata_id,library_id,path,created_at,part_group_key,part_index,strm_url)
+SELECT 'file-'||n||'-'||v,'movie-'||n,'movies','/movies/'||n||'/'||v,TIMESTAMP '2026-01-01'+n*INTERVAL '1 day'+v*INTERVAL '1 hour',
+CASE WHEN v>4 THEN 'parts-'||n ELSE '' END,CASE WHEN v>4 THEN v-4 ELSE 0 END,CASE WHEN v=4 THEN 'https://example.invalid/file' ELSE '' END
+FROM generate_series(1,40) n CROSS JOIN generate_series(1,8) v`,
+		`INSERT INTO media_probe_metadata(media_id,width,height,size_bytes,probe_json,schema_version,probed_at) SELECT id,CASE WHEN id LIKE '%-1' THEN 3840 ELSE 1920 END,1080,100,'{}',1,NOW() FROM media`,
+		`UPDATE metadata_items SET nsfw=true WHERE id='movie-40'`,
+		`UPDATE metadata_items SET library_ids=NULL WHERE id='movie-1'`,
+		`ANALYZE media`, `ANALYZE metadata_items`,
+	} {
+		if err := db.Exec(sql).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	var candidateSQL string
+	var candidateVars []any
+	if err := db.Callback().Row().After("gorm:row").Register("test:movie-page", func(tx *gorm.DB) {
+		if strings.HasPrefix(tx.Statement.SQL.String(), "WITH movie_candidates AS MATERIALIZED") {
+			candidateSQL = tx.Statement.SQL.String()
+			candidateVars = append([]any(nil), tx.Statement.Vars...)
+		}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for _, includeNSFW := range []bool{false, true} {
+		for _, offset := range []int{0, 2, 40, 41} {
+			filter := repository.MediaQueryFilter{IncludeNSFW: includeNSFW, AllowedLibraryIDs: []string{"movies"}}
+			_, got, total, err := e.repo.MediaView.ListLibraryMetadataPage(t.Context(), "movies", "movie", "", offset, 3, filter)
+			if err != nil {
+				t.Fatal(err)
+			}
+			// 保留旧电影页聚合，代表版本时间不能替换成 MAX(created_at)。
+			q := db.Table("media m").Joins("JOIN metadata_items work ON work.id=m.metadata_id").Where("m.library_id='movies' AND work.kind='movie'")
+			if !includeNSFW {
+				q = q.Where("NOT COALESCE(work.nsfw,false)")
+			}
+			var count int64
+			if err := db.Table("(?) works", q.Session(&gorm.Session{}).Select("work.id").Group("work.id")).Count(&count).Error; err != nil {
+				t.Fatal(err)
+			}
+			part := q.Session(&gorm.Session{}).Select("MIN(m.part_index)").Where("m.part_group_key=outer_media.part_group_key AND m.part_index>0")
+			priority := "CASE WHEN COALESCE(m.strm_url, '') ~* '^https?://' THEN 1 ELSE 0 END, COALESCE(probe.width, 0)::bigint * COALESCE(probe.height, 0) DESC, COALESCE(probe.size_bytes, 0) DESC, m.created_at DESC, m.id DESC"
+			var want []repository.LibraryMetadataSummary
+			err = q.Joins("JOIN media outer_media ON outer_media.id=m.id").Joins("LEFT JOIN media_probe_metadata probe ON probe.media_id=m.id").
+				Where("COALESCE(m.part_group_key,'')='' OR m.part_index<=0 OR m.part_index=(?)", part).
+				Select("work.id AS metadata_id,(ARRAY_AGG(m.id ORDER BY " + priority + "))[1] AS media_id,COUNT(DISTINCT work.id) AS count,COUNT(*) AS version_count").
+				Group("work.id").Order("(ARRAY_AGG(m.created_at ORDER BY " + priority + "))[1] DESC,work.id DESC").Offset(offset).Limit(3).Scan(&want).Error
+			if err != nil || total != count || len(got) != len(want) || len(got) > 0 && !reflect.DeepEqual(got, want) {
+				t.Fatalf("offset=%d got=%+v want=%+v total=%d/%d err=%v", offset, got, want, total, count, err)
+			}
+			if offset != 0 {
+				continue
+			}
+			var raw []byte
+			if err := db.Statement.ConnPool.QueryRowContext(t.Context(), "EXPLAIN (ANALYZE,FORMAT JSON,TIMING OFF) "+candidateSQL, candidateVars...).Scan(&raw); err != nil {
+				t.Fatal(err)
+			}
+			type node struct {
+				Relation string  `json:"Relation Name"`
+				Alias    string  `json:"Alias"`
+				Rows     float64 `json:"Actual Rows"`
+				Removed  float64 `json:"Rows Removed by Filter"`
+				Loops    float64 `json:"Actual Loops"`
+				Plans    []node  `json:"Plans"`
+			}
+			var plans []struct {
+				Plan          node
+				ExecutionTime float64 `json:"Execution Time"`
+			}
+			if err := json.Unmarshal(raw, &plans); err != nil {
+				t.Fatal(err)
+			}
+			var check func(node)
+			check = func(n node) {
+				if n.Relation == "media" && (n.Rows+n.Removed)*n.Loops > 4000 {
+					t.Errorf("movie candidate revisits unrelated files: %+v", n)
+				}
+				for _, child := range n.Plans {
+					check(child)
+				}
+			}
+			check(plans[0].Plan)
+			t.Logf("movie count/page %.3f ms", plans[0].ExecutionTime)
 		}
 	}
 }
@@ -142,7 +234,7 @@ func (l *paginationReadLog) Trace(ctx context.Context, begin time.Time, fc func(
 	if strings.HasPrefix(sql, "WITH scoped AS MATERIALIZED") {
 		l.seriesSQL = sql
 	}
-	if strings.HasPrefix(sql, "SELECT work.id AS metadata_id") {
+	if strings.HasPrefix(sql, "SELECT work.id AS metadata_id") || strings.HasPrefix(sql, "WITH movie_candidates AS MATERIALIZED") {
 		l.moviePageQueries++
 	}
 	if strings.Contains(sql, "view_title") || strings.Contains(sql, `"media"."path"`) {
@@ -394,7 +486,7 @@ func TestLibraryMetadataPaginationBoundsFileReads(t *testing.T) {
 	wantMovie := movies[0]
 	reads.moviePageQueries = 0
 	movies, count, err = web.ListMediaVisibleGrouped(t.Context(), lib.ID, 1, 1, MediaVisibility{MissingChineseTitle: true})
-	if err != nil || count != 0 || len(movies) != 0 || reads.moviePageQueries != 0 {
+	if err != nil || count != 0 || len(movies) != 0 || reads.moviePageQueries != 1 {
 		t.Fatalf("Chinese movie passed missing-title filter: count=%d err=%v", count, err)
 	}
 	if err := db.Model(&model.MetadataItem{}).Where("id = ?", movie.ID).Update("title", "Movie").Error; err != nil {

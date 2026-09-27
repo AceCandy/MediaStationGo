@@ -8,6 +8,9 @@ const CatalogSourceNFO = "nfo"
 // LocalKey 仅在媒体库内保持扫描幂等；不同目录的同名作品相互独立。
 type NFOItem struct {
 	PermanentBase
+	// LatestMediaAddedAt 是自身及后代现存文件的最新入库时间，由数据库维护。
+	LatestMediaAddedAt *time.Time `gorm:"->" json:"latest_media_added_at,omitempty"`
+
 	LibraryID  string   `gorm:"size:36;not null;uniqueIndex:uidx_nfo_local_item,priority:1" json:"library_id"`
 	LocalKey   string   `gorm:"type:text;not null;uniqueIndex:uidx_nfo_local_item,priority:2" json:"-"`
 	Kind       string   `gorm:"size:16;not null;check:chk_nfo_item_kind,kind IN ('movie','series','season','episode')" json:"kind"`

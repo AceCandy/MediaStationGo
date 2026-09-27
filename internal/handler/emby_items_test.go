@@ -207,6 +207,17 @@ func TestEmbyMissingItemImageReturnsTransparentPlaceholder(t *testing.T) {
 	if got := w.Header().Get("Expires"); got != "" {
 		t.Fatalf("placeholder Expires = %q, want empty", got)
 	}
+	if got := w.Header().Get("Cache-Control"); got != "no-store" {
+		t.Fatalf("placeholder Cache-Control = %q, want no-store", got)
+	}
+	if w.Body.Len() != 0 {
+		t.Fatal("HEAD placeholder has a body")
+	}
+	w = httptest.NewRecorder()
+	router.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/Items/missing/Images/Primary", nil))
+	if w.Code != http.StatusOK || !bytes.Equal(w.Body.Bytes(), embyPlaceholderPNG) || w.Header().Get("Cache-Control") != "no-store" {
+		t.Fatal("GET placeholder must preserve bytes without caching")
+	}
 }
 
 func TestEmbyUserItemByIDRouteReturnsJSON(t *testing.T) {
@@ -326,5 +337,86 @@ func TestEmbyUserItemByIDRouteReturnsLibraryView(t *testing.T) {
 	}
 	if item["Id"] != "lib-tv" || item["Type"] != "CollectionFolder" || item["CollectionType"] != "tvshows" {
 		t.Fatalf("unexpected library payload: %#v", item)
+	}
+}
+
+func TestEmbyHongGuoDetailClickRoutes(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db, err := testdb.OpenPostgres(t, &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 红果文件不经过普通资料 fixture，避免生成 metadata_id。
+	if err := db.AutoMigrate(model.AllModels()...); err != nil {
+		t.Fatal(err)
+	}
+	for _, value := range []any{
+		&model.User{Base: model.Base{ID: "user-1"}, Username: "viewer", Role: "admin", Tier: "plus", IsActive: true},
+		&model.Library{Base: model.Base{ID: "library"}, Name: "红果", Path: "/test/hg", Type: model.LibraryTypeHongGuo},
+		&model.HongGuoWork{PermanentBase: model.PermanentBase{ID: "work-1"}, SourceID: "1001", Kind: "series", Title: "第一季", RelatedAlbumID: "album", SeasonIndex: 1},
+		&model.HongGuoWork{PermanentBase: model.PermanentBase{ID: "work-2"}, SourceID: "1002", Kind: "series", Title: "第二季", RelatedAlbumID: "album", SeasonIndex: 2},
+		&model.HongGuoEpisode{PermanentBase: model.PermanentBase{ID: "episode-1"}, WorkID: "work-1", Number: 1},
+		&model.HongGuoEpisode{PermanentBase: model.PermanentBase{ID: "episode-2"}, WorkID: "work-2", Number: 1},
+		&model.Media{PermanentBase: model.PermanentBase{ID: "file-1"}, LibraryID: "library", CatalogSource: "hongguo", LookupCatalogID: "1001", SeasonNum: 1, EpisodeNum: 1, Path: "/test/hg/1.strm"},
+		&model.Media{PermanentBase: model.PermanentBase{ID: "file-2"}, LibraryID: "library", CatalogSource: "hongguo", LookupCatalogID: "1002", SeasonNum: 1, EpisodeNum: 1, Path: "/test/hg/2.strm"},
+		&model.HongGuoUserState{UserID: "user-1", SourceID: "1001", EpisodeNumber: 1, Completed: true},
+	} {
+		if err := db.Create(value).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, n := range []string{"1", "2"} {
+		episodeID := "episode-" + n
+		if err := db.Create(&model.HongGuoMediaBinding{MediaID: "file-" + n, WorkID: "work-" + n, EpisodeID: &episodeID}).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	repos := repository.New(db)
+	router := gin.New()
+	registerEmbyRoutes(router, "test-secret", &service.Container{Repo: repos, Emby: service.NewEmbyService(&config.Config{}, zap.NewNop(), repos)})
+	token := signedTestToken(t, "test-secret")
+	for _, tc := range []struct {
+		path, id, kind, parent string
+		total                  int
+		played                 bool
+	}{
+		{"/Users/user-1/Items/hg-group-album", "hg-group-album", "Series", "", 0, false},
+		{"/users/user-1/items/hg-season-work-1", "hg-season-work-1", "Season", "hg-group-album", 0, true},
+		{"/Users/user-1/Items/hg-episode-episode-1", "hg-episode-episode-1", "Episode", "hg-season-work-1", 0, true},
+		{"/Shows/hg-group-album/Seasons", "hg-season-work-1", "Season", "hg-group-album", 2, true},
+		{"/Users/user-1/Shows/hg-group-album/Episodes", "hg-episode-episode-1", "Episode", "hg-season-work-1", 2, true},
+		{"/shows/hg-group-album/episodes?seasonId=hg-season-work-2", "hg-episode-episode-2", "Episode", "hg-season-work-2", 1, false},
+		{"/Users/user-1/Items?ParentId=hg-group-album&IncludeItemTypes=Episode&Recursive=true&Limit=1&StartIndex=1", "hg-episode-episode-2", "Episode", "hg-season-work-2", 2, false},
+	} {
+		for _, prefix := range []string{"", "/emby"} {
+			request := httptest.NewRequest(http.MethodGet, prefix+tc.path, nil)
+			request.Header.Set("X-Emby-Token", token)
+			response := httptest.NewRecorder()
+			router.ServeHTTP(response, request)
+			var result map[string]any
+			if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil || response.Code != http.StatusOK {
+				t.Fatalf("%s: status=%d body=%s err=%v", tc.path, response.Code, response.Body.String(), err)
+			}
+			item := result
+			if tc.total > 0 {
+				items, _ := result["Items"].([]any)
+				if result["TotalRecordCount"] != float64(tc.total) || len(items) == 0 {
+					t.Fatalf("%s: invalid list %v", tc.path, result)
+				}
+				item = items[0].(map[string]any)
+			}
+			if item["Id"] != tc.id || item["Type"] != tc.kind || item["ParentId"] != tc.parent || item["UserData"].(map[string]any)["Played"] != tc.played {
+				t.Fatalf("%s: invalid item %v", tc.path, item)
+			}
+			if tc.kind == "Series" || tc.kind == "Season" {
+				want := float64(1)
+				if tc.played {
+					want = 0
+				}
+				if item["UserData"].(map[string]any)["UnplayedItemCount"] != want {
+					t.Fatalf("%s: invalid unread count %v", tc.path, item["UserData"])
+				}
+			}
+		}
 	}
 }

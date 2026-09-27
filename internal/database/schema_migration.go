@@ -86,7 +86,10 @@ func AutoMigrate(db *gorm.DB) error {
 	if err := removeUnusedLegacyColumns(db); err != nil {
 		return err
 	}
-	return EnsureTMDbRecheckTriggers(db)
+	if err := EnsureTMDbRecheckTriggers(db); err != nil {
+		return err
+	}
+	return EnsureLatestMediaAddedTriggers(db)
 }
 
 // ensureHongGuoArtworkOwnership lets discovery posters enter the existing artwork queue.

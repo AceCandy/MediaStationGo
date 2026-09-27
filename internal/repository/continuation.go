@@ -52,11 +52,8 @@ func (r *HistoryRepository) Continuations(ctx context.Context, userID string, fi
 	for _, source := range sources {
 		q := r.continuationSource(ctx, userID, filter, source, mode, seriesID)
 		if mode != ContinuationWeb {
-			var count int64
-			if err := db.Table("(?) AS candidates", q).Count(&count).Error; err != nil {
-				return nil, 0, err
-			}
-			total += count
+			pages = append(pages, q)
+			continue
 		}
 		page := db.Table("(?) AS candidates", q).Order("watched_at DESC, item_id DESC")
 		if limit > 0 {
@@ -67,6 +64,27 @@ func (r *HistoryRepository) Continuations(ctx context.Context, userID string, fi
 	combined := pages[0]
 	for _, page := range pages[1:] {
 		combined = db.Raw("(?) UNION ALL (?)", combined, page)
+	}
+	if mode != ContinuationWeb {
+		// 精确总数和当前页共享一次有效候选计算，越界空页也保留总数。
+		page := db.Table("continuation_candidates").Order("watched_at DESC, item_id DESC").Offset(start)
+		if limit > 0 {
+			page = page.Limit(limit)
+		}
+		var result []struct {
+			Continuation
+			Total int64
+		}
+		err := db.Raw(`WITH continuation_candidates AS MATERIALIZED (?)
+SELECT totals.total, page.* FROM (SELECT COUNT(*) AS total FROM continuation_candidates) totals
+LEFT JOIN (?) page ON TRUE ORDER BY page.watched_at DESC, page.item_id DESC`, combined, page).Scan(&result).Error
+		for _, row := range result {
+			total = row.Total
+			if row.ItemID != "" {
+				rows = append(rows, row.Continuation)
+			}
+		}
+		return rows, total, err
 	}
 	q := db.Table("(?) AS continuation_page", combined).Order("watched_at DESC, item_id DESC").Offset(start)
 	if limit > 0 {

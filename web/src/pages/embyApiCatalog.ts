@@ -62,6 +62,11 @@ const userFields: readonly EmbyApiField[] = [
   { name: 'Configuration', type: 'object', description: '用户侧 Emby 配置。' },
 ]
 
+const unplayedItemCountField: EmbyApiField = {
+  name: 'UnplayedItemCount', type: 'number',
+  description: 'Series/Season 海报的未看集数。按当前用户可见且有文件的逻辑分集去重统计，多版本不重复；全部看完返回 0。普通、红果、NFO 均支持。媒体库入口 CollectionFolder 不返回未经统计的未看数。',
+}
+
 const itemFields: readonly EmbyApiField[] = [
   { name: 'Id', type: 'string', description: '媒体项 ID。' },
   { name: 'Name', type: 'string', description: '标题。' },
@@ -72,11 +77,13 @@ const itemFields: readonly EmbyApiField[] = [
   { name: 'ImageTags', type: 'object', description: '图片类型与缓存标识；季缺少海报时使用剧集海报，单集缺少剧照时依次使用剧集横版图、剧集海报。' },
   { name: 'PremiereDate', type: 'string', description: 'UTC 首播时间；单集缺失时使用同季内最近一个更早集号的已知播出时间。' },
   { name: 'UserData', type: 'object', description: '收藏、已播放和进度等用户状态。' },
+  { ...unplayedItemCountField, name: 'UserData.UnplayedItemCount' },
   { name: 'MediaSources', type: 'array', description: '可播放媒体源及流地址。' },
 ]
 
 const itemsEnvelopeFields: readonly EmbyApiField[] = [
   { name: 'Items', type: 'array', description: '媒体项数组。' },
+  { ...unplayedItemCountField, name: 'Items[].UserData.UnplayedItemCount' },
   { name: 'TotalRecordCount', type: 'number', description: '匹配总数。' },
   { name: 'StartIndex', type: 'number', description: '本次结果的起始位置，部分兼容响应会省略。' },
 ]
@@ -121,6 +128,7 @@ const playStateRequest = `{
 const userDataFields: readonly EmbyApiField[] = [
   { name: 'IsFavorite', type: 'boolean', description: '是否收藏。' },
   { name: 'Played', type: 'boolean', description: '是否已看过；重播不清除，显式取消已看才重置。' },
+  unplayedItemCountField,
   { name: 'PlaybackPositionTicks', type: 'number', description: '续播位置；播放完成或手动标已看后为 0。已看过的作品重播时也可有断点。旧文件不可用时按可见替代版本的已知片长修正。' },
 ]
 
@@ -448,7 +456,7 @@ export const EMBY_API_ENDPOINTS: readonly EmbyApiEndpoint[] = [
       { name: 'Filters', location: 'query', type: 'string', description: '逗号分隔的过滤条件；IsFavorite 仅支持 Movie 和 Series，IsResumable 对同一剧集只返回最近播放的未完成集。' },
       { name: 'Fields', location: 'query', type: 'string', description: '可选字段列表；指定后仅按需返回 People、ProviderIds 和 MediaSources，省略时保持完整兼容响应。Episode 的 People 使用所属季演职员，不复制集级关联。' },
       { name: 'Recursive', location: 'query', type: 'boolean', description: '是否递归查询。' },
-      { name: 'SortBy / SortOrder', location: 'query', type: 'string', description: '排序字段和方向。红果库 DateCreated 按首次可见文件入库时间，DateLastContentAdded 按最近可见文件入库时间排序。' },
+      { name: 'SortBy / SortOrder', location: 'query', type: 'string', description: '排序字段和方向。DateCreated 保持各来源原有规则；DateLastContentAdded 按作品现存文件的最新入库时间排序，同一作品跨库共享时间，红果合集包含所有成员季。空时间排最后。' },
       { name: 'Limit / StartIndex', location: 'query', type: 'number', description: '按顶层 Metadata 分页，Limit 默认 50，最大 500；非空搜索在最多 100 条候选内分页。' },
     ],
     responses: [{ status: '200', contentType: 'application/json', description: '媒体项分页结构。', fields: itemsEnvelopeFields, example: itemsExample }],
@@ -550,7 +558,7 @@ export const EMBY_API_ENDPOINTS: readonly EmbyApiEndpoint[] = [
     id: 'items-latest',
     category: '媒体项',
     name: '最近入库',
-    description: '按可见文件的最新入库时间返回媒体项，默认隐藏已播放完成项。指定剧集库时按 Series 展示，红果短剧库按官方合集展示，补新集也会更新排序，不受是否存在 NFO 库影响；全局 Movie/Episode 候选与现有体系合并排序。',
+    description: '按现存文件的最新入库时间返回可见媒体项，默认隐藏已播放完成项。普通、NFO 作品及红果源作品维护最新时间；同一作品跨库共享时间，红果合集取所有成员季的最大值，删最新文件后回退。指定剧集库按 Series 展示，红果库按官方合集展示；全局仍返回 Movie/Episode。DateCreated 不变。',
     methods: ['GET'],
     path: '/Items/Latest',
     aliases: ['/Users/:userId/Items/Latest', '/items/latest'],
@@ -676,7 +684,7 @@ export const EMBY_API_ENDPOINTS: readonly EmbyApiEndpoint[] = [
       { name: 'format', location: 'query', type: 'string', description: 'webp（默认）、jpeg/jpg、png；无任何处理参数返回原图。有处理参数时每边最多 4096。' },
     ],
     responses: [
-      { status: '200', contentType: 'image/*', description: '返回原图或磁盘缓存变体；GIF、动图和处理失败回退原图且不缓存。图片不可用时返回缓存一小时的占位 PNG。HEAD 仅返回响应头（不含 index 的路由）。' },
+      { status: '200', contentType: 'image/*', description: '返回原图或磁盘缓存变体；GIF、动图和处理失败回退原图且不缓存。图片不可用时返回不缓存的占位 PNG，避免临时失败长期遮蔽封面。HEAD 仅返回响应头（不含 index 的路由）。' },
       { status: '304', contentType: '无正文', description: '图片未变更，条件请求不返回正文。' },
       { status: '400', contentType: 'text/plain; charset=utf-8', description: '找到图片但处理参数非法、重复或格式不支持。' },
     ],

@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"errors"
+	"strings"
 
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 )
@@ -66,7 +67,17 @@ func (r *MediaViewRepository) HongGuoItemsViews(ctx context.Context, itemIDs []s
 	if len(itemIDs) == 0 {
 		return []model.MediaView{}, nil
 	}
+	// 原生身份列先走索引，避免为当前页版本扫描全部绑定再拼接展示 ID。
+	workIDs, episodeIDs := []string{}, []string{}
+	for _, id := range itemIDs {
+		if workID, ok := strings.CutPrefix(id, "hg-work-"); ok {
+			workIDs = append(workIDs, workID)
+		} else if episodeID, ok := strings.CutPrefix(id, "hg-episode-"); ok {
+			episodeIDs = append(episodeIDs, episodeID)
+		}
+	}
 	q := r.db.WithContext(ctx).Table("hongguo_media_bindings AS b").Joins("JOIN hongguo_works AS w ON w.id = b.work_id")
+	q = q.Where("b.work_id = ANY(?) OR b.episode_id = ANY(?)", &workIDs, &episodeIDs)
 	q = q.Where("CASE WHEN w.kind = 'movie' AND b.episode_id IS NULL THEN 'hg-work-' || w.id WHEN w.kind = 'series' AND b.episode_id IS NOT NULL THEN 'hg-episode-' || b.episode_id ELSE '' END = ANY(?)", &itemIDs)
 	var ids []string
 	if err := q.Order("b.media_id").Pluck("b.media_id", &ids).Error; err != nil {

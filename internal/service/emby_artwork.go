@@ -43,14 +43,30 @@ func (e *EmbyService) ImageURL(ctx context.Context, id, imageType string) (strin
 		if !strings.EqualFold(imageType, "Primary") {
 			return "", nil
 		}
-		var nodes []hongGuoNode
-		if err := e.hongGuoNodes(ctx, "", "").Where("id = ?", id).Limit(1).Scan(&nodes).Error; err != nil {
-			return "", err
-		}
-		if len(nodes) == 0 || nodes[0].ArtworkID == "" {
+		artwork := e.repo.DB.WithContext(ctx).Table("hongguo_works AS w").
+			Joins("JOIN hongguo_artworks a ON a.work_id = w.id AND a.local_key <> ''")
+		switch {
+		case strings.HasPrefix(id, "hg-group-"):
+			artwork = artwork.Where("w.related_album_id = ? AND w.related_album_id <> '' AND w.kind = 'series' AND w.season_index > 0", strings.TrimPrefix(id, "hg-group-"))
+		case strings.HasPrefix(id, "hg-work-"):
+			artwork = artwork.Where("w.id = ? AND NOT (w.kind = 'series' AND w.related_album_id <> '' AND w.season_index > 0)", strings.TrimPrefix(id, "hg-work-"))
+		case strings.HasPrefix(id, "hg-season-"):
+			artwork = artwork.Where("w.id = ? AND w.kind = 'series'", strings.TrimPrefix(id, "hg-season-"))
+		default:
 			return "", nil
 		}
-		return "/api/catalogs/hongguo/artwork/" + nodes[0].ArtworkID, nil
+		// 图片只探测目标作品的可见文件；不展开季集或计算播放状态。
+		files := e.hongGuoVisibleFiles(ctx, "", "").Select("1").
+			Joins("JOIN hongguo_media_bindings b ON b.media_id = m.id").Where("b.work_id = w.id")
+		var artworkID string
+		if err := artwork.Where("EXISTS (? OFFSET 0)", files).Select("a.id").
+			Order("NULLIF(w.season_index,0) NULLS LAST,w.id").Limit(1).Scan(&artworkID).Error; err != nil {
+			return "", err
+		}
+		if artworkID == "" {
+			return "", nil
+		}
+		return "/api/catalogs/hongguo/artwork/" + artworkID, nil
 	}
 	if e.repo != nil && e.repo.Person != nil {
 		person, personErr := e.repo.Person.FindByID(ctx, id)

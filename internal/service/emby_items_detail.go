@@ -15,7 +15,7 @@ import (
 func (e *EmbyService) Item(ctx context.Context, mediaID, userID string) (map[string]any, error) {
 	if strings.HasPrefix(mediaID, "nfo-") {
 		var nodes []hongGuoNode
-		if err := e.nfoNodes(ctx, userID, "").Where("id = ?", mediaID).Scan(&nodes).Error; err != nil {
+		if err := e.nfoItemNodes(ctx, userID, mediaID).Where("id = ?", mediaID).Scan(&nodes).Error; err != nil {
 			return nil, err
 		}
 		if len(nodes) == 0 {
@@ -35,7 +35,7 @@ func (e *EmbyService) Item(ctx context.Context, mediaID, userID string) (map[str
 	}
 	if strings.HasPrefix(mediaID, "hg-") {
 		var nodes []hongGuoNode
-		if err := e.hongGuoNodes(ctx, userID, "").Where("id = ?", mediaID).Limit(1).Scan(&nodes).Error; err != nil {
+		if err := e.hongGuoItemNodes(ctx, userID, mediaID).Where("id = ?", mediaID).Limit(1).Scan(&nodes).Error; err != nil {
 			return nil, err
 		}
 		if len(nodes) == 0 {
@@ -141,19 +141,15 @@ func (e *EmbyService) legacyLatestItems(ctx context.Context, userID, parentID st
 	q := e.repo.DB.WithContext(ctx).Model(&model.Media{})
 	q = e.applyUserMediaVisibility(ctx, q, userID)
 	q = e.applyLatestPlayedFilter(ctx, q, userID, isPlayed)
+	var libraryIDs []string
 	if parentID != "" {
 		if episodic, err := e.libraryIsEpisodic(ctx, parentID); err == nil && episodic {
 			return e.latestSeriesItemsForLibrary(ctx, userID, parentID, limit, isPlayed, fields)
 		}
-		q = q.Where("media.library_id IN ?", e.mergedLibraryIDs(ctx, parentID))
+		libraryIDs = e.mergedLibraryIDs(ctx, parentID)
+		q = q.Where("media.library_id IN ?", libraryIDs)
 	}
-	var views []model.MediaView
-	var err error
-	if parentID != "" {
-		views, err = e.latestMetadataViews(ctx, q, userID, limit)
-	} else {
-		views, _, err = e.metadataPageWithCount(ctx, q, userID, metadataOrderSQL(ItemsParams{SortBy: "datecreated", SortOrder: "Descending"}, false), 0, limit, false)
-	}
+	views, err := e.latestMetadataViews(ctx, q, userID, libraryIDs, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -181,11 +177,12 @@ func (e *EmbyService) latestSeriesItemsForLibrary(ctx context.Context, userID, l
 	if limit <= 0 || limit > 100 {
 		limit = 20
 	}
+	libraryIDs := e.mergedLibraryIDs(ctx, libraryID)
 	q := e.repo.DB.WithContext(ctx).Model(&model.Media{}).
-		Where("media.library_id IN ? AND (media.season_num > 0 OR media.episode_num > 0)", e.mergedLibraryIDs(ctx, libraryID))
+		Where("media.library_id IN ? AND (media.season_num > 0 OR media.episode_num > 0)", libraryIDs)
 	q = e.applyUserMediaVisibility(ctx, q, userID)
 	q = e.applyLatestPlayedFilter(ctx, q, userID, isPlayed)
-	groups, err := e.latestSeriesGroups(ctx, q, limit)
+	groups, err := e.latestSeriesGroups(ctx, q, libraryIDs, limit)
 	if err != nil {
 		return nil, err
 	}

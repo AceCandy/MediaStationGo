@@ -35,6 +35,15 @@ func (r *MediaViewRepository) hongGuoSeriesScope(ctx context.Context, libraryID,
 	q := r.hongGuoFileScope(ctx, libraryID, filter).
 		Joins("JOIN hongguo_works w ON w.id = b.work_id").Joins(HongGuoAlbumJoin)
 	if seriesID != "" {
+		// 先用原生身份限定绑定；仅按展示 CASE 筛选会遍历整个库的文件。
+		if albumID, ok := strings.CutPrefix(seriesID, "hg-group-"); ok {
+			works := r.db.Table("hongguo_works").Select("id").Where("related_album_id = ? AND related_album_id <> '' AND kind = 'series' AND season_index > 0", albumID)
+			q = q.Where("b.work_id IN (?)", works)
+		} else if workID, ok := strings.CutPrefix(seriesID, "hg-work-"); ok {
+			q = q.Where("b.work_id = ?", workID)
+		} else {
+			q = q.Where("FALSE")
+		}
 		q = q.Where(hongGuoSeriesIdentity+" = ?", seriesID)
 	}
 	return q

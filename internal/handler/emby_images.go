@@ -83,7 +83,7 @@ func clearEmbyImageNoStoreHeaders(c *gin.Context) {
 
 func embyServePlaceholderImage(c *gin.Context) {
 	c.Header("Content-Type", "image/png")
-	c.Header("Cache-Control", "public, max-age=3600")
+	c.Header("Cache-Control", "no-store")
 	c.Header("Content-Length", strconv.Itoa(len(embyPlaceholderPNG)))
 	if c.Request.Method == http.MethodHead {
 		c.Status(http.StatusOK)

@@ -118,7 +118,7 @@ func (s *StatsService) Compute(ctx context.Context, dataDir string) (*Snapshot, 
 	snap.TotalSizeBytes = sum.Size
 	snap.TotalSeconds = sum.Seconds
 
-	recent, _, err := s.repo.MediaView.ListByLibrariesFiltered(ctx, activeLibraryIDs, 0, 12, repository.MediaQueryFilter{IncludeNSFW: true})
+	recent, err := s.repo.MediaView.ListRecentByLibraries(ctx, activeLibraryIDs, 12, repository.MediaQueryFilter{IncludeNSFW: true})
 	if err != nil {
 		return nil, err
 	}

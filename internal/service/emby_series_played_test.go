@@ -10,6 +10,14 @@ import (
 	"gorm.io/gorm"
 )
 
+func assertEmbyUnplayedCount(t *testing.T, item map[string]any, want int) {
+	t.Helper()
+	data, ok := item["UserData"].(map[string]any)
+	if !ok || (data["UnplayedItemCount"] != want && data["UnplayedItemCount"] != float64(want)) {
+		t.Fatalf("item=%v UnplayedItemCount want=%d, UserData=%v", item["Id"], want, data)
+	}
+}
+
 func TestEmbySeriesAndSeasonPlayedState(t *testing.T) {
 	svc := newTestEmbyService(t)
 	svc.SetRuntimeCache(NewRuntimeCacheService(nil, svc.log))
@@ -49,6 +57,11 @@ func TestEmbySeriesAndSeasonPlayedState(t *testing.T) {
 					t.Fatalf("list: %#v", page)
 				}
 				for _, payload := range []map[string]any{item, items[0]} {
+					want := 1
+					if played {
+						want = 0
+					}
+					assertEmbyUnplayedCount(t, payload, want)
 					data := payload["UserData"].(map[string]any)
 					if data["Played"] != played {
 						t.Fatalf("user=%s played=%v: %#v", userID, played, data)
@@ -128,11 +141,14 @@ func TestEmbyPlayedHierarchyScopeAndRollback(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	check := func(id string, played bool) {
+	check := func(id string, played bool, unplayed ...int) {
 		t.Helper()
 		item, err := svc.Item(t.Context(), id, "viewer")
 		if err != nil || item == nil || item["UserData"].(map[string]any)["Played"] != played {
 			t.Fatalf("item %s played=%v: %#v, %v", id, played, item, err)
+		}
+		if len(unplayed) > 0 {
+			assertEmbyUnplayedCount(t, item, unplayed[0])
 		}
 		parent, kind := lib.ID, "Series"
 		for _, seasonID := range seasons {
@@ -155,6 +171,9 @@ func TestEmbyPlayedHierarchyScopeAndRollback(t *testing.T) {
 		items := page["Items"].([]map[string]any)
 		for _, item := range items {
 			if item["Id"] == id {
+				if len(unplayed) > 0 {
+					assertEmbyUnplayedCount(t, item, unplayed[0])
+				}
 				if item["UserData"].(map[string]any)["Played"] != played {
 					t.Fatalf("list %s played=%v: %#v", id, played, page)
 				}
@@ -169,15 +188,16 @@ func TestEmbyPlayedHierarchyScopeAndRollback(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	check(series.ID, false)
+	check(series.ID, false, 4)
 	mark(seasons[0], true)
-	check(seasons[0], true)
-	check(seasons[1], false)
-	check(series.ID, false)
+	check(seasons[0], true, 0)
+	check(seasons[1], false, 2)
+	check(series.ID, false, 2)
 	for i, id := range episodes {
 		check(id, i < 2)
 	}
 	mark(series.ID, true)
+	check(series.ID, true, 0)
 	for _, id := range append(append([]string{series.ID}, seasons...), episodes...) {
 		check(id, true)
 	}
@@ -193,15 +213,23 @@ func TestEmbyPlayedHierarchyScopeAndRollback(t *testing.T) {
 		t.Fatal(err)
 	}
 	check(missing.ID, false)
-	check(seasons[1], false)
-	check(series.ID, false)
+	check(seasons[1], false, 1)
+	check(series.ID, false, 1)
 	mark(missing.ID, true)
-	check(series.ID, true)
+	check(series.ID, true, 0)
 	mark(episodes[2], false)
-	check(seasons[0], true)
-	check(seasons[1], false)
-	check(series.ID, false)
+	check(seasons[0], true, 0)
+	check(seasons[1], false, 1)
+	check(series.ID, false, 1)
 	mark(series.ID, false)
+	check(series.ID, false, 5)
+	if err := db.Model(&model.MetadataItem{}).Where("id IN ?", episodes[:2]).Update("nsfw", true).Error; err != nil {
+		t.Fatal(err)
+	}
+	check(series.ID, false, 3)
+	if err := db.Model(&model.MetadataItem{}).Where("id IN ?", episodes[:2]).Update("nsfw", false).Error; err != nil {
+		t.Fatal(err)
+	}
 	for _, id := range episodes {
 		check(id, false)
 	}

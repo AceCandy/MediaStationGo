@@ -58,6 +58,14 @@ per-user, per-metadata history state but playback events are append-only.
   or multipart replacement cannot infer completion. Do not rewrite snapshots or
   events on reads, and never downgrade a completed mark. A deleted source's late
   Emby report must not resolve to a different file and overwrite progress.
+- Bulk work candidates that only need completed identities use `CompletedPlaybackStates`.
+  Explicit completed marks form one branch; non-completed positive resume states
+  use the unchanged `PlaybackStates` replacement/threshold projection in the other.
+  Keep user and ordinary soft-delete filters on both branches. Do not infer that
+  raw `completed=false` means effectively unplayed, or run full resume projection
+  for every explicit completed mark just to produce a boolean filter.
+  Selective NFO Latest keeps identity-correlated `PlaybackStates`: replacing it
+  with the bulk UNION can turn a short page into a full user-state scan.
 - A concrete non-multipart playback report uses that file's known probe duration
   after validating client bounds; clamp position to that duration. Do not use a
   different version's duration. Multipart retains its reported group timeline.
@@ -96,6 +104,10 @@ per-user, per-metadata history state but playback events are append-only.
   Bound each source by StartIndex+Limit only after finding valid candidates;
   hydrate current-page items in batches. Never cap raw history or expand a
   whole catalog into display nodes to find successors.
+  Emby materializes valid candidates once per request and shares that result
+  between exact count and page selection, retaining the total on an empty page.
+  Do not run the effective-state/successor query separately for count and page.
+  Web retains its source-bounded candidate path without an exact count.
 - A Web continuation response keeps `{history, media}` and adds
   `history.is_next=true` for derived recommendations. A `next:<item ID>` history
   ID is a read-only projection, never persisted or included in full history or
@@ -347,3 +359,58 @@ Wrong: persist a zero-progress row for S02E01 just to display a recommendation,
 or limit the latest 20 history rows before discarding exhausted series.
 Correct: derive the next visible episode from current state, then page valid
 group candidates and return a read-only `is_next` projection.
+
+## Scenario: Emby poster unplayed episode count
+
+### 1. Scope / Trigger
+
+Ordinary, HongGuo and NFO Series/Season payloads on Items, Latest, detail and season lists;
+CollectionFolder library entries must not invent the same statistic.
+
+### 2. Signatures
+
+`UserData.UnplayedItemCount` is an integer, including explicit zero. Ordinary
+`playbackForContainers` supplies it alongside Played; source nodes carry the same field.
+`libraryAsView` omits this field on CollectionFolder and retains `Played=false`.
+
+### 3. Contracts
+
+Count distinct file-backed episode identities in the existing container visibility
+scope whose effective `PlaybackStates.completed` is false. Do not count versions,
+fileless catalog episodes, or container history. HongGuo albums sum source-work
+counts without merging identical season/episode numbers across sources. Extend the
+existing page aggregate, with no extra query or persistent counter. Preserve Played,
+candidate filters, total counts and sorting; ordinary Latest's filtered summary
+is not a valid total from which to subtract watched episodes.
+Library entries have no computed unplayed count: omit the key rather than return a
+placeholder zero that clients may interpret as fully watched. Do not add full-library
+statistics just to populate library cards.
+
+### 4. Validation & Error Matrix
+
+All episodes watched -> 0; new visible episode or explicit unwatch -> count rises;
+invisible or fileless episode -> no contribution. Existing request/query error behavior remains.
+CollectionFolder -> absent key, not zero; Series/Season with all episodes watched -> zero.
+
+### 5. Good / Base / Bad Cases
+
+Good: 20 visible episodes, 6 watched, 40 catalog episodes -> 14. Base: no history
+counts all visible episodes. Bad: 40 minus 6, or counting alternate files twice.
+Bad: infer a library's completion from an uncomputed zero counter.
+
+### 6. Tests Required
+
+`TestEmbySeriesAndSeasonPlayedState`, `TestEmbyPlayedHierarchyScopeAndRollback`,
+`TestEmbyLatestSeriesKeepsPartiallyPlayedWorkInBothLists`, `TestHongGuoLibraryPagingAndLatest`,
+`TestHongGuoLibraryPageMatchesHierarchy`, `TestNFOPosterUnplayedCounts`, and
+`TestEmbyHongGuoDetailClickRoutes` assert payload counts, zero, versions, user isolation,
+new files and effective completion. Keep PostgreSQL page-plan regressions and API catalog sync.
+`TestEmbyLibraryDoesNotClaimUnplayedCount` covers every library type and preserves
+Played=false. Actual third-party client badge behavior requires device acceptance.
+
+### 7. Wrong vs Correct
+
+Wrong: fill emptyUserData with a constant zero or add per-poster history queries.
+Correct: project a distinct conditional count from the existing container aggregate.
+Wrong: give every CollectionFolder `UnplayedItemCount: 0`.
+Correct: omit the uncomputed library statistic while retaining real Series/Season counts.

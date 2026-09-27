@@ -74,7 +74,14 @@ func (e *EmbyService) mediaItems(ctx context.Context, p ItemsParams) (map[string
 		q = q.Where("media.metadata_id IN (?)", selectedIDs)
 	}
 
-	views, total, err := e.metadataPage(ctx, q, p.UserID, metadataOrderSQL(p, resumeFilter), p.StartIndex, p.Limit)
+	var views []model.MediaView
+	var total int64
+	var err error
+	if resumeFilter {
+		views, total, err = e.metadataPage(ctx, q, p.UserID, metadataOrderSQL(p, true), p.StartIndex, p.Limit)
+	} else {
+		views, total, err = e.metadataWorkPage(ctx, q, p)
+	}
 	if err != nil {
 		return nil, err
 	}

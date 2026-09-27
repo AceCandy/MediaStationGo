@@ -145,29 +145,28 @@ details, and rankings. A real PostgreSQL test must execute every branch.
 
 ### Emby Series Pagination Query Boundary
 
-`seriesMetadataPageWithCount` materializes the visible file scope with
-`WITH scoped_media AS MATERIALIZED (...)` before joining seasons and series.
-A lateral season lookup with `OFFSET 0` does not prevent PostgreSQL from
-scanning the whole metadata catalog and probing `media` once per episode.
-Keep library, visibility and played filters inside the file scope; apply
-person and favorite filters through `applySeriesPageFilters` after the series
-alias exists, consistently for count, page and summary queries. Preserve
-`created_at` in the CTE for every supported sort. Latest skips the count.
+`seriesMetadataPage` delegates to `seriesWorkPage`: persisted work membership
+prefilters Series, then the original visible episode scope checks eligibility.
+Keep library, visibility and played filters inside that scope. Apply person
+and favorite filters through `applySeriesPageFilters` after the Series alias
+exists, consistently for count, page and summary queries. Materialize qualified
+work IDs/ordinals once for count/page, retaining accurate totals on empty pages.
+Only file-dependent sorts compute file dates; DateLastContentAdded uses work time.
+Latest skips the count. Keep the catalog-larger-than-files plan regression:
+work-first is not permission to probe every empty episode in the catalog.
 
-For `IsFavorite`, use `AS NOT MATERIALIZED` for both count and page so the
-planner can start from the user's favorites and look up only their files.
-Unconditional materialization makes a small favorites page scan the entire
-visible file scope. Keep ordinary browsing materialized; do not generalize
-this exception to other filters without execution-plan evidence.
+Web Series ordering still needs episode release/year/file-time fallback and
+retains its validated library-scoped file boundary, with page-only display
+aggregates. Do not force all consumers into one SQL shape; see
+`work-level-queries.md` for the shared responsibility contract and exceptions.
 
-Library-scoped `LatestItems` must not apply a raw `LIMIT` before logical work
-grouping. Keyset-page file candidates by `(created_at, id)`, resolve metadata
-or series IDs, and scan through the selected page's final `created_at` boundary
-before applying the ID tie break. This keeps same-time ordering exact while
-letting the existing `(library_id, created_at DESC)` index avoid full-library
-aggregation. `TestEmbyLatestItemsPaginatesMetadataBeforeLoadingVersions` and
-`TestEmbyLatestSeriesItemsContinueThroughCandidateTimeTie` cover the batch and
-tie boundaries.
+Library-scoped `LatestItems` orders persisted work timestamps, with eligibility
+before the final LIMIT. Ordinary candidates use persisted `library_ids`, not
+Media-member enumeration or a bounded global Series prefix. Unknown membership
+passes through to the original eligibility checks. See the Latest contract in
+`shared-media-metadata.md`. `TestEmbyLatestItemsPaginatesMetadataBeforeLoadingVersions`
+and `TestEmbyLatestSeriesItemsContinueThroughCandidateTimeTie` retain multi-version,
+tie, cross-library and many-unrelated-recent-works regression coverage.
 
 `TestEmbySeriesPaginationDoesNotProbeFilesForWholeCatalog` must execute on
 PostgreSQL and check plan loops, totals, empty pages, sorting and filtered
@@ -175,6 +174,10 @@ summaries. SQL shape alone is insufficient evidence of the join order.
 For plans involving PostgreSQL array parameters, retain SQL placeholders and
 bound values; GORM's interpolated log text (for example `'[hidden]'`) is not
 an executable PostgreSQL array literal and must not be replayed as SQL.
+Replay captured `$n` SQL through `db.Statement.ConnPool.QueryRowContext` with its
+original variables. GORM `Raw` treats SQL containing `@>` as named-parameter SQL
+and can drop those positional variables; do not mistake that replay error for a
+production query error.
 
 ### Favorite Cards and Season Recheck Scopes
 
@@ -637,6 +640,101 @@ Wrong: silently fall back to a file database when the PostgreSQL DSN is absent.
 Correct: fail startup with a concrete configuration error so deployment mistakes are visible.
 
 ---
+
+## Scenario: Persisted latest media time
+
+### 1. Scope / Trigger
+
+Applies to recent-work reads and every file, binding or hierarchy mutation.
+
+### 2. Signatures
+
+`EnsureLatestMediaAddedTriggers(*gorm.DB) error` is installed by `AutoMigrate`.
+`metadata_items`, `nfo_items`, and `hongguo_works` have nullable
+`latest_media_added_at` timestamps. GORM fields are read-only (`gorm:"->"`).
+Ordinary and HongGuo works also have nullable, internal JSONB `library_ids`
+(`*string`, read-only, `json:"-"`). NFO already owns a single `LibraryID`.
+`FilterWorkLibraries(q, column, libraryIDs)` is a candidate-only filter; the column
+name is an internal SQL alias, never external input.
+The SQL maintenance function is internal; no API or scheduled backfill exists.
+
+### 3. Contracts
+
+The timestamp is `MAX(media.created_at)` over currently existing attached files,
+across libraries. Ordinary/NFO ancestors include their own and descendant files.
+HongGuo stores source-work time only; album reads aggregate all member works,
+including members without a file in the current library. Visibility remains a
+separate query constraint. Null timestamps sort last with a stable identity tie.
+
+`library_ids` is the sorted distinct set of nonempty current file library IDs
+over the same ordinary descendants or HongGuo source bindings. SQL NULL means
+not initialized, while `[]` means computed and empty. Recompute it together with
+the timestamp; a library-only Media update must enter maintenance. Removing one
+version keeps its library until that library's last file leaves. HongGuo albums
+derive membership from current member works, never a persisted first-season union.
+
+Use GIN for JSONB membership and a partial time/ID index `WHERE library_ids IS NULL`
+for the unknown branch. GIN alone cannot support the whole nullable OR predicate;
+the small-library plan regression must prevent a full metadata scan. The helper
+encodes each requested ID as a JSON array and binds one `jsonb[]` parameter with
+`@> ANY`, retaining NULL candidates for exact file/state qualification. Empty
+library input adds no restriction; callers preserve their locked-empty sentinel.
+This field never grants permissions or replaces effective playback state.
+
+Statement transition tables collect changed identities, including both old and
+new parents/bindings. Lock affected entities with `FOR NO KEY UPDATE` in ID order;
+take a fresh snapshot after waiting and re-expand ancestors until all are locked.
+Recompute only affected entities, not the entire catalog. Derived-only updates
+must not recursively refresh or enqueue provider rechecks. Keep transitions free
+of `UPDATE OF` column dependencies so repeated GORM migrations remain possible.
+
+Installation creates schema/indexes/triggers only. Historical values are filled
+once operationally, after maintenance is installed and writes are coordinated;
+never ship a startup, scheduled or permanent historical backfill entry point.
+Coordinate live schema changes with runtime prepared connections before rollout.
+New columns have no empty-array default or startup backfill: legacy NULL records
+remain eligible for the old exact checks until an approved one-time backfill.
+
+### 4. Validation & Error Matrix
+
+- New file / changed timestamp: update the attached item and ancestors.
+- Delete newest: fall back; delete last: null; rollback: preserve prior state.
+- Rebind / reparent: refresh old and new ancestry in the same transaction.
+- Metadata Save / repeated scan: cannot overwrite derived timestamps.
+- Database mutation failure: roll back; do not swallow maintenance errors.
+- Pure library move: remove/add affected membership without changing global time.
+- Missing/empty library ID: omit from the set; retain ordinary timestamp semantics.
+- Unknown membership: exact eligibility still rejects hidden or unrelated files.
+
+### 5. Good/Base/Bad Cases
+
+Good: a file added in library B moves the same work forward in A without exposing
+B's files. Base: deletion falls back to the latest surviving version. Bad: use
+metadata `updated_at`, persist album time on an arbitrary representative season,
+or let a stale GORM object clear the derived field.
+Bad: interpret SQL NULL as an empty set, silently hiding historical works.
+
+### 6. Tests Required
+
+`TestLatestMediaAdded` covers mutations, cascade deletion, stale Save, independent
+schema-pinned concurrent connections, rollback and repeated migration.
+It also checks library moves, ancestor refresh, concurrent HongGuo binding/delete,
+stale Save/UpdateAll and no recheck enqueue on a library-only change.
+`TestRecentWorkTimeSharedAcrossLibraries` and `TestHongGuoLibraryPagingAndLatest`
+cover cross-library ordering and album members invisible in the current library.
+Real PostgreSQL plans must show date-only work candidates use file existence,
+not all-file date aggregation. Playback filters remain dynamic and may cost more.
+`TestRecentLibraryMembershipAcrossSources` compares known/unknown complete payloads,
+multiple/hidden/locked libraries, cross-library global dates, last-file deletion,
+moves, album regrouping and a fileless first-season representative.
+
+### 7. Wrong vs Correct
+
+Wrong: order visible files by time, then infer global work time from that subset.
+Correct: order eligible works by their stored global time, then hydrate visible
+page contents. Preserve `DateCreated` and file-version selection contracts.
+Wrong: remove qualification because an ID appears in `library_ids`.
+Correct: prefilter membership, then apply the original visibility/state checks.
 
 ## Naming Conventions
 

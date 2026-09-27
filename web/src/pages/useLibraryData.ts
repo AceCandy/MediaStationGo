@@ -45,6 +45,9 @@ export function useLibraryData(libraryID: string, filters: LibraryMediaFilters) 
   const isSeriesLibrary = isSeriesLibraryType(library?.type) || library?.type === 'hongguo'
   const episodeKey = seriesID ? `metadata:${seriesID}` : seriesKey
   const isSeriesDetail = isSeriesLibrary && !!episodeKey
+  const linkedCard = linkedSeries?.target === target ? linkedSeries.card : null
+  const episodeSeason = requestedSeason ?? linkedCard?.seasons?.find((season) => season > 0) ?? linkedCard?.seasons?.[0]
+  const waitingForSeason = requestedSeason === undefined && linkedSeries?.target !== target
   const hasEpisodicItems = useMemo(() => items.some(isEpisodeLike), [items])
   const isSeries = isSeriesLibrary || serverSeriesCards.length > 0 || hasEpisodicItems
 
@@ -174,11 +177,17 @@ export function useLibraryData(libraryID: string, filters: LibraryMediaFilters) 
       setLoadingSeriesEpisodes(false)
       return
     }
+    // 无季号的旧链接先等待可见季摘要，不用整剧文件列表推导默认季。
+    if (episodeSeason === undefined) {
+      setSeriesEpisodeItems([])
+      setLoadingSeriesEpisodes(waitingForSeason)
+      return
+    }
     let cancelled = false
     const controller = new AbortController()
     setLoadingSeriesEpisodes(true)
     setSeriesEpisodeItems([])
-    libraryAPI.listSeriesEpisodes(libraryID, episodeKey, requestedSeason, controller.signal)
+    libraryAPI.listSeriesEpisodes(libraryID, episodeKey, episodeSeason, controller.signal)
       .then((r) => {
         if (!cancelled) {
           setSeriesEpisodeItems(r.items ?? [])
@@ -196,7 +205,7 @@ export function useLibraryData(libraryID: string, filters: LibraryMediaFilters) 
         if (!cancelled) setLoadingSeriesEpisodes(false)
       })
     return () => { cancelled = true; controller.abort() }
-  }, [libraryID, library, isSeriesLibrary, episodeKey, requestedSeason, userID, profileID, sessionVersion])
+  }, [libraryID, library, isSeriesLibrary, episodeKey, episodeSeason, waitingForSeason, userID, profileID, sessionVersion])
 
   const reloadCurrentLibrary = useCallback(() => {
     setLibrary((current) => (current ? { ...current } : current))

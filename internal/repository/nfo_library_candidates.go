@@ -6,25 +6,46 @@ import (
 	"gorm.io/gorm"
 )
 
-// NFOLibraryCandidates 只投影顶层作品及分页所需字段；展示状态由页内节点补充。
-func (r *MediaViewRepository) NFOLibraryCandidates(ctx context.Context, userID, libraryID string, filter MediaQueryFilter, dates, played bool) *gorm.DB {
+// NFOWorkCandidates 供库内与全局作品列表共用；dateAggregate 仅接受内部固定的 MIN/MAX，空串不读取文件日期。
+func (r *MediaViewRepository) NFOWorkCandidates(ctx context.Context, userID, libraryID string, filter MediaQueryFilter, dateAggregate string, played, latest bool) *gorm.DB {
 	db := r.db.WithContext(ctx)
-	files := r.nfoViewQuery(ctx, filter).Where("m.library_id = ?", libraryID)
-	q := db.Table("nfo_items root").Where("root.library_id = ? AND root.kind IN ('movie','series') AND root.parent_id IS NULL", libraryID)
-	fields := "root.id, root.title, root.kind, root.season_num AS season_number, root.episode_num AS episode_number"
-	if !dates && !played {
-		files = files.Joins("JOIN (SELECT root.id UNION ALL SELECT ep.id FROM nfo_items season JOIN nfo_items ep ON ep.parent_id = season.id WHERE season.parent_id = root.id AND ep.kind = 'episode') leaf ON leaf.id = b.item_id")
-		return q.Select(fields).Where("EXISTS (? OFFSET 0)", files.Select("1"))
+	files := r.nfoViewQuery(ctx, filter)
+	q := db.Table("nfo_items root").Where("root.kind IN ('movie','series')")
+	if libraryID != "" {
+		files = files.Where("m.library_id = ?", libraryID)
+		q = q.Where("root.library_id = ? AND root.parent_id IS NULL AND root.latest_media_added_at IS NOT NULL", libraryID)
 	}
-	selection := "COALESCE(nw.id,ni.id) AS id"
-	if dates {
-		selection += ", MIN(m.created_at) AS created_at"
+	if len(filter.AllowedLibraryIDs) > 0 {
+		q = q.Where("root.library_id = ANY(?)", &filter.AllowedLibraryIDs)
+	}
+	if len(filter.HiddenLibraryIDs) > 0 {
+		q = q.Where("root.library_id <> ALL(?)", &filter.HiddenLibraryIDs)
+	}
+	if latest {
+		// Latest 先排序轻量条目，之后再检查可见文件与状态；不能在过滤前 LIMIT。
+		q = db.Table("(? ORDER BY season_num, episode_num, latest_media_added_at DESC NULLS LAST, id OFFSET 0) root", q.Select("*"))
+	}
+	fields := `root.id, root.title, root.kind, root.rating, root.release_date, root.year,
+root.season_num AS season_number, root.episode_num AS episode_number, root.latest_media_added_at AS latest_at,
+EXISTS (SELECT 1 FROM nfo_user_states fav WHERE fav.item_id=root.id AND fav.user_id=? AND fav.favorite) AS favorite`
+	// 沿季定位分集，避免相关子查询被改成逐作品扫描整个分集目录。
+	files = files.Joins(`JOIN (SELECT root.id UNION ALL
+SELECT ep.id FROM nfo_items season JOIN LATERAL (
+SELECT id FROM nfo_items WHERE parent_id = season.id AND kind = 'episode' OFFSET 0
+) ep ON TRUE WHERE season.parent_id = root.id) leaf ON leaf.id = b.item_id`)
+	if dateAggregate == "" {
+		q = q.Where("EXISTS (? OFFSET 0)", files.Session(&gorm.Session{}).Select("1"))
+		fields += ", NULL::timestamp AS created_at"
+	} else {
+		q = q.Joins("JOIN LATERAL (?) stats ON stats.created_at IS NOT NULL", files.Session(&gorm.Session{}).Select(dateAggregate+"(m.created_at) AS created_at"))
 		fields += ", stats.created_at"
 	}
 	if played {
-		files = files.Joins("LEFT JOIN (?) state ON state.item_id = ni.id", PlaybackStates(ctx, r.db, "nfo", userID, filter))
-		selection += ", BOOL_AND(COALESCE(state.completed,FALSE)) AS played"
-		fields += ", stats.played"
+		// 按分集定位状态，保留 Latest 的索引探测；集合型已看 UNION 会使短页读取全部用户状态。
+		completed := db.Table("(?) state", PlaybackStates(ctx, r.db, "nfo", userID, filter)).
+			Select("1").Where("state.item_id = ni.id AND state.completed")
+		unplayed := files.Session(&gorm.Session{}).Select("1").Where("NOT EXISTS (?)", completed)
+		return q.Select(fields+", NOT EXISTS (?) AS played", userID, unplayed)
 	}
-	return q.Joins("JOIN (?) stats ON stats.id = root.id", files.Select(selection).Group("COALESCE(nw.id,ni.id)")).Select(fields)
+	return q.Select(fields+", FALSE AS played", userID)
 }

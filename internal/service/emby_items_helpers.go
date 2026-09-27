@@ -95,7 +95,7 @@ func primarySupportedEmbySort(sortBy string, resumeFilter bool) string {
 	for _, part := range strings.Split(sortBy, ",") {
 		key := strings.ToLower(strings.TrimSpace(part))
 		switch key {
-		case "sortname", "name", "premieredate", "productionyear", "datecreated", "communityrating":
+		case "sortname", "name", "premieredate", "productionyear", "datecreated", "datelastcontentadded", "communityrating":
 			return key
 		case "dateplayed":
 			if resumeFilter {

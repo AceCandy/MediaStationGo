@@ -83,3 +83,24 @@ func PlaybackStates(ctx context.Context, db *gorm.DB, source, userID string, fil
 	}
 	return q
 }
+
+// CompletedPlaybackStates 只返回有效已看身份；显式已看无需定位替代版本。
+// 未显式完成且有断点的记录仍复用 PlaybackStates，保留删文件后按替代片长判定完成的规则。
+func CompletedPlaybackStates(ctx context.Context, db *gorm.DB, source, userID string, filter MediaQueryFilter) *gorm.DB {
+	db = db.WithContext(ctx)
+	table, identity := "playback_histories", "metadata_id"
+	switch source {
+	case "hongguo":
+		table, identity = "hongguo_user_states", "source_id,episode_number"
+	case "nfo":
+		table, identity = "nfo_user_states", "item_id"
+	}
+	completed := db.Table(table+" h").Select(identity).Where("h.user_id=? AND h.completed", userID)
+	if table == "playback_histories" {
+		completed = completed.Where("h.deleted_at IS NULL")
+	}
+	progress := PlaybackStates(ctx, db, source, userID, filter).
+		Where("h.completed IS NOT TRUE AND COALESCE(h.resume_position_ms,h.position_ms,0)>0")
+	derived := db.Table("(?) state", progress).Select(identity).Where("completed")
+	return db.Table("(?) completed_states", db.Raw("? UNION ALL ?", completed, derived))
+}

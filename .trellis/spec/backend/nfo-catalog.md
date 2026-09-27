@@ -61,13 +61,35 @@ confirmed there are no existing NFO libraries.
 - In the retained local scraping path, `applyLocalMetadataMatch` must pass the
   merged `next` object to `persistLocalMetadata`. Passing the original media
   drops newly read episode coordinates and binds the file to the Series.
-- 指定 NFO 库作品浏览由 `NFOLibraryCandidates` 先分页，`NFOWorkNodes`
-  仅展开页内作品文件。标题且无播放筛选使用 EXISTS；日期/播放筛选一次按作品
-  分组汇总，不能逐作品重复全库状态查询。文件、条目、祖先和库权限须在分页前生效。
-- 指定库 Latest 不计算作品总数；普通列表越界页仍返回准确总数。保留既有
-  Emby DateCreated/MIN 与 Web MAX 文件时间排序，特殊筛选和季集路径保持原路由。
+- 指定 NFO 库及全局 Movie/Series 浏览共用 `NFOWorkCandidates`，`NFOWorkNodes`
+  仅展开页内作品文件。非 DateCreated 候选先排除最新文件时间为空的作品，
+  用 EXISTS 保留当前库可见文件资格；全部已看等价于不存在未看可见文件，
+  必须复用 `PlaybackStates` 的有效状态，不能只读原始 completed。按分集身份关联状态以保留 Latest 的有界索引探测；不要把集合型已看 UNION 直接套入短页查询，十万文件计划曾因此扫描全部用户状态。
+  沿季通过 LATERAL/`OFFSET 0` 定位分集，防止相关查询反复扫描分集目录。
+  仅请求已看筛选时计算候选状态。库内 DateCreated 使用 MIN、全局使用 MAX；名称/评分/最新入库排序不聚合文件日期。
+  文件、条目、祖先和库权限须在分页前生效。
+- 指定库 Latest 不计算作品总数；普通列表越界页仍返回准确总数。Emby DateCreated/MIN
+  保持不变；Latest、DateLastContentAdded 与 Web 最近添加读取条目的
+  `latest_media_added_at`，空值最后，特殊筛选和季集路径保持原路由。
+- For count-free descending DateLastContentAdded, `NFOWorkCandidates` orders
+  the library's nonempty top-level items behind `OFFSET 0`, preserving season/
+  episode-number precedence, before checking files and playback state. The caller
+  uses `NOT MATERIALIZED` only on this Latest path; do not exhaust eligibility for
+  every item before sorting. Never LIMIT the root candidates before qualification.
+  Counted lists and DateCreated retain their existing materialization and totals.
 - Web `nfoLibraryPage` 候选只计算身份和排序时间，页内才统计代表文件、集数、
   版本数；缺图/中文标题过滤在候选及统计阶段保持一致。
+- Detail, child hierarchy and version reads share `nfoItemViewQuery`: resolve the
+  requested items, immediate episodes and season descendants once, then constrain
+  `b.item_id = ANY(ARRAY(...))` before the unchanged visibility/state projection.
+  `nfoWorkFileItems` uses UNION to deduplicate overlapping series/season/episode
+  inputs and a lateral `OFFSET 0` to bound descendant reads. A plain joined leaf
+  subquery can overestimate cardinality and hash-scan all items; an outer Media
+  fence alone can instead scan all bindings. Verify actual plans, not SQL shape.
+  Scoped nodes may include partial ancestors: callers must still filter the
+  requested node/parent; never use a leaf-scoped ancestor as a whole-series summary.
+  Mixed Items and Resume/NextUp hydration use `nfoItemNodes(ctx, userID, ids...)`
+  and the same `NFOWorkNodes` scope, not full-catalog `nfoNodes` followed by outer IDs.
 
 ## 4. Validation & Error Matrix
 
@@ -109,9 +131,19 @@ cards/episodes/recent items, SearchHints, hierarchy, favorites, played state,
 resume grouping and hidden-library filtering. Browser/device playback remains
 a separate manual acceptance step.
 `TestNFOLibraryPagingMatchesHierarchy` 对比原层级完整响应、播放筛选、权限、排序与越界页；
-`TestNFOLibraryMovieVersionsAndFilters` 覆盖电影版本和文件资料筛选。
-`TestNFOLibraryPagePlans` 使用十万绑定执行真实 EXPLAIN ANALYZE，断言标题候选
-和页内详情不扫描全库绑定，并确认 Latest 不计作品总数。
+`TestNFOLibraryMovieVersionsAndFilters` 覆盖电影版本、文件资料筛选及删除旧版本后的有效已看候选。
+`TestNFOLibraryPagePlans` 使用十万绑定、2.5 万条有效状态执行真实 EXPLAIN ANALYZE，
+断言标题/DateLastContentAdded 候选及页内详情不扫描全库绑定、状态或逐作品重扫分集目录。
+同时核对结果顺序、总数，确认 Latest 不计作品总数；DateCreated 必须单独保留回归，
+不能把只测 DateCreated 的用例当成 Latest 性能验证。
+The same plan fixture covers series/season/episode detail, child lists and
+versions, including payload SQL. Bound visits as `(rows + filtered) * loops`;
+`TestNFOLibraryPagingMatchesHierarchy` compares scoped nodes under ancestor NSFW,
+hidden/empty/allowed library permissions and watched state. The repository batch
+test compares original OR queries with scoped movie/series/season/episode reads
+and overlapping parent/child inputs, retaining every visible version exactly once.
+The 100,000-file plan fixture also checks mixed-page payload SQL. The global browse
+oracle compares complete batch nodes with the original hierarchy, including counts.
 
 ## 7. Wrong vs Correct
 

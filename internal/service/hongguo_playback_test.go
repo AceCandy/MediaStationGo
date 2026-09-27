@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/ShukeBta/MediaStationGo/internal/config"
+	"github.com/ShukeBta/MediaStationGo/internal/database"
 	"github.com/ShukeBta/MediaStationGo/internal/hongguo"
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 	"github.com/ShukeBta/MediaStationGo/internal/repository"
@@ -22,6 +23,9 @@ func TestHongGuoEmbyPlayableIdentityAndUserState(t *testing.T) {
 	e := NewEmbyService(&config.Config{}, zap.NewNop(), repository.New(db))
 	ctx := t.Context()
 	if err := e.repo.DB.AutoMigrate(model.AllModels()...); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.EnsureLatestMediaAddedTriggers(db); err != nil {
 		t.Fatal(err)
 	}
 	library := model.Library{Name: "红果", Path: "/test/hg", Type: model.LibraryTypeHongGuo}
@@ -112,6 +116,10 @@ func TestHongGuoEmbyPlayableIdentityAndUserState(t *testing.T) {
 	credits, err := e.Items(ctx, ItemsParams{UserID: "user-a", ParentID: library.ID, PersonIDs: []string{personID}, Limit: 50})
 	if err != nil || credits["TotalRecordCount"] != int64(1) {
 		t.Fatalf("source person credits: %v %v", credits, err)
+	}
+	credits, err = e.Items(ctx, ItemsParams{UserID: "user-a", PersonIDs: []string{personID}, IncludeItemTypes: []string{"Movie", "Series"}, Recursive: true, SortBy: "SortName", Limit: 50})
+	if err != nil || credits["TotalRecordCount"] != int64(1) || credits["Items"].([]map[string]any)[0]["Id"] != id {
+		t.Fatalf("global person works: %v %v", credits, err)
 	}
 	if err := e.MarkPlayed(ctx, "user-a", id, true); err != nil {
 		t.Fatal(err)

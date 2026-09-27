@@ -64,6 +64,14 @@ func TestPlaybackStateReplayAndDeletedVersion(t *testing.T) {
 				if data["Played"] != played || data["PlaybackPositionTicks"] != position*10_000 {
 					t.Fatalf("state=%v want played=%v position=%d", data, played, position)
 				}
+				var completed int64
+				var expectedCompleted int64
+				if played {
+					expectedCompleted = 1
+				}
+				if err := repository.CompletedPlaybackStates(t.Context(), db, source, "viewer", repository.MediaQueryFilter{IncludeNSFW: true}).Count(&completed).Error; err != nil || completed != expectedCompleted {
+					t.Fatalf("completed candidates=%d played=%v err=%v", completed, played, err)
+				}
 				web, err := p.ContinueHistory(t.Context(), "viewer", 20, visibility)
 				if err != nil || len(web) != resumes {
 					t.Fatalf("web resumes=%v err=%v", web, err)
@@ -122,6 +130,10 @@ func TestPlaybackStateReplayAndDeletedVersion(t *testing.T) {
 				}
 				if len(states) != wantRows || (len(states) > 0 && states[0].Completed != wantPlayed) {
 					t.Fatalf("projection user=%s states=%+v", user, states)
+				}
+				var completed int64
+				if err := repository.CompletedPlaybackStates(t.Context(), db, source, user, filter).Count(&completed).Error; err != nil || completed != 0 {
+					t.Fatalf("completed visibility user=%s rows=%d err=%v", user, completed, err)
 				}
 			}
 			checkProjection("another-user", repository.MediaQueryFilter{IncludeNSFW: true}, false, 0)

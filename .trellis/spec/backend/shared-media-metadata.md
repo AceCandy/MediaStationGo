@@ -1,5 +1,38 @@
 # Shared Media Metadata Contract
 
+Recent work ordering uses the persisted `latest_media_added_at` contract in
+[database-guidelines.md](./database-guidelines.md#scenario-persisted-latest-media-time).
+`ListRecentLogicalWorks` pages ordinary/NFO/HongGuo identities using global work
+time and file existence; restore that page order after source-specific hydration.
+`ListRecentByLibraries` deduplicates visible representatives for statistics.
+Web final card sorting must not replace this time with file `CreatedAt` or metadata
+`UpdatedAt`. Emby Latest and DateLastContentAdded use work time; DateCreated and
+default release-date listing remain unchanged.
+
+Ordinary Emby `latestMetadataViews` / `latestSeriesGroups` exclude works with
+NULL latest time; the timestamp never replaces library eligibility or playback
+filters. Both library-scoped candidates use `FilterWorkLibraries` over persisted
+`library_ids`, ordering the complete candidate superset behind `OFFSET 0` before
+the unchanged eligibility EXISTS. Do not reintroduce full-library Media identity
+enumeration or the retired 512-work prefix/fallback. Global Latest keeps its prior
+scope. Unknown library sets pass through to exact checks; no pre-filter LIMIT is
+allowed. Web `ListRecentLogicalWorks` applies the same prefilter for explicit
+allowed libraries on ordinary/HongGuo candidates; hidden-library and other file
+filters still apply independently, and NFO retains its single-library identity.
+Keep `EXISTS (... OFFSET 0)` for episode qualification and reuse effective state.
+Ordinary
+Latest filters episodes before Series grouping: a partially watched Series can
+appear in both played and unplayed lists, with counts scoped to matching episodes.
+`TestEmbyLatestCandidatePlans` verifies real PostgreSQL plans with multiple seasons,
+versions and populated playback history, with the target library both newer and
+older than other libraries, including small libraries. Capture actual SQL with
+bound variables, never replay interpolated array parameters. Bound repeated file work and correlated subplan loops,
+not only the number of hydrated results; empty results may exhaust candidates. The partial-playback
+contract is covered by `TestEmbyLatestSeriesKeepsPartiallyPlayedWorkInBothLists`.
+`TestEmbyLatestSeriesItemsContinueThroughCandidateTimeTie` also covers cross-library
+time, deletion fallback, many unrelated recent works and unknown membership.
+Do not truncate candidates to achieve a performance target.
+
 ## Scenario: Season-Batched Episode Metadata and Season-Owned Credits
 
 ### 1. Scope / Trigger
@@ -127,13 +160,19 @@ supersedes older requirements for per-Episode extended responses and credits.
   multipart/version preference rules; no file rows are truncated at the scope boundary.
 - Filtered Movie pages join Movie metadata directly, without Season/Series
   hierarchy expansion. Keep the existing multipart primary selection and
-  preferred-version ordering. If the logical count is zero, skip the page and
-  file-view queries. Ordinary Movie browsing retains its existing query scope.
+  preferred-version ordering. `libraryMoviePage` first qualifies work candidates
+  using persisted membership and the original visible-file scope. A lateral
+  first-version lookup supplies the original sort date; only selected works
+  count versions. Count/page share one candidate CTE, including empty pages;
+  no file views are loaded for an empty result. Keep Part minima library-scoped,
+  even when an existing Part group spans metadata identities.
 - `seriesMetadataPage` receives the visible Media/episode scope without the
-  Season/Series joins. Count/page use a correlated Season `LATERAL` query with
-  `OFFSET 0` to prevent catalog-first join expansion. Keep parent-kind checks;
-  the offset is an optimizer boundary, not a row limit. Current-page summaries
-  retain ordinary `seriesScopeQuery` joins so explicit Series IDs stay selective.
+  Season/Series joins. `seriesWorkPage` and `metadataWorkPage` select work IDs
+  with persisted membership plus original file eligibility. Count/page share
+  `work_candidates`; only file-dependent ordering computes dates/title fallback.
+  Keep parent-kind checks and exact sort directions, null handling and tie keys.
+  Current-page summaries retain `seriesScopeQuery`; resumable and bounded
+  child lists retain their existing file/state-driven query contracts.
 - Filters referencing Series IDs must not add a JOIN whose ON clause precedes
   those parent aliases; use a correlated WHERE/EXISTS for favorites and preserve
   user plus soft-delete predicates. Test combined filters after moving joins.

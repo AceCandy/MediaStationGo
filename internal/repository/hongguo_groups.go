@@ -19,6 +19,12 @@ const HongGuoAlbumJoin = `LEFT JOIN LATERAL (
  ORDER BY aw.season_index, aw.source_id LIMIT 1
 ) g ON TRUE`
 
+// HongGuoLatestMediaAddedSQL 以全局成员季计算合集时间，不受当前库文件资格限制。
+const HongGuoLatestMediaAddedSQL = `CASE WHEN g.id IS NULL THEN w.latest_media_added_at ELSE (
+ SELECT MAX(member.latest_media_added_at) FROM hongguo_works member
+ WHERE member.related_album_id=g.id AND member.kind='series' AND member.season_index>0
+) END`
+
 // HongGuoGroupDetail 是官方关系的只读投影，不拥有独立分组记录。
 type HongGuoGroupDetail struct {
 	ID      string             `json:"id"`

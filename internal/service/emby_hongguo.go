@@ -21,29 +21,65 @@ func (e *EmbyService) ResumeItems(ctx context.Context, userID string, limit int)
 
 // hongGuoNode 是文件可见性过滤后的逻辑目录，不写入旧资料表。
 type hongGuoNode struct {
-	ID            string
-	Kind          string
-	Title         string
-	ParentID      string
-	MediaID       string
-	SeasonNumber  int
-	EpisodeNumber int
-	CreatedAt     time.Time
-	LatestAt      time.Time
-	PlayedAt      time.Time
-	Favorite      bool
-	Played        bool
-	ArtworkID     string
-	PositionMs    int64
-	SourceID      string
-	Overview      string
-	Tags          string
-	Rating        float32
-	EpisodeCount  int
+	ID                string
+	Kind              string
+	Title             string
+	ParentID          string
+	MediaID           string
+	SeasonNumber      int
+	EpisodeNumber     int
+	CreatedAt         time.Time
+	LatestAt          time.Time
+	PlayedAt          time.Time
+	Favorite          bool
+	Played            bool
+	ArtworkID         string
+	PositionMs        int64
+	SourceID          string
+	Overview          string
+	Tags              string
+	Rating            float32
+	EpisodeCount      int
+	UnplayedItemCount int
 }
 
 func (e *EmbyService) hongGuoNodes(ctx context.Context, userID, libraryID string) *gorm.DB {
 	return e.hongGuoFileNodes(ctx, userID, e.hongGuoVisibleFiles(ctx, userID, libraryID))
+}
+
+// hongGuoItemNodes 在层级聚合前限定目标身份的文件，供详情和季集浏览共用。
+// 外层仍按节点身份筛选；不能把已入合集的旧 work 身份重新暴露为独立作品。
+func (e *EmbyService) hongGuoItemNodes(ctx context.Context, userID string, ids ...string) *gorm.DB {
+	bindings := e.repo.DB.WithContext(ctx).Table("hongguo_media_bindings scoped_binding").Select("scoped_binding.media_id")
+	var groups, works, episodes []string
+	for _, id := range ids {
+		switch {
+		case strings.HasPrefix(id, "hg-group-"):
+			groups = append(groups, strings.TrimPrefix(id, "hg-group-"))
+		case strings.HasPrefix(id, "hg-work-"):
+			works = append(works, strings.TrimPrefix(id, "hg-work-"))
+		case strings.HasPrefix(id, "hg-season-"):
+			works = append(works, strings.TrimPrefix(id, "hg-season-"))
+		case strings.HasPrefix(id, "hg-episode-"):
+			episodes = append(episodes, strings.TrimPrefix(id, "hg-episode-"))
+		}
+	}
+	if len(ids) == 1 && len(works) == 1 {
+		bindings = bindings.Where("scoped_binding.work_id = ?", works[0])
+	} else if len(ids) == 1 && len(episodes) == 1 {
+		bindings = bindings.Where("scoped_binding.episode_id = ?", episodes[0])
+	} else {
+		workIDs := e.repo.DB.Table("hongguo_works").Select("id").Where(`id = ANY(?) OR
+ (related_album_id = ANY(?) AND related_album_id <> '' AND kind = 'series' AND season_index > 0)`, &works, &groups)
+		bindings = bindings.Where("scoped_binding.work_id IN (?)", workIDs)
+		if len(episodes) > 0 {
+			// 分开走作品/分集绑定索引；UNION 去重父子重叠文件，避免 OR 全扫。
+			leaves := e.repo.DB.Table("hongguo_media_bindings").Select("media_id").Where("episode_id = ANY(?)", &episodes)
+			bindings = e.repo.DB.Raw("? UNION ?", bindings, leaves)
+		}
+	}
+	files := e.hongGuoVisibleFiles(ctx, userID, "").Where("m.id IN (?)", bindings)
+	return e.hongGuoFileNodes(ctx, userID, e.repo.DB.Raw("? OFFSET 0", files))
 }
 
 func (e *EmbyService) hongGuoVisibleFiles(ctx context.Context, userID, libraryID string) *gorm.DB {
@@ -69,7 +105,9 @@ func (e *EmbyService) hongGuoFileNodes(ctx context.Context, userID string, files
 	// 同一文件贡献整剧、季、集节点；先过滤文件，再按逻辑身份聚合多版本。
 	return e.repo.DB.WithContext(ctx).Table(`(?) AS nodes`, e.repo.DB.Raw(`
 SELECT n.id, n.resume_key, n.kind, n.title, n.parent_id, n.season_number, n.episode_number,
- MIN(m.id) AS media_id, MIN(m.created_at) AS created_at, MAX(m.created_at) AS latest_at,
+ MIN(m.id) AS media_id, MIN(m.created_at) AS created_at, MAX(m.created_at) AS file_latest_at,
+ MAX(CASE WHEN n.kind = 'Episode' THEN m.created_at WHEN n.kind = 'Season' THEN w.latest_media_added_at
+ ELSE `+repository.HongGuoLatestMediaAddedSQL+` END) AS latest_at,
  MAX(s.watched_at) AS played_at,
  BOOL_OR(COALESCE(f.favorite,FALSE)) AS favorite,
  BOOL_AND(COALESCE(s.completed,FALSE)) AS played, MAX(COALESCE(s.position_ms,0)) AS position_ms,
@@ -77,7 +115,8 @@ SELECT n.id, n.resume_key, n.kind, n.title, n.parent_id, n.season_number, n.epis
  CASE WHEN n.id LIKE 'hg-group-%%' THEN '' ELSE MIN(w.overview) END AS overview,
  CASE WHEN n.id LIKE 'hg-group-%%' THEN '[]' ELSE MIN(w.tags) END AS tags,
  CASE WHEN n.id LIKE 'hg-group-%%' THEN 0 ELSE MAX(w.rating) END AS rating,
- COUNT(DISTINCT ep.id) AS episode_count,
+	 COUNT(DISTINCT ep.id) AS episode_count,
+	 COUNT(DISTINCT ep.id) FILTER (WHERE NOT COALESCE(s.completed,FALSE)) AS unplayed_item_count,
  CASE WHEN n.kind = 'Episode' THEN '' ELSE COALESCE((ARRAY_AGG(a.id ORDER BY NULLIF(w.season_index,0) NULLS LAST,w.id) FILTER (WHERE a.id IS NOT NULL))[1],'') END AS artwork_id
 FROM (?) AS m
 JOIN hongguo_media_bindings b ON b.media_id = m.id
@@ -123,7 +162,7 @@ func (e *EmbyService) LatestItems(ctx context.Context, userID, parentID string, 
 			if isPlayed {
 				filter = "IsPlayed"
 			}
-			items, _, err := e.nfoLibraryItems(ctx, ItemsParams{UserID: userID, ParentID: parentID, Limit: limit, Fields: fields, Filters: []string{filter}, SortBy: "DateCreated", SortOrder: "Descending"}, false)
+			items, _, err := e.nfoLibraryItems(ctx, ItemsParams{UserID: userID, ParentID: parentID, Limit: limit, Fields: fields, Filters: []string{filter}, SortBy: "DateLastContentAdded", SortOrder: "Descending"}, false)
 			return items, err
 		}
 	}
@@ -134,10 +173,10 @@ func (e *EmbyService) LatestItems(ctx context.Context, userID, parentID string, 
 		if isPlayed {
 			filter = "IsPlayed"
 		}
-		params := ItemsParams{UserID: userID, ParentID: parentID, Limit: limit, Fields: fields, Filters: []string{filter}, SortBy: "DateCreated", SortOrder: "Descending"}
+		params := ItemsParams{UserID: userID, ParentID: parentID, Limit: limit, Fields: fields, Filters: []string{filter}, SortBy: "DateLastContentAdded", SortOrder: "Descending"}
 		if parentID == "" {
 			params.Recursive = true
-			result, _, err := e.hongGuoGlobalItems(ctx, params)
+			result, _, err := e.globalItemsWithCount(ctx, params, false)
 			if err != nil {
 				return nil, err
 			}
@@ -186,8 +225,7 @@ func (e *EmbyService) LatestItems(ctx context.Context, userID, parentID string, 
 				MetadataID string
 				LatestAt   time.Time
 			}
-			q := e.applyUserMediaVisibility(ctx, e.repo.DB.WithContext(ctx).Model(&model.Media{}), userID)
-			if err := q.Where("media.metadata_id IN ?", ids).Select("media.metadata_id, MAX(media.created_at) AS latest_at").Group("media.metadata_id").Scan(&rows).Error; err != nil {
+			if err := e.repo.DB.WithContext(ctx).Table("metadata_items").Where("id IN ?", ids).Select("id AS metadata_id, latest_media_added_at AS latest_at").Scan(&rows).Error; err != nil {
 				return nil, err
 			}
 			for _, row := range rows {
@@ -196,17 +234,27 @@ func (e *EmbyService) LatestItems(ctx context.Context, userID, parentID string, 
 		}
 		items = append(items, legacy...)
 	}
-	q := e.hongGuoNodes(ctx, userID, parentID).Where("played = ?", isPlayed)
-	if parentID == "" {
-		q = q.Where("kind IN ('Movie','Episode')")
+	p := ItemsParams{UserID: userID, ParentID: parentID, Fields: fields}
+	if isPlayed {
+		p.Filters = []string{"IsPlayed"}
 	} else {
-		q = q.Where("parent_id = ''")
+		p.Filters = []string{"IsUnplayed"}
+	}
+	q := e.hongGuoGlobalCandidates(ctx, p).Where("played = ?", isPlayed)
+	if parentID == "" {
+		q = q.Where("kind IN ('movie','episode')")
+	} else {
+		q = e.hongGuoGlobalWorkCandidates(ctx, p).Where("played = ?", isPlayed)
 	}
 	var nodes []hongGuoNode
-	if err := q.Order("latest_at DESC, id").Limit(limit).Scan(&nodes).Error; err != nil {
+	if err := q.Select("id,latest_at").Order("latest_at DESC, id").Limit(limit).Scan(&nodes).Error; err != nil {
 		return nil, err
 	}
-	sourceItems, err := e.hongGuoNodePayloads(ctx, nodes, userID, fields)
+	ids := make([]string, 0, len(nodes))
+	for _, node := range nodes {
+		ids = append(ids, node.ID)
+	}
+	sourceItems, err := e.globalItemPayloads(ctx, ids, p)
 	if err != nil {
 		return nil, err
 	}
@@ -257,18 +305,25 @@ func (e *EmbyService) hongGuoHierarchyItems(ctx context.Context, p ItemsParams) 
 		nodesQuery = e.nfoNodes
 	}
 	q := nodesQuery(ctx, p.UserID, libraryID)
+	if libraryID == "" {
+		if local {
+			q = e.nfoItemNodes(ctx, p.UserID, p.ParentID)
+		} else {
+			q = e.hongGuoItemNodes(ctx, p.UserID, p.ParentID)
+		}
+	}
 	if libraryID != "" {
 		if !p.Recursive {
 			q = q.Where("parent_id = ''")
 		}
 	} else if p.Recursive || containsItemType(p.IncludeItemTypes, "Episode") {
 		if local {
-			seasons := nodesQuery(ctx, p.UserID, "").Select("id").Where("parent_id = ? AND kind = 'Season'", p.ParentID)
+			seasons := q.Session(&gorm.Session{}).Select("id").Where("parent_id = ? AND kind = 'Season'", p.ParentID)
 			q = q.Where("(parent_id = ? OR parent_id IN (?)) AND kind = 'Episode'", p.ParentID, seasons)
 		} else if strings.HasPrefix(p.ParentID, "hg-season-") {
 			q = q.Where("parent_id = ?", p.ParentID)
 		} else {
-			seasons := e.hongGuoNodes(ctx, p.UserID, "").Select("id").Where("parent_id = ? AND kind = 'Season'", p.ParentID)
+			seasons := q.Session(&gorm.Session{}).Select("id").Where("parent_id = ? AND kind = 'Season'", p.ParentID)
 			q = q.Where("parent_id IN (?) AND kind = 'Episode'", seasons)
 		}
 	} else {
@@ -306,7 +361,7 @@ func (e *EmbyService) hongGuoHierarchyItems(ctx context.Context, p ItemsParams) 
 	order := "title"
 	if strings.Contains(strings.ToLower(p.SortBy), "datecreated") {
 		order = "created_at"
-	} else if !local && strings.Contains(strings.ToLower(p.SortBy), "datelastcontentadded") {
+	} else if strings.Contains(strings.ToLower(p.SortBy), "datelastcontentadded") {
 		order = "latest_at"
 	} else if resumeFilter && strings.Contains(strings.ToLower(p.SortBy), "dateplayed") {
 		order = "played_at"
@@ -407,7 +462,7 @@ func (e *EmbyService) hongGuoNodePayload(ctx context.Context, node hongGuoNode, 
 		"DateCreated": formatEmbyDateTime(node.CreatedAt), "ImageTags": images,
 		"Overview": node.Overview, "Genres": genres, "CommunityRating": node.Rating,
 		"ProviderIds": providers, "RecursiveItemCount": node.EpisodeCount,
-		"UserData": map[string]any{"IsFavorite": node.Kind == "Series" && node.Favorite, "Played": node.Played, "PlaybackPositionTicks": 0},
+		"UserData": map[string]any{"IsFavorite": node.Kind == "Series" && node.Favorite, "Played": node.Played, "PlaybackPositionTicks": 0, "UnplayedItemCount": node.UnplayedItemCount},
 	}, nil
 }
 

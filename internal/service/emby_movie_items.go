@@ -7,6 +7,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/ShukeBta/MediaStationGo/internal/model"
+	"github.com/ShukeBta/MediaStationGo/internal/repository"
 )
 
 // movieLibraryHasEpisodicContent 报告电影类型库里是否混入了「剧集结构」内容
@@ -58,24 +59,35 @@ func (e *EmbyService) movieLibraryItems(ctx context.Context, p ItemsParams) (map
 	} else {
 		epQ = epQ.Where("(media.season_num > 0 OR media.episode_num > 0) AND ("+clause+")", args...)
 	}
-	query := func() *gorm.DB {
-		movies := movieQ.Session(&gorm.Session{}).Select("media.metadata_id AS id, 'movie' AS kind, " + embyReleaseOrderSQL("emby_metadata") + " AS sort_at").Group("media.metadata_id")
-		series := epQ.Session(&gorm.Session{}).Select("scope_series.id AS id, 'series' AS kind, " + embyReleaseOrderSQL("emby_metadata") + " AS sort_at").Group("scope_series.id")
-		return e.repo.DB.WithContext(ctx).Table("(? UNION ALL ?) AS works", movies, series)
+	// 两种身份共用作品成员预筛；排序仍按原文件/分集上映日期降级规则。
+	candidates := func(files *gorm.DB, identity, kind string) *gorm.DB {
+		scope := files.Session(&gorm.Session{}).Where(identity + "=candidate.id")
+		q := repository.FilterWorkLibraries(e.repo.DB.WithContext(ctx).Table("metadata_items candidate"), "candidate.library_ids", libIDs)
+		return q.Where("EXISTS (?)", scope.Session(&gorm.Session{}).Select("1")).
+			Joins("JOIN LATERAL (?) dates ON TRUE", scope.Session(&gorm.Session{}).Select(embyReleaseOrderSQL("emby_metadata")+" AS sort_at")).
+			Select("candidate.id, ? AS kind, dates.sort_at", kind)
+	}
+	movies := candidates(movieQ, "media.metadata_id", "movie")
+	series := candidates(epQ, "scope_series.id", "series").Where("candidate.kind='series'")
+	combined := e.repo.DB.Raw("? UNION ALL ?", movies, series)
+	var page []struct {
+		ID    string
+		Kind  string
+		Total int64
+	}
+	selected := e.repo.DB.Table("works").Order("sort_at DESC, kind DESC, id DESC").Offset(p.StartIndex).Limit(p.Limit)
+	if err := e.repo.DB.WithContext(ctx).Raw(`WITH works AS MATERIALIZED (?), page AS (?)
+SELECT COALESCE(page.id,'') AS id, page.kind, totals.total FROM (SELECT COUNT(*) AS total FROM works) totals
+LEFT JOIN page ON TRUE ORDER BY page.sort_at DESC,page.kind DESC,page.id DESC`, combined, selected).Scan(&page).Error; err != nil {
+		return nil, err
 	}
 	var total int64
-	if err := query().Count(&total).Error; err != nil {
-		return nil, err
-	}
-	var page []struct {
-		ID   string
-		Kind string
-	}
-	if err := query().Select("id, kind").Order("sort_at DESC, kind DESC, id DESC").Offset(p.StartIndex).Limit(p.Limit).Scan(&page).Error; err != nil {
-		return nil, err
-	}
 	movieIDs, seriesIDs := []string{}, []string{}
 	for _, row := range page {
+		total = row.Total
+		if row.ID == "" {
+			continue
+		}
 		if row.Kind == "series" {
 			seriesIDs = append(seriesIDs, row.ID)
 		} else {
@@ -84,7 +96,7 @@ func (e *EmbyService) movieLibraryItems(ctx context.Context, p ItemsParams) (map
 	}
 	byID := make(map[string]map[string]any, len(page))
 	if len(movieIDs) > 0 {
-		views, _, err := e.metadataPage(ctx, movieQ.Where("media.metadata_id IN ?", movieIDs), p.UserID, metadataOrderSQL(p, false), 0, len(movieIDs))
+		views, err := e.metadataViewsForIDs(ctx, movieQ, p.UserID, movieIDs)
 		if err != nil {
 			return nil, err
 		}

@@ -1,11 +1,17 @@
 package model
 
-import "strconv"
+import (
+	"strconv"
+	"time"
+)
 
 // MediaView 是面向列表、详情、搜索、播放器和 Emby 的统一只读投影。
 // Media 提供文件事实，外层字段覆盖同名的旧展示字段并来自共享元数据。
 type MediaView struct {
 	Media
+	// LatestMediaAddedAt 仅投影作品的最新现存文件时间，不改变文件 CreatedAt。
+	LatestMediaAddedAt *time.Time `json:"latest_media_added_at,omitempty"`
+
 	CatalogItemID  string  `gorm:"column:view_catalog_item_id" json:"catalog_item_id,omitempty"`
 	SeriesID       string  `gorm:"column:view_series_id" json:"series_id,omitempty"`
 	SeriesTitle    string  `gorm:"column:view_series_title" json:"series_title,omitempty"`

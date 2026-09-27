@@ -20,7 +20,7 @@ Original storage/import and authentication are not transformation concerns.
 - `quality`: 1–100; `format`: webp/jpeg/jpg/png. PNG is lossless regardless of quality.
 - Output edges are capped at 4096; decoding is bounded to 32 MiB and 32 million source pixels.
 - JPEG/PNG EXIF orientation is applied before sizing; WebP uses the decoder's AutoRotate option.
-- GIF, animated WebP and APNG are passed through without flattening. Failed processing returns original bytes with `no-store`; placeholders retain existing semantics.
+- GIF, animated WebP and APNG are passed through without flattening. Failed processing returns original bytes with `no-store`; Emby missing-image placeholders are HTTP 200 PNG with `no-store`, including HEAD headers. Successful image caching is unchanged.
 - One shared instance per service container; two concurrent encodes and same-key generation coalescing. Waiting observes request cancellation; an already-running codec finishes before cancellation is checked again.
 - Variants mirror DataDir image paths under `<cache.cache_dir>/image-variants`; remote and external local images use `remote/<source-hash>` and `local/<path-hash>`. Each source version owns its specification files. Existing atomic file writes remain; there is no automatic cleanup or pre-generation.
 - Keys include algorithm version, source path/size/nanosecond mtime and normalized options. Downloaded bytes use a content hash if original storage failed. Source updates create a new variant; old variants remain.

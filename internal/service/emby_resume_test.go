@@ -112,6 +112,7 @@ func TestEmbyResumeSourcesGroupBeforeMerge(t *testing.T) {
 		}
 	}
 	e.visibilityCache = map[string]embyVisibilityCacheEntry{user: {visibility: MediaVisibility{IncludeNSFW: true}, expiresAt: time.Now().Add(time.Hour)}}
+	assertGlobalBrowseMatchesHierarchy(t, e, user)
 	p := ItemsParams{UserID: user, Recursive: true, Filters: []string{"IsResumable"}, SortBy: "DatePlayed", SortOrder: "Descending", Limit: 2, Fields: []string{"MediaSources"}}
 	assertPage := func(params ItemsParams, total int64, expected []string) {
 		t.Helper()
@@ -233,8 +234,8 @@ func oldResumePage(t *testing.T, e *EmbyService, p ItemsParams) []string {
  item.kind, item.title, MAX(f.created_at) AS created_at, COALESCE(MAX(h.watched_at),MAX(f.created_at)) AS played_at,
  BOOL_AND(COALESCE(h.completed,FALSE)) AS played, MAX(COALESCE(h.position_ms,0)) AS position_ms,
  item.rating, COALESCE(item.release_date,'') AS release_date, item.year`).Group("item.id, grandparent.id")
-	hg := e.hongGuoNodes(t.Context(), p.UserID, "").Select("id,resume_key,LOWER(kind) AS kind,title,latest_at AS created_at,COALESCE(played_at,latest_at) AS played_at,played,position_ms,rating,'' AS release_date,0 AS year")
-	nfo := e.nfoNodes(t.Context(), p.UserID, "").Select("id,resume_key,LOWER(kind) AS kind,title,latest_at AS created_at,COALESCE(played_at,latest_at) AS played_at,played,position_ms,rating,release_date,year")
+	hg := e.hongGuoNodes(t.Context(), p.UserID, "").Select("id,resume_key,LOWER(kind) AS kind,title,file_latest_at AS created_at,COALESCE(played_at,file_latest_at) AS played_at,played,position_ms,rating,'' AS release_date,0 AS year")
+	nfo := e.nfoNodes(t.Context(), p.UserID, "").Select("id,resume_key,LOWER(kind) AS kind,title,file_latest_at AS created_at,COALESCE(played_at,file_latest_at) AS played_at,played,position_ms,rating,release_date,year")
 	combined := db.Raw("? UNION ALL ? UNION ALL ?", legacy, hg, nfo)
 	grouped := db.Table("(?) AS combined", combined).Where("NOT played AND position_ms > 0 AND kind IN ('movie','episode')").
 		Select("DISTINCT ON (resume_key) *").Order("resume_key, played_at DESC, id DESC")

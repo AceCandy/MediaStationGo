@@ -60,6 +60,11 @@ func TestNFOSearchBatchPreservesPresentationAndVisibility(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			rawID := strings.TrimPrefix(id, "nfo-")
+			old, err := scanNFOViews(repos.MediaView.nfoViewQuery(t.Context(), filter).Where("ni.id = ? OR ns.id = ? OR nw.id = ?", rawID, rawID, rawID).Order("ns.season_num, ni.episode_num, m.path"))
+			if err != nil || !reflect.DeepEqual(files, old) {
+				t.Fatalf("scoped versions id=%s err=%v", id, err)
+			}
 			if len(files) == 0 {
 				continue
 			}
@@ -72,6 +77,13 @@ func TestNFOSearchBatchPreservesPresentationAndVisibility(t *testing.T) {
 			}
 			view.ID, view.LookupCatalogID = files[0].ID, strings.TrimPrefix(id, "nfo-")
 			want = append(want, *view)
+		}
+		// 父子混合批量输入不得重复文件，且继续保留祖先可见性。
+		mixed := []string{"series", "season", "episode", "movie", "adult", "missing"}
+		old, err := scanNFOViews(repos.MediaView.nfoViewQuery(t.Context(), filter).Where("ni.id IN ? OR ns.id IN ? OR nw.id IN ?", mixed, mixed, mixed).Order("m.id"))
+		gotMixed, scopedErr := scanNFOViews(repos.MediaView.nfoItemViewQuery(t.Context(), mixed, filter).Order("m.id"))
+		if err != nil || scopedErr != nil || !reflect.DeepEqual(old, gotMixed) {
+			t.Fatalf("mixed scope err=%v %v", err, scopedErr)
 		}
 		queries = 0
 		got, err := repos.MediaView.FindMetadataSearchRepresentatives(t.Context(), ids, filter)

@@ -95,22 +95,7 @@ func (r *MediaViewRepository) ListLibraryMetadataPage(ctx context.Context, libra
 	if kind == model.MetadataKindSeries {
 		summaries, total, err = r.librarySeriesPage(ctx, query(), libraryID, metadataID, offset, limit, filter.MissingPoster || filter.MissingChineseTitle)
 	} else {
-		if err := r.db.WithContext(ctx).Table("(?) AS works", query().Select("work.id").Group("work.id")).Count(&total).Error; err != nil {
-			return nil, nil, 0, err
-		}
-		if total == 0 {
-			return nil, nil, 0, nil
-		}
-		// 分段先选择最低 PartIndex，电影版本再沿用本地、清晰度、大小的优先顺序。
-		q := query()
-		priority := "CASE WHEN COALESCE(m.strm_url, '') ~* '^https?://' THEN 1 ELSE 0 END, COALESCE(probe.width, 0)::bigint * COALESCE(probe.height, 0) DESC, COALESCE(probe.size_bytes, 0) DESC, m.created_at DESC, m.id DESC"
-		order := "(ARRAY_AGG(m.created_at ORDER BY " + priority + "))[1] DESC, work.id DESC"
-		q = q.Joins("LEFT JOIN media_probe_metadata AS probe ON probe.media_id = m.id")
-		partScope := query().Select("MIN(m.part_index)").Where("m.part_group_key = outer_media.part_group_key AND m.part_index > 0")
-		// 相关子查询需要独立的外层别名，避免子查询条件引用自身。
-		q = q.Joins("JOIN media AS outer_media ON outer_media.id = m.id").Where("COALESCE(m.part_group_key, '') = '' OR m.part_index <= 0 OR m.part_index = (?)", partScope)
-		err = q.Select("work.id AS metadata_id, (ARRAY_AGG(m.id ORDER BY " + priority + "))[1] AS media_id, COUNT(DISTINCT mi.id) AS count, COUNT(*) AS version_count").
-			Group("work.id").Order(order).Offset(offset).Limit(limit).Scan(&summaries).Error
+		summaries, total, err = r.libraryMoviePage(ctx, query(), libraryID, offset, limit)
 	}
 	if err != nil {
 		return nil, nil, 0, err
@@ -123,6 +108,44 @@ func (r *MediaViewRepository) ListLibraryMetadataPage(ctx context.Context, libra
 	filter.MissingPoster, filter.MissingChineseTitle = false, false
 	views, err := r.FindByIDs(ctx, ids, filter)
 	return views, summaries, total, err
+}
+
+// libraryMoviePage 保留首 Part/首选版本的日期排序，仅为当前页统计版本数。
+func (r *MediaViewRepository) libraryMoviePage(ctx context.Context, files *gorm.DB, libraryID string, offset, limit int) ([]LibraryMetadataSummary, int64, error) {
+	db := r.db.WithContext(ctx)
+	candidates := FilterWorkLibraries(db.Table("metadata_items candidate"), "candidate.library_ids", []string{libraryID}).
+		Where("EXISTS (?)", files.Session(&gorm.Session{}).Select("1").Where("work.id=candidate.id")).Select("candidate.id")
+	// Part 组可能跨元数据，沿用原库内范围；不能把最小 Part 限制到当前作品。
+	partScope := files.Session(&gorm.Session{}).Select("MIN(m.part_index)").Where("m.part_group_key = outer_media.part_group_key AND m.part_index > 0")
+	versions := files.Session(&gorm.Session{}).Joins("JOIN media AS outer_media ON outer_media.id = m.id").
+		Where("COALESCE(m.part_group_key, '') = '' OR m.part_index <= 0 OR m.part_index = (?)", partScope)
+	priority := "CASE WHEN COALESCE(m.strm_url, '') ~* '^https?://' THEN 1 ELSE 0 END, COALESCE(probe.width, 0)::bigint * COALESCE(probe.height, 0) DESC, COALESCE(probe.size_bytes, 0) DESC, m.created_at DESC, m.id DESC"
+	representative := versions.Session(&gorm.Session{}).Where("work.id=candidate.id").
+		Joins("LEFT JOIN media_probe_metadata AS probe ON probe.media_id=m.id").
+		Select("m.id AS media_id, m.created_at").Order(priority).Limit(1)
+	page := db.Table("movie_candidates candidate").Joins("JOIN LATERAL (?) selected ON TRUE", representative).
+		Select("candidate.id AS metadata_id, selected.media_id, selected.created_at").
+		Order("selected.created_at DESC, candidate.id DESC").Offset(offset).Limit(limit)
+	stats := versions.Session(&gorm.Session{}).Where("work.id=page.metadata_id").
+		Select("COUNT(DISTINCT mi.id) AS count, COUNT(*) AS version_count")
+	var rows []struct {
+		LibraryMetadataSummary
+		Total int64
+	}
+	err := db.Raw(`WITH movie_candidates AS MATERIALIZED (?), page AS MATERIALIZED (?)
+SELECT page.metadata_id, page.media_id, stats.count, stats.version_count, totals.total
+FROM (SELECT COUNT(*) AS total FROM movie_candidates) totals LEFT JOIN page ON TRUE
+LEFT JOIN LATERAL (?) stats ON page.metadata_id IS NOT NULL
+ORDER BY page.created_at DESC, page.metadata_id DESC`, candidates, page, stats).Scan(&rows).Error
+	var total int64
+	summaries := make([]LibraryMetadataSummary, 0, len(rows))
+	for _, row := range rows {
+		total = row.Total
+		if row.MetadataID != "" {
+			summaries = append(summaries, row.LibraryMetadataSummary)
+		}
+	}
+	return summaries, total, err
 }
 
 // librarySeriesPage 共用一次文件范围计算总数与分页，只为选中作品排序代表文件。

@@ -25,6 +25,11 @@ const (
 // MetadataItem 保存可由多个媒体文件共享的作品、剧集或单集元数据。
 type MetadataItem struct {
 	PermanentBase
+	// LatestMediaAddedAt 是自身及后代现存文件的最新入库时间，由数据库维护。
+	LatestMediaAddedAt *time.Time `gorm:"->" json:"latest_media_added_at,omitempty"`
+	// LibraryIDs 是自身及后代现存文件的库集合；NULL 表示历史数据尚未初始化。
+	LibraryIDs *string `gorm:"type:jsonb;->" json:"-"`
+
 	Kind         string        `gorm:"size:16;not null;index;check:chk_metadata_identity_season_zero,(kind = 'season' AND parent_id IS NOT NULL AND parent_id <> '' AND season_num >= 0 AND episode_num = 0) OR (kind = 'episode' AND parent_id IS NOT NULL AND parent_id <> '' AND season_num = 0 AND episode_num > 0) OR (kind IN ('movie','series') AND parent_id IS NULL AND season_num = 0 AND episode_num = 0)" json:"kind"`
 	ParentID     *string       `gorm:"size:36;index;uniqueIndex:uidx_metadata_season,priority:1,where:kind = 'season';uniqueIndex:uidx_metadata_episode,priority:1,where:kind = 'episode'" json:"parent_id,omitempty"`
 	SeasonNum    int           `gorm:"uniqueIndex:uidx_metadata_season,priority:2,where:kind = 'season'" json:"season_num"`

@@ -152,9 +152,11 @@ switching, discovery permission, image-failure fallback and responsive layouts.
 It uses mocked APIs; actual downloaded poster rendering remains deployment QA.
 
 Series-library deep links (`series` or `series_id`) must skip the library
-catalogue page. After library type resolution, request the linked series card
-and its episodes independently using the URL identity. Card completion must
-not refetch episodes; version changes reuse them, while season changes fetch
+catalogue page. After library type resolution, request the linked series card.
+An explicit season loads independently; without one, wait for the card's visible
+seasons and choose the first positive season, otherwise its first season (including
+zero). Empty/failed cards never fall back to whole-series files. Card completion
+must not refetch explicit-season episodes; version changes reuse them, while season changes fetch
 only the selected season. Explicit refresh reloads both, stale responses are
 ignored, and returning to the catalogue restores 50-item pagination. Run
 `node scripts/check-series-loading.mjs` from `web` to verify this lifecycle.
@@ -163,7 +165,7 @@ ignored, and returning to the catalogue restores 50-item pagination. Run
 
 ### 1. Scope / Trigger
 
-Opening a series deep link with `season` or switching the selected season.
+Opening a series deep link, with or without `season`, or switching the selected season.
 
 ### 2. Signatures
 
@@ -184,8 +186,10 @@ the card's `seasons` supplies the selector without loading other episodes.
 The header's play control uses the separate user- and library-scoped whole-series
 `resume` candidate: after the last completed S1 episode, it targets S2 E1,
 while an explicit `season=1` URL still shows S1 in the episode selector.
-Without `season`, retain the previous full-series response. NFO and ordinary
-series follow the same season filter and visibility rules. Whole-series admin
+The backend API without `season` retains its full-series response; the Web page
+instead resolves the default visible season from the targeted card before fetching
+episodes. NFO, HongGuo and ordinary series share this page-loading rule.
+Whole-series admin
 actions explicitly fetch without `season` and never fall back to the current
 season on failure. No external font request is needed for first paint.
 
@@ -201,12 +205,14 @@ subset or dismiss the selected series.
 
 Good: a `season=1` deep link loads season 1 plus the list of visible seasons,
 but after S1 is watched its header plays S2 E1 without fetching S2's file list.
-Base: an old URL without a season still loads the full series. Bad: a season
-switch or admin delete silently reuses the old/current-season episode list.
+Base: an old URL without a season loads its default season once; adding that
+season to the canonical URL does not refetch. Bad: load the entire series just to
+choose a season, or let admin delete silently reuse the current-season list.
 
 ### 6. Tests Required
 
-`check-series-loading.mjs` checks per-season requests, the separate next candidate,
+`check-series-loading.mjs` checks explicit/default-season requests, specials-only
+cards, empty/failed cards, canonical URL reuse, the separate next candidate,
 stale responses and retry. `TestContinuationCrossSeason` checks scoped NFO/ordinary
 S1→S2 candidates; the handler and NFO/ordinary service tests check season lists
 and filtered episodes. Run

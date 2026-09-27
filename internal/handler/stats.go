@@ -82,7 +82,7 @@ func applyStatsVisibility(c *gin.Context, svc *service.Container, snap *service.
 	snap.TotalSizeBytes = sum.Size
 	snap.TotalSeconds = sum.Seconds
 
-	recent, _, err := svc.Repo.MediaView.ListByLibrariesFiltered(c.Request.Context(), activeLibraryIDs, 0, 12, repository.MediaQueryFilter{
+	recent, err := svc.Repo.MediaView.ListRecentByLibraries(c.Request.Context(), activeLibraryIDs, 12, repository.MediaQueryFilter{
 		IncludeNSFW:       visibility.IncludeNSFW,
 		AllowedLibraryIDs: visibility.AllowedLibraryIDs,
 		HiddenLibraryIDs:  visibility.HiddenLibraryIDs,

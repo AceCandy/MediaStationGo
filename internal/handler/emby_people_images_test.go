@@ -2,6 +2,8 @@ package handler
 
 import (
 	"bytes"
+	"image"
+	"image/jpeg"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -19,6 +21,78 @@ import (
 	"github.com/ShukeBta/MediaStationGo/internal/repository"
 	"github.com/ShukeBta/MediaStationGo/internal/service"
 )
+
+func TestEmbyHongGuoImageServesLocalArtwork(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db, err := testdb.OpenPostgres(t, &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(model.AllModels()...); err != nil {
+		t.Fatal(err)
+	}
+	repos := repository.New(db)
+	cfg := &config.Config{App: config.AppConfig{DataDir: t.TempDir()}, Cache: config.CacheConfig{CacheDir: t.TempDir()}}
+	proxy := service.NewImageProxy(cfg, zap.NewNop())
+	key := "test/poster.jpg"
+	path := filepath.Join(cfg.App.DataDir, "catalogs", "hongguo", "artwork", key)
+	var encoded bytes.Buffer
+	if err := jpeg.Encode(&encoded, image.NewRGBA(image.Rect(0, 0, 80, 120)), nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, encoded.Bytes(), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	work := model.HongGuoWork{PermanentBase: model.PermanentBase{ID: "image-work"}, SourceID: "image-source", Kind: "series", Title: "海报测试"}
+	for _, row := range []any{
+		&work,
+		&model.HongGuoArtwork{PermanentBase: model.PermanentBase{ID: "image-art"}, WorkID: &work.ID, LocalKey: key},
+		&model.Media{PermanentBase: model.PermanentBase{ID: "image-file"}, Path: "/test/artwork.strm", CatalogSource: "hongguo"},
+		&model.HongGuoMediaBinding{MediaID: "image-file", WorkID: work.ID},
+	} {
+		if err := db.Create(row).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	router := gin.New()
+	registerEmbyRoutes(router, "test-secret", &service.Container{
+		Repo: repos, Emby: service.NewEmbyService(cfg, zap.NewNop(), repos), ImageProxy: proxy,
+		HongGuo: service.NewHongGuoService(repos, nil, proxy, cfg.App.DataDir),
+	})
+	for _, prefix := range []string{"", "/emby"} {
+		for _, route := range []string{"/Items/hg-work-image-work/Images/Primary", "/items/hg-season-image-work/images/primary"} {
+			for _, query := range []string{"", "?maxWidth=40&format=jpeg"} {
+				for _, method := range []string{http.MethodGet, http.MethodHead} {
+					w := httptest.NewRecorder()
+					router.ServeHTTP(w, httptest.NewRequest(method, prefix+route+query, nil))
+					if w.Code != http.StatusOK || w.Header().Get("Content-Type") != "image/jpeg" || !strings.Contains(w.Header().Get("Cache-Control"), "max-age=2592000") {
+						t.Fatalf("artwork response: status=%d type=%q cache=%q", w.Code, w.Header().Get("Content-Type"), w.Header().Get("Cache-Control"))
+					}
+					if method == http.MethodHead {
+						if w.Body.Len() != 0 {
+							t.Fatal("HEAD has body")
+						}
+						continue
+					}
+					if query == "" && !bytes.Equal(w.Body.Bytes(), encoded.Bytes()) {
+						t.Fatal("original artwork bytes changed")
+					}
+					img, _, err := image.DecodeConfig(w.Body)
+					width, height := 80, 120
+					if query != "" {
+						width, height = 40, 60
+					}
+					if err != nil || img.Width != width || img.Height != height {
+						t.Fatalf("artwork dimensions=%dx%d err=%v", img.Width, img.Height, err)
+					}
+				}
+			}
+		}
+	}
+}
 
 func TestEmbyPersonImageServesPersistedLocalFile(t *testing.T) {
 	gin.SetMode(gin.TestMode)

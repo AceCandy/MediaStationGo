@@ -11,6 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
+	"github.com/ShukeBta/MediaStationGo/internal/database"
 	"github.com/ShukeBta/MediaStationGo/internal/middleware"
 	"github.com/ShukeBta/MediaStationGo/internal/model"
 	"github.com/ShukeBta/MediaStationGo/internal/repository"
@@ -24,6 +25,9 @@ func TestStatsSnapshotHidesAdultRecentlyAddedForUser(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := migrateMediaHandlerTestDB(db, &model.User{}, &model.Library{}, &model.Media{}, &model.MediaProbeMetadata{}, &model.Setting{}, &model.PlayProfile{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.AutoMigrate(db); err != nil {
 		t.Fatal(err)
 	}
 	repos := repository.New(db)
@@ -81,6 +85,9 @@ func TestStatsLibrariesCountsEachLocalLibrary(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := migrateMediaHandlerTestDB(db, &model.User{}, &model.Library{}, &model.Media{}, &model.MediaProbeMetadata{}, &model.Setting{}, &model.PlayProfile{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.AutoMigrate(db); err != nil {
 		t.Fatal(err)
 	}
 	repos := repository.New(db)

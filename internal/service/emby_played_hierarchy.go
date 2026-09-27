@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"errors"
-	"strings"
 	"time"
 
 	"github.com/ShukeBta/MediaStationGo/internal/model"
@@ -18,24 +17,28 @@ func (e *EmbyService) containerEpisodeScope(ctx context.Context, userID string, 
 		Where("scope_season.id IN ? OR scope_series.id IN ?", ids, ids)
 }
 
-// playedForContainers 批量汇总当前页；不使用旧的整剧/季历史覆盖单集状态。
-func (e *EmbyService) playedForContainers(ctx context.Context, userID string, ids []string) map[string]bool {
-	result := make(map[string]bool, len(ids))
-	if strings.TrimSpace(userID) == "" || len(ids) == 0 {
+type embyContainerPlayback struct {
+	ID                string
+	Played            bool
+	UnplayedItemCount int
+}
+
+// playbackForContainers 批量汇总当前页可见分集；多版本去重，旧容器历史不覆盖单集状态。
+func (e *EmbyService) playbackForContainers(ctx context.Context, userID string, ids []string) map[string]embyContainerPlayback {
+	result := make(map[string]embyContainerPlayback, len(ids))
+	if len(ids) == 0 {
 		return result
 	}
-	var rows []struct {
-		ID     string
-		Played bool
-	}
+	var rows []embyContainerPlayback
 	q := e.containerEpisodeScope(ctx, userID, ids).
 		Joins("CROSS JOIN LATERAL (VALUES (scope_season.id), (scope_series.id)) AS container(id)").
 		Joins("LEFT JOIN (?) AS history ON history.metadata_id = media.metadata_id", repository.PlaybackStates(ctx, e.repo.DB, "legacy", userID, e.mediaQueryFilter(ctx, userID))).
 		Where("container.id IN ?", ids).
-		Select("container.id, BOOL_AND(COALESCE(history.completed, FALSE)) AS played").Group("container.id")
+		Select(`container.id, BOOL_AND(COALESCE(history.completed, FALSE)) AS played,
+ COUNT(DISTINCT media.metadata_id) FILTER (WHERE NOT COALESCE(history.completed, FALSE)) AS unplayed_item_count`).Group("container.id")
 	if err := q.Scan(&rows).Error; err == nil {
 		for _, row := range rows {
-			result[row.ID] = row.Played
+			result[row.ID] = row
 		}
 	}
 	return result

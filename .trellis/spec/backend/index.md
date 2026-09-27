@@ -16,6 +16,7 @@ This directory contains guidelines for backend development. Fill in each file wi
 |-------|-------------|--------|
 | [Directory Structure](./directory-structure.md) | Module organization and file layout | To fill |
 | [Database Guidelines](./database-guidelines.md) | ORM patterns, queries, migrations | Active |
+| [Work-Level Query Contracts](./work-level-queries.md) | Shared work-first candidates, eligibility, paging and performance verification across Web/Emby | Active |
 | [Session and Transfer Safety](./session-and-transfer-safety.md) | Session revocation, non-overwriting transfers, shutdown and database CI | Active |
 | [Error Handling](./error-handling.md) | Error types, handling strategies | To fill |
 | [Quality Guidelines](./quality-guidelines.md) | Code standards, forbidden patterns | To fill |
@@ -36,6 +37,7 @@ This directory contains guidelines for backend development. Fill in each file wi
 
 ## Pre-Development Checklist
 
+- [ ] If changing Web/Emby library lists, recent items, work favorites or person-linked works, read [Work-Level Query Contracts](./work-level-queries.md) and inventory every equivalent consumer before editing.
 - [ ] If changing HongGuo or adding another catalog, read [HongGuoDB Catalog Isolation](./hongguo-catalog.md) before touching shared files or old metadata writers.
 - [ ] If changing a player-visible Emby route, authentication rule, parameter, response, stream behavior, or support level, read the [Emby API Catalog Synchronization](./emby-api-catalog-sync.md) contract before editing.
 - [ ] If changing playback progress, resume, UserData, or playback statistics, read the [Playback History and Statistics Contracts](./playback-contracts.md).
@@ -45,6 +47,7 @@ This directory contains guidelines for backend development. Fill in each file wi
 
 ## Quality Check
 
+- [ ] Work-list changes preserve each endpoint's eligibility/order/count contract, reuse work-level candidates where equivalent, and validate actual candidate plus page-payload plans across consumers.
 - [ ] Player-visible Emby contract changes update `web/src/pages/embyApiCatalog.ts` in the same task and pass the synchronization contract's validation steps.
 - [ ] Discover feed changes preserve keyed response metadata, cache/fallback order, and Provider scheduling.
 - [ ] Douban Cookie and proxy changes preserve encrypted database ownership, credential-free responses, per-request resolution, and route switching only for exact HTTP 400 or `unexpected EOF`.

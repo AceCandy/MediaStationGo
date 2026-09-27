@@ -78,6 +78,37 @@ are a separate authorized exception; playback still uses existing local/STRM fil
 - Source images live under `DataDir/catalogs/hongguo/artwork`; public DTOs/logs
   exclude upstream image URLs and credentials. Retain an old image until its
   replacement succeeds. Missing local images enqueue repair.
+- Emby `ImageURL` resolves `hg-group/work/season` directly against works and local
+  artwork, with a short-circuit visible-file EXISTS under the existing public
+  image scope. Never expand `hongGuoNodes` or playback state for a single poster.
+  Group artwork follows `NULLIF(season_index,0) NULLS LAST, work.id` among members
+  with visible files; a fileless first season does not supply its poster. Grouped
+  series no longer accept their former hg-work root; episodes still have no poster.
+  Emby missing-image PNGs use `Cache-Control: no-store`; successful files retain
+  normal long caching. Verify real bytes/dimensions, not merely HTTP 200.
+- Emby detail and entity-child browsing use `hongGuoItemNodes` to restrict visible
+  files by native group/work/season/episode binding IDs before `hongGuoFileNodes`.
+  The variadic identity scope also serves mixed-page hydration and Resume/NextUp.
+  Keep direct indexed predicates for single work/episode IDs; batch parents resolve
+  native work IDs, then UNION their bindings with requested episode bindings.
+  UNION deduplicates overlapping parents/leaves without an OR across binding keys.
+  Keep the outer node/parent predicate: grouped works must not regain their old
+  standalone identity. Album representative and global latest time still read
+  all valid member works, including a fileless first season. Restricted episode
+  projections must never supply a complete parent summary.
+  `HongGuoItemsViews` restricts native `work_id/episode_id` before its existing
+  kind/identity CASE. Concatenated presentation IDs alone force full binding scans.
+  Validate the complete detail → seasons → episodes → leaf-detail chain, including
+  payload/version SQL, not only its first query. `TestHongGuoLibraryPagePlan` bounds
+  file/binding/episode reads on 600,000 files; `TestHongGuoLibraryPageMatchesHierarchy`
+  compares original state/visibility/paging, and `TestEmbyHongGuoDetailClickRoutes`
+  checks HTTP IDs, types, parents, state, SeasonId precedence and paging.
+- Web series seasons/episodes constrain `b.work_id` by native group/work identity
+  in `hongGuoSeriesScope`, retaining the final presentation CASE check. Logical
+  batch version reads first resolve requested presentation IDs to work IDs, then
+  fetch only those bindings; never scan all files to resolve a presentation ID.
+  The large plan fixture also covers Web seasons, selected-season episodes and
+  logical versions. Grouped works must remain absent under obsolete hg-work IDs.
 - `Client.Category` returns list summaries, not authoritative details.
   `SaveDiscoveryPage` batch-upserts summaries, source-ID artwork download rows,
   and the next-page checkpoint in one transaction. It never calls detail HTTP,
@@ -194,6 +225,20 @@ are a separate authorized exception; playback still uses existing local/STRM fil
   the current page. Reuse existing old-catalog payload builders with `Fields`;
   do not call complete `Item` once per list row. Omitted Fields retains existing
   defaults; explicit Fields controls People/ProviderIds/MediaSources.
+  `hongGuoGlobalItems` materializes filtered candidate identity/sort columns once;
+  COUNT and the page read that same CTE. LEFT JOIN the page to totals so empty or
+  out-of-range pages retain exact totals. Eligibility is always before LIMIT.
+  Movie/Series requests (except playback-date ordering) share `hongGuoWorkScope`
+  with library browsing, alongside ordinary/NFO work candidates. Only requested
+  played filters compute completed identities. Global MAX file-date sorting uses
+  one necessary file-date aggregate; title/rating/latest-time requests use file
+  existence instead. Album titles/global times are computed once at work level.
+  `hongGuoGlobalCandidates` retains default Movie/Episode and explicit child kinds;
+  playback-date ordering retains its visible-state contract. Do not load artwork
+  or poster counters here. `globalItemsWithCount(...,false)` omits the count for
+  global Latest. Accurate Items totals still require qualifying all candidates.
+  Person filters resolve credits/source works plus visible-file existence, not
+  full hierarchy nodes. All variants hydrate only final page identities.
 - Source statistics rank by source work, even after official grouping. Display
   current group title/season without changing the event identity. Missing or
   rebound files must not be linked as the original event's available media.
@@ -313,6 +358,14 @@ are a separate authorized exception; playback still uses existing local/STRM fil
   identity, established source-category preservation, and official position order.
 - `TestHongGuoEmbyPlayableIdentityAndUserState`: versions, logical identity,
   visibility, people, pagination, Fields and legacy writer rejection.
+- `TestEmbyGlobalBrowseSingleCandidateQuery`, the hierarchy and mixed Resume fixtures
+  compare IDs/order/totals against the original full-node candidate query, including
+  default types, playback/search filters, empty pages and library permissions. Batch
+  parent/leaf nodes must match full-node summaries without duplicate files.
+  `TestHongGuoLibraryPagePlan` also checks mixed-page hydration on 600,000 files and
+  one candidate CTE evaluation for Movie/Series with IsUnplayed. Record actual visits
+  and execution time, not just SQL count or result size; synthetic SQL timings are
+  not production HTTP latency or concurrent-load evidence.
 - `TestHongGuoHTTPAccessAndStateIsolation`: JWT/admin/profile boundaries,
   local Range, STRM redirect, source DTO redaction, source/category/sort query
   validation and statistics routing.
@@ -366,22 +419,48 @@ Library-scoped Emby Items and Latest, including when unrelated NFO media exists.
 `libraryAsView` maps `LibraryTypeHongGuo` to `CollectionType=tvshows`.
 `hongGuoLibraryItems(ctx, p, count)` pages logical works before node hydration;
 `hongGuoLibraryPageSupported` gates ordinary work-layer requests.
+`hongGuoLibraryNodes(ctx, p, workIDs)` aggregates page files by source work
+before joining display metadata, artwork and favorites.
 
 ### 3. Contracts
 
 Filter visible files and effective playback state before logical album grouping
 and pagination. Count and page share materialized work candidates. Latest omits
-the work count and orders by MAX visible file creation time, then logical ID;
-adding an episode can move an existing work forward. DateLastContentAdded uses
-MAX; DateCreated retains MIN. Unrelated NFO presence cannot choose a different
+the work count and orders by stored `latest_media_added_at`, then logical ID;
+adding an episode can move an existing work forward across libraries. Albums
+take MAX over all member source-work timestamps, not just visible member seasons.
+Count-free descending Latest prefilters source works by persisted `library_ids`
+for the requested library, then sorts lightweight logical works by global album
+time, with no inner LIMIT. NULL membership goes to the original exact checks.
+Do not filter the album title/time CTE by library, and do not store an album's
+membership on its first season. A LATERAL match reuses the original scoped file/state query for
+that work's source members; aggregate only visible members, apply played/type
+filters, then LIMIT. Only matched member IDs reach page hydration. Keep global
+album timestamps and fileless representative seasons outside the visibility scope.
+DateLastContentAdded uses this work time; DateCreated retains MIN. Unrelated NFO presence cannot choose a different
 library-scoped HongGuo Latest implementation. Bind page work IDs before detail
 file lookup; do not expand the entire library into series/season/episode nodes.
 Keep source movie identities unchanged despite the library's tvshows type.
 Special filters and recursive requests including child kinds retain hierarchy
-queries. Title-only browsing without a played filter uses correlated
-`EXISTS (... OFFSET 0)` like Web paging; current-page details still load dates
-and user state. Date/state-filtered candidates read eligible file bindings; this is not
-a constant-time listing or a search-index path.
+queries. Title/date-last-content browsing without a played filter uses correlated
+`EXISTS (... OFFSET 0)` like Web paging, after `latest_media_added_at IS NOT NULL`
+has excluded works without files. Non-null time proves global file existence,
+not current-library membership or user permission; retain those file checks.
+Materialize album titles and global timestamps once at work level, including
+fileless representative seasons. Current-page details materialize `page_works`
+and per-work `file_stats`; only then join artwork and favorites. Do not expand
+season/episode nodes or repeat album MAX and display joins for every file.
+State-filtered candidates still check eligible files before paging, but use
+`NOT EXISTS (unplayed file)` for the all-played predicate so the first unfinished
+file ends that check. Use `CompletedPlaybackStates`, preserving `PlaybackStates` effective-state rules, and the
+separate nonempty visible-file check. In the query-local `playback_states` CTE,
+group effective completed episode numbers by source ID, then join once at work
+level; membership in that source's array supplies the file played predicate.
+If the source has no effective completed episodes, it is unplayed without another
+file/episode probe; still retain the separate visible-file existence check.
+Do not repeatedly scan an ungrouped materialized user-state set per work.
+DateCreated still aggregates eligible
+file dates; neither path is a constant-time listing or a search-index path.
 
 ### 4. Validation & Error Matrix
 
@@ -397,9 +476,22 @@ hg-work. Bad: an unrelated NFO library changes Latest from MAX to MIN.
 ### 6. Tests Required
 
 `TestHongGuoLibraryCollectionType`, `TestHongGuoLibraryPagingAndLatest`,
-`TestHongGuoLibraryPageBoundary` and `TestHongGuoLibraryPagePlan` cover type,
+`TestHongGuoLibraryPageBoundary`, `TestHongGuoLibraryPageMatchesHierarchy`
+and `TestHongGuoLibraryPagePlan` cover type,
 album pagination, sort semantics, NFO presence, user state, visibility, fallback
 gates, omitted Latest count and actual page-detail file work on PostgreSQL.
+Compare payloads with the hierarchy path for fileless first seasons, duplicate
+season numbers, file versions, cross-library files, missing episode bindings
+and effective playback state after version deletion. Plan fixtures must include
+multi-season albums, real episode bindings and artwork; bound work/artwork
+joins by page source works, not by file count. Cover both empty and populated
+state tables (including 60,000 states) and bound materialized-state scan work.
+The same large fixture checks single-poster lookup only reads the requested
+work/album and no episode/state table. `TestEmbyHongGuoImageServesLocalArtwork`
+checks non-placeholder bytes, dimensions, resized output and GET/HEAD; the missing
+image regression checks no-store without changing its PNG or HEAD contract.
+Empty state tables do not prove
+that playback-state joins caused a production slowdown.
 Run PostgreSQL tests without skips; synthetic timings do not certify deployment
 latency or a real player's cached collection type.
 

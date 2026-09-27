@@ -190,7 +190,6 @@ func (e *EmbyService) libraryAsView(l *model.Library) map[string]any {
 			"PlayCount":             0,
 			"IsFavorite":            false,
 			"Played":                false,
-			"UnplayedItemCount":     0,
 		},
 	}
 }

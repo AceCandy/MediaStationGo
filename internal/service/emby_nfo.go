@@ -13,9 +13,20 @@ func (e *EmbyService) nfoLibraryItems(ctx context.Context, p ItemsParams, count 
 	db := e.repo.DB.WithContext(ctx)
 	filter := e.mediaQueryFilter(ctx, p.UserID)
 	dateSort := strings.Contains(strings.ToLower(p.SortBy), "datecreated")
+	latest := !count && !dateSort && strings.Contains(strings.ToLower(p.SortBy), "datelastcontentadded") && strings.EqualFold(p.SortOrder, "Descending")
 	played := containsEmbyFilter(p.Filters, "IsPlayed")
 	unplayed := containsEmbyFilter(p.Filters, "IsUnplayed")
-	q := db.Table("(?) AS candidates", e.repo.MediaView.NFOLibraryCandidates(ctx, p.UserID, p.ParentID, filter, dateSort, played || unplayed))
+	dateAggregate := ""
+	if dateSort {
+		dateAggregate = "MIN"
+	}
+	q := db.Table("(?) AS candidates", e.repo.MediaView.NFOWorkCandidates(ctx, p.UserID, p.ParentID, filter, dateAggregate, played || unplayed, latest))
+	columns := "id, title, season_number, episode_number, latest_at"
+	if dateSort {
+		columns += ", created_at"
+	}
+	// 播放状态只用于过滤，不在物化结果中再次计算。
+	q = q.Select(columns)
 	if len(p.IncludeItemTypes) > 0 {
 		q = q.Where("kind IN ?", lowerStrings(p.IncludeItemTypes))
 	}
@@ -28,12 +39,19 @@ func (e *EmbyService) nfoLibraryItems(ctx context.Context, p ItemsParams, count 
 	order := "title"
 	if dateSort {
 		order = "created_at"
+	} else if strings.Contains(strings.ToLower(p.SortBy), "datelastcontentadded") {
+		order = "latest_at"
 	}
 	if strings.EqualFold(p.SortOrder, "Descending") {
 		order += " DESC"
 	}
+	order += " NULLS LAST"
 	page := db.Table("candidates").Order("season_number, episode_number").Order(order).Order("id").Limit(p.Limit).Offset(p.StartIndex)
 	totals := "SELECT 0::bigint AS total"
+	materialization := "MATERIALIZED"
+	if latest {
+		materialization = "NOT MATERIALIZED"
+	}
 	if count {
 		totals = "SELECT COUNT(*) AS total FROM candidates"
 	}
@@ -41,7 +59,7 @@ func (e *EmbyService) nfoLibraryItems(ctx context.Context, p ItemsParams, count 
 		ID    string
 		Total int64
 	}
-	err := db.Raw(`WITH candidates AS MATERIALIZED (?), page AS (?)
+	err := db.Raw(`WITH candidates AS `+materialization+` (?), page AS (?)
 SELECT COALESCE(page.id,'') AS id, totals.total FROM (`+totals+`) totals LEFT JOIN page ON TRUE
 ORDER BY page.season_number, page.episode_number, page.`+order+`, page.id`, q, page).Scan(&rows).Error
 	if err != nil {
@@ -86,6 +104,15 @@ func (e *EmbyService) nfoNodes(ctx context.Context, userID, libraryID string) *g
 	return q
 }
 
+// nfoItemNodes 供单项详情和子层级查询使用；调用方仍须筛选目标节点或父身份。
+func (e *EmbyService) nfoItemNodes(ctx context.Context, userID string, ids ...string) *gorm.DB {
+	itemIDs := make([]string, 0, len(ids))
+	for _, id := range ids {
+		itemIDs = append(itemIDs, strings.TrimPrefix(id, "nfo-"))
+	}
+	return e.repo.MediaView.NFOWorkNodes(ctx, userID, "", e.mediaQueryFilter(ctx, userID), itemIDs)
+}
+
 // nfoNodePayloads 复用文件播放响应；容器不伪装为可播放文件。
 func (e *EmbyService) nfoNodePayloads(ctx context.Context, nodes []hongGuoNode, userID string, fields []string) ([]map[string]any, error) {
 	ids := []string{}
@@ -126,7 +153,7 @@ func (e *EmbyService) nfoNodePayloads(ctx context.Context, nodes []hongGuoNode, 
 			"IsFolder": true, "ParentId": node.ParentID, "IndexNumber": node.SeasonNumber,
 			"DateCreated": formatEmbyDateTime(node.CreatedAt), "ImageTags": images,
 			"Overview": node.Overview, "CommunityRating": node.Rating, "RecursiveItemCount": node.EpisodeCount,
-			"UserData": map[string]any{"IsFavorite": node.Kind == "Series" && node.Favorite, "Played": node.Played, "PlaybackPositionTicks": 0},
+			"UserData": map[string]any{"IsFavorite": node.Kind == "Series" && node.Favorite, "Played": node.Played, "PlaybackPositionTicks": 0, "UnplayedItemCount": node.UnplayedItemCount},
 		})
 	}
 	return items, nil

@@ -36,6 +36,7 @@ func (r *MediaViewRepository) nfoViewQuery(ctx context.Context, filter MediaQuer
 }
 
 const nfoViewSelect = `m.*,
+ni.latest_media_added_at AS latest_media_added_at,
 'nfo-' || ni.id AS view_catalog_item_id,
 COALESCE('nfo-' || nw.id,'') AS view_series_id,
 COALESCE(nw.title,'') AS view_series_title,
@@ -78,7 +79,12 @@ func (r *MediaViewRepository) nfoViewsByIDs(ctx context.Context, ids []string, f
 
 func (r *MediaViewRepository) NFOItemViews(ctx context.Context, id string, filter MediaQueryFilter) ([]model.MediaView, error) {
 	id = strings.TrimPrefix(id, "nfo-")
-	return scanNFOViews(r.nfoViewQuery(ctx, filter).Where("ni.id = ? OR ns.id = ? OR nw.id = ?", id, id, id).Order("ns.season_num, ni.episode_num, m.path"))
+	return scanNFOViews(r.nfoItemViewQuery(ctx, []string{id}, filter).Order("ns.season_num, ni.episode_num, m.path"))
+}
+
+// nfoItemViewQuery 先一次性解析目标条目，再按绑定索引读取文件，避免层级连接重排成全表扫描。
+func (r *MediaViewRepository) nfoItemViewQuery(ctx context.Context, ids []string, filter MediaQueryFilter) *gorm.DB {
+	return r.nfoViewQuery(ctx, filter).Where("b.item_id = ANY(ARRAY(?))", r.nfoWorkFileItems(ctx, ids))
 }
 
 // NFONodes 将可见文件展开为本地层级节点，供 Emby 在混合来源分页前查询。
@@ -89,15 +95,17 @@ func (r *MediaViewRepository) NFONodes(ctx context.Context, userID, libraryID st
 
 // NFOWorkNodes 仅展开当前页作品的文件，避免详情读取重新遍历全库绑定。
 func (r *MediaViewRepository) NFOWorkNodes(ctx context.Context, userID, libraryID string, filter MediaQueryFilter, ids []string) *gorm.DB {
-	q := r.nfoViewQuery(ctx, filter).Joins("JOIN (?) page_leaf ON page_leaf.id = b.item_id", r.nfoWorkFileItems(ctx, ids))
+	q := r.nfoItemViewQuery(ctx, ids, filter)
 	return r.nfoNodesFromFiles(ctx, userID, libraryID, filter, q)
 }
 
-// nfoWorkFileItems 沿作品主键定位自身及季下分集，不按标题合并。
+// nfoWorkFileItems 定位条目自身、季下分集与剧下分集；混合父子输入必须去重。
 func (r *MediaViewRepository) nfoWorkFileItems(ctx context.Context, ids []string) *gorm.DB {
 	return r.db.WithContext(ctx).Raw(`SELECT id FROM nfo_items WHERE id = ANY(?)
-UNION ALL SELECT ep.id FROM nfo_items season JOIN nfo_items ep ON ep.parent_id = season.id
-WHERE season.parent_id = ANY(?) AND ep.kind = 'episode'`, &ids, &ids)
+UNION SELECT id FROM nfo_items WHERE parent_id = ANY(?) AND kind = 'episode'
+UNION SELECT ep.id FROM nfo_items season JOIN LATERAL (
+SELECT id FROM nfo_items WHERE parent_id = season.id AND kind = 'episode' OFFSET 0
+) ep ON TRUE WHERE season.parent_id = ANY(?)`, &ids, &ids, &ids)
 }
 
 func (r *MediaViewRepository) nfoNodesFromFiles(ctx context.Context, userID, libraryID string, filter MediaQueryFilter, q *gorm.DB) *gorm.DB {
@@ -110,11 +118,12 @@ func (r *MediaViewRepository) nfoNodesFromFiles(ctx context.Context, userID, lib
 		Select(`'nfo-' || item.id AS id, 'nfo-' || COALESCE(nw.id,ni.id) AS resume_key,
 INITCAP(item.kind) AS kind, item.title, COALESCE('nfo-' || item.parent_id,'') AS parent_id,
 item.season_num AS season_number, item.episode_num AS episode_number,
-(ARRAY_AGG(m.id ORDER BY CASE WHEN m.id = st.media_id THEN 0 ELSE 1 END, st.watched_at DESC NULLS LAST, m.id))[1] AS media_id, MIN(m.created_at) AS created_at, MAX(m.created_at) AS latest_at,
+(ARRAY_AGG(m.id ORDER BY CASE WHEN m.id = st.media_id THEN 0 ELSE 1 END, st.watched_at DESC NULLS LAST, m.id))[1] AS media_id, MIN(m.created_at) AS created_at, MAX(m.created_at) AS file_latest_at, item.latest_media_added_at AS latest_at,
 MAX(st.watched_at) AS played_at, BOOL_AND(COALESCE(st.completed,FALSE)) AS played,
 BOOL_OR(COALESCE(fav.favorite,FALSE)) AS favorite, MAX(COALESCE(st.position_ms,0)) AS position_ms,
 item.poster_asset_id AS artwork_id, item.overview, item.rating, item.release_date, item.year,
-COUNT(DISTINCT ni.id) AS episode_count`).Group("item.id,COALESCE(nw.id,ni.id)")
+COUNT(DISTINCT ni.id) AS episode_count,
+COUNT(DISTINCT ni.id) FILTER (WHERE ni.kind = 'episode' AND NOT COALESCE(st.completed,FALSE)) AS unplayed_item_count`).Group("item.id,COALESCE(nw.id,ni.id)")
 	return r.db.WithContext(ctx).Table("(?) AS nodes", q)
 }
 
@@ -130,15 +139,18 @@ func (r *MediaViewRepository) nfoLibraryPage(ctx context.Context, libraryID, kin
 	if itemID != "" {
 		q = q.Where(work+" = ?", strings.TrimPrefix(itemID, "nfo-"))
 	}
-	groups := q.Session(&gorm.Session{}).Select(work + " AS id, MAX(m.created_at) AS latest").Group(work)
-	page := r.db.Table("works").Order("latest DESC, id").Offset(offset).Limit(limit)
+	groups := r.db.WithContext(ctx).Table("nfo_items recent").
+		Select("recent.id, recent.latest_media_added_at AS latest").
+		Where("recent.library_id=? AND recent.kind=?", libraryID, kind).
+		Where("EXISTS (? OFFSET 0)", q.Session(&gorm.Session{}).Select("1").Where(work+"=recent.id"))
+	page := r.db.Table("works").Order("latest DESC NULLS LAST, id").Offset(offset).Limit(limit)
 	var rows []struct {
 		ID    string
 		Total int64
 	}
 	err := r.db.WithContext(ctx).Raw(`WITH works AS MATERIALIZED (?), page AS (?)
 SELECT COALESCE(page.id,'') AS id, totals.total FROM (SELECT COUNT(*) AS total FROM works) totals
-LEFT JOIN page ON TRUE ORDER BY page.latest DESC, page.id`, groups, page).Scan(&rows).Error
+LEFT JOIN page ON TRUE ORDER BY page.latest DESC NULLS LAST, page.id`, groups, page).Scan(&rows).Error
 	if err != nil {
 		return nil, nil, 0, err
 	}
@@ -156,7 +168,7 @@ LEFT JOIN page ON TRUE ORDER BY page.latest DESC, page.id`, groups, page).Scan(&
 	var summaries []LibraryMetadataSummary
 	err = q.Joins("JOIN (?) page_leaf ON page_leaf.id = b.item_id", r.nfoWorkFileItems(ctx, workIDs)).
 		Select("'nfo-' || " + work + " AS metadata_id, MIN(m.id) AS media_id, COUNT(DISTINCT ni.id) AS count, COUNT(*) AS version_count").
-		Group(work).Order("MAX(m.created_at) DESC, " + work).Scan(&summaries).Error
+		Group(work).Order("MAX(COALESCE(nw.latest_media_added_at,ni.latest_media_added_at)) DESC NULLS LAST, " + work).Scan(&summaries).Error
 	if err != nil {
 		return nil, nil, 0, err
 	}
