@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-2.md`
-- **Total Sessions**: 160
+- **Total Sessions**: 161
 - **Last Active**: 2026-09-27
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-2.md` | ~1773 | Active |
+| `journal-2.md` | ~1809 | Active |
 | `journal-1.md` | ~1981 | Archived |
 <!-- @@@/auto:active-documents -->
 
@@ -30,6 +30,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 161 | 2026-09-27 | Emby 请求兼容与电影层级字段修复 | `3a46537479b66b7093341379b7967c49388044cb` | `main` |
 | 160 | 2026-09-27 | 统一作品级查询与媒体状态并归档 | `6661e03` | `main` |
 | 159 | 2026-09-26 | 红果与 NFO 媒体库浏览优化 | `45dfed8` | `main` |
 | 158 | 2026-09-25 | 搜索并行与红果索引可见性优化归档 | `4823d2a` | `main` |

@@ -1771,3 +1771,39 @@ Scope series detail episodes to the selected season while preserving cross-seaso
 ### Next Steps
 
 - 启动新版后验收 Hills/Yamby/Web 实际体验与并发性能；本次仅本地提交归档，未推送、未重启、未操作生产数据。
+
+
+## Session 161: Emby 请求兼容与电影层级字段修复
+<!-- trellis-session: v=2 fp=85134f0075c930f2 -->
+
+**Date**: 2026-09-27
+**Task**: Emby 请求兼容与电影层级字段修复
+**Branch**: `main`
+
+### Summary
+
+修复已确认的请求解析、取消状态、空父级查询、播放进度边界与电影层级字段问题，完成回归及独立复核后按用户要求提交归档。
+
+### Main Changes
+
+- MinSegments 接受整数及整数字符串；空 Shows 父级在查询前返回400，浏览取消返回499，真实内部错误保留500。
+- 缺少客户端时长时按具体文件探测时长裁剪进度；Movie 省略季集字段，搜索提示不再补出 null 集号，Episode 和特别篇保持原字段。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `3a46537479b66b7093341379b7967c49388044cb` | fix(emby): correct request compatibility and movie hierarchy fields |
+
+### Testing
+
+- [OK] 新增回归先复现失败再通过；隔离 PostgreSQL 验证普通/NFO/红果进度、电影与分集、层级、多版本、续播及请求错误处理。
+- [OK] 前端 lint/build、接口目录一致性、响应式/主题可访问性/管理员访问浏览器检查及 git diff --check 通过；临时预览已关闭。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 未推送远程，未主动重启后端；电影字段修改仍需加载后用 Hills/Yamby 实机对照，确认空 Shows 请求是否消失。
