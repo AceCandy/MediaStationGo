@@ -1,0 +1,3 @@
+{"file":".trellis/tasks/09-26-work-latest-media-added/prd.md","reason":"逐项核验时间语义、历史操作和性能验收"}
+{"file":".trellis/spec/backend/database-guidelines.md","reason":"并发一致性与真实 PostgreSQL 验证"}
+{"file":".trellis/spec/backend/emby-api-catalog-sync.md","reason":"最近添加接口契约同步"}

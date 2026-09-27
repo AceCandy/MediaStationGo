@@ -1,0 +1,4 @@
+{"file":".trellis/tasks/09-26-work-latest-media-added/design.md","reason":"作品全局时间、事务维护与一次性补算边界"}
+{"file":".trellis/spec/backend/database-guidelines.md","reason":"PostgreSQL 事务、索引、触发器与真实执行计划要求"}
+{"file":".trellis/spec/backend/hongguo-catalog.md","reason":"独立身份、合集与代表季规则"}
+{"file":".trellis/spec/backend/nfo-catalog.md","reason":"库内身份、绑定与浏览规则"}
