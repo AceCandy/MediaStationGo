@@ -232,28 +232,33 @@ func (e *EmbyService) hongGuoLibraryNodes(ctx context.Context, p ItemsParams, wo
  CASE WHEN g.id IS NULL THEN 'hg-work-' || w.id ELSE 'hg-group-' || g.id END AS id,
  CASE WHEN w.kind = 'movie' THEN 'Movie' ELSE 'Series' END AS kind`)
 	states := repository.PlaybackStates(ctx, e.repo.DB, "hongguo", p.UserID, e.mediaQueryFilter(ctx, p.UserID))
-	stateJoin := "LEFT JOIN (?) s ON s.source_id = w.source_id AND s.episode_number = COALESCE(ep.number,1)"
 	completed := "COALESCE(s.completed,FALSE)"
-	fileFields := ", MIN(m.id) AS media_id, MAX(s.watched_at) AS played_at, MAX(COALESCE(s.position_ms,0)) AS position_ms"
+	episodeFields := ", MIN(m.id) AS media_id"
+	fileFields := ", MIN(v.media_id) AS media_id, MAX(s.watched_at) AS played_at, MAX(COALESCE(s.position_ms,0)) AS position_ms"
 	nodeFields := ", MIN(v.media_id) AS media_id, MAX(v.played_at) AS played_at, MAX(v.position_ms) AS position_ms"
 	if seriesOnly {
-		states = repository.CompletedPlaybackStates(ctx, e.repo.DB, "hongguo", p.UserID, e.mediaQueryFilter(ctx, p.UserID)).
-			Where("source_id = w.source_id AND episode_number = COALESCE(ep.number,1)")
-		// 参数化身份探测，避免 UNION 集合先扫描整位用户的历史。
-		stateJoin = "LEFT JOIN LATERAL (? OFFSET 0) s ON TRUE"
+		states = repository.CompletedPlaybackStates(ctx, e.repo.DB, "hongguo", p.UserID, e.mediaQueryFilter(ctx, p.UserID))
 		completed = "s.source_id IS NOT NULL"
-		fileFields, nodeFields = "", ""
+		episodeFields, fileFields, nodeFields = "", "", ""
 	}
+	// 按页内源作品读取状态并物化一次，避免逐文件探测或展开整位用户的历史。
+	states = db.Table("page_works state_work").
+		Joins("JOIN LATERAL (? OFFSET 0) state ON TRUE", states.Where("source_id = state_work.source_id")).Select("state.*")
 	files := e.hongGuoVisibleFiles(ctx, p.UserID, p.ParentID).
 		Joins("JOIN hongguo_media_bindings b ON b.media_id = m.id").Where("b.work_id = ANY(?)", &workIDs).
 		Joins("JOIN page_works w ON w.work_id = b.work_id").
 		Joins("LEFT JOIN hongguo_episodes ep ON ep.id = b.episode_id AND ep.work_id = b.work_id").
-		Joins(stateJoin, states).
-		Select(`b.work_id, MIN(m.created_at) AS created_at,
- COUNT(DISTINCT ep.id) AS episode_count, BOOL_AND(` + completed + `) AS played,
- COUNT(DISTINCT ep.id) FILTER (WHERE NOT (` + completed + `)) AS unplayed_item_count` + fileFields).Group("b.work_id")
+		Select("b.work_id, w.source_id, ep.id AS episode_id, COALESCE(ep.number,1) AS episode_number, MIN(m.created_at) AS created_at" + episodeFields).
+		Group("b.work_id, w.source_id, ep.id, ep.number")
+	// 先归并同集文件版本，再与状态集合连接，避免状态被嵌入每个文件的索引探测。
+	stats := db.Table("page_files v").
+		Joins("LEFT JOIN page_states s ON s.source_id = v.source_id AND s.episode_number = v.episode_number").
+		Select(`v.work_id, MIN(v.created_at) AS created_at,
+ COUNT(DISTINCT v.episode_id) AS episode_count, BOOL_AND(` + completed + `) AS played,
+ COUNT(DISTINCT v.episode_id) FILTER (WHERE NOT (` + completed + `)) AS unplayed_item_count` + fileFields).Group("v.work_id")
 	var nodes []hongGuoNode
-	err := db.Raw(`WITH page_works AS MATERIALIZED (?), file_stats AS MATERIALIZED (?)
+	err := db.Raw(`WITH page_works AS MATERIALIZED (?), page_states AS MATERIALIZED (?),
+ page_files AS MATERIALIZED (?), file_stats AS MATERIALIZED (?)
  SELECT w.id,w.kind,w.title, MIN(v.created_at) AS created_at`+nodeFields+`,
  SUM(v.episode_count) AS episode_count, BOOL_AND(v.played) AS played,
  SUM(v.unplayed_item_count) AS unplayed_item_count,
@@ -267,6 +272,6 @@ func (e *EmbyService) hongGuoLibraryNodes(ctx context.Context, p ItemsParams, wo
  FROM page_works w JOIN file_stats v ON v.work_id=w.work_id
  LEFT JOIN hongguo_artworks a ON a.work_id=w.work_id AND a.local_key <> ''
  LEFT JOIN hongguo_user_states f ON f.user_id=? AND f.source_id=w.source_id AND f.episode_number=0
- GROUP BY w.id,w.kind,w.title,w.group_id`, works, files, p.UserID).Scan(&nodes).Error
+ GROUP BY w.id,w.kind,w.title,w.group_id`, works, states, files, stats, p.UserID).Scan(&nodes).Error
 	return nodes, err
 }

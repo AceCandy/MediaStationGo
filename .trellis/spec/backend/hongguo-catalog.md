@@ -421,7 +421,7 @@ Library-scoped Emby Items and Latest, including when unrelated NFO media exists.
 `libraryAsView` maps `LibraryTypeHongGuo` to `CollectionType=tvshows`.
 `hongGuoLibraryItems(ctx, p, count)` pages logical works before node hydration;
 `hongGuoLibraryPageSupported` gates ordinary work-layer requests.
-`hongGuoLibraryNodes(ctx, p, workIDs)` aggregates page files by source work
+`hongGuoLibraryNodes(ctx, p, workIDs, seriesOnly)` aggregates page files by source work
 before joining display metadata, artwork and favorites.
 `hongGuoWorkMembers` owns membership/date/state qualification without album
 projection. `HongGuoWorkIdentitySQL` and `HongGuoReadyWorkSQL` serve completed-album
@@ -457,8 +457,14 @@ membership uses correlated `EXISTS (... OFFSET 0)`. Non-null latest time alone
 does not prove current-library membership or permission.
 Sorts that require album titles materialize titles and global timestamps once,
 including fileless representative seasons. Latest obtains titles only for the
-selected page. Current-page details materialize `page_works`
-and per-work `file_stats`; only then join artwork and favorites. Do not expand
+selected page. Current-page details materialize `page_works`, source-scoped
+`page_states`, and `page_files` grouped by work/episode before per-work `file_stats`;
+only then join artwork and favorites. Read effective states through a source-ID
+LATERAL boundary, not once per file. Join the two materialized page sets by
+source ID and episode number (missing binding still matches episode 1).
+Preserve COUNT DISTINCT episode IDs, BOOL_AND completion and MIN file date;
+missing episode IDs still do not contribute to episode counts. Materializing
+only states is insufficient: the planner can rescan them per file. Do not expand
 season/episode nodes or repeat album MAX and display joins for every file.
 Pure Series pages use effective completed identities restricted to page source
 IDs and omit unused media-ID, watched-time and position aggregates. Mixed/Movie
@@ -518,6 +524,10 @@ and effective playback state after version deletion. Plan fixtures must include
 multi-season albums, real episode bindings and artwork; bound work/artwork
 joins by page source works, not by file count. Cover both empty and populated
 state tables (including 60,000 states) and bound materialized-state scan work.
+For nine page source works/900 files, all detail state-table loops total at most
+30 and visits at most 3,000; `page_states` rows times loops must not exceed 1,000.
+Keep deleted-version effective-completion cases for both pure Series and Movie
+pages in the full payload comparison; raw completed flags are not an oracle.
 The same large fixture checks single-poster lookup only reads the requested
 work/album and no episode/state table. `TestEmbyHongGuoImageServesLocalArtwork`
 checks non-placeholder bytes, dimensions, resized output and GET/HEAD; the missing

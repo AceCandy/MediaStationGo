@@ -334,6 +334,7 @@ SELECT 'viewer',n::text,e,true FROM generate_series(1,6000) n CROSS JOIN generat
 				t.Fatal("latest candidate complexity triggered JIT")
 			}
 			var candidateWorkVisits float64
+			var detailStateLoops, detailStateVisits float64
 			var inspect func(map[string]any)
 			inspect = func(node map[string]any) {
 				if i == 0 && node["Relation Name"] == "hongguo_works" {
@@ -366,8 +367,18 @@ SELECT 'viewer',n::text,e,true FROM generate_series(1,6000) n CROSS JOIN generat
 					rows, _ := node["Actual Rows"].(float64)
 					removed, _ := node["Rows Removed by Filter"].(float64)
 					loops, _ := node["Actual Loops"].(float64)
-					if (rows+removed)*loops > 3000 || loops > 3000 {
+					detailStateLoops += loops
+					detailStateVisits += (rows + removed) * loops
+					// 一页三个合集、九个源作品；状态探测不能随 900 个文件增长。
+					if (rows+removed)*loops > 3000 || loops > 30 {
 						t.Fatalf("page detail scanned unrelated states: rows=%v removed=%v loops=%v", rows, removed, loops)
+					}
+				}
+				if i == 2 && node["CTE Name"] == "page_states" {
+					rows, _ := node["Actual Rows"].(float64)
+					loops, _ := node["Actual Loops"].(float64)
+					if rows*loops > 1000 {
+						t.Fatalf("page repeatedly scans materialized states: rows=%v loops=%v", rows, loops)
 					}
 				}
 				if i == 0 && node["CTE Name"] == "playback_states" {
@@ -417,6 +428,12 @@ SELECT 'viewer',n::text,e,true FROM generate_series(1,6000) n CROSS JOIN generat
 				}
 			}
 			inspect(plans[0].Plan)
+			if i == 2 {
+				if detailStateLoops == 0 || detailStateLoops > 30 || detailStateVisits > 3000 {
+					t.Fatalf("page state work is not source-bounded: loops=%v visits=%v", detailStateLoops, detailStateVisits)
+				}
+				t.Logf("mode=%s detail state loops=%.0f visits=%.0f", mode, detailStateLoops, detailStateVisits)
+			}
 			// 只允许一次全目录分组、未知归属集合及当前批次成员访问。
 			if i == 0 && mode != "title" && candidateWorkVisits > 15000 {
 				t.Fatalf("latest candidates repeat catalog scans: visits=%v", candidateWorkVisits)
@@ -625,21 +642,22 @@ func TestHongGuoLibraryPageMatchesHierarchy(t *testing.T) {
 			if err := db.Model(&model.HongGuoMediaBinding{}).Where("media_id = ?", m.ID).Update("episode_id", nil).Error; err != nil {
 				t.Fatal(err)
 			}
+		}
+		if file.work == 3 || file.work == 4 {
 			if err := db.Create(&model.MediaProbeMetadata{MediaID: m.ID, DurationMS: 120_000}).Error; err != nil {
 				t.Fatal(err)
 			}
 		}
 	}
-	if err := e.MarkPlayed(ctx, "viewer", "hg-group-"+works[3].SourceID, true); err != nil {
-		t.Fatal(err)
-	}
 	if err := e.MarkPlayed(ctx, "viewer", "hg-season-"+works[1].ID, true); err != nil {
 		t.Fatal(err)
 	}
-	// 无分集绑定的电影用第 1 集状态；旧版本删除后，较短替代版本推断为已看。
-	if err := db.Create(&model.HongGuoUserState{UserID: "viewer", SourceID: works[4].SourceID, EpisodeNumber: 1,
-		MediaID: "removed-version", PositionMs: 100_000, DurationMs: 200_000, WatchedAt: &base}).Error; err != nil {
-		t.Fatal(err)
+	// 纯剧集和无分集绑定的电影都保留删除旧版本后按替代片长推断已看的规则。
+	for _, work := range works[3:5] {
+		if err := db.Create(&model.HongGuoUserState{UserID: "viewer", SourceID: work.SourceID, EpisodeNumber: 1,
+			MediaID: "removed-version", PositionMs: 100_000, DurationMs: 200_000, WatchedAt: &base}).Error; err != nil {
+			t.Fatal(err)
+		}
 	}
 	if err := db.Exec(`INSERT INTO hongguo_user_states (user_id,source_id,episode_number,favorite) VALUES ('viewer',?,0,true)`, works[1].SourceID).Error; err != nil {
 		t.Fatal(err)

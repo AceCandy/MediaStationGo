@@ -55,13 +55,15 @@ pagination is not a stable snapshot. Hash sorting can still scan work candidates
 NULL membership retains exact file fallback and sparse states can require many
 50-candidate batches. These are not guarantees of constant-time sampling.
 
-For bounded container hydration, correlate `CompletedPlaybackStates` to the
-current logical episode through `LEFT JOIN LATERAL (... OFFSET 0)`. An ordinary
-join to its UNION, even with an outer page-source filter, can scan the entire
-user history or repeatedly materialize it. This was observed with 60,000 HongGuo
-states (page detail exceeded 10 seconds) and 25,000 NFO states (full state scan).
-Keep plan assertions on state rows and loops as well as files; fewer selected
-columns alone is not evidence of a cheaper query. Do not change general
+For bounded container hydration, do not join the unrestricted completed-state
+UNION: an outer page-source filter can still scan all user history, observed with
+60,000 HongGuo and 25,000 NFO states. NFO keeps its logical-episode
+`LEFT JOIN LATERAL (... OFFSET 0)` probes. HongGuo library cards instead correlate
+states to each `page_works.source_id` and materialize `page_states` once. First
+deduplicate visible file versions into materialized `page_files`, then join by
+source ID and episode number; otherwise even the bounded state CTE may be
+rescanned per file. Keep plan assertions on base-table rows/loops and CTE scans,
+not only selected columns or SQL count. This does not change general
 PlaybackStates consumers that need position, representative media or watched time.
 
 Ordinary `containerEpisodeScope` limits seasons by `id IN (page IDs) OR
@@ -196,6 +198,7 @@ change those tie windows or convert directly bound ordinary Series media to fold
 - `TestEmbyContainerPlaybackBoundsHierarchy` compares the original scope with series, season and overlapping IDs, and bounds actual metadata/file/history visits. Existing manual watched/unwatched rollback tests must also pass. `TestRecentLogicalWorksPreservesBatchTiesAndFilters` captures actual batch SQL (never an obsolete handwritten file query), asserts no page-date requery and no Media enumeration inside `CTE work_batch`; file qualification belongs to the separate `qualified` stage. `TestRecentHongGuoAlbumsAggregateOnce` bounds total work visits/join comparisons and retains hidden-member global time. `TestRecentLogicalWorksRefillsWithDates` verifies four batches, original order and dates without candidate replay.
 - 文件访问下降但耗时不降时，补采带计时的 EXPLAIN，分别查看 JIT 编译、必要日期汇总与页内详情；`TIMING OFF` 下缺失的 JIT Timing 不是“编译耗时为零”。性能基准与其它数据库测试分开执行，不把并行负载结果作严格前后对比。
 - 红果库内 Latest 计划还须断言无全目录标题/成员数组聚合、无 JIT，并统计所有作品访问次数。批内 50 卡片各 3 季可产生最多 150×150 次状态关联比较，不可误判成全目录合集关联；保留文件、历史和页内资料的原扫描边界。
+- 红果详情状态循环按页内源作品而非文件数增长：`TestHongGuoLibraryPagePlan` 的 9 个源作品、900 个文件场景，累计状态表 loops 必须为 1..30、visits 不超过 3,000，`page_states` 扫描 rows×loops 不超过 1,000；同时覆盖空历史和 60,000 条历史，不能只验证物化了一次。
 
 ## 7. Wrong vs Correct
 
