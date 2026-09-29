@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-2.md`
-- **Total Sessions**: 164
+- **Total Sessions**: 165
 - **Last Active**: 2026-09-29
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-2.md` | ~1903 | Active |
+| `journal-2.md` | ~1938 | Active |
 | `journal-1.md` | ~1981 | Archived |
 <!-- @@@/auto:active-documents -->
 
@@ -30,6 +30,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 165 | 2026-09-29 | 红果批量已观看性能修复 | `4e27a0e` | `main` |
 | 164 | 2026-09-29 | 红果合集收藏与收藏列表性能修复 | `ed51a23` | `main` |
 | 163 | 2026-09-29 | 红果卡片分集状态批量统计 | `10ac3d7` | `main` |
 | 162 | 2026-09-29 | 媒体库查询优化提交与三项任务归档 | `ac72592` | `main` |

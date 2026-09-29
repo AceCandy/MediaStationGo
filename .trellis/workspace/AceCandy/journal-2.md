@@ -1901,3 +1901,38 @@ Scope series detail episodes to the selected season while preserving cross-seaso
 ### Next Steps
 
 - 未推送或部署；上线前备份，正常迁移升级后验证 YAMBy，降级需恢复备份或反向迁移
+
+
+## Session 165: 红果批量已观看性能修复
+<!-- trellis-session: v=2 fp=4cb5e5b89b43731e -->
+
+**Date**: 2026-09-29
+**Task**: 红果批量已观看性能修复
+**Branch**: `main`
+
+### Summary
+
+限定目标合集及季的可见分集读取，批量更新观看状态，保留原子回滚并刷新缓存。已完成提交和归档，未推送或部署。
+
+### Main Changes
+
+- 复用目标文件范围，移除写状态时的全库展示聚合，按源身份每批 500 条更新。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `4e27a0e` | fix(hongguo): scope and batch watched state mutations |
+
+### Testing
+
+- [OK] 隔离 PostgreSQL：528 集权限、去重、取消、新集、回滚、HTTP UserData 与 60 万文件计划回归通过；go vet 和格式检查通过。
+- [OK] 独立复核未发现确认缺陷；测试容器已关闭并自动移除。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 部署后验收 YAMBy 实际耗时；未运行并发压力及全仓测试。
