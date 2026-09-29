@@ -1,0 +1,2 @@
+{"file":".trellis/spec/backend/playback-contracts.md","reason":"续播与下一集的逻辑身份、状态、可见性和分页契约"}
+{"file":".trellis/spec/backend/database-guidelines.md","reason":"PostgreSQL参数化执行计划与隔离数据库验证"}

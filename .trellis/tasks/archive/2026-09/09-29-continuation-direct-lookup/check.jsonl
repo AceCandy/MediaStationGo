@@ -1,0 +1,2 @@
+{"file":".trellis/spec/backend/playback-contracts.md","reason":"复核身份、权限、替代版本和结果等价"}
+{"file":".trellis/spec/backend/database-guidelines.md","reason":"复核实际查询计划、通用预编译计划和测试隔离"}
