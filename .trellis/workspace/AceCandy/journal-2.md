@@ -1843,3 +1843,25 @@ Scope series detail episodes to the selected season while preserving cross-seaso
 ### Next Steps
 
 - 用户重启后以播放器请求日志验收实际 HTTP 耗时；未推送远端、未部署或重启服务。
+
+
+## Session 163: 红果卡片分集状态批量统计
+<!-- trellis-session: v=2 fp=e3ca9fa8f115835c -->
+
+**Date**: 2026-09-29
+**Task**: 红果卡片分集状态批量统计
+**Branch**: `main`
+
+### Summary
+
+红果库卡片详情按本页源作品读取有效用户状态，文件先按逻辑分集归并再关联，保留权限、多版本和播放语义。60 万文件计划、完整 payload 对照、定向 race、vet 和独立审查通过；9 个源作品、900 个文件的状态表访问合计 27 次循环。已同步规范、归档任务并清理临时测试服务；未推送或部署，生产 HTTP 耗时待验证。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `10ac3d7` | perf(hongguo): batch page playback state aggregation |
+
+### Status
+
+[OK] **Completed**
