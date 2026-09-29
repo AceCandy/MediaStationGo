@@ -1865,3 +1865,39 @@ Scope series detail episodes to the selected season while preserving cross-seaso
 ### Status
 
 [OK] **Completed**
+
+
+## Session 164: 红果合集收藏与收藏列表性能修复
+<!-- trellis-session: v=2 fp=b217c7378050ee5b -->
+
+**Date**: 2026-09-29
+**Task**: 红果合集收藏与收藏列表性能修复
+**Branch**: `main`
+
+### Summary
+
+统一 Web/Emby 合集收藏身份，迁移旧成员收藏，并前置收藏候选约束修复全局准确计数延迟。
+
+### Main Changes
+
+- 新增独立合集收藏存储、兼容迁移和跨入口状态读取
+- 按收藏身份限制合集成员及排序聚合，保留权限、分页和准确总数
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `ed51a23` | fix(hongguo): persist album favorites and scope favorite queries |
+
+### Testing
+
+- [OK] 真实 PostgreSQL 功能回归、60 万文件实际计划、Web 检查、go vet 与独立复核通过
+- [OK] 生产只读计数 SQL 对照约 3.77 秒降至 2.29 毫秒，结果一致；非部署后客户端耗时
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 未推送或部署；上线前备份，正常迁移升级后验证 YAMBy，降级需恢复备份或反向迁移
